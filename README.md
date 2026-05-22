@@ -44,9 +44,11 @@ Untuk memulai ujian pada perangkat siswa, silakan unduh aplikasinya melalui taut
 
 ### 🤖 Perangkat Android
 * **[Download EXAMVAN Android APK (v1.2.0)](./app-debug.apk)** *(Gunakan tautan ini untuk mengunduh berkas APK secara langsung ke penyimpanan lokal server Anda untuk dibagikan kepada siswa).*
+* **Kompatibilitas:** Minimal **Android 5.0 (Lollipop - API 21)** hingga versi terbaru (diuji hingga **Android 14 - API 34**). Kompatibel dengan >99% tipe perangkat Android aktif milik siswa.
 
 ### 🍎 Perangkat iOS
 * Kode sumber Swift native siap pakai tersedia di folder `/ios/ExamVan`. Anda dapat langsung membukanya menggunakan Xcode di macOS untuk melakukan build dan install ke perangkat iPad/iPhone siswa tanpa memerlukan dependensi pihak ketiga (*zero external dependencies*).
+* **Kompatibilitas:** Minimal **iOS 12.0** atau lebih baru (mendukung perangkat lawas mulai dari iPhone 5S / iPad Air 1 ke atas).
 
 ---
 
