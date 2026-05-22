@@ -9,6 +9,7 @@ data class Exam(
     val status: String,
     val size_mb: Double,
     val token: String? = null,
+    val questions: List<Map<String, Any>>? = null,
     val created_at: String
 )
 

@@ -54,7 +54,7 @@
         android:layout_height="0dp"
         android:background="@color/background"
         app:layout_constraintTop_toBottomOf="@id/toolbar"
-        app:layout_constraintBottom_toTopOf="@id/bottomBar"
+        app:layout_constraintBottom_toTopOf="@id/answerSheetToggle"
         app:layout_constraintStart_toStartOf="parent"
         app:layout_constraintEnd_toEndOf="parent" />
 
@@ -68,7 +68,7 @@
         android:background="@color/background"
         android:visibility="visible"
         app:layout_constraintTop_toBottomOf="@id/toolbar"
-        app:layout_constraintBottom_toTopOf="@id/bottomBar"
+        app:layout_constraintBottom_toTopOf="@id/answerSheetToggle"
         app:layout_constraintStart_toStartOf="parent"
         app:layout_constraintEnd_toEndOf="parent">
 
@@ -122,7 +122,7 @@
         android:background="@color/background"
         android:visibility="gone"
         app:layout_constraintTop_toBottomOf="@id/toolbar"
-        app:layout_constraintBottom_toTopOf="@id/bottomBar"
+        app:layout_constraintBottom_toTopOf="@id/answerSheetToggle"
         app:layout_constraintStart_toStartOf="parent"
         app:layout_constraintEnd_toEndOf="parent">
 
@@ -152,6 +152,72 @@
             android:backgroundTint="@color/primary"
             android:textColor="@color/on_primary"
             android:paddingHorizontal="32dp" />
+    </LinearLayout>
+
+    <!-- Answer Sheet Toggle Bar -->
+    <LinearLayout
+        android:id="@+id/answerSheetToggle"
+        android:layout_width="0dp"
+        android:layout_height="48dp"
+        android:orientation="horizontal"
+        android:gravity="center"
+        android:background="@color/surface"
+        android:elevation="4dp"
+        app:layout_constraintBottom_toTopOf="@id/answerSheetPanel"
+        app:layout_constraintStart_toStartOf="parent"
+        app:layout_constraintEnd_toEndOf="parent">
+
+        <Button
+            android:id="@+id/btnToggleAnswerSheet"
+            android:layout_width="match_parent"
+            android:layout_height="match_parent"
+            android:text="📝 Buka Lembar Jawaban"
+            android:textSize="14sp"
+            android:textStyle="bold"
+            android:backgroundTint="@color/primary_dark"
+            android:textColor="@color/on_primary" />
+    </LinearLayout>
+
+    <!-- Answer Sheet Panel (collapsible bottom sheet) -->
+    <LinearLayout
+        android:id="@+id/answerSheetPanel"
+        android:layout_width="0dp"
+        android:layout_height="0dp"
+        android:orientation="vertical"
+        android:background="@color/surface"
+        android:elevation="8dp"
+        android:visibility="gone"
+        app:layout_constraintBottom_toTopOf="@id/bottomBar"
+        app:layout_constraintStart_toStartOf="parent"
+        app:layout_constraintEnd_toEndOf="parent"
+        app:layout_constraintHeight_percent="0.45">
+
+        <!-- Scrollable Answer List -->
+        <ScrollView
+            android:layout_width="match_parent"
+            android:layout_height="0dp"
+            android:layout_weight="1"
+            android:padding="12dp"
+            android:fillViewport="true">
+
+            <LinearLayout
+                android:id="@+id/answerListContainer"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="vertical" />
+        </ScrollView>
+
+        <!-- Submit Button -->
+        <Button
+            android:id="@+id/btnSubmitAnswers"
+            android:layout_width="match_parent"
+            android:layout_height="48dp"
+            android:text="📤 Kumpulkan Jawaban"
+            android:textSize="14sp"
+            android:textStyle="bold"
+            android:backgroundTint="@color/success"
+            android:textColor="@color/on_primary"
+            android:layout_margin="12dp" />
     </LinearLayout>
 
     <!-- Bottom Navigation Bar -->

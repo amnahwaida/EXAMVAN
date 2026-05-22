@@ -12,6 +12,10 @@
             <div class="topbar-logo">E</div>
             <span class="topbar-title">EXAMVAN</span>
             <span class="topbar-badge">Admin Panel</span>
+            <div class="topbar-nav">
+                <a href="{{ url_for('admin_dashboard') }}" class="nav-link active">Daftar Ujian</a>
+                <a href="{{ url_for('admin_submissions') }}" class="nav-link">Hasil Ujian</a>
+            </div>
         </div>
         <div class="topbar-right">
             <span class="topbar-user">{{ admin_user }}</span>
@@ -62,7 +66,7 @@
                 </div>
                 <div class="net-item">
                     <span class="net-label">API Endpoint</span>
-                    <span class="net-value">http://{{ local_ip }}:5000/api/exams</span>
+                    <span class="net-value">http://{{ local_ip }}:5000/api/exams/token/{TOKEN}</span>
                 </div>
                 <div class="net-item">
                     <span class="net-label">Protokol</span>
@@ -150,6 +154,9 @@
                             </td>
                             <td class="td-date">{{ exam.created_at }}</td>
                             <td class="td-actions">
+                                <button class="btn-sm btn-questions" onclick="openQuestionsModal({{ exam.id }}, '{{ exam.name }}')" title="Konfigurasi Soal & Kunci Jawaban">
+                                    ⚙️ Atur Soal
+                                </button>
                                 <button class="btn-sm btn-toggle" onclick="toggleExam({{ exam.id }})">
                                     {{ '⏸️ Nonaktifkan' if exam.status == 'active' else '▶️ Aktifkan' }}
                                 </button>
@@ -165,6 +172,39 @@
             {% endif %}
         </section>
     </main>
+
+    <!-- Modal Atur Soal -->
+    <div class="modal-overlay" id="questionsModal">
+        <div class="modal-card glass-card">
+            <div class="modal-header">
+                <h3 id="modalTitle">Atur Soal Ujian</h3>
+                <button class="modal-close" onclick="closeQuestionsModal()">✕</button>
+            </div>
+            <div class="modal-body">
+                <div class="questions-quick-generator">
+                    <div class="form-group inline-group">
+                        <label for="generateQty">Jumlah Soal:</label>
+                        <input type="number" id="generateQty" value="40" min="1" max="100">
+                        <select id="generateType">
+                            <option value="single_choice">Pilihan Ganda (A-E)</option>
+                            <option value="true_false">Benar / Salah</option>
+                            <option value="multiple_choice">Pilihan Ganda Kompleks</option>
+                            <option value="matching">Menjodohkan (Matching)</option>
+                        </select>
+                        <button class="btn-sm btn-toggle" onclick="quickGenerateQuestions()">⚡ Generate</button>
+                    </div>
+                </div>
+                
+                <div class="questions-list-container" id="questionsList">
+                    <!-- Dinamis terisi via JS -->
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button class="btn-sm btn-delete" onclick="closeQuestionsModal()">Batal</button>
+                <button class="btn-upload" onclick="saveQuestionsConfig()">Simpan Konfigurasi</button>
+            </div>
+        </div>
+    </div>
 
     <!-- Toast -->
     <div class="toast-container" id="toastContainer"></div>

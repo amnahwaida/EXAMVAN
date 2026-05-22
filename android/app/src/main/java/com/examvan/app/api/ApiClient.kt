@@ -4,6 +4,7 @@ import com.examvan.app.model.ExamListResponse
 import com.examvan.app.model.HealthResponse
 import com.google.gson.Gson
 import okhttp3.*
+import okhttp3.MediaType.Companion.toMediaTypeOrNull
 import java.io.File
 import java.io.FileOutputStream
 import java.io.IOException
@@ -238,5 +239,54 @@ object ApiClient {
         })
 
         return call
+    }
+
+    /**
+     * Submit exam answers to the server.
+     */
+    fun submitExam(
+        examId: Int,
+        studentName: String,
+        examNumber: String,
+        studentClass: String,
+        answers: Map<String, Any>,
+        onSuccess: (String) -> Unit,
+        onError: (String) -> Unit
+    ) {
+        val payload = mapOf(
+            "student_name" to studentName,
+            "exam_number" to examNumber,
+            "student_class" to studentClass,
+            "answers" to answers
+        )
+        val bodyStr = gson.toJson(payload)
+        val mediaType = "application/json; charset=utf-8".toMediaTypeOrNull()
+        val body = RequestBody.create(mediaType, bodyStr)
+        val request = Request.Builder()
+            .url("$baseUrl/api/exams/$examId/submit")
+            .post(body)
+            .build()
+
+        client.newCall(request).enqueue(object : Callback {
+            override fun onFailure(call: Call, e: IOException) {
+                onError(e.message ?: "Koneksi gagal")
+            }
+
+            override fun onResponse(call: Call, response: Response) {
+                response.use {
+                    try {
+                        val bodyText = it.body?.string() ?: ""
+                        val json = org.json.JSONObject(bodyText)
+                        if (it.isSuccessful && json.optBoolean("success", false)) {
+                            onSuccess(json.optString("message", "Ujian berhasil dikumpulkan"))
+                        } else {
+                            onError(json.optString("message", "Gagal mengumpulkan jawaban"))
+                        }
+                    } catch (e: Exception) {
+                        onError("Gagal memproses respon server")
+                    }
+                }
+            }
+        })
     }
 }

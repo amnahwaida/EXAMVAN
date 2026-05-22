@@ -3,18 +3,24 @@ package com.examvan.app
 import android.content.Intent
 import android.content.SharedPreferences
 import android.os.Bundle
+import android.view.LayoutInflater
 import android.view.View
 import android.view.WindowManager
+import android.widget.Button
+import android.widget.EditText
+import android.widget.TextView
+import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
 import com.examvan.app.api.ApiClient
 import com.examvan.app.databinding.ActivityServerConfigBinding
+import com.examvan.app.model.Exam
 
 /**
  * Screen 1: Server & Token Configuration
  * - Input URL base server (e.g. http://192.168.1.100:5000)
  * - Input 6-character unique Exam Token
  * - Checkbox to persist URL/Token in SharedPreferences
- * - Validates server health and Token existence before going to PDF viewer
+ * - Validates server health and Token existence before showing student identity form
  */
 class ServerConfigActivity : AppCompatActivity() {
 
@@ -26,6 +32,11 @@ class ServerConfigActivity : AppCompatActivity() {
         const val KEY_SERVER_URL = "server_url"
         const val KEY_EXAM_TOKEN = "exam_token"
         const val KEY_REMEMBER_URL = "remember_url"
+        
+        // Student identity keys
+        const val KEY_STUDENT_NAME = "student_name"
+        const val KEY_STUDENT_NUMBER = "student_number"
+        const val KEY_STUDENT_CLASS = "student_class"
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -59,7 +70,7 @@ class ServerConfigActivity : AppCompatActivity() {
             val url = binding.etServerUrl.text.toString().trim()
             val token = binding.etToken.text.toString().trim().uppercase()
             if (validateInputs(url, token)) {
-                connectAndStartExam(url, token)
+                connectAndFetchExam(url, token)
             }
         }
     }
@@ -84,7 +95,7 @@ class ServerConfigActivity : AppCompatActivity() {
         return true
     }
 
-    private fun connectAndStartExam(url: String, token: String) {
+    private fun connectAndFetchExam(url: String, token: String) {
         setLoading(true)
         hideError()
 
@@ -100,7 +111,7 @@ class ServerConfigActivity : AppCompatActivity() {
                             setLoading(false)
                             val exam = response.data
                             if (exam != null) {
-                                // Save preferences if remember is checked
+                                // Save connection preferences if remember is checked
                                 if (binding.cbRememberUrl.isChecked) {
                                     prefs.edit()
                                         .putString(KEY_SERVER_URL, url)
@@ -115,13 +126,8 @@ class ServerConfigActivity : AppCompatActivity() {
                                         .apply()
                                 }
 
-                                // Go directly to ExamViewerActivity
-                                val intent = Intent(this@ServerConfigActivity, ExamViewerActivity::class.java).apply {
-                                    putExtra("exam_id", exam.id)
-                                    putExtra("exam_name", exam.name)
-                                    putExtra("server_url", url)
-                                }
-                                startActivity(intent)
+                                // Show student identity dialog
+                                showStudentIdentityDialog(exam, url)
                             } else {
                                 showError(getString(R.string.error_token_not_found))
                             }
@@ -142,6 +148,70 @@ class ServerConfigActivity : AppCompatActivity() {
                 }
             }
         )
+    }
+
+    private fun showStudentIdentityDialog(exam: Exam, serverUrl: String) {
+        val dialogView = LayoutInflater.from(this).inflate(R.layout.dialog_student_identity, null)
+        
+        val etName = dialogView.findViewById<EditText>(R.id.etStudentName)
+        val etNumber = dialogView.findViewById<EditText>(R.id.etStudentNumber)
+        val etClass = dialogView.findViewById<EditText>(R.id.etStudentClass)
+        val tvDialogError = dialogView.findViewById<TextView>(R.id.tvDialogError)
+        val btnConfirm = dialogView.findViewById<Button>(R.id.btnConfirmStart)
+
+        // Pre-fill student identity if previously saved
+        etName.setText(prefs.getString(KEY_STUDENT_NAME, ""))
+        etNumber.setText(prefs.getString(KEY_STUDENT_NUMBER, ""))
+        etClass.setText(prefs.getString(KEY_STUDENT_CLASS, ""))
+
+        val builder = AlertDialog.Builder(this)
+            .setView(dialogView)
+            .setCancelable(true)
+
+        val alertDialog = builder.create()
+
+        btnConfirm.setOnClickListener {
+            val name = etName.text.toString().trim()
+            val number = etNumber.text.toString().trim()
+            val studentClass = etClass.text.toString().trim()
+
+            if (name.isEmpty() || number.isEmpty() || studentClass.isEmpty()) {
+                tvDialogError.text = "Semua bidang identitas wajib diisi!"
+                tvDialogError.visibility = View.VISIBLE
+                return@setOnClickListener
+            }
+
+            tvDialogError.visibility = View.GONE
+            
+            // Save student identity in SharedPreferences for convenience next time
+            prefs.edit()
+                .putString(KEY_STUDENT_NAME, name)
+                .putString(KEY_STUDENT_NUMBER, number)
+                .putString(KEY_STUDENT_CLASS, studentClass)
+                .apply()
+
+            alertDialog.dismiss()
+
+            // Save questions JSON from token API response to SharedPreferences
+            val questionsJson = com.google.gson.Gson().toJson(exam.questions ?: emptyList<Any>())
+            getSharedPreferences("exam_questions", MODE_PRIVATE)
+                .edit()
+                .putString("questions_json", questionsJson)
+                .apply()
+
+            // Navigate to ExamViewerActivity passing exam info and student identity
+            val intent = Intent(this@ServerConfigActivity, ExamViewerActivity::class.java).apply {
+                putExtra("exam_id", exam.id)
+                putExtra("exam_name", exam.name)
+                putExtra("server_url", serverUrl)
+                putExtra("student_name", name)
+                putExtra("student_number", number)
+                putExtra("student_class", studentClass)
+            }
+            startActivity(intent)
+        }
+
+        alertDialog.show()
     }
 
     private fun setLoading(loading: Boolean) {

@@ -11,6 +11,9 @@ import random
 import sqlite3
 import hashlib
 import socket
+import json
+import csv
+import io
 from datetime import datetime
 from functools import wraps
 
@@ -53,6 +56,7 @@ def init_db():
             file_path TEXT NOT NULL,
             size_bytes INTEGER NOT NULL,
             token TEXT UNIQUE NOT NULL,
+            questions_json TEXT,
             status TEXT DEFAULT 'active' CHECK(status IN ('active', 'inactive')),
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         );
@@ -62,6 +66,18 @@ def init_db():
             username TEXT UNIQUE NOT NULL,
             password_hash TEXT NOT NULL,
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        );
+
+        CREATE TABLE IF NOT EXISTS submissions (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            exam_id INTEGER NOT NULL,
+            student_name TEXT NOT NULL,
+            exam_number TEXT NOT NULL,
+            student_class TEXT NOT NULL,
+            answers_json TEXT NOT NULL,
+            score REAL,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY(exam_id) REFERENCES exams(id) ON DELETE CASCADE
         );
     ''')
 
@@ -78,7 +94,7 @@ def init_db():
         )
         db.commit()
 
-    # Migrate: add token column if missing (for existing databases)
+    # Migrate: add token column if missing (for older databases)
     try:
         db.execute('SELECT token FROM exams LIMIT 1')
     except sqlite3.OperationalError:
@@ -88,6 +104,13 @@ def init_db():
         for row in rows:
             db.execute('UPDATE exams SET token = ? WHERE id = ?',
                        (generate_token(), row['id']))
+        db.commit()
+
+    # Migrate: add questions_json column if missing
+    try:
+        db.execute('SELECT questions_json FROM exams LIMIT 1')
+    except sqlite3.OperationalError:
+        db.execute('ALTER TABLE exams ADD COLUMN questions_json TEXT')
         db.commit()
 
     db.close()
@@ -184,7 +207,7 @@ def api_exam_by_token(token):
     token = token.strip().upper()
     db = get_db()
     exam = db.execute(
-        'SELECT id, name, status, size_bytes, token, created_at '
+        'SELECT id, name, status, size_bytes, token, questions_json, created_at '
         'FROM exams WHERE token = ? AND status = ?',
         (token, 'active')
     ).fetchone()
@@ -197,6 +220,29 @@ def api_exam_by_token(token):
             'message': 'Token tidak valid atau ujian sudah berakhir'
         }), 404
 
+    # Process questions configuration
+    questions_raw = exam['questions_json']
+    questions = []
+    if questions_raw:
+        try:
+            questions = json.loads(questions_raw)
+            # Remove keys for security
+            for q in questions:
+                if 'key' in q:
+                    del q['key']
+        except Exception:
+            pass
+
+    # If no questions configured, generate 40 default multiple-choice questions
+    if not questions:
+        questions = [
+            {
+                "number": i,
+                "type": "single_choice",
+                "choices": ["A", "B", "C", "D", "E"]
+            } for i in range(1, 41)
+        ]
+
     return jsonify({
         'success': True,
         'data': {
@@ -205,8 +251,78 @@ def api_exam_by_token(token):
             'status': exam['status'],
             'token': exam['token'],
             'size_mb': round(exam['size_bytes'] / (1024 * 1024), 2),
+            'questions': questions,
             'created_at': exam['created_at']
         }
+    })
+
+
+@app.route('/api/exams/<int:exam_id>/submit', methods=['POST'])
+def api_submit_exam(exam_id):
+    """Receive student exam submissions and auto-grade if keys exist."""
+    data = request.json or {}
+    student_name = data.get('student_name', '').strip()
+    exam_number = data.get('exam_number', '').strip()
+    student_class = data.get('student_class', '').strip()
+    answers = data.get('answers', {})  # Map of "number" -> answer value
+
+    if not student_name or not exam_number or not student_class:
+        return jsonify({'success': False, 'message': 'Identitas siswa tidak lengkap'}), 400
+
+    db = get_db()
+    exam = db.execute('SELECT questions_json FROM exams WHERE id = ? AND status = ?', (exam_id, 'active')).fetchone()
+    if not exam:
+        db.close()
+        return jsonify({'success': False, 'message': 'Ujian tidak ditemukan'}), 404
+
+    # Calculate score if questions exist
+    score = None
+    questions_raw = exam['questions_json']
+    if questions_raw:
+        try:
+            questions = json.loads(questions_raw)
+            correct_count = 0
+            total_questions = len(questions)
+            for q in questions:
+                q_num = str(q['number'])
+                student_ans = answers.get(q_num)
+                correct_ans = q.get('key')
+
+                if student_ans is not None and correct_ans is not None:
+                    if q['type'] in ['single_choice', 'true_false']:
+                        if str(student_ans).strip().upper() == str(correct_ans).strip().upper():
+                            correct_count += 1
+                    elif q['type'] == 'multiple_choice':
+                        if isinstance(student_ans, list) and isinstance(correct_ans, list):
+                            if sorted([str(x).upper() for x in student_ans]) == sorted([str(x).upper() for x in correct_ans]):
+                                correct_count += 1
+                    elif q['type'] == 'matching':
+                        if isinstance(student_ans, dict) and isinstance(correct_ans, dict):
+                            match = True
+                            for k, v in correct_ans.items():
+                                if str(student_ans.get(k)).strip().upper() != str(v).strip().upper():
+                                    match = False
+                                    break
+                            if match:
+                                correct_count += 1
+            if total_questions > 0:
+                score = round((correct_count / total_questions) * 100, 2)
+        except Exception as e:
+            print("Auto-grading error:", e)
+
+    # Save submission
+    db.execute(
+        'INSERT INTO submissions (exam_id, student_name, exam_number, student_class, answers_json, score) '
+        'VALUES (?, ?, ?, ?, ?, ?)',
+        (exam_id, student_name, exam_number, student_class, json.dumps(answers), score)
+    )
+    db.commit()
+    db.close()
+
+    return jsonify({
+        'success': True,
+        'message': 'Jawaban berhasil dikirim',
+        'score': score
     })
 
 
@@ -462,6 +578,134 @@ def admin_stats():
             'local_ip': get_local_ip()
         }
     })
+
+
+@app.route('/admin/api/exams/<int:exam_id>/questions', methods=['GET', 'POST'])
+@admin_required
+def admin_exam_questions(exam_id):
+    """Get or save questions configuration for an exam."""
+    db = get_db()
+    exam = db.execute('SELECT * FROM exams WHERE id = ?', (exam_id,)).fetchone()
+    if not exam:
+        db.close()
+        return jsonify({'success': False, 'message': 'Ujian tidak ditemukan'}), 404
+
+    if request.method == 'GET':
+        questions_raw = exam['questions_json']
+        questions = []
+        if questions_raw:
+            try:
+                questions = json.loads(questions_raw)
+            except Exception:
+                pass
+        db.close()
+        return jsonify({'success': True, 'questions': questions})
+
+    else:
+        # POST: Save questions configuration
+        data = request.json or {}
+        questions = data.get('questions', [])
+
+        # Basic validation
+        if not isinstance(questions, list):
+            db.close()
+            return jsonify({'success': False, 'message': 'Format data pertanyaan tidak valid'}), 400
+
+        # Save to database
+        db.execute(
+            'UPDATE exams SET questions_json = ? WHERE id = ?',
+            (json.dumps(questions), exam_id)
+        )
+        db.commit()
+        db.close()
+        return jsonify({'success': True, 'message': 'Konfigurasi soal berhasil disimpan'})
+
+
+@app.route('/admin/submissions')
+@admin_required
+def admin_submissions():
+    """Submissions overview page for admin."""
+    db = get_db()
+    # Join with exams to show exam name
+    submissions = db.execute(
+        'SELECT s.*, e.name as exam_name '
+        'FROM submissions s JOIN exams e ON s.exam_id = e.id '
+        'ORDER BY s.created_at DESC'
+    ).fetchall()
+    
+    exams = db.execute('SELECT id, name FROM exams ORDER BY created_at DESC').fetchall()
+    local_ip = get_local_ip()
+    db.close()
+    
+    return render_template(
+        'submissions.html',
+        submissions=submissions,
+        exams=exams,
+        local_ip=local_ip,
+        admin_user=session.get('admin_username', 'Admin')
+    )
+
+
+@app.route('/admin/api/submissions/<int:submission_id>', methods=['DELETE'])
+@admin_required
+def admin_delete_submission(submission_id):
+    """Delete a student submission."""
+    db = get_db()
+    db.execute('DELETE FROM submissions WHERE id = ?', (submission_id,))
+    db.commit()
+    db.close()
+    return jsonify({'success': True, 'message': 'Hasil ujian berhasil dihapus'})
+
+
+@app.route('/admin/api/submissions/export')
+@admin_required
+def admin_export_submissions():
+    """Export student submissions to CSV file."""
+    exam_id = request.args.get('exam_id')
+    
+    db = get_db()
+    query = (
+        'SELECT s.id, e.name as exam_name, s.student_name, s.exam_number, s.student_class, s.score, s.created_at '
+        'FROM submissions s JOIN exams e ON s.exam_id = e.id'
+    )
+    params = []
+    if exam_id:
+        query += ' WHERE s.exam_id = ?'
+        params.append(exam_id)
+        
+    query += ' ORDER BY s.created_at DESC'
+    submissions = db.execute(query, params).fetchall()
+    db.close()
+
+    # Generate CSV in memory
+    si = io.StringIO()
+    cw = csv.writer(si)
+    cw.writerow(['ID', 'Nama Ujian', 'Nama Siswa', 'Nomor Ujian', 'Kelas', 'Nilai', 'Tanggal Submit'])
+    
+    for row in submissions:
+        cw.writerow([
+            row['id'],
+            row['exam_name'],
+            row['student_name'],
+            row['exam_number'],
+            row['student_class'],
+            row['score'] if row['score'] is not None else 'Belum Dinilai',
+            row['created_at']
+        ])
+
+    output = si.getvalue()
+    si.close()
+
+    # Create Flask response
+    filename = f"hasil_ujian_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv"
+    response = send_file(
+        io.BytesIO(output.encode('utf-8-sig')), # use utf-8-sig for Excel compatibility in Indonesian local settings
+        mimetype='text/csv',
+        as_attachment=True,
+        download_name=filename
+    )
+    response.headers['Cache-Control'] = 'no-store, no-cache, must-revalidate'
+    return response
 
 
 # ===== Error Handlers =====

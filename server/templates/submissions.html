@@ -1,0 +1,204 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>EXAMVAN - Hasil Ujian</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/admin.css') }}">
+</head>
+<body class="dashboard-page">
+    <nav class="topbar">
+        <div class="topbar-left">
+            <div class="topbar-logo">E</div>
+            <span class="topbar-title">EXAMVAN</span>
+            <span class="topbar-badge">Admin Panel</span>
+            <div class="topbar-nav">
+                <a href="{{ url_for('admin_dashboard') }}" class="nav-link">Daftar Ujian</a>
+                <a href="{{ url_for('admin_submissions') }}" class="nav-link active">Hasil Ujian</a>
+            </div>
+        </div>
+        <div class="topbar-right">
+            <span class="topbar-user">{{ admin_user }}</span>
+            <a href="{{ url_for('admin_logout') }}" class="btn-logout">Logout</a>
+        </div>
+    </nav>
+
+    <main class="dashboard">
+        <!-- Filter and Export Section -->
+        <section class="glass-card">
+            <div class="table-header">
+                <h3>📊 Rekapitulasi Hasil Ujian</h3>
+                <div class="submissions-actions">
+                    <select id="filterExam" onchange="filterSubmissions()" class="select-filter">
+                        <option value="">Semua Ujian</option>
+                        {% for exam in exams %}
+                        <option value="{{ exam.id }}">{{ exam.name }}</option>
+                        {% endfor %}
+                    </select>
+                    <button class="btn-upload" onclick="exportSubmissions()">📤 Export Excel/CSV</button>
+                </div>
+            </div>
+        </section>
+
+        <!-- Submissions Table -->
+        <section class="exam-table-section glass-card">
+            {% if submissions | length == 0 %}
+            <div class="empty-state">
+                <div class="empty-icon">📂</div>
+                <p>Belum ada hasil ujian yang dikumpulkan oleh siswa.</p>
+            </div>
+            {% else %}
+            <div class="table-responsive">
+                <table class="exam-table" id="submissionsTable">
+                    <thead>
+                        <tr>
+                            <th>Nama Ujian</th>
+                            <th>Nama Siswa</th>
+                            <th>Nomor Ujian</th>
+                            <th>Kelas</th>
+                            <th>Nilai</th>
+                            <th>Tanggal Kumpul</th>
+                            <th>Aksi</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for sub in submissions %}
+                        <tr id="submission-row-{{ sub.id }}" data-exam-id="{{ sub.exam_id }}">
+                            <td class="td-name">{{ sub.exam_name }}</td>
+                            <td><strong>{{ sub.student_name }}</strong></td>
+                            <td><code class="token-code" style="letter-spacing: normal; font-size:12px;">{{ sub.exam_number }}</code></td>
+                            <td>{{ sub.student_class }}</td>
+                            <td>
+                                {% if sub.score is not null %}
+                                <span class="status-badge status-active" style="font-size:13px; font-weight:700;">
+                                    {{ sub.score }}
+                                </span>
+                                {% else %}
+                                <span class="status-badge status-inactive">Belum Dinilai</span>
+                                {% endif %}
+                            </td>
+                            <td class="td-date">{{ sub.created_at }}</td>
+                            <td class="td-actions">
+                                <button class="btn-sm btn-toggle" onclick="viewDetailResponse({{ sub.id }}, '{{ sub.student_name }}', '{{ sub.answers_json | forceescape }}')">
+                                    👁️ Detail
+                                </button>
+                                <button class="btn-sm btn-delete" onclick="deleteSubmission({{ sub.id }})">
+                                    🗑️ Hapus
+                                </button>
+                            </td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+            {% endif %}
+        </section>
+    </main>
+
+    <!-- Modal Detail Jawaban -->
+    <div class="modal-overlay" id="detailModal">
+        <div class="modal-card glass-card" style="max-width: 500px;">
+            <div class="modal-header">
+                <h3>Detail Jawaban Siswa</h3>
+                <button class="modal-close" onclick="closeDetailModal()">✕</button>
+            </div>
+            <div class="modal-body">
+                <p style="margin-bottom:12px;">Nama Siswa: <strong id="detailStudentName"></strong></p>
+                <div class="detail-answers-grid" id="detailAnswersContainer">
+                    <!-- Dinamis terisi via JS -->
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button class="btn-upload" onclick="closeDetailModal()">Tutup</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Toast -->
+    <div class="toast-container" id="toastContainer"></div>
+
+    <script src="{{ url_for('static', filename='js/admin.js') }}"></script>
+    <script>
+        function filterSubmissions() {
+            const filterVal = document.getElementById('filterExam').value;
+            const rows = document.querySelectorAll('#submissionsTable tbody tr');
+            rows.forEach(row => {
+                const rowExamId = row.getAttribute('data-exam-id');
+                if (!filterVal || rowExamId === filterVal) {
+                    row.style.display = '';
+                } else {
+                    row.style.display = 'none';
+                }
+            });
+        }
+
+        function exportSubmissions() {
+            const examId = document.getElementById('filterExam').value;
+            let url = '/admin/api/submissions/export';
+            if (examId) {
+                url += '?exam_id=' + examId;
+            }
+            window.location.href = url;
+        }
+
+        function deleteSubmission(id) {
+            if (!confirm('Hapus hasil ujian siswa ini secara permanen?')) return;
+            fetch(`/admin/api/submissions/${id}`, { method: 'DELETE' })
+                .then(r => r.json())
+                .then(res => {
+                    if (res.success) {
+                        showToast(res.message, 'success');
+                        const row = document.getElementById(`submission-row-${id}`);
+                        if (row) {
+                            row.style.opacity = '0';
+                            row.style.transform = 'translateX(-20px)';
+                            row.style.transition = 'all 0.3s';
+                            setTimeout(() => row.remove(), 300);
+                        }
+                    } else {
+                        showToast(res.message || 'Gagal menghapus', 'error');
+                    }
+                })
+                .catch(() => showToast('Koneksi gagal', 'error'));
+        }
+
+        function viewDetailResponse(id, name, answersRaw) {
+            document.getElementById('detailStudentName').textContent = name;
+            const container = document.getElementById('detailAnswersContainer');
+            container.innerHTML = '';
+            
+            try {
+                const answers = JSON.parse(answersRaw);
+                Object.keys(answers).forEach(num => {
+                    const ansVal = answers[num];
+                    
+                    const item = document.createElement('div');
+                    item.className = 'detail-answer-item';
+                    
+                    let ansText = '';
+                    if (Array.isArray(ansVal)) {
+                        ansText = ansVal.join(', ');
+                    } else if (typeof ansVal === 'object' && ansVal !== null) {
+                        // Matching
+                        ansText = Object.keys(ansVal).map(k => `${k} → ${ansVal[k]}`).join(' | ');
+                    } else {
+                        ansText = ansVal;
+                    }
+                    
+                    item.innerHTML = `<span class="detail-q-num">No. ${num}</span> <span class="detail-q-ans">${ansText}</span>`;
+                    container.appendChild(item);
+                });
+                
+                document.getElementById('detailModal').style.display = 'flex';
+            } catch (e) {
+                console.error("Parse error:", e);
+                showToast('Gagal memuat detail jawaban', 'error');
+            }
+        }
+
+        function closeDetailModal() {
+            document.getElementById('detailModal').style.display = 'none';
+        }
+    </script>
+</body>
+</html>

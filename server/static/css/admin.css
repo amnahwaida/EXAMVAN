@@ -591,6 +591,14 @@ body {
 
 .btn-delete:hover { background: rgba(239,68,68,0.2); }
 
+.btn-questions {
+    background: rgba(139,92,246,0.1);
+    color: #c4b5fd;
+    border-color: rgba(139,92,246,0.25);
+}
+
+.btn-questions:hover { background: rgba(139,92,246,0.2); }
+
 /* Empty State */
 .empty-state {
     text-align: center;
@@ -644,13 +652,275 @@ body {
     .dashboard { padding: 16px; }
     .stats-grid { grid-template-columns: repeat(2, 1fr); }
     .upload-form .form-row { flex-direction: column; }
-    .topbar { padding: 10px 16px; }
+    .topbar { padding: 10px 16px; flex-direction: column; gap: 10px; align-items: stretch; }
+    .topbar-left { flex-direction: column; align-items: flex-start; gap: 8px; }
     .topbar-badge { display: none; }
     .td-actions { flex-direction: column; gap: 4px; }
     .network-grid { grid-template-columns: 1fr; }
+    .topbar-nav { margin-left: 0; margin-top: 5px; }
 }
 
 @media (max-width: 480px) {
     .stats-grid { grid-template-columns: 1fr; }
     .login-card { padding: 28px 20px; }
 }
+
+/* ===== Nav Links ===== */
+.topbar-nav {
+    display: flex;
+    gap: 16px;
+    margin-left: 24px;
+}
+
+.nav-link {
+    color: var(--text-secondary);
+    text-decoration: none;
+    font-size: 14px;
+    font-weight: 500;
+    padding: 6px 12px;
+    border-radius: 6px;
+    transition: all 0.2s;
+}
+
+.nav-link:hover, .nav-link.active {
+    color: var(--text);
+    background: var(--surface-hover);
+}
+
+/* ===== Modal Styles ===== */
+.modal-overlay {
+    position: fixed;
+    inset: 0;
+    background: rgba(5, 5, 15, 0.8);
+    backdrop-filter: blur(8px);
+    z-index: 1000;
+    display: none;
+    align-items: center;
+    justify-content: center;
+    padding: 20px;
+}
+
+.modal-card {
+    width: 100%;
+    max-width: 800px;
+    max-height: 85vh;
+    display: flex;
+    flex-direction: column;
+    animation: fadeUp 0.3s ease;
+    padding: 0;
+    overflow: hidden;
+    background: rgba(10, 10, 26, 0.95);
+    border: 1px solid var(--glass-border);
+}
+
+.modal-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 20px 24px;
+    border-bottom: 1px solid var(--glass-border);
+}
+
+.modal-header h3 {
+    margin: 0;
+    font-size: 18px;
+    font-weight: 600;
+}
+
+.modal-close {
+    background: none;
+    border: none;
+    color: var(--text-secondary);
+    font-size: 18px;
+    cursor: pointer;
+    transition: color 0.2s;
+}
+
+.modal-close:hover {
+    color: var(--danger);
+}
+
+.modal-body {
+    padding: 24px;
+    overflow-y: auto;
+    flex: 1;
+}
+
+.modal-footer {
+    display: flex;
+    justify-content: flex-end;
+    gap: 12px;
+    padding: 16px 24px;
+    border-top: 1px solid var(--glass-border);
+    background: rgba(255, 255, 255, 0.02);
+}
+
+/* Question Generator Styles */
+.questions-quick-generator {
+    background: rgba(255, 255, 255, 0.03);
+    border: 1px solid var(--glass-border);
+    border-radius: var(--radius-sm);
+    padding: 14px 16px;
+    margin-bottom: 20px;
+}
+
+.inline-group {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    flex-wrap: wrap;
+}
+
+.inline-group label {
+    margin-bottom: 0;
+    font-weight: 600;
+}
+
+.inline-group input[type="number"] {
+    width: 80px;
+    padding: 8px 10px;
+    background: var(--surface);
+    border: 1px solid var(--glass-border);
+    border-radius: 6px;
+    color: var(--text);
+    outline: none;
+}
+
+.inline-group select, .select-filter {
+    padding: 8px 12px;
+    background: var(--surface);
+    border: 1px solid var(--glass-border);
+    border-radius: 6px;
+    color: var(--text);
+    outline: none;
+    cursor: pointer;
+}
+
+.select-filter {
+    padding: 10px 16px;
+    font-size: 14px;
+    min-width: 200px;
+}
+
+.submissions-actions {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+}
+
+/* Questions List Editor */
+.questions-list-container {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+}
+
+.question-editor-card {
+    background: rgba(255, 255, 255, 0.02);
+    border: 1px solid rgba(255, 255, 255, 0.06);
+    border-radius: var(--radius-sm);
+    padding: 14px 18px;
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    flex-wrap: wrap;
+    transition: border-color 0.2s;
+}
+
+.question-editor-card:hover {
+    border-color: rgba(99, 102, 241, 0.3);
+}
+
+.q-num-badge {
+    background: var(--primary);
+    color: white;
+    font-weight: 700;
+    padding: 4px 10px;
+    border-radius: 6px;
+    font-size: 13px;
+    min-width: 40px;
+    text-align: center;
+}
+
+.q-field-group {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+}
+
+.q-field-group label {
+    font-size: 11px;
+    color: var(--text-muted);
+    text-transform: uppercase;
+}
+
+.q-type-select, .q-key-input, .q-options-input {
+    padding: 7px 10px;
+    background: var(--surface);
+    border: 1px solid var(--glass-border);
+    border-radius: 6px;
+    color: var(--text);
+    font-size: 13px;
+    outline: none;
+}
+
+.q-key-input {
+    width: 100px;
+    font-weight: 700;
+    text-transform: uppercase;
+}
+
+.q-options-input {
+    width: 280px;
+}
+
+.btn-remove-q {
+    background: none;
+    border: none;
+    color: var(--text-muted);
+    font-size: 16px;
+    cursor: pointer;
+    margin-left: auto;
+    transition: color 0.2s;
+}
+
+.btn-remove-q:hover {
+    color: var(--danger);
+}
+
+/* Detail Answers Modal */
+.detail-answers-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+    gap: 10px;
+    max-height: 50vh;
+    overflow-y: auto;
+    background: rgba(0, 0, 0, 0.2);
+    border-radius: var(--radius-sm);
+    padding: 16px;
+    border: 1px solid var(--glass-border);
+}
+
+.detail-answer-item {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    background: rgba(255, 255, 255, 0.03);
+    padding: 8px 12px;
+    border-radius: 6px;
+    font-size: 13px;
+    border: 1px solid rgba(255, 255, 255, 0.04);
+}
+
+.detail-q-num {
+    color: var(--text-secondary);
+    font-weight: 600;
+}
+
+.detail-q-ans {
+    color: #a78bfa;
+    font-family: monospace;
+    font-weight: 700;
+    word-break: break-all;
+}
+
