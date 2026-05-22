@@ -79,7 +79,7 @@
                             </td>
                             <td class="td-date">{{ sub.created_at }}</td>
                             <td class="td-actions">
-                                <button class="btn-sm btn-toggle" onclick="viewDetailResponse({{ sub.id }}, '{{ sub.student_name }}', '{{ sub.answers_json | forceescape }}')">
+                                <button class="btn-sm btn-toggle" onclick="showSubmissionDetail({{ sub.id }})">
                                     👁️ Detail
                                 </button>
                                 <button class="btn-sm btn-delete" onclick="deleteSubmission({{ sub.id }})">
@@ -97,19 +97,26 @@
 
     <!-- Modal Detail Jawaban -->
     <div class="modal-overlay" id="detailModal">
-        <div class="modal-card glass-card" style="max-width: 500px;">
+        <div class="modal-card glass-card" style="max-width: 650px;">
             <div class="modal-header">
                 <h3>Detail Jawaban Siswa</h3>
                 <button class="modal-close" onclick="closeDetailModal()">✕</button>
             </div>
             <div class="modal-body">
-                <p style="margin-bottom:12px;">Nama Siswa: <strong id="detailStudentName"></strong></p>
+                <p style="margin-bottom:12px;">Nama Siswa: <strong id="detailStudentName"></strong> | Kelas: <strong id="detailStudentClass"></strong></p>
+                <div style="display: flex; justify-content: space-between; padding: 0 14px 6px 14px; border-bottom: 1px solid rgba(255,255,255,0.08); margin-bottom: 8px; font-size: 11px; font-weight: 700; color: var(--text-muted); text-transform: uppercase; gap: 12px;">
+                    <span style="min-width: 50px;">No</span>
+                    <span style="flex: 1;">Jawaban Siswa</span>
+                    <span style="flex: 1;">Kunci Jawaban</span>
+                    <span style="width: 110px; text-align: right;">Status / Poin</span>
+                </div>
                 <div class="detail-answers-grid" id="detailAnswersContainer">
                     <!-- Dinamis terisi via JS -->
                 </div>
             </div>
-            <div class="modal-footer">
-                <button class="btn-upload" onclick="closeDetailModal()">Tutup</button>
+            <div class="modal-footer" style="display: flex; justify-content: space-between; width: 100%; gap: 12px;">
+                <button class="btn-sm btn-questions" onclick="exportDetailSubmission()" style="margin: 0;">📥 Export Detail Jawaban</button>
+                <button class="btn-sm btn-delete" onclick="closeDetailModal()" style="margin: 0; background: rgba(255,255,255,0.05); color: var(--text); border-color: rgba(255,255,255,0.1);">Tutup</button>
             </div>
         </div>
     </div>
@@ -162,38 +169,184 @@
                 .catch(() => showToast('Koneksi gagal', 'error'));
         }
 
-        function viewDetailResponse(id, name, answersRaw) {
-            document.getElementById('detailStudentName').textContent = name;
+        let activeSubmissionId = null;
+
+        function showSubmissionDetail(id) {
+            activeSubmissionId = id;
             const container = document.getElementById('detailAnswersContainer');
-            container.innerHTML = '';
+            container.innerHTML = '<div style="color:var(--text-secondary); text-align:center; padding: 20px;">Memuat detail jawaban...</div>';
+            document.getElementById('detailStudentName').textContent = '...';
+            document.getElementById('detailStudentClass').textContent = '...';
             
-            try {
-                const answers = JSON.parse(answersRaw);
-                Object.keys(answers).forEach(num => {
-                    const ansVal = answers[num];
-                    
-                    const item = document.createElement('div');
-                    item.className = 'detail-answer-item';
-                    
-                    let ansText = '';
-                    if (Array.isArray(ansVal)) {
-                        ansText = ansVal.join(', ');
-                    } else if (typeof ansVal === 'object' && ansVal !== null) {
-                        // Matching
-                        ansText = Object.keys(ansVal).map(k => `${k} → ${ansVal[k]}`).join(' | ');
-                    } else {
-                        ansText = ansVal;
+            document.getElementById('detailModal').style.display = 'flex';
+            
+            fetch(`/admin/api/submissions/${id}/detail`)
+                .then(r => r.json())
+                .then(res => {
+                    if (!res.success) {
+                        showToast(res.message || 'Gagal memuat detail', 'error');
+                        closeDetailModal();
+                        return;
                     }
                     
-                    item.innerHTML = `<span class="detail-q-num">No. ${num}</span> <span class="detail-q-ans">${ansText}</span>`;
-                    container.appendChild(item);
+                    document.getElementById('detailStudentName').textContent = res.student_name;
+                    document.getElementById('detailStudentClass').textContent = res.student_class;
+                    
+                    container.innerHTML = '';
+                    const answers = res.answers || {};
+                    const questions = res.questions || [];
+                    
+                    if (questions.length === 0) {
+                        container.innerHTML = '<div style="color:var(--text-muted); text-align:center; padding: 20px;">Tidak ada konfigurasi soal untuk ujian ini.</div>';
+                        return;
+                    }
+                    
+                    questions.forEach(q => {
+                        const num = q.number;
+                        const type = q.type;
+                        const weight = parseFloat(q.weight || 1.0);
+                        const partialScoring = q.partial_scoring || false;
+                        const studentAns = answers[num.toString()];
+                        const correctAns = q.key;
+                        
+                        let isCorrect = false;
+                        let earnedPoints = 0;
+                        let statusText = 'Salah ❌';
+                        let statusClass = 'incorrect';
+                        
+                        if (studentAns !== undefined && studentAns !== null) {
+                            if (type === 'single_choice' || type === 'true_false') {
+                                if (studentAns.toString().trim().toUpperCase() === correctAns.toString().trim().toUpperCase()) {
+                                    isCorrect = true;
+                                    earnedPoints = weight;
+                                    statusText = 'Benar ✔️';
+                                    statusClass = 'correct';
+                                }
+                            } else if (type === 'multiple_choice') {
+                                if (Array.isArray(studentAns) && Array.isArray(correctAns)) {
+                                    const sAnsUpper = studentAns.map(x => x.toString().trim().toUpperCase());
+                                    const cAnsUpper = correctAns.map(x => x.toString().trim().toUpperCase());
+                                    
+                                    if (partialScoring) {
+                                        const correctSet = new Set(cAnsUpper);
+                                        const studentSet = new Set(sAnsUpper);
+                                        if (correctSet.size > 0) {
+                                            let correctSelected = 0;
+                                            let incorrectSelected = 0;
+                                            studentSet.forEach(x => {
+                                                if (correctSet.has(x)) correctSelected++;
+                                                else incorrectSelected++;
+                                            });
+                                            const portion = Math.max(0, (correctSelected - incorrectSelected) / correctSet.size);
+                                            earnedPoints = portion * weight;
+                                            if (portion === 1.0) {
+                                                statusText = 'Benar ✔️';
+                                                statusClass = 'correct';
+                                            } else if (portion > 0) {
+                                                statusText = 'Parsial ⚠️';
+                                                statusClass = 'partial';
+                                            }
+                                        }
+                                    } else {
+                                        if (sAnsUpper.sort().join(',') === cAnsUpper.sort().join(',')) {
+                                            isCorrect = true;
+                                            earnedPoints = weight;
+                                            statusText = 'Benar ✔️';
+                                            statusClass = 'correct';
+                                        }
+                                    }
+                                }
+                            } else if (type === 'matching') {
+                                if (typeof studentAns === 'object' && typeof correctAns === 'object' && studentAns !== null && correctAns !== null) {
+                                    const studentKeys = Object.keys(studentAns);
+                                    const correctKeys = Object.keys(correctAns);
+                                    
+                                    if (partialScoring) {
+                                        if (correctKeys.length > 0) {
+                                            let correctMatches = 0;
+                                            correctKeys.forEach(k => {
+                                                if (studentAns[k] !== undefined && studentAns[k].toString().trim().toUpperCase() === correctAns[k].toString().trim().toUpperCase()) {
+                                                    correctMatches++;
+                                                }
+                                            });
+                                            const portion = correctMatches / correctKeys.length;
+                                            earnedPoints = portion * weight;
+                                            if (portion === 1.0) {
+                                                statusText = 'Benar ✔️';
+                                                statusClass = 'correct';
+                                            } else if (portion > 0) {
+                                                statusText = 'Parsial ⚠️';
+                                                statusClass = 'partial';
+                                            }
+                                        }
+                                    } else {
+                                        let match = true;
+                                        for (let k of correctKeys) {
+                                            if (studentAns[k] === undefined || studentAns[k].toString().trim().toUpperCase() !== correctAns[k].toString().trim().toUpperCase()) {
+                                                match = false;
+                                                break;
+                                            }
+                                        }
+                                        if (match) {
+                                            isCorrect = true;
+                                            earnedPoints = weight;
+                                            statusText = 'Benar ✔️';
+                                            statusClass = 'correct';
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                        
+                        // Formatting displays
+                        let studentAnsDisplay = '—';
+                        if (studentAns !== undefined && studentAns !== null) {
+                            if (Array.isArray(studentAns)) {
+                                studentAnsDisplay = studentAns.join(', ');
+                            } else if (typeof studentAns === 'object') {
+                                studentAnsDisplay = Object.keys(studentAns).map(k => `${k}→${studentAns[k]}`).join(', ');
+                            } else {
+                                studentAnsDisplay = studentAns.toString();
+                            }
+                        }
+                        
+                        let correctAnsDisplay = '—';
+                        if (correctAns !== undefined && correctAns !== null) {
+                            if (Array.isArray(correctAns)) {
+                                correctAnsDisplay = correctAns.join(', ');
+                            } else if (typeof correctAns === 'object') {
+                                correctAnsDisplay = Object.keys(correctAns).map(k => `${k}→${correctAns[k]}`).join(', ');
+                            } else {
+                                correctAnsDisplay = correctAns.toString();
+                            }
+                        }
+                        
+                        const item = document.createElement('div');
+                        item.className = `detail-answer-item ${statusClass}`;
+                        item.innerHTML = `
+                            <span class="detail-q-num">No. ${num}</span>
+                            <span class="detail-q-ans">${studentAnsDisplay}</span>
+                            <span class="detail-q-key">${correctAnsDisplay}</span>
+                            <div style="text-align: right; width: 110px;">
+                                <span class="detail-q-status" style="color: ${statusClass === 'correct' ? '#34d399' : statusClass === 'partial' ? '#f59e0b' : '#f87171'}">
+                                    ${statusText}
+                                </span>
+                                <span class="detail-q-points">${earnedPoints.toFixed(1)} / ${weight.toFixed(1)} Poin</span>
+                            </div>
+                        `;
+                        container.appendChild(item);
+                    });
+                })
+                .catch(err => {
+                    console.error(err);
+                    showToast('Gagal memuat detail', 'error');
+                    closeDetailModal();
                 });
-                
-                document.getElementById('detailModal').style.display = 'flex';
-            } catch (e) {
-                console.error("Parse error:", e);
-                showToast('Gagal memuat detail jawaban', 'error');
-            }
+        }
+
+        function exportDetailSubmission() {
+            if (!activeSubmissionId) return;
+            window.location.href = `/admin/api/submissions/${activeSubmissionId}/export_detail`;
         }
 
         function closeDetailModal() {

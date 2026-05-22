@@ -19,7 +19,7 @@ from functools import wraps
 
 from flask import (
     Flask, request, jsonify, render_template,
-    redirect, url_for, session, send_file, flash
+    redirect, url_for, session, send_file, flash, abort
 )
 from werkzeug.utils import secure_filename
 
@@ -668,6 +668,188 @@ def admin_submissions():
         local_ip=local_ip,
         admin_user=session.get('admin_username', 'Admin')
     )
+
+
+@app.route('/admin/api/submissions/<int:submission_id>/detail')
+@admin_required
+def admin_submission_detail(submission_id):
+    """Get detailed student answers compared with keys."""
+    db = get_db()
+    sub = db.execute(
+        'SELECT s.*, e.name as exam_name, e.questions_json '
+        'FROM submissions s JOIN exams e ON s.exam_id = e.id '
+        'WHERE s.id = ?', (submission_id,)
+    ).fetchone()
+    db.close()
+    
+    if not sub:
+        return jsonify({'success': False, 'message': 'Hasil ujian tidak ditemukan'}), 404
+        
+    try:
+        answers = json.loads(sub['answers_json'])
+    except Exception:
+        answers = {}
+        
+    try:
+        questions = json.loads(sub['questions_json']) if sub['questions_json'] else []
+    except Exception:
+        questions = []
+        
+    return jsonify({
+        'success': True,
+        'submission_id': sub['id'],
+        'student_name': sub['student_name'],
+        'exam_number': sub['exam_number'],
+        'student_class': sub['student_class'],
+        'exam_name': sub['exam_name'],
+        'score': sub['score'],
+        'created_at': sub['created_at'],
+        'answers': answers,
+        'questions': questions
+    })
+
+
+@app.route('/admin/api/submissions/<int:submission_id>/export_detail')
+@admin_required
+def admin_export_submission_detail(submission_id):
+    """Export a single student's detailed answers to CSV."""
+    db = get_db()
+    sub = db.execute(
+        'SELECT s.*, e.name as exam_name, e.questions_json '
+        'FROM submissions s JOIN exams e ON s.exam_id = e.id '
+        'WHERE s.id = ?', (submission_id,)
+    ).fetchone()
+    db.close()
+    
+    if not sub:
+        return abort(404)
+        
+    try:
+        answers = json.loads(sub['answers_json'])
+    except Exception:
+        answers = {}
+        
+    try:
+        questions = json.loads(sub['questions_json']) if sub['questions_json'] else []
+    except Exception:
+        questions = []
+
+    # Generate CSV in memory
+    si = io.StringIO()
+    cw = csv.writer(si)
+    cw.writerow(['Detail Hasil Ujian Siswa'])
+    cw.writerow(['Nama Ujian', sub['exam_name']])
+    cw.writerow(['Nama Siswa', sub['student_name']])
+    cw.writerow(['Nomor Ujian', sub['exam_number']])
+    cw.writerow(['Kelas', sub['student_class']])
+    cw.writerow(['Nilai Akhir', sub['score'] if sub['score'] is not None else 'Belum Dinilai'])
+    cw.writerow(['Waktu Kumpul', sub['created_at']])
+    cw.writerow([])
+    cw.writerow(['No. Soal', 'Tipe Soal', 'Bobot Maks', 'Jawaban Siswa', 'Kunci Jawaban', 'Status', 'Poin Didapat'])
+    
+    for q in questions:
+        q_num = str(q['number'])
+        student_ans = answers.get(q_num)
+        correct_ans = q.get('key')
+        q_weight = float(q.get('weight', 1.0))
+        partial_scoring = q.get('partial_scoring', False)
+        
+        # Calculate score status and points earned
+        earned_q_weight = 0.0
+        status_text = 'Salah ❌'
+        
+        # Student Answer Formatting
+        if student_ans is not None:
+            if q['type'] in ['single_choice', 'true_false']:
+                if str(student_ans).strip().upper() == str(correct_ans).strip().upper():
+                    earned_q_weight = q_weight
+                    status_text = 'Benar ✔️'
+            elif q['type'] == 'multiple_choice':
+                if isinstance(student_ans, list) and isinstance(correct_ans, list):
+                    if partial_scoring:
+                        correct_set = set(str(x).upper() for x in correct_ans)
+                        student_set = set(str(x).upper() for x in student_ans)
+                        if correct_set:
+                            correct_selected = sum(1 for x in student_set if x in correct_set)
+                            incorrect_selected = sum(1 for x in student_set if x not in correct_set)
+                            portion = max(0.0, (correct_selected - incorrect_selected) / len(correct_set))
+                            earned_q_weight = portion * q_weight
+                            if portion == 1.0:
+                                status_text = 'Benar ✔️'
+                            elif portion > 0.0:
+                                status_text = 'Parsial ⚠️'
+                            else:
+                                status_text = 'Salah ❌'
+                    else:
+                        if sorted([str(x).upper() for x in student_ans]) == sorted([str(x).upper() for x in correct_ans]):
+                            earned_q_weight = q_weight
+                            status_text = 'Benar ✔️'
+            elif q['type'] == 'matching':
+                if isinstance(student_ans, dict) and isinstance(correct_ans, dict):
+                    if partial_scoring:
+                        if correct_ans:
+                            correct_matches = 0
+                            for k, v in correct_ans.items():
+                                if str(student_ans.get(k)).strip().upper() == str(v).strip().upper():
+                                    correct_matches += 1
+                            portion = correct_matches / len(correct_ans)
+                            earned_q_weight = portion * q_weight
+                            if portion == 1.0:
+                                status_text = 'Benar ✔️'
+                            elif portion > 0.0:
+                                status_text = 'Parsial ⚠️'
+                            else:
+                                status_text = 'Salah ❌'
+                    else:
+                        match = True
+                        for k, v in correct_ans.items():
+                            if str(student_ans.get(k)).strip().upper() != str(v).strip().upper():
+                                match = False
+                                break
+                        if match:
+                            earned_q_weight = q_weight
+                            status_text = 'Benar ✔️'
+        
+        # Format student answer to string
+        student_ans_str = ''
+        if isinstance(student_ans, list):
+            student_ans_str = ', '.join(student_ans)
+        elif isinstance(student_ans, dict):
+            student_ans_str = ', '.join([f"{k}:{v}" for k, v in student_ans.items()])
+        elif student_ans is not None:
+            student_ans_str = str(student_ans)
+            
+        # Format correct answer to string
+        correct_ans_str = ''
+        if isinstance(correct_ans, list):
+            correct_ans_str = ', '.join(correct_ans)
+        elif isinstance(correct_ans, dict):
+            correct_ans_str = ', '.join([f"{k}:{v}" for k, v in correct_ans.items()])
+        elif correct_ans is not None:
+            correct_ans_str = str(correct_ans)
+            
+        cw.writerow([
+            q['number'],
+            q['type'],
+            q_weight,
+            student_ans_str,
+            correct_ans_str,
+            status_text,
+            round(earned_q_weight, 2)
+        ])
+        
+    output = si.getvalue()
+    si.close()
+    
+    filename = f"detail_jawaban_{sub['student_name'].replace(' ', '_')}_{sub['exam_number']}.csv"
+    response = send_file(
+        io.BytesIO(output.encode('utf-8-sig')),
+        mimetype='text/csv',
+        as_attachment=True,
+        download_name=filename
+    )
+    response.headers['Cache-Control'] = 'no-store, no-cache, must-revalidate'
+    return response
 
 
 @app.route('/admin/api/submissions/<int:submission_id>', methods=['DELETE'])

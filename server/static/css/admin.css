@@ -911,10 +911,10 @@ body {
 
 /* Detail Answers Modal */
 .detail-answers-grid {
-    display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
-    gap: 10px;
-    max-height: 50vh;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    max-height: 55vh;
     overflow-y: auto;
     background: rgba(0, 0, 0, 0.2);
     border-radius: var(--radius-sm);
@@ -926,16 +926,33 @@ body {
     display: flex;
     justify-content: space-between;
     align-items: center;
-    background: rgba(255, 255, 255, 0.03);
-    padding: 8px 12px;
+    background: rgba(255, 255, 255, 0.02);
+    padding: 10px 14px;
     border-radius: 6px;
     font-size: 13px;
-    border: 1px solid rgba(255, 255, 255, 0.04);
+    border: 1px solid rgba(255, 255, 255, 0.05);
+    gap: 12px;
+}
+
+.detail-answer-item.correct {
+    border-color: rgba(34, 197, 94, 0.3);
+    background: rgba(34, 197, 94, 0.05);
+}
+
+.detail-answer-item.incorrect {
+    border-color: rgba(239, 68, 68, 0.3);
+    background: rgba(239, 68, 68, 0.05);
+}
+
+.detail-answer-item.partial {
+    border-color: rgba(234, 179, 8, 0.3);
+    background: rgba(234, 179, 8, 0.05);
 }
 
 .detail-q-num {
     color: var(--text-secondary);
     font-weight: 600;
+    min-width: 50px;
 }
 
 .detail-q-ans {
@@ -943,5 +960,31 @@ body {
     font-family: monospace;
     font-weight: 700;
     word-break: break-all;
+    flex: 1;
+}
+
+.detail-q-key {
+    color: #34d399;
+    font-family: monospace;
+    font-weight: 700;
+    word-break: break-all;
+    flex: 1;
+}
+
+.detail-q-status {
+    font-weight: 700;
+    font-size: 12px;
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    padding: 2px 6px;
+    border-radius: 4px;
+    background: rgba(0, 0, 0, 0.15);
+}
+
+.detail-q-points {
+    font-size: 11px;
+    color: var(--text-muted);
+    font-weight: 600;
 }
 
