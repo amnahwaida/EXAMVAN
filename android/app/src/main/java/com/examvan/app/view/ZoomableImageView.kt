@@ -53,6 +53,13 @@ class ZoomableImageView @JvmOverloads constructor(
         private const val CLICK = 3
     }
 
+    interface OnSwipeListener {
+        fun onSwipeLeft()
+        fun onSwipeRight()
+    }
+
+    var swipeListener: OnSwipeListener? = null
+
     init {
         super.setClickable(true)
         setOnTouchListener(this)
@@ -65,6 +72,31 @@ class ZoomableImageView @JvmOverloads constructor(
                 val scaleFactor = targetScale / saveScale
                 zoomTo(scaleFactor, e.x, e.y)
                 return true
+            }
+
+            override fun onFling(
+                e1: MotionEvent?,
+                e2: MotionEvent,
+                velocityX: Float,
+                velocityY: Float
+            ): Boolean {
+                if (saveScale == 1f) {
+                    val x1 = e1?.x ?: return false
+                    val y1 = e1?.y ?: return false
+                    val diffX = e2.x - x1
+                    val diffY = e2.y - y1
+                    if (Math.abs(diffX) > Math.abs(diffY)) {
+                        if (Math.abs(diffX) > 100 && Math.abs(velocityX) > 100) {
+                            if (diffX < 0) {
+                                swipeListener?.onSwipeLeft()
+                            } else {
+                                swipeListener?.onSwipeRight()
+                            }
+                            return true
+                        }
+                    }
+                }
+                return false
             }
         })
     }

@@ -86,6 +86,23 @@ class ExamViewerActivity : AppCompatActivity() {
             finish()
         }
 
+        // Swipe gesture navigation for pages
+        binding.ivPdfPage.swipeListener = object : com.examvan.app.view.ZoomableImageView.OnSwipeListener {
+            override fun onSwipeLeft() {
+                if (currentPage < totalPages - 1) {
+                    currentPage++
+                    renderPage(currentPage)
+                }
+            }
+
+            override fun onSwipeRight() {
+                if (currentPage > 0) {
+                    currentPage--
+                    renderPage(currentPage)
+                }
+            }
+        }
+
         // Start download
         downloadPdf(examId)
     }
