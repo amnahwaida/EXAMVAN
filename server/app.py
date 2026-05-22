@@ -611,6 +611,24 @@ def admin_upload():
             'message': f'Ukuran file melebihi batas {MAX_FILE_SIZE // (1024*1024)}MB'
         }), 400
 
+    custom_token = request.form.get('custom_token', '').strip().upper()
+
+    db = get_db()
+    if custom_token:
+        if len(custom_token) != 6 or not custom_token.isalnum():
+            db.close()
+            return jsonify({'success': False, 'message': 'Token kustom harus terdiri dari 6 karakter alfanumerik'}), 400
+        
+        # Check uniqueness
+        existing = db.execute('SELECT id FROM exams WHERE token = ?', (custom_token,)).fetchone()
+        if existing:
+            db.close()
+            return jsonify({'success': False, 'message': 'Token kustom sudah digunakan oleh ujian lain'}), 400
+        token = custom_token
+    else:
+        # Generate unique token
+        token = generate_token()
+
     # Save file with secure name
     timestamp = datetime.now(timezone.utc).strftime('%Y%m%d_%H%M%S')
     safe_name = secure_filename(file.filename)
@@ -620,11 +638,7 @@ def admin_upload():
     with open(file_path, 'wb') as f:
         f.write(file_data)
 
-    # Generate unique token
-    token = generate_token()
-
     # Save to database
-    db = get_db()
     db.execute(
         'INSERT INTO exams (name, file_path, size_bytes, token, status, created_by) VALUES (?, ?, ?, ?, ?, ?)',
         (name, filename, len(file_data), token, 'active', session['admin_id'])
@@ -634,9 +648,10 @@ def admin_upload():
 
     return jsonify({
         'success': True,
-        'message': f'Ujian "{name}" berhasil diupload',
+        'message': f'Ujian "{name}" berhasil diupload dengan token: {token}',
         'token': token
     })
+
 
 
 @app.route('/admin/api/exams/<int:exam_id>/toggle', methods=['POST'])
@@ -716,6 +731,47 @@ def admin_regenerate_token(exam_id):
         'message': f'Token ujian berhasil diperbarui: {new_token}',
         'token': new_token
     })
+
+
+@app.route('/admin/api/exams/<int:exam_id>/custom-token', methods=['POST'])
+@admin_required
+def admin_custom_token(exam_id):
+    """Set custom token for an exam."""
+    data = request.get_json() or {}
+    custom_token = data.get('token', '').strip().upper()
+
+    if not custom_token:
+        return jsonify({'success': False, 'message': 'Token kustom tidak boleh kosong'}), 400
+
+    if len(custom_token) != 6 or not custom_token.isalnum():
+        return jsonify({'success': False, 'message': 'Token kustom harus terdiri dari 6 karakter alfanumerik'}), 400
+
+    db = get_db()
+    if not check_exam_ownership(db, exam_id):
+        db.close()
+        return jsonify({'success': False, 'message': 'Akses ditolak: Anda tidak memiliki akses ke ujian ini'}), 403
+
+    exam = db.execute('SELECT * FROM exams WHERE id = ?', (exam_id,)).fetchone()
+    if not exam:
+        db.close()
+        return jsonify({'success': False, 'message': 'Ujian tidak ditemukan'}), 404
+
+    # Check if this token is already in use by another exam
+    existing = db.execute('SELECT id FROM exams WHERE token = ? AND id != ?', (custom_token, exam_id)).fetchone()
+    if existing:
+        db.close()
+        return jsonify({'success': False, 'message': 'Token kustom sudah digunakan oleh ujian lain'}), 400
+
+    db.execute('UPDATE exams SET token = ? WHERE id = ?', (custom_token, exam_id))
+    db.commit()
+    db.close()
+
+    return jsonify({
+        'success': True,
+        'message': f'Token ujian berhasil diubah menjadi: {custom_token}',
+        'token': custom_token
+    })
+
 
 
 @app.route('/admin/api/stats')

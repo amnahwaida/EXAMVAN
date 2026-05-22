@@ -106,6 +106,10 @@
                             </div>
                         </div>
                     </div>
+                    <div class="form-group" style="flex: 0 0 220px;">
+                        <label for="customToken">Token Kustom <span style="font-size:11px; opacity:0.7;">(Opsional, 6 Kar)</span></label>
+                        <input type="text" id="customToken" name="custom_token" maxlength="6" minlength="6" placeholder="Contoh: MAT101" style="text-transform: uppercase;">
+                    </div>
                 </div>
                 <div class="upload-progress" id="uploadProgress" style="display:none;">
                     <div class="progress-bar"><div class="progress-fill" id="progressFill"></div></div>
@@ -158,6 +162,7 @@
                                     <code class="token-code" id="token-{{ exam.id }}">{{ exam.token or '—' }}</code>
                                     <button class="btn-icon btn-copy" onclick="copyToken('{{ exam.token }}')" title="Salin Token">📋</button>
                                     <button class="btn-icon btn-regen" onclick="regenerateToken({{ exam.id }})" title="Generate Token Baru">🔄</button>
+                                    <button class="btn-icon btn-edit" onclick="openEditTokenModal({{ exam.id }}, '{{ exam.token }}')" title="Ubah Token Kustom">✏️</button>
                                 </div>
                             </td>
                             <td>{{ "%.2f"|format(exam.size_bytes / 1048576) }} MB</td>
@@ -219,6 +224,26 @@
             <div class="modal-footer">
                 <button class="btn-sm btn-delete" onclick="closeQuestionsModal()">Batal</button>
                 <button class="btn-upload" onclick="saveQuestionsConfig()">Simpan Konfigurasi</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Modal Ubah Token Kustom -->
+    <div class="modal-overlay" id="editTokenModal">
+        <div class="modal-card glass-card" style="max-width: 400px;">
+            <div class="modal-header">
+                <h3>✏️ Ubah Token Kustom</h3>
+                <button class="modal-close" onclick="closeEditTokenModal()">✕</button>
+            </div>
+            <div class="modal-body">
+                <form id="editTokenForm" onsubmit="submitEditToken(event)">
+                    <input type="hidden" id="editTokenExamId">
+                    <div class="form-group" style="margin-bottom: 20px;">
+                        <label for="editTokenInput">Token Kustom Baru (Tepat 6 Karakter)</label>
+                        <input type="text" id="editTokenInput" required maxlength="6" minlength="6" placeholder="Contoh: UN2026" style="text-transform: uppercase; font-size: 20px; text-align: center; letter-spacing: 4px; font-weight: bold; font-family: monospace;">
+                    </div>
+                    <button type="submit" class="btn-upload" style="width: 100%;">💾 Simpan Token Baru</button>
+                </form>
             </div>
         </div>
     </div>

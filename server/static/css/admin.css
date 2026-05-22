@@ -558,6 +558,7 @@ body {
 .btn-icon:hover { background: var(--surface-hover); transform: scale(1.1); }
 .btn-copy:hover { border-color: rgba(16,185,129,0.4); }
 .btn-regen:hover { border-color: rgba(99,102,241,0.4); }
+.btn-edit:hover { border-color: rgba(245,158,11,0.4); }
 
 .status-badge {
     display: inline-block;

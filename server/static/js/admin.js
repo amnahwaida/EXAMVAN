@@ -46,6 +46,8 @@ if (uploadForm) {
         const progressFill = document.getElementById('progressFill');
         const progressText = document.getElementById('progressText');
 
+        const customTokenInput = document.getElementById('customToken');
+
         if (!nameInput.value.trim()) {
             showToast('Nama ujian wajib diisi', 'error');
             return;
@@ -58,6 +60,14 @@ if (uploadForm) {
         const formData = new FormData();
         formData.append('name', nameInput.value.trim());
         formData.append('pdf_file', fileInput.files[0]);
+        if (customTokenInput && customTokenInput.value.trim()) {
+            const tokenVal = customTokenInput.value.trim().toUpperCase();
+            if (tokenVal.length !== 6 || !/^[A-Z0-9]+$/.test(tokenVal)) {
+                showToast('Token kustom harus terdiri dari 6 karakter alfanumerik', 'error');
+                return;
+            }
+            formData.append('custom_token', tokenVal);
+        }
 
         btn.disabled = true;
         btn.textContent = 'Mengupload...';
@@ -658,6 +668,61 @@ function deleteUser(userId, username) {
             }
         })
         .catch(() => showToast('Gagal menghapus user', 'error'));
+}
+
+
+// Edit Token Modal
+function openEditTokenModal(examId, currentToken) {
+    document.getElementById('editTokenExamId').value = examId;
+    document.getElementById('editTokenInput').value = currentToken && currentToken !== '—' ? currentToken : '';
+    document.getElementById('editTokenModal').style.display = 'flex';
+    setTimeout(() => document.getElementById('editTokenInput').focus(), 100);
+}
+
+function closeEditTokenModal() {
+    document.getElementById('editTokenModal').style.display = 'none';
+    document.getElementById('editTokenForm').reset();
+}
+
+function submitEditToken(e) {
+    e.preventDefault();
+    const examId = document.getElementById('editTokenExamId').value;
+    const token = document.getElementById('editTokenInput').value.trim().toUpperCase();
+
+    if (token.length !== 6 || !/^[A-Z0-9]+$/.test(token)) {
+        showToast('Token kustom harus terdiri dari 6 karakter alfanumerik', 'error');
+        return;
+    }
+
+    fetch(`/admin/api/exams/${examId}/custom-token`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ token })
+    })
+        .then(r => r.json())
+        .then(res => {
+            if (res.success) {
+                const tokenEl = document.getElementById(`token-${examId}`);
+                if (tokenEl) {
+                    tokenEl.textContent = res.token;
+                    
+                    // Update the edit button argument as well
+                    const editBtn = tokenEl.parentElement.querySelector('.btn-edit');
+                    if (editBtn) {
+                        editBtn.setAttribute('onclick', `openEditTokenModal(${examId}, '${res.token}')`);
+                    }
+                    
+                    tokenEl.style.animation = 'none';
+                    tokenEl.offsetHeight; // force reflow
+                    tokenEl.style.animation = 'toastIn 0.3s ease';
+                }
+                showToast(res.message, 'success');
+                closeEditTokenModal();
+            } else {
+                showToast(res.message || 'Gagal mengubah token', 'error');
+            }
+        })
+        .catch(() => showToast('Koneksi gagal', 'error'));
 }
 
 
