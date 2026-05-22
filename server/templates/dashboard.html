@@ -1,0 +1,166 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>EXAMVAN - Dashboard</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/admin.css') }}">
+</head>
+<body class="dashboard-page">
+    <nav class="topbar">
+        <div class="topbar-left">
+            <div class="topbar-logo">E</div>
+            <span class="topbar-title">EXAMVAN</span>
+            <span class="topbar-badge">Admin Panel</span>
+        </div>
+        <div class="topbar-right">
+            <span class="topbar-user">{{ admin_user }}</span>
+            <a href="{{ url_for('admin_logout') }}" class="btn-logout">Logout</a>
+        </div>
+    </nav>
+
+    <main class="dashboard">
+        <!-- Stats Cards -->
+        <section class="stats-grid">
+            <div class="stat-card stat-total">
+                <div class="stat-icon">📋</div>
+                <div class="stat-info">
+                    <span class="stat-value">{{ stats.total }}</span>
+                    <span class="stat-label">Total Ujian</span>
+                </div>
+            </div>
+            <div class="stat-card stat-active">
+                <div class="stat-icon">✅</div>
+                <div class="stat-info">
+                    <span class="stat-value">{{ stats.active }}</span>
+                    <span class="stat-label">Aktif</span>
+                </div>
+            </div>
+            <div class="stat-card stat-inactive">
+                <div class="stat-icon">⏸️</div>
+                <div class="stat-info">
+                    <span class="stat-value">{{ stats.inactive }}</span>
+                    <span class="stat-label">Nonaktif</span>
+                </div>
+            </div>
+            <div class="stat-card stat-storage">
+                <div class="stat-icon">💾</div>
+                <div class="stat-info">
+                    <span class="stat-value">{{ stats.storage_mb }} MB</span>
+                    <span class="stat-label">Storage</span>
+                </div>
+            </div>
+        </section>
+
+        <!-- Network Info -->
+        <section class="network-info glass-card">
+            <h3>🌐 Info Jaringan</h3>
+            <div class="network-grid">
+                <div class="net-item">
+                    <span class="net-label">IP Server</span>
+                    <span class="net-value" id="serverIp">{{ local_ip }}</span>
+                </div>
+                <div class="net-item">
+                    <span class="net-label">API Endpoint</span>
+                    <span class="net-value">http://{{ local_ip }}:5000/api/exams</span>
+                </div>
+                <div class="net-item">
+                    <span class="net-label">Protokol</span>
+                    <span class="net-value badge-http">HTTP (LAN)</span>
+                </div>
+                <div class="net-item">
+                    <span class="net-label">Max Upload</span>
+                    <span class="net-value">{{ max_size_mb }} MB</span>
+                </div>
+            </div>
+        </section>
+
+        <!-- Upload Section -->
+        <section class="upload-section glass-card">
+            <h3>📤 Upload Ujian Baru</h3>
+            <form id="uploadForm" class="upload-form" enctype="multipart/form-data">
+                <div class="form-row">
+                    <div class="form-group flex-1">
+                        <label for="examName">Nama Ujian</label>
+                        <input type="text" id="examName" name="name" placeholder="Contoh: UTS Matematika Kelas 10" required>
+                    </div>
+                    <div class="form-group flex-1">
+                        <label for="pdfFile">File PDF (max {{ max_size_mb }}MB)</label>
+                        <div class="file-input-wrapper">
+                            <input type="file" id="pdfFile" name="pdf_file" accept="application/pdf" required>
+                            <div class="file-input-display" id="fileDisplay">
+                                <span class="file-icon">📄</span>
+                                <span class="file-text">Pilih file PDF...</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                <div class="upload-progress" id="uploadProgress" style="display:none;">
+                    <div class="progress-bar"><div class="progress-fill" id="progressFill"></div></div>
+                    <span class="progress-text" id="progressText">0%</span>
+                </div>
+                <button type="submit" class="btn-upload" id="btnUpload">
+                    <span>Upload Ujian</span>
+                </button>
+            </form>
+        </section>
+
+        <!-- Exam Table -->
+        <section class="exam-table-section glass-card">
+            <div class="table-header">
+                <h3>📝 Daftar Ujian</h3>
+                <button class="btn-refresh" onclick="location.reload()">🔄 Refresh</button>
+            </div>
+            {% if exams | length == 0 %}
+            <div class="empty-state">
+                <div class="empty-icon">📭</div>
+                <p>Belum ada ujian. Upload ujian pertama Anda di atas.</p>
+            </div>
+            {% else %}
+            <div class="table-responsive">
+                <table class="exam-table">
+                    <thead>
+                        <tr>
+                            <th>ID</th>
+                            <th>Nama Ujian</th>
+                            <th>Ukuran</th>
+                            <th>Status</th>
+                            <th>Tanggal Upload</th>
+                            <th>Aksi</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for exam in exams %}
+                        <tr id="exam-row-{{ exam.id }}">
+                            <td class="td-id">{{ exam.id }}</td>
+                            <td class="td-name">{{ exam.name }}</td>
+                            <td>{{ "%.2f"|format(exam.size_bytes / 1048576) }} MB</td>
+                            <td>
+                                <span class="status-badge status-{{ exam.status }}" id="status-{{ exam.id }}">
+                                    {{ exam.status }}
+                                </span>
+                            </td>
+                            <td class="td-date">{{ exam.created_at }}</td>
+                            <td class="td-actions">
+                                <button class="btn-sm btn-toggle" onclick="toggleExam({{ exam.id }})">
+                                    {{ '⏸️ Nonaktifkan' if exam.status == 'active' else '▶️ Aktifkan' }}
+                                </button>
+                                <button class="btn-sm btn-delete" onclick="deleteExam({{ exam.id }}, '{{ exam.name }}')">
+                                    🗑️ Hapus
+                                </button>
+                            </td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+            {% endif %}
+        </section>
+    </main>
+
+    <!-- Toast -->
+    <div class="toast-container" id="toastContainer"></div>
+
+    <script src="{{ url_for('static', filename='js/admin.js') }}"></script>
+</body>
+</html>

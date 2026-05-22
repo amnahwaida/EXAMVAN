@@ -1,0 +1,21 @@
+<resources>
+    <string name="app_name">EXAMVAN</string>
+    <string name="server_config_title">Konfigurasi Server</string>
+    <string name="hint_server_url">http://192.168.1.100:5000</string>
+    <string name="label_server_url">URL Server</string>
+    <string name="cb_remember_url">Ingat URL Server ini untuk selanjutnya</string>
+    <string name="btn_connect">Simpan &amp; Lanjut</string>
+    <string name="exam_list_title">Daftar Ujian</string>
+    <string name="empty_exams">Tidak ada ujian tersedia</string>
+    <string name="btn_retry">Coba Lagi</string>
+    <string name="loading">Memuat...</string>
+    <string name="download_progress">Mengunduh: %1$d%%</string>
+    <string name="page_indicator">Halaman %1$d / %2$d</string>
+    <string name="btn_prev">Sebelumnya</string>
+    <string name="btn_next">Selanjutnya</string>
+    <string name="error_network">Gagal terhubung ke server. Periksa jaringan Anda.</string>
+    <string name="error_invalid_url">Format URL tidak valid. Gunakan format http://IP:PORT</string>
+    <string name="error_download">Gagal mengunduh file ujian</string>
+    <string name="error_pdf">Gagal membuka file PDF</string>
+    <string name="menu_change_server">Ganti Server</string>
+</resources>

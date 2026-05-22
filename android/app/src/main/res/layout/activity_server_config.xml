@@ -1,0 +1,126 @@
+<?xml version="1.0" encoding="utf-8"?>
+<androidx.constraintlayout.widget.ConstraintLayout
+    xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="@color/background"
+    android:padding="24dp">
+
+    <LinearLayout
+        android:layout_width="0dp"
+        android:layout_height="wrap_content"
+        android:orientation="vertical"
+        android:gravity="center_horizontal"
+        app:layout_constraintTop_toTopOf="parent"
+        app:layout_constraintBottom_toBottomOf="parent"
+        app:layout_constraintStart_toStartOf="parent"
+        app:layout_constraintEnd_toEndOf="parent"
+        app:layout_constraintWidth_max="400dp">
+
+        <!-- Logo -->
+        <TextView
+            android:layout_width="64dp"
+            android:layout_height="64dp"
+            android:gravity="center"
+            android:text="E"
+            android:textSize="28sp"
+            android:textColor="@color/on_primary"
+            android:textStyle="bold"
+            android:background="@color/primary"
+            android:layout_marginBottom="16dp" />
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="EXAMVAN"
+            android:textSize="28sp"
+            android:textStyle="bold"
+            android:textColor="@color/on_surface"
+            android:layout_marginBottom="4dp" />
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="Konfigurasi Server Ujian"
+            android:textSize="14sp"
+            android:textColor="@color/text_secondary"
+            android:layout_marginBottom="40dp" />
+
+        <!-- URL Input -->
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="@string/label_server_url"
+            android:textSize="13sp"
+            android:textColor="@color/text_secondary"
+            android:layout_marginBottom="6dp" />
+
+        <EditText
+            android:id="@+id/etServerUrl"
+            android:layout_width="match_parent"
+            android:layout_height="52dp"
+            android:hint="@string/hint_server_url"
+            android:inputType="textUri"
+            android:textSize="15sp"
+            android:textColor="@color/on_surface"
+            android:textColorHint="@color/text_muted"
+            android:background="@color/surface_variant"
+            android:paddingHorizontal="16dp"
+            android:singleLine="true"
+            android:layout_marginBottom="12dp" />
+
+        <!-- Remember Checkbox -->
+        <CheckBox
+            android:id="@+id/cbRememberUrl"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="@string/cb_remember_url"
+            android:textSize="14sp"
+            android:textColor="@color/text_secondary"
+            android:checked="true"
+            android:buttonTint="@color/primary"
+            android:layout_marginBottom="8dp" />
+
+        <!-- Error Text -->
+        <TextView
+            android:id="@+id/tvError"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:textSize="13sp"
+            android:textColor="@color/danger"
+            android:visibility="gone"
+            android:layout_marginBottom="8dp" />
+
+        <!-- Loading -->
+        <ProgressBar
+            android:id="@+id/progressLoading"
+            android:layout_width="32dp"
+            android:layout_height="32dp"
+            android:visibility="gone"
+            android:indeterminateTint="@color/primary"
+            android:layout_marginBottom="12dp" />
+
+        <!-- Connect Button -->
+        <Button
+            android:id="@+id/btnConnect"
+            android:layout_width="match_parent"
+            android:layout_height="52dp"
+            android:text="@string/btn_connect"
+            android:textSize="15sp"
+            android:textStyle="bold"
+            android:backgroundTint="@color/primary"
+            android:textColor="@color/on_primary"
+            android:layout_marginTop="8dp" />
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="EXAMVAN v1.1.0"
+            android:textSize="11sp"
+            android:textColor="@color/text_muted"
+            android:layout_marginTop="32dp" />
+
+    </LinearLayout>
+
+</androidx.constraintlayout.widget.ConstraintLayout>

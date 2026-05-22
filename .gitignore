@@ -1,0 +1,24 @@
+# Gradle files
+.gradle/
+build/
+app/build/
+*.iml
+.idea/
+local.properties
+
+# Python/Flask files
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.env
+.venv
+env/
+venv/
+server/examvan.db
+server/storage/*
+!server/storage/.gitkeep
+
+# OS files
+.DS_Store
+Thumbs.db
