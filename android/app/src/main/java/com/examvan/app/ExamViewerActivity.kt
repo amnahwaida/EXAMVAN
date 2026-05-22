@@ -172,7 +172,7 @@ class ExamViewerActivity : AppCompatActivity() {
     }
 
     private fun hideAnswerOverlay() {
-        binding.btnToggleAnswerSheet.visibility = View.GONE
+        binding.answerSheetToggle.visibility = View.GONE
         binding.answerSheetPanel.visibility = View.GONE
         binding.btnSubmitAnswers.visibility = View.GONE
     }

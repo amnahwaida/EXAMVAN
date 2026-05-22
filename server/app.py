@@ -233,15 +233,7 @@ def api_exam_by_token(token):
         except Exception:
             pass
 
-    # If no questions configured, generate 40 default multiple-choice questions
-    if not questions:
-        questions = [
-            {
-                "number": i,
-                "type": "single_choice",
-                "choices": ["A", "B", "C", "D", "E"]
-            } for i in range(1, 41)
-        ]
+    # If no questions configured, return empty list (PDF-only mode)
 
     return jsonify({
         'success': True,
