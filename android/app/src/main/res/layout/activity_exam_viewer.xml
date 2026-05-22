@@ -48,11 +48,10 @@
     </LinearLayout>
 
     <!-- PDF View Area -->
-    <ImageView
+    <com.examvan.app.view.ZoomableImageView
         android:id="@+id/ivPdfPage"
         android:layout_width="0dp"
         android:layout_height="0dp"
-        android:scaleType="fitCenter"
         android:background="@color/background"
         app:layout_constraintTop_toBottomOf="@id/toolbar"
         app:layout_constraintBottom_toTopOf="@id/bottomBar"
