@@ -142,7 +142,7 @@ Metode ini paling mudah dan aman karena semua dependensi Python sudah terisolasi
    docker compose up -d --build
    ```
 4. **Persistensi Data:**
-   Database SQLite (`examvan.db`) dan seluruh file PDF ujian (`storage/`) akan otomatis disimpan secara persisten di folder `./server/` pada komputer host Anda.
+   Database SQLite (di folder `data/`) dan seluruh file PDF ujian (`storage/`) akan otomatis disimpan secara persisten di folder `./server/` pada komputer host Anda.
 5. **Log Aktivitas:**
    Untuk melihat log aktivitas server secara real-time:
    ```bash
@@ -165,7 +165,7 @@ Jika Anda ingin menjalankannya langsung menggunakan Python lokal pada sistem ope
    pip install -r requirements.txt
    ```
 2. **Inisialisasi Database:**
-   Sistem akan secara otomatis membuat berkas database `examvan.db` dan membuat pengguna admin default saat pertama kali dijalankan.
+   Sistem akan secara otomatis membuat berkas database `data/examvan.db` dan membuat pengguna admin default saat pertama kali dijalankan.
 3. **Jalankan Mode Produksi (Gunicorn):**
    Gunakan Gunicorn untuk menangani trafik multi-client yang stabil:
    ```bash

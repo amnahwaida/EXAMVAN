@@ -15,7 +15,7 @@ services:
       - TZ=UTC
     volumes:
       # Persist SQLite Database locally on host filesystem
-      - ./server/examvan.db:/app/examvan.db
+      - ./server/data:/app/data
       # Persist Uploaded PDFs locally on host filesystem
       - ./server/storage:/app/storage
 

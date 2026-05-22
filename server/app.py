@@ -26,11 +26,12 @@ from werkzeug.utils import secure_filename
 # ===== Configuration =====
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 STORAGE_DIR = os.path.join(BASE_DIR, 'storage')
-DATABASE = os.path.join(BASE_DIR, 'examvan.db')
+DATABASE = os.environ.get('DATABASE_PATH', os.path.join(BASE_DIR, 'data', 'examvan.db'))
 MAX_FILE_SIZE = 5 * 1024 * 1024  # 5MB
 DEFAULT_ADMIN = {'username': 'admin', 'password': 'examvan2026'}
 
 os.makedirs(STORAGE_DIR, exist_ok=True)
+os.makedirs(os.path.dirname(DATABASE), exist_ok=True)
 
 # ===== App Init =====
 app = Flask(__name__)

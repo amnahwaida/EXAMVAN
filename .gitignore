@@ -16,6 +16,8 @@ __pycache__/
 env/
 venv/
 server/examvan.db
+server/data/*
+!server/data/.gitkeep
 server/storage/*
 !server/storage/.gitkeep
 
