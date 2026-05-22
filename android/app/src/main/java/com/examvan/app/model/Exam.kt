@@ -37,5 +37,7 @@ data class TokenExamResponse(
 data class HealthResponse(
     val status: String,
     val version: String,
-    val lan_mode: Boolean
+    val lan_mode: Boolean,
+    val timestamp: String? = null,
+    val server_time_utc: String? = null
 )

@@ -594,7 +594,7 @@ function loadUsersList() {
                             </strong>
                             ${isAdmin ? '<span style="font-size:11px; color: var(--text-secondary); display:block;">Super Admin</span>' : ''}
                         </td>
-                        <td style="font-size: 12px; color: var(--text-secondary);">${user.created_at || '—'}</td>
+                        <td class="td-date" data-utc="${user.created_at || ''}" style="font-size: 12px; color: var(--text-secondary);">${user.created_at || '—'}</td>
                         <td>
                             ${isAdmin
                                 ? '<span style="font-size:11px; color: var(--text-secondary);">—</span>'
@@ -604,6 +604,7 @@ function loadUsersList() {
                     `;
                     tbody.appendChild(tr);
                 });
+                localizeDates();
             } else {
                 tbody.innerHTML = '<tr><td colspan="3" style="text-align:center; padding: 20px; color: #fca5a5;">Gagal memuat daftar user</td></tr>';
             }
@@ -667,3 +668,38 @@ document.addEventListener('click', function(e) {
         e.target.style.display = 'none';
     }
 });
+
+// Localize dates from UTC to browser/device timezone
+function localizeDates() {
+    document.querySelectorAll('.td-date').forEach(el => {
+        const rawDate = el.dataset.utc || el.textContent.trim();
+        if (rawDate && rawDate !== '—' && !rawDate.includes('WIB') && !rawDate.includes('GMT') && !rawDate.includes('UTC')) {
+            // Save original UTC raw string in dataset if not already present
+            if (!el.dataset.utc) {
+                el.dataset.utc = rawDate;
+            }
+            // Parse as UTC (format from SQLite: YYYY-MM-DD HH:MM:SS or YYYY-MM-DDTHH:MM:SSZ)
+            let isoString = rawDate;
+            if (!isoString.includes('T')) {
+                isoString = isoString.replace(' ', 'T');
+            }
+            if (!isoString.endsWith('Z')) {
+                isoString = isoString + 'Z';
+            }
+            const date = new Date(isoString);
+            if (!isNaN(date.getTime())) {
+                // Display in local date time format
+                el.textContent = date.toLocaleString(undefined, {
+                    year: 'numeric',
+                    month: '2-digit',
+                    day: '2-digit',
+                    hour: '2-digit',
+                    minute: '2-digit',
+                    second: '2-digit'
+                });
+            }
+        }
+    });
+}
+
+document.addEventListener('DOMContentLoaded', localizeDates);

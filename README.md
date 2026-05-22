@@ -109,7 +109,8 @@ Semua komunikasi data antara aplikasi siswa dan server web dikirimkan melalui JS
 
 | Endpoint | Method | Parameter / Payload | Fungsi |
 | :--- | :---: | :--- | :--- |
-| `/api/health` | GET | - | Memverifikasi apakah server menyala dan merespon dalam LAN. |
+| `/api/health` | GET | - | Memverifikasi apakah server menyala dan merespon dalam LAN. Mengembalikan `server_time_utc`. |
+| `/api/time` | GET | - | Mengembalikan waktu UTC server (`utc`, `unix`, `timezone`) untuk sinkronisasi jam perangkat siswa. |
 | `/api/exams` | GET | - | Mengambil daftar seluruh ujian yang sedang aktif. |
 | `/api/exams/token/<token>` | GET | `token` (6 Karakter) | Mengambil konfigurasi soal ujian spesifik berdasarkan token unik. |
 | `/api/exams/<id>/pdf` | GET | `id` (ID Ujian) | Mengunduh file PDF soal ujian ke penyimpanan lokal aplikasi siswa. |
@@ -125,17 +126,31 @@ Pilih salah satu metode deployment di bawah ini untuk dijalankan di PC server se
 Metode ini paling mudah dan aman karena semua dependensi Python sudah terisolasi di dalam container.
 
 1. **Prasyarat:** Pastikan Docker dan Docker Compose telah terpasang di komputer server.
-2. **Jalankan Layanan:**
+2. **Konfigurasi Lingkungan (Online/Offline Mode):**
+   Salin file `.env.example` menjadi `.env` jika belum ada:
+   ```bash
+   cp .env.example .env
+   ```
+   Buka file `.env` dan atur variabel berikut sesuai kebutuhan:
+   * **Mode Offline (LAN Only):** Biarkan variabel `TUNNEL_TOKEN` kosong. Layanan tunnel akan otomatis berjalan idle tanpa mengonsumsi resource.
+   * **Mode Online (Internet Access via Cloudflare):** Masukkan token tunnel Anda dari Cloudflare Zero Trust pada variabel `TUNNEL_TOKEN`.
+   * *Catatan:* Di dashboard Cloudflare Zero Trust, konfigurasi rute tunnel (Public Hostname) harus diarahkan ke target URL internal Docker: `http://examvan-server:5000`.
+
+3. **Jalankan Layanan:**
    Buka terminal di direktori utama project (`EXAMVAN/`) lalu ketik:
    ```bash
    docker compose up -d --build
    ```
-3. **Persistensi Data:**
+4. **Persistensi Data:**
    Database SQLite (`examvan.db`) dan seluruh file PDF ujian (`storage/`) akan otomatis disimpan secara persisten di folder `./server/` pada komputer host Anda.
-4. **Log Aktivitas:**
+5. **Log Aktivitas:**
    Untuk melihat log aktivitas server secara real-time:
    ```bash
    docker compose logs -f
+   ```
+   Untuk melihat log status koneksi Cloudflare Tunnel:
+   ```bash
+   docker compose logs -f cloudflare-tunnel
    ```
 
 ---
@@ -172,3 +187,48 @@ Buka browser Anda dan akses halaman admin di: **`http://<IP_SERVER_SEKOLAH>:5000
 
 > [!IMPORTANT]
 > Demi keamanan, segera ubah password akun administrator utama Anda sesaat setelah berhasil masuk ke halaman dashboard untuk pertama kali.
+
+---
+
+## 🕐 Sinkronisasi Waktu (Timezone)
+
+Semua waktu di dalam sistem EXAMVAN disimpan dan diproses dalam **UTC+0** untuk menjamin konsistensi di seluruh perangkat, terlepas dari zona waktu lokal masing-masing.
+
+### Arsitektur Sinkronisasi Waktu
+
+```
+┌──────────────────────────────────────────────────────────────────┐
+│ SERVER (Docker Container, TZ=UTC)                                │
+│ ┌──────────────────────────────────────────────────────────────┐ │
+│ │ SQLite DB: CURRENT_TIMESTAMP → UTC                          │ │
+│ │ Python:    datetime.now(timezone.utc)                        │ │
+│ │ API:       Semua response timestamp dalam format ISO 8601 Z │ │
+│ └──────────────────────────────────────────────────────────────┘ │
+│                              ↓ JSON (UTC)                        │
+├──────────────────────────────────────────────────────────────────┤
+│ ADMIN PANEL (Browser)                                            │
+│ → JavaScript localizeDates() mengkonversi UTC → timezone browser │
+├──────────────────────────────────────────────────────────────────┤
+│ ANDROID / iOS (Device Siswa)                                     │
+│ → Menerima timestamp UTC, ditampilkan sesuai timezone device     │
+│ → Endpoint /api/time tersedia untuk verifikasi jam server        │
+└──────────────────────────────────────────────────────────────────┘
+```
+
+### Endpoint Sinkronisasi Waktu
+
+Gunakan endpoint `/api/time` untuk mendapatkan waktu server yang otoritatif:
+```bash
+curl http://<IP_SERVER>:5000/api/time
+```
+Contoh response:
+```json
+{
+  "utc": "2026-05-22T17:27:14Z",
+  "unix": 1779470834,
+  "timezone": "UTC"
+}
+```
+
+> [!NOTE]
+> Docker container berjalan dengan environment `TZ=UTC`. Semua field `created_at` dari database SQLite otomatis tersimpan dalam UTC. Konversi ke zona waktu lokal dilakukan sepenuhnya di sisi klien (browser admin / device siswa).

@@ -162,7 +162,7 @@
                                     {{ exam.status }}
                                 </span>
                             </td>
-                            <td class="td-date">{{ exam.created_at }}</td>
+                            <td class="td-date" data-utc="{{ exam.created_at }}">{{ exam.created_at }}</td>
                             <td class="td-actions">
                                 <button class="btn-sm btn-questions" onclick="openQuestionsModal({{ exam.id }}, '{{ exam.name }}')" title="Konfigurasi Soal & Kunci Jawaban">
                                     ⚙️ Atur Soal

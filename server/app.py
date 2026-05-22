@@ -14,7 +14,7 @@ import socket
 import json
 import csv
 import io
-from datetime import datetime
+from datetime import datetime, timezone
 from functools import wraps
 
 from flask import (
@@ -265,16 +265,40 @@ def get_storage_stats():
     return total
 
 
+def format_iso_utc(date_str):
+    """Convert SQLite YYYY-MM-DD HH:MM:SS string to ISO 8601 UTC format (YYYY-MM-DDTHH:MM:SSZ)."""
+    if not date_str:
+        return date_str
+    if ' ' in date_str:
+        return date_str.replace(' ', 'T') + 'Z'
+    if 'T' in date_str or date_str.endswith('Z'):
+        return date_str
+    return date_str + 'Z'
+
+
 # ===== REST API Endpoints =====
 
 @app.route('/api/health')
 def api_health():
     """Health check endpoint."""
+    now = datetime.now(timezone.utc)
     return jsonify({
         'status': 'ok',
         'version': '1.1',
         'lan_mode': True,
-        'timestamp': datetime.now().isoformat()
+        'timestamp': now.isoformat(),
+        'server_time_utc': now.strftime('%Y-%m-%dT%H:%M:%SZ')
+    })
+
+
+@app.route('/api/time')
+def api_time():
+    """Return authoritative UTC server time for client synchronization."""
+    now = datetime.now(timezone.utc)
+    return jsonify({
+        'utc': now.strftime('%Y-%m-%dT%H:%M:%SZ'),
+        'unix': int(now.timestamp()),
+        'timezone': 'UTC'
     })
 
 
@@ -295,7 +319,7 @@ def api_exams():
             'name': exam['name'],
             'status': exam['status'],
             'size_mb': round(exam['size_bytes'] / (1024 * 1024), 2),
-            'created_at': exam['created_at']
+            'created_at': format_iso_utc(exam['created_at'])
         })
 
     db.close()
@@ -345,7 +369,7 @@ def api_exam_by_token(token):
             'token': exam['token'],
             'size_mb': round(exam['size_bytes'] / (1024 * 1024), 2),
             'questions': questions,
-            'created_at': exam['created_at']
+            'created_at': format_iso_utc(exam['created_at'])
         }
     })
 
@@ -543,7 +567,7 @@ def admin_upload():
         }), 400
 
     # Save file with secure name
-    timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+    timestamp = datetime.now(timezone.utc).strftime('%Y%m%d_%H%M%S')
     safe_name = secure_filename(file.filename)
     filename = f"{timestamp}_{safe_name}"
     file_path = os.path.join(STORAGE_DIR, filename)
@@ -719,7 +743,7 @@ def admin_list_users():
     return jsonify({
         'success': True,
         'users': [
-            {'id': u['id'], 'username': u['username'], 'created_at': u['created_at']}
+            {'id': u['id'], 'username': u['username'], 'created_at': format_iso_utc(u['created_at'])}
             for u in users
         ]
     })
@@ -916,7 +940,7 @@ def admin_submission_detail(submission_id):
         'student_class': sub['student_class'],
         'exam_name': sub['exam_name'],
         'score': sub['score'],
-        'created_at': sub['created_at'],
+        'created_at': format_iso_utc(sub['created_at']),
         'answers': answers,
         'questions': questions
     })
@@ -1133,7 +1157,7 @@ def admin_export_submissions():
     si.close()
 
     # Create Flask response
-    filename = f"hasil_ujian_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv"
+    filename = f"hasil_ujian_{datetime.now(timezone.utc).strftime('%Y%m%d_%H%M%S')}.csv"
     response = send_file(
         io.BytesIO(output.encode('utf-8-sig')), # use utf-8-sig for Excel compatibility in Indonesian local settings
         mimetype='text/csv',

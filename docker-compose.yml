@@ -1,4 +1,4 @@
-version: '3.8'
+#version: '3.8'
 
 services:
   examvan-server:
@@ -12,8 +12,20 @@ services:
     environment:
       - EXAMVAN_SECRET=examvan_super_secret_key_change_me
       - PORT=5000
+      - TZ=UTC
     volumes:
       # Persist SQLite Database locally on host filesystem
       - ./server/examvan.db:/app/examvan.db
       # Persist Uploaded PDFs locally on host filesystem
       - ./server/storage:/app/storage
+
+  cloudflare-tunnel:
+    build:
+      context: ./tunnel
+    container_name: examvan-tunnel
+    restart: unless-stopped
+    environment:
+      - TUNNEL_TOKEN=${TUNNEL_TOKEN:-}
+      - TZ=UTC
+    depends_on:
+      - examvan-server

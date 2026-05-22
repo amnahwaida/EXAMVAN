@@ -81,7 +81,7 @@
                                 <span class="status-badge status-inactive">Belum Dinilai</span>
                                 {% endif %}
                             </td>
-                            <td class="td-date">{{ sub.created_at }}</td>
+                            <td class="td-date" data-utc="{{ sub.created_at }}">{{ sub.created_at }}</td>
                             <td class="td-actions">
                                 <button class="btn-sm btn-toggle" onclick="showSubmissionDetail({{ sub.id }})">
                                     👁️ Detail

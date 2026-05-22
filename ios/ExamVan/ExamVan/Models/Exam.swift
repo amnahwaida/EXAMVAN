@@ -27,6 +27,8 @@ struct HealthResponse: Codable {
     let status: String
     let version: String
     let lan_mode: Bool
+    let timestamp: String?
+    let server_time_utc: String?
 }
 
 struct SubmitResponse: Codable {
