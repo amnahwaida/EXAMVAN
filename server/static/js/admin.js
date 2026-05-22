@@ -354,7 +354,9 @@ function renderQuestions(questions) {
     container.innerHTML = '';
     
     if (!questions || questions.length === 0) {
-        questions = [{ type: 'single_choice', weight: 1.0 }];
+        container.innerHTML = '<div style="color:var(--text-muted); text-align:center; padding: 16px; font-size: 13px;">Tidak ada soal dikonfigurasi. Ujian akan tampil sebagai PDF saja tanpa overlay jawaban.</div>';
+        container.appendChild(createDivider(0));
+        return;
     }
     
     container.appendChild(createDivider(0));
@@ -397,7 +399,8 @@ function onQuestionTypeChange(selectEl) {
 }
 
 function quickGenerateQuestions() {
-    const qty = parseInt(document.getElementById('generateQty').value) || 40;
+    const rawQty = parseInt(document.getElementById('generateQty').value);
+    const qty = isNaN(rawQty) ? 40 : rawQty;
     const type = document.getElementById('generateType').value;
     
     const questions = [];

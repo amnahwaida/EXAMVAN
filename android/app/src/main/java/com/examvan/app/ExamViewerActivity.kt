@@ -156,7 +156,12 @@ class ExamViewerActivity : AppCompatActivity() {
             try {
                 val type = object : TypeToken<List<Map<String, Any>>>() {}.type
                 questions = Gson().fromJson(json, type)
-                buildAnswerSheet()
+                if (questions.isEmpty()) {
+                    // 0 questions configured: PDF-only mode, hide answer overlay
+                    hideAnswerOverlay()
+                } else {
+                    buildAnswerSheet()
+                }
             } catch (e: Exception) {
                 // Fallback: generate 40 default MC questions
                 generateDefaultQuestions()
@@ -164,6 +169,12 @@ class ExamViewerActivity : AppCompatActivity() {
         } else {
             generateDefaultQuestions()
         }
+    }
+
+    private fun hideAnswerOverlay() {
+        binding.btnToggleAnswerSheet.visibility = View.GONE
+        binding.answerSheetPanel.visibility = View.GONE
+        binding.btnSubmitAnswers.visibility = View.GONE
     }
 
     private fun generateDefaultQuestions() {
