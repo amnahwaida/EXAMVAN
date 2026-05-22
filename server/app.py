@@ -124,6 +124,12 @@ def init_db():
 
     db.close()
 
+# Initialize database on module import (safely creates tables under Gunicorn)
+try:
+    init_db()
+except Exception as e:
+    print(f"Error initializing database on startup: {e}")
+
 
 # ===== Helpers =====
 def generate_token(length=6):
@@ -1195,7 +1201,6 @@ def not_found(e):
 
 # ===== Main =====
 if __name__ == '__main__':
-    init_db()
     local_ip = get_local_ip()
     port = int(os.environ.get('PORT', 5000))
 
