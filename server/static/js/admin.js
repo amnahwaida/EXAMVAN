@@ -217,74 +217,153 @@ function closeQuestionsModal() {
     activeExamId = null;
 }
 
+function createNewQuestionCard(q, num) {
+    const type = q.type || 'single_choice';
+    const key = q.key || '';
+    const weight = q.weight !== undefined ? q.weight : 1.0;
+    const partial = q.partial_scoring ? 'checked' : '';
+    const partialVisibility = (type === 'multiple_choice' || type === 'matching') ? 'block' : 'none';
+    
+    let optionsVal = '';
+    if (type === 'single_choice' || type === 'multiple_choice') {
+        optionsVal = q.choices ? q.choices.join(', ') : 'A, B, C, D, E';
+    } else if (type === 'matching') {
+        optionsVal = q.left_items && q.right_items ? `Kiri: ${q.left_items.join(', ')} | Kanan: ${q.right_items.join(', ')}` : 'Kiri: 1, 2, 3 | Kanan: A, B, C';
+    }
+    
+    let keyVal = '';
+    if (Array.isArray(key)) {
+        keyVal = key.join(', ');
+    } else if (typeof key === 'object' && key !== null) {
+        keyVal = Object.keys(key).map(k => `${k}:${key[k]}`).join(', ');
+    } else {
+        keyVal = key;
+    }
+
+    const card = document.createElement('div');
+    card.className = 'question-editor-card';
+    card.innerHTML = `
+        <span class="q-num-badge">No. ${num}</span>
+        <input type="hidden" class="q-number" value="${num}">
+        <div class="q-field-group">
+            <label>Tipe</label>
+            <select class="q-type-select" onchange="onQuestionTypeChange(this)">
+                <option value="single_choice" ${type === 'single_choice' ? 'selected' : ''}>Pilihan Ganda (Single)</option>
+                <option value="multiple_choice" ${type === 'multiple_choice' ? 'selected' : ''}>Pilihan Ganda Kompleks</option>
+                <option value="true_false" ${type === 'true_false' ? 'selected' : ''}>Benar / Salah</option>
+                <option value="matching" ${type === 'matching' ? 'selected' : ''}>Menjodohkan (Matching)</option>
+            </select>
+        </div>
+        <div class="q-field-group">
+            <label>Bobot</label>
+            <input type="number" class="q-weight-input" value="${weight}" step="0.5" min="0" placeholder="1.0">
+        </div>
+        <div class="q-field-group q-partial-group" style="display: ${partialVisibility}; align-self: center; margin-top: 14px;">
+            <label style="display: flex; align-items: center; gap: 6px; cursor: pointer; text-transform: none; font-size: 12px; font-weight: 600; color: #a5b4fc;">
+                <input type="checkbox" class="q-partial-checkbox" ${partial}> Parsial
+            </label>
+        </div>
+        <div class="q-field-group">
+            <label>Kunci Jawaban</label>
+            <input type="text" class="q-key-input" value="${keyVal}" placeholder="A / A,C / TRUE / 1:A, 2:B" title="Pilihan Kompleks (koma), Menjodohkan (K:V)">
+        </div>
+        <div class="q-field-group">
+            <label>Pilihan / Konfigurasi Item</label>
+            <input type="text" class="q-options-input" value="${optionsVal}" placeholder="Pilihan dipisahkan koma">
+        </div>
+        <button class="btn-sm btn-delete btn-remove-q" onclick="removeQuestionCard(this)" title="Hapus Soal" style="margin-left: auto; border: 1px solid rgba(239, 68, 68, 0.3);">🗑️ Hapus Soal</button>
+    `;
+    return card;
+}
+
+function createDivider(index) {
+    const div = document.createElement('div');
+    div.className = 'q-editor-divider';
+    div.dataset.index = index;
+    div.innerHTML = `
+        <div class="q-divider-line"></div>
+        <button class="btn-add-inline" onclick="insertQuestionAt(${index})" title="Sisipkan Soal Baru Di Sini">➕ Sisipkan Soal</button>
+        <div class="q-divider-line"></div>
+    `;
+    return div;
+}
+
+function insertQuestionAt(index) {
+    const container = document.getElementById('questionsList');
+    const newQ = { type: 'single_choice', weight: 1.0 };
+    const newCard = createNewQuestionCard(newQ, 0);
+    const newDivider = createDivider(0);
+    
+    const dividers = Array.from(container.querySelectorAll('.q-editor-divider'));
+    const targetDivider = dividers.find(d => d.dataset.index == index);
+    if (targetDivider) {
+        const nextNode = targetDivider.nextSibling;
+        if (nextNode) {
+            container.insertBefore(newCard, nextNode);
+            container.insertBefore(newDivider, newCard.nextSibling);
+        } else {
+            container.appendChild(newCard);
+            container.appendChild(newDivider);
+        }
+    } else {
+        container.appendChild(newCard);
+        container.appendChild(newDivider);
+    }
+    reindexQuestions();
+}
+
+function removeQuestionCard(btn) {
+    if (!confirm('Hapus soal ini?')) return;
+    const card = btn.closest('.question-editor-card');
+    const divider = card.nextSibling;
+    if (divider && divider.classList && divider.classList.contains('q-editor-divider')) {
+        divider.remove();
+    }
+    card.remove();
+    reindexQuestions();
+}
+
+function reindexQuestions() {
+    const container = document.getElementById('questionsList');
+    const children = Array.from(container.children);
+    
+    let currentNum = 1;
+    children.forEach(child => {
+        if (child.classList.contains('question-editor-card')) {
+            child.querySelector('.q-num-badge').textContent = `No. ${currentNum}`;
+            child.querySelector('.q-number').value = currentNum;
+            currentNum++;
+        }
+    });
+    
+    let dividerCount = 0;
+    children.forEach(child => {
+        if (child.classList.contains('q-editor-divider')) {
+            child.dataset.index = dividerCount;
+            const btn = child.querySelector('.btn-add-inline');
+            if (btn) {
+                btn.setAttribute('onclick', `insertQuestionAt(${dividerCount})`);
+            }
+            dividerCount++;
+        }
+    });
+}
+
 function renderQuestions(questions) {
     const container = document.getElementById('questionsList');
     container.innerHTML = '';
     
     if (!questions || questions.length === 0) {
-        container.innerHTML = '<div style="color:var(--text-muted); text-align:center; padding: 20px;">Belum ada konfigurasi soal. Silakan gunakan generator otomatis di atas untuk membuat default soal.</div>';
-        return;
+        questions = [{ type: 'single_choice', weight: 1.0 }];
     }
     
+    container.appendChild(createDivider(0));
+    
     questions.forEach((q, index) => {
-        const num = q.number || (index + 1);
-        const type = q.type || 'single_choice';
-        const key = q.key || '';
-        
-        let optionsVal = '';
-        if (type === 'single_choice' || type === 'multiple_choice') {
-            optionsVal = q.choices ? q.choices.join(', ') : 'A, B, C, D, E';
-        } else if (type === 'matching') {
-            optionsVal = q.left_items && q.right_items ? `Kiri: ${q.left_items.join(', ')} | Kanan: ${q.right_items.join(', ')}` : 'Kiri: 1, 2, 3 | Kanan: A, B, C';
-        }
-        
-        let keyVal = '';
-        if (Array.isArray(key)) {
-            keyVal = key.join(', ');
-        } else if (typeof key === 'object' && key !== null) {
-            keyVal = Object.keys(key).map(k => `${k}:${key[k]}`).join(', ');
-        } else {
-            keyVal = key;
-        }
-
-        const weight = q.weight !== undefined ? q.weight : 1.0;
-        const partial = q.partial_scoring ? 'checked' : '';
-        const partialVisibility = (type === 'multiple_choice' || type === 'matching') ? 'block' : 'none';
-
-        const card = document.createElement('div');
-        card.className = 'question-editor-card';
-        card.innerHTML = `
-            <span class="q-num-badge">No. ${num}</span>
-            <input type="hidden" class="q-number" value="${num}">
-            <div class="q-field-group">
-                <label>Tipe</label>
-                <select class="q-type-select" onchange="onQuestionTypeChange(this)">
-                    <option value="single_choice" ${type === 'single_choice' ? 'selected' : ''}>Pilihan Ganda (Single)</option>
-                    <option value="multiple_choice" ${type === 'multiple_choice' ? 'selected' : ''}>Pilihan Ganda Kompleks</option>
-                    <option value="true_false" ${type === 'true_false' ? 'selected' : ''}>Benar / Salah</option>
-                    <option value="matching" ${type === 'matching' ? 'selected' : ''}>Menjodohkan (Matching)</option>
-                </select>
-            </div>
-            <div class="q-field-group">
-                <label>Bobot</label>
-                <input type="number" class="q-weight-input" value="${weight}" step="0.5" min="0" placeholder="1.0">
-            </div>
-            <div class="q-field-group q-partial-group" style="display: ${partialVisibility}; align-self: center; margin-top: 14px;">
-                <label style="display: flex; align-items: center; gap: 6px; cursor: pointer; text-transform: none; font-size: 12px; font-weight: 600; color: #a5b4fc;">
-                    <input type="checkbox" class="q-partial-checkbox" ${partial}> Parsial
-                </label>
-            </div>
-            <div class="q-field-group">
-                <label>Kunci Jawaban</label>
-                <input type="text" class="q-key-input" value="${keyVal}" placeholder="A / A,C / TRUE / 1:A, 2:B" title="Pilihan Kompleks (koma), Menjodohkan (K:V)">
-            </div>
-            <div class="q-field-group">
-                <label>Pilihan / Konfigurasi Item</label>
-                <input type="text" class="q-options-input" value="${optionsVal}" placeholder="Pilihan dipisahkan koma">
-            </div>
-            <button class="btn-remove-q" onclick="this.parentElement.remove()" title="Hapus Soal">✕</button>
-        `;
+        const num = index + 1;
+        const card = createNewQuestionCard(q, num);
         container.appendChild(card);
+        container.appendChild(createDivider(num));
     });
 }
 

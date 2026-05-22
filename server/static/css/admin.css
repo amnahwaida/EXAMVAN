@@ -1,27 +1,28 @@
 /* EXAMVAN Admin Panel - Dark Glassmorphism Theme */
 :root {
-    --bg: #0a0a1a;
-    --surface: rgba(255,255,255,0.04);
-    --surface-hover: rgba(255,255,255,0.08);
-    --glass: rgba(255,255,255,0.06);
-    --glass-border: rgba(255,255,255,0.1);
+    --bg: #09090e;
+    --surface: rgba(255,255,255,0.03);
+    --surface-hover: rgba(255,255,255,0.07);
+    --glass: rgba(15, 15, 30, 0.45);
+    --glass-border: rgba(255, 255, 255, 0.08);
     --primary: #6366f1;
-    --primary-glow: rgba(99,102,241,0.3);
+    --primary-glow: rgba(99, 102, 241, 0.25);
     --success: #10b981;
     --danger: #ef4444;
     --warning: #f59e0b;
-    --text: #f1f5f9;
-    --text-secondary: #94a3b8;
+    --text: #f8fafc;
+    --text-secondary: #cbd5e1;
     --text-muted: #64748b;
-    --radius: 12px;
-    --radius-sm: 8px;
+    --radius: 16px;
+    --radius-sm: 10px;
 }
 
 * { margin:0; padding:0; box-sizing:border-box; }
 
 body {
     font-family: 'Inter', system-ui, -apple-system, sans-serif;
-    background: var(--bg);
+    background: radial-gradient(circle at 50% 0%, #17152f 0%, #0c0a1a 50%, #06050b 100%);
+    background-attachment: fixed;
     color: var(--text);
     min-height: 100vh;
     -webkit-font-smoothing: antialiased;
@@ -196,10 +197,11 @@ body {
     display: flex;
     align-items: center;
     justify-content: space-between;
-    padding: 12px 24px;
-    background: var(--glass);
-    backdrop-filter: blur(20px);
-    border-bottom: 1px solid var(--glass-border);
+    padding: 14px 28px;
+    background: rgba(10, 10, 22, 0.65);
+    backdrop-filter: blur(24px);
+    -webkit-backdrop-filter: blur(24px);
+    border-bottom: 1px solid rgba(255, 255, 255, 0.06);
     position: sticky;
     top: 0;
     z-index: 100;
@@ -263,20 +265,22 @@ body {
 }
 
 .stat-card {
-    background: var(--glass);
-    backdrop-filter: blur(16px);
-    border: 1px solid var(--glass-border);
+    background: rgba(13, 13, 30, 0.5);
+    backdrop-filter: blur(20px);
+    -webkit-backdrop-filter: blur(20px);
+    border: 1px solid rgba(255, 255, 255, 0.06);
     border-radius: var(--radius);
-    padding: 20px;
+    padding: 22px;
     display: flex;
     align-items: center;
     gap: 16px;
-    transition: transform 0.2s, box-shadow 0.2s;
+    transition: transform 0.25s ease, box-shadow 0.25s ease, border-color 0.25s ease;
 }
 
 .stat-card:hover {
-    transform: translateY(-2px);
-    box-shadow: 0 8px 32px rgba(0,0,0,0.3);
+    transform: translateY(-3px);
+    box-shadow: 0 12px 40px rgba(0, 0, 0, 0.4);
+    border-color: rgba(255, 255, 255, 0.1);
 }
 
 .stat-icon { font-size: 32px; }
@@ -290,11 +294,13 @@ body {
 
 /* Glass Card */
 .glass-card {
-    background: var(--glass);
-    backdrop-filter: blur(16px);
-    border: 1px solid var(--glass-border);
+    background: rgba(13, 13, 30, 0.5);
+    backdrop-filter: blur(24px);
+    -webkit-backdrop-filter: blur(24px);
+    border: 1px solid rgba(255, 255, 255, 0.06);
     border-radius: var(--radius);
     padding: 24px;
+    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.25);
 }
 
 .glass-card h3 { font-size: 18px; font-weight: 600; margin-bottom: 20px; }
@@ -681,18 +687,27 @@ body {
 }
 
 .nav-link {
-    color: var(--text-secondary);
+    color: var(--text-muted);
     text-decoration: none;
     font-size: 14px;
-    font-weight: 500;
-    padding: 6px 12px;
-    border-radius: 6px;
-    transition: all 0.2s;
+    font-weight: 600;
+    padding: 7px 16px;
+    border-radius: var(--radius-sm);
+    transition: all 0.2s ease-in-out;
+    border: 1px solid transparent;
 }
 
-.nav-link:hover, .nav-link.active {
-    color: var(--text);
-    background: var(--surface-hover);
+.nav-link:hover {
+    color: #c4b5fd;
+    background: rgba(99, 102, 241, 0.08);
+    border-color: rgba(99, 102, 241, 0.15);
+}
+
+.nav-link.active {
+    color: #fff;
+    background: rgba(99, 102, 241, 0.18);
+    border-color: rgba(99, 102, 241, 0.35);
+    box-shadow: 0 0 12px rgba(99, 102, 241, 0.15);
 }
 
 /* ===== Modal Styles ===== */
@@ -896,17 +911,19 @@ body {
 }
 
 .btn-remove-q {
-    background: none;
-    border: none;
-    color: var(--text-muted);
-    font-size: 16px;
+    background: rgba(239, 68, 68, 0.08);
+    color: #fca5a5;
+    font-size: 12px;
     cursor: pointer;
     margin-left: auto;
-    transition: color 0.2s;
+    transition: all 0.2s ease-in-out;
+    white-space: nowrap;
 }
 
 .btn-remove-q:hover {
-    color: var(--danger);
+    background: rgba(239, 68, 68, 0.2);
+    color: #fff;
+    border-color: rgba(239, 68, 68, 0.5);
 }
 
 /* Detail Answers Modal */
@@ -986,5 +1003,49 @@ body {
     font-size: 11px;
     color: var(--text-muted);
     font-weight: 600;
+}
+
+/* Inline Question Editor Dividers & Buttons */
+.q-editor-divider {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    margin: 8px 0;
+    gap: 12px;
+    opacity: 0.35;
+    transition: opacity 0.2s ease-in-out;
+}
+
+.q-editor-divider:hover {
+    opacity: 1.0;
+}
+
+.q-divider-line {
+    flex: 1;
+    height: 1px;
+    background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.12), transparent);
+}
+
+.btn-add-inline {
+    background: rgba(99, 102, 241, 0.12);
+    border: 1px dashed rgba(99, 102, 241, 0.4);
+    color: #a5b4fc;
+    font-size: 11px;
+    font-weight: 700;
+    padding: 5px 14px;
+    border-radius: 20px;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    transition: all 0.2s ease-in-out;
+}
+
+.btn-add-inline:hover {
+    background: rgba(99, 102, 241, 0.25);
+    border-color: rgba(99, 102, 241, 0.7);
+    color: #ffffff;
+    box-shadow: 0 0 10px rgba(99, 102, 241, 0.3);
+    transform: scale(1.05);
 }
 
