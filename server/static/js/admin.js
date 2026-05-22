@@ -248,6 +248,8 @@ function renderQuestions(questions) {
         }
 
         const weight = q.weight !== undefined ? q.weight : 1.0;
+        const partial = q.partial_scoring ? 'checked' : '';
+        const partialVisibility = (type === 'multiple_choice' || type === 'matching') ? 'block' : 'none';
 
         const card = document.createElement('div');
         card.className = 'question-editor-card';
@@ -267,6 +269,11 @@ function renderQuestions(questions) {
                 <label>Bobot</label>
                 <input type="number" class="q-weight-input" value="${weight}" step="0.5" min="0" placeholder="1.0">
             </div>
+            <div class="q-field-group q-partial-group" style="display: ${partialVisibility}; align-self: center; margin-top: 14px;">
+                <label style="display: flex; align-items: center; gap: 6px; cursor: pointer; text-transform: none; font-size: 12px; font-weight: 600; color: #a5b4fc;">
+                    <input type="checkbox" class="q-partial-checkbox" ${partial}> Parsial
+                </label>
+            </div>
             <div class="q-field-group">
                 <label>Kunci Jawaban</label>
                 <input type="text" class="q-key-input" value="${keyVal}" placeholder="A / A,C / TRUE / 1:A, 2:B" title="Pilihan Kompleks (koma), Menjodohkan (K:V)">
@@ -285,7 +292,15 @@ function onQuestionTypeChange(selectEl) {
     const card = selectEl.closest('.question-editor-card');
     const optionsInput = card.querySelector('.q-options-input');
     const keyInput = card.querySelector('.q-key-input');
+    const partialGroup = card.querySelector('.q-partial-group');
     const type = selectEl.value;
+    
+    if (type === 'multiple_choice' || type === 'matching') {
+        partialGroup.style.display = 'block';
+    } else {
+        partialGroup.style.display = 'none';
+        card.querySelector('.q-partial-checkbox').checked = false;
+    }
     
     if (type === 'single_choice') {
         optionsInput.value = 'A, B, C, D, E';
@@ -339,8 +354,10 @@ function saveQuestionsConfig() {
         const keyRaw = card.querySelector('.q-key-input').value.trim();
         const optionsRaw = card.querySelector('.q-options-input').value.trim();
         const weight = parseFloat(card.querySelector('.q-weight-input').value) || 1.0;
+        const partialCheckbox = card.querySelector('.q-partial-checkbox');
+        const partialScoring = (type === 'multiple_choice' || type === 'matching') && partialCheckbox ? partialCheckbox.checked : false;
         
-        let q = { number: number, type: type, weight: weight };
+        let q = { number: number, type: type, weight: weight, partial_scoring: partialScoring };
         
         if (type === 'single_choice' || type === 'multiple_choice') {
             q.choices = optionsRaw.split(',').map(x => x.trim()).filter(x => x);

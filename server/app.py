@@ -289,28 +289,46 @@ def api_submit_exam(exam_id):
                 correct_ans = q.get('key')
                 q_weight = float(q.get('weight', 1.0))
                 total_weight += q_weight
+                partial_scoring = q.get('partial_scoring', False)
 
-                is_correct = False
+                earned_q_weight = 0.0
                 if student_ans is not None and correct_ans is not None:
                     if q['type'] in ['single_choice', 'true_false']:
                         if str(student_ans).strip().upper() == str(correct_ans).strip().upper():
-                            is_correct = True
+                            earned_q_weight = q_weight
                     elif q['type'] == 'multiple_choice':
                         if isinstance(student_ans, list) and isinstance(correct_ans, list):
-                            if sorted([str(x).upper() for x in student_ans]) == sorted([str(x).upper() for x in correct_ans]):
-                                is_correct = True
+                            if partial_scoring:
+                                correct_set = set(str(x).upper() for x in correct_ans)
+                                student_set = set(str(x).upper() for x in student_ans)
+                                if correct_set:
+                                    correct_selected = sum(1 for x in student_set if x in correct_set)
+                                    incorrect_selected = sum(1 for x in student_set if x not in correct_set)
+                                    portion = max(0.0, (correct_selected - incorrect_selected) / len(correct_set))
+                                    earned_q_weight = portion * q_weight
+                            else:
+                                if sorted([str(x).upper() for x in student_ans]) == sorted([str(x).upper() for x in correct_ans]):
+                                    earned_q_weight = q_weight
                     elif q['type'] == 'matching':
                         if isinstance(student_ans, dict) and isinstance(correct_ans, dict):
-                            match = True
-                            for k, v in correct_ans.items():
-                                if str(student_ans.get(k)).strip().upper() != str(v).strip().upper():
-                                    match = False
-                                    break
-                            if match:
-                                is_correct = True
+                            if partial_scoring:
+                                if correct_ans:
+                                    correct_matches = 0
+                                    for k, v in correct_ans.items():
+                                        if str(student_ans.get(k)).strip().upper() == str(v).strip().upper():
+                                            correct_matches += 1
+                                    portion = correct_matches / len(correct_ans)
+                                    earned_q_weight = portion * q_weight
+                            else:
+                                match = True
+                                for k, v in correct_ans.items():
+                                    if str(student_ans.get(k)).strip().upper() != str(v).strip().upper():
+                                        match = False
+                                        break
+                                if match:
+                                    earned_q_weight = q_weight
                 
-                if is_correct:
-                    earned_weight += q_weight
+                earned_weight += earned_q_weight
 
             score = round(earned_weight, 2)
         except Exception as e:
