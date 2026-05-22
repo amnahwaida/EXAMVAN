@@ -239,14 +239,17 @@ class ServerConfigViewController: UIViewController {
     }
     
     @objc private func connectTapped() {
-        guard let url = urlTextField.text?.trimmingCharacters(in: .whitespacesAndNewlines), !url.isEmpty else {
+        guard let urlInput = urlTextField.text?.trimmingCharacters(in: .whitespacesAndNewlines), !urlInput.isEmpty else {
             showError("URL tidak boleh kosong")
             return
         }
-        guard url.hasPrefix("http://") || url.hasPrefix("https://") else {
-            showError("Format URL tidak valid (harus diawali http:// atau https://)")
-            return
+        
+        var url = urlInput
+        if !url.hasPrefix("http://") && !url.hasPrefix("https://") {
+            url = "http://\(url)"
+            urlTextField.text = url
         }
+        
         guard let token = tokenTextField.text?.trimmingCharacters(in: .whitespacesAndNewlines).uppercased(), !token.isEmpty else {
             showError("Token tidak boleh kosong")
             return

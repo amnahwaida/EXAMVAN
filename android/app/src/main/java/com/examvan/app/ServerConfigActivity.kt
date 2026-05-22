@@ -67,8 +67,14 @@ class ServerConfigActivity : AppCompatActivity() {
         }
 
         binding.btnConnect.setOnClickListener {
-            val url = binding.etServerUrl.text.toString().trim()
+            var url = binding.etServerUrl.text.toString().trim()
             val token = binding.etToken.text.toString().trim().uppercase()
+            
+            if (url.isNotEmpty() && !url.startsWith("http://") && !url.startsWith("https://")) {
+                url = "http://$url"
+                binding.etServerUrl.setText(url)
+            }
+
             if (validateInputs(url, token)) {
                 connectAndFetchExam(url, token)
             }
@@ -78,10 +84,6 @@ class ServerConfigActivity : AppCompatActivity() {
     private fun validateInputs(url: String, token: String): Boolean {
         if (url.isEmpty()) {
             showError("URL tidak boleh kosong")
-            return false
-        }
-        if (!url.startsWith("http://") && !url.startsWith("https://")) {
-            showError(getString(R.string.error_invalid_url))
             return false
         }
         if (token.isEmpty()) {
