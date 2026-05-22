@@ -157,6 +157,9 @@
                                 <button class="btn-sm btn-questions" onclick="openQuestionsModal({{ exam.id }}, '{{ exam.name }}')" title="Konfigurasi Soal & Kunci Jawaban">
                                     ⚙️ Atur Soal
                                 </button>
+                                <a href="{{ url_for('admin_submissions') }}?exam_id={{ exam.id }}" class="btn-sm btn-results" title="Lihat Hasil Ujian Siswa" style="text-decoration: none; display: inline-flex; align-items: center; justify-content: center; height: 32px; vertical-align: middle;">
+                                    📊 Hasil Ujian
+                                </a>
                                 <button class="btn-sm btn-toggle" onclick="toggleExam({{ exam.id }})">
                                     {{ '⏸️ Nonaktifkan' if exam.status == 'active' else '▶️ Aktifkan' }}
                                 </button>

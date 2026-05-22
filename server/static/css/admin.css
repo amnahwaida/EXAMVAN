@@ -599,6 +599,14 @@ body {
 
 .btn-questions:hover { background: rgba(139,92,246,0.2); }
 
+.btn-results {
+    background: rgba(6,182,212,0.1);
+    color: #67e8f9;
+    border-color: rgba(6,182,212,0.25);
+}
+
+.btn-results:hover { background: rgba(6,182,212,0.2); }
+
 /* Empty State */
 .empty-state {
     text-align: center;

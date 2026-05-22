@@ -312,8 +312,7 @@ def api_submit_exam(exam_id):
                 if is_correct:
                     earned_weight += q_weight
 
-            if total_weight > 0:
-                score = round((earned_weight / total_weight) * 100, 2)
+            score = round(earned_weight, 2)
         except Exception as e:
             print("Auto-grading error:", e)
 
