@@ -69,7 +69,7 @@
                             <td><code class="token-code" style="letter-spacing: normal; font-size:12px;">{{ sub.exam_number }}</code></td>
                             <td>{{ sub.student_class }}</td>
                             <td>
-                                {% if sub.score is not null %}
+                                {% if sub.score is not none %}
                                 <span class="status-badge status-active" style="font-size:13px; font-weight:700;">
                                     {{ sub.score }}
                                 </span>
