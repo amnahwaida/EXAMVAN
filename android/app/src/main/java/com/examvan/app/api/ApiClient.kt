@@ -102,6 +102,46 @@ object ApiClient {
     }
 
     /**
+     * Fetch exam by Token.
+     */
+    fun getExamByToken(
+        token: String,
+        onSuccess: (com.examvan.app.model.TokenExamResponse) -> Unit,
+        onError: (String) -> Unit
+    ) {
+        val request = Request.Builder()
+            .url("$baseUrl/api/exams/token/$token")
+            .get()
+            .build()
+
+        client.newCall(request).enqueue(object : Callback {
+            override fun onFailure(call: Call, e: IOException) {
+                onError(e.message ?: "Koneksi gagal")
+            }
+
+            override fun onResponse(call: Call, response: Response) {
+                response.use {
+                    if (it.code == 404) {
+                        onError("Token tidak valid atau ujian sudah berakhir")
+                        return
+                    }
+                    if (!it.isSuccessful) {
+                        onError("Server error: ${it.code}")
+                        return
+                    }
+                    try {
+                        val body = it.body?.string() ?: ""
+                        val result = gson.fromJson(body, com.examvan.app.model.TokenExamResponse::class.java)
+                        onSuccess(result)
+                    } catch (e: Exception) {
+                        onError("Response tidak valid")
+                    }
+                }
+            }
+        })
+    }
+
+    /**
      * Download exam PDF with progress callback.
      * Uses atomic save pattern: downloads to temp file first,
      * then renames to final path only if 100% complete.

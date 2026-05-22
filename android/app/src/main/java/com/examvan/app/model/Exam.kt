@@ -8,6 +8,7 @@ data class Exam(
     val name: String,
     val status: String,
     val size_mb: Double,
+    val token: String? = null,
     val created_at: String
 )
 
@@ -17,6 +18,16 @@ data class Exam(
 data class ExamListResponse(
     val success: Boolean,
     val data: List<Exam>
+)
+
+/**
+ * API response for single exam by token.
+ */
+data class TokenExamResponse(
+    val success: Boolean,
+    val data: Exam? = null,
+    val error: String? = null,
+    val message: String? = null
 )
 
 /**

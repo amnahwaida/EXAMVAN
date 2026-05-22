@@ -42,10 +42,10 @@
         <TextView
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:text="Konfigurasi Server Ujian"
+            android:text="Masukkan Server &amp; Token Ujian"
             android:textSize="14sp"
             android:textColor="@color/text_secondary"
-            android:layout_marginBottom="40dp" />
+            android:layout_marginBottom="32dp" />
 
         <!-- URL Input -->
         <TextView
@@ -68,6 +68,33 @@
             android:background="@color/surface_variant"
             android:paddingHorizontal="16dp"
             android:singleLine="true"
+            android:layout_marginBottom="16dp" />
+
+        <!-- Token Input -->
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="@string/label_token"
+            android:textSize="13sp"
+            android:textColor="@color/text_secondary"
+            android:layout_marginBottom="6dp" />
+
+        <EditText
+            android:id="@+id/etToken"
+            android:layout_width="match_parent"
+            android:layout_height="52dp"
+            android:hint="@string/hint_token"
+            android:inputType="textCapCharacters"
+            android:textSize="18sp"
+            android:textStyle="bold"
+            android:textColor="@color/on_surface"
+            android:textColorHint="@color/text_muted"
+            android:background="@color/surface_variant"
+            android:paddingHorizontal="16dp"
+            android:singleLine="true"
+            android:letterSpacing="0.15"
+            android:gravity="center"
+            android:maxLength="6"
             android:layout_marginBottom="12dp" />
 
         <!-- Remember Checkbox -->
@@ -90,6 +117,7 @@
             android:textSize="13sp"
             android:textColor="@color/danger"
             android:visibility="gone"
+            android:gravity="center"
             android:layout_marginBottom="8dp" />
 
         <!-- Loading -->
@@ -106,7 +134,7 @@
             android:id="@+id/btnConnect"
             android:layout_width="match_parent"
             android:layout_height="52dp"
-            android:text="@string/btn_connect"
+            android:text="@string/btn_start_exam"
             android:textSize="15sp"
             android:textStyle="bold"
             android:backgroundTint="@color/primary"
@@ -116,7 +144,7 @@
         <TextView
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:text="EXAMVAN v1.1.0"
+            android:text="EXAMVAN v1.2.0"
             android:textSize="11sp"
             android:textColor="@color/text_muted"
             android:layout_marginTop="32dp" />

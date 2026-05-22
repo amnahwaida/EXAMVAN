@@ -1,11 +1,13 @@
 """
 EXAMVAN Server - REST API & Admin Panel
-Version: 1.1.0
+Version: 1.2.0
 Platform: Flask + SQLite
 """
 
 import os
 import secrets
+import string
+import random
 import sqlite3
 import hashlib
 import socket
@@ -50,6 +52,7 @@ def init_db():
             name TEXT NOT NULL,
             file_path TEXT NOT NULL,
             size_bytes INTEGER NOT NULL,
+            token TEXT UNIQUE NOT NULL,
             status TEXT DEFAULT 'active' CHECK(status IN ('active', 'inactive')),
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         );
@@ -75,10 +78,34 @@ def init_db():
         )
         db.commit()
 
+    # Migrate: add token column if missing (for existing databases)
+    try:
+        db.execute('SELECT token FROM exams LIMIT 1')
+    except sqlite3.OperationalError:
+        db.execute('ALTER TABLE exams ADD COLUMN token TEXT')
+        # Generate tokens for existing rows
+        rows = db.execute('SELECT id FROM exams WHERE token IS NULL').fetchall()
+        for row in rows:
+            db.execute('UPDATE exams SET token = ? WHERE id = ?',
+                       (generate_token(), row['id']))
+        db.commit()
+
     db.close()
 
 
 # ===== Helpers =====
+def generate_token(length=6):
+    """Generate a unique uppercase alphanumeric token."""
+    chars = string.ascii_uppercase + string.digits
+    while True:
+        token = ''.join(random.choices(chars, k=length))
+        # Ensure uniqueness
+        db = get_db()
+        existing = db.execute('SELECT id FROM exams WHERE token = ?', (token,)).fetchone()
+        db.close()
+        if not existing:
+            return token
+
 def admin_required(f):
     """Decorator to require admin login."""
     @wraps(f)
@@ -149,6 +176,38 @@ def api_exams():
 
     db.close()
     return jsonify({'success': True, 'data': data})
+
+
+@app.route('/api/exams/token/<token>')
+def api_exam_by_token(token):
+    """Get exam info by token. Used by Android app."""
+    token = token.strip().upper()
+    db = get_db()
+    exam = db.execute(
+        'SELECT id, name, status, size_bytes, token, created_at '
+        'FROM exams WHERE token = ? AND status = ?',
+        (token, 'active')
+    ).fetchone()
+    db.close()
+
+    if not exam:
+        return jsonify({
+            'success': False,
+            'error': 'invalid_token',
+            'message': 'Token tidak valid atau ujian sudah berakhir'
+        }), 404
+
+    return jsonify({
+        'success': True,
+        'data': {
+            'id': exam['id'],
+            'name': exam['name'],
+            'status': exam['status'],
+            'token': exam['token'],
+            'size_mb': round(exam['size_bytes'] / (1024 * 1024), 2),
+            'created_at': exam['created_at']
+        }
+    })
 
 
 @app.route('/api/exams/<int:exam_id>/pdf')
@@ -293,16 +352,23 @@ def admin_upload():
     with open(file_path, 'wb') as f:
         f.write(file_data)
 
+    # Generate unique token
+    token = generate_token()
+
     # Save to database
     db = get_db()
     db.execute(
-        'INSERT INTO exams (name, file_path, size_bytes, status) VALUES (?, ?, ?, ?)',
-        (name, filename, len(file_data), 'active')
+        'INSERT INTO exams (name, file_path, size_bytes, token, status) VALUES (?, ?, ?, ?, ?)',
+        (name, filename, len(file_data), token, 'active')
     )
     db.commit()
     db.close()
 
-    return jsonify({'success': True, 'message': f'Ujian "{name}" berhasil diupload'})
+    return jsonify({
+        'success': True,
+        'message': f'Ujian "{name}" berhasil diupload',
+        'token': token
+    })
 
 
 @app.route('/admin/api/exams/<int:exam_id>/toggle', methods=['POST'])
@@ -350,6 +416,29 @@ def admin_delete_exam(exam_id):
     db.close()
 
     return jsonify({'success': True, 'message': 'Ujian berhasil dihapus'})
+
+
+@app.route('/admin/api/exams/<int:exam_id>/regenerate-token', methods=['POST'])
+@admin_required
+def admin_regenerate_token(exam_id):
+    """Regenerate token for an exam."""
+    db = get_db()
+    exam = db.execute('SELECT * FROM exams WHERE id = ?', (exam_id,)).fetchone()
+
+    if not exam:
+        db.close()
+        return jsonify({'success': False, 'message': 'Ujian tidak ditemukan'}), 404
+
+    new_token = generate_token()
+    db.execute('UPDATE exams SET token = ? WHERE id = ?', (new_token, exam_id))
+    db.commit()
+    db.close()
+
+    return jsonify({
+        'success': True,
+        'message': f'Token ujian berhasil diperbarui: {new_token}',
+        'token': new_token
+    })
 
 
 @app.route('/admin/api/stats')
@@ -407,7 +496,7 @@ if __name__ == '__main__':
 
     print(f"""
 ╔══════════════════════════════════════════════╗
-║           EXAMVAN Server v1.1.0              ║
+║           EXAMVAN Server v1.2.0              ║
 ╠══════════════════════════════════════════════╣
 ║  Local:   http://127.0.0.1:{port}              ║
 ║  LAN:     http://{local_ip}:{port}          ║

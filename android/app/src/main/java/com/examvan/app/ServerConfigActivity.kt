@@ -10,10 +10,11 @@ import com.examvan.app.api.ApiClient
 import com.examvan.app.databinding.ActivityServerConfigBinding
 
 /**
- * Screen 1: Server Configuration
+ * Screen 1: Server & Token Configuration
  * - Input URL base server (e.g. http://192.168.1.100:5000)
- * - Checkbox to persist URL in SharedPreferences
- * - Validates server with /api/health before proceeding
+ * - Input 6-character unique Exam Token
+ * - Checkbox to persist URL/Token in SharedPreferences
+ * - Validates server health and Token existence before going to PDF viewer
  */
 class ServerConfigActivity : AppCompatActivity() {
 
@@ -23,6 +24,7 @@ class ServerConfigActivity : AppCompatActivity() {
     companion object {
         const val PREFS_NAME = "app_config"
         const val KEY_SERVER_URL = "server_url"
+        const val KEY_EXAM_TOKEN = "exam_token"
         const val KEY_REMEMBER_URL = "remember_url"
     }
 
@@ -40,28 +42,29 @@ class ServerConfigActivity : AppCompatActivity() {
 
         prefs = getSharedPreferences(PREFS_NAME, MODE_PRIVATE)
 
-        // Check if URL was previously saved
+        // Check if URL and Token were previously saved
         val rememberUrl = prefs.getBoolean(KEY_REMEMBER_URL, true)
         val savedUrl = prefs.getString(KEY_SERVER_URL, "") ?: ""
-
-        if (rememberUrl && savedUrl.isNotEmpty()) {
-            // Auto-connect with saved URL
-            binding.etServerUrl.setText(savedUrl)
-            binding.cbRememberUrl.isChecked = true
-            connectToServer(savedUrl)
-        }
+        val savedToken = prefs.getString(KEY_EXAM_TOKEN, "") ?: ""
 
         binding.cbRememberUrl.isChecked = rememberUrl
+        if (savedUrl.isNotEmpty()) {
+            binding.etServerUrl.setText(savedUrl)
+        }
+        if (savedToken.isNotEmpty()) {
+            binding.etToken.setText(savedToken)
+        }
 
         binding.btnConnect.setOnClickListener {
             val url = binding.etServerUrl.text.toString().trim()
-            if (validateUrl(url)) {
-                connectToServer(url)
+            val token = binding.etToken.text.toString().trim().uppercase()
+            if (validateInputs(url, token)) {
+                connectAndStartExam(url, token)
             }
         }
     }
 
-    private fun validateUrl(url: String): Boolean {
+    private fun validateInputs(url: String, token: String): Boolean {
         if (url.isEmpty()) {
             showError("URL tidak boleh kosong")
             return false
@@ -70,42 +73,72 @@ class ServerConfigActivity : AppCompatActivity() {
             showError(getString(R.string.error_invalid_url))
             return false
         }
+        if (token.isEmpty()) {
+            showError(getString(R.string.error_invalid_token))
+            return false
+        }
+        if (token.length != 6) {
+            showError("Token harus terdiri dari 6 karakter")
+            return false
+        }
         return true
     }
 
-    private fun connectToServer(url: String) {
+    private fun connectAndStartExam(url: String, token: String) {
         setLoading(true)
         hideError()
 
         ApiClient.setBaseUrl(url)
+        // First check server health
         ApiClient.checkHealth(
-            onSuccess = { health ->
-                runOnUiThread {
-                    setLoading(false)
+            onSuccess = {
+                // If health is OK, validate token and fetch exam
+                ApiClient.getExamByToken(
+                    token = token,
+                    onSuccess = { response ->
+                        runOnUiThread {
+                            setLoading(false)
+                            val exam = response.data
+                            if (exam != null) {
+                                // Save preferences if remember is checked
+                                if (binding.cbRememberUrl.isChecked) {
+                                    prefs.edit()
+                                        .putString(KEY_SERVER_URL, url)
+                                        .putString(KEY_EXAM_TOKEN, token)
+                                        .putBoolean(KEY_REMEMBER_URL, true)
+                                        .apply()
+                                } else {
+                                    prefs.edit()
+                                        .putBoolean(KEY_REMEMBER_URL, false)
+                                        .remove(KEY_SERVER_URL)
+                                        .remove(KEY_EXAM_TOKEN)
+                                        .apply()
+                                }
 
-                    // Save URL based on checkbox
-                    if (binding.cbRememberUrl.isChecked) {
-                        prefs.edit()
-                            .putString(KEY_SERVER_URL, url)
-                            .putBoolean(KEY_REMEMBER_URL, true)
-                            .apply()
-                    } else {
-                        prefs.edit()
-                            .putBoolean(KEY_REMEMBER_URL, false)
-                            .remove(KEY_SERVER_URL)
-                            .apply()
+                                // Go directly to ExamViewerActivity
+                                val intent = Intent(this@ServerConfigActivity, ExamViewerActivity::class.java).apply {
+                                    putExtra("exam_id", exam.id)
+                                    putExtra("exam_name", exam.name)
+                                    putExtra("server_url", url)
+                                }
+                                startActivity(intent)
+                            } else {
+                                showError(getString(R.string.error_token_not_found))
+                            }
+                        }
+                    },
+                    onError = { errorMsg ->
+                        runOnUiThread {
+                            setLoading(false)
+                            showError(errorMsg)
+                        }
                     }
-
-                    // Navigate to exam list
-                    val intent = Intent(this, ExamListActivity::class.java)
-                    intent.putExtra("server_url", url)
-                    startActivity(intent)
-                }
+                )
             },
             onError = { errorMsg ->
                 runOnUiThread {
                     setLoading(false)
-                    showError("Tidak dapat terhubung: $errorMsg")
+                    showError("Tidak dapat terhubung ke server: $errorMsg")
                 }
             }
         )
@@ -114,7 +147,7 @@ class ServerConfigActivity : AppCompatActivity() {
     private fun setLoading(loading: Boolean) {
         binding.progressLoading.visibility = if (loading) View.VISIBLE else View.GONE
         binding.btnConnect.isEnabled = !loading
-        binding.btnConnect.text = if (loading) "Menghubungkan..." else getString(R.string.btn_connect)
+        binding.btnConnect.text = if (loading) "Memproses..." else getString(R.string.btn_start_exam)
     }
 
     private fun showError(msg: String) {

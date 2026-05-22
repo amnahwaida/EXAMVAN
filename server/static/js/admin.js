@@ -144,3 +144,46 @@ function deleteExam(examId, examName) {
         })
         .catch(() => showToast('Koneksi gagal', 'error'));
 }
+
+// Copy token to clipboard
+function copyToken(token) {
+    if (!token || token === '—') {
+        showToast('Token belum tersedia', 'error');
+        return;
+    }
+    navigator.clipboard.writeText(token).then(() => {
+        showToast(`Token "${token}" berhasil disalin`, 'success');
+    }).catch(() => {
+        // Fallback for older browsers
+        const textarea = document.createElement('textarea');
+        textarea.value = token;
+        document.body.appendChild(textarea);
+        textarea.select();
+        document.execCommand('copy');
+        textarea.remove();
+        showToast(`Token "${token}" berhasil disalin`, 'success');
+    });
+}
+
+// Regenerate token
+function regenerateToken(examId) {
+    if (!confirm('Generate token baru? Token lama tidak akan bisa digunakan lagi.')) return;
+
+    fetch(`/admin/api/exams/${examId}/regenerate-token`, { method: 'POST' })
+        .then(r => r.json())
+        .then(res => {
+            if (res.success) {
+                const tokenEl = document.getElementById(`token-${examId}`);
+                if (tokenEl) {
+                    tokenEl.textContent = res.token;
+                    tokenEl.style.animation = 'none';
+                    tokenEl.offsetHeight; // force reflow
+                    tokenEl.style.animation = 'toastIn 0.3s ease';
+                }
+                showToast(res.message, 'success');
+            } else {
+                showToast(res.message || 'Gagal regenerate token', 'error');
+            }
+        })
+        .catch(() => showToast('Koneksi gagal', 'error'));
+}

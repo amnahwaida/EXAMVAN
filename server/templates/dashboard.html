@@ -123,6 +123,7 @@
                         <tr>
                             <th>ID</th>
                             <th>Nama Ujian</th>
+                            <th>Token</th>
                             <th>Ukuran</th>
                             <th>Status</th>
                             <th>Tanggal Upload</th>
@@ -134,6 +135,13 @@
                         <tr id="exam-row-{{ exam.id }}">
                             <td class="td-id">{{ exam.id }}</td>
                             <td class="td-name">{{ exam.name }}</td>
+                            <td class="td-token">
+                                <div class="token-group">
+                                    <code class="token-code" id="token-{{ exam.id }}">{{ exam.token or '—' }}</code>
+                                    <button class="btn-icon btn-copy" onclick="copyToken('{{ exam.token }}')" title="Salin Token">📋</button>
+                                    <button class="btn-icon btn-regen" onclick="regenerateToken({{ exam.id }})" title="Generate Token Baru">🔄</button>
+                                </div>
+                            </td>
                             <td>{{ "%.2f"|format(exam.size_bytes / 1048576) }} MB</td>
                             <td>
                                 <span class="status-badge status-{{ exam.status }}" id="status-{{ exam.id }}">
