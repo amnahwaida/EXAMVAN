@@ -1,128 +1,121 @@
-# 📄 EXAMVAN — Sistem Ujian Digital Berbasis PDF
+# 📄 EXAMVAN — Sistem Ujian Digital Berbasis PDF (LAN-Optimized & Secure)
 
-> Distribusi & pelaksanaan ujian digital untuk lingkungan jaringan lokal (LAN/Intranet)
+> Platform distribusi & pelaksanaan ujian digital aman untuk infrastruktur jaringan lokal (LAN/Intranet) sekolah dan kampus dengan perlindungan anti-cheat berlapis di sisi Android & iOS.
 
-## 🎯 Tentang
+---
 
-EXAMVAN adalah platform ujian digital ringan yang dirancang untuk sekolah dan kampus. Sistem ini mendistribusikan soal ujian dalam format PDF melalui jaringan lokal, dengan perlindungan anti-screenshot dan anti-copy.
+## 🎯 Tujuan & Manfaat Project
+EXAMVAN diciptakan khusus untuk memenuhi kebutuhan instansi pendidikan dalam menyelenggarakan ujian secara mandiri tanpa ketergantungan pada koneksi internet publik.
 
-## 🏗️ Arsitektur
+- **Kemandirian Jaringan:** Server berjalan 100% secara offline di LAN (Local Area Network) sekolah, mengurangi biaya bandwidth internet dan mencegah kegagalan koneksi massal.
+- **Keamanan Tingkat Tinggi (Anti-Cheat):** Mengamankan berkas soal PDF dari penyebaran liar dan membatasi gerak-gerik siswa agar tidak dapat mencari jawaban di aplikasi lain.
+- **Kemudahan Pengelolaan:** Memungkinkan guru untuk mengelola soal mereka sendiri secara terpisah, sementara Administrator memegang kontrol pengawasan penuh.
 
-| Komponen | Teknologi | Fungsi |
-|----------|-----------|--------|
-| **Backend API** | Python Flask + SQLite | REST API + file serving |
-| **Admin Panel** | HTML/CSS/JS (dark theme) | Upload & kelola ujian |
-| **Android App** | Kotlin + PdfRenderer + OkHttp | Viewer ujian untuk siswa |
+---
 
-## 🚀 Quick Start
+## 🚀 Fitur Utama
 
-### 1. Menjalankan Server
+### 1. Panel Admin & Manajemen Guru (Multi-User)
+* **Role Management:** Mendukung akun Administrator dan Guru.
+* **Hak Akses Eksklusif:** Akun guru hanya dapat melihat, membuat, mengubah, dan menghapus ujian yang dibuatnya sendiri. Administrator memiliki otorisasi penuh untuk mengawasi seluruh ujian dari semua guru.
+* **Ubah Password Mandiri:** Setiap pengguna dapat memperbarui kata sandinya kapan saja melalui UI modal yang aman.
 
-```bash
-cd server
-pip install -r requirements.txt
-python3 app.py
-```
+### 2. Lembar Jawaban Digital & Koreksi Otomatis
+* **Mendukung 4 Tipe Soal:**
+  1. *Pilihan Ganda Tunggal (Single Choice)*
+  2. *Pilihan Ganda Kompleks (Multiple Choice)*
+  3. *Benar / Salah (True/False)*
+  4. *Menjodohkan (Matching)*
+* **Pengaturan Bobot & Penilaian Parsial:** Bobot nilai per soal dapat disesuaikan. Pilihan ganda kompleks mendukung opsi **Penilaian Parsial (Partial Scoring)** yang dinamis.
+* **Rekalkulasi Nilai Otomatis:** Apabila guru mengubah bobot soal atau mengaktifkan/menonaktifkan opsi penilaian parsial *setelah* ujian disubmit oleh siswa, sistem secara otomatis menghitung ulang (*recalculate*) nilai siswa secara instan tanpa perlu submit ulang.
 
-Server akan berjalan di:
-- **Local:** http://127.0.0.1:5000
-- **LAN:** http://<IP-LAN>:5000
+### 3. Keamanan Klien Seluler (Android & iOS)
+* **Lock Task Mode (Screen Pinning):** Mengunci layar perangkat agar siswa tidak dapat menekan tombol Home, Recent Apps, atau membuka panel notifikasi.
+* **Anti-Screenshot & Recording:** Layar aplikasi otomatis menjadi hitam (*black screen*) jika siswa mencoba menangkap layar (*capture*) atau merekam layar (menggunakan `FLAG_SECURE` pada Android dan `SecureView UITextField` pada iOS).
+* **Anti-Copy Text:** PDF dirender sebagai gambar raster dinamis tanpa lapisan teks, sehingga teks soal tidak dapat disalin.
+* **Clipboard Cleanser:** Clipboard/papan klip otomatis dikosongkan saat memasuki ruang ujian untuk mencegah metode *copy-paste* jawaban.
+* **Anti-Switching App (Auto-Submit):** Jika siswa berhasil meminimalkan aplikasi, menekan tombol keluar, atau membuka aplikasi lain secara paksa, sistem secara otomatis mengumpulkan lembar jawaban saat itu juga (*auto-submit*) dan mengeluarkan siswa dari ruang ujian.
 
-### 2. Login Admin Panel
+---
 
-Buka browser, akses `http://<IP-SERVER>:5000/admin/login`
+## 📥 Download Aplikasi Siswa
 
-| | |
-|---|---|
-| **Username** | `admin` |
-| **Password** | `examvan2026` |
+Untuk memulai ujian pada perangkat siswa, silakan unduh aplikasinya melalui tautan berikut:
 
-### 3. Deploy Android App
+### 🤖 Perangkat Android
+* **[Download EXAMVAN Android APK (v1.2.0)](./app-debug.apk)** *(Gunakan tautan ini untuk mengunduh berkas APK secara langsung ke penyimpanan lokal server Anda untuk dibagikan kepada siswa).*
 
-1. Buka folder `android/` di Android Studio
-2. Build APK (`Build > Build Bundle(s)/APK(s) > Build APK(s)`)
-3. Distribusi APK ke device siswa via QR Code atau flashdisk
+### 🍎 Perangkat iOS
+* Kode sumber Swift native siap pakai tersedia di folder `/ios/ExamVan`. Anda dapat langsung membukanya menggunakan Xcode di macOS untuk melakukan build dan install ke perangkat iPad/iPhone siswa tanpa memerlukan dependensi pihak ketiga (*zero external dependencies*).
+
+---
 
 ## 📡 API Endpoints
 
-| Endpoint | Method | Fungsi |
-|----------|--------|--------|
-| `/api/health` | GET | Health check server |
-| `/api/exams` | GET | Daftar ujian aktif |
-| `/api/exams/{id}/pdf` | GET | Stream file PDF |
+Semua komunikasi data antara aplikasi siswa dan server web dikirimkan melalui JSON API berikut:
 
-## 🔒 Fitur Keamanan
+| Endpoint | Method | Parameter / Payload | Fungsi |
+| :--- | :---: | :--- | :--- |
+| `/api/health` | GET | - | Memverifikasi apakah server menyala dan merespon dalam LAN. |
+| `/api/exams` | GET | - | Mengambil daftar seluruh ujian yang sedang aktif. |
+| `/api/exams/token/<token>` | GET | `token` (6 Karakter) | Mengambil konfigurasi soal ujian spesifik berdasarkan token unik. |
+| `/api/exams/<id>/pdf` | GET | `id` (ID Ujian) | Mengunduh file PDF soal ujian ke penyimpanan lokal aplikasi siswa. |
+| `/api/exams/<id>/submit` | POST | JSON Payload Siswa & Jawaban | Mengirimkan lembar jawaban siswa ke server untuk dinilai. |
 
-- **FLAG_SECURE** — Memblokir screenshot & screen recording
-- **PdfRenderer → Bitmap** — Tidak ada layer teks (anti-copy)
-- **Clipboard clearing** — Clipboard dibersihkan saat masuk viewer
-- **Cache private** — File PDF hanya di `cacheDir` aplikasi
-- **No-store headers** — Cache-Control: no-store pada response PDF
+---
 
-## 📱 Fitur Aplikasi Android
+## ⚙️ Panduan Deployment Server
 
-1. **Konfigurasi Server** — Input URL, checkbox "Ingat URL"
-2. **Daftar Ujian** — RecyclerView + pull-to-refresh
-3. **Viewer PDF** — Download progress + navigasi halaman
-4. **Mode Offline-Ready** — Cache reuse jika file sudah diunduh
-5. **Slow Network Support** — Timeout 60s, progress bar, retry
+Pilih salah satu metode deployment di bawah ini untuk dijalankan di PC server sekolah/kampus Anda.
 
-## 🌐 Kompatibilitas Jaringan
+### A. Deployment Dengan Docker (Sangat Direkomendasikan)
+Metode ini paling mudah dan aman karena semua dependensi Python sudah terisolasi di dalam container.
 
-- Mendukung HTTP cleartext untuk LAN (`192.168.x.x`, `10.x.x.x`)
-- `network_security_config.xml` mengizinkan IP privat
-- Tidak memerlukan domain publik atau SSL
+1. **Prasyarat:** Pastikan Docker dan Docker Compose telah terpasang di komputer server.
+2. **Jalankan Layanan:**
+   Buka terminal di direktori utama project (`EXAMVAN/`) lalu ketik:
+   ```bash
+   docker compose up -d --build
+   ```
+3. **Persistensi Data:**
+   Database SQLite (`examvan.db`) dan seluruh file PDF ujian (`storage/`) akan otomatis disimpan secara persisten di folder `./server/` pada komputer host Anda.
+4. **Log Aktivitas:**
+   Untuk melihat log aktivitas server secara real-time:
+   ```bash
+   docker compose logs -f
+   ```
 
-## 📁 Struktur Project
+---
 
-```
-EXAMVAN/
-├── server/                     # Backend
-│   ├── app.py                 # Flask application
-│   ├── requirements.txt       # Python dependencies
-│   ├── storage/               # PDF file storage
-│   ├── templates/             # HTML templates
-│   │   ├── login.html
-│   │   └── dashboard.html
-│   └── static/                # CSS & JS
-│       ├── css/admin.css
-│       └── js/admin.js
-│
-├── android/                    # Android App
-│   ├── app/
-│   │   ├── build.gradle.kts
-│   │   ├── proguard-rules.pro
-│   │   └── src/main/
-│   │       ├── AndroidManifest.xml
-│   │       ├── java/com/examvan/app/
-│   │       │   ├── ServerConfigActivity.kt
-│   │       │   ├── ExamListActivity.kt
-│   │       │   ├── ExamViewerActivity.kt
-│   │       │   ├── model/Exam.kt
-│   │       │   ├── api/ApiClient.kt
-│   │       │   └── adapter/ExamAdapter.kt
-│   │       └── res/
-│   │           ├── layout/ (4 layouts)
-│   │           ├── values/ (colors, strings, themes)
-│   │           └── xml/network_security_config.xml
-│   ├── build.gradle.kts
-│   ├── settings.gradle.kts
-│   └── gradle.properties
-│
-└── prd.md                      # Product Requirements
-```
+### B. Deployment Tanpa Docker
+Jika Anda ingin menjalankannya langsung menggunakan Python lokal pada sistem operasi host.
 
-## ⚙️ Production Deployment
+1. **Instalasi Dependensi:**
+   Masuk ke folder server dan pasang pustaka yang diperlukan:
+   ```bash
+   cd server
+   pip install -r requirements.txt
+   ```
+2. **Inisialisasi Database:**
+   Sistem akan secara otomatis membuat berkas database `examvan.db` dan membuat pengguna admin default saat pertama kali dijalankan.
+3. **Jalankan Mode Produksi (Gunicorn):**
+   Gunakan Gunicorn untuk menangani trafik multi-client yang stabil:
+   ```bash
+   gunicorn -w 4 -b 0.0.0.0:5000 app:app
+   ```
+4. **Jalankan Mode Development (Opsional):**
+   Jika ingin melakukan debugging secara lokal:
+   ```bash
+   python app.py
+   ```
 
-Untuk deployment produksi di server LAN:
+---
 
-```bash
-cd server
-gunicorn -w 4 -b 0.0.0.0:5000 app:app
-```
+## 🔑 Informasi Akses Default Admin Panel
+Buka browser Anda dan akses halaman admin di: **`http://<IP_SERVER_SEKOLAH>:5000/admin/login`**
 
-## 📋 Versi
+* **Username:** `admin`
+* **Password:** `examvan2026`
 
-- **PRD:** v1.1.0
-- **Server:** v1.1.0
-- **Android:** v1.1.0 (minSdk 21, targetSdk 34)
+> [!IMPORTANT]
+> Demi keamanan, segera ubah password akun administrator utama Anda sesaat setelah berhasil masuk ke halaman dashboard untuk pertama kali.
