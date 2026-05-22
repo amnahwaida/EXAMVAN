@@ -281,21 +281,24 @@ def api_submit_exam(exam_id):
     if questions_raw:
         try:
             questions = json.loads(questions_raw)
-            correct_count = 0
-            total_questions = len(questions)
+            earned_weight = 0.0
+            total_weight = 0.0
             for q in questions:
                 q_num = str(q['number'])
                 student_ans = answers.get(q_num)
                 correct_ans = q.get('key')
+                q_weight = float(q.get('weight', 1.0))
+                total_weight += q_weight
 
+                is_correct = False
                 if student_ans is not None and correct_ans is not None:
                     if q['type'] in ['single_choice', 'true_false']:
                         if str(student_ans).strip().upper() == str(correct_ans).strip().upper():
-                            correct_count += 1
+                            is_correct = True
                     elif q['type'] == 'multiple_choice':
                         if isinstance(student_ans, list) and isinstance(correct_ans, list):
                             if sorted([str(x).upper() for x in student_ans]) == sorted([str(x).upper() for x in correct_ans]):
-                                correct_count += 1
+                                is_correct = True
                     elif q['type'] == 'matching':
                         if isinstance(student_ans, dict) and isinstance(correct_ans, dict):
                             match = True
@@ -304,9 +307,13 @@ def api_submit_exam(exam_id):
                                     match = False
                                     break
                             if match:
-                                correct_count += 1
-            if total_questions > 0:
-                score = round((correct_count / total_questions) * 100, 2)
+                                is_correct = True
+                
+                if is_correct:
+                    earned_weight += q_weight
+
+            if total_weight > 0:
+                score = round((earned_weight / total_weight) * 100, 2)
         except Exception as e:
             print("Auto-grading error:", e)
 

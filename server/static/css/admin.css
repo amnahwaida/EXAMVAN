@@ -874,6 +874,19 @@ body {
     width: 280px;
 }
 
+.q-weight-input {
+    padding: 7px 10px;
+    background: var(--surface);
+    border: 1px solid var(--glass-border);
+    border-radius: 6px;
+    color: var(--text);
+    font-size: 13px;
+    outline: none;
+    width: 70px;
+    font-weight: 700;
+    text-align: center;
+}
+
 .btn-remove-q {
     background: none;
     border: none;

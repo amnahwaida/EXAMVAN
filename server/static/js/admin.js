@@ -247,6 +247,8 @@ function renderQuestions(questions) {
             keyVal = key;
         }
 
+        const weight = q.weight !== undefined ? q.weight : 1.0;
+
         const card = document.createElement('div');
         card.className = 'question-editor-card';
         card.innerHTML = `
@@ -260,6 +262,10 @@ function renderQuestions(questions) {
                     <option value="true_false" ${type === 'true_false' ? 'selected' : ''}>Benar / Salah</option>
                     <option value="matching" ${type === 'matching' ? 'selected' : ''}>Menjodohkan (Matching)</option>
                 </select>
+            </div>
+            <div class="q-field-group">
+                <label>Bobot</label>
+                <input type="number" class="q-weight-input" value="${weight}" step="0.5" min="0" placeholder="1.0">
             </div>
             <div class="q-field-group">
                 <label>Kunci Jawaban</label>
@@ -302,7 +308,7 @@ function quickGenerateQuestions() {
     
     const questions = [];
     for (let i = 1; i <= qty; i++) {
-        let q = { number: i, type: type };
+        let q = { number: i, type: type, weight: 1.0 };
         if (type === 'single_choice') {
             q.choices = ['A', 'B', 'C', 'D', 'E'];
             q.key = 'A';
@@ -332,8 +338,9 @@ function saveQuestionsConfig() {
         const type = card.querySelector('.q-type-select').value;
         const keyRaw = card.querySelector('.q-key-input').value.trim();
         const optionsRaw = card.querySelector('.q-options-input').value.trim();
+        const weight = parseFloat(card.querySelector('.q-weight-input').value) || 1.0;
         
-        let q = { number: number, type: type };
+        let q = { number: number, type: type, weight: weight };
         
         if (type === 'single_choice' || type === 'multiple_choice') {
             q.choices = optionsRaw.split(',').map(x => x.trim()).filter(x => x);
