@@ -262,6 +262,43 @@ def get_local_ip():
         return '127.0.0.1'
 
 
+def get_network_info():
+    """Get dynamic network info (domain/IP, endpoint, protocol) based on request context."""
+    # 1. Detect protocol (scheme)
+    scheme = request.headers.get('X-Forwarded-Proto', request.scheme)
+    
+    # 2. Detect host (domain or IP + port)
+    host = request.headers.get('X-Forwarded-Host', request.host)
+    
+    # 3. Detect if using Cloudflare
+    is_cloudflare = ('CF-Connecting-IP' in request.headers or 
+                     'CF-Ray' in request.headers or 
+                     'cf-visitor' in request.headers or
+                     scheme == 'https')
+    
+    display_host = host
+    
+    # Fallback if accessed via localhost or internal docker hostname
+    if display_host.startswith(('localhost', '127.0.0.1', 'examvan-server', '172.')):
+        lan_ip = get_local_ip()
+        if not lan_ip.startswith('172.'):
+            display_host = f"{lan_ip}:5000"
+            
+    # Clean port if using Cloudflare or standard HTTPS
+    if is_cloudflare or scheme == 'https':
+        display_host = display_host.split(':')[0]
+        scheme = 'https'
+        
+    api_endpoint = f"{scheme}://{display_host}/api/exams"
+    
+    return {
+        'display_host': display_host,
+        'api_endpoint': api_endpoint,
+        'protocol': 'HTTPS (Cloudflare)' if is_cloudflare else 'HTTP (LAN)',
+        'is_cloudflare': is_cloudflare
+    }
+
+
 def get_storage_stats():
     """Get total storage used by PDFs."""
     total = 0
@@ -529,7 +566,7 @@ def admin_dashboard():
     active = sum(1 for e in exams if e['status'] == 'active')
     inactive = total - active
     storage_bytes = get_storage_stats()
-    local_ip = get_local_ip()
+    net_info = get_network_info()
 
     db.close()
     return render_template(
@@ -541,7 +578,8 @@ def admin_dashboard():
             'inactive': inactive,
             'storage_mb': round(storage_bytes / (1024 * 1024), 2),
         },
-        local_ip=local_ip,
+        net_info=net_info,
+        local_ip=net_info['display_host'],
         admin_user=session.get('admin_username', 'Admin'),
         max_size_mb=MAX_FILE_SIZE // (1024 * 1024)
     )
@@ -702,7 +740,7 @@ def admin_stats():
             'active': active,
             'inactive': total - active,
             'storage_mb': round(get_storage_stats() / (1024 * 1024), 2),
-            'local_ip': get_local_ip()
+            'local_ip': get_network_info()['display_host']
         }
     })
 
@@ -899,7 +937,7 @@ def admin_submissions():
         ).fetchall()
         exams = db.execute('SELECT id, name FROM exams WHERE created_by = ? ORDER BY created_at DESC', (session['admin_id'],)).fetchall()
         
-    local_ip = get_local_ip()
+    local_ip = get_network_info()['display_host']
     db.close()
     
     return render_template(

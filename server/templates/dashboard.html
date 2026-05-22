@@ -65,16 +65,20 @@
             <h3>🌐 Info Jaringan</h3>
             <div class="network-grid">
                 <div class="net-item">
-                    <span class="net-label">IP Server</span>
-                    <span class="net-value" id="serverIp">{{ local_ip }}</span>
+                    <span class="net-label">IP / Domain Server</span>
+                    <span class="net-value" id="serverIp">{{ net_info.display_host }}</span>
                 </div>
                 <div class="net-item">
                     <span class="net-label">API Endpoint</span>
-                    <span class="net-value">http://{{ local_ip }}:5000/api/exams/token/{TOKEN}</span>
+                    <span class="net-value">{{ net_info.api_endpoint }}/token/{TOKEN}</span>
                 </div>
                 <div class="net-item">
                     <span class="net-label">Protokol</span>
-                    <span class="net-value badge-http">HTTP (LAN)</span>
+                    {% if net_info.is_cloudflare %}
+                    <span class="net-value badge-https">{{ net_info.protocol }}</span>
+                    {% else %}
+                    <span class="net-value badge-http">{{ net_info.protocol }}</span>
+                    {% endif %}
                 </div>
                 <div class="net-item">
                     <span class="net-label">Max Upload</span>

@@ -342,6 +342,16 @@ body {
     font-size: 13px;
 }
 
+.badge-https {
+    display: inline-block;
+    padding: 2px 8px;
+    background: rgba(246, 130, 31, 0.15);
+    border-radius: 4px;
+    color: #f6821f;
+    font-size: 13px;
+    border: 1px solid rgba(246, 130, 31, 0.25);
+}
+
 /* Upload Form */
 .upload-form .form-row {
     display: flex;
