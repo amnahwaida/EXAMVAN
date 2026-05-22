@@ -1049,3 +1049,92 @@ body {
     transform: scale(1.05);
 }
 
+
+/* ===== Enhanced Style: Submissions select-filter ===== */
+.select-filter {
+    background-color: rgba(255, 255, 255, 0.05) !important;
+    border: 1px solid var(--glass-border) !important;
+    border-radius: var(--radius-sm) !important;
+    color: var(--text) !important;
+    font-family: inherit;
+    font-size: 14px;
+    padding: 10px 16px !important;
+    min-width: 220px;
+    transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+    outline: none;
+    -webkit-appearance: none;
+    -moz-appearance: none;
+    appearance: none;
+    background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='24' height='24' viewBox='0 0 24 24' fill='none' stroke='%23cbd5e1' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'><polyline points='6 9 12 15 18 9'></polyline></svg>");
+    background-repeat: no-repeat;
+    background-position: right 14px center;
+    background-size: 16px;
+    padding-right: 40px !important;
+}
+
+.select-filter:hover {
+    background-color: rgba(255, 255, 255, 0.08) !important;
+    border-color: rgba(255, 255, 255, 0.2) !important;
+}
+
+.select-filter:focus {
+    border-color: var(--primary) !important;
+    box-shadow: 0 0 0 3px var(--primary-glow), 0 4px 16px rgba(0, 0, 0, 0.3) !important;
+}
+
+.select-filter option {
+    background-color: #0c0a1a !important;
+    color: var(--text) !important;
+    padding: 12px !important;
+}
+
+
+/* ===== Enhanced Style: Modal Forms & Change Password ===== */
+.modal-body .form-group {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    margin-bottom: 16px;
+}
+
+.modal-body .form-group label {
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--text-secondary);
+    letter-spacing: 0.3px;
+    margin-bottom: 2px;
+}
+
+.modal-body .form-group input[type="text"],
+.modal-body .form-group input[type="password"] {
+    width: 100%;
+    padding: 12px 16px;
+    background: rgba(255, 255, 255, 0.04);
+    border: 1px solid var(--glass-border);
+    border-radius: var(--radius-sm);
+    color: var(--text);
+    font-size: 14px;
+    font-family: inherit;
+    outline: none;
+    transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+    box-shadow: inset 0 2px 4px rgba(0, 0, 0, 0.1);
+}
+
+.modal-body .form-group input[type="text"]:hover,
+.modal-body .form-group input[type="password"]:hover {
+    background: rgba(255, 255, 255, 0.06);
+    border-color: rgba(255, 255, 255, 0.15);
+}
+
+.modal-body .form-group input[type="text"]:focus,
+.modal-body .form-group input[type="password"]:focus {
+    border-color: var(--primary);
+    background: rgba(12, 10, 26, 0.6);
+    box-shadow: 0 0 0 3px var(--primary-glow), inset 0 2px 4px rgba(0, 0, 0, 0.1);
+}
+
+.modal-body .form-group input::placeholder {
+    color: var(--text-muted);
+}
+

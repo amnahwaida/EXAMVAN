@@ -58,6 +58,7 @@ def init_db():
             token TEXT UNIQUE NOT NULL,
             questions_json TEXT,
             status TEXT DEFAULT 'active' CHECK(status IN ('active', 'inactive')),
+            created_by INTEGER DEFAULT 1,
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         );
 
@@ -113,6 +114,13 @@ def init_db():
         db.execute('ALTER TABLE exams ADD COLUMN questions_json TEXT')
         db.commit()
 
+    # Migrate: add created_by column if missing
+    try:
+        db.execute('SELECT created_by FROM exams LIMIT 1')
+    except sqlite3.OperationalError:
+        db.execute('ALTER TABLE exams ADD COLUMN created_by INTEGER DEFAULT 1')
+        db.commit()
+
     db.close()
 
 
@@ -139,6 +147,99 @@ def admin_required(f):
             return redirect(url_for('admin_login'))
         return f(*args, **kwargs)
     return decorated
+
+
+def super_admin_required(f):
+    """Decorator to require super admin (username: admin) login."""
+    @wraps(f)
+    def decorated(*args, **kwargs):
+        if 'admin_id' not in session:
+            if request.is_json or request.path.startswith('/admin/api'):
+                return jsonify({'success': False, 'error': 'unauthorized'}), 401
+            return redirect(url_for('admin_login'))
+        if session.get('admin_username') != 'admin':
+            if request.is_json or request.path.startswith('/admin/api'):
+                return jsonify({'success': False, 'error': 'forbidden', 'message': 'Akses khusus Super Admin'}), 403
+            return abort(403)
+        return f(*args, **kwargs)
+    return decorated
+
+
+def check_exam_ownership(db, exam_id):
+    """Check if current user is allowed to manage the given exam."""
+    if session.get('admin_username') == 'admin':
+        return True
+    exam = db.execute('SELECT created_by FROM exams WHERE id = ?', (exam_id,)).fetchone()
+    return exam is not None and exam['created_by'] == session['admin_id']
+
+
+def check_submission_ownership(db, submission_id):
+    """Check if current user is allowed to manage the given submission."""
+    if session.get('admin_username') == 'admin':
+        return True
+    sub = db.execute(
+        'SELECT e.created_by FROM submissions s JOIN exams e ON s.exam_id = e.id WHERE s.id = ?',
+        (submission_id,)
+    ).fetchone()
+    return sub is not None and sub['created_by'] == session['admin_id']
+
+
+def calculate_submission_score(answers, questions):
+    """Calculate the score for a student submission given their answers and the exam's questions config."""
+    if not questions:
+        return None
+    try:
+        earned_weight = 0.0
+        for q in questions:
+            q_num = str(q['number'])
+            student_ans = answers.get(q_num)
+            correct_ans = q.get('key')
+            q_weight = float(q.get('weight', 1.0))
+            partial_scoring = q.get('partial_scoring', False)
+
+            earned_q_weight = 0.0
+            if student_ans is not None and correct_ans is not None:
+                if q['type'] in ['single_choice', 'true_false']:
+                    if str(student_ans).strip().upper() == str(correct_ans).strip().upper():
+                        earned_q_weight = q_weight
+                elif q['type'] == 'multiple_choice':
+                    if isinstance(student_ans, list) and isinstance(correct_ans, list):
+                        if partial_scoring:
+                            correct_set = set(str(x).upper() for x in correct_ans)
+                            student_set = set(str(x).upper() for x in student_ans)
+                            if correct_set:
+                                correct_selected = sum(1 for x in student_set if x in correct_set)
+                                incorrect_selected = sum(1 for x in student_set if x not in correct_set)
+                                portion = max(0.0, (correct_selected - incorrect_selected) / len(correct_set))
+                                earned_q_weight = portion * q_weight
+                        else:
+                            if sorted([str(x).upper() for x in student_ans]) == sorted([str(x).upper() for x in correct_ans]):
+                                earned_q_weight = q_weight
+                elif q['type'] == 'matching':
+                    if isinstance(student_ans, dict) and isinstance(correct_ans, dict):
+                        if partial_scoring:
+                            if correct_ans:
+                                correct_matches = 0
+                                for k, v in correct_ans.items():
+                                    if str(student_ans.get(k)).strip().upper() == str(v).strip().upper():
+                                        correct_matches += 1
+                                portion = correct_matches / len(correct_ans)
+                                earned_q_weight = portion * q_weight
+                        else:
+                            match = True
+                            for k, v in correct_ans.items():
+                                if str(student_ans.get(k)).strip().upper() != str(v).strip().upper():
+                                    match = False
+                                    break
+                            if match:
+                                earned_q_weight = q_weight
+            
+            earned_weight += earned_q_weight
+
+        return round(earned_weight, 2)
+    except Exception as e:
+        print("Scoring calculation error:", e)
+        return None
 
 
 def get_local_ip():
@@ -273,56 +374,7 @@ def api_submit_exam(exam_id):
     if questions_raw:
         try:
             questions = json.loads(questions_raw)
-            earned_weight = 0.0
-            total_weight = 0.0
-            for q in questions:
-                q_num = str(q['number'])
-                student_ans = answers.get(q_num)
-                correct_ans = q.get('key')
-                q_weight = float(q.get('weight', 1.0))
-                total_weight += q_weight
-                partial_scoring = q.get('partial_scoring', False)
-
-                earned_q_weight = 0.0
-                if student_ans is not None and correct_ans is not None:
-                    if q['type'] in ['single_choice', 'true_false']:
-                        if str(student_ans).strip().upper() == str(correct_ans).strip().upper():
-                            earned_q_weight = q_weight
-                    elif q['type'] == 'multiple_choice':
-                        if isinstance(student_ans, list) and isinstance(correct_ans, list):
-                            if partial_scoring:
-                                correct_set = set(str(x).upper() for x in correct_ans)
-                                student_set = set(str(x).upper() for x in student_ans)
-                                if correct_set:
-                                    correct_selected = sum(1 for x in student_set if x in correct_set)
-                                    incorrect_selected = sum(1 for x in student_set if x not in correct_set)
-                                    portion = max(0.0, (correct_selected - incorrect_selected) / len(correct_set))
-                                    earned_q_weight = portion * q_weight
-                            else:
-                                if sorted([str(x).upper() for x in student_ans]) == sorted([str(x).upper() for x in correct_ans]):
-                                    earned_q_weight = q_weight
-                    elif q['type'] == 'matching':
-                        if isinstance(student_ans, dict) and isinstance(correct_ans, dict):
-                            if partial_scoring:
-                                if correct_ans:
-                                    correct_matches = 0
-                                    for k, v in correct_ans.items():
-                                        if str(student_ans.get(k)).strip().upper() == str(v).strip().upper():
-                                            correct_matches += 1
-                                    portion = correct_matches / len(correct_ans)
-                                    earned_q_weight = portion * q_weight
-                            else:
-                                match = True
-                                for k, v in correct_ans.items():
-                                    if str(student_ans.get(k)).strip().upper() != str(v).strip().upper():
-                                        match = False
-                                        break
-                                if match:
-                                    earned_q_weight = q_weight
-                
-                earned_weight += earned_q_weight
-
-            score = round(earned_weight, 2)
+            score = calculate_submission_score(answers, questions)
         except Exception as e:
             print("Auto-grading error:", e)
 
@@ -425,7 +477,22 @@ def admin_logout():
 def admin_dashboard():
     """Admin dashboard page."""
     db = get_db()
-    exams = db.execute('SELECT * FROM exams ORDER BY created_at DESC').fetchall()
+    is_super_admin = (session.get('admin_username') == 'admin')
+    
+    if is_super_admin:
+        exams = db.execute(
+            'SELECT e.*, u.username as creator_name '
+            'FROM exams e LEFT JOIN admin_users u ON e.created_by = u.id '
+            'ORDER BY e.created_at DESC'
+        ).fetchall()
+    else:
+        exams = db.execute(
+            'SELECT e.*, u.username as creator_name '
+            'FROM exams e LEFT JOIN admin_users u ON e.created_by = u.id '
+            'WHERE e.created_by = ? '
+            'ORDER BY e.created_at DESC',
+            (session['admin_id'],)
+        ).fetchall()
 
     total = len(exams)
     active = sum(1 for e in exams if e['status'] == 'active')
@@ -490,8 +557,8 @@ def admin_upload():
     # Save to database
     db = get_db()
     db.execute(
-        'INSERT INTO exams (name, file_path, size_bytes, token, status) VALUES (?, ?, ?, ?, ?)',
-        (name, filename, len(file_data), token, 'active')
+        'INSERT INTO exams (name, file_path, size_bytes, token, status, created_by) VALUES (?, ?, ?, ?, ?, ?)',
+        (name, filename, len(file_data), token, 'active', session['admin_id'])
     )
     db.commit()
     db.close()
@@ -508,6 +575,9 @@ def admin_upload():
 def admin_toggle_exam(exam_id):
     """Toggle exam status between active and inactive."""
     db = get_db()
+    if not check_exam_ownership(db, exam_id):
+        db.close()
+        return jsonify({'success': False, 'message': 'Akses ditolak: Anda tidak memiliki akses ke ujian ini'}), 403
     exam = db.execute('SELECT * FROM exams WHERE id = ?', (exam_id,)).fetchone()
 
     if not exam:
@@ -531,6 +601,9 @@ def admin_toggle_exam(exam_id):
 def admin_delete_exam(exam_id):
     """Delete an exam and its PDF file."""
     db = get_db()
+    if not check_exam_ownership(db, exam_id):
+        db.close()
+        return jsonify({'success': False, 'message': 'Akses ditolak: Anda tidak memiliki akses ke ujian ini'}), 403
     exam = db.execute('SELECT * FROM exams WHERE id = ?', (exam_id,)).fetchone()
 
     if not exam:
@@ -555,6 +628,9 @@ def admin_delete_exam(exam_id):
 def admin_regenerate_token(exam_id):
     """Regenerate token for an exam."""
     db = get_db()
+    if not check_exam_ownership(db, exam_id):
+        db.close()
+        return jsonify({'success': False, 'message': 'Akses ditolak: Anda tidak memiliki akses ke ujian ini'}), 403
     exam = db.execute('SELECT * FROM exams WHERE id = ?', (exam_id,)).fetchone()
 
     if not exam:
@@ -578,7 +654,11 @@ def admin_regenerate_token(exam_id):
 def admin_stats():
     """Get dashboard statistics."""
     db = get_db()
-    exams = db.execute('SELECT status, size_bytes FROM exams').fetchall()
+    is_super_admin = (session.get('admin_username') == 'admin')
+    if is_super_admin:
+        exams = db.execute('SELECT status, size_bytes FROM exams').fetchall()
+    else:
+        exams = db.execute('SELECT status, size_bytes FROM exams WHERE created_by = ?', (session['admin_id'],)).fetchall()
     db.close()
 
     total = len(exams)
@@ -596,11 +676,126 @@ def admin_stats():
     })
 
 
+@app.route('/admin/api/change-password', methods=['POST'])
+@admin_required
+def admin_change_password():
+    """Change logged in admin/user password."""
+    data = request.json or {}
+    current_password = data.get('current_password', '')
+    new_password = data.get('new_password', '')
+
+    if not current_password or not new_password:
+        return jsonify({'success': False, 'message': 'Semua field password wajib diisi'}), 400
+
+    db = get_db()
+    curr_hash = hashlib.sha256(current_password.encode()).hexdigest()
+    user = db.execute(
+        'SELECT id FROM admin_users WHERE id = ? AND password_hash = ?',
+        (session['admin_id'], curr_hash)
+    ).fetchone()
+
+    if not user:
+        db.close()
+        return jsonify({'success': False, 'message': 'Password saat ini salah'}), 400
+
+    new_hash = hashlib.sha256(new_password.encode()).hexdigest()
+    db.execute(
+        'UPDATE admin_users SET password_hash = ? WHERE id = ?',
+        (new_hash, session['admin_id'])
+    )
+    db.commit()
+    db.close()
+
+    return jsonify({'success': True, 'message': 'Password berhasil diperbarui'})
+
+
+@app.route('/admin/api/users', methods=['GET'])
+@super_admin_required
+def admin_list_users():
+    """List all registered users (teachers)."""
+    db = get_db()
+    users = db.execute('SELECT id, username, created_at FROM admin_users ORDER BY username ASC').fetchall()
+    db.close()
+    return jsonify({
+        'success': True,
+        'users': [
+            {'id': u['id'], 'username': u['username'], 'created_at': u['created_at']}
+            for u in users
+        ]
+    })
+
+
+@app.route('/admin/api/users', methods=['POST'])
+@super_admin_required
+def admin_create_user():
+    """Create a new user (teacher)."""
+    data = request.json or {}
+    username = data.get('username', '').strip().lower()
+    password = data.get('password', '')
+
+    if not username or not password:
+        return jsonify({'success': False, 'message': 'Username dan password wajib diisi'}), 400
+
+    if username == 'admin':
+        return jsonify({'success': False, 'message': 'Username "admin" sudah terdaftar sebagai Super Admin'}), 400
+
+    db = get_db()
+    existing = db.execute('SELECT id FROM admin_users WHERE username = ?', (username,)).fetchone()
+    if existing:
+        db.close()
+        return jsonify({'success': False, 'message': 'Username sudah digunakan'}), 400
+
+    pw_hash = hashlib.sha256(password.encode()).hexdigest()
+    db.execute(
+        'INSERT INTO admin_users (username, password_hash) VALUES (?, ?)',
+        (username, pw_hash)
+    )
+    db.commit()
+    db.close()
+
+    return jsonify({'success': True, 'message': f'User "{username}" berhasil dibuat'})
+
+
+@app.route('/admin/api/users/<int:user_id>', methods=['DELETE'])
+@super_admin_required
+def admin_delete_user(user_id):
+    """Delete a user and all their exams/files."""
+    db = get_db()
+    user = db.execute('SELECT username FROM admin_users WHERE id = ?', (user_id,)).fetchone()
+    if not user:
+        db.close()
+        return jsonify({'success': False, 'message': 'User tidak ditemukan'}), 404
+
+    if user['username'] == 'admin':
+        db.close()
+        return jsonify({'success': False, 'message': 'Super Admin "admin" tidak dapat dihapus'}), 400
+
+    # Delete exams and PDF files owned by this user
+    exams = db.execute('SELECT file_path FROM exams WHERE created_by = ?', (user_id,)).fetchall()
+    for e in exams:
+        file_path = os.path.join(STORAGE_DIR, e['file_path'])
+        if os.path.exists(file_path):
+            try:
+                os.remove(file_path)
+            except Exception:
+                pass
+
+    db.execute('DELETE FROM exams WHERE created_by = ?', (user_id,))
+    db.execute('DELETE FROM admin_users WHERE id = ?', (user_id,))
+    db.commit()
+    db.close()
+
+    return jsonify({'success': True, 'message': f'User "{user["username"]}" beserta seluruh soalnya berhasil dihapus'})
+
+
 @app.route('/admin/api/exams/<int:exam_id>/questions', methods=['GET', 'POST'])
 @admin_required
 def admin_exam_questions(exam_id):
     """Get or save questions configuration for an exam."""
     db = get_db()
+    if not check_exam_ownership(db, exam_id):
+        db.close()
+        return jsonify({'success': False, 'message': 'Akses ditolak: Anda tidak memiliki akses ke ujian ini'}), 403
     exam = db.execute('SELECT * FROM exams WHERE id = ?', (exam_id,)).fetchone()
     if not exam:
         db.close()
@@ -632,9 +827,21 @@ def admin_exam_questions(exam_id):
             'UPDATE exams SET questions_json = ? WHERE id = ?',
             (json.dumps(questions), exam_id)
         )
+        
+        # Recalculate scores for all existing submissions of this exam
+        submissions = db.execute('SELECT id, answers_json FROM submissions WHERE exam_id = ?', (exam_id,)).fetchall()
+        for sub in submissions:
+            try:
+                sub_answers = json.loads(sub['answers_json']) if sub['answers_json'] else {}
+            except Exception:
+                sub_answers = {}
+            
+            new_score = calculate_submission_score(sub_answers, questions)
+            db.execute('UPDATE submissions SET score = ? WHERE id = ?', (new_score, sub['id']))
+            
         db.commit()
         db.close()
-        return jsonify({'success': True, 'message': 'Konfigurasi soal berhasil disimpan'})
+        return jsonify({'success': True, 'message': 'Konfigurasi soal berhasil disimpan dan nilai siswa berhasil diperbarui'})
 
 
 @app.route('/admin/submissions')
@@ -642,14 +849,25 @@ def admin_exam_questions(exam_id):
 def admin_submissions():
     """Submissions overview page for admin."""
     db = get_db()
-    # Join with exams to show exam name
-    submissions = db.execute(
-        'SELECT s.*, e.name as exam_name '
-        'FROM submissions s JOIN exams e ON s.exam_id = e.id '
-        'ORDER BY s.created_at DESC'
-    ).fetchall()
+    is_super_admin = (session.get('admin_username') == 'admin')
     
-    exams = db.execute('SELECT id, name FROM exams ORDER BY created_at DESC').fetchall()
+    if is_super_admin:
+        submissions = db.execute(
+            'SELECT s.*, e.name as exam_name '
+            'FROM submissions s JOIN exams e ON s.exam_id = e.id '
+            'ORDER BY s.created_at DESC'
+        ).fetchall()
+        exams = db.execute('SELECT id, name FROM exams ORDER BY created_at DESC').fetchall()
+    else:
+        submissions = db.execute(
+            'SELECT s.*, e.name as exam_name '
+            'FROM submissions s JOIN exams e ON s.exam_id = e.id '
+            'WHERE e.created_by = ? '
+            'ORDER BY s.created_at DESC',
+            (session['admin_id'],)
+        ).fetchall()
+        exams = db.execute('SELECT id, name FROM exams WHERE created_by = ? ORDER BY created_at DESC', (session['admin_id'],)).fetchall()
+        
     local_ip = get_local_ip()
     db.close()
     
@@ -667,6 +885,9 @@ def admin_submissions():
 def admin_submission_detail(submission_id):
     """Get detailed student answers compared with keys."""
     db = get_db()
+    if not check_submission_ownership(db, submission_id):
+        db.close()
+        return jsonify({'success': False, 'message': 'Akses ditolak: Anda tidak memiliki akses ke data ini'}), 403
     sub = db.execute(
         'SELECT s.*, e.name as exam_name, e.questions_json '
         'FROM submissions s JOIN exams e ON s.exam_id = e.id '
@@ -706,6 +927,9 @@ def admin_submission_detail(submission_id):
 def admin_export_submission_detail(submission_id):
     """Export a single student's detailed answers to CSV."""
     db = get_db()
+    if not check_submission_ownership(db, submission_id):
+        db.close()
+        return abort(403)
     sub = db.execute(
         'SELECT s.*, e.name as exam_name, e.questions_json '
         'FROM submissions s JOIN exams e ON s.exam_id = e.id '
@@ -849,6 +1073,9 @@ def admin_export_submission_detail(submission_id):
 def admin_delete_submission(submission_id):
     """Delete a student submission."""
     db = get_db()
+    if not check_submission_ownership(db, submission_id):
+        db.close()
+        return jsonify({'success': False, 'message': 'Akses ditolak: Anda tidak memiliki akses ke data ini'}), 403
     db.execute('DELETE FROM submissions WHERE id = ?', (submission_id,))
     db.commit()
     db.close()
@@ -862,14 +1089,25 @@ def admin_export_submissions():
     exam_id = request.args.get('exam_id')
     
     db = get_db()
+    is_super_admin = (session.get('admin_username') == 'admin')
+    
     query = (
         'SELECT s.id, e.name as exam_name, s.student_name, s.exam_number, s.student_class, s.score, s.created_at '
         'FROM submissions s JOIN exams e ON s.exam_id = e.id'
     )
+    conditions = []
     params = []
+    
+    if not is_super_admin:
+        conditions.append('e.created_by = ?')
+        params.append(session['admin_id'])
+        
     if exam_id:
-        query += ' WHERE s.exam_id = ?'
+        conditions.append('s.exam_id = ?')
         params.append(exam_id)
+        
+    if conditions:
+        query += ' WHERE ' + ' AND '.join(conditions)
         
     query += ' ORDER BY s.created_at DESC'
     submissions = db.execute(query, params).fetchall()

@@ -18,8 +18,12 @@
             </div>
         </div>
         <div class="topbar-right">
-            <span class="topbar-user">{{ admin_user }}</span>
-            <a href="{{ url_for('admin_logout') }}" class="btn-logout">Logout</a>
+            <span class="topbar-user" style="font-weight: 600;">👤 {{ admin_user }}</span>
+            <button class="btn-sm btn-questions" onclick="openChangePasswordModal()" style="margin: 0; font-size: 12px; padding: 0 10px; height: 32px; display: inline-flex; align-items: center; gap: 4px; vertical-align: middle;">🔑 Ubah Password</button>
+            {% if admin_user == 'admin' %}
+            <button class="btn-sm btn-results" onclick="openManageUsersModal()" style="margin: 0; font-size: 12px; padding: 0 10px; height: 32px; display: inline-flex; align-items: center; gap: 4px; vertical-align: middle;">👥 Kelola User</button>
+            {% endif %}
+            <a href="{{ url_for('admin_logout') }}" class="btn-logout" style="display: inline-flex; align-items: center; justify-content: center; height: 32px; box-sizing: border-box; vertical-align: middle;">Logout</a>
         </div>
     </nav>
 
@@ -121,10 +125,6 @@
         </div>
     </div>
 
-    <!-- Toast -->
-    <div class="toast-container" id="toastContainer"></div>
-
-    <script src="{{ url_for('static', filename='js/admin.js') }}"></script>
     <script>
         function filterSubmissions() {
             const filterVal = document.getElementById('filterExam').value;
@@ -353,5 +353,84 @@
             document.getElementById('detailModal').style.display = 'none';
         }
     </script>
+
+    <!-- Modal Ubah Password -->
+    <div class="modal-overlay" id="changePasswordModal">
+        <div class="modal-card glass-card" style="max-width: 420px;">
+            <div class="modal-header">
+                <h3>🔑 Ubah Password</h3>
+                <button class="modal-close" onclick="closeChangePasswordModal()">✕</button>
+            </div>
+            <div class="modal-body">
+                <form id="changePasswordForm" onsubmit="submitChangePassword(event)">
+                    <div class="form-group" style="margin-bottom: 16px;">
+                        <label for="currentPassword">Password Saat Ini</label>
+                        <input type="password" id="currentPassword" required placeholder="Masukkan password lama">
+                    </div>
+                    <div class="form-group" style="margin-bottom: 16px;">
+                        <label for="newPassword">Password Baru</label>
+                        <input type="password" id="newPassword" required placeholder="Masukkan password baru" minlength="4">
+                    </div>
+                    <div class="form-group" style="margin-bottom: 24px;">
+                        <label for="confirmNewPassword">Konfirmasi Password Baru</label>
+                        <input type="password" id="confirmNewPassword" required placeholder="Ulangi password baru">
+                    </div>
+                    <button type="submit" class="btn-upload" style="width: 100%;">💾 Simpan Password Baru</button>
+                </form>
+            </div>
+        </div>
+    </div>
+
+    <!-- Modal Kelola User (Super Admin Only) -->
+    {% if admin_user == 'admin' %}
+    <div class="modal-overlay" id="manageUsersModal">
+        <div class="modal-card glass-card" style="max-width: 540px;">
+            <div class="modal-header">
+                <h3>👥 Kelola User (Guru / Pembuat Soal)</h3>
+                <button class="modal-close" onclick="closeManageUsersModal()">✕</button>
+            </div>
+            <div class="modal-body">
+                <div style="border-bottom: 1px solid rgba(255,255,255,0.08); padding-bottom: 20px; margin-bottom: 20px;">
+                    <h4 style="margin-top:0; margin-bottom:12px; color:var(--text-color); font-size: 14px;">➕ Tambah User Baru</h4>
+                    <form id="createUserForm" onsubmit="submitCreateUser(event)" style="display:flex; flex-direction:column; gap:12px;">
+                        <div style="display:flex; gap:12px;">
+                            <div class="form-group" style="flex:1; margin-bottom: 0;">
+                                <label for="newUsername">Username</label>
+                                <input type="text" id="newUsername" required placeholder="Contoh: pak_budi" minlength="3">
+                            </div>
+                            <div class="form-group" style="flex:1; margin-bottom: 0;">
+                                <label for="newUserPassword">Password</label>
+                                <input type="password" id="newUserPassword" required placeholder="Password awal" minlength="4">
+                            </div>
+                        </div>
+                        <button type="submit" class="btn-upload" style="align-self: flex-end; padding: 0 20px; height: 36px; font-size: 13px;">➕ Tambah User</button>
+                    </form>
+                </div>
+                <div>
+                    <h4 style="margin-top:0; margin-bottom:12px; color:var(--text-color); font-size: 14px;">📋 Daftar User Terdaftar</h4>
+                    <div style="max-height: 250px; overflow-y: auto;">
+                        <table class="exam-table" style="font-size: 13px;">
+                            <thead>
+                                <tr>
+                                    <th>Username</th>
+                                    <th>Terdaftar</th>
+                                    <th>Aksi</th>
+                                </tr>
+                            </thead>
+                            <tbody id="usersListBody">
+                                <tr><td colspan="3" style="text-align:center; padding: 20px; color: var(--text-secondary);">Memuat...</td></tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+    {% endif %}
+
+    <!-- Toast -->
+    <div class="toast-container" id="toastContainer"></div>
+
+    <script src="{{ url_for('static', filename='js/admin.js') }}"></script>
 </body>
 </html>

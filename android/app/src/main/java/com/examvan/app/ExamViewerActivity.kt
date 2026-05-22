@@ -53,6 +53,7 @@ class ExamViewerActivity : AppCompatActivity() {
 
     // Student answers: map of question number (String) -> answer value (String, List, or Map)
     private val studentAnswers = mutableMapOf<String, Any>()
+    private var submittedOrExited = false
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -84,8 +85,8 @@ class ExamViewerActivity : AppCompatActivity() {
             return
         }
 
-        // Back button
-        binding.btnBack.setOnClickListener { finish() }
+        // Back button (acted as Logout)
+        binding.btnBack.setOnClickListener { confirmAndLogout() }
 
         // Navigation buttons
         binding.btnPrev.setOnClickListener {
@@ -107,9 +108,11 @@ class ExamViewerActivity : AppCompatActivity() {
             downloadPdf(examId)
         }
 
-        // Cancel button
+        // Cancel button (during download - no answers to submit)
         binding.btnCancel.setOnClickListener {
             downloadCall?.cancel()
+            submittedOrExited = true
+            try { stopLockTask() } catch (_: Exception) {}
             finish()
         }
 
@@ -389,6 +392,10 @@ class ExamViewerActivity : AppCompatActivity() {
             studentClass = studentClass,
             answers = studentAnswers,
             onSuccess = { message ->
+                submittedOrExited = true
+                try {
+                    stopLockTask()
+                } catch (_: Exception) {}
                 runOnUiThread {
                     binding.btnSubmitAnswers.isEnabled = false
                     binding.btnSubmitAnswers.text = "✅ Sudah Dikumpulkan"
@@ -528,6 +535,77 @@ class ExamViewerActivity : AppCompatActivity() {
         binding.layoutError.visibility = View.VISIBLE
         binding.ivPdfPage.visibility = View.GONE
         binding.tvErrorMsg.text = message
+    }
+
+    override fun onResume() {
+        super.onResume()
+        // Lock screen pinning/Lock Task Mode to prevent leaving the app
+        try {
+            startLockTask()
+        } catch (_: Exception) {}
+    }
+
+    override fun onPause() {
+        super.onPause()
+        // Anti-cheat: automatically submit and exit if they manage to leave/switch apps!
+        if (!submittedOrExited) {
+            autoSubmitAndExit()
+        }
+    }
+
+    override fun onUserLeaveHint() {
+        super.onUserLeaveHint()
+        // Anti-cheat: trigger if user presses home or recent apps
+        if (!submittedOrExited) {
+            autoSubmitAndExit()
+        }
+    }
+
+    @Deprecated("Deprecated in Java")
+    override fun onBackPressed() {
+        // Prevent default back button, show logout confirmation
+        confirmAndLogout()
+    }
+
+    private fun confirmAndLogout() {
+        AlertDialog.Builder(this)
+            .setTitle("Logout / Keluar Ujian")
+            .setMessage("Apakah Anda yakin ingin logout dan keluar dari ujian?\n\nJawaban yang sudah Anda isi akan dikumpulkan secara otomatis sebelum keluar.")
+            .setPositiveButton("Ya, Logout & Kirim") { _, _ ->
+                autoSubmitAndExit()
+            }
+            .setNegativeButton("Batal", null)
+            .show()
+    }
+
+    private fun autoSubmitAndExit() {
+        if (submittedOrExited) return
+        submittedOrExited = true
+
+        try {
+            stopLockTask()
+        } catch (_: Exception) {}
+
+        // Submit current answers before exiting
+        ApiClient.submitExam(
+            examId = examId,
+            studentName = studentName,
+            examNumber = studentNumber,
+            studentClass = studentClass,
+            answers = studentAnswers,
+            onSuccess = { _ ->
+                runOnUiThread {
+                    Toast.makeText(applicationContext, "Ujian dihentikan. Jawaban berhasil dikumpulkan.", Toast.LENGTH_LONG).show()
+                    finish()
+                }
+            },
+            onError = { _ ->
+                runOnUiThread {
+                    Toast.makeText(applicationContext, "Keluar dari ujian.", Toast.LENGTH_LONG).show()
+                    finish()
+                }
+            }
+        )
     }
 
     override fun onDestroy() {

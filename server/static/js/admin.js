@@ -500,3 +500,170 @@ function saveQuestionsConfig() {
         .catch(() => showToast('Gagal menyimpan konfigurasi', 'error'));
 }
 
+
+// ===== Change Password Modal =====
+
+function openChangePasswordModal() {
+    const modal = document.getElementById('changePasswordModal');
+    if (modal) {
+        modal.style.display = 'flex';
+        const form = document.getElementById('changePasswordForm');
+        if (form) form.reset();
+    }
+}
+
+function closeChangePasswordModal() {
+    const modal = document.getElementById('changePasswordModal');
+    if (modal) modal.style.display = 'none';
+}
+
+function submitChangePassword(e) {
+    e.preventDefault();
+    const currentPassword = document.getElementById('currentPassword').value;
+    const newPassword = document.getElementById('newPassword').value;
+    const confirmPassword = document.getElementById('confirmNewPassword').value;
+
+    if (newPassword !== confirmPassword) {
+        showToast('Password baru dan konfirmasi tidak cocok', 'error');
+        return;
+    }
+
+    if (newPassword.length < 4) {
+        showToast('Password baru minimal 4 karakter', 'error');
+        return;
+    }
+
+    fetch('/admin/api/change-password', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+            current_password: currentPassword,
+            new_password: newPassword
+        })
+    })
+        .then(r => r.json())
+        .then(res => {
+            if (res.success) {
+                showToast(res.message, 'success');
+                closeChangePasswordModal();
+            } else {
+                showToast(res.message || 'Gagal mengubah password', 'error');
+            }
+        })
+        .catch(() => showToast('Gagal mengubah password', 'error'));
+}
+
+
+// ===== Manage Users Modal (Super Admin Only) =====
+
+function openManageUsersModal() {
+    const modal = document.getElementById('manageUsersModal');
+    if (modal) {
+        modal.style.display = 'flex';
+        loadUsersList();
+    }
+}
+
+function closeManageUsersModal() {
+    const modal = document.getElementById('manageUsersModal');
+    if (modal) modal.style.display = 'none';
+}
+
+function loadUsersList() {
+    const tbody = document.getElementById('usersListBody');
+    if (!tbody) return;
+
+    tbody.innerHTML = '<tr><td colspan="3" style="text-align:center; padding: 20px; color: var(--text-secondary);">Memuat...</td></tr>';
+
+    fetch('/admin/api/users')
+        .then(r => r.json())
+        .then(res => {
+            if (res.success) {
+                if (res.users.length === 0) {
+                    tbody.innerHTML = '<tr><td colspan="3" style="text-align:center; padding: 20px; color: var(--text-secondary);">Belum ada user terdaftar</td></tr>';
+                    return;
+                }
+                tbody.innerHTML = '';
+                res.users.forEach(user => {
+                    const tr = document.createElement('tr');
+                    const isAdmin = user.username === 'admin';
+                    tr.innerHTML = `
+                        <td>
+                            <strong style="color: ${isAdmin ? 'var(--accent-light)' : 'var(--text-color)'};">
+                                ${isAdmin ? '👑 ' : ''}${user.username}
+                            </strong>
+                            ${isAdmin ? '<span style="font-size:11px; color: var(--text-secondary); display:block;">Super Admin</span>' : ''}
+                        </td>
+                        <td style="font-size: 12px; color: var(--text-secondary);">${user.created_at || '—'}</td>
+                        <td>
+                            ${isAdmin
+                                ? '<span style="font-size:11px; color: var(--text-secondary);">—</span>'
+                                : `<button class="btn-sm btn-delete" onclick="deleteUser(${user.id}, '${user.username}')" style="font-size: 11px; padding: 0 8px; height: 26px;">🗑️ Hapus</button>`
+                            }
+                        </td>
+                    `;
+                    tbody.appendChild(tr);
+                });
+            } else {
+                tbody.innerHTML = '<tr><td colspan="3" style="text-align:center; padding: 20px; color: #fca5a5;">Gagal memuat daftar user</td></tr>';
+            }
+        })
+        .catch(() => {
+            tbody.innerHTML = '<tr><td colspan="3" style="text-align:center; padding: 20px; color: #fca5a5;">Gagal memuat daftar user</td></tr>';
+        });
+}
+
+function submitCreateUser(e) {
+    e.preventDefault();
+    const username = document.getElementById('newUsername').value.trim();
+    const password = document.getElementById('newUserPassword').value;
+
+    if (!username || !password) {
+        showToast('Username dan password wajib diisi', 'error');
+        return;
+    }
+
+    fetch('/admin/api/users', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ username, password })
+    })
+        .then(r => r.json())
+        .then(res => {
+            if (res.success) {
+                showToast(res.message, 'success');
+                document.getElementById('createUserForm').reset();
+                loadUsersList();
+            } else {
+                showToast(res.message || 'Gagal membuat user', 'error');
+            }
+        })
+        .catch(() => showToast('Gagal membuat user', 'error'));
+}
+
+function deleteUser(userId, username) {
+    if (!confirm(`Hapus user "${username}"? Semua ujian dan data yang dibuat oleh user ini akan ikut terhapus.`)) return;
+
+    fetch(`/admin/api/users/${userId}`, {
+        method: 'DELETE'
+    })
+        .then(r => r.json())
+        .then(res => {
+            if (res.success) {
+                showToast(res.message, 'success');
+                loadUsersList();
+            } else {
+                showToast(res.message || 'Gagal menghapus user', 'error');
+            }
+        })
+        .catch(() => showToast('Gagal menghapus user', 'error'));
+}
+
+
+// ===== Close modals on overlay click =====
+document.addEventListener('click', function(e) {
+    if (e.target.classList.contains('modal-overlay')) {
+        // Close any open modal when clicking on overlay background
+        e.target.style.display = 'none';
+    }
+});
