@@ -592,31 +592,37 @@ class ExamViewerActivity : AppCompatActivity() {
 
     override fun onResume() {
         super.onResume()
-        // Lock screen pinning/Lock Task Mode to prevent leaving the app ONLY in strict mode
         if (securityLevel == "strict") {
-            try {
-                startLockTask()
-            } catch (_: Exception) {}
+            // Re-apply lock task and immersive mode whenever we come back
+            try { startLockTask() } catch (_: Exception) {}
+            enableImmersiveMode()
         }
     }
 
     override fun onPause() {
         super.onPause()
-        // Anti-cheat: automatically submit and exit if they manage to leave/switch apps (strict & medium modes)
-        if (securityLevel == "strict" || securityLevel == "medium") {
-            if (!submittedOrExited) {
+        if (submittedOrExited || isShowingAppDialog) return
+
+        when (securityLevel) {
+            "strict" -> {
+                // BOUNCE BACK: Force the app back to foreground immediately
+                // This is what makes strict truly different from medium
+                forceReturnToForeground()
+            }
+            "medium" -> {
                 autoSubmitAndExit()
             }
+            // "low" -> do nothing
         }
     }
 
     override fun onUserLeaveHint() {
         super.onUserLeaveHint()
-        // Anti-cheat: trigger if user presses home or recent apps (strict & medium modes)
-        if (securityLevel == "strict" || securityLevel == "medium") {
-            if (!submittedOrExited) {
-                autoSubmitAndExit()
-            }
+        if (submittedOrExited || isShowingAppDialog) return
+
+        when (securityLevel) {
+            "strict" -> forceReturnToForeground()
+            "medium" -> autoSubmitAndExit()
         }
     }
 
@@ -627,11 +633,38 @@ class ExamViewerActivity : AppCompatActivity() {
             enableImmersiveMode()
         }
         if (!hasFocus && !submittedOrExited && !isShowingAppDialog) {
-            // Focus lost (gesture bar revealed, notification shade, etc.)
-            if (securityLevel == "strict" || securityLevel == "medium") {
-                autoSubmitAndExit()
+            when (securityLevel) {
+                "strict" -> forceReturnToForeground()
+                "medium" -> autoSubmitAndExit()
             }
         }
+    }
+
+    /**
+     * Force the app back to foreground. Used in strict mode to prevent
+     * students from leaving the exam on gesture-navigation phones.
+     * Uses both moveTaskToFront and re-launch intent for maximum reliability.
+     */
+    private fun forceReturnToForeground() {
+        val handler = android.os.Handler(mainLooper)
+        handler.postDelayed({
+            if (submittedOrExited || isFinishing) return@postDelayed
+            try {
+                // Method 1: moveTaskToFront (works on most devices)
+                val am = getSystemService(Context.ACTIVITY_SERVICE) as android.app.ActivityManager
+                am.moveTaskToFront(taskId, android.app.ActivityManager.MOVE_TASK_WITH_HOME)
+            } catch (_: Exception) {}
+            try {
+                // Method 2: Re-launch intent as backup (singleTask ensures same instance)
+                val relaunch = android.content.Intent(this, ExamViewerActivity::class.java)
+                relaunch.addFlags(
+                    android.content.Intent.FLAG_ACTIVITY_REORDER_TO_FRONT
+                        or android.content.Intent.FLAG_ACTIVITY_SINGLE_TOP
+                        or android.content.Intent.FLAG_ACTIVITY_NEW_TASK
+                )
+                startActivity(relaunch)
+            } catch (_: Exception) {}
+        }, 100) // 100ms delay — fast enough to bounce back before user sees home screen
     }
 
     @Suppress("DEPRECATION")
