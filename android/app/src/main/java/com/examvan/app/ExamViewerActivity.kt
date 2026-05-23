@@ -484,10 +484,11 @@ class ExamViewerActivity : AppCompatActivity() {
             answers = studentAnswers,
             onSuccess = { message ->
                 submittedOrExited = true
-                try {
-                    stopLockTask()
-                } catch (_: Exception) {}
                 runOnUiThread {
+                    try {
+                        stopLockTask()
+                    } catch (_: Exception) {}
+                    
                     binding.btnSubmitAnswers.isEnabled = false
                     binding.btnSubmitAnswers.text = "✅ Sudah Dikumpulkan"
 
@@ -498,6 +499,9 @@ class ExamViewerActivity : AppCompatActivity() {
                         .setCancelable(false)
                         .setPositiveButton("Selesai") { _, _ ->
                             isShowingAppDialog = false
+                            try {
+                                stopLockTask()
+                            } catch (_: Exception) {}
                             finish()
                         }
                         .show()
