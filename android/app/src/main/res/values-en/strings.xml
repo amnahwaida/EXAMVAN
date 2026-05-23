@@ -1,0 +1,36 @@
+<resources>
+    <string name="app_name">EXAMVAN</string>
+    <string name="server_config_title">Server Configuration</string>
+    <string name="hint_server_url">http://192.168.1.100:5000</string>
+    <string name="label_server_url">Server URL</string>
+    <string name="label_token">Exam Token</string>
+    <string name="hint_token">ABC123</string>
+    <string name="cb_remember_url">Remember this Server URL for next time</string>
+    <string name="btn_connect">Save &amp; Continue</string>
+    <string name="btn_start_exam">Start Exam</string>
+    <string name="exam_list_title">Exam List</string>
+    <string name="empty_exams">No exams available</string>
+    <string name="btn_retry">Retry</string>
+    <string name="loading">Loading...</string>
+    <string name="download_progress">Downloading: %1$d%%</string>
+    <string name="page_indicator">Page %1$d / %2$d</string>
+    <string name="btn_prev">Previous</string>
+    <string name="btn_next">Next</string>
+    <string name="error_network">Failed to connect to server. Check your network.</string>
+    <string name="error_invalid_url">Invalid URL format. Use http://IP:PORT</string>
+    <string name="error_invalid_token">Token cannot be empty</string>
+    <string name="error_token_not_found">Invalid token or exam has ended</string>
+    <string name="error_download">Failed to download exam file</string>
+    <string name="error_pdf">Failed to open PDF file</string>
+    <string name="menu_change_server">Change Server</string>
+
+    <!-- Gesture Warning Dialog -->
+    <string name="gesture_warning_title">Gesture Navigation Detected</string>
+    <string name="gesture_warning_message">This exam uses High Security (Strict Mode), which requires the \'Screen Pinning\' feature to prevent you from switching to other applications.\n\nYour phone\'s navigation is currently set to \'Fullscreen Gestures\' (Swipe). Gesture navigation is not supported because it easily allows you to exit the app even when the screen is pinned.\n\nSteps to change it:\n1. Tap the \'Open Settings\' button below.\n2. Find the \'System Navigation\' menu.\n3. Change the selection from \'Gestures\' to \'Buttons\' (3-Button Navigation).\n4. Once changed, please return to this app to start the exam.</string>
+    <string name="btn_open_settings">Open Settings</string>
+    <string name="btn_cancel">Cancel</string>
+
+    <!-- Overlay Permission Dialog -->
+    <string name="overlay_permission_title">Permission Required</string>
+    <string name="overlay_permission_message">This exam uses Strict Security. The app requires the \'Display over other apps\' permission to lock the screen and prevent cheating.\n\nPlease enable this permission on the next settings screen.</string>
+</resources>

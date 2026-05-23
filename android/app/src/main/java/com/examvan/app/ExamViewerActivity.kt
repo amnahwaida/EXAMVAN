@@ -80,9 +80,6 @@ class ExamViewerActivity : AppCompatActivity() {
                     if (binding.layoutStrictLockOverlay.visibility == View.GONE && !isShowingAppDialog) {
                         binding.layoutStrictLockOverlay.visibility = View.VISIBLE
                         try { startLockTask() } catch (_: Exception) {}
-                        // Start safety auto-submit countdown if they unpinned
-                        safetySubmitHandler.removeCallbacks(safetySubmitRunnable)
-                        safetySubmitHandler.postDelayed(safetySubmitRunnable, 3000)
                     }
                 }
                 // Schedule next check in 500ms
@@ -645,7 +642,11 @@ class ExamViewerActivity : AppCompatActivity() {
             // Cancel safety auto-submit as we are successfully back in foreground
             safetySubmitHandler.removeCallbacks(safetySubmitRunnable)
 
-            // Start periodic pinning state check
+            // Re-apply lock task immediately (critical for button navigation pinning)
+            try { startLockTask() } catch (_: Exception) {}
+
+            // Start periodic pinning state check (for overlay management)
+            pinCheckHandler.removeCallbacks(pinCheckRunnable)
             pinCheckHandler.post(pinCheckRunnable)
             
             enableImmersiveMode()
@@ -662,7 +663,8 @@ class ExamViewerActivity : AppCompatActivity() {
             
             // Try to bounce back immediately
             forceReturnToForeground()
-            // Schedule safety auto-submit if student succeeds in staying out for 3 seconds
+            // Clear any existing safety timer, then schedule fresh one
+            safetySubmitHandler.removeCallbacks(safetySubmitRunnable)
             safetySubmitHandler.postDelayed(safetySubmitRunnable, 3000)
         } else if (securityLevel == "medium") {
             autoSubmitAndExit()
@@ -676,6 +678,7 @@ class ExamViewerActivity : AppCompatActivity() {
         when (securityLevel) {
             "strict" -> {
                 forceReturnToForeground()
+                safetySubmitHandler.removeCallbacks(safetySubmitRunnable)
                 safetySubmitHandler.postDelayed(safetySubmitRunnable, 3000)
             }
             "medium" -> autoSubmitAndExit()
@@ -686,12 +689,16 @@ class ExamViewerActivity : AppCompatActivity() {
         super.onWindowFocusChanged(hasFocus)
         if (securityLevel == "strict") {
             if (hasFocus) {
+                safetySubmitHandler.removeCallbacks(safetySubmitRunnable)
+                // Re-apply lock task
+                try { startLockTask() } catch (_: Exception) {}
                 // Re-start periodic checks
                 pinCheckHandler.removeCallbacks(pinCheckRunnable)
                 pinCheckHandler.post(pinCheckRunnable)
                 enableImmersiveMode()
             } else if (!submittedOrExited && !isShowingAppDialog) {
                 forceReturnToForeground()
+                safetySubmitHandler.removeCallbacks(safetySubmitRunnable)
                 safetySubmitHandler.postDelayed(safetySubmitRunnable, 3000)
             }
         } else if (securityLevel == "medium") {

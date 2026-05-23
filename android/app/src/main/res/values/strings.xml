@@ -23,4 +23,14 @@
     <string name="error_download">Gagal mengunduh file ujian</string>
     <string name="error_pdf">Gagal membuka file PDF</string>
     <string name="menu_change_server">Ganti Server</string>
+
+    <!-- Gesture Warning Dialog -->
+    <string name="gesture_warning_title">Navigasi Gestur Terdeteksi</string>
+    <string name="gesture_warning_message">Ujian ini menggunakan tingkat Keamanan Tinggi (Strict Mode) yang membutuhkan fitur \'Penyematan Aplikasi\' (Screen Pinning) agar Anda tidak dapat berpindah ke aplikasi lain.\n\nSistem navigasi HP Anda saat ini diatur menggunakan \'Gestur Layar Penuh\' (Swipe). Navigasi gestur ini tidak didukung karena membolehkan Anda untuk dengan mudah keluar dari aplikasi meskipun layar dalam keadaan tersemat.\n\nLangkah untuk mengubahnya:\n1. Tekan tombol \'Buka Pengaturan\' di bawah.\n2. Cari menu \'Navigasi Sistem\' (System Navigation).\n3. Ubah pilihan dari \'Gestur\' (Gestures) menjadi \'Tombol\' (Buttons / 3-Tombol).\n4. Setelah berhasil diubah, silakan kembali ke aplikasi ini untuk memulai ujian.</string>
+    <string name="btn_open_settings">Buka Pengaturan</string>
+    <string name="btn_cancel">Batal</string>
+
+    <!-- Overlay Permission Dialog -->
+    <string name="overlay_permission_title">Izin Diperlukan</string>
+    <string name="overlay_permission_message">Ujian ini menggunakan Keamanan Strict. Aplikasi membutuhkan izin \'Tampilkan di atas aplikasi lain\' untuk mengunci layar dan mencegah kecurangan.\n\nSilakan aktifkan izin ini pada layar pengaturan berikutnya.</string>
 </resources>

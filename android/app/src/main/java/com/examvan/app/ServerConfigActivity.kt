@@ -320,14 +320,14 @@ class ServerConfigActivity : AppCompatActivity() {
 
     private fun showGestureNavigationWarningDialog() {
         AlertDialog.Builder(this)
-            .setTitle("Navigasi Gestur Terdeteksi")
-            .setMessage("Ujian ini menggunakan Keamanan Strict. Anda wajib mengubah navigasi HP Anda dari 'Gestur Layar Penuh' menjadi 'Tombol Navigasi Klasik (3 Tombol)' agar sistem pengunci layar berjalan dengan aman.\n\nSilakan buka Pengaturan HP Anda, ubah ke Tombol Navigasi, lalu kembali ke aplikasi ini.")
+            .setTitle(getString(R.string.gesture_warning_title))
+            .setMessage(getString(R.string.gesture_warning_message))
             .setCancelable(false)
-            .setPositiveButton("Buka Pengaturan") { _, _ ->
+            .setPositiveButton(getString(R.string.btn_open_settings)) { _, _ ->
                 val intent = Intent(android.provider.Settings.ACTION_SETTINGS)
                 startActivity(intent)
             }
-            .setNegativeButton("Batal") { _, _ ->
+            .setNegativeButton(getString(R.string.btn_cancel)) { _, _ ->
                 // Clear pending to prevent loops
                 prefs.edit().remove("pending_exam_id").apply()
             }
@@ -336,14 +336,14 @@ class ServerConfigActivity : AppCompatActivity() {
 
     private fun showOverlayPermissionDialog() {
         AlertDialog.Builder(this)
-            .setTitle("Izin Diperlukan")
-            .setMessage("Ujian ini menggunakan Keamanan Strict. Aplikasi membutuhkan izin 'Tampilkan di atas aplikasi lain' untuk mengunci layar dan mencegah kecurangan.\n\nSilakan aktifkan izin ini pada layar pengaturan berikutnya.")
+            .setTitle(getString(R.string.overlay_permission_title))
+            .setMessage(getString(R.string.overlay_permission_message))
             .setCancelable(false)
-            .setPositiveButton("Buka Pengaturan") { _, _ ->
+            .setPositiveButton(getString(R.string.btn_open_settings)) { _, _ ->
                 val intent = Intent(android.provider.Settings.ACTION_MANAGE_OVERLAY_PERMISSION, android.net.Uri.parse("package:$packageName"))
                 startActivity(intent)
             }
-            .setNegativeButton("Batal") { _, _ ->
+            .setNegativeButton(getString(R.string.btn_cancel)) { _, _ ->
                 // Clear pending to prevent loops
                 prefs.edit().remove("pending_exam_id").apply()
             }
