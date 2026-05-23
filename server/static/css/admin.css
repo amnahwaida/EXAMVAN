@@ -888,7 +888,7 @@ body {
     text-transform: uppercase;
 }
 
-.q-type-select, .q-key-input, .q-options-input {
+.q-key-input, .q-options-input {
     padding: 7px 10px;
     background: var(--surface);
     border: 1px solid var(--glass-border);
@@ -896,6 +896,45 @@ body {
     color: var(--text);
     font-size: 13px;
     outline: none;
+}
+
+/* Premium styling for Question Type Dropdowns */
+.q-type-select, .inline-group select {
+    background-color: rgba(255, 255, 255, 0.05) !important;
+    border: 1px solid var(--glass-border) !important;
+    border-radius: 6px !important;
+    color: var(--text) !important;
+    font-family: inherit;
+    font-size: 13px;
+    padding: 7px 12px !important;
+    min-width: 180px;
+    transition: all 0.2s ease;
+    outline: none;
+    cursor: pointer;
+    -webkit-appearance: none;
+    -moz-appearance: none;
+    appearance: none;
+    background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='24' height='24' viewBox='0 0 24 24' fill='none' stroke='%23a5b4fc' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'><polyline points='6 9 12 15 18 9'></polyline></svg>") !important;
+    background-repeat: no-repeat !important;
+    background-position: right 10px center !important;
+    background-size: 14px !important;
+    padding-right: 32px !important;
+}
+
+.q-type-select:hover, .inline-group select:hover {
+    background-color: rgba(255, 255, 255, 0.08) !important;
+    border-color: rgba(255, 255, 255, 0.2) !important;
+}
+
+.q-type-select:focus, .inline-group select:focus {
+    border-color: var(--primary) !important;
+    box-shadow: 0 0 0 2px var(--primary-glow) !important;
+}
+
+.q-type-select option, .inline-group select option {
+    background-color: #0c0a1a !important;
+    color: var(--text) !important;
+    padding: 10px !important;
 }
 
 .q-key-input {
