@@ -26,7 +26,7 @@ import java.io.File
  * - Renders pages via PdfRenderer to Bitmap (no text layer = anti-copy)
  * - Prev/Next navigation with page counter and swipe gestures
  * - Collapsible digital answer sheet panel supporting:
- *   single_choice, multiple_choice, true_false, matching
+ *   single_choice, multiple_choice, true_false, matching, short_answer
  * - Submit answers to server with student identity
  * - FLAG_SECURE active to prevent screenshots
  */
@@ -206,6 +206,7 @@ class ExamViewerActivity : AppCompatActivity() {
                 "true_false" -> addTrueFalseQuestion(container, number)
                 "multiple_choice" -> addMultipleChoiceQuestion(container, number, q)
                 "matching" -> addMatchingQuestion(container, number, q)
+                "short_answer" -> addShortAnswerQuestion(container, number)
             }
         }
     }
@@ -356,6 +357,35 @@ class ExamViewerActivity : AppCompatActivity() {
 
             matchingContainer.addView(rowView)
         }
+
+        container.addView(view)
+    }
+
+    private fun addShortAnswerQuestion(container: LinearLayout, number: Int) {
+        val view = LayoutInflater.from(this).inflate(R.layout.item_question_short_answer, container, false)
+        val label = view.findViewById<TextView>(R.id.tvQuestionLabel)
+        val editText = view.findViewById<EditText>(R.id.etShortAnswer)
+
+        label.text = "Soal $number (Isian Singkat)"
+
+        // Restore answer if already filled
+        val currentAns = studentAnswers[number.toString()] as? String
+        if (currentAns != null) {
+            editText.setText(currentAns)
+        }
+
+        editText.addTextChangedListener(object : android.text.TextWatcher {
+            override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) {}
+            override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) {}
+            override fun afterTextChanged(s: android.text.Editable?) {
+                val ans = s?.toString()?.trim() ?: ""
+                if (ans.isNotEmpty()) {
+                    studentAnswers[number.toString()] = ans
+                } else {
+                    studentAnswers.remove(number.toString())
+                }
+            }
+        })
 
         container.addView(view)
     }
