@@ -216,8 +216,10 @@
                         let statusClass = 'incorrect';
                         
                         if (studentAns !== undefined && studentAns !== null) {
-                            if (type === 'single_choice' || type === 'true_false') {
-                                if (studentAns.toString().trim().toUpperCase() === correctAns.toString().trim().toUpperCase()) {
+                            if (type === 'single_choice' || type === 'true_false' || type === 'short_answer') {
+                                const sNorm = studentAns.toString().trim().replace(/\s+/g, ' ').toUpperCase();
+                                const cNorm = correctAns.toString().trim().replace(/\s+/g, ' ').toUpperCase();
+                                if (sNorm === cNorm) {
                                     isCorrect = true;
                                     earnedPoints = weight;
                                     statusText = 'Benar ✔️';

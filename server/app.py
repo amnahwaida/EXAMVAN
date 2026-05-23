@@ -236,7 +236,9 @@ def calculate_submission_score(answers, questions):
             earned_q_weight = 0.0
             if student_ans is not None and correct_ans is not None:
                 if q['type'] in ['single_choice', 'true_false', 'short_answer']:
-                    if str(student_ans).strip().upper() == str(correct_ans).strip().upper():
+                    s_norm = ' '.join(str(student_ans).split()).upper()
+                    c_norm = ' '.join(str(correct_ans).split()).upper()
+                    if s_norm == c_norm:
                         earned_q_weight = q_weight
                 elif q['type'] == 'multiple_choice':
                     if isinstance(student_ans, list) and isinstance(correct_ans, list):
@@ -1133,7 +1135,9 @@ def admin_export_submission_detail(submission_id):
         # Student Answer Formatting
         if student_ans is not None:
             if q['type'] in ['single_choice', 'true_false', 'short_answer']:
-                if str(student_ans).strip().upper() == str(correct_ans).strip().upper():
+                s_norm = ' '.join(str(student_ans).split()).upper()
+                c_norm = ' '.join(str(correct_ans).split()).upper()
+                if s_norm == c_norm:
                     earned_q_weight = q_weight
                     status_text = 'Benar ✔️'
             elif q['type'] == 'multiple_choice':
@@ -1529,7 +1533,9 @@ def _generate_exam_xlsx(exam, submissions, questions, tz_offset=None):
 
             if student_ans is not None and student_ans != '' and correct_ans is not None:
                 if q['type'] in ['single_choice', 'true_false', 'short_answer']:
-                    if str(student_ans).strip().upper() == str(correct_ans).strip().upper():
+                    s_norm = ' '.join(str(student_ans).split()).upper()
+                    c_norm = ' '.join(str(correct_ans).split()).upper()
+                    if s_norm == c_norm:
                         earned = q_weight
                         status_text = 'Benar ✔️'
                     else:
