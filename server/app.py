@@ -235,7 +235,7 @@ def calculate_submission_score(answers, questions):
 
             earned_q_weight = 0.0
             if student_ans is not None and correct_ans is not None:
-                if q['type'] in ['single_choice', 'true_false']:
+                if q['type'] in ['single_choice', 'true_false', 'short_answer']:
                     if str(student_ans).strip().upper() == str(correct_ans).strip().upper():
                         earned_q_weight = q_weight
                 elif q['type'] == 'multiple_choice':
@@ -1132,7 +1132,7 @@ def admin_export_submission_detail(submission_id):
         
         # Student Answer Formatting
         if student_ans is not None:
-            if q['type'] in ['single_choice', 'true_false']:
+            if q['type'] in ['single_choice', 'true_false', 'short_answer']:
                 if str(student_ans).strip().upper() == str(correct_ans).strip().upper():
                     earned_q_weight = q_weight
                     status_text = 'Benar ✔️'
@@ -1200,9 +1200,16 @@ def admin_export_submission_detail(submission_id):
         elif correct_ans is not None:
             correct_ans_str = str(correct_ans)
             
+        type_labels = {
+            'single_choice': 'Pilihan Ganda',
+            'multiple_choice': 'PG Kompleks',
+            'true_false': 'Benar / Salah',
+            'matching': 'Menjodohkan',
+            'short_answer': 'Isian Singkat',
+        }
         cw.writerow([
             q['number'],
-            q['type'],
+            type_labels.get(q['type'], q['type']),
             q_weight,
             student_ans_str,
             correct_ans_str,
@@ -1521,7 +1528,7 @@ def _generate_exam_xlsx(exam, submissions, questions, tz_offset=None):
             key_display = _fmt(correct_ans)
 
             if student_ans is not None and student_ans != '' and correct_ans is not None:
-                if q['type'] in ['single_choice', 'true_false']:
+                if q['type'] in ['single_choice', 'true_false', 'short_answer']:
                     if str(student_ans).strip().upper() == str(correct_ans).strip().upper():
                         earned = q_weight
                         status_text = 'Benar ✔️'
@@ -1572,6 +1579,7 @@ def _generate_exam_xlsx(exam, submissions, questions, tz_offset=None):
                 'multiple_choice': 'PG Kompleks',
                 'true_false': 'Benar / Salah',
                 'matching': 'Menjodohkan',
+                'short_answer': 'Isian Singkat',
             }
 
             row_values = [

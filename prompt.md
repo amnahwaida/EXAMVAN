@@ -22,6 +22,7 @@ Setiap butir soal ditulis sebagai elemen `<question>` dengan atribut wajib:
   - `multiple_choice` (Pilihan Ganda Kompleks)
   - `true_false` (Benar / Salah)
   - `matching` (Menjodohkan / Mencocokkan)
+  - `short_answer` (Isian Singkat)
 - `weight`: Bobot nilai soal (default "1.0", bertipe desimal, misal: "1.0", "1.5", "2.0", dst).
 - `partial_scoring`: Nilai parsial untuk tipe `multiple_choice` atau `matching`. Bernilai `"true"` jika siswa mendapat poin proporsional atas jawaban yang sebagian benar, atau `"false"` jika harus benar seluruhnya.
 
@@ -74,11 +75,21 @@ Setiap butir soal ditulis sebagai elemen `<question>` dengan atribut wajib:
 </question>
 ```
 
+#### E. Tipe `short_answer` (Isian Singkat)
+- Tidak membutuhkan tag `<choices>`.
+- Tag `<key>` berisi kata kunci atau frasa jawaban benar yang diharapkan (misal: `Fotosintesis` atau `Jakarta`). Sistem akan mencocokkan jawaban siswa secara case-insensitive (mengabaikan huruf besar/kecil) dan membuang spasi di awal/akhir jawaban.
+*Contoh:*
+```xml
+<question number="5" type="short_answer" weight="1.5">
+    <key>Fotosintesis</key>
+</question>
+```
+
 ---
 
 ### TUGAS ANDA:
 1. Bacalah seluruh soal dari dokumen PDF / teks soal yang saya berikan dengan teliti.
-2. Identifikasi tipe masing-masing soal (apakah Pilihan Ganda Tunggal, Pilihan Ganda Kompleks, Benar/Salah, atau Menjodohkan).
+2. Identifikasi tipe masing-masing soal (apakah Pilihan Ganda Tunggal, Pilihan Ganda Kompleks, Benar/Salah, Menjodohkan, atau Isian Singkat).
 3. Pecahkan/tentukan kunci jawaban yang paling tepat untuk masing-masing soal tersebut.
 4. Tuliskan output kunci jawaban tersebut **HANYA** dalam format blok kode XML yang utuh dan valid berdasarkan aturan format di atas. Jangan sertakan teks penjelasan lainnya di luar blok kode XML agar mudah disalin langsung.
 

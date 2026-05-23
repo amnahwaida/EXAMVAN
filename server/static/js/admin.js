@@ -233,6 +233,7 @@ function createNewQuestionCard(q, num) {
     const weight = q.weight !== undefined ? q.weight : 1.0;
     const partial = q.partial_scoring ? 'checked' : '';
     const partialVisibility = (type === 'multiple_choice' || type === 'matching') ? 'block' : 'none';
+    const optionsVisibility = (type === 'true_false' || type === 'short_answer') ? 'none' : 'block';
     
     let optionsVal = '';
     if (type === 'single_choice' || type === 'multiple_choice') {
@@ -262,6 +263,7 @@ function createNewQuestionCard(q, num) {
                 <option value="multiple_choice" ${type === 'multiple_choice' ? 'selected' : ''}>Pilihan Ganda Kompleks</option>
                 <option value="true_false" ${type === 'true_false' ? 'selected' : ''}>Benar / Salah</option>
                 <option value="matching" ${type === 'matching' ? 'selected' : ''}>Menjodohkan (Matching)</option>
+                <option value="short_answer" ${type === 'short_answer' ? 'selected' : ''}>Isian Singkat</option>
             </select>
         </div>
         <div class="q-field-group">
@@ -275,9 +277,9 @@ function createNewQuestionCard(q, num) {
         </div>
         <div class="q-field-group">
             <label>Kunci Jawaban</label>
-            <input type="text" class="q-key-input" value="${keyVal}" placeholder="A / A,C / TRUE / 1:A, 2:B" title="Pilihan Kompleks (koma), Menjodohkan (K:V)">
+            <input type="text" class="q-key-input" value="${keyVal}" placeholder="Jawaban..." title="Pilihan Kompleks (koma), Menjodohkan (K:V), Isian Singkat">
         </div>
-        <div class="q-field-group">
+        <div class="q-field-group q-options-group" style="display: ${optionsVisibility};">
             <label>Pilihan / Konfigurasi Item</label>
             <input type="text" class="q-options-input" value="${optionsVal}" placeholder="Pilihan dipisahkan koma">
         </div>
@@ -382,6 +384,7 @@ function renderQuestions(questions) {
 function onQuestionTypeChange(selectEl) {
     const card = selectEl.closest('.question-editor-card');
     const optionsInput = card.querySelector('.q-options-input');
+    const optionsGroup = card.querySelector('.q-options-group');
     const keyInput = card.querySelector('.q-key-input');
     const partialGroup = card.querySelector('.q-partial-group');
     const type = selectEl.value;
@@ -391,6 +394,12 @@ function onQuestionTypeChange(selectEl) {
     } else {
         partialGroup.style.display = 'none';
         card.querySelector('.q-partial-checkbox').checked = false;
+    }
+    
+    if (type === 'true_false' || type === 'short_answer') {
+        optionsGroup.style.display = 'none';
+    } else {
+        optionsGroup.style.display = 'block';
     }
     
     if (type === 'single_choice') {
@@ -405,6 +414,9 @@ function onQuestionTypeChange(selectEl) {
     } else if (type === 'matching') {
         optionsInput.value = 'Kiri: 1, 2, 3 | Kanan: A, B, C';
         keyInput.value = '1:A, 2:B, 3:C';
+    } else if (type === 'short_answer') {
+        optionsInput.value = '';
+        keyInput.value = '';
     }
 }
 
@@ -428,6 +440,8 @@ function quickGenerateQuestions() {
             q.left_items = ['1', '2', '3'];
             q.right_items = ['A', 'B', 'C'];
             q.key = { '1': 'A', '2': 'B', '3': 'C' };
+        } else if (type === 'short_answer') {
+            q.key = '';
         }
         questions.push(q);
     }
@@ -488,6 +502,8 @@ function saveQuestionsConfig() {
                 }
             });
             q.key = keyObj;
+        } else if (type === 'short_answer') {
+            q.key = keyRaw; // preserve case for short answers
         }
         
         questions.push(q);
@@ -834,6 +850,8 @@ function importXMLQuestions(event) {
                             }
                         });
                         key = keyObj;
+                    } else if (type === 'short_answer') {
+                        key = keyRaw;
                     } else {
                         key = keyRaw.toUpperCase();
                     }
@@ -882,6 +900,7 @@ Setiap butir soal ditulis sebagai elemen <question> dengan atribut wajib:
   - multiple_choice (Pilihan Ganda Kompleks)
   - true_false (Benar / Salah)
   - matching (Menjodohkan / Mencocokkan)
+  - short_answer (Isian Singkat)
 - weight: Bobot nilai soal (default "1.0", bertipe desimal, misal: "1.0", "1.5", "2.0", dst).
 - partial_scoring: Nilai parsial untuk tipe multiple_choice atau matching. Bernilai "true" jika siswa mendapat poin proporsional atas jawaban yang sebagian benar, atau "false" jika harus benar seluruhnya.
 
@@ -926,11 +945,19 @@ Contoh:
     <key>1:B, 2:A, 3:C</key>
 </question>
 
+#### E. Tipe short_answer (Isian Singkat)
+- Tidak membutuhkan tag <choices>.
+- Tag <key> berisi kata kunci atau frasa jawaban benar yang diharapkan (misal: Fotosintesis atau Jakarta). Sistem akan mencocokkan jawaban siswa secara case-insensitive (mengabaikan huruf besar/kecil) dan membuang spasi di awal/akhir jawaban.
+Contoh:
+<question number="5" type="short_answer" weight="1.5">
+    <key>Fotosintesis</key>
+</question>
+
 ---
 
 ### TUGAS ANDA:
 1. Bacalah seluruh soal dari dokumen PDF / teks soal yang saya berikan dengan teliti.
-2. Identifikasi tipe masing-masing soal (apakah Pilihan Ganda Tunggal, Pilihan Ganda Kompleks, Benar/Salah, atau Menjodohkan).
+2. Identifikasi tipe masing-masing soal (apakah Pilihan Ganda Tunggal, Pilihan Ganda Kompleks, Benar/Salah, Menjodohkan, atau Isian Singkat).
 3. Pecahkan/tentukan kunci jawaban yang paling tepat untuk masing-masing soal tersebut.
 4. Tuliskan output kunci jawaban tersebut HANYA dalam format blok kode XML yang utuh dan valid berdasarkan aturan format di atas. Jangan sertakan teks penjelasan lainnya di luar blok kode XML agar mudah disalin langsung.
 
