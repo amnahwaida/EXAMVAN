@@ -55,6 +55,7 @@ class ExamViewerActivity : AppCompatActivity() {
     private val studentAnswers = mutableMapOf<String, Any>()
     private var submittedOrExited = false
     private var securityLevel = "medium"
+    private var isShowingAppDialog = false
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -148,6 +149,11 @@ class ExamViewerActivity : AppCompatActivity() {
 
         // Load questions from SharedPreferences (set by ServerConfigActivity after token response)
         loadQuestionsFromPrefs()
+
+        // Enable immersive fullscreen for strict mode (hides nav bar & status bar)
+        if (securityLevel == "strict") {
+            enableImmersiveMode()
+        }
 
         // Start download
         downloadPdf(examId)
@@ -403,13 +409,20 @@ class ExamViewerActivity : AppCompatActivity() {
             "Anda sudah menjawab semua $total soal.\nKumpulkan jawaban?"
         }
 
+        isShowingAppDialog = true
         AlertDialog.Builder(this)
             .setTitle("Kumpulkan Jawaban")
             .setMessage(message)
             .setPositiveButton("Ya, Kumpulkan") { _, _ ->
+                isShowingAppDialog = false
                 submitAnswers()
             }
-            .setNegativeButton("Batal", null)
+            .setNegativeButton("Batal") { _, _ ->
+                isShowingAppDialog = false
+            }
+            .setOnCancelListener {
+                isShowingAppDialog = false
+            }
             .show()
     }
 
@@ -432,11 +445,13 @@ class ExamViewerActivity : AppCompatActivity() {
                     binding.btnSubmitAnswers.isEnabled = false
                     binding.btnSubmitAnswers.text = "✅ Sudah Dikumpulkan"
 
+                    isShowingAppDialog = true
                     AlertDialog.Builder(this)
                         .setTitle("Berhasil")
                         .setMessage("$message\n\nNama: $studentName\nNomor: $studentNumber\nKelas: $studentClass")
                         .setCancelable(false)
                         .setPositiveButton("Selesai") { _, _ ->
+                            isShowingAppDialog = false
                             finish()
                         }
                         .show()
@@ -447,10 +462,16 @@ class ExamViewerActivity : AppCompatActivity() {
                     binding.btnSubmitAnswers.isEnabled = true
                     binding.btnSubmitAnswers.text = "📤 Kumpulkan Jawaban"
 
+                    isShowingAppDialog = true
                     AlertDialog.Builder(this)
                         .setTitle("Gagal")
                         .setMessage(errorMsg)
-                        .setPositiveButton("OK", null)
+                        .setPositiveButton("OK") { _, _ ->
+                            isShowingAppDialog = false
+                        }
+                        .setOnCancelListener {
+                            isShowingAppDialog = false
+                        }
                         .show()
                 }
             }
@@ -599,6 +620,42 @@ class ExamViewerActivity : AppCompatActivity() {
         }
     }
 
+    override fun onWindowFocusChanged(hasFocus: Boolean) {
+        super.onWindowFocusChanged(hasFocus)
+        if (hasFocus && securityLevel == "strict") {
+            // Re-apply immersive mode whenever we regain focus
+            enableImmersiveMode()
+        }
+        if (!hasFocus && !submittedOrExited && !isShowingAppDialog) {
+            // Focus lost (gesture bar revealed, notification shade, etc.)
+            if (securityLevel == "strict" || securityLevel == "medium") {
+                autoSubmitAndExit()
+            }
+        }
+    }
+
+    @Suppress("DEPRECATION")
+    private fun enableImmersiveMode() {
+        // Hide navigation bar and status bar with immersive sticky mode
+        // This makes it very hard to swipe out on gesture-navigation phones
+        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.R) {
+            window.insetsController?.let { controller ->
+                controller.hide(android.view.WindowInsets.Type.systemBars())
+                controller.systemBarsBehavior =
+                    android.view.WindowInsetsController.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
+            }
+        } else {
+            window.decorView.systemUiVisibility = (
+                View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY
+                    or View.SYSTEM_UI_FLAG_FULLSCREEN
+                    or View.SYSTEM_UI_FLAG_HIDE_NAVIGATION
+                    or View.SYSTEM_UI_FLAG_LAYOUT_STABLE
+                    or View.SYSTEM_UI_FLAG_LAYOUT_HIDE_NAVIGATION
+                    or View.SYSTEM_UI_FLAG_LAYOUT_FULLSCREEN
+            )
+        }
+    }
+
     @Deprecated("Deprecated in Java")
     override fun onBackPressed() {
         // Prevent default back button, show logout confirmation
@@ -620,10 +677,12 @@ class ExamViewerActivity : AppCompatActivity() {
             positiveButtonText = "Ya, Logout & Kirim"
         }
 
+        isShowingAppDialog = true
         AlertDialog.Builder(this)
             .setTitle(title)
             .setMessage(message)
             .setPositiveButton(positiveButtonText) { _, _ ->
+                isShowingAppDialog = false
                 if (securityLevel == "low") {
                     // Just exit without auto-submitting
                     submittedOrExited = true
@@ -635,7 +694,12 @@ class ExamViewerActivity : AppCompatActivity() {
                     autoSubmitAndExit()
                 }
             }
-            .setNegativeButton("Batal", null)
+            .setNegativeButton("Batal") { _, _ ->
+                isShowingAppDialog = false
+            }
+            .setOnCancelListener {
+                isShowingAppDialog = false
+            }
             .show()
     }
 
