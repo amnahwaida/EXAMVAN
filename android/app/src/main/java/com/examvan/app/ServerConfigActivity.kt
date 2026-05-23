@@ -269,17 +269,18 @@ class ServerConfigActivity : AppCompatActivity() {
     }
 
     private fun isGestureNavigationEnabled(context: Context): Boolean {
-        // 1. Check WindowInsets for system gestures (Left/Right swipe back zones) - API 29+
-        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.Q) {
-            val insets = window.decorView.rootWindowInsets
-            if (insets != null) {
-                try {
+        // 1. Check WindowInsets for system gestures (Left/Right swipe back zones) - API 30+
+        // Note: getInsets() and Type.systemGestures() both require API 30 (R), NOT 29 (Q)
+        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.R) {
+            try {
+                val insets = window.decorView.rootWindowInsets
+                if (insets != null) {
                     val gestureInsets = insets.getInsets(android.view.WindowInsets.Type.systemGestures())
                     if (gestureInsets.left > 0 || gestureInsets.right > 0) {
                         return true
                     }
-                } catch (_: Exception) {}
-            }
+                }
+            } catch (_: Throwable) {} // Catch Throwable to handle NoSuchMethodError on edge cases
         }
 
         // 2. Check standard Secure setting navigation_mode
