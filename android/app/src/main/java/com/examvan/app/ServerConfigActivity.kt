@@ -1,5 +1,6 @@
 package com.examvan.app
 
+import android.content.Context
 import android.content.Intent
 import android.content.SharedPreferences
 import android.os.Bundle
@@ -203,8 +204,8 @@ class ServerConfigActivity : AppCompatActivity() {
                 .putString("security_level", securityLevel)
                 .apply()
 
-            if (securityLevel == "strict" && !android.provider.Settings.canDrawOverlays(this@ServerConfigActivity)) {
-                showOverlayPermissionDialog(exam, serverUrl, name, number, studentClass)
+            if (securityLevel == "strict") {
+                checkAndStartStrictExam(exam.id, exam.name, serverUrl, name, number, studentClass)
             } else {
                 startExamViewer(exam.id, exam.name, serverUrl, name, number, studentClass)
             }
@@ -217,51 +218,116 @@ class ServerConfigActivity : AppCompatActivity() {
         super.onResume()
         val pendingId = prefs.getInt("pending_exam_id", -1)
         if (pendingId != -1) {
-            if (android.provider.Settings.canDrawOverlays(this)) {
-                val examName = prefs.getString("pending_exam_name", "") ?: ""
-                val serverUrl = prefs.getString("pending_server_url", "") ?: ""
-                val name = prefs.getString("pending_student_name", "") ?: ""
-                val number = prefs.getString("pending_student_number", "") ?: ""
-                val studentClass = prefs.getString("pending_student_class", "") ?: ""
+            val examName = prefs.getString("pending_exam_name", "") ?: ""
+            val serverUrl = prefs.getString("pending_server_url", "") ?: ""
+            val name = prefs.getString("pending_student_name", "") ?: ""
+            val number = prefs.getString("pending_student_number", "") ?: ""
+            val studentClass = prefs.getString("pending_student_class", "") ?: ""
 
-                // Clear pending
-                prefs.edit()
-                    .remove("pending_exam_id")
-                    .remove("pending_exam_name")
-                    .remove("pending_server_url")
-                    .remove("pending_student_name")
-                    .remove("pending_student_number")
-                    .remove("pending_student_class")
-                    .apply()
-
-                startExamViewer(pendingId, examName, serverUrl, name, number, studentClass)
-            } else {
-                // Clear pending anyway since they didn't grant it
-                prefs.edit().remove("pending_exam_id").apply()
-                showError("Izin 'Tampilkan di atas aplikasi lain' ditolak. Tidak dapat memulai ujian Strict.")
-            }
+            checkAndStartStrictExam(pendingId, examName, serverUrl, name, number, studentClass)
         }
     }
 
-    private fun showOverlayPermissionDialog(exam: Exam, serverUrl: String, name: String, number: String, studentClass: String) {
+    private fun checkAndStartStrictExam(examId: Int, examName: String, serverUrl: String, name: String, number: String, studentClass: String) {
+        if (isGestureNavigationEnabled(this)) {
+            // Save state to preferences
+            prefs.edit()
+                .putInt("pending_exam_id", examId)
+                .putString("pending_exam_name", examName)
+                .putString("pending_server_url", serverUrl)
+                .putString("pending_student_name", name)
+                .putString("pending_student_number", number)
+                .putString("pending_student_class", studentClass)
+                .apply()
+            
+            showGestureNavigationWarningDialog()
+        } else if (!android.provider.Settings.canDrawOverlays(this)) {
+            // Save state to preferences
+            prefs.edit()
+                .putInt("pending_exam_id", examId)
+                .putString("pending_exam_name", examName)
+                .putString("pending_server_url", serverUrl)
+                .putString("pending_student_name", name)
+                .putString("pending_student_number", number)
+                .putString("pending_student_class", studentClass)
+                .apply()
+
+            showOverlayPermissionDialog()
+        } else {
+            // All green! Clear pending and start
+            prefs.edit()
+                .remove("pending_exam_id")
+                .remove("pending_exam_name")
+                .remove("pending_server_url")
+                .remove("pending_student_name")
+                .remove("pending_student_number")
+                .remove("pending_student_class")
+                .apply()
+
+            startExamViewer(examId, examName, serverUrl, name, number, studentClass)
+        }
+    }
+
+    private fun isGestureNavigationEnabled(context: Context): Boolean {
+        // 1. Check standard Q navigation mode
+        try {
+            val navMode = android.provider.Settings.Secure.getInt(context.contentResolver, "navigation_mode", -1)
+            if (navMode == 2) return true
+        } catch (_: Exception) {}
+        
+        // 2. Check standard system resource config_navBarInteractionMode
+        try {
+            val resourceId = context.resources.getIdentifier("config_navBarInteractionMode", "integer", "android")
+            if (resourceId > 0) {
+                val interactionMode = context.resources.getInteger(resourceId)
+                if (interactionMode == 2) return true
+            }
+        } catch (_: Exception) {}
+        
+        // 3. Check MIUI specific setting (Xiaomi)
+        try {
+            val miuiGesture = android.provider.Settings.Global.getInt(context.contentResolver, "force_fsg_navigation", 0)
+            if (miuiGesture != 0) return true
+        } catch (_: Exception) {}
+
+        // 4. Check Vivo/Oppo specific keys
+        try {
+            val vivoGesture = android.provider.Settings.Secure.getInt(context.contentResolver, "navigation_gesture_on", 0)
+            if (vivoGesture != 0) return true
+        } catch (_: Exception) {}
+
+        return false
+    }
+
+    private fun showGestureNavigationWarningDialog() {
+        AlertDialog.Builder(this)
+            .setTitle("Navigasi Gestur Terdeteksi")
+            .setMessage("Ujian ini menggunakan Keamanan Strict. Anda wajib mengubah navigasi HP Anda dari 'Gestur Layar Penuh' menjadi 'Tombol Navigasi Klasik (3 Tombol)' agar sistem pengunci layar berjalan dengan aman.\n\nSilakan buka Pengaturan HP Anda, ubah ke Tombol Navigasi, lalu kembali ke aplikasi ini.")
+            .setCancelable(false)
+            .setPositiveButton("Buka Pengaturan") { _, _ ->
+                val intent = Intent(android.provider.Settings.ACTION_SETTINGS)
+                startActivity(intent)
+            }
+            .setNegativeButton("Batal") { _, _ ->
+                // Clear pending to prevent loops
+                prefs.edit().remove("pending_exam_id").apply()
+            }
+            .show()
+    }
+
+    private fun showOverlayPermissionDialog() {
         AlertDialog.Builder(this)
             .setTitle("Izin Diperlukan")
             .setMessage("Ujian ini menggunakan Keamanan Strict. Aplikasi membutuhkan izin 'Tampilkan di atas aplikasi lain' untuk mengunci layar dan mencegah kecurangan.\n\nSilakan aktifkan izin ini pada layar pengaturan berikutnya.")
             .setCancelable(false)
             .setPositiveButton("Buka Pengaturan") { _, _ ->
                 val intent = Intent(android.provider.Settings.ACTION_MANAGE_OVERLAY_PERMISSION, android.net.Uri.parse("package:$packageName"))
-                // Save state to preferences to launch after returning
-                prefs.edit()
-                    .putInt("pending_exam_id", exam.id)
-                    .putString("pending_exam_name", exam.name)
-                    .putString("pending_server_url", serverUrl)
-                    .putString("pending_student_name", name)
-                    .putString("pending_student_number", number)
-                    .putString("pending_student_class", studentClass)
-                    .apply()
                 startActivity(intent)
             }
-            .setNegativeButton("Batal", null)
+            .setNegativeButton("Batal") { _, _ ->
+                // Clear pending to prevent loops
+                prefs.edit().remove("pending_exam_id").apply()
+            }
             .show()
     }
 
