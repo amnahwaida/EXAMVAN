@@ -141,9 +141,10 @@
 
         function exportSubmissions() {
             const examId = document.getElementById('filterExam').value;
-            let url = '/admin/api/submissions/export';
+            const tzOffset = new Date().getTimezoneOffset();
+            let url = '/admin/api/submissions/export?tz_offset=' + tzOffset;
             if (examId) {
-                url += '?exam_id=' + examId;
+                url += '&exam_id=' + examId;
             }
             window.location.href = url;
         }
@@ -346,7 +347,8 @@
 
         function exportDetailSubmission() {
             if (!activeSubmissionId) return;
-            window.location.href = `/admin/api/submissions/${activeSubmissionId}/export_detail`;
+            const tzOffset = new Date().getTimezoneOffset();
+            window.location.href = `/admin/api/submissions/${activeSubmissionId}/export_detail?tz_offset=${tzOffset}`;
         }
 
         function closeDetailModal() {

@@ -28,6 +28,35 @@ BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 STORAGE_DIR = os.path.join(BASE_DIR, 'storage')
 DATABASE = os.environ.get('DATABASE_PATH', os.path.join(BASE_DIR, 'data', 'examvan.db'))
 MAX_FILE_SIZE = 5 * 1024 * 1024  # 5MB
+
+def localize_date_string(utc_str, tz_offset_min=None):
+    """Localize database UTC string using a browser timezone offset in minutes."""
+    if not utc_str:
+        return '—'
+    try:
+        from datetime import timedelta
+        # SQLite stores datetime strings in UTC (e.g., '2026-05-22 14:09:54')
+        iso_str = utc_str.strip()
+        if ' ' in iso_str:
+            iso_str = iso_str.replace(' ', 'T')
+        if not iso_str.endswith('Z'):
+            iso_str += 'Z'
+        
+        # Parse as offset-aware UTC
+        dt = datetime.fromisoformat(iso_str.replace('Z', '+00:00'))
+        
+        if tz_offset_min is not None:
+            # tz_offset_min is from getTimezoneOffset() (local - UTC in minutes).
+            # e.g., for UTC+7 it is -420.
+            # Local time is UTC - offset_min minutes (so dt - (-420) = dt + 420 min).
+            local_dt = dt - timedelta(minutes=tz_offset_min)
+            return local_dt.strftime('%Y-%m-%d %H:%M:%S')
+        else:
+            # Default fallback format
+            return dt.strftime('%Y-%m-%d %H:%M:%S UTC')
+    except Exception as e:
+        print("Localization error:", e)
+        return utc_str
 DEFAULT_ADMIN = {'username': 'admin', 'password': 'examvan2026'}
 
 os.makedirs(STORAGE_DIR, exist_ok=True)
@@ -1075,6 +1104,8 @@ def admin_export_submission_detail(submission_id):
     except Exception:
         questions = []
 
+    tz_offset = request.args.get('tz_offset', type=int)
+
     # Generate CSV in memory
     si = io.StringIO()
     cw = csv.writer(si)
@@ -1084,7 +1115,7 @@ def admin_export_submission_detail(submission_id):
     cw.writerow(['Nomor Ujian', sub['exam_number']])
     cw.writerow(['Kelas', sub['student_class']])
     cw.writerow(['Nilai Akhir', sub['score'] if sub['score'] is not None else 'Belum Dinilai'])
-    cw.writerow(['Waktu Kumpul', sub['created_at']])
+    cw.writerow(['Waktu Kumpul', localize_date_string(sub['created_at'], tz_offset)])
     cw.writerow([])
     cw.writerow(['No. Soal', 'Tipe Soal', 'Bobot Maks', 'Jawaban Siswa', 'Kunci Jawaban', 'Status', 'Poin Didapat'])
     
@@ -1212,6 +1243,7 @@ def admin_delete_submission(submission_id):
 def admin_export_submissions():
     """Export student submissions. Generates multi-sheet XLSX for specific exam, CSV for all."""
     exam_id = request.args.get('exam_id')
+    tz_offset = request.args.get('tz_offset', type=int)
 
     db = get_db()
     is_super_admin = (session.get('admin_username') == 'admin')
@@ -1238,7 +1270,7 @@ def admin_export_submissions():
         except Exception:
             questions = []
 
-        return _generate_exam_xlsx(exam, submissions, questions)
+        return _generate_exam_xlsx(exam, submissions, questions, tz_offset)
 
     # --- Fallback: CSV export for all exams ---
     query = (
@@ -1271,7 +1303,7 @@ def admin_export_submissions():
             row['exam_number'],
             row['student_class'],
             row['score'] if row['score'] is not None else 'Belum Dinilai',
-            row['created_at']
+            localize_date_string(row['created_at'], tz_offset)
         ])
 
     output = si.getvalue()
@@ -1288,7 +1320,7 @@ def admin_export_submissions():
     return response
 
 
-def _generate_exam_xlsx(exam, submissions, questions):
+def _generate_exam_xlsx(exam, submissions, questions, tz_offset=None):
     """Generate a professionally styled multi-sheet Excel workbook for a specific exam."""
     from openpyxl import Workbook
     from openpyxl.styles import Font, Alignment, PatternFill, Border, Side
@@ -1363,7 +1395,7 @@ def _generate_exam_xlsx(exam, submissions, questions):
     meta_data = [
         ('Token Ujian:', exam['token'] or '—'),
         ('Total Peserta:', str(len(submissions))),
-        ('Tanggal Export:', datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M UTC')),
+        ('Tanggal Export:', localize_date_string(datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S'), tz_offset)),
     ]
     for i, (label, value) in enumerate(meta_data):
         ws_summary.cell(row=3 + i, column=1, value=label).font = meta_label_font
@@ -1384,7 +1416,7 @@ def _generate_exam_xlsx(exam, submissions, questions):
         status = 'Sudah Dinilai' if score is not None else 'Belum Dinilai'
 
         values = [i + 1, sub['exam_number'], sub['student_name'], sub['student_class'],
-                  score_display, status, sub['created_at'] or '']
+                  score_display, status, localize_date_string(sub['created_at'], tz_offset)]
         for col_idx, val in enumerate(values, 1):
             cell = style_data_cell(ws_summary, row_num, col_idx,
                                    'center' if col_idx in [1, 4, 5, 6] else 'left')
@@ -1437,7 +1469,7 @@ def _generate_exam_xlsx(exam, submissions, questions):
             ('Nomor Ujian:', sub['exam_number']),
             ('Kelas:', sub['student_class']),
             ('Nilai Akhir:', round(sub['score'], 2) if sub['score'] is not None else 'Belum Dinilai'),
-            ('Waktu Pengumpulan:', sub['created_at'] or '—'),
+            ('Waktu Pengumpulan:', localize_date_string(sub['created_at'], tz_offset)),
         ]
         for i, (label, value) in enumerate(info_rows):
             ws.cell(row=3 + i, column=1, value=label).font = meta_label_font
