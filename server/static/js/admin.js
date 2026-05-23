@@ -768,3 +768,101 @@ function localizeDates() {
 }
 
 document.addEventListener('DOMContentLoaded', localizeDates);
+
+function importXMLQuestions(event) {
+    const file = event.target.files[0];
+    if (!file) return;
+    
+    const reader = new FileReader();
+    reader.onload = function(e) {
+        try {
+            const parser = new DOMParser();
+            const xmlDoc = parser.parseFromString(e.target.result, "text/xml");
+            
+            // Check for parse errors
+            const parseError = xmlDoc.getElementsByTagName("parsererror");
+            if (parseError.length > 0) {
+                showToast("Format XML tidak valid atau rusak", "error");
+                return;
+            }
+            
+            const questionNodes = xmlDoc.getElementsByTagName("question");
+            if (questionNodes.length === 0) {
+                showToast("Tidak ditemukan elemen <question> dalam XML", "error");
+                return;
+            }
+            
+            const questions = [];
+            for (let i = 0; i < questionNodes.length; i++) {
+                const node = questionNodes[i];
+                const number = parseInt(node.getAttribute("number")) || (i + 1);
+                const type = node.getAttribute("type") || "single_choice";
+                const weight = parseFloat(node.getAttribute("weight")) || 1.0;
+                const partialScoring = node.getAttribute("partial_scoring") === "true";
+                
+                let choices = [];
+                const choicesNode = node.getElementsByTagName("choices")[0];
+                if (choicesNode) {
+                    choices = choicesNode.textContent.split(',').map(x => x.trim()).filter(x => x);
+                }
+                
+                let left_items = [];
+                const leftNode = node.getElementsByTagName("left_items")[0];
+                if (leftNode) {
+                    left_items = leftNode.textContent.split(',').map(x => x.trim()).filter(x => x);
+                }
+                
+                let right_items = [];
+                const rightNode = node.getElementsByTagName("right_items")[0];
+                if (rightNode) {
+                    right_items = rightNode.textContent.split(',').map(x => x.trim()).filter(x => x);
+                }
+                
+                let key = '';
+                const keyNode = node.getElementsByTagName("key")[0];
+                if (keyNode) {
+                    const keyRaw = keyNode.textContent.trim();
+                    if (type === 'multiple_choice') {
+                        key = keyRaw.split(',').map(x => x.trim().toUpperCase()).filter(x => x);
+                    } else if (type === 'matching') {
+                        const keyObj = {};
+                        const pairs = keyRaw.split(',');
+                        pairs.forEach(pair => {
+                            const item = pair.split(':');
+                            if (item.length === 2) {
+                                keyObj[item[0].trim()] = item[1].trim().toUpperCase();
+                            }
+                        });
+                        key = keyObj;
+                    } else {
+                        key = keyRaw.toUpperCase();
+                    }
+                }
+                
+                questions.push({
+                    number: number,
+                    type: type,
+                    weight: weight,
+                    partial_scoring: partialScoring,
+                    choices: choices,
+                    left_items: left_items,
+                    right_items: right_items,
+                    key: key
+                });
+            }
+            
+            // Sort by number to ensure sequential ordering
+            questions.sort((a, b) => a.number - b.number);
+            
+            // Re-render questions in UI
+            renderQuestions(questions);
+            showToast(`Berhasil mengimpor ${questions.length} soal dari XML!`, "success");
+        } catch (err) {
+            console.error(err);
+            showToast("Terjadi kesalahan saat membaca berkas XML", "error");
+        }
+    };
+    reader.readAsText(file);
+    // Reset file input value so same file can be re-imported if needed
+    event.target.value = '';
+}

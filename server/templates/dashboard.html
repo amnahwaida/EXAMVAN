@@ -203,10 +203,10 @@
                 <button class="modal-close" onclick="closeQuestionsModal()">✕</button>
             </div>
             <div class="modal-body">
-                <div class="questions-quick-generator">
-                    <div class="form-group inline-group">
+                <div class="questions-quick-generator" style="margin-bottom: 16px; display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 12px;">
+                    <div class="form-group inline-group" style="margin-bottom: 0;">
                         <label for="generateQty">Jumlah Soal:</label>
-                        <input type="number" id="generateQty" value="40" min="0" max="100">
+                        <input type="number" id="generateQty" value="40" min="0" max="100" style="width: 70px;">
                         <select id="generateType">
                             <option value="single_choice">Pilihan Ganda (A-E)</option>
                             <option value="true_false">Benar / Salah</option>
@@ -214,6 +214,10 @@
                             <option value="matching">Menjodohkan (Matching)</option>
                         </select>
                         <button class="btn-sm btn-toggle" onclick="quickGenerateQuestions()">⚡ Generate</button>
+                    </div>
+                    <div class="xml-import-wrapper">
+                        <input type="file" id="xmlFileInput" accept=".xml" style="display: none;" onchange="importXMLQuestions(event)">
+                        <button class="btn-sm btn-questions" onclick="document.getElementById('xmlFileInput').click()" style="margin: 0; background: rgba(59,130,246,0.15); border-color: rgba(59,130,246,0.3); color: #60a5fa; display: flex; align-items: center; gap: 6px;">📥 Import XML</button>
                     </div>
                 </div>
                 
