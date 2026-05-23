@@ -54,6 +54,7 @@ class ExamViewerActivity : AppCompatActivity() {
     // Student answers: map of question number (String) -> answer value (String, List, or Map)
     private val studentAnswers = mutableMapOf<String, Any>()
     private var submittedOrExited = false
+    private var securityLevel = "medium"
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -155,6 +156,7 @@ class ExamViewerActivity : AppCompatActivity() {
     private fun loadQuestionsFromPrefs() {
         val prefs = getSharedPreferences("exam_questions", MODE_PRIVATE)
         val json = prefs.getString("questions_json", null)
+        securityLevel = prefs.getString("security_level", "medium") ?: "medium"
         if (json != null) {
             try {
                 val type = object : TypeToken<List<Map<String, Any>>>() {}.type
@@ -569,25 +571,31 @@ class ExamViewerActivity : AppCompatActivity() {
 
     override fun onResume() {
         super.onResume()
-        // Lock screen pinning/Lock Task Mode to prevent leaving the app
-        try {
-            startLockTask()
-        } catch (_: Exception) {}
+        // Lock screen pinning/Lock Task Mode to prevent leaving the app ONLY in strict mode
+        if (securityLevel == "strict") {
+            try {
+                startLockTask()
+            } catch (_: Exception) {}
+        }
     }
 
     override fun onPause() {
         super.onPause()
-        // Anti-cheat: automatically submit and exit if they manage to leave/switch apps!
-        if (!submittedOrExited) {
-            autoSubmitAndExit()
+        // Anti-cheat: automatically submit and exit if they manage to leave/switch apps (strict & medium modes)
+        if (securityLevel == "strict" || securityLevel == "medium") {
+            if (!submittedOrExited) {
+                autoSubmitAndExit()
+            }
         }
     }
 
     override fun onUserLeaveHint() {
         super.onUserLeaveHint()
-        // Anti-cheat: trigger if user presses home or recent apps
-        if (!submittedOrExited) {
-            autoSubmitAndExit()
+        // Anti-cheat: trigger if user presses home or recent apps (strict & medium modes)
+        if (securityLevel == "strict" || securityLevel == "medium") {
+            if (!submittedOrExited) {
+                autoSubmitAndExit()
+            }
         }
     }
 
@@ -598,11 +606,34 @@ class ExamViewerActivity : AppCompatActivity() {
     }
 
     private fun confirmAndLogout() {
+        val title: String
+        val message: String
+        val positiveButtonText: String
+
+        if (securityLevel == "low") {
+            title = "Keluar Ujian"
+            message = "Apakah Anda yakin ingin keluar dari ujian?\n\nJawaban Anda TIDAK akan dikumpulkan secara otomatis (Anda dapat melanjutkan nanti)."
+            positiveButtonText = "Ya, Keluar"
+        } else {
+            title = "Logout / Keluar Ujian"
+            message = "Apakah Anda yakin ingin logout dan keluar dari ujian?\n\nJawaban yang sudah Anda isi akan dikumpulkan secara otomatis sebelum keluar."
+            positiveButtonText = "Ya, Logout & Kirim"
+        }
+
         AlertDialog.Builder(this)
-            .setTitle("Logout / Keluar Ujian")
-            .setMessage("Apakah Anda yakin ingin logout dan keluar dari ujian?\n\nJawaban yang sudah Anda isi akan dikumpulkan secara otomatis sebelum keluar.")
-            .setPositiveButton("Ya, Logout & Kirim") { _, _ ->
-                autoSubmitAndExit()
+            .setTitle(title)
+            .setMessage(message)
+            .setPositiveButton(positiveButtonText) { _, _ ->
+                if (securityLevel == "low") {
+                    // Just exit without auto-submitting
+                    submittedOrExited = true
+                    try {
+                        stopLockTask()
+                    } catch (_: Exception) {}
+                    finish()
+                } else {
+                    autoSubmitAndExit()
+                }
             }
             .setNegativeButton("Batal", null)
             .show()

@@ -214,6 +214,10 @@ function openQuestionsModal(examId, examName) {
         .then(r => r.json())
         .then(res => {
             if (res.success) {
+                const secSelect = document.getElementById('examSecurityLevel');
+                if (secSelect) {
+                    secSelect.value = res.security_level || 'medium';
+                }
                 renderQuestions(res.questions);
             } else {
                 showToast(res.message || 'Gagal memuat soal', 'error');
@@ -509,10 +513,12 @@ function saveQuestionsConfig() {
         questions.push(q);
     }
     
+    const securityLevel = document.getElementById('examSecurityLevel') ? document.getElementById('examSecurityLevel').value : 'medium';
+
     fetch(`/admin/api/exams/${activeExamId}/questions`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ questions: questions })
+        body: JSON.stringify({ questions: questions, security_level: securityLevel })
     })
         .then(r => r.json())
         .then(res => {

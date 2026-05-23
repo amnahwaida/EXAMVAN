@@ -88,6 +88,7 @@ def init_db():
             token TEXT UNIQUE NOT NULL,
             questions_json TEXT,
             status TEXT DEFAULT 'active' CHECK(status IN ('active', 'inactive')),
+            security_level TEXT DEFAULT 'medium' CHECK(security_level IN ('strict', 'medium', 'low')),
             created_by INTEGER DEFAULT 1,
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         );
@@ -149,6 +150,13 @@ def init_db():
         db.execute('SELECT created_by FROM exams LIMIT 1')
     except sqlite3.OperationalError:
         db.execute('ALTER TABLE exams ADD COLUMN created_by INTEGER DEFAULT 1')
+        db.commit()
+
+    # Migrate: add security_level column if missing
+    try:
+        db.execute('SELECT security_level FROM exams LIMIT 1')
+    except sqlite3.OperationalError:
+        db.execute("ALTER TABLE exams ADD COLUMN security_level TEXT DEFAULT 'medium'")
         db.commit()
 
     db.close()
@@ -407,7 +415,7 @@ def api_exam_by_token(token):
     token = token.strip().upper()
     db = get_db()
     exam = db.execute(
-        'SELECT id, name, status, size_bytes, token, questions_json, created_at '
+        'SELECT id, name, status, size_bytes, token, questions_json, security_level, created_at '
         'FROM exams WHERE token = ? AND status = ?',
         (token, 'active')
     ).fetchone()
@@ -444,6 +452,7 @@ def api_exam_by_token(token):
             'token': exam['token'],
             'size_mb': round(exam['size_bytes'] / (1024 * 1024), 2),
             'questions': questions,
+            'security_level': exam['security_level'] or 'medium',
             'created_at': format_iso_utc(exam['created_at'])
         }
     })
@@ -959,6 +968,7 @@ def admin_exam_questions(exam_id):
 
     if request.method == 'GET':
         questions_raw = exam['questions_json']
+        security_level = exam['security_level'] or 'medium'
         questions = []
         if questions_raw:
             try:
@@ -966,12 +976,16 @@ def admin_exam_questions(exam_id):
             except Exception:
                 pass
         db.close()
-        return jsonify({'success': True, 'questions': questions})
+        return jsonify({'success': True, 'questions': questions, 'security_level': security_level})
 
     else:
         # POST: Save questions configuration
         data = request.json or {}
         questions = data.get('questions', [])
+        security_level = data.get('security_level', 'medium')
+
+        if security_level not in ['strict', 'medium', 'low']:
+            security_level = 'medium'
 
         # Basic validation
         if not isinstance(questions, list):
@@ -980,8 +994,8 @@ def admin_exam_questions(exam_id):
 
         # Save to database
         db.execute(
-            'UPDATE exams SET questions_json = ? WHERE id = ?',
-            (json.dumps(questions), exam_id)
+            'UPDATE exams SET questions_json = ?, security_level = ? WHERE id = ?',
+            (json.dumps(questions), security_level, exam_id)
         )
         
         # Recalculate scores for all existing submissions of this exam

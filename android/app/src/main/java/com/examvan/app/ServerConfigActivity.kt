@@ -194,11 +194,13 @@ class ServerConfigActivity : AppCompatActivity() {
 
             alertDialog.dismiss()
 
-            // Save questions JSON from token API response to SharedPreferences
+            // Save questions JSON and security level from token API response to SharedPreferences
             val questionsJson = com.google.gson.Gson().toJson(exam.questions ?: emptyList<Any>())
+            val securityLevel = exam.security_level ?: "medium"
             getSharedPreferences("exam_questions", MODE_PRIVATE)
                 .edit()
                 .putString("questions_json", questionsJson)
+                .putString("security_level", securityLevel)
                 .apply()
 
             // Navigate to ExamViewerActivity passing exam info and student identity

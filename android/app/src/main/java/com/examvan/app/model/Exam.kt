@@ -10,6 +10,7 @@ data class Exam(
     val size_mb: Double,
     val token: String? = null,
     val questions: List<Map<String, Any>>? = null,
+    val security_level: String? = null,
     val created_at: String
 )
 
