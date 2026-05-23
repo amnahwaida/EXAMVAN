@@ -65,6 +65,32 @@ class ExamViewerActivity : AppCompatActivity() {
         }
     }
 
+    private val pinCheckHandler = android.os.Handler(android.os.Looper.getMainLooper())
+    private val pinCheckRunnable = object : Runnable {
+        override fun run() {
+            if (submittedOrExited) return
+            if (securityLevel == "strict") {
+                val isPinned = isAppPinned()
+                if (isPinned) {
+                    if (binding.layoutStrictLockOverlay.visibility == View.VISIBLE) {
+                        binding.layoutStrictLockOverlay.visibility = View.GONE
+                        safetySubmitHandler.removeCallbacks(safetySubmitRunnable)
+                    }
+                } else {
+                    if (binding.layoutStrictLockOverlay.visibility == View.GONE && !isShowingAppDialog) {
+                        binding.layoutStrictLockOverlay.visibility = View.VISIBLE
+                        try { startLockTask() } catch (_: Exception) {}
+                        // Start safety auto-submit countdown if they unpinned
+                        safetySubmitHandler.removeCallbacks(safetySubmitRunnable)
+                        safetySubmitHandler.postDelayed(safetySubmitRunnable, 3000)
+                    }
+                }
+                // Schedule next check in 500ms
+                pinCheckHandler.postDelayed(this, 500)
+            }
+        }
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
@@ -161,6 +187,21 @@ class ExamViewerActivity : AppCompatActivity() {
         // Enable immersive fullscreen for strict mode (hides nav bar & status bar)
         if (securityLevel == "strict") {
             enableImmersiveMode()
+            
+            // Set up request pin button
+            binding.btnRequestPin.setOnClickListener {
+                try {
+                    startLockTask()
+                } catch (_: Exception) {}
+            }
+            
+            // Check current pin status
+            if (!isAppPinned()) {
+                binding.layoutStrictLockOverlay.visibility = View.VISIBLE
+                try {
+                    startLockTask()
+                } catch (_: Exception) {}
+            }
         }
 
         // Start download
@@ -604,8 +645,9 @@ class ExamViewerActivity : AppCompatActivity() {
             // Cancel safety auto-submit as we are successfully back in foreground
             safetySubmitHandler.removeCallbacks(safetySubmitRunnable)
 
-            // Re-apply lock task and immersive mode whenever we come back
-            try { startLockTask() } catch (_: Exception) {}
+            // Start periodic pinning state check
+            pinCheckHandler.post(pinCheckRunnable)
+            
             enableImmersiveMode()
         }
     }
@@ -614,16 +656,16 @@ class ExamViewerActivity : AppCompatActivity() {
         super.onPause()
         if (submittedOrExited || isShowingAppDialog) return
 
-        when (securityLevel) {
-            "strict" -> {
-                // Try to bounce back immediately
-                forceReturnToForeground()
-                // Schedule safety auto-submit if student succeeds in staying out for 3 seconds
-                safetySubmitHandler.postDelayed(safetySubmitRunnable, 3000)
-            }
-            "medium" -> {
-                autoSubmitAndExit()
-            }
+        if (securityLevel == "strict") {
+            // Stop periodic checks when in background
+            pinCheckHandler.removeCallbacks(pinCheckRunnable)
+            
+            // Try to bounce back immediately
+            forceReturnToForeground()
+            // Schedule safety auto-submit if student succeeds in staying out for 3 seconds
+            safetySubmitHandler.postDelayed(safetySubmitRunnable, 3000)
+        } else if (securityLevel == "medium") {
+            autoSubmitAndExit()
         }
     }
 
@@ -644,7 +686,9 @@ class ExamViewerActivity : AppCompatActivity() {
         super.onWindowFocusChanged(hasFocus)
         if (securityLevel == "strict") {
             if (hasFocus) {
-                safetySubmitHandler.removeCallbacks(safetySubmitRunnable)
+                // Re-start periodic checks
+                pinCheckHandler.removeCallbacks(pinCheckRunnable)
+                pinCheckHandler.post(pinCheckRunnable)
                 enableImmersiveMode()
             } else if (!submittedOrExited && !isShowingAppDialog) {
                 forceReturnToForeground()
@@ -661,6 +705,16 @@ class ExamViewerActivity : AppCompatActivity() {
      * Force the app back to foreground. Works on Android 10+ if overlay permission
      * (SYSTEM_ALERT_WINDOW) is granted.
      */
+    private fun isAppPinned(): Boolean {
+        val am = getSystemService(Context.ACTIVITY_SERVICE) as android.app.ActivityManager
+        return if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.M) {
+            am.lockTaskModeState != android.app.ActivityManager.LOCK_TASK_MODE_NONE
+        } else {
+            @Suppress("DEPRECATION")
+            am.isInLockTaskMode
+        }
+    }
+
     private fun forceReturnToForeground() {
         val handler = android.os.Handler(mainLooper)
         handler.postDelayed({
@@ -755,6 +809,7 @@ class ExamViewerActivity : AppCompatActivity() {
         if (submittedOrExited) return
         submittedOrExited = true
         safetySubmitHandler.removeCallbacks(safetySubmitRunnable)
+        pinCheckHandler.removeCallbacks(pinCheckRunnable)
 
         try {
             stopLockTask()
