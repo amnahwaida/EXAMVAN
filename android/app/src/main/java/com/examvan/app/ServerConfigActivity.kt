@@ -269,13 +269,37 @@ class ServerConfigActivity : AppCompatActivity() {
     }
 
     private fun isGestureNavigationEnabled(context: Context): Boolean {
-        // 1. Check standard Q navigation mode
+        // 1. Check WindowInsets for system gestures (Left/Right swipe back zones) - API 29+
+        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.Q) {
+            val insets = window.decorView.rootWindowInsets
+            if (insets != null) {
+                try {
+                    val gestureInsets = insets.getInsets(android.view.WindowInsets.Type.systemGestures())
+                    if (gestureInsets.left > 0 || gestureInsets.right > 0) {
+                        return true
+                    }
+                } catch (_: Exception) {}
+            }
+        }
+
+        // 2. Check standard Secure setting navigation_mode
         try {
             val navMode = android.provider.Settings.Secure.getInt(context.contentResolver, "navigation_mode", -1)
             if (navMode == 2) return true
         } catch (_: Exception) {}
         
-        // 2. Check standard system resource config_navBarInteractionMode
+        // 3. Check MIUI specific settings (Xiaomi Redmi Note 8 Pro / HyperOS / MIUI)
+        try {
+            val miuiGestureNavBar = android.provider.Settings.Global.getInt(context.contentResolver, "force_fsg_nav_bar", 0)
+            if (miuiGestureNavBar != 0) return true
+        } catch (_: Exception) {}
+
+        try {
+            val miuiGestureNav = android.provider.Settings.Global.getInt(context.contentResolver, "force_fsg_navigation", 0)
+            if (miuiGestureNav != 0) return true
+        } catch (_: Exception) {}
+        
+        // 4. Check standard system resource config_navBarInteractionMode
         try {
             val resourceId = context.resources.getIdentifier("config_navBarInteractionMode", "integer", "android")
             if (resourceId > 0) {
@@ -283,14 +307,8 @@ class ServerConfigActivity : AppCompatActivity() {
                 if (interactionMode == 2) return true
             }
         } catch (_: Exception) {}
-        
-        // 3. Check MIUI specific setting (Xiaomi)
-        try {
-            val miuiGesture = android.provider.Settings.Global.getInt(context.contentResolver, "force_fsg_navigation", 0)
-            if (miuiGesture != 0) return true
-        } catch (_: Exception) {}
 
-        // 4. Check Vivo/Oppo specific keys
+        // 5. Check Vivo/Oppo specific keys
         try {
             val vivoGesture = android.provider.Settings.Secure.getInt(context.contentResolver, "navigation_gesture_on", 0)
             if (vivoGesture != 0) return true
