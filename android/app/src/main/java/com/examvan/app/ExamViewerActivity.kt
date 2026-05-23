@@ -604,12 +604,8 @@ class ExamViewerActivity : AppCompatActivity() {
         if (submittedOrExited || isShowingAppDialog) return
 
         when (securityLevel) {
-            "strict" -> {
-                // BOUNCE BACK: Force the app back to foreground immediately
-                // This is what makes strict truly different from medium
-                forceReturnToForeground()
-            }
-            "medium" -> {
+            "strict", "medium" -> {
+                // If the app is minimized/paused, auto-submit and close
                 autoSubmitAndExit()
             }
             // "low" -> do nothing
@@ -621,8 +617,7 @@ class ExamViewerActivity : AppCompatActivity() {
         if (submittedOrExited || isShowingAppDialog) return
 
         when (securityLevel) {
-            "strict" -> forceReturnToForeground()
-            "medium" -> autoSubmitAndExit()
+            "strict", "medium" -> autoSubmitAndExit()
         }
     }
 
@@ -634,37 +629,9 @@ class ExamViewerActivity : AppCompatActivity() {
         }
         if (!hasFocus && !submittedOrExited && !isShowingAppDialog) {
             when (securityLevel) {
-                "strict" -> forceReturnToForeground()
-                "medium" -> autoSubmitAndExit()
+                "strict", "medium" -> autoSubmitAndExit()
             }
         }
-    }
-
-    /**
-     * Force the app back to foreground. Used in strict mode to prevent
-     * students from leaving the exam on gesture-navigation phones.
-     * Uses both moveTaskToFront and re-launch intent for maximum reliability.
-     */
-    private fun forceReturnToForeground() {
-        val handler = android.os.Handler(mainLooper)
-        handler.postDelayed({
-            if (submittedOrExited || isFinishing) return@postDelayed
-            try {
-                // Method 1: moveTaskToFront (works on most devices)
-                val am = getSystemService(Context.ACTIVITY_SERVICE) as android.app.ActivityManager
-                am.moveTaskToFront(taskId, android.app.ActivityManager.MOVE_TASK_WITH_HOME)
-            } catch (_: Exception) {}
-            try {
-                // Method 2: Re-launch intent as backup (singleTask ensures same instance)
-                val relaunch = android.content.Intent(this, ExamViewerActivity::class.java)
-                relaunch.addFlags(
-                    android.content.Intent.FLAG_ACTIVITY_REORDER_TO_FRONT
-                        or android.content.Intent.FLAG_ACTIVITY_SINGLE_TOP
-                        or android.content.Intent.FLAG_ACTIVITY_NEW_TASK
-                )
-                startActivity(relaunch)
-            } catch (_: Exception) {}
-        }, 100) // 100ms delay — fast enough to bounce back before user sees home screen
     }
 
     @Suppress("DEPRECATION")
@@ -744,26 +711,31 @@ class ExamViewerActivity : AppCompatActivity() {
             stopLockTask()
         } catch (_: Exception) {}
 
-        // Submit current answers before exiting
-        ApiClient.submitExam(
-            examId = examId,
-            studentName = studentName,
-            examNumber = studentNumber,
-            studentClass = studentClass,
-            answers = studentAnswers,
-            onSuccess = { _ ->
-                runOnUiThread {
+        // Start synchronous submission in a background thread to block the main thread for a maximum of 2 seconds.
+        // This keeps the process active and ensures the network request is fully sent before the OS suspends the app.
+        val thread = Thread {
+            val result = ApiClient.submitExamSync(
+                examId = examId,
+                studentName = studentName,
+                examNumber = studentNumber,
+                studentClass = studentClass,
+                answers = studentAnswers
+            )
+            runOnUiThread {
+                if (result.first) {
                     Toast.makeText(applicationContext, "Ujian dihentikan. Jawaban berhasil dikumpulkan.", Toast.LENGTH_LONG).show()
-                    finish()
-                }
-            },
-            onError = { _ ->
-                runOnUiThread {
-                    Toast.makeText(applicationContext, "Keluar dari ujian.", Toast.LENGTH_LONG).show()
-                    finish()
+                } else {
+                    Toast.makeText(applicationContext, "Ujian dihentikan: ${result.second}", Toast.LENGTH_LONG).show()
                 }
             }
-        )
+        }
+        thread.start()
+        try {
+            // Block the main thread for up to 2.5 seconds to allow the request to finish before calling finish()
+            thread.join(2500)
+        } catch (_: Exception) {}
+
+        finish()
     }
 
     override fun onDestroy() {

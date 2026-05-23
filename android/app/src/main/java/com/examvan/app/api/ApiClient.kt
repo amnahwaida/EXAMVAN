@@ -289,4 +289,48 @@ object ApiClient {
             }
         })
     }
+
+    /**
+     * Submit exam answers to the server synchronously.
+     * Used during app suspension/exit to prevent OkHttp tasks from being paused.
+     */
+    fun submitExamSync(
+        examId: Int,
+        studentName: String,
+        examNumber: String,
+        studentClass: String,
+        answers: Map<String, Any>
+    ): Pair<Boolean, String> {
+        val payload = mapOf(
+            "student_name" to studentName,
+            "exam_number" to examNumber,
+            "student_class" to studentClass,
+            "answers" to answers
+        )
+        val bodyStr = gson.toJson(payload)
+        val mediaType = "application/json; charset=utf-8".toMediaTypeOrNull()
+        val body = RequestBody.create(mediaType, bodyStr)
+        val request = Request.Builder()
+            .url("$baseUrl/api/exams/$examId/submit")
+            .post(body)
+            .build()
+
+        return try {
+            client.newCall(request).execute().use { response ->
+                val bodyText = response.body?.string() ?: ""
+                if (response.isSuccessful) {
+                    val json = org.json.JSONObject(bodyText)
+                    if (json.optBoolean("success", false)) {
+                        Pair(true, json.optString("message", "Ujian berhasil dikumpulkan"))
+                    } else {
+                        Pair(false, json.optString("message", "Gagal mengumpulkan jawaban"))
+                    }
+                } else {
+                    Pair(false, "Server error: ${response.code}")
+                }
+            }
+        } catch (e: Exception) {
+            Pair(false, e.message ?: "Koneksi gagal")
+        }
+    }
 }
