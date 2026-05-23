@@ -203,19 +203,78 @@ class ServerConfigActivity : AppCompatActivity() {
                 .putString("security_level", securityLevel)
                 .apply()
 
-            // Navigate to ExamViewerActivity passing exam info and student identity
-            val intent = Intent(this@ServerConfigActivity, ExamViewerActivity::class.java).apply {
-                putExtra("exam_id", exam.id)
-                putExtra("exam_name", exam.name)
-                putExtra("server_url", serverUrl)
-                putExtra("student_name", name)
-                putExtra("student_number", number)
-                putExtra("student_class", studentClass)
+            if (securityLevel == "strict" && !android.provider.Settings.canDrawOverlays(this@ServerConfigActivity)) {
+                showOverlayPermissionDialog(exam, serverUrl, name, number, studentClass)
+            } else {
+                startExamViewer(exam.id, exam.name, serverUrl, name, number, studentClass)
             }
-            startActivity(intent)
         }
 
         alertDialog.show()
+    }
+
+    override fun onResume() {
+        super.onResume()
+        val pendingId = prefs.getInt("pending_exam_id", -1)
+        if (pendingId != -1) {
+            if (android.provider.Settings.canDrawOverlays(this)) {
+                val examName = prefs.getString("pending_exam_name", "") ?: ""
+                val serverUrl = prefs.getString("pending_server_url", "") ?: ""
+                val name = prefs.getString("pending_student_name", "") ?: ""
+                val number = prefs.getString("pending_student_number", "") ?: ""
+                val studentClass = prefs.getString("pending_student_class", "") ?: ""
+
+                // Clear pending
+                prefs.edit()
+                    .remove("pending_exam_id")
+                    .remove("pending_exam_name")
+                    .remove("pending_server_url")
+                    .remove("pending_student_name")
+                    .remove("pending_student_number")
+                    .remove("pending_student_class")
+                    .apply()
+
+                startExamViewer(pendingId, examName, serverUrl, name, number, studentClass)
+            } else {
+                // Clear pending anyway since they didn't grant it
+                prefs.edit().remove("pending_exam_id").apply()
+                showError("Izin 'Tampilkan di atas aplikasi lain' ditolak. Tidak dapat memulai ujian Strict.")
+            }
+        }
+    }
+
+    private fun showOverlayPermissionDialog(exam: Exam, serverUrl: String, name: String, number: String, studentClass: String) {
+        AlertDialog.Builder(this)
+            .setTitle("Izin Diperlukan")
+            .setMessage("Ujian ini menggunakan Keamanan Strict. Aplikasi membutuhkan izin 'Tampilkan di atas aplikasi lain' untuk mengunci layar dan mencegah kecurangan.\n\nSilakan aktifkan izin ini pada layar pengaturan berikutnya.")
+            .setCancelable(false)
+            .setPositiveButton("Buka Pengaturan") { _, _ ->
+                val intent = Intent(android.provider.Settings.ACTION_MANAGE_OVERLAY_PERMISSION, android.net.Uri.parse("package:$packageName"))
+                // Save state to preferences to launch after returning
+                prefs.edit()
+                    .putInt("pending_exam_id", exam.id)
+                    .putString("pending_exam_name", exam.name)
+                    .putString("pending_server_url", serverUrl)
+                    .putString("pending_student_name", name)
+                    .putString("pending_student_number", number)
+                    .putString("pending_student_class", studentClass)
+                    .apply()
+                startActivity(intent)
+            }
+            .setNegativeButton("Batal", null)
+            .show()
+    }
+
+    private fun startExamViewer(examId: Int, examName: String, serverUrl: String, name: String, number: String, studentClass: String) {
+        val intent = Intent(this@ServerConfigActivity, ExamViewerActivity::class.java).apply {
+            putExtra("exam_id", examId)
+            putExtra("exam_name", examName)
+            putExtra("server_url", serverUrl)
+            putExtra("student_name", name)
+            putExtra("student_number", number)
+            putExtra("student_class", studentClass)
+        }
+        startActivity(intent)
     }
 
     private fun setLoading(loading: Boolean) {

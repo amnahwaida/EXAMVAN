@@ -2,6 +2,7 @@ package com.examvan.app
 
 import android.content.ClipboardManager
 import android.content.Context
+import android.content.Intent
 import android.graphics.Bitmap
 import android.graphics.Color
 import android.graphics.pdf.PdfRenderer
@@ -56,6 +57,13 @@ class ExamViewerActivity : AppCompatActivity() {
     private var submittedOrExited = false
     private var securityLevel = "medium"
     private var isShowingAppDialog = false
+
+    private val safetySubmitHandler = android.os.Handler(android.os.Looper.getMainLooper())
+    private val safetySubmitRunnable = Runnable {
+        if (!submittedOrExited && !isShowingAppDialog) {
+            autoSubmitAndExit()
+        }
+    }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -593,6 +601,9 @@ class ExamViewerActivity : AppCompatActivity() {
     override fun onResume() {
         super.onResume()
         if (securityLevel == "strict") {
+            // Cancel safety auto-submit as we are successfully back in foreground
+            safetySubmitHandler.removeCallbacks(safetySubmitRunnable)
+
             // Re-apply lock task and immersive mode whenever we come back
             try { startLockTask() } catch (_: Exception) {}
             enableImmersiveMode()
@@ -604,11 +615,15 @@ class ExamViewerActivity : AppCompatActivity() {
         if (submittedOrExited || isShowingAppDialog) return
 
         when (securityLevel) {
-            "strict", "medium" -> {
-                // If the app is minimized/paused, auto-submit and close
+            "strict" -> {
+                // Try to bounce back immediately
+                forceReturnToForeground()
+                // Schedule safety auto-submit if student succeeds in staying out for 3 seconds
+                safetySubmitHandler.postDelayed(safetySubmitRunnable, 3000)
+            }
+            "medium" -> {
                 autoSubmitAndExit()
             }
-            // "low" -> do nothing
         }
     }
 
@@ -617,21 +632,54 @@ class ExamViewerActivity : AppCompatActivity() {
         if (submittedOrExited || isShowingAppDialog) return
 
         when (securityLevel) {
-            "strict", "medium" -> autoSubmitAndExit()
+            "strict" -> {
+                forceReturnToForeground()
+                safetySubmitHandler.postDelayed(safetySubmitRunnable, 3000)
+            }
+            "medium" -> autoSubmitAndExit()
         }
     }
 
     override fun onWindowFocusChanged(hasFocus: Boolean) {
         super.onWindowFocusChanged(hasFocus)
-        if (hasFocus && securityLevel == "strict") {
-            // Re-apply immersive mode whenever we regain focus
-            enableImmersiveMode()
-        }
-        if (!hasFocus && !submittedOrExited && !isShowingAppDialog) {
-            when (securityLevel) {
-                "strict", "medium" -> autoSubmitAndExit()
+        if (securityLevel == "strict") {
+            if (hasFocus) {
+                safetySubmitHandler.removeCallbacks(safetySubmitRunnable)
+                enableImmersiveMode()
+            } else if (!submittedOrExited && !isShowingAppDialog) {
+                forceReturnToForeground()
+                safetySubmitHandler.postDelayed(safetySubmitRunnable, 3000)
+            }
+        } else if (securityLevel == "medium") {
+            if (!hasFocus && !submittedOrExited && !isShowingAppDialog) {
+                autoSubmitAndExit()
             }
         }
+    }
+
+    /**
+     * Force the app back to foreground. Works on Android 10+ if overlay permission
+     * (SYSTEM_ALERT_WINDOW) is granted.
+     */
+    private fun forceReturnToForeground() {
+        val handler = android.os.Handler(mainLooper)
+        handler.postDelayed({
+            if (submittedOrExited || isFinishing) return@postDelayed
+            try {
+                val am = getSystemService(Context.ACTIVITY_SERVICE) as android.app.ActivityManager
+                am.moveTaskToFront(taskId, android.app.ActivityManager.MOVE_TASK_WITH_HOME)
+            } catch (_: Exception) {}
+            try {
+                val relaunch = Intent(this, ExamViewerActivity::class.java).apply {
+                    addFlags(
+                        Intent.FLAG_ACTIVITY_REORDER_TO_FRONT
+                            or Intent.FLAG_ACTIVITY_SINGLE_TOP
+                            or Intent.FLAG_ACTIVITY_NEW_TASK
+                    )
+                }
+                startActivity(relaunch)
+            } catch (_: Exception) {}
+        }, 150)
     }
 
     @Suppress("DEPRECATION")
@@ -706,6 +754,7 @@ class ExamViewerActivity : AppCompatActivity() {
     private fun autoSubmitAndExit() {
         if (submittedOrExited) return
         submittedOrExited = true
+        safetySubmitHandler.removeCallbacks(safetySubmitRunnable)
 
         try {
             stopLockTask()
