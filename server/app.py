@@ -631,7 +631,12 @@ def admin_dashboard():
     total = len(exams)
     active = sum(1 for e in exams if e['status'] == 'active')
     inactive = total - active
-    storage_bytes = get_storage_stats()
+    
+    if is_super_admin:
+        storage_bytes = get_storage_stats()
+    else:
+        storage_bytes = sum(e['size_bytes'] for e in exams if e['size_bytes'] is not None)
+        
     net_info = get_network_info()
 
     db.close()
@@ -891,13 +896,18 @@ def admin_stats():
     total = len(exams)
     active = sum(1 for e in exams if e['status'] == 'active')
 
+    if is_super_admin:
+        storage_bytes = get_storage_stats()
+    else:
+        storage_bytes = sum(e['size_bytes'] for e in exams if e['size_bytes'] is not None)
+
     return jsonify({
         'success': True,
         'data': {
             'total': total,
             'active': active,
             'inactive': total - active,
-            'storage_mb': round(get_storage_stats() / (1024 * 1024), 2),
+            'storage_mb': round(storage_bytes / (1024 * 1024), 2),
             'local_ip': get_network_info()['display_host']
         }
     })
