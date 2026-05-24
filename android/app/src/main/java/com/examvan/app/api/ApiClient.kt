@@ -250,15 +250,20 @@ object ApiClient {
         examNumber: String,
         studentClass: String,
         answers: Map<String, Any>,
+        startTime: String? = null,
+        macAddress: String? = null,
         onSuccess: (String) -> Unit,
         onError: (String) -> Unit
     ) {
-        val payload = mapOf(
+        val payload = mutableMapOf<String, Any>(
             "student_name" to studentName,
             "exam_number" to examNumber,
             "student_class" to studentClass,
             "answers" to answers
         )
+        if (startTime != null) payload["start_time"] = startTime
+        if (macAddress != null) payload["mac_address"] = macAddress
+
         val bodyStr = gson.toJson(payload)
         val mediaType = "application/json; charset=utf-8".toMediaTypeOrNull()
         val body = RequestBody.create(mediaType, bodyStr)
@@ -299,14 +304,19 @@ object ApiClient {
         studentName: String,
         examNumber: String,
         studentClass: String,
-        answers: Map<String, Any>
+        answers: Map<String, Any>,
+        startTime: String? = null,
+        macAddress: String? = null
     ): Pair<Boolean, String> {
-        val payload = mapOf(
+        val payload = mutableMapOf<String, Any>(
             "student_name" to studentName,
             "exam_number" to examNumber,
             "student_class" to studentClass,
             "answers" to answers
         )
+        if (startTime != null) payload["start_time"] = startTime
+        if (macAddress != null) payload["mac_address"] = macAddress
+
         val bodyStr = gson.toJson(payload)
         val mediaType = "application/json; charset=utf-8".toMediaTypeOrNull()
         val body = RequestBody.create(mediaType, bodyStr)

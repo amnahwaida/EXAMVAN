@@ -48,6 +48,8 @@ class ExamViewerActivity : AppCompatActivity() {
     private var studentName = ""
     private var studentNumber = ""
     private var studentClass = ""
+    private var startTime = ""
+    private var macAddress = ""
 
     // Questions config from server (received via token API response, stored in prefs as JSON)
     private var questions: List<Map<String, Any>> = emptyList()
@@ -110,6 +112,14 @@ class ExamViewerActivity : AppCompatActivity() {
         studentName = intent.getStringExtra("student_name") ?: ""
         studentNumber = intent.getStringExtra("student_number") ?: ""
         studentClass = intent.getStringExtra("student_class") ?: ""
+
+        // Record start time in UTC ISO 8601 format
+        val df = java.text.SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss'Z'", java.util.Locale.US)
+        df.timeZone = java.util.TimeZone.getTimeZone("UTC")
+        startTime = df.format(java.util.Date())
+
+        // Retrieve MAC address/Device ID
+        macAddress = getDeviceMacAddress()
 
         binding.tvExamTitle.text = examName
 
@@ -482,6 +492,8 @@ class ExamViewerActivity : AppCompatActivity() {
             examNumber = studentNumber,
             studentClass = studentClass,
             answers = studentAnswers,
+            startTime = startTime,
+            macAddress = macAddress,
             onSuccess = { message ->
                 submittedOrExited = true
                 runOnUiThread {
@@ -834,7 +846,9 @@ class ExamViewerActivity : AppCompatActivity() {
                 studentName = studentName,
                 examNumber = studentNumber,
                 studentClass = studentClass,
-                answers = studentAnswers
+                answers = studentAnswers,
+                startTime = startTime,
+                macAddress = macAddress
             )
             runOnUiThread {
                 if (result.first) {
@@ -860,5 +874,40 @@ class ExamViewerActivity : AppCompatActivity() {
             pdfRenderer?.close()
             fileDescriptor?.close()
         } catch (_: Exception) { }
+    }
+
+    private fun getDeviceMacAddress(): String {
+        // 1. Try reading network interfaces for wlan0
+        try {
+            val interfaces = java.util.Collections.list(java.net.NetworkInterface.getNetworkInterfaces())
+            for (networkInterface in interfaces) {
+                if (networkInterface.name.equals("wlan0", ignoreCase = true)) {
+                    val macBytes = networkInterface.hardwareAddress
+                    if (macBytes != null) {
+                        val res = StringBuilder()
+                        for (b in macBytes) {
+                            res.append(String.format("%02X:", b))
+                        }
+                        if (res.length > 0) {
+                            res.deleteCharAt(res.length - 1)
+                        }
+                        val mac = res.toString()
+                        if (mac.isNotEmpty() && !mac.equals("02:00:00:00:00:00", ignoreCase = true)) {
+                            return mac
+                        }
+                    }
+                }
+            }
+        } catch (_: Exception) {}
+
+        // 2. Fallback to Settings.Secure.ANDROID_ID
+        try {
+            val androidId = android.provider.Settings.Secure.getString(contentResolver, android.provider.Settings.Secure.ANDROID_ID)
+            if (!androidId.isNullOrEmpty()) {
+                return "ID:$androidId"
+            }
+        } catch (_: Exception) {}
+
+        return "UNKNOWN"
     }
 }

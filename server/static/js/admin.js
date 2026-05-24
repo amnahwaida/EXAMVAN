@@ -756,6 +756,30 @@ document.addEventListener('click', function(e) {
     }
 });
 
+// Helper to localize a single UTC date string to the device's local timezone
+function localizeUTC(rawDate) {
+    if (!rawDate || rawDate === '—') return '—';
+    // Parse as UTC (format from SQLite: YYYY-MM-DD HH:MM:SS or YYYY-MM-DDTHH:MM:SSZ)
+    let isoString = rawDate;
+    if (!isoString.includes('T')) {
+        isoString = isoString.replace(' ', 'T');
+    }
+    if (!isoString.endsWith('Z')) {
+        isoString = isoString + 'Z';
+    }
+    const date = new Date(isoString);
+    if (isNaN(date.getTime())) return rawDate;
+    
+    return date.toLocaleString(undefined, {
+        year: 'numeric',
+        month: '2-digit',
+        day: '2-digit',
+        hour: '2-digit',
+        minute: '2-digit',
+        second: '2-digit'
+    });
+}
+
 // Localize dates from UTC to browser/device timezone
 function localizeDates() {
     document.querySelectorAll('.td-date').forEach(el => {
@@ -765,26 +789,7 @@ function localizeDates() {
             if (!el.dataset.utc) {
                 el.dataset.utc = rawDate;
             }
-            // Parse as UTC (format from SQLite: YYYY-MM-DD HH:MM:SS or YYYY-MM-DDTHH:MM:SSZ)
-            let isoString = rawDate;
-            if (!isoString.includes('T')) {
-                isoString = isoString.replace(' ', 'T');
-            }
-            if (!isoString.endsWith('Z')) {
-                isoString = isoString + 'Z';
-            }
-            const date = new Date(isoString);
-            if (!isNaN(date.getTime())) {
-                // Display in local date time format
-                el.textContent = date.toLocaleString(undefined, {
-                    year: 'numeric',
-                    month: '2-digit',
-                    day: '2-digit',
-                    hour: '2-digit',
-                    minute: '2-digit',
-                    second: '2-digit'
-                });
-            }
+            el.textContent = localizeUTC(rawDate);
         }
     });
 }

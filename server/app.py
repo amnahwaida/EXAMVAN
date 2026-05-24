@@ -108,6 +108,8 @@ def init_db():
             student_class TEXT NOT NULL,
             answers_json TEXT NOT NULL,
             score REAL,
+            start_time TIMESTAMP,
+            mac_address TEXT,
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
             FOREIGN KEY(exam_id) REFERENCES exams(id) ON DELETE CASCADE
         );
@@ -157,6 +159,20 @@ def init_db():
         db.execute('SELECT security_level FROM exams LIMIT 1')
     except sqlite3.OperationalError:
         db.execute("ALTER TABLE exams ADD COLUMN security_level TEXT DEFAULT 'medium'")
+        db.commit()
+
+    # Migrate: add start_time column if missing
+    try:
+        db.execute('SELECT start_time FROM submissions LIMIT 1')
+    except sqlite3.OperationalError:
+        db.execute("ALTER TABLE submissions ADD COLUMN start_time TIMESTAMP")
+        db.commit()
+
+    # Migrate: add mac_address column if missing
+    try:
+        db.execute('SELECT mac_address FROM submissions LIMIT 1')
+    except sqlite3.OperationalError:
+        db.execute("ALTER TABLE submissions ADD COLUMN mac_address TEXT")
         db.commit()
 
     db.close()
@@ -466,6 +482,16 @@ def api_submit_exam(exam_id):
     exam_number = data.get('exam_number', '').strip()
     student_class = data.get('student_class', '').strip()
     answers = data.get('answers', {})  # Map of "number" -> answer value
+    start_time_raw = data.get('start_time')
+    mac_address = data.get('mac_address', '').strip() or None
+
+    start_time = None
+    if start_time_raw:
+        try:
+            # "2026-05-24T00:00:00Z" -> "2026-05-24 00:00:00"
+            start_time = start_time_raw.replace('T', ' ').replace('Z', '')
+        except Exception:
+            start_time = start_time_raw
 
     if not student_name or not exam_number or not student_class:
         return jsonify({'success': False, 'message': 'Identitas siswa tidak lengkap'}), 400
@@ -488,9 +514,9 @@ def api_submit_exam(exam_id):
 
     # Save submission
     db.execute(
-        'INSERT INTO submissions (exam_id, student_name, exam_number, student_class, answers_json, score) '
-        'VALUES (?, ?, ?, ?, ?, ?)',
-        (exam_id, student_name, exam_number, student_class, json.dumps(answers), score)
+        'INSERT INTO submissions (exam_id, student_name, exam_number, student_class, answers_json, score, start_time, mac_address) '
+        'VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
+        (exam_id, student_name, exam_number, student_class, json.dumps(answers), score, start_time, mac_address)
     )
     db.commit()
     db.close()
@@ -692,6 +718,42 @@ def admin_upload():
         'token': token
     })
 
+
+
+@app.route('/admin/exams/<int:exam_id>/pdf')
+@admin_required
+def admin_exam_pdf(exam_id):
+    """View or download the exam PDF for admin."""
+    db = get_db()
+    if not check_exam_ownership(db, exam_id):
+        db.close()
+        return abort(403)
+    
+    exam = db.execute('SELECT * FROM exams WHERE id = ?', (exam_id,)).fetchone()
+    db.close()
+
+    if not exam:
+        return abort(404)
+
+    file_path = os.path.join(STORAGE_DIR, exam['file_path'])
+    if not os.path.exists(file_path):
+        return abort(404)
+
+    download = request.args.get('download', '0') == '1'
+    
+    response = send_file(
+        file_path, 
+        mimetype='application/pdf', 
+        as_attachment=download,
+        download_name=f"{exam['name']}.pdf" if download else None
+    )
+    
+    if not download:
+        response.headers['Content-Disposition'] = f'inline; filename="{exam["name"]}.pdf"'
+    
+    response.headers['Cache-Control'] = 'no-store, no-cache, must-revalidate'
+    response.headers['X-Content-Type-Options'] = 'nosniff'
+    return response
 
 
 @app.route('/admin/api/exams/<int:exam_id>/toggle', methods=['POST'])
@@ -1086,6 +1148,8 @@ def admin_submission_detail(submission_id):
         'student_class': sub['student_class'],
         'exam_name': sub['exam_name'],
         'score': sub['score'],
+        'start_time': format_iso_utc(sub['start_time']) if sub['start_time'] else None,
+        'mac_address': sub['mac_address'],
         'created_at': format_iso_utc(sub['created_at']),
         'answers': answers,
         'questions': questions
@@ -1131,7 +1195,9 @@ def admin_export_submission_detail(submission_id):
     cw.writerow(['Nomor Ujian', sub['exam_number']])
     cw.writerow(['Kelas', sub['student_class']])
     cw.writerow(['Nilai Akhir', sub['score'] if sub['score'] is not None else 'Belum Dinilai'])
+    cw.writerow(['Waktu Mulai', localize_date_string(sub['start_time'], tz_offset) if sub['start_time'] else '—'])
     cw.writerow(['Waktu Kumpul', localize_date_string(sub['created_at'], tz_offset)])
+    cw.writerow(['MAC Address / ID Perangkat', sub['mac_address'] or '—'])
     cw.writerow([])
     cw.writerow(['No. Soal', 'Tipe Soal', 'Bobot Maks', 'Jawaban Siswa', 'Kunci Jawaban', 'Status', 'Poin Didapat'])
     
@@ -1299,7 +1365,7 @@ def admin_export_submissions():
 
     # --- Fallback: CSV export for all exams ---
     query = (
-        'SELECT s.id, e.name as exam_name, s.student_name, s.exam_number, s.student_class, s.score, s.created_at '
+        'SELECT s.id, e.name as exam_name, s.student_name, s.exam_number, s.student_class, s.score, s.start_time, s.mac_address, s.created_at '
         'FROM submissions s JOIN exams e ON s.exam_id = e.id'
     )
     conditions = []
@@ -1318,7 +1384,7 @@ def admin_export_submissions():
 
     si = io.StringIO()
     cw = csv.writer(si)
-    cw.writerow(['ID', 'Nama Ujian', 'Nama Siswa', 'Nomor Ujian', 'Kelas', 'Nilai', 'Tanggal Submit'])
+    cw.writerow(['ID', 'Nama Ujian', 'Nama Siswa', 'Nomor Ujian', 'Kelas', 'Nilai', 'Waktu Mulai', 'Waktu Kumpul', 'MAC/ID Perangkat'])
 
     for row in submissions:
         cw.writerow([
@@ -1328,7 +1394,9 @@ def admin_export_submissions():
             row['exam_number'],
             row['student_class'],
             row['score'] if row['score'] is not None else 'Belum Dinilai',
-            localize_date_string(row['created_at'], tz_offset)
+            localize_date_string(row['start_time'], tz_offset) if row['start_time'] else '—',
+            localize_date_string(row['created_at'], tz_offset),
+            row['mac_address'] or '—'
         ])
 
     output = si.getvalue()
@@ -1427,7 +1495,7 @@ def _generate_exam_xlsx(exam, submissions, questions, tz_offset=None):
         ws_summary.cell(row=3 + i, column=2, value=value).font = meta_value_font
 
     # Summary table header
-    summary_headers = ['No.', 'Nomor Ujian', 'Nama Siswa', 'Kelas', 'Nilai Akhir', 'Status', 'Waktu Pengumpulan']
+    summary_headers = ['No.', 'Nomor Ujian', 'Nama Siswa', 'Kelas', 'Nilai Akhir', 'Status', 'Waktu Mulai', 'Waktu Pengumpulan', 'MAC/ID Perangkat']
     header_row = 7
     for col_idx, h in enumerate(summary_headers, 1):
         ws_summary.cell(row=header_row, column=col_idx, value=h)
@@ -1441,7 +1509,10 @@ def _generate_exam_xlsx(exam, submissions, questions, tz_offset=None):
         status = 'Sudah Dinilai' if score is not None else 'Belum Dinilai'
 
         values = [i + 1, sub['exam_number'], sub['student_name'], sub['student_class'],
-                  score_display, status, localize_date_string(sub['created_at'], tz_offset)]
+                  score_display, status,
+                  localize_date_string(sub['start_time'], tz_offset) if sub['start_time'] else '—',
+                  localize_date_string(sub['created_at'], tz_offset),
+                  sub['mac_address'] or '—']
         for col_idx, val in enumerate(values, 1):
             cell = style_data_cell(ws_summary, row_num, col_idx,
                                    'center' if col_idx in [1, 4, 5, 6] else 'left')
@@ -1464,6 +1535,8 @@ def _generate_exam_xlsx(exam, submissions, questions, tz_offset=None):
             max(14, len(summary_headers[col_idx - 1]) + 6)
     ws_summary.column_dimensions['C'].width = 28
     ws_summary.column_dimensions['G'].width = 22
+    ws_summary.column_dimensions['H'].width = 22
+    ws_summary.column_dimensions['I'].width = 24
 
     # ══════════════════════════════════════════════
     # PER-STUDENT SHEETS
@@ -1494,7 +1567,9 @@ def _generate_exam_xlsx(exam, submissions, questions, tz_offset=None):
             ('Nomor Ujian:', sub['exam_number']),
             ('Kelas:', sub['student_class']),
             ('Nilai Akhir:', round(sub['score'], 2) if sub['score'] is not None else 'Belum Dinilai'),
+            ('Waktu Mulai:', localize_date_string(sub['start_time'], tz_offset) if sub['start_time'] else '—'),
             ('Waktu Pengumpulan:', localize_date_string(sub['created_at'], tz_offset)),
+            ('MAC/ID Perangkat:', sub['mac_address'] or '—'),
         ]
         for i, (label, value) in enumerate(info_rows):
             ws.cell(row=3 + i, column=1, value=label).font = meta_label_font
@@ -1506,7 +1581,7 @@ def _generate_exam_xlsx(exam, submissions, questions, tz_offset=None):
         # Question detail table
         detail_headers = ['No. Soal', 'Tipe Soal', 'Bobot Maks', 'Jawaban Siswa',
                           'Kunci Jawaban', 'Status', 'Poin Didapat']
-        detail_header_row = 9
+        detail_header_row = 11
         for col_idx, h in enumerate(detail_headers, 1):
             ws.cell(row=detail_header_row, column=col_idx, value=h)
         style_header_row(ws, detail_header_row, len(detail_headers))

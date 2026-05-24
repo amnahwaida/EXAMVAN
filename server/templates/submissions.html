@@ -61,7 +61,9 @@
                             <th>Nomor Ujian</th>
                             <th>Kelas</th>
                             <th>Nilai</th>
-                            <th>Tanggal Kumpul</th>
+                            <th>Waktu Mulai</th>
+                            <th>Waktu Kumpul</th>
+                            <th>MAC/ID Perangkat</th>
                             <th>Aksi</th>
                         </tr>
                     </thead>
@@ -81,7 +83,9 @@
                                 <span class="status-badge status-inactive">Belum Dinilai</span>
                                 {% endif %}
                             </td>
+                            <td class="td-date" data-utc="{{ sub.start_time or '' }}">{{ sub.start_time or '—' }}</td>
                             <td class="td-date" data-utc="{{ sub.created_at }}">{{ sub.created_at }}</td>
+                            <td><code style="font-size:11px; letter-spacing:0; color:var(--text-secondary); word-break:break-all;">{{ sub.mac_address or '—' }}</code></td>
                             <td class="td-actions">
                                 <button class="btn-sm btn-toggle" onclick="showSubmissionDetail({{ sub.id }})">
                                     👁️ Detail
@@ -107,7 +111,9 @@
                 <button class="modal-close" onclick="closeDetailModal()">✕</button>
             </div>
             <div class="modal-body">
-                <p style="margin-bottom:12px;">Nama Siswa: <strong id="detailStudentName"></strong> | Kelas: <strong id="detailStudentClass"></strong></p>
+                <p style="margin-bottom:6px;">Nama Siswa: <strong id="detailStudentName"></strong> | Kelas: <strong id="detailStudentClass"></strong></p>
+                <p style="margin-bottom:6px; font-size:12px; color:var(--text-secondary);">⏱️ Mulai: <span id="detailStartTime">—</span> | 📤 Kumpul: <span id="detailSubmitTime">—</span></p>
+                <p style="margin-bottom:12px; font-size:12px; color:var(--text-secondary);">📱 Perangkat: <code id="detailMacAddress" style="font-size:11px; letter-spacing:0;">—</code></p>
                 <div style="display: flex; justify-content: space-between; padding: 0 14px 6px 14px; border-bottom: 1px solid rgba(255,255,255,0.08); margin-bottom: 8px; font-size: 11px; font-weight: 700; color: var(--text-muted); text-transform: uppercase; gap: 12px;">
                     <span style="min-width: 50px;">No</span>
                     <span style="flex: 1;">Jawaban Siswa</span>
@@ -192,6 +198,9 @@
                     
                     document.getElementById('detailStudentName').textContent = res.student_name;
                     document.getElementById('detailStudentClass').textContent = res.student_class;
+                    document.getElementById('detailStartTime').textContent = res.start_time ? localizeUTC(res.start_time) : '—';
+                    document.getElementById('detailSubmitTime').textContent = res.created_at ? localizeUTC(res.created_at) : '—';
+                    document.getElementById('detailMacAddress').textContent = res.mac_address || '—';
                     
                     container.innerHTML = '';
                     const answers = res.answers || {};

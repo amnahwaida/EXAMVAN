@@ -173,6 +173,12 @@
                             </td>
                             <td class="td-date" data-utc="{{ exam.created_at }}">{{ exam.created_at }}</td>
                             <td class="td-actions">
+                                <a href="{{ url_for('admin_exam_pdf', exam_id=exam.id) }}" target="_blank" class="btn-sm btn-toggle" title="Lihat Soal PDF" style="text-decoration: none; display: inline-flex; align-items: center; justify-content: center; height: 32px; vertical-align: middle;">
+                                    👁️ Lihat PDF
+                                </a>
+                                <a href="{{ url_for('admin_exam_pdf', exam_id=exam.id) }}?download=1" class="btn-sm btn-questions" title="Download Soal PDF" style="text-decoration: none; display: inline-flex; align-items: center; justify-content: center; height: 32px; vertical-align: middle; background: rgba(59,130,246,0.15); border-color: rgba(59,130,246,0.3); color: #60a5fa;">
+                                    📥 Download PDF
+                                </a>
                                 <button class="btn-sm btn-questions" onclick="openQuestionsModal({{ exam.id }}, '{{ exam.name }}')" title="Konfigurasi Soal & Kunci Jawaban">
                                     ⚙️ Atur Soal
                                 </button>
