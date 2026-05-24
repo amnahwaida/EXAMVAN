@@ -240,10 +240,11 @@
                         </select>
                         <button class="btn-sm btn-toggle" onclick="quickGenerateQuestions()">⚡ Generate</button>
                     </div>
-                    <div class="xml-import-wrapper" style="display: flex; flex-direction: column; gap: 6px; align-items: flex-end;">
+                    <div class="xml-import-wrapper" style="display: flex; flex-direction: row; gap: 8px; justify-content: flex-end; align-items: center; flex-wrap: wrap;">
                         <button class="btn-sm btn-questions" onclick="copyAIPrompt()" style="margin: 0; background: rgba(16,185,129,0.15); border-color: rgba(16,185,129,0.3); color: #34d399; display: flex; align-items: center; gap: 6px;">📋 Salin Prompt AI</button>
                         <input type="file" id="xmlFileInput" accept=".xml" style="display: none;" onchange="importXMLQuestions(event)">
                         <button class="btn-sm btn-questions" onclick="document.getElementById('xmlFileInput').click()" style="margin: 0; background: rgba(59,130,246,0.15); border-color: rgba(59,130,246,0.3); color: #60a5fa; display: flex; align-items: center; gap: 6px;">📥 Import XML</button>
+                        <button class="btn-sm btn-questions" onclick="exportXMLQuestions()" style="margin: 0; background: rgba(245,158,11,0.15); border-color: rgba(245,158,11,0.3); color: #fbbf24; display: flex; align-items: center; gap: 6px;">📤 Export XML</button>
                     </div>
                 </div>
                 

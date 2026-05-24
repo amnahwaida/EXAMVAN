@@ -200,9 +200,11 @@ function regenerateToken(examId) {
 
 // Global modal state
 let activeExamId = null;
+let activeExamName = '';
 
 function openQuestionsModal(examId, examName) {
     activeExamId = examId;
+    activeExamName = examName;
     document.getElementById('modalTitle').textContent = `Atur Soal Ujian: ${examName}`;
     const container = document.getElementById('questionsList');
     container.innerHTML = '<div style="color:var(--text-secondary); text-align:center; padding: 20px;">Memuat data soal...</div>';
@@ -229,6 +231,7 @@ function openQuestionsModal(examId, examName) {
 function closeQuestionsModal() {
     document.getElementById('questionsModal').style.display = 'none';
     activeExamId = null;
+    activeExamName = '';
 }
 
 function createNewQuestionCard(q, num) {
@@ -452,9 +455,7 @@ function quickGenerateQuestions() {
     renderQuestions(questions);
 }
 
-function saveQuestionsConfig() {
-    if (!activeExamId) return;
-    
+function getQuestionsFromEditor() {
     const cards = document.querySelectorAll('.question-editor-card');
     const questions = [];
     
@@ -507,14 +508,82 @@ function saveQuestionsConfig() {
             });
             q.key = keyObj;
         } else if (type === 'short_answer') {
-            q.key = keyRaw; // preserve case for short answers
+            q.key = keyRaw;
         }
         
         questions.push(q);
     }
     
-    const securityLevel = document.getElementById('examSecurityLevel') ? document.getElementById('examSecurityLevel').value : 'medium';
+    questions.sort((a, b) => a.number - b.number);
+    return questions;
+}
 
+function exportXMLQuestions() {
+    const questions = getQuestionsFromEditor();
+    if (questions.length === 0) {
+        showToast("Tidak ada soal untuk diexport", "error");
+        return;
+    }
+    
+    let xml = '<?xml version="1.0" encoding="UTF-8"?>\n';
+    xml += '<questions>\n';
+    
+    questions.forEach(q => {
+        const partialAttr = (q.type === 'multiple_choice' || q.type === 'matching') ? ` partial_scoring="${q.partial_scoring}"` : '';
+        xml += `    <question number="${q.number}" type="${q.type}" weight="${q.weight.toFixed(1)}"${partialAttr}>\n`;
+        
+        if (q.type === 'single_choice' || q.type === 'multiple_choice') {
+            if (q.choices && q.choices.length > 0) {
+                xml += `        <choices>${q.choices.join(', ')}</choices>\n`;
+            }
+        } else if (q.type === 'matching') {
+            if (q.left_items && q.left_items.length > 0) {
+                xml += `        <left_items>${q.left_items.join(', ')}</left_items>\n`;
+            }
+            if (q.right_items && q.right_items.length > 0) {
+                xml += `        <right_items>${q.right_items.join(', ')}</right_items>\n`;
+            }
+        }
+        
+        let keyStr = '';
+        if (q.type === 'multiple_choice' && Array.isArray(q.key)) {
+            keyStr = q.key.join(', ');
+        } else if (q.type === 'matching' && q.key && typeof q.key === 'object') {
+            const pairs = [];
+            for (const [k, v] of Object.entries(q.key)) {
+                pairs.push(`${k}:${v}`);
+            }
+            keyStr = pairs.join(', ');
+        } else {
+            keyStr = q.key || '';
+        }
+        
+        xml += `        <key>${keyStr}</key>\n`;
+        xml += `    </question>\n`;
+    });
+    
+    xml += '</questions>\n';
+    
+    const blob = new Blob([xml], { type: 'application/xml' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    const safeName = (activeExamName || 'ujian').replace(/[^a-z0-9]/gi, '_').toLowerCase();
+    a.href = url;
+    a.download = `${safeName}_kunci_jawaban.xml`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+    
+    showToast(`Berhasil mengekspor ${questions.length} soal ke XML!`, "success");
+}
+
+function saveQuestionsConfig() {
+    if (!activeExamId) return;
+    
+    const questions = getQuestionsFromEditor();
+    const securityLevel = document.getElementById('examSecurityLevel') ? document.getElementById('examSecurityLevel').value : 'medium';
+    
     fetch(`/admin/api/exams/${activeExamId}/questions`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
