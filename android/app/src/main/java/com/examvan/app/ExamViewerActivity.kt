@@ -59,6 +59,16 @@ class ExamViewerActivity : AppCompatActivity() {
     private var submittedOrExited = false
     private var securityLevel = "medium"
     private var isShowingAppDialog = false
+    private var isSubmitting = false
+
+    // Track active popup windows (Spinner dropdowns, etc.) to prevent false focus-loss detection
+    private var activePopupCount = 0
+
+    // Debounce and retry limits for strict mode to prevent looping on unsupported devices
+    private var lastForegroundBounceTime = 0L
+    private var lockTaskAttempts = 0
+    private val MAX_LOCK_TASK_ATTEMPTS = 5
+    private var lockTaskSupported = true  // Set to false after max retries exhausted
 
     private val safetySubmitHandler = android.os.Handler(android.os.Looper.getMainLooper())
     private val safetySubmitRunnable = Runnable {
@@ -70,10 +80,11 @@ class ExamViewerActivity : AppCompatActivity() {
     private val pinCheckHandler = android.os.Handler(android.os.Looper.getMainLooper())
     private val pinCheckRunnable = object : Runnable {
         override fun run() {
-            if (submittedOrExited) return
+            if (submittedOrExited || !lockTaskSupported) return
             if (securityLevel == "strict") {
                 val isPinned = isAppPinned()
                 if (isPinned) {
+                    lockTaskAttempts = 0  // Reset on success
                     if (binding.layoutStrictLockOverlay.visibility == View.VISIBLE) {
                         binding.layoutStrictLockOverlay.visibility = View.GONE
                         safetySubmitHandler.removeCallbacks(safetySubmitRunnable)
@@ -81,11 +92,11 @@ class ExamViewerActivity : AppCompatActivity() {
                 } else {
                     if (binding.layoutStrictLockOverlay.visibility == View.GONE && !isShowingAppDialog) {
                         binding.layoutStrictLockOverlay.visibility = View.VISIBLE
-                        try { startLockTask() } catch (_: Exception) {}
+                        tryStartLockTask()
                     }
                 }
-                // Schedule next check in 500ms
-                pinCheckHandler.postDelayed(this, 500)
+                // Schedule next check (slower interval to reduce overhead)
+                pinCheckHandler.postDelayed(this, 1000)
             }
         }
     }
@@ -98,6 +109,8 @@ class ExamViewerActivity : AppCompatActivity() {
             WindowManager.LayoutParams.FLAG_SECURE,
             WindowManager.LayoutParams.FLAG_SECURE
         )
+        // Keep screen turned on during the exam
+        window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
 
         // Clear clipboard
         val clipboard = getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
@@ -197,17 +210,13 @@ class ExamViewerActivity : AppCompatActivity() {
             
             // Set up request pin button
             binding.btnRequestPin.setOnClickListener {
-                try {
-                    startLockTask()
-                } catch (_: Exception) {}
+                tryStartLockTask()
             }
             
             // Check current pin status
             if (!isAppPinned()) {
                 binding.layoutStrictLockOverlay.visibility = View.VISIBLE
-                try {
-                    startLockTask()
-                } catch (_: Exception) {}
+                tryStartLockTask()
             }
         }
 
@@ -291,8 +300,8 @@ class ExamViewerActivity : AppCompatActivity() {
         for (choice in choices) {
             val rb = RadioButton(this).apply {
                 text = choice
-                setTextColor(resources.getColor(R.color.on_surface, null))
-                buttonTintList = resources.getColorStateList(R.color.primary, null)
+                setTextColor(androidx.core.content.ContextCompat.getColor(this@ExamViewerActivity, R.color.on_surface))
+                buttonTintList = androidx.core.content.ContextCompat.getColorStateList(this@ExamViewerActivity, R.color.primary)
                 textSize = 14f
                 setPadding(4, 0, 16, 0)
             }
@@ -322,8 +331,8 @@ class ExamViewerActivity : AppCompatActivity() {
         for (choice in listOf("TRUE", "FALSE")) {
             val rb = RadioButton(this).apply {
                 text = choice
-                setTextColor(resources.getColor(R.color.on_surface, null))
-                buttonTintList = resources.getColorStateList(R.color.primary, null)
+                setTextColor(androidx.core.content.ContextCompat.getColor(this@ExamViewerActivity, R.color.on_surface))
+                buttonTintList = androidx.core.content.ContextCompat.getColorStateList(this@ExamViewerActivity, R.color.primary)
                 textSize = 14f
                 setPadding(4, 0, 16, 0)
             }
@@ -356,8 +365,8 @@ class ExamViewerActivity : AppCompatActivity() {
         for (choice in choices) {
             val cb = CheckBox(this).apply {
                 text = choice
-                setTextColor(resources.getColor(R.color.on_surface, null))
-                buttonTintList = resources.getColorStateList(R.color.primary, null)
+                setTextColor(androidx.core.content.ContextCompat.getColor(this@ExamViewerActivity, R.color.on_surface))
+                buttonTintList = androidx.core.content.ContextCompat.getColorStateList(this@ExamViewerActivity, R.color.primary)
                 textSize = 14f
                 setPadding(4, 0, 16, 0)
             }
@@ -407,8 +416,21 @@ class ExamViewerActivity : AppCompatActivity() {
             adapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item)
             spinner.adapter = adapter
 
+            // Track spinner popup open/close to prevent false focus-loss detection.
+            // When a Spinner dropdown opens, it creates a popup window that triggers
+            // onWindowFocusChanged(false), which was incorrectly interpreted as the user
+            // leaving the app, causing auto-submit or force-return loops.
+            spinner.setOnTouchListener { _, event ->
+                if (event.action == android.view.MotionEvent.ACTION_UP) {
+                    activePopupCount++
+                }
+                false
+            }
+
             spinner.onItemSelectedListener = object : AdapterView.OnItemSelectedListener {
                 override fun onItemSelected(parent: AdapterView<*>?, v: View?, position: Int, id: Long) {
+                    // Decrement popup count when selection is made (dropdown closed)
+                    if (activePopupCount > 0) activePopupCount--
                     if (position > 0) {
                         matchingAnswers[leftItem] = rightItems[position - 1]
                     } else {
@@ -416,7 +438,9 @@ class ExamViewerActivity : AppCompatActivity() {
                     }
                     studentAnswers[number.toString()] = HashMap(matchingAnswers)
                 }
-                override fun onNothingSelected(parent: AdapterView<*>?) {}
+                override fun onNothingSelected(parent: AdapterView<*>?) {
+                    if (activePopupCount > 0) activePopupCount--
+                }
             }
 
             matchingContainer.addView(rowView)
@@ -483,6 +507,8 @@ class ExamViewerActivity : AppCompatActivity() {
     }
 
     private fun submitAnswers() {
+        if (isSubmitting) return
+        isSubmitting = true
         binding.btnSubmitAnswers.isEnabled = false
         binding.btnSubmitAnswers.text = "Mengirim..."
 
@@ -495,6 +521,7 @@ class ExamViewerActivity : AppCompatActivity() {
             startTime = startTime,
             macAddress = macAddress,
             onSuccess = { message ->
+                isSubmitting = false
                 submittedOrExited = true
                 runOnUiThread {
                     try {
@@ -520,6 +547,7 @@ class ExamViewerActivity : AppCompatActivity() {
                 }
             },
             onError = { errorMsg ->
+                isSubmitting = false
                 runOnUiThread {
                     binding.btnSubmitAnswers.isEnabled = true
                     binding.btnSubmitAnswers.text = "📤 Kumpulkan Jawaban"
@@ -594,17 +622,29 @@ class ExamViewerActivity : AppCompatActivity() {
         }
     }
 
+    private var currentBitmap: Bitmap? = null
+
     private fun renderPage(pageIndex: Int) {
         val renderer = pdfRenderer ?: return
         if (pageIndex < 0 || pageIndex >= renderer.pageCount) return
 
         val page = renderer.openPage(pageIndex)
 
-        // Render at 2x density for clarity
-        val scale = 2
+        // Dynamically calculate scale to prevent OutOfMemoryError on large/scanned pages.
+        // We target 2x the device's screen width for perfect clarity, capped at a safe maximum of 2048 pixels.
+        val screenWidth = resources.displayMetrics.widthPixels
+        var targetWidth = (screenWidth * 2).coerceAtMost(2048)
+        
+        // If the original page is smaller than the target, don't upscale it beyond 2x its original size
+        targetWidth = targetWidth.coerceAtMost(page.width * 2)
+        
+        // Calculate proportional height to keep the original aspect ratio
+        val aspectRatio = page.height.toFloat() / page.width.toFloat()
+        val targetHeight = (targetWidth * aspectRatio).toInt()
+
         val bitmap = Bitmap.createBitmap(
-            page.width * scale,
-            page.height * scale,
+            targetWidth,
+            targetHeight,
             Bitmap.Config.ARGB_8888
         )
         bitmap.eraseColor(Color.WHITE)
@@ -617,7 +657,13 @@ class ExamViewerActivity : AppCompatActivity() {
         )
         page.close()
 
+        // Recycle previous bitmap to free memory immediately (important for low-end devices)
+        val oldBitmap = currentBitmap
+        currentBitmap = bitmap
+        binding.ivPdfPage.resetZoom()
         binding.ivPdfPage.setImageBitmap(bitmap)
+        oldBitmap?.recycle()
+
         updatePageIndicator()
     }
 
@@ -654,12 +700,12 @@ class ExamViewerActivity : AppCompatActivity() {
 
     override fun onResume() {
         super.onResume()
-        if (securityLevel == "strict") {
+        if (securityLevel == "strict" && lockTaskSupported) {
             // Cancel safety auto-submit as we are successfully back in foreground
             safetySubmitHandler.removeCallbacks(safetySubmitRunnable)
 
             // Re-apply lock task immediately (critical for button navigation pinning)
-            try { startLockTask() } catch (_: Exception) {}
+            tryStartLockTask()
 
             // Start periodic pinning state check (for overlay management)
             pinCheckHandler.removeCallbacks(pinCheckRunnable)
@@ -674,14 +720,20 @@ class ExamViewerActivity : AppCompatActivity() {
         if (submittedOrExited || isShowingAppDialog) return
 
         if (securityLevel == "strict") {
-            // Stop periodic checks when in background
-            pinCheckHandler.removeCallbacks(pinCheckRunnable)
-            
-            // Try to bounce back immediately
-            forceReturnToForeground()
-            // Clear any existing safety timer, then schedule fresh one
-            safetySubmitHandler.removeCallbacks(safetySubmitRunnable)
-            safetySubmitHandler.postDelayed(safetySubmitRunnable, 3000)
+            if (lockTaskSupported) {
+                // Stop periodic checks when in background
+                pinCheckHandler.removeCallbacks(pinCheckRunnable)
+                
+                // Try to bounce back immediately (with debounce protection)
+                forceReturnToForeground()
+                // Clear any existing safety timer, then schedule fresh one
+                safetySubmitHandler.removeCallbacks(safetySubmitRunnable)
+                safetySubmitHandler.postDelayed(safetySubmitRunnable, 3000)
+            } else {
+                // FALLBACK: If device does not support pinning, act as Medium Mode (Auto-submit and Exit)
+                // This prevents the student from cheating by opening other apps!
+                autoSubmitAndExit()
+            }
         } else if (securityLevel == "medium") {
             autoSubmitAndExit()
         }
@@ -693,9 +745,14 @@ class ExamViewerActivity : AppCompatActivity() {
 
         when (securityLevel) {
             "strict" -> {
-                forceReturnToForeground()
-                safetySubmitHandler.removeCallbacks(safetySubmitRunnable)
-                safetySubmitHandler.postDelayed(safetySubmitRunnable, 3000)
+                if (lockTaskSupported) {
+                    forceReturnToForeground()
+                    safetySubmitHandler.removeCallbacks(safetySubmitRunnable)
+                    safetySubmitHandler.postDelayed(safetySubmitRunnable, 3000)
+                } else {
+                    // FALLBACK: Auto-submit and Exit
+                    autoSubmitAndExit()
+                }
             }
             "medium" -> autoSubmitAndExit()
         }
@@ -703,23 +760,31 @@ class ExamViewerActivity : AppCompatActivity() {
 
     override fun onWindowFocusChanged(hasFocus: Boolean) {
         super.onWindowFocusChanged(hasFocus)
-        if (securityLevel == "strict") {
-            if (hasFocus) {
+
+        if (hasFocus) {
+            // Dropdowns or internal dialogs closed, reset popup count
+            activePopupCount = 0
+            
+            if (securityLevel == "strict" && lockTaskSupported) {
                 safetySubmitHandler.removeCallbacks(safetySubmitRunnable)
                 // Re-apply lock task
-                try { startLockTask() } catch (_: Exception) {}
+                tryStartLockTask()
                 // Re-start periodic checks
                 pinCheckHandler.removeCallbacks(pinCheckRunnable)
                 pinCheckHandler.post(pinCheckRunnable)
                 enableImmersiveMode()
-            } else if (!submittedOrExited && !isShowingAppDialog) {
+            }
+        } else {
+            // CRITICAL: Skip security check focus loss ONLY if focus is lost due to an active dropdown/popup.
+            // This prevents false positives when clicking on dropdown Spinners.
+            if (activePopupCount > 0) {
+                return
+            }
+
+            if (securityLevel == "strict" && lockTaskSupported && !submittedOrExited && !isShowingAppDialog) {
                 forceReturnToForeground()
                 safetySubmitHandler.removeCallbacks(safetySubmitRunnable)
                 safetySubmitHandler.postDelayed(safetySubmitRunnable, 3000)
-            }
-        } else if (securityLevel == "medium") {
-            if (!hasFocus && !submittedOrExited && !isShowingAppDialog) {
-                autoSubmitAndExit()
             }
         }
     }
@@ -738,7 +803,53 @@ class ExamViewerActivity : AppCompatActivity() {
         }
     }
 
+    /**
+     * Attempt to start lock task with retry tracking.
+     * Gracefully falls back if the device doesn't support lock task
+     * (not a device owner/admin) after MAX_LOCK_TASK_ATTEMPTS tries.
+     */
+    private fun tryStartLockTask() {
+        if (!lockTaskSupported) return
+        try {
+            // Check if app is set as Device Owner (managed kiosk mode) for school enterprise lock
+            val dpm = getSystemService(Context.DEVICE_POLICY_SERVICE) as android.app.admin.DevicePolicyManager
+            val adminName = android.content.ComponentName(this, com.examvan.app.receiver.MyDeviceAdminReceiver::class.java)
+            if (dpm.isDeviceOwnerApp(packageName)) {
+                dpm.setLockTaskPackages(adminName, arrayOf(packageName))
+            }
+
+            startLockTask()
+            // Check after a short delay if it actually worked
+            android.os.Handler(mainLooper).postDelayed({
+                if (!isAppPinned()) {
+                    lockTaskAttempts++
+                    if (lockTaskAttempts >= MAX_LOCK_TASK_ATTEMPTS) {
+                        lockTaskSupported = false
+                        // Hide overlay since we can't pin — fall back gracefully
+                        binding.layoutStrictLockOverlay.visibility = View.GONE
+                        pinCheckHandler.removeCallbacks(pinCheckRunnable)
+                    }
+                } else {
+                    // Success - reset counter
+                    lockTaskAttempts = 0
+                }
+            }, 500)
+        } catch (_: Exception) {
+            lockTaskAttempts++
+            if (lockTaskAttempts >= MAX_LOCK_TASK_ATTEMPTS) {
+                lockTaskSupported = false
+                binding.layoutStrictLockOverlay.visibility = View.GONE
+                pinCheckHandler.removeCallbacks(pinCheckRunnable)
+            }
+        }
+    }
+
     private fun forceReturnToForeground() {
+        // Debounce: prevent rapid re-launching which causes the exit/enter loop
+        val now = System.currentTimeMillis()
+        if (now - lastForegroundBounceTime < 2000) return
+        lastForegroundBounceTime = now
+
         val handler = android.os.Handler(mainLooper)
         handler.postDelayed({
             if (submittedOrExited || isFinishing) return@postDelayed
@@ -756,7 +867,7 @@ class ExamViewerActivity : AppCompatActivity() {
                 }
                 startActivity(relaunch)
             } catch (_: Exception) {}
-        }, 150)
+        }, 300)
     }
 
     @Suppress("DEPRECATION")
@@ -838,6 +949,15 @@ class ExamViewerActivity : AppCompatActivity() {
             stopLockTask()
         } catch (_: Exception) {}
 
+        if (isSubmitting) {
+            // Already submitting via normal route. Let the existing request finish.
+            try {
+                Thread.sleep(1000)
+            } catch (_: Exception) {}
+            finish()
+            return
+        }
+
         // Start synchronous submission in a background thread to block the main thread for a maximum of 2 seconds.
         // This keeps the process active and ensures the network request is fully sent before the OS suspends the app.
         val thread = Thread {
@@ -870,6 +990,8 @@ class ExamViewerActivity : AppCompatActivity() {
     override fun onDestroy() {
         super.onDestroy()
         downloadCall?.cancel()
+        safetySubmitHandler.removeCallbacks(safetySubmitRunnable)
+        pinCheckHandler.removeCallbacks(pinCheckRunnable)
         try {
             pdfRenderer?.close()
             fileDescriptor?.close()

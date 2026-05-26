@@ -72,6 +72,7 @@ app.config['MAX_CONTENT_LENGTH'] = MAX_FILE_SIZE + 4096
 def get_db():
     """Get database connection with Row factory."""
     db = sqlite3.connect(DATABASE)
+    db.execute('PRAGMA foreign_keys = ON')
     db.row_factory = sqlite3.Row
     return db
 
@@ -251,7 +252,16 @@ def calculate_submission_score(answers, questions):
     try:
         earned_weight = 0.0
         for q in questions:
-            q_num = str(q['number'])
+            # Normalize q_num: handle potential float representation (e.g. 1.0 -> "1")
+            try:
+                num_val = float(q['number'])
+                if num_val.is_integer():
+                    q_num = str(int(num_val))
+                else:
+                    q_num = str(q['number'])
+            except Exception:
+                q_num = str(q['number'])
+
             student_ans = answers.get(q_num)
             correct_ans = q.get('key')
             q_weight = float(q.get('weight', 1.0))
@@ -283,14 +293,14 @@ def calculate_submission_score(answers, questions):
                             if correct_ans:
                                 correct_matches = 0
                                 for k, v in correct_ans.items():
-                                    if str(student_ans.get(k)).strip().upper() == str(v).strip().upper():
+                                    if str(student_ans.get(k, '')).strip().upper() == str(v).strip().upper():
                                         correct_matches += 1
                                 portion = correct_matches / len(correct_ans)
                                 earned_q_weight = portion * q_weight
                         else:
                             match = True
                             for k, v in correct_ans.items():
-                                if str(student_ans.get(k)).strip().upper() != str(v).strip().upper():
+                                if str(student_ans.get(k, '')).strip().upper() != str(v).strip().upper():
                                     match = False
                                     break
                             if match:
@@ -305,16 +315,31 @@ def calculate_submission_score(answers, questions):
 
 
 def get_local_ip():
-    """Get the server's LAN IP address."""
+    """Get the server's LAN IP address, offline-friendly."""
+    # Try connecting to a non-routable address to determine the outgoing interface IP
     try:
         s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         s.settimeout(1)
-        s.connect(('8.8.8.8', 80))
+        # 10.255.255.255 does not require internet connection to resolve
+        s.connect(('10.255.255.255', 1))
         ip = s.getsockname()[0]
         s.close()
-        return ip
+        if ip and ip != '127.0.0.1' and not ip.startswith('127.'):
+            return ip
     except Exception:
-        return '127.0.0.1'
+        pass
+
+    # Fallback: inspect network interfaces by hostname
+    try:
+        hostname = socket.gethostname()
+        ips = socket.gethostbyname_ex(hostname)[2]
+        for ip in ips:
+            if not ip.startswith('127.') and not ip.startswith('172.'):
+                return ip
+    except Exception:
+        pass
+
+    return '127.0.0.1'
 
 
 def get_network_info():
@@ -578,7 +603,7 @@ def admin_login():
         return redirect(url_for('admin_dashboard'))
 
     if request.method == 'POST':
-        username = request.form.get('username', '').strip()
+        username = request.form.get('username', '').strip().lower()
         password = request.form.get('password', '')
 
         db = get_db()
@@ -1212,7 +1237,12 @@ def admin_export_submission_detail(submission_id):
     cw.writerow(['No. Soal', 'Tipe Soal', 'Bobot Maks', 'Jawaban Siswa', 'Kunci Jawaban', 'Status', 'Poin Didapat'])
     
     for q in questions:
-        q_num = str(q['number'])
+        # Normalize q_num: handle potential float representation (e.g. 1.0 -> "1")
+        try:
+            num_val = float(q['number'])
+            q_num = str(int(num_val)) if num_val.is_integer() else str(q['number'])
+        except Exception:
+            q_num = str(q['number'])
         student_ans = answers.get(q_num)
         correct_ans = q.get('key')
         q_weight = float(q.get('weight', 1.0))
@@ -1256,7 +1286,7 @@ def admin_export_submission_detail(submission_id):
                         if correct_ans:
                             correct_matches = 0
                             for k, v in correct_ans.items():
-                                if str(student_ans.get(k)).strip().upper() == str(v).strip().upper():
+                                if str(student_ans.get(k, '')).strip().upper() == str(v).strip().upper():
                                     correct_matches += 1
                             portion = correct_matches / len(correct_ans)
                             earned_q_weight = portion * q_weight
@@ -1269,7 +1299,7 @@ def admin_export_submission_detail(submission_id):
                     else:
                         match = True
                         for k, v in correct_ans.items():
-                            if str(student_ans.get(k)).strip().upper() != str(v).strip().upper():
+                            if str(student_ans.get(k, '')).strip().upper() != str(v).strip().upper():
                                 match = False
                                 break
                         if match:
@@ -1606,7 +1636,12 @@ def _generate_exam_xlsx(exam, submissions, questions, tz_offset=None):
         total_max = 0.0
 
         for q in questions:
-            q_num = str(q['number'])
+            # Normalize q_num: handle potential float representation (e.g. 1.0 -> "1")
+            try:
+                num_val = float(q['number'])
+                q_num = str(int(num_val)) if num_val.is_integer() else str(q['number'])
+            except Exception:
+                q_num = str(q['number'])
             student_ans = student_answers.get(q_num)
             correct_ans = q.get('key')
             q_weight = float(q.get('weight', 1.0))

@@ -33,6 +33,8 @@ class ExamListActivity : AppCompatActivity() {
             WindowManager.LayoutParams.FLAG_SECURE,
             WindowManager.LayoutParams.FLAG_SECURE
         )
+        // Keep screen turned on during the exam
+        window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
 
         // Clear clipboard for security
         val clipboard = getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
@@ -62,7 +64,7 @@ class ExamListActivity : AppCompatActivity() {
 
         // Pull to refresh
         binding.swipeRefresh.setColorSchemeColors(
-            resources.getColor(R.color.primary, theme)
+            androidx.core.content.ContextCompat.getColor(this, R.color.primary)
         )
         binding.swipeRefresh.setOnRefreshListener { loadExams() }
 

@@ -223,6 +223,14 @@ class ZoomableImageView @JvmOverloads constructor(
         return delta
     }
 
+    fun resetZoom() {
+        saveScale = 1f
+        myMatrix.reset()
+        imageMatrix = myMatrix
+        invalidate()
+        requestLayout()
+    }
+
     override fun onMeasure(widthMeasureSpec: Int, heightMeasureSpec: Int) {
         super.onMeasure(widthMeasureSpec, heightMeasureSpec)
         width = MeasureSpec.getSize(widthMeasureSpec).toFloat()

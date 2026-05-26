@@ -48,6 +48,8 @@ class ServerConfigActivity : AppCompatActivity() {
             WindowManager.LayoutParams.FLAG_SECURE,
             WindowManager.LayoutParams.FLAG_SECURE
         )
+        // Keep screen turned on during the exam
+        window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
 
         binding = ActivityServerConfigBinding.inflate(layoutInflater)
         setContentView(binding.root)
@@ -241,7 +243,7 @@ class ServerConfigActivity : AppCompatActivity() {
                 .apply()
             
             showGestureNavigationWarningDialog()
-        } else if (!android.provider.Settings.canDrawOverlays(this)) {
+        } else if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.M && !android.provider.Settings.canDrawOverlays(this)) {
             // Save state to preferences
             prefs.edit()
                 .putInt("pending_exam_id", examId)
