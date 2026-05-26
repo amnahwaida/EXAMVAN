@@ -30,11 +30,30 @@ EXAMVAN diciptakan khusus untuk memenuhi kebutuhan instansi pendidikan dalam men
 * **Rekalkulasi Nilai Otomatis:** Apabila guru mengubah bobot soal atau mengaktifkan/menonaktifkan opsi penilaian parsial *setelah* ujian disubmit oleh siswa, sistem secara otomatis menghitung ulang (*recalculate*) nilai siswa secara instan tanpa perlu submit ulang.
 
 ### 3. Keamanan Klien Seluler (Android & iOS)
-* **Lock Task Mode (Screen Pinning):** Mengunci layar perangkat agar siswa tidak dapat menekan tombol Home, Recent Apps, atau membuka panel notifikasi.
+* **Tiga Tingkat Keamanan Dinamis (Low, Medium, Strict):**
+  1. **Low Mode:** Proteksi dasar berupa anti-screenshot (`FLAG_SECURE`) dan pembersihan papan klip (clipboard). Siswa bebas keluar masuk aplikasi tanpa konsekuensi.
+  2. **Medium Mode:** Jika siswa menekan tombol Home, berpindah aplikasi, membuka laci notifikasi, atau meminimalkan aplikasi, sistem langsung mendeteksi kehilangan fokus dan melakukan **Auto-Submit (Kumpul Jawaban Otomatis)** dalam waktu 3 detik.
+  3. **Strict Mode (Zero-Friction Screen Pinning):** Layar aplikasi otomatis terkunci menggunakan fitur *Screen Pinning*. Siswa tidak dapat menekan tombol Home atau Recents tanpa melepas pin terlebih dahulu. Jika pin dilepas secara paksa oleh siswa, sistem akan mendeteksi hilangnya fokus dan memicu **Auto-Submit** instan.
+* **Kompatibilitas Adaptif & Graceful Fallback:** Ujian mode *Strict* dirancang ramah untuk segala jenis perangkat. Jika dijalankan di HP siswa yang tidak mendukung penguncian layar (seperti **Android Go Edition** atau ROM kustom yang membuang fitur pinning), sistem tidak akan crash, melainkan secara otomatis menurunkan proteksi secara mandiri ke **Medium Mode** (tetap aman dengan perlindungan Auto-Submit).
+* **Zero-Friction Launch:** Siswa tidak lagi dibebani dengan pengaturan rumit seperti mematikan navigasi gestur usap atau memberikan izin overlay sistem. Ujian langsung dimulai secara instan, menghemat waktu persiapan ujian hingga 100%.
+* **Optimasi Layar Anti-Mati (FLAG_KEEP_SCREEN_ON):** Layar perangkat siswa akan tetap menyala terang secara konstan selama aplikasi dibuka (mulai dari halaman input server, daftar ujian, hingga pengerjaan soal), mencegah layar redup atau masuk ke mode tidur (*sleep*) saat siswa sedang membaca soal yang panjang.
 * **Anti-Screenshot & Recording:** Layar aplikasi otomatis menjadi hitam (*black screen*) jika siswa mencoba menangkap layar (*capture*) atau merekam layar (menggunakan `FLAG_SECURE` pada Android dan `SecureView UITextField` pada iOS).
 * **Anti-Copy Text:** PDF dirender sebagai gambar raster dinamis tanpa lapisan teks, sehingga teks soal tidak dapat disalin.
 * **Clipboard Cleanser:** Clipboard/papan klip otomatis dikosongkan saat memasuki ruang ujian untuk mencegah metode *copy-paste* jawaban.
-* **Anti-Switching App (Auto-Submit):** Jika siswa berhasil meminimalkan aplikasi, menekan tombol keluar, atau membuka aplikasi lain secara paksa, sistem secara otomatis mengumpulkan lembar jawaban saat itu juga (*auto-submit*) dan mengeluarkan siswa dari ruang ujian.
+
+---
+
+## 🏛️ Mode Kiosk Sekolah (Device Owner - Penguncian Mutlak)
+
+Untuk komputer tablet atau handphone inventaris sekolah (bukan HP pribadi siswa), Anda dapat mengaktifkan **Managed Kiosk Mode (Device Owner)**. Dalam mode ini, tombol Home, Recents, tombol Power Menu, panel notifikasi atas, dan gestur usap akan **dimatikan secara absolut di level sistem operasi**. Siswa secara fisik tidak akan bisa keluar dari aplikasi ujian sebelum lembar jawaban dikirimkan.
+
+### Cara Mengaktifkan Mode Kiosk via ADB:
+1. Hubungkan tablet/HP sekolah ke komputer menggunakan kabel USB (pastikan USB Debugging aktif).
+2. Jalankan perintah berikut di Terminal/CMD komputer Anda:
+   ```bash
+   adb shell dpm set-device-owner com.examvan.app/com.examvan.app.receiver.MyDeviceAdminReceiver
+   ```
+3. Begitu sukses dijalankan, aplikasi EXAMVAN akan memegang otoritas admin penuh untuk mengunci perangkat tanpa memerlukan konfirmasi dialog apa pun pada layar siswa saat ujian dimulai.
 
 ---
 
@@ -43,8 +62,9 @@ EXAMVAN diciptakan khusus untuk memenuhi kebutuhan instansi pendidikan dalam men
 Untuk memulai ujian pada perangkat siswa, silakan unduh aplikasinya melalui tautan berikut:
 
 ### 🤖 Perangkat Android
-* **[Download EXAMVAN Android APK (v1.2.0)](./app-debug.apk)** *(Gunakan tautan ini untuk mengunduh berkas APK secara langsung ke penyimpanan lokal server Anda untuk dibagikan kepada siswa).*
-* **Kompatibilitas:** Minimal **Android 5.0 (Lollipop - API 21)** hingga versi terbaru (diuji hingga **Android 14 - API 34**). Kompatibel dengan >99% tipe perangkat Android aktif milik siswa.
+* **[Download EXAMVAN Android APK (v1.2.0)](./EXAMVAN.apk)** *(Telah diperbarui dengan build debug tertanda otomatis yang siap langsung dipasang di HP siswa tanpa kendala lisensi).*
+* **Alternative Build:** Anda juga dapat menggunakan berkas **[examvan-debug.apk](./examvan-debug.apk)** atau **[examvan-release.apk](./examvan-release.apk)** yang terletak di folder root.
+* **Kompatibilitas:** Minimal **Android 5.0 (Lollipop - API 21)** hingga versi terbaru (diuji hingga **Android 14/15 - API 34/35**). Kompatibel dengan >99% tipe perangkat Android aktif milik siswa.
 
 ### 🍎 Perangkat iOS
 * Kode sumber Swift native siap pakai tersedia di folder `/ios/ExamVan`. Anda dapat langsung membukanya menggunakan Xcode di macOS untuk melakukan build dan install ke perangkat iPad/iPhone siswa tanpa memerlukan dependensi pihak ketiga (*zero external dependencies*).
