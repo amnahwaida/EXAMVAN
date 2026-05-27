@@ -27,4 +27,6 @@
     <string name="btn_cancel">Batal</string>
     <string name="toast_auto_submit_success">Ujian dihentikan. Jawaban Anda telah dikumpulkan secara otomatis.</string>
     <string name="toast_auto_submit_failed">Ujian dihentikan. Gagal mengirim jawaban: %1$s</string>
+    <string name="autosubmit_status_active">Kumpul Otomatis: AKTIF (Jangan keluar aplikasi!)</string>
+    <string name="autosubmit_status_inactive">Kumpul Otomatis: NONAKTIF</string>
 </resources>

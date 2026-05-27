@@ -174,6 +174,7 @@ class ExamViewerActivity : AppCompatActivity() {
         val prefs = getSharedPreferences("exam_questions", MODE_PRIVATE)
         val json = prefs.getString("questions_json", null)
         securityLevel = prefs.getString("security_level", "medium") ?: "medium"
+        updateSecurityBanner()
         if (json != null) {
             try {
                 val type = object : TypeToken<List<Map<String, Any>>>() {}.type
@@ -190,6 +191,16 @@ class ExamViewerActivity : AppCompatActivity() {
             }
         } else {
             generateDefaultQuestions()
+        }
+    }
+
+    private fun updateSecurityBanner() {
+        if (securityLevel == "medium") {
+            binding.tvSecurityBanner.text = getString(R.string.autosubmit_status_active)
+            binding.tvSecurityBanner.setBackgroundColor(Color.parseColor("#D32F2F")) // Warning Red
+        } else {
+            binding.tvSecurityBanner.text = getString(R.string.autosubmit_status_inactive)
+            binding.tvSecurityBanner.setBackgroundColor(Color.parseColor("#455A64")) // Cool Dark Blue Grey
         }
     }
 

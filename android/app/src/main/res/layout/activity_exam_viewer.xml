@@ -47,13 +47,27 @@
             android:textColor="@color/text_secondary" />
     </LinearLayout>
 
+    <!-- Security / Auto-Submit Status Strip -->
+    <TextView
+        android:id="@+id/tvSecurityBanner"
+        android:layout_width="0dp"
+        android:layout_height="wrap_content"
+        android:padding="8dp"
+        android:textSize="12sp"
+        android:textStyle="bold"
+        android:textColor="#FFFFFF"
+        android:gravity="center"
+        app:layout_constraintTop_toBottomOf="@id/toolbar"
+        app:layout_constraintStart_toStartOf="parent"
+        app:layout_constraintEnd_toEndOf="parent" />
+
     <!-- PDF View Area -->
     <com.examvan.app.view.ZoomableImageView
         android:id="@+id/ivPdfPage"
         android:layout_width="0dp"
         android:layout_height="0dp"
         android:background="@color/background"
-        app:layout_constraintTop_toBottomOf="@id/toolbar"
+        app:layout_constraintTop_toBottomOf="@id/tvSecurityBanner"
         app:layout_constraintBottom_toTopOf="@id/answerSheetToggle"
         app:layout_constraintStart_toStartOf="parent"
         app:layout_constraintEnd_toEndOf="parent" />
@@ -67,7 +81,7 @@
         android:gravity="center"
         android:background="@color/background"
         android:visibility="visible"
-        app:layout_constraintTop_toBottomOf="@id/toolbar"
+        app:layout_constraintTop_toBottomOf="@id/tvSecurityBanner"
         app:layout_constraintBottom_toTopOf="@id/answerSheetToggle"
         app:layout_constraintStart_toStartOf="parent"
         app:layout_constraintEnd_toEndOf="parent">
@@ -121,7 +135,7 @@
         android:gravity="center"
         android:background="@color/background"
         android:visibility="gone"
-        app:layout_constraintTop_toBottomOf="@id/toolbar"
+        app:layout_constraintTop_toBottomOf="@id/tvSecurityBanner"
         app:layout_constraintBottom_toTopOf="@id/answerSheetToggle"
         app:layout_constraintStart_toStartOf="parent"
         app:layout_constraintEnd_toEndOf="parent">

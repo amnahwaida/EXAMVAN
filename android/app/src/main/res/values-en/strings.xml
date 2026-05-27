@@ -27,4 +27,6 @@
     <string name="btn_cancel">Cancel</string>
     <string name="toast_auto_submit_success">Exam stopped. Your answers have been submitted automatically.</string>
     <string name="toast_auto_submit_failed">Exam stopped. Failed to submit answers: %1$s</string>
+    <string name="autosubmit_status_active">Auto-Submit: ACTIVE (Do not leave the app!)</string>
+    <string name="autosubmit_status_inactive">Auto-Submit: INACTIVE</string>
 </resources>
