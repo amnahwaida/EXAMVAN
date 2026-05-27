@@ -24,13 +24,7 @@
     <string name="error_pdf">Failed to open PDF file</string>
     <string name="menu_change_server">Change Server</string>
 
-    <!-- Gesture Warning Dialog -->
-    <string name="gesture_warning_title">Gesture Navigation Detected</string>
-    <string name="gesture_warning_message">This exam uses High Security (Strict Mode), which requires the \'Screen Pinning\' feature to prevent you from switching to other applications.\n\nYour phone\'s navigation is currently set to \'Fullscreen Gestures\' (Swipe). Gesture navigation is not supported because it easily allows you to exit the app even when the screen is pinned.\n\nSteps to change it:\n1. Tap the \'Open Settings\' button below.\n2. Find the \'System Navigation\' menu.\n3. Change the selection from \'Gestures\' to \'Buttons\' (3-Button Navigation).\n4. Once changed, please return to this app to start the exam.</string>
-    <string name="btn_open_settings">Open Settings</string>
     <string name="btn_cancel">Cancel</string>
-
-    <!-- Overlay Permission Dialog -->
-    <string name="overlay_permission_title">Permission Required</string>
-    <string name="overlay_permission_message">This exam uses Strict Security. The app requires the \'Display over other apps\' permission to lock the screen and prevent cheating.\n\nPlease enable this permission on the next settings screen.</string>
+    <string name="toast_auto_submit_success">Exam stopped. Your answers have been submitted automatically.</string>
+    <string name="toast_auto_submit_failed">Exam stopped. Failed to submit answers: %1$s</string>
 </resources>

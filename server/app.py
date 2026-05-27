@@ -89,7 +89,7 @@ def init_db():
             token TEXT UNIQUE NOT NULL,
             questions_json TEXT,
             status TEXT DEFAULT 'active' CHECK(status IN ('active', 'inactive')),
-            security_level TEXT DEFAULT 'medium' CHECK(security_level IN ('strict', 'medium', 'low')),
+            security_level TEXT DEFAULT 'medium' CHECK(security_level IN ('medium', 'low')),
             created_by INTEGER DEFAULT 1,
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         );
@@ -1081,7 +1081,7 @@ def admin_exam_questions(exam_id):
         questions = data.get('questions', [])
         security_level = data.get('security_level', 'medium')
 
-        if security_level not in ['strict', 'medium', 'low']:
+        if security_level not in ['medium', 'low']:
             security_level = 'medium'
 
         # Basic validation

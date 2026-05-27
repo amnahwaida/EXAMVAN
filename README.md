@@ -30,11 +30,9 @@ EXAMVAN diciptakan khusus untuk memenuhi kebutuhan instansi pendidikan dalam men
 * **Rekalkulasi Nilai Otomatis:** Apabila guru mengubah bobot soal atau mengaktifkan/menonaktifkan opsi penilaian parsial *setelah* ujian disubmit oleh siswa, sistem secara otomatis menghitung ulang (*recalculate*) nilai siswa secara instan tanpa perlu submit ulang.
 
 ### 3. Keamanan Klien Seluler (Android & iOS)
-* **Tiga Tingkat Keamanan Dinamis (Low, Medium, Strict):**
+* **Dua Tingkat Keamanan Dinamis (Low, Medium):**
   1. **Low Mode:** Proteksi dasar berupa anti-screenshot (`FLAG_SECURE`) dan pembersihan papan klip (clipboard). Siswa bebas keluar masuk aplikasi tanpa konsekuensi.
   2. **Medium Mode:** Jika siswa menekan tombol Home, berpindah aplikasi, membuka laci notifikasi, atau meminimalkan aplikasi, sistem langsung mendeteksi kehilangan fokus dan melakukan **Auto-Submit (Kumpul Jawaban Otomatis)** dalam waktu 3 detik.
-  3. **Strict Mode (Zero-Friction Screen Pinning):** Layar aplikasi otomatis terkunci menggunakan fitur *Screen Pinning*. Siswa tidak dapat menekan tombol Home atau Recents tanpa melepas pin terlebih dahulu. Jika pin dilepas secara paksa oleh siswa, sistem akan mendeteksi hilangnya fokus dan memicu **Auto-Submit** instan.
-* **Kompatibilitas Adaptif & Graceful Fallback:** Ujian mode *Strict* dirancang ramah untuk segala jenis perangkat. Jika dijalankan di HP siswa yang tidak mendukung penguncian layar (seperti **Android Go Edition** atau ROM kustom yang membuang fitur pinning), sistem tidak akan crash, melainkan secara otomatis menurunkan proteksi secara mandiri ke **Medium Mode** (tetap aman dengan perlindungan Auto-Submit).
 * **Zero-Friction Launch:** Siswa tidak lagi dibebani dengan pengaturan rumit seperti mematikan navigasi gestur usap atau memberikan izin overlay sistem. Ujian langsung dimulai secara instan, menghemat waktu persiapan ujian hingga 100%.
 * **Optimasi Layar Anti-Mati (FLAG_KEEP_SCREEN_ON):** Layar perangkat siswa akan tetap menyala terang secara konstan selama aplikasi dibuka (mulai dari halaman input server, daftar ujian, hingga pengerjaan soal), mencegah layar redup atau masuk ke mode tidur (*sleep*) saat siswa sedang membaca soal yang panjang.
 * **Anti-Screenshot & Recording:** Layar aplikasi otomatis menjadi hitam (*black screen*) jika siswa mencoba menangkap layar (*capture*) atau merekam layar (menggunakan `FLAG_SECURE` pada Android dan `SecureView UITextField` pada iOS).

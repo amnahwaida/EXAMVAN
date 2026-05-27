@@ -38,6 +38,20 @@ android {
         }
     }
 
+    flavorDimensions += "mode"
+    productFlavors {
+        create("student") {
+            dimension = "mode"
+            // Clean APK for student personal phones (Vivo, Oppo, etc.)
+            // No DeviceAdminReceiver — avoids Vivo/FuntouchOS security block
+        }
+        create("kiosk") {
+            dimension = "mode"
+            // Full APK for school-owned tablets with Device Owner / Kiosk mode
+            applicationIdSuffix = ".kiosk"
+        }
+    }
+
     buildTypes {
         release {
             isMinifyEnabled = true
