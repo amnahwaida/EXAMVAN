@@ -15,6 +15,29 @@ android {
         versionName = "1.2.0"
     }
 
+    signingConfigs {
+        create("release") {
+            keyAlias = "androiddebugkey"
+            keyPassword = "android"
+            storeFile = file("debug.keystore")
+            storePassword = "android"
+            enableV1Signing = true
+            enableV2Signing = true
+            enableV3Signing = true
+            enableV4Signing = true
+        }
+        getByName("debug") {
+            keyAlias = "androiddebugkey"
+            keyPassword = "android"
+            storeFile = file("debug.keystore")
+            storePassword = "android"
+            enableV1Signing = true
+            enableV2Signing = true
+            enableV3Signing = true
+            enableV4Signing = true
+        }
+    }
+
     buildTypes {
         release {
             isMinifyEnabled = true
@@ -23,6 +46,10 @@ android {
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"
             )
+            signingConfig = signingConfigs.getByName("release")
+        }
+        debug {
+            signingConfig = signingConfigs.getByName("debug")
         }
     }
 
