@@ -90,6 +90,7 @@ def init_db():
             questions_json TEXT,
             status TEXT DEFAULT 'active' CHECK(status IN ('active', 'inactive')),
             security_level TEXT DEFAULT 'medium' CHECK(security_level IN ('medium', 'low')),
+            public_results INTEGER DEFAULT 1,
             created_by INTEGER DEFAULT 1,
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         );
@@ -174,6 +175,13 @@ def init_db():
         db.execute('SELECT mac_address FROM submissions LIMIT 1')
     except sqlite3.OperationalError:
         db.execute("ALTER TABLE submissions ADD COLUMN mac_address TEXT")
+        db.commit()
+
+    # Migrate: add public_results column if missing
+    try:
+        db.execute('SELECT public_results FROM exams LIMIT 1')
+    except sqlite3.OperationalError:
+        db.execute("ALTER TABLE exams ADD COLUMN public_results INTEGER DEFAULT 1")
         db.commit()
 
     db.close()
@@ -809,6 +817,37 @@ def admin_toggle_exam(exam_id):
         'success': True,
         'message': f'Status ujian diubah ke {new_status}',
         'new_status': new_status
+    })
+
+
+@app.route('/admin/api/exams/<int:exam_id>/toggle-public-results', methods=['POST'])
+@admin_required
+def admin_toggle_public_results(exam_id):
+    """Toggle whether exam results are publicly accessible by students."""
+    db = get_db()
+    if not check_exam_ownership(db, exam_id):
+        db.close()
+        return jsonify({'success': False, 'message': 'Akses ditolak: Anda tidak memiliki akses ke ujian ini'}), 403
+    exam = db.execute('SELECT * FROM exams WHERE id = ?', (exam_id,)).fetchone()
+
+    if not exam:
+        db.close()
+        return jsonify({'success': False, 'message': 'Ujian tidak ditemukan'}), 404
+
+    # Toggle public_results: 1 (active) <=> 0 (inactive)
+    current = exam['public_results']
+    if current is None:
+        current = 1
+    new_val = 0 if current == 1 else 1
+    db.execute('UPDATE exams SET public_results = ? WHERE id = ?', (new_val, exam_id))
+    db.commit()
+    db.close()
+
+    status_str = 'diaktifkan' if new_val == 1 else 'dinonaktifkan'
+    return jsonify({
+        'success': True,
+        'message': f'Halaman siswa berhasil {status_str}',
+        'public_results': new_val
     })
 
 
@@ -1798,6 +1837,95 @@ def _generate_exam_xlsx(exam, submissions, questions, tz_offset=None):
 
 # ===== Public Exam Results Routes =====
 
+def evaluate_submission_answers(answers, questions):
+    """Evaluate submission answers and return individual correctness status for each question."""
+    evaluation = {}
+    if not questions:
+        return evaluation
+    
+    for q in questions:
+        try:
+            num_val = float(q['number'])
+            if num_val.is_integer():
+                q_num = str(int(num_val))
+            else:
+                q_num = str(q['number'])
+        except Exception:
+            q_num = str(q['number'])
+
+        student_ans = answers.get(q_num)
+        correct_ans = q.get('key')
+        q_weight = float(q.get('weight', 1.0))
+        partial_scoring = q.get('partial_scoring', False)
+
+        earned = 0.0
+        status_text = 'Salah ❌'
+        status_class = 'incorrect'
+
+        if student_ans is not None and correct_ans is not None:
+            if q['type'] in ['single_choice', 'true_false', 'short_answer']:
+                s_norm = ' '.join(str(student_ans).split()).upper()
+                c_norm = ' '.join(str(correct_ans).split()).upper()
+                if s_norm == c_norm:
+                    earned = q_weight
+                    status_text = 'Benar ✔️'
+                    status_class = 'correct'
+            elif q['type'] == 'multiple_choice':
+                if isinstance(student_ans, list) and isinstance(correct_ans, list):
+                    if partial_scoring:
+                        correct_set = set(str(x).upper() for x in correct_ans)
+                        student_set = set(str(x).upper() for x in student_ans)
+                        if correct_set:
+                            correct_selected = sum(1 for x in student_set if x in correct_set)
+                            incorrect_selected = sum(1 for x in student_set if x not in correct_set)
+                            portion = max(0.0, (correct_selected - incorrect_selected) / len(correct_set))
+                            earned = portion * q_weight
+                            if portion >= 1.0:
+                                status_text = 'Benar ✔️'
+                                status_class = 'correct'
+                            elif portion > 0:
+                                status_text = 'Parsial ⚠️'
+                                status_class = 'partial'
+                    else:
+                        if sorted([str(x).upper() for x in student_ans]) == sorted([str(x).upper() for x in correct_ans]):
+                            earned = q_weight
+                            status_text = 'Benar ✔️'
+                            status_class = 'correct'
+            elif q['type'] == 'matching':
+                if isinstance(student_ans, dict) and isinstance(correct_ans, dict):
+                    if partial_scoring:
+                        if correct_ans:
+                            correct_matches = 0
+                            for k, v in correct_ans.items():
+                                if str(student_ans.get(k, '')).strip().upper() == str(v).strip().upper():
+                                    correct_matches += 1
+                            portion = correct_matches / len(correct_ans)
+                            earned = portion * q_weight
+                            if portion >= 1.0:
+                                status_text = 'Benar ✔️'
+                                status_class = 'correct'
+                            elif portion > 0:
+                                status_text = 'Parsial ⚠️'
+                                status_class = 'partial'
+                    else:
+                        match = True
+                        for k, v in correct_ans.items():
+                            if str(student_ans.get(k, '')).strip().upper() != str(v).strip().upper():
+                                match = False
+                                break
+                        if match:
+                            earned = q_weight
+                            status_text = 'Benar ✔️'
+                            status_class = 'correct'
+        
+        evaluation[q_num] = {
+            'statusClass': status_class,
+            'statusText': status_text,
+            'earned': earned
+        }
+    return evaluation
+
+
 @app.route('/<token>')
 def short_token_hasil(token):
     """Short URL redirect to exam results page, e.g. /BSGRIJ."""
@@ -1805,11 +1933,14 @@ def short_token_hasil(token):
     if len(token_upper) == 6 and token_upper.isalnum():
         db = get_db()
         exam = db.execute(
-            'SELECT id FROM exams WHERE token = ?',
+            'SELECT id, public_results FROM exams WHERE token = ?',
             (token_upper,)
         ).fetchone()
         db.close()
         if exam:
+            is_logged_in = 'admin_id' in session
+            if exam.get('public_results', 1) == 0 and not is_logged_in:
+                abort(403)
             return redirect(url_for('public_hasil', token=token_upper))
     
     # If not a valid token, let Flask's 404 handler redirect to index/login
@@ -1822,7 +1953,7 @@ def public_hasil(token):
     token = token.strip().upper()
     db = get_db()
     exam = db.execute(
-        'SELECT id, name, token FROM exams WHERE token = ?',
+        'SELECT id, name, token, public_results FROM exams WHERE token = ?',
         (token,)
     ).fetchone()
 
@@ -1834,6 +1965,15 @@ def public_hasil(token):
                                total_students=0,
                                error=True), 404
 
+    is_logged_in = 'admin_id' in session
+    if exam.get('public_results', 1) == 0 and not is_logged_in:
+        db.close()
+        return render_template('hasil.html',
+                               exam_name=exam['name'],
+                               token=token,
+                               total_students=0,
+                               is_disabled=True), 403
+
     total = db.execute(
         'SELECT COUNT(*) as cnt FROM submissions WHERE exam_id = ?',
         (exam['id'],)
@@ -1843,7 +1983,8 @@ def public_hasil(token):
     return render_template('hasil.html',
                            exam_name=exam['name'],
                            token=exam['token'],
-                           total_students=total)
+                           total_students=total,
+                           is_logged_in=is_logged_in)
 
 
 @app.route('/api/hasil/<token>')
@@ -1852,7 +1993,7 @@ def api_public_hasil(token):
     token = token.strip().upper()
     db = get_db()
     exam = db.execute(
-        'SELECT id, name, token, questions_json FROM exams WHERE token = ?',
+        'SELECT id, name, token, questions_json, public_results FROM exams WHERE token = ?',
         (token,)
     ).fetchone()
 
@@ -1862,6 +2003,14 @@ def api_public_hasil(token):
             'success': False,
             'message': 'Token ujian tidak valid atau ujian tidak ditemukan.'
         }), 404
+
+    is_logged_in = 'admin_id' in session
+    if exam.get('public_results', 1) == 0 and not is_logged_in:
+        db.close()
+        return jsonify({
+            'success': False,
+            'message': 'Akses dinonaktifkan: Halaman hasil ujian untuk siswa dinonaktifkan oleh guru.'
+        }), 403
 
     submissions = db.execute(
         'SELECT id, student_name, exam_number, student_class, answers_json, score, start_time, created_at '
@@ -1883,7 +2032,7 @@ def api_public_hasil(token):
     for q in questions:
         max_score += float(q.get('weight', 1.0))
 
-    # Build submissions list
+    # Evaluate answers and build submissions list
     subs_data = []
     for sub in submissions:
         try:
@@ -1900,8 +2049,15 @@ def api_public_hasil(token):
             'score': sub['score'],
             'max_score': max_score if max_score > 0 else None,
             'start_time': format_iso_utc(sub['start_time']) if sub['start_time'] else None,
-            'created_at': format_iso_utc(sub['created_at'])
+            'created_at': format_iso_utc(sub['created_at']),
+            'evaluated_answers': evaluate_submission_answers(answers, questions)
         })
+
+    # If NOT logged in, strip correct 'key' from questions array to prevent inspect-element cheating
+    if not is_logged_in:
+        for q in questions:
+            if 'key' in q:
+                del q['key']
 
     return jsonify({
         'success': True,

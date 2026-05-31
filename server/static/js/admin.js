@@ -1068,3 +1068,44 @@ function copyAIPrompt() {
         .then(() => showToast("Prompt AI berhasil disalin ke clipboard!", "success"))
         .catch(() => showToast("Gagal menyalin prompt", "error"));
 }
+
+// Toggle public student results access page
+function togglePublicResults(examId) {
+    const btn = document.getElementById(`btn-public-results-${examId}`);
+    if (btn) {
+        btn.disabled = true;
+    }
+
+    fetch(`/admin/api/exams/${examId}/toggle-public-results`, { method: 'POST' })
+        .then(r => r.json())
+        .then(res => {
+            if (btn) {
+                btn.disabled = false;
+            }
+            if (res.success) {
+                showToast(res.message, 'success');
+                // Dynamically update button appearance and text
+                if (btn) {
+                    if (res.public_results === 1) {
+                        btn.style.background = 'rgba(16, 185, 129, 0.15)';
+                        btn.style.borderColor = 'rgba(16, 185, 129, 0.3)';
+                        btn.style.color = '#34d399';
+                        btn.textContent = '🟢 Hal. Siswa Aktif';
+                    } else {
+                        btn.style.background = 'rgba(239, 68, 68, 0.15)';
+                        btn.style.borderColor = 'rgba(239, 68, 68, 0.3)';
+                        btn.style.color = '#f87171';
+                        btn.textContent = '🔴 Hal. Siswa Nonaktif';
+                    }
+                }
+            } else {
+                showToast(res.message || 'Gagal mengubah akses halaman siswa', 'error');
+            }
+        })
+        .catch(() => {
+            if (btn) {
+                btn.disabled = false;
+            }
+            showToast('Koneksi gagal', 'error');
+        });
+}

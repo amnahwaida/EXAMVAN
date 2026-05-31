@@ -747,8 +747,21 @@
                 </div>
             </div>
             <div class="stats-row" id="statsRow" style="display: none;"></div>
+         {% if is_disabled %}
+        <section class="glass-card" style="padding: 60px 40px; text-align: center; margin-top: 24px; border: 1px solid rgba(239, 68, 68, 0.15); background: rgba(239, 68, 68, 0.02);">
+            <div style="font-size: 3.5rem; margin-bottom: 20px; filter: drop-shadow(0 0 10px rgba(239,68,68,0.3));">🔒</div>
+            <h2 style="font-size: 1.6rem; font-weight: 800; color: #f8fafc; margin-bottom: 12px; font-family: 'Inter', sans-serif;">Halaman Hasil Dinonaktifkan</h2>
+            <p style="color: var(--text-secondary); max-width: 520px; margin: 0 auto 28px auto; line-height: 1.7; font-size: 0.95rem;">
+                Halaman hasil ujian untuk siswa pada ujian ini telah dinonaktifkan oleh Guru / Admin yang bersangkutan.
+                Silakan hubungi pihak sekolah untuk mendapatkan informasi nilai Anda.
+            </p>
+            <div style="display: inline-flex; justify-content: center; width: 100%;">
+                <a href="{{ url_for('admin_login') }}" style="background: linear-gradient(135deg, var(--primary), var(--accent-violet)); color: white; padding: 12px 28px; border-radius: 12px; font-weight: 600; text-decoration: none; display: inline-flex; align-items: center; gap: 8px; box-shadow: 0 4px 20px rgba(99, 102, 241, 0.25); transition: all 0.3s;">
+                    🔑 Login Webapp Admin
+                </a>
+            </div>
         </section>
-
+        {% else %}
         <!-- Tab Navigation -->
         <div class="tab-nav">
             <button class="tab-btn active" id="tabScores" onclick="switchTab('scores')">
@@ -799,12 +812,13 @@
                             </tr>
                         </thead>
                         <tbody id="scoresBody">
+                            <!-- Filled via JS -->
                         </tbody>
                     </table>
                 </div>
             </div>
 
-            <!-- Answers Tab -->
+            <!-- Answers & Corrections Tab -->
             <div id="answersContent" style="display: none;">
                 <div class="table-wrapper">
                     <table class="results-table" id="answersTable">
@@ -816,10 +830,11 @@
                                 <th>Kelas</th>
                                 <th style="text-align: center;">Waktu Pengerjaan</th>
                                 <th style="text-align: center;">Nilai</th>
-                                <th style="width: 40px;"></th>
+                                <th style="width: 50px; text-align: center;">Detail</th>
                             </tr>
                         </thead>
                         <tbody id="answersBody">
+                            <!-- Filled via JS -->
                         </tbody>
                     </table>
                 </div>
@@ -827,11 +842,13 @@
 
             <!-- Keys Tab -->
             <div id="keysContent" style="display: none;">
-                <div class="keys-grid-wrapper" style="margin-top: 10px;">
-                    <div style="margin-bottom: 20px; font-size: 0.9rem; color: var(--text-secondary); line-height: 1.6; display: flex; align-items: center; gap: 8px; padding: 12px; background: rgba(99, 102, 241, 0.05); border: 1px solid rgba(99, 102, 241, 0.15); border-radius: 10px;">
-                        <span>💡</span>
-                        <span>Berikut adalah kunci jawaban resmi untuk setiap butir soal pada ujian ini.</span>
-                    </div>
+                <div style="padding: 16px;">
+                    <h3 style="font-size: 1.1rem; font-weight: 700; margin-bottom: 8px; color: #a5b4fc; display: flex; align-items: center; gap: 8px;">
+                        <span>🔑</span> Kunci Jawaban Resmi
+                    </h3>
+                    <p style="font-size: 0.8rem; color: var(--text-muted); margin-bottom: 20px;">
+                        Berikut adalah kunci jawaban resmi untuk setiap butir soal pada ujian ini.
+                    </p>
                     <div class="keys-grid" id="keysGrid" style="display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 12px;">
                         <!-- Filled via JS -->
                     </div>
@@ -850,6 +867,7 @@
                 <p>Tidak ditemukan hasil yang cocok dengan pencarian Anda.</p>
             </div>
         </section>
+        {% endif %}
     </main>
 
     <!-- Footer -->
@@ -860,6 +878,8 @@
     <script>
         // ===== State =====
         const EXAM_TOKEN = '{{ token }}';
+        const isLoggedIn = {{ 'true' if is_logged_in else 'false' }};
+        const isDisabled = {{ 'true' if is_disabled else 'false' }};
         let submissionsData = [];
         let questionsData = [];
         let showCorrectAnswers = false;
@@ -867,7 +887,9 @@
 
         // ===== Init =====
         document.addEventListener('DOMContentLoaded', () => {
-            loadResults();
+            if (!isDisabled) {
+                loadResults();
+            }
         });
 
         // ===== API: Load Results =====
@@ -943,8 +965,8 @@
                 
                 document.getElementById('scoresContent').style.display = 'block';
                 
-                // Show answers toggle and official key tab if we have questions
-                if (questionsData.length > 0) {
+                // Show answers toggle and official key tab if we have questions and logged in
+                if (questionsData.length > 0 && isLoggedIn) {
                     document.getElementById('showAnswersToggle').style.display = 'flex';
                     document.getElementById('tabKeys').style.display = 'flex';
                 }
@@ -1117,7 +1139,18 @@
                 let statusText = 'Belum Dijawab';
                 let statusClass = 'unanswered';
 
-                if (studentAns !== undefined && studentAns !== null) {
+                if (sub.evaluated_answers && sub.evaluated_answers[qNum]) {
+                    const evalAns = sub.evaluated_answers[qNum];
+                    statusClass = evalAns.statusClass;
+                    statusText = evalAns.statusText;
+                    earned = evalAns.earned;
+
+                    if (studentAns !== undefined && studentAns !== null) {
+                        if (statusClass === 'correct') correctCount++;
+                        else if (statusClass === 'partial') partialCount++;
+                        else if (statusClass === 'incorrect') incorrectCount++;
+                    }
+                } else if (studentAns !== undefined && studentAns !== null) {
                     const evalResult = evaluateAnswer(q.type, studentAns, correctAns, weight, partialScoring);
                     earned = evalResult.earned;
                     statusText = evalResult.statusText;

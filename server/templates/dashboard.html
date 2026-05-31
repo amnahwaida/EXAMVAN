@@ -189,6 +189,9 @@
                                 <a href="{{ url_for('public_hasil', token=exam.token) }}" target="_blank" class="btn-sm btn-results" title="Lihat Link Hasil Publik Siswa" style="text-decoration: none; display: inline-flex; align-items: center; justify-content: center; height: 32px; vertical-align: middle; background: rgba(139, 92, 246, 0.15); border-color: rgba(139, 92, 246, 0.3); color: #c084fc;">
                                     🔗 Halaman Siswa
                                 </a>
+                                <button class="btn-sm" id="btn-public-results-{{ exam.id }}" onclick="togglePublicResults({{ exam.id }})" title="Aktifkan/Nonaktifkan Halaman Hasil Siswa" style="display: inline-flex; align-items: center; justify-content: center; height: 32px; vertical-align: middle; background: {{ 'rgba(16, 185, 129, 0.15)' if exam.public_results == 1 or exam.public_results is none else 'rgba(239, 68, 68, 0.15)' }}; border: 1px solid {{ 'rgba(16, 185, 129, 0.3)' if exam.public_results == 1 or exam.public_results is none else 'rgba(239, 68, 68, 0.3)' }}; color: {{ '#34d399' if exam.public_results == 1 or exam.public_results is none else '#f87171' }}; font-weight: 600; cursor: pointer; border-radius: 6px; padding: 0 10px;">
+                                    {{ '🟢 Hal. Siswa Aktif' if exam.public_results == 1 or exam.public_results is none else '🔴 Hal. Siswa Nonaktif' }}
+                                </button>
                                 <button class="btn-sm btn-toggle" onclick="toggleExam({{ exam.id }})">
                                     {{ '⏸️ Nonaktifkan' if exam.status == 'active' else '▶️ Aktifkan' }}
                                 </button>
