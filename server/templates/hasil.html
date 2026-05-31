@@ -880,9 +880,10 @@
         const EXAM_TOKEN = '{{ token }}';
         const isLoggedIn = {{ 'true' if is_logged_in else 'false' }};
         const isDisabled = {{ 'true' if is_disabled else 'false' }};
+        const showAnswersFromServer = {{ 'true' if show_answers else 'false' }};
         let submissionsData = [];
         let questionsData = [];
-        let showCorrectAnswers = false;
+        let showCorrectAnswers = showAnswersFromServer;
         let currentTab = 'scores';
 
         // ===== Init =====
@@ -965,10 +966,21 @@
                 
                 document.getElementById('scoresContent').style.display = 'block';
                 
-                // Show answers toggle and official key tab if we have questions and logged in
+                // Show answers toggle only for logged-in admin/guru
                 if (questionsData.length > 0 && isLoggedIn) {
                     document.getElementById('showAnswersToggle').style.display = 'flex';
                     document.getElementById('tabKeys').style.display = 'flex';
+                }
+
+                // If server says show_answers is enabled, also show Keys tab for students
+                if (questionsData.length > 0 && showAnswersFromServer && !isLoggedIn) {
+                    document.getElementById('tabKeys').style.display = 'flex';
+                }
+
+                // If show_answers from server, auto-check the toggle for admin view
+                if (showAnswersFromServer && isLoggedIn) {
+                    const toggleEl = document.getElementById('toggleCorrectAnswers');
+                    if (toggleEl) toggleEl.checked = true;
                 }
 
             } catch (err) {

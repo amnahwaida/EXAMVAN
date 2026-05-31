@@ -1109,3 +1109,44 @@ function togglePublicResults(examId) {
             showToast('Koneksi gagal', 'error');
         });
 }
+
+// Toggle show answers for students
+function toggleShowAnswers(examId) {
+    const btn = document.getElementById(`btn-show-answers-${examId}`);
+    if (btn) {
+        btn.disabled = true;
+    }
+
+    fetch(`/admin/api/exams/${examId}/toggle-show-answers`, { method: 'POST' })
+        .then(r => r.json())
+        .then(res => {
+            if (btn) {
+                btn.disabled = false;
+            }
+            if (res.success) {
+                showToast(res.message, 'success');
+                if (btn) {
+                    if (res.show_answers === 1) {
+                        btn.style.background = 'rgba(251, 191, 36, 0.15)';
+                        btn.style.borderColor = 'rgba(251, 191, 36, 0.3)';
+                        btn.style.color = '#fbbf24';
+                        btn.textContent = '🔓 Kunci Terlihat';
+                    } else {
+                        btn.style.background = 'rgba(107, 114, 128, 0.15)';
+                        btn.style.borderColor = 'rgba(107, 114, 128, 0.3)';
+                        btn.style.color = '#9ca3af';
+                        btn.textContent = '🔒 Kunci Tersembunyi';
+                    }
+                }
+            } else {
+                showToast(res.message || 'Gagal mengubah pengaturan kunci jawaban', 'error');
+            }
+        })
+        .catch(() => {
+            if (btn) {
+                btn.disabled = false;
+            }
+            showToast('Koneksi gagal', 'error');
+        });
+}
+

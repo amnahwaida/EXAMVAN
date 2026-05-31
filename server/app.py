@@ -91,6 +91,7 @@ def init_db():
             status TEXT DEFAULT 'active' CHECK(status IN ('active', 'inactive')),
             security_level TEXT DEFAULT 'medium' CHECK(security_level IN ('medium', 'low')),
             public_results INTEGER DEFAULT 1,
+            show_answers INTEGER DEFAULT 0,
             created_by INTEGER DEFAULT 1,
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         );
@@ -182,6 +183,13 @@ def init_db():
         db.execute('SELECT public_results FROM exams LIMIT 1')
     except sqlite3.OperationalError:
         db.execute("ALTER TABLE exams ADD COLUMN public_results INTEGER DEFAULT 1")
+        db.commit()
+
+    # Migrate: add show_answers column if missing
+    try:
+        db.execute('SELECT show_answers FROM exams LIMIT 1')
+    except sqlite3.OperationalError:
+        db.execute("ALTER TABLE exams ADD COLUMN show_answers INTEGER DEFAULT 0")
         db.commit()
 
     db.close()
@@ -848,6 +856,36 @@ def admin_toggle_public_results(exam_id):
         'success': True,
         'message': f'Halaman siswa berhasil {status_str}',
         'public_results': new_val
+    })
+
+
+@app.route('/admin/api/exams/<int:exam_id>/toggle-show-answers', methods=['POST'])
+@admin_required
+def admin_toggle_show_answers(exam_id):
+    """Toggle whether correct answer keys are shown to students on the public results page."""
+    db = get_db()
+    if not check_exam_ownership(db, exam_id):
+        db.close()
+        return jsonify({'success': False, 'message': 'Akses ditolak: Anda tidak memiliki akses ke ujian ini'}), 403
+    exam = db.execute('SELECT * FROM exams WHERE id = ?', (exam_id,)).fetchone()
+
+    if not exam:
+        db.close()
+        return jsonify({'success': False, 'message': 'Ujian tidak ditemukan'}), 404
+
+    current = exam['show_answers']
+    if current is None:
+        current = 0
+    new_val = 0 if current == 1 else 1
+    db.execute('UPDATE exams SET show_answers = ? WHERE id = ?', (new_val, exam_id))
+    db.commit()
+    db.close()
+
+    status_str = 'ditampilkan' if new_val == 1 else 'disembunyikan'
+    return jsonify({
+        'success': True,
+        'message': f'Kunci jawaban berhasil {status_str} untuk siswa',
+        'show_answers': new_val
     })
 
 
@@ -1953,7 +1991,7 @@ def public_hasil(token):
     token = token.strip().upper()
     db = get_db()
     exam = db.execute(
-        'SELECT id, name, token, public_results FROM exams WHERE token = ?',
+        'SELECT id, name, token, public_results, show_answers FROM exams WHERE token = ?',
         (token,)
     ).fetchone()
 
@@ -1980,11 +2018,14 @@ def public_hasil(token):
     ).fetchone()['cnt']
     db.close()
 
+    show_answers = (exam['show_answers'] if exam['show_answers'] is not None else 0) == 1
+
     return render_template('hasil.html',
                            exam_name=exam['name'],
                            token=exam['token'],
                            total_students=total,
-                           is_logged_in=is_logged_in)
+                           is_logged_in=is_logged_in,
+                           show_answers=show_answers)
 
 
 @app.route('/api/hasil/<token>')
@@ -1993,7 +2034,7 @@ def api_public_hasil(token):
     token = token.strip().upper()
     db = get_db()
     exam = db.execute(
-        'SELECT id, name, token, questions_json, public_results FROM exams WHERE token = ?',
+        'SELECT id, name, token, questions_json, public_results, show_answers FROM exams WHERE token = ?',
         (token,)
     ).fetchone()
 
@@ -2053,8 +2094,11 @@ def api_public_hasil(token):
             'evaluated_answers': evaluate_submission_answers(answers, questions)
         })
 
-    # If NOT logged in, strip correct 'key' from questions array to prevent inspect-element cheating
-    if not is_logged_in:
+    # Determine if keys should be shown
+    show_answers_enabled = (exam['show_answers'] if exam['show_answers'] is not None else 0) == 1
+
+    # If NOT logged in AND show_answers is disabled, strip correct 'key' from questions
+    if not is_logged_in and not show_answers_enabled:
         for q in questions:
             if 'key' in q:
                 del q['key']
@@ -2062,6 +2106,7 @@ def api_public_hasil(token):
     return jsonify({
         'success': True,
         'exam_name': exam['name'],
+        'show_answers': show_answers_enabled,
         'token': exam['token'],
         'questions': questions,
         'max_score': max_score if max_score > 0 else None,
