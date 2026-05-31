@@ -175,6 +175,26 @@ function copyToken(token) {
     });
 }
 
+// Copy results short link to clipboard
+function copyResultsLink(token) {
+    if (!token || token === '—') {
+        showToast('Token belum tersedia', 'error');
+        return;
+    }
+    const link = window.location.origin + '/' + token;
+    navigator.clipboard.writeText(link).then(() => {
+        showToast(`Link hasil ujian berhasil disalin: ${link}`, 'success');
+    }).catch(() => {
+        const textarea = document.createElement('textarea');
+        textarea.value = link;
+        document.body.appendChild(textarea);
+        textarea.select();
+        document.execCommand('copy');
+        textarea.remove();
+        showToast(`Link hasil ujian berhasil disalin: ${link}`, 'success');
+    });
+}
+
 // Regenerate token
 function regenerateToken(examId) {
     if (!confirm('Generate token baru? Token lama tidak akan bisa digunakan lagi.')) return;

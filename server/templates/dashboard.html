@@ -163,6 +163,7 @@
                                     <button class="btn-icon btn-copy" onclick="copyToken('{{ exam.token }}')" title="Salin Token">📋</button>
                                     <button class="btn-icon btn-regen" onclick="regenerateToken({{ exam.id }})" title="Generate Token Baru">🔄</button>
                                     <button class="btn-icon btn-edit" onclick="openEditTokenModal({{ exam.id }}, '{{ exam.token }}')" title="Ubah Token Kustom">✏️</button>
+                                    <button class="btn-icon btn-copy-link" onclick="copyResultsLink('{{ exam.token }}')" title="Salin Link Hasil Ujian (Siswa)">🔗</button>
                                 </div>
                             </td>
                             <td>{{ "%.2f"|format(exam.size_bytes / 1048576) }} MB</td>
@@ -184,6 +185,9 @@
                                 </button>
                                 <a href="{{ url_for('admin_submissions') }}?exam_id={{ exam.id }}" class="btn-sm btn-results" title="Lihat Hasil Ujian Siswa" style="text-decoration: none; display: inline-flex; align-items: center; justify-content: center; height: 32px; vertical-align: middle;">
                                     📊 Hasil Ujian
+                                </a>
+                                <a href="{{ url_for('public_hasil', token=exam.token) }}" target="_blank" class="btn-sm btn-results" title="Lihat Link Hasil Publik Siswa" style="text-decoration: none; display: inline-flex; align-items: center; justify-content: center; height: 32px; vertical-align: middle; background: rgba(139, 92, 246, 0.15); border-color: rgba(139, 92, 246, 0.3); color: #c084fc;">
+                                    🔗 Halaman Siswa
                                 </a>
                                 <button class="btn-sm btn-toggle" onclick="toggleExam({{ exam.id }})">
                                     {{ '⏸️ Nonaktifkan' if exam.status == 'active' else '▶️ Aktifkan' }}

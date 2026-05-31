@@ -1796,6 +1796,123 @@ def _generate_exam_xlsx(exam, submissions, questions, tz_offset=None):
     return response
 
 
+# ===== Public Exam Results Routes =====
+
+@app.route('/<token>')
+def short_token_hasil(token):
+    """Short URL redirect to exam results page, e.g. /BSGRIJ."""
+    token_upper = token.strip().upper()
+    if len(token_upper) == 6 and token_upper.isalnum():
+        db = get_db()
+        exam = db.execute(
+            'SELECT id FROM exams WHERE token = ?',
+            (token_upper,)
+        ).fetchone()
+        db.close()
+        if exam:
+            return redirect(url_for('public_hasil', token=token_upper))
+    
+    # If not a valid token, let Flask's 404 handler redirect to index/login
+    abort(404)
+
+
+@app.route('/hasil/<token>')
+def public_hasil(token):
+    """Public page for students to view exam results without login."""
+    token = token.strip().upper()
+    db = get_db()
+    exam = db.execute(
+        'SELECT id, name, token FROM exams WHERE token = ?',
+        (token,)
+    ).fetchone()
+
+    if not exam:
+        db.close()
+        return render_template('hasil.html',
+                               exam_name='Ujian Tidak Ditemukan',
+                               token=token,
+                               total_students=0,
+                               error=True), 404
+
+    total = db.execute(
+        'SELECT COUNT(*) as cnt FROM submissions WHERE exam_id = ?',
+        (exam['id'],)
+    ).fetchone()['cnt']
+    db.close()
+
+    return render_template('hasil.html',
+                           exam_name=exam['name'],
+                           token=exam['token'],
+                           total_students=total)
+
+
+@app.route('/api/hasil/<token>')
+def api_public_hasil(token):
+    """Public API: get exam results by token (no login required)."""
+    token = token.strip().upper()
+    db = get_db()
+    exam = db.execute(
+        'SELECT id, name, token, questions_json FROM exams WHERE token = ?',
+        (token,)
+    ).fetchone()
+
+    if not exam:
+        db.close()
+        return jsonify({
+            'success': False,
+            'message': 'Token ujian tidak valid atau ujian tidak ditemukan.'
+        }), 404
+
+    submissions = db.execute(
+        'SELECT id, student_name, exam_number, student_class, answers_json, score, start_time, created_at '
+        'FROM submissions WHERE exam_id = ? ORDER BY score DESC',
+        (exam['id'],)
+    ).fetchall()
+    db.close()
+
+    # Parse questions (include keys for answer checking on client)
+    questions = []
+    if exam['questions_json']:
+        try:
+            questions = json.loads(exam['questions_json'])
+        except Exception:
+            pass
+
+    # Calculate max possible score
+    max_score = 0
+    for q in questions:
+        max_score += float(q.get('weight', 1.0))
+
+    # Build submissions list
+    subs_data = []
+    for sub in submissions:
+        try:
+            answers = json.loads(sub['answers_json']) if sub['answers_json'] else {}
+        except Exception:
+            answers = {}
+
+        subs_data.append({
+            'id': sub['id'],
+            'student_name': sub['student_name'],
+            'exam_number': sub['exam_number'],
+            'student_class': sub['student_class'],
+            'answers': answers,
+            'score': sub['score'],
+            'max_score': max_score if max_score > 0 else None,
+            'start_time': format_iso_utc(sub['start_time']) if sub['start_time'] else None,
+            'created_at': format_iso_utc(sub['created_at'])
+        })
+
+    return jsonify({
+        'success': True,
+        'exam_name': exam['name'],
+        'token': exam['token'],
+        'questions': questions,
+        'max_score': max_score if max_score > 0 else None,
+        'submissions': subs_data
+    })
+
+
 # ===== Error Handlers =====
 
 @app.errorhandler(413)
