@@ -1939,7 +1939,7 @@ def short_token_hasil(token):
         db.close()
         if exam:
             is_logged_in = 'admin_id' in session
-            if exam.get('public_results', 1) == 0 and not is_logged_in:
+            if (exam['public_results'] if exam['public_results'] is not None else 1) == 0 and not is_logged_in:
                 abort(403)
             return redirect(url_for('public_hasil', token=token_upper))
     
@@ -1966,7 +1966,7 @@ def public_hasil(token):
                                error=True), 404
 
     is_logged_in = 'admin_id' in session
-    if exam.get('public_results', 1) == 0 and not is_logged_in:
+    if (exam['public_results'] if exam['public_results'] is not None else 1) == 0 and not is_logged_in:
         db.close()
         return render_template('hasil.html',
                                exam_name=exam['name'],
@@ -2005,7 +2005,7 @@ def api_public_hasil(token):
         }), 404
 
     is_logged_in = 'admin_id' in session
-    if exam.get('public_results', 1) == 0 and not is_logged_in:
+    if (exam['public_results'] if exam['public_results'] is not None else 1) == 0 and not is_logged_in:
         db.close()
         return jsonify({
             'success': False,
