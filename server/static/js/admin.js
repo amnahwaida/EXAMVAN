@@ -1170,3 +1170,124 @@ document.addEventListener('DOMContentLoaded', () => {
 });
 
 
+// ===== Edit Exam Modal =====
+function openEditExamModal(examId, examName) {
+    const modal = document.getElementById('editExamModal');
+    if (!modal) return;
+    
+    document.getElementById('editExamId').value = examId;
+    document.getElementById('editExamName').value = examName;
+    
+    // Reset file input
+    const fileInput = document.getElementById('editPdfFile');
+    if (fileInput) fileInput.value = '';
+    
+    const displayText = document.getElementById('editFileDisplayText');
+    if (displayText) displayText.textContent = 'Pilih file PDF baru jika ingin merubah...';
+    
+    const display = document.getElementById('editFileDisplay');
+    if (display) display.style.borderColor = '';
+    
+    // Hide progress
+    const progressDiv = document.getElementById('editUploadProgress');
+    if (progressDiv) progressDiv.style.display = 'none';
+    
+    const progressFill = document.getElementById('editProgressFill');
+    if (progressFill) progressFill.style.width = '0%';
+    
+    modal.style.display = 'flex';
+}
+
+function closeEditExamModal() {
+    const modal = document.getElementById('editExamModal');
+    if (modal) modal.style.display = 'none';
+}
+
+function handleEditFileChange(input) {
+    const display = document.getElementById('editFileDisplay');
+    const textEl = document.getElementById('editFileDisplayText');
+    if (!display || !textEl) return;
+    
+    if (input.files.length > 0) {
+        const file = input.files[0];
+        const sizeMB = (file.size / 1048576).toFixed(2);
+        textEl.textContent = `${file.name} (${sizeMB} MB)`;
+        display.style.borderColor = 'var(--warning)';
+    } else {
+        textEl.textContent = 'Pilih file PDF baru jika ingin merubah...';
+        display.style.borderColor = '';
+    }
+}
+
+function submitEditExam(event) {
+    event.preventDefault();
+    
+    const examId = document.getElementById('editExamId').value;
+    const nameInput = document.getElementById('editExamName');
+    const fileInput = document.getElementById('editPdfFile');
+    const btn = document.getElementById('btnEditExamSave');
+    const progressDiv = document.getElementById('editUploadProgress');
+    const progressFill = document.getElementById('editProgressFill');
+    const progressText = document.getElementById('editProgressText');
+    
+    if (!nameInput.value.trim()) {
+        showToast('Nama ujian wajib diisi', 'error');
+        return;
+    }
+    
+    const formData = new FormData();
+    formData.append('name', nameInput.value.trim());
+    if (fileInput.files.length > 0) {
+        formData.append('pdf_file', fileInput.files[0]);
+    }
+    
+    btn.disabled = true;
+    btn.textContent = 'Menyimpan...';
+    if (fileInput.files.length > 0) {
+        progressDiv.style.display = 'flex';
+    }
+    
+    const xhr = new XMLHttpRequest();
+    xhr.open('POST', `/admin/api/exams/${examId}/edit`);
+    
+    xhr.upload.addEventListener('progress', function(e) {
+        if (e.lengthComputable) {
+            const pct = Math.round((e.loaded / e.total) * 100);
+            progressFill.style.width = pct + '%';
+            progressText.textContent = pct + '%';
+        }
+    });
+    
+    xhr.addEventListener('load', function() {
+        btn.disabled = false;
+        btn.textContent = '💾 Simpan Perubahan';
+        try {
+            const res = JSON.parse(xhr.responseText);
+            if (res.success) {
+                showToast(res.message, 'success');
+                setTimeout(() => location.reload(), 1000);
+            } else {
+                showToast(res.message || 'Gagal menyimpan perubahan', 'error');
+                progressDiv.style.display = 'none';
+                progressFill.style.width = '0';
+            }
+        } catch {
+            showToast('Respon server tidak valid', 'error');
+            progressDiv.style.display = 'none';
+            progressFill.style.width = '0';
+        }
+    });
+    
+    xhr.addEventListener('error', function() {
+        btn.disabled = false;
+        btn.textContent = '💾 Simpan Perubahan';
+        showToast('Gagal terhubung ke server', 'error');
+        progressDiv.style.display = 'none';
+        progressFill.style.width = '0';
+    });
+    
+    xhr.send(formData);
+}
+
+
+

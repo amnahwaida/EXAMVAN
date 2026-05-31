@@ -889,6 +889,78 @@ def admin_toggle_show_answers(exam_id):
     })
 
 
+@app.route('/admin/api/exams/<int:exam_id>/edit', methods=['POST'])
+@admin_required
+def admin_edit_exam(exam_id):
+    """Edit existing exam name and optionally replace its PDF file."""
+    name = request.form.get('name', '').strip()
+    file = request.files.get('pdf_file')
+
+    if not name:
+        return jsonify({'success': False, 'message': 'Nama ujian wajib diisi'}), 400
+
+    db = get_db()
+    if not check_exam_ownership(db, exam_id):
+        db.close()
+        return jsonify({'success': False, 'message': 'Akses ditolak: Anda tidak memiliki akses ke ujian ini'}), 403
+
+    exam = db.execute('SELECT * FROM exams WHERE id = ?', (exam_id,)).fetchone()
+    if not exam:
+        db.close()
+        return jsonify({'success': False, 'message': 'Ujian tidak ditemukan'}), 404
+
+    # If new PDF file is uploaded
+    if file and file.filename != '':
+        if file.content_type != 'application/pdf':
+            db.close()
+            return jsonify({'success': False, 'message': 'Hanya file PDF yang diizinkan'}), 400
+
+        file_data = file.read()
+        if len(file_data) > MAX_FILE_SIZE:
+            db.close()
+            return jsonify({
+                'success': False,
+                'message': f'Ukuran file melebihi batas {MAX_FILE_SIZE // (1024*1024)}MB'
+            }), 400
+
+        # Delete old file from storage if exists
+        old_file_path = os.path.join(STORAGE_DIR, exam['file_path'])
+        if os.path.exists(old_file_path):
+            try:
+                os.remove(old_file_path)
+            except Exception as e:
+                app.logger.error(f"Error removing old PDF: {e}")
+
+        # Save new file
+        timestamp = datetime.now(timezone.utc).strftime('%Y%m%d_%H%M%S')
+        safe_name = secure_filename(file.filename)
+        filename = f"{timestamp}_{safe_name}"
+        file_path = os.path.join(STORAGE_DIR, filename)
+
+        with open(file_path, 'wb') as f:
+            f.write(file_data)
+
+        # Update database with new name, path, and size
+        db.execute(
+            'UPDATE exams SET name = ?, file_path = ?, size_bytes = ? WHERE id = ?',
+            (name, filename, len(file_data), exam_id)
+        )
+    else:
+        # Just update name
+        db.execute(
+            'UPDATE exams SET name = ? WHERE id = ?',
+            (name, exam_id)
+        )
+
+    db.commit()
+    db.close()
+
+    return jsonify({
+        'success': True,
+        'message': f'Ujian "{name}" berhasil diperbarui'
+    })
+
+
 @app.route('/admin/api/exams/<int:exam_id>', methods=['DELETE'])
 @admin_required
 def admin_delete_exam(exam_id):

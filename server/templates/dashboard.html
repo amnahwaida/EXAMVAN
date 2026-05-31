@@ -202,6 +202,9 @@
                                 <button class="btn-sm btn-questions" onclick="openQuestionsModal({{ exam.id }}, '{{ exam.name }}')" title="Konfigurasi Soal & Kunci Jawaban">
                                     ⚙️ Atur Soal
                                 </button>
+                                <button class="btn-sm" onclick="openEditExamModal({{ exam.id }}, '{{ exam.name|escape }}')" title="Edit Nama & PDF Ujian" style="display: inline-flex; align-items: center; justify-content: center; height: 32px; vertical-align: middle; background: rgba(245, 158, 11, 0.15); border: 1px solid rgba(245, 158, 11, 0.3); color: #fbbf24; font-weight: 600; cursor: pointer; border-radius: 6px; padding: 0 10px;">
+                                    📝 Edit Ujian
+                                </button>
                                 <a href="{{ url_for('admin_submissions') }}?exam_id={{ exam.id }}" class="btn-sm btn-results" title="Lihat Hasil Ujian Siswa" style="text-decoration: none; display: inline-flex; align-items: center; justify-content: center; height: 32px; vertical-align: middle;">
                                     📊 Hasil Ujian
                                 </a>
@@ -380,6 +383,39 @@
         </div>
     </div>
     {% endif %}
+    <!-- Modal Edit Ujian -->
+    <div class="modal-overlay" id="editExamModal">
+        <div class="modal-card glass-card" style="max-width: 480px;">
+            <div class="modal-header">
+                <h3>📝 Edit Ujian (Nama & PDF)</h3>
+                <button class="modal-close" onclick="closeEditExamModal()">✕</button>
+            </div>
+            <div class="modal-body">
+                <form id="editExamForm" onsubmit="submitEditExam(event)" enctype="multipart/form-data">
+                    <input type="hidden" id="editExamId">
+                    <div class="form-group" style="margin-bottom: 16px;">
+                        <label for="editExamName">Nama Ujian</label>
+                        <input type="text" id="editExamName" required placeholder="Contoh: UTS Matematika Kelas 10">
+                    </div>
+                    <div class="form-group" style="margin-bottom: 20px;">
+                        <label for="editPdfFile">File PDF Baru <span style="font-size: 11px; opacity: 0.7;">(Opsional, kosongi jika tidak ingin merubah)</span></label>
+                        <div class="file-input-wrapper">
+                            <input type="file" id="editPdfFile" accept="application/pdf" onchange="handleEditFileChange(this)">
+                            <div class="file-input-display" id="editFileDisplay">
+                                <span class="file-icon">📄</span>
+                                <span class="file-text" id="editFileDisplayText">Pilih file PDF baru jika ingin merubah...</span>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="upload-progress" id="editUploadProgress" style="display:none; margin-bottom: 16px;">
+                        <div class="progress-bar"><div class="progress-fill" id="editProgressFill"></div></div>
+                        <span class="progress-text" id="editProgressText">0%</span>
+                    </div>
+                    <button type="submit" class="btn-upload" id="btnEditExamSave" style="width: 100%;">💾 Simpan Perubahan</button>
+                </form>
+            </div>
+        </div>
+    </div>
 
     <!-- Toast -->
     <div class="toast-container" id="toastContainer"></div>
