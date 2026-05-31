@@ -18,12 +18,31 @@
             </div>
         </div>
         <div class="topbar-right">
-            <span class="topbar-user" style="font-weight: 600;">👤 {{ admin_user }}</span>
-            <button class="btn-sm btn-questions" onclick="openChangePasswordModal()" style="margin: 0; font-size: 12px; padding: 0 10px; height: 32px; display: inline-flex; align-items: center; gap: 4px; vertical-align: middle;">🔑 Ubah Password</button>
-            {% if admin_user == 'admin' %}
-            <button class="btn-sm btn-results" onclick="openManageUsersModal()" style="margin: 0; font-size: 12px; padding: 0 10px; height: 32px; display: inline-flex; align-items: center; gap: 4px; vertical-align: middle;">👥 Kelola User</button>
-            {% endif %}
-            <a href="{{ url_for('admin_logout') }}" class="btn-logout" style="display: inline-flex; align-items: center; justify-content: center; height: 32px; box-sizing: border-box; vertical-align: middle;">Logout</a>
+            <div class="topbar-menu-dropdown">
+                <button class="topbar-menu-toggle" id="menuToggleBtn">
+                    <span class="menu-hamburger-icon">☰</span>
+                    <span>👤 {{ admin_user }}</span>
+                </button>
+                <div class="topbar-dropdown-content" id="menuDropdownContent">
+                    <div class="dropdown-header">
+                        <span class="dropdown-user-title">👤 {{ admin_user }}</span>
+                        <span class="dropdown-user-role">{% if admin_user == 'admin' %}Super Admin{% else %}Guru/Pengajar{% endif %}</span>
+                    </div>
+                    <div class="dropdown-divider"></div>
+                    <button class="dropdown-item" onclick="openChangePasswordModal()">
+                        <span>🔑</span> Ubah Password
+                    </button>
+                    {% if admin_user == 'admin' %}
+                    <button class="dropdown-item" onclick="openManageUsersModal()">
+                        <span>👥</span> Kelola User
+                    </button>
+                    {% endif %}
+                    <div class="dropdown-divider"></div>
+                    <a href="{{ url_for('admin_logout') }}" class="dropdown-item dropdown-logout">
+                        <span>🚪</span> Logout
+                    </a>
+                </div>
+            </div>
         </div>
     </nav>
 

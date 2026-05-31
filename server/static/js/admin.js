@@ -1150,3 +1150,23 @@ function toggleShowAnswers(examId) {
         });
 }
 
+// Dropdown Menu Toggle Handler
+document.addEventListener('DOMContentLoaded', () => {
+    const menuToggle = document.getElementById('menuToggleBtn');
+    const dropdownContent = document.getElementById('menuDropdownContent');
+    
+    if (menuToggle && dropdownContent) {
+        menuToggle.addEventListener('click', (e) => {
+            e.stopPropagation();
+            dropdownContent.classList.toggle('show');
+        });
+        
+        document.addEventListener('click', (e) => {
+            if (!menuToggle.contains(e.target) && !dropdownContent.contains(e.target)) {
+                dropdownContent.classList.remove('show');
+            }
+        });
+    }
+});
+
+
