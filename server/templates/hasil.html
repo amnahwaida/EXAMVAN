@@ -792,8 +792,10 @@
                                 <th>Nama Siswa</th>
                                 <th>No. Ujian</th>
                                 <th>Kelas</th>
+                                <th style="text-align: center;">Waktu Pengerjaan</th>
                                 <th style="text-align: center;">Nilai</th>
                                 <th style="text-align: center;">Waktu Kumpul</th>
+                                <th style="width: 40px;"></th>
                             </tr>
                         </thead>
                         <tbody id="scoresBody">
@@ -812,6 +814,7 @@
                                 <th>Nama Siswa</th>
                                 <th>No. Ujian</th>
                                 <th>Kelas</th>
+                                <th style="text-align: center;">Waktu Pengerjaan</th>
                                 <th style="text-align: center;">Nilai</th>
                                 <th style="width: 40px;"></th>
                             </tr>
@@ -953,6 +956,29 @@
             }
         }
 
+        // ===== Get Duration String =====
+        function getDurationString(startTimeStr, createdAtStr) {
+            if (!startTimeStr || !createdAtStr) return '—';
+            try {
+                const start = new Date(startTimeStr);
+                const end = new Date(createdAtStr);
+                const diffMs = end - start;
+                if (diffMs < 0) return '—';
+                const diffSecs = Math.floor(diffMs / 1000);
+                const hours = Math.floor(diffSecs / 3600);
+                const minutes = Math.floor((diffSecs % 3600) / 60);
+                const seconds = diffSecs % 60;
+                
+                let parts = [];
+                if (hours > 0) parts.push(`${hours} jam`);
+                if (minutes > 0) parts.push(`${minutes} menit`);
+                if (seconds > 0 || parts.length === 0) parts.push(`${seconds} detik`);
+                return parts.join(' ');
+            } catch (e) {
+                return '—';
+            }
+        }
+
         // ===== Render Scores Table =====
         function renderScoresTable() {
             const tbody = document.getElementById('scoresBody');
@@ -963,12 +989,15 @@
                 tr.setAttribute('data-name', sub.student_name.toLowerCase());
                 tr.setAttribute('data-number', sub.exam_number.toLowerCase());
                 tr.setAttribute('data-class', sub.student_class.toLowerCase());
+                tr.id = `scores-row-${sub.id}`;
+                tr.onclick = () => toggleDetailScores(sub.id);
 
                 const rank = idx + 1;
                 const rankClass = rank <= 3 ? `rank-${rank}` : '';
                 const scoreClass = getScoreClass(sub.score, sub.max_score);
                 const scoreDisplay = sub.score !== null ? sub.score.toFixed(1) : '—';
                 const submitTime = sub.created_at ? localizeUTC(sub.created_at) : '—';
+                const durationStr = getDurationString(sub.start_time, sub.created_at);
 
                 tr.innerHTML = `
                     <td><span class="rank-num ${rankClass}">${rank}</span></td>
@@ -977,12 +1006,27 @@
                     </td>
                     <td><span class="student-number">${escapeHtml(sub.exam_number)}</span></td>
                     <td>${escapeHtml(sub.student_class)}</td>
+                    <td style="text-align: center; font-size: 0.85rem; color: var(--text-secondary);">${durationStr}</td>
                     <td style="text-align: center;">
                         <span class="score-badge ${scoreClass}">${scoreDisplay}</span>
                     </td>
                     <td style="text-align: center; font-size: 0.8rem; color: var(--text-secondary);">${submitTime}</td>
+                    <td style="text-align: center;">
+                        <span class="expand-icon">▼</span>
+                    </td>
                 `;
                 tbody.appendChild(tr);
+
+                // Detail row
+                const detailTr = document.createElement('tr');
+                detailTr.className = 'detail-row';
+                detailTr.id = `scores-detail-${sub.id}`;
+
+                const detailTd = document.createElement('td');
+                detailTd.colSpan = 8;
+                detailTd.innerHTML = `<div class="detail-content"></div>`;
+                detailTr.appendChild(detailTd);
+                tbody.appendChild(detailTr);
             });
         }
 
@@ -996,6 +1040,7 @@
                 const rankClass = rank <= 3 ? `rank-${rank}` : '';
                 const scoreClass = getScoreClass(sub.score, sub.max_score);
                 const scoreDisplay = sub.score !== null ? sub.score.toFixed(1) : '—';
+                const durationStr = getDurationString(sub.start_time, sub.created_at);
 
                 // Main row
                 const tr = document.createElement('tr');
@@ -1013,6 +1058,7 @@
                     </td>
                     <td><span class="student-number">${escapeHtml(sub.exam_number)}</span></td>
                     <td>${escapeHtml(sub.student_class)}</td>
+                    <td style="text-align: center; font-size: 0.85rem; color: var(--text-secondary);">${durationStr}</td>
                     <td style="text-align: center;">
                         <span class="score-badge ${scoreClass}">${scoreDisplay}</span>
                     </td>
@@ -1028,7 +1074,7 @@
                 detailTr.id = `detail-${sub.id}`;
 
                 const detailTd = document.createElement('td');
-                detailTd.colSpan = 6;
+                detailTd.colSpan = 7;
                 
                 const detailHtml = buildDetailContent(sub);
                 detailTd.innerHTML = `<div class="detail-content">${detailHtml}</div>`;
@@ -1097,7 +1143,16 @@
                 `;
             });
 
+            const startTimeStr = sub.start_time ? localizeUTC(sub.start_time) : '—';
+            const endTimeStr = sub.created_at ? localizeUTC(sub.created_at) : '—';
+            const durationStr = getDurationString(sub.start_time, sub.created_at);
+
             return `
+                <div class="detail-time-info" style="margin-bottom: 12px; font-size: 0.82rem; color: var(--text-secondary); background: rgba(255,255,255,0.02); border: 1px solid rgba(255,255,255,0.05); padding: 10px 14px; border-radius: 8px; display: flex; flex-wrap: wrap; justify-content: space-between; gap: 8px;">
+                    <span>⏱️ <strong>Mulai:</strong> ${startTimeStr}</span>
+                    <span>📤 <strong>Kumpul:</strong> ${endTimeStr}</span>
+                    <span>⏳ <strong>Durasi Kerja:</strong> <strong style="color: var(--accent-cyan);">${durationStr}</strong></span>
+                </div>
                 <div class="detail-header">
                     <div class="detail-header-labels" style="flex:1;">
                         <span style="min-width:44px;text-align:center;">No</span>
@@ -1205,12 +1260,33 @@
             }
         }
 
+        // ===== Toggle Detail Scores =====
+        function toggleDetailScores(id) {
+            const detailRow = document.getElementById(`scores-detail-${id}`);
+            const mainRow = document.getElementById(`scores-row-${id}`);
+            
+            if (detailRow.classList.contains('show')) {
+                detailRow.classList.remove('show');
+                mainRow.classList.remove('expanded');
+            } else {
+                // Re-render to reflect current showCorrectAnswers state
+                const sub = submissionsData.find(s => s.id === id);
+                if (sub) {
+                    const detailHtml = buildDetailContent(sub);
+                    detailRow.querySelector('.detail-content').innerHTML = detailHtml;
+                }
+                detailRow.classList.add('show');
+                mainRow.classList.add('expanded');
+            }
+        }
+
         // ===== Toggle Answer Keys =====
         function toggleAnswerKeys() {
             showCorrectAnswers = document.getElementById('toggleCorrectAnswers').checked;
             // Re-render all open detail rows
             document.querySelectorAll('.detail-row.show').forEach(row => {
-                const id = parseInt(row.id.replace('detail-', ''));
+                const idStr = row.id.replace('scores-detail-', '').replace('detail-', '');
+                const id = parseInt(idStr);
                 const sub = submissionsData.find(s => s.id === id);
                 if (sub) {
                     row.querySelector('.detail-content').innerHTML = buildDetailContent(sub);
@@ -1312,17 +1388,17 @@
                 row.style.display = match ? '' : 'none';
                 
                 // Also hide associated detail row
-                if (currentTab === 'answers') {
-                    const id = row.id?.replace('ans-row-', '');
-                    if (id) {
-                        const detailRow = document.getElementById(`detail-${id}`);
-                        if (detailRow && !match) {
-                            detailRow.style.display = 'none';
-                            detailRow.classList.remove('show');
+                const prefix = currentTab === 'scores' ? 'scores-row-' : 'ans-row-';
+                const detailPrefix = currentTab === 'scores' ? 'scores-detail-' : 'detail-';
+                const id = row.id?.replace(prefix, '');
+                if (id) {
+                    const detail = document.getElementById(`${detailPrefix}${id}`);
+                    if (detail) {
+                        if (!match) {
+                            detail.classList.remove('show');
                             row.classList.remove('expanded');
-                        } else if (detailRow && match) {
-                            detailRow.style.display = '';
                         }
+                        detail.style.display = match ? (detail.classList.contains('show') ? 'table-row' : 'none') : 'none';
                     }
                 }
                 
