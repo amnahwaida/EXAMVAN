@@ -676,8 +676,6 @@ class ExamViewerActivity : AppCompatActivity() {
         if (submittedOrExited) return
         if (!isPdfReady) return  // Don't auto-submit while PDF is still downloading
         if (System.currentTimeMillis() - onCreateTime < 3000) return  // 3s grace for system overlays
-        if (isShowingAppDialog) return
-        if (activePopupCount > 0) return
 
         if (securityLevel == "medium") {
             autoSubmitAndExit()
@@ -689,8 +687,6 @@ class ExamViewerActivity : AppCompatActivity() {
         if (submittedOrExited) return
         if (!isPdfReady) return
         if (System.currentTimeMillis() - onCreateTime < 3000) return
-        if (isShowingAppDialog) return
-        if (activePopupCount > 0) return
 
         if (securityLevel == "medium") {
             autoSubmitAndExit()
@@ -701,17 +697,6 @@ class ExamViewerActivity : AppCompatActivity() {
         super.onWindowFocusChanged(hasFocus)
         if (hasFocus) {
             activePopupCount = 0
-        } else {
-            // Focus lost: e.g. status bar pulled down, split screen activated, floating window opened
-            if (submittedOrExited) return
-            if (!isPdfReady) return
-            if (System.currentTimeMillis() - onCreateTime < 3000) return
-            if (isShowingAppDialog) return
-            if (activePopupCount > 0) return
-
-            if (securityLevel == "medium") {
-                autoSubmitAndExit()
-            }
         }
     }
 
