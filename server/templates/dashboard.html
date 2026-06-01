@@ -190,30 +190,23 @@
             <div id="methodCreateForm" style="display: none; padding: 24px; background: rgba(255,255,255,0.02); border-radius: 12px; border: 1px dashed rgba(255,255,255,0.1); text-align: center;">
                 <div style="font-size: 36px; margin-bottom: 12px;">✍️</div>
                 <h4 style="color: var(--text-primary); margin-bottom: 8px;">Tulis &amp; Rancang Soal Ujian Secara Interaktif</h4>
-                <p style="color: var(--text-muted); font-size: 13px; max-width: 600px; margin: 0 auto 16px;">
-                    Metode ini sangat cocok jika Anda ingin merancang ujian secara interaktif. Anda dapat menyimpan beberapa draf ujian sekaligus, melanjutkannya kapan saja, dan mengkonversinya menjadi lembar PDF instan!
+                <p style="color: var(--text-muted); font-size: 13px; max-width: 600px; margin: 0 auto 20px;">
+                    Metode ini sangat cocok jika Anda ingin merancang ujian secara interaktif. Anda dapat memilih untuk membuat ujian baru dari awal atau melanjutkan dari draf yang sudah disimpan sebelumnya.
                 </p>
 
-                <!-- Draft Selection UI -->
-                <div id="dashboardDraftsSection" style="max-width: 500px; margin: 0 auto 20px auto; background: rgba(0, 0, 0, 0.2); border: 1px solid var(--glass-border); border-radius: 12px; padding: 16px; text-align: left; display: none;">
-                    <h5 style="color: #a5b4fc; margin: 0 0 10px 0; font-size: 13px; font-weight: 600; display: flex; align-items: center; gap: 6px;">
-                        <span>✏️</span> Lanjutkan Ujian dari Draft
-                    </h5>
-                    <div style="display: flex; gap: 8px; flex-direction: column;">
-                        <select id="dashboardDraftSelect" class="q-type-select" style="margin:0; background: rgba(30, 27, 75, 0.4); width: 100%; height: 38px;">
-                            <option value="">-- Pilih Draft Ujian --</option>
+                <!-- Simplified Draft / New Selector UI -->
+                <div style="max-width: 400px; margin: 0 auto; display: flex; flex-direction: column; gap: 12px; align-items: center;">
+                    <div style="width: 100%; text-align: left;">
+                        <label for="dashboardDraftSelect" style="display: block; font-size: 12px; color: var(--text-secondary); margin-bottom: 6px; font-weight: 500;">Pilih Draft atau Ujian Baru:</label>
+                        <select id="dashboardDraftSelect" class="q-type-select" style="margin:0; background: rgba(30, 27, 75, 0.6); width: 100%; height: 40px; border-radius: 8px; border: 1px solid var(--glass-border); color: var(--text-primary);" onchange="handleDraftSelection(this.value)">
+                            <option value="">-- Pilih Draft / Buat Baru --</option>
+                            <option value="new" style="color: #34d399; font-weight: 600;">➕ Buat Ujian Baru (Kosong)</option>
                         </select>
-                        <div style="display: flex; gap: 8px; width: 100%;">
-                            <button onclick="continueSelectedDraft()" class="btn-upload" style="flex: 1; padding: 8px 16px; font-size: 12px; height: 38px; justify-content: center; align-items: center; display: inline-flex; border: none; cursor: pointer;">✏️ Lanjutkan Draft</button>
-                            <button onclick="deleteSelectedDashboardDraft()" class="btn-sm btn-results" style="padding: 8px 16px; font-size: 12px; height: 38px; margin: 0; background: rgba(239,68,68,0.15); border-color: rgba(239,68,68,0.3); color: #f87171; display: inline-flex; align-items: center; justify-content: center;">🗑️ Hapus</button>
-                        </div>
                     </div>
-                </div>
-
-                <div style="display: flex; gap: 12px; justify-content: center; flex-wrap: wrap;">
-                    <a href="{{ url_for('admin_create_exam_page') }}" class="btn-upload" style="display: inline-flex; align-items: center; gap: 8px; text-decoration: none; width: auto; padding: 10px 24px; justify-content: center;">
-                        <span>➕ Buat Ujian Baru (Kosong)</span>
-                    </a>
+                    
+                    <button onclick="switchMethod('pdf')" class="btn-sm btn-results" style="margin: 0; padding: 8px 24px; font-size: 13px; background: rgba(255,255,255,0.05); border-color: rgba(255,255,255,0.1); color: var(--text-secondary); height: 38px; border-radius: 8px; cursor: pointer; display: flex; align-items: center; justify-content: center; width: 100%;">
+                        ❌ Batal (Cancel)
+                    </button>
                 </div>
             </div>
         </section>
@@ -538,53 +531,40 @@
     }
 
     function initDashboardDrafts() {
-        const section = document.getElementById('dashboardDraftsSection');
         const select = document.getElementById('dashboardDraftSelect');
-        if (!section || !select) return;
+        if (!select) return;
+
+        select.innerHTML = `
+            <option value="">-- Pilih Draft / Buat Baru --</option>
+            <option value="new" style="color: #34d399; font-weight: 600;">➕ Buat Ujian Baru (Kosong)</option>
+        `;
 
         const drafts = JSON.parse(localStorage.getItem('examvan_drafts') || '[]');
-        if (drafts.length === 0) {
-            section.style.display = 'none';
-            return;
-        }
+        if (drafts.length === 0) return;
 
         // Sort by updatedAt descending
         drafts.sort((a, b) => new Date(b.updatedAt) - new Date(a.updatedAt));
 
-        select.innerHTML = '<option value="">-- Pilih Draft Ujian --</option>';
+        const optgroup = document.createElement('optgroup');
+        optgroup.label = 'Draft Ujian Tersimpan';
+        
         drafts.forEach(d => {
             const option = document.createElement('option');
             option.value = d.id;
-            option.textContent = `${d.name || 'Tanpa Nama'} (${d.subject || '-'}, ${d.class || '-'}) - ${new Date(d.updatedAt).toLocaleDateString('id-ID')} ${new Date(d.updatedAt).toLocaleTimeString('id-ID', {hour: '2-digit', minute:'2-digit'})}`;
-            select.appendChild(option);
+            option.textContent = `${d.name || 'Tanpa Nama'} (${d.subject || '-'}, ${d.class || '-'}) - ${new Date(d.updatedAt).toLocaleDateString('id-ID')}`;
+            optgroup.appendChild(option);
         });
 
-        section.style.display = 'block';
+        select.appendChild(optgroup);
     }
 
-    function continueSelectedDraft() {
-        const select = document.getElementById('dashboardDraftSelect');
-        if (!select || !select.value) {
-            showToast('Silakan pilih draft ujian terlebih dahulu!', 'error');
-            return;
+    function handleDraftSelection(val) {
+        if (!val) return;
+        if (val === 'new') {
+            window.location.href = '/admin/create-exam';
+        } else {
+            window.location.href = `/admin/create-exam?draft_id=${val}`;
         }
-        window.location.href = `/admin/create-exam?draft_id=${select.value}`;
-    }
-
-    function deleteSelectedDashboardDraft() {
-        const select = document.getElementById('dashboardDraftSelect');
-        if (!select || !select.value) {
-            showToast('Silakan pilih draft ujian terlebih dahulu!', 'error');
-            return;
-        }
-        if (!confirm('Apakah Anda yakin ingin menghapus draft ini?')) return;
-
-        let drafts = JSON.parse(localStorage.getItem('examvan_drafts') || '[]');
-        drafts = drafts.filter(d => d.id !== select.value);
-        localStorage.setItem('examvan_drafts', JSON.stringify(drafts));
-
-        showToast('Draft berhasil dihapus!', 'success');
-        initDashboardDrafts();
     }
 
     // Call init on page load
