@@ -11,6 +11,7 @@ import android.graphics.pdf.PdfRenderer
 import android.os.Build
 import android.os.Bundle
 import android.os.ParcelFileDescriptor
+import android.view.KeyEvent
 import android.view.LayoutInflater
 import android.view.View
 import android.view.WindowManager
@@ -700,7 +701,36 @@ class ExamViewerActivity : AppCompatActivity() {
         super.onWindowFocusChanged(hasFocus)
         if (hasFocus) {
             activePopupCount = 0
+        } else {
+            // Focus lost: e.g. status bar pulled down, split screen activated, floating window opened
+            if (submittedOrExited) return
+            if (!isPdfReady) return
+            if (System.currentTimeMillis() - onCreateTime < 3000) return
+            if (isShowingAppDialog) return
+            if (activePopupCount > 0) return
+
+            if (securityLevel == "medium") {
+                autoSubmitAndExit()
+            }
         }
+    }
+
+    override fun onKeyDown(keyCode: Int, event: KeyEvent?): Boolean {
+        if (keyCode == KeyEvent.KEYCODE_VOLUME_UP || keyCode == KeyEvent.KEYCODE_VOLUME_DOWN) {
+            // Adjust volume programmatically without showing the system overlay UI.
+            // This prevents the system volume panel from triggering a false onWindowFocusChanged(false) anti-cheat submission.
+            try {
+                val audioManager = getSystemService(Context.AUDIO_SERVICE) as android.media.AudioManager
+                val direction = if (keyCode == KeyEvent.KEYCODE_VOLUME_UP) {
+                    android.media.AudioManager.ADJUST_RAISE
+                } else {
+                    android.media.AudioManager.ADJUST_LOWER
+                }
+                audioManager.adjustStreamVolume(android.media.AudioManager.STREAM_MUSIC, direction, 0) // 0 suppresses UI
+            } catch (_: Throwable) {}
+            return true
+        }
+        return super.onKeyDown(keyCode, event)
     }
 
     @Deprecated("Deprecated in Java")
