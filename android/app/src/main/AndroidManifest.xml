@@ -34,7 +34,7 @@
             android:name=".ExamViewerActivity"
             android:exported="false"
             android:configChanges="orientation|screenSize"
-            android:launchMode="singleTask"
+            android:launchMode="singleTop"
             android:excludeFromRecents="true" />
 
     </application>

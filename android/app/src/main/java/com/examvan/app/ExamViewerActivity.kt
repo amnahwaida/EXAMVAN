@@ -60,6 +60,7 @@ class ExamViewerActivity : AppCompatActivity() {
     private var securityLevel = "medium"
     private var isShowingAppDialog = false
     private var isSubmitting = false
+    private var isPdfReady = false
 
     // Track active popup windows (Spinner dropdowns, etc.) to prevent false focus-loss detection
     private var activePopupCount = 0
@@ -165,11 +166,19 @@ class ExamViewerActivity : AppCompatActivity() {
         }
 
         // Load questions from SharedPreferences (set by ServerConfigActivity after token response)
-        loadQuestionsFromPrefs()
-
+        try {
+            loadQuestionsFromPrefs()
+        } catch (e: Exception) {
+            // Fallback: if questions fail to load, use defaults
+            try { generateDefaultQuestions() } catch (_: Exception) {}
+        }
 
         // Start download
-        downloadPdf(examId)
+        try {
+            downloadPdf(examId)
+        } catch (e: Exception) {
+            showError("Gagal memulai unduhan: ${e.message}")
+        }
     }
 
     private fun loadQuestionsFromPrefs() {
@@ -548,6 +557,7 @@ class ExamViewerActivity : AppCompatActivity() {
             },
             onSuccess = { file ->
                 runOnUiThread {
+                    isPdfReady = true
                     openPdf(file)
                 }
             },
@@ -657,7 +667,10 @@ class ExamViewerActivity : AppCompatActivity() {
     override fun onPause() {
         super.onPause()
         if (submittedOrExited) return
-        if (System.currentTimeMillis() - onCreateTime < 3000) return
+        if (!isPdfReady) return  // Don't auto-submit while PDF is still downloading
+        if (System.currentTimeMillis() - onCreateTime < 10000) return  // 10s grace for Vivo/Oppo overlays
+        if (isShowingAppDialog) return
+        if (activePopupCount > 0) return
 
         if (securityLevel == "medium") {
             autoSubmitAndExit()
@@ -667,7 +680,10 @@ class ExamViewerActivity : AppCompatActivity() {
     override fun onUserLeaveHint() {
         super.onUserLeaveHint()
         if (submittedOrExited) return
-        if (System.currentTimeMillis() - onCreateTime < 3000) return
+        if (!isPdfReady) return
+        if (System.currentTimeMillis() - onCreateTime < 10000) return
+        if (isShowingAppDialog) return
+        if (activePopupCount > 0) return
 
         if (securityLevel == "medium") {
             autoSubmitAndExit()
