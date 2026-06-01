@@ -3,26 +3,27 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Download EXAMVAN Client App - Pusat Unduhan Resmi</title>
+    <title>Unduh Aplikasi Siswa - Examvan</title>
     <!-- Modern Google Fonts -->
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800&family=Plus+Jakarta+Sans:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@300;400;500;600;700;800&family=Outfit:wght@600;700;800&display=swap" rel="stylesheet">
     
     <style>
         :root {
-            --bg-primary: #0b0f19;
-            --bg-secondary: #111827;
+            --bg-primary: #080b11;
+            --bg-secondary: #0f131c;
             --accent-primary: #6366f1;
             --accent-secondary: #a855f7;
             --accent-glow: rgba(99, 102, 241, 0.15);
             --text-main: #f3f4f6;
             --text-muted: #9ca3af;
-            --text-secondary: #d1d5db;
+            --text-secondary: #e5e7eb;
             --glass-bg: rgba(17, 24, 39, 0.7);
             --glass-border: rgba(255, 255, 255, 0.08);
             --card-hover: rgba(255, 255, 255, 0.03);
             --success-color: #10b981;
+            --warning-color: #f59e0b;
         }
 
         * {
@@ -45,32 +46,36 @@
         /* Abstract glowing background blobs */
         .glow-blob {
             position: absolute;
-            width: 600px;
-            height: 600px;
+            width: 450px;
+            height: 450px;
             border-radius: 50%;
             background: radial-gradient(circle, var(--accent-glow) 0%, rgba(99, 102, 241, 0) 70%);
-            filter: blur(100px);
+            filter: blur(80px);
             z-index: -1;
             pointer-events: none;
         }
 
         .blob-1 {
-            top: -200px;
+            top: -150px;
             right: -100px;
-            background: radial-gradient(circle, rgba(168, 85, 247, 0.15) 0%, rgba(168, 85, 247, 0) 70%);
+            background: radial-gradient(circle, rgba(168, 85, 247, 0.12) 0%, rgba(168, 85, 247, 0) 70%);
         }
 
         .blob-2 {
-            bottom: -200px;
-            left: -200px;
+            bottom: -150px;
+            left: -150px;
         }
 
         /* Navbar */
         nav {
-            background: rgba(11, 15, 25, 0.75);
-            backdrop-filter: blur(12px);
+            background: rgba(8, 11, 17, 0.85);
+            backdrop-filter: blur(16px);
+            -webkit-backdrop-filter: blur(16px);
             border-bottom: 1px solid var(--glass-border);
             width: 100%;
+            position: sticky;
+            top: 0;
+            z-index: 100;
         }
 
         .nav-container {
@@ -79,34 +84,34 @@
             display: flex;
             justify-content: space-between;
             align-items: center;
-            padding: 20px 24px;
+            padding: 16px 20px;
         }
 
         .logo-container {
             display: flex;
             align-items: center;
-            gap: 12px;
+            gap: 10px;
             text-decoration: none;
         }
 
         .logo-badge {
             background: linear-gradient(135deg, var(--accent-primary), var(--accent-secondary));
-            width: 38px;
-            height: 38px;
-            border-radius: 10px;
+            width: 34px;
+            height: 34px;
+            border-radius: 8px;
             display: flex;
             align-items: center;
             justify-content: center;
             color: white;
-            font-size: 20px;
+            font-size: 18px;
             font-weight: 800;
             font-family: 'Outfit', sans-serif;
-            box-shadow: 0 4px 15px rgba(99, 102, 241, 0.4);
+            box-shadow: 0 4px 12px rgba(99, 102, 241, 0.3);
         }
 
         .logo-text {
             font-family: 'Outfit', sans-serif;
-            font-size: 24px;
+            font-size: 20px;
             font-weight: 800;
             background: linear-gradient(to right, #ffffff, #e0e7ff);
             -webkit-background-clip: text;
@@ -117,16 +122,21 @@
         .btn-nav-back {
             color: var(--text-secondary);
             text-decoration: none;
-            font-size: 14px;
+            font-size: 13.5px;
             font-weight: 600;
             display: flex;
             align-items: center;
-            gap: 8px;
+            gap: 6px;
             transition: color 0.3s;
+            background: rgba(255, 255, 255, 0.05);
+            padding: 8px 14px;
+            border-radius: 8px;
+            border: 1px solid rgba(255, 255, 255, 0.05);
         }
 
         .btn-nav-back:hover {
             color: white;
+            background: rgba(255, 255, 255, 0.1);
         }
 
         /* Content Area */
@@ -135,10 +145,10 @@
             max-width: 1200px;
             width: 100%;
             margin: 0 auto;
-            padding: 60px 24px;
+            padding: 36px 20px;
             display: grid;
-            grid-template-columns: 1.2fr 0.8fr;
-            gap: 50px;
+            grid-template-columns: 1.1fr 0.9fr;
+            gap: 32px;
             align-items: start;
         }
 
@@ -148,18 +158,18 @@
         }
 
         .badge {
-            background: rgba(16, 185, 129, 0.1);
-            border: 1px solid rgba(16, 185, 129, 0.2);
+            background: rgba(16, 185, 129, 0.08);
+            border: 1px solid rgba(16, 185, 129, 0.15);
             color: var(--success-color);
-            padding: 6px 14px;
+            padding: 6px 12px;
             border-radius: 100px;
-            font-size: 13px;
+            font-size: 12.5px;
             font-weight: 600;
             align-self: flex-start;
-            margin-bottom: 20px;
-            display: flex;
+            margin-bottom: 16px;
+            display: inline-flex;
             align-items: center;
-            gap: 8px;
+            gap: 6px;
         }
 
         .badge-dot {
@@ -167,45 +177,53 @@
             height: 6px;
             background-color: var(--success-color);
             border-radius: 50%;
+            animation: pulse 1.8s infinite;
+        }
+
+        @keyframes pulse {
+            0% { transform: scale(0.9); opacity: 0.6; }
+            50% { transform: scale(1.3); opacity: 1; }
+            100% { transform: scale(0.9); opacity: 0.6; }
         }
 
         .download-title {
             font-family: 'Outfit', sans-serif;
-            font-size: 44px;
+            font-size: 36px;
             font-weight: 800;
-            line-height: 1.2;
+            line-height: 1.25;
             letter-spacing: -0.5px;
-            margin-bottom: 16px;
+            margin-bottom: 12px;
             background: linear-gradient(135deg, #ffffff 40%, #c7d2fe 100%);
             -webkit-background-clip: text;
             -webkit-text-fill-color: transparent;
         }
 
         .download-desc {
-            font-size: 16px;
+            font-size: 14.5px;
             color: var(--text-muted);
-            margin-bottom: 40px;
+            margin-bottom: 24px;
             max-width: 580px;
         }
 
         /* Glass download card */
         .download-card {
-            background: rgba(17, 24, 39, 0.55);
+            background: rgba(17, 24, 39, 0.65);
             border: 1px solid var(--glass-border);
-            border-radius: 24px;
-            padding: 40px;
-            backdrop-filter: blur(10px);
-            margin-bottom: 30px;
-            box-shadow: 0 10px 40px rgba(0, 0, 0, 0.3);
+            border-radius: 20px;
+            padding: 28px;
+            backdrop-filter: blur(14px);
+            -webkit-backdrop-filter: blur(14px);
+            margin-bottom: 24px;
+            box-shadow: 0 12px 36px rgba(0, 0, 0, 0.4);
         }
 
         .meta-grid {
             display: grid;
             grid-template-columns: repeat(3, 1fr);
-            gap: 20px;
-            margin-bottom: 36px;
-            border-bottom: 1px solid rgba(255, 255, 255, 0.06);
-            padding-bottom: 24px;
+            gap: 16px;
+            margin-bottom: 28px;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+            padding-bottom: 20px;
         }
 
         .meta-item {
@@ -214,7 +232,7 @@
         }
 
         .meta-label {
-            font-size: 12px;
+            font-size: 11px;
             color: var(--text-muted);
             text-transform: uppercase;
             font-weight: 600;
@@ -223,7 +241,7 @@
         }
 
         .meta-val {
-            font-size: 18px;
+            font-size: 15px;
             font-weight: 700;
             color: white;
         }
@@ -231,90 +249,122 @@
         .btn-download-big {
             background: linear-gradient(135deg, var(--accent-primary), var(--accent-secondary));
             color: white;
-            padding: 18px 36px;
-            border-radius: 14px;
+            padding: 16px 24px;
+            border-radius: 12px;
             text-decoration: none;
             font-weight: 700;
-            font-size: 17px;
+            font-size: 16px;
             display: flex;
             align-items: center;
             justify-content: center;
-            gap: 12px;
-            box-shadow: 0 5px 25px rgba(99, 102, 241, 0.4);
-            transition: all 0.3s ease;
+            gap: 10px;
+            box-shadow: 0 4px 18px rgba(99, 102, 241, 0.35);
+            transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
             width: 100%;
             border: none;
             cursor: pointer;
             margin-bottom: 20px;
+            min-height: 52px; /* Touch target size optimization */
         }
 
-        .btn-download-big:hover {
-            transform: translateY(-2px);
-            box-shadow: 0 10px 30px rgba(99, 102, 241, 0.55);
+        .btn-download-big:active {
+            transform: scale(0.98);
+        }
+
+        @media (hover: hover) {
+            .btn-download-big:hover {
+                transform: translateY(-2px);
+                box-shadow: 0 8px 24px rgba(99, 102, 241, 0.5);
+            }
         }
 
         .download-security-info {
             display: flex;
             justify-content: center;
-            gap: 24px;
+            gap: 16px;
             color: var(--text-muted);
-            font-size: 13px;
+            font-size: 12px;
+            flex-wrap: wrap;
         }
 
         .security-item {
             display: flex;
             align-items: center;
-            gap: 6px;
+            gap: 5px;
         }
 
         .security-item svg {
             color: var(--success-color);
+            flex-shrink: 0;
         }
 
-        /* Instructions side card */
+        /* Server Version Banner */
+        .server-version-box {
+            background: rgba(255, 255, 255, 0.02);
+            border: 1px dashed var(--glass-border);
+            padding: 14px 20px;
+            border-radius: 12px;
+            font-size: 13px;
+            color: var(--text-muted);
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        /* Instructions card */
         .instruction-card {
-            background: rgba(17, 24, 39, 0.3);
+            background: rgba(15, 19, 28, 0.7);
             border: 1px solid var(--glass-border);
-            border-radius: 24px;
-            padding: 36px;
-            backdrop-filter: blur(5px);
+            border-radius: 20px;
+            padding: 28px;
+            backdrop-filter: blur(8px);
+            -webkit-backdrop-filter: blur(8px);
+            box-shadow: 0 8px 24px rgba(0,0,0,0.2);
         }
 
         .inst-title {
             font-family: 'Outfit', sans-serif;
-            font-size: 20px;
+            font-size: 18px;
             font-weight: 700;
             color: white;
             margin-bottom: 20px;
             display: flex;
             align-items: center;
-            gap: 10px;
+            gap: 8px;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+            padding-bottom: 12px;
+        }
+
+        .inst-title svg {
+            color: var(--accent-primary);
         }
 
         .inst-steps {
             display: flex;
             flex-direction: column;
-            gap: 20px;
+            gap: 16px;
+            margin-bottom: 24px;
         }
 
         .step-item {
             display: flex;
-            gap: 16px;
+            gap: 12px;
         }
 
         .step-number {
             background: rgba(99, 102, 241, 0.1);
-            border: 1px solid rgba(99, 102, 241, 0.3);
+            border: 1px solid rgba(99, 102, 241, 0.25);
             color: #818cf8;
-            width: 28px;
-            height: 28px;
+            width: 24px;
+            height: 24px;
             border-radius: 50%;
             display: flex;
             align-items: center;
             justify-content: center;
             font-weight: 700;
-            font-size: 13px;
+            font-size: 12px;
             flex-shrink: 0;
+            margin-top: 2px;
         }
 
         .step-content {
@@ -323,22 +373,64 @@
         }
 
         .step-title {
-            font-size: 14.5px;
+            font-size: 13.5px;
             font-weight: 600;
             color: var(--text-secondary);
             margin-bottom: 2px;
         }
 
         .step-desc {
-            font-size: 13px;
+            font-size: 12.5px;
             color: var(--text-muted);
-            line-height: 1.5;
+            line-height: 1.45;
+        }
+
+        /* Specific Device Warning/Tips for Students */
+        .device-tips {
+            background: rgba(245, 158, 11, 0.06);
+            border: 1px solid rgba(245, 158, 11, 0.15);
+            border-radius: 12px;
+            padding: 16px;
+        }
+
+        .tips-title {
+            font-size: 13px;
+            font-weight: 700;
+            color: var(--warning-color);
+            margin-bottom: 8px;
+            display: flex;
+            align-items: center;
+            gap: 6px;
+        }
+
+        .tips-list {
+            list-style: none;
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+        }
+
+        .tips-list li {
+            font-size: 12px;
+            color: var(--text-secondary);
+            line-height: 1.4;
+            padding-left: 14px;
+            position: relative;
+        }
+
+        .tips-list li::before {
+            content: "•";
+            color: var(--warning-color);
+            font-weight: bold;
+            position: absolute;
+            left: 0;
+            top: 0;
         }
 
         /* Footer */
         footer {
             border-top: 1px solid var(--glass-border);
-            padding: 30px 24px;
+            padding: 20px;
             background-color: var(--bg-primary);
             margin-top: auto;
         }
@@ -350,16 +442,90 @@
             justify-content: space-between;
             align-items: center;
             color: var(--text-muted);
-            font-size: 13.5px;
+            font-size: 12px;
             flex-wrap: wrap;
-            gap: 15px;
+            gap: 12px;
         }
 
+        /* Mobile Optimization Media Queries */
         @media (max-width: 968px) {
             main {
                 grid-template-columns: 1fr;
-                gap: 40px;
-                padding-top: 40px;
+                gap: 28px;
+                padding: 24px 16px;
+            }
+
+            .download-title {
+                font-size: 28px;
+            }
+
+            .download-desc {
+                font-size: 13.5px;
+                margin-bottom: 20px;
+            }
+
+            .download-card {
+                padding: 20px;
+            }
+        }
+
+        @media (max-width: 600px) {
+            .nav-container {
+                padding: 12px 16px;
+            }
+
+            .logo-text {
+                font-size: 18px;
+            }
+
+            .btn-nav-back {
+                padding: 6px 10px;
+                font-size: 12px;
+            }
+
+            .meta-grid {
+                grid-template-columns: 1fr;
+                gap: 12px;
+                border-bottom: 1px dashed rgba(255, 255, 255, 0.08);
+                padding-bottom: 16px;
+            }
+
+            .meta-item {
+                flex-direction: row;
+                justify-content: space-between;
+                align-items: center;
+                background: rgba(255, 255, 255, 0.02);
+                padding: 8px 12px;
+                border-radius: 8px;
+            }
+
+            .meta-label {
+                margin-bottom: 0;
+            }
+
+            .meta-val {
+                font-size: 13.5px;
+            }
+
+            .download-security-info {
+                flex-direction: column;
+                align-items: flex-start;
+                gap: 8px;
+                background: rgba(255, 255, 255, 0.01);
+                padding: 12px;
+                border-radius: 10px;
+            }
+
+            .server-version-box {
+                flex-direction: column;
+                gap: 6px;
+                text-align: center;
+            }
+
+            .footer-container {
+                flex-direction: column;
+                text-align: center;
+                gap: 8px;
             }
         }
     </style>
@@ -376,11 +542,11 @@
         <div class="nav-container">
             <a href="/" class="logo-container">
                 <div class="logo-badge">E</div>
-                <div class="logo-text">EXAMVAN</div>
+                <div class="logo-text">Examvan</div>
             </a>
             <a href="/" class="btn-nav-back">
-                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="19" y1="12" x2="5" y2="12"></line><polyline points="12 19 5 12 12 5"></polyline></svg>
-                Kembali ke Beranda
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="19" y1="12" x2="5" y2="12"></line><polyline points="12 19 5 12 12 5"></polyline></svg>
+                Beranda
             </a>
         </div>
     </nav>
@@ -390,17 +556,17 @@
         <div class="download-info">
             <div class="badge">
                 <span class="badge-dot"></span>
-                Unduhan Resmi Terverifikasi Aman
+                Unduhan Resmi v{{ android_version }}
             </div>
-            <h1 class="download-title">Unduh EXAMVAN Client App</h1>
+            <h1 class="download-title">Unduh Aplikasi Siswa</h1>
             <p class="download-desc">
-                Dapatkan aplikasi klien resmi EXAMVAN untuk perangkat Android. Aplikasi ini digunakan oleh siswa untuk terhubung ke ruang ujian secara aman menggunakan Kiosk Mode.
+                Dapatkan aplikasi klien resmi Examvan untuk HP Android Anda. Aplikasi ini digunakan oleh siswa untuk terhubung ke server ujian sekolah secara aman dalam Kiosk Mode.
             </p>
 
             <div class="download-card">
                 <div class="meta-grid">
                     <div class="meta-item">
-                        <span class="meta-label">Versi Android</span>
+                        <span class="meta-label">Versi Aplikasi</span>
                         <span class="meta-val">v{{ android_version }}</span>
                     </div>
                     <div class="meta-item">
@@ -408,67 +574,79 @@
                         <span class="meta-val">{{ file_size_mb }} MB</span>
                     </div>
                     <div class="meta-item">
-                        <span class="meta-label">Platform Minimum</span>
+                        <span class="meta-label">Sistem Operasi</span>
                         <span class="meta-val">Android 5.0+</span>
                     </div>
                 </div>
 
                 <a href="/download/apk" class="btn-download-big">
-                    <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg>
-                    Unduh Berkas APK v{{ android_version }}
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg>
+                    Download APK ({{ file_size_mb }} MB)
                 </a>
 
                 <div class="download-security-info">
                     <div class="security-item">
-                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg>
-                        Bebas Virus &amp; Malware
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg>
+                        Aman, Bebas Virus &amp; Malware
                     </div>
                     <div class="security-item">
-                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg>
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg>
                         Tanda Tangan Digital Resmi
                     </div>
                     <div class="security-item">
-                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg>
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg>
                         Tanpa Iklan / Pelacak
                     </div>
                 </div>
             </div>
 
             <!-- WebApp Version Info -->
-            <div style="background: rgba(255,255,255,0.02); border: 1px dashed var(--glass-border); padding: 18px 24px; border-radius: 14px; font-size: 13.5px; color: var(--text-muted); display: flex; justify-content: space-between; align-items: center;">
-                <span>Versi WebApp Server yang Berjalan saat ini:</span>
-                <strong style="color: white; font-family: 'Outfit'; font-size: 14.5px;">v{{ webapp_version }}</strong>
+            <div class="server-version-box">
+                <span>Versi WebApp Server yang aktif saat ini:</span>
+                <strong style="color: white; font-family: 'Outfit'; font-size: 14px;">v{{ webapp_version }}</strong>
             </div>
         </div>
 
         <!-- Instructions Column -->
         <div class="instruction-card">
             <h3 class="inst-title">
-                <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="16" x2="12" y2="12"></line><line x1="12" y1="8" x2="12.01" y2="8"></line></svg>
-                Cara Instalasi APK
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="16" x2="12" y2="12"></line><line x1="12" y1="8" x2="12.01" y2="8"></line></svg>
+                Petunjuk Instalasi APK
             </h3>
             <div class="inst-steps">
                 <div class="step-item">
                     <span class="step-number">1</span>
                     <div class="step-content">
-                        <span class="step-title">Unduh Berkas</span>
-                        <span class="step-desc">Tekan tombol unduh di halaman ini dan tunggu hingga unduhan selesai.</span>
+                        <span class="step-title">Unduh File</span>
+                        <span class="step-desc">Tekan tombol download di atas dan tunggu hingga berkas selesai terunduh.</span>
                     </div>
                 </div>
                 <div class="step-item">
                     <span class="step-number">2</span>
                     <div class="step-content">
-                        <span class="step-title">Aktifkan Sumber Tidak Dikenal</span>
-                        <span class="step-desc">Buka Pengaturan HP &gt; Keamanan &gt; Izinkan Instalasi dari "Sumber Tidak Dikenal" (atau izinkan browser menginstal APK).</span>
+                        <span class="step-title">Izinkan Pemasangan</span>
+                        <span class="step-desc">Jika muncul notifikasi dari browser, klik "Izinkan" untuk mengunduh dan memasang aplikasi dari sumber ini.</span>
                     </div>
                 </div>
                 <div class="step-item">
                     <span class="step-number">3</span>
                     <div class="step-content">
-                        <span class="step-title">Instal &amp; Jalankan</span>
-                        <span class="step-desc">Buka file manager, pilih berkas APK yang baru diunduh, klik "Instal", dan buka aplikasinya untuk memulai ujian.</span>
+                        <span class="step-title">Pasang &amp; Ujian</span>
+                        <span class="step-desc">Buka file hasil unduhan, klik "Instal", kemudian buka aplikasi dan masukkan alamat IP server ujian dari guru.</span>
                     </div>
                 </div>
+            </div>
+
+            <!-- Specific Brand Warnings for Indonesian Students -->
+            <div class="device-tips">
+                <div class="tips-title">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"></path><line x1="12" y1="9" x2="12" y2="13"></line><line x1="12" y1="17" x2="12.01" y2="17"></line></svg>
+                    Tips untuk HP Vivo / Oppo / Xiaomi:
+                </div>
+                <ul class="tips-list">
+                    <li>Jika ada peringatan keamanan / <strong>"Blocked by Play Protect"</strong> saat memasang, pilih opsi <strong>"Install Anyway"</strong> / <strong>"Tetap Pasang"</strong>.</li>
+                    <li>HP dengan sistem FuntouchOS (Vivo) atau ColorOS (Oppo) kadang memblokir aplikasi kiosk mode jika mendeteksi izin admin. Versi ini adalah <em>Student Flavor</em> yang 100% aman dan kompatibel tanpa perlu me-root HP Anda.</li>
+                </ul>
             </div>
         </div>
     </main>
@@ -476,10 +654,11 @@
     <!-- Footer -->
     <footer>
         <div class="footer-container">
-            <span>© 2026 EXAMVAN Team. Hak Cipta Dilindungi.</span>
-            <span>Server Version: v{{ webapp_version }} (Stable)</span>
+            <span>© 2026 Examvan Team. Hak Cipta Dilindungi.</span>
+            <span>Versi Server: v{{ webapp_version }} (Stable)</span>
         </div>
     </footer>
 
 </body>
 </html>
+
