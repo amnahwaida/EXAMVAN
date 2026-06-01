@@ -1,5 +1,5 @@
 <resources>
-    <string name="app_name">EXAMVAN</string>
+    <string name="app_name">Examvan</string>
     <string name="server_config_title">Konfigurasi Server</string>
     <string name="hint_server_url">http://192.168.1.100:5000</string>
     <string name="label_server_url">URL Server</string>

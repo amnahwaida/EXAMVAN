@@ -8,7 +8,7 @@
     <application>
         <receiver
             android:name="com.examvan.app.receiver.MyDeviceAdminReceiver"
-            android:label="EXAMVAN Admin"
+            android:label="Examvan Admin"
             android:description="@string/app_name"
             android:permission="android.permission.BIND_DEVICE_ADMIN"
             android:exported="true">

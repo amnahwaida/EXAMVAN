@@ -33,7 +33,7 @@
         <TextView
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:text="EXAMVAN"
+            android:text="Examvan"
             android:textSize="28sp"
             android:textStyle="bold"
             android:textColor="@color/on_surface"
@@ -144,7 +144,7 @@
         <TextView
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:text="EXAMVAN v2.0.0"
+            android:text="Examvan v2.0.0"
             android:textSize="11sp"
             android:textColor="@color/text_muted"
             android:layout_marginTop="32dp" />
