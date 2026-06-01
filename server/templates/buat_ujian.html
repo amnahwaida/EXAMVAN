@@ -1,0 +1,1798 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>EXAMVAN - Buat Ujian Baru</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/admin.css') }}">
+    <style>
+        .creator-container {
+            display: grid;
+            grid-template-columns: 350px 1fr;
+            gap: 20px;
+            margin-top: 20px;
+        }
+        @media (max-width: 1000px) {
+            .creator-container {
+                grid-template-columns: 1fr;
+            }
+        }
+        .sidebar-panel {
+            display: flex;
+            flex-direction: column;
+            gap: 16px;
+        }
+        .questions-scroll-area {
+            display: flex;
+            flex-direction: column;
+            gap: 16px;
+            max-height: 70vh;
+            overflow-y: auto;
+            padding-right: 8px;
+        }
+        /* Question Card */
+        .q-card {
+            position: relative;
+            background: rgba(255, 255, 255, 0.02);
+            border: 1px solid var(--glass-border);
+            border-radius: 12px;
+            padding: 20px;
+            transition: all 0.3s ease;
+        }
+        .q-card:hover {
+            border-color: rgba(99, 102, 241, 0.4);
+            box-shadow: 0 8px 32px 0 rgba(99, 102, 241, 0.05);
+        }
+        .q-card.dragging {
+            opacity: 0.4;
+            transform: scale(0.98);
+            border-color: #6366f1;
+            box-shadow: 0 12px 40px rgba(99, 102, 241, 0.25);
+            background: rgba(99, 102, 241, 0.08);
+            border-style: dashed;
+        }
+        .drag-handle {
+            cursor: grab;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            width: 28px;
+            height: 28px;
+            border-radius: 6px;
+            background: rgba(255, 255, 255, 0.05);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            color: var(--text-muted);
+            font-size: 14px;
+            margin-right: 8px;
+            transition: all 0.2s ease;
+            user-select: none;
+        }
+        .drag-handle:hover {
+            background: rgba(99, 102, 241, 0.25);
+            border-color: rgba(99, 102, 241, 0.5);
+            color: #a5b4fc;
+        }
+        .drag-handle:active {
+            cursor: grabbing;
+        }
+        .q-card-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 16px;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+            padding-bottom: 8px;
+        }
+        .q-badge {
+            background: rgba(99, 102, 241, 0.2);
+            color: #a5b4fc;
+            border: 1px solid rgba(99, 102, 241, 0.4);
+            padding: 4px 10px;
+            border-radius: 20px;
+            font-size: 12px;
+            font-weight: 600;
+        }
+        .q-remove-btn {
+            background: rgba(239, 68, 68, 0.1);
+            color: #f87171;
+            border: 1px solid rgba(239, 68, 68, 0.3);
+            border-radius: 8px;
+            padding: 6px 12px;
+            font-size: 12px;
+            cursor: pointer;
+            transition: all 0.2s ease;
+        }
+        .q-remove-btn:hover {
+            background: rgba(239, 68, 68, 0.3);
+            border-color: #ef4444;
+            color: #ffffff;
+        }
+        .q-options-grid {
+            display: grid;
+            grid-template-columns: 1fr;
+            gap: 10px;
+            margin-top: 12px;
+        }
+        .opt-row {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+        .opt-prefix {
+            font-weight: bold;
+            color: var(--text-muted);
+            width: 20px;
+        }
+        .opt-input {
+            flex: 1;
+        }
+        /* Matching Pairs Styles */
+        .matching-pair-row {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            margin-bottom: 8px;
+        }
+        .matching-pair-input {
+            flex: 1;
+        }
+        .matching-pair-arrow {
+            color: #a5b4fc;
+            font-weight: bold;
+        }
+        /* Sticky Actions */
+        .sticky-actions {
+            position: sticky;
+            bottom: 0;
+            background: rgba(15, 23, 42, 0.85);
+            backdrop-filter: blur(12px);
+            border-top: 1px solid var(--glass-border);
+            padding: 16px 24px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            border-radius: 16px;
+            margin-top: 24px;
+            z-index: 10;
+        }
+        .btn-action-group {
+            display: flex;
+            gap: 12px;
+        }
+        .complex-key-container {
+            display: flex;
+            gap: 12px;
+            flex-wrap: wrap;
+            margin-top: 8px;
+        }
+        .complex-key-item {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            background: rgba(255, 255, 255, 0.05);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            padding: 6px 12px;
+            border-radius: 8px;
+            cursor: pointer;
+            user-select: none;
+            transition: all 0.2s ease;
+        }
+        .complex-key-item.selected {
+            background: rgba(99, 102, 241, 0.2);
+            border-color: rgba(99, 102, 241, 0.5);
+            color: #a5b4fc;
+        }
+        
+        /* Premium style rules for inputs inside cards */
+        .q-card input[type="text"],
+        .q-card input[type="number"],
+        .q-card textarea,
+        .q-card select {
+            width: 100%;
+            padding: 10px 14px;
+            background: var(--surface) !important;
+            border: 1px solid var(--glass-border) !important;
+            border-radius: var(--radius-sm) !important;
+            color: var(--text) !important;
+            font-size: 14px;
+            font-family: inherit;
+            outline: none;
+            transition: border-color 0.2s, box-shadow 0.2s;
+        }
+        .q-card input[type="text"]:focus,
+        .q-card input[type="number"]:focus,
+        .q-card textarea:focus,
+        .q-card select:focus {
+            border-color: var(--primary) !important;
+            box-shadow: 0 0 0 3px var(--primary-glow) !important;
+        }
+    </style>
+    <!-- jsPDF Library -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+    <!-- Cropper.js Library for Header Cropping -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/cropperjs/1.6.2/cropper.min.css">
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/cropperjs/1.6.2/cropper.min.js"></script>
+    <style>
+        /* Modernized Crop Modal Styles */
+        .crop-toolbar-btn {
+            background: rgba(255, 255, 255, 0.06);
+            border: 1px solid var(--glass-border);
+            color: var(--text-secondary);
+            font-size: 13px;
+            padding: 8px 16px;
+            border-radius: var(--radius-sm);
+            cursor: pointer;
+            transition: all 0.2s ease;
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            font-family: inherit;
+        }
+        .crop-toolbar-btn:hover {
+            background: rgba(99, 102, 241, 0.15);
+            border-color: rgba(99, 102, 241, 0.4);
+            color: #a5b4fc;
+        }
+        .crop-toolbar-btn.active {
+            background: rgba(99, 102, 241, 0.25);
+            border-color: var(--primary);
+            color: #ffffff;
+            font-weight: 600;
+        }
+        /* Style adjustments for cropper viewport */
+        .cropper-view-box, .cropper-face {
+            border-radius: 4px;
+        }
+        .cropper-line, .cropper-point {
+            background-color: var(--primary);
+        }
+        .cropper-bg {
+            background-image: repeating-linear-gradient(45deg, #09090e 25%, transparent 25%, transparent 75%, #09090e 75%, #09090e), 
+                              repeating-linear-gradient(45deg, #09090e 25%, #181825 25%, #181825 75%, #09090e 75%, #09090e);
+            background-position: 0 0, 10px 10px;
+            background-size: 20px 20px;
+        }
+    </style>
+</head>
+<body class="dashboard-page">
+    <nav class="topbar">
+        <div class="topbar-left">
+            <div class="topbar-logo">E</div>
+            <span class="topbar-title">EXAMVAN</span>
+            <span class="topbar-badge">Admin Panel</span>
+            <div class="topbar-nav">
+                <a href="{{ url_for('admin_dashboard') }}" class="nav-link">Daftar Ujian</a>
+                <a href="{{ url_for('admin_create_exam_page') }}" class="nav-link active">Buat Ujian</a>
+                <a href="{{ url_for('admin_submissions') }}" class="nav-link">Hasil Ujian</a>
+                {% if admin_user == 'admin' %}
+                <a href="{{ url_for('admin_manage_users_page') }}" class="nav-link">Kelola User</a>
+                {% endif %}
+            </div>
+        </div>
+        <div class="topbar-right">
+            <div class="topbar-menu-dropdown">
+                <button class="topbar-menu-toggle" id="menuToggleBtn">
+                    <span class="menu-hamburger-icon">☰</span>
+                    <span class="toggle-user-name">👤 {{ admin_user }}</span>
+                </button>
+                <div class="topbar-dropdown-content" id="menuDropdownContent">
+                    <div class="dropdown-header mobile-only-header">
+                        <div style="display: flex; align-items: center; gap: 8px;">
+                            <div class="topbar-logo" style="width: 28px; height: 28px; font-size: 13px;">E</div>
+                            <span class="dropdown-user-title" style="font-size: 15px; font-weight: 700;">EXAMVAN</span>
+                        </div>
+                        <span class="dropdown-user-role" style="margin-left: 36px; margin-top: -4px;">Admin Panel</span>
+                    </div>
+                    <div class="dropdown-divider mobile-only-divider"></div>
+                    
+                    <!-- Mobile Navigation Links -->
+                    <div class="mobile-nav-links">
+                        <a href="{{ url_for('admin_dashboard') }}" class="dropdown-item">
+                            <span>📋</span> Daftar Ujian
+                        </a>
+                        <a href="{{ url_for('admin_create_exam_page') }}" class="dropdown-item active-dropdown-item">
+                            <span>✍️</span> Buat Ujian
+                        </a>
+                        <a href="{{ url_for('admin_submissions') }}" class="dropdown-item">
+                            <span>📊</span> Hasil Ujian
+                        </a>
+                        {% if admin_user == 'admin' %}
+                        <a href="{{ url_for('admin_manage_users_page') }}" class="dropdown-item">
+                            <span>👥</span> Kelola User
+                        </a>
+                        {% endif %}
+                        <div class="dropdown-divider"></div>
+                    </div>
+
+                    <div class="dropdown-header">
+                        <span class="dropdown-user-title">👤 {{ admin_user }}</span>
+                        <span class="dropdown-user-role">{% if admin_user == 'admin' %}Super Admin{% else %}Guru/Pengajar{% endif %}</span>
+                    </div>
+                    <div class="dropdown-divider"></div>
+                    <a href="{{ url_for('admin_logout') }}" class="dropdown-item dropdown-logout">
+                        <span>🚪</span> Logout
+                    </a>
+                </div>
+            </div>
+        </div>
+    </nav>
+
+    <main class="dashboard">
+        <div class="creator-container">
+            <!-- Left Panel: Exam Metadata -->
+            <div class="sidebar-panel">
+                <section class="glass-card">
+                    <h3 style="color: #a5b4fc; margin-bottom: 16px; font-size: 1.1rem; display: flex; align-items: center; gap: 8px;">
+                        <span>⚙️</span> Identitas Ujian
+                    </h3>
+                    <div style="display: flex; flex-direction: column; gap: 12px;">
+                        <div class="form-group">
+                            <label for="examName">Nama Ujian <span style="color: var(--danger);">*</span></label>
+                            <input type="text" id="examName" required placeholder="Contoh: PH 1 Matematika Kelas XI">
+                        </div>
+                        <div class="form-row-2col">
+                            <div class="form-group">
+                                <label for="subjectName">Mata Pelajaran</label>
+                                <input type="text" id="subjectName" placeholder="Contoh: Matematika">
+                            </div>
+                            <div class="form-group">
+                                <label for="className">Kelas</label>
+                                <input type="text" id="className" placeholder="Contoh: XI IPA 1">
+                            </div>
+                        </div>
+                        <div class="form-group">
+                            <label for="examDuration">Durasi (Menit)</label>
+                            <input type="number" id="examDuration" value="60" min="1">
+                        </div>
+                        <div class="form-group">
+                            <label for="customToken">Token Kustom <span style="font-size: 10px; opacity: 0.6;">(Opsional - 6 Karakter)</span></label>
+                            <input type="text" id="customToken" maxlength="6" placeholder="Contoh: MTK01X" style="text-transform: uppercase;">
+                        </div>
+                    </div>
+                </section>
+
+                <section class="glass-card">
+                    <h3 style="color: #a5b4fc; margin-bottom: 12px; font-size: 1.05rem;">⚙️ Layout &amp; Header PDF</h3>
+                    <div style="display: flex; flex-direction: column; gap: 12px;">
+                        <div class="form-row-2col">
+                            <div class="form-group">
+                                <label for="paperType">Ukuran Kertas</label>
+                                <select id="paperType" class="q-type-select" style="margin:0; background: rgba(30, 27, 75, 0.4);">
+                                    <option value="a4">A4</option>
+                                    <option value="legal" selected>Legal / F4</option>
+                                    <option value="letter">Letter</option>
+                                </select>
+                            </div>
+                            <div class="form-group">
+                                <label for="numColumns">Jumlah Kolom</label>
+                                <select id="numColumns" class="q-type-select" style="margin:0; background: rgba(30, 27, 75, 0.4);">
+                                    <option value="1">1 Kolom</option>
+                                    <option value="2" selected>2 Kolom</option>
+                                </select>
+                            </div>
+                        </div>
+                        <div class="form-group">
+                            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px;">
+                                <label style="margin:0;">Gambar Kop (Kustom)</label>
+                                <button id="del_header_btn" class="btn-sm btn-results" style="margin:0; padding: 2px 6px; font-size: 9px; display: none;" onclick="removeCustomHeader()">Hapus</button>
+                            </div>
+                            <input type="file" id="headerImageInput" accept="image/*" style="display: none;" onchange="handleHeaderImageUpload(this)">
+                            <button id="upload_header_btn" class="btn-sm btn-toggle" style="width: 100%; margin: 4px 0 0 0; padding: 8px;" onclick="document.getElementById('headerImageInput').click()">📷 Upload Gambar Kop</button>
+                            <div id="header_preview_container" style="display: none; margin-top: 8px; border: 1px dashed var(--glass-border); padding: 8px; border-radius: var(--radius-sm); background: rgba(0,0,0,0.3); text-align: center; cursor: pointer; transition: all 0.2s;" onclick="reOpenCropModal()" title="Klik untuk potong / crop ulang gambar">
+                                <img id="header_preview_img" src="" style="max-width: 100%; max-height: 60px; object-fit: contain; border-radius: 4px; display: block; margin: 0 auto 6px auto;">
+                                <span style="font-size: 10px; color: #a5b4fc; display: block; font-weight: 600; text-decoration: underline;">✂️ Potong / Edit Gambar Kop</span>
+                            </div>
+                        </div>
+                        <div class="form-group">
+                            <label for="schoolHeader">Judul Ujian</label>
+                            <textarea id="schoolHeader" rows="2" class="q-type-select" style="margin:0; background: rgba(30, 27, 75, 0.4); width: 100%; resize: vertical; padding: 8px; font-family: inherit; font-size: 13px;" placeholder="Contoh:
+PANITIA PENILAIAN AKHIR SEMESTER
+SMA NEGERI EXAMVAN INDONESIA">SMA NEGERI EXAMVAN INDONESIA</textarea>
+                        </div>
+                    </div>
+                </section>
+
+                <section class="glass-card">
+                    <h3 style="color: #a5b4fc; margin-bottom: 12px; font-size: 1.05rem;">⚡ Quick Tools</h3>
+                    <div style="display: flex; flex-direction: column; gap: 8px;">
+                        <button class="btn-sm btn-questions" onclick="bulkAddQuestions(10)" style="width: 100%; margin: 0; background: rgba(99,102,241,0.15);">➕ Tambah 10 Soal Pilihan Ganda</button>
+                        <button class="btn-sm btn-questions" onclick="bulkAddQuestions(20)" style="width: 100%; margin: 0; background: rgba(99,102,241,0.15);">➕ Tambah 20 Soal Pilihan Ganda</button>
+                        <button class="btn-sm btn-questions" onclick="shuffleQuestionsAndChoices()" style="width: 100%; margin: 0; background: rgba(245,158,11,0.15); border-color: rgba(245,158,11,0.3); color: #fbbf24;">🔀 Acak Soal &amp; Jawaban</button>
+                    </div>
+                </section>
+            </div>
+
+            <!-- Right Panel: Questions Editor -->
+            <div style="display: flex; flex-direction: column; gap: 16px;">
+                <section class="glass-card" style="padding-bottom: 12px;">
+                    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
+                        <h3 style="color: #a5b4fc; font-size: 1.1rem; display: flex; align-items: center; gap: 8px;">
+                            <span>📝</span> Daftar Soal &amp; Kunci Jawaban
+                        </h3>
+                        <div style="display: flex; gap: 8px; flex-wrap: wrap;">
+                            <button class="btn-sm btn-results" onclick="addQuestion('single_choice')" style="margin: 0; background: rgba(16,185,129,0.15); border-color: rgba(16,185,129,0.3); color: #34d399;">➕ PG (Tunggal)</button>
+                            <button class="btn-sm btn-results" onclick="addQuestion('multiple_choice')" style="margin: 0; background: rgba(16,185,129,0.15); border-color: rgba(16,185,129,0.3); color: #10b981;">➕ PG Kompleks</button>
+                            <button class="btn-sm btn-results" onclick="addQuestion('matching')" style="margin: 0; background: rgba(99,102,241,0.15); border-color: rgba(99,102,241,0.3); color: #818cf8;">➕ Menjodohkan</button>
+                            <button class="btn-sm btn-results" onclick="addQuestion('true_false')" style="margin: 0; background: rgba(59,130,246,0.15); border-color: rgba(59,130,246,0.3); color: #60a5fa;">➕ Benar/Salah</button>
+                            <button class="btn-sm btn-results" onclick="addQuestion('short_answer')" style="margin: 0; background: rgba(245,158,11,0.15); border-color: rgba(245,158,11,0.3); color: #fbbf24;">➕ Isian Singkat</button>
+                        </div>
+                    </div>
+                </section>
+
+                <div class="questions-scroll-area" id="questionsContainer">
+                    <!-- Dynamic Questions Cards -->
+                </div>
+
+                <div class="sticky-actions glass-card">
+                    <div>
+                        <span style="font-weight: 600; color: var(--text-secondary);" id="questionCountText">Total: 0 Pertanyaan</span>
+                    </div>
+                    <div class="btn-action-group">
+                        <button class="btn-sm btn-questions" onclick="previewAndDownloadPDF()" style="background: rgba(59,130,246,0.15); border-color: rgba(59,130,246,0.3); color: #60a5fa;">👁️ Unduh PDF Soal</button>
+                        <button class="btn-upload" onclick="saveAndRegisterExam()">💾 Simpan &amp; Daftarkan Ujian</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </main>
+
+    <div class="toast-container" id="toastContainer"></div>
+
+    <script src="{{ url_for('static', filename='js/admin.js') }}"></script>
+    <script>
+        let questionsList = [];
+
+        function updateQuestionCount() {
+            document.getElementById('questionCountText').textContent = `Total: ${questionsList.length} Pertanyaan`;
+        }
+
+        function renderQuestions() {
+            const container = document.getElementById('questionsContainer');
+            container.innerHTML = '';
+            
+            if (questionsList.length === 0) {
+                container.innerHTML = `
+                    <div class="glass-card" style="text-align: center; padding: 40px; color: var(--text-muted);">
+                        <p style="font-size: 32px; margin-bottom: 12px;">✍️</p>
+                        <p style="font-weight: 500;">Belum ada pertanyaan dibuat. Klik tombol di atas untuk menambah pertanyaan baru!</p>
+                    </div>
+                `;
+                updateQuestionCount();
+                return;
+            }
+
+            questionsList.forEach((q, idx) => {
+                // Legacy image field to multiple images array migration
+                if (q.image && (!q.images || q.images.length === 0)) {
+                    q.images = [q.image];
+                }
+
+                const card = document.createElement('div');
+                card.className = 'q-card';
+                card.dataset.index = idx;
+
+                let optionsHtml = '';
+                if (q.type === 'single_choice') {
+                    const letters = ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'J'];
+                    optionsHtml = `
+                        <div class="q-options-grid">
+                            ${(q.choices || []).map((optVal, optIdx) => {
+                                const letter = letters[optIdx];
+                                return `
+                                    <div class="opt-row" style="flex-wrap: wrap;">
+                                        <div style="display: flex; align-items: center; width: 100%; gap: 10px;">
+                                            <span class="opt-prefix">${letter}</span>
+                                            <input id="opt_text_${idx}_${optIdx}" type="text" class="opt-input input-field" placeholder="Pilihan ${letter}" 
+                                                   value="${optVal || ''}" 
+                                                   onchange="updateOptionText(${idx}, ${optIdx}, this.value)">
+                                            <button class="btn-sm btn-toggle" style="margin:0; padding: 6px; display: flex; align-items: center; justify-content: center; height: 38px; width: 38px; background: rgba(165,180,252,0.15); border-color: rgba(165,180,252,0.3);" title="Letakkan gambar di posisi kursor opsi ini" onclick="insertPlaceholder('opt_text_${idx}_${optIdx}')">📍</button>
+                                            <button class="btn-sm btn-toggle" style="margin:0; padding: 6px; display: flex; align-items: center; justify-content: center; height: 38px; width: 38px;" title="Sisipkan Gambar Opsi" onclick="triggerOptionImageUpload(${idx}, ${optIdx})">📷</button>
+                                        </div>
+                                        <input type="file" id="opt_image_input_${idx}_${optIdx}" accept="image/*" style="display: none;" onchange="handleOptionImageUpload(${idx}, ${optIdx}, this)">
+                                        ${q.choice_images && q.choice_images[optIdx] ? `
+                                            <div style="position: relative; display: inline-block; margin: 6px 0 6px 30px; border: 1px solid var(--glass-border); border-radius: 6px; padding: 2px; background: rgba(0,0,0,0.2);">
+                                                <img src="${q.choice_images[optIdx]}" style="max-height: 80px; border-radius: 4px; display: block; object-fit: contain;">
+                                                <button class="btn-delete" style="position: absolute; top: -4px; right: -4px; border-radius: 50%; width: 18px; height: 18px; padding: 0; display: flex; align-items: center; justify-content: center; font-size: 8px; margin:0; background: #ef4444; border: none; color: white;" onclick="removeOptionImage(${idx}, ${optIdx})">✕</button>
+                                            </div>
+                                        ` : ''}
+                                    </div>
+                                `;
+                            }).join('')}
+                        </div>
+                        <div style="display: flex; gap: 8px; margin-top: 12px;">
+                            <button class="btn-sm btn-toggle" style="margin: 0; padding: 4px 8px; font-size: 11px;" onclick="addChoiceOption(${idx})">➕ Opsi Baru</button>
+                            <button class="btn-sm btn-results" style="margin: 0; padding: 4px 8px; font-size: 11px; background: rgba(239,68,68,0.15); border-color: rgba(239,68,68,0.3); color: #f87171;" onclick="removeChoiceOption(${idx})">➖ Kurangi Opsi</button>
+                        </div>
+                        <div class="form-group" style="margin-top: 12px;">
+                            <label>Kunci Jawaban</label>
+                            <select class="q-type-select" style="margin: 0; background: rgba(30, 27, 75, 0.4);" onchange="updateCorrectKey(${idx}, this.value)">
+                                ${(q.choices || []).map((optVal, optIdx) => {
+                                    const letter = letters[optIdx];
+                                    return `<option value="${letter}" ${q.key === letter ? 'selected' : ''}>Pilihan ${letter}</option>`;
+                                }).join('')}
+                            </select>
+                        </div>
+                    `;
+                } else if (q.type === 'multiple_choice') {
+                    const letters = ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'J'];
+                    optionsHtml = `
+                        <div class="q-options-grid">
+                            ${(q.choices || []).map((optVal, optIdx) => {
+                                const letter = letters[optIdx];
+                                return `
+                                    <div class="opt-row" style="flex-wrap: wrap;">
+                                        <div style="display: flex; align-items: center; width: 100%; gap: 10px;">
+                                            <span class="opt-prefix">${letter}</span>
+                                            <input id="opt_text_${idx}_${optIdx}" type="text" class="opt-input input-field" placeholder="Pilihan ${letter}" 
+                                                   value="${optVal || ''}" 
+                                                   onchange="updateOptionText(${idx}, ${optIdx}, this.value)">
+                                            <button class="btn-sm btn-toggle" style="margin:0; padding: 6px; display: flex; align-items: center; justify-content: center; height: 38px; width: 38px; background: rgba(165,180,252,0.15); border-color: rgba(165,180,252,0.3);" title="Letakkan gambar di posisi kursor opsi ini" onclick="insertPlaceholder('opt_text_${idx}_${optIdx}')">📍</button>
+                                            <button class="btn-sm btn-toggle" style="margin:0; padding: 6px; display: flex; align-items: center; justify-content: center; height: 38px; width: 38px;" title="Sisipkan Gambar Opsi" onclick="triggerOptionImageUpload(${idx}, ${optIdx})">📷</button>
+                                        </div>
+                                        <input type="file" id="opt_image_input_${idx}_${optIdx}" accept="image/*" style="display: none;" onchange="handleOptionImageUpload(${idx}, ${optIdx}, this)">
+                                        ${q.choice_images && q.choice_images[optIdx] ? `
+                                            <div style="position: relative; display: inline-block; margin: 6px 0 6px 30px; border: 1px solid var(--glass-border); border-radius: 6px; padding: 2px; background: rgba(0,0,0,0.2);">
+                                                <img src="${q.choice_images[optIdx]}" style="max-height: 80px; border-radius: 4px; display: block; object-fit: contain;">
+                                                <button class="btn-delete" style="position: absolute; top: -4px; right: -4px; border-radius: 50%; width: 18px; height: 18px; padding: 0; display: flex; align-items: center; justify-content: center; font-size: 8px; margin:0; background: #ef4444; border: none; color: white;" onclick="removeOptionImage(${idx}, ${optIdx})">✕</button>
+                                            </div>
+                                        ` : ''}
+                                    </div>
+                                `;
+                            }).join('')}
+                        </div>
+                        <div style="display: flex; gap: 8px; margin-top: 12px;">
+                            <button class="btn-sm btn-toggle" style="margin: 0; padding: 4px 8px; font-size: 11px;" onclick="addChoiceOption(${idx})">➕ Opsi Baru</button>
+                            <button class="btn-sm btn-results" style="margin: 0; padding: 4px 8px; font-size: 11px; background: rgba(239,68,68,0.15); border-color: rgba(239,68,68,0.3); color: #f87171;" onclick="removeChoiceOption(${idx})">➖ Kurangi Opsi</button>
+                        </div>
+                        <div class="form-group" style="margin-top: 12px;">
+                            <label>Kunci Jawaban Kompleks (Pilih satu atau lebih)</label>
+                            <div class="complex-key-container">
+                                ${(q.choices || []).map((optVal, optIdx) => {
+                                    const letter = letters[optIdx];
+                                    const isSelected = Array.isArray(q.key) && q.key.includes(letter);
+                                    return `
+                                        <div class="complex-key-item ${isSelected ? 'selected' : ''}" onclick="toggleComplexKey(${idx}, '${letter}')">
+                                            <input type="checkbox" style="display:none;" ${isSelected ? 'checked' : ''}>
+                                            <span>${letter}</span>
+                                        </div>
+                                    `;
+                                }).join('')}
+                            </div>
+                        </div>
+                    `;
+                } else if (q.type === 'matching') {
+                    optionsHtml = `
+                        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 20px; margin-top: 12px; background: rgba(255,255,255,0.01); padding: 12px; border-radius: 8px; border: 1px solid rgba(255,255,255,0.05);">
+                            <!-- Left Column Panel -->
+                            <div>
+                                <label style="display: flex; justify-content: space-between; align-items: center; font-weight: 600; color: #a5b4fc; font-size: 13px;">
+                                    <span>Kolom Kiri</span>
+                                    <button class="btn-sm btn-toggle" style="margin: 0; padding: 2px 6px; font-size: 10px;" onclick="addMatchingItem(${idx}, 'left')">➕ Kiri</button>
+                                </label>
+                                <div style="display: flex; flex-direction: column; gap: 8px; margin-top: 8px;">
+                                    ${(q.left_items || []).map((leftVal, lIdx) => `
+                                        <div style="display: flex; flex-direction: column; gap: 4px;">
+                                            <div style="display: flex; gap: 6px; align-items: center;">
+                                                <span style="font-size: 11px; opacity: 0.6; min-width: 15px;">${lIdx + 1}.</span>
+                                                <input id="matching_left_text_${idx}_${lIdx}" type="text" class="input-field matching-left-input" style="margin:0; padding: 6px 10px;" placeholder="Teks Kiri #${lIdx+1}" value="${leftVal || ''}" onchange="updateMatchingItem(${idx}, 'left', ${lIdx}, this.value)">
+                                                <button class="btn-sm btn-toggle" style="margin:0; padding: 6px; display: flex; align-items: center; justify-content: center; height: 32px; width: 32px; background: rgba(165,180,252,0.15); border-color: rgba(165,180,252,0.3);" title="Letakkan gambar di posisi kursor teks ini" onclick="insertPlaceholder('matching_left_text_${idx}_${lIdx}')">📍</button>
+                                                <button class="btn-sm btn-toggle" style="margin:0; padding: 6px; display: flex; align-items: center; justify-content: center; height: 32px; width: 32px;" title="Sisipkan Gambar Kiri" onclick="triggerMatchingImageUpload(${idx}, 'left', ${lIdx})">📷</button>
+                                                <button class="q-remove-btn" style="padding: 4px 8px; margin: 0;" onclick="removeMatchingItem(${idx}, 'left', ${lIdx})">✕</button>
+                                            </div>
+                                            <input type="file" id="matching_image_input_${idx}_left_${lIdx}" accept="image/*" style="display: none;" onchange="handleMatchingImageUpload(${idx}, 'left', ${lIdx}, this)">
+                                            ${q.left_images && q.left_images[lIdx] ? `
+                                                <div style="position: relative; display: inline-block; align-self: flex-start; margin: 4px 0 4px 20px; border: 1px solid var(--glass-border); border-radius: 6px; padding: 2px; background: rgba(0,0,0,0.2);">
+                                                    <img src="${q.left_images[lIdx]}" style="max-height: 80px; border-radius: 4px; display: block; object-fit: contain;">
+                                                    <button class="btn-delete" style="position: absolute; top: -4px; right: -4px; border-radius: 50%; width: 16px; height: 16px; padding: 0; display: flex; align-items: center; justify-content: center; font-size: 8px; margin:0; background: #ef4444; border: none; color: white;" onclick="removeMatchingImage(${idx}, 'left', ${lIdx})">✕</button>
+                                                </div>
+                                            ` : ''}
+                                        </div>
+                                    `).join('')}
+                                </div>
+                            </div>
+                            
+                            <!-- Right Column Panel -->
+                            <div>
+                                <label style="display: flex; justify-content: space-between; align-items: center; font-weight: 600; color: #a5b4fc; font-size: 13px;">
+                                    <span>Kolom Kanan</span>
+                                    <button class="btn-sm btn-toggle" style="margin: 0; padding: 2px 6px; font-size: 10px;" onclick="addMatchingItem(${idx}, 'right')">➕ Kanan</button>
+                                </label>
+                                <div style="display: flex; flex-direction: column; gap: 8px; margin-top: 8px;">
+                                    ${(q.right_items || []).map((rightVal, rIdx) => `
+                                        <div style="display: flex; flex-direction: column; gap: 4px;">
+                                            <div style="display: flex; gap: 6px; align-items: center;">
+                                                <span style="font-size: 11px; opacity: 0.6; min-width: 15px;">${String.fromCharCode(65 + rIdx)}.</span>
+                                                <input id="matching_right_text_${idx}_${rIdx}" type="text" class="input-field matching-right-input" style="margin:0; padding: 6px 10px;" placeholder="Teks Kanan #${rIdx+1}" value="${rightVal || ''}" onchange="updateMatchingItem(${idx}, 'right', ${rIdx}, this.value)">
+                                                <button class="btn-sm btn-toggle" style="margin:0; padding: 6px; display: flex; align-items: center; justify-content: center; height: 32px; width: 32px; background: rgba(165,180,252,0.15); border-color: rgba(165,180,252,0.3);" title="Letakkan gambar di posisi kursor teks ini" onclick="insertPlaceholder('matching_right_text_${idx}_${rIdx}')">📍</button>
+                                                <button class="btn-sm btn-toggle" style="margin:0; padding: 6px; display: flex; align-items: center; justify-content: center; height: 32px; width: 32px;" title="Sisipkan Gambar Kanan" onclick="triggerMatchingImageUpload(${idx}, 'right', ${rIdx})">📷</button>
+                                                <button class="q-remove-btn" style="padding: 4px 8px; margin: 0;" onclick="removeMatchingItem(${idx}, 'right', ${rIdx})">✕</button>
+                                            </div>
+                                            <input type="file" id="matching_image_input_${idx}_right_${rIdx}" accept="image/*" style="display: none;" onchange="handleMatchingImageUpload(${idx}, 'right', ${rIdx}, this)">
+                                            ${q.right_images && q.right_images[rIdx] ? `
+                                                <div style="position: relative; display: inline-block; align-self: flex-start; margin: 4px 0 4px 20px; border: 1px solid var(--glass-border); border-radius: 6px; padding: 2px; background: rgba(0,0,0,0.2);">
+                                                    <img src="${q.right_images[rIdx]}" style="max-height: 80px; border-radius: 4px; display: block; object-fit: contain;">
+                                                    <button class="btn-delete" style="position: absolute; top: -4px; right: -4px; border-radius: 50%; width: 16px; height: 16px; padding: 0; display: flex; align-items: center; justify-content: center; font-size: 8px; margin:0; background: #ef4444; border: none; color: white;" onclick="removeMatchingImage(${idx}, 'right', ${rIdx})">✕</button>
+                                                </div>
+                                            ` : ''}
+                                        </div>
+                                    `).join('')}
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Connection Mapping -->
+                        <div class="form-group" style="margin-top: 16px;">
+                            <label style="font-weight: 600; color: var(--text-secondary); font-size: 13px;">Hubungan Kunci Jawaban Pasangan</label>
+                            <div style="display: flex; flex-direction: column; gap: 8px; margin-top: 8px; background: rgba(0,0,0,0.15); padding: 12px; border-radius: 8px; border: 1px solid rgba(255,255,255,0.03);">
+                                ${(q.left_items || []).map((leftVal, lIdx) => {
+                                    const currentMatchVal = q.key && q.key[leftVal] ? q.key[leftVal] : '';
+                                    return `
+                                        <div style="display: flex; align-items: center; gap: 12px; justify-content: space-between;">
+                                            <span style="font-size: 12px; color: var(--text-muted); text-overflow: ellipsis; overflow: hidden; white-space: nowrap; max-width: 200px;">
+                                                ${leftVal ? `${lIdx + 1}. ${leftVal}` : `[Kiri #${lIdx + 1} Kosong]`}
+                                            </span>
+                                            <span style="color: #a5b4fc; font-weight: bold;">➡️</span>
+                                            <select class="q-type-select" style="margin: 0; max-width: 250px; background: rgba(30, 27, 75, 0.4); padding: 6px 10px;" onchange="updateMatchingKey(${idx}, '${leftVal}', this.value)">
+                                                <option value="">-- Pilih Pasangan --</option>
+                                                ${(q.right_items || []).map((rightVal, rIdx) => `
+                                                    <option value="${rightVal}" ${currentMatchVal === rightVal ? 'selected' : ''}>
+                                                        ${String.fromCharCode(65 + rIdx)}. ${rightVal}
+                                                    </option>
+                                                `).join('')}
+                                            </select>
+                                        </div>
+                                    `;
+                                }).join('')}
+                            </div>
+                        </div>
+                    `;
+                } else if (q.type === 'true_false') {
+                    optionsHtml = `
+                        <div class="form-group" style="margin-top: 12px;">
+                            <label>Kunci Jawaban</label>
+                            <select class="q-type-select" style="margin: 0; background: rgba(30, 27, 75, 0.4);" onchange="updateCorrectKey(${idx}, this.value)">
+                                <option value="TRUE" ${q.key === 'TRUE' ? 'selected' : ''}>Benar (TRUE)</option>
+                                <option value="FALSE" ${q.key === 'FALSE' ? 'selected' : ''}>Salah (FALSE)</option>
+                            </select>
+                        </div>
+                    `;
+                } else if (q.type === 'short_answer') {
+                    optionsHtml = `
+                        <div class="form-group" style="margin-top: 12px;">
+                            <label>Kunci Jawaban Eksak (Case Insensitive)</label>
+                            <input type="text" class="input-field" placeholder="Kunci jawaban tepat" value="${q.key || ''}" onchange="updateCorrectKey(${idx}, this.value)">
+                        </div>
+                    `;
+                }
+
+                card.innerHTML = `
+                    <div class="q-card-header">
+                        <div style="display: flex; align-items: center;">
+                            <span class="drag-handle" title="Seret untuk memindahkan posisi soal" 
+                                  onmousedown="enableCardDrag(${idx})" onmouseup="disableCardDrag(${idx})"
+                                  ontouchstart="enableCardDrag(${idx})" ontouchend="disableCardDrag(${idx})">⠿</span>
+                            <span class="q-badge">Soal #${idx + 1} (${
+                                q.type === 'single_choice' ? 'Pilihan Ganda' : 
+                                q.type === 'multiple_choice' ? 'Pilihan Ganda Kompleks' : 
+                                q.type === 'matching' ? 'Menjodohkan' : 
+                                q.type === 'true_false' ? 'Benar/Salah' : 'Isian Singkat'
+                            })</span>
+                        </div>
+                        <button class="q-remove-btn" onclick="removeQuestion(${idx})">🗑️ Hapus</button>
+                    </div>
+                    <div class="form-group">
+                        <label>Pertanyaan</label>
+                        <textarea id="q_text_${idx}" class="input-field" style="min-height: 60px; resize: vertical;" placeholder="Tuliskan teks soal di sini..." onchange="updateQuestionText(${idx}, this.value)">${q.question_text || ''}</textarea>
+                    </div>
+                    <!-- Question Image Upload -->
+                    <div class="form-group" style="margin-top: 8px; margin-bottom: 8px;">
+                        <div style="display: flex; align-items: center; justify-content: space-between;">
+                            <label style="font-size: 12px; color: var(--text-muted); margin: 0;">Gambar Soal (${(q.images || []).length} Gambar)</label>
+                            <div style="display: flex; gap: 6px;">
+                                <button class="btn-sm btn-toggle" style="margin: 0; padding: 2px 6px; font-size: 10px; background: rgba(165,180,252,0.15); border-color: rgba(165,180,252,0.3);" title="Sisipkan tag gambar pertama di posisi kursor teks soal" onclick="insertPlaceholder('q_text_${idx}')">📍 Letakkan [gambar1]</button>
+                                <button class="btn-sm btn-toggle" style="margin: 0; padding: 2px 6px; font-size: 10px;" onclick="triggerQuestionImageUpload(${idx})">📷 Tambah Gambar</button>
+                            </div>
+                        </div>
+                        <input type="file" id="q_image_input_${idx}" accept="image/*" style="display: none;" onchange="handleQuestionImageUpload(${idx}, this)" multiple>
+                        
+                        ${q.images && q.images.length > 0 ? `
+                            <div style="display: flex; flex-wrap: wrap; gap: 10px; margin-top: 8px;">
+                                ${q.images.map((imgUrl, imgIdx) => `
+                                    <div style="position: relative; display: flex; flex-direction: column; align-items: center; border: 1px solid var(--glass-border); border-radius: 8px; padding: 6px; background: rgba(0,0,0,0.2); width: 110px;">
+                                        <img src="${imgUrl}" style="max-height: 70px; max-width: 90px; border-radius: 4px; display: block; object-fit: contain;">
+                                        <span style="font-size: 10px; color: var(--text-muted); margin-top: 4px; font-weight: 600;">Gambar #${imgIdx + 1}</span>
+                                        <div style="display: flex; gap: 4px; margin-top: 4px; width: 100%;">
+                                            <button class="btn-sm btn-toggle" style="margin: 0; padding: 2px 4px; font-size: 9px; flex: 1; min-height: 20px; line-height: 1;" title="Sisipkan [gambar${imgIdx + 1}] ke kursor teks soal" onclick="insertSpecificPlaceholder(${idx}, ${imgIdx + 1})">📍 Letakkan</button>
+                                            <button class="btn-sm btn-results" style="margin: 0; padding: 2px 4px; font-size: 9px; background: rgba(239,68,68,0.2); border-color: rgba(239,68,68,0.3); color: #f87171; min-height: 20px; line-height: 1;" onclick="removeQuestionImage(${idx}, ${imgIdx})">🗑️</button>
+                                        </div>
+                                    </div>
+                                `).join('')}
+                            </div>
+                        ` : ''}
+                    </div>
+                    ${optionsHtml}
+                `;
+
+                // Wire up drag-and-drop events
+                card.addEventListener('dragstart', (e) => {
+                    card.classList.add('dragging');
+                    e.dataTransfer.effectAllowed = 'move';
+                });
+
+                card.addEventListener('dragend', () => {
+                    card.classList.remove('dragging');
+                    card.setAttribute('draggable', 'false');
+
+                    // Read the new order of cards from the DOM
+                    const newQuestions = [];
+                    const domCards = container.querySelectorAll('.q-card');
+                    domCards.forEach(c => {
+                        const oldIdx = parseInt(c.dataset.index);
+                        newQuestions.push(questionsList[oldIdx]);
+                    });
+
+                    // Update questions list and renumber
+                    questionsList = newQuestions;
+                    questionsList.forEach((q, i) => q.number = i + 1);
+
+                    renderQuestions();
+                });
+
+                card.addEventListener('dragover', (e) => {
+                    e.preventDefault();
+                    const draggingCard = container.querySelector('.q-card.dragging');
+                    if (!draggingCard || draggingCard === card) return;
+
+                    const bounding = card.getBoundingClientRect();
+                    const offset = e.clientY - bounding.top - bounding.height / 2;
+
+                    if (offset < 0) {
+                        container.insertBefore(draggingCard, card);
+                    } else {
+                        container.insertBefore(draggingCard, card.nextSibling);
+                    }
+                });
+
+                // --- Clipboard Paste Event Handlers ---
+                const qTextarea = card.querySelector('textarea');
+                if (qTextarea) {
+                    qTextarea.addEventListener('paste', (e) => {
+                        const items = (e.clipboardData || e.originalEvent.clipboardData).items;
+                        for (let item of items) {
+                            if (item.type.indexOf('image') === 0) {
+                                e.preventDefault();
+                                const file = item.getAsFile();
+                                const reader = new FileReader();
+                                reader.onload = function(evt) {
+                                    if (!questionsList[idx].images) {
+                                        questionsList[idx].images = [];
+                                    }
+                                    questionsList[idx].images.push(evt.target.result);
+                                    const nextIdx = questionsList[idx].images.length;
+                                    
+                                    // Insert [gambarX] at cursor
+                                    const start = qTextarea.selectionStart;
+                                    const end = qTextarea.selectionEnd;
+                                    const text = qTextarea.value;
+                                    const before = text.substring(0, start);
+                                    const after = text.substring(end, text.length);
+                                    const placeholder = `[gambar${nextIdx}]`;
+                                    
+                                    qTextarea.value = before + placeholder + after;
+                                    qTextarea.selectionStart = qTextarea.selectionEnd = start + placeholder.length;
+                                    qTextarea.focus();
+                                    
+                                    qTextarea.dispatchEvent(new Event('change'));
+                                    renderQuestions();
+                                    showToast(`Gambar #${nextIdx} berhasil ditempel ke soal!`, 'success');
+                                };
+                                reader.readAsDataURL(file);
+                                break;
+                            }
+                        }
+                    });
+                }
+
+                const optInputs = card.querySelectorAll('.opt-input');
+                optInputs.forEach((optInput, optIdx) => {
+                    optInput.addEventListener('paste', (e) => {
+                        const items = (e.clipboardData || e.originalEvent.clipboardData).items;
+                        for (let item of items) {
+                            if (item.type.indexOf('image') === 0) {
+                                e.preventDefault();
+                                const file = item.getAsFile();
+                                const reader = new FileReader();
+                                reader.onload = function(evt) {
+                                    if (!questionsList[idx].choice_images) {
+                                        questionsList[idx].choice_images = [];
+                                    }
+                                    questionsList[idx].choice_images[optIdx] = evt.target.result;
+                                    renderQuestions();
+                                    showToast(`Gambar berhasil ditempel ke Pilihan ${String.fromCharCode(65 + optIdx)}!`, 'success');
+                                };
+                                reader.readAsDataURL(file);
+                                break;
+                            }
+                        }
+                    });
+                });
+
+                const leftInputs = card.querySelectorAll('.matching-left-input');
+                leftInputs.forEach((leftInput, lIdx) => {
+                    leftInput.addEventListener('paste', (e) => {
+                        const items = (e.clipboardData || e.originalEvent.clipboardData).items;
+                        for (let item of items) {
+                            if (item.type.indexOf('image') === 0) {
+                                e.preventDefault();
+                                const file = item.getAsFile();
+                                const reader = new FileReader();
+                                reader.onload = function(evt) {
+                                    if (!questionsList[idx].left_images) {
+                                        questionsList[idx].left_images = [];
+                                    }
+                                    questionsList[idx].left_images[lIdx] = evt.target.result;
+                                    renderQuestions();
+                                    showToast(`Gambar berhasil ditempel ke Kolom Kiri #${lIdx + 1}!`, 'success');
+                                };
+                                reader.readAsDataURL(file);
+                                break;
+                            }
+                        }
+                    });
+                });
+
+                const rightInputs = card.querySelectorAll('.matching-right-input');
+                rightInputs.forEach((rightInput, rIdx) => {
+                    rightInput.addEventListener('paste', (e) => {
+                        const items = (e.clipboardData || e.originalEvent.clipboardData).items;
+                        for (let item of items) {
+                            if (item.type.indexOf('image') === 0) {
+                                e.preventDefault();
+                                const file = item.getAsFile();
+                                const reader = new FileReader();
+                                reader.onload = function(evt) {
+                                    if (!questionsList[idx].right_images) {
+                                        questionsList[idx].right_images = [];
+                                    }
+                                    questionsList[idx].right_images[rIdx] = evt.target.result;
+                                    renderQuestions();
+                                    showToast(`Gambar berhasil ditempel ke Kolom Kanan ${String.fromCharCode(65 + rIdx)}!`, 'success');
+                                };
+                                reader.readAsDataURL(file);
+                                break;
+                            }
+                        }
+                    });
+                });
+
+                container.appendChild(card);
+            });
+
+            updateQuestionCount();
+        }
+
+        function enableCardDrag(idx) {
+            const card = document.querySelector(`.q-card[data-index="${idx}"]`);
+            if (card) card.setAttribute('draggable', 'true');
+        }
+
+        function disableCardDrag(idx) {
+            const card = document.querySelector(`.q-card[data-index="${idx}"]`);
+            if (card) card.setAttribute('draggable', 'false');
+        }
+
+        function addQuestion(type) {
+            let newQ = {
+                type: type,
+                question_text: '',
+                weight: 1.0,
+                number: questionsList.length + 1
+            };
+
+            if (type === 'single_choice') {
+                newQ.choices = ['Option A', 'Option B', 'Option C', 'Option D', 'Option E'];
+                newQ.key = 'A';
+            } else if (type === 'multiple_choice') {
+                newQ.choices = ['Option A', 'Option B', 'Option C', 'Option D', 'Option E'];
+                newQ.key = ['A'];
+            } else if (type === 'matching') {
+                newQ.left_items = ['Item Kiri 1', 'Item Kiri 2', 'Item Kiri 3'];
+                newQ.right_items = ['Pilihan Kanan A', 'Pilihan Kanan B', 'Pilihan Kanan C', 'Distraktor Kanan D'];
+                newQ.key = {
+                    'Item Kiri 1': 'Pilihan Kanan A',
+                    'Item Kiri 2': 'Pilihan Kanan B',
+                    'Item Kiri 3': 'Pilihan Kanan C'
+                };
+            } else if (type === 'true_false') {
+                newQ.key = 'TRUE';
+            } else if (type === 'short_answer') {
+                newQ.key = '';
+            }
+
+            questionsList.push(newQ);
+            renderQuestions();
+        }
+
+        function bulkAddQuestions(qty) {
+            for (let i = 0; i < qty; i++) {
+                questionsList.push({
+                    type: 'single_choice',
+                    question_text: `Pertanyaan nomor ${questionsList.length + 1}`,
+                    choices: ['Pilihan A', 'Pilihan B', 'Pilihan C', 'Pilihan D', 'Pilihan E'],
+                    key: 'A',
+                    weight: 1.0,
+                    number: questionsList.length + 1
+                });
+            }
+            renderQuestions();
+            showToast(`Berhasil menambahkan ${qty} Soal Pilihan Ganda!`, 'success');
+        }
+
+        function removeQuestion(idx) {
+            questionsList.splice(idx, 1);
+            // Re-index number
+            questionsList.forEach((q, i) => q.number = i + 1);
+            renderQuestions();
+        }
+
+        function updateQuestionText(idx, val) {
+            questionsList[idx].question_text = val;
+        }
+
+        function updateOptionText(qIdx, optIdx, val) {
+            if (!questionsList[qIdx].choices) questionsList[qIdx].choices = [];
+            questionsList[qIdx].choices[optIdx] = val;
+        }
+
+        function addChoiceOption(qIdx) {
+            let q = questionsList[qIdx];
+            if (!q.choices) q.choices = [];
+            if (q.choices.length >= 10) {
+                showToast('Maksimal 10 pilihan jawaban!', 'error');
+                return;
+            }
+            const letters = ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'J'];
+            const nextLetter = letters[q.choices.length];
+            q.choices.push(`Option ${nextLetter}`);
+            // Keep choice_images array in sync
+            if (q.choice_images) {
+                q.choice_images.push('');
+            }
+            renderQuestions();
+        }
+
+        function removeChoiceOption(qIdx) {
+            let q = questionsList[qIdx];
+            if (!q.choices) q.choices = [];
+            if (q.choices.length <= 2) {
+                showToast('Minimal harus ada 2 pilihan jawaban!', 'error');
+                return;
+            }
+            
+            q.choices.pop();
+            // Keep choice_images array in sync
+            if (q.choice_images) {
+                q.choice_images.pop();
+            }
+            
+            const letters = ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'J'];
+            if (q.type === 'single_choice') {
+                const keyIdx = letters.indexOf(q.key);
+                if (keyIdx >= q.choices.length) {
+                    q.key = 'A';
+                }
+            } else if (q.type === 'multiple_choice' && Array.isArray(q.key)) {
+                q.key = q.key.filter(k => {
+                    const idx = letters.indexOf(k);
+                    return idx < q.choices.length;
+                });
+                if (q.key.length === 0) {
+                    q.key = ['A'];
+                }
+            }
+            
+            renderQuestions();
+        }
+
+        function updateCorrectKey(qIdx, val) {
+            questionsList[qIdx].key = val;
+        }
+
+        function toggleComplexKey(qIdx, letter) {
+            let q = questionsList[qIdx];
+            if (!Array.isArray(q.key)) {
+                q.key = [];
+            }
+            
+            const pos = q.key.indexOf(letter);
+            if (pos === -1) {
+                q.key.push(letter);
+            } else {
+                q.key.splice(pos, 1);
+            }
+            
+            q.key.sort();
+            renderQuestions();
+        }
+
+        function addMatchingItem(qIdx, side) {
+            let q = questionsList[qIdx];
+            if (side === 'left') {
+                if (!q.left_items) q.left_items = [];
+                q.left_items.push(`Item Kiri ${q.left_items.length + 1}`);
+            } else {
+                if (!q.right_items) q.right_items = [];
+                q.right_items.push(`Pilihan Kanan ${q.right_items.length + 1}`);
+            }
+            renderQuestions();
+        }
+
+        function updateMatchingItem(qIdx, side, itemIdx, val) {
+            let q = questionsList[qIdx];
+            if (side === 'left') {
+                const oldVal = q.left_items[itemIdx];
+                q.left_items[itemIdx] = val;
+                if (!q.key) q.key = {};
+                if (oldVal && q.key[oldVal] !== undefined) {
+                    q.key[val] = q.key[oldVal];
+                    delete q.key[oldVal];
+                }
+            } else {
+                const oldVal = q.right_items[itemIdx];
+                q.right_items[itemIdx] = val;
+                if (!q.key) q.key = {};
+                for (let k in q.key) {
+                    if (q.key[k] === oldVal) {
+                        q.key[k] = val;
+                    }
+                }
+            }
+            renderQuestions();
+        }
+
+        function removeMatchingItem(qIdx, side, itemIdx) {
+            let q = questionsList[qIdx];
+            if (side === 'left') {
+                const val = q.left_items[itemIdx];
+                q.left_items.splice(itemIdx, 1);
+                if (q.left_images) q.left_images.splice(itemIdx, 1);
+                if (q.key && val) delete q.key[val];
+            } else {
+                const val = q.right_items[itemIdx];
+                q.right_items.splice(itemIdx, 1);
+                if (q.right_images) q.right_images.splice(itemIdx, 1);
+                if (q.key) {
+                    for (let k in q.key) {
+                        if (q.key[k] === val) {
+                            delete q.key[k];
+                        }
+                    }
+                }
+            }
+            renderQuestions();
+        }
+
+        function updateMatchingKey(qIdx, leftVal, rightVal) {
+            let q = questionsList[qIdx];
+            if (!q.key) q.key = {};
+            if (rightVal === "") {
+                delete q.key[leftVal];
+            } else {
+                q.key[leftVal] = rightVal;
+            }
+        }
+
+        function insertPlaceholder(elemId) {
+            const elem = document.getElementById(elemId);
+            if (!elem) return;
+
+            const start = elem.selectionStart;
+            const end = elem.selectionEnd;
+            const text = elem.value;
+            const before = text.substring(0, start);
+            const after = text.substring(end, text.length);
+            
+            elem.value = before + '[gambar]' + after;
+            elem.selectionStart = elem.selectionEnd = start + 8;
+            elem.focus();
+
+            // Trigger the onchange/input event so the state is updated
+            elem.dispatchEvent(new Event('change'));
+        }
+
+        function insertSpecificPlaceholder(qIdx, imgNum) {
+            const elem = document.getElementById(`q_text_${qIdx}`);
+            if (!elem) return;
+
+            const start = elem.selectionStart;
+            const end = elem.selectionEnd;
+            const text = elem.value;
+            const before = text.substring(0, start);
+            const after = text.substring(end, text.length);
+            const placeholder = `[gambar${imgNum}]`;
+            
+            elem.value = before + placeholder + after;
+            elem.selectionStart = elem.selectionEnd = start + placeholder.length;
+            elem.focus();
+
+            // Trigger the onchange/input event so the state is updated
+            elem.dispatchEvent(new Event('change'));
+        }
+
+        let originalHeaderImage = null; // Store the original base64 raw image
+        let customHeaderImage = null; // Store the cropped image base64
+        let cropper = null; // Store cropper instance
+        let currentRatio = 8/1; // Default ratio for Kop is wide e.g. 8:1
+
+        function handleHeaderImageUpload(input) {
+            const file = input.files[0];
+            if (!file) return;
+            const reader = new FileReader();
+            reader.onload = function(e) {
+                originalHeaderImage = e.target.result;
+                openCropModal(originalHeaderImage);
+            };
+            reader.readAsDataURL(file);
+            // Reset input value so same file can be uploaded again if needed
+            input.value = '';
+        }
+
+        function openCropModal(imageSrc) {
+            const modal = document.getElementById('cropModalOverlay');
+            const img = document.getElementById('cropModalImg');
+            
+            img.src = imageSrc;
+            modal.style.display = 'flex';
+            
+            // Destroy existing cropper if any
+            if (cropper) {
+                cropper.destroy();
+                cropper = null;
+            }
+            
+            // Initialize Cropper.js after modal is visible and image is loaded
+            setTimeout(() => {
+                cropper = new Cropper(img, {
+                    aspectRatio: currentRatio,
+                    viewMode: 1, // Restrict crop box to not exceed the size of the canvas
+                    dragMode: 'move', // Default action is to drag/pan the image
+                    autoCropArea: 0.9, 
+                    restore: false,
+                    guides: true,
+                    center: true,
+                    highlight: false,
+                    cropBoxMovable: true,
+                    cropBoxResizable: true,
+                    toggleDragModeOnDblclick: false
+                });
+                updateRatioButtons();
+            }, 100);
+        }
+
+        function closeCropModal() {
+            document.getElementById('cropModalOverlay').style.display = 'none';
+            if (cropper) {
+                cropper.destroy();
+                cropper = null;
+            }
+        }
+
+        function cropperZoom(value) {
+            if (cropper) {
+                cropper.zoom(value);
+            }
+        }
+
+        function cropperReset() {
+            if (cropper) {
+                cropper.reset();
+            }
+        }
+
+        function cropperSetAspectRatio(ratio) {
+            currentRatio = ratio;
+            if (cropper) {
+                cropper.setAspectRatio(ratio);
+            }
+            updateRatioButtons();
+        }
+
+        function updateRatioButtons() {
+            const btns = {
+                '8/1': 'ratioPreset_8_1',
+                '6/1': 'ratioPreset_6_1',
+                '4/1': 'ratioPreset_4_1',
+                'NaN': 'ratioPreset_free'
+            };
+            
+            for (let r in btns) {
+                const btn = document.getElementById(btns[r]);
+                if (btn) {
+                    btn.classList.remove('active');
+                }
+            }
+            
+            let activeId = 'ratioPreset_free';
+            if (currentRatio === 8/1) activeId = 'ratioPreset_8_1';
+            else if (currentRatio === 6/1) activeId = 'ratioPreset_6_1';
+            else if (currentRatio === 4/1) activeId = 'ratioPreset_4_1';
+            
+            const activeBtn = document.getElementById(activeId);
+            if (activeBtn) {
+                activeBtn.classList.add('active');
+            }
+        }
+
+        function applyHeaderCrop() {
+            if (!cropper) return;
+            
+            // Generate cropped image at high resolution for PDF sharpness
+            const canvas = cropper.getCroppedCanvas({
+                width: 1600,
+                imageSmoothingEnabled: true,
+                imageSmoothingQuality: 'high'
+            });
+            
+            if (canvas) {
+                customHeaderImage = canvas.toDataURL('image/png');
+                document.getElementById('header_preview_img').src = customHeaderImage;
+                document.getElementById('header_preview_container').style.display = 'block';
+                document.getElementById('del_header_btn').style.display = 'inline-block';
+                
+                closeCropModal();
+                showToast('Gambar kop surat berhasil dipotong dan diterapkan!', 'success');
+            } else {
+                showToast('Gagal memproses potongan gambar!', 'error');
+            }
+        }
+
+        function reOpenCropModal() {
+            if (originalHeaderImage) {
+                openCropModal(originalHeaderImage);
+            } else if (customHeaderImage) {
+                openCropModal(customHeaderImage);
+            }
+        }
+
+        function removeCustomHeader() {
+            customHeaderImage = null;
+            originalHeaderImage = null;
+            document.getElementById('headerImageInput').value = '';
+            document.getElementById('header_preview_container').style.display = 'none';
+            document.getElementById('del_header_btn').style.display = 'none';
+            showToast('Kop surat kustom dihapus (kembali ke teks)', 'info');
+        }
+
+        // Image upload helper functions
+        function triggerQuestionImageUpload(qIdx) {
+            const input = document.getElementById(`q_image_input_${qIdx}`);
+            if (input) input.click();
+        }
+
+        function handleQuestionImageUpload(qIdx, input) {
+            const files = input.files;
+            if (!files || files.length === 0) return;
+
+            if (!questionsList[qIdx].images) {
+                questionsList[qIdx].images = [];
+            }
+
+            let loadedCount = 0;
+            for (let i = 0; i < files.length; i++) {
+                const reader = new FileReader();
+                reader.onload = function(e) {
+                    questionsList[qIdx].images.push(e.target.result);
+                    // Legacy fallback
+                    if (questionsList[qIdx].images.length === 1) {
+                        questionsList[qIdx].image = e.target.result;
+                    }
+                    loadedCount++;
+                    if (loadedCount === files.length) {
+                        renderQuestions();
+                        showToast(`${files.length} Gambar berhasil ditambahkan!`, 'success');
+                    }
+                };
+                reader.readAsDataURL(files[i]);
+            }
+        }
+
+        function removeQuestionImage(qIdx, imgIdx) {
+            if (questionsList[qIdx].images) {
+                questionsList[qIdx].images.splice(imgIdx, 1);
+                // Sync legacy fallback
+                questionsList[qIdx].image = questionsList[qIdx].images[0] || '';
+            } else {
+                delete questionsList[qIdx].image;
+            }
+            renderQuestions();
+            showToast('Gambar berhasil dihapus!', 'success');
+        }
+
+        function triggerOptionImageUpload(qIdx, optIdx) {
+            const input = document.getElementById(`opt_image_input_${qIdx}_${optIdx}`);
+            if (input) input.click();
+        }
+
+        function handleOptionImageUpload(qIdx, optIdx, input) {
+            const file = input.files[0];
+            if (!file) return;
+
+            const reader = new FileReader();
+            reader.onload = function(e) {
+                if (!questionsList[qIdx].choice_images) {
+                    questionsList[qIdx].choice_images = [];
+                }
+                questionsList[qIdx].choice_images[optIdx] = e.target.result;
+                renderQuestions();
+            };
+            reader.readAsDataURL(file);
+        }
+
+        function removeOptionImage(qIdx, optIdx) {
+            if (questionsList[qIdx].choice_images) {
+                questionsList[qIdx].choice_images[optIdx] = "";
+            }
+            renderQuestions();
+        }
+
+        function triggerMatchingImageUpload(qIdx, side, itemIdx) {
+            const input = document.getElementById(`matching_image_input_${qIdx}_${side}_${itemIdx}`);
+            if (input) input.click();
+        }
+
+        function handleMatchingImageUpload(qIdx, side, itemIdx, input) {
+            const file = input.files[0];
+            if (!file) return;
+
+            const reader = new FileReader();
+            reader.onload = function(e) {
+                if (side === 'left') {
+                    if (!questionsList[qIdx].left_images) questionsList[qIdx].left_images = [];
+                    questionsList[qIdx].left_images[itemIdx] = e.target.result;
+                } else {
+                    if (!questionsList[qIdx].right_images) questionsList[qIdx].right_images = [];
+                    questionsList[qIdx].right_images[itemIdx] = e.target.result;
+                }
+                renderQuestions();
+            };
+            reader.readAsDataURL(file);
+        }
+
+        function removeMatchingImage(qIdx, side, itemIdx) {
+            if (side === 'left') {
+                if (questionsList[qIdx].left_images) {
+                    questionsList[qIdx].left_images[itemIdx] = "";
+                }
+            } else {
+                if (questionsList[qIdx].right_images) {
+                    questionsList[qIdx].right_images[itemIdx] = "";
+                }
+            }
+            renderQuestions();
+        }
+
+        function shuffleQuestionsAndChoices() {
+            if (questionsList.length === 0) {
+                showToast('Belum ada soal untuk diacak', 'error');
+                return;
+            }
+
+            // Shuffle questions list
+            for (let i = questionsList.length - 1; i > 0; i--) {
+                const j = Math.floor(Math.random() * (i + 1));
+                [questionsList[i], questionsList[j]] = [questionsList[j], questionsList[i]];
+            }
+
+            // Shuffle options within each choice question
+            questionsList.forEach((q, qIdx) => {
+                q.number = qIdx + 1; // Update numbering
+                const letters = ['A', 'B', 'C', 'D', 'E'];
+                
+                if (q.type === 'single_choice' && q.choices) {
+                    const origCorrectVal = q.choices[letters.indexOf(q.key)];
+                    for (let i = q.choices.length - 1; i > 0; i--) {
+                        const j = Math.floor(Math.random() * (i + 1));
+                        [q.choices[i], q.choices[j]] = [q.choices[j], q.choices[i]];
+                    }
+                    const newCorrectIdx = q.choices.indexOf(origCorrectVal);
+                    if (newCorrectIdx !== -1) {
+                        q.key = letters[newCorrectIdx];
+                    }
+                } else if (q.type === 'multiple_choice' && q.choices && Array.isArray(q.key)) {
+                    // Collect original correct option texts
+                    const origCorrectValues = q.key.map(l => q.choices[letters.indexOf(l)]);
+                    
+                    for (let i = q.choices.length - 1; i > 0; i--) {
+                        const j = Math.floor(Math.random() * (i + 1));
+                        [q.choices[i], q.choices[j]] = [q.choices[j], q.choices[i]];
+                    }
+                    
+                    // Remap new keys
+                    const newKeys = [];
+                    origCorrectValues.forEach(val => {
+                        const newIdx = q.choices.indexOf(val);
+                        if (newIdx !== -1) {
+                            newKeys.push(letters[newIdx]);
+                        }
+                    });
+                    q.key = newKeys.sort();
+                }
+            });
+
+            renderQuestions();
+            showToast('Pertanyaan dan Pilihan Jawaban berhasil diacak!', 'success');
+        }
+
+        function transformQuestionsData() {
+            return questionsList.map(q => {
+                let apiQ = { ...q };
+                
+                // Clean image arrays — remove empty strings but preserve position
+                if (apiQ.choice_images) {
+                    apiQ.choice_images = apiQ.choice_images.map(img => img || null);
+                    if (apiQ.choice_images.every(v => !v)) delete apiQ.choice_images;
+                }
+                if (apiQ.left_images) {
+                    apiQ.left_images = apiQ.left_images.map(img => img || null);
+                    if (apiQ.left_images.every(v => !v)) delete apiQ.left_images;
+                }
+                if (apiQ.right_images) {
+                    apiQ.right_images = apiQ.right_images.map(img => img || null);
+                    if (apiQ.right_images.every(v => !v)) delete apiQ.right_images;
+                }
+                 if (apiQ.images) {
+                     apiQ.images = apiQ.images.filter(img => img);
+                     if (apiQ.images.length === 0) delete apiQ.images;
+                 }
+                 if (!apiQ.image) delete apiQ.image;
+
+                if (q.type === 'matching') {
+                    const left = (q.left_items || []).map(x => x.trim()).filter(x => x);
+                    const right = (q.right_items || []).map(x => x.trim()).filter(x => x);
+                    
+                    const cleanKey = {};
+                    if (q.key) {
+                        for (let k in q.key) {
+                            if (k.trim() && q.key[k] && q.key[k].trim()) {
+                                cleanKey[k.trim()] = q.key[k].trim();
+                            }
+                        }
+                    }
+                    
+                    apiQ.left_items = left;
+                    apiQ.right_items = right;
+                    apiQ.key = cleanKey;
+                }
+                return apiQ;
+            });
+        }
+
+        function buildExamPDF() {
+            const examName = document.getElementById('examName').value.trim() || 'UJIAN EXAMVAN';
+            const subject = document.getElementById('subjectName').value.trim() || 'Umum';
+            const className = document.getElementById('className').value.trim() || 'Semua Kelas';
+            const duration = document.getElementById('examDuration').value || '60';
+            const schoolHeader = document.getElementById('schoolHeader').value || 'SMA NEGERI EXAMVAN INDONESIA';
+
+            // Layout settings
+            const paperType = document.getElementById('paperType').value || 'a4';
+            const numCols = parseInt(document.getElementById('numColumns').value) || 1;
+
+            const paperFormats = { 'a4': 'a4', 'legal': [215.9, 355.6], 'letter': 'letter' };
+            const paperDims = { 'a4': [210, 297], 'legal': [215.9, 355.6], 'letter': [215.9, 279.4] };
+            const [pageW, pageH] = paperDims[paperType] || paperDims['a4'];
+
+            const { jsPDF } = window.jspdf;
+            const doc = new jsPDF({ orientation: 'p', unit: 'mm', format: paperFormats[paperType] || 'a4' });
+
+            const M = 15; // margin
+            const colGap = numCols === 2 ? 8 : 0;
+            const totalW = pageW - M * 2;
+            const colW = numCols === 2 ? (totalW - colGap) / 2 : totalW;
+            const pageBtm = pageH - 22;
+            const qTxtW = colW - 5;
+            const optTxtW = colW - 10;
+            const qImgMaxW = numCols === 2 ? colW - 15 : 80;
+            const qImgMaxH = numCols === 2 ? 35 : 50;
+            const oImgMaxW = numCols === 2 ? colW - 25 : 60;
+            const oImgMaxH = numCols === 2 ? 25 : 35;
+
+            let currentCol = 0;
+            let headerEndY = 15;
+            let y = 15;
+
+            function cx() {
+                return numCols === 1 ? M : (currentCol === 0 ? M : M + colW + colGap);
+            }
+
+            function brk(need) {
+                need = need || 10;
+                if (y + need > pageBtm) {
+                    if (numCols === 2 && currentCol === 0) {
+                        currentCol = 1;
+                        y = headerEndY;
+                    } else {
+                        doc.addPage();
+                        currentCol = 0;
+                        y = 15;
+                    }
+                }
+            }
+
+            // ===== HEADER (full width, first page only) =====
+            let isCustomHeaderSuccessful = false;
+            if (customHeaderImage) {
+                try {
+                    const img = new Image();
+                    img.src = customHeaderImage;
+                    let w = img.width || 600, h = img.height || 100;
+                    const aspectRatio = h / w;
+                    const imgW = pageW;
+                    const imgH = pageW * aspectRatio;
+                    doc.addImage(customHeaderImage, 'PNG', 0, 0, imgW, imgH);
+                    y = imgH + 5;
+                    isCustomHeaderSuccessful = true;
+                } catch(e) {
+                    isCustomHeaderSuccessful = false;
+                }
+            }
+
+            // Render Judul Ujian (supports enter / newlines)
+            const judulText = schoolHeader.trim();
+            if (judulText) {
+                doc.setFont("helvetica", "bold");
+                 const lines = judulText.split(/\r?\n|\\n/);
+                lines.forEach((line, lineIdx) => {
+                    const trimmedLine = line.trim();
+                    if (!trimmedLine) return;
+                    const fontSize = (!isCustomHeaderSuccessful && lineIdx === 0) ? 14 : 12;
+                    doc.setFontSize(fontSize);
+                    doc.text(trimmedLine.toUpperCase(), pageW / 2, y, { align: "center" });
+                    y += (fontSize === 14 ? 6 : 5);
+                });
+                y += 2;
+            }
+
+            doc.setLineWidth(0.6); doc.line(M, y, pageW - M, y); y += 6;
+
+            const detRx = pageW / 2 + 15;
+            doc.setFontSize(10); doc.setFont("helvetica", "bold");
+            doc.text(`Mata Pelajaran: ${subject}`, M, y);
+            doc.text(`Durasi: ${duration} Menit`, detRx, y); y += 5;
+            doc.text(`Kelas: ${className}`, M, y);
+            doc.text(`Sifat: Aplikasi EXAMVAN (Sangat Rahasia)`, detRx, y); y += 5;
+
+            doc.setLineWidth(0.3); doc.line(M, y, pageW - M, y); y += 8;
+            doc.setFont("helvetica", "italic"); doc.setFontSize(9);
+            doc.text("Petunjuk Umum: Selesaikan soal-soal berikut menggunakan aplikasi klien EXAMVAN Anda.", M, y); y += 8;
+
+            doc.setFont("helvetica", "normal"); doc.setFontSize(10);
+            headerEndY = y;
+
+            // Draw column divider line on each page for 2-col mode
+            function drawColDivider() {
+                if (numCols !== 2) return;
+                const divX = M + colW + colGap / 2;
+                doc.setDrawColor(200, 200, 200); doc.setLineWidth(0.2);
+                doc.line(divX, headerEndY - 2, divX, pageBtm + 5);
+                doc.setDrawColor(0, 0, 0);
+            }
+
+            function addPdfImage(imgData, xOff, maxW, maxH) {
+                if (!imgData || !imgData.startsWith('data:image')) return;
+                try {
+                    const absX = cx() + xOff;
+                    maxW = Math.min(maxW, colW - xOff - 2);
+                    const img = new Image();
+                    img.src = imgData;
+                    let w = img.width || 100, h = img.height || 60;
+                    const r = Math.min(maxW / w, maxH / h, 1);
+                    w *= r; h *= r;
+                    brk(h + 3);
+                    doc.addImage(imgData, 'PNG', cx() + xOff, y, w, h);
+                    y += h + 3;
+                } catch(e) {}
+            }
+
+            // ===== RENDER QUESTIONS =====
+            questionsList.forEach((q, idx) => {
+                brk(15);
+                doc.setFont("helvetica", "bold"); doc.setFontSize(10);
+                doc.text(`${idx + 1}. `, cx(), y);
+                doc.setFont("helvetica", "normal");
+
+                let labelType = "";
+                if (q.type === 'multiple_choice') labelType = " (Pilihan Ganda Kompleks)";
+                else if (q.type === 'matching') labelType = " (Menjodohkan)";
+                const fullQText = (q.question_text || `[Soal #${idx + 1} belum terisi]`) + labelType;
+
+                // Multi-image placeholder support
+                const imgRx = /\[gambar(\d*)\]/g;
+                let m, li = 0, usedImgs = new Set();
+                while ((m = imgRx.exec(fullQText)) !== null) {
+                    const imgN = m[1] ? parseInt(m[1]) : 1;
+                    const pre = fullQText.substring(li, m.index);
+                    if (pre.trim()) {
+                        const ls = doc.splitTextToSize(pre, qTxtW);
+                        brk(ls.length * 5 + 2);
+                        doc.text(ls, cx() + 5, y); y += (ls.length * 5) + 2;
+                    }
+                    const iD = q.images && q.images[imgN - 1] ? q.images[imgN - 1] : (imgN === 1 && q.image ? q.image : null);
+                    if (iD) { addPdfImage(iD, 10, qImgMaxW, qImgMaxH); usedImgs.add(imgN - 1); }
+                    li = imgRx.lastIndex;
+                }
+                const post = fullQText.substring(li);
+                if (post.trim() || li === 0) {
+                    const ft = li === 0 ? fullQText : post;
+                    const ls = doc.splitTextToSize(ft, qTxtW);
+                    brk(ls.length * 5 + 2);
+                    doc.text(ls, cx() + 5, y); y += (ls.length * 5) + 2;
+                }
+
+                // Unused images
+                if (q.images && q.images.length > 0) {
+                    q.images.forEach((iD, ii) => { if (!usedImgs.has(ii) && iD) addPdfImage(iD, 10, qImgMaxW, qImgMaxH); });
+                } else if (q.image && !usedImgs.has(0)) { addPdfImage(q.image, 10, qImgMaxW, qImgMaxH); }
+
+                // Choice options
+                if ((q.type === 'single_choice' || q.type === 'multiple_choice') && q.choices) {
+                    const ltrs = ['A','B','C','D','E','F','G','H','I','J'];
+                    q.choices.forEach((oT, oI) => {
+                        brk(7);
+                        const oV = oT || '';
+                        if (q.choice_images && q.choice_images[oI] && oV.includes('[gambar]')) {
+                            const pts = oV.split('[gambar]');
+                            const l1 = doc.splitTextToSize(`${ltrs[oI]}. ${pts[0]}`, optTxtW);
+                            doc.text(l1, cx() + 10, y); y += (l1.length * 5) + 1;
+                            addPdfImage(q.choice_images[oI], 20, oImgMaxW, oImgMaxH);
+                            if (pts[1]) { const l2 = doc.splitTextToSize(pts[1], optTxtW); doc.text(l2, cx() + 10, y); y += (l2.length * 5) + 1; }
+                        } else {
+                            const ol = doc.splitTextToSize(`${ltrs[oI]}. ${oV}`, optTxtW);
+                            doc.text(ol, cx() + 10, y); y += (ol.length * 5) + 1;
+                            if (q.choice_images && q.choice_images[oI]) addPdfImage(q.choice_images[oI], 20, oImgMaxW, oImgMaxH);
+                        }
+                    });
+                    y += 1;
+                } else if (q.type === 'matching') {
+                    const mLx = 5, mRx = colW / 2 + 2, mCw = colW / 2 - 10;
+                    doc.setFont("helvetica", "bold");
+                    doc.text("Kolom Kiri", cx() + mLx, y);
+                    doc.text("Kolom Kanan", cx() + mRx, y);
+                    doc.setFont("helvetica", "normal"); y += 6;
+                    const maxL = Math.max((q.left_items||[]).length, (q.right_items||[]).length);
+                    for (let p = 0; p < maxL; p++) {
+                        brk(10);
+                        const lT = q.left_items && q.left_items[p] ? `${p+1}. ${q.left_items[p]}` : '';
+                        const rT = q.right_items && q.right_items[p] ? `${String.fromCharCode(65+p)}. ${q.right_items[p]}` : '';
+                        const lL = doc.splitTextToSize(lT, mCw), rL = doc.splitTextToSize(rT, mCw);
+                        doc.text(lL, cx() + mLx, y); doc.text(rL, cx() + mRx, y);
+                        y += Math.max(lL.length, rL.length) * 5 + 2;
+                        if (q.left_images && q.left_images[p]) addPdfImage(q.left_images[p], mLx, mCw - 5, 30);
+                        if (q.right_images && q.right_images[p]) addPdfImage(q.right_images[p], mRx, mCw - 5, 30);
+                    }
+                    y += 2;
+                } else if (q.type === 'true_false') {
+                    brk(12); doc.text("A. Benar (TRUE)", cx() + 10, y); y += 5;
+                    doc.text("B. Salah (FALSE)", cx() + 10, y); y += 7;
+                } else if (q.type === 'short_answer') {
+                    brk(7);
+                    const fillLen = numCols === 2 ? '________________' : '____________________________________';
+                    doc.text(`Jawaban Singkat: ${fillLen}`, cx() + 10, y); y += 7;
+                }
+            });
+
+            // Draw column dividers on all pages
+            if (numCols === 2) {
+                const pc = doc.internal.getNumberOfPages();
+                for (let i = 1; i <= pc; i++) { doc.setPage(i); drawColDivider(); }
+            }
+
+            // Footer page numbers
+            const pageCount = doc.internal.getNumberOfPages();
+            for (let i = 1; i <= pageCount; i++) {
+                doc.setPage(i);
+                doc.setFontSize(8); doc.setFont("helvetica", "normal");
+                doc.text(`Halaman ${i} dari ${pageCount}`, pageW / 2, pageH - 10, { align: "center" });
+            }
+
+            return doc;
+        }
+
+        function previewAndDownloadPDF() {
+            if (questionsList.length === 0) {
+                showToast('Daftar pertanyaan masih kosong', 'error');
+                return;
+            }
+            const examName = document.getElementById('examName').value.trim() || 'ujian_examvan';
+            const doc = buildExamPDF();
+            doc.save(`${examName.replace(/\s+/g, '_')}_soal.pdf`);
+            showToast('PDF berhasil diunduh!', 'success');
+        }
+
+        function saveAndRegisterExam() {
+            const name = document.getElementById('examName').value.trim();
+            if (!name) {
+                showToast('Nama Ujian wajib diisi!', 'error');
+                return;
+            }
+            if (questionsList.length === 0) {
+                showToast('Harap tambahkan minimal 1 soal sebelum menyimpan!', 'error');
+                return;
+            }
+
+            // Generate PDF Blob
+            const doc = buildExamPDF();
+            const pdfBlob = doc.output('blob');
+            const file = new File([pdfBlob], `${name.replace(/\s+/g, '_')}.pdf`, { type: 'application/pdf' });
+
+            // Standardize questions formats
+            const apiQuestions = transformQuestionsData();
+
+            const formData = new FormData();
+            formData.append('name', name);
+            formData.append('custom_token', document.getElementById('customToken').value.trim());
+            formData.append('questions_json', JSON.stringify(apiQuestions));
+            formData.append('pdf_file', file);
+
+            showToast('Sedang membuat ujian...', 'success');
+
+            fetch('/admin/api/exams/create-from-editor', {
+                method: 'POST',
+                body: formData
+            })
+            .then(r => r.json())
+            .then(res => {
+                if (res.success) {
+                    showToast(res.message, 'success');
+                    setTimeout(() => {
+                        window.location.href = '/admin/dashboard';
+                    }, 1200);
+                } else {
+                    showToast(res.message || 'Gagal menyimpan ujian', 'error');
+                }
+            })
+            .catch(() => {
+                showToast('Terjadi kesalahan menghubungi server', 'error');
+            });
+        }
+
+        document.addEventListener('DOMContentLoaded', () => {
+            // Initial blank question
+            addQuestion('single_choice');
+        });
+    </script>
+
+    <!-- HTML Modal Crop Header -->
+    <div id="cropModalOverlay" class="modal-overlay" style="display: none; align-items: center; justify-content: center; z-index: 2000;">
+        <div class="modal-card" style="max-width: 900px; width: 95%; height: 85vh; border-radius: var(--radius); background: rgba(10, 10, 26, 0.95); backdrop-filter: blur(24px); border: 1px solid var(--glass-border); box-shadow: 0 20px 50px rgba(0,0,0,0.5);">
+            <div class="modal-header" style="border-bottom: 1px solid var(--glass-border); padding: 18px 24px;">
+                <h3 style="color: #a5b4fc; font-size: 1.15rem; display: flex; align-items: center; gap: 8px;">
+                    <span>✂️</span> Sesuaikan &amp; Potong Kop Surat
+                </h3>
+                <button class="modal-close" style="color: var(--text-secondary); background: none; border: none; font-size: 1.2rem; cursor: pointer;" onclick="closeCropModal()">✕</button>
+            </div>
+            <div class="modal-body" style="padding: 20px; display: flex; flex-direction: column; overflow: hidden; height: calc(100% - 130px);">
+                <div style="flex: 1; overflow: hidden; background: #05050b; border-radius: var(--radius-sm); border: 1px solid var(--glass-border); display: flex; align-items: center; justify-content: center; position: relative; min-height: 250px;">
+                    <img id="cropModalImg" style="max-width: 100%; max-height: 100%; display: block;">
+                </div>
+                
+                <!-- Cropper Toolbar Controls -->
+                <div style="display: flex; gap: 8px; justify-content: center; margin-top: 16px; flex-wrap: wrap; background: rgba(255,255,255,0.02); padding: 10px; border-radius: var(--radius-sm); border: 1px solid var(--glass-border);">
+                    <button class="crop-toolbar-btn" onclick="cropperZoom(0.1)" title="Zoom In">🔍➕ Zoom In</button>
+                    <button class="crop-toolbar-btn" onclick="cropperZoom(-0.1)" title="Zoom Out">🔍➖ Zoom Out</button>
+                    <button class="crop-toolbar-btn" onclick="cropperReset()" title="Reset Alignment">🔄 Reset</button>
+                    <div style="width: 1px; background: var(--glass-border); height: 28px; margin: 0 4px; align-self: center;"></div>
+                    <button id="ratioPreset_8_1" class="crop-toolbar-btn" onclick="cropperSetAspectRatio(8/1)" title="Rasio 8:1 (Tipikal Kop)">📐 Kop Lebar (8:1)</button>
+                    <button id="ratioPreset_6_1" class="crop-toolbar-btn" onclick="cropperSetAspectRatio(6/1)" title="Rasio 6:1 (Kop Sedang)">📐 Kop Sedang (6:1)</button>
+                    <button id="ratioPreset_4_1" class="crop-toolbar-btn" onclick="cropperSetAspectRatio(4/1)" title="Rasio 4:1 (Kop Tinggi)">📐 Kop Tinggi (4:1)</button>
+                    <button id="ratioPreset_free" class="crop-toolbar-btn" onclick="cropperSetAspectRatio(NaN)" title="Potong Bebas">📐 Potong Bebas</button>
+                </div>
+            </div>
+            <div class="modal-footer" style="border-top: 1px solid var(--glass-border); padding: 16px 24px; background: rgba(255,255,255,0.01); display: flex; justify-content: flex-end; gap: 12px; border-bottom-left-radius: var(--radius); border-bottom-right-radius: var(--radius);">
+                <button class="btn-sm btn-delete" style="padding: 10px 20px; font-weight: 600;" onclick="closeCropModal()">Batal</button>
+                <button class="btn-upload" style="padding: 10px 24px;" onclick="applyHeaderCrop()">Terapkan &amp; Simpan</button>
+            </div>
+        </div>
+    </div>
+</body>
+</html>

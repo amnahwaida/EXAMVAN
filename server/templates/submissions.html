@@ -13,17 +13,49 @@
             <span class="topbar-title">EXAMVAN</span>
             <span class="topbar-badge">Admin Panel</span>
             <div class="topbar-nav">
-                <a href="{{ url_for('admin_dashboard') }}" class="nav-link">Daftar Ujian</a>
-                <a href="{{ url_for('admin_submissions') }}" class="nav-link active">Hasil Ujian</a>
+                <a href="{{ url_for('admin_dashboard') }}" class="nav-link {% if active_page == 'dashboard' %}active{% endif %}">Daftar Ujian</a>
+                <a href="{{ url_for('admin_create_exam_page') }}" class="nav-link {% if active_page == 'create_exam' %}active{% endif %}">Buat Ujian</a>
+                <a href="{{ url_for('admin_submissions') }}" class="nav-link {% if active_page == 'submissions' %}active{% endif %}">Hasil Ujian</a>
+                {% if admin_user == 'admin' %}
+                <a href="{{ url_for('admin_manage_users_page') }}" class="nav-link {% if active_page == 'users' %}active{% endif %}">Kelola User</a>
+                {% endif %}
             </div>
         </div>
         <div class="topbar-right">
             <div class="topbar-menu-dropdown">
                 <button class="topbar-menu-toggle" id="menuToggleBtn">
                     <span class="menu-hamburger-icon">☰</span>
-                    <span>👤 {{ admin_user }}</span>
+                    <span class="toggle-user-name">👤 {{ admin_user }}</span>
                 </button>
                 <div class="topbar-dropdown-content" id="menuDropdownContent">
+                    <div class="dropdown-header mobile-only-header">
+                        <div style="display: flex; align-items: center; gap: 8px;">
+                            <div class="topbar-logo" style="width: 28px; height: 28px; font-size: 13px;">E</div>
+                            <span class="dropdown-user-title" style="font-size: 15px; font-weight: 700;">EXAMVAN</span>
+                        </div>
+                        <span class="dropdown-user-role" style="margin-left: 36px; margin-top: -4px;">Admin Panel</span>
+                    </div>
+                    <div class="dropdown-divider mobile-only-divider"></div>
+                    
+                    <!-- Mobile Navigation Links -->
+                    <div class="mobile-nav-links">
+                        <a href="{{ url_for('admin_dashboard') }}" class="dropdown-item {% if active_page == 'dashboard' %}active-dropdown-item{% endif %}">
+                            <span>📋</span> Daftar Ujian
+                        </a>
+                        <a href="{{ url_for('admin_create_exam_page') }}" class="dropdown-item {% if active_page == 'create_exam' %}active-dropdown-item{% endif %}">
+                            <span>✍️</span> Buat Ujian
+                        </a>
+                        <a href="{{ url_for('admin_submissions') }}" class="dropdown-item {% if active_page == 'submissions' %}active-dropdown-item{% endif %}">
+                            <span>📊</span> Hasil Ujian
+                        </a>
+                        {% if admin_user == 'admin' %}
+                        <a href="{{ url_for('admin_manage_users_page') }}" class="dropdown-item {% if active_page == 'users' %}active-dropdown-item{% endif %}">
+                            <span>👥</span> Kelola User
+                        </a>
+                        {% endif %}
+                        <div class="dropdown-divider"></div>
+                    </div>
+
                     <div class="dropdown-header">
                         <span class="dropdown-user-title">👤 {{ admin_user }}</span>
                         <span class="dropdown-user-role">{% if admin_user == 'admin' %}Super Admin{% else %}Guru/Pengajar{% endif %}</span>
@@ -33,9 +65,9 @@
                         <span>🔑</span> Ubah Password
                     </button>
                     {% if admin_user == 'admin' %}
-                    <button class="dropdown-item" onclick="openManageUsersModal()">
+                    <a href="{{ url_for('admin_manage_users_page') }}" class="dropdown-item desktop-only-item">
                         <span>👥</span> Kelola User
-                    </button>
+                    </a>
                     {% endif %}
                     <div class="dropdown-divider"></div>
                     <a href="{{ url_for('admin_logout') }}" class="dropdown-item dropdown-logout">
@@ -151,6 +183,18 @@
     </div>
 
     <script>
+        document.addEventListener('DOMContentLoaded', () => {
+            const params = new URLSearchParams(window.location.search);
+            const examIdParam = params.get('exam_id');
+            if (examIdParam) {
+                const filterSelect = document.getElementById('filterExam');
+                if (filterSelect) {
+                    filterSelect.value = examIdParam;
+                    filterSubmissions();
+                }
+            }
+        });
+
         function filterSubmissions() {
             const filterVal = document.getElementById('filterExam').value;
             const rows = document.querySelectorAll('#submissionsTable tbody tr');
@@ -413,52 +457,7 @@
         </div>
     </div>
 
-    <!-- Modal Kelola User (Super Admin Only) -->
-    {% if admin_user == 'admin' %}
-    <div class="modal-overlay" id="manageUsersModal">
-        <div class="modal-card glass-card" style="max-width: 540px;">
-            <div class="modal-header">
-                <h3>👥 Kelola User (Guru / Pembuat Soal)</h3>
-                <button class="modal-close" onclick="closeManageUsersModal()">✕</button>
-            </div>
-            <div class="modal-body">
-                <div style="border-bottom: 1px solid rgba(255,255,255,0.08); padding-bottom: 20px; margin-bottom: 20px;">
-                    <h4 style="margin-top:0; margin-bottom:12px; color:var(--text-color); font-size: 14px;">➕ Tambah User Baru</h4>
-                    <form id="createUserForm" onsubmit="submitCreateUser(event)" style="display:flex; flex-direction:column; gap:12px;">
-                        <div style="display:flex; gap:12px;">
-                            <div class="form-group" style="flex:1; margin-bottom: 0;">
-                                <label for="newUsername">Username</label>
-                                <input type="text" id="newUsername" required placeholder="Contoh: pak_budi" minlength="3">
-                            </div>
-                            <div class="form-group" style="flex:1; margin-bottom: 0;">
-                                <label for="newUserPassword">Password</label>
-                                <input type="password" id="newUserPassword" required placeholder="Password awal" minlength="4">
-                            </div>
-                        </div>
-                        <button type="submit" class="btn-upload" style="align-self: flex-end; padding: 0 20px; height: 36px; font-size: 13px;">➕ Tambah User</button>
-                    </form>
-                </div>
-                <div>
-                    <h4 style="margin-top:0; margin-bottom:12px; color:var(--text-color); font-size: 14px;">📋 Daftar User Terdaftar</h4>
-                    <div style="max-height: 250px; overflow-y: auto;">
-                        <table class="exam-table" style="font-size: 13px;">
-                            <thead>
-                                <tr>
-                                    <th>Username</th>
-                                    <th>Terdaftar</th>
-                                    <th>Aksi</th>
-                                </tr>
-                            </thead>
-                            <tbody id="usersListBody">
-                                <tr><td colspan="3" style="text-align:center; padding: 20px; color: var(--text-secondary);">Memuat...</td></tr>
-                            </tbody>
-                        </table>
-                    </div>
-                </div>
-            </div>
-        </div>
-    </div>
-    {% endif %}
+
 
     <!-- Toast -->
     <div class="toast-container" id="toastContainer"></div>

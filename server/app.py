@@ -1,6 +1,6 @@
 """
 EXAMVAN Server - REST API & Admin Panel
-Version: 1.2.0
+Version: 2.0.0
 Platform: Flask + SQLite
 """
 
@@ -116,7 +116,27 @@ def init_db():
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
             FOREIGN KEY(exam_id) REFERENCES exams(id) ON DELETE CASCADE
         );
+
+        CREATE TABLE IF NOT EXISTS saas_settings (
+            key TEXT PRIMARY KEY,
+            value TEXT
+        );
     ''')
+
+    # Seed default SaaS settings if not present
+    default_settings = {
+        'wa_verification_enabled': '0',
+        'wa_api_token': '',
+        'wa_otp_template': 'Kode OTP EXAMVAN Anda: {otp}. Berlaku selama 5 menit.',
+        'default_max_exams': '3',
+        'default_max_pdf_size': '1048576',
+        'default_active_days': '1'
+    }
+    for k, v in default_settings.items():
+        existing_setting = db.execute('SELECT value FROM saas_settings WHERE key = ?', (k,)).fetchone()
+        if not existing_setting:
+            db.execute('INSERT INTO saas_settings (key, value) VALUES (?, ?)', (k, v))
+    db.commit()
 
     existing = db.execute(
         'SELECT id FROM admin_users WHERE username = ?',
@@ -192,6 +212,55 @@ def init_db():
         db.execute("ALTER TABLE exams ADD COLUMN show_answers INTEGER DEFAULT 0")
         db.commit()
 
+    # Migrate: add max_exams column to admin_users if missing
+    try:
+        db.execute('SELECT max_exams FROM admin_users LIMIT 1')
+    except sqlite3.OperationalError:
+        db.execute("ALTER TABLE admin_users ADD COLUMN max_exams INTEGER DEFAULT 3")
+        db.commit()
+
+    # Migrate: add max_pdf_size column to admin_users if missing (default 1MB)
+    try:
+        db.execute('SELECT max_pdf_size FROM admin_users LIMIT 1')
+    except sqlite3.OperationalError:
+        db.execute("ALTER TABLE admin_users ADD COLUMN max_pdf_size INTEGER DEFAULT 1048576")
+        db.commit()
+
+    # Migrate: add whatsapp_number to admin_users if missing
+    try:
+        db.execute('SELECT whatsapp_number FROM admin_users LIMIT 1')
+    except sqlite3.OperationalError:
+        db.execute("ALTER TABLE admin_users ADD COLUMN whatsapp_number TEXT")
+        db.commit()
+
+    # Migrate: add status to admin_users if missing
+    try:
+        db.execute('SELECT status FROM admin_users LIMIT 1')
+    except sqlite3.OperationalError:
+        db.execute("ALTER TABLE admin_users ADD COLUMN status TEXT DEFAULT 'active'")
+        db.commit()
+
+    # Migrate: add otp_code to admin_users if missing
+    try:
+        db.execute('SELECT otp_code FROM admin_users LIMIT 1')
+    except sqlite3.OperationalError:
+        db.execute("ALTER TABLE admin_users ADD COLUMN otp_code TEXT")
+        db.commit()
+
+    # Migrate: add expires_at to admin_users if missing
+    try:
+        db.execute('SELECT expires_at FROM admin_users LIMIT 1')
+    except sqlite3.OperationalError:
+        db.execute("ALTER TABLE admin_users ADD COLUMN expires_at TIMESTAMP")
+        db.commit()
+
+    # Migrate: add otp_expiry to admin_users if missing
+    try:
+        db.execute('SELECT otp_expiry FROM admin_users LIMIT 1')
+    except sqlite3.OperationalError:
+        db.execute("ALTER TABLE admin_users ADD COLUMN otp_expiry TIMESTAMP")
+        db.commit()
+
     db.close()
 
 # Initialize database on module import (safely creates tables under Gunicorn)
@@ -202,6 +271,53 @@ except Exception as e:
 
 
 # ===== Helpers =====
+def get_saas_setting(key, default=''):
+    db = get_db()
+    row = db.execute('SELECT value FROM saas_settings WHERE key = ?', (key,)).fetchone()
+    db.close()
+    return row['value'] if row else default
+
+def set_saas_setting(key, value):
+    db = get_db()
+    db.execute('INSERT OR REPLACE INTO saas_settings (key, value) VALUES (?, ?)', (key, str(value)))
+    db.commit()
+    db.close()
+
+def send_whatsapp(target, message):
+    import urllib.request
+    import urllib.parse
+    import json
+    
+    token = get_saas_setting('wa_api_token', '')
+    if not token:
+        print(f"WhatsApp Token not configured. Message to {target}: {message}")
+        return False
+        
+    url = "https://api.fonnte.com/send"
+    
+    clean_target = ''.join(c for c in target if c.isdigit())
+    if clean_target.startswith('0'):
+        clean_target = '62' + clean_target[1:]
+        
+    data = urllib.parse.urlencode({
+        'target': clean_target,
+        'message': message,
+        'countryCode': '62'
+    }).encode('utf-8')
+    
+    req = urllib.request.Request(url, data=data)
+    req.add_header('Authorization', token)
+    
+    try:
+        with urllib.request.urlopen(req, timeout=10) as response:
+            res_data = response.read().decode('utf-8')
+            res_json = json.loads(res_data)
+            print(f"Fonnte Send WA Response: {res_json}")
+            return res_json.get('status', False)
+    except Exception as e:
+        print(f"Fonnte Send WA Exception: {e}")
+        return False
+
 def generate_token(length=6):
     """Generate a unique uppercase alphanumeric token."""
     chars = string.ascii_uppercase + string.digits
@@ -222,6 +338,19 @@ def admin_required(f):
             if request.is_json or request.path.startswith('/admin/api'):
                 return jsonify({'success': False, 'error': 'unauthorized'}), 401
             return redirect(url_for('admin_login'))
+        # Check account expiry (skip for super admin)
+        if session.get('admin_username') != 'admin':
+            db = get_db()
+            user = db.execute('SELECT expires_at FROM admin_users WHERE id = ?', (session['admin_id'],)).fetchone()
+            db.close()
+            if user and user['expires_at']:
+                expires_at = datetime.strptime(user['expires_at'], '%Y-%m-%d %H:%M:%S').replace(tzinfo=timezone.utc)
+                if datetime.now(timezone.utc) > expires_at:
+                    session.clear()
+                    if request.is_json or request.path.startswith('/admin/api'):
+                        return jsonify({'success': False, 'error': 'expired', 'message': 'Masa aktif akun Anda telah habis'}), 403
+                    flash('Masa aktif akun Anda telah habis. Silakan hubungi administrator.', 'error')
+                    return redirect(url_for('admin_login'))
         return f(*args, **kwargs)
     return decorated
 
@@ -424,7 +553,8 @@ def api_health():
     now = datetime.now(timezone.utc)
     return jsonify({
         'status': 'ok',
-        'version': '1.1',
+        'version': '2.0',
+        'required_app_version': '2.0.0',
         'lan_mode': True,
         'timestamp': now.isoformat(),
         'server_time_utc': now.strftime('%Y-%m-%dT%H:%M:%SZ')
@@ -469,6 +599,15 @@ def api_exams():
 @app.route('/api/exams/token/<token>')
 def api_exam_by_token(token):
     """Get exam info by token. Used by Android app."""
+    # Enforce version compatibility
+    client_version = request.headers.get('X-App-Version')
+    if client_version != '2.0.0':
+        return jsonify({
+            'success': False,
+            'error': 'upgrade_required',
+            'message': 'Versi aplikasi Anda usang (v1.x). Silakan unduh EXAMVAN v2.0.0 terbaru untuk dapat mengikuti ujian.'
+        }), 426
+
     token = token.strip().upper()
     db = get_db()
     exam = db.execute(
@@ -518,6 +657,15 @@ def api_exam_by_token(token):
 @app.route('/api/exams/<int:exam_id>/submit', methods=['POST'])
 def api_submit_exam(exam_id):
     """Receive student exam submissions and auto-grade if keys exist."""
+    # Enforce version compatibility
+    client_version = request.headers.get('X-App-Version')
+    if client_version != '2.0.0':
+        return jsonify({
+            'success': False,
+            'error': 'upgrade_required',
+            'message': 'Versi aplikasi Anda usang (v1.x). Silakan unduh EXAMVAN v2.0.0 terbaru untuk dapat mengumpulkan jawaban.'
+        }), 426
+
     data = request.json or {}
     student_name = data.get('student_name', '').strip()
     exam_number = data.get('exam_number', '').strip()
@@ -625,12 +773,31 @@ def admin_login():
         db = get_db()
         pw_hash = hashlib.sha256(password.encode()).hexdigest()
         user = db.execute(
-            'SELECT id, username FROM admin_users WHERE username = ? AND password_hash = ?',
+            'SELECT id, username, status FROM admin_users WHERE username = ? AND password_hash = ?',
             (username, pw_hash)
         ).fetchone()
         db.close()
 
         if user:
+            if user['status'] == 'pending_otp':
+                flash('Pendaftaran Anda membutuhkan konfirmasi OTP WhatsApp. Silakan verifikasi.', 'warning')
+                return redirect(url_for('verify_otp', username=user['username']))
+            elif user['status'] == 'suspended':
+                flash('Akun Anda telah dinonaktifkan oleh administrator.', 'error')
+                return redirect(url_for('admin_login'))
+
+            # Check account expiry (skip for super admin)
+            if user['username'] != 'admin':
+                db2 = get_db()
+                user_full = db2.execute('SELECT expires_at FROM admin_users WHERE id = ?', (user['id'],)).fetchone()
+                db2.close()
+                if user_full and user_full['expires_at']:
+                    from datetime import timedelta
+                    expires_at = datetime.strptime(user_full['expires_at'], '%Y-%m-%d %H:%M:%S').replace(tzinfo=timezone.utc)
+                    if datetime.now(timezone.utc) > expires_at:
+                        flash('Masa aktif akun Anda telah habis. Silakan hubungi administrator.', 'error')
+                        return redirect(url_for('admin_login'))
+
             session['admin_id'] = user['id']
             session['admin_username'] = user['username']
             return redirect(url_for('admin_dashboard'))
@@ -638,6 +805,174 @@ def admin_login():
             flash('Username atau password salah', 'error')
 
     return render_template('login.html')
+
+
+@app.route('/register', methods=['GET', 'POST'])
+def register():
+    """Register a new teacher account (SaaS)."""
+    if 'admin_id' in session:
+        return redirect(url_for('admin_dashboard'))
+
+    if request.method == 'POST':
+        username = request.form.get('username', '').strip().lower()
+        password = request.form.get('password', '')
+        whatsapp = request.form.get('whatsapp', '').strip()
+
+        if not username or not password or not whatsapp:
+            flash('Semua kolom wajib diisi', 'error')
+            return render_template('register.html')
+
+        if username == 'admin':
+            flash('Username "admin" tidak dapat digunakan', 'error')
+            return render_template('register.html')
+
+        if len(username) < 3 or not username.isalnum():
+            flash('Username minimal 3 karakter alfanumerik', 'error')
+            return render_template('register.html')
+
+        db = get_db()
+        existing = db.execute('SELECT id FROM admin_users WHERE username = ?', (username,)).fetchone()
+        if existing:
+            db.close()
+            flash('Username sudah digunakan', 'error')
+            return render_template('register.html')
+
+        pw_hash = hashlib.sha256(password.encode()).hexdigest()
+        
+        default_exams = int(get_saas_setting('default_max_exams', '3'))
+        default_pdf = int(get_saas_setting('default_max_pdf_size', '1048576'))
+        wa_enabled = get_saas_setting('wa_verification_enabled', '0') == '1'
+        
+        default_active_days = int(get_saas_setting('default_active_days', '1'))
+        from datetime import timedelta
+        expires_at = (datetime.now(timezone.utc) + timedelta(days=default_active_days)).strftime('%Y-%m-%d %H:%M:%S')
+
+        if wa_enabled:
+            otp = ''.join(random.choices(string.digits, k=6))
+            otp_expiry = (datetime.now(timezone.utc) + timedelta(minutes=5)).strftime('%Y-%m-%d %H:%M:%S')
+            
+            db.execute(
+                'INSERT INTO admin_users (username, password_hash, whatsapp_number, status, otp_code, otp_expiry, max_exams, max_pdf_size, expires_at) '
+                'VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)',
+                (username, pw_hash, whatsapp, 'pending_otp', otp, otp_expiry, default_exams, default_pdf, expires_at)
+            )
+            db.commit()
+            db.close()
+            
+            template = get_saas_setting('wa_otp_template', 'Kode OTP EXAMVAN Anda: {otp}. Berlaku selama 5 menit.')
+            message = template.replace('{otp}', otp)
+            send_whatsapp(whatsapp, message)
+            
+            flash('Registrasi berhasil! Masukkan kode OTP yang dikirim ke nomor WhatsApp Anda.', 'warning')
+            return redirect(url_for('verify_otp', username=username))
+        else:
+            db.execute(
+                'INSERT INTO admin_users (username, password_hash, whatsapp_number, status, max_exams, max_pdf_size, expires_at) '
+                'VALUES (?, ?, ?, ?, ?, ?, ?)',
+                (username, pw_hash, whatsapp, 'active', default_exams, default_pdf, expires_at)
+            )
+            db.commit()
+            db.close()
+            
+            flash('Registrasi berhasil! Silakan masuk dengan akun Anda.', 'success')
+            return redirect(url_for('admin_login'))
+
+    return render_template('register.html')
+
+
+@app.route('/verify-otp', methods=['GET', 'POST'])
+def verify_otp():
+    """Verify registration OTP code."""
+    username = request.args.get('username', '').strip().lower()
+    
+    if request.method == 'POST':
+        username = request.form.get('username', '').strip().lower()
+        otp_input = request.form.get('otp', '').strip()
+        
+        if not username or not otp_input:
+            flash('Semua kolom wajib diisi', 'error')
+            return render_template('verify_otp.html', username=username)
+            
+        db = get_db()
+        user = db.execute(
+            'SELECT id, otp_code, otp_expiry, whatsapp_number FROM admin_users WHERE username = ? AND status = ?',
+            (username, 'pending_otp')
+        ).fetchone()
+        
+        if not user:
+            db.close()
+            flash('Permintaan verifikasi tidak valid atau kedaluwarsa', 'error')
+            return redirect(url_for('admin_login'))
+            
+        if user['otp_code'] != otp_input:
+            db.close()
+            flash('Kode OTP yang Anda masukkan salah', 'error')
+            return render_template('verify_otp.html', username=username)
+            
+        now_str = datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S')
+        if user['otp_expiry'] < now_str:
+            otp = ''.join(random.choices(string.digits, k=6))
+            from datetime import timedelta
+            otp_expiry = (datetime.now(timezone.utc) + timedelta(minutes=5)).strftime('%Y-%m-%d %H:%M:%S')
+            
+            db.execute(
+                'UPDATE admin_users SET otp_code = ?, otp_expiry = ? WHERE id = ?',
+                (otp, otp_expiry, user['id'])
+            )
+            db.commit()
+            db.close()
+            
+            template = get_saas_setting('wa_otp_template', 'Kode OTP EXAMVAN Anda: {otp}. Berlaku selama 5 menit.')
+            message = template.replace('{otp}', otp)
+            send_whatsapp(user['whatsapp_number'], message)
+            
+            flash('Kode OTP telah kedaluwarsa. Kami telah mengirimkan kode OTP baru ke WhatsApp Anda.', 'warning')
+            return render_template('verify_otp.html', username=username)
+            
+        db.execute('UPDATE admin_users SET status = ?, otp_code = NULL, otp_expiry = NULL WHERE id = ?', ('active', user['id']))
+        db.commit()
+        db.close()
+        
+        flash('Verifikasi nomor WhatsApp berhasil! Akun Anda aktif. Silakan login.', 'success')
+        return redirect(url_for('admin_login'))
+        
+    return render_template('verify_otp.html', username=username)
+
+
+@app.route('/resend-otp', methods=['POST'])
+def resend_otp():
+    """Resend OTP code to user's registered WhatsApp number."""
+    username = request.form.get('username', '').strip().lower()
+    
+    if not username:
+        return jsonify({'success': False, 'message': 'Username wajib diisi'}), 400
+        
+    db = get_db()
+    user = db.execute(
+        'SELECT id, whatsapp_number FROM admin_users WHERE username = ? AND status = ?',
+        (username, 'pending_otp')
+    ).fetchone()
+    
+    if not user:
+        db.close()
+        return jsonify({'success': False, 'message': 'User tidak ditemukan atau sudah terverifikasi'}), 404
+        
+    otp = ''.join(random.choices(string.digits, k=6))
+    from datetime import timedelta
+    otp_expiry = (datetime.now(timezone.utc) + timedelta(minutes=5)).strftime('%Y-%m-%d %H:%M:%S')
+    
+    db.execute(
+        'UPDATE admin_users SET otp_code = ?, otp_expiry = ? WHERE id = ?',
+        (otp, otp_expiry, user['id'])
+    )
+    db.commit()
+    db.close()
+    
+    template = get_saas_setting('wa_otp_template', 'Kode OTP EXAMVAN Anda: {otp}. Berlaku selama 5 menit.')
+    message = template.replace('{otp}', otp)
+    send_whatsapp(user['whatsapp_number'], message)
+    
+    return jsonify({'success': True, 'message': 'Kode OTP baru berhasil dikirim via WhatsApp'})
 
 
 @app.route('/admin/logout')
@@ -680,6 +1015,17 @@ def admin_dashboard():
         
     net_info = get_network_info()
 
+    # Get per-user limits
+    if is_super_admin:
+        user_max_pdf = MAX_FILE_SIZE
+        user_max_exams = '∞'
+        account_expires = None
+    else:
+        user_row = db.execute('SELECT max_exams, max_pdf_size, expires_at FROM admin_users WHERE id = ?', (session['admin_id'],)).fetchone()
+        user_max_pdf = user_row['max_pdf_size'] if (user_row and user_row['max_pdf_size']) else 1048576
+        user_max_exams = user_row['max_exams'] if (user_row and user_row['max_exams']) else 3
+        account_expires = user_row['expires_at'] if user_row else None
+
     db.close()
     return render_template(
         'dashboard.html',
@@ -693,7 +1039,37 @@ def admin_dashboard():
         net_info=net_info,
         local_ip=net_info['display_host'],
         admin_user=session.get('admin_username', 'Admin'),
-        max_size_mb=MAX_FILE_SIZE // (1024 * 1024)
+        max_size_mb=round(user_max_pdf / (1024 * 1024), 1),
+        max_exams=user_max_exams,
+        account_expires=account_expires,
+        active_page='dashboard'
+    )
+
+@app.route('/admin/create-exam')
+@admin_required
+def admin_create_exam_page():
+    """Create exam page."""
+    db = get_db()
+    is_super_admin = (session.get('admin_username') == 'admin')
+    
+    if is_super_admin:
+        user_max_pdf = MAX_FILE_SIZE
+        user_max_exams = '∞'
+        account_expires = None
+    else:
+        user_row = db.execute('SELECT max_exams, max_pdf_size, expires_at FROM admin_users WHERE id = ?', (session['admin_id'],)).fetchone()
+        user_max_pdf = user_row['max_pdf_size'] if (user_row and user_row['max_pdf_size']) else 1048576
+        user_max_exams = user_row['max_exams'] if (user_row and user_row['max_exams']) else 3
+        account_expires = user_row['expires_at'] if user_row else None
+        
+    db.close()
+    return render_template(
+        'buat_ujian.html',
+        admin_user=session.get('admin_username', 'Admin'),
+        max_size_mb=round(user_max_pdf / (1024 * 1024), 1),
+        max_exams=user_max_exams,
+        account_expires=account_expires,
+        active_page='create_exam'
     )
 
 
@@ -720,12 +1096,36 @@ def admin_upload():
     if len(file_data) > MAX_FILE_SIZE:
         return jsonify({
             'success': False,
-            'message': f'Ukuran file melebihi batas {MAX_FILE_SIZE // (1024*1024)}MB'
+            'message': f'Ukuran file melebihi batas server ({MAX_FILE_SIZE // (1024*1024)}MB)'
         }), 400
 
-    custom_token = request.form.get('custom_token', '').strip().upper()
-
     db = get_db()
+    custom_token = request.form.get('custom_token', '').strip().upper()
+    
+    # Check per-user limits (for non-super admin users)
+    if session.get('admin_username') != 'admin':
+        user = db.execute('SELECT max_exams, max_pdf_size FROM admin_users WHERE id = ?', (session['admin_id'],)).fetchone()
+        exam_limit = user['max_exams'] if (user and user['max_exams'] is not None) else 3
+        pdf_limit = user['max_pdf_size'] if (user and user['max_pdf_size'] is not None) else 1048576
+        
+        # Check PDF size limit
+        if len(file_data) > pdf_limit:
+            pdf_limit_mb = round(pdf_limit / (1024 * 1024), 2)
+            db.close()
+            return jsonify({
+                'success': False, 
+                'message': f'Ukuran file melebihi batas akun Anda ({pdf_limit_mb}MB). Silakan hubungi Super Admin untuk menaikkan limit.'
+            }), 403
+        
+        # Check exam count limit
+        current_count = db.execute('SELECT COUNT(*) as count FROM exams WHERE created_by = ?', (session['admin_id'],)).fetchone()['count']
+        if current_count >= exam_limit:
+            db.close()
+            return jsonify({
+                'success': False, 
+                'message': f'Batas pembuatan ujian tercapai. Batas akun Anda adalah {exam_limit} ujian. Silakan hubungi Super Admin untuk menaikkan limit.'
+            }), 403
+
     if custom_token:
         if len(custom_token) != 6 or not custom_token.isalnum():
             db.close()
@@ -763,6 +1163,81 @@ def admin_upload():
         'message': f'Ujian "{name}" berhasil diupload dengan token: {token}',
         'token': token
     })
+
+
+@app.route('/admin/api/exams/create-from-editor', methods=['POST'])
+@admin_required
+def admin_create_exam_from_editor():
+    """Create an exam directly from the question editor with generated PDF."""
+    name = request.form.get('name', '').strip()
+    questions_json = request.form.get('questions_json', '[]')
+    custom_token = request.form.get('custom_token', '').strip().upper()
+    file = request.files.get('pdf_file')
+
+    if not name:
+        return jsonify({'success': False, 'message': 'Nama ujian wajib diisi'}), 400
+
+    if not file or file.filename == '':
+        return jsonify({'success': False, 'message': 'File PDF hasil generate wajib dikirim'}), 400
+
+    file_data = file.read()
+    if len(file_data) > MAX_FILE_SIZE:
+        return jsonify({'success': False, 'message': f'Ukuran file melebihi batas server ({MAX_FILE_SIZE // (1024*1024)}MB)'}), 400
+
+    db = get_db()
+    
+    # Check user limits (same logic as upload)
+    if session.get('admin_username') != 'admin':
+        user = db.execute('SELECT max_exams, max_pdf_size FROM admin_users WHERE id = ?', (session['admin_id'],)).fetchone()
+        exam_limit = user['max_exams'] if (user and user['max_exams'] is not None) else 3
+        pdf_limit = user['max_pdf_size'] if (user and user['max_pdf_size'] is not None) else 1048576
+        
+        if len(file_data) > pdf_limit:
+            pdf_limit_mb = round(pdf_limit / (1024 * 1024), 2)
+            db.close()
+            return jsonify({'success': False, 'message': f'Ukuran file melebihi batas akun Anda ({pdf_limit_mb}MB). Silakan hubungi Super Admin.'}), 403
+            
+        current_count = db.execute('SELECT COUNT(*) as count FROM exams WHERE created_by = ?', (session['admin_id'],)).fetchone()['count']
+        if current_count >= exam_limit:
+            db.close()
+            return jsonify({'success': False, 'message': f'Batas pembuatan ujian tercapai ({exam_limit} ujian). Silakan hubungi Super Admin.'}), 403
+
+    if custom_token:
+        if len(custom_token) != 6 or not custom_token.isalnum():
+            db.close()
+            return jsonify({'success': False, 'message': 'Token kustom harus terdiri dari 6 karakter alfanumerik'}), 400
+        existing = db.execute('SELECT id FROM exams WHERE token = ?', (custom_token,)).fetchone()
+        if existing:
+            db.close()
+            return jsonify({'success': False, 'message': 'Token kustom sudah digunakan oleh ujian lain'}), 400
+        token = custom_token
+    else:
+        token = generate_token()
+
+    # Save generated PDF file with secure name
+    timestamp = datetime.now(timezone.utc).strftime('%Y%m%d_%H%M%S')
+    filename = f"{timestamp}_editor_exam.pdf"
+    file_path = os.path.join(STORAGE_DIR, filename)
+
+    with open(file_path, 'wb') as f:
+        f.write(file_data)
+
+    # Insert into exams table
+    db.execute(
+        'INSERT INTO exams (name, file_path, size_bytes, token, questions_json, status, created_by) VALUES (?, ?, ?, ?, ?, ?, ?)',
+        (name, filename, len(file_data), token, questions_json, 'active', session['admin_id'])
+    )
+    db.commit()
+    db.close()
+
+    return jsonify({
+        'success': True,
+        'message': f'Ujian "{name}" berhasil dibuat dengan token: {token}',
+        'token': token
+    })
+
+
+
 
 
 
@@ -988,6 +1463,71 @@ def admin_delete_exam(exam_id):
     return jsonify({'success': True, 'message': 'Ujian berhasil dihapus'})
 
 
+@app.route('/admin/exams/bulk-delete', methods=['POST'])
+@admin_required
+def admin_bulk_delete_exams():
+    """Bulk delete exams."""
+    data = request.get_json() or {}
+    exam_ids = data.get('ids', [])
+    if not exam_ids:
+        return jsonify({'success': False, 'message': 'Tidak ada ujian yang dipilih'}), 400
+
+    db = get_db()
+    deleted_count = 0
+    for exam_id in exam_ids:
+        # Check ownership
+        if not check_exam_ownership(db, exam_id):
+            continue
+        
+        exam = db.execute('SELECT * FROM exams WHERE id = ?', (exam_id,)).fetchone()
+        if not exam:
+            continue
+
+        # Delete file from storage
+        file_path = os.path.join(STORAGE_DIR, exam['file_path'])
+        if os.path.exists(file_path):
+            try:
+                os.remove(file_path)
+            except Exception:
+                pass
+
+        # Delete from database
+        db.execute('DELETE FROM exams WHERE id = ?', (exam_id,))
+        deleted_count += 1
+
+    db.commit()
+    db.close()
+    return jsonify({'success': True, 'message': f'{deleted_count} ujian berhasil dihapus'})
+
+
+@app.route('/admin/exams/bulk-toggle', methods=['POST'])
+@admin_required
+def admin_bulk_toggle_exams():
+    """Bulk change exam status (active/inactive)."""
+    data = request.get_json() or {}
+    exam_ids = data.get('ids', [])
+    target_status = data.get('status', 'inactive')
+    
+    if not exam_ids:
+        return jsonify({'success': False, 'message': 'Tidak ada ujian yang dipilih'}), 400
+    if target_status not in ['active', 'inactive']:
+        return jsonify({'success': False, 'message': 'Status tidak valid'}), 400
+
+    db = get_db()
+    updated_count = 0
+    for exam_id in exam_ids:
+        # Check ownership
+        if not check_exam_ownership(db, exam_id):
+            continue
+        
+        db.execute('UPDATE exams SET status = ? WHERE id = ?', (target_status, exam_id))
+        updated_count += 1
+
+    db.commit()
+    db.close()
+    return jsonify({'success': True, 'message': f'Status {updated_count} ujian berhasil diperbarui ke {target_status}'})
+
+
 @app.route('/admin/api/exams/<int:exam_id>/regenerate-token', methods=['POST'])
 @admin_required
 def admin_regenerate_token(exam_id):
@@ -1120,29 +1660,67 @@ def admin_change_password():
     return jsonify({'success': True, 'message': 'Password berhasil diperbarui'})
 
 
+@app.route('/admin/users')
+@super_admin_required
+def admin_manage_users_page():
+    """HTML page for super admin to manage other users (teachers) and set limits."""
+    return render_template(
+        'users.html',
+        admin_user=session.get('admin_username', 'Admin'),
+        active_page='users'
+    )
+
+
 @app.route('/admin/api/users', methods=['GET'])
 @super_admin_required
 def admin_list_users():
-    """List all registered users (teachers)."""
+    """List all registered users (teachers) with exam count and limit."""
     db = get_db()
-    users = db.execute('SELECT id, username, created_at FROM admin_users ORDER BY username ASC').fetchall()
+    users = db.execute('SELECT id, username, whatsapp_number, status, max_exams, max_pdf_size, expires_at, created_at FROM admin_users ORDER BY username ASC').fetchall()
+    
+    user_list = []
+    for u in users:
+        # Count exams created by this user
+        count = db.execute('SELECT COUNT(*) as count FROM exams WHERE created_by = ?', (u['id'],)).fetchone()['count']
+        user_list.append({
+            'id': u['id'],
+            'username': u['username'],
+            'whatsapp_number': u['whatsapp_number'] or '',
+            'status': u['status'] or 'active',
+            'max_exams': u['max_exams'] if u['max_exams'] is not None else 3,
+            'max_pdf_size': u['max_pdf_size'] if u['max_pdf_size'] is not None else 1048576,
+            'expires_at': u['expires_at'] or '',
+            'exam_count': count,
+            'created_at': format_iso_utc(u['created_at'])
+        })
     db.close()
     return jsonify({
         'success': True,
-        'users': [
-            {'id': u['id'], 'username': u['username'], 'created_at': format_iso_utc(u['created_at'])}
-            for u in users
-        ]
+        'users': user_list
     })
 
 
 @app.route('/admin/api/users', methods=['POST'])
 @super_admin_required
 def admin_create_user():
-    """Create a new user (teacher)."""
+    """Create a new user (teacher) with exam limit."""
     data = request.json or {}
     username = data.get('username', '').strip().lower()
     password = data.get('password', '')
+    whatsapp = data.get('whatsapp_number', '').strip()
+    max_exams = data.get('max_exams', 3)
+    max_pdf_size_mb = data.get('max_pdf_size_mb', 1)
+
+    try:
+        max_exams = int(max_exams)
+    except (ValueError, TypeError):
+        max_exams = 3
+
+    try:
+        max_pdf_size_mb = float(max_pdf_size_mb)
+    except (ValueError, TypeError):
+        max_pdf_size_mb = 1
+    max_pdf_size = int(max_pdf_size_mb * 1024 * 1024)
 
     if not username or not password:
         return jsonify({'success': False, 'message': 'Username dan password wajib diisi'}), 400
@@ -1157,14 +1735,173 @@ def admin_create_user():
         return jsonify({'success': False, 'message': 'Username sudah digunakan'}), 400
 
     pw_hash = hashlib.sha256(password.encode()).hexdigest()
+    expires_at = data.get('expires_at', '').strip()
+    if not expires_at:
+        from datetime import timedelta
+        default_active_days = int(get_saas_setting('default_active_days', '1'))
+        expires_at = (datetime.now(timezone.utc) + timedelta(days=default_active_days)).strftime('%Y-%m-%d %H:%M:%S')
+
     db.execute(
-        'INSERT INTO admin_users (username, password_hash) VALUES (?, ?)',
-        (username, pw_hash)
+        'INSERT INTO admin_users (username, password_hash, whatsapp_number, status, max_exams, max_pdf_size, expires_at) VALUES (?, ?, ?, ?, ?, ?, ?)',
+        (username, pw_hash, whatsapp, 'active', max_exams, max_pdf_size, expires_at)
     )
     db.commit()
     db.close()
 
     return jsonify({'success': True, 'message': f'User "{username}" berhasil dibuat'})
+
+
+@app.route('/admin/api/users/<int:user_id>/edit', methods=['POST'])
+@super_admin_required
+def admin_edit_user(user_id):
+    """Edit user's max_exams limit, whatsapp, status, and optionally their password."""
+    data = request.json or {}
+    max_exams = data.get('max_exams')
+    max_pdf_size_mb = data.get('max_pdf_size_mb')
+    whatsapp = data.get('whatsapp_number')
+    status = data.get('status')
+    password = data.get('password', '').strip()
+
+    db = get_db()
+    user = db.execute('SELECT username FROM admin_users WHERE id = ?', (user_id,)).fetchone()
+    if not user:
+        db.close()
+        return jsonify({'success': False, 'message': 'User tidak ditemukan'}), 404
+
+    if user['username'] == 'admin':
+        db.close()
+        return jsonify({'success': False, 'message': 'Super Admin "admin" tidak dapat diubah limitnya'}), 400
+
+    if max_exams is not None:
+        try:
+            max_exams = int(max_exams)
+        except (ValueError, TypeError):
+            db.close()
+            return jsonify({'success': False, 'message': 'Limit ujian harus berupa angka valid'}), 400
+        db.execute('UPDATE admin_users SET max_exams = ? WHERE id = ?', (max_exams, user_id))
+
+    if max_pdf_size_mb is not None:
+        try:
+            max_pdf_size_mb = float(max_pdf_size_mb)
+        except (ValueError, TypeError):
+            db.close()
+            return jsonify({'success': False, 'message': 'Limit ukuran PDF harus berupa angka valid'}), 400
+        max_pdf_size = int(max_pdf_size_mb * 1024 * 1024)
+        db.execute('UPDATE admin_users SET max_pdf_size = ? WHERE id = ?', (max_pdf_size, user_id))
+
+    if whatsapp is not None:
+        db.execute('UPDATE admin_users SET whatsapp_number = ? WHERE id = ?', (whatsapp.strip(), user_id))
+
+    if status is not None:
+        if status in ['active', 'suspended', 'pending_otp']:
+            db.execute('UPDATE admin_users SET status = ? WHERE id = ?', (status, user_id))
+
+    if password:
+        pw_hash = hashlib.sha256(password.encode()).hexdigest()
+        db.execute('UPDATE admin_users SET password_hash = ? WHERE id = ?', (pw_hash, user_id))
+
+    if 'expires_at' in data:
+        exp_val = data.get('expires_at')
+        if exp_val:
+            if ' ' not in exp_val:
+                exp_val = f"{exp_val} 23:59:59"
+            db.execute('UPDATE admin_users SET expires_at = ? WHERE id = ?', (exp_val, user_id))
+        else:
+            db.execute('UPDATE admin_users SET expires_at = NULL WHERE id = ?', (user_id,))
+
+    db.commit()
+    db.close()
+
+    return jsonify({'success': True, 'message': f'Pengaturan user "{user["username"]}" berhasil diperbarui'})
+
+
+@app.route('/admin/api/users/<int:user_id>/verify', methods=['POST'])
+@super_admin_required
+def admin_verify_user_manual(user_id):
+    """Manually activate/verify a pending user."""
+    db = get_db()
+    user = db.execute('SELECT username, status FROM admin_users WHERE id = ?', (user_id,)).fetchone()
+    if not user:
+        db.close()
+        return jsonify({'success': False, 'message': 'User tidak ditemukan'}), 404
+        
+    db.execute('UPDATE admin_users SET status = ?, otp_code = NULL, otp_expiry = NULL WHERE id = ?', ('active', user_id))
+    db.commit()
+    db.close()
+    return jsonify({'success': True, 'message': f'User "{user["username"]}" berhasil diaktifkan secara manual'})
+
+
+@app.route('/admin/api/users/<int:user_id>/toggle-status', methods=['POST'])
+@super_admin_required
+def admin_toggle_user_status(user_id):
+    """Suspend or activate a user account."""
+    db = get_db()
+    user = db.execute('SELECT username, status FROM admin_users WHERE id = ?', (user_id,)).fetchone()
+    if not user:
+        db.close()
+        return jsonify({'success': False, 'message': 'User tidak ditemukan'}), 404
+        
+    if user['username'] == 'admin':
+        db.close()
+        return jsonify({'success': False, 'message': 'Status Super Admin "admin" tidak dapat diubah'}), 400
+        
+    new_status = 'suspended' if user['status'] == 'active' else 'active'
+    db.execute('UPDATE admin_users SET status = ? WHERE id = ?', (new_status, user_id))
+    db.commit()
+    db.close()
+    return jsonify({'success': True, 'message': f'Status user "{user["username"]}" berhasil diubah menjadi {new_status}'})
+
+
+@app.route('/admin/api/saas-settings', methods=['GET', 'POST'])
+@super_admin_required
+def admin_saas_settings():
+    """Get or update SaaS settings (WhatsApp verification gateway configs, default limits)."""
+    if request.method == 'POST':
+        data = request.json or {}
+        wa_enabled = '1' if data.get('wa_verification_enabled') else '0'
+        wa_token = data.get('wa_api_token', '').strip()
+        wa_template = data.get('wa_otp_template', '').strip()
+        default_exams = data.get('default_max_exams', '3')
+        default_pdf_size_mb = data.get('default_max_pdf_size_mb', '1')
+        default_active_days = data.get('default_active_days', '1')
+        
+        try:
+            default_exams = int(default_exams)
+        except (ValueError, TypeError):
+            default_exams = 3
+            
+        try:
+            default_pdf_size_mb = float(default_pdf_size_mb)
+        except (ValueError, TypeError):
+            default_pdf_size_mb = 1.0
+            
+        default_pdf_size = int(default_pdf_size_mb * 1024 * 1024)
+
+        try:
+            default_active_days = int(default_active_days)
+        except (ValueError, TypeError):
+            default_active_days = 1
+        
+        set_saas_setting('wa_verification_enabled', wa_enabled)
+        set_saas_setting('wa_api_token', wa_token)
+        if wa_template:
+            set_saas_setting('wa_otp_template', wa_template)
+        set_saas_setting('default_max_exams', str(default_exams))
+        set_saas_setting('default_max_pdf_size', str(default_pdf_size))
+        set_saas_setting('default_active_days', str(default_active_days))
+        
+        return jsonify({'success': True, 'message': 'Pengaturan SaaS berhasil diperbarui'})
+        
+    # GET settings
+    settings = {
+        'wa_verification_enabled': get_saas_setting('wa_verification_enabled', '0') == '1',
+        'wa_api_token': get_saas_setting('wa_api_token', ''),
+        'wa_otp_template': get_saas_setting('wa_otp_template', 'Kode OTP EXAMVAN Anda: {otp}. Berlaku selama 5 menit.'),
+        'default_max_exams': int(get_saas_setting('default_max_exams', '3')),
+        'default_max_pdf_size_mb': round(int(get_saas_setting('default_max_pdf_size', '1048576')) / (1024*1024), 2),
+        'default_active_days': int(get_saas_setting('default_active_days', '1'))
+    }
+    return jsonify({'success': True, 'settings': settings})
 
 
 @app.route('/admin/api/users/<int:user_id>', methods=['DELETE'])
@@ -1292,7 +2029,8 @@ def admin_submissions():
         submissions=submissions,
         exams=exams,
         local_ip=local_ip,
-        admin_user=session.get('admin_username', 'Admin')
+        admin_user=session.get('admin_username', 'Admin'),
+        active_page='submissions'
     )
 
 
@@ -2217,7 +2955,7 @@ if __name__ == '__main__':
 
     print(f"""
 ╔══════════════════════════════════════════════╗
-║           EXAMVAN Server v1.2.0              ║
+║           EXAMVAN Server v2.0.0              ║
 ╠══════════════════════════════════════════════╣
 ║  Local:   http://127.0.0.1:{port}              ║
 ║  LAN:     http://{local_ip}:{port}          ║

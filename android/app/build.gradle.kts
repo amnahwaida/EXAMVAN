@@ -11,8 +11,8 @@ android {
         applicationId = "com.examvan.app"
         minSdk = 21
         targetSdk = 34
-        versionCode = 2
-        versionName = "1.2.0"
+        versionCode = 20
+        versionName = "2.0.0"
     }
 
     signingConfigs {
@@ -69,6 +69,7 @@ android {
 
     buildFeatures {
         viewBinding = true
+        buildConfig = true
     }
 
     compileOptions {

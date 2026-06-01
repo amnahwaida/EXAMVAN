@@ -1,0 +1,197 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>EXAMVAN - Verifikasi WhatsApp OTP</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/admin.css') }}">
+    <style>
+        .otp-input-container {
+            display: flex;
+            justify-content: space-between;
+            gap: 8px;
+            margin-top: 10px;
+            margin-bottom: 20px;
+        }
+        .otp-input-field {
+            width: 100%;
+            height: 48px;
+            text-align: center;
+            font-size: 20px;
+            font-weight: 700;
+            color: var(--text-color);
+            background: rgba(255, 255, 255, 0.03);
+            border: 1px solid rgba(255, 255, 255, 0.08);
+            border-radius: 8px;
+            transition: all 0.3s;
+        }
+        .otp-input-field:focus {
+            outline: none;
+            border-color: var(--accent);
+            box-shadow: 0 0 10px rgba(99, 102, 241, 0.2);
+            background: rgba(255, 255, 255, 0.06);
+        }
+        .resend-btn {
+            background: none;
+            border: none;
+            color: var(--accent);
+            font-weight: 600;
+            font-size: 13px;
+            cursor: pointer;
+            padding: 0;
+            border-bottom: 1px dashed var(--accent);
+        }
+        .resend-btn:disabled {
+            color: var(--text-muted);
+            border-bottom: none;
+            cursor: not-allowed;
+        }
+    </style>
+</head>
+<body class="login-page">
+    <div class="login-bg">
+        <div class="login-orb login-orb-1"></div>
+        <div class="login-orb login-orb-2"></div>
+    </div>
+    <div class="login-container">
+        <div class="login-card">
+            <div class="login-header">
+                <div class="login-logo">📲</div>
+                <h1>Verifikasi OTP</h1>
+                <p class="login-subtitle">Masukkan 6 digit kode OTP WhatsApp untuk mengaktifkan akun guru <strong>{{ username }}</strong></p>
+            </div>
+            {% with messages = get_flashed_messages(with_categories=true) %}
+            {% if messages %}
+            <div class="flash-messages">
+                {% for category, message in messages %}
+                <div class="flash-msg flash-{{ category }}">{{ message }}</div>
+                {% endfor %}
+            </div>
+            {% endif %}
+            {% endwith %}
+            <form method="POST" action="{{ url_for('verify_otp') }}" class="login-form" id="otpForm">
+                <input type="hidden" name="username" value="{{ username }}">
+                <div class="form-group">
+                    <label>Kode OTP WhatsApp</label>
+                    <div class="otp-input-container">
+                        <input type="text" class="otp-input-field" maxlength="1" pattern="[0-9]" inputmode="numeric" required autofocus>
+                        <input type="text" class="otp-input-field" maxlength="1" pattern="[0-9]" inputmode="numeric" required>
+                        <input type="text" class="otp-input-field" maxlength="1" pattern="[0-9]" inputmode="numeric" required>
+                        <input type="text" class="otp-input-field" maxlength="1" pattern="[0-9]" inputmode="numeric" required>
+                        <input type="text" class="otp-input-field" maxlength="1" pattern="[0-9]" inputmode="numeric" required>
+                        <input type="text" class="otp-input-field" maxlength="1" pattern="[0-9]" inputmode="numeric" required>
+                    </div>
+                    <input type="hidden" name="otp" id="realOtp">
+                </div>
+                <button type="submit" class="btn-login" style="margin-top: 10px;">Verifikasi Akun</button>
+            </form>
+            <div style="text-align: center; margin-top: 25px;">
+                <p style="color: var(--text-secondary); font-size: 13px;">
+                    Tidak menerima kode? 
+                    <span id="countdownTimer" style="color: var(--text-muted);">Tunggu <strong id="secondsLeft">60</strong> detik</span>
+                    <button id="resendBtn" class="resend-btn" style="display: none;" onclick="resendOtpCode()">Kirim Ulang</button>
+                </p>
+            </div>
+            <div class="login-footer"><p>EXAMVAN v2.0.0</p></div>
+        </div>
+    </div>
+
+    <script>
+        const fields = document.querySelectorAll('.otp-input-field');
+        const realOtp = document.getElementById('realOtp');
+        const form = document.getElementById('otpForm');
+
+        fields.forEach((field, index) => {
+            field.addEventListener('input', (e) => {
+                if (e.target.value.length === 1 && index < fields.length - 1) {
+                    fields[index + 1].focus();
+                }
+                combineOtp();
+            });
+
+            field.addEventListener('keydown', (e) => {
+                if (e.key === 'Backspace' && e.target.value.length === 0 && index > 0) {
+                    fields[index - 1].focus();
+                }
+            });
+            
+            field.addEventListener('paste', (e) => {
+                const pasteData = e.clipboardData.getData('text');
+                if (pasteData.length === 6 && /^\d+$/.test(pasteData)) {
+                    fields.forEach((f, i) => {
+                        f.value = pasteData[i];
+                    });
+                    combineOtp();
+                    fields[5].focus();
+                }
+                e.preventDefault();
+            });
+        });
+
+        function combineOtp() {
+            let code = '';
+            fields.forEach(field => {
+                code += field.value;
+            });
+            realOtp.value = code;
+        }
+
+        form.addEventListener('submit', (e) => {
+            combineOtp();
+            if (realOtp.value.length !== 6) {
+                e.preventDefault();
+                alert('Silakan masukkan 6 digit kode OTP lengkap');
+            }
+        });
+
+        let seconds = 60;
+        const secondsLeft = document.getElementById('secondsLeft');
+        const countdownTimer = document.getElementById('countdownTimer');
+        const resendBtn = document.getElementById('resendBtn');
+
+        const interval = setInterval(() => {
+            seconds--;
+            secondsLeft.textContent = seconds;
+            if (seconds <= 0) {
+                clearInterval(interval);
+                countdownTimer.style.display = 'none';
+                resendBtn.style.display = 'inline-block';
+            }
+        }, 1000);
+
+        function resendOtpCode() {
+            resendBtn.disabled = true;
+            resendBtn.textContent = 'Mengirim...';
+            
+            const formData = new FormData();
+            formData.append('username', '{{ username }}');
+
+            fetch('/resend-otp', {
+                method: 'POST',
+                body: formData
+            })
+            .then(r => r.json())
+            .then(res => {
+                if (res.success) {
+                    alert(res.message);
+                    seconds = 60;
+                    secondsLeft.textContent = seconds;
+                    countdownTimer.style.display = 'inline-block';
+                    resendBtn.style.display = 'none';
+                    resendBtn.disabled = false;
+                    resendBtn.textContent = 'Kirim Ulang';
+                } else {
+                    alert('Gagal mengirim ulang: ' + res.message);
+                    resendBtn.disabled = false;
+                    resendBtn.textContent = 'Kirim Ulang';
+                }
+            })
+            .catch(() => {
+                alert('Gagal menghubungi server');
+                resendBtn.disabled = false;
+                resendBtn.textContent = 'Kirim Ulang';
+            });
+        }
+    </script>
+</body>
+</html>

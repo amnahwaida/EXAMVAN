@@ -60,7 +60,7 @@ Untuk komputer tablet atau handphone inventaris sekolah (bukan HP pribadi siswa)
 Untuk memulai ujian pada perangkat siswa, silakan unduh aplikasinya melalui tautan berikut:
 
 ### 🤖 Perangkat Android
-* **[Download EXAMVAN Android APK (v1.2.0)](./EXAMVAN.apk)** *(Telah diperbarui dengan build debug tertanda otomatis yang siap langsung dipasang di HP siswa tanpa kendala lisensi).*
+* **[Download EXAMVAN Android APK (v2.0.0)](./EXAMVAN.apk)** *(Telah diperbarui dengan build debug tertanda otomatis yang siap langsung dipasang di HP siswa tanpa kendala lisensi).*
 * **Alternative Build:** Anda juga dapat menggunakan berkas **[examvan-debug.apk](./examvan-debug.apk)** atau **[examvan-release.apk](./examvan-release.apk)** yang terletak di folder root.
 * **Kompatibilitas:** Minimal **Android 5.0 (Lollipop - API 21)** hingga versi terbaru (diuji hingga **Android 14/15 - API 34/35**). Kompatibel dengan >99% tipe perangkat Android aktif milik siswa.
 

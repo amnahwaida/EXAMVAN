@@ -1289,5 +1289,144 @@ function submitEditExam(event) {
     xhr.send(formData);
 }
 
+// Toggle Row Dropdown
+function toggleRowDropdown(event, examId) {
+    event.stopPropagation();
+    const dropdown = document.getElementById(`dropdown-content-${examId}`);
+    if (!dropdown) return;
+    
+    const isShown = dropdown.classList.contains('show');
+    
+    // Close all other dropdowns
+    document.querySelectorAll('.exam-action-dropdown-content').forEach(d => {
+        d.classList.remove('show');
+    });
+    
+    if (!isShown) {
+        dropdown.classList.add('show');
+    }
+}
+
+// Close dropdowns when clicking anywhere outside
+document.addEventListener('click', function() {
+    document.querySelectorAll('.exam-action-dropdown-content').forEach(d => {
+        d.classList.remove('show');
+    });
+});
+
+// Bulk Selection Functions
+function toggleSelectAllExams(masterCheckbox) {
+    const checkboxes = document.querySelectorAll('.exam-checkbox');
+    checkboxes.forEach(cb => {
+        cb.checked = masterCheckbox.checked;
+    });
+    updateBulkActions();
+}
+
+function updateBulkActions() {
+    const checkboxes = document.querySelectorAll('.exam-checkbox:checked');
+    const totalSelected = checkboxes.length;
+    
+    const bulkDeleteBtn = document.getElementById('bulkDeleteBtn');
+    const bulkToggleBtn = document.getElementById('bulkToggleBtn');
+    const bulkDeleteCount = document.getElementById('bulkDeleteCount');
+    const bulkToggleCount = document.getElementById('bulkToggleCount');
+    
+    if (totalSelected > 0) {
+        if (bulkDeleteBtn) {
+            bulkDeleteBtn.style.display = 'inline-flex';
+            bulkDeleteCount.textContent = totalSelected;
+        }
+        if (bulkToggleBtn) {
+            bulkToggleBtn.style.display = 'inline-flex';
+            bulkToggleCount.textContent = totalSelected;
+            
+            // Determine active/inactive mix
+            let hasActive = false;
+            checkboxes.forEach(cb => {
+                if (cb.getAttribute('data-status') === 'active') {
+                    hasActive = true;
+                }
+            });
+            bulkToggleBtn.innerHTML = hasActive ? `⏸️ Nonaktifkan Terpilih (${totalSelected})` : `▶️ Aktifkan Terpilih (${totalSelected})`;
+        }
+    } else {
+        if (bulkDeleteBtn) bulkDeleteBtn.style.display = 'none';
+        if (bulkToggleBtn) bulkToggleBtn.style.display = 'none';
+        
+        const selectAll = document.getElementById('selectAllExams');
+        if (selectAll) selectAll.checked = false;
+    }
+}
+
+async function bulkDeleteExams() {
+    const checkboxes = document.querySelectorAll('.exam-checkbox:checked');
+    if (checkboxes.length === 0) return;
+    
+    const ids = Array.from(checkboxes).map(cb => parseInt(cb.value));
+    const names = Array.from(checkboxes).map(cb => cb.getAttribute('data-name'));
+    
+    if (!confirm(`Apakah Anda yakin ingin menghapus ${ids.length} ujian berikut?\n- ${names.join('\n- ')}`)) {
+        return;
+    }
+    
+    try {
+        const response = await fetch('/admin/exams/bulk-delete', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({ ids: ids })
+        });
+        const res = await response.json();
+        if (res.success) {
+            showToast(res.message || `${ids.length} ujian berhasil dihapus`, 'success');
+            setTimeout(() => location.reload(), 1000);
+        } else {
+            showToast(res.message || 'Gagal menghapus ujian', 'error');
+        }
+    } catch (err) {
+        showToast('Gagal menghubungi server', 'error');
+    }
+}
+
+async function bulkToggleExams() {
+    const checkboxes = document.querySelectorAll('.exam-checkbox:checked');
+    if (checkboxes.length === 0) return;
+    
+    const ids = Array.from(checkboxes).map(cb => parseInt(cb.value));
+    
+    // Check if we should activate or deactivate. If any are active, we deactivate them all.
+    let targetStatus = 'inactive';
+    let hasActive = false;
+    checkboxes.forEach(cb => {
+        if (cb.getAttribute('data-status') === 'active') {
+            hasActive = true;
+        }
+    });
+    if (!hasActive) {
+        targetStatus = 'active';
+    }
+    
+    try {
+        const response = await fetch('/admin/exams/bulk-toggle', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({ ids: ids, status: targetStatus })
+        });
+        const res = await response.json();
+        if (res.success) {
+            showToast(res.message || `Status ${ids.length} ujian berhasil diperbarui`, 'success');
+            setTimeout(() => location.reload(), 1000);
+        } else {
+            showToast(res.message || 'Gagal mengubah status ujian', 'error');
+        }
+    } catch (err) {
+        showToast('Gagal menghubungi server', 'error');
+    }
+}
+
 
 

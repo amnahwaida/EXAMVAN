@@ -15,6 +15,7 @@ import androidx.appcompat.app.AppCompatActivity
 import com.examvan.app.api.ApiClient
 import com.examvan.app.databinding.ActivityServerConfigBinding
 import com.examvan.app.model.Exam
+import com.examvan.app.BuildConfig
 
 /**
  * Screen 1: Server & Token Configuration
@@ -107,8 +108,20 @@ class ServerConfigActivity : AppCompatActivity() {
         ApiClient.setBaseUrl(url)
         // First check server health
         ApiClient.checkHealth(
-            onSuccess = {
-                // If health is OK, validate token and fetch exam
+            onSuccess = { health ->
+                // Version check: compare app version with server's required version
+                val requiredVersion = health.required_app_version
+                val appVersion = BuildConfig.VERSION_NAME
+
+                if (requiredVersion != null && requiredVersion != appVersion) {
+                    runOnUiThread {
+                        setLoading(false)
+                        showError("Versi aplikasi tidak sesuai!\nAplikasi Anda: v$appVersion\nVersi yang dibutuhkan: v$requiredVersion\n\nSilakan update aplikasi EXAMVAN Anda ke versi terbaru.")
+                    }
+                    return@checkHealth
+                }
+
+                // If health is OK and version matches, validate token and fetch exam
                 ApiClient.getExamByToken(
                     token = token,
                     onSuccess = { response ->

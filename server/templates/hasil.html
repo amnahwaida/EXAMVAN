@@ -723,7 +723,6 @@
         </div>
     </header>
 
-    <!-- Main Content -->
     <main class="main">
         <!-- Exam Hero -->
         <section class="exam-hero">
@@ -763,12 +762,9 @@
         </section>
         {% else %}
         <!-- Tab Navigation -->
-        <div class="tab-nav">
+        <div class="tab-nav" id="tabNav" style="display: none;">
             <button class="tab-btn active" id="tabScores" onclick="switchTab('scores')">
                 📋 Daftar Nilai
-            </button>
-            <button class="tab-btn" id="tabAnswers" onclick="switchTab('answers')">
-                ✅ Jawaban & Koreksi
             </button>
             <button class="tab-btn" id="tabKeys" onclick="switchTab('keys')" style="display: none;">
                 🔑 Kunci Jawaban Ujian
@@ -781,11 +777,6 @@
                 <input type="text" class="search-input" id="searchInput" 
                        placeholder="🔍 Cari berdasarkan nama atau nomor ujian..." 
                        oninput="filterResults()">
-                <label class="toggle-switch" id="showAnswersToggle" style="display: none;">
-                    <input type="checkbox" id="toggleCorrectAnswers" onchange="toggleAnswerKeys()">
-                    <div class="toggle-slider"></div>
-                    <span class="toggle-label">Tampilkan Kunci Jawaban</span>
-                </label>
             </div>
         </section>
 
@@ -812,28 +803,6 @@
                             </tr>
                         </thead>
                         <tbody id="scoresBody">
-                            <!-- Filled via JS -->
-                        </tbody>
-                    </table>
-                </div>
-            </div>
-
-            <!-- Answers & Corrections Tab -->
-            <div id="answersContent" style="display: none;">
-                <div class="table-wrapper">
-                    <table class="results-table" id="answersTable">
-                        <thead>
-                            <tr>
-                                <th style="width: 50px;">#</th>
-                                <th>Nama Siswa</th>
-                                <th>No. Ujian</th>
-                                <th>Kelas</th>
-                                <th style="text-align: center;">Waktu Pengerjaan</th>
-                                <th style="text-align: center;">Nilai</th>
-                                <th style="width: 50px; text-align: center;">Detail</th>
-                            </tr>
-                        </thead>
-                        <tbody id="answersBody">
                             <!-- Filled via JS -->
                         </tbody>
                     </table>
@@ -961,26 +930,14 @@
                 document.getElementById('totalStudents').textContent = submissionsData.length;
 
                 renderScoresTable();
-                renderAnswersTable();
                 renderKeysGrid();
                 
                 document.getElementById('scoresContent').style.display = 'block';
                 
-                // Show answers toggle only for logged-in admin/guru
-                if (questionsData.length > 0 && isLoggedIn) {
-                    document.getElementById('showAnswersToggle').style.display = 'flex';
+                // Show tabNav and tabKeys strictly if server says show_answers is enabled
+                if (questionsData.length > 0 && showAnswersFromServer) {
+                    document.getElementById('tabNav').style.display = 'flex';
                     document.getElementById('tabKeys').style.display = 'flex';
-                }
-
-                // If server says show_answers is enabled, also show Keys tab for students
-                if (questionsData.length > 0 && showAnswersFromServer && !isLoggedIn) {
-                    document.getElementById('tabKeys').style.display = 'flex';
-                }
-
-                // If show_answers from server, auto-check the toggle for admin view
-                if (showAnswersFromServer && isLoggedIn) {
-                    const toggleEl = document.getElementById('toggleCorrectAnswers');
-                    if (toggleEl) toggleEl.checked = true;
                 }
 
             } catch (err) {
@@ -1025,6 +982,7 @@
                 tr.setAttribute('data-class', sub.student_class.toLowerCase());
                 tr.id = `scores-row-${sub.id}`;
                 tr.onclick = () => toggleDetailScores(sub.id);
+                tr.style.cursor = 'pointer';
 
                 const rank = idx + 1;
                 const rankClass = rank <= 3 ? `rank-${rank}` : '';
@@ -1064,57 +1022,26 @@
             });
         }
 
-        // ===== Render Answers Table =====
-        function renderAnswersTable() {
-            const tbody = document.getElementById('answersBody');
-            tbody.innerHTML = '';
-
-            submissionsData.forEach((sub, idx) => {
-                const rank = idx + 1;
-                const rankClass = rank <= 3 ? `rank-${rank}` : '';
-                const scoreClass = getScoreClass(sub.score, sub.max_score);
-                const scoreDisplay = sub.score !== null ? sub.score.toFixed(1) : '—';
-                const durationStr = getDurationString(sub.start_time, sub.created_at);
-
-                // Main row
-                const tr = document.createElement('tr');
-                tr.setAttribute('data-name', sub.student_name.toLowerCase());
-                tr.setAttribute('data-number', sub.exam_number.toLowerCase());
-                tr.setAttribute('data-class', sub.student_class.toLowerCase());
-                tr.onclick = () => toggleDetail(sub.id);
-                tr.id = `ans-row-${sub.id}`;
-
-                tr.innerHTML = `
-                    <td><span class="rank-num ${rankClass}">${rank}</span></td>
-                    <td>
-                        <div class="student-name">${escapeHtml(sub.student_name)}</div>
-                        <div class="student-class">${escapeHtml(sub.student_class)}</div>
-                    </td>
-                    <td><span class="student-number">${escapeHtml(sub.exam_number)}</span></td>
-                    <td>${escapeHtml(sub.student_class)}</td>
-                    <td style="text-align: center; font-size: 0.85rem; color: var(--text-secondary);">${durationStr}</td>
-                    <td style="text-align: center;">
-                        <span class="score-badge ${scoreClass}">${scoreDisplay}</span>
-                    </td>
-                    <td style="text-align: center;">
-                        <span class="expand-icon">▼</span>
-                    </td>
-                `;
-                tbody.appendChild(tr);
-
-                // Detail row
-                const detailTr = document.createElement('tr');
-                detailTr.className = 'detail-row';
-                detailTr.id = `detail-${sub.id}`;
-
-                const detailTd = document.createElement('td');
-                detailTd.colSpan = 7;
-                
-                const detailHtml = buildDetailContent(sub);
-                detailTd.innerHTML = `<div class="detail-content">${detailHtml}</div>`;
-                detailTr.appendChild(detailTd);
-                tbody.appendChild(detailTr);
-            });
+        // ===== Toggle Detail Scores =====
+        function toggleDetailScores(id) {
+            const detailRow = document.getElementById(`scores-detail-${id}`);
+            const mainRow = document.getElementById(`scores-row-${id}`);
+            
+            if (detailRow.classList.contains('show')) {
+                detailRow.classList.remove('show');
+                mainRow.classList.remove('expanded');
+                detailRow.style.display = 'none';
+            } else {
+                // Re-render to reflect current showCorrectAnswers state
+                const sub = submissionsData.find(s => s.id === id);
+                if (sub) {
+                    const detailHtml = buildDetailContent(sub);
+                    detailRow.querySelector('.detail-content').innerHTML = detailHtml;
+                }
+                detailRow.classList.add('show');
+                mainRow.classList.add('expanded');
+                detailRow.style.display = 'table-row';
+            }
         }
 
         // ===== Build Detail Content =====
@@ -1285,75 +1212,17 @@
             return { earned, statusText, statusClass };
         }
 
-        // ===== Toggle Detail =====
-        function toggleDetail(id) {
-            const detailRow = document.getElementById(`detail-${id}`);
-            const mainRow = document.getElementById(`ans-row-${id}`);
-            
-            if (detailRow.classList.contains('show')) {
-                detailRow.classList.remove('show');
-                mainRow.classList.remove('expanded');
-            } else {
-                // Re-render to reflect current showCorrectAnswers state
-                const sub = submissionsData.find(s => s.id === id);
-                if (sub) {
-                    const detailHtml = buildDetailContent(sub);
-                    detailRow.querySelector('.detail-content').innerHTML = detailHtml;
-                }
-                detailRow.classList.add('show');
-                mainRow.classList.add('expanded');
-            }
-        }
-
-        // ===== Toggle Detail Scores =====
-        function toggleDetailScores(id) {
-            const detailRow = document.getElementById(`scores-detail-${id}`);
-            const mainRow = document.getElementById(`scores-row-${id}`);
-            
-            if (detailRow.classList.contains('show')) {
-                detailRow.classList.remove('show');
-                mainRow.classList.remove('expanded');
-            } else {
-                // Re-render to reflect current showCorrectAnswers state
-                const sub = submissionsData.find(s => s.id === id);
-                if (sub) {
-                    const detailHtml = buildDetailContent(sub);
-                    detailRow.querySelector('.detail-content').innerHTML = detailHtml;
-                }
-                detailRow.classList.add('show');
-                mainRow.classList.add('expanded');
-            }
-        }
-
-        // ===== Toggle Answer Keys =====
-        function toggleAnswerKeys() {
-            showCorrectAnswers = document.getElementById('toggleCorrectAnswers').checked;
-            // Re-render all open detail rows
-            document.querySelectorAll('.detail-row.show').forEach(row => {
-                const idStr = row.id.replace('scores-detail-', '').replace('detail-', '');
-                const id = parseInt(idStr);
-                const sub = submissionsData.find(s => s.id === id);
-                if (sub) {
-                    row.querySelector('.detail-content').innerHTML = buildDetailContent(sub);
-                }
-            });
-        }
-
         // ===== Switch Tab =====
         function switchTab(tab) {
             currentTab = tab;
             document.getElementById('tabScores').classList.toggle('active', tab === 'scores');
-            document.getElementById('tabAnswers').classList.toggle('active', tab === 'answers');
             document.getElementById('tabKeys').classList.toggle('active', tab === 'keys');
             
             document.getElementById('scoresContent').style.display = tab === 'scores' ? 'block' : 'none';
-            document.getElementById('answersContent').style.display = tab === 'answers' ? 'block' : 'none';
             document.getElementById('keysContent').style.display = tab === 'keys' ? 'block' : 'none';
             
-            // Search / Answer Keys toggle visibility
+            // Search field visibility
             document.getElementById('searchInput').style.display = tab === 'keys' ? 'none' : 'block';
-            document.getElementById('showAnswersToggle').style.display = 
-                (tab === 'answers' && questionsData.length > 0) ? 'flex' : 'none';
         }
 
         // ===== Render Official Keys Grid =====
@@ -1421,8 +1290,7 @@
         // ===== Filter Results =====
         function filterResults() {
             const query = document.getElementById('searchInput').value.toLowerCase().trim();
-            const tableId = currentTab === 'scores' ? 'scoresBody' : 'answersBody';
-            const rows = document.querySelectorAll(`#${tableId} tr:not(.detail-row)`);
+            const rows = document.querySelectorAll('#scoresBody tr');
             let visibleCount = 0;
 
             rows.forEach(row => {
@@ -1431,21 +1299,6 @@
                 const cls = row.getAttribute('data-class') || '';
                 const match = !query || name.includes(query) || number.includes(query) || cls.includes(query);
                 row.style.display = match ? '' : 'none';
-                
-                // Also hide associated detail row
-                const prefix = currentTab === 'scores' ? 'scores-row-' : 'ans-row-';
-                const detailPrefix = currentTab === 'scores' ? 'scores-detail-' : 'detail-';
-                const id = row.id?.replace(prefix, '');
-                if (id) {
-                    const detail = document.getElementById(`${detailPrefix}${id}`);
-                    if (detail) {
-                        if (!match) {
-                            detail.classList.remove('show');
-                            row.classList.remove('expanded');
-                        }
-                        detail.style.display = match ? (detail.classList.contains('show') ? 'table-row' : 'none') : 'none';
-                    }
-                }
                 
                 if (match) visibleCount++;
             });

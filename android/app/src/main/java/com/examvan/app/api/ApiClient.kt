@@ -10,6 +10,8 @@ import java.io.FileOutputStream
 import java.io.IOException
 import java.util.concurrent.TimeUnit
 
+import com.examvan.app.BuildConfig
+
 /**
  * API client for communicating with the EXAMVAN server.
  * Configured with extended timeouts for slow LAN connections.
@@ -22,6 +24,13 @@ object ApiClient {
         .connectTimeout(15, TimeUnit.SECONDS)
         .readTimeout(60, TimeUnit.SECONDS)
         .writeTimeout(30, TimeUnit.SECONDS)
+        .addInterceptor { chain ->
+            val original = chain.request()
+            val request = original.newBuilder()
+                .header("X-App-Version", BuildConfig.VERSION_NAME)
+                .build()
+            chain.proceed(request)
+        }
         .build()
 
     private var baseUrl: String = ""

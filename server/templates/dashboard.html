@@ -13,17 +13,49 @@
             <span class="topbar-title">EXAMVAN</span>
             <span class="topbar-badge">Admin Panel</span>
             <div class="topbar-nav">
-                <a href="{{ url_for('admin_dashboard') }}" class="nav-link active">Daftar Ujian</a>
-                <a href="{{ url_for('admin_submissions') }}" class="nav-link">Hasil Ujian</a>
+                <a href="{{ url_for('admin_dashboard') }}" class="nav-link {% if active_page == 'dashboard' %}active{% endif %}">Daftar Ujian</a>
+                <a href="{{ url_for('admin_create_exam_page') }}" class="nav-link {% if active_page == 'create_exam' %}active{% endif %}">Buat Ujian</a>
+                <a href="{{ url_for('admin_submissions') }}" class="nav-link {% if active_page == 'submissions' %}active{% endif %}">Hasil Ujian</a>
+                {% if admin_user == 'admin' %}
+                <a href="{{ url_for('admin_manage_users_page') }}" class="nav-link {% if active_page == 'users' %}active{% endif %}">Kelola User</a>
+                {% endif %}
             </div>
         </div>
         <div class="topbar-right">
             <div class="topbar-menu-dropdown">
                 <button class="topbar-menu-toggle" id="menuToggleBtn">
                     <span class="menu-hamburger-icon">☰</span>
-                    <span>👤 {{ admin_user }}</span>
+                    <span class="toggle-user-name">👤 {{ admin_user }}</span>
                 </button>
                 <div class="topbar-dropdown-content" id="menuDropdownContent">
+                    <div class="dropdown-header mobile-only-header">
+                        <div style="display: flex; align-items: center; gap: 8px;">
+                            <div class="topbar-logo" style="width: 28px; height: 28px; font-size: 13px;">E</div>
+                            <span class="dropdown-user-title" style="font-size: 15px; font-weight: 700;">EXAMVAN</span>
+                        </div>
+                        <span class="dropdown-user-role" style="margin-left: 36px; margin-top: -4px;">Admin Panel</span>
+                    </div>
+                    <div class="dropdown-divider mobile-only-divider"></div>
+                    
+                    <!-- Mobile Navigation Links -->
+                    <div class="mobile-nav-links">
+                        <a href="{{ url_for('admin_dashboard') }}" class="dropdown-item {% if active_page == 'dashboard' %}active-dropdown-item{% endif %}">
+                            <span>📋</span> Daftar Ujian
+                        </a>
+                        <a href="{{ url_for('admin_create_exam_page') }}" class="dropdown-item {% if active_page == 'create_exam' %}active-dropdown-item{% endif %}">
+                            <span>✍️</span> Buat Ujian
+                        </a>
+                        <a href="{{ url_for('admin_submissions') }}" class="dropdown-item {% if active_page == 'submissions' %}active-dropdown-item{% endif %}">
+                            <span>📊</span> Hasil Ujian
+                        </a>
+                        {% if admin_user == 'admin' %}
+                        <a href="{{ url_for('admin_manage_users_page') }}" class="dropdown-item {% if active_page == 'users' %}active-dropdown-item{% endif %}">
+                            <span>👥</span> Kelola User
+                        </a>
+                        {% endif %}
+                        <div class="dropdown-divider"></div>
+                    </div>
+
                     <div class="dropdown-header">
                         <span class="dropdown-user-title">👤 {{ admin_user }}</span>
                         <span class="dropdown-user-role">{% if admin_user == 'admin' %}Super Admin{% else %}Guru/Pengajar{% endif %}</span>
@@ -33,9 +65,9 @@
                         <span>🔑</span> Ubah Password
                     </button>
                     {% if admin_user == 'admin' %}
-                    <button class="dropdown-item" onclick="openManageUsersModal()">
+                    <a href="{{ url_for('admin_manage_users_page') }}" class="dropdown-item desktop-only-item">
                         <span>👥</span> Kelola User
-                    </button>
+                    </a>
                     {% endif %}
                     <div class="dropdown-divider"></div>
                     <a href="{{ url_for('admin_logout') }}" class="dropdown-item dropdown-logout">
@@ -88,15 +120,15 @@
                     <span class="net-value" id="serverIp">{{ net_info.display_host }}</span>
                 </div>
                 <div class="net-item">
-                    <span class="net-label">API Endpoint</span>
-                    <span class="net-value">{{ net_info.api_endpoint }}/token/{TOKEN}</span>
+                    <span class="net-label">Max Ujian</span>
+                    <span class="net-value">{{ max_exams }}</span>
                 </div>
                 <div class="net-item">
-                    <span class="net-label">Protokol</span>
-                    {% if net_info.is_cloudflare %}
-                    <span class="net-value badge-https">{{ net_info.protocol }}</span>
+                    <span class="net-label">Masa Aktif</span>
+                    {% if account_expires %}
+                    <span class="net-value" id="expiryCountdown" data-expires="{{ account_expires }}" style="font-size: 13px; font-variant-numeric: tabular-nums;">⏳</span>
                     {% else %}
-                    <span class="net-value badge-http">{{ net_info.protocol }}</span>
+                    <span class="net-value badge-https">Selamanya</span>
                     {% endif %}
                 </div>
                 <div class="net-item">
@@ -108,43 +140,77 @@
 
         <!-- Upload Section -->
         <section class="upload-section glass-card">
-            <h3>📤 Upload Ujian Baru</h3>
-            <form id="uploadForm" class="upload-form" enctype="multipart/form-data">
-                <div class="form-row">
-                    <div class="form-group flex-1">
-                        <label for="examName">Nama Ujian</label>
-                        <input type="text" id="examName" name="name" placeholder="Contoh: UTS Matematika Kelas 10" required>
-                    </div>
-                    <div class="form-group flex-1">
-                        <label for="pdfFile">File PDF (max {{ max_size_mb }}MB)</label>
-                        <div class="file-input-wrapper">
-                            <input type="file" id="pdfFile" name="pdf_file" accept="application/pdf" required>
-                            <div class="file-input-display" id="fileDisplay">
-                                <span class="file-icon">📄</span>
-                                <span class="file-text">Pilih file PDF...</span>
+            <h3 style="margin-bottom: 16px;">📤 Tambah Ujian Baru</h3>
+            
+            <!-- Method Selector Buttons -->
+            <div class="method-selector" style="display: flex; gap: 12px; margin-bottom: 20px; border-bottom: 1px solid var(--glass-border); padding-bottom: 12px;">
+                <button type="button" class="btn-sm btn-toggle active" id="methodPdfBtn" onclick="switchMethod('pdf')" style="margin: 0; padding: 10px 16px; display: flex; align-items: center; gap: 8px; border-radius: 8px;">
+                    <span>📄</span> Upload File PDF Soal
+                </button>
+                <button type="button" class="btn-sm btn-toggle" id="methodCreateBtn" onclick="switchMethod('create')" style="margin: 0; padding: 10px 16px; display: flex; align-items: center; gap: 8px; border-radius: 8px;">
+                    <span>✍️</span> Tulis Soal Baru (Buat Ujian)
+                </button>
+            </div>
+
+            <!-- PDF Upload Form -->
+            <div id="methodPdfForm">
+                <form id="uploadForm" class="upload-form" enctype="multipart/form-data">
+                    <div class="form-row">
+                        <div class="form-group flex-1">
+                            <label for="examName">Nama Ujian</label>
+                            <input type="text" id="examName" name="name" placeholder="Contoh: UTS Matematika Kelas 10" required>
+                        </div>
+                        <div class="form-group flex-1">
+                            <label for="pdfFile">File PDF (max {{ max_size_mb }}MB)</label>
+                            <div class="file-input-wrapper">
+                                <input type="file" id="pdfFile" name="pdf_file" accept="application/pdf" required>
+                                <div class="file-input-display" id="fileDisplay">
+                                    <span class="file-icon">📄</span>
+                                    <span class="file-text">Pilih file PDF...</span>
+                                </div>
                             </div>
                         </div>
+                        <div class="form-group" style="flex: 0 0 220px;">
+                            <label for="customToken">Token Kustom <span style="font-size:11px; opacity:0.7;">(Opsional, 6 Kar)</span></label>
+                            <input type="text" id="customToken" name="custom_token" maxlength="6" minlength="6" placeholder="Contoh: MAT101" style="text-transform: uppercase;">
+                        </div>
                     </div>
-                    <div class="form-group" style="flex: 0 0 220px;">
-                        <label for="customToken">Token Kustom <span style="font-size:11px; opacity:0.7;">(Opsional, 6 Kar)</span></label>
-                        <input type="text" id="customToken" name="custom_token" maxlength="6" minlength="6" placeholder="Contoh: MAT101" style="text-transform: uppercase;">
+                    <div class="upload-progress" id="uploadProgress" style="display:none;">
+                        <div class="progress-bar"><div class="progress-fill" id="progressFill"></div></div>
+                        <span class="progress-text" id="progressText">0%</span>
                     </div>
-                </div>
-                <div class="upload-progress" id="uploadProgress" style="display:none;">
-                    <div class="progress-bar"><div class="progress-fill" id="progressFill"></div></div>
-                    <span class="progress-text" id="progressText">0%</span>
-                </div>
-                <button type="submit" class="btn-upload" id="btnUpload">
-                    <span>Upload Ujian</span>
-                </button>
-            </form>
+                    <button type="submit" class="btn-upload" id="btnUpload">
+                        <span>Upload Ujian</span>
+                    </button>
+                </form>
+            </div>
+
+            <!-- Write/Create Exam Form -->
+            <div id="methodCreateForm" style="display: none; padding: 20px; background: rgba(255,255,255,0.02); border-radius: 12px; border: 1px dashed rgba(255,255,255,0.1); text-align: center;">
+                <div style="font-size: 36px; margin-bottom: 12px;">✍️</div>
+                <h4 style="color: var(--text-primary); margin-bottom: 8px;">Tulis &amp; Rancang Soal Ujian Secara Interaktif</h4>
+                <p style="color: var(--text-muted); font-size: 13px; max-width: 600px; margin: 0 auto 16px;">
+                    Metode ini sangat cocok jika Anda tidak memiliki file PDF soal siap pakai. Anda dapat menulis pertanyaan, menetapkan opsi pilihan ganda A-E, Benar/Salah, atau Isian Singkat secara langsung, mengacak urutan, dan mengkonversinya menjadi lembar ujian PDF secara instan!
+                </p>
+                <a href="{{ url_for('admin_create_exam_page') }}" class="btn-upload" style="display: inline-flex; align-items: center; gap: 8px; text-decoration: none; width: auto; padding: 10px 24px; justify-content: center;">
+                    <span>Buka Editor Soal ✍️</span>
+                </a>
+            </div>
         </section>
 
         <!-- Exam Table -->
         <section class="exam-table-section glass-card">
             <div class="table-header">
-                <h3>📝 Daftar Ujian</h3>
-                <button class="btn-refresh" onclick="location.reload()">🔄 Refresh</button>
+                <h3>📋 Daftar Ujian</h3>
+                <div style="display: flex; gap: 8px; align-items: center;">
+                    <button class="btn-sm btn-delete" id="bulkDeleteBtn" onclick="bulkDeleteExams()" style="display: none; height: 32px;">
+                        🗑️ Hapus Terpilih (<span id="bulkDeleteCount">0</span>)
+                    </button>
+                    <button class="btn-sm btn-toggle" id="bulkToggleBtn" onclick="bulkToggleExams()" style="display: none; height: 32px;">
+                        ⏸️ Nonaktifkan Terpilih (<span id="bulkToggleCount">0</span>)
+                    </button>
+                    <button class="btn-refresh" onclick="location.reload()">🔄 Refresh</button>
+                </div>
             </div>
             {% if exams | length == 0 %}
             <div class="empty-state">
@@ -153,10 +219,13 @@
             </div>
             {% else %}
             <div class="table-responsive">
-                <table class="exam-table">
+                <table class="exam-table" id="examTable">
                     <thead>
                         <tr>
-                            <th>ID</th>
+                            <th style="width: 40px; text-align: center;">
+                                <input type="checkbox" id="selectAllExams" onchange="toggleSelectAllExams(this)" title="Pilih Semua" style="cursor: pointer; width: 16px; height: 16px; accent-color: var(--primary);">
+                            </th>
+                            <th style="width: 50px; text-align: center;">No</th>
                             <th>Nama Ujian</th>
                             {% if admin_user == 'admin' %}
                             <th>Pembuat</th>
@@ -171,15 +240,17 @@
                     <tbody>
                         {% for exam in exams %}
                         <tr id="exam-row-{{ exam.id }}">
-                            <td class="td-id">{{ exam.id }}</td>
-                            <td class="td-name">{{ exam.name }}</td>
+                            <td style="text-align: center;">
+                                <input type="checkbox" class="exam-checkbox" value="{{ exam.id }}" data-name="{{ exam.name }}" data-status="{{ exam.status }}" onchange="updateBulkActions()" style="cursor: pointer; width: 16px; height: 16px; accent-color: var(--primary);">
+                            </td>
+                            <td class="td-id" style="text-align: center; color: var(--text-muted);">{{ loop.index }}</td>
+                            <td class="td-name"><a href="{{ url_for('admin_submissions') }}?exam_id={{ exam.id }}" class="exam-link" title="Lihat Hasil Ujian">{{ exam.name }}</a></td>
                             {% if admin_user == 'admin' %}
                             <td><span style="font-weight: 600; color: var(--accent-light);">{{ exam.creator_name or 'admin' }}</span></td>
                             {% endif %}
                             <td class="td-token">
                                 <div class="token-group">
-                                    <code class="token-code" id="token-{{ exam.id }}">{{ exam.token or '—' }}</code>
-                                    <button class="btn-icon btn-copy" onclick="copyToken('{{ exam.token }}')" title="Salin Token">📋</button>
+                                    <code class="token-code" id="token-{{ exam.id }}" onclick="copyToken('{{ exam.token }}')" title="Klik untuk Salin Token">{{ exam.token or '—' }}</code>
                                     <button class="btn-icon btn-regen" onclick="regenerateToken({{ exam.id }})" title="Generate Token Baru">🔄</button>
                                     <button class="btn-icon btn-edit" onclick="openEditTokenModal({{ exam.id }}, '{{ exam.token }}')" title="Ubah Token Kustom">✏️</button>
                                     <button class="btn-icon btn-copy-link" onclick="copyResultsLink('{{ exam.token }}')" title="Salin Link Hasil Ujian (Siswa)">🔗</button>
@@ -193,36 +264,47 @@
                             </td>
                             <td class="td-date" data-utc="{{ exam.created_at }}">{{ exam.created_at }}</td>
                             <td class="td-actions">
-                                <a href="{{ url_for('admin_exam_pdf', exam_id=exam.id) }}" target="_blank" class="btn-sm btn-toggle" title="Lihat Soal PDF" style="text-decoration: none; display: inline-flex; align-items: center; justify-content: center; height: 32px; vertical-align: middle;">
-                                    👁️ Lihat PDF
-                                </a>
-                                <a href="{{ url_for('admin_exam_pdf', exam_id=exam.id) }}?download=1" class="btn-sm btn-questions" title="Download Soal PDF" style="text-decoration: none; display: inline-flex; align-items: center; justify-content: center; height: 32px; vertical-align: middle; background: rgba(59,130,246,0.15); border-color: rgba(59,130,246,0.3); color: #60a5fa;">
-                                    📥 Download PDF
-                                </a>
-                                <button class="btn-sm btn-questions" onclick="openQuestionsModal({{ exam.id }}, '{{ exam.name }}')" title="Konfigurasi Soal & Kunci Jawaban">
-                                    ⚙️ Atur Soal
-                                </button>
-                                <button class="btn-sm" onclick="openEditExamModal({{ exam.id }}, '{{ exam.name|escape }}')" title="Edit Nama & PDF Ujian" style="display: inline-flex; align-items: center; justify-content: center; height: 32px; vertical-align: middle; background: rgba(245, 158, 11, 0.15); border: 1px solid rgba(245, 158, 11, 0.3); color: #fbbf24; font-weight: 600; cursor: pointer; border-radius: 6px; padding: 0 10px;">
-                                    📝 Edit Ujian
-                                </button>
-                                <a href="{{ url_for('admin_submissions') }}?exam_id={{ exam.id }}" class="btn-sm btn-results" title="Lihat Hasil Ujian Siswa" style="text-decoration: none; display: inline-flex; align-items: center; justify-content: center; height: 32px; vertical-align: middle;">
-                                    📊 Hasil Ujian
-                                </a>
-                                <a href="{{ url_for('public_hasil', token=exam.token) }}" target="_blank" class="btn-sm btn-results" title="Lihat Link Hasil Publik Siswa" style="text-decoration: none; display: inline-flex; align-items: center; justify-content: center; height: 32px; vertical-align: middle; background: rgba(139, 92, 246, 0.15); border-color: rgba(139, 92, 246, 0.3); color: #c084fc;">
-                                    🔗 Halaman Siswa
-                                </a>
-                                <button class="btn-sm" id="btn-public-results-{{ exam.id }}" onclick="togglePublicResults({{ exam.id }})" title="Aktifkan/Nonaktifkan Halaman Hasil Siswa" style="display: inline-flex; align-items: center; justify-content: center; height: 32px; vertical-align: middle; background: {{ 'rgba(16, 185, 129, 0.15)' if exam.public_results == 1 or exam.public_results is none else 'rgba(239, 68, 68, 0.15)' }}; border: 1px solid {{ 'rgba(16, 185, 129, 0.3)' if exam.public_results == 1 or exam.public_results is none else 'rgba(239, 68, 68, 0.3)' }}; color: {{ '#34d399' if exam.public_results == 1 or exam.public_results is none else '#f87171' }}; font-weight: 600; cursor: pointer; border-radius: 6px; padding: 0 10px;">
-                                    {{ '🟢 Hal. Siswa Aktif' if exam.public_results == 1 or exam.public_results is none else '🔴 Hal. Siswa Nonaktif' }}
-                                </button>
-                                <button class="btn-sm" id="btn-show-answers-{{ exam.id }}" onclick="toggleShowAnswers({{ exam.id }})" title="Tampilkan/Sembunyikan Kunci Jawaban untuk Siswa" style="display: inline-flex; align-items: center; justify-content: center; height: 32px; vertical-align: middle; background: {{ 'rgba(251, 191, 36, 0.15)' if exam.show_answers == 1 else 'rgba(107, 114, 128, 0.15)' }}; border: 1px solid {{ 'rgba(251, 191, 36, 0.3)' if exam.show_answers == 1 else 'rgba(107, 114, 128, 0.3)' }}; color: {{ '#fbbf24' if exam.show_answers == 1 else '#9ca3af' }}; font-weight: 600; cursor: pointer; border-radius: 6px; padding: 0 10px;">
-                                    {{ '🔓 Kunci Terlihat' if exam.show_answers == 1 else '🔒 Kunci Tersembunyi' }}
-                                </button>
-                                <button class="btn-sm btn-toggle" onclick="toggleExam({{ exam.id }})">
-                                    {{ '⏸️ Nonaktifkan' if exam.status == 'active' else '▶️ Aktifkan' }}
-                                </button>
-                                <button class="btn-sm btn-delete" onclick="deleteExam({{ exam.id }}, '{{ exam.name }}')">
-                                    🗑️ Hapus
-                                </button>
+                                <div class="actions-group">
+                                    <!-- Primary Actions -->
+                                    <button class="btn-sm btn-questions" onclick="openQuestionsModal({{ exam.id }}, '{{ exam.name }}')" title="Konfigurasi Soal &amp; Kunci Jawaban" style="display: inline-flex; align-items: center; gap: 4px; height: 32px;">
+                                        ⚙️ Soal
+                                    </button>
+
+                                    <!-- Dropdown Menu for Secondary Actions -->
+                                    <div class="exam-action-dropdown">
+                                        <button class="btn-sm btn-more" onclick="toggleRowDropdown(event, {{ exam.id }})" title="Menu Tindakan Lainnya" style="display: inline-flex; align-items: center; gap: 4px; height: 32px;">
+                                            🛠️ Menu ▾
+                                        </button>
+                                        <div class="exam-action-dropdown-content" id="dropdown-content-{{ exam.id }}">
+                                            <a href="{{ url_for('admin_exam_pdf', exam_id=exam.id) }}" target="_blank">
+                                                <span>👁️</span> Lihat PDF
+                                            </a>
+                                            <a href="{{ url_for('admin_exam_pdf', exam_id=exam.id) }}?download=1">
+                                                <span>📥</span> Download PDF
+                                            </a>
+                                            <button onclick="openEditExamModal({{ exam.id }}, '{{ exam.name|escape }}')">
+                                                <span>📝</span> Edit Nama & PDF
+                                            </button>
+                                            <a href="{{ url_for('public_hasil', token=exam.token) }}" target="_blank">
+                                                <span>🔗</span> Halaman Siswa
+                                            </a>
+                                            <button id="btn-public-results-{{ exam.id }}" onclick="togglePublicResults({{ exam.id }})">
+                                                {% if exam.public_results == 1 or exam.public_results is none %}
+                                                <span>🟢</span> Halaman Siswa Aktif
+                                                {% else %}
+                                                <span>🔴</span> Halaman Siswa Nonaktif
+                                                {% endif %}
+                                            </button>
+                                            <button id="btn-show-answers-{{ exam.id }}" onclick="toggleShowAnswers({{ exam.id }})">
+                                                {% if exam.show_answers == 1 %}
+                                                <span>🔓</span> Kunci Terlihat
+                                                {% else %}
+                                                <span>🔒</span> Kunci Tersembunyi
+                                                {% endif %}
+                                            </button>
+                                        </div>
+                                    </div>
+                                </div>
                             </td>
                         </tr>
                         {% endfor %}
@@ -337,52 +419,7 @@
         </div>
     </div>
 
-    <!-- Modal Kelola User (Super Admin Only) -->
-    {% if admin_user == 'admin' %}
-    <div class="modal-overlay" id="manageUsersModal">
-        <div class="modal-card glass-card" style="max-width: 540px;">
-            <div class="modal-header">
-                <h3>👥 Kelola User (Guru / Pembuat Soal)</h3>
-                <button class="modal-close" onclick="closeManageUsersModal()">✕</button>
-            </div>
-            <div class="modal-body">
-                <div style="border-bottom: 1px solid rgba(255,255,255,0.08); padding-bottom: 20px; margin-bottom: 20px;">
-                    <h4 style="margin-top:0; margin-bottom:12px; color:var(--text-color); font-size: 14px;">➕ Tambah User Baru</h4>
-                    <form id="createUserForm" onsubmit="submitCreateUser(event)" style="display:flex; flex-direction:column; gap:12px;">
-                        <div style="display:flex; gap:12px;">
-                            <div class="form-group" style="flex:1; margin-bottom: 0;">
-                                <label for="newUsername">Username</label>
-                                <input type="text" id="newUsername" required placeholder="Contoh: pak_budi" minlength="3">
-                            </div>
-                            <div class="form-group" style="flex:1; margin-bottom: 0;">
-                                <label for="newUserPassword">Password</label>
-                                <input type="password" id="newUserPassword" required placeholder="Password awal" minlength="4">
-                            </div>
-                        </div>
-                        <button type="submit" class="btn-upload" style="align-self: flex-end; padding: 0 20px; height: 36px; font-size: 13px;">➕ Tambah User</button>
-                    </form>
-                </div>
-                <div>
-                    <h4 style="margin-top:0; margin-bottom:12px; color:var(--text-color); font-size: 14px;">📋 Daftar User Terdaftar</h4>
-                    <div style="max-height: 250px; overflow-y: auto;">
-                        <table class="exam-table" style="font-size: 13px;">
-                            <thead>
-                                <tr>
-                                    <th>Username</th>
-                                    <th>Terdaftar</th>
-                                    <th>Aksi</th>
-                                </tr>
-                            </thead>
-                            <tbody id="usersListBody">
-                                <tr><td colspan="3" style="text-align:center; padding: 20px; color: var(--text-secondary);">Memuat...</td></tr>
-                            </tbody>
-                        </table>
-                    </div>
-                </div>
-            </div>
-        </div>
-    </div>
-    {% endif %}
+
     <!-- Modal Edit Ujian -->
     <div class="modal-overlay" id="editExamModal">
         <div class="modal-card glass-card" style="max-width: 480px;">
@@ -421,5 +458,64 @@
     <div class="toast-container" id="toastContainer"></div>
 
     <script src="{{ url_for('static', filename='js/admin.js') }}"></script>
+    <script>
+    (function() {
+        const el = document.getElementById('expiryCountdown');
+        if (!el) return;
+        const expiresStr = el.dataset.expires;
+        if (!expiresStr) return;
+        const expiresDate = new Date(expiresStr.replace(' ', 'T') + 'Z');
+
+        function updateCountdown() {
+            const now = new Date();
+            const diff = expiresDate - now;
+            if (diff <= 0) {
+                el.textContent = '⛔ Expired';
+                el.style.color = '#f87171';
+                return;
+            }
+            const d = Math.floor(diff / 86400000);
+            const h = Math.floor((diff % 86400000) / 3600000);
+            const m = Math.floor((diff % 3600000) / 60000);
+            const s = Math.floor((diff % 60000) / 1000);
+
+            let parts = [];
+            if (d > 0) parts.push(d + 'h');
+            parts.push(String(h).padStart(2,'0') + 'j');
+            parts.push(String(m).padStart(2,'0') + 'm');
+            parts.push(String(s).padStart(2,'0') + 'd');
+            el.textContent = parts.join(' ');
+
+            if (d === 0 && h < 6) {
+                el.style.color = '#f87171';
+            } else if (d === 0) {
+                el.style.color = '#fbbf24';
+            } else {
+                el.style.color = '#34d399';
+            }
+        }
+        updateCountdown();
+        setInterval(updateCountdown, 1000);
+    })();
+
+    function switchMethod(method) {
+        const pdfBtn = document.getElementById('methodPdfBtn');
+        const createBtn = document.getElementById('methodCreateBtn');
+        const pdfForm = document.getElementById('methodPdfForm');
+        const createForm = document.getElementById('methodCreateForm');
+
+        if (method === 'pdf') {
+            pdfBtn.classList.add('active');
+            createBtn.classList.remove('active');
+            pdfForm.style.display = 'block';
+            createForm.style.display = 'none';
+        } else {
+            pdfBtn.classList.remove('active');
+            createBtn.classList.add('active');
+            pdfForm.style.display = 'none';
+            createForm.style.display = 'block';
+        }
+    }
+    </script>
 </body>
 </html>
