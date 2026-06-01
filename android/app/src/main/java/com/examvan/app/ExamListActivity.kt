@@ -37,10 +37,10 @@ class ExamListActivity : AppCompatActivity() {
         window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
 
         // Clear clipboard for security
-        val clipboard = getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
         try {
-            clipboard.clearPrimaryClip()
-        } catch (_: Exception) { }
+            val clipboard = getSystemService(Context.CLIPBOARD_SERVICE) as? ClipboardManager
+            clipboard?.clearPrimaryClip()
+        } catch (_: Throwable) { }
 
         binding = ActivityExamListBinding.inflate(layoutInflater)
         setContentView(binding.root)

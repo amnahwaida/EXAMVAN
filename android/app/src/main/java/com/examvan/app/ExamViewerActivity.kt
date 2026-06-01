@@ -79,8 +79,10 @@ class ExamViewerActivity : AppCompatActivity() {
         window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
 
         // Clear clipboard
-        val clipboard = getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
-        try { clipboard.clearPrimaryClip() } catch (_: Exception) { }
+        try {
+            val clipboard = getSystemService(Context.CLIPBOARD_SERVICE) as? ClipboardManager
+            clipboard?.clearPrimaryClip()
+        } catch (_: Throwable) { }
 
         binding = ActivityExamViewerBinding.inflate(layoutInflater)
         setContentView(binding.root)
@@ -196,7 +198,7 @@ class ExamViewerActivity : AppCompatActivity() {
                 } else {
                     buildAnswerSheet()
                 }
-            } catch (e: Exception) {
+            } catch (e: Throwable) {
                 // Fallback: generate 40 default MC questions
                 generateDefaultQuestions()
             }
@@ -796,25 +798,27 @@ class ExamViewerActivity : AppCompatActivity() {
         // 1. Try reading network interfaces for wlan0
         try {
             val interfaces = java.util.Collections.list(java.net.NetworkInterface.getNetworkInterfaces())
-            for (networkInterface in interfaces) {
-                if (networkInterface.name.equals("wlan0", ignoreCase = true)) {
-                    val macBytes = networkInterface.hardwareAddress
-                    if (macBytes != null) {
-                        val res = StringBuilder()
-                        for (b in macBytes) {
-                            res.append(String.format("%02X:", b))
-                        }
-                        if (res.length > 0) {
-                            res.deleteCharAt(res.length - 1)
-                        }
-                        val mac = res.toString()
-                        if (mac.isNotEmpty() && !mac.equals("02:00:00:00:00:00", ignoreCase = true)) {
-                            return mac
+            if (interfaces != null) {
+                for (networkInterface in interfaces) {
+                    if (networkInterface != null && networkInterface.name.equals("wlan0", ignoreCase = true)) {
+                        val macBytes = networkInterface.hardwareAddress
+                        if (macBytes != null) {
+                            val res = StringBuilder()
+                            for (b in macBytes) {
+                                res.append(String.format("%02X:", b))
+                            }
+                            if (res.length > 0) {
+                                res.deleteCharAt(res.length - 1)
+                            }
+                            val mac = res.toString()
+                            if (mac.isNotEmpty() && !mac.equals("02:00:00:00:00:00", ignoreCase = true)) {
+                                return mac
+                            }
                         }
                     }
                 }
             }
-        } catch (_: Exception) {}
+        } catch (_: Throwable) {}
 
         // 2. Fallback to Settings.Secure.ANDROID_ID
         try {
@@ -822,7 +826,7 @@ class ExamViewerActivity : AppCompatActivity() {
             if (!androidId.isNullOrEmpty()) {
                 return "ID:$androidId"
             }
-        } catch (_: Exception) {}
+        } catch (_: Throwable) {}
 
         return "UNKNOWN"
     }
