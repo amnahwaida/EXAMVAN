@@ -827,13 +827,19 @@ body {
         margin-right: 8px;
     }
     /* Hide the checkbox column label on mobile */
-    .exam-table td:first-child::before { content: ''; min-width: 0; }
-    .exam-table td:first-child {
+    .exam-table.table-with-checkbox td:first-child::before { content: ''; min-width: 0; }
+    .exam-table.table-with-checkbox td:first-child {
         position: absolute;
         top: 14px;
         right: 14px;
         width: auto;
         padding: 0;
+    }
+
+    /* Align action buttons left on mobile for tables without labels like the users table */
+    .exam-table td[data-label=""] > div {
+        justify-content: flex-start !important;
+        margin-top: 8px;
     }
 
     /* Token group on mobile */
