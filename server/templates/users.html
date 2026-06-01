@@ -240,6 +240,17 @@
                             </div>
                         </div>
 
+                        <div class="form-row-2col">
+                            <div class="form-group">
+                                <label for="defaultDraftsInput">Default Maks Draf</label>
+                                <input type="number" id="defaultDraftsInput" required min="1" value="2">
+                            </div>
+                            <div class="form-group">
+                                <label for="defaultDraftSizeInput">Default Ukuran Draf (MB)</label>
+                                <input type="number" id="defaultDraftSizeInput" required min="0.1" step="0.1" value="1.0">
+                            </div>
+                        </div>
+
                         <div style="border-top: 1px solid var(--glass-border); margin-top: 16px; padding-top: 16px; margin-bottom: 6px;">
                             <h4 style="margin: 0; font-size: 0.85rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px; color: var(--accent-light); display: flex; align-items: center; gap: 6px;">
                                 <span>📱</span> Versi Aplikasi
@@ -289,6 +300,16 @@
                             <div class="form-group">
                                 <label for="pdfSizeInput">Limit PDF (MB)</label>
                                 <input type="number" id="pdfSizeInput" required value="0.5" min="0.1" step="0.1">
+                            </div>
+                        </div>
+                        <div class="form-row-2col">
+                            <div class="form-group">
+                                <label for="draftLimitInput">Limit Draft</label>
+                                <input type="number" id="draftLimitInput" required value="2" min="1">
+                            </div>
+                            <div class="form-group">
+                                <label for="draftSizeInput">Limit Ukuran Draft (MB)</label>
+                                <input type="number" id="draftSizeInput" required value="1.0" min="0.1" step="0.1">
                             </div>
                         </div>
                         <div class="form-group">
@@ -379,6 +400,16 @@
                             <input type="number" id="editPdfSizeInput" required min="0.1" step="0.1">
                         </div>
                     </div>
+                    <div class="form-row-2col">
+                        <div class="form-group">
+                            <label for="editDraftLimitInput">Limit Draft</label>
+                            <input type="number" id="editDraftLimitInput" required min="1">
+                        </div>
+                        <div class="form-group">
+                            <label for="editDraftSizeInput">Limit Ukuran Draft (MB)</label>
+                            <input type="number" id="editDraftSizeInput" required min="0.1" step="0.1">
+                        </div>
+                    </div>
                     <div class="form-group">
                         <label>Masa Aktif Akun <span style="font-size: 11px; opacity: 0.7;">(Kosongkan untuk tanpa batas)</span></label>
                         <div class="datetime-row">
@@ -437,6 +468,8 @@
         function resetNewUserFormDefaults() {
             document.getElementById('limitInput').value = '1';
             document.getElementById('pdfSizeInput').value = '0.5';
+            document.getElementById('draftLimitInput').value = '2';
+            document.getElementById('draftSizeInput').value = '1.0';
             
             const tomorrow = new Date();
             tomorrow.setDate(tomorrow.getDate() + 1);
@@ -481,6 +514,8 @@
                         document.getElementById('waTemplateInput').value = s.wa_otp_template;
                         document.getElementById('defaultExamsInput').value = s.default_max_exams;
                         document.getElementById('defaultPdfInput').value = s.default_max_pdf_size_mb;
+                        document.getElementById('defaultDraftsInput').value = s.default_max_drafts || 2;
+                        document.getElementById('defaultDraftSizeInput').value = s.default_max_draft_size_mb || 1.0;
                         document.getElementById('defaultActiveDaysInput').value = s.default_active_days || 1;
                         document.getElementById('androidVersionInput').value = s.android_version || '2.0.0';
                         document.getElementById('webappVersionInput').value = s.webapp_version || '2.0.0';
@@ -497,6 +532,8 @@
             const wa_otp_template = document.getElementById('waTemplateInput').value.trim();
             const default_max_exams = parseInt(document.getElementById('defaultExamsInput').value);
             const default_max_pdf_size_mb = parseFloat(document.getElementById('defaultPdfInput').value);
+            const default_max_drafts = parseInt(document.getElementById('defaultDraftsInput').value);
+            const default_max_draft_size_mb = parseFloat(document.getElementById('defaultDraftSizeInput').value);
             const default_active_days = parseInt(document.getElementById('defaultActiveDaysInput').value);
             const android_version = document.getElementById('androidVersionInput').value.trim();
             const webapp_version = document.getElementById('webappVersionInput').value.trim();
@@ -510,6 +547,8 @@
                     wa_otp_template,
                     default_max_exams,
                     default_max_pdf_size_mb,
+                    default_max_drafts,
+                    default_max_draft_size_mb,
                     default_active_days,
                     android_version,
                     webapp_version
@@ -594,7 +633,7 @@
                         actionHtml = `
                             <div style="display:flex;gap:8px;justify-content:flex-end;">
                                 ${extraButtons}
-                                <button class="btn-sm btn-questions" onclick="openEditUserModal(${u.id},'${u.username}', '${u.whatsapp_number}', '${u.status}', ${u.max_exams}, ${pdfMb}, '${u.expires_at || ''}')" style="background:rgba(99,102,241,0.15);border-color:rgba(99,102,241,0.3);color:#a5b4fc;height:30px;padding:0 12px;">✏️ Edit</button>
+                                <button class="btn-sm btn-questions" onclick="openEditUserModal(${u.id},'${u.username}', '${u.whatsapp_number}', '${u.status}', ${u.max_exams}, ${pdfMb}, ${u.max_drafts}, ${(u.max_draft_size / (1024*1024)).toFixed(1)}, '${u.expires_at || ''}')" style="background:rgba(99,102,241,0.15);border-color:rgba(99,102,241,0.3);color:#a5b4fc;height:30px;padding:0 12px;">✏️ Edit</button>
                                 <button class="btn-sm btn-delete" onclick="deleteUser(${u.id},'${u.username}')" style="height:30px;padding:0 10px;">🗑️ Hapus</button>
                             </div>
                         `;
@@ -630,6 +669,8 @@
             const whatsapp_number = document.getElementById('whatsappInput').value.trim();
             const max_exams = parseInt(document.getElementById('limitInput').value);
             const max_pdf_size_mb = parseFloat(document.getElementById('pdfSizeInput').value);
+            const max_drafts = parseInt(document.getElementById('draftLimitInput').value);
+            const max_draft_size_mb = parseFloat(document.getElementById('draftSizeInput').value);
             const expDate = document.getElementById('newUserExpiry').value;
             const expTime = document.getElementById('newUserExpiryTime').value || '23:59';
             
@@ -643,7 +684,7 @@
             if (!username || !password) { showToast('Semua kolom wajib diisi','error'); return; }
             fetch('/admin/api/users', {
                 method: 'POST', headers: {'Content-Type':'application/json'},
-                body: JSON.stringify({ username, password, whatsapp_number, max_exams, max_pdf_size_mb, expires_at })
+                body: JSON.stringify({ username, password, whatsapp_number, max_exams, max_pdf_size_mb, max_drafts, max_draft_size_mb, expires_at })
             }).then(r=>r.json()).then(res => {
                 if (res.success) { 
                     showToast(res.message,'success'); 
@@ -676,13 +717,15 @@
             .catch(() => showToast('Gagal merubah status user', 'error'));
         }
 
-        function openEditUserModal(id, username, whatsapp, status, maxExams, pdfSizeMb, expiresAt) {
+        function openEditUserModal(id, username, whatsapp, status, maxExams, pdfSizeMb, maxDrafts, draftSizeMb, expiresAt) {
             document.getElementById('editUserId').value = id;
             document.getElementById('editUsernameDisplay').value = username;
             document.getElementById('editWhatsappInput').value = whatsapp;
             document.getElementById('editStatusInput').value = status;
             document.getElementById('editLimitInput').value = maxExams;
             document.getElementById('editPdfSizeInput').value = pdfSizeMb;
+            document.getElementById('editDraftLimitInput').value = maxDrafts || 2;
+            document.getElementById('editDraftSizeInput').value = draftSizeMb || 1.0;
             
             let dateVal = '';
             let timeVal = '23:59';
@@ -707,6 +750,8 @@
             const status = document.getElementById('editStatusInput').value;
             const max_exams = parseInt(document.getElementById('editLimitInput').value);
             const max_pdf_size_mb = parseFloat(document.getElementById('editPdfSizeInput').value);
+            const max_drafts = parseInt(document.getElementById('editDraftLimitInput').value);
+            const max_draft_size_mb = parseFloat(document.getElementById('editDraftSizeInput').value);
             const expDate = document.getElementById('editExpiryInput').value;
             const expTime = document.getElementById('editExpiryTimeInput').value || '23:59';
             
@@ -719,7 +764,7 @@
             }
             const password = document.getElementById('editPasswordInput').value.trim();
             
-            const payload = { whatsapp_number, status, max_exams, max_pdf_size_mb, expires_at };
+            const payload = { whatsapp_number, status, max_exams, max_pdf_size_mb, max_drafts, max_draft_size_mb, expires_at };
             if (password) payload.password = password;
             
             fetch(`/admin/api/users/${id}/edit`, {

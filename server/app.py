@@ -131,6 +131,8 @@ def init_db():
         'default_max_exams': '3',
         'default_max_pdf_size': '1048576',
         'default_active_days': '1',
+        'default_max_drafts': '2',
+        'default_max_draft_size': '1048576',
         'android_version': '2.1.9',
         'webapp_version': '2.1.9'
     }
@@ -228,6 +230,20 @@ def init_db():
         db.execute('SELECT max_pdf_size FROM admin_users LIMIT 1')
     except sqlite3.OperationalError:
         db.execute("ALTER TABLE admin_users ADD COLUMN max_pdf_size INTEGER DEFAULT 1048576")
+        db.commit()
+
+    # Migrate: add max_drafts column to admin_users if missing
+    try:
+        db.execute('SELECT max_drafts FROM admin_users LIMIT 1')
+    except sqlite3.OperationalError:
+        db.execute("ALTER TABLE admin_users ADD COLUMN max_drafts INTEGER DEFAULT 2")
+        db.commit()
+
+    # Migrate: add max_draft_size column to admin_users if missing
+    try:
+        db.execute('SELECT max_draft_size FROM admin_users LIMIT 1')
+    except sqlite3.OperationalError:
+        db.execute("ALTER TABLE admin_users ADD COLUMN max_draft_size INTEGER DEFAULT 1048576")
         db.commit()
 
     # Migrate: add whatsapp_number to admin_users if missing
@@ -867,6 +883,8 @@ def register():
         
         default_exams = int(get_saas_setting('default_max_exams', '3'))
         default_pdf = int(get_saas_setting('default_max_pdf_size', '1048576'))
+        default_drafts = int(get_saas_setting('default_max_drafts', '2'))
+        default_draft_size = int(get_saas_setting('default_max_draft_size', '1048576'))
         wa_enabled = get_saas_setting('wa_verification_enabled', '0') == '1'
         
         default_active_days = int(get_saas_setting('default_active_days', '1'))
@@ -878,9 +896,9 @@ def register():
             otp_expiry = (datetime.now(timezone.utc) + timedelta(minutes=5)).strftime('%Y-%m-%d %H:%M:%S')
             
             db.execute(
-                'INSERT INTO admin_users (username, password_hash, whatsapp_number, status, otp_code, otp_expiry, max_exams, max_pdf_size, expires_at) '
-                'VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)',
-                (username, pw_hash, whatsapp, 'pending_otp', otp, otp_expiry, default_exams, default_pdf, expires_at)
+                'INSERT INTO admin_users (username, password_hash, whatsapp_number, status, otp_code, otp_expiry, max_exams, max_pdf_size, max_drafts, max_draft_size, expires_at) '
+                'VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+                (username, pw_hash, whatsapp, 'pending_otp', otp, otp_expiry, default_exams, default_pdf, default_drafts, default_draft_size, expires_at)
             )
             db.commit()
             db.close()
@@ -893,9 +911,9 @@ def register():
             return redirect(url_for('verify_otp', username=username))
         else:
             db.execute(
-                'INSERT INTO admin_users (username, password_hash, whatsapp_number, status, max_exams, max_pdf_size, expires_at) '
-                'VALUES (?, ?, ?, ?, ?, ?, ?)',
-                (username, pw_hash, whatsapp, 'active', default_exams, default_pdf, expires_at)
+                'INSERT INTO admin_users (username, password_hash, whatsapp_number, status, max_exams, max_pdf_size, max_drafts, max_draft_size, expires_at) '
+                'VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)',
+                (username, pw_hash, whatsapp, 'active', default_exams, default_pdf, default_drafts, default_draft_size, expires_at)
             )
             db.commit()
             db.close()
@@ -1081,11 +1099,15 @@ def admin_create_exam_page():
     if is_super_admin:
         user_max_pdf = MAX_FILE_SIZE
         user_max_exams = '∞'
+        user_max_drafts = 9999
+        user_max_draft_size = 104857600  # 100MB
         account_expires = None
     else:
-        user_row = db.execute('SELECT max_exams, max_pdf_size, expires_at FROM admin_users WHERE id = ?', (session['admin_id'],)).fetchone()
+        user_row = db.execute('SELECT max_exams, max_pdf_size, max_drafts, max_draft_size, expires_at FROM admin_users WHERE id = ?', (session['admin_id'],)).fetchone()
         user_max_pdf = user_row['max_pdf_size'] if (user_row and user_row['max_pdf_size']) else 1048576
         user_max_exams = user_row['max_exams'] if (user_row and user_row['max_exams']) else 3
+        user_max_drafts = user_row['max_drafts'] if (user_row and user_row['max_drafts'] is not None) else 2
+        user_max_draft_size = user_row['max_draft_size'] if (user_row and user_row['max_draft_size'] is not None) else 1048576
         account_expires = user_row['expires_at'] if user_row else None
         
     db.close()
@@ -1094,6 +1116,8 @@ def admin_create_exam_page():
         admin_user=session.get('admin_username', 'Admin'),
         max_size_mb=round(user_max_pdf / (1024 * 1024), 1),
         max_exams=user_max_exams,
+        max_drafts=user_max_drafts,
+        max_draft_size=user_max_draft_size,
         account_expires=account_expires,
         active_page='create_exam'
     )
@@ -1702,7 +1726,7 @@ def admin_manage_users_page():
 def admin_list_users():
     """List all registered users (teachers) with exam count and limit."""
     db = get_db()
-    users = db.execute('SELECT id, username, whatsapp_number, status, max_exams, max_pdf_size, expires_at, created_at FROM admin_users ORDER BY username ASC').fetchall()
+    users = db.execute('SELECT id, username, whatsapp_number, status, max_exams, max_pdf_size, max_drafts, max_draft_size, expires_at, created_at FROM admin_users ORDER BY username ASC').fetchall()
     
     user_list = []
     for u in users:
@@ -1715,6 +1739,8 @@ def admin_list_users():
             'status': u['status'] or 'active',
             'max_exams': u['max_exams'] if u['max_exams'] is not None else 3,
             'max_pdf_size': u['max_pdf_size'] if u['max_pdf_size'] is not None else 1048576,
+            'max_drafts': u['max_drafts'] if u['max_drafts'] is not None else 2,
+            'max_draft_size': u['max_draft_size'] if u['max_draft_size'] is not None else 1048576,
             'expires_at': u['expires_at'] or '',
             'exam_count': count,
             'created_at': format_iso_utc(u['created_at'])
@@ -1736,6 +1762,8 @@ def admin_create_user():
     whatsapp = data.get('whatsapp_number', '').strip()
     max_exams = data.get('max_exams', 3)
     max_pdf_size_mb = data.get('max_pdf_size_mb', 1)
+    max_drafts = data.get('max_drafts', 2)
+    max_draft_size_mb = data.get('max_draft_size_mb', 1)
 
     try:
         max_exams = int(max_exams)
@@ -1747,6 +1775,17 @@ def admin_create_user():
     except (ValueError, TypeError):
         max_pdf_size_mb = 1
     max_pdf_size = int(max_pdf_size_mb * 1024 * 1024)
+
+    try:
+        max_drafts = int(max_drafts)
+    except (ValueError, TypeError):
+        max_drafts = 2
+
+    try:
+        max_draft_size_mb = float(max_draft_size_mb)
+    except (ValueError, TypeError):
+        max_draft_size_mb = 1
+    max_draft_size = int(max_draft_size_mb * 1024 * 1024)
 
     if not username or not password:
         return jsonify({'success': False, 'message': 'Username dan password wajib diisi'}), 400
@@ -1768,8 +1807,8 @@ def admin_create_user():
         expires_at = (datetime.now(timezone.utc) + timedelta(days=default_active_days)).strftime('%Y-%m-%d %H:%M:%S')
 
     db.execute(
-        'INSERT INTO admin_users (username, password_hash, whatsapp_number, status, max_exams, max_pdf_size, expires_at) VALUES (?, ?, ?, ?, ?, ?, ?)',
-        (username, pw_hash, whatsapp, 'active', max_exams, max_pdf_size, expires_at)
+        'INSERT INTO admin_users (username, password_hash, whatsapp_number, status, max_exams, max_pdf_size, max_drafts, max_draft_size, expires_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)',
+        (username, pw_hash, whatsapp, 'active', max_exams, max_pdf_size, max_drafts, max_draft_size, expires_at)
     )
     db.commit()
     db.close()
@@ -1814,6 +1853,26 @@ def admin_edit_user(user_id):
             return jsonify({'success': False, 'message': 'Limit ukuran PDF harus berupa angka valid'}), 400
         max_pdf_size = int(max_pdf_size_mb * 1024 * 1024)
         db.execute('UPDATE admin_users SET max_pdf_size = ? WHERE id = ?', (max_pdf_size, user_id))
+
+    max_drafts = data.get('max_drafts')
+    max_draft_size_mb = data.get('max_draft_size_mb')
+
+    if max_drafts is not None:
+        try:
+            max_drafts = int(max_drafts)
+        except (ValueError, TypeError):
+            db.close()
+            return jsonify({'success': False, 'message': 'Limit draf harus berupa angka valid'}), 400
+        db.execute('UPDATE admin_users SET max_drafts = ? WHERE id = ?', (max_drafts, user_id))
+
+    if max_draft_size_mb is not None:
+        try:
+            max_draft_size_mb = float(max_draft_size_mb)
+        except (ValueError, TypeError):
+            db.close()
+            return jsonify({'success': False, 'message': 'Limit ukuran draf harus berupa angka valid'}), 400
+        max_draft_size = int(max_draft_size_mb * 1024 * 1024)
+        db.execute('UPDATE admin_users SET max_draft_size = ? WHERE id = ?', (max_draft_size, user_id))
 
     if whatsapp is not None:
         db.execute('UPDATE admin_users SET whatsapp_number = ? WHERE id = ?', (whatsapp.strip(), user_id))
@@ -1890,6 +1949,8 @@ def admin_saas_settings():
         default_exams = data.get('default_max_exams', '3')
         default_pdf_size_mb = data.get('default_max_pdf_size_mb', '1')
         default_active_days = data.get('default_active_days', '1')
+        default_drafts = data.get('default_max_drafts', '2')
+        default_draft_size_mb = data.get('default_max_draft_size_mb', '1')
         android_version = data.get('android_version', '2.1.9').strip()
         webapp_version = data.get('webapp_version', '2.1.9').strip()
         
@@ -1906,6 +1967,18 @@ def admin_saas_settings():
         default_pdf_size = int(default_pdf_size_mb * 1024 * 1024)
 
         try:
+            default_drafts = int(default_drafts)
+        except (ValueError, TypeError):
+            default_drafts = 2
+
+        try:
+            default_draft_size_mb = float(default_draft_size_mb)
+        except (ValueError, TypeError):
+            default_draft_size_mb = 1.0
+
+        default_draft_size = int(default_draft_size_mb * 1024 * 1024)
+
+        try:
             default_active_days = int(default_active_days)
         except (ValueError, TypeError):
             default_active_days = 1
@@ -1916,6 +1989,8 @@ def admin_saas_settings():
             set_saas_setting('wa_otp_template', wa_template)
         set_saas_setting('default_max_exams', str(default_exams))
         set_saas_setting('default_max_pdf_size', str(default_pdf_size))
+        set_saas_setting('default_max_drafts', str(default_drafts))
+        set_saas_setting('default_max_draft_size', str(default_draft_size))
         set_saas_setting('default_active_days', str(default_active_days))
         set_saas_setting('android_version', android_version)
         set_saas_setting('webapp_version', webapp_version)
@@ -1929,6 +2004,8 @@ def admin_saas_settings():
         'wa_otp_template': get_saas_setting('wa_otp_template', 'Kode OTP EXAMVAN Anda: {otp}. Berlaku selama 5 menit.'),
         'default_max_exams': int(get_saas_setting('default_max_exams', '3')),
         'default_max_pdf_size_mb': round(int(get_saas_setting('default_max_pdf_size', '1048576')) / (1024*1024), 2),
+        'default_max_drafts': int(get_saas_setting('default_max_drafts', '2')),
+        'default_max_draft_size_mb': round(int(get_saas_setting('default_max_draft_size', '1048576')) / (1024*1024), 2),
         'default_active_days': int(get_saas_setting('default_active_days', '1')),
         'android_version': get_saas_setting('android_version', '2.1.9'),
         'webapp_version': get_saas_setting('webapp_version', '2.1.9')

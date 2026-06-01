@@ -558,6 +558,8 @@ SMA NEGERI EXAMVAN INDONESIA">SMA NEGERI EXAMVAN INDONESIA</textarea>
 
     <script src="{{ url_for('static', filename='js/admin.js') }}?v=2.0.1"></script>
     <script>
+        const MAX_DRAFTS = {{ max_drafts }};
+        const MAX_DRAFT_SIZE = {{ max_draft_size }};
         let questionsList = [];
 
         function updateQuestionCount() {
@@ -2340,12 +2342,21 @@ SMA NEGERI EXAMVAN INDONESIA">SMA NEGERI EXAMVAN INDONESIA</textarea>
             const numColumns = document.getElementById('numColumns').value;
             const schoolHeader = document.getElementById('schoolHeader').value;
 
-            if (!currentDraftId) {
-                currentDraftId = 'draft_' + Date.now();
+            let drafts = JSON.parse(localStorage.getItem('examvan_drafts') || '[]');
+
+            // Check drafts count limit for new draft
+            const isNewDraft = !currentDraftId;
+            if (isNewDraft) {
+                if (drafts.length >= MAX_DRAFTS) {
+                    showToast(`Gagal menyimpan: Maksimal draf (${MAX_DRAFTS}) telah tercapai!`, 'error');
+                    return;
+                }
             }
 
+            const targetDraftId = currentDraftId || 'draft_' + Date.now();
+
             const draft = {
-                id: currentDraftId,
+                id: targetDraftId,
                 name: name,
                 subject: subject,
                 class: className,
@@ -2360,7 +2371,15 @@ SMA NEGERI EXAMVAN INDONESIA">SMA NEGERI EXAMVAN INDONESIA</textarea>
                 updatedAt: new Date().toISOString()
             };
 
-            let drafts = JSON.parse(localStorage.getItem('examvan_drafts') || '[]');
+            // Check draft size limit
+            const draftStr = JSON.stringify(draft);
+            const draftSize = draftStr.length;
+            if (draftSize > MAX_DRAFT_SIZE) {
+                showToast(`Gagal menyimpan: Ukuran draf (${(draftSize / (1024 * 1024)).toFixed(2)} MB) melebihi batas maksimal (${(MAX_DRAFT_SIZE / (1024 * 1024)).toFixed(1)} MB)!`, 'error');
+                return;
+            }
+
+            currentDraftId = targetDraftId;
             drafts = drafts.filter(d => d.id !== currentDraftId);
             drafts.push(draft);
             
