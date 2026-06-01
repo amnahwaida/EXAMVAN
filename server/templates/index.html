@@ -587,32 +587,175 @@
             100% { border-color: rgba(99, 102, 241, 0.2); }
         }
 
-        /* Responsive */
+        /* ===== Mobile Hamburger Menu ===== */
+        .nav-hamburger {
+            display: none;
+            background: none;
+            border: none;
+            color: var(--text-main);
+            font-size: 28px;
+            cursor: pointer;
+            padding: 4px;
+            line-height: 1;
+            z-index: 200;
+        }
+
+        .nav-overlay {
+            display: none;
+            position: fixed;
+            inset: 0;
+            background: rgba(0,0,0,0.6);
+            z-index: 150;
+        }
+
+        .nav-overlay.active { display: block; }
+
+        /* ===== Responsive: Tablet & below ===== */
         @media (max-width: 968px) {
+            .nav-hamburger { display: block; }
+
+            .nav-links {
+                position: fixed;
+                top: 0;
+                right: -280px;
+                width: 280px;
+                height: 100dvh;
+                background: var(--bg-secondary);
+                flex-direction: column;
+                align-items: stretch;
+                padding: 80px 24px 40px;
+                gap: 8px;
+                border-left: 1px solid var(--glass-border);
+                transition: right 0.3s ease;
+                z-index: 160;
+                overflow-y: auto;
+            }
+
+            .nav-links.open { right: 0; }
+
+            .nav-link {
+                padding: 14px 16px;
+                border-radius: 10px;
+                font-size: 16px;
+                transition: background 0.2s;
+            }
+
+            .nav-link:hover { background: rgba(255,255,255,0.05); }
+
+            .btn-nav-login {
+                text-align: center;
+                padding: 14px 16px;
+                margin-top: 8px;
+            }
+
             .hero {
                 grid-template-columns: 1fr;
-                padding-top: 140px;
+                padding: 120px 20px 60px;
                 text-align: center;
-                gap: 40px;
+                gap: 36px;
             }
 
-            .version-badge {
-                align-self: center;
-            }
-
+            .version-badge { align-self: center; }
+            .hero-title { font-size: 36px; }
             .hero-desc {
+                font-size: 16px;
                 margin-left: auto;
                 margin-right: auto;
             }
 
             .hero-actions {
                 justify-content: center;
+                flex-direction: column;
+                align-items: center;
             }
 
-            .stats-container {
-                grid-template-columns: 1fr;
-                gap: 30px;
+            .btn-primary, .btn-secondary {
+                width: 100%;
+                max-width: 340px;
+                justify-content: center;
+                padding: 15px 24px;
             }
+
+            .mockup-wrapper { max-width: 360px; }
+
+            .stats { padding: 60px 20px; }
+            .stats-container {
+                grid-template-columns: repeat(3, 1fr);
+                gap: 16px;
+            }
+            .stat-val { font-size: 32px; }
+            .stat-lbl { font-size: 12px; letter-spacing: 0.5px; }
+
+            .features { padding: 60px 20px; }
+            .section-title { font-size: 28px; }
+            .grid-features {
+                grid-template-columns: 1fr;
+                gap: 20px;
+            }
+            .feature-card { padding: 28px; }
+
+            .cta-section { padding: 60px 20px; }
+            .cta-card {
+                padding: 48px 24px;
+                border-radius: 24px;
+            }
+            .cta-title { font-size: 28px; }
+            .cta-desc { font-size: 15px; }
+            .cta-buttons {
+                flex-direction: column;
+                align-items: center;
+            }
+            .cta-buttons .btn-primary,
+            .cta-buttons .btn-secondary {
+                width: 100%;
+                max-width: 340px;
+            }
+
+            .footer-container {
+                flex-direction: column;
+                text-align: center;
+                gap: 10px;
+            }
+        }
+
+        /* ===== Responsive: Small phones ===== */
+        @media (max-width: 480px) {
+            .nav-container { padding: 14px 16px; }
+            .logo-badge { width: 32px; height: 32px; font-size: 16px; }
+            .logo-text { font-size: 20px; }
+
+            .hero { padding: 100px 16px 48px; }
+            .hero-title { font-size: 28px; letter-spacing: -0.3px; }
+            .hero-desc { font-size: 14.5px; }
+            .version-badge { font-size: 12px; padding: 5px 12px; }
+
+            .btn-primary, .btn-secondary {
+                font-size: 14px;
+                padding: 14px 20px;
+            }
+
+            .mockup-wrapper { max-width: 100%; }
+            .mockup-screen { padding: 18px; min-height: 220px; }
+            .mockup-logo { width: 40px; height: 40px; font-size: 20px; }
+            .mockup-title { font-size: 17px; }
+
+            .stats-container { grid-template-columns: repeat(3, 1fr); gap: 10px; }
+            .stat-val { font-size: 24px; }
+            .stat-lbl { font-size: 10px; }
+
+            .section-header { margin-bottom: 36px; }
+            .section-subtitle { font-size: 12px; }
+            .section-title { font-size: 24px; }
+            .feature-card { padding: 22px; border-radius: 16px; }
+            .feature-name { font-size: 17px; }
+            .feature-desc { font-size: 13.5px; }
+
+            .cta-card { padding: 36px 18px; border-radius: 20px; }
+            .cta-title { font-size: 24px; }
+            .cta-desc { font-size: 14px; }
+
+            footer { padding: 28px 16px; }
+            .footer-container { font-size: 12.5px; }
         }
     </style>
     <link rel="icon" type="image/png" href="/static/favicon.png">
@@ -624,6 +767,9 @@
     <div class="glow-blob blob-2"></div>
     <div class="glow-blob blob-3"></div>
 
+    <!-- Dark Overlay for mobile menu -->
+    <div class="nav-overlay" id="navOverlay" onclick="toggleMenu()"></div>
+
     <!-- Navigation -->
     <nav>
         <div class="nav-container">
@@ -631,8 +777,9 @@
                 <div class="logo-badge">E</div>
                 <div class="logo-text">EXAMVAN</div>
             </a>
-            <div class="nav-links">
-                <a href="#fitur" class="nav-link">Fitur</a>
+            <button class="nav-hamburger" id="navHamburger" onclick="toggleMenu()" aria-label="Menu">&#9776;</button>
+            <div class="nav-links" id="navLinks">
+                <a href="#fitur" class="nav-link" onclick="closeMenu()">Fitur</a>
                 <a href="/download" class="nav-link">Download App</a>
                 <a href="/admin/login" class="btn-nav-login">Masuk Admin</a>
             </div>
@@ -755,6 +902,20 @@
             <span style="font-size: 13px;">Dibuat khusus untuk pengujian sekolah digital mandiri yang aman.</span>
         </div>
     </footer>
+
+    <script>
+        function toggleMenu() {
+            document.getElementById('navLinks').classList.toggle('open');
+            document.getElementById('navOverlay').classList.toggle('active');
+            var btn = document.getElementById('navHamburger');
+            btn.innerHTML = btn.innerHTML.trim() === '☰' ? '✕' : '&#9776;';
+        }
+        function closeMenu() {
+            document.getElementById('navLinks').classList.remove('open');
+            document.getElementById('navOverlay').classList.remove('active');
+            document.getElementById('navHamburger').innerHTML = '&#9776;';
+        }
+    </script>
 
 </body>
 </html>
