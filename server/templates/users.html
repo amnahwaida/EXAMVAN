@@ -4,7 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>EXAMVAN - Kelola User & SaaS Settings</title>
-    <link rel="stylesheet" href="{{ url_for('static', filename='css/admin.css') }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/admin.css') }}?v=2.0.0">
     <style>
         .users-layout {
             display: grid;
@@ -136,7 +136,7 @@
         </div>
         <div class="topbar-right">
             <div class="topbar-menu-dropdown">
-                <button class="topbar-menu-toggle" id="menuToggleBtn">
+                <button class="topbar-menu-toggle" id="menuToggleBtn" onclick="event.stopPropagation(); document.getElementById('menuDropdownContent').classList.toggle('show');">
                     <span class="menu-hamburger-icon">☰</span>
                     <span class="toggle-user-name">👤 {{ admin_user }}</span>
                 </button>
@@ -426,7 +426,7 @@
     <!-- Toast Container -->
     <div class="toast-container" id="toastContainer"></div>
 
-    <script src="{{ url_for('static', filename='js/admin.js') }}"></script>
+    <script src="{{ url_for('static', filename='js/admin.js') }}?v=2.0.0"></script>
     <script>
         document.addEventListener('DOMContentLoaded', () => { 
             fetchUsers(); 

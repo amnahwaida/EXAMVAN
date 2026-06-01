@@ -765,7 +765,7 @@ body {
     .mobile-only-header { display: flex !important; }
     .mobile-only-divider { display: block !important; }
     .desktop-only-item { display: none !important; }
-    .topbar-dropdown-content { width: 260px; right: -6px; }
+    .topbar-dropdown-content { width: 260px; right: -6px; max-width: calc(100vw - 20px); z-index: 9999 !important; }
 
     /* --- Glass Cards --- */
     .glass-card { padding: 16px; border-radius: 12px; }
