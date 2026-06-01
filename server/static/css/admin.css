@@ -980,18 +980,23 @@ body {
     .toast { max-width: 100%; }
 
     /* --- Dropdown Menus --- */
+    .table-responsive {
+        overflow: visible !important;
+    }
     .exam-action-dropdown-content {
-        position: fixed !important;
-        left: 12px !important;
-        right: 12px !important;
-        bottom: 12px !important;
-        top: auto !important;
-        width: auto !important;
-        min-width: 0 !important;
-        border-radius: 14px;
+        position: absolute !important;
+        right: 0 !important;
+        left: auto !important;
+        top: 100% !important;
+        bottom: auto !important;
+        width: 220px !important;
+        min-width: 200px !important;
+        border-radius: 8px !important;
         max-height: 60vh;
         overflow-y: auto;
-        z-index: 2000 !important;
+        z-index: 9999 !important;
+        margin-top: 6px !important;
+        box-shadow: 0 10px 30px rgba(0, 0, 0, 0.6) !important;
     }
 
     /* --- Bulk Action Buttons --- */

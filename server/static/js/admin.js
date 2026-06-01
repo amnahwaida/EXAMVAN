@@ -1297,7 +1297,9 @@ function submitEditExam(event) {
 
 // Toggle Row Dropdown
 function toggleRowDropdown(event, examId) {
-    event.stopPropagation();
+    if (event) {
+        event.stopPropagation();
+    }
     const dropdown = document.getElementById(`dropdown-content-${examId}`);
     if (!dropdown) return;
     
@@ -1305,19 +1307,24 @@ function toggleRowDropdown(event, examId) {
     
     // Close all other dropdowns
     document.querySelectorAll('.exam-action-dropdown-content').forEach(d => {
-        d.classList.remove('show');
+        if (d !== dropdown) {
+            d.classList.remove('show');
+        }
     });
     
-    if (!isShown) {
-        dropdown.classList.add('show');
-    }
+    dropdown.classList.toggle('show');
 }
 
 // Close dropdowns when clicking anywhere outside
-document.addEventListener('click', function() {
-    document.querySelectorAll('.exam-action-dropdown-content').forEach(d => {
-        d.classList.remove('show');
-    });
+document.addEventListener('click', function(event) {
+    const clickedBtn = event.target.closest('.btn-more');
+    const clickedDropdown = event.target.closest('.exam-action-dropdown-content');
+    
+    if (!clickedBtn && !clickedDropdown) {
+        document.querySelectorAll('.exam-action-dropdown-content').forEach(d => {
+            d.classList.remove('show');
+        });
+    }
 });
 
 // Bulk Selection Functions
