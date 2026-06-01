@@ -1,6 +1,6 @@
 """
 EXAMVAN Server - REST API & Admin Panel
-Version: 2.1.0
+Version: 2.1.1
 Platform: Flask + SQLite
 """
 
@@ -131,8 +131,8 @@ def init_db():
         'default_max_exams': '3',
         'default_max_pdf_size': '1048576',
         'default_active_days': '1',
-        'android_version': '2.1.0',
-        'webapp_version': '2.1.0'
+        'android_version': '2.1.1',
+        'webapp_version': '2.1.1'
     }
     for k, v in default_settings.items():
         existing_setting = db.execute('SELECT value FROM saas_settings WHERE key = ?', (k,)).fetchone()
@@ -553,7 +553,7 @@ def format_iso_utc(date_str):
 def api_health():
     """Health check endpoint."""
     now = datetime.now(timezone.utc)
-    required_version = get_saas_setting('android_version', '2.1.0')
+    required_version = get_saas_setting('android_version', '2.1.1')
     return jsonify({
         'status': 'ok',
         'version': '2.0',
@@ -602,7 +602,7 @@ def api_exams():
 @app.route('/api/exams/token/<token>')
 def api_exam_by_token(token):
     """Get exam info by token. Used by Android app."""
-    required_version = get_saas_setting('android_version', '2.1.0')
+    required_version = get_saas_setting('android_version', '2.1.1')
     client_version = request.headers.get('X-App-Version')
     if client_version != required_version:
         return jsonify({
@@ -660,7 +660,7 @@ def api_exam_by_token(token):
 @app.route('/api/exams/<int:exam_id>/submit', methods=['POST'])
 def api_submit_exam(exam_id):
     """Receive student exam submissions and auto-grade if keys exist."""
-    required_version = get_saas_setting('android_version', '2.1.0')
+    required_version = get_saas_setting('android_version', '2.1.1')
     client_version = request.headers.get('X-App-Version')
     if client_version != required_version:
         return jsonify({
@@ -1888,8 +1888,8 @@ def admin_saas_settings():
         default_exams = data.get('default_max_exams', '3')
         default_pdf_size_mb = data.get('default_max_pdf_size_mb', '1')
         default_active_days = data.get('default_active_days', '1')
-        android_version = data.get('android_version', '2.1.0').strip()
-        webapp_version = data.get('webapp_version', '2.1.0').strip()
+        android_version = data.get('android_version', '2.1.1').strip()
+        webapp_version = data.get('webapp_version', '2.1.1').strip()
         
         try:
             default_exams = int(default_exams)
@@ -1928,8 +1928,8 @@ def admin_saas_settings():
         'default_max_exams': int(get_saas_setting('default_max_exams', '3')),
         'default_max_pdf_size_mb': round(int(get_saas_setting('default_max_pdf_size', '1048576')) / (1024*1024), 2),
         'default_active_days': int(get_saas_setting('default_active_days', '1')),
-        'android_version': get_saas_setting('android_version', '2.1.0'),
-        'webapp_version': get_saas_setting('webapp_version', '2.1.0')
+        'android_version': get_saas_setting('android_version', '2.1.1'),
+        'webapp_version': get_saas_setting('webapp_version', '2.1.1')
     }
     return jsonify({'success': True, 'settings': settings})
 
@@ -2985,7 +2985,7 @@ if __name__ == '__main__':
 
     print(f"""
 ╔══════════════════════════════════════════════╗
-║           EXAMVAN Server v2.1.0              ║
+║           EXAMVAN Server v2.1.1              ║
 ╠══════════════════════════════════════════════╣
 ║  Local:   http://127.0.0.1:{port}              ║
 ║  LAN:     http://{local_ip}:{port}          ║
