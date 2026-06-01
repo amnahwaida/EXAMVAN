@@ -298,6 +298,8 @@
     </style>
     <!-- jsPDF Library -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+    <!-- JSZip Library for Import/Export -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
     <!-- Cropper.js Library for Header Cropping -->
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/cropperjs/1.6.2/cropper.min.css">
     <script src="https://cdnjs.cloudflare.com/ajax/libs/cropperjs/1.6.2/cropper.min.js"></script>
@@ -488,6 +490,15 @@ SMA NEGERI EXAMVAN INDONESIA">SMA NEGERI EXAMVAN INDONESIA</textarea>
                         <button class="btn-sm btn-questions" onclick="bulkAddQuestions(10)" style="width: 100%; margin: 0; background: rgba(99,102,241,0.15);">➕ Tambah 10 Soal Pilihan Ganda</button>
                         <button class="btn-sm btn-questions" onclick="bulkAddQuestions(20)" style="width: 100%; margin: 0; background: rgba(99,102,241,0.15);">➕ Tambah 20 Soal Pilihan Ganda</button>
                         <button class="btn-sm btn-questions" onclick="shuffleQuestionsAndChoices()" style="width: 100%; margin: 0; background: rgba(245,158,11,0.15); border-color: rgba(245,158,11,0.3); color: #fbbf24;">🔀 Acak Soal &amp; Jawaban</button>
+                    </div>
+                </section>
+
+                <section class="glass-card">
+                    <h3 style="color: #a5b4fc; margin-bottom: 12px; font-size: 1.05rem;">📂 Import / Export Ujian</h3>
+                    <div style="display: flex; flex-direction: column; gap: 8px;">
+                        <button class="btn-sm btn-questions" onclick="exportExamZip()" style="width: 100%; margin: 0; background: rgba(16,185,129,0.15); border-color: rgba(16,185,129,0.3); color: #34d399;">📤 Export Ujian (.ZIP)</button>
+                        <input type="file" id="importZipInput" accept=".zip" style="display: none;" onchange="importExamZip(this)">
+                        <button class="btn-sm btn-questions" onclick="document.getElementById('importZipInput').click()" style="width: 100%; margin: 0; background: rgba(59,130,246,0.15); border-color: rgba(59,130,246,0.3); color: #60a5fa;">📥 Import Ujian (.ZIP)</button>
                     </div>
                 </section>
             </div>
@@ -1459,6 +1470,436 @@ SMA NEGERI EXAMVAN INDONESIA">SMA NEGERI EXAMVAN INDONESIA</textarea>
                 }
             }
             renderQuestions();
+        }
+
+        // XML Escaping helper
+        function escapeXml(unsafe) {
+            if (unsafe === undefined || unsafe === null) return '';
+            return String(unsafe).replace(/[<>&'"]/g, function (c) {
+                switch (c) {
+                    case '<': return '&lt;';
+                    case '>': return '&gt;';
+                    case '&': return '&amp;';
+                    case '\'': return '&apos;';
+                    case '"': return '&quot;';
+                    default: return c;
+                }
+            });
+        }
+
+        // Base64 helper for image saving to zip
+        function getBase64DataAndExt(dataUrl) {
+            if (!dataUrl || !dataUrl.startsWith('data:')) return null;
+            const parts = dataUrl.split(';base64,');
+            if (parts.length !== 2) return null;
+            const mime = parts[0].split(':')[1];
+            let ext = 'png';
+            if (mime === 'image/jpeg' || mime === 'image/jpg') ext = 'jpg';
+            else if (mime === 'image/gif') ext = 'gif';
+            else if (mime === 'image/webp') ext = 'webp';
+            return {
+                base64: parts[1],
+                ext: ext,
+                mime: mime
+            };
+        }
+
+        // Export entire exam to a ZIP file containing XML + Assets folder
+        function exportExamZip() {
+            if (questionsList.length === 0) {
+                showToast('Tidak ada pertanyaan untuk diexport!', 'error');
+                return;
+            }
+
+            showToast('Sedang menyiapkan file ZIP...', 'info');
+
+            const zip = new JSZip();
+            const assetsFolder = zip.folder("assets");
+            let imgCounter = 0;
+
+            function saveImageToZip(dataUrl, prefix) {
+                if (!dataUrl || !dataUrl.startsWith('data:')) return null;
+                const imgInfo = getBase64DataAndExt(dataUrl);
+                if (!imgInfo) return null;
+                const filename = `${prefix}_${imgCounter++}.${imgInfo.ext}`;
+                assetsFolder.file(filename, imgInfo.base64, {base64: true});
+                return `assets/${filename}`;
+            }
+
+            // Process metadata images
+            let xmlHeaderOriginal = '';
+            let xmlHeaderCropped = '';
+            if (originalHeaderImage) {
+                const path = saveImageToZip(originalHeaderImage, 'header_original');
+                if (path) xmlHeaderOriginal = `<headerImageOriginal>${escapeXml(path)}</headerImageOriginal>`;
+            }
+            if (customHeaderImage) {
+                const path = saveImageToZip(customHeaderImage, 'header_cropped');
+                if (path) xmlHeaderCropped = `<headerImageCropped>${escapeXml(path)}</headerImageCropped>`;
+            }
+
+            // Build XML Document
+            let xml = `<?xml version="1.0" encoding="UTF-8"?>\n`;
+            xml += `<exam>\n`;
+            xml += `    <metadata>\n`;
+            xml += `        <name>${escapeXml(document.getElementById('examName').value.trim())}</name>\n`;
+            xml += `        <subject>${escapeXml(document.getElementById('subjectName').value.trim())}</subject>\n`;
+            xml += `        <class>${escapeXml(document.getElementById('className').value.trim())}</class>\n`;
+            xml += `        <duration>${escapeXml(document.getElementById('examDuration').value.trim())}</duration>\n`;
+            xml += `        <customToken>${escapeXml(document.getElementById('customToken').value.trim())}</customToken>\n`;
+            xml += `        <paperType>${escapeXml(document.getElementById('paperType').value)}</paperType>\n`;
+            xml += `        <numColumns>${escapeXml(document.getElementById('numColumns').value)}</numColumns>\n`;
+            xml += `        <schoolHeader>${escapeXml(document.getElementById('schoolHeader').value)}</schoolHeader>\n`;
+            if (xmlHeaderOriginal) xml += `        ${xmlHeaderOriginal}\n`;
+            if (xmlHeaderCropped) xml += `        ${xmlHeaderCropped}\n`;
+            xml += `    </metadata>\n`;
+            xml += `    <questions>\n`;
+
+            questionsList.forEach((q, idx) => {
+                xml += `        <question type="${escapeXml(q.type)}">\n`;
+                xml += `            <question_text>${escapeXml(q.question_text)}</question_text>\n`;
+                xml += `            <weight>${escapeXml(q.weight || 1.0)}</weight>\n`;
+                xml += `            <number>${escapeXml(q.number || (idx + 1))}</number>\n`;
+
+                // Images for question
+                xml += `            <images>\n`;
+                if (q.images && q.images.length > 0) {
+                    q.images.forEach(imgData => {
+                        if (imgData) {
+                            const path = saveImageToZip(imgData, `q_${idx}_img`);
+                            if (path) xml += `                <image>${escapeXml(path)}</image>\n`;
+                        }
+                    });
+                } else if (q.image) {
+                    const path = saveImageToZip(q.image, `q_${idx}_img`);
+                    if (path) xml += `                <image>${escapeXml(path)}</image>\n`;
+                }
+                xml += `            </images>\n`;
+
+                // Type specific data
+                if (q.type === 'single_choice' || q.type === 'multiple_choice') {
+                    xml += `            <choices>\n`;
+                    if (q.choices && q.choices.length > 0) {
+                        const letters = ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'J'];
+                        q.choices.forEach((choiceVal, optIdx) => {
+                            const letter = letters[optIdx];
+                            let imgAttr = '';
+                            if (q.choice_images && q.choice_images[optIdx]) {
+                                const path = saveImageToZip(q.choice_images[optIdx], `q_${idx}_opt_${optIdx}`);
+                                if (path) imgAttr = ` image="${escapeXml(path)}"`;
+                            }
+                            xml += `                <choice prefix="${letter}"${imgAttr}>${escapeXml(choiceVal)}</choice>\n`;
+                        });
+                    }
+                    xml += `            </choices>\n`;
+                    
+                    if (Array.isArray(q.key)) {
+                        xml += `            <keys>\n`;
+                        q.key.forEach(k => {
+                            xml += `                <key>${escapeXml(k)}</key>\n`;
+                        });
+                        xml += `            </keys>\n`;
+                    } else {
+                        xml += `            <key>${escapeXml(q.key)}</key>\n`;
+                    }
+                } 
+                else if (q.type === 'matching') {
+                    xml += `            <left_items>\n`;
+                    if (q.left_items && q.left_items.length > 0) {
+                        q.left_items.forEach((itemVal, lIdx) => {
+                            let imgAttr = '';
+                            if (q.left_images && q.left_images[lIdx]) {
+                                const path = saveImageToZip(q.left_images[lIdx], `q_${idx}_match_left_${lIdx}`);
+                                if (path) imgAttr = ` image="${escapeXml(path)}"`;
+                            }
+                            xml += `                <item index="${lIdx}"${imgAttr}>${escapeXml(itemVal)}</item>\n`;
+                        });
+                    }
+                    xml += `            </left_items>\n`;
+
+                    xml += `            <right_items>\n`;
+                    if (q.right_items && q.right_items.length > 0) {
+                        q.right_items.forEach((itemVal, rIdx) => {
+                            let imgAttr = '';
+                            if (q.right_images && q.right_images[rIdx]) {
+                                const path = saveImageToZip(q.right_images[rIdx], `q_${idx}_match_right_${rIdx}`);
+                                if (path) imgAttr = ` image="${escapeXml(path)}"`;
+                            }
+                            xml += `                <item index="${rIdx}"${imgAttr}>${escapeXml(itemVal)}</item>\n`;
+                        });
+                    }
+                    xml += `            </right_items>\n`;
+
+                    xml += `            <pairs>\n`;
+                    if (q.key) {
+                        for (let k in q.key) {
+                            xml += `                <pair left="${escapeXml(k)}" right="${escapeXml(q.key[k])}" />\n`;
+                        }
+                    }
+                    xml += `            </pairs>\n`;
+                }
+                else if (q.type === 'true_false' || q.type === 'short_answer') {
+                    xml += `            <key>${escapeXml(q.key)}</key>\n`;
+                }
+
+                xml += `        </question>\n`;
+            });
+
+            xml += `    </questions>\n`;
+            xml += `</exam>\n`;
+
+            zip.file("exam.xml", xml);
+
+            zip.generateAsync({type:"blob"}).then(function(content) {
+                const examName = document.getElementById('examName').value.trim() || 'ujian_export';
+                const safeName = examName.toLowerCase().replace(/[^a-z0-9]+/g, '_') + '.zip';
+                
+                const a = document.createElement("a");
+                a.href = URL.createObjectURL(content);
+                a.download = safeName;
+                document.body.appendChild(a);
+                a.click();
+                document.body.removeChild(a);
+                
+                showToast('Export Ujian berhasil diunduh!', 'success');
+            }).catch(err => {
+                showToast('Gagal membuat file ZIP!', 'error');
+                console.error(err);
+            });
+        }
+
+        // Import exam from a ZIP file containing exam.xml and assets folder
+        function importExamZip(input) {
+            const file = input.files[0];
+            if (!file) return;
+
+            showToast('Sedang membaca file ZIP...', 'info');
+
+            const reader = new FileReader();
+            reader.onload = function(e) {
+                JSZip.loadAsync(e.target.result).then(async function(zip) {
+                    const xmlFile = zip.file("exam.xml");
+                    if (!xmlFile) {
+                        showToast('File ZIP tidak valid: exam.xml tidak ditemukan!', 'error');
+                        return;
+                    }
+
+                    const xmlText = await xmlFile.async("text");
+                    const parser = new DOMParser();
+                    const xmlDoc = parser.parseFromString(xmlText, "text/xml");
+
+                    if (xmlDoc.getElementsByTagName("parsererror").length > 0) {
+                        showToast('Gagal mem-parsing file XML!', 'error');
+                        return;
+                    }
+
+                    function getXmlText(parent, tagName, defaultValue = '') {
+                        const elem = parent.getElementsByTagName(tagName)[0];
+                        return elem ? elem.textContent : defaultValue;
+                    }
+
+                    async function loadImageFromZip(path) {
+                        if (!path) return '';
+                        const f = zip.file(path);
+                        if (!f) return '';
+                        
+                        const ext = path.split('.').pop().toLowerCase();
+                        let mime = 'image/png';
+                        if (ext === 'jpg' || ext === 'jpeg') mime = 'image/jpeg';
+                        else if (ext === 'gif') mime = 'image/gif';
+                        else if (ext === 'webp') mime = 'image/webp';
+
+                        const base64Data = await f.async("base64");
+                        return `data:${mime};base64,${base64Data}`;
+                    }
+
+                    const metadata = xmlDoc.getElementsByTagName("metadata")[0];
+                    if (!metadata) {
+                        showToast('Format XML tidak valid: metadata tidak ditemukan!', 'error');
+                        return;
+                    }
+
+                    // Restore Identity & Settings
+                    document.getElementById('examName').value = getXmlText(metadata, 'name');
+                    document.getElementById('subjectName').value = getXmlText(metadata, 'subject');
+                    document.getElementById('className').value = getXmlText(metadata, 'class');
+                    document.getElementById('examDuration').value = getXmlText(metadata, 'duration', '60');
+                    document.getElementById('customToken').value = getXmlText(metadata, 'customToken');
+                    document.getElementById('paperType').value = getXmlText(metadata, 'paperType', 'legal');
+                    document.getElementById('numColumns').value = getXmlText(metadata, 'numColumns', '2');
+                    document.getElementById('schoolHeader').value = getXmlText(metadata, 'schoolHeader');
+
+                    // Restore Header Images
+                    const pathHeaderOriginal = getXmlText(metadata, 'headerImageOriginal');
+                    const pathHeaderCropped = getXmlText(metadata, 'headerImageCropped');
+
+                    if (pathHeaderOriginal) {
+                        originalHeaderImage = await loadImageFromZip(pathHeaderOriginal);
+                    } else {
+                        originalHeaderImage = null;
+                    }
+
+                    if (pathHeaderCropped) {
+                        customHeaderImage = await loadImageFromZip(pathHeaderCropped);
+                        document.getElementById('header_preview_img').src = customHeaderImage;
+                        document.getElementById('header_preview_container').style.display = 'block';
+                        document.getElementById('del_header_btn').style.display = 'block';
+                    } else {
+                        customHeaderImage = null;
+                        document.getElementById('headerImageInput').value = '';
+                        document.getElementById('header_preview_container').style.display = 'none';
+                        document.getElementById('del_header_btn').style.display = 'none';
+                    }
+
+                    // Restore Questions List
+                    const newQuestionsList = [];
+                    const questionsNode = xmlDoc.getElementsByTagName("questions")[0];
+                    if (questionsNode) {
+                        const questionElements = questionsNode.getElementsByTagName("question");
+                        for (let i = 0; i < questionElements.length; i++) {
+                            const qElem = questionElements[i];
+                            const type = qElem.getAttribute("type");
+                            
+                            const qObj = {
+                                type: type,
+                                question_text: getXmlText(qElem, 'question_text'),
+                                weight: parseFloat(getXmlText(qElem, 'weight', '1.0')),
+                                number: parseInt(getXmlText(qElem, 'number', (i + 1).toString()))
+                            };
+
+                            // Rebuild Images Array
+                            qObj.images = [];
+                            const imagesNode = qElem.getElementsByTagName("images")[0];
+                            if (imagesNode) {
+                                const imageElements = imagesNode.getElementsByTagName("image");
+                                for (let j = 0; j < imageElements.length; j++) {
+                                    const path = imageElements[j].textContent;
+                                    if (path) {
+                                        const base64Url = await loadImageFromZip(path);
+                                        if (base64Url) {
+                                            qObj.images.push(base64Url);
+                                        }
+                                    }
+                                }
+                            }
+                            if (qObj.images.length > 0) {
+                                qObj.image = qObj.images[0];
+                            }
+
+                            // Restore Type Specifics
+                            if (type === 'single_choice' || type === 'multiple_choice') {
+                                qObj.choices = [];
+                                qObj.choice_images = [];
+                                
+                                const choicesNode = qElem.getElementsByTagName("choices")[0];
+                                if (choicesNode) {
+                                    const choiceElements = choicesNode.getElementsByTagName("choice");
+                                    for (let j = 0; j < choiceElements.length; j++) {
+                                        const chElem = choiceElements[j];
+                                        qObj.choices.push(chElem.textContent);
+                                        
+                                        const imgPath = chElem.getAttribute("image");
+                                        if (imgPath) {
+                                            const base64Url = await loadImageFromZip(imgPath);
+                                            qObj.choice_images.push(base64Url || '');
+                                        } else {
+                                            qObj.choice_images.push('');
+                                        }
+                                    }
+                                }
+
+                                // Restore Keys
+                                if (type === 'multiple_choice') {
+                                    qObj.key = [];
+                                    const keysNode = qElem.getElementsByTagName("keys")[0];
+                                    if (keysNode) {
+                                        const keyElements = keysNode.getElementsByTagName("key");
+                                        for (let j = 0; j < keyElements.length; j++) {
+                                            qObj.key.push(keyElements[j].textContent);
+                                        }
+                                    } else {
+                                        const k = getXmlText(qElem, 'key');
+                                        if (k) qObj.key.push(k);
+                                    }
+                                } else {
+                                    qObj.key = getXmlText(qElem, 'key', 'A');
+                                }
+                            } 
+                            else if (type === 'matching') {
+                                qObj.left_items = [];
+                                qObj.left_images = [];
+                                qObj.right_items = [];
+                                qObj.right_images = [];
+                                qObj.key = {};
+
+                                // Left Items
+                                const leftNode = qElem.getElementsByTagName("left_items")[0];
+                                if (leftNode) {
+                                    const items = leftNode.getElementsByTagName("item");
+                                    for (let j = 0; j < items.length; j++) {
+                                        const itElem = items[j];
+                                        qObj.left_items.push(itElem.textContent);
+                                        const imgPath = itElem.getAttribute("image");
+                                        if (imgPath) {
+                                            const base64Url = await loadImageFromZip(imgPath);
+                                            qObj.left_images.push(base64Url || '');
+                                        } else {
+                                            qObj.left_images.push('');
+                                        }
+                                    }
+                                }
+
+                                // Right Items
+                                const rightNode = qElem.getElementsByTagName("right_items")[0];
+                                if (rightNode) {
+                                    const items = rightNode.getElementsByTagName("item");
+                                    for (let j = 0; j < items.length; j++) {
+                                        const itElem = items[j];
+                                        qObj.right_items.push(itElem.textContent);
+                                        const imgPath = itElem.getAttribute("image");
+                                        if (imgPath) {
+                                            const base64Url = await loadImageFromZip(imgPath);
+                                            qObj.right_images.push(base64Url || '');
+                                        } else {
+                                            qObj.right_images.push('');
+                                        }
+                                    }
+                                }
+
+                                // Pairs
+                                const pairsNode = qElem.getElementsByTagName("pairs")[0];
+                                if (pairsNode) {
+                                    const pairs = pairsNode.getElementsByTagName("pair");
+                                    for (let j = 0; j < pairs.length; j++) {
+                                        const pElem = pairs[j];
+                                        const leftVal = pElem.getAttribute("left");
+                                        const rightVal = pElem.getAttribute("right");
+                                        if (leftVal && rightVal) {
+                                            qObj.key[leftVal] = rightVal;
+                                        }
+                                    }
+                                }
+                            }
+                            else if (type === 'true_false' || type === 'short_answer') {
+                                qObj.key = getXmlText(qElem, 'key');
+                            }
+
+                            newQuestionsList.push(qObj);
+                        }
+                    }
+
+                    questionsList = newQuestionsList;
+                    renderQuestions();
+                    showToast('Ujian berhasil di-import!', 'success');
+                    input.value = '';
+
+                }).catch(err => {
+                    showToast('Gagal membaca ZIP atau parsing data!', 'error');
+                    console.error(err);
+                    input.value = '';
+                });
+            };
+            reader.readAsArrayBuffer(file);
         }
 
         function shuffleQuestionsAndChoices() {
