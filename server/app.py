@@ -138,6 +138,8 @@ def init_db():
         existing_setting = db.execute('SELECT value FROM saas_settings WHERE key = ?', (k,)).fetchone()
         if not existing_setting:
             db.execute('INSERT INTO saas_settings (key, value) VALUES (?, ?)', (k, v))
+        elif k in ('android_version', 'webapp_version') and existing_setting['value'] == '2.1.0':
+            db.execute('UPDATE saas_settings SET value = ? WHERE key = ?', (v, k))
     db.commit()
 
     existing = db.execute(
