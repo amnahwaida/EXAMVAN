@@ -833,17 +833,19 @@ class ExamViewerActivity : AppCompatActivity() {
 
     private fun showAutoSubmitNotification(title: String, message: String) {
         try {
-            val channelId = "examvan_auto_submit"
+            val channelId = "examvan_auto_submit_v2"
             val notificationManager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
 
             // Create notification channel (required for Android 8.0+)
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
                 val channel = NotificationChannel(
                     channelId,
-                    "Pengiriman Jawaban Otomatis",
+                    "Pengiriman Jawaban Ujian",
                     NotificationManager.IMPORTANCE_HIGH
                 ).apply {
-                    description = "Notifikasi saat jawaban ujian dikirim otomatis karena siswa keluar dari aplikasi"
+                    description = "Notifikasi saat jawaban ujian dikirim otomatis"
+                    enableLights(true)
+                    enableVibration(true)
                 }
                 notificationManager.createNotificationChannel(channel)
             }
@@ -854,10 +856,13 @@ class ExamViewerActivity : AppCompatActivity() {
                 .setContentText(message)
                 .setStyle(NotificationCompat.BigTextStyle().bigText(message))
                 .setPriority(NotificationCompat.PRIORITY_HIGH)
+                .setDefaults(NotificationCompat.DEFAULT_ALL)
                 .setAutoCancel(true)
                 .build()
 
-            notificationManager.notify(1001, notification)
+            // Use a unique notification ID every time to prevent the OS from grouping or silencing subsequent notifications
+            val uniqueNotifId = (System.currentTimeMillis() % 100000).toInt()
+            notificationManager.notify(uniqueNotifId, notification)
         } catch (_: Throwable) {
             // Fallback to Toast if notification fails
             runOnUiThread {

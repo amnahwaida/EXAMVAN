@@ -144,7 +144,7 @@
         <TextView
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:text="EXAMVAN v2.1.7"
+            android:text="EXAMVAN v2.1.8"
             android:textSize="11sp"
             android:textColor="@color/text_muted"
             android:layout_marginTop="32dp" />
