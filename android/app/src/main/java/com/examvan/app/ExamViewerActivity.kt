@@ -557,6 +557,7 @@ class ExamViewerActivity : AppCompatActivity() {
         if (cachedFile.exists() && cachedFile.length() > 0) {
             binding.tvDownloadPercent.text = "100%"
             binding.progressDownload.progress = 100
+            isPdfReady = true
             openPdf(cachedFile)
             return
         }
@@ -599,6 +600,7 @@ class ExamViewerActivity : AppCompatActivity() {
             currentPage = 0
             renderPage(0)
             showPdfViewer()
+            isPdfReady = true // Crucial: ensures isPdfReady is true for cached files as well
         } catch (e: Exception) {
             showError(getString(R.string.error_pdf) + ": ${e.message}")
         }
