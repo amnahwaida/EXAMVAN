@@ -661,15 +661,64 @@
             .search-row { flex-direction: column; }
             .search-input { width: 100%; }
             .glass-card { padding: 16px; }
-            .results-table { font-size: 0.8rem; }
-            .results-table thead th { padding: 10px 12px; font-size: 0.7rem; }
-            .results-table tbody td { padding: 10px 12px; }
-            .q-student-ans, .q-correct-ans { font-size: 0.8rem; }
-            .answer-item { padding: 8px 10px; gap: 8px; }
-            .detail-content { padding: 14px 16px; }
-            .stats-row { grid-template-columns: repeat(2, 1fr); }
             .header { padding: 14px 16px; }
             .header-title { font-size: 1rem; }
+            .header-badge { font-size: 0.6rem; padding: 3px 8px; }
+
+            /* --- Results Table: Card Layout on Mobile --- */
+            .results-table thead { display: none; }
+            .results-table,
+            .results-table tbody,
+            .results-table tbody tr,
+            .results-table tbody td {
+                display: block;
+                width: 100%;
+            }
+            .results-table tbody tr {
+                background: rgba(255, 255, 255, 0.02);
+                border: 1px solid rgba(255, 255, 255, 0.06);
+                border-radius: 12px;
+                padding: 14px;
+                margin-bottom: 12px;
+                position: relative;
+            }
+            .results-table tbody tr:hover {
+                background: rgba(99, 102, 241, 0.06);
+            }
+            .results-table tbody td {
+                padding: 4px 0;
+                border-bottom: none;
+                text-align: left !important;
+            }
+            .results-table tbody td::before {
+                content: attr(data-label);
+                display: inline-block;
+                font-size: 11px;
+                font-weight: 600;
+                color: var(--text-muted);
+                text-transform: uppercase;
+                letter-spacing: 0.4px;
+                min-width: 100px;
+                margin-right: 8px;
+            }
+            /* Hide expand icon column label */
+            .results-table tbody td[data-label=""]::before { display: none; }
+            /* Detail row stays full width */
+            .detail-row td { display: table-cell !important; }
+            .detail-row { display: none; }
+            .detail-row.show { display: table-row; }
+
+            /* --- Answer Detail Section --- */
+            .detail-content { padding: 14px 16px; }
+            .detail-time-info { flex-direction: column !important; gap: 4px !important; }
+            .detail-header { display: none; }
+            .answer-item { padding: 8px 10px; gap: 8px; flex-wrap: wrap; }
+            .q-student-ans, .q-correct-ans { font-size: 0.8rem; }
+            .q-num { min-width: 38px; font-size: 0.75rem; }
+            .q-status { min-width: auto; text-align: left; font-size: 0.75rem; }
+
+            /* --- Stats Row --- */
+            .stats-row { grid-template-columns: repeat(2, 1fr); }
         }
 
         @media (max-width: 480px) {
@@ -993,18 +1042,18 @@
                 const durationStr = getDurationString(sub.start_time, sub.created_at);
 
                 tr.innerHTML = `
-                    <td><span class="rank-num ${rankClass}">${rank}</span></td>
-                    <td>
+                    <td data-label="#"><span class="rank-num ${rankClass}">${rank}</span></td>
+                    <td data-label="Nama">
                         <div class="student-name">${escapeHtml(sub.student_name)}</div>
                     </td>
-                    <td><span class="student-number">${escapeHtml(sub.exam_number)}</span></td>
-                    <td>${escapeHtml(sub.student_class)}</td>
-                    <td style="text-align: center; font-size: 0.85rem; color: var(--text-secondary);">${durationStr}</td>
-                    <td style="text-align: center;">
+                    <td data-label="No. Ujian"><span class="student-number">${escapeHtml(sub.exam_number)}</span></td>
+                    <td data-label="Kelas">${escapeHtml(sub.student_class)}</td>
+                    <td data-label="Durasi" style="text-align: center; font-size: 0.85rem; color: var(--text-secondary);">${durationStr}</td>
+                    <td data-label="Nilai" style="text-align: center;">
                         <span class="score-badge ${scoreClass}">${scoreDisplay}</span>
                     </td>
-                    <td style="text-align: center; font-size: 0.8rem; color: var(--text-secondary);">${submitTime}</td>
-                    <td style="text-align: center;">
+                    <td data-label="Kumpul" style="text-align: center; font-size: 0.8rem; color: var(--text-secondary);">${submitTime}</td>
+                    <td data-label="" style="text-align: center;">
                         <span class="expand-icon">▼</span>
                     </td>
                 `;

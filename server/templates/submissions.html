@@ -122,11 +122,11 @@
                     <tbody>
                         {% for sub in submissions %}
                         <tr id="submission-row-{{ sub.id }}" data-exam-id="{{ sub.exam_id }}">
-                            <td class="td-name">{{ sub.exam_name }}</td>
-                            <td><strong>{{ sub.student_name }}</strong></td>
-                            <td><code class="token-code" style="letter-spacing: normal; font-size:12px;">{{ sub.exam_number }}</code></td>
-                            <td>{{ sub.student_class }}</td>
-                            <td>
+                            <td class="td-name" data-label="Ujian">{{ sub.exam_name }}</td>
+                            <td data-label="Siswa"><strong>{{ sub.student_name }}</strong></td>
+                            <td data-label="No. Ujian"><code class="token-code" style="letter-spacing: normal; font-size:12px;">{{ sub.exam_number }}</code></td>
+                            <td data-label="Kelas">{{ sub.student_class }}</td>
+                            <td data-label="Nilai">
                                 {% if sub.score is not none %}
                                 <span class="status-badge status-active" style="font-size:13px; font-weight:700;">
                                     {{ sub.score }}
@@ -135,10 +135,10 @@
                                 <span class="status-badge status-inactive">Belum Dinilai</span>
                                 {% endif %}
                             </td>
-                            <td class="td-date" data-utc="{{ sub.start_time or '' }}">{{ sub.start_time or '—' }}</td>
-                            <td class="td-date" data-utc="{{ sub.created_at }}">{{ sub.created_at }}</td>
-                            <td><code style="font-size:11px; letter-spacing:0; color:var(--text-secondary); word-break:break-all;">{{ sub.mac_address or '—' }}</code></td>
-                            <td class="td-actions">
+                            <td class="td-date" data-label="Mulai" data-utc="{{ sub.start_time or '' }}">{{ sub.start_time or '—' }}</td>
+                            <td class="td-date" data-label="Kumpul" data-utc="{{ sub.created_at }}">{{ sub.created_at }}</td>
+                            <td data-label="Perangkat"><code style="font-size:11px; letter-spacing:0; color:var(--text-secondary); word-break:break-all;">{{ sub.mac_address or '—' }}</code></td>
+                            <td class="td-actions" data-label="">
                                 <button class="btn-sm btn-toggle" onclick="showSubmissionDetail({{ sub.id }})">
                                     👁️ Detail
                                 </button>

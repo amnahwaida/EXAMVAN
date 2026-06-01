@@ -241,15 +241,15 @@
                     <tbody>
                         {% for exam in exams %}
                         <tr id="exam-row-{{ exam.id }}">
-                            <td style="text-align: center;">
+                            <td data-label="">
                                 <input type="checkbox" class="exam-checkbox" value="{{ exam.id }}" data-name="{{ exam.name }}" data-status="{{ exam.status }}" onchange="updateBulkActions()" style="cursor: pointer; width: 16px; height: 16px; accent-color: var(--primary);">
                             </td>
-                            <td class="td-id" style="text-align: center; color: var(--text-muted);">{{ loop.index }}</td>
-                            <td class="td-name"><a href="{{ url_for('admin_submissions') }}?exam_id={{ exam.id }}" class="exam-link" title="Lihat Hasil Ujian">{{ exam.name }}</a></td>
+                            <td class="td-id" data-label="No" style="text-align: center; color: var(--text-muted);">{{ loop.index }}</td>
+                            <td class="td-name" data-label="Ujian"><a href="{{ url_for('admin_submissions') }}?exam_id={{ exam.id }}" class="exam-link" title="Lihat Hasil Ujian">{{ exam.name }}</a></td>
                             {% if admin_user == 'admin' %}
-                            <td><span style="font-weight: 600; color: var(--accent-light);">{{ exam.creator_name or 'admin' }}</span></td>
+                            <td data-label="Pembuat"><span style="font-weight: 600; color: var(--accent-light);">{{ exam.creator_name or 'admin' }}</span></td>
                             {% endif %}
-                            <td class="td-token">
+                            <td class="td-token" data-label="Token">
                                 <div class="token-group">
                                     <code class="token-code" id="token-{{ exam.id }}" onclick="copyToken('{{ exam.token }}')" title="Klik untuk Salin Token">{{ exam.token or '—' }}</code>
                                     <button class="btn-icon btn-regen" onclick="regenerateToken({{ exam.id }})" title="Generate Token Baru">🔄</button>
@@ -257,17 +257,17 @@
                                     <button class="btn-icon btn-copy-link" onclick="copyResultsLink('{{ exam.token }}')" title="Salin Link Hasil Ujian (Siswa)">🔗</button>
                                 </div>
                             </td>
-                            <td>{{ "%.2f"|format(exam.size_bytes / 1048576) }} MB</td>
-                            <td>
+                            <td data-label="Ukuran">{{ "%.2f"|format(exam.size_bytes / 1048576) }} MB</td>
+                            <td data-label="Status">
                                 <span class="status-badge status-{{ exam.status }}" id="status-{{ exam.id }}">
                                     {{ exam.status }}
                                 </span>
                             </td>
-                            <td class="td-date" data-utc="{{ exam.created_at }}">{{ exam.created_at }}</td>
-                            <td class="td-actions">
+                            <td class="td-date" data-label="Tanggal" data-utc="{{ exam.created_at }}">{{ exam.created_at }}</td>
+                            <td class="td-actions" data-label="">
                                 <div class="actions-group">
                                     <!-- Primary Actions -->
-                                    <button class="btn-sm btn-questions" onclick="openQuestionsModal({{ exam.id }}, '{{ exam.name }}')" title="Konfigurasi Soal &amp; Kunci Jawaban" style="display: inline-flex; align-items: center; gap: 4px; height: 32px;">
+                                    <button class="btn-sm btn-questions" onclick="openQuestionsModal({{ exam.id }}, '{{ exam.name }}')" title="Konfigurasi Soal & Kunci Jawaban" style="display: inline-flex; align-items: center; gap: 4px; height: 32px;">
                                         ⚙️ Soal
                                     </button>
 

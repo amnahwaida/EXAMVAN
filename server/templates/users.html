@@ -601,20 +601,20 @@
                     }
 
                     tr.innerHTML = `
-                        <td>
+                        <td data-label="Username">
                             <strong style="color:${isSA?'var(--accent-light)':'var(--text-color)'};font-size:0.95rem;">
                                 ${isSA?'👑 ':'👤 '}${u.username}
                             </strong>
                             ${isSA?'<span style="font-size:10px;color:var(--text-secondary);display:block;margin-top:2px;">Super Admin</span>':''}
                         </td>
-                        <td><span style="font-family:monospace;font-size:12px;">${u.whatsapp_number || '—'}</span></td>
-                        <td style="text-align:center;">${statusBadge}</td>
-                        <td style="text-align:center;"><span class="${cntClass}">${isSA?'∞':u.exam_count}</span></td>
-                        <td style="text-align:center;"><span class="limit-badge">${isSA?'∞':u.max_exams}</span></td>
-                        <td style="text-align:center;"><span class="limit-badge limit-badge-pdf">${isSA?'∞':pdfMb+'MB'}</span></td>
-                        <td style="text-align:center;">${expiryHtml}</td>
-                        <td class="td-date" data-utc="${u.created_at}">${u.created_at}</td>
-                        <td>${actionHtml}</td>`;
+                        <td data-label="WhatsApp"><span style="font-family:monospace;font-size:12px;">${u.whatsapp_number || '—'}</span></td>
+                        <td data-label="Status" style="text-align:center;">${statusBadge}</td>
+                        <td data-label="Ujian" style="text-align:center;"><span class="${cntClass}">${isSA?'∞':u.exam_count}</span></td>
+                        <td data-label="Limit Ujian" style="text-align:center;"><span class="limit-badge">${isSA?'∞':u.max_exams}</span></td>
+                        <td data-label="Limit PDF" style="text-align:center;"><span class="limit-badge limit-badge-pdf">${isSA?'∞':pdfMb+'MB'}</span></td>
+                        <td data-label="Masa Aktif" style="text-align:center;">${expiryHtml}</td>
+                        <td class="td-date" data-label="Terdaftar" data-utc="${u.created_at}">${u.created_at}</td>
+                        <td data-label="">${actionHtml}</td>`;
                     tbody.appendChild(tr);
                 });
                 if (window.localizeDates) window.localizeDates();

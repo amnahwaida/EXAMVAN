@@ -206,6 +206,95 @@
             border-color: var(--primary) !important;
             box-shadow: 0 0 0 3px var(--primary-glow) !important;
         }
+
+        /* ==========================================
+           MOBILE RESPONSIVE - BUAT UJIAN PAGE
+           ========================================== */
+        @media (max-width: 768px) {
+            /* Sticky Actions: Stack vertically */
+            .sticky-actions {
+                flex-direction: column;
+                align-items: stretch;
+                gap: 12px;
+                padding: 14px 16px;
+            }
+            .sticky-actions > div:first-child {
+                text-align: center;
+            }
+            .btn-action-group {
+                flex-direction: column;
+                gap: 8px;
+            }
+            .btn-action-group .btn-sm,
+            .btn-action-group .btn-upload {
+                width: 100%;
+                text-align: center;
+                justify-content: center;
+            }
+
+            /* Question type add buttons: wrap and fill */
+            .glass-card > div[style*="display: flex"][style*="gap: 8px"][style*="flex-wrap: wrap"] {
+                flex-direction: column !important;
+            }
+            .glass-card > div[style*="display: flex"][style*="gap: 8px"][style*="flex-wrap: wrap"] > .btn-sm {
+                width: 100% !important;
+                text-align: center;
+                justify-content: center;
+            }
+
+            /* Question card header: stack on small screens */
+            .q-card-header {
+                flex-direction: column;
+                align-items: flex-start;
+                gap: 8px;
+            }
+            .q-card-header .q-remove-btn {
+                align-self: flex-end;
+            }
+
+            /* Matching pairs: single column */
+            .q-card div[style*="grid-template-columns: 1fr 1fr"] {
+                grid-template-columns: 1fr !important;
+                gap: 16px !important;
+            }
+
+            /* Connection mapping: stack items */
+            .q-card div[style*="justify-content: space-between"] {
+                flex-wrap: wrap;
+            }
+            .q-card select[style*="max-width: 250px"] {
+                max-width: 100% !important;
+                width: 100% !important;
+            }
+
+            /* Option rows: wrap better */
+            .opt-row > div[style*="display: flex"] {
+                flex-wrap: wrap;
+            }
+
+            /* Questions scroll area */
+            .questions-scroll-area {
+                max-height: none;
+                overflow-y: visible;
+            }
+
+            /* Quick tools section */
+            .sidebar-panel .glass-card .btn-sm {
+                font-size: 13px;
+                padding: 10px 14px;
+            }
+
+            /* Form rows inside sidebar */
+            .form-row-2col {
+                grid-template-columns: 1fr !important;
+            }
+        }
+
+        @media (max-width: 480px) {
+            .q-card { padding: 14px; }
+            .q-badge { font-size: 11px; padding: 3px 8px; }
+            .drag-handle { width: 24px; height: 24px; font-size: 12px; }
+        }
     </style>
     <!-- jsPDF Library -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>

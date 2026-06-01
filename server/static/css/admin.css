@@ -742,35 +742,269 @@ body {
     padding-left: 15px !important;
 }
 
+/* ==========================================
+   COMPREHENSIVE MOBILE RESPONSIVE STYLES
+   ========================================== */
+
 @media (max-width: 768px) {
-    .dashboard { padding: 16px; }
-    .stats-grid { grid-template-columns: repeat(2, 1fr); }
-    .upload-form .form-row { flex-direction: column; }
-    .topbar { padding: 12px 18px; flex-direction: row; gap: 0; align-items: center; justify-content: space-between; }
-    .topbar-left { flex-direction: row; align-items: center; gap: 10px; }
+    /* --- Core Layout --- */
+    .dashboard { padding: 12px; gap: 16px; }
+    .stats-grid { grid-template-columns: repeat(2, 1fr); gap: 10px; }
+    .stat-card { padding: 14px; gap: 10px; }
+    .stat-value { font-size: 22px; }
+    .stat-icon { font-size: 24px; }
+
+    /* --- Topbar --- */
+    .topbar { padding: 10px 14px; }
+    .topbar-left { gap: 8px; }
+    .topbar-title { font-size: 16px; }
     .topbar-badge { display: none; }
-    .td-actions { flex-direction: column; gap: 4px; }
-    .network-grid { grid-template-columns: 1fr; }
-    
-    /* Responsive Topbar Navigation */
     .topbar-nav { display: none !important; }
     .toggle-user-name { display: none; }
-    
-    /* Responsive Dropdown Navigation */
     .mobile-nav-links { display: block; }
     .mobile-only-header { display: flex !important; }
     .mobile-only-divider { display: block !important; }
     .desktop-only-item { display: none !important; }
-    
-    .topbar-dropdown-content {
-        width: 240px;
-        right: -6px;
+    .topbar-dropdown-content { width: 260px; right: -6px; }
+
+    /* --- Glass Cards --- */
+    .glass-card { padding: 16px; border-radius: 12px; }
+    .glass-card h3 { font-size: 16px; margin-bottom: 14px; }
+
+    /* --- Network Info --- */
+    .network-grid { grid-template-columns: 1fr 1fr; gap: 8px; }
+    .net-item { padding: 10px 12px; }
+    .net-label { font-size: 10px; }
+    .net-value { font-size: 13px; }
+
+    /* --- Upload / Form --- */
+    .upload-form .form-row { flex-direction: column; gap: 12px; }
+    .form-group[style*="flex: 0 0 220px"] { flex: 1 1 auto !important; }
+
+    /* --- Method Selector (PDF / Buat Ujian toggle) --- */
+    .method-selector { flex-direction: column !important; gap: 8px !important; }
+    .method-selector .btn-sm { width: 100% !important; justify-content: center !important; }
+
+    /* --- Table Header --- */
+    .table-header { flex-direction: column; align-items: stretch; gap: 10px; }
+    .table-header > div { display: flex; flex-wrap: wrap; gap: 6px; }
+    .table-header h3 { font-size: 15px; }
+
+    /* --- Exam Table: Card Layout on Mobile --- */
+    .exam-table thead { display: none; }
+    .exam-table,
+    .exam-table tbody,
+    .exam-table tr,
+    .exam-table td {
+        display: block;
+        width: 100%;
+    }
+    .exam-table tbody tr {
+        background: rgba(255, 255, 255, 0.02);
+        border: 1px solid rgba(255, 255, 255, 0.06);
+        border-radius: 12px;
+        padding: 14px;
+        margin-bottom: 12px;
+        position: relative;
+    }
+    .exam-table tbody tr:hover {
+        background: rgba(255, 255, 255, 0.04);
+    }
+    .exam-table td {
+        padding: 4px 0;
+        border-bottom: none;
+        text-align: left;
+    }
+    .exam-table td::before {
+        content: attr(data-label);
+        display: inline-block;
+        font-size: 11px;
+        font-weight: 600;
+        color: var(--text-muted);
+        text-transform: uppercase;
+        letter-spacing: 0.4px;
+        min-width: 90px;
+        margin-right: 8px;
+    }
+    /* Hide the checkbox column label on mobile */
+    .exam-table td:first-child::before { content: ''; min-width: 0; }
+    .exam-table td:first-child {
+        position: absolute;
+        top: 14px;
+        right: 14px;
+        width: auto;
+        padding: 0;
+    }
+
+    /* Token group on mobile */
+    .token-group { flex-wrap: wrap; gap: 6px; }
+    .token-code { font-size: 13px; letter-spacing: 1.5px; }
+    .td-token { min-width: 0; }
+
+    /* Actions on mobile */
+    .td-actions { flex-direction: row; gap: 6px; padding-top: 8px !important; flex-wrap: wrap; }
+    .td-actions::before { content: ''; min-width: 0 !important; display: none !important; }
+    .actions-group { flex-wrap: wrap; }
+    .btn-sm { padding: 8px 14px; font-size: 12px; }
+
+    /* --- Submissions Table: Card Layout --- */
+    #submissionsTable thead { display: none; }
+    #submissionsTable,
+    #submissionsTable tbody,
+    #submissionsTable tr,
+    #submissionsTable td {
+        display: block;
+        width: 100%;
+    }
+    #submissionsTable tbody tr {
+        background: rgba(255, 255, 255, 0.02);
+        border: 1px solid rgba(255, 255, 255, 0.06);
+        border-radius: 12px;
+        padding: 14px;
+        margin-bottom: 12px;
+    }
+    #submissionsTable td {
+        padding: 3px 0;
+        border-bottom: none;
+    }
+    #submissionsTable td::before {
+        content: attr(data-label);
+        display: inline-block;
+        font-size: 11px;
+        font-weight: 600;
+        color: var(--text-muted);
+        text-transform: uppercase;
+        letter-spacing: 0.4px;
+        min-width: 100px;
+        margin-right: 8px;
+    }
+
+    /* --- Submissions Filter/Export --- */
+    .submissions-actions { flex-direction: column; align-items: stretch; gap: 8px; width: 100%; }
+    .select-filter { width: 100% !important; min-width: 0 !important; }
+    .submissions-actions .btn-upload { width: 100%; text-align: center; }
+
+    /* --- Modals: Near Full Screen --- */
+    .modal-overlay { padding: 8px; align-items: flex-start; }
+    .modal-card {
+        max-width: 100% !important;
+        max-height: 95vh !important;
+        border-radius: 14px;
+        width: 100%;
+    }
+    .modal-header { padding: 14px 16px; }
+    .modal-header h3 { font-size: 15px; }
+    .modal-body { padding: 14px 16px; }
+    .modal-footer { padding: 12px 16px; flex-wrap: wrap; gap: 8px; }
+    .modal-footer .btn-sm,
+    .modal-footer .btn-upload {
+        flex: 1 1 auto;
+        min-width: 120px;
+        text-align: center;
+        justify-content: center;
+    }
+
+    /* --- Question Editor Cards in Modal --- */
+    .question-editor-card {
+        flex-direction: column;
+        align-items: stretch;
+        gap: 10px;
+        padding: 12px;
+    }
+    .question-editor-card .q-num-badge { align-self: flex-start; }
+    .q-field-group { width: 100%; }
+    .q-key-input { width: 100% !important; }
+    .q-options-input { width: 100% !important; }
+    .q-weight-input { width: 100% !important; }
+    .q-type-select { width: 100% !important; min-width: 0 !important; }
+    .btn-remove-q { margin-left: 0; width: 100%; justify-content: center; text-align: center; }
+
+    /* --- Questions Quick Generator --- */
+    .questions-quick-generator {
+        flex-direction: column !important;
+        align-items: stretch !important;
+        gap: 10px !important;
+    }
+    .questions-quick-generator .inline-group {
+        flex-direction: column;
+        align-items: stretch;
+        gap: 8px;
+    }
+    .questions-quick-generator .inline-group input[type="number"] { width: 100% !important; }
+    .questions-quick-generator .inline-group select { width: 100%; min-width: 0 !important; }
+    .questions-quick-generator .inline-group .btn-sm { width: 100%; text-align: center; justify-content: center; }
+    .xml-import-wrapper {
+        flex-direction: column !important;
+        align-items: stretch !important;
+        width: 100%;
+    }
+    .xml-import-wrapper .btn-sm { width: 100% !important; justify-content: center !important; }
+
+    /* --- Security Level Config in Modal --- */
+    .security-level-config {
+        flex-direction: column !important;
+        align-items: stretch !important;
+        gap: 10px !important;
+    }
+    .security-level-config select { width: 100% !important; min-width: 0 !important; }
+
+    /* --- Detail Answer Modal --- */
+    .detail-answer-item {
+        flex-direction: column;
+        align-items: flex-start;
+        gap: 6px;
+        padding: 10px 12px;
+    }
+    .detail-answer-item > div[style*="width: 110px"] {
+        width: 100% !important;
+        text-align: left !important;
+        display: flex;
+        gap: 8px;
+        align-items: center;
+    }
+    .detail-answers-grid { max-height: 60vh; padding: 10px; }
+
+    /* --- Toast: Center Bottom on Mobile --- */
+    .toast-container {
+        bottom: 12px;
+        right: 12px;
+        left: 12px;
+        align-items: stretch;
+    }
+    .toast { max-width: 100%; }
+
+    /* --- Dropdown Menus --- */
+    .exam-action-dropdown-content {
+        position: fixed !important;
+        left: 12px !important;
+        right: 12px !important;
+        bottom: 12px !important;
+        top: auto !important;
+        width: auto !important;
+        min-width: 0 !important;
+        border-radius: 14px;
+        max-height: 60vh;
+        overflow-y: auto;
+        z-index: 2000 !important;
+    }
+
+    /* --- Bulk Action Buttons --- */
+    #bulkDeleteBtn, #bulkToggleBtn {
+        font-size: 11px !important;
+        padding: 6px 10px !important;
     }
 }
 
 @media (max-width: 480px) {
     .stats-grid { grid-template-columns: 1fr; }
-    .login-card { padding: 28px 20px; }
+    .login-card { padding: 24px 16px; }
+    .login-header h1 { font-size: 24px; }
+    .network-grid { grid-template-columns: 1fr; }
+    .stat-card { padding: 12px; }
+    .stat-value { font-size: 20px; }
+    .topbar-logo { width: 30px; height: 30px; font-size: 14px; }
+    .topbar-title { font-size: 14px; }
+    .btn-upload { padding: 10px 16px; font-size: 13px; }
 }
 
 /* ===== Nav Links ===== */
