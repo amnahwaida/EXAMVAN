@@ -4,6 +4,12 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>EXAMVAN - Buat Ujian Baru</title>
+    <!-- KaTeX CSS & JS for LaTeX Rendering -->
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.8/dist/katex.min.css">
+    <script src="https://cdn.jsdelivr.net/npm/katex@0.16.8/dist/katex.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/katex@0.16.8/dist/contrib/auto-render.min.js"></script>
+    <!-- html2canvas for PDF LaTeX Rendering -->
+    <script src="https://cdn.jsdelivr.net/npm/html2canvas@1.4.1/dist/html2canvas.min.js"></script>
     <link rel="stylesheet" href="{{ url_for('static', filename='css/admin.css') }}?v=2.0.1">
     <style>
         .creator-container {
@@ -101,6 +107,20 @@
             font-size: 12px;
             cursor: pointer;
             transition: all 0.2s ease;
+        }
+        .latex-preview-box {
+            margin-top: 8px;
+            padding: 10px 14px;
+            background: rgba(99, 102, 241, 0.05);
+            border: 1px dashed rgba(99, 102, 241, 0.3);
+            border-radius: 8px;
+            font-size: 0.95rem;
+            line-height: 1.5;
+            color: #e2e8f0;
+            overflow-x: auto;
+        }
+        .latex-preview-box .katex-display {
+            margin: 0.5em 0;
         }
         .q-remove-btn:hover {
             background: rgba(239, 68, 68, 0.3);
@@ -604,10 +624,12 @@ SMA NEGERI EXAMVAN INDONESIA">SMA NEGERI EXAMVAN INDONESIA</textarea>
                                             <span class="opt-prefix">${letter}</span>
                                             <input id="opt_text_${idx}_${optIdx}" type="text" class="opt-input input-field" placeholder="Pilihan ${letter}" 
                                                    value="${optVal || ''}" 
+                                                   oninput="updateOptionTextLive(${idx}, ${optIdx}, this.value)"
                                                    onchange="updateOptionText(${idx}, ${optIdx}, this.value)">
                                             <button class="btn-sm btn-toggle" style="margin:0; padding: 6px; display: flex; align-items: center; justify-content: center; height: 38px; width: 38px; background: rgba(165,180,252,0.15); border-color: rgba(165,180,252,0.3);" title="Letakkan gambar di posisi kursor opsi ini" onclick="insertPlaceholder('opt_text_${idx}_${optIdx}')">📍</button>
                                             <button class="btn-sm btn-toggle" style="margin:0; padding: 6px; display: flex; align-items: center; justify-content: center; height: 38px; width: 38px;" title="Sisipkan Gambar Opsi" onclick="triggerOptionImageUpload(${idx}, ${optIdx})">📷</button>
                                         </div>
+                                        <div id="opt_preview_${idx}_${optIdx}" class="latex-preview-box" style="margin: 4px 0 4px 30px; padding: 6px 10px; background: rgba(255,255,255,0.02); border: 1px dashed var(--glass-border); border-radius: var(--radius-sm); font-size: 0.9rem; color: var(--text-color); width: calc(100% - 30px); display: none;"></div>
                                         <input type="file" id="opt_image_input_${idx}_${optIdx}" accept="image/*" style="display: none;" onchange="handleOptionImageUpload(${idx}, ${optIdx}, this)">
                                         ${q.choice_images && q.choice_images[optIdx] ? `
                                             <div style="position: relative; display: inline-block; margin: 6px 0 6px 30px; border: 1px solid var(--glass-border); border-radius: 6px; padding: 2px; background: rgba(0,0,0,0.2);">
@@ -645,10 +667,12 @@ SMA NEGERI EXAMVAN INDONESIA">SMA NEGERI EXAMVAN INDONESIA</textarea>
                                             <span class="opt-prefix">${letter}</span>
                                             <input id="opt_text_${idx}_${optIdx}" type="text" class="opt-input input-field" placeholder="Pilihan ${letter}" 
                                                    value="${optVal || ''}" 
+                                                   oninput="updateOptionTextLive(${idx}, ${optIdx}, this.value)"
                                                    onchange="updateOptionText(${idx}, ${optIdx}, this.value)">
                                             <button class="btn-sm btn-toggle" style="margin:0; padding: 6px; display: flex; align-items: center; justify-content: center; height: 38px; width: 38px; background: rgba(165,180,252,0.15); border-color: rgba(165,180,252,0.3);" title="Letakkan gambar di posisi kursor opsi ini" onclick="insertPlaceholder('opt_text_${idx}_${optIdx}')">📍</button>
                                             <button class="btn-sm btn-toggle" style="margin:0; padding: 6px; display: flex; align-items: center; justify-content: center; height: 38px; width: 38px;" title="Sisipkan Gambar Opsi" onclick="triggerOptionImageUpload(${idx}, ${optIdx})">📷</button>
                                         </div>
+                                        <div id="opt_preview_${idx}_${optIdx}" class="latex-preview-box" style="margin: 4px 0 4px 30px; padding: 6px 10px; background: rgba(255,255,255,0.02); border: 1px dashed var(--glass-border); border-radius: var(--radius-sm); font-size: 0.9rem; color: var(--text-color); width: calc(100% - 30px); display: none;"></div>
                                         <input type="file" id="opt_image_input_${idx}_${optIdx}" accept="image/*" style="display: none;" onchange="handleOptionImageUpload(${idx}, ${optIdx}, this)">
                                         ${q.choice_images && q.choice_images[optIdx] ? `
                                             <div style="position: relative; display: inline-block; margin: 6px 0 6px 30px; border: 1px solid var(--glass-border); border-radius: 6px; padding: 2px; background: rgba(0,0,0,0.2);">
@@ -694,11 +718,12 @@ SMA NEGERI EXAMVAN INDONESIA">SMA NEGERI EXAMVAN INDONESIA</textarea>
                                         <div style="display: flex; flex-direction: column; gap: 4px;">
                                             <div style="display: flex; gap: 6px; align-items: center;">
                                                 <span style="font-size: 11px; opacity: 0.6; min-width: 15px;">${lIdx + 1}.</span>
-                                                <input id="matching_left_text_${idx}_${lIdx}" type="text" class="input-field matching-left-input" style="margin:0; padding: 6px 10px;" placeholder="Teks Kiri #${lIdx+1}" value="${leftVal || ''}" onchange="updateMatchingItem(${idx}, 'left', ${lIdx}, this.value)">
+                                                <input id="matching_left_text_${idx}_${lIdx}" type="text" class="input-field matching-left-input" style="margin:0; padding: 6px 10px;" placeholder="Teks Kiri #${lIdx+1}" value="${leftVal || ''}" oninput="updateMatchingLeftLive(${idx}, ${lIdx}, this.value)" onchange="updateMatchingItem(${idx}, 'left', ${lIdx}, this.value)">
                                                 <button class="btn-sm btn-toggle" style="margin:0; padding: 6px; display: flex; align-items: center; justify-content: center; height: 32px; width: 32px; background: rgba(165,180,252,0.15); border-color: rgba(165,180,252,0.3);" title="Letakkan gambar di posisi kursor teks ini" onclick="insertPlaceholder('matching_left_text_${idx}_${lIdx}')">📍</button>
                                                 <button class="btn-sm btn-toggle" style="margin:0; padding: 6px; display: flex; align-items: center; justify-content: center; height: 32px; width: 32px;" title="Sisipkan Gambar Kiri" onclick="triggerMatchingImageUpload(${idx}, 'left', ${lIdx})">📷</button>
                                                 <button class="q-remove-btn" style="padding: 4px 8px; margin: 0;" onclick="removeMatchingItem(${idx}, 'left', ${lIdx})">✕</button>
                                             </div>
+                                            <div id="matching_left_preview_${idx}_${lIdx}" class="latex-preview-box" style="margin: 4px 0 4px 20px; padding: 6px 10px; background: rgba(255,255,255,0.02); border: 1px dashed var(--glass-border); border-radius: var(--radius-sm); font-size: 0.9rem; color: var(--text-color); display: none;"></div>
                                             <input type="file" id="matching_image_input_${idx}_left_${lIdx}" accept="image/*" style="display: none;" onchange="handleMatchingImageUpload(${idx}, 'left', ${lIdx}, this)">
                                             ${q.left_images && q.left_images[lIdx] ? `
                                                 <div style="position: relative; display: inline-block; align-self: flex-start; margin: 4px 0 4px 20px; border: 1px solid var(--glass-border); border-radius: 6px; padding: 2px; background: rgba(0,0,0,0.2);">
@@ -722,11 +747,12 @@ SMA NEGERI EXAMVAN INDONESIA">SMA NEGERI EXAMVAN INDONESIA</textarea>
                                         <div style="display: flex; flex-direction: column; gap: 4px;">
                                             <div style="display: flex; gap: 6px; align-items: center;">
                                                 <span style="font-size: 11px; opacity: 0.6; min-width: 15px;">${String.fromCharCode(65 + rIdx)}.</span>
-                                                <input id="matching_right_text_${idx}_${rIdx}" type="text" class="input-field matching-right-input" style="margin:0; padding: 6px 10px;" placeholder="Teks Kanan #${rIdx+1}" value="${rightVal || ''}" onchange="updateMatchingItem(${idx}, 'right', ${rIdx}, this.value)">
+                                                <input id="matching_right_text_${idx}_${rIdx}" type="text" class="input-field matching-right-input" style="margin:0; padding: 6px 10px;" placeholder="Teks Kanan #${rIdx+1}" value="${rightVal || ''}" oninput="updateMatchingRightLive(${idx}, ${rIdx}, this.value)" onchange="updateMatchingItem(${idx}, 'right', ${rIdx}, this.value)">
                                                 <button class="btn-sm btn-toggle" style="margin:0; padding: 6px; display: flex; align-items: center; justify-content: center; height: 32px; width: 32px; background: rgba(165,180,252,0.15); border-color: rgba(165,180,252,0.3);" title="Letakkan gambar di posisi kursor teks ini" onclick="insertPlaceholder('matching_right_text_${idx}_${rIdx}')">📍</button>
                                                 <button class="btn-sm btn-toggle" style="margin:0; padding: 6px; display: flex; align-items: center; justify-content: center; height: 32px; width: 32px;" title="Sisipkan Gambar Kanan" onclick="triggerMatchingImageUpload(${idx}, 'right', ${rIdx})">📷</button>
                                                 <button class="q-remove-btn" style="padding: 4px 8px; margin: 0;" onclick="removeMatchingItem(${idx}, 'right', ${rIdx})">✕</button>
                                             </div>
+                                            <div id="matching_right_preview_${idx}_${rIdx}" class="latex-preview-box" style="margin: 4px 0 4px 20px; padding: 6px 10px; background: rgba(255,255,255,0.02); border: 1px dashed var(--glass-border); border-radius: var(--radius-sm); font-size: 0.9rem; color: var(--text-color); display: none;"></div>
                                             <input type="file" id="matching_image_input_${idx}_right_${rIdx}" accept="image/*" style="display: none;" onchange="handleMatchingImageUpload(${idx}, 'right', ${rIdx}, this)">
                                             ${q.right_images && q.right_images[rIdx] ? `
                                                 <div style="position: relative; display: inline-block; align-self: flex-start; margin: 4px 0 4px 20px; border: 1px solid var(--glass-border); border-radius: 6px; padding: 2px; background: rgba(0,0,0,0.2);">
@@ -802,7 +828,8 @@ SMA NEGERI EXAMVAN INDONESIA">SMA NEGERI EXAMVAN INDONESIA</textarea>
                     </div>
                     <div class="form-group">
                         <label>Pertanyaan</label>
-                        <textarea id="q_text_${idx}" class="input-field" style="min-height: 60px; resize: vertical;" placeholder="Tuliskan teks soal di sini..." onchange="updateQuestionText(${idx}, this.value)">${q.question_text || ''}</textarea>
+                        <textarea id="q_text_${idx}" class="input-field" style="min-height: 60px; resize: vertical;" placeholder="Tuliskan teks soal di sini... (Mendukung LaTeX, misal: $\sqrt{x^2+y^2}$ atau $$\int_a^b f(x) dx$$)" oninput="updateQuestionTextLive(${idx}, this.value)" onchange="updateQuestionText(${idx}, this.value)">${q.question_text || ''}</textarea>
+                        <div id="q_preview_${idx}" class="latex-preview-box" style="display: none;"></div>
                     </div>
                     <!-- Question Image Upload -->
                     <div class="form-group" style="margin-top: 8px; margin-bottom: 8px;">
@@ -989,6 +1016,28 @@ SMA NEGERI EXAMVAN INDONESIA">SMA NEGERI EXAMVAN INDONESIA</textarea>
             });
 
             updateQuestionCount();
+
+            // Render live LaTeX previews for questions and answers
+            questionsList.forEach((q, idx) => {
+                triggerLatexRender(`q_preview_${idx}`, q.question_text);
+                
+                if ((q.type === 'single_choice' || q.type === 'multiple_choice') && q.choices) {
+                    q.choices.forEach((optVal, optIdx) => {
+                        triggerLatexRender(`opt_preview_${idx}_${optIdx}`, optVal);
+                    });
+                } else if (q.type === 'matching') {
+                    if (q.left_items) {
+                        q.left_items.forEach((leftVal, lIdx) => {
+                            triggerLatexRender(`matching_left_preview_${idx}_${lIdx}`, leftVal);
+                        });
+                    }
+                    if (q.right_items) {
+                        q.right_items.forEach((rightVal, rIdx) => {
+                            triggerLatexRender(`matching_right_preview_${idx}_${rIdx}`, rightVal);
+                        });
+                    }
+                }
+            });
         }
 
         function enableCardDrag(idx) {
@@ -1055,13 +1104,63 @@ SMA NEGERI EXAMVAN INDONESIA">SMA NEGERI EXAMVAN INDONESIA</textarea>
             renderQuestions();
         }
 
+        function triggerLatexRender(elementId, text) {
+            const previewEl = document.getElementById(elementId);
+            if (!previewEl) return;
+            if (!text || !text.includes('$')) {
+                previewEl.style.display = 'none';
+                previewEl.innerHTML = '';
+                return;
+            }
+            
+            // Convert newlines to HTML line breaks
+            const formatted = text.replace(/\n/g, '<br>');
+            previewEl.innerHTML = formatted;
+            previewEl.style.display = 'block';
+            
+            try {
+                renderMathInElement(previewEl, {
+                    delimiters: [
+                        {left: '$$', right: '$$', display: true},
+                        {left: '$', right: '$', display: false}
+                    ],
+                    throwOnError: false
+                });
+            } catch (e) {
+                console.error("KaTeX Error: ", e);
+            }
+        }
+
         function updateQuestionText(idx, val) {
             questionsList[idx].question_text = val;
+        }
+
+        function updateQuestionTextLive(idx, val) {
+            questionsList[idx].question_text = val;
+            triggerLatexRender(`q_preview_${idx}`, val);
         }
 
         function updateOptionText(qIdx, optIdx, val) {
             if (!questionsList[qIdx].choices) questionsList[qIdx].choices = [];
             questionsList[qIdx].choices[optIdx] = val;
+        }
+
+        function updateOptionTextLive(qIdx, optIdx, val) {
+            if (!questionsList[qIdx].choices) questionsList[qIdx].choices = [];
+            questionsList[qIdx].choices[optIdx] = val;
+            triggerLatexRender(`opt_preview_${qIdx}_${optIdx}`, val);
+        }
+
+        function updateMatchingLeftLive(qIdx, itemIdx, val) {
+            if (!questionsList[qIdx].left_items) questionsList[qIdx].left_items = [];
+            questionsList[qIdx].left_items[itemIdx] = val;
+            triggerLatexRender(`matching_left_preview_${qIdx}_${itemIdx}`, val);
+        }
+
+        function updateMatchingRightLive(qIdx, itemIdx, val) {
+            if (!questionsList[qIdx].right_items) questionsList[qIdx].right_items = [];
+            questionsList[qIdx].right_items[itemIdx] = val;
+            triggerLatexRender(`matching_right_preview_${qIdx}_${itemIdx}`, val);
         }
 
         function addChoiceOption(qIdx) {
@@ -2017,7 +2116,62 @@ SMA NEGERI EXAMVAN INDONESIA">SMA NEGERI EXAMVAN INDONESIA</textarea>
             });
         }
 
-        function buildExamPDF() {
+        async function renderLatexToImage(text, widthMm) {
+            const scale = 2.5;
+            const widthPx = Math.round(widthMm * 3.7795); // 1mm = 3.7795px at 96 DPI
+            
+            const container = document.createElement('div');
+            container.style.position = 'fixed';
+            container.style.top = '-9999px';
+            container.style.left = '-9999px';
+            container.style.width = `${widthPx}px`;
+            container.style.fontFamily = 'Helvetica, Arial, sans-serif';
+            container.style.fontSize = '13.5px'; // Adjust font size to match standard 10pt Helvetica
+            container.style.lineHeight = '1.4';
+            container.style.color = '#000000';
+            container.style.background = '#ffffff';
+            container.style.padding = '1px';
+            container.style.boxSizing = 'border-box';
+            
+            const formattedText = text.replace(/\n/g, '<br>');
+            container.innerHTML = formattedText;
+            document.body.appendChild(container);
+            
+            try {
+                renderMathInElement(container, {
+                    delimiters: [
+                        {left: '$$', right: '$$', display: true},
+                        {left: '$', right: '$', display: false}
+                    ],
+                    throwOnError: false
+                });
+            } catch (e) {
+                console.error("KaTeX render error: ", e);
+            }
+            
+            await new Promise(resolve => setTimeout(resolve, 50));
+            
+            const canvas = await html2canvas(container, {
+                scale: scale,
+                backgroundColor: '#ffffff',
+                logging: false,
+                useCORS: true
+            });
+            
+            document.body.removeChild(container);
+            
+            const imgData = canvas.toDataURL('image/png');
+            const imgH_mm = (canvas.height / scale) / 3.7795;
+            const imgW_mm = (canvas.width / scale) / 3.7795;
+            
+            return {
+                imgData: imgData,
+                width: imgW_mm,
+                height: imgH_mm
+            };
+        }
+
+        async function buildExamPDF() {
             const examName = document.getElementById('examName').value.trim() || 'UJIAN EXAMVAN';
             const subject = document.getElementById('subjectName').value.trim() || 'Umum';
             const className = document.getElementById('className').value.trim() || 'Semua Kelas';
@@ -2145,7 +2299,8 @@ SMA NEGERI EXAMVAN INDONESIA">SMA NEGERI EXAMVAN INDONESIA</textarea>
             }
 
             // ===== RENDER QUESTIONS =====
-            questionsList.forEach((q, idx) => {
+            for (let idx = 0; idx < questionsList.length; idx++) {
+                const q = questionsList[idx];
                 brk(15);
                 doc.setFont("helvetica", "bold"); doc.setFontSize(10);
                 doc.text(`${idx + 1}. `, cx(), y);
@@ -2163,9 +2318,16 @@ SMA NEGERI EXAMVAN INDONESIA">SMA NEGERI EXAMVAN INDONESIA</textarea>
                     const imgN = m[1] ? parseInt(m[1]) : 1;
                     const pre = fullQText.substring(li, m.index);
                     if (pre.trim()) {
-                        const ls = doc.splitTextToSize(pre, qTxtW);
-                        brk(ls.length * 5 + 2);
-                        doc.text(ls, cx() + 5, y); y += (ls.length * 5) + 2;
+                        if (pre.includes('$')) {
+                            const imgObj = await renderLatexToImage(pre, qTxtW);
+                            brk(imgObj.height + 2);
+                            doc.addImage(imgObj.imgData, 'PNG', cx() + 5, y, imgObj.width, imgObj.height);
+                            y += imgObj.height + 2;
+                        } else {
+                            const ls = doc.splitTextToSize(pre, qTxtW);
+                            brk(ls.length * 5 + 2);
+                            doc.text(ls, cx() + 5, y); y += (ls.length * 5) + 2;
+                        }
                     }
                     const iD = q.images && q.images[imgN - 1] ? q.images[imgN - 1] : (imgN === 1 && q.image ? q.image : null);
                     if (iD) { addPdfImage(iD, 10, qImgMaxW, qImgMaxH); usedImgs.add(imgN - 1); }
@@ -2174,9 +2336,16 @@ SMA NEGERI EXAMVAN INDONESIA">SMA NEGERI EXAMVAN INDONESIA</textarea>
                 const post = fullQText.substring(li);
                 if (post.trim() || li === 0) {
                     const ft = li === 0 ? fullQText : post;
-                    const ls = doc.splitTextToSize(ft, qTxtW);
-                    brk(ls.length * 5 + 2);
-                    doc.text(ls, cx() + 5, y); y += (ls.length * 5) + 2;
+                    if (ft.includes('$')) {
+                        const imgObj = await renderLatexToImage(ft, qTxtW);
+                        brk(imgObj.height + 2);
+                        doc.addImage(imgObj.imgData, 'PNG', cx() + 5, y, imgObj.width, imgObj.height);
+                        y += imgObj.height + 2;
+                    } else {
+                        const ls = doc.splitTextToSize(ft, qTxtW);
+                        brk(ls.length * 5 + 2);
+                        doc.text(ls, cx() + 5, y); y += (ls.length * 5) + 2;
+                    }
                 }
 
                 // Unused images
@@ -2187,21 +2356,51 @@ SMA NEGERI EXAMVAN INDONESIA">SMA NEGERI EXAMVAN INDONESIA</textarea>
                 // Choice options
                 if ((q.type === 'single_choice' || q.type === 'multiple_choice') && q.choices) {
                     const ltrs = ['A','B','C','D','E','F','G','H','I','J'];
-                    q.choices.forEach((oT, oI) => {
+                    for (let oI = 0; oI < q.choices.length; oI++) {
+                        const oT = q.choices[oI];
                         brk(7);
                         const oV = oT || '';
                         if (q.choice_images && q.choice_images[oI] && oV.includes('[gambar]')) {
                             const pts = oV.split('[gambar]');
-                            const l1 = doc.splitTextToSize(`${ltrs[oI]}. ${pts[0]}`, optTxtW);
-                            doc.text(l1, cx() + 10, y); y += (l1.length * 5) + 1;
+                            
+                            // Pt 1
+                            if (pts[0].includes('$')) {
+                                const imgObj = await renderLatexToImage(`${ltrs[oI]}. ${pts[0]}`, optTxtW);
+                                brk(imgObj.height + 2);
+                                doc.addImage(imgObj.imgData, 'PNG', cx() + 10, y, imgObj.width, imgObj.height);
+                                y += imgObj.height + 1;
+                            } else {
+                                const l1 = doc.splitTextToSize(`${ltrs[oI]}. ${pts[0]}`, optTxtW);
+                                doc.text(l1, cx() + 10, y); y += (l1.length * 5) + 1;
+                            }
+                            
                             addPdfImage(q.choice_images[oI], 20, oImgMaxW, oImgMaxH);
-                            if (pts[1]) { const l2 = doc.splitTextToSize(pts[1], optTxtW); doc.text(l2, cx() + 10, y); y += (l2.length * 5) + 1; }
+                            
+                            // Pt 2
+                            if (pts[1]) {
+                                if (pts[1].includes('$')) {
+                                    const imgObj = await renderLatexToImage(pts[1], optTxtW);
+                                    brk(imgObj.height + 2);
+                                    doc.addImage(imgObj.imgData, 'PNG', cx() + 10, y, imgObj.width, imgObj.height);
+                                    y += imgObj.height + 1;
+                                } else {
+                                    const l2 = doc.splitTextToSize(pts[1], optTxtW);
+                                    doc.text(l2, cx() + 10, y); y += (l2.length * 5) + 1;
+                                }
+                            }
                         } else {
-                            const ol = doc.splitTextToSize(`${ltrs[oI]}. ${oV}`, optTxtW);
-                            doc.text(ol, cx() + 10, y); y += (ol.length * 5) + 1;
+                            if (oV.includes('$')) {
+                                const imgObj = await renderLatexToImage(`${ltrs[oI]}. ${oV}`, optTxtW);
+                                brk(imgObj.height + 2);
+                                doc.addImage(imgObj.imgData, 'PNG', cx() + 10, y, imgObj.width, imgObj.height);
+                                y += imgObj.height + 1;
+                            } else {
+                                const ol = doc.splitTextToSize(`${ltrs[oI]}. ${oV}`, optTxtW);
+                                doc.text(ol, cx() + 10, y); y += (ol.length * 5) + 1;
+                            }
                             if (q.choice_images && q.choice_images[oI]) addPdfImage(q.choice_images[oI], 20, oImgMaxW, oImgMaxH);
                         }
-                    });
+                    }
                     y += 1;
                 } else if (q.type === 'matching') {
                     const mLx = 5, mRx = colW / 2 + 2, mCw = colW / 2 - 10;
@@ -2214,9 +2413,42 @@ SMA NEGERI EXAMVAN INDONESIA">SMA NEGERI EXAMVAN INDONESIA</textarea>
                         brk(10);
                         const lT = q.left_items && q.left_items[p] ? `${p+1}. ${q.left_items[p]}` : '';
                         const rT = q.right_items && q.right_items[p] ? `${String.fromCharCode(65+p)}. ${q.right_items[p]}` : '';
-                        const lL = doc.splitTextToSize(lT, mCw), rL = doc.splitTextToSize(rT, mCw);
-                        doc.text(lL, cx() + mLx, y); doc.text(rL, cx() + mRx, y);
-                        y += Math.max(lL.length, rL.length) * 5 + 2;
+                        
+                        let leftImg = null, rightImg = null;
+                        if (lT && lT.includes('$')) {
+                            leftImg = await renderLatexToImage(lT, mCw);
+                        }
+                        if (rT && rT.includes('$')) {
+                            rightImg = await renderLatexToImage(rT, mCw);
+                        }
+                        
+                        if (leftImg || rightImg) {
+                            const leftH = leftImg ? leftImg.height : 0;
+                            const rightH = rightImg ? rightImg.height : 0;
+                            const maxH = Math.max(leftH, rightH);
+                            brk(maxH + 2);
+                            
+                            if (leftImg) {
+                                doc.addImage(leftImg.imgData, 'PNG', cx() + mLx, y, leftImg.width, leftImg.height);
+                            } else if (lT) {
+                                const lL = doc.splitTextToSize(lT, mCw);
+                                doc.text(lL, cx() + mLx, y);
+                            }
+                            
+                            if (rightImg) {
+                                doc.addImage(rightImg.imgData, 'PNG', cx() + mRx, y, rightImg.width, rightImg.height);
+                            } else if (rT) {
+                                const rL = doc.splitTextToSize(rT, mCw);
+                                doc.text(rL, cx() + mRx, y);
+                            }
+                            
+                            y += maxH + 2;
+                        } else {
+                            const lL = doc.splitTextToSize(lT, mCw), rL = doc.splitTextToSize(rT, mCw);
+                            doc.text(lL, cx() + mLx, y); doc.text(rL, cx() + mRx, y);
+                            y += Math.max(lL.length, rL.length) * 5 + 2;
+                        }
+                        
                         if (q.left_images && q.left_images[p]) addPdfImage(q.left_images[p], mLx, mCw - 5, 30);
                         if (q.right_images && q.right_images[p]) addPdfImage(q.right_images[p], mRx, mCw - 5, 30);
                     }
@@ -2229,7 +2461,7 @@ SMA NEGERI EXAMVAN INDONESIA">SMA NEGERI EXAMVAN INDONESIA</textarea>
                     const fillLen = numCols === 2 ? '________________' : '____________________________________';
                     doc.text(`Jawaban Singkat: ${fillLen}`, cx() + 10, y); y += 7;
                 }
-            });
+            }
 
             // Draw column dividers on all pages
             if (numCols === 2) {
@@ -2248,18 +2480,18 @@ SMA NEGERI EXAMVAN INDONESIA">SMA NEGERI EXAMVAN INDONESIA</textarea>
             return doc;
         }
 
-        function previewAndDownloadPDF() {
+        async function previewAndDownloadPDF() {
             if (questionsList.length === 0) {
                 showToast('Daftar pertanyaan masih kosong', 'error');
                 return;
             }
             const examName = document.getElementById('examName').value.trim() || 'ujian_examvan';
-            const doc = buildExamPDF();
+            const doc = await buildExamPDF();
             doc.save(`${examName.replace(/\s+/g, '_')}_soal.pdf`);
             showToast('PDF berhasil diunduh!', 'success');
         }
 
-        function saveAndRegisterExam() {
+        async function saveAndRegisterExam() {
             const name = document.getElementById('examName').value.trim();
             if (!name) {
                 showToast('Nama Ujian wajib diisi!', 'error');
@@ -2271,7 +2503,7 @@ SMA NEGERI EXAMVAN INDONESIA">SMA NEGERI EXAMVAN INDONESIA</textarea>
             }
 
             // Generate PDF Blob
-            const doc = buildExamPDF();
+            const doc = await buildExamPDF();
             const pdfBlob = doc.output('blob');
             const file = new File([pdfBlob], `${name.replace(/\s+/g, '_')}.pdf`, { type: 'application/pdf' });
 
