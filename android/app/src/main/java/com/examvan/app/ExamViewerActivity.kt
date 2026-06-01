@@ -1,10 +1,12 @@
 package com.examvan.app
 
+import android.Manifest
 import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.content.ClipboardManager
 import android.content.Context
 import android.content.Intent
+import android.content.pm.PackageManager
 import android.graphics.Bitmap
 import android.graphics.Color
 import android.graphics.pdf.PdfRenderer
@@ -18,7 +20,9 @@ import android.view.WindowManager
 import android.widget.*
 import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
+import androidx.core.app.ActivityCompat
 import androidx.core.app.NotificationCompat
+import androidx.core.content.ContextCompat
 import com.examvan.app.api.ApiClient
 import com.examvan.app.databinding.ActivityExamViewerBinding
 import com.google.gson.Gson
@@ -88,6 +92,15 @@ class ExamViewerActivity : AppCompatActivity() {
             val clipboard = getSystemService(Context.CLIPBOARD_SERVICE) as? ClipboardManager
             clipboard?.clearPrimaryClip()
         } catch (_: Throwable) { }
+
+        // Request notification permission for Android 13+ (API 33+)
+        // Without this runtime request, notifications are silently blocked
+        if (Build.VERSION.SDK_INT >= 33) {
+            if (ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS)
+                != PackageManager.PERMISSION_GRANTED) {
+                ActivityCompat.requestPermissions(this, arrayOf(Manifest.permission.POST_NOTIFICATIONS), 1001)
+            }
+        }
 
         binding = ActivityExamViewerBinding.inflate(layoutInflater)
         setContentView(binding.root)
@@ -775,37 +788,45 @@ class ExamViewerActivity : AppCompatActivity() {
             return
         }
 
-        // Start synchronous submission in a background thread to block the main thread for a maximum of 2 seconds.
-        // This keeps the process active and ensures the network request is fully sent before the OS suspends the app.
+        // Submit synchronously in a background thread, then post notification BEFORE finish().
+        var notifTitle = "✅ Jawaban Terkirim"
+        var notifMessage = getString(R.string.toast_auto_submit_success)
+
         val thread = Thread {
-            val result = ApiClient.submitExamSync(
-                examId = examId,
-                studentName = studentName,
-                examNumber = studentNumber,
-                studentClass = studentClass,
-                answers = studentAnswers,
-                startTime = startTime,
-                macAddress = macAddress
-            )
-            // Use persistent system Notification instead of Toast.
-            // Toast disappears instantly when the activity finishes, but a Notification
-            // stays visible in the notification shade so students always see the result.
-            val title: String
-            val message: String
-            if (result.first) {
-                title = "✅ Jawaban Terkirim"
-                message = getString(R.string.toast_auto_submit_success)
-            } else {
-                title = "❌ Gagal Mengirim Jawaban"
-                message = getString(R.string.toast_auto_submit_failed, result.second)
+            try {
+                val result = ApiClient.submitExamSync(
+                    examId = examId,
+                    studentName = studentName,
+                    examNumber = studentNumber,
+                    studentClass = studentClass,
+                    answers = studentAnswers,
+                    startTime = startTime,
+                    macAddress = macAddress
+                )
+                if (result.first) {
+                    notifTitle = "✅ Jawaban Terkirim"
+                    notifMessage = getString(R.string.toast_auto_submit_success)
+                } else {
+                    notifTitle = "❌ Gagal Mengirim Jawaban"
+                    notifMessage = getString(R.string.toast_auto_submit_failed, result.second)
+                }
+            } catch (_: Throwable) {
+                notifTitle = "❌ Gagal Mengirim Jawaban"
+                notifMessage = "Terjadi kesalahan saat mengirim jawaban."
             }
-            showAutoSubmitNotification(title, message)
         }
         thread.start()
         try {
-            // Block the main thread for up to 2.5 seconds to allow the request to finish before calling finish()
-            thread.join(2500)
+            // Block main thread up to 3 seconds to ensure the API call finishes
+            thread.join(3000)
         } catch (_: Exception) {}
+
+        // Post notification synchronously on main thread BEFORE calling finish().
+        // This guarantees the notification is dispatched to the OS before the process exits.
+        showAutoSubmitNotification(notifTitle, notifMessage)
+
+        // Small delay to let the OS fully register the notification
+        try { Thread.sleep(300) } catch (_: Exception) {}
 
         finish()
     }

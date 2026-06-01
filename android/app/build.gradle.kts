@@ -11,8 +11,8 @@ android {
         applicationId = "com.examvan.app"
         minSdk = 21
         targetSdk = 34
-        versionCode = 27
-        versionName = "2.1.6"
+        versionCode = 28
+        versionName = "2.1.7"
     }
 
     signingConfigs {
