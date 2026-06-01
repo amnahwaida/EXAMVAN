@@ -63,9 +63,11 @@ class ExamViewerActivity : AppCompatActivity() {
 
     // Track active popup windows (Spinner dropdowns, etc.) to prevent false focus-loss detection
     private var activePopupCount = 0
+    private var onCreateTime = 0L
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        onCreateTime = System.currentTimeMillis()
 
         // FLAG_SECURE: prevent screenshots & screen recording
         window.setFlags(
@@ -655,6 +657,7 @@ class ExamViewerActivity : AppCompatActivity() {
     override fun onPause() {
         super.onPause()
         if (submittedOrExited) return
+        if (System.currentTimeMillis() - onCreateTime < 3000) return
 
         if (securityLevel == "medium") {
             autoSubmitAndExit()
@@ -664,6 +667,7 @@ class ExamViewerActivity : AppCompatActivity() {
     override fun onUserLeaveHint() {
         super.onUserLeaveHint()
         if (submittedOrExited) return
+        if (System.currentTimeMillis() - onCreateTime < 3000) return
 
         if (securityLevel == "medium") {
             autoSubmitAndExit()
