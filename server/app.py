@@ -754,10 +754,15 @@ def api_exam_pdf(exam_id):
 
 @app.route('/')
 def index():
-    """Redirect to admin dashboard or login."""
-    if 'admin_id' in session:
-        return redirect(url_for('admin_dashboard'))
-    return redirect(url_for('admin_login'))
+    """Render landing page."""
+    return render_template('index.html')
+
+
+@app.route('/download/apk')
+def download_apk():
+    """Download client Android APK."""
+    apk_path = os.path.join(BASE_DIR, 'static', 'EXAMVAN.apk')
+    return send_file(apk_path, as_attachment=True, download_name='EXAMVAN.apk')
 
 
 @app.route('/admin/login', methods=['GET', 'POST'])
