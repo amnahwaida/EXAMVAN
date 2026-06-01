@@ -1,11 +1,14 @@
 package com.examvan.app
 
+import android.app.NotificationChannel
+import android.app.NotificationManager
 import android.content.ClipboardManager
 import android.content.Context
 import android.content.Intent
 import android.graphics.Bitmap
 import android.graphics.Color
 import android.graphics.pdf.PdfRenderer
+import android.os.Build
 import android.os.Bundle
 import android.os.ParcelFileDescriptor
 import android.view.LayoutInflater
@@ -14,6 +17,7 @@ import android.view.WindowManager
 import android.widget.*
 import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
+import androidx.core.app.NotificationCompat
 import com.examvan.app.api.ApiClient
 import com.examvan.app.databinding.ActivityExamViewerBinding
 import com.google.gson.Gson
@@ -768,13 +772,19 @@ class ExamViewerActivity : AppCompatActivity() {
                 startTime = startTime,
                 macAddress = macAddress
             )
-            runOnUiThread {
-                if (result.first) {
-                    Toast.makeText(applicationContext, getString(R.string.toast_auto_submit_success), Toast.LENGTH_LONG).show()
-                } else {
-                    Toast.makeText(applicationContext, getString(R.string.toast_auto_submit_failed, result.second), Toast.LENGTH_LONG).show()
-                }
+            // Use persistent system Notification instead of Toast.
+            // Toast disappears instantly when the activity finishes, but a Notification
+            // stays visible in the notification shade so students always see the result.
+            val title: String
+            val message: String
+            if (result.first) {
+                title = "✅ Jawaban Terkirim"
+                message = getString(R.string.toast_auto_submit_success)
+            } else {
+                title = "❌ Gagal Mengirim Jawaban"
+                message = getString(R.string.toast_auto_submit_failed, result.second)
             }
+            showAutoSubmitNotification(title, message)
         }
         thread.start()
         try {
@@ -783,6 +793,41 @@ class ExamViewerActivity : AppCompatActivity() {
         } catch (_: Exception) {}
 
         finish()
+    }
+
+    private fun showAutoSubmitNotification(title: String, message: String) {
+        try {
+            val channelId = "examvan_auto_submit"
+            val notificationManager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+
+            // Create notification channel (required for Android 8.0+)
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                val channel = NotificationChannel(
+                    channelId,
+                    "Pengiriman Jawaban Otomatis",
+                    NotificationManager.IMPORTANCE_HIGH
+                ).apply {
+                    description = "Notifikasi saat jawaban ujian dikirim otomatis karena siswa keluar dari aplikasi"
+                }
+                notificationManager.createNotificationChannel(channel)
+            }
+
+            val notification = NotificationCompat.Builder(applicationContext, channelId)
+                .setSmallIcon(R.mipmap.ic_launcher)
+                .setContentTitle(title)
+                .setContentText(message)
+                .setStyle(NotificationCompat.BigTextStyle().bigText(message))
+                .setPriority(NotificationCompat.PRIORITY_HIGH)
+                .setAutoCancel(true)
+                .build()
+
+            notificationManager.notify(1001, notification)
+        } catch (_: Throwable) {
+            // Fallback to Toast if notification fails
+            runOnUiThread {
+                Toast.makeText(applicationContext, message, Toast.LENGTH_LONG).show()
+            }
+        }
     }
 
     override fun onDestroy() {
