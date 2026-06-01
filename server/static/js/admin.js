@@ -181,7 +181,7 @@ function copyResultsLink(token) {
         showToast('Token belum tersedia', 'error');
         return;
     }
-    const link = window.location.origin + '/' + token;
+    const link = window.location.origin + '/hasil/' + token;
     navigator.clipboard.writeText(link).then(() => {
         showToast(`Link hasil ujian berhasil disalin: ${link}`, 'success');
     }).catch(() => {
@@ -1151,15 +1151,15 @@ function toggleShowAnswers(examId) {
 }
 
 // Dropdown Menu Toggle Handler
-document.addEventListener('DOMContentLoaded', () => {
+function initMenuToggle() {
     const menuToggle = document.getElementById('menuToggleBtn');
     const dropdownContent = document.getElementById('menuDropdownContent');
     
     if (menuToggle && dropdownContent) {
-        menuToggle.addEventListener('click', (e) => {
+        menuToggle.onclick = (e) => {
             e.stopPropagation();
             dropdownContent.classList.toggle('show');
-        });
+        };
         
         document.addEventListener('click', (e) => {
             if (!menuToggle.contains(e.target) && !dropdownContent.contains(e.target)) {
@@ -1167,7 +1167,13 @@ document.addEventListener('DOMContentLoaded', () => {
             }
         });
     }
-});
+}
+
+if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', initMenuToggle);
+} else {
+    initMenuToggle();
+}
 
 
 // ===== Edit Exam Modal =====
