@@ -130,7 +130,9 @@ def init_db():
         'wa_otp_template': 'Kode OTP EXAMVAN Anda: {otp}. Berlaku selama 5 menit.',
         'default_max_exams': '3',
         'default_max_pdf_size': '1048576',
-        'default_active_days': '1'
+        'default_active_days': '1',
+        'android_version': '2.0.0',
+        'webapp_version': '2.0.0'
     }
     for k, v in default_settings.items():
         existing_setting = db.execute('SELECT value FROM saas_settings WHERE key = ?', (k,)).fetchone()
@@ -551,10 +553,11 @@ def format_iso_utc(date_str):
 def api_health():
     """Health check endpoint."""
     now = datetime.now(timezone.utc)
+    required_version = get_saas_setting('android_version', '2.0.0')
     return jsonify({
         'status': 'ok',
         'version': '2.0',
-        'required_app_version': '2.0.0',
+        'required_app_version': required_version,
         'lan_mode': True,
         'timestamp': now.isoformat(),
         'server_time_utc': now.strftime('%Y-%m-%dT%H:%M:%SZ')
@@ -599,13 +602,13 @@ def api_exams():
 @app.route('/api/exams/token/<token>')
 def api_exam_by_token(token):
     """Get exam info by token. Used by Android app."""
-    # Enforce version compatibility
+    required_version = get_saas_setting('android_version', '2.0.0')
     client_version = request.headers.get('X-App-Version')
-    if client_version != '2.0.0':
+    if client_version != required_version:
         return jsonify({
             'success': False,
             'error': 'upgrade_required',
-            'message': 'Versi aplikasi Anda usang (v1.x). Silakan unduh EXAMVAN v2.0.0 terbaru untuk dapat mengikuti ujian.'
+            'message': f'Versi aplikasi Anda usang ({client_version or "v1.x"}). Silakan unduh EXAMVAN v{required_version} terbaru untuk dapat mengikuti ujian.'
         }), 426
 
     token = token.strip().upper()
@@ -657,13 +660,13 @@ def api_exam_by_token(token):
 @app.route('/api/exams/<int:exam_id>/submit', methods=['POST'])
 def api_submit_exam(exam_id):
     """Receive student exam submissions and auto-grade if keys exist."""
-    # Enforce version compatibility
+    required_version = get_saas_setting('android_version', '2.0.0')
     client_version = request.headers.get('X-App-Version')
-    if client_version != '2.0.0':
+    if client_version != required_version:
         return jsonify({
             'success': False,
             'error': 'upgrade_required',
-            'message': 'Versi aplikasi Anda usang (v1.x). Silakan unduh EXAMVAN v2.0.0 terbaru untuk dapat mengumpulkan jawaban.'
+            'message': f'Versi aplikasi Anda usang ({client_version or "v1.x"}). Silakan unduh EXAMVAN v{required_version} terbaru untuk dapat mengumpulkan jawaban.'
         }), 426
 
     data = request.json or {}
@@ -763,6 +766,22 @@ def download_apk():
     """Download client Android APK."""
     apk_path = os.path.join(BASE_DIR, 'static', 'EXAMVAN.apk')
     return send_file(apk_path, as_attachment=True, download_name='EXAMVAN.apk')
+
+
+@app.route('/download')
+def download_page():
+    """Render separate download page showing app and web versions."""
+    android_ver = get_saas_setting('android_version', '2.0.0')
+    webapp_ver = get_saas_setting('webapp_version', '2.0.0')
+    apk_path = os.path.join(BASE_DIR, 'static', 'EXAMVAN.apk')
+    file_size_mb = 0
+    if os.path.exists(apk_path):
+        file_size_mb = round(os.path.getsize(apk_path) / (1024 * 1024), 2)
+    
+    return render_template('download.html', 
+                           android_version=android_ver, 
+                           webapp_version=webapp_ver,
+                           file_size_mb=file_size_mb)
 
 
 @app.route('/admin/login', methods=['GET', 'POST'])
@@ -1869,6 +1888,8 @@ def admin_saas_settings():
         default_exams = data.get('default_max_exams', '3')
         default_pdf_size_mb = data.get('default_max_pdf_size_mb', '1')
         default_active_days = data.get('default_active_days', '1')
+        android_version = data.get('android_version', '2.0.0').strip()
+        webapp_version = data.get('webapp_version', '2.0.0').strip()
         
         try:
             default_exams = int(default_exams)
@@ -1894,6 +1915,8 @@ def admin_saas_settings():
         set_saas_setting('default_max_exams', str(default_exams))
         set_saas_setting('default_max_pdf_size', str(default_pdf_size))
         set_saas_setting('default_active_days', str(default_active_days))
+        set_saas_setting('android_version', android_version)
+        set_saas_setting('webapp_version', webapp_version)
         
         return jsonify({'success': True, 'message': 'Pengaturan SaaS berhasil diperbarui'})
         
@@ -1904,7 +1927,9 @@ def admin_saas_settings():
         'wa_otp_template': get_saas_setting('wa_otp_template', 'Kode OTP EXAMVAN Anda: {otp}. Berlaku selama 5 menit.'),
         'default_max_exams': int(get_saas_setting('default_max_exams', '3')),
         'default_max_pdf_size_mb': round(int(get_saas_setting('default_max_pdf_size', '1048576')) / (1024*1024), 2),
-        'default_active_days': int(get_saas_setting('default_active_days', '1'))
+        'default_active_days': int(get_saas_setting('default_active_days', '1')),
+        'android_version': get_saas_setting('android_version', '2.0.0'),
+        'webapp_version': get_saas_setting('webapp_version', '2.0.0')
     }
     return jsonify({'success': True, 'settings': settings})
 

@@ -239,6 +239,23 @@
                             </div>
                         </div>
 
+                        <div style="border-top: 1px solid var(--glass-border); margin-top: 16px; padding-top: 16px; margin-bottom: 6px;">
+                            <h4 style="margin: 0; font-size: 0.85rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px; color: var(--accent-light); display: flex; align-items: center; gap: 6px;">
+                                <span>📱</span> Versi Aplikasi
+                            </h4>
+                        </div>
+
+                        <div class="form-row-2col">
+                            <div class="form-group">
+                                <label for="androidVersionInput">Versi Android App (vX.Y.Z)</label>
+                                <input type="text" id="androidVersionInput" required placeholder="Contoh: 2.0.0">
+                            </div>
+                            <div class="form-group">
+                                <label for="webappVersionInput">Versi WebApp Server (vX.Y.Z)</label>
+                                <input type="text" id="webappVersionInput" required placeholder="Contoh: 2.0.0">
+                            </div>
+                        </div>
+
                         <button type="submit" class="btn-upload" style="margin-top: 6px; background: rgba(16, 185, 129, 0.2); border-color: rgba(16, 185, 129, 0.4); color: #6ee7b7;">
                             <span>💾 Simpan Setelan SaaS</span>
                         </button>
@@ -464,6 +481,8 @@
                         document.getElementById('defaultExamsInput').value = s.default_max_exams;
                         document.getElementById('defaultPdfInput').value = s.default_max_pdf_size_mb;
                         document.getElementById('defaultActiveDaysInput').value = s.default_active_days || 1;
+                        document.getElementById('androidVersionInput').value = s.android_version || '2.0.0';
+                        document.getElementById('webappVersionInput').value = s.webapp_version || '2.0.0';
                         toggleWaFields();
                     }
                 })
@@ -478,6 +497,8 @@
             const default_max_exams = parseInt(document.getElementById('defaultExamsInput').value);
             const default_max_pdf_size_mb = parseFloat(document.getElementById('defaultPdfInput').value);
             const default_active_days = parseInt(document.getElementById('defaultActiveDaysInput').value);
+            const android_version = document.getElementById('androidVersionInput').value.trim();
+            const webapp_version = document.getElementById('webappVersionInput').value.trim();
 
             fetch('/admin/api/saas-settings', {
                 method: 'POST',
@@ -488,7 +509,9 @@
                     wa_otp_template,
                     default_max_exams,
                     default_max_pdf_size_mb,
-                    default_active_days
+                    default_active_days,
+                    android_version,
+                    webapp_version
                 })
             })
             .then(r => r.json())
