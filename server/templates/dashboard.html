@@ -187,15 +187,34 @@
             </div>
 
             <!-- Write/Create Exam Form -->
-            <div id="methodCreateForm" style="display: none; padding: 20px; background: rgba(255,255,255,0.02); border-radius: 12px; border: 1px dashed rgba(255,255,255,0.1); text-align: center;">
+            <div id="methodCreateForm" style="display: none; padding: 24px; background: rgba(255,255,255,0.02); border-radius: 12px; border: 1px dashed rgba(255,255,255,0.1); text-align: center;">
                 <div style="font-size: 36px; margin-bottom: 12px;">✍️</div>
                 <h4 style="color: var(--text-primary); margin-bottom: 8px;">Tulis &amp; Rancang Soal Ujian Secara Interaktif</h4>
                 <p style="color: var(--text-muted); font-size: 13px; max-width: 600px; margin: 0 auto 16px;">
-                    Metode ini sangat cocok jika Anda tidak memiliki file PDF soal siap pakai. Anda dapat menulis pertanyaan, menetapkan opsi pilihan ganda A-E, Benar/Salah, atau Isian Singkat secara langsung, mengacak urutan, dan mengkonversinya menjadi lembar ujian PDF secara instan!
+                    Metode ini sangat cocok jika Anda ingin merancang ujian secara interaktif. Anda dapat menyimpan beberapa draf ujian sekaligus, melanjutkannya kapan saja, dan mengkonversinya menjadi lembar PDF instan!
                 </p>
-                <a href="{{ url_for('admin_create_exam_page') }}" class="btn-upload" style="display: inline-flex; align-items: center; gap: 8px; text-decoration: none; width: auto; padding: 10px 24px; justify-content: center;">
-                    <span>Buka Editor Soal ✍️</span>
-                </a>
+
+                <!-- Draft Selection UI -->
+                <div id="dashboardDraftsSection" style="max-width: 500px; margin: 0 auto 20px auto; background: rgba(0, 0, 0, 0.2); border: 1px solid var(--glass-border); border-radius: 12px; padding: 16px; text-align: left; display: none;">
+                    <h5 style="color: #a5b4fc; margin: 0 0 10px 0; font-size: 13px; font-weight: 600; display: flex; align-items: center; gap: 6px;">
+                        <span>✏️</span> Lanjutkan Ujian dari Draft
+                    </h5>
+                    <div style="display: flex; gap: 8px; flex-direction: column;">
+                        <select id="dashboardDraftSelect" class="q-type-select" style="margin:0; background: rgba(30, 27, 75, 0.4); width: 100%; height: 38px;">
+                            <option value="">-- Pilih Draft Ujian --</option>
+                        </select>
+                        <div style="display: flex; gap: 8px; width: 100%;">
+                            <button onclick="continueSelectedDraft()" class="btn-upload" style="flex: 1; padding: 8px 16px; font-size: 12px; height: 38px; justify-content: center; align-items: center; display: inline-flex; border: none; cursor: pointer;">✏️ Lanjutkan Draft</button>
+                            <button onclick="deleteSelectedDashboardDraft()" class="btn-sm btn-results" style="padding: 8px 16px; font-size: 12px; height: 38px; margin: 0; background: rgba(239,68,68,0.15); border-color: rgba(239,68,68,0.3); color: #f87171; display: inline-flex; align-items: center; justify-content: center;">🗑️ Hapus</button>
+                        </div>
+                    </div>
+                </div>
+
+                <div style="display: flex; gap: 12px; justify-content: center; flex-wrap: wrap;">
+                    <a href="{{ url_for('admin_create_exam_page') }}" class="btn-upload" style="display: inline-flex; align-items: center; gap: 8px; text-decoration: none; width: auto; padding: 10px 24px; justify-content: center;">
+                        <span>➕ Buat Ujian Baru (Kosong)</span>
+                    </a>
+                </div>
             </div>
         </section>
 
@@ -517,6 +536,61 @@
             createForm.style.display = 'block';
         }
     }
+
+    function initDashboardDrafts() {
+        const section = document.getElementById('dashboardDraftsSection');
+        const select = document.getElementById('dashboardDraftSelect');
+        if (!section || !select) return;
+
+        const drafts = JSON.parse(localStorage.getItem('examvan_drafts') || '[]');
+        if (drafts.length === 0) {
+            section.style.display = 'none';
+            return;
+        }
+
+        // Sort by updatedAt descending
+        drafts.sort((a, b) => new Date(b.updatedAt) - new Date(a.updatedAt));
+
+        select.innerHTML = '<option value="">-- Pilih Draft Ujian --</option>';
+        drafts.forEach(d => {
+            const option = document.createElement('option');
+            option.value = d.id;
+            option.textContent = `${d.name || 'Tanpa Nama'} (${d.subject || '-'}, ${d.class || '-'}) - ${new Date(d.updatedAt).toLocaleDateString('id-ID')} ${new Date(d.updatedAt).toLocaleTimeString('id-ID', {hour: '2-digit', minute:'2-digit'})}`;
+            select.appendChild(option);
+        });
+
+        section.style.display = 'block';
+    }
+
+    function continueSelectedDraft() {
+        const select = document.getElementById('dashboardDraftSelect');
+        if (!select || !select.value) {
+            showToast('Silakan pilih draft ujian terlebih dahulu!', 'error');
+            return;
+        }
+        window.location.href = `/admin/create-exam?draft_id=${select.value}`;
+    }
+
+    function deleteSelectedDashboardDraft() {
+        const select = document.getElementById('dashboardDraftSelect');
+        if (!select || !select.value) {
+            showToast('Silakan pilih draft ujian terlebih dahulu!', 'error');
+            return;
+        }
+        if (!confirm('Apakah Anda yakin ingin menghapus draft ini?')) return;
+
+        let drafts = JSON.parse(localStorage.getItem('examvan_drafts') || '[]');
+        drafts = drafts.filter(d => d.id !== select.value);
+        localStorage.setItem('examvan_drafts', JSON.stringify(drafts));
+
+        showToast('Draft berhasil dihapus!', 'success');
+        initDashboardDrafts();
+    }
+
+    // Call init on page load
+    document.addEventListener('DOMContentLoaded', () => {
+        initDashboardDrafts();
+    });
     </script>
 </body>
 </html>

@@ -494,6 +494,23 @@ SMA NEGERI EXAMVAN INDONESIA">SMA NEGERI EXAMVAN INDONESIA</textarea>
                 </section>
 
                 <section class="glass-card">
+                    <h3 style="color: #a5b4fc; margin-bottom: 12px; font-size: 1.05rem; display: flex; align-items: center; gap: 8px;">
+                        <span>📝</span> Draft Ujian Saya
+                    </h3>
+                    <div style="display: flex; flex-direction: column; gap: 8px;">
+                        <button class="btn-sm btn-questions" onclick="saveToDrafts()" style="width: 100%; margin: 0; background: rgba(16,185,129,0.15); border-color: rgba(16,185,129,0.3); color: #34d399;">💾 Simpan ke Draft</button>
+                        <button class="btn-sm btn-questions" onclick="resetExamCreator()" style="width: 100%; margin: 0; background: rgba(239,68,68,0.15); border-color: rgba(239,68,68,0.3); color: #f87171;">➕ Buat Ujian Baru (Kosong)</button>
+                        
+                        <div class="dropdown-divider" style="margin: 8px 0; height: 1px; background: var(--glass-border);"></div>
+                        <label style="font-size: 11px; color: var(--text-secondary); margin: 0;">Pilih &amp; Hubungkan Draft</label>
+                        <select id="draftSelect" class="q-type-select" style="margin:0; background: rgba(30, 27, 75, 0.4);" onchange="if(this.value) loadDraftById(this.value)">
+                            <option value="">-- Hubungkan Draft --</option>
+                        </select>
+                        <button class="btn-sm btn-results" id="deleteDraftBtn" onclick="deleteCurrentDraft()" style="width: 100%; margin: 4px 0 0 0; padding: 6px; font-size: 11px; background: rgba(239,68,68,0.1); border-color: rgba(239,68,68,0.2); color: #f87171; display: none; align-items: center; justify-content: center; height: 32px;">🗑️ Hapus Draft Ini</button>
+                    </div>
+                </section>
+
+                <section class="glass-card">
                     <h3 style="color: #a5b4fc; margin-bottom: 12px; font-size: 1.05rem;">📂 Import / Export Ujian</h3>
                     <div style="display: flex; flex-direction: column; gap: 8px;">
                         <button class="btn-sm btn-questions" onclick="exportExamZip()" style="width: 100%; margin: 0; background: rgba(16,185,129,0.15); border-color: rgba(16,185,129,0.3); color: #34d399;">📤 Export Ujian (.ZIP)</button>
@@ -2287,9 +2304,169 @@ SMA NEGERI EXAMVAN INDONESIA">SMA NEGERI EXAMVAN INDONESIA</textarea>
             });
         }
 
-        document.addEventListener('DOMContentLoaded', () => {
-            // Initial blank question
+        let currentDraftId = null;
+
+        function refreshDraftsDropdown() {
+            const select = document.getElementById('draftSelect');
+            if (!select) return;
+            select.innerHTML = '<option value="">-- Pilih &amp; Hubungkan Draft --</option>';
+            
+            const drafts = JSON.parse(localStorage.getItem('examvan_drafts') || '[]');
+            drafts.sort((a, b) => new Date(b.updatedAt) - new Date(a.updatedAt));
+            
+            drafts.forEach(d => {
+                const option = document.createElement('option');
+                option.value = d.id;
+                option.textContent = `${d.name || 'Tanpa Nama'} (${d.subject || '-'}, ${d.class || '-'})`;
+                if (currentDraftId === d.id) {
+                    option.selected = true;
+                }
+                select.appendChild(option);
+            });
+
+            const delBtn = document.getElementById('deleteDraftBtn');
+            if (delBtn) {
+                delBtn.style.display = currentDraftId ? 'inline-flex' : 'none';
+            }
+        }
+
+        function saveToDrafts() {
+            const name = document.getElementById('examName').value.trim() || 'Tanpa Nama';
+            const subject = document.getElementById('subjectName').value.trim();
+            const className = document.getElementById('className').value.trim();
+            const duration = document.getElementById('examDuration').value.trim();
+            const customToken = document.getElementById('customToken').value.trim();
+            const paperType = document.getElementById('paperType').value;
+            const numColumns = document.getElementById('numColumns').value;
+            const schoolHeader = document.getElementById('schoolHeader').value;
+
+            if (!currentDraftId) {
+                currentDraftId = 'draft_' + Date.now();
+            }
+
+            const draft = {
+                id: currentDraftId,
+                name: name,
+                subject: subject,
+                class: className,
+                duration: duration,
+                customToken: customToken,
+                paperType: paperType,
+                numColumns: numColumns,
+                schoolHeader: schoolHeader,
+                originalHeaderImage: originalHeaderImage,
+                customHeaderImage: customHeaderImage,
+                questionsList: questionsList,
+                updatedAt: new Date().toISOString()
+            };
+
+            let drafts = JSON.parse(localStorage.getItem('examvan_drafts') || '[]');
+            drafts = drafts.filter(d => d.id !== currentDraftId);
+            drafts.push(draft);
+            
+            localStorage.setItem('examvan_drafts', JSON.stringify(drafts));
+            
+            showToast('Draft berhasil disimpan!', 'success');
+            
+            const newUrl = window.location.protocol + "//" + window.location.host + window.location.pathname + '?draft_id=' + currentDraftId;
+            window.history.pushState({path:newUrl}, '', newUrl);
+
+            refreshDraftsDropdown();
+        }
+
+        function loadDraftById(id) {
+            const drafts = JSON.parse(localStorage.getItem('examvan_drafts') || '[]');
+            const draft = drafts.find(d => d.id === id);
+            if (!draft) {
+                showToast('Draft tidak ditemukan!', 'error');
+                return;
+            }
+
+            currentDraftId = id;
+            
+            document.getElementById('examName').value = draft.name || '';
+            document.getElementById('subjectName').value = draft.subject || '';
+            document.getElementById('className').value = draft.class || '';
+            document.getElementById('examDuration').value = draft.duration || '60';
+            document.getElementById('customToken').value = draft.customToken || '';
+            document.getElementById('paperType').value = draft.paperType || 'legal';
+            document.getElementById('numColumns').value = draft.numColumns || '2';
+            document.getElementById('schoolHeader').value = draft.schoolHeader || '';
+
+            originalHeaderImage = draft.originalHeaderImage || null;
+            customHeaderImage = draft.customHeaderImage || null;
+
+            if (customHeaderImage) {
+                document.getElementById('header_preview_img').src = customHeaderImage;
+                document.getElementById('header_preview_container').style.display = 'block';
+                document.getElementById('del_header_btn').style.display = 'block';
+            } else {
+                document.getElementById('headerImageInput').value = '';
+                document.getElementById('header_preview_container').style.display = 'none';
+                document.getElementById('del_header_btn').style.display = 'none';
+            }
+
+            questionsList = draft.questionsList || [];
+            renderQuestions();
+
+            const newUrl = window.location.protocol + "//" + window.location.host + window.location.pathname + '?draft_id=' + id;
+            window.history.pushState({path:newUrl}, '', newUrl);
+
+            refreshDraftsDropdown();
+            showToast('Draft berhasil dimuat!', 'success');
+        }
+
+        function deleteCurrentDraft() {
+            if (!currentDraftId) return;
+            if (!confirm('Apakah Anda yakin ingin menghapus draft ini?')) return;
+
+            let drafts = JSON.parse(localStorage.getItem('examvan_drafts') || '[]');
+            drafts = drafts.filter(d => d.id !== currentDraftId);
+            localStorage.setItem('examvan_drafts', JSON.stringify(drafts));
+
+            showToast('Draft berhasil dihapus!', 'success');
+            resetExamCreator();
+            refreshDraftsDropdown();
+        }
+
+        function resetExamCreator() {
+            currentDraftId = null;
+
+            document.getElementById('examName').value = '';
+            document.getElementById('subjectName').value = '';
+            document.getElementById('className').value = '';
+            document.getElementById('examDuration').value = '60';
+            document.getElementById('customToken').value = '';
+            document.getElementById('paperType').value = 'legal';
+            document.getElementById('numColumns').value = '2';
+            document.getElementById('schoolHeader').value = '';
+
+            originalHeaderImage = null;
+            customHeaderImage = null;
+            document.getElementById('headerImageInput').value = '';
+            document.getElementById('header_preview_container').style.display = 'none';
+            document.getElementById('del_header_btn').style.display = 'none';
+
+            questionsList = [];
             addQuestion('single_choice');
+
+            const newUrl = window.location.protocol + "//" + window.location.host + window.location.pathname;
+            window.history.pushState({path:newUrl}, '', newUrl);
+
+            refreshDraftsDropdown();
+            showToast('Editor dibersihkan (Ujian Baru)', 'info');
+        }
+
+        document.addEventListener('DOMContentLoaded', () => {
+            refreshDraftsDropdown();
+            
+            const urlParams = new URLSearchParams(window.location.search);
+            const draftId = urlParams.get('draft_id');
+            if (draftId) {
+                loadDraftById(draftId);
+            } else {
+                addQuestion('single_choice');
+            }
         });
     </script>
 
