@@ -670,7 +670,7 @@ class ExamViewerActivity : AppCompatActivity() {
         super.onPause()
         if (submittedOrExited) return
         if (!isPdfReady) return  // Don't auto-submit while PDF is still downloading
-        if (System.currentTimeMillis() - onCreateTime < 10000) return  // 10s grace for Vivo/Oppo overlays
+        if (System.currentTimeMillis() - onCreateTime < 3000) return  // 3s grace for system overlays
         if (isShowingAppDialog) return
         if (activePopupCount > 0) return
 
@@ -683,7 +683,7 @@ class ExamViewerActivity : AppCompatActivity() {
         super.onUserLeaveHint()
         if (submittedOrExited) return
         if (!isPdfReady) return
-        if (System.currentTimeMillis() - onCreateTime < 10000) return
+        if (System.currentTimeMillis() - onCreateTime < 3000) return
         if (isShowingAppDialog) return
         if (activePopupCount > 0) return
 
