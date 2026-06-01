@@ -1137,6 +1137,7 @@
                 return '<div style="color: var(--text-muted); text-align: center; padding: 16px;">Tidak ada konfigurasi soal untuk ujian ini.</div>';
             }
 
+            const shouldHideStudentAnswers = !isLoggedIn && !showCorrectAnswers;
             const answers = sub.answers || {};
             let totalEarned = 0;
             let totalMax = 0;
@@ -1189,7 +1190,7 @@
 
                 totalEarned += earned;
 
-                const studentDisplay = formatAnswer(studentAns);
+                const studentDisplay = shouldHideStudentAnswers ? '•••' : formatAnswer(studentAns);
                 const correctDisplay = showCorrectAnswers ? formatAnswer(correctAns) : '•••';
 
                 itemsHtml += `
@@ -1215,7 +1216,7 @@
                 <div class="detail-header">
                     <div class="detail-header-labels" style="flex:1;">
                         <span style="min-width:44px;text-align:center;">No</span>
-                        <span style="flex:1;">Jawaban Siswa</span>
+                        <span style="flex:1;">${shouldHideStudentAnswers ? 'Jawaban (Tersembunyi)' : 'Jawaban Siswa'}</span>
                         <span style="flex:1;" class="correct-ans-header">${showCorrectAnswers ? 'Kunci Jawaban' : 'Kunci (Tersembunyi)'}</span>
                         <span style="min-width:90px;text-align:right;">Status</span>
                     </div>
