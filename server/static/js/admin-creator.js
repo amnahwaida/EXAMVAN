@@ -1,0 +1,2173 @@
+        let questionsList = [];
+
+        function updateQuestionCount() {
+            document.getElementById('questionCountText').textContent = `Total: ${questionsList.length} Pertanyaan`;
+        }
+
+        function renderQuestions() {
+            const container = document.getElementById('questionsContainer');
+            container.innerHTML = '';
+            
+            if (questionsList.length === 0) {
+                container.innerHTML = `
+                    <div class="glass-card" style="text-align: center; padding: 40px; color: var(--text-muted);">
+                        <p style="font-size: 32px; margin-bottom: 12px;">✍️</p>
+                        <p style="font-weight: 500;">Belum ada pertanyaan dibuat. Klik tombol di atas untuk menambah pertanyaan baru!</p>
+                    </div>
+                `;
+                updateQuestionCount();
+                return;
+            }
+
+            questionsList.forEach((q, idx) => {
+                // Legacy image field to multiple images array migration
+                if (q.image && (!q.images || q.images.length === 0)) {
+                    q.images = [q.image];
+                }
+
+                const card = document.createElement('div');
+                card.className = 'q-card';
+                card.dataset.index = idx;
+
+                let optionsHtml = '';
+                if (q.type === 'single_choice') {
+                    const letters = ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'J'];
+                    optionsHtml = `
+                        <div class="q-options-grid">
+                            ${(q.choices || []).map((optVal, optIdx) => {
+                                const letter = letters[optIdx];
+                                return `
+                                    <div class="opt-row" style="flex-wrap: wrap;">
+                                        <div style="display: flex; align-items: center; width: 100%; gap: 10px;">
+                                            <span class="opt-prefix">${letter}</span>
+                                            <input id="opt_text_${idx}_${optIdx}" type="text" class="opt-input input-field" placeholder="Pilihan ${letter}" 
+                                                   value="${optVal || ''}" 
+                                                   oninput="updateOptionTextLive(${idx}, ${optIdx}, this.value)"
+                                                   onchange="updateOptionText(${idx}, ${optIdx}, this.value)">
+                                            <button class="btn-sm btn-toggle" style="margin:0; padding: 6px; display: flex; align-items: center; justify-content: center; height: 38px; width: 38px; background: rgba(165,180,252,0.15); border-color: rgba(165,180,252,0.3);" title="Letakkan gambar di posisi kursor opsi ini" onclick="insertPlaceholder('opt_text_${idx}_${optIdx}')">📍</button>
+                                            <button class="btn-sm btn-toggle" style="margin:0; padding: 6px; display: flex; align-items: center; justify-content: center; height: 38px; width: 38px;" title="Sisipkan Gambar Opsi" onclick="triggerOptionImageUpload(${idx}, ${optIdx})">📷</button>
+                                        </div>
+                                        <div id="opt_preview_${idx}_${optIdx}" class="latex-preview-box" style="margin: 4px 0 4px 30px; padding: 6px 10px; background: rgba(255,255,255,0.02); border: 1px dashed var(--glass-border); border-radius: var(--radius-sm); font-size: 0.9rem; color: var(--text-color); width: calc(100% - 30px); display: none;"></div>
+                                        <input type="file" id="opt_image_input_${idx}_${optIdx}" accept="image/*" style="display: none;" onchange="handleOptionImageUpload(${idx}, ${optIdx}, this)">
+                                        ${q.choice_images && q.choice_images[optIdx] ? `
+                                            <div style="position: relative; display: inline-block; margin: 6px 0 6px 30px; border: 1px solid var(--glass-border); border-radius: 6px; padding: 2px; background: rgba(0,0,0,0.2);">
+                                                <img src="${q.choice_images[optIdx]}" style="max-height: 80px; border-radius: 4px; display: block; object-fit: contain;">
+                                                <button class="btn-delete" style="position: absolute; top: -4px; right: -4px; border-radius: 50%; width: 18px; height: 18px; padding: 0; display: flex; align-items: center; justify-content: center; font-size: 8px; margin:0; background: #ef4444; border: none; color: white;" onclick="removeOptionImage(${idx}, ${optIdx})">✕</button>
+                                            </div>
+                                        ` : ''}
+                                    </div>
+                                `;
+                            }).join('')}
+                        </div>
+                        <div style="display: flex; gap: 8px; margin-top: 12px;">
+                            <button class="btn-sm btn-toggle" style="margin: 0; padding: 4px 8px; font-size: 11px;" onclick="addChoiceOption(${idx})">➕ Opsi Baru</button>
+                            <button class="btn-sm btn-results" style="margin: 0; padding: 4px 8px; font-size: 11px; background: rgba(239,68,68,0.15); border-color: rgba(239,68,68,0.3); color: #f87171;" onclick="removeChoiceOption(${idx})">➖ Kurangi Opsi</button>
+                        </div>
+                        <div class="form-group" style="margin-top: 12px;">
+                            <label>Kunci Jawaban</label>
+                            <select class="q-type-select" style="margin: 0; background: rgba(30, 27, 75, 0.4);" onchange="updateCorrectKey(${idx}, this.value)">
+                                ${(q.choices || []).map((optVal, optIdx) => {
+                                    const letter = letters[optIdx];
+                                    return `<option value="${letter}" ${q.key === letter ? 'selected' : ''}>Pilihan ${letter}</option>`;
+                                }).join('')}
+                            </select>
+                        </div>
+                    `;
+                } else if (q.type === 'multiple_choice') {
+                    const letters = ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'J'];
+                    optionsHtml = `
+                        <div class="q-options-grid">
+                            ${(q.choices || []).map((optVal, optIdx) => {
+                                const letter = letters[optIdx];
+                                return `
+                                    <div class="opt-row" style="flex-wrap: wrap;">
+                                        <div style="display: flex; align-items: center; width: 100%; gap: 10px;">
+                                            <span class="opt-prefix">${letter}</span>
+                                            <input id="opt_text_${idx}_${optIdx}" type="text" class="opt-input input-field" placeholder="Pilihan ${letter}" 
+                                                   value="${optVal || ''}" 
+                                                   oninput="updateOptionTextLive(${idx}, ${optIdx}, this.value)"
+                                                   onchange="updateOptionText(${idx}, ${optIdx}, this.value)">
+                                            <button class="btn-sm btn-toggle" style="margin:0; padding: 6px; display: flex; align-items: center; justify-content: center; height: 38px; width: 38px; background: rgba(165,180,252,0.15); border-color: rgba(165,180,252,0.3);" title="Letakkan gambar di posisi kursor opsi ini" onclick="insertPlaceholder('opt_text_${idx}_${optIdx}')">📍</button>
+                                            <button class="btn-sm btn-toggle" style="margin:0; padding: 6px; display: flex; align-items: center; justify-content: center; height: 38px; width: 38px;" title="Sisipkan Gambar Opsi" onclick="triggerOptionImageUpload(${idx}, ${optIdx})">📷</button>
+                                        </div>
+                                        <div id="opt_preview_${idx}_${optIdx}" class="latex-preview-box" style="margin: 4px 0 4px 30px; padding: 6px 10px; background: rgba(255,255,255,0.02); border: 1px dashed var(--glass-border); border-radius: var(--radius-sm); font-size: 0.9rem; color: var(--text-color); width: calc(100% - 30px); display: none;"></div>
+                                        <input type="file" id="opt_image_input_${idx}_${optIdx}" accept="image/*" style="display: none;" onchange="handleOptionImageUpload(${idx}, ${optIdx}, this)">
+                                        ${q.choice_images && q.choice_images[optIdx] ? `
+                                            <div style="position: relative; display: inline-block; margin: 6px 0 6px 30px; border: 1px solid var(--glass-border); border-radius: 6px; padding: 2px; background: rgba(0,0,0,0.2);">
+                                                <img src="${q.choice_images[optIdx]}" style="max-height: 80px; border-radius: 4px; display: block; object-fit: contain;">
+                                                <button class="btn-delete" style="position: absolute; top: -4px; right: -4px; border-radius: 50%; width: 18px; height: 18px; padding: 0; display: flex; align-items: center; justify-content: center; font-size: 8px; margin:0; background: #ef4444; border: none; color: white;" onclick="removeOptionImage(${idx}, ${optIdx})">✕</button>
+                                            </div>
+                                        ` : ''}
+                                    </div>
+                                `;
+                            }).join('')}
+                        </div>
+                        <div style="display: flex; gap: 8px; margin-top: 12px;">
+                            <button class="btn-sm btn-toggle" style="margin: 0; padding: 4px 8px; font-size: 11px;" onclick="addChoiceOption(${idx})">➕ Opsi Baru</button>
+                            <button class="btn-sm btn-results" style="margin: 0; padding: 4px 8px; font-size: 11px; background: rgba(239,68,68,0.15); border-color: rgba(239,68,68,0.3); color: #f87171;" onclick="removeChoiceOption(${idx})">➖ Kurangi Opsi</button>
+                        </div>
+                        <div class="form-group" style="margin-top: 12px;">
+                            <label>Kunci Jawaban Kompleks (Pilih satu atau lebih)</label>
+                            <div class="complex-key-container">
+                                ${(q.choices || []).map((optVal, optIdx) => {
+                                    const letter = letters[optIdx];
+                                    const isSelected = Array.isArray(q.key) && q.key.includes(letter);
+                                    return `
+                                        <div class="complex-key-item ${isSelected ? 'selected' : ''}" onclick="toggleComplexKey(${idx}, '${letter}')">
+                                            <input type="checkbox" style="display:none;" ${isSelected ? 'checked' : ''}>
+                                            <span>${letter}</span>
+                                        </div>
+                                    `;
+                                }).join('')}
+                            </div>
+                        </div>
+                    `;
+                } else if (q.type === 'matching') {
+                    optionsHtml = `
+                        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 20px; margin-top: 12px; background: rgba(255,255,255,0.01); padding: 12px; border-radius: 8px; border: 1px solid rgba(255,255,255,0.05);">
+                            <!-- Left Column Panel -->
+                            <div>
+                                <label style="display: flex; justify-content: space-between; align-items: center; font-weight: 600; color: #a5b4fc; font-size: 13px;">
+                                    <span>Kolom Kiri</span>
+                                    <button class="btn-sm btn-toggle" style="margin: 0; padding: 2px 6px; font-size: 10px;" onclick="addMatchingItem(${idx}, 'left')">➕ Kiri</button>
+                                </label>
+                                <div style="display: flex; flex-direction: column; gap: 8px; margin-top: 8px;">
+                                    ${(q.left_items || []).map((leftVal, lIdx) => `
+                                        <div style="display: flex; flex-direction: column; gap: 4px;">
+                                            <div style="display: flex; gap: 6px; align-items: center;">
+                                                <span style="font-size: 11px; opacity: 0.6; min-width: 15px;">${lIdx + 1}.</span>
+                                                <input id="matching_left_text_${idx}_${lIdx}" type="text" class="input-field matching-left-input" style="margin:0; padding: 6px 10px;" placeholder="Teks Kiri #${lIdx+1}" value="${leftVal || ''}" oninput="updateMatchingLeftLive(${idx}, ${lIdx}, this.value)" onchange="updateMatchingItem(${idx}, 'left', ${lIdx}, this.value)">
+                                                <button class="btn-sm btn-toggle" style="margin:0; padding: 6px; display: flex; align-items: center; justify-content: center; height: 32px; width: 32px; background: rgba(165,180,252,0.15); border-color: rgba(165,180,252,0.3);" title="Letakkan gambar di posisi kursor teks ini" onclick="insertPlaceholder('matching_left_text_${idx}_${lIdx}')">📍</button>
+                                                <button class="btn-sm btn-toggle" style="margin:0; padding: 6px; display: flex; align-items: center; justify-content: center; height: 32px; width: 32px;" title="Sisipkan Gambar Kiri" onclick="triggerMatchingImageUpload(${idx}, 'left', ${lIdx})">📷</button>
+                                                <button class="q-remove-btn" style="padding: 4px 8px; margin: 0;" onclick="removeMatchingItem(${idx}, 'left', ${lIdx})">✕</button>
+                                            </div>
+                                            <div id="matching_left_preview_${idx}_${lIdx}" class="latex-preview-box" style="margin: 4px 0 4px 20px; padding: 6px 10px; background: rgba(255,255,255,0.02); border: 1px dashed var(--glass-border); border-radius: var(--radius-sm); font-size: 0.9rem; color: var(--text-color); display: none;"></div>
+                                            <input type="file" id="matching_image_input_${idx}_left_${lIdx}" accept="image/*" style="display: none;" onchange="handleMatchingImageUpload(${idx}, 'left', ${lIdx}, this)">
+                                            ${q.left_images && q.left_images[lIdx] ? `
+                                                <div style="position: relative; display: inline-block; align-self: flex-start; margin: 4px 0 4px 20px; border: 1px solid var(--glass-border); border-radius: 6px; padding: 2px; background: rgba(0,0,0,0.2);">
+                                                    <img src="${q.left_images[lIdx]}" style="max-height: 80px; border-radius: 4px; display: block; object-fit: contain;">
+                                                    <button class="btn-delete" style="position: absolute; top: -4px; right: -4px; border-radius: 50%; width: 16px; height: 16px; padding: 0; display: flex; align-items: center; justify-content: center; font-size: 8px; margin:0; background: #ef4444; border: none; color: white;" onclick="removeMatchingImage(${idx}, 'left', ${lIdx})">✕</button>
+                                                </div>
+                                            ` : ''}
+                                        </div>
+                                    `).join('')}
+                                </div>
+                            </div>
+                            
+                            <!-- Right Column Panel -->
+                            <div>
+                                <label style="display: flex; justify-content: space-between; align-items: center; font-weight: 600; color: #a5b4fc; font-size: 13px;">
+                                    <span>Kolom Kanan</span>
+                                    <button class="btn-sm btn-toggle" style="margin: 0; padding: 2px 6px; font-size: 10px;" onclick="addMatchingItem(${idx}, 'right')">➕ Kanan</button>
+                                </label>
+                                <div style="display: flex; flex-direction: column; gap: 8px; margin-top: 8px;">
+                                    ${(q.right_items || []).map((rightVal, rIdx) => `
+                                        <div style="display: flex; flex-direction: column; gap: 4px;">
+                                            <div style="display: flex; gap: 6px; align-items: center;">
+                                                <span style="font-size: 11px; opacity: 0.6; min-width: 15px;">${String.fromCharCode(65 + rIdx)}.</span>
+                                                <input id="matching_right_text_${idx}_${rIdx}" type="text" class="input-field matching-right-input" style="margin:0; padding: 6px 10px;" placeholder="Teks Kanan #${rIdx+1}" value="${rightVal || ''}" oninput="updateMatchingRightLive(${idx}, ${rIdx}, this.value)" onchange="updateMatchingItem(${idx}, 'right', ${rIdx}, this.value)">
+                                                <button class="btn-sm btn-toggle" style="margin:0; padding: 6px; display: flex; align-items: center; justify-content: center; height: 32px; width: 32px; background: rgba(165,180,252,0.15); border-color: rgba(165,180,252,0.3);" title="Letakkan gambar di posisi kursor teks ini" onclick="insertPlaceholder('matching_right_text_${idx}_${rIdx}')">📍</button>
+                                                <button class="btn-sm btn-toggle" style="margin:0; padding: 6px; display: flex; align-items: center; justify-content: center; height: 32px; width: 32px;" title="Sisipkan Gambar Kanan" onclick="triggerMatchingImageUpload(${idx}, 'right', ${rIdx})">📷</button>
+                                                <button class="q-remove-btn" style="padding: 4px 8px; margin: 0;" onclick="removeMatchingItem(${idx}, 'right', ${rIdx})">✕</button>
+                                            </div>
+                                            <div id="matching_right_preview_${idx}_${rIdx}" class="latex-preview-box" style="margin: 4px 0 4px 20px; padding: 6px 10px; background: rgba(255,255,255,0.02); border: 1px dashed var(--glass-border); border-radius: var(--radius-sm); font-size: 0.9rem; color: var(--text-color); display: none;"></div>
+                                            <input type="file" id="matching_image_input_${idx}_right_${rIdx}" accept="image/*" style="display: none;" onchange="handleMatchingImageUpload(${idx}, 'right', ${rIdx}, this)">
+                                            ${q.right_images && q.right_images[rIdx] ? `
+                                                <div style="position: relative; display: inline-block; align-self: flex-start; margin: 4px 0 4px 20px; border: 1px solid var(--glass-border); border-radius: 6px; padding: 2px; background: rgba(0,0,0,0.2);">
+                                                    <img src="${q.right_images[rIdx]}" style="max-height: 80px; border-radius: 4px; display: block; object-fit: contain;">
+                                                    <button class="btn-delete" style="position: absolute; top: -4px; right: -4px; border-radius: 50%; width: 16px; height: 16px; padding: 0; display: flex; align-items: center; justify-content: center; font-size: 8px; margin:0; background: #ef4444; border: none; color: white;" onclick="removeMatchingImage(${idx}, 'right', ${rIdx})">✕</button>
+                                                </div>
+                                            ` : ''}
+                                        </div>
+                                    `).join('')}
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Connection Mapping -->
+                        <div class="form-group" style="margin-top: 16px;">
+                            <label style="font-weight: 600; color: var(--text-secondary); font-size: 13px;">Hubungan Kunci Jawaban Pasangan</label>
+                            <div style="display: flex; flex-direction: column; gap: 8px; margin-top: 8px; background: rgba(0,0,0,0.15); padding: 12px; border-radius: 8px; border: 1px solid rgba(255,255,255,0.03);">
+                                ${(q.left_items || []).map((leftVal, lIdx) => {
+                                    const currentMatchVal = q.key && q.key[leftVal] ? q.key[leftVal] : '';
+                                    return `
+                                        <div style="display: flex; align-items: center; gap: 12px; justify-content: space-between;">
+                                            <span style="font-size: 12px; color: var(--text-muted); text-overflow: ellipsis; overflow: hidden; white-space: nowrap; max-width: 200px;">
+                                                ${leftVal ? `${lIdx + 1}. ${leftVal}` : `[Kiri #${lIdx + 1} Kosong]`}
+                                            </span>
+                                            <span style="color: #a5b4fc; font-weight: bold;">➡️</span>
+                                            <select class="q-type-select" style="margin: 0; max-width: 250px; background: rgba(30, 27, 75, 0.4); padding: 6px 10px;" onchange="updateMatchingKey(${idx}, '${leftVal}', this.value)">
+                                                <option value="">-- Pilih Pasangan --</option>
+                                                ${(q.right_items || []).map((rightVal, rIdx) => `
+                                                    <option value="${rightVal}" ${currentMatchVal === rightVal ? 'selected' : ''}>
+                                                        ${String.fromCharCode(65 + rIdx)}. ${rightVal}
+                                                    </option>
+                                                `).join('')}
+                                            </select>
+                                        </div>
+                                    `;
+                                }).join('')}
+                            </div>
+                        </div>
+                    `;
+                } else if (q.type === 'true_false') {
+                    optionsHtml = `
+                        <div class="form-group" style="margin-top: 12px;">
+                            <label>Kunci Jawaban</label>
+                            <select class="q-type-select" style="margin: 0; background: rgba(30, 27, 75, 0.4);" onchange="updateCorrectKey(${idx}, this.value)">
+                                <option value="TRUE" ${q.key === 'TRUE' ? 'selected' : ''}>Benar (TRUE)</option>
+                                <option value="FALSE" ${q.key === 'FALSE' ? 'selected' : ''}>Salah (FALSE)</option>
+                            </select>
+                        </div>
+                    `;
+                } else if (q.type === 'short_answer') {
+                    optionsHtml = `
+                        <div class="form-group" style="margin-top: 12px;">
+                            <label>Kunci Jawaban Eksak (Case Insensitive)</label>
+                            <input type="text" class="input-field" placeholder="Kunci jawaban tepat" value="${q.key || ''}" onchange="updateCorrectKey(${idx}, this.value)">
+                        </div>
+                    `;
+                }
+
+                card.innerHTML = `
+                    <div class="q-card-header">
+                        <div style="display: flex; align-items: center;">
+                            <span class="drag-handle" title="Seret untuk memindahkan posisi soal" 
+                                  onmousedown="enableCardDrag(${idx})" onmouseup="disableCardDrag(${idx})"
+                                  ontouchstart="enableCardDrag(${idx})" ontouchend="disableCardDrag(${idx})">⠿</span>
+                            <span class="q-badge">Soal #${idx + 1} (${
+                                q.type === 'single_choice' ? 'Pilihan Ganda' : 
+                                q.type === 'multiple_choice' ? 'Pilihan Ganda Kompleks' : 
+                                q.type === 'matching' ? 'Menjodohkan' : 
+                                q.type === 'true_false' ? 'Benar/Salah' : 'Isian Singkat'
+                            })</span>
+                        </div>
+                        <button class="q-remove-btn" onclick="removeQuestion(${idx})">🗑️ Hapus</button>
+                    </div>
+                    <div class="form-group">
+                        <label>Pertanyaan</label>
+                        <textarea id="q_text_${idx}" class="input-field" style="min-height: 60px; resize: vertical;" placeholder="Tuliskan teks soal di sini... (Mendukung LaTeX, misal: $\sqrt{x^2+y^2}$ atau $$\int_a^b f(x) dx$$)" oninput="updateQuestionTextLive(${idx}, this.value)" onchange="updateQuestionText(${idx}, this.value)">${q.question_text || ''}</textarea>
+                        <div id="q_preview_${idx}" class="latex-preview-box" style="display: none;"></div>
+                    </div>
+                    <!-- Question Image Upload -->
+                    <div class="form-group" style="margin-top: 8px; margin-bottom: 8px;">
+                        <div style="display: flex; align-items: center; justify-content: space-between;">
+                            <label style="font-size: 12px; color: var(--text-muted); margin: 0;">Gambar Soal (${(q.images || []).length} Gambar)</label>
+                            <div style="display: flex; gap: 6px;">
+                                <button class="btn-sm btn-toggle" style="margin: 0; padding: 2px 6px; font-size: 10px; background: rgba(165,180,252,0.15); border-color: rgba(165,180,252,0.3);" title="Sisipkan tag gambar pertama di posisi kursor teks soal" onclick="insertPlaceholder('q_text_${idx}')">📍 Letakkan [gambar1]</button>
+                                <button class="btn-sm btn-toggle" style="margin: 0; padding: 2px 6px; font-size: 10px;" onclick="triggerQuestionImageUpload(${idx})">📷 Tambah Gambar</button>
+                            </div>
+                        </div>
+                        <input type="file" id="q_image_input_${idx}" accept="image/*" style="display: none;" onchange="handleQuestionImageUpload(${idx}, this)" multiple>
+                        
+                        ${q.images && q.images.length > 0 ? `
+                            <div style="display: flex; flex-wrap: wrap; gap: 10px; margin-top: 8px;">
+                                ${q.images.map((imgUrl, imgIdx) => `
+                                    <div style="position: relative; display: flex; flex-direction: column; align-items: center; border: 1px solid var(--glass-border); border-radius: 8px; padding: 6px; background: rgba(0,0,0,0.2); width: 110px;">
+                                        <img src="${imgUrl}" style="max-height: 70px; max-width: 90px; border-radius: 4px; display: block; object-fit: contain;">
+                                        <span style="font-size: 10px; color: var(--text-muted); margin-top: 4px; font-weight: 600;">Gambar #${imgIdx + 1}</span>
+                                        <div style="display: flex; gap: 4px; margin-top: 4px; width: 100%;">
+                                            <button class="btn-sm btn-toggle" style="margin: 0; padding: 2px 4px; font-size: 9px; flex: 1; min-height: 20px; line-height: 1;" title="Sisipkan [gambar${imgIdx + 1}] ke kursor teks soal" onclick="insertSpecificPlaceholder(${idx}, ${imgIdx + 1})">📍 Letakkan</button>
+                                            <button class="btn-sm btn-results" style="margin: 0; padding: 2px 4px; font-size: 9px; background: rgba(239,68,68,0.2); border-color: rgba(239,68,68,0.3); color: #f87171; min-height: 20px; line-height: 1;" onclick="removeQuestionImage(${idx}, ${imgIdx})">🗑️</button>
+                                        </div>
+                                    </div>
+                                `).join('')}
+                            </div>
+                        ` : ''}
+                    </div>
+                    ${optionsHtml}
+                `;
+
+                // Wire up drag-and-drop events
+                card.addEventListener('dragstart', (e) => {
+                    card.classList.add('dragging');
+                    e.dataTransfer.effectAllowed = 'move';
+                });
+
+                card.addEventListener('dragend', () => {
+                    card.classList.remove('dragging');
+                    card.setAttribute('draggable', 'false');
+
+                    // Read the new order of cards from the DOM
+                    const newQuestions = [];
+                    const domCards = container.querySelectorAll('.q-card');
+                    domCards.forEach(c => {
+                        const oldIdx = parseInt(c.dataset.index);
+                        newQuestions.push(questionsList[oldIdx]);
+                    });
+
+                    // Update questions list and renumber
+                    questionsList = newQuestions;
+                    questionsList.forEach((q, i) => q.number = i + 1);
+
+                    renderQuestions();
+                });
+
+                card.addEventListener('dragover', (e) => {
+                    e.preventDefault();
+                    const draggingCard = container.querySelector('.q-card.dragging');
+                    if (!draggingCard || draggingCard === card) return;
+
+                    const bounding = card.getBoundingClientRect();
+                    const offset = e.clientY - bounding.top - bounding.height / 2;
+
+                    if (offset < 0) {
+                        container.insertBefore(draggingCard, card);
+                    } else {
+                        container.insertBefore(draggingCard, card.nextSibling);
+                    }
+                });
+
+                // --- Clipboard Paste Event Handlers ---
+                const qTextarea = card.querySelector('textarea');
+                if (qTextarea) {
+                    qTextarea.addEventListener('paste', (e) => {
+                        const items = (e.clipboardData || e.originalEvent.clipboardData).items;
+                        for (let item of items) {
+                            if (item.type.indexOf('image') === 0) {
+                                e.preventDefault();
+                                const file = item.getAsFile();
+                                const reader = new FileReader();
+                                reader.onload = function(evt) {
+                                    if (!questionsList[idx].images) {
+                                        questionsList[idx].images = [];
+                                    }
+                                    questionsList[idx].images.push(evt.target.result);
+                                    const nextIdx = questionsList[idx].images.length;
+                                    
+                                    // Insert [gambarX] at cursor
+                                    const start = qTextarea.selectionStart;
+                                    const end = qTextarea.selectionEnd;
+                                    const text = qTextarea.value;
+                                    const before = text.substring(0, start);
+                                    const after = text.substring(end, text.length);
+                                    const placeholder = `[gambar${nextIdx}]`;
+                                    
+                                    qTextarea.value = before + placeholder + after;
+                                    qTextarea.selectionStart = qTextarea.selectionEnd = start + placeholder.length;
+                                    qTextarea.focus();
+                                    
+                                    qTextarea.dispatchEvent(new Event('change'));
+                                    renderQuestions();
+                                    showToast(`Gambar #${nextIdx} berhasil ditempel ke soal!`, 'success');
+                                };
+                                reader.readAsDataURL(file);
+                                break;
+                            }
+                        }
+                    });
+                }
+
+                const optInputs = card.querySelectorAll('.opt-input');
+                optInputs.forEach((optInput, optIdx) => {
+                    optInput.addEventListener('paste', (e) => {
+                        const items = (e.clipboardData || e.originalEvent.clipboardData).items;
+                        for (let item of items) {
+                            if (item.type.indexOf('image') === 0) {
+                                e.preventDefault();
+                                const file = item.getAsFile();
+                                const reader = new FileReader();
+                                reader.onload = function(evt) {
+                                    if (!questionsList[idx].choice_images) {
+                                        questionsList[idx].choice_images = [];
+                                    }
+                                    questionsList[idx].choice_images[optIdx] = evt.target.result;
+                                    renderQuestions();
+                                    showToast(`Gambar berhasil ditempel ke Pilihan ${String.fromCharCode(65 + optIdx)}!`, 'success');
+                                };
+                                reader.readAsDataURL(file);
+                                break;
+                            }
+                        }
+                    });
+                });
+
+                const leftInputs = card.querySelectorAll('.matching-left-input');
+                leftInputs.forEach((leftInput, lIdx) => {
+                    leftInput.addEventListener('paste', (e) => {
+                        const items = (e.clipboardData || e.originalEvent.clipboardData).items;
+                        for (let item of items) {
+                            if (item.type.indexOf('image') === 0) {
+                                e.preventDefault();
+                                const file = item.getAsFile();
+                                const reader = new FileReader();
+                                reader.onload = function(evt) {
+                                    if (!questionsList[idx].left_images) {
+                                        questionsList[idx].left_images = [];
+                                    }
+                                    questionsList[idx].left_images[lIdx] = evt.target.result;
+                                    renderQuestions();
+                                    showToast(`Gambar berhasil ditempel ke Kolom Kiri #${lIdx + 1}!`, 'success');
+                                };
+                                reader.readAsDataURL(file);
+                                break;
+                            }
+                        }
+                    });
+                });
+
+                const rightInputs = card.querySelectorAll('.matching-right-input');
+                rightInputs.forEach((rightInput, rIdx) => {
+                    rightInput.addEventListener('paste', (e) => {
+                        const items = (e.clipboardData || e.originalEvent.clipboardData).items;
+                        for (let item of items) {
+                            if (item.type.indexOf('image') === 0) {
+                                e.preventDefault();
+                                const file = item.getAsFile();
+                                const reader = new FileReader();
+                                reader.onload = function(evt) {
+                                    if (!questionsList[idx].right_images) {
+                                        questionsList[idx].right_images = [];
+                                    }
+                                    questionsList[idx].right_images[rIdx] = evt.target.result;
+                                    renderQuestions();
+                                    showToast(`Gambar berhasil ditempel ke Kolom Kanan ${String.fromCharCode(65 + rIdx)}!`, 'success');
+                                };
+                                reader.readAsDataURL(file);
+                                break;
+                            }
+                        }
+                    });
+                });
+
+                container.appendChild(card);
+            });
+
+            updateQuestionCount();
+
+            // Render live LaTeX previews for questions and answers
+            questionsList.forEach((q, idx) => {
+                triggerLatexRender(`q_preview_${idx}`, q.question_text);
+                
+                if ((q.type === 'single_choice' || q.type === 'multiple_choice') && q.choices) {
+                    q.choices.forEach((optVal, optIdx) => {
+                        triggerLatexRender(`opt_preview_${idx}_${optIdx}`, optVal);
+                    });
+                } else if (q.type === 'matching') {
+                    if (q.left_items) {
+                        q.left_items.forEach((leftVal, lIdx) => {
+                            triggerLatexRender(`matching_left_preview_${idx}_${lIdx}`, leftVal);
+                        });
+                    }
+                    if (q.right_items) {
+                        q.right_items.forEach((rightVal, rIdx) => {
+                            triggerLatexRender(`matching_right_preview_${idx}_${rIdx}`, rightVal);
+                        });
+                    }
+                }
+            });
+        }
+
+        function enableCardDrag(idx) {
+            const card = document.querySelector(`.q-card[data-index="${idx}"]`);
+            if (card) card.setAttribute('draggable', 'true');
+        }
+
+        function disableCardDrag(idx) {
+            const card = document.querySelector(`.q-card[data-index="${idx}"]`);
+            if (card) card.setAttribute('draggable', 'false');
+        }
+
+        function addQuestion(type) {
+            let newQ = {
+                type: type,
+                question_text: '',
+                weight: 1.0,
+                number: questionsList.length + 1
+            };
+
+            if (type === 'single_choice') {
+                newQ.choices = ['Option A', 'Option B', 'Option C', 'Option D', 'Option E'];
+                newQ.key = 'A';
+            } else if (type === 'multiple_choice') {
+                newQ.choices = ['Option A', 'Option B', 'Option C', 'Option D', 'Option E'];
+                newQ.key = ['A'];
+            } else if (type === 'matching') {
+                newQ.left_items = ['Item Kiri 1', 'Item Kiri 2', 'Item Kiri 3'];
+                newQ.right_items = ['Pilihan Kanan A', 'Pilihan Kanan B', 'Pilihan Kanan C', 'Distraktor Kanan D'];
+                newQ.key = {
+                    'Item Kiri 1': 'Pilihan Kanan A',
+                    'Item Kiri 2': 'Pilihan Kanan B',
+                    'Item Kiri 3': 'Pilihan Kanan C'
+                };
+            } else if (type === 'true_false') {
+                newQ.key = 'TRUE';
+            } else if (type === 'short_answer') {
+                newQ.key = '';
+            }
+
+            questionsList.push(newQ);
+            renderQuestions();
+        }
+
+        function bulkAddQuestions(qty) {
+            for (let i = 0; i < qty; i++) {
+                questionsList.push({
+                    type: 'single_choice',
+                    question_text: `Pertanyaan nomor ${questionsList.length + 1}`,
+                    choices: ['Pilihan A', 'Pilihan B', 'Pilihan C', 'Pilihan D', 'Pilihan E'],
+                    key: 'A',
+                    weight: 1.0,
+                    number: questionsList.length + 1
+                });
+            }
+            renderQuestions();
+            showToast(`Berhasil menambahkan ${qty} Soal Pilihan Ganda!`, 'success');
+        }
+
+        function removeQuestion(idx) {
+            questionsList.splice(idx, 1);
+            // Re-index number
+            questionsList.forEach((q, i) => q.number = i + 1);
+            renderQuestions();
+        }
+
+        function triggerLatexRender(elementId, text) {
+            const previewEl = document.getElementById(elementId);
+            if (!previewEl) return;
+            if (!text || !text.includes('$')) {
+                previewEl.style.display = 'none';
+                previewEl.innerHTML = '';
+                return;
+            }
+            
+            // Convert newlines to HTML line breaks
+            const formatted = text.replace(/\n/g, '<br>');
+            previewEl.innerHTML = formatted;
+            previewEl.style.display = 'block';
+            
+            try {
+                renderMathInElement(previewEl, {
+                    delimiters: [
+                        {left: '$$', right: '$$', display: true},
+                        {left: '$', right: '$', display: false}
+                    ],
+                    throwOnError: false
+                });
+            } catch (e) {
+                console.error("KaTeX Error: ", e);
+            }
+        }
+
+        function updateQuestionText(idx, val) {
+            questionsList[idx].question_text = val;
+        }
+
+        function updateQuestionTextLive(idx, val) {
+            questionsList[idx].question_text = val;
+            triggerLatexRender(`q_preview_${idx}`, val);
+        }
+
+        function updateOptionText(qIdx, optIdx, val) {
+            if (!questionsList[qIdx].choices) questionsList[qIdx].choices = [];
+            questionsList[qIdx].choices[optIdx] = val;
+        }
+
+        function updateOptionTextLive(qIdx, optIdx, val) {
+            if (!questionsList[qIdx].choices) questionsList[qIdx].choices = [];
+            questionsList[qIdx].choices[optIdx] = val;
+            triggerLatexRender(`opt_preview_${qIdx}_${optIdx}`, val);
+        }
+
+        function updateMatchingLeftLive(qIdx, itemIdx, val) {
+            if (!questionsList[qIdx].left_items) questionsList[qIdx].left_items = [];
+            questionsList[qIdx].left_items[itemIdx] = val;
+            triggerLatexRender(`matching_left_preview_${qIdx}_${itemIdx}`, val);
+        }
+
+        function updateMatchingRightLive(qIdx, itemIdx, val) {
+            if (!questionsList[qIdx].right_items) questionsList[qIdx].right_items = [];
+            questionsList[qIdx].right_items[itemIdx] = val;
+            triggerLatexRender(`matching_right_preview_${qIdx}_${itemIdx}`, val);
+        }
+
+        function addChoiceOption(qIdx) {
+            let q = questionsList[qIdx];
+            if (!q.choices) q.choices = [];
+            if (q.choices.length >= 10) {
+                showToast('Maksimal 10 pilihan jawaban!', 'error');
+                return;
+            }
+            const letters = ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'J'];
+            const nextLetter = letters[q.choices.length];
+            q.choices.push(`Option ${nextLetter}`);
+            // Keep choice_images array in sync
+            if (q.choice_images) {
+                q.choice_images.push('');
+            }
+            renderQuestions();
+        }
+
+        function removeChoiceOption(qIdx) {
+            let q = questionsList[qIdx];
+            if (!q.choices) q.choices = [];
+            if (q.choices.length <= 2) {
+                showToast('Minimal harus ada 2 pilihan jawaban!', 'error');
+                return;
+            }
+            
+            q.choices.pop();
+            // Keep choice_images array in sync
+            if (q.choice_images) {
+                q.choice_images.pop();
+            }
+            
+            const letters = ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'J'];
+            if (q.type === 'single_choice') {
+                const keyIdx = letters.indexOf(q.key);
+                if (keyIdx >= q.choices.length) {
+                    q.key = 'A';
+                }
+            } else if (q.type === 'multiple_choice' && Array.isArray(q.key)) {
+                q.key = q.key.filter(k => {
+                    const idx = letters.indexOf(k);
+                    return idx < q.choices.length;
+                });
+                if (q.key.length === 0) {
+                    q.key = ['A'];
+                }
+            }
+            
+            renderQuestions();
+        }
+
+        function updateCorrectKey(qIdx, val) {
+            questionsList[qIdx].key = val;
+        }
+
+        function toggleComplexKey(qIdx, letter) {
+            let q = questionsList[qIdx];
+            if (!Array.isArray(q.key)) {
+                q.key = [];
+            }
+            
+            const pos = q.key.indexOf(letter);
+            if (pos === -1) {
+                q.key.push(letter);
+            } else {
+                q.key.splice(pos, 1);
+            }
+            
+            q.key.sort();
+            renderQuestions();
+        }
+
+        function addMatchingItem(qIdx, side) {
+            let q = questionsList[qIdx];
+            if (side === 'left') {
+                if (!q.left_items) q.left_items = [];
+                q.left_items.push(`Item Kiri ${q.left_items.length + 1}`);
+            } else {
+                if (!q.right_items) q.right_items = [];
+                q.right_items.push(`Pilihan Kanan ${q.right_items.length + 1}`);
+            }
+            renderQuestions();
+        }
+
+        function updateMatchingItem(qIdx, side, itemIdx, val) {
+            let q = questionsList[qIdx];
+            if (side === 'left') {
+                const oldVal = q.left_items[itemIdx];
+                q.left_items[itemIdx] = val;
+                if (!q.key) q.key = {};
+                if (oldVal && q.key[oldVal] !== undefined) {
+                    q.key[val] = q.key[oldVal];
+                    delete q.key[oldVal];
+                }
+            } else {
+                const oldVal = q.right_items[itemIdx];
+                q.right_items[itemIdx] = val;
+                if (!q.key) q.key = {};
+                for (let k in q.key) {
+                    if (q.key[k] === oldVal) {
+                        q.key[k] = val;
+                    }
+                }
+            }
+            renderQuestions();
+        }
+
+        function removeMatchingItem(qIdx, side, itemIdx) {
+            let q = questionsList[qIdx];
+            if (side === 'left') {
+                const val = q.left_items[itemIdx];
+                q.left_items.splice(itemIdx, 1);
+                if (q.left_images) q.left_images.splice(itemIdx, 1);
+                if (q.key && val) delete q.key[val];
+            } else {
+                const val = q.right_items[itemIdx];
+                q.right_items.splice(itemIdx, 1);
+                if (q.right_images) q.right_images.splice(itemIdx, 1);
+                if (q.key) {
+                    for (let k in q.key) {
+                        if (q.key[k] === val) {
+                            delete q.key[k];
+                        }
+                    }
+                }
+            }
+            renderQuestions();
+        }
+
+        function updateMatchingKey(qIdx, leftVal, rightVal) {
+            let q = questionsList[qIdx];
+            if (!q.key) q.key = {};
+            if (rightVal === "") {
+                delete q.key[leftVal];
+            } else {
+                q.key[leftVal] = rightVal;
+            }
+        }
+
+        function insertPlaceholder(elemId) {
+            const elem = document.getElementById(elemId);
+            if (!elem) return;
+
+            const start = elem.selectionStart;
+            const end = elem.selectionEnd;
+            const text = elem.value;
+            const before = text.substring(0, start);
+            const after = text.substring(end, text.length);
+            
+            elem.value = before + '[gambar]' + after;
+            elem.selectionStart = elem.selectionEnd = start + 8;
+            elem.focus();
+
+            // Trigger the onchange/input event so the state is updated
+            elem.dispatchEvent(new Event('change'));
+        }
+
+        function insertSpecificPlaceholder(qIdx, imgNum) {
+            const elem = document.getElementById(`q_text_${qIdx}`);
+            if (!elem) return;
+
+            const start = elem.selectionStart;
+            const end = elem.selectionEnd;
+            const text = elem.value;
+            const before = text.substring(0, start);
+            const after = text.substring(end, text.length);
+            const placeholder = `[gambar${imgNum}]`;
+            
+            elem.value = before + placeholder + after;
+            elem.selectionStart = elem.selectionEnd = start + placeholder.length;
+            elem.focus();
+
+            // Trigger the onchange/input event so the state is updated
+            elem.dispatchEvent(new Event('change'));
+        }
+
+        let originalHeaderImage = null; // Store the original base64 raw image
+        let customHeaderImage = null; // Store the cropped image base64
+        let cropper = null; // Store cropper instance
+        let currentRatio = 8/1; // Default ratio for Kop is wide e.g. 8:1
+
+        function handleHeaderImageUpload(input) {
+            const file = input.files[0];
+            if (!file) return;
+            const reader = new FileReader();
+            reader.onload = function(e) {
+                originalHeaderImage = e.target.result;
+                openCropModal(originalHeaderImage);
+            };
+            reader.readAsDataURL(file);
+            // Reset input value so same file can be uploaded again if needed
+            input.value = '';
+        }
+
+        function openCropModal(imageSrc) {
+            const modal = document.getElementById('cropModalOverlay');
+            const img = document.getElementById('cropModalImg');
+            
+            img.src = imageSrc;
+            modal.style.display = 'flex';
+            
+            // Destroy existing cropper if any
+            if (cropper) {
+                cropper.destroy();
+                cropper = null;
+            }
+            
+            // Initialize Cropper.js after modal is visible and image is loaded
+            setTimeout(() => {
+                cropper = new Cropper(img, {
+                    aspectRatio: currentRatio,
+                    viewMode: 1, // Restrict crop box to not exceed the size of the canvas
+                    dragMode: 'move', // Default action is to drag/pan the image
+                    autoCropArea: 0.9, 
+                    restore: false,
+                    guides: true,
+                    center: true,
+                    highlight: false,
+                    cropBoxMovable: true,
+                    cropBoxResizable: true,
+                    toggleDragModeOnDblclick: false
+                });
+                updateRatioButtons();
+            }, 100);
+        }
+
+        function closeCropModal() {
+            document.getElementById('cropModalOverlay').style.display = 'none';
+            if (cropper) {
+                cropper.destroy();
+                cropper = null;
+            }
+        }
+
+        function cropperZoom(value) {
+            if (cropper) {
+                cropper.zoom(value);
+            }
+        }
+
+        function cropperReset() {
+            if (cropper) {
+                cropper.reset();
+            }
+        }
+
+        function cropperSetAspectRatio(ratio) {
+            currentRatio = ratio;
+            if (cropper) {
+                cropper.setAspectRatio(ratio);
+            }
+            updateRatioButtons();
+        }
+
+        function updateRatioButtons() {
+            const btns = {
+                '8/1': 'ratioPreset_8_1',
+                '6/1': 'ratioPreset_6_1',
+                '4/1': 'ratioPreset_4_1',
+                'NaN': 'ratioPreset_free'
+            };
+            
+            for (let r in btns) {
+                const btn = document.getElementById(btns[r]);
+                if (btn) {
+                    btn.classList.remove('active');
+                }
+            }
+            
+            let activeId = 'ratioPreset_free';
+            if (currentRatio === 8/1) activeId = 'ratioPreset_8_1';
+            else if (currentRatio === 6/1) activeId = 'ratioPreset_6_1';
+            else if (currentRatio === 4/1) activeId = 'ratioPreset_4_1';
+            
+            const activeBtn = document.getElementById(activeId);
+            if (activeBtn) {
+                activeBtn.classList.add('active');
+            }
+        }
+
+        function applyHeaderCrop() {
+            if (!cropper) return;
+            
+            // Generate cropped image at high resolution for PDF sharpness
+            const canvas = cropper.getCroppedCanvas({
+                width: 1600,
+                imageSmoothingEnabled: true,
+                imageSmoothingQuality: 'high'
+            });
+            
+            if (canvas) {
+                customHeaderImage = canvas.toDataURL('image/png');
+                document.getElementById('header_preview_img').src = customHeaderImage;
+                document.getElementById('header_preview_container').style.display = 'block';
+                document.getElementById('del_header_btn').style.display = 'inline-block';
+                
+                closeCropModal();
+                showToast('Gambar kop surat berhasil dipotong dan diterapkan!', 'success');
+            } else {
+                showToast('Gagal memproses potongan gambar!', 'error');
+            }
+        }
+
+        function reOpenCropModal() {
+            if (originalHeaderImage) {
+                openCropModal(originalHeaderImage);
+            } else if (customHeaderImage) {
+                openCropModal(customHeaderImage);
+            }
+        }
+
+        function removeCustomHeader() {
+            customHeaderImage = null;
+            originalHeaderImage = null;
+            document.getElementById('headerImageInput').value = '';
+            document.getElementById('header_preview_container').style.display = 'none';
+            document.getElementById('del_header_btn').style.display = 'none';
+            showToast('Kop surat kustom dihapus (kembali ke teks)', 'info');
+        }
+
+        // Image upload helper functions
+        function triggerQuestionImageUpload(qIdx) {
+            const input = document.getElementById(`q_image_input_${qIdx}`);
+            if (input) input.click();
+        }
+
+        function handleQuestionImageUpload(qIdx, input) {
+            const files = input.files;
+            if (!files || files.length === 0) return;
+
+            if (!questionsList[qIdx].images) {
+                questionsList[qIdx].images = [];
+            }
+
+            let loadedCount = 0;
+            for (let i = 0; i < files.length; i++) {
+                const reader = new FileReader();
+                reader.onload = function(e) {
+                    questionsList[qIdx].images.push(e.target.result);
+                    // Legacy fallback
+                    if (questionsList[qIdx].images.length === 1) {
+                        questionsList[qIdx].image = e.target.result;
+                    }
+                    loadedCount++;
+                    if (loadedCount === files.length) {
+                        renderQuestions();
+                        showToast(`${files.length} Gambar berhasil ditambahkan!`, 'success');
+                    }
+                };
+                reader.readAsDataURL(files[i]);
+            }
+        }
+
+        function removeQuestionImage(qIdx, imgIdx) {
+            if (questionsList[qIdx].images) {
+                questionsList[qIdx].images.splice(imgIdx, 1);
+                // Sync legacy fallback
+                questionsList[qIdx].image = questionsList[qIdx].images[0] || '';
+            } else {
+                delete questionsList[qIdx].image;
+            }
+            renderQuestions();
+            showToast('Gambar berhasil dihapus!', 'success');
+        }
+
+        function triggerOptionImageUpload(qIdx, optIdx) {
+            const input = document.getElementById(`opt_image_input_${qIdx}_${optIdx}`);
+            if (input) input.click();
+        }
+
+        function handleOptionImageUpload(qIdx, optIdx, input) {
+            const file = input.files[0];
+            if (!file) return;
+
+            const reader = new FileReader();
+            reader.onload = function(e) {
+                if (!questionsList[qIdx].choice_images) {
+                    questionsList[qIdx].choice_images = [];
+                }
+                questionsList[qIdx].choice_images[optIdx] = e.target.result;
+                renderQuestions();
+            };
+            reader.readAsDataURL(file);
+        }
+
+        function removeOptionImage(qIdx, optIdx) {
+            if (questionsList[qIdx].choice_images) {
+                questionsList[qIdx].choice_images[optIdx] = "";
+            }
+            renderQuestions();
+        }
+
+        function triggerMatchingImageUpload(qIdx, side, itemIdx) {
+            const input = document.getElementById(`matching_image_input_${qIdx}_${side}_${itemIdx}`);
+            if (input) input.click();
+        }
+
+        function handleMatchingImageUpload(qIdx, side, itemIdx, input) {
+            const file = input.files[0];
+            if (!file) return;
+
+            const reader = new FileReader();
+            reader.onload = function(e) {
+                if (side === 'left') {
+                    if (!questionsList[qIdx].left_images) questionsList[qIdx].left_images = [];
+                    questionsList[qIdx].left_images[itemIdx] = e.target.result;
+                } else {
+                    if (!questionsList[qIdx].right_images) questionsList[qIdx].right_images = [];
+                    questionsList[qIdx].right_images[itemIdx] = e.target.result;
+                }
+                renderQuestions();
+            };
+            reader.readAsDataURL(file);
+        }
+
+        function removeMatchingImage(qIdx, side, itemIdx) {
+            if (side === 'left') {
+                if (questionsList[qIdx].left_images) {
+                    questionsList[qIdx].left_images[itemIdx] = "";
+                }
+            } else {
+                if (questionsList[qIdx].right_images) {
+                    questionsList[qIdx].right_images[itemIdx] = "";
+                }
+            }
+            renderQuestions();
+        }
+
+        // XML Escaping helper
+        function escapeXml(unsafe) {
+            if (unsafe === undefined || unsafe === null) return '';
+            return String(unsafe).replace(/[<>&'"]/g, function (c) {
+                switch (c) {
+                    case '<': return '&lt;';
+                    case '>': return '&gt;';
+                    case '&': return '&amp;';
+                    case '\'': return '&apos;';
+                    case '"': return '&quot;';
+                    default: return c;
+                }
+            });
+        }
+
+        // Base64 helper for image saving to zip
+        function getBase64DataAndExt(dataUrl) {
+            if (!dataUrl || !dataUrl.startsWith('data:')) return null;
+            const parts = dataUrl.split(';base64,');
+            if (parts.length !== 2) return null;
+            const mime = parts[0].split(':')[1];
+            let ext = 'png';
+            if (mime === 'image/jpeg' || mime === 'image/jpg') ext = 'jpg';
+            else if (mime === 'image/gif') ext = 'gif';
+            else if (mime === 'image/webp') ext = 'webp';
+            return {
+                base64: parts[1],
+                ext: ext,
+                mime: mime
+            };
+        }
+
+        // Export entire exam to a ZIP file containing XML + Assets folder
+        function exportExamZip() {
+            if (questionsList.length === 0) {
+                showToast('Tidak ada pertanyaan untuk diexport!', 'error');
+                return;
+            }
+
+            showToast('Sedang menyiapkan file ZIP...', 'info');
+
+            const zip = new JSZip();
+            const assetsFolder = zip.folder("assets");
+            let imgCounter = 0;
+
+            function saveImageToZip(dataUrl, prefix) {
+                if (!dataUrl || !dataUrl.startsWith('data:')) return null;
+                const imgInfo = getBase64DataAndExt(dataUrl);
+                if (!imgInfo) return null;
+                const filename = `${prefix}_${imgCounter++}.${imgInfo.ext}`;
+                assetsFolder.file(filename, imgInfo.base64, {base64: true});
+                return `assets/${filename}`;
+            }
+
+            // Process metadata images
+            let xmlHeaderOriginal = '';
+            let xmlHeaderCropped = '';
+            if (originalHeaderImage) {
+                const path = saveImageToZip(originalHeaderImage, 'header_original');
+                if (path) xmlHeaderOriginal = `<headerImageOriginal>${escapeXml(path)}</headerImageOriginal>`;
+            }
+            if (customHeaderImage) {
+                const path = saveImageToZip(customHeaderImage, 'header_cropped');
+                if (path) xmlHeaderCropped = `<headerImageCropped>${escapeXml(path)}</headerImageCropped>`;
+            }
+
+            // Build XML Document
+            let xml = `<?xml version="1.0" encoding="UTF-8"?>\n`;
+            xml += `<exam>\n`;
+            xml += `    <metadata>\n`;
+            xml += `        <name>${escapeXml(document.getElementById('examName').value.trim())}</name>\n`;
+            xml += `        <subject>${escapeXml(document.getElementById('subjectName').value.trim())}</subject>\n`;
+            xml += `        <class>${escapeXml(document.getElementById('className').value.trim())}</class>\n`;
+            xml += `        <duration>${escapeXml(document.getElementById('examDuration').value.trim())}</duration>\n`;
+            xml += `        <customToken>${escapeXml(document.getElementById('customToken').value.trim())}</customToken>\n`;
+            xml += `        <paperType>${escapeXml(document.getElementById('paperType').value)}</paperType>\n`;
+            xml += `        <numColumns>${escapeXml(document.getElementById('numColumns').value)}</numColumns>\n`;
+            xml += `        <schoolHeader>${escapeXml(document.getElementById('schoolHeader').value)}</schoolHeader>\n`;
+            if (xmlHeaderOriginal) xml += `        ${xmlHeaderOriginal}\n`;
+            if (xmlHeaderCropped) xml += `        ${xmlHeaderCropped}\n`;
+            xml += `    </metadata>\n`;
+            xml += `    <questions>\n`;
+
+            questionsList.forEach((q, idx) => {
+                xml += `        <question type="${escapeXml(q.type)}">\n`;
+                xml += `            <question_text>${escapeXml(q.question_text)}</question_text>\n`;
+                xml += `            <weight>${escapeXml(q.weight || 1.0)}</weight>\n`;
+                xml += `            <number>${escapeXml(q.number || (idx + 1))}</number>\n`;
+
+                // Images for question
+                xml += `            <images>\n`;
+                if (q.images && q.images.length > 0) {
+                    q.images.forEach(imgData => {
+                        if (imgData) {
+                            const path = saveImageToZip(imgData, `q_${idx}_img`);
+                            if (path) xml += `                <image>${escapeXml(path)}</image>\n`;
+                        }
+                    });
+                } else if (q.image) {
+                    const path = saveImageToZip(q.image, `q_${idx}_img`);
+                    if (path) xml += `                <image>${escapeXml(path)}</image>\n`;
+                }
+                xml += `            </images>\n`;
+
+                // Type specific data
+                if (q.type === 'single_choice' || q.type === 'multiple_choice') {
+                    xml += `            <choices>\n`;
+                    if (q.choices && q.choices.length > 0) {
+                        const letters = ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'J'];
+                        q.choices.forEach((choiceVal, optIdx) => {
+                            const letter = letters[optIdx];
+                            let imgAttr = '';
+                            if (q.choice_images && q.choice_images[optIdx]) {
+                                const path = saveImageToZip(q.choice_images[optIdx], `q_${idx}_opt_${optIdx}`);
+                                if (path) imgAttr = ` image="${escapeXml(path)}"`;
+                            }
+                            xml += `                <choice prefix="${letter}"${imgAttr}>${escapeXml(choiceVal)}</choice>\n`;
+                        });
+                    }
+                    xml += `            </choices>\n`;
+                    
+                    if (Array.isArray(q.key)) {
+                        xml += `            <keys>\n`;
+                        q.key.forEach(k => {
+                            xml += `                <key>${escapeXml(k)}</key>\n`;
+                        });
+                        xml += `            </keys>\n`;
+                    } else {
+                        xml += `            <key>${escapeXml(q.key)}</key>\n`;
+                    }
+                } 
+                else if (q.type === 'matching') {
+                    xml += `            <left_items>\n`;
+                    if (q.left_items && q.left_items.length > 0) {
+                        q.left_items.forEach((itemVal, lIdx) => {
+                            let imgAttr = '';
+                            if (q.left_images && q.left_images[lIdx]) {
+                                const path = saveImageToZip(q.left_images[lIdx], `q_${idx}_match_left_${lIdx}`);
+                                if (path) imgAttr = ` image="${escapeXml(path)}"`;
+                            }
+                            xml += `                <item index="${lIdx}"${imgAttr}>${escapeXml(itemVal)}</item>\n`;
+                        });
+                    }
+                    xml += `            </left_items>\n`;
+
+                    xml += `            <right_items>\n`;
+                    if (q.right_items && q.right_items.length > 0) {
+                        q.right_items.forEach((itemVal, rIdx) => {
+                            let imgAttr = '';
+                            if (q.right_images && q.right_images[rIdx]) {
+                                const path = saveImageToZip(q.right_images[rIdx], `q_${idx}_match_right_${rIdx}`);
+                                if (path) imgAttr = ` image="${escapeXml(path)}"`;
+                            }
+                            xml += `                <item index="${rIdx}"${imgAttr}>${escapeXml(itemVal)}</item>\n`;
+                        });
+                    }
+                    xml += `            </right_items>\n`;
+
+                    xml += `            <pairs>\n`;
+                    if (q.key) {
+                        for (let k in q.key) {
+                            xml += `                <pair left="${escapeXml(k)}" right="${escapeXml(q.key[k])}" />\n`;
+                        }
+                    }
+                    xml += `            </pairs>\n`;
+                }
+                else if (q.type === 'true_false' || q.type === 'short_answer') {
+                    xml += `            <key>${escapeXml(q.key)}</key>\n`;
+                }
+
+                xml += `        </question>\n`;
+            });
+
+            xml += `    </questions>\n`;
+            xml += `</exam>\n`;
+
+            zip.file("exam.xml", xml);
+
+            zip.generateAsync({type:"blob"}).then(function(content) {
+                const examName = document.getElementById('examName').value.trim() || 'ujian_export';
+                const safeName = examName.toLowerCase().replace(/[^a-z0-9]+/g, '_') + '.zip';
+                
+                const a = document.createElement("a");
+                a.href = URL.createObjectURL(content);
+                a.download = safeName;
+                document.body.appendChild(a);
+                a.click();
+                document.body.removeChild(a);
+                
+                showToast('Export Ujian berhasil diunduh!', 'success');
+            }).catch(err => {
+                showToast('Gagal membuat file ZIP!', 'error');
+                console.error(err);
+            });
+        }
+
+        // Import exam from a ZIP file containing exam.xml and assets folder
+        function importExamZip(input) {
+            const file = input.files[0];
+            if (!file) return;
+
+            showToast('Sedang membaca file ZIP...', 'info');
+
+            const reader = new FileReader();
+            reader.onload = function(e) {
+                JSZip.loadAsync(e.target.result).then(async function(zip) {
+                    const xmlFile = zip.file("exam.xml");
+                    if (!xmlFile) {
+                        showToast('File ZIP tidak valid: exam.xml tidak ditemukan!', 'error');
+                        return;
+                    }
+
+                    const xmlText = await xmlFile.async("text");
+                    const parser = new DOMParser();
+                    const xmlDoc = parser.parseFromString(xmlText, "text/xml");
+
+                    if (xmlDoc.getElementsByTagName("parsererror").length > 0) {
+                        showToast('Gagal mem-parsing file XML!', 'error');
+                        return;
+                    }
+
+                    function getXmlText(parent, tagName, defaultValue = '') {
+                        const elem = parent.getElementsByTagName(tagName)[0];
+                        return elem ? elem.textContent : defaultValue;
+                    }
+
+                    async function loadImageFromZip(path) {
+                        if (!path) return '';
+                        const f = zip.file(path);
+                        if (!f) return '';
+                        
+                        const ext = path.split('.').pop().toLowerCase();
+                        let mime = 'image/png';
+                        if (ext === 'jpg' || ext === 'jpeg') mime = 'image/jpeg';
+                        else if (ext === 'gif') mime = 'image/gif';
+                        else if (ext === 'webp') mime = 'image/webp';
+
+                        const base64Data = await f.async("base64");
+                        return `data:${mime};base64,${base64Data}`;
+                    }
+
+                    const metadata = xmlDoc.getElementsByTagName("metadata")[0];
+                    if (!metadata) {
+                        showToast('Format XML tidak valid: metadata tidak ditemukan!', 'error');
+                        return;
+                    }
+
+                    // Restore Identity & Settings
+                    document.getElementById('examName').value = getXmlText(metadata, 'name');
+                    document.getElementById('subjectName').value = getXmlText(metadata, 'subject');
+                    document.getElementById('className').value = getXmlText(metadata, 'class');
+                    document.getElementById('examDuration').value = getXmlText(metadata, 'duration', '60');
+                    document.getElementById('customToken').value = getXmlText(metadata, 'customToken');
+                    document.getElementById('paperType').value = getXmlText(metadata, 'paperType', 'legal');
+                    document.getElementById('numColumns').value = getXmlText(metadata, 'numColumns', '2');
+                    document.getElementById('schoolHeader').value = getXmlText(metadata, 'schoolHeader');
+
+                    // Restore Header Images
+                    const pathHeaderOriginal = getXmlText(metadata, 'headerImageOriginal');
+                    const pathHeaderCropped = getXmlText(metadata, 'headerImageCropped');
+
+                    if (pathHeaderOriginal) {
+                        originalHeaderImage = await loadImageFromZip(pathHeaderOriginal);
+                    } else {
+                        originalHeaderImage = null;
+                    }
+
+                    if (pathHeaderCropped) {
+                        customHeaderImage = await loadImageFromZip(pathHeaderCropped);
+                        document.getElementById('header_preview_img').src = customHeaderImage;
+                        document.getElementById('header_preview_container').style.display = 'block';
+                        document.getElementById('del_header_btn').style.display = 'block';
+                    } else {
+                        customHeaderImage = null;
+                        document.getElementById('headerImageInput').value = '';
+                        document.getElementById('header_preview_container').style.display = 'none';
+                        document.getElementById('del_header_btn').style.display = 'none';
+                    }
+
+                    // Restore Questions List
+                    const newQuestionsList = [];
+                    const questionsNode = xmlDoc.getElementsByTagName("questions")[0];
+                    if (questionsNode) {
+                        const questionElements = questionsNode.getElementsByTagName("question");
+                        for (let i = 0; i < questionElements.length; i++) {
+                            const qElem = questionElements[i];
+                            const type = qElem.getAttribute("type");
+                            
+                            const qObj = {
+                                type: type,
+                                question_text: getXmlText(qElem, 'question_text'),
+                                weight: parseFloat(getXmlText(qElem, 'weight', '1.0')),
+                                number: parseInt(getXmlText(qElem, 'number', (i + 1).toString()))
+                            };
+
+                            // Rebuild Images Array
+                            qObj.images = [];
+                            const imagesNode = qElem.getElementsByTagName("images")[0];
+                            if (imagesNode) {
+                                const imageElements = imagesNode.getElementsByTagName("image");
+                                for (let j = 0; j < imageElements.length; j++) {
+                                    const path = imageElements[j].textContent;
+                                    if (path) {
+                                        const base64Url = await loadImageFromZip(path);
+                                        if (base64Url) {
+                                            qObj.images.push(base64Url);
+                                        }
+                                    }
+                                }
+                            }
+                            if (qObj.images.length > 0) {
+                                qObj.image = qObj.images[0];
+                            }
+
+                            // Restore Type Specifics
+                            if (type === 'single_choice' || type === 'multiple_choice') {
+                                qObj.choices = [];
+                                qObj.choice_images = [];
+                                
+                                const choicesNode = qElem.getElementsByTagName("choices")[0];
+                                if (choicesNode) {
+                                    const choiceElements = choicesNode.getElementsByTagName("choice");
+                                    for (let j = 0; j < choiceElements.length; j++) {
+                                        const chElem = choiceElements[j];
+                                        qObj.choices.push(chElem.textContent);
+                                        
+                                        const imgPath = chElem.getAttribute("image");
+                                        if (imgPath) {
+                                            const base64Url = await loadImageFromZip(imgPath);
+                                            qObj.choice_images.push(base64Url || '');
+                                        } else {
+                                            qObj.choice_images.push('');
+                                        }
+                                    }
+                                }
+
+                                // Restore Keys
+                                if (type === 'multiple_choice') {
+                                    qObj.key = [];
+                                    const keysNode = qElem.getElementsByTagName("keys")[0];
+                                    if (keysNode) {
+                                        const keyElements = keysNode.getElementsByTagName("key");
+                                        for (let j = 0; j < keyElements.length; j++) {
+                                            qObj.key.push(keyElements[j].textContent);
+                                        }
+                                    } else {
+                                        const k = getXmlText(qElem, 'key');
+                                        if (k) qObj.key.push(k);
+                                    }
+                                } else {
+                                    qObj.key = getXmlText(qElem, 'key', 'A');
+                                }
+                            } 
+                            else if (type === 'matching') {
+                                qObj.left_items = [];
+                                qObj.left_images = [];
+                                qObj.right_items = [];
+                                qObj.right_images = [];
+                                qObj.key = {};
+
+                                // Left Items
+                                const leftNode = qElem.getElementsByTagName("left_items")[0];
+                                if (leftNode) {
+                                    const items = leftNode.getElementsByTagName("item");
+                                    for (let j = 0; j < items.length; j++) {
+                                        const itElem = items[j];
+                                        qObj.left_items.push(itElem.textContent);
+                                        const imgPath = itElem.getAttribute("image");
+                                        if (imgPath) {
+                                            const base64Url = await loadImageFromZip(imgPath);
+                                            qObj.left_images.push(base64Url || '');
+                                        } else {
+                                            qObj.left_images.push('');
+                                        }
+                                    }
+                                }
+
+                                // Right Items
+                                const rightNode = qElem.getElementsByTagName("right_items")[0];
+                                if (rightNode) {
+                                    const items = rightNode.getElementsByTagName("item");
+                                    for (let j = 0; j < items.length; j++) {
+                                        const itElem = items[j];
+                                        qObj.right_items.push(itElem.textContent);
+                                        const imgPath = itElem.getAttribute("image");
+                                        if (imgPath) {
+                                            const base64Url = await loadImageFromZip(imgPath);
+                                            qObj.right_images.push(base64Url || '');
+                                        } else {
+                                            qObj.right_images.push('');
+                                        }
+                                    }
+                                }
+
+                                // Pairs
+                                const pairsNode = qElem.getElementsByTagName("pairs")[0];
+                                if (pairsNode) {
+                                    const pairs = pairsNode.getElementsByTagName("pair");
+                                    for (let j = 0; j < pairs.length; j++) {
+                                        const pElem = pairs[j];
+                                        const leftVal = pElem.getAttribute("left");
+                                        const rightVal = pElem.getAttribute("right");
+                                        if (leftVal && rightVal) {
+                                            qObj.key[leftVal] = rightVal;
+                                        }
+                                    }
+                                }
+                            }
+                            else if (type === 'true_false' || type === 'short_answer') {
+                                qObj.key = getXmlText(qElem, 'key');
+                            }
+
+                            newQuestionsList.push(qObj);
+                        }
+                    }
+
+                    questionsList = newQuestionsList;
+                    renderQuestions();
+                    showToast('Ujian berhasil di-import!', 'success');
+                    input.value = '';
+
+                }).catch(err => {
+                    showToast('Gagal membaca ZIP atau parsing data!', 'error');
+                    console.error(err);
+                    input.value = '';
+                });
+            };
+            reader.readAsArrayBuffer(file);
+        }
+
+        function shuffleQuestionsAndChoices() {
+            if (questionsList.length === 0) {
+                showToast('Belum ada soal untuk diacak', 'error');
+                return;
+            }
+
+            // Shuffle questions list
+            for (let i = questionsList.length - 1; i > 0; i--) {
+                const j = Math.floor(Math.random() * (i + 1));
+                [questionsList[i], questionsList[j]] = [questionsList[j], questionsList[i]];
+            }
+
+            // Shuffle options within each choice question
+            questionsList.forEach((q, qIdx) => {
+                q.number = qIdx + 1; // Update numbering
+                const letters = ['A', 'B', 'C', 'D', 'E'];
+                
+                if (q.type === 'single_choice' && q.choices) {
+                    const origCorrectVal = q.choices[letters.indexOf(q.key)];
+                    for (let i = q.choices.length - 1; i > 0; i--) {
+                        const j = Math.floor(Math.random() * (i + 1));
+                        [q.choices[i], q.choices[j]] = [q.choices[j], q.choices[i]];
+                    }
+                    const newCorrectIdx = q.choices.indexOf(origCorrectVal);
+                    if (newCorrectIdx !== -1) {
+                        q.key = letters[newCorrectIdx];
+                    }
+                } else if (q.type === 'multiple_choice' && q.choices && Array.isArray(q.key)) {
+                    // Collect original correct option texts
+                    const origCorrectValues = q.key.map(l => q.choices[letters.indexOf(l)]);
+                    
+                    for (let i = q.choices.length - 1; i > 0; i--) {
+                        const j = Math.floor(Math.random() * (i + 1));
+                        [q.choices[i], q.choices[j]] = [q.choices[j], q.choices[i]];
+                    }
+                    
+                    // Remap new keys
+                    const newKeys = [];
+                    origCorrectValues.forEach(val => {
+                        const newIdx = q.choices.indexOf(val);
+                        if (newIdx !== -1) {
+                            newKeys.push(letters[newIdx]);
+                        }
+                    });
+                    q.key = newKeys.sort();
+                }
+            });
+
+            renderQuestions();
+            showToast('Pertanyaan dan Pilihan Jawaban berhasil diacak!', 'success');
+        }
+
+        function transformQuestionsData() {
+            return questionsList.map(q => {
+                let apiQ = { ...q };
+                
+                // Clean image arrays — remove empty strings but preserve position
+                if (apiQ.choice_images) {
+                    apiQ.choice_images = apiQ.choice_images.map(img => img || null);
+                    if (apiQ.choice_images.every(v => !v)) delete apiQ.choice_images;
+                }
+                if (apiQ.left_images) {
+                    apiQ.left_images = apiQ.left_images.map(img => img || null);
+                    if (apiQ.left_images.every(v => !v)) delete apiQ.left_images;
+                }
+                if (apiQ.right_images) {
+                    apiQ.right_images = apiQ.right_images.map(img => img || null);
+                    if (apiQ.right_images.every(v => !v)) delete apiQ.right_images;
+                }
+                 if (apiQ.images) {
+                     apiQ.images = apiQ.images.filter(img => img);
+                     if (apiQ.images.length === 0) delete apiQ.images;
+                 }
+                 if (!apiQ.image) delete apiQ.image;
+
+                if (q.type === 'matching') {
+                    const left = (q.left_items || []).map(x => x.trim()).filter(x => x);
+                    const right = (q.right_items || []).map(x => x.trim()).filter(x => x);
+                    
+                    const cleanKey = {};
+                    if (q.key) {
+                        for (let k in q.key) {
+                            if (k.trim() && q.key[k] && q.key[k].trim()) {
+                                cleanKey[k.trim()] = q.key[k].trim();
+                            }
+                        }
+                    }
+                    
+                    apiQ.left_items = left;
+                    apiQ.right_items = right;
+                    apiQ.key = cleanKey;
+                }
+                return apiQ;
+            });
+        }
+
+        async function renderLatexToImage(text, widthMm) {
+            const scale = 2.5;
+            const widthPx = Math.round(widthMm * 3.7795); // 1mm = 3.7795px at 96 DPI
+            
+            const container = document.createElement('div');
+            container.style.position = 'fixed';
+            container.style.top = '-9999px';
+            container.style.left = '-9999px';
+            container.style.width = `${widthPx}px`;
+            container.style.fontFamily = 'Helvetica, Arial, sans-serif';
+            container.style.fontSize = '13.5px'; // Adjust font size to match standard 10pt Helvetica
+            container.style.lineHeight = '1.4';
+            container.style.color = '#000000';
+            container.style.background = '#ffffff';
+            container.style.padding = '1px';
+            container.style.boxSizing = 'border-box';
+            
+            const formattedText = text.replace(/\n/g, '<br>');
+            container.innerHTML = formattedText;
+            document.body.appendChild(container);
+            
+            try {
+                renderMathInElement(container, {
+                    delimiters: [
+                        {left: '$$', right: '$$', display: true},
+                        {left: '$', right: '$', display: false}
+                    ],
+                    throwOnError: false
+                });
+            } catch (e) {
+                console.error("KaTeX render error: ", e);
+            }
+            
+            await new Promise(resolve => setTimeout(resolve, 50));
+            
+            const canvas = await html2canvas(container, {
+                scale: scale,
+                backgroundColor: '#ffffff',
+                logging: false,
+                useCORS: true
+            });
+            
+            document.body.removeChild(container);
+            
+            const imgData = canvas.toDataURL('image/png');
+            const imgH_mm = (canvas.height / scale) / 3.7795;
+            const imgW_mm = (canvas.width / scale) / 3.7795;
+            
+            return {
+                imgData: imgData,
+                width: imgW_mm,
+                height: imgH_mm
+            };
+        }
+
+        async function buildExamPDF() {
+            const examName = document.getElementById('examName').value.trim() || 'UJIAN EXAMVAN';
+            const subject = document.getElementById('subjectName').value.trim() || 'Umum';
+            const className = document.getElementById('className').value.trim() || 'Semua Kelas';
+            const duration = document.getElementById('examDuration').value || '60';
+            const schoolHeader = document.getElementById('schoolHeader').value || 'SMA NEGERI EXAMVAN INDONESIA';
+
+            // Layout settings
+            const paperType = document.getElementById('paperType').value || 'a4';
+            const numCols = parseInt(document.getElementById('numColumns').value) || 1;
+
+            const paperFormats = { 'a4': 'a4', 'legal': [215.9, 355.6], 'letter': 'letter' };
+            const paperDims = { 'a4': [210, 297], 'legal': [215.9, 355.6], 'letter': [215.9, 279.4] };
+            const [pageW, pageH] = paperDims[paperType] || paperDims['a4'];
+
+            const { jsPDF } = window.jspdf;
+            const doc = new jsPDF({ orientation: 'p', unit: 'mm', format: paperFormats[paperType] || 'a4' });
+
+            const M = 15; // margin
+            const colGap = numCols === 2 ? 8 : 0;
+            const totalW = pageW - M * 2;
+            const colW = numCols === 2 ? (totalW - colGap) / 2 : totalW;
+            const pageBtm = pageH - 22;
+            const qTxtW = colW - 5;
+            const optTxtW = colW - 10;
+            const qImgMaxW = numCols === 2 ? colW - 15 : 80;
+            const qImgMaxH = numCols === 2 ? 35 : 50;
+            const oImgMaxW = numCols === 2 ? colW - 25 : 60;
+            const oImgMaxH = numCols === 2 ? 25 : 35;
+
+            let currentCol = 0;
+            let headerEndY = 15;
+            let y = 15;
+
+            function cx() {
+                return numCols === 1 ? M : (currentCol === 0 ? M : M + colW + colGap);
+            }
+
+            function brk(need) {
+                need = need || 10;
+                if (y + need > pageBtm) {
+                    if (numCols === 2 && currentCol === 0) {
+                        currentCol = 1;
+                        y = headerEndY;
+                    } else {
+                        doc.addPage();
+                        currentCol = 0;
+                        y = 15;
+                    }
+                }
+            }
+
+            // ===== HEADER (full width, first page only) =====
+            let isCustomHeaderSuccessful = false;
+            if (customHeaderImage) {
+                try {
+                    const img = new Image();
+                    img.src = customHeaderImage;
+                    let w = img.width || 600, h = img.height || 100;
+                    const aspectRatio = h / w;
+                    const imgW = pageW;
+                    const imgH = pageW * aspectRatio;
+                    doc.addImage(customHeaderImage, 'PNG', 0, 0, imgW, imgH);
+                    y = imgH + 5;
+                    isCustomHeaderSuccessful = true;
+                } catch(e) {
+                    isCustomHeaderSuccessful = false;
+                }
+            }
+
+            // Render Judul Ujian (supports enter / newlines)
+            const judulText = schoolHeader.trim();
+            if (judulText) {
+                doc.setFont("helvetica", "bold");
+                 const lines = judulText.split(/\r?\n|\\n/);
+                lines.forEach((line, lineIdx) => {
+                    const trimmedLine = line.trim();
+                    if (!trimmedLine) return;
+                    const fontSize = (!isCustomHeaderSuccessful && lineIdx === 0) ? 14 : 12;
+                    doc.setFontSize(fontSize);
+                    doc.text(trimmedLine.toUpperCase(), pageW / 2, y, { align: "center" });
+                    y += (fontSize === 14 ? 6 : 5);
+                });
+                y += 2;
+            }
+
+            doc.setLineWidth(0.6); doc.line(M, y, pageW - M, y); y += 6;
+
+            const detRx = pageW / 2 + 15;
+            doc.setFontSize(10); doc.setFont("helvetica", "bold");
+            doc.text(`Mata Pelajaran: ${subject}`, M, y);
+            doc.text(`Durasi: ${duration} Menit`, detRx, y); y += 5;
+            doc.text(`Kelas: ${className}`, M, y);
+            doc.text(`Sifat: Aplikasi EXAMVAN (Sangat Rahasia)`, detRx, y); y += 5;
+
+            doc.setLineWidth(0.3); doc.line(M, y, pageW - M, y); y += 8;
+            doc.setFont("helvetica", "italic"); doc.setFontSize(9);
+            doc.text("Petunjuk Umum: Selesaikan soal-soal berikut menggunakan aplikasi klien EXAMVAN Anda.", M, y); y += 8;
+
+            doc.setFont("helvetica", "normal"); doc.setFontSize(10);
+            headerEndY = y;
+
+            // Draw column divider line on each page for 2-col mode
+            function drawColDivider() {
+                if (numCols !== 2) return;
+                const divX = M + colW + colGap / 2;
+                doc.setDrawColor(200, 200, 200); doc.setLineWidth(0.2);
+                doc.line(divX, headerEndY - 2, divX, pageBtm + 5);
+                doc.setDrawColor(0, 0, 0);
+            }
+
+            function addPdfImage(imgData, xOff, maxW, maxH) {
+                if (!imgData || !imgData.startsWith('data:image')) return;
+                try {
+                    const absX = cx() + xOff;
+                    maxW = Math.min(maxW, colW - xOff - 2);
+                    const img = new Image();
+                    img.src = imgData;
+                    let w = img.width || 100, h = img.height || 60;
+                    const r = Math.min(maxW / w, maxH / h, 1);
+                    w *= r; h *= r;
+                    brk(h + 3);
+                    doc.addImage(imgData, 'PNG', cx() + xOff, y, w, h);
+                    y += h + 3;
+                } catch(e) {}
+            }
+
+            // ===== RENDER QUESTIONS =====
+            for (let idx = 0; idx < questionsList.length; idx++) {
+                const q = questionsList[idx];
+                brk(15);
+                doc.setFont("helvetica", "bold"); doc.setFontSize(10);
+                doc.text(`${idx + 1}. `, cx(), y);
+                doc.setFont("helvetica", "normal");
+
+                let labelType = "";
+                if (q.type === 'multiple_choice') labelType = " (Pilihan Ganda Kompleks)";
+                else if (q.type === 'matching') labelType = " (Menjodohkan)";
+                const fullQText = (q.question_text || `[Soal #${idx + 1} belum terisi]`) + labelType;
+
+                // Multi-image placeholder support
+                const imgRx = /\[gambar(\d*)\]/g;
+                let m, li = 0, usedImgs = new Set();
+                while ((m = imgRx.exec(fullQText)) !== null) {
+                    const imgN = m[1] ? parseInt(m[1]) : 1;
+                    const pre = fullQText.substring(li, m.index);
+                    if (pre.trim()) {
+                        if (pre.includes('$')) {
+                            const imgObj = await renderLatexToImage(pre, qTxtW);
+                            brk(imgObj.height + 2);
+                            doc.addImage(imgObj.imgData, 'PNG', cx() + 5, y, imgObj.width, imgObj.height);
+                            y += imgObj.height + 2;
+                        } else {
+                            const ls = doc.splitTextToSize(pre, qTxtW);
+                            brk(ls.length * 5 + 2);
+                            doc.text(ls, cx() + 5, y); y += (ls.length * 5) + 2;
+                        }
+                    }
+                    const iD = q.images && q.images[imgN - 1] ? q.images[imgN - 1] : (imgN === 1 && q.image ? q.image : null);
+                    if (iD) { addPdfImage(iD, 10, qImgMaxW, qImgMaxH); usedImgs.add(imgN - 1); }
+                    li = imgRx.lastIndex;
+                }
+                const post = fullQText.substring(li);
+                if (post.trim() || li === 0) {
+                    const ft = li === 0 ? fullQText : post;
+                    if (ft.includes('$')) {
+                        const imgObj = await renderLatexToImage(ft, qTxtW);
+                        brk(imgObj.height + 2);
+                        doc.addImage(imgObj.imgData, 'PNG', cx() + 5, y, imgObj.width, imgObj.height);
+                        y += imgObj.height + 2;
+                    } else {
+                        const ls = doc.splitTextToSize(ft, qTxtW);
+                        brk(ls.length * 5 + 2);
+                        doc.text(ls, cx() + 5, y); y += (ls.length * 5) + 2;
+                    }
+                }
+
+                // Unused images
+                if (q.images && q.images.length > 0) {
+                    q.images.forEach((iD, ii) => { if (!usedImgs.has(ii) && iD) addPdfImage(iD, 10, qImgMaxW, qImgMaxH); });
+                } else if (q.image && !usedImgs.has(0)) { addPdfImage(q.image, 10, qImgMaxW, qImgMaxH); }
+
+                // Choice options
+                if ((q.type === 'single_choice' || q.type === 'multiple_choice') && q.choices) {
+                    const ltrs = ['A','B','C','D','E','F','G','H','I','J'];
+                    for (let oI = 0; oI < q.choices.length; oI++) {
+                        const oT = q.choices[oI];
+                        brk(7);
+                        const oV = oT || '';
+                        if (q.choice_images && q.choice_images[oI] && oV.includes('[gambar]')) {
+                            const pts = oV.split('[gambar]');
+                            
+                            // Pt 1
+                            if (pts[0].includes('$')) {
+                                const imgObj = await renderLatexToImage(`${ltrs[oI]}. ${pts[0]}`, optTxtW);
+                                brk(imgObj.height + 2);
+                                doc.addImage(imgObj.imgData, 'PNG', cx() + 10, y, imgObj.width, imgObj.height);
+                                y += imgObj.height + 1;
+                            } else {
+                                const l1 = doc.splitTextToSize(`${ltrs[oI]}. ${pts[0]}`, optTxtW);
+                                doc.text(l1, cx() + 10, y); y += (l1.length * 5) + 1;
+                            }
+                            
+                            addPdfImage(q.choice_images[oI], 20, oImgMaxW, oImgMaxH);
+                            
+                            // Pt 2
+                            if (pts[1]) {
+                                if (pts[1].includes('$')) {
+                                    const imgObj = await renderLatexToImage(pts[1], optTxtW);
+                                    brk(imgObj.height + 2);
+                                    doc.addImage(imgObj.imgData, 'PNG', cx() + 10, y, imgObj.width, imgObj.height);
+                                    y += imgObj.height + 1;
+                                } else {
+                                    const l2 = doc.splitTextToSize(pts[1], optTxtW);
+                                    doc.text(l2, cx() + 10, y); y += (l2.length * 5) + 1;
+                                }
+                            }
+                        } else {
+                            if (oV.includes('$')) {
+                                const imgObj = await renderLatexToImage(`${ltrs[oI]}. ${oV}`, optTxtW);
+                                brk(imgObj.height + 2);
+                                doc.addImage(imgObj.imgData, 'PNG', cx() + 10, y, imgObj.width, imgObj.height);
+                                y += imgObj.height + 1;
+                            } else {
+                                const ol = doc.splitTextToSize(`${ltrs[oI]}. ${oV}`, optTxtW);
+                                doc.text(ol, cx() + 10, y); y += (ol.length * 5) + 1;
+                            }
+                            if (q.choice_images && q.choice_images[oI]) addPdfImage(q.choice_images[oI], 20, oImgMaxW, oImgMaxH);
+                        }
+                    }
+                    y += 1;
+                } else if (q.type === 'matching') {
+                    const mLx = 5, mRx = colW / 2 + 2, mCw = colW / 2 - 10;
+                    doc.setFont("helvetica", "bold");
+                    doc.text("Kolom Kiri", cx() + mLx, y);
+                    doc.text("Kolom Kanan", cx() + mRx, y);
+                    doc.setFont("helvetica", "normal"); y += 6;
+                    const maxL = Math.max((q.left_items||[]).length, (q.right_items||[]).length);
+                    for (let p = 0; p < maxL; p++) {
+                        brk(10);
+                        const lT = q.left_items && q.left_items[p] ? `${p+1}. ${q.left_items[p]}` : '';
+                        const rT = q.right_items && q.right_items[p] ? `${String.fromCharCode(65+p)}. ${q.right_items[p]}` : '';
+                        
+                        let leftImg = null, rightImg = null;
+                        if (lT && lT.includes('$')) {
+                            leftImg = await renderLatexToImage(lT, mCw);
+                        }
+                        if (rT && rT.includes('$')) {
+                            rightImg = await renderLatexToImage(rT, mCw);
+                        }
+                        
+                        if (leftImg || rightImg) {
+                            const leftH = leftImg ? leftImg.height : 0;
+                            const rightH = rightImg ? rightImg.height : 0;
+                            const maxH = Math.max(leftH, rightH);
+                            brk(maxH + 2);
+                            
+                            if (leftImg) {
+                                doc.addImage(leftImg.imgData, 'PNG', cx() + mLx, y, leftImg.width, leftImg.height);
+                            } else if (lT) {
+                                const lL = doc.splitTextToSize(lT, mCw);
+                                doc.text(lL, cx() + mLx, y);
+                            }
+                            
+                            if (rightImg) {
+                                doc.addImage(rightImg.imgData, 'PNG', cx() + mRx, y, rightImg.width, rightImg.height);
+                            } else if (rT) {
+                                const rL = doc.splitTextToSize(rT, mCw);
+                                doc.text(rL, cx() + mRx, y);
+                            }
+                            
+                            y += maxH + 2;
+                        } else {
+                            const lL = doc.splitTextToSize(lT, mCw), rL = doc.splitTextToSize(rT, mCw);
+                            doc.text(lL, cx() + mLx, y); doc.text(rL, cx() + mRx, y);
+                            y += Math.max(lL.length, rL.length) * 5 + 2;
+                        }
+                        
+                        if (q.left_images && q.left_images[p]) addPdfImage(q.left_images[p], mLx, mCw - 5, 30);
+                        if (q.right_images && q.right_images[p]) addPdfImage(q.right_images[p], mRx, mCw - 5, 30);
+                    }
+                    y += 2;
+                } else if (q.type === 'true_false') {
+                    brk(12); doc.text("A. Benar (TRUE)", cx() + 10, y); y += 5;
+                    doc.text("B. Salah (FALSE)", cx() + 10, y); y += 7;
+                } else if (q.type === 'short_answer') {
+                    brk(7);
+                    const fillLen = numCols === 2 ? '________________' : '____________________________________';
+                    doc.text(`Jawaban Singkat: ${fillLen}`, cx() + 10, y); y += 7;
+                }
+            }
+
+            // Draw column dividers on all pages
+            if (numCols === 2) {
+                const pc = doc.internal.getNumberOfPages();
+                for (let i = 1; i <= pc; i++) { doc.setPage(i); drawColDivider(); }
+            }
+
+            // Footer page numbers
+            const pageCount = doc.internal.getNumberOfPages();
+            for (let i = 1; i <= pageCount; i++) {
+                doc.setPage(i);
+                doc.setFontSize(8); doc.setFont("helvetica", "normal");
+                doc.text(`Halaman ${i} dari ${pageCount}`, pageW / 2, pageH - 10, { align: "center" });
+            }
+
+            return doc;
+        }
+
+        async function previewAndDownloadPDF() {
+            if (questionsList.length === 0) {
+                showToast('Daftar pertanyaan masih kosong', 'error');
+                return;
+            }
+            const examName = document.getElementById('examName').value.trim() || 'ujian_examvan';
+            const doc = await buildExamPDF();
+            doc.save(`${examName.replace(/\s+/g, '_')}_soal.pdf`);
+            showToast('PDF berhasil diunduh!', 'success');
+        }
+
+        async function saveAndRegisterExam() {
+            const name = document.getElementById('examName').value.trim();
+            if (!name) {
+                showToast('Nama Ujian wajib diisi!', 'error');
+                return;
+            }
+            if (questionsList.length === 0) {
+                showToast('Harap tambahkan minimal 1 soal sebelum menyimpan!', 'error');
+                return;
+            }
+
+            // Generate PDF Blob
+            const doc = await buildExamPDF();
+            const pdfBlob = doc.output('blob');
+            const file = new File([pdfBlob], `${name.replace(/\s+/g, '_')}.pdf`, { type: 'application/pdf' });
+
+            // Standardize questions formats
+            const apiQuestions = transformQuestionsData();
+
+            const formData = new FormData();
+            formData.append('name', name);
+            formData.append('custom_token', document.getElementById('customToken').value.trim());
+            formData.append('questions_json', JSON.stringify(apiQuestions));
+            formData.append('pdf_file', file);
+
+            showToast('Sedang membuat ujian...', 'success');
+
+            fetch('/admin/api/exams/create-from-editor', {
+                method: 'POST',
+                body: formData
+            })
+            .then(r => r.json())
+            .then(res => {
+                if (res.success) {
+                    showToast(res.message, 'success');
+                    setTimeout(() => {
+                        window.location.href = '/admin/dashboard';
+                    }, 1200);
+                } else {
+                    showToast(res.message || 'Gagal menyimpan ujian', 'error');
+                }
+            })
+            .catch(() => {
+                showToast('Terjadi kesalahan menghubungi server', 'error');
+            });
+        }
+
+        let currentDraftId = null;
+
+        function refreshDraftsDropdown() {
+            const select = document.getElementById('draftSelect');
+            if (!select) return;
+            select.innerHTML = '<option value="">-- Pilih &amp; Hubungkan Draft --</option>';
+            
+            const drafts = JSON.parse(localStorage.getItem('examvan_drafts') || '[]');
+            drafts.sort((a, b) => new Date(b.updatedAt) - new Date(a.updatedAt));
+            
+            drafts.forEach(d => {
+                const option = document.createElement('option');
+                option.value = d.id;
+                option.textContent = `${d.name || 'Tanpa Nama'} (${d.subject || '-'}, ${d.class || '-'})`;
+                if (currentDraftId === d.id) {
+                    option.selected = true;
+                }
+                select.appendChild(option);
+            });
+
+            const delBtn = document.getElementById('deleteDraftBtn');
+            if (delBtn) {
+                delBtn.style.display = currentDraftId ? 'inline-flex' : 'none';
+            }
+        }
+
+        function saveToDrafts() {
+            const name = document.getElementById('examName').value.trim() || 'Tanpa Nama';
+            const subject = document.getElementById('subjectName').value.trim();
+            const className = document.getElementById('className').value.trim();
+            const duration = document.getElementById('examDuration').value.trim();
+            const customToken = document.getElementById('customToken').value.trim();
+            const paperType = document.getElementById('paperType').value;
+            const numColumns = document.getElementById('numColumns').value;
+            const schoolHeader = document.getElementById('schoolHeader').value;
+
+            let drafts = JSON.parse(localStorage.getItem('examvan_drafts') || '[]');
+
+            // Check drafts count limit for new draft
+            const isNewDraft = !currentDraftId;
+            if (isNewDraft) {
+                if (drafts.length >= MAX_DRAFTS) {
+                    showToast(`Gagal menyimpan: Maksimal draf (${MAX_DRAFTS}) telah tercapai!`, 'error');
+                    return;
+                }
+            }
+
+            const targetDraftId = currentDraftId || 'draft_' + Date.now();
+
+            const draft = {
+                id: targetDraftId,
+                name: name,
+                subject: subject,
+                class: className,
+                duration: duration,
+                customToken: customToken,
+                paperType: paperType,
+                numColumns: numColumns,
+                schoolHeader: schoolHeader,
+                originalHeaderImage: originalHeaderImage,
+                customHeaderImage: customHeaderImage,
+                questionsList: questionsList,
+                updatedAt: new Date().toISOString()
+            };
+
+            // Check draft size limit
+            const draftStr = JSON.stringify(draft);
+            const draftSize = draftStr.length;
+            if (draftSize > MAX_DRAFT_SIZE) {
+                showToast(`Gagal menyimpan: Ukuran draf (${(draftSize / (1024 * 1024)).toFixed(2)} MB) melebihi batas maksimal (${(MAX_DRAFT_SIZE / (1024 * 1024)).toFixed(1)} MB)!`, 'error');
+                return;
+            }
+
+            currentDraftId = targetDraftId;
+            drafts = drafts.filter(d => d.id !== currentDraftId);
+            drafts.push(draft);
+            
+            localStorage.setItem('examvan_drafts', JSON.stringify(drafts));
+            
+            showToast('Draft berhasil disimpan!', 'success');
+            
+            const newUrl = window.location.protocol + "//" + window.location.host + window.location.pathname + '?draft_id=' + currentDraftId;
+            window.history.pushState({path:newUrl}, '', newUrl);
+
+            refreshDraftsDropdown();
+        }
+
+        function loadDraftById(id) {
+            const drafts = JSON.parse(localStorage.getItem('examvan_drafts') || '[]');
+            const draft = drafts.find(d => d.id === id);
+            if (!draft) {
+                showToast('Draft tidak ditemukan!', 'error');
+                return;
+            }
+
+            currentDraftId = id;
+            
+            document.getElementById('examName').value = draft.name || '';
+            document.getElementById('subjectName').value = draft.subject || '';
+            document.getElementById('className').value = draft.class || '';
+            document.getElementById('examDuration').value = draft.duration || '60';
+            document.getElementById('customToken').value = draft.customToken || '';
+            document.getElementById('paperType').value = draft.paperType || 'legal';
+            document.getElementById('numColumns').value = draft.numColumns || '2';
+            document.getElementById('schoolHeader').value = draft.schoolHeader || '';
+
+            originalHeaderImage = draft.originalHeaderImage || null;
+            customHeaderImage = draft.customHeaderImage || null;
+
+            if (customHeaderImage) {
+                document.getElementById('header_preview_img').src = customHeaderImage;
+                document.getElementById('header_preview_container').style.display = 'block';
+                document.getElementById('del_header_btn').style.display = 'block';
+            } else {
+                document.getElementById('headerImageInput').value = '';
+                document.getElementById('header_preview_container').style.display = 'none';
+                document.getElementById('del_header_btn').style.display = 'none';
+            }
+
+            questionsList = draft.questionsList || [];
+            renderQuestions();
+
+            const newUrl = window.location.protocol + "//" + window.location.host + window.location.pathname + '?draft_id=' + id;
+            window.history.pushState({path:newUrl}, '', newUrl);
+
+            refreshDraftsDropdown();
+            showToast('Draft berhasil dimuat!', 'success');
+        }
+
+        function deleteCurrentDraft() {
+            if (!currentDraftId) return;
+            if (!confirm('Apakah Anda yakin ingin menghapus draft ini?')) return;
+
+            let drafts = JSON.parse(localStorage.getItem('examvan_drafts') || '[]');
+            drafts = drafts.filter(d => d.id !== currentDraftId);
+            localStorage.setItem('examvan_drafts', JSON.stringify(drafts));
+
+            showToast('Draft berhasil dihapus!', 'success');
+            resetExamCreator();
+            refreshDraftsDropdown();
+        }
+
+        function resetExamCreator() {
+            currentDraftId = null;
+
+            document.getElementById('examName').value = '';
+            document.getElementById('subjectName').value = '';
+            document.getElementById('className').value = '';
+            document.getElementById('examDuration').value = '60';
+            document.getElementById('customToken').value = '';
+            document.getElementById('paperType').value = 'legal';
+            document.getElementById('numColumns').value = '2';
+            document.getElementById('schoolHeader').value = '';
+
+            originalHeaderImage = null;
+            customHeaderImage = null;
+            document.getElementById('headerImageInput').value = '';
+            document.getElementById('header_preview_container').style.display = 'none';
+            document.getElementById('del_header_btn').style.display = 'none';
+
+            questionsList = [];
+            addQuestion('single_choice');
+
+            const newUrl = window.location.protocol + "//" + window.location.host + window.location.pathname;
+            window.history.pushState({path:newUrl}, '', newUrl);
+
+            refreshDraftsDropdown();
+            showToast('Editor dibersihkan (Ujian Baru)', 'info');
+        }
+
+        document.addEventListener('DOMContentLoaded', () => {
+            refreshDraftsDropdown();
+            
+            const urlParams = new URLSearchParams(window.location.search);
+            const draftId = urlParams.get('draft_id');
+            if (draftId) {
+                loadDraftById(draftId);
+            } else {
+                addQuestion('single_choice');
+            }
+        });
+    </script>
+
+    <!-- HTML Modal Crop Header -->
+    <div id="cropModalOverlay" class="modal-overlay" style="display: none; align-items: center; justify-content: center; z-index: 2000;">
+        <div class="modal-card" style="max-width: 900px; width: 95%; height: 85vh; border-radius: var(--radius); background: rgba(10, 10, 26, 0.95); backdrop-filter: blur(24px); border: 1px solid var(--glass-border); box-shadow: 0 20px 50px rgba(0,0,0,0.5);">
+            <div class="modal-header" style="border-bottom: 1px solid var(--glass-border); padding: 18px 24px;">
+                <h3 style="color: #a5b4fc; font-size: 1.15rem; display: flex; align-items: center; gap: 8px;">
+                    <span>✂️</span> Sesuaikan &amp; Potong Kop Surat
+                </h3>
+                <button class="modal-close" style="color: var(--text-secondary); background: none; border: none; font-size: 1.2rem; cursor: pointer;" onclick="closeCropModal()">✕</button>
+            </div>
+            <div class="modal-body" style="padding: 20px; display: flex; flex-direction: column; overflow: hidden; height: calc(100% - 130px);">
+                <div style="flex: 1; overflow: hidden; background: #05050b; border-radius: var(--radius-sm); border: 1px solid var(--glass-border); display: flex; align-items: center; justify-content: center; position: relative; min-height: 250px;">
+                    <img id="cropModalImg" style="max-width: 100%; max-height: 100%; display: block;">
+                </div>
+                
+                <!-- Cropper Toolbar Controls -->
+                <div style="display: flex; gap: 8px; justify-content: center; margin-top: 16px; flex-wrap: wrap; background: rgba(255,255,255,0.02); padding: 10px; border-radius: var(--radius-sm); border: 1px solid var(--glass-border);">
+                    <button class="crop-toolbar-btn" onclick="cropperZoom(0.1)" title="Zoom In">🔍➕ Zoom In</button>
+                    <button class="crop-toolbar-btn" onclick="cropperZoom(-0.1)" title="Zoom Out">🔍➖ Zoom Out</button>
+                    <button class="crop-toolbar-btn" onclick="cropperReset()" title="Reset Alignment">🔄 Reset</button>
+                    <div style="width: 1px; background: var(--glass-border); height: 28px; margin: 0 4px; align-self: center;"></div>
+                    <button id="ratioPreset_8_1" class="crop-toolbar-btn" onclick="cropperSetAspectRatio(8/1)" title="Rasio 8:1 (Tipikal Kop)">📐 Kop Lebar (8:1)</button>
+                    <button id="ratioPreset_6_1" class="crop-toolbar-btn" onclick="cropperSetAspectRatio(6/1)" title="Rasio 6:1 (Kop Sedang)">📐 Kop Sedang (6:1)</button>
+                    <button id="ratioPreset_4_1" class="crop-toolbar-btn" onclick="cropperSetAspectRatio(4/1)" title="Rasio 4:1 (Kop Tinggi)">📐 Kop Tinggi (4:1)</button>
+                    <button id="ratioPreset_free" class="crop-toolbar-btn" onclick="cropperSetAspectRatio(NaN)" title="Potong Bebas">📐 Potong Bebas</button>
+                </div>
+            </div>
+            <div class="modal-footer" style="border-top: 1px solid var(--glass-border); padding: 16px 24px; background: rgba(255,255,255,0.01); display: flex; justify-content: flex-end; gap: 12px; border-bottom-left-radius: var(--radius); border-bottom-right-radius: var(--radius);">
+                <button class="btn-sm btn-delete" style="padding: 10px 20px; font-weight: 600;" onclick="closeCropModal()">Batal</button>
+                <button class="btn-upload" style="padding: 10px 24px;" onclick="applyHeaderCrop()">Terapkan &amp; Simpan</button>
+            </div>
+        </div>
+    </div>
