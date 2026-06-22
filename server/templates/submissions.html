@@ -67,10 +67,10 @@
                         {% set score_pct = (sub.score / max_score * 100) if max_score else none %}
                         <tr id="submission-row-{{ sub.id }}" data-exam-id="{{ sub.exam_id }}" style="transition: background 0.2s;">
                             <td class="td-name" data-label="Ujian" style="font-weight: 500;">{{ sub.exam_name }}</td>
-                            <td data-label="Siswa"><strong>{{ sub.student_name }}</strong></td>
-                            <td data-label="No. Ujian"><code class="token-code" style="letter-spacing: normal; font-size:12px;">{{ sub.exam_number }}</code></td>
-                            <td data-label="Kelas">{{ sub.student_class }}</td>
-                            <td data-label="Nilai" style="text-align: center;">
+                            <td data-label="Siswa" class="max-md:flex max-md:gap-1 max-md:items-baseline"><strong>{{ sub.student_name }}</strong></td>
+                            <td data-label="No. Ujian" class="max-md:flex max-md:gap-1 max-md:items-baseline"><code class="token-code" style="letter-spacing: normal; font-size:12px;">{{ sub.exam_number }}</code></td>
+                            <td data-label="Kelas" class="max-md:flex max-md:gap-1 max-md:items-baseline">{{ sub.student_class }}</td>
+                            <td data-label="Nilai">
                                 {% if sub.score is not none %}
                                 <div style="display: flex; flex-direction: column; align-items: center; gap: 4px;">
                                     <span style="font-size: 16px; font-weight: 800;
@@ -94,7 +94,7 @@
                                 {% endif %}
                             </td>
                             <td class="td-date" data-label="Kumpul" data-utc="{{ sub.created_at }}">{{ sub.created_at }}</td>
-                            <td data-label="Durasi" style="text-align: center; font-size: 12px; color: var(--text-secondary);">
+                            <td data-label="Durasi">
                                 {% if sub.start_time and sub.created_at %}
                                 {% set diff = (sub.created_at[:19] if ' ' in sub.created_at[:19] else sub.created_at) %}
                                 <span class="duration-cell" data-start="{{ sub.start_time }}" data-end="{{ sub.created_at }}">⏳</span>
@@ -102,7 +102,7 @@
                                 —
                                 {% endif %}
                             </td>
-                            <td data-label="Perangkat" style="font-size: 11px; color: var(--text-muted); max-width: 120px; overflow: hidden; text-overflow: ellipsis;">
+                            <td data-label="Perangkat">
                                 <code style="font-size:10px; background: rgba(255,255,255,0.03); padding: 2px 6px; border-radius: 4px;">{{ sub.mac_address or '—' }}</code>
                             </td>
                             <td class="td-actions" data-label="" style="text-align: center;">
