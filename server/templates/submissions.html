@@ -3,8 +3,8 @@
 {% block content %}
 <main class="dashboard">
         <!-- Filter and Export Section -->
-        <section class="glass-card">
-            <div class="table-header">
+        <section class="glass-card p-6 rounded-2xl border border-slate-800/60 bg-slate-900/40 backdrop-blur-2xl shadow-2xl">
+            <div class="table-header flex items-center justify-between mb-4 flex-wrap gap-3">
                 <h3>📊 Rekapitulasi Hasil Ujian</h3>
                 <div class="submissions-actions">
                     <select id="filterExam" onchange="filterSubmissions()" class="select-filter">
@@ -20,7 +20,7 @@
 
         <!-- Quick Stats -->
         {% if submissions and total_submissions > 0 %}
-        <section class="glass-card" style="margin-top: 16px; padding: 14px 20px;">
+        <section class="glass-card p-6 rounded-2xl border border-slate-800/60 bg-slate-900/40 backdrop-blur-2xl shadow-2xl" style="margin-top: 16px; padding: 14px 20px;">
             <div style="display: flex; gap: 24px; flex-wrap: wrap; align-items: center;">
                 <span style="font-size: 13px; color: var(--text-secondary);">
                     📄 <strong class="text-white">{{ total_submissions }}</strong> total hasil
@@ -37,7 +37,7 @@
         {% endif %}
 
         <!-- Submissions Table -->
-        <section class="exam-table-section glass-card">
+        <section class="exam-table-section glass-card p-6 rounded-2xl border border-slate-800/60 bg-slate-900/40 backdrop-blur-2xl shadow-2xl">
             {% if submissions | length == 0 %}
             <div class="empty-state" style="padding: 60px 20px;">
                 <div class="empty-icon" style="font-size: 56px; margin-bottom: 16px;">📂</div>

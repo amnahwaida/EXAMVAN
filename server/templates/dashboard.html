@@ -4,28 +4,28 @@
 <main class="dashboard">
         <!-- Stats Cards -->
         <section class="stats-grid">
-            <div class="stat-card stat-total">
+            <div class="stat-card stat-total p-5 rounded-2xl border border-slate-800/60 bg-slate-900/40 backdrop-blur-xl flex items-center gap-4 transition-all duration-300 hover:-translate-y-0.5 hover:shadow-xl">
                 <div class="stat-icon">📋</div>
                 <div class="stat-info">
                     <span class="stat-value">{{ stats.total }}</span>
                     <span class="stat-label">Total Ujian</span>
                 </div>
             </div>
-            <div class="stat-card stat-active">
+            <div class="stat-card stat-active p-5 rounded-2xl border border-slate-800/60 bg-slate-900/40 backdrop-blur-xl flex items-center gap-4 transition-all duration-300 hover:-translate-y-0.5 hover:shadow-xl">
                 <div class="stat-icon">✅</div>
                 <div class="stat-info">
                     <span class="stat-value">{{ stats.active }}</span>
                     <span class="stat-label">Aktif</span>
                 </div>
             </div>
-            <div class="stat-card stat-inactive">
+            <div class="stat-card stat-inactive p-5 rounded-2xl border border-slate-800/60 bg-slate-900/40 backdrop-blur-xl flex items-center gap-4 transition-all duration-300 hover:-translate-y-0.5 hover:shadow-xl">
                 <div class="stat-icon">⏸️</div>
                 <div class="stat-info">
                     <span class="stat-value">{{ stats.inactive }}</span>
                     <span class="stat-label">Nonaktif</span>
                 </div>
             </div>
-            <div class="stat-card stat-storage">
+            <div class="stat-card stat-storage p-5 rounded-2xl border border-slate-800/60 bg-slate-900/40 backdrop-blur-xl flex items-center gap-4 transition-all duration-300 hover:-translate-y-0.5 hover:shadow-xl">
                 <div class="stat-icon">💾</div>
                 <div class="stat-info">
                     <span class="stat-value">{{ stats.storage_mb }} MB</span>
@@ -35,7 +35,7 @@
         </section>
 
         <!-- Network Info -->
-        <section class="network-info glass-card">
+        <section class="network-info glass-card p-6 rounded-2xl border border-slate-800/60 bg-slate-900/40 backdrop-blur-2xl shadow-2xl">
             <h3>🌐 Info Jaringan</h3>
             <div class="network-grid">
                 <div class="net-item">
@@ -62,7 +62,7 @@
         </section>
 
         <!-- Upload Section -->
-        <section class="upload-section glass-card">
+        <section class="upload-section glass-card p-6 rounded-2xl border border-slate-800/60 bg-slate-900/40 backdrop-blur-2xl shadow-2xl">
             <h3 class="mb-4">📤 Tambah Ujian Baru</h3>
             
             <!-- Method Selector Buttons -->
@@ -95,7 +95,7 @@
                             <input type="text" id="customToken" name="custom_token" maxlength="6" minlength="6" placeholder="Contoh: MAT101" style="text-transform: uppercase;">
                         </div>
                     </div>
-                    <div class="upload-progress" id="uploadProgress" style="display:none;">
+                    <div class="upload-progress flex items-center gap-3 my-4" id="uploadProgress" style="display:none;">
                         <div class="progress-bar"><div class="progress-fill" id="progressFill"></div></div>
                         <span class="progress-text" id="progressText">0%</span>
                     </div>
@@ -108,8 +108,8 @@
         </section>
 
         <!-- Exam Table -->
-        <section class="exam-table-section glass-card">
-            <div class="table-header">
+        <section class="exam-table-section glass-card p-6 rounded-2xl border border-slate-800/60 bg-slate-900/40 backdrop-blur-2xl shadow-2xl">
+            <div class="table-header flex items-center justify-between mb-4 flex-wrap gap-3">
                 <h3>📋 Daftar Ujian</h3>
                 <div style="display: flex; gap: 8px; align-items: center; flex-wrap: wrap;">
                     <input type="text" id="searchExam" placeholder="🔍 Cari nama atau token..." value="{{ search }}"
@@ -127,7 +127,7 @@
                 </div>
             </div>
             {% if exams | length == 0 %}
-            <div class="empty-state">
+            <div class="empty-state text-center py-12 text-slate-400">
                 <div class="empty-icon">📭</div>
                 <p>Belum ada ujian. Upload ujian pertama Anda di atas.</p>
             </div>
