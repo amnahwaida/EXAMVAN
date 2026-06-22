@@ -70,9 +70,6 @@
                 <button type="button" class="btn-sm btn-toggle active" id="methodPdfBtn" onclick="switchMethod('pdf')" style="margin: 0; padding: 10px 16px; display: flex; align-items: center; gap: 8px; border-radius: 8px;">
                     <span>📄</span> Upload File PDF Soal
                 </button>
-                <button type="button" class="btn-sm btn-toggle" id="methodCreateBtn" onclick="switchMethod('create')" style="margin: 0; padding: 10px 16px; display: flex; align-items: center; gap: 8px; border-radius: 8px;">
-                    <span>✍️</span> Tulis Soal Baru (Buat Ujian)
-                </button>
             </div>
 
             <!-- PDF Upload Form -->
@@ -108,29 +105,6 @@
                 </form>
             </div>
 
-            <!-- Write/Create Exam Form -->
-            <div id="methodCreateForm" style="display: none; padding: 24px; background: rgba(255,255,255,0.02); border-radius: 12px; border: 1px dashed rgba(255,255,255,0.1); text-align: center;">
-                <div style="font-size: 36px; margin-bottom: 12px;">✍️</div>
-                <h4 style="color: var(--text-primary); margin-bottom: 8px;">Tulis &amp; Rancang Soal Ujian Secara Interaktif</h4>
-                <p style="color: var(--text-muted); font-size: 13px; max-width: 600px; margin: 0 auto 20px;">
-                    Metode ini sangat cocok jika Anda ingin merancang ujian secara interaktif. Anda dapat memilih untuk membuat ujian baru dari awal atau melanjutkan dari draf yang sudah disimpan sebelumnya.
-                </p>
-
-                <!-- Simplified Draft / New Selector UI -->
-                <div style="max-width: 400px; margin: 0 auto; display: flex; flex-direction: column; gap: 12px; align-items: center;">
-                    <div style="width: 100%; text-align: left;">
-                        <label for="dashboardDraftSelect" style="display: block; font-size: 12px; color: var(--text-secondary); margin-bottom: 6px; font-weight: 500;">Pilih Draft atau Ujian Baru:</label>
-                        <select id="dashboardDraftSelect" class="q-type-select" style="width: 100%; height: 40px; margin: 0; box-sizing: border-box;" onchange="handleDraftSelection(this.value)">
-                            <option value="">-- Pilih Draft / Buat Baru --</option>
-                            <option value="new" style="color: #34d399; font-weight: 600;">➕ Buat Ujian Baru (Kosong)</option>
-                        </select>
-                    </div>
-                    
-                    <button onclick="switchMethod('pdf')" class="btn-sm btn-results" style="margin: 0; padding: 8px 24px; font-size: 13px; background: rgba(255,255,255,0.05); border-color: rgba(255,255,255,0.1); color: var(--text-secondary); height: 38px; border-radius: 8px; cursor: pointer; display: flex; align-items: center; justify-content: center; width: 100%;">
-                        ❌ Batal (Cancel)
-                    </button>
-                </div>
-            </div>
         </section>
 
         <!-- Exam Table -->
