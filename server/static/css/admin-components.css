@@ -600,6 +600,11 @@
     color: var(--warning);
 }
 
+.status-suspended {
+    background: rgba(239,68,68,0.15);
+    color: var(--danger);
+}
+
 .td-actions { display: flex; gap: 8px; flex-wrap: nowrap; }
 
 .btn-sm {

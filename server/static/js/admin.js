@@ -774,18 +774,33 @@ function loadUsersList() {
                 res.users.forEach(user => {
                     const tr = document.createElement('tr');
                     const isAdmin = user.username === 'admin';
+                    const statusBadge = user.status === 'active'
+                        ? '<span class="status-badge status-active">Aktif</span>'
+                        : user.status === 'suspended'
+                        ? '<span class="status-badge status-suspended">Suspen</span>'
+                        : '<span class="status-badge status-inactive">Pending</span>';
+                    const expiresAt = user.expires_at || '—';
+                    const createdAt = user.created_at ? localizeUTC(user.created_at) : '—';
+                    const limitPdfMb = user.max_pdf_size ? (user.max_pdf_size / (1024*1024)).toFixed(1) + ' MB' : '—';
+
                     tr.innerHTML = `
-                        <td>
+                        <td data-label="Username">
                             <strong style="color: ${isAdmin ? 'var(--accent-light)' : 'var(--text-color)'};">
                                 ${isAdmin ? '👑 ' : ''}${escapeHtml(user.username)}
                             </strong>
                             ${isAdmin ? '<span style="font-size:11px; color: var(--text-secondary); display:block;">Super Admin</span>' : ''}
                         </td>
-                        <td class="td-date" data-utc="${user.created_at || ''}" style="font-size: 12px; color: var(--text-secondary);">${user.created_at || '—'}</td>
-                        <td>
+                        <td data-label="WhatsApp">${escapeHtml(user.whatsapp_number || '—')}</td>
+                        <td data-label="Status" style="text-align:center;">${statusBadge}</td>
+                        <td data-label="Ujian" style="text-align:center;">${user.exam_count ?? 0}</td>
+                        <td data-label="Limit Ujian" style="text-align:center;">${user.max_exams ?? '—'}</td>
+                        <td data-label="Limit PDF" style="text-align:center;">${limitPdfMb}</td>
+                        <td data-label="Masa Aktif" style="font-size:12px; color:var(--text-secondary);">${expiresAt}</td>
+                        <td data-label="Terdaftar" class="td-date">${createdAt}</td>
+                        <td data-label="Aksi" style="text-align:right;">
                             ${isAdmin
                                 ? '<span style="font-size:11px; color: var(--text-secondary);">—</span>'
-                                : `<button class="btn-sm btn-delete" onclick="deleteUser(${user.id}, '${escapeHtml(user.username)}')" style="font-size: 11px; padding: 0 8px; height: 26px;">🗑️ Hapus</button>`
+                                : `<button class="btn-sm btn-delete" onclick="deleteUser(${user.id}, '${escapeHtml(user.username)}')" style="font-size: 11px; padding: 0 8px; height: 26px;">🗑️</button>`
                             }
                         </td>
                     `;
