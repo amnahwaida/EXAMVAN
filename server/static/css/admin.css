@@ -669,33 +669,48 @@ body {
 /* Question editor toolbar */
 .questions-toolbar {
     display: flex;
-    flex-wrap: wrap;
-    align-items: center;
-    gap: 10px;
+    flex-direction: column;
+    gap: 8px;
     margin-bottom: 16px;
+    background: rgba(255, 255, 255, 0.02);
+    border: 1px solid var(--glass-border);
+    border-radius: var(--radius-sm);
+    padding: 12px 16px;
 }
 
-.questions-toolbar .inline-group {
+.qt-row {
     display: flex;
+    flex-wrap: wrap;
     align-items: center;
     gap: 8px;
 }
 
-.questions-toolbar .inline-group label {
+.qt-row-main {
+    justify-content: space-between;
+}
+
+.qt-row-utils {
+    gap: 6px;
+    padding-top: 8px;
+    border-top: 1px solid rgba(255, 255, 255, 0.05);
+}
+
+.qt-group {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-wrap: wrap;
+}
+
+.qt-label {
     font-size: 12px;
+    font-weight: 600;
     color: var(--text-muted);
     white-space: nowrap;
-    margin-bottom: 0;
 }
 
-.questions-toolbar .inline-group select {
-    padding: 7px 32px 7px 10px;
-    font-size: 13px;
-    min-width: 140px;
-}
-
-.questions-toolbar .inline-group input[type="number"] {
-    width: 70px;
+.qt-input-num {
+    width: 60px !important;
     padding: 7px 10px;
     background: var(--surface);
     border: 1px solid var(--glass-border);
@@ -703,19 +718,43 @@ body {
     color: var(--text);
     outline: none;
     font-size: 13px;
+    text-align: center;
+}
+
+.qt-select {
+    padding: 7px 32px 7px 10px;
+    font-size: 13px;
+    min-width: 150px;
+    background-color: rgba(255, 255, 255, 0.05);
+    border: 1px solid var(--glass-border);
+    border-radius: 6px;
+    color: var(--text);
+    outline: none;
+    cursor: pointer;
+    -webkit-appearance: none;
+    -moz-appearance: none;
+    appearance: none;
+    background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='24' height='24' viewBox='0 0 24 24' fill='none' stroke='%23a5b4fc' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'><polyline points='6 9 12 15 18 9'></polyline></svg>");
+    background-repeat: no-repeat;
+    background-position: right 10px center;
+    background-size: 14px;
+    padding-right: 32px;
+}
+
+.qt-select:hover {
+    border-color: rgba(255, 255, 255, 0.2);
 }
 
 /* Bulk weight button */
 .btn-weight {
     background: rgba(139,92,246,0.12);
     color: #a78bfa;
-    border-color: rgba(139,92,246,0.3);
+    border: 1px solid rgba(139,92,246,0.3);
     display: flex;
     align-items: center;
     gap: 6px;
     padding: 7px 14px;
     border-radius: 8px;
-    border: 1px solid;
     font-size: 12px;
     font-weight: 600;
     cursor: pointer;
@@ -732,16 +771,6 @@ body {
 
 .btn-weight:active {
     transform: translateY(0);
-}
-
-/* XML import wrapper */
-.xml-import-wrapper {
-    display: flex;
-    flex-direction: row;
-    gap: 8px;
-    justify-content: flex-end;
-    align-items: center;
-    flex-wrap: wrap;
 }
 
 .btn-results {
@@ -1009,24 +1038,20 @@ body {
     .btn-remove-q { align-self: stretch; width: 100%; justify-content: center; padding: 10px; }
 
     /* --- Questions Toolbar --- */
-    .questions-toolbar {
+    .questions-toolbar { padding: 10px 12px; }
+    .qt-row {
         flex-direction: column;
         align-items: stretch;
-        gap: 10px;
     }
-    .questions-toolbar .inline-group {
+    .qt-row-main { justify-content: stretch; }
+    .qt-group {
         flex-direction: column;
         align-items: stretch;
-        gap: 8px;
     }
-    .questions-toolbar .inline-group input[type="number"] { width: 100% !important; }
-    .questions-toolbar .inline-group select { width: 100%; min-width: 0 !important; }
-    .questions-toolbar .inline-group .btn-sm,
-    .questions-toolbar .inline-group .btn-weight {
-        width: 100%;
-        text-align: center;
-        justify-content: center;
-    }
+    .qt-input-num { width: 100% !important; }
+    .qt-select { width: 100%; min-width: 0; }
+    .qt-row .btn-sm,
+    .qt-row .btn-weight { width: 100%; justify-content: center; text-align: center; }
     .xml-import-wrapper {
         flex-direction: column !important;
         align-items: stretch !important;
