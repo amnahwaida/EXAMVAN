@@ -1475,36 +1475,57 @@ def admin_exam_questions(exam_id):
 @app.route('/admin/submissions')
 @admin_required
 def admin_submissions():
-    """Submissions overview page for admin."""
+    """Submissions overview page for admin with pagination."""
     db = get_db()
     is_super_admin = (session.get('admin_username') == 'admin')
-    
+
+    page = request.args.get('page', 1, type=int)
+    per_page = request.args.get('per_page', 25, type=int)
+    exam_filter = request.args.get('exam_id', type=int)
+    per_page = min(max(per_page, 5), 100)
+
+    conditions = []
+    params = []
+    if not is_super_admin:
+        conditions.append('e.created_by = ?')
+        params.append(session['admin_id'])
+    if exam_filter:
+        conditions.append('s.exam_id = ?')
+        params.append(exam_filter)
+
+    where_clause = (' WHERE ' + ' AND '.join(conditions)) if conditions else ''
+
+    count_sql = f'SELECT COUNT(*) as cnt FROM submissions s JOIN exams e ON s.exam_id = e.id{where_clause}'
+    total_submissions = db.execute(count_sql, params).fetchone()['cnt']
+
+    base_query = (
+        'SELECT s.*, e.name as exam_name '
+        'FROM submissions s JOIN exams e ON s.exam_id = e.id'
+    )
+    order = ' ORDER BY s.created_at DESC'
+    limit_offset = f' LIMIT {per_page} OFFSET {(page - 1) * per_page}'
+    submissions = db.execute(base_query + where_clause + order + limit_offset, params).fetchall()
+
     if is_super_admin:
-        submissions = db.execute(
-            'SELECT s.*, e.name as exam_name '
-            'FROM submissions s JOIN exams e ON s.exam_id = e.id '
-            'ORDER BY s.created_at DESC'
-        ).fetchall()
         exams = db.execute('SELECT id, name FROM exams ORDER BY created_at DESC').fetchall()
     else:
-        submissions = db.execute(
-            'SELECT s.*, e.name as exam_name '
-            'FROM submissions s JOIN exams e ON s.exam_id = e.id '
-            'WHERE e.created_by = ? '
-            'ORDER BY s.created_at DESC',
-            (session['admin_id'],)
-        ).fetchall()
         exams = db.execute('SELECT id, name FROM exams WHERE created_by = ? ORDER BY created_at DESC', (session['admin_id'],)).fetchall()
-        
+
+    total_pages = max(1, (total_submissions + per_page - 1) // per_page)
     local_ip = get_network_info()['display_host']
-    
+
     return render_template(
         'submissions.html',
         submissions=submissions,
         exams=exams,
         local_ip=local_ip,
         admin_user=session.get('admin_username', 'Admin'),
-        active_page='submissions'
+        active_page='submissions',
+        page=page,
+        per_page=per_page,
+        total_pages=total_pages,
+        total_submissions=total_submissions,
+        exam_filter_param=exam_filter or '',
     )
 
 

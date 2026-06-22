@@ -1427,15 +1427,15 @@ function switchMethod(method) {
 
 function filterSubmissions() {
     const filterVal = document.getElementById('filterExam').value;
-    const rows = document.querySelectorAll('#submissionsTable tbody tr');
-    rows.forEach(row => {
-        const rowExamId = row.getAttribute('data-exam-id');
-        if (!filterVal || rowExamId === filterVal) {
-            row.style.display = '';
-        } else {
-            row.style.display = 'none';
-        }
-    });
+    const params = new URLSearchParams(window.location.search);
+    if (filterVal) {
+        params.set('exam_id', filterVal);
+    } else {
+        params.delete('exam_id');
+    }
+    params.set('page', '1');
+    const qs = params.toString();
+    window.location.href = window.location.pathname + (qs ? '?' + qs : '');
 }
 
 function exportSubmissions() {
