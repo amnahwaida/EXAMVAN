@@ -689,8 +689,9 @@
 }
 
 /* Mobile Label (hidden on desktop, shown on mobile) */
-.mob-label {
-    display: none !important;
+/* Mobile label via ::before - hidden on desktop */
+#submissionsTable td::before {
+    display: none;
 }
 .score-cell-mob {
     display: flex;
