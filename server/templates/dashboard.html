@@ -277,6 +277,29 @@
                         </select>
                     </div>
                 </div>
+                <div class="questions-toolbar">
+                    <div class="inline-group">
+                        <label for="generateQty">Jumlah:</label>
+                        <input type="number" id="generateQty" value="40" min="0" max="100">
+                        <select id="generateType">
+                            <option value="single_choice">Pilihan Ganda</option>
+                            <option value="true_false">Benar / Salah</option>
+                            <option value="multiple_choice">PG Kompleks</option>
+                            <option value="matching">Menjodohkan</option>
+                            <option value="short_answer">Isian Singkat</option>
+                        </select>
+                        <button class="btn-sm btn-toggle" onclick="quickGenerateQuestions()">⚡ Generate</button>
+                    </div>
+                    <div class="inline-group">
+                        <button class="btn-weight" onclick="setAllWeights()">⚖️ Set All Bobot</button>
+                    </div>
+                    <div class="xml-import-wrapper">
+                        <button class="btn-sm btn-questions" onclick="copyAIPrompt()">📋 Prompt AI</button>
+                        <input type="file" id="xmlFileInput" accept=".xml" style="display:none;" onchange="importXMLQuestions(event)">
+                        <button class="btn-sm btn-questions" onclick="document.getElementById('xmlFileInput').click()">📥 Import XML</button>
+                        <button class="btn-sm btn-questions" onclick="exportXMLQuestions()">📤 Export XML</button>
+                    </div>
+                </div>
                 <div class="questions-list-container" id="questionsList"></div>
             </div>
             <div class="modal-footer">
