@@ -620,6 +620,80 @@
     justify-content: center;
 }
 
+/* Score Cell */
+.score-cell {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 4px;
+}
+.score-value {
+    font-size: 18px;
+    font-weight: 800;
+}
+.score-value.score-high { color: #34d399; }
+.score-value.score-mid { color: #fbbf24; }
+.score-value.score-low { color: #f87171; }
+.score-max {
+    font-size: 11px;
+    font-weight: 400;
+    color: var(--text-muted);
+}
+.score-bar-track {
+    width: 60px;
+    height: 4px;
+    background: rgba(255,255,255,0.06);
+    border-radius: 3px;
+    overflow: hidden;
+}
+.score-bar-fill {
+    height: 100%;
+    border-radius: 3px;
+    transition: width 0.3s ease;
+}
+.score-bar-high { background: #34d399; }
+.score-bar-mid { background: #fbbf24; }
+.score-bar-low { background: #f87171; }
+.score-pct {
+    font-size: 10px;
+    color: var(--text-muted);
+}
+.score-na {
+    font-size: 12px;
+    color: var(--text-muted);
+}
+
+/* Device Cell */
+.td-device {
+    font-size: 11px;
+    color: var(--text-muted);
+    max-width: 120px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+.device-code {
+    font-size: 10px;
+    background: rgba(255,255,255,0.03);
+    padding: 2px 6px;
+    border-radius: 4px;
+}
+
+/* Action Buttons */
+.td-action-btns {
+    text-align: center;
+    white-space: nowrap;
+}
+.btn-action {
+    padding: 5px 10px;
+    font-size: 11px;
+}
+
+/* Duration */
+.duration-na {
+    color: var(--text-muted);
+    font-size: 12px;
+}
+
 /* Users Management Layout */
 .users-layout {
     display: grid;

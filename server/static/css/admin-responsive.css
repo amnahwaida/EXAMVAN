@@ -140,24 +140,45 @@
     #submissionsTable tbody tr {
         background: rgba(255, 255, 255, 0.02);
         border: 1px solid rgba(255, 255, 255, 0.06);
-        border-radius: 12px;
-        padding: 14px;
-        margin-bottom: 12px;
+        border-radius: 16px;
+        padding: 16px;
+        margin-bottom: 14px;
     }
     #submissionsTable td {
-        padding: 3px 0;
+        padding: 4px 0;
         border-bottom: none;
+        font-size: 13px;
     }
     #submissionsTable td::before {
         content: attr(data-label);
-        display: inline-block;
-        font-size: 11px;
-        font-weight: 600;
+        display: block;
+        font-size: 10px;
+        font-weight: 700;
         color: var(--text-muted);
         text-transform: uppercase;
-        letter-spacing: 0.4px;
-        min-width: 100px;
-        margin-right: 8px;
+        letter-spacing: 0.5px;
+        margin-bottom: 2px;
+    }
+
+    /* Mobile: score cell inline row */
+    #submissionsTable td[data-label="Nilai"] .score-cell {
+        flex-direction: row;
+        gap: 8px;
+        align-items: center;
+    }
+    #submissionsTable td[data-label="Nilai"] .score-bar-track {
+        width: 80px;
+    }
+    #submissionsTable td[data-label="Nilai"] .score-pct {
+        font-size: 12px;
+        font-weight: 600;
+    }
+    #submissionsTable td[data-label="Aksi"] {
+        padding-top: 8px;
+        text-align: left !important;
+    }
+    #submissionsTable td[data-label="Perangkat"] .device-code {
+        font-size: 12px;
     }
 
     /* --- Submissions Filter/Export --- */
