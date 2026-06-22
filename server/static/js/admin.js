@@ -757,7 +757,7 @@ function closeManageUsersModal() {
 }
 
 function loadUsersList() {
-    const tbody = document.getElementById('usersListBody');
+    const tbody = document.getElementById('usersTableBody');
     if (!tbody) return;
 
     tbody.innerHTML = '<tr><td colspan="3" style="text-align:center; padding: 20px; color: var(--text-secondary);">Memuat...</td></tr>';
