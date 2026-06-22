@@ -105,15 +105,13 @@
                             <td data-label="Perangkat" style="font-size: 11px; color: var(--text-muted); max-width: 120px; overflow: hidden; text-overflow: ellipsis;">
                                 <code style="font-size:10px; background: rgba(255,255,255,0.03); padding: 2px 6px; border-radius: 4px;">{{ sub.mac_address or '—' }}</code>
                             </td>
-                            <td class="td-actions" data-label="" style="text-align: center;">
-                                <div style="display: flex; gap: 6px; justify-content: center;">
-                                    <button class="btn-sm btn-toggle" onclick="showSubmissionDetail({{ sub.id }})" style="padding: 6px 12px; font-size: 11px;">
-                                        👁️ Detail
-                                    </button>
-                                    <button class="btn-sm btn-delete" onclick="deleteSubmission({{ sub.id }})" style="padding: 6px 12px; font-size: 11px;">
-                                        🗑️
-                                    </button>
-                                </div>
+                            <td data-label="" style="text-align: center; white-space: nowrap;">
+                                <button class="btn-sm btn-toggle" onclick="showSubmissionDetail({{ sub.id }})" style="padding: 5px 10px; font-size: 11px;">
+                                    👁️ Detail
+                                </button>
+                                <button class="btn-sm btn-delete" onclick="deleteSubmission({{ sub.id }})" style="padding: 5px 10px; font-size: 11px;">
+                                    🗑️
+                                </button>
                             </td>
                         </tr>
                         {% endfor %}
