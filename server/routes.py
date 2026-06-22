@@ -1499,12 +1499,38 @@ def admin_submissions():
     total_submissions = db.execute(count_sql, params).fetchone()['cnt']
 
     base_query = (
-        'SELECT s.*, e.name as exam_name '
+        'SELECT s.*, e.name as exam_name, e.questions_json '
         'FROM submissions s JOIN exams e ON s.exam_id = e.id'
     )
     order = ' ORDER BY s.created_at DESC'
     limit_offset = f' LIMIT {per_page} OFFSET {(page - 1) * per_page}'
     submissions = db.execute(base_query + where_clause + order + limit_offset, params).fetchall()
+
+    # Compute max_score and percentage per submission
+    sub_data = []
+    for sub in submissions:
+        sub_max_score = None
+        if sub['questions_json']:
+            try:
+                questions = json.loads(sub['questions_json'])
+                sub_max_score = sum(float(q.get('weight', 1.0)) for q in questions)
+            except Exception:
+                pass
+        sub_data.append({
+            'id': sub['id'],
+            'exam_id': sub['exam_id'],
+            'exam_name': sub['exam_name'],
+            'student_name': sub['student_name'],
+            'exam_number': sub['exam_number'],
+            'student_class': sub['student_class'],
+            'answers_json': sub['answers_json'],
+            'score': sub['score'],
+            'max_score': sub_max_score,
+            'score_pct': round((sub['score'] / sub_max_score * 100), 1) if (sub['score'] is not None and sub_max_score) else None,
+            'start_time': sub['start_time'],
+            'created_at': sub['created_at'],
+            'mac_address': sub['mac_address'],
+        })
 
     if is_super_admin:
         exams = db.execute('SELECT id, name FROM exams ORDER BY created_at DESC').fetchall()
@@ -1528,7 +1554,7 @@ def admin_submissions():
 
     return render_template(
         'submissions.html',
-        submissions=submissions,
+        submissions=sub_data,
         exams=exams,
         local_ip=local_ip,
         admin_user=session.get('admin_username', 'Admin'),
@@ -1538,7 +1564,6 @@ def admin_submissions():
         total_pages=total_pages,
         total_submissions=total_submissions,
         exam_filter_param=exam_filter or '',
-        max_score=max_score,
     )
 
 

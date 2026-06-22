@@ -63,8 +63,7 @@
                         </tr>
                     </thead>
                     <tbody>
-                        {% for sub in submissions %}
-                        {% set score_pct = (sub.score / max_score * 100) if max_score else none %}
+                        {% for sub in sub_data %}
                         <tr id="submission-row-{{ sub.id }}" data-exam-id="{{ sub.exam_id }}" style="transition: background 0.2s;">
                             <td class="td-name" data-label="Ujian" style="font-weight: 500;">{{ sub.exam_name }}</td>
                             <td data-label="Siswa"><strong>{{ sub.student_name }}</strong></td>
@@ -74,19 +73,20 @@
                                 {% if sub.score is not none %}
                                 <div style="display: flex; flex-direction: column; align-items: center; gap: 4px;">
                                     <span style="font-size: 16px; font-weight: 800;
-                                        {% if score_pct is not none and score_pct >= 80 %}color: #34d399;
-                                        {% elif score_pct is not none and score_pct >= 60 %}color: #fbbf24;
+                                        {% if sub.score_pct is not none and sub.score_pct >= 80 %}color: #34d399;
+                                        {% elif sub.score_pct is not none and sub.score_pct >= 60 %}color: #fbbf24;
                                         {% else %}color: #f87171;{% endif %}">
-                                        {{ sub.score }}
+                                        {{ sub.score }}{% if sub.max_score %}<span style="font-size:11px; font-weight:400; color:var(--text-muted);">/{{ sub.max_score }}</span>{% endif %}
                                     </span>
-                                    {% if score_pct is not none %}
-                                    <div style="width: 50px; height: 3px; background: rgba(255,255,255,0.06); border-radius: 2px; overflow: hidden;">
-                                        <div style="height: 100%; width: {{ score_pct|int }}%; border-radius: 2px;
-                                            {% if score_pct >= 80 %}background: #34d399;
-                                            {% elif score_pct >= 60 %}background: #fbbf24;
+                                    {% if sub.score_pct is not none %}
+                                    <div style="width: 60px; height: 4px; background: rgba(255,255,255,0.06); border-radius: 3px; overflow: hidden;">
+                                        <div style="height: 100%; width: {{ sub.score_pct|int }}%; border-radius: 3px;
+                                            {% if sub.score_pct >= 80 %}background: #34d399;
+                                            {% elif sub.score_pct >= 60 %}background: #fbbf24;
                                             {% else %}background: #f87171;{% endif %}">
                                         </div>
                                     </div>
+                                    <span style="font-size: 10px; color: var(--text-muted);">{{ sub.score_pct|int }}%</span>
                                     {% endif %}
                                 </div>
                                 {% else %}
