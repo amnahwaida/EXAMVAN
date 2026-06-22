@@ -1,5 +1,21 @@
 {% extends "admin_base.html" %}
 {% block title %}Hasil Ujian{% endblock %}
+{% block head %}
+<style>
+/* Mobile labels: hidden on desktop, shown inline on mobile */
+.mobile-label { display: none; }
+@media (max-width: 768px) {
+    .mobile-label { display: inline !important; font-size: 11px; font-weight: 600; color: #64748b; margin-right: 4px; flex-shrink: 0; }
+    #submissionsTable td { display: flex !important; align-items: center; gap: 4px; width: 100%; }
+    #submissionsTable thead { display: none !important; }
+    #submissionsTable, #submissionsTable tbody, #submissionsTable tr { display: block; width: 100%; }
+    #submissionsTable tbody tr { background: rgba(255,255,255,0.02); border: 1px solid rgba(255,255,255,0.06); border-radius: 16px; padding: 16px; margin-bottom: 14px; }
+    #submissionsTable td { padding: 4px 0; border-bottom: none; font-size: 14px; }
+    #submissionsTable td .score-bar-track { display: none !important; }
+    .score-pct-mob { font-size: 12px; font-weight: 600; color: #64748b; }
+}
+</style>
+{% endblock %}
 {% block content %}
 <main class="dashboard">
         <!-- Filter and Export Section -->
@@ -65,13 +81,13 @@
                     <tbody>
                         {% for sub in submissions %}
                         <tr id="submission-row-{{ sub.id }}" data-exam-id="{{ sub.exam_id }}" style="transition: background 0.2s;">
-<td class="td-name" style="font-weight:500;"><span class="mlabel">Ujian</span>{{ sub.exam_name }}</td>
-<td><span class="mlabel">Siswa</span><strong>{{ sub.student_name }}</strong></td>
-<td><span class="mlabel">No. Ujian</span><code class="token-code">{{ sub.exam_number }}</code></td>
-<td><span class="mlabel">Kelas</span>{{ sub.student_class }}</td>
-                            <td><span class="mlabel">Nilai</span>
+<td class="td-name" style="font-weight:500;"><span class="mobile-label">Ujian</span>{{ sub.exam_name }}</td>
+<td><span class="mobile-label">Siswa</span><strong>{{ sub.student_name }}</strong></td>
+<td><span class="mobile-label">No. Ujian</span><code class="token-code">{{ sub.exam_number }}</code></td>
+<td><span class="mobile-label">Kelas</span>{{ sub.student_class }}</td>
+                            <td>
                                 {% if sub.score is not none %}
-                                <span class="score-value
+                                <span class="mobile-label">Nilai</span><span class="score-value
                                     {% if sub.score_pct is not none and sub.score_pct >= 80 %}score-high
                                     {% elif sub.score_pct is not none and sub.score_pct >= 60 %}score-mid
                                     {% else %}score-low{% endif %}">
@@ -83,17 +99,17 @@
                                 {% else %}<span class="score-na">—</span>
                                 {% endif %}
                             </td>
-<td><span class="mlabel">Mulai</span>{{ sub.start_time or '—' }}</td>
-                            <td><span class="mlabel">Durasi</span>
+<td><span class="mobile-label">Mulai</span>{{ sub.start_time or '—' }}</td>
+                            <td>
                                 {% if sub.start_time and sub.created_at %}
-                                <span class="duration-cell" data-start="{{ sub.start_time }}" data-end="{{ sub.created_at }}">⏳</span>
+                                <span class="mobile-label">Durasi</span><span class="duration-cell" data-start="{{ sub.start_time }}" data-end="{{ sub.created_at }}">⏳</span>
                                 {% else %}—
                                 {% endif %}
                             </td>
-                            <td class="td-device"><span class="mlabel">Perangkat</span>
+                            <td class="td-device" data-label="Perangkat"><span class="mobile-label">Perangkat</span>
                                 <code class="device-code">{{ sub.mac_address or '—' }}</code>
                             </td>
-                            <td class="td-action-btns"><span class="mlabel">Aksi</span>
+                            <td class="td-action-btns" data-label="Aksi"><span class="mobile-label">Aksi</span>
                                 <button class="btn-sm btn-toggle btn-action" onclick="showSubmissionDetail({{ sub.id }})">👁️</button>
                                 <button class="btn-sm btn-delete btn-action" onclick="deleteSubmission({{ sub.id }})">🗑️</button>
                             </td>
