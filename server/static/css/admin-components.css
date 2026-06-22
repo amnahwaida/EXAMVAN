@@ -521,6 +521,9 @@
 .exam-table tbody tr {
     transition: background 0.15s;
 }
+.exam-table tbody tr td {
+    vertical-align: middle;
+}
 
 .exam-table tbody tr:hover {
     background: var(--surface-hover);

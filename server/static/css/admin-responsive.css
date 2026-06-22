@@ -112,10 +112,9 @@
         padding: 0;
     }
 
-    /* Align action buttons left on mobile for tables without labels like the users table */
+    /* Align action buttons left on mobile for tables without labels */
     .exam-table td[data-label=""] > div {
         justify-content: flex-start !important;
-        margin-top: 8px;
     }
 
     /* Token group on mobile */
