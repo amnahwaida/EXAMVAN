@@ -5,61 +5,47 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>EXAMVAN - Admin Login</title>
     <link rel="stylesheet" href="{{ url_for('static', filename='css/tailwind/output.css') }}?v=2.1.1">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/admin.css') }}">
     <link rel="icon" type="image/png" href="/static/favicon.png">
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
-    <style>
-        * { margin:0; padding:0; box-sizing:border-box; }
-        body { font-family: 'Inter', system-ui, -apple-system, sans-serif; -webkit-font-smoothing: antialiased; }
-        @keyframes orbFloat { 0%,100% { transform:translate(0,0) scale(1); } 50% { transform:translate(30px,20px) scale(1.1); } }
-        @keyframes fadeUp { from { opacity:0; transform:translateY(20px); } to { opacity:1; transform:translateY(0); } }
-    </style>
 </head>
-<body class="min-h-screen flex items-center justify-center overflow-hidden relative" style="background: radial-gradient(circle at 50% 0%, #17152f, #0c0a1a 50%, #06050b);">
-    <div class="absolute inset-0 overflow-hidden pointer-events-none">
-        <div class="absolute -top-40 -right-40 w-[500px] h-[500px] rounded-full opacity-40" style="background: var(--primary); filter: blur(80px); animation: orbFloat 8s ease-in-out infinite;"></div>
-        <div class="absolute -bottom-40 -left-40 w-[300px] h-[300px] rounded-full opacity-40" style="background: #8b5cf6; filter: blur(80px); animation: orbFloat 8s ease-in-out infinite; animation-delay: -4s;"></div>
+<body class="login-page">
+    <div class="login-bg">
+        <div class="login-orb login-orb-1"></div>
+        <div class="login-orb login-orb-2"></div>
     </div>
-    <div class="relative z-10 w-full max-w-md px-5">
-        <div class="bg-[rgba(15,15,30,0.45)] backdrop-blur-2xl border border-[rgba(255,255,255,0.06)] rounded-2xl p-8 md:p-10 shadow-2xl animate-[fadeUp_0.6s_ease]">
-            <div class="text-center mb-8">
-                <div class="w-14 h-14 mx-auto mb-4 rounded-xl flex items-center justify-center text-white text-2xl font-extrabold shadow-lg" style="background: linear-gradient(135deg, #6366f1, #8b5cf6);">E</div>
-                <h1 class="text-3xl font-bold bg-gradient-to-r from-white to-slate-400 bg-clip-text text-transparent">EXAMVAN</h1>
-                <p class="text-sm text-slate-400 mt-1.5">Panel Admin — Kelola Ujian Digital</p>
+    <div class="login-container">
+        <div class="login-card">
+            <div class="login-header">
+                <div class="login-logo">E</div>
+                <h1>EXAMVAN</h1>
+                <p class="login-subtitle">Panel Admin — Kelola Ujian Digital</p>
             </div>
             {% with messages = get_flashed_messages(with_categories=true) %}
             {% if messages %}
-            <div class="mb-5 space-y-2">
+            <div class="flash-messages">
                 {% for category, message in messages %}
-                <div class="px-4 py-3 rounded-lg text-sm font-medium
-                    {% if category == 'error' %}bg-red-500/10 text-red-400 border border-red-500/20
-                    {% elif category == 'success' %}bg-emerald-500/10 text-emerald-400 border border-emerald-500/20
-                    {% elif category == 'warning' %}bg-amber-500/10 text-amber-400 border border-amber-500/20
-                    {% else %}bg-blue-500/10 text-blue-400 border border-blue-500/20{% endif %}">{{ message }}</div>
+                <div class="flash-msg flash-{{ category }}">{{ message }}</div>
                 {% endfor %}
             </div>
             {% endif %}
             {% endwith %}
-            <form method="POST" action="{{ url_for('admin_login') }}" class="space-y-5">
-                <div class="space-y-1.5">
-                    <label for="username" class="block text-xs font-semibold uppercase tracking-wider text-slate-400">Username</label>
-                    <input type="text" id="username" name="username" placeholder="Masukkan username" required autofocus
-                        class="w-full px-4 py-3 bg-[rgba(255,255,255,0.06)] border border-[rgba(255,255,255,0.08)] rounded-xl text-white text-sm outline-none transition-all duration-200 placeholder:text-slate-500 focus:border-indigo-500 focus:bg-[rgba(99,102,241,0.05)] focus:shadow-[0_0_0_3px_rgba(99,102,241,0.25)]">
+            <form method="POST" action="{{ url_for('admin_login') }}" class="login-form">
+                <div class="form-group">
+                    <label for="username">Username</label>
+                    <input type="text" id="username" name="username" placeholder="Masukkan username" required autofocus>
                 </div>
-                <div class="space-y-1.5">
-                    <label for="password" class="block text-xs font-semibold uppercase tracking-wider text-slate-400">Password</label>
-                    <input type="password" id="password" name="password" placeholder="Masukkan password" required
-                        class="w-full px-4 py-3 bg-[rgba(255,255,255,0.06)] border border-[rgba(255,255,255,0.08)] rounded-xl text-white text-sm outline-none transition-all duration-200 placeholder:text-slate-500 focus:border-indigo-500 focus:bg-[rgba(99,102,241,0.05)] focus:shadow-[0_0_0_3px_rgba(99,102,241,0.25)]">
+                <div class="form-group">
+                    <label for="password">Password</label>
+                    <input type="password" id="password" name="password" placeholder="Masukkan password" required>
                 </div>
-                <button type="submit"
-                    class="w-full py-3.5 px-6 rounded-xl text-white font-semibold text-sm shadow-lg transition-all duration-200 active:scale-[0.97] hover:shadow-indigo-500/25"
-                    style="background: linear-gradient(135deg, #6366f1, #8b5cf6);">Masuk</button>
+                <button type="submit" class="btn-login">Masuk</button>
             </form>
-            <div class="text-center mt-6">
-                <p class="text-xs text-slate-400">
-                    Belum memiliki akun? <a href="{{ url_for('register') }}" class="text-indigo-400 font-semibold no-underline border-b border-dashed border-indigo-400/50 hover:text-indigo-300">Daftar Sebagai Guru</a>
+            <div style="text-align: center; margin-top: 20px;">
+                <p style="color: var(--text-secondary); font-size: 13px;">
+                    Belum memiliki akun? <a href="{{ url_for('register') }}" style="color: var(--accent); text-decoration: none; font-weight: 600; border-bottom: 1px dashed var(--accent);">Daftar Sebagai Guru</a>
                 </p>
             </div>
-            <div class="text-center mt-6 text-xs text-slate-500"><p>EXAMVAN v2.0.0</p></div>
+            <div class="login-footer"><p>EXAMVAN v2.0.0</p></div>
         </div>
     </div>
 </body>
