@@ -160,23 +160,25 @@
         margin-bottom: 2px;
     }
 
-    /* Mobile: score cell column */
+    /* Mobile: score inline dengan value */
     #submissionsTable td[data-label="Nilai"] .score-cell {
-        flex-direction: column;
-        align-items: flex-start;
-        gap: 2px;
+        flex-direction: row;
+        align-items: center;
+        gap: 6px;
     }
     #submissionsTable td[data-label="Nilai"] .score-bar-track {
-        width: 100%;
-        max-width: 200px;
-        height: 6px;
+        display: none;
     }
     #submissionsTable td[data-label="Nilai"] .score-pct {
-        font-size: 11px;
-        font-weight: 600;
+        font-size: 13px;
+        font-weight: 700;
+        color: var(--text);
     }
     #submissionsTable td[data-label="Nilai"] .score-value {
-        font-size: 16px;
+        font-size: 15px;
+    }
+    #submissionsTable td[data-label="Nilai"] .score-max {
+        font-size: 12px;
     }
     #submissionsTable td[data-label="Aksi"] {
         padding-top: 8px;
