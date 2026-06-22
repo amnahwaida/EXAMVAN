@@ -4,54 +4,75 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>EXAMVAN - Daftar Akun Guru</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/tailwind/output.css') }}?v=2.2.0">
     <link rel="stylesheet" href="{{ url_for('static', filename='css/admin.css') }}">
     <link rel="icon" type="image/png" href="/static/favicon.png">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+    <style>
+        * { margin:0; padding:0; box-sizing:border-box; }
+        body { font-family: 'Inter', system-ui, -apple-system, sans-serif; -webkit-font-smoothing: antialiased; background: radial-gradient(circle at 50% 0%, #17152f, #0c0a1a 50%, #06050b); color: #f8fafc; min-height: 100vh; }
+        @keyframes orbFloat { 0%,100% { transform:translate(0,0) scale(1); } 50% { transform:translate(30px,20px) scale(1.1); } }
+    </style>
 </head>
-<body class="login-page">
-    <div class="login-bg">
-        <div class="login-orb login-orb-1"></div>
-        <div class="login-orb login-orb-2"></div>
+<body class="min-h-screen flex items-center justify-center overflow-hidden relative">
+    <div class="absolute inset-0 overflow-hidden pointer-events-none">
+        <div class="absolute -top-40 -right-40 w-[500px] h-[500px] rounded-full opacity-40" style="background: var(--primary); filter: blur(80px); animation: orbFloat 8s ease-in-out infinite;"></div>
+        <div class="absolute -bottom-40 -left-40 w-[300px] h-[300px] rounded-full opacity-40" style="background: #8b5cf6; filter: blur(80px); animation: orbFloat 8s ease-in-out infinite; animation-delay: -4s;"></div>
     </div>
-    <div class="login-container">
-        <div class="login-card">
-            <div class="login-header">
-                <div class="login-logo">E</div>
-                <h1>EXAMVAN</h1>
-                <p class="login-subtitle">Daftar Akun Guru / Pembuat Soal</p>
+    <div class="relative z-10 w-full max-w-md px-5">
+        <div class="rounded-2xl p-8 md:p-10 shadow-2xl animate-[fadeUp_0.6s_ease]" style="background: rgba(15,15,30,0.45); backdrop-filter: blur(24px); border: 1px solid rgba(255,255,255,0.06);">
+            <div class="text-center mb-6">
+                <div class="w-14 h-14 mx-auto mb-4 rounded-xl flex items-center justify-center text-white text-2xl font-extrabold shadow-lg" style="background: linear-gradient(135deg, #6366f1, #8b5cf6);">E</div>
+                <h1 class="text-3xl font-bold" style="background: linear-gradient(135deg, #fff, #94a3b8); -webkit-background-clip: text; -webkit-text-fill-color: transparent;">EXAMVAN</h1>
+                <p class="text-sm mt-1.5" style="color: #cbd5e1;">Daftar Akun Guru / Pembuat Soal</p>
             </div>
             {% with messages = get_flashed_messages(with_categories=true) %}
             {% if messages %}
-            <div class="flash-messages">
+            <div class="mb-4 space-y-2">
                 {% for category, message in messages %}
-                <div class="flash-msg flash-{{ category }}">{{ message }}</div>
+                <div class="px-4 py-3 rounded-lg text-sm font-medium
+                    {% if category == 'error' %}bg-red-500/10 text-red-400 border border-red-500/20
+                    {% elif category == 'success' %}bg-emerald-500/10 text-emerald-400 border border-emerald-500/20
+                    {% elif category == 'warning' %}bg-amber-500/10 text-amber-400 border border-amber-500/20
+                    {% else %}bg-blue-500/10 text-blue-400 border border-blue-500/20{% endif %}">{{ message }}</div>
                 {% endfor %}
             </div>
             {% endif %}
             {% endwith %}
             <form method="POST" action="{{ url_for('register') }}" class="login-form">
-                <div class="form-group">
-                    <label for="username">Username</label>
-                    <input type="text" id="username" name="username" placeholder="Pilih username unik" required minlength="3" autofocus>
+                <div class="form-group mb-5 space-y-1.5">
+                    <label for="username" class="block text-xs font-semibold uppercase tracking-wider" style="color: #cbd5e1;">Username</label>
+                    <input type="text" id="username" name="username" placeholder="Pilih username unik" required minlength="3" autofocus
+                        class="w-full px-4 py-3 rounded-xl text-sm outline-none transition-all duration-200"
+                        style="background: rgba(255,255,255,0.06); border: 1px solid rgba(255,255,255,0.08); color: #fff;"
+                        onfocus="this.style.borderColor='#6366f1'; this.style.boxShadow='0 0 0 3px rgba(99,102,241,0.25)'"
+                        onblur="this.style.borderColor='rgba(255,255,255,0.08)'; this.style.boxShadow='none'">
                 </div>
-                <div class="form-group">
-                    <label for="whatsapp">Nomor WhatsApp</label>
-                    <input type="tel" id="whatsapp" name="whatsapp" placeholder="Contoh: 081234567890" required>
-                    <span style="font-size: 10px; color: var(--text-muted); margin-top: 4px; display: block;">
-                        Digunakan untuk menerima kode OTP pendaftaran via WhatsApp.
-                    </span>
+                <div class="form-group mb-5 space-y-1.5">
+                    <label for="whatsapp" class="block text-xs font-semibold uppercase tracking-wider" style="color: #cbd5e1;">Nomor WhatsApp</label>
+                    <input type="tel" id="whatsapp" name="whatsapp" placeholder="Contoh: 081234567890" required
+                        class="w-full px-4 py-3 rounded-xl text-sm outline-none transition-all duration-200"
+                        style="background: rgba(255,255,255,0.06); border: 1px solid rgba(255,255,255,0.08); color: #fff;"
+                        onfocus="this.style.borderColor='#6366f1'; this.style.boxShadow='0 0 0 3px rgba(99,102,241,0.25)'"
+                        onblur="this.style.borderColor='rgba(255,255,255,0.08)'; this.style.boxShadow='none'">
+                    <span class="block text-xs mt-1" style="color: #64748b;">Digunakan untuk menerima kode OTP pendaftaran via WhatsApp.</span>
                 </div>
-                <div class="form-group">
-                    <label for="password">Password</label>
-                    <input type="password" id="password" name="password" placeholder="Masukkan password" required minlength="4">
+                <div class="form-group mb-5 space-y-1.5">
+                    <label for="password" class="block text-xs font-semibold uppercase tracking-wider" style="color: #cbd5e1;">Password</label>
+                    <input type="password" id="password" name="password" placeholder="Masukkan password" required minlength="4"
+                        class="w-full px-4 py-3 rounded-xl text-sm outline-none transition-all duration-200"
+                        style="background: rgba(255,255,255,0.06); border: 1px solid rgba(255,255,255,0.08); color: #fff;"
+                        onfocus="this.style.borderColor='#6366f1'; this.style.boxShadow='0 0 0 3px rgba(99,102,241,0.25)'"
+                        onblur="this.style.borderColor='rgba(255,255,255,0.08)'; this.style.boxShadow='none'">
                 </div>
-                <button type="submit" class="btn-login" style="margin-top: 10px;">Daftar Akun</button>
+                <button type="submit" class="btn-login">Daftar Akun</button>
             </form>
-            <div style="text-align: center; margin-top: 20px;">
-                <p style="color: var(--text-secondary); font-size: 13px;">
-                    Sudah memiliki akun? <a href="{{ url_for('admin_login') }}" style="color: var(--accent); text-decoration: none; font-weight: 600; border-bottom: 1px dashed var(--accent);">Masuk Disini</a>
+            <div class="text-center mt-6">
+                <p class="text-xs" style="color: #64748b;">
+                    Sudah memiliki akun? <a href="{{ url_for('admin_login') }}" class="no-underline font-semibold border-b border-dashed" style="color: #818cf8; border-color: rgba(129,140,248,0.5);">Masuk Disini</a>
                 </p>
             </div>
-            <div class="login-footer"><p>EXAMVAN v2.0.0</p></div>
+            <div class="text-center mt-6 text-xs" style="color: #64748b;"><p>EXAMVAN v2.0.0</p></div>
         </div>
     </div>
 </body>
