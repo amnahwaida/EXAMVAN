@@ -1,130 +1,13 @@
-<!DOCTYPE html>
-<html lang="id">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>EXAMVAN - Buat Ujian Baru</title>
-    <!-- KaTeX CSS & JS for LaTeX Rendering -->
-    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.8/dist/katex.min.css">
-    <script src="https://cdn.jsdelivr.net/npm/katex@0.16.8/dist/katex.min.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/katex@0.16.8/dist/contrib/auto-render.min.js"></script>
-    <!-- html2canvas for PDF LaTeX Rendering -->
-    <script src="https://cdn.jsdelivr.net/npm/html2canvas@1.4.1/dist/html2canvas.min.js"></script>
-    <link rel="stylesheet" href="{{ url_for('static', filename='css/admin.css') }}?v=2.0.1">
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
-    <!-- JSZip Library for Import/Export -->
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
-    <!-- Cropper.js Library for Header Cropping -->
-    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/cropperjs/1.6.2/cropper.min.css">
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/cropperjs/1.6.2/cropper.min.js"></script>
-    <style>
-        /* Modernized Crop Modal Styles */
-        .crop-toolbar-btn {
-            background: rgba(255, 255, 255, 0.06);
-            border: 1px solid var(--glass-border);
-            color: var(--text-secondary);
-            font-size: 13px;
-            padding: 8px 16px;
-            border-radius: var(--radius-sm);
-            cursor: pointer;
-            transition: all 0.2s ease;
-            display: flex;
-            align-items: center;
-            gap: 6px;
-            font-family: inherit;
-        }
-        .crop-toolbar-btn:hover {
-            background: rgba(99, 102, 241, 0.15);
-            border-color: rgba(99, 102, 241, 0.4);
-            color: #a5b4fc;
-        }
-        .crop-toolbar-btn.active {
-            background: rgba(99, 102, 241, 0.25);
-            border-color: var(--primary);
-            color: #ffffff;
-            font-weight: 600;
-        }
-        /* Style adjustments for cropper viewport */
-        .cropper-view-box, .cropper-face {
-            border-radius: 4px;
-        }
-        .cropper-line, .cropper-point {
-            background-color: var(--primary);
-        }
-        .cropper-bg {
-            background-image: repeating-linear-gradient(45deg, #09090e 25%, transparent 25%, transparent 75%, #09090e 75%, #09090e), 
-                              repeating-linear-gradient(45deg, #09090e 25%, #181825 25%, #181825 75%, #09090e 75%, #09090e);
-            background-position: 0 0, 10px 10px;
-            background-size: 20px 20px;
-        }
-    </style>
-    <link rel="icon" type="image/png" href="/static/favicon.png">
-    <meta name="csrf-token" content="{{ csrf_token }}">
-</head>
-<body class="dashboard-page">
-    <nav class="topbar">
-        <div class="topbar-left">
-            <div class="topbar-logo">E</div>
-            <span class="topbar-title">EXAMVAN</span>
-            <span class="topbar-badge">Admin Panel</span>
-            <div class="topbar-nav">
-                <a href="{{ url_for('admin_dashboard') }}" class="nav-link">Daftar Ujian</a>
-                <a href="{{ url_for('admin_create_exam_page') }}" class="nav-link active">Buat Ujian</a>
-                <a href="{{ url_for('admin_submissions') }}" class="nav-link">Hasil Ujian</a>
-                {% if admin_user == 'admin' %}
-                <a href="{{ url_for('admin_manage_users_page') }}" class="nav-link">Kelola User</a>
-                {% endif %}
-            </div>
-        </div>
-        <div class="topbar-right">
-            <div class="topbar-menu-dropdown">
-                <button class="topbar-menu-toggle" id="menuToggleBtn" onclick="event.stopPropagation(); document.getElementById('menuDropdownContent').classList.toggle('show');">
-                    <span class="menu-hamburger-icon">☰</span>
-                    <span class="toggle-user-name">👤 {{ admin_user }}</span>
-                </button>
-                <div class="topbar-dropdown-content" id="menuDropdownContent">
-                    <div class="dropdown-header mobile-only-header">
-                        <div style="display: flex; align-items: center; gap: 8px;">
-                            <div class="topbar-logo" style="width: 28px; height: 28px; font-size: 13px;">E</div>
-                            <span class="dropdown-user-title" style="font-size: 15px; font-weight: 700;">EXAMVAN</span>
-                        </div>
-                        <span class="dropdown-user-role" style="margin-left: 36px; margin-top: -4px;">Admin Panel</span>
-                    </div>
-                    <div class="dropdown-divider mobile-only-divider"></div>
-                    
-                    <!-- Mobile Navigation Links -->
-                    <div class="mobile-nav-links">
-                        <a href="{{ url_for('admin_dashboard') }}" class="dropdown-item">
-                            <span>📋</span> Daftar Ujian
-                        </a>
-                        <a href="{{ url_for('admin_create_exam_page') }}" class="dropdown-item active-dropdown-item">
-                            <span>✍️</span> Buat Ujian
-                        </a>
-                        <a href="{{ url_for('admin_submissions') }}" class="dropdown-item">
-                            <span>📊</span> Hasil Ujian
-                        </a>
-                        {% if admin_user == 'admin' %}
-                        <a href="{{ url_for('admin_manage_users_page') }}" class="dropdown-item">
-                            <span>👥</span> Kelola User
-                        </a>
-                        {% endif %}
-                        <div class="dropdown-divider"></div>
-                    </div>
-
-                    <div class="dropdown-header">
-                        <span class="dropdown-user-title">👤 {{ admin_user }}</span>
-                        <span class="dropdown-user-role">{% if admin_user == 'admin' %}Super Admin{% else %}Guru/Pengajar{% endif %}</span>
-                    </div>
-                    <div class="dropdown-divider"></div>
-                    <a href="{{ url_for('admin_logout') }}" class="dropdown-item dropdown-logout">
-                        <span>🚪</span> Logout
-                    </a>
-                </div>
-            </div>
-        </div>
-    </nav>
-
-    <main class="dashboard">
+{% extends "admin_base.html" %}
+{% block title %}Buat Ujian{% endblock %}
+{% block head %}
+<script src="https://cdn.jsdelivr.net/npm/katex@0.16.8/dist/katex.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/katex@0.16.8/dist/contrib/auto-render.min.js"></script>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.8/dist/katex.min.css">
+<script src="https://cdn.jsdelivr.net/npm/html2canvas@1.4.1/dist/html2canvas.min.js"></script>
+{% endblock %}
+{% block content %}
+<main class="dashboard">
         <div class="creator-container">
             <!-- Left Panel: Exam Metadata -->
             <div class="sidebar-panel">
@@ -269,45 +152,11 @@ SMA NEGERI EXAMVAN INDONESIA">SMA NEGERI EXAMVAN INDONESIA</textarea>
         </div>
     </main>
 
-    <div class="toast-container" id="toastContainer"></div>
-
-    <script src="{{ url_for('static', filename='js/admin-core.js') }}?v=2.0.1"></script>
-    <script src="{{ url_for('static', filename='js/admin.js') }}?v=2.0.1"></script>
-    <script>const MAX_DRAFTS = {{ max_drafts }}; const MAX_DRAFT_SIZE = {{ max_draft_size }};</script>
-    <script src="{{ url_for('static', filename='js/admin-creator.js') }}?v=2.0.1"></script>
-    <script>
-
-    <!-- HTML Modal Crop Header -->
-    <div id="cropModalOverlay" class="modal-overlay" style="display: none; align-items: center; justify-content: center; z-index: 2000;">
-        <div class="modal-card" style="max-width: 900px; width: 95%; height: 85vh; border-radius: var(--radius); background: rgba(10, 10, 26, 0.95); backdrop-filter: blur(24px); border: 1px solid var(--glass-border); box-shadow: 0 20px 50px rgba(0,0,0,0.5);">
-            <div class="modal-header" style="border-bottom: 1px solid var(--glass-border); padding: 18px 24px;">
-                <h3 style="color: #a5b4fc; font-size: 1.15rem; display: flex; align-items: center; gap: 8px;">
-                    <span>✂️</span> Sesuaikan &amp; Potong Kop Surat
-                </h3>
-                <button class="modal-close" style="color: var(--text-secondary); background: none; border: none; font-size: 1.2rem; cursor: pointer;" onclick="closeCropModal()">✕</button>
-            </div>
-            <div class="modal-body" style="padding: 20px; display: flex; flex-direction: column; overflow: hidden; height: calc(100% - 130px);">
-                <div style="flex: 1; overflow: hidden; background: #05050b; border-radius: var(--radius-sm); border: 1px solid var(--glass-border); display: flex; align-items: center; justify-content: center; position: relative; min-height: 250px;">
-                    <img id="cropModalImg" style="max-width: 100%; max-height: 100%; display: block;">
-                </div>
-                
-                <!-- Cropper Toolbar Controls -->
-                <div style="display: flex; gap: 8px; justify-content: center; margin-top: 16px; flex-wrap: wrap; background: rgba(255,255,255,0.02); padding: 10px; border-radius: var(--radius-sm); border: 1px solid var(--glass-border);">
-                    <button class="crop-toolbar-btn" onclick="cropperZoom(0.1)" title="Zoom In">🔍➕ Zoom In</button>
-                    <button class="crop-toolbar-btn" onclick="cropperZoom(-0.1)" title="Zoom Out">🔍➖ Zoom Out</button>
-                    <button class="crop-toolbar-btn" onclick="cropperReset()" title="Reset Alignment">🔄 Reset</button>
-                    <div style="width: 1px; background: var(--glass-border); height: 28px; margin: 0 4px; align-self: center;"></div>
-                    <button id="ratioPreset_8_1" class="crop-toolbar-btn" onclick="cropperSetAspectRatio(8/1)" title="Rasio 8:1 (Tipikal Kop)">📐 Kop Lebar (8:1)</button>
-                    <button id="ratioPreset_6_1" class="crop-toolbar-btn" onclick="cropperSetAspectRatio(6/1)" title="Rasio 6:1 (Kop Sedang)">📐 Kop Sedang (6:1)</button>
-                    <button id="ratioPreset_4_1" class="crop-toolbar-btn" onclick="cropperSetAspectRatio(4/1)" title="Rasio 4:1 (Kop Tinggi)">📐 Kop Tinggi (4:1)</button>
-                    <button id="ratioPreset_free" class="crop-toolbar-btn" onclick="cropperSetAspectRatio(NaN)" title="Potong Bebas">📐 Potong Bebas</button>
-                </div>
-            </div>
-            <div class="modal-footer" style="border-top: 1px solid var(--glass-border); padding: 16px 24px; background: rgba(255,255,255,0.01); display: flex; justify-content: flex-end; gap: 12px; border-bottom-left-radius: var(--radius); border-bottom-right-radius: var(--radius);">
-                <button class="btn-sm btn-delete" style="padding: 10px 20px; font-weight: 600;" onclick="closeCropModal()">Batal</button>
-                <button class="btn-upload" style="padding: 10px 24px;" onclick="applyHeaderCrop()">Terapkan &amp; Simpan</button>
-            </div>
-        </div>
-    </div>
-</body>
-</html>
+{% endblock %}
+{% block scripts %}
+<script>const MAX_DRAFTS = {{ max_drafts }}; const MAX_DRAFT_SIZE = {{ max_draft_size }};</script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/cropperjs/1.6.2/cropper.min.js"></script>
+<script src="{{ url_for('static', filename='js/admin-creator.js') }}?v=2.0.1"></script>
+{% endblock %}

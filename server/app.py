@@ -2743,9 +2743,6 @@ def _generate_exam_xlsx(exam, submissions, questions, tz_offset=None):
 
 # ===== Public Exam Results Routes =====
 
-def evaluate_submission_answers(answers, questions):
-    """Evaluate submission answers — delegates to evaluate_answers_detailed."""
-    return evaluate_answers_detailed(answers, questions)
 
 
 @app.route('/<token>')
@@ -2868,7 +2865,7 @@ def api_public_hasil(token):
             'max_score': max_score if max_score > 0 else None,
             'start_time': format_iso_utc(sub['start_time']) if sub['start_time'] else None,
             'created_at': format_iso_utc(sub['created_at']),
-            'evaluated_answers': evaluate_submission_answers(answers, questions)
+            'evaluated_answers': evaluate_answers_detailed(answers, questions)
         })
 
     # Determine if keys should be shown

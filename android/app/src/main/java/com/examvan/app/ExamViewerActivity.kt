@@ -195,7 +195,7 @@ class ExamViewerActivity : AppCompatActivity() {
             loadQuestionsFromPrefs()
         } catch (e: Exception) {
             // Fallback: if questions fail to load, use defaults
-            try { generateDefaultQuestions() } catch (_: Exception) {}
+            try { generateDefaultQuestions() } catch (e: Exception) { Log.w("ExamViewer", "Failed to load questions", e) }
         }
 
         // Start download
@@ -742,7 +742,7 @@ class ExamViewerActivity : AppCompatActivity() {
                     android.media.AudioManager.ADJUST_LOWER
                 }
                 audioManager.adjustStreamVolume(android.media.AudioManager.STREAM_MUSIC, direction, 0) // 0 suppresses UI
-            } catch (_: Throwable) {}
+            } catch (e: Throwable) { Log.w("ExamViewer", "Volume adjustment failed", e); }
             return true
         }
         return super.onKeyDown(keyCode, event)
