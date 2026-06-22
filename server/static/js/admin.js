@@ -826,34 +826,6 @@ function localizeDates() {
     });
 }
 
-function submitCreateUser(e) {
-    e.preventDefault();
-    const username = document.getElementById('newUsername').value.trim();
-    const password = document.getElementById('newUserPassword').value;
-
-    if (!username || !password) {
-        showToast('Username dan password wajib diisi', 'error');
-        return;
-    }
-
-    apiFetch('/admin/api/users', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ username, password })
-    })
-        .then(r => r.json())
-        .then(res => {
-            if (res.success) {
-                showToast(res.message, 'success');
-                document.getElementById('createUserForm').reset();
-                loadUsersList();
-            } else {
-                showToast(res.message || 'Gagal membuat user', 'error');
-            }
-        })
-        .catch(() => showToast('Gagal membuat user', 'error'));
-}
-
 function deleteUser(userId, username) {
     if (!confirm(`Hapus user "${username}"? Semua ujian dan data yang dibuat oleh user ini akan ikut terhapus.`)) return;
 
@@ -1428,6 +1400,171 @@ async function bulkDeleteExams() {
     } catch (err) {
         showToast('Gagal menghubungi server', 'error');
     }
+}
+
+
+// ===== Lost Functions (recovered from template inline scripts) =====
+
+function switchMethod(method) {
+    const pdfBtn = document.getElementById('methodPdfBtn');
+    const createBtn = document.getElementById('methodCreateBtn');
+    const pdfForm = document.getElementById('methodPdfForm');
+    const createForm = document.getElementById('methodCreateForm');
+
+    if (method === 'pdf') {
+        pdfBtn.classList.add('active');
+        createBtn.classList.remove('active');
+        pdfForm.style.display = 'block';
+        createForm.style.display = 'none';
+    } else {
+        pdfBtn.classList.remove('active');
+        createBtn.classList.add('active');
+        pdfForm.style.display = 'none';
+        createForm.style.display = 'block';
+    }
+}
+
+function filterSubmissions() {
+    const filterVal = document.getElementById('filterExam').value;
+    const rows = document.querySelectorAll('#submissionsTable tbody tr');
+    rows.forEach(row => {
+        const rowExamId = row.getAttribute('data-exam-id');
+        if (!filterVal || rowExamId === filterVal) {
+            row.style.display = '';
+        } else {
+            row.style.display = 'none';
+        }
+    });
+}
+
+function exportSubmissions() {
+    const examId = document.getElementById('filterExam').value;
+    const tzOffset = new Date().getTimezoneOffset();
+    let url = '/admin/api/submissions/export?tz_offset=' + tzOffset;
+    if (examId) {
+        url += '&exam_id=' + examId;
+    }
+    window.location.href = url;
+}
+
+function deleteSubmission(id) {
+    if (!confirm('Hapus hasil ujian siswa ini secara permanen?')) return;
+    apiFetch(`/admin/api/submissions/${id}`, { method: 'DELETE' })
+        .then(r => r.json())
+        .then(res => {
+            if (res.success) {
+                showToast(res.message, 'success');
+                const row = document.getElementById(`submission-row-${id}`);
+                if (row) {
+                    row.style.opacity = '0';
+                    row.style.transform = 'translateX(-20px)';
+                    row.style.transition = 'all 0.3s';
+                    setTimeout(() => row.remove(), 300);
+                }
+            } else {
+                showToast(res.message || 'Gagal menghapus', 'error');
+            }
+        })
+        .catch(() => showToast('Koneksi gagal', 'error'));
+}
+
+function saveSaasSettings(e) {
+    e.preventDefault();
+    const wa_verification_enabled = document.getElementById('waEnabledInput').checked;
+    const wa_api_token = document.getElementById('waTokenInput').value.trim();
+    const wa_otp_template = document.getElementById('waTemplateInput').value.trim();
+    const default_max_exams = parseInt(document.getElementById('defaultExamsInput').value);
+    const default_max_pdf_size_mb = parseFloat(document.getElementById('defaultPdfInput').value);
+    const default_max_drafts = parseInt(document.getElementById('defaultDraftsInput').value);
+    const default_max_draft_size_mb = parseFloat(document.getElementById('defaultDraftSizeInput').value);
+    const default_active_days = parseInt(document.getElementById('defaultActiveDaysInput').value);
+    const android_version = document.getElementById('androidVersionInput').value.trim();
+    const webapp_version = document.getElementById('webappVersionInput').value.trim();
+
+    apiFetch('/admin/api/saas-settings', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+            wa_verification_enabled, wa_api_token, wa_otp_template,
+            default_max_exams, default_max_pdf_size_mb,
+            default_max_drafts, default_max_draft_size_mb,
+            default_active_days, android_version, webapp_version
+        })
+    })
+    .then(r => r.json())
+    .then(res => {
+        if (res.success) {
+            showToast(res.message, 'success');
+            loadSaasSettings();
+        } else {
+            showToast(res.message || 'Gagal menyimpan', 'error');
+        }
+    })
+    .catch(() => showToast('Gagal menyimpan setelan SaaS', 'error'));
+}
+
+function createUser(e) {
+    e.preventDefault();
+    const username = document.getElementById('usernameInput').value.trim();
+    const password = document.getElementById('passwordInput').value;
+    const whatsapp_number = document.getElementById('whatsappInput').value.trim();
+    const max_exams = parseInt(document.getElementById('limitInput').value);
+    const max_pdf_size_mb = parseFloat(document.getElementById('pdfSizeInput').value);
+    const max_drafts = parseInt(document.getElementById('draftLimitInput').value);
+    const max_draft_size_mb = parseFloat(document.getElementById('draftSizeInput').value);
+    const expDate = document.getElementById('newUserExpiry').value;
+    const expTime = document.getElementById('newUserExpiryTime').value || '23:59';
+
+    let expires_at = '';
+    if (expDate) {
+        const localDateTime = new Date(`${expDate}T${expTime}`);
+        if (!isNaN(localDateTime.getTime())) {
+            expires_at = localDateTime.toISOString().replace('T', ' ').substring(0, 19);
+        }
+    }
+    if (!username || !password) { showToast('Semua kolom wajib diisi','error'); return; }
+    apiFetch('/admin/api/users', {
+        method: 'POST', headers: {'Content-Type':'application/json'},
+        body: JSON.stringify({ username, password, whatsapp_number, max_exams, max_pdf_size_mb, max_drafts, max_draft_size_mb, expires_at })
+    }).then(r=>r.json()).then(res => {
+        if (res.success) {
+            showToast(res.message,'success');
+            document.getElementById('newUserForm').reset();
+            loadUsersList();
+        }
+        else showToast(res.message||'Gagal','error');
+    }).catch(()=>showToast('Gagal menghubungi server','error'));
+}
+
+function resetNewUserFormDefaults() {
+    document.getElementById('limitInput').value = 3;
+    document.getElementById('pdfSizeInput').value = 1.0;
+}
+
+function loadSaasSettings() {
+    apiFetch('/admin/api/saas-settings')
+        .then(r => r.json())
+        .then(res => {
+            if (res.success) {
+                const s = res.settings;
+                document.getElementById('waEnabledInput').checked = s.wa_verification_enabled || false;
+                document.getElementById('waTokenInput').value = s.wa_api_token || '';
+                document.getElementById('waTemplateInput').value = s.wa_otp_template || '';
+                document.getElementById('defaultExamsInput').value = s.default_max_exams || 3;
+                document.getElementById('defaultPdfInput').value = s.default_max_pdf_size_mb || 1;
+                document.getElementById('defaultDraftsInput').value = s.default_max_drafts || 2;
+                document.getElementById('defaultDraftSizeInput').value = s.default_max_draft_size_mb || 1;
+                document.getElementById('defaultActiveDaysInput').value = s.default_active_days || 1;
+                document.getElementById('androidVersionInput').value = s.android_version || '2.1.9';
+                document.getElementById('webappVersionInput').value = s.webapp_version || '2.1.9';
+            }
+        });
+}
+
+function toggleWaFields() {
+    const enabled = document.getElementById('waEnabledInput').checked;
+    document.getElementById('waTokenGroup').style.display = enabled ? 'block' : 'none';
+    document.getElementById('waTemplateGroup').style.display = enabled ? 'block' : 'none';
 }
 
 async function bulkToggleExams() {
