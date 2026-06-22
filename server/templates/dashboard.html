@@ -254,4 +254,36 @@
         </section>
     </main>
 
+    <!-- Modal Atur Soal -->
+    <div class="modal-overlay" id="questionsModal">
+        <div class="modal-card glass-card">
+            <div class="modal-header">
+                <h3 id="modalTitle">Atur Soal Ujian</h3>
+                <button class="modal-close" onclick="closeQuestionsModal()">✕</button>
+            </div>
+            <div class="modal-body">
+                <div class="security-level-config" style="margin-bottom: 20px; padding: 12px 16px; background: rgba(255, 255, 255, 0.03); border: 1px solid var(--glass-border); border-radius: 12px; display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 12px;">
+                    <div style="display: flex; align-items: center; gap: 8px;">
+                        <span style="font-size: 20px;">🛡️</span>
+                        <div>
+                            <div style="font-weight: 600; color: var(--text-primary); font-size: 0.95rem;">Mode Keamanan Ujian (Android)</div>
+                            <div style="font-size: 0.8rem; color: var(--text-muted);">Menentukan tindakan aplikasi jika siswa keluar/meminimalkan ujian.</div>
+                        </div>
+                    </div>
+                    <div>
+                        <select id="examSecurityLevel" class="q-type-select" style="min-width: 200px; margin: 0;">
+                            <option value="medium">Medium (Bisa Keluar & Auto-Submit)</option>
+                            <option value="low">Low (Bisa Keluar Tanpa Submit)</option>
+                        </select>
+                    </div>
+                </div>
+                <div class="questions-list-container" id="questionsList"></div>
+            </div>
+            <div class="modal-footer">
+                <button class="btn-sm btn-delete" onclick="closeQuestionsModal()">Batal</button>
+                <button class="btn-upload" onclick="saveQuestionsConfig()">Simpan Konfigurasi</button>
+            </div>
+        </div>
+    </div>
+
 {% endblock %}
