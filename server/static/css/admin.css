@@ -1255,6 +1255,98 @@ body {
     transition: color 0.2s;
 }
 
+/* Bulk Weight Modal */
+.bulk-weight-body {
+    text-align: center;
+    padding: 32px 28px;
+}
+
+.bulk-weight-desc {
+    color: var(--text-secondary);
+    margin-bottom: 20px;
+    font-size: 14px;
+    line-height: 1.5;
+}
+
+.bulk-weight-desc strong {
+    color: var(--text);
+    font-weight: 700;
+}
+
+.bulk-weight-input {
+    width: 140px;
+    padding: 14px 20px;
+    font-size: 28px;
+    font-weight: 800;
+    text-align: center;
+    background: rgba(255, 255, 255, 0.03);
+    border: 2px solid rgba(255, 255, 255, 0.1);
+    border-radius: 16px;
+    color: var(--text);
+    outline: none;
+    margin: 0 auto 16px;
+    display: block;
+    transition: border-color 0.2s, box-shadow 0.2s;
+    font-family: inherit;
+}
+
+.bulk-weight-input:focus {
+    border-color: var(--primary);
+    box-shadow: 0 0 0 4px var(--primary-glow);
+    background: rgba(99, 102, 241, 0.05);
+}
+
+/* Hide number input spinners */
+.bulk-weight-input::-webkit-inner-spin-button,
+.bulk-weight-input::-webkit-outer-spin-button {
+    -webkit-appearance: none;
+    margin: 0;
+}
+.bulk-weight-input[type="number"] {
+    -moz-appearance: textfield;
+}
+
+.bulk-weight-label {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    color: var(--text-muted);
+    font-size: 13px;
+    cursor: pointer;
+    padding: 8px 16px;
+    border-radius: 8px;
+    transition: background 0.2s;
+    user-select: none;
+}
+
+.bulk-weight-label:hover {
+    background: rgba(255, 255, 255, 0.03);
+}
+
+.bulk-weight-label input[type="checkbox"] {
+    width: 16px;
+    height: 16px;
+    accent-color: var(--primary);
+    cursor: pointer;
+}
+
+.bulk-weight-footer {
+    justify-content: center;
+    gap: 12px;
+    padding: 16px 28px 24px;
+}
+
+.bulk-weight-footer .btn-sm {
+    padding: 10px 28px;
+    font-size: 13px;
+}
+
+.bulk-weight-footer .btn-upload {
+    padding: 10px 28px;
+    font-size: 13px;
+}
+
 .modal-close:hover {
     color: var(--danger);
 }

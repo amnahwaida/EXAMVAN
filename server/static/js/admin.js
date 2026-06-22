@@ -423,30 +423,25 @@ function setAllWeights() {
 
     const card = document.createElement('div');
     card.className = 'modal-card';
-    card.style.maxWidth = '400px';
+    card.style.maxWidth = '420px';
     card.innerHTML = `
         <div class="modal-header">
             <h3>⚖️ Set Bobot Semua Soal</h3>
             <button class="modal-close" onclick="this.closest('.modal-overlay').remove()">✕</button>
         </div>
-        <div class="modal-body" style="text-align:center;">
-            <p style="color:var(--text-secondary); margin-bottom:16px; font-size:14px;">
+        <div class="modal-body bulk-weight-body">
+            <p class="bulk-weight-desc">
                 Masukkan bobot nilai yang akan diterapkan ke <strong>${weightInputs.length} soal</strong>:
             </p>
-            <input type="number" id="bulkWeightInput" value="${currentWeight}" step="0.5" min="0" style="
-                width: 120px; padding: 12px 16px; font-size: 24px; font-weight: 700;
-                text-align: center; background: rgba(255,255,255,0.04);
-                border: 2px solid var(--glass-border); border-radius: 12px;
-                color: var(--text); outline: none; margin: 0 auto 8px; display: block;
-            ">
-            <label style="display:flex; align-items:center; justify-content:center; gap:6px; color:var(--text-muted); font-size:13px; margin-top:4px;">
+            <input type="number" id="bulkWeightInput" class="bulk-weight-input" value="${currentWeight}" step="0.5" min="0">
+            <label class="bulk-weight-label">
                 <input type="checkbox" id="bulkWeightIncludePartial" checked>
                 Termasuk soal parsial
             </label>
         </div>
-        <div class="modal-footer" style="justify-content:center; gap:12px;">
-            <button class="btn-sm" onclick="this.closest('.modal-overlay').remove()" style="padding:10px 24px;">Batal</button>
-            <button class="btn-upload" onclick="applyBulkWeight(this)" style="padding:10px 24px; font-size:13px;">Terapkan</button>
+        <div class="modal-footer bulk-weight-footer">
+            <button class="btn-sm" onclick="this.closest('.modal-overlay').remove()">Batal</button>
+            <button class="btn-upload" onclick="applyBulkWeight(this)">Terapkan</button>
         </div>
     `;
     overlay.appendChild(card);
