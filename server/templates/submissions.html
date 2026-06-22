@@ -65,13 +65,14 @@
                     <tbody>
                         {% for sub in submissions %}
                         <tr id="submission-row-{{ sub.id }}" data-exam-id="{{ sub.exam_id }}" style="transition: background 0.2s;">
-                            <td class="td-name" data-label="Ujian" style="font-weight: 500;">{{ sub.exam_name }}</td>
-                            <td data-label="Siswa"><strong>{{ sub.student_name }}</strong></td>
-                            <td data-label="No. Ujian"><code class="token-code" style="letter-spacing: normal; font-size:12px;">{{ sub.exam_number }}</code></td>
-                            <td data-label="Kelas">{{ sub.student_class }}</td>
-                            <td data-label="Nilai">
+                            <td class="td-name"><span class="mob-label">Ujian</span><span style="font-weight:500;">{{ sub.exam_name }}</span></td>
+                            <td><span class="mob-label">Siswa</span><strong>{{ sub.student_name }}</strong></td>
+                            <td><span class="mob-label">No. Ujian</span><code class="token-code">{{ sub.exam_number }}</code></td>
+                            <td><span class="mob-label">Kelas</span>{{ sub.student_class }}</td>
+                            <td>
                                 {% if sub.score is not none %}
-                                <div class="score-cell">
+                                <div class="score-cell-mob">
+                                    <span class="mob-label">Nilai</span>
                                     <span class="score-value
                                         {% if sub.score_pct is not none and sub.score_pct >= 80 %}score-high
                                         {% elif sub.score_pct is not none and sub.score_pct >= 60 %}score-mid
@@ -79,34 +80,30 @@
                                         {{ sub.score }}{% if sub.max_score %}<span class="score-max">/{{ sub.max_score }}</span>{% endif %}
                                     </span>
                                     {% if sub.score_pct is not none %}
-                                    <div class="score-bar-track">
-                                        <div class="score-bar-fill {% if sub.score_pct >= 80 %}score-bar-high{% elif sub.score_pct >= 60 %}score-bar-mid{% else %}score-bar-low{% endif %}" style="width: {{ sub.score_pct|int }}%;"></div>
-                                    </div>
-                                    <span class="score-pct">{{ sub.score_pct|int }}%</span>
+                                    <span class="score-pct-mob">{{ sub.score_pct|int }}%</span>
                                     {% endif %}
                                 </div>
                                 {% else %}
                                 <span class="score-na">—</span>
                                 {% endif %}
                             </td>
-                            <td data-label="Mulai" data-utc="{{ sub.start_time or '' }}">{{ sub.start_time or '—' }}</td>
-                            <td data-label="Durasi">
+                            <td><span class="mob-label">Mulai</span>{{ sub.start_time or '—' }}</td>
+                            <td>
+                                <span class="mob-label">Durasi</span>
                                 {% if sub.start_time and sub.created_at %}
                                 <span class="duration-cell" data-start="{{ sub.start_time }}" data-end="{{ sub.created_at }}">⏳</span>
                                 {% else %}
                                 <span class="duration-na">—</span>
                                 {% endif %}
                             </td>
-                            <td data-label="Perangkat" class="td-device">
+                            <td class="td-device">
+                                <span class="mob-label">Perangkat</span>
                                 <code class="device-code">{{ sub.mac_address or '—' }}</code>
                             </td>
-                            <td data-label="Aksi" class="td-action-btns">
-                                <button class="btn-sm btn-toggle btn-action" onclick="showSubmissionDetail({{ sub.id }})">
-                                    👁️
-                                </button>
-                                <button class="btn-sm btn-delete btn-action" onclick="deleteSubmission({{ sub.id }})">
-                                    🗑️
-                                </button>
+                            <td class="td-action-btns">
+                                <span class="mob-label">Aksi</span>
+                                <button class="btn-sm btn-toggle btn-action" onclick="showSubmissionDetail({{ sub.id }})">👁️</button>
+                                <button class="btn-sm btn-delete btn-action" onclick="deleteSubmission({{ sub.id }})">🗑️</button>
                             </td>
                         </tr>
                         {% endfor %}

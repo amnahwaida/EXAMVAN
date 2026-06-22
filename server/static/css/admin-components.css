@@ -688,6 +688,21 @@
     font-size: 11px;
 }
 
+/* Mobile Label (hidden on desktop, shown on mobile) */
+.mob-label {
+    display: none;
+}
+.score-cell-mob {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+}
+.score-pct-mob {
+    font-size: 13px;
+    font-weight: 700;
+    color: var(--text);
+}
+
 /* Duration */
 .duration-na {
     color: var(--text-muted);
