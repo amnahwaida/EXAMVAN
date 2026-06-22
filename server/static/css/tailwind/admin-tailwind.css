@@ -416,7 +416,8 @@ body {
 
 /* === Buttons === */
 .actions-group { @apply flex gap-2 flex-wrap; }
-.btn-more { @apply inline-flex items-center gap-1 h-8 px-3 rounded-lg text-xs font-medium; }
+.btn-more { @apply inline-flex items-center gap-1 h-8 px-3 rounded-lg text-xs font-medium cursor-pointer; color: #cbd5e1; background: rgba(255,255,255,0.04); border: 1px solid rgba(255,255,255,0.08); }
+.btn-more:hover { background: rgba(255,255,255,0.08); color: #fff; }
 .btn-results {
     @apply bg-[rgba(6,182,212,0.1)] text-[#67e8f9] border border-[rgba(6,182,212,0.25)]
            inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium cursor-pointer transition-all;
@@ -439,7 +440,9 @@ body {
 .td-date { @apply text-xs text-[var(--text-secondary)]; }
 .td-name { @apply font-medium; }
 .td-token { @apply min-w-[160px]; }
-.topbar-menu-toggle { @apply bg-none border-none text-[var(--text)] text-xl cursor-pointer p-1; }
+.topbar-menu-toggle { @apply bg-transparent border-none text-xl cursor-pointer p-1; color: #cbd5e1; }
+.topbar-menu-toggle:hover { color: #fff; }
+.toggle-user-name { color: #cbd5e1; font-size: 14px; }
 .topbar-dropdown-content {
     @apply absolute right-0 top-full mt-2 w-[260px] rounded-xl py-2 hidden z-[200];
     background: rgba(10, 10, 22, 0.95);
