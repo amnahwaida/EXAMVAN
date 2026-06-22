@@ -763,13 +763,7 @@ function loadUsersList() {
     tbody.innerHTML = '<tr><td colspan="3" style="text-align:center; padding: 20px; color: var(--text-secondary);">Memuat...</td></tr>';
 
     apiFetch('/admin/api/users')
-        .then(r => {
-            if (!r.ok) {
-                console.error('API response not OK:', r.status, r.statusText);
-                throw new Error(`HTTP ${r.status}`);
-            }
-            return r.json();
-        })
+        .then(r => r.json())
         .then(res => {
             if (res.success) {
                 if (res.users.length === 0) {
@@ -783,7 +777,7 @@ function loadUsersList() {
                     tr.innerHTML = `
                         <td>
                             <strong style="color: ${isAdmin ? 'var(--accent-light)' : 'var(--text-color)'};">
-                                ${isAdmin ? '👑 ' : ''}${user.username}
+                                ${isAdmin ? '👑 ' : ''}${escapeHtml(user.username)}
                             </strong>
                             ${isAdmin ? '<span style="font-size:11px; color: var(--text-secondary); display:block;">Super Admin</span>' : ''}
                         </td>
@@ -791,7 +785,7 @@ function loadUsersList() {
                         <td>
                             ${isAdmin
                                 ? '<span style="font-size:11px; color: var(--text-secondary);">—</span>'
-                                : `<button class="btn-sm btn-delete" onclick="deleteUser(${user.id}, '${user.username}')" style="font-size: 11px; padding: 0 8px; height: 26px;">🗑️ Hapus</button>`
+                                : `<button class="btn-sm btn-delete" onclick="deleteUser(${user.id}, '${escapeHtml(user.username)}')" style="font-size: 11px; padding: 0 8px; height: 26px;">🗑️ Hapus</button>`
                             }
                         </td>
                     `;
@@ -802,11 +796,19 @@ function loadUsersList() {
                 tbody.innerHTML = '<tr><td colspan="3" style="text-align:center; padding: 20px; color: #fca5a5;">Gagal memuat daftar user</td></tr>';
             }
         })
-        .catch((err) => {
-            console.error('loadUsersList error:', err);
-            console.error('Response:', err.response);
+        .catch(() => {
             tbody.innerHTML = '<tr><td colspan="3" style="text-align:center; padding: 20px; color: #fca5a5;">Gagal memuat daftar user</td></tr>';
         });
+}
+
+function localizeDates() {
+    document.querySelectorAll('.td-date').forEach(el => {
+        const rawDate = el.dataset.utc;
+        if (rawDate) {
+            if (!el.dataset.utc) el.dataset.utc = rawDate;
+            el.textContent = localizeUTC(rawDate);
+        }
+    });
 }
 
 function submitCreateUser(e) {
