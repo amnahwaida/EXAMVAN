@@ -258,6 +258,207 @@ body {
 .login-subtitle { @apply text-sm text-[var(--text-secondary)] mt-1.5; }
 .login-footer { @apply text-center mt-6 text-xs text-[var(--text-muted)]; }
 
+/* === Dropdown === */
+.exam-action-dropdown { @apply relative inline-block; }
+.exam-action-dropdown-content {
+    @apply absolute right-0 top-full mt-1.5 z-[9999] min-w-[200px] rounded-lg
+           border border-[var(--glass-border)] bg-[#0c0a1a] shadow-2xl py-1 hidden;
+}
+.exam-action-dropdown-content.show { @apply block; }
+.exam-action-dropdown-content a,
+.exam-action-dropdown-content button {
+    @apply flex items-center gap-2.5 w-full px-4 py-2.5 text-sm text-[var(--text-secondary)]
+           no-underline bg-none border-none cursor-pointer text-left transition-colors;
+}
+.exam-action-dropdown-content a:hover,
+.exam-action-dropdown-content button:hover {
+    @apply bg-[rgba(99,102,241,0.1)] text-white;
+}
+.dropdown-divider { @apply h-px bg-[var(--glass-border)] my-1; }
+.dropdown-header { @apply px-4 py-2; }
+.dropdown-user-title { @apply text-sm font-bold text-white; }
+.dropdown-user-role { @apply text-xs text-[var(--text-muted)]; }
+.dropdown-item { @apply flex items-center gap-2.5 w-full px-4 py-2.5 text-sm text-[var(--text-secondary)] no-underline transition-colors; }
+.dropdown-item:hover { @apply bg-[rgba(99,102,241,0.1)] text-white; }
+.dropdown-logout:hover { @apply bg-[rgba(239,68,68,0.1)] text-[#fca5a5]; }
+
+/* === Modals === */
+.modal-overlay {
+    @apply fixed inset-0 z-[1000] hidden items-center justify-center p-5;
+    background: rgba(5, 5, 15, 0.8);
+    backdrop-filter: blur(8px);
+}
+.modal-card {
+    @apply w-full max-w-[800px] max-h-[85vh] flex flex-col overflow-hidden
+           bg-[rgba(10,10,26,0.95)] border border-[var(--glass-border)] rounded-2xl;
+}
+.modal-header { @apply flex items-center justify-between px-6 py-5 border-b border-[var(--glass-border)]; }
+.modal-header h3 { @apply m-0 text-lg font-semibold; }
+.modal-close { @apply bg-none border-none text-lg text-[var(--text-secondary)] cursor-pointer transition-colors; }
+.modal-close:hover { @apply text-[var(--danger)]; }
+.modal-body { @apply p-6 overflow-y-auto flex-1; }
+.modal-footer {
+    @apply flex justify-end gap-3 px-6 py-4 border-t border-[var(--glass-border)]
+           bg-[rgba(255,255,255,0.02)];
+}
+
+/* === Question Editor === */
+.question-editor-card {
+    @apply p-4 rounded-xl border border-[rgba(255,255,255,0.06)] bg-[rgba(255,255,255,0.02)]
+           flex items-start gap-3 flex-wrap transition-all duration-200;
+}
+.question-editor-card:hover { @apply border-[rgba(99,102,241,0.3)] bg-[rgba(255,255,255,0.035)]; }
+.q-num-badge {
+    @apply bg-[var(--primary)] text-white font-bold px-3 py-1.5 rounded-lg text-xs text-center flex-shrink-0;
+    min-width: 44px;
+}
+.q-card-body { @apply flex flex-wrap items-start gap-2.5 flex-1 min-w-[200px]; }
+.q-field-group { @apply flex flex-col gap-1 min-w-0; }
+.q-field-group label { @apply text-[10.5px] font-semibold uppercase tracking-[0.3px] text-[var(--text-muted)]; }
+.q-field-group input,
+.q-field-group select {
+    @apply px-3 py-2 rounded-lg text-sm text-[var(--text)] outline-none transition-all duration-200;
+    background: rgba(255, 255, 255, 0.04);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+}
+.q-field-group input:focus,
+.q-field-group select:focus {
+    @apply border-[var(--primary)] shadow-[0_0_0_3px_var(--primary-glow)];
+    background: rgba(99, 102, 241, 0.06);
+}
+.q-type-select {
+    @apply min-w-[170px] pr-8 cursor-pointer;
+    -webkit-appearance: none;
+    -moz-appearance: none;
+    appearance: none;
+    background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='24' height='24' viewBox='0 0 24 24' fill='none' stroke='%23a5b4fc' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'><polyline points='6 9 12 15 18 9'></polyline></svg>");
+    background-repeat: no-repeat;
+    background-position: right 10px center;
+    background-size: 14px;
+}
+.q-weight-input { @apply w-[70px] font-bold text-center; }
+.q-key-input { @apply w-[120px] font-bold uppercase; }
+.q-options-input { @apply min-w-[200px] max-w-[300px]; }
+.q-partial-group { @apply flex-row items-center gap-1.5 pt-1; }
+.btn-remove-q { @apply bg-[rgba(239,68,68,0.08)] text-[#fca5a5] text-xs cursor-pointer flex-shrink-0; }
+.questions-list-container { @apply flex flex-col gap-3; }
+.q-divider-line { @apply flex-1 h-px; background: linear-gradient(90deg, transparent, rgba(255,255,255,0.12), transparent); }
+.q-editor-divider { @apply flex items-center justify-center my-2 gap-3 opacity-35 transition-opacity; }
+.q-editor-divider:hover { @apply opacity-100; }
+.btn-add-inline {
+    @apply bg-[rgba(99,102,241,0.12)] border border-dashed border-[rgba(99,102,241,0.4)]
+           text-[#a5b4fc] text-xs font-bold px-3.5 py-1 rounded-full cursor-pointer
+           flex items-center gap-1.5 transition-all;
+}
+.btn-add-inline:hover {
+    @apply bg-[rgba(99,102,241,0.25)] border-[rgba(99,102,241,0.7)] text-white;
+    box-shadow: 0 0 10px rgba(99, 102, 241, 0.3);
+}
+
+/* === Detail Answers Modal === */
+.detail-answers-grid {
+    @apply flex flex-col gap-2 max-h-[55vh] overflow-y-auto p-4 rounded-xl;
+    background: rgba(0, 0, 0, 0.2);
+    border: 1px solid var(--glass-border);
+}
+.detail-answer-item {
+    @apply flex justify-between items-center p-2.5 rounded-md text-xs gap-3;
+    background: rgba(255, 255, 255, 0.02);
+    border: 1px solid rgba(255, 255, 255, 0.05);
+}
+.detail-answer-item.correct { @apply border-[rgba(34,197,94,0.3)] bg-[rgba(34,197,94,0.05)]; }
+.detail-answer-item.incorrect { @apply border-[rgba(239,68,68,0.3)] bg-[rgba(239,68,68,0.05)]; }
+.detail-answer-item.partial { @apply border-[rgba(234,179,8,0.3)] bg-[rgba(234,179,8,0.05)]; }
+.detail-q-num { @apply text-[var(--text-secondary)] font-semibold min-w-[50px]; }
+.detail-q-ans { @apply text-[#a78bfa] font-mono font-bold break-all flex-1; }
+.detail-q-key { @apply text-[#34d399] font-mono font-bold break-all flex-1; }
+.detail-q-status { @apply font-bold; }
+.detail-q-points { @apply text-[var(--text-muted)] text-xs; }
+
+/* === Bulk Weight Modal === */
+.bulk-weight-body { @apply text-center px-7 py-8; }
+.bulk-weight-desc { @apply text-sm text-[var(--text-secondary)] mb-5; }
+.bulk-weight-input {
+    @apply w-[140px] px-5 py-3.5 text-3xl font-extrabold text-center mx-auto mb-4 block outline-none;
+    background: rgba(255, 255, 255, 0.03);
+    border: 2px solid rgba(255, 255, 255, 0.1);
+    border-radius: 16px;
+    color: var(--text);
+}
+.bulk-weight-input:focus {
+    @apply border-[var(--primary)] shadow-[0_0_0_4px_var(--primary-glow)];
+    background: rgba(99, 102, 241, 0.05);
+}
+.bulk-weight-label {
+    @apply flex items-center justify-center gap-2 text-xs text-[var(--text-muted)] cursor-pointer
+           px-4 py-2 rounded-lg transition-colors select-none;
+}
+.bulk-weight-label:hover { @apply bg-[rgba(255,255,255,0.03)]; }
+.bulk-weight-footer { @apply justify-center gap-3 px-7 pb-4; }
+
+/* === Buttons === */
+.actions-group { @apply flex gap-2 flex-wrap; }
+.btn-more { @apply inline-flex items-center gap-1 h-8 px-3 rounded-lg text-xs font-medium; }
+.btn-results {
+    @apply bg-[rgba(6,182,212,0.1)] text-[#67e8f9] border border-[rgba(6,182,212,0.25)]
+           inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium cursor-pointer transition-all;
+}
+.btn-results:hover { @apply bg-[rgba(6,182,212,0.2)]; }
+
+/* === Submissions === */
+.submissions-actions { @apply flex items-center gap-3; }
+.select-filter {
+    @apply px-4 py-2.5 text-sm rounded-lg outline-none cursor-pointer min-w-[200px];
+    background: var(--surface);
+    border: 1px solid var(--glass-border);
+    color: var(--text);
+}
+
+/* === Layout === */
+.users-layout { @apply grid gap-6 items-start; grid-template-columns: 380px 1fr; }
+.menu-hamburger-icon { @apply text-xl; }
+.td-actions { @apply flex gap-2 flex-nowrap items-center; }
+.td-date { @apply text-xs text-[var(--text-secondary)]; }
+.td-name { @apply font-medium; }
+.td-token { @apply min-w-[160px]; }
+.topbar-menu-toggle { @apply bg-none border-none text-[var(--text)] text-xl cursor-pointer p-1; }
+.topbar-dropdown-content {
+    @apply absolute right-0 top-full mt-2 w-[260px] rounded-xl py-2 hidden z-[200];
+    background: rgba(10, 10, 22, 0.95);
+    border: 1px solid var(--glass-border);
+    box-shadow: 0 20px 50px rgba(0, 0, 0, 0.5);
+}
+.topbar-dropdown-content.show { @apply block; }
+.topbar-menu-dropdown { @apply relative; }
+.nav-link { @apply text-sm font-medium text-[var(--text-secondary)] no-underline transition-colors; }
+.nav-link:hover { @apply text-white; }
+.nav-link.active { @apply text-white; }
+
+/* === Questions Toolbar === */
+.questions-toolbar {
+    @apply flex flex-wrap items-center gap-2.5 mb-4 p-3 rounded-xl;
+    background: rgba(255, 255, 255, 0.02);
+    border: 1px solid var(--glass-border);
+}
+.inline-group { @apply flex items-center gap-2 flex-wrap; }
+.qt-row { @apply flex flex-wrap items-center gap-2; }
+.qt-group { @apply flex items-center gap-2 flex-wrap; }
+.qt-label { @apply text-xs font-semibold text-[var(--text-muted)] whitespace-nowrap; }
+.qt-input-num { @apply w-[60px] text-center px-2.5 py-1.5 rounded-md text-sm outline-none; background: var(--surface); border: 1px solid var(--glass-border); color: var(--text); }
+.qt-select {
+    @apply px-2.5 py-1.5 pr-8 text-sm min-w-[150px] rounded-md outline-none cursor-pointer;
+    background-color: rgba(255, 255, 255, 0.05);
+    border: 1px solid var(--glass-border);
+    color: var(--text);
+    -webkit-appearance: none;
+    -moz-appearance: none;
+    appearance: none;
+    background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='24' height='24' viewBox='0 0 24 24' fill='none' stroke='%23a5b4fc' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'><polyline points='6 9 12 15 18 9'></polyline></svg>");
+    background-repeat: no-repeat;
+    background-position: right 10px center;
+    background-size: 14px;
+}
+
 @theme {
     --color-primary: #6366f1;
     --color-primary-dark: #4f46e5;
