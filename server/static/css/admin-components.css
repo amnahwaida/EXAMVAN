@@ -690,7 +690,7 @@
 
 /* Mobile Label (hidden on desktop, shown on mobile) */
 .mob-label {
-    display: none;
+    display: none !important;
 }
 .score-cell-mob {
     display: flex;
