@@ -415,19 +415,75 @@ function setAllWeights() {
     }
 
     const currentWeight = weightInputs[0].value || '1.0';
-    const newWeight = prompt('Set bobot nilai untuk SEMUA soal:', currentWeight);
-    if (newWeight === null) return; // cancelled
 
-    const parsed = parseFloat(newWeight);
+    // Build modal
+    const overlay = document.createElement('div');
+    overlay.className = 'modal-overlay';
+    overlay.style.display = 'flex';
+
+    const card = document.createElement('div');
+    card.className = 'modal-card';
+    card.style.maxWidth = '400px';
+    card.innerHTML = `
+        <div class="modal-header">
+            <h3>⚖️ Set Bobot Semua Soal</h3>
+            <button class="modal-close" onclick="this.closest('.modal-overlay').remove()">✕</button>
+        </div>
+        <div class="modal-body" style="text-align:center;">
+            <p style="color:var(--text-secondary); margin-bottom:16px; font-size:14px;">
+                Masukkan bobot nilai yang akan diterapkan ke <strong>${weightInputs.length} soal</strong>:
+            </p>
+            <input type="number" id="bulkWeightInput" value="${currentWeight}" step="0.5" min="0" style="
+                width: 120px; padding: 12px 16px; font-size: 24px; font-weight: 700;
+                text-align: center; background: rgba(255,255,255,0.04);
+                border: 2px solid var(--glass-border); border-radius: 12px;
+                color: var(--text); outline: none; margin: 0 auto 8px; display: block;
+            ">
+            <label style="display:flex; align-items:center; justify-content:center; gap:6px; color:var(--text-muted); font-size:13px; margin-top:4px;">
+                <input type="checkbox" id="bulkWeightIncludePartial" checked>
+                Termasuk soal parsial
+            </label>
+        </div>
+        <div class="modal-footer" style="justify-content:center; gap:12px;">
+            <button class="btn-sm" onclick="this.closest('.modal-overlay').remove()" style="padding:10px 24px;">Batal</button>
+            <button class="btn-upload" onclick="applyBulkWeight(this)" style="padding:10px 24px; font-size:13px;">Terapkan</button>
+        </div>
+    `;
+    overlay.appendChild(card);
+    document.body.appendChild(overlay);
+
+    // Focus input and select all text
+    const input = document.getElementById('bulkWeightInput');
+    input.focus();
+    input.select();
+}
+
+function applyBulkWeight(btn) {
+    const overlay = btn.closest('.modal-overlay');
+    const input = document.getElementById('bulkWeightInput');
+    const includePartial = document.getElementById('bulkWeightIncludePartial').checked;
+
+    const parsed = parseFloat(input.value);
     if (isNaN(parsed) || parsed < 0) {
         showToast('Bobot nilai harus berupa angka positif', 'error');
+        input.focus();
+        input.select();
         return;
     }
 
-    weightInputs.forEach(input => {
-        input.value = parsed;
+    const weightInputs = document.querySelectorAll('.q-weight-input');
+    weightInputs.forEach((inputEl, idx) => {
+        // If partial checkbox is unchecked, skip questions with partial scoring enabled
+        if (!includePartial) {
+            const card = inputEl.closest('.question-editor-card');
+            const partialCheckbox = card ? card.querySelector('.q-partial-checkbox') : null;
+            if (partialCheckbox && partialCheckbox.checked) return;
+        }
+        inputEl.value = parsed;
     });
-    showToast(`Bobot semua soal diubah menjadi ${parsed}`, 'success');
+
+    overlay.remove();
+    showToast(`Bobot ${weightInputs.length} soal diubah menjadi ${parsed}`, 'success');
 }
 
 function renderQuestions(questions) {
