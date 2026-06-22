@@ -58,6 +58,7 @@ class ExamViewerActivity : AppCompatActivity() {
     private var studentName = ""
     private var studentNumber = ""
     private var studentClass = ""
+    private var identityData: String? = null
     private var startTime = ""
     private var macAddress = ""
 
@@ -114,6 +115,7 @@ class ExamViewerActivity : AppCompatActivity() {
         studentName = intent.getStringExtra("student_name") ?: ""
         studentNumber = intent.getStringExtra("student_number") ?: ""
         studentClass = intent.getStringExtra("student_class") ?: ""
+        identityData = intent.getStringExtra("identity_data")
 
         // Record start time in UTC ISO 8601 format
         val df = java.text.SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss'Z'", java.util.Locale.US)
@@ -511,6 +513,7 @@ class ExamViewerActivity : AppCompatActivity() {
             answers = studentAnswers,
             startTime = startTime,
             macAddress = macAddress,
+            identityData = identityData,
             onSuccess = { message ->
                 isSubmitting = false
                 submittedOrExited = true
@@ -812,7 +815,8 @@ class ExamViewerActivity : AppCompatActivity() {
                     studentClass = studentClass,
                     answers = studentAnswers,
                     startTime = startTime,
-                    macAddress = macAddress
+                    macAddress = macAddress,
+                    identityData = identityData
                 )
             } catch (_: Throwable) {
                 Pair(false, "Terjadi kesalahan saat mengirim jawaban.")

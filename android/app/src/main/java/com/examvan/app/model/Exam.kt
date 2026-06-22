@@ -1,6 +1,15 @@
 package com.examvan.app.model
 
 /**
+ * Represents a configurable identity field for student data entry.
+ */
+data class IdentityField(
+    val key: String = "",
+    val label: String = "",
+    val required: Boolean = false
+)
+
+/**
  * Data class representing an exam from the API.
  */
 data class Exam(
@@ -11,6 +20,7 @@ data class Exam(
     val token: String? = null,
     val questions: List<Map<String, Any>>? = null,
     val security_level: String? = null,
+    val identity_fields: List<IdentityField>? = null,
     val created_at: String
 )
 

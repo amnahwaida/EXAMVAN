@@ -6,16 +6,20 @@ import android.content.SharedPreferences
 import android.os.Bundle
 import android.view.LayoutInflater
 import android.view.View
+import android.view.ViewGroup
 import android.view.WindowManager
 import android.widget.Button
 import android.widget.EditText
+import android.widget.LinearLayout
 import android.widget.TextView
 import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
 import com.examvan.app.api.ApiClient
 import com.examvan.app.databinding.ActivityServerConfigBinding
 import com.examvan.app.model.Exam
+import com.examvan.app.model.IdentityField
 import com.examvan.app.BuildConfig
+import org.json.JSONObject
 
 /**
  * Screen 1: Server & Token Configuration
@@ -34,11 +38,7 @@ class ServerConfigActivity : AppCompatActivity() {
         const val KEY_SERVER_URL = "server_url"
         const val KEY_EXAM_TOKEN = "exam_token"
         const val KEY_REMEMBER_URL = "remember_url"
-        
-        // Student identity keys
-        const val KEY_STUDENT_NAME = "student_name"
-        const val KEY_STUDENT_NUMBER = "student_number"
-        const val KEY_STUDENT_CLASS = "student_class"
+        const val KEY_IDENTITY_DATA = "identity_data"
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -186,48 +186,145 @@ class ServerConfigActivity : AppCompatActivity() {
     }
 
     private fun showStudentIdentityDialog(exam: Exam, serverUrl: String) {
-        val dialogView = LayoutInflater.from(this).inflate(R.layout.dialog_student_identity, null)
-        
-        val etName = dialogView.findViewById<EditText>(R.id.etStudentName)
-        val etNumber = dialogView.findViewById<EditText>(R.id.etStudentNumber)
-        val etClass = dialogView.findViewById<EditText>(R.id.etStudentClass)
-        val tvDialogError = dialogView.findViewById<TextView>(R.id.tvDialogError)
-        val btnConfirm = dialogView.findViewById<Button>(R.id.btnConfirmStart)
+        // Use identity_fields from server, or fall back to defaults
+        val fields = if (!exam.identity_fields.isNullOrEmpty()) {
+            exam.identity_fields
+        } else {
+            listOf(
+                IdentityField("student_name", "Nama Siswa", true),
+                IdentityField("exam_number", "Nomor Ujian", true),
+                IdentityField("student_class", "Kelas", true)
+            )
+        }
 
-        // Pre-fill student identity if previously saved
-        etName.setText(prefs.getString(KEY_STUDENT_NAME, ""))
-        etNumber.setText(prefs.getString(KEY_STUDENT_NUMBER, ""))
-        etClass.setText(prefs.getString(KEY_STUDENT_CLASS, ""))
+        // Build dialog form dynamically
+        val scrollView = android.widget.ScrollView(this)
+        val container = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(48, 32, 48, 24)
+        }
+
+        val titleView = TextView(this).apply {
+            text = "Identitas Siswa"
+            textSize = 20f
+            setTextColor(0xff111827.toInt())
+            typeface = android.graphics.Typeface.DEFAULT_BOLD
+            gravity = android.view.Gravity.CENTER
+        }
+        container.addView(titleView)
+
+        val subtitleView = TextView(this).apply {
+            text = "Isi data diri Anda untuk memulai ujian"
+            textSize = 13f
+            setTextColor(0xff6b7280.toInt())
+            gravity = android.view.Gravity.CENTER
+            setPadding(0, 4, 0, 24)
+        }
+        container.addView(subtitleView)
+
+        // Create EditText map for all fields
+        val editTexts = mutableMapOf<String, EditText>()
+
+        // Restore previously saved identity data
+        val savedIdentityJson = prefs.getString(KEY_IDENTITY_DATA, "{}") ?: "{}"
+        val savedIdentity = try { JSONObject(savedIdentityJson) } catch (_: Exception) { JSONObject() }
+
+        for (field in fields) {
+            val labelView = TextView(this).apply {
+                text = field.label + if (field.required) " *" else ""
+                textSize = 14f
+                setTextColor(0xff374151.toInt())
+                typeface = android.graphics.Typeface.DEFAULT_BOLD
+                setPadding(0, 12, 0, 4)
+            }
+            container.addView(labelView)
+
+            val editText = EditText(this).apply {
+                hint = field.label
+                setText(savedIdentity.optString(field.key, ""))
+                setTextColor(0xff111827.toInt())
+                setHintTextColor(0xff9ca3af.toInt())
+                background = android.content.res.ColorStateList.valueOf(0xffe5e7eb.toInt()).let {
+                    android.graphics.drawable.GradientDrawable().apply {
+                        setStroke(1, 0xffd1d5db.toInt())
+                        setColor(0xfff9fafb.toInt())
+                        cornerRadius = 8f
+                    }
+                }
+                setPadding(16, 12, 16, 12)
+                textSize = 15f
+            }
+            container.addView(editText, LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT
+            ).apply { setMargins(0, 0, 0, 4) })
+            editTexts[field.key] = editText
+        }
+
+        val tvDialogError = TextView(this).apply {
+            textSize = 13f
+            setTextColor(0xffdc2626.toInt())
+            gravity = android.view.Gravity.CENTER
+            setPadding(0, 12, 0, 4)
+            visibility = View.GONE
+        }
+        container.addView(tvDialogError)
+
+        val btnConfirm = Button(this).apply {
+            text = "Mulai Ujian"
+            setTextColor(0xffffffff.toInt())
+            textSize = 15f
+            typeface = android.graphics.Typeface.DEFAULT_BOLD
+            setPadding(0, 14, 0, 14)
+            setBackgroundColor(0xff6366f1.toInt())
+            layoutParams = LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT
+            ).apply { setMargins(0, 16, 0, 0) }
+        }
+        container.addView(btnConfirm)
+
+        scrollView.addView(container)
 
         val builder = AlertDialog.Builder(this)
-            .setView(dialogView)
+            .setView(scrollView)
             .setCancelable(true)
 
         val alertDialog = builder.create()
 
         btnConfirm.setOnClickListener {
-            val name = etName.text.toString().trim()
-            val number = etNumber.text.toString().trim()
-            val studentClass = etClass.text.toString().trim()
+            // Build identity_data JSON from all fields
+            val identityJson = JSONObject()
+            var hasEmptyRequired = false
+            var firstEmptyKey = ""
 
-            if (name.isEmpty() || number.isEmpty() || studentClass.isEmpty()) {
-                tvDialogError.text = "Semua bidang identitas wajib diisi!"
+            for (field in fields) {
+                val value = editTexts[field.key]?.text?.toString()?.trim() ?: ""
+                if (field.required && value.isEmpty()) {
+                    hasEmptyRequired = true
+                    if (firstEmptyKey.isEmpty()) firstEmptyKey = field.label
+                }
+                identityJson.put(field.key, value)
+            }
+
+            if (hasEmptyRequired) {
+                tvDialogError.text = "\"$firstEmptyKey\" wajib diisi!"
                 tvDialogError.visibility = View.VISIBLE
                 return@setOnClickListener
             }
 
             tvDialogError.visibility = View.GONE
-            
-            // Save student identity in SharedPreferences for convenience next time
+
+            val identityDataStr = identityJson.toString()
+
+            // Save identity data to SharedPreferences
             prefs.edit()
-                .putString(KEY_STUDENT_NAME, name)
-                .putString(KEY_STUDENT_NUMBER, number)
-                .putString(KEY_STUDENT_CLASS, studentClass)
+                .putString(KEY_IDENTITY_DATA, identityDataStr)
                 .apply()
 
             alertDialog.dismiss()
 
-            // Save questions JSON and security level from token API response to SharedPreferences
+            // Save questions JSON and security level
             val questionsJson = com.google.gson.Gson().toJson(exam.questions ?: emptyList<Any>())
             val securityLevel = exam.security_level ?: "medium"
             getSharedPreferences("exam_questions", MODE_PRIVATE)
@@ -236,13 +333,17 @@ class ServerConfigActivity : AppCompatActivity() {
                 .putString("security_level", securityLevel)
                 .apply()
 
-            startExamViewer(exam.id, exam.name, serverUrl, name, number, studentClass)
+            // Extract legacy fields for backward compat with ExamViewer
+            val name = identityJson.optString("student_name", "")
+            val number = identityJson.optString("exam_number", "")
+            val sClass = identityJson.optString("student_class", "")
+            startExamViewer(exam.id, exam.name, serverUrl, name, number, sClass, identityDataStr)
         }
 
         alertDialog.show()
     }
 
-    private fun startExamViewer(examId: Int, examName: String, serverUrl: String, name: String, number: String, studentClass: String) {
+    private fun startExamViewer(examId: Int, examName: String, serverUrl: String, name: String, number: String, studentClass: String, identityData: String = "{}") {
         val intent = Intent(this@ServerConfigActivity, ExamViewerActivity::class.java).apply {
             putExtra("exam_id", examId)
             putExtra("exam_name", examName)
@@ -250,6 +351,7 @@ class ServerConfigActivity : AppCompatActivity() {
             putExtra("student_name", name)
             putExtra("student_number", number)
             putExtra("student_class", studentClass)
+            putExtra("identity_data", identityData)
         }
         startActivity(intent)
     }

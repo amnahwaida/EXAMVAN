@@ -269,6 +269,7 @@ object ApiClient {
         answers: Map<String, Any>,
         startTime: String? = null,
         macAddress: String? = null,
+        identityData: String? = null,
         onSuccess: (String) -> Unit,
         onError: (String) -> Unit
     ) {
@@ -280,6 +281,14 @@ object ApiClient {
         )
         if (startTime != null) payload["start_time"] = startTime
         if (macAddress != null) payload["mac_address"] = macAddress
+        if (identityData != null) {
+            try {
+                val identityJson = org.json.JSONObject(identityData)
+                payload["identity_data"] = identityJson
+            } catch (_: Exception) {
+                payload["identity_data"] = identityData
+            }
+        }
 
         val bodyStr = gson.toJson(payload)
         val mediaType = "application/json; charset=utf-8".toMediaTypeOrNull()
@@ -323,7 +332,8 @@ object ApiClient {
         studentClass: String,
         answers: Map<String, Any>,
         startTime: String? = null,
-        macAddress: String? = null
+        macAddress: String? = null,
+        identityData: String? = null
     ): Pair<Boolean, String> {
         val payload = mutableMapOf<String, Any>(
             "student_name" to studentName,
@@ -333,6 +343,14 @@ object ApiClient {
         )
         if (startTime != null) payload["start_time"] = startTime
         if (macAddress != null) payload["mac_address"] = macAddress
+        if (identityData != null) {
+            try {
+                val identityJson = org.json.JSONObject(identityData)
+                payload["identity_data"] = identityJson
+            } catch (_: Exception) {
+                payload["identity_data"] = identityData
+            }
+        }
 
         val bodyStr = gson.toJson(payload)
         val mediaType = "application/json; charset=utf-8".toMediaTypeOrNull()

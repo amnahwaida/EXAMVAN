@@ -57,6 +57,11 @@ def localize_date_string(utc_str, tz_offset_min=None):
         print("Localization error:", e)
         return utc_str
 DEFAULT_ADMIN = {'username': 'admin', 'password': 'examvan2026'}
+DEFAULT_IDENTITY_FIELDS = json.dumps([
+    {'key': 'student_name', 'label': 'Nama Siswa', 'required': True},
+    {'key': 'exam_number', 'label': 'Nomor Ujian', 'required': True},
+    {'key': 'student_class', 'label': 'Kelas', 'required': True},
+])
 
 os.makedirs(STORAGE_DIR, exist_ok=True)
 os.makedirs(os.path.dirname(DATABASE), exist_ok=True)
@@ -296,6 +301,20 @@ def init_db():
         db.execute('SELECT otp_expiry FROM admin_users LIMIT 1')
     except sqlite3.OperationalError:
         db.execute("ALTER TABLE admin_users ADD COLUMN otp_expiry TIMESTAMP")
+        db.commit()
+
+    # Migrate: add identity_fields to exams if missing
+    try:
+        db.execute('SELECT identity_fields FROM exams LIMIT 1')
+    except sqlite3.OperationalError:
+        db.execute("ALTER TABLE exams ADD COLUMN identity_fields TEXT")
+        db.commit()
+
+    # Migrate: add identity_data to submissions if missing
+    try:
+        db.execute('SELECT identity_data FROM submissions LIMIT 1')
+    except sqlite3.OperationalError:
+        db.execute("ALTER TABLE submissions ADD COLUMN identity_data TEXT")
         db.commit()
 
     db.close()
@@ -760,7 +779,7 @@ def api_exam_by_token(token):
     token = token.strip().upper()
     db = get_db()
     exam = db.execute(
-        'SELECT id, name, status, size_bytes, token, questions_json, security_level, created_at '
+        'SELECT id, name, status, size_bytes, token, questions_json, security_level, identity_fields, created_at '
         'FROM exams WHERE token = ? AND status = ?',
         (token, 'active')
     ).fetchone()
@@ -785,7 +804,18 @@ def api_exam_by_token(token):
         except Exception:
             pass
 
-    # If no questions configured, return empty list (PDF-only mode)
+    # Process identity fields configuration
+    identity_fields = []
+    if exam['identity_fields']:
+        try:
+            identity_fields = json.loads(exam['identity_fields'])
+        except Exception:
+            pass
+    if not identity_fields:
+        try:
+            identity_fields = json.loads(DEFAULT_IDENTITY_FIELDS)
+        except Exception:
+            identity_fields = []
 
     return jsonify({
         'success': True,
@@ -797,6 +827,7 @@ def api_exam_by_token(token):
             'size_mb': round(exam['size_bytes'] / (1024 * 1024), 2),
             'questions': questions,
             'security_level': exam['security_level'] or 'medium',
+            'identity_fields': identity_fields,
             'created_at': format_iso_utc(exam['created_at'])
         }
     })
@@ -815,17 +846,26 @@ def api_submit_exam(exam_id):
         }), 426
 
     data = request.json or {}
-    student_name = data.get('student_name', '').strip()
-    exam_number = data.get('exam_number', '').strip()
-    student_class = data.get('student_class', '').strip()
-    answers = data.get('answers', {})  # Map of "number" -> answer value
+    # identity_data contains all dynamic identity fields (from new Android app)
+    identity_data = data.get('identity_data')
+    if identity_data and isinstance(identity_data, dict):
+        identity_data_json = json.dumps(identity_data)
+        student_name = str(identity_data.get('student_name', '')).strip()
+        exam_number = str(identity_data.get('exam_number', '')).strip()
+        student_class = str(identity_data.get('student_class', '')).strip()
+    else:
+        identity_data_json = None
+        student_name = data.get('student_name', '').strip()
+        exam_number = data.get('exam_number', '').strip()
+        student_class = data.get('student_class', '').strip()
+
+    answers = data.get('answers', {})
     start_time_raw = data.get('start_time')
     mac_address = data.get('mac_address', '').strip() or None
 
     start_time = None
     if start_time_raw:
         try:
-            # "2026-05-24T00:00:00Z" -> "2026-05-24 00:00:00"
             start_time = start_time_raw.replace('T', ' ').replace('Z', '')
         except Exception:
             start_time = start_time_raw
@@ -838,7 +878,6 @@ def api_submit_exam(exam_id):
     if not exam:
         return jsonify({'success': False, 'message': 'Ujian tidak ditemukan'}), 404
 
-    # Calculate score if questions exist
     score = None
     questions_raw = exam['questions_json']
     if questions_raw:
@@ -848,11 +887,10 @@ def api_submit_exam(exam_id):
         except Exception as e:
             print("Auto-grading error:", e)
 
-    # Save submission
     db.execute(
-        'INSERT INTO submissions (exam_id, student_name, exam_number, student_class, answers_json, score, start_time, mac_address) '
-        'VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
-        (exam_id, student_name, exam_number, student_class, json.dumps(answers), score, start_time, mac_address)
+        'INSERT INTO submissions (exam_id, student_name, exam_number, student_class, identity_data, answers_json, score, start_time, mac_address) '
+        'VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)',
+        (exam_id, student_name, exam_number, student_class, identity_data_json, json.dumps(answers), score, start_time, mac_address)
     )
     db.commit()
 
@@ -2140,7 +2178,18 @@ def admin_exam_questions(exam_id):
                 questions = json.loads(questions_raw)
             except Exception:
                 pass
-        return jsonify({'success': True, 'questions': questions, 'security_level': security_level})
+        identity_fields = []
+        if exam['identity_fields']:
+            try:
+                identity_fields = json.loads(exam['identity_fields'])
+            except Exception:
+                pass
+        return jsonify({
+            'success': True,
+            'questions': questions,
+            'security_level': security_level,
+            'identity_fields': identity_fields
+        })
 
     else:
         # POST: Save questions configuration
@@ -2155,10 +2204,16 @@ def admin_exam_questions(exam_id):
         if not isinstance(questions, list):
             return jsonify({'success': False, 'message': 'Format data pertanyaan tidak valid'}), 400
 
+        identity_fields = data.get('identity_fields')
+        if identity_fields is not None and isinstance(identity_fields, list):
+            identity_fields_json = json.dumps(identity_fields)
+        else:
+            identity_fields_json = exam['identity_fields'] or DEFAULT_IDENTITY_FIELDS
+
         # Save to database
         db.execute(
-            'UPDATE exams SET questions_json = ?, security_level = ? WHERE id = ?',
-            (json.dumps(questions), security_level, exam_id)
+            'UPDATE exams SET questions_json = ?, security_level = ?, identity_fields = ? WHERE id = ?',
+            (json.dumps(questions), security_level, identity_fields_json, exam_id)
         )
         
         # Recalculate scores for all existing submissions of this exam
