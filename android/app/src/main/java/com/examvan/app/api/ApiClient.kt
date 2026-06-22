@@ -15,6 +15,13 @@ import com.examvan.app.BuildConfig
 /**
  * API client for communicating with the EXAMVAN server.
  * Configured with extended timeouts for slow LAN connections.
+ *
+ * SECURITY NOTE: OkHttp defaults trust all system CAs. No certificate pinning.
+ * For production over WAN, consider adding a CertificatePinner:
+ *   val pinner = CertificatePinner.Builder()
+ *       .add("yourdomain.com", "sha256/...")
+ *       .build()
+ * And enforce HTTPS in ServerConfigActivity.
  */
 object ApiClient {
 

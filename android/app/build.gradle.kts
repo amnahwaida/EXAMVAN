@@ -17,10 +17,13 @@ android {
 
     signingConfigs {
         create("release") {
-            keyAlias = "androiddebugkey"
-            keyPassword = "android"
-            storeFile = file("debug.keystore")
-            storePassword = "android"
+            // NOTE: Ganti dengan keystore rilis Anda sendiri!
+            // Buat keystore: keytool -genkey -v -keystore release.keystore -alias releasekey -keyalg RSA -keysize 2048 -validity 10000
+            // Jangan commit password ke git — gunakan environment variable
+            keyAlias = System.getenv("EXAMVAN_KEY_ALIAS") ?: "releasekey"
+            keyPassword = System.getenv("EXAMVAN_KEY_PASSWORD") ?: ""
+            storeFile = file(System.getenv("EXAMVAN_KEYSTORE_PATH") ?: "release.keystore")
+            storePassword = System.getenv("EXAMVAN_STORE_PASSWORD") ?: ""
             enableV1Signing = true
             enableV2Signing = true
             enableV3Signing = true
@@ -31,10 +34,6 @@ android {
             keyPassword = "android"
             storeFile = file("debug.keystore")
             storePassword = "android"
-            enableV1Signing = true
-            enableV2Signing = true
-            enableV3Signing = true
-            enableV4Signing = true
         }
     }
 

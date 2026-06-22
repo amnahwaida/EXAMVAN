@@ -13,6 +13,7 @@ import android.graphics.pdf.PdfRenderer
 import android.os.Build
 import android.os.Bundle
 import android.os.ParcelFileDescriptor
+import android.util.Log
 import android.view.KeyEvent
 import android.view.LayoutInflater
 import android.view.View
@@ -91,7 +92,9 @@ class ExamViewerActivity : AppCompatActivity() {
         try {
             val clipboard = getSystemService(Context.CLIPBOARD_SERVICE) as? ClipboardManager
             clipboard?.clearPrimaryClip()
-        } catch (_: Throwable) { }
+        } catch (e: Throwable) {
+            Log.w("ExamViewer", "Failed to clear clipboard", e)
+        }
 
         // Request notification permission for Android 13+ (API 33+)
         // Without this runtime request, notifications are silently blocked
@@ -682,6 +685,15 @@ class ExamViewerActivity : AppCompatActivity() {
         binding.tvErrorMsg.text = message
     }
 
+    override fun onRequestPermissionsResult(requestCode: Int, permissions: Array<String>, grantResults: IntArray) {
+        super.onRequestPermissionsResult(requestCode, permissions, grantResults)
+        if (requestCode == 1001) {
+            // Notification permission result — auto-submit will use Toast fallback if denied
+            val granted = grantResults.isNotEmpty() && grantResults[0] == PackageManager.PERMISSION_GRANTED
+            Log.d("ExamViewer", "Notification permission ${if (granted) "granted" else "denied"}")
+        }
+    }
+
     override fun onResume() {
         super.onResume()
     }
@@ -783,20 +795,17 @@ class ExamViewerActivity : AppCompatActivity() {
 
         if (isSubmitting) {
             // Already submitting via normal route. Let the existing request finish.
-            try {
-                Thread.sleep(1000)
-            } catch (_: Exception) {}
-            finish()
+            // Use Handler to avoid blocking the UI thread (ANR prevention)
+            android.os.Handler(mainLooper).postDelayed({
+                if (!isFinishing) finish()
+            }, 1500)
             return
         }
 
-        // Submit synchronously in a background thread, then post notification BEFORE finish().
-        var notifTitle = "✅ Jawaban Terkirim"
-        var notifMessage = getString(R.string.toast_auto_submit_success)
-
-        val thread = Thread {
-            try {
-                val result = ApiClient.submitExamSync(
+        // Submit synchronously in a background thread, then post result to main thread.
+        Thread {
+            val result = try {
+                ApiClient.submitExamSync(
                     examId = examId,
                     studentName = studentName,
                     examNumber = studentNumber,
@@ -805,32 +814,26 @@ class ExamViewerActivity : AppCompatActivity() {
                     startTime = startTime,
                     macAddress = macAddress
                 )
-                if (result.first) {
-                    notifTitle = "✅ Jawaban Terkirim"
-                    notifMessage = getString(R.string.toast_auto_submit_success)
-                } else {
-                    notifTitle = "❌ Gagal Mengirim Jawaban"
-                    notifMessage = getString(R.string.toast_auto_submit_failed, result.second)
-                }
             } catch (_: Throwable) {
-                notifTitle = "❌ Gagal Mengirim Jawaban"
-                notifMessage = "Terjadi kesalahan saat mengirim jawaban."
+                Pair(false, "Terjadi kesalahan saat mengirim jawaban.")
             }
-        }
-        thread.start()
-        try {
-            // Block main thread up to 3 seconds to ensure the API call finishes
-            thread.join(3000)
-        } catch (_: Exception) {}
 
-        // Post notification synchronously on main thread BEFORE calling finish().
-        // This guarantees the notification is dispatched to the OS before the process exits.
-        showAutoSubmitNotification(notifTitle, notifMessage)
+            val notifTitle = if (result.first) "✅ Jawaban Terkirim" else "❌ Gagal Mengirim Jawaban"
+            val notifMessage = if (result.first) {
+                getString(R.string.toast_auto_submit_success)
+            } else {
+                getString(R.string.toast_auto_submit_failed, result.second)
+            }
 
-        // Small delay to let the OS fully register the notification
-        try { Thread.sleep(300) } catch (_: Exception) {}
-
-        finish()
+            // Post back to main thread for notification + finish
+            android.os.Handler(mainLooper).post {
+                showAutoSubmitNotification(notifTitle, notifMessage)
+                // Small delay to let the OS register the notification
+                android.os.Handler(mainLooper).postDelayed({
+                    if (!isFinishing) finish()
+                }, 400)
+            }
+        }.start()
     }
 
     private fun showAutoSubmitNotification(title: String, message: String) {
@@ -883,7 +886,11 @@ class ExamViewerActivity : AppCompatActivity() {
     }
 
     private fun getDeviceMacAddress(): String {
-        // 1. Try reading network interfaces for wlan0
+        // Note: On Android 10+ (API 29+), hardware MAC address is randomized
+        // and NetworkInterface.getHardwareAddress() returns 02:00:00:00:00:00.
+        // This method is kept as a best-effort identifier for legacy devices.
+
+        // 1. Try reading network interfaces for wlan0 (only works pre-Android 10)
         try {
             val interfaces = java.util.Collections.list(java.net.NetworkInterface.getNetworkInterfaces())
             if (interfaces != null) {
@@ -906,15 +913,19 @@ class ExamViewerActivity : AppCompatActivity() {
                     }
                 }
             }
-        } catch (_: Throwable) {}
+        } catch (e: Exception) {
+            Log.w("ExamViewer", "MAC address read failed", e)
+        }
 
-        // 2. Fallback to Settings.Secure.ANDROID_ID
+        // 2. Fallback to Settings.Secure.ANDROID_ID (persistent per app signing key, Android 8.0+)
         try {
             val androidId = android.provider.Settings.Secure.getString(contentResolver, android.provider.Settings.Secure.ANDROID_ID)
-            if (!androidId.isNullOrEmpty()) {
+            if (!androidId.isNullOrEmpty() && androidId != "9774d56d682e549c") {
                 return "ID:$androidId"
             }
-        } catch (_: Throwable) {}
+        } catch (e: Exception) {
+            Log.w("ExamViewer", "ANDROID_ID read failed", e)
+        }
 
         return "UNKNOWN"
     }
