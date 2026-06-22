@@ -13,7 +13,7 @@
                         <option value="{{ exam.id }}" {% if exam_filter_param == exam.id %}selected{% endif %}>{{ exam.name }}</option>
                         {% endfor %}
                     </select>
-                    <button class="btn-upload" onclick="exportSubmissions()">📤 Export Excel/CSV</button>
+                    <button class="btn-upload inline-flex items-center justify-center gap-2 px-7 py-3 rounded-xl text-sm font-semibold text-white bg-gradient-to-r from-indigo-500 to-purple-600 hover:shadow-lg hover:shadow-indigo-500/25 transition-all duration-200 active:scale-[0.97]" onclick="exportSubmissions()">📤 Export Excel/CSV</button>
                 </div>
             </div>
         </section>
@@ -107,10 +107,10 @@
                             </td>
                             <td class="td-actions" data-label="" class="text-center">
                                 <div style="display: flex; gap: 6px; justify-content: center;">
-                                    <button class="btn-sm btn-toggle" onclick="showSubmissionDetail({{ sub.id }})" style="padding: 6px 12px; font-size: 11px;">
+                                    <button class="btn-sm btn-toggle inline-flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-medium bg-indigo-500/10 text-indigo-300 border border-indigo-500/25 hover:bg-indigo-500/20 transition-all duration-200" onclick="showSubmissionDetail({{ sub.id }})" style="padding: 6px 12px; font-size: 11px;">
                                         👁️ Detail
                                     </button>
-                                    <button class="btn-sm btn-delete" onclick="deleteSubmission({{ sub.id }})" style="padding: 6px 12px; font-size: 11px;">
+                                    <button class="btn-sm btn-delete inline-flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-medium bg-red-500/10 text-red-300 border border-red-500/25 hover:bg-red-500/20 transition-all duration-200" onclick="deleteSubmission({{ sub.id }})" style="padding: 6px 12px; font-size: 11px;">
                                         🗑️
                                     </button>
                                 </div>
@@ -174,7 +174,7 @@
                 <div id="detailAnswersContainer" class="detail-answers-grid"></div>
             </div>
             <div class="modal-footer">
-                <button class="btn-sm btn-delete" onclick="closeDetailModal()">Tutup</button>
+                <button class="btn-sm btn-delete inline-flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-medium bg-red-500/10 text-red-300 border border-red-500/25 hover:bg-red-500/20 transition-all duration-200" onclick="closeDetailModal()">Tutup</button>
             </div>
         </div>
     </div>

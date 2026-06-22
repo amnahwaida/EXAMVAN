@@ -67,7 +67,7 @@
             
             <!-- Method Selector Buttons -->
             <div class="method-selector" style="display: flex; gap: 12px; margin-bottom: 20px; border-bottom: 1px solid var(--glass-border); padding-bottom: 12px;">
-                <button type="button" class="btn-sm btn-toggle active" id="methodPdfBtn" onclick="switchMethod('pdf')" style="margin: 0; padding: 10px 16px; display: flex; align-items: center; gap: 8px; border-radius: 8px;">
+                <button type="button" class="btn-sm btn-toggle active inline-flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-medium bg-indigo-500/15 text-indigo-300 border border-indigo-500/30 hover:bg-indigo-500/25 transition-all duration-200" id="methodPdfBtn" onclick="switchMethod('pdf')" style="margin: 0; padding: 10px 16px; display: flex; align-items: center; gap: 8px; border-radius: 8px;">
                     <span>📄</span> Upload File PDF Soal
                 </button>
             </div>
@@ -99,7 +99,7 @@
                         <div class="progress-bar"><div class="progress-fill" id="progressFill"></div></div>
                         <span class="progress-text" id="progressText">0%</span>
                     </div>
-                    <button type="submit" class="btn-upload" id="btnUpload">
+                    <button type="submit" class="btn-upload inline-flex items-center justify-center gap-2 px-7 py-3 rounded-xl text-sm font-semibold text-white bg-gradient-to-r from-indigo-500 to-purple-600 hover:shadow-lg hover:shadow-indigo-500/25 transition-all duration-200 active:scale-[0.97]" id="btnUpload">
                         <span>Upload Ujian</span>
                     </button>
                 </form>
@@ -116,14 +116,14 @@
                         style="padding: 8px 14px; background: rgba(255,255,255,0.04); border: 1px solid var(--glass-border); border-radius: 8px; color: var(--text); outline: none; font-size: 13px; width: 220px; transition: border-color 0.2s;"
                         onkeyup="if(event.key==='Enter') searchExams()"
                         onfocus="this.style.borderColor='var(--primary)'" onblur="this.style.borderColor=''">
-                    <button class="btn-sm btn-toggle" onclick="searchExams()" style="height: 32px; padding: 0 12px;">🔍 Cari</button>
-                    <button class="btn-sm btn-delete" id="bulkDeleteBtn" onclick="bulkDeleteExams()" style="display: none; height: 32px;">
+                    <button class="btn-sm btn-toggle inline-flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-medium bg-indigo-500/10 text-indigo-300 border border-indigo-500/25 hover:bg-indigo-500/20 transition-all duration-200" onclick="searchExams()" style="height: 32px; padding: 0 12px;">🔍 Cari</button>
+                    <button class="btn-sm btn-delete inline-flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-medium bg-red-500/10 text-red-300 border border-red-500/25 hover:bg-red-500/20 transition-all duration-200" id="bulkDeleteBtn" onclick="bulkDeleteExams()" style="display: none; height: 32px;">
                         🗑️ Hapus Terpilih (<span id="bulkDeleteCount">0</span>)
                     </button>
-                    <button class="btn-sm btn-toggle" id="bulkToggleBtn" onclick="bulkToggleExams()" style="display: none; height: 32px;">
+                    <button class="btn-sm btn-toggle inline-flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-medium bg-indigo-500/10 text-indigo-300 border border-indigo-500/25 hover:bg-indigo-500/20 transition-all duration-200" id="bulkToggleBtn" onclick="bulkToggleExams()" style="display: none; height: 32px;">
                         ⏸️ Nonaktifkan Terpilih (<span id="bulkToggleCount">0</span>)
                     </button>
-                    <button class="btn-refresh" onclick="location.reload()">🔄 Refresh</button>
+                    <button class="btn-refresh inline-flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-medium bg-slate-500/10 text-slate-300 border border-slate-500/25 hover:bg-slate-500/20 transition-all duration-200" onclick="location.reload()">🔄 Refresh</button>
                 </div>
             </div>
             {% if exams | length == 0 %}
@@ -166,9 +166,9 @@
                             <td class="td-token" data-label="Token">
                                 <div class="token-group">
                                     <code class="token-code" id="token-{{ exam.id }}" onclick="copyToken('{{ exam.token }}')" title="Klik untuk Salin Token">{{ exam.token or '—' }}</code>
-                                    <button class="btn-icon btn-regen" onclick="regenerateToken({{ exam.id }})" title="Generate Token Baru">🔄</button>
-                                    <button class="btn-icon btn-edit" onclick="openEditTokenModal({{ exam.id }}, '{{ exam.token }}')" title="Ubah Token Kustom">✏️</button>
-                                    <button class="btn-icon btn-copy-link" onclick="copyResultsLink('{{ exam.token }}')" title="Salin Link Hasil Ujian (Siswa)">🔗</button>
+                                    <button class="btn-icon btn-regen inline-flex items-center justify-center w-8 h-8 rounded-lg text-sm bg-indigo-500/10 text-indigo-300 border border-indigo-500/25 hover:bg-indigo-500/20 transition-all duration-200" onclick="regenerateToken({{ exam.id }})" title="Generate Token Baru">🔄</button>
+                                    <button class="btn-icon btn-edit inline-flex items-center justify-center w-8 h-8 rounded-lg text-sm bg-amber-500/10 text-amber-300 border border-amber-500/25 hover:bg-amber-500/20 transition-all duration-200" onclick="openEditTokenModal({{ exam.id }}, '{{ exam.token }}')" title="Ubah Token Kustom">✏️</button>
+                                    <button class="btn-icon btn-copy-link inline-flex items-center justify-center w-8 h-8 rounded-lg text-sm bg-emerald-500/10 text-emerald-300 border border-emerald-500/25 hover:bg-emerald-500/20 transition-all duration-200" onclick="copyResultsLink('{{ exam.token }}')" title="Salin Link Hasil Ujian (Siswa)">🔗</button>
                                 </div>
                             </td>
                             <td data-label="Ukuran">{{ "%.2f"|format(exam.size_bytes / 1048576) }} MB</td>
@@ -184,7 +184,7 @@
                             <td class="td-actions" data-label="">
                                 <div class="actions-group">
                                     <!-- Primary Actions -->
-                                    <button class="btn-sm btn-questions" onclick="openQuestionsModal({{ exam.id }}, '{{ exam.name }}')" title="Konfigurasi Soal & Kunci Jawaban" style="display: inline-flex; align-items: center; gap: 4px; height: 32px;">
+                                    <button class="btn-sm btn-questions inline-flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-medium bg-purple-500/10 text-purple-300 border border-purple-500/25 hover:bg-purple-500/20 transition-all duration-200" onclick="openQuestionsModal({{ exam.id }}, '{{ exam.name }}')" title="Konfigurasi Soal & Kunci Jawaban" style="display: inline-flex; align-items: center; gap: 4px; height: 32px;">
                                         ⚙️ Soal
                                     </button>
 
@@ -292,23 +292,23 @@
                             <option value="matching">Menjodohkan</option>
                             <option value="short_answer">Isian Singkat</option>
                         </select>
-                        <button class="btn-sm btn-toggle" onclick="quickGenerateQuestions()">⚡ Generate</button>
+                        <button class="btn-sm btn-toggle inline-flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-medium bg-indigo-500/10 text-indigo-300 border border-indigo-500/25 hover:bg-indigo-500/20 transition-all duration-200" onclick="quickGenerateQuestions()">⚡ Generate</button>
                     </div>
                     <div class="inline-group">
                         <button class="btn-weight" onclick="setAllWeights()">⚖️ Set All Bobot</button>
                     </div>
                     <div class="xml-import-wrapper">
-                        <button class="btn-sm btn-questions" onclick="copyAIPrompt()">📋 Prompt AI</button>
+                        <button class="btn-sm btn-questions inline-flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-medium bg-purple-500/10 text-purple-300 border border-purple-500/25 hover:bg-purple-500/20 transition-all duration-200" onclick="copyAIPrompt()">📋 Prompt AI</button>
                         <input type="file" id="xmlFileInput" accept=".xml" style="display:none;" onchange="importXMLQuestions(event)">
-                        <button class="btn-sm btn-questions" onclick="document.getElementById('xmlFileInput').click()">📥 Import XML</button>
-                        <button class="btn-sm btn-questions" onclick="exportXMLQuestions()">📤 Export XML</button>
+                        <button class="btn-sm btn-questions inline-flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-medium bg-purple-500/10 text-purple-300 border border-purple-500/25 hover:bg-purple-500/20 transition-all duration-200" onclick="document.getElementById('xmlFileInput').click()">📥 Import XML</button>
+                        <button class="btn-sm btn-questions inline-flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-medium bg-purple-500/10 text-purple-300 border border-purple-500/25 hover:bg-purple-500/20 transition-all duration-200" onclick="exportXMLQuestions()">📤 Export XML</button>
                     </div>
                 </div>
                 <div class="questions-list-container" id="questionsList"></div>
             </div>
             <div class="modal-footer">
-                <button class="btn-sm btn-delete" onclick="closeQuestionsModal()">Batal</button>
-                <button class="btn-upload" onclick="saveQuestionsConfig()">Simpan Konfigurasi</button>
+                <button class="btn-sm btn-delete inline-flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-medium bg-red-500/10 text-red-300 border border-red-500/25 hover:bg-red-500/20 transition-all duration-200" onclick="closeQuestionsModal()">Batal</button>
+                <button class="btn-upload inline-flex items-center justify-center gap-2 px-7 py-3 rounded-xl text-sm font-semibold text-white bg-gradient-to-r from-indigo-500 to-purple-600 hover:shadow-lg hover:shadow-indigo-500/25 transition-all duration-200 active:scale-[0.97]" onclick="saveQuestionsConfig()">Simpan Konfigurasi</button>
             </div>
         </div>
     </div>
