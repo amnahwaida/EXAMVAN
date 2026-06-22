@@ -63,7 +63,7 @@
                         </tr>
                     </thead>
                     <tbody>
-                        {% for sub in sub_data %}
+                        {% for sub in submissions %}
                         <tr id="submission-row-{{ sub.id }}" data-exam-id="{{ sub.exam_id }}" style="transition: background 0.2s;">
                             <td class="td-name" data-label="Ujian" style="font-weight: 500;">{{ sub.exam_name }}</td>
                             <td data-label="Siswa"><strong>{{ sub.student_name }}</strong></td>
