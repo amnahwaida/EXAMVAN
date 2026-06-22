@@ -8,7 +8,7 @@
                 <h3>📊 Rekapitulasi Hasil Ujian</h3>
                 <div class="submissions-actions">
                     <select id="filterExam" onchange="filterSubmissions()" class="select-filter">
-                        <option value="">Semua Ujian</option>
+                        <option value="">📋 Semua Ujian</option>
                         {% for exam in exams %}
                         <option value="{{ exam.id }}" {% if exam_filter_param == exam.id %}selected{% endif %}>{{ exam.name }}</option>
                         {% endfor %}
@@ -18,12 +18,33 @@
             </div>
         </section>
 
+        <!-- Quick Stats -->
+        {% if submissions and total_submissions > 0 %}
+        <section class="glass-card" style="margin-top: 16px; padding: 14px 20px;">
+            <div style="display: flex; gap: 24px; flex-wrap: wrap; align-items: center;">
+                <span style="font-size: 13px; color: var(--text-secondary);">
+                    📄 <strong style="color: var(--text);">{{ total_submissions }}</strong> total hasil
+                </span>
+                {% set avg_score = submissions | map(attribute='score') | select('!=', none) | list %}
+                {% if avg_score %}
+                {% set avg = (avg_score | sum) / (avg_score | length) %}
+                <span style="font-size: 13px; color: var(--text-secondary);">
+                    📊 Rata-rata: <strong style="color: var(--accent-light);">{{ "%.1f"|format(avg) }}</strong>
+                </span>
+                {% endif %}
+            </div>
+        </section>
+        {% endif %}
+
         <!-- Submissions Table -->
         <section class="exam-table-section glass-card">
             {% if submissions | length == 0 %}
-            <div class="empty-state">
-                <div class="empty-icon">📂</div>
-                <p>Belum ada hasil ujian yang dikumpulkan oleh siswa.</p>
+            <div class="empty-state" style="padding: 60px 20px;">
+                <div class="empty-icon" style="font-size: 56px; margin-bottom: 16px;">📂</div>
+                <p style="font-size: 16px; color: var(--text-secondary);">Belum ada hasil ujian yang dikumpulkan oleh siswa.</p>
+                {% if exam_filter_param %}
+                <p style="font-size: 13px; color: var(--text-muted); margin-top: 8px;">🔍 Filter sedang aktif. <a href="{{ url_for('admin_submissions') }}" style="color: var(--accent-light);">Reset filter</a> untuk melihat semua hasil.</p>
+                {% endif %}
             </div>
             {% else %}
             <div class="table-responsive">
@@ -32,41 +53,67 @@
                         <tr>
                             <th>Nama Ujian</th>
                             <th>Nama Siswa</th>
-                            <th>Nomor Ujian</th>
+                            <th>No. Ujian</th>
                             <th>Kelas</th>
-                            <th>Nilai</th>
-                            <th>Waktu Mulai</th>
+                            <th style="text-align: center;">Nilai</th>
                             <th>Waktu Kumpul</th>
-                            <th>MAC/ID Perangkat</th>
-                            <th>Aksi</th>
+                            <th style="text-align: center;">Durasi</th>
+                            <th>Perangkat</th>
+                            <th style="text-align: center;">Aksi</th>
                         </tr>
                     </thead>
                     <tbody>
                         {% for sub in submissions %}
-                        <tr id="submission-row-{{ sub.id }}" data-exam-id="{{ sub.exam_id }}">
-                            <td class="td-name" data-label="Ujian">{{ sub.exam_name }}</td>
+                        {% set score_pct = (sub.score / max_score * 100) if max_score else none %}
+                        <tr id="submission-row-{{ sub.id }}" data-exam-id="{{ sub.exam_id }}" style="transition: background 0.2s;">
+                            <td class="td-name" data-label="Ujian" style="font-weight: 500;">{{ sub.exam_name }}</td>
                             <td data-label="Siswa"><strong>{{ sub.student_name }}</strong></td>
                             <td data-label="No. Ujian"><code class="token-code" style="letter-spacing: normal; font-size:12px;">{{ sub.exam_number }}</code></td>
                             <td data-label="Kelas">{{ sub.student_class }}</td>
-                            <td data-label="Nilai">
+                            <td data-label="Nilai" style="text-align: center;">
                                 {% if sub.score is not none %}
-                                <span class="status-badge status-active" style="font-size:13px; font-weight:700;">
-                                    {{ sub.score }}
-                                </span>
+                                <div style="display: flex; flex-direction: column; align-items: center; gap: 4px;">
+                                    <span style="font-size: 16px; font-weight: 800;
+                                        {% if score_pct is not none and score_pct >= 80 %}color: #34d399;
+                                        {% elif score_pct is not none and score_pct >= 60 %}color: #fbbf24;
+                                        {% else %}color: #f87171;{% endif %}">
+                                        {{ sub.score }}
+                                    </span>
+                                    {% if score_pct is not none %}
+                                    <div style="width: 50px; height: 3px; background: rgba(255,255,255,0.06); border-radius: 2px; overflow: hidden;">
+                                        <div style="height: 100%; width: {{ score_pct|int }}%; border-radius: 2px;
+                                            {% if score_pct >= 80 %}background: #34d399;
+                                            {% elif score_pct >= 60 %}background: #fbbf24;
+                                            {% else %}background: #f87171;{% endif %}">
+                                        </div>
+                                    </div>
+                                    {% endif %}
+                                </div>
                                 {% else %}
-                                <span class="status-badge status-inactive">Belum Dinilai</span>
+                                <span style="font-size: 12px; color: var(--text-muted);">—</span>
                                 {% endif %}
                             </td>
-                            <td class="td-date" data-label="Mulai" data-utc="{{ sub.start_time or '' }}">{{ sub.start_time or '—' }}</td>
                             <td class="td-date" data-label="Kumpul" data-utc="{{ sub.created_at }}">{{ sub.created_at }}</td>
-                            <td data-label="Perangkat"><code style="font-size:11px; letter-spacing:0; color:var(--text-secondary); word-break:break-all;">{{ sub.mac_address or '—' }}</code></td>
-                            <td class="td-actions" data-label="">
-                                <button class="btn-sm btn-toggle" onclick="showSubmissionDetail({{ sub.id }})">
-                                    👁️ Detail
-                                </button>
-                                <button class="btn-sm btn-delete" onclick="deleteSubmission({{ sub.id }})">
-                                    🗑️ Hapus
-                                </button>
+                            <td data-label="Durasi" style="text-align: center; font-size: 12px; color: var(--text-secondary);">
+                                {% if sub.start_time and sub.created_at %}
+                                {% set diff = (sub.created_at[:19] if ' ' in sub.created_at[:19] else sub.created_at) %}
+                                <span class="duration-cell" data-start="{{ sub.start_time }}" data-end="{{ sub.created_at }}">⏳</span>
+                                {% else %}
+                                —
+                                {% endif %}
+                            </td>
+                            <td data-label="Perangkat" style="font-size: 11px; color: var(--text-muted); max-width: 120px; overflow: hidden; text-overflow: ellipsis;">
+                                <code style="font-size:10px; background: rgba(255,255,255,0.03); padding: 2px 6px; border-radius: 4px;">{{ sub.mac_address or '—' }}</code>
+                            </td>
+                            <td class="td-actions" data-label="" style="text-align: center;">
+                                <div style="display: flex; gap: 6px; justify-content: center;">
+                                    <button class="btn-sm btn-toggle" onclick="showSubmissionDetail({{ sub.id }})" style="padding: 6px 12px; font-size: 11px;">
+                                        👁️ Detail
+                                    </button>
+                                    <button class="btn-sm btn-delete" onclick="deleteSubmission({{ sub.id }})" style="padding: 6px 12px; font-size: 11px;">
+                                        🗑️
+                                    </button>
+                                </div>
                             </td>
                         </tr>
                         {% endfor %}

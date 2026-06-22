@@ -1512,6 +1512,18 @@ def admin_submissions():
         exams = db.execute('SELECT id, name FROM exams WHERE created_by = ? ORDER BY created_at DESC', (session['admin_id'],)).fetchall()
 
     total_pages = max(1, (total_submissions + per_page - 1) // per_page)
+
+    # Calculate max_score from exam questions (if filtered by exam)
+    max_score = None
+    if exam_filter:
+        exam_row = db.execute('SELECT questions_json FROM exams WHERE id = ?', (exam_filter,)).fetchone()
+        if exam_row and exam_row['questions_json']:
+            try:
+                questions = json.loads(exam_row['questions_json'])
+                max_score = sum(float(q.get('weight', 1.0)) for q in questions)
+            except Exception:
+                pass
+
     local_ip = get_network_info()['display_host']
 
     return render_template(
@@ -1526,6 +1538,7 @@ def admin_submissions():
         total_pages=total_pages,
         total_submissions=total_submissions,
         exam_filter_param=exam_filter or '',
+        max_score=max_score,
     )
 
 

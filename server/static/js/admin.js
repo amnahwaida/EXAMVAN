@@ -1702,3 +1702,26 @@ function searchExams() {
     const qs = params.toString();
     window.location.href = window.location.pathname + (qs ? '?' + qs : '');
 }
+
+// ===== Calculate Duration =====
+document.addEventListener('DOMContentLoaded', function() {
+    document.querySelectorAll('.duration-cell').forEach(function(el) {
+        var start = el.getAttribute('data-start');
+        var end = el.getAttribute('data-end');
+        if (start && end) {
+            try {
+                var s = new Date(start.replace(' ', 'T') + 'Z');
+                var e = new Date(end.replace(' ', 'T') + 'Z');
+                var diff = Math.floor((e - s) / 1000);
+                if (diff > 0) {
+                    var h = Math.floor(diff / 3600);
+                    var m = Math.floor((diff % 3600) / 60);
+                    var parts = [];
+                    if (h > 0) parts.push(h + 'j');
+                    parts.push(m + 'm');
+                    el.textContent = parts.join(' ');
+                }
+            } catch(_) {}
+        }
+    });
+});
