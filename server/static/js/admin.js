@@ -1254,7 +1254,8 @@ function submitEditExam(event) {
     
     const xhr = new XMLHttpRequest();
     xhr.open('POST', `/admin/api/exams/${examId}/edit`);
-    
+    xhr.setRequestHeader('X-CSRF-Token', getCsrfToken());
+
     xhr.upload.addEventListener('progress', function(e) {
         if (e.lengthComputable) {
             const pct = Math.round((e.loaded / e.total) * 100);

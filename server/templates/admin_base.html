@@ -83,6 +83,87 @@
 
     {% block content %}{% endblock %}
 
+    <!-- Modal Ubah Password -->
+    <div class="modal-overlay" id="changePasswordModal">
+        <div class="modal-card glass-card" style="max-width: 420px;">
+            <div class="modal-header">
+                <h3>🔑 Ubah Password</h3>
+                <button class="modal-close" onclick="closeChangePasswordModal()">✕</button>
+            </div>
+            <div class="modal-body">
+                <form id="changePasswordForm" onsubmit="submitChangePassword(event)">
+                    <div class="form-group" style="margin-bottom: 16px;">
+                        <label for="currentPassword">Password Saat Ini</label>
+                        <input type="password" id="currentPassword" required placeholder="Masukkan password lama">
+                    </div>
+                    <div class="form-group" style="margin-bottom: 16px;">
+                        <label for="newPassword">Password Baru</label>
+                        <input type="password" id="newPassword" required placeholder="Masukkan password baru" minlength="4">
+                    </div>
+                    <div class="form-group" style="margin-bottom: 24px;">
+                        <label for="confirmNewPassword">Konfirmasi Password Baru</label>
+                        <input type="password" id="confirmNewPassword" required placeholder="Ulangi password baru">
+                    </div>
+                    <button type="submit" class="btn-upload" style="width: 100%;">💾 Simpan Password Baru</button>
+                </form>
+            </div>
+        </div>
+    </div>
+
+    <!-- Modal Edit Ujian -->
+    <div class="modal-overlay" id="editExamModal">
+        <div class="modal-card glass-card" style="max-width: 480px;">
+            <div class="modal-header">
+                <h3>📝 Edit Ujian (Nama & PDF)</h3>
+                <button class="modal-close" onclick="closeEditExamModal()">✕</button>
+            </div>
+            <div class="modal-body">
+                <form id="editExamForm" onsubmit="submitEditExam(event)" enctype="multipart/form-data">
+                    <input type="hidden" id="editExamId">
+                    <div class="form-group" style="margin-bottom: 16px;">
+                        <label for="editExamName">Nama Ujian</label>
+                        <input type="text" id="editExamName" required placeholder="Contoh: UTS Matematika Kelas 10">
+                    </div>
+                    <div class="form-group" style="margin-bottom: 20px;">
+                        <label for="editPdfFile">File PDF Baru <span style="font-size: 11px; opacity: 0.7;">(Opsional)</span></label>
+                        <div class="file-input-wrapper">
+                            <input type="file" id="editPdfFile" accept="application/pdf" onchange="handleEditFileChange(this)">
+                            <div class="file-input-display" id="editFileDisplay">
+                                <span class="file-icon">📄</span>
+                                <span class="file-text" id="editFileDisplayText">Pilih file PDF baru jika ingin merubah...</span>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="upload-progress" id="editUploadProgress" style="display:none; margin-bottom: 16px;">
+                        <div class="progress-bar"><div class="progress-fill" id="editProgressFill"></div></div>
+                        <span class="progress-text" id="editProgressText">0%</span>
+                    </div>
+                    <button type="submit" class="btn-upload" id="btnEditExamSave" style="width: 100%;">💾 Simpan Perubahan</button>
+                </form>
+            </div>
+        </div>
+    </div>
+
+    <!-- Modal Edit Token -->
+    <div class="modal-overlay" id="editTokenModal">
+        <div class="modal-card glass-card" style="max-width: 400px;">
+            <div class="modal-header">
+                <h3>✏️ Ubah Token Kustom</h3>
+                <button class="modal-close" onclick="closeEditTokenModal()">✕</button>
+            </div>
+            <div class="modal-body">
+                <form id="editTokenForm" onsubmit="submitEditToken(event)">
+                    <input type="hidden" id="editTokenExamId">
+                    <div class="form-group" style="margin-bottom: 20px;">
+                        <label for="editTokenInput">Token Kustom Baru (Tepat 6 Karakter)</label>
+                        <input type="text" id="editTokenInput" required maxlength="6" minlength="6" placeholder="Contoh: UN2026" style="text-transform: uppercase; font-size: 20px; text-align: center; letter-spacing: 4px; font-weight: bold; font-family: monospace;">
+                    </div>
+                    <button type="submit" class="btn-upload" style="width: 100%;">💾 Simpan Token Baru</button>
+                </form>
+            </div>
+        </div>
+    </div>
+
     <div class="toast-container" id="toastContainer"></div>
     <script src="{{ url_for('static', filename='js/admin-core.js') }}?v=2.1.0"></script>
     <script src="{{ url_for('static', filename='js/admin.js') }}?v=2.1.0"></script>
