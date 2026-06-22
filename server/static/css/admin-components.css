@@ -607,6 +607,28 @@
 
 .td-actions { display: flex; gap: 8px; flex-wrap: nowrap; }
 
+/* Users Management Layout */
+.users-layout {
+    display: grid;
+    grid-template-columns: 380px 1fr;
+    gap: 24px;
+    align-items: start;
+}
+
+.users-layout .table-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    flex-wrap: wrap;
+    gap: 12px;
+}
+
+@media (max-width: 968px) {
+    .users-layout {
+        grid-template-columns: 1fr;
+    }
+}
+
 .btn-sm {
     padding: 6px 12px;
     border: 1px solid var(--glass-border);
