@@ -911,17 +911,6 @@ document.addEventListener('click', function(e) {
     }
 });
 
-// Helper to localize a single UTC date string to the device's local timezone
-            if (!el.dataset.utc) {
-                el.dataset.utc = rawDate;
-            }
-            el.textContent = localizeUTC(rawDate);
-        }
-    });
-}
-
-document.addEventListener('DOMContentLoaded', localizeDates);
-
 function importXMLQuestions(event) {
     const file = event.target.files[0];
     if (!file) return;
