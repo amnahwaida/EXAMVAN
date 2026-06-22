@@ -405,6 +405,29 @@ function reindexQuestions() {
     });
 }
 
+function setAllWeights() {
+    const weightInputs = document.querySelectorAll('.q-weight-input');
+    if (weightInputs.length === 0) {
+        showToast('Tidak ada soal untuk diatur bobotnya', 'error');
+        return;
+    }
+
+    const currentWeight = weightInputs[0].value || '1.0';
+    const newWeight = prompt('Set bobot nilai untuk SEMUA soal:', currentWeight);
+    if (newWeight === null) return; // cancelled
+
+    const parsed = parseFloat(newWeight);
+    if (isNaN(parsed) || parsed < 0) {
+        showToast('Bobot nilai harus berupa angka positif', 'error');
+        return;
+    }
+
+    weightInputs.forEach(input => {
+        input.value = parsed;
+    });
+    showToast(`Bobot semua soal diubah menjadi ${parsed}`, 'success');
+}
+
 function renderQuestions(questions) {
     const container = document.getElementById('questionsList');
     container.innerHTML = '';
