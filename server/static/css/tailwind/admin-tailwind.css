@@ -455,6 +455,64 @@ body {
 .nav-link:hover { @apply text-white; }
 .nav-link.active { @apply text-white; }
 
+/* === Form Inputs === */
+.form-group input[type="text"],
+.form-group input[type="password"],
+.form-group input[type="number"],
+.form-group input[type="tel"],
+.form-group input[type="date"],
+.form-group input[type="time"],
+.form-group textarea,
+.form-group select {
+    @apply w-full px-3.5 py-2.5 rounded-xl text-sm outline-none transition-all duration-200;
+    background: rgba(255,255,255,0.03);
+    border: 1px solid rgba(255,255,255,0.08);
+    color: var(--text);
+}
+.form-group input:focus,
+.form-group textarea:focus,
+.form-group select:focus {
+    border-color: #6366f1;
+    box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.25);
+}
+
+/* === File Input === */
+.file-input-wrapper input[type="file"] {
+    @apply absolute inset-0 opacity-0 cursor-pointer;
+    z-index: 2;
+}
+
+/* === Utilities === */
+.flex-1 { flex: 1; }
+
+/* === Keyframes === */
+@keyframes orbFloat {
+    0%, 100% { transform: translate(0,0) scale(1); }
+    50% { transform: translate(30px,20px) scale(1.1); }
+}
+@keyframes fadeUp {
+    from { opacity:0; transform:translateY(20px); }
+    to { opacity:1; transform:translateY(0); }
+}
+@keyframes toastIn {
+    from { opacity:0; transform:translateX(40px); }
+    to { opacity:1; transform:translateX(0); }
+}
+
+/* === Date/Time Picker === */
+input[type="date"], input[type="time"] { color-scheme: dark; }
+input[type="date"]::-webkit-calendar-picker-indicator,
+input[type="time"]::-webkit-calendar-picker-indicator {
+    @apply cursor-pointer opacity-70 transition-opacity;
+    filter: invert(0.8) brightness(1.2);
+}
+input[type="date"]::-webkit-calendar-picker-indicator:hover,
+input[type="time"]::-webkit-calendar-picker-indicator:hover { @apply opacity-100; }
+input[type="date"]::-webkit-datetime-edit,
+input[type="time"]::-webkit-datetime-edit { color: var(--text); }
+input[type="date"]:invalid, input[type="date"][value=""],
+input[type="time"]:invalid, input[type="time"][value=""] { color: var(--text-muted); }
+
 /* === Questions Toolbar === */
 .questions-toolbar {
     @apply flex flex-wrap items-center gap-2.5 mb-4 p-3 rounded-xl;
