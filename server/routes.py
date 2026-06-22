@@ -500,36 +500,63 @@ def admin_logout():
 @app.route('/admin/dashboard')
 @admin_required
 def admin_dashboard():
-    """Admin dashboard page."""
+    """Admin dashboard page with pagination & search."""
     db = get_db()
     is_super_admin = (session.get('admin_username') == 'admin')
-    
-    if is_super_admin:
-        exams = db.execute(
-            'SELECT e.*, u.username as creator_name, '
-            '(SELECT COUNT(*) FROM submissions s WHERE s.exam_id = e.id) as sub_count '
-            'FROM exams e LEFT JOIN admin_users u ON e.created_by = u.id '
-            'ORDER BY e.created_at DESC'
-        ).fetchall()
-    else:
-        exams = db.execute(
-            'SELECT e.*, u.username as creator_name, '
-            '(SELECT COUNT(*) FROM submissions s WHERE s.exam_id = e.id) as sub_count '
-            'FROM exams e LEFT JOIN admin_users u ON e.created_by = u.id '
-            'WHERE e.created_by = ? '
-            'ORDER BY e.created_at DESC',
-            (session['admin_id'],)
-        ).fetchall()
 
-    total = len(exams)
-    active = sum(1 for e in exams if e['status'] == 'active')
-    inactive = total - active
-    
+    # Pagination & search params
+    page = request.args.get('page', 1, type=int)
+    per_page = request.args.get('per_page', 20, type=int)
+    search = request.args.get('search', '').strip()
+    per_page = min(max(per_page, 5), 100)  # clamp 5-100
+
+    # Build query conditions
+    conditions = []
+    params = []
+    if not is_super_admin:
+        conditions.append('e.created_by = ?')
+        params.append(session['admin_id'])
+    if search:
+        conditions.append('(e.name LIKE ? OR e.token LIKE ?)')
+        search_param = f'%{search}%'
+        params.extend([search_param, search_param])
+
+    where_clause = (' WHERE ' + ' AND '.join(conditions)) if conditions else ''
+
+    # Count total matching exams
+    count_sql = f'SELECT COUNT(*) as cnt FROM exams e{where_clause}'
+    total = db.execute(count_sql, params).fetchone()['cnt']
+
+    # Fetch paginated exams
+    base_query = (
+        'SELECT e.*, u.username as creator_name, '
+        '(SELECT COUNT(*) FROM submissions s WHERE s.exam_id = e.id) as sub_count '
+        'FROM exams e LEFT JOIN admin_users u ON e.created_by = u.id'
+    )
+    order = ' ORDER BY e.created_at DESC'
+    limit_offset = f' LIMIT {per_page} OFFSET {(page - 1) * per_page}'
+    exams = db.execute(base_query + where_clause + order + limit_offset, params).fetchall()
+
+    # Calculate stats (across ALL exams, not just page)
+    if search:
+        # If searching, only count visible
+        active = sum(1 for e in exams if e['status'] == 'active')
+        inactive = len(exams) - active
+    else:
+        active_sql = f'SELECT COUNT(*) as cnt FROM exams e WHERE e.status = ?' + (f' AND e.created_by = ?' if not is_super_admin else '')
+        active_params = ['active']
+        if not is_super_admin:
+            active_params.append(session['admin_id'])
+        active = db.execute(active_sql, active_params).fetchone()['cnt']
+        inactive = total - active
+
+    total_pages = max(1, (total + per_page - 1) // per_page)
+
     if is_super_admin:
         storage_bytes = get_storage_stats()
     else:
         storage_bytes = sum(e['size_bytes'] for e in exams if e['size_bytes'] is not None)
-        
+
     net_info = get_network_info()
 
     # Get per-user limits
@@ -558,7 +585,13 @@ def admin_dashboard():
         max_size_mb=round(user_max_pdf / (1024 * 1024), 1),
         max_exams=user_max_exams,
         account_expires=account_expires,
-        active_page='dashboard'
+        active_page='dashboard',
+        # Pagination
+        page=page,
+        per_page=per_page,
+        total_pages=total_pages,
+        total_exams=total,
+        search=search,
     )
 
 @app.route('/admin/create-exam')

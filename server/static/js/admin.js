@@ -1688,3 +1688,17 @@ function showSubmissionDetail(id) {
 function closeDetailModal() {
     document.getElementById('detailModal').style.display = 'none';
 }
+
+// ===== Search Exams =====
+function searchExams() {
+    const query = document.getElementById('searchExam').value.trim();
+    const params = new URLSearchParams(window.location.search);
+    if (query) {
+        params.set('search', query);
+    } else {
+        params.delete('search');
+    }
+    params.set('page', '1'); // reset to first page
+    const qs = params.toString();
+    window.location.href = window.location.pathname + (qs ? '?' + qs : '');
+}
