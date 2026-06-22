@@ -1,69 +1,23 @@
-/* ===== Login Page ===== */
-
-
-
-
+/* Components migrated to Tailwind (admin-tailwind.css) */
+/* Remaining: form inputs, keyframes, utilities */
 
 @keyframes orbFloat {
     0%, 100% { transform: translate(0,0) scale(1); }
     50% { transform: translate(30px,20px) scale(1.1); }
 }
 
-
-
 @keyframes fadeUp {
     from { opacity:0; transform:translateY(20px); }
     to { opacity:1; transform:translateY(0); }
 }
 
-
-
-
-
-
-
-.login-form input[type="text"],
-.login-form input[type="password"],
-
-
-
-
-
-
-
-/* ===== Dashboard ===== */
-
-
-
-
-
-
-
-
-
-/* Stats Grid */
-
-
-
-
-
-/* Glass Card */
-
-
-/* Network Info */
-
-
-
-
-
-
-/* Upload Form */
+@keyframes toastIn {
+    from { opacity:0; transform:translateX(40px); }
+    to { opacity:1; transform:translateX(0); }
+}
 
 .flex-1 { flex: 1; }
 
-.upload-form label,
-
-.upload-form input[type="text"],
 .form-group input[type="text"],
 .form-group input[type="password"],
 .form-group input[type="number"],
@@ -71,93 +25,30 @@
 .form-group input[type="date"],
 .form-group input[type="time"],
 .form-group textarea,
+.form-group select {
+    width: 100%;
+    padding: 11px 14px;
+    background: rgba(255,255,255,0.03);
+    border: 1px solid rgba(255,255,255,0.08);
+    border-radius: 10px;
+    color: var(--text);
+    font-size: 14px;
+    font-family: inherit;
+    outline: none;
+    transition: border-color 0.2s, box-shadow 0.2s;
+}
 
-.upload-form input[type="text"]:focus,
-.form-group input[type="text"]:focus,
-.form-group input[type="password"]:focus,
-.form-group input[type="number"]:focus,
-.form-group input[type="tel"]:focus,
-.form-group input[type="date"]:focus,
-.form-group input[type="time"]:focus,
+.form-group input:focus,
 .form-group textarea:focus,
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-/* Table */
-
-
-
-
-
-
-
-
-
-
-
-/* Token Column */
-
-
-
-
-
-
-/* Users Management Layout */
-
-
-@media (max-width: 968px) {
+.form-group select:focus {
+    border-color: #6366f1;
+    box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.25);
 }
 
-
-
-
-
-
-
-
-
-
-
-
-
-/* Question editor toolbar */
-
-
-
-
-
-
-
-
-
-/* Bulk weight button */
-
-
-
-
-
-
-/* Empty State */
-
-
-/* Toast */
-
-
-
-
-@keyframes toastIn {
-    from { opacity:0; transform:translateX(40px); }
-    to { opacity:1; transform:translateX(0); }
+.file-input-wrapper input[type="file"] {
+    position: absolute;
+    inset: 0;
+    opacity: 0;
+    cursor: pointer;
+    z-index: 2;
 }
-
