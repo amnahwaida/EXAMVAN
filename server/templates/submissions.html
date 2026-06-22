@@ -65,10 +65,10 @@
                     <tbody>
                         {% for sub in submissions %}
                         <tr id="submission-row-{{ sub.id }}" data-exam-id="{{ sub.exam_id }}" style="transition: background 0.2s;">
-                            <td class="td-name" data-label="Ujian" style="font-weight:500;">{{ sub.exam_name }}</td>
-                            <td data-label="Siswa"><strong>{{ sub.student_name }}</strong></td>
-                            <td data-label="No. Ujian"><code class="token-code">{{ sub.exam_number }}</code></td>
-                            <td data-label="Kelas">{{ sub.student_class }}</td>
+<td class="td-name" style="font-weight:500;"><span class="mlabel">Ujian</span>{{ sub.exam_name }}</td>
+<td><span class="mlabel">Siswa</span><strong>{{ sub.student_name }}</strong></td>
+<td><span class="mlabel">No. Ujian</span><code class="token-code">{{ sub.exam_number }}</code></td>
+<td><span class="mlabel">Kelas</span>{{ sub.student_class }}</td>
                             <td data-label="Nilai">
                                 {% if sub.score is not none %}
                                 <span class="score-value
@@ -83,7 +83,7 @@
                                 {% else %}<span class="score-na">—</span>
                                 {% endif %}
                             </td>
-                            <td data-label="Mulai">{{ sub.start_time or '—' }}</td>
+<td><span class="mlabel">Mulai</span>{{ sub.start_time or '—' }}</td>
                             <td data-label="Durasi">
                                 {% if sub.start_time and sub.created_at %}
                                 <span class="duration-cell" data-start="{{ sub.start_time }}" data-end="{{ sub.created_at }}">⏳</span>
