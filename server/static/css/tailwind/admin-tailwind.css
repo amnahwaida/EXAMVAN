@@ -278,7 +278,7 @@ body {
 .dropdown-header { @apply px-4 py-2; }
 .dropdown-user-title { @apply text-sm font-bold text-white; }
 .dropdown-user-role { @apply text-xs text-[var(--text-muted)]; }
-.dropdown-item { @apply flex items-center gap-2.5 w-full px-4 py-2.5 text-sm text-[var(--text-secondary)] no-underline transition-colors; }
+.dropdown-item { @apply flex items-center gap-2.5 w-full px-4 py-2.5 text-sm text-[var(--text-secondary)] no-underline bg-transparent border-none cursor-pointer text-left transition-colors; }
 .dropdown-item:hover { @apply bg-[rgba(99,102,241,0.1)] text-white; }
 .dropdown-logout:hover { @apply bg-[rgba(239,68,68,0.1)] text-[#fca5a5]; }
 
