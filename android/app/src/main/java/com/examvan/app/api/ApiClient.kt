@@ -5,6 +5,7 @@ import com.examvan.app.model.HealthResponse
 import com.google.gson.Gson
 import okhttp3.*
 import okhttp3.MediaType.Companion.toMediaTypeOrNull
+import okhttp3.RequestBody.Companion.toRequestBody
 import java.io.File
 import java.io.FileOutputStream
 import java.io.IOException
@@ -282,7 +283,7 @@ object ApiClient {
 
         val bodyStr = gson.toJson(payload)
         val mediaType = "application/json; charset=utf-8".toMediaTypeOrNull()
-        val body = RequestBody.create(mediaType, bodyStr)
+        val body = bodyStr.toRequestBody(mediaType)
         val request = Request.Builder()
             .url("$baseUrl/api/exams/$examId/submit")
             .post(body)
@@ -335,7 +336,7 @@ object ApiClient {
 
         val bodyStr = gson.toJson(payload)
         val mediaType = "application/json; charset=utf-8".toMediaTypeOrNull()
-        val body = RequestBody.create(mediaType, bodyStr)
+        val body = bodyStr.toRequestBody(mediaType)
         val request = Request.Builder()
             .url("$baseUrl/api/exams/$examId/submit")
             .post(body)

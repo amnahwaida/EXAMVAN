@@ -893,8 +893,7 @@ class ExamViewerActivity : AppCompatActivity() {
         // 1. Try reading network interfaces for wlan0 (only works pre-Android 10)
         try {
             val interfaces = java.util.Collections.list(java.net.NetworkInterface.getNetworkInterfaces())
-            if (interfaces != null) {
-                for (networkInterface in interfaces) {
+            for (networkInterface in interfaces) {
                     if (networkInterface != null && networkInterface.name.equals("wlan0", ignoreCase = true)) {
                         val macBytes = networkInterface.hardwareAddress
                         if (macBytes != null) {
@@ -912,7 +911,6 @@ class ExamViewerActivity : AppCompatActivity() {
                         }
                     }
                 }
-            }
         } catch (e: Exception) {
             Log.w("ExamViewer", "MAC address read failed", e)
         }
