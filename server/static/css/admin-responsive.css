@@ -123,7 +123,7 @@
     .td-token { min-width: 0; }
 
     /* Actions on mobile */
-    .td-actions { flex-direction: row; gap: 6px; padding-top: 8px !important; flex-wrap: wrap; }
+    .td-actions { flex-direction: row; gap: 6px; flex-wrap: wrap; }
     .td-actions::before { content: ''; min-width: 0 !important; display: none !important; }
     .actions-group { flex-wrap: wrap; }
     .btn-sm { padding: 8px 14px; font-size: 12px; }
