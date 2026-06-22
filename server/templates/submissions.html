@@ -77,4 +77,32 @@
         </section>
     </main>
 
+    <!-- Detail Submission Modal -->
+    <div class="modal-overlay" id="detailModal">
+        <div class="modal-card" style="max-width: 700px;">
+            <div class="modal-header">
+                <h3>📋 Detail Jawaban Siswa</h3>
+                <button class="modal-close" onclick="closeDetailModal()">✕</button>
+            </div>
+            <div class="modal-body">
+                <div style="display: flex; justify-content: space-between; flex-wrap: wrap; gap: 8px; margin-bottom: 12px;">
+                    <div>
+                        <strong id="detailStudentName" style="font-size: 16px;">—</strong>
+                        <span id="detailStudentClass" style="color: var(--text-muted); margin-left: 8px;"></span>
+                    </div>
+                </div>
+                <p style="margin-bottom:6px; font-size:12px; color:var(--text-secondary);">
+                    ⏱️ Mulai: <span id="detailStartTime">—</span> | 📤 Kumpul: <span id="detailSubmitTime">—</span>
+                </p>
+                <p style="margin-bottom:12px; font-size:12px; color:var(--text-secondary);">
+                    📱 Perangkat: <code id="detailMacAddress" style="font-size:11px;">—</code>
+                </p>
+                <div id="detailAnswersContainer" class="detail-answers-grid"></div>
+            </div>
+            <div class="modal-footer">
+                <button class="btn-sm btn-delete" onclick="closeDetailModal()">Tutup</button>
+            </div>
+        </div>
+    </div>
+
 {% endblock %}

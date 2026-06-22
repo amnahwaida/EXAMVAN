@@ -1607,3 +1607,83 @@ async function bulkToggleExams() {
 
 
 
+
+// ===== Submission Detail Modal =====
+var activeSubmissionId = null;
+
+function showSubmissionDetail(id) {
+    activeSubmissionId = id;
+    const container = document.getElementById('detailAnswersContainer');
+    container.innerHTML = '<div style="color:var(--text-secondary); text-align:center; padding: 20px;">Memuat detail jawaban...</div>';
+    document.getElementById('detailStudentName').textContent = '...';
+    document.getElementById('detailStudentClass').textContent = '...';
+
+    document.getElementById('detailModal').style.display = 'flex';
+
+    apiFetch(`/admin/api/submissions/${id}/detail`)
+        .then(r => r.json())
+        .then(res => {
+            if (!res.success) {
+                showToast(res.message || 'Gagal memuat detail', 'error');
+                closeDetailModal();
+                return;
+            }
+
+            document.getElementById('detailStudentName').textContent = res.student_name;
+            document.getElementById('detailStudentClass').textContent = res.student_class;
+            document.getElementById('detailStartTime').textContent = res.start_time ? localizeUTC(res.start_time) : '—';
+            document.getElementById('detailSubmitTime').textContent = res.created_at ? localizeUTC(res.created_at) : '—';
+            document.getElementById('detailMacAddress').textContent = res.mac_address || '—';
+
+            container.innerHTML = '';
+            const answers = res.answers || {};
+            const questions = res.questions || [];
+            const evaluated = res.evaluated_answers || {};
+
+            if (questions.length === 0) {
+                container.innerHTML = '<div style="color:var(--text-muted); text-align:center; padding: 20px;">Tidak ada konfigurasi soal untuk ujian ini.</div>';
+                return;
+            }
+
+            questions.forEach(q => {
+                const qNum = String(q.number);
+                const weight = parseFloat(q.weight || 1.0);
+                const studentAns = answers[qNum];
+                const correctAns = q.key;
+                const evalData = evaluated[qNum] || {};
+
+                const earnedPoints = evalData.earned || 0;
+                const statusText = evalData.statusText || 'Belum Dijawab';
+                const statusClass = evalData.statusClass || 'unanswered';
+
+                const fmtAns = (val) => {
+                    if (val === undefined || val === null) return '—';
+                    if (Array.isArray(val)) return val.join(', ');
+                    if (typeof val === 'object') return Object.keys(val).map(k => `${k}→${val[k]}`).join(', ');
+                    return String(val);
+                };
+
+                const item = document.createElement('div');
+                item.className = `detail-answer-item ${escapeHtml(statusClass)}`;
+                const statusColor = statusClass === 'correct' ? '#34d399' : statusClass === 'partial' ? '#f59e0b' : '#f87171';
+                item.innerHTML = `
+                    <span class="detail-q-num">No. ${escapeHtml(qNum)}</span>
+                    <span class="detail-q-ans">${escapeHtml(fmtAns(studentAns))}</span>
+                    <span class="detail-q-key">${escapeHtml(fmtAns(correctAns))}</span>
+                    <div style="text-align:right; width:110px;">
+                        <span class="detail-q-status" style="color:${statusColor}">${escapeHtml(statusText)}</span>
+                        <span class="detail-q-points">${earnedPoints.toFixed(1)} / ${weight.toFixed(1)} Poin</span>
+                    </div>
+                `;
+                container.appendChild(item);
+            });
+        })
+        .catch(() => {
+            showToast('Gagal memuat detail jawaban', 'error');
+            closeDetailModal();
+        });
+}
+
+function closeDetailModal() {
+    document.getElementById('detailModal').style.display = 'none';
+}
