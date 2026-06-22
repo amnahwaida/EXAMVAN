@@ -22,6 +22,11 @@ from flask import (
 )
 from werkzeug.utils import secure_filename
 from werkzeug.security import generate_password_hash, check_password_hash
+from helpers import (
+    localize_date_string, format_iso_utc, get_local_ip,
+    _normalize_q_num, _evaluate_single_question,
+    evaluate_answers_detailed, calculate_submission_score
+)
 
 # ===== Configuration =====
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -2293,6 +2298,8 @@ def admin_submission_detail(submission_id):
     except Exception:
         questions = []
         
+    evaluated_answers = evaluate_answers_detailed(answers, questions)
+
     return jsonify({
         'success': True,
         'submission_id': sub['id'],
@@ -2305,7 +2312,8 @@ def admin_submission_detail(submission_id):
         'mac_address': sub['mac_address'],
         'created_at': format_iso_utc(sub['created_at']),
         'answers': answers,
-        'questions': questions
+        'questions': questions,
+        'evaluated_answers': evaluated_answers
     })
 
 
@@ -3077,6 +3085,19 @@ def not_found(e):
             'error': 'not_found',
             'message': 'Endpoint tidak ditemukan'
         }), 404
+    return redirect(url_for('index'))
+
+
+@app.errorhandler(500)
+def internal_error(e):
+    """Handle unhandled exceptions with logging."""
+    print(f"INTERNAL SERVER ERROR: {e}")
+    if request.path.startswith('/api/'):
+        return jsonify({
+            'success': False,
+            'error': 'internal_error',
+            'message': 'Terjadi kesalahan internal server. Silakan coba lagi.'
+        }), 500
     return redirect(url_for('index'))
 
 

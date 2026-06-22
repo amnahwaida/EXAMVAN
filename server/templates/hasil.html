@@ -1148,45 +1148,27 @@
             let itemsHtml = '';
 
             questionsData.forEach(q => {
-                let qNum;
-                try {
-                    const numVal = parseFloat(q.number);
-                    qNum = Number.isInteger(numVal) ? String(Math.trunc(numVal)) : String(q.number);
-                } catch(e) {
-                    qNum = String(q.number);
-                }
-
+                const qNum = String(q.number);
                 const studentAns = answers[qNum];
-                const correctAns = q.key;
                 const weight = parseFloat(q.weight || 1.0);
-                const partialScoring = q.partial_scoring || false;
                 totalMax += weight;
 
                 let earned = 0;
                 let statusText = 'Belum Dijawab';
                 let statusClass = 'unanswered';
 
-                if (sub.evaluated_answers && sub.evaluated_answers[qNum]) {
-                    const evalAns = sub.evaluated_answers[qNum];
+                const evalAns = (sub.evaluated_answers || {})[qNum] || {};
+                if (evalAns.statusClass) {
                     statusClass = evalAns.statusClass;
                     statusText = evalAns.statusText;
-                    earned = evalAns.earned;
+                    earned = evalAns.earned || 0;
 
                     if (studentAns !== undefined && studentAns !== null) {
                         if (statusClass === 'correct') correctCount++;
                         else if (statusClass === 'partial') partialCount++;
                         else if (statusClass === 'incorrect') incorrectCount++;
                     }
-                } else if (studentAns !== undefined && studentAns !== null) {
-                    const evalResult = evaluateAnswer(q.type, studentAns, correctAns, weight, partialScoring);
-                    earned = evalResult.earned;
-                    statusText = evalResult.statusText;
-                    statusClass = evalResult.statusClass;
-
-                    if (statusClass === 'correct') correctCount++;
-                    else if (statusClass === 'partial') partialCount++;
-                    else incorrectCount++;
-                } 
+                }
 
                 totalEarned += earned;
 
@@ -1238,66 +1220,6 @@
                     </div>
                 </div>
             `;
-        }
-
-        // ===== Evaluate Answer =====
-        function evaluateAnswer(type, studentAns, correctAns, weight, partialScoring) {
-            let earned = 0;
-            let statusText = 'Salah ❌';
-            let statusClass = 'incorrect';
-
-            if (type === 'single_choice' || type === 'true_false' || type === 'short_answer') {
-                const sNorm = studentAns.toString().trim().replace(/\s+/g, ' ').toUpperCase();
-                const cNorm = correctAns.toString().trim().replace(/\s+/g, ' ').toUpperCase();
-                if (sNorm === cNorm) {
-                    earned = weight;
-                    statusText = 'Benar ✔️';
-                    statusClass = 'correct';
-                }
-            } else if (type === 'multiple_choice') {
-                if (Array.isArray(studentAns) && Array.isArray(correctAns)) {
-                    if (partialScoring) {
-                        const cs = new Set(correctAns.map(x => x.toString().toUpperCase()));
-                        const ss = new Set(studentAns.map(x => x.toString().toUpperCase()));
-                        if (cs.size > 0) {
-                            let cc = 0, ic = 0;
-                            ss.forEach(x => { if (cs.has(x)) cc++; else ic++; });
-                            const portion = Math.max(0, (cc - ic) / cs.size);
-                            earned = portion * weight;
-                            if (portion >= 1.0) { statusText = 'Benar ✔️'; statusClass = 'correct'; }
-                            else if (portion > 0) { statusText = 'Parsial ⚠️'; statusClass = 'partial'; }
-                        }
-                    } else {
-                        const s = studentAns.map(x => x.toString().toUpperCase()).sort().join(',');
-                        const c = correctAns.map(x => x.toString().toUpperCase()).sort().join(',');
-                        if (s === c) { earned = weight; statusText = 'Benar ✔️'; statusClass = 'correct'; }
-                    }
-                }
-            } else if (type === 'matching') {
-                if (typeof studentAns === 'object' && typeof correctAns === 'object') {
-                    const keys = Object.keys(correctAns);
-                    if (partialScoring) {
-                        if (keys.length > 0) {
-                            let cm = 0;
-                            keys.forEach(k => {
-                                if (studentAns[k] !== undefined && studentAns[k].toString().trim().toUpperCase() === correctAns[k].toString().trim().toUpperCase()) cm++;
-                            });
-                            const portion = cm / keys.length;
-                            earned = portion * weight;
-                            if (portion >= 1.0) { statusText = 'Benar ✔️'; statusClass = 'correct'; }
-                            else if (portion > 0) { statusText = 'Parsial ⚠️'; statusClass = 'partial'; }
-                        }
-                    } else {
-                        let match = true;
-                        keys.forEach(k => {
-                            if (!studentAns[k] || studentAns[k].toString().trim().toUpperCase() !== correctAns[k].toString().trim().toUpperCase()) match = false;
-                        });
-                        if (match) { earned = weight; statusText = 'Benar ✔️'; statusClass = 'correct'; }
-                    }
-                }
-            }
-
-            return { earned, statusText, statusClass };
         }
 
         // ===== Switch Tab =====

@@ -1,35 +1,8 @@
 /* EXAMVAN Admin Panel - JavaScript */
 
 // CSRF Token Helper
-function getCsrfToken() {
-    const meta = document.querySelector('meta[name="csrf-token"]');
-    return meta ? meta.getAttribute('content') : '';
-}
-
-// Wrapper for fetch that auto-includes CSRF headers on state-changing methods
-function apiFetch(url, options = {}) {
-    const method = (options.method || 'GET').toUpperCase();
-    if (['POST', 'PUT', 'DELETE', 'PATCH'].includes(method)) {
-        options.headers = options.headers || {};
-        options.headers['X-CSRF-Token'] = getCsrfToken();
-    }
-    return window.fetch.call(window, url, options);
-}
 
 // Toast notification
-function showToast(message, type = 'success') {
-    const container = document.getElementById('toastContainer');
-    const toast = document.createElement('div');
-    toast.className = `toast toast-${type}`;
-    toast.textContent = message;
-    container.appendChild(toast);
-    setTimeout(() => {
-        toast.style.opacity = '0';
-        toast.style.transform = 'translateX(40px)';
-        toast.style.transition = 'all 0.3s';
-        setTimeout(() => toast.remove(), 300);
-    }, 3500);
-}
 
 // File input display
 const pdfInput = document.getElementById('pdfFile');
@@ -939,35 +912,6 @@ document.addEventListener('click', function(e) {
 });
 
 // Helper to localize a single UTC date string to the device's local timezone
-function localizeUTC(rawDate) {
-    if (!rawDate || rawDate === '—') return '—';
-    // Parse as UTC (format from SQLite: YYYY-MM-DD HH:MM:SS or YYYY-MM-DDTHH:MM:SSZ)
-    let isoString = rawDate;
-    if (!isoString.includes('T')) {
-        isoString = isoString.replace(' ', 'T');
-    }
-    if (!isoString.endsWith('Z')) {
-        isoString = isoString + 'Z';
-    }
-    const date = new Date(isoString);
-    if (isNaN(date.getTime())) return rawDate;
-    
-    return date.toLocaleString(undefined, {
-        year: 'numeric',
-        month: '2-digit',
-        day: '2-digit',
-        hour: '2-digit',
-        minute: '2-digit',
-        second: '2-digit'
-    });
-}
-
-// Localize dates from UTC to browser/device timezone
-function localizeDates() {
-    document.querySelectorAll('.td-date').forEach(el => {
-        const rawDate = el.dataset.utc || el.textContent.trim();
-        if (rawDate && rawDate !== '—' && !rawDate.includes('WIB') && !rawDate.includes('GMT') && !rawDate.includes('UTC')) {
-            // Save original UTC raw string in dataset if not already present
             if (!el.dataset.utc) {
                 el.dataset.utc = rawDate;
             }
@@ -1244,30 +1188,6 @@ function toggleShowAnswers(examId) {
 }
 
 // Dropdown Menu Toggle Handler
-function initMenuToggle() {
-    const menuToggle = document.getElementById('menuToggleBtn');
-    const dropdownContent = document.getElementById('menuDropdownContent');
-    
-    if (menuToggle && dropdownContent) {
-        menuToggle.onclick = (e) => {
-            e.stopPropagation();
-            dropdownContent.classList.toggle('show');
-        };
-        
-        document.addEventListener('click', (e) => {
-            if (!menuToggle.contains(e.target) && !dropdownContent.contains(e.target)) {
-                dropdownContent.classList.remove('show');
-            }
-        });
-    }
-}
-
-if (document.readyState === 'loading') {
-    document.addEventListener('DOMContentLoaded', initMenuToggle);
-} else {
-    initMenuToggle();
-}
-
 
 // ===== Edit Exam Modal =====
 function openEditExamModal(examId, examName) {
