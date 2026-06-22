@@ -1,8 +1,10 @@
 /*!
  * EXAMVAN Tailwind CSS v4
  * Build: npm run tailwind:build
+ * Note: @tailwind base/preflight is excluded to avoid overriding dark theme
  */
-@import "tailwindcss";
+@import "tailwindcss/theme" layer(tailwind-theme);
+@import "tailwindcss/utilities" layer(tailwind-utilities);
 @source "../../../templates/";
 @source "../../js/";
 
@@ -16,12 +18,4 @@
     --color-warning: #f59e0b;
     --radius-card: 16px;
     --radius-sm: 10px;
-}
-
-body {
-    font-family: 'Inter', system-ui, -apple-system, sans-serif;
-    background: radial-gradient(circle at 50% 0%, #17152f 0%, #0c0a1a 50%, #06050b 100%);
-    background-attachment: fixed;
-    color: var(--color-text);
-    min-height: 100vh;
 }
