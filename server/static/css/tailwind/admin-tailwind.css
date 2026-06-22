@@ -1,0 +1,27 @@
+/*!
+ * EXAMVAN Tailwind CSS v4
+ * Build: npm run tailwind:build
+ */
+@import "tailwindcss";
+@source "../../../templates/";
+@source "../../js/";
+
+@theme {
+    --color-primary: #6366f1;
+    --color-primary-dark: #4f46e5;
+    --color-primary-light: #a5b4fc;
+    --color-accent: #8b5cf6;
+    --color-success: #10b981;
+    --color-danger: #ef4444;
+    --color-warning: #f59e0b;
+    --radius-card: 16px;
+    --radius-sm: 10px;
+}
+
+body {
+    font-family: 'Inter', system-ui, -apple-system, sans-serif;
+    background: radial-gradient(circle at 50% 0%, #17152f 0%, #0c0a1a 50%, #06050b 100%);
+    background-attachment: fixed;
+    color: var(--color-text);
+    min-height: 100vh;
+}
