@@ -132,8 +132,7 @@
     #submissionsTable thead { display: none; }
     #submissionsTable,
     #submissionsTable tbody,
-    #submissionsTable tr,
-    #submissionsTable td {
+    #submissionsTable tr {
         display: block;
         width: 100%;
     }
@@ -145,57 +144,42 @@
         margin-bottom: 14px;
     }
     #submissionsTable td {
+        display: flex;
+        align-items: baseline;
+        gap: 8px;
         padding: 4px 0;
         border-bottom: none;
         font-size: 14px;
+        width: 100%;
     }
-    #submissionsTable tbody tr td {
-        display: flex !important;
-        align-items: center;
-        gap: 6px;
-    }
-    #submissionsTable td::before {
-        content: attr(data-label);
+    .mob-label {
+        display: inline;
         font-size: 11px;
         font-weight: 600;
         color: var(--text-muted);
         flex-shrink: 0;
         min-width: 80px;
     }
-    #submissionsTable td[data-label="Nilai"] {
-        flex-wrap: wrap;
-    }
-    #submissionsTable td[data-label="Aksi"] {
-        justify-content: flex-start;
-        gap: 4px;
-        padding-top: 6px;
-    }
-
-    /* Mobile: score inline dengan value */
-    #submissionsTable td[data-label="Nilai"] .score-cell {
-        flex-direction: row;
+    .score-cell-mob {
+        display: flex;
         align-items: center;
         gap: 6px;
+        flex-wrap: wrap;
     }
-    #submissionsTable td[data-label="Nilai"] .score-bar-track {
-        display: none;
+    #submissionsTable td .score-bar-track {
+        display: none !important;
     }
-    #submissionsTable td[data-label="Nilai"] .score-pct {
+    .score-pct-mob {
         font-size: 13px;
         font-weight: 700;
         color: var(--text);
     }
-    #submissionsTable td[data-label="Nilai"] .score-value {
-        font-size: 15px;
-    }
-    #submissionsTable td[data-label="Nilai"] .score-max {
-        font-size: 12px;
-    }
     #submissionsTable td[data-label="Aksi"] {
-        padding-top: 8px;
-        text-align: left !important;
+        padding-top: 6px;
+        align-items: center;
+        gap: 4px;
     }
-    #submissionsTable td[data-label="Perangkat"] .device-code {
+    .td-device .device-code {
         font-size: 12px;
     }
 
