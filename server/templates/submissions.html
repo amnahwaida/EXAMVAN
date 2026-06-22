@@ -6,6 +6,7 @@
     <title>EXAMVAN - Hasil Ujian</title>
     <link rel="stylesheet" href="{{ url_for('static', filename='css/admin.css') }}?v=2.0.1">
     <link rel="icon" type="image/png" href="/static/favicon.png">
+    <meta name="csrf-token" content="{{ csrf_token }}">
 </head>
 <body class="dashboard-page">
     <nav class="topbar">
@@ -185,6 +186,13 @@
 
     <script>
         document.addEventListener('DOMContentLoaded', () => {
+        function escapeHtml(str) {
+            const div = document.createElement("div");
+            div.textContent = str;
+            return div.innerHTML;
+        }
+
+
             const params = new URLSearchParams(window.location.search);
             const examIdParam = params.get('exam_id');
             if (examIdParam) {
@@ -400,9 +408,9 @@
                         const item = document.createElement('div');
                         item.className = `detail-answer-item ${statusClass}`;
                         item.innerHTML = `
-                            <span class="detail-q-num">No. ${num}</span>
-                            <span class="detail-q-ans">${studentAnsDisplay}</span>
-                            <span class="detail-q-key">${correctAnsDisplay}</span>
+                            <span class="detail-q-num">No. ${escapeHtml(String(num))}</span>
+                            <span class="detail-q-ans">${escapeHtml(studentAnsDisplay)}</span>
+                            <span class="detail-q-key">${escapeHtml(correctAnsDisplay)}</span>
                             <div style="text-align: right; width: 110px;">
                                 <span class="detail-q-status" style="color: ${statusClass === 'correct' ? '#34d399' : statusClass === 'partial' ? '#f59e0b' : '#f87171'}">
                                     ${statusText}

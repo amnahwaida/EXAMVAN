@@ -1,5 +1,21 @@
 /* EXAMVAN Admin Panel - JavaScript */
 
+// CSRF Token Helper
+function getCsrfToken() {
+    const meta = document.querySelector('meta[name="csrf-token"]');
+    return meta ? meta.getAttribute('content') : '';
+}
+
+// Wrapper for fetch that auto-includes CSRF headers on state-changing methods
+function apiFetch(url, options = {}) {
+    const method = (options.method || 'GET').toUpperCase();
+    if (['POST', 'PUT', 'DELETE', 'PATCH'].includes(method)) {
+        options.headers = options.headers || {};
+        options.headers['X-CSRF-Token'] = getCsrfToken();
+    }
+    return window.fetch.call(window, url, options);
+}
+
 // Toast notification
 function showToast(message, type = 'success') {
     const container = document.getElementById('toastContainer');
@@ -75,6 +91,7 @@ if (uploadForm) {
 
         const xhr = new XMLHttpRequest();
         xhr.open('POST', '/admin/api/upload');
+        xhr.setRequestHeader('X-CSRF-Token', getCsrfToken());
 
         xhr.upload.addEventListener('progress', function(e) {
             if (e.lengthComputable) {
@@ -116,7 +133,7 @@ if (uploadForm) {
 
 // Toggle exam status
 function toggleExam(examId) {
-    fetch(`/admin/api/exams/${examId}/toggle`, { method: 'POST' })
+    apiFetch(`/admin/api/exams/${examId}/toggle`, { method: 'POST' })
         .then(r => r.json())
         .then(res => {
             if (res.success) {
@@ -133,7 +150,7 @@ function toggleExam(examId) {
 function deleteExam(examId, examName) {
     if (!confirm(`Hapus ujian "${examName}"?\nFile PDF juga akan dihapus permanen.`)) return;
 
-    fetch(`/admin/api/exams/${examId}`, { method: 'DELETE' })
+    apiFetch(`/admin/api/exams/${examId}`, { method: 'DELETE' })
         .then(r => r.json())
         .then(res => {
             if (res.success) {
@@ -199,7 +216,7 @@ function copyResultsLink(token) {
 function regenerateToken(examId) {
     if (!confirm('Generate token baru? Token lama tidak akan bisa digunakan lagi.')) return;
 
-    fetch(`/admin/api/exams/${examId}/regenerate-token`, { method: 'POST' })
+    apiFetch(`/admin/api/exams/${examId}/regenerate-token`, { method: 'POST' })
         .then(r => r.json())
         .then(res => {
             if (res.success) {
@@ -232,7 +249,7 @@ function openQuestionsModal(examId, examName) {
     // Open modal first
     document.getElementById('questionsModal').style.display = 'flex';
     
-    fetch(`/admin/api/exams/${examId}/questions`)
+    apiFetch(`/admin/api/exams/${examId}/questions`)
         .then(r => r.json())
         .then(res => {
             if (res.success) {
@@ -604,7 +621,7 @@ function saveQuestionsConfig() {
     const questions = getQuestionsFromEditor();
     const securityLevel = document.getElementById('examSecurityLevel') ? document.getElementById('examSecurityLevel').value : 'medium';
     
-    fetch(`/admin/api/exams/${activeExamId}/questions`, {
+    apiFetch(`/admin/api/exams/${activeExamId}/questions`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ questions: questions, security_level: securityLevel })
@@ -654,7 +671,7 @@ function submitChangePassword(e) {
         return;
     }
 
-    fetch('/admin/api/change-password', {
+    apiFetch('/admin/api/change-password', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -696,7 +713,7 @@ function loadUsersList() {
 
     tbody.innerHTML = '<tr><td colspan="3" style="text-align:center; padding: 20px; color: var(--text-secondary);">Memuat...</td></tr>';
 
-    fetch('/admin/api/users')
+    apiFetch('/admin/api/users')
         .then(r => r.json())
         .then(res => {
             if (res.success) {
@@ -745,7 +762,7 @@ function submitCreateUser(e) {
         return;
     }
 
-    fetch('/admin/api/users', {
+    apiFetch('/admin/api/users', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ username, password })
@@ -766,7 +783,7 @@ function submitCreateUser(e) {
 function deleteUser(userId, username) {
     if (!confirm(`Hapus user "${username}"? Semua ujian dan data yang dibuat oleh user ini akan ikut terhapus.`)) return;
 
-    fetch(`/admin/api/users/${userId}`, {
+    apiFetch(`/admin/api/users/${userId}`, {
         method: 'DELETE'
     })
         .then(r => r.json())
@@ -805,7 +822,7 @@ function submitEditToken(e) {
         return;
     }
 
-    fetch(`/admin/api/exams/${examId}/custom-token`, {
+    apiFetch(`/admin/api/exams/${examId}/custom-token`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ token })
@@ -1076,7 +1093,7 @@ function togglePublicResults(examId) {
         btn.disabled = true;
     }
 
-    fetch(`/admin/api/exams/${examId}/toggle-public-results`, { method: 'POST' })
+    apiFetch(`/admin/api/exams/${examId}/toggle-public-results`, { method: 'POST' })
         .then(r => r.json())
         .then(res => {
             if (btn) {
@@ -1117,7 +1134,7 @@ function toggleShowAnswers(examId) {
         btn.disabled = true;
     }
 
-    fetch(`/admin/api/exams/${examId}/toggle-show-answers`, { method: 'POST' })
+    apiFetch(`/admin/api/exams/${examId}/toggle-show-answers`, { method: 'POST' })
         .then(r => r.json())
         .then(res => {
             if (btn) {
@@ -1384,7 +1401,7 @@ async function bulkDeleteExams() {
     }
     
     try {
-        const response = await fetch('/admin/exams/bulk-delete', {
+        const response = await apiFetch('/admin/exams/bulk-delete', {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json'
@@ -1422,7 +1439,7 @@ async function bulkToggleExams() {
     }
     
     try {
-        const response = await fetch('/admin/exams/bulk-toggle', {
+        const response = await apiFetch('/admin/exams/bulk-toggle', {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json'

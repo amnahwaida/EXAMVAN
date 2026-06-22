@@ -1195,7 +1195,7 @@
 
                 itemsHtml += `
                     <div class="answer-item ${statusClass}">
-                        <span class="q-num">No. ${q.number}</span>
+                        <span class="q-num">No. ${escapeHtml(String(q.number))}</span>
                         <span class="q-student-ans">${studentDisplay}</span>
                         <span class="q-correct-ans correct-ans-cell">${correctDisplay}</span>
                         <span class="q-status ${statusClass}">${statusText} (${earned.toFixed(1)})</span>

@@ -85,6 +85,23 @@ class ServerConfigActivity : AppCompatActivity() {
         }
     }
 
+    private fun isVersionCompatible(appVersion: String, requiredVersion: String): Boolean {
+        try {
+            val appParts = appVersion.split(".").map { it.toIntOrNull() ?: 0 }
+            val reqParts = requiredVersion.split(".").map { it.toIntOrNull() ?: 0 }
+            val length = maxOf(appParts.size, reqParts.size)
+            for (i in 0 until length) {
+                val appPart = appParts.getOrElse(i) { 0 }
+                val reqPart = reqParts.getOrElse(i) { 0 }
+                if (appPart > reqPart) return true
+                if (appPart < reqPart) return false
+            }
+            return true
+        } catch (e: Exception) {
+            return appVersion == requiredVersion
+        }
+    }
+
     private fun validateInputs(url: String, token: String): Boolean {
         if (url.isEmpty()) {
             showError("URL tidak boleh kosong")
@@ -113,7 +130,7 @@ class ServerConfigActivity : AppCompatActivity() {
                 val requiredVersion = health.required_app_version
                 val appVersion = BuildConfig.VERSION_NAME
 
-                if (requiredVersion != null && requiredVersion != appVersion) {
+                if (requiredVersion != null && !isVersionCompatible(appVersion, requiredVersion)) {
                     runOnUiThread {
                         setLoading(false)
                         showError("Versi aplikasi tidak sesuai!\nAplikasi Anda: v$appVersion\nVersi yang dibutuhkan: v$requiredVersion\n\nSilakan update aplikasi EXAMVAN Anda ke versi terbaru.")

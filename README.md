@@ -1,6 +1,6 @@
 # 📄 EXAMVAN — Sistem Ujian Digital Berbasis PDF (LAN-Optimized & Secure)
 
-> Platform distribusi & pelaksanaan ujian digital aman untuk infrastruktur jaringan lokal (LAN/Intranet) sekolah dan kampus dengan perlindungan anti-cheat berlapis di sisi Android & iOS.
+> Platform distribusi & pelaksanaan ujian digital aman untuk infrastruktur jaringan lokal (LAN/Intranet) sekolah dan kampus dengan perlindungan anti-cheat berlapis di sisi Android.
 
 ---
 
@@ -29,7 +29,7 @@ EXAMVAN diciptakan khusus untuk memenuhi kebutuhan instansi pendidikan dalam men
 * **Pengaturan Bobot & Penilaian Parsial:** Bobot nilai per soal dapat disesuaikan. Pilihan ganda kompleks mendukung opsi **Penilaian Parsial (Partial Scoring)** yang dinamis.
 * **Rekalkulasi Nilai Otomatis:** Apabila guru mengubah bobot soal atau mengaktifkan/menonaktifkan opsi penilaian parsial *setelah* ujian disubmit oleh siswa, sistem secara otomatis menghitung ulang (*recalculate*) nilai siswa secara instan tanpa perlu submit ulang.
 
-### 3. Keamanan Klien Seluler (Android & iOS)
+### 3. Keamanan Klien Seluler (Android)
 * **Dua Tingkat Keamanan Dinamis (Low, Medium):**
   1. **Low Mode:** Proteksi dasar berupa anti-screenshot (`FLAG_SECURE`) dan pembersihan papan klip (clipboard). Siswa bebas keluar masuk aplikasi tanpa konsekuensi.
   2. **Medium Mode:** Jika siswa menekan tombol Home, berpindah aplikasi, membuka laci notifikasi, atau meminimalkan aplikasi, sistem langsung mendeteksi kehilangan fokus dan melakukan **Auto-Submit (Kumpul Jawaban Otomatis)** dalam waktu 3 detik.
@@ -64,15 +64,9 @@ Untuk memulai ujian pada perangkat siswa, silakan unduh aplikasinya melalui taut
 * **Alternative Build:** Anda juga dapat menggunakan berkas **[examvan-debug.apk](./examvan-debug.apk)** atau **[examvan-release.apk](./examvan-release.apk)** yang terletak di folder root.
 * **Kompatibilitas:** Minimal **Android 5.0 (Lollipop - API 21)** hingga versi terbaru (diuji hingga **Android 14/15 - API 34/35**). Kompatibel dengan >99% tipe perangkat Android aktif milik siswa.
 
-### 🍎 Perangkat iOS
-* Kode sumber Swift native siap pakai tersedia di folder `/ios/ExamVan`. Anda dapat langsung membukanya menggunakan Xcode di macOS untuk melakukan build dan install ke perangkat iPad/iPhone siswa tanpa memerlukan dependensi pihak ketiga (*zero external dependencies*).
-* **Kompatibilitas:** Minimal **iOS 12.0** atau lebih baru (mendukung perangkat lawas mulai dari iPhone 5S / iPad Air 1 ke atas).
-
----
-
 ## 🛠️ Panduan Build Aplikasi Klien (Siswa)
 
-Berikut adalah panduan detail mengenai cara melakukan kompilasi (*build*) aplikasi Android dan iOS dari kode sumber yang tersedia:
+Berikut adalah panduan detail mengenai cara melakukan kompilasi (*build*) aplikasi Android dari kode sumber yang tersedia:
 
 ### A. Kompilasi Klien Android (.APK)
 Kompilasi dapat dilakukan di sistem operasi **Windows, macOS, maupun Linux**.
@@ -99,9 +93,6 @@ Kompilasi dapat dilakukan di sistem operasi **Windows, macOS, maupun Linux**.
 5. Setelah selesai, klik **Locate** di sudut kanan bawah untuk mengambil berkas `.apk`.
 
 ---
-
-### B. Kompilasi Klien iOS (.IPA / Aplikasi Perangkat)
-Kompilasi **wajib menggunakan komputer macOS (MacBook/iMac)** karena membutuhkan Xcode compiler.
 
 #### 1. Persyaratan Sistem (*Requirements*):
 - **Perangkat Keras:** Komputer Mac (Intel / Apple Silicon M-Series).
@@ -229,7 +220,7 @@ Semua waktu di dalam sistem EXAMVAN disimpan dan diproses dalam **UTC+0** untuk 
 │ ADMIN PANEL (Browser)                                            │
 │ → JavaScript localizeDates() mengkonversi UTC → timezone browser │
 ├──────────────────────────────────────────────────────────────────┤
-│ ANDROID / iOS (Device Siswa)                                     │
+│ ANDROID (Device Siswa)                                     │
 │ → Menerima timestamp UTC, ditampilkan sesuai timezone device     │
 │ → Endpoint /api/time tersedia untuk verifikasi jam server        │
 └──────────────────────────────────────────────────────────────────┘

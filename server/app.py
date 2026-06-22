@@ -7,21 +7,21 @@ Platform: Flask + SQLite
 import os
 import secrets
 import string
-import random
 import sqlite3
 import hashlib
 import socket
 import json
 import csv
 import io
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 from functools import wraps
 
 from flask import (
     Flask, request, jsonify, render_template,
-    redirect, url_for, session, send_file, flash, abort
+    redirect, url_for, session, send_file, flash, abort, g
 )
 from werkzeug.utils import secure_filename
+from werkzeug.security import generate_password_hash, check_password_hash
 
 # ===== Configuration =====
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -34,7 +34,6 @@ def localize_date_string(utc_str, tz_offset_min=None):
     if not utc_str:
         return '—'
     try:
-        from datetime import timedelta
         # SQLite stores datetime strings in UTC (e.g., '2026-05-22 14:09:54')
         iso_str = utc_str.strip()
         if ' ' in iso_str:
@@ -70,16 +69,34 @@ app.config['MAX_CONTENT_LENGTH'] = MAX_FILE_SIZE + 4096
 
 # ===== Database =====
 def get_db():
-    """Get database connection with Row factory."""
+    """Get database connection with Row factory, request-scoped via g."""
+    if 'db' not in g:
+        g.db = sqlite3.connect(DATABASE)
+        g.db.execute('PRAGMA foreign_keys = ON')
+        g.db.execute('PRAGMA journal_mode=WAL')
+        g.db.row_factory = sqlite3.Row
+    return g.db
+
+
+@app.teardown_appcontext
+def close_db(exception):
+    db = g.pop('db', None)
+    if db is not None:
+        db.close()
+
+
+def get_db_standalone():
+    """Get a standalone DB connection (outside request context, e.g. init_db)."""
     db = sqlite3.connect(DATABASE)
     db.execute('PRAGMA foreign_keys = ON')
+    db.execute('PRAGMA journal_mode=WAL')
     db.row_factory = sqlite3.Row
     return db
 
 
 def init_db():
     """Initialize database tables and default admin user."""
-    db = get_db()
+    db = get_db_standalone()
     db.executescript('''
         CREATE TABLE IF NOT EXISTS exams (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -150,7 +167,7 @@ def init_db():
     ).fetchone()
 
     if not existing:
-        pw_hash = hashlib.sha256(DEFAULT_ADMIN['password'].encode()).hexdigest()
+        pw_hash = generate_password_hash(DEFAULT_ADMIN['password'])
         db.execute(
             'INSERT INTO admin_users (username, password_hash) VALUES (?, ?)',
             (DEFAULT_ADMIN['username'], pw_hash)
@@ -290,18 +307,77 @@ except Exception as e:
     print(f"Error initializing database on startup: {e}")
 
 
+# ===== Rate Limiter (in-memory) =====
+import time
+from collections import defaultdict
+_rate_limit_store = defaultdict(list)
+
+def check_rate_limit(key, max_attempts=5, window_seconds=300):
+    """
+    Simple in-memory rate limiter.
+    Returns True if request is allowed, False if rate limited.
+    key: unique identifier (e.g. f"otp:{ip}")
+    max_attempts: max requests in the window
+    window_seconds: time window in seconds
+    """
+    now = time.time()
+    ip = request.remote_addr or 'unknown'
+    store_key = f"{key}:{ip}"
+
+    # Clean old entries
+    _rate_limit_store[store_key] = [
+        t for t in _rate_limit_store[store_key]
+        if now - t < window_seconds
+    ]
+
+    # Check limit
+    if len(_rate_limit_store[store_key]) >= max_attempts:
+        return False
+
+    _rate_limit_store[store_key].append(now)
+    return True
+
+
+# ===== CSRF Protection =====
+def generate_csrf_token():
+    """Generate or retrieve CSRF token from session."""
+    if 'csrf_token' not in session:
+        session['csrf_token'] = secrets.token_hex(32)
+    return session['csrf_token']
+
+
+def csrf_required(f):
+    """Decorator to require valid CSRF token on state-changing requests."""
+    @wraps(f)
+    def decorated(*args, **kwargs):
+        if request.method in ('POST', 'PUT', 'DELETE'):
+            token = request.headers.get('X-CSRF-Token') or request.form.get('csrf_token')
+            expected = session.get('csrf_token')
+            if not expected or not token or token != expected:
+                if request.is_json or request.path.startswith('/admin/api'):
+                    return jsonify({'success': False, 'error': 'invalid_csrf', 'message': 'CSRF token tidak valid. Silakan refresh halaman.'}), 403
+                flash('CSRF token tidak valid. Silakan coba lagi.', 'error')
+                return redirect(url_for('admin_dashboard'))
+        return f(*args, **kwargs)
+    return decorated
+
+
+@app.context_processor
+def inject_csrf_token():
+    """Inject CSRF token into all templates."""
+    return {'csrf_token': generate_csrf_token()}
+
+
 # ===== Helpers =====
 def get_saas_setting(key, default=''):
     db = get_db()
     row = db.execute('SELECT value FROM saas_settings WHERE key = ?', (key,)).fetchone()
-    db.close()
     return row['value'] if row else default
 
 def set_saas_setting(key, value):
     db = get_db()
     db.execute('INSERT OR REPLACE INTO saas_settings (key, value) VALUES (?, ?)', (key, str(value)))
     db.commit()
-    db.close()
 
 def send_whatsapp(target, message):
     import urllib.request
@@ -338,31 +414,46 @@ def send_whatsapp(target, message):
         print(f"Fonnte Send WA Exception: {e}")
         return False
 
+def _verify_password(password, stored_hash):
+    """Verify password against stored hash. Supports both legacy SHA-256 and werkzeug hashes."""
+    if stored_hash.startswith(('scrypt:', 'pbkdf2:')):
+        return check_password_hash(stored_hash, password)
+    return hashlib.sha256(password.encode()).hexdigest() == stored_hash
+
 def generate_token(length=6):
     """Generate a unique uppercase alphanumeric token."""
     chars = string.ascii_uppercase + string.digits
     while True:
-        token = ''.join(random.choices(chars, k=length))
-        # Ensure uniqueness
-        db = get_db()
+        token = ''.join(secrets.choice(chars) for _ in range(length))
+        try:
+            db = get_db()
+        except RuntimeError:
+            db = get_db_standalone()
         existing = db.execute('SELECT id FROM exams WHERE token = ?', (token,)).fetchone()
-        db.close()
         if not existing:
             return token
 
 def admin_required(f):
-    """Decorator to require admin login."""
+    """Decorator to require admin login + CSRF check for state-changing methods."""
     @wraps(f)
     def decorated(*args, **kwargs):
         if 'admin_id' not in session:
             if request.is_json or request.path.startswith('/admin/api'):
                 return jsonify({'success': False, 'error': 'unauthorized'}), 401
             return redirect(url_for('admin_login'))
+        # CSRF check for state-changing methods (POST, PUT, DELETE)
+        if request.method in ('POST', 'PUT', 'DELETE'):
+            token = request.headers.get('X-CSRF-Token') or request.form.get('csrf_token')
+            expected = session.get('csrf_token')
+            if not expected or not token or token != expected:
+                if request.is_json or request.path.startswith('/admin/api'):
+                    return jsonify({'success': False, 'error': 'invalid_csrf', 'message': 'CSRF token tidak valid. Silakan refresh halaman.'}), 403
+                flash('CSRF token tidak valid. Silakan coba lagi.', 'error')
+                return redirect(url_for('admin_dashboard'))
         # Check account expiry (skip for super admin)
         if session.get('admin_username') != 'admin':
             db = get_db()
             user = db.execute('SELECT expires_at FROM admin_users WHERE id = ?', (session['admin_id'],)).fetchone()
-            db.close()
             if user and user['expires_at']:
                 expires_at = datetime.strptime(user['expires_at'], '%Y-%m-%d %H:%M:%S').replace(tzinfo=timezone.utc)
                 if datetime.now(timezone.utc) > expires_at:
@@ -410,73 +501,111 @@ def check_submission_ownership(db, submission_id):
     return sub is not None and sub['created_by'] == session['admin_id']
 
 
+def _normalize_q_num(number):
+    """Normalize question number: handle float representation (e.g. 1.0 -> '1')."""
+    try:
+        num_val = float(number)
+        return str(int(num_val)) if num_val.is_integer() else str(number)
+    except Exception:
+        return str(number)
+
+
+def _evaluate_single_question(student_ans, correct_ans, q_type, q_weight, partial_scoring):
+    """Evaluate a single question. Returns (earned, status_text, status_class)."""
+    if student_ans is None or correct_ans is None:
+        if student_ans is None:
+            return 0.0, 'Belum Dijawab', 'unanswered'
+        return 0.0, 'Salah ❌', 'incorrect'
+
+    if q_type in ('single_choice', 'true_false', 'short_answer'):
+        s_norm = ' '.join(str(student_ans).split()).upper()
+        c_norm = ' '.join(str(correct_ans).split()).upper()
+        if s_norm == c_norm:
+            return q_weight, 'Benar ✔️', 'correct'
+        return 0.0, 'Salah ❌', 'incorrect'
+
+    if q_type == 'multiple_choice':
+        if isinstance(student_ans, list) and isinstance(correct_ans, list):
+            if partial_scoring:
+                correct_set = set(str(x).upper() for x in correct_ans)
+                student_set = set(str(x).upper() for x in student_ans)
+                if correct_set:
+                    correct_selected = sum(1 for x in student_set if x in correct_set)
+                    incorrect_selected = sum(1 for x in student_set if x not in correct_set)
+                    portion = max(0.0, (correct_selected - incorrect_selected) / len(correct_set))
+                    earned = portion * q_weight
+                    if portion >= 1.0:
+                        return earned, 'Benar ✔️', 'correct'
+                    elif portion > 0:
+                        return earned, 'Parsial ⚠️', 'partial'
+                    return 0.0, 'Salah ❌', 'incorrect'
+            else:
+                if sorted(str(x).upper() for x in student_ans) == sorted(str(x).upper() for x in correct_ans):
+                    return q_weight, 'Benar ✔️', 'correct'
+        return 0.0, 'Salah ❌', 'incorrect'
+
+    if q_type == 'matching':
+        if isinstance(student_ans, dict) and isinstance(correct_ans, dict):
+            if partial_scoring:
+                if correct_ans:
+                    correct_matches = sum(
+                        1 for k, v in correct_ans.items()
+                        if str(student_ans.get(k, '')).strip().upper() == str(v).strip().upper()
+                    )
+                    portion = correct_matches / len(correct_ans)
+                    earned = portion * q_weight
+                    if portion >= 1.0:
+                        return earned, 'Benar ✔️', 'correct'
+                    elif portion > 0:
+                        return earned, 'Parsial ⚠️', 'partial'
+                    return 0.0, 'Salah ❌', 'incorrect'
+            else:
+                match = all(
+                    str(student_ans.get(k, '')).strip().upper() == str(v).strip().upper()
+                    for k, v in correct_ans.items()
+                )
+                if match:
+                    return q_weight, 'Benar ✔️', 'correct'
+        return 0.0, 'Salah ❌', 'incorrect'
+
+    return 0.0, 'Salah ❌', 'incorrect'
+
+
+def evaluate_answers_detailed(answers, questions):
+    """Evaluate all answers against questions. Returns dict keyed by q_num."""
+    evaluation = {}
+    if not questions:
+        return evaluation
+    for q in questions:
+        q_num = _normalize_q_num(q['number'])
+        student_ans = answers.get(q_num)
+        correct_ans = q.get('key')
+        q_weight = float(q.get('weight', 1.0))
+        partial_scoring = q.get('partial_scoring', False)
+        earned, status_text, status_class = _evaluate_single_question(
+            student_ans, correct_ans, q['type'], q_weight, partial_scoring)
+        evaluation[q_num] = {
+            'earned': earned,
+            'statusText': status_text,
+            'statusClass': status_class,
+        }
+    return evaluation
+
+
 def calculate_submission_score(answers, questions):
-    """Calculate the score for a student submission given their answers and the exam's questions config."""
+    """Calculate total score for a student submission."""
     if not questions:
         return None
     try:
-        earned_weight = 0.0
-        for q in questions:
-            # Normalize q_num: handle potential float representation (e.g. 1.0 -> "1")
-            try:
-                num_val = float(q['number'])
-                if num_val.is_integer():
-                    q_num = str(int(num_val))
-                else:
-                    q_num = str(q['number'])
-            except Exception:
-                q_num = str(q['number'])
-
-            student_ans = answers.get(q_num)
-            correct_ans = q.get('key')
-            q_weight = float(q.get('weight', 1.0))
-            partial_scoring = q.get('partial_scoring', False)
-
-            earned_q_weight = 0.0
-            if student_ans is not None and correct_ans is not None:
-                if q['type'] in ['single_choice', 'true_false', 'short_answer']:
-                    s_norm = ' '.join(str(student_ans).split()).upper()
-                    c_norm = ' '.join(str(correct_ans).split()).upper()
-                    if s_norm == c_norm:
-                        earned_q_weight = q_weight
-                elif q['type'] == 'multiple_choice':
-                    if isinstance(student_ans, list) and isinstance(correct_ans, list):
-                        if partial_scoring:
-                            correct_set = set(str(x).upper() for x in correct_ans)
-                            student_set = set(str(x).upper() for x in student_ans)
-                            if correct_set:
-                                correct_selected = sum(1 for x in student_set if x in correct_set)
-                                incorrect_selected = sum(1 for x in student_set if x not in correct_set)
-                                portion = max(0.0, (correct_selected - incorrect_selected) / len(correct_set))
-                                earned_q_weight = portion * q_weight
-                        else:
-                            if sorted([str(x).upper() for x in student_ans]) == sorted([str(x).upper() for x in correct_ans]):
-                                earned_q_weight = q_weight
-                elif q['type'] == 'matching':
-                    if isinstance(student_ans, dict) and isinstance(correct_ans, dict):
-                        if partial_scoring:
-                            if correct_ans:
-                                correct_matches = 0
-                                for k, v in correct_ans.items():
-                                    if str(student_ans.get(k, '')).strip().upper() == str(v).strip().upper():
-                                        correct_matches += 1
-                                portion = correct_matches / len(correct_ans)
-                                earned_q_weight = portion * q_weight
-                        else:
-                            match = True
-                            for k, v in correct_ans.items():
-                                if str(student_ans.get(k, '')).strip().upper() != str(v).strip().upper():
-                                    match = False
-                                    break
-                            if match:
-                                earned_q_weight = q_weight
-            
-            earned_weight += earned_q_weight
-
-        return round(earned_weight, 2)
+        evaluation = evaluate_answers_detailed(answers, questions)
+        total = sum(e['earned'] for e in evaluation.values())
+        return round(total, 2)
     except Exception as e:
         print("Scoring calculation error:", e)
         return None
+
+
+
 
 
 def get_local_ip():
@@ -613,7 +742,6 @@ def api_exams():
             'created_at': format_iso_utc(exam['created_at'])
         })
 
-    db.close()
     return jsonify({'success': True, 'data': data})
 
 
@@ -636,7 +764,6 @@ def api_exam_by_token(token):
         'FROM exams WHERE token = ? AND status = ?',
         (token, 'active')
     ).fetchone()
-    db.close()
 
     if not exam:
         return jsonify({
@@ -709,7 +836,6 @@ def api_submit_exam(exam_id):
     db = get_db()
     exam = db.execute('SELECT questions_json FROM exams WHERE id = ? AND status = ?', (exam_id, 'active')).fetchone()
     if not exam:
-        db.close()
         return jsonify({'success': False, 'message': 'Ujian tidak ditemukan'}), 404
 
     # Calculate score if questions exist
@@ -729,7 +855,6 @@ def api_submit_exam(exam_id):
         (exam_id, student_name, exam_number, student_class, json.dumps(answers), score, start_time, mac_address)
     )
     db.commit()
-    db.close()
 
     return jsonify({
         'success': True,
@@ -746,7 +871,6 @@ def api_exam_pdf(exam_id):
         'SELECT * FROM exams WHERE id = ? AND status = ?',
         (exam_id, 'active')
     ).fetchone()
-    db.close()
 
     if not exam:
         return jsonify({
@@ -813,14 +937,18 @@ def admin_login():
         password = request.form.get('password', '')
 
         db = get_db()
-        pw_hash = hashlib.sha256(password.encode()).hexdigest()
         user = db.execute(
-            'SELECT id, username, status FROM admin_users WHERE username = ? AND password_hash = ?',
-            (username, pw_hash)
+            'SELECT id, username, status, password_hash FROM admin_users WHERE username = ?',
+            (username,)
         ).fetchone()
-        db.close()
 
-        if user:
+        if user and _verify_password(password, user['password_hash']):
+            # Auto-upgrade legacy SHA-256 hash to werkzeug scrypt
+            if not user['password_hash'].startswith(('scrypt:', 'pbkdf2:')):
+                new_hash = generate_password_hash(password)
+                db.execute('UPDATE admin_users SET password_hash = ? WHERE id = ?', (new_hash, user['id']))
+                db.commit()
+
             if user['status'] == 'pending_otp':
                 flash('Pendaftaran Anda membutuhkan konfirmasi OTP WhatsApp. Silakan verifikasi.', 'warning')
                 return redirect(url_for('verify_otp', username=user['username']))
@@ -830,11 +958,8 @@ def admin_login():
 
             # Check account expiry (skip for super admin)
             if user['username'] != 'admin':
-                db2 = get_db()
-                user_full = db2.execute('SELECT expires_at FROM admin_users WHERE id = ?', (user['id'],)).fetchone()
-                db2.close()
+                user_full = db.execute('SELECT expires_at FROM admin_users WHERE id = ?', (user['id'],)).fetchone()
                 if user_full and user_full['expires_at']:
-                    from datetime import timedelta
                     expires_at = datetime.strptime(user_full['expires_at'], '%Y-%m-%d %H:%M:%S').replace(tzinfo=timezone.utc)
                     if datetime.now(timezone.utc) > expires_at:
                         flash('Masa aktif akun Anda telah habis. Silakan hubungi administrator.', 'error')
@@ -875,24 +1000,22 @@ def register():
         db = get_db()
         existing = db.execute('SELECT id FROM admin_users WHERE username = ?', (username,)).fetchone()
         if existing:
-            db.close()
             flash('Username sudah digunakan', 'error')
             return render_template('register.html')
 
-        pw_hash = hashlib.sha256(password.encode()).hexdigest()
-        
+        pw_hash = generate_password_hash(password)
+
         default_exams = int(get_saas_setting('default_max_exams', '3'))
         default_pdf = int(get_saas_setting('default_max_pdf_size', '1048576'))
         default_drafts = int(get_saas_setting('default_max_drafts', '2'))
         default_draft_size = int(get_saas_setting('default_max_draft_size', '1048576'))
         wa_enabled = get_saas_setting('wa_verification_enabled', '0') == '1'
-        
+
         default_active_days = int(get_saas_setting('default_active_days', '1'))
-        from datetime import timedelta
         expires_at = (datetime.now(timezone.utc) + timedelta(days=default_active_days)).strftime('%Y-%m-%d %H:%M:%S')
 
         if wa_enabled:
-            otp = ''.join(random.choices(string.digits, k=6))
+            otp = ''.join(secrets.choice(string.digits) for _ in range(6))
             otp_expiry = (datetime.now(timezone.utc) + timedelta(minutes=5)).strftime('%Y-%m-%d %H:%M:%S')
             
             db.execute(
@@ -901,7 +1024,6 @@ def register():
                 (username, pw_hash, whatsapp, 'pending_otp', otp, otp_expiry, default_exams, default_pdf, default_drafts, default_draft_size, expires_at)
             )
             db.commit()
-            db.close()
             
             template = get_saas_setting('wa_otp_template', 'Kode OTP EXAMVAN Anda: {otp}. Berlaku selama 5 menit.')
             message = template.replace('{otp}', otp)
@@ -916,7 +1038,6 @@ def register():
                 (username, pw_hash, whatsapp, 'active', default_exams, default_pdf, default_drafts, default_draft_size, expires_at)
             )
             db.commit()
-            db.close()
             
             flash('Registrasi berhasil! Silakan masuk dengan akun Anda.', 'success')
             return redirect(url_for('admin_login'))
@@ -930,13 +1051,18 @@ def verify_otp():
     username = request.args.get('username', '').strip().lower()
     
     if request.method == 'POST':
+        # Rate limit: max 5 OTP attempts per 5 minutes per IP (brute force protection)
+        if not check_rate_limit('verify_otp', max_attempts=5, window_seconds=300):
+            flash('Terlalu banyak percobaan verifikasi. Silakan coba lagi nanti.', 'error')
+            return render_template('verify_otp.html', username=username)
+
         username = request.form.get('username', '').strip().lower()
         otp_input = request.form.get('otp', '').strip()
-        
+
         if not username or not otp_input:
             flash('Semua kolom wajib diisi', 'error')
             return render_template('verify_otp.html', username=username)
-            
+
         db = get_db()
         user = db.execute(
             'SELECT id, otp_code, otp_expiry, whatsapp_number FROM admin_users WHERE username = ? AND status = ?',
@@ -944,39 +1070,34 @@ def verify_otp():
         ).fetchone()
         
         if not user:
-            db.close()
             flash('Permintaan verifikasi tidak valid atau kedaluwarsa', 'error')
             return redirect(url_for('admin_login'))
-            
+
         if user['otp_code'] != otp_input:
-            db.close()
             flash('Kode OTP yang Anda masukkan salah', 'error')
             return render_template('verify_otp.html', username=username)
-            
+
         now_str = datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S')
         if user['otp_expiry'] < now_str:
-            otp = ''.join(random.choices(string.digits, k=6))
-            from datetime import timedelta
+            otp = ''.join(secrets.choice(string.digits) for _ in range(6))
             otp_expiry = (datetime.now(timezone.utc) + timedelta(minutes=5)).strftime('%Y-%m-%d %H:%M:%S')
-            
+
             db.execute(
                 'UPDATE admin_users SET otp_code = ?, otp_expiry = ? WHERE id = ?',
                 (otp, otp_expiry, user['id'])
             )
             db.commit()
-            db.close()
-            
+
             template = get_saas_setting('wa_otp_template', 'Kode OTP EXAMVAN Anda: {otp}. Berlaku selama 5 menit.')
             message = template.replace('{otp}', otp)
             send_whatsapp(user['whatsapp_number'], message)
-            
+
             flash('Kode OTP telah kedaluwarsa. Kami telah mengirimkan kode OTP baru ke WhatsApp Anda.', 'warning')
             return render_template('verify_otp.html', username=username)
-            
+
         db.execute('UPDATE admin_users SET status = ?, otp_code = NULL, otp_expiry = NULL WHERE id = ?', ('active', user['id']))
         db.commit()
-        db.close()
-        
+
         flash('Verifikasi nomor WhatsApp berhasil! Akun Anda aktif. Silakan login.', 'success')
         return redirect(url_for('admin_login'))
         
@@ -986,11 +1107,15 @@ def verify_otp():
 @app.route('/resend-otp', methods=['POST'])
 def resend_otp():
     """Resend OTP code to user's registered WhatsApp number."""
+    # Rate limit: max 3 resend requests per 10 minutes per IP
+    if not check_rate_limit('resend_otp', max_attempts=3, window_seconds=600):
+        return jsonify({'success': False, 'message': 'Terlalu banyak permintaan kirim ulang OTP. Silakan coba lagi nanti.'}), 429
+
     username = request.form.get('username', '').strip().lower()
-    
+
     if not username:
         return jsonify({'success': False, 'message': 'Username wajib diisi'}), 400
-        
+
     db = get_db()
     user = db.execute(
         'SELECT id, whatsapp_number FROM admin_users WHERE username = ? AND status = ?',
@@ -998,19 +1123,16 @@ def resend_otp():
     ).fetchone()
     
     if not user:
-        db.close()
         return jsonify({'success': False, 'message': 'User tidak ditemukan atau sudah terverifikasi'}), 404
-        
-    otp = ''.join(random.choices(string.digits, k=6))
-    from datetime import timedelta
+
+    otp = ''.join(secrets.choice(string.digits) for _ in range(6))
     otp_expiry = (datetime.now(timezone.utc) + timedelta(minutes=5)).strftime('%Y-%m-%d %H:%M:%S')
-    
+
     db.execute(
         'UPDATE admin_users SET otp_code = ?, otp_expiry = ? WHERE id = ?',
         (otp, otp_expiry, user['id'])
     )
     db.commit()
-    db.close()
     
     template = get_saas_setting('wa_otp_template', 'Kode OTP EXAMVAN Anda: {otp}. Berlaku selama 5 menit.')
     message = template.replace('{otp}', otp)
@@ -1035,13 +1157,15 @@ def admin_dashboard():
     
     if is_super_admin:
         exams = db.execute(
-            'SELECT e.*, u.username as creator_name '
+            'SELECT e.*, u.username as creator_name, '
+            '(SELECT COUNT(*) FROM submissions s WHERE s.exam_id = e.id) as sub_count '
             'FROM exams e LEFT JOIN admin_users u ON e.created_by = u.id '
             'ORDER BY e.created_at DESC'
         ).fetchall()
     else:
         exams = db.execute(
-            'SELECT e.*, u.username as creator_name '
+            'SELECT e.*, u.username as creator_name, '
+            '(SELECT COUNT(*) FROM submissions s WHERE s.exam_id = e.id) as sub_count '
             'FROM exams e LEFT JOIN admin_users u ON e.created_by = u.id '
             'WHERE e.created_by = ? '
             'ORDER BY e.created_at DESC',
@@ -1070,7 +1194,6 @@ def admin_dashboard():
         user_max_exams = user_row['max_exams'] if (user_row and user_row['max_exams']) else 3
         account_expires = user_row['expires_at'] if user_row else None
 
-    db.close()
     return render_template(
         'dashboard.html',
         exams=exams,
@@ -1110,7 +1233,6 @@ def admin_create_exam_page():
         user_max_draft_size = user_row['max_draft_size'] if (user_row and user_row['max_draft_size'] is not None) else 1048576
         account_expires = user_row['expires_at'] if user_row else None
         
-    db.close()
     return render_template(
         'buat_ujian.html',
         admin_user=session.get('admin_username', 'Admin'),
@@ -1161,7 +1283,6 @@ def admin_upload():
         # Check PDF size limit
         if len(file_data) > pdf_limit:
             pdf_limit_mb = round(pdf_limit / (1024 * 1024), 2)
-            db.close()
             return jsonify({
                 'success': False, 
                 'message': f'Ukuran file melebihi batas akun Anda ({pdf_limit_mb}MB). Silakan hubungi Super Admin untuk menaikkan limit.'
@@ -1170,7 +1291,6 @@ def admin_upload():
         # Check exam count limit
         current_count = db.execute('SELECT COUNT(*) as count FROM exams WHERE created_by = ?', (session['admin_id'],)).fetchone()['count']
         if current_count >= exam_limit:
-            db.close()
             return jsonify({
                 'success': False, 
                 'message': f'Batas pembuatan ujian tercapai. Batas akun Anda adalah {exam_limit} ujian. Silakan hubungi Super Admin untuk menaikkan limit.'
@@ -1178,13 +1298,11 @@ def admin_upload():
 
     if custom_token:
         if len(custom_token) != 6 or not custom_token.isalnum():
-            db.close()
             return jsonify({'success': False, 'message': 'Token kustom harus terdiri dari 6 karakter alfanumerik'}), 400
         
         # Check uniqueness
         existing = db.execute('SELECT id FROM exams WHERE token = ?', (custom_token,)).fetchone()
         if existing:
-            db.close()
             return jsonify({'success': False, 'message': 'Token kustom sudah digunakan oleh ujian lain'}), 400
         token = custom_token
     else:
@@ -1206,7 +1324,6 @@ def admin_upload():
         (name, filename, len(file_data), token, 'active', session['admin_id'])
     )
     db.commit()
-    db.close()
 
     return jsonify({
         'success': True,
@@ -1220,12 +1337,21 @@ def admin_upload():
 def admin_create_exam_from_editor():
     """Create an exam directly from the question editor with generated PDF."""
     name = request.form.get('name', '').strip()
-    questions_json = request.form.get('questions_json', '[]')
+    questions_json_raw = request.form.get('questions_json', '[]')
     custom_token = request.form.get('custom_token', '').strip().upper()
     file = request.files.get('pdf_file')
 
     if not name:
         return jsonify({'success': False, 'message': 'Nama ujian wajib diisi'}), 400
+
+    # Validate questions_json is valid JSON array
+    try:
+        questions_parsed = json.loads(questions_json_raw)
+        if not isinstance(questions_parsed, list):
+            raise ValueError
+        questions_json = json.dumps(questions_parsed)
+    except (json.JSONDecodeError, ValueError):
+        return jsonify({'success': False, 'message': 'Format data pertanyaan tidak valid'}), 400
 
     if not file or file.filename == '':
         return jsonify({'success': False, 'message': 'File PDF hasil generate wajib dikirim'}), 400
@@ -1244,21 +1370,17 @@ def admin_create_exam_from_editor():
         
         if len(file_data) > pdf_limit:
             pdf_limit_mb = round(pdf_limit / (1024 * 1024), 2)
-            db.close()
             return jsonify({'success': False, 'message': f'Ukuran file melebihi batas akun Anda ({pdf_limit_mb}MB). Silakan hubungi Super Admin.'}), 403
             
         current_count = db.execute('SELECT COUNT(*) as count FROM exams WHERE created_by = ?', (session['admin_id'],)).fetchone()['count']
         if current_count >= exam_limit:
-            db.close()
             return jsonify({'success': False, 'message': f'Batas pembuatan ujian tercapai ({exam_limit} ujian). Silakan hubungi Super Admin.'}), 403
 
     if custom_token:
         if len(custom_token) != 6 or not custom_token.isalnum():
-            db.close()
             return jsonify({'success': False, 'message': 'Token kustom harus terdiri dari 6 karakter alfanumerik'}), 400
         existing = db.execute('SELECT id FROM exams WHERE token = ?', (custom_token,)).fetchone()
         if existing:
-            db.close()
             return jsonify({'success': False, 'message': 'Token kustom sudah digunakan oleh ujian lain'}), 400
         token = custom_token
     else:
@@ -1278,7 +1400,6 @@ def admin_create_exam_from_editor():
         (name, filename, len(file_data), token, questions_json, 'active', session['admin_id'])
     )
     db.commit()
-    db.close()
 
     return jsonify({
         'success': True,
@@ -1297,11 +1418,9 @@ def admin_exam_pdf(exam_id):
     """View or download the exam PDF for admin."""
     db = get_db()
     if not check_exam_ownership(db, exam_id):
-        db.close()
         return abort(403)
     
     exam = db.execute('SELECT * FROM exams WHERE id = ?', (exam_id,)).fetchone()
-    db.close()
 
     if not exam:
         return abort(404)
@@ -1320,7 +1439,8 @@ def admin_exam_pdf(exam_id):
     )
     
     if not download:
-        response.headers['Content-Disposition'] = f'inline; filename="{exam["name"]}.pdf"'
+        safe_name = secure_filename(exam['name']) or 'exam'
+        response.headers['Content-Disposition'] = f'inline; filename="{safe_name}.pdf"'
     
     response.headers['Cache-Control'] = 'no-store, no-cache, must-revalidate'
     response.headers['X-Content-Type-Options'] = 'nosniff'
@@ -1333,18 +1453,15 @@ def admin_toggle_exam(exam_id):
     """Toggle exam status between active and inactive."""
     db = get_db()
     if not check_exam_ownership(db, exam_id):
-        db.close()
         return jsonify({'success': False, 'message': 'Akses ditolak: Anda tidak memiliki akses ke ujian ini'}), 403
     exam = db.execute('SELECT * FROM exams WHERE id = ?', (exam_id,)).fetchone()
 
     if not exam:
-        db.close()
         return jsonify({'success': False, 'message': 'Ujian tidak ditemukan'}), 404
 
     new_status = 'inactive' if exam['status'] == 'active' else 'active'
     db.execute('UPDATE exams SET status = ? WHERE id = ?', (new_status, exam_id))
     db.commit()
-    db.close()
 
     return jsonify({
         'success': True,
@@ -1359,12 +1476,10 @@ def admin_toggle_public_results(exam_id):
     """Toggle whether exam results are publicly accessible by students."""
     db = get_db()
     if not check_exam_ownership(db, exam_id):
-        db.close()
         return jsonify({'success': False, 'message': 'Akses ditolak: Anda tidak memiliki akses ke ujian ini'}), 403
     exam = db.execute('SELECT * FROM exams WHERE id = ?', (exam_id,)).fetchone()
 
     if not exam:
-        db.close()
         return jsonify({'success': False, 'message': 'Ujian tidak ditemukan'}), 404
 
     # Toggle public_results: 1 (active) <=> 0 (inactive)
@@ -1374,7 +1489,6 @@ def admin_toggle_public_results(exam_id):
     new_val = 0 if current == 1 else 1
     db.execute('UPDATE exams SET public_results = ? WHERE id = ?', (new_val, exam_id))
     db.commit()
-    db.close()
 
     status_str = 'diaktifkan' if new_val == 1 else 'dinonaktifkan'
     return jsonify({
@@ -1390,12 +1504,10 @@ def admin_toggle_show_answers(exam_id):
     """Toggle whether correct answer keys are shown to students on the public results page."""
     db = get_db()
     if not check_exam_ownership(db, exam_id):
-        db.close()
         return jsonify({'success': False, 'message': 'Akses ditolak: Anda tidak memiliki akses ke ujian ini'}), 403
     exam = db.execute('SELECT * FROM exams WHERE id = ?', (exam_id,)).fetchone()
 
     if not exam:
-        db.close()
         return jsonify({'success': False, 'message': 'Ujian tidak ditemukan'}), 404
 
     current = exam['show_answers']
@@ -1404,7 +1516,6 @@ def admin_toggle_show_answers(exam_id):
     new_val = 0 if current == 1 else 1
     db.execute('UPDATE exams SET show_answers = ? WHERE id = ?', (new_val, exam_id))
     db.commit()
-    db.close()
 
     status_str = 'ditampilkan' if new_val == 1 else 'disembunyikan'
     return jsonify({
@@ -1426,23 +1537,19 @@ def admin_edit_exam(exam_id):
 
     db = get_db()
     if not check_exam_ownership(db, exam_id):
-        db.close()
         return jsonify({'success': False, 'message': 'Akses ditolak: Anda tidak memiliki akses ke ujian ini'}), 403
 
     exam = db.execute('SELECT * FROM exams WHERE id = ?', (exam_id,)).fetchone()
     if not exam:
-        db.close()
         return jsonify({'success': False, 'message': 'Ujian tidak ditemukan'}), 404
 
     # If new PDF file is uploaded
     if file and file.filename != '':
         if file.content_type != 'application/pdf':
-            db.close()
             return jsonify({'success': False, 'message': 'Hanya file PDF yang diizinkan'}), 400
 
         file_data = file.read()
         if len(file_data) > MAX_FILE_SIZE:
-            db.close()
             return jsonify({
                 'success': False,
                 'message': f'Ukuran file melebihi batas {MAX_FILE_SIZE // (1024*1024)}MB'
@@ -1478,7 +1585,6 @@ def admin_edit_exam(exam_id):
         )
 
     db.commit()
-    db.close()
 
     return jsonify({
         'success': True,
@@ -1492,12 +1598,10 @@ def admin_delete_exam(exam_id):
     """Delete an exam and its PDF file."""
     db = get_db()
     if not check_exam_ownership(db, exam_id):
-        db.close()
         return jsonify({'success': False, 'message': 'Akses ditolak: Anda tidak memiliki akses ke ujian ini'}), 403
     exam = db.execute('SELECT * FROM exams WHERE id = ?', (exam_id,)).fetchone()
 
     if not exam:
-        db.close()
         return jsonify({'success': False, 'message': 'Ujian tidak ditemukan'}), 404
 
     # Delete file from storage
@@ -1508,7 +1612,6 @@ def admin_delete_exam(exam_id):
     # Delete from database
     db.execute('DELETE FROM exams WHERE id = ?', (exam_id,))
     db.commit()
-    db.close()
 
     return jsonify({'success': True, 'message': 'Ujian berhasil dihapus'})
 
@@ -1546,7 +1649,6 @@ def admin_bulk_delete_exams():
         deleted_count += 1
 
     db.commit()
-    db.close()
     return jsonify({'success': True, 'message': f'{deleted_count} ujian berhasil dihapus'})
 
 
@@ -1574,7 +1676,6 @@ def admin_bulk_toggle_exams():
         updated_count += 1
 
     db.commit()
-    db.close()
     return jsonify({'success': True, 'message': f'Status {updated_count} ujian berhasil diperbarui ke {target_status}'})
 
 
@@ -1584,18 +1685,15 @@ def admin_regenerate_token(exam_id):
     """Regenerate token for an exam."""
     db = get_db()
     if not check_exam_ownership(db, exam_id):
-        db.close()
         return jsonify({'success': False, 'message': 'Akses ditolak: Anda tidak memiliki akses ke ujian ini'}), 403
     exam = db.execute('SELECT * FROM exams WHERE id = ?', (exam_id,)).fetchone()
 
     if not exam:
-        db.close()
         return jsonify({'success': False, 'message': 'Ujian tidak ditemukan'}), 404
 
     new_token = generate_token()
     db.execute('UPDATE exams SET token = ? WHERE id = ?', (new_token, exam_id))
     db.commit()
-    db.close()
 
     return jsonify({
         'success': True,
@@ -1619,23 +1717,19 @@ def admin_custom_token(exam_id):
 
     db = get_db()
     if not check_exam_ownership(db, exam_id):
-        db.close()
         return jsonify({'success': False, 'message': 'Akses ditolak: Anda tidak memiliki akses ke ujian ini'}), 403
 
     exam = db.execute('SELECT * FROM exams WHERE id = ?', (exam_id,)).fetchone()
     if not exam:
-        db.close()
         return jsonify({'success': False, 'message': 'Ujian tidak ditemukan'}), 404
 
     # Check if this token is already in use by another exam
     existing = db.execute('SELECT id FROM exams WHERE token = ? AND id != ?', (custom_token, exam_id)).fetchone()
     if existing:
-        db.close()
         return jsonify({'success': False, 'message': 'Token kustom sudah digunakan oleh ujian lain'}), 400
 
     db.execute('UPDATE exams SET token = ? WHERE id = ?', (custom_token, exam_id))
     db.commit()
-    db.close()
 
     return jsonify({
         'success': True,
@@ -1655,7 +1749,6 @@ def admin_stats():
         exams = db.execute('SELECT status, size_bytes FROM exams').fetchall()
     else:
         exams = db.execute('SELECT status, size_bytes FROM exams WHERE created_by = ?', (session['admin_id'],)).fetchall()
-    db.close()
 
     total = len(exams)
     active = sum(1 for e in exams if e['status'] == 'active')
@@ -1689,23 +1782,20 @@ def admin_change_password():
         return jsonify({'success': False, 'message': 'Semua field password wajib diisi'}), 400
 
     db = get_db()
-    curr_hash = hashlib.sha256(current_password.encode()).hexdigest()
     user = db.execute(
-        'SELECT id FROM admin_users WHERE id = ? AND password_hash = ?',
-        (session['admin_id'], curr_hash)
+        'SELECT id, password_hash FROM admin_users WHERE id = ?',
+        (session['admin_id'],)
     ).fetchone()
 
-    if not user:
-        db.close()
+    if not user or not _verify_password(current_password, user['password_hash']):
         return jsonify({'success': False, 'message': 'Password saat ini salah'}), 400
 
-    new_hash = hashlib.sha256(new_password.encode()).hexdigest()
+    new_hash = generate_password_hash(new_password)
     db.execute(
         'UPDATE admin_users SET password_hash = ? WHERE id = ?',
         (new_hash, session['admin_id'])
     )
     db.commit()
-    db.close()
 
     return jsonify({'success': True, 'message': 'Password berhasil diperbarui'})
 
@@ -1726,12 +1816,16 @@ def admin_manage_users_page():
 def admin_list_users():
     """List all registered users (teachers) with exam count and limit."""
     db = get_db()
-    users = db.execute('SELECT id, username, whatsapp_number, status, max_exams, max_pdf_size, max_drafts, max_draft_size, expires_at, created_at FROM admin_users ORDER BY username ASC').fetchall()
-    
+    users = db.execute(
+        'SELECT u.id, u.username, u.whatsapp_number, u.status, '
+        'u.max_exams, u.max_pdf_size, u.max_drafts, u.max_draft_size, '
+        'u.expires_at, u.created_at, COUNT(e.id) as exam_count '
+        'FROM admin_users u LEFT JOIN exams e ON e.created_by = u.id '
+        'GROUP BY u.id ORDER BY u.username ASC'
+    ).fetchall()
+
     user_list = []
     for u in users:
-        # Count exams created by this user
-        count = db.execute('SELECT COUNT(*) as count FROM exams WHERE created_by = ?', (u['id'],)).fetchone()['count']
         user_list.append({
             'id': u['id'],
             'username': u['username'],
@@ -1742,10 +1836,9 @@ def admin_list_users():
             'max_drafts': u['max_drafts'] if u['max_drafts'] is not None else 2,
             'max_draft_size': u['max_draft_size'] if u['max_draft_size'] is not None else 1048576,
             'expires_at': u['expires_at'] or '',
-            'exam_count': count,
+            'exam_count': u['exam_count'],
             'created_at': format_iso_utc(u['created_at'])
         })
-    db.close()
     return jsonify({
         'success': True,
         'users': user_list
@@ -1796,13 +1889,11 @@ def admin_create_user():
     db = get_db()
     existing = db.execute('SELECT id FROM admin_users WHERE username = ?', (username,)).fetchone()
     if existing:
-        db.close()
         return jsonify({'success': False, 'message': 'Username sudah digunakan'}), 400
 
-    pw_hash = hashlib.sha256(password.encode()).hexdigest()
+    pw_hash = generate_password_hash(password)
     expires_at = data.get('expires_at', '').strip()
     if not expires_at:
-        from datetime import timedelta
         default_active_days = int(get_saas_setting('default_active_days', '1'))
         expires_at = (datetime.now(timezone.utc) + timedelta(days=default_active_days)).strftime('%Y-%m-%d %H:%M:%S')
 
@@ -1811,7 +1902,6 @@ def admin_create_user():
         (username, pw_hash, whatsapp, 'active', max_exams, max_pdf_size, max_drafts, max_draft_size, expires_at)
     )
     db.commit()
-    db.close()
 
     return jsonify({'success': True, 'message': f'User "{username}" berhasil dibuat'})
 
@@ -1830,18 +1920,15 @@ def admin_edit_user(user_id):
     db = get_db()
     user = db.execute('SELECT username FROM admin_users WHERE id = ?', (user_id,)).fetchone()
     if not user:
-        db.close()
         return jsonify({'success': False, 'message': 'User tidak ditemukan'}), 404
 
     if user['username'] == 'admin':
-        db.close()
         return jsonify({'success': False, 'message': 'Super Admin "admin" tidak dapat diubah limitnya'}), 400
 
     if max_exams is not None:
         try:
             max_exams = int(max_exams)
         except (ValueError, TypeError):
-            db.close()
             return jsonify({'success': False, 'message': 'Limit ujian harus berupa angka valid'}), 400
         db.execute('UPDATE admin_users SET max_exams = ? WHERE id = ?', (max_exams, user_id))
 
@@ -1849,7 +1936,6 @@ def admin_edit_user(user_id):
         try:
             max_pdf_size_mb = float(max_pdf_size_mb)
         except (ValueError, TypeError):
-            db.close()
             return jsonify({'success': False, 'message': 'Limit ukuran PDF harus berupa angka valid'}), 400
         max_pdf_size = int(max_pdf_size_mb * 1024 * 1024)
         db.execute('UPDATE admin_users SET max_pdf_size = ? WHERE id = ?', (max_pdf_size, user_id))
@@ -1861,7 +1947,6 @@ def admin_edit_user(user_id):
         try:
             max_drafts = int(max_drafts)
         except (ValueError, TypeError):
-            db.close()
             return jsonify({'success': False, 'message': 'Limit draf harus berupa angka valid'}), 400
         db.execute('UPDATE admin_users SET max_drafts = ? WHERE id = ?', (max_drafts, user_id))
 
@@ -1869,7 +1954,6 @@ def admin_edit_user(user_id):
         try:
             max_draft_size_mb = float(max_draft_size_mb)
         except (ValueError, TypeError):
-            db.close()
             return jsonify({'success': False, 'message': 'Limit ukuran draf harus berupa angka valid'}), 400
         max_draft_size = int(max_draft_size_mb * 1024 * 1024)
         db.execute('UPDATE admin_users SET max_draft_size = ? WHERE id = ?', (max_draft_size, user_id))
@@ -1882,7 +1966,7 @@ def admin_edit_user(user_id):
             db.execute('UPDATE admin_users SET status = ? WHERE id = ?', (status, user_id))
 
     if password:
-        pw_hash = hashlib.sha256(password.encode()).hexdigest()
+        pw_hash = generate_password_hash(password)
         db.execute('UPDATE admin_users SET password_hash = ? WHERE id = ?', (pw_hash, user_id))
 
     if 'expires_at' in data:
@@ -1895,7 +1979,6 @@ def admin_edit_user(user_id):
             db.execute('UPDATE admin_users SET expires_at = NULL WHERE id = ?', (user_id,))
 
     db.commit()
-    db.close()
 
     return jsonify({'success': True, 'message': f'Pengaturan user "{user["username"]}" berhasil diperbarui'})
 
@@ -1907,12 +1990,10 @@ def admin_verify_user_manual(user_id):
     db = get_db()
     user = db.execute('SELECT username, status FROM admin_users WHERE id = ?', (user_id,)).fetchone()
     if not user:
-        db.close()
         return jsonify({'success': False, 'message': 'User tidak ditemukan'}), 404
         
     db.execute('UPDATE admin_users SET status = ?, otp_code = NULL, otp_expiry = NULL WHERE id = ?', ('active', user_id))
     db.commit()
-    db.close()
     return jsonify({'success': True, 'message': f'User "{user["username"]}" berhasil diaktifkan secara manual'})
 
 
@@ -1923,17 +2004,14 @@ def admin_toggle_user_status(user_id):
     db = get_db()
     user = db.execute('SELECT username, status FROM admin_users WHERE id = ?', (user_id,)).fetchone()
     if not user:
-        db.close()
         return jsonify({'success': False, 'message': 'User tidak ditemukan'}), 404
         
     if user['username'] == 'admin':
-        db.close()
         return jsonify({'success': False, 'message': 'Status Super Admin "admin" tidak dapat diubah'}), 400
         
     new_status = 'suspended' if user['status'] == 'active' else 'active'
     db.execute('UPDATE admin_users SET status = ? WHERE id = ?', (new_status, user_id))
     db.commit()
-    db.close()
     return jsonify({'success': True, 'message': f'Status user "{user["username"]}" berhasil diubah menjadi {new_status}'})
 
 
@@ -2020,11 +2098,9 @@ def admin_delete_user(user_id):
     db = get_db()
     user = db.execute('SELECT username FROM admin_users WHERE id = ?', (user_id,)).fetchone()
     if not user:
-        db.close()
         return jsonify({'success': False, 'message': 'User tidak ditemukan'}), 404
 
     if user['username'] == 'admin':
-        db.close()
         return jsonify({'success': False, 'message': 'Super Admin "admin" tidak dapat dihapus'}), 400
 
     # Delete exams and PDF files owned by this user
@@ -2040,7 +2116,6 @@ def admin_delete_user(user_id):
     db.execute('DELETE FROM exams WHERE created_by = ?', (user_id,))
     db.execute('DELETE FROM admin_users WHERE id = ?', (user_id,))
     db.commit()
-    db.close()
 
     return jsonify({'success': True, 'message': f'User "{user["username"]}" beserta seluruh soalnya berhasil dihapus'})
 
@@ -2051,11 +2126,9 @@ def admin_exam_questions(exam_id):
     """Get or save questions configuration for an exam."""
     db = get_db()
     if not check_exam_ownership(db, exam_id):
-        db.close()
         return jsonify({'success': False, 'message': 'Akses ditolak: Anda tidak memiliki akses ke ujian ini'}), 403
     exam = db.execute('SELECT * FROM exams WHERE id = ?', (exam_id,)).fetchone()
     if not exam:
-        db.close()
         return jsonify({'success': False, 'message': 'Ujian tidak ditemukan'}), 404
 
     if request.method == 'GET':
@@ -2067,7 +2140,6 @@ def admin_exam_questions(exam_id):
                 questions = json.loads(questions_raw)
             except Exception:
                 pass
-        db.close()
         return jsonify({'success': True, 'questions': questions, 'security_level': security_level})
 
     else:
@@ -2081,7 +2153,6 @@ def admin_exam_questions(exam_id):
 
         # Basic validation
         if not isinstance(questions, list):
-            db.close()
             return jsonify({'success': False, 'message': 'Format data pertanyaan tidak valid'}), 400
 
         # Save to database
@@ -2102,7 +2173,6 @@ def admin_exam_questions(exam_id):
             db.execute('UPDATE submissions SET score = ? WHERE id = ?', (new_score, sub['id']))
             
         db.commit()
-        db.close()
         return jsonify({'success': True, 'message': 'Konfigurasi soal berhasil disimpan dan nilai siswa berhasil diperbarui'})
 
 
@@ -2131,7 +2201,6 @@ def admin_submissions():
         exams = db.execute('SELECT id, name FROM exams WHERE created_by = ? ORDER BY created_at DESC', (session['admin_id'],)).fetchall()
         
     local_ip = get_network_info()['display_host']
-    db.close()
     
     return render_template(
         'submissions.html',
@@ -2149,14 +2218,12 @@ def admin_submission_detail(submission_id):
     """Get detailed student answers compared with keys."""
     db = get_db()
     if not check_submission_ownership(db, submission_id):
-        db.close()
         return jsonify({'success': False, 'message': 'Akses ditolak: Anda tidak memiliki akses ke data ini'}), 403
     sub = db.execute(
         'SELECT s.*, e.name as exam_name, e.questions_json '
         'FROM submissions s JOIN exams e ON s.exam_id = e.id '
         'WHERE s.id = ?', (submission_id,)
     ).fetchone()
-    db.close()
     
     if not sub:
         return jsonify({'success': False, 'message': 'Hasil ujian tidak ditemukan'}), 404
@@ -2193,14 +2260,12 @@ def admin_export_submission_detail(submission_id):
     """Export a single student's detailed answers to CSV."""
     db = get_db()
     if not check_submission_ownership(db, submission_id):
-        db.close()
         return abort(403)
     sub = db.execute(
         'SELECT s.*, e.name as exam_name, e.questions_json '
         'FROM submissions s JOIN exams e ON s.exam_id = e.id '
         'WHERE s.id = ?', (submission_id,)
     ).fetchone()
-    db.close()
     
     if not sub:
         return abort(404)
@@ -2357,11 +2422,9 @@ def admin_delete_submission(submission_id):
     """Delete a student submission."""
     db = get_db()
     if not check_submission_ownership(db, submission_id):
-        db.close()
         return jsonify({'success': False, 'message': 'Akses ditolak: Anda tidak memiliki akses ke data ini'}), 403
     db.execute('DELETE FROM submissions WHERE id = ?', (submission_id,))
     db.commit()
-    db.close()
     return jsonify({'success': True, 'message': 'Hasil ujian berhasil dihapus'})
 
 
@@ -2380,17 +2443,14 @@ def admin_export_submissions():
         # Verify ownership
         exam = db.execute('SELECT * FROM exams WHERE id = ?', (exam_id,)).fetchone()
         if not exam:
-            db.close()
             return jsonify({'success': False, 'message': 'Ujian tidak ditemukan'}), 404
         if not is_super_admin and exam['created_by'] != session['admin_id']:
-            db.close()
             return jsonify({'success': False, 'message': 'Akses ditolak'}), 403
 
         submissions = db.execute(
             'SELECT * FROM submissions WHERE exam_id = ? ORDER BY student_class, student_name',
             (exam_id,)
         ).fetchall()
-        db.close()
 
         try:
             questions = json.loads(exam['questions_json']) if exam['questions_json'] else []
@@ -2416,7 +2476,6 @@ def admin_export_submissions():
 
     query += ' ORDER BY s.created_at DESC'
     submissions = db.execute(query, params).fetchall()
-    db.close()
 
     si = io.StringIO()
     cw = csv.writer(si)
@@ -2795,92 +2854,8 @@ def _generate_exam_xlsx(exam, submissions, questions, tz_offset=None):
 # ===== Public Exam Results Routes =====
 
 def evaluate_submission_answers(answers, questions):
-    """Evaluate submission answers and return individual correctness status for each question."""
-    evaluation = {}
-    if not questions:
-        return evaluation
-    
-    for q in questions:
-        try:
-            num_val = float(q['number'])
-            if num_val.is_integer():
-                q_num = str(int(num_val))
-            else:
-                q_num = str(q['number'])
-        except Exception:
-            q_num = str(q['number'])
-
-        student_ans = answers.get(q_num)
-        correct_ans = q.get('key')
-        q_weight = float(q.get('weight', 1.0))
-        partial_scoring = q.get('partial_scoring', False)
-
-        earned = 0.0
-        status_text = 'Salah ❌'
-        status_class = 'incorrect'
-
-        if student_ans is not None and correct_ans is not None:
-            if q['type'] in ['single_choice', 'true_false', 'short_answer']:
-                s_norm = ' '.join(str(student_ans).split()).upper()
-                c_norm = ' '.join(str(correct_ans).split()).upper()
-                if s_norm == c_norm:
-                    earned = q_weight
-                    status_text = 'Benar ✔️'
-                    status_class = 'correct'
-            elif q['type'] == 'multiple_choice':
-                if isinstance(student_ans, list) and isinstance(correct_ans, list):
-                    if partial_scoring:
-                        correct_set = set(str(x).upper() for x in correct_ans)
-                        student_set = set(str(x).upper() for x in student_ans)
-                        if correct_set:
-                            correct_selected = sum(1 for x in student_set if x in correct_set)
-                            incorrect_selected = sum(1 for x in student_set if x not in correct_set)
-                            portion = max(0.0, (correct_selected - incorrect_selected) / len(correct_set))
-                            earned = portion * q_weight
-                            if portion >= 1.0:
-                                status_text = 'Benar ✔️'
-                                status_class = 'correct'
-                            elif portion > 0:
-                                status_text = 'Parsial ⚠️'
-                                status_class = 'partial'
-                    else:
-                        if sorted([str(x).upper() for x in student_ans]) == sorted([str(x).upper() for x in correct_ans]):
-                            earned = q_weight
-                            status_text = 'Benar ✔️'
-                            status_class = 'correct'
-            elif q['type'] == 'matching':
-                if isinstance(student_ans, dict) and isinstance(correct_ans, dict):
-                    if partial_scoring:
-                        if correct_ans:
-                            correct_matches = 0
-                            for k, v in correct_ans.items():
-                                if str(student_ans.get(k, '')).strip().upper() == str(v).strip().upper():
-                                    correct_matches += 1
-                            portion = correct_matches / len(correct_ans)
-                            earned = portion * q_weight
-                            if portion >= 1.0:
-                                status_text = 'Benar ✔️'
-                                status_class = 'correct'
-                            elif portion > 0:
-                                status_text = 'Parsial ⚠️'
-                                status_class = 'partial'
-                    else:
-                        match = True
-                        for k, v in correct_ans.items():
-                            if str(student_ans.get(k, '')).strip().upper() != str(v).strip().upper():
-                                match = False
-                                break
-                        if match:
-                            earned = q_weight
-                            status_text = 'Benar ✔️'
-                            status_class = 'correct'
-        
-        evaluation[q_num] = {
-            'statusClass': status_class,
-            'statusText': status_text,
-            'earned': earned
-        }
-    return evaluation
+    """Evaluate submission answers — delegates to evaluate_answers_detailed."""
+    return evaluate_answers_detailed(answers, questions)
 
 
 @app.route('/<token>')
@@ -2893,7 +2868,6 @@ def short_token_hasil(token):
             'SELECT id, public_results FROM exams WHERE token = ?',
             (token_upper,)
         ).fetchone()
-        db.close()
         if exam:
             is_logged_in = 'admin_id' in session
             if (exam['public_results'] if exam['public_results'] is not None else 1) == 0 and not is_logged_in:
@@ -2915,7 +2889,6 @@ def public_hasil(token):
     ).fetchone()
 
     if not exam:
-        db.close()
         return render_template('hasil.html',
                                exam_name='Ujian Tidak Ditemukan',
                                token=token,
@@ -2924,7 +2897,6 @@ def public_hasil(token):
 
     is_logged_in = 'admin_id' in session
     if (exam['public_results'] if exam['public_results'] is not None else 1) == 0 and not is_logged_in:
-        db.close()
         return render_template('hasil.html',
                                exam_name=exam['name'],
                                token=token,
@@ -2935,7 +2907,6 @@ def public_hasil(token):
         'SELECT COUNT(*) as cnt FROM submissions WHERE exam_id = ?',
         (exam['id'],)
     ).fetchone()['cnt']
-    db.close()
 
     show_answers = (exam['show_answers'] if exam['show_answers'] is not None else 0) == 1
 
@@ -2958,7 +2929,6 @@ def api_public_hasil(token):
     ).fetchone()
 
     if not exam:
-        db.close()
         return jsonify({
             'success': False,
             'message': 'Token ujian tidak valid atau ujian tidak ditemukan.'
@@ -2966,7 +2936,6 @@ def api_public_hasil(token):
 
     is_logged_in = 'admin_id' in session
     if (exam['public_results'] if exam['public_results'] is not None else 1) == 0 and not is_logged_in:
-        db.close()
         return jsonify({
             'success': False,
             'message': 'Akses dinonaktifkan: Halaman hasil ujian untuk siswa dinonaktifkan oleh guru.'
@@ -2977,7 +2946,6 @@ def api_public_hasil(token):
         'FROM submissions WHERE exam_id = ? ORDER BY score DESC',
         (exam['id'],)
     ).fetchall()
-    db.close()
 
     # Parse questions (include keys for answer checking on client)
     questions = []
@@ -3076,4 +3044,4 @@ if __name__ == '__main__':
 ╚══════════════════════════════════════════════╝
     """)
 
-    app.run(host='0.0.0.0', port=port, debug=True)
+    app.run(host='0.0.0.0', port=port)

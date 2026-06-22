@@ -6,6 +6,7 @@
     <title>EXAMVAN - Dashboard</title>
     <link rel="stylesheet" href="{{ url_for('static', filename='css/admin.css') }}?v=2.0.1">
     <link rel="icon" type="image/png" href="/static/favicon.png">
+    <meta name="csrf-token" content="{{ csrf_token }}">
 </head>
 <body class="dashboard-page">
     <nav class="topbar">
@@ -246,6 +247,7 @@
                             <th>Token</th>
                             <th>Ukuran</th>
                             <th>Status</th>
+                            <th>Siswa</th>
                             <th>Tanggal Upload</th>
                             <th>Aksi</th>
                         </tr>
@@ -274,6 +276,9 @@
                                 <span class="status-badge status-{{ exam.status }}" id="status-{{ exam.id }}">
                                     {{ exam.status }}
                                 </span>
+                            </td>
+                            <td data-label="Siswa">
+                                <a href="{{ url_for('admin_submissions') }}?exam_id={{ exam.id }}" class="badge badge-info" style="text-decoration: none; background: rgba(34, 211, 238, 0.1); color: #22d3ee; padding: 4px 8px; border-radius: 6px; font-weight: 600;">{{ exam.sub_count }} Jawaban</a>
                             </td>
                             <td class="td-date" data-label="Tanggal" data-utc="{{ exam.created_at }}">{{ exam.created_at }}</td>
                             <td class="td-actions" data-label="">
