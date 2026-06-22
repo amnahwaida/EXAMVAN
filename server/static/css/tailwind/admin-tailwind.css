@@ -482,6 +482,9 @@ body {
     z-index: 2;
 }
 
+/* === Login Form === */
+.login-form .form-group { @apply mb-5; }
+
 /* === Login Button === */
 .btn-login {
     @apply w-full py-3.5 px-6 rounded-xl text-white font-semibold text-sm cursor-pointer transition-all duration-200;
