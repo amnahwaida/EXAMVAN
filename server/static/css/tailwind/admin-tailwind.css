@@ -543,6 +543,22 @@ body {
     to { opacity:1; transform:translateX(0); }
 }
 
+/* === Responsive: Mobile/Desktop toggles === */
+.mobile-nav-links { display: none; }
+.mobile-only-header { display: none !important; }
+.mobile-only-divider { display: none !important; }
+.desktop-only-item { display: flex; }
+
+@media (max-width: 768px) {
+    .mobile-nav-links { display: block; }
+    .mobile-only-header { display: flex !important; }
+    .mobile-only-divider { display: block !important; }
+    .desktop-only-item { display: none !important; }
+    .topbar-badge { display: none; }
+    .toggle-user-name { display: none; }
+    .topbar-nav { display: none !important; }
+}
+
 /* === Date/Time Picker === */
 input[type="date"], input[type="time"] { color-scheme: dark; }
 input[type="date"]::-webkit-calendar-picker-indicator,

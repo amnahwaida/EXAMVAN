@@ -1,22 +1,3 @@
-/* Responsive */
-.mobile-nav-links {
-    display: none;
-}
-.mobile-only-header {
-    display: none !important;
-}
-.mobile-only-divider {
-    display: none !important;
-}
-.desktop-only-item {
-    display: flex;
-}
-.active-dropdown-item {
-    background: rgba(99, 102, 241, 0.15) !important;
-    color: #fff !important;
-    border-left: 3px solid var(--primary);
-    padding-left: 15px !important;
-}
 
 /* ==========================================
    COMPREHENSIVE MOBILE RESPONSIVE STYLES
