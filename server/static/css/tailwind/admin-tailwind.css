@@ -13,151 +13,127 @@ body {
     color: #f8fafc;
 }
 
-@layer components {
-    .glass-card {
-        @apply p-6 rounded-2xl border border-[rgba(255,255,255,0.06)] bg-[rgba(13,13,30,0.5)] backdrop-blur-2xl shadow-2xl;
-    }
+/* Tailwind Component Classes */
+/* NOTE: Not using @layer - unlayered CSS wins over admin-components.css */
 
-    /* === Buttons === */
-    .btn-sm {
-        @apply inline-flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs
-               font-medium border border-[var(--glass-border)] cursor-pointer
-               transition-all duration-200 select-none;
-    }
-    .btn-sm:active {
-        transform: scale(0.96);
-    }
-    .btn-toggle {
-        @apply bg-[rgba(99,102,241,0.1)] text-[#a5b4fc] border-[rgba(99,102,241,0.25)];
-    }
-    .btn-toggle:hover {
-        @apply bg-[rgba(99,102,241,0.2)] border-[rgba(99,102,241,0.4)];
-    }
-    .btn-delete {
-        @apply bg-[rgba(239,68,68,0.1)] text-[#fca5a5] border-[rgba(239,68,68,0.25)];
-    }
-    .btn-delete:hover {
-        @apply bg-[rgba(239,68,68,0.2)] border-[rgba(239,68,68,0.4)];
-    }
-    .btn-questions {
-        @apply bg-[rgba(139,92,246,0.1)] text-[#c4b5fd] border-[rgba(139,92,246,0.25)];
-    }
-    .btn-questions:hover {
-        @apply bg-[rgba(139,92,246,0.2)] border-[rgba(139,92,246,0.4)];
-    }
-    .btn-weight {
-        @apply bg-[rgba(139,92,246,0.12)] text-[#a78bfa] border border-[rgba(139,92,246,0.3)]
-               inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg text-xs font-semibold
-               cursor-pointer transition-all duration-200 whitespace-nowrap;
-    }
-    .btn-weight:hover {
-        @apply bg-[rgba(139,92,246,0.25)] text-[#c4b5fd] border-[rgba(139,92,246,0.5)];
-    }
-    .btn-upload {
-        @apply inline-flex items-center justify-center gap-2 px-7 py-3 rounded-xl text-sm font-semibold text-white;
-        background: linear-gradient(135deg, #6366f1, #8b5cf6);
-    }
-    .btn-upload:hover {
-        box-shadow: 0 6px 20px rgba(99, 102, 241, 0.35);
-        transform: translateY(-1px);
-    }
-    .btn-upload:active {
-        transform: scale(0.97);
-    }
-    .btn-refresh {
-        @apply bg-[rgba(255,255,255,0.03)] text-[var(--text-secondary)]
-               border border-[var(--glass-border)] inline-flex items-center gap-2
-               px-3 py-1.5 rounded-lg text-xs font-medium cursor-pointer
-               transition-all duration-200;
-    }
-    .btn-refresh:hover {
-        @apply bg-[rgba(255,255,255,0.07)];
-    }
-
-    /* === Tables === */
-    .exam-table td {
-        @apply p-3.5 border-b border-white/5 align-middle;
-    }
-    .table-header {
-        @apply flex items-center justify-between mb-4 flex-wrap gap-3;
-    }
-
-    /* === Status Badges === */
-    .status-badge {
-        @apply inline-flex items-center px-2.5 py-1 rounded-md text-xs font-semibold uppercase;
-    }
-    .status-active {
-        @apply bg-[rgba(16,185,129,0.15)] text-[var(--success)];
-    }
-    .status-inactive {
-        @apply bg-[rgba(245,158,11,0.15)] text-[var(--warning)];
-    }
-    .status-suspended {
-        @apply bg-[rgba(239,68,68,0.15)] text-[var(--danger)];
-    }
-
-    /* === Empty State === */
-    .empty-state {
-        @apply text-center py-12 text-[var(--text-muted)];
-    }
-    .empty-icon {
-        @apply text-5xl mb-3;
-    }
-
-    /* === Stats Cards === */
-    .stats-grid {
-        @apply grid gap-4;
-        grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-    }
-    .stat-card {
-        @apply p-5 rounded-2xl border border-[rgba(255,255,255,0.06)]
-               bg-[rgba(13,13,30,0.5)] backdrop-blur-xl flex items-center gap-4
-               transition-all duration-300;
-    }
-    .stat-card:hover {
-        @apply -translate-y-0.5 shadow-xl border-[rgba(255,255,255,0.1)];
-    }
-    .stat-total { @apply border-l-3 border-l-[var(--primary)]; }
-    .stat-active { @apply border-l-3 border-l-[var(--success)]; }
-    .stat-inactive { @apply border-l-3 border-l-[var(--warning)]; }
-    .stat-storage { @apply border-l-3 border-l-[#8b5cf6]; }
-
-    /* === Forms === */
-    .form-group {
-        @apply space-y-1;
-    }
-    .form-row {
-        @apply flex gap-4 flex-wrap;
-    }
-    .form-row-2col {
-        @apply grid grid-cols-1 sm:grid-cols-2 gap-4;
-    }
-    .form-row-3col {
-        @apply grid grid-cols-1 sm:grid-cols-3 gap-4;
-    }
-    .file-input-wrapper {
-        @apply relative;
-    }
-    .file-input-display {
-        @apply flex items-center gap-3 px-4 py-3 rounded-lg border border-dashed
-               border-[rgba(255,255,255,0.1)] bg-[rgba(255,255,255,0.02)]
-               cursor-pointer hover:border-[rgba(99,102,241,0.4)] transition-colors;
-    }
-
-    /* === Upload Progress === */
-    .upload-progress {
-        @apply flex items-center gap-3 my-4;
-    }
-    .progress-bar {
-        @apply flex-1 h-2 rounded-full bg-slate-800 overflow-hidden;
-    }
-    .progress-fill {
-        @apply h-full rounded-full bg-gradient-to-r from-[var(--primary)] to-[#8b5cf6] transition-all duration-300;
-    }
-    .progress-text {
-        @apply text-xs font-semibold text-slate-400 min-w-[3ch] text-right;
-    }
+.glass-card {
+    @apply p-6 rounded-2xl border border-[rgba(255,255,255,0.06)] bg-[rgba(13,13,30,0.5)] backdrop-blur-2xl shadow-2xl;
 }
+
+/* === Buttons === */
+.btn-sm {
+    @apply inline-flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs
+           font-medium border border-[var(--glass-border)] cursor-pointer
+           transition-all duration-200 select-none;
+}
+.btn-sm:active {
+    transform: scale(0.96);
+}
+.btn-toggle {
+    @apply bg-[rgba(99,102,241,0.1)] text-[#a5b4fc] border-[rgba(99,102,241,0.25)];
+}
+.btn-toggle:hover {
+    @apply bg-[rgba(99,102,241,0.2)] border-[rgba(99,102,241,0.4)];
+}
+.btn-delete {
+    @apply bg-[rgba(239,68,68,0.1)] text-[#fca5a5] border-[rgba(239,68,68,0.25)];
+}
+.btn-delete:hover {
+    @apply bg-[rgba(239,68,68,0.2)] border-[rgba(239,68,68,0.4)];
+}
+.btn-questions {
+    @apply bg-[rgba(139,92,246,0.1)] text-[#c4b5fd] border-[rgba(139,92,246,0.25)];
+}
+.btn-questions:hover {
+    @apply bg-[rgba(139,92,246,0.2)] border-[rgba(139,92,246,0.4)];
+}
+.btn-weight {
+    @apply bg-[rgba(139,92,246,0.12)] text-[#a78bfa] border border-[rgba(139,92,246,0.3)]
+           inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg text-xs font-semibold
+           cursor-pointer transition-all duration-200 whitespace-nowrap;
+}
+.btn-weight:hover {
+    @apply bg-[rgba(139,92,246,0.25)] text-[#c4b5fd] border-[rgba(139,92,246,0.5)];
+}
+.btn-upload {
+    @apply inline-flex items-center justify-center gap-2 px-7 py-3 rounded-xl text-sm font-semibold text-white;
+    background: linear-gradient(135deg, #6366f1, #8b5cf6);
+}
+.btn-upload:hover {
+    box-shadow: 0 6px 20px rgba(99, 102, 241, 0.35);
+    transform: translateY(-1px);
+}
+.btn-upload:active {
+    transform: scale(0.97);
+}
+.btn-refresh {
+    @apply bg-[rgba(255,255,255,0.03)] text-[var(--text-secondary)]
+           border border-[var(--glass-border)] inline-flex items-center gap-2
+           px-3 py-1.5 rounded-lg text-xs font-medium cursor-pointer
+           transition-all duration-200;
+}
+.btn-refresh:hover {
+    @apply bg-[rgba(255,255,255,0.07)];
+}
+
+/* === Tables === */
+.exam-table td {
+    @apply p-3.5 border-b border-white/5 align-middle;
+}
+.table-header {
+    @apply flex items-center justify-between mb-4 flex-wrap gap-3;
+}
+
+/* === Status Badges === */
+.status-badge {
+    @apply inline-flex items-center px-2.5 py-1 rounded-md text-xs font-semibold uppercase;
+}
+.status-active {
+    @apply bg-[rgba(16,185,129,0.15)] text-[var(--success)];
+}
+.status-inactive {
+    @apply bg-[rgba(245,158,11,0.15)] text-[var(--warning)];
+}
+.status-suspended {
+    @apply bg-[rgba(239,68,68,0.15)] text-[var(--danger)];
+}
+
+/* === Empty State === */
+.empty-state {
+    @apply text-center py-12 text-[var(--text-muted)];
+}
+.empty-icon {
+    @apply text-5xl mb-3;
+}
+
+/* === Stats Cards === */
+.stats-grid {
+    @apply grid gap-4;
+    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+}
+.stat-card {
+    @apply p-5 rounded-2xl border border-[rgba(255,255,255,0.06)]
+           bg-[rgba(13,13,30,0.5)] backdrop-blur-xl flex items-center gap-4
+           transition-all duration-300 hover:-translate-y-0.5 hover:shadow-xl hover:border-[rgba(255,255,255,0.1)];
+}
+
+/* === Forms === */
+.form-group { @apply space-y-1; }
+.form-row { @apply flex gap-4 flex-wrap; }
+.form-row-2col { @apply grid grid-cols-1 sm:grid-cols-2 gap-4; }
+.form-row-3col { @apply grid grid-cols-1 sm:grid-cols-3 gap-4; }
+.file-input-wrapper { @apply relative; }
+.file-input-display {
+    @apply flex items-center gap-3 px-4 py-3 rounded-lg border border-dashed
+           border-[rgba(255,255,255,0.1)] bg-[rgba(255,255,255,0.02)]
+           cursor-pointer hover:border-[rgba(99,102,241,0.4)] transition-colors;
+}
+
+/* === Upload Progress === */
+.upload-progress { @apply flex items-center gap-3 my-4; }
+.progress-bar { @apply flex-1 h-2 rounded-full bg-slate-800 overflow-hidden; }
+.progress-fill { @apply h-full rounded-full bg-gradient-to-r from-[var(--primary)] to-[#8b5cf6] transition-all duration-300; }
+.progress-text { @apply text-xs font-semibold text-slate-400 min-w-[3ch] text-right; }
 
 @theme {
     --color-primary: #6366f1;
