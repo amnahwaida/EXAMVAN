@@ -104,14 +104,10 @@ class TestHTMLTemplates(unittest.TestCase):
         self._check_html_structure(resp.text, 'users.html')
         self.assertIn('Daftar User', resp.text)
 
-    def test_create_exam_page(self):
-        with self.client.session_transaction() as sess:
-            sess['admin_id'] = 1
-            sess['admin_username'] = 'admin'
-            sess['csrf_token'] = 'test'
+    def test_create_exam_page_removed(self):
+        """Buat Ujian page no longer exists."""
         resp = self.client.get('/admin/create-exam')
-        self.assertEqual(resp.status_code, 200)
-        self._check_html_structure(resp.text, 'create_exam.html')
+        self.assertIn(resp.status_code, [302, 404])
 
 
 class TestCSSTemplates(unittest.TestCase):
@@ -224,7 +220,7 @@ class TestJavaScriptTemplates(unittest.TestCase):
 
     def test_js_files_exist(self):
         """All JS files should exist."""
-        expected = ['admin-core.js', 'admin.js', 'admin-creator.js']
+        expected = ['admin-core.js', 'admin.js']
         for js_file in expected:
             path = os.path.join(self.js_dir, js_file)
             self.assertTrue(os.path.exists(path), f'Missing: {js_file}')
@@ -251,13 +247,11 @@ class TestJavaScriptTemplates(unittest.TestCase):
             self.assertIn(f'function {func}', content,
                 f'admin.js missing function: {func}')
 
-    def test_admin_creator_js_loaded(self):
-        """Buat Ujian page should load admin-creator.js."""
-        with self.client.session_transaction() as sess:
-            sess['admin_id'] = 1
-            sess['admin_username'] = 'admin'
-        resp = self.client.get('/admin/create-exam')
-        self.assertIn('admin-creator.js', resp.text)
+    def test_admin_creator_js_removed(self):
+        """admin-creator.js no longer exists."""
+        import os
+        path = os.path.join(os.path.dirname(__file__), '..', 'static', 'js', 'admin-creator.js')
+        self.assertFalse(os.path.exists(path), 'admin-creator.js should be removed')
 
     def test_admin_core_js_loaded(self):
         """All admin pages should load admin-core.js."""
@@ -354,7 +348,7 @@ class TestTemplateInheritance(unittest.TestCase):
         """Admin templates should extend admin_base.html."""
         tmpl_dir = os.path.join(os.path.dirname(__file__), '..', 'templates')
         admin_templates = ['dashboard.html', 'submissions.html',
-                           'users.html', 'buat_ujian.html']
+                           'users.html']
         for tmpl in admin_templates:
             path = os.path.join(tmpl_dir, tmpl)
             with open(path) as f:

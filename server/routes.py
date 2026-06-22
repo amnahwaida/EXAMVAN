@@ -563,41 +563,6 @@ def admin_dashboard():
 
 @app.route('/admin/create-exam')
 @admin_required
-def admin_create_exam_page():
-    """Create exam page."""
-    db = get_db()
-    is_super_admin = (session.get('admin_username') == 'admin')
-    
-    if is_super_admin:
-        user_max_pdf = MAX_FILE_SIZE
-        user_max_exams = '∞'
-        user_max_drafts = 9999
-        user_max_draft_size = 104857600  # 100MB
-        account_expires = None
-    else:
-        user_row = db.execute('SELECT max_exams, max_pdf_size, max_drafts, max_draft_size, expires_at FROM admin_users WHERE id = ?', (session['admin_id'],)).fetchone()
-        user_max_pdf = user_row['max_pdf_size'] if (user_row and user_row['max_pdf_size']) else 1048576
-        user_max_exams = user_row['max_exams'] if (user_row and user_row['max_exams']) else 3
-        user_max_drafts = user_row['max_drafts'] if (user_row and user_row['max_drafts'] is not None) else 2
-        user_max_draft_size = user_row['max_draft_size'] if (user_row and user_row['max_draft_size'] is not None) else 1048576
-        account_expires = user_row['expires_at'] if user_row else None
-        
-    return render_template(
-        'buat_ujian.html',
-        admin_user=session.get('admin_username', 'Admin'),
-        max_size_mb=round(user_max_pdf / (1024 * 1024), 1),
-        max_exams=user_max_exams,
-        max_drafts=user_max_drafts,
-        max_draft_size=user_max_draft_size,
-        account_expires=account_expires,
-        active_page='create_exam'
-    )
-
-
-# ===== Admin API Routes =====
-
-@app.route('/admin/api/upload', methods=['POST'])
-@admin_required
 def admin_upload():
     """Upload a new exam PDF."""
     name = request.form.get('name', '').strip()
@@ -690,86 +655,6 @@ def admin_upload():
 
 
 @app.route('/admin/api/exams/create-from-editor', methods=['POST'])
-@admin_required
-def admin_create_exam_from_editor():
-    """Create an exam directly from the question editor with generated PDF."""
-    name = request.form.get('name', '').strip()
-    questions_json_raw = request.form.get('questions_json', '[]')
-    custom_token = request.form.get('custom_token', '').strip().upper()
-    file = request.files.get('pdf_file')
-
-    if not name:
-        return jsonify({'success': False, 'message': 'Nama ujian wajib diisi'}), 400
-
-    # Validate questions_json is valid JSON array
-    try:
-        questions_parsed = json.loads(questions_json_raw)
-        if not isinstance(questions_parsed, list):
-            raise ValueError
-        questions_json = json.dumps(questions_parsed)
-    except (json.JSONDecodeError, ValueError):
-        return jsonify({'success': False, 'message': 'Format data pertanyaan tidak valid'}), 400
-
-    if not file or file.filename == '':
-        return jsonify({'success': False, 'message': 'File PDF hasil generate wajib dikirim'}), 400
-
-    file_data = file.read()
-    if len(file_data) > MAX_FILE_SIZE:
-        return jsonify({'success': False, 'message': f'Ukuran file melebihi batas server ({MAX_FILE_SIZE // (1024*1024)}MB)'}), 400
-
-    db = get_db()
-    
-    # Check user limits (same logic as upload)
-    if session.get('admin_username') != 'admin':
-        user = db.execute('SELECT max_exams, max_pdf_size FROM admin_users WHERE id = ?', (session['admin_id'],)).fetchone()
-        exam_limit = user['max_exams'] if (user and user['max_exams'] is not None) else 3
-        pdf_limit = user['max_pdf_size'] if (user and user['max_pdf_size'] is not None) else 1048576
-        
-        if len(file_data) > pdf_limit:
-            pdf_limit_mb = round(pdf_limit / (1024 * 1024), 2)
-            return jsonify({'success': False, 'message': f'Ukuran file melebihi batas akun Anda ({pdf_limit_mb}MB). Silakan hubungi Super Admin.'}), 403
-            
-        current_count = db.execute('SELECT COUNT(*) as count FROM exams WHERE created_by = ?', (session['admin_id'],)).fetchone()['count']
-        if current_count >= exam_limit:
-            return jsonify({'success': False, 'message': f'Batas pembuatan ujian tercapai ({exam_limit} ujian). Silakan hubungi Super Admin.'}), 403
-
-    if custom_token:
-        if len(custom_token) != 6 or not custom_token.isalnum():
-            return jsonify({'success': False, 'message': 'Token kustom harus terdiri dari 6 karakter alfanumerik'}), 400
-        existing = db.execute('SELECT id FROM exams WHERE token = ?', (custom_token,)).fetchone()
-        if existing:
-            return jsonify({'success': False, 'message': 'Token kustom sudah digunakan oleh ujian lain'}), 400
-        token = custom_token
-    else:
-        token = generate_token()
-
-    # Save generated PDF file with secure name
-    timestamp = datetime.now(timezone.utc).strftime('%Y%m%d_%H%M%S')
-    filename = f"{timestamp}_editor_exam.pdf"
-    file_path = os.path.join(STORAGE_DIR, filename)
-
-    with open(file_path, 'wb') as f:
-        f.write(file_data)
-
-    # Insert into exams table
-    db.execute(
-        'INSERT INTO exams (name, file_path, size_bytes, token, questions_json, status, created_by) VALUES (?, ?, ?, ?, ?, ?, ?)',
-        (name, filename, len(file_data), token, questions_json, 'active', session['admin_id'])
-    )
-    db.commit()
-
-    return jsonify({
-        'success': True,
-        'message': f'Ujian "{name}" berhasil dibuat dengan token: {token}',
-        'token': token
-    })
-
-
-
-
-
-
-@app.route('/admin/exams/<int:exam_id>/pdf')
 @admin_required
 def admin_exam_pdf(exam_id):
     """View or download the exam PDF for admin."""

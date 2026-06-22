@@ -209,7 +209,7 @@ class TestStaticFiles(unittest.TestCase):
 
     def test_js_files(self):
         client = app.test_client()
-        for js in ['admin-core', 'admin', 'admin-creator']:
+        for js in ['admin-core', 'admin']:
             resp = client.get(f'/static/js/{js}.js')
             self.assertEqual(resp.status_code, 200, f'Missing JS: {js}')
 
