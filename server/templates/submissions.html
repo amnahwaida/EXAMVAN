@@ -1,21 +1,5 @@
 {% extends "admin_base.html" %}
 {% block title %}Hasil Ujian{% endblock %}
-{% block head %}
-<style>
-/* Mobile labels: hidden on desktop, shown inline on mobile */
-.mobile-label { display: none; }
-@media (max-width: 768px) {
-    .mobile-label { display: inline !important; font-size: 11px; font-weight: 600; color: #64748b; margin-right: 4px; flex-shrink: 0; }
-    #submissionsTable td { display: flex !important; align-items: center; gap: 4px; width: 100%; }
-    #submissionsTable thead { display: none !important; }
-    #submissionsTable, #submissionsTable tbody, #submissionsTable tr { display: block; width: 100%; }
-    #submissionsTable tbody tr { background: rgba(255,255,255,0.02); border: 1px solid rgba(255,255,255,0.06); border-radius: 16px; padding: 16px; margin-bottom: 14px; }
-    #submissionsTable td { padding: 4px 0; border-bottom: none; font-size: 14px; }
-    #submissionsTable td .score-bar-track { display: none !important; }
-    .score-pct-mob { font-size: 12px; font-weight: 600; color: #64748b; }
-}
-</style>
-{% endblock %}
 {% block content %}
 <main class="dashboard">
         <!-- Filter and Export Section -->
@@ -72,7 +56,7 @@
                             <th>No. Ujian</th>
                             <th>Kelas</th>
                             <th style="text-align: center;">Nilai</th>
-                            <th>Waktu Mulai</th>
+                            <th>Waktu Kumpul</th>
                             <th style="text-align: center;">Durasi</th>
                             <th>Perangkat</th>
                             <th style="text-align: center;">Aksi</th>
@@ -80,38 +64,56 @@
                     </thead>
                     <tbody>
                         {% for sub in submissions %}
+                        {% set score_pct = (sub.score / max_score * 100) if max_score else none %}
                         <tr id="submission-row-{{ sub.id }}" data-exam-id="{{ sub.exam_id }}" style="transition: background 0.2s;">
-<td class="td-name" style="font-weight:500;"><span class="mobile-label">Ujian</span>{{ sub.exam_name }}</td>
-<td><span class="mobile-label">Siswa</span><strong>{{ sub.student_name }}</strong></td>
-<td><span class="mobile-label">No. Ujian</span><code class="token-code">{{ sub.exam_number }}</code></td>
-<td><span class="mobile-label">Kelas</span>{{ sub.student_class }}</td>
-                            <td>
+                            <td class="td-name" data-label="Ujian" style="font-weight: 500;">{{ sub.exam_name }}</td>
+                            <td data-label="Siswa"><strong>{{ sub.student_name }}</strong></td>
+                            <td data-label="No. Ujian"><code class="token-code" style="letter-spacing: normal; font-size:12px;">{{ sub.exam_number }}</code></td>
+                            <td data-label="Kelas">{{ sub.student_class }}</td>
+                            <td data-label="Nilai" style="text-align: center;">
                                 {% if sub.score is not none %}
-                                <span class="mobile-label">Nilai</span><span class="score-value
-                                    {% if sub.score_pct is not none and sub.score_pct >= 80 %}score-high
-                                    {% elif sub.score_pct is not none and sub.score_pct >= 60 %}score-mid
-                                    {% else %}score-low{% endif %}">
-                                    {{ sub.score }}{% if sub.max_score %}<span class="score-max">/{{ sub.max_score }}</span>{% endif %}
-                                </span>
-                                {% if sub.score_pct is not none %}
-                                <span class="score-pct-mob">({{ sub.score_pct|int }}%)</span>
-                                {% endif %}
-                                {% else %}<span class="score-na">—</span>
+                                <div style="display: flex; flex-direction: column; align-items: center; gap: 4px;">
+                                    <span style="font-size: 16px; font-weight: 800;
+                                        {% if score_pct is not none and score_pct >= 80 %}color: #34d399;
+                                        {% elif score_pct is not none and score_pct >= 60 %}color: #fbbf24;
+                                        {% else %}color: #f87171;{% endif %}">
+                                        {{ sub.score }}
+                                    </span>
+                                    {% if score_pct is not none %}
+                                    <div style="width: 50px; height: 3px; background: rgba(255,255,255,0.06); border-radius: 2px; overflow: hidden;">
+                                        <div style="height: 100%; width: {{ score_pct|int }}%; border-radius: 2px;
+                                            {% if score_pct >= 80 %}background: #34d399;
+                                            {% elif score_pct >= 60 %}background: #fbbf24;
+                                            {% else %}background: #f87171;{% endif %}">
+                                        </div>
+                                    </div>
+                                    {% endif %}
+                                </div>
+                                {% else %}
+                                <span style="font-size: 12px; color: var(--text-muted);">—</span>
                                 {% endif %}
                             </td>
-<td><span class="mobile-label">Mulai</span>{{ sub.start_time or '—' }}</td>
-                            <td>
+                            <td class="td-date" data-label="Kumpul" data-utc="{{ sub.created_at }}">{{ sub.created_at }}</td>
+                            <td data-label="Durasi" style="text-align: center; font-size: 12px; color: var(--text-secondary);">
                                 {% if sub.start_time and sub.created_at %}
-                                <span class="mobile-label">Durasi</span><span class="duration-cell" data-start="{{ sub.start_time }}" data-end="{{ sub.created_at }}">⏳</span>
-                                {% else %}—
+                                {% set diff = (sub.created_at[:19] if ' ' in sub.created_at[:19] else sub.created_at) %}
+                                <span class="duration-cell" data-start="{{ sub.start_time }}" data-end="{{ sub.created_at }}">⏳</span>
+                                {% else %}
+                                —
                                 {% endif %}
                             </td>
-                            <td class="td-device" data-label="Perangkat"><span class="mobile-label">Perangkat</span>
-                                <code class="device-code">{{ sub.mac_address or '—' }}</code>
+                            <td data-label="Perangkat" style="font-size: 11px; color: var(--text-muted); max-width: 120px; overflow: hidden; text-overflow: ellipsis;">
+                                <code style="font-size:10px; background: rgba(255,255,255,0.03); padding: 2px 6px; border-radius: 4px;">{{ sub.mac_address or '—' }}</code>
                             </td>
-                            <td class="td-action-btns" data-label="Aksi"><span class="mobile-label">Aksi</span>
-                                <button class="btn-sm btn-toggle btn-action" onclick="showSubmissionDetail({{ sub.id }})">👁️</button>
-                                <button class="btn-sm btn-delete btn-action" onclick="deleteSubmission({{ sub.id }})">🗑️</button>
+                            <td class="td-actions" data-label="" style="text-align: center;">
+                                <div style="display: flex; gap: 6px; justify-content: center;">
+                                    <button class="btn-sm btn-toggle" onclick="showSubmissionDetail({{ sub.id }})" style="padding: 6px 12px; font-size: 11px;">
+                                        👁️ Detail
+                                    </button>
+                                    <button class="btn-sm btn-delete" onclick="deleteSubmission({{ sub.id }})" style="padding: 6px 12px; font-size: 11px;">
+                                        🗑️
+                                    </button>
+                                </div>
                             </td>
                         </tr>
                         {% endfor %}
