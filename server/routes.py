@@ -609,11 +609,19 @@ def admin_upload():
     if not file or file.filename == '':
         return jsonify({'success': False, 'message': 'File PDF wajib dipilih'}), 400
 
-    if file.content_type != 'application/pdf':
+    # Check that the uploaded file looks like a PDF
+    # Some browsers send 'application/octet-stream' or 'application/x-pdf'
+    # instead of 'application/pdf', so we accept multiple PDF indicators
+    allowed_pdf_types = ['application/pdf', 'application/x-pdf', 'application/octet-stream']
+    if file.content_type not in allowed_pdf_types and not file.filename.lower().endswith('.pdf'):
         return jsonify({'success': False, 'message': 'Hanya file PDF yang diizinkan'}), 400
 
-    # Read file content to check size
+    # Also check the file header for %PDF magic bytes
     file_data = file.read()
+    if not file_data.startswith(b'%PDF'):
+        return jsonify({'success': False, 'message': 'File tidak valid (bukan PDF)'}), 400
+
+    # Check size
     if len(file_data) > MAX_FILE_SIZE:
         return jsonify({
             'success': False,
@@ -894,10 +902,14 @@ def admin_edit_exam(exam_id):
 
     # If new PDF file is uploaded
     if file and file.filename != '':
-        if file.content_type != 'application/pdf':
+        allowed_pdf_types = ['application/pdf', 'application/x-pdf', 'application/octet-stream']
+        if file.content_type not in allowed_pdf_types and not file.filename.lower().endswith('.pdf'):
             return jsonify({'success': False, 'message': 'Hanya file PDF yang diizinkan'}), 400
 
         file_data = file.read()
+        if not file_data.startswith(b'%PDF'):
+            return jsonify({'success': False, 'message': 'File tidak valid (bukan PDF)'}), 400
+
         if len(file_data) > MAX_FILE_SIZE:
             return jsonify({
                 'success': False,
