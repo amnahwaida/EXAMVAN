@@ -37,7 +37,7 @@
                 <div class="form-group">
                     <label for="whatsapp">Nomor WhatsApp</label>
                     <input type="tel" id="whatsapp" name="whatsapp" placeholder="Contoh: 081234567890" required>
-                    <span class="flex items-center gap-1.5 mt-1.5" style="font-size: 11px; color: var(--text-muted);">📱 Digunakan untuk menerima kode OTP via WhatsApp</span>
+                    <span style="display: block; font-size: 11px; color: var(--text-muted); margin-top: 6px; padding: 6px 10px; background: rgba(255,255,255,0.03); border-radius: 6px; border: 1px solid rgba(255,255,255,0.04);">📱 Digunakan untuk menerima kode OTP via WhatsApp</span>
                 </div>
                 <div class="form-group">
                     <label for="password">Password</label>
@@ -45,10 +45,11 @@
                 </div>
                 <button type="submit" class="btn-login">Daftar Akun</button>
             </form>
-            <div class="text-center" style="margin-top: 20px;">
-                <p class="text-xs" style="color: var(--text-secondary);">
-                    Sudah memiliki akun? <a href="{{ url_for('admin_login') }}" style="color: var(--accent); text-decoration: none; font-weight: 600; border-bottom: 1px dashed var(--accent);">Masuk Disini</a>
-                </p>
+            <hr style="border: none; border-top: 1px solid rgba(255,255,255,0.06); margin: 24px 0 16px;">
+            <div style="text-align: center;">
+                <span style="font-size: 13px; color: var(--text-secondary);">
+                    Sudah memiliki akun? <a href="{{ url_for('admin_login') }}" style="color: var(--accent); text-decoration: none; font-weight: 600; border-bottom: 1px dashed var(--accent); transition: color 0.2s;">Masuk Disini</a>
+                </span>
             </div>
             <div class="login-footer"><p>EXAMVAN v2.0.0</p></div>
         </div>
