@@ -8,6 +8,11 @@
 @source "../../../templates/";
 @source "../../js/";
 
+/* Ensure dark theme text color on body */
+body {
+    color: #f8fafc;
+}
+
 @theme {
     --color-primary: #6366f1;
     --color-primary-dark: #4f46e5;
