@@ -2,181 +2,181 @@
 {% block title %}Hasil Ujian{% endblock %}
 {% block content %}
 <main class="dashboard">
-        <!-- Filter and Export Section -->
-        <section class="glass-card p-6 rounded-2xl border border-slate-800/60 bg-slate-900/40 backdrop-blur-2xl shadow-2xl">
-            <div class="table-header flex items-center justify-between mb-4 flex-wrap gap-3">
-                <h3>📊 Rekapitulasi Hasil Ujian</h3>
-                <div class="submissions-actions">
-                    <select id="filterExam" onchange="filterSubmissions()" class="select-filter">
-                        <option value="">📋 Semua Ujian</option>
-                        {% for exam in exams %}
-                        <option value="{{ exam.id }}" {% if exam_filter_param == exam.id %}selected{% endif %}>{{ exam.name }}</option>
-                        {% endfor %}
-                    </select>
-                    <button class="btn-upload inline-flex items-center justify-center gap-2 px-7 py-3 rounded-xl text-sm font-semibold text-white bg-gradient-to-r from-indigo-500 to-purple-600 hover:shadow-lg hover:shadow-indigo-500/25 transition-all duration-200 active:scale-[0.97]" onclick="exportSubmissions()">📤 Export Excel/CSV</button>
-                </div>
-            </div>
-        </section>
+ <!-- Filter and Export Section -->
+ <section class="glass-card p-6 rounded-2xl border border-slate-800/60 bg-slate-900/40 backdrop-blur-2xl shadow-2xl">
+ <div class="table-header flex items-center justify-between mb-4 flex-wrap gap-3">
+ <h3>📊 Rekapitulasi Hasil Ujian</h3>
+ <div class="submissions-actions">
+ <select id="filterExam" onchange="filterSubmissions()" class="select-filter">
+ <option value=">📋 Semua Ujian</option>
+ {% for exam in exams %}
+ <option value="{{ exam.id }}" {% if exam_filter_param == exam.id %}selected{% endif %}>{{ exam.name }}</option>
+ {% endfor %}
+ </select>
+ <button class="btn-upload " onclick="exportSubmissions()">📤 Export Excel/CSV</button>
+ </div>
+ </div>
+ </section>
 
-        <!-- Quick Stats -->
-        {% if submissions and total_submissions > 0 %}
-        <section class="glass-card p-6 rounded-2xl border border-slate-800/60 bg-slate-900/40 backdrop-blur-2xl shadow-2xl" style="margin-top: 16px; padding: 14px 20px;">
-            <div style="display: flex; gap: 24px; flex-wrap: wrap; align-items: center;">
-                <span style="font-size: 13px; color: var(--text-secondary);">
-                    📄 <strong class="text-white">{{ total_submissions }}</strong> total hasil
-                </span>
-                {% set avg_score = submissions | map(attribute='score') | select('!=', none) | list %}
-                {% if avg_score %}
-                {% set avg = (avg_score | sum) / (avg_score | length) %}
-                <span style="font-size: 13px; color: var(--text-secondary);">
-                    📊 Rata-rata: <strong class="text-indigo-300">{{ "%.1f"|format(avg) }}</strong>
-                </span>
-                {% endif %}
-            </div>
-        </section>
-        {% endif %}
+ <!-- Quick Stats -->
+ {% if submissions and total_submissions > 0 %}
+ <section class="glass-card p-6 rounded-2xl border border-slate-800/60 bg-slate-900/40 backdrop-blur-2xl shadow-2xl" style="margin-top: 16px; padding: 14px 20px;">
+ <div style="display: flex; gap: 24px; flex-wrap: wrap; align-items: center;">
+ <span style="font-size: 13px; color: var(--text-secondary);">
+ 📄 <strong class="text-white">{{ total_submissions }}</strong> total hasil
+ </span>
+ {% set avg_score = submissions | map(attribute='score') | select('!=', none) | list %}
+ {% if avg_score %}
+ {% set avg = (avg_score | sum) / (avg_score | length) %}
+ <span style="font-size: 13px; color: var(--text-secondary);">
+ 📊 Rata-rata: <strong class="text-indigo-300">{{ "%.1f"|format(avg) }}</strong>
+ </span>
+ {% endif %}
+ </div>
+ </section>
+ {% endif %}
 
-        <!-- Submissions Table -->
-        <section class="exam-table-section glass-card p-6 rounded-2xl border border-slate-800/60 bg-slate-900/40 backdrop-blur-2xl shadow-2xl">
-            {% if submissions | length == 0 %}
-            <div class="empty-state" style="padding: 60px 20px;">
-                <div class="empty-icon" style="font-size: 56px; margin-bottom: 16px;">📂</div>
-                <p style="font-size: 16px; color: var(--text-secondary);">Belum ada hasil ujian yang dikumpulkan oleh siswa.</p>
-                {% if exam_filter_param %}
-                <p style="font-size: 13px; color: var(--text-muted); margin-top: 8px;">🔍 Filter sedang aktif. <a href="{{ url_for('admin_submissions') }}" class="text-indigo-300">Reset filter</a> untuk melihat semua hasil.</p>
-                {% endif %}
-            </div>
-            {% else %}
-            <div class="table-responsive">
-                <table class="exam-table" id="submissionsTable">
-                    <thead>
-                        <tr>
-                            <th>Nama Ujian</th>
-                            <th>Nama Siswa</th>
-                            <th>No. Ujian</th>
-                            <th>Kelas</th>
-                            <th class="text-center">Nilai</th>
-                            <th>Waktu Kumpul</th>
-                            <th class="text-center">Durasi</th>
-                            <th>Perangkat</th>
-                            <th class="text-center">Aksi</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        {% for sub in submissions %}
-                        {% set score_pct = (sub.score / max_score * 100) if max_score else none %}
-                        <tr id="submission-row-{{ sub.id }}" data-exam-id="{{ sub.exam_id }}" style="transition: background 0.2s;">
-                            <td class="td-name" data-label="Ujian" class="font-medium">{{ sub.exam_name }}</td>
-                            <td data-label="Siswa" class="max-md:flex max-md:gap-1 max-md:items-baseline"><strong>{{ sub.student_name }}</strong></td>
-                            <td data-label="No. Ujian" class="max-md:flex max-md:gap-1 max-md:items-baseline"><code class="token-code" style="letter-spacing: normal; font-size:12px;">{{ sub.exam_number }}</code></td>
-                            <td data-label="Kelas" class="max-md:flex max-md:gap-1 max-md:items-baseline">{{ sub.student_class }}</td>
-                            <td data-label="Nilai">
-                                {% if sub.score is not none %}
-                                <div style="display: flex; flex-direction: column; align-items: center; gap: 4px;">
-                                    <span style="font-size: 16px; font-weight: 800;
-                                        {% if score_pct is not none and score_pct >= 80 %}color: #34d399;
-                                        {% elif score_pct is not none and score_pct >= 60 %}color: #fbbf24;
-                                        {% else %}color: #f87171;{% endif %}">
-                                        {{ sub.score }}
-                                    </span>
-                                    {% if score_pct is not none %}
-                                    <div style="width: 50px; height: 3px; background: rgba(255,255,255,0.06); border-radius: 2px; overflow: hidden;">
-                                        <div style="height: 100%; width: {{ score_pct|int }}%; border-radius: 2px;
-                                            {% if score_pct >= 80 %}background: #34d399;
-                                            {% elif score_pct >= 60 %}background: #fbbf24;
-                                            {% else %}background: #f87171;{% endif %}">
-                                        </div>
-                                    </div>
-                                    {% endif %}
-                                </div>
-                                {% else %}
-                                <span style="font-size: 12px; color: var(--text-muted);">—</span>
-                                {% endif %}
-                            </td>
-                            <td class="td-date" data-label="Kumpul" data-utc="{{ sub.created_at }}">{{ sub.created_at }}</td>
-                            <td data-label="Durasi">
-                                {% if sub.start_time and sub.created_at %}
-                                {% set diff = (sub.created_at[:19] if ' ' in sub.created_at[:19] else sub.created_at) %}
-                                <span class="duration-cell" data-start="{{ sub.start_time }}" data-end="{{ sub.created_at }}">⏳</span>
-                                {% else %}
-                                —
-                                {% endif %}
-                            </td>
-                            <td data-label="Perangkat">
-                                <code style="font-size:10px; background: rgba(255,255,255,0.03); padding: 2px 6px; border-radius: 4px;">{{ sub.mac_address or '—' }}</code>
-                            </td>
-                            <td class="td-actions" data-label="" class="text-center">
-                                <div style="display: flex; gap: 6px; justify-content: center;">
-                                    <button class="btn-sm btn-toggle inline-flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-medium bg-indigo-500/10 text-indigo-300 border border-indigo-500/25 hover:bg-indigo-500/20 transition-all duration-200" onclick="showSubmissionDetail({{ sub.id }})" style="padding: 6px 12px; font-size: 11px;">
-                                        👁️ Detail
-                                    </button>
-                                    <button class="btn-sm btn-delete inline-flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-medium bg-red-500/10 text-red-300 border border-red-500/25 hover:bg-red-500/20 transition-all duration-200" onclick="deleteSubmission({{ sub.id }})" style="padding: 6px 12px; font-size: 11px;">
-                                        🗑️
-                                    </button>
-                                </div>
-                            </td>
-                        </tr>
-                        {% endfor %}
-                    </tbody>
-                </table>
-            </div>
+ <!-- Submissions Table -->
+ <section class="exam-table-section glass-card p-6 rounded-2xl border border-slate-800/60 bg-slate-900/40 backdrop-blur-2xl shadow-2xl">
+ {% if submissions | length == 0 %}
+ <div class="empty-state" style="padding: 60px 20px;">
+ <div class="empty-icon" style="font-size: 56px; margin-bottom: 16px;">📂</div>
+ <p style="font-size: 16px; color: var(--text-secondary);">Belum ada hasil ujian yang dikumpulkan oleh siswa.</p>
+ {% if exam_filter_param %}
+ <p style="font-size: 13px; color: var(--text-muted); margin-top: 8px;">🔍 Filter sedang aktif. <a href="{{ url_for('admin_submissions') }}" class="text-indigo-300">Reset filter</a> untuk melihat semua hasil.</p>
+ {% endif %}
+ </div>
+ {% else %}
+ <div class="table-responsive">
+ <table class="exam-table" id="submissionsTable">
+ <thead>
+ <tr>
+ <th>Nama Ujian</th>
+ <th>Nama Siswa</th>
+ <th>No. Ujian</th>
+ <th>Kelas</th>
+ <th class="text-center">Nilai</th>
+ <th>Waktu Kumpul</th>
+ <th class="text-center">Durasi</th>
+ <th>Perangkat</th>
+ <th class="text-center">Aksi</th>
+ </tr>
+ </thead>
+ <tbody>
+ {% for sub in submissions %}
+ {% set score_pct = (sub.score / max_score * 100) if max_score else none %}
+ <tr id="submission-row-{{ sub.id }}" data-exam-id="{{ sub.exam_id }}" style="transition: background 0.2s;">
+ <td class="td-name" data-label="Ujian" class="font-medium">{{ sub.exam_name }}</td>
+ <td data-label="Siswa" class="max-md:flex max-md:gap-1 max-md:items-baseline"><strong>{{ sub.student_name }}</strong></td>
+ <td data-label="No. Ujian" class="max-md:flex max-md:gap-1 max-md:items-baseline"><code class="token-code" style="letter-spacing: normal; font-size:12px;">{{ sub.exam_number }}</code></td>
+ <td data-label="Kelas" class="max-md:flex max-md:gap-1 max-md:items-baseline">{{ sub.student_class }}</td>
+ <td data-label="Nilai">
+ {% if sub.score is not none %}
+ <div style="display: flex; flex-direction: column; align-items: center; gap: 4px;">
+ <span style="font-size: 16px; font-weight: 800;
+ {% if score_pct is not none and score_pct >= 80 %}color: #34d399;
+ {% elif score_pct is not none and score_pct >= 60 %}color: #fbbf24;
+ {% else %}color: #f87171;{% endif %}">
+ {{ sub.score }}
+ </span>
+ {% if score_pct is not none %}
+ <div style="width: 50px; height: 3px; background: rgba(255,255,255,0.06); border-radius: 2px; overflow: hidden;">
+ <div style="height: 100%; width: {{ score_pct|int }}%; border-radius: 2px;
+ {% if score_pct >= 80 %}background: #34d399;
+ {% elif score_pct >= 60 %}background: #fbbf24;
+ {% else %}background: #f87171;{% endif %}">
+ </div>
+ </div>
+ {% endif %}
+ </div>
+ {% else %}
+ <span style="font-size: 12px; color: var(--text-muted);">—</span>
+ {% endif %}
+ </td>
+ <td class="td-date" data-label="Kumpul" data-utc="{{ sub.created_at }}">{{ sub.created_at }}</td>
+ <td data-label="Durasi">
+ {% if sub.start_time and sub.created_at %}
+ {% set diff = (sub.created_at[:19] if ' ' in sub.created_at[:19] else sub.created_at) %}
+ <span class="duration-cell" data-start="{{ sub.start_time }}" data-end="{{ sub.created_at }}">⏳</span>
+ {% else %}
+ —
+ {% endif %}
+ </td>
+ <td data-label="Perangkat">
+ <code style="font-size:10px; background: rgba(255,255,255,0.03); padding: 2px 6px; border-radius: 4px;">{{ sub.mac_address or '—' }}</code>
+ </td>
+ <td class="td-actions" data-label=" class="text-center">
+ <div style="display: flex; gap: 6px; justify-content: center;">
+ <button class="btn-sm btn-toggle " onclick="showSubmissionDetail({{ sub.id }})" style="padding: 6px 12px; font-size: 11px;">
+ 👁️ Detail
+ </button>
+ <button class="btn-sm btn-delete " onclick="deleteSubmission({{ sub.id }})" style="padding: 6px 12px; font-size: 11px;">
+ 🗑️
+ </button>
+ </div>
+ </td>
+ </tr>
+ {% endfor %}
+ </tbody>
+ </table>
+ </div>
 
-            {% if total_pages > 1 %}
-            <div style="display: flex; justify-content: space-between; align-items: center; padding: 16px 0 0 0; flex-wrap: wrap; gap: 12px;">
-                <span style="font-size: 13px; color: var(--text-muted);">{{ submissions|length }} dari {{ total_submissions }} hasil</span>
-                <div style="display: flex; gap: 6px; align-items: center;">
-                    <a href="?page={{ page-1 }}{% if exam_filter_param %}&exam_id={{ exam_filter_param }}{% endif %}"
-                       class="btn-sm btn-toggle {% if page <= 1 %}disabled{% endif %}"
-                       style="{% if page <= 1 %}opacity:0.4; pointer-events:none;{% endif %} padding:6px 14px; text-decoration:none;">◀ Sebelumnya</a>
+ {% if total_pages > 1 %}
+ <div style="display: flex; justify-content: space-between; align-items: center; padding: 16px 0 0 0; flex-wrap: wrap; gap: 12px;">
+ <span style="font-size: 13px; color: var(--text-muted);">{{ submissions|length }} dari {{ total_submissions }} hasil</span>
+ <div style="display: flex; gap: 6px; align-items: center;">
+ <a href="?page={{ page-1 }}{% if exam_filter_param %}&exam_id={{ exam_filter_param }}{% endif %}"
+ class="btn-sm btn-toggle {% if page <= 1 %}disabled{% endif %}"
+ style="{% if page <= 1 %}opacity:0.4; pointer-events:none;{% endif %} padding:6px 14px; text-decoration:none;">◀ Sebelumnya</a>
 
-                    {% for p in range(1, total_pages + 1) %}
-                        {% if p >= page - 2 and p <= page + 2 %}
-                        <a href="?page={{ p }}{% if exam_filter_param %}&exam_id={{ exam_filter_param }}{% endif %}"
-                           style="padding:6px 12px; border-radius:6px; text-decoration:none; font-size:13px; font-weight:600;
-                                  background:{% if p == page %}var(--primary){% else %}rgba(255,255,255,0.04){% endif %};
-                                  color:{% if p == page %}white{% else %}var(--text-secondary){% endif %};
-                                  border:1px solid {% if p == page %}var(--primary){% else %}var(--glass-border){% endif %};">
-                            {{ p }}
-                        </a>
-                        {% endif %}
-                    {% endfor %}
+ {% for p in range(1, total_pages + 1) %}
+ {% if p >= page - 2 and p <= page + 2 %}
+ <a href="?page={{ p }}{% if exam_filter_param %}&exam_id={{ exam_filter_param }}{% endif %}"
+ style="padding:6px 12px; border-radius:6px; text-decoration:none; font-size:13px; font-weight:600;
+ background:{% if p == page %}var(--primary){% else %}rgba(255,255,255,0.04){% endif %};
+ color:{% if p == page %}white{% else %}var(--text-secondary){% endif %};
+ border:1px solid {% if p == page %}var(--primary){% else %}var(--glass-border){% endif %};">
+ {{ p }}
+ </a>
+ {% endif %}
+ {% endfor %}
 
-                    <a href="?page={{ page+1 }}{% if exam_filter_param %}&exam_id={{ exam_filter_param }}{% endif %}"
-                       class="btn-sm btn-toggle {% if page >= total_pages %}disabled{% endif %}"
-                       style="{% if page >= total_pages %}opacity:0.4; pointer-events:none;{% endif %} padding:6px 14px; text-decoration:none;">Berikutnya ▶</a>
-                </div>
-            </div>
-            {% endif %}
-            {% endif %}
-        </section>
-    </main>
+ <a href="?page={{ page+1 }}{% if exam_filter_param %}&exam_id={{ exam_filter_param }}{% endif %}"
+ class="btn-sm btn-toggle {% if page >= total_pages %}disabled{% endif %}"
+ style="{% if page >= total_pages %}opacity:0.4; pointer-events:none;{% endif %} padding:6px 14px; text-decoration:none;">Berikutnya ▶</a>
+ </div>
+ </div>
+ {% endif %}
+ {% endif %}
+ </section>
+ </main>
 
-    <!-- Detail Submission Modal -->
-    <div class="modal-overlay" id="detailModal">
-        <div class="modal-card" style="max-width: 700px;">
-            <div class="modal-header">
-                <h3>📋 Detail Jawaban Siswa</h3>
-                <button class="modal-close" onclick="closeDetailModal()">✕</button>
-            </div>
-            <div class="modal-body">
-                <div style="display: flex; justify-content: space-between; flex-wrap: wrap; gap: 8px; margin-bottom: 12px;">
-                    <div>
-                        <strong id="detailStudentName" style="font-size: 16px;">—</strong>
-                        <span id="detailStudentClass" style="color: var(--text-muted); margin-left: 8px;"></span>
-                    </div>
-                </div>
-                <p style="margin-bottom:6px; font-size:12px; color:var(--text-secondary);">
-                    ⏱️ Mulai: <span id="detailStartTime">—</span> | 📤 Kumpul: <span id="detailSubmitTime">—</span>
-                </p>
-                <p style="margin-bottom:12px; font-size:12px; color:var(--text-secondary);">
-                    📱 Perangkat: <code id="detailMacAddress" style="font-size:11px;">—</code>
-                </p>
-                <div id="detailAnswersContainer" class="detail-answers-grid"></div>
-            </div>
-            <div class="modal-footer">
-                <button class="btn-sm btn-delete inline-flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-medium bg-red-500/10 text-red-300 border border-red-500/25 hover:bg-red-500/20 transition-all duration-200" onclick="closeDetailModal()">Tutup</button>
-            </div>
-        </div>
-    </div>
+ <!-- Detail Submission Modal -->
+ <div class="modal-overlay" id="detailModal">
+ <div class="modal-card" style="max-width: 700px;">
+ <div class="modal-header">
+ <h3>📋 Detail Jawaban Siswa</h3>
+ <button class="modal-close" onclick="closeDetailModal()">✕</button>
+ </div>
+ <div class="modal-body">
+ <div style="display: flex; justify-content: space-between; flex-wrap: wrap; gap: 8px; margin-bottom: 12px;">
+ <div>
+ <strong id="detailStudentName" style="font-size: 16px;">—</strong>
+ <span id="detailStudentClass" style="color: var(--text-muted); margin-left: 8px;"></span>
+ </div>
+ </div>
+ <p style="margin-bottom:6px; font-size:12px; color:var(--text-secondary);">
+ ⏱️ Mulai: <span id="detailStartTime">—</span> | 📤 Kumpul: <span id="detailSubmitTime">—</span>
+ </p>
+ <p style="margin-bottom:12px; font-size:12px; color:var(--text-secondary);">
+ 📱 Perangkat: <code id="detailMacAddress" style="font-size:11px;">—</code>
+ </p>
+ <div id="detailAnswersContainer" class="detail-answers-grid"></div>
+ </div>
+ <div class="modal-footer">
+ <button class="btn-sm btn-delete " onclick="closeDetailModal()">Tutup</button>
+ </div>
+ </div>
+ </div>
 
 {% endblock %}

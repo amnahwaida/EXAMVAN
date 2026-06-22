@@ -13,6 +13,29 @@ body {
     color: #f8fafc;
 }
 
+@layer components {
+    .glass-card {
+        @apply p-6 rounded-2xl border border-[rgba(255,255,255,0.06)] bg-[rgba(13,13,30,0.5)] backdrop-blur-2xl shadow-2xl;
+    }
+    .btn-upload {
+        @apply inline-flex items-center justify-center gap-2 px-7 py-3 rounded-xl text-sm font-semibold text-white;
+        background: linear-gradient(135deg, #6366f1, #8b5cf6);
+    }
+    .btn-upload:hover {
+        box-shadow: 0 6px 20px rgba(99, 102, 241, 0.35);
+        transform: translateY(-1px);
+    }
+    .btn-upload:active {
+        transform: scale(0.97);
+    }
+    .exam-table td {
+        @apply p-3.5 border-b border-white/5 align-middle;
+    }
+    .table-header {
+        @apply flex items-center justify-between mb-4 flex-wrap gap-3;
+    }
+}
+
 @theme {
     --color-primary: #6366f1;
     --color-primary-dark: #4f46e5;
