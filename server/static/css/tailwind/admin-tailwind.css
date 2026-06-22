@@ -262,25 +262,43 @@ body {
 .exam-action-dropdown { @apply relative inline-block; }
 .exam-action-dropdown-content {
     @apply absolute right-0 top-full mt-1.5 z-[9999] min-w-[200px] rounded-lg
-           border border-[var(--glass-border)] bg-[#0c0a1a] shadow-2xl py-1 hidden;
+           border border-[rgba(255,255,255,0.08)] shadow-2xl py-1 hidden;
+    background: #0c0a1a;
+    color: #cbd5e1;
 }
 .exam-action-dropdown-content.show { @apply block; }
 .exam-action-dropdown-content a,
 .exam-action-dropdown-content button {
-    @apply flex items-center gap-2.5 w-full px-4 py-2.5 text-sm text-[var(--text-secondary)]
-           no-underline bg-none border-none cursor-pointer text-left transition-colors;
+    @apply flex items-center gap-2.5 w-full px-4 py-2.5 text-sm no-underline
+           bg-transparent border-none cursor-pointer text-left transition-colors;
+    color: #cbd5e1;
 }
 .exam-action-dropdown-content a:hover,
 .exam-action-dropdown-content button:hover {
-    @apply bg-[rgba(99,102,241,0.1)] text-white;
+    @apply bg-[rgba(99,102,241,0.1)];
+    color: #ffffff;
 }
-.dropdown-divider { @apply h-px bg-[var(--glass-border)] my-1; }
+.dropdown-divider {
+    height: 1px;
+    background: rgba(255, 255, 255, 0.08);
+    margin: 4px 0;
+}
 .dropdown-header { @apply px-4 py-2; }
-.dropdown-user-title { @apply text-sm font-bold text-white; }
-.dropdown-user-role { @apply text-xs text-[var(--text-muted)]; }
-.dropdown-item { @apply flex items-center gap-2.5 w-full px-4 py-2.5 text-sm text-[var(--text-secondary)] no-underline bg-transparent border-none cursor-pointer text-left transition-colors; }
-.dropdown-item:hover { @apply bg-[rgba(99,102,241,0.1)] text-white; }
-.dropdown-logout:hover { @apply bg-[rgba(239,68,68,0.1)] text-[#fca5a5]; }
+.dropdown-user-title { @apply text-sm font-bold; color: #ffffff; }
+.dropdown-user-role { @apply text-xs; color: #64748b; }
+.dropdown-item {
+    @apply flex items-center gap-2.5 w-full px-4 py-2.5 text-sm no-underline
+           bg-transparent border-none cursor-pointer text-left transition-colors;
+    color: #cbd5e1;
+}
+.dropdown-item:hover {
+    background: rgba(99, 102, 241, 0.1);
+    color: #ffffff;
+}
+.dropdown-logout:hover {
+    background: rgba(239, 68, 68, 0.1);
+    color: #fca5a5;
+}
 
 /* === Modals === */
 .modal-overlay {
