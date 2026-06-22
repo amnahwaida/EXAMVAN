@@ -763,7 +763,13 @@ function loadUsersList() {
     tbody.innerHTML = '<tr><td colspan="3" style="text-align:center; padding: 20px; color: var(--text-secondary);">Memuat...</td></tr>';
 
     apiFetch('/admin/api/users')
-        .then(r => r.json())
+        .then(r => {
+            if (!r.ok) {
+                console.error('API response not OK:', r.status, r.statusText);
+                throw new Error(`HTTP ${r.status}`);
+            }
+            return r.json();
+        })
         .then(res => {
             if (res.success) {
                 if (res.users.length === 0) {
@@ -796,7 +802,9 @@ function loadUsersList() {
                 tbody.innerHTML = '<tr><td colspan="3" style="text-align:center; padding: 20px; color: #fca5a5;">Gagal memuat daftar user</td></tr>';
             }
         })
-        .catch(() => {
+        .catch((err) => {
+            console.error('loadUsersList error:', err);
+            console.error('Response:', err.response);
             tbody.innerHTML = '<tr><td colspan="3" style="text-align:center; padding: 20px; color: #fca5a5;">Gagal memuat daftar user</td></tr>';
         });
 }
