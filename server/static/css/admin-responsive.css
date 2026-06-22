@@ -146,8 +146,8 @@
     #submissionsTable td {
         display: flex;
         align-items: center;
-        gap: 8px;
-        padding: 5px 0;
+        gap: 6px;
+        padding: 4px 0;
         border-bottom: none;
         font-size: 14px;
         width: 100%;
@@ -159,7 +159,7 @@
         font-weight: 600;
         color: var(--text-muted);
         flex-shrink: 0;
-        min-width: 70px;
+        min-width: 0;
     }
     #submissionsTable td .score-bar-track {
         display: none !important;
