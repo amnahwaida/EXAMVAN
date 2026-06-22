@@ -482,7 +482,37 @@ body {
     z-index: 2;
 }
 
-/* === Login Form === */
+/* === Login Page === */
+.login-bg {
+    @apply fixed inset-0 z-0 overflow-hidden pointer-events-none;
+}
+.login-orb {
+    @apply absolute rounded-full opacity-40;
+    filter: blur(80px);
+}
+.login-orb-1 {
+    width: 400px; height: 400px;
+    background: var(--primary);
+    top: -100px; left: -100px;
+}
+.login-orb-2 {
+    width: 300px; height: 300px;
+    background: #8b5cf6;
+    bottom: -80px; right: -80px;
+    animation: orbFloat 8s ease-in-out infinite;
+    animation-delay: -4s;
+}
+.login-page {
+    @apply min-h-screen flex items-center justify-center overflow-hidden relative;
+    background: radial-gradient(circle at 50% 0%, #17152f, #0c0a1a 50%, #06050b);
+}
+.login-container { @apply relative z-10 w-full max-w-md px-5; }
+.login-card {
+    @apply rounded-2xl p-8 md:p-10 shadow-2xl;
+    background: rgba(15, 15, 30, 0.45);
+    backdrop-filter: blur(24px);
+    border: 1px solid rgba(255, 255, 255, 0.06);
+}
 .login-form .form-group { @apply mb-5; }
 
 /* === Login Button === */
