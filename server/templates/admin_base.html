@@ -20,7 +20,6 @@
             <span class="topbar-badge">Admin Panel</span>
             <div class="topbar-nav">
                 <a href="{{ url_for('admin_dashboard') }}" class="nav-link {% if active_page == 'dashboard' %}active{% endif %}">Daftar Ujian</a>
-                <a href="{{ url_for('admin_create_exam_page') }}" class="nav-link {% if active_page == 'create_exam' %}active{% endif %}">Buat Ujian</a>
                 <a href="{{ url_for('admin_submissions') }}" class="nav-link {% if active_page == 'submissions' %}active{% endif %}">Hasil Ujian</a>
                 {% if admin_user == 'admin' %}
                 <a href="{{ url_for('admin_manage_users_page') }}" class="nav-link {% if active_page == 'users' %}active{% endif %}">Kelola User</a>
@@ -45,9 +44,6 @@
                     <div class="mobile-nav-links">
                         <a href="{{ url_for('admin_dashboard') }}" class="dropdown-item {% if active_page == 'dashboard' %}active-dropdown-item{% endif %}">
                             <span>📋</span> Daftar Ujian
-                        </a>
-                        <a href="{{ url_for('admin_create_exam_page') }}" class="dropdown-item {% if active_page == 'create_exam' %}active-dropdown-item{% endif %}">
-                            <span>✍️</span> Buat Ujian
                         </a>
                         <a href="{{ url_for('admin_submissions') }}" class="dropdown-item {% if active_page == 'submissions' %}active-dropdown-item{% endif %}">
                             <span>📊</span> Hasil Ujian
