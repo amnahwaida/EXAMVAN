@@ -159,15 +159,21 @@
         font-weight: 600;
         color: var(--text-muted);
         flex-shrink: 0;
-        min-width: 70px;
+        min-width: 68px;
     }
-    /* Nilai khusus: flex-wrap biar bisa wrapping */
+    /* Nilai: compact */
     #submissionsTable td[data-label="Nilai"] {
-        flex-wrap: wrap;
+        gap: 4px;
     }
     /* Aksi: rata kiri */
     #submissionsTable td[data-label="Aksi"] {
         gap: 4px;
+    }
+    /* Perangkat: jangan dipotong */
+    #submissionsTable td[data-label="Perangkat"] {
+        overflow: visible;
+        text-overflow: clip;
+        max-width: none;
     }
 
     /* --- Submissions Filter/Export --- */
