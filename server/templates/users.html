@@ -19,12 +19,12 @@
                             </label>
                         </div>
                         
-                        <div class="form-group" id="waTokenGroup">
+                        <div class="form-group space-y-1" id="waTokenGroup">
                             <label for="waTokenInput">Fonnte API Token</label>
                             <input type="password" id="waTokenInput" placeholder="Masukkan token API Fonnte">
                         </div>
 
-                        <div class="form-group" id="waTemplateGroup">
+                        <div class="form-group space-y-1" id="waTemplateGroup">
                             <label for="waTemplateInput">Template Pesan OTP</label>
                             <textarea id="waTemplateInput" rows="2" style="resize: none;" placeholder="Gunakan tag {otp} untuk kode OTP"></textarea>
                         </div>
@@ -35,27 +35,27 @@
                             </h4>
                         </div>
 
-                        <div class="form-row-3col">
-                            <div class="form-group">
+                        <div class="form-row-3col grid grid-cols-1 sm:grid-cols-3 gap-4">
+                            <div class="form-group space-y-1">
                                 <label for="defaultExamsInput">Default Ujian</label>
                                 <input type="number" id="defaultExamsInput" required min="1">
                             </div>
-                            <div class="form-group">
+                            <div class="form-group space-y-1">
                                 <label for="defaultPdfInput">Default PDF (MB)</label>
                                 <input type="number" id="defaultPdfInput" required min="0.1" step="0.1">
                             </div>
-                            <div class="form-group">
+                            <div class="form-group space-y-1">
                                 <label for="defaultActiveDaysInput">Default Masa Aktif (Hari)</label>
                                 <input type="number" id="defaultActiveDaysInput" required min="1">
                             </div>
                         </div>
 
-                        <div class="form-row-2col">
-                            <div class="form-group">
+                        <div class="form-row-2col grid grid-cols-1 sm:grid-cols-2 gap-4">
+                            <div class="form-group space-y-1">
                                 <label for="defaultDraftsInput">Default Maks Draf</label>
                                 <input type="number" id="defaultDraftsInput" required min="1" value="2">
                             </div>
-                            <div class="form-group">
+                            <div class="form-group space-y-1">
                                 <label for="defaultDraftSizeInput">Default Ukuran Draf (MB)</label>
                                 <input type="number" id="defaultDraftSizeInput" required min="0.1" step="0.1" value="1.0">
                             </div>
@@ -67,12 +67,12 @@
                             </h4>
                         </div>
 
-                        <div class="form-row-2col">
-                            <div class="form-group">
+                        <div class="form-row-2col grid grid-cols-1 sm:grid-cols-2 gap-4">
+                            <div class="form-group space-y-1">
                                 <label for="androidVersionInput">Versi Android App (vX.Y.Z)</label>
                                 <input type="text" id="androidVersionInput" required placeholder="Contoh: 2.0.0">
                             </div>
-                            <div class="form-group">
+                            <div class="form-group space-y-1">
                                 <label for="webappVersionInput">Versi WebApp Server (vX.Y.Z)</label>
                                 <input type="text" id="webappVersionInput" required placeholder="Contoh: 2.0.0">
                             </div>
@@ -90,41 +90,41 @@
                         <span>➕</span> Tambah User Manual
                     </h3>
                     <form id="newUserForm" onsubmit="createUser(event)" style="display: flex; flex-direction: column; gap: 12px;">
-                        <div class="form-group">
+                        <div class="form-group space-y-1">
                             <label for="usernameInput">Username</label>
                             <input type="text" id="usernameInput" required placeholder="Contoh: pak_budi" minlength="3">
                         </div>
-                        <div class="form-group">
+                        <div class="form-group space-y-1">
                             <label for="passwordInput">Password</label>
                             <input type="password" id="passwordInput" required placeholder="Password awal" minlength="4">
                         </div>
-                        <div class="form-group">
+                        <div class="form-group space-y-1">
                             <label for="whatsappInput">WhatsApp Number</label>
                             <input type="text" id="whatsappInput" placeholder="Contoh: 081234567890">
                         </div>
-                        <div class="form-row-2col">
-                            <div class="form-group">
+                        <div class="form-row-2col grid grid-cols-1 sm:grid-cols-2 gap-4">
+                            <div class="form-group space-y-1">
                                 <label for="limitInput">Limit Ujian</label>
                                 <input type="number" id="limitInput" required value="1" min="1">
                             </div>
-                            <div class="form-group">
+                            <div class="form-group space-y-1">
                                 <label for="pdfSizeInput">Limit PDF (MB)</label>
                                 <input type="number" id="pdfSizeInput" required value="0.5" min="0.1" step="0.1">
                             </div>
                         </div>
-                        <div class="form-row-2col">
-                            <div class="form-group">
+                        <div class="form-row-2col grid grid-cols-1 sm:grid-cols-2 gap-4">
+                            <div class="form-group space-y-1">
                                 <label for="draftLimitInput">Limit Draft</label>
                                 <input type="number" id="draftLimitInput" required value="2" min="1">
                             </div>
-                            <div class="form-group">
+                            <div class="form-group space-y-1">
                                 <label for="draftSizeInput">Limit Ukuran Draft (MB)</label>
                                 <input type="number" id="draftSizeInput" required value="1.0" min="0.1" step="0.1">
                             </div>
                         </div>
-                        <div class="form-group">
+                        <div class="form-group space-y-1">
                             <label>Masa Aktif Akun <span style="font-size: 11px; opacity: 0.7;">(Kosongkan untuk default dari SaaS)</span></label>
-                            <div class="datetime-row">
+                            <div class="datetime-row flex gap-2">
                                 <input type="date" id="newUserExpiry">
                                 <input type="time" id="newUserExpiryTime" value="23:59">
                             </div>

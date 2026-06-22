@@ -75,29 +75,29 @@
             <!-- PDF Upload Form -->
             <div id="methodPdfForm">
                 <form id="uploadForm" class="upload-form" enctype="multipart/form-data">
-                    <div class="form-row">
-                        <div class="form-group flex-1">
-                            <label for="examName">Nama Ujian</label>
+                    <div class="form-row flex gap-4 flex-wrap">
+                        <div class="form-group flex-1 space-y-1">
+                            <label class="block text-xs font-semibold uppercase tracking-wider text-slate-400 mb-1.5" for="examName">Nama Ujian</label>
                             <input type="text" id="examName" name="name" placeholder="Contoh: UTS Matematika Kelas 10" required>
                         </div>
-                        <div class="form-group flex-1">
-                            <label for="pdfFile">File PDF (max {{ max_size_mb }}MB)</label>
-                            <div class="file-input-wrapper">
+                        <div class="form-group flex-1 space-y-1">
+                            <label class="block text-xs font-semibold uppercase tracking-wider text-slate-400 mb-1.5" for="pdfFile">File PDF (max {{ max_size_mb }}MB)</label>
+                            <div class="file-input-wrapper relative">
                                 <input type="file" id="pdfFile" name="pdf_file" accept="application/pdf" required>
-                                <div class="file-input-display" id="fileDisplay">
+                                <div class="file-input-display flex items-center gap-3 px-4 py-3 rounded-lg border border-dashed border-slate-700/60 bg-slate-900/30 cursor-pointer hover:border-indigo-500/40 transition-colors" id="fileDisplay">
                                     <span class="file-icon">📄</span>
                                     <span class="file-text">Pilih file PDF...</span>
                                 </div>
                             </div>
                         </div>
-                        <div class="form-group" style="flex: 0 0 220px;">
-                            <label for="customToken">Token Kustom <span style="font-size:11px; opacity:0.7;">(Opsional, 6 Kar)</span></label>
+                        <div class="form-group flex-[0_0_220px] space-y-1">
+                            <label class="block text-xs font-semibold uppercase tracking-wider text-slate-400 mb-1.5" for="customToken">Token Kustom <span style="font-size:11px; opacity:0.7;">(Opsional, 6 Kar)</span></label>
                             <input type="text" id="customToken" name="custom_token" maxlength="6" minlength="6" placeholder="Contoh: MAT101" style="text-transform: uppercase;">
                         </div>
                     </div>
                     <div class="upload-progress flex items-center gap-3 my-4" id="uploadProgress" style="display:none;">
-                        <div class="progress-bar"><div class="progress-fill" id="progressFill"></div></div>
-                        <span class="progress-text" id="progressText">0%</span>
+                        <div class="progress-bar flex-1 h-2 rounded-full bg-slate-800 overflow-hidden"><div class="progress-fill h-full rounded-full bg-gradient-to-r from-indigo-500 to-purple-500 transition-all duration-300" id="progressFill"></div></div>
+                        <span class="progress-text text-xs font-semibold text-slate-400 min-w-[3ch] text-right" id="progressText">0%</span>
                     </div>
                     <button type="submit" class="btn-upload inline-flex items-center justify-center gap-2 px-7 py-3 rounded-xl text-sm font-semibold text-white bg-gradient-to-r from-indigo-500 to-purple-600 hover:shadow-lg hover:shadow-indigo-500/25 transition-all duration-200 active:scale-[0.97]" id="btnUpload">
                         <span>Upload Ujian</span>
@@ -283,7 +283,7 @@
                 </div>
                 <div class="questions-toolbar">
                     <div class="inline-group">
-                        <label for="generateQty">Jumlah:</label>
+                        <label class="block text-xs font-semibold uppercase tracking-wider text-slate-400 mb-1.5" for="generateQty">Jumlah:</label>
                         <input type="number" id="generateQty" value="40" min="0" max="100">
                         <select id="generateType">
                             <option value="single_choice">Pilihan Ganda</option>
