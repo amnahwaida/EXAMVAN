@@ -148,7 +148,9 @@
         padding: 4px 0;
         border-bottom: none;
         font-size: 14px;
-        display: flex;
+    }
+    #submissionsTable tbody tr td {
+        display: flex !important;
         align-items: center;
         gap: 6px;
     }
@@ -158,9 +160,8 @@
         font-weight: 600;
         color: var(--text-muted);
         flex-shrink: 0;
-        min-width: 70px;
+        min-width: 80px;
     }
-    /* Nilai cell keeps its column layout */
     #submissionsTable td[data-label="Nilai"] {
         flex-wrap: wrap;
     }
