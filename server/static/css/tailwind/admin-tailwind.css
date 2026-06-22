@@ -482,6 +482,17 @@ body {
     z-index: 2;
 }
 
+/* === Login Button === */
+.btn-login {
+    @apply w-full py-3.5 px-6 rounded-xl text-white font-semibold text-sm cursor-pointer transition-all duration-200;
+    background: linear-gradient(135deg, #6366f1, #8b5cf6);
+    box-shadow: 0 4px 20px rgba(99, 102, 241, 0.35);
+}
+.btn-login:hover {
+    transform: translateY(-1px);
+    box-shadow: 0 8px 24px rgba(99, 102, 241, 0.5);
+}
+
 /* === Utilities === */
 .flex-1 { flex: 1; }
 
