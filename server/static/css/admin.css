@@ -992,16 +992,21 @@ body {
     .question-editor-card {
         flex-direction: column;
         align-items: stretch;
-        gap: 10px;
-        padding: 12px;
+        gap: 8px;
+        padding: 14px;
     }
     .question-editor-card .q-num-badge { align-self: flex-start; }
+    .q-card-body {
+        flex-direction: column;
+        gap: 8px;
+    }
     .q-field-group { width: 100%; }
-    .q-key-input { width: 100% !important; }
-    .q-options-input { width: 100% !important; }
-    .q-weight-input { width: 100% !important; }
-    .q-type-select { width: 100% !important; min-width: 0 !important; }
-    .btn-remove-q { margin-left: 0; width: 100%; justify-content: center; text-align: center; }
+    .q-key-input,
+    .q-options-input,
+    .q-weight-input,
+    .q-type-select { width: 100% !important; max-width: none !important; min-width: 0 !important; }
+    .q-partial-group { flex-direction: row !important; }
+    .btn-remove-q { align-self: stretch; width: 100%; justify-content: center; padding: 10px; }
 
     /* --- Questions Toolbar --- */
     .questions-toolbar {
@@ -1147,8 +1152,8 @@ body {
 
 .modal-card {
     width: 100%;
-    max-width: 800px;
-    max-height: 85vh;
+    max-width: 860px;
+    max-height: 90vh;
     display: flex;
     flex-direction: column;
     animation: fadeUp 0.3s ease;
@@ -1264,64 +1269,82 @@ body {
     background: rgba(255, 255, 255, 0.02);
     border: 1px solid rgba(255, 255, 255, 0.06);
     border-radius: var(--radius-sm);
-    padding: 14px 18px;
+    padding: 16px 20px;
     display: flex;
-    align-items: center;
-    gap: 16px;
+    align-items: flex-start;
+    gap: 12px;
     flex-wrap: wrap;
-    transition: border-color 0.2s;
+    transition: border-color 0.2s, background 0.2s;
 }
 
 .question-editor-card:hover {
     border-color: rgba(99, 102, 241, 0.3);
+    background: rgba(255, 255, 255, 0.035);
 }
 
 .q-num-badge {
     background: var(--primary);
     color: white;
     font-weight: 700;
-    padding: 4px 10px;
-    border-radius: 6px;
+    padding: 6px 12px;
+    border-radius: 8px;
     font-size: 13px;
-    min-width: 40px;
+    min-width: 44px;
     text-align: center;
+    flex-shrink: 0;
+}
+
+.q-card-body {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: flex-start;
+    gap: 10px 16px;
+    flex: 1;
+    min-width: 200px;
 }
 
 .q-field-group {
     display: flex;
     flex-direction: column;
     gap: 4px;
+    min-width: 0;
 }
 
 .q-field-group label {
-    font-size: 11px;
+    font-size: 10.5px;
     color: var(--text-muted);
     text-transform: uppercase;
+    letter-spacing: 0.3px;
+    font-weight: 600;
 }
 
-.q-key-input, .q-options-input {
-    padding: 7px 10px;
-    background: var(--surface);
-    border: 1px solid var(--glass-border);
-    border-radius: 6px;
+.q-field-group input,
+.q-field-group select {
+    padding: 8px 12px;
+    background: rgba(255, 255, 255, 0.04);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    border-radius: 8px;
     color: var(--text);
-    font-size: 13px;
+    font-size: 13.5px;
     outline: none;
+    transition: border-color 0.2s, background 0.2s;
 }
 
-/* Premium styling for Question Type Dropdowns */
-.q-type-select, .inline-group select {
-    background-color: rgba(255, 255, 255, 0.05) !important;
-    border: 1px solid var(--glass-border) !important;
-    border-radius: 6px !important;
-    color: var(--text) !important;
-    font-family: inherit;
-    font-size: 13px;
-    padding: 7px 12px !important;
-    min-width: 180px;
-    transition: all 0.2s ease;
-    outline: none;
-    cursor: pointer;
+.q-field-group input:focus,
+.q-field-group select:focus {
+    border-color: var(--primary) !important;
+    background: rgba(99, 102, 241, 0.06);
+    box-shadow: 0 0 0 3px var(--primary-glow);
+}
+
+.q-field-group input:hover,
+.q-field-group select:hover {
+    border-color: rgba(255, 255, 255, 0.15);
+}
+
+/* Question type dropdown */
+.q-type-select {
+    min-width: 170px;
     -webkit-appearance: none;
     -moz-appearance: none;
     appearance: none;
@@ -1330,53 +1353,66 @@ body {
     background-position: right 10px center !important;
     background-size: 14px !important;
     padding-right: 32px !important;
+    cursor: pointer;
 }
 
-.q-type-select:hover, .inline-group select:hover {
-    background-color: rgba(255, 255, 255, 0.08) !important;
-    border-color: rgba(255, 255, 255, 0.2) !important;
-}
-
-.q-type-select:focus, .inline-group select:focus {
-    border-color: var(--primary) !important;
-    box-shadow: 0 0 0 2px var(--primary-glow) !important;
-}
-
-.q-type-select option, .inline-group select option {
+.q-type-select option {
     background-color: #0c0a1a !important;
     color: var(--text) !important;
-    padding: 10px !important;
 }
 
-.q-key-input {
-    width: 100px;
-    font-weight: 700;
-    text-transform: uppercase;
-}
-
-.q-options-input {
-    width: 280px;
-}
-
+/* Weight input */
 .q-weight-input {
-    padding: 7px 10px;
-    background: var(--surface);
-    border: 1px solid var(--glass-border);
-    border-radius: 6px;
-    color: var(--text);
-    font-size: 13px;
-    outline: none;
     width: 70px;
     font-weight: 700;
     text-align: center;
 }
 
+/* Key & Options inputs */
+.q-key-input {
+    width: 120px;
+    font-weight: 700;
+    text-transform: uppercase;
+}
+
+.q-options-input {
+    min-width: 200px;
+    max-width: 300px;
+}
+
+/* Partial checkbox wrapper */
+.q-partial-group {
+    flex-direction: row;
+    align-items: center;
+    gap: 6px;
+    padding-top: 4px;
+}
+
+.q-partial-group label {
+    text-transform: none;
+    font-size: 12px;
+    color: #a5b4fc;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+}
+
+.q-partial-group input[type="checkbox"] {
+    width: 16px;
+    height: 16px;
+    accent-color: var(--primary);
+    cursor: pointer;
+}
+
+/* Remove button */
 .btn-remove-q {
     background: rgba(239, 68, 68, 0.08);
     color: #fca5a5;
     font-size: 12px;
     cursor: pointer;
-    margin-left: auto;
+    align-self: flex-start;
+    flex-shrink: 0;
     transition: all 0.2s ease-in-out;
     white-space: nowrap;
 }

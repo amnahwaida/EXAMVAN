@@ -300,34 +300,36 @@ function createNewQuestionCard(q, num) {
     card.innerHTML = `
         <span class="q-num-badge">No. ${num}</span>
         <input type="hidden" class="q-number" value="${num}">
-        <div class="q-field-group">
-            <label>Tipe</label>
-            <select class="q-type-select" onchange="onQuestionTypeChange(this)">
-                <option value="single_choice" ${type === 'single_choice' ? 'selected' : ''}>Pilihan Ganda (Single)</option>
-                <option value="multiple_choice" ${type === 'multiple_choice' ? 'selected' : ''}>Pilihan Ganda Kompleks</option>
-                <option value="true_false" ${type === 'true_false' ? 'selected' : ''}>Benar / Salah</option>
-                <option value="matching" ${type === 'matching' ? 'selected' : ''}>Menjodohkan (Matching)</option>
-                <option value="short_answer" ${type === 'short_answer' ? 'selected' : ''}>Isian Singkat</option>
-            </select>
+        <div class="q-card-body">
+            <div class="q-field-group">
+                <label>Tipe</label>
+                <select class="q-type-select" onchange="onQuestionTypeChange(this)">
+                    <option value="single_choice" ${type === 'single_choice' ? 'selected' : ''}>Pilihan Ganda</option>
+                    <option value="multiple_choice" ${type === 'multiple_choice' ? 'selected' : ''}>PG Kompleks</option>
+                    <option value="true_false" ${type === 'true_false' ? 'selected' : ''}>Benar / Salah</option>
+                    <option value="matching" ${type === 'matching' ? 'selected' : ''}>Menjodohkan</option>
+                    <option value="short_answer" ${type === 'short_answer' ? 'selected' : ''}>Isian Singkat</option>
+                </select>
+            </div>
+            <div class="q-field-group">
+                <label>Bobot</label>
+                <input type="number" class="q-weight-input" value="${weight}" step="0.5" min="0" placeholder="1.0">
+            </div>
+            <div class="q-field-group q-partial-group" style="display: ${partialVisibility};">
+                <label>
+                    <input type="checkbox" class="q-partial-checkbox" ${partial}> Parsial
+                </label>
+            </div>
+            <div class="q-field-group">
+                <label>Kunci Jawaban</label>
+                <input type="text" class="q-key-input" value="${keyVal}" placeholder="Jawaban..." title="PG: A,B,C | Menjodohkan: 1:A,2:B">
+            </div>
+            <div class="q-field-group q-options-group" style="display: ${optionsVisibility};">
+                <label>Pilihan</label>
+                <input type="text" class="q-options-input" value="${optionsVal}" placeholder="A, B, C, D, E">
+            </div>
         </div>
-        <div class="q-field-group">
-            <label>Bobot</label>
-            <input type="number" class="q-weight-input" value="${weight}" step="0.5" min="0" placeholder="1.0">
-        </div>
-        <div class="q-field-group q-partial-group" style="display: ${partialVisibility}; align-self: center; margin-top: 14px;">
-            <label style="display: flex; align-items: center; gap: 6px; cursor: pointer; text-transform: none; font-size: 12px; font-weight: 600; color: #a5b4fc;">
-                <input type="checkbox" class="q-partial-checkbox" ${partial}> Parsial
-            </label>
-        </div>
-        <div class="q-field-group">
-            <label>Kunci Jawaban</label>
-            <input type="text" class="q-key-input" value="${keyVal}" placeholder="Jawaban..." title="Pilihan Kompleks (koma), Menjodohkan (K:V), Isian Singkat">
-        </div>
-        <div class="q-field-group q-options-group" style="display: ${optionsVisibility};">
-            <label>Pilihan / Konfigurasi Item</label>
-            <input type="text" class="q-options-input" value="${optionsVal}" placeholder="Pilihan dipisahkan koma">
-        </div>
-        <button class="btn-sm btn-delete btn-remove-q" onclick="removeQuestionCard(this)" title="Hapus Soal" style="margin-left: auto; border: 1px solid rgba(239, 68, 68, 0.3);">🗑️ Hapus Soal</button>
+        <button class="btn-sm btn-delete btn-remove-q" onclick="removeQuestionCard(this)" title="Hapus Soal">🗑️</button>
     `;
     return card;
 }
