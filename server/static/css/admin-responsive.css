@@ -152,6 +152,13 @@
         padding: 4px 0;
         border-bottom: none;
         width: 100%;
+        color: var(--text);
+    }
+    #submissionsTable td strong {
+        color: var(--text);
+    }
+    #submissionsTable td code {
+        color: var(--text-secondary);
     }
     #submissionsTable td::before {
         content: attr(data-label);
