@@ -493,6 +493,10 @@ body {
     box-shadow: 0 6px 20px var(--primary-glow);
 }
 
+.btn-upload:active {
+    transform: scale(0.97);
+}
+
 .btn-upload:disabled {
     opacity: 0.5;
     cursor: not-allowed;
@@ -638,8 +642,18 @@ body {
     font-size: 12px;
     font-family: inherit;
     cursor: pointer;
-    transition: background 0.2s;
+    transition: all 0.2s ease;
     white-space: nowrap;
+    user-select: none;
+}
+
+.btn-sm:active {
+    transform: scale(0.96);
+}
+
+.btn-sm:focus-visible {
+    outline: 2px solid var(--primary);
+    outline-offset: 2px;
 }
 
 .btn-toggle {
@@ -648,7 +662,15 @@ body {
     border-color: rgba(99,102,241,0.25);
 }
 
-.btn-toggle:hover { background: rgba(99,102,241,0.2); }
+.btn-toggle:hover {
+    background: rgba(99,102,241,0.2);
+    border-color: rgba(99,102,241,0.4);
+}
+
+.btn-toggle:active {
+    background: rgba(99,102,241,0.3);
+    border-color: rgba(99,102,241,0.5);
+}
 
 .btn-delete {
     background: rgba(239,68,68,0.1);
@@ -656,7 +678,15 @@ body {
     border-color: rgba(239,68,68,0.25);
 }
 
-.btn-delete:hover { background: rgba(239,68,68,0.2); }
+.btn-delete:hover {
+    background: rgba(239,68,68,0.2);
+    border-color: rgba(239,68,68,0.4);
+}
+
+.btn-delete:active {
+    background: rgba(239,68,68,0.3);
+    border-color: rgba(239,68,68,0.5);
+}
 
 .btn-questions {
     background: rgba(139,92,246,0.1);
@@ -664,7 +694,15 @@ body {
     border-color: rgba(139,92,246,0.25);
 }
 
-.btn-questions:hover { background: rgba(139,92,246,0.2); }
+.btn-questions:hover {
+    background: rgba(139,92,246,0.2);
+    border-color: rgba(139,92,246,0.4);
+}
+
+.btn-questions:active {
+    background: rgba(139,92,246,0.3);
+    border-color: rgba(139,92,246,0.5);
+}
 
 /* Question editor toolbar */
 .questions-toolbar {
@@ -770,7 +808,13 @@ body {
 }
 
 .btn-weight:active {
-    transform: translateY(0);
+    transform: scale(0.96);
+    background: rgba(139,92,246,0.35);
+}
+
+.btn-weight:focus-visible {
+    outline: 2px solid var(--primary);
+    outline-offset: 2px;
 }
 
 .btn-results {
