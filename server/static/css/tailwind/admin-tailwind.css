@@ -624,7 +624,10 @@ body {
     .table-header h3 { font-size: 15px; }
 
     /* Upload / Form */
-    .upload-form .form-row { flex-direction: column; gap: 12px; }
+    .upload-form .form-row { flex-direction: column; gap: 10px; }
+    .form-group[style*="flex: 0 0 220px"] { flex: 1 1 100% !important; }
+    .file-input-display { padding: 10px 12px; font-size: 12px; }
+    .upload-progress { flex-direction: column; align-items: stretch; gap: 6px; }
     .method-selector { flex-direction: column !important; gap: 8px !important; }
     .method-selector .btn-sm { width: 100% !important; justify-content: center !important; }
 
