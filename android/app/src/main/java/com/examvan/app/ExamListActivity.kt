@@ -1,12 +1,8 @@
 package com.examvan.app
 
-import android.content.ClipboardManager
-import android.content.Context
 import android.content.Intent
 import android.os.Bundle
 import android.view.View
-import android.view.WindowManager
-import androidx.appcompat.app.AppCompatActivity
 import androidx.recyclerview.widget.LinearLayoutManager
 import com.examvan.app.adapter.ExamAdapter
 import com.examvan.app.api.ApiClient
@@ -18,7 +14,7 @@ import com.examvan.app.databinding.ActivityExamListBinding
  * - Displays in RecyclerView with pull-to-refresh
  * - Tap an exam to open PDF viewer
  */
-class ExamListActivity : AppCompatActivity() {
+class ExamListActivity : BaseSecureActivity() {
 
     private lateinit var binding: ActivityExamListBinding
     private lateinit var adapter: ExamAdapter
@@ -26,25 +22,9 @@ class ExamListActivity : AppCompatActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
-        // FLAG_SECURE
-        window.setFlags(
-            WindowManager.LayoutParams.FLAG_SECURE,
-            WindowManager.LayoutParams.FLAG_SECURE
-        )
-        // Keep screen turned on during the exam
-        window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
-
-        // Clear clipboard for security
-        try {
-            val clipboard = getSystemService(Context.CLIPBOARD_SERVICE) as? ClipboardManager
-            clipboard?.clearPrimaryClip()
-        } catch (_: Throwable) { }
-
         binding = ActivityExamListBinding.inflate(layoutInflater)
         setContentView(binding.root)
-
-        // Prevent overlay/tapjacking attacks
-        binding.root.filterTouchesWhenObscured = true
+        applyTapjackProtection()
 
         // Setup server URL from intent
         val serverUrl = intent.getStringExtra("server_url") ?: ""

@@ -3,7 +3,6 @@ package com.examvan.app
 import android.Manifest
 import android.app.NotificationChannel
 import android.app.NotificationManager
-import android.content.ClipboardManager
 import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
@@ -12,16 +11,16 @@ import android.graphics.Color
 import android.graphics.pdf.PdfRenderer
 import android.os.Build
 import android.os.Bundle
+import android.os.Handler
+import android.os.Looper
 import android.os.ParcelFileDescriptor
 import android.util.Log
 import android.view.KeyEvent
 import android.view.LayoutInflater
 import android.view.View
-import android.view.WindowManager
 import android.widget.*
 import androidx.activity.OnBackPressedCallback
 import androidx.appcompat.app.AlertDialog
-import androidx.appcompat.app.AppCompatActivity
 import androidx.core.app.ActivityCompat
 import androidx.core.app.NotificationCompat
 import androidx.core.content.ContextCompat
@@ -30,15 +29,12 @@ import com.examvan.app.databinding.ActivityExamViewerBinding
 import com.google.gson.Gson
 import com.google.gson.reflect.TypeToken
 import androidx.lifecycle.lifecycleScope
-import androidx.security.crypto.EncryptedSharedPreferences
-import androidx.security.crypto.MasterKey
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import okhttp3.Call
 import java.io.File
-import java.util.UUID
 
 /**
  * Screen 3: Exam PDF Viewer + Digital Answer Sheet
@@ -50,7 +46,7 @@ import java.util.UUID
  * - Submit answers to server with student identity
  * - FLAG_SECURE active to prevent screenshots
  */
-class ExamViewerActivity : AppCompatActivity() {
+class ExamViewerActivity : BaseSecureActivity() {
 
     private lateinit var binding: ActivityExamViewerBinding
 
@@ -63,7 +59,6 @@ class ExamViewerActivity : AppCompatActivity() {
 
     // Exam & student info from Intent
     private var examId = -1
-    private var examToken = ""
     private var examName = ""
     private var studentName = ""
     private var studentNumber = ""
@@ -81,6 +76,7 @@ class ExamViewerActivity : AppCompatActivity() {
     private var securityLevel = "medium"
     private var strictMode = false
     private var isShowingAppDialog = false
+    @Volatile
     private var isSubmitting = false
     private var isPdfReady = false
 
@@ -114,24 +110,7 @@ class ExamViewerActivity : AppCompatActivity() {
         super.onCreate(savedInstanceState)
         onCreateTime = System.currentTimeMillis()
 
-        // FLAG_SECURE: prevent screenshots & screen recording
-        window.setFlags(
-            WindowManager.LayoutParams.FLAG_SECURE,
-            WindowManager.LayoutParams.FLAG_SECURE
-        )
-        // Keep screen turned on during the exam
-        window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
-
-        // Clear clipboard
-        try {
-            val clipboard = getSystemService(Context.CLIPBOARD_SERVICE) as? ClipboardManager
-            clipboard?.clearPrimaryClip()
-        } catch (e: Throwable) {
-            Log.w("ExamViewer", "Failed to clear clipboard", e)
-        }
-
         // Request notification permission for Android 13+ (API 33+)
-        // Without this runtime request, notifications are silently blocked
         if (Build.VERSION.SDK_INT >= 33) {
             if (ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS)
                 != PackageManager.PERMISSION_GRANTED) {
@@ -142,20 +121,19 @@ class ExamViewerActivity : AppCompatActivity() {
         binding = ActivityExamViewerBinding.inflate(layoutInflater)
         setContentView(binding.root)
 
-        // Prevent overlay/tapjacking attacks
-        binding.root.filterTouchesWhenObscured = true
         // Protect answer submission button
         binding.btnSubmitAnswers.filterTouchesWhenObscured = true
 
         // Read intent extras
         examId = intent.getIntExtra("exam_id", -1)
-        examToken = intent.getStringExtra("exam_token") ?: ""
+        // Read exam_token from EncryptedSharedPreferences instead of Intent for security
         examName = intent.getStringExtra("exam_name") ?: getString(R.string.default_exam_name)
         studentName = intent.getStringExtra("student_name") ?: ""
         studentNumber = intent.getStringExtra("student_number") ?: ""
         studentClass = intent.getStringExtra("student_class") ?: ""
         identityData = intent.getStringExtra("identity_data")
-        strictMode = intent.getBooleanExtra("strict_mode", false)
+        // Read strict mode from EncryptedSharedPreferences — not from Intent (prevents ADB manipulation)
+        strictMode = AppPrefs.getExamPrefs(this).getBoolean(AppPrefs.KEY_STRICT_MODE, false)
 
         // In strict mode: enable Android Lock Task (screen pinning) to prevent leaving
         if (strictMode) {
@@ -165,8 +143,8 @@ class ExamViewerActivity : AppCompatActivity() {
         // Record start time in UTC ISO 8601 format
         startTime = java.time.Instant.now().toString()
 
-        // Retrieve MAC address/Device ID
-        macAddress = resolveExamDeviceId()
+        // Retrieve stable device ID
+        macAddress = DeviceIdResolver.resolveDeviceId(this)
 
         binding.tvExamTitle.text = examName
 
@@ -211,7 +189,7 @@ class ExamViewerActivity : AppCompatActivity() {
 
         // Retry button
         binding.btnRetryDownload.setOnClickListener {
-            downloadPdf(examId, examToken)
+            downloadPdf(examId, AppPrefs.getConfigPrefs(this).getString(AppPrefs.KEY_EXAM_TOKEN, "") ?: "")
         }
 
         binding.btnCancel.setOnClickListener {
@@ -259,24 +237,16 @@ class ExamViewerActivity : AppCompatActivity() {
 
         // Start download
         try {
-            downloadPdf(examId, examToken)
+            downloadPdf(examId, AppPrefs.getConfigPrefs(this).getString(AppPrefs.KEY_EXAM_TOKEN, "") ?: "")
         } catch (e: Exception) {
             showError(getString(R.string.download_failed_format, e.message ?: ""))
         }
     }
 
     private fun loadQuestionsFromPrefs() {
-        val prefs = androidx.security.crypto.EncryptedSharedPreferences.create(
-            this,
-            "exam_questions_encrypted",
-            androidx.security.crypto.MasterKey.Builder(this)
-                .setKeyScheme(androidx.security.crypto.MasterKey.KeyScheme.AES256_GCM)
-                .build(),
-            androidx.security.crypto.EncryptedSharedPreferences.PrefKeyEncryptionScheme.AES256_SIV,
-            androidx.security.crypto.EncryptedSharedPreferences.PrefValueEncryptionScheme.AES256_GCM
-        )
-        val json = prefs.getString("questions_json", null)
-        securityLevel = prefs.getString("security_level", "medium") ?: "medium"
+        val prefs = AppPrefs.getExamPrefs(this)
+        val json = prefs.getString(AppPrefs.KEY_QUESTIONS_JSON, null)
+        securityLevel = prefs.getString(AppPrefs.KEY_SECURITY_LEVEL, "medium") ?: "medium"
         updateSecurityBanner()
         if (json != null) {
             try {
@@ -496,7 +466,7 @@ class ExamViewerActivity : AppCompatActivity() {
             spinner.onItemSelectedListener = object : AdapterView.OnItemSelectedListener {
                 override fun onItemSelected(parent: AdapterView<*>?, v: View?, position: Int, id: Long) {
                     // Decrement popup count when selection is made (dropdown closed)
-                    if (activePopupCount > 0) activePopupCount--
+                    activePopupCount = Math.max(0, activePopupCount - 1)
                     if (position > 0) {
                         matchingAnswers[leftItem] = rightItems[position - 1]
                     } else {
@@ -505,7 +475,7 @@ class ExamViewerActivity : AppCompatActivity() {
                     studentAnswers[number.toString()] = HashMap(matchingAnswers)
                 }
                 override fun onNothingSelected(parent: AdapterView<*>?) {
-                    if (activePopupCount > 0) activePopupCount--
+                    activePopupCount = Math.max(0, activePopupCount - 1)
                 }
             }
 
@@ -651,6 +621,8 @@ class ExamViewerActivity : AppCompatActivity() {
             return
         }
 
+        // Cancel any existing download before starting a new one
+        downloadCall?.cancel()
         downloadCall = ApiClient.downloadPdf(
             examId = examId,
             token = token,
@@ -719,7 +691,7 @@ class ExamViewerActivity : AppCompatActivity() {
         
         // Calculate proportional height to keep the original aspect ratio
         val aspectRatio = page.height.toFloat() / page.width.toFloat()
-        val targetHeight = (targetWidth * aspectRatio).toInt()
+        val targetHeight = (targetWidth * aspectRatio).toInt().coerceAtMost(4096)
 
         val bitmap = Bitmap.createBitmap(
             targetWidth,
@@ -799,6 +771,8 @@ class ExamViewerActivity : AppCompatActivity() {
         super.onUserLeaveHint()
         if (submittedOrExited) return
         if (!isPdfReady) return
+        // Don't auto-submit if a dialog is currently showing (prevents orphaned dialogs)
+        if (isShowingAppDialog) return
         if (System.currentTimeMillis() - onCreateTime < 3000) return
 
         // onUserLeaveHint() fires ONLY when the user intentionally navigates away
@@ -832,6 +806,14 @@ class ExamViewerActivity : AppCompatActivity() {
             return true
         }
         return super.onKeyDown(keyCode, event)
+    }
+
+    override fun onKeyLongPress(keyCode: Int, event: KeyEvent?): Boolean {
+        // Block long-press volume keys from triggering accessibility/Assistant
+        if (keyCode == KeyEvent.KEYCODE_VOLUME_UP || keyCode == KeyEvent.KEYCODE_VOLUME_DOWN) {
+            return true
+        }
+        return super.onKeyLongPress(keyCode, event)
     }
 
     private fun confirmAndLogout() {
@@ -978,21 +960,4 @@ class ExamViewerActivity : AppCompatActivity() {
         } catch (_: Exception) { }
     }
 
-    private fun resolveExamDeviceId(): String {
-        val prefs = androidx.security.crypto.EncryptedSharedPreferences.create(
-            this,
-            "device_id_encrypted",
-            androidx.security.crypto.MasterKey.Builder(this)
-                .setKeyScheme(androidx.security.crypto.MasterKey.KeyScheme.AES256_GCM)
-                .build(),
-            androidx.security.crypto.EncryptedSharedPreferences.PrefKeyEncryptionScheme.AES256_SIV,
-            androidx.security.crypto.EncryptedSharedPreferences.PrefValueEncryptionScheme.AES256_GCM
-        )
-        var deviceId = prefs.getString("device_uuid", null)
-        if (deviceId.isNullOrBlank()) {
-            deviceId = UUID.randomUUID().toString()
-            prefs.edit().putString("device_uuid", deviceId).apply()
-        }
-        return "DEVICE:$deviceId"
-    }
 }

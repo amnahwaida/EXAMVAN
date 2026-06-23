@@ -11,31 +11,32 @@ import java.io.FileOutputStream
 import java.io.IOException
 import java.util.concurrent.TimeUnit
 
-import okhttp3.CertificatePinner
 import com.examvan.app.BuildConfig
+import kotlin.coroutines.resume
+import kotlin.coroutines.resumeWithException
+import okhttp3.CertificatePinner
 
 /**
  * API client for communicating with the EXAMVAN server.
  * Configured with extended timeouts for slow LAN connections.
  *
- * SECURITY NOTE: OkHttp defaults trust all system CAs. No certificate pinning.
- * For production over WAN (cloud/HTTPS deployment), ADD certificate pinning:
- *
- *   val pinner = CertificatePinner.Builder()
- *       .add("yourdomain.com", "sha256/AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=")
- *       .build()
- *   .certificatePinner(pinner)
- *
- * And enforce HTTPS-only URLs in ServerConfigActivity by rejecting http:// URLs
- * when not on a local network.
- *
- * TODO: Add runtime check — if server URL is HTTPS (not LAN IP), enable pinning
- *       using the server's provided certificate fingerprint from /api/health.
+ * For production over HTTPS, set ApiClient.EXPECTED_FINGERPRINT to a known
+ * certificate fingerprint at app startup to enable static certificate pinning.
  */
 object ApiClient {
 
     private val gson = Gson()
 
+    /**
+     * Set this to a known sha256/... certificate fingerprint to enable
+     * static certificate pinning. When non-null, the fingerprint from
+     * /api/health is validated against this expected value before being applied.
+     * Leave null to use dynamic pinning only.
+     */
+    @JvmStatic
+    var EXPECTED_FINGERPRINT: String? = null
+
+    @Volatile
     private var client = OkHttpClient.Builder()
         .connectTimeout(15, TimeUnit.SECONDS)
         .readTimeout(60, TimeUnit.SECONDS)
@@ -86,12 +87,21 @@ object ApiClient {
                         val body = it.body?.string() ?: ""
                         val health = gson.fromJson(body, HealthResponse::class.java)
 
-                        // Dynamic certificate pinning: if server provides a fingerprint and we're on HTTPS,
-                        // rebuild the client with certificate pinning
-                        if (health.certificate_fingerprint != null && baseUrl.startsWith("https://")) {
-                            if (certificateFingerprint != health.certificate_fingerprint) {
-                                certificateFingerprint = health.certificate_fingerprint
-                                rebuildClientWithPinning(health.certificate_fingerprint)
+                        // Certificate pinning: if server provides a fingerprint and we're on HTTPS,
+                        // validate against EXPECTED_FINGERPRINT if set, then rebuild with pinning.
+                        val fp = health.certificate_fingerprint
+                        if (fp != null && baseUrl.startsWith("https://")) {
+                            when {
+                                // Static pinning: verify fingerprint matches EXPECTED_FINGERPRINT first
+                                EXPECTED_FINGERPRINT != null && fp != EXPECTED_FINGERPRINT -> {
+                                    // Fingerprint mismatch — log warning but don't pin (could be MITM)
+                                    println("WARNING: Server fingerprint $fp does not match expected $EXPECTED_FINGERPRINT")
+                                }
+                                // Dynamic pinning (TOFU): first-fingerprint-wins
+                                certificateFingerprint != fp -> {
+                                    certificateFingerprint = fp
+                                    rebuildClientWithPinning(fp)
+                                }
                             }
                         }
 
@@ -106,6 +116,7 @@ object ApiClient {
 
     /**
      * Rebuild the HTTP client with certificate pinning for the given server fingerprint.
+     * Preserves all existing client configuration via newBuilder().
      * Only called when the server provides a certificate_fingerprint via /api/health
      * and the current connection uses HTTPS.
      */
@@ -115,26 +126,14 @@ object ApiClient {
         } catch (e: Exception) { null }
         if (hostname == null) return
 
-        val builder = OkHttpClient.Builder()
-            .connectTimeout(15, TimeUnit.SECONDS)
-            .readTimeout(60, TimeUnit.SECONDS)
-            .writeTimeout(30, TimeUnit.SECONDS)
-            .addInterceptor { chain ->
-                val original = chain.request()
-                val request = original.newBuilder()
-                    .header("X-App-Version", BuildConfig.VERSION_NAME)
+        // Use newBuilder() to preserve existing config (interceptors, dispatcher, connection pool, etc.)
+        client = client.newBuilder()
+            .certificatePinner(
+                CertificatePinner.Builder()
+                    .add(hostname, fingerprint)
                     .build()
-                chain.proceed(request)
-            }
-
-        // Add certificate pinning for the server hostname
-        builder.certificatePinner(
-            CertificatePinner.Builder()
-                .add(hostname, fingerprint)
-                .build()
-        )
-
-        client = builder.build()
+            )
+            .build()
     }
 
     /**
@@ -315,10 +314,10 @@ object ApiClient {
         return call
     }
 
-    /**
-     * Submit exam answers to the server.
-     */
-    fun submitExam(
+    // -- Shared submit helpers -------------------------------------------------------
+
+    /** Build the submit request body, shared by async and sync submit methods. */
+    private fun buildSubmitRequest(
         examId: Int,
         studentName: String,
         examNumber: String,
@@ -326,10 +325,8 @@ object ApiClient {
         answers: Map<String, Any>,
         startTime: String? = null,
         macAddress: String? = null,
-        identityData: String? = null,
-        onSuccess: (String) -> Unit,
-        onError: (String) -> Unit
-    ) {
+        identityData: String? = null
+    ): Request {
         val payload = mutableMapOf<String, Any>(
             "student_name" to studentName,
             "exam_number" to examNumber,
@@ -349,11 +346,43 @@ object ApiClient {
 
         val bodyStr = gson.toJson(payload)
         val mediaType = "application/json; charset=utf-8".toMediaTypeOrNull()
-        val body = bodyStr.toRequestBody(mediaType)
-        val request = Request.Builder()
+        return Request.Builder()
             .url("$baseUrl/api/exams/$examId/submit")
-            .post(body)
+            .post(bodyStr.toRequestBody(mediaType))
             .build()
+    }
+
+    /** Parse submit response, shared by async and sync submit methods. */
+    private fun parseSubmitResponse(response: Response): Pair<Boolean, String> {
+        return try {
+            val bodyText = response.body?.string() ?: ""
+            val json = org.json.JSONObject(bodyText)
+            if (response.isSuccessful && json.optBoolean("success", false)) {
+                Pair(true, json.optString("message", "Ujian berhasil dikumpulkan"))
+            } else {
+                Pair(false, json.optString("message", "Gagal mengumpulkan jawaban"))
+            }
+        } catch (e: Exception) {
+            Pair(false, "Gagal memproses respon server")
+        }
+    }
+
+    /**
+     * Submit exam answers to the server (async, callback-based).
+     */
+    fun submitExam(
+        examId: Int,
+        studentName: String,
+        examNumber: String,
+        studentClass: String,
+        answers: Map<String, Any>,
+        startTime: String? = null,
+        macAddress: String? = null,
+        identityData: String? = null,
+        onSuccess: (String) -> Unit,
+        onError: (String) -> Unit
+    ) {
+        val request = buildSubmitRequest(examId, studentName, examNumber, studentClass, answers, startTime, macAddress, identityData)
 
         client.newCall(request).enqueue(object : Callback {
             override fun onFailure(call: Call, e: IOException) {
@@ -362,17 +391,8 @@ object ApiClient {
 
             override fun onResponse(call: Call, response: Response) {
                 response.use {
-                    try {
-                        val bodyText = it.body?.string() ?: ""
-                        val json = org.json.JSONObject(bodyText)
-                        if (it.isSuccessful && json.optBoolean("success", false)) {
-                            onSuccess(json.optString("message", "Ujian berhasil dikumpulkan"))
-                        } else {
-                            onError(json.optString("message", "Gagal mengumpulkan jawaban"))
-                        }
-                    } catch (e: Exception) {
-                        onError("Gagal memproses respon server")
-                    }
+                    val (success, message) = parseSubmitResponse(it)
+                    if (success) onSuccess(message) else onError(message)
                 }
             }
         })
@@ -392,44 +412,10 @@ object ApiClient {
         macAddress: String? = null,
         identityData: String? = null
     ): Pair<Boolean, String> {
-        val payload = mutableMapOf<String, Any>(
-            "student_name" to studentName,
-            "exam_number" to examNumber,
-            "student_class" to studentClass,
-            "answers" to answers
-        )
-        if (startTime != null) payload["start_time"] = startTime
-        if (macAddress != null) payload["mac_address"] = macAddress
-        if (identityData != null) {
-            try {
-                val identityJson = org.json.JSONObject(identityData)
-                payload["identity_data"] = identityJson
-            } catch (_: Exception) {
-                payload["identity_data"] = identityData
-            }
-        }
-
-        val bodyStr = gson.toJson(payload)
-        val mediaType = "application/json; charset=utf-8".toMediaTypeOrNull()
-        val body = bodyStr.toRequestBody(mediaType)
-        val request = Request.Builder()
-            .url("$baseUrl/api/exams/$examId/submit")
-            .post(body)
-            .build()
-
         return try {
+            val request = buildSubmitRequest(examId, studentName, examNumber, studentClass, answers, startTime, macAddress, identityData)
             client.newCall(request).execute().use { response ->
-                val bodyText = response.body?.string() ?: ""
-                if (response.isSuccessful) {
-                    val json = org.json.JSONObject(bodyText)
-                    if (json.optBoolean("success", false)) {
-                        Pair(true, json.optString("message", "Ujian berhasil dikumpulkan"))
-                    } else {
-                        Pair(false, json.optString("message", "Gagal mengumpulkan jawaban"))
-                    }
-                } else {
-                    Pair(false, "Server error: ${response.code}")
-                }
+                parseSubmitResponse(response)
             }
         } catch (e: Exception) {
             Pair(false, e.message ?: "Koneksi gagal")

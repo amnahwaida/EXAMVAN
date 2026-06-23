@@ -5,6 +5,7 @@ import android.content.Context
 import android.content.Intent
 import android.content.SharedPreferences
 import android.os.Bundle
+import android.security.keystore.KeyPermanentlyInvalidatedException
 import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
@@ -23,6 +24,7 @@ import com.examvan.app.databinding.ActivityServerConfigBinding
 import com.examvan.app.model.Exam
 import com.examvan.app.model.IdentityField
 import com.examvan.app.BuildConfig
+import java.security.GeneralSecurityException
 import org.json.JSONObject
 
 /**
@@ -32,60 +34,30 @@ import org.json.JSONObject
  * - Checkbox to persist URL/Token in SharedPreferences
  * - Validates server health and Token existence before showing student identity form
  */
-class ServerConfigActivity : AppCompatActivity() {
+class ServerConfigActivity : BaseSecureActivity() {
 
     private lateinit var binding: ActivityServerConfigBinding
-    private lateinit var prefs: SharedPreferences
 
-    private val masterKey by lazy {
-        MasterKey.Builder(this@ServerConfigActivity)
-            .setKeyScheme(MasterKey.KeyScheme.AES256_GCM)
-            .build()
-    }
-
-    companion object {
-        const val PREFS_NAME = "app_config"
-        const val KEY_SERVER_URL = "server_url"
-        const val KEY_EXAM_TOKEN = "exam_token"
-        const val KEY_REMEMBER_URL = "remember_url"
-        const val KEY_IDENTITY_DATA = "identity_data"
-    }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
-        // FLAG_SECURE: prevent screenshots & screen recording
-        window.setFlags(
-            WindowManager.LayoutParams.FLAG_SECURE,
-            WindowManager.LayoutParams.FLAG_SECURE
-        )
-        // Keep screen turned on during the exam
-        window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
-
         binding = ActivityServerConfigBinding.inflate(layoutInflater)
         setContentView(binding.root)
 
-        // Prevent overlay/tapjacking attacks
-        binding.root.filterTouchesWhenObscured = true
-
-        // Clear clipboard for security
-        try {
-            val clipboard = getSystemService(Context.CLIPBOARD_SERVICE) as? ClipboardManager
-            clipboard?.clearPrimaryClip()
-        } catch (_: Throwable) { }
-
-        prefs = EncryptedSharedPreferences.create(
-            this,
-            PREFS_NAME + "_encrypted",
-            masterKey,
-            EncryptedSharedPreferences.PrefKeyEncryptionScheme.AES256_SIV,
-            EncryptedSharedPreferences.PrefValueEncryptionScheme.AES256_GCM
-        )
+        // Wrap first EncryptedSharedPreferences access in try-catch for keystore corruption
+        val prefs = try {
+            AppPrefs.getConfigPrefs(this)
+        } catch (e: GeneralSecurityException) {
+            showError("Gagal mengakses penyimpanan aman: ${e.message}")
+            binding.btnConnect.isEnabled = false
+            return
+        }
 
         // Check if URL and Token were previously saved
-        val rememberUrl = prefs.getBoolean(KEY_REMEMBER_URL, true)
-        val savedUrl = prefs.getString(KEY_SERVER_URL, "") ?: ""
-        val savedToken = prefs.getString(KEY_EXAM_TOKEN, "") ?: ""
+        val rememberUrl = prefs.getBoolean(AppPrefs.KEY_REMEMBER_URL, true)
+        val savedUrl = prefs.getString(AppPrefs.KEY_SERVER_URL, "") ?: ""
+        val savedToken = prefs.getString(AppPrefs.KEY_EXAM_TOKEN, "") ?: ""
 
         binding.cbRememberUrl.isChecked = rememberUrl
         if (savedUrl.isNotEmpty()) {
@@ -113,8 +85,13 @@ class ServerConfigActivity : AppCompatActivity() {
 
     private fun isVersionCompatible(appVersion: String, requiredVersion: String): Boolean {
         try {
-            val appParts = appVersion.split(".").map { it.toIntOrNull() ?: 0 }
-            val reqParts = requiredVersion.split(".").map { it.toIntOrNull() ?: 0 }
+            // Strip non-numeric pre-release suffixes (e.g. "2.0.0-beta" -> "2.0.0")
+            fun stripSuffix(v: String): List<Int> =
+                v.split(".").map { seg ->
+                    seg.replace(Regex("[^0-9].*"), "").toIntOrNull() ?: 0
+                }
+            val appParts = stripSuffix(appVersion)
+            val reqParts = stripSuffix(requiredVersion)
             val length = maxOf(appParts.size, reqParts.size)
             for (i in 0 until length) {
                 val appPart = appParts.getOrElse(i) { 0 }
@@ -173,17 +150,18 @@ class ServerConfigActivity : AppCompatActivity() {
                             val exam = response.data
                             if (exam != null) {
                                 // Save connection preferences if remember is checked
+                                val configPrefs = AppPrefs.getConfigPrefs(this@ServerConfigActivity)
                                 if (binding.cbRememberUrl.isChecked) {
-                                    prefs.edit()
-                                        .putString(KEY_SERVER_URL, url)
-                                        .putString(KEY_EXAM_TOKEN, token)
-                                        .putBoolean(KEY_REMEMBER_URL, true)
+                                    configPrefs.edit()
+                                        .putString(AppPrefs.KEY_SERVER_URL, url)
+                                        .putString(AppPrefs.KEY_EXAM_TOKEN, token)
+                                        .putBoolean(AppPrefs.KEY_REMEMBER_URL, true)
                                         .apply()
                                 } else {
-                                    prefs.edit()
-                                        .putBoolean(KEY_REMEMBER_URL, false)
-                                        .remove(KEY_SERVER_URL)
-                                        .remove(KEY_EXAM_TOKEN)
+                                    configPrefs.edit()
+                                        .putBoolean(AppPrefs.KEY_REMEMBER_URL, false)
+                                        .remove(AppPrefs.KEY_SERVER_URL)
+                                        .remove(AppPrefs.KEY_EXAM_TOKEN)
                                         .apply()
                                 }
 
@@ -252,7 +230,7 @@ class ServerConfigActivity : AppCompatActivity() {
         val editTexts = mutableMapOf<String, EditText>()
 
         // Restore previously saved identity data
-        val savedIdentityJson = prefs.getString(KEY_IDENTITY_DATA, "{}") ?: "{}"
+        val savedIdentityJson = AppPrefs.getConfigPrefs(this).getString(AppPrefs.KEY_IDENTITY_DATA, "{}") ?: "{}"
         val savedIdentity = try { JSONObject(savedIdentityJson) } catch (_: Exception) { JSONObject() }
 
         for (field in fields) {
@@ -344,8 +322,8 @@ class ServerConfigActivity : AppCompatActivity() {
             val identityDataStr = identityJson.toString()
 
             // Save identity data to SharedPreferences
-            prefs.edit()
-                .putString(KEY_IDENTITY_DATA, identityDataStr)
+            AppPrefs.getConfigPrefs(this@ServerConfigActivity).edit()
+                .putString(AppPrefs.KEY_IDENTITY_DATA, identityDataStr)
                 .apply()
 
             alertDialog.dismiss()
@@ -354,17 +332,10 @@ class ServerConfigActivity : AppCompatActivity() {
             val questionsJson = com.google.gson.Gson().toJson(exam.questions ?: emptyList<Any>())
             val securityLevel = exam.security_level ?: "medium"
             val strictMode = exam.strict_mode ?: false
-            EncryptedSharedPreferences.create(
-                this,
-                "exam_questions_encrypted",
-                masterKey,
-                EncryptedSharedPreferences.PrefKeyEncryptionScheme.AES256_SIV,
-                EncryptedSharedPreferences.PrefValueEncryptionScheme.AES256_GCM
-            )
-                .edit()
-                .putString("questions_json", questionsJson)
-                .putString("security_level", securityLevel)
-                .putBoolean("strict_mode", strictMode)
+            AppPrefs.getExamPrefs(this@ServerConfigActivity).edit()
+                .putString(AppPrefs.KEY_QUESTIONS_JSON, questionsJson)
+                .putString(AppPrefs.KEY_SECURITY_LEVEL, securityLevel)
+                .putBoolean(AppPrefs.KEY_STRICT_MODE, strictMode)
                 .apply()
 
             // Extract legacy fields for backward compat with ExamViewer
@@ -375,28 +346,30 @@ class ServerConfigActivity : AppCompatActivity() {
         }
 
         alertDialog.show()
+
+        // Tapjacking protection for dynamically-created dialog
+        alertDialog.window?.let { w ->
+            w.setFlags(WindowManager.LayoutParams.FLAG_WATCH_OUTSIDE_TOUCH,
+                WindowManager.LayoutParams.FLAG_WATCH_OUTSIDE_TOUCH)
+        }
     }
 
     private fun startExamViewer(examId: Int, examName: String, serverUrl: String, name: String, number: String, studentClass: String, identityData: String = "{}") {
-        val strictMode = EncryptedSharedPreferences.create(
-            this,
-            "exam_questions_encrypted",
-            masterKey,
-            EncryptedSharedPreferences.PrefKeyEncryptionScheme.AES256_SIV,
-            EncryptedSharedPreferences.PrefValueEncryptionScheme.AES256_GCM
-        )
-            .getBoolean("strict_mode", false)
+        val strictMode = AppPrefs.getExamPrefs(this).getBoolean(AppPrefs.KEY_STRICT_MODE, false)
+        // Read exam_token directly from EncryptedSharedPreferences instead of Intent
+        val examToken = AppPrefs.getConfigPrefs(this).getString(AppPrefs.KEY_EXAM_TOKEN, "") ?: ""
         val intent = Intent(this@ServerConfigActivity, ExamViewerActivity::class.java).apply {
             putExtra("exam_id", examId)
-            putExtra("exam_token", prefs.getString(KEY_EXAM_TOKEN, "") ?: "")
             putExtra("exam_name", examName)
             putExtra("server_url", serverUrl)
             putExtra("student_name", name)
             putExtra("student_number", number)
             putExtra("student_class", studentClass)
             putExtra("identity_data", identityData)
-            putExtra("strict_mode", strictMode)
+
         }
+        // Clean sensitive extras before launch — token is read from EncryptedSharedPreferences
+        intent.putExtra("exam_token", "")
         startActivity(intent)
     }
 

@@ -9,7 +9,7 @@ android {
 
     defaultConfig {
         applicationId = "com.examvan.app"
-        minSdk = 21
+        minSdk = 24
         targetSdk = 35
         versionCode = 31
         versionName = "2.2.0"
@@ -86,8 +86,15 @@ dependencies {
     implementation("androidx.activity:activity-ktx:1.9.3")
     implementation("androidx.appcompat:appcompat:1.7.0")
     implementation("com.google.android.material:material:1.12.0")
-    implementation("androidx.constraintlayout:constraintlayout:2.2.0")
+    implementation("androidx.constraintlayout:constraintlayout:2.1.4")
     implementation("androidx.swiperefreshlayout:swiperefreshlayout:1.1.0")
+
+    // Coroutines — already available transitively, declared explicitly for visibility
+    implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.6.4")
+
+    // Lifecycle ViewModel + Runtime for ViewModel and lifecycleScope
+    implementation("androidx.lifecycle:lifecycle-viewmodel-ktx:2.6.2")
+    implementation("androidx.lifecycle:lifecycle-runtime-ktx:2.6.2")
 
     // Encrypted SharedPreferences for sensitive data (questions, tokens)
     implementation("androidx.security:security-crypto:1.1.0-alpha06")
