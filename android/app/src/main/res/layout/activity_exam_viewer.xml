@@ -25,7 +25,7 @@
             android:layout_height="40dp"
             android:src="@android:drawable/ic_menu_close_clear_cancel"
             android:background="?attr/selectableItemBackgroundBorderless"
-            android:contentDescription="Logout"
+            android:contentDescription="Tutup ujian"
             android:layout_marginEnd="8dp" />
 
         <TextView
@@ -56,6 +56,7 @@
         android:textSize="12sp"
         android:textStyle="bold"
         android:textColor="#FFFFFF"
+        android:background="@color/surface_variant"
         android:gravity="center"
         app:layout_constraintTop_toBottomOf="@id/toolbar"
         app:layout_constraintStart_toStartOf="parent"
@@ -67,6 +68,7 @@
         android:layout_width="0dp"
         android:layout_height="0dp"
         android:background="@color/background"
+        android:contentDescription="Halaman PDF ujian"
         app:layout_constraintTop_toBottomOf="@id/tvSecurityBanner"
         app:layout_constraintBottom_toTopOf="@id/answerSheetToggle"
         app:layout_constraintStart_toStartOf="parent"
@@ -257,6 +259,7 @@
             android:backgroundTint="@color/surface_variant"
             android:textColor="@color/text_secondary"
             android:layout_marginHorizontal="8dp"
+            android:contentDescription="Halaman sebelumnya"
             android:enabled="false" />
 
         <TextView
@@ -277,7 +280,8 @@
             android:textSize="13sp"
             android:backgroundTint="@color/primary"
             android:textColor="@color/on_primary"
-            android:layout_marginHorizontal="8dp" />
+            android:layout_marginHorizontal="8dp"
+            android:contentDescription="Halaman berikutnya" />
     </LinearLayout>
 
 </androidx.constraintlayout.widget.ConstraintLayout>

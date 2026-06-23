@@ -7,6 +7,7 @@
  <meta name="description" content="Lihat hasil ujian {{ exam_name }} - EXAMVAN">
  <link rel="stylesheet" href="{{ url_for('static', filename='css/hasil.css') }}?v={{ version }}">
  <link rel="icon" type="image/png" href="/static/favicon.png">
+ <script src="{{ url_for('static', filename='js/admin-core.js') }}?v={{ version }}" defer></script>
 </head>
 <body>
  <!-- Heroicons Sprite -->
@@ -551,22 +552,7 @@
  return div.innerHTML;
  }
 
- function localizeUTC(utcStr) {
- if (!utcStr) return '—';
- try {
- let iso = utcStr.trim();
- if (iso.includes(' ')) iso = iso.replace(' ', 'T');
- if (!iso.endsWith('Z') && !iso.includes('+')) iso += 'Z';
- const dt = new Date(iso);
- if (isNaN(dt.getTime())) return utcStr;
- return dt.toLocaleString('id-ID', {
- year: 'numeric', month: '2-digit', day: '2-digit',
- hour: '2-digit', minute: '2-digit', second: '2-digit'
- });
- } catch(e) {
- return utcStr;
- }
- }
+ /* localizeUTC provided by admin-core.js (loaded via defer in head) */
  </script>
 </body>
 </html>

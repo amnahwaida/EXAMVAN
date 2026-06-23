@@ -74,7 +74,9 @@ class ExamViewerActivity : BaseSecureActivity() {
     private var questions: List<Map<String, Any>> = emptyList()
 
     // Student answers: map of question number (String) -> answer value (String, List, or Map)
-    private val studentAnswers = mutableMapOf<String, Any>()
+    // Stored in ViewModel to survive configuration changes (rotation)
+    private val studentAnswers: Map<String, Any>
+        get() = viewModel.studentAnswers.value
 
     // Auto-save debounce job: persists answers to EncryptedSharedPreferences to prevent
     // data loss on process death, crash, or accidental kill.
@@ -101,6 +103,9 @@ class ExamViewerActivity : BaseSecureActivity() {
     private var activePopupCount = 0
     private var onCreateTime = 0L
 
+    // Pending page to restore after configuration change / process death
+    private var pendingRestorePage = -1
+
     // Volume key grace period: prevents OEM ROM volume panel from triggering auto-submit
     private var volumeKeyPressedAt = 0L
 
@@ -125,7 +130,7 @@ class ExamViewerActivity : BaseSecureActivity() {
      * Set a student answer and trigger auto-save to prevent data loss on process death.
      */
     private fun setStudentAnswer(key: String, value: Any) {
-        studentAnswers[key] = value
+        viewModel.updateAnswer(key, value)
         triggerAutoSave()
     }
 
@@ -133,7 +138,7 @@ class ExamViewerActivity : BaseSecureActivity() {
      * Remove a student answer and trigger auto-save.
      */
     private fun removeStudentAnswer(key: String) {
-        studentAnswers.remove(key)
+        viewModel.removeAnswer(key)
         triggerAutoSave()
     }
 
@@ -192,8 +197,7 @@ class ExamViewerActivity : BaseSecureActivity() {
             val json = prefs.getString(AppPrefs.KEY_SAVED_ANSWERS, null) ?: return
             val type = object : com.google.gson.reflect.TypeToken<Map<String, String>>() {}.type
             val saved: Map<String, String> = gsonForSave.fromJson(json, type) ?: return
-            studentAnswers.clear()
-            studentAnswers.putAll(saved)
+            viewModel.setStudentAnswers(saved)
             // Re-populate UI with restored answers
             restoreAnswerUiFromSaved()
         } catch (e: Exception) {
@@ -322,6 +326,16 @@ class ExamViewerActivity : BaseSecureActivity() {
             return
         }
 
+        // Restore instance state after configuration change / process death
+        if (savedInstanceState != null) {
+            pendingRestorePage = savedInstanceState.getInt("currentPage", -1)
+            answerSheetExpanded = savedInstanceState.getBoolean("answerSheetExpanded", false)
+            if (answerSheetExpanded) {
+                binding.answerSheetPanel.visibility = View.VISIBLE
+                binding.btnToggleAnswerSheet.text = getString(R.string.answer_sheet_close)
+            }
+        }
+
         onBackPressedDispatcher.addCallback(this, object : OnBackPressedCallback(true) {
             override fun handleOnBackPressed() {
                 if (strictMode) {
@@ -417,6 +431,8 @@ class ExamViewerActivity : BaseSecureActivity() {
         val json = prefs.getString(AppPrefs.KEY_QUESTIONS_JSON, null)
         securityLevel = prefs.getString(AppPrefs.KEY_SECURITY_LEVEL, "medium") ?: "medium"
         updateSecurityBanner()
+        // Request notification permission early (exam start) rather than at auto-submit time
+        requestNotificationPermission()
         if (json != null) {
             try {
                 val type = object : TypeToken<List<Map<String, Any>>>() {}.type
@@ -838,8 +854,9 @@ class ExamViewerActivity : BaseSecureActivity() {
             pdfRenderer = PdfRenderer(fd)
             val renderer = pdfRenderer ?: run { showError(getString(R.string.error_pdf_render)); return }
             totalPages = renderer.pageCount
-            currentPage = 0
-            renderPage(0)
+            currentPage = if (pendingRestorePage in 0 until totalPages) pendingRestorePage else 0
+            pendingRestorePage = -1 // Consumed
+            renderPage(currentPage)
             showPdfViewer()
             isPdfReady = true // Crucial: ensures isPdfReady is true for cached files as well
         } catch (e: Exception) {
@@ -853,43 +870,48 @@ class ExamViewerActivity : BaseSecureActivity() {
         val renderer = pdfRenderer ?: return
         if (pageIndex < 0 || pageIndex >= renderer.pageCount) return
 
-        val page = renderer.openPage(pageIndex)
+        // Move bitmap rendering to background thread to avoid blocking the UI (100-800ms).
+        // PdfRenderer access is sequential within a single coroutine so it's thread-safe.
+        lifecycleScope.launch {
+            val bitmap = withContext(Dispatchers.Default) {
+                try {
+                    val page = renderer.openPage(pageIndex)
 
-        // Dynamically calculate scale to prevent OutOfMemoryError on large/scanned pages.
-        // We target 2x the device's screen width for perfect clarity, capped at a safe maximum of 2048 pixels.
-        val screenWidth = resources.displayMetrics.widthPixels
-        var targetWidth = (screenWidth * 2).coerceAtMost(2048)
-        
-        // If the original page is smaller than the target, don't upscale it beyond 2x its original size
-        targetWidth = targetWidth.coerceAtMost(page.width * 2)
-        
-        // Calculate proportional height to keep the original aspect ratio
-        val aspectRatio = page.height.toFloat() / page.width.toFloat()
-        val targetHeight = (targetWidth * aspectRatio).toInt().coerceAtMost(4096)
+                    // Dynamically calculate scale to prevent OutOfMemoryError on large/scanned pages.
+                    // We target 2x the device's screen width for perfect clarity, capped at a safe maximum of 2048 pixels.
+                    val screenWidth = resources.displayMetrics.widthPixels
+                    var targetWidth = (screenWidth * 2).coerceAtMost(2048)
 
-        val bitmap = Bitmap.createBitmap(
-            targetWidth,
-            targetHeight,
-            Bitmap.Config.ARGB_8888
-        )
-        bitmap.eraseColor(Color.WHITE)
+                    // If the original page is smaller than the target, don't upscale it beyond 2x its original size
+                    targetWidth = targetWidth.coerceAtMost(page.width * 2)
 
-        page.render(
-            bitmap,
-            null,
-            null,
-            PdfRenderer.Page.RENDER_MODE_FOR_DISPLAY
-        )
-        page.close()
+                    // Calculate proportional height to keep the original aspect ratio
+                    val aspectRatio = page.height.toFloat() / page.width.toFloat()
+                    val targetHeight = (targetWidth * aspectRatio).toInt().coerceAtMost(4096)
 
-        // Recycle previous bitmap to free memory immediately (important for low-end devices)
-        val oldBitmap = currentBitmap
-        currentBitmap = bitmap
-        binding.ivPdfPage.resetZoom()
-        binding.ivPdfPage.setImageBitmap(bitmap)
-        oldBitmap?.recycle()
+                    val bmp = Bitmap.createBitmap(targetWidth, targetHeight, Bitmap.Config.ARGB_8888)
+                    bmp.eraseColor(Color.WHITE)
 
-        updatePageIndicator()
+                    page.render(bmp, null, null, PdfRenderer.Page.RENDER_MODE_FOR_DISPLAY)
+                    page.close()
+                    bmp
+                } catch (e: Exception) {
+                    Log.e("ExamViewer", "Error rendering page $pageIndex", e)
+                    null
+                }
+            }
+
+            if (bitmap != null) {
+                // Recycle previous bitmap to free memory immediately (important for low-end devices)
+                val oldBitmap = currentBitmap
+                currentBitmap = bitmap
+                binding.ivPdfPage.resetZoom()
+                binding.ivPdfPage.setImageBitmap(bitmap)
+                oldBitmap?.recycle()
+            }
+
+            updatePageIndicator()
+        }
     }
 
     private fun updatePageIndicator() {
@@ -987,7 +1009,21 @@ class ExamViewerActivity : BaseSecureActivity() {
         // (Home button, Recent Apps, or a new Activity starting).
         // This is the correct signal for auto-submit on securityLevel "medium".
         if (securityLevel == "medium") {
-            autoSubmitAndExit()
+            isShowingAppDialog = true
+            AlertDialog.Builder(this)
+                .setTitle("Konfirmasi")
+                .setMessage("Apakah Anda yakin ingin keluar? Jawaban akan otomatis dikumpulkan.")
+                .setPositiveButton("Ya, Kumpulkan") { _, _ ->
+                    isShowingAppDialog = false
+                    autoSubmitAndExit()
+                }
+                .setNegativeButton("Tetap di Ujian") { _, _ ->
+                    isShowingAppDialog = false
+                }
+                .setOnCancelListener {
+                    isShowingAppDialog = false
+                }
+                .show()
         }
     }
 
@@ -1039,7 +1075,8 @@ class ExamViewerActivity : BaseSecureActivity() {
             isShowingAppDialog = true
             AlertDialog.Builder(this)
                 .setTitle(getString(R.string.strict_mode_cannot_exit_title))
-                .setMessage(getString(R.string.strict_mode_cannot_exit_msg))
+                .setMessage("Mode ketat: Anda tidak bisa keluar dari ujian. " +
+                        "Selesaikan semua jawaban dan tekan tombol 'Kumpulkan' untuk menyelesaikan ujian.")
                 .setPositiveButton(getString(R.string.dialog_ok)) { _, _ ->
                     isShowingAppDialog = false
                 }
@@ -1091,26 +1128,28 @@ class ExamViewerActivity : BaseSecureActivity() {
      * Submit exam answers with exponential backoff retry (1s, 2s, 4s).
      * Used by autoSubmitAndExit to handle transient network failures.
      */
-    private fun submitWithRetry(): Pair<Boolean, String> {
+    private suspend fun submitWithRetry(): Pair<Boolean, String> {
         val delays = listOf(1000L, 2000L, 4000L)
         for (attempt in 0..3) {
             try {
-                val result = ApiClient.submitExamSync(
-                    examId = examId,
-                    studentName = studentName,
-                    examNumber = studentNumber,
-                    studentClass = studentClass,
-                    answers = studentAnswers,
-                    startTime = startTime,
-                    macAddress = macAddress,
-                    identityData = identityData
-                )
+                val result = withContext(Dispatchers.IO) {
+                    ApiClient.submitExamSync(
+                        examId = examId,
+                        studentName = studentName,
+                        examNumber = studentNumber,
+                        studentClass = studentClass,
+                        answers = studentAnswers,
+                        startTime = startTime,
+                        macAddress = macAddress,
+                        identityData = identityData
+                    )
+                }
                 if (result.first) return result
                 // If server returned an error, retry only on network-level failures
-                if (attempt < 3) Thread.sleep(delays[attempt])
+                if (attempt < 3) delay(delays[attempt])
             } catch (e: Exception) {
                 if (attempt < 3) {
-                    Thread.sleep(delays[attempt])
+                    delay(delays[attempt])
                 } else {
                     return Pair(false, e.message ?: getString(R.string.answer_submit_error))
                 }
@@ -1120,9 +1159,6 @@ class ExamViewerActivity : BaseSecureActivity() {
     }
 
     private fun autoSubmitAndExit() {
-        // Request notification permission right before auto-submit with rationale dialog
-        requestNotificationPermission()
-
         if (submittedOrExited) return
         submittedOrExited = true
 
@@ -1187,6 +1223,18 @@ class ExamViewerActivity : BaseSecureActivity() {
                 Toast.makeText(applicationContext, message, Toast.LENGTH_LONG).show()
             }
         }
+    }
+
+    override fun onSaveInstanceState(outState: Bundle) {
+        super.onSaveInstanceState(outState)
+        outState.putInt("currentPage", currentPage)
+        outState.putBoolean("answerSheetExpanded", answerSheetExpanded)
+    }
+
+    override fun onResume() {
+        super.onResume()
+        // Reset dialog flag on resume to prevent stale state (e.g. after config change mid-dialog)
+        isShowingAppDialog = false
     }
 
     override fun onDestroy() {

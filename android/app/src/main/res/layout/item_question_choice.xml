@@ -23,7 +23,7 @@
         android:id="@+id/rgChoices"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:orientation="horizontal"
+        android:orientation="vertical"
         android:visibility="visible" />
 
     <!-- LinearLayout for Checkboxes (Multiple Choice Multiple Answer) -->
@@ -31,7 +31,7 @@
         android:id="@+id/layoutCheckboxes"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:orientation="horizontal"
+        android:orientation="vertical"
         android:visibility="gone" />
 
 </LinearLayout>

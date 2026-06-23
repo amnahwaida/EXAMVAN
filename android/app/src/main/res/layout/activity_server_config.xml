@@ -7,18 +7,23 @@
     android:background="@color/background"
     android:padding="24dp">
 
-    <LinearLayout
+    <androidx.core.widget.NestedScrollView
         android:layout_width="0dp"
-        android:layout_height="wrap_content"
-        android:orientation="vertical"
-        android:gravity="center_horizontal"
+        android:layout_height="0dp"
+        android:fillViewport="true"
         app:layout_constraintTop_toTopOf="parent"
         app:layout_constraintBottom_toBottomOf="parent"
         app:layout_constraintStart_toStartOf="parent"
         app:layout_constraintEnd_toEndOf="parent"
         app:layout_constraintWidth_max="400dp">
 
-        <!-- Logo -->
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical"
+            android:gravity="center_horizontal">
+
+            <!-- Logo -->
         <TextView
             android:layout_width="64dp"
             android:layout_height="64dp"
@@ -95,6 +100,7 @@
             android:letterSpacing="0.15"
             android:gravity="center"
             android:maxLength="6"
+            android:imeOptions="actionDone"
             android:layout_marginBottom="12dp" />
 
         <!-- Remember Checkbox -->
@@ -149,6 +155,8 @@
             android:textColor="@color/text_muted"
             android:layout_marginTop="32dp" />
 
-    </LinearLayout>
+        </LinearLayout>
+
+    </androidx.core.widget.NestedScrollView>
 
 </androidx.constraintlayout.widget.ConstraintLayout>

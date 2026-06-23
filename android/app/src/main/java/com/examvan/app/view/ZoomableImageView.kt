@@ -39,6 +39,8 @@ class ZoomableImageView @JvmOverloads constructor(
     private var bottom = 0f
     private var origWidth = 0f
     private var origHeight = 0f
+    // Fit-to-screen scale computed in onMeasure, used by double-tap zoom-out
+    private var fitScreenScale = 1f
 
     private var mScaleDetector: ScaleGestureDetector = ScaleGestureDetector(context, this)
     private var mGestureDetector: GestureDetector
@@ -48,6 +50,8 @@ class ZoomableImageView @JvmOverloads constructor(
         private const val DRAG = 1
         private const val ZOOM = 2
         private const val CLICK = 3
+        private const val SCROLL_THRESHOLD = 0.4f // 40% of view width triggers navigation
+        private const val FLING_THRESHOLD = 100f
     }
 
     interface OnSwipeListener {
@@ -64,10 +68,33 @@ class ZoomableImageView @JvmOverloads constructor(
         scaleType = ScaleType.MATRIX
         mGestureDetector = GestureDetector(context, object : GestureDetector.SimpleOnGestureListener() {
             override fun onDoubleTap(e: MotionEvent): Boolean {
-                val targetScale = if (saveScale > 1f) 1f else 2.5f
+                // Toggle between fit-to-screen and 2.5x zoom
+                val nearFitScale = Math.abs(saveScale - fitScreenScale) < 0.05f
+                val targetScale = if (nearFitScale || saveScale <= fitScreenScale + 0.05f) 2.5f else fitScreenScale
                 val scaleFactor = targetScale / saveScale
                 zoomTo(scaleFactor, e.x, e.y)
                 return true
+            }
+
+            override fun onScroll(
+                e1: MotionEvent?, e2: MotionEvent,
+                distanceX: Float, distanceY: Float
+            ): Boolean {
+                // Slow-drag fallback: trigger page navigation when dragged past threshold
+                if (Math.abs(saveScale - 1f) < 0.01f && mode == DRAG && e1 != null) {
+                    val diffX = e2.x - e1.x
+                    val diffY = e2.y - e1.y
+                    if (Math.abs(diffX) > Math.abs(diffY) &&
+                        Math.abs(diffX) > width * SCROLL_THRESHOLD) {
+                        if (diffX < 0) {
+                            swipeListener?.onSwipeLeft()
+                        } else {
+                            swipeListener?.onSwipeRight()
+                        }
+                        return true
+                    }
+                }
+                return false
             }
 
             override fun onFling(
@@ -222,6 +249,7 @@ class ZoomableImageView @JvmOverloads constructor(
 
     fun resetZoom() {
         saveScale = 1f
+        fitScreenScale = 1f
         myMatrix.reset()
         imageMatrix = myMatrix
         invalidate()
@@ -252,6 +280,7 @@ class ZoomableImageView @JvmOverloads constructor(
         origWidth = width - 2 * redundantXSpace
         origHeight = height - 2 * redundantYSpace
         saveScale = 1f
+        fitScreenScale = 1f // Reset saved fit-to-screen scale
         imageMatrix = myMatrix
         fixTrans()
     }

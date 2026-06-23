@@ -974,18 +974,18 @@ function loadUsersList(page) {
                     var actionsHtml = '<span style="font-size:11px; color: var(--text-secondary);">—</span>';
                     if (!isAdmin) {
                         var statusAction = user.status === 'active'
-                            ? '<button class="btn-sm" onclick="toggleUserStatus(' + user.id + ', \'' + escapeHtml(user.username) + '\')" title="Nonaktifkan user" style="font-size:11px;padding:0 8px;height:26px;background:rgba(245,158,11,0.15);border:1px solid rgba(245,158,11,0.3);color:#fbbf24;">⏸️</button>'
-                            : '<button class="btn-sm" onclick="toggleUserStatus(' + user.id + ', \'' + escapeHtml(user.username) + '\')" title="Aktifkan user" style="font-size:11px;padding:0 8px;height:26px;background:rgba(16,185,129,0.15);border:1px solid rgba(16,185,129,0.3);color:#34d399;">▶️</button>';
+                            ? '<button class="btn-sm" onclick="toggleUserStatus(' + user.id + ', \'' + jsEscape(user.username) + '\')" title="Nonaktifkan user" style="font-size:11px;padding:0 8px;height:26px;background:rgba(245,158,11,0.15);border:1px solid rgba(245,158,11,0.3);color:#fbbf24;">⏸️</button>'
+                            : '<button class="btn-sm" onclick="toggleUserStatus(' + user.id + ', \'' + jsEscape(user.username) + '\')" title="Aktifkan user" style="font-size:11px;padding:0 8px;height:26px;background:rgba(16,185,129,0.15);border:1px solid rgba(16,185,129,0.3);color:#34d399;">▶️</button>';
 
                         var verifyBtn = user.status === 'pending_otp'
-                            ? '<button class="btn-sm" onclick="verifyUser(' + user.id + ', \'' + escapeHtml(user.username) + '\')" title="Verifikasi manual" style="font-size:11px;padding:0 8px;height:26px;background:rgba(99,102,241,0.15);border:1px solid rgba(99,102,241,0.3);color:#a5b4fc;">✅</button> '
+                            ? '<button class="btn-sm" onclick="verifyUser(' + user.id + ', \'' + jsEscape(user.username) + '\')" title="Verifikasi manual" style="font-size:11px;padding:0 8px;height:26px;background:rgba(99,102,241,0.15);border:1px solid rgba(99,102,241,0.3);color:#a5b4fc;">✅</button> '
                             : '';
 
                         actionsHtml = '<div style="display:flex;gap:4px;flex-wrap:wrap;justify-content:flex-end;">'
                             + verifyBtn
                             + '<button class="btn-sm" onclick="openEditUserModal(' + user.id + ')" title="Atur limit & reset password" style="font-size:11px;padding:0 8px;height:26px;background:rgba(99,102,241,0.1);border:1px solid rgba(99,102,241,0.2);color:#a5b4fc;">✏️</button> '
                             + statusAction + ' '
-                            + '<button class="btn-sm btn-delete" onclick="deleteUser(' + user.id + ', \'' + escapeHtml(user.username) + '\')" style="font-size:11px;padding:0 8px;height:26px;">🗑️</button>'
+                            + '<button class="btn-sm btn-delete" onclick="deleteUser(' + user.id + ', \'' + jsEscape(user.username) + '\')" style="font-size:11px;padding:0 8px;height:26px;">🗑️</button>'
                             + '</div>';
                     }
 
@@ -1358,7 +1358,7 @@ function submitEditToken(e) {
                     // Update the edit button argument as well
                     const editBtn = tokenEl.parentElement.querySelector('.btn-edit');
                     if (editBtn) {
-                        editBtn.setAttribute('onclick', `openEditTokenModal(${examId}, '${res.token}')`);
+                        editBtn.setAttribute('onclick', `openEditTokenModal(${examId}, '${jsEscape(res.token)}')`);
                     }
                     
                     tokenEl.style.animation = 'none';

@@ -30,7 +30,7 @@
     --font-mono: 'SF Mono', 'Fira Code', 'JetBrains Mono', monospace;
     --shadow-card: 0 8px 32px rgba(0, 0, 0, 0.3);
     --shadow-lg: 0 20px 50px rgba(0, 0, 0, 0.4);
-    --ease-spring: cubic-bezier(0.4, 0, 0.2, 1);
+    --ease-spring: cubic-bezier(0.4, 0, 0.2, 1); /* Material Deceleration curve, not a spring; named for its "snap" feel */
 }
 
 * { margin:0; padding:0; box-sizing:border-box; }
@@ -73,6 +73,12 @@ body {
 }
 ::-webkit-scrollbar-thumb:hover {
     background: rgba(255, 255, 255, 0.2);
+}
+
+/* Firefox scrollbar */
+* {
+    scrollbar-width: thin;
+    scrollbar-color: var(--primary) transparent;
 }
 
 /* ===== Headings ===== */

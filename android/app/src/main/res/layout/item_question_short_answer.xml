@@ -28,7 +28,6 @@
         android:textColorHint="@color/text_muted"
         android:backgroundTint="@color/primary"
         android:inputType="text"
-        android:maxLines="1"
-        android:ellipsize="end" />
+        android:maxLines="3" />
 
 </LinearLayout>

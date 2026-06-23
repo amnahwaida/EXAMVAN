@@ -70,11 +70,25 @@ function dismissToast(toast) {
     }, 300);
 }
 
-// Escape HTML to prevent XSS
+// Escape HTML to prevent XSS — also escapes single quotes for safe use in HTML attributes
 function escapeHtml(str) {
-    const div = document.createElement('div');
-    div.textContent = str;
-    return div.innerHTML;
+    return String(str)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#39;');
+}
+
+// Escape string for JavaScript string literal context (e.g. onclick attribute values)
+// This handles the case where HTML entity escaping is not sufficient because &#39;
+// would be decoded back to ' by the HTML parser in attribute values.
+function jsEscape(str) {
+    return String(str)
+        .replace(/\\/g, '\\\\')
+        .replace(/'/g, "\\'")
+        .replace(/\n/g, '\\n')
+        .replace(/\r/g, '\\r');
 }
 
 // Localize UTC timestamp to browser timezone

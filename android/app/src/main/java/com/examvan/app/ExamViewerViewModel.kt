@@ -9,15 +9,15 @@ import kotlinx.coroutines.flow.asStateFlow
 
 /**
  * ViewModel for ExamViewerActivity.
- * Holds student answers and submission state, surviving configuration changes.
- * All answer values are stored as strings to avoid Gson type-loss on serialization.
+ * Holds student answers and submission state, surviving configuration changes (rotation).
+ * Student answers are kept as StateFlow to survive rotation.
+ * Process-death survival for currentPage is handled via onSaveInstanceState in the Activity.
  */
 class ExamViewerViewModel(application: Application) : AndroidViewModel(application) {
 
-    private val _studentAnswers = MutableStateFlow<Map<String, String>>(emptyMap())
-    val studentAnswers: StateFlow<Map<String, String>> = _studentAnswers.asStateFlow()
-
-    var currentPage: Int = 0
+    // Student answers as StateFlow — survives configuration changes (rotation)
+    private val _studentAnswers = MutableStateFlow<Map<String, Any>>(emptyMap())
+    val studentAnswers: StateFlow<Map<String, Any>> = _studentAnswers.asStateFlow()
 
     private val _isSubmitting = MutableStateFlow(false)
     val isSubmitting: StateFlow<Boolean> = _isSubmitting.asStateFlow()
@@ -28,11 +28,11 @@ class ExamViewerViewModel(application: Application) : AndroidViewModel(applicati
     private val _isPdfReady = MutableStateFlow(false)
     val isPdfReady: StateFlow<Boolean> = _isPdfReady.asStateFlow()
 
-    fun setStudentAnswers(answers: Map<String, String>) {
+    fun setStudentAnswers(answers: Map<String, Any>) {
         _studentAnswers.value = answers.toMap()
     }
 
-    fun updateAnswer(key: String, value: String) {
+    fun updateAnswer(key: String, value: Any) {
         val current = _studentAnswers.value.toMutableMap()
         current[key] = value
         _studentAnswers.value = current

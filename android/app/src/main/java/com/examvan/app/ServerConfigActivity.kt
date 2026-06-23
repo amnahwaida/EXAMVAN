@@ -309,7 +309,11 @@ class ServerConfigActivity : BaseSecureActivity() {
         val builder = AlertDialog.Builder(this)
             .setView(scrollView)
             .setCancelable(false)
-        // Prevent dismissal without filling identity — student can close app entirely if needed
+            .setNegativeButton("Ganti Server") { dialog, _ ->
+                dialog.dismiss()
+            // Allow user to go back to server config if they entered wrong server details
+            }
+        // Prevent dismissal without filling identity — student can go back via "Ganti Server" button
 
         val alertDialog = builder.create()
 

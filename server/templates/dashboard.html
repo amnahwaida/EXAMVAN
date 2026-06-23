@@ -134,12 +134,12 @@
  oninput="debounceSearch(); var c=this.nextElementSibling; if(c)c.style.display=this.value?'flex':'none'">
  <button id="searchClearBtn" onclick="clearSearch()" style="display:{{ 'flex' if search else 'none' }}; position:absolute; right:4px; top:50%; transform:translateY(-50%); background:none; border:none; color:var(--text-muted); cursor:pointer; padding:4px; font-size:14px; width:24px; height:24px; align-items:center; justify-content:center;" title="Hapus pencarian" aria-label="Hapus pencarian">&#x2715;</button>
  </div>
- <button class="btn-sm btn-toggle" onclick="searchExams()" style="height: 32px; padding: 0 12px;" title="Cari ujian"><svg class="icon-svg"><use href="#hi-search"/></svg> Cari</button>
- <button class="btn-sm btn-questions" onclick="copyAllTokens()" title="Salin Semua Token" style="height: 32px;"><svg class="icon-svg"><use href="#hi-copy"/></svg> Salin Token</button>
- <button class="btn-sm btn-delete" id="bulkDeleteBtn" onclick="confirmBulkDelete()" style="display: none; height: 32px;" title="Hapus ujian terpilih">
+ <button class="btn-sm btn-toggle btn-sm-compact" onclick="searchExams()" style="padding: 0 12px;" title="Cari ujian"><svg class="icon-svg"><use href="#hi-search"/></svg> Cari</button>
+ <button class="btn-sm btn-questions btn-sm-compact" onclick="copyAllTokens()" title="Salin Semua Token"><svg class="icon-svg"><use href="#hi-copy"/></svg> Salin Token</button>
+ <button class="btn-sm btn-delete btn-sm-compact" id="bulkDeleteBtn" onclick="confirmBulkDelete()" style="display: none;" title="Hapus ujian terpilih">
  <svg class="icon-svg"><use href="#hi-trash"/></svg> Hapus Terpilih (<span id="bulkDeleteCount">0</span>)
  </button>
- <button class="btn-sm btn-toggle" id="bulkToggleBtn" onclick="bulkToggleExams()" style="display: none; height: 32px;" title="Aktifkan/nonaktifkan ujian terpilih">
+ <button class="btn-sm btn-toggle btn-sm-compact" id="bulkToggleBtn" onclick="bulkToggleExams()" style="display: none;" title="Aktifkan/nonaktifkan ujian terpilih">
  <svg class="icon-svg"><use href="#hi-lock"/></svg> Nonaktifkan Terpilih (<span id="bulkToggleCount">0</span>)
  </button>
  <button class="btn-refresh" onclick="location.reload()" aria-label="Refresh halaman" title="Muat ulang halaman"><svg class="icon-svg"><use href="#hi-refresh"/></svg> Refresh</button>
@@ -156,7 +156,7 @@
  <thead>
  <tr>
  <th scope="col" style="width: 40px; text-align: center;">
- <input type="checkbox" id="selectAllExams" onchange="toggleSelectAllExams(this)" title="Pilih Semua" style="cursor: pointer; width: 16px; height: 16px; accent-color: var(--primary);">
+ <input type="checkbox" id="selectAllExams" onchange="toggleSelectAllExams(this)" title="Pilih Semua" class="exam-checkbox-input">
  </th>
  <th scope="col" style="width: 50px; text-align: center;">No</th>
  <th scope="col">Nama Ujian</th>
@@ -175,7 +175,7 @@
  {% for exam in exams %}
  <tr id="exam-row-{{ exam.id }}">
  <td data-label="">
- <input type="checkbox" class="exam-checkbox" value="{{ exam.id }}" data-name="{{ exam.name }}" data-status="{{ exam.status }}" onchange="updateBulkActions()" style="cursor: pointer; width: 16px; height: 16px; accent-color: var(--primary);">
+ <input type="checkbox" class="exam-checkbox" value="{{ exam.id }}" data-name="{{ exam.name }}" data-status="{{ exam.status }}" onchange="updateBulkActions()" class="exam-checkbox-input">
  </td>
  <td class="td-id" data-label="No" style="text-align: center; color: var(--text-muted);">{{ loop.index }}</td>
  <td class="td-name" data-label="Ujian"><a href="{{ url_for('admin_submissions') }}?exam_id={{ exam.id }}" class="exam-link" title="Lihat Hasil Ujian">{{ exam.name }}</a></td>
@@ -184,10 +184,10 @@
  {% endif %}
  <td class="td-token" data-label="Token">
  <div class="token-group">
- <code class="token-code" id="token-{{ exam.id }}" onclick="copyToken('{{ exam.token }}')" title="Klik untuk Salin Token">{{ exam.token or '—' }}</code>
+ <code class="token-code" id="token-{{ exam.id }}" data-token="{{ exam.token }}" onclick="copyToken(this.dataset.token)" title="Klik untuk Salin Token">{{ exam.token or '—' }}</code>
  <button class="btn-icon btn-regen" onclick="regenerateToken({{ exam.id }})" title="Generate Token Baru" aria-label="Generate token baru">&#x1F504;</button>
- <button class="btn-icon btn-edit" onclick="openEditTokenModal({{ exam.id }}, '{{ exam.token }}')" title="Ubah Token Kustom" aria-label="Ubah token">&#x270F;&#xFE0F;</button>
- <button class="btn-icon btn-copy-link" onclick="copyResultsLink('{{ exam.token }}')" title="Salin Link Hasil Ujian (Siswa)" aria-label="Salin link hasil">&#x1F517;</button>
+ <button class="btn-icon btn-edit" data-exam-id="{{ exam.id }}" data-token="{{ exam.token }}" onclick="openEditTokenModal(this.dataset.examId, this.dataset.token)" title="Ubah Token Kustom" aria-label="Ubah token">&#x270F;&#xFE0F;</button>
+ <button class="btn-icon btn-copy-link" data-token="{{ exam.token }}" onclick="copyResultsLink(this.dataset.token)" title="Salin Link Hasil Ujian (Siswa)" aria-label="Salin link hasil">&#x1F517;</button>
  </div>
  </td>
  <td data-label="Ukuran">{{ "%.2f"|format(exam.size_bytes / 1048576) }} MB</td>
@@ -203,13 +203,13 @@
  <td class="td-actions" data-label="">
  <div class="actions-group">
  <!-- Primary Actions -->
- <button class="btn-sm btn-questions" onclick="openQuestionsModal({{ exam.id }}, '{{ exam.name }}')" title="Konfigurasi Soal & Kunci Jawaban" style="display: inline-flex; align-items: center; gap: 4px; height: 32px;">
+ <button class="btn-sm btn-questions btn-sm-compact" data-exam-id="{{ exam.id }}" data-exam-name="{{ exam.name }}" onclick="openQuestionsModal(this.dataset.examId, this.dataset.examName)" title="Konfigurasi Soal & Kunci Jawaban" style="gap: 4px;">
  <svg class="icon-svg"><use href="#hi-settings"/></svg> Soal
  </button>
 
  <!-- Dropdown Menu for Secondary Actions -->
  <div class="exam-action-dropdown">
- <button class="btn-sm btn-more" onclick="toggleRowDropdown(event, {{ exam.id }})" title="Menu Tindakan Lainnya" style="display: inline-flex; align-items: center; gap: 4px; height: 32px;">
+ <button class="btn-sm btn-more btn-sm-compact" onclick="toggleRowDropdown(event, {{ exam.id }})" title="Menu Tindakan Lainnya" style="gap: 4px;">
  <svg class="icon-svg"><use href="#hi-dashboard"/></svg> Menu &#x25BE;
  </button>
  <div class="exam-action-dropdown-content" id="dropdown-content-{{ exam.id }}">
@@ -219,7 +219,7 @@
  <a href="{{ url_for('admin_exam_pdf', exam_id=exam.id) }}?download=1">
  <svg class="icon-svg"><use href="#hi-download"/></svg> Download PDF
  </a>
- <button onclick="openEditExamModal({{ exam.id }}, '{{ exam.name|escape }}')">
+ <button data-exam-id="{{ exam.id }}" data-exam-name="{{ exam.name }}" onclick="openEditExamModal(this.dataset.examId, this.dataset.examName)">
  <svg class="icon-svg"><use href="#hi-edit"/></svg> Edit Nama &amp; PDF
  </button>
  <a href="{{ url_for('public_hasil', token=exam.token) }}" target="_blank">
@@ -254,15 +254,15 @@
  <div style="display: flex; justify-content: space-between; align-items: center; padding: 16px 0 0 0; flex-wrap: wrap; gap: 12px;">
  <span style="font-size: 13px; color: var(--text-muted);">Menampilkan {{ exams|length }} dari {{ total_exams }} ujian</span>
  <div style="display: flex; gap: 6px; align-items: center;">
- <a href="?page={{ page-1 }}{% if search %}&search={{ search }}{% endif %}" class="btn-sm btn-toggle page-link-main {% if page <= 1 %}disabled{% endif %}">&#x25C0; Sebelumnya</a>
+ <a href="?page={{ page-1 }}{% if search %}&search={{ search|urlencode }}{% endif %}" class="btn-sm btn-toggle page-link-main {% if page <= 1 %}disabled{% endif %}">&#x25C0; Sebelumnya</a>
 
  {% for p in range(1, total_pages + 1) %}
  {% if p >= page - 2 and p <= page + 2 %}
- <a href="?page={{ p }}{% if search %}&search={{ search }}{% endif %}" class="pagination-page-num {% if p == page %}page-current{% endif %}" style="min-height:44px;padding:10px 14px;display:inline-flex;align-items:center;">{{ p }}</a>
+ <a href="?page={{ p }}{% if search %}&search={{ search|urlencode }}{% endif %}" class="pagination-page-num {% if p == page %}page-current{% endif %}" style="min-height:44px;padding:10px 14px;display:inline-flex;align-items:center;">{{ p }}</a>
  {% endif %}
  {% endfor %}
 
- <a href="?page={{ page+1 }}{% if search %}&search={{ search }}{% endif %}" class="btn-sm btn-toggle page-link-main {% if page >= total_pages %}disabled{% endif %}">Berikutnya &#x25B6;</a>
+ <a href="?page={{ page+1 }}{% if search %}&search={{ search|urlencode }}{% endif %}" class="btn-sm btn-toggle page-link-main {% if page >= total_pages %}disabled{% endif %}">Berikutnya &#x25B6;</a>
  </div>
  </div>
  {% endif %}

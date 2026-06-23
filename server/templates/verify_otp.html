@@ -76,12 +76,12 @@
  <div class="form-group">
  <label>Kode OTP WhatsApp</label>
  <div class="otp-input-container">
- <input type="text" class="otp-input-field" maxlength="1" pattern="[0-9]" inputmode="numeric" required autofocus>
- <input type="text" class="otp-input-field" maxlength="1" pattern="[0-9]" inputmode="numeric" required>
- <input type="text" class="otp-input-field" maxlength="1" pattern="[0-9]" inputmode="numeric" required>
- <input type="text" class="otp-input-field" maxlength="1" pattern="[0-9]" inputmode="numeric" required>
- <input type="text" class="otp-input-field" maxlength="1" pattern="[0-9]" inputmode="numeric" required>
- <input type="text" class="otp-input-field" maxlength="1" pattern="[0-9]" inputmode="numeric" required>
+ <input type="text" class="otp-input-field" maxlength="1" pattern="[0-9]" inputmode="numeric" required autofocus aria-label="Digit 1">
+ <input type="text" class="otp-input-field" maxlength="1" pattern="[0-9]" inputmode="numeric" required aria-label="Digit 2">
+ <input type="text" class="otp-input-field" maxlength="1" pattern="[0-9]" inputmode="numeric" required aria-label="Digit 3">
+ <input type="text" class="otp-input-field" maxlength="1" pattern="[0-9]" inputmode="numeric" required aria-label="Digit 4">
+ <input type="text" class="otp-input-field" maxlength="1" pattern="[0-9]" inputmode="numeric" required aria-label="Digit 5">
+ <input type="text" class="otp-input-field" maxlength="1" pattern="[0-9]" inputmode="numeric" required aria-label="Digit 6">
  </div>
  <input type="hidden" name="otp" id="realOtp">
  </div>
@@ -119,13 +119,13 @@
  
  field.addEventListener('paste', (e) => {
  const pasteData = e.clipboardData.getData('text');
- if (pasteData.length === 6 && /^\d+$/.test(pasteData)) {
- fields.forEach((f, i) => {
- f.value = pasteData[i];
- });
- combineOtp();
- fields[5].focus();
+ /* Strip non-digit characters (handles spaces, dashes, etc.) */
+ const cleanData = pasteData.replace(/\D/g, '').substring(0, 6);
+ for (var i = 0; i < cleanData.length && i < fields.length; i++) {
+ fields[i].value = cleanData[i];
  }
+ combineOtp();
+ if (cleanData.length === 6) fields[5].focus();
  e.preventDefault();
  });
  });
@@ -175,15 +175,15 @@
  resendBtn.disabled = true;
  resendBtn.textContent = 'Mengirim...';
  
- const formData = new FormData();
- formData.append('username', '{{ username }}');
+ const params = new URLSearchParams();
+ params.append('username', '{{ username }}');
 
  const csrfMeta = document.querySelector('meta[name="csrf-token"]');
  const csrfToken = csrfMeta ? csrfMeta.getAttribute('content') : '';
  fetch('/resend-otp', {
  method: 'POST',
- headers: { 'X-CSRF-Token': csrfToken },
- body: formData
+ headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'X-CSRF-Token': csrfToken },
+ body: params
  })
  .then(r => r.json())
  .then(res => {

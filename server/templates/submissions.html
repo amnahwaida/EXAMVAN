@@ -82,17 +82,17 @@
  {% if sub.score is not none %}
  <div style="display: flex; flex-direction: column; align-items: center; gap: 4px;">
  <span style="font-size: 16px; font-weight: 800;
- {% if score_pct is not none and score_pct >= 80 %}color: #34d399;
- {% elif score_pct is not none and score_pct >= 60 %}color: #fbbf24;
- {% else %}color: #f87171;{% endif %}">
+ {% if score_pct is not none and score_pct >= 80 %}color: var(--success);
+ {% elif score_pct is not none and score_pct >= 60 %}color: var(--warning);
+ {% else %}color: var(--danger);{% endif %}">
  {{ sub.score }}
  </span>
  {% if score_pct is not none %}
  <div style="width: 50px; height: 3px; background: rgba(255,255,255,0.06); border-radius: 2px; overflow: hidden;">
  <div style="height: 100%; width: {{ score_pct|int }}%; border-radius: 2px;
- {% if score_pct >= 80 %}background: #34d399;
- {% elif score_pct >= 60 %}background: #fbbf24;
- {% else %}background: #f87171;{% endif %}">
+ {% if score_pct >= 80 %}background: var(--success);
+ {% elif score_pct >= 60 %}background: var(--warning);
+ {% else %}background: var(--danger);{% endif %}">
  </div>
  </div>
  {% endif %}
@@ -133,17 +133,17 @@
  <div class="pagination-wrapper">
  <span class="pagination-info">{{ submissions|length }} dari {{ total_submissions }} hasil</span>
  <div class="pagination-links">
- <a href="?page={{ page-1 }}{% if exam_filter_param %}&exam_id={{ exam_filter_param }}{% endif %}"
+ <a href="?page={{ page-1 }}{% if exam_filter_param %}&exam_id={{ exam_filter_param|urlencode }}{% endif %}"
  class="btn-sm btn-toggle page-link-main {% if page <= 1 %}disabled{% endif %}">◀ Sebelumnya</a>
 
  {% for p in range(1, total_pages + 1) %}
  {% if p >= page - 2 and p <= page + 2 %}
- <a href="?page={{ p }}{% if exam_filter_param %}&exam_id={{ exam_filter_param }}{% endif %}"
+ <a href="?page={{ p }}{% if exam_filter_param %}&exam_id={{ exam_filter_param|urlencode }}{% endif %}"
  class="pagination-page-num {% if p == page %}page-current{% endif %}">{{ p }}</a>
  {% endif %}
  {% endfor %}
 
- <a href="?page={{ page+1 }}{% if exam_filter_param %}&exam_id={{ exam_filter_param }}{% endif %}"
+ <a href="?page={{ page+1 }}{% if exam_filter_param %}&exam_id={{ exam_filter_param|urlencode }}{% endif %}"
  class="btn-sm btn-toggle page-link-main {% if page >= total_pages %}disabled{% endif %}">Berikutnya ▶</a>
  </div>
  </div>

@@ -34,6 +34,15 @@
             android:layout_height="wrap_content"
             android:textSize="12sp"
             android:textColor="@color/text_muted" />
+
+        <ImageButton
+            android:id="@+id/btnChangeServer"
+            android:layout_width="40dp"
+            android:layout_height="40dp"
+            android:src="@android:drawable/ic_menu_manage"
+            android:background="?attr/selectableItemBackgroundBorderless"
+            android:contentDescription="Ganti Server"
+            android:layout_marginStart="8dp" />
     </LinearLayout>
 
     <!-- SwipeRefresh + RecyclerView -->
