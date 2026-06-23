@@ -636,7 +636,18 @@ body {
     /* Bulk buttons */
     #bulkDeleteBtn, #bulkToggleBtn { font-size: 11px !important; padding: 6px 10px !important; }
 
+    /* Users Layout: stack on mobile */
+    .users-layout { grid-template-columns: 1fr; }
+
     /* --- Exam Table: Card Layout --- */
+    .exam-table thead { display: none; }
+    .exam-table,
+    .exam-table tbody,
+    .exam-table tr,
+    .exam-table td {
+        display: block;
+        width: 100%;
+    }
     .exam-table tbody tr {
         background: rgba(255, 255, 255, 0.02);
         border: 1px solid rgba(255, 255, 255, 0.06);
