@@ -1,1 +1,11 @@
+# Keystore files — NEVER commit these
 release.keystore
+debug.keystore
+*.keystore
+*.jks
+*.p12
+
+# Generated build files
+build/
+.gradle/
+local.properties

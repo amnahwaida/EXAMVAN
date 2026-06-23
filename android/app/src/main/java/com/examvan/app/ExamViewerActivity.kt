@@ -731,13 +731,11 @@ class ExamViewerActivity : AppCompatActivity() {
 
     override fun onPause() {
         super.onPause()
-        if (submittedOrExited) return
-        if (!isPdfReady) return  // Don't auto-submit while PDF is still downloading
-        if (System.currentTimeMillis() - onCreateTime < 3000) return  // 3s grace for system overlays
-
-        if (securityLevel == "medium") {
-            autoSubmitAndExit()
-        }
+        // NOTE: onPause() fires for many non-exit scenarios (system dialogs, notification shade,
+        // multi-window, screen off), so we do NOT auto-submit here to avoid false positives.
+        // Auto-submit on user-initiated exit is handled in onUserLeaveHint() below.
+        // For securityLevel "high" / strictMode, the Lock Task (screen pinning) prevents
+        // the user from leaving the app entirely — they must submit to exit.
     }
 
     override fun onUserLeaveHint() {
@@ -746,6 +744,9 @@ class ExamViewerActivity : AppCompatActivity() {
         if (!isPdfReady) return
         if (System.currentTimeMillis() - onCreateTime < 3000) return
 
+        // onUserLeaveHint() fires ONLY when the user intentionally navigates away
+        // (Home button, Recent Apps, or a new Activity starting).
+        // This is the correct signal for auto-submit on securityLevel "medium".
         if (securityLevel == "medium") {
             autoSubmitAndExit()
         }

@@ -18,11 +18,18 @@ import com.examvan.app.BuildConfig
  * Configured with extended timeouts for slow LAN connections.
  *
  * SECURITY NOTE: OkHttp defaults trust all system CAs. No certificate pinning.
- * For production over WAN, consider adding a CertificatePinner:
+ * For production over WAN (cloud/HTTPS deployment), ADD certificate pinning:
+ *
  *   val pinner = CertificatePinner.Builder()
- *       .add("yourdomain.com", "sha256/...")
+ *       .add("yourdomain.com", "sha256/AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=")
  *       .build()
- * And enforce HTTPS in ServerConfigActivity.
+ *   .certificatePinner(pinner)
+ *
+ * And enforce HTTPS-only URLs in ServerConfigActivity by rejecting http:// URLs
+ * when not on a local network.
+ *
+ * TODO: Add runtime check — if server URL is HTTPS (not LAN IP), enable pinning
+ *       using the server's provided certificate fingerprint from /api/health.
  */
 object ApiClient {
 

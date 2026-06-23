@@ -6,6 +6,11 @@ app/build/
 .idea/
 local.properties
 
+# Keystore files — NEVER commit these
+*.keystore
+*.jks
+*.p12
+
 # Python/Flask files
 __pycache__/
 *.pyc
