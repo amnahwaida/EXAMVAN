@@ -263,11 +263,8 @@ function openQuestionsModal(examId, examName) {
                 if (secSelect) {
                     secSelect.value = res.security_level || 'medium';
                 }
-                const strictCheck = document.getElementById('examStrictMode');
-                if (strictCheck) {
-                    strictCheck.checked = res.strict_mode === true;
-                }
                 renderQuestions(res.questions);
+                renderIdentityFields(res.identity_fields || []);
             } else {
                 showToast(res.message || 'Gagal memuat soal', 'error');
             }
@@ -589,6 +586,67 @@ function renderQuestions(questions) {
     });
 }
 
+// ===== Identity Fields Management =====
+const DEFAULT_IDENTITY_FIELDS = [
+    { key: 'student_name', label: 'Nama Siswa', required: true },
+    { key: 'exam_number', label: 'Nomor Ujian', required: true },
+    { key: 'student_class', label: 'Kelas', required: true }
+];
+
+function renderIdentityFields(fields) {
+    const container = document.getElementById('identityFieldsList');
+    container.innerHTML = '';
+
+    if (!fields || fields.length === 0) {
+        fields = JSON.parse(JSON.stringify(DEFAULT_IDENTITY_FIELDS));
+    }
+
+    fields.forEach(function(field, index) {
+        addIdentityFieldRow(container, field, index);
+    });
+}
+
+function addIdentityFieldRow(container, field, index) {
+    const row = document.createElement('div');
+    row.className = 'identity-field-row';
+    row.style.cssText = 'display:flex;align-items:center;gap:8px;margin-bottom:6px;padding:6px 8px;background:rgba(255,255,255,0.03);border:1px solid var(--glass-border);border-radius:8px;';
+
+    row.innerHTML = `
+        <span style="font-size:11px;color:var(--text-muted);min-width:18px;">${index + 1}</span>
+        <input type="text" class="ifield-key" value="${escapeHtml(field.key)}" placeholder="key_name" title="Key (huruf kecil, tanpa spasi)"
+            style="flex:0 0 130px;padding:6px 8px;background:rgba(255,255,255,0.04);border:1px solid var(--glass-border);border-radius:6px;color:var(--text);font-size:12px;font-family:monospace;outline:none;">
+        <input type="text" class="ifield-label" value="${escapeHtml(field.label || '')}" placeholder="Label tampilan" title="Label yang dilihat siswa"
+            style="flex:1;padding:6px 8px;background:rgba(255,255,255,0.04);border:1px solid var(--glass-border);border-radius:6px;color:var(--text);font-size:12px;outline:none;">
+        <label style="display:flex;align-items:center;gap:4px;font-size:11px;color:var(--text-muted);cursor:pointer;white-space:nowrap;">
+            <input type="checkbox" class="ifield-required" ${field.required ? 'checked' : ''} style="width:14px;height:14px;accent-color:var(--primary);cursor:pointer;"> *
+        </label>
+        <button class="btn-icon" onclick="this.closest('.identity-field-row').remove()" title="Hapus field" style="background:none;border:none;color:#f87171;cursor:pointer;padding:2px 4px;font-size:14px;">&#x2715;</button>
+    `;
+
+    container.appendChild(row);
+}
+
+function addIdentityField() {
+    const container = document.getElementById('identityFieldsList');
+    const count = container.children.length;
+    const field = { key: 'field_' + (count + 1), label: 'Field ' + (count + 1), required: false };
+    addIdentityFieldRow(container, field, count);
+}
+
+function getIdentityFieldsFromEditor() {
+    const rows = document.querySelectorAll('#identityFieldsList .identity-field-row');
+    const fields = [];
+    rows.forEach(function(row) {
+        const key = row.querySelector('.ifield-key').value.trim();
+        const label = row.querySelector('.ifield-label').value.trim();
+        const required = row.querySelector('.ifield-required').checked;
+        if (key) {
+            fields.push({ key: key, label: label || key, required: required });
+        }
+    });
+    return fields.length > 0 ? fields : JSON.parse(JSON.stringify(DEFAULT_IDENTITY_FIELDS));
+}
+
 function onQuestionTypeChange(selectEl) {
     const card = selectEl.closest('.question-editor-card');
     const optionsInput = card.querySelector('.q-options-input');
@@ -784,12 +842,14 @@ function saveQuestionsConfig() {
 
     const questions = getQuestionsFromEditor();
     const securityLevel = document.getElementById('examSecurityLevel') ? document.getElementById('examSecurityLevel').value : 'medium';
-    const strictMode = document.getElementById('examStrictMode') ? document.getElementById('examStrictMode').checked : false;
+    const strictMode = securityLevel === 'high';
+
+    const identityFields = getIdentityFieldsFromEditor();
 
     apiFetch(`/admin/api/exams/${activeExamId}/questions`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ questions: questions, security_level: securityLevel, strict_mode: strictMode })
+        body: JSON.stringify({ questions: questions, security_level: securityLevel, strict_mode: strictMode, identity_fields: identityFields })
     })
         .then(r => r.json())
         .then(res => {
