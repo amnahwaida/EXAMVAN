@@ -15,6 +15,8 @@ import android.widget.TextView
 import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.content.ContextCompat
+import androidx.security.crypto.EncryptedSharedPreferences
+import androidx.security.crypto.MasterKey
 import com.examvan.app.api.ApiClient
 import com.examvan.app.databinding.ActivityServerConfigBinding
 import com.examvan.app.model.Exam
@@ -33,6 +35,12 @@ class ServerConfigActivity : AppCompatActivity() {
 
     private lateinit var binding: ActivityServerConfigBinding
     private lateinit var prefs: SharedPreferences
+
+    private val masterKey by lazy {
+        MasterKey.Builder(this@ServerConfigActivity)
+            .setKeyScheme(MasterKey.KeyScheme.AES256_GCM)
+            .build()
+    }
 
     companion object {
         const val PREFS_NAME = "app_config"
@@ -56,7 +64,13 @@ class ServerConfigActivity : AppCompatActivity() {
         binding = ActivityServerConfigBinding.inflate(layoutInflater)
         setContentView(binding.root)
 
-        prefs = getSharedPreferences(PREFS_NAME, MODE_PRIVATE)
+        prefs = EncryptedSharedPreferences.create(
+            this,
+            PREFS_NAME + "_encrypted",
+            masterKey,
+            EncryptedSharedPreferences.PrefKeyEncryptionScheme.AES256_SIV,
+            EncryptedSharedPreferences.PrefValueEncryptionScheme.AES256_GCM
+        )
 
         // Check if URL and Token were previously saved
         val rememberUrl = prefs.getBoolean(KEY_REMEMBER_URL, true)
@@ -74,7 +88,7 @@ class ServerConfigActivity : AppCompatActivity() {
         binding.btnConnect.setOnClickListener {
             var url = binding.etServerUrl.text.toString().trim()
             val token = binding.etToken.text.toString().trim().uppercase()
-            
+
             if (url.isNotEmpty() && !url.startsWith("http://") && !url.startsWith("https://")) {
                 url = "https://$url"
                 binding.etServerUrl.setText(url)
@@ -329,7 +343,13 @@ class ServerConfigActivity : AppCompatActivity() {
             val questionsJson = com.google.gson.Gson().toJson(exam.questions ?: emptyList<Any>())
             val securityLevel = exam.security_level ?: "medium"
             val strictMode = exam.strict_mode ?: false
-            getSharedPreferences("exam_questions", MODE_PRIVATE)
+            EncryptedSharedPreferences.create(
+                this,
+                "exam_questions_encrypted",
+                masterKey,
+                EncryptedSharedPreferences.PrefKeyEncryptionScheme.AES256_SIV,
+                EncryptedSharedPreferences.PrefValueEncryptionScheme.AES256_GCM
+            )
                 .edit()
                 .putString("questions_json", questionsJson)
                 .putString("security_level", securityLevel)
@@ -347,11 +367,17 @@ class ServerConfigActivity : AppCompatActivity() {
     }
 
     private fun startExamViewer(examId: Int, examName: String, serverUrl: String, name: String, number: String, studentClass: String, identityData: String = "{}") {
-        val strictMode = getSharedPreferences("exam_questions", MODE_PRIVATE)
+        val strictMode = EncryptedSharedPreferences.create(
+            this,
+            "exam_questions_encrypted",
+            masterKey,
+            EncryptedSharedPreferences.PrefKeyEncryptionScheme.AES256_SIV,
+            EncryptedSharedPreferences.PrefValueEncryptionScheme.AES256_GCM
+        )
             .getBoolean("strict_mode", false)
         val intent = Intent(this@ServerConfigActivity, ExamViewerActivity::class.java).apply {
             putExtra("exam_id", examId)
-            putExtra("exam_token", getSharedPreferences(PREFS_NAME, MODE_PRIVATE).getString(KEY_EXAM_TOKEN, "") ?: "")
+            putExtra("exam_token", prefs.getString(KEY_EXAM_TOKEN, "") ?: "")
             putExtra("exam_name", examName)
             putExtra("server_url", serverUrl)
             putExtra("student_name", name)

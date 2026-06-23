@@ -11,6 +11,7 @@ import java.io.FileOutputStream
 import java.io.IOException
 import java.util.concurrent.TimeUnit
 
+import okhttp3.CertificatePinner
 import com.examvan.app.BuildConfig
 
 /**
@@ -35,7 +36,7 @@ object ApiClient {
 
     private val gson = Gson()
 
-    private val client = OkHttpClient.Builder()
+    private var client = OkHttpClient.Builder()
         .connectTimeout(15, TimeUnit.SECONDS)
         .readTimeout(60, TimeUnit.SECONDS)
         .writeTimeout(30, TimeUnit.SECONDS)
@@ -47,6 +48,8 @@ object ApiClient {
             chain.proceed(request)
         }
         .build()
+
+    private var certificateFingerprint: String? = null
 
     private var baseUrl: String = ""
 
@@ -82,6 +85,16 @@ object ApiClient {
                     try {
                         val body = it.body?.string() ?: ""
                         val health = gson.fromJson(body, HealthResponse::class.java)
+
+                        // Dynamic certificate pinning: if server provides a fingerprint and we're on HTTPS,
+                        // rebuild the client with certificate pinning
+                        if (health.certificate_fingerprint != null && baseUrl.startsWith("https://")) {
+                            if (certificateFingerprint != health.certificate_fingerprint) {
+                                certificateFingerprint = health.certificate_fingerprint
+                                rebuildClientWithPinning(health.certificate_fingerprint)
+                            }
+                        }
+
                         onSuccess(health)
                     } catch (e: Exception) {
                         onError("Response tidak valid")
@@ -89,6 +102,39 @@ object ApiClient {
                 }
             }
         })
+    }
+
+    /**
+     * Rebuild the HTTP client with certificate pinning for the given server fingerprint.
+     * Only called when the server provides a certificate_fingerprint via /api/health
+     * and the current connection uses HTTPS.
+     */
+    private fun rebuildClientWithPinning(fingerprint: String) {
+        val hostname = try {
+            java.net.URI(baseUrl).host
+        } catch (e: Exception) { null }
+        if (hostname == null) return
+
+        val builder = OkHttpClient.Builder()
+            .connectTimeout(15, TimeUnit.SECONDS)
+            .readTimeout(60, TimeUnit.SECONDS)
+            .writeTimeout(30, TimeUnit.SECONDS)
+            .addInterceptor { chain ->
+                val original = chain.request()
+                val request = original.newBuilder()
+                    .header("X-App-Version", BuildConfig.VERSION_NAME)
+                    .build()
+                chain.proceed(request)
+            }
+
+        // Add certificate pinning for the server hostname
+        builder.certificatePinner(
+            CertificatePinner.Builder()
+                .add(hostname, fingerprint)
+                .build()
+        )
+
+        client = builder.build()
     }
 
     /**

@@ -153,7 +153,8 @@ def init_db():
         'default_max_drafts': '2',
         'default_max_draft_size': '1048576',
         'android_version': '2.1.9',
-        'webapp_version': '2.1.9'
+        'webapp_version': '2.1.9',
+        'certificate_fingerprint': ''
     }
     for k, v in default_settings.items():
         existing_setting = db.execute('SELECT value FROM saas_settings WHERE key = ?', (k,)).fetchone()

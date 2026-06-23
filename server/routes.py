@@ -91,7 +91,8 @@ def api_health():
         'required_app_version': required_version,
         'lan_mode': True,
         'timestamp': now.isoformat(),
-        'server_time_utc': now.strftime('%Y-%m-%dT%H:%M:%SZ')
+        'server_time_utc': now.strftime('%Y-%m-%dT%H:%M:%SZ'),
+        'certificate_fingerprint': get_saas_setting('certificate_fingerprint', '') or None
     })
 
 
@@ -1517,7 +1518,9 @@ def admin_saas_settings():
         set_saas_setting('default_active_days', str(default_active_days))
         set_saas_setting('android_version', android_version)
         set_saas_setting('webapp_version', webapp_version)
-        
+        cert_fingerprint = data.get('certificate_fingerprint', '').strip()
+        set_saas_setting('certificate_fingerprint', cert_fingerprint)
+
         return jsonify({'success': True, 'message': 'Pengaturan SaaS berhasil diperbarui'})
         
     # GET settings
@@ -1531,7 +1534,8 @@ def admin_saas_settings():
         'default_max_draft_size_mb': round(int(get_saas_setting('default_max_draft_size', '1048576')) / (1024*1024), 2),
         'default_active_days': int(get_saas_setting('default_active_days', '1')),
         'android_version': get_saas_setting('android_version', '2.1.9'),
-        'webapp_version': get_saas_setting('webapp_version', '2.1.9')
+        'webapp_version': get_saas_setting('webapp_version', '2.1.9'),
+        'certificate_fingerprint': get_saas_setting('certificate_fingerprint', '')
     }
     return jsonify({'success': True, 'settings': settings})
 
@@ -1833,7 +1837,7 @@ def admin_export_submission_detail(submission_id):
     cw.writerow(['Nilai Akhir', sub['score'] if sub['score'] is not None else 'Belum Dinilai'])
     cw.writerow(['Waktu Mulai', localize_date_string(sub['start_time'], tz_offset) if sub['start_time'] else '—'])
     cw.writerow(['Waktu Kumpul', localize_date_string(sub['created_at'], tz_offset)])
-    cw.writerow(['MAC Address / ID Perangkat', _csv_safe(sub['mac_address'] or '—')])
+    cw.writerow(['ID Perangkat', _csv_safe(sub['mac_address'] or '—')])
     cw.writerow([])
     cw.writerow(['No. Soal', 'Tipe Soal', 'Bobot Maks', 'Jawaban Siswa', 'Kunci Jawaban', 'Status', 'Poin Didapat'])
     
@@ -1952,7 +1956,7 @@ def admin_export_submissions():
         # CSV fallback for specific exam
         si = io.StringIO()
         cw = csv.writer(si)
-        cw.writerow(['ID', 'Nama Ujian', 'Nama Siswa', 'Nomor Ujian', 'Kelas', 'Nilai', 'Waktu Mulai', 'Waktu Kumpul', 'MAC/ID Perangkat'])
+        cw.writerow(['ID', 'Nama Ujian', 'Nama Siswa', 'Nomor Ujian', 'Kelas', 'Nilai', 'Waktu Mulai', 'Waktu Kumpul', 'ID Perangkat'])
         for row in submissions:
             cw.writerow([
                 row['id'], _csv_safe(exam['name']), _csv_safe(row['student_name']), _csv_safe(row['exam_number']),
@@ -1988,7 +1992,7 @@ def admin_export_submissions():
 
     si = io.StringIO()
     cw = csv.writer(si)
-    cw.writerow(['ID', 'Nama Ujian', 'Nama Siswa', 'Nomor Ujian', 'Kelas', 'Nilai', 'Waktu Mulai', 'Waktu Kumpul', 'MAC/ID Perangkat'])
+    cw.writerow(['ID', 'Nama Ujian', 'Nama Siswa', 'Nomor Ujian', 'Kelas', 'Nilai', 'Waktu Mulai', 'Waktu Kumpul', 'ID Perangkat'])
 
     for row in all_submissions:
         cw.writerow([
@@ -2013,31 +2017,69 @@ def _sanitize_xlsx(value):
     return value
 
 
-def _generate_exam_xlsx(exam, submissions, questions, tz_offset=None):
-    """Generate a professionally styled multi-sheet Excel workbook for a specific exam."""
-    from openpyxl import Workbook
-    from openpyxl.styles import Font, Alignment, PatternFill, Border, Side
+def _sanitize_sheet_name(name):
+    """Sanitize sheet name for Excel (max 31 chars, no invalid chars)."""
+    for ch in ['\\', '/', '?', '*', ':', '[', ']']:
+        name = name.replace(ch, '')
+    return name[:31] if name else 'Sheet'
+
+
+def _set_column_widths(ws, widths):
+    """Set column widths for a worksheet using an ordered list of widths."""
     from openpyxl.utils import get_column_letter
+    for idx, w in enumerate(widths, 1):
+        ws.column_dimensions[get_column_letter(idx)].width = w
 
-    wb = Workbook()
 
-    # ── Colour palette ──
-    NAVY = '1e3a8a'
-    WHITE = 'ffffff'
-    LIGHT_BLUE = 'dbeafe'
-    GREEN_BG = 'd1fae5'
-    GREEN_FG = '065f46'
-    RED_BG = 'fee2e2'
-    RED_FG = '991b1b'
-    YELLOW_BG = 'fef3c7'
-    YELLOW_FG = '92400e'
-    GRAY_BG = 'f3f4f6'
-    GRAY_FG = '374151'
+def _excel_status_color(cell, status_text):
+    """Apply color formatting to a status cell based on evaluation text (Benar/Salah/Parsial)."""
+    from openpyxl.styles import Font, PatternFill
+    if 'Benar' in status_text:
+        cell.fill = PatternFill(start_color='d1fae5', end_color='d1fae5', fill_type='solid')
+        cell.font = Font(color='065f46', bold=True)
+    elif 'Parsial' in status_text:
+        cell.fill = PatternFill(start_color='fef3c7', end_color='fef3c7', fill_type='solid')
+        cell.font = Font(color='92400e', bold=True)
+    elif 'Salah' in status_text:
+        cell.fill = PatternFill(start_color='fee2e2', end_color='fee2e2', fill_type='solid')
+        cell.font = Font(color='991b1b', bold=True)
+    else:
+        cell.fill = PatternFill(start_color='f3f4f6', end_color='f3f4f6', fill_type='solid')
+        cell.font = Font(color='374151')
 
-    # ── Reusable styles ──
-    header_font = Font(bold=True, color=WHITE, size=11)
-    header_fill = PatternFill(start_color=NAVY, end_color=NAVY, fill_type='solid')
-    header_align = Alignment(horizontal='center', vertical='center', wrap_text=True)
+
+def _build_question_detail_row(ws, row_num, q_num, q, student_answers, evaluation):
+    """Build a single question detail row. Returns (q_weight, earned) tuple."""
+    from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
+
+    q_weight = float(q.get('weight', 1.0))
+    eval_info = evaluation.get(q_num, {})
+    earned = eval_info.get('earned', 0.0)
+    status_text = eval_info.get('statusText', 'Belum Dijawab')
+
+    student_ans = student_answers.get(q_num)
+    correct_ans = q.get('key')
+
+    def _fmt(val):
+        if val is None:
+            return '—'
+        if isinstance(val, list):
+            return ', '.join(str(x) for x in val)
+        if isinstance(val, dict):
+            return ', '.join(f'{k} ➔ {v}' for k, v in val.items())
+        return str(val)
+
+    student_display = _fmt(student_ans) if student_ans is not None and student_ans != '' else '—'
+    key_display = _fmt(correct_ans)
+
+    type_labels = {
+        'single_choice': 'Pilihan Ganda',
+        'multiple_choice': 'PG Kompleks',
+        'true_false': 'Benar / Salah',
+        'matching': 'Menjodohkan',
+        'short_answer': 'Isian Singkat',
+    }
+
     thin_border = Border(
         left=Side(style='thin', color='d1d5db'),
         right=Side(style='thin', color='d1d5db'),
@@ -2046,11 +2088,58 @@ def _generate_exam_xlsx(exam, submissions, questions, tz_offset=None):
     )
     center_align = Alignment(horizontal='center', vertical='center')
     left_align = Alignment(horizontal='left', vertical='center', wrap_text=True)
+
+    row_values = [
+        q['number'],
+        type_labels.get(q['type'], q['type']),
+        q_weight,
+        student_display,
+        key_display,
+        status_text,
+        round(earned, 2),
+    ]
+    for col_idx, val in enumerate(row_values, 1):
+        cell = ws.cell(row=row_num, column=col_idx)
+        cell.border = thin_border
+        cell.alignment = center_align if col_idx in [1, 3, 6, 7] else left_align
+        cell.value = val
+        if col_idx == 6:
+            _excel_status_color(cell, str(val))
+
+    return q_weight, earned
+
+
+def _build_exam_summary_sheet(ws, exam, submissions, tz_offset):
+    """Build Sheet 1: Ringkasan Hasil — title, metadata, and student summary table."""
+    from openpyxl.styles import Font, Alignment, PatternFill, Border, Side
+    from openpyxl.utils import get_column_letter
+    from datetime import datetime, timezone
+
+    NAVY = '1e3a8a'
+    GREEN_BG = 'd1fae5'
+    GREEN_FG = '065f46'
+    GRAY_BG = 'f3f4f6'
+    GRAY_FG = '374151'
+
+    ws.title = 'Ringkasan Hasil'
+    ws.sheet_properties.tabColor = NAVY
+
+    thin_border = Border(
+        left=Side(style='thin', color='d1d5db'),
+        right=Side(style='thin', color='d1d5db'),
+        top=Side(style='thin', color='d1d5db'),
+        bottom=Side(style='thin', color='d1d5db'),
+    )
     title_font = Font(bold=True, size=14, color=NAVY)
     meta_label_font = Font(bold=True, size=11)
     meta_value_font = Font(size=11)
+    header_font = Font(bold=True, color='ffffff', size=11)
+    header_fill = PatternFill(start_color=NAVY, end_color=NAVY, fill_type='solid')
+    header_align = Alignment(horizontal='center', vertical='center', wrap_text=True)
+    center_align = Alignment(horizontal='center', vertical='center')
+    left_align = Alignment(horizontal='left', vertical='center', wrap_text=True)
 
-    def style_header_row(ws, row, col_count):
+    def _style_header_row(ws, row, col_count):
         for col_idx in range(1, col_count + 1):
             cell = ws.cell(row=row, column=col_idx)
             cell.font = header_font
@@ -2058,28 +2147,15 @@ def _generate_exam_xlsx(exam, submissions, questions, tz_offset=None):
             cell.alignment = header_align
             cell.border = thin_border
 
-    def style_data_cell(ws, row, col, align='center'):
+    def _style_data_cell(ws, row, col, align='center'):
         cell = ws.cell(row=row, column=col)
         cell.border = thin_border
         cell.alignment = center_align if align == 'center' else left_align
         return cell
 
-    def _sanitize_sheet_name(name):
-        """Sanitize sheet name for Excel (max 31 chars, no invalid chars)."""
-        for ch in ['\\', '/', '?', '*', ':', '[', ']']:
-            name = name.replace(ch, '')
-        return name[:31] if name else 'Sheet'
-
-    # ══════════════════════════════════════════════
-    # SHEET 1: RINGKASAN HASIL
-    # ══════════════════════════════════════════════
-    ws_summary = wb.active
-    ws_summary.title = 'Ringkasan Hasil'
-    ws_summary.sheet_properties.tabColor = NAVY
-
     # Title
-    ws_summary.merge_cells('A1:G1')
-    title_cell = ws_summary['A1']
+    ws.merge_cells('A1:G1')
+    title_cell = ws['A1']
     title_cell.value = f'RINGKASAN HASIL UJIAN — {exam["name"]}'
     title_cell.font = title_font
     title_cell.alignment = Alignment(horizontal='left', vertical='center')
@@ -2091,15 +2167,15 @@ def _generate_exam_xlsx(exam, submissions, questions, tz_offset=None):
         ('Tanggal Export:', localize_date_string(datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S'), tz_offset)),
     ]
     for i, (label, value) in enumerate(meta_data):
-        ws_summary.cell(row=3 + i, column=1, value=label).font = meta_label_font
-        ws_summary.cell(row=3 + i, column=2, value=value).font = meta_value_font
+        ws.cell(row=3 + i, column=1, value=label).font = meta_label_font
+        ws.cell(row=3 + i, column=2, value=value).font = meta_value_font
 
     # Summary table header
-    summary_headers = ['No.', 'Nomor Ujian', 'Nama Siswa', 'Kelas', 'Nilai Akhir', 'Status', 'Waktu Mulai', 'Waktu Pengumpulan', 'MAC/ID Perangkat']
+    summary_headers = ['No.', 'Nomor Ujian', 'Nama Siswa', 'Kelas', 'Nilai Akhir', 'Status', 'Waktu Mulai', 'Waktu Pengumpulan', 'ID Perangkat']
     header_row = 7
     for col_idx, h in enumerate(summary_headers, 1):
-        ws_summary.cell(row=header_row, column=col_idx, value=h)
-    style_header_row(ws_summary, header_row, len(summary_headers))
+        ws.cell(row=header_row, column=col_idx, value=h)
+    _style_header_row(ws, header_row, len(summary_headers))
 
     # Summary table data
     for i, sub in enumerate(submissions):
@@ -2115,7 +2191,7 @@ def _generate_exam_xlsx(exam, submissions, questions, tz_offset=None):
                   localize_date_string(sub['created_at'], tz_offset),
                   _sanitize_xlsx(sub['mac_address'] or '—')]
         for col_idx, val in enumerate(values, 1):
-            cell = style_data_cell(ws_summary, row_num, col_idx,
+            cell = _style_data_cell(ws, row_num, col_idx,
                                    'center' if col_idx in [1, 4, 5, 6] else 'left')
             cell.value = val
 
@@ -2132,165 +2208,153 @@ def _generate_exam_xlsx(exam, submissions, questions, tz_offset=None):
 
     # Auto-width columns
     for col_idx in range(1, len(summary_headers) + 1):
-        ws_summary.column_dimensions[get_column_letter(col_idx)].width = \
+        ws.column_dimensions[get_column_letter(col_idx)].width = \
             max(14, len(summary_headers[col_idx - 1]) + 6)
-    ws_summary.column_dimensions['C'].width = 28
-    ws_summary.column_dimensions['G'].width = 22
-    ws_summary.column_dimensions['H'].width = 22
-    ws_summary.column_dimensions['I'].width = 24
+    ws.column_dimensions['C'].width = 28
+    ws.column_dimensions['G'].width = 22
+    ws.column_dimensions['H'].width = 22
+    ws.column_dimensions['I'].width = 24
 
-    # ══════════════════════════════════════════════
-    # PER-STUDENT SHEETS
-    # ══════════════════════════════════════════════
+
+def _build_student_detail_sheet(wb, sub, questions, tz_offset, used_names):
+    """Build a per-student detail sheet with info header and question-by-question results."""
+    from openpyxl.styles import Font, Alignment, PatternFill, Border, Side
+    from openpyxl.utils import get_column_letter
+
+    NAVY = '1e3a8a'
+    LIGHT_BLUE = 'dbeafe'
+
+    # Build unique sheet name
+    base_name = f"{sub['exam_number']} {sub['student_name']}"
+    sheet_name = _sanitize_sheet_name(base_name)
+    if sheet_name in used_names:
+        counter = 2
+        while f"{sheet_name[:28]}_{counter}" in used_names:
+            counter += 1
+        sheet_name = f"{sheet_name[:28]}_{counter}"
+    used_names.add(sheet_name)
+
+    ws = wb.create_sheet(title=sheet_name)
+
+    thin_border = Border(
+        left=Side(style='thin', color='d1d5db'),
+        right=Side(style='thin', color='d1d5db'),
+        top=Side(style='thin', color='d1d5db'),
+        bottom=Side(style='thin', color='d1d5db'),
+    )
+    title_font = Font(bold=True, size=14, color=NAVY)
+    meta_label_font = Font(bold=True, size=11)
+    meta_value_font = Font(size=11)
+    header_font = Font(bold=True, color='ffffff', size=11)
+    header_fill = PatternFill(start_color=NAVY, end_color=NAVY, fill_type='solid')
+    header_align = Alignment(horizontal='center', vertical='center', wrap_text=True)
+    center_align = Alignment(horizontal='center', vertical='center')
+    left_align = Alignment(horizontal='left', vertical='center', wrap_text=True)
+
+    def _style_header_row(ws, row, col_count):
+        for col_idx in range(1, col_count + 1):
+            cell = ws.cell(row=row, column=col_idx)
+            cell.font = header_font
+            cell.fill = header_fill
+            cell.alignment = header_align
+            cell.border = thin_border
+
+    def _style_data_cell(ws, row, col, align='center'):
+        cell = ws.cell(row=row, column=col)
+        cell.border = thin_border
+        cell.alignment = center_align if align == 'center' else left_align
+        return cell
+
+    # Student info header
+    ws.merge_cells('A1:G1')
+    ws['A1'].value = 'DETAIL HASIL UJIAN SISWA'
+    ws['A1'].font = title_font
+    ws['A1'].alignment = Alignment(horizontal='left', vertical='center')
+
+    info_rows = [
+        ('Nama Siswa:', _sanitize_xlsx(sub['student_name'])),
+        ('Nomor Ujian:', _sanitize_xlsx(sub['exam_number'])),
+        ('Kelas:', _sanitize_xlsx(sub['student_class'])),
+        ('Nilai Akhir:', round(sub['score'], 2) if sub['score'] is not None else 'Belum Dinilai'),
+        ('Waktu Mulai:', localize_date_string(sub['start_time'], tz_offset) if sub['start_time'] else '—'),
+        ('Waktu Pengumpulan:', localize_date_string(sub['created_at'], tz_offset)),
+        ('ID Perangkat:', _sanitize_xlsx(sub['mac_address'] or '—')),
+    ]
+    for i, (label, value) in enumerate(info_rows):
+        ws.cell(row=3 + i, column=1, value=label).font = meta_label_font
+        val_cell = ws.cell(row=3 + i, column=2, value=value)
+        val_cell.font = meta_value_font
+        if label == 'Nilai Akhir:' and sub['score'] is not None:
+            val_cell.font = Font(bold=True, size=12, color=NAVY)
+
+    # Question detail table
+    detail_headers = ['No. Soal', 'Tipe Soal', 'Bobot Maks', 'Jawaban Siswa',
+                      'Kunci Jawaban', 'Status', 'Poin Didapat']
+    detail_header_row = 11
+    for col_idx, h in enumerate(detail_headers, 1):
+        ws.cell(row=detail_header_row, column=col_idx, value=h)
+    _style_header_row(ws, detail_header_row, len(detail_headers))
+
+    try:
+        student_answers = json.loads(sub['answers_json']) if sub['answers_json'] else {}
+    except Exception:
+        student_answers = {}
+
+    data_row = detail_header_row + 1
+    total_earned = 0.0
+    total_max = 0.0
+
+    xlsx_evaluation = evaluate_answers_detailed(student_answers, questions)
+
+    for q in questions:
+        q_num = _normalize_q_num(q.get('number', ''))
+        q_weight, earned = _build_question_detail_row(
+            ws, data_row, q_num, q, student_answers, xlsx_evaluation
+        )
+        total_max += q_weight
+        total_earned += earned
+        data_row += 1
+
+    # Total row
+    if questions:
+        ws.merge_cells(start_row=data_row, start_column=1, end_row=data_row, end_column=2)
+        total_label = _style_data_cell(ws, data_row, 1, 'center')
+        total_label.value = 'TOTAL'
+        total_label.font = Font(bold=True, size=11, color=NAVY)
+
+        total_max_cell = _style_data_cell(ws, data_row, 3, 'center')
+        total_max_cell.value = round(total_max, 2)
+        total_max_cell.font = Font(bold=True)
+
+        total_earned_cell = _style_data_cell(ws, data_row, 7, 'center')
+        total_earned_cell.value = round(total_earned, 2)
+        total_earned_cell.font = Font(bold=True, size=12, color=NAVY)
+
+        total_fill = PatternFill(start_color=LIGHT_BLUE, end_color=LIGHT_BLUE, fill_type='solid')
+        for c in range(1, 8):
+            _style_data_cell(ws, data_row, c).fill = total_fill
+            _style_data_cell(ws, data_row, c).border = thin_border
+
+    # Auto-width
+    _set_column_widths(ws, [10, 16, 12, 24, 24, 18, 14])
+
+
+def _generate_exam_xlsx(exam, submissions, questions, tz_offset=None):
+    """Generate a professionally styled multi-sheet Excel workbook for a specific exam."""
+    from openpyxl import Workbook
+    from datetime import datetime, timezone
+
+    wb = Workbook()
+
+    # Sheet 1: Summary
+    _build_exam_summary_sheet(wb.active, exam, submissions, tz_offset)
+
+    # Per-student sheets
     used_names = set()
     for sub in submissions:
-        # Build unique sheet name
-        base_name = f"{sub['exam_number']} {sub['student_name']}"
-        sheet_name = _sanitize_sheet_name(base_name)
-        # Handle duplicates
-        if sheet_name in used_names:
-            counter = 2
-            while f"{sheet_name[:28]}_{counter}" in used_names:
-                counter += 1
-            sheet_name = f"{sheet_name[:28]}_{counter}"
-        used_names.add(sheet_name)
+        _build_student_detail_sheet(wb, sub, questions, tz_offset, used_names)
 
-        ws = wb.create_sheet(title=sheet_name)
-
-        # Student info header
-        ws.merge_cells('A1:G1')
-        ws['A1'].value = 'DETAIL HASIL UJIAN SISWA'
-        ws['A1'].font = title_font
-        ws['A1'].alignment = Alignment(horizontal='left', vertical='center')
-
-        info_rows = [
-            ('Nama Siswa:', _sanitize_xlsx(sub['student_name'])),
-            ('Nomor Ujian:', _sanitize_xlsx(sub['exam_number'])),
-            ('Kelas:', _sanitize_xlsx(sub['student_class'])),
-            ('Nilai Akhir:', round(sub['score'], 2) if sub['score'] is not None else 'Belum Dinilai'),
-            ('Waktu Mulai:', localize_date_string(sub['start_time'], tz_offset) if sub['start_time'] else '—'),
-            ('Waktu Pengumpulan:', localize_date_string(sub['created_at'], tz_offset)),
-            ('MAC/ID Perangkat:', _sanitize_xlsx(sub['mac_address'] or '—')),
-        ]
-        for i, (label, value) in enumerate(info_rows):
-            ws.cell(row=3 + i, column=1, value=label).font = meta_label_font
-            val_cell = ws.cell(row=3 + i, column=2, value=value)
-            val_cell.font = meta_value_font
-            if label == 'Nilai Akhir:' and sub['score'] is not None:
-                val_cell.font = Font(bold=True, size=12, color=NAVY)
-
-        # Question detail table
-        detail_headers = ['No. Soal', 'Tipe Soal', 'Bobot Maks', 'Jawaban Siswa',
-                          'Kunci Jawaban', 'Status', 'Poin Didapat']
-        detail_header_row = 11
-        for col_idx, h in enumerate(detail_headers, 1):
-            ws.cell(row=detail_header_row, column=col_idx, value=h)
-        style_header_row(ws, detail_header_row, len(detail_headers))
-
-        try:
-            student_answers = json.loads(sub['answers_json']) if sub['answers_json'] else {}
-        except Exception:
-            student_answers = {}
-
-        data_row = detail_header_row + 1
-        total_earned = 0.0
-        total_max = 0.0
-
-        # Format display strings
-        def _fmt(val):
-            if val is None:
-                return '—'
-            if isinstance(val, list):
-                return ', '.join(str(x) for x in val)
-            if isinstance(val, dict):
-                return ', '.join(f'{k} ➔ {v}' for k, v in val.items())
-            return str(val)
-
-        xlsx_evaluation = evaluate_answers_detailed(student_answers, questions)
-
-        for q in questions:
-            q_num = _normalize_q_num(q.get('number', ''))
-            q_weight = float(q.get('weight', 1.0))
-            total_max += q_weight
-
-            # Use centralized evaluation
-            eval_info = xlsx_evaluation.get(q_num, {})
-            earned = eval_info.get('earned', 0.0)
-            status_text = eval_info.get('statusText', 'Belum Dijawab')
-
-            total_earned += earned
-
-            student_ans = student_answers.get(q_num)
-            correct_ans = q.get('key')
-            student_display = _fmt(student_ans) if student_ans is not None and student_ans != '' else '—'
-            key_display = _fmt(correct_ans)
-
-            # Type label mapping
-            type_labels = {
-                'single_choice': 'Pilihan Ganda',
-                'multiple_choice': 'PG Kompleks',
-                'true_false': 'Benar / Salah',
-                'matching': 'Menjodohkan',
-                'short_answer': 'Isian Singkat',
-            }
-
-            row_values = [
-                q['number'],
-                type_labels.get(q['type'], q['type']),
-                q_weight,
-                student_display,
-                key_display,
-                status_text,
-                round(earned, 2),
-            ]
-            for col_idx, val in enumerate(row_values, 1):
-                cell = style_data_cell(ws, data_row, col_idx,
-                                       'center' if col_idx in [1, 3, 6, 7] else 'left')
-                cell.value = val
-
-                # Colour status column
-                if col_idx == 6:
-                    if 'Benar' in str(val):
-                        cell.fill = PatternFill(start_color=GREEN_BG, end_color=GREEN_BG, fill_type='solid')
-                        cell.font = Font(color=GREEN_FG, bold=True)
-                    elif 'Parsial' in str(val):
-                        cell.fill = PatternFill(start_color=YELLOW_BG, end_color=YELLOW_BG, fill_type='solid')
-                        cell.font = Font(color=YELLOW_FG, bold=True)
-                    elif 'Salah' in str(val):
-                        cell.fill = PatternFill(start_color=RED_BG, end_color=RED_BG, fill_type='solid')
-                        cell.font = Font(color=RED_FG, bold=True)
-                    else:
-                        cell.fill = PatternFill(start_color=GRAY_BG, end_color=GRAY_BG, fill_type='solid')
-                        cell.font = Font(color=GRAY_FG)
-
-            data_row += 1
-
-        # Total row
-        if questions:
-            ws.merge_cells(start_row=data_row, start_column=1, end_row=data_row, end_column=2)
-            total_label = style_data_cell(ws, data_row, 1, 'center')
-            total_label.value = 'TOTAL'
-            total_label.font = Font(bold=True, size=11, color=NAVY)
-
-            total_max_cell = style_data_cell(ws, data_row, 3, 'center')
-            total_max_cell.value = round(total_max, 2)
-            total_max_cell.font = Font(bold=True)
-
-            total_earned_cell = style_data_cell(ws, data_row, 7, 'center')
-            total_earned_cell.value = round(total_earned, 2)
-            total_earned_cell.font = Font(bold=True, size=12, color=NAVY)
-
-            total_fill = PatternFill(start_color=LIGHT_BLUE, end_color=LIGHT_BLUE, fill_type='solid')
-            for c in range(1, 8):
-                style_data_cell(ws, data_row, c).fill = total_fill
-                style_data_cell(ws, data_row, c).border = thin_border
-
-        # Auto-width
-        col_widths = [10, 16, 12, 24, 24, 18, 14]
-        for idx, w in enumerate(col_widths, 1):
-            ws.column_dimensions[get_column_letter(idx)].width = w
-
-    # ── Save workbook to BytesIO ──
+    # Save workbook to BytesIO
     output = io.BytesIO()
     wb.save(output)
     output.seek(0)

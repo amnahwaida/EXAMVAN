@@ -29,12 +29,15 @@ import com.examvan.app.databinding.ActivityExamViewerBinding
 import com.google.gson.Gson
 import com.google.gson.reflect.TypeToken
 import androidx.lifecycle.lifecycleScope
+import androidx.security.crypto.EncryptedSharedPreferences
+import androidx.security.crypto.MasterKey
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import okhttp3.Call
 import java.io.File
+import java.util.UUID
 
 /**
  * Screen 3: Exam PDF Viewer + Digital Answer Sheet
@@ -137,7 +140,7 @@ class ExamViewerActivity : AppCompatActivity() {
         startTime = df.format(java.util.Date())
 
         // Retrieve MAC address/Device ID
-        macAddress = getDeviceMacAddress()
+        macAddress = getDeviceId()
 
         binding.tvExamTitle.text = examName
 
@@ -227,7 +230,15 @@ class ExamViewerActivity : AppCompatActivity() {
     }
 
     private fun loadQuestionsFromPrefs() {
-        val prefs = getSharedPreferences("exam_questions", MODE_PRIVATE)
+        val prefs = androidx.security.crypto.EncryptedSharedPreferences.create(
+            this,
+            "exam_questions_encrypted",
+            androidx.security.crypto.MasterKey.Builder(this)
+                .setKeyScheme(androidx.security.crypto.MasterKey.KeyScheme.AES256_GCM)
+                .build(),
+            androidx.security.crypto.EncryptedSharedPreferences.PrefKeyEncryptionScheme.AES256_SIV,
+            androidx.security.crypto.EncryptedSharedPreferences.PrefValueEncryptionScheme.AES256_GCM
+        )
         val json = prefs.getString("questions_json", null)
         securityLevel = prefs.getString("security_level", "medium") ?: "medium"
         updateSecurityBanner()
@@ -952,46 +963,21 @@ class ExamViewerActivity : AppCompatActivity() {
         } catch (_: Exception) { }
     }
 
-    private fun getDeviceMacAddress(): String {
-        // Note: On Android 10+ (API 29+), hardware MAC address is randomized
-        // and NetworkInterface.getHardwareAddress() returns 02:00:00:00:00:00.
-        // This method is kept as a best-effort identifier for legacy devices.
-
-        // 1. Try reading network interfaces for wlan0 (only works pre-Android 10)
-        try {
-            val interfaces = java.util.Collections.list(java.net.NetworkInterface.getNetworkInterfaces())
-            for (networkInterface in interfaces) {
-                    if (networkInterface != null && networkInterface.name.equals("wlan0", ignoreCase = true)) {
-                        val macBytes = networkInterface.hardwareAddress
-                        if (macBytes != null) {
-                            val res = StringBuilder()
-                            for (b in macBytes) {
-                                res.append(String.format("%02X:", b))
-                            }
-                            if (res.length > 0) {
-                                res.deleteCharAt(res.length - 1)
-                            }
-                            val mac = res.toString()
-                            if (mac.isNotEmpty() && !mac.equals("02:00:00:00:00:00", ignoreCase = true)) {
-                                return mac
-                            }
-                        }
-                    }
-                }
-        } catch (e: Exception) {
-            Log.w("ExamViewer", "MAC address read failed", e)
+    private fun getDeviceId(): String {
+        val prefs = androidx.security.crypto.EncryptedSharedPreferences.create(
+            this,
+            "device_id_encrypted",
+            androidx.security.crypto.MasterKey.Builder(this)
+                .setKeyScheme(androidx.security.crypto.MasterKey.KeyScheme.AES256_GCM)
+                .build(),
+            androidx.security.crypto.EncryptedSharedPreferences.PrefKeyEncryptionScheme.AES256_SIV,
+            androidx.security.crypto.EncryptedSharedPreferences.PrefValueEncryptionScheme.AES256_GCM
+        )
+        var deviceId = prefs.getString("device_uuid", null)
+        if (deviceId.isNullOrBlank()) {
+            deviceId = UUID.randomUUID().toString()
+            prefs.edit().putString("device_uuid", deviceId).apply()
         }
-
-        // 2. Fallback to Settings.Secure.ANDROID_ID (persistent per app signing key, Android 8.0+)
-        try {
-            val androidId = android.provider.Settings.Secure.getString(contentResolver, android.provider.Settings.Secure.ANDROID_ID)
-            if (!androidId.isNullOrEmpty() && androidId != "9774d56d682e549c") {
-                return "ID:$androidId"
-            }
-        } catch (e: Exception) {
-            Log.w("ExamViewer", "ANDROID_ID read failed", e)
-        }
-
-        return "UNKNOWN"
+        return "DEVICE:$deviceId"
     }
 }
