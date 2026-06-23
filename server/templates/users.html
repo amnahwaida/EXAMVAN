@@ -8,7 +8,7 @@
  <!-- SaaS & WhatsApp Verification Settings -->
  <section class="glass-card p-6 rounded-2xl border border-slate-800/60 bg-slate-900/40 backdrop-blur-2xl shadow-2xl">
  <h3 style="margin-bottom: 16px; font-size: 1.1rem; color: #a5b4fc; display: flex; align-items: center; gap: 8px;">
- <span>⚙️</span> SaaS & WhatsApp Settings
+ <svg class="icon-svg" style="color:#a5b4fc;"><use href="#hi-settings"/></svg> SaaS & WhatsApp Settings
  </h3>
  <form id="saasSettingsForm" onsubmit="saveSaasSettings(event)" style="display: flex; flex-direction: column; gap: 12px;">
  <div class="switch-container">
@@ -31,7 +31,7 @@
 
  <div style="border-top: 1px solid var(--glass-border); margin-top: 16px; padding-top: 16px; margin-bottom: 6px;">
  <h4 style="margin: 0; font-size: 0.85rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px; color: var(--accent-light); display: flex; align-items: center; gap: 6px;">
- <span>📦</span> Default Paket Pendaftaran
+ <svg class="icon-svg"><use href="#hi-clipboard"/></svg> Default Paket Pendaftaran
  </h4>
  </div>
 
@@ -63,7 +63,7 @@
 
  <div style="border-top: 1px solid var(--glass-border); margin-top: 16px; padding-top: 16px; margin-bottom: 6px;">
  <h4 style="margin: 0; font-size: 0.85rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px; color: var(--accent-light); display: flex; align-items: center; gap: 6px;">
- <span>📱</span> Versi Aplikasi
+ <svg class="icon-svg"><use href="#hi-download"/></svg> Versi Aplikasi
  </h4>
  </div>
 
@@ -78,8 +78,8 @@
  </div>
  </div>
 
- <button type="submit" class="btn-upload " style="margin-top: 6px; background: rgba(16, 185, 129, 0.2); border-color: rgba(16, 185, 129, 0.4); color: #6ee7b7;">
- <span>💾 Simpan Setelan SaaS</span>
+ <button type="submit" class="btn-upload" style="margin-top: 6px; background: rgba(16, 185, 129, 0.2); border-color: rgba(16, 185, 129, 0.4); color: #6ee7b7;">
+ <svg class="icon-svg"><use href="#hi-check"/></svg> Simpan Setelan SaaS
  </button>
  </form>
  </section>
@@ -87,7 +87,7 @@
  <!-- Add User Form -->
  <section class="glass-card p-6 rounded-2xl border border-slate-800/60 bg-slate-900/40 backdrop-blur-2xl shadow-2xl">
  <h3 style="margin-bottom: 16px; font-size: 1.1rem; color: #a5b4fc; display: flex; align-items: center; gap: 8px;">
- <span>➕</span> Tambah User Manual
+ <svg class="icon-svg" style="color:#a5b4fc;"><use href="#hi-plus"/></svg> Tambah User Manual
  </h3>
  <form id="newUserForm" onsubmit="createUser(event)" style="display: flex; flex-direction: column; gap: 12px;">
  <div class="form-group space-y-1">
@@ -129,8 +129,8 @@
  <input type="time" id="newUserExpiryTime" value="23:59">
  </div>
  </div>
- <button type="submit" class="btn-upload " style="margin-top: 4px;">
- <span>➕ Tambah Akun Guru</span>
+ <button type="submit" class="btn-upload" style="margin-top: 4px;">
+ <svg class="icon-svg"><use href="#hi-plus"/></svg> Tambah Akun Guru
  </button>
  </form>
  </section>
@@ -138,11 +138,11 @@
 
  <!-- Right Card: User List -->
  <section class="glass-card p-6 rounded-2xl border border-slate-800/60 bg-slate-900/40 backdrop-blur-2xl shadow-2xl" style="min-height: 500px;">
- <div class="table-header flex items-center justify-between mb-4 flex-wrap gap-3" class="mb-5">
+ <div class="table-header flex items-center justify-between mb-5 flex-wrap gap-3">
  <h3 style="font-size: 1.1rem; color: #a5b4fc; display: flex; align-items: center; gap: 8px;">
- <span>👥</span> Daftar User & Guru Terdaftar
+ <svg class="icon-svg" style="color:#a5b4fc;"><use href="#hi-users"/></svg> Daftar User & Guru Terdaftar
  </h3>
- <button class="btn-refresh " onclick="loadUsersList()">🔄 Refresh</button>
+ <button class="btn-refresh" onclick="loadUsersList()" aria-label="Refresh daftar user"><svg class="icon-svg"><use href="#hi-refresh"/></svg> Refresh</button>
  </div>
  
  <div class="table-responsive">

@@ -16,19 +16,58 @@ function apiFetch(url, options = {}) {
     return window.fetch.call(window, url, options);
 }
 
-// Toast notification
+// Toast notification — improved: icons, close, duration per type, a11y
+const TOAST_ICONS = {
+    success: '<svg class="toast-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>',
+    error: '<svg class="toast-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M10 14l2-2m0 0l2-2m-2 2l-2-2m2 2l2 2m7-2a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>',
+    warning: '<svg class="toast-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4c-.77-.833-1.964-.833-2.732 0L4.082 16.5c-.77.833.192 2.5 1.732 2.5z"/></svg>',
+    info: '<svg class="toast-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>',
+};
+const TOAST_DURATION = { success: 3000, error: 5000, warning: 4000, info: 3500 };
+const MAX_TOASTS = 5;
+
 function showToast(message, type = 'success') {
     const container = document.getElementById('toastContainer');
+    if (!container) return;
+
+    // Limit visible toasts
+    while (container.children.length >= MAX_TOASTS) {
+        const oldest = container.firstElementChild;
+        if (oldest) oldest.remove();
+    }
+
     const toast = document.createElement('div');
     toast.className = `toast toast-${type}`;
-    toast.textContent = message;
+    toast.setAttribute('role', 'alert');
+    toast.innerHTML = `
+        <span class="toast-body">
+            ${TOAST_ICONS[type] || TOAST_ICONS.info}
+            <span class="toast-msg">${escapeHtml(message)}</span>
+        </span>
+        <button class="toast-close" aria-label="Tutup">✕</button>
+    `;
+
+    // Click-to-dismiss
+    toast.addEventListener('click', function (e) {
+        if (e.target.closest('.toast-close') || e.target === this) {
+            dismissToast(this);
+        }
+    });
+
     container.appendChild(toast);
+
+    const duration = TOAST_DURATION[type] || 3500;
     setTimeout(() => {
-        toast.style.opacity = '0';
-        toast.style.transform = 'translateX(40px)';
-        toast.style.transition = 'all 0.3s';
-        setTimeout(() => toast.remove(), 300);
-    }, 3500);
+        if (toast.isConnected) dismissToast(toast);
+    }, duration);
+}
+
+function dismissToast(toast) {
+    if (toast.classList.contains('toast-exit')) return;
+    toast.classList.add('toast-exit');
+    setTimeout(() => {
+        if (toast.isConnected) toast.remove();
+    }, 300);
 }
 
 // Escape HTML to prevent XSS
@@ -72,8 +111,171 @@ function initMenuToggle() {
     }
 }
 
+// ===== New Utility Functions =====
+
+// Debounce helper
+function debounce(fn, delay = 300) {
+    let timer;
+    return function (...args) {
+        clearTimeout(timer);
+        timer = setTimeout(() => fn.apply(this, args), delay);
+    };
+}
+
+// Password visibility toggle
+function togglePasswordVisibility(inputId, btnId) {
+    const input = document.getElementById(inputId);
+    const btn = document.getElementById(btnId);
+    if (!input || !btn) return;
+    btn.addEventListener('click', function () {
+        const isPassword = input.type === 'password';
+        input.type = isPassword ? 'text' : 'password';
+        btn.textContent = isPassword ? '🙈' : '👁️';
+    });
+}
+
+// Custom confirm dialog (replaces native confirm())
+function showConfirm(message, detailText = '', confirmLabel = 'Ya, Hapus', cancelLabel = 'Batal') {
+    return new Promise((resolve) => {
+        const overlay = document.createElement('div');
+        overlay.className = 'modal-overlay';
+        overlay.style.display = 'flex';
+
+        const card = document.createElement('div');
+        card.className = 'modal-card';
+        card.style.maxWidth = '420px';
+        card.innerHTML = `
+            <div class="confirm-dialog-body">
+                <div class="confirm-dialog-icon">⚠️</div>
+                <div class="confirm-dialog-msg">${escapeHtml(message)}</div>
+                ${detailText ? `<div class="confirm-dialog-detail">${escapeHtml(detailText)}</div>` : ''}
+            </div>
+            <div class="confirm-dialog-footer">
+                <button class="btn-sm" id="confirmCancelBtn" style="min-width:100px; justify-content:center; padding:10px 20px; font-size:13px;">${cancelLabel}</button>
+                <button class="btn-sm btn-delete" id="confirmOkBtn" style="min-width:100px; justify-content:center; padding:10px 20px; font-size:13px;">${confirmLabel}</button>
+            </div>
+        `;
+        overlay.appendChild(card);
+        document.body.appendChild(overlay);
+
+        const cleanup = () => overlay.remove();
+
+        document.getElementById('confirmOkBtn').addEventListener('click', () => { cleanup(); resolve(true); });
+        document.getElementById('confirmCancelBtn').addEventListener('click', () => { cleanup(); resolve(false); });
+        overlay.addEventListener('click', (e) => {
+            if (e.target === overlay) { cleanup(); resolve(false); }
+        });
+    });
+}
+
+// Skeleton loading helpers
+function showSkeleton(containerId, count = 3, type = 'card') {
+    const container = document.getElementById(containerId);
+    if (!container) return;
+    container.innerHTML = '';
+    for (let i = 0; i < count; i++) {
+        const skeleton = document.createElement('div');
+        if (type === 'card') {
+            skeleton.className = 'skeleton-card';
+            skeleton.innerHTML = `
+                <div class="skeleton skeleton-block" style="width:40%;"></div>
+                <div class="skeleton skeleton-block" style="width:80%;"></div>
+                <div class="skeleton skeleton-block" style="width:60%;"></div>
+            `;
+        } else if (type === 'row') {
+            skeleton.style.cssText = 'display:flex; gap:12px; padding:14px 0; border-bottom:1px solid rgba(255,255,255,0.04);';
+            skeleton.innerHTML = `
+                <div class="skeleton skeleton-circle"></div>
+                <div style="flex:1;">
+                    <div class="skeleton skeleton-block" style="width:50%;"></div>
+                    <div class="skeleton skeleton-block" style="width:70%;"></div>
+                </div>
+            `;
+        } else {
+            skeleton.className = 'skeleton skeleton-block';
+            skeleton.style.width = type === 'wide' ? '90%' : '60%';
+        }
+        container.appendChild(skeleton);
+    }
+}
+
+// ===== Skeleton Loading for Dashboard =====
+function showDashboardSkeletons() {
+    showSkeleton('statsGrid', 4, 'card');
+    showSkeleton('examTableBody', 5, 'row');
+}
+
+// Keyboard shortcuts
+let shortcutsVisible = false;
+
+function toggleShortcuts() {
+    const hint = document.getElementById('shortcutsHint');
+    if (!hint) return;
+    shortcutsVisible = !shortcutsVisible;
+    hint.classList.toggle('show', shortcutsVisible);
+}
+
+function initKeyboardShortcuts() {
+    document.addEventListener('keydown', function (e) {
+        // Don't trigger if user is typing in an input
+        const tag = document.activeElement?.tagName || '';
+        if (['INPUT', 'TEXTAREA', 'SELECT'].includes(tag)) return;
+
+        switch (true) {
+            case e.key === '/' && !e.ctrlKey && !e.metaKey:
+                e.preventDefault();
+                const searchInput = document.getElementById('searchExam');
+                if (searchInput) { searchInput.focus(); searchInput.select(); }
+                break;
+            case e.key === '?' && !e.shiftKey:
+                e.preventDefault();
+                toggleShortcuts();
+                break;
+        }
+
+        // Ctrl+ shortcuts
+        if (e.ctrlKey || e.metaKey) {
+            switch (e.key) {
+                case 'u':
+                    e.preventDefault();
+                    document.getElementById('examName')?.focus();
+                    document.getElementById('examName')?.scrollIntoView({ behavior: 'smooth' });
+                    break;
+                case 'f':
+                    e.preventDefault();
+                    const search = document.getElementById('searchExam');
+                    if (search) { search.focus(); search.select(); }
+                    break;
+            }
+        }
+    });
+}
+
+// ===== Auto-refresh Dashboard =====
+let autoRefreshInterval = null;
+
+function startAutoRefresh(intervalSec = 30) {
+    stopAutoRefresh();
+    autoRefreshInterval = setInterval(() => {
+        // Only refresh if page is visible and not in a modal
+        if (!document.hidden && !document.querySelector('.modal-overlay[style*="flex"]')) {
+            location.reload();
+        }
+    }, intervalSec * 1000);
+}
+
+function stopAutoRefresh() {
+    if (autoRefreshInterval) {
+        clearInterval(autoRefreshInterval);
+        autoRefreshInterval = null;
+    }
+}
+
+// ===== Init All =====
 if (document.readyState === 'loading') {
-    document.addEventListener('DOMContentLoaded', initMenuToggle);
+    document.addEventListener('DOMContentLoaded', () => {
+        initMenuToggle();
+    });
 } else {
     initMenuToggle();
 }

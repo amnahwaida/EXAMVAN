@@ -121,28 +121,30 @@ function toggleExam(examId) {
 
 // Delete exam
 function deleteExam(examId, examName) {
-    if (!confirm(`Hapus ujian "${examName}"?\nFile PDF juga akan dihapus permanen.`)) return;
+    showConfirm(`Hapus ujian "${examName}"?`, 'File PDF juga akan dihapus permanen.').then(ok => {
+        if (!ok) return;
 
-    apiFetch(`/admin/api/exams/${examId}`, { method: 'DELETE' })
-        .then(r => r.json())
-        .then(res => {
-            if (res.success) {
-                showToast(res.message, 'success');
-                const row = document.getElementById(`exam-row-${examId}`);
-                if (row) {
-                    row.style.opacity = '0';
-                    row.style.transform = 'translateX(-20px)';
-                    row.style.transition = 'all 0.3s';
-                    setTimeout(() => {
-                        row.remove();
-                        location.reload();
-                    }, 300);
+        apiFetch(`/admin/api/exams/${examId}`, { method: 'DELETE' })
+            .then(r => r.json())
+            .then(res => {
+                if (res.success) {
+                    showToast(res.message, 'success');
+                    const row = document.getElementById(`exam-row-${examId}`);
+                    if (row) {
+                        row.style.opacity = '0';
+                        row.style.transform = 'translateX(-20px)';
+                        row.style.transition = 'all 0.3s';
+                        setTimeout(() => {
+                            row.remove();
+                            location.reload();
+                        }, 300);
+                    }
+                } else {
+                    showToast(res.message || 'Gagal menghapus ujian', 'error');
                 }
-            } else {
-                showToast(res.message || 'Gagal menghapus ujian', 'error');
-            }
-        })
-        .catch(() => showToast('Koneksi gagal', 'error'));
+            })
+            .catch(() => showToast('Koneksi gagal', 'error'));
+    });
 }
 
 // Copy token to clipboard
@@ -162,6 +164,27 @@ function copyToken(token) {
         document.execCommand('copy');
         textarea.remove();
         showToast(`Token "${token}" berhasil disalin`, 'success');
+    });
+}
+
+// Copy all tokens to clipboard
+function copyAllTokens() {
+    const tokens = Array.from(document.querySelectorAll('.token-code')).map(el => el.textContent.trim()).filter(t => t && t !== '—');
+    if (tokens.length === 0) {
+        showToast('Tidak ada token tersedia', 'error');
+        return;
+    }
+    const text = tokens.map((t, i) => `${i + 1}. ${t}`).join('\n');
+    navigator.clipboard.writeText(text).then(() => {
+        showToast(`${tokens.length} token berhasil disalin ke clipboard`, 'success');
+    }).catch(() => {
+        const textarea = document.createElement('textarea');
+        textarea.value = text;
+        document.body.appendChild(textarea);
+        textarea.select();
+        document.execCommand('copy');
+        textarea.remove();
+        showToast(`${tokens.length} token berhasil disalin`, 'success');
     });
 }
 
@@ -187,25 +210,27 @@ function copyResultsLink(token) {
 
 // Regenerate token
 function regenerateToken(examId) {
-    if (!confirm('Generate token baru? Token lama tidak akan bisa digunakan lagi.')) return;
+    showConfirm('Generate token baru?', 'Token lama tidak akan bisa digunakan lagi.', 'Ya, Generate', 'Batal').then(ok => {
+        if (!ok) return;
 
-    apiFetch(`/admin/api/exams/${examId}/regenerate-token`, { method: 'POST' })
-        .then(r => r.json())
-        .then(res => {
-            if (res.success) {
-                const tokenEl = document.getElementById(`token-${examId}`);
-                if (tokenEl) {
-                    tokenEl.textContent = res.token;
-                    tokenEl.style.animation = 'none';
-                    tokenEl.offsetHeight; // force reflow
-                    tokenEl.style.animation = 'toastIn 0.3s ease';
+        apiFetch(`/admin/api/exams/${examId}/regenerate-token`, { method: 'POST' })
+            .then(r => r.json())
+            .then(res => {
+                if (res.success) {
+                    const tokenEl = document.getElementById(`token-${examId}`);
+                    if (tokenEl) {
+                        tokenEl.textContent = res.token;
+                        tokenEl.style.animation = 'none';
+                        tokenEl.offsetHeight; // force reflow
+                        tokenEl.style.animation = 'toastIn 0.3s ease';
+                    }
+                    showToast(res.message, 'success');
+                } else {
+                    showToast(res.message || 'Gagal regenerate token', 'error');
                 }
-                showToast(res.message, 'success');
-            } else {
-                showToast(res.message || 'Gagal regenerate token', 'error');
-            }
-        })
-        .catch(() => showToast('Koneksi gagal', 'error'));
+            })
+            .catch(() => showToast('Koneksi gagal', 'error'));
+    });
 }
 
 // Global modal state
@@ -270,6 +295,13 @@ function createNewQuestionCard(q, num) {
 
     const card = document.createElement('div');
     card.className = 'question-editor-card';
+    card.draggable = true;
+    card.dataset.questionNum = num;
+    // Drag events for reordering
+    card.addEventListener('dragstart', handleDragStart);
+    card.addEventListener('dragend', handleDragEnd);
+    card.addEventListener('dragover', handleDragOver);
+    card.addEventListener('drop', handleDrop);
     card.innerHTML = `
         <span class="q-num-badge">No. ${num}</span>
         <input type="hidden" class="q-number" value="${num}">
@@ -344,7 +376,6 @@ function insertQuestionAt(index) {
 }
 
 function removeQuestionCard(btn) {
-    if (!confirm('Hapus soal ini?')) return;
     const card = btn.closest('.question-editor-card');
     const divider = card.nextSibling;
     if (divider && divider.classList && divider.classList.contains('q-editor-divider')) {
@@ -379,6 +410,78 @@ function reindexQuestions() {
         }
     });
 }
+
+// ===== Drag-and-Drop Question Reordering =====
+let dragSrcCard = null;
+
+function handleDragStart(e) {
+    dragSrcCard = this;
+    this.classList.add('q-dragging');
+    e.dataTransfer.effectAllowed = 'move';
+    e.dataTransfer.setData('text/plain', '');
+}
+
+function handleDragEnd(e) {
+    this.classList.remove('q-dragging');
+    document.querySelectorAll('.question-editor-card').forEach(c => c.classList.remove('q-drag-over'));
+    document.querySelectorAll('.q-editor-divider').forEach(d => d.classList.remove('q-drag-hover'));
+    dragSrcCard = null;
+}
+
+function handleDragOver(e) {
+    e.preventDefault();
+    e.dataTransfer.dropEffect = 'move';
+
+    const container = document.getElementById('questionsList');
+    const cards = Array.from(container.querySelectorAll('.question-editor-card'));
+    const rect = this.getBoundingClientRect();
+    const midY = rect.top + rect.height / 2;
+
+    // Determine if drop is above or below this card
+    let dropDivider;
+    if (e.clientY < midY) {
+        // Drop before this card — use the divider before it
+        dropDivider = this.previousSibling;
+    } else {
+        // Drop after this card — use the divider after it
+        dropDivider = this.nextSibling?.nextSibling || this.nextSibling;
+    }
+
+    document.querySelectorAll('.q-editor-divider').forEach(d => d.classList.remove('q-drag-hover'));
+    if (dropDivider && dropDivider.classList.contains('q-editor-divider')) {
+        dropDivider.classList.add('q-drag-hover');
+    }
+}
+
+function handleDrop(e) {
+    e.preventDefault();
+    if (dragSrcCard === this) return;
+
+    const container = document.getElementById('questionsList');
+    const cards = Array.from(container.querySelectorAll('.question-editor-card'));
+    const rect = this.getBoundingClientRect();
+    const midY = rect.top + rect.height / 2;
+
+    let dropDivider;
+    if (e.clientY < midY) {
+        dropDivider = this.previousSibling;
+    } else {
+        dropDivider = this.nextSibling?.nextSibling || this.nextSibling;
+    }
+
+    if (dropDivider && dropDivider.classList.contains('q-editor-divider')) {
+        const srcDivider = dragSrcCard.nextSibling;
+        if (srcDivider && srcDivider.classList.contains('q-editor-divider')) {
+            container.insertBefore(dragSrcCard, dropDivider.nextSibling);
+            container.insertBefore(srcDivider, dragSrcCard.nextSibling);
+        }
+    }
+
+    document.querySelectorAll('.q-editor-divider').forEach(d => d.classList.remove('q-drag-hover'));
+    reindexQuestions();
+    showToast('Soal berhasil diurutkan ulang', 'success');
+}
+// ===== End Drag-and-Drop =====
 
 function setAllWeights() {
     const weightInputs = document.querySelectorAll('.q-weight-input');
@@ -827,21 +930,23 @@ function localizeDates() {
 }
 
 function deleteUser(userId, username) {
-    if (!confirm(`Hapus user "${username}"? Semua ujian dan data yang dibuat oleh user ini akan ikut terhapus.`)) return;
+    showConfirm(`Hapus user "${username}"?`, 'Semua ujian dan data yang dibuat oleh user ini akan ikut terhapus.').then(ok => {
+        if (!ok) return;
 
-    apiFetch(`/admin/api/users/${userId}`, {
-        method: 'DELETE'
-    })
-        .then(r => r.json())
-        .then(res => {
-            if (res.success) {
-                showToast(res.message, 'success');
-                loadUsersList();
-            } else {
-                showToast(res.message || 'Gagal menghapus user', 'error');
-            }
+        apiFetch(`/admin/api/users/${userId}`, {
+            method: 'DELETE'
         })
-        .catch(() => showToast('Gagal menghapus user', 'error'));
+            .then(r => r.json())
+            .then(res => {
+                if (res.success) {
+                    showToast(res.message, 'success');
+                    loadUsersList();
+                } else {
+                    showToast(res.message || 'Gagal menghapus user', 'error');
+                }
+            })
+            .catch(() => showToast('Gagal menghapus user', 'error'));
+    });
 }
 
 
@@ -1375,14 +1480,18 @@ function updateBulkActions() {
 async function bulkDeleteExams() {
     const checkboxes = document.querySelectorAll('.exam-checkbox:checked');
     if (checkboxes.length === 0) return;
-    
+
     const ids = Array.from(checkboxes).map(cb => parseInt(cb.value));
     const names = Array.from(checkboxes).map(cb => cb.getAttribute('data-name'));
-    
-    if (!confirm(`Apakah Anda yakin ingin menghapus ${ids.length} ujian berikut?\n- ${names.join('\n- ')}`)) {
-        return;
-    }
-    
+
+    const confirmed = await showConfirm(
+        `Hapus ${ids.length} ujian terpilih?`,
+        names.join('\n'),
+        'Ya, Hapus Semua',
+        'Batal'
+    );
+    if (!confirmed) return;
+
     try {
         const response = await apiFetch('/admin/exams/bulk-delete', {
             method: 'POST',
@@ -1408,20 +1517,12 @@ async function bulkDeleteExams() {
 
 function switchMethod(method) {
     const pdfBtn = document.getElementById('methodPdfBtn');
-    const createBtn = document.getElementById('methodCreateBtn');
     const pdfForm = document.getElementById('methodPdfForm');
-    const createForm = document.getElementById('methodCreateForm');
+    if (!pdfBtn || !pdfForm) return;
 
     if (method === 'pdf') {
         pdfBtn.classList.add('active');
-        createBtn.classList.remove('active');
         pdfForm.style.display = 'block';
-        createForm.style.display = 'none';
-    } else {
-        pdfBtn.classList.remove('active');
-        createBtn.classList.add('active');
-        pdfForm.style.display = 'none';
-        createForm.style.display = 'block';
     }
 }
 
@@ -1449,24 +1550,26 @@ function exportSubmissions() {
 }
 
 function deleteSubmission(id) {
-    if (!confirm('Hapus hasil ujian siswa ini secara permanen?')) return;
-    apiFetch(`/admin/api/submissions/${id}`, { method: 'DELETE' })
-        .then(r => r.json())
-        .then(res => {
-            if (res.success) {
-                showToast(res.message, 'success');
-                const row = document.getElementById(`submission-row-${id}`);
-                if (row) {
-                    row.style.opacity = '0';
-                    row.style.transform = 'translateX(-20px)';
-                    row.style.transition = 'all 0.3s';
-                    setTimeout(() => row.remove(), 300);
+    showConfirm('Hapus hasil ujian siswa ini?', 'Data akan dihapus secara permanen.').then(ok => {
+        if (!ok) return;
+        apiFetch(`/admin/api/submissions/${id}`, { method: 'DELETE' })
+            .then(r => r.json())
+            .then(res => {
+                if (res.success) {
+                    showToast(res.message, 'success');
+                    const row = document.getElementById(`submission-row-${id}`);
+                    if (row) {
+                        row.style.opacity = '0';
+                        row.style.transform = 'translateX(-20px)';
+                        row.style.transition = 'all 0.3s';
+                        setTimeout(() => row.remove(), 300);
+                    }
+                } else {
+                    showToast(res.message || 'Gagal menghapus', 'error');
                 }
-            } else {
-                showToast(res.message || 'Gagal menghapus', 'error');
-            }
-        })
-        .catch(() => showToast('Koneksi gagal', 'error'));
+            })
+            .catch(() => showToast('Koneksi gagal', 'error'));
+    });
 }
 
 function saveSaasSettings(e) {
@@ -1571,9 +1674,9 @@ function toggleWaFields() {
 async function bulkToggleExams() {
     const checkboxes = document.querySelectorAll('.exam-checkbox:checked');
     if (checkboxes.length === 0) return;
-    
+
     const ids = Array.from(checkboxes).map(cb => parseInt(cb.value));
-    
+
     // Check if we should activate or deactivate. If any are active, we deactivate them all.
     let targetStatus = 'inactive';
     let hasActive = false;
@@ -1585,7 +1688,11 @@ async function bulkToggleExams() {
     if (!hasActive) {
         targetStatus = 'active';
     }
-    
+
+    const actionLabel = targetStatus === 'inactive' ? 'Nonaktifkan' : 'Aktifkan';
+    const confirmed = await showConfirm(`${actionLabel} ${ids.length} ujian terpilih?`, '', `Ya, ${actionLabel}`, 'Batal');
+    if (!confirmed) return;
+
     try {
         const response = await apiFetch('/admin/exams/bulk-toggle', {
             method: 'POST',
@@ -1690,6 +1797,10 @@ function closeDetailModal() {
 }
 
 // ===== Search Exams =====
+const debounceSearch = debounce(function () {
+    searchExams();
+}, 400);
+
 function searchExams() {
     const query = document.getElementById('searchExam').value.trim();
     const params = new URLSearchParams(window.location.search);
@@ -1705,6 +1816,14 @@ function searchExams() {
 
 // ===== Calculate Duration =====
 document.addEventListener('DOMContentLoaded', function() {
+    // Keyboard shortcuts (admin pages with dashboard)
+    if (document.querySelector('.dashboard')) {
+        initKeyboardShortcuts();
+        if (!window.location.pathname.includes('submissions')) {
+            startAutoRefresh(30);
+        }
+    }
+
     document.querySelectorAll('.duration-cell').forEach(function(el) {
         var start = el.getAttribute('data-start');
         var end = el.getAttribute('data-end');

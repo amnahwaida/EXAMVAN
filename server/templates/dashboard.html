@@ -2,315 +2,303 @@
 {% block title %}Dashboard{% endblock %}
 {% block content %}
 <main class="dashboard">
-        <!-- Stats Cards -->
-        <section class="stats-grid">
-            <div class="stat-card stat-total">
-                <div class="stat-icon">📋</div>
-                <div class="stat-info">
-                    <span class="stat-value">{{ stats.total }}</span>
-                    <span class="stat-label">Total Ujian</span>
-                </div>
-            </div>
-            <div class="stat-card stat-active">
-                <div class="stat-icon">✅</div>
-                <div class="stat-info">
-                    <span class="stat-value">{{ stats.active }}</span>
-                    <span class="stat-label">Aktif</span>
-                </div>
-            </div>
-            <div class="stat-card stat-inactive">
-                <div class="stat-icon">⏸️</div>
-                <div class="stat-info">
-                    <span class="stat-value">{{ stats.inactive }}</span>
-                    <span class="stat-label">Nonaktif</span>
-                </div>
-            </div>
-            <div class="stat-card stat-storage">
-                <div class="stat-icon">💾</div>
-                <div class="stat-info">
-                    <span class="stat-value">{{ stats.storage_mb }} MB</span>
-                    <span class="stat-label">Storage</span>
-                </div>
-            </div>
-        </section>
+ <!-- Stats Cards -->
+ <section class="stats-grid">
+ <div class="stat-card stat-total">
+ <div class="stat-icon">📋</div>
+ <div class="stat-info">
+ <span class="stat-value">{{ stats.total }}</span>
+ <span class="stat-label">Total Ujian</span>
+ </div>
+ </div>
+ <div class="stat-card stat-active">
+ <div class="stat-icon">✅</div>
+ <div class="stat-info">
+ <span class="stat-value">{{ stats.active }}</span>
+ <span class="stat-label">Aktif</span>
+ </div>
+ </div>
+ <div class="stat-card stat-inactive">
+ <div class="stat-icon">⏸️</div>
+ <div class="stat-info">
+ <span class="stat-value">{{ stats.inactive }}</span>
+ <span class="stat-label">Nonaktif</span>
+ </div>
+ </div>
+ <div class="stat-card stat-storage">
+ <div class="stat-icon">💾</div>
+ <div class="stat-info">
+ <span class="stat-value">{{ stats.storage_mb }} MB</span>
+ <span class="stat-label">Storage</span>
+ </div>
+ </div>
+ </section>
 
-        <!-- Network Info -->
-        <section class="network-info glass-card">
-            <h3>🌐 Info Jaringan</h3>
-            <div class="network-grid">
-                <div class="net-item">
-                    <span class="net-label">IP / Domain Server</span>
-                    <span class="net-value" id="serverIp">{{ net_info.display_host }}</span>
-                </div>
-                <div class="net-item">
-                    <span class="net-label">Max Ujian</span>
-                    <span class="net-value">{{ max_exams }}</span>
-                </div>
-                <div class="net-item">
-                    <span class="net-label">Masa Aktif</span>
-                    {% if account_expires %}
-                    <span class="net-value" id="expiryCountdown" data-expires="{{ account_expires }}" style="font-size: 13px; font-variant-numeric: tabular-nums;">⏳</span>
-                    {% else %}
-                    <span class="net-value badge-https">Selamanya</span>
-                    {% endif %}
-                </div>
-                <div class="net-item">
-                    <span class="net-label">Max Upload</span>
-                    <span class="net-value">{{ max_size_mb }} MB</span>
-                </div>
-            </div>
-        </section>
+ <!-- Network Info -->
+ <section class="network-info glass-card">
+ <h3><svg class="icon-svg" style="vertical-align:middle;margin-top:-2px;"><use href="#hi-settings"/></svg> Info Jaringan</h3>
+ <div class="network-grid">
+ <div class="net-item">
+ <span class="net-label">IP / Domain Server</span>
+ <span class="net-value" id="serverIp">{{ net_info.display_host }}</span>
+ </div>
+ <div class="net-item">
+ <span class="net-label">Max Ujian</span>
+ <span class="net-value">{{ max_exams }}</span>
+ </div>
+ <div class="net-item">
+ <span class="net-label">Masa Aktif</span>
+ {% if account_expires %}
+ <span class="net-value" id="expiryCountdown" data-expires="{{ account_expires }}" style="font-size: 13px; font-variant-numeric: tabular-nums;">⏳</span>
+ {% else %}
+ <span class="net-value badge-https">Selamanya</span>
+ {% endif %}
+ </div>
+ <div class="net-item">
+ <span class="net-label">Max Upload</span>
+ <span class="net-value">{{ max_size_mb }} MB</span>
+ </div>
+ </div>
+ </section>
 
-        <!-- Upload Section -->
-        <section class="upload-section glass-card">
-            <h3 style="margin-bottom: 16px;">📤 Tambah Ujian Baru</h3>
-            
-            <!-- Method Selector Buttons -->
-            <div class="method-selector" style="display: flex; gap: 12px; margin-bottom: 20px; border-bottom: 1px solid var(--glass-border); padding-bottom: 12px;">
-                <button type="button" class="btn-sm btn-toggle active" id="methodPdfBtn" onclick="switchMethod('pdf')" style="margin: 0; padding: 10px 16px; display: flex; align-items: center; gap: 8px; border-radius: 8px;">
-                    <span>📄</span> Upload File PDF Soal
-                </button>
-            </div>
+ <!-- Upload Section -->
+ <section class="upload-section glass-card">
+ <h3 style="margin-bottom: 16px; display:flex; align-items:center; gap:8px;"><svg class="icon-svg"><use href="#hi-upload"/></svg> Tambah Ujian Baru</h3>
+ 
+ <!-- PDF Upload Form -->
+ <div id="methodPdfForm">
+ <form id="uploadForm" class="upload-form" enctype="multipart/form-data">
+ <div class="form-row">
+ <div class="form-group flex-1">
+ <label for="examName">Nama Ujian</label>
+ <input type="text" id="examName" name="name" placeholder="Contoh: UTS Matematika Kelas 10" required>
+ </div>
+ <div class="form-group flex-1">
+ <label for="pdfFile">File PDF (max {{ max_size_mb }}MB)</label>
+ <div class="file-input-wrapper">
+ <input type="file" id="pdfFile" name="pdf_file" accept="application/pdf" required>
+ <div class="file-input-display" id="fileDisplay">
+ <span class="file-icon">📄</span>
+ <span class="file-text">Pilih file PDF...</span>
+ </div>
+ </div>
+ </div>
+ <div class="form-group" style="flex: 0 0 220px;">
+ <label for="customToken">Token Kustom <span style="font-size:11px; opacity:0.7;">(Opsional, 6 Kar)</span></label>
+ <input type="text" id="customToken" name="custom_token" maxlength="6" minlength="6" placeholder="Contoh: MAT101" style="text-transform: uppercase;">
+ </div>
+ </div>
+ <div class="upload-progress" id="uploadProgress" style="display:none;">
+ <div class="progress-bar"><div class="progress-fill" id="progressFill"></div></div>
+ <span class="progress-text" id="progressText">0%</span>
+ </div>
+ <button type="submit" class="btn-upload" id="btnUpload">
+ <span>Upload Ujian</span>
+ </button>
+ </form>
+ </div>
 
-            <!-- PDF Upload Form -->
-            <div id="methodPdfForm">
-                <form id="uploadForm" class="upload-form" enctype="multipart/form-data">
-                    <div class="form-row">
-                        <div class="form-group flex-1">
-                            <label for="examName">Nama Ujian</label>
-                            <input type="text" id="examName" name="name" placeholder="Contoh: UTS Matematika Kelas 10" required>
-                        </div>
-                        <div class="form-group flex-1">
-                            <label for="pdfFile">File PDF (max {{ max_size_mb }}MB)</label>
-                            <div class="file-input-wrapper">
-                                <input type="file" id="pdfFile" name="pdf_file" accept="application/pdf" required>
-                                <div class="file-input-display" id="fileDisplay">
-                                    <span class="file-icon">📄</span>
-                                    <span class="file-text">Pilih file PDF...</span>
-                                </div>
-                            </div>
-                        </div>
-                        <div class="form-group" style="flex: 0 0 220px;">
-                            <label for="customToken">Token Kustom <span style="font-size:11px; opacity:0.7;">(Opsional, 6 Kar)</span></label>
-                            <input type="text" id="customToken" name="custom_token" maxlength="6" minlength="6" placeholder="Contoh: MAT101" style="text-transform: uppercase;">
-                        </div>
-                    </div>
-                    <div class="upload-progress" id="uploadProgress" style="display:none;">
-                        <div class="progress-bar"><div class="progress-fill" id="progressFill"></div></div>
-                        <span class="progress-text" id="progressText">0%</span>
-                    </div>
-                    <button type="submit" class="btn-upload" id="btnUpload">
-                        <span>Upload Ujian</span>
-                    </button>
-                </form>
-            </div>
+ </section>
 
-        </section>
+ <!-- Exam Table -->
+ <section class="exam-table-section glass-card">
+ <div class="table-header">
+ <h3><svg class="icon-svg" style="vertical-align:middle;margin-top:-2px;"><use href="#hi-dashboard"/></svg> Daftar Ujian</h3>
+ <div style="display: flex; gap: 8px; align-items: center; flex-wrap: wrap;">
+ <input type="text" id="searchExam" placeholder="Cari nama atau token..." value="{{ search }}"
+ style="padding: 8px 14px; background: rgba(255,255,255,0.04); border: 1px solid var(--glass-border); border-radius: 8px; color: var(--text); outline: none; font-size: 13px; width: 220px; transition: border-color 0.2s;"
+ onkeyup="if(event.key==='Enter') searchExams()"
+ onfocus="this.style.borderColor='var(--primary)'" onblur="this.style.borderColor=''"
+ oninput="debounceSearch()">
+ <button class="btn-sm btn-toggle" onclick="searchExams()" style="height: 32px; padding: 0 12px;"><svg class="icon-svg"><use href="#hi-search"/></svg> Cari</button>
+ <button class="btn-sm btn-questions" onclick="copyAllTokens()" title="Salin Semua Token" style="height: 32px;"><svg class="icon-svg"><use href="#hi-copy"/></svg> Salin Token</button>
+ <button class="btn-sm btn-delete" id="bulkDeleteBtn" onclick="bulkDeleteExams()" style="display: none; height: 32px;">
+ <svg class="icon-svg"><use href="#hi-trash"/></svg> Hapus Terpilih (<span id="bulkDeleteCount">0</span>)
+ </button>
+ <button class="btn-sm btn-toggle" id="bulkToggleBtn" onclick="bulkToggleExams()" style="display: none; height: 32px;">
+ <svg class="icon-svg"><use href="#hi-lock"/></svg> Nonaktifkan Terpilih (<span id="bulkToggleCount">0</span>)
+ </button>
+ <button class="btn-refresh" onclick="location.reload()" aria-label="Refresh halaman"><svg class="icon-svg"><use href="#hi-refresh"/></svg> Refresh</button>
+ </div>
+ </div>
+ {% if exams | length == 0 %}
+ <div class="empty-state">
+ <div class="empty-icon">📭</div>
+ <p>Belum ada ujian. Upload ujian pertama Anda di atas.</p>
+ </div>
+ {% else %}
+ <div class="table-responsive">
+ <table class="exam-table table-with-checkbox" id="examTable">
+ <thead>
+ <tr>
+ <th style="width: 40px; text-align: center;">
+ <input type="checkbox" id="selectAllExams" onchange="toggleSelectAllExams(this)" title="Pilih Semua" style="cursor: pointer; width: 16px; height: 16px; accent-color: var(--primary);">
+ </th>
+ <th style="width: 50px; text-align: center;">No</th>
+ <th>Nama Ujian</th>
+ {% if admin_user == 'admin' %}
+ <th>Pembuat</th>
+ {% endif %}
+ <th>Token</th>
+ <th>Ukuran</th>
+ <th>Status</th>
+ <th>Siswa</th>
+ <th>Tanggal Upload</th>
+ <th>Aksi</th>
+ </tr>
+ </thead>
+ <tbody>
+ {% for exam in exams %}
+ <tr id="exam-row-{{ exam.id }}">
+ <td data-label="">
+ <input type="checkbox" class="exam-checkbox" value="{{ exam.id }}" data-name="{{ exam.name }}" data-status="{{ exam.status }}" onchange="updateBulkActions()" style="cursor: pointer; width: 16px; height: 16px; accent-color: var(--primary);">
+ </td>
+ <td class="td-id" data-label="No" style="text-align: center; color: var(--text-muted);">{{ loop.index }}</td>
+ <td class="td-name" data-label="Ujian"><a href="{{ url_for('admin_submissions') }}?exam_id={{ exam.id }}" class="exam-link" title="Lihat Hasil Ujian">{{ exam.name }}</a></td>
+ {% if admin_user == 'admin' %}
+ <td data-label="Pembuat"><span style="font-weight: 600; color: var(--accent-light);">{{ exam.creator_name or 'admin' }}</span></td>
+ {% endif %}
+ <td class="td-token" data-label="Token">
+ <div class="token-group">
+ <code class="token-code" id="token-{{ exam.id }}" onclick="copyToken('{{ exam.token }}')" title="Klik untuk Salin Token">{{ exam.token or '—' }}</code>
+ <button class="btn-icon btn-regen" onclick="regenerateToken({{ exam.id }})" title="Generate Token Baru" aria-label="Generate token baru">🔄</button>
+ <button class="btn-icon btn-edit" onclick="openEditTokenModal({{ exam.id }}, '{{ exam.token }}')" title="Ubah Token Kustom" aria-label="Ubah token">✏️</button>
+ <button class="btn-icon btn-copy-link" onclick="copyResultsLink('{{ exam.token }}')" title="Salin Link Hasil Ujian (Siswa)" aria-label="Salin link hasil">🔗</button>
+ </div>
+ </td>
+ <td data-label="Ukuran">{{ "%.2f"|format(exam.size_bytes / 1048576) }} MB</td>
+ <td data-label="Status">
+ <span class="status-badge status-{{ exam.status }}" id="status-{{ exam.id }}">
+ {{ exam.status }}
+ </span>
+ </td>
+ <td data-label="Siswa">
+ <a href="{{ url_for('admin_submissions') }}?exam_id={{ exam.id }}" class="badge badge-info" style="text-decoration: none; background: rgba(34, 211, 238, 0.1); color: #22d3ee; padding: 4px 8px; border-radius: 6px; font-weight: 600;">{{ exam.sub_count }} Jawaban</a>
+ </td>
+ <td class="td-date" data-label="Tanggal" data-utc="{{ exam.created_at }}">{{ exam.created_at }}</td>
+ <td class="td-actions" data-label="">
+ <div class="actions-group">
+ <!-- Primary Actions -->
+ <button class="btn-sm btn-questions" onclick="openQuestionsModal({{ exam.id }}, '{{ exam.name }}')" title="Konfigurasi Soal & Kunci Jawaban" style="display: inline-flex; align-items: center; gap: 4px; height: 32px;">
+ <svg class="icon-svg"><use href="#hi-settings"/></svg> Soal
+ </button>
 
-        <!-- Exam Table -->
-        <section class="exam-table-section glass-card">
-            <div class="table-header">
-                <h3>📋 Daftar Ujian</h3>
-                <div style="display: flex; gap: 8px; align-items: center; flex-wrap: wrap;">
-                    <input type="text" id="searchExam" placeholder="🔍 Cari nama atau token..." value="{{ search }}"
-                        style="padding: 8px 14px; background: rgba(255,255,255,0.04); border: 1px solid var(--glass-border); border-radius: 8px; color: var(--text); outline: none; font-size: 13px; width: 220px; transition: border-color 0.2s;"
-                        onkeyup="if(event.key==='Enter') searchExams()"
-                        onfocus="this.style.borderColor='var(--primary)'" onblur="this.style.borderColor=''">
-                    <button class="btn-sm btn-toggle" onclick="searchExams()" style="height: 32px; padding: 0 12px;">🔍 Cari</button>
-                    <button class="btn-sm btn-delete" id="bulkDeleteBtn" onclick="bulkDeleteExams()" style="display: none; height: 32px;">
-                        🗑️ Hapus Terpilih (<span id="bulkDeleteCount">0</span>)
-                    </button>
-                    <button class="btn-sm btn-toggle" id="bulkToggleBtn" onclick="bulkToggleExams()" style="display: none; height: 32px;">
-                        ⏸️ Nonaktifkan Terpilih (<span id="bulkToggleCount">0</span>)
-                    </button>
-                    <button class="btn-refresh" onclick="location.reload()">🔄 Refresh</button>
-                </div>
-            </div>
-            {% if exams | length == 0 %}
-            <div class="empty-state">
-                <div class="empty-icon">📭</div>
-                <p>Belum ada ujian. Upload ujian pertama Anda di atas.</p>
-            </div>
-            {% else %}
-            <div class="table-responsive">
-                <table class="exam-table table-with-checkbox" id="examTable">
-                    <thead>
-                        <tr>
-                            <th style="width: 40px; text-align: center;">
-                                <input type="checkbox" id="selectAllExams" onchange="toggleSelectAllExams(this)" title="Pilih Semua" style="cursor: pointer; width: 16px; height: 16px; accent-color: var(--primary);">
-                            </th>
-                            <th style="width: 50px; text-align: center;">No</th>
-                            <th>Nama Ujian</th>
-                            {% if admin_user == 'admin' %}
-                            <th>Pembuat</th>
-                            {% endif %}
-                            <th>Token</th>
-                            <th>Ukuran</th>
-                            <th>Status</th>
-                            <th>Siswa</th>
-                            <th>Tanggal Upload</th>
-                            <th>Aksi</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        {% for exam in exams %}
-                        <tr id="exam-row-{{ exam.id }}">
-                            <td data-label="">
-                                <input type="checkbox" class="exam-checkbox" value="{{ exam.id }}" data-name="{{ exam.name }}" data-status="{{ exam.status }}" onchange="updateBulkActions()" style="cursor: pointer; width: 16px; height: 16px; accent-color: var(--primary);">
-                            </td>
-                            <td class="td-id" data-label="No" style="text-align: center; color: var(--text-muted);">{{ loop.index }}</td>
-                            <td class="td-name" data-label="Ujian"><a href="{{ url_for('admin_submissions') }}?exam_id={{ exam.id }}" class="exam-link" title="Lihat Hasil Ujian">{{ exam.name }}</a></td>
-                            {% if admin_user == 'admin' %}
-                            <td data-label="Pembuat"><span style="font-weight: 600; color: var(--accent-light);">{{ exam.creator_name or 'admin' }}</span></td>
-                            {% endif %}
-                            <td class="td-token" data-label="Token">
-                                <div class="token-group">
-                                    <code class="token-code" id="token-{{ exam.id }}" onclick="copyToken('{{ exam.token }}')" title="Klik untuk Salin Token">{{ exam.token or '—' }}</code>
-                                    <button class="btn-icon btn-regen" onclick="regenerateToken({{ exam.id }})" title="Generate Token Baru">🔄</button>
-                                    <button class="btn-icon btn-edit" onclick="openEditTokenModal({{ exam.id }}, '{{ exam.token }}')" title="Ubah Token Kustom">✏️</button>
-                                    <button class="btn-icon btn-copy-link" onclick="copyResultsLink('{{ exam.token }}')" title="Salin Link Hasil Ujian (Siswa)">🔗</button>
-                                </div>
-                            </td>
-                            <td data-label="Ukuran">{{ "%.2f"|format(exam.size_bytes / 1048576) }} MB</td>
-                            <td data-label="Status">
-                                <span class="status-badge status-{{ exam.status }}" id="status-{{ exam.id }}">
-                                    {{ exam.status }}
-                                </span>
-                            </td>
-                            <td data-label="Siswa">
-                                <a href="{{ url_for('admin_submissions') }}?exam_id={{ exam.id }}" class="badge badge-info" style="text-decoration: none; background: rgba(34, 211, 238, 0.1); color: #22d3ee; padding: 4px 8px; border-radius: 6px; font-weight: 600;">{{ exam.sub_count }} Jawaban</a>
-                            </td>
-                            <td class="td-date" data-label="Tanggal" data-utc="{{ exam.created_at }}">{{ exam.created_at }}</td>
-                            <td class="td-actions" data-label="">
-                                <div class="actions-group">
-                                    <!-- Primary Actions -->
-                                    <button class="btn-sm btn-questions" onclick="openQuestionsModal({{ exam.id }}, '{{ exam.name }}')" title="Konfigurasi Soal & Kunci Jawaban" style="display: inline-flex; align-items: center; gap: 4px; height: 32px;">
-                                        ⚙️ Soal
-                                    </button>
+ <!-- Dropdown Menu for Secondary Actions -->
+ <div class="exam-action-dropdown">
+ <button class="btn-sm btn-more" onclick="toggleRowDropdown(event, {{ exam.id }})" title="Menu Tindakan Lainnya" style="display: inline-flex; align-items: center; gap: 4px; height: 32px;">
+ <svg class="icon-svg"><use href="#hi-dashboard"/></svg> Menu ▾
+ </button>
+ <div class="exam-action-dropdown-content" id="dropdown-content-{{ exam.id }}">
+ <a href="{{ url_for('admin_exam_pdf', exam_id=exam.id) }}" target="_blank">
+ <svg class="icon-svg"><use href="#hi-eye"/></svg> Lihat PDF
+ </a>
+ <a href="{{ url_for('admin_exam_pdf', exam_id=exam.id) }}?download=1">
+ <svg class="icon-svg"><use href="#hi-download"/></svg> Download PDF
+ </a>
+ <button onclick="openEditExamModal({{ exam.id }}, '{{ exam.name|escape }}')">
+ <svg class="icon-svg"><use href="#hi-edit"/></svg> Edit Nama & PDF
+ </button>
+ <a href="{{ url_for('public_hasil', token=exam.token) }}" target="_blank">
+ <svg class="icon-svg"><use href="#hi-link"/></svg> Halaman Siswa
+ </a>
+ <button id="btn-public-results-{{ exam.id }}" onclick="togglePublicResults({{ exam.id }})">
+ {% if exam.public_results == 1 or exam.public_results is none %}
+ <svg class="icon-svg" style="color:#34d399;"><use href="#hi-eye"/></svg> Halaman Siswa Aktif
+ {% else %}
+ <svg class="icon-svg" style="color:#f87171;"><use href="#hi-eye-off"/></svg> Halaman Siswa Nonaktif
+ {% endif %}
+ </button>
+ <button id="btn-show-answers-{{ exam.id }}" onclick="toggleShowAnswers({{ exam.id }})">
+ {% if exam.show_answers == 1 %}
+ <svg class="icon-svg" style="color:#fbbf24;"><use href="#hi-lock-open"/></svg> Kunci Terlihat
+ {% else %}
+ <svg class="icon-svg" style="color:#9ca3af;"><use href="#hi-lock"/></svg> Kunci Tersembunyi
+ {% endif %}
+ </button>
+ </div>
+ </div>
+ </div>
+ </td>
+ </tr>
+ {% endfor %}
+ </tbody>
+ </table>
+ </div>
 
-                                    <!-- Dropdown Menu for Secondary Actions -->
-                                    <div class="exam-action-dropdown">
-                                        <button class="btn-sm btn-more" onclick="toggleRowDropdown(event, {{ exam.id }})" title="Menu Tindakan Lainnya" style="display: inline-flex; align-items: center; gap: 4px; height: 32px;">
-                                            🛠️ Menu ▾
-                                        </button>
-                                        <div class="exam-action-dropdown-content" id="dropdown-content-{{ exam.id }}">
-                                            <a href="{{ url_for('admin_exam_pdf', exam_id=exam.id) }}" target="_blank">
-                                                <span>👁️</span> Lihat PDF
-                                            </a>
-                                            <a href="{{ url_for('admin_exam_pdf', exam_id=exam.id) }}?download=1">
-                                                <span>📥</span> Download PDF
-                                            </a>
-                                            <button onclick="openEditExamModal({{ exam.id }}, '{{ exam.name|escape }}')">
-                                                <span>📝</span> Edit Nama & PDF
-                                            </button>
-                                            <a href="{{ url_for('public_hasil', token=exam.token) }}" target="_blank">
-                                                <span>🔗</span> Halaman Siswa
-                                            </a>
-                                            <button id="btn-public-results-{{ exam.id }}" onclick="togglePublicResults({{ exam.id }})">
-                                                {% if exam.public_results == 1 or exam.public_results is none %}
-                                                <span>🟢</span> Halaman Siswa Aktif
-                                                {% else %}
-                                                <span>🔴</span> Halaman Siswa Nonaktif
-                                                {% endif %}
-                                            </button>
-                                            <button id="btn-show-answers-{{ exam.id }}" onclick="toggleShowAnswers({{ exam.id }})">
-                                                {% if exam.show_answers == 1 %}
-                                                <span>🔓</span> Kunci Terlihat
-                                                {% else %}
-                                                <span>🔒</span> Kunci Tersembunyi
-                                                {% endif %}
-                                            </button>
-                                        </div>
-                                    </div>
-                                </div>
-                            </td>
-                        </tr>
-                        {% endfor %}
-                    </tbody>
-                </table>
-            </div>
+ <!-- Pagination -->
+ {% if total_pages > 1 %}
+ <div style="display: flex; justify-content: space-between; align-items: center; padding: 16px 0 0 0; flex-wrap: wrap; gap: 12px;">
+ <span style="font-size: 13px; color: var(--text-muted);">Menampilkan {{ exams|length }} dari {{ total_exams }} ujian</span>
+ <div style="display: flex; gap: 6px; align-items: center;">
+ <a href="?page={{ page-1 }}&search={{ search }}" class="btn-sm btn-toggle page-link-main {% if page <= 1 %}disabled{% endif %}">◀ Sebelumnya</a>
 
-            <!-- Pagination -->
-            {% if total_pages > 1 %}
-            <div style="display: flex; justify-content: space-between; align-items: center; padding: 16px 0 0 0; flex-wrap: wrap; gap: 12px;">
-                <span style="font-size: 13px; color: var(--text-muted);">Menampilkan {{ exams|length }} dari {{ total_exams }} ujian</span>
-                <div style="display: flex; gap: 6px; align-items: center;">
-                    <a href="?page={{ page-1 }}&search={{ search }}" class="btn-sm btn-toggle {% if page <= 1 %}disabled{% endif %}"
-                       style="{% if page <= 1 %}opacity:0.4; pointer-events:none;{% endif %} padding: 6px 14px; text-decoration: none;">◀ Sebelumnya</a>
+ {% for p in range(1, total_pages + 1) %}
+ {% if p >= page - 2 and p <= page + 2 %}
+ <a href="?page={{ p }}&search={{ search }}" class="pagination-page-num {% if p == page %}page-current{% endif %}">{{ p }}</a>
+ {% endif %}
+ {% endfor %}
 
-                    {% for p in range(1, total_pages + 1) %}
-                        {% if p >= page - 2 and p <= page + 2 %}
-                        <a href="?page={{ p }}&search={{ search }}"
-                           style="padding: 6px 12px; border-radius: 6px; text-decoration: none; font-size: 13px; font-weight: 600;
-                                  background: {% if p == page %}var(--primary){% else %}rgba(255,255,255,0.04){% endif %};
-                                  color: {% if p == page %}white{% else %}var(--text-secondary){% endif %};
-                                  border: 1px solid {% if p == page %}var(--primary){% else %}var(--glass-border){% endif %};
-                                  transition: all 0.2s;">{{ p }}</a>
-                        {% endif %}
-                    {% endfor %}
+ <a href="?page={{ page+1 }}&search={{ search }}" class="btn-sm btn-toggle page-link-main {% if page >= total_pages %}disabled{% endif %}">Berikutnya ▶</a>
+ </div>
+ </div>
+ {% endif %}
+ {% endif %}
+ </section>
+ </main>
 
-                    <a href="?page={{ page+1 }}&search={{ search }}" class="btn-sm btn-toggle {% if page >= total_pages %}disabled{% endif %}"
-                       style="{% if page >= total_pages %}opacity:0.4; pointer-events:none;{% endif %} padding: 6px 14px; text-decoration: none;">Berikutnya ▶</a>
-                </div>
-            </div>
-            {% endif %}
-            {% endif %}
-        </section>
-    </main>
-
-    <!-- Modal Atur Soal -->
-    <div class="modal-overlay" id="questionsModal">
-        <div class="modal-card glass-card">
-            <div class="modal-header">
-                <h3 id="modalTitle">Atur Soal Ujian</h3>
-                <button class="modal-close" onclick="closeQuestionsModal()">✕</button>
-            </div>
-            <div class="modal-body">
-                <div class="security-level-config" style="margin-bottom: 20px; padding: 12px 16px; background: rgba(255, 255, 255, 0.03); border: 1px solid var(--glass-border); border-radius: 12px; display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 12px;">
-                    <div style="display: flex; align-items: center; gap: 8px;">
-                        <span style="font-size: 20px;">🛡️</span>
-                        <div>
-                            <div style="font-weight: 600; color: var(--text-primary); font-size: 0.95rem;">Mode Keamanan Ujian (Android)</div>
-                            <div style="font-size: 0.8rem; color: var(--text-muted);">Menentukan tindakan aplikasi jika siswa keluar/meminimalkan ujian.</div>
-                        </div>
-                    </div>
-                    <div>
-                        <select id="examSecurityLevel" class="q-type-select" style="min-width: 200px; margin: 0;">
-                            <option value="medium">Medium (Bisa Keluar & Auto-Submit)</option>
-                            <option value="low">Low (Bisa Keluar Tanpa Submit)</option>
-                        </select>
-                    </div>
-                </div>
-                <div class="questions-toolbar">
-                    <div class="inline-group">
-                        <label for="generateQty">Jumlah:</label>
-                        <input type="number" id="generateQty" value="40" min="0" max="100">
-                        <select id="generateType">
-                            <option value="single_choice">Pilihan Ganda</option>
-                            <option value="true_false">Benar / Salah</option>
-                            <option value="multiple_choice">PG Kompleks</option>
-                            <option value="matching">Menjodohkan</option>
-                            <option value="short_answer">Isian Singkat</option>
-                        </select>
-                        <button class="btn-sm btn-toggle" onclick="quickGenerateQuestions()">⚡ Generate</button>
-                    </div>
-                    <div class="inline-group">
-                        <button class="btn-weight" onclick="setAllWeights()">⚖️ Set All Bobot</button>
-                    </div>
-                    <div class="xml-import-wrapper">
-                        <button class="btn-sm btn-questions" onclick="copyAIPrompt()">📋 Prompt AI</button>
-                        <input type="file" id="xmlFileInput" accept=".xml" style="display:none;" onchange="importXMLQuestions(event)">
-                        <button class="btn-sm btn-questions" onclick="document.getElementById('xmlFileInput').click()">📥 Import XML</button>
-                        <button class="btn-sm btn-questions" onclick="exportXMLQuestions()">📤 Export XML</button>
-                    </div>
-                </div>
-                <div class="questions-list-container" id="questionsList"></div>
-            </div>
-            <div class="modal-footer">
-                <button class="btn-sm btn-delete" onclick="closeQuestionsModal()">Batal</button>
-                <button class="btn-upload" onclick="saveQuestionsConfig()">Simpan Konfigurasi</button>
-            </div>
-        </div>
-    </div>
+ <!-- Modal Atur Soal -->
+ <div class="modal-overlay" id="questionsModal">
+ <div class="modal-card glass-card">
+ <div class="modal-header">
+ <h3 id="modalTitle">Atur Soal Ujian</h3>
+ <button class="modal-close" onclick="closeQuestionsModal()" aria-label="Tutup">✕</button>
+ </div>
+ <div class="modal-body">
+ <div class="security-level-config" style="margin-bottom: 20px; padding: 12px 16px; background: rgba(255, 255, 255, 0.03); border: 1px solid var(--glass-border); border-radius: 12px; display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 12px;">
+ <div style="display: flex; align-items: center; gap: 8px;">
+ <svg class="icon-svg" style="width:20px;height:20px;"><use href="#hi-lock"/></svg>
+ <div>
+ <div style="font-weight: 600; color: var(--text-primary); font-size: 0.95rem;">Mode Keamanan Ujian (Android)</div>
+ <div style="font-size: 0.8rem; color: var(--text-muted);">Menentukan tindakan aplikasi jika siswa keluar/meminimalkan ujian.</div>
+ </div>
+ </div>
+ <div>
+ <select id="examSecurityLevel" class="q-type-select" style="min-width: 200px; margin: 0;">
+ <option value="medium">Medium (Bisa Keluar & Auto-Submit)</option>
+ <option value="low">Low (Bisa Keluar Tanpa Submit)</option>
+ </select>
+ </div>
+ </div>
+ <div class="questions-toolbar">
+ <div class="inline-group">
+ <label for="generateQty">Jumlah:</label>
+ <input type="number" id="generateQty" value="40" min="0" max="100">
+ <select id="generateType">
+ <option value="single_choice">Pilihan Ganda</option>
+ <option value="true_false">Benar / Salah</option>
+ <option value="multiple_choice">PG Kompleks</option>
+ <option value="matching">Menjodohkan</option>
+ <option value="short_answer">Isian Singkat</option>
+ </select>
+ <button class="btn-sm btn-toggle" onclick="quickGenerateQuestions()">⚡ Generate</button>
+ </div>
+ <div class="inline-group">
+ <button class="btn-weight" onclick="setAllWeights()"><svg class="icon-svg"><use href="#hi-settings"/></svg> Set All Bobot</button>
+ </div>
+ <div class="xml-import-wrapper">
+ <button class="btn-sm btn-questions" onclick="copyAIPrompt()"><svg class="icon-svg"><use href="#hi-clipboard"/></svg> Prompt AI</button>
+ <input type="file" id="xmlFileInput" accept=".xml" style="display:none;" onchange="importXMLQuestions(event)">
+ <button class="btn-sm btn-questions" onclick="document.getElementById('xmlFileInput').click()"><svg class="icon-svg"><use href="#hi-download"/></svg> Import XML</button>
+ <button class="btn-sm btn-questions" onclick="exportXMLQuestions()"><svg class="icon-svg"><use href="#hi-upload"/></svg> Export XML</button>
+ </div>
+ </div>
+ <div class="questions-list-container" id="questionsList"></div>
+ </div>
+ <div class="modal-footer">
+ <button class="btn-sm btn-delete" onclick="closeQuestionsModal()">Batal</button>
+ <button class="btn-upload" onclick="saveQuestionsConfig()">Simpan Konfigurasi</button>
+ </div>
+ </div>
+ </div>
 
 {% endblock %}

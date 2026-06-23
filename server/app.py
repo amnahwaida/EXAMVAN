@@ -563,14 +563,17 @@ def too_large(e):
 
 @app.errorhandler(404)
 def not_found(e):
-    """Handle 404 errors."""
+    """Handle 404 errors - render a proper page instead of redirecting to root."""
     if request.path.startswith('/api/'):
         return jsonify({
             'success': False,
             'error': 'not_found',
             'message': 'Endpoint tidak ditemukan'
         }), 404
-    return redirect(url_for('index'))
+    # Check if user is trying to access admin pages without login
+    if request.path.startswith('/admin/'):
+        return redirect(url_for('admin_login'))
+    return render_template('index.html'), 404
 
 
 @app.errorhandler(500)
@@ -583,7 +586,7 @@ def internal_error(e):
             'error': 'internal_error',
             'message': 'Terjadi kesalahan internal server. Silakan coba lagi.'
         }), 500
-    return redirect(url_for('index'))
+    return redirect(url_for('admin_dashboard'))
 
 
 # ===== Main =====

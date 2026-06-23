@@ -1,1360 +1,1371 @@
 <!DOCTYPE html>
 <html lang="id">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>EXAMVAN - Hasil Ujian {{ exam_name }}</title>
-    <meta name="description" content="Lihat hasil ujian {{ exam_name }} - EXAMVAN">
-    <link rel="preconnect" href="https://fonts.googleapis.com">
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&display=swap" rel="stylesheet">
-    <style>
-        :root {
-            --bg: #09090e;
-            --surface: rgba(255,255,255,0.03);
-            --surface-hover: rgba(255,255,255,0.07);
-            --glass: rgba(15, 15, 30, 0.55);
-            --glass-border: rgba(255, 255, 255, 0.08);
-            --primary: #6366f1;
-            --primary-glow: rgba(99, 102, 241, 0.25);
-            --success: #10b981;
-            --danger: #ef4444;
-            --warning: #f59e0b;
-            --text: #f8fafc;
-            --text-secondary: #cbd5e1;
-            --text-muted: #64748b;
-            --radius: 16px;
-            --radius-sm: 10px;
-            --accent-violet: #8b5cf6;
-            --accent-cyan: #22d3ee;
-            --accent-emerald: #34d399;
-        }
+ <meta charset="UTF-8">
+ <meta name="viewport" content="width=device-width, initial-scale=1.0">
+ <title>EXAMVAN - Hasil Ujian {{ exam_name }}</title>
+ <meta name="description" content="Lihat hasil ujian {{ exam_name }} - EXAMVAN">
+ <link rel="preconnect" href="https://fonts.googleapis.com">
+ <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+ <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@300;400;500;600;700;800&family=Outfit:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+ <style>
+ :root {
+ --bg: #09090e;
+ --surface: rgba(255,255,255,0.03);
+ --surface-hover: rgba(255,255,255,0.07);
+ --glass: rgba(15, 15, 30, 0.55);
+ --glass-border: rgba(255, 255, 255, 0.08);
+ --primary: #6366f1;
+ --primary-glow: rgba(99, 102, 241, 0.25);
+ --success: #10b981;
+ --danger: #ef4444;
+ --warning: #f59e0b;
+ --text: #f8fafc;
+ --text-secondary: #cbd5e1;
+ --text-muted: #94a3b8;
+ --radius: 16px;
+ --radius-sm: 10px;
+ --accent-violet: #8b5cf6;
+ --accent-cyan: #22d3ee;
+ --accent-emerald: #34d399;
+ }
 
-        * { margin: 0; padding: 0; box-sizing: border-box; }
+ * { margin: 0; padding: 0; box-sizing: border-box; }
 
-        body {
-            font-family: 'Inter', system-ui, -apple-system, sans-serif;
-            background: radial-gradient(circle at 50% 0%, #17152f 0%, #0c0a1a 50%, #06050b 100%);
-            background-attachment: fixed;
-            color: var(--text);
-            min-height: 100vh;
-            -webkit-font-smoothing: antialiased;
-            overflow-x: hidden;
-        }
+ body {
+ font-family: 'Plus Jakarta Sans', 'Inter', system-ui, -apple-system, sans-serif;
+ background: radial-gradient(circle at 50% 0%, #17152f 0%, #0c0a1a 50%, #06050b 100%);
+ background-attachment: fixed;
+ color: var(--text);
+ min-height: 100vh;
+ -webkit-font-smoothing: antialiased;
+ overflow-x: hidden;
+ }
 
-        /* Animated background orbs */
-        .bg-orbs {
-            position: fixed;
-            inset: 0;
-            z-index: 0;
-            pointer-events: none;
-            overflow: hidden;
-        }
-        .bg-orb {
-            position: absolute;
-            border-radius: 50%;
-            filter: blur(100px);
-            opacity: 0.3;
-            animation: orbFloat 12s ease-in-out infinite;
-        }
-        .bg-orb-1 {
-            width: 500px; height: 500px;
-            background: var(--primary);
-            top: -150px; left: -100px;
-        }
-        .bg-orb-2 {
-            width: 400px; height: 400px;
-            background: var(--accent-violet);
-            bottom: -120px; right: -100px;
-            animation-delay: -4s;
-        }
-        .bg-orb-3 {
-            width: 300px; height: 300px;
-            background: var(--accent-cyan);
-            top: 50%; left: 50%;
-            transform: translate(-50%, -50%);
-            animation-delay: -8s;
-            opacity: 0.15;
-        }
+ /* Animated background orbs */
+ .bg-orbs {
+ position: fixed;
+ inset: 0;
+ z-index: 0;
+ pointer-events: none;
+ overflow: hidden;
+ }
+ .bg-orb {
+ position: absolute;
+ border-radius: 50%;
+ filter: blur(100px);
+ opacity: 0.3;
+ animation: orbFloat 12s ease-in-out infinite;
+ }
+ .bg-orb-1 {
+ width: 500px; height: 500px;
+ background: var(--primary);
+ top: -150px; left: -100px;
+ }
+ .bg-orb-2 {
+ width: 400px; height: 400px;
+ background: var(--accent-violet);
+ bottom: -120px; right: -100px;
+ animation-delay: -4s;
+ }
+ .bg-orb-3 {
+ width: 300px; height: 300px;
+ background: var(--accent-cyan);
+ top: 50%; left: 50%;
+ transform: translate(-50%, -50%);
+ animation-delay: -8s;
+ opacity: 0.15;
+ }
 
-        @keyframes orbFloat {
-            0%, 100% { transform: translate(0,0) scale(1); }
-            33% { transform: translate(30px, -20px) scale(1.05); }
-            66% { transform: translate(-20px, 30px) scale(0.95); }
-        }
+ @keyframes orbFloat {
+ 0%, 100% { transform: translate(0,0) scale(1); }
+ 33% { transform: translate(30px, -20px) scale(1.05); }
+ 66% { transform: translate(-20px, 30px) scale(0.95); }
+ }
 
-        /* Header */
-        .header {
-            position: relative;
-            z-index: 10;
-            padding: 20px 24px;
-            display: flex;
-            align-items: center;
-            justify-content: space-between;
-            border-bottom: 1px solid var(--glass-border);
-            background: rgba(9, 9, 14, 0.6);
-            backdrop-filter: blur(20px);
-            -webkit-backdrop-filter: blur(20px);
-        }
-        .header-left {
-            display: flex;
-            align-items: center;
-            gap: 12px;
-        }
-        .header-logo {
-            width: 40px; height: 40px;
-            background: linear-gradient(135deg, var(--primary), var(--accent-violet));
-            border-radius: 12px;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            font-weight: 900;
-            font-size: 18px;
-            color: white;
-            box-shadow: 0 4px 20px var(--primary-glow);
-        }
-        .header-title {
-            font-size: 1.25rem;
-            font-weight: 700;
-            background: linear-gradient(135deg, var(--text), var(--text-secondary));
-            -webkit-background-clip: text;
-            -webkit-text-fill-color: transparent;
-            background-clip: text;
-        }
-        .header-badge {
-            font-size: 0.7rem;
-            padding: 4px 10px;
-            border-radius: 20px;
-            background: rgba(99, 102, 241, 0.15);
-            border: 1px solid rgba(99, 102, 241, 0.3);
-            color: #a5b4fc;
-            font-weight: 600;
-            letter-spacing: 0.5px;
-        }
+ /* Header */
+ .header {
+ position: relative;
+ z-index: 10;
+ padding: 20px 24px;
+ display: flex;
+ align-items: center;
+ justify-content: space-between;
+ border-bottom: 1px solid var(--glass-border);
+ background: rgba(9, 9, 14, 0.6);
+ backdrop-filter: blur(20px);
+ -webkit-backdrop-filter: blur(20px);
+ }
+ .header-left {
+ display: flex;
+ align-items: center;
+ gap: 12px;
+ }
+ .header-logo {
+ width: 40px; height: 40px;
+ background: linear-gradient(135deg, var(--primary), var(--accent-violet));
+ border-radius: 12px;
+ display: flex;
+ align-items: center;
+ justify-content: center;
+ font-weight: 900;
+ font-size: 18px;
+ color: white;
+ box-shadow: 0 4px 20px var(--primary-glow);
+ }
+ .header-title {
+ font-size: 1.25rem;
+ font-weight: 700;
+ background: linear-gradient(135deg, var(--text), var(--text-secondary));
+ -webkit-background-clip: text;
+ -webkit-text-fill-color: transparent;
+ background-clip: text;
+ }
+ .header-badge {
+ font-size: 0.7rem;
+ padding: 4px 10px;
+ border-radius: 20px;
+ background: rgba(99, 102, 241, 0.15);
+ border: 1px solid rgba(99, 102, 241, 0.3);
+ color: #a5b4fc;
+ font-weight: 600;
+ letter-spacing: 0.5px;
+ }
 
-        /* Main content */
-        .main {
-            position: relative;
-            z-index: 1;
-            max-width: 1100px;
-            margin: 0 auto;
-            padding: 32px 20px 60px;
-        }
+ /* Main content */
+ .main {
+ position: relative;
+ z-index: 1;
+ max-width: 1100px;
+ margin: 0 auto;
+ padding: 32px 20px 60px;
+ }
 
-        /* Exam info hero */
-        .exam-hero {
-            background: var(--glass);
-            backdrop-filter: blur(24px);
-            -webkit-backdrop-filter: blur(24px);
-            border: 1px solid var(--glass-border);
-            border-radius: 20px;
-            padding: 32px;
-            margin-bottom: 24px;
-            animation: fadeUp 0.5s ease;
-            position: relative;
-            overflow: hidden;
-        }
-        .exam-hero::before {
-            content: '';
-            position: absolute;
-            top: 0; left: 0; right: 0;
-            height: 3px;
-            background: linear-gradient(90deg, var(--primary), var(--accent-violet), var(--accent-cyan));
-        }
-        .exam-hero h1 {
-            font-size: 1.6rem;
-            font-weight: 800;
-            margin-bottom: 8px;
-            background: linear-gradient(135deg, #fff, #cbd5e1);
-            -webkit-background-clip: text;
-            -webkit-text-fill-color: transparent;
-            background-clip: text;
-        }
-        .exam-meta {
-            display: flex;
-            flex-wrap: wrap;
-            gap: 16px;
-            margin-top: 16px;
-        }
-        .exam-meta-item {
-            display: flex;
-            align-items: center;
-            gap: 8px;
-            font-size: 0.85rem;
-            color: var(--text-secondary);
-            background: rgba(255,255,255,0.04);
-            padding: 8px 14px;
-            border-radius: 10px;
-            border: 1px solid rgba(255,255,255,0.06);
-        }
-        .exam-meta-item .meta-icon {
-            font-size: 1.1rem;
-        }
-        .exam-meta-item strong {
-            color: var(--text);
-            font-weight: 600;
-        }
+ /* Exam info hero */
+ .exam-hero {
+ background: var(--glass);
+ backdrop-filter: blur(24px);
+ -webkit-backdrop-filter: blur(24px);
+ border: 1px solid var(--glass-border);
+ border-radius: 20px;
+ padding: 32px;
+ margin-bottom: 24px;
+ animation: fadeUp 0.5s ease;
+ position: relative;
+ overflow: hidden;
+ }
+ .exam-hero::before {
+ content: '';
+ position: absolute;
+ top: 0; left: 0; right: 0;
+ height: 3px;
+ background: linear-gradient(90deg, var(--primary), var(--accent-violet), var(--accent-cyan));
+ }
+ .exam-hero h1 {
+ font-size: 1.6rem;
+ font-weight: 800;
+ margin-bottom: 8px;
+ background: linear-gradient(135deg, #fff, #cbd5e1);
+ -webkit-background-clip: text;
+ -webkit-text-fill-color: transparent;
+ background-clip: text;
+ }
+ .exam-meta {
+ display: flex;
+ flex-wrap: wrap;
+ gap: 16px;
+ margin-top: 16px;
+ }
+ .exam-meta-item {
+ display: flex;
+ align-items: center;
+ gap: 8px;
+ font-size: 0.85rem;
+ color: var(--text-secondary);
+ background: rgba(255,255,255,0.04);
+ padding: 8px 14px;
+ border-radius: 10px;
+ border: 1px solid rgba(255,255,255,0.06);
+ }
+ .exam-meta-item .meta-icon {
+ font-size: 1.1rem;
+ }
+ .exam-meta-item strong {
+ color: var(--text);
+ font-weight: 600;
+ }
 
-        /* Tab navigation */
-        .tab-nav {
-            display: flex;
-            gap: 8px;
-            margin-bottom: 24px;
-            animation: fadeUp 0.6s ease;
-        }
-        .tab-btn {
-            padding: 12px 24px;
-            border-radius: 12px;
-            border: 1px solid var(--glass-border);
-            background: var(--surface);
-            color: var(--text-muted);
-            font-size: 0.9rem;
-            font-weight: 600;
-            cursor: pointer;
-            transition: all 0.3s ease;
-            display: flex;
-            align-items: center;
-            gap: 8px;
-            font-family: inherit;
-        }
-        .tab-btn:hover {
-            background: var(--surface-hover);
-            color: var(--text-secondary);
-            border-color: rgba(255,255,255,0.15);
-        }
-        .tab-btn.active {
-            background: rgba(99, 102, 241, 0.15);
-            border-color: rgba(99, 102, 241, 0.4);
-            color: #a5b4fc;
-            box-shadow: 0 0 20px rgba(99, 102, 241, 0.1);
-        }
+ /* Tab navigation */
+ .tab-nav {
+ display: flex;
+ gap: 8px;
+ margin-bottom: 24px;
+ animation: fadeUp 0.6s ease;
+ }
+ .tab-btn {
+ padding: 12px 24px;
+ border-radius: 12px;
+ border: 1px solid var(--glass-border);
+ background: var(--surface);
+ color: var(--text-muted);
+ font-size: 0.9rem;
+ font-weight: 600;
+ cursor: pointer;
+ transition: all 0.3s ease;
+ display: flex;
+ align-items: center;
+ gap: 8px;
+ font-family: inherit;
+ }
+ .tab-btn:hover {
+ background: var(--surface-hover);
+ color: var(--text-secondary);
+ border-color: rgba(255,255,255,0.15);
+ }
+ .tab-btn.active {
+ background: rgba(99, 102, 241, 0.15);
+ border-color: rgba(99, 102, 241, 0.4);
+ color: #a5b4fc;
+ box-shadow: 0 0 20px rgba(99, 102, 241, 0.1);
+ }
 
-        /* Search bar */
-        .search-section {
-            background: var(--glass);
-            backdrop-filter: blur(24px);
-            -webkit-backdrop-filter: blur(24px);
-            border: 1px solid var(--glass-border);
-            border-radius: 16px;
-            padding: 20px 24px;
-            margin-bottom: 20px;
-            animation: fadeUp 0.7s ease;
-        }
-        .search-row {
-            display: flex;
-            gap: 12px;
-            align-items: center;
-            flex-wrap: wrap;
-        }
-        .search-input {
-            flex: 1;
-            min-width: 200px;
-            padding: 12px 16px;
-            border-radius: 12px;
-            border: 1px solid var(--glass-border);
-            background: rgba(255,255,255,0.05);
-            color: var(--text);
-            font-size: 0.9rem;
-            font-family: inherit;
-            outline: none;
-            transition: all 0.3s;
-        }
-        .search-input:focus {
-            border-color: var(--primary);
-            box-shadow: 0 0 0 3px var(--primary-glow);
-            background: rgba(255,255,255,0.08);
-        }
-        .search-input::placeholder {
-            color: var(--text-muted);
-        }
+ /* Search bar */
+ .search-section {
+ background: var(--glass);
+ backdrop-filter: blur(24px);
+ -webkit-backdrop-filter: blur(24px);
+ border: 1px solid var(--glass-border);
+ border-radius: 16px;
+ padding: 20px 24px;
+ margin-bottom: 20px;
+ animation: fadeUp 0.7s ease;
+ }
+ .search-row {
+ display: flex;
+ gap: 12px;
+ align-items: center;
+ flex-wrap: wrap;
+ }
+ .search-input {
+ flex: 1;
+ min-width: 200px;
+ padding: 12px 16px;
+ border-radius: 12px;
+ border: 1px solid var(--glass-border);
+ background: rgba(255,255,255,0.05);
+ color: var(--text);
+ font-size: 0.9rem;
+ font-family: inherit;
+ outline: none;
+ transition: all 0.3s;
+ }
+ .search-input:focus {
+ border-color: var(--primary);
+ box-shadow: 0 0 0 3px var(--primary-glow);
+ background: rgba(255,255,255,0.08);
+ }
+ .search-input::placeholder {
+ color: var(--text-muted);
+ }
 
-        /* Glass card */
-        .glass-card {
-            background: var(--glass);
-            backdrop-filter: blur(24px);
-            -webkit-backdrop-filter: blur(24px);
-            border: 1px solid var(--glass-border);
-            border-radius: var(--radius);
-            padding: 24px;
-            animation: fadeUp 0.7s ease;
-        }
+ /* Glass card */
+ .glass-card {
+ background: var(--glass);
+ backdrop-filter: blur(24px);
+ -webkit-backdrop-filter: blur(24px);
+ border: 1px solid var(--glass-border);
+ border-radius: var(--radius);
+ padding: 24px;
+ animation: fadeUp 0.7s ease;
+ }
 
-        /* Results table */
-        .results-table {
-            width: 100%;
-            border-collapse: collapse;
-            font-size: 0.85rem;
-        }
-        .results-table thead th {
-            padding: 14px 16px;
-            text-align: left;
-            font-size: 0.75rem;
-            font-weight: 700;
-            text-transform: uppercase;
-            letter-spacing: 0.8px;
-            color: var(--text-muted);
-            border-bottom: 1px solid var(--glass-border);
-            position: sticky;
-            top: 0;
-            background: rgba(15, 15, 30, 0.9);
-            backdrop-filter: blur(10px);
-            z-index: 2;
-        }
-        .results-table tbody tr {
-            border-bottom: 1px solid rgba(255,255,255,0.04);
-            transition: all 0.2s;
-            cursor: pointer;
-        }
-        .results-table tbody tr:hover {
-            background: rgba(99, 102, 241, 0.06);
-        }
-        .results-table tbody tr.expanded {
-            background: rgba(99, 102, 241, 0.08);
-            border-bottom-color: transparent;
-        }
-        .results-table tbody td {
-            padding: 14px 16px;
-            vertical-align: middle;
-        }
+ /* Results table */
+ .results-table {
+ width: 100%;
+ border-collapse: collapse;
+ font-size: 0.85rem;
+ }
+ .results-table thead th {
+ padding: 14px 16px;
+ text-align: left;
+ font-size: 0.75rem;
+ font-weight: 700;
+ text-transform: uppercase;
+ letter-spacing: 0.8px;
+ color: var(--text-muted);
+ border-bottom: 1px solid var(--glass-border);
+ position: sticky;
+ top: 0;
+ background: rgba(15, 15, 30, 0.9);
+ backdrop-filter: blur(10px);
+ z-index: 2;
+ }
+ .results-table tbody tr {
+ border-bottom: 1px solid rgba(255,255,255,0.04);
+ transition: all 0.2s;
+ cursor: pointer;
+ }
+ .results-table tbody tr:hover {
+ background: rgba(99, 102, 241, 0.06);
+ }
+ .results-table tbody tr.expanded {
+ background: rgba(99, 102, 241, 0.08);
+ border-bottom-color: transparent;
+ }
+ .results-table tbody td {
+ padding: 14px 16px;
+ vertical-align: middle;
+ }
 
-        /* Score badge */
-        .score-badge {
-            display: inline-flex;
-            align-items: center;
-            justify-content: center;
-            min-width: 56px;
-            padding: 6px 14px;
-            border-radius: 20px;
-            font-weight: 700;
-            font-size: 0.85rem;
-        }
-        .score-high {
-            background: rgba(16, 185, 129, 0.15);
-            color: #34d399;
-            border: 1px solid rgba(16, 185, 129, 0.3);
-        }
-        .score-mid {
-            background: rgba(245, 158, 11, 0.15);
-            color: #fbbf24;
-            border: 1px solid rgba(245, 158, 11, 0.3);
-        }
-        .score-low {
-            background: rgba(239, 68, 68, 0.15);
-            color: #f87171;
-            border: 1px solid rgba(239, 68, 68, 0.3);
-        }
-        .score-none {
-            background: rgba(100, 116, 139, 0.15);
-            color: #94a3b8;
-            border: 1px solid rgba(100, 116, 139, 0.2);
-            font-weight: 500;
-            font-size: 0.75rem;
-        }
+ /* Score badge */
+ .score-badge {
+ display: inline-flex;
+ align-items: center;
+ justify-content: center;
+ min-width: 56px;
+ padding: 6px 14px;
+ border-radius: 20px;
+ font-weight: 700;
+ font-size: 0.85rem;
+ }
+ .score-high {
+ background: rgba(16, 185, 129, 0.15);
+ color: #34d399;
+ border: 1px solid rgba(16, 185, 129, 0.3);
+ }
+ .score-mid {
+ background: rgba(245, 158, 11, 0.15);
+ color: #fbbf24;
+ border: 1px solid rgba(245, 158, 11, 0.3);
+ }
+ .score-low {
+ background: rgba(239, 68, 68, 0.15);
+ color: #f87171;
+ border: 1px solid rgba(239, 68, 68, 0.3);
+ }
+ .score-none {
+ background: rgba(100, 116, 139, 0.15);
+ color: #94a3b8;
+ border: 1px solid rgba(100, 116, 139, 0.2);
+ font-weight: 500;
+ font-size: 0.75rem;
+ }
 
-        /* Detail expansion row */
-        .detail-row {
-            display: none;
-        }
-        .detail-row.show {
-            display: table-row;
-        }
-        .detail-row td {
-            padding: 0 !important;
-            border-bottom: 1px solid rgba(99, 102, 241, 0.15);
-        }
-        .detail-content {
-            padding: 20px 24px;
-            background: rgba(99, 102, 241, 0.03);
-            border-top: 1px solid rgba(99, 102, 241, 0.1);
-        }
+ /* Detail expansion row */
+ .detail-row {
+ display: none;
+ }
+ .detail-row.show {
+ display: table-row;
+ }
+ .detail-row td {
+ padding: 0 !important;
+ border-bottom: 1px solid rgba(99, 102, 241, 0.15);
+ }
+ .detail-content {
+ padding: 20px 24px;
+ background: rgba(99, 102, 241, 0.03);
+ border-top: 1px solid rgba(99, 102, 241, 0.1);
+ }
 
-        /* Answer detail items */
-        .answer-grid {
-            display: flex;
-            flex-direction: column;
-            gap: 6px;
-            max-height: 400px;
-            overflow-y: auto;
-            padding-right: 8px;
-        }
-        .answer-grid::-webkit-scrollbar {
-            width: 6px;
-        }
-        .answer-grid::-webkit-scrollbar-track {
-            background: transparent;
-        }
-        .answer-grid::-webkit-scrollbar-thumb {
-            background: rgba(255,255,255,0.1);
-            border-radius: 3px;
-        }
-        .answer-item {
-            display: flex;
-            align-items: center;
-            gap: 12px;
-            padding: 10px 14px;
-            border-radius: 10px;
-            background: rgba(255,255,255,0.02);
-            border: 1px solid rgba(255,255,255,0.04);
-            transition: all 0.2s;
-        }
-        .answer-item:hover {
-            background: rgba(255,255,255,0.05);
-        }
-        .answer-item.correct {
-            border-left: 3px solid var(--success);
-            background: rgba(16, 185, 129, 0.04);
-        }
-        .answer-item.incorrect {
-            border-left: 3px solid var(--danger);
-            background: rgba(239, 68, 68, 0.04);
-        }
-        .answer-item.partial {
-            border-left: 3px solid var(--warning);
-            background: rgba(245, 158, 11, 0.04);
-        }
-        .answer-item.unanswered {
-            border-left: 3px solid var(--text-muted);
-            opacity: 0.6;
-        }
-        .q-num {
-            min-width: 44px;
-            text-align: center;
-            font-weight: 700;
-            font-size: 0.8rem;
-            color: var(--text-muted);
-            background: rgba(255,255,255,0.05);
-            padding: 4px 8px;
-            border-radius: 6px;
-        }
-        .q-student-ans, .q-correct-ans {
-            flex: 1;
-            font-size: 0.85rem;
-        }
-        .q-student-ans {
-            color: var(--text);
-            font-weight: 500;
-        }
-        .q-correct-ans {
-            color: var(--text-secondary);
-        }
-        .q-status {
-            min-width: 90px;
-            text-align: right;
-            font-size: 0.8rem;
-            font-weight: 600;
-        }
-        .q-status.correct { color: var(--success); }
-        .q-status.incorrect { color: var(--danger); }
-        .q-status.partial { color: var(--warning); }
+ /* Answer detail items */
+ .answer-grid {
+ display: flex;
+ flex-direction: column;
+ gap: 6px;
+ max-height: 400px;
+ overflow-y: auto;
+ padding-right: 8px;
+ }
+ .answer-grid::-webkit-scrollbar {
+ width: 6px;
+ }
+ .answer-grid::-webkit-scrollbar-track {
+ background: transparent;
+ }
+ .answer-grid::-webkit-scrollbar-thumb {
+ background: rgba(255,255,255,0.1);
+ border-radius: 3px;
+ }
+ .answer-item {
+ display: flex;
+ align-items: center;
+ gap: 12px;
+ padding: 10px 14px;
+ border-radius: 10px;
+ background: rgba(255,255,255,0.02);
+ border: 1px solid rgba(255,255,255,0.04);
+ transition: all 0.2s;
+ }
+ .answer-item:hover {
+ background: rgba(255,255,255,0.05);
+ }
+ .answer-item.correct {
+ border-left: 3px solid var(--success);
+ background: rgba(16, 185, 129, 0.04);
+ }
+ .answer-item.incorrect {
+ border-left: 3px solid var(--danger);
+ background: rgba(239, 68, 68, 0.04);
+ }
+ .answer-item.partial {
+ border-left: 3px solid var(--warning);
+ background: rgba(245, 158, 11, 0.04);
+ }
+ .answer-item.unanswered {
+ border-left: 3px solid var(--text-muted);
+ opacity: 0.6;
+ }
+ .q-num {
+ min-width: 44px;
+ text-align: center;
+ font-weight: 700;
+ font-size: 0.8rem;
+ color: var(--text-muted);
+ background: rgba(255,255,255,0.05);
+ padding: 4px 8px;
+ border-radius: 6px;
+ }
+ .q-student-ans, .q-correct-ans {
+ flex: 1;
+ font-size: 0.85rem;
+ }
+ .q-student-ans {
+ color: var(--text);
+ font-weight: 500;
+ }
+ .q-correct-ans {
+ color: var(--text-secondary);
+ }
+ .q-status {
+ min-width: 90px;
+ text-align: right;
+ font-size: 0.8rem;
+ font-weight: 600;
+ }
+ .q-status.correct { color: var(--success); }
+ .q-status.incorrect { color: var(--danger); }
+ .q-status.partial { color: var(--warning); }
 
-        .detail-header {
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            padding: 0 6px 12px 6px;
-            border-bottom: 1px solid rgba(255,255,255,0.06);
-            margin-bottom: 12px;
-        }
-        .detail-header-labels {
-            display: flex;
-            gap: 12px;
-            font-size: 0.7rem;
-            font-weight: 700;
-            text-transform: uppercase;
-            letter-spacing: 0.5px;
-            color: var(--text-muted);
-        }
-        .detail-score-summary {
-            display: flex;
-            align-items: center;
-            gap: 8px;
-            font-size: 0.85rem;
-        }
+ .detail-header {
+ display: flex;
+ justify-content: space-between;
+ align-items: center;
+ padding: 0 6px 12px 6px;
+ border-bottom: 1px solid rgba(255,255,255,0.06);
+ margin-bottom: 12px;
+ }
+ .detail-header-labels {
+ display: flex;
+ gap: 12px;
+ font-size: 0.7rem;
+ font-weight: 700;
+ text-transform: uppercase;
+ letter-spacing: 0.5px;
+ color: var(--text-muted);
+ }
+ .detail-score-summary {
+ display: flex;
+ align-items: center;
+ gap: 8px;
+ font-size: 0.85rem;
+ }
 
-        /* Stats mini cards */
-        .stats-row {
-            display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(130px, 1fr));
-            gap: 12px;
-            margin-top: 16px;
-        }
-        .stat-mini {
-            text-align: center;
-            padding: 14px;
-            border-radius: 12px;
-            background: rgba(255,255,255,0.03);
-            border: 1px solid rgba(255,255,255,0.06);
-        }
-        .stat-mini-value {
-            font-size: 1.5rem;
-            font-weight: 800;
-            display: block;
-        }
-        .stat-mini-label {
-            font-size: 0.7rem;
-            color: var(--text-muted);
-            text-transform: uppercase;
-            letter-spacing: 0.5px;
-            margin-top: 4px;
-            display: block;
-        }
+ /* Stats mini cards */
+ .stats-row {
+ display: grid;
+ grid-template-columns: repeat(auto-fit, minmax(130px, 1fr));
+ gap: 12px;
+ margin-top: 16px;
+ }
+ .stat-mini {
+ text-align: center;
+ padding: 14px;
+ border-radius: 12px;
+ background: rgba(255,255,255,0.03);
+ border: 1px solid rgba(255,255,255,0.06);
+ }
+ .stat-mini-value {
+ font-size: 1.5rem;
+ font-weight: 800;
+ display: block;
+ }
+ .stat-mini-label {
+ font-size: 0.7rem;
+ color: var(--text-muted);
+ text-transform: uppercase;
+ letter-spacing: 0.5px;
+ margin-top: 4px;
+ display: block;
+ }
 
-        /* Empty state */
-        .empty-state {
-            text-align: center;
-            padding: 60px 20px;
-            color: var(--text-muted);
-        }
-        .empty-icon {
-            font-size: 3rem;
-            margin-bottom: 16px;
-            opacity: 0.5;
-        }
-        .empty-state p {
-            font-size: 0.95rem;
-            max-width: 400px;
-            margin: 0 auto;
-            line-height: 1.6;
-        }
+ /* Empty state */
+ .empty-state {
+ text-align: center;
+ padding: 60px 20px;
+ color: var(--text-muted);
+ }
+ .empty-icon {
+ font-size: 3rem;
+ margin-bottom: 16px;
+ opacity: 0.5;
+ }
+ .empty-state p {
+ font-size: 0.95rem;
+ max-width: 400px;
+ margin: 0 auto;
+ line-height: 1.6;
+ }
 
-        /* Toggle switch for show answers */
-        .toggle-switch {
-            position: relative;
-            display: inline-flex;
-            align-items: center;
-            gap: 10px;
-            cursor: pointer;
-            user-select: none;
-        }
-        .toggle-switch input {
-            display: none;
-        }
-        .toggle-slider {
-            width: 44px;
-            height: 24px;
-            background: rgba(255,255,255,0.1);
-            border-radius: 12px;
-            position: relative;
-            transition: all 0.3s;
-        }
-        .toggle-slider::after {
-            content: '';
-            position: absolute;
-            width: 18px;
-            height: 18px;
-            background: white;
-            border-radius: 50%;
-            top: 3px;
-            left: 3px;
-            transition: all 0.3s;
-        }
-        .toggle-switch input:checked + .toggle-slider {
-            background: var(--primary);
-        }
-        .toggle-switch input:checked + .toggle-slider::after {
-            left: 23px;
-        }
-        .toggle-label {
-            font-size: 0.85rem;
-            font-weight: 500;
-            color: var(--text-secondary);
-        }
+ /* Toggle switch for show answers */
+ .toggle-switch {
+ position: relative;
+ display: inline-flex;
+ align-items: center;
+ gap: 10px;
+ cursor: pointer;
+ user-select: none;
+ }
+ .toggle-switch input {
+ display: none;
+ }
+ .toggle-slider {
+ width: 44px;
+ height: 24px;
+ background: rgba(255,255,255,0.1);
+ border-radius: 12px;
+ position: relative;
+ transition: all 0.3s;
+ }
+ .toggle-slider::after {
+ content: '';
+ position: absolute;
+ width: 18px;
+ height: 18px;
+ background: white;
+ border-radius: 50%;
+ top: 3px;
+ left: 3px;
+ transition: all 0.3s;
+ }
+ .toggle-switch input:checked + .toggle-slider {
+ background: var(--primary);
+ }
+ .toggle-switch input:checked + .toggle-slider::after {
+ left: 23px;
+ }
+ .toggle-label {
+ font-size: 0.85rem;
+ font-weight: 500;
+ color: var(--text-secondary);
+ }
 
-        /* View toggle button */
-        .view-btn {
-            padding: 8px 16px;
-            border-radius: 10px;
-            border: 1px solid var(--glass-border);
-            background: rgba(255,255,255,0.05);
-            color: var(--text-secondary);
-            font-size: 0.8rem;
-            font-weight: 600;
-            cursor: pointer;
-            transition: all 0.3s;
-            font-family: inherit;
-            display: inline-flex;
-            align-items: center;
-            gap: 6px;
-        }
-        .view-btn:hover {
-            background: rgba(99, 102, 241, 0.15);
-            border-color: rgba(99, 102, 241, 0.3);
-            color: #a5b4fc;
-        }
+ /* View toggle button */
+ .view-btn {
+ padding: 8px 16px;
+ border-radius: 10px;
+ border: 1px solid var(--glass-border);
+ background: rgba(255,255,255,0.05);
+ color: var(--text-secondary);
+ font-size: 0.8rem;
+ font-weight: 600;
+ cursor: pointer;
+ transition: all 0.3s;
+ font-family: inherit;
+ display: inline-flex;
+ align-items: center;
+ gap: 6px;
+ }
+ .view-btn:hover {
+ background: rgba(99, 102, 241, 0.15);
+ border-color: rgba(99, 102, 241, 0.3);
+ color: #a5b4fc;
+ }
 
-        /* Responsive table wrapper */
-        .table-wrapper {
-            overflow-x: auto;
-            border-radius: 12px;
-        }
-        .table-wrapper::-webkit-scrollbar {
-            height: 6px;
-        }
-        .table-wrapper::-webkit-scrollbar-thumb {
-            background: rgba(255,255,255,0.1);
-            border-radius: 3px;
-        }
+ /* Responsive table wrapper */
+ .table-wrapper {
+ overflow-x: auto;
+ border-radius: 12px;
+ }
+ .table-wrapper::-webkit-scrollbar {
+ height: 6px;
+ }
+ .table-wrapper::-webkit-scrollbar-thumb {
+ background: rgba(255,255,255,0.1);
+ border-radius: 3px;
+ }
 
-        /* Student name column */
-        .student-name {
-            font-weight: 600;
-            color: var(--text);
-        }
-        .student-class {
-            font-size: 0.75rem;
-            color: var(--text-muted);
-            margin-top: 2px;
-        }
-        .student-number {
-            font-family: 'SF Mono', 'Fira Code', monospace;
-            font-size: 0.8rem;
-            color: var(--accent-cyan);
-            background: rgba(34, 211, 238, 0.08);
-            padding: 3px 8px;
-            border-radius: 6px;
-            border: 1px solid rgba(34, 211, 238, 0.15);
-        }
+ /* Student name column */
+ .student-name {
+ font-weight: 600;
+ color: var(--text);
+ }
+ .student-class {
+ font-size: 0.75rem;
+ color: var(--text-muted);
+ margin-top: 2px;
+ }
+ .student-number {
+ font-family: 'SF Mono', 'Fira Code', monospace;
+ font-size: 0.8rem;
+ color: var(--accent-cyan);
+ background: rgba(34, 211, 238, 0.08);
+ padding: 3px 8px;
+ border-radius: 6px;
+ border: 1px solid rgba(34, 211, 238, 0.15);
+ }
 
-        /* Expand icon */
-        .expand-icon {
-            font-size: 0.7rem;
-            color: var(--text-muted);
-            transition: transform 0.3s;
-            display: inline-block;
-        }
-        .expanded .expand-icon {
-            transform: rotate(180deg);
-        }
+ /* Expand icon */
+ .expand-icon {
+ font-size: 0.7rem;
+ color: var(--text-muted);
+ transition: transform 0.3s;
+ display: inline-block;
+ }
+ .expanded .expand-icon {
+ transform: rotate(180deg);
+ }
 
-        /* Rank number */
-        .rank-num {
-            font-weight: 800;
-            font-size: 0.85rem;
-            color: var(--text-muted);
-        }
-        .rank-num.rank-1 { color: #fbbf24; }
-        .rank-num.rank-2 { color: #e2e8f0; }
-        .rank-num.rank-3 { color: #d97706; }
+ /* Rank number */
+ .rank-num {
+ font-weight: 800;
+ font-size: 0.85rem;
+ color: var(--text-muted);
+ }
+ .rank-num.rank-1 { color: #fbbf24; }
+ .rank-num.rank-2 { color: #e2e8f0; }
+ .rank-num.rank-3 { color: #d97706; }
 
-        @keyframes fadeUp {
-            from { opacity: 0; transform: translateY(16px); }
-            to { opacity: 1; transform: translateY(0); }
-        }
+ @keyframes fadeUp {
+ from { opacity: 0; transform: translateY(16px); }
+ to { opacity: 1; transform: translateY(0); }
+ }
 
-        /* Footer */
-        .footer {
-            text-align: center;
-            padding: 30px 20px;
-            color: var(--text-muted);
-            font-size: 0.75rem;
-            position: relative;
-            z-index: 1;
-        }
+ /* Footer */
+ .footer {
+ text-align: center;
+ padding: 30px 20px;
+ color: var(--text-muted);
+ font-size: 0.75rem;
+ position: relative;
+ z-index: 1;
+ }
 
-        /* Responsive */
-        @media (max-width: 768px) {
-            .main { padding: 20px 12px 40px; }
-            .exam-hero { padding: 24px 20px; }
-            .exam-hero h1 { font-size: 1.2rem; }
-            .tab-nav { flex-wrap: wrap; }
-            .tab-btn { padding: 10px 16px; font-size: 0.8rem; flex: 1; justify-content: center; }
-            .search-row { flex-direction: column; }
-            .search-input { width: 100%; }
-            .glass-card { padding: 16px; }
-            .header { padding: 14px 16px; }
-            .header-title { font-size: 1rem; }
-            .header-badge { font-size: 0.6rem; padding: 3px 8px; }
+ /* Responsive */
+ @media (max-width: 768px) {
+ .main { padding: 20px 12px 40px; }
+ .exam-hero { padding: 24px 20px; }
+ .exam-hero h1 { font-size: 1.2rem; }
+ .exam-hero { padding: 20px 16px; }
+ .exam-meta { gap: 8px; }
+ .exam-meta-item { font-size: 0.8rem; padding: 6px 10px; flex: 1; min-width: calc(50% - 8px); }
+ .tab-nav { flex-wrap: wrap; }
+ .tab-btn { padding: 10px 16px; font-size: 0.8rem; flex: 1; justify-content: center; }
+ .search-row { flex-direction: column; }
+ .search-input { width: 100%; font-size: 15px; padding: 12px 14px; }
+ .glass-card { padding: 16px; }
+ .header { padding: 14px 16px; }
+ .header-title { font-size: 1rem; }
+ .header-badge { font-size: 0.6rem; padding: 3px 8px; }
+ .stats-row { grid-template-columns: repeat(2, 1fr); gap: 8px; }
+ .stat-mini { padding: 10px; }
+ .stat-mini-value { font-size: 1.3rem; }
+ .stat-mini-label { font-size: 0.65rem; }
 
-            /* --- Results Table: Card Layout on Mobile --- */
-            .results-table thead { display: none; }
-            .results-table,
-            .results-table tbody,
-            .results-table tbody tr,
-            .results-table tbody td {
-                display: block;
-                width: 100%;
-            }
-            .results-table tbody tr {
-                background: rgba(255, 255, 255, 0.02);
-                border: 1px solid rgba(255, 255, 255, 0.06);
-                border-radius: 12px;
-                padding: 14px;
-                margin-bottom: 12px;
-                position: relative;
-            }
-            .results-table tbody tr:hover {
-                background: rgba(99, 102, 241, 0.06);
-            }
-            .results-table tbody td {
-                padding: 4px 0;
-                border-bottom: none;
-                text-align: left !important;
-            }
-            .results-table tbody td::before {
-                content: attr(data-label);
-                display: inline-block;
-                font-size: 11px;
-                font-weight: 600;
-                color: var(--text-muted);
-                text-transform: uppercase;
-                letter-spacing: 0.4px;
-                min-width: 100px;
-                margin-right: 8px;
-            }
-            /* Position expand icon at top right on mobile */
-            .results-table tbody td[data-label=""] {
-                position: absolute;
-                top: 14px;
-                right: 14px;
-                width: auto;
-                padding: 0;
-            }
-            .results-table tbody td[data-label=""]::before { display: none !important; }
+ /* --- Results Table: Card Layout on Mobile --- */
+ .results-table thead { display: none; }
+ .results-table,
+ .results-table tbody,
+ .results-table tbody tr,
+ .results-table tbody td {
+ display: block;
+ width: 100%;
+ }
+ .results-table tbody tr {
+ background: rgba(255, 255, 255, 0.02);
+ border: 1px solid rgba(255, 255, 255, 0.06);
+ border-radius: 12px;
+ padding: 14px;
+ margin-bottom: 12px;
+ position: relative;
+ }
+ .results-table tbody tr:hover {
+ background: rgba(99, 102, 241, 0.06);
+ }
+ .results-table tbody td {
+ padding: 4px 0;
+ border-bottom: none;
+ text-align: left !important;
+ }
+ .results-table tbody td::before {
+ content: attr(data-label);
+ display: inline-block;
+ font-size: 11px;
+ font-weight: 600;
+ color: var(--text-muted);
+ text-transform: uppercase;
+ letter-spacing: 0.4px;
+ min-width: 100px;
+ margin-right: 8px;
+ }
+ /* Position expand icon at top right on mobile */
+ .results-table tbody td[data-label=""] {
+ position: absolute;
+ top: 14px;
+ right: 14px;
+ width: auto;
+ padding: 0;
+ }
+ .results-table tbody td[data-label=""]::before { display: none !important; }
 
-            /* Unified mobile card expansion */
-            .results-table tbody tr.detail-row {
-                display: none;
-                background: transparent !important;
-                border: none !important;
-                padding: 0 !important;
-                margin-top: -12px !important;
-                margin-bottom: 12px !important;
-            }
-            .results-table tbody tr.detail-row.show {
-                display: block !important;
-            }
-            .results-table tbody tr.detail-row td {
-                display: block !important;
-                width: 100% !important;
-                padding: 0 !important;
-            }
-            .results-table tbody tr.detail-row td::before {
-                display: none !important;
-            }
-            .results-table tbody tr.expanded {
-                border-bottom-left-radius: 0 !important;
-                border-bottom-right-radius: 0 !important;
-                margin-bottom: 0 !important;
-                border-bottom: 1px dashed rgba(99, 102, 241, 0.2) !important;
-            }
-            .detail-content {
-                background: rgba(99, 102, 241, 0.03);
-                border: 1px solid rgba(99, 102, 241, 0.15);
-                border-top: none;
-                border-radius: 0 0 12px 12px;
-                padding: 14px 16px;
-            }
+ /* Unified mobile card expansion */
+ .results-table tbody tr.detail-row {
+ display: none;
+ background: transparent !important;
+ border: none !important;
+ padding: 0 !important;
+ margin-top: -12px !important;
+ margin-bottom: 12px !important;
+ }
+ .results-table tbody tr.detail-row.show {
+ display: block !important;
+ }
+ .results-table tbody tr.detail-row td {
+ display: block !important;
+ width: 100% !important;
+ padding: 0 !important;
+ }
+ .results-table tbody tr.detail-row td::before {
+ display: none !important;
+ }
+ .results-table tbody tr.expanded {
+ border-bottom-left-radius: 0 !important;
+ border-bottom-right-radius: 0 !important;
+ margin-bottom: 0 !important;
+ border-bottom: 1px dashed rgba(99, 102, 241, 0.2) !important;
+ }
+ .detail-content {
+ background: rgba(99, 102, 241, 0.03);
+ border: 1px solid rgba(99, 102, 241, 0.15);
+ border-top: none;
+ border-radius: 0 0 12px 12px;
+ padding: 14px 16px;
+ }
 
-            /* --- Answer Detail Section --- */
-            .detail-content { padding: 14px 16px; }
-            .detail-time-info { flex-direction: column !important; gap: 4px !important; }
-            .detail-header { display: none; }
-            .answer-item { padding: 8px 10px; gap: 8px; flex-wrap: wrap; }
-            .q-student-ans, .q-correct-ans { font-size: 0.8rem; }
-            .q-num { min-width: 38px; font-size: 0.75rem; }
-            .q-status { min-width: auto; text-align: left; font-size: 0.75rem; }
+ /* --- Answer Detail Section --- */
+ .detail-content { padding: 14px 16px; }
+ .detail-time-info { flex-direction: column !important; gap: 4px !important; }
+ .detail-header { display: none; }
+ .answer-item { padding: 8px 10px; gap: 8px; flex-wrap: wrap; }
+ .q-student-ans, .q-correct-ans { font-size: 0.8rem; }
+ .q-num { min-width: 38px; font-size: 0.75rem; }
+ .q-status { min-width: auto; text-align: left; font-size: 0.75rem; }
 
-            /* --- Stats Row --- */
-            .stats-row { grid-template-columns: repeat(2, 1fr); }
-        }
+ /* --- Stats Row --- */
+ .stats-row { grid-template-columns: repeat(2, 1fr); }
+ }
 
-        @media (max-width: 480px) {
-            .exam-meta { gap: 8px; }
-            .exam-meta-item { font-size: 0.78rem; padding: 6px 10px; }
-            .stats-row { grid-template-columns: repeat(2, 1fr); gap: 8px; }
-            .stat-mini { padding: 10px; }
-            .stat-mini-value { font-size: 1.2rem; }
-        }
+ @media (max-width: 480px) {
+ .exam-meta { gap: 8px; }
+ .exam-meta-item { font-size: 0.78rem; padding: 6px 10px; }
+ .stats-row { grid-template-columns: repeat(2, 1fr); gap: 8px; }
+ .stat-mini { padding: 10px; }
+ .stat-mini-value { font-size: 1.2rem; }
+ }
 
-        /* Pulse animation for loading */
-        @keyframes pulse {
-            0%, 100% { opacity: 0.4; }
-            50% { opacity: 1; }
-        }
-        .loading-text {
-            animation: pulse 1.5s ease-in-out infinite;
-            color: var(--text-muted);
-            text-align: center;
-            padding: 40px;
-            font-size: 0.9rem;
-        }
+ /* Pulse animation for loading */
+ @keyframes pulse {
+ 0%, 100% { opacity: 0.4; }
+ 50% { opacity: 1; }
+ }
+ .loading-text {
+ animation: pulse 1.5s ease-in-out infinite;
+ color: var(--text-muted);
+ text-align: center;
+ padding: 40px;
+ font-size: 0.9rem;
+ }
 
-        /* No results message */
-        .no-results {
-            text-align: center;
-            padding: 40px 20px;
-            color: var(--text-muted);
-        }
-        .no-results-icon {
-            font-size: 2.5rem;
-            margin-bottom: 12px;
-            opacity: 0.5;
-        }
-    </style>
-    <link rel="icon" type="image/png" href="/static/favicon.png">
+ /* Reduced motion */
+ @media (prefers-reduced-motion: reduce) {
+ * { animation-duration: 0.01ms !important; animation-iteration-count: 1 !important; transition-duration: 0.01ms !important; }
+ .bg-orb { animation: none !important; opacity: 0.15; }
+ .stat-mini, .exam-hero, .search-section, .glass-card { animation: none !important; }
+ .results-table tbody tr { transition: none !important; }
+ }
+
+ /* Key cards hover (CSS instead of JS) */
+ .key-card {
+ background: rgba(255,255,255,0.02);
+ border: 1px solid rgba(255,255,255,0.05);
+ border-radius: 12px;
+ padding: 16px;
+ display: flex;
+ flex-direction: column;
+ gap: 8px;
+ transition: all 0.3s ease;
+ }
+ .key-card:hover {
+ background: rgba(99, 102, 241, 0.05) !important;
+ border-color: rgba(99, 102, 241, 0.2) !important;
+ transform: translateY(-2px);
+ }
+
+ /* No results message */
+ .no-results {
+ text-align: center;
+ padding: 40px 20px;
+ color: var(--text-muted);
+ }
+ .no-results-icon {
+ font-size: 2.5rem;
+ margin-bottom: 12px;
+ opacity: 0.5;
+ }
+ </style>
+ <link rel="icon" type="image/png" href="/static/favicon.png">
 </head>
 <body>
-    <!-- Animated background -->
-    <div class="bg-orbs">
-        <div class="bg-orb bg-orb-1"></div>
-        <div class="bg-orb bg-orb-2"></div>
-        <div class="bg-orb bg-orb-3"></div>
-    </div>
+ <!-- Animated background -->
+ <div class="bg-orbs">
+ <div class="bg-orb bg-orb-1"></div>
+ <div class="bg-orb bg-orb-2"></div>
+ <div class="bg-orb bg-orb-3"></div>
+ </div>
 
-    <!-- Header -->
-    <header class="header">
-        <div class="header-left">
-            <div class="header-logo">E</div>
-            <span class="header-title">EXAMVAN</span>
-            <span class="header-badge">📊 Hasil Ujian</span>
-        </div>
-    </header>
+ <!-- Header -->
+ <header class="header">
+ <div class="header-left">
+ <div class="header-logo">E</div>
+ <span class="header-title">EXAMVAN</span>
+ <span class="header-badge"><svg class="icon-svg-sm" style="vertical-align:middle;"><use href="#hi-results"/></svg> Hasil Ujian</span>
+ </div>
+ </header>
 
-    <main class="main">
-        <!-- Exam Hero -->
-        <section class="exam-hero">
-            <h1 id="examTitle">{{ exam_name }}</h1>
-            <div class="exam-meta">
-                <div class="exam-meta-item">
-                    <span class="meta-icon">🎫</span>
-                    <span>Token: <strong>{{ token }}</strong></span>
-                </div>
-                <div class="exam-meta-item">
-                    <span class="meta-icon">👥</span>
-                    <span>Peserta: <strong id="totalStudents">{{ total_students }}</strong></span>
-                </div>
-                <div class="exam-meta-item" id="avgScoreItem" style="display: none;">
-                    <span class="meta-icon">📈</span>
-                    <span>Rata-rata: <strong id="avgScore">—</strong></span>
-                </div>
-                <div class="exam-meta-item" id="maxScoreItem" style="display: none;">
-                    <span class="meta-icon">🏆</span>
-                    <span>Tertinggi: <strong id="maxScore">—</strong></span>
-                </div>
-            </div>
-            <div class="stats-row" id="statsRow" style="display: none;"></div>
-         {% if is_disabled %}
-        <section class="glass-card" style="padding: 60px 40px; text-align: center; margin-top: 24px; border: 1px solid rgba(239, 68, 68, 0.15); background: rgba(239, 68, 68, 0.02);">
-            <div style="font-size: 3.5rem; margin-bottom: 20px; filter: drop-shadow(0 0 10px rgba(239,68,68,0.3));">🔒</div>
-            <h2 style="font-size: 1.6rem; font-weight: 800; color: #f8fafc; margin-bottom: 12px; font-family: 'Inter', sans-serif;">Halaman Hasil Dinonaktifkan</h2>
-            <p style="color: var(--text-secondary); max-width: 520px; margin: 0 auto 28px auto; line-height: 1.7; font-size: 0.95rem;">
-                Halaman hasil ujian untuk siswa pada ujian ini telah dinonaktifkan oleh Guru / Admin yang bersangkutan.
-                Silakan hubungi pihak sekolah untuk mendapatkan informasi nilai Anda.
-            </p>
-            <div style="display: inline-flex; justify-content: center; width: 100%;">
-                <a href="{{ url_for('admin_login') }}" style="background: linear-gradient(135deg, var(--primary), var(--accent-violet)); color: white; padding: 12px 28px; border-radius: 12px; font-weight: 600; text-decoration: none; display: inline-flex; align-items: center; gap: 8px; box-shadow: 0 4px 20px rgba(99, 102, 241, 0.25); transition: all 0.3s;">
-                    🔑 Login Webapp Admin
-                </a>
-            </div>
-        </section>
-        {% else %}
-        <!-- Tab Navigation -->
-        <div class="tab-nav" id="tabNav" style="display: none;">
-            <button class="tab-btn active" id="tabScores" onclick="switchTab('scores')">
-                📋 Daftar Nilai
-            </button>
-            <button class="tab-btn" id="tabKeys" onclick="switchTab('keys')" style="display: none;">
-                🔑 Kunci Jawaban Ujian
-            </button>
-        </div>
+ <main class="main">
+ <!-- Exam Hero -->
+ <section class="exam-hero">
+ <h1 id="examTitle">{{ exam_name }}</h1>
+ <div class="exam-meta">
+ <div class="exam-meta-item">
+ <svg class="icon-svg" style="vertical-align:middle;"><use href="#hi-key"/></svg>
+ <span>Token: <strong>{{ token }}</strong></span>
+ </div>
+ <div class="exam-meta-item">
+ <svg class="icon-svg" style="vertical-align:middle;"><use href="#hi-users"/></svg>
+ <span>Peserta: <strong id="totalStudents">{{ total_students }}</strong></span>
+ </div>
+ <div class="exam-meta-item" id="avgScoreItem" style="display: none;">
+ <span class="meta-icon">📈</span>
+ <span>Rata-rata: <strong id="avgScore">—</strong></span>
+ </div>
+ <div class="exam-meta-item" id="maxScoreItem" style="display: none;">
+ <svg class="icon-svg" style="vertical-align:middle;"><use href="#hi-results"/></svg>
+ <span>Tertinggi: <strong id="maxScore">—</strong></span>
+ </div>
+ </div>
+ <div class="stats-row" id="statsRow" style="display: none;"></div>
+ {% if is_disabled %}
+ <section class="glass-card" style="padding: 60px 40px; text-align: center; margin-top: 24px; border: 1px solid rgba(239, 68, 68, 0.15); background: rgba(239, 68, 68, 0.02);">
+ <div style="font-size: 3.5rem; margin-bottom: 20px; filter: drop-shadow(0 0 10px rgba(239,68,68,0.3));">🔒</div>
+ <h2 style="font-size: 1.6rem; font-weight: 800; color: #f8fafc; margin-bottom: 12px; font-family: 'Inter', sans-serif;">Halaman Hasil Dinonaktifkan</h2>
+ <p style="color: var(--text-secondary); max-width: 520px; margin: 0 auto 28px auto; line-height: 1.7; font-size: 0.95rem;">
+ Halaman hasil ujian untuk siswa pada ujian ini telah dinonaktifkan oleh Guru / Admin yang bersangkutan.
+ Silakan hubungi pihak sekolah untuk mendapatkan informasi nilai Anda.
+ </p>
+ <div style="display: inline-flex; justify-content: center; width: 100%;">
+ <a href="{{ url_for('admin_login') }}" style="background: linear-gradient(135deg, var(--primary), var(--accent-violet)); color: white; padding: 12px 28px; border-radius: 12px; font-weight: 600; text-decoration: none; display: inline-flex; align-items: center; gap: 8px; box-shadow: 0 4px 20px rgba(99, 102, 241, 0.25); transition: all 0.3s;">
+ 🔑 Login Webapp Admin
+ </a>
+ </div>
+ </section>
+ {% else %}
+ <!-- Tab Navigation -->
+ <div class="tab-nav" id="tabNav" style="display: none;">
+ <button class="tab-btn active" id="tabScores" onclick="switchTab('scores')">
+ <svg class="icon-svg" style="vertical-align:middle;"><use href="#hi-dashboard"/></svg> Daftar Nilai
+ </button>
+ <button class="tab-btn" id="tabKeys" onclick="switchTab('keys')" style="display: none;">
+ <svg class="icon-svg" style="vertical-align:middle;"><use href="#hi-key"/></svg> Kunci Jawaban Ujian
+ </button>
+ </div>
 
-        <!-- Search & Filter -->
-        <section class="search-section">
-            <div class="search-row">
-                <input type="text" class="search-input" id="searchInput" 
-                       placeholder="🔍 Cari berdasarkan nama atau nomor ujian..." 
-                       oninput="filterResults()">
-            </div>
-        </section>
+ <!-- Search & Filter -->
+ <section class="search-section">
+ <div class="search-row">
+ <input type="text" class="search-input" id="searchInput" 
+ placeholder="Cari berdasarkan nama atau nomor ujian..." 
+ oninput="filterResults()">
+ </div>
+ </section>
 
-        <!-- Results Content -->
-        <section class="glass-card" id="resultsSection">
-            <div class="loading-text" id="loadingIndicator">
-                ⏳ Memuat data hasil ujian...
-            </div>
+ <!-- Results Content -->
+ <section class="glass-card" id="resultsSection">
+ <div class="loading-text" id="loadingIndicator">
+ ⏳ Memuat data hasil ujian...
+ </div>
 
-            <!-- Scores Tab -->
-            <div id="scoresContent" style="display: none;">
-                <div class="table-wrapper">
-                    <table class="results-table" id="scoresTable">
-                        <thead>
-                            <tr>
-                                <th style="width: 50px;">#</th>
-                                <th>Nama Siswa</th>
-                                <th>No. Ujian</th>
-                                <th>Kelas</th>
-                                <th style="text-align: center;">Waktu Pengerjaan</th>
-                                <th style="text-align: center;">Nilai</th>
-                                <th style="text-align: center;">Waktu Kumpul</th>
-                                <th style="width: 40px;"></th>
-                            </tr>
-                        </thead>
-                        <tbody id="scoresBody">
-                            <!-- Filled via JS -->
-                        </tbody>
-                    </table>
-                </div>
-            </div>
+ <!-- Scores Tab -->
+ <div id="scoresContent" style="display: none;">
+ <div class="table-wrapper">
+ <table class="results-table" id="scoresTable">
+ <thead>
+ <tr>
+ <th style="width: 50px;">#</th>
+ <th>Nama Siswa</th>
+ <th>No. Ujian</th>
+ <th>Kelas</th>
+ <th style="text-align: center;">Waktu Pengerjaan</th>
+ <th style="text-align: center;">Nilai</th>
+ <th style="text-align: center;">Waktu Kumpul</th>
+ <th style="width: 40px;"></th>
+ </tr>
+ </thead>
+ <tbody id="scoresBody">
+ <!-- Filled via JS -->
+ </tbody>
+ </table>
+ </div>
+ </div>
 
-            <!-- Keys Tab -->
-            <div id="keysContent" style="display: none;">
-                <div style="padding: 16px;">
-                    <h3 style="font-size: 1.1rem; font-weight: 700; margin-bottom: 8px; color: #a5b4fc; display: flex; align-items: center; gap: 8px;">
-                        <span>🔑</span> Kunci Jawaban Resmi
-                    </h3>
-                    <p style="font-size: 0.8rem; color: var(--text-muted); margin-bottom: 20px;">
-                        Berikut adalah kunci jawaban resmi untuk setiap butir soal pada ujian ini.
-                    </p>
-                    <div class="keys-grid" id="keysGrid" style="display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 12px;">
-                        <!-- Filled via JS -->
-                    </div>
-                </div>
-            </div>
+ <!-- Keys Tab -->
+ <div id="keysContent" style="display: none;">
+ <div style="padding: 16px;">
+ <h3 style="font-size: 1.1rem; font-weight: 700; margin-bottom: 8px; color: #a5b4fc; display: flex; align-items: center; gap: 8px;">
+ <svg class="icon-svg" style="vertical-align:middle;"><use href="#hi-key"/></svg> Kunci Jawaban Resmi
+ </h3>
+ <p style="font-size: 0.8rem; color: var(--text-muted); margin-bottom: 20px;">
+ Berikut adalah kunci jawaban resmi untuk setiap butir soal pada ujian ini.
+ </p>
+ <div class="keys-grid" id="keysGrid" style="display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 12px;">
+ <!-- Filled via JS -->
+ </div>
+ </div>
+ </div>
 
-            <!-- Empty state -->
-            <div class="empty-state" id="emptyState" style="display: none;">
-                <div class="empty-icon">📭</div>
-                <p>Belum ada siswa yang mengumpulkan jawaban untuk ujian ini.</p>
-            </div>
+ <!-- Empty state -->
+ <div class="empty-state" id="emptyState" style="display: none;">
+ <div class="empty-icon">📭</div>
+ <p>Belum ada siswa yang mengumpulkan jawaban untuk ujian ini.</p>
+ </div>
 
-            <!-- No search results -->
-            <div class="no-results" id="noSearchResults" style="display: none;">
-                <div class="no-results-icon">🔍</div>
-                <p>Tidak ditemukan hasil yang cocok dengan pencarian Anda.</p>
-            </div>
-        </section>
-        {% endif %}
-    </main>
+ <!-- No search results -->
+ <div class="no-results" id="noSearchResults" style="display: none;">
+ <div class="no-results-icon">🔍</div>
+ <p>Tidak ditemukan hasil yang cocok dengan pencarian Anda.</p>
+ </div>
+ </section>
+ {% endif %}
+ </main>
 
-    <!-- Footer -->
-    <footer class="footer">
-        <p>EXAMVAN &copy; 2026 — Sistem Ujian Digital</p>
-    </footer>
+ <!-- Footer -->
+ <footer class="footer">
+ <p>EXAMVAN &copy; 2026 — Sistem Ujian Digital</p>
+ </footer>
 
-    <script>
-        // ===== State =====
-        const EXAM_TOKEN = '{{ token }}';
-        const isLoggedIn = {{ 'true' if is_logged_in else 'false' }};
-        const isDisabled = {{ 'true' if is_disabled else 'false' }};
-        const showAnswersFromServer = {{ 'true' if show_answers else 'false' }};
-        let submissionsData = [];
-        let questionsData = [];
-        let showCorrectAnswers = showAnswersFromServer;
-        let currentTab = 'scores';
+ <script>
+ // ===== State =====
+ const EXAM_TOKEN = '{{ token }}';
+ const isLoggedIn = {{ 'true' if is_logged_in else 'false' }};
+ const isDisabled = {{ 'true' if is_disabled else 'false' }};
+ const showAnswersFromServer = {{ 'true' if show_answers else 'false' }};
+ let submissionsData = [];
+ let questionsData = [];
+ let showCorrectAnswers = showAnswersFromServer;
+ let currentTab = 'scores';
 
-        // ===== Init =====
-        document.addEventListener('DOMContentLoaded', () => {
-            if (!isDisabled) {
-                loadResults();
-            }
-        });
+ // ===== Init =====
+ document.addEventListener('DOMContentLoaded', () => {
+ if (!isDisabled) {
+ loadResults();
+ }
+ });
 
-        // ===== API: Load Results =====
-        async function loadResults() {
-            try {
-                const resp = await fetch(`/api/hasil/${EXAM_TOKEN}`);
-                const data = await resp.json();
-                
-                if (!data.success) {
-                    document.getElementById('loadingIndicator').innerHTML = 
-                        `<div class="empty-state"><div class="empty-icon">❌</div><p>${data.message || 'Gagal memuat data'}</p></div>`;
-                    return;
-                }
+ // ===== API: Load Results =====
+ async function loadResults() {
+ try {
+ const resp = await fetch(`/api/hasil/${EXAM_TOKEN}`);
+ const data = await resp.json();
+ 
+ if (!data.success) {
+ document.getElementById('loadingIndicator').innerHTML = 
+ `<div class="empty-state"><div class="empty-icon">❌</div><p>${data.message || 'Gagal memuat data'}</p></div>`;
+ return;
+ }
 
-                submissionsData = data.submissions || [];
-                questionsData = data.questions || [];
+ submissionsData = data.submissions || [];
+ questionsData = data.questions || [];
 
-                document.getElementById('loadingIndicator').style.display = 'none';
+ document.getElementById('loadingIndicator').style.display = 'none';
 
-                if (submissionsData.length === 0) {
-                    document.getElementById('emptyState').style.display = 'block';
-                    return;
-                }
+ if (submissionsData.length === 0) {
+ document.getElementById('emptyState').style.display = 'block';
+ return;
+ }
 
-                // Calculate stats
-                const scores = submissionsData.filter(s => s.score !== null && s.score !== undefined);
-                if (scores.length > 0) {
-                    const avg = scores.reduce((a, b) => a + b.score, 0) / scores.length;
-                    const max = Math.max(...scores.map(s => s.score));
-                    const min = Math.min(...scores.map(s => s.score));
-                    
-                    document.getElementById('avgScore').textContent = avg.toFixed(1);
-                    document.getElementById('maxScore').textContent = max.toFixed(1);
-                    document.getElementById('avgScoreItem').style.display = 'flex';
-                    document.getElementById('maxScoreItem').style.display = 'flex';
+ // Calculate stats
+ const scores = submissionsData.filter(s => s.score !== null && s.score !== undefined);
+ if (scores.length > 0) {
+ const avg = scores.reduce((a, b) => a + b.score, 0) / scores.length;
+ const max = Math.max(...scores.map(s => s.score));
+ const min = Math.min(...scores.map(s => s.score));
+ 
+ document.getElementById('avgScore').textContent = avg.toFixed(1);
+ document.getElementById('maxScore').textContent = max.toFixed(1);
+ document.getElementById('avgScoreItem').style.display = 'flex';
+ document.getElementById('maxScoreItem').style.display = 'flex';
 
-                    // Stats row
-                    const statsRow = document.getElementById('statsRow');
-                    statsRow.style.display = 'grid';
-                    statsRow.innerHTML = `
-                        <div class="stat-mini">
-                            <span class="stat-mini-value" style="color: var(--accent-emerald);">${avg.toFixed(1)}</span>
-                            <span class="stat-mini-label">Rata-rata</span>
-                        </div>
-                        <div class="stat-mini">
-                            <span class="stat-mini-value" style="color: #fbbf24;">${max.toFixed(1)}</span>
-                            <span class="stat-mini-label">Tertinggi</span>
-                        </div>
-                        <div class="stat-mini">
-                            <span class="stat-mini-value" style="color: #f87171;">${min.toFixed(1)}</span>
-                            <span class="stat-mini-label">Terendah</span>
-                        </div>
-                        <div class="stat-mini">
-                            <span class="stat-mini-value" style="color: var(--accent-cyan);">${submissionsData.length}</span>
-                            <span class="stat-mini-label">Total Peserta</span>
-                        </div>
-                    `;
-                }
+ // Stats row
+ const statsRow = document.getElementById('statsRow');
+ statsRow.style.display = 'grid';
+ statsRow.innerHTML = `
+ <div class="stat-mini">
+ <span class="stat-mini-value" style="color: var(--accent-emerald);">${avg.toFixed(1)}</span>
+ <span class="stat-mini-label">Rata-rata</span>
+ </div>
+ <div class="stat-mini">
+ <span class="stat-mini-value" style="color: #fbbf24;">${max.toFixed(1)}</span>
+ <span class="stat-mini-label">Tertinggi</span>
+ </div>
+ <div class="stat-mini">
+ <span class="stat-mini-value" style="color: #f87171;">${min.toFixed(1)}</span>
+ <span class="stat-mini-label">Terendah</span>
+ </div>
+ <div class="stat-mini">
+ <span class="stat-mini-value" style="color: var(--accent-cyan);">${submissionsData.length}</span>
+ <span class="stat-mini-label">Total Peserta</span>
+ </div>
+ `;
+ }
 
-                // Sort by score descending
-                submissionsData.sort((a, b) => {
-                    if (a.score === null && b.score === null) return 0;
-                    if (a.score === null) return 1;
-                    if (b.score === null) return -1;
-                    return b.score - a.score;
-                });
+ // Sort by score descending
+ submissionsData.sort((a, b) => {
+ if (a.score === null && b.score === null) return 0;
+ if (a.score === null) return 1;
+ if (b.score === null) return -1;
+ return b.score - a.score;
+ });
 
-                document.getElementById('totalStudents').textContent = submissionsData.length;
+ document.getElementById('totalStudents').textContent = submissionsData.length;
 
-                renderScoresTable();
-                renderKeysGrid();
-                
-                document.getElementById('scoresContent').style.display = 'block';
-                
-                // Show tabNav and tabKeys strictly if server says show_answers is enabled
-                if (questionsData.length > 0 && showAnswersFromServer) {
-                    document.getElementById('tabNav').style.display = 'flex';
-                    document.getElementById('tabKeys').style.display = 'flex';
-                }
+ renderScoresTable();
+ renderKeysGrid();
+ 
+ document.getElementById('scoresContent').style.display = 'block';
+ 
+ // Show tabNav and tabKeys strictly if server says show_answers is enabled
+ if (questionsData.length > 0 && showAnswersFromServer) {
+ document.getElementById('tabNav').style.display = 'flex';
+ document.getElementById('tabKeys').style.display = 'flex';
+ }
 
-            } catch (err) {
-                console.error('Error loading results:', err);
-                document.getElementById('loadingIndicator').innerHTML = 
-                    '<div class="empty-state"><div class="empty-icon">⚠️</div><p>Gagal terhubung ke server. Periksa koneksi Anda.</p></div>';
-            }
-        }
+ } catch (err) {
+ console.error('Error loading results:', err);
+ document.getElementById('loadingIndicator').innerHTML = 
+ '<div class="empty-state"><div class="empty-icon">⚠️</div><p>Gagal terhubung ke server. Periksa koneksi Anda.</p></div>';
+ }
+ }
 
-        // ===== Get Duration String =====
-        function getDurationString(startTimeStr, createdAtStr) {
-            if (!startTimeStr || !createdAtStr) return '—';
-            try {
-                const start = new Date(startTimeStr);
-                const end = new Date(createdAtStr);
-                const diffMs = end - start;
-                if (diffMs < 0) return '—';
-                const diffSecs = Math.floor(diffMs / 1000);
-                const hours = Math.floor(diffSecs / 3600);
-                const minutes = Math.floor((diffSecs % 3600) / 60);
-                const seconds = diffSecs % 60;
-                
-                let parts = [];
-                if (hours > 0) parts.push(`${hours} jam`);
-                if (minutes > 0) parts.push(`${minutes} menit`);
-                if (seconds > 0 || parts.length === 0) parts.push(`${seconds} detik`);
-                return parts.join(' ');
-            } catch (e) {
-                return '—';
-            }
-        }
+ // ===== Get Duration String =====
+ function getDurationString(startTimeStr, createdAtStr) {
+ if (!startTimeStr || !createdAtStr) return '—';
+ try {
+ const start = new Date(startTimeStr);
+ const end = new Date(createdAtStr);
+ const diffMs = end - start;
+ if (diffMs < 0) return '—';
+ const diffSecs = Math.floor(diffMs / 1000);
+ const hours = Math.floor(diffSecs / 3600);
+ const minutes = Math.floor((diffSecs % 3600) / 60);
+ const seconds = diffSecs % 60;
+ 
+ let parts = [];
+ if (hours > 0) parts.push(`${hours} jam`);
+ if (minutes > 0) parts.push(`${minutes} menit`);
+ if (seconds > 0 || parts.length === 0) parts.push(`${seconds} detik`);
+ return parts.join(' ');
+ } catch (e) {
+ return '—';
+ }
+ }
 
-        // ===== Render Scores Table =====
-        function renderScoresTable() {
-            const tbody = document.getElementById('scoresBody');
-            tbody.innerHTML = '';
+ // ===== Render Scores Table =====
+ function renderScoresTable() {
+ const tbody = document.getElementById('scoresBody');
+ tbody.innerHTML = '';
 
-            submissionsData.forEach((sub, idx) => {
-                const tr = document.createElement('tr');
-                tr.setAttribute('data-name', sub.student_name.toLowerCase());
-                tr.setAttribute('data-number', sub.exam_number.toLowerCase());
-                tr.setAttribute('data-class', sub.student_class.toLowerCase());
-                tr.id = `scores-row-${sub.id}`;
-                tr.onclick = () => toggleDetailScores(sub.id);
-                tr.style.cursor = 'pointer';
+ submissionsData.forEach((sub, idx) => {
+ const tr = document.createElement('tr');
+ tr.setAttribute('data-name', sub.student_name.toLowerCase());
+ tr.setAttribute('data-number', sub.exam_number.toLowerCase());
+ tr.setAttribute('data-class', sub.student_class.toLowerCase());
+ tr.id = `scores-row-${sub.id}`;
+ tr.onclick = () => toggleDetailScores(sub.id);
+ tr.style.cursor = 'pointer';
 
-                const rank = idx + 1;
-                const rankClass = rank <= 3 ? `rank-${rank}` : '';
-                const scoreClass = getScoreClass(sub.score, sub.max_score);
-                const scoreDisplay = sub.score !== null ? sub.score.toFixed(1) : '—';
-                const submitTime = sub.created_at ? localizeUTC(sub.created_at) : '—';
-                const durationStr = getDurationString(sub.start_time, sub.created_at);
+ const rank = idx + 1;
+ const rankClass = rank <= 3 ? `rank-${rank}` : '';
+ const scoreClass = getScoreClass(sub.score, sub.max_score);
+ const scoreDisplay = sub.score !== null ? sub.score.toFixed(1) : '—';
+ const submitTime = sub.created_at ? localizeUTC(sub.created_at) : '—';
+ const durationStr = getDurationString(sub.start_time, sub.created_at);
 
-                tr.innerHTML = `
-                    <td data-label="#"><span class="rank-num ${rankClass}">${rank}</span></td>
-                    <td data-label="Nama">
-                        <div class="student-name">${escapeHtml(sub.student_name)}</div>
-                    </td>
-                    <td data-label="No. Ujian"><span class="student-number">${escapeHtml(sub.exam_number)}</span></td>
-                    <td data-label="Kelas">${escapeHtml(sub.student_class)}</td>
-                    <td data-label="Durasi" style="text-align: center; font-size: 0.85rem; color: var(--text-secondary);">${durationStr}</td>
-                    <td data-label="Nilai" style="text-align: center;">
-                        <span class="score-badge ${scoreClass}">${scoreDisplay}</span>
-                    </td>
-                    <td data-label="Kumpul" style="text-align: center; font-size: 0.8rem; color: var(--text-secondary);">${submitTime}</td>
-                    <td data-label="" style="text-align: center;">
-                        <span class="expand-icon">▼</span>
-                    </td>
-                `;
-                tbody.appendChild(tr);
+ tr.innerHTML = `
+ <td data-label="#"><span class="rank-num ${rankClass}">${rank}</span></td>
+ <td data-label="Nama">
+ <div class="student-name">${escapeHtml(sub.student_name)}</div>
+ </td>
+ <td data-label="No. Ujian"><span class="student-number">${escapeHtml(sub.exam_number)}</span></td>
+ <td data-label="Kelas">${escapeHtml(sub.student_class)}</td>
+ <td data-label="Durasi" style="text-align: center; font-size: 0.85rem; color: var(--text-secondary);">${durationStr}</td>
+ <td data-label="Nilai" style="text-align: center;">
+ <span class="score-badge ${scoreClass}">${scoreDisplay}</span>
+ </td>
+ <td data-label="Kumpul" style="text-align: center; font-size: 0.8rem; color: var(--text-secondary);">${submitTime}</td>
+ <td data-label="" style="text-align: center;">
+ <span class="expand-icon">▼</span>
+ </td>
+ `;
+ tbody.appendChild(tr);
 
-                // Detail row
-                const detailTr = document.createElement('tr');
-                detailTr.className = 'detail-row';
-                detailTr.id = `scores-detail-${sub.id}`;
+ // Detail row
+ const detailTr = document.createElement('tr');
+ detailTr.className = 'detail-row';
+ detailTr.id = `scores-detail-${sub.id}`;
 
-                const detailTd = document.createElement('td');
-                detailTd.colSpan = 8;
-                detailTd.innerHTML = `<div class="detail-content"></div>`;
-                detailTr.appendChild(detailTd);
-                tbody.appendChild(detailTr);
-            });
-        }
+ const detailTd = document.createElement('td');
+ detailTd.colSpan = 8;
+ detailTd.innerHTML = `<div class="detail-content"></div>`;
+ detailTr.appendChild(detailTd);
+ tbody.appendChild(detailTr);
+ });
+ }
 
-        // ===== Toggle Detail Scores =====
-        function toggleDetailScores(id) {
-            const detailRow = document.getElementById(`scores-detail-${id}`);
-            const mainRow = document.getElementById(`scores-row-${id}`);
-            
-            if (detailRow.classList.contains('show')) {
-                detailRow.classList.remove('show');
-                mainRow.classList.remove('expanded');
-                detailRow.style.display = 'none';
-            } else {
-                // Re-render to reflect current showCorrectAnswers state
-                const sub = submissionsData.find(s => s.id === id);
-                if (sub) {
-                    const detailHtml = buildDetailContent(sub);
-                    detailRow.querySelector('.detail-content').innerHTML = detailHtml;
-                }
-                detailRow.classList.add('show');
-                mainRow.classList.add('expanded');
-                detailRow.style.display = 'table-row';
-            }
-        }
+ // ===== Toggle Detail Scores =====
+ function toggleDetailScores(id) {
+ const detailRow = document.getElementById(`scores-detail-${id}`);
+ const mainRow = document.getElementById(`scores-row-${id}`);
+ 
+ if (detailRow.classList.contains('show')) {
+ detailRow.classList.remove('show');
+ mainRow.classList.remove('expanded');
+ detailRow.style.display = 'none';
+ } else {
+ // Re-render to reflect current showCorrectAnswers state
+ const sub = submissionsData.find(s => s.id === id);
+ if (sub) {
+ const detailHtml = buildDetailContent(sub);
+ detailRow.querySelector('.detail-content').innerHTML = detailHtml;
+ }
+ detailRow.classList.add('show');
+ mainRow.classList.add('expanded');
+ detailRow.style.display = 'table-row';
+ }
+ }
 
-        // ===== Build Detail Content =====
-        function buildDetailContent(sub) {
-            if (questionsData.length === 0) {
-                return '<div style="color: var(--text-muted); text-align: center; padding: 16px;">Tidak ada konfigurasi soal untuk ujian ini.</div>';
-            }
+ // ===== Build Detail Content =====
+ function buildDetailContent(sub) {
+ if (questionsData.length === 0) {
+ return '<div style="color: var(--text-muted); text-align: center; padding: 16px;">Tidak ada konfigurasi soal untuk ujian ini.</div>';
+ }
 
-            const shouldHideStudentAnswers = !isLoggedIn && !showCorrectAnswers;
-            const answers = sub.answers || {};
-            let totalEarned = 0;
-            let totalMax = 0;
-            let correctCount = 0;
-            let incorrectCount = 0;
-            let partialCount = 0;
+ const shouldHideStudentAnswers = !isLoggedIn && !showCorrectAnswers;
+ const answers = sub.answers || {};
+ let totalEarned = 0;
+ let totalMax = 0;
+ let correctCount = 0;
+ let incorrectCount = 0;
+ let partialCount = 0;
 
-            let itemsHtml = '';
+ let itemsHtml = '';
 
-            questionsData.forEach(q => {
-                const qNum = String(q.number);
-                const studentAns = answers[qNum];
-                const weight = parseFloat(q.weight || 1.0);
-                totalMax += weight;
+ questionsData.forEach(q => {
+ const qNum = String(q.number);
+ const studentAns = answers[qNum];
+ const weight = parseFloat(q.weight || 1.0);
+ totalMax += weight;
 
-                let earned = 0;
-                let statusText = 'Belum Dijawab';
-                let statusClass = 'unanswered';
+ let earned = 0;
+ let statusText = 'Belum Dijawab';
+ let statusClass = 'unanswered';
 
-                const evalAns = (sub.evaluated_answers || {})[qNum] || {};
-                if (evalAns.statusClass) {
-                    statusClass = evalAns.statusClass;
-                    statusText = evalAns.statusText;
-                    earned = evalAns.earned || 0;
+ const evalAns = (sub.evaluated_answers || {})[qNum] || {};
+ if (evalAns.statusClass) {
+ statusClass = evalAns.statusClass;
+ statusText = evalAns.statusText;
+ earned = evalAns.earned || 0;
 
-                    if (studentAns !== undefined && studentAns !== null) {
-                        if (statusClass === 'correct') correctCount++;
-                        else if (statusClass === 'partial') partialCount++;
-                        else if (statusClass === 'incorrect') incorrectCount++;
-                    }
-                }
+ if (studentAns !== undefined && studentAns !== null) {
+ if (statusClass === 'correct') correctCount++;
+ else if (statusClass === 'partial') partialCount++;
+ else if (statusClass === 'incorrect') incorrectCount++;
+ }
+ }
 
-                totalEarned += earned;
+ totalEarned += earned;
 
-                const studentDisplay = shouldHideStudentAnswers ? '•••' : formatAnswer(studentAns);
-                const correctDisplay = showCorrectAnswers ? formatAnswer(correctAns) : '•••';
+ const studentDisplay = shouldHideStudentAnswers ? '•••' : formatAnswer(studentAns);
+ const correctAns = q.key;
+ const correctDisplay = showCorrectAnswers ? formatAnswer(correctAns) : '•••';
 
-                itemsHtml += `
-                    <div class="answer-item ${statusClass}">
-                        <span class="q-num">No. ${escapeHtml(String(q.number))}</span>
-                        <span class="q-student-ans">${studentDisplay}</span>
-                        <span class="q-correct-ans correct-ans-cell">${correctDisplay}</span>
-                        <span class="q-status ${statusClass}">${statusText} (${earned.toFixed(1)})</span>
-                    </div>
-                `;
-            });
+ itemsHtml += `
+ <div class="answer-item ${statusClass}">
+ <span class="q-num">No. ${escapeHtml(String(q.number))}</span>
+ <span class="q-student-ans">${studentDisplay}</span>
+ <span class="q-correct-ans correct-ans-cell">${correctDisplay}</span>
+ <span class="q-status ${statusClass}">${statusText} (${earned.toFixed(1)})</span>
+ </div>
+ `;
+ });
 
-            const startTimeStr = sub.start_time ? localizeUTC(sub.start_time) : '—';
-            const endTimeStr = sub.created_at ? localizeUTC(sub.created_at) : '—';
-            const durationStr = getDurationString(sub.start_time, sub.created_at);
+ const startTimeStr = sub.start_time ? localizeUTC(sub.start_time) : '—';
+ const endTimeStr = sub.created_at ? localizeUTC(sub.created_at) : '—';
+ const durationStr = getDurationString(sub.start_time, sub.created_at);
 
-            return `
-                <div class="detail-time-info" style="margin-bottom: 12px; font-size: 0.82rem; color: var(--text-secondary); background: rgba(255,255,255,0.02); border: 1px solid rgba(255,255,255,0.05); padding: 10px 14px; border-radius: 8px; display: flex; flex-wrap: wrap; justify-content: space-between; gap: 8px;">
-                    <span>⏱️ <strong>Mulai:</strong> ${startTimeStr}</span>
-                    <span>📤 <strong>Kumpul:</strong> ${endTimeStr}</span>
-                    <span>⏳ <strong>Durasi Kerja:</strong> <strong style="color: var(--accent-cyan);">${durationStr}</strong></span>
-                </div>
-                <div class="detail-header">
-                    <div class="detail-header-labels" style="flex:1;">
-                        <span style="min-width:44px;text-align:center;">No</span>
-                        <span style="flex:1;">${shouldHideStudentAnswers ? 'Jawaban (Tersembunyi)' : 'Jawaban Siswa'}</span>
-                        <span style="flex:1;" class="correct-ans-header">${showCorrectAnswers ? 'Kunci Jawaban' : 'Kunci (Tersembunyi)'}</span>
-                        <span style="min-width:90px;text-align:right;">Status</span>
-                    </div>
-                </div>
-                <div class="answer-grid">
-                    ${itemsHtml}
-                </div>
-                <div style="display:flex; justify-content:space-between; align-items:center; margin-top:16px; padding-top:12px; border-top:1px solid rgba(255,255,255,0.06); flex-wrap: wrap; gap: 8px;">
-                    <div style="display:flex; gap:16px; font-size:0.8rem;">
-                        <span style="color:var(--success);">✔ Benar: ${correctCount}</span>
-                        <span style="color:var(--warning);">⚠ Parsial: ${partialCount}</span>
-                        <span style="color:var(--danger);">✘ Salah: ${incorrectCount}</span>
-                    </div>
-                    <div class="detail-score-summary">
-                        <span style="color:var(--text-muted); font-size:0.8rem;">Total:</span>
-                        <span class="score-badge ${getScoreClass(totalEarned, totalMax)}" style="font-size:0.9rem;">
-                            ${totalEarned.toFixed(1)} / ${totalMax.toFixed(1)}
-                        </span>
-                    </div>
-                </div>
-            `;
-        }
+ return `
+ <div class="detail-time-info" style="margin-bottom: 12px; font-size: 0.82rem; color: var(--text-secondary); background: rgba(255,255,255,0.02); border: 1px solid rgba(255,255,255,0.05); padding: 10px 14px; border-radius: 8px; display: flex; flex-wrap: wrap; justify-content: space-between; gap: 8px;">
+ <span>⏱️ <strong>Mulai:</strong> ${startTimeStr}</span>
+ <span>📤 <strong>Kumpul:</strong> ${endTimeStr}</span>
+ <span>⏳ <strong>Durasi Kerja:</strong> <strong style="color: var(--accent-cyan);">${durationStr}</strong></span>
+ </div>
+ <div class="detail-header">
+ <div class="detail-header-labels" style="flex:1;">
+ <span style="min-width:44px;text-align:center;">No</span>
+ <span style="flex:1;">${shouldHideStudentAnswers ? 'Jawaban (Tersembunyi)' : 'Jawaban Siswa'}</span>
+ <span style="flex:1;" class="correct-ans-header">${showCorrectAnswers ? 'Kunci Jawaban' : 'Kunci (Tersembunyi)'}</span>
+ <span style="min-width:90px;text-align:right;">Status</span>
+ </div>
+ </div>
+ <div class="answer-grid">
+ ${itemsHtml}
+ </div>
+ <div style="display:flex; justify-content:space-between; align-items:center; margin-top:16px; padding-top:12px; border-top:1px solid rgba(255,255,255,0.06); flex-wrap: wrap; gap: 8px;">
+ <div style="display:flex; gap:16px; font-size:0.8rem;">
+ <span style="color:var(--success);">✔ Benar: ${correctCount}</span>
+ <span style="color:var(--warning);">⚠ Parsial: ${partialCount}</span>
+ <span style="color:var(--danger);">✘ Salah: ${incorrectCount}</span>
+ </div>
+ <div class="detail-score-summary">
+ <span style="color:var(--text-muted); font-size:0.8rem;">Total:</span>
+ <span class="score-badge ${getScoreClass(totalEarned, totalMax)}" style="font-size:0.9rem;">
+ ${totalEarned.toFixed(1)} / ${totalMax.toFixed(1)}
+ </span>
+ </div>
+ </div>
+ `;
+ }
 
-        // ===== Switch Tab =====
-        function switchTab(tab) {
-            currentTab = tab;
-            document.getElementById('tabScores').classList.toggle('active', tab === 'scores');
-            document.getElementById('tabKeys').classList.toggle('active', tab === 'keys');
-            
-            document.getElementById('scoresContent').style.display = tab === 'scores' ? 'block' : 'none';
-            document.getElementById('keysContent').style.display = tab === 'keys' ? 'block' : 'none';
-            
-            // Search field visibility
-            document.getElementById('searchInput').style.display = tab === 'keys' ? 'none' : 'block';
-        }
+ // ===== Switch Tab =====
+ function switchTab(tab) {
+ currentTab = tab;
+ document.getElementById('tabScores').classList.toggle('active', tab === 'scores');
+ document.getElementById('tabKeys').classList.toggle('active', tab === 'keys');
+ 
+ document.getElementById('scoresContent').style.display = tab === 'scores' ? 'block' : 'none';
+ document.getElementById('keysContent').style.display = tab === 'keys' ? 'block' : 'none';
+ 
+ // Search field visibility
+ document.getElementById('searchInput').style.display = tab === 'keys' ? 'none' : 'block';
+ }
 
-        // ===== Render Official Keys Grid =====
-        function renderKeysGrid() {
-            const grid = document.getElementById('keysGrid');
-            grid.innerHTML = '';
+ // ===== Render Official Keys Grid =====
+ function renderKeysGrid() {
+ const grid = document.getElementById('keysGrid');
+ grid.innerHTML = '';
 
-            if (questionsData.length === 0) {
-                grid.innerHTML = '<div style="color: var(--text-muted); padding: 20px; text-align: center; grid-column: 1/-1;">Tidak ada kunci jawaban dikonfigurasi.</div>';
-                return;
-            }
+ if (questionsData.length === 0) {
+ grid.innerHTML = '<div style="color: var(--text-muted); padding: 20px; text-align: center; grid-column: 1/-1;">Tidak ada kunci jawaban dikonfigurasi.</div>';
+ return;
+ }
 
-            questionsData.forEach(q => {
-                const item = document.createElement('div');
-                item.className = 'key-card';
-                item.style.cssText = `
-                    background: rgba(255,255,255,0.02);
-                    border: 1px solid rgba(255,255,255,0.05);
-                    border-radius: 12px;
-                    padding: 16px;
-                    display: flex;
-                    flex-direction: column;
-                    gap: 8px;
-                    transition: all 0.3s ease;
-                `;
-                
-                // Add hover style dynamically
-                item.onmouseenter = () => {
-                    item.style.background = 'rgba(99, 102, 241, 0.05)';
-                    item.style.borderColor = 'rgba(99, 102, 241, 0.2)';
-                    item.style.transform = 'translateY(-2px)';
-                };
-                item.onmouseleave = () => {
-                    item.style.background = 'rgba(255,255,255,0.02)';
-                    item.style.borderColor = 'rgba(255,255,255,0.05)';
-                    item.style.transform = 'translateY(0)';
-                };
+ questionsData.forEach(q => {
+ const item = document.createElement('div');
+ item.className = 'key-card';
 
-                const typeLabels = {
-                    'single_choice': 'Pilihan Ganda',
-                    'multiple_choice': 'Pilihan Ganda Kompleks',
-                    'true_false': 'Benar/Salah',
-                    'matching': 'Menjodohkan',
-                    'short_answer': 'Isian Singkat'
-                };
+ const typeLabels = {
+ 'single_choice': 'Pilihan Ganda',
+ 'multiple_choice': 'Pilihan Ganda Kompleks',
+ 'true_false': 'Benar/Salah',
+ 'matching': 'Menjodohkan',
+ 'short_answer': 'Isian Singkat'
+ };
 
-                const typeLabel = typeLabels[q.type] || q.type;
-                const correctDisplay = formatAnswer(q.key);
+ const typeLabel = typeLabels[q.type] || q.type;
+ const correctDisplay = formatAnswer(q.key);
 
-                item.innerHTML = `
-                    <div style="display: flex; justify-content: space-between; align-items: center;">
-                        <span style="font-weight: 800; font-size: 1rem; color: #a5b4fc; background: rgba(99, 102, 241, 0.15); padding: 4px 10px; border-radius: 8px;">Soal ${q.number}</span>
-                        <span style="font-size: 0.7rem; color: var(--text-muted); background: rgba(255,255,255,0.04); padding: 3px 8px; border-radius: 6px;">Bobot: ${q.weight || 1.0}</span>
-                    </div>
-                    <div style="font-size: 0.72rem; color: var(--text-muted); font-weight: 500;">${typeLabel}</div>
-                    <div style="margin-top: 4px;">
-                        <div style="font-size: 0.72rem; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.5px; font-weight: 700;">Kunci Jawaban:</div>
-                        <div style="font-size: 0.95rem; font-weight: 700; color: var(--success); margin-top: 4px; word-break: break-all;">${correctDisplay}</div>
-                    </div>
-                `;
-                grid.appendChild(item);
-            });
-        }
+ item.innerHTML = `
+ <div style="display: flex; justify-content: space-between; align-items: center;">
+ <span style="font-weight: 800; font-size: 1rem; color: #a5b4fc; background: rgba(99, 102, 241, 0.15); padding: 4px 10px; border-radius: 8px;">Soal ${q.number}</span>
+ <span style="font-size: 0.7rem; color: var(--text-muted); background: rgba(255,255,255,0.04); padding: 3px 8px; border-radius: 6px;">Bobot: ${q.weight || 1.0}</span>
+ </div>
+ <div style="font-size: 0.72rem; color: var(--text-muted); font-weight: 500;">${typeLabel}</div>
+ <div style="margin-top: 4px;">
+ <div style="font-size: 0.72rem; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.5px; font-weight: 700;">Kunci Jawaban:</div>
+ <div style="font-size: 0.95rem; font-weight: 700; color: var(--success); margin-top: 4px; word-break: break-all;">${correctDisplay}</div>
+ </div>
+ `;
+ grid.appendChild(item);
+ });
+ }
 
-        // ===== Filter Results =====
-        function filterResults() {
-            const query = document.getElementById('searchInput').value.toLowerCase().trim();
-            const rows = document.querySelectorAll('#scoresBody tr');
-            let visibleCount = 0;
+ // ===== Filter Results =====
+ function filterResults() {
+ const query = document.getElementById('searchInput').value.toLowerCase().trim();
+ const rows = document.querySelectorAll('#scoresBody tr');
+ let visibleCount = 0;
 
-            rows.forEach(row => {
-                const name = row.getAttribute('data-name') || '';
-                const number = row.getAttribute('data-number') || '';
-                const cls = row.getAttribute('data-class') || '';
-                const match = !query || name.includes(query) || number.includes(query) || cls.includes(query);
-                row.style.display = match ? '' : 'none';
-                
-                if (match) visibleCount++;
-            });
+ rows.forEach(row => {
+ const name = row.getAttribute('data-name') || '';
+ const number = row.getAttribute('data-number') || '';
+ const cls = row.getAttribute('data-class') || '';
+ const match = !query || name.includes(query) || number.includes(query) || cls.includes(query);
+ row.style.display = match ? '' : 'none';
+ 
+ if (match) visibleCount++;
+ });
 
-            document.getElementById('noSearchResults').style.display = 
-                (visibleCount === 0 && query) ? 'block' : 'none';
-        }
+ document.getElementById('noSearchResults').style.display = 
+ (visibleCount === 0 && query) ? 'block' : 'none';
+ }
 
-        // ===== Helpers =====
-        function getScoreClass(score, maxScore) {
-            if (score === null || score === undefined) return 'score-none';
-            const pct = maxScore ? (score / maxScore) * 100 : score;
-            if (pct >= 70) return 'score-high';
-            if (pct >= 40) return 'score-mid';
-            return 'score-low';
-        }
+ // ===== Helpers =====
+ function getScoreClass(score, maxScore) {
+ if (score === null || score === undefined) return 'score-none';
+ const pct = maxScore ? (score / maxScore) * 100 : score;
+ if (pct >= 70) return 'score-high';
+ if (pct >= 40) return 'score-mid';
+ return 'score-low';
+ }
 
-        function formatAnswer(val) {
-            if (val === undefined || val === null) return '<span style="color:var(--text-muted);">—</span>';
-            if (Array.isArray(val)) return escapeHtml(val.join(', '));
-            if (typeof val === 'object') return escapeHtml(Object.entries(val).map(([k,v]) => `${k}→${v}`).join(', '));
-            return escapeHtml(String(val));
-        }
+ function formatAnswer(val) {
+ if (val === undefined || val === null) return '<span style="color:var(--text-muted);">—</span>';
+ if (Array.isArray(val)) return escapeHtml(val.join(', '));
+ if (typeof val === 'object') return escapeHtml(Object.entries(val).map(([k,v]) => `${k}→${v}`).join(', '));
+ return escapeHtml(String(val));
+ }
 
-        function escapeHtml(str) {
-            const div = document.createElement('div');
-            div.textContent = str;
-            return div.innerHTML;
-        }
+ function escapeHtml(str) {
+ const div = document.createElement('div');
+ div.textContent = str;
+ return div.innerHTML;
+ }
 
-        function localizeUTC(utcStr) {
-            if (!utcStr) return '—';
-            try {
-                let iso = utcStr.trim();
-                if (iso.includes(' ')) iso = iso.replace(' ', 'T');
-                if (!iso.endsWith('Z') && !iso.includes('+')) iso += 'Z';
-                const dt = new Date(iso);
-                if (isNaN(dt.getTime())) return utcStr;
-                return dt.toLocaleString('id-ID', {
-                    year: 'numeric', month: '2-digit', day: '2-digit',
-                    hour: '2-digit', minute: '2-digit', second: '2-digit'
-                });
-            } catch(e) {
-                return utcStr;
-            }
-        }
-    </script>
+ function localizeUTC(utcStr) {
+ if (!utcStr) return '—';
+ try {
+ let iso = utcStr.trim();
+ if (iso.includes(' ')) iso = iso.replace(' ', 'T');
+ if (!iso.endsWith('Z') && !iso.includes('+')) iso += 'Z';
+ const dt = new Date(iso);
+ if (isNaN(dt.getTime())) return utcStr;
+ return dt.toLocaleString('id-ID', {
+ year: 'numeric', month: '2-digit', day: '2-digit',
+ hour: '2-digit', minute: '2-digit', second: '2-digit'
+ });
+ } catch(e) {
+ return utcStr;
+ }
+ }
+ </script>
 </body>
 </html>
