@@ -263,6 +263,10 @@ function openQuestionsModal(examId, examName) {
                 if (secSelect) {
                     secSelect.value = res.security_level || 'medium';
                 }
+                const strictCheck = document.getElementById('examStrictMode');
+                if (strictCheck) {
+                    strictCheck.checked = res.strict_mode === true;
+                }
                 renderQuestions(res.questions);
             } else {
                 showToast(res.message || 'Gagal memuat soal', 'error');
@@ -777,14 +781,15 @@ function exportXMLQuestions() {
 
 function saveQuestionsConfig() {
     if (!activeExamId) return;
-    
+
     const questions = getQuestionsFromEditor();
     const securityLevel = document.getElementById('examSecurityLevel') ? document.getElementById('examSecurityLevel').value : 'medium';
-    
+    const strictMode = document.getElementById('examStrictMode') ? document.getElementById('examStrictMode').checked : false;
+
     apiFetch(`/admin/api/exams/${activeExamId}/questions`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ questions: questions, security_level: securityLevel })
+        body: JSON.stringify({ questions: questions, security_level: securityLevel, strict_mode: strictMode })
     })
         .then(r => r.json())
         .then(res => {
@@ -1110,14 +1115,19 @@ function openEditUserModal(userId) {
             document.getElementById('editUserPdfSize').value = user.max_pdf_size ? (user.max_pdf_size / (1024*1024)).toFixed(1) : '1';
             document.getElementById('editUserWhatsapp').value = user.whatsapp_number || '';
 
-            // Set expiry date
+            // Set expiry date — convert UTC back to local timezone
             var expiresInput = document.getElementById('editUserExpiry');
             var expiresTimeInput = document.getElementById('editUserExpiryTime');
             if (user.expires_at) {
-                var expParts = user.expires_at.split(' ');
-                if (expParts.length >= 2) {
-                    expiresInput.value = expParts[0];
-                    expiresTimeInput.value = expParts[1].substring(0, 5);
+                var expDate = new Date(user.expires_at.replace(' ', 'T') + 'Z');
+                if (!isNaN(expDate.getTime())) {
+                    var localDate = expDate.getFullYear() + '-' +
+                        String(expDate.getMonth() + 1).padStart(2, '0') + '-' +
+                        String(expDate.getDate()).padStart(2, '0');
+                    var localTime = String(expDate.getHours()).padStart(2, '0') + ':' +
+                        String(expDate.getMinutes()).padStart(2, '0');
+                    expiresInput.value = localDate;
+                    expiresTimeInput.value = localTime;
                 } else {
                     expiresInput.value = '';
                     expiresTimeInput.value = '23:59';

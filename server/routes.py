@@ -17,7 +17,7 @@ from app import (
     check_exam_ownership, check_submission_ownership,
     get_network_info, get_storage_stats, safe_storage_path,
     STORAGE_DIR, MAX_FILE_SIZE, BASE_DIR,
-    DEFAULT_IDENTITY_FIELDS, ADMIN_USERNAME,
+    DEFAULT_IDENTITY_FIELDS, ADMIN_USERNAME, VERSION,
 )
 from helpers import (
     localize_date_string, format_iso_utc, get_local_ip,
@@ -48,7 +48,7 @@ def api_health():
     required_version = get_saas_setting('android_version', '2.1.9')
     return jsonify({
         'status': 'ok',
-        'version': '2.0',
+        'version': VERSION,
         'required_app_version': required_version,
         'lan_mode': True,
         'timestamp': now.isoformat(),
@@ -105,7 +105,7 @@ def api_exam_by_token(token):
     token = token.strip().upper()
     db = get_db()
     exam = db.execute(
-        'SELECT id, name, status, size_bytes, token, questions_json, security_level, identity_fields, created_at '
+        'SELECT id, name, status, size_bytes, token, questions_json, security_level, strict_mode, identity_fields, created_at '
         'FROM exams WHERE token = ? AND status = ?',
         (token, 'active')
     ).fetchone()
@@ -153,6 +153,7 @@ def api_exam_by_token(token):
             'size_mb': round(exam['size_bytes'] / (1024 * 1024), 2),
             'questions': questions,
             'security_level': exam['security_level'] or 'medium',
+            'strict_mode': bool(exam['strict_mode']),
             'identity_fields': identity_fields,
             'created_at': format_iso_utc(exam['created_at'])
         }
@@ -484,6 +485,7 @@ def verify_otp():
 
 
 @app.route('/resend-otp', methods=['POST'])
+@csrf_required
 def resend_otp():
     """Resend OTP code to user's registered WhatsApp number."""
     # Rate limit: max 3 resend requests per 10 minutes per IP
@@ -1547,6 +1549,7 @@ def admin_exam_questions(exam_id):
     if request.method == 'GET':
         questions_raw = exam['questions_json']
         security_level = exam['security_level'] or 'medium'
+        strict_mode = bool(exam['strict_mode'])
         questions = []
         if questions_raw:
             try:
@@ -1563,6 +1566,7 @@ def admin_exam_questions(exam_id):
             'success': True,
             'questions': questions,
             'security_level': security_level,
+            'strict_mode': strict_mode,
             'identity_fields': identity_fields
         })
 
@@ -1571,8 +1575,9 @@ def admin_exam_questions(exam_id):
         data = request.json or {}
         questions = data.get('questions', [])
         security_level = data.get('security_level', 'medium')
+        strict_mode = 1 if data.get('strict_mode') else 0
 
-        if security_level not in ['medium', 'low']:
+        if security_level not in ['medium', 'low', 'high']:
             security_level = 'medium'
 
         # Basic validation
@@ -1587,8 +1592,8 @@ def admin_exam_questions(exam_id):
 
         # Save to database
         db.execute(
-            'UPDATE exams SET questions_json = ?, security_level = ?, identity_fields = ? WHERE id = ?',
-            (json.dumps(questions), security_level, identity_fields_json, exam_id)
+            'UPDATE exams SET questions_json = ?, security_level = ?, strict_mode = ?, identity_fields = ? WHERE id = ?',
+            (json.dumps(questions), security_level, strict_mode, identity_fields_json, exam_id)
         )
         
         # Recalculate scores for all existing submissions of this exam

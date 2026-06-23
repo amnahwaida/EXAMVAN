@@ -388,11 +388,23 @@ function initPasswordStrengthMeter(inputId, meterId) {
     input.addEventListener('input', updateStrength);
 }
 
+// ===== Skip Link =====
+function initSkipLink() {
+    const skipLink = document.querySelector('.skip-link');
+    if (!skipLink) return;
+    skipLink.addEventListener('focus', function() { this.style.top = '8px'; });
+    skipLink.addEventListener('blur', function() { this.style.top = '-100px'; });
+    skipLink.addEventListener('mouseenter', function() { this.style.top = '8px'; });
+    skipLink.addEventListener('mouseleave', function() { this.style.top = '-100px'; });
+}
+
 // ===== Init All =====
 if (document.readyState === 'loading') {
     document.addEventListener('DOMContentLoaded', () => {
         initMenuToggle();
+        initSkipLink();
     });
 } else {
     initMenuToggle();
+    initSkipLink();
 }

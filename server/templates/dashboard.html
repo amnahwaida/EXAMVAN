@@ -3,7 +3,7 @@
 {% block content %}
 <main class="dashboard">
  <!-- Stats Cards -->
- <section class="stats-grid">
+ <section class="stats-grid" id="statsGrid">
  <div class="stat-card stat-total">
  <div class="stat-icon"><svg class="icon-svg" style="width:24px;height:24px;"><use href="#hi-dashboard"/></svg></div>
  <div class="stat-info">
@@ -277,7 +277,8 @@
  <button class="modal-close" onclick="closeQuestionsModal()" aria-label="Tutup">&#x2715;</button>
  </div>
  <div class="modal-body">
- <div class="security-level-config" style="margin-bottom: 20px; padding: 12px 16px; background: rgba(255, 255, 255, 0.03); border: 1px solid var(--glass-border); border-radius: 12px; display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 12px;">
+ <div class="security-level-config" style="margin-bottom: 20px; padding: 12px 16px; background: rgba(255, 255, 255, 0.03); border: 1px solid var(--glass-border); border-radius: 12px;">
+ <div style="display: flex; align-items: flex-start; justify-content: space-between; flex-wrap: wrap; gap: 12px;">
  <div style="display: flex; align-items: center; gap: 8px;">
  <svg class="icon-svg" style="width:20px;height:20px;"><use href="#hi-lock"/></svg>
  <div>
@@ -290,6 +291,15 @@
  <option value="medium">Medium (Bisa Keluar &amp; Auto-Submit)</option>
  <option value="low">Low (Bisa Keluar Tanpa Submit)</option>
  </select>
+ </div>
+ </div>
+ <div style="display: flex; align-items: center; gap: 10px; margin-top: 12px; padding-top: 12px; border-top: 1px solid var(--glass-border);">
+ <label style="display: flex; align-items: center; gap: 8px; cursor: pointer; font-size: 0.9rem;">
+ <input type="checkbox" id="examStrictMode" style="width: 18px; height: 18px; accent-color: #ef4444; cursor: pointer;">
+ <svg class="icon-svg" style="width:18px;height:18px;color:#ef4444;"><use href="#hi-lock"/></svg>
+ <strong style="color: #fca5a5;">Mode Strict</strong>
+ </label>
+ <span style="font-size: 0.75rem; color: var(--text-muted);">Siswa TIDAK BISA keluar aplikasi sama sekali. Hanya submit yang membuka kunci.</span>
  </div>
  </div>
  <div class="questions-toolbar">
@@ -408,47 +418,6 @@ document.addEventListener('DOMContentLoaded', function() {
     }
 })();
 
-/* Copy token with visual feedback toast */
-function copyToken(token) {
-    navigator.clipboard.writeText(token).then(function() {
-        showToast('Token ' + token + ' disalin!', 'success');
-    }).catch(function() {
-        var ta = document.createElement('textarea');
-        ta.value = token;
-        ta.style.position = 'fixed';
-        ta.style.opacity = '0';
-        document.body.appendChild(ta);
-        ta.select();
-        document.execCommand('copy');
-        document.body.removeChild(ta);
-        showToast('Token ' + token + ' disalin!', 'success');
-    });
-}
-
-function copyResultsLink(token) {
-    var link = window.location.origin + '/hasil/' + token;
-    navigator.clipboard.writeText(link).then(function() {
-        showToast('Link hasil ujian disalin!', 'success');
-    }).catch(function() {
-        showToast('Link: ' + link, 'info');
-    });
-}
-
-function copyAllTokens() {
-    var codes = document.querySelectorAll('.token-code');
-    var tokens = [];
-    codes.forEach(function(el) {
-        var t = el.textContent.trim();
-        if (t && t !== '—') tokens.push(t);
-    });
-    if (tokens.length === 0) {
-        showToast('Tidak ada token untuk disalin', 'warning');
-        return;
-    }
-    navigator.clipboard.writeText(tokens.join('\n')).then(function() {
-        showToast(tokens.length + ' token disalin!', 'success');
-    });
-}
 </script>
 
 {% endblock %}

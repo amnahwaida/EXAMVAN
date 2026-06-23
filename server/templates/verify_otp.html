@@ -4,7 +4,8 @@
  <meta charset="UTF-8">
  <meta name="viewport" content="width=device-width, initial-scale=1.0">
  <title>EXAMVAN - Verifikasi WhatsApp OTP</title>
- <link rel="stylesheet" href="{{ url_for('static', filename='css/tailwind/output.css') }}?v=2.3.0">
+ <link rel="stylesheet" href="{{ url_for('static', filename='css/tailwind/output.css') }}?v={{ version }}">
+ <meta name="csrf-token" content="{{ csrf_token }}">
  <style>
  .otp-input-container {
  display: flex;
@@ -177,8 +178,11 @@
  const formData = new FormData();
  formData.append('username', '{{ username }}');
 
+ const csrfMeta = document.querySelector('meta[name="csrf-token"]');
+ const csrfToken = csrfMeta ? csrfMeta.getAttribute('content') : '';
  fetch('/resend-otp', {
  method: 'POST',
+ headers: { 'X-CSRF-Token': csrfToken },
  body: formData
  })
  .then(r => r.json())
