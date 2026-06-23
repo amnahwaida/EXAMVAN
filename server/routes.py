@@ -1575,10 +1575,12 @@ def admin_exam_questions(exam_id):
         data = request.json or {}
         questions = data.get('questions', [])
         security_level = data.get('security_level', 'medium')
-        strict_mode = 1 if data.get('strict_mode') else 0
 
         if security_level not in ['medium', 'low', 'high']:
             security_level = 'medium'
+
+        # strict_mode is derived from security_level: High = strict
+        strict_mode = 1 if security_level == 'high' else 0
 
         # Basic validation
         if not isinstance(questions, list):

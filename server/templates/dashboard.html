@@ -283,24 +283,34 @@
  <svg class="icon-svg" style="width:20px;height:20px;"><use href="#hi-lock"/></svg>
  <div>
  <div style="font-weight: 600; color: var(--text-primary); font-size: 0.95rem;">Mode Keamanan Ujian (Android)</div>
- <div style="font-size: 0.8rem; color: var(--text-muted);">Menentukan tindakan aplikasi jika siswa keluar/meminimalkan ujian.</div>
+ <div style="font-size: 0.8rem; color: var(--text-muted);">Menentukan apakah siswa bisa keluar aplikasi saat ujian berlangsung.</div>
  </div>
  </div>
  <div>
- <select id="examSecurityLevel" class="q-type-select" style="min-width: 200px; margin: 0;">
- <option value="medium">Medium (Bisa Keluar &amp; Auto-Submit)</option>
- <option value="low">Low (Bisa Keluar Tanpa Submit)</option>
+ <select id="examSecurityLevel" class="q-type-select" style="min-width: 220px; margin: 0;">
+ <option value="low">Low — Bisa Keluar (Tanpa Submit)</option>
+ <option value="medium">Medium — Bisa Keluar (Auto-Submit)</option>
+ <option value="high">High / Strict — TIDAK BISA Keluar (Wajib Submit)</option>
  </select>
  </div>
  </div>
- <div style="display: flex; align-items: center; gap: 10px; margin-top: 12px; padding-top: 12px; border-top: 1px solid var(--glass-border);">
- <label style="display: flex; align-items: center; gap: 8px; cursor: pointer; font-size: 0.9rem;">
- <input type="checkbox" id="examStrictMode" style="width: 18px; height: 18px; accent-color: #ef4444; cursor: pointer;">
- <svg class="icon-svg" style="width:18px;height:18px;color:#ef4444;"><use href="#hi-lock"/></svg>
- <strong style="color: #fca5a5;">Mode Strict</strong>
- </label>
- <span style="font-size: 0.75rem; color: var(--text-muted);">Siswa TIDAK BISA keluar aplikasi sama sekali. Hanya submit yang membuka kunci.</span>
  </div>
+ <!-- Identity Fields Config -->
+ <div class="identity-fields-config" style="margin-bottom: 16px; padding: 12px 16px; background: rgba(255, 255, 255, 0.03); border: 1px solid var(--glass-border); border-radius: 12px;">
+ <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px;">
+ <div style="display: flex; align-items: center; gap: 8px;">
+ <svg class="icon-svg" style="width:18px;height:18px;"><use href="#hi-users"/></svg>
+ <div>
+ <div style="font-weight: 600; color: var(--text-primary); font-size: 0.9rem;">Identitas Siswa</div>
+ <div style="font-size: 0.75rem; color: var(--text-muted);">Data yang wajib diisi siswa sebelum memulai ujian di Android.</div>
+ </div>
+ </div>
+ <button class="btn-sm btn-questions" onclick="addIdentityField()" style="height: 30px; font-size: 12px;">➕ Tambah Field</button>
+ </div>
+ <div id="identityFieldsList">
+ <!-- Fields rendered by JS -->
+ </div>
+ <div style="margin-top: 8px; font-size: 0.75rem; color: var(--text-muted); text-align: right;">Field bertanda * wajib diisi siswa. Key harus unik (huruf kecil, tanpa spasi).</div>
  </div>
  <div class="questions-toolbar">
  <div class="inline-group">
