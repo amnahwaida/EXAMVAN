@@ -676,6 +676,9 @@ body {
     /* Bulk buttons */
     #bulkDeleteBtn, #bulkToggleBtn { font-size: 11px !important; padding: 6px 10px !important; }
 
+    /* Hide Pembuat column on mobile */
+    th:nth-child(4), td[data-label="Pembuat"] { display: none !important; }
+
     /* Users Layout: stack on mobile */
     .users-layout { grid-template-columns: 1fr; }
 
