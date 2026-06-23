@@ -50,17 +50,6 @@
  </div>
  </div>
 
- <div class="form-row-2col grid grid-cols-1 sm:grid-cols-2 gap-4">
- <div class="form-group space-y-1">
- <label for="defaultDraftsInput">Default Maks Draf</label>
- <input type="number" id="defaultDraftsInput" required min="1" value="2">
- </div>
- <div class="form-group space-y-1">
- <label for="defaultDraftSizeInput">Default Ukuran Draf (MB)</label>
- <input type="number" id="defaultDraftSizeInput" required min="0.1" step="0.1" value="1.0">
- </div>
- </div>
-
  <div style="border-top: 1px solid var(--glass-border); margin-top: 16px; padding-top: 16px; margin-bottom: 6px;">
  <h4 style="margin: 0; font-size: 0.85rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px; color: var(--accent-light); display: flex; align-items: center; gap: 6px;">
  <svg class="icon-svg"><use href="#hi-download"/></svg> Versi Aplikasi
@@ -96,7 +85,7 @@
  </div>
  <div class="form-group space-y-1">
  <label for="passwordInput">Password</label>
- <input type="password" id="passwordInput" required placeholder="Password awal" minlength="4">
+ <input type="password" id="passwordInput" required placeholder="Password awal" minlength="8">
  </div>
  <div class="form-group space-y-1">
  <label for="whatsappInput">WhatsApp Number</label>
@@ -110,16 +99,6 @@
  <div class="form-group space-y-1">
  <label for="pdfSizeInput">Limit PDF (MB)</label>
  <input type="number" id="pdfSizeInput" required value="0.5" min="0.1" step="0.1">
- </div>
- </div>
- <div class="form-row-2col grid grid-cols-1 sm:grid-cols-2 gap-4">
- <div class="form-group space-y-1">
- <label for="draftLimitInput">Limit Draft</label>
- <input type="number" id="draftLimitInput" required value="2" min="1">
- </div>
- <div class="form-group space-y-1">
- <label for="draftSizeInput">Limit Ukuran Draft (MB)</label>
- <input type="number" id="draftSizeInput" required value="1.0" min="0.1" step="0.1">
  </div>
  </div>
  <div class="form-group space-y-1">
@@ -142,22 +121,42 @@
  <h3 style="font-size: 1.1rem; color: #a5b4fc; display: flex; align-items: center; gap: 8px;">
  <svg class="icon-svg" style="color:#a5b4fc;"><use href="#hi-users"/></svg> Daftar User & Guru Terdaftar
  </h3>
- <button class="btn-refresh" onclick="loadUsersList()" aria-label="Refresh daftar user"><svg class="icon-svg"><use href="#hi-refresh"/></svg> Refresh</button>
+ <button class="btn-refresh" onclick="loadUsersList(getCurrentUsersPage())" aria-label="Refresh daftar user"><svg class="icon-svg"><use href="#hi-refresh"/></svg> Refresh</button>
  </div>
- 
+
+ <!-- Search Bar -->
+ <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;padding:0 0 16px 0;">
+ <div style="position:relative;display:inline-block;">
+  <input type="text" id="userSearchInput" placeholder="Cari username atau WA..."
+   style="padding:8px 32px 8px 14px;background:rgba(255,255,255,0.04);border:1px solid var(--glass-border);border-radius:8px;color:var(--text);outline:none;font-size:13px;width:220px;transition:border-color 0.2s;"
+   onkeyup="if(event.key==='Enter') { loadUsersList(1); }"
+   onfocus="this.style.borderColor='var(--primary)'" onblur="this.style.borderColor=''">
+  <button onclick="document.getElementById('userSearchInput').value='';loadUsersList(1);"
+   style="display:none;position:absolute;right:4px;top:50%;transform:translateY(-50%);background:none;border:none;color:var(--text-muted);cursor:pointer;padding:4px;font-size:14px;width:24px;height:24px;align-items:center;justify-content:center;" id="userSearchClearBtn" title="Hapus" aria-label="Hapus pencarian">✕</button>
+ </div>
+ <button class="btn-sm btn-toggle" onclick="loadUsersList(1)" style="height:32px;padding:0 12px;" title="Cari user"><svg class="icon-svg"><use href="#hi-search"/></svg> Cari</button>
+ </div>
+ <script>
+ document.addEventListener('DOMContentLoaded', function() {
+  var inp = document.getElementById('userSearchInput');
+  var clr = document.getElementById('userSearchClearBtn');
+  if (inp && clr) { inp.addEventListener('input', function() { clr.style.display = this.value ? 'flex' : 'none'; }); }
+ });
+ </script>
+
  <div class="table-responsive">
  <table class="exam-table">
  <thead>
  <tr>
- <th>Username</th>
- <th>WhatsApp</th>
- <th class="text-center">Status</th>
- <th class="text-center">Ujian</th>
- <th class="text-center">Limit Ujian</th>
- <th class="text-center">Limit PDF</th>
- <th class="text-center">Masa Aktif</th>
- <th>Terdaftar</th>
- <th class="text-right">Aksi</th>
+ <th scope="col">Username</th>
+ <th scope="col">WhatsApp</th>
+ <th scope="col" class="text-center">Status</th>
+ <th scope="col" class="text-center">Ujian</th>
+ <th scope="col" class="text-center">Limit Ujian</th>
+ <th scope="col" class="text-center">Limit PDF</th>
+ <th scope="col" class="text-center">Masa Aktif</th>
+ <th scope="col">Terdaftar</th>
+ <th scope="col" class="text-right">Aksi</th>
  </tr>
  </thead>
  <tbody id="usersTableBody">

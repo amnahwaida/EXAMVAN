@@ -46,20 +46,28 @@
  <p style="font-size: 13px; color: var(--text-muted); margin-top: 8px;"><svg class="icon-svg-sm" style="vertical-align:middle;"><use href="#hi-search"/></svg> Filter sedang aktif. <a href="{{ url_for('admin_submissions') }}" class="text-indigo-300">Reset filter</a> untuk melihat semua hasil.</p>
  {% endif %}
  </div>
+
+ <!-- Error state: shown when JS fails to load submissions -->
+ <div id="submissionsError" class="empty-state" style="display: none; padding: 60px 20px;">
+ <div class="empty-icon"><svg class="icon-svg-xl" style="margin:0 auto 16px;opacity:0.4;"><use href="#hi-exclamation"/></svg></div>
+ <p style="font-size: 16px; color: var(--text-secondary);">Gagal memuat data hasil ujian.</p>
+ <p style="font-size: 13px; color: var(--text-muted); margin-top: 8px;">Terjadi kesalahan saat memuat data. Silakan coba lagi.</p>
+ <button class="btn-upload" onclick="location.reload()" style="margin-top: 16px;"><svg class="icon-svg"><use href="#hi-refresh"/></svg> Coba Lagi</button>
+ </div>
  {% else %}
  <div class="table-responsive">
  <table class="exam-table" id="submissionsTable">
  <thead>
  <tr>
- <th>Nama Ujian</th>
- <th>Nama Siswa</th>
- <th>No. Ujian</th>
- <th>Kelas</th>
- <th class="text-center">Nilai</th>
- <th>Waktu Kumpul</th>
- <th class="text-center">Durasi</th>
- <th>Perangkat</th>
- <th class="text-center">Aksi</th>
+ <th scope="col">Nama Ujian</th>
+ <th scope="col">Nama Siswa</th>
+ <th scope="col">No. Ujian</th>
+ <th scope="col">Kelas</th>
+ <th scope="col" class="text-center">Nilai</th>
+ <th scope="col">Waktu Kumpul</th>
+ <th scope="col" class="text-center">Durasi</th>
+ <th scope="col">Perangkat</th>
+ <th scope="col" class="text-center">Aksi</th>
  </tr>
  </thead>
  <tbody>
@@ -97,7 +105,7 @@
  <td data-label="Durasi">
  {% if sub.start_time and sub.created_at %}
  {% set diff = (sub.created_at[:19] if ' ' in sub.created_at[:19] else sub.created_at) %}
- <span class="duration-cell" data-start="{{ sub.start_time }}" data-end="{{ sub.created_at }}">⏳</span>
+ <span class="duration-cell" data-start="{{ sub.start_time }}" data-end="{{ sub.created_at }}">—</span>
  {% else %}
  —
  {% endif %}

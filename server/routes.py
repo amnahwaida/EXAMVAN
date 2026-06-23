@@ -1,10 +1,10 @@
 """EXAMVAN routes — extracted from app.py for organization."""
-import os, json, csv, io, hashlib, socket, secrets, string
+import os, json, csv, io, secrets, string, hmac
 from datetime import datetime, timezone, timedelta
 
 from flask import (
-    Flask, request, jsonify, render_template,
-    redirect, url_for, session, send_file, flash, abort, g
+    request, jsonify, render_template,
+    redirect, url_for, session, send_file, flash, abort
 )
 from werkzeug.utils import secure_filename
 from werkzeug.security import generate_password_hash, check_password_hash
@@ -17,13 +17,28 @@ from app import (
     check_exam_ownership, check_submission_ownership,
     get_network_info, get_storage_stats, safe_storage_path,
     STORAGE_DIR, MAX_FILE_SIZE, BASE_DIR,
-    DEFAULT_ADMIN, DEFAULT_IDENTITY_FIELDS,
+    DEFAULT_IDENTITY_FIELDS, ADMIN_USERNAME,
 )
 from helpers import (
     localize_date_string, format_iso_utc, get_local_ip,
     _normalize_q_num, _evaluate_single_question,
     evaluate_answers_detailed, calculate_submission_score,
 )
+
+
+def error_response(message, code=400):
+    """Return a standardized error JSON response."""
+    return jsonify({'success': False, 'message': message}), code
+
+
+def success_response(data=None, message=None):
+    """Return a standardized success JSON response."""
+    resp = {'success': True}
+    if data is not None:
+        resp['data'] = data
+    if message:
+        resp['message'] = message
+    return jsonify(resp)
 
 
 @app.route('/api/health')
@@ -182,12 +197,12 @@ def api_submit_exam(exam_id):
             start_time = start_time_raw
 
     if not student_name or not exam_number or not student_class:
-        return jsonify({'success': False, 'message': 'Identitas siswa tidak lengkap'}), 400
+        return error_response('Identitas siswa tidak lengkap', 400)
 
     db = get_db()
     exam = db.execute('SELECT questions_json FROM exams WHERE id = ? AND status = ?', (exam_id, 'active')).fetchone()
     if not exam:
-        return jsonify({'success': False, 'message': 'Ujian tidak ditemukan'}), 404
+        return error_response('Ujian tidak ditemukan', 404)
 
     score = None
     questions_raw = exam['questions_json']
@@ -343,12 +358,22 @@ def register():
             flash('Semua kolom wajib diisi', 'error')
             return render_template('register.html')
 
-        if username == 'admin':
-            flash('Username "admin" tidak dapat digunakan', 'error')
+        if username == ADMIN_USERNAME:
+            flash(f'Username "{ADMIN_USERNAME}" tidak dapat digunakan', 'error')
             return render_template('register.html')
 
         if len(username) < 3 or not username.isalnum():
             flash('Username minimal 3 karakter alfanumerik', 'error')
+            return render_template('register.html')
+
+        if len(password) < 8:
+            flash('Password minimal 8 karakter', 'error')
+            return render_template('register.html')
+
+        # Validate Indonesian WhatsApp number (08xx or 62xx, 10-15 digits)
+        wa_clean = whatsapp.replace('+', '').replace('-', '').replace(' ', '')
+        if not ((wa_clean.startswith('08') or wa_clean.startswith('62')) and wa_clean.isdigit() and 10 <= len(wa_clean) <= 15):
+            flash('Format nomor WhatsApp tidak valid. Gunakan nomor Indonesia (08xx atau 62xx, 10-15 digit)', 'error')
             return render_template('register.html')
 
         db = get_db()
@@ -427,7 +452,7 @@ def verify_otp():
             flash('Permintaan verifikasi tidak valid atau kedaluwarsa', 'error')
             return redirect(url_for('admin_login'))
 
-        if user['otp_code'] != otp_input:
+        if not hmac.compare_digest(str(user['otp_code'] or ''), str(otp_input)):
             flash('Kode OTP yang Anda masukkan salah', 'error')
             return render_template('verify_otp.html', username=username)
 
@@ -502,12 +527,24 @@ def admin_logout():
     return redirect(url_for('admin_login'))
 
 
+def _days_until_expiry(expires_at_str):
+    """Calculate days remaining until account expiry. Returns int or None."""
+    if not expires_at_str:
+        return None
+    try:
+        expires = datetime.strptime(expires_at_str, '%Y-%m-%d %H:%M:%S').replace(tzinfo=timezone.utc)
+        remaining = (expires - datetime.now(timezone.utc)).days
+        return max(remaining, 0)
+    except Exception:
+        return None
+
+
 @app.route('/admin/dashboard')
 @admin_required
 def admin_dashboard():
     """Admin dashboard page with pagination & search."""
     db = get_db()
-    is_super_admin = (session.get('admin_username') == 'admin')
+    is_super_admin = (session.get('admin_username') == ADMIN_USERNAME)
 
     # Pagination & search params
     page = request.args.get('page', 1, type=int)
@@ -522,14 +559,14 @@ def admin_dashboard():
         conditions.append('e.created_by = ?')
         params.append(session['admin_id'])
     if search:
-        conditions.append('(e.name LIKE ? OR e.token LIKE ?)')
+        conditions.append('(e.name LIKE ? OR e.token LIKE ? OR u.username LIKE ?)')
         search_param = f'%{search}%'
-        params.extend([search_param, search_param])
+        params.extend([search_param, search_param, search_param])
 
     where_clause = (' WHERE ' + ' AND '.join(conditions)) if conditions else ''
 
-    # Count total matching exams
-    count_sql = f'SELECT COUNT(*) as cnt FROM exams e{where_clause}'
+    # Count total matching exams (JOIN admin_users for creator name search)
+    count_sql = 'SELECT COUNT(*) as cnt FROM exams e LEFT JOIN admin_users u ON e.created_by = u.id' + where_clause
     total = db.execute(count_sql, params).fetchone()['cnt']
 
     # Fetch paginated exams
@@ -577,6 +614,8 @@ def admin_dashboard():
         user_max_exams = user_row['max_exams'] if (user_row and user_row['max_exams']) else 3
         account_expires = user_row['expires_at'] if user_row else None
 
+    days_remaining = _days_until_expiry(account_expires)
+
     return render_template(
         'dashboard.html',
         exams=exams,
@@ -593,6 +632,7 @@ def admin_dashboard():
         max_size_mb=round(user_max_pdf / (1024 * 1024), 1),
         max_exams=user_max_exams,
         account_expires=account_expires,
+        days_remaining=days_remaining,
         active_page='dashboard',
         # Pagination
         page=page,
@@ -921,33 +961,38 @@ def admin_bulk_delete_exams():
         return jsonify({'success': False, 'message': 'Tidak ada ujian yang dipilih'}), 400
 
     db = get_db()
-    deleted_count = 0
-    for exam_id in exam_ids:
-        # Check ownership
-        if not check_exam_ownership(db, exam_id):
-            continue
-        
-        exam = db.execute('SELECT * FROM exams WHERE id = ?', (exam_id,)).fetchone()
-        if not exam:
-            continue
+    try:
+        deleted_count = 0
+        for exam_id in exam_ids:
+            # Check ownership
+            if not check_exam_ownership(db, exam_id):
+                continue
 
-        # Delete file from storage
-        try:
-            file_path = safe_storage_path(exam['file_path'])
-            if os.path.exists(file_path):
-                try:
-                    os.remove(file_path)
-                except Exception:
-                    pass
-        except (ValueError, KeyError):
-            app.logger.error(f"Invalid file path in bulk delete: {exam.get('file_path')}")
+            exam = db.execute('SELECT * FROM exams WHERE id = ?', (exam_id,)).fetchone()
+            if not exam:
+                continue
 
-        # Delete from database
-        db.execute('DELETE FROM exams WHERE id = ?', (exam_id,))
-        deleted_count += 1
+            # Delete file from storage
+            try:
+                file_path = safe_storage_path(exam['file_path'])
+                if os.path.exists(file_path):
+                    try:
+                        os.remove(file_path)
+                    except Exception:
+                        pass
+            except (ValueError, KeyError):
+                app.logger.error(f"Invalid file path in bulk delete: {exam.get('file_path')}")
 
-    db.commit()
-    return jsonify({'success': True, 'message': f'{deleted_count} ujian berhasil dihapus'})
+            # Delete from database
+            db.execute('DELETE FROM exams WHERE id = ?', (exam_id,))
+            deleted_count += 1
+
+        db.commit()
+        return jsonify({'success': True, 'message': f'{deleted_count} ujian berhasil dihapus'})
+    except Exception as e:
+        db.rollback()
+        app.logger.error(f"Bulk delete error: {e}")
+        return jsonify({'success': False, 'message': 'Terjadi kesalahan saat menghapus ujian'}), 500
 
 
 @app.route('/admin/exams/bulk-toggle', methods=['POST'])
@@ -964,17 +1009,22 @@ def admin_bulk_toggle_exams():
         return jsonify({'success': False, 'message': 'Status tidak valid'}), 400
 
     db = get_db()
-    updated_count = 0
-    for exam_id in exam_ids:
-        # Check ownership
-        if not check_exam_ownership(db, exam_id):
-            continue
-        
-        db.execute('UPDATE exams SET status = ? WHERE id = ?', (target_status, exam_id))
-        updated_count += 1
+    try:
+        updated_count = 0
+        for exam_id in exam_ids:
+            # Check ownership
+            if not check_exam_ownership(db, exam_id):
+                continue
 
-    db.commit()
-    return jsonify({'success': True, 'message': f'Status {updated_count} ujian berhasil diperbarui ke {target_status}'})
+            db.execute('UPDATE exams SET status = ? WHERE id = ?', (target_status, exam_id))
+            updated_count += 1
+
+        db.commit()
+        return jsonify({'success': True, 'message': f'Status {updated_count} ujian berhasil diperbarui ke {target_status}'})
+    except Exception as e:
+        db.rollback()
+        app.logger.error(f"Bulk toggle error: {e}")
+        return jsonify({'success': False, 'message': 'Terjadi kesalahan saat memperbarui status ujian'}), 500
 
 
 @app.route('/admin/api/exams/<int:exam_id>/regenerate-token', methods=['POST'])
@@ -1042,7 +1092,7 @@ def admin_custom_token(exam_id):
 def admin_stats():
     """Get dashboard statistics."""
     db = get_db()
-    is_super_admin = (session.get('admin_username') == 'admin')
+    is_super_admin = (session.get('admin_username') == ADMIN_USERNAME)
     if is_super_admin:
         exams = db.execute('SELECT status, size_bytes FROM exams').fetchall()
     else:
@@ -1079,6 +1129,9 @@ def admin_change_password():
     if not current_password or not new_password:
         return jsonify({'success': False, 'message': 'Semua field password wajib diisi'}), 400
 
+    if len(new_password) < 8:
+        return jsonify({'success': False, 'message': 'Password baru minimal 8 karakter'}), 400
+
     db = get_db()
     user = db.execute(
         'SELECT id, password_hash FROM admin_users WHERE id = ?',
@@ -1112,34 +1165,88 @@ def admin_manage_users_page():
 @app.route('/admin/api/users', methods=['GET'])
 @super_admin_required
 def admin_list_users():
-    """List all registered users (teachers) with exam count and limit."""
+    """List all registered users (teachers) with exam count and limit. Supports pagination & search."""
     db = get_db()
-    users = db.execute(
+    search = (request.args.get('search', '') or '').strip().lower()
+
+    # Pagination params
+    try:
+        page = max(1, int(request.args.get('page', 1)))
+    except (ValueError, TypeError):
+        page = 1
+    try:
+        per_page = max(5, min(200, int(request.args.get('per_page', 10))))
+    except (ValueError, TypeError):
+        per_page = 10
+
+    # Build WHERE clauses for search
+    where_extra = ''
+    params_extra = []
+    if search:
+        where_extra = 'AND (username LIKE ? OR whatsapp_number LIKE ?)'
+        params_extra = [f'%{search}%', f'%{search}%']
+
+    # Count total (excluding admin superuser)
+    total_row = db.execute(
+        'SELECT COUNT(*) as cnt FROM admin_users WHERE username != ? ' + where_extra,
+        [ADMIN_USERNAME] + params_extra
+    ).fetchone()
+    total = total_row['cnt'] if total_row else 0
+    total_pages = max(1, (total + per_page - 1) // per_page)
+    page = min(page, total_pages) if total > 0 else 1
+    offset = (page - 1) * per_page
+
+    BASE_SELECT = (
         'SELECT u.id, u.username, u.whatsapp_number, u.status, '
         'u.max_exams, u.max_pdf_size, u.max_drafts, u.max_draft_size, '
         'u.expires_at, u.created_at, COUNT(e.id) as exam_count '
         'FROM admin_users u LEFT JOIN exams e ON e.created_by = u.id '
-        'GROUP BY u.id ORDER BY u.username ASC'
+    )
+
+    # Fetch admin (only if no search or admin matches search)
+    admin_user = None
+    if not search or ADMIN_USERNAME.startswith(search):
+        admin_user = db.execute(
+            BASE_SELECT + 'WHERE u.username = ? GROUP BY u.id',
+            (ADMIN_USERNAME,)
+        ).fetchone()
+
+    # Fetch paginated teachers
+    users = db.execute(
+        BASE_SELECT
+        + 'WHERE u.username != ? ' + where_extra
+        + 'GROUP BY u.id ORDER BY u.username ASC LIMIT ? OFFSET ?',
+        [ADMIN_USERNAME] + params_extra + [per_page, offset]
     ).fetchall()
 
-    user_list = []
-    for u in users:
-        user_list.append({
+    def _build_user(u):
+        return {
             'id': u['id'],
             'username': u['username'],
             'whatsapp_number': u['whatsapp_number'] or '',
             'status': u['status'] or 'active',
             'max_exams': u['max_exams'] if u['max_exams'] is not None else 3,
             'max_pdf_size': u['max_pdf_size'] if u['max_pdf_size'] is not None else 1048576,
-            'max_drafts': u['max_drafts'] if u['max_drafts'] is not None else 2,
-            'max_draft_size': u['max_draft_size'] if u['max_draft_size'] is not None else 1048576,
             'expires_at': u['expires_at'] or '',
             'exam_count': u['exam_count'],
             'created_at': format_iso_utc(u['created_at'])
-        })
+        }
+
+    user_list = []
+    if admin_user and admin_user['username'] == ADMIN_USERNAME:
+        user_list.append(_build_user(admin_user))
+    for u in users:
+        user_list.append(_build_user(u))
+
     return jsonify({
         'success': True,
-        'users': user_list
+        'users': user_list,
+        'pagination': {
+            'page': page,
+            'per_page': per_page,
+            'total': total,
+            'total_pages': total_pages
+        }
     })
 
 
@@ -1181,8 +1288,8 @@ def admin_create_user():
     if not username or not password:
         return jsonify({'success': False, 'message': 'Username dan password wajib diisi'}), 400
 
-    if username == 'admin':
-        return jsonify({'success': False, 'message': 'Username "admin" sudah terdaftar sebagai Super Admin'}), 400
+    if username == ADMIN_USERNAME:
+        return jsonify({'success': False, 'message': f'Username "{ADMIN_USERNAME}" sudah terdaftar sebagai Super Admin'}), 400
 
     db = get_db()
     existing = db.execute('SELECT id FROM admin_users WHERE username = ?', (username,)).fetchone()
@@ -1220,7 +1327,7 @@ def admin_edit_user(user_id):
     if not user:
         return jsonify({'success': False, 'message': 'User tidak ditemukan'}), 404
 
-    if user['username'] == 'admin':
+    if user['username'] == ADMIN_USERNAME:
         return jsonify({'success': False, 'message': 'Super Admin "admin" tidak dapat diubah limitnya'}), 400
 
     if max_exams is not None:
@@ -1309,7 +1416,7 @@ def admin_toggle_user_status(user_id):
     if not user:
         return jsonify({'success': False, 'message': 'User tidak ditemukan'}), 404
         
-    if user['username'] == 'admin':
+    if user['username'] == ADMIN_USERNAME:
         return jsonify({'success': False, 'message': 'Status Super Admin "admin" tidak dapat diubah'}), 400
         
     new_status = 'suspended' if user['status'] == 'active' else 'active'
@@ -1403,7 +1510,7 @@ def admin_delete_user(user_id):
     if not user:
         return jsonify({'success': False, 'message': 'User tidak ditemukan'}), 404
 
-    if user['username'] == 'admin':
+    if user['username'] == ADMIN_USERNAME:
         return jsonify({'success': False, 'message': 'Super Admin "admin" tidak dapat dihapus'}), 400
 
     # Delete exams and PDF files owned by this user
@@ -1504,7 +1611,7 @@ def admin_exam_questions(exam_id):
 def admin_submissions():
     """Submissions overview page for admin with pagination."""
     db = get_db()
-    is_super_admin = (session.get('admin_username') == 'admin')
+    is_super_admin = (session.get('admin_username') == ADMIN_USERNAME)
 
     page = request.args.get('page', 1, type=int)
     per_page = request.args.get('per_page', 25, type=int)
@@ -1682,72 +1789,19 @@ def admin_export_submission_detail(submission_id):
     cw.writerow([])
     cw.writerow(['No. Soal', 'Tipe Soal', 'Bobot Maks', 'Jawaban Siswa', 'Kunci Jawaban', 'Status', 'Poin Didapat'])
     
+    evaluated = evaluate_answers_detailed(answers, questions)
+
     for q in questions:
-        # Normalize q_num: handle potential float representation (e.g. 1.0 -> "1")
         q_num = _normalize_q_num(q.get('number', ''))
         student_ans = answers.get(q_num)
         correct_ans = q.get('key')
         q_weight = float(q.get('weight', 1.0))
-        partial_scoring = q.get('partial_scoring', False)
-        
-        # Calculate score status and points earned
-        earned_q_weight = 0.0
-        status_text = 'Salah ❌'
-        
-        # Student Answer Formatting
-        if student_ans is not None:
-            if q['type'] in ['single_choice', 'true_false', 'short_answer']:
-                s_norm = ' '.join(str(student_ans).split()).upper()
-                c_norm = ' '.join(str(correct_ans).split()).upper()
-                if s_norm == c_norm:
-                    earned_q_weight = q_weight
-                    status_text = 'Benar ✔️'
-            elif q['type'] == 'multiple_choice':
-                if isinstance(student_ans, list) and isinstance(correct_ans, list):
-                    if partial_scoring:
-                        correct_set = set(str(x).upper() for x in correct_ans)
-                        student_set = set(str(x).upper() for x in student_ans)
-                        if correct_set:
-                            correct_selected = sum(1 for x in student_set if x in correct_set)
-                            incorrect_selected = sum(1 for x in student_set if x not in correct_set)
-                            portion = max(0.0, (correct_selected - incorrect_selected) / len(correct_set))
-                            earned_q_weight = portion * q_weight
-                            if portion == 1.0:
-                                status_text = 'Benar ✔️'
-                            elif portion > 0.0:
-                                status_text = 'Parsial ⚠️'
-                            else:
-                                status_text = 'Salah ❌'
-                    else:
-                        if sorted([str(x).upper() for x in student_ans]) == sorted([str(x).upper() for x in correct_ans]):
-                            earned_q_weight = q_weight
-                            status_text = 'Benar ✔️'
-            elif q['type'] == 'matching':
-                if isinstance(student_ans, dict) and isinstance(correct_ans, dict):
-                    if partial_scoring:
-                        if correct_ans:
-                            correct_matches = 0
-                            for k, v in correct_ans.items():
-                                if str(student_ans.get(k, '')).strip().upper() == str(v).strip().upper():
-                                    correct_matches += 1
-                            portion = correct_matches / len(correct_ans)
-                            earned_q_weight = portion * q_weight
-                            if portion == 1.0:
-                                status_text = 'Benar ✔️'
-                            elif portion > 0.0:
-                                status_text = 'Parsial ⚠️'
-                            else:
-                                status_text = 'Salah ❌'
-                    else:
-                        match = True
-                        for k, v in correct_ans.items():
-                            if str(student_ans.get(k, '')).strip().upper() != str(v).strip().upper():
-                                match = False
-                                break
-                        if match:
-                            earned_q_weight = q_weight
-                            status_text = 'Benar ✔️'
-        
+
+        # Use centralized evaluation engine
+        eval_info = evaluated.get(q_num, {})
+        earned_q_weight = eval_info.get('earned', 0.0)
+        status_text = eval_info.get('statusText', 'Belum Dijawab')
+
         # Format student answer to string
         student_ans_str = ''
         if isinstance(student_ans, list):
@@ -1756,7 +1810,7 @@ def admin_export_submission_detail(submission_id):
             student_ans_str = ', '.join([f"{k}:{v}" for k, v in student_ans.items()])
         elif student_ans is not None:
             student_ans_str = str(student_ans)
-            
+
         # Format correct answer to string
         correct_ans_str = ''
         if isinstance(correct_ans, list):
@@ -1765,7 +1819,7 @@ def admin_export_submission_detail(submission_id):
             correct_ans_str = ', '.join([f"{k}:{v}" for k, v in correct_ans.items()])
         elif correct_ans is not None:
             correct_ans_str = str(correct_ans)
-            
+
         type_labels = {
             'single_choice': 'Pilihan Ganda',
             'multiple_choice': 'PG Kompleks',
@@ -1817,7 +1871,7 @@ def admin_export_submissions():
     tz_offset = request.args.get('tz_offset', type=int)
 
     db = get_db()
-    is_super_admin = (session.get('admin_username') == 'admin')
+    is_super_admin = (session.get('admin_username') == ADMIN_USERNAME)
 
     # --- Multi-sheet XLSX export for a specific exam ---
     if exam_id:
@@ -2086,79 +2140,34 @@ def _generate_exam_xlsx(exam, submissions, questions, tz_offset=None):
         total_earned = 0.0
         total_max = 0.0
 
+        # Format display strings
+        def _fmt(val):
+            if val is None:
+                return '—'
+            if isinstance(val, list):
+                return ', '.join(str(x) for x in val)
+            if isinstance(val, dict):
+                return ', '.join(f'{k} ➔ {v}' for k, v in val.items())
+            return str(val)
+
+        xlsx_evaluation = evaluate_answers_detailed(student_answers, questions)
+
         for q in questions:
-            # Normalize q_num: handle potential float representation (e.g. 1.0 -> "1")
             q_num = _normalize_q_num(q.get('number', ''))
-            student_ans = student_answers.get(q_num)
-            correct_ans = q.get('key')
             q_weight = float(q.get('weight', 1.0))
-            partial_scoring = q.get('partial_scoring', False)
             total_max += q_weight
 
-            # --- Evaluate ---
-            earned = 0.0
-            status_text = 'Belum Dijawab'
-
-            # Format display strings
-            def _fmt(val):
-                if val is None:
-                    return '—'
-                if isinstance(val, list):
-                    return ', '.join(str(x) for x in val)
-                if isinstance(val, dict):
-                    return ', '.join(f'{k} ➔ {v}' for k, v in val.items())
-                return str(val)
-
-            student_display = _fmt(student_ans) if student_ans is not None and student_ans != '' else '—'
-            key_display = _fmt(correct_ans)
-
-            if student_ans is not None and student_ans != '' and correct_ans is not None:
-                if q['type'] in ['single_choice', 'true_false', 'short_answer']:
-                    s_norm = ' '.join(str(student_ans).split()).upper()
-                    c_norm = ' '.join(str(correct_ans).split()).upper()
-                    if s_norm == c_norm:
-                        earned = q_weight
-                        status_text = 'Benar ✔️'
-                    else:
-                        status_text = 'Salah ❌'
-                elif q['type'] == 'multiple_choice':
-                    if isinstance(student_ans, list) and isinstance(correct_ans, list):
-                        if partial_scoring:
-                            cs = set(str(x).upper() for x in correct_ans)
-                            ss = set(str(x).upper() for x in student_ans)
-                            if cs:
-                                cc = sum(1 for x in ss if x in cs)
-                                ic = sum(1 for x in ss if x not in cs)
-                                portion = max(0.0, (cc - ic) / len(cs))
-                                earned = portion * q_weight
-                                status_text = 'Benar ✔️' if portion >= 1.0 else ('Parsial ⚠️' if portion > 0 else 'Salah ❌')
-                        else:
-                            if sorted(str(x).upper() for x in student_ans) == sorted(str(x).upper() for x in correct_ans):
-                                earned = q_weight
-                                status_text = 'Benar ✔️'
-                            else:
-                                status_text = 'Salah ❌'
-                elif q['type'] == 'matching':
-                    if isinstance(student_ans, dict) and isinstance(correct_ans, dict):
-                        if partial_scoring:
-                            if correct_ans:
-                                cm = sum(1 for k, v in correct_ans.items()
-                                         if str(student_ans.get(k, '')).strip().upper() == str(v).strip().upper())
-                                portion = cm / len(correct_ans)
-                                earned = portion * q_weight
-                                status_text = 'Benar ✔️' if portion >= 1.0 else ('Parsial ⚠️' if portion > 0 else 'Salah ❌')
-                        else:
-                            match = all(
-                                str(student_ans.get(k, '')).strip().upper() == str(v).strip().upper()
-                                for k, v in correct_ans.items()
-                            )
-                            if match:
-                                earned = q_weight
-                                status_text = 'Benar ✔️'
-                            else:
-                                status_text = 'Salah ❌'
+            # Use centralized evaluation
+            eval_info = xlsx_evaluation.get(q_num, {})
+            earned = eval_info.get('earned', 0.0)
+            status_text = eval_info.get('statusText', 'Belum Dijawab')
 
             total_earned += earned
+
+            student_ans = student_answers.get(q_num)
+            correct_ans = q.get('key')
+            student_display = _fmt(student_ans) if student_ans is not None and student_ans != '' else '—'
+            key_display = _fmt(correct_ans)
 
             # Type label mapping
             type_labels = {
@@ -2330,10 +2339,22 @@ def api_public_hasil(token):
             'message': 'Akses dinonaktifkan: Halaman hasil ujian untuk siswa dinonaktifkan oleh guru.'
         }), 403
 
+    # Pagination params
+    page = request.args.get('page', 1, type=int)
+    per_page = request.args.get('per_page', 100, type=int)
+    per_page = min(max(per_page, 1), 500)
+
+    # Count total submissions
+    total = db.execute(
+        'SELECT COUNT(*) as cnt FROM submissions WHERE exam_id = ?',
+        (exam['id'],)
+    ).fetchone()['cnt']
+
+    # Fetch paginated submissions
     submissions = db.execute(
         'SELECT id, student_name, exam_number, student_class, answers_json, score, start_time, created_at '
-        'FROM submissions WHERE exam_id = ? ORDER BY score DESC',
-        (exam['id'],)
+        'FROM submissions WHERE exam_id = ? ORDER BY score DESC LIMIT ? OFFSET ?',
+        (exam['id'], per_page, (page - 1) * per_page)
     ).fetchall()
 
     # Parse questions (include keys for answer checking on client)
@@ -2379,6 +2400,8 @@ def api_public_hasil(token):
             if 'key' in q:
                 del q['key']
 
+    total_pages = max(1, (total + per_page - 1) // per_page)
+
     return jsonify({
         'success': True,
         'exam_name': exam['name'],
@@ -2386,7 +2409,13 @@ def api_public_hasil(token):
         'token': exam['token'],
         'questions': questions,
         'max_score': max_score if max_score > 0 else None,
-        'submissions': subs_data
+        'submissions': subs_data,
+        'pagination': {
+            'page': page,
+            'per_page': per_page,
+            'total': total,
+            'total_pages': total_pages
+        }
     })
 
 

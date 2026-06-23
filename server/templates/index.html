@@ -4,11 +4,11 @@
  <meta charset="UTF-8">
  <meta name="viewport" content="width=device-width, initial-scale=1.0">
  <title>EXAMVAN - Platform Ujian Digital & Lockdown Kiosk Mandiri</title>
- <!-- Modern Google Fonts -->
+
  <link rel="preconnect" href="https://fonts.googleapis.com">
  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
- <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800&family=Plus+Jakarta+Sans:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
- 
+ <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@700;800&family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+
  <style>
  :root {
  --bg-primary: #0b0f19;
@@ -587,6 +587,8 @@
  100% { border-color: rgba(99, 102, 241, 0.2); }
  }
 
+ .skip-link:focus { top: 8px; }
+
  /* ===== Mobile Hamburger Menu ===== */
  .nav-hamburger {
  display: none;
@@ -771,6 +773,8 @@
 </head>
 <body>
 
+ <a href="#main-content" class="skip-link" style="position:absolute;top:-100px;left:8px;z-index:9999;padding:12px 20px;background:var(--accent-primary);color:white;border-radius:8px;font-weight:600;text-decoration:none;transition:top 0.2s;">Langsung ke konten</a>
+
  <!-- Glow Blobs -->
  <div class="glow-blob blob-1"></div>
  <div class="glow-blob blob-2"></div>
@@ -856,7 +860,7 @@
  </section>
 
  <!-- Features Section -->
- <section class="features" id="fitur">
+ <section class="features" id="fitur" style="scroll-margin-top: 100px;">
  <div class="section-header">
  <span class="section-subtitle">Kelebihan Platform</span>
  <h2 class="section-title">Fitur Unggulan EXAMVAN</h2>
@@ -924,6 +928,7 @@
  document.getElementById('navOverlay').classList.remove('active');
  document.getElementById('navHamburger').innerHTML = '&#9776;';
  }
+ document.addEventListener('keydown', function(e) { if (e.key === 'Escape') { closeMenu(); } });
  </script>
 
 </body>

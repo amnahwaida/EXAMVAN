@@ -112,6 +112,12 @@ function initMenuToggle() {
                     dropdownContent.classList.remove('show');
                 }
             });
+            document.addEventListener('keydown', function(e) {
+                if (e.key === 'Escape') {
+                    const openDropdown = document.querySelector('.topbar-dropdown-content.show');
+                    if (openDropdown) openDropdown.classList.remove('show');
+                }
+            });
             _menuToggleInitialized = true;
         }
     }
@@ -270,12 +276,39 @@ function initKeyboardShortcuts() {
     });
 }
 
-// ===== Auto-refresh Dashboard =====
+// ===== Auto-refresh Dashboard (AJAX-based, no full page reload) =====
 let autoRefreshInterval = null;
 let lastUserActivity = Date.now();
 
 function onUserActivity() {
     lastUserActivity = Date.now();
+}
+
+async function refreshDashboardStats() {
+    try {
+        const resp = await apiFetch('/admin/api/stats');
+        const data = await resp.json();
+        if (data.success) {
+            // Update stat cards if they exist on this page
+            const statCards = document.querySelectorAll('.stat-value');
+            const cardMap = ['total_all', 'active', 'inactive', 'storage_mb'];
+            // The stats values come from template vars, so this relies on the API response
+            refreshUserInterface(data.data);
+        }
+    } catch (e) {
+        // Silent fail — don't disrupt the user
+        console.debug('Dashboard auto-refresh failed (expected on non-dashboard pages)');
+    }
+}
+
+function refreshUserInterface(stats) {
+    // Update stats in the stat cards
+    const statValueEls = document.querySelectorAll('.stat-card .stat-value');
+    if (statValueEls.length >= 3) {
+        statValueEls[0].textContent = stats.total || '0';
+        statValueEls[1].textContent = stats.active || '0';
+        statValueEls[2].textContent = (stats.total - stats.active) || '0';
+    }
 }
 
 function startAutoRefresh(intervalSec = 120) {
@@ -287,7 +320,6 @@ function startAutoRefresh(intervalSec = 120) {
     document.addEventListener('scroll', onUserActivity, true);
 
     autoRefreshInterval = setInterval(() => {
-        // Only refresh if page is visible, not typing, no modal open, and user inactive for 30s+
         if (!document.hidden) {
             const activeTag = document.activeElement?.tagName || '';
             const isTyping = ['INPUT', 'TEXTAREA', 'SELECT'].includes(activeTag);
@@ -295,7 +327,7 @@ function startAutoRefresh(intervalSec = 120) {
                 || document.getElementById('questionsModal')?.style?.display === 'flex';
             const userActive = (Date.now() - lastUserActivity) < 30000;
             if (!isTyping && !modalOpen && !userActive) {
-                location.reload();
+                refreshDashboardStats();
             }
         }
     }, intervalSec * 1000);
@@ -310,6 +342,50 @@ function stopAutoRefresh() {
     document.removeEventListener('mousedown', onUserActivity, true);
     document.removeEventListener('touchstart', onUserActivity, true);
     document.removeEventListener('scroll', onUserActivity, true);
+}
+
+// ===== Password Strength Meter =====
+function initPasswordStrengthMeter(inputId, meterId) {
+    const input = document.getElementById(inputId);
+    const meter = document.getElementById(meterId);
+    if (!input || !meter) return;
+
+    const updateStrength = debounce(function() {
+        const val = input.value;
+        let score = 0;
+
+        // Length contributions
+        if (val.length >= 8) score += 1;
+        if (val.length >= 12) score += 1;
+
+        // Character variety contributions
+        if (/[a-z]/.test(val)) score += 1;
+        if (/[A-Z]/.test(val)) score += 1;
+        if (/[0-9]/.test(val)) score += 1;
+        if (/[^a-zA-Z0-9]/.test(val)) score += 1;
+
+        const labels = { weak: 'Lemah', medium: 'Sedang', strong: 'Kuat', 'very-strong': 'Sangat Kuat' };
+        const colors = { weak: '#ef4444', medium: '#f59e0b', strong: '#22c55e', 'very-strong': '#16a34a' };
+
+        if (val.length === 0) {
+            meter.style.width = '0';
+            meter.style.background = 'transparent';
+            meter.textContent = '';
+            return;
+        }
+
+        let strength, pct;
+        if (score <= 2) { strength = 'weak'; pct = 25; }
+        else if (score <= 3) { strength = 'medium'; pct = 50; }
+        else if (score <= 4) { strength = 'strong'; pct = 75; }
+        else { strength = 'very-strong'; pct = 100; }
+
+        meter.style.width = pct + '%';
+        meter.style.background = colors[strength];
+        meter.textContent = labels[strength];
+    }, 100);
+
+    input.addEventListener('input', updateStrength);
 }
 
 // ===== Init All =====

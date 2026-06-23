@@ -867,25 +867,32 @@ function closeManageUsersModal() {
     if (modal) modal.style.display = 'none';
 }
 
-function loadUsersList() {
+function loadUsersList(page) {
     const tbody = document.getElementById('usersTableBody');
     if (!tbody) return;
+    if (!page) page = 1;
 
-    tbody.innerHTML = '<tr><td colspan="3" style="text-align:center; padding: 20px; color: var(--text-secondary);">Memuat...</td></tr>';
+    var searchVal = document.getElementById('userSearchInput')?.value?.trim() || '';
+    var url = '/admin/api/users?page=' + page + '&per_page=10';
+    if (searchVal) url += '&search=' + encodeURIComponent(searchVal);
 
-    apiFetch('/admin/api/users')
+    tbody.innerHTML = '<tr><td colspan="9" style="text-align:center; padding: 20px; color: var(--text-secondary);">⏳ Memuat...</td></tr>';
+
+    apiFetch(url)
         .then(r => r.json())
         .then(res => {
             if (res.success) {
-                if (res.users.length === 0) {
-                    tbody.innerHTML = '<tr><td colspan="3" style="text-align:center; padding: 20px; color: var(--text-secondary);">Belum ada user terdaftar</td></tr>';
-                    return;
-                }
+                const pagination = res.pagination || { page: 1, total_pages: 1, total: 0 };
                 tbody.innerHTML = '';
-                if (!Array.isArray(res.users)) {
-                    tbody.innerHTML = '<tr><td colspan="3" style="text-align:center; padding: 20px; color: #fca5a5;">Data user tidak valid</td></tr>';
+
+                if (!Array.isArray(res.users) || res.users.length === 0) {
+                    tbody.innerHTML = '<tr><td colspan="9" style="text-align:center; padding: 40px; color: var(--text-secondary);">'
+                        + (searchVal ? 'Tidak ditemukan user yang cocok dengan "' + escapeHtml(searchVal) + '"' : 'Belum ada user terdaftar')
+                        + '</td></tr>';
+                    renderUsersPagination(pagination, page);
                     return;
                 }
+
                 res.users.forEach(user => {
                     const tr = document.createElement('tr');
                     const isAdmin = user.username === 'admin';
@@ -897,6 +904,25 @@ function loadUsersList() {
                     const expiresAt = user.expires_at || '—';
                     const createdAt = user.created_at ? localizeUTC(user.created_at) : '—';
                     const limitPdfMb = user.max_pdf_size ? (user.max_pdf_size / (1024*1024)).toFixed(1) + ' MB' : '—';
+
+                    // Build action buttons for non-admin users
+                    var actionsHtml = '<span style="font-size:11px; color: var(--text-secondary);">—</span>';
+                    if (!isAdmin) {
+                        var statusAction = user.status === 'active'
+                            ? '<button class="btn-sm" onclick="toggleUserStatus(' + user.id + ', \'' + escapeHtml(user.username) + '\')" title="Nonaktifkan user" style="font-size:11px;padding:0 8px;height:26px;background:rgba(245,158,11,0.15);border:1px solid rgba(245,158,11,0.3);color:#fbbf24;">⏸️</button>'
+                            : '<button class="btn-sm" onclick="toggleUserStatus(' + user.id + ', \'' + escapeHtml(user.username) + '\')" title="Aktifkan user" style="font-size:11px;padding:0 8px;height:26px;background:rgba(16,185,129,0.15);border:1px solid rgba(16,185,129,0.3);color:#34d399;">▶️</button>';
+
+                        var verifyBtn = user.status === 'pending_otp'
+                            ? '<button class="btn-sm" onclick="verifyUser(' + user.id + ', \'' + escapeHtml(user.username) + '\')" title="Verifikasi manual" style="font-size:11px;padding:0 8px;height:26px;background:rgba(99,102,241,0.15);border:1px solid rgba(99,102,241,0.3);color:#a5b4fc;">✅</button> '
+                            : '';
+
+                        actionsHtml = '<div style="display:flex;gap:4px;flex-wrap:wrap;justify-content:flex-end;">'
+                            + verifyBtn
+                            + '<button class="btn-sm" onclick="openEditUserModal(' + user.id + ')" title="Atur limit & reset password" style="font-size:11px;padding:0 8px;height:26px;background:rgba(99,102,241,0.1);border:1px solid rgba(99,102,241,0.2);color:#a5b4fc;">✏️</button> '
+                            + statusAction + ' '
+                            + '<button class="btn-sm btn-delete" onclick="deleteUser(' + user.id + ', \'' + escapeHtml(user.username) + '\')" style="font-size:11px;padding:0 8px;height:26px;">🗑️</button>'
+                            + '</div>';
+                    }
 
                     tr.innerHTML = `
                         <td data-label="Username">
@@ -912,23 +938,72 @@ function loadUsersList() {
                         <td data-label="Limit PDF" style="text-align:center;">${limitPdfMb}</td>
                         <td data-label="Masa Aktif" style="font-size:12px; color:var(--text-secondary);">${expiresAt}</td>
                         <td data-label="Terdaftar" class="td-date">${createdAt}</td>
-                        <td data-label="Aksi" style="text-align:right;">
-                            ${isAdmin
-                                ? '<span style="font-size:11px; color: var(--text-secondary);">—</span>'
-                                : `<button class="btn-sm btn-delete" onclick="deleteUser(${user.id}, '${escapeHtml(user.username)}')" style="font-size: 11px; padding: 0 8px; height: 26px;">🗑️</button>`
-                            }
-                        </td>
+                        <td data-label="Aksi" style="text-align:right;">${actionsHtml}</td>
                     `;
                     tbody.appendChild(tr);
                 });
                 localizeDates();
+                renderUsersPagination(pagination, page);
             } else {
-                tbody.innerHTML = '<tr><td colspan="3" style="text-align:center; padding: 20px; color: #fca5a5;">Gagal memuat daftar user</td></tr>';
+                tbody.innerHTML = '<tr><td colspan="9" style="text-align:center; padding: 20px; color: #fca5a5;">Gagal memuat daftar user</td></tr>';
             }
         })
         .catch(() => {
-            tbody.innerHTML = '<tr><td colspan="3" style="text-align:center; padding: 20px; color: #fca5a5;">Gagal memuat daftar user</td></tr>';
+            tbody.innerHTML = '<tr><td colspan="9" style="text-align:center; padding: 20px; color: #fca5a5;">Gagal memuat daftar user</td></tr>';
         });
+}
+
+function renderUsersPagination(pagination, currentPage) {
+    // Remove existing pagination
+    var existing = document.getElementById('usersPagination');
+    if (existing) existing.remove();
+
+    if (!pagination || pagination.total_pages <= 1) return;
+
+    var container = document.createElement('div');
+    container.id = 'usersPagination';
+    container.style.cssText = 'display:flex;justify-content:space-between;align-items:center;padding:16px 0 0 0;flex-wrap:wrap;gap:12px;';
+
+    var info = document.createElement('span');
+    info.style.cssText = 'font-size:13px;color:var(--text-muted);';
+    info.textContent = 'Menampilkan ' + pagination.total + ' user';
+    container.appendChild(info);
+
+    var pagesDiv = document.createElement('div');
+    pagesDiv.style.cssText = 'display:flex;gap:6px;align-items:center;';
+
+    // Prev button
+    var prev = document.createElement('a');
+    prev.href = '#';
+    prev.style.cssText = 'padding:8px 12px;border-radius:8px;font-size:13px;font-weight:600;background:rgba(255,255,255,0.04);border:1px solid var(--glass-border);color:var(--text-secondary);text-decoration:none;display:inline-flex;align-items:center;min-height:40px;' + (currentPage <= 1 ? 'opacity:0.4;pointer-events:none;' : '');
+    prev.textContent = '◀ Sebelumnya';
+    prev.onclick = function(e) { e.preventDefault(); loadUsersList(currentPage - 1); };
+    pagesDiv.appendChild(prev);
+
+    // Page numbers
+    for (var p = 1; p <= pagination.total_pages; p++) {
+        if (p >= currentPage - 2 && p <= currentPage + 2) {
+            var pageLink = document.createElement('a');
+            pageLink.href = '#';
+            pageLink.style.cssText = 'padding:8px 12px;border-radius:8px;font-size:13px;font-weight:' + (p === currentPage ? '800' : '600') + ';text-decoration:none;display:inline-flex;align-items:center;min-height:40px;min-width:36px;justify-content:center;' + (p === currentPage ? 'background:rgba(99,102,241,0.2);color:#a5b4fc;border:1px solid rgba(99,102,241,0.4);' : 'background:rgba(255,255,255,0.03);color:var(--text-secondary);border:1px solid transparent;');
+            pageLink.textContent = String(p);
+            pageLink.onclick = (function(pg) { return function(e) { e.preventDefault(); loadUsersList(pg); }; })(p);
+            pagesDiv.appendChild(pageLink);
+        }
+    }
+
+    // Next button
+    var next = document.createElement('a');
+    next.href = '#';
+    next.style.cssText = 'padding:8px 12px;border-radius:8px;font-size:13px;font-weight:600;background:rgba(255,255,255,0.04);border:1px solid var(--glass-border);color:var(--text-secondary);text-decoration:none;display:inline-flex;align-items:center;min-height:40px;' + (currentPage >= pagination.total_pages ? 'opacity:0.4;pointer-events:none;' : '');
+    next.textContent = 'Berikutnya ▶';
+    next.onclick = function(e) { e.preventDefault(); loadUsersList(currentPage + 1); };
+    pagesDiv.appendChild(next);
+
+    container.appendChild(pagesDiv);
+
+    var tableSection = document.querySelector('#usersTableBody')?.closest('.glass-card');
+    if (tableSection) tableSection.appendChild(container);
 }
 
 function localizeDates() {
@@ -952,13 +1027,226 @@ function deleteUser(userId, username) {
             .then(res => {
                 if (res.success) {
                     showToast(res.message, 'success');
-                    loadUsersList();
+                    loadUsersList(getCurrentUsersPage());
                 } else {
                     showToast(res.message || 'Gagal menghapus user', 'error');
                 }
             })
             .catch(() => showToast('Gagal menghapus user', 'error'));
     });
+}
+
+function toggleUserStatus(userId, username) {
+    apiFetch(`/admin/api/users/${userId}/toggle-status`, {
+        method: 'POST'
+    })
+        .then(r => r.json())
+        .then(res => {
+            if (res.success) {
+                showToast(res.message, 'success');
+                loadUsersList(getCurrentUsersPage());
+            } else {
+                showToast(res.message || 'Gagal mengubah status', 'error');
+            }
+        })
+        .catch(() => showToast('Gagal mengubah status', 'error'));
+}
+
+function verifyUser(userId, username) {
+    showConfirm(`Verifikasi user "${username}"?`, 'User ini akan diaktifkan secara manual tanpa verifikasi WhatsApp.').then(ok => {
+        if (!ok) return;
+        apiFetch(`/admin/api/users/${userId}/verify`, {
+            method: 'POST'
+        })
+            .then(r => r.json())
+            .then(res => {
+                if (res.success) {
+                    showToast(res.message, 'success');
+                    loadUsersList(getCurrentUsersPage());
+                } else {
+                    showToast(res.message || 'Gagal verifikasi user', 'error');
+                }
+            })
+            .catch(() => showToast('Gagal verifikasi user', 'error'));
+    });
+}
+
+function getCurrentUsersPage() {
+    var pagEl = document.getElementById('usersPagination');
+    if (pagEl) {
+        // Try to extract current page from pagination info
+        var activePage = pagEl.querySelector('a[style*="background:rgba(99,102,241,0.2)"]');
+        if (activePage) return parseInt(activePage.textContent) || 1;
+    }
+    return 1;
+}
+
+// ===== Edit User Modal =====
+function openEditUserModal(userId) {
+    // Fetch user data first
+    apiFetch('/admin/api/users?page=1&per_page=1000')
+        .then(r => r.json())
+        .then(res => {
+            if (!res.success || !res.users) {
+                showToast('Gagal memuat data user', 'error');
+                return;
+            }
+            var user = res.users.find(function(u) { return u.id === userId; });
+            if (!user) {
+                showToast('User tidak ditemukan', 'error');
+                return;
+            }
+
+            var editModal = document.getElementById('editUserModal');
+            if (!editModal) {
+                // Create modal if it doesn't exist
+                editModal = createEditUserModal();
+            }
+
+            // Populate fields
+            document.getElementById('editUserId').value = user.id;
+            document.getElementById('editUserUsername').textContent = user.username;
+            document.getElementById('editUserExams').value = user.max_exams || 3;
+            document.getElementById('editUserPdfSize').value = user.max_pdf_size ? (user.max_pdf_size / (1024*1024)).toFixed(1) : '1';
+            document.getElementById('editUserWhatsapp').value = user.whatsapp_number || '';
+
+            // Set expiry date
+            var expiresInput = document.getElementById('editUserExpiry');
+            var expiresTimeInput = document.getElementById('editUserExpiryTime');
+            if (user.expires_at) {
+                var expParts = user.expires_at.split(' ');
+                if (expParts.length >= 2) {
+                    expiresInput.value = expParts[0];
+                    expiresTimeInput.value = expParts[1].substring(0, 5);
+                } else {
+                    expiresInput.value = '';
+                    expiresTimeInput.value = '23:59';
+                }
+            } else {
+                expiresInput.value = '';
+                expiresTimeInput.value = '23:59';
+            }
+
+            editModal.style.display = 'flex';
+        });
+}
+
+function closeEditUserModal() {
+    var modal = document.getElementById('editUserModal');
+    if (modal) modal.style.display = 'none';
+}
+
+function submitEditUser(e) {
+    e.preventDefault();
+    var userId = document.getElementById('editUserId').value;
+    var data = {
+        max_exams: parseInt(document.getElementById('editUserExams').value) || 3,
+        max_pdf_size_mb: parseFloat(document.getElementById('editUserPdfSize').value) || 1,
+        whatsapp_number: document.getElementById('editUserWhatsapp').value.trim()
+    };
+
+    var newPass = document.getElementById('editUserPassword').value.trim();
+    if (newPass) {
+        if (newPass.length < 8) {
+            showToast('Password baru minimal 8 karakter', 'error');
+            return;
+        }
+        data.password = newPass;
+    }
+
+    // Expiry
+    var expDate = document.getElementById('editUserExpiry').value;
+    var expTime = document.getElementById('editUserExpiryTime').value || '23:59';
+    if (expDate) {
+        data.expires_at = expDate + ' ' + expTime + ':00';
+    } else {
+        data.expires_at = '';
+    }
+
+    var btn = e.target.querySelector('button[type="submit"]');
+    if (!btn) return;
+    var originalHtml = btn.innerHTML;
+    btn.disabled = true;
+    btn.textContent = 'Menyimpan...';
+
+    apiFetch('/admin/api/users/' + userId + '/edit', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(data)
+    })
+        .then(function(r) { return r.json(); })
+        .then(function(res) {
+            btn.disabled = false;
+            btn.innerHTML = originalHtml;
+            if (res.success) {
+                showToast(res.message, 'success');
+                closeEditUserModal();
+                loadUsersList(getCurrentUsersPage());
+            } else {
+                showToast(res.message || 'Gagal menyimpan', 'error');
+            }
+        })
+        .catch(function() {
+            btn.disabled = false;
+            btn.innerHTML = originalHtml;
+            showToast('Gagal menyimpan pengaturan', 'error');
+        });
+}
+
+function createEditUserModal() {
+    var modal = document.createElement('div');
+    modal.className = 'modal-overlay';
+    modal.id = 'editUserModal';
+    modal.style.display = 'none';
+    modal.innerHTML = `
+        <div class="modal-card glass-card" style="max-width:540px;">
+            <div class="modal-header">
+                <h3><svg class="icon-svg" style="vertical-align:middle;margin-top:-2px;"><use href="#hi-users"/></svg> Atur User: <span id="editUserUsername" style="color:#a5b4fc;"></span></h3>
+                <button class="modal-close" onclick="closeEditUserModal()" aria-label="Tutup">✕</button>
+            </div>
+            <div class="modal-body">
+                <form id="editUserForm" onsubmit="submitEditUser(event)">
+                    <input type="hidden" id="editUserId">
+                    <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;">
+                        <div class="form-group" style="margin-bottom:8px;">
+                            <label for="editUserExams">Limit Ujian</label>
+                            <input type="number" id="editUserExams" required min="1" style="width:100%;">
+                        </div>
+                        <div class="form-group" style="margin-bottom:8px;">
+                            <label for="editUserPdfSize">Limit PDF (MB)</label>
+                            <input type="number" id="editUserPdfSize" required min="0.1" step="0.1" style="width:100%;">
+                        </div>
+                    </div>
+                    <div class="form-group" style="margin-bottom:8px;">
+                        <label for="editUserWhatsapp">WhatsApp Number</label>
+                        <input type="text" id="editUserWhatsapp" placeholder="Contoh: 081234567890" style="width:100%;">
+                    </div>
+                    <div class="form-group" style="margin-bottom:8px;">
+                        <label for="editUserPassword">Reset Password <span style="font-size:11px;opacity:0.7;">(Kosongkan jika tidak diubah)</span></label>
+                        <input type="password" id="editUserPassword" placeholder="Min. 8 karakter" minlength="8" style="width:100%;">
+                    </div>
+                    <div class="form-group" style="margin-bottom:12px;">
+                        <label>Masa Aktif <span style="font-size:11px;opacity:0.7;">(Kosongkan untuk tidak terbatas)</span></label>
+                        <div style="display:flex;gap:8px;">
+                            <input type="date" id="editUserExpiry" style="flex:1;">
+                            <input type="time" id="editUserExpiryTime" value="23:59" style="width:120px;">
+                        </div>
+                    </div>
+                    <button type="submit" class="btn-upload" style="width:100%;">
+                        <svg class="icon-svg"><use href="#hi-check"/></svg> Simpan
+                    </button>
+                </form>
+            </div>
+        </div>
+    `;
+    document.body.appendChild(modal);
+
+    // Close on overlay click
+    modal.addEventListener('click', function(e) {
+        if (e.target === modal) closeEditUserModal();
+    });
+
+    return modal;
 }
 
 
@@ -1605,8 +1893,6 @@ function saveSaasSettings(e) {
     const wa_otp_template = document.getElementById('waTemplateInput').value.trim();
     const default_max_exams = parseInt(document.getElementById('defaultExamsInput').value);
     const default_max_pdf_size_mb = parseFloat(document.getElementById('defaultPdfInput').value);
-    const default_max_drafts = parseInt(document.getElementById('defaultDraftsInput').value);
-    const default_max_draft_size_mb = parseFloat(document.getElementById('defaultDraftSizeInput').value);
     const default_active_days = parseInt(document.getElementById('defaultActiveDaysInput').value);
     const android_version = document.getElementById('androidVersionInput').value.trim();
     const webapp_version = document.getElementById('webappVersionInput').value.trim();
@@ -1617,7 +1903,6 @@ function saveSaasSettings(e) {
         body: JSON.stringify({
             wa_verification_enabled, wa_api_token, wa_otp_template,
             default_max_exams, default_max_pdf_size_mb,
-            default_max_drafts, default_max_draft_size_mb,
             default_active_days, android_version, webapp_version
         })
     })
@@ -1640,8 +1925,6 @@ function createUser(e) {
     const whatsapp_number = document.getElementById('whatsappInput').value.trim();
     const max_exams = parseInt(document.getElementById('limitInput').value);
     const max_pdf_size_mb = parseFloat(document.getElementById('pdfSizeInput').value);
-    const max_drafts = parseInt(document.getElementById('draftLimitInput').value);
-    const max_draft_size_mb = parseFloat(document.getElementById('draftSizeInput').value);
     const expDate = document.getElementById('newUserExpiry').value;
     const expTime = document.getElementById('newUserExpiryTime').value || '23:59';
 
@@ -1655,12 +1938,12 @@ function createUser(e) {
     if (!username || !password) { showToast('Semua kolom wajib diisi','error'); return; }
     apiFetch('/admin/api/users', {
         method: 'POST', headers: {'Content-Type':'application/json'},
-        body: JSON.stringify({ username, password, whatsapp_number, max_exams, max_pdf_size_mb, max_drafts, max_draft_size_mb, expires_at })
+        body: JSON.stringify({ username, password, whatsapp_number, max_exams, max_pdf_size_mb, expires_at })
     }).then(r=>r.json()).then(res => {
         if (res.success) {
             showToast(res.message,'success');
             document.getElementById('newUserForm').reset();
-            loadUsersList();
+            loadUsersList(1);
         }
         else showToast(res.message||'Gagal','error');
     }).catch(()=>showToast('Gagal menghubungi server','error'));
@@ -1682,8 +1965,6 @@ function loadSaasSettings() {
                 document.getElementById('waTemplateInput').value = s.wa_otp_template || '';
                 document.getElementById('defaultExamsInput').value = s.default_max_exams || 3;
                 document.getElementById('defaultPdfInput').value = s.default_max_pdf_size_mb || 1;
-                document.getElementById('defaultDraftsInput').value = s.default_max_drafts || 2;
-                document.getElementById('defaultDraftSizeInput').value = s.default_max_draft_size_mb || 1;
                 document.getElementById('defaultActiveDaysInput').value = s.default_active_days || 1;
                 document.getElementById('androidVersionInput').value = s.android_version || '2.1.9';
                 document.getElementById('webappVersionInput').value = s.webapp_version || '2.1.9';

@@ -28,13 +28,19 @@ from helpers import (
     evaluate_answers_detailed, calculate_submission_score
 )
 
+import logging
+from logging.handlers import RotatingFileHandler
+
 # ===== Configuration =====
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 STORAGE_DIR = os.path.join(BASE_DIR, 'storage')
 DATABASE = os.environ.get('DATABASE_PATH', os.path.join(BASE_DIR, 'data', 'examvan.db'))
 MAX_FILE_SIZE = 5 * 1024 * 1024  # 5MB
 
-DEFAULT_ADMIN = {'username': 'admin', 'password': 'examvan2026'}
+VERSION = '2.1.9'
+ADMIN_USERNAME = os.environ.get('EXAMVAN_ADMIN_USER', 'admin')
+ADMIN_PASSWORD = os.environ.get('EXAMVAN_ADMIN_PASS', os.environ.get('EXAMVAN_SECRET', ''))
+# If no env var set for password, check if ADMIN_PASSWORD is the secret-based fallback only used as last resort
 DEFAULT_IDENTITY_FIELDS = json.dumps([
     {'key': 'student_name', 'label': 'Nama Siswa', 'required': True},
     {'key': 'exam_number', 'label': 'Nomor Ujian', 'required': True},
@@ -43,6 +49,18 @@ DEFAULT_IDENTITY_FIELDS = json.dumps([
 
 os.makedirs(STORAGE_DIR, exist_ok=True)
 os.makedirs(os.path.dirname(DATABASE), exist_ok=True)
+
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s [%(levelname)s] %(name)s: %(message)s',
+    datefmt='%Y-%m-%d %H:%M:%S',
+    handlers=[
+        logging.StreamHandler(),
+        RotatingFileHandler(os.path.join(BASE_DIR, 'data', 'examvan.log'), maxBytes=5*1024*1024, backupCount=3)
+    ]
+)
+logger = logging.getLogger('examvan')
+
 
 # ===== App Init =====
 app = Flask(__name__)
@@ -144,156 +162,78 @@ def init_db():
             db.execute('UPDATE saas_settings SET value = ? WHERE key = ?', (v, k))
     db.commit()
 
+    admin_username = os.environ.get('EXAMVAN_ADMIN_USER', 'admin')
+    admin_password = os.environ.get('EXAMVAN_ADMIN_PASS', 'examvan2026')
+
     existing = db.execute(
         'SELECT id FROM admin_users WHERE username = ?',
-        (DEFAULT_ADMIN['username'],)
+        (admin_username,)
     ).fetchone()
 
     if not existing:
-        pw_hash = generate_password_hash(DEFAULT_ADMIN['password'])
+        pw_hash = generate_password_hash(admin_password)
         db.execute(
             'INSERT INTO admin_users (username, password_hash) VALUES (?, ?)',
-            (DEFAULT_ADMIN['username'], pw_hash)
+            (admin_username, pw_hash)
         )
         db.commit()
+        logger.info(f"Default admin user '{admin_username}' created")
 
-    # Migrate: add token column if missing (for older databases)
-    try:
-        db.execute('SELECT token FROM exams LIMIT 1')
-    except sqlite3.OperationalError:
-        db.execute('ALTER TABLE exams ADD COLUMN token TEXT')
-        # Generate tokens for existing rows
-        rows = db.execute('SELECT id FROM exams WHERE token IS NULL').fetchall()
-        for row in rows:
-            db.execute('UPDATE exams SET token = ? WHERE id = ?',
-                       (generate_token(), row['id']))
-        db.commit()
+    # ===== Migration tracking =====
+    db.execute('''CREATE TABLE IF NOT EXISTS _migrations (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        name TEXT UNIQUE NOT NULL,
+        applied_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    )''')
+    db.commit()
 
-    # Migrate: add questions_json column if missing
-    try:
-        db.execute('SELECT questions_json FROM exams LIMIT 1')
-    except sqlite3.OperationalError:
-        db.execute('ALTER TABLE exams ADD COLUMN questions_json TEXT')
-        db.commit()
+    applied = {row['name'] for row in db.execute('SELECT name FROM _migrations').fetchall()}
 
-    # Migrate: add created_by column if missing
-    try:
-        db.execute('SELECT created_by FROM exams LIMIT 1')
-    except sqlite3.OperationalError:
-        db.execute('ALTER TABLE exams ADD COLUMN created_by INTEGER DEFAULT 1')
-        db.commit()
+    migrations = [
+        ('add_token_to_exams', 'ALTER TABLE exams ADD COLUMN token TEXT'),
+        ('add_questions_json_to_exams', 'ALTER TABLE exams ADD COLUMN questions_json TEXT'),
+        ('add_created_by_to_exams', 'ALTER TABLE exams ADD COLUMN created_by INTEGER DEFAULT 1'),
+        ('add_security_level_to_exams', "ALTER TABLE exams ADD COLUMN security_level TEXT DEFAULT 'medium'"),
+        ('add_start_time_to_submissions', 'ALTER TABLE submissions ADD COLUMN start_time TIMESTAMP'),
+        ('add_mac_address_to_submissions', 'ALTER TABLE submissions ADD COLUMN mac_address TEXT'),
+        ('add_public_results_to_exams', 'ALTER TABLE exams ADD COLUMN public_results INTEGER DEFAULT 1'),
+        ('add_show_answers_to_exams', 'ALTER TABLE exams ADD COLUMN show_answers INTEGER DEFAULT 0'),
+        ('add_max_exams_to_admin_users', 'ALTER TABLE admin_users ADD COLUMN max_exams INTEGER DEFAULT 3'),
+        ('add_max_pdf_size_to_admin_users', 'ALTER TABLE admin_users ADD COLUMN max_pdf_size INTEGER DEFAULT 1048576'),
+        ('add_max_drafts_to_admin_users', 'ALTER TABLE admin_users ADD COLUMN max_drafts INTEGER DEFAULT 2'),
+        ('add_max_draft_size_to_admin_users', 'ALTER TABLE admin_users ADD COLUMN max_draft_size INTEGER DEFAULT 1048576'),
+        ('add_whatsapp_number_to_admin_users', 'ALTER TABLE admin_users ADD COLUMN whatsapp_number TEXT'),
+        ('add_status_to_admin_users', "ALTER TABLE admin_users ADD COLUMN status TEXT DEFAULT 'active'"),
+        ('add_otp_code_to_admin_users', 'ALTER TABLE admin_users ADD COLUMN otp_code TEXT'),
+        ('add_expires_at_to_admin_users', 'ALTER TABLE admin_users ADD COLUMN expires_at TIMESTAMP'),
+        ('add_otp_expiry_to_admin_users', 'ALTER TABLE admin_users ADD COLUMN otp_expiry TIMESTAMP'),
+        ('add_identity_fields_to_exams', 'ALTER TABLE exams ADD COLUMN identity_fields TEXT'),
+        ('add_identity_data_to_submissions', 'ALTER TABLE submissions ADD COLUMN identity_data TEXT'),
+    ]
 
-    # Migrate: add security_level column if missing
-    try:
-        db.execute('SELECT security_level FROM exams LIMIT 1')
-    except sqlite3.OperationalError:
-        db.execute("ALTER TABLE exams ADD COLUMN security_level TEXT DEFAULT 'medium'")
-        db.commit()
-
-    # Migrate: add start_time column if missing
-    try:
-        db.execute('SELECT start_time FROM submissions LIMIT 1')
-    except sqlite3.OperationalError:
-        db.execute("ALTER TABLE submissions ADD COLUMN start_time TIMESTAMP")
-        db.commit()
-
-    # Migrate: add mac_address column if missing
-    try:
-        db.execute('SELECT mac_address FROM submissions LIMIT 1')
-    except sqlite3.OperationalError:
-        db.execute("ALTER TABLE submissions ADD COLUMN mac_address TEXT")
-        db.commit()
-
-    # Migrate: add public_results column if missing
-    try:
-        db.execute('SELECT public_results FROM exams LIMIT 1')
-    except sqlite3.OperationalError:
-        db.execute("ALTER TABLE exams ADD COLUMN public_results INTEGER DEFAULT 1")
-        db.commit()
-
-    # Migrate: add show_answers column if missing
-    try:
-        db.execute('SELECT show_answers FROM exams LIMIT 1')
-    except sqlite3.OperationalError:
-        db.execute("ALTER TABLE exams ADD COLUMN show_answers INTEGER DEFAULT 0")
-        db.commit()
-
-    # Migrate: add max_exams column to admin_users if missing
-    try:
-        db.execute('SELECT max_exams FROM admin_users LIMIT 1')
-    except sqlite3.OperationalError:
-        db.execute("ALTER TABLE admin_users ADD COLUMN max_exams INTEGER DEFAULT 3")
-        db.commit()
-
-    # Migrate: add max_pdf_size column to admin_users if missing (default 1MB)
-    try:
-        db.execute('SELECT max_pdf_size FROM admin_users LIMIT 1')
-    except sqlite3.OperationalError:
-        db.execute("ALTER TABLE admin_users ADD COLUMN max_pdf_size INTEGER DEFAULT 1048576")
-        db.commit()
-
-    # Migrate: add max_drafts column to admin_users if missing
-    try:
-        db.execute('SELECT max_drafts FROM admin_users LIMIT 1')
-    except sqlite3.OperationalError:
-        db.execute("ALTER TABLE admin_users ADD COLUMN max_drafts INTEGER DEFAULT 2")
-        db.commit()
-
-    # Migrate: add max_draft_size column to admin_users if missing
-    try:
-        db.execute('SELECT max_draft_size FROM admin_users LIMIT 1')
-    except sqlite3.OperationalError:
-        db.execute("ALTER TABLE admin_users ADD COLUMN max_draft_size INTEGER DEFAULT 1048576")
-        db.commit()
-
-    # Migrate: add whatsapp_number to admin_users if missing
-    try:
-        db.execute('SELECT whatsapp_number FROM admin_users LIMIT 1')
-    except sqlite3.OperationalError:
-        db.execute("ALTER TABLE admin_users ADD COLUMN whatsapp_number TEXT")
-        db.commit()
-
-    # Migrate: add status to admin_users if missing
-    try:
-        db.execute('SELECT status FROM admin_users LIMIT 1')
-    except sqlite3.OperationalError:
-        db.execute("ALTER TABLE admin_users ADD COLUMN status TEXT DEFAULT 'active'")
-        db.commit()
-
-    # Migrate: add otp_code to admin_users if missing
-    try:
-        db.execute('SELECT otp_code FROM admin_users LIMIT 1')
-    except sqlite3.OperationalError:
-        db.execute("ALTER TABLE admin_users ADD COLUMN otp_code TEXT")
-        db.commit()
-
-    # Migrate: add expires_at to admin_users if missing
-    try:
-        db.execute('SELECT expires_at FROM admin_users LIMIT 1')
-    except sqlite3.OperationalError:
-        db.execute("ALTER TABLE admin_users ADD COLUMN expires_at TIMESTAMP")
-        db.commit()
-
-    # Migrate: add otp_expiry to admin_users if missing
-    try:
-        db.execute('SELECT otp_expiry FROM admin_users LIMIT 1')
-    except sqlite3.OperationalError:
-        db.execute("ALTER TABLE admin_users ADD COLUMN otp_expiry TIMESTAMP")
-        db.commit()
-
-    # Migrate: add identity_fields to exams if missing
-    try:
-        db.execute('SELECT identity_fields FROM exams LIMIT 1')
-    except sqlite3.OperationalError:
-        db.execute("ALTER TABLE exams ADD COLUMN identity_fields TEXT")
-        db.commit()
-
-    # Migrate: add identity_data to submissions if missing
-    try:
-        db.execute('SELECT identity_data FROM submissions LIMIT 1')
-    except sqlite3.OperationalError:
-        db.execute("ALTER TABLE submissions ADD COLUMN identity_data TEXT")
-        db.commit()
+    for name, sql in migrations:
+        if name in applied:
+            continue
+        try:
+            db.execute(sql)
+            if name == 'add_token_to_exams':
+                # Generate tokens for existing rows from older databases
+                chars = string.ascii_uppercase + string.digits
+                rows = db.execute('SELECT id FROM exams WHERE token IS NULL').fetchall()
+                for row in rows:
+                    token = ''.join(secrets.choice(chars) for _ in range(6))
+                    db.execute('UPDATE exams SET token = ? WHERE id = ?',
+                               (token, row['id']))
+            db.execute('INSERT INTO _migrations (name) VALUES (?)', (name,))
+            db.commit()
+            logger.info(f"Migration '{name}' applied")
+        except sqlite3.OperationalError:
+            # Column likely already exists; record migration as done
+            try:
+                db.execute('INSERT INTO _migrations (name) VALUES (?)', (name,))
+            except sqlite3.IntegrityError:
+                pass
+            db.commit()
 
     db.close()
 
@@ -301,7 +241,7 @@ def init_db():
 try:
     init_db()
 except Exception as e:
-    print(f"Error initializing database on startup: {e}")
+    logger.error(f"Error initializing database on startup: {e}")
 
 
 # ===== Rate Limiter (in-memory) =====
@@ -361,8 +301,8 @@ def csrf_required(f):
 
 @app.context_processor
 def inject_csrf_token():
-    """Inject CSRF token into all templates."""
-    return {'csrf_token': generate_csrf_token()}
+    """Inject CSRF token and version into all templates."""
+    return {'csrf_token': generate_csrf_token(), 'version': VERSION}
 
 
 # ===== Helpers =====
@@ -383,7 +323,7 @@ def send_whatsapp(target, message):
     
     token = get_saas_setting('wa_api_token', '')
     if not token:
-        print(f"WhatsApp Token not configured. Message to {target}: {message}")
+        logger.warning(f"WhatsApp Token not configured. Message to {target}: {message}")
         return False
         
     url = "https://api.fonnte.com/send"
@@ -405,10 +345,10 @@ def send_whatsapp(target, message):
         with urllib.request.urlopen(req, timeout=10) as response:
             res_data = response.read().decode('utf-8')
             res_json = json.loads(res_data)
-            print(f"Fonnte Send WA Response: {res_json}")
+            logger.info(f"Fonnte Send WA Response: {res_json}")
             return res_json.get('status', False)
     except Exception as e:
-        print(f"Fonnte Send WA Exception: {e}")
+        logger.error(f"Fonnte Send WA Exception: {e}")
         return False
 
 def _verify_password(password, stored_hash):
@@ -448,7 +388,7 @@ def admin_required(f):
                 flash('CSRF token tidak valid. Silakan coba lagi.', 'error')
                 return redirect(url_for('admin_dashboard'))
         # Check account expiry (skip for super admin)
-        if session.get('admin_username') != 'admin':
+        if session.get('admin_username') != ADMIN_USERNAME:
             db = get_db()
             user = db.execute('SELECT expires_at FROM admin_users WHERE id = ?', (session['admin_id'],)).fetchone()
             if user and user['expires_at']:
@@ -471,7 +411,7 @@ def super_admin_required(f):
             if request.is_json or request.path.startswith('/admin/api'):
                 return jsonify({'success': False, 'error': 'unauthorized'}), 401
             return redirect(url_for('admin_login'))
-        if session.get('admin_username') != 'admin':
+        if session.get('admin_username') != ADMIN_USERNAME:
             if request.is_json or request.path.startswith('/admin/api'):
                 return jsonify({'success': False, 'error': 'forbidden', 'message': 'Akses khusus Super Admin'}), 403
             return abort(403)
@@ -587,7 +527,7 @@ def not_found(e):
 @app.errorhandler(500)
 def internal_error(e):
     """Handle unhandled exceptions with logging."""
-    print(f"INTERNAL SERVER ERROR: {e}")
+    logger.error(f"INTERNAL SERVER ERROR: {e}")
     if request.path.startswith('/api/'):
         return jsonify({
             'success': False,
@@ -599,21 +539,5 @@ def internal_error(e):
 
 # ===== Main =====
 if __name__ == '__main__':
-    local_ip = get_local_ip()
     port = int(os.environ.get('PORT', 5000))
-
-    print(f"""
-╔══════════════════════════════════════════════╗
-║           EXAMVAN Server v2.1.9              ║
-╠══════════════════════════════════════════════╣
-║  Local:   http://127.0.0.1:{port}              ║
-║  LAN:     http://{local_ip}:{port}          ║
-║  Admin:   http://{local_ip}:{port}/admin/login  ║
-╠══════════════════════════════════════════════╣
-║  Default Login:                              ║
-║  Username: admin                             ║
-║  Password: examvan2026                       ║
-╚══════════════════════════════════════════════╝
-    """)
-
     app.run(host='0.0.0.0', port=port)

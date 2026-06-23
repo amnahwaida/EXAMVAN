@@ -4,27 +4,22 @@
  <meta charset="UTF-8">
  <meta name="viewport" content="width=device-width, initial-scale=1.0">
  <title>EXAMVAN - {% block title %}Admin Panel{% endblock %}</title>
- <link rel="preconnect" href="https://fonts.googleapis.com">
- <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
- <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@300;400;500;600;700;800&family=Outfit:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
- <link rel="stylesheet" href="{{ url_for('static', filename='css/tailwind/output.css') }}?v=2.3.0">
- <link rel="stylesheet" href="{{ url_for('static', filename='css/admin-base.css') }}?v=2.3.0">
+ <link rel="stylesheet" href="{{ url_for('static', filename='css/tailwind/output.css') }}?v={{ version }}">
+ <link rel="stylesheet" href="{{ url_for('static', filename='css/admin-base.css') }}?v={{ version }}">
  <link rel="icon" type="image/png" href="/static/favicon.png">
  <meta name="csrf-token" content="{{ csrf_token }}">
  {% block head %}{% endblock %}
 </head>
 <body class="dashboard-page">
+ <!-- Skip to content link for keyboard users -->
+ <a href="#main-content" class="skip-link" style="position:absolute;top:-100px;left:8px;z-index:9999;padding:12px 20px;background:var(--accent-primary);color:white;border-radius:8px;font-weight:600;text-decoration:none;transition:top 0.2s;" onfocus="this.style.top='8px'" onblur="this.style.top='-100px'" onmouseenter="this.style.top='8px'" onmouseleave="this.style.top='-100px'">Langsung ke konten</a>
  <nav class="topbar">
  <div class="topbar-left">
  <div class="topbar-logo">E</div>
  <a href="/" class="topbar-title" style="text-decoration:none;color:inherit;">EXAMVAN</a>
  <span class="topbar-badge">Admin Panel</span>
  <div class="topbar-nav">
- <a href="{{ url_for('admin_dashboard') }}" class="nav-link {% if active_page == 'dashboard' %}active{% endif %}"><svg class="icon-svg"><use href="#hi-dashboard"/>
-  <symbol id="hi-eye-off" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M3.98 8.223A10.477 10.477 0 0 0 1.934 12C3.226 16.338 7.244 19.5 12 19.5c.993 0 1.953-.138 2.863-.395M6.228 6.228A10.45 10.45 0 0 1 12 4.5c4.756 0 8.773 3.162 10.065 7.498a10.523 10.523 0 0 1-4.293 5.774M6.228 6.228 3 3m3.228 3.228 3.65 3.65m7.894 7.894L21 21m-3.228-3.228-3.65-3.65m0 0a3 3 0 1 0-4.243-4.243m4.242 4.242L9.88 9.88"/></symbol>
-  <symbol id="hi-lock-open" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M13.5 10.5V6.75a4.5 4.5 0 1 1 9 0v3.75M3.75 21.75h10.5a2.25 2.25 0 0 0 2.25-2.25v-6.75a2.25 2.25 0 0 0-2.25-2.25H3.75a2.25 2.25 0 0 0-2.25 2.25v6.75a2.25 2.25 0 0 0 2.25 2.25Z"/></symbol>
-  <symbol id="hi-device" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M10.5 1.5H8.25A2.25 2.25 0 0 0 6 3.75v16.5a2.25 2.25 0 0 0 2.25 2.25h7.5A2.25 2.25 0 0 0 18 20.25V3.75a2.25 2.25 0 0 0-2.25-2.25H13.5m-3 0V3h3V1.5m-3 0h3m-3 18.75h3"/></symbol>
-</svg> Daftar Ujian</a>
+ <a href="{{ url_for('admin_dashboard') }}" class="nav-link {% if active_page == 'dashboard' %}active{% endif %}"><svg class="icon-svg"><use href="#hi-dashboard"/></svg> Daftar Ujian</a>
  <a href="{{ url_for('admin_submissions') }}" class="nav-link {% if active_page == 'submissions' %}active{% endif %}"><svg class="icon-svg"><use href="#hi-results"/></svg> Hasil Ujian</a>
  {% if admin_user == 'admin' %}
  <a href="{{ url_for('admin_manage_users_page') }}" class="nav-link {% if active_page == 'users' %}active{% endif %}"><svg class="icon-svg"><use href="#hi-users"/></svg> Kelola User</a>
@@ -82,7 +77,7 @@
  </div>
  </nav>
 
- {% block content %}{% endblock %}
+ <main id="main-content">{% block content %}{% endblock %}</main>
 
  <!-- Modal Ubah Password -->
  <div class="modal-overlay" id="changePasswordModal">
@@ -97,21 +92,36 @@
  <label for="currentPassword">Password Saat Ini</label>
  <div class="password-wrapper">
  <input type="password" id="currentPassword" required placeholder="Masukkan password lama">
- <button type="button" id="toggleCurPassword" class="password-toggle-btn" aria-label="Tampilkan/sembunyikan password" style="background:none; border:none; cursor:pointer; font-size:16px; padding:4px;">👁️</button>
+ <button type="button" id="toggleCurPassword" class="password-toggle-btn" aria-label="Tampilkan/sembunyikan password" style="background:none; border:none; cursor:pointer; padding:4px; line-height:1;">
+  <svg class="icon-svg pw-eye" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+   <path d="M2.036 12.322a1.012 1.012 0 0 1 0-.639C3.423 7.51 7.36 4.5 12 4.5c4.638 0 8.573 3.007 9.963 7.178.07.207.07.431 0 .639C20.577 16.49 16.64 19.5 12 19.5c-4.638 0-8.573-3.007-9.963-7.178Z"/>
+   <path d="M15 12a3 3 0 1 1-6 0 3 3 0 0 1 6 0Z"/>
+  </svg>
+ </button>
  </div>
  </div>
  <div class="form-group" style="margin-bottom: 16px;">
  <label for="newPassword">Password Baru</label>
  <div class="password-wrapper">
- <input type="password" id="newPassword" required placeholder="Masukkan password baru (min. 4 karakter)" minlength="4">
- <button type="button" id="toggleNewPassword" class="password-toggle-btn" aria-label="Tampilkan/sembunyikan password" style="background:none; border:none; cursor:pointer; font-size:16px; padding:4px;">👁️</button>
+ <input type="password" id="newPassword" required placeholder="Masukkan password baru (min. 8 karakter)" minlength="8">
+ <button type="button" id="toggleNewPassword" class="password-toggle-btn" aria-label="Tampilkan/sembunyikan password" style="background:none; border:none; cursor:pointer; padding:4px; line-height:1;">
+  <svg class="icon-svg pw-eye" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+   <path d="M2.036 12.322a1.012 1.012 0 0 1 0-.639C3.423 7.51 7.36 4.5 12 4.5c4.638 0 8.573 3.007 9.963 7.178.07.207.07.431 0 .639C20.577 16.49 16.64 19.5 12 19.5c-4.638 0-8.573-3.007-9.963-7.178Z"/>
+   <path d="M15 12a3 3 0 1 1-6 0 3 3 0 0 1 6 0Z"/>
+  </svg>
+ </button>
  </div>
  </div>
  <div class="form-group" style="margin-bottom: 24px;">
  <label for="confirmNewPassword">Konfirmasi Password Baru</label>
  <div class="password-wrapper">
  <input type="password" id="confirmNewPassword" required placeholder="Ulangi password baru">
- <button type="button" id="toggleConfirmPassword" class="password-toggle-btn" aria-label="Tampilkan/sembunyikan password" style="background:none; border:none; cursor:pointer; font-size:16px; padding:4px;">👁️</button>
+ <button type="button" id="toggleConfirmPassword" class="password-toggle-btn" aria-label="Tampilkan/sembunyikan password" style="background:none; border:none; cursor:pointer; padding:4px; line-height:1;">
+  <svg class="icon-svg pw-eye" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+   <path d="M2.036 12.322a1.012 1.012 0 0 1 0-.639C3.423 7.51 7.36 4.5 12 4.5c4.638 0 8.573 3.007 9.963 7.178.07.207.07.431 0 .639C20.577 16.49 16.64 19.5 12 19.5c-4.638 0-8.573-3.007-9.963-7.178Z"/>
+   <path d="M15 12a3 3 0 1 1-6 0 3 3 0 0 1 6 0Z"/>
+  </svg>
+ </button>
  </div>
  </div>
  <button type="submit" class="btn-upload" style="width: 100%;"><svg class="icon-svg"><use href="#hi-check"/></svg> Simpan Password Baru</button>
@@ -212,8 +222,8 @@
  <div class="shortcut-row"><span>Upload ujian</span><span class="shortcut-key">⌘U</span></div>
  <div class="shortcut-row"><span>Bantuan ini</span><span class="shortcut-key">?</span></div>
  </div>
- <script src="{{ url_for('static', filename='js/admin-core.js') }}?v=2.3.0"></script>
- <script src="{{ url_for('static', filename='js/admin.js') }}?v=2.3.0"></script>
+ <script src="{{ url_for('static', filename='js/admin-core.js') }}?v={{ version }}"></script>
+ <script src="{{ url_for('static', filename='js/admin.js') }}?v={{ version }}"></script>
  <script>
  document.addEventListener('DOMContentLoaded', function() {
  togglePasswordVisibility('currentPassword', 'toggleCurPassword');

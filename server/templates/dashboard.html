@@ -5,7 +5,7 @@
  <!-- Stats Cards -->
  <section class="stats-grid">
  <div class="stat-card stat-total">
- <div class="stat-icon">📋</div>
+ <div class="stat-icon"><svg class="icon-svg" style="width:24px;height:24px;"><use href="#hi-dashboard"/></svg></div>
  <div class="stat-info">
  <span class="stat-value">{{ stats.total_all }}</span>
  <span class="stat-label">Total Ujian</span>
@@ -15,21 +15,21 @@
  {% endif %}
  </div>
  <div class="stat-card stat-active">
- <div class="stat-icon">✅</div>
+ <div class="stat-icon"><svg class="icon-svg" style="width:24px;height:24px;color:#34d399;"><use href="#hi-check"/></svg></div>
  <div class="stat-info">
  <span class="stat-value">{{ stats.active }}</span>
  <span class="stat-label">Aktif</span>
  </div>
  </div>
  <div class="stat-card stat-inactive">
- <div class="stat-icon">⏸️</div>
+ <div class="stat-icon"><svg class="icon-svg" style="width:24px;height:24px;color:#fbbf24;"><use href="#hi-lock"/></svg></div>
  <div class="stat-info">
  <span class="stat-value">{{ stats.inactive }}</span>
  <span class="stat-label">Nonaktif</span>
  </div>
  </div>
  <div class="stat-card stat-storage">
- <div class="stat-icon">💾</div>
+ <div class="stat-icon"><svg class="icon-svg" style="width:24px;height:24px;color:#22d3ee;"><use href="#hi-download"/></svg></div>
  <div class="stat-info">
  <span class="stat-value">{{ stats.storage_mb }} MB</span>
  <span class="stat-label">Storage</span>
@@ -52,7 +52,7 @@
  <div class="net-item">
  <span class="net-label">Masa Aktif</span>
  {% if account_expires %}
- <span class="net-value" id="expiryCountdown" data-expires="{{ account_expires }}" style="font-size: 13px; font-variant-numeric: tabular-nums;">⏳</span>
+ <span class="net-value" id="expiryCountdown" data-expires="{{ account_expires }}" style="font-size: 13px; font-variant-numeric: tabular-nums;">&#x23F3;</span>
  {% else %}
  <span class="net-value badge-https">Selamanya</span>
  {% endif %}
@@ -64,10 +64,21 @@
  </div>
  </section>
 
+{% if account_expires %}
+<!-- Account Expiry Warning Banner -->
+<section class="expiry-banner glass-card" style="margin-top:12px;padding:12px 18px;border-left:4px solid #fbbf24;display:flex;align-items:center;gap:12px;">
+ <svg class="icon-svg" style="width:22px;height:22px;flex-shrink:0;color:#fbbf24;"><use href="#hi-exclamation"/></svg>
+ <div style="flex:1;">
+  <span style="font-weight:600;font-size:14px;">Masa Aktif Akun</span>
+  <span id="expiryBannerDays" style="font-size:13px;margin-left:8px;opacity:0.85;">&#x23F3; Menghitung...</span>
+ </div>
+</section>
+{% endif %}
+
  <!-- Upload Section -->
  <section class="upload-section glass-card">
  <h3 style="margin-bottom: 16px; display:flex; align-items:center; gap:8px;"><svg class="icon-svg"><use href="#hi-upload"/></svg> Tambah Ujian Baru</h3>
- 
+
  <!-- PDF Upload Form -->
  <div id="methodPdfForm">
  <form id="uploadForm" class="upload-form" enctype="multipart/form-data">
@@ -108,17 +119,23 @@
  <div class="table-header">
  <h3><svg class="icon-svg" style="vertical-align:middle;margin-top:-2px;"><use href="#hi-dashboard"/></svg> Daftar Ujian</h3>
  <div style="display: flex; gap: 8px; align-items: center; flex-wrap: wrap;">
+ <!-- Status Filter Dropdown -->
+ <select id="statusFilter" onchange="searchExamsWithStatus()" style="padding:8px 12px;background:rgba(255,255,255,0.04);border:1px solid var(--glass-border);border-radius:8px;color:var(--text);outline:none;font-size:13px;cursor:pointer;min-height:40px;" aria-label="Filter status ujian">
+  <option value="">Semua Status</option>
+  <option value="active"{% if request.args.get('status') == 'active' %} selected{% endif %}>Aktif</option>
+  <option value="inactive"{% if request.args.get('status') == 'inactive' %} selected{% endif %}>Nonaktif</option>
+ </select>
  <div style="position: relative; display: inline-block;">
- <input type="text" id="searchExam" placeholder="Cari nama atau token..." value="{{ search }}"
+ <input type="text" id="searchExam" placeholder="Cari nama, token, atau pembuat..." value="{{ search }}"
  style="padding: 8px 32px 8px 14px; background: rgba(255,255,255,0.04); border: 1px solid var(--glass-border); border-radius: 8px; color: var(--text); outline: none; font-size: 13px; width: 220px; transition: border-color 0.2s;"
  onkeyup="if(event.key==='Enter') searchExams()"
  onfocus="this.style.borderColor='var(--primary)'" onblur="this.style.borderColor=''"
  oninput="debounceSearch(); var c=this.nextElementSibling; if(c)c.style.display=this.value?'flex':'none'">
- <button id="searchClearBtn" onclick="clearSearch()" style="display:{{ 'flex' if search else 'none' }}; position:absolute; right:4px; top:50%; transform:translateY(-50%); background:none; border:none; color:var(--text-muted); cursor:pointer; padding:4px; font-size:14px; width:24px; height:24px; align-items:center; justify-content:center;" title="Hapus pencarian" aria-label="Hapus pencarian">✕</button>
+ <button id="searchClearBtn" onclick="clearSearch()" style="display:{{ 'flex' if search else 'none' }}; position:absolute; right:4px; top:50%; transform:translateY(-50%); background:none; border:none; color:var(--text-muted); cursor:pointer; padding:4px; font-size:14px; width:24px; height:24px; align-items:center; justify-content:center;" title="Hapus pencarian" aria-label="Hapus pencarian">&#x2715;</button>
  </div>
  <button class="btn-sm btn-toggle" onclick="searchExams()" style="height: 32px; padding: 0 12px;" title="Cari ujian"><svg class="icon-svg"><use href="#hi-search"/></svg> Cari</button>
  <button class="btn-sm btn-questions" onclick="copyAllTokens()" title="Salin Semua Token" style="height: 32px;"><svg class="icon-svg"><use href="#hi-copy"/></svg> Salin Token</button>
- <button class="btn-sm btn-delete" id="bulkDeleteBtn" onclick="bulkDeleteExams()" style="display: none; height: 32px;" title="Hapus ujian terpilih">
+ <button class="btn-sm btn-delete" id="bulkDeleteBtn" onclick="confirmBulkDelete()" style="display: none; height: 32px;" title="Hapus ujian terpilih">
  <svg class="icon-svg"><use href="#hi-trash"/></svg> Hapus Terpilih (<span id="bulkDeleteCount">0</span>)
  </button>
  <button class="btn-sm btn-toggle" id="bulkToggleBtn" onclick="bulkToggleExams()" style="display: none; height: 32px;" title="Aktifkan/nonaktifkan ujian terpilih">
@@ -129,7 +146,7 @@
  </div>
  {% if exams | length == 0 %}
  <div class="empty-state">
- <div class="empty-icon">📭</div>
+ <div class="empty-icon">&#x1F4ED;</div>
  <p>Belum ada ujian. Upload ujian pertama Anda di atas.</p>
  </div>
  {% else %}
@@ -137,20 +154,20 @@
  <table class="exam-table table-with-checkbox" id="examTable">
  <thead>
  <tr>
- <th style="width: 40px; text-align: center;">
+ <th scope="col" style="width: 40px; text-align: center;">
  <input type="checkbox" id="selectAllExams" onchange="toggleSelectAllExams(this)" title="Pilih Semua" style="cursor: pointer; width: 16px; height: 16px; accent-color: var(--primary);">
  </th>
- <th style="width: 50px; text-align: center;">No</th>
- <th>Nama Ujian</th>
+ <th scope="col" style="width: 50px; text-align: center;">No</th>
+ <th scope="col">Nama Ujian</th>
  {% if admin_user == 'admin' %}
- <th>Pembuat</th>
+ <th scope="col">Pembuat</th>
  {% endif %}
- <th>Token</th>
- <th>Ukuran</th>
- <th>Status</th>
- <th>Siswa</th>
- <th>Tanggal Upload</th>
- <th>Aksi</th>
+ <th scope="col">Token</th>
+ <th scope="col">Ukuran</th>
+ <th scope="col">Status</th>
+ <th scope="col">Siswa</th>
+ <th scope="col">Tanggal Upload</th>
+ <th scope="col">Aksi</th>
  </tr>
  </thead>
  <tbody>
@@ -167,9 +184,9 @@
  <td class="td-token" data-label="Token">
  <div class="token-group">
  <code class="token-code" id="token-{{ exam.id }}" onclick="copyToken('{{ exam.token }}')" title="Klik untuk Salin Token">{{ exam.token or '—' }}</code>
- <button class="btn-icon btn-regen" onclick="regenerateToken({{ exam.id }})" title="Generate Token Baru" aria-label="Generate token baru">🔄</button>
- <button class="btn-icon btn-edit" onclick="openEditTokenModal({{ exam.id }}, '{{ exam.token }}')" title="Ubah Token Kustom" aria-label="Ubah token">✏️</button>
- <button class="btn-icon btn-copy-link" onclick="copyResultsLink('{{ exam.token }}')" title="Salin Link Hasil Ujian (Siswa)" aria-label="Salin link hasil">🔗</button>
+ <button class="btn-icon btn-regen" onclick="regenerateToken({{ exam.id }})" title="Generate Token Baru" aria-label="Generate token baru">&#x1F504;</button>
+ <button class="btn-icon btn-edit" onclick="openEditTokenModal({{ exam.id }}, '{{ exam.token }}')" title="Ubah Token Kustom" aria-label="Ubah token">&#x270F;&#xFE0F;</button>
+ <button class="btn-icon btn-copy-link" onclick="copyResultsLink('{{ exam.token }}')" title="Salin Link Hasil Ujian (Siswa)" aria-label="Salin link hasil">&#x1F517;</button>
  </div>
  </td>
  <td data-label="Ukuran">{{ "%.2f"|format(exam.size_bytes / 1048576) }} MB</td>
@@ -192,7 +209,7 @@
  <!-- Dropdown Menu for Secondary Actions -->
  <div class="exam-action-dropdown">
  <button class="btn-sm btn-more" onclick="toggleRowDropdown(event, {{ exam.id }})" title="Menu Tindakan Lainnya" style="display: inline-flex; align-items: center; gap: 4px; height: 32px;">
- <svg class="icon-svg"><use href="#hi-dashboard"/></svg> Menu ▾
+ <svg class="icon-svg"><use href="#hi-dashboard"/></svg> Menu &#x25BE;
  </button>
  <div class="exam-action-dropdown-content" id="dropdown-content-{{ exam.id }}">
  <a href="{{ url_for('admin_exam_pdf', exam_id=exam.id) }}" target="_blank">
@@ -202,7 +219,7 @@
  <svg class="icon-svg"><use href="#hi-download"/></svg> Download PDF
  </a>
  <button onclick="openEditExamModal({{ exam.id }}, '{{ exam.name|escape }}')">
- <svg class="icon-svg"><use href="#hi-edit"/></svg> Edit Nama & PDF
+ <svg class="icon-svg"><use href="#hi-edit"/></svg> Edit Nama &amp; PDF
  </button>
  <a href="{{ url_for('public_hasil', token=exam.token) }}" target="_blank">
  <svg class="icon-svg"><use href="#hi-link"/></svg> Halaman Siswa
@@ -236,15 +253,15 @@
  <div style="display: flex; justify-content: space-between; align-items: center; padding: 16px 0 0 0; flex-wrap: wrap; gap: 12px;">
  <span style="font-size: 13px; color: var(--text-muted);">Menampilkan {{ exams|length }} dari {{ total_exams }} ujian</span>
  <div style="display: flex; gap: 6px; align-items: center;">
- <a href="?page={{ page-1 }}{% if search %}&search={{ search }}{% endif %}" class="btn-sm btn-toggle page-link-main {% if page <= 1 %}disabled{% endif %}">◀ Sebelumnya</a>
+ <a href="?page={{ page-1 }}{% if search %}&search={{ search }}{% endif %}" class="btn-sm btn-toggle page-link-main {% if page <= 1 %}disabled{% endif %}">&#x25C0; Sebelumnya</a>
 
  {% for p in range(1, total_pages + 1) %}
  {% if p >= page - 2 and p <= page + 2 %}
- <a href="?page={{ p }}{% if search %}&search={{ search }}{% endif %}" class="pagination-page-num {% if p == page %}page-current{% endif %}">{{ p }}</a>
+ <a href="?page={{ p }}{% if search %}&search={{ search }}{% endif %}" class="pagination-page-num {% if p == page %}page-current{% endif %}" style="min-height:44px;padding:10px 14px;display:inline-flex;align-items:center;">{{ p }}</a>
  {% endif %}
  {% endfor %}
 
- <a href="?page={{ page+1 }}{% if search %}&search={{ search }}{% endif %}" class="btn-sm btn-toggle page-link-main {% if page >= total_pages %}disabled{% endif %}">Berikutnya ▶</a>
+ <a href="?page={{ page+1 }}{% if search %}&search={{ search }}{% endif %}" class="btn-sm btn-toggle page-link-main {% if page >= total_pages %}disabled{% endif %}">Berikutnya &#x25B6;</a>
  </div>
  </div>
  {% endif %}
@@ -257,7 +274,7 @@
  <div class="modal-card glass-card">
  <div class="modal-header">
  <h3 id="modalTitle">Atur Soal Ujian</h3>
- <button class="modal-close" onclick="closeQuestionsModal()" aria-label="Tutup">✕</button>
+ <button class="modal-close" onclick="closeQuestionsModal()" aria-label="Tutup">&#x2715;</button>
  </div>
  <div class="modal-body">
  <div class="security-level-config" style="margin-bottom: 20px; padding: 12px 16px; background: rgba(255, 255, 255, 0.03); border: 1px solid var(--glass-border); border-radius: 12px; display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 12px;">
@@ -270,7 +287,7 @@
  </div>
  <div>
  <select id="examSecurityLevel" class="q-type-select" style="min-width: 200px; margin: 0;">
- <option value="medium">Medium (Bisa Keluar & Auto-Submit)</option>
+ <option value="medium">Medium (Bisa Keluar &amp; Auto-Submit)</option>
  <option value="low">Low (Bisa Keluar Tanpa Submit)</option>
  </select>
  </div>
@@ -286,7 +303,7 @@
  <option value="matching">Menjodohkan</option>
  <option value="short_answer">Isian Singkat</option>
  </select>
- <button class="btn-sm btn-toggle" onclick="quickGenerateQuestions()">⚡ Generate</button>
+ <button class="btn-sm btn-toggle" onclick="quickGenerateQuestions()">&#x26A1; Generate</button>
  </div>
  <div class="inline-group">
  <button class="btn-weight" onclick="setAllWeights()"><svg class="icon-svg"><use href="#hi-settings"/></svg> Set All Bobot</button>
@@ -306,5 +323,132 @@
  </div>
  </div>
  </div>
+
+<script>
+/* confirmBulkDelete: show confirmation dialog before bulk delete */
+function confirmBulkDelete() {
+    const checkboxes = document.querySelectorAll('.exam-checkbox:checked');
+    if (checkboxes.length === 0) return;
+    const names = Array.from(checkboxes).map(function(cb) {
+        return cb.getAttribute('data-name');
+    });
+    showConfirm(
+        'Hapus ' + checkboxes.length + ' ujian terpilih?',
+        names.join('\n'),
+        'Ya, Hapus Semua',
+        'Batal'
+    ).then(function(ok) {
+        if (ok) bulkDeleteExams();
+    });
+}
+
+/* searchExamsWithStatus: reload page with status filter param */
+function searchExamsWithStatus() {
+    var query = document.getElementById('searchExam').value.trim();
+    var status = document.getElementById('statusFilter').value;
+    var params = new URLSearchParams(window.location.search);
+    if (query) params.set('search', query);
+    else params.delete('search');
+    if (status) params.set('status', status);
+    else params.delete('status');
+    params.set('page', '1');
+    window.location.href = window.location.pathname + (params.toString() ? '?' + params.toString() : '');
+}
+
+/* Intercept Enter on search to also preserve status filter */
+document.addEventListener('DOMContentLoaded', function() {
+    var searchInput = document.getElementById('searchExam');
+    var statusFilter = document.getElementById('statusFilter');
+    if (searchInput) {
+        searchInput.addEventListener('keydown', function(e) {
+            if (e.key === 'Enter') {
+                e.preventDefault();
+                searchExamsWithStatus();
+            }
+        });
+    }
+    /* set initial status dropdown from URL */
+    if (statusFilter) {
+        var urlParams = new URLSearchParams(window.location.search);
+        if (urlParams.has('status')) {
+            statusFilter.value = urlParams.get('status');
+        }
+    }
+});
+
+/* Expiry banner countdown: calculate days remaining from data-expires */
+(function() {
+    var expiryEl = document.getElementById('expiryCountdown');
+    var bannerDays = document.getElementById('expiryBannerDays');
+    if (expiryEl && bannerDays) {
+        var expiresStr = expiryEl.getAttribute('data-expires');
+        if (expiresStr) {
+            var expiresDate = new Date(expiresStr.replace(' ', 'T') + 'Z');
+            if (!isNaN(expiresDate.getTime())) {
+                var now = new Date();
+                var diffMs = expiresDate - now;
+                var diffDays = Math.ceil(diffMs / (1000 * 60 * 60 * 24));
+                var banner = bannerDays.closest('.expiry-banner');
+                var icon = banner ? banner.querySelector('svg') : null;
+                if (diffDays < 0) {
+                    bannerDays.innerHTML = '<span style="color:#f87171;font-weight:600;">Kedaluwarsa</span>';
+                    if (banner) banner.style.borderLeftColor = '#f87171';
+                    if (icon) icon.style.color = '#f87171';
+                } else if (diffDays === 0) {
+                    bannerDays.innerHTML = '<span style="color:#fbbf24;font-weight:600;">Kedaluwarsa hari ini</span>';
+                } else if (diffDays <= 7) {
+                    bannerDays.innerHTML = '<span style="color:#f87171;font-weight:600;">' + diffDays + ' hari lagi</span>';
+                } else {
+                    bannerDays.innerHTML = diffDays + ' hari lagi';
+                    if (banner) banner.style.borderLeftColor = '#34d399';
+                    if (icon) icon.style.color = '#34d399';
+                }
+            }
+        }
+    }
+})();
+
+/* Copy token with visual feedback toast */
+function copyToken(token) {
+    navigator.clipboard.writeText(token).then(function() {
+        showToast('Token ' + token + ' disalin!', 'success');
+    }).catch(function() {
+        var ta = document.createElement('textarea');
+        ta.value = token;
+        ta.style.position = 'fixed';
+        ta.style.opacity = '0';
+        document.body.appendChild(ta);
+        ta.select();
+        document.execCommand('copy');
+        document.body.removeChild(ta);
+        showToast('Token ' + token + ' disalin!', 'success');
+    });
+}
+
+function copyResultsLink(token) {
+    var link = window.location.origin + '/hasil/' + token;
+    navigator.clipboard.writeText(link).then(function() {
+        showToast('Link hasil ujian disalin!', 'success');
+    }).catch(function() {
+        showToast('Link: ' + link, 'info');
+    });
+}
+
+function copyAllTokens() {
+    var codes = document.querySelectorAll('.token-code');
+    var tokens = [];
+    codes.forEach(function(el) {
+        var t = el.textContent.trim();
+        if (t && t !== '—') tokens.push(t);
+    });
+    if (tokens.length === 0) {
+        showToast('Tidak ada token untuk disalin', 'warning');
+        return;
+    }
+    navigator.clipboard.writeText(tokens.join('\n')).then(function() {
+        showToast(tokens.length + ' token disalin!', 'success');
+    });
+}
+</script>
 
 {% endblock %}
