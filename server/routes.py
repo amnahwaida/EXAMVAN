@@ -13,7 +13,7 @@ from app import (
     app, get_db, get_db_standalone, init_db,
     get_saas_setting, set_saas_setting, send_whatsapp,
     generate_token, _verify_password, generate_csrf_token,
-    admin_required, super_admin_required, check_rate_limit,
+    admin_required, super_admin_required, csrf_required, check_rate_limit,
     check_exam_ownership, check_submission_ownership,
     get_network_info, get_storage_stats, safe_storage_path,
     STORAGE_DIR, MAX_FILE_SIZE, BASE_DIR,
