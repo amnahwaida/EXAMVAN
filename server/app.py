@@ -107,7 +107,8 @@ def init_db():
             token TEXT UNIQUE NOT NULL,
             questions_json TEXT,
             status TEXT DEFAULT 'active' CHECK(status IN ('active', 'inactive')),
-            security_level TEXT DEFAULT 'medium' CHECK(security_level IN ('medium', 'low')),
+            security_level TEXT DEFAULT 'medium' CHECK(security_level IN ('medium', 'low', 'high')),
+            strict_mode INTEGER DEFAULT 0,
             public_results INTEGER DEFAULT 1,
             show_answers INTEGER DEFAULT 0,
             created_by INTEGER DEFAULT 1,
@@ -209,6 +210,7 @@ def init_db():
         ('add_otp_expiry_to_admin_users', 'ALTER TABLE admin_users ADD COLUMN otp_expiry TIMESTAMP'),
         ('add_identity_fields_to_exams', 'ALTER TABLE exams ADD COLUMN identity_fields TEXT'),
         ('add_identity_data_to_submissions', 'ALTER TABLE submissions ADD COLUMN identity_data TEXT'),
+        ('add_strict_mode_to_exams', 'ALTER TABLE exams ADD COLUMN strict_mode INTEGER DEFAULT 0'),
     ]
 
     for name, sql in migrations:

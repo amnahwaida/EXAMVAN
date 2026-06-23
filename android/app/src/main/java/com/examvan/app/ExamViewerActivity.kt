@@ -69,6 +69,7 @@ class ExamViewerActivity : AppCompatActivity() {
     private val studentAnswers = mutableMapOf<String, Any>()
     private var submittedOrExited = false
     private var securityLevel = "medium"
+    private var strictMode = false
     private var isShowingAppDialog = false
     private var isSubmitting = false
     private var isPdfReady = false
@@ -116,6 +117,12 @@ class ExamViewerActivity : AppCompatActivity() {
         studentNumber = intent.getStringExtra("student_number") ?: ""
         studentClass = intent.getStringExtra("student_class") ?: ""
         identityData = intent.getStringExtra("identity_data")
+        strictMode = intent.getBooleanExtra("strict_mode", false)
+
+        // In strict mode: enable Android Lock Task (screen pinning) to prevent leaving
+        if (strictMode) {
+            startLockTask()
+        }
 
         // Record start time in UTC ISO 8601 format
         val df = java.text.SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss'Z'", java.util.Locale.US)
@@ -132,8 +139,14 @@ class ExamViewerActivity : AppCompatActivity() {
             return
         }
 
-        // Back button (acted as Logout)
-        binding.btnBack.setOnClickListener { confirmAndLogout() }
+        // Back button (acted as Logout, but blocked in strict mode)
+        binding.btnBack.setOnClickListener {
+            if (strictMode) {
+                Toast.makeText(this, getString(R.string.strict_mode_cannot_exit), Toast.LENGTH_SHORT).show()
+            } else {
+                confirmAndLogout()
+            }
+        }
 
         // Navigation buttons
         binding.btnPrev.setOnClickListener {
@@ -231,12 +244,18 @@ class ExamViewerActivity : AppCompatActivity() {
     }
 
     private fun updateSecurityBanner() {
-        if (securityLevel == "medium") {
+        if (strictMode) {
+            binding.tvSecurityBanner.text = getString(R.string.strict_mode_active)
+            binding.tvSecurityBanner.setBackgroundColor(Color.parseColor("#B71C1C")) // Darker Red for strict
+            binding.tvSecurityBanner.setTextColor(Color.parseColor("#FFFFFF"))
+        } else if (securityLevel == "medium") {
             binding.tvSecurityBanner.text = getString(R.string.autosubmit_status_active)
             binding.tvSecurityBanner.setBackgroundColor(Color.parseColor("#D32F2F")) // Warning Red
+            binding.tvSecurityBanner.setTextColor(Color.parseColor("#FFFFFF"))
         } else {
             binding.tvSecurityBanner.text = getString(R.string.autosubmit_status_inactive)
             binding.tvSecurityBanner.setBackgroundColor(Color.parseColor("#455A64")) // Cool Dark Blue Grey
+            binding.tvSecurityBanner.setTextColor(Color.parseColor("#FFFFFF"))
         }
     }
 
@@ -517,6 +536,10 @@ class ExamViewerActivity : AppCompatActivity() {
             onSuccess = { message ->
                 isSubmitting = false
                 submittedOrExited = true
+                // Stop lock task (screen pinning) if strict mode was enabled
+                if (strictMode) {
+                    try { stopLockTask() } catch (_: Throwable) { }
+                }
                 runOnUiThread {
                     binding.btnSubmitAnswers.isEnabled = false
                     binding.btnSubmitAnswers.text = "✅ Sudah Dikumpulkan"
@@ -539,10 +562,12 @@ class ExamViewerActivity : AppCompatActivity() {
                     binding.btnSubmitAnswers.isEnabled = true
                     binding.btnSubmitAnswers.text = "📤 Kumpulkan Jawaban"
 
+                    val dialogTitle = if (strictMode) "❌ Gagal — Wajib Coba Lagi" else "Gagal"
+                    val dialogMsg = if (strictMode) "$errorMsg\n\n⚠️ Mode Strict aktif: Anda harus berhasil mengirim sebelum dapat keluar." else errorMsg
                     isShowingAppDialog = true
                     AlertDialog.Builder(this)
-                        .setTitle("Gagal")
-                        .setMessage(errorMsg)
+                        .setTitle(dialogTitle)
+                        .setMessage(dialogMsg)
                         .setPositiveButton("OK") { _, _ ->
                             isShowingAppDialog = false
                         }
@@ -750,11 +775,32 @@ class ExamViewerActivity : AppCompatActivity() {
 
     @Deprecated("Deprecated in Java")
     override fun onBackPressed() {
+        // In strict mode, block back button entirely — user MUST submit
+        if (strictMode) {
+            Toast.makeText(this, getString(R.string.strict_mode_cannot_exit), Toast.LENGTH_SHORT).show()
+            return
+        }
         // Prevent default back button, show logout confirmation
         confirmAndLogout()
     }
 
     private fun confirmAndLogout() {
+        // In strict mode, user cannot exit — they must submit answers first
+        if (strictMode) {
+            isShowingAppDialog = true
+            AlertDialog.Builder(this)
+                .setTitle(getString(R.string.strict_mode_cannot_exit_title))
+                .setMessage(getString(R.string.strict_mode_cannot_exit_msg))
+                .setPositiveButton("OK") { _, _ ->
+                    isShowingAppDialog = false
+                }
+                .setOnCancelListener {
+                    isShowingAppDialog = false
+                }
+                .show()
+            return
+        }
+
         val title: String
         val message: String
         val positiveButtonText: String
@@ -795,6 +841,11 @@ class ExamViewerActivity : AppCompatActivity() {
     private fun autoSubmitAndExit() {
         if (submittedOrExited) return
         submittedOrExited = true
+
+        // Stop lock task if strict mode was enabled (auto-submit == exit)
+        if (strictMode) {
+            try { stopLockTask() } catch (_: Throwable) { }
+        }
 
         if (isSubmitting) {
             // Already submitting via normal route. Let the existing request finish.

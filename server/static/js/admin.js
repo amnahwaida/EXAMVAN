@@ -263,6 +263,10 @@ function openQuestionsModal(examId, examName) {
                 if (secSelect) {
                     secSelect.value = res.security_level || 'medium';
                 }
+                const strictCheck = document.getElementById('examStrictMode');
+                if (strictCheck) {
+                    strictCheck.checked = res.strict_mode === true;
+                }
                 renderQuestions(res.questions);
             } else {
                 showToast(res.message || 'Gagal memuat soal', 'error');
@@ -777,14 +781,15 @@ function exportXMLQuestions() {
 
 function saveQuestionsConfig() {
     if (!activeExamId) return;
-    
+
     const questions = getQuestionsFromEditor();
     const securityLevel = document.getElementById('examSecurityLevel') ? document.getElementById('examSecurityLevel').value : 'medium';
-    
+    const strictMode = document.getElementById('examStrictMode') ? document.getElementById('examStrictMode').checked : false;
+
     apiFetch(`/admin/api/exams/${activeExamId}/questions`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ questions: questions, security_level: securityLevel })
+        body: JSON.stringify({ questions: questions, security_level: securityLevel, strict_mode: strictMode })
     })
         .then(r => r.json())
         .then(res => {

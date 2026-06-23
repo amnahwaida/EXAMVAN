@@ -327,10 +327,12 @@ class ServerConfigActivity : AppCompatActivity() {
             // Save questions JSON and security level
             val questionsJson = com.google.gson.Gson().toJson(exam.questions ?: emptyList<Any>())
             val securityLevel = exam.security_level ?: "medium"
+            val strictMode = exam.strict_mode ?: false
             getSharedPreferences("exam_questions", MODE_PRIVATE)
                 .edit()
                 .putString("questions_json", questionsJson)
                 .putString("security_level", securityLevel)
+                .putBoolean("strict_mode", strictMode)
                 .apply()
 
             // Extract legacy fields for backward compat with ExamViewer
@@ -344,6 +346,8 @@ class ServerConfigActivity : AppCompatActivity() {
     }
 
     private fun startExamViewer(examId: Int, examName: String, serverUrl: String, name: String, number: String, studentClass: String, identityData: String = "{}") {
+        val strictMode = getSharedPreferences("exam_questions", MODE_PRIVATE)
+            .getBoolean("strict_mode", false)
         val intent = Intent(this@ServerConfigActivity, ExamViewerActivity::class.java).apply {
             putExtra("exam_id", examId)
             putExtra("exam_name", examName)
@@ -352,6 +356,7 @@ class ServerConfigActivity : AppCompatActivity() {
             putExtra("student_number", number)
             putExtra("student_class", studentClass)
             putExtra("identity_data", identityData)
+            putExtra("strict_mode", strictMode)
         }
         startActivity(intent)
     }

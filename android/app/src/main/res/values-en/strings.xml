@@ -29,4 +29,8 @@
     <string name="toast_auto_submit_failed">Exam stopped. Failed to submit answers: %1$s</string>
     <string name="autosubmit_status_active">Auto-Submit: ACTIVE (Do not leave the app!)</string>
     <string name="autosubmit_status_inactive">Auto-Submit: INACTIVE</string>
+    <string name="strict_mode_active">🔒 STRICT MODE: CANNOT EXIT! Submit to unlock.</string>
+    <string name="strict_mode_cannot_exit">🔒 Strict Mode: You cannot exit before submitting your answers!</string>
+    <string name="strict_mode_cannot_exit_title">🔒 Strict Mode Active</string>
+    <string name="strict_mode_cannot_exit_msg">Strict Mode is active. You CANNOT leave the app before successfully submitting your exam answers.\n\nPlease press the "Submit Answers" button when you have finished.</string>
 </resources>
