@@ -575,8 +575,16 @@ body {
     .glass-card { padding: 16px; border-radius: 12px; }
     .glass-card h3 { font-size: 16px; margin-bottom: 14px; }
 
-    /* Searh input on mobile */
-    #searchExam { width: 100% !important; }
+    /* Search: stack input + button on mobile */
+    .table-header > div:first-of-type { flex-direction: column; align-items: stretch; }
+    #searchExam { width: 100% !important; margin-bottom: 4px; }
+    .table-header > div .btn-toggle[onclick*="searchExams"] { width: 100%; justify-content: center; }
+
+    /* Bulk buttons full width */
+    #bulkDeleteBtn, #bulkToggleBtn { width: 100% !important; justify-content: center; }
+
+    /* Pagination: larger touch */
+    .table-header + .table-responsive + div a { padding: 8px 14px !important; font-size: 13px !important; }
 
     /* Stats cards: single column on very small */
     .stats-grid { grid-template-columns: repeat(2, 1fr); gap: 8px; }
