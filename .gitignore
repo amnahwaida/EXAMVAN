@@ -31,3 +31,6 @@ server/storage/*
 Thumbs.db
 node_modules/
 package-lock.json
+
+# APK binary files — use GitHub Releases instead
+*.apk

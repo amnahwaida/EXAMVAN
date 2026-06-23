@@ -60,7 +60,7 @@ Untuk komputer tablet atau handphone inventaris sekolah (bukan HP pribadi siswa)
 Untuk memulai ujian pada perangkat siswa, silakan unduh aplikasinya melalui tautan berikut:
 
 ### 🤖 Perangkat Android
-* **[Download EXAMVAN Android APK (v2.0.0)](./EXAMVAN.apk)** *(Telah diperbarui dengan build debug tertanda otomatis yang siap langsung dipasang di HP siswa tanpa kendala lisensi).*
+* **[Download EXAMVAN Android APK (v2.2.0)](./EXAMVAN.apk)** *(Telah diperbarui dengan build debug tertanda otomatis yang siap langsung dipasang di HP siswa tanpa kendala lisensi).*
 * **Alternative Build:** Anda juga dapat menggunakan berkas **[examvan-debug.apk](./examvan-debug.apk)** atau **[examvan-release.apk](./examvan-release.apk)** yang terletak di folder root.
 * **Kompatibilitas:** Minimal **Android 5.0 (Lollipop - API 21)** hingga versi terbaru (diuji hingga **Android 14/15 - API 34/35**). Kompatibel dengan >99% tipe perangkat Android aktif milik siswa.
 
@@ -92,40 +92,12 @@ Kompilasi dapat dilakukan di sistem operasi **Windows, macOS, maupun Linux**.
 4. Klik menu **Build > Build Bundle(s) / APK(s) > Build APK(s)**.
 5. Setelah selesai, klik **Locate** di sudut kanan bawah untuk mengambil berkas `.apk`.
 
----
-
-#### 1. Persyaratan Sistem (*Requirements*):
-- **Perangkat Keras:** Komputer Mac (Intel / Apple Silicon M-Series).
-- **Sistem Operasi:** macOS Big Sur (11.0) atau versi di atasnya.
-- **Xcode IDE:** Versi 13.0 atau lebih baru (mendukung Swift 5.0+).
-- **Akun Apple Developer:** Akun gratis (*Free Apple ID*) cukup untuk penginstalan langsung ke perangkat pengujian lokal via kabel (tahan hingga 7 hari). Akun berbayar (*Paid Developer Program*) diperlukan untuk distribusi TestFlight atau App Store.
-
-#### 2. Cara Build & Install ke Device menggunakan Xcode:
-1. Pindahkan atau salin folder `./ios/ExamVan` ke komputer Mac Anda.
-2. Klik ganda berkas **`ExamVan.xcodeproj`** untuk membukanya di Xcode.
-3. Hubungkan perangkat iPhone atau iPad siswa ke komputer Mac menggunakan kabel USB.
-4. Di bilah menu atas Xcode, pilih target perangkat fisik Anda (misalnya: *My iPad*).
-5. Masuk ke tab **Signing & Capabilities** pada setelan proyek:
-   - Centang **Automatically manage signing**.
-   - Pilih *Team* Anda (masukkan Apple ID Anda jika belum terdaftar).
-   - Ubah *Bundle Identifier* jika terjadi bentrok keunikan ID (misalnya: `com.examvan.sekolahanda`).
-6. Tekan tombol **Run (ikon Segitiga / CMD+R)** untuk mengompilasi dan memasang aplikasi langsung ke perangkat siswa.
-7. *Catatan untuk siswa:* Jika muncul peringatan *"Untrusted Developer"* pada perangkat iOS pertama kali, buka **Settings > General > VPN & Device Management**, lalu pilih profil Apple ID Anda dan klik **Trust**.
 
 ---
 
 ## 📡 API Endpoints
 
-Semua komunikasi data antara aplikasi siswa dan server web dikirimkan melalui JSON API berikut:
-
-| Endpoint | Method | Parameter / Payload | Fungsi |
-| :--- | :---: | :--- | :--- |
-| `/api/health` | GET | - | Memverifikasi apakah server menyala dan merespon dalam LAN. Mengembalikan `server_time_utc`. |
-| `/api/time` | GET | - | Mengembalikan waktu UTC server (`utc`, `unix`, `timezone`) untuk sinkronisasi jam perangkat siswa. |
-| `/api/exams` | GET | - | Mengambil daftar seluruh ujian yang sedang aktif. |
-| `/api/exams/token/<token>` | GET | `token` (6 Karakter) | Mengambil konfigurasi soal ujian spesifik berdasarkan token unik. |
-| `/api/exams/<id>/pdf` | GET | `id` (ID Ujian) | Mengunduh file PDF soal ujian ke penyimpanan lokal aplikasi siswa. |
-| `/api/exams/<id>/submit` | POST | JSON Payload Siswa & Jawaban | Mengirimkan lembar jawaban siswa ke server untuk dinilai. |
+Dokumentasi API selengkapnya tersedia di [docs/api.md](docs/api.md).
 
 ---
 

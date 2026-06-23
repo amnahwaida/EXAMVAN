@@ -294,7 +294,6 @@ class TestResponsiveDesign(unittest.TestCase):
 
     def setUp(self):
         self.client = app.test_client()
-    """Responsive design meta tags and breakpoints."""
 
     def test_viewport_meta(self):
         """All templates should have viewport meta tag for mobile."""

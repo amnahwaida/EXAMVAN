@@ -1,5 +1,5 @@
 """EXAMVAN routes — extracted from app.py for organization."""
-import os, json, csv, io, secrets, string, hmac
+import os, json, csv, io, re, secrets, string, hmac
 from datetime import datetime, timezone, timedelta
 
 from flask import (
@@ -109,12 +109,23 @@ def api_time():
 
 @app.route('/api/exams')
 def api_exams():
-    """Get list of active exams."""
+    """Get list of active exams with pagination."""
+    page = request.args.get('page', 1, type=int)
+    per_page = request.args.get('per_page', 50, type=int)
+    per_page = min(max(per_page, 1), 200)
+
     db = get_db()
+
+    # Count total active exams
+    total = db.execute(
+        'SELECT COUNT(*) as cnt FROM exams WHERE status = ?',
+        ('active',)
+    ).fetchone()['cnt']
+
     exams = db.execute(
         'SELECT id, name, status, size_bytes, token, created_at '
-        'FROM exams WHERE status = ? ORDER BY created_at DESC',
-        ('active',)
+        'FROM exams WHERE status = ? ORDER BY created_at DESC LIMIT ? OFFSET ?',
+        ('active', per_page, (page - 1) * per_page)
     ).fetchall()
 
     data = []
@@ -123,12 +134,22 @@ def api_exams():
             'id': exam['id'],
             'name': exam['name'],
             'status': exam['status'],
-            'token': exam['token'],
             'size_mb': round(exam['size_bytes'] / (1024 * 1024), 2),
             'created_at': format_iso_utc(exam['created_at'])
         })
 
-    return jsonify({'success': True, 'data': data})
+    total_pages = max(1, (total + per_page - 1) // per_page)
+
+    return jsonify({
+        'success': True,
+        'data': data,
+        'pagination': {
+            'page': page,
+            'per_page': per_page,
+            'total': total,
+            'total_pages': total_pages
+        }
+    })
 
 
 @app.route('/api/exams/token/<token>')
@@ -204,6 +225,9 @@ def api_exam_by_token(token):
 @app.route('/api/exams/<int:exam_id>/submit', methods=['POST'])
 def api_submit_exam(exam_id):
     """Receive student exam submissions and auto-grade if keys exist."""
+    if not check_rate_limit(f'submit:{exam_id}', max_attempts=10, window_seconds=60):
+        return error_response('Terlalu banyak percobaan submit. Silakan coba lagi nanti.', 429)
+
     required_version = get_saas_setting('android_version', '2.1.9')
     client_version = request.headers.get('X-App-Version')
     if client_version != required_version:
@@ -685,7 +709,6 @@ def admin_dashboard():
     )
 
 @app.route('/admin/api/upload', methods=['POST'])
-@app.route('/admin/create-exam', methods=['POST'])
 @admin_required
 def admin_upload():
     """Upload a new exam PDF."""
@@ -730,7 +753,7 @@ def admin_upload():
             }), 403
 
     if custom_token:
-        if len(custom_token) != 6 or not custom_token.isalnum():
+        if not re.match(r'^[A-Z0-9]{6}$', custom_token):
             return error_response('Token kustom harus terdiri dari 6 karakter alfanumerik', 400)
 
         # Check uniqueness
@@ -1090,7 +1113,7 @@ def admin_custom_token(exam_id):
     if not custom_token:
         return error_response('Token kustom tidak boleh kosong', 400)
 
-    if len(custom_token) != 6 or not custom_token.isalnum():
+    if not re.match(r'^[A-Z0-9]{6}$', custom_token):
         return error_response('Token kustom harus terdiri dari 6 karakter alfanumerik', 400)
 
     db = get_db()
@@ -2490,25 +2513,18 @@ def api_public_hasil(token):
     for q in questions:
         max_score += float(q.get('weight', 1.0))
 
-    # Evaluate answers and build submissions list
+    # Build submissions list (no answer details in public API)
     subs_data = []
     for sub in submissions:
-        try:
-            answers = json.loads(sub['answers_json']) if sub['answers_json'] else {}
-        except Exception:
-            answers = {}
-
         subs_data.append({
             'id': sub['id'],
             'student_name': sub['student_name'],
             'exam_number': sub['exam_number'],
             'student_class': sub['student_class'],
-            'answers': answers,
             'score': sub['score'],
             'max_score': max_score if max_score > 0 else None,
             'start_time': format_iso_utc(sub['start_time']) if sub['start_time'] else None,
-            'created_at': format_iso_utc(sub['created_at']),
-            'evaluated_answers': evaluate_answers_detailed(answers, questions)
+            'created_at': format_iso_utc(sub['created_at'])
         })
 
     # Determine if keys should be shown

@@ -11,8 +11,6 @@ import androidx.recyclerview.widget.LinearLayoutManager
 import com.examvan.app.adapter.ExamAdapter
 import com.examvan.app.api.ApiClient
 import com.examvan.app.databinding.ActivityExamListBinding
-import java.text.SimpleDateFormat
-import java.util.*
 
 /**
  * Screen 2: Exam List
@@ -44,6 +42,9 @@ class ExamListActivity : AppCompatActivity() {
 
         binding = ActivityExamListBinding.inflate(layoutInflater)
         setContentView(binding.root)
+
+        // Prevent overlay/tapjacking attacks
+        binding.root.filterTouchesWhenObscured = true
 
         // Setup server URL from intent
         val serverUrl = intent.getStringExtra("server_url") ?: ""
@@ -85,7 +86,7 @@ class ExamListActivity : AppCompatActivity() {
                     binding.swipeRefresh.isRefreshing = false
 
                     if (response.success && response.data.isNotEmpty()) {
-                        adapter.updateData(response.data)
+                        adapter.submitList(response.data)
                         showContent()
                         updateSyncTime()
                     } else {
@@ -122,7 +123,6 @@ class ExamListActivity : AppCompatActivity() {
     }
 
     private fun updateSyncTime() {
-        val sdf = SimpleDateFormat("HH:mm:ss", Locale.getDefault())
-        binding.tvLastSync.text = "Sync: ${sdf.format(Date())}"
+        binding.tvLastSync.text = "Sync: " + java.time.LocalTime.now().format(java.time.format.DateTimeFormatter.ofPattern("HH:mm:ss"))
     }
 }

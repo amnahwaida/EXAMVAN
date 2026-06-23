@@ -1,9 +1,14 @@
 """
 Seed script: Add test users to verify pagination on the manage users page.
 Usage: python3 seed_users.py
+
+⚠️⚠️⚠️ DEVELOPMENT ONLY — DO NOT RUN IN PRODUCTION ⚠️⚠️⚠️
+This script creates users with default passwords for testing purposes.
+All created users MUST have their passwords changed before production use.
 """
 import sys
 import os
+import secrets
 import sqlite3
 from datetime import datetime, timezone, timedelta
 from werkzeug.security import generate_password_hash
@@ -36,8 +41,6 @@ db = conn.cursor()
 existing = db.execute("SELECT COUNT(*) as cnt FROM admin_users WHERE username != 'admin'").fetchone()
 print(f"Existing teacher users: {existing['cnt']}")
 
-# Generate test users
-pw_hash = generate_password_hash('test1234')
 expires = (datetime.now(timezone.utc) + timedelta(days=365)).strftime('%Y-%m-%d %H:%M:%S')
 now = datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S')
 
@@ -75,6 +78,8 @@ for username, wa, mx, pdf, draft, draft_size in teachers:
     if existing_user:
         print(f"  SKIP {username} (already exists)")
         continue
+    # Generate a unique random password per user
+    pw_hash = generate_password_hash(secrets.token_hex(8))
     db.execute(
         "INSERT INTO admin_users (username, password_hash, whatsapp_number, status, max_exams, max_pdf_size, max_drafts, max_draft_size, expires_at, created_at, otp_code, otp_expiry) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, NULL)",
         (username, pw_hash, wa, 'active', mx, pdf, draft, draft_size, expires, now)
@@ -86,4 +91,5 @@ conn.commit()
 conn.close()
 print(f"\nDone! Created {created} new teacher users.")
 print(f"Total teacher users now: {existing['cnt'] + created}")
-print("\nAll test users have password: test1234")
+print("\n⚠️  Each user has a unique randomly generated password (printed above not available).")
+print("    Users can reset their password via the admin change-password feature.")

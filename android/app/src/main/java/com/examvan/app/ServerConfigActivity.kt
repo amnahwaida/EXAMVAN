@@ -1,5 +1,6 @@
 package com.examvan.app
 
+import android.content.ClipboardManager
 import android.content.Context
 import android.content.Intent
 import android.content.SharedPreferences
@@ -64,6 +65,15 @@ class ServerConfigActivity : AppCompatActivity() {
         binding = ActivityServerConfigBinding.inflate(layoutInflater)
         setContentView(binding.root)
 
+        // Prevent overlay/tapjacking attacks
+        binding.root.filterTouchesWhenObscured = true
+
+        // Clear clipboard for security
+        try {
+            val clipboard = getSystemService(Context.CLIPBOARD_SERVICE) as? ClipboardManager
+            clipboard?.clearPrimaryClip()
+        } catch (_: Throwable) { }
+
         prefs = EncryptedSharedPreferences.create(
             this,
             PREFS_NAME + "_encrypted",
@@ -120,7 +130,7 @@ class ServerConfigActivity : AppCompatActivity() {
 
     private fun validateInputs(url: String, token: String): Boolean {
         if (url.isEmpty()) {
-            showError("URL tidak boleh kosong")
+            showError(getString(R.string.url_empty_error))
             return false
         }
         if (token.isEmpty()) {
@@ -128,7 +138,7 @@ class ServerConfigActivity : AppCompatActivity() {
             return false
         }
         if (token.length != 6) {
-            showError("Token harus terdiri dari 6 karakter")
+            showError(getString(R.string.token_length_error))
             return false
         }
         return true
@@ -149,7 +159,7 @@ class ServerConfigActivity : AppCompatActivity() {
                 if (requiredVersion != null && !isVersionCompatible(appVersion, requiredVersion)) {
                     runOnUiThread {
                         setLoading(false)
-                        showError("Versi aplikasi tidak sesuai!\nAplikasi Anda: v$appVersion\nVersi yang dibutuhkan: v$requiredVersion\n\nSilakan update aplikasi EXAMVAN Anda ke versi terbaru.")
+                        showError(getString(R.string.version_mismatch_error, appVersion, requiredVersion))
                     }
                     return@checkHealth
                 }
@@ -195,7 +205,7 @@ class ServerConfigActivity : AppCompatActivity() {
             onError = { errorMsg ->
                 runOnUiThread {
                     setLoading(false)
-                    showError("Tidak dapat terhubung ke server: $errorMsg")
+                    showError(getString(R.string.connection_error_format, errorMsg))
                 }
             }
         )
@@ -221,7 +231,7 @@ class ServerConfigActivity : AppCompatActivity() {
         }
 
         val titleView = TextView(this).apply {
-            text = "Identitas Siswa"
+            text = getString(R.string.identity_dialog_title)
             textSize = 20f
             setTextColor(ContextCompat.getColor(this@ServerConfigActivity, R.color.on_surface))
             typeface = android.graphics.Typeface.DEFAULT_BOLD
@@ -230,7 +240,7 @@ class ServerConfigActivity : AppCompatActivity() {
         container.addView(titleView)
 
         val subtitleView = TextView(this).apply {
-            text = "Isi data diri Anda untuk memulai ujian"
+            text = getString(R.string.identity_dialog_subtitle)
             textSize = 13f
             setTextColor(ContextCompat.getColor(this@ServerConfigActivity, R.color.text_secondary))
             gravity = android.view.Gravity.CENTER
@@ -267,6 +277,7 @@ class ServerConfigActivity : AppCompatActivity() {
                 }
                 setPadding(16, 12, 16, 12)
                 textSize = 15f
+                filters = arrayOf(android.text.InputFilter.LengthFilter(100))
             }
             container.addView(editText, LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT,
@@ -285,7 +296,7 @@ class ServerConfigActivity : AppCompatActivity() {
         container.addView(tvDialogError)
 
         val btnConfirm = Button(this).apply {
-            text = "Mulai Ujian"
+            text = getString(R.string.btn_start_exam)
             setTextColor(ContextCompat.getColor(this@ServerConfigActivity, R.color.on_primary))
             textSize = 15f
             typeface = android.graphics.Typeface.DEFAULT_BOLD
@@ -323,7 +334,7 @@ class ServerConfigActivity : AppCompatActivity() {
             }
 
             if (hasEmptyRequired) {
-                tvDialogError.text = "\"$firstEmptyKey\" wajib diisi!"
+                tvDialogError.text = getString(R.string.field_required_error, firstEmptyKey)
                 tvDialogError.visibility = View.VISIBLE
                 return@setOnClickListener
             }
@@ -392,7 +403,7 @@ class ServerConfigActivity : AppCompatActivity() {
     private fun setLoading(loading: Boolean) {
         binding.progressLoading.visibility = if (loading) View.VISIBLE else View.GONE
         binding.btnConnect.isEnabled = !loading
-        binding.btnConnect.text = if (loading) "Memproses..." else getString(R.string.btn_start_exam)
+        binding.btnConnect.text = if (loading) getString(R.string.processing) else getString(R.string.btn_start_exam)
     }
 
     private fun showError(msg: String) {

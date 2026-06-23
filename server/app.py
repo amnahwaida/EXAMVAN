@@ -13,6 +13,7 @@ import socket
 import json
 import csv
 import io
+import threading
 from datetime import datetime, timezone, timedelta
 from functools import wraps
 
@@ -178,8 +179,8 @@ def init_db():
             admin_password = secrets.token_hex(16)
             logger.warning(
                 f"No EXAMVAN_ADMIN_PASS env var set. "
-                f"Generated random password for '{admin_username}': {admin_password} "
-                f"Please set EXAMVAN_ADMIN_PASS and restart."
+                f"Random password generated for '{admin_username}'. "
+                f"Set EXAMVAN_ADMIN_PASS in environment and restart."
             )
         pw_hash = generate_password_hash(admin_password)
         db.execute(
@@ -262,10 +263,11 @@ from collections import OrderedDict
 # Bounded LRU-like store: max 10_000 entries, oldest evicted automatically
 _RATE_LIMIT_MAX_ENTRIES = 10_000
 _rate_limit_store = OrderedDict()
+_RATE_LIMIT_LOCK = threading.Lock()
 
 def check_rate_limit(key, max_attempts=5, window_seconds=300):
     """
-    Simple in-memory rate limiter with bounded store.
+    Simple in-memory rate limiter with bounded store (thread-safe).
     Returns True if request is allowed, False if rate limited.
     key: unique identifier (e.g. f"otp:{ip}")
     max_attempts: max requests in the window
@@ -275,25 +277,26 @@ def check_rate_limit(key, max_attempts=5, window_seconds=300):
     ip = request.access_route[0] if request.access_route else request.remote_addr or 'unknown'
     store_key = f"{key}:{ip}"
 
-    # Evict oldest entries if store is too large
-    while len(_rate_limit_store) >= _RATE_LIMIT_MAX_ENTRIES:
-        _rate_limit_store.popitem(last=False)
+    with _RATE_LIMIT_LOCK:
+        # Evict oldest entries if store is too large
+        while len(_rate_limit_store) >= _RATE_LIMIT_MAX_ENTRIES:
+            _rate_limit_store.popitem(last=False)
 
-    # Get existing timestamps for this key (or empty list)
-    timestamps = _rate_limit_store.get(store_key, [])
+        # Get existing timestamps for this key (or empty list)
+        timestamps = _rate_limit_store.get(store_key, [])
 
-    # Clean old entries
-    timestamps = [t for t in timestamps if now - t < window_seconds]
+        # Clean old entries
+        timestamps = [t for t in timestamps if now - t < window_seconds]
 
-    # Check limit
-    if len(timestamps) >= max_attempts:
-        _rate_limit_store[store_key] = timestamps
-        return False
+        # Check limit
+        if len(timestamps) >= max_attempts:
+            _rate_limit_store[store_key] = timestamps
+            return False
 
-    timestamps.append(now)
-    if timestamps:
-        _rate_limit_store[store_key] = timestamps
-    return True
+        timestamps.append(now)
+        if timestamps:
+            _rate_limit_store[store_key] = timestamps
+        return True
 
 
 # ===== CSRF Protection =====
@@ -399,7 +402,7 @@ def admin_required(f):
     def decorated(*args, **kwargs):
         if 'admin_id' not in session:
             if request.is_json or request.path.startswith('/admin/api'):
-                return jsonify({'success': False, 'error': 'unauthorized'}), 401
+                return jsonify({'success': False, 'error': 'unauthorized', 'message': 'Silakan login terlebih dahulu'}), 401
             return redirect(url_for('admin_login'))
         # CSRF check for state-changing methods (POST, PUT, DELETE)
         if request.method in ('POST', 'PUT', 'DELETE'):
@@ -432,7 +435,7 @@ def super_admin_required(f):
     def decorated(*args, **kwargs):
         if 'admin_id' not in session:
             if request.is_json or request.path.startswith('/admin/api'):
-                return jsonify({'success': False, 'error': 'unauthorized'}), 401
+                return jsonify({'success': False, 'error': 'unauthorized', 'message': 'Silakan login terlebih dahulu'}), 401
             return redirect(url_for('admin_login'))
         if session.get('admin_username') != ADMIN_USERNAME:
             if request.is_json or request.path.startswith('/admin/api'):
@@ -540,6 +543,10 @@ def add_security_headers(response):
     response.headers['X-Content-Type-Options'] = 'nosniff'
     response.headers['X-Frame-Options'] = 'DENY'
     response.headers['X-XSS-Protection'] = '1; mode=block'
+    response.headers['Access-Control-Allow-Origin'] = '*'
+    response.headers['Access-Control-Allow-Methods'] = 'GET, POST, PUT, DELETE, OPTIONS'
+    response.headers['Access-Control-Allow-Headers'] = 'Content-Type, X-CSRF-Token, X-App-Version, X-Exam-Token'
+    response.headers['Strict-Transport-Security'] = 'max-age=31536000; includeSubDomains'
     return response
 
 

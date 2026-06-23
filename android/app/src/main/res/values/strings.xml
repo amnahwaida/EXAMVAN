@@ -33,4 +33,57 @@
     <string name="strict_mode_cannot_exit">🔒 Mode Strict: Anda tidak bisa keluar sebelum mengumpulkan jawaban!</string>
     <string name="strict_mode_cannot_exit_title">🔒 Mode Strict Aktif</string>
     <string name="strict_mode_cannot_exit_msg">Mode Strict sedang aktif. Anda TIDAK BISA keluar dari aplikasi sebelum berhasil mengumpulkan jawaban ujian.\n\nSilakan tekan tombol "📤 Kumpulkan Jawaban" setelah selesai mengerjakan.</string>
+
+    <!-- Identity dialog -->
+    <string name="identity_dialog_title">Identitas Siswa</string>
+    <string name="identity_dialog_subtitle">Isi data diri Anda untuk memulai ujian</string>
+    <string name="field_required_error">"%1$s" wajib diisi!</string>
+    <string name="processing">Memproses...</string>
+    <string name="url_empty_error">URL tidak boleh kosong</string>
+    <string name="token_length_error">Token harus terdiri dari 6 karakter</string>
+    <string name="connection_error_format">Tidak dapat terhubung ke server: %1$s</string>
+    <string name="version_mismatch_error">Versi aplikasi tidak sesuai!\nAplikasi Anda: v%1$s\nVersi yang dibutuhkan: v%2$s\n\nSilakan update aplikasi EXAMVAN Anda ke versi terbaru.</string>
+    <string name="answer_submit_error">Terjadi kesalahan saat mengirim jawaban.</string>
+    <string name="error_pdf_render">Gagal merender PDF</string>
+
+    <!-- ExamViewer -->
+    <string name="exam_invalid_id">ID ujian tidak valid</string>
+    <string name="default_exam_name">Ujian</string>
+    <string name="answer_sheet_open">📝 Buka Lembar Jawaban</string>
+    <string name="answer_sheet_close">📝 Tutup Lembar Jawaban</string>
+    <string name="question_label">Soal %1$d</string>
+    <string name="question_label_truefalse">Soal %1$d (Benar/Salah)</string>
+    <string name="question_label_multiple">Soal %1$d (Pilih beberapa)</string>
+    <string name="question_label_matching">Soal %1$d (Menjodohkan)</string>
+    <string name="question_label_shortanswer">Soal %1$d (Isian Singkat)</string>
+    <string name="spinner_default">-- Pilih --</string>
+    <string name="submit_answers_title">Kumpulkan Jawaban</string>
+    <string name="submit_answers_confirm_partial">Anda baru menjawab %1$d dari %2$d soal.\nYakin ingin mengumpulkan sekarang?</string>
+    <string name="submit_answers_confirm_all">Anda sudah menjawab semua %1$d soal.\nKumpulkan jawaban?</string>
+    <string name="submit_confirm_yes">Ya, Kumpulkan</string>
+    <string name="submitting">Mengirim...</string>
+    <string name="submitted_label">✅ Sudah Dikumpulkan</string>
+    <string name="submit_success_title">Berhasil</string>
+    <string name="submit_success_message">%1$s\n\nNama: %2$s\nNomor: %3$s\nKelas: %4$s</string>
+    <string name="submit_success_done">Selesai</string>
+    <string name="submit_failed_retry">📤 Kumpulkan Jawaban</string>
+    <string name="submit_failed_title">Gagal</string>
+    <string name="submit_failed_title_strict">❌ Gagal — Wajib Coba Lagi</string>
+    <string name="submit_failed_message">%1$s</string>
+    <string name="submit_failed_message_strict">%1$s\n\n⚠️ Mode Strict aktif: Anda harus berhasil mengirim sebelum dapat keluar.</string>
+    <string name="dialog_ok">OK</string>
+    <string name="download_failed_format">Gagal memulai unduhan: %1$s</string>
+    <string name="page_indicator_format">%1$d / %2$d</string>
+    <string name="auto_submit_success_title">✅ Jawaban Terkirim</string>
+    <string name="auto_submit_failed_title">❌ Gagal Mengirim Jawaban</string>
+    <string name="notification_channel_name">Pengiriman Jawaban Ujian</string>
+    <string name="notification_channel_desc">Notifikasi saat jawaban ujian dikirim otomatis</string>
+
+    <!-- Logout dialog -->
+    <string name="logout_low_title">Keluar Ujian</string>
+    <string name="logout_low_message">Apakah Anda yakin ingin keluar dari ujian?\n\nJawaban Anda TIDAK akan dikumpulkan secara otomatis (Anda dapat melanjutkan nanti).</string>
+    <string name="logout_low_positive">Ya, Keluar</string>
+    <string name="logout_default_title">Logout / Keluar Ujian</string>
+    <string name="logout_default_message">Apakah Anda yakin ingin logout dan keluar dari ujian?\n\nJawaban yang sudah Anda isi akan dikumpulkan secara otomatis sebelum keluar.</string>
+    <string name="logout_default_positive">Ya, Logout &amp; Kirim</string>
 </resources>

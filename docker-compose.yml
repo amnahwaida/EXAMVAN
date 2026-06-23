@@ -10,7 +10,7 @@ services:
     ports:
       - "5000:5000"
     environment:
-      - EXAMVAN_SECRET=examvan_super_secret_key_change_me
+      - EXAMVAN_SECRET=${EXAMVAN_SECRET:-CHANGE_ME_TO_A_RANDOM_SECRET}
       - PORT=5000
       - TZ=UTC
     volumes:
@@ -18,6 +18,17 @@ services:
       - ./server/data:/app/data
       # Persist Uploaded PDFs locally on host filesystem
       - ./server/storage:/app/storage
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+          cpus: '0.5'
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:5000/api/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
 
   cloudflare-tunnel:
     build:

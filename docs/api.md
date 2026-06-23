@@ -38,6 +38,7 @@ Server health check. Also returns the required Android client version.
   "version": "2.0",
   "required_app_version": "2.1.9",
   "lan_mode": true,
+  "certificate_fingerprint": "sha256/AbCdEfGhIjKlMnOpQrStUvWxYz1234567890abcdefgh",
   "timestamp": "2026-06-22T17:08:40.379308+00:00",
   "server_time_utc": "2026-06-22T17:08:40Z"
 }
@@ -124,6 +125,9 @@ Download the exam PDF file for streaming.
 
 **Headers:**
 - `Accept-Ranges: bytes`
+
+**Query Parameters:**
+- `token` (string, optional) — Exam access token for validation
 
 **Response `200 OK`:**
 - Content-Type: `application/pdf`

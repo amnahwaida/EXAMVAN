@@ -31,10 +31,7 @@ class ZoomableImageView @JvmOverloads constructor(
     private var start = PointF()
     private var minScale = 1f
     private var maxScale = 4f
-    private lateinit var m: FloatArray
 
-    private var redundantXSpace = 0f
-    private var redundantYSpace = 0f
     private var width = 0f
     private var height = 0f
     private var saveScale = 1f
@@ -63,7 +60,6 @@ class ZoomableImageView @JvmOverloads constructor(
     init {
         super.setClickable(true)
         setOnTouchListener(this)
-        m = FloatArray(9)
         imageMatrix = myMatrix
         scaleType = ScaleType.MATRIX
         mGestureDetector = GestureDetector(context, object : GestureDetector.SimpleOnGestureListener() {
@@ -80,9 +76,9 @@ class ZoomableImageView @JvmOverloads constructor(
                 velocityX: Float,
                 velocityY: Float
             ): Boolean {
-                if (saveScale == 1f) {
+                if (Math.abs(saveScale - 1f) < 0.01f) {
                     val x1 = e1?.x ?: return false
-                    val y1 = e1?.y ?: return false
+                    val y1 = e1.y
                     val diffX = e2.x - x1
                     val diffY = e2.y - y1
                     if (Math.abs(diffX) > Math.abs(diffY)) {
@@ -191,6 +187,7 @@ class ZoomableImageView @JvmOverloads constructor(
     override fun onScaleEnd(detector: ScaleGestureDetector) {}
 
     private fun fixTrans() {
+        val m = FloatArray(9)
         myMatrix.getValues(m)
         val transX = m[Matrix.MTRANS_X]
         val transY = m[Matrix.MTRANS_Y]
@@ -247,10 +244,8 @@ class ZoomableImageView @JvmOverloads constructor(
         val scale = Math.min(scaleX, scaleY)
         myMatrix.setScale(scale, scale)
 
-        redundantYSpace = height - scale * bmHeight
-        redundantXSpace = width - scale * bmWidth
-        redundantYSpace /= 2f
-        redundantXSpace /= 2f
+        val redundantYSpace = (height - scale * bmHeight) / 2f
+        val redundantXSpace = (width - scale * bmWidth) / 2f
 
         myMatrix.postTranslate(redundantXSpace, redundantYSpace)
 

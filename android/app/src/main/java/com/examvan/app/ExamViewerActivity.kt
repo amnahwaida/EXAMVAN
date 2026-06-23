@@ -19,6 +19,7 @@ import android.view.LayoutInflater
 import android.view.View
 import android.view.WindowManager
 import android.widget.*
+import androidx.activity.OnBackPressedCallback
 import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.app.ActivityCompat
@@ -87,6 +88,28 @@ class ExamViewerActivity : AppCompatActivity() {
     private var activePopupCount = 0
     private var onCreateTime = 0L
 
+    private val notificationChannelCreated: Boolean by lazy {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            val notificationManager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+            val channel = NotificationChannel(
+                CHANNEL_ID,
+                getString(R.string.notification_channel_name),
+                NotificationManager.IMPORTANCE_HIGH
+            ).apply {
+                description = getString(R.string.notification_channel_desc)
+                enableLights(true)
+                enableVibration(true)
+            }
+            notificationManager.createNotificationChannel(channel)
+        }
+        true
+    }
+
+    companion object {
+        private const val CHANNEL_ID = "examvan_auto_submit_v2"
+        private const val REQUEST_NOTIFICATION_PERMISSION = 1001
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         onCreateTime = System.currentTimeMillis()
@@ -112,17 +135,22 @@ class ExamViewerActivity : AppCompatActivity() {
         if (Build.VERSION.SDK_INT >= 33) {
             if (ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS)
                 != PackageManager.PERMISSION_GRANTED) {
-                ActivityCompat.requestPermissions(this, arrayOf(Manifest.permission.POST_NOTIFICATIONS), 1001)
+                ActivityCompat.requestPermissions(this, arrayOf(Manifest.permission.POST_NOTIFICATIONS), REQUEST_NOTIFICATION_PERMISSION)
             }
         }
 
         binding = ActivityExamViewerBinding.inflate(layoutInflater)
         setContentView(binding.root)
 
+        // Prevent overlay/tapjacking attacks
+        binding.root.filterTouchesWhenObscured = true
+        // Protect answer submission button
+        binding.btnSubmitAnswers.filterTouchesWhenObscured = true
+
         // Read intent extras
         examId = intent.getIntExtra("exam_id", -1)
         examToken = intent.getStringExtra("exam_token") ?: ""
-        examName = intent.getStringExtra("exam_name") ?: "Ujian"
+        examName = intent.getStringExtra("exam_name") ?: getString(R.string.default_exam_name)
         studentName = intent.getStringExtra("student_name") ?: ""
         studentNumber = intent.getStringExtra("student_number") ?: ""
         studentClass = intent.getStringExtra("student_class") ?: ""
@@ -135,19 +163,27 @@ class ExamViewerActivity : AppCompatActivity() {
         }
 
         // Record start time in UTC ISO 8601 format
-        val df = java.text.SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss'Z'", java.util.Locale.US)
-        df.timeZone = java.util.TimeZone.getTimeZone("UTC")
-        startTime = df.format(java.util.Date())
+        startTime = java.time.Instant.now().toString()
 
         // Retrieve MAC address/Device ID
-        macAddress = getDeviceId()
+        macAddress = resolveExamDeviceId()
 
         binding.tvExamTitle.text = examName
 
         if (examId == -1) {
-            showError("ID ujian tidak valid")
+            showError(getString(R.string.exam_invalid_id))
             return
         }
+
+        onBackPressedDispatcher.addCallback(this, object : OnBackPressedCallback(true) {
+            override fun handleOnBackPressed() {
+                if (strictMode) {
+                    Toast.makeText(this@ExamViewerActivity, getString(R.string.strict_mode_cannot_exit), Toast.LENGTH_SHORT).show()
+                    return
+                }
+                confirmAndLogout()
+            }
+        })
 
         // Back button (acted as Logout, but blocked in strict mode)
         binding.btnBack.setOnClickListener {
@@ -205,7 +241,7 @@ class ExamViewerActivity : AppCompatActivity() {
         binding.btnToggleAnswerSheet.setOnClickListener {
             answerSheetExpanded = !answerSheetExpanded
             binding.answerSheetPanel.visibility = if (answerSheetExpanded) View.VISIBLE else View.GONE
-            binding.btnToggleAnswerSheet.text = if (answerSheetExpanded) "📝 Tutup Lembar Jawaban" else "📝 Buka Lembar Jawaban"
+            binding.btnToggleAnswerSheet.text = if (answerSheetExpanded) getString(R.string.answer_sheet_close) else getString(R.string.answer_sheet_open)
         }
 
         // Submit button
@@ -225,7 +261,7 @@ class ExamViewerActivity : AppCompatActivity() {
         try {
             downloadPdf(examId, examToken)
         } catch (e: Exception) {
-            showError("Gagal memulai unduhan: ${e.message}")
+            showError(getString(R.string.download_failed_format, e.message ?: ""))
         }
     }
 
@@ -323,7 +359,7 @@ class ExamViewerActivity : AppCompatActivity() {
         checkboxLayout.visibility = View.GONE
         radioGroup.visibility = View.VISIBLE
 
-        label.text = "Soal $number"
+        label.text = getString(R.string.question_label, number)
 
         val choices = (q["choices"] as? List<*>)?.filterIsInstance<String>() ?: listOf("A", "B", "C", "D", "E")
 
@@ -356,7 +392,7 @@ class ExamViewerActivity : AppCompatActivity() {
         checkboxLayout.visibility = View.GONE
         radioGroup.visibility = View.VISIBLE
 
-        label.text = "Soal $number (Benar/Salah)"
+        label.text = getString(R.string.question_label_truefalse, number)
 
         for (choice in listOf("TRUE", "FALSE")) {
             val rb = RadioButton(this).apply {
@@ -388,7 +424,7 @@ class ExamViewerActivity : AppCompatActivity() {
         radioGroup.visibility = View.GONE
         checkboxLayout.visibility = View.VISIBLE
 
-        label.text = "Soal $number (Pilih beberapa)"
+        label.text = getString(R.string.question_label_multiple, number)
 
         val choices = (q["choices"] as? List<*>)?.filterIsInstance<String>() ?: listOf("A", "B", "C", "D", "E")
 
@@ -425,7 +461,7 @@ class ExamViewerActivity : AppCompatActivity() {
         val label = view.findViewById<TextView>(R.id.tvMatchingLabel)
         val matchingContainer = view.findViewById<LinearLayout>(R.id.layoutMatchingContainer)
 
-        label.text = "Soal $number (Menjodohkan)"
+        label.text = getString(R.string.question_label_matching, number)
 
         val leftItems = (q["left_items"] as? List<*>)?.filterIsInstance<String>() ?: listOf("1", "2", "3")
         val rightItems = (q["right_items"] as? List<*>)?.filterIsInstance<String>() ?: listOf("A", "B", "C")
@@ -439,7 +475,7 @@ class ExamViewerActivity : AppCompatActivity() {
 
             tvLeft.text = leftItem
 
-            val spinnerItems = mutableListOf("-- Pilih --")
+            val spinnerItems = mutableListOf(getString(R.string.spinner_default))
             spinnerItems.addAll(rightItems)
 
             val adapter = ArrayAdapter(this, android.R.layout.simple_spinner_item, spinnerItems)
@@ -484,7 +520,7 @@ class ExamViewerActivity : AppCompatActivity() {
         val label = view.findViewById<TextView>(R.id.tvQuestionLabel)
         val editText = view.findViewById<EditText>(R.id.etShortAnswer)
 
-        label.text = "Soal $number (Isian Singkat)"
+        label.text = getString(R.string.question_label_shortanswer, number)
 
         // Restore answer if already filled
         val currentAns = studentAnswers[number.toString()] as? String
@@ -516,20 +552,20 @@ class ExamViewerActivity : AppCompatActivity() {
         val total = questions.size
 
         val message = if (answered < total) {
-            "Anda baru menjawab $answered dari $total soal.\nYakin ingin mengumpulkan sekarang?"
+            getString(R.string.submit_answers_confirm_partial, answered, total)
         } else {
-            "Anda sudah menjawab semua $total soal.\nKumpulkan jawaban?"
+            getString(R.string.submit_answers_confirm_all, total)
         }
 
         isShowingAppDialog = true
         AlertDialog.Builder(this)
-            .setTitle("Kumpulkan Jawaban")
+            .setTitle(getString(R.string.submit_answers_title))
             .setMessage(message)
-            .setPositiveButton("Ya, Kumpulkan") { _, _ ->
+            .setPositiveButton(getString(R.string.submit_confirm_yes)) { _, _ ->
                 isShowingAppDialog = false
                 submitAnswers()
             }
-            .setNegativeButton("Batal") { _, _ ->
+            .setNegativeButton(getString(R.string.btn_cancel)) { _, _ ->
                 isShowingAppDialog = false
             }
             .setOnCancelListener {
@@ -542,7 +578,7 @@ class ExamViewerActivity : AppCompatActivity() {
         if (isSubmitting) return
         isSubmitting = true
         binding.btnSubmitAnswers.isEnabled = false
-        binding.btnSubmitAnswers.text = "Mengirim..."
+        binding.btnSubmitAnswers.text = getString(R.string.submitting)
 
         ApiClient.submitExam(
             examId = examId,
@@ -561,15 +597,16 @@ class ExamViewerActivity : AppCompatActivity() {
                     try { stopLockTask() } catch (_: Throwable) { }
                 }
                 runOnUiThread {
+                    if (isFinishing || isDestroyed) return@runOnUiThread
                     binding.btnSubmitAnswers.isEnabled = false
-                    binding.btnSubmitAnswers.text = "✅ Sudah Dikumpulkan"
+                    binding.btnSubmitAnswers.text = getString(R.string.submitted_label)
 
                     isShowingAppDialog = true
                     AlertDialog.Builder(this)
-                        .setTitle("Berhasil")
-                        .setMessage("$message\n\nNama: $studentName\nNomor: $studentNumber\nKelas: $studentClass")
+                        .setTitle(getString(R.string.submit_success_title))
+                        .setMessage(getString(R.string.submit_success_message, message, studentName, studentNumber, studentClass))
                         .setCancelable(false)
-                        .setPositiveButton("Selesai") { _, _ ->
+                        .setPositiveButton(getString(R.string.submit_success_done)) { _, _ ->
                             isShowingAppDialog = false
                             finish()
                         }
@@ -579,16 +616,17 @@ class ExamViewerActivity : AppCompatActivity() {
             onError = { errorMsg ->
                 isSubmitting = false
                 runOnUiThread {
+                    if (isFinishing || isDestroyed) return@runOnUiThread
                     binding.btnSubmitAnswers.isEnabled = true
-                    binding.btnSubmitAnswers.text = "📤 Kumpulkan Jawaban"
+                    binding.btnSubmitAnswers.text = getString(R.string.submit_failed_retry)
 
-                    val dialogTitle = if (strictMode) "❌ Gagal — Wajib Coba Lagi" else "Gagal"
-                    val dialogMsg = if (strictMode) "$errorMsg\n\n⚠️ Mode Strict aktif: Anda harus berhasil mengirim sebelum dapat keluar." else errorMsg
+                    val dialogTitle = if (strictMode) getString(R.string.submit_failed_title_strict) else getString(R.string.submit_failed_title)
+                    val dialogMsg = if (strictMode) getString(R.string.submit_failed_message_strict, errorMsg) else getString(R.string.submit_failed_message, errorMsg)
                     isShowingAppDialog = true
                     AlertDialog.Builder(this)
                         .setTitle(dialogTitle)
                         .setMessage(dialogMsg)
-                        .setPositiveButton("OK") { _, _ ->
+                        .setPositiveButton(getString(R.string.dialog_ok)) { _, _ ->
                             isShowingAppDialog = false
                         }
                         .setOnCancelListener {
@@ -619,6 +657,7 @@ class ExamViewerActivity : AppCompatActivity() {
             cacheDir = cacheDir,
             onProgress = { percent ->
                 runOnUiThread {
+                    if (isFinishing || isDestroyed) return@runOnUiThread
                     binding.progressDownload.progress = percent
                     binding.tvDownloadPercent.text = "$percent%"
 
@@ -630,12 +669,14 @@ class ExamViewerActivity : AppCompatActivity() {
             },
             onSuccess = { file ->
                 runOnUiThread {
+                    if (isFinishing || isDestroyed) return@runOnUiThread
                     isPdfReady = true
                     openPdf(file)
                 }
             },
             onError = { errorMsg ->
                 runOnUiThread {
+                    if (isFinishing || isDestroyed) return@runOnUiThread
                     showError(errorMsg)
                 }
             }
@@ -647,9 +688,9 @@ class ExamViewerActivity : AppCompatActivity() {
             fileDescriptor = ParcelFileDescriptor.open(
                 file, ParcelFileDescriptor.MODE_READ_ONLY
             )
-            val fd = fileDescriptor ?: run { showError("Gagal membuka file PDF"); return }
+            val fd = fileDescriptor ?: run { showError(getString(R.string.error_pdf)); return }
             pdfRenderer = PdfRenderer(fd)
-            val renderer = pdfRenderer ?: run { showError("Gagal merender PDF"); return }
+            val renderer = pdfRenderer ?: run { showError(getString(R.string.error_pdf_render)); return }
             totalPages = renderer.pageCount
             currentPage = 0
             renderPage(0)
@@ -706,7 +747,7 @@ class ExamViewerActivity : AppCompatActivity() {
     }
 
     private fun updatePageIndicator() {
-        val display = "${currentPage + 1} / $totalPages"
+        val display = getString(R.string.page_indicator_format, currentPage + 1, totalPages)
         binding.tvPageIndicator.text = display
         binding.tvPageCounter.text = display
 
@@ -738,15 +779,11 @@ class ExamViewerActivity : AppCompatActivity() {
 
     override fun onRequestPermissionsResult(requestCode: Int, permissions: Array<String>, grantResults: IntArray) {
         super.onRequestPermissionsResult(requestCode, permissions, grantResults)
-        if (requestCode == 1001) {
+        if (requestCode == REQUEST_NOTIFICATION_PERMISSION) {
             // Notification permission result — auto-submit will use Toast fallback if denied
             val granted = grantResults.isNotEmpty() && grantResults[0] == PackageManager.PERMISSION_GRANTED
             Log.d("ExamViewer", "Notification permission ${if (granted) "granted" else "denied"}")
         }
-    }
-
-    override fun onResume() {
-        super.onResume()
     }
 
     override fun onPause() {
@@ -797,17 +834,6 @@ class ExamViewerActivity : AppCompatActivity() {
         return super.onKeyDown(keyCode, event)
     }
 
-    @Deprecated("Deprecated in Java")
-    override fun onBackPressed() {
-        // In strict mode, block back button entirely — user MUST submit
-        if (strictMode) {
-            Toast.makeText(this, getString(R.string.strict_mode_cannot_exit), Toast.LENGTH_SHORT).show()
-            return
-        }
-        // Prevent default back button, show logout confirmation
-        confirmAndLogout()
-    }
-
     private fun confirmAndLogout() {
         // In strict mode, user cannot exit — they must submit answers first
         if (strictMode) {
@@ -815,7 +841,7 @@ class ExamViewerActivity : AppCompatActivity() {
             AlertDialog.Builder(this)
                 .setTitle(getString(R.string.strict_mode_cannot_exit_title))
                 .setMessage(getString(R.string.strict_mode_cannot_exit_msg))
-                .setPositiveButton("OK") { _, _ ->
+                .setPositiveButton(getString(R.string.dialog_ok)) { _, _ ->
                     isShowingAppDialog = false
                 }
                 .setOnCancelListener {
@@ -830,13 +856,13 @@ class ExamViewerActivity : AppCompatActivity() {
         val positiveButtonText: String
 
         if (securityLevel == "low") {
-            title = "Keluar Ujian"
-            message = "Apakah Anda yakin ingin keluar dari ujian?\n\nJawaban Anda TIDAK akan dikumpulkan secara otomatis (Anda dapat melanjutkan nanti)."
-            positiveButtonText = "Ya, Keluar"
+            title = getString(R.string.logout_low_title)
+            message = getString(R.string.logout_low_message)
+            positiveButtonText = getString(R.string.logout_low_positive)
         } else {
-            title = "Logout / Keluar Ujian"
-            message = "Apakah Anda yakin ingin logout dan keluar dari ujian?\n\nJawaban yang sudah Anda isi akan dikumpulkan secara otomatis sebelum keluar."
-            positiveButtonText = "Ya, Logout & Kirim"
+            title = getString(R.string.logout_default_title)
+            message = getString(R.string.logout_default_message)
+            positiveButtonText = getString(R.string.logout_default_positive)
         }
 
         isShowingAppDialog = true
@@ -853,7 +879,7 @@ class ExamViewerActivity : AppCompatActivity() {
                     autoSubmitAndExit()
                 }
             }
-            .setNegativeButton("Batal") { _, _ ->
+            .setNegativeButton(getString(R.string.btn_cancel)) { _, _ ->
                 isShowingAppDialog = false
             }
             .setOnCancelListener {
@@ -894,10 +920,10 @@ class ExamViewerActivity : AppCompatActivity() {
                     identityData = identityData
                 )
             } catch (_: Throwable) {
-                Pair(false, "Terjadi kesalahan saat mengirim jawaban.")
+                Pair(false, getString(R.string.answer_submit_error))
             }
 
-            val notifTitle = if (result.first) "✅ Jawaban Terkirim" else "❌ Gagal Mengirim Jawaban"
+            val notifTitle = if (result.first) getString(R.string.auto_submit_success_title) else getString(R.string.auto_submit_failed_title)
             val notifMessage = if (result.first) {
                 getString(R.string.toast_auto_submit_success)
             } else {
@@ -915,24 +941,12 @@ class ExamViewerActivity : AppCompatActivity() {
 
     private fun showAutoSubmitNotification(title: String, message: String) {
         try {
-            val channelId = "examvan_auto_submit_v2"
             val notificationManager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
 
-            // Create notification channel (required for Android 8.0+)
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                val channel = NotificationChannel(
-                    channelId,
-                    "Pengiriman Jawaban Ujian",
-                    NotificationManager.IMPORTANCE_HIGH
-                ).apply {
-                    description = "Notifikasi saat jawaban ujian dikirim otomatis"
-                    enableLights(true)
-                    enableVibration(true)
-                }
-                notificationManager.createNotificationChannel(channel)
-            }
+            // Ensure notification channel is created (lazy init happens on first access)
+            notificationChannelCreated
 
-            val notification = NotificationCompat.Builder(applicationContext, channelId)
+            val notification = NotificationCompat.Builder(applicationContext, CHANNEL_ID)
                 .setSmallIcon(R.mipmap.ic_launcher)
                 .setContentTitle(title)
                 .setContentText(message)
@@ -948,6 +962,7 @@ class ExamViewerActivity : AppCompatActivity() {
         } catch (_: Throwable) {
             // Fallback to Toast if notification fails
             runOnUiThread {
+                if (isFinishing || isDestroyed) return@runOnUiThread
                 Toast.makeText(applicationContext, message, Toast.LENGTH_LONG).show()
             }
         }
@@ -963,7 +978,7 @@ class ExamViewerActivity : AppCompatActivity() {
         } catch (_: Exception) { }
     }
 
-    private fun getDeviceId(): String {
+    private fun resolveExamDeviceId(): String {
         val prefs = androidx.security.crypto.EncryptedSharedPreferences.create(
             this,
             "device_id_encrypted",

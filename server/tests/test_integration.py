@@ -8,10 +8,8 @@ class TestFullWorkflow(unittest.TestCase):
     """Complete exam lifecycle: login → create → submit → check results."""
 
     def setUp(self):
+        """Set up fresh context for each test to avoid interdependency."""
         self.client = app.test_client()
-        self._login()
-
-    def _login(self):
         with self.client.session_transaction() as sess:
             sess['admin_id'] = 1
             sess['admin_username'] = 'admin'
@@ -20,21 +18,30 @@ class TestFullWorkflow(unittest.TestCase):
         self.exam_name = f"Integration Test {os.urandom(4).hex()}"
         self.exam_token = None
         self.exam_id = None
-        self.student_name = "Test Student"
-        self.student_number = "12345"
-        self.student_class = "X-A"
+        self._create_exam()
 
-    def test_01_create_exam(self):
-        """Step 1: Upload exam PDF."""
+    def _create_exam(self):
+        """Helper: create a fresh exam and store its id and token."""
         pdf_content = b'%PDF-1.4 Integration test exam content'
         resp = self.client.post('/admin/api/upload', data={
             'name': self.exam_name,
             'pdf_file': (io.BytesIO(pdf_content), 'exam.pdf', 'application/pdf'),
         }, headers={'X-CSRF-Token': self.csrf})
-        self.assertEqual(resp.status_code, 200)
-        data = resp.get_json()
-        self.assertTrue(data['success'])
-        self.exam_token = data.get('token')
+        if resp.status_code == 200:
+            data = resp.get_json()
+            if data and data.get('success'):
+                self.exam_token = data.get('token')
+                # Retrieve exam id from token API
+                if self.exam_token:
+                    token_resp = self.client.get(
+                        f'/api/exams/token/{self.exam_token}',
+                        headers={'X-App-Version': '2.1.9'}
+                    )
+                    if token_resp.status_code == 200:
+                        self.exam_id = token_resp.get_json().get('data', {}).get('id')
+
+    def test_01_create_exam(self):
+        """Step 1: Upload exam PDF."""
         self.assertIsNotNone(self.exam_token)
         self.assertEqual(len(self.exam_token), 6)
         print(f'  ✅ Exam created: {self.exam_name} (token: {self.exam_token})')
@@ -73,8 +80,6 @@ class TestFullWorkflow(unittest.TestCase):
 
     def test_05_public_results(self):
         """Step 5: Public results page renders."""
-        # Create exam first
-        self.test_01_create_exam()
         resp = self.client.get(f'/hasil/{self.exam_token}')
         self.assertEqual(resp.status_code, 200)
         self.assertIn('EXAMVAN', resp.text)
@@ -82,7 +87,6 @@ class TestFullWorkflow(unittest.TestCase):
 
     def test_06_api_hasil(self):
         """Step 6: Public hasil API returns data."""
-        self.test_01_create_exam()
         resp = self.client.get(f'/api/hasil/{self.exam_token}')
         self.assertEqual(resp.status_code, 200)
         data = resp.get_json()
@@ -91,12 +95,8 @@ class TestFullWorkflow(unittest.TestCase):
 
     def test_07_download_pdf(self):
         """Step 7: Download exam PDF."""
-        self.test_01_create_exam()
-        # Get exam ID from token
-        resp = self.client.get(f'/api/exams/token/{self.exam_token}',
-            headers={'X-App-Version': '2.1.9'})
-        exam_id = resp.get_json()['data']['id']
-        resp = self.client.get(f'/api/exams/{exam_id}/pdf')
+        self.assertIsNotNone(self.exam_id, "Exam must be created before downloading PDF")
+        resp = self.client.get(f'/api/exams/{self.exam_id}/pdf')
         self.assertEqual(resp.status_code, 200)
         self.assertEqual(resp.content_type, 'application/pdf')
         print(f'  ✅ PDF download: {len(resp.data)} bytes')

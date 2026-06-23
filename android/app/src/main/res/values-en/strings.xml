@@ -33,4 +33,57 @@
     <string name="strict_mode_cannot_exit">🔒 Strict Mode: You cannot exit before submitting your answers!</string>
     <string name="strict_mode_cannot_exit_title">🔒 Strict Mode Active</string>
     <string name="strict_mode_cannot_exit_msg">Strict Mode is active. You CANNOT leave the app before successfully submitting your exam answers.\n\nPlease press the "Submit Answers" button when you have finished.</string>
+
+    <!-- Identity dialog -->
+    <string name="identity_dialog_title">Student Identity</string>
+    <string name="identity_dialog_subtitle">Fill in your details to start the exam</string>
+    <string name="field_required_error">"%1$s" is required!</string>
+    <string name="processing">Processing...</string>
+    <string name="url_empty_error">URL cannot be empty</string>
+    <string name="token_length_error">Token must be 6 characters</string>
+    <string name="connection_error_format">Unable to connect to server: %1$s</string>
+    <string name="version_mismatch_error">App version mismatch!\nYour app: v%1$s\nRequired version: v%2$s\n\nPlease update your EXAMVAN app to the latest version.</string>
+    <string name="answer_submit_error">An error occurred while submitting answers.</string>
+    <string name="error_pdf_render">Failed to render PDF</string>
+
+    <!-- ExamViewer -->
+    <string name="exam_invalid_id">Invalid exam ID</string>
+    <string name="default_exam_name">Exam</string>
+    <string name="answer_sheet_open">📝 Open Answer Sheet</string>
+    <string name="answer_sheet_close">📝 Close Answer Sheet</string>
+    <string name="question_label">Question %1$d</string>
+    <string name="question_label_truefalse">Question %1$d (True/False)</string>
+    <string name="question_label_multiple">Question %1$d (Select Multiple)</string>
+    <string name="question_label_matching">Question %1$d (Matching)</string>
+    <string name="question_label_shortanswer">Question %1$d (Short Answer)</string>
+    <string name="spinner_default">-- Select --</string>
+    <string name="submit_answers_title">Submit Answers</string>
+    <string name="submit_answers_confirm_partial">You have answered %1$d of %2$d questions.\nSubmit now?</string>
+    <string name="submit_answers_confirm_all">You have answered all %1$d questions.\nSubmit answers?</string>
+    <string name="submit_confirm_yes">Yes, Submit</string>
+    <string name="submitting">Submitting...</string>
+    <string name="submitted_label">✅ Submitted</string>
+    <string name="submit_success_title">Success</string>
+    <string name="submit_success_message">%1$s\n\nName: %2$s\nNumber: %3$s\nClass: %4$s</string>
+    <string name="submit_success_done">Done</string>
+    <string name="submit_failed_retry">📤 Submit Answers</string>
+    <string name="submit_failed_title">Failed</string>
+    <string name="submit_failed_title_strict">❌ Failed — Must Retry</string>
+    <string name="submit_failed_message">%1$s</string>
+    <string name="submit_failed_message_strict">%1$s\n\n⚠️ Strict Mode active: You must successfully submit before exiting.</string>
+    <string name="dialog_ok">OK</string>
+    <string name="download_failed_format">Failed to start download: %1$s</string>
+    <string name="page_indicator_format">%1$d / %2$d</string>
+    <string name="auto_submit_success_title">✅ Answers Submitted</string>
+    <string name="auto_submit_failed_title">❌ Failed to Submit Answers</string>
+    <string name="notification_channel_name">Exam Answer Submission</string>
+    <string name="notification_channel_desc">Notification when exam answers are submitted automatically</string>
+
+    <!-- Logout dialog -->
+    <string name="logout_low_title">Exit Exam</string>
+    <string name="logout_low_message">Are you sure you want to exit the exam?\n\nYour answers will NOT be submitted automatically (you can continue later).</string>
+    <string name="logout_low_positive">Yes, Exit</string>
+    <string name="logout_default_title">Logout / Exit Exam</string>
+    <string name="logout_default_message">Are you sure you want to logout and exit the exam?\n\nYour answers will be submitted automatically before exiting.</string>
+    <string name="logout_default_positive">Yes, Logout &amp; Submit</string>
 </resources>

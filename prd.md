@@ -1,4 +1,8 @@
 # 📄 PRD: EXAMVAN (MVP)
+
+> **NOTE:** This PRD was written for v1.1.0 (MVP). The current version is 2.2.0
+> with many additional features. See README.md for current documentation.
+
 **Versi:** 1.1.0 (Revisi Intranet & Slow-Network)  
 **Status:** READY FOR DEVELOPMENT  
 **Tanggal:** 22 Mei 2026  
