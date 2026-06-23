@@ -26,6 +26,24 @@
  --warning-color: #f59e0b;
  }
 
+ @media (prefers-color-scheme: light) {
+ :root {
+ --bg-primary: #f1f5f9;
+ --bg-secondary: #ffffff;
+ --accent-primary: #6366f1;
+ --accent-secondary: #8b5cf6;
+ --accent-glow: rgba(99, 102, 241, 0.1);
+ --text-main: #0f172a;
+ --text-muted: #64748b;
+ --text-secondary: #334155;
+ --glass-bg: rgba(255, 255, 255, 0.8);
+ --glass-border: rgba(0, 0, 0, 0.08);
+ --card-hover: rgba(0, 0, 0, 0.02);
+ --success-color: #059669;
+ --warning-color: #d97706;
+ }
+ }
+
  * {
  margin: 0;
  padding: 0;
@@ -41,6 +59,7 @@
  min-height: 100vh;
  display: flex;
  flex-direction: column;
+ scroll-behavior: smooth;
  }
 
  /* Abstract glowing background blobs */
@@ -539,10 +558,11 @@
  }
  }
  </style>
+ <link rel="stylesheet" href="/static/css/theme.css">
  <link rel="icon" type="image/png" href="/static/favicon.png">
 </head>
 <body>
- <a href="#main-content" class="skip-link" style="position:absolute;top:-100px;left:8px;z-index:9999;padding:12px 20px;background:var(--accent-primary);color:white;border-radius:8px;font-weight:600;text-decoration:none;transition:top 0.2s;">Langsung ke konten</a>
+ <a href="#main-content" class="skip-link" style="position:absolute;top:-100px;left:8px;z-index:9999;padding:12px 20px;background:var(--accent-primary);color:var(--color-text-on-primary,white);border-radius:8px;font-weight:600;text-decoration:none;transition:top 0.2s;">Langsung ke konten</a>
 
  <!-- Glow Blobs -->
  <div class="glow-blob blob-1"></div>

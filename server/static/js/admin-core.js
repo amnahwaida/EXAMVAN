@@ -417,8 +417,10 @@ if (document.readyState === 'loading') {
     document.addEventListener('DOMContentLoaded', () => {
         initMenuToggle();
         initSkipLink();
+        if (document.getElementById('statsGrid')) showDashboardSkeletons();
     });
 } else {
     initMenuToggle();
     initSkipLink();
+    if (document.getElementById('statsGrid')) showDashboardSkeletons();
 }

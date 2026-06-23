@@ -1,37 +1,8 @@
 /* EXAMVAN Admin Panel - Dark Glassmorphism Theme */
+/* Theme variables loaded from centralized theme.css */
 /* Font loaded via <link> in admin_base.html */
 
-:root {
-    --bg: #09090e;
-    --surface: rgba(255,255,255,0.03);
-    --surface-hover: rgba(255,255,255,0.07);
-    --glass: rgba(15, 15, 30, 0.45);
-    --glass-border: rgba(255, 255, 255, 0.08);
-    --primary: #6366f1;
-    --primary-dark: #4f46e5;
-    --primary-light: #a5b4fc;
-    --primary-glow: rgba(99, 102, 241, 0.25);
-    --accent: #8b5cf6;
-    --accent-light: #a78bfa;
-    --success: #10b981;
-    --success-bg: rgba(16, 185, 129, 0.12);
-    --danger: #ef4444;
-    --danger-bg: rgba(239, 68, 68, 0.12);
-    --warning: #f59e0b;
-    --warning-bg: rgba(245, 158, 11, 0.12);
-    --text: #f8fafc;
-    --text-color: #f8fafc;
-    --text-secondary: #cbd5e1;
-    --text-muted: #94a3b8;
-    --radius: 16px;
-    --radius-sm: 10px;
-    --font-sans: 'Plus Jakarta Sans', 'Inter', system-ui, -apple-system, sans-serif;
-    --font-display: 'Outfit', 'Plus Jakarta Sans', sans-serif;
-    --font-mono: 'SF Mono', 'Fira Code', 'JetBrains Mono', monospace;
-    --shadow-card: 0 8px 32px rgba(0, 0, 0, 0.3);
-    --shadow-lg: 0 20px 50px rgba(0, 0, 0, 0.4);
-    --ease-spring: cubic-bezier(0.4, 0, 0.2, 1); /* Material Deceleration curve, not a spring; named for its "snap" feel */
-}
+@import url('theme.css');
 
 * { margin:0; padding:0; box-sizing:border-box; }
 
@@ -44,10 +15,11 @@ body {
     font-family: var(--font-sans);
     font-size: 15px;
     line-height: 1.6;
-    background: radial-gradient(ellipse at 50% 0%, #17152f 0%, #0c0a1a 50%, #06050b 100%);
+    background: var(--bg-gradient);
     background-attachment: fixed;
-    color: var(--text);
+    color: var(--color-text);
     min-height: 100vh;
+    overflow-x: hidden;
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
     text-rendering: optimizeLegibility;
@@ -78,7 +50,7 @@ body {
 /* Firefox scrollbar */
 * {
     scrollbar-width: thin;
-    scrollbar-color: var(--primary) transparent;
+    scrollbar-color: var(--color-primary) transparent;
 }
 
 /* ===== Headings ===== */
@@ -87,7 +59,7 @@ h1, h2, h3, h4, h5, h6 {
     font-weight: 700;
     line-height: 1.3;
     letter-spacing: -0.01em;
-    color: var(--text);
+    color: var(--color-text);
 }
 h1 { font-size: 1.75rem; }
 h2 { font-size: 1.4rem; }
@@ -96,7 +68,7 @@ h4 { font-size: 1rem; }
 
 /* ===== Links ===== */
 a {
-    color: var(--accent-light);
+    color: var(--color-accent-light);
     text-decoration: none;
     transition: color 0.2s var(--ease-spring);
 }
@@ -121,7 +93,7 @@ code, pre, .token-code, .mono {
 
 /* ===== Accessibility: Focus Visible ===== */
 *:focus-visible {
-    outline: 2px solid var(--primary);
+    outline: 2px solid var(--color-primary);
     outline-offset: 2px;
     border-radius: 4px;
 }
@@ -140,13 +112,13 @@ code, pre, .token-code, .mono {
 }
 .confirm-dialog-msg {
     font-size: 15px;
-    color: var(--text-secondary);
+    color: var(--color-text-secondary);
     line-height: 1.6;
     margin-bottom: 4px;
 }
 .confirm-dialog-detail {
     font-size: 13px;
-    color: var(--text-muted);
+    color: var(--color-text-muted);
     max-height: 120px;
     overflow-y: auto;
     margin: 8px 0 4px;
@@ -198,7 +170,7 @@ code, pre, .token-code, .mono {
     padding: 20px;
     border-radius: 12px;
     background: rgba(255,255,255,0.02);
-    border: 1px solid var(--glass-border);
+    border: 1px solid var(--color-glass-border);
 }
 .skeleton-circle {
     display: inline-block;
@@ -214,9 +186,10 @@ code, pre, .token-code, .mono {
     right: 24px;
     z-index: 9998;
     background: rgba(10,10,22,0.9);
-    border: 1px solid var(--glass-border);
+    border: 1px solid var(--color-glass-border);
     border-radius: 12px;
     padding: 16px 20px;
+    -webkit-backdrop-filter: blur(16px);
     backdrop-filter: blur(16px);
     box-shadow: 0 10px 30px rgba(0,0,0,0.5);
     min-width: 240px;
@@ -231,7 +204,7 @@ code, pre, .token-code, .mono {
     font-weight: 700;
     text-transform: uppercase;
     letter-spacing: 1px;
-    color: var(--text-muted);
+    color: var(--color-text-muted);
     margin-bottom: 12px;
 }
 .shortcut-row {
@@ -240,20 +213,20 @@ code, pre, .token-code, .mono {
     align-items: center;
     padding: 6px 0;
     font-size: 13px;
-    color: var(--text-secondary);
+    color: var(--color-text-secondary);
 }
 .shortcut-key {
     display: inline-flex;
     align-items: center;
     justify-content: center;
     background: rgba(255,255,255,0.06);
-    border: 1px solid var(--glass-border);
+    border: 1px solid var(--color-glass-border);
     border-radius: 4px;
     padding: 2px 8px;
     font-size: 11px;
     font-weight: 700;
     font-family: monospace;
-    color: var(--accent-light);
+    color: var(--color-accent-light);
     min-width: 28px;
 }
 
@@ -263,8 +236,9 @@ code, pre, .token-code, .mono {
     top: 0;
     z-index: 10;
     background: rgba(10,10,26,0.95);
+    -webkit-backdrop-filter: blur(12px);
     backdrop-filter: blur(12px);
-    border-bottom: 1px solid var(--glass-border);
+    border-bottom: 1px solid var(--color-glass-border);
     margin: -16px -16px 16px;
     padding: 12px 16px;
     border-radius: 0;
@@ -292,7 +266,7 @@ code, pre, .token-code, .mono {
 .circular-progress .progress-pct {
     font-size: 11px;
     font-weight: 700;
-    color: var(--text-secondary);
+    color: var(--color-text-secondary);
 }
 
 /* ===== Reduced Motion ===== */
@@ -317,8 +291,9 @@ code, pre, .token-code, .mono {
     right: 0;
     z-index: 9997;
     background: rgba(10,10,22,0.95);
+    -webkit-backdrop-filter: blur(16px);
     backdrop-filter: blur(16px);
-    border-top: 1px solid var(--glass-border);
+    border-top: 1px solid var(--color-glass-border);
     padding: 12px 16px;
     gap: 10px;
     align-items: center;
@@ -328,7 +303,7 @@ code, pre, .token-code, .mono {
 .mobile-bottom-bar .bottom-bar-count {
     font-size: 13px;
     font-weight: 600;
-    color: var(--text-secondary);
+    color: var(--color-text-secondary);
     white-space: nowrap;
 }
 .mobile-bottom-bar .bottom-bar-actions {

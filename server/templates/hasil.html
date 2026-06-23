@@ -5,13 +5,15 @@
  <meta name="viewport" content="width=device-width, initial-scale=1.0">
  <title>EXAMVAN - Hasil Ujian {{ exam_name }}</title>
  <meta name="description" content="Lihat hasil ujian {{ exam_name }} - EXAMVAN">
+ <link rel="stylesheet" href="{{ url_for('static', filename='css/theme.css') }}?v={{ version }}">
  <link rel="stylesheet" href="{{ url_for('static', filename='css/hasil.css') }}?v={{ version }}">
  <link rel="icon" type="image/png" href="/static/favicon.png">
  <script src="{{ url_for('static', filename='js/admin-core.js') }}?v={{ version }}" defer></script>
 </head>
 <body>
+ <a href="#main-content" class="skip-link" style="position:absolute;top:-100px;left:8px;z-index:9999;padding:12px 20px;background:var(--color-primary, #6366f1);color:white;border-radius:8px;font-weight:600;text-decoration:none;transition:top 0.2s;">Langsung ke konten</a>
  <!-- Heroicons Sprite -->
- <svg xmlns="http://www.w3.org/2000/svg" style="display:none;">
+ <svg xmlns="http://www.w3.org/2000/svg" style="display:none;" aria-hidden="true">
   <symbol id="hi-results" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M3 13.125C3 12.504 3.504 12 4.125 12h2.25c.621 0 1.125.504 1.125 1.125v6.75C7.5 20.496 6.996 21 6.375 21h-2.25A1.125 1.125 0 0 1 3 19.875v-6.75ZM9.75 8.625c0-.621.504-1.125 1.125-1.125h2.25c.621 0 1.125.504 1.125 1.125v11.25c0 .621-.504 1.125-1.125 1.125h-2.25a1.125 1.125 0 0 1-1.125-1.125V8.625ZM16.5 4.125c0-.621.504-1.125 1.125-1.125h2.25C20.496 3 21 3.504 21 4.125v15.75c0 .621-.504 1.125-1.125 1.125h-2.25a1.125 1.125 0 0 1-1.125-1.125V4.125Z"/></symbol>
   <symbol id="hi-key" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M15.75 5.25a3 3 0 0 1 3 3m3 0a6 6 0 0 1-7.029 5.912c-.563-.097-1.159.026-1.563.43L10.5 17.25H8.25v2.25H6v2.25H2.25v-2.818c0-.597.237-1.17.659-1.591l6.499-6.499c.404-.404.527-1 .43-1.563A6 6 0 1 1 21.75 8.25Z"/></symbol>
   <symbol id="hi-users" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M15 19.128a9.38 9.38 0 0 0 2.625.372 9.337 9.337 0 0 0 4.121-.952 4.125 4.125 0 0 0-7.533-2.493M15 19.128v-.003c0-1.113-.285-2.16-.786-3.07M15 19.128v.106A12.318 12.318 0 0 1 8.624 21c-2.331 0-4.512-.645-6.374-1.766l-.001-.109a6.375 6.375 0 0 1 11.964-3.07M12 6.375a3.375 3.375 0 1 1-6.75 0 3.375 3.375 0 0 1 6.75 0Zm8.25 2.25a2.625 2.625 0 1 1-5.25 0 2.625 2.625 0 0 1 5.25 0Z"/></symbol>
@@ -36,7 +38,7 @@
  </div>
  </header>
 
- <main class="main">
+ <main class="main" id="main-content">
  <!-- Exam Hero -->
  <section class="exam-hero">
  <h1 id="examTitle">{{ exam_name }}</h1>
@@ -63,12 +65,12 @@
  <section class="glass-card" style="padding: 60px 40px; text-align: center; margin-top: 24px; border: 1px solid rgba(239, 68, 68, 0.15); background: rgba(239, 68, 68, 0.02);">
  <div style="font-size: 3.5rem; margin-bottom: 20px; filter: drop-shadow(0 0 10px rgba(239,68,68,0.3));" aria-hidden="true">🔒</div>
  <h2 style="font-size: 1.6rem; font-weight: 800; color: #f8fafc; margin-bottom: 12px; font-family: 'Inter', sans-serif;">Halaman Hasil Dinonaktifkan</h2>
- <p style="color: var(--text-secondary); max-width: 520px; margin: 0 auto 28px auto; line-height: 1.7; font-size: 0.95rem;">
+ <p style="color: var(--color-text-secondary); max-width: 520px; margin: 0 auto 28px auto; line-height: 1.7; font-size: 0.95rem;">
  Halaman hasil ujian untuk siswa pada ujian ini telah dinonaktifkan oleh Guru / Admin yang bersangkutan.
  Silakan hubungi pihak sekolah untuk mendapatkan informasi nilai Anda.
  </p>
  <div style="display: inline-flex; justify-content: center; width: 100%;">
- <a href="{{ url_for('admin_login') }}" style="background: linear-gradient(135deg, var(--primary), var(--accent-violet)); color: white; padding: 12px 28px; border-radius: 12px; font-weight: 600; text-decoration: none; display: inline-flex; align-items: center; gap: 8px; box-shadow: 0 4px 20px rgba(99, 102, 241, 0.25); transition: all 0.3s;">
+ <a href="{{ url_for('admin_login') }}" style="background: linear-gradient(135deg, var(--color-primary), var(--color-accent)); color: white; padding: 12px 28px; border-radius: 12px; font-weight: 600; text-decoration: none; display: inline-flex; align-items: center; gap: 8px; box-shadow: 0 4px 20px rgba(99, 102, 241, 0.25); transition: all 0.3s;">
  <span aria-hidden="true">🔑</span> Login Webapp Admin
  </a>
  </div>
@@ -128,7 +130,7 @@
  <h3 style="font-size: 1.1rem; font-weight: 700; margin-bottom: 8px; color: #a5b4fc; display: flex; align-items: center; gap: 8px;">
  <svg class="icon-svg" style="vertical-align:middle;"><use href="#hi-key"/></svg> Kunci Jawaban Resmi
  </h3>
- <p style="font-size: 0.8rem; color: var(--text-muted); margin-bottom: 20px;">
+ <p style="font-size: 0.8rem; color: var(--color-text-muted); margin-bottom: 20px;">
  Berikut adalah kunci jawaban resmi untuk setiap butir soal pada ujian ini.
  </p>
  <div class="keys-grid" id="keysGrid" style="display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 12px;">
@@ -159,7 +161,7 @@
 
  <script>
  // ===== State =====
- const EXAM_TOKEN = '{{ token }}';
+ const EXAM_TOKEN = {{ token | tojson }};
  const isLoggedIn = {{ 'true' if is_logged_in else 'false' }};
  const isDisabled = {{ 'true' if is_disabled else 'false' }};
  const showAnswersFromServer = {{ 'true' if show_answers else 'false' }};
@@ -319,11 +321,11 @@
  </td>
  <td data-label="No. Ujian"><span class="student-number">${escapeHtml(sub.exam_number)}</span></td>
  <td data-label="Kelas">${escapeHtml(sub.student_class)}</td>
- <td data-label="Durasi" style="text-align: center; font-size: 0.85rem; color: var(--text-secondary);">${durationStr}</td>
+ <td data-label="Durasi" style="text-align: center; font-size: 0.85rem; color: var(--color-text-secondary);">${durationStr}</td>
  <td data-label="Nilai" style="text-align: center;">
  <span class="score-badge ${scoreClass}">${scoreDisplay}</span>
  </td>
- <td data-label="Kumpul" style="text-align: center; font-size: 0.8rem; color: var(--text-secondary);">${submitTime}</td>
+ <td data-label="Kumpul" style="text-align: center; font-size: 0.8rem; color: var(--color-text-secondary);">${submitTime}</td>
  <td data-label="" style="text-align: center;">
  <span class="expand-icon">▼</span>
  </td>
@@ -368,7 +370,7 @@
  // ===== Build Detail Content =====
  function buildDetailContent(sub) {
  if (questionsData.length === 0) {
- return '<div style="color: var(--text-muted); text-align: center; padding: 16px;">Tidak ada konfigurasi soal untuk ujian ini.</div>';
+ return '<div style="color: var(--color-text-muted); text-align: center; padding: 16px;">Tidak ada konfigurasi soal untuk ujian ini.</div>';
  }
 
  const shouldHideStudentAnswers = !isLoggedIn && !showCorrectAnswers;
@@ -425,7 +427,7 @@
  const durationStr = getDurationString(sub.start_time, sub.created_at);
 
  return `
- <div class="detail-time-info" style="margin-bottom: 12px; font-size: 0.82rem; color: var(--text-secondary); background: rgba(255,255,255,0.02); border: 1px solid rgba(255,255,255,0.05); padding: 10px 14px; border-radius: 8px; display: flex; flex-wrap: wrap; justify-content: space-between; gap: 8px;">
+ <div class="detail-time-info" style="margin-bottom: 12px; font-size: 0.82rem; color: var(--color-text-secondary); background: rgba(255,255,255,0.02); border: 1px solid rgba(255,255,255,0.05); padding: 10px 14px; border-radius: 8px; display: flex; flex-wrap: wrap; justify-content: space-between; gap: 8px;">
  <span><span aria-hidden="true">⏱️</span> <strong>Mulai:</strong> ${startTimeStr}</span>
  <span><span aria-hidden="true">📤</span> <strong>Kumpul:</strong> ${endTimeStr}</span>
  <span><span aria-hidden="true">⏳</span> <strong>Durasi Kerja:</strong> <strong style="color: var(--accent-cyan);">${durationStr}</strong></span>
@@ -443,12 +445,12 @@
  </div>
  <div style="display:flex; justify-content:space-between; align-items:center; margin-top:16px; padding-top:12px; border-top:1px solid rgba(255,255,255,0.06); flex-wrap: wrap; gap: 8px;">
  <div style="display:flex; gap:16px; font-size:0.8rem;">
- <span style="color:var(--success);"><span aria-hidden="true">✔</span> Benar: ${correctCount}</span>
- <span style="color:var(--warning);"><span aria-hidden="true">⚠</span> Parsial: ${partialCount}</span>
- <span style="color:var(--danger);"><span aria-hidden="true">✘</span> Salah: ${incorrectCount}</span>
+ <span style="color:var(--color-success);"><span aria-hidden="true">✔</span> Benar: ${correctCount}</span>
+ <span style="color:var(--color-warning);"><span aria-hidden="true">⚠</span> Parsial: ${partialCount}</span>
+ <span style="color:var(--color-danger);"><span aria-hidden="true">✘</span> Salah: ${incorrectCount}</span>
  </div>
  <div class="detail-score-summary">
- <span style="color:var(--text-muted); font-size:0.8rem;">Total:</span>
+ <span style="color:var(--color-text-muted); font-size:0.8rem;">Total:</span>
  <span class="score-badge ${getScoreClass(totalEarned, totalMax)}" style="font-size:0.9rem;">
  ${totalEarned.toFixed(1)} / ${totalMax.toFixed(1)}
  </span>
@@ -476,7 +478,7 @@
  grid.innerHTML = '';
 
  if (questionsData.length === 0) {
- grid.innerHTML = '<div style="color: var(--text-muted); padding: 20px; text-align: center; grid-column: 1/-1;">Tidak ada kunci jawaban dikonfigurasi.</div>';
+ grid.innerHTML = '<div style="color: var(--color-text-muted); padding: 20px; text-align: center; grid-column: 1/-1;">Tidak ada kunci jawaban dikonfigurasi.</div>';
  return;
  }
 
@@ -498,12 +500,12 @@
  item.innerHTML = `
  <div style="display: flex; justify-content: space-between; align-items: center;">
  <span style="font-weight: 800; font-size: 1rem; color: #a5b4fc; background: rgba(99, 102, 241, 0.15); padding: 4px 10px; border-radius: 8px;">Soal ${q.number}</span>
- <span style="font-size: 0.7rem; color: var(--text-muted); background: rgba(255,255,255,0.04); padding: 3px 8px; border-radius: 6px;">Bobot: ${q.weight || 1.0}</span>
+ <span style="font-size: 0.7rem; color: var(--color-text-muted); background: rgba(255,255,255,0.04); padding: 3px 8px; border-radius: 6px;">Bobot: ${q.weight || 1.0}</span>
  </div>
- <div style="font-size: 0.72rem; color: var(--text-muted); font-weight: 500;">${typeLabel}</div>
+ <div style="font-size: 0.72rem; color: var(--color-text-muted); font-weight: 500;">${typeLabel}</div>
  <div style="margin-top: 4px;">
- <div style="font-size: 0.72rem; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.5px; font-weight: 700;">Kunci Jawaban:</div>
- <div style="font-size: 0.95rem; font-weight: 700; color: var(--success); margin-top: 4px; word-break: break-all;">${correctDisplay}</div>
+ <div style="font-size: 0.72rem; color: var(--color-text-muted); text-transform: uppercase; letter-spacing: 0.5px; font-weight: 700;">Kunci Jawaban:</div>
+ <div style="font-size: 0.95rem; font-weight: 700; color: var(--color-success); margin-top: 4px; word-break: break-all;">${correctDisplay}</div>
  </div>
  `;
  grid.appendChild(item);
@@ -540,7 +542,7 @@
  }
 
  function formatAnswer(val) {
- if (val === undefined || val === null) return '<span style="color:var(--text-muted);">—</span>';
+ if (val === undefined || val === null) return '<span style="color:var(--color-text-muted);">—</span>';
  if (Array.isArray(val)) return escapeHtml(val.join(', '));
  if (typeof val === 'object') return escapeHtml(Object.entries(val).map(([k,v]) => `${k}→${v}`).join(', '));
  return escapeHtml(String(val));

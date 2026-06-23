@@ -14,7 +14,7 @@ if (pdfInput) {
             const file = this.files[0];
             const sizeMB = (file.size / 1048576).toFixed(2);
             textEl.textContent = `${file.name} (${sizeMB} MB)`;
-            display.style.borderColor = 'var(--success)';
+            display.style.borderColor = 'var(--color-success)';
         } else {
             textEl.textContent = 'Pilih file PDF...';
             display.style.borderColor = '';
@@ -236,6 +236,7 @@ function regenerateToken(examId) {
 // Global modal state
 let activeExamId = null;
 let activeExamName = '';
+let pendingFetchId = 0; // For race condition guard
 
 // Warn before leaving if questions editor is open
 window.addEventListener('beforeunload', function(e) {
@@ -246,19 +247,23 @@ window.addEventListener('beforeunload', function(e) {
 });
 
 function openQuestionsModal(examId, examName) {
-    activeExamId = examId;
     activeExamName = examName;
     document.getElementById('modalTitle').textContent = `Atur Soal Ujian: ${examName}`;
     const container = document.getElementById('questionsList');
-    container.innerHTML = '<div style="color:var(--text-secondary); text-align:center; padding: 20px;">Memuat data soal...</div>';
-    
+    container.innerHTML = '<div style="color:var(--color-text-secondary); text-align:center; padding: 20px;">Memuat data soal...</div>';
+
     // Open modal first
     document.getElementById('questionsModal').style.display = 'flex';
-    
+
+    // Track fetch to prevent race condition
+    const fetchId = ++pendingFetchId;
+
     apiFetch(`/admin/api/exams/${examId}/questions`)
         .then(r => r.json())
         .then(res => {
+            if (fetchId !== pendingFetchId) return; // Stale response
             if (res.success) {
+                activeExamId = examId; // Set AFTER data loaded
                 const secSelect = document.getElementById('examSecurityLevel');
                 if (secSelect) {
                     secSelect.value = res.security_level || 'medium';
@@ -269,7 +274,10 @@ function openQuestionsModal(examId, examName) {
                 showToast(res.message || 'Gagal memuat soal', 'error');
             }
         })
-        .catch(() => showToast('Gagal memuat data soal', 'error'));
+        .catch(err => {
+            if (fetchId !== pendingFetchId) return; // Stale response
+            showToast('Gagal memuat data soal', 'error');
+        });
 }
 
 function closeQuestionsModal() {
@@ -336,11 +344,11 @@ function createNewQuestionCard(q, num) {
             </div>
             <div class="q-field-group">
                 <label>Kunci Jawaban</label>
-                <input type="text" class="q-key-input" value="${keyVal}" placeholder="Jawaban..." title="PG: A,B,C | Menjodohkan: 1:A,2:B">
+                <input type="text" class="q-key-input" value="${escapeHtml(keyVal)}" placeholder="Jawaban..." title="PG: A,B,C | Menjodohkan: 1:A,2:B">
             </div>
             <div class="q-field-group q-options-group" style="display: ${optionsVisibility};">
                 <label>Pilihan</label>
-                <input type="text" class="q-options-input" value="${optionsVal}" placeholder="A, B, C, D, E">
+                <input type="text" class="q-options-input" value="${escapeHtml(optionsVal)}" placeholder="A, B, C, D, E">
             </div>
         </div>
         <button class="btn-sm btn-delete btn-remove-q" onclick="removeQuestionCard(this)" title="Hapus Soal">🗑️</button>
@@ -571,7 +579,7 @@ function renderQuestions(questions) {
     container.innerHTML = '';
     
     if (!questions || questions.length === 0) {
-        container.innerHTML = '<div style="color:var(--text-muted); text-align:center; padding: 16px; font-size: 13px;">Tidak ada soal dikonfigurasi. Ujian akan tampil sebagai PDF saja tanpa overlay jawaban.</div>';
+        container.innerHTML = '<div style="color:var(--color-text-muted); text-align:center; padding: 16px; font-size: 13px;">Tidak ada soal dikonfigurasi. Ujian akan tampil sebagai PDF saja tanpa overlay jawaban.</div>';
         container.appendChild(createDivider(0));
         return;
     }
@@ -609,16 +617,16 @@ function renderIdentityFields(fields) {
 function addIdentityFieldRow(container, field, index) {
     const row = document.createElement('div');
     row.className = 'identity-field-row';
-    row.style.cssText = 'display:flex;align-items:center;gap:8px;margin-bottom:6px;padding:6px 8px;background:rgba(255,255,255,0.03);border:1px solid var(--glass-border);border-radius:8px;';
+    row.style.cssText = 'display:flex;align-items:center;gap:8px;margin-bottom:6px;padding:6px 8px;background:rgba(255,255,255,0.03);border:1px solid var(--color-glass-border);border-radius:8px;';
 
     row.innerHTML = `
-        <span style="font-size:11px;color:var(--text-muted);min-width:18px;">${index + 1}</span>
+        <span style="font-size:11px;color:var(--color-text-muted);min-width:18px;">${index + 1}</span>
         <input type="text" class="ifield-key" value="${escapeHtml(field.key)}" placeholder="key_name" title="Key (huruf kecil, tanpa spasi)"
-            style="flex:0 0 130px;padding:6px 8px;background:rgba(255,255,255,0.04);border:1px solid var(--glass-border);border-radius:6px;color:var(--text);font-size:12px;font-family:monospace;outline:none;">
+            style="flex:0 0 130px;padding:6px 8px;background:rgba(255,255,255,0.04);border:1px solid var(--color-glass-border);border-radius:6px;color:var(--color-text);font-size:12px;font-family:monospace;outline:none;">
         <input type="text" class="ifield-label" value="${escapeHtml(field.label || '')}" placeholder="Label tampilan" title="Label yang dilihat siswa"
-            style="flex:1;padding:6px 8px;background:rgba(255,255,255,0.04);border:1px solid var(--glass-border);border-radius:6px;color:var(--text);font-size:12px;outline:none;">
-        <label style="display:flex;align-items:center;gap:4px;font-size:11px;color:var(--text-muted);cursor:pointer;white-space:nowrap;">
-            <input type="checkbox" class="ifield-required" ${field.required ? 'checked' : ''} style="width:14px;height:14px;accent-color:var(--primary);cursor:pointer;"> *
+            style="flex:1;padding:6px 8px;background:rgba(255,255,255,0.04);border:1px solid var(--color-glass-border);border-radius:6px;color:var(--color-text);font-size:12px;outline:none;">
+        <label style="display:flex;align-items:center;gap:4px;font-size:11px;color:var(--color-text-muted);cursor:pointer;white-space:nowrap;">
+            <input type="checkbox" class="ifield-required" ${field.required ? 'checked' : ''} style="width:14px;height:14px;accent-color:var(--color-primary);cursor:pointer;"> *
         </label>
         <button class="btn-icon" onclick="this.closest('.identity-field-row').remove()" title="Hapus field" style="background:none;border:none;color:#f87171;cursor:pointer;padding:2px 4px;font-size:14px;">&#x2715;</button>
     `;
@@ -659,7 +667,8 @@ function onQuestionTypeChange(selectEl) {
         partialGroup.style.display = 'block';
     } else {
         partialGroup.style.display = 'none';
-        card.querySelector('.q-partial-checkbox').checked = false;
+        const partialCb = card.querySelector('.q-partial-checkbox');
+        if (partialCb) partialCb.checked = false;
     }
     
     if (type === 'true_false' || type === 'short_answer') {
@@ -941,7 +950,7 @@ function loadUsersList(page) {
     var url = '/admin/api/users?page=' + page + '&per_page=10';
     if (searchVal) url += '&search=' + encodeURIComponent(searchVal);
 
-    tbody.innerHTML = '<tr><td colspan="9" style="text-align:center; padding: 20px; color: var(--text-secondary);">⏳ Memuat...</td></tr>';
+    tbody.innerHTML = '<tr><td colspan="9" style="text-align:center; padding: 20px; color: var(--color-text-secondary);">⏳ Memuat...</td></tr>';
 
     apiFetch(url)
         .then(r => r.json())
@@ -951,7 +960,7 @@ function loadUsersList(page) {
                 tbody.innerHTML = '';
 
                 if (!Array.isArray(res.users) || res.users.length === 0) {
-                    tbody.innerHTML = '<tr><td colspan="9" style="text-align:center; padding: 40px; color: var(--text-secondary);">'
+                    tbody.innerHTML = '<tr><td colspan="9" style="text-align:center; padding: 40px; color: var(--color-text-secondary);">'
                         + (searchVal ? 'Tidak ditemukan user yang cocok dengan "' + escapeHtml(searchVal) + '"' : 'Belum ada user terdaftar')
                         + '</td></tr>';
                     renderUsersPagination(pagination, page);
@@ -971,7 +980,7 @@ function loadUsersList(page) {
                     const limitPdfMb = user.max_pdf_size ? (user.max_pdf_size / (1024*1024)).toFixed(1) + ' MB' : '—';
 
                     // Build action buttons for non-admin users
-                    var actionsHtml = '<span style="font-size:11px; color: var(--text-secondary);">—</span>';
+                    var actionsHtml = '<span style="font-size:11px; color: var(--color-text-secondary);">—</span>';
                     if (!isAdmin) {
                         var statusAction = user.status === 'active'
                             ? '<button class="btn-sm" onclick="toggleUserStatus(' + user.id + ', \'' + jsEscape(user.username) + '\')" title="Nonaktifkan user" style="font-size:11px;padding:0 8px;height:26px;background:rgba(245,158,11,0.15);border:1px solid rgba(245,158,11,0.3);color:#fbbf24;">⏸️</button>'
@@ -991,17 +1000,17 @@ function loadUsersList(page) {
 
                     tr.innerHTML = `
                         <td data-label="Username">
-                            <strong style="color: ${isAdmin ? 'var(--accent-light)' : 'var(--text-color)'};">
+                            <strong style="color: ${isAdmin ? 'var(--color-accent-light)' : 'var(--color-text)'};">
                                 ${isAdmin ? '👑 ' : ''}${escapeHtml(user.username)}
                             </strong>
-                            ${isAdmin ? '<span style="font-size:11px; color: var(--text-secondary); display:block;">Super Admin</span>' : ''}
+                            ${isAdmin ? '<span style="font-size:11px; color: var(--color-text-secondary); display:block;">Super Admin</span>' : ''}
                         </td>
                         <td data-label="WhatsApp">${escapeHtml(user.whatsapp_number || '—')}</td>
                         <td data-label="Status" style="text-align:center;">${statusBadge}</td>
                         <td data-label="Ujian" style="text-align:center;">${user.exam_count ?? 0}</td>
                         <td data-label="Limit Ujian" style="text-align:center;">${user.max_exams ?? '—'}</td>
                         <td data-label="Limit PDF" style="text-align:center;">${limitPdfMb}</td>
-                        <td data-label="Masa Aktif" style="font-size:12px; color:var(--text-secondary);">${expiresAt}</td>
+                        <td data-label="Masa Aktif" style="font-size:12px; color:var(--color-text-secondary);">${expiresAt}</td>
                         <td data-label="Terdaftar" class="td-date">${createdAt}</td>
                         <td data-label="Aksi" style="text-align:right;">${actionsHtml}</td>
                     `;
@@ -1030,7 +1039,7 @@ function renderUsersPagination(pagination, currentPage) {
     container.style.cssText = 'display:flex;justify-content:space-between;align-items:center;padding:16px 0 0 0;flex-wrap:wrap;gap:12px;';
 
     var info = document.createElement('span');
-    info.style.cssText = 'font-size:13px;color:var(--text-muted);';
+    info.style.cssText = 'font-size:13px;color:var(--color-text-muted);';
     info.textContent = 'Menampilkan ' + pagination.total + ' user';
     container.appendChild(info);
 
@@ -1040,7 +1049,7 @@ function renderUsersPagination(pagination, currentPage) {
     // Prev button
     var prev = document.createElement('a');
     prev.href = '#';
-    prev.style.cssText = 'padding:8px 12px;border-radius:8px;font-size:13px;font-weight:600;background:rgba(255,255,255,0.04);border:1px solid var(--glass-border);color:var(--text-secondary);text-decoration:none;display:inline-flex;align-items:center;min-height:40px;' + (currentPage <= 1 ? 'opacity:0.4;pointer-events:none;' : '');
+    prev.style.cssText = 'padding:8px 12px;border-radius:8px;font-size:13px;font-weight:600;background:rgba(255,255,255,0.04);border:1px solid var(--color-glass-border);color:var(--color-text-secondary);text-decoration:none;display:inline-flex;align-items:center;min-height:40px;' + (currentPage <= 1 ? 'opacity:0.4;pointer-events:none;' : '');
     prev.textContent = '◀ Sebelumnya';
     prev.onclick = function(e) { e.preventDefault(); loadUsersList(currentPage - 1); };
     pagesDiv.appendChild(prev);
@@ -1050,7 +1059,8 @@ function renderUsersPagination(pagination, currentPage) {
         if (p >= currentPage - 2 && p <= currentPage + 2) {
             var pageLink = document.createElement('a');
             pageLink.href = '#';
-            pageLink.style.cssText = 'padding:8px 12px;border-radius:8px;font-size:13px;font-weight:' + (p === currentPage ? '800' : '600') + ';text-decoration:none;display:inline-flex;align-items:center;min-height:40px;min-width:36px;justify-content:center;' + (p === currentPage ? 'background:rgba(99,102,241,0.2);color:#a5b4fc;border:1px solid rgba(99,102,241,0.4);' : 'background:rgba(255,255,255,0.03);color:var(--text-secondary);border:1px solid transparent;');
+            if (p === currentPage) pageLink.className = 'page-current';
+            pageLink.style.cssText = 'padding:8px 12px;border-radius:8px;font-size:13px;font-weight:' + (p === currentPage ? '800' : '600') + ';text-decoration:none;display:inline-flex;align-items:center;min-height:40px;min-width:36px;justify-content:center;' + (p === currentPage ? 'background:rgba(99,102,241,0.2);color:#a5b4fc;border:1px solid rgba(99,102,241,0.4);' : 'background:rgba(255,255,255,0.03);color:var(--color-text-secondary);border:1px solid transparent;');
             pageLink.textContent = String(p);
             pageLink.onclick = (function(pg) { return function(e) { e.preventDefault(); loadUsersList(pg); }; })(p);
             pagesDiv.appendChild(pageLink);
@@ -1060,7 +1070,7 @@ function renderUsersPagination(pagination, currentPage) {
     // Next button
     var next = document.createElement('a');
     next.href = '#';
-    next.style.cssText = 'padding:8px 12px;border-radius:8px;font-size:13px;font-weight:600;background:rgba(255,255,255,0.04);border:1px solid var(--glass-border);color:var(--text-secondary);text-decoration:none;display:inline-flex;align-items:center;min-height:40px;' + (currentPage >= pagination.total_pages ? 'opacity:0.4;pointer-events:none;' : '');
+    next.style.cssText = 'padding:8px 12px;border-radius:8px;font-size:13px;font-weight:600;background:rgba(255,255,255,0.04);border:1px solid var(--color-glass-border);color:var(--color-text-secondary);text-decoration:none;display:inline-flex;align-items:center;min-height:40px;' + (currentPage >= pagination.total_pages ? 'opacity:0.4;pointer-events:none;' : '');
     next.textContent = 'Berikutnya ▶';
     next.onclick = function(e) { e.preventDefault(); loadUsersList(currentPage + 1); };
     pagesDiv.appendChild(next);
@@ -1075,7 +1085,7 @@ function localizeDates() {
     document.querySelectorAll('.td-date').forEach(el => {
         const rawDate = el.dataset.utc;
         if (rawDate) {
-            if (!el.dataset.utc) el.dataset.utc = rawDate;
+            el.dataset.utc = rawDate;
             el.textContent = localizeUTC(rawDate);
         }
     });
@@ -1140,7 +1150,7 @@ function getCurrentUsersPage() {
     var pagEl = document.getElementById('usersPagination');
     if (pagEl) {
         // Try to extract current page from pagination info
-        var activePage = pagEl.querySelector('a[style*="background:rgba(99,102,241,0.2)"]');
+        var activePage = pagEl.querySelector('a.page-current');
         if (activePage) return parseInt(activePage.textContent) || 1;
     }
     return 1;
@@ -1391,6 +1401,8 @@ document.addEventListener('click', function(e) {
             closeEditTokenModal();
         } else if (modalId === 'detailModal') {
             closeDetailModal();
+        } else if (modalId === 'manageUsersModal') {
+            closeManageUsersModal();
         } else {
             overlay.style.display = 'none';
         }
@@ -1706,7 +1718,7 @@ function handleEditFileChange(input) {
         const file = input.files[0];
         const sizeMB = (file.size / 1048576).toFixed(2);
         textEl.textContent = `${file.name} (${sizeMB} MB)`;
-        display.style.borderColor = 'var(--warning)';
+        display.style.borderColor = 'var(--color-warning)';
     } else {
         textEl.textContent = 'Pilih file PDF baru jika ingin merubah...';
         display.style.borderColor = '';
@@ -1808,8 +1820,17 @@ function toggleRowDropdown(event, examId) {
 document.addEventListener('click', function(event) {
     const clickedBtn = event.target.closest('.btn-more');
     const clickedDropdown = event.target.closest('.exam-action-dropdown-content');
-    
+
     if (!clickedBtn && !clickedDropdown) {
+        document.querySelectorAll('.exam-action-dropdown-content').forEach(d => {
+            d.classList.remove('show');
+        });
+    }
+});
+
+// Close dropdowns with Escape key
+document.addEventListener('keydown', function(event) {
+    if (event.key === 'Escape') {
         document.querySelectorAll('.exam-action-dropdown-content').forEach(d => {
             d.classList.remove('show');
         });
@@ -1866,15 +1887,7 @@ async function bulkDeleteExams() {
     if (checkboxes.length === 0) return;
 
     const ids = Array.from(checkboxes).map(cb => parseInt(cb.value));
-    const names = Array.from(checkboxes).map(cb => cb.getAttribute('data-name'));
-
-    const confirmed = await showConfirm(
-        `Hapus ${ids.length} ujian terpilih?`,
-        names.join('\n'),
-        'Ya, Hapus Semua',
-        'Batal'
-    );
-    if (!confirmed) return;
+    // Confirmation already handled by confirmBulkDelete() in template
 
     try {
         const response = await apiFetch('/admin/exams/bulk-delete', {
@@ -1899,16 +1912,6 @@ async function bulkDeleteExams() {
 
 // ===== Lost Functions (recovered from template inline scripts) =====
 
-function switchMethod(method) {
-    const pdfBtn = document.getElementById('methodPdfBtn');
-    const pdfForm = document.getElementById('methodPdfForm');
-    if (!pdfBtn || !pdfForm) return;
-
-    if (method === 'pdf') {
-        pdfBtn.classList.add('active');
-        pdfForm.style.display = 'block';
-    }
-}
 
 function filterSubmissions() {
     const filterVal = document.getElementById('filterExam').value;
@@ -2099,7 +2102,7 @@ var activeSubmissionId = null;
 function showSubmissionDetail(id) {
     activeSubmissionId = id;
     const container = document.getElementById('detailAnswersContainer');
-    container.innerHTML = '<div style="color:var(--text-secondary); text-align:center; padding: 20px;">Memuat detail jawaban...</div>';
+    container.innerHTML = '<div style="color:var(--color-text-secondary); text-align:center; padding: 20px;">Memuat detail jawaban...</div>';
     document.getElementById('detailStudentName').textContent = '...';
     document.getElementById('detailStudentClass').textContent = '...';
 
@@ -2126,7 +2129,7 @@ function showSubmissionDetail(id) {
             const evaluated = res.evaluated_answers || {};
 
             if (questions.length === 0) {
-                container.innerHTML = '<div style="color:var(--text-muted); text-align:center; padding: 20px;">Tidak ada konfigurasi soal untuk ujian ini.</div>';
+                container.innerHTML = '<div style="color:var(--color-text-muted); text-align:center; padding: 20px;">Tidak ada konfigurasi soal untuk ujian ini.</div>';
                 return;
             }
 

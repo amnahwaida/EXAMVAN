@@ -2,6 +2,7 @@
 {% block title %}Dashboard{% endblock %}
 {% block content %}
 <main class="dashboard">
+ <h1 class="sr-only" style="position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0;">Dashboard Admin</h1>
  <!-- Stats Cards -->
  <section class="stats-grid" id="statsGrid">
  <div class="stat-card stat-total">
@@ -11,7 +12,7 @@
  <span class="stat-label">Total Ujian</span>
  </div>
  {% if search_active %}
- <div style="font-size:10px; color:var(--warning); margin-top:4px; text-align:center;">difilter</div>
+ <div style="font-size:10px; color:var(--color-warning); margin-top:4px; text-align:center;">difilter</div>
  {% endif %}
  </div>
  <div class="stat-card stat-active">
@@ -121,18 +122,19 @@
  <h3><svg class="icon-svg" style="vertical-align:middle;margin-top:-2px;"><use href="#hi-dashboard"/></svg> Daftar Ujian</h3>
  <div style="display: flex; gap: 8px; align-items: center; flex-wrap: wrap;">
  <!-- Status Filter Dropdown -->
- <select id="statusFilter" onchange="searchExamsWithStatus()" style="padding:8px 12px;background:rgba(255,255,255,0.04);border:1px solid var(--glass-border);border-radius:8px;color:var(--text);outline:none;font-size:13px;cursor:pointer;min-height:40px;" aria-label="Filter status ujian">
+ <select id="statusFilter" onchange="searchExamsWithStatus()" style="padding:8px 12px;background:rgba(255,255,255,0.04);border:1px solid var(--color-glass-border);border-radius:8px;color:var(--color-text);outline:none;font-size:13px;cursor:pointer;min-height:40px;" aria-label="Filter status ujian">
   <option value="">Semua Status</option>
   <option value="active"{% if request.args.get('status') == 'active' %} selected{% endif %}>Aktif</option>
   <option value="inactive"{% if request.args.get('status') == 'inactive' %} selected{% endif %}>Nonaktif</option>
  </select>
  <div style="position: relative; display: inline-block;">
+ <label for="searchExam" style="position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0;">Cari ujian</label>
  <input type="text" id="searchExam" placeholder="Cari nama, token, atau pembuat..." value="{{ search }}"
- style="padding: 8px 32px 8px 14px; background: rgba(255,255,255,0.04); border: 1px solid var(--glass-border); border-radius: 8px; color: var(--text); outline: none; font-size: 13px; width: 220px; transition: border-color 0.2s;"
+ style="padding: 8px 32px 8px 14px; background: rgba(255,255,255,0.04); border: 1px solid var(--color-glass-border); border-radius: 8px; color: var(--color-text); outline: none; font-size: 13px; width: 220px; transition: border-color 0.2s;"
  onkeyup="if(event.key==='Enter') searchExams()"
- onfocus="this.style.borderColor='var(--primary)'" onblur="this.style.borderColor=''"
+ onfocus="this.style.borderColor='var(--color-primary)'" onblur="this.style.borderColor=''"
  oninput="debounceSearch(); var c=this.nextElementSibling; if(c)c.style.display=this.value?'flex':'none'">
- <button id="searchClearBtn" onclick="clearSearch()" style="display:{{ 'flex' if search else 'none' }}; position:absolute; right:4px; top:50%; transform:translateY(-50%); background:none; border:none; color:var(--text-muted); cursor:pointer; padding:4px; font-size:14px; width:24px; height:24px; align-items:center; justify-content:center;" title="Hapus pencarian" aria-label="Hapus pencarian">&#x2715;</button>
+ <button id="searchClearBtn" onclick="clearSearch()" style="display:{{ 'flex' if search else 'none' }}; position:absolute; right:4px; top:50%; transform:translateY(-50%); background:none; border:none; color:var(--color-text-muted); cursor:pointer; padding:4px; font-size:14px; width:24px; height:24px; align-items:center; justify-content:center;" title="Hapus pencarian" aria-label="Hapus pencarian">&#x2715;</button>
  </div>
  <button class="btn-sm btn-toggle btn-sm-compact" onclick="searchExams()" style="padding: 0 12px;" title="Cari ujian"><svg class="icon-svg"><use href="#hi-search"/></svg> Cari</button>
  <button class="btn-sm btn-questions btn-sm-compact" onclick="copyAllTokens()" title="Salin Semua Token"><svg class="icon-svg"><use href="#hi-copy"/></svg> Salin Token</button>
@@ -175,16 +177,16 @@
  {% for exam in exams %}
  <tr id="exam-row-{{ exam.id }}">
  <td data-label="">
- <input type="checkbox" class="exam-checkbox" value="{{ exam.id }}" data-name="{{ exam.name }}" data-status="{{ exam.status }}" onchange="updateBulkActions()" class="exam-checkbox-input">
+ <input type="checkbox" class="exam-checkbox exam-checkbox-input" value="{{ exam.id }}" data-name="{{ exam.name }}" data-status="{{ exam.status }}" onchange="updateBulkActions()">
  </td>
- <td class="td-id" data-label="No" style="text-align: center; color: var(--text-muted);">{{ loop.index }}</td>
+ <td class="td-id" data-label="No" style="text-align: center; color: var(--color-text-muted);">{{ loop.index }}</td>
  <td class="td-name" data-label="Ujian"><a href="{{ url_for('admin_submissions') }}?exam_id={{ exam.id }}" class="exam-link" title="Lihat Hasil Ujian">{{ exam.name }}</a></td>
  {% if admin_user == 'admin' %}
  <td data-label="Pembuat"><span style="font-weight: 600; color: var(--accent-light);">{{ exam.creator_name or 'admin' }}</span></td>
  {% endif %}
  <td class="td-token" data-label="Token">
  <div class="token-group">
- <code class="token-code" id="token-{{ exam.id }}" data-token="{{ exam.token }}" onclick="copyToken(this.dataset.token)" title="Klik untuk Salin Token">{{ exam.token or '—' }}</code>
+ <code class="token-code" id="token-{{ exam.id }}" data-token="{{ exam.token }}" onclick="copyToken(this.dataset.token)" title="Klik untuk Salin Token" tabindex="0" role="button" onkeydown="if(event.key==='Enter'||event.key===' ') { event.preventDefault(); copyToken(this.dataset.token); }">{{ exam.token or '—' }}</code>
  <button class="btn-icon btn-regen" onclick="regenerateToken({{ exam.id }})" title="Generate Token Baru" aria-label="Generate token baru">&#x1F504;</button>
  <button class="btn-icon btn-edit" data-exam-id="{{ exam.id }}" data-token="{{ exam.token }}" onclick="openEditTokenModal(this.dataset.examId, this.dataset.token)" title="Ubah Token Kustom" aria-label="Ubah token">&#x270F;&#xFE0F;</button>
  <button class="btn-icon btn-copy-link" data-token="{{ exam.token }}" onclick="copyResultsLink(this.dataset.token)" title="Salin Link Hasil Ujian (Siswa)" aria-label="Salin link hasil">&#x1F517;</button>
@@ -252,7 +254,7 @@
  <!-- Pagination -->
  {% if total_pages > 1 %}
  <div style="display: flex; justify-content: space-between; align-items: center; padding: 16px 0 0 0; flex-wrap: wrap; gap: 12px;">
- <span style="font-size: 13px; color: var(--text-muted);">Menampilkan {{ exams|length }} dari {{ total_exams }} ujian</span>
+ <span style="font-size: 13px; color: var(--color-text-muted);">Menampilkan {{ exams|length }} dari {{ total_exams }} ujian</span>
  <div style="display: flex; gap: 6px; align-items: center;">
  <a href="?page={{ page-1 }}{% if search %}&search={{ search|urlencode }}{% endif %}" class="btn-sm btn-toggle page-link-main {% if page <= 1 %}disabled{% endif %}">&#x25C0; Sebelumnya</a>
 
@@ -284,7 +286,7 @@
  <svg class="icon-svg" style="width:20px;height:20px;"><use href="#hi-lock"/></svg>
  <div>
  <div style="font-weight: 600; color: var(--text-primary); font-size: 0.95rem;">Mode Keamanan Ujian (Android)</div>
- <div style="font-size: 0.8rem; color: var(--text-muted);">Menentukan apakah siswa bisa keluar aplikasi saat ujian berlangsung.</div>
+ <div style="font-size: 0.8rem; color: var(--color-text-muted);">Menentukan apakah siswa bisa keluar aplikasi saat ujian berlangsung.</div>
  </div>
  </div>
  <div>
@@ -303,7 +305,7 @@
  <svg class="icon-svg" style="width:18px;height:18px;"><use href="#hi-users"/></svg>
  <div>
  <div style="font-weight: 600; color: var(--text-primary); font-size: 0.9rem;">Identitas Siswa</div>
- <div style="font-size: 0.75rem; color: var(--text-muted);">Data yang wajib diisi siswa sebelum memulai ujian di Android.</div>
+ <div style="font-size: 0.75rem; color: var(--color-text-muted);">Data yang wajib diisi siswa sebelum memulai ujian di Android.</div>
  </div>
  </div>
  <button class="btn-sm btn-questions" onclick="addIdentityField()" style="height: 30px; font-size: 12px;">➕ Tambah Field</button>
@@ -311,7 +313,7 @@
  <div id="identityFieldsList">
  <!-- Fields rendered by JS -->
  </div>
- <div style="margin-top: 8px; font-size: 0.75rem; color: var(--text-muted); text-align: right;">Field bertanda * wajib diisi siswa. Key harus unik (huruf kecil, tanpa spasi).</div>
+ <div style="margin-top: 8px; font-size: 0.75rem; color: var(--color-text-muted); text-align: right;">Field bertanda * wajib diisi siswa. Key harus unik (huruf kecil, tanpa spasi).</div>
  </div>
  <div class="questions-toolbar">
  <div class="inline-group">
