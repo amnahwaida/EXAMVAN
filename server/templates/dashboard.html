@@ -3,7 +3,7 @@
 {% block content %}
 <main class="dashboard">
  <!-- Stats Cards -->
- <section class="stats-grid">
+ <section class="stats-grid" id="statsGrid">
  <div class="stat-card stat-total">
  <div class="stat-icon"><svg class="icon-svg" style="width:24px;height:24px;"><use href="#hi-dashboard"/></svg></div>
  <div class="stat-info">
@@ -408,47 +408,6 @@ document.addEventListener('DOMContentLoaded', function() {
     }
 })();
 
-/* Copy token with visual feedback toast */
-function copyToken(token) {
-    navigator.clipboard.writeText(token).then(function() {
-        showToast('Token ' + token + ' disalin!', 'success');
-    }).catch(function() {
-        var ta = document.createElement('textarea');
-        ta.value = token;
-        ta.style.position = 'fixed';
-        ta.style.opacity = '0';
-        document.body.appendChild(ta);
-        ta.select();
-        document.execCommand('copy');
-        document.body.removeChild(ta);
-        showToast('Token ' + token + ' disalin!', 'success');
-    });
-}
-
-function copyResultsLink(token) {
-    var link = window.location.origin + '/hasil/' + token;
-    navigator.clipboard.writeText(link).then(function() {
-        showToast('Link hasil ujian disalin!', 'success');
-    }).catch(function() {
-        showToast('Link: ' + link, 'info');
-    });
-}
-
-function copyAllTokens() {
-    var codes = document.querySelectorAll('.token-code');
-    var tokens = [];
-    codes.forEach(function(el) {
-        var t = el.textContent.trim();
-        if (t && t !== '—') tokens.push(t);
-    });
-    if (tokens.length === 0) {
-        showToast('Tidak ada token untuk disalin', 'warning');
-        return;
-    }
-    navigator.clipboard.writeText(tokens.join('\n')).then(function() {
-        showToast(tokens.length + ' token disalin!', 'success');
-    });
-}
 </script>
 
 {% endblock %}

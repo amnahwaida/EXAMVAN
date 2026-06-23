@@ -10,7 +10,7 @@
  <select id="filterExam" onchange="filterSubmissions()" class="select-filter">
  <option value="">Semua Ujian</option>
  {% for exam in exams %}
- <option value="{{ exam.id }}" {% if exam_filter_param == exam.id %}selected{% endif %}>{{ exam.name }}</option>
+ <option value="{{ exam.id }}" {% if exam_filter_param|string == exam.id|string %}selected{% endif %}>{{ exam.name }}</option>
  {% endfor %}
  </select>
  <button class="btn-upload" onclick="exportSubmissions()"><svg class="icon-svg"><use href="#hi-download"/></svg> Export Excel/CSV</button>

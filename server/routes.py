@@ -17,7 +17,7 @@ from app import (
     check_exam_ownership, check_submission_ownership,
     get_network_info, get_storage_stats, safe_storage_path,
     STORAGE_DIR, MAX_FILE_SIZE, BASE_DIR,
-    DEFAULT_IDENTITY_FIELDS, ADMIN_USERNAME,
+    DEFAULT_IDENTITY_FIELDS, ADMIN_USERNAME, VERSION,
 )
 from helpers import (
     localize_date_string, format_iso_utc, get_local_ip,
@@ -48,7 +48,7 @@ def api_health():
     required_version = get_saas_setting('android_version', '2.1.9')
     return jsonify({
         'status': 'ok',
-        'version': '2.0',
+        'version': VERSION,
         'required_app_version': required_version,
         'lan_mode': True,
         'timestamp': now.isoformat(),
@@ -484,6 +484,7 @@ def verify_otp():
 
 
 @app.route('/resend-otp', methods=['POST'])
+@csrf_required
 def resend_otp():
     """Resend OTP code to user's registered WhatsApp number."""
     # Rate limit: max 3 resend requests per 10 minutes per IP

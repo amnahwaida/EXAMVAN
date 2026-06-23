@@ -1110,14 +1110,19 @@ function openEditUserModal(userId) {
             document.getElementById('editUserPdfSize').value = user.max_pdf_size ? (user.max_pdf_size / (1024*1024)).toFixed(1) : '1';
             document.getElementById('editUserWhatsapp').value = user.whatsapp_number || '';
 
-            // Set expiry date
+            // Set expiry date — convert UTC back to local timezone
             var expiresInput = document.getElementById('editUserExpiry');
             var expiresTimeInput = document.getElementById('editUserExpiryTime');
             if (user.expires_at) {
-                var expParts = user.expires_at.split(' ');
-                if (expParts.length >= 2) {
-                    expiresInput.value = expParts[0];
-                    expiresTimeInput.value = expParts[1].substring(0, 5);
+                var expDate = new Date(user.expires_at.replace(' ', 'T') + 'Z');
+                if (!isNaN(expDate.getTime())) {
+                    var localDate = expDate.getFullYear() + '-' +
+                        String(expDate.getMonth() + 1).padStart(2, '0') + '-' +
+                        String(expDate.getDate()).padStart(2, '0');
+                    var localTime = String(expDate.getHours()).padStart(2, '0') + ':' +
+                        String(expDate.getMinutes()).padStart(2, '0');
+                    expiresInput.value = localDate;
+                    expiresTimeInput.value = localTime;
                 } else {
                     expiresInput.value = '';
                     expiresTimeInput.value = '23:59';
