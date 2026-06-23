@@ -54,6 +54,7 @@ class ExamViewerActivity : AppCompatActivity() {
 
     // Exam & student info from Intent
     private var examId = -1
+    private var examToken = ""
     private var examName = ""
     private var studentName = ""
     private var studentNumber = ""
@@ -112,6 +113,7 @@ class ExamViewerActivity : AppCompatActivity() {
 
         // Read intent extras
         examId = intent.getIntExtra("exam_id", -1)
+        examToken = intent.getStringExtra("exam_token") ?: ""
         examName = intent.getStringExtra("exam_name") ?: "Ujian"
         studentName = intent.getStringExtra("student_name") ?: ""
         studentNumber = intent.getStringExtra("student_number") ?: ""
@@ -165,7 +167,7 @@ class ExamViewerActivity : AppCompatActivity() {
 
         // Retry button
         binding.btnRetryDownload.setOnClickListener {
-            downloadPdf(examId)
+            downloadPdf(examId, examToken)
         }
 
         binding.btnCancel.setOnClickListener {
@@ -213,7 +215,7 @@ class ExamViewerActivity : AppCompatActivity() {
 
         // Start download
         try {
-            downloadPdf(examId)
+            downloadPdf(examId, examToken)
         } catch (e: Exception) {
             showError("Gagal memulai unduhan: ${e.message}")
         }
@@ -580,7 +582,7 @@ class ExamViewerActivity : AppCompatActivity() {
         )
     }
 
-    private fun downloadPdf(examId: Int) {
+    private fun downloadPdf(examId: Int, token: String = "") {
         showDownloading()
 
         // Check cache first
@@ -595,6 +597,7 @@ class ExamViewerActivity : AppCompatActivity() {
 
         downloadCall = ApiClient.downloadPdf(
             examId = examId,
+            token = token,
             cacheDir = cacheDir,
             onProgress = { percent ->
                 runOnUiThread {

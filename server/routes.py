@@ -41,6 +41,13 @@ def success_response(data=None, message=None):
     return jsonify(resp)
 
 
+def _mask_token(token, visible_chars=4):
+    """Mask a token showing only the last N characters."""
+    if not token or len(token) <= visible_chars + 4:
+        return token
+    return '*' * (len(token) - visible_chars) + token[-visible_chars:]
+
+
 @app.route('/api/health')
 def api_health():
     """Health check endpoint."""
@@ -72,7 +79,7 @@ def api_exams():
     """Get list of active exams."""
     db = get_db()
     exams = db.execute(
-        'SELECT id, name, status, size_bytes, created_at '
+        'SELECT id, name, status, size_bytes, token, created_at '
         'FROM exams WHERE status = ? ORDER BY created_at DESC',
         ('active',)
     ).fetchall()
@@ -83,6 +90,7 @@ def api_exams():
             'id': exam['id'],
             'name': exam['name'],
             'status': exam['status'],
+            'token': exam['token'],
             'size_mb': round(exam['size_bytes'] / (1024 * 1024), 2),
             'created_at': format_iso_utc(exam['created_at'])
         })
@@ -230,18 +238,26 @@ def api_submit_exam(exam_id):
 
 @app.route('/api/exams/<int:exam_id>/pdf')
 def api_exam_pdf(exam_id):
-    """Stream PDF file for an exam."""
+    """Stream PDF file for an exam. Requires token query param to prevent probing."""
+    token_param = request.args.get('token', '').strip().upper()
+    if not token_param:
+        return jsonify({
+            'success': False,
+            'error': 'token_required',
+            'message': 'Parameter token diperlukan untuk mengakses file ujian'
+        }), 401
+
     db = get_db()
     exam = db.execute(
-        'SELECT * FROM exams WHERE id = ? AND status = ?',
-        (exam_id, 'active')
+        'SELECT * FROM exams WHERE id = ? AND status = ? AND token = ?',
+        (exam_id, 'active', token_param)
     ).fetchone()
 
     if not exam:
         return jsonify({
             'success': False,
             'error': 'exam_not_found',
-            'message': 'Ujian tidak tersedia atau sudah berakhir'
+            'message': 'Ujian tidak tersedia, sudah berakhir, atau token tidak valid'
         }), 404
 
     file_path = safe_storage_path(exam['file_path'])
@@ -490,12 +506,12 @@ def resend_otp():
     """Resend OTP code to user's registered WhatsApp number."""
     # Rate limit: max 3 resend requests per 10 minutes per IP
     if not check_rate_limit('resend_otp', max_attempts=3, window_seconds=600):
-        return jsonify({'success': False, 'message': 'Terlalu banyak permintaan kirim ulang OTP. Silakan coba lagi nanti.'}), 429
+        return error_response('Terlalu banyak permintaan kirim ulang OTP. Silakan coba lagi nanti.', 429)
 
     username = request.form.get('username', '').strip().lower()
 
     if not username:
-        return jsonify({'success': False, 'message': 'Username wajib diisi'}), 400
+        return error_response('Username wajib diisi', 400)
 
     db = get_db()
     user = db.execute(
@@ -504,7 +520,7 @@ def resend_otp():
     ).fetchone()
     
     if not user:
-        return jsonify({'success': False, 'message': 'User tidak ditemukan atau sudah terverifikasi'}), 404
+        return error_response('User tidak ditemukan atau sudah terverifikasi', 404)
 
     otp = ''.join(secrets.choice(string.digits) for _ in range(6))
     otp_expiry = (datetime.now(timezone.utc) + timedelta(minutes=5)).strftime('%Y-%m-%d %H:%M:%S')
@@ -654,22 +670,22 @@ def admin_upload():
     file = request.files.get('pdf_file')
 
     if not name:
-        return jsonify({'success': False, 'message': 'Nama ujian wajib diisi'}), 400
+        return error_response('Nama ujian wajib diisi', 400)
 
     if not file or file.filename == '':
-        return jsonify({'success': False, 'message': 'File PDF wajib dipilih'}), 400
+        return error_response('File PDF wajib dipilih', 400)
 
     # Check that the uploaded file looks like a PDF
     # Some browsers send 'application/octet-stream' or 'application/x-pdf'
     # instead of 'application/pdf', so we accept multiple PDF indicators
     allowed_pdf_types = ['application/pdf', 'application/x-pdf', 'application/octet-stream']
     if file.content_type not in allowed_pdf_types and not file.filename.lower().endswith('.pdf'):
-        return jsonify({'success': False, 'message': 'Hanya file PDF yang diizinkan'}), 400
+        return error_response('Hanya file PDF yang diizinkan', 400)
 
     # Also check the file header for %PDF magic bytes
     file_data = file.read()
     if not file_data.startswith(b'%PDF'):
-        return jsonify({'success': False, 'message': 'File tidak valid (bukan PDF)'}), 400
+        return error_response('File tidak valid (bukan PDF)', 400)
 
     # Check size
     if len(file_data) > MAX_FILE_SIZE:
@@ -705,12 +721,12 @@ def admin_upload():
 
     if custom_token:
         if len(custom_token) != 6 or not custom_token.isalnum():
-            return jsonify({'success': False, 'message': 'Token kustom harus terdiri dari 6 karakter alfanumerik'}), 400
-        
+            return error_response('Token kustom harus terdiri dari 6 karakter alfanumerik', 400)
+
         # Check uniqueness
         existing = db.execute('SELECT id FROM exams WHERE token = ?', (custom_token,)).fetchone()
         if existing:
-            return jsonify({'success': False, 'message': 'Token kustom sudah digunakan oleh ujian lain'}), 400
+            return error_response('Token kustom sudah digunakan oleh ujian lain', 400)
         token = custom_token
     else:
         # Generate unique token
@@ -780,11 +796,11 @@ def admin_toggle_exam(exam_id):
     """Toggle exam status between active and inactive."""
     db = get_db()
     if not check_exam_ownership(db, exam_id):
-        return jsonify({'success': False, 'message': 'Akses ditolak: Anda tidak memiliki akses ke ujian ini'}), 403
+        return error_response('Akses ditolak: Anda tidak memiliki akses ke ujian ini', 403)
     exam = db.execute('SELECT * FROM exams WHERE id = ?', (exam_id,)).fetchone()
 
     if not exam:
-        return jsonify({'success': False, 'message': 'Ujian tidak ditemukan'}), 404
+        return error_response('Ujian tidak ditemukan', 404)
 
     new_status = 'inactive' if exam['status'] == 'active' else 'active'
     db.execute('UPDATE exams SET status = ? WHERE id = ?', (new_status, exam_id))
@@ -803,11 +819,11 @@ def admin_toggle_public_results(exam_id):
     """Toggle whether exam results are publicly accessible by students."""
     db = get_db()
     if not check_exam_ownership(db, exam_id):
-        return jsonify({'success': False, 'message': 'Akses ditolak: Anda tidak memiliki akses ke ujian ini'}), 403
+        return error_response('Akses ditolak: Anda tidak memiliki akses ke ujian ini', 403)
     exam = db.execute('SELECT * FROM exams WHERE id = ?', (exam_id,)).fetchone()
 
     if not exam:
-        return jsonify({'success': False, 'message': 'Ujian tidak ditemukan'}), 404
+        return error_response('Ujian tidak ditemukan', 404)
 
     # Toggle public_results: 1 (active) <=> 0 (inactive)
     current = exam['public_results']
@@ -831,11 +847,11 @@ def admin_toggle_show_answers(exam_id):
     """Toggle whether correct answer keys are shown to students on the public results page."""
     db = get_db()
     if not check_exam_ownership(db, exam_id):
-        return jsonify({'success': False, 'message': 'Akses ditolak: Anda tidak memiliki akses ke ujian ini'}), 403
+        return error_response('Akses ditolak: Anda tidak memiliki akses ke ujian ini', 403)
     exam = db.execute('SELECT * FROM exams WHERE id = ?', (exam_id,)).fetchone()
 
     if not exam:
-        return jsonify({'success': False, 'message': 'Ujian tidak ditemukan'}), 404
+        return error_response('Ujian tidak ditemukan', 404)
 
     current = exam['show_answers']
     if current is None:
@@ -860,25 +876,25 @@ def admin_edit_exam(exam_id):
     file = request.files.get('pdf_file')
 
     if not name:
-        return jsonify({'success': False, 'message': 'Nama ujian wajib diisi'}), 400
+        return error_response('Nama ujian wajib diisi', 400)
 
     db = get_db()
     if not check_exam_ownership(db, exam_id):
-        return jsonify({'success': False, 'message': 'Akses ditolak: Anda tidak memiliki akses ke ujian ini'}), 403
+        return error_response('Akses ditolak: Anda tidak memiliki akses ke ujian ini', 403)
 
     exam = db.execute('SELECT * FROM exams WHERE id = ?', (exam_id,)).fetchone()
     if not exam:
-        return jsonify({'success': False, 'message': 'Ujian tidak ditemukan'}), 404
+        return error_response('Ujian tidak ditemukan', 404)
 
     # If new PDF file is uploaded
     if file and file.filename != '':
         allowed_pdf_types = ['application/pdf', 'application/x-pdf', 'application/octet-stream']
         if file.content_type not in allowed_pdf_types and not file.filename.lower().endswith('.pdf'):
-            return jsonify({'success': False, 'message': 'Hanya file PDF yang diizinkan'}), 400
+            return error_response('Hanya file PDF yang diizinkan', 400)
 
         file_data = file.read()
         if not file_data.startswith(b'%PDF'):
-            return jsonify({'success': False, 'message': 'File tidak valid (bukan PDF)'}), 400
+            return error_response('File tidak valid (bukan PDF)', 400)
 
         if len(file_data) > MAX_FILE_SIZE:
             return jsonify({
@@ -932,11 +948,11 @@ def admin_delete_exam(exam_id):
     """Delete an exam and its PDF file."""
     db = get_db()
     if not check_exam_ownership(db, exam_id):
-        return jsonify({'success': False, 'message': 'Akses ditolak: Anda tidak memiliki akses ke ujian ini'}), 403
+        return error_response('Akses ditolak: Anda tidak memiliki akses ke ujian ini', 403)
     exam = db.execute('SELECT * FROM exams WHERE id = ?', (exam_id,)).fetchone()
 
     if not exam:
-        return jsonify({'success': False, 'message': 'Ujian tidak ditemukan'}), 404
+        return error_response('Ujian tidak ditemukan', 404)
 
     # Delete file from storage
     try:
@@ -960,7 +976,7 @@ def admin_bulk_delete_exams():
     data = request.get_json() or {}
     exam_ids = data.get('ids', [])
     if not exam_ids:
-        return jsonify({'success': False, 'message': 'Tidak ada ujian yang dipilih'}), 400
+        return error_response('Tidak ada ujian yang dipilih', 400)
 
     db = get_db()
     try:
@@ -994,7 +1010,7 @@ def admin_bulk_delete_exams():
     except Exception as e:
         db.rollback()
         app.logger.error(f"Bulk delete error: {e}")
-        return jsonify({'success': False, 'message': 'Terjadi kesalahan saat menghapus ujian'}), 500
+        return error_response('Terjadi kesalahan saat menghapus ujian', 500)
 
 
 @app.route('/admin/exams/bulk-toggle', methods=['POST'])
@@ -1006,9 +1022,9 @@ def admin_bulk_toggle_exams():
     target_status = data.get('status', 'inactive')
     
     if not exam_ids:
-        return jsonify({'success': False, 'message': 'Tidak ada ujian yang dipilih'}), 400
+        return error_response('Tidak ada ujian yang dipilih', 400)
     if target_status not in ['active', 'inactive']:
-        return jsonify({'success': False, 'message': 'Status tidak valid'}), 400
+        return error_response('Status tidak valid', 400)
 
     db = get_db()
     try:
@@ -1026,7 +1042,7 @@ def admin_bulk_toggle_exams():
     except Exception as e:
         db.rollback()
         app.logger.error(f"Bulk toggle error: {e}")
-        return jsonify({'success': False, 'message': 'Terjadi kesalahan saat memperbarui status ujian'}), 500
+        return error_response('Terjadi kesalahan saat memperbarui status ujian', 500)
 
 
 @app.route('/admin/api/exams/<int:exam_id>/regenerate-token', methods=['POST'])
@@ -1035,11 +1051,11 @@ def admin_regenerate_token(exam_id):
     """Regenerate token for an exam."""
     db = get_db()
     if not check_exam_ownership(db, exam_id):
-        return jsonify({'success': False, 'message': 'Akses ditolak: Anda tidak memiliki akses ke ujian ini'}), 403
+        return error_response('Akses ditolak: Anda tidak memiliki akses ke ujian ini', 403)
     exam = db.execute('SELECT * FROM exams WHERE id = ?', (exam_id,)).fetchone()
 
     if not exam:
-        return jsonify({'success': False, 'message': 'Ujian tidak ditemukan'}), 404
+        return error_response('Ujian tidak ditemukan', 404)
 
     new_token = generate_token()
     db.execute('UPDATE exams SET token = ? WHERE id = ?', (new_token, exam_id))
@@ -1060,23 +1076,23 @@ def admin_custom_token(exam_id):
     custom_token = data.get('token', '').strip().upper()
 
     if not custom_token:
-        return jsonify({'success': False, 'message': 'Token kustom tidak boleh kosong'}), 400
+        return error_response('Token kustom tidak boleh kosong', 400)
 
     if len(custom_token) != 6 or not custom_token.isalnum():
-        return jsonify({'success': False, 'message': 'Token kustom harus terdiri dari 6 karakter alfanumerik'}), 400
+        return error_response('Token kustom harus terdiri dari 6 karakter alfanumerik', 400)
 
     db = get_db()
     if not check_exam_ownership(db, exam_id):
-        return jsonify({'success': False, 'message': 'Akses ditolak: Anda tidak memiliki akses ke ujian ini'}), 403
+        return error_response('Akses ditolak: Anda tidak memiliki akses ke ujian ini', 403)
 
     exam = db.execute('SELECT * FROM exams WHERE id = ?', (exam_id,)).fetchone()
     if not exam:
-        return jsonify({'success': False, 'message': 'Ujian tidak ditemukan'}), 404
+        return error_response('Ujian tidak ditemukan', 404)
 
     # Check if this token is already in use by another exam
     existing = db.execute('SELECT id FROM exams WHERE token = ? AND id != ?', (custom_token, exam_id)).fetchone()
     if existing:
-        return jsonify({'success': False, 'message': 'Token kustom sudah digunakan oleh ujian lain'}), 400
+        return error_response('Token kustom sudah digunakan oleh ujian lain', 400)
 
     db.execute('UPDATE exams SET token = ? WHERE id = ?', (custom_token, exam_id))
     db.commit()
@@ -1129,10 +1145,13 @@ def admin_change_password():
     new_password = data.get('new_password', '')
 
     if not current_password or not new_password:
-        return jsonify({'success': False, 'message': 'Semua field password wajib diisi'}), 400
+        return error_response('Semua field password wajib diisi', 400)
 
     if len(new_password) < 8:
-        return jsonify({'success': False, 'message': 'Password baru minimal 8 karakter'}), 400
+        return error_response('Password baru minimal 8 karakter', 400)
+
+    if len(new_password) > 128:
+        return error_response('Password baru maksimal 128 karakter', 400)
 
     db = get_db()
     user = db.execute(
@@ -1141,7 +1160,7 @@ def admin_change_password():
     ).fetchone()
 
     if not user or not _verify_password(current_password, user['password_hash']):
-        return jsonify({'success': False, 'message': 'Password saat ini salah'}), 400
+        return error_response('Password saat ini salah', 400)
 
     new_hash = generate_password_hash(new_password)
     db.execute(
@@ -1288,15 +1307,15 @@ def admin_create_user():
     max_draft_size = int(max_draft_size_mb * 1024 * 1024)
 
     if not username or not password:
-        return jsonify({'success': False, 'message': 'Username dan password wajib diisi'}), 400
+        return error_response('Username dan password wajib diisi', 400)
 
     if username == ADMIN_USERNAME:
-        return jsonify({'success': False, 'message': f'Username "{ADMIN_USERNAME}" sudah terdaftar sebagai Super Admin'}), 400
+        return error_response(f'Username "{ADMIN_USERNAME}" sudah terdaftar sebagai Super Admin', 400)
 
     db = get_db()
     existing = db.execute('SELECT id FROM admin_users WHERE username = ?', (username,)).fetchone()
     if existing:
-        return jsonify({'success': False, 'message': 'Username sudah digunakan'}), 400
+        return error_response('Username sudah digunakan', 400)
 
     pw_hash = generate_password_hash(password)
     expires_at = data.get('expires_at', '').strip()
@@ -1327,23 +1346,23 @@ def admin_edit_user(user_id):
     db = get_db()
     user = db.execute('SELECT username FROM admin_users WHERE id = ?', (user_id,)).fetchone()
     if not user:
-        return jsonify({'success': False, 'message': 'User tidak ditemukan'}), 404
+        return error_response('User tidak ditemukan', 404)
 
     if user['username'] == ADMIN_USERNAME:
-        return jsonify({'success': False, 'message': 'Super Admin "admin" tidak dapat diubah limitnya'}), 400
+        return error_response('Super Admin "admin" tidak dapat diubah limitnya', 400)
 
     if max_exams is not None:
         try:
             max_exams = int(max_exams)
         except (ValueError, TypeError):
-            return jsonify({'success': False, 'message': 'Limit ujian harus berupa angka valid'}), 400
+            return error_response('Limit ujian harus berupa angka valid', 400)
         db.execute('UPDATE admin_users SET max_exams = ? WHERE id = ?', (max_exams, user_id))
 
     if max_pdf_size_mb is not None:
         try:
             max_pdf_size_mb = float(max_pdf_size_mb)
         except (ValueError, TypeError):
-            return jsonify({'success': False, 'message': 'Limit ukuran PDF harus berupa angka valid'}), 400
+            return error_response('Limit ukuran PDF harus berupa angka valid', 400)
         max_pdf_size = int(max_pdf_size_mb * 1024 * 1024)
         db.execute('UPDATE admin_users SET max_pdf_size = ? WHERE id = ?', (max_pdf_size, user_id))
 
@@ -1354,14 +1373,14 @@ def admin_edit_user(user_id):
         try:
             max_drafts = int(max_drafts)
         except (ValueError, TypeError):
-            return jsonify({'success': False, 'message': 'Limit draf harus berupa angka valid'}), 400
+            return error_response('Limit draf harus berupa angka valid', 400)
         db.execute('UPDATE admin_users SET max_drafts = ? WHERE id = ?', (max_drafts, user_id))
 
     if max_draft_size_mb is not None:
         try:
             max_draft_size_mb = float(max_draft_size_mb)
         except (ValueError, TypeError):
-            return jsonify({'success': False, 'message': 'Limit ukuran draf harus berupa angka valid'}), 400
+            return error_response('Limit ukuran draf harus berupa angka valid', 400)
         max_draft_size = int(max_draft_size_mb * 1024 * 1024)
         db.execute('UPDATE admin_users SET max_draft_size = ? WHERE id = ?', (max_draft_size, user_id))
 
@@ -1385,7 +1404,7 @@ def admin_edit_user(user_id):
             try:
                 datetime.strptime(exp_val, '%Y-%m-%d %H:%M:%S')
             except (ValueError, TypeError):
-                return jsonify({'success': False, 'message': 'Format tanggal expiry tidak valid. Gunakan format YYYY-MM-DD HH:MM:SS'}), 400
+                return error_response('Format tanggal expiry tidak valid. Gunakan format YYYY-MM-DD HH:MM:SS', 400)
             db.execute('UPDATE admin_users SET expires_at = ? WHERE id = ?', (exp_val, user_id))
         else:
             db.execute('UPDATE admin_users SET expires_at = NULL WHERE id = ?', (user_id,))
@@ -1402,7 +1421,7 @@ def admin_verify_user_manual(user_id):
     db = get_db()
     user = db.execute('SELECT username, status FROM admin_users WHERE id = ?', (user_id,)).fetchone()
     if not user:
-        return jsonify({'success': False, 'message': 'User tidak ditemukan'}), 404
+        return error_response('User tidak ditemukan', 404)
         
     db.execute('UPDATE admin_users SET status = ?, otp_code = NULL, otp_expiry = NULL WHERE id = ?', ('active', user_id))
     db.commit()
@@ -1416,10 +1435,10 @@ def admin_toggle_user_status(user_id):
     db = get_db()
     user = db.execute('SELECT username, status FROM admin_users WHERE id = ?', (user_id,)).fetchone()
     if not user:
-        return jsonify({'success': False, 'message': 'User tidak ditemukan'}), 404
+        return error_response('User tidak ditemukan', 404)
         
     if user['username'] == ADMIN_USERNAME:
-        return jsonify({'success': False, 'message': 'Status Super Admin "admin" tidak dapat diubah'}), 400
+        return error_response('Status Super Admin "admin" tidak dapat diubah', 400)
         
     new_status = 'suspended' if user['status'] == 'active' else 'active'
     db.execute('UPDATE admin_users SET status = ? WHERE id = ?', (new_status, user_id))
@@ -1435,6 +1454,9 @@ def admin_saas_settings():
         data = request.json or {}
         wa_enabled = '1' if data.get('wa_verification_enabled') else '0'
         wa_token = data.get('wa_api_token', '').strip()
+        # If the received token looks masked (starts with *), keep the existing value
+        if wa_token.startswith('*'):
+            wa_token = get_saas_setting('wa_api_token', '')
         wa_template = data.get('wa_otp_template', '').strip()
         default_exams = data.get('default_max_exams', '3')
         default_pdf_size_mb = data.get('default_max_pdf_size_mb', '1')
@@ -1490,7 +1512,7 @@ def admin_saas_settings():
     # GET settings
     settings = {
         'wa_verification_enabled': get_saas_setting('wa_verification_enabled', '0') == '1',
-        'wa_api_token': get_saas_setting('wa_api_token', ''),
+        'wa_api_token': _mask_token(get_saas_setting('wa_api_token', '')),
         'wa_otp_template': get_saas_setting('wa_otp_template', 'Kode OTP EXAMVAN Anda: {otp}. Berlaku selama 5 menit.'),
         'default_max_exams': int(get_saas_setting('default_max_exams', '3')),
         'default_max_pdf_size_mb': round(int(get_saas_setting('default_max_pdf_size', '1048576')) / (1024*1024), 2),
@@ -1510,10 +1532,10 @@ def admin_delete_user(user_id):
     db = get_db()
     user = db.execute('SELECT username FROM admin_users WHERE id = ?', (user_id,)).fetchone()
     if not user:
-        return jsonify({'success': False, 'message': 'User tidak ditemukan'}), 404
+        return error_response('User tidak ditemukan', 404)
 
     if user['username'] == ADMIN_USERNAME:
-        return jsonify({'success': False, 'message': 'Super Admin "admin" tidak dapat dihapus'}), 400
+        return error_response('Super Admin "admin" tidak dapat dihapus', 400)
 
     # Delete exams and PDF files owned by this user
     exams = db.execute('SELECT file_path FROM exams WHERE created_by = ?', (user_id,)).fetchall()
@@ -1541,10 +1563,10 @@ def admin_exam_questions(exam_id):
     """Get or save questions configuration for an exam."""
     db = get_db()
     if not check_exam_ownership(db, exam_id):
-        return jsonify({'success': False, 'message': 'Akses ditolak: Anda tidak memiliki akses ke ujian ini'}), 403
+        return error_response('Akses ditolak: Anda tidak memiliki akses ke ujian ini', 403)
     exam = db.execute('SELECT * FROM exams WHERE id = ?', (exam_id,)).fetchone()
     if not exam:
-        return jsonify({'success': False, 'message': 'Ujian tidak ditemukan'}), 404
+        return error_response('Ujian tidak ditemukan', 404)
 
     if request.method == 'GET':
         questions_raw = exam['questions_json']
@@ -1584,7 +1606,7 @@ def admin_exam_questions(exam_id):
 
         # Basic validation
         if not isinstance(questions, list):
-            return jsonify({'success': False, 'message': 'Format data pertanyaan tidak valid'}), 400
+            return error_response('Format data pertanyaan tidak valid', 400)
 
         identity_fields = data.get('identity_fields')
         if identity_fields is not None and isinstance(identity_fields, list):
@@ -1714,7 +1736,7 @@ def admin_submission_detail(submission_id):
     """Get detailed student answers compared with keys."""
     db = get_db()
     if not check_submission_ownership(db, submission_id):
-        return jsonify({'success': False, 'message': 'Akses ditolak: Anda tidak memiliki akses ke data ini'}), 403
+        return error_response('Akses ditolak: Anda tidak memiliki akses ke data ini', 403)
     sub = db.execute(
         'SELECT s.*, e.name as exam_name, e.questions_json '
         'FROM submissions s JOIN exams e ON s.exam_id = e.id '
@@ -1722,7 +1744,7 @@ def admin_submission_detail(submission_id):
     ).fetchone()
     
     if not sub:
-        return jsonify({'success': False, 'message': 'Hasil ujian tidak ditemukan'}), 404
+        return error_response('Hasil ujian tidak ditemukan', 404)
         
     try:
         answers = json.loads(sub['answers_json'])
@@ -1864,7 +1886,7 @@ def admin_delete_submission(submission_id):
     """Delete a student submission."""
     db = get_db()
     if not check_submission_ownership(db, submission_id):
-        return jsonify({'success': False, 'message': 'Akses ditolak: Anda tidak memiliki akses ke data ini'}), 403
+        return error_response('Akses ditolak: Anda tidak memiliki akses ke data ini', 403)
     db.execute('DELETE FROM submissions WHERE id = ?', (submission_id,))
     db.commit()
     return jsonify({'success': True, 'message': 'Hasil ujian berhasil dihapus'})
@@ -1885,9 +1907,9 @@ def admin_export_submissions():
         # Verify ownership
         exam = db.execute('SELECT * FROM exams WHERE id = ?', (exam_id,)).fetchone()
         if not exam:
-            return jsonify({'success': False, 'message': 'Ujian tidak ditemukan'}), 404
+            return error_response('Ujian tidak ditemukan', 404)
         if not is_super_admin and exam['created_by'] != session['admin_id']:
-            return jsonify({'success': False, 'message': 'Akses ditolak'}), 403
+            return error_response('Akses ditolak', 403)
 
         submissions = db.execute(
             'SELECT * FROM submissions WHERE exam_id = ? ORDER BY student_class, student_name',
@@ -1963,6 +1985,13 @@ def admin_export_submissions():
     response = send_file(io.BytesIO(output.encode('utf-8-sig')), mimetype='text/csv', as_attachment=True, download_name=filename)
     response.headers['Cache-Control'] = 'no-store, no-cache, must-revalidate'
     return response
+
+
+def _sanitize_xlsx(value):
+    """Prevent Excel formula injection by prefixing dangerous characters with a single quote."""
+    if isinstance(value, str) and value and value[0] in ('=', '+', '-', '@', '\t', '\r'):
+        return "'" + value
+    return value
 
 
 def _generate_exam_xlsx(exam, submissions, questions, tz_offset=None):
@@ -2060,11 +2089,12 @@ def _generate_exam_xlsx(exam, submissions, questions, tz_offset=None):
         score_display = round(score, 2) if score is not None else 'Belum Dinilai'
         status = 'Sudah Dinilai' if score is not None else 'Belum Dinilai'
 
-        values = [i + 1, sub['exam_number'], sub['student_name'], sub['student_class'],
+        values = [i + 1, _sanitize_xlsx(sub['exam_number']), _sanitize_xlsx(sub['student_name']),
+                  _sanitize_xlsx(sub['student_class']),
                   score_display, status,
                   localize_date_string(sub['start_time'], tz_offset) if sub['start_time'] else '—',
                   localize_date_string(sub['created_at'], tz_offset),
-                  sub['mac_address'] or '—']
+                  _sanitize_xlsx(sub['mac_address'] or '—')]
         for col_idx, val in enumerate(values, 1):
             cell = style_data_cell(ws_summary, row_num, col_idx,
                                    'center' if col_idx in [1, 4, 5, 6] else 'left')
@@ -2115,13 +2145,13 @@ def _generate_exam_xlsx(exam, submissions, questions, tz_offset=None):
         ws['A1'].alignment = Alignment(horizontal='left', vertical='center')
 
         info_rows = [
-            ('Nama Siswa:', sub['student_name']),
-            ('Nomor Ujian:', sub['exam_number']),
-            ('Kelas:', sub['student_class']),
+            ('Nama Siswa:', _sanitize_xlsx(sub['student_name'])),
+            ('Nomor Ujian:', _sanitize_xlsx(sub['exam_number'])),
+            ('Kelas:', _sanitize_xlsx(sub['student_class'])),
             ('Nilai Akhir:', round(sub['score'], 2) if sub['score'] is not None else 'Belum Dinilai'),
             ('Waktu Mulai:', localize_date_string(sub['start_time'], tz_offset) if sub['start_time'] else '—'),
             ('Waktu Pengumpulan:', localize_date_string(sub['created_at'], tz_offset)),
-            ('MAC/ID Perangkat:', sub['mac_address'] or '—'),
+            ('MAC/ID Perangkat:', _sanitize_xlsx(sub['mac_address'] or '—')),
         ]
         for i, (label, value) in enumerate(info_rows):
             ws.cell(row=3 + i, column=1, value=label).font = meta_label_font

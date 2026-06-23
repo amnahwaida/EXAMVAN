@@ -139,6 +139,7 @@
  </div>
  <div class="modal-body">
  <form id="editExamForm" onsubmit="submitEditExam(event)" enctype="multipart/form-data">
+<input type="hidden" name="csrf_token" value="{{ csrf_token }}">
  <input type="hidden" id="editExamId">
  <div class="form-group" style="margin-bottom: 16px;">
  <label for="editExamName">Nama Ujian</label>
@@ -173,6 +174,7 @@
  </div>
  <div class="modal-body">
  <form id="editTokenForm" onsubmit="submitEditToken(event)">
+<input type="hidden" name="csrf_token" value="{{ csrf_token }}">
  <input type="hidden" id="editTokenExamId">
  <div class="form-group" style="margin-bottom: 20px;">
  <label for="editTokenInput">Token Kustom Baru (Tepat 6 Karakter)</label>

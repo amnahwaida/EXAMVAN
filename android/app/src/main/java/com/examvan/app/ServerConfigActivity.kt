@@ -350,6 +350,7 @@ class ServerConfigActivity : AppCompatActivity() {
             .getBoolean("strict_mode", false)
         val intent = Intent(this@ServerConfigActivity, ExamViewerActivity::class.java).apply {
             putExtra("exam_id", examId)
+            putExtra("exam_token", getSharedPreferences(PREFS_NAME, MODE_PRIVATE).getString(KEY_EXAM_TOKEN, "") ?: "")
             putExtra("exam_name", examName)
             putExtra("server_url", serverUrl)
             putExtra("student_name", name)

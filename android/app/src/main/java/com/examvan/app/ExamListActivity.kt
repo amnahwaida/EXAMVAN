@@ -55,6 +55,7 @@ class ExamListActivity : AppCompatActivity() {
         adapter = ExamAdapter { exam ->
             val intent = Intent(this, ExamViewerActivity::class.java)
             intent.putExtra("exam_id", exam.id)
+            intent.putExtra("exam_token", exam.token ?: "")
             intent.putExtra("exam_name", exam.name)
             startActivity(intent)
         }

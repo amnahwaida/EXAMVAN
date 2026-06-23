@@ -82,6 +82,7 @@
  <!-- PDF Upload Form -->
  <div id="methodPdfForm">
  <form id="uploadForm" class="upload-form" enctype="multipart/form-data">
+ <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
  <div class="form-row">
  <div class="form-group flex-1">
  <label for="examName">Nama Ujian</label>

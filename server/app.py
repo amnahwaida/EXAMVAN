@@ -39,8 +39,8 @@ MAX_FILE_SIZE = 5 * 1024 * 1024  # 5MB
 
 VERSION = '2.1.9'
 ADMIN_USERNAME = os.environ.get('EXAMVAN_ADMIN_USER', 'admin')
-ADMIN_PASSWORD = os.environ.get('EXAMVAN_ADMIN_PASS', os.environ.get('EXAMVAN_SECRET', ''))
-# If no env var set for password, check if ADMIN_PASSWORD is the secret-based fallback only used as last resort
+# ADMIN_PASSWORD must be set via env var; if missing, a random password is generated at init
+ADMIN_PASSWORD = os.environ.get('EXAMVAN_ADMIN_PASS', '')
 DEFAULT_IDENTITY_FIELDS = json.dumps([
     {'key': 'student_name', 'label': 'Nama Siswa', 'required': True},
     {'key': 'exam_number', 'label': 'Nomor Ujian', 'required': True},
@@ -164,7 +164,7 @@ def init_db():
     db.commit()
 
     admin_username = os.environ.get('EXAMVAN_ADMIN_USER', 'admin')
-    admin_password = os.environ.get('EXAMVAN_ADMIN_PASS', 'examvan2026')
+    admin_password = os.environ.get('EXAMVAN_ADMIN_PASS', '')
 
     existing = db.execute(
         'SELECT id FROM admin_users WHERE username = ?',
@@ -172,6 +172,14 @@ def init_db():
     ).fetchone()
 
     if not existing:
+        if not admin_password:
+            # Generate a secure random password if no env var is set
+            admin_password = secrets.token_hex(16)
+            logger.warning(
+                f"No EXAMVAN_ADMIN_PASS env var set. "
+                f"Generated random password for '{admin_username}': {admin_password} "
+                f"Please set EXAMVAN_ADMIN_PASS and restart."
+            )
         pw_hash = generate_password_hash(admin_password)
         db.execute(
             'INSERT INTO admin_users (username, password_hash) VALUES (?, ?)',
@@ -210,7 +218,8 @@ def init_db():
         ('add_otp_expiry_to_admin_users', 'ALTER TABLE admin_users ADD COLUMN otp_expiry TIMESTAMP'),
         ('add_identity_fields_to_exams', 'ALTER TABLE exams ADD COLUMN identity_fields TEXT'),
         ('add_identity_data_to_submissions', 'ALTER TABLE submissions ADD COLUMN identity_data TEXT'),
-        ('add_strict_mode_to_exams', 'ALTER TABLE exams ADD COLUMN strict_mode INTEGER DEFAULT 0'),
+        # strict_mode is defined in CREATE TABLE, no ALTER needed
+        # ('add_strict_mode_to_exams', ...) — removed as duplicate
     ]
 
     for name, sql in migrations:
@@ -246,14 +255,16 @@ except Exception as e:
     logger.error(f"Error initializing database on startup: {e}")
 
 
-# ===== Rate Limiter (in-memory) =====
+# ===== Rate Limiter (in-memory, bounded) =====
 import time
-from collections import defaultdict
-_rate_limit_store = defaultdict(list)
+from collections import OrderedDict
+# Bounded LRU-like store: max 10_000 entries, oldest evicted automatically
+_RATE_LIMIT_MAX_ENTRIES = 10_000
+_rate_limit_store = OrderedDict()
 
 def check_rate_limit(key, max_attempts=5, window_seconds=300):
     """
-    Simple in-memory rate limiter.
+    Simple in-memory rate limiter with bounded store.
     Returns True if request is allowed, False if rate limited.
     key: unique identifier (e.g. f"otp:{ip}")
     max_attempts: max requests in the window
@@ -263,17 +274,24 @@ def check_rate_limit(key, max_attempts=5, window_seconds=300):
     ip = request.remote_addr or 'unknown'
     store_key = f"{key}:{ip}"
 
+    # Evict oldest entries if store is too large
+    while len(_rate_limit_store) >= _RATE_LIMIT_MAX_ENTRIES:
+        _rate_limit_store.popitem(last=False)
+
+    # Get existing timestamps for this key (or empty list)
+    timestamps = _rate_limit_store.get(store_key, [])
+
     # Clean old entries
-    _rate_limit_store[store_key] = [
-        t for t in _rate_limit_store[store_key]
-        if now - t < window_seconds
-    ]
+    timestamps = [t for t in timestamps if now - t < window_seconds]
 
     # Check limit
-    if len(_rate_limit_store[store_key]) >= max_attempts:
+    if len(timestamps) >= max_attempts:
+        _rate_limit_store[store_key] = timestamps
         return False
 
-    _rate_limit_store[store_key].append(now)
+    timestamps.append(now)
+    if timestamps:
+        _rate_limit_store[store_key] = timestamps
     return True
 
 
@@ -360,9 +378,10 @@ def _verify_password(password, stored_hash):
     return hashlib.sha256(password.encode()).hexdigest() == stored_hash
 
 def generate_token(length=6):
-    """Generate a unique uppercase alphanumeric token."""
+    """Generate a unique uppercase alphanumeric token with collision protection."""
     chars = string.ascii_uppercase + string.digits
-    while True:
+    max_attempts = 100
+    for _ in range(max_attempts):
         token = ''.join(secrets.choice(chars) for _ in range(length))
         try:
             db = get_db()
@@ -371,6 +390,9 @@ def generate_token(length=6):
         existing = db.execute('SELECT id FROM exams WHERE token = ?', (token,)).fetchone()
         if not existing:
             return token
+    # Last resort: increase length to avoid collision
+    token = ''.join(secrets.choice(chars) for _ in range(length + 2))
+    return token
 
 def admin_required(f):
     """Decorator to require admin login + CSRF check for state-changing methods."""
@@ -441,11 +463,29 @@ def check_submission_ownership(db, submission_id):
 
 
 def safe_storage_path(file_path):
-    """Validate and resolve a storage path, preventing directory traversal."""
+    """Validate and resolve a storage path, preventing directory traversal.
+
+    Resolves symlinks and checks that the final resolved path is within STORAGE_DIR.
+    """
+    # Reject empty or None paths
+    if not file_path:
+        raise ValueError("Empty path")
+    # Reject absolute paths passed directly
+    if os.path.isabs(file_path):
+        raise ValueError("Path traversal detected: absolute path not allowed")
+    # Join with storage dir and normalize
     full_path = os.path.normpath(os.path.join(STORAGE_DIR, file_path))
-    if not full_path.startswith(os.path.normpath(STORAGE_DIR)):
+    # Resolve symlinks for both paths (use realpath for STORAGE_DIR too)
+    try:
+        real_full = os.path.realpath(full_path)
+        real_storage = os.path.realpath(STORAGE_DIR)
+    except OSError:
+        # If resolution fails, fall back to normpath check
+        real_full = full_path
+        real_storage = os.path.normpath(STORAGE_DIR)
+    if not real_full.startswith(real_storage):
         raise ValueError("Path traversal detected")
-    return full_path
+    return real_full
 
 
 def get_network_info():
@@ -498,7 +538,9 @@ def get_storage_stats():
 # ===== REST API Endpoints =====
 # ===== Error Handlers =====
 
-# Import and register routes
+# Import routes after all helpers & decorators are defined so that
+# routes.py can import from app.py without a circular-reference issue.
+# Routes register themselves via @app.route(...) decorators.
 import routes
 
 @app.errorhandler(413)

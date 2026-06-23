@@ -891,8 +891,8 @@ function submitChangePassword(e) {
         return;
     }
 
-    if (newPassword.length < 4) {
-        showToast('Password baru minimal 4 karakter', 'error');
+    if (newPassword.length < 8) {
+        showToast('Password baru minimal 8 karakter', 'error');
         return;
     }
 

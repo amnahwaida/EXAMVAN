@@ -166,13 +166,14 @@ object ApiClient {
      */
     fun downloadPdf(
         examId: Int,
+        token: String,
         cacheDir: File,
         onProgress: (Int) -> Unit,
         onSuccess: (File) -> Unit,
         onError: (String) -> Unit
     ): Call {
         val request = Request.Builder()
-            .url("$baseUrl/api/exams/$examId/pdf")
+            .url("$baseUrl/api/exams/$examId/pdf?token=$token")
             .get()
             .build()
 
