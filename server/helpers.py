@@ -78,15 +78,15 @@ def _evaluate_single_question(student_ans, correct_ans, q_type, q_weight, partia
     """Evaluate a single question. Returns (earned, status_text, status_class)."""
     if student_ans is None or correct_ans is None:
         if student_ans is None:
-            return 0.0, 'Belum Dijawab', 'unanswered'
-        return 0.0, 'Salah ❌', 'incorrect'
+            return 0.0, 'unanswered', 'unanswered'
+        return 0.0, 'incorrect', 'incorrect'
 
     if q_type in ('single_choice', 'true_false', 'short_answer'):
         s_norm = ' '.join(str(student_ans).split()).upper()
         c_norm = ' '.join(str(correct_ans).split()).upper()
         if s_norm == c_norm:
-            return q_weight, 'Benar ✔️', 'correct'
-        return 0.0, 'Salah ❌', 'incorrect'
+            return q_weight, 'correct', 'correct'
+        return 0.0, 'incorrect', 'incorrect'
 
     if q_type == 'multiple_choice':
         if isinstance(student_ans, list) and isinstance(correct_ans, list):
@@ -99,14 +99,14 @@ def _evaluate_single_question(student_ans, correct_ans, q_type, q_weight, partia
                     portion = max(0.0, (correct_selected - incorrect_selected) / len(correct_set))
                     earned = portion * q_weight
                     if portion >= 1.0:
-                        return earned, 'Benar ✔️', 'correct'
+                        return earned, 'correct', 'correct'
                     elif portion > 0:
-                        return earned, 'Parsial ⚠️', 'partial'
-                    return 0.0, 'Salah ❌', 'incorrect'
+                        return earned, 'partial', 'partial'
+                    return 0.0, 'incorrect', 'incorrect'
             else:
                 if sorted(str(x).upper() for x in student_ans) == sorted(str(x).upper() for x in correct_ans):
-                    return q_weight, 'Benar ✔️', 'correct'
-        return 0.0, 'Salah ❌', 'incorrect'
+                    return q_weight, 'correct', 'correct'
+        return 0.0, 'incorrect', 'incorrect'
 
     if q_type == 'matching':
         if isinstance(student_ans, dict) and isinstance(correct_ans, dict):
@@ -119,20 +119,20 @@ def _evaluate_single_question(student_ans, correct_ans, q_type, q_weight, partia
                     portion = correct_matches / len(correct_ans)
                     earned = portion * q_weight
                     if portion >= 1.0:
-                        return earned, 'Benar ✔️', 'correct'
+                        return earned, 'correct', 'correct'
                     elif portion > 0:
-                        return earned, 'Parsial ⚠️', 'partial'
-                    return 0.0, 'Salah ❌', 'incorrect'
+                        return earned, 'partial', 'partial'
+                    return 0.0, 'incorrect', 'incorrect'
             else:
                 match = all(
                     str(student_ans.get(k, '')).strip().upper() == str(v).strip().upper()
                     for k, v in correct_ans.items()
                 )
                 if match:
-                    return q_weight, 'Benar ✔️', 'correct'
-        return 0.0, 'Salah ❌', 'incorrect'
+                    return q_weight, 'correct', 'correct'
+        return 0.0, 'incorrect', 'incorrect'
 
-    return 0.0, 'Salah ❌', 'incorrect'
+    return 0.0, 'incorrect', 'incorrect'
 
 
 def evaluate_answers_detailed(answers, questions):

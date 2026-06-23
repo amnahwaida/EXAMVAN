@@ -1,5 +1,5 @@
 """EXAMVAN routes — extracted from app.py for organization."""
-import os, json, csv, io, re, secrets, string, hmac, hashlib
+import os, json, csv, io, re, secrets, string, hmac
 from datetime import datetime, timezone, timedelta
 
 from flask import (
@@ -27,6 +27,16 @@ from helpers import (
 
 from app import logger as app_logger
 logger = app_logger
+
+REQUIRED_ANDROID_VERSION = '2.2.0'
+
+try:
+    import openpyxl
+    from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
+    from openpyxl.utils import get_column_letter
+    OPENPYXL_AVAILABLE = True
+except ImportError:
+    OPENPYXL_AVAILABLE = False
 
 
 def error_response(message, code=400):
@@ -58,26 +68,6 @@ def _csv_safe(value):
     return value
 
 
-def _hash_otp(otp, username):
-    """Hash OTP with per-user salt for secure storage.
-
-    Menggunakan HMAC-SHA256 dengan server-side secret key sebagai pepper
-    dan username sebagai salt. Hash disimpan di database, bukan plaintext OTP.
-    """
-    secret_pepper = app.secret_key
-    salt = username.encode('utf-8')
-    key = hashlib.sha256(salt + secret_pepper.encode('utf-8')).digest()
-    return hmac.new(key, otp.encode('utf-8'), hashlib.sha256).hexdigest()
-
-
-def _verify_otp(input_otp, stored_hash, username):
-    """Verify OTP by comparing hash of input with stored hash.
-    Uses hmac.compare_digest for constant-time comparison.
-    """
-    input_hash = _hash_otp(input_otp, username)
-    return hmac.compare_digest(input_hash, stored_hash)
-
-
 def _validate_pdf_upload(file_data, filename, content_type, max_size=None):
     """Validate uploaded PDF file data. Returns (is_valid, error_message)."""
     if max_size is None:
@@ -104,7 +94,7 @@ def _validate_pdf_upload(file_data, filename, content_type, max_size=None):
 def api_health():
     """Health check endpoint."""
     now = datetime.now(timezone.utc)
-    required_version = get_saas_setting('android_version', '2.1.9')
+    required_version = get_saas_setting('android_version', REQUIRED_ANDROID_VERSION)
     return jsonify({
         'status': 'ok',
         'version': VERSION,
@@ -175,7 +165,7 @@ def api_exams():
 @app.route('/api/exams/token/<token>')
 def api_exam_by_token(token):
     """Get exam info by token. Used by Android app."""
-    required_version = get_saas_setting('android_version', '2.1.9')
+    required_version = get_saas_setting('android_version', REQUIRED_ANDROID_VERSION)
     client_version = request.headers.get('X-App-Version')
     if client_version != required_version:
         return jsonify({
@@ -248,7 +238,7 @@ def api_submit_exam(exam_id):
     if not check_rate_limit(f'submit:{exam_id}', max_attempts=10, window_seconds=60):
         return error_response('Terlalu banyak percobaan submit. Silakan coba lagi nanti.', 429)
 
-    required_version = get_saas_setting('android_version', '2.1.9')
+    required_version = get_saas_setting('android_version', REQUIRED_ANDROID_VERSION)
     client_version = request.headers.get('X-App-Version')
     if client_version != required_version:
         return jsonify({
@@ -406,7 +396,11 @@ def admin_login():
         ).fetchone()
 
         if user and _verify_password(password, user['password_hash']):
-            # Password hash sudah scrypt/pbkdf2 (SHA-256 legacy sudah tidak didukung).
+            # Auto-upgrade legacy SHA-256 hash to werkzeug scrypt
+            if not user['password_hash'].startswith(('scrypt:', 'pbkdf2:')):
+                new_hash = generate_password_hash(password)
+                db.execute('UPDATE admin_users SET password_hash = ? WHERE id = ?', (new_hash, user['id']))
+                db.commit()
 
             if user['status'] == 'pending_otp':
                 flash('Pendaftaran Anda membutuhkan konfirmasi OTP WhatsApp. Silakan verifikasi.', 'warning')
@@ -426,6 +420,12 @@ def admin_login():
 
             session['admin_id'] = user['id']
             session['admin_username'] = user['username']
+            session['is_super_admin'] = (user['username'] == ADMIN_USERNAME)
+            # Store expires_at in session cache
+            if user['username'] != 'admin':
+                user_full = db.execute('SELECT expires_at FROM admin_users WHERE id = ?', (user['id'],)).fetchone()
+                if user_full and user_full['expires_at']:
+                    session['expires_at'] = user_full['expires_at']
             # Regenerate session ID to prevent session fixation
             session.regenerate()
             return redirect(url_for('admin_dashboard'))
@@ -488,13 +488,12 @@ def register():
 
         if wa_enabled:
             otp = ''.join(secrets.choice(string.digits) for _ in range(6))
-            otp_hash = _hash_otp(otp, username)
             otp_expiry = (datetime.now(timezone.utc) + timedelta(minutes=5)).strftime('%Y-%m-%d %H:%M:%S')
             
             db.execute(
                 'INSERT INTO admin_users (username, password_hash, whatsapp_number, status, otp_code, otp_expiry, max_exams, max_pdf_size, max_drafts, max_draft_size, expires_at) '
                 'VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
-                (username, pw_hash, whatsapp, 'pending_otp', otp_hash, otp_expiry, default_exams, default_pdf, default_drafts, default_draft_size, expires_at)
+                (username, pw_hash, whatsapp, 'pending_otp', otp, otp_expiry, default_exams, default_pdf, default_drafts, default_draft_size, expires_at)
             )
             db.commit()
             
@@ -546,7 +545,7 @@ def verify_otp():
             flash('Permintaan verifikasi tidak valid atau kedaluwarsa', 'error')
             return redirect(url_for('admin_login'))
 
-        if not _verify_otp(otp_input, user['otp_code'] or '', username):
+        if not hmac.compare_digest(str(user['otp_code'] or ''), str(otp_input)):
             flash('Kode OTP yang Anda masukkan salah', 'error')
             return render_template('verify_otp.html', username=username)
 
@@ -587,12 +586,11 @@ def resend_otp():
         return error_response('User tidak ditemukan atau sudah terverifikasi', 404)
 
     otp = ''.join(secrets.choice(string.digits) for _ in range(6))
-    otp_hash = _hash_otp(otp, username)
     otp_expiry = (datetime.now(timezone.utc) + timedelta(minutes=5)).strftime('%Y-%m-%d %H:%M:%S')
 
     db.execute(
         'UPDATE admin_users SET otp_code = ?, otp_expiry = ? WHERE id = ?',
-        (otp_hash, otp_expiry, user['id'])
+        (otp, otp_expiry, user['id'])
     )
     db.commit()
     
@@ -627,7 +625,7 @@ def _days_until_expiry(expires_at_str):
 def admin_dashboard():
     """Admin dashboard page with pagination & search."""
     db = get_db()
-    is_super_admin = (session.get('admin_username') == ADMIN_USERNAME)
+    is_super_admin = session.get('is_super_admin', False)
 
     # Pagination & search params
     page = request.args.get('page', 1, type=int)
@@ -749,7 +747,7 @@ def admin_upload():
     custom_token = request.form.get('custom_token', '').strip().upper()
     
     # Check per-user limits (for non-super admin users)
-    if session.get('admin_username') != 'admin':
+    if not session.get('is_super_admin'):
         user = db.execute('SELECT max_exams, max_pdf_size FROM admin_users WHERE id = ?', (session['admin_id'],)).fetchone()
         exam_limit = user['max_exams'] if (user and user['max_exams'] is not None) else 3
         pdf_limit = user['max_pdf_size'] if (user and user['max_pdf_size'] is not None) else 1048576
@@ -1023,7 +1021,7 @@ def admin_bulk_delete_exams():
     db = get_db()
     try:
         # Filter IDs by ownership for non-super admin
-        if session.get('admin_username') != ADMIN_USERNAME:
+        if not session.get('is_super_admin'):
             owned = db.execute(
                 f'SELECT id FROM exams WHERE id IN ({",".join("?" for _ in exam_ids)}) AND created_by = ?',
                 exam_ids + [session['admin_id']]
@@ -1038,7 +1036,7 @@ def admin_bulk_delete_exams():
             exam_ids
         ).fetchall()
 
-        # Delete files from storage
+        # Delete files from storage (before DB delete for path access)
         for row in rows:
             try:
                 fp = safe_storage_path(row['file_path'])
@@ -1047,15 +1045,19 @@ def admin_bulk_delete_exams():
             except (ValueError, KeyError) as e:
                 logger.warning("Invalid file path in bulk delete: %s", e)
 
-        # Single DELETE
-        db.execute(
-            f'DELETE FROM exams WHERE id IN ({",".join("?" for _ in exam_ids)})',
-            exam_ids
-        )
-        db.commit()
+        db.execute('BEGIN')
+        try:
+            # Single DELETE
+            db.execute(
+                f'DELETE FROM exams WHERE id IN ({",".join("?" for _ in exam_ids)})',
+                exam_ids
+            )
+            db.commit()
+        except Exception as e:
+            db.rollback()
+            raise e
         return jsonify({'success': True, 'message': f'{len(exam_ids)} ujian berhasil dihapus'})
     except Exception as e:
-        db.rollback()
         logger.error("Bulk delete error: %s", e)
         return error_response('Terjadi kesalahan saat menghapus ujian', 500)
 
@@ -1163,7 +1165,7 @@ def admin_custom_token(exam_id):
 def admin_stats():
     """Get dashboard statistics."""
     db = get_db()
-    is_super_admin = (session.get('admin_username') == ADMIN_USERNAME)
+    is_super_admin = session.get('is_super_admin', False)
     if is_super_admin:
         exams = db.execute('SELECT status, size_bytes FROM exams').fetchall()
     else:
@@ -1340,23 +1342,23 @@ def admin_create_user():
     try:
         max_exams = int(max_exams)
     except (ValueError, TypeError):
-        max_exams = 3
+        return error_response('Nilai max_exams tidak valid', 400)
 
     try:
         max_pdf_size_mb = float(max_pdf_size_mb)
     except (ValueError, TypeError):
-        max_pdf_size_mb = 1
+        return error_response('Nilai max_pdf_size_mb tidak valid', 400)
     max_pdf_size = int(max_pdf_size_mb * 1024 * 1024)
 
     try:
         max_drafts = int(max_drafts)
     except (ValueError, TypeError):
-        max_drafts = 2
+        return error_response('Nilai max_drafts tidak valid', 400)
 
     try:
         max_draft_size_mb = float(max_draft_size_mb)
     except (ValueError, TypeError):
-        max_draft_size_mb = 1
+        return error_response('Nilai max_draft_size_mb tidak valid', 400)
     max_draft_size = int(max_draft_size_mb * 1024 * 1024)
 
     if not username or not password:
@@ -1499,72 +1501,8 @@ def admin_toggle_user_status(user_id):
     return jsonify({'success': True, 'message': f'Status user "{user["username"]}" berhasil diubah menjadi {new_status}'})
 
 
-@app.route('/admin/api/saas-settings', methods=['GET', 'POST'])
-@super_admin_required
-def admin_saas_settings():
-    """Get or update SaaS settings (WhatsApp verification gateway configs, default limits)."""
-    if request.method == 'POST':
-        data = request.json or {}
-        wa_enabled = '1' if data.get('wa_verification_enabled') else '0'
-        wa_token = data.get('wa_api_token', '').strip()
-        # If the received token looks masked (starts with *), keep the existing value
-        if wa_token.startswith('*'):
-            wa_token = get_saas_setting('wa_api_token', '')
-        wa_template = data.get('wa_otp_template', '').strip()
-        default_exams = data.get('default_max_exams', '3')
-        default_pdf_size_mb = data.get('default_max_pdf_size_mb', '1')
-        default_active_days = data.get('default_active_days', '1')
-        default_drafts = data.get('default_max_drafts', '2')
-        default_draft_size_mb = data.get('default_max_draft_size_mb', '1')
-        android_version = data.get('android_version', '2.1.9').strip()
-        webapp_version = data.get('webapp_version', '2.1.9').strip()
-        
-        try:
-            default_exams = int(default_exams)
-        except (ValueError, TypeError):
-            default_exams = 3
-            
-        try:
-            default_pdf_size_mb = float(default_pdf_size_mb)
-        except (ValueError, TypeError):
-            default_pdf_size_mb = 1.0
-            
-        default_pdf_size = int(default_pdf_size_mb * 1024 * 1024)
-
-        try:
-            default_drafts = int(default_drafts)
-        except (ValueError, TypeError):
-            default_drafts = 2
-
-        try:
-            default_draft_size_mb = float(default_draft_size_mb)
-        except (ValueError, TypeError):
-            default_draft_size_mb = 1.0
-
-        default_draft_size = int(default_draft_size_mb * 1024 * 1024)
-
-        try:
-            default_active_days = int(default_active_days)
-        except (ValueError, TypeError):
-            default_active_days = 1
-        
-        set_saas_setting('wa_verification_enabled', wa_enabled)
-        set_saas_setting('wa_api_token', wa_token)
-        if wa_template:
-            set_saas_setting('wa_otp_template', wa_template)
-        set_saas_setting('default_max_exams', str(default_exams))
-        set_saas_setting('default_max_pdf_size', str(default_pdf_size))
-        set_saas_setting('default_max_drafts', str(default_drafts))
-        set_saas_setting('default_max_draft_size', str(default_draft_size))
-        set_saas_setting('default_active_days', str(default_active_days))
-        set_saas_setting('android_version', android_version)
-        set_saas_setting('webapp_version', webapp_version)
-        cert_fingerprint = data.get('certificate_fingerprint', '').strip()
-        set_saas_setting('certificate_fingerprint', cert_fingerprint)
-
-        return jsonify({'success': True, 'message': 'Pengaturan SaaS berhasil diperbarui'})
-        
-    # GET settings
+def _handle_saas_settings_get():
+    """GET handler for SaaS settings."""
     settings = {
         'wa_verification_enabled': get_saas_setting('wa_verification_enabled', '0') == '1',
         'wa_api_token': _mask_token(get_saas_setting('wa_api_token', '')),
@@ -1574,11 +1512,82 @@ def admin_saas_settings():
         'default_max_drafts': int(get_saas_setting('default_max_drafts', '2')),
         'default_max_draft_size_mb': round(int(get_saas_setting('default_max_draft_size', '1048576')) / (1024*1024), 2),
         'default_active_days': int(get_saas_setting('default_active_days', '1')),
-        'android_version': get_saas_setting('android_version', '2.1.9'),
-        'webapp_version': get_saas_setting('webapp_version', '2.1.9'),
+        'android_version': get_saas_setting('android_version', REQUIRED_ANDROID_VERSION),
+        'webapp_version': get_saas_setting('webapp_version', REQUIRED_ANDROID_VERSION),
         'certificate_fingerprint': get_saas_setting('certificate_fingerprint', '')
     }
     return jsonify({'success': True, 'settings': settings})
+
+
+def _handle_saas_settings_post(data):
+    """POST handler for SaaS settings."""
+    wa_enabled = '1' if data.get('wa_verification_enabled') else '0'
+    wa_token = data.get('wa_api_token', '').strip()
+    if wa_token.startswith('*'):
+        wa_token = get_saas_setting('wa_api_token', '')
+    wa_template = data.get('wa_otp_template', '').strip()
+    default_exams = data.get('default_max_exams', '3')
+    default_pdf_size_mb = data.get('default_max_pdf_size_mb', '1')
+    default_active_days = data.get('default_active_days', '1')
+    default_drafts = data.get('default_max_drafts', '2')
+    default_draft_size_mb = data.get('default_max_draft_size_mb', '1')
+    android_version = data.get('android_version', REQUIRED_ANDROID_VERSION).strip()
+    webapp_version = data.get('webapp_version', REQUIRED_ANDROID_VERSION).strip()
+
+    try:
+        default_exams = int(default_exams)
+    except (ValueError, TypeError):
+        default_exams = 3
+
+    try:
+        default_pdf_size_mb = float(default_pdf_size_mb)
+    except (ValueError, TypeError):
+        default_pdf_size_mb = 1.0
+
+    default_pdf_size = int(default_pdf_size_mb * 1024 * 1024)
+
+    try:
+        default_drafts = int(default_drafts)
+    except (ValueError, TypeError):
+        default_drafts = 2
+
+    try:
+        default_draft_size_mb = float(default_draft_size_mb)
+    except (ValueError, TypeError):
+        default_draft_size_mb = 1.0
+
+    default_draft_size = int(default_draft_size_mb * 1024 * 1024)
+
+    try:
+        default_active_days = int(default_active_days)
+    except (ValueError, TypeError):
+        default_active_days = 1
+
+    set_saas_setting('wa_verification_enabled', wa_enabled)
+    set_saas_setting('wa_api_token', wa_token)
+    if wa_template:
+        set_saas_setting('wa_otp_template', wa_template)
+    set_saas_setting('default_max_exams', str(default_exams))
+    set_saas_setting('default_max_pdf_size', str(default_pdf_size))
+    set_saas_setting('default_max_drafts', str(default_drafts))
+    set_saas_setting('default_max_draft_size', str(default_draft_size))
+    set_saas_setting('default_active_days', str(default_active_days))
+    set_saas_setting('android_version', android_version)
+    set_saas_setting('webapp_version', webapp_version)
+    cert_fingerprint = data.get('certificate_fingerprint', '').strip()
+    set_saas_setting('certificate_fingerprint', cert_fingerprint)
+
+    return jsonify({'success': True, 'message': 'Pengaturan SaaS berhasil diperbarui'})
+
+
+@app.route('/admin/api/saas-settings', methods=['GET', 'POST'])
+@super_admin_required
+def admin_saas_settings():
+    """Get or update SaaS settings (WhatsApp verification gateway configs, default limits)."""
+    if request.method == 'POST':
+        data = request.json or {}
+        return _handle_saas_settings_post(data)
+    return _handle_saas_settings_get()
 
 
 @app.route('/admin/api/users/<int:user_id>', methods=['DELETE'])
@@ -1593,22 +1602,31 @@ def admin_delete_user(user_id):
     if user['username'] == ADMIN_USERNAME:
         return error_response('Super Admin "admin" tidak dapat dihapus', 400)
 
-    # Delete exams and PDF files owned by this user
-    exams = db.execute('SELECT file_path FROM exams WHERE created_by = ?', (user_id,)).fetchall()
-    for e in exams:
-        try:
-            file_path = safe_storage_path(e['file_path'])
-            if os.path.exists(file_path):
-                try:
-                    os.remove(file_path)
-                except Exception as e:
-                    logger.warning("Failed to remove file for user %s: %s", user_id, e)
-        except (ValueError, KeyError):
-            logger.error("Invalid file path for user %s exam: %s", user_id, e.get('file_path'))
+    db.execute('BEGIN')
+    try:
+        # Get file paths before DB deletes
+        exams = db.execute('SELECT file_path FROM exams WHERE created_by = ?', (user_id,)).fetchall()
 
-    db.execute('DELETE FROM exams WHERE created_by = ?', (user_id,))
-    db.execute('DELETE FROM admin_users WHERE id = ?', (user_id,))
-    db.commit()
+        # DB deletes first
+        db.execute('DELETE FROM exams WHERE created_by = ?', (user_id,))
+        db.execute('DELETE FROM admin_users WHERE id = ?', (user_id,))
+
+        # Then file deletes
+        for e in exams:
+            try:
+                file_path = safe_storage_path(e['file_path'])
+                if os.path.exists(file_path):
+                    os.remove(file_path)
+            except (ValueError, KeyError) as e_path:
+                logger.error("Invalid file path for user %s exam: %s", user_id, e_path)
+            except Exception as e_fs:
+                logger.warning("Failed to remove file for user %s: %s", user_id, e_fs)
+
+        db.commit()
+    except Exception as e:
+        db.rollback()
+        logger.error("Error deleting user %s: %s", user_id, e)
+        return error_response('Terjadi kesalahan saat menghapus user', 500)
 
     return jsonify({'success': True, 'message': f'User "{user["username"]}" beserta seluruh soalnya berhasil dihapus'})
 
@@ -1679,23 +1697,26 @@ def admin_exam_questions(exam_id):
         # Recalculate scores for all existing submissions of this exam (paginated)
         total_subs = db.execute('SELECT COUNT(*) as cnt FROM submissions WHERE exam_id = ?', (exam_id,)).fetchone()['cnt']
         page_size = 100
-        for offset in range(0, total_subs, page_size):
-            submissions = db.execute(
-                'SELECT id, answers_json FROM submissions WHERE exam_id = ? ORDER BY id LIMIT ? OFFSET ?',
-                (exam_id, page_size, offset)
-            ).fetchall()
-            for sub in submissions:
-                try:
-                    sub_answers = json.loads(sub['answers_json']) if sub['answers_json'] else {}
-                except Exception as e:
-                    logger.warning("Failed to parse answers for submission %s: %s", sub['id'], e)
-                    sub_answers = {}
+        db.execute('BEGIN')
+        try:
+            for offset in range(0, total_subs, page_size):
+                submissions = db.execute(
+                    'SELECT id, answers_json FROM submissions WHERE exam_id = ? ORDER BY id LIMIT ? OFFSET ?',
+                    (exam_id, page_size, offset)
+                ).fetchall()
+                for sub in submissions:
+                    try:
+                        sub_answers = json.loads(sub['answers_json']) if sub['answers_json'] else {}
+                    except Exception as e:
+                        logger.warning("Failed to parse answers for submission %s: %s", sub['id'], e)
+                        sub_answers = {}
 
-                new_score = calculate_submission_score(sub_answers, questions)
-                db.execute('UPDATE submissions SET score = ? WHERE id = ?', (new_score, sub['id']))
+                    new_score = calculate_submission_score(sub_answers, questions)
+                    db.execute('UPDATE submissions SET score = ? WHERE id = ?', (new_score, sub['id']))
             db.commit()
-
-        db.commit()
+        except:
+            db.rollback()
+            raise
         return jsonify({'success': True, 'message': 'Konfigurasi soal berhasil disimpan dan nilai siswa berhasil diperbarui'})
 
 
@@ -1704,7 +1725,7 @@ def admin_exam_questions(exam_id):
 def admin_submissions():
     """Submissions overview page for admin with pagination."""
     db = get_db()
-    is_super_admin = (session.get('admin_username') == ADMIN_USERNAME)
+    is_super_admin = session.get('is_super_admin', False)
 
     page = request.args.get('page', 1, type=int)
     per_page = request.args.get('per_page', 25, type=int)
@@ -1893,7 +1914,7 @@ def admin_export_submission_detail(submission_id):
         # Use centralized evaluation engine
         eval_info = evaluated.get(q_num, {})
         earned_q_weight = eval_info.get('earned', 0.0)
-        status_text = eval_info.get('statusText', 'Belum Dijawab')
+        status_text = eval_info.get('statusText', 'unanswered')
 
         # Format student answer to string
         student_ans_str = ''
@@ -1964,7 +1985,7 @@ def admin_export_submissions():
     tz_offset = request.args.get('tz_offset', type=int)
 
     db = get_db()
-    is_super_admin = (session.get('admin_username') == ADMIN_USERNAME)
+    is_super_admin = session.get('is_super_admin', False)
 
     # --- Multi-sheet XLSX export for a specific exam ---
     if exam_id:
@@ -1979,6 +2000,10 @@ def admin_export_submissions():
             'SELECT * FROM submissions WHERE exam_id = ? ORDER BY student_class, student_name',
             (exam_id,)
         ).fetchall()
+
+        MAX_XLSX_STUDENTS = 500  # cap to prevent OOM
+        if len(submissions) > MAX_XLSX_STUDENTS:
+            return error_response(f'Export dibatasi maksimal {MAX_XLSX_STUDENTS} siswa per file. Gunakan filter untuk mengurangi jumlah.', 400)
 
         try:
             questions = json.loads(exam['questions_json']) if exam['questions_json'] else []
@@ -2067,21 +2092,19 @@ def _sanitize_sheet_name(name):
 
 def _set_column_widths(ws, widths):
     """Set column widths for a worksheet using an ordered list of widths."""
-    from openpyxl.utils import get_column_letter
     for idx, w in enumerate(widths, 1):
         ws.column_dimensions[get_column_letter(idx)].width = w
 
 
 def _excel_status_color(cell, status_text):
-    """Apply color formatting to a status cell based on evaluation text (Benar/Salah/Parsial)."""
-    from openpyxl.styles import Font, PatternFill
-    if 'Benar' in status_text:
+    """Apply color formatting to a status cell based on evaluation text."""
+    if status_text == 'correct':
         cell.fill = PatternFill(start_color='d1fae5', end_color='d1fae5', fill_type='solid')
         cell.font = Font(color='065f46', bold=True)
-    elif 'Parsial' in status_text:
+    elif status_text == 'partial':
         cell.fill = PatternFill(start_color='fef3c7', end_color='fef3c7', fill_type='solid')
         cell.font = Font(color='92400e', bold=True)
-    elif 'Salah' in status_text:
+    elif status_text == 'incorrect':
         cell.fill = PatternFill(start_color='fee2e2', end_color='fee2e2', fill_type='solid')
         cell.font = Font(color='991b1b', bold=True)
     else:
@@ -2091,12 +2114,10 @@ def _excel_status_color(cell, status_text):
 
 def _build_question_detail_row(ws, row_num, q_num, q, student_answers, evaluation):
     """Build a single question detail row. Returns (q_weight, earned) tuple."""
-    from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
-
     q_weight = float(q.get('weight', 1.0))
     eval_info = evaluation.get(q_num, {})
     earned = eval_info.get('earned', 0.0)
-    status_text = eval_info.get('statusText', 'Belum Dijawab')
+    status_text = eval_info.get('statusText', 'unanswered')
 
     student_ans = student_answers.get(q_num)
     correct_ans = q.get('key')
@@ -2152,10 +2173,6 @@ def _build_question_detail_row(ws, row_num, q_num, q, student_answers, evaluatio
 
 def _build_exam_summary_sheet(ws, exam, submissions, tz_offset):
     """Build Sheet 1: Ringkasan Hasil — title, metadata, and student summary table."""
-    from openpyxl.styles import Font, Alignment, PatternFill, Border, Side
-    from openpyxl.utils import get_column_letter
-    from datetime import datetime, timezone
-
     NAVY = '1e3a8a'
     GREEN_BG = 'd1fae5'
     GREEN_FG = '065f46'
@@ -2259,9 +2276,6 @@ def _build_exam_summary_sheet(ws, exam, submissions, tz_offset):
 
 def _build_student_detail_sheet(wb, sub, questions, tz_offset, used_names):
     """Build a per-student detail sheet with info header and question-by-question results."""
-    from openpyxl.styles import Font, Alignment, PatternFill, Border, Side
-    from openpyxl.utils import get_column_letter
-
     NAVY = '1e3a8a'
     LIGHT_BLUE = 'dbeafe'
 
@@ -2382,10 +2396,7 @@ def _build_student_detail_sheet(wb, sub, questions, tz_offset, used_names):
 
 def _generate_exam_xlsx(exam, submissions, questions, tz_offset=None):
     """Generate a professionally styled multi-sheet Excel workbook for a specific exam."""
-    from openpyxl import Workbook
-    from datetime import datetime, timezone
-
-    wb = Workbook()
+    wb = openpyxl.Workbook()
 
     # Sheet 1: Summary
     _build_exam_summary_sheet(wb.active, exam, submissions, tz_offset)

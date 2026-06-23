@@ -20,6 +20,7 @@ import android.view.LayoutInflater
 import android.view.View
 import android.widget.*
 import androidx.activity.OnBackPressedCallback
+import androidx.activity.viewModels
 import androidx.appcompat.app.AlertDialog
 import androidx.core.app.ActivityCompat
 import androidx.core.app.NotificationCompat
@@ -50,6 +51,8 @@ class ExamViewerActivity : BaseSecureActivity() {
 
     private lateinit var binding: ActivityExamViewerBinding
 
+    private val viewModel: ExamViewerViewModel by viewModels()
+
     private var pdfRenderer: PdfRenderer? = null
     private var fileDescriptor: ParcelFileDescriptor? = null
     private var currentPage = 0
@@ -77,17 +80,29 @@ class ExamViewerActivity : BaseSecureActivity() {
     // data loss on process death, crash, or accidental kill.
     private var autoSaveJob: kotlinx.coroutines.Job? = null
     private val gsonForSave = com.google.gson.Gson()
-    private var submittedOrExited = false
     private var securityLevel = "medium"
     private var strictMode = false
     private var isShowingAppDialog = false
-    @Volatile
-    private var isSubmitting = false
-    private var isPdfReady = false
+
+    // ViewModel-backed state that survives configuration changes
+    private var isSubmitting: Boolean
+        get() = viewModel.isSubmitting.value
+        set(v) { viewModel.setSubmitting(v) }
+
+    private var submittedOrExited: Boolean
+        get() = viewModel.submittedOrExited.value
+        set(v) { viewModel.setSubmittedOrExited(v) }
+
+    private var isPdfReady: Boolean
+        get() = viewModel.isPdfReady.value
+        set(v) { viewModel.setPdfReady(v) }
 
     // Track active popup windows (Spinner dropdowns, etc.) to prevent false focus-loss detection
     private var activePopupCount = 0
     private var onCreateTime = 0L
+
+    // Volume key grace period: prevents OEM ROM volume panel from triggering auto-submit
+    private var volumeKeyPressedAt = 0L
 
     private val notificationChannelCreated: Boolean by lazy {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
@@ -142,7 +157,9 @@ class ExamViewerActivity : BaseSecureActivity() {
     private fun saveAnswersToPrefs() {
         try {
             val prefs = AppPrefs.getExamPrefs(this)
-            val json = gsonForSave.toJson(studentAnswers)
+            // Convert all values to strings to avoid Gson type-loss (e.g. numbers, lists)
+            val stringMap = studentAnswers.mapValues { it.value.toString() }
+            val json = gsonForSave.toJson(stringMap)
             prefs.edit()
                 .putString(AppPrefs.KEY_SAVED_ANSWERS, json)
                 .putInt(AppPrefs.KEY_SAVED_ANSWERS_EXAM_ID, examId)
@@ -173,8 +190,8 @@ class ExamViewerActivity : BaseSecureActivity() {
                 return
             }
             val json = prefs.getString(AppPrefs.KEY_SAVED_ANSWERS, null) ?: return
-            val type = object : com.google.gson.reflect.TypeToken<Map<String, Any>>() {}.type
-            val saved: Map<String, Any> = gsonForSave.fromJson(json, type) ?: return
+            val type = object : com.google.gson.reflect.TypeToken<Map<String, String>>() {}.type
+            val saved: Map<String, String> = gsonForSave.fromJson(json, type) ?: return
             studentAnswers.clear()
             studentAnswers.putAll(saved)
             // Re-populate UI with restored answers
@@ -269,14 +286,6 @@ class ExamViewerActivity : BaseSecureActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         onCreateTime = System.currentTimeMillis()
-
-        // Request notification permission for Android 13+ (API 33+)
-        if (Build.VERSION.SDK_INT >= 33) {
-            if (ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS)
-                != PackageManager.PERMISSION_GRANTED) {
-                ActivityCompat.requestPermissions(this, arrayOf(Manifest.permission.POST_NOTIFICATIONS), REQUEST_NOTIFICATION_PERMISSION)
-            }
-        }
 
         binding = ActivityExamViewerBinding.inflate(layoutInflater)
         setContentView(binding.root)
@@ -914,6 +923,40 @@ class ExamViewerActivity : BaseSecureActivity() {
         binding.tvErrorMsg.text = message
     }
 
+    /**
+     * Request POST_NOTIFICATIONS permission with a rationale dialog explaining
+     * the notification is used only for exam submission status updates.
+     * Called right before auto-submit to minimize intrusive permission prompts.
+     */
+    private fun requestNotificationPermission() {
+        if (Build.VERSION.SDK_INT < 33) return
+        if (ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS)
+            == PackageManager.PERMISSION_GRANTED) return
+
+        if (ActivityCompat.shouldShowRequestPermissionRationale(this, Manifest.permission.POST_NOTIFICATIONS)) {
+            isShowingAppDialog = true
+            AlertDialog.Builder(this)
+                .setTitle("Izin Notifikasi")
+                .setMessage("Notifikasi digunakan hanya untuk memberi tahu status pengumpulan ujian. " +
+                        "Tidak ada notifikasi iklan atau promosi.")
+                .setPositiveButton("Izinkan") { _, _ ->
+                    isShowingAppDialog = false
+                    ActivityCompat.requestPermissions(this,
+                        arrayOf(Manifest.permission.POST_NOTIFICATIONS),
+                        REQUEST_NOTIFICATION_PERMISSION)
+                }
+                .setNegativeButton("Jangan Izinkan") { _, _ ->
+                    isShowingAppDialog = false
+                }
+                .setOnCancelListener { isShowingAppDialog = false }
+                .show()
+        } else {
+            ActivityCompat.requestPermissions(this,
+                arrayOf(Manifest.permission.POST_NOTIFICATIONS),
+                REQUEST_NOTIFICATION_PERMISSION)
+        }
+    }
+
     override fun onRequestPermissionsResult(requestCode: Int, permissions: Array<String>, grantResults: IntArray) {
         super.onRequestPermissionsResult(requestCode, permissions, grantResults)
         if (requestCode == REQUEST_NOTIFICATION_PERMISSION) {
@@ -951,12 +994,21 @@ class ExamViewerActivity : BaseSecureActivity() {
     override fun onWindowFocusChanged(hasFocus: Boolean) {
         super.onWindowFocusChanged(hasFocus)
         if (hasFocus) {
+            // Skip auto-submit grace period if focus was lost due to OEM ROM volume panel
+            // (some devices show a system volume overlay that triggers onWindowFocusChanged(false))
+            if (System.currentTimeMillis() - volumeKeyPressedAt < 1500) {
+                return
+            }
             activePopupCount = 0
         }
     }
 
     override fun onKeyDown(keyCode: Int, event: KeyEvent?): Boolean {
         if (keyCode == KeyEvent.KEYCODE_VOLUME_UP || keyCode == KeyEvent.KEYCODE_VOLUME_DOWN) {
+            // Record timestamp for OEM ROM grace period (prevents volume panel from
+            // triggering false auto-submit via onWindowFocusChanged).
+            volumeKeyPressedAt = System.currentTimeMillis()
+
             // Adjust volume programmatically without showing the system overlay UI.
             // This prevents the system volume panel from triggering a false onWindowFocusChanged(false) anti-cheat submission.
             try {
@@ -1035,7 +1087,42 @@ class ExamViewerActivity : BaseSecureActivity() {
             .show()
     }
 
+    /**
+     * Submit exam answers with exponential backoff retry (1s, 2s, 4s).
+     * Used by autoSubmitAndExit to handle transient network failures.
+     */
+    private fun submitWithRetry(): Pair<Boolean, String> {
+        val delays = listOf(1000L, 2000L, 4000L)
+        for (attempt in 0..3) {
+            try {
+                val result = ApiClient.submitExamSync(
+                    examId = examId,
+                    studentName = studentName,
+                    examNumber = studentNumber,
+                    studentClass = studentClass,
+                    answers = studentAnswers,
+                    startTime = startTime,
+                    macAddress = macAddress,
+                    identityData = identityData
+                )
+                if (result.first) return result
+                // If server returned an error, retry only on network-level failures
+                if (attempt < 3) Thread.sleep(delays[attempt])
+            } catch (e: Exception) {
+                if (attempt < 3) {
+                    Thread.sleep(delays[attempt])
+                } else {
+                    return Pair(false, e.message ?: getString(R.string.answer_submit_error))
+                }
+            }
+        }
+        return Pair(false, getString(R.string.answer_submit_error))
+    }
+
     private fun autoSubmitAndExit() {
+        // Request notification permission right before auto-submit with rationale dialog
+        requestNotificationPermission()
+
         if (submittedOrExited) return
         submittedOrExited = true
 
@@ -1053,22 +1140,9 @@ class ExamViewerActivity : BaseSecureActivity() {
             return
         }
 
-        // Submit synchronously in a background coroutine, then post result to main thread.
+        // Submit synchronously in a background coroutine with retry, then post result to main thread.
         lifecycleScope.launch(Dispatchers.IO) {
-            val result = try {
-                ApiClient.submitExamSync(
-                    examId = examId,
-                    studentName = studentName,
-                    examNumber = studentNumber,
-                    studentClass = studentClass,
-                    answers = studentAnswers,
-                    startTime = startTime,
-                    macAddress = macAddress,
-                    identityData = identityData
-                )
-            } catch (_: Throwable) {
-                Pair(false, getString(R.string.answer_submit_error))
-            }
+            val result = submitWithRetry()
 
             val notifTitle = if (result.first) getString(R.string.auto_submit_success_title) else getString(R.string.auto_submit_failed_title)
             val notifMessage = if (result.first) {

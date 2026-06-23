@@ -75,9 +75,21 @@ class ServerConfigActivity : BaseSecureActivity() {
                 url = "https://$url"
                 binding.etServerUrl.setText(url)
             }
-            // WARNING: Using HTTP for LAN servers is insecure — prefer HTTPS
 
-            if (validateInputs(url, token)) {
+            if (!validateInputs(url, token)) return@setOnClickListener
+
+            // Warn if using plain HTTP (cleartext) — MITM risk on public networks
+            if (url.startsWith("http://")) {
+                AlertDialog.Builder(this)
+                    .setTitle("Peringatan Keamanan")
+                    .setMessage("HTTP tidak aman di jaringan publik. Gunakan HTTPS jika tersedia.\n\n" +
+                            "Koneksi HTTP dapat disadap (man-in-the-middle) oleh pihak ketiga.")
+                    .setPositiveButton("Tetap Lanjutkan") { _, _ ->
+                        connectAndFetchExam(url, token)
+                    }
+                    .setNegativeButton("Batal", null)
+                    .show()
+            } else {
                 connectAndFetchExam(url, token)
             }
         }

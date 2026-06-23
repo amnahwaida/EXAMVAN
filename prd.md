@@ -184,6 +184,9 @@ Accept-Ranges: bytes
     <!-- ... -->
 </application>
 ```
+> [!WARNING]
+> Snippet di bawah menggunakan tag `<domain>` yang tidak valid untuk IP range (mendukung hostname saja). Implementasi aktual ada di `android/app/src/main/res/xml/network_security_config.xml` yang sudah menggunakan tag `<ip-range>` yang benar (API 24+).
+
 **res/xml/network_security_config.xml** (Wajib untuk Android 9+)
 ```xml
 <network-security-config>

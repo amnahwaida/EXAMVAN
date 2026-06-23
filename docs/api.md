@@ -10,17 +10,17 @@ Base URL: `http://<server>:5000`
 |----------|--------|-------------|
 | `/api/health` | GET | Server health check & version info |
 | `/api/time` | GET | Server UTC time |
-| `/api/exams` | GET | List of active exams |
-| `/api/exams/token/<token>` | GET | Get exam config by 6-8 char token |
-| `/api/exams/<id>/pdf` | GET | Download exam PDF |
-| `/api/exams/<id>/submit` | POST | Submit student answers |
+| `/api/exams` | GET | List of active exams (paginated) |
+| `/api/exams/token/<token>` | GET | Get exam config by 6-8 char token (requires X-App-Version, returns 426 if outdated) |
+| `/api/exams/<id>/pdf` | GET | Download exam PDF (requires ?token= query param) |
+| `/api/exams/<id>/submit` | POST | Submit student answers (requires X-App-Version) |
 | `/api/hasil/<token>` | GET | Public exam results (JSON) |
 
 ### Admin API (Requires Login)
 
 All admin endpoints require an active session (login via `/admin/login`).
 
-> **Important:** Since v2.1.9, all `POST`, `PUT`, `DELETE` requests require a **CSRF token**.
+> **Important:** Since v2.2.0, all `POST`, `PUT`, `DELETE` requests require a **CSRF token**.
 > Include header: `X-CSRF-Token: <token>` (read from `<meta name="csrf-token">` in page).
 
 ---
@@ -59,7 +59,11 @@ Server UTC time for client sync.
 
 ### `GET /api/exams`
 
-List all active exams (for Android client).
+List all active exams (for Android client). Supports pagination via `page` and `per_page` query parameters.
+
+**Query Parameters:**
+- `page` (int, optional, default: 1) — Page number
+- `per_page` (int, optional, default: 50, max: 200) — Items per page
 
 **Response `200 OK`:**
 ```json
@@ -73,7 +77,13 @@ List all active exams (for Android client).
       "size_mb": 2.45,
       "created_at": "2026-06-22T10:00:00Z"
     }
-  ]
+  ],
+  "pagination": {
+    "page": 1,
+    "per_page": 50,
+    "total": 1,
+    "total_pages": 1
+  }
 }
 ```
 
@@ -121,13 +131,17 @@ Get exam configuration by 6-character token.
 
 ### `GET /api/exams/<id>/pdf`
 
-Download the exam PDF file for streaming.
-
-**Headers:**
-- `Accept-Ranges: bytes`
+Download the exam PDF file for streaming. Requires a valid exam token as query parameter for access control.
 
 **Query Parameters:**
-- `token` (string, optional) — Exam access token for validation
+- `token` (string, required) — Exam access token for validation
+
+**Response `200 OK`:**
+- Content-Type: `application/pdf`
+- Content-Disposition: `inline; filename="exam_<id>.pdf"`
+- Cache-Control: `no-store, no-cache, must-revalidate`
+- X-Content-Type-Options: `nosniff`
+- Accept-Ranges: `bytes`
 
 **Response `200 OK`:**
 - Content-Type: `application/pdf`
@@ -142,7 +156,7 @@ Download the exam PDF file for streaming.
 Submit student answers and receive auto-graded score.
 
 **Headers:**
-- `X-App-Version: 2.1.9` (required)
+- `X-App-Version: <version>` (required, returns 426 if mismatch with server)
 
 **Request Body:**
 ```json
@@ -293,8 +307,8 @@ Upload a new exam PDF.
 
 **Errors:** `400` (validation), `403` (limit reached)
 
-#### `POST /admin/api/exams/create-from-editor`
-Create exam from the question editor.
+#### `POST /admin/api/exams/create-from-editor` (Not Yet Implemented)
+> **Catatan:** Endpoint ini belum diimplementasikan di server. Gunakan `/admin/api/upload` untuk membuat ujian baru.
 
 **Request:** `multipart/form-data`
 | Field | Type | Required | Description |

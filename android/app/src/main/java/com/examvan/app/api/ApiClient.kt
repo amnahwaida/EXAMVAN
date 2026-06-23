@@ -10,6 +10,7 @@ import java.io.File
 import java.io.FileOutputStream
 import java.io.IOException
 import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicReference
 
 import com.examvan.app.BuildConfig
 import kotlin.coroutines.resume
@@ -36,8 +37,7 @@ object ApiClient {
     @JvmStatic
     var EXPECTED_FINGERPRINT: String? = null
 
-    @Volatile
-    private var client = OkHttpClient.Builder()
+    private fun defaultClient(): OkHttpClient = OkHttpClient.Builder()
         .connectTimeout(15, TimeUnit.SECONDS)
         .readTimeout(60, TimeUnit.SECONDS)
         .writeTimeout(30, TimeUnit.SECONDS)
@@ -49,6 +49,10 @@ object ApiClient {
             chain.proceed(request)
         }
         .build()
+
+    private val clientRef = AtomicReference<OkHttpClient>(defaultClient())
+
+    private val client: OkHttpClient get() = clientRef.get()
 
     private var certificateFingerprint: String? = null
 
@@ -93,7 +97,7 @@ object ApiClient {
                         if (fp != null && baseUrl.startsWith("https://")) {
                             when {
                                 // Static pinning: verify fingerprint matches EXPECTED_FINGERPRINT first
-                                EXPECTED_FINGERPRINT != null && fp != EXPECTED_FINGERPRINT -> {
+                                EXPECTED_FINGERPRINT != null && !fp.equals(EXPECTED_FINGERPRINT, ignoreCase = true) -> {
                                     // Fingerprint mismatch — log warning but don't pin (could be MITM)
                                     println("WARNING: Server fingerprint $fp does not match expected $EXPECTED_FINGERPRINT")
                                 }
@@ -126,14 +130,17 @@ object ApiClient {
         } catch (e: Exception) { null }
         if (hostname == null) return
 
-        // Use newBuilder() to preserve existing config (interceptors, dispatcher, connection pool, etc.)
-        client = client.newBuilder()
+        // Use compareAndSet to safely swap the client reference (prevents lost updates
+        // if rebuildClientWithPinning is called concurrently from multiple health-check callbacks)
+        val oldClient = clientRef.get()
+        val newClient = oldClient.newBuilder()
             .certificatePinner(
                 CertificatePinner.Builder()
                     .add(hostname, fingerprint)
                     .build()
             )
             .build()
+        clientRef.compareAndSet(oldClient, newClient)
     }
 
     /**

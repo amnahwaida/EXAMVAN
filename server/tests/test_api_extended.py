@@ -2,6 +2,7 @@
 import sys, os, json, io, unittest
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
 from app import app
+from routes import REQUIRED_ANDROID_VERSION
 
 
 class TestBulkOperations(unittest.TestCase):
@@ -12,6 +13,7 @@ class TestBulkOperations(unittest.TestCase):
         with self.client.session_transaction() as sess:
             sess['admin_id'] = 1
             sess['admin_username'] = 'admin'
+            sess['is_super_admin'] = True
             sess['csrf_token'] = 'bulk_test_csrf'
         self.csrf = 'bulk_test_csrf'
 
@@ -46,6 +48,7 @@ class TestSubmissionsExport(unittest.TestCase):
         with self.client.session_transaction() as sess:
             sess['admin_id'] = 1
             sess['admin_username'] = 'admin'
+            sess['is_super_admin'] = True
             sess['csrf_token'] = 'export_test_csrf'
         self.csrf = 'export_test_csrf'
 
@@ -72,6 +75,7 @@ class TestSaasSettings(unittest.TestCase):
         with self.client.session_transaction() as sess:
             sess['admin_id'] = 1
             sess['admin_username'] = 'admin'
+            sess['is_super_admin'] = True
             sess['csrf_token'] = 'saas_test_csrf'
         self.csrf = 'saas_test_csrf'
 
@@ -102,6 +106,7 @@ class TestIdentityFields(unittest.TestCase):
         with self.client.session_transaction() as sess:
             sess['admin_id'] = 1
             sess['admin_username'] = 'admin'
+            sess['is_super_admin'] = True
             sess['csrf_token'] = 'identity_test_csrf'
         self.csrf = 'identity_test_csrf'
 
@@ -146,7 +151,7 @@ class TestVersionCompatibility(unittest.TestCase):
         """Correct version should proceed to token validation."""
         client = app.test_client()
         resp = client.get('/api/exams/token/ABC123',
-            headers={'X-App-Version': '2.1.9'})
+            headers={'X-App-Version': REQUIRED_ANDROID_VERSION})
         self.assertEqual(resp.status_code, 404)  # token not found, but version OK
 
 
@@ -185,11 +190,12 @@ class TestPasswordHashing(unittest.TestCase):
         self.assertFalse(_verify_password('wrong', pw_hash))
 
     def test_legacy_hash_compat(self):
-        """Legacy SHA-256 hashes should still verify."""
+        """Legacy SHA-256 hashes are NO LONGER supported (security fix)."""
         import hashlib
         from app import _verify_password
         legacy = hashlib.sha256('test123'.encode()).hexdigest()
-        self.assertTrue(_verify_password('test123', legacy))
+        # SHA-256 legacy support removed — must return False
+        self.assertFalse(_verify_password('test123', legacy))
         self.assertFalse(_verify_password('wrong', legacy))
 
 

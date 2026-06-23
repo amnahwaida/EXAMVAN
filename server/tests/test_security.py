@@ -12,6 +12,7 @@ class TestXSSPrevention(unittest.TestCase):
         with client.session_transaction() as sess:
             sess['admin_id'] = 1
             sess['admin_username'] = 'admin'
+            sess['is_super_admin'] = True
             sess['csrf_token'] = 'csrf_xss_test'
         return 'csrf_xss_test'
 
@@ -49,41 +50,63 @@ class TestXSSPrevention(unittest.TestCase):
 class TestRateLimitingDetailed(unittest.TestCase):
     def setUp(self):
         self.client = app.test_client()
+        # Clean rate limit state to prevent test contamination
+        try:
+            from app import get_db_standalone as _get_db
+            db = _get_db()
+            db.execute('DELETE FROM rate_limits')
+            db.commit()
+            db.close()
+        except Exception:
+            pass
 
     def test_verify_otp_rate_limit_different_users(self):
         """Rate limiter should track per-IP not per-username."""
-        successes_429 = 0
+        # Set CSRF token for state-changing requests
+        with self.client.session_transaction() as sess:
+            sess['csrf_token'] = 'csrf_rate_test'
+        has_rate_limited = False
+        last_text = ''
         for i in range(15):
             resp = self.client.post('/verify-otp', data={
                 'username': f'user_{i}',
-                'otp': '123456'
+                'otp': '123456',
+                'csrf_token': 'csrf_rate_test'
             }, follow_redirects=True)
-            if resp.status_code == 429:
-                successes_429 += 1
-        # At least some attempts should be rate-limited
-        self.assertGreaterEqual(successes_429, 0)  # Just ensure no crash
+            last_text = resp.text.lower()
+            if 'terlalu banyak' in last_text:
+                has_rate_limited = True
+                break
+        # At least some attempts should be rate-limited (after 5 per IP per 5 min)
+        self.assertTrue(has_rate_limited,
+                       f"Rate limiting should have blocked after 15 attempts. Last response: {last_text[:200]}")
 
     def test_resend_otp_rate_limit(self):
         """Rapid resend requests should be blocked."""
+        with self.client.session_transaction() as sess:
+            sess['csrf_token'] = 'csrf_rate_test2'
         for i in range(5):
             resp = self.client.post('/resend-otp', data={
-                'username': 'test_user_rate'
+                'username': 'test_user_rate',
+                'csrf_token': 'csrf_rate_test2'
             })
         # Last request should hit rate limit or at least not 200
         self.assertIn(resp.status_code, [404, 429])
 
     def test_concurrent_rate_limits_reset(self):
         """Rate limit window should eventually reset."""
-        # First, exhaust the limit
-        from app import _rate_limit_store
-        key = 'resend_otp:127.0.0.1'
-        _rate_limit_store[key] = []
-        # Fill with old timestamps (outside window)
-        import time
-        _rate_limit_store[key] = [time.time() - 600] * 3
-        # Should now be allowed
+        # Clear any existing rate limits first
+        from app import get_db_standalone as _get_db
+        db = _get_db()
+        db.execute("DELETE FROM rate_limits WHERE key LIKE 'resend_otp:%'")
+        db.commit()
+        db.close()
+
+        with self.client.session_transaction() as sess:
+            sess['csrf_token'] = 'csrf_rate_reset'
         resp = self.client.post('/resend-otp', data={
-            'username': 'rate_reset_test'
+            'username': 'rate_reset_test',
+            'csrf_token': 'csrf_rate_reset'
         })
         self.assertEqual(resp.status_code, 404)  # user not found, not rate limited
 
@@ -96,6 +119,7 @@ class TestFileUploadSecurity(unittest.TestCase):
         with client.session_transaction() as sess:
             sess['admin_id'] = 1
             sess['admin_username'] = 'admin'
+            sess['is_super_admin'] = True
             sess['csrf_token'] = 'csrf_file_test'
         return 'csrf_file_test'
 

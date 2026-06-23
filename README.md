@@ -62,7 +62,7 @@ Untuk memulai ujian pada perangkat siswa, silakan unduh aplikasinya melalui taut
 ### 🤖 Perangkat Android
 * **[Download EXAMVAN Android APK (v2.2.0)](./EXAMVAN.apk)** *(Telah diperbarui dengan build debug tertanda otomatis yang siap langsung dipasang di HP siswa tanpa kendala lisensi).*
 * **Alternative Build:** Anda juga dapat menggunakan berkas **[examvan-debug.apk](./examvan-debug.apk)** atau **[examvan-release.apk](./examvan-release.apk)** yang terletak di folder root.
-* **Kompatibilitas:** Minimal **Android 5.0 (Lollipop - API 21)** hingga versi terbaru (diuji hingga **Android 14/15 - API 34/35**). Kompatibel dengan >99% tipe perangkat Android aktif milik siswa.
+* **Kompatibilitas:** Minimal **Android 7.0 (Nougat - API 24)** hingga versi terbaru (diuji hingga **Android 14/15 - API 34/35**). Membutuhkan API 24+ untuk dukungan `network_security_config.xml` dengan tag `<ip-range>`.
 
 ## 🛠️ Panduan Build Aplikasi Klien (Siswa)
 
@@ -78,12 +78,23 @@ Kompilasi dapat dilakukan di sistem operasi **Windows, macOS, maupun Linux**.
 
 #### 2. Cara Build dengan Command Line (CLI):
 1. Buka terminal/command prompt di direktori `./android`.
-2. Jalankan perintah kompilasi berikut:
+2. Jalankan perintah kompilasi sesuai flavor yang diinginkan:
+
+   **Flavor Student (untuk HP pribadi siswa):**
    ```bash
-   ./gradlew assembleDebug
+   ./gradlew assembleStudentDebug
    ```
-3. Berkas APK hasil kompilasi akan tersimpan di:
-   `android/app/build/outputs/apk/debug/app-debug.apk`
+   APK output: `android/app/build/outputs/apk/student/debug/app-student-debug.apk`
+
+   **Flavor Kiosk (untuk tablet sekolah dengan Device Admin):**
+   ```bash
+   ./gradlew assembleKioskDebug
+   ```
+   APK output: `android/app/build/outputs/apk/kiosk/debug/app-kiosk-debug.apk`
+
+3. **Penjelasan Product Flavors:**
+   - **`student`** — Aplikasi bersih untuk HP pribadi siswa (tanpa Device Admin)
+   - **`kiosk`** — Aplikasi dengan Device Admin + lock-task untuk tablet sekolah (mengunci perangkat saat ujian)
 
 #### 3. Cara Build dengan Android Studio (GUI):
 1. Buka software **Android Studio**.
@@ -152,8 +163,9 @@ Jika Anda ingin menjalankannya langsung menggunakan Python lokal pada sistem ope
 3. **Jalankan Mode Produksi (Gunicorn):**
    Gunakan Gunicorn untuk menangani trafik multi-client yang stabil:
    ```bash
-   gunicorn -w 4 -b 0.0.0.0:5000 app:app
+   gunicorn -w 1 --threads 4 -b 0.0.0.0:5000 app:app
    ```
+   > **Catatan:** Karena EXAMVAN menggunakan SQLite, hanya **1 worker** yang diizinkan untuk mencegah konflik write database. Gunakan `--threads 4` untuk tetap bisa melayani banyak request secara concurrent.
 4. **Jalankan Mode Development (Opsional):**
    Jika ingin melakukan debugging secara lokal:
    ```bash

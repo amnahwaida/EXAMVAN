@@ -1,6 +1,6 @@
 """
 EXAMVAN Server - REST API & Admin Panel
-Version: 2.1.9
+Version: 2.2.0
 Platform: Flask + SQLite
 """
 
@@ -14,6 +14,8 @@ import json
 import csv
 import io
 import threading
+import urllib.request
+import urllib.parse
 from datetime import datetime, timezone, timedelta
 from functools import wraps
 
@@ -66,10 +68,15 @@ logger = logging.getLogger('examvan')
 # ===== App Init =====
 app = Flask(__name__)
 app.secret_key = os.environ.get('EXAMVAN_SECRET', secrets.token_hex(32))
+# Validate secret key: reject known placeholder
+if app.secret_key == 'change_this_to_a_random_secret_key_min_32_chars':
+    logger.critical("EXAMVAN_SECRET is set to the KNOWN PLACEHOLDER value! Session forgery risk. Set a unique secret in .env and restart immediately.")
+    import sys
+    sys.exit(1)
 app.config['MAX_CONTENT_LENGTH'] = MAX_FILE_SIZE + 4096
 
 # ===== Session Security =====
-app.config['SESSION_COOKIE_SECURE'] = True
+app.config['SESSION_COOKIE_SECURE'] = False  # default False; overridden by X-Forwarded-Proto in after_request
 app.config['SESSION_COOKIE_HTTPONLY'] = True
 app.config['SESSION_COOKIE_SAMESITE'] = 'Lax'
 app.config['SESSION_COOKIE_NAME'] = 'examvan_session'
@@ -150,14 +157,12 @@ def init_db():
             value TEXT
         );
 
-        -- Performance indexes
-        CREATE INDEX IF NOT EXISTS idx_exams_token ON exams(token);
-        CREATE INDEX IF NOT EXISTS idx_exams_created_by ON exams(created_by);
-        CREATE INDEX IF NOT EXISTS idx_exams_status ON exams(status);
-        CREATE INDEX IF NOT EXISTS idx_submissions_exam_id ON submissions(exam_id);
-        CREATE INDEX IF NOT EXISTS idx_submissions_student_class ON submissions(student_class);
-        CREATE INDEX IF NOT EXISTS idx_submissions_created_at ON submissions(created_at);
-        CREATE INDEX IF NOT EXISTS idx_admin_users_username ON admin_users(username);
+        CREATE TABLE IF NOT EXISTS rate_limits (
+            key TEXT PRIMARY KEY,
+            timestamps TEXT NOT NULL,
+            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        );
+        CREATE INDEX IF NOT EXISTS idx_rate_limits_key ON rate_limits(key);
     ''')
 
     # Seed default SaaS settings if not present
@@ -170,16 +175,15 @@ def init_db():
         'default_active_days': '1',
         'default_max_drafts': '2',
         'default_max_draft_size': '1048576',
-        'android_version': '2.2.0',
-        'webapp_version': '2.2.0',
-        'certificate_fingerprint': '',
-        'data_retention_days': '90'  # UU PDP: otomatis hapus data PII siswa setelah 90 hari
+        'android_version': '2.1.9',
+        'webapp_version': '2.1.9',
+        'certificate_fingerprint': ''
     }
     for k, v in default_settings.items():
         existing_setting = db.execute('SELECT value FROM saas_settings WHERE key = ?', (k,)).fetchone()
         if not existing_setting:
             db.execute('INSERT INTO saas_settings (key, value) VALUES (?, ?)', (k, v))
-        elif k in ('android_version', 'webapp_version') and existing_setting['value'] in ('2.1.0', '2.1.1', '2.1.2', '2.1.3', '2.1.4', '2.1.5', '2.1.6', '2.1.7', '2.1.8', '2.1.9'):
+        elif k in ('android_version', 'webapp_version') and existing_setting['value'] in ('2.1.0', '2.1.1', '2.1.2', '2.1.3', '2.1.4', '2.1.5', '2.1.6', '2.1.7', '2.1.8'):
             db.execute('UPDATE saas_settings SET value = ? WHERE key = ?', (v, k))
     db.commit()
 
@@ -240,9 +244,6 @@ def init_db():
         ('add_identity_data_to_submissions', 'ALTER TABLE submissions ADD COLUMN identity_data TEXT'),
         # strict_mode is defined in CREATE TABLE, no ALTER needed
         # ('add_strict_mode_to_exams', ...) — removed as duplicate
-        # Data migrations (migrate_legacy_sha256_passwords, add_data_retention_days)
-        # are handled in separate blocks below — not here — because they are
-        # data migrations, not schema changes.
     ]
 
     for name, sql in migrations:
@@ -269,133 +270,51 @@ def init_db():
                 pass
             db.commit()
 
-    # ===== Data Migration: SHA-256 Legacy Passwords =====
-    if 'migrate_legacy_sha256_passwords' in applied:
-        pass
-    else:
-        legacy_users = db.execute(
-            "SELECT id, username FROM admin_users WHERE password_hash NOT LIKE 'scrypt:%' AND password_hash NOT LIKE 'pbkdf2:%'"
-        ).fetchall()
-        if legacy_users:
-            legacy_usernames = [u['username'] for u in legacy_users]
-            logger.warning(
-                f"Ditemukan {len(legacy_users)} akun dengan password hash SHA-256 legacy: {', '.join(legacy_usernames)}. "
-                f"Password hash SHA-256 sudah tidak didukung. "
-                f"Admin harus melakukan reset password untuk akun-akun ini melalui panel admin."
-            )
-        db.execute('INSERT INTO _migrations (name) VALUES (?)', ('migrate_legacy_sha256_passwords',))
-        db.commit()
-        logger.info("Migration 'migrate_legacy_sha256_passwords' applied")
-
-    # ===== Data Retention: Automatic Cleanup (UU PDP) =====
-    if 'add_data_retention_days' in applied:
-        pass
-    else:
-        retention_days = int(db.execute("SELECT value FROM saas_settings WHERE key = 'data_retention_days'").fetchone()['value'])
-        cutoff = (datetime.now(timezone.utc) - timedelta(days=retention_days)).strftime('%Y-%m-%d %H:%M:%S')
-        deleted = db.execute(
-            'DELETE FROM submissions WHERE created_at < ?',
-            (cutoff,)
-        ).rowcount
-        if deleted > 0:
-            logger.info(f"Retensi data: {deleted} submission lama (>{retention_days} hari) berhasil dihapus")
-        db.execute('INSERT INTO _migrations (name) VALUES (?)', ('add_data_retention_days',))
-        db.commit()
-        logger.info("Migration 'add_data_retention_days' applied")
-
-    # ===== Periodic Cleanup Scheduler =====
-    def _cleanup_expired_data():
-        """Periodic cleanup of expired submissions and stale OTP data.
-        Runs every 6 hours with minimal overhead (SQLite WAL mode).
-        """
-        try:
-            db = get_db_standalone()
-            retention = int(db.execute("SELECT value FROM saas_settings WHERE key = 'data_retention_days'").fetchone()['value'])
-            cutoff = (datetime.now(timezone.utc) - timedelta(days=retention)).strftime('%Y-%m-%d %H:%M:%S')
-            deleted = db.execute('DELETE FROM submissions WHERE created_at < ?', (cutoff,)).rowcount
-            if deleted > 0:
-                db_cleanup_logger = logging.getLogger('examvan.cleanup')
-                db_cleanup_logger.info(f"Cleanup: {deleted} submission lama dihapus (>{retention} hari)")
-            
-            # Clean up expired OTP codes (security: remove stale pending registrations)
-            now_str = datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S')
-            db.execute(
-                "DELETE FROM admin_users WHERE status = 'pending_otp' AND otp_expiry IS NOT NULL AND otp_expiry < ?",
-                (now_str,)
-            )
-            db.commit()
-        except Exception:
-            pass
-        finally:
-            try:
-                if 'db' in locals():
-                    db.close()
-            except Exception:
-                pass
-
-    # Start background cleanup thread
-    def _schedule_cleanup():
-        import time as _time
-        while True:
-            _time.sleep(6 * 3600)  # Run every 6 hours
-            try:
-                _cleanup_expired_data()
-            except Exception:
-                pass
-
-    cleanup_thread = threading.Thread(target=_schedule_cleanup, daemon=True)
-    cleanup_thread.start()
-    logger.info("Periodic data retention scheduler started (interval: 6 hours)")
-
     db.close()
 
-# Initialize database on module import (safely creates tables under Gunicorn)
-try:
-    init_db()
-except Exception as e:
-    logger.error(f"Error initializing database on startup: {e}")
+# Lazy init: skip at import time for Gunicorn worker safety
+# Will init on first request via a before_request handler
+_init_done = False
+
+@app.before_request
+def _lazy_init():
+    global _init_done
+    if not _init_done:
+        try:
+            init_db()
+            _init_done = True
+        except Exception as e:
+            logger.error(f"Error initializing database on first request: {e}")
 
 
-# ===== Rate Limiter (in-memory, bounded) =====
+# ===== Rate Limiter (SQLite-backed) =====
 import time
-from collections import OrderedDict
-# Bounded LRU-like store: max 10_000 entries, oldest evicted automatically
-_RATE_LIMIT_MAX_ENTRIES = 10_000
-_rate_limit_store = OrderedDict()
-_RATE_LIMIT_LOCK = threading.Lock()
+import json
 
 def check_rate_limit(key, max_attempts=5, window_seconds=300):
-    """
-    Simple in-memory rate limiter with bounded store (thread-safe).
-    Returns True if request is allowed, False if rate limited.
-    key: unique identifier (e.g. f"otp:{ip}")
-    max_attempts: max requests in the window
-    window_seconds: time window in seconds
-    """
+    """SQLite-backed rate limiter (works across Gunicorn workers)."""
     now = time.time()
     ip = request.access_route[0] if request.access_route else request.remote_addr or 'unknown'
     store_key = f"{key}:{ip}"
 
-    with _RATE_LIMIT_LOCK:
-        # Evict oldest entries if store is too large
-        while len(_rate_limit_store) >= _RATE_LIMIT_MAX_ENTRIES:
-            _rate_limit_store.popitem(last=False)
+    db = get_db()
+    row = db.execute('SELECT timestamps FROM rate_limits WHERE key = ?', (store_key,)).fetchone()
+    timestamps = json.loads(row['timestamps']) if row else []
 
-        # Get existing timestamps for this key (or empty list)
-        timestamps = _rate_limit_store.get(store_key, [])
+    # Clean old entries
+    timestamps = [t for t in timestamps if now - t < window_seconds]
 
-        # Clean old entries
-        timestamps = [t for t in timestamps if now - t < window_seconds]
+    if len(timestamps) >= max_attempts:
+        db.execute('INSERT OR REPLACE INTO rate_limits (key, timestamps) VALUES (?, ?)',
+                   (store_key, json.dumps(timestamps)))
+        db.commit()
+        return False
 
-        # Check limit
-        if len(timestamps) >= max_attempts:
-            _rate_limit_store[store_key] = timestamps
-            return False
-
-        timestamps.append(now)
-        if timestamps:
-            _rate_limit_store[store_key] = timestamps
-        return True
+    timestamps.append(now)
+    db.execute('INSERT OR REPLACE INTO rate_limits (key, timestamps) VALUES (?, ?)',
+               (store_key, json.dumps(timestamps)))
+    db.commit()
+    return True
 
 
 # ===== CSRF Protection =====
@@ -406,18 +325,25 @@ def generate_csrf_token():
     return session['csrf_token']
 
 
+def _validate_csrf():
+    """Validate CSRF token for state-changing requests. Returns None or (status, response)."""
+    if request.method in ('POST', 'PUT', 'DELETE'):
+        token = request.headers.get('X-CSRF-Token') or request.form.get('csrf_token')
+        expected = session.get('csrf_token')
+        if not expected or not token or token != expected:
+            if request.is_json or request.path.startswith('/admin/api'):
+                return jsonify({'success': False, 'error': 'invalid_csrf', 'message': 'CSRF token tidak valid. Silakan refresh halaman.'}), 403
+            flash('CSRF token tidak valid. Silakan coba lagi.', 'error')
+            return redirect(url_for('admin_dashboard'))
+    return None
+
 def csrf_required(f):
     """Decorator to require valid CSRF token on state-changing requests."""
     @wraps(f)
     def decorated(*args, **kwargs):
-        if request.method in ('POST', 'PUT', 'DELETE'):
-            token = request.headers.get('X-CSRF-Token') or request.form.get('csrf_token')
-            expected = session.get('csrf_token')
-            if not expected or not token or token != expected:
-                if request.is_json or request.path.startswith('/admin/api'):
-                    return jsonify({'success': False, 'error': 'invalid_csrf', 'message': 'CSRF token tidak valid. Silakan refresh halaman.'}), 403
-                flash('CSRF token tidak valid. Silakan coba lagi.', 'error')
-                return redirect(url_for('admin_dashboard'))
+        result = _validate_csrf()
+        if result:
+            return result
         return f(*args, **kwargs)
     return decorated
 
@@ -440,13 +366,9 @@ def set_saas_setting(key, value):
     db.commit()
 
 def send_whatsapp(target, message):
-    import urllib.request
-    import urllib.parse
-    import json
-    
     token = get_saas_setting('wa_api_token', '')
     if not token:
-        logger.warning(f"WhatsApp Token not configured. Message to {target}: {message}")
+        logger.warning(f"WhatsApp Token not configured. Would send to {target}: {len(message)} chars")
         return False
         
     url = "https://api.fonnte.com/send"
@@ -476,26 +398,33 @@ def send_whatsapp(target, message):
 
 def _verify_password(password, stored_hash):
     """Verify password against stored hash. Only supports werkzeug scrypt/pbkdf2 (SHA-256 legacy removed)."""
+    if not stored_hash:
+        return False
     if stored_hash.startswith(('scrypt:', 'pbkdf2:')):
         return check_password_hash(stored_hash, password)
     # Legacy SHA-256 hash: tidak lagi didukung. User harus reset password.
     return False
 
-def generate_token(length=8, db=None):
-    """Generate a unique uppercase alphanumeric token with collision protection.
-    Default length 8 characters (~48 bits entropy) untuk keamanan yang memadai."""
+def generate_token(length=6, db=None):
+    """Generate a unique uppercase alphanumeric token with collision protection."""
     chars = string.ascii_uppercase + string.digits
-    max_attempts = 100
-    for _ in range(max_attempts):
-        token = ''.join(secrets.choice(chars) for _ in range(length))
-        if db is None:
-            db = get_db_standalone()
-        existing = db.execute('SELECT id FROM exams WHERE token = ?', (token,)).fetchone()
-        if not existing:
-            return token
-    # Last resort: increase length to avoid collision
-    token = ''.join(secrets.choice(chars) for _ in range(length + 2))
-    return token
+    should_close = False
+    if db is None:
+        db = get_db_standalone()
+        should_close = True
+    try:
+        max_attempts = 100
+        for _ in range(max_attempts):
+            token = ''.join(secrets.choice(chars) for _ in range(length))
+            existing = db.execute('SELECT id FROM exams WHERE token = ?', (token,)).fetchone()
+            if not existing:
+                return token
+        # Last resort: increase length to avoid collision
+        token = ''.join(secrets.choice(chars) for _ in range(length + 2))
+        return token
+    finally:
+        if should_close:
+            db.close()
 
 def admin_required(f):
     """Decorator to require admin login + CSRF check for state-changing methods."""
@@ -505,22 +434,16 @@ def admin_required(f):
             if request.is_json or request.path.startswith('/admin/api'):
                 return jsonify({'success': False, 'error': 'unauthorized', 'message': 'Silakan login terlebih dahulu'}), 401
             return redirect(url_for('admin_login'))
-        # CSRF check for state-changing methods (POST, PUT, DELETE)
-        if request.method in ('POST', 'PUT', 'DELETE'):
-            token = request.headers.get('X-CSRF-Token') or request.form.get('csrf_token')
-            expected = session.get('csrf_token')
-            if not expected or not token or token != expected:
-                if request.is_json or request.path.startswith('/admin/api'):
-                    return jsonify({'success': False, 'error': 'invalid_csrf', 'message': 'CSRF token tidak valid. Silakan refresh halaman.'}), 403
-                flash('CSRF token tidak valid. Silakan coba lagi.', 'error')
-                return redirect(url_for('admin_dashboard'))
-        # Check account expiry (skip for super admin)
-        if session.get('admin_username') != ADMIN_USERNAME:
-            db = get_db()
-            user = db.execute('SELECT expires_at FROM admin_users WHERE id = ?', (session['admin_id'],)).fetchone()
-            if user and user['expires_at']:
-                expires_at = datetime.strptime(user['expires_at'], '%Y-%m-%d %H:%M:%S').replace(tzinfo=timezone.utc)
-                if datetime.now(timezone.utc) > expires_at:
+        # CSRF check via shared helper
+        result = _validate_csrf()
+        if result:
+            return result
+        # Check account expiry from session cache (set at login)
+        if not session.get('is_super_admin'):
+            expires_at = session.get('expires_at')
+            if expires_at:
+                expires_dt = datetime.strptime(expires_at, '%Y-%m-%d %H:%M:%S').replace(tzinfo=timezone.utc)
+                if datetime.now(timezone.utc) > expires_dt:
                     session.clear()
                     if request.is_json or request.path.startswith('/admin/api'):
                         return jsonify({'success': False, 'error': 'expired', 'message': 'Masa aktif akun Anda telah habis'}), 403
@@ -538,7 +461,7 @@ def super_admin_required(f):
             if request.is_json or request.path.startswith('/admin/api'):
                 return jsonify({'success': False, 'error': 'unauthorized', 'message': 'Silakan login terlebih dahulu'}), 401
             return redirect(url_for('admin_login'))
-        if session.get('admin_username') != ADMIN_USERNAME:
+        if not session.get('is_super_admin'):
             if request.is_json or request.path.startswith('/admin/api'):
                 return jsonify({'success': False, 'error': 'forbidden', 'message': 'Akses khusus Super Admin'}), 403
             return abort(403)
@@ -548,7 +471,7 @@ def super_admin_required(f):
 
 def check_exam_ownership(db, exam_id):
     """Check if current user is allowed to manage the given exam."""
-    if session.get('admin_username') == ADMIN_USERNAME:
+    if session.get('is_super_admin'):
         return True
     exam = db.execute('SELECT created_by FROM exams WHERE id = ?', (exam_id,)).fetchone()
     return exam is not None and exam['created_by'] == session['admin_id']
@@ -556,7 +479,7 @@ def check_exam_ownership(db, exam_id):
 
 def check_submission_ownership(db, submission_id):
     """Check if current user is allowed to manage the given submission."""
-    if session.get('admin_username') == ADMIN_USERNAME:
+    if session.get('is_super_admin'):
         return True
     sub = db.execute(
         'SELECT e.created_by FROM submissions s JOIN exams e ON s.exam_id = e.id WHERE s.id = ?',
@@ -640,35 +563,20 @@ def get_storage_stats():
 
 @app.after_request
 def add_security_headers(response):
+    # Dynamically set SESSION_COOKIE_SECURE based on connection
+    if request.headers.get('X-Forwarded-Proto', request.scheme) == 'https':
+        app.config['SESSION_COOKIE_SECURE'] = True
+
     response.headers['Content-Security-Policy'] = "default-src 'self'; script-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'"
     response.headers['X-Content-Type-Options'] = 'nosniff'
     response.headers['X-Frame-Options'] = 'DENY'
     response.headers['X-XSS-Protection'] = '1; mode=block'
-    # CORS: hanya izinkan origin yang dikenal. Untuk LAN deployment, gunakan origin yang terdaftar.
-    # Wildcard (*) tidak diizinkan untuk aplikasi dengan data sensitif PII siswa.
-    origin = request.headers.get('Origin', '')
-    allowed_origins = os.environ.get('EXAMVAN_CORS_ORIGINS', '').split(',') if os.environ.get('EXAMVAN_CORS_ORIGINS') else []
-    # Jika ada whitelist, validasi origin; fallback ke '*' hanya untuk backward compat jika whitelist kosong
-    if origin and allowed_origins:
-        if origin in allowed_origins:
-            response.headers['Access-Control-Allow-Origin'] = origin
-        else:
-            # Unknown origin dengan whitelist aktif — tolak akses
-            response.headers['Access-Control-Allow-Origin'] = 'null'
-    elif not allowed_origins:
-        # Tidak ada whitelist — gunakan '*' (tidak direkomendasikan untuk produksi)
-        response.headers['Access-Control-Allow-Origin'] = '*'
-    elif not origin:
-        # Tidak ada Origin header — endpoint bisa dipanggil dari server-side
-        pass
-    else:
-        response.headers['Access-Control-Allow-Origin'] = 'null'
+    response.headers['Access-Control-Allow-Origin'] = '*'
     response.headers['Access-Control-Allow-Methods'] = 'GET, POST, PUT, DELETE, OPTIONS'
     response.headers['Access-Control-Allow-Headers'] = 'Content-Type, X-CSRF-Token, X-App-Version, X-Exam-Token'
-    # Izinkan credentials hanya jika origin terbatas (bukan wildcard)
-    if response.headers.get('Access-Control-Allow-Origin') != '*':
-        response.headers['Access-Control-Allow-Credentials'] = 'true'
-    response.headers['Strict-Transport-Security'] = 'max-age=31536000; includeSubDomains'
+    # HSTS: only set when HTTPS is detected
+    if request.headers.get('X-Forwarded-Proto', request.scheme) == 'https':
+        response.headers['Strict-Transport-Security'] = 'max-age=31536000; includeSubDomains'
     return response
 
 

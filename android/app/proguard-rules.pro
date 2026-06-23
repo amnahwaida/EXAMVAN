@@ -22,10 +22,11 @@
 # Coroutines — required for release builds with minification
 -keep class kotlinx.coroutines.** { *; }
 
-# OkHttp (minimal keep, not blanket)
--keep class okhttp3.internal.platform.** { *; }
--dontwarn okhttp3.**
--dontwarn okio.**
+# OkHttp + Okio — blanket keep for reflection-based platform detection
+-keep class okhttp3.** { *; }
+-keep class okio.** { *; }
+-dontwarn okhttp3.internal.platform.**
+-dontwarn okio.Okio
 
 # Keep annotations
 -keepattributes *Annotation*

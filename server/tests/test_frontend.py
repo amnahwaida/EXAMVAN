@@ -77,6 +77,7 @@ class TestHTMLTemplates(unittest.TestCase):
         with self.client.session_transaction() as sess:
             sess['admin_id'] = 1
             sess['admin_username'] = 'admin'
+            sess['is_super_admin'] = True
             sess['csrf_token'] = 'test'
         resp = self.client.get('/admin/dashboard')
         self.assertEqual(resp.status_code, 200)
@@ -89,6 +90,7 @@ class TestHTMLTemplates(unittest.TestCase):
         with self.client.session_transaction() as sess:
             sess['admin_id'] = 1
             sess['admin_username'] = 'admin'
+            sess['is_super_admin'] = True
             sess['csrf_token'] = 'test'
         resp = self.client.get('/admin/submissions')
         self.assertEqual(resp.status_code, 200)
@@ -98,6 +100,7 @@ class TestHTMLTemplates(unittest.TestCase):
         with self.client.session_transaction() as sess:
             sess['admin_id'] = 1
             sess['admin_username'] = 'admin'
+            sess['is_super_admin'] = True
             sess['csrf_token'] = 'test'
         resp = self.client.get('/admin/users')
         self.assertEqual(resp.status_code, 200)
@@ -196,6 +199,7 @@ class TestCSSTemplates(unittest.TestCase):
         with self.client.session_transaction() as sess:
             sess['admin_id'] = 1
             sess['admin_username'] = 'admin'
+            sess['is_super_admin'] = True
         resp = self.client.get('/admin/dashboard')
         for css_file in ['admin-base.css']:
             self.assertIn(css_file, resp.text,
@@ -259,6 +263,7 @@ class TestJavaScriptTemplates(unittest.TestCase):
         with self.client.session_transaction() as sess:
             sess['admin_id'] = 1
             sess['admin_username'] = 'admin'
+            sess['is_super_admin'] = True
         resp = self.client.get('/admin/dashboard')
         self.assertIn('admin-core.js', resp.text)
         self.assertIn('admin.js', resp.text)
@@ -418,6 +423,7 @@ class TestFormElements(unittest.TestCase):
         with self.client.session_transaction() as sess:
             sess['admin_id'] = 1
             sess['admin_username'] = 'admin'
+            sess['is_super_admin'] = True
         resp = self.client.get('/admin/dashboard')
         self.assertIn('csrf-token', resp.text)
 

@@ -29,13 +29,13 @@ class TestEvaluateSingleQuestion(unittest.TestCase):
     def test_single_choice_correct(self):
         earned, text, cls = _evaluate_single_question('A', 'A', 'single_choice', 1.0, False)
         self.assertEqual(earned, 1.0)
-        self.assertIn('Benar', text)
+        self.assertEqual(text, 'correct')
         self.assertEqual(cls, 'correct')
 
     def test_single_choice_wrong(self):
         earned, text, cls = _evaluate_single_question('A', 'B', 'single_choice', 1.0, False)
         self.assertEqual(earned, 0.0)
-        self.assertIn('Salah', text)
+        self.assertEqual(text, 'incorrect')
         self.assertEqual(cls, 'incorrect')
 
     def test_single_choice_case_insensitive(self):
@@ -90,7 +90,7 @@ class TestEvaluateSingleQuestion(unittest.TestCase):
     def test_unanswered(self):
         earned, text, cls = _evaluate_single_question(None, 'A', 'single_choice', 1.0, False)
         self.assertEqual(earned, 0.0)
-        self.assertEqual(text, 'Belum Dijawab')
+        self.assertEqual(text, 'unanswered')
         self.assertEqual(cls, 'unanswered')
 
 

@@ -1,5 +1,3 @@
-#version: '3.8'
-
 services:
   examvan-server:
     build:
@@ -11,7 +9,7 @@ services:
       - "5000:5000"
     environment:
       # WAJIB: Set EXAMVAN_SECRET di .env — tanpa nilai ini server TIDAK akan startup
-      - EXAMVAN_SECRET=${EXAMVAN_SECRET}
+      - EXAMVAN_SECRET=${EXAMVAN_SECRET:-CHANGE_ME_TO_A_RANDOM_SECRET}
       - PORT=5000
       - TZ=UTC
     volumes:
@@ -40,4 +38,16 @@ services:
       - TUNNEL_TOKEN=${TUNNEL_TOKEN:-}
       - TZ=UTC
     depends_on:
-      - examvan-server
+      examvan-server:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "sh", "-c", "[ -z \"$TUNNEL_TOKEN\" ] || wget -qO- http://localhost:4312/health || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+    deploy:
+      resources:
+        limits:
+          cpus: '0.25'
+          memory: 128M

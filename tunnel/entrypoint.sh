@@ -1,4 +1,5 @@
 #!/bin/sh
+set -e
 
 # Check if TUNNEL_TOKEN is set and not empty
 if [ -z "$TUNNEL_TOKEN" ]; then

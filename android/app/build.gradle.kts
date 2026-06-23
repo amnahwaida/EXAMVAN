@@ -5,12 +5,12 @@ plugins {
 
 android {
     namespace = "com.examvan.app"
-    compileSdk = 35
+    compileSdk = 34
 
     defaultConfig {
         applicationId = "com.examvan.app"
         minSdk = 24
-        targetSdk = 35
+        targetSdk = 34
         versionCode = 31
         versionName = "2.2.0"
     }
@@ -90,13 +90,15 @@ dependencies {
     implementation("androidx.swiperefreshlayout:swiperefreshlayout:1.1.0")
 
     // Coroutines — already available transitively, declared explicitly for visibility
-    implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.6.4")
+    implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.8.1")
 
     // Lifecycle ViewModel + Runtime for ViewModel and lifecycleScope
     implementation("androidx.lifecycle:lifecycle-viewmodel-ktx:2.6.2")
     implementation("androidx.lifecycle:lifecycle-runtime-ktx:2.6.2")
 
     // Encrypted SharedPreferences for sensitive data (questions, tokens)
+    // Note: 1.1.0-alpha06 is the only cached version available in this build env.
+    // For production, prefer the latest stable release from Maven Central.
     implementation("androidx.security:security-crypto:1.1.0-alpha06")
 
     // OkHttp for networking

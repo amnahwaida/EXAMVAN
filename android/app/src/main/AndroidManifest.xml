@@ -1,4 +1,20 @@
 <?xml version="1.0" encoding="utf-8"?>
+<!--
+  EXAMVAN Android Manifest
+
+  Device Owner / Kiosk Setup (kiosk flavor):
+  ==========================================
+  After installing the kiosk APK, run this ADB command to set the app as
+  Device Owner (requires rooted device or device provisioning):
+
+      adb shell dpm set-device-owner com.examvan.app.kiosk/.DeviceAdminReceiver
+
+  On some OEMs (Samsung Knox, Huawei) the package must be pre-installed
+  as a system app for Device Owner to work. Test on the target device first.
+
+  For student flavor: no Device Admin setup needed. Runs as a regular app
+  with screen pinning enabled via startLockTask().
+-->
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:tools="http://schemas.android.com/tools">
 

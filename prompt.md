@@ -1,6 +1,6 @@
 # Panduan Prompt AI untuk Pembuatan Kunci Jawaban XML (EXAMVAN)
 
-Dokumen ini berisi template prompt yang siap disalin dan dimasukkan ke dalam AI (seperti **ChatGPT-4**, **Claude 3.5 Sonnet**, atau **Gemini 1.5 Pro**) bersama dengan berkas PDF soal ujian Anda. Prompt ini dirancang agar AI dapat menganalisis soal ujian dari PDF secara akurat dan menyusun kunci jawaban langsung dalam format XML yang kompatibel dengan fitur import EXAMVAN.
+Dokumen ini berisi template prompt yang siap disalin dan dimasukkan ke dalam AI (seperti **ChatGPT-4.1**, **Claude 4.5 Sonnet/Opus 4.5**, atau **Gemini 2.5 Pro**) bersama dengan berkas PDF soal ujian Anda. Prompt ini dirancang agar AI dapat menganalisis soal ujian dari PDF secara akurat dan menyusun kunci jawaban langsung dalam format XML yang kompatibel dengan fitur import EXAMVAN.
 
 ---
 
