@@ -575,6 +575,35 @@ body {
     .glass-card { padding: 16px; border-radius: 12px; }
     .glass-card h3 { font-size: 16px; margin-bottom: 14px; }
 
+    /* Searh input on mobile */
+    #searchExam { width: 100% !important; }
+
+    /* Stats cards: single column on very small */
+    .stats-grid { grid-template-columns: repeat(2, 1fr); gap: 8px; }
+    .stat-card { padding: 12px; gap: 8px; min-height: 60px; }
+    .stat-value { font-size: 20px; }
+    .stat-icon { font-size: 20px; min-width: 36px; }
+    .stat-label { font-size: 11px; }
+    .stat-info { gap: 0; }
+
+    /* Token on mobile */
+    .token-group { flex-wrap: wrap; }
+    .token-code { font-size: 12px; letter-spacing: 1px; padding: 3px 8px; }
+    .btn-icon { width: 28px; height: 28px; font-size: 11px; }
+
+    /* Action buttons mobile */
+    .td-actions { gap: 4px; padding-top: 6px !important; }
+    .actions-group .btn-sm { padding: 5px 10px; font-size: 11px; height: 28px; }
+
+    /* Exam table cards on mobile */
+    .exam-table tbody tr { padding: 12px; margin-bottom: 10px; border-radius: 14px; }
+    .exam-table td { padding: 3px 0; font-size: 13px; }
+    .exam-table td::before { min-width: 70px; font-size: 10px; }
+
+    /* Submissions table cards */
+    #submissionsTable tbody tr { padding: 12px; margin-bottom: 10px; border-radius: 14px; }
+    #submissionsTable td { padding: 3px 0; font-size: 13px; }
+
     /* Network Info */
     .network-grid { grid-template-columns: 1fr 1fr; gap: 8px; }
     .net-item { padding: 10px 12px; }
