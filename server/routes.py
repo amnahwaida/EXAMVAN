@@ -1,5 +1,5 @@
 """EXAMVAN routes — extracted from app.py for organization."""
-import os, json, csv, io, re, secrets, string, hmac
+import os, json, csv, io, re, secrets, string, hmac, hashlib
 from datetime import datetime, timezone, timedelta
 
 from flask import (
@@ -56,6 +56,26 @@ def _csv_safe(value):
     if isinstance(value, str) and value and value[0] in ('=', '+', '-', '@', '\t', '\r'):
         return '\t' + value
     return value
+
+
+def _hash_otp(otp, username):
+    """Hash OTP with per-user salt for secure storage.
+
+    Menggunakan HMAC-SHA256 dengan server-side secret key sebagai pepper
+    dan username sebagai salt. Hash disimpan di database, bukan plaintext OTP.
+    """
+    secret_pepper = app.secret_key
+    salt = username.encode('utf-8')
+    key = hashlib.sha256(salt + secret_pepper.encode('utf-8')).digest()
+    return hmac.new(key, otp.encode('utf-8'), hashlib.sha256).hexdigest()
+
+
+def _verify_otp(input_otp, stored_hash, username):
+    """Verify OTP by comparing hash of input with stored hash.
+    Uses hmac.compare_digest for constant-time comparison.
+    """
+    input_hash = _hash_otp(input_otp, username)
+    return hmac.compare_digest(input_hash, stored_hash)
 
 
 def _validate_pdf_upload(file_data, filename, content_type, max_size=None):
@@ -386,11 +406,7 @@ def admin_login():
         ).fetchone()
 
         if user and _verify_password(password, user['password_hash']):
-            # Auto-upgrade legacy SHA-256 hash to werkzeug scrypt
-            if not user['password_hash'].startswith(('scrypt:', 'pbkdf2:')):
-                new_hash = generate_password_hash(password)
-                db.execute('UPDATE admin_users SET password_hash = ? WHERE id = ?', (new_hash, user['id']))
-                db.commit()
+            # Password hash sudah scrypt/pbkdf2 (SHA-256 legacy sudah tidak didukung).
 
             if user['status'] == 'pending_otp':
                 flash('Pendaftaran Anda membutuhkan konfirmasi OTP WhatsApp. Silakan verifikasi.', 'warning')
@@ -472,12 +488,13 @@ def register():
 
         if wa_enabled:
             otp = ''.join(secrets.choice(string.digits) for _ in range(6))
+            otp_hash = _hash_otp(otp, username)
             otp_expiry = (datetime.now(timezone.utc) + timedelta(minutes=5)).strftime('%Y-%m-%d %H:%M:%S')
             
             db.execute(
                 'INSERT INTO admin_users (username, password_hash, whatsapp_number, status, otp_code, otp_expiry, max_exams, max_pdf_size, max_drafts, max_draft_size, expires_at) '
                 'VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
-                (username, pw_hash, whatsapp, 'pending_otp', otp, otp_expiry, default_exams, default_pdf, default_drafts, default_draft_size, expires_at)
+                (username, pw_hash, whatsapp, 'pending_otp', otp_hash, otp_expiry, default_exams, default_pdf, default_drafts, default_draft_size, expires_at)
             )
             db.commit()
             
@@ -529,7 +546,7 @@ def verify_otp():
             flash('Permintaan verifikasi tidak valid atau kedaluwarsa', 'error')
             return redirect(url_for('admin_login'))
 
-        if not hmac.compare_digest(str(user['otp_code'] or ''), str(otp_input)):
+        if not _verify_otp(otp_input, user['otp_code'] or '', username):
             flash('Kode OTP yang Anda masukkan salah', 'error')
             return render_template('verify_otp.html', username=username)
 
@@ -570,11 +587,12 @@ def resend_otp():
         return error_response('User tidak ditemukan atau sudah terverifikasi', 404)
 
     otp = ''.join(secrets.choice(string.digits) for _ in range(6))
+    otp_hash = _hash_otp(otp, username)
     otp_expiry = (datetime.now(timezone.utc) + timedelta(minutes=5)).strftime('%Y-%m-%d %H:%M:%S')
 
     db.execute(
         'UPDATE admin_users SET otp_code = ?, otp_expiry = ? WHERE id = ?',
-        (otp, otp_expiry, user['id'])
+        (otp_hash, otp_expiry, user['id'])
     )
     db.commit()
     

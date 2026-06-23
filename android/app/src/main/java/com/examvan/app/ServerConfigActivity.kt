@@ -85,13 +85,17 @@ class ServerConfigActivity : BaseSecureActivity() {
 
     private fun isVersionCompatible(appVersion: String, requiredVersion: String): Boolean {
         try {
-            // Strip non-numeric pre-release suffixes (e.g. "2.0.0-beta" -> "2.0.0")
-            fun stripSuffix(v: String): List<Int> =
-                v.split(".").map { seg ->
-                    seg.replace(Regex("[^0-9].*"), "").toIntOrNull() ?: 0
+            // Parse version into integer segments, stripping non-numeric suffixes
+            // e.g. "2.1.10-beta" -> [2, 1, 10]
+            fun parseVersion(v: String): List<Int> {
+                return v.split(".").map { seg ->
+                    // Take leading digits only (discard non-numeric suffix like "-beta")
+                    val digits = seg.takeWhile { it.isDigit() }
+                    if (digits.isEmpty()) 0 else digits.toInt()
                 }
-            val appParts = stripSuffix(appVersion)
-            val reqParts = stripSuffix(requiredVersion)
+            }
+            val appParts = parseVersion(appVersion)
+            val reqParts = parseVersion(requiredVersion)
             val length = maxOf(appParts.size, reqParts.size)
             for (i in 0 until length) {
                 val appPart = appParts.getOrElse(i) { 0 }
@@ -99,6 +103,7 @@ class ServerConfigActivity : BaseSecureActivity() {
                 if (appPart > reqPart) return true
                 if (appPart < reqPart) return false
             }
+            // All segments equal — version is compatible
             return true
         } catch (e: Exception) {
             return appVersion == requiredVersion
@@ -114,7 +119,7 @@ class ServerConfigActivity : BaseSecureActivity() {
             showError(getString(R.string.error_invalid_token))
             return false
         }
-        if (token.length != 6) {
+        if (token.length < 6 || token.length > 8) {
             showError(getString(R.string.token_length_error))
             return false
         }
@@ -355,9 +360,8 @@ class ServerConfigActivity : BaseSecureActivity() {
     }
 
     private fun startExamViewer(examId: Int, examName: String, serverUrl: String, name: String, number: String, studentClass: String, identityData: String = "{}") {
-        val strictMode = AppPrefs.getExamPrefs(this).getBoolean(AppPrefs.KEY_STRICT_MODE, false)
-        // Read exam_token directly from EncryptedSharedPreferences instead of Intent
-        val examToken = AppPrefs.getConfigPrefs(this).getString(AppPrefs.KEY_EXAM_TOKEN, "") ?: ""
+        // Token & strict mode dibaca langsung dari EncryptedSharedPreferences oleh ExamViewerActivity,
+        // dikirim via Intent hanya exam_id dan exam_name (bukan data sensitif)
         val intent = Intent(this@ServerConfigActivity, ExamViewerActivity::class.java).apply {
             putExtra("exam_id", examId)
             putExtra("exam_name", examName)
@@ -366,7 +370,6 @@ class ServerConfigActivity : BaseSecureActivity() {
             putExtra("student_number", number)
             putExtra("student_class", studentClass)
             putExtra("identity_data", identityData)
-
         }
         // Clean sensitive extras before launch — token is read from EncryptedSharedPreferences
         intent.putExtra("exam_token", "")

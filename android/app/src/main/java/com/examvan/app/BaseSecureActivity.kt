@@ -16,6 +16,8 @@ abstract class BaseSecureActivity : AppCompatActivity() {
         )
         window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
         clearClipboard()
+        // Apply tapjacking protection to all subclass activities automatically
+        applyTapjackProtection()
     }
 
     /** Apply tapjacking protection to the root view of the content. */

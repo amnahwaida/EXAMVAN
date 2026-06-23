@@ -24,7 +24,6 @@ class ExamListActivity : BaseSecureActivity() {
 
         binding = ActivityExamListBinding.inflate(layoutInflater)
         setContentView(binding.root)
-        applyTapjackProtection()
 
         // Setup server URL from intent
         val serverUrl = intent.getStringExtra("server_url") ?: ""
@@ -36,7 +35,8 @@ class ExamListActivity : BaseSecureActivity() {
         adapter = ExamAdapter { exam ->
             val intent = Intent(this, ExamViewerActivity::class.java)
             intent.putExtra("exam_id", exam.id)
-            intent.putExtra("exam_token", exam.token ?: "")
+            // Token dibaca dari EncryptedSharedPreferences oleh ExamViewerActivity, bukan dari Intent
+            intent.putExtra("exam_token", "")
             intent.putExtra("exam_name", exam.name)
             startActivity(intent)
         }

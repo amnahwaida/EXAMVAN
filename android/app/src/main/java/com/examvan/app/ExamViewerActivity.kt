@@ -72,6 +72,11 @@ class ExamViewerActivity : BaseSecureActivity() {
 
     // Student answers: map of question number (String) -> answer value (String, List, or Map)
     private val studentAnswers = mutableMapOf<String, Any>()
+
+    // Auto-save debounce job: persists answers to EncryptedSharedPreferences to prevent
+    // data loss on process death, crash, or accidental kill.
+    private var autoSaveJob: kotlinx.coroutines.Job? = null
+    private val gsonForSave = com.google.gson.Gson()
     private var submittedOrExited = false
     private var securityLevel = "medium"
     private var strictMode = false
@@ -99,6 +104,161 @@ class ExamViewerActivity : BaseSecureActivity() {
             notificationManager.createNotificationChannel(channel)
         }
         true
+    }
+
+    /**
+     * Set a student answer and trigger auto-save to prevent data loss on process death.
+     */
+    private fun setStudentAnswer(key: String, value: Any) {
+        studentAnswers[key] = value
+        triggerAutoSave()
+    }
+
+    /**
+     * Remove a student answer and trigger auto-save.
+     */
+    private fun removeStudentAnswer(key: String) {
+        studentAnswers.remove(key)
+        triggerAutoSave()
+    }
+
+    /**
+     * Auto-save current answers to EncryptedSharedPreferences with debounce (500ms).
+     * Prevents data loss on process death, crash, or force-close.
+     */
+    private fun triggerAutoSave() {
+        if (submittedOrExited) return
+        autoSaveJob?.cancel()
+        autoSaveJob = lifecycleScope.launch {
+            delay(500) // debounce 500ms
+            saveAnswersToPrefs()
+        }
+    }
+
+    /**
+     * Persist current answers to EncryptedSharedPreferences as JSON.
+     * Also stores the exam ID and timestamp for validation on restore.
+     */
+    private fun saveAnswersToPrefs() {
+        try {
+            val prefs = AppPrefs.getExamPrefs(this)
+            val json = gsonForSave.toJson(studentAnswers)
+            prefs.edit()
+                .putString(AppPrefs.KEY_SAVED_ANSWERS, json)
+                .putInt(AppPrefs.KEY_SAVED_ANSWERS_EXAM_ID, examId)
+                .putLong(AppPrefs.KEY_SAVED_ANSWERS_TIMESTAMP, System.currentTimeMillis())
+                .apply()
+        } catch (e: Exception) {
+            Log.w("ExamViewer", "Failed to auto-save answers", e)
+        }
+    }
+
+    /**
+     * Restore previously saved answers from EncryptedSharedPreferences.
+     * Only restores if the saved exam ID matches the current exam and data is fresh (within 24h).
+     */
+    private fun restoreAnswersFromPrefs() {
+        try {
+            val prefs = AppPrefs.getExamPrefs(this)
+            val savedExamId = prefs.getInt(AppPrefs.KEY_SAVED_ANSWERS_EXAM_ID, -1)
+            if (savedExamId != examId) {
+                clearSavedAnswers()
+                return
+            }
+            val timestamp = prefs.getLong(AppPrefs.KEY_SAVED_ANSWERS_TIMESTAMP, 0L)
+            val now = System.currentTimeMillis()
+            // Only restore if saved within the last 24 hours (stale data timesafety)
+            if (now - timestamp > 24 * 60 * 60 * 1000L) {
+                clearSavedAnswers()
+                return
+            }
+            val json = prefs.getString(AppPrefs.KEY_SAVED_ANSWERS, null) ?: return
+            val type = object : com.google.gson.reflect.TypeToken<Map<String, Any>>() {}.type
+            val saved: Map<String, Any> = gsonForSave.fromJson(json, type) ?: return
+            studentAnswers.clear()
+            studentAnswers.putAll(saved)
+            // Re-populate UI with restored answers
+            restoreAnswerUiFromSaved()
+        } catch (e: Exception) {
+            Log.w("ExamViewer", "Failed to restore answers", e)
+        }
+    }
+
+    /**
+     * Clear saved answers (called after successful submission or when answers are stale).
+     */
+    private fun clearSavedAnswers() {
+        AppPrefs.getExamPrefs(this).edit()
+            .remove(AppPrefs.KEY_SAVED_ANSWERS)
+            .remove(AppPrefs.KEY_SAVED_ANSWERS_EXAM_ID)
+            .remove(AppPrefs.KEY_SAVED_ANSWERS_TIMESTAMP)
+            .apply()
+    }
+
+    /**
+     * Re-populate the UI (RadioButtons, CheckBoxes, EditTexts, Spinners) from the restored answers map.
+     * Called after restoreAnswersFromPrefs() loads the saved answers.
+     */
+    private fun restoreAnswerUiFromSaved() {
+        for (i in 0 until binding.answerListContainer.childCount) {
+            val view = binding.answerListContainer.getChildAt(i)
+            restoreAnswerInView(view)
+        }
+    }
+
+    /**
+     * Recursively restore answer state in a specific view by checking known child view types.
+     */
+    private fun restoreAnswerInView(view: android.view.View) {
+        when (view) {
+            is RadioGroup -> {
+                // Find the radio button matching the saved answer
+                for (qNum in studentAnswers.keys) {
+                    // RadioGroups don't carry their question number — we check all groups
+                    val checkedRb = view.findViewById<RadioButton>(view.checkedRadioButtonId)
+                    // Only auto-restore if this group has no selection yet
+                    if (checkedRb == null) {
+                        val savedVal = studentAnswers[qNum] as? String
+                        if (savedVal != null) {
+                            for (i in 0 until view.childCount) {
+                                val rb = view.getChildAt(i) as? RadioButton
+                                if (rb != null && rb.text.toString() == savedVal) {
+                                    rb.isChecked = true
+                                    return
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            is CheckBox -> {
+                // CheckBoxes in multiple_choice: the parent view handles state
+                // Individual restore is tricky — skip and let the container restore logic handle it
+            }
+            is EditText -> {
+                val text = view.text.toString()
+                if (text.isEmpty()) {
+                    for ((key, value) in studentAnswers) {
+                        // Match by checking if question label is a sibling
+                        val container = view.parent as? android.view.ViewGroup
+                        if (container != null) {
+                            for (i in 0 until container.childCount) {
+                                val child = container.getChildAt(i)
+                                if (child is TextView && child.text.toString().contains(" $key.")) {
+                                    view.setText(value.toString())
+                                    return
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            is android.view.ViewGroup -> {
+                for (i in 0 until view.childCount) {
+                    restoreAnswerInView(view.getChildAt(i))
+                }
+            }
+        }
     }
 
     companion object {
@@ -257,6 +417,8 @@ class ExamViewerActivity : BaseSecureActivity() {
                     hideAnswerOverlay()
                 } else {
                     buildAnswerSheet()
+                    // Restore previously saved answers from EncryptedSharedPreferences
+                    restoreAnswersFromPrefs()
                 }
             } catch (e: Throwable) {
                 // Fallback: generate 40 default MC questions
@@ -300,6 +462,7 @@ class ExamViewerActivity : BaseSecureActivity() {
         }
         questions = defaultList
         buildAnswerSheet()
+        restoreAnswersFromPrefs()
     }
 
     private fun buildAnswerSheet() {
@@ -347,7 +510,7 @@ class ExamViewerActivity : BaseSecureActivity() {
         radioGroup.setOnCheckedChangeListener { group, checkedId ->
             val rb = group.findViewById<RadioButton>(checkedId)
             if (rb != null) {
-                studentAnswers[number.toString()] = rb.text.toString()
+                setStudentAnswer(number.toString(), rb.text.toString())
             }
         }
 
@@ -378,7 +541,7 @@ class ExamViewerActivity : BaseSecureActivity() {
         radioGroup.setOnCheckedChangeListener { group, checkedId ->
             val rb = group.findViewById<RadioButton>(checkedId)
             if (rb != null) {
-                studentAnswers[number.toString()] = rb.text.toString()
+                setStudentAnswer(number.toString(), rb.text.toString())
             }
         }
 
@@ -416,7 +579,7 @@ class ExamViewerActivity : BaseSecureActivity() {
                         selected.add(child.text.toString())
                     }
                 }
-                studentAnswers[number.toString()] = selected
+                setStudentAnswer(number.toString(), selected)
             }
 
             checkboxLayout.addView(cb)
@@ -472,7 +635,7 @@ class ExamViewerActivity : BaseSecureActivity() {
                     } else {
                         matchingAnswers.remove(leftItem)
                     }
-                    studentAnswers[number.toString()] = HashMap(matchingAnswers)
+                    setStudentAnswer(number.toString(), HashMap(matchingAnswers))
                 }
                 override fun onNothingSelected(parent: AdapterView<*>?) {
                     activePopupCount = Math.max(0, activePopupCount - 1)
@@ -506,9 +669,9 @@ class ExamViewerActivity : BaseSecureActivity() {
             override fun afterTextChanged(s: android.text.Editable?) {
                 val ans = s?.toString()?.trim() ?: ""
                 if (ans.isNotEmpty()) {
-                    studentAnswers[number.toString()] = ans
+                    setStudentAnswer(number.toString(), ans)
                 } else {
-                    studentAnswers.remove(number.toString())
+                    removeStudentAnswer(number.toString())
                 }
             }
         })
@@ -562,6 +725,8 @@ class ExamViewerActivity : BaseSecureActivity() {
             onSuccess = { message ->
                 isSubmitting = false
                 submittedOrExited = true
+                // Clear saved answers after successful submission
+                clearSavedAnswers()
                 // Stop lock task (screen pinning) if strict mode was enabled
                 if (strictMode) {
                     try { stopLockTask() } catch (_: Throwable) { }

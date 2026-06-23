@@ -38,7 +38,7 @@ STORAGE_DIR = os.path.join(BASE_DIR, 'storage')
 DATABASE = os.environ.get('DATABASE_PATH', os.path.join(BASE_DIR, 'data', 'examvan.db'))
 MAX_FILE_SIZE = 5 * 1024 * 1024  # 5MB
 
-VERSION = '2.1.9'
+VERSION = '2.2.0'
 ADMIN_USERNAME = os.environ.get('EXAMVAN_ADMIN_USER', 'admin')
 # ADMIN_PASSWORD must be set via env var; if missing, a random password is generated at init
 ADMIN_PASSWORD = os.environ.get('EXAMVAN_ADMIN_PASS', '')
@@ -67,6 +67,14 @@ logger = logging.getLogger('examvan')
 app = Flask(__name__)
 app.secret_key = os.environ.get('EXAMVAN_SECRET', secrets.token_hex(32))
 app.config['MAX_CONTENT_LENGTH'] = MAX_FILE_SIZE + 4096
+
+# ===== Session Security =====
+app.config['SESSION_COOKIE_SECURE'] = True
+app.config['SESSION_COOKIE_HTTPONLY'] = True
+app.config['SESSION_COOKIE_SAMESITE'] = 'Lax'
+app.config['SESSION_COOKIE_NAME'] = 'examvan_session'
+# Session cookie lifetime: 24 jam
+app.config['PERMANENT_SESSION_LIFETIME'] = timedelta(hours=24)
 
 
 # ===== Database =====
@@ -141,6 +149,15 @@ def init_db():
             key TEXT PRIMARY KEY,
             value TEXT
         );
+
+        -- Performance indexes
+        CREATE INDEX IF NOT EXISTS idx_exams_token ON exams(token);
+        CREATE INDEX IF NOT EXISTS idx_exams_created_by ON exams(created_by);
+        CREATE INDEX IF NOT EXISTS idx_exams_status ON exams(status);
+        CREATE INDEX IF NOT EXISTS idx_submissions_exam_id ON submissions(exam_id);
+        CREATE INDEX IF NOT EXISTS idx_submissions_student_class ON submissions(student_class);
+        CREATE INDEX IF NOT EXISTS idx_submissions_created_at ON submissions(created_at);
+        CREATE INDEX IF NOT EXISTS idx_admin_users_username ON admin_users(username);
     ''')
 
     # Seed default SaaS settings if not present
@@ -153,15 +170,16 @@ def init_db():
         'default_active_days': '1',
         'default_max_drafts': '2',
         'default_max_draft_size': '1048576',
-        'android_version': '2.1.9',
-        'webapp_version': '2.1.9',
-        'certificate_fingerprint': ''
+        'android_version': '2.2.0',
+        'webapp_version': '2.2.0',
+        'certificate_fingerprint': '',
+        'data_retention_days': '90'  # UU PDP: otomatis hapus data PII siswa setelah 90 hari
     }
     for k, v in default_settings.items():
         existing_setting = db.execute('SELECT value FROM saas_settings WHERE key = ?', (k,)).fetchone()
         if not existing_setting:
             db.execute('INSERT INTO saas_settings (key, value) VALUES (?, ?)', (k, v))
-        elif k in ('android_version', 'webapp_version') and existing_setting['value'] in ('2.1.0', '2.1.1', '2.1.2', '2.1.3', '2.1.4', '2.1.5', '2.1.6', '2.1.7', '2.1.8'):
+        elif k in ('android_version', 'webapp_version') and existing_setting['value'] in ('2.1.0', '2.1.1', '2.1.2', '2.1.3', '2.1.4', '2.1.5', '2.1.6', '2.1.7', '2.1.8', '2.1.9'):
             db.execute('UPDATE saas_settings SET value = ? WHERE key = ?', (v, k))
     db.commit()
 
@@ -222,6 +240,9 @@ def init_db():
         ('add_identity_data_to_submissions', 'ALTER TABLE submissions ADD COLUMN identity_data TEXT'),
         # strict_mode is defined in CREATE TABLE, no ALTER needed
         # ('add_strict_mode_to_exams', ...) — removed as duplicate
+        # Data migrations (migrate_legacy_sha256_passwords, add_data_retention_days)
+        # are handled in separate blocks below — not here — because they are
+        # data migrations, not schema changes.
     ]
 
     for name, sql in migrations:
@@ -247,6 +268,84 @@ def init_db():
             except sqlite3.IntegrityError:
                 pass
             db.commit()
+
+    # ===== Data Migration: SHA-256 Legacy Passwords =====
+    if 'migrate_legacy_sha256_passwords' in applied:
+        pass
+    else:
+        legacy_users = db.execute(
+            "SELECT id, username FROM admin_users WHERE password_hash NOT LIKE 'scrypt:%' AND password_hash NOT LIKE 'pbkdf2:%'"
+        ).fetchall()
+        if legacy_users:
+            legacy_usernames = [u['username'] for u in legacy_users]
+            logger.warning(
+                f"Ditemukan {len(legacy_users)} akun dengan password hash SHA-256 legacy: {', '.join(legacy_usernames)}. "
+                f"Password hash SHA-256 sudah tidak didukung. "
+                f"Admin harus melakukan reset password untuk akun-akun ini melalui panel admin."
+            )
+        db.execute('INSERT INTO _migrations (name) VALUES (?)', ('migrate_legacy_sha256_passwords',))
+        db.commit()
+        logger.info("Migration 'migrate_legacy_sha256_passwords' applied")
+
+    # ===== Data Retention: Automatic Cleanup (UU PDP) =====
+    if 'add_data_retention_days' in applied:
+        pass
+    else:
+        retention_days = int(db.execute("SELECT value FROM saas_settings WHERE key = 'data_retention_days'").fetchone()['value'])
+        cutoff = (datetime.now(timezone.utc) - timedelta(days=retention_days)).strftime('%Y-%m-%d %H:%M:%S')
+        deleted = db.execute(
+            'DELETE FROM submissions WHERE created_at < ?',
+            (cutoff,)
+        ).rowcount
+        if deleted > 0:
+            logger.info(f"Retensi data: {deleted} submission lama (>{retention_days} hari) berhasil dihapus")
+        db.execute('INSERT INTO _migrations (name) VALUES (?)', ('add_data_retention_days',))
+        db.commit()
+        logger.info("Migration 'add_data_retention_days' applied")
+
+    # ===== Periodic Cleanup Scheduler =====
+    def _cleanup_expired_data():
+        """Periodic cleanup of expired submissions and stale OTP data.
+        Runs every 6 hours with minimal overhead (SQLite WAL mode).
+        """
+        try:
+            db = get_db_standalone()
+            retention = int(db.execute("SELECT value FROM saas_settings WHERE key = 'data_retention_days'").fetchone()['value'])
+            cutoff = (datetime.now(timezone.utc) - timedelta(days=retention)).strftime('%Y-%m-%d %H:%M:%S')
+            deleted = db.execute('DELETE FROM submissions WHERE created_at < ?', (cutoff,)).rowcount
+            if deleted > 0:
+                db_cleanup_logger = logging.getLogger('examvan.cleanup')
+                db_cleanup_logger.info(f"Cleanup: {deleted} submission lama dihapus (>{retention} hari)")
+            
+            # Clean up expired OTP codes (security: remove stale pending registrations)
+            now_str = datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S')
+            db.execute(
+                "DELETE FROM admin_users WHERE status = 'pending_otp' AND otp_expiry IS NOT NULL AND otp_expiry < ?",
+                (now_str,)
+            )
+            db.commit()
+        except Exception:
+            pass
+        finally:
+            try:
+                if 'db' in locals():
+                    db.close()
+            except Exception:
+                pass
+
+    # Start background cleanup thread
+    def _schedule_cleanup():
+        import time as _time
+        while True:
+            _time.sleep(6 * 3600)  # Run every 6 hours
+            try:
+                _cleanup_expired_data()
+            except Exception:
+                pass
+
+    cleanup_thread = threading.Thread(target=_schedule_cleanup, daemon=True)
+    cleanup_thread.start()
+    logger.info("Periodic data retention scheduler started (interval: 6 hours)")
 
     db.close()
 
@@ -376,13 +475,15 @@ def send_whatsapp(target, message):
         return False
 
 def _verify_password(password, stored_hash):
-    """Verify password against stored hash. Supports both legacy SHA-256 and werkzeug hashes."""
+    """Verify password against stored hash. Only supports werkzeug scrypt/pbkdf2 (SHA-256 legacy removed)."""
     if stored_hash.startswith(('scrypt:', 'pbkdf2:')):
         return check_password_hash(stored_hash, password)
-    return hashlib.sha256(password.encode()).hexdigest() == stored_hash
+    # Legacy SHA-256 hash: tidak lagi didukung. User harus reset password.
+    return False
 
-def generate_token(length=6, db=None):
-    """Generate a unique uppercase alphanumeric token with collision protection."""
+def generate_token(length=8, db=None):
+    """Generate a unique uppercase alphanumeric token with collision protection.
+    Default length 8 characters (~48 bits entropy) untuk keamanan yang memadai."""
     chars = string.ascii_uppercase + string.digits
     max_attempts = 100
     for _ in range(max_attempts):
@@ -447,7 +548,7 @@ def super_admin_required(f):
 
 def check_exam_ownership(db, exam_id):
     """Check if current user is allowed to manage the given exam."""
-    if session.get('admin_username') == 'admin':
+    if session.get('admin_username') == ADMIN_USERNAME:
         return True
     exam = db.execute('SELECT created_by FROM exams WHERE id = ?', (exam_id,)).fetchone()
     return exam is not None and exam['created_by'] == session['admin_id']
@@ -455,7 +556,7 @@ def check_exam_ownership(db, exam_id):
 
 def check_submission_ownership(db, submission_id):
     """Check if current user is allowed to manage the given submission."""
-    if session.get('admin_username') == 'admin':
+    if session.get('admin_username') == ADMIN_USERNAME:
         return True
     sub = db.execute(
         'SELECT e.created_by FROM submissions s JOIN exams e ON s.exam_id = e.id WHERE s.id = ?',
@@ -543,9 +644,30 @@ def add_security_headers(response):
     response.headers['X-Content-Type-Options'] = 'nosniff'
     response.headers['X-Frame-Options'] = 'DENY'
     response.headers['X-XSS-Protection'] = '1; mode=block'
-    response.headers['Access-Control-Allow-Origin'] = '*'
+    # CORS: hanya izinkan origin yang dikenal. Untuk LAN deployment, gunakan origin yang terdaftar.
+    # Wildcard (*) tidak diizinkan untuk aplikasi dengan data sensitif PII siswa.
+    origin = request.headers.get('Origin', '')
+    allowed_origins = os.environ.get('EXAMVAN_CORS_ORIGINS', '').split(',') if os.environ.get('EXAMVAN_CORS_ORIGINS') else []
+    # Jika ada whitelist, validasi origin; fallback ke '*' hanya untuk backward compat jika whitelist kosong
+    if origin and allowed_origins:
+        if origin in allowed_origins:
+            response.headers['Access-Control-Allow-Origin'] = origin
+        else:
+            # Unknown origin dengan whitelist aktif — tolak akses
+            response.headers['Access-Control-Allow-Origin'] = 'null'
+    elif not allowed_origins:
+        # Tidak ada whitelist — gunakan '*' (tidak direkomendasikan untuk produksi)
+        response.headers['Access-Control-Allow-Origin'] = '*'
+    elif not origin:
+        # Tidak ada Origin header — endpoint bisa dipanggil dari server-side
+        pass
+    else:
+        response.headers['Access-Control-Allow-Origin'] = 'null'
     response.headers['Access-Control-Allow-Methods'] = 'GET, POST, PUT, DELETE, OPTIONS'
     response.headers['Access-Control-Allow-Headers'] = 'Content-Type, X-CSRF-Token, X-App-Version, X-Exam-Token'
+    # Izinkan credentials hanya jika origin terbatas (bukan wildcard)
+    if response.headers.get('Access-Control-Allow-Origin') != '*':
+        response.headers['Access-Control-Allow-Credentials'] = 'true'
     response.headers['Strict-Transport-Security'] = 'max-age=31536000; includeSubDomains'
     return response
 

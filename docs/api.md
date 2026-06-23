@@ -11,7 +11,7 @@ Base URL: `http://<server>:5000`
 | `/api/health` | GET | Server health check & version info |
 | `/api/time` | GET | Server UTC time |
 | `/api/exams` | GET | List of active exams |
-| `/api/exams/token/<token>` | GET | Get exam config by 6-char token |
+| `/api/exams/token/<token>` | GET | Get exam config by 6-8 char token |
 | `/api/exams/<id>/pdf` | GET | Download exam PDF |
 | `/api/exams/<id>/submit` | POST | Submit student answers |
 | `/api/hasil/<token>` | GET | Public exam results (JSON) |

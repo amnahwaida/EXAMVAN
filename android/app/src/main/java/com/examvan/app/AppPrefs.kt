@@ -18,6 +18,9 @@ object AppPrefs {
     const val KEY_SECURITY_LEVEL = "security_level"
     const val KEY_STRICT_MODE = "strict_mode"
     const val KEY_DEVICE_UUID = "device_uuid"
+    const val KEY_SAVED_ANSWERS = "saved_answers"
+    const val KEY_SAVED_ANSWERS_EXAM_ID = "saved_answers_exam_id"
+    const val KEY_SAVED_ANSWERS_TIMESTAMP = "saved_answers_timestamp"
 
     @Volatile
     private var masterKey: MasterKey? = null
