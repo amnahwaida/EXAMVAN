@@ -7,8 +7,8 @@
  <link rel="preconnect" href="https://fonts.googleapis.com">
  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@300;400;500;600;700;800&family=Outfit:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
- <link rel="stylesheet" href="{{ url_for('static', filename='css/admin-base.css') }}?v=2.3.0">
  <link rel="stylesheet" href="{{ url_for('static', filename='css/tailwind/output.css') }}?v=2.3.0">
+ <link rel="stylesheet" href="{{ url_for('static', filename='css/admin-base.css') }}?v=2.3.0">
  <link rel="icon" type="image/png" href="/static/favicon.png">
  <meta name="csrf-token" content="{{ csrf_token }}">
  {% block head %}{% endblock %}
@@ -97,18 +97,21 @@
  <label for="currentPassword">Password Saat Ini</label>
  <div class="password-wrapper">
  <input type="password" id="currentPassword" required placeholder="Masukkan password lama">
+ <button type="button" id="toggleCurPassword" class="password-toggle-btn" aria-label="Tampilkan/sembunyikan password" style="background:none; border:none; cursor:pointer; font-size:16px; padding:4px;">👁️</button>
  </div>
  </div>
  <div class="form-group" style="margin-bottom: 16px;">
  <label for="newPassword">Password Baru</label>
  <div class="password-wrapper">
- <input type="password" id="newPassword" required placeholder="Masukkan password baru" minlength="4">
+ <input type="password" id="newPassword" required placeholder="Masukkan password baru (min. 4 karakter)" minlength="4">
+ <button type="button" id="toggleNewPassword" class="password-toggle-btn" aria-label="Tampilkan/sembunyikan password" style="background:none; border:none; cursor:pointer; font-size:16px; padding:4px;">👁️</button>
  </div>
  </div>
  <div class="form-group" style="margin-bottom: 24px;">
  <label for="confirmNewPassword">Konfirmasi Password Baru</label>
  <div class="password-wrapper">
  <input type="password" id="confirmNewPassword" required placeholder="Ulangi password baru">
+ <button type="button" id="toggleConfirmPassword" class="password-toggle-btn" aria-label="Tampilkan/sembunyikan password" style="background:none; border:none; cursor:pointer; font-size:16px; padding:4px;">👁️</button>
  </div>
  </div>
  <button type="submit" class="btn-upload" style="width: 100%;"><svg class="icon-svg"><use href="#hi-check"/></svg> Simpan Password Baru</button>
@@ -211,6 +214,13 @@
  </div>
  <script src="{{ url_for('static', filename='js/admin-core.js') }}?v=2.3.0"></script>
  <script src="{{ url_for('static', filename='js/admin.js') }}?v=2.3.0"></script>
+ <script>
+ document.addEventListener('DOMContentLoaded', function() {
+ togglePasswordVisibility('currentPassword', 'toggleCurPassword');
+ togglePasswordVisibility('newPassword', 'toggleNewPassword');
+ togglePasswordVisibility('confirmNewPassword', 'toggleConfirmPassword');
+ });
+ </script>
  {% block scripts %}{% endblock %}
 </body>
 </html>

@@ -66,7 +66,7 @@
  {% for sub in submissions %}
  {% set score_pct = (sub.score / max_score * 100) if max_score else none %}
  <tr id="submission-row-{{ sub.id }}" data-exam-id="{{ sub.exam_id }}" style="transition: background 0.2s;">
- <td class="td-name" data-label="Ujian" class="font-medium">{{ sub.exam_name }}</td>
+ <td class="td-name font-medium" data-label="Ujian">{{ sub.exam_name }}</td>
  <td data-label="Siswa" class="max-md:flex max-md:gap-1 max-md:items-baseline"><strong>{{ sub.student_name }}</strong></td>
  <td data-label="No. Ujian" class="max-md:flex max-md:gap-1 max-md:items-baseline"><code class="token-code" style="letter-spacing: normal; font-size:12px;">{{ sub.exam_number }}</code></td>
  <td data-label="Kelas" class="max-md:flex max-md:gap-1 max-md:items-baseline">{{ sub.student_class }}</td>
@@ -107,11 +107,11 @@
  </td>
  <td class="td-actions" data-label="Aksi" style="text-align:center;">
  <div style="display: flex; gap: 6px; justify-content: center;">
- <button class="btn-sm btn-toggle" onclick="showSubmissionDetail({{ sub.id }})" style="padding: 6px 12px; font-size: 11px;">
- <svg class="icon-svg-sm"><use href="#hi-eye"/></svg> Detail
+ <button class="btn-sm btn-toggle" onclick="showSubmissionDetail({{ sub.id }})" style="padding: 8px 16px; font-size: 13px; min-height: 40px; min-width: 80px; display: inline-flex; align-items: center; gap: 6px;">
+ <svg class="icon-svg"><use href="#hi-eye"/></svg> Detail
  </button>
- <button class="btn-sm btn-delete" onclick="deleteSubmission({{ sub.id }})" style="padding: 6px 12px; font-size: 11px;">
- <svg class="icon-svg-sm"><use href="#hi-trash"/></svg>
+ <button class="btn-sm btn-delete" onclick="deleteSubmission({{ sub.id }})" style="padding: 8px 14px; font-size: 13px; min-height: 40px; min-width: 40px; display: inline-flex; align-items: center; justify-content: center;">
+ <svg class="icon-svg"><use href="#hi-trash"/></svg>
  </button>
  </div>
  </td>

@@ -105,9 +105,9 @@ class TestHTMLTemplates(unittest.TestCase):
         self.assertIn('Daftar User', resp.text)
 
     def test_create_exam_page_removed(self):
-        """Buat Ujian page no longer exists."""
+        """Buat Ujian page no longer exists (now a POST-only API endpoint)."""
         resp = self.client.get('/admin/create-exam')
-        self.assertIn(resp.status_code, [302, 404])
+        self.assertIn(resp.status_code, [302, 404, 405])
 
 
 class TestCSSTemplates(unittest.TestCase):
@@ -120,8 +120,11 @@ class TestCSSTemplates(unittest.TestCase):
 
     def test_css_files_exist(self):
         """All CSS component files should exist."""
-        expected = ['admin-base.css', 'admin-components.css',
-                     'admin-editor.css', 'admin-responsive.css']
+        expected = ['admin-base.css']
+        # Also check tailwind output
+        tailwind_path = os.path.join(self.css_dir, 'tailwind', 'output.css')
+        self.assertTrue(os.path.exists(tailwind_path), 'Missing: tailwind/output.css')
+        self.assertGreater(os.path.getsize(tailwind_path), 0, 'Empty: tailwind/output.css')
         for css_file in expected:
             path = os.path.join(self.css_dir, css_file)
             self.assertTrue(os.path.exists(path), f'Missing: {css_file}')
@@ -169,8 +172,7 @@ class TestCSSTemplates(unittest.TestCase):
 
     def test_css_media_queries(self):
         """Check responsive breakpoints are consistent."""
-        for css_file in ['admin-components.css', 'admin-editor.css',
-                          'admin-responsive.css']:
+        for css_file in ['admin-base.css']:
             path = os.path.join(self.css_dir, css_file)
             if not os.path.exists(path):
                 continue
@@ -190,13 +192,12 @@ class TestCSSTemplates(unittest.TestCase):
         self.assertIn('css', resp.text)
 
     def test_admin_base_css_loaded_in_dashboard(self):
-        """Dashboard should load component CSS files."""
+        """Dashboard should load CSS files."""
         with self.client.session_transaction() as sess:
             sess['admin_id'] = 1
             sess['admin_username'] = 'admin'
         resp = self.client.get('/admin/dashboard')
-        for css_file in ['admin-base.css', 'admin-components.css',
-                          'admin-editor.css', 'admin-responsive.css']:
+        for css_file in ['admin-base.css']:
             self.assertIn(css_file, resp.text,
                 f'Missing {css_file} in dashboard')
 

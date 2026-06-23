@@ -498,6 +498,14 @@ def check_submission_ownership(db, submission_id):
     return sub is not None and sub['created_by'] == session['admin_id']
 
 
+def safe_storage_path(file_path):
+    """Validate and resolve a storage path, preventing directory traversal."""
+    full_path = os.path.normpath(os.path.join(STORAGE_DIR, file_path))
+    if not full_path.startswith(os.path.normpath(STORAGE_DIR)):
+        raise ValueError("Path traversal detected")
+    return full_path
+
+
 def get_network_info():
     """Get dynamic network info (domain/IP, endpoint, protocol) based on request context."""
     # 1. Detect protocol (scheme)

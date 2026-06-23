@@ -15,7 +15,7 @@ from app import (
     generate_token, _verify_password, generate_csrf_token,
     admin_required, super_admin_required, check_rate_limit,
     check_exam_ownership, check_submission_ownership,
-    get_network_info, get_storage_stats,
+    get_network_info, get_storage_stats, safe_storage_path,
     STORAGE_DIR, MAX_FILE_SIZE, BASE_DIR,
     DEFAULT_ADMIN, DEFAULT_IDENTITY_FIELDS,
 )
@@ -228,7 +228,7 @@ def api_exam_pdf(exam_id):
             'message': 'Ujian tidak tersedia atau sudah berakhir'
         }), 404
 
-    file_path = os.path.join(STORAGE_DIR, exam['file_path'])
+    file_path = safe_storage_path(exam['file_path'])
     if not os.path.exists(file_path):
         return jsonify({
             'success': False,
@@ -284,6 +284,11 @@ def admin_login():
     if request.method == 'POST':
         username = request.form.get('username', '').strip().lower()
         password = request.form.get('password', '')
+
+        # Rate limiting: max 5 attempts per 60 seconds per IP
+        if not check_rate_limit('admin_login', max_attempts=5, window_seconds=60):
+            flash('Terlalu banyak percobaan login. Silakan coba lagi dalam 60 detik.', 'error')
+            return render_template('login.html')
 
         db = get_db()
         user = db.execute(
@@ -534,28 +539,30 @@ def admin_dashboard():
         'FROM exams e LEFT JOIN admin_users u ON e.created_by = u.id'
     )
     order = ' ORDER BY e.created_at DESC'
-    limit_offset = f' LIMIT {per_page} OFFSET {(page - 1) * per_page}'
-    exams = db.execute(base_query + where_clause + order + limit_offset, params).fetchall()
+    limit_offset = ' LIMIT ? OFFSET ?'
+    exams = db.execute(base_query + where_clause + order + limit_offset, params + [per_page, (page - 1) * per_page]).fetchall()
 
-    # Calculate stats (across ALL exams, not just page)
-    if search:
-        # If searching, only count visible
-        active = sum(1 for e in exams if e['status'] == 'active')
-        inactive = len(exams) - active
-    else:
-        active_sql = f'SELECT COUNT(*) as cnt FROM exams e WHERE e.status = ?' + (f' AND e.created_by = ?' if not is_super_admin else '')
-        active_params = ['active']
-        if not is_super_admin:
-            active_params.append(session['admin_id'])
-        active = db.execute(active_sql, active_params).fetchone()['cnt']
-        inactive = total - active
+    # Calculate stats (always from unfiltered data for accuracy)
+    stats_conditions = []
+    stats_params = []
+    if not is_super_admin:
+        stats_conditions.append('created_by = ?')
+        stats_params.append(session['admin_id'])
 
-    total_pages = max(1, (total + per_page - 1) // per_page)
+    stats_where = (' WHERE ' + ' AND '.join(stats_conditions)) if stats_conditions else ''
+
+    stats_total = db.execute(f'SELECT COUNT(*) as cnt FROM exams{stats_where}', stats_params).fetchone()['cnt']
+
+    active_where = stats_where + (' AND ' if stats_conditions else ' WHERE ') + 'status = ?'
+    active = db.execute(f'SELECT COUNT(*) as cnt FROM exams{active_where}', stats_params + ['active']).fetchone()['cnt']
+    inactive = stats_total - active
 
     if is_super_admin:
         storage_bytes = get_storage_stats()
     else:
-        storage_bytes = sum(e['size_bytes'] for e in exams if e['size_bytes'] is not None)
+        storage_bytes = db.execute(f'SELECT COALESCE(SUM(size_bytes), 0) as total FROM exams e{stats_where}', stats_params).fetchone()['total']
+
+    total_pages = max(1, (total + per_page - 1) // per_page)
 
     net_info = get_network_info()
 
@@ -578,6 +585,7 @@ def admin_dashboard():
             'active': active,
             'inactive': inactive,
             'storage_mb': round(storage_bytes / (1024 * 1024), 2),
+            'total_all': stats_total,
         },
         net_info=net_info,
         local_ip=net_info['display_host'],
@@ -592,9 +600,11 @@ def admin_dashboard():
         total_pages=total_pages,
         total_exams=total,
         search=search,
+        search_active=bool(search),
     )
 
-@app.route('/admin/create-exam')
+@app.route('/admin/api/upload', methods=['POST'])
+@app.route('/admin/create-exam', methods=['POST'])
 @admin_required
 def admin_upload():
     """Upload a new exam PDF."""
@@ -666,7 +676,7 @@ def admin_upload():
 
     # Save file with secure name
     timestamp = datetime.now(timezone.utc).strftime('%Y%m%d_%H%M%S')
-    safe_name = secure_filename(file.filename)
+    safe_name = secure_filename(file.filename) or 'exam.pdf'
     filename = f"{timestamp}_{safe_name}"
     file_path = os.path.join(STORAGE_DIR, filename)
 
@@ -687,7 +697,7 @@ def admin_upload():
     })
 
 
-@app.route('/admin/api/exams/create-from-editor', methods=['POST'])
+@app.route('/admin/api/exams/<int:exam_id>/pdf', methods=['GET'])
 @admin_required
 def admin_exam_pdf(exam_id):
     """View or download the exam PDF for admin."""
@@ -700,14 +710,14 @@ def admin_exam_pdf(exam_id):
     if not exam:
         return abort(404)
 
-    file_path = os.path.join(STORAGE_DIR, exam['file_path'])
+    file_path = safe_storage_path(exam['file_path'])
     if not os.path.exists(file_path):
         return abort(404)
 
     download = request.args.get('download', '0') == '1'
-    
+
     response = send_file(
-        file_path, 
+        file_path,
         mimetype='application/pdf', 
         as_attachment=download,
         download_name=f"{exam['name']}.pdf" if download else None
@@ -835,16 +845,19 @@ def admin_edit_exam(exam_id):
             }), 400
 
         # Delete old file from storage if exists
-        old_file_path = os.path.join(STORAGE_DIR, exam['file_path'])
-        if os.path.exists(old_file_path):
-            try:
-                os.remove(old_file_path)
-            except Exception as e:
-                app.logger.error(f"Error removing old PDF: {e}")
+        try:
+            old_file_path = safe_storage_path(exam['file_path'])
+            if os.path.exists(old_file_path):
+                try:
+                    os.remove(old_file_path)
+                except Exception as e:
+                    app.logger.error(f"Error removing old PDF: {e}")
+        except (ValueError, KeyError):
+            app.logger.error(f"Invalid file path for exam {exam_id}: {exam.get('file_path')}")
 
         # Save new file
         timestamp = datetime.now(timezone.utc).strftime('%Y%m%d_%H%M%S')
-        safe_name = secure_filename(file.filename)
+        safe_name = secure_filename(file.filename) or 'exam.pdf'
         filename = f"{timestamp}_{safe_name}"
         file_path = os.path.join(STORAGE_DIR, filename)
 
@@ -884,9 +897,12 @@ def admin_delete_exam(exam_id):
         return jsonify({'success': False, 'message': 'Ujian tidak ditemukan'}), 404
 
     # Delete file from storage
-    file_path = os.path.join(STORAGE_DIR, exam['file_path'])
-    if os.path.exists(file_path):
-        os.remove(file_path)
+    try:
+        file_path = safe_storage_path(exam['file_path'])
+        if os.path.exists(file_path):
+            os.remove(file_path)
+    except (ValueError, KeyError):
+        app.logger.error(f"Invalid file path for exam {exam_id}: {exam.get('file_path')}")
 
     # Delete from database
     db.execute('DELETE FROM exams WHERE id = ?', (exam_id,))
@@ -916,12 +932,15 @@ def admin_bulk_delete_exams():
             continue
 
         # Delete file from storage
-        file_path = os.path.join(STORAGE_DIR, exam['file_path'])
-        if os.path.exists(file_path):
-            try:
-                os.remove(file_path)
-            except Exception:
-                pass
+        try:
+            file_path = safe_storage_path(exam['file_path'])
+            if os.path.exists(file_path):
+                try:
+                    os.remove(file_path)
+                except Exception:
+                    pass
+        except (ValueError, KeyError):
+            app.logger.error(f"Invalid file path in bulk delete: {exam.get('file_path')}")
 
         # Delete from database
         db.execute('DELETE FROM exams WHERE id = ?', (exam_id,))
@@ -1253,6 +1272,11 @@ def admin_edit_user(user_id):
         if exp_val:
             if ' ' not in exp_val:
                 exp_val = f"{exp_val} 23:59:59"
+            # Validate date format before saving
+            try:
+                datetime.strptime(exp_val, '%Y-%m-%d %H:%M:%S')
+            except (ValueError, TypeError):
+                return jsonify({'success': False, 'message': 'Format tanggal expiry tidak valid. Gunakan format YYYY-MM-DD HH:MM:SS'}), 400
             db.execute('UPDATE admin_users SET expires_at = ? WHERE id = ?', (exp_val, user_id))
         else:
             db.execute('UPDATE admin_users SET expires_at = NULL WHERE id = ?', (user_id,))
@@ -1385,12 +1409,15 @@ def admin_delete_user(user_id):
     # Delete exams and PDF files owned by this user
     exams = db.execute('SELECT file_path FROM exams WHERE created_by = ?', (user_id,)).fetchall()
     for e in exams:
-        file_path = os.path.join(STORAGE_DIR, e['file_path'])
-        if os.path.exists(file_path):
-            try:
-                os.remove(file_path)
-            except Exception:
-                pass
+        try:
+            file_path = safe_storage_path(e['file_path'])
+            if os.path.exists(file_path):
+                try:
+                    os.remove(file_path)
+                except Exception:
+                    pass
+        except (ValueError, KeyError):
+            app.logger.error(f"Invalid file path for user {user_id} exam: {e.get('file_path')}")
 
     db.execute('DELETE FROM exams WHERE created_by = ?', (user_id,))
     db.execute('DELETE FROM admin_users WHERE id = ?', (user_id,))
@@ -1503,8 +1530,8 @@ def admin_submissions():
         'FROM submissions s JOIN exams e ON s.exam_id = e.id'
     )
     order = ' ORDER BY s.created_at DESC'
-    limit_offset = f' LIMIT {per_page} OFFSET {(page - 1) * per_page}'
-    submissions = db.execute(base_query + where_clause + order + limit_offset, params).fetchall()
+    limit_offset = ' LIMIT ? OFFSET ?'
+    submissions = db.execute(base_query + where_clause + order + limit_offset, params + [per_page, (page - 1) * per_page]).fetchall()
 
     # Compute max_score and percentage per submission
     sub_data = []
@@ -1657,11 +1684,7 @@ def admin_export_submission_detail(submission_id):
     
     for q in questions:
         # Normalize q_num: handle potential float representation (e.g. 1.0 -> "1")
-        try:
-            num_val = float(q['number'])
-            q_num = str(int(num_val)) if num_val.is_integer() else str(q['number'])
-        except Exception:
-            q_num = str(q['number'])
+        q_num = _normalize_q_num(q.get('number', ''))
         student_ans = answers.get(q_num)
         correct_ans = q.get('key')
         q_weight = float(q.get('weight', 1.0))
@@ -1815,9 +1838,35 @@ def admin_export_submissions():
         except Exception:
             questions = []
 
-        return _generate_exam_xlsx(exam, submissions, questions, tz_offset)
+        try:
+            return _generate_exam_xlsx(exam, submissions, questions, tz_offset)
+        except ImportError:
+            # Fallback to CSV if openpyxl is not installed
+            pass
+        except Exception as e:
+            app.logger.error(f"XLSX export error: {e}")
+            # Fallback to CSV for this specific exam
 
-    # --- Fallback: CSV export for all exams ---
+        # CSV fallback for specific exam
+        si = io.StringIO()
+        cw = csv.writer(si)
+        cw.writerow(['ID', 'Nama Ujian', 'Nama Siswa', 'Nomor Ujian', 'Kelas', 'Nilai', 'Waktu Mulai', 'Waktu Kumpul', 'MAC/ID Perangkat'])
+        for row in submissions:
+            cw.writerow([
+                row['id'], exam['name'], row['student_name'], row['exam_number'],
+                row['student_class'], row['score'] if row['score'] is not None else 'Belum Dinilai',
+                localize_date_string(row['start_time'], tz_offset) if row['start_time'] else '—',
+                localize_date_string(row['created_at'], tz_offset),
+                row['mac_address'] or '—'
+            ])
+        output = si.getvalue(); si.close()
+        safe_exam_name = ''.join(c for c in exam['name'] if c.isalnum() or c in ' _-').strip().replace(' ', '_')
+        filename = f"Hasil_Ujian_{safe_exam_name}_{datetime.now(timezone.utc).strftime('%Y%m%d_%H%M%S')}.csv"
+        response = send_file(io.BytesIO(output.encode('utf-8-sig')), mimetype='text/csv', as_attachment=True, download_name=filename)
+        response.headers['Cache-Control'] = 'no-store, no-cache, must-revalidate'
+        return response
+
+    # --- CSV export for all exams ---
     query = (
         'SELECT s.id, e.name as exam_name, s.student_name, s.exam_number, s.student_class, s.score, s.start_time, s.mac_address, s.created_at '
         'FROM submissions s JOIN exams e ON s.exam_id = e.id'
@@ -1833,35 +1882,24 @@ def admin_export_submissions():
         query += ' WHERE ' + ' AND '.join(conditions)
 
     query += ' ORDER BY s.created_at DESC'
-    submissions = db.execute(query, params).fetchall()
+    all_submissions = db.execute(query, params).fetchall()
 
     si = io.StringIO()
     cw = csv.writer(si)
     cw.writerow(['ID', 'Nama Ujian', 'Nama Siswa', 'Nomor Ujian', 'Kelas', 'Nilai', 'Waktu Mulai', 'Waktu Kumpul', 'MAC/ID Perangkat'])
 
-    for row in submissions:
+    for row in all_submissions:
         cw.writerow([
-            row['id'],
-            row['exam_name'],
-            row['student_name'],
-            row['exam_number'],
-            row['student_class'],
-            row['score'] if row['score'] is not None else 'Belum Dinilai',
+            row['id'], row['exam_name'], row['student_name'], row['exam_number'],
+            row['student_class'], row['score'] if row['score'] is not None else 'Belum Dinilai',
             localize_date_string(row['start_time'], tz_offset) if row['start_time'] else '—',
             localize_date_string(row['created_at'], tz_offset),
             row['mac_address'] or '—'
         ])
 
-    output = si.getvalue()
-    si.close()
-
+    output = si.getvalue(); si.close()
     filename = f"hasil_ujian_{datetime.now(timezone.utc).strftime('%Y%m%d_%H%M%S')}.csv"
-    response = send_file(
-        io.BytesIO(output.encode('utf-8-sig')),
-        mimetype='text/csv',
-        as_attachment=True,
-        download_name=filename
-    )
+    response = send_file(io.BytesIO(output.encode('utf-8-sig')), mimetype='text/csv', as_attachment=True, download_name=filename)
     response.headers['Cache-Control'] = 'no-store, no-cache, must-revalidate'
     return response
 
@@ -2050,11 +2088,7 @@ def _generate_exam_xlsx(exam, submissions, questions, tz_offset=None):
 
         for q in questions:
             # Normalize q_num: handle potential float representation (e.g. 1.0 -> "1")
-            try:
-                num_val = float(q['number'])
-                q_num = str(int(num_val)) if num_val.is_integer() else str(q['number'])
-            except Exception:
-                q_num = str(q['number'])
+            q_num = _normalize_q_num(q.get('number', ''))
             student_ans = student_answers.get(q_num)
             correct_ans = q.get('key')
             q_weight = float(q.get('weight', 1.0))

@@ -63,7 +63,7 @@ if (uploadForm) {
         progressDiv.style.display = 'flex';
 
         const xhr = new XMLHttpRequest();
-        xhr.open('POST', '/admin/api/upload');
+        xhr.open('POST', '/admin/create-exam');
         xhr.setRequestHeader('X-CSRF-Token', getCsrfToken());
 
         xhr.upload.addEventListener('progress', function(e) {
@@ -236,6 +236,14 @@ function regenerateToken(examId) {
 // Global modal state
 let activeExamId = null;
 let activeExamName = '';
+
+// Warn before leaving if questions editor is open
+window.addEventListener('beforeunload', function(e) {
+    if (activeExamId !== null) {
+        e.preventDefault();
+        e.returnValue = '';
+    }
+});
 
 function openQuestionsModal(examId, examName) {
     activeExamId = examId;
@@ -874,6 +882,10 @@ function loadUsersList() {
                     return;
                 }
                 tbody.innerHTML = '';
+                if (!Array.isArray(res.users)) {
+                    tbody.innerHTML = '<tr><td colspan="3" style="text-align:center; padding: 20px; color: #fca5a5;">Data user tidak valid</td></tr>';
+                    return;
+                }
                 res.users.forEach(user => {
                     const tr = document.createElement('tr');
                     const isAdmin = user.username === 'admin';
@@ -1008,8 +1020,22 @@ function submitEditToken(e) {
 // ===== Close modals on overlay click =====
 document.addEventListener('click', function(e) {
     if (e.target.classList.contains('modal-overlay')) {
-        // Close any open modal when clicking on overlay background
-        e.target.style.display = 'none';
+        // Close the appropriate modal based on which is open
+        const overlay = e.target;
+        const modalId = overlay.id;
+        if (modalId === 'questionsModal') {
+            closeQuestionsModal();
+        } else if (modalId === 'changePasswordModal') {
+            closeChangePasswordModal();
+        } else if (modalId === 'editExamModal') {
+            closeEditExamModal();
+        } else if (modalId === 'editTokenModal') {
+            closeEditTokenModal();
+        } else if (modalId === 'detailModal') {
+            closeDetailModal();
+        } else {
+            overlay.style.display = 'none';
+        }
     }
 });
 
@@ -1812,6 +1838,16 @@ function searchExams() {
     params.set('page', '1'); // reset to first page
     const qs = params.toString();
     window.location.href = window.location.pathname + (qs ? '?' + qs : '');
+}
+
+function clearSearch() {
+    const input = document.getElementById('searchExam');
+    if (input) {
+        input.value = '';
+        const btn = document.getElementById('searchClearBtn');
+        if (btn) btn.style.display = 'none';
+        searchExams();
+    }
 }
 
 // ===== Calculate Duration =====

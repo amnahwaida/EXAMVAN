@@ -203,7 +203,7 @@ class TestStaticFiles(unittest.TestCase):
 
     def test_css_files(self):
         client = app.test_client()
-        for css in ['admin-base', 'admin-components', 'admin-editor', 'admin-responsive']:
+        for css in ['admin-base']:
             resp = client.get(f'/static/css/{css}.css')
             self.assertEqual(resp.status_code, 200, f'Missing CSS: {css}')
 

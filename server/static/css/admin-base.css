@@ -302,6 +302,42 @@ code, pre, .token-code, .mono {
     }
 }
 
+/* ===== Password Toggle Button ===== */
+.password-wrapper {
+    position: relative;
+    display: flex;
+    align-items: center;
+}
+.password-wrapper input {
+    width: 100%;
+    padding-right: 40px;
+}
+.password-toggle-btn {
+    position: absolute;
+    right: 4px;
+    top: 50%;
+    transform: translateY(-50%);
+    z-index: 2;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 32px;
+    height: 32px;
+    border-radius: 6px;
+    transition: background 0.2s;
+    background: transparent;
+    border: none;
+    cursor: pointer;
+    font-size: 16px;
+    padding: 4px;
+    color: var(--text-muted);
+    line-height: 1;
+}
+.password-toggle-btn:hover {
+    background: rgba(255,255,255,0.08);
+    color: var(--text-secondary);
+}
+
 /* ===== Mobile Bottom Sticky Bar ===== */
 .mobile-bottom-bar {
     display: none;
