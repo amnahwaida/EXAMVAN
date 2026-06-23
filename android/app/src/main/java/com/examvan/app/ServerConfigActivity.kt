@@ -14,6 +14,7 @@ import android.widget.LinearLayout
 import android.widget.TextView
 import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
+import androidx.core.content.ContextCompat
 import com.examvan.app.api.ApiClient
 import com.examvan.app.databinding.ActivityServerConfigBinding
 import com.examvan.app.model.Exam
@@ -75,9 +76,10 @@ class ServerConfigActivity : AppCompatActivity() {
             val token = binding.etToken.text.toString().trim().uppercase()
             
             if (url.isNotEmpty() && !url.startsWith("http://") && !url.startsWith("https://")) {
-                url = "http://$url"
+                url = "https://$url"
                 binding.etServerUrl.setText(url)
             }
+            // WARNING: Using HTTP for LAN servers is insecure — prefer HTTPS
 
             if (validateInputs(url, token)) {
                 connectAndFetchExam(url, token)
@@ -207,7 +209,7 @@ class ServerConfigActivity : AppCompatActivity() {
         val titleView = TextView(this).apply {
             text = "Identitas Siswa"
             textSize = 20f
-            setTextColor(0xff111827.toInt())
+            setTextColor(ContextCompat.getColor(this@ServerConfigActivity, R.color.on_surface))
             typeface = android.graphics.Typeface.DEFAULT_BOLD
             gravity = android.view.Gravity.CENTER
         }
@@ -216,7 +218,7 @@ class ServerConfigActivity : AppCompatActivity() {
         val subtitleView = TextView(this).apply {
             text = "Isi data diri Anda untuk memulai ujian"
             textSize = 13f
-            setTextColor(0xff6b7280.toInt())
+            setTextColor(ContextCompat.getColor(this@ServerConfigActivity, R.color.text_secondary))
             gravity = android.view.Gravity.CENTER
             setPadding(0, 4, 0, 24)
         }
@@ -233,7 +235,7 @@ class ServerConfigActivity : AppCompatActivity() {
             val labelView = TextView(this).apply {
                 text = field.label + if (field.required) " *" else ""
                 textSize = 14f
-                setTextColor(0xff374151.toInt())
+                setTextColor(ContextCompat.getColor(this@ServerConfigActivity, R.color.text_secondary))
                 typeface = android.graphics.Typeface.DEFAULT_BOLD
                 setPadding(0, 12, 0, 4)
             }
@@ -242,14 +244,12 @@ class ServerConfigActivity : AppCompatActivity() {
             val editText = EditText(this).apply {
                 hint = field.label
                 setText(savedIdentity.optString(field.key, ""))
-                setTextColor(0xff111827.toInt())
-                setHintTextColor(0xff9ca3af.toInt())
-                background = android.content.res.ColorStateList.valueOf(0xffe5e7eb.toInt()).let {
-                    android.graphics.drawable.GradientDrawable().apply {
-                        setStroke(1, 0xffd1d5db.toInt())
-                        setColor(0xfff9fafb.toInt())
-                        cornerRadius = 8f
-                    }
+                setTextColor(ContextCompat.getColor(this@ServerConfigActivity, R.color.on_surface))
+                setHintTextColor(ContextCompat.getColor(this@ServerConfigActivity, R.color.text_muted))
+                background = android.graphics.drawable.GradientDrawable().apply {
+                    setStroke(1, ContextCompat.getColor(this@ServerConfigActivity, R.color.input_border))
+                    setColor(ContextCompat.getColor(this@ServerConfigActivity, R.color.input_fill))
+                    cornerRadius = 8f
                 }
                 setPadding(16, 12, 16, 12)
                 textSize = 15f
@@ -263,7 +263,7 @@ class ServerConfigActivity : AppCompatActivity() {
 
         val tvDialogError = TextView(this).apply {
             textSize = 13f
-            setTextColor(0xffdc2626.toInt())
+            setTextColor(ContextCompat.getColor(this@ServerConfigActivity, R.color.danger))
             gravity = android.view.Gravity.CENTER
             setPadding(0, 12, 0, 4)
             visibility = View.GONE
@@ -272,11 +272,11 @@ class ServerConfigActivity : AppCompatActivity() {
 
         val btnConfirm = Button(this).apply {
             text = "Mulai Ujian"
-            setTextColor(0xffffffff.toInt())
+            setTextColor(ContextCompat.getColor(this@ServerConfigActivity, R.color.on_primary))
             textSize = 15f
             typeface = android.graphics.Typeface.DEFAULT_BOLD
             setPadding(0, 14, 0, 14)
-            setBackgroundColor(0xff6366f1.toInt())
+            setBackgroundColor(ContextCompat.getColor(this@ServerConfigActivity, R.color.primary))
             layoutParams = LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT,
                 ViewGroup.LayoutParams.WRAP_CONTENT
@@ -288,7 +288,8 @@ class ServerConfigActivity : AppCompatActivity() {
 
         val builder = AlertDialog.Builder(this)
             .setView(scrollView)
-            .setCancelable(true)
+            .setCancelable(false)
+        // Prevent dismissal without filling identity — student can close app entirely if needed
 
         val alertDialog = builder.create()
 

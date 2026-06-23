@@ -28,6 +28,11 @@ import com.examvan.app.api.ApiClient
 import com.examvan.app.databinding.ActivityExamViewerBinding
 import com.google.gson.Gson
 import com.google.gson.reflect.TypeToken
+import androidx.lifecycle.lifecycleScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import okhttp3.Call
 import java.io.File
 
@@ -476,6 +481,8 @@ class ExamViewerActivity : AppCompatActivity() {
             editText.setText(currentAns)
         }
 
+        editText.filters = arrayOf(android.text.InputFilter.LengthFilter(500))
+
         editText.addTextChangedListener(object : android.text.TextWatcher {
             override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) {}
             override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) {}
@@ -629,8 +636,10 @@ class ExamViewerActivity : AppCompatActivity() {
             fileDescriptor = ParcelFileDescriptor.open(
                 file, ParcelFileDescriptor.MODE_READ_ONLY
             )
-            pdfRenderer = PdfRenderer(fileDescriptor!!)
-            totalPages = pdfRenderer!!.pageCount
+            val fd = fileDescriptor ?: run { showError("Gagal membuka file PDF"); return }
+            pdfRenderer = PdfRenderer(fd)
+            val renderer = pdfRenderer ?: run { showError("Gagal merender PDF"); return }
+            totalPages = renderer.pageCount
             currentPage = 0
             renderPage(0)
             showPdfViewer()
@@ -853,15 +862,15 @@ class ExamViewerActivity : AppCompatActivity() {
 
         if (isSubmitting) {
             // Already submitting via normal route. Let the existing request finish.
-            // Use Handler to avoid blocking the UI thread (ANR prevention)
-            android.os.Handler(mainLooper).postDelayed({
+            lifecycleScope.launch {
+                delay(1500)
                 if (!isFinishing) finish()
-            }, 1500)
+            }
             return
         }
 
-        // Submit synchronously in a background thread, then post result to main thread.
-        Thread {
+        // Submit synchronously in a background coroutine, then post result to main thread.
+        lifecycleScope.launch(Dispatchers.IO) {
             val result = try {
                 ApiClient.submitExamSync(
                     examId = examId,
@@ -884,15 +893,13 @@ class ExamViewerActivity : AppCompatActivity() {
                 getString(R.string.toast_auto_submit_failed, result.second)
             }
 
-            // Post back to main thread for notification + finish
-            android.os.Handler(mainLooper).post {
+            withContext(Dispatchers.Main) {
                 showAutoSubmitNotification(notifTitle, notifMessage)
                 // Small delay to let the OS register the notification
-                android.os.Handler(mainLooper).postDelayed({
-                    if (!isFinishing) finish()
-                }, 400)
+                delay(400)
+                if (!isFinishing) finish()
             }
-        }.start()
+        }
     }
 
     private fun showAutoSubmitNotification(title: String, message: String) {
@@ -938,6 +945,7 @@ class ExamViewerActivity : AppCompatActivity() {
     override fun onDestroy() {
         super.onDestroy()
         downloadCall?.cancel()
+        binding.ivPdfPage.swipeListener = null
         try {
             pdfRenderer?.close()
             fileDescriptor?.close()

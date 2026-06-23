@@ -11,8 +11,8 @@
         <ip-range>127.0.0.0/8</ip-range>
     </domain-config>
 
-    <!-- Default: allow cleartext for intranet usage -->
-    <base-config cleartextTrafficPermitted="true">
+    <!-- Default: disallow cleartext for non-LAN traffic (token moved to HTTP header, not URL query) -->
+    <base-config cleartextTrafficPermitted="false">
         <trust-anchors>
             <certificates src="system" />
         </trust-anchors>

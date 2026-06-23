@@ -18,4 +18,7 @@
     <color name="divider">#1E293B</color>
     <color name="status_active_bg">#0D2818</color>
     <color name="status_inactive_bg">#2D1B00</color>
+    <color name="input_background">#F3F4F6</color>
+    <color name="input_border">#D1D5DB</color>
+    <color name="input_fill">#F9FAFB</color>
 </resources>

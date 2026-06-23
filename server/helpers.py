@@ -1,8 +1,11 @@
 """
 EXAMVAN Helpers — pure utility functions (no Flask dependency).
 """
+import logging
 from datetime import datetime, timezone, timedelta
 import socket
+
+logger = logging.getLogger('examvan.helpers')
 
 
 def localize_date_string(utc_str, tz_offset_min=None):
@@ -22,7 +25,7 @@ def localize_date_string(utc_str, tz_offset_min=None):
         else:
             return dt.strftime('%Y-%m-%d %H:%M:%S UTC')
     except Exception as e:
-        print("Localization error:", e)
+        logger.error("Localization error: %s", e)
         return utc_str
 
 
@@ -162,5 +165,5 @@ def calculate_submission_score(answers, questions):
         total = sum(e['earned'] for e in evaluation.values())
         return round(total, 2)
     except Exception as e:
-        print("Scoring calculation error:", e)
+        logger.error("Scoring calculation error: %s", e)
         return None

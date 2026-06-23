@@ -271,7 +271,7 @@ def check_rate_limit(key, max_attempts=5, window_seconds=300):
     window_seconds: time window in seconds
     """
     now = time.time()
-    ip = request.remote_addr or 'unknown'
+    ip = request.access_route[0] if request.access_route else request.remote_addr or 'unknown'
     store_key = f"{key}:{ip}"
 
     # Evict oldest entries if store is too large
@@ -377,15 +377,13 @@ def _verify_password(password, stored_hash):
         return check_password_hash(stored_hash, password)
     return hashlib.sha256(password.encode()).hexdigest() == stored_hash
 
-def generate_token(length=6):
+def generate_token(length=6, db=None):
     """Generate a unique uppercase alphanumeric token with collision protection."""
     chars = string.ascii_uppercase + string.digits
     max_attempts = 100
     for _ in range(max_attempts):
         token = ''.join(secrets.choice(chars) for _ in range(length))
-        try:
-            db = get_db()
-        except RuntimeError:
+        if db is None:
             db = get_db_standalone()
         existing = db.execute('SELECT id FROM exams WHERE token = ?', (token,)).fetchone()
         if not existing:
@@ -528,11 +526,20 @@ def get_network_info():
 def get_storage_stats():
     """Get total storage used by PDFs."""
     total = 0
-    for f in os.listdir(STORAGE_DIR):
-        fp = os.path.join(STORAGE_DIR, f)
-        if os.path.isfile(fp):
-            total += os.path.getsize(fp)
+    with os.scandir(STORAGE_DIR) as entries:
+        for entry in entries:
+            if entry.is_file():
+                total += entry.stat().st_size
     return total
+
+
+@app.after_request
+def add_security_headers(response):
+    response.headers['Content-Security-Policy'] = "default-src 'self'; script-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'"
+    response.headers['X-Content-Type-Options'] = 'nosniff'
+    response.headers['X-Frame-Options'] = 'DENY'
+    response.headers['X-XSS-Protection'] = '1; mode=block'
+    return response
 
 
 # ===== REST API Endpoints =====

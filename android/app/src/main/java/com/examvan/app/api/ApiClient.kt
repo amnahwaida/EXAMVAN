@@ -179,8 +179,11 @@ object ApiClient {
         onSuccess: (File) -> Unit,
         onError: (String) -> Unit
     ): Call {
+        // SECURITY: token moved from URL query param to HTTP header to prevent
+        // leaking the auth token in server logs, browser history, or proxies.
         val request = Request.Builder()
-            .url("$baseUrl/api/exams/$examId/pdf?token=$token")
+            .url("$baseUrl/api/exams/$examId/pdf")
+            .header("X-Exam-Token", token)
             .get()
             .build()
 

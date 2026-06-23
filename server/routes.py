@@ -25,6 +25,9 @@ from helpers import (
     evaluate_answers_detailed, calculate_submission_score,
 )
 
+from app import logger as app_logger
+logger = app_logger
+
 
 def error_response(message, code=400):
     """Return a standardized error JSON response."""
@@ -46,6 +49,35 @@ def _mask_token(token, visible_chars=4):
     if not token or len(token) <= visible_chars + 4:
         return token
     return '*' * (len(token) - visible_chars) + token[-visible_chars:]
+
+
+def _csv_safe(value):
+    """Prevent CSV formula injection by prefixing dangerous chars with tab."""
+    if isinstance(value, str) and value and value[0] in ('=', '+', '-', '@', '\t', '\r'):
+        return '\t' + value
+    return value
+
+
+def _validate_pdf_upload(file_data, filename, content_type, max_size=None):
+    """Validate uploaded PDF file data. Returns (is_valid, error_message)."""
+    if max_size is None:
+        max_size = MAX_FILE_SIZE
+
+    # Check that the uploaded file looks like a PDF
+    allowed_pdf_types = ['application/pdf', 'application/x-pdf', 'application/octet-stream']
+    if content_type not in allowed_pdf_types and not (filename and filename.lower().endswith('.pdf')):
+        return False, 'Hanya file PDF yang diizinkan'
+
+    # Check the file header for %PDF magic bytes
+    if not file_data.startswith(b'%PDF'):
+        return False, 'File tidak valid (bukan PDF)'
+
+    # Check size
+    if len(file_data) > max_size:
+        size_mb = max_size // (1024 * 1024)
+        return False, f'Ukuran file melebihi batas {size_mb}MB'
+
+    return True, None
 
 
 @app.route('/api/health')
@@ -135,16 +167,16 @@ def api_exam_by_token(token):
             for q in questions:
                 if 'key' in q:
                     del q['key']
-        except Exception:
-            pass
+        except Exception as e:
+            logger.warning("Failed to parse questions_json for exam %s: %s", exam.get('id'), e)
 
     # Process identity fields configuration
     identity_fields = []
     if exam['identity_fields']:
         try:
             identity_fields = json.loads(exam['identity_fields'])
-        except Exception:
-            pass
+        except Exception as e:
+            logger.warning("Failed to parse identity_fields for exam %s: %s", exam.get('id'), e)
     if not identity_fields:
         try:
             identity_fields = json.loads(DEFAULT_IDENTITY_FIELDS)
@@ -220,7 +252,7 @@ def api_submit_exam(exam_id):
             questions = json.loads(questions_raw)
             score = calculate_submission_score(answers, questions)
         except Exception as e:
-            print("Auto-grading error:", e)
+            logger.error("Auto-grading error: %s", e)
 
     db.execute(
         'INSERT INTO submissions (exam_id, student_name, exam_number, student_class, identity_data, answers_json, score, start_time, mac_address) '
@@ -353,6 +385,8 @@ def admin_login():
 
             session['admin_id'] = user['id']
             session['admin_username'] = user['username']
+            # Regenerate session ID to prevent session fixation
+            session.regenerate()
             return redirect(url_for('admin_dashboard'))
         else:
             flash('Username atau password salah', 'error')
@@ -361,6 +395,7 @@ def admin_login():
 
 
 @app.route('/register', methods=['GET', 'POST'])
+@csrf_required
 def register():
     """Register a new teacher account (SaaS)."""
     if 'admin_id' in session:
@@ -475,20 +510,7 @@ def verify_otp():
 
         now_str = datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S')
         if user['otp_expiry'] < now_str:
-            otp = ''.join(secrets.choice(string.digits) for _ in range(6))
-            otp_expiry = (datetime.now(timezone.utc) + timedelta(minutes=5)).strftime('%Y-%m-%d %H:%M:%S')
-
-            db.execute(
-                'UPDATE admin_users SET otp_code = ?, otp_expiry = ? WHERE id = ?',
-                (otp, otp_expiry, user['id'])
-            )
-            db.commit()
-
-            template = get_saas_setting('wa_otp_template', 'Kode OTP EXAMVAN Anda: {otp}. Berlaku selama 5 menit.')
-            message = template.replace('{otp}', otp)
-            send_whatsapp(user['whatsapp_number'], message)
-
-            flash('Kode OTP telah kedaluwarsa. Kami telah mengirimkan kode OTP baru ke WhatsApp Anda.', 'warning')
+            flash('Kode OTP telah kedaluwarsa. Silakan gunakan tombol "Kirim Ulang OTP" untuk mendapatkan kode baru.', 'error')
             return render_template('verify_otp.html', username=username)
 
         db.execute('UPDATE admin_users SET status = ?, otp_code = NULL, otp_expiry = NULL WHERE id = ?', ('active', user['id']))
@@ -676,23 +698,10 @@ def admin_upload():
         return error_response('File PDF wajib dipilih', 400)
 
     # Check that the uploaded file looks like a PDF
-    # Some browsers send 'application/octet-stream' or 'application/x-pdf'
-    # instead of 'application/pdf', so we accept multiple PDF indicators
-    allowed_pdf_types = ['application/pdf', 'application/x-pdf', 'application/octet-stream']
-    if file.content_type not in allowed_pdf_types and not file.filename.lower().endswith('.pdf'):
-        return error_response('Hanya file PDF yang diizinkan', 400)
-
-    # Also check the file header for %PDF magic bytes
     file_data = file.read()
-    if not file_data.startswith(b'%PDF'):
-        return error_response('File tidak valid (bukan PDF)', 400)
-
-    # Check size
-    if len(file_data) > MAX_FILE_SIZE:
-        return jsonify({
-            'success': False,
-            'message': f'Ukuran file melebihi batas server ({MAX_FILE_SIZE // (1024*1024)}MB)'
-        }), 400
+    is_valid, error_msg = _validate_pdf_upload(file_data, file.filename, file.content_type)
+    if not is_valid:
+        return error_response(error_msg, 400)
 
     db = get_db()
     custom_token = request.form.get('custom_token', '').strip().upper()
@@ -888,19 +897,10 @@ def admin_edit_exam(exam_id):
 
     # If new PDF file is uploaded
     if file and file.filename != '':
-        allowed_pdf_types = ['application/pdf', 'application/x-pdf', 'application/octet-stream']
-        if file.content_type not in allowed_pdf_types and not file.filename.lower().endswith('.pdf'):
-            return error_response('Hanya file PDF yang diizinkan', 400)
-
         file_data = file.read()
-        if not file_data.startswith(b'%PDF'):
-            return error_response('File tidak valid (bukan PDF)', 400)
-
-        if len(file_data) > MAX_FILE_SIZE:
-            return jsonify({
-                'success': False,
-                'message': f'Ukuran file melebihi batas {MAX_FILE_SIZE // (1024*1024)}MB'
-            }), 400
+        is_valid, error_msg = _validate_pdf_upload(file_data, file.filename, file.content_type)
+        if not is_valid:
+            return error_response(error_msg, 400)
 
         # Delete old file from storage if exists
         try:
@@ -909,9 +909,9 @@ def admin_edit_exam(exam_id):
                 try:
                     os.remove(old_file_path)
                 except Exception as e:
-                    app.logger.error(f"Error removing old PDF: {e}")
+                    logger.error("Error removing old PDF: %s", e)
         except (ValueError, KeyError):
-            app.logger.error(f"Invalid file path for exam {exam_id}: {exam.get('file_path')}")
+            logger.error("Invalid file path for exam %s: %s", exam_id, exam.get('file_path'))
 
         # Save new file
         timestamp = datetime.now(timezone.utc).strftime('%Y%m%d_%H%M%S')
@@ -960,7 +960,7 @@ def admin_delete_exam(exam_id):
         if os.path.exists(file_path):
             os.remove(file_path)
     except (ValueError, KeyError):
-        app.logger.error(f"Invalid file path for exam {exam_id}: {exam.get('file_path')}")
+        logger.error("Invalid file path for exam %s: %s", exam_id, exam.get('file_path'))
 
     # Delete from database
     db.execute('DELETE FROM exams WHERE id = ?', (exam_id,))
@@ -980,36 +980,41 @@ def admin_bulk_delete_exams():
 
     db = get_db()
     try:
-        deleted_count = 0
-        for exam_id in exam_ids:
-            # Check ownership
-            if not check_exam_ownership(db, exam_id):
-                continue
+        # Filter IDs by ownership for non-super admin
+        if session.get('admin_username') != ADMIN_USERNAME:
+            owned = db.execute(
+                f'SELECT id FROM exams WHERE id IN ({",".join("?" for _ in exam_ids)}) AND created_by = ?',
+                exam_ids + [session['admin_id']]
+            ).fetchall()
+            exam_ids = [row['id'] for row in owned]
+            if not exam_ids:
+                return error_response('Tidak ada ujian yang dapat dihapus', 400)
 
-            exam = db.execute('SELECT * FROM exams WHERE id = ?', (exam_id,)).fetchone()
-            if not exam:
-                continue
+        # Select file_paths in bulk
+        rows = db.execute(
+            f'SELECT file_path FROM exams WHERE id IN ({",".join("?" for _ in exam_ids)})',
+            exam_ids
+        ).fetchall()
 
-            # Delete file from storage
+        # Delete files from storage
+        for row in rows:
             try:
-                file_path = safe_storage_path(exam['file_path'])
-                if os.path.exists(file_path):
-                    try:
-                        os.remove(file_path)
-                    except Exception:
-                        pass
-            except (ValueError, KeyError):
-                app.logger.error(f"Invalid file path in bulk delete: {exam.get('file_path')}")
+                fp = safe_storage_path(row['file_path'])
+                if os.path.exists(fp):
+                    os.remove(fp)
+            except (ValueError, KeyError) as e:
+                logger.warning("Invalid file path in bulk delete: %s", e)
 
-            # Delete from database
-            db.execute('DELETE FROM exams WHERE id = ?', (exam_id,))
-            deleted_count += 1
-
+        # Single DELETE
+        db.execute(
+            f'DELETE FROM exams WHERE id IN ({",".join("?" for _ in exam_ids)})',
+            exam_ids
+        )
         db.commit()
-        return jsonify({'success': True, 'message': f'{deleted_count} ujian berhasil dihapus'})
+        return jsonify({'success': True, 'message': f'{len(exam_ids)} ujian berhasil dihapus'})
     except Exception as e:
         db.rollback()
-        app.logger.error(f"Bulk delete error: {e}")
+        logger.error("Bulk delete error: %s", e)
         return error_response('Terjadi kesalahan saat menghapus ujian', 500)
 
 
@@ -1028,20 +1033,26 @@ def admin_bulk_toggle_exams():
 
     db = get_db()
     try:
-        updated_count = 0
-        for exam_id in exam_ids:
-            # Check ownership
-            if not check_exam_ownership(db, exam_id):
-                continue
+        # Filter IDs by ownership for non-super admin
+        if session.get('admin_username') != ADMIN_USERNAME:
+            owned = db.execute(
+                f'SELECT id FROM exams WHERE id IN ({",".join("?" for _ in exam_ids)}) AND created_by = ?',
+                exam_ids + [session['admin_id']]
+            ).fetchall()
+            exam_ids = [row['id'] for row in owned]
+            if not exam_ids:
+                return error_response('Tidak ada ujian yang dapat diperbarui', 400)
 
-            db.execute('UPDATE exams SET status = ? WHERE id = ?', (target_status, exam_id))
-            updated_count += 1
-
+        # Single UPDATE
+        db.execute(
+            f'UPDATE exams SET status = ? WHERE id IN ({",".join("?" for _ in exam_ids)})',
+            [target_status] + exam_ids
+        )
         db.commit()
-        return jsonify({'success': True, 'message': f'Status {updated_count} ujian berhasil diperbarui ke {target_status}'})
+        return jsonify({'success': True, 'message': f'Status {len(exam_ids)} ujian berhasil diperbarui ke {target_status}'})
     except Exception as e:
         db.rollback()
-        app.logger.error(f"Bulk toggle error: {e}")
+        logger.error("Bulk toggle error: %s", e)
         return error_response('Terjadi kesalahan saat memperbarui status ujian', 500)
 
 
@@ -1545,10 +1556,10 @@ def admin_delete_user(user_id):
             if os.path.exists(file_path):
                 try:
                     os.remove(file_path)
-                except Exception:
-                    pass
+                except Exception as e:
+                    logger.warning("Failed to remove file for user %s: %s", user_id, e)
         except (ValueError, KeyError):
-            app.logger.error(f"Invalid file path for user {user_id} exam: {e.get('file_path')}")
+            logger.error("Invalid file path for user %s exam: %s", user_id, e.get('file_path'))
 
     db.execute('DELETE FROM exams WHERE created_by = ?', (user_id,))
     db.execute('DELETE FROM admin_users WHERE id = ?', (user_id,))
@@ -1576,14 +1587,14 @@ def admin_exam_questions(exam_id):
         if questions_raw:
             try:
                 questions = json.loads(questions_raw)
-            except Exception:
-                pass
+            except Exception as e:
+                logger.warning("Failed to parse questions_json for exam %s: %s", exam_id, e)
         identity_fields = []
         if exam['identity_fields']:
             try:
                 identity_fields = json.loads(exam['identity_fields'])
-            except Exception:
-                pass
+            except Exception as e:
+                logger.warning("Failed to parse identity_fields for exam %s: %s", exam_id, e)
         return jsonify({
             'success': True,
             'questions': questions,
@@ -1620,17 +1631,25 @@ def admin_exam_questions(exam_id):
             (json.dumps(questions), security_level, strict_mode, identity_fields_json, exam_id)
         )
         
-        # Recalculate scores for all existing submissions of this exam
-        submissions = db.execute('SELECT id, answers_json FROM submissions WHERE exam_id = ?', (exam_id,)).fetchall()
-        for sub in submissions:
-            try:
-                sub_answers = json.loads(sub['answers_json']) if sub['answers_json'] else {}
-            except Exception:
-                sub_answers = {}
-            
-            new_score = calculate_submission_score(sub_answers, questions)
-            db.execute('UPDATE submissions SET score = ? WHERE id = ?', (new_score, sub['id']))
-            
+        # Recalculate scores for all existing submissions of this exam (paginated)
+        total_subs = db.execute('SELECT COUNT(*) as cnt FROM submissions WHERE exam_id = ?', (exam_id,)).fetchone()['cnt']
+        page_size = 100
+        for offset in range(0, total_subs, page_size):
+            submissions = db.execute(
+                'SELECT id, answers_json FROM submissions WHERE exam_id = ? ORDER BY id LIMIT ? OFFSET ?',
+                (exam_id, page_size, offset)
+            ).fetchall()
+            for sub in submissions:
+                try:
+                    sub_answers = json.loads(sub['answers_json']) if sub['answers_json'] else {}
+                except Exception as e:
+                    logger.warning("Failed to parse answers for submission %s: %s", sub['id'], e)
+                    sub_answers = {}
+
+                new_score = calculate_submission_score(sub_answers, questions)
+                db.execute('UPDATE submissions SET score = ? WHERE id = ?', (new_score, sub['id']))
+            db.commit()
+
         db.commit()
         return jsonify({'success': True, 'message': 'Konfigurasi soal berhasil disimpan dan nilai siswa berhasil diperbarui'})
 
@@ -1677,8 +1696,8 @@ def admin_submissions():
             try:
                 questions = json.loads(sub['questions_json'])
                 sub_max_score = sum(float(q.get('weight', 1.0)) for q in questions)
-            except Exception:
-                pass
+            except Exception as e:
+                logger.warning("Failed to parse questions for submission %s: %s", sub['id'], e)
         sub_data.append({
             'id': sub['id'],
             'exam_id': sub['exam_id'],
@@ -1710,8 +1729,8 @@ def admin_submissions():
             try:
                 questions = json.loads(exam_row['questions_json'])
                 max_score = sum(float(q.get('weight', 1.0)) for q in questions)
-            except Exception:
-                pass
+            except Exception as e:
+                logger.warning("Failed to parse questions for exam filter %s: %s", exam_filter, e)
 
     local_ip = get_network_info()['display_host']
 
@@ -1807,14 +1826,14 @@ def admin_export_submission_detail(submission_id):
     si = io.StringIO()
     cw = csv.writer(si)
     cw.writerow(['Detail Hasil Ujian Siswa'])
-    cw.writerow(['Nama Ujian', sub['exam_name']])
-    cw.writerow(['Nama Siswa', sub['student_name']])
-    cw.writerow(['Nomor Ujian', sub['exam_number']])
-    cw.writerow(['Kelas', sub['student_class']])
+    cw.writerow(['Nama Ujian', _csv_safe(sub['exam_name'])])
+    cw.writerow(['Nama Siswa', _csv_safe(sub['student_name'])])
+    cw.writerow(['Nomor Ujian', _csv_safe(sub['exam_number'])])
+    cw.writerow(['Kelas', _csv_safe(sub['student_class'])])
     cw.writerow(['Nilai Akhir', sub['score'] if sub['score'] is not None else 'Belum Dinilai'])
     cw.writerow(['Waktu Mulai', localize_date_string(sub['start_time'], tz_offset) if sub['start_time'] else '—'])
     cw.writerow(['Waktu Kumpul', localize_date_string(sub['created_at'], tz_offset)])
-    cw.writerow(['MAC Address / ID Perangkat', sub['mac_address'] or '—'])
+    cw.writerow(['MAC Address / ID Perangkat', _csv_safe(sub['mac_address'] or '—')])
     cw.writerow([])
     cw.writerow(['No. Soal', 'Tipe Soal', 'Bobot Maks', 'Jawaban Siswa', 'Kunci Jawaban', 'Status', 'Poin Didapat'])
     
@@ -1860,8 +1879,8 @@ def admin_export_submission_detail(submission_id):
             q['number'],
             type_labels.get(q['type'], q['type']),
             q_weight,
-            student_ans_str,
-            correct_ans_str,
+            _csv_safe(student_ans_str),
+            _csv_safe(correct_ans_str),
             status_text,
             round(earned_q_weight, 2)
         ])
@@ -1927,7 +1946,7 @@ def admin_export_submissions():
             # Fallback to CSV if openpyxl is not installed
             pass
         except Exception as e:
-            app.logger.error(f"XLSX export error: {e}")
+            logger.error("XLSX export error: %s", e)
             # Fallback to CSV for this specific exam
 
         # CSV fallback for specific exam
@@ -1936,11 +1955,11 @@ def admin_export_submissions():
         cw.writerow(['ID', 'Nama Ujian', 'Nama Siswa', 'Nomor Ujian', 'Kelas', 'Nilai', 'Waktu Mulai', 'Waktu Kumpul', 'MAC/ID Perangkat'])
         for row in submissions:
             cw.writerow([
-                row['id'], exam['name'], row['student_name'], row['exam_number'],
-                row['student_class'], row['score'] if row['score'] is not None else 'Belum Dinilai',
+                row['id'], _csv_safe(exam['name']), _csv_safe(row['student_name']), _csv_safe(row['exam_number']),
+                _csv_safe(row['student_class']), row['score'] if row['score'] is not None else 'Belum Dinilai',
                 localize_date_string(row['start_time'], tz_offset) if row['start_time'] else '—',
                 localize_date_string(row['created_at'], tz_offset),
-                row['mac_address'] or '—'
+                _csv_safe(row['mac_address'] or '—')
             ])
         output = si.getvalue(); si.close()
         safe_exam_name = ''.join(c for c in exam['name'] if c.isalnum() or c in ' _-').strip().replace(' ', '_')
@@ -1973,11 +1992,11 @@ def admin_export_submissions():
 
     for row in all_submissions:
         cw.writerow([
-            row['id'], row['exam_name'], row['student_name'], row['exam_number'],
-            row['student_class'], row['score'] if row['score'] is not None else 'Belum Dinilai',
+            row['id'], _csv_safe(row['exam_name']), _csv_safe(row['student_name']), _csv_safe(row['exam_number']),
+            _csv_safe(row['student_class']), row['score'] if row['score'] is not None else 'Belum Dinilai',
             localize_date_string(row['start_time'], tz_offset) if row['start_time'] else '—',
             localize_date_string(row['created_at'], tz_offset),
-            row['mac_address'] or '—'
+            _csv_safe(row['mac_address'] or '—')
         ])
 
     output = si.getvalue(); si.close()
@@ -2399,8 +2418,8 @@ def api_public_hasil(token):
     if exam['questions_json']:
         try:
             questions = json.loads(exam['questions_json'])
-        except Exception:
-            pass
+        except Exception as e:
+            logger.warning("Failed to parse questions_json for exam %s: %s", exam.get('id'), e)
 
     # Calculate max possible score
     max_score = 0
