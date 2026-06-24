@@ -41,6 +41,7 @@ DATABASE = os.environ.get('DATABASE_PATH', os.path.join(BASE_DIR, 'data', 'examv
 MAX_FILE_SIZE = 5 * 1024 * 1024  # 5MB
 
 VERSION = '2.2.0'
+_css_hash = None  # populated lazily by inject_csrf_token for cache busting
 ADMIN_USERNAME = os.environ.get('EXAMVAN_ADMIN_USER', 'admin')
 # ADMIN_PASSWORD must be set via env var; if missing, a random password is generated at init
 ADMIN_PASSWORD = os.environ.get('EXAMVAN_ADMIN_PASS', '')
@@ -351,7 +352,14 @@ def csrf_required(f):
 @app.context_processor
 def inject_csrf_token():
     """Inject CSRF token and version into all templates."""
-    return {'csrf_token': generate_csrf_token(), 'version': VERSION}
+    global _css_hash
+    if _css_hash is None:
+        try:
+            css_path = os.path.join(BASE_DIR, 'static', 'css', 'tailwind', 'output.css')
+            _css_hash = hex(os.path.getmtime(css_path))[2:8] if os.path.exists(css_path) else ''
+        except Exception:
+            _css_hash = ''
+    return {'csrf_token': generate_csrf_token(), 'version': VERSION + _css_hash}
 
 
 # ===== Helpers =====
