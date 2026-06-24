@@ -634,16 +634,14 @@ function renderIdentityFields(fields) {
 function addIdentityFieldRow(container, field, index) {
     const row = document.createElement('div');
     row.className = 'identity-field-row';
-    row.style.cssText = 'display:flex;align-items:center;gap:8px;margin-bottom:6px;padding:6px 8px;background:rgba(255,255,255,0.03);border:1px solid var(--color-glass-border);border-radius:8px;';
 
     row.innerHTML = `
-        <span style="font-size:11px;color:var(--color-text-muted);min-width:18px;">${index + 1}</span>
-        <input type="text" class="ifield-label" value="${escapeHtml(field.label || '')}" placeholder="Label tampilan (cth: Nama Siswa)" title="Label yang dilihat siswa"
-            style="flex:1;padding:6px 8px;background:rgba(255,255,255,0.04);border:1px solid var(--color-glass-border);border-radius:6px;color:var(--color-text);font-size:12px;outline:none;">
-        <label style="display:flex;align-items:center;gap:4px;font-size:11px;color:var(--color-text-muted);cursor:pointer;white-space:nowrap;">
-            <input type="checkbox" class="ifield-required" ${field.required ? 'checked' : ''} style="width:14px;height:14px;accent-color:var(--color-primary);cursor:pointer;"> Wajib
+        <span class="identity-field-num">${index + 1}</span>
+        <input type="text" class="ifield-label" value="${escapeHtml(field.label || '')}" placeholder="Label tampilan (cth: Nama Siswa)" title="Label yang dilihat siswa">
+        <label class="ifield-required-wrap">
+            <input type="checkbox" class="ifield-required" ${field.required ? 'checked' : ''}> Wajib
         </label>
-        <button class="btn-icon" onclick="this.closest('.identity-field-row').remove()" title="Hapus field" style="background:none;border:none;color:#f87171;cursor:pointer;padding:2px 4px;font-size:14px;">&#x2715;</button>
+        <button class="ifield-remove-btn" onclick="this.closest('.identity-field-row').remove()" title="Hapus field" aria-label="Hapus field">&#x2715;</button>
     `;
 
     container.appendChild(row);

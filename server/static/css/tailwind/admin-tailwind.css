@@ -1100,6 +1100,54 @@ button:disabled, .btn-sm:disabled, .btn-upload:disabled, .btn-login:disabled {
 .q-partial-group { @apply flex-row items-center gap-1.5 pt-1; }
 .btn-remove-q { @apply bg-[rgba(239,68,68,0.08)] text-[#fca5a5] text-xs cursor-pointer flex-shrink-0; }
 .questions-list-container { @apply flex flex-col gap-3; }
+
+/* === Identity Fields === */
+.identity-field-row {
+    @apply flex items-center gap-2 mb-1.5 p-1.5 rounded-lg;
+    background: rgba(255, 255, 255, 0.03);
+    border: 1px solid var(--color-glass-border);
+}
+.identity-field-num {
+    font-size: 11px;
+    min-width: 18px;
+    text-align: center;
+    flex-shrink: 0;
+    color: var(--color-text-muted);
+}
+.ifield-label {
+    @apply flex-1 px-2.5 py-1.5 rounded-md text-xs outline-none transition-all duration-200;
+    background: rgba(255, 255, 255, 0.04);
+    border: 1px solid var(--color-glass-border);
+    color: var(--color-text);
+}
+.ifield-label:focus {
+    border-color: var(--color-primary);
+    box-shadow: 0 0 0 2px var(--color-primary-glow);
+    background: rgba(99, 102, 241, 0.06);
+}
+.ifield-label::placeholder {
+    color: var(--color-text-muted);
+    opacity: 0.6;
+}
+.ifield-required-wrap {
+    @apply flex items-center gap-1 text-[11px] whitespace-nowrap cursor-pointer select-none;
+    color: var(--color-text-muted);
+}
+.ifield-required-wrap input[type="checkbox"] {
+    @apply w-3.5 h-3.5 cursor-pointer rounded;
+    accent-color: var(--color-primary);
+}
+.ifield-remove-btn {
+    @apply inline-flex items-center justify-center w-6 h-6 rounded-md cursor-pointer text-sm;
+    background: none;
+    border: none;
+    color: #f87171;
+    transition: all 0.2s ease;
+}
+.ifield-remove-btn:hover {
+    background: rgba(239, 68, 68, 0.12);
+    color: #fecaca;
+}
 .q-divider-line { @apply flex-1 h-px; background: linear-gradient(90deg, transparent, rgba(255,255,255,0.12), transparent); }
 .q-editor-divider { @apply flex items-center justify-center my-2 gap-3 opacity-35 transition-opacity; }
 .q-editor-divider:hover { @apply opacity-100; }
