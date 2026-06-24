@@ -1,10 +1,6 @@
 # Single-stage build — Tailwind CSS sudah pre-built (output.css di-track git)
 FROM python:3.10-slim
 
-# Create non-root user
-RUN addgroup --system --gid 1001 appgroup && \
-    adduser --system --uid 1001 --gid 1001 --no-create-home appuser
-
 # Set environment variables
 ENV PYTHONDONTWRITEBYTECODE=1
 ENV PYTHONUNBUFFERED=1
@@ -24,11 +20,10 @@ RUN pip install --no-cache-dir -r requirements.txt
 # Copy backend files (termasuk output.css yang sudah pre-built)
 COPY server/ /app/
 
-# Ensure directories exist and set ownership for runtime
-RUN mkdir -p /app/data /app/storage && chown -R appuser:appgroup /app
-
-# Switch to non-root user
-USER appuser
+# Entrypoint: fix bind-mount permissions at runtime, then exec CMD
+COPY entrypoint.sh /entrypoint.sh
+RUN chmod +x /entrypoint.sh
+ENTRYPOINT ["/entrypoint.sh"]
 
 # Expose server port
 EXPOSE 5000
