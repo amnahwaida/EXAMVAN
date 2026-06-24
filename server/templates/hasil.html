@@ -32,6 +32,11 @@
  <!-- Header -->
  <header class="header">
  <div class="header-left">
+ <a href="/" class="back-nav" title="Kembali ke beranda" aria-label="Kembali ke beranda">
+  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M19 12H5m7-7-7 7 7 7"/></svg>
+  Kembali
+ </a>
+ <span class="header-divider"></span>
  <div class="header-logo">E</div>
  <span class="header-title">EXAMVAN</span>
  <span class="header-badge"><svg class="icon-svg-sm" style="vertical-align:middle;"><use href="#hi-results"/></svg> Hasil Ujian</span>
@@ -89,16 +94,20 @@
  <!-- Search & Filter -->
  <section class="search-section">
  <div class="search-row">
+ <div class="search-input-wrapper">
  <input type="text" class="search-input" id="searchInput" 
- placeholder="Cari berdasarkan nama atau nomor ujian..." 
- oninput="filterResults()">
+  placeholder="Cari berdasarkan nama atau nomor ujian..." 
+  oninput="filterResults(); var c=document.getElementById('searchClearBtn'); if(c)c.style.display=this.value?'flex':'none'">
+ <button class="search-clear-btn" id="searchClearBtn" onclick="document.getElementById('searchInput').value='';filterResults();this.style.display='none'" style="display:none;" title="Hapus pencarian" aria-label="Hapus pencarian">&#x2715;</button>
+ </div>
  </div>
  </section>
 
  <!-- Results Content -->
  <section class="glass-card" id="resultsSection">
  <div class="loading-text" id="loadingIndicator">
- <span aria-hidden="true">⏳</span> Memuat data hasil ujian...
+ <span class="loading-spinner" aria-hidden="true"></span>
+ <span>Memuat data hasil ujian...</span>
  </div>
 
  <!-- Scores Tab -->
@@ -111,9 +120,9 @@
  <th scope="col">Nama Siswa</th>
  <th scope="col">No. Ujian</th>
  <th scope="col">Kelas</th>
- <th scope="col" style="text-align: center;">Waktu Pengerjaan</th>
- <th scope="col" style="text-align: center;">Nilai</th>
- <th scope="col" style="text-align: center;">Waktu Kumpul</th>
+ <th scope="col" class="td-center">Waktu Pengerjaan</th>
+ <th scope="col" class="td-center">Nilai</th>
+ <th scope="col" class="td-center">Waktu Kumpul</th>
  <th scope="col" style="width: 40px;"></th>
  </tr>
  </thead>
@@ -181,6 +190,12 @@
  async function loadResults() {
  try {
  const resp = await fetch(`/api/hasil/${EXAM_TOKEN}`);
+ if (!resp.ok) {
+  document.getElementById('loadingIndicator').innerHTML = 
+  '<div class="empty-state"><div class="empty-icon" aria-hidden="true">⚠️</div><p>Gagal memuat data (HTTP ' + resp.status + '). Coba lagi nanti.</p>' +
+  '<button class="back-nav" onclick="location.reload()" style="margin-top:16px;display:inline-flex;"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M1 4v6h6m0 0L4 7.5A8 8 0 0 1 17.5 5.5m0 14A8 8 0 0 1 4.5 18m0 0L7 15.5"/></svg> Coba Lagi</button></div>';
+  return;
+ }
  const data = await resp.json();
  
  if (!data.success) {
@@ -216,19 +231,19 @@
  statsRow.style.display = 'grid';
  statsRow.innerHTML = `
  <div class="stat-mini">
- <span class="stat-mini-value" style="color: var(--accent-emerald);">${avg.toFixed(1)}</span>
+ <span class="stat-mini-value" style="color: var(--color-success);">${avg.toFixed(1)}</span>
  <span class="stat-mini-label">Rata-rata</span>
  </div>
  <div class="stat-mini">
- <span class="stat-mini-value" style="color: #fbbf24;">${max.toFixed(1)}</span>
+ <span class="stat-mini-value" style="color: var(--color-warning);">${max.toFixed(1)}</span>
  <span class="stat-mini-label">Tertinggi</span>
  </div>
  <div class="stat-mini">
- <span class="stat-mini-value" style="color: #f87171;">${min.toFixed(1)}</span>
+ <span class="stat-mini-value" style="color: var(--color-danger);">${min.toFixed(1)}</span>
  <span class="stat-mini-label">Terendah</span>
  </div>
  <div class="stat-mini">
- <span class="stat-mini-value" style="color: var(--accent-cyan);">${submissionsData.length}</span>
+ <span class="stat-mini-value" style="color: var(--color-accent-light);">${submissionsData.length}</span>
  <span class="stat-mini-label">Total Peserta</span>
  </div>
  `;
@@ -258,7 +273,8 @@
  } catch (err) {
  console.error('Error loading results:', err);
  document.getElementById('loadingIndicator').innerHTML = 
- '<div class="empty-state"><div class="empty-icon" aria-hidden="true">⚠️</div><p>Gagal terhubung ke server. Periksa koneksi Anda.</p></div>';
+ '<div class="empty-state"><div class="empty-icon" aria-hidden="true">⚠️</div><p>Gagal memuat data hasil ujian. Periksa koneksi atau coba lagi nanti.</p>' +
+ '<button class="back-nav" onclick="location.reload()" style="margin-top:16px;display:inline-flex;"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M1 4v6h6m0 0L4 7.5A8 8 0 0 1 17.5 5.5m0 14A8 8 0 0 1 4.5 18m0 0L7 15.5"/></svg> Coba Lagi</button></div>';
  }
  }
 
@@ -321,12 +337,12 @@
  </td>
  <td data-label="No. Ujian"><span class="student-number">${escapeHtml(sub.exam_number)}</span></td>
  <td data-label="Kelas">${escapeHtml(sub.student_class)}</td>
- <td data-label="Durasi" style="text-align: center; font-size: 0.85rem; color: var(--color-text-secondary);">${durationStr}</td>
- <td data-label="Nilai" style="text-align: center;">
+ <td data-label="Durasi" class="td-center-secondary">${durationStr}</td>
+ <td data-label="Nilai" class="td-center">
  <span class="score-badge ${scoreClass}">${scoreDisplay}</span>
  </td>
- <td data-label="Kumpul" style="text-align: center; font-size: 0.8rem; color: var(--color-text-secondary);">${submitTime}</td>
- <td data-label="" style="text-align: center;">
+ <td data-label="Kumpul" class="td-center-secondary">${submitTime}</td>
+ <td data-label="" class="td-center">
  <span class="expand-icon">▼</span>
  </td>
  `;
@@ -427,10 +443,10 @@
  const durationStr = getDurationString(sub.start_time, sub.created_at);
 
  return `
- <div class="detail-time-info" style="margin-bottom: 12px; font-size: 0.82rem; color: var(--color-text-secondary); background: rgba(255,255,255,0.02); border: 1px solid rgba(255,255,255,0.05); padding: 10px 14px; border-radius: 8px; display: flex; flex-wrap: wrap; justify-content: space-between; gap: 8px;">
+ <div class="detail-time-info">
  <span><span aria-hidden="true">⏱️</span> <strong>Mulai:</strong> ${startTimeStr}</span>
  <span><span aria-hidden="true">📤</span> <strong>Kumpul:</strong> ${endTimeStr}</span>
- <span><span aria-hidden="true">⏳</span> <strong>Durasi Kerja:</strong> <strong style="color: var(--accent-cyan);">${durationStr}</strong></span>
+ <span><span aria-hidden="true">⏳</span> <strong>Durasi Kerja:</strong> <strong style="color: var(--color-accent-light);">${durationStr}</strong></span>
  </div>
  <div class="detail-header">
  <div class="detail-header-labels" style="flex:1;">
@@ -443,14 +459,14 @@
  <div class="answer-grid">
  ${itemsHtml}
  </div>
- <div style="display:flex; justify-content:space-between; align-items:center; margin-top:16px; padding-top:12px; border-top:1px solid rgba(255,255,255,0.06); flex-wrap: wrap; gap: 8px;">
- <div style="display:flex; gap:16px; font-size:0.8rem;">
+ <div class="score-summary-bar">
+ <div class="score-summary-stats">
  <span style="color:var(--color-success);"><span aria-hidden="true">✔</span> Benar: ${correctCount}</span>
  <span style="color:var(--color-warning);"><span aria-hidden="true">⚠</span> Parsial: ${partialCount}</span>
  <span style="color:var(--color-danger);"><span aria-hidden="true">✘</span> Salah: ${incorrectCount}</span>
  </div>
- <div class="detail-score-summary">
- <span style="color:var(--color-text-muted); font-size:0.8rem;">Total:</span>
+ <div class="score-summary-total">
+ <span style="color:var(--color-text-muted);">Total:</span>
  <span class="score-badge ${getScoreClass(totalEarned, totalMax)}" style="font-size:0.9rem;">
  ${totalEarned.toFixed(1)} / ${totalMax.toFixed(1)}
  </span>
@@ -498,9 +514,9 @@
  const correctDisplay = formatAnswer(q.key);
 
  item.innerHTML = `
- <div style="display: flex; justify-content: space-between; align-items: center;">
- <span style="font-weight: 800; font-size: 1rem; color: #a5b4fc; background: rgba(99, 102, 241, 0.15); padding: 4px 10px; border-radius: 8px;">Soal ${q.number}</span>
- <span style="font-size: 0.7rem; color: var(--color-text-muted); background: rgba(255,255,255,0.04); padding: 3px 8px; border-radius: 6px;">Bobot: ${q.weight || 1.0}</span>
+ <div class="key-card-header">
+ <span class="key-card-number">Soal ${q.number}</span>
+ <span class="key-card-weight">Bobot: ${q.weight || 1.0}</span>
  </div>
  <div style="font-size: 0.72rem; color: var(--color-text-muted); font-weight: 500;">${typeLabel}</div>
  <div style="margin-top: 4px;">
