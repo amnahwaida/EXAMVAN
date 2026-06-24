@@ -1,8 +1,8 @@
 # Stage 1: Build Tailwind CSS
 FROM node:20-alpine AS css-builder
-WORKDIR /css
-COPY server/static/css/tailwind/ /css/
-COPY package.json /css/package.json
+WORKDIR /build
+COPY server/ /build/server/
+COPY package.json /build/
 RUN npm install && npm run tailwind:build
 
 # Stage 2: Python app
@@ -32,7 +32,7 @@ RUN pip install --no-cache-dir -r requirements.txt
 COPY server/ /app/
 
 # Copy pre-built Tailwind CSS from builder stage
-COPY --from=css-builder /css/output.css /app/static/css/tailwind/output.css
+COPY --from=css-builder /build/server/static/css/tailwind/output.css /app/static/css/tailwind/output.css
 
 # Ensure directories exist and set ownership for runtime
 RUN mkdir -p /app/data /app/storage && chown -R appuser:appgroup /app
