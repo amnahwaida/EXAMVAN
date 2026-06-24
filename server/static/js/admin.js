@@ -2190,6 +2190,7 @@ function showSubmissionDetail(id) {
 
             document.getElementById('detailStudentName').textContent = res.student_name;
             document.getElementById('detailStudentClass').textContent = res.student_class;
+            document.getElementById('detailExamName').textContent = res.exam_name || '—';
             document.getElementById('detailStartTime').textContent = res.start_time ? localizeUTC(res.start_time) : '—';
             document.getElementById('detailSubmitTime').textContent = res.created_at ? localizeUTC(res.created_at) : '—';
             document.getElementById('detailMacAddress').textContent = res.mac_address || '—';

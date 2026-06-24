@@ -85,14 +85,11 @@
  <table class="exam-table" id="submissionsTable">
  <thead>
  <tr>
- <th scope="col">Nama Ujian</th>
  <th scope="col">Nama Siswa</th>
  <th scope="col">No. Ujian</th>
  <th scope="col">Kelas</th>
  <th scope="col" class="text-center">Nilai</th>
- <th scope="col">Waktu Kumpul</th>
  <th scope="col" class="text-center">Durasi</th>
- <th scope="col">Perangkat</th>
  <th scope="col" class="text-center">Aksi</th>
  </tr>
  </thead>
@@ -100,7 +97,6 @@
  {% for sub in submissions %}
  {% set score_pct = (sub.score / max_score * 100) if max_score else none %}
  <tr id="submission-row-{{ sub.id }}" data-exam-id="{{ sub.exam_id }}" style="transition: background 0.2s;">
- <td class="td-name font-medium" data-label="Ujian">{{ sub.exam_name }}</td>
  <td data-label="Siswa" class="max-md:flex max-md:gap-1 max-md:items-baseline"><strong>{{ sub.student_name }}</strong></td>
  <td data-label="No. Ujian" class="max-md:flex max-md:gap-1 max-md:items-baseline"><code class="token-code" style="letter-spacing: normal; font-size:12px;">{{ sub.exam_number }}</code></td>
  <td data-label="Kelas" class="max-md:flex max-md:gap-1 max-md:items-baseline">{{ sub.student_class }}</td>
@@ -127,7 +123,6 @@
  <span style="font-size: 12px; color: var(--color-text-muted);">—</span>
  {% endif %}
  </td>
- <td class="td-date" data-label="Kumpul" data-utc="{{ sub.created_at }}">{{ sub.created_at }}</td>
  <td data-label="Durasi">
  {% if sub.start_time and sub.created_at %}
  {% set diff = (sub.created_at[:19] if ' ' in sub.created_at[:19] else sub.created_at) %}
@@ -135,9 +130,6 @@
  {% else %}
  —
  {% endif %}
- </td>
- <td data-label="Perangkat">
- <code style="font-size:10px; background: rgba(255,255,255,0.03); padding: 2px 6px; border-radius: 4px;">{{ sub.mac_address or '—' }}</code>
  </td>
  <td class="td-actions" data-label="Aksi" style="text-align:center;">
  <div style="display: flex; gap: 6px; justify-content: center;">
@@ -192,6 +184,9 @@
  <span id="detailStudentClass" style="color: var(--color-text-muted); margin-left: 8px;"></span>
  </div>
  </div>
+ <p style="margin-bottom:4px; font-size:12px; color:var(--color-text-secondary);">
+ <svg class="icon-svg-sm" style="vertical-align:middle;"><use href="#hi-dashboard"/></svg> Ujian: <strong id="detailExamName" style="color:var(--color-text);">—</strong>
+ </p>
  <p style="margin-bottom:6px; font-size:12px; color:var(--color-text-secondary);">
  <svg class="icon-svg-sm" style="vertical-align:middle;"><use href="#hi-chevron-right"/></svg> Mulai: <span id="detailStartTime">—</span> | <svg class="icon-svg-sm" style="vertical-align:middle;"><use href="#hi-upload"/></svg> Kumpul: <span id="detailSubmitTime">—</span>
  </p>
