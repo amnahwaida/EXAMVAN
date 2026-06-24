@@ -965,7 +965,10 @@ function loadUsersList(page) {
     var url = '/admin/api/users?page=' + page + '&per_page=10';
     if (searchVal) url += '&search=' + encodeURIComponent(searchVal);
 
-    tbody.innerHTML = '<tr><td colspan="5" style="text-align:center; padding: 20px; color: var(--color-text-secondary);">⏳ Memuat...</td></tr>';
+    // Hapus popup yang tertinggal di body (dari fix backdrop-filter containing block)
+    document.querySelectorAll('body > .user-info-popup').forEach(function(p) { p.remove(); });
+
+    tbody.innerHTML = '<tr><td colspan="4" style="text-align:center; padding: 20px; color: var(--color-text-secondary);">⏳ Memuat...</td></tr>';
 
     apiFetch(url)
         .then(r => r.json())
@@ -975,7 +978,7 @@ function loadUsersList(page) {
                 tbody.innerHTML = '';
 
                 if (!Array.isArray(res.users) || res.users.length === 0) {
-                    tbody.innerHTML = '<tr><td colspan="5" style="text-align:center; padding: 40px; color: var(--color-text-secondary);">'
+                    tbody.innerHTML = '<tr><td colspan="4" style="text-align:center; padding: 40px; color: var(--color-text-secondary);">'
                         + (searchVal ? 'Tidak ditemukan user yang cocok dengan "' + escapeHtml(searchVal) + '"' : 'Belum ada user terdaftar')
                         + '</td></tr>';
                     renderUsersPagination(pagination, page);
@@ -985,11 +988,12 @@ function loadUsersList(page) {
                 res.users.forEach(user => {
                     const tr = document.createElement('tr');
                     const isAdmin = user.username === 'admin';
-                    const statusBadge = user.status === 'active'
-                        ? '<span class="status-badge status-active">Aktif</span>'
+                    var statusClick = isAdmin ? '' : ' onclick="toggleUserStatus(' + user.id + ')"';
+                    var statusBadge = user.status === 'active'
+                        ? '<span class="status-badge status-active"' + statusClick + '>Aktif</span>'
                         : user.status === 'suspended'
-                        ? '<span class="status-badge status-suspended">Suspen</span>'
-                        : '<span class="status-badge status-inactive">Pending</span>';
+                        ? '<span class="status-badge status-suspended"' + statusClick + '>Suspen</span>'
+                        : '<span class="status-badge status-inactive"' + statusClick + '>Pending</span>';
                     const expiresAt = user.expires_at || '—';
                     const createdAt = user.created_at ? localizeUTC(user.created_at) : '—';
                     const limitPdfMb = user.max_pdf_size ? (user.max_pdf_size / (1024*1024)).toFixed(1) + ' MB' : '—';
@@ -997,10 +1001,6 @@ function loadUsersList(page) {
                     // Build action buttons for non-admin users
                     var actionsHtml = '<span style="font-size:11px; color: var(--color-text-secondary);">—</span>';
                     if (!isAdmin) {
-                        var statusAction = user.status === 'active'
-                            ? '<button class="btn-sm" onclick="toggleUserStatus(' + user.id + ', \'' + jsEscape(user.username) + '\')" title="Nonaktifkan user" style="font-size:11px;padding:0 8px;height:26px;background:rgba(245,158,11,0.15);border:1px solid rgba(245,158,11,0.3);color:#fbbf24;">⏸️</button>'
-                            : '<button class="btn-sm" onclick="toggleUserStatus(' + user.id + ', \'' + jsEscape(user.username) + '\')" title="Aktifkan user" style="font-size:11px;padding:0 8px;height:26px;background:rgba(16,185,129,0.15);border:1px solid rgba(16,185,129,0.3);color:#34d399;">▶️</button>';
-
                         var verifyBtn = user.status === 'pending_otp'
                             ? '<button class="btn-sm" onclick="verifyUser(' + user.id + ', \'' + jsEscape(user.username) + '\')" title="Verifikasi manual" style="font-size:11px;padding:0 8px;height:26px;background:rgba(99,102,241,0.15);border:1px solid rgba(99,102,241,0.3);color:#a5b4fc;">✅</button> '
                             : '';
@@ -1008,24 +1008,16 @@ function loadUsersList(page) {
                         actionsHtml = '<div style="display:flex;gap:4px;flex-wrap:wrap;justify-content:flex-end;">'
                             + verifyBtn
                             + '<button class="btn-sm" onclick="openEditUserModal(' + user.id + ')" title="Atur limit & reset password" style="font-size:11px;padding:0 8px;height:26px;background:rgba(99,102,241,0.1);border:1px solid rgba(99,102,241,0.2);color:#a5b4fc;">✏️</button> '
-                            + statusAction + ' '
                             + '<button class="btn-sm btn-delete" onclick="deleteUser(' + user.id + ', \'' + jsEscape(user.username) + '\')" style="font-size:11px;padding:0 8px;height:26px;">🗑️</button>'
                             + '</div>';
                     }
 
                     tr.innerHTML = `
                         <td data-label="Username">
-                            <strong style="color: ${isAdmin ? 'var(--color-accent-light)' : 'var(--color-text)'};">
+                            <strong class="user-info-btn" style="cursor:pointer;color: ${isAdmin ? 'var(--color-accent-light)' : 'var(--color-text)'};">
                                 ${isAdmin ? '👑 ' : ''}${escapeHtml(user.username)}
                             </strong>
                             ${isAdmin ? '<span style="font-size:11px; color: var(--color-text-secondary); display:block;">Super Admin</span>' : ''}
-                        </td>
-                        <td data-label="WhatsApp">${escapeHtml(user.whatsapp_number || '—')}</td>
-                        <td data-label="Status" style="text-align:center;">${statusBadge}</td>
-                        <td data-label="Info" style="text-align:left;">
-                            <button class="btn-sm btn-toggle btn-sm-compact user-info-btn" style="gap:4px;padding:0 10px;font-size:11px;position:relative;" data-ujian="${user.exam_count ?? 0}" data-limit="${user.max_exams ?? '—'}" data-pdf="${limitPdfMb}" data-expires="${expiresAt}" data-terdaftar="${createdAt}">
-                                <svg class="icon-svg" style="width:14px;height:14px;"><use href="#hi-eye"/></svg> Detail
-                            </button>
                             <div class="user-info-popup" style="display:none;">
                                 <div class="user-info-item"><span>Ujian</span><strong>${user.exam_count ?? 0}</strong></div>
                                 <div class="user-info-item"><span>Limit Ujian</span><strong>${user.max_exams ?? '—'}</strong></div>
@@ -1034,6 +1026,8 @@ function loadUsersList(page) {
                                 <div class="user-info-item"><span>Terdaftar</span><strong>${createdAt}</strong></div>
                             </div>
                         </td>
+                        <td data-label="WhatsApp">${escapeHtml(user.whatsapp_number || '—')}</td>
+                        <td data-label="Status" style="text-align:center;">${statusBadge}</td>
                         <td data-label="Aksi" style="text-align:right;">${actionsHtml}</td>
                     `;
                     tbody.appendChild(tr);
@@ -1041,11 +1035,11 @@ function loadUsersList(page) {
                 localizeDates();
                 renderUsersPagination(pagination, page);
             } else {
-                tbody.innerHTML = '<tr><td colspan="5" style="text-align:center; padding: 20px; color: #fca5a5;">Gagal memuat daftar user</td></tr>';
+                tbody.innerHTML = '<tr><td colspan="4" style="text-align:center; padding: 20px; color: #fca5a5;">Gagal memuat daftar user</td></tr>';
             }
         })
         .catch(() => {
-            tbody.innerHTML = '<tr><td colspan="5" style="text-align:center; padding: 20px; color: #fca5a5;">Gagal memuat daftar user</td></tr>';
+            tbody.innerHTML = '<tr><td colspan="4" style="text-align:center; padding: 20px; color: #fca5a5;">Gagal memuat daftar user</td></tr>';
         });
 }
 
@@ -1120,8 +1114,13 @@ function localizeDates() {
     tableBody.addEventListener('click', function(e) {
         var btn = e.target.closest('.user-info-btn');
         if (btn) {
-            var popup = btn.nextElementSibling;
-            if (!popup || !popup.classList.contains('user-info-popup')) return;
+            // Gunakan popup tersimpan (setelah dipindah ke body di klik sebelumnya),
+            // atau cari di dalam td username (karena bukan lagi nextElementSibling —
+            // ada <span> admin di antaranya).
+            var popup = btn._infoPopup || btn.closest('td').querySelector('.user-info-popup');
+            if (!popup) return;
+            // Simpan referensi agar tetap bisa diakses setelah dipindah ke body
+            btn._infoPopup = popup;
             // Close other popups first
             document.querySelectorAll('.user-info-popup.show').forEach(function(p) {
                 if (p !== popup) p.classList.remove('show');
@@ -1131,6 +1130,13 @@ function localizeDates() {
             if (isOpen) {
                 popup.classList.remove('show');
             } else {
+                // Pindahkan popup ke body agar position:fixed bekerja relatif ke viewport.
+                // .glass-card punya backdrop-filter yang membuat containing block baru,
+                // sehingga position:fixed di dalam table dihitung relatif ke glass-card
+                // (bukan viewport) → popup muncul tapi tidak kelihatan (off-screen).
+                if (popup.parentNode !== document.body) {
+                    document.body.appendChild(popup);
+                }
                 popup.classList.add('show');
                 var rect = btn.getBoundingClientRect();
                 popup.style.position = 'fixed';
@@ -1173,20 +1179,23 @@ function deleteUser(userId, username) {
     });
 }
 
-function toggleUserStatus(userId, username) {
-    apiFetch(`/admin/api/users/${userId}/toggle-status`, {
-        method: 'POST'
-    })
-        .then(r => r.json())
-        .then(res => {
-            if (res.success) {
-                showToast(res.message, 'success');
-                loadUsersList(getCurrentUsersPage());
-            } else {
-                showToast(res.message || 'Gagal mengubah status', 'error');
-            }
+function toggleUserStatus(userId) {
+    showConfirm('Konfirmasi', 'Yakin ingin mengubah status user ini?', 'Ya, Ubah', 'Batal').then(ok => {
+        if (!ok) return;
+        apiFetch(`/admin/api/users/${userId}/toggle-status`, {
+            method: 'POST'
         })
-        .catch(() => showToast('Gagal mengubah status', 'error'));
+            .then(r => r.json())
+            .then(res => {
+                if (res.success) {
+                    showToast(res.message, 'success');
+                    loadUsersList(getCurrentUsersPage());
+                } else {
+                    showToast(res.message || 'Gagal mengubah status', 'error');
+                }
+            })
+            .catch(() => showToast('Gagal mengubah status', 'error'));
+    });
 }
 
 function verifyUser(userId, username) {

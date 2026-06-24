@@ -1488,17 +1488,43 @@ def admin_verify_user_manual(user_id):
 def admin_toggle_user_status(user_id):
     """Suspend or activate a user account."""
     db = get_db()
-    user = db.execute('SELECT username, status FROM admin_users WHERE id = ?', (user_id,)).fetchone()
+    user = db.execute('SELECT username, status, expires_at FROM admin_users WHERE id = ?', (user_id,)).fetchone()
     if not user:
         return error_response('User tidak ditemukan', 404)
-        
+
     if user['username'] == ADMIN_USERNAME:
         return error_response('Status Super Admin "admin" tidak dapat diubah', 400)
-        
+
+    now = datetime.utcnow()
     new_status = 'suspended' if user['status'] == 'active' else 'active'
-    db.execute('UPDATE admin_users SET status = ? WHERE id = ?', (new_status, user_id))
+
+    if new_status == 'active':
+        # Reactivating: jika expires_at masih masa depan → pertahankan
+        # jika sudah lewat atau null → tambah 1 hari dari sekarang
+        if user['expires_at']:
+            try:
+                exp = datetime.fromisoformat(user['expires_at'])
+                if exp.tzinfo:
+                    exp = exp.replace(tzinfo=None)
+            except (ValueError, TypeError):
+                exp = None
+        else:
+            exp = None
+
+        if exp is None or exp <= now:
+            new_exp = (now + timedelta(days=1)).strftime('%Y-%m-%d %H:%M:%S')
+            db.execute('UPDATE admin_users SET status = ?, expires_at = ? WHERE id = ?',
+                       (new_status, new_exp, user_id))
+            msg = f'Status user "{user["username"]}" diaktifkan. Masa aktif: +1 hari (expired)'
+        else:
+            db.execute('UPDATE admin_users SET status = ? WHERE id = ?', (new_status, user_id))
+            msg = f'Status user "{user["username"]}" diaktifkan (masa aktif dipertahankan)'
+    else:
+        db.execute('UPDATE admin_users SET status = ? WHERE id = ?', (new_status, user_id))
+        msg = f'Status user "{user["username"]}" dinonaktifkan'
+
     db.commit()
-    return jsonify({'success': True, 'message': f'Status user "{user["username"]}" berhasil diubah menjadi {new_status}'})
+    return jsonify({'success': True, 'message': msg})
 
 
 def _handle_saas_settings_get():
