@@ -1073,14 +1073,24 @@ button:disabled, .btn-sm:disabled, .btn-upload:disabled, .btn-login:disabled {
     background: rgba(99, 102, 241, 0.06);
 }
 .q-type-select {
-    @apply min-w-[170px] pr-8 cursor-pointer;
+    @apply min-w-[170px] px-4 py-2.5 pr-8 cursor-pointer text-sm rounded-lg;
     -webkit-appearance: none;
     -moz-appearance: none;
     appearance: none;
+    outline: none;
+    background-color: rgba(255, 255, 255, 0.04);
     background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='24' height='24' viewBox='0 0 24 24' fill='none' stroke='%23a5b4fc' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'><polyline points='6 9 12 15 18 9'></polyline></svg>");
     background-repeat: no-repeat;
     background-position: right 10px center;
     background-size: 14px;
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    color: var(--color-text);
+    transition: all 0.2s ease;
+}
+.q-type-select:focus {
+    border-color: var(--color-primary);
+    box-shadow: 0 0 0 3px var(--color-primary-glow);
+    background: rgba(99, 102, 241, 0.06);
 }
 .q-weight-input { @apply w-[70px] font-bold text-center; }
 .q-key-input { @apply w-[120px] font-bold uppercase; }

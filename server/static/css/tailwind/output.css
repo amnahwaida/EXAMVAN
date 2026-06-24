@@ -1879,14 +1879,29 @@ input:disabled, select:disabled, textarea:disabled, button:disabled, .btn-sm:dis
 .q-type-select {
   min-width: 170px;
   cursor: pointer;
+  border-radius: var(--radius-lg);
+  padding-inline: calc(var(--spacing) * 4);
+  padding-block: calc(var(--spacing) * 2.5);
   padding-right: calc(var(--spacing) * 8);
+  font-size: var(--text-sm);
+  line-height: var(--tw-leading, var(--text-sm--line-height));
   -webkit-appearance: none;
   -moz-appearance: none;
   appearance: none;
+  outline: none;
+  background-color: rgba(255, 255, 255, 0.04);
   background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='24' height='24' viewBox='0 0 24 24' fill='none' stroke='%23a5b4fc' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'><polyline points='6 9 12 15 18 9'></polyline></svg>");
   background-repeat: no-repeat;
   background-position: right 10px center;
   background-size: 14px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  color: var(--color-text);
+  transition: all 0.2s ease;
+}
+.q-type-select:focus {
+  border-color: var(--color-primary);
+  box-shadow: 0 0 0 3px var(--color-primary-glow);
+  background: rgba(99, 102, 241, 0.06);
 }
 .q-weight-input {
   width: 70px;
