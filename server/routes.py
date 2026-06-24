@@ -2072,11 +2072,17 @@ def admin_export_submissions():
         # CSV fallback for specific exam
         si = io.StringIO()
         cw = csv.writer(si)
-        cw.writerow(['ID', 'Nama Ujian', 'Nama Siswa', 'Nomor Ujian', 'Kelas', 'Nilai', 'Waktu Mulai', 'Waktu Kumpul', 'ID Perangkat'])
+        ident_fields = _parse_identity_fields(exam)
+        ident_headers, _ = _identity_headers_and_values(ident_fields, {}, submissions[0] if submissions else {'student_name': '', 'exam_number': '', 'student_class': ''})
+        headers = ['ID', 'Nama Ujian'] + ident_headers + ['Nilai', 'Waktu Mulai', 'Waktu Kumpul', 'ID Perangkat']
+        cw.writerow(headers)
         for row in submissions:
+            idata = _get_identity_data(row)
+            _, ident_vals = _identity_headers_and_values(ident_fields, idata, row)
             cw.writerow([
-                row['id'], _csv_safe(exam['name']), _csv_safe(row['student_name']), _csv_safe(row['exam_number']),
-                _csv_safe(row['student_class']), row['score'] if row['score'] is not None else 'Belum Dinilai',
+                row['id'], _csv_safe(exam['name']),
+                *ident_vals,
+                row['score'] if row['score'] is not None else 'Belum Dinilai',
                 localize_date_string(row['start_time'], tz_offset) if row['start_time'] else '—',
                 localize_date_string(row['created_at'], tz_offset),
                 _csv_safe(row['mac_address'] or '—')
@@ -2090,7 +2096,7 @@ def admin_export_submissions():
 
     # --- CSV export for all exams ---
     query = (
-        'SELECT s.id, e.name as exam_name, s.student_name, s.exam_number, s.student_class, s.score, s.start_time, s.mac_address, s.created_at '
+        'SELECT s.id, e.name as exam_name, s.student_name, s.exam_number, s.student_class, s.identity_data, s.score, s.start_time, s.mac_address, s.created_at '
         'FROM submissions s JOIN exams e ON s.exam_id = e.id'
     )
     conditions = []
@@ -2106,14 +2112,30 @@ def admin_export_submissions():
     query += ' ORDER BY s.created_at DESC'
     all_submissions = db.execute(query, params).fetchall()
 
+    # Collect all unique identity field keys from all submissions
+    all_ident_keys = []
+    all_ident_keys_set = set()
+    for row in all_submissions:
+        idata = _get_identity_data(row)
+        for k in idata:
+            if k not in all_ident_keys_set:
+                all_ident_keys_set.add(k)
+                all_ident_keys.append(k)
+
     si = io.StringIO()
     cw = csv.writer(si)
-    cw.writerow(['ID', 'Nama Ujian', 'Nama Siswa', 'Nomor Ujian', 'Kelas', 'Nilai', 'Waktu Mulai', 'Waktu Kumpul', 'ID Perangkat'])
+    fixed_headers = ['ID', 'Nama Ujian']
+    ident_headers_csv = [k.replace('_', ' ').title() for k in all_ident_keys]
+    trailing_headers = ['Nilai', 'Waktu Mulai', 'Waktu Kumpul', 'ID Perangkat']
+    cw.writerow(fixed_headers + ident_headers_csv + trailing_headers)
 
     for row in all_submissions:
+        idata = _get_identity_data(row)
+        ident_vals = [_csv_safe(str(idata.get(k, '—'))) if idata.get(k) else '—' for k in all_ident_keys]
         cw.writerow([
-            row['id'], _csv_safe(row['exam_name']), _csv_safe(row['student_name']), _csv_safe(row['exam_number']),
-            _csv_safe(row['student_class']), row['score'] if row['score'] is not None else 'Belum Dinilai',
+            row['id'], _csv_safe(row['exam_name']),
+            *ident_vals,
+            row['score'] if row['score'] is not None else 'Belum Dinilai',
             localize_date_string(row['start_time'], tz_offset) if row['start_time'] else '—',
             localize_date_string(row['created_at'], tz_offset),
             _csv_safe(row['mac_address'] or '—')
@@ -2131,6 +2153,60 @@ def _sanitize_xlsx(value):
     if isinstance(value, str) and value and value[0] in ('=', '+', '-', '@', '\t', '\r'):
         return "'" + value
     return value
+
+
+def _parse_identity_fields(exam_or_fields):
+    """Parse identity_fields dari exam row atau langsung list of dicts.
+    Return list of {key, label, required}."""
+    if isinstance(exam_or_fields, dict):
+        raw = exam_or_fields.get('identity_fields', '')
+    else:
+        raw = exam_or_fields or ''
+    try:
+        fields = json.loads(raw) if raw else []
+        if fields and isinstance(fields, list):
+            return fields
+    except Exception:
+        pass
+    return json.loads(DEFAULT_IDENTITY_FIELDS)
+
+
+def _get_identity_data(sub):
+    """Parse identity_data dari submission row, return dict."""
+    try:
+        raw = sub['identity_data'] if isinstance(sub, dict) else getattr(sub, 'identity_data', '')
+        return json.loads(raw) if raw else {}
+    except Exception:
+        return {}
+
+
+def _identity_headers_and_values(identity_fields, identity_data, sub):
+    """Given identity_fields config and submission data, return (headers, values).
+
+    headers — list of labels sesuai urutan identity_fields
+    values  — list of values sesuai urutan identity_fields
+    sub     — submission row (untuk fallback kolom lama)
+    """
+    headers = []
+    values = []
+    for f in identity_fields:
+        key = f['key']
+        label = f['label']
+        headers.append(label)
+        # Ambil dari identity_data dulu, fallback ke kolom lama
+        val = identity_data.get(key)
+        if val is None or val == '':
+            # Fallback ke kolom legacy
+            if key == 'student_name':
+                val = sub['student_name'] if isinstance(sub, dict) else sub.student_name
+            elif key == 'exam_number':
+                val = sub['exam_number'] if isinstance(sub, dict) else sub.exam_number
+            elif key == 'student_class':
+                val = sub['student_class'] if isinstance(sub, dict) else sub.student_class
+            else:
+                val = ''
+        values.append(_sanitize_xlsx(str(val)) if val is not None else '—')
+    return headers, values
 
 
 def _sanitize_sheet_name(name):
@@ -2261,8 +2337,15 @@ def _build_exam_summary_sheet(ws, exam, submissions, tz_offset):
         cell.alignment = center_align if align == 'center' else left_align
         return cell
 
-    # Title
-    ws.merge_cells('A1:G1')
+    # Dynamic identity columns dari identity_fields exam
+    ident_fields = _parse_identity_fields(exam)
+    ident_headers, _ = _identity_headers_and_values(ident_fields, {}, {'student_name': '', 'exam_number': '', 'student_class': ''})
+    num_ident = len(ident_headers)
+    num_total = 1 + num_ident + 4  # No + identity + Nilai + Status + Waktu Mulai + Waktu Kumpul + ID Perangkat
+
+    # Title — merge across all columns
+    title_range = f'A1:{get_column_letter(num_total)}1'
+    ws.merge_cells(title_range)
     title_cell = ws['A1']
     title_cell.value = f'RINGKASAN HASIL UJIAN — {exam["name"]}'
     title_cell.font = title_font
@@ -2278,8 +2361,8 @@ def _build_exam_summary_sheet(ws, exam, submissions, tz_offset):
         ws.cell(row=3 + i, column=1, value=label).font = meta_label_font
         ws.cell(row=3 + i, column=2, value=value).font = meta_value_font
 
-    # Summary table header
-    summary_headers = ['No.', 'Nomor Ujian', 'Nama Siswa', 'Kelas', 'Nilai Akhir', 'Status', 'Waktu Mulai', 'Waktu Pengumpulan', 'ID Perangkat']
+    # Summary table header — dynamic identities
+    summary_headers = ['No.'] + ident_headers + ['Nilai Akhir', 'Status', 'Waktu Mulai', 'Waktu Pengumpulan', 'ID Perangkat']
     header_row = 7
     for col_idx, h in enumerate(summary_headers, 1):
         ws.cell(row=header_row, column=col_idx, value=h)
@@ -2292,21 +2375,24 @@ def _build_exam_summary_sheet(ws, exam, submissions, tz_offset):
         score_display = round(score, 2) if score is not None else 'Belum Dinilai'
         status = 'Sudah Dinilai' if score is not None else 'Belum Dinilai'
 
-        values = [i + 1, _sanitize_xlsx(sub['exam_number']), _sanitize_xlsx(sub['student_name']),
-                  _sanitize_xlsx(sub['student_class']),
-                  score_display, status,
+        idata = _get_identity_data(sub)
+        _, ident_vals = _identity_headers_and_values(ident_fields, idata, sub)
+
+        values = [i + 1] + ident_vals + [score_display, status,
                   localize_date_string(sub['start_time'], tz_offset) if sub['start_time'] else '—',
                   localize_date_string(sub['created_at'], tz_offset),
                   _sanitize_xlsx(sub['mac_address'] or '—')]
         for col_idx, val in enumerate(values, 1):
             cell = _style_data_cell(ws, row_num, col_idx,
-                                   'center' if col_idx in [1, 4, 5, 6] else 'left')
+                                   'center' if col_idx in [1, num_ident + 2, num_ident + 3] else 'left')
             cell.value = val
 
             # Colour score column
-            if col_idx == 5 and score is not None:
+            score_col = num_ident + 2
+            status_col = num_ident + 3
+            if col_idx == score_col and score is not None:
                 cell.font = Font(bold=True)
-            if col_idx == 6:
+            if col_idx == status_col:
                 if score is not None:
                     cell.fill = PatternFill(start_color=GREEN_BG, end_color=GREEN_BG, fill_type='solid')
                     cell.font = Font(color=GREEN_FG, bold=True)
@@ -2318,19 +2404,18 @@ def _build_exam_summary_sheet(ws, exam, submissions, tz_offset):
     for col_idx in range(1, len(summary_headers) + 1):
         ws.column_dimensions[get_column_letter(col_idx)].width = \
             max(14, len(summary_headers[col_idx - 1]) + 6)
-    ws.column_dimensions['C'].width = 28
-    ws.column_dimensions['G'].width = 22
-    ws.column_dimensions['H'].width = 22
-    ws.column_dimensions['I'].width = 24
 
 
-def _build_student_detail_sheet(wb, sub, questions, tz_offset, used_names):
+def _build_student_detail_sheet(wb, sub, questions, tz_offset, used_names, ident_fields=None):
     """Build a per-student detail sheet with info header and question-by-question results."""
     NAVY = '1e3a8a'
     LIGHT_BLUE = 'dbeafe'
 
-    # Build unique sheet name
-    base_name = f"{sub['exam_number']} {sub['student_name']}"
+    # Build unique sheet name — fallback: nama siswa aja
+    idata = _get_identity_data(sub)
+    idata_name = str(idata.get('student_name', sub['student_name']) or sub['student_name'])
+    idata_num = str(idata.get('exam_number', sub['exam_number']) or sub['exam_number'])
+    base_name = f"{idata_num} {idata_name}"
     sheet_name = _sanitize_sheet_name(base_name)
     if sheet_name in used_names:
         counter = 2
@@ -2376,10 +2461,26 @@ def _build_student_detail_sheet(wb, sub, questions, tz_offset, used_names):
     ws['A1'].font = title_font
     ws['A1'].alignment = Alignment(horizontal='left', vertical='center')
 
-    info_rows = [
-        ('Nama Siswa:', _sanitize_xlsx(sub['student_name'])),
-        ('Nomor Ujian:', _sanitize_xlsx(sub['exam_number'])),
-        ('Kelas:', _sanitize_xlsx(sub['student_class'])),
+    info_rows = []
+    if ident_fields:
+        for f in ident_fields:
+            key = f['key']
+            label = f['label']
+            val = idata.get(key)
+            if val is None or val == '':
+                if key == 'student_name': val = sub['student_name']
+                elif key == 'exam_number': val = sub['exam_number']
+                elif key == 'student_class': val = sub['student_class']
+                else: val = '—'
+            info_rows.append((f'{label}:', _sanitize_xlsx(str(val)) if val is not None else '—'))
+    else:
+        info_rows = [
+            ('Nama Siswa:', _sanitize_xlsx(sub['student_name'])),
+            ('Nomor Ujian:', _sanitize_xlsx(sub['exam_number'])),
+            ('Kelas:', _sanitize_xlsx(sub['student_class'])),
+        ]
+    # Tambah info fixed setelah identity
+    info_rows += [
         ('Nilai Akhir:', round(sub['score'], 2) if sub['score'] is not None else 'Belum Dinilai'),
         ('Waktu Mulai:', localize_date_string(sub['start_time'], tz_offset) if sub['start_time'] else '—'),
         ('Waktu Pengumpulan:', localize_date_string(sub['created_at'], tz_offset)),
@@ -2392,10 +2493,10 @@ def _build_student_detail_sheet(wb, sub, questions, tz_offset, used_names):
         if label == 'Nilai Akhir:' and sub['score'] is not None:
             val_cell.font = Font(bold=True, size=12, color=NAVY)
 
-    # Question detail table
+    # Question detail table — row depends on number of identity rows
+    detail_header_row = 3 + len(info_rows) + 1
     detail_headers = ['No. Soal', 'Tipe Soal', 'Bobot Maks', 'Jawaban Siswa',
                       'Kunci Jawaban', 'Status', 'Poin Didapat']
-    detail_header_row = 11
     for col_idx, h in enumerate(detail_headers, 1):
         ws.cell(row=detail_header_row, column=col_idx, value=h)
     _style_header_row(ws, detail_header_row, len(detail_headers))
@@ -2447,6 +2548,7 @@ def _build_student_detail_sheet(wb, sub, questions, tz_offset, used_names):
 def _generate_exam_xlsx(exam, submissions, questions, tz_offset=None):
     """Generate a professionally styled multi-sheet Excel workbook for a specific exam."""
     wb = openpyxl.Workbook()
+    ident_fields = _parse_identity_fields(exam)
 
     # Sheet 1: Summary
     _build_exam_summary_sheet(wb.active, exam, submissions, tz_offset)
@@ -2454,7 +2556,7 @@ def _generate_exam_xlsx(exam, submissions, questions, tz_offset=None):
     # Per-student sheets
     used_names = set()
     for sub in submissions:
-        _build_student_detail_sheet(wb, sub, questions, tz_offset, used_names)
+        _build_student_detail_sheet(wb, sub, questions, tz_offset, used_names, ident_fields)
 
     # Save workbook to BytesIO
     output = io.BytesIO()
