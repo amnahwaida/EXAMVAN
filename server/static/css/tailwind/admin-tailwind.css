@@ -315,7 +315,7 @@ body {
 /* === Toast === */
 .toast-container {
     position: fixed;
-    bottom: 24px;
+    bottom: calc(24px + env(safe-area-inset-bottom, 0px));
     right: 24px;
     z-index: 9999;
     display: flex;
@@ -1284,8 +1284,8 @@ button:disabled, .btn-sm:disabled, .btn-upload:disabled, .btn-login:disabled {
     .modal-footer .btn-sm,
     .modal-footer .btn-upload { flex: 1 1 auto; min-width: 120px; text-align: center; justify-content: center; }
 
-    /* Toast */
-    .toast-container { bottom: 12px; right: 12px; left: 12px; }
+    /* Toast — safe area untuk gesture navigation */
+    .toast-container { bottom: calc(12px + env(safe-area-inset-bottom, 0px)); right: 12px; left: 12px; }
     .toast { min-width: 0; max-width: 100%; padding: 12px 14px; font-size: 0.82rem; }
     .toast-close { opacity: 1; }
 
