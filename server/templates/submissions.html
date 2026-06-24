@@ -20,6 +20,30 @@
  </div>
  </section>
 
+ {% if exam_info %}
+ <!-- Exam Detail Card -->
+ <section class="glass-card" style="margin-top: 16px; padding: 14px 20px; border: 1px solid var(--color-glass-border); border-radius: 16px;">
+ <div style="display: flex; gap: 20px; flex-wrap: wrap; align-items: center;">
+  <span style="font-size: 15px; font-weight: 700; color: #a5b4fc; display: flex; align-items: center; gap: 6px;">
+  <svg class="icon-svg" style="width:20px;height:20px;"><use href="#hi-dashboard"/></svg>
+  {{ exam_info.name }}
+  </span>
+  <span style="font-size: 13px; color: var(--color-text-secondary); display: flex; align-items: center; gap: 6px;">
+  <svg class="icon-svg-sm"><use href="#hi-key"/></svg> Token: <code style="color:#a5b4fc;">{{ exam_info.token }}</code>
+  </span>
+  <span style="font-size: 13px; color: var(--color-text-secondary); display: flex; align-items: center; gap: 6px;">
+  <svg class="icon-svg-sm"><use href="#hi-users"/></svg> {{ exam_info.sub_count }} peserta
+  </span>
+  <span style="font-size: 13px; color: var(--color-text-secondary); display: flex; align-items: center; gap: 6px;">
+  <svg class="icon-svg-sm"><use href="#hi-upload"/></svg> {{ exam_info.size_mb }} MB
+  </span>
+  <span style="font-size: 13px; color: var(--color-text-secondary); display: flex; align-items: center; gap: 6px;">
+  <svg class="icon-svg-sm"><use href="#hi-file"/></svg> Upload: {{ exam_info.created_at[:10] if exam_info.created_at else '—' }}
+  </span>
+ </div>
+ </section>
+ {% endif %}
+
  <!-- Quick Stats -->
  {% if submissions and total_submissions > 0 %}
  <section class="glass-card p-6 rounded-2xl border border-slate-800/60 bg-slate-900/40 backdrop-blur-2xl shadow-2xl" style="margin-top: 16px; padding: 14px 20px;">
