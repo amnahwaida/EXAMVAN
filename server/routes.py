@@ -1693,11 +1693,12 @@ def admin_exam_questions(exam_id):
             'UPDATE exams SET questions_json = ?, security_level = ?, strict_mode = ?, identity_fields = ? WHERE id = ?',
             (json.dumps(questions), security_level, strict_mode, identity_fields_json, exam_id)
         )
-        
+        db.commit()
+
         # Recalculate scores for all existing submissions of this exam (paginated)
+        # Terpisah dari UPDATE di atas karena SQLite implicit transaction
         total_subs = db.execute('SELECT COUNT(*) as cnt FROM submissions WHERE exam_id = ?', (exam_id,)).fetchone()['cnt']
         page_size = 100
-        db.execute('BEGIN')
         try:
             for offset in range(0, total_subs, page_size):
                 submissions = db.execute(
