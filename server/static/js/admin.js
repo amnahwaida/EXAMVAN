@@ -638,12 +638,10 @@ function addIdentityFieldRow(container, field, index) {
 
     row.innerHTML = `
         <span style="font-size:11px;color:var(--color-text-muted);min-width:18px;">${index + 1}</span>
-        <input type="text" class="ifield-key" value="${escapeHtml(field.key)}" placeholder="key_name" title="Key (huruf kecil, tanpa spasi)"
-            style="flex:0 0 130px;padding:6px 8px;background:rgba(255,255,255,0.04);border:1px solid var(--color-glass-border);border-radius:6px;color:var(--color-text);font-size:12px;font-family:monospace;outline:none;">
-        <input type="text" class="ifield-label" value="${escapeHtml(field.label || '')}" placeholder="Label tampilan" title="Label yang dilihat siswa"
+        <input type="text" class="ifield-label" value="${escapeHtml(field.label || '')}" placeholder="Label tampilan (cth: Nama Siswa)" title="Label yang dilihat siswa"
             style="flex:1;padding:6px 8px;background:rgba(255,255,255,0.04);border:1px solid var(--color-glass-border);border-radius:6px;color:var(--color-text);font-size:12px;outline:none;">
         <label style="display:flex;align-items:center;gap:4px;font-size:11px;color:var(--color-text-muted);cursor:pointer;white-space:nowrap;">
-            <input type="checkbox" class="ifield-required" ${field.required ? 'checked' : ''} style="width:14px;height:14px;accent-color:var(--color-primary);cursor:pointer;"> *
+            <input type="checkbox" class="ifield-required" ${field.required ? 'checked' : ''} style="width:14px;height:14px;accent-color:var(--color-primary);cursor:pointer;"> Wajib
         </label>
         <button class="btn-icon" onclick="this.closest('.identity-field-row').remove()" title="Hapus field" style="background:none;border:none;color:#f87171;cursor:pointer;padding:2px 4px;font-size:14px;">&#x2715;</button>
     `;
@@ -654,19 +652,21 @@ function addIdentityFieldRow(container, field, index) {
 function addIdentityField() {
     const container = document.getElementById('identityFieldsList');
     const count = container.children.length;
-    const field = { key: 'field_' + (count + 1), label: 'Field ' + (count + 1), required: false };
+    const field = { key: 'field_' + (count + 1), label: '', required: false };
     addIdentityFieldRow(container, field, count);
 }
 
 function getIdentityFieldsFromEditor() {
     const rows = document.querySelectorAll('#identityFieldsList .identity-field-row');
     const fields = [];
-    rows.forEach(function(row) {
-        const key = row.querySelector('.ifield-key').value.trim();
+    rows.forEach(function(row, idx) {
         const label = row.querySelector('.ifield-label').value.trim();
         const required = row.querySelector('.ifield-required').checked;
-        if (key) {
-            fields.push({ key: key, label: label || key, required: required });
+        // Auto-generate key dari label: lowercase, replace spasi/non-alpha dengan underscore
+        var key = label.toLowerCase().replace(/[^a-z0-9]/g, '_').replace(/_+/g, '_').replace(/^_|_$/g, '');
+        if (!key) key = 'field_' + (idx + 1);
+        if (label) {
+            fields.push({ key: key, label: label, required: required });
         }
     });
     return fields.length > 0 ? fields : JSON.parse(JSON.stringify(DEFAULT_IDENTITY_FIELDS));
