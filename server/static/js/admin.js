@@ -1023,7 +1023,7 @@ function loadUsersList(page) {
                         <td data-label="WhatsApp">${escapeHtml(user.whatsapp_number || '—')}</td>
                         <td data-label="Status" style="text-align:center;">${statusBadge}</td>
                         <td data-label="Info" style="text-align:left;">
-                            <button class="btn-sm btn-toggle btn-sm-compact user-info-btn" onclick="toggleUserInfo(this)" style="gap:4px;padding:0 10px;font-size:11px;" data-ujian="${user.exam_count ?? 0}" data-limit="${user.max_exams ?? '—'}" data-pdf="${limitPdfMb}" data-expires="${expiresAt}" data-terdaftar="${createdAt}">
+                            <button class="btn-sm btn-toggle btn-sm-compact user-info-btn" style="gap:4px;padding:0 10px;font-size:11px;position:relative;" data-ujian="${user.exam_count ?? 0}" data-limit="${user.max_exams ?? '—'}" data-pdf="${limitPdfMb}" data-expires="${expiresAt}" data-terdaftar="${createdAt}">
                                 <svg class="icon-svg" style="width:14px;height:14px;"><use href="#hi-eye"/></svg> Detail
                             </button>
                             <div class="user-info-popup" style="display:none;">
@@ -1113,38 +1113,43 @@ function localizeDates() {
     });
 }
 
-// Toggle user info popup
-function toggleUserInfo(btn) {
-    var popup = btn.nextElementSibling;
-    if (!popup) return;
-
-    var isOpen = popup.classList.contains('show');
-
-    // Close ALL popups first (including other users')
-    document.querySelectorAll('.user-info-popup.show').forEach(function(p) {
-        p.classList.remove('show');
+// ===== User Info Popup (Event Delegation) =====
+(function() {
+    var tableBody = document.getElementById('usersTableBody');
+    if (!tableBody) return;
+    tableBody.addEventListener('click', function(e) {
+        var btn = e.target.closest('.user-info-btn');
+        if (btn) {
+            var popup = btn.nextElementSibling;
+            if (!popup || !popup.classList.contains('user-info-popup')) return;
+            // Close other popups first
+            document.querySelectorAll('.user-info-popup.show').forEach(function(p) {
+                if (p !== popup) p.classList.remove('show');
+            });
+            // Toggle this popup
+            var isOpen = popup.classList.contains('show');
+            if (isOpen) {
+                popup.classList.remove('show');
+            } else {
+                popup.classList.add('show');
+                var rect = btn.getBoundingClientRect();
+                popup.style.position = 'fixed';
+                popup.style.top = Math.min(rect.bottom + 4, window.innerHeight - 200) + 'px';
+                popup.style.left = Math.max(10, Math.min(rect.left, window.innerWidth - 240)) + 'px';
+            }
+            e.stopPropagation();
+            return;
+        }
+        // Click di dalam tabel tapi bukan popup
+        if (!e.target.closest('.user-info-popup')) {
+            document.querySelectorAll('.user-info-popup.show').forEach(function(p) { p.classList.remove('show'); });
+        }
     });
+})();
 
-    if (!isOpen) {
-        popup.classList.add('show');
-        // Position the popup relative to the button
-        var rect = btn.getBoundingClientRect();
-        popup.style.position = 'fixed';
-        var topPos = rect.bottom + 4;
-        var maxTop = window.innerHeight - 200;
-        popup.style.top = Math.min(topPos, maxTop) + 'px';
-        popup.style.left = Math.max(10, Math.min(rect.left, window.innerWidth - 240)) + 'px';
-        // Auto-close on scroll (delayed to prevent immediate close)
-        setTimeout(function() {
-            var autoClose = function() { popup.classList.remove('show'); document.removeEventListener('scroll', autoClose); };
-            document.addEventListener('scroll', autoClose, {once: true});
-        }, 100);
-    }
-}
-
-// Close user info popups when clicking outside
-document.addEventListener('click', function(e) {
-    if (e.target.closest('.user-info-btn') || e.target.closest('.user-info-popup')) return;
+// Global click: close popup kalau klik di mana saja di luar tabel
+// Table handler pakai stopPropagation, jadi ini hanya nangkep klik di luar tabel
+document.addEventListener('click', function() {
     document.querySelectorAll('.user-info-popup.show').forEach(function(p) { p.classList.remove('show'); });
 });
 
