@@ -963,17 +963,23 @@ button:disabled, .btn-sm:disabled, .btn-upload:disabled, .btn-login:disabled {
 }
 .modal-header h3 { @apply m-0 text-lg font-semibold; }
 .modal-close {
-    @apply bg-none border-none text-lg text-[var(--color-text-secondary)] cursor-pointer transition-colors;
+    @apply border-none text-[length:1.1rem] text-[var(--color-text-secondary)] cursor-pointer;
     width: 32px;
     height: 32px;
     display: flex;
     align-items: center;
     justify-content: center;
     border-radius: 8px;
+    background: rgba(255, 255, 255, 0.06);
+    transition: all 0.2s ease;
 }
 .modal-close:hover {
-    @apply text-[var(--color-danger)];
-    background: rgba(239, 68, 68, 0.1);
+    color: var(--color-danger);
+    background: rgba(239, 68, 68, 0.15);
+}
+.modal-close:focus-visible {
+    outline: 2px solid var(--color-primary);
+    outline-offset: 2px;
 }
 .modal-body { @apply p-6 overflow-y-auto flex-1; }
 .modal-footer {

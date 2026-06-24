@@ -1706,23 +1706,24 @@ input:disabled, select:disabled, textarea:disabled, button:disabled, .btn-sm:dis
   cursor: pointer;
   --tw-border-style: none;
   border-style: none;
-  background-image: none;
-  font-size: var(--text-lg);
-  line-height: var(--tw-leading, var(--text-lg--line-height));
+  font-size: 1.1rem;
   color: var(--color-text-secondary);
-  transition-property: color, background-color, border-color, outline-color, text-decoration-color, fill, stroke, --tw-gradient-from, --tw-gradient-via, --tw-gradient-to;
-  transition-timing-function: var(--tw-ease, var(--default-transition-timing-function));
-  transition-duration: var(--tw-duration, var(--default-transition-duration));
   width: 32px;
   height: 32px;
   display: flex;
   align-items: center;
   justify-content: center;
   border-radius: 8px;
+  background: rgba(255, 255, 255, 0.06);
+  transition: all 0.2s ease;
 }
 .modal-close:hover {
   color: var(--color-danger);
-  background: rgba(239, 68, 68, 0.1);
+  background: rgba(239, 68, 68, 0.15);
+}
+.modal-close:focus-visible {
+  outline: 2px solid var(--color-primary);
+  outline-offset: 2px;
 }
 .modal-body {
   flex: 1;
