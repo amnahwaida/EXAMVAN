@@ -617,8 +617,8 @@ const DEFAULT_IDENTITY_FIELDS = [
     { key: 'exam_number', label: 'Nomor Ujian', required: true },
     { key: 'student_class', label: 'Kelas', required: true }
 ];
-/** Key dari 3 field default yang wajib ada dan tidak bisa diubah/dihapus */
-const LOCKED_IDENTITY_KEYS = ['student_name', 'exam_number', 'student_class'];
+/** Label dari field default yang wajib ada dan tidak bisa diubah/dihapus */
+const LOCKED_IDENTITY_LABELS = ['Nama Siswa'];
 
 function renderIdentityFields(fields) {
     const container = document.getElementById('identityFieldsList');
@@ -636,7 +636,7 @@ function renderIdentityFields(fields) {
 function addIdentityFieldRow(container, field, index) {
     const row = document.createElement('div');
     row.className = 'identity-field-row';
-    const isLocked = LOCKED_IDENTITY_KEYS.includes(field.key);
+    const isLocked = LOCKED_IDENTITY_LABELS.includes(field.label);
 
     row.innerHTML = `
         <span class="identity-field-num">${index + 1}</span>
