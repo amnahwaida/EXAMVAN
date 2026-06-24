@@ -132,7 +132,7 @@
    style="padding:8px 32px 8px 14px;background:rgba(255,255,255,0.04);border:1px solid var(--color-glass-border);border-radius:10px;color:var(--color-text);outline:none;font-size:13px;width:220px;transition:border-color 0.2s;"
    onkeyup="if(event.key==='Enter') { loadUsersList(1); }"
    onfocus="this.style.borderColor='var(--color-primary)'" onblur="this.style.borderColor=''">
-  <button class="search-clear-btn" onclick="document.getElementById('userSearchInput').value='';loadUsersList(1); this.style.display='none';" id="userSearchClearBtn" title="Hapus" aria-label="Hapus pencarian">&#x2715;</button>
+  <button class="search-clear-btn" onclick="document.getElementById('userSearchInput').value='';loadUsersList(1); this.style.display='none';" id="userSearchClearBtn" title="Hapus" aria-label="Hapus pencarian"><svg class="icon-svg" style="width:14px;height:14px;"><use href="#hi-x"/></svg></button>
  </div>
  <button class="btn-sm btn-toggle" onclick="loadUsersList(1)" style="height:32px;padding:0 12px;" title="Cari user"><svg class="icon-svg"><use href="#hi-search"/></svg> Cari</button>
  </div>

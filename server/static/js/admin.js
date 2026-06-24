@@ -63,7 +63,7 @@ if (uploadForm) {
         progressDiv.style.display = 'flex';
 
         const xhr = new XMLHttpRequest();
-        xhr.open('POST', '/admin/create-exam');
+        xhr.open('POST', '/admin/api/upload');
         xhr.setRequestHeader('X-CSRF-Token', getCsrfToken());
 
         xhr.upload.addEventListener('progress', function(e) {
@@ -368,7 +368,7 @@ function createNewQuestionCard(q, num) {
                 <input type="text" class="q-options-input" value="${escapeHtml(optionsVal)}" placeholder="A, B, C, D, E">
             </div>
         </div>
-        <button class="btn-sm btn-delete btn-remove-q" onclick="removeQuestionCard(this)" title="Hapus Soal">🗑️</button>
+        <button class="btn-sm btn-delete btn-remove-q" onclick="removeQuestionCard(this)" title="Hapus Soal"><svg class="icon-svg" style="width:14px;height:14px;"><use href="#hi-trash"/></svg></button>
     `;
     return card;
 }
@@ -379,7 +379,7 @@ function createDivider(index) {
     div.dataset.index = index;
     div.innerHTML = `
         <div class="q-divider-line"></div>
-        <button class="btn-add-inline" onclick="insertQuestionAt(${index})" title="Sisipkan Soal Baru Di Sini">➕ Sisipkan Soal</button>
+        <button class="btn-add-inline" onclick="insertQuestionAt(${index})" title="Sisipkan Soal Baru Di Sini"><svg class="icon-svg" style="width:14px;height:14px;"><use href="#hi-plus"/></svg> Sisipkan Soal</button>
         <div class="q-divider-line"></div>
     `;
     return div;
@@ -613,12 +613,12 @@ function renderQuestions(questions) {
 
 // ===== Identity Fields Management =====
 const DEFAULT_IDENTITY_FIELDS = [
-    { key: 'student_name', label: 'Nama Siswa', required: true },
+    { key: 'student_name', label: 'Nama', required: true },
     { key: 'exam_number', label: 'Nomor Ujian', required: true },
     { key: 'student_class', label: 'Kelas', required: true }
 ];
 /** Label dari field default yang wajib ada dan tidak bisa diubah/dihapus */
-const LOCKED_IDENTITY_LABELS = ['Nama Siswa'];
+const LOCKED_IDENTITY_LABELS = ['Nama'];
 
 function renderIdentityFields(fields) {
     const container = document.getElementById('identityFieldsList');
@@ -644,7 +644,7 @@ function addIdentityFieldRow(container, field, index) {
         <label class="ifield-required-wrap" ${isLocked ? 'style="opacity:0.5;"' : ''}>
             <input type="checkbox" class="ifield-required" ${field.required ? 'checked' : ''} ${isLocked ? 'disabled' : ''}> Wajib
         </label>
-        ${isLocked ? '<span class="ifield-locked-badge" title="Field bawaan, tidak bisa dihapus">🔒</span>' : '<button class="ifield-remove-btn" onclick="this.closest(\'.identity-field-row\').remove()" title="Hapus field" aria-label="Hapus field">&#x2715;</button>'}
+        ${isLocked ? '<span class="ifield-locked-badge" title="Field bawaan, tidak bisa dihapus"><svg class="icon-svg" style="width:14px;height:14px;"><use href="#hi-lock"/></svg></span>' : '<button class="ifield-remove-btn" onclick="this.closest(\'.identity-field-row\').remove()" title="Hapus field" aria-label="Hapus field"><svg class="icon-svg" style="width:14px;height:14px;"><use href="#hi-x"/></svg></button>'}
     `;
 
     container.appendChild(row);
@@ -1005,20 +1005,20 @@ function loadUsersList(page) {
                     var actionsHtml = '<span style="font-size:11px; color: var(--color-text-secondary);">—</span>';
                     if (!isAdmin) {
                         var verifyBtn = user.status === 'pending_otp'
-                            ? '<button class="btn-sm" onclick="verifyUser(' + user.id + ', \'' + jsEscape(user.username) + '\')" title="Verifikasi manual" style="font-size:11px;padding:0 8px;height:26px;background:rgba(99,102,241,0.15);border:1px solid rgba(99,102,241,0.3);color:#a5b4fc;">✅</button> '
+                            ? '<button class="btn-sm" onclick="verifyUser(' + user.id + ', \'' + jsEscape(user.username) + '\')" title="Verifikasi manual" style="font-size:11px;padding:0 8px;height:26px;background:rgba(99,102,241,0.15);border:1px solid rgba(99,102,241,0.3);color:#a5b4fc;"><svg class="icon-svg" style="width:14px;height:14px;"><use href="#hi-check"/></svg></button> '
                             : '';
 
                         actionsHtml = '<div style="display:flex;gap:4px;flex-wrap:wrap;justify-content:flex-end;">'
                             + verifyBtn
-                            + '<button class="btn-sm" onclick="openEditUserModal(' + user.id + ')" title="Atur limit & reset password" style="font-size:11px;padding:0 8px;height:26px;background:rgba(99,102,241,0.1);border:1px solid rgba(99,102,241,0.2);color:#a5b4fc;">✏️</button> '
-                            + '<button class="btn-sm btn-delete" onclick="deleteUser(' + user.id + ', \'' + jsEscape(user.username) + '\')" style="font-size:11px;padding:0 8px;height:26px;">🗑️</button>'
+                            + '<button class="btn-sm" onclick="openEditUserModal(' + user.id + ')" title="Atur limit & reset password" style="font-size:11px;padding:0 8px;height:26px;background:rgba(99,102,241,0.1);border:1px solid rgba(99,102,241,0.2);color:#a5b4fc;"><svg class="icon-svg" style="width:14px;height:14px;"><use href="#hi-edit"/></svg></button> '
+                            + '<button class="btn-sm btn-delete" onclick="deleteUser(' + user.id + ', \'' + jsEscape(user.username) + '\')" style="font-size:11px;padding:0 8px;height:26px;"><svg class="icon-svg" style="width:14px;height:14px;"><use href="#hi-trash"/></svg></button>'
                             + '</div>';
                     }
 
                     tr.innerHTML = `
                         <td data-label="Username">
                             <strong class="user-info-btn" style="cursor:pointer;color: ${isAdmin ? 'var(--color-accent-light)' : 'var(--color-text)'};">
-                                ${isAdmin ? '👑 ' : ''}${escapeHtml(user.username)}
+                                ${isAdmin ? '<svg class="icon-svg" style="width:16px;height:16px;vertical-align:middle;color:#fbbf24;"><use href="#hi-star"/></svg> ' : ''}${escapeHtml(user.username)}
                             </strong>
                             ${isAdmin ? '<span style="font-size:11px; color: var(--color-text-secondary); display:block;">Super Admin</span>' : ''}
                             <div class="user-info-popup" style="display:none;">
@@ -1728,12 +1728,12 @@ function toggleShowAnswers(examId) {
                         btn.style.background = 'rgba(251, 191, 36, 0.15)';
                         btn.style.borderColor = 'rgba(251, 191, 36, 0.3)';
                         btn.style.color = '#fbbf24';
-                        btn.textContent = '🔓 Kunci Terlihat';
+                        btn.innerHTML = '<svg class="icon-svg" style="width:14px;height:14px;"><use href="#hi-lock-open"/></svg> Kunci Terlihat';
                     } else {
                         btn.style.background = 'rgba(107, 114, 128, 0.15)';
                         btn.style.borderColor = 'rgba(107, 114, 128, 0.3)';
                         btn.style.color = '#9ca3af';
-                        btn.textContent = '🔒 Kunci Tersembunyi';
+                        btn.innerHTML = '<svg class="icon-svg" style="width:14px;height:14px;"><use href="#hi-lock"/></svg> Kunci Tersembunyi';
                     }
                 }
             } else {
@@ -2255,7 +2255,7 @@ function closeDetailModal() {
 (function() {
     var table = document.getElementById('submissionsTable');
     if (!table) return;
-    var LABEL_MAP = { student_name: 'Nama Siswa', exam_number: 'Nomor Ujian', student_class: 'Kelas' };
+    var LABEL_MAP = { student_name: 'Nama', exam_number: 'Nomor Ujian', student_class: 'Kelas' };
     table.addEventListener('click', function(e) {
         var btn = e.target.closest('.submission-identity-btn');
         if (btn) {

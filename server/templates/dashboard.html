@@ -134,7 +134,7 @@
  onkeyup="if(event.key==='Enter') searchExams()"
  onfocus="this.style.borderColor='var(--color-primary)'" onblur="this.style.borderColor=''"
  oninput="debounceSearch(); var c=this.nextElementSibling; if(c)c.style.display=this.value?'flex':'none'">
- <button class="search-clear-btn" id="searchClearBtn" onclick="clearSearch()" style="display:{{ 'flex' if search else 'none' }};" title="Hapus pencarian" aria-label="Hapus pencarian">&#x2715;</button>
+ <button class="search-clear-btn" id="searchClearBtn" onclick="clearSearch()" style="display:{{ 'flex' if search else 'none' }};" title="Hapus pencarian" aria-label="Hapus pencarian"><svg class="icon-svg" style="width:14px;height:14px;"><use href="#hi-x"/></svg></button>
  </div>
  <button class="btn-sm btn-toggle btn-sm-compact" onclick="searchExams()" style="padding: 0 12px;" title="Cari ujian"><svg class="icon-svg"><use href="#hi-search"/></svg> Cari</button>
  <button class="btn-sm btn-questions btn-sm-compact" onclick="copyAllTokens()" title="Salin Semua Token"><svg class="icon-svg"><use href="#hi-copy"/></svg> Salin Token</button>
