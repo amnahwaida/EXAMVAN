@@ -1062,13 +1062,15 @@ button:disabled, .btn-sm:disabled, .btn-upload:disabled, .btn-login:disabled {
 .q-field-group { @apply flex flex-col gap-1 min-w-0; }
 .q-field-group label { @apply text-[10.5px] font-semibold uppercase tracking-[0.3px] text-[var(--color-text-muted)]; }
 .q-field-group input,
-.q-field-group select {
+.q-field-group select,
+.q-field-input {
     @apply px-3 py-2 rounded-lg text-sm text-[var(--color-text)] outline-none transition-all duration-200;
     background: rgba(255, 255, 255, 0.04);
     border: 1px solid rgba(255, 255, 255, 0.08);
 }
 .q-field-group input:focus,
-.q-field-group select:focus {
+.q-field-group select:focus,
+.q-field-input:focus {
     @apply border-[var(--color-primary)] shadow-[0_0_0_3px_var(--color-primary-glow)];
     background: rgba(99, 102, 241, 0.06);
 }

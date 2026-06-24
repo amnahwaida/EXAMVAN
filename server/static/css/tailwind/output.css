@@ -1853,7 +1853,7 @@ input:disabled, select:disabled, textarea:disabled, button:disabled, .btn-sm:dis
   color: var(--color-text-muted);
   text-transform: uppercase;
 }
-.q-field-group input, .q-field-group select {
+.q-field-group input, .q-field-group select, .q-field-input {
   border-radius: var(--radius-lg);
   padding-inline: calc(var(--spacing) * 3);
   padding-block: calc(var(--spacing) * 2);
@@ -1870,7 +1870,7 @@ input:disabled, select:disabled, textarea:disabled, button:disabled, .btn-sm:dis
   background: rgba(255, 255, 255, 0.04);
   border: 1px solid rgba(255, 255, 255, 0.08);
 }
-.q-field-group input:focus, .q-field-group select:focus {
+.q-field-group input:focus, .q-field-group select:focus, .q-field-input:focus {
   border-color: var(--color-primary);
   --tw-shadow: 0 0 0 3px var(--tw-shadow-color, var(--color-primary-glow));
   box-shadow: var(--tw-inset-shadow), var(--tw-inset-ring-shadow), var(--tw-ring-offset-shadow), var(--tw-ring-shadow), var(--tw-shadow);
