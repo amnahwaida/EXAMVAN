@@ -617,6 +617,8 @@ const DEFAULT_IDENTITY_FIELDS = [
     { key: 'exam_number', label: 'Nomor Ujian', required: true },
     { key: 'student_class', label: 'Kelas', required: true }
 ];
+/** Key dari 3 field default yang wajib ada dan tidak bisa diubah/dihapus */
+const LOCKED_IDENTITY_KEYS = ['student_name', 'exam_number', 'student_class'];
 
 function renderIdentityFields(fields) {
     const container = document.getElementById('identityFieldsList');
@@ -634,14 +636,15 @@ function renderIdentityFields(fields) {
 function addIdentityFieldRow(container, field, index) {
     const row = document.createElement('div');
     row.className = 'identity-field-row';
+    const isLocked = LOCKED_IDENTITY_KEYS.includes(field.key);
 
     row.innerHTML = `
         <span class="identity-field-num">${index + 1}</span>
-        <input type="text" class="ifield-label" value="${escapeHtml(field.label || '')}" placeholder="Label tampilan (cth: Nama Siswa)" title="Label yang dilihat siswa">
-        <label class="ifield-required-wrap">
-            <input type="checkbox" class="ifield-required" ${field.required ? 'checked' : ''}> Wajib
+        <input type="text" class="ifield-label" value="${escapeHtml(field.label || '')}" placeholder="Label tampilan (cth: Nama Siswa)" title="Label yang dilihat siswa" ${isLocked ? 'readonly style="opacity:0.7;cursor:not-allowed;"' : ''}>
+        <label class="ifield-required-wrap" ${isLocked ? 'style="opacity:0.5;"' : ''}>
+            <input type="checkbox" class="ifield-required" ${field.required ? 'checked' : ''} ${isLocked ? 'disabled' : ''}> Wajib
         </label>
-        <button class="ifield-remove-btn" onclick="this.closest('.identity-field-row').remove()" title="Hapus field" aria-label="Hapus field">&#x2715;</button>
+        ${isLocked ? '<span class="ifield-locked-badge" title="Field bawaan, tidak bisa dihapus">🔒</span>' : '<button class="ifield-remove-btn" onclick="this.closest(\'.identity-field-row\').remove()" title="Hapus field" aria-label="Hapus field">&#x2715;</button>'}
     `;
 
     container.appendChild(row);
@@ -2247,6 +2250,58 @@ function showSubmissionDetail(id) {
 function closeDetailModal() {
     document.getElementById('detailModal').style.display = 'none';
 }
+
+// ===== Identity Popup (klik nama siswa di tabel hasil) =====
+(function() {
+    var table = document.getElementById('submissionsTable');
+    if (!table) return;
+    var LABEL_MAP = { student_name: 'Nama Siswa', exam_number: 'Nomor Ujian', student_class: 'Kelas' };
+    table.addEventListener('click', function(e) {
+        var btn = e.target.closest('.submission-identity-btn');
+        if (btn) {
+            var popup = document.getElementById('identityPopup');
+            if (!popup) return;
+            // Baca identity_data dari data-identity
+            var raw = btn.getAttribute('data-identity');
+            var data = {};
+            try { data = JSON.parse(raw); } catch (x) {}
+            // Bangun konten popup — tampilkan SEMUA field identity
+            var html = '<div class="identity-popup-header">Identitas Siswa</div><div class="identity-popup-body">';
+            for (var k in data) {
+                if (data.hasOwnProperty(k) && data[k]) {
+                    var label = LABEL_MAP[k] || k.replace(/_/g, ' ').replace(/\b\w/g, function(c) { return c.toUpperCase(); });
+                    html += '<div class="identity-popup-item"><span class="idp-label">' + escapeHtml(label) + '</span><strong class="idp-value">' + escapeHtml(String(data[k])) + '</strong></div>';
+                }
+            }
+            html += '</div>';
+            popup.innerHTML = html;
+            // Tutup popup lain
+            document.querySelectorAll('.identity-popup.show').forEach(function(p) { if (p !== popup) p.classList.remove('show'); });
+            // Toggle
+            var isOpen = popup.classList.contains('show');
+            if (isOpen) {
+                popup.classList.remove('show');
+            } else {
+                popup.classList.add('show');
+                var rect = btn.getBoundingClientRect();
+                popup.style.position = 'fixed';
+                popup.style.top = Math.min(rect.bottom + 4, window.innerHeight - 200) + 'px';
+                popup.style.left = Math.max(10, Math.min(rect.left, window.innerWidth - 240)) + 'px';
+            }
+            e.stopPropagation();
+            return;
+        }
+        // Click di luar popup
+        if (!e.target.closest('.identity-popup')) {
+            document.querySelectorAll('.identity-popup.show').forEach(function(p) { p.classList.remove('show'); });
+        }
+    });
+})();
+
+// Global click: close identity popup
+document.addEventListener('click', function() {
+    document.querySelectorAll('.identity-popup.show').forEach(function(p) { p.classList.remove('show'); });
+});
 
 // ===== Search Exams =====
 const debounceSearch = debounce(function () {

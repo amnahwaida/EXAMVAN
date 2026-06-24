@@ -75,9 +75,6 @@
   .fixed {
     position: fixed;
   }
-  .relative {
-    position: relative;
-  }
   .static {
     position: static;
   }
@@ -199,10 +196,6 @@
   }
   .text-right {
     text-align: right;
-  }
-  .font-medium {
-    --tw-font-weight: var(--font-weight-medium);
-    font-weight: var(--font-weight-medium);
   }
   .text-indigo-300 {
     color: var(--color-indigo-300);
@@ -2264,6 +2257,55 @@ input:disabled, select:disabled, textarea:disabled, button:disabled, .btn-sm:dis
   margin-top: 2px;
   padding-top: 6px;
 }
+.identity-popup {
+  display: none;
+  z-index: 100;
+  background: rgba(15, 15, 35, 0.97);
+  border: 1px solid var(--color-glass-border);
+  border-radius: 10px;
+  min-width: 220px;
+  box-shadow: 0 12px 40px rgba(0,0,0,0.5);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  overflow: hidden;
+}
+.identity-popup.show {
+  display: block !important;
+}
+.identity-popup-header {
+  padding: 10px 14px 6px;
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--color-accent-light);
+  border-bottom: 1px solid rgba(255,255,255,0.06);
+}
+.identity-popup-body {
+  padding: 6px 14px 10px;
+}
+.identity-popup-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 4px 0;
+  font-size: 12px;
+  gap: 16px;
+}
+.identity-popup-item .idp-label {
+  color: var(--color-text-muted);
+  white-space: nowrap;
+}
+.identity-popup-item .idp-value {
+  color: var(--color-text);
+  font-weight: 600;
+  text-align: right;
+}
+.identity-popup-item + .identity-popup-item {
+  border-top: 1px solid rgba(255,255,255,0.04);
+  margin-top: 2px;
+  padding-top: 6px;
+}
 .users-layout {
   display: grid;
   align-items: flex-start;
@@ -3088,10 +3130,6 @@ input[type="date"]:invalid, input[type="date"][value=""], input[type="time"]:inv
   inherits: false;
   initial-value: solid;
 }
-@property --tw-font-weight {
-  syntax: "*";
-  inherits: false;
-}
 @property --tw-shadow {
   syntax: "*";
   inherits: false;
@@ -3251,6 +3289,10 @@ input[type="date"]:invalid, input[type="date"][value=""], input[type="time"]:inv
   syntax: "*";
   inherits: false;
 }
+@property --tw-font-weight {
+  syntax: "*";
+  inherits: false;
+}
 @property --tw-duration {
   syntax: "*";
   inherits: false;
@@ -3341,7 +3383,6 @@ input[type="date"]:invalid, input[type="date"][value=""], input[type="time"]:inv
       --tw-skew-y: initial;
       --tw-space-y-reverse: 0;
       --tw-border-style: solid;
-      --tw-font-weight: initial;
       --tw-shadow: 0 0 #0000;
       --tw-shadow-color: initial;
       --tw-shadow-alpha: 100%;
@@ -3379,6 +3420,7 @@ input[type="date"]:invalid, input[type="date"][value=""], input[type="time"]:inv
       --tw-backdrop-opacity: initial;
       --tw-backdrop-saturate: initial;
       --tw-backdrop-sepia: initial;
+      --tw-font-weight: initial;
       --tw-duration: initial;
       --tw-scale-x: 1;
       --tw-scale-y: 1;

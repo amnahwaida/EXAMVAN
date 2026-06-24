@@ -97,7 +97,9 @@
  {% for sub in submissions %}
  {% set score_pct = (sub.score / max_score * 100) if max_score else none %}
  <tr id="submission-row-{{ sub.id }}" data-exam-id="{{ sub.exam_id }}" style="transition: background 0.2s;">
- <td data-label="Siswa" class="max-md:flex max-md:gap-1 max-md:items-baseline"><strong>{{ sub.student_name }}</strong></td>
+ <td data-label="Siswa" class="max-md:flex max-md:gap-1 max-md:items-baseline">
+  <strong class="submission-identity-btn" style="cursor:pointer;position:relative;" data-identity='{{ sub.identity_data | tojson }}'>{{ sub.student_name }}</strong>
+ </td>
  <td data-label="No. Ujian" class="max-md:flex max-md:gap-1 max-md:items-baseline"><code class="token-code" style="letter-spacing: normal; font-size:12px;">{{ sub.exam_number }}</code></td>
  <td data-label="Kelas" class="max-md:flex max-md:gap-1 max-md:items-baseline">{{ sub.student_class }}</td>
  <td data-label="Nilai">
@@ -169,6 +171,9 @@
  {% endif %}
  </section>
  </main>
+
+ <!-- Identity Info Popup (ditampilkan saat klik nama siswa) -->
+ <div class="identity-popup" id="identityPopup" style="display:none;"></div>
 
  <!-- Detail Submission Modal -->
  <div class="modal-overlay" id="detailModal">

@@ -1791,6 +1791,10 @@ def admin_submissions():
                 sub_max_score = sum(float(q.get('weight', 1.0)) for q in questions)
             except Exception as e:
                 logger.warning("Failed to parse questions for submission %s: %s", sub['id'], e)
+        try:
+            identity_data = json.loads(sub['identity_data']) if sub['identity_data'] else {}
+        except Exception:
+            identity_data = {}
         sub_data.append({
             'id': sub['id'],
             'exam_id': sub['exam_id'],
@@ -1798,6 +1802,7 @@ def admin_submissions():
             'student_name': sub['student_name'],
             'exam_number': sub['exam_number'],
             'student_class': sub['student_class'],
+            'identity_data': identity_data,
             'answers_json': sub['answers_json'],
             'score': sub['score'],
             'max_score': sub_max_score,
@@ -1882,12 +1887,18 @@ def admin_submission_detail(submission_id):
         
     evaluated_answers = evaluate_answers_detailed(answers, questions)
 
+    try:
+        identity_data = json.loads(sub['identity_data']) if sub['identity_data'] else {}
+    except Exception:
+        identity_data = {}
+
     return jsonify({
         'success': True,
         'submission_id': sub['id'],
         'student_name': sub['student_name'],
         'exam_number': sub['exam_number'],
         'student_class': sub['student_class'],
+        'identity_data': identity_data,
         'exam_name': sub['exam_name'],
         'score': sub['score'],
         'start_time': format_iso_utc(sub['start_time']) if sub['start_time'] else None,
