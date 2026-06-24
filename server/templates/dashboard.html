@@ -94,7 +94,7 @@
  <div class="file-input-wrapper">
  <input type="file" id="pdfFile" name="pdf_file" accept="application/pdf" required>
  <div class="file-input-display" id="fileDisplay">
- <span class="file-icon">📄</span>
+ <svg class="icon-svg" style="width:20px;height:20px;flex-shrink:0;"><use href="#hi-file"/></svg>
  <span class="file-text">Pilih file PDF...</span>
  </div>
  </div>
@@ -149,7 +149,7 @@
  </div>
  {% if exams | length == 0 %}
  <div class="empty-state">
- <div class="empty-icon">&#x1F4ED;</div>
+ <div class="empty-icon"><svg class="icon-svg-xl" style="margin:0 auto 16px;opacity:0.4;"><use href="#hi-upload"/></svg></div>
  <p>Belum ada ujian. Upload ujian pertama Anda di atas.</p>
  </div>
  {% else %}
@@ -185,9 +185,9 @@
  <td class="td-token" data-label="Token">
  <div class="token-group">
  <code class="token-code" id="token-{{ exam.id }}" data-token="{{ exam.token }}" onclick="copyToken(this.dataset.token)" title="Klik untuk Salin Token" tabindex="0" role="button" onkeydown="if(event.key==='Enter'||event.key===' ') { event.preventDefault(); copyToken(this.dataset.token); }">{{ exam.token or '—' }}</code>
- <button class="btn-icon btn-regen" onclick="regenerateToken({{ exam.id }})" title="Generate Token Baru" aria-label="Generate token baru">&#x1F504;</button>
- <button class="btn-icon btn-edit" data-exam-id="{{ exam.id }}" data-token="{{ exam.token }}" onclick="openEditTokenModal(this.dataset.examId, this.dataset.token)" title="Ubah Token Kustom" aria-label="Ubah token">&#x270F;&#xFE0F;</button>
- <button class="btn-icon btn-copy-link" data-token="{{ exam.token }}" onclick="copyResultsLink(this.dataset.token)" title="Salin Link Hasil Ujian (Siswa)" aria-label="Salin link hasil">&#x1F517;</button>
+ <button class="btn-icon btn-regen" onclick="regenerateToken({{ exam.id }})" title="Generate Token Baru" aria-label="Generate token baru"><svg class="icon-svg" style="width:16px;height:16px;"><use href="#hi-refresh"/></svg></button>
+ <button class="btn-icon btn-edit" data-exam-id="{{ exam.id }}" data-token="{{ exam.token }}" onclick="openEditTokenModal(this.dataset.examId, this.dataset.token)" title="Ubah Token Kustom" aria-label="Ubah token"><svg class="icon-svg" style="width:16px;height:16px;"><use href="#hi-edit"/></svg></button>
+ <button class="btn-icon btn-copy-link" data-token="{{ exam.token }}" onclick="copyResultsLink(this.dataset.token)" title="Salin Link Hasil Ujian (Siswa)" aria-label="Salin link hasil"><svg class="icon-svg" style="width:16px;height:16px;"><use href="#hi-link"/></svg></button>
  </div>
  </td>
  <td data-label="Ukuran">{{ "%.2f"|format(exam.size_bytes / 1048576) }} MB</td>
@@ -206,7 +206,7 @@
  <!-- Dropdown Menu for Secondary Actions -->
  <div class="exam-action-dropdown">
  <button class="btn-sm btn-more btn-sm-compact" onclick="toggleRowDropdown(event, {{ exam.id }})" title="Menu Tindakan Lainnya" style="gap: 4px;">
- <svg class="icon-svg"><use href="#hi-dashboard"/></svg> Menu &#x25BE;
+ <svg class="icon-svg"><use href="#hi-dashboard"/></svg> Menu <svg class="icon-svg" style="width:14px;height:14px;"><use href="#hi-chevron-down"/></svg>
  </button>
  <div class="exam-action-dropdown-content" id="dropdown-content-{{ exam.id }}">
  <a href="{{ url_for('admin_exam_pdf', exam_id=exam.id) }}" target="_blank">
@@ -250,7 +250,7 @@
  <div style="display: flex; justify-content: space-between; align-items: center; padding: 16px 0 0 0; flex-wrap: wrap; gap: 12px;">
  <span style="font-size: 13px; color: var(--color-text-muted);">Menampilkan {{ exams|length }} dari {{ total_exams }} ujian</span>
  <div style="display: flex; gap: 6px; align-items: center;">
- <a href="?page={{ page-1 }}{% if search %}&search={{ search|urlencode }}{% endif %}" class="btn-sm btn-toggle page-link-main {% if page <= 1 %}disabled{% endif %}">&#x25C0; Sebelumnya</a>
+ <a href="?page={{ page-1 }}{% if search %}&search={{ search|urlencode }}{% endif %}" class="btn-sm btn-toggle page-link-main {% if page <= 1 %}disabled{% endif %}"><svg class="icon-svg" style="width:14px;height:14px;"><use href="#hi-chevron-left"/></svg> Sebelumnya</a>
 
  {% for p in range(1, total_pages + 1) %}
  {% if p >= page - 2 and p <= page + 2 %}
@@ -258,7 +258,7 @@
  {% endif %}
  {% endfor %}
 
- <a href="?page={{ page+1 }}{% if search %}&search={{ search|urlencode }}{% endif %}" class="btn-sm btn-toggle page-link-main {% if page >= total_pages %}disabled{% endif %}">Berikutnya &#x25B6;</a>
+ <a href="?page={{ page+1 }}{% if search %}&search={{ search|urlencode }}{% endif %}" class="btn-sm btn-toggle page-link-main {% if page >= total_pages %}disabled{% endif %}">Berikutnya <svg class="icon-svg" style="width:14px;height:14px;"><use href="#hi-chevron-right"/></svg></a>
  </div>
  </div>
  {% endif %}
@@ -271,7 +271,7 @@
  <div class="modal-card glass-card">
  <div class="modal-header">
  <h3 id="modalTitle">Atur Soal Ujian</h3>
- <button class="modal-close" onclick="closeQuestionsModal()" aria-label="Tutup">&#x2715;</button>
+ <button class="modal-close" onclick="closeQuestionsModal()" aria-label="Tutup"><svg class="icon-svg" style="width:18px;height:18px;"><use href="#hi-x"/></svg></button>
  </div>
  <div class="modal-body">
  <div class="security-level-config" style="margin-bottom: 20px; padding: 12px 16px; background: rgba(255, 255, 255, 0.03); border: 1px solid var(--glass-border); border-radius: 12px;">
@@ -302,7 +302,7 @@
  <div style="font-size: 0.75rem; color: var(--color-text-muted);">Data yang wajib diisi siswa sebelum memulai ujian di Android.</div>
  </div>
  </div>
- <button class="btn-sm btn-questions" onclick="addIdentityField()" style="height: 30px; font-size: 12px;">➕ Tambah Field</button>
+ <button class="btn-sm btn-questions" onclick="addIdentityField()" style="height: 30px; font-size: 12px;"><svg class="icon-svg" style="width:14px;height:14px;"><use href="#hi-plus"/></svg> Tambah Field</button>
  </div>
  <div id="identityFieldsList">
  <!-- Fields rendered by JS -->

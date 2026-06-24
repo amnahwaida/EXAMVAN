@@ -85,7 +85,7 @@
  <div class="modal-card glass-card" style="max-width: 420px;">
  <div class="modal-header">
  <h3 id="changePasswordModalTitle"><svg class="icon-svg" style="vertical-align:middle;margin-top:-2px;"><use href="#hi-key"/></svg> Ubah Password</h3>
- <button class="modal-close" onclick="closeChangePasswordModal()" aria-label="Tutup">✕</button>
+ <button class="modal-close" onclick="closeChangePasswordModal()" aria-label="Tutup"><svg class="icon-svg" style="width:18px;height:18px;"><use href="#hi-x"/></svg></button>
  </div>
  <div class="modal-body">
  <form id="changePasswordForm" onsubmit="submitChangePassword(event)">
@@ -137,7 +137,7 @@
  <div class="modal-card glass-card" style="max-width: 480px;">
  <div class="modal-header">
  <h3><svg class="icon-svg" style="vertical-align:middle;margin-top:-2px;"><use href="#hi-edit"/></svg> Edit Ujian (Nama & PDF)</h3>
- <button class="modal-close" onclick="closeEditExamModal()" aria-label="Tutup">✕</button>
+ <button class="modal-close" onclick="closeEditExamModal()" aria-label="Tutup"><svg class="icon-svg" style="width:18px;height:18px;"><use href="#hi-x"/></svg></button>
  </div>
  <div class="modal-body">
  <form id="editExamForm" onsubmit="submitEditExam(event)" enctype="multipart/form-data">
@@ -152,7 +152,7 @@
  <div class="file-input-wrapper">
  <input type="file" id="editPdfFile" accept="application/pdf" onchange="handleEditFileChange(this)">
  <div class="file-input-display" id="editFileDisplay">
- <span class="file-icon">📄</span>
+ <svg class="icon-svg" style="width:20px;height:20px;flex-shrink:0;"><use href="#hi-file"/></svg>
  <span class="file-text" id="editFileDisplayText">Pilih file PDF baru jika ingin merubah...</span>
  </div>
  </div>
@@ -172,7 +172,7 @@
  <div class="modal-card glass-card" style="max-width: 400px;">
  <div class="modal-header">
  <h3 id="editTokenModalTitle"><svg class="icon-svg" style="vertical-align:middle;margin-top:-2px;"><use href="#hi-edit"/></svg> Ubah Token Kustom</h3>
- <button class="modal-close" onclick="closeEditTokenModal()" aria-label="Tutup">✕</button>
+ <button class="modal-close" onclick="closeEditTokenModal()" aria-label="Tutup"><svg class="icon-svg" style="width:18px;height:18px;"><use href="#hi-x"/></svg></button>
  </div>
  <div class="modal-body">
  <form id="editTokenForm" onsubmit="submitEditToken(event)">

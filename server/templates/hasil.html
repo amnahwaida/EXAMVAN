@@ -69,7 +69,7 @@
  <div class="stats-row" id="statsRow" style="display: none;"></div>
  {% if is_disabled %}
  <section class="glass-card" style="padding: 60px 40px; text-align: center; margin-top: 24px; border: 1px solid rgba(239, 68, 68, 0.15); background: rgba(239, 68, 68, 0.02);">
- <div style="font-size: 3.5rem; margin-bottom: 20px; filter: drop-shadow(0 0 10px rgba(239,68,68,0.3));" aria-hidden="true">🔒</div>
+ <svg class="icon-svg" style="width:60px;height:60px;margin-bottom:20px;color:#ef4444;filter:drop-shadow(0 0 10px rgba(239,68,68,0.3));" aria-hidden="true"><use href="#hi-lock"/></svg>
  <h2 style="font-size: 1.6rem; font-weight: 800; color: #f8fafc; margin-bottom: 12px; font-family: 'Inter', sans-serif;">Halaman Hasil Dinonaktifkan</h2>
  <p style="color: var(--color-text-secondary); max-width: 520px; margin: 0 auto 28px auto; line-height: 1.7; font-size: 0.95rem;">
  Halaman hasil ujian untuk siswa pada ujian ini telah dinonaktifkan oleh Guru / Admin yang bersangkutan.
@@ -77,7 +77,7 @@
  </p>
  <div style="display: inline-flex; justify-content: center; width: 100%;">
  <a href="{{ url_for('admin_login') }}" style="background: linear-gradient(135deg, var(--color-primary), var(--color-accent)); color: white; padding: 12px 28px; border-radius: 12px; font-weight: 600; text-decoration: none; display: inline-flex; align-items: center; gap: 8px; box-shadow: 0 4px 20px rgba(99, 102, 241, 0.25); transition: all 0.3s;">
- <span aria-hidden="true">🔑</span> Login Webapp Admin
+ <svg class="icon-svg" style="width:14px;height:14px;vertical-align:middle;" aria-hidden="true"><use href="#hi-key"/></svg> Login Webapp Admin
  </a>
  </div>
  </section>
@@ -118,7 +118,7 @@
  <thead>
  <tr>
  <th scope="col" style="width: 50px;">#</th>
- <th scope="col">Nama Siswa</th>
+ <th scope="col">Nama</th>
  <th scope="col">No. Ujian</th>
  <th scope="col">Kelas</th>
  <th scope="col" class="td-center">Waktu Pengerjaan</th>
@@ -151,7 +151,7 @@
 
  <!-- Empty state -->
  <div class="empty-state" id="emptyState" style="display: none;">
- <div class="empty-icon" aria-hidden="true">📭</div>
+ <div class="empty-icon" aria-hidden="true"><svg class="icon-svg-xl" style="margin:0 auto 16px;opacity:0.4;"><use href="#hi-clipboard"/></svg></div>
  <p>Belum ada siswa yang mengumpulkan jawaban untuk ujian ini.</p>
  </div>
 
@@ -193,7 +193,7 @@
  const resp = await fetch(`/api/hasil/${EXAM_TOKEN}`);
  if (!resp.ok) {
   document.getElementById('loadingIndicator').innerHTML = 
-  '<div class="empty-state"><div class="empty-icon" aria-hidden="true">⚠️</div><p>Gagal memuat data (HTTP ' + resp.status + '). Coba lagi nanti.</p>' +
+  '<div class="empty-state"><div class="empty-icon" aria-hidden="true"><svg class="icon-svg" style="width:40px;height:40px;margin-bottom:16px;opacity:0.4;"><use href="#hi-exclamation"/></svg></div><p>Gagal memuat data (HTTP ' + resp.status + '). Coba lagi nanti.</p>' +
   '<button class="back-nav" onclick="location.reload()" style="margin-top:16px;display:inline-flex;"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M1 4v6h6m0 0L4 7.5A8 8 0 0 1 17.5 5.5m0 14A8 8 0 0 1 4.5 18m0 0L7 15.5"/></svg> Coba Lagi</button></div>';
   return;
  }
@@ -201,7 +201,7 @@
  
  if (!data.success) {
  document.getElementById('loadingIndicator').innerHTML = 
- `<div class="empty-state"><div class="empty-icon" aria-hidden="true">❌</div><p>${data.message || 'Gagal memuat data'}</p></div>`;
+ `<div class="empty-state"><div class="empty-icon" aria-hidden="true"><svg class="icon-svg" style="width:40px;height:40px;margin-bottom:16px;opacity:0.4;"><use href="#hi-x"/></svg></div><p>${data.message || 'Gagal memuat data'}</p></div>`;
  return;
  }
 
@@ -274,7 +274,7 @@
  } catch (err) {
  console.error('Error loading results:', err);
  document.getElementById('loadingIndicator').innerHTML = 
- '<div class="empty-state"><div class="empty-icon" aria-hidden="true">⚠️</div><p>Gagal memuat data hasil ujian. Periksa koneksi atau coba lagi nanti.</p>' +
+ '<div class="empty-state"><div class="empty-icon" aria-hidden="true"><svg class="icon-svg" style="width:40px;height:40px;margin-bottom:16px;opacity:0.4;"><use href="#hi-exclamation"/></svg></div><p>Gagal memuat data hasil ujian. Periksa koneksi atau coba lagi nanti.</p>' +
  '<button class="back-nav" onclick="location.reload()" style="margin-top:16px;display:inline-flex;"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M1 4v6h6m0 0L4 7.5A8 8 0 0 1 17.5 5.5m0 14A8 8 0 0 1 4.5 18m0 0L7 15.5"/></svg> Coba Lagi</button></div>';
  }
  }
