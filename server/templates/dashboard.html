@@ -194,7 +194,7 @@
  </td>
  <td data-label="Ukuran">{{ "%.2f"|format(exam.size_bytes / 1048576) }} MB</td>
  <td data-label="Status">
- <span class="status-badge status-{{ exam.status }}" id="status-{{ exam.id }}">
+ <span class="status-badge status-{{ exam.status }}" id="status-{{ exam.id }}" onclick="toggleExam({{ exam.id }})" tabindex="0" role="button" title="Klik untuk toggle status" onkeydown="if(event.key==='Enter'||event.key===' ') { event.preventDefault(); toggleExam({{ exam.id }}); }">
  {{ exam.status }}
  </span>
  </td>

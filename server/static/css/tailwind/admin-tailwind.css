@@ -241,23 +241,44 @@ select[multiple] option:checked {
     @apply flex items-center justify-between mb-4 flex-wrap gap-3;
 }
 
-/* === Status Badges === */
+/* === Status Badges — juga sebagai toggle button === */
 .status-badge {
     @apply inline-flex items-center px-2.5 py-1 rounded-md text-xs font-semibold uppercase;
     font-size: 0.65rem;
     letter-spacing: 0.06em;
+    cursor: pointer;
+    user-select: none;
+    transition: all 0.25s var(--ease-spring);
+}
+.status-badge:active {
+    transform: scale(0.92);
 }
 .status-active {
     @apply bg-[rgba(16,185,129,0.12)] text-[var(--color-success)];
     border: 1px solid rgba(16, 185, 129, 0.2);
 }
+.status-active:hover {
+    background: rgba(239, 68, 68, 0.1);
+    border-color: rgba(239, 68, 68, 0.3);
+    color: var(--color-danger);
+}
 .status-inactive {
     @apply bg-[rgba(245,158,11,0.12)] text-[var(--color-warning)];
     border: 1px solid rgba(245, 158, 11, 0.2);
 }
+.status-inactive:hover {
+    background: rgba(16, 185, 129, 0.1);
+    border-color: rgba(16, 185, 129, 0.3);
+    color: var(--color-success);
+}
 .status-suspended {
     @apply bg-[rgba(239,68,68,0.12)] text-[var(--color-danger)];
     border: 1px solid rgba(239, 68, 68, 0.2);
+}
+.status-suspended:hover {
+    background: rgba(245, 158, 11, 0.1);
+    border-color: rgba(245, 158, 11, 0.3);
+    color: var(--color-warning);
 }
 
 /* === Empty State === */

@@ -104,19 +104,36 @@ if (uploadForm) {
     });
 }
 
-// Toggle exam status
+// Toggle exam status — update UI in-place tanpa reload
 function toggleExam(examId) {
+    const badge = document.getElementById('status-' + examId);
+    if (!badge) return;
+    // Disable sementara untuk cegah double-click
+    badge.style.pointerEvents = 'none';
+    badge.style.opacity = '0.5';
+
     apiFetch(`/admin/api/exams/${examId}/toggle`, { method: 'POST' })
         .then(r => r.json())
         .then(res => {
             if (res.success) {
+                // Update badge in-place berdasarkan new_status dari server
+                var isActive = res.new_status === 'active';
+                badge.classList.toggle('status-active', isActive);
+                badge.classList.toggle('status-inactive', !isActive);
+                badge.textContent = res.new_status || (isActive ? 'active' : 'inactive');
                 showToast(res.message, 'success');
-                setTimeout(() => location.reload(), 800);
             } else {
                 showToast(res.message || 'Gagal mengubah status', 'error');
+                badge.style.opacity = '1';
             }
         })
-        .catch(() => showToast('Koneksi gagal', 'error'));
+        .catch(function() {
+            showToast('Koneksi gagal', 'error');
+            badge.style.opacity = '1';
+        })
+        .finally(function() {
+            badge.style.pointerEvents = '';
+        });
 }
 
 // Delete exam
