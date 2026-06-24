@@ -168,8 +168,6 @@
  <th scope="col">Token</th>
  <th scope="col">Ukuran</th>
  <th scope="col">Status</th>
- <th scope="col">Siswa</th>
- <th scope="col">Tanggal Upload</th>
  <th scope="col">Aksi</th>
  </tr>
  </thead>
@@ -198,10 +196,6 @@
  {{ exam.status }}
  </span>
  </td>
- <td data-label="Siswa">
- <a href="{{ url_for('admin_submissions') }}?exam_id={{ exam.id }}" class="badge badge-info" style="text-decoration: none; background: rgba(34, 211, 238, 0.1); color: #22d3ee; padding: 4px 8px; border-radius: 6px; font-weight: 600;">{{ exam.sub_count }} Jawaban</a>
- </td>
- <td class="td-date" data-label="Tanggal" data-utc="{{ exam.created_at }}">{{ exam.created_at }}</td>
  <td class="td-actions" data-label="">
  <div class="actions-group">
  <!-- Primary Actions -->
