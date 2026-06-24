@@ -1,11 +1,4 @@
-# Stage 1: Build Tailwind CSS
-FROM node:20-alpine AS css-builder
-WORKDIR /build
-COPY server/ /build/server/
-COPY package.json /build/
-RUN npm install && npm run tailwind:build
-
-# Stage 2: Python app
+# Single-stage build — Tailwind CSS sudah pre-built (output.css di-track git)
 FROM python:3.10-slim
 
 # Create non-root user
@@ -28,11 +21,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends curl && \
 COPY server/requirements.txt /app/
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Copy backend files
+# Copy backend files (termasuk output.css yang sudah pre-built)
 COPY server/ /app/
-
-# Copy pre-built Tailwind CSS from builder stage
-COPY --from=css-builder /build/server/static/css/tailwind/output.css /app/static/css/tailwind/output.css
 
 # Ensure directories exist and set ownership for runtime
 RUN mkdir -p /app/data /app/storage && chown -R appuser:appgroup /app
