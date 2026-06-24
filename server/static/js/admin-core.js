@@ -341,16 +341,26 @@ async function refreshDashboardStats() {
     } catch (e) {
         // Silent fail — don't disrupt the user
         console.debug('Dashboard auto-refresh failed (expected on non-dashboard pages)');
+        // Fallback: jika skeleton masih terlihat, reload untuk tampilkan data dari server
+        const skeleton = document.querySelector('.skeleton-card');
+        if (skeleton && document.getElementById('statsGrid')) {
+            setTimeout(() => location.reload(), 3000);
+        }
     }
 }
 
 function refreshUserInterface(stats) {
     // Update stats in the stat cards
     const statValueEls = document.querySelectorAll('.stat-card .stat-value');
-    if (statValueEls.length >= 3) {
-        statValueEls[0].textContent = stats.total || '0';
-        statValueEls[1].textContent = stats.active || '0';
-        statValueEls[2].textContent = (stats.total - stats.active) || '0';
+    if (statValueEls.length >= 4) {
+        statValueEls[0].textContent = stats.total ?? '0';
+        statValueEls[1].textContent = stats.active ?? '0';
+        statValueEls[2].textContent = (stats.total - stats.active) ?? '0';
+        statValueEls[3].textContent = (stats.storage_mb ?? '0') + ' MB';
+    } else if (statValueEls.length >= 3) {
+        statValueEls[0].textContent = stats.total ?? '0';
+        statValueEls[1].textContent = stats.active ?? '0';
+        statValueEls[2].textContent = (stats.total - stats.active) ?? '0';
     }
 }
 
@@ -447,10 +457,15 @@ if (document.readyState === 'loading') {
     document.addEventListener('DOMContentLoaded', () => {
         initMenuToggle();
         initSkipLink();
-        if (document.getElementById('statsGrid')) showDashboardSkeletons();
+        // Data stats di-render server, langsung pakai API untuk refresh
+        if (document.getElementById('statsGrid')) {
+            refreshDashboardStats();
+        }
     });
 } else {
     initMenuToggle();
     initSkipLink();
-    if (document.getElementById('statsGrid')) showDashboardSkeletons();
+    if (document.getElementById('statsGrid')) {
+        refreshDashboardStats();
+    }
 }
