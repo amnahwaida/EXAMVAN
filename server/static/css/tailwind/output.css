@@ -72,6 +72,12 @@
   .absolute {
     position: absolute;
   }
+  .fixed {
+    position: fixed;
+  }
+  .relative {
+    position: relative;
+  }
   .static {
     position: static;
   }
@@ -2219,6 +2225,44 @@ input:disabled, select:disabled, textarea:disabled, button:disabled, .btn-sm:dis
   background: var(--color-surface);
   border: 1px solid var(--color-glass-border);
   color: var(--color-text);
+}
+.user-info-btn {
+  position: relative;
+}
+.user-info-popup {
+  position: absolute;
+  z-index: 100;
+  background: rgba(15, 15, 35, 0.97);
+  border: 1px solid var(--color-glass-border);
+  border-radius: 10px;
+  padding: 10px 14px;
+  min-width: 220px;
+  box-shadow: 0 12px 40px rgba(0,0,0,0.5);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+}
+.user-info-popup.show {
+  display: block !important;
+}
+.user-info-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 4px 0;
+  font-size: 12px;
+  gap: 16px;
+}
+.user-info-item span {
+  color: var(--color-text-muted);
+}
+.user-info-item strong {
+  color: var(--color-text);
+  font-weight: 600;
+}
+.user-info-item + .user-info-item {
+  border-top: 1px solid rgba(255,255,255,0.04);
+  margin-top: 2px;
+  padding-top: 6px;
 }
 .users-layout {
   display: grid;

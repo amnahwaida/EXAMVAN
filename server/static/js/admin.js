@@ -965,7 +965,7 @@ function loadUsersList(page) {
     var url = '/admin/api/users?page=' + page + '&per_page=10';
     if (searchVal) url += '&search=' + encodeURIComponent(searchVal);
 
-    tbody.innerHTML = '<tr><td colspan="9" style="text-align:center; padding: 20px; color: var(--color-text-secondary);">⏳ Memuat...</td></tr>';
+    tbody.innerHTML = '<tr><td colspan="5" style="text-align:center; padding: 20px; color: var(--color-text-secondary);">⏳ Memuat...</td></tr>';
 
     apiFetch(url)
         .then(r => r.json())
@@ -975,7 +975,7 @@ function loadUsersList(page) {
                 tbody.innerHTML = '';
 
                 if (!Array.isArray(res.users) || res.users.length === 0) {
-                    tbody.innerHTML = '<tr><td colspan="9" style="text-align:center; padding: 40px; color: var(--color-text-secondary);">'
+                    tbody.innerHTML = '<tr><td colspan="5" style="text-align:center; padding: 40px; color: var(--color-text-secondary);">'
                         + (searchVal ? 'Tidak ditemukan user yang cocok dengan "' + escapeHtml(searchVal) + '"' : 'Belum ada user terdaftar')
                         + '</td></tr>';
                     renderUsersPagination(pagination, page);
@@ -1022,11 +1022,18 @@ function loadUsersList(page) {
                         </td>
                         <td data-label="WhatsApp">${escapeHtml(user.whatsapp_number || '—')}</td>
                         <td data-label="Status" style="text-align:center;">${statusBadge}</td>
-                        <td data-label="Ujian" style="text-align:center;">${user.exam_count ?? 0}</td>
-                        <td data-label="Limit Ujian" style="text-align:center;">${user.max_exams ?? '—'}</td>
-                        <td data-label="Limit PDF" style="text-align:center;">${limitPdfMb}</td>
-                        <td data-label="Masa Aktif" style="font-size:12px; color:var(--color-text-secondary);">${expiresAt}</td>
-                        <td data-label="Terdaftar" class="td-date">${createdAt}</td>
+                        <td data-label="Info" style="text-align:left;">
+                            <button class="btn-sm btn-toggle btn-sm-compact user-info-btn" onclick="toggleUserInfo(this)" style="gap:4px;padding:0 10px;font-size:11px;" data-ujian="${user.exam_count ?? 0}" data-limit="${user.max_exams ?? '—'}" data-pdf="${limitPdfMb}" data-expires="${expiresAt}" data-terdaftar="${createdAt}">
+                                <svg class="icon-svg" style="width:14px;height:14px;"><use href="#hi-eye"/></svg> Detail
+                            </button>
+                            <div class="user-info-popup" style="display:none;">
+                                <div class="user-info-item"><span>Ujian</span><strong>${user.exam_count ?? 0}</strong></div>
+                                <div class="user-info-item"><span>Limit Ujian</span><strong>${user.max_exams ?? '—'}</strong></div>
+                                <div class="user-info-item"><span>Limit PDF</span><strong>${limitPdfMb}</strong></div>
+                                <div class="user-info-item"><span>Masa Aktif</span><strong>${expiresAt}</strong></div>
+                                <div class="user-info-item"><span>Terdaftar</span><strong>${createdAt}</strong></div>
+                            </div>
+                        </td>
                         <td data-label="Aksi" style="text-align:right;">${actionsHtml}</td>
                     `;
                     tbody.appendChild(tr);
@@ -1034,11 +1041,11 @@ function loadUsersList(page) {
                 localizeDates();
                 renderUsersPagination(pagination, page);
             } else {
-                tbody.innerHTML = '<tr><td colspan="9" style="text-align:center; padding: 20px; color: #fca5a5;">Gagal memuat daftar user</td></tr>';
+                tbody.innerHTML = '<tr><td colspan="5" style="text-align:center; padding: 20px; color: #fca5a5;">Gagal memuat daftar user</td></tr>';
             }
         })
         .catch(() => {
-            tbody.innerHTML = '<tr><td colspan="9" style="text-align:center; padding: 20px; color: #fca5a5;">Gagal memuat daftar user</td></tr>';
+            tbody.innerHTML = '<tr><td colspan="5" style="text-align:center; padding: 20px; color: #fca5a5;">Gagal memuat daftar user</td></tr>';
         });
 }
 
@@ -1105,6 +1112,35 @@ function localizeDates() {
         }
     });
 }
+
+// Toggle user info popup
+function toggleUserInfo(btn) {
+    // Close all other popups first
+    document.querySelectorAll('.user-info-popup.show').forEach(function(p) {
+        if (p !== btn.nextElementSibling) p.classList.remove('show');
+    });
+    var popup = btn.nextElementSibling;
+    if (popup) {
+        var isOpen = popup.classList.toggle('show');
+        // Position the popup relative to the button
+        if (isOpen) {
+            var rect = btn.getBoundingClientRect();
+            popup.style.position = 'fixed';
+            popup.style.top = Math.min(rect.bottom + 4, window.innerHeight - 200) + 'px';
+            popup.style.left = Math.max(10, rect.left) + 'px';
+            // Auto-close on scroll
+            var autoClose = function() { popup.classList.remove('show'); document.removeEventListener('scroll', autoClose); };
+            document.addEventListener('scroll', autoClose, {once: true});
+        }
+    }
+}
+
+// Close user info popups when clicking outside
+document.addEventListener('click', function(e) {
+    if (!e.target.closest('.user-info-btn') && !e.target.closest('.user-info-popup')) {
+        document.querySelectorAll('.user-info-popup.show').forEach(function(p) { p.classList.remove('show'); });
+    }
+});
 
 function deleteUser(userId, username) {
     showConfirm(`Hapus user "${username}"?`, 'Semua ujian dan data yang dibuat oleh user ini akan ikut terhapus.').then(ok => {
