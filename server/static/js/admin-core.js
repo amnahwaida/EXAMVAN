@@ -435,8 +435,8 @@ function initPasswordStrengthMeter(inputId, meterId) {
 function initSkipLink() {
     const skipLink = document.querySelector('.skip-link');
     if (!skipLink) return;
-    skipLink.addEventListener('focus', function() { this.style.top = '8px'; });
-    skipLink.addEventListener('blur', function() { this.style.top = '-100px'; });
+    skipLink.addEventListener('focus', function() { this.style.left = '8px'; });
+    skipLink.addEventListener('blur', function() { this.style.left = '-9999px'; });
     // Skip link hanya bereaksi terhadap keyboard focus, bukan mouse hover (WCAG 2.4.1)
     // mouseenter/mouseleave tidak ditambahkan untuk menghindari skip link muncul
     // saat mouse melewati area atas halaman, yang mengganggu pengguna visual.
