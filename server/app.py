@@ -356,7 +356,11 @@ def inject_csrf_token():
     if _css_hash is None:
         try:
             css_path = os.path.join(BASE_DIR, 'static', 'css', 'tailwind', 'output.css')
-            _css_hash = hex(os.path.getmtime(css_path))[2:8] if os.path.exists(css_path) else ''
+            if os.path.exists(css_path):
+                mtime = int(os.path.getmtime(css_path))
+                _css_hash = hex(mtime)[2:8]
+            else:
+                _css_hash = ''
         except Exception:
             _css_hash = ''
     return {'csrf_token': generate_csrf_token(), 'version': VERSION + _css_hash}
