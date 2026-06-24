@@ -13,12 +13,31 @@
     box-sizing: border-box;
 }
 
-/* Ensure dark theme text color on body */
+/* Ensure dark theme on body.admin pages.
+   color-scheme: dark → browser render native form controls (select
+   dropdown, calendar, date picker, spinner) dalam dark theme di Chromium.
+   Semua halaman yg load file ini (admin, login, register) dark-themed. */
 body {
     color: #f8fafc;
     font-family: 'Plus Jakarta Sans', 'Inter', system-ui, -apple-system, sans-serif;
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
+    color-scheme: dark;
+}
+
+/* === Select Dropdown Option Styling === */
+/* Native <option> styling — support terbatas di Chrome/Firefox.
+   Membantu agar option list tidak putih polos saat dropdown. */
+option {
+    background: #1a1a2e;
+    color: #e2e8f0;
+}
+option:hover, option:focus {
+    background: #2d2d4a;
+}
+select[multiple] option:checked {
+    background: #4f46e5;
+    color: #fff;
 }
 
 /* Tailwind Component Classes */

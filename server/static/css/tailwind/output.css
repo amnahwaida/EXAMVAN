@@ -270,6 +270,18 @@ body {
   font-family: 'Plus Jakarta Sans', 'Inter', system-ui, -apple-system, sans-serif;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
+  color-scheme: dark;
+}
+option {
+  background: #1a1a2e;
+  color: #e2e8f0;
+}
+option:hover, option:focus {
+  background: #2d2d4a;
+}
+select[multiple] option:checked {
+  background: #4f46e5;
+  color: #fff;
 }
 .glass-card {
   border-radius: var(--radius-2xl);
