@@ -1115,31 +1115,37 @@ function localizeDates() {
 
 // Toggle user info popup
 function toggleUserInfo(btn) {
-    // Close all other popups first
-    document.querySelectorAll('.user-info-popup.show').forEach(function(p) {
-        if (p !== btn.nextElementSibling) p.classList.remove('show');
-    });
     var popup = btn.nextElementSibling;
-    if (popup) {
-        var isOpen = popup.classList.toggle('show');
+    if (!popup) return;
+
+    var isOpen = popup.classList.contains('show');
+
+    // Close ALL popups first (including other users')
+    document.querySelectorAll('.user-info-popup.show').forEach(function(p) {
+        p.classList.remove('show');
+    });
+
+    if (!isOpen) {
+        popup.classList.add('show');
         // Position the popup relative to the button
-        if (isOpen) {
-            var rect = btn.getBoundingClientRect();
-            popup.style.position = 'fixed';
-            popup.style.top = Math.min(rect.bottom + 4, window.innerHeight - 200) + 'px';
-            popup.style.left = Math.max(10, rect.left) + 'px';
-            // Auto-close on scroll
+        var rect = btn.getBoundingClientRect();
+        popup.style.position = 'fixed';
+        var topPos = rect.bottom + 4;
+        var maxTop = window.innerHeight - 200;
+        popup.style.top = Math.min(topPos, maxTop) + 'px';
+        popup.style.left = Math.max(10, Math.min(rect.left, window.innerWidth - 240)) + 'px';
+        // Auto-close on scroll (delayed to prevent immediate close)
+        setTimeout(function() {
             var autoClose = function() { popup.classList.remove('show'); document.removeEventListener('scroll', autoClose); };
             document.addEventListener('scroll', autoClose, {once: true});
-        }
+        }, 100);
     }
 }
 
 // Close user info popups when clicking outside
 document.addEventListener('click', function(e) {
-    if (!e.target.closest('.user-info-btn') && !e.target.closest('.user-info-popup')) {
-        document.querySelectorAll('.user-info-popup.show').forEach(function(p) { p.classList.remove('show'); });
-    }
+    if (e.target.closest('.user-info-btn') || e.target.closest('.user-info-popup')) return;
+    document.querySelectorAll('.user-info-popup.show').forEach(function(p) { p.classList.remove('show'); });
 });
 
 function deleteUser(userId, username) {
