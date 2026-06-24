@@ -2157,11 +2157,25 @@ def _sanitize_xlsx(value):
 
 def _parse_identity_fields(exam_or_fields):
     """Parse identity_fields dari exam row atau langsung list of dicts.
-    Return list of {key, label, required}."""
-    if isinstance(exam_or_fields, dict):
-        raw = exam_or_fields.get('identity_fields', '')
-    else:
+    Return list of {key, label, required}.
+
+    exam_or_fields bisa berupa:
+    - dict / sqlite3.Row (hasil query DB) → ambil field 'identity_fields'
+    - string JSON langsung
+    - list langsung
+    - None
+    """
+    # Case 1: sudah berupa list
+    if isinstance(exam_or_fields, list):
+        return exam_or_fields
+
+    # Case 2: dict / sqlite3.Row — coba bracket access
+    try:
+        raw = exam_or_fields['identity_fields'] or ''
+    except (TypeError, KeyError, IndexError):
+        # Case 3: string JSON atau None
         raw = exam_or_fields or ''
+
     try:
         fields = json.loads(raw) if raw else []
         if fields and isinstance(fields, list):
@@ -2174,10 +2188,22 @@ def _parse_identity_fields(exam_or_fields):
 def _get_identity_data(sub):
     """Parse identity_data dari submission row, return dict."""
     try:
-        raw = sub['identity_data'] if isinstance(sub, dict) else getattr(sub, 'identity_data', '')
+        # sub bisa sqlite3.Row atau dict
+        raw = sub['identity_data'] if hasattr(sub, '__getitem__') else getattr(sub, 'identity_data', '')
         return json.loads(raw) if raw else {}
     except Exception:
         return {}
+
+
+def _get_sub_field(sub, key, default=''):
+    """Get field dari submission row, handle sqlite3.Row atau dict."""
+    try:
+        return sub[key]
+    except (TypeError, KeyError, IndexError):
+        try:
+            return getattr(sub, key, default)
+        except Exception:
+            return default
 
 
 def _identity_headers_and_values(identity_fields, identity_data, sub):
@@ -2196,13 +2222,8 @@ def _identity_headers_and_values(identity_fields, identity_data, sub):
         # Ambil dari identity_data dulu, fallback ke kolom lama
         val = identity_data.get(key)
         if val is None or val == '':
-            # Fallback ke kolom legacy
-            if key == 'student_name':
-                val = sub['student_name'] if isinstance(sub, dict) else sub.student_name
-            elif key == 'exam_number':
-                val = sub['exam_number'] if isinstance(sub, dict) else sub.exam_number
-            elif key == 'student_class':
-                val = sub['student_class'] if isinstance(sub, dict) else sub.student_class
+            if key in ('student_name', 'exam_number', 'student_class'):
+                val = _get_sub_field(sub, key, '')
             else:
                 val = ''
         values.append(_sanitize_xlsx(str(val)) if val is not None else '—')
