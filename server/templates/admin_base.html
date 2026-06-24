@@ -13,7 +13,7 @@
 </head>
 <body class="dashboard-page">
  <!-- Skip to content link for keyboard users — visible only when focused (WCAG 2.4.1) -->
- <a href="#main-content" class="skip-link" style="position:absolute;left:-9999px;z-index:9999;padding:12px 20px;background:var(--color-primary);color:var(--color-text-on-primary);border-radius:8px;font-weight:600;text-decoration:none;" onfocus="this.style.left='8px'" onblur="this.style.left='-9999px'">Langsung ke konten</a>
+ <a href="#main-content" class="skip-link" style="position:absolute;left:-9999px;z-index:9999;padding:12px 20px;background:var(--color-primary);color:var(--color-text-on-primary);border-radius:8px;font-weight:600;text-decoration:none;">Langsung ke konten</a>
  <nav class="topbar">
  <div class="topbar-left">
  <div class="topbar-logo">E</div>
@@ -84,13 +84,14 @@
  <div class="modal-overlay" id="changePasswordModal">
  <div class="modal-card glass-card" style="max-width: 420px;">
  <div class="modal-header">
- <h3><svg class="icon-svg" style="vertical-align:middle;margin-top:-2px;"><use href="#hi-key"/></svg> Ubah Password</h3>
+ <h3 id="changePasswordModalTitle"><svg class="icon-svg" style="vertical-align:middle;margin-top:-2px;"><use href="#hi-key"/></svg> Ubah Password</h3>
  <button class="modal-close" onclick="closeChangePasswordModal()" aria-label="Tutup">✕</button>
  </div>
  <div class="modal-body">
  <form id="changePasswordForm" onsubmit="submitChangePassword(event)">
+<input type="hidden" name="csrf_token" value="{{ csrf_token }}">
  <div class="form-group" style="margin-bottom: 16px;">
- <label for="currentPassword">Password Saat Ini</label>
+ <label  class="required" for="currentPassword">Password Saat Ini</label>
  <div class="password-wrapper">
  <input type="password" id="currentPassword" required placeholder="Masukkan password lama">
  <button type="button" id="toggleCurPassword" class="password-toggle-btn" aria-label="Tampilkan/sembunyikan password" style="background:none; border:none; cursor:pointer; padding:4px; line-height:1;">
@@ -102,7 +103,7 @@
  </div>
  </div>
  <div class="form-group" style="margin-bottom: 16px;">
- <label for="newPassword">Password Baru</label>
+ <label  class="required" for="newPassword">Password Baru</label>
  <div class="password-wrapper">
  <input type="password" id="newPassword" required placeholder="Masukkan password baru (min. 8 karakter)" minlength="8">
  <button type="button" id="toggleNewPassword" class="password-toggle-btn" aria-label="Tampilkan/sembunyikan password" style="background:none; border:none; cursor:pointer; padding:4px; line-height:1;">
@@ -114,7 +115,7 @@
  </div>
  </div>
  <div class="form-group" style="margin-bottom: 24px;">
- <label for="confirmNewPassword">Konfirmasi Password Baru</label>
+ <label  class="required" for="confirmNewPassword">Konfirmasi Password Baru</label>
  <div class="password-wrapper">
  <input type="password" id="confirmNewPassword" required placeholder="Ulangi password baru">
  <button type="button" id="toggleConfirmPassword" class="password-toggle-btn" aria-label="Tampilkan/sembunyikan password" style="background:none; border:none; cursor:pointer; padding:4px; line-height:1;">
@@ -143,7 +144,7 @@
 <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
  <input type="hidden" id="editExamId">
  <div class="form-group" style="margin-bottom: 16px;">
- <label for="editExamName">Nama Ujian</label>
+ <label  class="required" for="editExamName">Nama Ujian</label>
  <input type="text" id="editExamName" required placeholder="Contoh: UTS Matematika Kelas 10">
  </div>
  <div class="form-group" style="margin-bottom: 20px;">
@@ -170,7 +171,7 @@
  <div class="modal-overlay" id="editTokenModal">
  <div class="modal-card glass-card" style="max-width: 400px;">
  <div class="modal-header">
- <h3><svg class="icon-svg" style="vertical-align:middle;margin-top:-2px;"><use href="#hi-edit"/></svg> Ubah Token Kustom</h3>
+ <h3 id="editTokenModalTitle"><svg class="icon-svg" style="vertical-align:middle;margin-top:-2px;"><use href="#hi-edit"/></svg> Ubah Token Kustom</h3>
  <button class="modal-close" onclick="closeEditTokenModal()" aria-label="Tutup">✕</button>
  </div>
  <div class="modal-body">
@@ -178,7 +179,7 @@
 <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
  <input type="hidden" id="editTokenExamId">
  <div class="form-group" style="margin-bottom: 20px;">
- <label for="editTokenInput">Token Kustom Baru (Tepat 6 Karakter)</label>
+ <label  class="required" for="editTokenInput">Token Kustom Baru (Tepat 6 Karakter)</label>
  <input type="text" id="editTokenInput" required maxlength="6" minlength="6" placeholder="Contoh: UN2026" style="text-transform: uppercase; font-size: 20px; text-align: center; letter-spacing: 4px; font-weight: bold; font-family: monospace;">
  </div>
  <button type="submit" class="btn-upload" style="width: 100%;"><svg class="icon-svg" aria-hidden="true"><use href="#hi-check"/></svg> Simpan Token Baru</button>
@@ -238,6 +239,12 @@
      var el = document.getElementById(id);
      if (!el) return;
      el.style.display = 'flex';
+     // ARIA roles for accessibility
+     el.setAttribute('role', 'dialog');
+     el.setAttribute('aria-modal', 'true');
+     var titleEl = el.querySelector('.modal-header h3');
+     if (titleEl && titleEl.id) el.setAttribute('aria-labelledby', titleEl.id);
+     // Focus trap
      var focusable = el.querySelectorAll('button, input, select, textarea, [tabindex]:not([tabindex="-1"])');
      if (focusable.length) setTimeout(function() { focusable[0].focus(); }, 100);
      function handler(e) {
@@ -248,7 +255,7 @@
              if (e.shiftKey && document.activeElement === first) { e.preventDefault(); last.focus(); }
              else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first.focus(); }
          }
-         if (e.key === 'Escape') { el.style.display = 'none'; }
+         if (e.key === 'Escape') { __closeModal(id); }
      }
      el.addEventListener('keydown', handler);
      __trapCleanup = function() { el.removeEventListener('keydown', handler); };

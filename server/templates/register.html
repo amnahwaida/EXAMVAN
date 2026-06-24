@@ -34,16 +34,16 @@
  <form method="POST" action="{{ url_for('register') }}" class="login-form" id="registerForm" autocomplete="off">
  <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
  <div class="form-group">
- <label for="username">Username</label>
+ <label  class="required" for="username">Username</label>
  <input type="text" id="username" name="username" placeholder="Pilih username unik" required minlength="3" autofocus>
  </div>
  <div class="form-group">
- <label for="whatsapp">Nomor WhatsApp</label>
+ <label  class="required" for="whatsapp">Nomor WhatsApp</label>
  <input type="tel" id="whatsapp" name="whatsapp" placeholder="Contoh: 081234567890" required pattern="\+?[0-9]{10,15}">
  <span class="form-hint-subtle">Digunakan untuk menerima kode OTP via WhatsApp</span>
  </div>
  <div class="form-group">
- <label for="password">Password</label>
+ <label  class="required" for="password">Password</label>
  <div class="password-wrapper">
  <input type="password" id="password" name="password" placeholder="Masukkan password (min. 8 karakter)" required minlength="8">
  <button type="button" id="togglePassword" class="password-toggle-btn" aria-label="Tampilkan password">

@@ -179,6 +179,9 @@ function showConfirm(message, detailText = '', confirmLabel = 'Ya, Hapus', cance
         const overlay = document.createElement('div');
         overlay.className = 'modal-overlay';
         overlay.style.display = 'flex';
+        overlay.setAttribute('role', 'dialog');
+        overlay.setAttribute('aria-modal', 'true');
+        overlay.setAttribute('aria-label', message.replace(/<[^>]*>/g, ''));
 
         const card = document.createElement('div');
         card.className = 'modal-card';
@@ -197,7 +200,33 @@ function showConfirm(message, detailText = '', confirmLabel = 'Ya, Hapus', cance
         overlay.appendChild(card);
         document.body.appendChild(overlay);
 
-        const cleanup = () => overlay.remove();
+        // Focus trap
+        const focusableEls = overlay.querySelectorAll('button:not([disabled])');
+        const firstFocus = focusableEls[0];
+        const lastFocus = focusableEls[focusableEls.length - 1];
+        if (firstFocus) setTimeout(() => firstFocus.focus(), 50);
+
+        const trapHandler = (e) => {
+            if (e.key === 'Tab') {
+                if (e.shiftKey && document.activeElement === firstFocus) {
+                    e.preventDefault();
+                    lastFocus.focus();
+                } else if (!e.shiftKey && document.activeElement === lastFocus) {
+                    e.preventDefault();
+                    firstFocus.focus();
+                }
+            }
+            if (e.key === 'Escape') {
+                cleanup();
+                resolve(false);
+            }
+        };
+        overlay.addEventListener('keydown', trapHandler);
+
+        const cleanup = () => {
+            overlay.removeEventListener('keydown', trapHandler);
+            overlay.remove();
+        };
 
         document.getElementById('confirmOkBtn').addEventListener('click', () => { cleanup(); resolve(true); });
         document.getElementById('confirmCancelBtn').addEventListener('click', () => { cleanup(); resolve(false); });
@@ -408,8 +437,9 @@ function initSkipLink() {
     if (!skipLink) return;
     skipLink.addEventListener('focus', function() { this.style.top = '8px'; });
     skipLink.addEventListener('blur', function() { this.style.top = '-100px'; });
-    skipLink.addEventListener('mouseenter', function() { this.style.top = '8px'; });
-    skipLink.addEventListener('mouseleave', function() { this.style.top = '-100px'; });
+    // Skip link hanya bereaksi terhadap keyboard focus, bukan mouse hover (WCAG 2.4.1)
+    // mouseenter/mouseleave tidak ditambahkan untuk menghindari skip link muncul
+    // saat mouse melewati area atas halaman, yang mengganggu pengguna visual.
 }
 
 // ===== Init All =====

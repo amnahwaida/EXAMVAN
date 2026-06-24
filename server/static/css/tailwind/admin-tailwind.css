@@ -390,6 +390,58 @@ body {
     color: #fff;
 }
 
+/* ===== Search Clear Button ===== */
+.search-clear-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    position: absolute;
+    right: 4px;
+    top: 50%;
+    transform: translateY(-50%);
+    width: 28px;
+    height: 28px;
+    border: none;
+    background: transparent;
+    color: var(--color-text-muted);
+    cursor: pointer;
+    padding: 0;
+    font-size: 14px;
+    border-radius: 6px;
+    transition: all 0.2s ease;
+    z-index: 1;
+}
+.search-clear-btn:hover {
+    background: rgba(255, 255, 255, 0.1);
+    color: var(--color-text-secondary);
+}
+.search-clear-btn:focus-visible {
+    outline: 2px solid var(--color-primary);
+    outline-offset: 2px;
+    background: rgba(255, 255, 255, 0.06);
+}
+
+/* ===== Disabled State ===== */
+input:disabled, select:disabled, textarea:disabled,
+button:disabled, .btn-sm:disabled, .btn-upload:disabled, .btn-login:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+    pointer-events: none;
+}
+
+/* ===== Required Field Indicator ===== */
+.form-group label.required::after {
+    content: ' *';
+    color: var(--color-danger);
+    font-weight: 700;
+}
+
+/* ===== Focus Visible ===== */
+*:focus-visible {
+    outline: 2px solid var(--color-primary);
+    outline-offset: 2px;
+}
+
 /* Toast types */
 .toast-success {
     background: rgba(16, 185, 129, 0.2);

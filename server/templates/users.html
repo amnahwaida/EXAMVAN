@@ -38,15 +38,15 @@
 
  <div class="form-row-3col grid grid-cols-1 sm:grid-cols-3 gap-4">
  <div class="form-group space-y-1">
- <label for="defaultExamsInput">Default Ujian</label>
+ <label  class="required" for="defaultExamsInput">Default Ujian</label>
  <input type="number" id="defaultExamsInput" required min="1">
  </div>
  <div class="form-group space-y-1">
- <label for="defaultPdfInput">Default PDF (MB)</label>
+ <label  class="required" for="defaultPdfInput">Default PDF (MB)</label>
  <input type="number" id="defaultPdfInput" required min="0.1" step="0.1">
  </div>
  <div class="form-group space-y-1">
- <label for="defaultActiveDaysInput">Default Masa Aktif (Hari)</label>
+ <label  class="required" for="defaultActiveDaysInput">Default Masa Aktif (Hari)</label>
  <input type="number" id="defaultActiveDaysInput" required min="1">
  </div>
  </div>
@@ -59,11 +59,11 @@
 
  <div class="form-row-2col grid grid-cols-1 sm:grid-cols-2 gap-4">
  <div class="form-group space-y-1">
- <label for="androidVersionInput">Versi Android App (vX.Y.Z)</label>
+ <label  class="required" for="androidVersionInput">Versi Android App (vX.Y.Z)</label>
  <input type="text" id="androidVersionInput" required placeholder="Contoh: 2.0.0">
  </div>
  <div class="form-group space-y-1">
- <label for="webappVersionInput">Versi WebApp Server (vX.Y.Z)</label>
+ <label  class="required" for="webappVersionInput">Versi WebApp Server (vX.Y.Z)</label>
  <input type="text" id="webappVersionInput" required placeholder="Contoh: 2.0.0">
  </div>
  </div>
@@ -81,11 +81,11 @@
  </h3>
  <form id="newUserForm" onsubmit="createUser(event)" style="display: flex; flex-direction: column; gap: 12px;">
  <div class="form-group space-y-1">
- <label for="usernameInput">Username</label>
+ <label  class="required" for="usernameInput">Username</label>
  <input type="text" id="usernameInput" required placeholder="Contoh: pak_budi" minlength="3">
  </div>
  <div class="form-group space-y-1">
- <label for="passwordInput">Password</label>
+ <label  class="required" for="passwordInput">Password</label>
  <input type="password" id="passwordInput" required placeholder="Password awal" minlength="8">
  </div>
  <div class="form-group space-y-1">
@@ -94,11 +94,11 @@
  </div>
  <div class="form-row-2col grid grid-cols-1 sm:grid-cols-2 gap-4">
  <div class="form-group space-y-1">
- <label for="limitInput">Limit Ujian</label>
+ <label  class="required" for="limitInput">Limit Ujian</label>
  <input type="number" id="limitInput" required value="1" min="1">
  </div>
  <div class="form-group space-y-1">
- <label for="pdfSizeInput">Limit PDF (MB)</label>
+ <label  class="required" for="pdfSizeInput">Limit PDF (MB)</label>
  <input type="number" id="pdfSizeInput" required value="0.5" min="0.1" step="0.1">
  </div>
  </div>
@@ -132,8 +132,7 @@
    style="padding:8px 32px 8px 14px;background:rgba(255,255,255,0.04);border:1px solid var(--color-glass-border);border-radius:10px;color:var(--color-text);outline:none;font-size:13px;width:220px;transition:border-color 0.2s;"
    onkeyup="if(event.key==='Enter') { loadUsersList(1); }"
    onfocus="this.style.borderColor='var(--color-primary)'" onblur="this.style.borderColor=''">
-  <button onclick="document.getElementById('userSearchInput').value='';loadUsersList(1);"
-   style="display:none;position:absolute;right:4px;top:50%;transform:translateY(-50%);background:none;border:none;color:var(--color-text-muted);cursor:pointer;padding:4px;font-size:14px;width:24px;height:24px;align-items:center;justify-content:center;" id="userSearchClearBtn" title="Hapus" aria-label="Hapus pencarian">✕</button>
+  <button class="search-clear-btn" onclick="document.getElementById('userSearchInput').value='';loadUsersList(1); this.style.display='none';" id="userSearchClearBtn" title="Hapus" aria-label="Hapus pencarian">&#x2715;</button>
  </div>
  <button class="btn-sm btn-toggle" onclick="loadUsersList(1)" style="height:32px;padding:0 12px;" title="Cari user"><svg class="icon-svg"><use href="#hi-search"/></svg> Cari</button>
  </div>

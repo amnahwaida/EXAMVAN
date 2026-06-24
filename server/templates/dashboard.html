@@ -86,11 +86,11 @@
  <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
  <div class="form-row">
  <div class="form-group flex-1">
- <label for="examName">Nama Ujian</label>
+ <label  class="required" for="examName">Nama Ujian</label>
  <input type="text" id="examName" name="name" placeholder="Contoh: UTS Matematika Kelas 10" required>
  </div>
  <div class="form-group flex-1">
- <label for="pdfFile">File PDF (max {{ max_size_mb }}MB)</label>
+ <label  class="required" for="pdfFile">File PDF (max {{ max_size_mb }}MB)</label>
  <div class="file-input-wrapper">
  <input type="file" id="pdfFile" name="pdf_file" accept="application/pdf" required>
  <div class="file-input-display" id="fileDisplay">
@@ -134,7 +134,7 @@
  onkeyup="if(event.key==='Enter') searchExams()"
  onfocus="this.style.borderColor='var(--color-primary)'" onblur="this.style.borderColor=''"
  oninput="debounceSearch(); var c=this.nextElementSibling; if(c)c.style.display=this.value?'flex':'none'">
- <button id="searchClearBtn" onclick="clearSearch()" style="display:{{ 'flex' if search else 'none' }}; position:absolute; right:4px; top:50%; transform:translateY(-50%); background:none; border:none; color:var(--color-text-muted); cursor:pointer; padding:4px; font-size:14px; width:24px; height:24px; align-items:center; justify-content:center;" title="Hapus pencarian" aria-label="Hapus pencarian">&#x2715;</button>
+ <button class="search-clear-btn" id="searchClearBtn" onclick="clearSearch()" style="display:{{ 'flex' if search else 'none' }};" title="Hapus pencarian" aria-label="Hapus pencarian">&#x2715;</button>
  </div>
  <button class="btn-sm btn-toggle btn-sm-compact" onclick="searchExams()" style="padding: 0 12px;" title="Cari ujian"><svg class="icon-svg"><use href="#hi-search"/></svg> Cari</button>
  <button class="btn-sm btn-questions btn-sm-compact" onclick="copyAllTokens()" title="Salin Semua Token"><svg class="icon-svg"><use href="#hi-copy"/></svg> Salin Token</button>
