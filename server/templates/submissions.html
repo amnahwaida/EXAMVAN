@@ -94,8 +94,7 @@
  <thead>
  <tr>
  <th scope="col">Nama</th>
- <th scope="col">No. Ujian</th>
- <th scope="col">Kelas</th>
+ <th scope="col">ID Perangkat</th>
  <th scope="col" class="text-center">Nilai</th>
  <th scope="col" class="text-center">Durasi</th>
  <th scope="col" class="text-center">Aksi</th>
@@ -108,8 +107,7 @@
  <td data-label="Siswa" class="max-md:flex max-md:gap-1 max-md:items-baseline">
   <strong class="submission-identity-btn" style="cursor:pointer;position:relative;" data-identity='{{ sub.identity_data | tojson }}'>{{ sub.student_name }}</strong>
  </td>
- <td data-label="No. Ujian" class="max-md:flex max-md:gap-1 max-md:items-baseline"><code class="token-code" style="letter-spacing: normal; font-size:12px;">{{ sub.exam_number }}</code></td>
- <td data-label="Kelas" class="max-md:flex max-md:gap-1 max-md:items-baseline">{{ sub.student_class }}</td>
+ <td data-label="Perangkat"><code style="font-size:11px;color:var(--color-text-muted);font-family:monospace;">{{ sub.mac_address or "—" }}</code></td>
  <td data-label="Nilai">
  {% if sub.score is not none %}
  <div style="display: flex; flex-direction: column; align-items: center; gap: 4px;">

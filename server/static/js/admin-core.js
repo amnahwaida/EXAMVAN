@@ -188,7 +188,7 @@ function showConfirm(message, detailText = '', confirmLabel = 'Ya, Hapus', cance
         card.style.maxWidth = '420px';
         card.innerHTML = `
             <div class="confirm-dialog-body">
-                <div class="confirm-dialog-icon">⚠️</div>
+                <div class="confirm-dialog-icon"><svg class="icon-svg" style="width:32px;height:32px;" aria-hidden="true"><use href="#hi-exclamation"/></svg></div>
                 <div class="confirm-dialog-msg">${escapeHtml(message)}</div>
                 ${detailText ? `<div class="confirm-dialog-detail">${escapeHtml(detailText)}</div>` : ''}
             </div>

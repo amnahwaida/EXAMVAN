@@ -16,7 +16,10 @@ function loadPengawasExams() {
             updatePengawasStats(exams);
 
             if (exams.length === 0) {
-                container.innerHTML = '<div style="text-align:center;padding:40px;color:var(--color-text-secondary);">Belum ada ujian yang ditugaskan kepada Anda sebagai pengawas.</div>';
+                var msg = res.is_privileged
+                    ? 'Belum ada ujian yang tersedia.'
+                    : 'Belum ada ujian yang ditugaskan kepada Anda sebagai pengawas.';
+                container.innerHTML = '<div style="text-align:center;padding:40px;color:var(--color-text-secondary);">' + msg + '</div>';
                 return;
             }
 
@@ -50,7 +53,7 @@ function loadPengawasExams() {
                             '<div class="progress-bar-fill" style="width:' + pct + '%;background:' + barColor + ';"></div>' +
                         '</div>' +
                         '<span class="progress-text" style="color:' + barColor + ';">' + submitted + '/' + total + ' (' + pct + '%)</span>' +
-                        '<button class="student-list-toggle" onclick="toggleStudentList(' + ex.id + ')" id="toggle-btn-' + ex.id + '">Lihat Siswa</button>' +
+                        '<button class="student-list-toggle" onclick="toggleStudentList(' + ex.id + ')" id="toggle-btn-' + ex.id + '"><svg class="icon-svg" style="width:14px;height:14px;"><use href="#hi-chevron-down"/></svg> Lihat Siswa</button>' +
                     '</div>' +
                     '<div id="student-list-' + ex.id + '" style="display:none;"></div>';
                 container.appendChild(card);
@@ -79,7 +82,7 @@ function toggleStudentList(examId) {
     if (!listEl) return;
 
     if (listEl.style.display === 'none') {
-        btn.textContent = 'Sembunyikan';
+        btn.innerHTML = '<svg class="icon-svg" style="width:14px;height:14px;"><use href="#hi-chevron-up"/></svg> Sembunyikan';
         listEl.innerHTML = '<div style="text-align:center;padding:20px;color:var(--color-text-secondary);">⏳ Memuat...</div>';
         listEl.style.display = 'block';
 
@@ -96,20 +99,23 @@ function toggleStudentList(examId) {
                     return;
                 }
                 var html = '<table class="student-table"><thead><tr>' +
-                    '<th>No</th><th>MAC Address</th><th>Status</th>' +
-                    '<th>Pertama Akses</th><th>Terakhir Akses</th>' +
+                    '<th>No</th><th>Nama Siswa</th><th>Kelas</th><th>Status</th>' +
+                    '<th>Pertama Akses</th><th>Score</th>' +
                     '</tr></thead><tbody>';
                 subs.forEach(function(s, i) {
                     var statusClass = s.submitted ? 'submitted' : (s.start_time ? 'in-progress' : 'not-started');
                     var statusLabel = s.submitted ? 'Terkumpul' : (s.start_time ? 'Mengerjakan' : 'Belum Mulai');
                     var firstAccess = s.first_access_at ? localizeUTC(s.first_access_at.replace(' ', 'T') + 'Z') : (s.start_time ? localizeUTC(s.start_time.replace(' ', 'T') + 'Z') : '—');
-                    var lastAccess = s.last_access_at ? localizeUTC(s.last_access_at.replace(' ', 'T') + 'Z') : (s.created_at ? localizeUTC(s.created_at.replace(' ', 'T') + 'Z') : '—');
-                    html += '<tr>' +
+                    var scoreText = s.score !== null && s.score !== undefined ? (s.submitted ? s.score : '—') : '—';
+                    var studentName = s.student_name || '—';
+                    var studentClass = s.student_class || '—';
+                    html += '<tr onclick="showAccessLog(' + s.id + ')" style="cursor:pointer;transition:background 0.1s;" onmouseenter="this.style.background='rgba(99,102,241,0.05)'" onmouseleave="this.style.background=''">' +
                         '<td>' + (i + 1) + '</td>' +
-                        '<td><a class="student-mac-link" data-sub-id="' + s.id + '" onclick="showAccessLog(' + s.id + ')">' + escapeHtml(s.mac_address || '—') + '</a></td>' +
+                        '<td><strong style="color:var(--color-text);">' + escapeHtml(studentName) + '</strong><br><span style="font-size:0.7rem;color:var(--color-text-muted);font-family:monospace;">' + escapeHtml(s.mac_address || '—') + '</span></td>' +
+                        '<td>' + escapeHtml(studentClass) + '</td>' +
                         '<td><span class="student-status ' + statusClass + '">' + statusLabel + '</span></td>' +
-                        '<td>' + firstAccess + '</td>' +
-                        '<td>' + lastAccess + '</td>' +
+                        '<td style="font-size:0.75rem;color:var(--color-text-muted);">' + firstAccess + '</td>' +
+                        '<td style="text-align:center;font-weight:600;color:' + (s.submitted ? '#34d399' : '#6b7280') + ';">' + scoreText + '</td>' +
                         '</tr>';
                 });
                 html += '</tbody></table>';
@@ -126,7 +132,7 @@ function toggleStudentList(examId) {
                 listEl.innerHTML = '<div style="text-align:center;padding:12px;color:#fca5a5;">Gagal menghubungi server</div>';
             });
     } else {
-        btn.textContent = 'Lihat Siswa';
+        btn.innerHTML = '<svg class="icon-svg" style="width:14px;height:14px;"><use href="#hi-chevron-down"/></svg> Lihat Siswa';
         listEl.style.display = 'none';
     }
 }
@@ -158,10 +164,26 @@ function showAccessLog(submissionId) {
 
     // Header — only MAC and status (unique device identifier, identity not fixed)
     var headerHtml =
-        '<div class="log-modal-header-info" style="border-bottom:1px solid var(--color-border);padding-bottom:12px;margin-bottom:12px;">' +
-            '<span style="display:block;font-size:0.9rem;color:var(--color-text-secondary);margin-bottom:4px;">Perangkat (MAC Address)</span>' +
-            '<span style="display:block;font-size:1.1rem;font-weight:700;font-family:monospace;color:var(--color-text-primary);">' + escapeHtml(subData.mac_address || '—') + '</span>' +
-            '<span style="display:block;margin-top:6px;"><span class="student-status ' + (subData.submitted ? 'submitted' : (subData.start_time ? 'in-progress' : 'not-started')) + '">' + (subData.submitted ? 'Terkumpul' : (subData.start_time ? 'Mengerjakan' : 'Belum Mulai')) + '</span></span>' +
+        '<div class="log-modal-header-info">' +
+            '<div class="log-identity-card">' +
+                '<div class="log-id-col">' +
+                    '<span class="log-id-label">Siswa</span>' +
+                    '<span class="log-id-value">' + escapeHtml(subData.student_name || '—') + '</span>' +
+                '</div>' +
+                '<div class="log-id-col">' +
+                    '<span class="log-id-label">Kelas</span>' +
+                    '<span class="log-id-value">' + escapeHtml(subData.student_class || '—') + '</span>' +
+                '</div>' +
+                '<div class="log-id-col">' +
+                    '<span class="log-id-label">No. Ujian</span>' +
+                    '<span class="log-id-value">' + escapeHtml(subData.exam_number || '—') + '</span>' +
+                '</div>' +
+            '</div>' +
+            '<div class="log-device-row">' +
+                '<svg class="icon-svg" style="width:14px;height:14px;color:#64748b;"><use href="#hi-device"/></svg> ' +
+                '<span style="font-family:monospace;color:var(--color-text-muted);font-size:0.8rem;">' + escapeHtml(subData.mac_address || '—') + '</span>' +
+                '<span class="student-status ' + (subData.submitted ? 'submitted' : (subData.start_time ? 'in-progress' : 'not-started')) + '" style="margin-left:auto;">' + (subData.submitted ? 'Terkumpul' : (subData.start_time ? 'Mengerjakan' : 'Belum Mulai')) + '</span>' +
+            '</div>' +
         '</div>';
 
     // Timeline — each login event shows identity data used at that time

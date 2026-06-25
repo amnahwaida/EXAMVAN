@@ -58,7 +58,7 @@ else:
     DATABASE = os.path.join(BASE_DIR, 'data', 'examvan.db')
 MAX_FILE_SIZE = 5 * 1024 * 1024  # 5MB
 
-VERSION = '2.2.1'
+VERSION = '2.2.2'
 _css_hash = None  # populated lazily by inject_csrf_token for cache busting
 ADMIN_USERNAME = os.environ.get('EXAMVAN_ADMIN_USER', 'superadmin')
 # ADMIN_PASSWORD must be set via env var; if missing, a random password is generated at init
@@ -683,10 +683,20 @@ def check_submission_ownership(db, submission_id):
     if session.get('is_super_admin') or session.get('is_operator'):
         return True
     sub = db.execute(
-        'SELECT e.created_by FROM submissions s JOIN exams e ON s.exam_id = e.id WHERE s.id = ?',
+        'SELECT s.exam_id, e.created_by FROM submissions s JOIN exams e ON s.exam_id = e.id WHERE s.id = ?',
         (submission_id,)
     ).fetchone()
-    return sub is not None and sub['created_by'] == session['admin_id']
+    if not sub:
+        return False
+    # Creator can see their own submissions
+    if sub['created_by'] == session['admin_id']:
+        return True
+    # Delegated pengawas can also see submissions
+    delegated = db.execute(
+        'SELECT 1 FROM exam_pengawas WHERE exam_id = ? AND user_id = ?',
+        (sub['exam_id'], session['admin_id'])
+    ).fetchone()
+    return delegated is not None
 
 
 def safe_storage_path(file_path):

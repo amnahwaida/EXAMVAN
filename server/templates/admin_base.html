@@ -69,10 +69,9 @@
    {% endif %}
    <div class="dropdown-divider"></div>
    </div>
-  <div class="dropdown-header">
-  <span class="dropdown-user-title">{{ admin_user }}</span>
-   <span class="dropdown-user-role"><span class="dropdown-label">Role</span>{% if admin_role == 'superadmin' %}Super Admin{% elif admin_role == 'operator' %}Operator{% else %}{{ admin_role }}{% endif %}</span>
-
+  <div class="dropdown-user-info">
+    <span class="dropdown-user-name">{{ admin_user }}</span>
+    <span class="dropdown-user-role">{% if admin_role == 'superadmin' %}Super Admin{% elif admin_role == 'operator' %}Operator{% else %}{{ admin_role }}{% endif %}</span>
   </div>
  <div class="dropdown-divider"></div>
  <button class="dropdown-item" onclick="openChangePasswordModal()">

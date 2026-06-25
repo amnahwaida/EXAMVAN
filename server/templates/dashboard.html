@@ -99,12 +99,12 @@
  <div class="form-row">
  <div class="form-group flex-1">
  <label  class="required" for="examName">Nama Ujian</label>
- <input type="text" id="examName" name="name" placeholder="Contoh: UTS Matematika Kelas 10" required>
+ <input type="text" id="examName" name="name" placeholder="Contoh: UTS Matematika Kelas 10" required title="Nama ujian yang akan tampil di daftar ujian">
  </div>
  <div class="form-group flex-1">
- <label  class="required" for="pdfFile">File PDF (max {{ max_size_mb }}MB)</label>
+ <label  class="required" for="pdfFile">File PDF</label>
  <div class="file-input-wrapper">
- <input type="file" id="pdfFile" name="pdf_file" accept="application/pdf" required>
+ <input type="file" id="pdfFile" name="pdf_file" accept="application/pdf" required title="Pilih file PDF ujian yang akan diupload, maksimal {{ max_size_mb }}MB">
  <div class="file-input-display" id="fileDisplay">
  <svg class="icon-svg" style="width:20px;height:20px;flex-shrink:0;"><use href="#hi-file"/></svg>
  <span class="file-text">Pilih file PDF...</span>
@@ -112,8 +112,8 @@
  </div>
  </div>
  <div class="form-group" style="flex: 0 0 220px;">
-<label for="customToken">Token Kustom <span style="font-size:11px; opacity:0.7;">(Opsional, 8 Kar)</span></label>
-<input type="text" id="customToken" name="custom_token" maxlength="8" minlength="8" placeholder="Contoh: MAT101BK" style="text-transform: uppercase;">
+<label for="customToken">Token Kustom</label>
+<input type="text" id="customToken" name="custom_token" maxlength="8" minlength="8" placeholder="Contoh: MAT101BK" style="text-transform: uppercase;" title="Token kustom 8 karakter (kosongkan untuk generate otomatis)">
  </div>
  </div>
  <div class="upload-progress" id="uploadProgress" style="display:none;">
@@ -185,7 +185,7 @@
   {% for exam in exams %}
   <tr id="exam-row-{{ exam.id }}">
   <td data-label="">
-  <input type="checkbox" class="exam-checkbox exam-checkbox-input" value="{{ exam.id }}" data-name="{{ exam.name }}" data-status="{{ exam.status }}" onchange="updateBulkActions()">
+  <input type="checkbox" class="exam-checkbox exam-checkbox-input" value="{{ exam.id }}" data-name="{{ exam.name }}" data-status="{{ exam.status }}" data-owner="{{ exam.created_by }}" onchange="updateBulkActions()">
   </td>
  <td class="td-name" data-label="Ujian"><a href="{{ url_for('admin_submissions') }}?exam_id={{ exam.id }}" class="exam-link" title="Lihat Hasil Ujian">{{ exam.name }}</a></td>
    {% if admin_role == 'superadmin' or admin_role == 'operator' %}
@@ -201,7 +201,12 @@
  </div>
  </td>
  <td data-label="Status">
+ {% set can_manage = (admin_role == 'superadmin' or admin_role == 'operator' or exam.created_by == admin_id) %}
+ {% if can_manage %}
  <span class="status-badge status-{{ exam.status }}" id="status-{{ exam.id }}" onclick="toggleExam({{ exam.id }})" tabindex="0" role="button" title="Klik untuk toggle status" onkeydown="if(event.key==='Enter'||event.key===' ') { event.preventDefault(); toggleExam({{ exam.id }}); }">
+ {% else %}
+ <span class="status-badge status-{{ exam.status }}" style="cursor:default;">
+ {% endif %}
  {{ exam.status }}
  </span>
   </td>
@@ -216,14 +221,14 @@
  <td class="td-actions" data-label="">
  <div class="actions-group">
  <!-- Primary Actions -->
- <button class="btn-sm btn-questions btn-sm-compact" data-exam-id="{{ exam.id }}" data-exam-name="{{ exam.name }}" onclick="openQuestionsModal(this.dataset.examId, this.dataset.examName)" title="Konfigurasi Soal & Kunci Jawaban" style="gap: 4px;">
- <svg class="icon-svg"><use href="#hi-settings"/></svg> Soal
+ <button class="btn-sm btn-questions btn-sm-compact" data-exam-id="{{ exam.id }}" data-exam-name="{{ exam.name }}" onclick="openQuestionsModal(this.dataset.examId, this.dataset.examName)" title="Atur Soal & Kunci Jawaban" aria-label="Atur Soal & Kunci Jawaban" style="gap: 4px;">
+ <svg class="icon-svg"><use href="#hi-settings"/></svg>
  </button>
 
  <!-- Dropdown Menu for Secondary Actions -->
  <div class="exam-action-dropdown">
- <button class="btn-sm btn-more btn-sm-compact" onclick="toggleRowDropdown(event, {{ exam.id }})" title="Menu Tindakan Lainnya" style="gap: 4px;">
- <svg class="icon-svg"><use href="#hi-dashboard"/></svg> Menu <svg class="icon-svg" style="width:14px;height:14px;"><use href="#hi-chevron-down"/></svg>
+ <button class="btn-sm btn-more btn-sm-compact" onclick="toggleRowDropdown(event, {{ exam.id }})" title="Menu Tindakan Lainnya" aria-label="Menu Tindakan Lainnya" style="gap: 4px;">
+ <svg class="icon-svg"><use href="#hi-chevron-down"/></svg>
  </button>
  <div class="exam-action-dropdown-content" id="dropdown-content-{{ exam.id }}">
  <a href="{{ url_for('admin_exam_pdf', exam_id=exam.id) }}" target="_blank">
@@ -361,7 +366,7 @@
   <label for="examStartTime" style="font-size:0.7rem;color:var(--color-text-muted);font-weight:600;">Jam</label>
   <input type="time" id="examStartTime" style="padding:6px 8px;border:1px solid var(--glass-border);border-radius:8px;background:rgba(255,255,255,0.04);color:var(--color-text);font-size:0.85rem;width:110px;">
   </div>
-  <span style="color:var(--color-text-muted);font-size:0.85rem;padding-bottom:6px;">&#8594;</span>
+  <svg class="icon-svg" style="width:18px;height:18px;color:var(--color-text-muted);flex-shrink:0;" aria-hidden="true"><use href="#hi-chevron-right"/></svg>
   <div style="display:flex;flex-direction:column;gap:2px;">
   <label for="examEndDate" style="font-size:0.7rem;color:var(--color-text-muted);font-weight:600;">Tgl Selesai</label>
   <input type="date" id="examEndDate" style="padding:6px 8px;border:1px solid var(--glass-border);border-radius:8px;background:rgba(255,255,255,0.04);color:var(--color-text);font-size:0.85rem;width:140px;">
@@ -437,6 +442,10 @@
  </div>
 
 <script>
+/* Global: admin identity for bulk action filtering */
+const ADMIN_ID = {{ admin_id }};
+const IS_PRIVILEGED = {{ 'true' if admin_role in ('superadmin', 'operator') else 'false' }};
+
 /* confirmBulkDelete: show confirmation dialog before bulk delete */
 function confirmBulkDelete() {
     const checkboxes = document.querySelectorAll('.exam-checkbox:checked');

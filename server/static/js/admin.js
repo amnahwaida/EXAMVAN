@@ -571,7 +571,7 @@ function setAllWeights() {
     card.innerHTML = `
         <div class="modal-header">
             <h3>⚖️ Set Bobot Semua Soal</h3>
-            <button class="modal-close" onclick="this.closest('.modal-overlay').remove()">✕</button>
+            <button class="modal-close" onclick="this.closest('.modal-overlay').remove()" aria-label="Tutup"><svg class="icon-svg" style="width:18px;height:18px;"><use href="#hi-x"/></svg></button>
         </div>
         <div class="modal-body bulk-weight-body">
             <p class="bulk-weight-desc">
@@ -1495,7 +1495,7 @@ function createEditUserModal() {
         <div class="modal-card glass-card" style="max-width:540px;">
             <div class="modal-header">
                 <h3><svg class="icon-svg" style="vertical-align:middle;margin-top:-2px;"><use href="#hi-users"/></svg> Atur User: <span id="editUserUsername" style="color:#a5b4fc;"></span></h3>
-                <button class="modal-close" onclick="closeEditUserModal()" aria-label="Tutup">✕</button>
+                <button class="modal-close" onclick="closeEditUserModal()" aria-label="Tutup"><svg class="icon-svg" style="width:18px;height:18px;"><use href="#hi-x"/></svg></button>
             </div>
             <div class="modal-body">
                 <form id="editUserForm" onsubmit="submitEditUser(event)">
@@ -1520,16 +1520,16 @@ function createEditUserModal() {
                             <input type="text" id="editUserInstansi" required placeholder="Contoh: SMA Negeri 1 Jakarta" style="width:100%;">
                         </div>
                         <div class="form-group" style="margin-bottom:8px;">
-                            <label>Role <span style="font-size:11px;opacity:0.7;">(bisa pilih lebih dari 1)</span></label>
-                            <div style="display:flex;gap:16px;padding-top:6px;">
-                                <label style="display:flex;align-items:center;gap:6px;font-size:13px;cursor:pointer;">
-                                    <input type="checkbox" id="editRoleGuru" value="guru"> Guru
+                            <label>Role <span class="multirole-hint">multirole</span></label>
+                            <div class="role-chips">
+                                <label class="role-chip">
+                                    <input type="checkbox" id="editRoleGuru" value="guru"> <span title="Guru">G</span>
                                 </label>
-                                <label style="display:flex;align-items:center;gap:6px;font-size:13px;cursor:pointer;">
-                                    <input type="checkbox" id="editRolePengawas" value="pengawas"> Pengawas
+                                <label class="role-chip">
+                                    <input type="checkbox" id="editRolePengawas" value="pengawas"> <span title="Pengawas">P</span>
                                 </label>
-                                <label style="display:flex;align-items:center;gap:6px;font-size:13px;cursor:pointer;" id="editRoleOperatorGroup">
-                                    <input type="checkbox" id="editRoleOperator" value="operator"> Operator
+                                <label class="role-chip" id="editRoleOperatorGroup">
+                                    <input type="checkbox" id="editRoleOperator" value="operator"> <span title="Operator">O</span>
                                 </label>
                             </div>
                         </div>
@@ -1853,12 +1853,12 @@ function togglePublicResults(examId) {
                         btn.style.background = 'rgba(16, 185, 129, 0.15)';
                         btn.style.borderColor = 'rgba(16, 185, 129, 0.3)';
                         btn.style.color = '#34d399';
-                        btn.textContent = '🟢 Hal. Siswa Aktif';
+                        btn.innerHTML = '<svg class="icon-svg" style="width:16px;height:16px;vertical-align:middle;margin-top:-2px;" aria-hidden="true"><use href="#hi-eye"/></svg> Hal. Siswa Aktif';
                     } else {
                         btn.style.background = 'rgba(239, 68, 68, 0.15)';
                         btn.style.borderColor = 'rgba(239, 68, 68, 0.3)';
                         btn.style.color = '#f87171';
-                        btn.textContent = '🔴 Hal. Siswa Nonaktif';
+                        btn.innerHTML = '<svg class="icon-svg" style="width:16px;height:16px;vertical-align:middle;margin-top:-2px;" aria-hidden="true"><use href="#hi-eye-off"/></svg> Hal. Siswa Nonaktif';
                     }
                 }
             } else {
@@ -2272,6 +2272,7 @@ document.addEventListener('keydown', function(event) {
 function toggleSelectAllExams(masterCheckbox) {
     const checkboxes = document.querySelectorAll('.exam-checkbox');
     checkboxes.forEach(cb => {
+        if (masterCheckbox.checked && !IS_PRIVILEGED && parseInt(cb.getAttribute('data-owner')) !== ADMIN_ID) return;
         cb.checked = masterCheckbox.checked;
     });
     updateBulkActions();
@@ -2279,7 +2280,9 @@ function toggleSelectAllExams(masterCheckbox) {
 
 function updateBulkActions() {
     const checkboxes = document.querySelectorAll('.exam-checkbox:checked');
-    const totalSelected = checkboxes.length;
+    // Only count exams the user can manage (own or privileged)
+    const manageable = IS_PRIVILEGED ? checkboxes : Array.from(checkboxes).filter(cb => parseInt(cb.getAttribute('data-owner')) === ADMIN_ID);
+    const totalSelected = manageable.length;
     
     const bulkDeleteBtn = document.getElementById('bulkDeleteBtn');
     const bulkToggleBtn = document.getElementById('bulkToggleBtn');
@@ -2297,17 +2300,20 @@ function updateBulkActions() {
             
             // Determine active/inactive mix
             let hasActive = false;
-            checkboxes.forEach(cb => {
+            manageable.forEach(cb => {
                 if (cb.getAttribute('data-status') === 'active') {
                     hasActive = true;
                 }
             });
-            bulkToggleBtn.innerHTML = hasActive ? `⏸️ Nonaktifkan Terpilih (${totalSelected})` : `▶️ Aktifkan Terpilih (${totalSelected})`;
+            bulkToggleBtn.innerHTML = hasActive ? `<svg class="icon-svg" aria-hidden="true"><use href="#hi-lock"/></svg> Nonaktifkan Terpilih (${totalSelected})` : `<svg class="icon-svg" aria-hidden="true"><use href="#hi-lock-open"/></svg> Aktifkan Terpilih (${totalSelected})`;
         }
     } else {
         if (bulkDeleteBtn) bulkDeleteBtn.style.display = 'none';
         if (bulkToggleBtn) bulkToggleBtn.style.display = 'none';
-        
+        // Uncheck any that aren't manageable
+        if (!IS_PRIVILEGED && checkboxes.length > 0 && totalSelected === 0) {
+            checkboxes.forEach(cb => { cb.checked = false; });
+        }
         const selectAll = document.getElementById('selectAllExams');
         if (selectAll) selectAll.checked = false;
     }

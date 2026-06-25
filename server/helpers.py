@@ -142,13 +142,14 @@ def evaluate_answers_detailed(answers, questions):
     if not questions:
         return evaluation
     for q in questions:
-        q_num = _normalize_q_num(q['number'])
+        q_num = _normalize_q_num(q.get('number', q.get('key', '')))
         student_ans = answers.get(q_num)
-        correct_ans = q.get('key')
-        q_weight = float(q.get('weight', 1.0))
+        # Some questions store answer in 'answer' field, others in 'key'
+        correct_ans = q.get('answer', q.get('key'))
+        q_weight = float(q.get('weight', q.get('score', 1.0)))
         partial_scoring = q.get('partial_scoring', False)
         earned, status_text, status_class = _evaluate_single_question(
-            student_ans, correct_ans, q['type'], q_weight, partial_scoring)
+            student_ans, correct_ans, q.get('type', 'single_choice'), q_weight, partial_scoring)
         evaluation[q_num] = {
             'earned': earned,
             'statusText': status_text,
