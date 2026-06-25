@@ -24,6 +24,8 @@ class ExamListActivity : BaseSecureActivity() {
 
         binding = ActivityExamListBinding.inflate(layoutInflater)
         setContentView(binding.root)
+        // Edge-to-edge inset handling untuk Android 15+ (forced edge-to-edge)
+        applyEdgeToEdgeInsets(binding.root)
 
         // Setup server URL from intent
         val serverUrl = intent.getStringExtra("server_url") ?: ""
@@ -52,6 +54,16 @@ class ExamListActivity : BaseSecureActivity() {
 
         // Retry button
         binding.btnRetry.setOnClickListener { loadExams() }
+
+        // Change server button — kembali ke ServerConfigActivity
+        binding.btnChangeServer.setOnClickListener {
+            androidx.appcompat.app.AlertDialog.Builder(this)
+                .setTitle("Ganti Server")
+                .setMessage("Apakah Anda yakin ingin kembali ke pengaturan server?")
+                .setPositiveButton("Ya") { _, _ -> finish() }
+                .setNegativeButton("Batal", null)
+                .show()
+        }
 
         // Load exams
         loadExams()

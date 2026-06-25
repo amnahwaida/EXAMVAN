@@ -22,6 +22,9 @@ data class Exam(
     val security_level: String? = null,
     val strict_mode: Boolean? = null,
     val identity_fields: List<IdentityField>? = null,
+    val panel_color: String? = null,
+    val start_time: String? = null,
+    val end_time: String? = null,
     val created_at: String
 )
 

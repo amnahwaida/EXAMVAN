@@ -34,19 +34,37 @@ from helpers import (
 import logging
 from logging.handlers import RotatingFileHandler
 
+from dotenv import load_dotenv
+
 # ===== Configuration =====
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+
+# Muat .env dari root project (parent directory) sebelum env vars dibaca
+dotenv_path = os.path.join(BASE_DIR, '..', '.env')
+if os.path.isfile(dotenv_path):
+    load_dotenv(dotenv_path)
+else:
+    # Logger belum siap — pakai print sebagai fallback
+    import sys
+    print(f"⚠️  .env tidak ditemukan di {os.path.abspath(dotenv_path)} — fallback ke env vars sistem", file=sys.stderr)
+
 STORAGE_DIR = os.path.join(BASE_DIR, 'storage')
-DATABASE = os.environ.get('DATABASE_PATH', os.path.join(BASE_DIR, 'data', 'examvan.db'))
+_db_env = os.environ.get('DATABASE_PATH', '')
+if _db_env and not os.path.isabs(_db_env):
+    DATABASE = os.path.join(BASE_DIR, _db_env)
+elif _db_env:
+    DATABASE = _db_env
+else:
+    DATABASE = os.path.join(BASE_DIR, 'data', 'examvan.db')
 MAX_FILE_SIZE = 5 * 1024 * 1024  # 5MB
 
-VERSION = '2.2.0'
+VERSION = '2.2.1'
 _css_hash = None  # populated lazily by inject_csrf_token for cache busting
-ADMIN_USERNAME = os.environ.get('EXAMVAN_ADMIN_USER', 'admin')
+ADMIN_USERNAME = os.environ.get('EXAMVAN_ADMIN_USER', 'superadmin')
 # ADMIN_PASSWORD must be set via env var; if missing, a random password is generated at init
 ADMIN_PASSWORD = os.environ.get('EXAMVAN_ADMIN_PASS', '')
 DEFAULT_IDENTITY_FIELDS = json.dumps([
-    {'key': 'student_name', 'label': 'Nama Siswa', 'required': True},
+    {'key': 'student_name', 'label': 'Nama', 'required': True},
     {'key': 'exam_number', 'label': 'Nomor Ujian', 'required': True},
     {'key': 'student_class', 'label': 'Kelas', 'required': True},
 ])
@@ -115,7 +133,7 @@ def get_db_standalone():
 def init_db():
     """Initialize database tables and default admin user."""
     db = get_db_standalone()
-    db.executescript('''
+    schema_sql = '''
         CREATE TABLE IF NOT EXISTS exams (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             name TEXT NOT NULL,
@@ -136,7 +154,18 @@ def init_db():
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             username TEXT UNIQUE NOT NULL,
             password_hash TEXT NOT NULL,
-            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            status TEXT DEFAULT 'active',
+            instansi TEXT DEFAULT 'personal',
+            role TEXT DEFAULT 'guru',
+            max_exams INTEGER DEFAULT 3,
+            max_pdf_size INTEGER DEFAULT 1048576,
+            max_drafts INTEGER DEFAULT 2,
+            max_draft_size INTEGER DEFAULT 1048576,
+            whatsapp_number TEXT,
+            expires_at TIMESTAMP,
+            otp_code TEXT,
+            otp_expiry TIMESTAMP
         );
 
         CREATE TABLE IF NOT EXISTS submissions (
@@ -164,7 +193,43 @@ def init_db():
             updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         );
         CREATE INDEX IF NOT EXISTS idx_rate_limits_key ON rate_limits(key);
-    ''')
+
+        CREATE TABLE IF NOT EXISTS exam_pengawas (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            exam_id INTEGER NOT NULL,
+            user_id INTEGER NOT NULL,
+            UNIQUE(exam_id, user_id),
+            FOREIGN KEY(exam_id) REFERENCES exams(id) ON DELETE CASCADE,
+            FOREIGN KEY(user_id) REFERENCES admin_users(id) ON DELETE CASCADE
+        );
+
+        CREATE TABLE IF NOT EXISTS student_access_logs (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            exam_id INTEGER NOT NULL,
+            submission_id INTEGER,
+            student_identifier TEXT NOT NULL,
+            student_name TEXT,
+            exam_number TEXT,
+            student_class TEXT,
+            event TEXT NOT NULL CHECK(event IN ('login','heartbeat','logout')),
+            ip_address TEXT,
+            device_info TEXT,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY(exam_id) REFERENCES exams(id) ON DELETE CASCADE,
+            FOREIGN KEY(submission_id) REFERENCES submissions(id) ON DELETE SET NULL
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_access_logs_exam ON student_access_logs(exam_id);
+        CREATE INDEX IF NOT EXISTS idx_access_logs_identifier ON student_access_logs(student_identifier);
+        CREATE INDEX IF NOT EXISTS idx_access_logs_exam_identifier ON student_access_logs(exam_id, student_identifier);
+        CREATE INDEX IF NOT EXISTS idx_exam_pengawas_exam ON exam_pengawas(exam_id);
+        CREATE INDEX IF NOT EXISTS idx_exam_pengawas_user ON exam_pengawas(user_id);
+    '''
+    try:
+        db.executescript(schema_sql)
+    except sqlite3.OperationalError as e:
+        logger.error(f"Schema creation failed: {e}")
+        raise
 
     # Seed default SaaS settings if not present
     default_settings = {
@@ -176,19 +241,19 @@ def init_db():
         'default_active_days': '1',
         'default_max_drafts': '2',
         'default_max_draft_size': '1048576',
-        'android_version': '2.1.9',
-        'webapp_version': '2.1.9',
+        'android_version': '2.2.0',
+        'webapp_version': '2.2.0',
         'certificate_fingerprint': ''
     }
     for k, v in default_settings.items():
         existing_setting = db.execute('SELECT value FROM saas_settings WHERE key = ?', (k,)).fetchone()
         if not existing_setting:
             db.execute('INSERT INTO saas_settings (key, value) VALUES (?, ?)', (k, v))
-        elif k in ('android_version', 'webapp_version') and existing_setting['value'] in ('2.1.0', '2.1.1', '2.1.2', '2.1.3', '2.1.4', '2.1.5', '2.1.6', '2.1.7', '2.1.8'):
+        elif k in ('android_version', 'webapp_version') and existing_setting['value'] in ('2.1.0', '2.1.1', '2.1.2', '2.1.3', '2.1.4', '2.1.5', '2.1.6', '2.1.7', '2.1.8', '2.1.9'):
             db.execute('UPDATE saas_settings SET value = ? WHERE key = ?', (v, k))
     db.commit()
 
-    admin_username = os.environ.get('EXAMVAN_ADMIN_USER', 'admin')
+    admin_username = os.environ.get('EXAMVAN_ADMIN_USER', 'superadmin')
     admin_password = os.environ.get('EXAMVAN_ADMIN_PASS', '')
 
     existing = db.execute(
@@ -207,11 +272,25 @@ def init_db():
             )
         pw_hash = generate_password_hash(admin_password)
         db.execute(
-            'INSERT INTO admin_users (username, password_hash) VALUES (?, ?)',
-            (admin_username, pw_hash)
+            'INSERT INTO admin_users (username, password_hash, role, instansi) VALUES (?, ?, ?, ?)',
+            (admin_username, pw_hash, 'superadmin', 'owner')
         )
         db.commit()
         logger.info(f"Default admin user '{admin_username}' created")
+    elif admin_password:
+        # Sync password from env var if it changed
+        current_hash = db.execute(
+            'SELECT password_hash FROM admin_users WHERE id = ?',
+            (existing['id'],)
+        ).fetchone()['password_hash']
+        if not check_password_hash(current_hash, admin_password):
+            new_hash = generate_password_hash(admin_password)
+            db.execute(
+                'UPDATE admin_users SET password_hash = ? WHERE id = ?',
+                (new_hash, existing['id'])
+            )
+            db.commit()
+            logger.info(f"Admin password updated from env var for '{admin_username}'")
 
     # ===== Migration tracking =====
     db.execute('''CREATE TABLE IF NOT EXISTS _migrations (
@@ -243,8 +322,20 @@ def init_db():
         ('add_otp_expiry_to_admin_users', 'ALTER TABLE admin_users ADD COLUMN otp_expiry TIMESTAMP'),
         ('add_identity_fields_to_exams', 'ALTER TABLE exams ADD COLUMN identity_fields TEXT'),
         ('add_identity_data_to_submissions', 'ALTER TABLE submissions ADD COLUMN identity_data TEXT'),
+        ('add_panel_color_to_exams', 'ALTER TABLE exams ADD COLUMN panel_color TEXT'),
+        ('add_start_time_to_exams', 'ALTER TABLE exams ADD COLUMN start_time TEXT'),
+        ('add_end_time_to_exams', 'ALTER TABLE exams ADD COLUMN end_time TEXT'),
+        ('add_instansi_to_admin_users', "ALTER TABLE admin_users ADD COLUMN instansi TEXT DEFAULT ''"),
+        ('add_role_to_admin_users', "ALTER TABLE admin_users ADD COLUMN role TEXT DEFAULT 'guru'"),
+        ('set_superadmin_role', "UPDATE admin_users SET role = 'superadmin' WHERE role = 'guru' AND (username = 'superadmin' OR username = 'admin')"),
+        ('set_instansi_default_personal', f"UPDATE admin_users SET instansi = 'owner' WHERE (instansi IS NULL OR instansi = '') AND (username = '{admin_username}' OR username = 'admin')"),
+        ('set_instansi_default_others', "UPDATE admin_users SET instansi = 'personal' WHERE instansi IS NULL OR instansi = ''"),
+        ('convert_role_to_json',
+         f"UPDATE admin_users SET role = '[\"guru\"]' WHERE role = 'guru' AND username != '{admin_username}' AND username != 'admin'"),
+        ('convert_role_to_json_pengawas',
+         "UPDATE admin_users SET role = '[\"pengawas\"]' WHERE role = 'pengawas'"),
+        ('add_delegated_to_to_exams', 'ALTER TABLE exams ADD COLUMN delegated_to INTEGER REFERENCES admin_users(id)'),
         # strict_mode is defined in CREATE TABLE, no ALTER needed
-        # ('add_strict_mode_to_exams', ...) — removed as duplicate
     ]
 
     for name, sql in migrations:
@@ -270,6 +361,66 @@ def init_db():
             except sqlite3.IntegrityError:
                 pass
             db.commit()
+
+    # ===== Ensure admin user has correct role =====
+    # Safety check: always ensure the admin user has role='superadmin'
+    # This runs on every startup to handle edge cases:
+    # - Old DB where admin was created before role column existed
+    # - Partially applied migrations
+    # - Username rename from 'admin' to 'superadmin'
+    try:
+        # 1. Try to find admin by configured username
+        admin_row = db.execute(
+            "SELECT id, role, username FROM admin_users WHERE username = ?",
+            (admin_username,)
+        ).fetchone()
+
+        # 2. If not found, try the old 'admin' username and rename it
+        if not admin_row and admin_username != 'admin':
+            old_admin = db.execute(
+                "SELECT id, role, username FROM admin_users WHERE username = 'admin'"
+            ).fetchone()
+            if old_admin:
+                db.execute(
+                    "UPDATE admin_users SET username = ?, role = 'superadmin' WHERE id = ?",
+                    (admin_username, old_admin['id'])
+                )
+                db.commit()
+                logger.info(f"Renamed admin user 'admin' → '{admin_username}', role → 'superadmin'")
+                admin_row = db.execute(
+                    "SELECT id, role, username FROM admin_users WHERE id = ?",
+                    (old_admin['id'],)
+                ).fetchone()
+
+        # 3. Ensure role is 'superadmin'
+        if admin_row and admin_row['role'] != 'superadmin':
+            db.execute(
+                "UPDATE admin_users SET role = 'superadmin' WHERE id = ?",
+                (admin_row['id'],)
+            )
+            db.commit()
+            logger.info(f"Admin user '{admin_row['username']}' role → 'superadmin'")
+
+        # 4. Also fix any remaining 'admin' username with wrong role
+        if admin_username != 'admin':
+            db.execute(
+                "UPDATE admin_users SET role = 'superadmin' WHERE username = 'admin' AND role != 'superadmin'"
+            )
+            db.commit()
+
+        logger.info(f"Admin user check complete: '{admin_username}' is ready")
+
+        # ===== Ensure all users have instansi set =====
+        try:
+            cur = db.execute(
+                "UPDATE admin_users SET instansi = 'personal' WHERE instansi IS NULL OR instansi = ''"
+            )
+            if cur.rowcount:
+                logger.info(f"Set instansi='personal' for {cur.rowcount} user(s)")
+        except Exception as e:
+            logger.error(f"Instansi default check failed: {e}")
+    except Exception as e:
+        logger.error(f"Admin role check failed: {e}")
 
     db.close()
 
@@ -451,7 +602,7 @@ def admin_required(f):
         if result:
             return result
         # Check account expiry from session cache (set at login)
-        if not session.get('is_super_admin'):
+        if not session.get('is_super_admin') and not session.get('is_operator'):
             expires_at = session.get('expires_at')
             if expires_at:
                 expires_dt = datetime.strptime(expires_at, '%Y-%m-%d %H:%M:%S').replace(tzinfo=timezone.utc)
@@ -481,9 +632,47 @@ def super_admin_required(f):
     return decorated
 
 
+def admin_management_required(f):
+    """Decorator for user management routes. Allows superadmin and operator."""
+    @wraps(f)
+    def decorated(*args, **kwargs):
+        if 'admin_id' not in session:
+            if request.is_json or request.path.startswith('/admin/api'):
+                return jsonify({'success': False, 'error': 'unauthorized', 'message': 'Silakan login terlebih dahulu'}), 401
+            return redirect(url_for('admin_login'))
+        if not session.get('is_super_admin') and not session.get('is_operator'):
+            if request.is_json or request.path.startswith('/admin/api'):
+                return jsonify({'success': False, 'error': 'forbidden', 'message': 'Akses khusus Admin'}), 403
+            return abort(403)
+        return f(*args, **kwargs)
+    return decorated
+
+
+@app.context_processor
+def inject_user_roles():
+    """Inject user roles into all templates for nav visibility."""
+    instansi = ''
+    if 'admin_id' in session:
+        try:
+            row = get_db().execute(
+                'SELECT instansi FROM admin_users WHERE id = ?',
+                (session['admin_id'],)
+            ).fetchone()
+            if row and row['instansi']:
+                instansi = row['instansi']
+        except Exception:
+            pass
+    if session.get('is_super_admin'):
+        return dict(user_roles=['superadmin'], is_guru=True, is_pengawas=True, is_operator=False, is_privileged=True, admin_instansi=instansi)
+    if session.get('is_operator'):
+        return dict(user_roles=['operator'], is_guru=True, is_pengawas=True, is_operator=True, is_privileged=True, admin_instansi=instansi)
+    roles = session.get('user_roles', ['guru'])
+    return dict(user_roles=roles, is_guru='guru' in roles, is_pengawas='pengawas' in roles, is_operator=False, is_privileged=False, admin_instansi=instansi)
+
+
 def check_exam_ownership(db, exam_id):
     """Check if current user is allowed to manage the given exam."""
-    if session.get('is_super_admin'):
+    if session.get('is_super_admin') or session.get('is_operator'):
         return True
     exam = db.execute('SELECT created_by FROM exams WHERE id = ?', (exam_id,)).fetchone()
     return exam is not None and exam['created_by'] == session['admin_id']
@@ -491,7 +680,7 @@ def check_exam_ownership(db, exam_id):
 
 def check_submission_ownership(db, submission_id):
     """Check if current user is allowed to manage the given submission."""
-    if session.get('is_super_admin'):
+    if session.get('is_super_admin') or session.get('is_operator'):
         return True
     sub = db.execute(
         'SELECT e.created_by FROM submissions s JOIN exams e ON s.exam_id = e.id WHERE s.id = ?',

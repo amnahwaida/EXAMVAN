@@ -30,6 +30,9 @@
   <symbol id="hi-paper-airplane" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M6 12 3.269 3.125A59.769 59.769 0 0 1 21.485 12 59.768 59.768 0 0 1 3.27 20.875L5.999 12Zm0 0h7.5"/></symbol>
   <symbol id="hi-check" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="m4.5 12.75 6 6 9-13.5"/></symbol>
   <symbol id="hi-exclamation-triangle" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126ZM12 15.75h.007v.008H12v-.008Z"/></symbol>
+  <symbol id="hi-x" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M6 18 18 6M6 6l12 12"/></symbol>
+  <symbol id="hi-chevron-left" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="m15.75 19.5-7.5-7.5 7.5-7.5"/></symbol>
+  <symbol id="hi-chevron-right" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="m8.25 4.5 7.5 7.5-7.5 7.5"/></symbol>
  </svg>
 
  <!-- Animated background -->
@@ -106,7 +109,7 @@
  <div class="search-row">
  <div class="search-input-wrapper">
  <input type="text" class="search-input" id="searchInput" 
-  placeholder="Cari berdasarkan nama atau nomor ujian..." 
+  placeholder="Cari berdasarkan nama siswa..." 
   oninput="filterResults(); var c=document.getElementById('searchClearBtn'); if(c)c.style.display=this.value?'flex':'none'">
  <button class="search-clear-btn" id="searchClearBtn" onclick="document.getElementById('searchInput').value='';filterResults();this.style.display='none'" style="display:none;" title="Hapus pencarian" aria-label="Hapus pencarian"><svg class="icon-svg" style="width:14px;height:14px;"><use href="#hi-x"/></svg></button>
  </div>
@@ -128,11 +131,8 @@
  <tr>
  <th scope="col" style="width: 50px;">#</th>
  <th scope="col">Nama</th>
- <th scope="col">No. Ujian</th>
- <th scope="col">Kelas</th>
  <th scope="col" class="td-center">Waktu Pengerjaan</th>
  <th scope="col" class="td-center">Nilai</th>
- <th scope="col" class="td-center">Waktu Kumpul</th>
  <th scope="col" style="width: 40px;"></th>
  </tr>
  </thead>
@@ -140,6 +140,19 @@
  <!-- Filled via JS -->
  </tbody>
  </table>
+ </div>
+ <!-- Pagination -->
+ <div class="pagination-wrapper" id="paginationWrapper" style="display: none;">
+ <div class="pagination-info" id="paginationInfo"></div>
+ <div class="pagination-controls">
+ <button class="pagination-btn" id="pagePrev" onclick="goToPage(currentPage - 1)" disabled aria-label="Halaman sebelumnya">
+ <svg width="14" height="14" aria-hidden="true"><use href="#hi-chevron-left"/></svg>
+ </button>
+ <div class="pagination-pages" id="paginationPages"></div>
+ <button class="pagination-btn" id="pageNext" onclick="goToPage(currentPage + 1)" disabled aria-label="Halaman selanjutnya">
+ <svg width="14" height="14" aria-hidden="true"><use href="#hi-chevron-right"/></svg>
+ </button>
+ </div>
  </div>
  </div>
 
@@ -178,7 +191,7 @@
  <p>EXAMVAN &copy; 2026 — Sistem Ujian Digital</p>
  </footer>
 
- <script>
+  <script>
  // ===== State =====
  const EXAM_TOKEN = {{ token | tojson }};
  const isLoggedIn = {{ 'true' if is_logged_in else 'false' }};
@@ -186,8 +199,14 @@
  const showAnswersFromServer = {{ 'true' if show_answers else 'false' }};
  let submissionsData = [];
  let questionsData = [];
+ let identityFieldsData = [];
  let showCorrectAnswers = showAnswersFromServer;
  let currentTab = 'scores';
+
+ // Pagination state
+ let currentPage = 1;
+ const PER_PAGE = 20;
+ let searchQuery = '';
 
  // ===== Init =====
  document.addEventListener('DOMContentLoaded', () => {
@@ -199,23 +218,40 @@
  // ===== API: Load Results =====
  async function loadResults() {
  try {
- const resp = await fetch(`/api/hasil/${EXAM_TOKEN}`);
+ const resp = await fetch(`/api/hasil/${EXAM_TOKEN}?per_page=500`);
  if (!resp.ok) {
-  document.getElementById('loadingIndicator').innerHTML = 
+  document.getElementById('loadingIndicator').innerHTML =
   '<div class="empty-state"><div class="empty-icon" aria-hidden="true"><svg class="icon-svg" style="width:40px;height:40px;margin-bottom:16px;opacity:0.4;"><use href="#hi-exclamation"/></svg></div><p>Gagal memuat data (HTTP ' + resp.status + '). Coba lagi nanti.</p>' +
   '<button class="back-nav" onclick="location.reload()" style="margin-top:16px;display:inline-flex;"><svg width="14" height="14" aria-hidden="true"><use href="#hi-arrow-path"/></svg> Coba Lagi</button></div>';
   return;
  }
  const data = await resp.json();
- 
+
  if (!data.success) {
- document.getElementById('loadingIndicator').innerHTML = 
+ document.getElementById('loadingIndicator').innerHTML =
  `<div class="empty-state"><div class="empty-icon" aria-hidden="true"><svg class="icon-svg" style="width:40px;height:40px;margin-bottom:16px;opacity:0.4;"><use href="#hi-x"/></svg></div><p>${data.message || 'Gagal memuat data'}</p></div>`;
  return;
  }
 
  submissionsData = data.submissions || [];
  questionsData = data.questions || [];
+ identityFieldsData = data.identity_fields || [];
+
+ // Fetch remaining pages if there are more
+ const pagination = data.pagination || {};
+ const totalPages = pagination.total_pages || 1;
+ if (totalPages > 1) {
+  const fetches = [];
+  for (let p = 2; p <= totalPages; p++) {
+  fetches.push(fetch(`/api/hasil/${EXAM_TOKEN}?per_page=500&page=${p}`).then(r => r.json()));
+  }
+  const results = await Promise.all(fetches);
+  for (const res of results) {
+  if (res.success && res.submissions) {
+   submissionsData = submissionsData.concat(res.submissions);
+  }
+  }
+ }
 
  document.getElementById('loadingIndicator').style.display = 'none';
 
@@ -259,7 +295,7 @@
  `;
  }
 
- // Sort by score descending
+ // Sort by score descending once
  submissionsData.sort((a, b) => {
  if (a.score === null && b.score === null) return 0;
  if (a.score === null) return 1;
@@ -271,9 +307,9 @@
 
  renderScoresTable();
  renderKeysGrid();
- 
+
  document.getElementById('scoresContent').style.display = 'block';
- 
+
  // Show tabNav and tabKeys strictly if server says show_answers is enabled
  if (questionsData.length > 0 && showAnswersFromServer) {
  document.getElementById('tabNav').style.display = 'flex';
@@ -311,16 +347,46 @@
  }
  }
 
- // ===== Render Scores Table =====
+ // ===== Get Display Data (filtered + paginated) =====
+ function getDisplayData() {
+ const query = searchQuery.toLowerCase().trim();
+ let filtered = submissionsData;
+ if (query) {
+ filtered = submissionsData.filter(s => {
+ const name = (s.student_name || '').toLowerCase();
+ return name.includes(query);
+ });
+ }
+ const total = filtered.length;
+ const totalPages = Math.max(1, Math.ceil(total / PER_PAGE));
+ // Clamp current page
+ if (currentPage > totalPages) currentPage = totalPages;
+ if (currentPage < 1) currentPage = 1;
+ const start = (currentPage - 1) * PER_PAGE;
+ const pageData = filtered.slice(start, start + PER_PAGE);
+ return { data: pageData, total, totalPages, start };
+ }
+
+ // ===== Render Scores Table (paginated) =====
  function renderScoresTable() {
+ const { data: pageItems, total, totalPages, start } = getDisplayData();
  const tbody = document.getElementById('scoresBody');
  tbody.innerHTML = '';
 
- submissionsData.forEach((sub, idx) => {
+ // Handle no results state
+ const noResults = document.getElementById('noSearchResults');
+ const paginationWrapper = document.getElementById('paginationWrapper');
+ if (pageItems.length === 0) {
+ noResults.style.display = searchQuery ? 'block' : 'none';
+ paginationWrapper.style.display = 'none';
+ return;
+ }
+ noResults.style.display = 'none';
+
+ pageItems.forEach((sub, idx) => {
+ const globalRank = start + idx + 1;
  const tr = document.createElement('tr');
  tr.setAttribute('data-name', sub.student_name.toLowerCase());
- tr.setAttribute('data-number', sub.exam_number.toLowerCase());
- tr.setAttribute('data-class', sub.student_class.toLowerCase());
  tr.id = `scores-row-${sub.id}`;
  tr.onclick = () => toggleDetailScores(sub.id);
  tr.style.cursor = 'pointer';
@@ -333,25 +399,20 @@
   }
  });
 
- const rank = idx + 1;
- const rankClass = rank <= 3 ? `rank-${rank}` : '';
+ const rankClass = globalRank <= 3 ? `rank-${globalRank}` : '';
  const scoreClass = getScoreClass(sub.score, sub.max_score);
  const scoreDisplay = sub.score !== null ? sub.score.toFixed(1) : '—';
- const submitTime = sub.created_at ? localizeUTC(sub.created_at) : '—';
  const durationStr = getDurationString(sub.start_time, sub.created_at);
 
  tr.innerHTML = `
- <td data-label="#"><span class="rank-num ${rankClass}">${rank}</span></td>
+ <td data-label="#"><span class="rank-num ${rankClass}">${globalRank}</span></td>
  <td data-label="Nama">
  <div class="student-name">${escapeHtml(sub.student_name)}</div>
  </td>
- <td data-label="No. Ujian"><span class="student-number">${escapeHtml(sub.exam_number)}</span></td>
- <td data-label="Kelas">${escapeHtml(sub.student_class)}</td>
  <td data-label="Durasi" class="td-center-secondary">${durationStr}</td>
  <td data-label="Nilai" class="td-center">
  <span class="score-badge ${scoreClass}">${scoreDisplay}</span>
  </td>
- <td data-label="Kumpul" class="td-center-secondary">${submitTime}</td>
  <td data-label="" class="td-center">
  <svg class="icon-svg expand-icon" style="width:14px;height:14px;" aria-hidden="true"><use href="#hi-chevron-down"/></svg>
  </td>
@@ -364,11 +425,13 @@
  detailTr.id = `scores-detail-${sub.id}`;
 
  const detailTd = document.createElement('td');
- detailTd.colSpan = 8;
+ detailTd.colSpan = 5;
  detailTd.innerHTML = `<div class="detail-content"></div>`;
  detailTr.appendChild(detailTd);
  tbody.appendChild(detailTr);
  });
+
+ renderPagination(total, totalPages);
  }
 
  // ===== Toggle Detail Scores =====
@@ -452,11 +515,59 @@
  const endTimeStr = sub.created_at ? localizeUTC(sub.created_at) : '—';
  const durationStr = getDurationString(sub.start_time, sub.created_at);
 
+ // Build dynamic identity fields (excluding student_name which is already in main table)
+ let identityHtml = '';
+ if (identityFieldsData && identityFieldsData.length > 0) {
+ const idData = sub.identity_data || {};
+ identityFieldsData.forEach(f => {
+ if (f.key === 'student_name') return;
+ const label = escapeHtml(f.label || f.key);
+ // Prefer identity_data, fallback to legacy columns
+ let val = idData[f.key];
+ if (val === undefined || val === null || val === '') {
+ if (f.key === 'exam_number') val = sub.exam_number;
+ else if (f.key === 'student_class') val = sub.student_class;
+ else val = '';
+ }
+ if (val) {
+ identityHtml += `
+ <div class="detail-identity-item">
+ <span class="detail-identity-label">${label}</span>
+ <span class="detail-identity-value">${escapeHtml(String(val))}</span>
+ </div>`;
+ }
+ });
+ }
+
  return `
- <div class="detail-time-info">
- <span><svg class="icon-svg-sm" style="vertical-align:middle;" aria-hidden="true"><use href="#hi-clock"/></svg> <strong>Mulai:</strong> ${startTimeStr}</span>
- <span><svg class="icon-svg-sm" style="vertical-align:middle;" aria-hidden="true"><use href="#hi-paper-airplane"/></svg> <strong>Kumpul:</strong> ${endTimeStr}</span>
- <span><svg class="icon-svg-sm" style="vertical-align:middle;" aria-hidden="true"><use href="#hi-clock"/></svg> <strong>Durasi Kerja:</strong> <strong style="color: var(--color-accent-light);">${durationStr}</strong></span>
+ <div class="detail-info-grid">
+ <div class="detail-info-section">
+ <div class="detail-info-heading">
+ <svg class="icon-svg-sm" style="vertical-align:middle;" aria-hidden="true"><use href="#hi-clock"/></svg> Informasi Waktu
+ </div>
+ <div class="detail-info-items">
+ <div class="detail-identity-item">
+ <span class="detail-identity-label">Waktu Mulai</span>
+ <span class="detail-identity-value">${startTimeStr}</span>
+ </div>
+ <div class="detail-identity-item">
+ <span class="detail-identity-label">Waktu Kumpul</span>
+ <span class="detail-identity-value">${endTimeStr}</span>
+ </div>
+ <div class="detail-identity-item">
+ <span class="detail-identity-label">Durasi Kerja</span>
+ <span class="detail-identity-value" style="color: var(--color-accent-light); font-weight: 700;">${durationStr}</span>
+ </div>
+ </div>
+ </div>
+ ${identityHtml ? `<div class="detail-info-section">
+ <div class="detail-info-heading">
+ <svg class="icon-svg-sm" style="vertical-align:middle;" aria-hidden="true"><use href="#hi-users"/></svg> Identitas Siswa
+ </div>
+ <div class="detail-info-items">
+ ${identityHtml}
+ </div>
+ </div>` : ''}
  </div>
  <div class="detail-header">
  <div class="detail-header-labels" style="flex:1;">
@@ -483,6 +594,84 @@
  </div>
  </div>
  `;
+ }
+
+ // ===== Render Pagination Controls =====
+ function renderPagination(total, totalPages) {
+ const wrapper = document.getElementById('paginationWrapper');
+ const info = document.getElementById('paginationInfo');
+ const pagesEl = document.getElementById('paginationPages');
+ const prevBtn = document.getElementById('pagePrev');
+ const nextBtn = document.getElementById('pageNext');
+
+ if (totalPages <= 1) {
+ wrapper.style.display = 'none';
+ return;
+ }
+ wrapper.style.display = 'flex';
+
+ // Info text: "Menampilkan 1-50 dari 200 peserta"
+ const start = (currentPage - 1) * PER_PAGE + 1;
+ const end = Math.min(currentPage * PER_PAGE, total);
+ info.textContent = `Menampilkan ${start}-${end} dari ${total} peserta`;
+
+ // Prev / Next buttons
+ prevBtn.disabled = currentPage <= 1;
+ nextBtn.disabled = currentPage >= totalPages;
+
+ // Page number buttons
+ pagesEl.innerHTML = '';
+ const maxVisiblePages = 7;
+ let pageStart = Math.max(1, currentPage - Math.floor(maxVisiblePages / 2));
+ let pageEnd = Math.min(totalPages, pageStart + maxVisiblePages - 1);
+ if (pageEnd - pageStart + 1 < maxVisiblePages) {
+ pageStart = Math.max(1, pageEnd - maxVisiblePages + 1);
+ }
+
+ // First page + ellipsis
+ if (pageStart > 1) {
+ pagesEl.appendChild(createPageBtn(1));
+ if (pageStart > 2) pagesEl.appendChild(createEllipsis());
+ }
+
+ for (let i = pageStart; i <= pageEnd; i++) {
+ pagesEl.appendChild(createPageBtn(i));
+ }
+
+ // Last page + ellipsis
+ if (pageEnd < totalPages) {
+ if (pageEnd < totalPages - 1) pagesEl.appendChild(createEllipsis());
+ pagesEl.appendChild(createPageBtn(totalPages));
+ }
+ }
+
+ function createPageBtn(page) {
+ const btn = document.createElement('button');
+ btn.className = `pagination-page-btn${page === currentPage ? ' active' : ''}`;
+ btn.textContent = page;
+ btn.setAttribute('aria-label', `Halaman ${page}`);
+ btn.onclick = () => goToPage(page);
+ return btn;
+ }
+
+ function createEllipsis() {
+ const span = document.createElement('span');
+ span.className = 'pagination-ellipsis';
+ span.textContent = '...';
+ return span;
+ }
+
+ // ===== Go To Page =====
+ function goToPage(page) {
+ const { totalPages } = getDisplayData();
+ if (page < 1 || page > totalPages) return;
+ currentPage = page;
+ renderScoresTable();
+ // Scroll to top of table
+ const scoresSection = document.getElementById('scoresContent');
+ if (scoresSection) {
+ scoresSection.scrollIntoView({ behavior: 'smooth', block: 'start' });
+ }
  }
 
  // ===== Switch Tab =====
@@ -540,22 +729,10 @@
 
  // ===== Filter Results =====
  function filterResults() {
- const query = document.getElementById('searchInput').value.toLowerCase().trim();
- const rows = document.querySelectorAll('#scoresBody tr');
- let visibleCount = 0;
-
- rows.forEach(row => {
- const name = row.getAttribute('data-name') || '';
- const number = row.getAttribute('data-number') || '';
- const cls = row.getAttribute('data-class') || '';
- const match = !query || name.includes(query) || number.includes(query) || cls.includes(query);
- row.style.display = match ? '' : 'none';
- 
- if (match) visibleCount++;
- });
-
- document.getElementById('noSearchResults').style.display = 
- (visibleCount === 0 && query) ? 'block' : 'none';
+ const input = document.getElementById('searchInput');
+ searchQuery = input.value;
+ currentPage = 1;
+ renderScoresTable();
  }
 
  // ===== Helpers =====

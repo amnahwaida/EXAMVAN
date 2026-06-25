@@ -15,7 +15,7 @@
         <item name="colorOnBackground">@color/on_background</item>
         <item name="android:statusBarColor">@color/background</item>
         <item name="android:navigationBarColor">@color/background</item>
-        <!-- Light mode: dark status bar icons on light background -->
-        <item name="android:windowLightStatusBar">true</item>
+        <!-- Dark mode: white status bar icons on dark background -->
+        <item name="android:windowLightStatusBar">false</item>
     </style>
 </resources>

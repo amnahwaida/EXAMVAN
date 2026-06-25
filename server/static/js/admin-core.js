@@ -332,10 +332,6 @@ async function refreshDashboardStats() {
         const resp = await apiFetch('/admin/api/stats');
         const data = await resp.json();
         if (data.success) {
-            // Update stat cards if they exist on this page
-            const statCards = document.querySelectorAll('.stat-value');
-            const cardMap = ['total_all', 'active', 'inactive', 'storage_mb'];
-            // The stats values come from template vars, so this relies on the API response
             refreshUserInterface(data.data);
         }
     } catch (e) {
@@ -350,18 +346,16 @@ async function refreshDashboardStats() {
 }
 
 function refreshUserInterface(stats) {
-    // Update stats in the stat cards
-    const statValueEls = document.querySelectorAll('.stat-card .stat-value');
-    if (statValueEls.length >= 4) {
-        statValueEls[0].textContent = stats.total ?? '0';
-        statValueEls[1].textContent = stats.active ?? '0';
-        statValueEls[2].textContent = (stats.total - stats.active) ?? '0';
-        statValueEls[3].textContent = (stats.storage_mb ?? '0') + ' MB';
-    } else if (statValueEls.length >= 3) {
-        statValueEls[0].textContent = stats.total ?? '0';
-        statValueEls[1].textContent = stats.active ?? '0';
-        statValueEls[2].textContent = (stats.total - stats.active) ?? '0';
-    }
+    // Update stats by card class (skip instansi card)
+    var totalEl = document.querySelector('.stat-total .stat-value');
+    if (totalEl) totalEl.textContent = stats.total ?? '0';
+    var activeEl = document.querySelector('.stat-status .stat-value');
+    if (activeEl) activeEl.textContent = stats.active ?? '0';
+    // inactive is the second .stat-value in .stat-status
+    var statusEls = document.querySelectorAll('.stat-status .stat-value');
+    if (statusEls.length >= 2) statusEls[1].textContent = (stats.total - stats.active) ?? '0';
+    var storageEl = document.querySelector('.stat-storage .stat-value');
+    if (storageEl) storageEl.textContent = (stats.storage_mb ?? '0') + ' MB';
 }
 
 function startAutoRefresh(intervalSec = 120) {

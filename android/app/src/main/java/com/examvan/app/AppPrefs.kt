@@ -17,10 +17,13 @@ object AppPrefs {
     const val KEY_QUESTIONS_JSON = "questions_json"
     const val KEY_SECURITY_LEVEL = "security_level"
     const val KEY_STRICT_MODE = "strict_mode"
+    const val KEY_PANEL_COLOR = "panel_color"
     const val KEY_DEVICE_UUID = "device_uuid"
     const val KEY_SAVED_ANSWERS = "saved_answers"
     const val KEY_SAVED_ANSWERS_EXAM_ID = "saved_answers_exam_id"
     const val KEY_SAVED_ANSWERS_TIMESTAMP = "saved_answers_timestamp"
+    const val KEY_EXAM_START_TIME = "exam_start_time"
+    const val KEY_SUBMITTED_OR_EXITED = "submitted_or_exited"
 
     @Volatile
     private var masterKey: MasterKey? = null

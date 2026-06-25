@@ -44,6 +44,8 @@ class ServerConfigActivity : BaseSecureActivity() {
 
         binding = ActivityServerConfigBinding.inflate(layoutInflater)
         setContentView(binding.root)
+        // Edge-to-edge inset handling untuk Android 15+ (forced edge-to-edge)
+        applyEdgeToEdgeInsets(binding.root)
 
         // Wrap first EncryptedSharedPreferences access in try-catch for keystore corruption
         val prefs = try {
@@ -65,6 +67,29 @@ class ServerConfigActivity : BaseSecureActivity() {
         }
         if (savedToken.isNotEmpty()) {
             binding.etToken.setText(savedToken)
+        }
+
+        // Set version from BuildConfig instead of hardcoded string
+        binding.tvVersion.text = "EXAMVAN v${BuildConfig.VERSION_NAME}"
+
+        // Tampilkan tombol clear data hanya jika ada data tersimpan
+        val hasSavedUrl = savedUrl.isNotEmpty() || savedToken.isNotEmpty()
+        binding.btnClearData.visibility = if (hasSavedUrl) View.VISIBLE else View.GONE
+        binding.btnClearData.setOnClickListener {
+            AlertDialog.Builder(this)
+                .setTitle("Hapus Data Tersimpan")
+                .setMessage("Hapus URL server, token, dan data identitas yang tersimpan?")
+                .setPositiveButton("Ya, Hapus") { _, _ ->
+                    AppPrefs.getConfigPrefs(this).edit().clear().apply()
+                    AppPrefs.getExamPrefs(this).edit().clear().apply()
+                    AppPrefs.getDevicePrefs(this).edit().clear().apply()
+                    binding.etServerUrl.setText("")
+                    binding.etToken.setText("")
+                    binding.btnClearData.visibility = View.GONE
+                    showError("Data tersimpan berhasil dihapus")
+                }
+                .setNegativeButton("Batal", null)
+                .show()
         }
 
         binding.btnConnect.setOnClickListener {
@@ -218,30 +243,11 @@ class ServerConfigActivity : BaseSecureActivity() {
             )
         }
 
-        // Build dialog form dynamically
-        val scrollView = android.widget.ScrollView(this)
-        val container = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-            setPadding(48, 32, 48, 24)
-        }
-
-        val titleView = TextView(this).apply {
-            text = getString(R.string.identity_dialog_title)
-            textSize = 20f
-            setTextColor(ContextCompat.getColor(this@ServerConfigActivity, R.color.on_surface))
-            typeface = android.graphics.Typeface.DEFAULT_BOLD
-            gravity = android.view.Gravity.CENTER
-        }
-        container.addView(titleView)
-
-        val subtitleView = TextView(this).apply {
-            text = getString(R.string.identity_dialog_subtitle)
-            textSize = 13f
-            setTextColor(ContextCompat.getColor(this@ServerConfigActivity, R.color.text_secondary))
-            gravity = android.view.Gravity.CENTER
-            setPadding(0, 4, 0, 24)
-        }
-        container.addView(subtitleView)
+        // Inflate XML layout template — lebih maintainable daripada build 100% programmatic
+        val dialogView = LayoutInflater.from(this).inflate(R.layout.dialog_student_identity, null)
+        val fieldsContainer = dialogView.findViewById<LinearLayout>(R.id.fieldsContainer)
+        val tvDialogError = dialogView.findViewById<TextView>(R.id.tvDialogError)
+        val btnConfirm = dialogView.findViewById<Button>(R.id.btnConfirmStart)
 
         // Create EditText map for all fields
         val editTexts = mutableMapOf<String, EditText>()
@@ -258,7 +264,7 @@ class ServerConfigActivity : BaseSecureActivity() {
                 typeface = android.graphics.Typeface.DEFAULT_BOLD
                 setPadding(0, 12, 0, 4)
             }
-            container.addView(labelView)
+            fieldsContainer.addView(labelView)
 
             val editText = EditText(this).apply {
                 hint = field.label
@@ -274,46 +280,20 @@ class ServerConfigActivity : BaseSecureActivity() {
                 textSize = 15f
                 filters = arrayOf(android.text.InputFilter.LengthFilter(100))
             }
-            container.addView(editText, LinearLayout.LayoutParams(
+            fieldsContainer.addView(editText, LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT,
                 ViewGroup.LayoutParams.WRAP_CONTENT
             ).apply { setMargins(0, 0, 0, 4) })
             editTexts[field.key] = editText
         }
 
-        val tvDialogError = TextView(this).apply {
-            textSize = 13f
-            setTextColor(ContextCompat.getColor(this@ServerConfigActivity, R.color.danger))
-            gravity = android.view.Gravity.CENTER
-            setPadding(0, 12, 0, 4)
-            visibility = View.GONE
-        }
-        container.addView(tvDialogError)
-
-        val btnConfirm = Button(this).apply {
-            text = getString(R.string.btn_start_exam)
-            setTextColor(ContextCompat.getColor(this@ServerConfigActivity, R.color.on_primary))
-            textSize = 15f
-            typeface = android.graphics.Typeface.DEFAULT_BOLD
-            setPadding(0, 14, 0, 14)
-            setBackgroundColor(ContextCompat.getColor(this@ServerConfigActivity, R.color.primary))
-            layoutParams = LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT,
-                ViewGroup.LayoutParams.WRAP_CONTENT
-            ).apply { setMargins(0, 16, 0, 0) }
-        }
-        container.addView(btnConfirm)
-
-        scrollView.addView(container)
-
         val builder = AlertDialog.Builder(this)
-            .setView(scrollView)
+            .setView(dialogView)
             .setCancelable(false)
             .setNegativeButton("Ganti Server") { dialog, _ ->
                 dialog.dismiss()
             // Allow user to go back to server config if they entered wrong server details
             }
-        // Prevent dismissal without filling identity — student can go back via "Ganti Server" button
 
         val alertDialog = builder.create()
 
@@ -353,10 +333,12 @@ class ServerConfigActivity : BaseSecureActivity() {
             val questionsJson = com.google.gson.Gson().toJson(exam.questions ?: emptyList<Any>())
             val securityLevel = exam.security_level ?: "medium"
             val strictMode = exam.strict_mode ?: false
+            val panelColor = exam.panel_color ?: ""
             AppPrefs.getExamPrefs(this@ServerConfigActivity).edit()
                 .putString(AppPrefs.KEY_QUESTIONS_JSON, questionsJson)
                 .putString(AppPrefs.KEY_SECURITY_LEVEL, securityLevel)
                 .putBoolean(AppPrefs.KEY_STRICT_MODE, strictMode)
+                .putString(AppPrefs.KEY_PANEL_COLOR, panelColor)
                 .apply()
 
             // Extract legacy fields for backward compat with ExamViewer

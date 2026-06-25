@@ -37,10 +37,18 @@
   <span style="font-size: 13px; color: var(--color-text-secondary); display: flex; align-items: center; gap: 6px;">
   <svg class="icon-svg-sm"><use href="#hi-upload"/></svg> {{ exam_info.size_mb }} MB
   </span>
-  <span style="font-size: 13px; color: var(--color-text-secondary); display: flex; align-items: center; gap: 6px;">
-  <svg class="icon-svg-sm"><use href="#hi-file"/></svg> Upload: {{ exam_info.created_at[:10] if exam_info.created_at else '—' }}
-  </span>
- </div>
+   <span style="font-size: 13px; color: var(--color-text-secondary); display: flex; align-items: center; gap: 6px;">
+   <svg class="icon-svg-sm"><use href="#hi-file"/></svg> Upload: {{ exam_info.created_at[:10] if exam_info.created_at else '—' }}
+   </span>
+   {% if exam_info.start_time and exam_info.end_time %}
+   <span style="font-size: 13px; color: var(--color-text-secondary); display: flex; align-items: center; gap: 6px;">
+   <svg class="icon-svg-sm"><use href="#hi-clock"/></svg> {{ exam_info.start_time }} &ndash; {{ exam_info.end_time }}
+   </span>
+   {% elif exam_info.start_time %}
+   <span style="font-size: 13px; color: var(--color-text-secondary); display: flex; align-items: center; gap: 6px;">
+   <svg class="icon-svg-sm"><use href="#hi-clock"/></svg> {{ exam_info.start_time }} &ndash; ?
+   </span>
+   {% endif %}
  </section>
  {% endif %}
 

@@ -1,5 +1,5 @@
 """EXAMVAN routes — extracted from app.py for organization."""
-import os, json, csv, io, re, secrets, string, hmac
+import os, json, csv, io, re, secrets, string, hmac, html
 from datetime import datetime, timezone, timedelta
 
 from flask import (
@@ -13,7 +13,7 @@ from app import (
     app, get_db, get_db_standalone, init_db,
     get_saas_setting, set_saas_setting, send_whatsapp,
     generate_token, _verify_password, generate_csrf_token,
-    admin_required, super_admin_required, csrf_required, check_rate_limit,
+    admin_required, super_admin_required, admin_management_required, csrf_required, check_rate_limit,
     check_exam_ownership, check_submission_ownership,
     get_network_info, get_storage_stats, safe_storage_path,
     STORAGE_DIR, MAX_FILE_SIZE, BASE_DIR,
@@ -23,6 +23,7 @@ from helpers import (
     localize_date_string, format_iso_utc, get_local_ip,
     _normalize_q_num, _evaluate_single_question,
     evaluate_answers_detailed, calculate_submission_score,
+    parse_roles, has_role, serialize_roles, display_roles,
 )
 
 from app import logger as app_logger
@@ -66,6 +67,18 @@ def _csv_safe(value):
     if isinstance(value, str) and value and value[0] in ('=', '+', '-', '@', '\t', '\r'):
         return '\t' + value
     return value
+
+
+def _sanitize_student_input(value):
+    """Sanitize student text input: strip, escape HTML, limit length.
+    Prevents XSS injection in admin panel display."""
+    if not isinstance(value, str):
+        return ''
+    value = value.strip()
+    # Limit to 200 characters to prevent storage abuse
+    value = value[:200]
+    # Escape HTML to prevent XSS in admin panel
+    return html.escape(value, quote=True)
 
 
 def _validate_pdf_upload(file_data, filename, content_type, max_size=None):
@@ -177,7 +190,7 @@ def api_exam_by_token(token):
     token = token.strip().upper()
     db = get_db()
     exam = db.execute(
-        'SELECT id, name, status, size_bytes, token, questions_json, security_level, strict_mode, identity_fields, created_at '
+        'SELECT id, name, status, size_bytes, token, questions_json, security_level, strict_mode, identity_fields, panel_color, start_time, end_time, public_results, show_answers, created_at '
         'FROM exams WHERE token = ? AND status = ?',
         (token, 'active')
     ).fetchone()
@@ -227,6 +240,9 @@ def api_exam_by_token(token):
             'security_level': exam['security_level'] or 'medium',
             'strict_mode': bool(exam['strict_mode']),
             'identity_fields': identity_fields,
+            'panel_color': exam['panel_color'] if exam['panel_color'] else '',
+            'start_time': exam['start_time'] if exam['start_time'] else '',
+            'end_time': exam['end_time'] if exam['end_time'] else '',
             'created_at': format_iso_utc(exam['created_at'])
         }
     })
@@ -251,19 +267,26 @@ def api_submit_exam(exam_id):
     # identity_data contains all dynamic identity fields (from new Android app)
     identity_data = data.get('identity_data')
     if identity_data and isinstance(identity_data, dict):
-        identity_data_json = json.dumps(identity_data)
-        student_name = str(identity_data.get('student_name', '')).strip()
-        exam_number = str(identity_data.get('exam_number', '')).strip()
-        student_class = str(identity_data.get('student_class', '')).strip()
+        # Sanitize all values in identity_data recursively
+        identity_data_sanitized = {}
+        for k, v in identity_data.items():
+            if isinstance(v, str):
+                identity_data_sanitized[k] = html.escape(v.strip()[:200], quote=True)
+            else:
+                identity_data_sanitized[k] = v
+        identity_data_json = json.dumps(identity_data_sanitized)
+        student_name = identity_data_sanitized.get('student_name', '')
+        exam_number = identity_data_sanitized.get('exam_number', '')
+        student_class = identity_data_sanitized.get('student_class', '')
     else:
         identity_data_json = None
-        student_name = data.get('student_name', '').strip()
-        exam_number = data.get('exam_number', '').strip()
-        student_class = data.get('student_class', '').strip()
+        student_name = _sanitize_student_input(data.get('student_name', ''))
+        exam_number = _sanitize_student_input(data.get('exam_number', ''))
+        student_class = _sanitize_student_input(data.get('student_class', ''))
 
     answers = data.get('answers', {})
     start_time_raw = data.get('start_time')
-    mac_address = data.get('mac_address', '').strip() or None
+    mac_address = ''.join(c for c in (data.get('mac_address', '') or '') if c.isprintable()).strip()[:100] or None
 
     start_time = None
     if start_time_raw:
@@ -305,13 +328,24 @@ def api_submit_exam(exam_id):
 
 @app.route('/api/exams/<int:exam_id>/pdf')
 def api_exam_pdf(exam_id):
-    """Stream PDF file for an exam. Requires token query param to prevent probing."""
-    token_param = request.args.get('token', '').strip().upper()
+    """Stream PDF file for an exam.
+
+    Token can be provided via:
+      1. X-Exam-Token HTTP header (preferred — avoids leaking token in URL/logs)
+      2. ?token= query param (legacy fallback for older clients)
+
+    At least one must be present. Header is checked first.
+    """
+    # Prefer header-based token (Android app sends via X-Exam-Token)
+    token_param = (request.headers.get('X-Exam-Token') or '').strip().upper()
+    # Fallback to query param for backward compatibility (older clients, browser)
+    if not token_param:
+        token_param = request.args.get('token', '').strip().upper()
     if not token_param:
         return jsonify({
             'success': False,
             'error': 'token_required',
-            'message': 'Parameter token diperlukan untuk mengakses file ujian'
+            'message': 'Token diperlukan untuk mengakses file ujian (header X-Exam-Token atau query param)'
         }), 401
 
     db = get_db()
@@ -341,6 +375,53 @@ def api_exam_pdf(exam_id):
     response.headers['X-Content-Type-Options'] = 'nosniff'
     response.headers['Accept-Ranges'] = 'bytes'
     return response
+
+
+@app.route('/api/exams/<int:exam_id>/access-log', methods=['POST'])
+def api_access_log(exam_id):
+    """Log student access event (login/heartbeat/logout) from Android."""
+    required_version = get_saas_setting('android_version', REQUIRED_ANDROID_VERSION)
+    client_version = request.headers.get('X-App-Version')
+    if client_version != required_version:
+        return jsonify({
+            'success': False,
+            'error': 'upgrade_required',
+            'message': f'Versi aplikasi Anda usang ({client_version or "v1.x"}). Silakan unduh EXAMVAN v{required_version} terbaru.'
+        }), 426
+
+    data = request.json or {}
+    event = data.get('event', 'heartbeat')
+    if event not in ('login', 'heartbeat', 'logout'):
+        return error_response('Event tidak valid', 400)
+
+    mac_address = ''.join(c for c in (data.get('mac_address', '') or '') if c.isprintable()).strip()[:100] or 'unknown'
+    student_name = data.get('student_name', '')[:200] or None
+    exam_number = data.get('exam_number', '')[:100] or None
+    student_class = data.get('student_class', '')[:100] or None
+    device_info = data.get('device_info', '')[:200] or None
+    ip_address = request.remote_addr or ''
+
+    db = get_db()
+    exam = db.execute('SELECT id FROM exams WHERE id = ? AND status = ?', (exam_id, 'active')).fetchone()
+    if not exam:
+        return error_response('Ujian tidak ditemukan', 404)
+
+    # Find matching submission if it exists
+    submission = None
+    if mac_address and mac_address != 'unknown':
+        submission = db.execute(
+            'SELECT id FROM submissions WHERE exam_id = ? AND mac_address = ? ORDER BY id DESC LIMIT 1',
+            (exam_id, mac_address)
+        ).fetchone()
+
+    db.execute(
+        'INSERT INTO student_access_logs (exam_id, submission_id, student_identifier, student_name, exam_number, student_class, event, ip_address, device_info) '
+        'VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)',
+        (exam_id, submission['id'] if submission else None, mac_address, student_name, exam_number, student_class, event, ip_address, device_info)
+    )
+    db.commit()
+
+    return jsonify({'success': True, 'message': 'Access logged'})
 
 
 # ===== Admin Panel Routes =====
@@ -391,7 +472,7 @@ def admin_login():
 
         db = get_db()
         user = db.execute(
-            'SELECT id, username, status, password_hash FROM admin_users WHERE username = ?',
+            'SELECT id, username, status, password_hash, role FROM admin_users WHERE username = ?',
             (username,)
         ).fetchone()
 
@@ -410,7 +491,7 @@ def admin_login():
                 return redirect(url_for('admin_login'))
 
             # Check account expiry (skip for super admin)
-            if user['username'] != 'admin':
+            if user['username'] != ADMIN_USERNAME:
                 user_full = db.execute('SELECT expires_at FROM admin_users WHERE id = ?', (user['id'],)).fetchone()
                 if user_full and user_full['expires_at']:
                     expires_at = datetime.strptime(user_full['expires_at'], '%Y-%m-%d %H:%M:%S').replace(tzinfo=timezone.utc)
@@ -420,9 +501,36 @@ def admin_login():
 
             session['admin_id'] = user['id']
             session['admin_username'] = user['username']
-            session['is_super_admin'] = (user['username'] == ADMIN_USERNAME)
-            # Store expires_at in session cache
-            if user['username'] != 'admin':
+            # Determine role: force 'superadmin' for admin accounts
+            # Accept both 'admin' (legacy) and 'superadmin' (new) as superadmin
+            # sqlite3.Row di Python 3.12 tidak punya .get(), akses langsung via key
+            db_role = user['role'] if 'role' in user.keys() else 'guru'
+            user_roles = parse_roles(db_role)
+            is_admin_user = (user['username'] == ADMIN_USERNAME or user['username'] == 'admin' or 'superadmin' in user_roles)
+            is_operator_user = 'operator' in user_roles
+            if is_admin_user:
+                session['admin_role'] = 'superadmin'
+                session['is_super_admin'] = True
+                session['is_operator'] = False
+                # Upgrade to proper superadmin role in DB
+                if db_role != 'superadmin':
+                    try:
+                        db.execute('UPDATE admin_users SET role = ? WHERE id = ?', ('superadmin', user['id']))
+                        db.commit()
+                    except Exception:
+                        pass
+            elif is_operator_user:
+                session['admin_role'] = 'operator'
+                session['is_super_admin'] = False
+                session['is_operator'] = True
+                session['user_roles'] = user_roles
+            else:
+                session['admin_role'] = display_roles(db_role)
+                session['is_super_admin'] = False
+                session['is_operator'] = False
+                session['user_roles'] = user_roles
+            # Store expires_at in session cache (skip for admin/operator users)
+            if not is_admin_user and not is_operator_user:
                 user_full = db.execute('SELECT expires_at FROM admin_users WHERE id = ?', (user['id'],)).fetchone()
                 if user_full and user_full['expires_at']:
                     session['expires_at'] = user_full['expires_at']
@@ -491,9 +599,9 @@ def register():
             otp_expiry = (datetime.now(timezone.utc) + timedelta(minutes=5)).strftime('%Y-%m-%d %H:%M:%S')
             
             db.execute(
-                'INSERT INTO admin_users (username, password_hash, whatsapp_number, status, otp_code, otp_expiry, max_exams, max_pdf_size, max_drafts, max_draft_size, expires_at) '
-                'VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
-                (username, pw_hash, whatsapp, 'pending_otp', otp, otp_expiry, default_exams, default_pdf, default_drafts, default_draft_size, expires_at)
+                'INSERT INTO admin_users (username, password_hash, whatsapp_number, status, otp_code, otp_expiry, instansi, max_exams, max_pdf_size, max_drafts, max_draft_size, expires_at) '
+                'VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+                (username, pw_hash, whatsapp, 'pending_otp', otp, otp_expiry, 'personal', default_exams, default_pdf, default_drafts, default_draft_size, expires_at)
             )
             db.commit()
             
@@ -505,9 +613,9 @@ def register():
             return redirect(url_for('verify_otp', username=username))
         else:
             db.execute(
-                'INSERT INTO admin_users (username, password_hash, whatsapp_number, status, max_exams, max_pdf_size, max_drafts, max_draft_size, expires_at) '
-                'VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)',
-                (username, pw_hash, whatsapp, 'active', default_exams, default_pdf, default_drafts, default_draft_size, expires_at)
+                "INSERT INTO admin_users (username, password_hash, whatsapp_number, status, instansi, max_exams, max_pdf_size, max_drafts, max_draft_size, expires_at) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                (username, pw_hash, whatsapp, 'active', 'personal', default_exams, default_pdf, default_drafts, default_draft_size, expires_at)
             )
             db.commit()
             
@@ -624,8 +732,12 @@ def _days_until_expiry(expires_at_str):
 @admin_required
 def admin_dashboard():
     """Admin dashboard page with pagination & search."""
+    if not session.get('is_super_admin') and not session.get('is_operator') and 'guru' not in session.get('user_roles', []):
+        flash('Akses ditolak. Halaman ini khusus untuk Guru.', 'error')
+        return redirect(url_for('admin_pengawas'))
     db = get_db()
     is_super_admin = session.get('is_super_admin', False)
+    is_operator = session.get('is_operator', False)
 
     # Pagination & search params
     page = request.args.get('page', 1, type=int)
@@ -636,9 +748,29 @@ def admin_dashboard():
     # Build query conditions
     conditions = []
     params = []
-    if not is_super_admin:
-        conditions.append('e.created_by = ?')
-        params.append(session['admin_id'])
+    if is_super_admin:
+        pass  # Super admin sees all
+    elif is_operator:
+        # Operator sees: own exams + exams by users in same instansi
+        op_row = db.execute('SELECT instansi FROM admin_users WHERE id = ?', (session['admin_id'],)).fetchone()
+        op_instansi = op_row['instansi'] if op_row else ''
+        conditions.append('(e.created_by = ? OR e.created_by IN (SELECT id FROM admin_users WHERE instansi = ?))')
+        params.extend([session['admin_id'], op_instansi])
+    else:
+        user_role_row = db.execute('SELECT role FROM admin_users WHERE id = ?', (session['admin_id'],)).fetchone()
+        user_roles = parse_roles(user_role_row['role']) if user_role_row else ['guru']
+        is_pengawas = 'pengawas' in user_roles
+        is_guru = 'guru' in user_roles
+        if is_pengawas and is_guru:
+            conditions.append('(e.created_by = ? OR e.id IN (SELECT exam_id FROM exam_pengawas WHERE user_id = ?))')
+            params.extend([session['admin_id'], session['admin_id']])
+        elif is_pengawas:
+            conditions.append('e.id IN (SELECT exam_id FROM exam_pengawas WHERE user_id = ?)')
+            params.append(session['admin_id'])
+        else:
+            conditions.append('e.created_by = ?')
+            params.append(session['admin_id'])
+
     if search:
         conditions.append('(e.name LIKE ? OR e.token LIKE ? OR u.username LIKE ?)')
         search_param = f'%{search}%'
@@ -653,53 +785,94 @@ def admin_dashboard():
     # Fetch paginated exams
     base_query = (
         'SELECT e.*, u.username as creator_name, '
+        'd.username as delegated_name, '
         '(SELECT COUNT(*) FROM submissions s WHERE s.exam_id = e.id) as sub_count '
-        'FROM exams e LEFT JOIN admin_users u ON e.created_by = u.id'
+        'FROM exams e LEFT JOIN admin_users u ON e.created_by = u.id '
+        'LEFT JOIN admin_users d ON e.delegated_to = d.id'
     )
     order = ' ORDER BY e.created_at DESC'
     limit_offset = ' LIMIT ? OFFSET ?'
     exams = db.execute(base_query + where_clause + order + limit_offset, params + [per_page, (page - 1) * per_page]).fetchall()
 
-    # Calculate stats (always from unfiltered data for accuracy)
-    stats_conditions = []
+    # Fetch pengawas for each exam
+    exam_pengawas_map = {}
+    if exams:
+        exam_ids = [e['id'] for e in exams]
+        placeholders = ','.join('?' * len(exam_ids))
+        pengawas_rows = db.execute(
+            f'SELECT ep.exam_id, u.username FROM exam_pengawas ep JOIN admin_users u ON ep.user_id = u.id WHERE ep.exam_id IN ({placeholders}) ORDER BY u.username',
+            exam_ids
+        ).fetchall()
+        for row in pengawas_rows:
+            eid = row['exam_id']
+            if eid not in exam_pengawas_map:
+                exam_pengawas_map[eid] = []
+            exam_pengawas_map[eid].append(row['username'])
+
+    # Calculate stats: count active/inactive across ALL visible exams (same scope as table, without search)
+    stats_where = ''
     stats_params = []
-    if not is_super_admin:
-        stats_conditions.append('created_by = ?')
-        stats_params.append(session['admin_id'])
-
-    stats_where = (' WHERE ' + ' AND '.join(stats_conditions)) if stats_conditions else ''
-
-    stats_total = db.execute(f'SELECT COUNT(*) as cnt FROM exams{stats_where}', stats_params).fetchone()['cnt']
-
-    active_where = stats_where + (' AND ' if stats_conditions else ' WHERE ') + 'status = ?'
-    active = db.execute(f'SELECT COUNT(*) as cnt FROM exams{active_where}', stats_params + ['active']).fetchone()['cnt']
-    inactive = stats_total - active
-
     if is_super_admin:
+        pass
+    elif is_operator:
+        op_row = db.execute('SELECT instansi FROM admin_users WHERE id = ?', (session['admin_id'],)).fetchone()
+        op_instansi = op_row['instansi'] if op_row else ''
+        stats_where = ' WHERE (created_by = ? OR created_by IN (SELECT id FROM admin_users WHERE instansi = ?))'
+        stats_params = [session['admin_id'], op_instansi]
+    else:
+        user_role_row = db.execute('SELECT role FROM admin_users WHERE id = ?', (session['admin_id'],)).fetchone()
+        user_roles = parse_roles(user_role_row['role']) if user_role_row else ['guru']
+        is_pengawas = 'pengawas' in user_roles
+        is_guru = 'guru' in user_roles
+        if is_pengawas and is_guru:
+            stats_where = ' WHERE (created_by = ? OR id IN (SELECT exam_id FROM exam_pengawas WHERE user_id = ?))'
+            stats_params = [session['admin_id'], session['admin_id']]
+        elif is_pengawas:
+            stats_where = ' WHERE id IN (SELECT exam_id FROM exam_pengawas WHERE user_id = ?)'
+            stats_params = [session['admin_id']]
+        else:
+            stats_where = ' WHERE created_by = ?'
+            stats_params = [session['admin_id']]
+
+    if stats_params:
+        stats_total = db.execute(f'SELECT COUNT(*) as cnt FROM exams{stats_where}', stats_params).fetchone()['cnt']
+        active = db.execute(f'SELECT COUNT(*) as cnt FROM exams{stats_where} AND status = ?', stats_params + ['active']).fetchone()['cnt']
+    else:
+        stats_total = db.execute('SELECT COUNT(*) as cnt FROM exams').fetchone()['cnt']
+        active = db.execute('SELECT COUNT(*) as cnt FROM exams WHERE status = ?', ['active']).fetchone()['cnt']
+    inactive = stats_total - active
+    logger.info('STATS: is_super=%s is_op=%s admin_id=%s role=%s admin_username=%s stats_where=%s params=%s total=%s active=%s total_exams=%s',
+                is_super_admin, is_operator, session.get('admin_id'), session.get('admin_role'),
+                session.get('admin_username'), stats_where, stats_params, stats_total, active, total)
+
+    if is_super_admin or is_operator:
         storage_bytes = get_storage_stats()
     else:
-        storage_bytes = db.execute(f'SELECT COALESCE(SUM(size_bytes), 0) as total FROM exams e{stats_where}', stats_params).fetchone()['total']
+        if stats_params:
+            storage_bytes = db.execute(f'SELECT COALESCE(SUM(size_bytes), 0) as total FROM exams e{stats_where}', stats_params).fetchone()['total']
+        else:
+            storage_bytes = db.execute('SELECT COALESCE(SUM(size_bytes), 0) as total FROM exams').fetchone()['total']
 
     total_pages = max(1, (total + per_page - 1) // per_page)
 
     net_info = get_network_info()
 
     # Get per-user limits
-    if is_super_admin:
+    if is_super_admin or is_operator:
         user_max_pdf = MAX_FILE_SIZE
         user_max_exams = '∞'
         account_expires = None
     else:
         user_row = db.execute('SELECT max_exams, max_pdf_size, expires_at FROM admin_users WHERE id = ?', (session['admin_id'],)).fetchone()
-        user_max_pdf = user_row['max_pdf_size'] if (user_row and user_row['max_pdf_size']) else 1048576
-        user_max_exams = user_row['max_exams'] if (user_row and user_row['max_exams']) else 3
+        user_max_pdf = user_row['max_pdf_size'] if (user_row and user_row['max_pdf_size'] is not None) else 1048576
+        user_max_exams = user_row['max_exams'] if (user_row and user_row['max_exams'] is not None) else 3
         account_expires = user_row['expires_at'] if user_row else None
 
     days_remaining = _days_until_expiry(account_expires)
 
-    return render_template(
-        'dashboard.html',
+    resp = app.make_response(render_template('dashboard.html',
         exams=exams,
+        exam_pengawas_map=exam_pengawas_map,
         stats={
             'total': total,
             'active': active,
@@ -710,19 +883,23 @@ def admin_dashboard():
         net_info=net_info,
         local_ip=net_info['display_host'],
         admin_user=session.get('admin_username', 'Admin'),
+        admin_role=session.get('admin_role', 'guru'),
         max_size_mb=round(user_max_pdf / (1024 * 1024), 1),
         max_exams=user_max_exams,
         account_expires=account_expires,
         days_remaining=days_remaining,
         active_page='dashboard',
-        # Pagination
         page=page,
         per_page=per_page,
         total_pages=total_pages,
         total_exams=total,
         search=search,
         search_active=bool(search),
-    )
+    ))
+    resp.headers['Cache-Control'] = 'no-cache, no-store, must-revalidate'
+    resp.headers['Pragma'] = 'no-cache'
+    resp.headers['Expires'] = '0'
+    return resp
 
 @app.route('/admin/api/upload', methods=['POST'])
 @admin_required
@@ -746,19 +923,20 @@ def admin_upload():
     db = get_db()
     custom_token = request.form.get('custom_token', '').strip().upper()
     
-    # Check per-user limits (for non-super admin users)
-    if not session.get('is_super_admin'):
+    # Check per-user limits (for non-super admin/operator users)
+    if not session.get('is_super_admin') and not session.get('is_operator'):
         user = db.execute('SELECT max_exams, max_pdf_size FROM admin_users WHERE id = ?', (session['admin_id'],)).fetchone()
         exam_limit = user['max_exams'] if (user and user['max_exams'] is not None) else 3
         pdf_limit = user['max_pdf_size'] if (user and user['max_pdf_size'] is not None) else 1048576
         
         # Check PDF size limit
         if len(file_data) > pdf_limit:
-            pdf_limit_mb = round(pdf_limit / (1024 * 1024), 2)
-            return jsonify({
-                'success': False, 
-                'message': f'Ukuran file melebihi batas akun Anda ({pdf_limit_mb}MB). Silakan hubungi Super Admin untuk menaikkan limit.'
-            }), 403
+            if pdf_limit == 0:
+                msg = 'Anda tidak memiliki izin untuk mengupload PDF. Silakan hubungi Super Admin untuk mendapatkan akses.'
+            else:
+                pdf_limit_mb = round(pdf_limit / (1024 * 1024), 2)
+                msg = f'Ukuran file melebihi batas akun Anda ({pdf_limit_mb}MB). Silakan hubungi Super Admin untuk menaikkan limit.'
+            return jsonify({'success': False, 'message': msg}), 403
         
         # Check exam count limit
         current_count = db.execute('SELECT COUNT(*) as count FROM exams WHERE created_by = ?', (session['admin_id'],)).fetchone()['count']
@@ -1020,8 +1198,8 @@ def admin_bulk_delete_exams():
 
     db = get_db()
     try:
-        # Filter IDs by ownership for non-super admin
-        if not session.get('is_super_admin'):
+        # Filter IDs by ownership for non-super admin/operator
+        if not session.get('is_super_admin') and not session.get('is_operator'):
             owned = db.execute(
                 f'SELECT id FROM exams WHERE id IN ({",".join("?" for _ in exam_ids)}) AND created_by = ?',
                 exam_ids + [session['admin_id']]
@@ -1163,21 +1341,48 @@ def admin_custom_token(exam_id):
 @app.route('/admin/api/stats')
 @admin_required
 def admin_stats():
-    """Get dashboard statistics."""
+    """Get dashboard statistics (scoped to user's visible exams)."""
     db = get_db()
     is_super_admin = session.get('is_super_admin', False)
+    is_operator = session.get('is_operator', False)
+    admin_id = session['admin_id']
+
     if is_super_admin:
         exams = db.execute('SELECT status, size_bytes FROM exams').fetchall()
+        storage_bytes = get_storage_stats()
+    elif is_operator:
+        op_row = db.execute('SELECT instansi FROM admin_users WHERE id = ?', (admin_id,)).fetchone()
+        op_instansi = op_row['instansi'] if op_row else ''
+        exams = db.execute(
+            'SELECT status, size_bytes FROM exams WHERE created_by = ? OR created_by IN (SELECT id FROM admin_users WHERE instansi = ?)',
+            (admin_id, op_instansi)
+        ).fetchall()
+        storage_bytes = get_storage_stats()
     else:
-        exams = db.execute('SELECT status, size_bytes FROM exams WHERE created_by = ?', (session['admin_id'],)).fetchall()
+        user_role_row = db.execute('SELECT role FROM admin_users WHERE id = ?', (admin_id,)).fetchone()
+        user_roles = parse_roles(user_role_row['role']) if user_role_row else ['guru']
+        is_pengawas = 'pengawas' in user_roles
+        is_guru = 'guru' in user_roles
+
+        if is_pengawas and is_guru:
+            exams = db.execute(
+                'SELECT status, size_bytes FROM exams WHERE created_by = ? OR id IN (SELECT exam_id FROM exam_pengawas WHERE user_id = ?)',
+                (admin_id, admin_id)
+            ).fetchall()
+        elif is_pengawas:
+            exams = db.execute(
+                'SELECT status, size_bytes FROM exams WHERE id IN (SELECT exam_id FROM exam_pengawas WHERE user_id = ?)',
+                (admin_id,)
+            ).fetchall()
+        else:
+            exams = db.execute(
+                'SELECT status, size_bytes FROM exams WHERE created_by = ?',
+                (admin_id,)
+            ).fetchall()
+        storage_bytes = sum(e['size_bytes'] for e in exams if e['size_bytes'] is not None)
 
     total = len(exams)
     active = sum(1 for e in exams if e['status'] == 'active')
-
-    if is_super_admin:
-        storage_bytes = get_storage_stats()
-    else:
-        storage_bytes = sum(e['size_bytes'] for e in exams if e['size_bytes'] is not None)
 
     return jsonify({
         'success': True,
@@ -1228,18 +1433,29 @@ def admin_change_password():
 
 
 @app.route('/admin/users')
-@super_admin_required
+@admin_management_required
 def admin_manage_users_page():
-    """HTML page for super admin to manage other users (teachers) and set limits."""
+    """HTML page for super admin/operator to manage other users and set limits."""
+    db = get_db()
+    admin_instansi = ''
+    operator_expires_at = ''
+    if session.get('is_operator'):
+        row = db.execute('SELECT instansi, expires_at FROM admin_users WHERE id = ?', (session['admin_id'],)).fetchone()
+        if row:
+            admin_instansi = row['instansi'] or ''
+            operator_expires_at = row['expires_at'] or ''
     return render_template(
         'users.html',
         admin_user=session.get('admin_username', 'Admin'),
-        active_page='users'
+        admin_role=session.get('admin_role', 'guru'),
+        active_page='users',
+        admin_instansi=admin_instansi,
+        operator_expires_at=operator_expires_at
     )
 
 
 @app.route('/admin/api/users', methods=['GET'])
-@super_admin_required
+@admin_management_required
 def admin_list_users():
     """List all registered users (teachers) with exam count and limit. Supports pagination & search."""
     db = get_db()
@@ -1262,10 +1478,27 @@ def admin_list_users():
         where_extra = 'AND (username LIKE ? OR whatsapp_number LIKE ?)'
         params_extra = [f'%{search}%', f'%{search}%']
 
-    # Count total (excluding admin superuser)
+    # Build exclusion clause for operator viewing (same instansi only + no operator/superadmin)
+    exclusion_params = []
+    is_operator_viewing = session.get('is_operator', False)
+    if is_operator_viewing:
+        op_instansi = db.execute(
+            'SELECT instansi FROM admin_users WHERE id = ?',
+            (session['admin_id'],)
+        ).fetchone()
+        op_instansi_val = op_instansi['instansi'] if (op_instansi and op_instansi['instansi']) else ''
+        exclusion_extra = " AND username != ? AND role NOT LIKE ? AND instansi = ?"
+        exclusion_extra_alias = " AND u.username != ? AND u.role NOT LIKE ? AND u.instansi = ?"
+        exclusion_params = [ADMIN_USERNAME, '%"operator"%', op_instansi_val]
+    else:
+        exclusion_extra = ' AND username != ?'
+        exclusion_extra_alias = ' AND u.username != ?'
+        exclusion_params = [ADMIN_USERNAME]
+
+    # Count total
     total_row = db.execute(
-        'SELECT COUNT(*) as cnt FROM admin_users WHERE username != ? ' + where_extra,
-        [ADMIN_USERNAME] + params_extra
+        'SELECT COUNT(*) as cnt FROM admin_users WHERE 1=1 ' + exclusion_extra + ' ' + where_extra,
+        exclusion_params + params_extra
     ).fetchone()
     total = total_row['cnt'] if total_row else 0
     total_pages = max(1, (total + per_page - 1) // per_page)
@@ -1275,6 +1508,7 @@ def admin_list_users():
     BASE_SELECT = (
         'SELECT u.id, u.username, u.whatsapp_number, u.status, '
         'u.max_exams, u.max_pdf_size, u.max_drafts, u.max_draft_size, '
+        'u.instansi, u.role, '
         'u.expires_at, u.created_at, COUNT(e.id) as exam_count '
         'FROM admin_users u LEFT JOIN exams e ON e.created_by = u.id '
     )
@@ -1290,12 +1524,13 @@ def admin_list_users():
     # Fetch paginated teachers
     users = db.execute(
         BASE_SELECT
-        + 'WHERE u.username != ? ' + where_extra
+        + 'WHERE 1=1 ' + exclusion_extra_alias + ' ' + where_extra
         + 'GROUP BY u.id ORDER BY u.username ASC LIMIT ? OFFSET ?',
-        [ADMIN_USERNAME] + params_extra + [per_page, offset]
+        exclusion_params + params_extra + [per_page, offset]
     ).fetchall()
 
     def _build_user(u):
+        raw_role = u['role'] if 'role' in u.keys() else 'guru'
         return {
             'id': u['id'],
             'username': u['username'],
@@ -1303,13 +1538,16 @@ def admin_list_users():
             'status': u['status'] or 'active',
             'max_exams': u['max_exams'] if u['max_exams'] is not None else 3,
             'max_pdf_size': u['max_pdf_size'] if u['max_pdf_size'] is not None else 1048576,
+            'instansi': u['instansi'] if 'instansi' in u.keys() else '',
+            'roles': parse_roles(raw_role),
+            'role': serialize_roles(parse_roles(raw_role)),
             'expires_at': u['expires_at'] or '',
             'exam_count': u['exam_count'],
             'created_at': format_iso_utc(u['created_at'])
         }
 
     user_list = []
-    if admin_user and admin_user['username'] == ADMIN_USERNAME:
+    if admin_user and admin_user['username'] == ADMIN_USERNAME and not is_operator_viewing:
         user_list.append(_build_user(admin_user))
     for u in users:
         user_list.append(_build_user(u))
@@ -1327,13 +1565,29 @@ def admin_list_users():
 
 
 @app.route('/admin/api/users', methods=['POST'])
-@super_admin_required
+@admin_management_required
 def admin_create_user():
-    """Create a new user (teacher) with exam limit."""
+    """Create a new user (teacher/pengawas/operator) with exam limit."""
     data = request.json or {}
     username = data.get('username', '').strip().lower()
     password = data.get('password', '')
     whatsapp = data.get('whatsapp_number', '').strip()
+    roles_raw = data.get('roles', data.get('role', ['guru']))
+    if isinstance(roles_raw, str):
+        roles_raw = [roles_raw]
+    if session.get('is_operator'):
+        # Operator tidak boleh membuat user dengan role operator
+        if 'operator' in roles_raw:
+            return error_response('Operator tidak dapat membuat akun dengan role Operator', 400)
+        # Instansi & WhatsApp otomatis mengikuti operator
+        op_data = get_db().execute('SELECT instansi, whatsapp_number FROM admin_users WHERE id = ?', (session['admin_id'],)).fetchone()
+        instansi = op_data['instansi'] if (op_data and op_data['instansi']) else 'personal'
+        if op_data and op_data['whatsapp_number']:
+            whatsapp = op_data['whatsapp_number']
+    else:
+        instansi = data.get('instansi', '').strip() or 'personal'
+    roles = [r for r in roles_raw if r in ('guru', 'pengawas', 'operator')] or ['guru']
+    role = serialize_roles(roles)
     max_exams = data.get('max_exams', 3)
     max_pdf_size_mb = data.get('max_pdf_size_mb', 1)
     max_drafts = data.get('max_drafts', 2)
@@ -1379,8 +1633,8 @@ def admin_create_user():
         expires_at = (datetime.now(timezone.utc) + timedelta(days=default_active_days)).strftime('%Y-%m-%d %H:%M:%S')
 
     db.execute(
-        'INSERT INTO admin_users (username, password_hash, whatsapp_number, status, max_exams, max_pdf_size, max_drafts, max_draft_size, expires_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)',
-        (username, pw_hash, whatsapp, 'active', max_exams, max_pdf_size, max_drafts, max_draft_size, expires_at)
+        'INSERT INTO admin_users (username, password_hash, whatsapp_number, instansi, role, status, max_exams, max_pdf_size, max_drafts, max_draft_size, expires_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+        (username, pw_hash, whatsapp, instansi, role, 'active', max_exams, max_pdf_size, max_drafts, max_draft_size, expires_at)
     )
     db.commit()
 
@@ -1388,23 +1642,44 @@ def admin_create_user():
 
 
 @app.route('/admin/api/users/<int:user_id>/edit', methods=['POST'])
-@super_admin_required
+@admin_management_required
 def admin_edit_user(user_id):
-    """Edit user's max_exams limit, whatsapp, status, and optionally their password."""
+    """Edit user's max_exams limit, whatsapp, status, instansi, role, and optionally their password."""
     data = request.json or {}
     max_exams = data.get('max_exams')
     max_pdf_size_mb = data.get('max_pdf_size_mb')
     whatsapp = data.get('whatsapp_number')
     status = data.get('status')
     password = data.get('password', '').strip()
+    instansi = data.get('instansi')
+    role = data.get('role')
 
     db = get_db()
-    user = db.execute('SELECT username FROM admin_users WHERE id = ?', (user_id,)).fetchone()
+    user = db.execute('SELECT username, role, instansi FROM admin_users WHERE id = ?', (user_id,)).fetchone()
     if not user:
         return error_response('User tidak ditemukan', 404)
 
     if user['username'] == ADMIN_USERNAME:
-        return error_response('Super Admin "admin" tidak dapat diubah limitnya', 400)
+        return error_response(f'Super Admin "{ADMIN_USERNAME}" tidak dapat diubah limitnya', 400)
+
+    if session.get('is_operator'):
+        op_instansi = db.execute(
+            'SELECT instansi FROM admin_users WHERE id = ?',
+            (session['admin_id'],)
+        ).fetchone()
+        op_instansi_val = op_instansi['instansi'] if (op_instansi and op_instansi['instansi']) else ''
+        if user['instansi'] != op_instansi_val:
+            return error_response('Anda hanya dapat mengelola user dalam satu instansi yang sama', 400)
+        target_roles = parse_roles(user['role'])
+        if 'operator' in target_roles:
+            return error_response('Operator tidak dapat mengelola akun dengan role Operator', 400)
+        # Also block setting role to operator
+        if role is not None:
+            roles_raw = data.get('roles', data.get('role'))
+            if isinstance(roles_raw, str):
+                roles_raw = [roles_raw]
+            if isinstance(roles_raw, list) and 'operator' in roles_raw:
+                return error_response('Operator tidak dapat memberikan role Operator', 400)
 
     if max_exams is not None:
         try:
@@ -1442,6 +1717,21 @@ def admin_edit_user(user_id):
     if whatsapp is not None:
         db.execute('UPDATE admin_users SET whatsapp_number = ? WHERE id = ?', (whatsapp.strip(), user_id))
 
+    if instansi is not None:
+        instansi = instansi.strip()
+        if not instansi:
+            return error_response('Instansi tidak boleh kosong', 400)
+        db.execute('UPDATE admin_users SET instansi = ? WHERE id = ?', (instansi, user_id))
+
+    if role is not None:
+        roles_raw = data.get('roles', data.get('role'))
+        if isinstance(roles_raw, str):
+            roles_raw = [roles_raw]
+        if isinstance(roles_raw, list):
+            filtered = [r for r in roles_raw if r in ('guru', 'pengawas', 'operator')]
+            if filtered:
+                db.execute('UPDATE admin_users SET role = ? WHERE id = ?', (serialize_roles(filtered), user_id))
+
     if status is not None:
         if status in ['active', 'suspended', 'pending_otp']:
             db.execute('UPDATE admin_users SET status = ? WHERE id = ?', (status, user_id))
@@ -1470,13 +1760,22 @@ def admin_edit_user(user_id):
 
 
 @app.route('/admin/api/users/<int:user_id>/verify', methods=['POST'])
-@super_admin_required
+@admin_management_required
 def admin_verify_user_manual(user_id):
     """Manually activate/verify a pending user."""
     db = get_db()
-    user = db.execute('SELECT username, status FROM admin_users WHERE id = ?', (user_id,)).fetchone()
+    user = db.execute('SELECT username, status, instansi FROM admin_users WHERE id = ?', (user_id,)).fetchone()
     if not user:
         return error_response('User tidak ditemukan', 404)
+
+    if session.get('is_operator'):
+        op_instansi = db.execute(
+            'SELECT instansi FROM admin_users WHERE id = ?',
+            (session['admin_id'],)
+        ).fetchone()
+        op_instansi_val = op_instansi['instansi'] if (op_instansi and op_instansi['instansi']) else ''
+        if user['instansi'] != op_instansi_val:
+            return error_response('Anda hanya dapat mengelola user dalam satu instansi yang sama', 400)
         
     db.execute('UPDATE admin_users SET status = ?, otp_code = NULL, otp_expiry = NULL WHERE id = ?', ('active', user_id))
     db.commit()
@@ -1484,16 +1783,25 @@ def admin_verify_user_manual(user_id):
 
 
 @app.route('/admin/api/users/<int:user_id>/toggle-status', methods=['POST'])
-@super_admin_required
+@admin_management_required
 def admin_toggle_user_status(user_id):
     """Suspend or activate a user account."""
     db = get_db()
-    user = db.execute('SELECT username, status, expires_at FROM admin_users WHERE id = ?', (user_id,)).fetchone()
+    user = db.execute('SELECT username, status, expires_at, instansi FROM admin_users WHERE id = ?', (user_id,)).fetchone()
     if not user:
         return error_response('User tidak ditemukan', 404)
 
+    if session.get('is_operator'):
+        op_instansi = db.execute(
+            'SELECT instansi FROM admin_users WHERE id = ?',
+            (session['admin_id'],)
+        ).fetchone()
+        op_instansi_val = op_instansi['instansi'] if (op_instansi and op_instansi['instansi']) else ''
+        if user['instansi'] != op_instansi_val:
+            return error_response('Anda hanya dapat mengelola user dalam satu instansi yang sama', 400)
+
     if user['username'] == ADMIN_USERNAME:
-        return error_response('Status Super Admin "admin" tidak dapat diubah', 400)
+        return error_response(f'Status Super Admin "{ADMIN_USERNAME}" tidak dapat diubah', 400)
 
     now = datetime.utcnow()
     new_status = 'suspended' if user['status'] == 'active' else 'active'
@@ -1617,16 +1925,28 @@ def admin_saas_settings():
 
 
 @app.route('/admin/api/users/<int:user_id>', methods=['DELETE'])
-@super_admin_required
+@admin_management_required
 def admin_delete_user(user_id):
     """Delete a user and all their exams/files."""
     db = get_db()
-    user = db.execute('SELECT username FROM admin_users WHERE id = ?', (user_id,)).fetchone()
+    user = db.execute('SELECT username, role, instansi FROM admin_users WHERE id = ?', (user_id,)).fetchone()
     if not user:
         return error_response('User tidak ditemukan', 404)
 
     if user['username'] == ADMIN_USERNAME:
-        return error_response('Super Admin "admin" tidak dapat dihapus', 400)
+        return error_response(f'Super Admin "{ADMIN_USERNAME}" tidak dapat dihapus', 400)
+
+    if session.get('is_operator') and 'operator' in parse_roles(user['role']):
+        return error_response('Operator tidak dapat menghapus akun dengan role Operator', 400)
+
+    if session.get('is_operator'):
+        op_instansi = db.execute(
+            'SELECT instansi FROM admin_users WHERE id = ?',
+            (session['admin_id'],)
+        ).fetchone()
+        op_instansi_val = op_instansi['instansi'] if (op_instansi and op_instansi['instansi']) else ''
+        if user['instansi'] != op_instansi_val:
+            return error_response('Anda hanya dapat mengelola user dalam satu instansi yang sama', 400)
 
     db.execute('BEGIN')
     try:
@@ -1684,12 +2004,40 @@ def admin_exam_questions(exam_id):
                 identity_fields = json.loads(exam['identity_fields'])
             except Exception as e:
                 logger.warning("Failed to parse identity_fields for exam %s: %s", exam_id, e)
+
+        # Get assigned pengawas for this exam
+        assigned_pengawas = []
+        pengawas_rows = db.execute(
+            'SELECT ep.user_id, u.username, u.instansi '
+            'FROM exam_pengawas ep JOIN admin_users u ON ep.user_id = u.id '
+            'WHERE ep.exam_id = ? ORDER BY u.username',
+            (exam_id,)
+        ).fetchall()
+        for p in pengawas_rows:
+            assigned_pengawas.append({'id': p['user_id'], 'username': p['username'], 'instansi': p['instansi'] or ''})
+
+        # Get available pengawas (same instansi as exam creator)
+        available_pengawas = []
+        creator = db.execute('SELECT instansi FROM admin_users WHERE id = ?', (exam['created_by'],)).fetchone()
+        if creator and creator['instansi']:
+            avail_rows = db.execute(
+                "SELECT id, username, instansi FROM admin_users WHERE role LIKE ? AND instansi = ? AND status = ? ORDER BY username",
+                ('%"pengawas"%', creator['instansi'], 'active')
+            ).fetchall()
+            for a in avail_rows:
+                available_pengawas.append({'id': a['id'], 'username': a['username'], 'instansi': a['instansi'] or ''})
+
         return jsonify({
             'success': True,
             'questions': questions,
             'security_level': security_level,
             'strict_mode': strict_mode,
-            'identity_fields': identity_fields
+            'identity_fields': identity_fields,
+            'panel_color': exam['panel_color'] if exam['panel_color'] else '',
+            'start_time': exam['start_time'] if exam['start_time'] else '',
+            'end_time': exam['end_time'] if exam['end_time'] else '',
+            'assigned_pengawas': assigned_pengawas,
+            'available_pengawas': available_pengawas
         })
 
     else:
@@ -1714,12 +2062,54 @@ def admin_exam_questions(exam_id):
         else:
             identity_fields_json = exam['identity_fields'] or DEFAULT_IDENTITY_FIELDS
 
+        # Panel color (hex string or empty)
+        panel_color = data.get('panel_color', '')
+        if panel_color and not panel_color.startswith('#'):
+            panel_color = ''
+        panel_color = panel_color[:7]  # max length: #RRGGBB
+
+        # Exam schedule times (HH:MM format)
+        start_time = data.get('start_time', '')
+        end_time = data.get('end_time', '')
+        if start_time and not re.match(r'^\d{4}-\d{2}-\d{2} \d{2}:\d{2}$', start_time) and not re.match(r'^\d{2}:\d{2}$', start_time):
+            start_time = ''
+        if end_time and not re.match(r'^\d{4}-\d{2}-\d{2} \d{2}:\d{2}$', end_time) and not re.match(r'^\d{2}:\d{2}$', end_time):
+            end_time = ''
+
         # Save to database
         db.execute(
-            'UPDATE exams SET questions_json = ?, security_level = ?, strict_mode = ?, identity_fields = ? WHERE id = ?',
-            (json.dumps(questions), security_level, strict_mode, identity_fields_json, exam_id)
+            'UPDATE exams SET questions_json = ?, security_level = ?, strict_mode = ?, identity_fields = ?, panel_color = ?, start_time = ?, end_time = ? WHERE id = ?',
+            (json.dumps(questions), security_level, strict_mode, identity_fields_json, panel_color or None, start_time or None, end_time or None, exam_id)
         )
         db.commit()
+
+        # Save pengawas assignment
+        pengawas_ids = data.get('pengawas_ids')
+        if pengawas_ids is not None and isinstance(pengawas_ids, list):
+            # Get creator's instansi for validation
+            creator = db.execute('SELECT instansi FROM admin_users WHERE id = ?', (exam['created_by'],)).fetchone()
+            creator_instansi = creator['instansi'] if creator else ''
+            # Clear old pengawas for this exam
+            db.execute('DELETE FROM exam_pengawas WHERE exam_id = ?', (exam_id,))
+            for uid in pengawas_ids:
+                try:
+                    uid = int(uid)
+                except (ValueError, TypeError):
+                    continue
+                # Validate: user must exist, have role 'pengawas', and same instansi
+                pengawas_user = db.execute(
+                    "SELECT id, instansi, role FROM admin_users WHERE id = ? AND role LIKE ? AND instansi = ?",
+                    (uid, '%"pengawas"%', creator_instansi)
+                ).fetchone()
+                if pengawas_user:
+                    try:
+                        db.execute(
+                            'INSERT OR IGNORE INTO exam_pengawas (exam_id, user_id) VALUES (?, ?)',
+                            (exam_id, uid)
+                        )
+                    except Exception:
+                        pass
+            db.commit()
 
         # Recalculate scores for all existing submissions of this exam (paginated)
         # Terpisah dari UPDATE di atas karena SQLite implicit transaction
@@ -1747,12 +2137,133 @@ def admin_exam_questions(exam_id):
         return jsonify({'success': True, 'message': 'Konfigurasi soal berhasil disimpan dan nilai siswa berhasil diperbarui'})
 
 
+@app.route('/admin/api/exams/<int:exam_id>/delegate-data', methods=['GET'])
+@admin_required
+def admin_exam_delegate_data(exam_id):
+    """Get available gurus + pengawas data for delegation modal (operator only)."""
+    if not session.get('is_operator'):
+        return error_response('Akses ditolak', 403)
+    db = get_db()
+    operator = db.execute('SELECT instansi FROM admin_users WHERE id = ?', (session['admin_id'],)).fetchone()
+    if not operator or not operator['instansi']:
+        return error_response('Operator tidak memiliki instansi', 400)
+    exam = db.execute('SELECT * FROM exams WHERE id = ?', (exam_id,)).fetchone()
+    if not exam:
+        return error_response('Ujian tidak ditemukan', 404)
+
+    # Available gurus (exclude current owner)
+    guru_rows = db.execute(
+        "SELECT id, username, instansi FROM admin_users WHERE role LIKE ? AND instansi = ? AND status = ? AND id != ? ORDER BY username",
+        ('%"guru"%', operator['instansi'], 'active', exam['created_by'])
+    ).fetchall()
+    available_gurus = [{'id': r['id'], 'username': r['username'], 'instansi': r['instansi'] or ''} for r in guru_rows]
+
+    # Available pengawas (same instansi)
+    pengawas_rows = db.execute(
+        "SELECT id, username, instansi FROM admin_users WHERE role LIKE ? AND instansi = ? AND status = ? ORDER BY username",
+        ('%"pengawas"%', operator['instansi'], 'active')
+    ).fetchall()
+    available_pengawas = [{'id': r['id'], 'username': r['username'], 'instansi': r['instansi'] or ''} for r in pengawas_rows]
+
+    # Currently assigned pengawas
+    assigned_rows = db.execute(
+        'SELECT user_id FROM exam_pengawas WHERE exam_id = ?',
+        (exam_id,)
+    ).fetchall()
+    assigned_pengawas_ids = [r['user_id'] for r in assigned_rows]
+
+    # Current owner info
+    owner = db.execute('SELECT id, username FROM admin_users WHERE id = ?', (exam['created_by'],)).fetchone()
+    current_owner = {'id': owner['id'], 'username': owner['username']} if owner else None
+
+    # Delegated to info
+    delegated_info = None
+    if exam['delegated_to']:
+        d_user = db.execute('SELECT id, username FROM admin_users WHERE id = ?', (exam['delegated_to'],)).fetchone()
+        if d_user:
+            delegated_info = {'id': d_user['id'], 'username': d_user['username']}
+
+    return success_response({
+        'available_gurus': available_gurus,
+        'available_pengawas': available_pengawas,
+        'assigned_pengawas_ids': assigned_pengawas_ids,
+        'current_owner': current_owner,
+        'delegated_to': delegated_info,
+    })
+
+
+@app.route('/admin/api/exams/<int:exam_id>/delegate', methods=['POST'])
+@admin_required
+def admin_delegate_exam(exam_id):
+    """Transfer exam ownership and/or manage pengawas (operator only)."""
+    if not session.get('is_operator'):
+        return error_response('Akses ditolak', 403)
+    data = request.get_json() or {}
+    new_owner_id = data.get('new_owner_id')
+    pengawas_ids = data.get('pengawas_ids')
+    db = get_db()
+    operator = db.execute('SELECT instansi FROM admin_users WHERE id = ?', (session['admin_id'],)).fetchone()
+    if not operator or not operator['instansi']:
+        return error_response('Operator tidak memiliki instansi', 400)
+    exam = db.execute('SELECT * FROM exams WHERE id = ?', (exam_id,)).fetchone()
+    if not exam:
+        return error_response('Ujian tidak ditemukan', 404)
+
+    messages = []
+
+    # Transfer ownership if new_owner_id provided
+    if new_owner_id:
+        new_owner = db.execute(
+            "SELECT id, username, instansi, role FROM admin_users WHERE id = ? AND instansi = ? AND status = ?",
+            (new_owner_id, operator['instansi'], 'active')
+        ).fetchone()
+        if not new_owner:
+            return error_response('Guru tidak ditemukan di instansi yang sama', 404)
+        user_roles = parse_roles(new_owner['role'])
+        if 'guru' not in user_roles:
+            return error_response('User bukan guru', 400)
+        db.execute('UPDATE exams SET delegated_to = ? WHERE id = ?', (new_owner_id, exam_id))
+        messages.append(f'Penanggung jawab: {new_owner["username"]}')
+
+    # Save pengawas if pengawas_ids provided
+    if pengawas_ids is not None and isinstance(pengawas_ids, list):
+        db.execute('DELETE FROM exam_pengawas WHERE exam_id = ?', (exam_id,))
+        for uid in pengawas_ids:
+            try:
+                uid = int(uid)
+            except (ValueError, TypeError):
+                continue
+            pengawas_user = db.execute(
+                "SELECT id FROM admin_users WHERE id = ? AND role LIKE ? AND instansi = ?",
+                (uid, '%"pengawas"%', operator['instansi'])
+            ).fetchone()
+            if pengawas_user:
+                try:
+                    db.execute(
+                        'INSERT OR IGNORE INTO exam_pengawas (exam_id, user_id) VALUES (?, ?)',
+                        (exam_id, uid)
+                    )
+                except Exception:
+                    pass
+        messages.append('Pengawas diperbarui')
+
+    db.commit()
+
+    if not messages:
+        return error_response('Tidak ada perubahan yang dilakukan', 400)
+    return success_response(message='; '.join(messages))
+
+
 @app.route('/admin/submissions')
 @admin_required
 def admin_submissions():
     """Submissions overview page for admin with pagination."""
+    if not session.get('is_super_admin') and not session.get('is_operator') and 'guru' not in session.get('user_roles', []):
+        flash('Akses ditolak. Halaman ini khusus untuk Guru.', 'error')
+        return redirect(url_for('admin_pengawas'))
     db = get_db()
     is_super_admin = session.get('is_super_admin', False)
+    is_operator = session.get('is_operator', False)
 
     page = request.args.get('page', 1, type=int)
     per_page = request.args.get('per_page', 25, type=int)
@@ -1761,7 +2272,14 @@ def admin_submissions():
 
     conditions = []
     params = []
-    if not is_super_admin:
+    if is_super_admin:
+        pass
+    elif is_operator:
+        op_row = db.execute('SELECT instansi FROM admin_users WHERE id = ?', (session['admin_id'],)).fetchone()
+        op_instansi = op_row['instansi'] if op_row else ''
+        conditions.append('(e.created_by = ? OR e.created_by IN (SELECT id FROM admin_users WHERE instansi = ?))')
+        params.extend([session['admin_id'], op_instansi])
+    else:
         conditions.append('e.created_by = ?')
         params.append(session['admin_id'])
     if exam_filter:
@@ -1814,6 +2332,10 @@ def admin_submissions():
 
     if is_super_admin:
         exams = db.execute('SELECT id, name FROM exams ORDER BY created_at DESC').fetchall()
+    elif is_operator:
+        op_row = db.execute('SELECT instansi FROM admin_users WHERE id = ?', (session['admin_id'],)).fetchone()
+        op_instansi = op_row['instansi'] if op_row else ''
+        exams = db.execute('SELECT id, name FROM exams WHERE created_by = ? OR created_by IN (SELECT id FROM admin_users WHERE instansi = ?) ORDER BY created_at DESC', (session['admin_id'], op_instansi)).fetchall()
     else:
         exams = db.execute('SELECT id, name FROM exams WHERE created_by = ? ORDER BY created_at DESC', (session['admin_id'],)).fetchall()
 
@@ -1823,7 +2345,7 @@ def admin_submissions():
     max_score = None
     exam_info = None
     if exam_filter:
-        exam_row = db.execute('SELECT id, name, token, created_at, size_bytes, questions_json FROM exams WHERE id = ?', (exam_filter,)).fetchone()
+        exam_row = db.execute('SELECT id, name, token, created_at, size_bytes, questions_json, start_time, end_time FROM exams WHERE id = ?', (exam_filter,)).fetchone()
         if exam_row:
             if exam_row['questions_json']:
                 try:
@@ -1839,6 +2361,8 @@ def admin_submissions():
                 'created_at': exam_row['created_at'],
                 'size_mb': round((exam_row['size_bytes'] or 0) / (1024 * 1024), 2),
                 'sub_count': sub_count,
+                'start_time': exam_row['start_time'],
+                'end_time': exam_row['end_time'],
             }
 
     local_ip = get_network_info()['display_host']
@@ -1849,6 +2373,7 @@ def admin_submissions():
         exams=exams,
         local_ip=local_ip,
         admin_user=session.get('admin_username', 'Admin'),
+        admin_role=session.get('admin_role', 'guru'),
         active_page='submissions',
         page=page,
         per_page=per_page,
@@ -2036,6 +2561,7 @@ def admin_export_submissions():
 
     db = get_db()
     is_super_admin = session.get('is_super_admin', False)
+    is_operator = session.get('is_operator', False)
 
     # --- Multi-sheet XLSX export for a specific exam ---
     if exam_id:
@@ -2043,7 +2569,7 @@ def admin_export_submissions():
         exam = db.execute('SELECT * FROM exams WHERE id = ?', (exam_id,)).fetchone()
         if not exam:
             return error_response('Ujian tidak ditemukan', 404)
-        if not is_super_admin and exam['created_by'] != session['admin_id']:
+        if not is_super_admin and not is_operator and exam['created_by'] != session['admin_id']:
             return error_response('Akses ditolak', 403)
 
         submissions = db.execute(
@@ -2102,7 +2628,7 @@ def admin_export_submissions():
     conditions = []
     params = []
 
-    if not is_super_admin:
+    if not is_super_admin and not is_operator:
         conditions.append('e.created_by = ?')
         params.append(session['admin_id'])
 
@@ -2667,7 +3193,7 @@ def api_public_hasil(token):
     token = token.strip().upper()
     db = get_db()
     exam = db.execute(
-        'SELECT id, name, token, questions_json, public_results, show_answers FROM exams WHERE token = ?',
+        'SELECT id, name, token, questions_json, public_results, show_answers, identity_fields FROM exams WHERE token = ?',
         (token,)
     ).fetchone()
 
@@ -2697,7 +3223,7 @@ def api_public_hasil(token):
 
     # Fetch paginated submissions
     submissions = db.execute(
-        'SELECT id, student_name, exam_number, student_class, answers_json, score, start_time, created_at '
+        'SELECT id, student_name, exam_number, student_class, answers_json, score, start_time, created_at, identity_data '
         'FROM submissions WHERE exam_id = ? ORDER BY score DESC LIMIT ? OFFSET ?',
         (exam['id'], per_page, (page - 1) * per_page)
     ).fetchall()
@@ -2718,11 +3244,20 @@ def api_public_hasil(token):
     # Build submissions list (no answer details in public API)
     subs_data = []
     for sub in submissions:
+        # Parse identity_data for this submission
+        id_data = {}
+        try:
+            raw_id = sub['identity_data']
+            id_data = json.loads(raw_id) if raw_id else {}
+        except Exception:
+            pass
+
         subs_data.append({
             'id': sub['id'],
             'student_name': sub['student_name'],
             'exam_number': sub['exam_number'],
             'student_class': sub['student_class'],
+            'identity_data': id_data,
             'score': sub['score'],
             'max_score': max_score if max_score > 0 else None,
             'start_time': format_iso_utc(sub['start_time']) if sub['start_time'] else None,
@@ -2740,12 +3275,16 @@ def api_public_hasil(token):
 
     total_pages = max(1, (total + per_page - 1) // per_page)
 
+    # Parse identity_fields for client-side display
+    identity_fields = _parse_identity_fields(exam)
+
     return jsonify({
         'success': True,
         'exam_name': exam['name'],
         'show_answers': show_answers_enabled,
         'token': exam['token'],
         'questions': questions,
+        'identity_fields': identity_fields,
         'max_score': max_score if max_score > 0 else None,
         'submissions': subs_data,
         'pagination': {
@@ -2755,5 +3294,145 @@ def api_public_hasil(token):
             'total_pages': total_pages
         }
     })
+
+
+# ===== Pengawas Monitoring Page =====
+
+@app.route('/admin/pengawas')
+@admin_required
+def admin_pengawas():
+    """Dedicated monitoring page for exam supervisors."""
+    if not session.get('is_super_admin') and not session.get('is_operator') and 'pengawas' not in session.get('user_roles', []):
+        flash('Akses ditolak. Halaman ini khusus untuk Pengawas.', 'error')
+        return redirect(url_for('admin_dashboard'))
+    return render_template(
+        'pengawas.html',
+        admin_user=session.get('admin_username', 'Admin'),
+        admin_role=session.get('admin_role', 'guru'),
+        active_page='pengawas'
+    )
+
+
+@app.route('/admin/api/pengawas/exams')
+@admin_required
+def admin_pengawas_exams():
+    """List exams assigned to current user as pengawas, with submission stats."""
+    db = get_db()
+    user_id = session['admin_id']
+
+    exams = db.execute(
+        'SELECT e.*, u.username as creator_name, '
+        '(SELECT COUNT(*) FROM submissions s WHERE s.exam_id = e.id) as sub_count '
+        'FROM exams e '
+        'JOIN admin_users u ON e.created_by = u.id '
+        'WHERE e.id IN (SELECT exam_id FROM exam_pengawas WHERE user_id = ?) '
+        'ORDER BY e.created_at DESC',
+        (user_id,)
+    ).fetchall()
+
+    exam_list = []
+    for ex in exams:
+        exam_list.append({
+            'id': ex['id'],
+            'name': ex['name'],
+            'token': ex['token'],
+            'status': ex['status'],
+            'start_time': ex['start_time'] or '',
+            'end_time': ex['end_time'] or '',
+            'creator_name': ex['creator_name'],
+            'total_students': ex['sub_count'],
+            'submitted_count': ex['sub_count'],
+            'created_at': format_iso_utc(ex['created_at']),
+        })
+
+    return jsonify({'success': True, 'exams': exam_list})
+
+
+@app.route('/admin/api/pengawas/exams/<int:exam_id>/submissions')
+@admin_required
+def admin_pengawas_exam_submissions(exam_id):
+    """List all submissions for an exam (pengawas view)."""
+    db = get_db()
+    user_id = session['admin_id']
+
+    # Verify this user is assigned as pengawas for this exam
+    assignment = db.execute(
+        'SELECT id FROM exam_pengawas WHERE exam_id = ? AND user_id = ?',
+        (exam_id, user_id)
+    ).fetchone()
+    if not assignment and not session.get('is_super_admin') and not session.get('is_operator'):
+        return error_response('Akses ditolak: Anda tidak ditugaskan sebagai pengawas ujian ini', 403)
+
+    exam = db.execute('SELECT id, name FROM exams WHERE id = ?', (exam_id,)).fetchone()
+    if not exam:
+        return error_response('Ujian tidak ditemukan', 404)
+
+    submissions = db.execute(
+        'SELECT id, student_name, exam_number, student_class, answers_json, score, start_time, created_at, mac_address, identity_data '
+        'FROM submissions WHERE exam_id = ? ORDER BY student_name ASC',
+        (exam_id,)
+    ).fetchall()
+
+    subs_data = []
+    for sub in submissions:
+        # Parse identity_data
+        id_data = None
+        if sub['identity_data']:
+            try:
+                id_data = json.loads(sub['identity_data'])
+            except Exception:
+                id_data = None
+
+        # Parse access logs for this student
+        student_identifier = sub['mac_address'] or ''
+        access_logs = []
+        first_access = sub['start_time'] or ''
+        last_access = sub['created_at'] or ''
+
+        if student_identifier:
+            log_rows = db.execute(
+                'SELECT event, ip_address, device_info, created_at, '
+                'student_name, exam_number, student_class '
+                'FROM student_access_logs '
+                'WHERE exam_id = ? AND student_identifier = ? '
+                'ORDER BY created_at ASC',
+                (exam_id, student_identifier)
+            ).fetchall()
+
+            for log in log_rows:
+                access_logs.append({
+                    'event': log['event'],
+                    'ip_address': log['ip_address'] or '',
+                    'device_info': log['device_info'] or '',
+                    'created_at': format_iso_utc(log['created_at']),
+                    'student_name': log['student_name'] or '',
+                    'exam_number': log['exam_number'] or '',
+                    'student_class': log['student_class'] or '',
+                })
+
+            # Derive first/last access from logs if available
+            if access_logs:
+                first_log = access_logs[0]
+                last_log = access_logs[-1]
+                first_access = first_log['created_at'] if first_log['event'] in ('login', 'heartbeat') else first_access
+                last_access = last_log['created_at']
+
+        subs_data.append({
+            'id': sub['id'],
+            'student_name': sub['student_name'],
+            'exam_number': sub['exam_number'],
+            'student_class': sub['student_class'],
+            'identity_data': id_data,
+            'submitted': sub['answers_json'] is not None and sub['answers_json'] != '',
+            'start_time': sub['start_time'] or '',
+            'created_at': sub['created_at'] or '',
+            'first_access_at': first_access,
+            'last_access_at': last_access,
+            'mac_address': sub['mac_address'] or '',
+            'score': sub['score'],
+            'access_logs': access_logs,
+        })
+
+    return jsonify({'success': True, 'exam_name': exam['name'], 'submissions': subs_data})
 
 

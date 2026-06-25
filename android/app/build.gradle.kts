@@ -72,6 +72,7 @@ android {
     }
 
     compileOptions {
+        isCoreLibraryDesugaringEnabled = true
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17
     }
@@ -106,4 +107,7 @@ dependencies {
 
     // Gson for JSON parsing
     implementation("com.google.code.gson:gson:2.11.0")
+
+    // Core library desugaring — enables java.time.* on API < 26 (minSdk = 24)
+    coreLibraryDesugaring("com.android.tools:desugar_jdk_libs:2.0.4")
 }

@@ -1,66 +1,43 @@
 package com.examvan.app
 
-import android.Manifest
-import android.app.NotificationChannel
-import android.app.NotificationManager
-import android.content.Context
-import android.content.Intent
 import android.content.pm.PackageManager
-import android.graphics.Bitmap
-import android.graphics.Color
-import android.graphics.pdf.PdfRenderer
-import android.os.Build
 import android.os.Bundle
-import android.os.Handler
-import android.os.Looper
-import android.os.ParcelFileDescriptor
 import android.util.Log
 import android.view.KeyEvent
-import android.view.LayoutInflater
 import android.view.View
-import android.widget.*
 import androidx.activity.OnBackPressedCallback
 import androidx.activity.viewModels
 import androidx.appcompat.app.AlertDialog
-import androidx.core.app.ActivityCompat
-import androidx.core.app.NotificationCompat
-import androidx.core.content.ContextCompat
-import com.examvan.app.api.ApiClient
 import com.examvan.app.databinding.ActivityExamViewerBinding
+import com.examvan.app.helper.AnswerSheetBuilder
+import com.examvan.app.helper.PdfRendererHelper
+import com.examvan.app.helper.SecurityEnforcer
+import com.examvan.app.helper.SubmissionManager
 import com.google.gson.Gson
 import com.google.gson.reflect.TypeToken
-import androidx.lifecycle.lifecycleScope
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.delay
-import kotlinx.coroutines.launch
-import kotlinx.coroutines.withContext
-import okhttp3.Call
-import java.io.File
+import java.time.Instant
 
 /**
  * Screen 3: Exam PDF Viewer + Digital Answer Sheet
- * - Downloads PDF with progress indicator
- * - Renders pages via PdfRenderer to Bitmap (no text layer = anti-copy)
- * - Prev/Next navigation with page counter and swipe gestures
- * - Collapsible digital answer sheet panel supporting:
- *   single_choice, multiple_choice, true_false, matching, short_answer
- * - Submit answers to server with student identity
- * - FLAG_SECURE active to prevent screenshots
+ *
+ * Refactored from a 1764-line god-class into focused helpers (#2 fix):
+ * - PdfRendererHelper        : PDF download, rendering, page navigation (#3 OOM fix)
+ * - AnswerSheetBuilder       : Answer sheet UI construction and restore (#6 view tagging)
+ * - SecurityEnforcer         : Strict mode, lock task, immersive mode, focus detection
+ * - SubmissionManager        : Submit answers, auto-submit, retry, notifications
  */
 class ExamViewerActivity : BaseSecureActivity() {
 
     private lateinit var binding: ActivityExamViewerBinding
-
     private val viewModel: ExamViewerViewModel by viewModels()
 
-    private var pdfRenderer: PdfRenderer? = null
-    private var fileDescriptor: ParcelFileDescriptor? = null
-    private var currentPage = 0
-    private var totalPages = 0
-    private var downloadCall: Call? = null
-    private var answerSheetExpanded = false
+    // Refactored helpers
+    private lateinit var pdfRendererHelper: PdfRendererHelper
+    private lateinit var answerSheetBuilder: AnswerSheetBuilder
+    private lateinit var securityEnforcer: SecurityEnforcer
+    private lateinit var submissionManager: SubmissionManager
 
-    // Exam & student info from Intent
+    // Exam & student info
     private var examId = -1
     private var examName = ""
     private var studentName = ""
@@ -69,411 +46,317 @@ class ExamViewerActivity : BaseSecureActivity() {
     private var identityData: String? = null
     private var startTime = ""
     private var macAddress = ""
+    private var securityLevel = "medium"
+    private var examContentLoaded = false
 
-    // Questions config from server (received via token API response, stored in prefs as JSON)
+    // Questions config
     private var questions: List<Map<String, Any>> = emptyList()
 
-    // Student answers: map of question number (String) -> answer value (String, List, or Map)
-    // Stored in ViewModel to survive configuration changes (rotation)
+    // Student answers from ViewModel (survives rotation)
     private val studentAnswers: Map<String, Any>
         get() = viewModel.studentAnswers.value
 
-    // Auto-save debounce job: persists answers to EncryptedSharedPreferences to prevent
-    // data loss on process death, crash, or accidental kill.
-    private var autoSaveJob: kotlinx.coroutines.Job? = null
-    private val gsonForSave = com.google.gson.Gson()
-    private var securityLevel = "medium"
-    private var strictMode = false
-    private var isShowingAppDialog = false
-
-    // ViewModel-backed state that survives configuration changes
-    private var isSubmitting: Boolean
-        get() = viewModel.isSubmitting.value
-        set(v) { viewModel.setSubmitting(v) }
-
-    private var submittedOrExited: Boolean
-        get() = viewModel.submittedOrExited.value
-        set(v) { viewModel.setSubmittedOrExited(v) }
-
-    private var isPdfReady: Boolean
-        get() = viewModel.isPdfReady.value
-        set(v) { viewModel.setPdfReady(v) }
-
-    // Track active popup windows (Spinner dropdowns, etc.) to prevent false focus-loss detection
-    private var activePopupCount = 0
-    private var onCreateTime = 0L
-
-    // Pending page to restore after configuration change / process death
-    private var pendingRestorePage = -1
-
-    // Volume key grace period: prevents OEM ROM volume panel from triggering auto-submit
-    private var volumeKeyPressedAt = 0L
-
-    private val notificationChannelCreated: Boolean by lazy {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            val notificationManager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
-            val channel = NotificationChannel(
-                CHANNEL_ID,
-                getString(R.string.notification_channel_name),
-                NotificationManager.IMPORTANCE_HIGH
-            ).apply {
-                description = getString(R.string.notification_channel_desc)
-                enableLights(true)
-                enableVibration(true)
-            }
-            notificationManager.createNotificationChannel(channel)
-        }
-        true
-    }
-
-    /**
-     * Set a student answer and trigger auto-save to prevent data loss on process death.
-     */
-    private fun setStudentAnswer(key: String, value: Any) {
-        viewModel.updateAnswer(key, value)
-        triggerAutoSave()
-    }
-
-    /**
-     * Remove a student answer and trigger auto-save.
-     */
-    private fun removeStudentAnswer(key: String) {
-        viewModel.removeAnswer(key)
-        triggerAutoSave()
-    }
-
-    /**
-     * Auto-save current answers to EncryptedSharedPreferences with debounce (500ms).
-     * Prevents data loss on process death, crash, or force-close.
-     */
-    private fun triggerAutoSave() {
-        if (submittedOrExited) return
-        autoSaveJob?.cancel()
-        autoSaveJob = lifecycleScope.launch {
-            delay(500) // debounce 500ms
-            saveAnswersToPrefs()
-        }
-    }
-
-    /**
-     * Persist current answers to EncryptedSharedPreferences as JSON.
-     * Also stores the exam ID and timestamp for validation on restore.
-     */
-    private fun saveAnswersToPrefs() {
-        try {
-            val prefs = AppPrefs.getExamPrefs(this)
-            // Convert all values to strings to avoid Gson type-loss (e.g. numbers, lists)
-            val stringMap = studentAnswers.mapValues { it.value.toString() }
-            val json = gsonForSave.toJson(stringMap)
-            prefs.edit()
-                .putString(AppPrefs.KEY_SAVED_ANSWERS, json)
-                .putInt(AppPrefs.KEY_SAVED_ANSWERS_EXAM_ID, examId)
-                .putLong(AppPrefs.KEY_SAVED_ANSWERS_TIMESTAMP, System.currentTimeMillis())
-                .apply()
-        } catch (e: Exception) {
-            Log.w("ExamViewer", "Failed to auto-save answers", e)
-        }
-    }
-
-    /**
-     * Restore previously saved answers from EncryptedSharedPreferences.
-     * Only restores if the saved exam ID matches the current exam and data is fresh (within 24h).
-     */
-    private fun restoreAnswersFromPrefs() {
-        try {
-            val prefs = AppPrefs.getExamPrefs(this)
-            val savedExamId = prefs.getInt(AppPrefs.KEY_SAVED_ANSWERS_EXAM_ID, -1)
-            if (savedExamId != examId) {
-                clearSavedAnswers()
-                return
-            }
-            val timestamp = prefs.getLong(AppPrefs.KEY_SAVED_ANSWERS_TIMESTAMP, 0L)
-            val now = System.currentTimeMillis()
-            // Only restore if saved within the last 24 hours (stale data timesafety)
-            if (now - timestamp > 24 * 60 * 60 * 1000L) {
-                clearSavedAnswers()
-                return
-            }
-            val json = prefs.getString(AppPrefs.KEY_SAVED_ANSWERS, null) ?: return
-            val type = object : com.google.gson.reflect.TypeToken<Map<String, String>>() {}.type
-            val saved: Map<String, String> = gsonForSave.fromJson(json, type) ?: return
-            viewModel.setStudentAnswers(saved)
-            // Re-populate UI with restored answers
-            restoreAnswerUiFromSaved()
-        } catch (e: Exception) {
-            Log.w("ExamViewer", "Failed to restore answers", e)
-        }
-    }
-
-    /**
-     * Clear saved answers (called after successful submission or when answers are stale).
-     */
-    private fun clearSavedAnswers() {
-        AppPrefs.getExamPrefs(this).edit()
-            .remove(AppPrefs.KEY_SAVED_ANSWERS)
-            .remove(AppPrefs.KEY_SAVED_ANSWERS_EXAM_ID)
-            .remove(AppPrefs.KEY_SAVED_ANSWERS_TIMESTAMP)
-            .apply()
-    }
-
-    /**
-     * Re-populate the UI (RadioButtons, CheckBoxes, EditTexts, Spinners) from the restored answers map.
-     * Called after restoreAnswersFromPrefs() loads the saved answers.
-     */
-    private fun restoreAnswerUiFromSaved() {
-        for (i in 0 until binding.answerListContainer.childCount) {
-            val view = binding.answerListContainer.getChildAt(i)
-            restoreAnswerInView(view)
-        }
-    }
-
-    /**
-     * Recursively restore answer state in a specific view by checking known child view types.
-     */
-    private fun restoreAnswerInView(view: android.view.View) {
-        when (view) {
-            is RadioGroup -> {
-                // Find the radio button matching the saved answer
-                for (qNum in studentAnswers.keys) {
-                    // RadioGroups don't carry their question number — we check all groups
-                    val checkedRb = view.findViewById<RadioButton>(view.checkedRadioButtonId)
-                    // Only auto-restore if this group has no selection yet
-                    if (checkedRb == null) {
-                        val savedVal = studentAnswers[qNum] as? String
-                        if (savedVal != null) {
-                            for (i in 0 until view.childCount) {
-                                val rb = view.getChildAt(i) as? RadioButton
-                                if (rb != null && rb.text.toString() == savedVal) {
-                                    rb.isChecked = true
-                                    return
-                                }
-                            }
-                        }
+    // Network callback
+    private val networkCallback = object : android.net.ConnectivityManager.NetworkCallback() {
+        override fun onAvailable(network: android.net.Network) {
+            if (!viewModel.isPdfReady.value && !viewModel.submittedOrExited.value && examId != -1) {
+                android.os.Handler(android.os.Looper.getMainLooper()).post {
+                    if (!isFinishing && !isDestroyed && !viewModel.isPdfReady.value) {
+                        Log.i(TAG, "Network restored — auto-retrying download")
+                        pdfRendererHelper.downloadPdf(examId,
+                            AppPrefs.getConfigPrefs(this@ExamViewerActivity)
+                                .getString(AppPrefs.KEY_EXAM_TOKEN, "") ?: "")
                     }
-                }
-            }
-            is CheckBox -> {
-                // CheckBoxes in multiple_choice: the parent view handles state
-                // Individual restore is tricky — skip and let the container restore logic handle it
-            }
-            is EditText -> {
-                val text = view.text.toString()
-                if (text.isEmpty()) {
-                    for ((key, value) in studentAnswers) {
-                        // Match by checking if question label is a sibling
-                        val container = view.parent as? android.view.ViewGroup
-                        if (container != null) {
-                            for (i in 0 until container.childCount) {
-                                val child = container.getChildAt(i)
-                                if (child is TextView && child.text.toString().contains(" $key.")) {
-                                    view.setText(value.toString())
-                                    return
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-            is android.view.ViewGroup -> {
-                for (i in 0 until view.childCount) {
-                    restoreAnswerInView(view.getChildAt(i))
                 }
             }
         }
     }
 
     companion object {
-        private const val CHANNEL_ID = "examvan_auto_submit_v2"
-        private const val REQUEST_NOTIFICATION_PERMISSION = 1001
+        private const val TAG = "ExamViewer"
+        private val questionsListType = object : TypeToken<List<Map<String, Any>>>() {}.type
     }
+
+    // ===== Lifecycle =====
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        onCreateTime = System.currentTimeMillis()
 
         binding = ActivityExamViewerBinding.inflate(layoutInflater)
         setContentView(binding.root)
-
-        // Protect answer submission button
+        applyEdgeToEdgeInsets(binding.root)
         binding.btnSubmitAnswers.filterTouchesWhenObscured = true
 
         // Read intent extras
         examId = intent.getIntExtra("exam_id", -1)
-        // Read exam_token from EncryptedSharedPreferences instead of Intent for security
         examName = intent.getStringExtra("exam_name") ?: getString(R.string.default_exam_name)
         studentName = intent.getStringExtra("student_name") ?: ""
         studentNumber = intent.getStringExtra("student_number") ?: ""
         studentClass = intent.getStringExtra("student_class") ?: ""
         identityData = intent.getStringExtra("identity_data")
-        // Read strict mode from EncryptedSharedPreferences — not from Intent (prevents ADB manipulation)
-        strictMode = AppPrefs.getExamPrefs(this).getBoolean(AppPrefs.KEY_STRICT_MODE, false)
 
-        // In strict mode: enable Android Lock Task (screen pinning) to prevent leaving
-        if (strictMode) {
-            startLockTask()
-        }
-
-        // Record start time in UTC ISO 8601 format
-        startTime = java.time.Instant.now().toString()
-
-        // Retrieve stable device ID
+        // Read from EncryptedSharedPreferences (not Intent) for security
+        val strictMode = AppPrefs.getExamPrefs(this).getBoolean(AppPrefs.KEY_STRICT_MODE, false)
         macAddress = DeviceIdResolver.resolveDeviceId(this)
-
         binding.tvExamTitle.text = examName
+
+        // ---- Initialize helpers ----
+        initializeHelpers(strictMode, savedInstanceState)
 
         if (examId == -1) {
             showError(getString(R.string.exam_invalid_id))
             return
         }
 
-        // Restore instance state after configuration change / process death
+        // Strict mode activation
+        if (strictMode && !handleStrictMode(savedInstanceState)) return
+
+        // Load exam content
+        loadExamContent(savedInstanceState)
+    }
+
+    /**
+     * Initialize all 4 helper objects.
+     */
+    private fun initializeHelpers(strictMode: Boolean, savedInstanceState: Bundle?) {
+        // PdfRendererHelper
+        pdfRendererHelper = PdfRendererHelper(binding, lifecycleScope, this).apply {
+            onPdfReady = {
+                viewModel.setPdfReady(true)
+                securityEnforcer.isPdfReady = true
+                // One-time gesture warning in strict mode
+                securityEnforcer.showGestureWarningOnce()
+            }
+            onError = { msg ->
+                runOnUiThread {
+                    if (!isFinishing && !isDestroyed) showError(msg)
+                }
+            }
+            onProgress = { percent ->
+                runOnUiThread {
+                    if (!isFinishing && !isDestroyed) {
+                        binding.progressDownload.progress = percent
+                        binding.tvDownloadPercent.text = "$percent%"
+                        if (percent < 50) binding.btnCancel.visibility = View.VISIBLE
+                    }
+                }
+            }
+        }
+
+        // SecurityEnforcer
+        securityEnforcer = SecurityEnforcer(this, binding).apply {
+            securityLevel = this@ExamViewerActivity.securityLevel
+            onCreateTime = System.currentTimeMillis()
+            onLogoutRequested = { confirmAndLogout() }
+        }
+
+        // AnswerSheetBuilder
+        answerSheetBuilder = AnswerSheetBuilder(binding, this).apply {
+            onAnswerChanged = { key, value ->
+                viewModel.updateAnswer(key, value)
+                submissionManager.triggerAutoSave(studentAnswers)
+            }
+            onAnswerRemoved = { key ->
+                viewModel.removeAnswer(key)
+                submissionManager.triggerAutoSave(studentAnswers)
+            }
+            getAnswer = { key -> studentAnswers[key] }
+            onSpinnerPopupChanged = { delta ->
+                securityEnforcer.activePopupCount = (securityEnforcer.activePopupCount + delta).coerceAtLeast(0)
+            }
+        }
+
+        // SubmissionManager
+        submissionManager = SubmissionManager(this, binding, this).apply {
+            examId = this@ExamViewerActivity.examId
+            examName = this@ExamViewerActivity.examName
+            studentName = this@ExamViewerActivity.studentName
+            studentNumber = this@ExamViewerActivity.studentNumber
+            studentClass = this@ExamViewerActivity.studentClass
+            identityData = this@ExamViewerActivity.identityData
+            macAddress = this@ExamViewerActivity.macAddress
+            strictMode = strictMode
+            deactivateLockTask = {
+                if (strictMode) LockTaskManager.deactivate(this@ExamViewerActivity)
+            }
+            getAnswers = { this@ExamViewerActivity.studentAnswers }
+            isShowingAppDialog = { securityEnforcer.isShowingAppDialog }
+            setShowingAppDialog = { v -> securityEnforcer.isShowingAppDialog = v }
+            onFinish = { finish() }
+            isActivityFinishing = { isFinishing || isDestroyed }
+            initNotificationChannel()
+        }
+
+        // Wire security to submission
+        securityEnforcer.submittedOrExited = false
+    }
+
+    /**
+     * Handle strict mode activation. Returns false if blocked and should return.
+     */
+    private fun handleStrictMode(savedInstanceState: Bundle?): Boolean {
+        val activated = securityEnforcer.activateStrictMode()
+        if (!activated) {
+            securityEnforcer.showStrictModeFailed {
+                if (securityEnforcer.retryStrictMode()) {
+                    loadExamContent(savedInstanceState)
+                } else {
+                    Toast.makeText(this, "Mode Strict masih gagal. " +
+                            "Coba lagi atau hubungi pengawas.",
+                        android.widget.Toast.LENGTH_LONG).show()
+                }
+            }
+            return false
+        }
+        return true
+    }
+
+    /**
+     * Load exam content: questions, answers, PDF download.
+     */
+    private fun loadExamContent(savedInstanceState: Bundle?) {
+        if (examContentLoaded) {
+            if (!viewModel.isPdfReady.value) {
+                pdfRendererHelper.downloadPdf(examId,
+                    AppPrefs.getConfigPrefs(this).getString(AppPrefs.KEY_EXAM_TOKEN, "") ?: "")
+            }
+            return
+        }
+        examContentLoaded = true
+
+        // Restore state after rotation / process death
         if (savedInstanceState != null) {
-            pendingRestorePage = savedInstanceState.getInt("currentPage", -1)
-            answerSheetExpanded = savedInstanceState.getBoolean("answerSheetExpanded", false)
+            pdfRendererHelper.setPendingRestorePage(savedInstanceState.getInt("currentPage", -1))
+            val answerSheetExpanded = savedInstanceState.getBoolean("answerSheetExpanded", false)
+            securityLevel = savedInstanceState.getString("securityLevel", "medium") ?: "medium"
             if (answerSheetExpanded) {
                 binding.answerSheetPanel.visibility = View.VISIBLE
                 binding.btnToggleAnswerSheet.text = getString(R.string.answer_sheet_close)
             }
         }
 
+        // Start time process death resilience
+        val prefs = AppPrefs.getExamPrefs(this)
+        val savedStartTime = savedInstanceState?.getString("startTime")
+            ?: prefs.getString(AppPrefs.KEY_EXAM_START_TIME, null)
+        if (savedStartTime != null) {
+            startTime = savedStartTime
+            Log.i(TAG, "Restored startTime: $startTime")
+        } else {
+            startTime = Instant.now().toString()
+            prefs.edit().putString(AppPrefs.KEY_EXAM_START_TIME, startTime).apply()
+            Log.i(TAG, "New startTime: $startTime")
+        }
+
+        // submittedOrExited restore
+        val wasSubmittedOrExited = savedInstanceState?.getBoolean("submittedOrExited")
+            ?: prefs.getBoolean(AppPrefs.KEY_SUBMITTED_OR_EXITED, false)
+        if (wasSubmittedOrExited) {
+            viewModel.setSubmittedOrExited(true)
+            submissionManager.submittedOrExited = true
+            binding.btnSubmitAnswers.isEnabled = false
+            binding.btnSubmitAnswers.text = getString(R.string.submitted_label)
+        }
+
+        // Setup back press callback
         onBackPressedDispatcher.addCallback(this, object : OnBackPressedCallback(true) {
             override fun handleOnBackPressed() {
-                if (strictMode) {
-                    Toast.makeText(this@ExamViewerActivity, getString(R.string.strict_mode_cannot_exit), Toast.LENGTH_SHORT).show()
-                    return
-                }
-                confirmAndLogout()
+                securityEnforcer.handleBackPressed()
             }
         })
 
-        // Back button (acted as Logout, but blocked in strict mode)
+        // Setup button listeners
+        setupButtonListeners()
+
+        // Load questions and build answer sheet
+        loadQuestionsAndBuildSheet()
+
+        // Start PDF download
+        try {
+            pdfRendererHelper.downloadPdf(examId,
+                AppPrefs.getConfigPrefs(this).getString(AppPrefs.KEY_EXAM_TOKEN, "") ?: "")
+        } catch (e: Exception) {
+            showError(getString(R.string.download_failed_format, e.message ?: ""))
+        }
+
+        // Register network callback for auto-retry
+        registerNetworkCallback()
+    }
+
+    private fun setupButtonListeners() {
         binding.btnBack.setOnClickListener {
-            if (strictMode) {
-                Toast.makeText(this, getString(R.string.strict_mode_cannot_exit), Toast.LENGTH_SHORT).show()
+            if (securityEnforcer.strictMode) {
+                android.widget.Toast.makeText(this, getString(R.string.strict_mode_cannot_exit), android.widget.Toast.LENGTH_SHORT).show()
+                AuditLog.w(AuditLog.Events.USER_EXIT_ATTEMPT, "btnBack_blocked")
             } else {
                 confirmAndLogout()
             }
         }
 
-        // Navigation buttons
-        binding.btnPrev.setOnClickListener {
-            if (currentPage > 0) {
-                currentPage--
-                renderPage(currentPage)
-            }
-        }
+        binding.btnPrev.setOnClickListener { pdfRendererHelper.prevPage() }
+        binding.btnNext.setOnClickListener { pdfRendererHelper.nextPage() }
 
-        binding.btnNext.setOnClickListener {
-            if (currentPage < totalPages - 1) {
-                currentPage++
-                renderPage(currentPage)
-            }
-        }
-
-        // Retry button
         binding.btnRetryDownload.setOnClickListener {
-            downloadPdf(examId, AppPrefs.getConfigPrefs(this).getString(AppPrefs.KEY_EXAM_TOKEN, "") ?: "")
+            pdfRendererHelper.downloadPdf(examId,
+                AppPrefs.getConfigPrefs(this).getString(AppPrefs.KEY_EXAM_TOKEN, "") ?: "")
         }
 
         binding.btnCancel.setOnClickListener {
-            downloadCall?.cancel()
-            submittedOrExited = true
+            pdfRendererHelper.cancelDownload()
+            viewModel.setSubmittedOrExited(true)
             finish()
         }
 
-        // Swipe gesture navigation for pages
+        // Swipe gestures for page navigation
         binding.ivPdfPage.swipeListener = object : com.examvan.app.view.ZoomableImageView.OnSwipeListener {
-            override fun onSwipeLeft() {
-                if (currentPage < totalPages - 1) {
-                    currentPage++
-                    renderPage(currentPage)
-                }
-            }
-
-            override fun onSwipeRight() {
-                if (currentPage > 0) {
-                    currentPage--
-                    renderPage(currentPage)
-                }
-            }
+            override fun onSwipeLeft() { pdfRendererHelper.nextPage() }
+            override fun onSwipeRight() { pdfRendererHelper.prevPage() }
         }
 
         // Answer sheet toggle
         binding.btnToggleAnswerSheet.setOnClickListener {
-            answerSheetExpanded = !answerSheetExpanded
-            binding.answerSheetPanel.visibility = if (answerSheetExpanded) View.VISIBLE else View.GONE
-            binding.btnToggleAnswerSheet.text = if (answerSheetExpanded) getString(R.string.answer_sheet_close) else getString(R.string.answer_sheet_open)
+            val expanded = binding.answerSheetPanel.visibility != View.VISIBLE
+            binding.answerSheetPanel.visibility = if (expanded) View.VISIBLE else View.GONE
+            binding.btnToggleAnswerSheet.text = if (expanded) getString(R.string.answer_sheet_close) else getString(R.string.answer_sheet_open)
         }
 
         // Submit button
-        binding.btnSubmitAnswers.setOnClickListener {
-            confirmAndSubmit()
-        }
-
-        // Load questions from SharedPreferences (set by ServerConfigActivity after token response)
-        try {
-            loadQuestionsFromPrefs()
-        } catch (e: Exception) {
-            // Fallback: if questions fail to load, use defaults
-            try { generateDefaultQuestions() } catch (e: Exception) { Log.w("ExamViewer", "Failed to load questions", e) }
-        }
-
-        // Start download
-        try {
-            downloadPdf(examId, AppPrefs.getConfigPrefs(this).getString(AppPrefs.KEY_EXAM_TOKEN, "") ?: "")
-        } catch (e: Exception) {
-            showError(getString(R.string.download_failed_format, e.message ?: ""))
-        }
+        binding.btnSubmitAnswers.setOnClickListener { submissionManager.confirmAndSubmit() }
     }
 
-    private fun loadQuestionsFromPrefs() {
-        val prefs = AppPrefs.getExamPrefs(this)
-        val json = prefs.getString(AppPrefs.KEY_QUESTIONS_JSON, null)
-        securityLevel = prefs.getString(AppPrefs.KEY_SECURITY_LEVEL, "medium") ?: "medium"
-        updateSecurityBanner()
-        // Request notification permission early (exam start) rather than at auto-submit time
-        requestNotificationPermission()
-        if (json != null) {
-            try {
-                val type = object : TypeToken<List<Map<String, Any>>>() {}.type
-                questions = Gson().fromJson(json, type)
-                if (questions.isEmpty()) {
-                    // 0 questions configured: PDF-only mode, hide answer overlay
-                    hideAnswerOverlay()
-                } else {
-                    buildAnswerSheet()
-                    // Restore previously saved answers from EncryptedSharedPreferences
-                    restoreAnswersFromPrefs()
+    private fun loadQuestionsAndBuildSheet() {
+        try {
+            val prefs = AppPrefs.getExamPrefs(this)
+            val json = prefs.getString(AppPrefs.KEY_QUESTIONS_JSON, null)
+            securityLevel = prefs.getString(AppPrefs.KEY_SECURITY_LEVEL, "medium") ?: "medium"
+            updateSecurityBanner()
+            applyPanelColor()
+            submissionManager.requestNotificationPermission()
+
+            if (json != null) {
+                try {
+                    questions = Gson().fromJson(json, questionsListType)
+                    submissionManager.totalQuestions = questions.size
+                    if (questions.isEmpty()) {
+                        hideAnswerOverlay()
+                    } else {
+                        answerSheetBuilder.build(questions)
+                        // Restore saved answers (#6 fix: view tagging handles this)
+                        val savedAnswers = submissionManager.restoreAnswersFromPrefs()
+                        if (savedAnswers != null) {
+                            viewModel.setStudentAnswers(savedAnswers)
+                            answerSheetBuilder.restoreFromSaved(savedAnswers)
+                        }
+                    }
+                } catch (e: Throwable) {
+                    generateDefaultQuestions()
                 }
-            } catch (e: Throwable) {
-                // Fallback: generate 40 default MC questions
+            } else {
                 generateDefaultQuestions()
             }
-        } else {
-            generateDefaultQuestions()
+        } catch (e: Exception) {
+            try { generateDefaultQuestions() } catch (_: Exception) { }
         }
-    }
-
-    private fun updateSecurityBanner() {
-        if (strictMode) {
-            binding.tvSecurityBanner.text = getString(R.string.strict_mode_active)
-            binding.tvSecurityBanner.setBackgroundColor(Color.parseColor("#B71C1C")) // Darker Red for strict
-            binding.tvSecurityBanner.setTextColor(Color.parseColor("#FFFFFF"))
-        } else if (securityLevel == "medium") {
-            binding.tvSecurityBanner.text = getString(R.string.autosubmit_status_active)
-            binding.tvSecurityBanner.setBackgroundColor(Color.parseColor("#D32F2F")) // Warning Red
-            binding.tvSecurityBanner.setTextColor(Color.parseColor("#FFFFFF"))
-        } else {
-            binding.tvSecurityBanner.text = getString(R.string.autosubmit_status_inactive)
-            binding.tvSecurityBanner.setBackgroundColor(Color.parseColor("#455A64")) // Cool Dark Blue Grey
-            binding.tvSecurityBanner.setTextColor(Color.parseColor("#FFFFFF"))
-        }
-    }
-
-    private fun hideAnswerOverlay() {
-        binding.answerSheetToggle.visibility = View.GONE
-        binding.answerSheetPanel.visibility = View.GONE
-        binding.btnSubmitAnswers.visibility = View.GONE
     }
 
     private fun generateDefaultQuestions() {
@@ -486,603 +369,72 @@ class ExamViewerActivity : BaseSecureActivity() {
             ))
         }
         questions = defaultList
-        buildAnswerSheet()
-        restoreAnswersFromPrefs()
-    }
-
-    private fun buildAnswerSheet() {
-        val container = binding.answerListContainer
-        container.removeAllViews()
-
-        for (q in questions) {
-            val number = (q["number"] as? Double)?.toInt() ?: continue
-            val type = q["type"] as? String ?: "single_choice"
-
-            when (type) {
-                "single_choice" -> addSingleChoiceQuestion(container, number, q)
-                "true_false" -> addTrueFalseQuestion(container, number)
-                "multiple_choice" -> addMultipleChoiceQuestion(container, number, q)
-                "matching" -> addMatchingQuestion(container, number, q)
-                "short_answer" -> addShortAnswerQuestion(container, number)
-            }
+        submissionManager.totalQuestions = questions.size
+        answerSheetBuilder.build(questions)
+        val savedAnswers = submissionManager.restoreAnswersFromPrefs()
+        if (savedAnswers != null) {
+            viewModel.setStudentAnswers(savedAnswers)
+            answerSheetBuilder.restoreFromSaved(savedAnswers)
         }
     }
 
-    @Suppress("UNCHECKED_CAST")
-    private fun addSingleChoiceQuestion(container: LinearLayout, number: Int, q: Map<String, Any>) {
-        val view = LayoutInflater.from(this).inflate(R.layout.item_question_choice, container, false)
-        val label = view.findViewById<TextView>(R.id.tvQuestionLabel)
-        val radioGroup = view.findViewById<RadioGroup>(R.id.rgChoices)
-        val checkboxLayout = view.findViewById<LinearLayout>(R.id.layoutCheckboxes)
-        checkboxLayout.visibility = View.GONE
-        radioGroup.visibility = View.VISIBLE
-
-        label.text = getString(R.string.question_label, number)
-
-        val choices = (q["choices"] as? List<*>)?.filterIsInstance<String>() ?: listOf("A", "B", "C", "D", "E")
-
-        for (choice in choices) {
-            val rb = RadioButton(this).apply {
-                text = choice
-                setTextColor(androidx.core.content.ContextCompat.getColor(this@ExamViewerActivity, R.color.on_surface))
-                buttonTintList = androidx.core.content.ContextCompat.getColorStateList(this@ExamViewerActivity, R.color.primary)
-                textSize = 14f
-                setPadding(4, 0, 16, 0)
-            }
-            radioGroup.addView(rb)
-        }
-
-        radioGroup.setOnCheckedChangeListener { group, checkedId ->
-            val rb = group.findViewById<RadioButton>(checkedId)
-            if (rb != null) {
-                setStudentAnswer(number.toString(), rb.text.toString())
-            }
-        }
-
-        container.addView(view)
-    }
-
-    private fun addTrueFalseQuestion(container: LinearLayout, number: Int) {
-        val view = LayoutInflater.from(this).inflate(R.layout.item_question_choice, container, false)
-        val label = view.findViewById<TextView>(R.id.tvQuestionLabel)
-        val radioGroup = view.findViewById<RadioGroup>(R.id.rgChoices)
-        val checkboxLayout = view.findViewById<LinearLayout>(R.id.layoutCheckboxes)
-        checkboxLayout.visibility = View.GONE
-        radioGroup.visibility = View.VISIBLE
-
-        label.text = getString(R.string.question_label_truefalse, number)
-
-        for (choice in listOf("TRUE", "FALSE")) {
-            val rb = RadioButton(this).apply {
-                text = choice
-                setTextColor(androidx.core.content.ContextCompat.getColor(this@ExamViewerActivity, R.color.on_surface))
-                buttonTintList = androidx.core.content.ContextCompat.getColorStateList(this@ExamViewerActivity, R.color.primary)
-                textSize = 14f
-                setPadding(4, 0, 16, 0)
-            }
-            radioGroup.addView(rb)
-        }
-
-        radioGroup.setOnCheckedChangeListener { group, checkedId ->
-            val rb = group.findViewById<RadioButton>(checkedId)
-            if (rb != null) {
-                setStudentAnswer(number.toString(), rb.text.toString())
-            }
-        }
-
-        container.addView(view)
-    }
-
-    @Suppress("UNCHECKED_CAST")
-    private fun addMultipleChoiceQuestion(container: LinearLayout, number: Int, q: Map<String, Any>) {
-        val view = LayoutInflater.from(this).inflate(R.layout.item_question_choice, container, false)
-        val label = view.findViewById<TextView>(R.id.tvQuestionLabel)
-        val radioGroup = view.findViewById<RadioGroup>(R.id.rgChoices)
-        val checkboxLayout = view.findViewById<LinearLayout>(R.id.layoutCheckboxes)
-        radioGroup.visibility = View.GONE
-        checkboxLayout.visibility = View.VISIBLE
-
-        label.text = getString(R.string.question_label_multiple, number)
-
-        val choices = (q["choices"] as? List<*>)?.filterIsInstance<String>() ?: listOf("A", "B", "C", "D", "E")
-
-        for (choice in choices) {
-            val cb = CheckBox(this).apply {
-                text = choice
-                setTextColor(androidx.core.content.ContextCompat.getColor(this@ExamViewerActivity, R.color.on_surface))
-                buttonTintList = androidx.core.content.ContextCompat.getColorStateList(this@ExamViewerActivity, R.color.primary)
-                textSize = 14f
-                setPadding(4, 0, 16, 0)
-            }
-
-            cb.setOnCheckedChangeListener { _, _ ->
-                // Collect all checked
-                val selected = mutableListOf<String>()
-                for (i in 0 until checkboxLayout.childCount) {
-                    val child = checkboxLayout.getChildAt(i) as? CheckBox
-                    if (child?.isChecked == true) {
-                        selected.add(child.text.toString())
-                    }
-                }
-                setStudentAnswer(number.toString(), selected)
-            }
-
-            checkboxLayout.addView(cb)
-        }
-
-        container.addView(view)
-    }
-
-    @Suppress("UNCHECKED_CAST")
-    private fun addMatchingQuestion(container: LinearLayout, number: Int, q: Map<String, Any>) {
-        val view = LayoutInflater.from(this).inflate(R.layout.item_question_matching, container, false)
-        val label = view.findViewById<TextView>(R.id.tvMatchingLabel)
-        val matchingContainer = view.findViewById<LinearLayout>(R.id.layoutMatchingContainer)
-
-        label.text = getString(R.string.question_label_matching, number)
-
-        val leftItems = (q["left_items"] as? List<*>)?.filterIsInstance<String>() ?: listOf("1", "2", "3")
-        val rightItems = (q["right_items"] as? List<*>)?.filterIsInstance<String>() ?: listOf("A", "B", "C")
-
-        val matchingAnswers = mutableMapOf<String, String>()
-
-        for (leftItem in leftItems) {
-            val rowView = LayoutInflater.from(this).inflate(R.layout.item_matching_row, matchingContainer, false)
-            val tvLeft = rowView.findViewById<TextView>(R.id.tvLeftItem)
-            val spinner = rowView.findViewById<Spinner>(R.id.spinnerRightItem)
-
-            tvLeft.text = leftItem
-
-            val spinnerItems = mutableListOf(getString(R.string.spinner_default))
-            spinnerItems.addAll(rightItems)
-
-            val adapter = ArrayAdapter(this, android.R.layout.simple_spinner_item, spinnerItems)
-            adapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item)
-            spinner.adapter = adapter
-
-            // Track spinner popup open/close to prevent false focus-loss detection.
-            // When a Spinner dropdown opens, it creates a popup window that triggers
-            // onWindowFocusChanged(false), which was incorrectly interpreted as the user
-            // leaving the app, causing auto-submit or force-return loops.
-            spinner.setOnTouchListener { _, event ->
-                if (event.action == android.view.MotionEvent.ACTION_UP) {
-                    activePopupCount++
-                }
-                false
-            }
-
-            spinner.onItemSelectedListener = object : AdapterView.OnItemSelectedListener {
-                override fun onItemSelected(parent: AdapterView<*>?, v: View?, position: Int, id: Long) {
-                    // Decrement popup count when selection is made (dropdown closed)
-                    activePopupCount = Math.max(0, activePopupCount - 1)
-                    if (position > 0) {
-                        matchingAnswers[leftItem] = rightItems[position - 1]
-                    } else {
-                        matchingAnswers.remove(leftItem)
-                    }
-                    setStudentAnswer(number.toString(), HashMap(matchingAnswers))
-                }
-                override fun onNothingSelected(parent: AdapterView<*>?) {
-                    activePopupCount = Math.max(0, activePopupCount - 1)
-                }
-            }
-
-            matchingContainer.addView(rowView)
-        }
-
-        container.addView(view)
-    }
-
-    private fun addShortAnswerQuestion(container: LinearLayout, number: Int) {
-        val view = LayoutInflater.from(this).inflate(R.layout.item_question_short_answer, container, false)
-        val label = view.findViewById<TextView>(R.id.tvQuestionLabel)
-        val editText = view.findViewById<EditText>(R.id.etShortAnswer)
-
-        label.text = getString(R.string.question_label_shortanswer, number)
-
-        // Restore answer if already filled
-        val currentAns = studentAnswers[number.toString()] as? String
-        if (currentAns != null) {
-            editText.setText(currentAns)
-        }
-
-        editText.filters = arrayOf(android.text.InputFilter.LengthFilter(500))
-
-        editText.addTextChangedListener(object : android.text.TextWatcher {
-            override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) {}
-            override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) {}
-            override fun afterTextChanged(s: android.text.Editable?) {
-                val ans = s?.toString()?.trim() ?: ""
-                if (ans.isNotEmpty()) {
-                    setStudentAnswer(number.toString(), ans)
-                } else {
-                    removeStudentAnswer(number.toString())
-                }
-            }
-        })
-
-        container.addView(view)
-    }
-
-    private fun confirmAndSubmit() {
-        // Count answered questions
-        val answered = studentAnswers.size
-        val total = questions.size
-
-        val message = if (answered < total) {
-            getString(R.string.submit_answers_confirm_partial, answered, total)
+    private fun updateSecurityBanner() {
+        if (securityEnforcer.strictMode) {
+            binding.tvSecurityBanner.text = getString(R.string.strict_mode_active)
+            binding.tvSecurityBanner.setBackgroundColor(android.graphics.Color.parseColor("#B71C1C"))
+            binding.tvSecurityBanner.setTextColor(android.graphics.Color.parseColor("#FFFFFF"))
+        } else if (securityLevel == "medium") {
+            binding.tvSecurityBanner.text = getString(R.string.autosubmit_status_active)
+            binding.tvSecurityBanner.setBackgroundColor(android.graphics.Color.parseColor("#D32F2F"))
+            binding.tvSecurityBanner.setTextColor(android.graphics.Color.parseColor("#FFFFFF"))
         } else {
-            getString(R.string.submit_answers_confirm_all, total)
+            binding.tvSecurityBanner.text = getString(R.string.autosubmit_status_inactive)
+            binding.tvSecurityBanner.setBackgroundColor(android.graphics.Color.parseColor("#455A64"))
+            binding.tvSecurityBanner.setTextColor(android.graphics.Color.parseColor("#FFFFFF"))
         }
-
-        isShowingAppDialog = true
-        AlertDialog.Builder(this)
-            .setTitle(getString(R.string.submit_answers_title))
-            .setMessage(message)
-            .setPositiveButton(getString(R.string.submit_confirm_yes)) { _, _ ->
-                isShowingAppDialog = false
-                submitAnswers()
-            }
-            .setNegativeButton(getString(R.string.btn_cancel)) { _, _ ->
-                isShowingAppDialog = false
-            }
-            .setOnCancelListener {
-                isShowingAppDialog = false
-            }
-            .show()
     }
 
-    private fun submitAnswers() {
-        if (isSubmitting) return
-        isSubmitting = true
-        binding.btnSubmitAnswers.isEnabled = false
-        binding.btnSubmitAnswers.text = getString(R.string.submitting)
+    private fun applyPanelColor() {
+        val panelColor = AppPrefs.getExamPrefs(this).getString(AppPrefs.KEY_PANEL_COLOR, "") ?: ""
+        if (panelColor.isEmpty() || !panelColor.startsWith("#")) return
 
-        ApiClient.submitExam(
-            examId = examId,
-            studentName = studentName,
-            examNumber = studentNumber,
-            studentClass = studentClass,
-            answers = studentAnswers,
-            startTime = startTime,
-            macAddress = macAddress,
-            identityData = identityData,
-            onSuccess = { message ->
-                isSubmitting = false
-                submittedOrExited = true
-                // Clear saved answers after successful submission
-                clearSavedAnswers()
-                // Stop lock task (screen pinning) if strict mode was enabled
-                if (strictMode) {
-                    try { stopLockTask() } catch (_: Throwable) { }
-                }
-                runOnUiThread {
-                    if (isFinishing || isDestroyed) return@runOnUiThread
-                    binding.btnSubmitAnswers.isEnabled = false
-                    binding.btnSubmitAnswers.text = getString(R.string.submitted_label)
-
-                    isShowingAppDialog = true
-                    AlertDialog.Builder(this)
-                        .setTitle(getString(R.string.submit_success_title))
-                        .setMessage(getString(R.string.submit_success_message, message, studentName, studentNumber, studentClass))
-                        .setCancelable(false)
-                        .setPositiveButton(getString(R.string.submit_success_done)) { _, _ ->
-                            isShowingAppDialog = false
-                            finish()
-                        }
-                        .show()
-                }
-            },
-            onError = { errorMsg ->
-                isSubmitting = false
-                runOnUiThread {
-                    if (isFinishing || isDestroyed) return@runOnUiThread
-                    binding.btnSubmitAnswers.isEnabled = true
-                    binding.btnSubmitAnswers.text = getString(R.string.submit_failed_retry)
-
-                    val dialogTitle = if (strictMode) getString(R.string.submit_failed_title_strict) else getString(R.string.submit_failed_title)
-                    val dialogMsg = if (strictMode) getString(R.string.submit_failed_message_strict, errorMsg) else getString(R.string.submit_failed_message, errorMsg)
-                    isShowingAppDialog = true
-                    AlertDialog.Builder(this)
-                        .setTitle(dialogTitle)
-                        .setMessage(dialogMsg)
-                        .setPositiveButton(getString(R.string.dialog_ok)) { _, _ ->
-                            isShowingAppDialog = false
-                        }
-                        .setOnCancelListener {
-                            isShowingAppDialog = false
-                        }
-                        .show()
-                }
-            }
-        )
-    }
-
-    private fun downloadPdf(examId: Int, token: String = "") {
-        showDownloading()
-
-        // Check cache first
-        val cachedFile = File(cacheDir, "exam_$examId.pdf")
-        if (cachedFile.exists() && cachedFile.length() > 0) {
-            binding.tvDownloadPercent.text = "100%"
-            binding.progressDownload.progress = 100
-            isPdfReady = true
-            openPdf(cachedFile)
-            return
-        }
-
-        // Cancel any existing download before starting a new one
-        downloadCall?.cancel()
-        downloadCall = ApiClient.downloadPdf(
-            examId = examId,
-            token = token,
-            cacheDir = cacheDir,
-            onProgress = { percent ->
-                runOnUiThread {
-                    if (isFinishing || isDestroyed) return@runOnUiThread
-                    binding.progressDownload.progress = percent
-                    binding.tvDownloadPercent.text = "$percent%"
-
-                    // Show cancel button if download takes long
-                    if (percent < 50) {
-                        binding.btnCancel.visibility = View.VISIBLE
-                    }
-                }
-            },
-            onSuccess = { file ->
-                runOnUiThread {
-                    if (isFinishing || isDestroyed) return@runOnUiThread
-                    isPdfReady = true
-                    openPdf(file)
-                }
-            },
-            onError = { errorMsg ->
-                runOnUiThread {
-                    if (isFinishing || isDestroyed) return@runOnUiThread
-                    showError(errorMsg)
-                }
-            }
-        )
-    }
-
-    private fun openPdf(file: File) {
         try {
-            fileDescriptor = ParcelFileDescriptor.open(
-                file, ParcelFileDescriptor.MODE_READ_ONLY
-            )
-            val fd = fileDescriptor ?: run { showError(getString(R.string.error_pdf)); return }
-            pdfRenderer = PdfRenderer(fd)
-            val renderer = pdfRenderer ?: run { showError(getString(R.string.error_pdf_render)); return }
-            totalPages = renderer.pageCount
-            currentPage = if (pendingRestorePage in 0 until totalPages) pendingRestorePage else 0
-            pendingRestorePage = -1 // Consumed
-            renderPage(currentPage)
-            showPdfViewer()
-            isPdfReady = true // Crucial: ensures isPdfReady is true for cached files as well
-        } catch (e: Exception) {
-            showError(getString(R.string.error_pdf) + ": ${e.message}")
-        }
+            val color = android.graphics.Color.parseColor(panelColor)
+            val darkerColor = darkenColor(color, 0.85f)
+
+            // Apply to answer sheet panel background
+            binding.answerSheetPanel.setBackgroundColor(color)
+            // Apply to toggle bar button
+            binding.btnToggleAnswerSheet.setBackgroundColor(darkerColor)
+            // Apply to bottom bar
+            binding.bottomBar.setBackgroundColor(color)
+        } catch (_: Exception) { }
     }
 
-    private var currentBitmap: Bitmap? = null
-
-    private fun renderPage(pageIndex: Int) {
-        val renderer = pdfRenderer ?: return
-        if (pageIndex < 0 || pageIndex >= renderer.pageCount) return
-
-        // Move bitmap rendering to background thread to avoid blocking the UI (100-800ms).
-        // PdfRenderer access is sequential within a single coroutine so it's thread-safe.
-        lifecycleScope.launch {
-            val bitmap = withContext(Dispatchers.Default) {
-                try {
-                    val page = renderer.openPage(pageIndex)
-
-                    // Dynamically calculate scale to prevent OutOfMemoryError on large/scanned pages.
-                    // We target 2x the device's screen width for perfect clarity, capped at a safe maximum of 2048 pixels.
-                    val screenWidth = resources.displayMetrics.widthPixels
-                    var targetWidth = (screenWidth * 2).coerceAtMost(2048)
-
-                    // If the original page is smaller than the target, don't upscale it beyond 2x its original size
-                    targetWidth = targetWidth.coerceAtMost(page.width * 2)
-
-                    // Calculate proportional height to keep the original aspect ratio
-                    val aspectRatio = page.height.toFloat() / page.width.toFloat()
-                    val targetHeight = (targetWidth * aspectRatio).toInt().coerceAtMost(4096)
-
-                    val bmp = Bitmap.createBitmap(targetWidth, targetHeight, Bitmap.Config.ARGB_8888)
-                    bmp.eraseColor(Color.WHITE)
-
-                    page.render(bmp, null, null, PdfRenderer.Page.RENDER_MODE_FOR_DISPLAY)
-                    page.close()
-                    bmp
-                } catch (e: Exception) {
-                    Log.e("ExamViewer", "Error rendering page $pageIndex", e)
-                    null
-                }
-            }
-
-            if (bitmap != null) {
-                // Recycle previous bitmap to free memory immediately (important for low-end devices)
-                val oldBitmap = currentBitmap
-                currentBitmap = bitmap
-                binding.ivPdfPage.resetZoom()
-                binding.ivPdfPage.setImageBitmap(bitmap)
-                oldBitmap?.recycle()
-            }
-
-            updatePageIndicator()
-        }
+    private fun darkenColor(color: Int, factor: Float): Int {
+        val r = (android.graphics.Color.red(color) * factor).toInt().coerceIn(0, 255)
+        val g = (android.graphics.Color.green(color) * factor).toInt().coerceIn(0, 255)
+        val b = (android.graphics.Color.blue(color) * factor).toInt().coerceIn(0, 255)
+        return android.graphics.Color.rgb(r, g, b)
     }
 
-    private fun updatePageIndicator() {
-        val display = getString(R.string.page_indicator_format, currentPage + 1, totalPages)
-        binding.tvPageIndicator.text = display
-        binding.tvPageCounter.text = display
-
-        binding.btnPrev.isEnabled = currentPage > 0
-        binding.btnNext.isEnabled = currentPage < totalPages - 1
-    }
-
-    private fun showDownloading() {
-        binding.layoutDownload.visibility = View.VISIBLE
-        binding.layoutError.visibility = View.GONE
-        binding.ivPdfPage.visibility = View.GONE
-        binding.btnCancel.visibility = View.GONE
-        binding.progressDownload.progress = 0
-        binding.tvDownloadPercent.text = "0%"
-    }
-
-    private fun showPdfViewer() {
-        binding.layoutDownload.visibility = View.GONE
-        binding.layoutError.visibility = View.GONE
-        binding.ivPdfPage.visibility = View.VISIBLE
-    }
-
-    private fun showError(message: String) {
-        binding.layoutDownload.visibility = View.GONE
-        binding.layoutError.visibility = View.VISIBLE
-        binding.ivPdfPage.visibility = View.GONE
-        binding.tvErrorMsg.text = message
-    }
-
-    /**
-     * Request POST_NOTIFICATIONS permission with a rationale dialog explaining
-     * the notification is used only for exam submission status updates.
-     * Called right before auto-submit to minimize intrusive permission prompts.
-     */
-    private fun requestNotificationPermission() {
-        if (Build.VERSION.SDK_INT < 33) return
-        if (ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS)
-            == PackageManager.PERMISSION_GRANTED) return
-
-        if (ActivityCompat.shouldShowRequestPermissionRationale(this, Manifest.permission.POST_NOTIFICATIONS)) {
-            isShowingAppDialog = true
-            AlertDialog.Builder(this)
-                .setTitle("Izin Notifikasi")
-                .setMessage("Notifikasi digunakan hanya untuk memberi tahu status pengumpulan ujian. " +
-                        "Tidak ada notifikasi iklan atau promosi.")
-                .setPositiveButton("Izinkan") { _, _ ->
-                    isShowingAppDialog = false
-                    ActivityCompat.requestPermissions(this,
-                        arrayOf(Manifest.permission.POST_NOTIFICATIONS),
-                        REQUEST_NOTIFICATION_PERMISSION)
-                }
-                .setNegativeButton("Jangan Izinkan") { _, _ ->
-                    isShowingAppDialog = false
-                }
-                .setOnCancelListener { isShowingAppDialog = false }
-                .show()
-        } else {
-            ActivityCompat.requestPermissions(this,
-                arrayOf(Manifest.permission.POST_NOTIFICATIONS),
-                REQUEST_NOTIFICATION_PERMISSION)
-        }
-    }
-
-    override fun onRequestPermissionsResult(requestCode: Int, permissions: Array<String>, grantResults: IntArray) {
-        super.onRequestPermissionsResult(requestCode, permissions, grantResults)
-        if (requestCode == REQUEST_NOTIFICATION_PERMISSION) {
-            // Notification permission result — auto-submit will use Toast fallback if denied
-            val granted = grantResults.isNotEmpty() && grantResults[0] == PackageManager.PERMISSION_GRANTED
-            Log.d("ExamViewer", "Notification permission ${if (granted) "granted" else "denied"}")
-        }
-    }
-
-    override fun onPause() {
-        super.onPause()
-        // NOTE: onPause() fires for many non-exit scenarios (system dialogs, notification shade,
-        // multi-window, screen off), so we do NOT auto-submit here to avoid false positives.
-        // Auto-submit on user-initiated exit is handled in onUserLeaveHint() below.
-        // For securityLevel "high" / strictMode, the Lock Task (screen pinning) prevents
-        // the user from leaving the app entirely — they must submit to exit.
-    }
-
-    override fun onUserLeaveHint() {
-        super.onUserLeaveHint()
-        if (submittedOrExited) return
-        if (!isPdfReady) return
-        // Don't auto-submit if a dialog is currently showing (prevents orphaned dialogs)
-        if (isShowingAppDialog) return
-        if (System.currentTimeMillis() - onCreateTime < 3000) return
-
-        // onUserLeaveHint() fires ONLY when the user intentionally navigates away
-        // (Home button, Recent Apps, or a new Activity starting).
-        // This is the correct signal for auto-submit on securityLevel "medium".
-        if (securityLevel == "medium") {
-            isShowingAppDialog = true
-            AlertDialog.Builder(this)
-                .setTitle("Konfirmasi")
-                .setMessage("Apakah Anda yakin ingin keluar? Jawaban akan otomatis dikumpulkan.")
-                .setPositiveButton("Ya, Kumpulkan") { _, _ ->
-                    isShowingAppDialog = false
-                    autoSubmitAndExit()
-                }
-                .setNegativeButton("Tetap di Ujian") { _, _ ->
-                    isShowingAppDialog = false
-                }
-                .setOnCancelListener {
-                    isShowingAppDialog = false
-                }
-                .show()
-        }
-    }
-
-    override fun onWindowFocusChanged(hasFocus: Boolean) {
-        super.onWindowFocusChanged(hasFocus)
-        if (hasFocus) {
-            // Skip auto-submit grace period if focus was lost due to OEM ROM volume panel
-            // (some devices show a system volume overlay that triggers onWindowFocusChanged(false))
-            if (System.currentTimeMillis() - volumeKeyPressedAt < 1500) {
-                return
-            }
-            activePopupCount = 0
-        }
-    }
-
-    override fun onKeyDown(keyCode: Int, event: KeyEvent?): Boolean {
-        if (keyCode == KeyEvent.KEYCODE_VOLUME_UP || keyCode == KeyEvent.KEYCODE_VOLUME_DOWN) {
-            // Record timestamp for OEM ROM grace period (prevents volume panel from
-            // triggering false auto-submit via onWindowFocusChanged).
-            volumeKeyPressedAt = System.currentTimeMillis()
-
-            // Adjust volume programmatically without showing the system overlay UI.
-            // This prevents the system volume panel from triggering a false onWindowFocusChanged(false) anti-cheat submission.
-            try {
-                val audioManager = getSystemService(Context.AUDIO_SERVICE) as android.media.AudioManager
-                val direction = if (keyCode == KeyEvent.KEYCODE_VOLUME_UP) {
-                    android.media.AudioManager.ADJUST_RAISE
-                } else {
-                    android.media.AudioManager.ADJUST_LOWER
-                }
-                audioManager.adjustStreamVolume(android.media.AudioManager.STREAM_MUSIC, direction, 0) // 0 suppresses UI
-            } catch (e: Throwable) { Log.w("ExamViewer", "Volume adjustment failed", e); }
-            return true
-        }
-        return super.onKeyDown(keyCode, event)
-    }
-
-    override fun onKeyLongPress(keyCode: Int, event: KeyEvent?): Boolean {
-        // Block long-press volume keys from triggering accessibility/Assistant
-        if (keyCode == KeyEvent.KEYCODE_VOLUME_UP || keyCode == KeyEvent.KEYCODE_VOLUME_DOWN) {
-            return true
-        }
-        return super.onKeyLongPress(keyCode, event)
+    private fun hideAnswerOverlay() {
+        binding.answerSheetToggle.visibility = View.GONE
+        binding.answerSheetPanel.visibility = View.GONE
+        binding.btnSubmitAnswers.visibility = View.GONE
     }
 
     private fun confirmAndLogout() {
-        // In strict mode, user cannot exit — they must submit answers first
-        if (strictMode) {
-            isShowingAppDialog = true
+        if (securityEnforcer.strictMode) {
+            securityEnforcer.isShowingAppDialog = true
             AlertDialog.Builder(this)
                 .setTitle(getString(R.string.strict_mode_cannot_exit_title))
                 .setMessage("Mode ketat: Anda tidak bisa keluar dari ujian. " +
                         "Selesaikan semua jawaban dan tekan tombol 'Kumpulkan' untuk menyelesaikan ujian.")
                 .setPositiveButton(getString(R.string.dialog_ok)) { _, _ ->
-                    isShowingAppDialog = false
+                    securityEnforcer.isShowingAppDialog = false
                 }
-                .setOnCancelListener {
-                    isShowingAppDialog = false
-                }
+                .setOnCancelListener { securityEnforcer.isShowingAppDialog = false }
                 .show()
             return
         }
@@ -1101,150 +453,136 @@ class ExamViewerActivity : BaseSecureActivity() {
             positiveButtonText = getString(R.string.logout_default_positive)
         }
 
-        isShowingAppDialog = true
+        securityEnforcer.isShowingAppDialog = true
         AlertDialog.Builder(this)
             .setTitle(title)
             .setMessage(message)
             .setPositiveButton(positiveButtonText) { _, _ ->
-                isShowingAppDialog = false
+                securityEnforcer.isShowingAppDialog = false
                 if (securityLevel == "low") {
-                    // Just exit without auto-submitting
-                    submittedOrExited = true
+                    viewModel.setSubmittedOrExited(true)
                     finish()
                 } else {
-                    autoSubmitAndExit()
+                    submissionManager.autoSubmitAndExit()
                 }
             }
             .setNegativeButton(getString(R.string.btn_cancel)) { _, _ ->
-                isShowingAppDialog = false
+                securityEnforcer.isShowingAppDialog = false
             }
-            .setOnCancelListener {
-                isShowingAppDialog = false
-            }
+            .setOnCancelListener { securityEnforcer.isShowingAppDialog = false }
             .show()
     }
 
-    /**
-     * Submit exam answers with exponential backoff retry (1s, 2s, 4s).
-     * Used by autoSubmitAndExit to handle transient network failures.
-     */
-    private suspend fun submitWithRetry(): Pair<Boolean, String> {
-        val delays = listOf(1000L, 2000L, 4000L)
-        for (attempt in 0..3) {
-            try {
-                val result = withContext(Dispatchers.IO) {
-                    ApiClient.submitExamSync(
-                        examId = examId,
-                        studentName = studentName,
-                        examNumber = studentNumber,
-                        studentClass = studentClass,
-                        answers = studentAnswers,
-                        startTime = startTime,
-                        macAddress = macAddress,
-                        identityData = identityData
-                    )
-                }
-                if (result.first) return result
-                // If server returned an error, retry only on network-level failures
-                if (attempt < 3) delay(delays[attempt])
-            } catch (e: Exception) {
-                if (attempt < 3) {
-                    delay(delays[attempt])
-                } else {
-                    return Pair(false, e.message ?: getString(R.string.answer_submit_error))
-                }
-            }
-        }
-        return Pair(false, getString(R.string.answer_submit_error))
+    private fun showError(message: String) {
+        pdfRendererHelper.showError(message)
     }
 
-    private fun autoSubmitAndExit() {
-        if (submittedOrExited) return
-        submittedOrExited = true
+    // ===== Lifecycle overrides =====
 
-        // Stop lock task if strict mode was enabled (auto-submit == exit)
-        if (strictMode) {
-            try { stopLockTask() } catch (_: Throwable) { }
+    override fun onStart() {
+        super.onStart()
+        securityEnforcer.verifyLockTask()
+        if (securityEnforcer.strictMode) {
+            securityEnforcer.enterImmersiveMode()
         }
-
-        if (isSubmitting) {
-            // Already submitting via normal route. Let the existing request finish.
-            lifecycleScope.launch {
-                delay(1500)
-                if (!isFinishing) finish()
-            }
-            return
-        }
-
-        // Submit synchronously in a background coroutine with retry, then post result to main thread.
-        lifecycleScope.launch(Dispatchers.IO) {
-            val result = submitWithRetry()
-
-            val notifTitle = if (result.first) getString(R.string.auto_submit_success_title) else getString(R.string.auto_submit_failed_title)
-            val notifMessage = if (result.first) {
-                getString(R.string.toast_auto_submit_success)
-            } else {
-                getString(R.string.toast_auto_submit_failed, result.second)
-            }
-
-            withContext(Dispatchers.Main) {
-                showAutoSubmitNotification(notifTitle, notifMessage)
-                // Small delay to let the OS register the notification
-                delay(400)
-                if (!isFinishing) finish()
-            }
-        }
-    }
-
-    private fun showAutoSubmitNotification(title: String, message: String) {
-        try {
-            val notificationManager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
-
-            // Ensure notification channel is created (lazy init happens on first access)
-            notificationChannelCreated
-
-            val notification = NotificationCompat.Builder(applicationContext, CHANNEL_ID)
-                .setSmallIcon(R.mipmap.ic_launcher)
-                .setContentTitle(title)
-                .setContentText(message)
-                .setStyle(NotificationCompat.BigTextStyle().bigText(message))
-                .setPriority(NotificationCompat.PRIORITY_HIGH)
-                .setDefaults(NotificationCompat.DEFAULT_ALL)
-                .setAutoCancel(true)
-                .build()
-
-            // Use a unique notification ID every time to prevent the OS from grouping or silencing subsequent notifications
-            val uniqueNotifId = (System.currentTimeMillis() % 100000).toInt()
-            notificationManager.notify(uniqueNotifId, notification)
-        } catch (_: Throwable) {
-            // Fallback to Toast if notification fails
-            runOnUiThread {
-                if (isFinishing || isDestroyed) return@runOnUiThread
-                Toast.makeText(applicationContext, message, Toast.LENGTH_LONG).show()
-            }
-        }
-    }
-
-    override fun onSaveInstanceState(outState: Bundle) {
-        super.onSaveInstanceState(outState)
-        outState.putInt("currentPage", currentPage)
-        outState.putBoolean("answerSheetExpanded", answerSheetExpanded)
     }
 
     override fun onResume() {
         super.onResume()
-        // Reset dialog flag on resume to prevent stale state (e.g. after config change mid-dialog)
-        isShowingAppDialog = false
+        // Reset dialog flag
+        android.os.Handler(android.os.Looper.getMainLooper()).post {
+            if (!isFinishing && !isDestroyed) {
+                securityEnforcer.isShowingAppDialog = false
+            }
+        }
+        securityEnforcer.onResume()
+    }
+
+    override fun onPause() {
+        super.onPause()
+        // onPause fires for many scenarios — auto-submit is handled in onUserLeaveHint
+    }
+
+    override fun onUserLeaveHint() {
+        super.onUserLeaveHint()
+        securityEnforcer.isPdfReady = viewModel.isPdfReady.value
+        securityEnforcer.submittedOrExited = viewModel.submittedOrExited.value
+        securityEnforcer.handleUserLeave()
+
+        // Auto-submit on user exit for medium security
+        if (!securityEnforcer.strictMode && !submissionManager.submittedOrExited
+            && viewModel.isPdfReady.value && securityLevel == "medium") {
+            submissionManager.autoSubmitAndExit()
+        }
+    }
+
+    override fun onWindowFocusChanged(hasFocus: Boolean) {
+        super.onWindowFocusChanged(hasFocus)
+        securityEnforcer.isPdfReady = viewModel.isPdfReady.value
+        securityEnforcer.submittedOrExited = viewModel.submittedOrExited.value
+        securityEnforcer.handleWindowFocusChanged(hasFocus) {
+            submissionManager.autoSubmitAndExit()
+        }
+    }
+
+    override fun onKeyDown(keyCode: Int, event: KeyEvent?): Boolean {
+        if (securityEnforcer.handleVolumeKey(keyCode)) return true
+        if (keyCode == KeyEvent.KEYCODE_POWER) securityEnforcer.handlePowerKey()
+        return super.onKeyDown(keyCode, event)
+    }
+
+    override fun onKeyLongPress(keyCode: Int, event: KeyEvent?): Boolean {
+        if (keyCode == KeyEvent.KEYCODE_VOLUME_UP || keyCode == KeyEvent.KEYCODE_VOLUME_DOWN) {
+            return securityEnforcer.handleVolumeKeyLongPress()
+        }
+        if (keyCode == KeyEvent.KEYCODE_POWER && securityEnforcer.strictMode) {
+            return securityEnforcer.handlePowerKeyLongPress()
+        }
+        return super.onKeyLongPress(keyCode, event)
+    }
+
+    override fun onSaveInstanceState(outState: Bundle) {
+        super.onSaveInstanceState(outState)
+        outState.putInt("currentPage", pdfRendererHelper.currentPage)
+        outState.putBoolean("answerSheetExpanded", binding.answerSheetPanel.visibility == View.VISIBLE)
+        outState.putBoolean("strictMode", securityEnforcer.strictMode)
+        outState.putBoolean("submittedOrExited", viewModel.submittedOrExited.value)
+        outState.putBoolean("isSubmitting", submissionManager.isSubmitting)
+        outState.putBoolean("isPdfReady", viewModel.isPdfReady.value)
+        outState.putString("securityLevel", securityLevel)
+        outState.putString("startTime", startTime)
     }
 
     override fun onDestroy() {
         super.onDestroy()
-        downloadCall?.cancel()
-        binding.ivPdfPage.swipeListener = null
-        try {
-            pdfRenderer?.close()
-            fileDescriptor?.close()
-        } catch (_: Exception) { }
+        pdfRendererHelper.cleanup()
+        securityEnforcer.cleanup()
+        unregisterNetworkCallback()
+        AuditLog.reset()
     }
 
+    override fun onRequestPermissionsResult(requestCode: Int, permissions: Array<String>, grantResults: IntArray) {
+        super.onRequestPermissionsResult(requestCode, permissions, grantResults)
+        if (requestCode == 1001) { // REQUEST_NOTIFICATION_PERMISSION
+            val granted = grantResults.isNotEmpty() && grantResults[0] == PackageManager.PERMISSION_GRANTED
+            Log.d(TAG, "Notification permission ${if (granted) "granted" else "denied"}")
+        }
+    }
+
+    // ===== Network callback =====
+
+    private fun registerNetworkCallback() {
+        val cm = getSystemService(android.content.Context.CONNECTIVITY_SERVICE) as? android.net.ConnectivityManager ?: return
+        val request = android.net.NetworkRequest.Builder()
+            .addCapability(android.net.NetworkCapabilities.NET_CAPABILITY_INTERNET)
+            .build()
+        cm.registerNetworkCallback(request, networkCallback)
+    }
+
+    private fun unregisterNetworkCallback() {
+        try {
+            val cm = getSystemService(android.content.Context.CONNECTIVITY_SERVICE) as? android.net.ConnectivityManager
+            cm?.unregisterNetworkCallback(networkCallback)
+        } catch (_: Exception) { }
+    }
 }

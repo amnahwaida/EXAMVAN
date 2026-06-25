@@ -6,7 +6,7 @@
  <!-- Stats Cards -->
  <section class="stats-grid" id="statsGrid">
  <div class="stat-card stat-total">
- <div class="stat-icon"><svg class="icon-svg" style="width:24px;height:24px;"><use href="#hi-dashboard"/></svg></div>
+ <div class="stat-icon"><svg><use href="#hi-dashboard"/></svg></div>
  <div class="stat-info">
  <span class="stat-value">{{ stats.total_all }}</span>
  <span class="stat-label">Total Ujian</span>
@@ -15,22 +15,34 @@
  <div style="font-size:10px; color:var(--color-warning); margin-top:4px; text-align:center;">difilter</div>
  {% endif %}
  </div>
- <div class="stat-card stat-active">
- <div class="stat-icon"><svg class="icon-svg" style="width:24px;height:24px;color:#34d399;"><use href="#hi-check"/></svg></div>
- <div class="stat-info">
- <span class="stat-value">{{ stats.active }}</span>
- <span class="stat-label">Aktif</span>
- </div>
- </div>
- <div class="stat-card stat-inactive">
- <div class="stat-icon"><svg class="icon-svg" style="width:24px;height:24px;color:#fbbf24;"><use href="#hi-lock"/></svg></div>
- <div class="stat-info">
- <span class="stat-value">{{ stats.inactive }}</span>
- <span class="stat-label">Nonaktif</span>
- </div>
- </div>
+  <div class="stat-card stat-status">
+  <div class="stat-icon">
+  <svg><use href="#hi-check"/></svg>
+  <svg class="icon-overlay"><use href="#hi-lock"/></svg>
+  </div>
+  <div class="stat-info">
+  <div class="stat-status-row">
+  <span class="stat-value">{{ stats.active }}</span>
+  <span class="stat-value">{{ stats.inactive }}</span>
+  </div>
+  <span class="stat-label">Aktif &middot; Nonaktif</span>
+  <div class="stat-bar">
+  {% set total_s = stats.active + stats.inactive %}
+  {% if total_s > 0 %}
+  <div class="stat-bar-fill" style="width:{{ (stats.active / total_s * 100)|round }}%;"></div>
+  {% endif %}
+  </div>
+  </div>
+  </div>
+  <div class="stat-card stat-instansi">
+  <div class="stat-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M3 21h18M3 10h18M5 6l7-3 7 3M4 10v11m16-11v11M8 14v.01M12 14v.01M16 14v.01M9 21v-4h6v4"/></svg></div>
+  <div class="stat-info">
+  <span class="stat-value stat-value-sm">{{ admin_instansi or '—' }}</span>
+  <span class="stat-label">Instansi</span>
+  </div>
+  </div>
  <div class="stat-card stat-storage">
- <div class="stat-icon"><svg class="icon-svg" style="width:24px;height:24px;color:#22d3ee;"><use href="#hi-download"/></svg></div>
+ <div class="stat-icon"><svg><use href="#hi-download"/></svg></div>
  <div class="stat-info">
  <span class="stat-value">{{ stats.storage_mb }} MB</span>
  <span class="stat-label">Storage</span>
@@ -108,7 +120,7 @@
  <div class="progress-bar"><div class="progress-fill" id="progressFill"></div></div>
  <span class="progress-text" id="progressText">0%</span>
  </div>
- <button type="submit" class="btn-upload" id="btnUpload">
+  <button type="submit" class="btn-upload" id="btnUpload" style="margin-top: 16px;">
  <span>Upload Ujian</span>
  </button>
  </form>
@@ -120,32 +132,30 @@
  <section class="exam-table-section glass-card">
  <div class="table-header">
  <h3><svg class="icon-svg" style="vertical-align:middle;margin-top:-2px;"><use href="#hi-dashboard"/></svg> Daftar Ujian</h3>
- <div style="display: flex; gap: 8px; align-items: center; flex-wrap: wrap;">
- <!-- Status Filter Dropdown -->
- <select id="statusFilter" onchange="searchExamsWithStatus()" style="padding:8px 12px;background:rgba(255,255,255,0.04);border:1px solid var(--color-glass-border);border-radius:8px;color:var(--color-text);outline:none;font-size:13px;cursor:pointer;min-height:40px;" aria-label="Filter status ujian">
-  <option value="">Semua Status</option>
-  <option value="active"{% if request.args.get('status') == 'active' %} selected{% endif %}>Aktif</option>
-  <option value="inactive"{% if request.args.get('status') == 'inactive' %} selected{% endif %}>Nonaktif</option>
- </select>
- <div style="position: relative; display: inline-block;">
- <label for="searchExam" style="position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0;">Cari ujian</label>
- <input type="text" id="searchExam" placeholder="Cari nama, token, atau pembuat..." value="{{ search }}"
- style="padding: 8px 32px 8px 14px; background: rgba(255,255,255,0.04); border: 1px solid var(--color-glass-border); border-radius: 8px; color: var(--color-text); outline: none; font-size: 13px; width: 220px; transition: border-color 0.2s;"
- onkeyup="if(event.key==='Enter') searchExams()"
- onfocus="this.style.borderColor='var(--color-primary)'" onblur="this.style.borderColor=''"
- oninput="debounceSearch(); var c=this.nextElementSibling; if(c)c.style.display=this.value?'flex':'none'">
- <button class="search-clear-btn" id="searchClearBtn" onclick="clearSearch()" style="display:{{ 'flex' if search else 'none' }};" title="Hapus pencarian" aria-label="Hapus pencarian"><svg class="icon-svg" style="width:14px;height:14px;"><use href="#hi-x"/></svg></button>
- </div>
- <button class="btn-sm btn-toggle btn-sm-compact" onclick="searchExams()" style="padding: 0 12px;" title="Cari ujian"><svg class="icon-svg"><use href="#hi-search"/></svg> Cari</button>
- <button class="btn-sm btn-questions btn-sm-compact" onclick="copyAllTokens()" title="Salin Semua Token"><svg class="icon-svg"><use href="#hi-copy"/></svg> Salin Token</button>
- <button class="btn-sm btn-delete btn-sm-compact" id="bulkDeleteBtn" onclick="confirmBulkDelete()" style="display: none;" title="Hapus ujian terpilih">
- <svg class="icon-svg"><use href="#hi-trash"/></svg> Hapus Terpilih (<span id="bulkDeleteCount">0</span>)
- </button>
- <button class="btn-sm btn-toggle btn-sm-compact" id="bulkToggleBtn" onclick="bulkToggleExams()" style="display: none;" title="Aktifkan/nonaktifkan ujian terpilih">
- <svg class="icon-svg"><use href="#hi-lock"/></svg> Nonaktifkan Terpilih (<span id="bulkToggleCount">0</span>)
- </button>
- <button class="btn-refresh" onclick="location.reload()" aria-label="Refresh halaman" title="Muat ulang halaman"><svg class="icon-svg"><use href="#hi-refresh"/></svg> Refresh</button>
- </div>
+  <div class="table-toolbar">
+  <!-- Status Filter Dropdown -->
+  <select id="statusFilter" onchange="searchExamsWithStatus()" class="toolbar-select" aria-label="Filter status ujian">
+   <option value="">Semua Status</option>
+   <option value="active"{% if request.args.get('status') == 'active' %} selected{% endif %}>Aktif</option>
+   <option value="inactive"{% if request.args.get('status') == 'inactive' %} selected{% endif %}>Nonaktif</option>
+  </select>
+  <div class="toolbar-search-wrap">
+  <label for="searchExam" style="position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0;">Cari ujian</label>
+  <input type="text" id="searchExam" class="toolbar-search-input" placeholder="Cari nama, token, atau pembuat..." value="{{ search }}"
+  onkeyup="if(event.key==='Enter') searchExams()"
+  onfocus="this.style.borderColor='var(--color-primary)'" onblur="this.style.borderColor=''"
+  oninput="debounceSearch(); var c=this.nextElementSibling; if(c)c.style.display=this.value?'flex':'none'">
+  <button class="toolbar-search-clear" id="searchClearBtn" onclick="clearSearch()" style="display:{{ 'flex' if search else 'none' }};" title="Hapus pencarian" aria-label="Hapus pencarian"><svg class="icon-svg" style="width:14px;height:14px;"><use href="#hi-x"/></svg></button>
+  </div>
+  <button class="toolbar-btn toolbar-btn-search" onclick="searchExams()" title="Cari ujian" aria-label="Cari ujian"><svg class="icon-svg"><use href="#hi-search"/></svg> Cari</button>
+  <button class="toolbar-btn toolbar-btn-refresh" onclick="location.reload()" aria-label="Refresh halaman" title="Muat ulang halaman"><svg class="icon-svg"><use href="#hi-refresh"/></svg></button>
+  <button class="toolbar-btn toolbar-btn-delete" id="bulkDeleteBtn" onclick="confirmBulkDelete()" style="display: none;" title="Hapus ujian terpilih" aria-label="Hapus ujian terpilih">
+  <svg class="icon-svg"><use href="#hi-trash"/></svg> Hapus Terpilih (<span id="bulkDeleteCount">0</span>)
+  </button>
+  <button class="toolbar-btn toolbar-btn-toggle" id="bulkToggleBtn" onclick="bulkToggleExams()" style="display: none;" title="Aktifkan/nonaktifkan ujian terpilih" aria-label="Aktifkan/nonaktifkan ujian terpilih">
+  <svg class="icon-svg"><use href="#hi-lock"/></svg> Nonaktifkan Terpilih (<span id="bulkToggleCount">0</span>)
+  </button>
+  </div>
  </div>
  {% if exams | length == 0 %}
  <div class="empty-state">
@@ -160,29 +170,29 @@
  <th scope="col" style="width: 40px; text-align: center;">
  <input type="checkbox" id="selectAllExams" onchange="toggleSelectAllExams(this)" title="Pilih Semua" class="exam-checkbox-input">
  </th>
- <th scope="col" style="width: 50px; text-align: center;">No</th>
  <th scope="col">Nama Ujian</th>
- {% if admin_user == 'admin' %}
- <th scope="col">Pembuat</th>
- {% endif %}
- <th scope="col">Token</th>
- <th scope="col">Ukuran</th>
- <th scope="col">Status</th>
- <th scope="col">Aksi</th>
- </tr>
- </thead>
- <tbody>
- {% for exam in exams %}
- <tr id="exam-row-{{ exam.id }}">
- <td data-label="">
- <input type="checkbox" class="exam-checkbox exam-checkbox-input" value="{{ exam.id }}" data-name="{{ exam.name }}" data-status="{{ exam.status }}" onchange="updateBulkActions()">
- </td>
- <td class="td-id" data-label="No" style="text-align: center; color: var(--color-text-muted);">{{ loop.index }}</td>
+   {% if admin_role == 'superadmin' or admin_role == 'operator' %}
+   <th scope="col">Pembuat</th>
+   <th scope="col">Penanggung Jawab</th>
+   {% endif %}
+    <th scope="col">Token</th>
+   <th scope="col">Status</th>
+   <th scope="col">Pengawas</th>
+  <th scope="col">Aksi</th>
+  </tr>
+  </thead>
+  <tbody>
+  {% for exam in exams %}
+  <tr id="exam-row-{{ exam.id }}">
+  <td data-label="">
+  <input type="checkbox" class="exam-checkbox exam-checkbox-input" value="{{ exam.id }}" data-name="{{ exam.name }}" data-status="{{ exam.status }}" onchange="updateBulkActions()">
+  </td>
  <td class="td-name" data-label="Ujian"><a href="{{ url_for('admin_submissions') }}?exam_id={{ exam.id }}" class="exam-link" title="Lihat Hasil Ujian">{{ exam.name }}</a></td>
- {% if admin_user == 'admin' %}
- <td data-label="Pembuat"><span style="font-weight: 600; color: var(--accent-light);">{{ exam.creator_name or 'admin' }}</span></td>
- {% endif %}
- <td class="td-token" data-label="Token">
+   {% if admin_role == 'superadmin' or admin_role == 'operator' %}
+   <td data-label="Pembuat"><span style="font-weight: 600; color: var(--accent-light);">{{ exam.creator_name or 'superadmin' }}</span></td>
+   <td data-label="Penanggung Jawab"><span style="color: var(--color-text-secondary);">{{ exam.delegated_name or '—' }}</span></td>
+   {% endif %}
+  <td class="td-token" data-label="Token">
  <div class="token-group">
  <code class="token-code" id="token-{{ exam.id }}" data-token="{{ exam.token }}" onclick="copyToken(this.dataset.token)" title="Klik untuk Salin Token" tabindex="0" role="button" onkeydown="if(event.key==='Enter'||event.key===' ') { event.preventDefault(); copyToken(this.dataset.token); }">{{ exam.token or '—' }}</code>
  <button class="btn-icon btn-regen" onclick="regenerateToken({{ exam.id }})" title="Generate Token Baru" aria-label="Generate token baru"><svg class="icon-svg" style="width:16px;height:16px;"><use href="#hi-refresh"/></svg></button>
@@ -190,11 +200,18 @@
  <button class="btn-icon btn-copy-link" data-token="{{ exam.token }}" onclick="copyResultsLink(this.dataset.token)" title="Salin Link Hasil Ujian (Siswa)" aria-label="Salin link hasil"><svg class="icon-svg" style="width:16px;height:16px;"><use href="#hi-link"/></svg></button>
  </div>
  </td>
- <td data-label="Ukuran">{{ "%.2f"|format(exam.size_bytes / 1048576) }} MB</td>
  <td data-label="Status">
  <span class="status-badge status-{{ exam.status }}" id="status-{{ exam.id }}" onclick="toggleExam({{ exam.id }})" tabindex="0" role="button" title="Klik untuk toggle status" onkeydown="if(event.key==='Enter'||event.key===' ') { event.preventDefault(); toggleExam({{ exam.id }}); }">
  {{ exam.status }}
  </span>
+  </td>
+  <td data-label="Pengawas">
+ {% set pw_list = exam_pengawas_map.get(exam.id, []) %}
+ {% if pw_list %}
+ {% for pw in pw_list %}<span style="display:inline-block;padding:1px 6px;border-radius:8px;font-size:0.7rem;font-weight:600;background:rgba(168,85,247,0.1);color:#c084fc;border:1px solid rgba(168,85,247,0.2);margin:1px 2px;">{{ pw }}</span>{% endfor %}
+ {% else %}
+ <span style="font-size:0.8rem;color:var(--color-text-muted);">&mdash;</span>
+ {% endif %}
  </td>
  <td class="td-actions" data-label="">
  <div class="actions-group">
@@ -215,9 +232,14 @@
  <a href="{{ url_for('admin_exam_pdf', exam_id=exam.id) }}?download=1">
  <svg class="icon-svg"><use href="#hi-download"/></svg> Download PDF
  </a>
- <button data-exam-id="{{ exam.id }}" data-exam-name="{{ exam.name }}" onclick="openEditExamModal(this.dataset.examId, this.dataset.examName)">
- <svg class="icon-svg"><use href="#hi-edit"/></svg> Edit Nama &amp; PDF
- </button>
+  <button data-exam-id="{{ exam.id }}" data-exam-name="{{ exam.name }}" onclick="openEditExamModal(this.dataset.examId, this.dataset.examName)">
+  <svg class="icon-svg"><use href="#hi-edit"/></svg> Edit Nama &amp; PDF
+  </button>
+  {% if is_operator %}
+  <button data-exam-id="{{ exam.id }}" onclick="openDelegateExamModal(this.dataset.examId)">
+  <svg class="icon-svg"><use href="#hi-users"/></svg> Delegasi Ujian
+  </button>
+  {% endif %}
  <a href="{{ url_for('public_hasil', token=exam.token) }}" target="_blank">
  <svg class="icon-svg"><use href="#hi-link"/></svg> Halaman Siswa
  </a>
@@ -290,6 +312,79 @@
  <option value="high">High / Strict — TIDAK BISA Keluar (Wajib Submit)</option>
  </select>
  </div>
+ </div>
+ </div>
+ <!-- Panel Color Config -->
+ <div class="panel-color-config" style="margin-bottom: 16px; padding: 12px 16px; background: rgba(255, 255, 255, 0.03); border: 1px solid var(--glass-border); border-radius: 12px;">
+ <div style="display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 12px;">
+ <div style="display: flex; align-items: center; gap: 8px;">
+ <svg class="icon-svg" style="width:18px;height:18px;"><use href="#hi-dashboard"/></svg>
+ <div>
+ <div style="font-weight: 600; color: var(--text-primary); font-size: 0.9rem;">Warna Panel Jawaban (Android)</div>
+ <div style="font-size: 0.75rem; color: var(--color-text-muted);">Warna panel lembar jawaban yang dilihat siswa di Android.</div>
+ </div>
+ </div>
+ <div style="display: flex; align-items: center; gap: 8px;">
+ <input type="color" id="examPanelColor" value="#6366F1" style="width: 36px; height: 36px; border: none; border-radius: 8px; cursor: pointer; background: transparent;" onchange="document.getElementById('panelColorHex').value=this.value">
+ <input type="text" id="panelColorHex" value="#6366F1" placeholder="#6366F1" style="width: 80px; padding: 6px 8px; border: 1px solid var(--glass-border); border-radius: 8px; background: rgba(255,255,255,0.04); color: var(--color-text); font-family: monospace; font-size: 0.8rem; text-align: center;" onchange="document.getElementById('examPanelColor').value=this.value">
+ </div>
+ </div>
+ <div style="display: flex; gap: 6px; margin-top: 10px; flex-wrap: wrap;">
+ <button type="button" class="btn-sm" style="background:#6366F1;color:#fff;border:none;padding:4px 10px;border-radius:6px;font-size:11px;cursor:pointer;" onclick="setPanelColor('#6366F1')">Indigo</button>
+ <button type="button" class="btn-sm" style="background:#10B981;color:#fff;border:none;padding:4px 10px;border-radius:6px;font-size:11px;cursor:pointer;" onclick="setPanelColor('#10B981')">Emerald</button>
+ <button type="button" class="btn-sm" style="background:#F43F5E;color:#fff;border:none;padding:4px 10px;border-radius:6px;font-size:11px;cursor:pointer;" onclick="setPanelColor('#F43F5E')">Rose</button>
+ <button type="button" class="btn-sm" style="background:#F59E0B;color:#fff;border:none;padding:4px 10px;border-radius:6px;font-size:11px;cursor:pointer;" onclick="setPanelColor('#F59E0B')">Amber</button>
+ <button type="button" class="btn-sm" style="background:#06B6D4;color:#fff;border:none;padding:4px 10px;border-radius:6px;font-size:11px;cursor:pointer;" onclick="setPanelColor('#06B6D4')">Cyan</button>
+ <button type="button" class="btn-sm" style="background:#64748B;color:#fff;border:none;padding:4px 10px;border-radius:6px;font-size:11px;cursor:pointer;" onclick="setPanelColor('#64748B')">Slate</button>
+ </div>
+ </div>
+ <!-- Exam Schedule Config -->
+  <div class="exam-schedule-config" style="margin-bottom: 16px; padding: 12px 16px; background: rgba(255, 255, 255, 0.03); border: 1px solid var(--glass-border); border-radius: 12px;">
+  <div style="display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; margin-bottom: 12px;">
+  <div style="display: flex; align-items: center; gap: 8px;">
+  <svg class="icon-svg" style="width:18px;height:18px;flex-shrink:0;"><use href="#hi-clock"/></svg>
+  <div>
+  <div style="font-weight: 600; color: var(--text-primary); font-size: 0.9rem;">Jadwal Ujian</div>
+  <div style="font-size: 0.75rem; color: var(--color-text-muted);">Atur jam mulai dan selesai ujian.</div>
+  </div>
+  </div>
+  <button type="button" class="btn-sm btn-delete btn-sm-compact" onclick="clearSchedule()" style="font-size:11px;flex-shrink:0;">
+  <svg class="icon-svg" style="width:12px;height:12px;"><use href="#hi-x"/></svg> Hapus Jadwal
+  </button>
+  </div>
+  <div style="display: flex; align-items: flex-end; gap: 8px; flex-wrap: wrap;">
+  <div style="display:flex;flex-direction:column;gap:2px;">
+  <label for="examStartDate" style="font-size:0.7rem;color:var(--color-text-muted);font-weight:600;">Tgl Mulai</label>
+  <input type="date" id="examStartDate" style="padding:6px 8px;border:1px solid var(--glass-border);border-radius:8px;background:rgba(255,255,255,0.04);color:var(--color-text);font-size:0.85rem;width:140px;">
+  </div>
+  <div style="display:flex;flex-direction:column;gap:2px;">
+  <label for="examStartTime" style="font-size:0.7rem;color:var(--color-text-muted);font-weight:600;">Jam</label>
+  <input type="time" id="examStartTime" style="padding:6px 8px;border:1px solid var(--glass-border);border-radius:8px;background:rgba(255,255,255,0.04);color:var(--color-text);font-size:0.85rem;width:110px;">
+  </div>
+  <span style="color:var(--color-text-muted);font-size:0.85rem;padding-bottom:6px;">&#8594;</span>
+  <div style="display:flex;flex-direction:column;gap:2px;">
+  <label for="examEndDate" style="font-size:0.7rem;color:var(--color-text-muted);font-weight:600;">Tgl Selesai</label>
+  <input type="date" id="examEndDate" style="padding:6px 8px;border:1px solid var(--glass-border);border-radius:8px;background:rgba(255,255,255,0.04);color:var(--color-text);font-size:0.85rem;width:140px;">
+  </div>
+  <div style="display:flex;flex-direction:column;gap:2px;">
+  <label for="examEndTime" style="font-size:0.7rem;color:var(--color-text-muted);font-weight:600;">Jam</label>
+  <input type="time" id="examEndTime" style="padding:6px 8px;border:1px solid var(--glass-border);border-radius:8px;background:rgba(255,255,255,0.04);color:var(--color-text);font-size:0.85rem;width:110px;">
+   </div>
+   </div>
+   </div>
+   <!-- Pengawas Ujian Config -->
+ <div class="pengawas-config" style="margin-bottom: 16px; padding: 12px 16px; background: rgba(255, 255, 255, 0.03); border: 1px solid var(--glass-border); border-radius: 12px;">
+ <div style="display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 12px;">
+ <div style="display: flex; align-items: center; gap: 8px;">
+ <svg class="icon-svg" style="width:18px;height:18px;"><use href="#hi-eye"/></svg>
+ <div>
+ <div style="font-weight: 600; color: var(--text-primary); font-size: 0.9rem;">Pengawas Ujian</div>
+ <div style="font-size: 0.75rem; color: var(--color-text-muted);">Pilih pengawas dari instansi yang sama. Pengawas dapat melihat ujian ini.</div>
+ </div>
+ </div>
+ </div>
+ <div id="pengawasList" style="margin-top: 10px;">
+ <!-- Filled by JS -->
  </div>
  </div>
  <!-- Identity Fields Config -->

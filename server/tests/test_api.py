@@ -46,7 +46,7 @@ class TestAuth(unittest.TestCase):
 
     def test_login_success(self):
         resp = self.client.post('/admin/login', data={
-            'username': 'admin', 'password': 'examvan2026'
+            'username': 'superadmin', 'password': 'examvan2026'
         }, follow_redirects=False)
         self.assertEqual(resp.status_code, 302)
 
@@ -71,6 +71,7 @@ class TestAuth(unittest.TestCase):
             with c.session_transaction() as sess:
                 sess['admin_id'] = 1
                 sess['admin_username'] = 'admin'
+                sess['is_super_admin'] = True
             resp = c.get('/admin/dashboard')
             self.assertEqual(resp.status_code, 200)
             self.assertIn('csrf-token', resp.text)

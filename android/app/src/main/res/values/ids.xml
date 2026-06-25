@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Resource ID for tagging question number on answer views (#6 fix) -->
+    <item name="tag_question_number" type="id" />
+</resources>

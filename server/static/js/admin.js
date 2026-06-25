@@ -285,8 +285,35 @@ function openQuestionsModal(examId, examName) {
                 if (secSelect) {
                     secSelect.value = res.security_level || 'medium';
                 }
+                // Panel color
+                const colorVal = res.panel_color || '#6366F1';
+                const colorInput = document.getElementById('examPanelColor');
+                const hexInput = document.getElementById('panelColorHex');
+                if (colorInput) colorInput.value = colorVal;
+                if (hexInput) hexInput.value = colorVal;
+                // Exam schedule times (support "YYYY-MM-DD HH:MM" and legacy "HH:MM")
+                const startInput = document.getElementById('examStartTime');
+                const endInput = document.getElementById('examEndTime');
+                const startDateInput = document.getElementById('examStartDate');
+                const endDateInput = document.getElementById('examEndDate');
+                function parseSchedule(val, dateEl, timeEl) {
+                    if (!val) { if (dateEl) dateEl.value = ''; if (timeEl) timeEl.value = ''; return; }
+                    if (val.length === 5) {
+                        if (timeEl) timeEl.value = val;
+                        if (dateEl) dateEl.value = '';
+                    } else {
+                        var parts = val.split(' ');
+                        if (parts.length === 2) {
+                            if (dateEl) dateEl.value = parts[0];
+                            if (timeEl) timeEl.value = parts[1];
+                        }
+                    }
+                }
+                parseSchedule(res.start_time, startDateInput, startInput);
+                parseSchedule(res.end_time, endDateInput, endInput);
                 renderQuestions(res.questions);
                 renderIdentityFields(res.identity_fields || []);
+                renderPengawasSelection(res.assigned_pengawas || [], res.available_pengawas || []);
             } else {
                 showToast(res.message || 'Gagal memuat soal', 'error');
             }
@@ -301,6 +328,13 @@ function closeQuestionsModal() {
     document.getElementById('questionsModal').style.display = 'none';
     activeExamId = null;
     activeExamName = '';
+}
+
+function setPanelColor(hex) {
+    var colorInput = document.getElementById('examPanelColor');
+    var hexInput = document.getElementById('panelColorHex');
+    if (colorInput) colorInput.value = hex;
+    if (hexInput) hexInput.value = hex;
 }
 
 function createNewQuestionCard(q, num) {
@@ -673,6 +707,35 @@ function getIdentityFieldsFromEditor() {
     return fields.length > 0 ? fields : JSON.parse(JSON.stringify(DEFAULT_IDENTITY_FIELDS));
 }
 
+// ===== Pengawas Assignment =====
+function renderPengawasSelection(assigned, available) {
+    var container = document.getElementById('pengawasList');
+    if (!container) return;
+    container.innerHTML = '';
+
+    var assignedIds = (assigned || []).map(function(p) { return p.id; });
+
+    if (!available || available.length === 0) {
+        container.innerHTML = '<div style="color:var(--color-text-muted);font-size:0.82rem;padding:8px 0;">Tidak ada pengawas tersedia di instansi Anda. Tambah user dengan role "Pengawas" terlebih dahulu.</div>';
+        return;
+    }
+
+    available.forEach(function(p) {
+        var isChecked = assignedIds.indexOf(p.id) !== -1;
+        var label = document.createElement('label');
+        label.style.cssText = 'display:flex;align-items:center;gap:8px;padding:6px 0;cursor:pointer;font-size:0.85rem;color:var(--color-text);';
+        label.innerHTML = '<input type="checkbox" class="pengawas-checkbox" value="' + p.id + '"' + (isChecked ? ' checked' : '') + '> '
+            + escapeHtml(p.username)
+            + ' <span style="font-size:0.75rem;color:var(--color-text-muted);">(' + escapeHtml(p.instansi || '') + ')</span>';
+        container.appendChild(label);
+    });
+}
+
+function getPengawasIdsFromEditor() {
+    var checkboxes = document.querySelectorAll('#pengawasList .pengawas-checkbox:checked');
+    return Array.from(checkboxes).map(function(cb) { return parseInt(cb.value); });
+}
+
 function onQuestionTypeChange(selectEl) {
     const card = selectEl.closest('.question-editor-card');
     const optionsInput = card.querySelector('.q-options-input');
@@ -864,6 +927,13 @@ function exportXMLQuestions() {
     showToast(`Berhasil mengekspor ${questions.length} soal ke XML!`, "success");
 }
 
+function clearSchedule() {
+    ['examStartDate','examStartTime','examEndDate','examEndTime'].forEach(function(id) {
+        var el = document.getElementById(id);
+        if (el) el.value = '';
+    });
+}
+
 function saveQuestionsConfig() {
     if (!activeExamId) return;
 
@@ -873,10 +943,24 @@ function saveQuestionsConfig() {
 
     const identityFields = getIdentityFieldsFromEditor();
 
+    const panelColor = document.getElementById('panelColorHex') ? document.getElementById('panelColorHex').value.trim() : '';
+    function buildSchedule(dateId, timeId) {
+        var d = document.getElementById(dateId);
+        var t = document.getElementById(timeId);
+        var dateVal = d ? d.value : '';
+        var timeVal = t ? t.value : '';
+        if (dateVal && timeVal) return dateVal + ' ' + timeVal;
+        if (timeVal) return timeVal;
+        return '';
+    }
+    const startTime = buildSchedule('examStartDate', 'examStartTime');
+    const endTime = buildSchedule('examEndDate', 'examEndTime');
+    const pengawasIds = getPengawasIdsFromEditor();
+
     apiFetch(`/admin/api/exams/${activeExamId}/questions`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ questions: questions, security_level: securityLevel, strict_mode: strictMode, identity_fields: identityFields })
+        body: JSON.stringify({ questions: questions, security_level: securityLevel, strict_mode: strictMode, identity_fields: identityFields, panel_color: panelColor, start_time: startTime, end_time: endTime, pengawas_ids: pengawasIds })
     })
         .then(r => r.json())
         .then(res => {
@@ -944,6 +1028,20 @@ function submitChangePassword(e) {
 }
 
 
+function renderRoleBadges(roles) {
+    if (!Array.isArray(roles) || roles.length === 0) return '<span style="color:var(--color-text-muted);font-size:12px;">—</span>';
+    var badgeStyles = {
+        guru: 'background:rgba(99,102,241,0.15);color:#a5b4fc;border:1px solid rgba(99,102,241,0.3);',
+        pengawas: 'background:rgba(168,85,247,0.15);color:#c084fc;border:1px solid rgba(168,85,247,0.3);'
+    };
+    var labels = { guru: 'Guru', pengawas: 'Pengawas' };
+    return roles.map(function(r) {
+        var style = badgeStyles[r] || badgeStyles.guru;
+        var label = labels[r] || r;
+        return '<span style="display:inline-block;padding:2px 8px;border-radius:10px;font-size:11px;font-weight:600;' + style + '">' + label + '</span>';
+    }).join(' ');
+}
+
 // ===== Manage Users Modal (Super Admin Only) =====
 
 function openManageUsersModal() {
@@ -971,7 +1069,7 @@ function loadUsersList(page) {
     // Hapus popup yang tertinggal di body (dari fix backdrop-filter containing block)
     document.querySelectorAll('body > .user-info-popup').forEach(function(p) { p.remove(); });
 
-    tbody.innerHTML = '<tr><td colspan="4" style="text-align:center; padding: 20px; color: var(--color-text-secondary);">⏳ Memuat...</td></tr>';
+    tbody.innerHTML = '<tr><td colspan="6" style="text-align:center; padding: 20px; color: var(--color-text-secondary);">⏳ Memuat...</td></tr>';
 
     apiFetch(url)
         .then(r => r.json())
@@ -981,7 +1079,7 @@ function loadUsersList(page) {
                 tbody.innerHTML = '';
 
                 if (!Array.isArray(res.users) || res.users.length === 0) {
-                    tbody.innerHTML = '<tr><td colspan="4" style="text-align:center; padding: 40px; color: var(--color-text-secondary);">'
+                    tbody.innerHTML = '<tr><td colspan="6" style="text-align:center; padding: 40px; color: var(--color-text-secondary);">'
                         + (searchVal ? 'Tidak ditemukan user yang cocok dengan "' + escapeHtml(searchVal) + '"' : 'Belum ada user terdaftar')
                         + '</td></tr>';
                     renderUsersPagination(pagination, page);
@@ -990,7 +1088,7 @@ function loadUsersList(page) {
 
                 res.users.forEach(user => {
                     const tr = document.createElement('tr');
-                    const isAdmin = user.username === 'admin';
+                    const isAdmin = user.username === 'superadmin';
                     var statusClick = isAdmin ? '' : ' onclick="toggleUserStatus(' + user.id + ')"';
                     var statusBadge = user.status === 'active'
                         ? '<span class="status-badge status-active"' + statusClick + '>Aktif</span>'
@@ -1029,6 +1127,8 @@ function loadUsersList(page) {
                                 <div class="user-info-item"><span>Terdaftar</span><strong>${createdAt}</strong></div>
                             </div>
                         </td>
+                        <td data-label="Instansi">${escapeHtml(user.instansi || '—')}</td>
+                        <td data-label="Role">${isAdmin ? '<span style="display:inline-block;padding:2px 8px;border-radius:10px;font-size:11px;font-weight:600;background:rgba(251,191,36,0.15);color:#fbbf24;border:1px solid rgba(251,191,36,0.3);">Super Admin</span>' : renderRoleBadges(user.roles)}</td>
                         <td data-label="WhatsApp">${escapeHtml(user.whatsapp_number || '—')}</td>
                         <td data-label="Status" style="text-align:center;">${statusBadge}</td>
                         <td data-label="Aksi" style="text-align:right;">${actionsHtml}</td>
@@ -1038,7 +1138,7 @@ function loadUsersList(page) {
                 localizeDates();
                 renderUsersPagination(pagination, page);
             } else {
-                tbody.innerHTML = '<tr><td colspan="4" style="text-align:center; padding: 20px; color: #fca5a5;">Gagal memuat daftar user</td></tr>';
+                tbody.innerHTML = '<tr><td colspan="6" style="text-align:center; padding: 20px; color: #fca5a5;">Gagal memuat daftar user</td></tr>';
             }
         })
         .catch(() => {
@@ -1255,9 +1355,15 @@ function openEditUserModal(userId) {
             // Populate fields
             document.getElementById('editUserId').value = user.id;
             document.getElementById('editUserUsername').textContent = user.username;
-            document.getElementById('editUserExams').value = user.max_exams || 3;
+            document.getElementById('editUserExams').value = user.max_exams ?? 3;
             document.getElementById('editUserPdfSize').value = user.max_pdf_size ? (user.max_pdf_size / (1024*1024)).toFixed(1) : '1';
             document.getElementById('editUserWhatsapp').value = user.whatsapp_number || '';
+            document.getElementById('editUserInstansi').value = user.instansi || '';
+            var userRoles = user.roles || (user.role ? [user.role] : ['guru']);
+            document.getElementById('editRoleGuru').checked = userRoles.indexOf('guru') !== -1;
+            document.getElementById('editRolePengawas').checked = userRoles.indexOf('pengawas') !== -1;
+            var editRoleOpEl = document.getElementById('editRoleOperator');
+            if (editRoleOpEl) editRoleOpEl.checked = userRoles.indexOf('operator') !== -1;
 
             // Set expiry date — convert UTC back to local timezone
             var expiresInput = document.getElementById('editUserExpiry');
@@ -1281,8 +1387,34 @@ function openEditUserModal(userId) {
                 expiresTimeInput.value = '23:59';
             }
 
+            // Sync limit fields based on role
+            syncEditLimitFields();
+            // Attach change listeners for edit modal
+            var eguru = document.getElementById('editRoleGuru');
+            var epengawas = document.getElementById('editRolePengawas');
+            if (eguru && epengawas) {
+                eguru.addEventListener('change', syncEditLimitFields);
+                epengawas.addEventListener('change', syncEditLimitFields);
+            }
+
             editModal.style.display = 'flex';
         });
+}
+
+function syncEditLimitFields() {
+    var guruChecked = document.getElementById('editRoleGuru').checked;
+    var pengawasOnly = document.getElementById('editRolePengawas').checked && !guruChecked;
+    var limitInput = document.getElementById('editUserExams');
+    var pdfInput = document.getElementById('editUserPdfSize');
+    if (pengawasOnly) {
+        limitInput.disabled = true;
+        limitInput.value = '0';
+        pdfInput.disabled = true;
+        pdfInput.value = '0';
+    } else {
+        limitInput.disabled = false;
+        pdfInput.disabled = false;
+    }
 }
 
 function closeEditUserModal() {
@@ -1294,10 +1426,17 @@ function submitEditUser(e) {
     e.preventDefault();
     var userId = document.getElementById('editUserId').value;
     var data = {
-        max_exams: parseInt(document.getElementById('editUserExams').value) || 3,
-        max_pdf_size_mb: parseFloat(document.getElementById('editUserPdfSize').value) || 1,
-        whatsapp_number: document.getElementById('editUserWhatsapp').value.trim()
+        max_exams: (function(){ var v=document.getElementById('editUserExams').value; return v==='' ? 3 : parseInt(v); })(),
+        max_pdf_size_mb: (function(){ var v=document.getElementById('editUserPdfSize').value; return v==='' ? 1 : parseFloat(v); })(),
+        whatsapp_number: document.getElementById('editUserWhatsapp').value.trim(),
+        instansi: document.getElementById('editUserInstansi').value.trim(),
+        roles: []
     };
+    if (document.getElementById('editRoleGuru').checked) data.roles.push('guru');
+    if (document.getElementById('editRolePengawas').checked) data.roles.push('pengawas');
+    var editRoleOpEl = document.getElementById('editRoleOperator');
+    if (editRoleOpEl && editRoleOpEl.checked) data.roles.push('operator');
+    if (data.roles.length === 0) { showToast('Pilih minimal 1 role','error'); return; }
 
     var newPass = document.getElementById('editUserPassword').value.trim();
     if (newPass) {
@@ -1364,16 +1503,36 @@ function createEditUserModal() {
                     <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;">
                         <div class="form-group" style="margin-bottom:8px;">
                             <label for="editUserExams">Limit Ujian</label>
-                            <input type="number" id="editUserExams" required min="1" style="width:100%;">
+                            <input type="number" id="editUserExams" required min="0" style="width:100%;">
                         </div>
                         <div class="form-group" style="margin-bottom:8px;">
                             <label for="editUserPdfSize">Limit PDF (MB)</label>
-                            <input type="number" id="editUserPdfSize" required min="0.1" step="0.1" style="width:100%;">
+                            <input type="number" id="editUserPdfSize" required min="0" step="0.1" style="width:100%;">
                         </div>
                     </div>
                     <div class="form-group" style="margin-bottom:8px;">
                         <label for="editUserWhatsapp">WhatsApp Number</label>
                         <input type="text" id="editUserWhatsapp" placeholder="Contoh: 081234567890" style="width:100%;">
+                    </div>
+                    <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;">
+                        <div class="form-group" style="margin-bottom:8px;">
+                            <label for="editUserInstansi">Instansi <span style="font-size:11px;opacity:0.7;">(wajib)</span></label>
+                            <input type="text" id="editUserInstansi" required placeholder="Contoh: SMA Negeri 1 Jakarta" style="width:100%;">
+                        </div>
+                        <div class="form-group" style="margin-bottom:8px;">
+                            <label>Role <span style="font-size:11px;opacity:0.7;">(bisa pilih lebih dari 1)</span></label>
+                            <div style="display:flex;gap:16px;padding-top:6px;">
+                                <label style="display:flex;align-items:center;gap:6px;font-size:13px;cursor:pointer;">
+                                    <input type="checkbox" id="editRoleGuru" value="guru"> Guru
+                                </label>
+                                <label style="display:flex;align-items:center;gap:6px;font-size:13px;cursor:pointer;">
+                                    <input type="checkbox" id="editRolePengawas" value="pengawas"> Pengawas
+                                </label>
+                                <label style="display:flex;align-items:center;gap:6px;font-size:13px;cursor:pointer;" id="editRoleOperatorGroup">
+                                    <input type="checkbox" id="editRoleOperator" value="operator"> Operator
+                                </label>
+                            </div>
+                        </div>
                     </div>
                     <div class="form-group" style="margin-bottom:8px;">
                         <label for="editUserPassword">Reset Password <span style="font-size:11px;opacity:0.7;">(Kosongkan jika tidak diubah)</span></label>
@@ -1394,6 +1553,12 @@ function createEditUserModal() {
         </div>
     `;
     document.body.appendChild(modal);
+
+    // Hide operator checkbox in edit modal if current user is operator
+    if (window.__adminRole === 'operator') {
+        var opGroup = document.getElementById('editRoleOperatorGroup');
+        if (opGroup) opGroup.style.display = 'none';
+    }
 
     // Close on overlay click
     modal.addEventListener('click', function(e) {
@@ -1783,6 +1948,147 @@ function closeEditExamModal() {
     if (modal) modal.style.display = 'none';
 }
 
+// ===== Delegate Exam (Operator) =====
+function openDelegateExamModal(examId) {
+    const modal = document.getElementById('delegateExamModal');
+    if (!modal) return;
+    document.getElementById('delegateExamId').value = examId;
+    modal.style.display = 'flex';
+
+    const guruSelect = document.getElementById('delegateOwnerSelect');
+    guruSelect.innerHTML = '<option value="">-- Memuat data... --</option>';
+    guruSelect.disabled = true;
+
+    document.getElementById('delegateCurrentOwner').textContent = '';
+    document.getElementById('delegatePengawasList').innerHTML = '<div style="color:var(--color-text-muted);font-size:0.82rem;padding:8px 0;">Memuat data pengawas...</div>';
+
+    fetch('/admin/api/exams/' + examId + '/delegate-data')
+        .then(function(r) { return r.json(); })
+        .then(function(res) {
+            guruSelect.innerHTML = '<option value="">-- Tidak ada penanggung jawab --</option>';
+
+            if (res.success && res.data) {
+                var d = res.data;
+
+                // Current owner
+                if (d.current_owner) {
+                    document.getElementById('delegateCurrentOwner').textContent = 'Pembuat: ' + d.current_owner.username;
+                }
+                // Show current delegated teacher
+                var delegateLabel = document.getElementById('delegateCurrentLabel');
+                if (d.delegated_to) {
+                    if (!delegateLabel) {
+                        var infoDiv = document.querySelector('#delegateExamModal .form-group');
+                        var lbl = document.createElement('div');
+                        lbl.id = 'delegateCurrentLabel';
+                        lbl.style.cssText = 'font-size:0.8rem;color:#94a3b8;margin-bottom:6px;';
+                        lbl.textContent = 'Penanggung jawab saat ini: ' + d.delegated_to.username;
+                        infoDiv.parentNode.insertBefore(lbl, infoDiv);
+                    }
+                } else if (delegateLabel) {
+                    delegateLabel.remove();
+                }
+
+                // Guru list
+                if (d.available_gurus && d.available_gurus.length > 0) {
+                    d.available_gurus.forEach(function(u) {
+                        var opt = document.createElement('option');
+                        opt.value = u.id;
+                        opt.textContent = u.username + ' (' + (u.instansi || '') + ')';
+                        if (d.delegated_to && d.delegated_to.id === u.id) {
+                            opt.selected = true;
+                        }
+                        guruSelect.appendChild(opt);
+                    });
+                    guruSelect.disabled = false;
+                } else {
+                    guruSelect.innerHTML = '<option value="">-- Tidak ada guru lain di instansi ini --</option>';
+                }
+
+                // Pengawas list
+                renderDelegatePengawas(d.available_pengawas || [], d.assigned_pengawas_ids || []);
+            } else {
+                guruSelect.innerHTML = '<option value="">-- Gagal memuat data --</option>';
+                document.getElementById('delegatePengawasList').innerHTML = '<div style="color:var(--color-text-muted);font-size:0.82rem;padding:8px 0;">Gagal memuat data pengawas.</div>';
+            }
+        })
+        .catch(function() {
+            guruSelect.innerHTML = '<option value="">-- Gagal memuat data --</option>';
+            document.getElementById('delegatePengawasList').innerHTML = '<div style="color:var(--color-text-muted);font-size:0.82rem;padding:8px 0;">Gagal memuat data pengawas.</div>';
+        });
+}
+
+function renderDelegatePengawas(available, assignedIds) {
+    var container = document.getElementById('delegatePengawasList');
+    if (!container) return;
+    container.innerHTML = '';
+
+    if (!available || available.length === 0) {
+        container.innerHTML = '<div style="color:var(--color-text-muted);font-size:0.82rem;padding:8px 0;">Tidak ada pengawas tersedia di instansi Anda. Tambah user dengan role "Pengawas" terlebih dahulu.</div>';
+        return;
+    }
+
+    available.forEach(function(p) {
+        var isChecked = assignedIds.indexOf(p.id) !== -1;
+        var label = document.createElement('label');
+        label.style.cssText = 'display:flex;align-items:center;gap:8px;padding:6px 0;cursor:pointer;font-size:0.85rem;color:var(--color-text);';
+        label.innerHTML = '<input type="checkbox" class="delegate-pengawas-checkbox" value="' + p.id + '"' + (isChecked ? ' checked' : '') + '> '
+            + escapeHtml(p.username)
+            + ' <span style="font-size:0.75rem;color:var(--color-text-muted);">(' + escapeHtml(p.instansi || '') + ')</span>';
+        container.appendChild(label);
+    });
+}
+
+function closeDelegateExamModal() {
+    const modal = document.getElementById('delegateExamModal');
+    if (modal) modal.style.display = 'none';
+}
+
+function confirmDelegateExam() {
+    const examId = document.getElementById('delegateExamId').value;
+    const guruSelect = document.getElementById('delegateOwnerSelect');
+    const newOwnerId = guruSelect.value;
+
+    var pengawasCheckboxes = document.querySelectorAll('#delegatePengawasList .delegate-pengawas-checkbox:checked');
+    var pengawasIds = Array.from(pengawasCheckboxes).map(function(cb) { return parseInt(cb.value); });
+
+    var body = {};
+    if (newOwnerId) {
+        body.new_owner_id = parseInt(newOwnerId);
+    }
+    body.pengawas_ids = pengawasIds;
+
+    var btn = document.querySelector('#delegateExamModal .btn-upload');
+    btn.disabled = true;
+    btn.textContent = 'Menyimpan...';
+
+    fetch('/admin/api/exams/' + examId + '/delegate', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+            'X-CSRF-Token': getCsrfToken()
+        },
+        body: JSON.stringify(body)
+    })
+    .then(function(r) { return r.json(); })
+    .then(function(res) {
+        btn.disabled = false;
+        btn.textContent = 'Simpan';
+        if (res.success) {
+            showToast(res.message, 'success');
+            closeDelegateExamModal();
+            setTimeout(function() { location.reload(); }, 1000);
+        } else {
+            showToast(res.message || 'Gagal menyimpan', 'error');
+        }
+    })
+    .catch(function() {
+        btn.disabled = false;
+        btn.textContent = 'Simpan';
+        showToast('Koneksi gagal', 'error');
+    });
+}
+
 function handleEditFileChange(input) {
     const display = document.getElementById('editFileDisplay');
     const textEl = document.getElementById('editFileDisplayText');
@@ -1880,14 +2186,63 @@ function toggleRowDropdown(event, examId) {
     
     const isShown = dropdown.classList.contains('show');
     
-    // Close all other dropdowns
+    // Close all other dropdowns and reparent them back
     document.querySelectorAll('.exam-action-dropdown-content').forEach(d => {
         if (d !== dropdown) {
             d.classList.remove('show');
+            reparentDropdownBack(d);
         }
     });
     
-    dropdown.classList.toggle('show');
+    if (isShown) {
+        dropdown.classList.remove('show');
+        reparentDropdownBack(dropdown);
+        return;
+    }
+    
+    // Save original parent and siblings for later reparenting
+    dropdown._origParent = dropdown.parentNode;
+    dropdown._origNextSibling = dropdown.nextSibling;
+    
+    // Append to body to avoid any parent clipping
+    document.body.appendChild(dropdown);
+    dropdown.classList.add('show');
+    
+    // Position using fixed coordinates relative to the button
+    const btn = event.currentTarget;
+    const btnRect = btn.getBoundingClientRect();
+    const gap = 6;
+    const spaceBelow = window.innerHeight - btnRect.bottom;
+    const spaceAbove = btnRect.top;
+    
+    const _sp = (p, v) => dropdown.style.setProperty(p, v, 'important');
+    _sp('position', 'fixed');
+    _sp('left', 'auto');
+    if (spaceBelow >= 200 || spaceBelow >= spaceAbove) {
+        _sp('top', (btnRect.bottom + gap) + 'px');
+        _sp('bottom', 'auto');
+    } else {
+        _sp('top', 'auto');
+        _sp('bottom', (window.innerHeight - btnRect.top + gap) + 'px');
+    }
+    _sp('right', (window.innerWidth - btnRect.right) + 'px');
+}
+
+function reparentDropdownBack(el) {
+    if (el._origParent) {
+        if (el._origNextSibling) {
+            el._origParent.insertBefore(el, el._origNextSibling);
+        } else {
+            el._origParent.appendChild(el);
+        }
+        el._origParent = null;
+        el._origNextSibling = null;
+    }
+    el.style.removeProperty('position');
+    el.style.removeProperty('top');
+    el.style.removeProperty('left');
+    el.style.removeProperty('right');
+    el.style.removeProperty('bottom');
 }
 
 // Close dropdowns when clicking anywhere outside
@@ -1896,8 +2251,9 @@ document.addEventListener('click', function(event) {
     const clickedDropdown = event.target.closest('.exam-action-dropdown-content');
 
     if (!clickedBtn && !clickedDropdown) {
-        document.querySelectorAll('.exam-action-dropdown-content').forEach(d => {
-            d.classList.remove('show');
+        document.querySelectorAll('.exam-action-dropdown-content').forEach(el => {
+            el.classList.remove('show');
+            reparentDropdownBack(el);
         });
     }
 });
@@ -1905,8 +2261,9 @@ document.addEventListener('click', function(event) {
 // Close dropdowns with Escape key
 document.addEventListener('keydown', function(event) {
     if (event.key === 'Escape') {
-        document.querySelectorAll('.exam-action-dropdown-content').forEach(d => {
-            d.classList.remove('show');
+        document.querySelectorAll('.exam-action-dropdown-content').forEach(el => {
+            el.classList.remove('show');
+            reparentDropdownBack(el);
         });
     }
 });
@@ -2065,27 +2422,65 @@ function saveSaasSettings(e) {
     .catch(() => showToast('Gagal menyimpan setelan SaaS', 'error'));
 }
 
+function syncLimitFields() {
+    var guruChecked = document.getElementById('roleGuru').checked;
+    var pengawasOnly = document.getElementById('rolePengawas').checked && !guruChecked;
+    var limitInput = document.getElementById('limitInput');
+    var pdfInput = document.getElementById('pdfSizeInput');
+    if (pengawasOnly) {
+        limitInput.disabled = true;
+        limitInput.value = '0';
+        pdfInput.disabled = true;
+        pdfInput.value = '0';
+    } else {
+        limitInput.disabled = false;
+        pdfInput.disabled = false;
+    }
+}
+
+document.addEventListener('DOMContentLoaded', function() {
+    var guruCb = document.getElementById('roleGuru');
+    var pengawasCb = document.getElementById('rolePengawas');
+    if (guruCb && pengawasCb) {
+        guruCb.addEventListener('change', syncLimitFields);
+        pengawasCb.addEventListener('change', syncLimitFields);
+        syncLimitFields();
+    }
+});
+
 function createUser(e) {
     e.preventDefault();
     const username = document.getElementById('usernameInput').value.trim();
     const password = document.getElementById('passwordInput').value;
-    const whatsapp_number = document.getElementById('whatsappInput').value.trim();
+    const whatsappEl = document.getElementById('whatsappInput');
+    const whatsapp_number = whatsappEl ? whatsappEl.value.trim() : '';
+    const instansi = document.getElementById('instansiInput').value.trim() || 'personal';
+    var roles = [];
+    if (document.getElementById('roleGuru').checked) roles.push('guru');
+    if (document.getElementById('rolePengawas').checked) roles.push('pengawas');
+    var roleOpEl = document.getElementById('roleOperator');
+    if (roleOpEl && roleOpEl.checked) roles.push('operator');
+    if (roles.length === 0) { showToast('Pilih minimal 1 role','error'); return; }
     const max_exams = parseInt(document.getElementById('limitInput').value);
     const max_pdf_size_mb = parseFloat(document.getElementById('pdfSizeInput').value);
-    const expDate = document.getElementById('newUserExpiry').value;
-    const expTime = document.getElementById('newUserExpiryTime').value || '23:59';
-
+    const opExpiryEl = document.getElementById('operatorExpiresAt');
     let expires_at = '';
-    if (expDate) {
-        const localDateTime = new Date(`${expDate}T${expTime}`);
-        if (!isNaN(localDateTime.getTime())) {
-            expires_at = localDateTime.toISOString().replace('T', ' ').substring(0, 19);
+    if (opExpiryEl && opExpiryEl.value) {
+        expires_at = opExpiryEl.value;
+    } else {
+        const expDate = document.getElementById('newUserExpiry').value;
+        const expTime = document.getElementById('newUserExpiryTime').value || '23:59';
+        if (expDate) {
+            const localDateTime = new Date(`${expDate}T${expTime}`);
+            if (!isNaN(localDateTime.getTime())) {
+                expires_at = localDateTime.toISOString().replace('T', ' ').substring(0, 19);
+            }
         }
     }
-    if (!username || !password) { showToast('Semua kolom wajib diisi','error'); return; }
+    if (!username || !password) { showToast('Username dan password wajib diisi','error'); return; }
     apiFetch('/admin/api/users', {
         method: 'POST', headers: {'Content-Type':'application/json'},
-        body: JSON.stringify({ username, password, whatsapp_number, max_exams, max_pdf_size_mb, expires_at })
+        body: JSON.stringify({ username, password, whatsapp_number, instansi, roles, max_exams, max_pdf_size_mb, expires_at })
     }).then(r=>r.json()).then(res => {
         if (res.success) {
             showToast(res.message,'success');
@@ -2097,8 +2492,9 @@ function createUser(e) {
 }
 
 function resetNewUserFormDefaults() {
-    document.getElementById('limitInput').value = 3;
+    document.getElementById('limitInput').value = 0;
     document.getElementById('pdfSizeInput').value = 1.0;
+    syncLimitFields();
 }
 
 function loadSaasSettings() {
@@ -2303,33 +2699,82 @@ document.addEventListener('click', function() {
     document.querySelectorAll('.identity-popup.show').forEach(function(p) { p.classList.remove('show'); });
 });
 
-// ===== Search Exams =====
-const debounceSearch = debounce(function () {
-    searchExams();
-}, 400);
-
-function searchExams() {
-    const query = document.getElementById('searchExam').value.trim();
-    const params = new URLSearchParams(window.location.search);
-    if (query) {
-        params.set('search', query);
+// ===== Search Exams (client-side) =====
+function filterExamRows() {
+    const query = document.getElementById('searchExam').value.trim().toLowerCase();
+    const status = document.getElementById('statusFilter')?.value || '';
+    const rows = document.querySelectorAll('#examTable tbody tr');
+    let visibleCount = 0;
+    rows.forEach(row => {
+        const nameEl = row.querySelector('.td-name');
+        const tokenEl = row.querySelector('.token-code');
+        const creatorEl = row.querySelector('td[data-label="Pembuat"]');
+        const statusEl = row.querySelector('.status-badge');
+        const text = [
+            nameEl?.textContent || '',
+            tokenEl?.textContent || '',
+            creatorEl?.textContent || ''
+        ].join(' ').toLowerCase();
+        const matchQuery = !query || text.includes(query);
+        const matchStatus = !status || (statusEl?.textContent.trim() === status);
+        if (matchQuery && matchStatus) {
+            row.style.display = '';
+            visibleCount++;
+        } else {
+            row.style.display = 'none';
+        }
+    });
+    // Show/hide empty state
+    let emptyEl = document.querySelector('.empty-search-state');
+    if (visibleCount === 0 && rows.length > 0) {
+        if (!emptyEl) {
+            emptyEl = document.createElement('div');
+            emptyEl.className = 'empty-search-state';
+            emptyEl.style.cssText = 'text-align:center;padding:40px 20px;color:var(--color-text-muted);';
+            emptyEl.innerHTML = '<svg class="icon-svg-xl" style="margin:0 auto 16px;opacity:0.4;"><use href="#hi-search"/></svg><p>Tidak ditemukan ujian yang cocok dengan pencarian Anda.</p>';
+            const table = document.getElementById('examTable');
+            table.parentNode.insertBefore(emptyEl, table.nextSibling);
+        }
+        emptyEl.style.display = '';
+        document.getElementById('examTable').style.display = 'none';
     } else {
-        params.delete('search');
+        if (emptyEl) emptyEl.style.display = 'none';
+        document.getElementById('examTable').style.display = '';
     }
-    params.set('page', '1'); // reset to first page
-    const qs = params.toString();
-    window.location.href = window.location.pathname + (qs ? '?' + qs : '');
+    // Update clear button
+    const btn = document.getElementById('searchClearBtn');
+    if (btn) btn.style.display = query || status ? 'flex' : 'none';
 }
+
+const debounceSearch = debounce(filterExamRows, 300);
+// Keep old name as alias for inline onkeyup="searchExams()"
+function searchExams() { filterExamRows(); }
 
 function clearSearch() {
     const input = document.getElementById('searchExam');
-    if (input) {
-        input.value = '';
-        const btn = document.getElementById('searchClearBtn');
-        if (btn) btn.style.display = 'none';
-        searchExams();
-    }
+    if (input) input.value = '';
+    const statusEl = document.getElementById('statusFilter');
+    if (statusEl) statusEl.value = '';
+    filterExamRows();
 }
+
+// Override inline onchange handler: filter client-side instead of page reload
+function searchExamsWithStatus() {
+    filterExamRows();
+}
+
+// Enter key also triggers client-side filter
+document.addEventListener('DOMContentLoaded', function() {
+    const searchInput = document.getElementById('searchExam');
+    if (searchInput) {
+        searchInput.addEventListener('keydown', function(e) {
+            if (e.key === 'Enter') {
+                e.preventDefault();
+                filterExamRows();
+            }
+        });
+    }
+});
 
 // ===== Calculate Duration =====
 document.addEventListener('DOMContentLoaded', function() {

@@ -1,6 +1,7 @@
 """
 EXAMVAN Helpers — pure utility functions (no Flask dependency).
 """
+import json
 import logging
 from datetime import datetime, timezone, timedelta
 import socket
@@ -167,3 +168,37 @@ def calculate_submission_score(answers, questions):
     except Exception as e:
         logger.error("Scoring calculation error: %s", e)
         return None
+
+
+# ===== Role Helpers (multi-role JSON array support) =====
+
+def parse_roles(role_str):
+    """Parse role column into a list of roles. Handles legacy single-role and JSON array formats."""
+    if not role_str:
+        return ['guru']
+    if role_str == 'superadmin':
+        return ['superadmin']
+    try:
+        roles = json.loads(role_str)
+        if isinstance(roles, list):
+            return roles
+    except (json.JSONDecodeError, TypeError):
+        pass
+    return [role_str]
+
+
+def has_role(role_str, target_role):
+    """Check if a role string includes the target role."""
+    return target_role in parse_roles(role_str)
+
+
+def serialize_roles(roles):
+    """Serialize a list of roles to JSON string for storage."""
+    return json.dumps(roles)
+
+
+def display_roles(role_str):
+    """Return human-readable role labels from a role string."""
+    role_map = {'superadmin': 'Super Admin', 'guru': 'Guru', 'pengawas': 'Pengawas'}
+    roles = parse_roles(role_str)
+    return ', '.join(role_map.get(r, r) for r in roles)

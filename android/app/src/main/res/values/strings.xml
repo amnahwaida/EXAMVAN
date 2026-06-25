@@ -29,8 +29,8 @@
     <string name="toast_auto_submit_failed">Ujian dihentikan. Gagal mengirim jawaban: %1$s</string>
     <string name="autosubmit_status_active">Kumpul Otomatis: AKTIF (Jangan keluar aplikasi!)</string>
     <string name="autosubmit_status_inactive">Kumpul Otomatis: NONAKTIF</string>
-    <string name="strict_mode_active">🔒 MODE STRICT: DILARANG KELUAR! Submit untuk membuka kunci.</string>
-    <string name="strict_mode_cannot_exit">🔒 Mode Strict: Anda tidak bisa keluar sebelum mengumpulkan jawaban!</string>
+    <string name="strict_mode_active">MODE STRICT: DILARANG KELUAR! Submit untuk membuka kunci.</string>
+    <string name="strict_mode_cannot_exit">Mode Strict: Anda tidak bisa keluar sebelum mengumpulkan jawaban!</string>
     <string name="strict_mode_cannot_exit_title">🔒 Mode Strict Aktif</string>
     <string name="strict_mode_cannot_exit_msg">Mode Strict sedang aktif. Anda TIDAK BISA keluar dari aplikasi sebelum berhasil mengumpulkan jawaban ujian.\n\nSilakan tekan tombol "📤 Kumpulkan Jawaban" setelah selesai mengerjakan.</string>
 
@@ -49,8 +49,8 @@
     <!-- ExamViewer -->
     <string name="exam_invalid_id">ID ujian tidak valid</string>
     <string name="default_exam_name">Ujian</string>
-    <string name="answer_sheet_open">📝 Buka Lembar Jawaban</string>
-    <string name="answer_sheet_close">📝 Tutup Lembar Jawaban</string>
+    <string name="answer_sheet_open">Buka Lembar Jawaban</string>
+    <string name="answer_sheet_close">Tutup Lembar Jawaban</string>
     <string name="question_label">Soal %1$d</string>
     <string name="question_label_truefalse">Soal %1$d (Benar/Salah)</string>
     <string name="question_label_multiple">Soal %1$d (Pilih beberapa)</string>
@@ -62,28 +62,34 @@
     <string name="submit_answers_confirm_all">Anda sudah menjawab semua %1$d soal.\nKumpulkan jawaban?</string>
     <string name="submit_confirm_yes">Ya, Kumpulkan</string>
     <string name="submitting">Mengirim...</string>
-    <string name="submitted_label">✅ Sudah Dikumpulkan</string>
-    <string name="submit_success_title">Berhasil</string>
+    <string name="submitted_label">Sudah Dikumpulkan</string>
+    <string name="submit_success_title">Jawaban Berhasil Dikumpulkan</string>
     <string name="submit_success_message">%1$s\n\nNama: %2$s\nNomor: %3$s\nKelas: %4$s</string>
     <string name="submit_success_done">Selesai</string>
-    <string name="submit_failed_retry">📤 Kumpulkan Jawaban</string>
+    <string name="submit_failed_retry">Kumpulkan Jawaban</string>
     <string name="submit_failed_title">Gagal</string>
-    <string name="submit_failed_title_strict">❌ Gagal — Wajib Coba Lagi</string>
+    <string name="submit_failed_title_strict">Gagal — Wajib Coba Lagi</string>
     <string name="submit_failed_message">%1$s</string>
     <string name="submit_failed_message_strict">%1$s\n\n⚠️ Mode Strict aktif: Anda harus berhasil mengirim sebelum dapat keluar.</string>
     <string name="dialog_ok">OK</string>
     <string name="download_failed_format">Gagal memulai unduhan: %1$s</string>
     <string name="page_indicator_format">%1$d / %2$d</string>
-    <string name="auto_submit_success_title">✅ Jawaban Terkirim</string>
-    <string name="auto_submit_failed_title">❌ Gagal Mengirim Jawaban</string>
+    <string name="auto_submit_success_title">Jawaban Terkirim Otomatis</string>
+    <string name="auto_submit_failed_title">Gagal Mengirim Jawaban Otomatis</string>
     <string name="notification_channel_name">Pengiriman Jawaban Ujian</string>
     <string name="notification_channel_desc">Notifikasi saat jawaban ujian dikirim otomatis</string>
 
+    <!-- Gesture navigation warning -->
+    <string name="gesture_warning_title">Nonaktifkan Gesture Navigasi</string>
+    <string name="gesture_warning_message">Mode STRICT membutuhkan 3-Button Navigation agar aman.\n\nLangkah:\n1. Buka Settings → Sistem → Gestur Navigasi\n2. Pilih "3 tombol navigasi"\n3. Kembali ke ujian\n\nJika tidak bisa, tekan "Abaikan" — proteksi tetap berjalan terbatas.</string>
+    <string name="gesture_warning_ok">Buka Settings</string>
+    <string name="gesture_warning_skip">Abaikan, Saya Tahu</string>
+
     <!-- Logout dialog -->
-    <string name="logout_low_title">Keluar Ujian</string>
+    <string name="logout_low_title">Keluar dari Ujian</string>
     <string name="logout_low_message">Apakah Anda yakin ingin keluar dari ujian?\n\nJawaban Anda TIDAK akan dikumpulkan secara otomatis (Anda dapat melanjutkan nanti).</string>
     <string name="logout_low_positive">Ya, Keluar</string>
-    <string name="logout_default_title">Logout / Keluar Ujian</string>
+    <string name="logout_default_title">Keluar dari Ujian</string>
     <string name="logout_default_message">Apakah Anda yakin ingin logout dan keluar dari ujian?\n\nJawaban yang sudah Anda isi akan dikumpulkan secara otomatis sebelum keluar.</string>
     <string name="logout_default_positive">Ya, Logout &amp; Kirim</string>
 </resources>

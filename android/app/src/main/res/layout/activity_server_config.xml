@@ -99,7 +99,7 @@
             android:singleLine="true"
             android:letterSpacing="0.15"
             android:gravity="center"
-            android:maxLength="6"
+            android:maxLength="8"
             android:imeOptions="actionDone"
             android:layout_marginBottom="12dp" />
 
@@ -148,12 +148,28 @@
             android:layout_marginTop="8dp" />
 
         <TextView
+            android:id="@+id/tvVersion"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:text="EXAMVAN v2.1.9"
             android:textSize="11sp"
             android:textColor="@color/text_muted"
-            android:layout_marginTop="32dp" />
+            android:layout_marginTop="32dp"
+            android:gravity="center" />
+
+        <!-- Clear Saved Data -->
+        <TextView
+            android:id="@+id/btnClearData"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="Hapus Data Tersimpan"
+            android:textSize="12sp"
+            android:textColor="@color/danger"
+            android:gravity="center"
+            android:layout_marginTop="8dp"
+            android:padding="4dp"
+            android:clickable="true"
+            android:focusable="true"
+            android:visibility="gone" />
 
         </LinearLayout>
 

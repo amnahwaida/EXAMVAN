@@ -45,12 +45,12 @@ class TestDatabaseInit(unittest.TestCase):
 
     def test_init_db_creates_admin(self):
         """init_db should create default admin user."""
-        from app import init_db
+        from app import init_db, ADMIN_USERNAME
         init_db()
         db = self._get_db()
         admin = db.execute(
             'SELECT username FROM admin_users WHERE username = ?',
-            ('admin',)
+            (ADMIN_USERNAME,)
         ).fetchone()
         self.assertIsNotNone(admin)
         db.close()

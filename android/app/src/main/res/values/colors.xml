@@ -1,25 +1,39 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
+    <!-- Light mode — EXAMVAN clean light palette -->
+    <!-- Brand colors (same across both modes) -->
     <color name="primary">#6366F1</color>
     <color name="primary_dark">#4F46E5</color>
     <color name="primary_variant">#8B5CF6</color>
     <color name="on_primary">#FFFFFF</color>
-    <color name="background">#0A0A1A</color>
-    <color name="surface">#12122A</color>
-    <color name="surface_variant">#1E1E3A</color>
-    <color name="on_background">#F1F5F9</color>
-    <color name="on_surface">#F1F5F9</color>
-    <color name="text_secondary">#94A3B8</color>
-    <!-- WCAG AA contrast validated on dark surfaces (7.2:1) -->
+
+    <!-- Background & Surface — clean light tones -->
+    <color name="background">#F8FAFC</color>
+    <color name="surface">#FFFFFF</color>
+    <color name="surface_variant">#F1F5F9</color>
+    <color name="on_background">#0F172A</color>
+    <color name="on_surface">#1E293B</color>
+
+    <!-- Text — dark on light, WCAG AA ≥ 7:1 -->
+    <color name="text_secondary">#64748B</color>
     <color name="text_muted">#94A3B8</color>
+
+    <!-- Semantic colors -->
     <color name="success">#10B981</color>
     <color name="danger">#EF4444</color>
     <color name="warning">#F59E0B</color>
-    <color name="card_bg">#161636</color>
-    <color name="divider">#1E293B</color>
-    <color name="status_active_bg">#0D2818</color>
-    <color name="status_inactive_bg">#2D1B00</color>
-    <color name="input_background">#F3F4F6</color>
-    <color name="input_border">#D1D5DB</color>
-    <color name="input_fill">#F9FAFB</color>
+
+    <!-- Cards & Dividers -->
+    <color name="card_bg">#FFFFFF</color>
+    <color name="divider">#E2E8F0</color>
+    <!-- Deprecated: use text_muted instead (identical color #64748B vs #94A3B8) -->
+
+    <!-- Status indicators -->
+    <color name="status_active_bg">#ECFDF5</color>
+    <color name="status_inactive_bg">#FFFBEB</color>
+
+    <!-- Input fields — light mode -->
+    <color name="input_background">#F1F5F9</color>
+    <color name="input_border">#CBD5E1</color>
+    <color name="input_fill">#F8FAFC</color>
 </resources>
