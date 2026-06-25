@@ -51,8 +51,8 @@ if (uploadForm) {
         formData.append('pdf_file', fileInput.files[0]);
         if (customTokenInput && customTokenInput.value.trim()) {
             const tokenVal = customTokenInput.value.trim().toUpperCase();
-            if (tokenVal.length !== 6 || !/^[A-Z0-9]+$/.test(tokenVal)) {
-                showToast('Token kustom harus terdiri dari 6 karakter alfanumerik', 'error');
+            if (tokenVal.length !== 8 || !/^[A-Z0-9]+$/.test(tokenVal)) {
+                showToast('Token kustom harus terdiri dari 8 karakter alfanumerik', 'error');
                 return;
             }
             formData.append('custom_token', tokenVal);
@@ -1587,8 +1587,8 @@ function submitEditToken(e) {
     const examId = document.getElementById('editTokenExamId').value;
     const token = document.getElementById('editTokenInput').value.trim().toUpperCase();
 
-    if (token.length !== 6 || !/^[A-Z0-9]+$/.test(token)) {
-        showToast('Token kustom harus terdiri dari 6 karakter alfanumerik', 'error');
+            if (token.length !== 8 || !/^[A-Z0-9]+$/.test(token)) {
+                showToast('Token kustom harus terdiri dari 8 karakter alfanumerik', 'error');
         return;
     }
 

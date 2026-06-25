@@ -50,7 +50,7 @@ android/app/src/main/java/com/examvan/app/
 - `whatsapp_number`, `expires_at`, `otp_code`, `otp_expiry`
 
 ### `exams`
-- `id`, `name`, `file_path`, `size_bytes`, `token` (unique 6-char)
+- `id`, `name`, `file_path`, `size_bytes`, `token` (unique 8-char)
 - `questions_json`, `identity_fields`, `security_level`, `strict_mode`
 - `public_results`, `show_answers`, `panel_color`, `start_time`, `end_time`
 - `created_by` (FK → admin_users.id), `status`

@@ -568,7 +568,7 @@ def _verify_password(password, stored_hash):
     # Legacy SHA-256 hash: tidak lagi didukung. User harus reset password.
     return False
 
-def generate_token(length=6, db=None):
+def generate_token(length=8, db=None):
     """Generate a unique uppercase alphanumeric token with collision protection."""
     chars = string.ascii_uppercase + string.digits
     should_close = False

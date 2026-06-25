@@ -94,7 +94,7 @@ def seed():
         for ke in range(1, EXAMS_PER_GURU + 1):
             mapel = random.choice(SUBJECTS)
             nama = buat_nama_ujian(fullname, mapel, ke)
-            token = ''.join(random.choices(string.ascii_uppercase + string.digits, k=6))
+            token = ''.join(random.choices(string.ascii_uppercase + string.digits, k=8))
 
             # Create a dummy PDF
             safe_name = f"{token}.pdf"

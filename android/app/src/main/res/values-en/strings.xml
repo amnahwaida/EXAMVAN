@@ -40,7 +40,7 @@
     <string name="field_required_error">"%1$s" is required!</string>
     <string name="processing">Processing...</string>
     <string name="url_empty_error">URL cannot be empty</string>
-    <string name="token_length_error">Token must be 6 characters</string>
+    <string name="token_length_error">Token must be 8 characters</string>
     <string name="connection_error_format">Unable to connect to server: %1$s</string>
     <string name="version_mismatch_error">App version mismatch!\nYour app: v%1$s\nRequired version: v%2$s\n\nPlease update your EXAMVAN app to the latest version.</string>
     <string name="answer_submit_error">An error occurred while submitting answers.</string>

@@ -159,10 +159,10 @@ class TestTokenGeneration(unittest.TestCase):
     """Exam token generation."""
 
     def test_generate_token(self):
-        """Token should be 6-char alphanumeric."""
+        """Token should be 8-char alphanumeric."""
         from app import generate_token
         token = generate_token()
-        self.assertEqual(len(token), 6)
+        self.assertEqual(len(token), 8)
         self.assertTrue(token.isalnum())
         self.assertTrue(token.isupper())
 
@@ -173,7 +173,7 @@ class TestTokenGeneration(unittest.TestCase):
         self.assertEqual(len(tokens), 100)  # All unique
 
     def test_custom_token_validation(self):
-        """Custom tokens must be 6-char alphanumeric."""
+        """Custom tokens must be 8-char alphanumeric."""
         # Test via admin upload validation
         pass
 

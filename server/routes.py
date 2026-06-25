@@ -947,8 +947,8 @@ def admin_upload():
             }), 403
 
     if custom_token:
-        if not re.match(r'^[A-Z0-9]{6}$', custom_token):
-            return error_response('Token kustom harus terdiri dari 6 karakter alfanumerik', 400)
+        if not re.match(r'^[A-Z0-9]{8}$', custom_token):
+            return error_response('Token kustom harus terdiri dari 8 karakter alfanumerik', 400)
 
         # Check uniqueness
         existing = db.execute('SELECT id FROM exams WHERE token = ?', (custom_token,)).fetchone()
@@ -1311,8 +1311,8 @@ def admin_custom_token(exam_id):
     if not custom_token:
         return error_response('Token kustom tidak boleh kosong', 400)
 
-    if not re.match(r'^[A-Z0-9]{6}$', custom_token):
-        return error_response('Token kustom harus terdiri dari 6 karakter alfanumerik', 400)
+    if not re.match(r'^[A-Z0-9]{8}$', custom_token):
+        return error_response('Token kustom harus terdiri dari 8 karakter alfanumerik', 400)
 
     db = get_db()
     if not check_exam_ownership(db, exam_id):
@@ -3131,7 +3131,7 @@ def _generate_exam_xlsx(exam, submissions, questions, tz_offset=None):
 def short_token_hasil(token):
     """Short URL redirect to exam results page, e.g. /BSGRIJ."""
     token_upper = token.strip().upper()
-    if len(token_upper) == 6 and token_upper.isalnum():
+    if len(token_upper) == 8 and token_upper.isalnum():
         db = get_db()
         exam = db.execute(
             'SELECT id, public_results FROM exams WHERE token = ?',

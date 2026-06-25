@@ -156,7 +156,7 @@ class ServerConfigActivity : BaseSecureActivity() {
             showError(getString(R.string.error_invalid_token))
             return false
         }
-        if (token.length < 6 || token.length > 8) {
+        if (token.length != 8) {
             showError(getString(R.string.token_length_error))
             return false
         }
