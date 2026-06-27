@@ -439,6 +439,20 @@ func EditUser() gin.HandlerFunc {
 					errorResponse(c, http.StatusBadRequest, "Instansi tidak boleh kosong")
 					return
 				}
+
+				// Cascade instansi: if the target is an operator and their
+				// instansi changed, update all users in the same instansi too.
+				if targetUser.IsOperator() && targetUser.Instansi != instansi {
+					oldInstansi := targetUser.Instansi
+					_, err := pool.Exec(ctx,
+						`UPDATE admin_users SET instansi = $1 WHERE instansi = $2 AND id != $3`,
+						instansi, oldInstansi, targetID)
+					if err != nil {
+						log.Printf("cascade instansi update error: %v", err)
+						// Non-fatal — operator's own instansi is still updated
+					}
+				}
+
 				updates["instansi"] = instansi
 			}
 		}
