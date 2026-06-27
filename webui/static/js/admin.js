@@ -1613,6 +1613,7 @@ function editUserInstansi(userId, currentValue, targetEl) {
         showToast('Gagal mengubah instansi', 'error');
     });
 }
+}
 
 function submitEditUser(e) {
     e.preventDefault();
