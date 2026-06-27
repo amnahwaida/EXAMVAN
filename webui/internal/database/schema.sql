@@ -58,7 +58,13 @@ CREATE TABLE IF NOT EXISTS exams (
     panel_color     TEXT,
     start_time      TIMESTAMPTZ,
     end_time        TIMESTAMPTZ,
-    delegated_to    INTEGER REFERENCES admin_users(id)
+    delegated_to    INTEGER REFERENCES admin_users(id),
+    token_mode          TEXT DEFAULT 'static'
+                        CHECK (token_mode IN ('static', 'dynamic')),
+    token_reset_interval INTEGER,
+    token_last_reset_at  TIMESTAMPTZ,
+    active_token        TEXT NOT NULL DEFAULT '',
+    exam_started_at     TIMESTAMPTZ
 );
 
 -- ============================================================
@@ -140,3 +146,15 @@ ON CONFLICT (name) DO NOTHING;
 -- Update instansi_id from instansi name
 UPDATE admin_users u SET instansi_id = i.id
 FROM instansi i WHERE u.instansi = i.name AND u.instansi_id IS NULL;
+
+-- ============================================================
+-- Migration: token_mode + token_reset_interval + token_last_reset_at (safe to re-run)
+-- ============================================================
+ALTER TABLE exams ADD COLUMN IF NOT EXISTS token_mode TEXT DEFAULT 'static';
+ALTER TABLE exams ADD COLUMN IF NOT EXISTS token_reset_interval INTEGER;
+ALTER TABLE exams ADD COLUMN IF NOT EXISTS token_last_reset_at TIMESTAMPTZ;
+ALTER TABLE exams ADD COLUMN IF NOT EXISTS active_token TEXT NOT NULL DEFAULT '';
+ALTER TABLE exams ADD COLUMN IF NOT EXISTS exam_started_at TIMESTAMPTZ;
+
+-- Set active_token = token for existing rows where active_token is empty
+UPDATE exams SET active_token = token WHERE active_token = '' OR active_token IS NULL;

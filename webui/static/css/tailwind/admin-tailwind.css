@@ -344,6 +344,7 @@ select[multiple] option:checked {
 /* === Tables === */
 .exam-table {
     width: 100%;
+    table-layout: fixed;
     border-collapse: collapse;
     font-size: 0.85rem;
 }
@@ -369,7 +370,11 @@ select[multiple] option:checked {
     border-bottom: 1px solid rgba(255, 255, 255, 0.04);
     vertical-align: middle;
     font-size: 0.85rem;
+    overflow-wrap: break-word;
+    word-wrap: break-word;
 }
+.exam-table td.td-token { overflow-wrap: normal; word-wrap: normal; }
+.exam-table td.td-name a { display: block; }
 /* Deskripsi: lebar kolom tabel hasil ujian */
 #submissionsTable { width: 100%; border-collapse: collapse; }
 #submissionsTable thead th { padding: 12px 16px; white-space: nowrap; }
@@ -1558,7 +1563,7 @@ button:disabled, .btn-sm:disabled, .btn-upload:disabled, .btn-login:disabled {
 /* === Layout === */
 .users-layout { @apply grid gap-6 items-start; grid-template-columns: 380px 1fr; }
 .menu-hamburger-icon { @apply text-xl; }
-.td-actions { @apply flex gap-2 flex-nowrap items-center; }
+.td-actions { vertical-align: middle; }
 .td-date { @apply text-xs text-[var(--color-text-secondary)]; }
 .td-name { @apply font-medium; }
 .td-token { @apply min-w-[120px]; }
@@ -1694,7 +1699,7 @@ button:disabled, .btn-sm:disabled, .btn-upload:disabled, .btn-login:disabled {
     .btn-icon { width: 28px; height: 28px; font-size: 11px; }
 
     /* Action buttons mobile — !important overrides row-level padding from component to prevent overflow on narrow screens */
-    .td-actions { gap: 4px; padding-top: 6px !important; }
+    .td-actions { display: flex; gap: 4px; padding-top: 6px !important; }
     .actions-group .btn-sm { padding: 4px 8px; height: 28px; }
 
     /* Exam table cards on mobile */
@@ -1741,7 +1746,7 @@ button:disabled, .btn-sm:disabled, .btn-upload:disabled, .btn-login:disabled {
     .toast-close { opacity: 1; }
 
     /* Actions - SIMPLIFIED: fewer, larger buttons */
-    .td-actions { flex-direction: row; gap: 6px; padding-top: 8px !important; flex-wrap: wrap; }
+    .td-actions { display: flex; flex-direction: row; gap: 6px; padding-top: 8px !important; flex-wrap: wrap; }
     .td-actions::before { content: ''; min-width: 0 !important; display: none !important; }
     .actions-group { flex-wrap: wrap; }
     .btn-sm { padding: 8px 14px; font-size: 12px; min-height: 36px; }

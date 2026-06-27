@@ -8,6 +8,7 @@ import (
 	"net/url"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/gin-gonic/gin"
 
@@ -193,18 +194,22 @@ func Dashboard() gin.HandlerFunc {
 
 		// Build exam list with pengawas names
 		type examItem struct {
-			ID            int      `json:"id"`
-			Name          string   `json:"name"`
-			Status        string   `json:"status"`
-			Token         string   `json:"token"`
-			SizeMB        float64  `json:"size_mb"`
-			SubCount      int      `json:"sub_count"`
-			CreatorName   string   `json:"creator_name"`
-			DelegatedName string   `json:"delegated_name"`
-			CreatedAt     string   `json:"created_at"`
-			PublicResults int      `json:"public_results"`
-			ShowAnswers   int      `json:"show_answers"`
-			Pengawas      []string `json:"pengawas"`
+			ID                 int        `json:"id"`
+			Name               string     `json:"name"`
+			Status             string     `json:"status"`
+			Token              string     `json:"token"`
+			ActiveToken        string     `json:"active_token"`
+			SizeMB             float64    `json:"size_mb"`
+			SubCount           int        `json:"sub_count"`
+			CreatorName        string     `json:"creator_name"`
+			DelegatedName      string     `json:"delegated_name"`
+			CreatedAt          string     `json:"created_at"`
+			PublicResults      int        `json:"public_results"`
+			ShowAnswers        int        `json:"show_answers"`
+			Pengawas           []string   `json:"pengawas"`
+			TokenMode          string     `json:"token_mode"`
+			TokenResetInterval *int       `json:"token_reset_interval"`
+			ExamStartedAt      *time.Time `json:"exam_started_at"`
 		}
 
 		// Batch lookup usernames for creators and delegated users
@@ -260,25 +265,33 @@ func Dashboard() gin.HandlerFunc {
 		}
 	}
 
-	examItems := make([]examItem, 0, len(result.Exams))
+		examItems := make([]examItem, 0, len(result.Exams))
 		for _, e := range result.Exams {
 			delegatedName := ""
 			if e.DelegatedTo != nil {
 				delegatedName = usernameMap[*e.DelegatedTo]
 			}
+			tokenMode := "static"
+			if e.TokenMode != nil && *e.TokenMode != "" {
+				tokenMode = *e.TokenMode
+			}
 			examItems = append(examItems, examItem{
-				ID:            e.ID,
-				Name:          e.Name,
-				Status:        e.Status,
-				Token:         e.Token,
-				SizeMB:        roundTo(float64(e.SizeBytes)/(1024*1024), 2),
-				SubCount:      subCountMap[e.ID],
-				CreatorName:   usernameMap[e.CreatedBy],
-				DelegatedName: delegatedName,
-				CreatedAt:     formatISOUTC(e.CreatedAt),
-				PublicResults: e.PublicResults,
-				ShowAnswers:   e.ShowAnswers,
-				Pengawas:      examPengawasMap[e.ID],
+				ID:                 e.ID,
+				Name:               e.Name,
+				Status:             e.Status,
+				Token:              e.Token,
+				ActiveToken:        e.ActiveToken,
+				SizeMB:             roundTo(float64(e.SizeBytes)/(1024*1024), 2),
+				SubCount:           subCountMap[e.ID],
+				CreatorName:        usernameMap[e.CreatedBy],
+				DelegatedName:      delegatedName,
+				CreatedAt:          formatISOUTC(e.CreatedAt),
+				PublicResults:      e.PublicResults,
+				ShowAnswers:        e.ShowAnswers,
+				Pengawas:           examPengawasMap[e.ID],
+				TokenMode:          tokenMode,
+				TokenResetInterval: e.TokenResetInterval,
+				ExamStartedAt:      e.ExamStartedAt,
 			})
 		}
 

@@ -15,24 +15,29 @@ import (
 
 // Exam represents a row from the exams table.
 type Exam struct {
-	ID             int        `json:"id"`
-	Name           string     `json:"name"`
-	FilePath       string     `json:"file_path"`
-	SizeBytes      int64      `json:"size_bytes"`
-	Token          string     `json:"token"`
-	QuestionsJSON  *string    `json:"questions_json,omitempty"`
-	Status         string     `json:"status"`
-	SecurityLevel  string     `json:"security_level"`
-	StrictMode     int        `json:"strict_mode"`      // 0/1 integer stored in DB
-	PublicResults  int        `json:"public_results"`   // 0/1 integer stored in DB
-	ShowAnswers    int        `json:"show_answers"`     // 0/1 integer stored in DB
-	CreatedBy      int        `json:"created_by"`
-	CreatedAt      time.Time  `json:"created_at"`
-	IdentityFields *string    `json:"identity_fields,omitempty"`
-	PanelColor     *string    `json:"panel_color,omitempty"`
-	StartTime      *time.Time `json:"start_time,omitempty"`
-	EndTime        *time.Time `json:"end_time,omitempty"`
-	DelegatedTo    *int       `json:"delegated_to,omitempty"`
+	ID                 int        `json:"id"`
+	Name               string     `json:"name"`
+	FilePath           string     `json:"file_path"`
+	SizeBytes          int64      `json:"size_bytes"`
+	Token              string     `json:"token"`
+	ActiveToken        string     `json:"active_token"`
+	QuestionsJSON      *string    `json:"questions_json,omitempty"`
+	Status             string     `json:"status"`
+	SecurityLevel      string     `json:"security_level"`
+	StrictMode         int        `json:"strict_mode"`      // 0/1 integer stored in DB
+	PublicResults      int        `json:"public_results"`   // 0/1 integer stored in DB
+	ShowAnswers        int        `json:"show_answers"`     // 0/1 integer stored in DB
+	CreatedBy          int        `json:"created_by"`
+	CreatedAt          time.Time  `json:"created_at"`
+	IdentityFields     *string    `json:"identity_fields,omitempty"`
+	PanelColor         *string    `json:"panel_color,omitempty"`
+	StartTime          *time.Time `json:"start_time,omitempty"`
+	EndTime            *time.Time `json:"end_time,omitempty"`
+	DelegatedTo        *int       `json:"delegated_to,omitempty"`
+	TokenMode          *string    `json:"token_mode,omitempty"`
+	TokenResetInterval *int       `json:"token_reset_interval,omitempty"`
+	TokenLastResetAt   *time.Time `json:"token_last_reset_at,omitempty"`
+	ExamStartedAt      *time.Time `json:"exam_started_at,omitempty"`
 }
 
 // IsActive returns true when the exam status is "active".
@@ -48,25 +53,26 @@ func (e *Exam) AreResultsPublic() bool { return e.PublicResults != 0 }
 func (e *Exam) AreAnswersShown() bool { return e.ShowAnswers != 0 }
 
 // DefaultExamColumns is the column list used in SELECT queries for the exams table.
-const DefaultExamColumns = `id, name, file_path, size_bytes, token, questions_json,
+const DefaultExamColumns = `id, name, file_path, size_bytes, token, active_token, questions_json,
 status, security_level, strict_mode, public_results, show_answers,
 created_by, created_at, identity_fields, panel_color,
-start_time, end_time, delegated_to`
+start_time, end_time, delegated_to, token_mode, token_reset_interval, token_last_reset_at, exam_started_at`
 
 // DefaultExamColumnsWithAlias for JOIN queries with e. prefix.
-const DefaultExamColumnsWithAlias = `e.id, e.name, e.file_path, e.size_bytes, e.token, e.questions_json,
+const DefaultExamColumnsWithAlias = `e.id, e.name, e.file_path, e.size_bytes, e.token, e.active_token, e.questions_json,
 e.status, e.security_level, e.strict_mode, e.public_results, e.show_answers,
 e.created_by, e.created_at, e.identity_fields, e.panel_color,
-e.start_time, e.end_time, e.delegated_to`
+e.start_time, e.end_time, e.delegated_to, e.token_mode, e.token_reset_interval, e.token_last_reset_at, e.exam_started_at`
 
 // scanExam scans a row into an Exam struct. The columns must match DefaultExamColumns order.
 func scanExam(row pgx.Row) (Exam, error) {
 	var e Exam
 	err := row.Scan(
-		&e.ID, &e.Name, &e.FilePath, &e.SizeBytes, &e.Token, &e.QuestionsJSON,
+		&e.ID, &e.Name, &e.FilePath, &e.SizeBytes, &e.Token, &e.ActiveToken, &e.QuestionsJSON,
 		&e.Status, &e.SecurityLevel, &e.StrictMode, &e.PublicResults, &e.ShowAnswers,
 		&e.CreatedBy, &e.CreatedAt, &e.IdentityFields, &e.PanelColor,
 		&e.StartTime, &e.EndTime, &e.DelegatedTo,
+		&e.TokenMode, &e.TokenResetInterval, &e.TokenLastResetAt, &e.ExamStartedAt,
 	)
 	return e, err
 }
@@ -311,18 +317,22 @@ func ListActiveExams(ctx context.Context, pool *pgxpool.Pool, page, perPage int)
 
 // CreateExam inserts a new exam row and returns the created Exam with its generated ID.
 func CreateExam(ctx context.Context, pool *pgxpool.Pool, e *Exam) (*Exam, error) {
+	// Set active_token = token on creation
+	if e.ActiveToken == "" {
+		e.ActiveToken = e.Token
+	}
 	sql := `INSERT INTO exams
-(name, file_path, size_bytes, token, questions_json, status, security_level,
+(name, file_path, size_bytes, token, active_token, questions_json, status, security_level,
  strict_mode, public_results, show_answers, created_by, identity_fields,
- panel_color, start_time, end_time, delegated_to)
-VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16)
+ panel_color, start_time, end_time, delegated_to, token_mode, token_reset_interval, token_last_reset_at)
+VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20)
 RETURNING ` + DefaultExamColumns
 
 	created, err := scanExam(pool.QueryRow(ctx, sql,
-		e.Name, e.FilePath, e.SizeBytes, e.Token, e.QuestionsJSON,
+		e.Name, e.FilePath, e.SizeBytes, e.Token, e.ActiveToken, e.QuestionsJSON,
 		e.Status, e.SecurityLevel, e.StrictMode, e.PublicResults, e.ShowAnswers,
 		e.CreatedBy, e.IdentityFields, e.PanelColor, e.StartTime, e.EndTime,
-		e.DelegatedTo,
+		e.DelegatedTo, e.TokenMode, e.TokenResetInterval, e.TokenLastResetAt,
 	))
 	if err != nil {
 		return nil, fmt.Errorf("create exam: %w", err)
@@ -361,11 +371,76 @@ WHERE id = $8`
 	return nil
 }
 
-// UpdateExamToken updates the token for an exam.
+// UpdateExamToken updates both the permanent token and active_token for an exam.
 func UpdateExamToken(ctx context.Context, pool *pgxpool.Pool, id int, token string) error {
-	_, err := pool.Exec(ctx, `UPDATE exams SET token = $1 WHERE id = $2`, token, id)
+	_, err := pool.Exec(ctx, `UPDATE exams SET token = $1, active_token = $1, token_last_reset_at = CURRENT_TIMESTAMP WHERE id = $2`, token, id)
 	if err != nil {
 		return fmt.Errorf("update exam token: %w", err)
+	}
+	return nil
+}
+
+// GetExamByActiveToken retrieves an exam by its active_token (for Android API lookup).
+func GetExamByActiveToken(ctx context.Context, pool *pgxpool.Pool, activeToken string) (Exam, error) {
+	sql := `SELECT ` + DefaultExamColumns + ` FROM exams e WHERE e.active_token = $1`
+	return scanExam(pool.QueryRow(ctx, sql, activeToken))
+}
+
+// UpdateExamActiveToken updates the active_token for dynamic rotation, leaving the permanent token unchanged.
+func UpdateExamActiveToken(ctx context.Context, pool *pgxpool.Pool, id int, activeToken string) error {
+	_, err := pool.Exec(ctx, `UPDATE exams SET active_token = $1, token_last_reset_at = CURRENT_TIMESTAMP WHERE id = $2`, activeToken, id)
+	if err != nil {
+		return fmt.Errorf("update exam active token: %w", err)
+	}
+	return nil
+}
+
+// StartExam marks an exam as started (sets exam_started_at) and optionally resets the active_token.
+func StartExam(ctx context.Context, pool *pgxpool.Pool, id int) error {
+	_, err := pool.Exec(ctx, `UPDATE exams SET exam_started_at = CURRENT_TIMESTAMP, token_last_reset_at = CURRENT_TIMESTAMP WHERE id = $1 AND exam_started_at IS NULL`, id)
+	if err != nil {
+		return fmt.Errorf("start exam: %w", err)
+	}
+	return nil
+}
+
+// GetStartedExamsByPengawas returns exams that have been started and are assigned to the given user as pengawas.
+func GetStartedExamsByPengawas(ctx context.Context, pool *pgxpool.Pool, userID int) ([]Exam, error) {
+	rows, err := pool.Query(ctx,
+		`SELECT `+DefaultExamColumns+` FROM exams e
+WHERE e.exam_started_at IS NOT NULL
+AND e.id IN (SELECT exam_id FROM exam_pengawas WHERE user_id = $1)
+ORDER BY e.created_at DESC`, userID)
+	if err != nil {
+		return nil, fmt.Errorf("get started exams: %w", err)
+	}
+	defer rows.Close()
+
+	var exams []Exam
+	for rows.Next() {
+		e, err := scanExamFromRows(rows)
+		if err != nil {
+			return nil, fmt.Errorf("scan started exam: %w", err)
+		}
+		exams = append(exams, e)
+	}
+	rows.Close()
+	if err := rows.Err(); err != nil {
+		log.Printf("rows iteration error: %v", err)
+	}
+	if exams == nil {
+		exams = []Exam{}
+	}
+	return exams, nil
+}
+
+// UpdateExamTokenMode updates the token mode (static/dynamic) and reset interval.
+func UpdateExamTokenMode(ctx context.Context, pool *pgxpool.Pool, id int, tokenMode string, resetInterval *int) error {
+	_, err := pool.Exec(ctx,
+		`UPDATE exams SET token_mode = $1, token_reset_interval = $2 WHERE id = $3`,
+		tokenMode, resetInterval, id)
+	if err != nil {
+		return fmt.Errorf("update exam token mode: %w", err)
 	}
 	return nil
 }
@@ -565,10 +640,7 @@ func ListPengawasExams(ctx context.Context, pool *pgxpool.Pool, opts ListPengawa
 	}
 	offset := calcOffset(opts.Page, perPage)
 
-	sql := `SELECT e.id, e.name, e.file_path, e.size_bytes, e.token, e.questions_json,
-e.status, e.security_level, e.strict_mode, e.public_results, e.show_answers,
-e.created_by, e.created_at, e.identity_fields, e.panel_color,
-e.start_time, e.end_time, e.delegated_to
+	sql := `SELECT ` + DefaultExamColumnsWithAlias + `
 FROM exams e JOIN admin_users u ON e.created_by = u.id` + where +
 		` ORDER BY e.created_at DESC LIMIT $` + fmt.Sprintf("%d", argIdx) +
 		` OFFSET $` + fmt.Sprintf("%d", argIdx+1)

@@ -265,14 +265,16 @@ func CreateUser() gin.HandlerFunc {
 
 		roleStr := models.SerializeRoles(filteredRoles)
 
-		// Default expiry
+		// Default expiry — only apply form value when operator didn't already set it.
 		defaultDays := models.GetSaasSettingInt(ctx, pool,
 			models.SettingDefaultActiveDays, 1)
-		expiresAtStr := strings.TrimSpace(body.ExpiresAt)
-		if expiresAtStr != "" {
-			t, err := time.Parse("2006-01-02 15:04:05", expiresAtStr)
-			if err == nil {
-				expiresAtPtr = &t
+		if expiresAtPtr == nil {
+			expiresAtStr := strings.TrimSpace(body.ExpiresAt)
+			if expiresAtStr != "" {
+				t, err := time.Parse("2006-01-02 15:04:05", expiresAtStr)
+				if err == nil {
+					expiresAtPtr = &t
+				}
 			}
 		}
 		if expiresAtPtr == nil {
@@ -375,12 +377,7 @@ func EditUser() gin.HandlerFunc {
 			return
 		}
 
-		// Cannot edit super admin
-		if targetUser.Username == models.SuperAdminUsername {
-			errorResponse(c, http.StatusBadRequest,
-				fmt.Sprintf("Super Admin %s tidak dapat diubah", models.SuperAdminUsername))
-			return
-		}
+		isSuperAdminTarget := targetUser.Username == models.SuperAdminUsername
 
 		// Operator restrictions
 		if isOp {
@@ -467,7 +464,7 @@ func EditUser() gin.HandlerFunc {
 			}
 		}
 
-		if body.Status != nil {
+		if !isSuperAdminTarget && body.Status != nil {
 			status := *body.Status
 			switch status {
 			case models.UserStatusActive, models.UserStatusSuspended, models.UserStatusPendingOTP:
@@ -475,7 +472,7 @@ func EditUser() gin.HandlerFunc {
 			}
 		}
 
-		if body.Role != nil || body.Roles != nil {
+		if !isSuperAdminTarget && (body.Role != nil || body.Roles != nil) {
 			roles := body.Roles
 			if len(roles) == 0 && body.Role != nil {
 				roles = strings.Split(*body.Role, ",")
@@ -492,7 +489,7 @@ func EditUser() gin.HandlerFunc {
 			}
 		}
 
-		if body.Password != nil && *body.Password != "" {
+		if !isSuperAdminTarget && body.Password != nil && *body.Password != "" {
 			updates["password_hash"] = *body.Password
 		}
 
@@ -719,6 +716,10 @@ func DeleteUser() gin.HandlerFunc {
 			}
 		}
 
-		successMessage(c, fmt.Sprintf("User %s berhasil dihapus", targetUser.Username))
+		msg := fmt.Sprintf("User %s berhasil dihapus", targetUser.Username)
+		if targetUser.HasRole(models.RoleOperator) && targetUser.Instansi != "" {
+			msg += fmt.Sprintf(" beserta semua user instansi %s", targetUser.Instansi)
+		}
+		successMessage(c, msg)
 	}
 }

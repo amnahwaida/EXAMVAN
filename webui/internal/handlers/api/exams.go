@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"log"
 	"math"
+	"math/big"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -368,7 +369,7 @@ func ExamByToken() gin.HandlerFunc {
 			}
 		}
 
-		exam, err := models.GetExamByToken(ctx, pool, token)
+		exam, err := models.GetExamByActiveToken(ctx, pool, token)
 		if err != nil {
 			if err == pgx.ErrNoRows {
 				errorResponse(c, http.StatusNotFound, "Token tidak valid")
@@ -377,6 +378,25 @@ func ExamByToken() gin.HandlerFunc {
 			log.Printf("exam by token error: %v", err)
 			errorResponse(c, http.StatusInternalServerError, "Gagal memuat data ujian")
 			return
+		}
+
+		// Auto-reset active_token if dynamic mode and exam has started
+		if exam.ExamStartedAt != nil &&
+			exam.TokenMode != nil && *exam.TokenMode == "dynamic" &&
+			exam.TokenResetInterval != nil && *exam.TokenResetInterval > 0 {
+			shouldReset := true
+			if exam.TokenLastResetAt != nil {
+				nextReset := exam.TokenLastResetAt.Add(time.Duration(*exam.TokenResetInterval) * time.Minute)
+				if time.Now().UTC().Before(nextReset) {
+					shouldReset = false
+				}
+			}
+			if shouldReset {
+				newToken := generateToken()
+				if err := models.UpdateExamActiveToken(ctx, pool, exam.ID, newToken); err == nil {
+					exam.ActiveToken = newToken
+				}
+			}
 		}
 
 		identityFields := parseIdentityFields(exam.IdentityFields)
@@ -851,6 +871,20 @@ func AccessLog() gin.HandlerFunc {
 // ---------------------------------------------------------------------------
 // Small utilities
 // ---------------------------------------------------------------------------
+
+// generateToken creates an 8-character uppercase alphanumeric token (A-Z, 0-9).
+func generateToken() string {
+	const chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
+	b := make([]byte, 8)
+	for i := range b {
+		idx, err := rand.Int(rand.Reader, big.NewInt(int64(len(chars))))
+		if err != nil {
+			return fmt.Sprintf("%08X", time.Now().UnixNano()%99999999)
+		}
+		b[i] = chars[idx.Int64()]
+	}
+	return string(b)
+}
 
 // truncate returns the first n runes of s.
 func truncate(s string, n int) string {

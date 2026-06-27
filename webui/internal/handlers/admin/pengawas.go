@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -20,7 +21,7 @@ import (
 
 func PengawasPage() gin.HandlerFunc {
 	return func(c *gin.Context) {
-		if !isSuperAdmin(c) && !isOperator(c) && !hasCurrentRole(c, models.RolePengawas) {
+		if !isSuperAdmin(c) && !isOperator(c) && !hasCurrentRole(c, models.RolePengawas) && !hasCurrentRole(c, models.RoleGuru) {
 			c.Redirect(http.StatusFound, "/admin/dashboard")
 			return
 		}
@@ -121,16 +122,41 @@ func PengawasExams() gin.HandlerFunc {
 		}
 
 		type examItem struct {
-			ID             int    `json:"id"`
-			Name           string `json:"name"`
-			Token          string `json:"token"`
-			Status         string `json:"status"`
-			StartTime      string `json:"start_time"`
-			EndTime        string `json:"end_time"`
-			CreatorName    string `json:"creator_name"`
-			TotalStudents  int    `json:"total_students"`
-			SubmittedCount int    `json:"submitted_count"`
-			CreatedAt      string `json:"created_at"`
+			ID             int        `json:"id"`
+			Name           string     `json:"name"`
+			Token          string     `json:"token"`
+			Status         string     `json:"status"`
+			StartTime      string     `json:"start_time"`
+			EndTime        string     `json:"end_time"`
+			CreatorName    string     `json:"creator_name"`
+			TotalStudents  int        `json:"total_students"`
+			SubmittedCount int        `json:"submitted_count"`
+			CreatedAt      string     `json:"created_at"`
+			ExamStartedAt  *time.Time `json:"exam_started_at"`
+		}
+
+		// Build username map
+		usernameMap := make(map[int]string)
+		userIDs := make(map[int]bool)
+		for _, e := range result.Exams {
+			userIDs[e.CreatedBy] = true
+		}
+		if len(userIDs) > 0 {
+			ids := make([]int, 0, len(userIDs))
+			for id := range userIDs {
+				ids = append(ids, id)
+			}
+			uRows, uErr := pool.Query(ctx, `SELECT id, username FROM admin_users WHERE id = ANY($1)`, ids)
+			if uErr == nil {
+				for uRows.Next() {
+					var uid int
+					var uname string
+					if err := uRows.Scan(&uid, &uname); err == nil {
+						usernameMap[uid] = uname
+					}
+				}
+				uRows.Close()
+			}
 		}
 
 		examList := make([]examItem, 0, len(result.Exams))
@@ -144,13 +170,15 @@ func PengawasExams() gin.HandlerFunc {
 				endStr = e.EndTime.Format("2006-01-02 15:04:05")
 			}
 			item := examItem{
-				ID:        e.ID,
-				Name:      e.Name,
-				Token:     e.Token,
-				Status:    e.Status,
-				StartTime: startStr,
-				EndTime:   endStr,
-				CreatedAt: formatISOUTC(e.CreatedAt),
+				ID:            e.ID,
+				Name:          e.Name,
+				Token:         e.Token,
+				Status:        e.Status,
+				StartTime:     startStr,
+				EndTime:       endStr,
+				CreatedAt:     formatISOUTC(e.CreatedAt),
+				ExamStartedAt: e.ExamStartedAt,
+				CreatorName:   usernameMap[e.CreatedBy],
 			}
 			examList = append(examList, item)
 		}

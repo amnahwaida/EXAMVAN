@@ -377,10 +377,15 @@ answers_json, score, start_time, mac_address, created_at, identity_data`
 
 func scanSubmission(row pgx.Row) (Submission, error) {
 	var s Submission
+	var startTime *time.Time
 	err := row.Scan(
 		&s.ID, &s.ExamID, &s.StudentName, &s.ExamNumber, &s.StudentClass,
-		&s.AnswersJSON, &s.Score, &s.StartTime, &s.MACAddress, &s.CreatedAt, &s.IdentityData,
+		&s.AnswersJSON, &s.Score, &startTime, &s.MACAddress, &s.CreatedAt, &s.IdentityData,
 	)
+	if startTime != nil {
+		str := startTime.Format("2006-01-02 15:04:05")
+		s.StartTime = &str
+	}
 	return s, err
 }
 
@@ -426,15 +431,20 @@ func GetSubmissionByID(ctx context.Context, pool *pgxpool.Pool, id int) (Submiss
 // GetSubmissionDetail retrieves a submission joined with exam data.
 func GetSubmissionDetail(ctx context.Context, pool *pgxpool.Pool, id int) (SubmissionWithExam, error) {
 	var s SubmissionWithExam
+	var startTime *time.Time
 	err := pool.QueryRow(ctx, `SELECT s.id, s.exam_id, s.student_name, s.exam_number, s.student_class,
 s.answers_json, s.score, s.start_time, s.mac_address, s.created_at, s.identity_data,
 e.name as exam_name, e.questions_json
 FROM submissions s JOIN exams e ON s.exam_id = e.id
 WHERE s.id = $1`, id).Scan(
 		&s.ID, &s.ExamID, &s.StudentName, &s.ExamNumber, &s.StudentClass,
-		&s.AnswersJSON, &s.Score, &s.StartTime, &s.MACAddress, &s.CreatedAt, &s.IdentityData,
+		&s.AnswersJSON, &s.Score, &startTime, &s.MACAddress, &s.CreatedAt, &s.IdentityData,
 		&s.ExamName, &s.QuestionsJSON,
 	)
+	if startTime != nil {
+		str := startTime.Format("2006-01-02 15:04:05")
+		s.StartTime = &str
+	}
 	if err != nil {
 		return s, fmt.Errorf("get submission detail: %w", err)
 	}

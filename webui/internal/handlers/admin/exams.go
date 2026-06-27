@@ -225,6 +225,11 @@ func UploadExam() gin.HandlerFunc {
 			return
 		}
 
+		// Auto-assign creator as pengawas for this exam
+		if err := models.CreateExamPengawas(ctx, pool, created.ID, userID); err != nil {
+			log.Printf("auto-assign pengawas error: %v", err)
+		}
+
 		c.JSON(http.StatusOK, gin.H{
 			"success": true,
 			"message": fmt.Sprintf(`Ujian "%s" berhasil diupload dengan token: %s`, name, token),
@@ -584,58 +589,72 @@ func GetQuestions() gin.HandlerFunc {
 			endTime = exam.EndTime.Format("2006-01-02 15:04")
 		}
 
-		// Pengawas assignments
-		assignments, _ := models.GetPengawasAssignments(ctx, pool, examID)
-		assignedPengawas := make([]gin.H, 0, len(assignments))
-		for _, a := range assignments {
-			assignedPengawas = append(assignedPengawas, gin.H{
-				"id":       a.UserID,
-				"username": a.Username,
-				"instansi": a.Instansi,
-			})
-		}
+		isOp := isOperator(c)
+		isSuper := isSuperAdmin(c)
+		if isOp || isSuper {
+			// Pengawas assignments — only for operator/superadmin
+			assignments, _ := models.GetPengawasAssignments(ctx, pool, examID)
+			assignedPengawas := make([]gin.H, 0, len(assignments))
+			for _, a := range assignments {
+				assignedPengawas = append(assignedPengawas, gin.H{
+					"id":       a.UserID,
+					"username": a.Username,
+					"instansi": a.Instansi,
+				})
+			}
 
-		// Available pengawas (same instansi as exam creator, active, pengawas role)
-		var creatorInstansi string
-		_ = pool.QueryRow(ctx,
-			`SELECT COALESCE(instansi, '') FROM admin_users WHERE id = $1`,
-			exam.CreatedBy).Scan(&creatorInstansi)
+			// Available pengawas (same instansi as exam creator, active, pengawas role)
+			var creatorInstansi string
+			_ = pool.QueryRow(ctx,
+				`SELECT COALESCE(instansi, '') FROM admin_users WHERE id = $1`,
+				exam.CreatedBy).Scan(&creatorInstansi)
 
-		availablePengawas := []gin.H{}
-		if creatorInstansi != "" {
-			rows, err := pool.Query(ctx,
-				`SELECT id, username, COALESCE(instansi, '') as instansi FROM admin_users
-				 WHERE instansi = $1 AND status = 'active' AND role ILIKE '%"pengawas"%'
-				 ORDER BY username`, creatorInstansi)
-			if err == nil {
-				for rows.Next() {
-					var id int
-					var uname, inst string
-					if err := rows.Scan(&id, &uname, &inst); err == nil {
-						availablePengawas = append(availablePengawas, gin.H{
-							"id": id, "username": uname, "instansi": inst,
-						})
+			availablePengawas := []gin.H{}
+			if creatorInstansi != "" {
+				rows, err := pool.Query(ctx,
+					`SELECT id, username, COALESCE(instansi, '') as instansi FROM admin_users
+					 WHERE instansi = $1 AND status = 'active' AND role ILIKE '%"pengawas"%'
+					 ORDER BY username`, creatorInstansi)
+				if err == nil {
+					for rows.Next() {
+						var id int
+						var uname, inst string
+						if err := rows.Scan(&id, &uname, &inst); err == nil {
+							availablePengawas = append(availablePengawas, gin.H{
+								"id": id, "username": uname, "instansi": inst,
+							})
+						}
+					}
+					rows.Close()
+					if err := rows.Err(); err != nil {
+						log.Printf("rows iteration error: %v", err)
 					}
 				}
-				rows.Close()
-				if err := rows.Err(); err != nil {
-					log.Printf("rows iteration error: %v", err)
-				}
 			}
+			c.JSON(http.StatusOK, gin.H{
+				"success":            true,
+				"questions":          questions,
+				"security_level":     securityLevel,
+				"strict_mode":        exam.StrictMode != 0,
+				"identity_fields":    identityFields,
+				"panel_color":        panelColor,
+				"start_time":         startTime,
+				"end_time":           endTime,
+				"assigned_pengawas":  assignedPengawas,
+				"available_pengawas": availablePengawas,
+			})
+		} else {
+			c.JSON(http.StatusOK, gin.H{
+				"success":         true,
+				"questions":       questions,
+				"security_level":  securityLevel,
+				"strict_mode":     exam.StrictMode != 0,
+				"identity_fields": identityFields,
+				"panel_color":     panelColor,
+				"start_time":      startTime,
+				"end_time":        endTime,
+			})
 		}
-
-		c.JSON(http.StatusOK, gin.H{
-			"success":            true,
-			"questions":          questions,
-			"security_level":     securityLevel,
-			"strict_mode":        exam.StrictMode != 0,
-			"identity_fields":    identityFields,
-			"panel_color":        panelColor,
-			"start_time":         startTime,
-			"end_time":           endTime,
-			"assigned_pengawas":  assignedPengawas,
-			"available_pengawas": availablePengawas,
-		})
 	}
 }
 
@@ -726,10 +745,19 @@ func SaveQuestions() gin.HandlerFunc {
 		}
 
 		// Save pengawas assignments
-		if body.PengawasIDs != nil {
-			if err := models.SetPengawasForExam(ctx, pool, examID, body.PengawasIDs); err != nil {
+		userID := getCurrentUserID(c)
+		isOp := isOperator(c)
+		if isOp || isSuperAdmin(c) {
+			// Operator/superadmin can freely assign pengawas
+			if body.PengawasIDs != nil {
+				if err := models.SetPengawasForExam(ctx, pool, examID, body.PengawasIDs); err != nil {
+					log.Printf("save pengawas error: %v", err)
+				}
+			}
+		} else {
+			// Guru: only the creator can be pengawas
+			if err := models.SetPengawasForExam(ctx, pool, examID, []int{userID}); err != nil {
 				log.Printf("save pengawas error: %v", err)
-				// Non-fatal: questions were saved
 			}
 		}
 
@@ -838,6 +866,102 @@ func EditToken() gin.HandlerFunc {
 			"message": fmt.Sprintf("Token ujian berhasil diubah menjadi: %s", customToken),
 			"token":   customToken,
 		})
+	}
+}
+
+// ---------------------------------------------------------------------------
+// 11b. POST /admin/api/exams/:exam_id/token-mode — Set token mode (static/dynamic)
+// ---------------------------------------------------------------------------
+
+func UpdateTokenMode() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		examID, err := strconv.Atoi(c.Param("exam_id"))
+		if err != nil {
+			errorResponse(c, http.StatusBadRequest, "ID ujian tidak valid")
+			return
+		}
+
+		var body struct {
+			TokenMode      string `json:"token_mode"`
+			ResetInterval  *int   `json:"reset_interval"`
+		}
+		if err := c.ShouldBindJSON(&body); err != nil {
+			errorResponse(c, http.StatusBadRequest, "Data tidak valid")
+			return
+		}
+
+		if body.TokenMode != "static" && body.TokenMode != "dynamic" {
+			errorResponse(c, http.StatusBadRequest, "Mode token harus 'static' atau 'dynamic'")
+			return
+		}
+
+		if body.TokenMode == "dynamic" && (body.ResetInterval == nil || *body.ResetInterval < 1) {
+			errorResponse(c, http.StatusBadRequest, "Interval reset harus diisi (minimal 1 menit)")
+			return
+		}
+
+		pool := getPool(c)
+		ctx := c.Request.Context()
+
+		if !checkExamOwnership(c, pool, examID) {
+			errorResponse(c, http.StatusForbidden, "Akses ditolak")
+			return
+		}
+
+		if err := models.UpdateExamTokenMode(ctx, pool, examID, body.TokenMode, body.ResetInterval); err != nil {
+			log.Printf("update token mode error: %v", err)
+			errorResponse(c, http.StatusInternalServerError, "Gagal memperbarui mode token")
+			return
+		}
+
+		successMessage(c, "Mode token berhasil diperbarui")
+	}
+}
+
+// StartExam marks an exam as started (sets exam_started_at timestamp).
+// POST /admin/api/exams/:exam_id/start
+func StartExam() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		examID, err := strconv.Atoi(c.Param("exam_id"))
+		if err != nil {
+			errorResponse(c, http.StatusBadRequest, "ID ujian tidak valid")
+			return
+		}
+
+		pool := getPool(c)
+		ctx := c.Request.Context()
+
+		if !checkExamOwnership(c, pool, examID) {
+			errorResponse(c, http.StatusForbidden, "Akses ditolak")
+			return
+		}
+
+		exam, err := models.GetExamByID(ctx, pool, examID)
+		if err != nil {
+			errorResponse(c, http.StatusNotFound, "Ujian tidak ditemukan")
+			return
+		}
+
+		if exam.ExamStartedAt != nil {
+			errorResponse(c, http.StatusBadRequest, "Ujian sudah dimulai")
+			return
+		}
+
+		if err := models.StartExam(ctx, pool, examID); err != nil {
+			log.Printf("start exam error: %v", err)
+			errorResponse(c, http.StatusInternalServerError, "Gagal memulai ujian")
+			return
+		}
+
+		// If mode is dynamic, also generate a new active_token on start
+		if exam.TokenMode != nil && *exam.TokenMode == "dynamic" {
+			newToken := generateToken()
+			if err := models.UpdateExamActiveToken(ctx, pool, examID, newToken); err != nil {
+				log.Printf("start exam: generate active token error: %v", err)
+			}
+		}
+
+		successMessage(c, "Ujian berhasil dimulai")
 	}
 }
 

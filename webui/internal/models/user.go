@@ -700,25 +700,80 @@ func ToggleUserStatus(ctx context.Context, pool *pgxpool.Pool, userID int) (stri
 // so the caller can clean up stored files. The caller should also remove related
 // exam_pengawas entries (DB cascade handles this).
 func DeleteUser(ctx context.Context, pool *pgxpool.Pool, userID int) ([]string, error) {
-	// Collect file paths from the user's exams before deleting.
-	rows, err := pool.Query(ctx, `SELECT file_path FROM exams WHERE created_by = $1`, userID)
+	// Check if target is an operator — if so, cascade-delete all users in same instansi.
+	target, err := GetUserByID(ctx, pool, userID)
 	if err != nil {
-		return nil, fmt.Errorf("delete user: query exams: %w", err)
-	}
-	var paths []string
-	for rows.Next() {
-		var fp string
-		if err := rows.Scan(&fp); err != nil {
-			return nil, fmt.Errorf("delete user: scan file_path: %w", err)
-		}
-		paths = append(paths, fp)
-	}
-	rows.Close()
-	if err := rows.Err(); err != nil {
-		log.Printf("rows iteration error: %v", err)
+		return nil, fmt.Errorf("delete user: lookup: %w", err)
 	}
 
-	// Delete the user (CASCADE will remove their exams and exam_pengawas entries).
+	var cascadedIDs []int
+	if target.HasRole(RoleOperator) && target.Instansi != "" {
+		rows, err := pool.Query(ctx,
+			`SELECT id FROM admin_users WHERE instansi = $1 AND id != $2`,
+			target.Instansi, userID)
+		if err != nil {
+			return nil, fmt.Errorf("delete user: query instansi users: %w", err)
+		}
+		for rows.Next() {
+			var cid int
+			if err := rows.Scan(&cid); err != nil {
+				rows.Close()
+				return nil, fmt.Errorf("delete user: scan cascaded id: %w", err)
+			}
+			cascadedIDs = append(cascadedIDs, cid)
+		}
+		rows.Close()
+		if err := rows.Err(); err != nil {
+			return nil, fmt.Errorf("delete user: rows err: %w", err)
+		}
+	}
+
+	// Collect all IDs being deleted (cascaded users + target).
+	allIDs := append(cascadedIDs, userID)
+
+	// Collect file paths from all exams created by any of these users.
+	var paths []string
+	for _, uid := range allIDs {
+		rows, err := pool.Query(ctx, `SELECT file_path FROM exams WHERE created_by = $1`, uid)
+		if err != nil {
+			return nil, fmt.Errorf("delete user: query exams: %w", err)
+		}
+		for rows.Next() {
+			var fp string
+			if err := rows.Scan(&fp); err != nil {
+				rows.Close()
+				return nil, fmt.Errorf("delete user: scan file_path: %w", err)
+			}
+			paths = append(paths, fp)
+		}
+		rows.Close()
+		if err := rows.Err(); err != nil {
+			log.Printf("rows iteration error: %v", err)
+		}
+	}
+
+	// Nullify delegated_to references so FK doesn't block the delete.
+	for _, uid := range allIDs {
+		if _, err := pool.Exec(ctx, `UPDATE exams SET delegated_to = NULL WHERE delegated_to = $1`, uid); err != nil {
+			return nil, fmt.Errorf("delete user: clear delegated_to: %w", err)
+		}
+	}
+
+	// Delete exams created by all users being deleted.
+	for _, uid := range allIDs {
+		if _, err := pool.Exec(ctx, `DELETE FROM exams WHERE created_by = $1`, uid); err != nil {
+			return nil, fmt.Errorf("delete user: delete exams: %w", err)
+		}
+	}
+
+	// Delete cascaded users first (exam_pengawas cascades via DB).
+	for _, cid := range cascadedIDs {
+		if _, err := pool.Exec(ctx, `DELETE FROM admin_users WHERE id = $1`, cid); err != nil {
+			log.Printf("delete cascaded user %d error: %v", cid, err)
+		}
+	}
+
+	// Finally delete the target user.
 	_, err = pool.Exec(ctx, `DELETE FROM admin_users WHERE id = $1`, userID)
 	if err != nil {
 		return nil, fmt.Errorf("delete user: exec: %w", err)

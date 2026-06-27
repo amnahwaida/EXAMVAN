@@ -187,9 +187,9 @@ function copyToken(token) {
     });
 }
 
-// Copy all tokens to clipboard
+// Copy all visible active tokens to clipboard (excludes permanent token)
 function copyAllTokens() {
-    const tokens = Array.from(document.querySelectorAll('.token-code')).map(el => el.textContent.trim()).filter(t => t && t !== '—');
+    const tokens = Array.from(document.querySelectorAll('.token-code:not(.token-permanent)')).filter(function(el) { return el.offsetParent !== null; }).map(el => el.textContent.trim()).filter(t => t && t !== '—');
     if (tokens.length === 0) {
         showToast('Tidak ada token tersedia', 'error');
         return;
@@ -228,6 +228,77 @@ function copyResultsLink(token) {
     });
 }
 
+// Token mode handlers (static vs dynamic)
+function onTokenModeChange(selectEl, examId) {
+    var mode = selectEl.value;
+    var staticEl = document.getElementById('token-static-' + examId);
+    var dynamicEl = document.getElementById('token-dynamic-' + examId);
+
+    if (mode === 'static') {
+        if (staticEl) staticEl.style.display = 'flex';
+        if (dynamicEl) dynamicEl.style.display = 'none';
+    } else {
+        if (staticEl) staticEl.style.display = 'none';
+        if (dynamicEl) dynamicEl.style.display = 'flex';
+    }
+
+    // Save to server
+    var data = { token_mode: mode };
+    if (mode === 'dynamic') {
+        var intervalInput = document.getElementById('interval-' + examId);
+        data.reset_interval = parseInt(intervalInput ? intervalInput.value : 5);
+    }
+
+    apiFetch('/admin/api/exams/' + examId + '/token-mode', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(data)
+    })
+    .then(function(r) { return r.json(); })
+    .then(function(res) {
+        if (res.success) {
+            showToast('Mode token diubah ke ' + (mode === 'static' ? 'Statis' : 'Dinamis'), 'success');
+        } else {
+            showToast(res.message || 'Gagal mengubah mode token', 'error');
+            // Revert UI
+            selectEl.value = mode === 'static' ? 'dynamic' : 'static';
+            if (staticEl) staticEl.style.display = mode === 'static' ? 'none' : 'flex';
+            if (dynamicEl) dynamicEl.style.display = mode === 'static' ? 'flex' : 'none';
+        }
+    })
+    .catch(function() {
+        showToast('Koneksi gagal', 'error');
+    });
+}
+
+function saveTokenInterval(examId) {
+    var input = document.getElementById('interval-' + examId);
+    if (!input) return;
+    var interval = parseInt(input.value);
+    if (isNaN(interval) || interval < 1) {
+        showToast('Interval harus minimal 1 menit', 'error');
+        input.focus();
+        return;
+    }
+
+    apiFetch('/admin/api/exams/' + examId + '/token-mode', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ token_mode: 'dynamic', reset_interval: interval })
+    })
+    .then(function(r) { return r.json(); })
+    .then(function(res) {
+        if (res.success) {
+            showToast('Interval reset token berhasil disimpan (' + interval + ' menit)', 'success');
+        } else {
+            showToast(res.message || 'Gagal menyimpan interval', 'error');
+        }
+    })
+    .catch(function() {
+        showToast('Koneksi gagal', 'error');
+    });
+}
+
 // Regenerate token
 function regenerateToken(examId) {
     showConfirm('Generate token baru?', 'Token lama tidak akan bisa digunakan lagi.', 'Ya, Generate', 'Batal').then(ok => {
@@ -237,13 +308,43 @@ function regenerateToken(examId) {
             .then(r => r.json())
             .then(res => {
                 if (res.success) {
+                    var newToken = res.token;
+                    // Update static token
                     const tokenEl = document.getElementById(`token-${examId}`);
                     if (tokenEl) {
-                        tokenEl.textContent = res.token;
+                        tokenEl.textContent = newToken;
+                        tokenEl.dataset.token = newToken;
                         tokenEl.style.animation = 'none';
                         tokenEl.offsetHeight; // force reflow
                         tokenEl.style.animation = 'toastIn 0.3s ease';
                     }
+                    // Update dynamic token
+                    const tokenDynEl = document.getElementById(`token-dyn-${examId}`);
+                    if (tokenDynEl) {
+                        tokenDynEl.textContent = newToken;
+                        tokenDynEl.dataset.token = newToken;
+                        tokenDynEl.style.animation = 'none';
+                        tokenDynEl.offsetHeight;
+                        tokenDynEl.style.animation = 'toastIn 0.3s ease';
+                    }
+                    // Update edit button
+                    var editBtn = document.querySelector(`.btn-edit[data-exam-id="${examId}"]`);
+                    if (editBtn) {
+                        editBtn.setAttribute('data-token', newToken);
+                        editBtn.setAttribute('onclick', `openEditTokenModal(${examId}, '${jsEscape(newToken)}')`);
+                    }
+                    // Update permanent token display
+                    const permTokenEl = document.querySelector(`#exam-row-${examId} .token-permanent`);
+                    if (permTokenEl) {
+                        permTokenEl.textContent = newToken;
+                        permTokenEl.dataset.token = newToken;
+                    }
+                    // Update all copy-link buttons for this exam
+                    document.querySelectorAll(`.btn-copy-link[data-token]`).forEach(function(btn) {
+                        if (btn.closest(`#token-static-${examId}`) || btn.closest(`#token-dynamic-${examId}`)) {
+                            btn.setAttribute('data-token', newToken);
+                        }
+                    });
                     showToast(res.message, 'success');
                 } else {
                     showToast(res.message || 'Gagal regenerate token', 'error');
@@ -316,7 +417,9 @@ function openQuestionsModal(examId, examName) {
                 parseSchedule(res.end_time, endDateInput, endInput);
                 renderQuestions(res.questions);
                 renderIdentityFields(res.identity_fields || []);
-                renderPengawasSelection(res.assigned_pengawas || [], res.available_pengawas || []);
+                if (res.assigned_pengawas) {
+                    renderPengawasSelection(res.assigned_pengawas, res.available_pengawas || []);
+                }
             } else {
                 showToast(res.message || 'Gagal memuat soal', 'error');
             }
@@ -1808,19 +1911,42 @@ function submitEditToken(e) {
         .then(r => r.json())
         .then(res => {
             if (res.success) {
+                var tokenUpdated = false;
                 const tokenEl = document.getElementById(`token-${examId}`);
                 if (tokenEl) {
                     tokenEl.textContent = res.token;
-                    
-                    // Update the edit button argument as well
-                    const editBtn = tokenEl.parentElement.querySelector('.btn-edit');
-                    if (editBtn) {
-                        editBtn.setAttribute('onclick', `openEditTokenModal(${examId}, '${jsEscape(res.token)}')`);
-                    }
-                    
+                    tokenUpdated = true;
                     tokenEl.style.animation = 'none';
                     tokenEl.offsetHeight; // force reflow
                     tokenEl.style.animation = 'toastIn 0.3s ease';
+                }
+                const tokenDynEl = document.getElementById(`token-dyn-${examId}`);
+                if (tokenDynEl) {
+                    tokenDynEl.textContent = res.token;
+                    tokenUpdated = true;
+                    tokenDynEl.style.animation = 'none';
+                    tokenDynEl.offsetHeight;
+                    tokenDynEl.style.animation = 'toastIn 0.3s ease';
+                }
+                // Update edit button data attribute
+                if (tokenUpdated) {
+                    var editBtn = document.querySelector(`.btn-edit[data-exam-id="${examId}"]`);
+                    if (editBtn) {
+                        editBtn.setAttribute('data-token', res.token);
+                        editBtn.setAttribute('onclick', `openEditTokenModal(${examId}, '${jsEscape(res.token)}')`);
+                    }
+                    // Update permanent token display
+                    const permTokenEl = document.querySelector(`#exam-row-${examId} .token-permanent`);
+                    if (permTokenEl) {
+                        permTokenEl.textContent = res.token;
+                        permTokenEl.dataset.token = res.token;
+                    }
+                    // Also update copy link buttons
+                    document.querySelectorAll(`.btn-copy-link[data-token]`).forEach(function(btn) {
+                        if (btn.closest('[id^="token-dynamic-' + examId + '"]') || btn.closest('[id^="token-static-' + examId + '"]')) {
+                            btn.setAttribute('data-token', res.token);
+                        }
+                    });
                 }
                 showToast(res.message, 'success');
                 closeEditTokenModal();
