@@ -219,6 +219,7 @@ func CreateUser() gin.HandlerFunc {
 		}
 
 		// Operator restrictions
+		var expiresAtPtr *time.Time
 		instansi := strings.TrimSpace(body.Instansi)
 		if isOp {
 			// Operator cannot create operator accounts
@@ -230,10 +231,17 @@ func CreateUser() gin.HandlerFunc {
 			}
 			opInstansi := getInstansiForOperator(ctx, pool, userID)
 			instansi = opInstansi
-			// Force whatsapp from operator's account
-			opUser, _ := models.GetUserByID(ctx, pool, userID)
-			if opUser.WhatsappNumber != "" {
-				body.WhatsappNumber = opUser.WhatsappNumber
+			opUser, opErr := models.GetUserByID(ctx, pool, userID)
+			if opErr == nil {
+				// Force whatsapp from operator's account
+				if opUser.WhatsappNumber != "" {
+					body.WhatsappNumber = opUser.WhatsappNumber
+				}
+				// Force expiry: user expiry = operator's expiry
+				if opUser.ExpiresAt != nil {
+					expiresAt := *opUser.ExpiresAt
+					expiresAtPtr = &expiresAt
+				}
 			}
 		}
 
@@ -258,7 +266,6 @@ func CreateUser() gin.HandlerFunc {
 		defaultDays := models.GetSaasSettingInt(ctx, pool,
 			models.SettingDefaultActiveDays, 1)
 		expiresAtStr := strings.TrimSpace(body.ExpiresAt)
-		var expiresAtPtr *time.Time
 		if expiresAtStr != "" {
 			t, err := time.Parse("2006-01-02 15:04:05", expiresAtStr)
 			if err == nil {
