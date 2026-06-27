@@ -505,6 +505,21 @@ func EditUser() gin.HandlerFunc {
 			}
 		}
 
+		// Cascade: if operator's expiry changed, sync to all users in same instansi
+		if targetUser.IsOperator() && body.ExpiresAt != nil {
+			expVal := strings.TrimSpace(*body.ExpiresAt)
+			if expVal != "" {
+				if !strings.Contains(expVal, " ") {
+					expVal += " 23:59:59"
+				}
+				if _, err := pool.Exec(ctx,
+					`UPDATE admin_users SET expires_at = $1::timestamp WHERE instansi = $2 AND id != $3`,
+					expVal, targetUser.Instansi, targetID); err != nil {
+					log.Printf("cascade expiry for instansi %s error: %v", targetUser.Instansi, err)
+				}
+			}
+		}
+
 		if len(updates) > 0 {
 			if err := models.UpdateUser(ctx, pool, targetID, updates); err != nil {
 				log.Printf("edit user error: %v", err)
