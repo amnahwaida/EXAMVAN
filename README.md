@@ -1,10 +1,11 @@
-# 📄 EXAMVAN — Sistem Ujian Digital Berbasis PDF (LAN-Optimized & Secure)
+# EXAMVAN — Sistem Ujian Digital Berbasis PDF (LAN-Optimized & Secure)
 
 > Platform distribusi & pelaksanaan ujian digital aman untuk infrastruktur jaringan lokal (LAN/Intranet) sekolah dan kampus dengan perlindungan anti-cheat berlapis di sisi Android.
 
 ---
 
-## 🎯 Tujuan & Manfaat Project
+## Tujuan & Manfaat Project
+
 EXAMVAN diciptakan khusus untuk memenuhi kebutuhan instansi pendidikan dalam menyelenggarakan ujian secara mandiri tanpa ketergantungan pada koneksi internet publik.
 
 - **Kemandirian Jaringan:** Server berjalan 100% secara offline di LAN (Local Area Network) sekolah, mengurangi biaya bandwidth internet dan mencegah kegagalan koneksi massal.
@@ -13,11 +14,33 @@ EXAMVAN diciptakan khusus untuk memenuhi kebutuhan instansi pendidikan dalam men
 
 ---
 
-## 🚀 Fitur Utama
+## Arsitektur Sistem
+
+EXAMVAN terdiri dari dua komponen utama:
+
+| Komponen | Stack | Lokasi |
+|----------|-------|--------|
+| **WebUI (Backend + Admin Panel)** | Go (Gin), PostgreSQL, Redis, Nginx | `webui/` |
+| **Android (Aplikasi Siswa)** | Kotlin, Material Components | `android/` |
+
+### Stack Backend (WebUI)
+
+- **Bahasa:** Go 1.25 dengan framework Gin
+- **Database:** PostgreSQL 16
+- **Cache & Queue:** Redis 7 (submission queue, caching, rate limiting, heartbeat)
+- **Reverse Proxy:** Nginx 1.27
+- **Template:** Server-side HTML (Jinja-style) dengan Tailwind CSS
+- **WebSocket:** Gorilla WebSocket untuk komunikasi real-time
+- **Session:** Gin session + Gorilla securecookie
+- **Deploy:** Docker Compose multi-container (Go server, PostgreSQL, Redis, Nginx, Cloudflare Tunnel)
+
+---
+
+## Fitur Utama
 
 ### 1. Panel Admin & Manajemen Guru (Multi-User)
-* **Role Management:** Mendukung akun Administrator dan Guru.
-* **Hak Akses Eksklusif:** Akun guru hanya dapat melihat, membuat, mengubah, dan menghapus ujian yang dibuatnya sendiri. Administrator memiliki otorisasi penuh untuk mengawasi seluruh ujian dari semua guru.
+* **Role Management:** Mendukung akun Super Admin, Guru, dan Pengawas.
+* **Hak Akses Eksklusif:** Akun guru hanya dapat melihat, membuat, mengubah, dan menghapus ujian yang dibuatnya sendiri. Super Admin memiliki otorisasi penuh untuk mengawasi seluruh ujian dari semua guru.
 * **Ubah Password Mandiri:** Setiap pengguna dapat memperbarui kata sandinya kapan saja melalui UI modal yang aman.
 
 ### 2. Lembar Jawaban Digital & Koreksi Otomatis
@@ -27,21 +50,21 @@ EXAMVAN diciptakan khusus untuk memenuhi kebutuhan instansi pendidikan dalam men
   3. *Benar / Salah (True/False)*
   4. *Menjodohkan (Matching)*
 * **Pengaturan Bobot & Penilaian Parsial:** Bobot nilai per soal dapat disesuaikan. Pilihan ganda kompleks mendukung opsi **Penilaian Parsial (Partial Scoring)** yang dinamis.
-* **Rekalkulasi Nilai Otomatis:** Apabila guru mengubah bobot soal atau mengaktifkan/menonaktifkan opsi penilaian parsial *setelah* ujian disubmit oleh siswa, sistem secara otomatis menghitung ulang (*recalculate*) nilai siswa secara instan tanpa perlu submit ulang.
+* **Rekalkulasi Nilai Otomatis:** Apabila guru mengubah bobot soal atau mengaktifkan/menonaktifkan opsi penilaian parsial *setelah* ujian disubmit oleh siswa, sistem secara otomatis menghitung ulang nilai siswa secara instan tanpa perlu submit ulang.
 
 ### 3. Keamanan Klien Seluler (Android)
 * **Dua Tingkat Keamanan Dinamis (Low, Medium):**
   1. **Low Mode:** Proteksi dasar berupa anti-screenshot (`FLAG_SECURE`) dan pembersihan papan klip (clipboard). Siswa bebas keluar masuk aplikasi tanpa konsekuensi.
   2. **Medium Mode:** Jika siswa menekan tombol Home, berpindah aplikasi, membuka laci notifikasi, atau meminimalkan aplikasi, sistem langsung mendeteksi kehilangan fokus dan melakukan **Auto-Submit (Kumpul Jawaban Otomatis)** dalam waktu 3 detik.
-* **Zero-Friction Launch:** Siswa tidak lagi dibebani dengan pengaturan rumit seperti mematikan navigasi gestur usap atau memberikan izin overlay sistem. Ujian langsung dimulai secara instan, menghemat waktu persiapan ujian hingga 100%.
-* **Optimasi Layar Anti-Mati (FLAG_KEEP_SCREEN_ON):** Layar perangkat siswa akan tetap menyala terang secara konstan selama aplikasi dibuka (mulai dari halaman input server, daftar ujian, hingga pengerjaan soal), mencegah layar redup atau masuk ke mode tidur (*sleep*) saat siswa sedang membaca soal yang panjang.
-* **Anti-Screenshot & Recording:** Layar aplikasi otomatis menjadi hitam (*black screen*) jika siswa mencoba menangkap layar (*capture*) atau merekam layar (menggunakan `FLAG_SECURE` pada Android dan `SecureView UITextField` pada iOS).
+* **Zero-Friction Launch:** Siswa tidak lagi dibebani dengan pengaturan rumit. Ujian langsung dimulai secara instan, menghemat waktu persiapan ujian hingga 100%.
+* **Optimasi Layar Anti-Mati (FLAG_KEEP_SCREEN_ON):** Layar perangkat siswa akan tetap menyala terang secara konstan selama aplikasi dibuka.
+* **Anti-Screenshot & Recording:** Layar aplikasi otomatis menjadi hitam jika siswa mencoba menangkap layar atau merekam layar.
 * **Anti-Copy Text:** PDF dirender sebagai gambar raster dinamis tanpa lapisan teks, sehingga teks soal tidak dapat disalin.
-* **Clipboard Cleanser:** Clipboard/papan klip otomatis dikosongkan saat memasuki ruang ujian untuk mencegah metode *copy-paste* jawaban.
+* **Clipboard Cleanser:** Clipboard/papan klip otomatis dikosongkan saat memasuki ruang ujian.
 
 ---
 
-## 🏛️ Mode Kiosk Sekolah (Device Owner - Penguncian Mutlak)
+## Mode Kiosk Sekolah (Device Owner - Penguncian Mutlak)
 
 Untuk komputer tablet atau handphone inventaris sekolah (bukan HP pribadi siswa), Anda dapat mengaktifkan **Managed Kiosk Mode (Device Owner)**. Dalam mode ini, tombol Home, Recents, tombol Power Menu, panel notifikasi atas, dan gestur usap akan **dimatikan secara absolut di level sistem operasi**. Siswa secara fisik tidak akan bisa keluar dari aplikasi ujian sebelum lembar jawaban dikirimkan.
 
@@ -55,29 +78,26 @@ Untuk komputer tablet atau handphone inventaris sekolah (bukan HP pribadi siswa)
 
 ---
 
-## 📥 Download Aplikasi Siswa
+## Download Aplikasi Siswa
 
-Untuk memulai ujian pada perangkat siswa, silakan unduh aplikasinya melalui tautan berikut:
+### Perangkat Android
+* **[Download EXAMVAN Android APK](./EXAMVAN.apk)** *(Siap langsung dipasang di HP siswa).*
+* **Alternative Build:** Anda juga dapat menggunakan berkas **[examvan-debug.apk](./examvan-debug.apk)**, **[examvan-release.apk](./examvan-release.apk)**, **[examvan-student-debug.apk](./examvan-student-debug.apk)**, atau **[examvan-kiosk-debug.apk](./examvan-kiosk-debug.apk)** yang terletak di folder root.
+* **Kompatibilitas:** Minimal **Android 7.0 (Nougat - API 24)** hingga versi terbaru. Membutuhkan API 24+ untuk dukungan `network_security_config.xml` dengan tag `<ip-range>`.
 
-### 🤖 Perangkat Android
-* **[Download EXAMVAN Android APK (v2.2.0)](./EXAMVAN.apk)** *(Telah diperbarui dengan build debug tertanda otomatis yang siap langsung dipasang di HP siswa tanpa kendala lisensi).*
-* **Alternative Build:** Anda juga dapat menggunakan berkas **[examvan-debug.apk](./examvan-debug.apk)** atau **[examvan-release.apk](./examvan-release.apk)** yang terletak di folder root.
-* **Kompatibilitas:** Minimal **Android 7.0 (Nougat - API 24)** hingga versi terbaru (diuji hingga **Android 14/15 - API 34/35**). Membutuhkan API 24+ untuk dukungan `network_security_config.xml` dengan tag `<ip-range>`.
+---
 
-## 🛠️ Panduan Build Aplikasi Klien (Siswa)
+## Panduan Build Aplikasi Android (.APK)
 
-Berikut adalah panduan detail mengenai cara melakukan kompilasi (*build*) aplikasi Android dari kode sumber yang tersedia:
-
-### A. Kompilasi Klien Android (.APK)
 Kompilasi dapat dilakukan di sistem operasi **Windows, macOS, maupun Linux**.
 
-#### 1. Persyaratan Sistem (*Requirements*):
+### Persyaratan Sistem
 - **JDK 17 (Java Development Kit):** Pastikan variabel lingkungan `JAVA_HOME` mengarah ke JDK 17.
 - **Android SDK:** Terpasang versi SDK 34 (Android 14) untuk target kompilasi.
 - **Android Gradle Plugin (AGP):** Versi 8.x ke atas.
 
-#### 2. Cara Build dengan Command Line (CLI):
-1. Buka terminal/command prompt di direktori `./android`.
+### Build dengan Command Line (CLI)
+1. Buka terminal di direktori `./android`.
 2. Jalankan perintah kompilasi sesuai flavor yang diinginkan:
 
    **Flavor Student (untuk HP pribadi siswa):**
@@ -92,138 +112,225 @@ Kompilasi dapat dilakukan di sistem operasi **Windows, macOS, maupun Linux**.
    ```
    APK output: `android/app/build/outputs/apk/kiosk/debug/app-kiosk-debug.apk`
 
-3. **Penjelasan Product Flavors:**
+3. **Product Flavors:**
    - **`student`** — Aplikasi bersih untuk HP pribadi siswa (tanpa Device Admin)
    - **`kiosk`** — Aplikasi dengan Device Admin + lock-task untuk tablet sekolah (mengunci perangkat saat ujian)
 
-#### 3. Cara Build dengan Android Studio (GUI):
-1. Buka software **Android Studio**.
+### Build dengan Android Studio (GUI)
+1. Buka **Android Studio**.
 2. Pilih **Open an Existing Project** dan arahkan ke folder `./android`.
-3. Tunggu proses singkronisasi Gradle selesai.
+3. Tunggu proses sinkronisasi Gradle selesai.
 4. Klik menu **Build > Build Bundle(s) / APK(s) > Build APK(s)**.
-5. Setelah selesai, klik **Locate** di sudut kanan bawah untuk mengambil berkas `.apk`.
-
 
 ---
 
-## 📡 API Endpoints
+## Panduan Deployment Server (WebUI)
 
-Dokumentasi API selengkapnya tersedia di [docs/api.md](docs/api.md).
+### A. Deployment dengan Docker (Sangat Direkomendasikan)
 
----
+Metode ini paling mudah dan aman karena semua dependensi sudah terisolasi di dalam container.
 
-## ⚙️ Panduan Deployment Server
+#### 1. Prasyarat
+- Docker dan Docker Compose terpasang di komputer server.
 
-Pilih salah satu metode deployment di bawah ini untuk dijalankan di PC server sekolah/kampus Anda.
+#### 2. Konfigurasi Lingkungan
+Masuk ke folder `webui/` dan salin file environment:
+```bash
+cd webui
+cp .env.example .env
+```
 
-### A. Deployment Dengan Docker (Sangat Direkomendasikan)
-Metode ini paling mudah dan aman karena semua dependensi Python sudah terisolasi di dalam container.
+Buka file `.env` dan atur variabel berikut:
 
-1. **Prasyarat:** Pastikan Docker dan Docker Compose telah terpasang di komputer server.
-2. **Konfigurasi Lingkungan (Online/Offline Mode):**
-   Salin file `.env.example` menjadi `.env` jika belum ada:
-   ```bash
-   cp .env.example .env
-   ```
-   Buka file `.env` dan atur variabel berikut sesuai kebutuhan:
-   * **Mode Offline (LAN Only):** Biarkan variabel `TUNNEL_TOKEN` kosong. Layanan tunnel akan otomatis berjalan idle tanpa mengonsumsi resource.
-   * **Mode Online (Internet Access via Cloudflare):** Masukkan token tunnel Anda dari Cloudflare Zero Trust pada variabel `TUNNEL_TOKEN`.
-   * *Catatan:* Di dashboard Cloudflare Zero Trust, konfigurasi rute tunnel (Public Hostname) harus diarahkan ke target URL internal Docker: `http://examvan-server:5000`.
+| Variabel | Keterangan | Wajib |
+|----------|-----------|-------|
+| `EXAMVAN_SECRET` | Secret key minimal 32 karakter untuk session encryption | Ya |
+| `DB_PASSWORD` | Password untuk PostgreSQL | Ya |
+| `EXAMVAN_ADMIN_USER` | Username super admin (default: `superadmin`) | Tidak |
+| `EXAMVAN_ADMIN_PASS` | Password super admin (kosongkan untuk generate otomatis) | Tidak |
+| `APP_ENV` | `production` atau `development` | Tidak |
+| `TUNNEL_TOKEN` | Token Cloudflare Tunnel untuk akses internet (kosongkan untuk mode LAN) | Tidak |
+| `EXAMVAN_CORS_ORIGINS` | Origin yang diizinkan (kosongkan untuk allow all) | Tidak |
 
-3. **Jalankan Layanan:**
-   Buka terminal di direktori utama project (`EXAMVAN/`) lalu ketik:
-   ```bash
-   docker compose up -d --build
-   ```
-4. **Persistensi Data:**
-   Database SQLite (di folder `data/`) dan seluruh file PDF ujian (`storage/`) akan otomatis disimpan secara persisten di folder `./server/` pada komputer host Anda.
-5. **Log Aktivitas:**
-   Untuk melihat log aktivitas server secara real-time:
-   ```bash
-   docker compose logs -f
-   ```
-   Untuk melihat log status koneksi Cloudflare Tunnel:
-   ```bash
-   docker compose logs -f cloudflare-tunnel
-   ```
+#### 3. Jalankan Layanan
+```bash
+cd webui
+docker compose up -d --build
+```
+
+Layanan yang berjalan:
+- **webui-server** — Go backend (port 5000, internal only)
+- **db** — PostgreSQL 16
+- **redis** — Redis 7
+- **nginx-lb** — Reverse proxy (port 80, localhost only)
+- **cloudflare-tunnel** — Akses internet opsional
+
+#### 4. Persistensi Data
+- **Database:** Volume Docker `postgres_data` untuk PostgreSQL.
+- **File PDF:** Volume Docker `webui_storage` untuk file ujian yang diupload.
+
+#### 5. Monitoring
+```bash
+# Log semua layanan
+docker compose logs -f
+
+# Log server saja
+docker compose logs -f webui-server
+
+# Log Cloudflare Tunnel
+docker compose logs -f cloudflare-tunnel
+```
+
+#### 6. Hentikan Layanan
+```bash
+docker compose down
+```
 
 ---
 
 ### B. Deployment Tanpa Docker
-Jika Anda ingin menjalankannya langsung menggunakan Python lokal pada sistem operasi host.
 
-1. **Instalasi Dependensi:**
-   Masuk ke folder server dan pasang pustaka yang diperlukan:
-   ```bash
-   cd server
-   pip install -r requirements.txt
-   ```
-2. **Inisialisasi Database:**
-   Sistem akan secara otomatis membuat berkas database `data/examvan.db` dan membuat pengguna admin default saat pertama kali dijalankan.
-3. **Jalankan Mode Produksi (Gunicorn):**
-   Gunakan Gunicorn untuk menangani trafik multi-client yang stabil:
-   ```bash
-   gunicorn -w 1 --threads 4 -b 0.0.0.0:5000 app:app
-   ```
-   > **Catatan:** Karena EXAMVAN menggunakan SQLite, hanya **1 worker** yang diizinkan untuk mencegah konflik write database. Gunakan `--threads 4` untuk tetap bisa melayani banyak request secara concurrent.
-4. **Jalankan Mode Development (Opsional):**
-   Jika ingin melakukan debugging secara lokal:
-   ```bash
-   python app.py
-   ```
+#### 1. Prasyarat
+- Go 1.25+
+- PostgreSQL 16+
+- Redis 7+ (opsional, untuk queue dan caching)
+
+#### 2. Setup Database
+Buat database PostgreSQL:
+```sql
+CREATE DATABASE examvan;
+CREATE USER examvan WITH PASSWORD 'your_password';
+GRANT ALL PRIVILEGES ON DATABASE examvan TO examvan;
+```
+
+#### 3. Konfigurasi Environment
+```bash
+cd webui
+cp .env.example .env
+```
+Atur `DATABASE_URL`, `EXAMVAN_SECRET`, dan variabel lainnya di `.env`.
+
+#### 4. Build & Jalankan
+```bash
+cd webui
+go build -o server ./cmd/server
+./server
+```
+
+Server berjalan di port 5000 (default).
 
 ---
 
-## 🔑 Informasi Akses Default Admin Panel
-Buka browser Anda dan akses halaman admin di: **`http://<IP_SERVER_SEKOLAH>:5000/admin/login`**
+## Informasi Akses Default Admin Panel
 
-* **Username:** `admin`
-* **Password:** `examvan2026`
+Akses halaman admin di: **`http://<IP_SERVER>:80/admin/login`** (Docker) atau **`http://<IP_SERVER>:5000/admin/login`** (tanpa Docker)
 
-> [!IMPORTANT]
-> Demi keamanan, segera ubah password akun administrator utama Anda sesaat setelah berhasil masuk ke halaman dashboard untuk pertama kali.
+* **Username:** `superadmin` (atau sesuai `EXAMVAN_ADMIN_USER`)
+* **Password:** Sesuai `EXAMVAN_ADMIN_PASS` di `.env` (atau cek log jika dikosongkan)
+
+> Demi keamanan, segera ubah password akun administrator utama setelah berhasil masuk untuk pertama kali.
 
 ---
 
-## 🕐 Sinkronisasi Waktu (Timezone)
+## Sinkronisasi Waktu (Timezone)
 
-Semua waktu di dalam sistem EXAMVAN disimpan dan diproses dalam **UTC+0** untuk menjamin konsistensi di seluruh perangkat, terlepas dari zona waktu lokal masing-masing.
-
-### Arsitektur Sinkronisasi Waktu
+Semua waktu di dalam sistem EXAMVAN disimpan dan diproses dalam **UTC+0** untuk menjamin konsistensi di seluruh perangkat.
 
 ```
-┌──────────────────────────────────────────────────────────────────┐
-│ SERVER (Docker Container, TZ=UTC)                                │
-│ ┌──────────────────────────────────────────────────────────────┐ │
-│ │ SQLite DB: CURRENT_TIMESTAMP → UTC                          │ │
-│ │ Python:    datetime.now(timezone.utc)                        │ │
-│ │ API:       Semua response timestamp dalam format ISO 8601 Z │ │
-│ └──────────────────────────────────────────────────────────────┘ │
-│                              ↓ JSON (UTC)                        │
-├──────────────────────────────────────────────────────────────────┤
-│ ADMIN PANEL (Browser)                                            │
-│ → JavaScript localizeDates() mengkonversi UTC → timezone browser │
-├──────────────────────────────────────────────────────────────────┤
-│ ANDROID (Device Siswa)                                     │
-│ → Menerima timestamp UTC, ditampilkan sesuai timezone device     │
-│ → Endpoint /api/time tersedia untuk verifikasi jam server        │
-└──────────────────────────────────────────────────────────────────┘
+SERVER (Docker, TZ=UTC)
+  Database: CURRENT_TIMESTAMP → UTC
+  Go:       time.Now().UTC()
+  API:      Semua timestamp dalam format ISO 8601 Z
+        ↓ JSON (UTC)
+  ┌─────────────────────────────────────┐
+  │ ADMIN PANEL (Browser)               │
+  │ → JS localizeDates() → timezone lokal│
+  ├─────────────────────────────────────┤
+  │ ANDROID (Device Siswa)              │
+  │ → Timestamp UTC, display sesuai TZ  │
+  │ → /api/time untuk verifikasi jam    │
+  └─────────────────────────────────────┘
 ```
 
-### Endpoint Sinkronisasi Waktu
-
-Gunakan endpoint `/api/time` untuk mendapatkan waktu server yang otoritatif:
+Endpoint verifikasi waktu server:
 ```bash
 curl http://<IP_SERVER>:5000/api/time
 ```
-Contoh response:
-```json
-{
-  "utc": "2026-05-22T17:27:14Z",
-  "unix": 1779470834,
-  "timezone": "UTC"
-}
+
+---
+
+## Struktur Direktori
+
+```
+EXAMVAN/
+├── android/                    # Aplikasi Android (Kotlin)
+│   ├── app/src/main/java/com/examvan/app/
+│   │   ├── api/                # API client, WebSocket
+│   │   ├── helper/             # AnswerSheetBuilder, PdfRenderer, Submission, Security
+│   │   ├── model/              # Data models
+│   │   └── receiver/           # Device Admin Receiver (kiosk)
+│   └── app/src/main/res/       # Layouts, drawables, values
+├── webui/                      # Backend Go + Admin Panel
+│   ├── cmd/server/             # Entry point (main.go)
+│   ├── internal/
+│   │   ├── config/             # Konfigurasi aplikasi
+│   │   ├── database/           # Koneksi PostgreSQL
+│   │   ├── handlers/           # Route handlers (admin, api, public)
+│   │   ├── helpers/            # Utility (scoring, sanitization)
+│   │   ├── middleware/          # Auth, CSRF, rate-limit, timeout, version check
+│   │   ├── models/             # Data models (exam, user, submission, dll)
+│   │   ├── queue/              # Submission queue
+│   │   ├── redis/              # Redis client
+│   │   └── websocket/          # WebSocket hub
+│   ├── templates/              # HTML templates
+│   │   ├── admin/              # Admin panel (dashboard, users, pengawas, submissions)
+│   │   └── public/             # Halaman publik (hasil, download, register, index)
+│   ├── static/                 # CSS, JS, favicon
+│   ├── nginx/                  # Nginx config
+│   ├── docker/                 # Docker support files
+│   ├── docker-compose.yml      # Multi-container orchestration
+│   ├── Dockerfile              # Multi-stage Go build
+│   ├── .env.example            # Template environment variables
+│   ├── seed.sql                # Seed data (opsional)
+│   ├── go.mod                  # Go module dependencies
+│   └── go.sum                  # Go dependency checksums
+├── *.apk                       # Pre-built Android APKs
+├── CLAUDE.md                   # Project instructions
+├── README.md                   # Dokumentasi ini
+└── package.json                # Tailwind CSS build scripts
 ```
 
-> [!NOTE]
-> Docker container berjalan dengan environment `TZ=UTC`. Semua field `created_at` dari database SQLite otomatis tersimpan dalam UTC. Konversi ke zona waktu lokal dilakukan sepenuhnya di sisi klien (browser admin / device siswa).
+---
+
+## API Endpoints
+
+### Public API (Token-based)
+| Method | Endpoint | Keterangan |
+|--------|----------|------------|
+| GET | `/api/health` | Health check |
+| GET | `/api/time` | Waktu server (UTC) |
+| GET | `/api/exams/token/<token>` | Ambil data ujian berdasarkan token |
+| POST | `/api/exams/token/<token>/submit` | Submit jawaban ujian |
+
+### Admin API (Session-based + CSRF)
+| Method | Endpoint | Keterangan |
+|--------|----------|------------|
+| POST | `/admin/login` | Login admin |
+| GET | `/admin/api/dashboard` | Data dashboard |
+| CRUD | `/admin/api/exams` | Kelola ujian |
+| CRUD | `/admin/api/users` | Kelola pengguna |
+| GET | `/admin/api/submissions` | Data submissions |
+
+### Public Pages
+| Endpoint | Keterangan |
+|----------|------------|
+| `/` | Halaman utama |
+| `/download` | Download aplikasi |
+| `/hasil` | Hasil ujian (public) |
+| `/register` | Registrasi akun guru |
+
+---
+
+## License
+
+ISC
