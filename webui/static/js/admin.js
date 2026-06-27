@@ -1127,7 +1127,7 @@ function loadUsersList(page) {
                                 <div class="user-info-item"><span>Terdaftar</span><strong>${createdAt}</strong></div>
                             </div>
                         </td>
-                        <td data-label="Instansi">${escapeHtml(user.instansi || '—')}</td>
+                        <td data-label="Instansi">${window.__adminRole === 'superadmin' ? '<span class="editable-instansi" data-user-id="' + user.id + '" style="color:#a5b4fc;cursor:pointer;border-bottom:1px dashed rgba(165,180,252,0.3);" title="Klik untuk ubah instansi">' + escapeHtml(user.instansi || '—') + '</span>' : escapeHtml(user.instansi || '—')}</td>
                         <td data-label="Role">${isAdmin ? '<span style="display:inline-block;padding:2px 8px;border-radius:10px;font-size:11px;font-weight:600;background:rgba(251,191,36,0.15);color:#fbbf24;border:1px solid rgba(251,191,36,0.3);">Super Admin</span>' : renderRoleBadges(user.roles)}</td>
                         <td data-label="WhatsApp">${escapeHtml(user.whatsapp_number || '—')}</td>
                         <td data-label="Status" style="text-align:center;">${statusBadge}</td>
@@ -1136,6 +1136,15 @@ function loadUsersList(page) {
                     tbody.appendChild(tr);
                 });
                 localizeDates();
+                // Attach click handlers for editable instansi
+                document.querySelectorAll('.editable-instansi').forEach(function(el) {
+                    el.addEventListener('click', function() {
+                        var uid = parseInt(this.getAttribute('data-user-id'));
+                        var current = this.textContent.trim();
+                        if (current === '—') current = '';
+                        editUserInstansi(uid, current, this);
+                    });
+                });
                 renderUsersPagination(pagination, page);
             } else {
                 tbody.innerHTML = '<tr><td colspan="6" style="text-align:center; padding: 20px; color: #fca5a5;">Gagal memuat daftar user</td></tr>';
@@ -1420,6 +1429,32 @@ function syncEditLimitFields() {
 function closeEditUserModal() {
     var modal = document.getElementById('editUserModal');
     if (modal) modal.style.display = 'none';
+}
+
+// Inline edit instansi (superadmin only)
+function editUserInstansi(userId, currentValue, targetEl) {
+    var newInstansi = prompt('Ubah instansi user #' + userId, currentValue);
+    if (newInstansi === null || newInstansi.trim() === currentValue) return;
+    newInstansi = newInstansi.trim();
+    if (!newInstansi) { showToast('Instansi tidak boleh kosong', 'error'); return; }
+
+    apiFetch('/admin/api/users/' + userId + '/edit', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ instansi: newInstansi })
+    })
+    .then(function(r) { return r.json(); })
+    .then(function(res) {
+        if (res.success) {
+            showToast('Instansi berhasil diubah', 'success');
+            if (targetEl) targetEl.textContent = newInstansi;
+        } else {
+            showToast(res.message || 'Gagal mengubah instansi', 'error');
+        }
+    })
+    .catch(function() {
+        showToast('Gagal mengubah instansi', 'error');
+    });
 }
 
 function submitEditUser(e) {

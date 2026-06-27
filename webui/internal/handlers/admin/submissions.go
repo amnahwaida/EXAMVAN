@@ -194,14 +194,52 @@ func SubmissionsPage() gin.HandlerFunc {
 				var subCount int
 				pool.QueryRow(ctx, `SELECT COUNT(*) FROM submissions WHERE exam_id = $1`, examFilter).Scan(&subCount)
 
+				// Creator name
+				var creatorName string
+				pool.QueryRow(ctx, `SELECT username FROM admin_users WHERE id = $1`, exam.CreatedBy).Scan(&creatorName)
+
+				// Delegated name
+				var delegatedName string
+				if exam.DelegatedTo != nil {
+					pool.QueryRow(ctx, `SELECT username FROM admin_users WHERE id = $1`, *exam.DelegatedTo).Scan(&delegatedName)
+				}
+
+				// Pengawas list
+				pengawasList := []string{}
+				pRows, err := pool.Query(ctx,
+					`SELECT u.username FROM exam_pengawas ep JOIN admin_users u ON ep.user_id = u.id WHERE ep.exam_id = $1 ORDER BY u.username`,
+					examFilter)
+				if err == nil {
+					for pRows.Next() {
+						var pName string
+						pRows.Scan(&pName)
+						pengawasList = append(pengawasList, pName)
+					}
+					pRows.Close()
+				}
+
+				// Format timestamps
+				startTime := ""
+				if exam.StartTime != nil {
+					startTime = exam.StartTime.Format("2006-01-02 15:04")
+				}
+				endTime := ""
+				if exam.EndTime != nil {
+					endTime = exam.EndTime.Format("2006-01-02 15:04")
+				}
+				createdAt := exam.CreatedAt.Format("2006-01-02 15:04")
+
 				examInfo = gin.H{
-					"name":       exam.Name,
-					"token":      exam.Token,
-					"created_at": exam.CreatedAt,
-					"size_mb":    roundTo(float64(exam.SizeBytes)/(1024*1024), 2),
-					"sub_count":  subCount,
-					"start_time": exam.StartTime,
-					"end_time":   exam.EndTime,
+					"name":           exam.Name,
+					"token":          exam.Token,
+					"creator_name":   creatorName,
+					"delegated_name": delegatedName,
+					"pengawas":       pengawasList,
+					"created_at":     createdAt,
+					"size_mb":        roundTo(float64(exam.SizeBytes)/(1024*1024), 2),
+					"sub_count":      subCount,
+					"start_time":     startTime,
+					"end_time":       endTime,
 				}
 			}
 		}

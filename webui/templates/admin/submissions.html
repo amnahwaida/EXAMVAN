@@ -37,7 +37,7 @@
  {{if .exam_info}}
  {{$ei := .exam_info}}
  <section class="glass-card" style="margin-top:16px;padding:14px 20px;">
- <div style="display:flex;gap:20px;flex-wrap:wrap;align-items:center;">
+ <div style="display:flex;gap:16px 24px;flex-wrap:wrap;align-items:center;">
   <span style="font-size:15px;font-weight:700;color:#a5b4fc;display:flex;align-items:center;gap:6px;">
   <svg class="icon-svg" style="width:20px;height:20px;"><use href="#hi-dashboard"/></svg>
   {{index $ei "name"}}
@@ -46,15 +46,35 @@
   <svg class="icon-svg"><use href="#hi-key"/></svg> Token: <code style="color:#a5b4fc;">{{index $ei "token"}}</code>
   </span>
   <span style="font-size:13px;color:var(--color-text-secondary);display:flex;align-items:center;gap:6px;">
-  <svg class="icon-svg"><use href="#hi-users"/></svg> {{index $ei "sub_count"}} peserta
+  <svg class="icon-svg"><use href="#hi-users"/></svg> <strong style="color:var(--color-text);">{{index $ei "sub_count"}}</strong> peserta
   </span>
   <span style="font-size:13px;color:var(--color-text-secondary);display:flex;align-items:center;gap:6px;">
   <svg class="icon-svg"><use href="#hi-upload"/></svg> {{printf "%.2f" (index $ei "size_mb")}} MB
   </span>
   <span style="font-size:13px;color:var(--color-text-secondary);display:flex;align-items:center;gap:6px;">
-  <svg class="icon-svg"><use href="#hi-file"/></svg> Upload: <span>{{index $ei "created_at"}}</span>
+  <svg class="icon-svg"><use href="#hi-clock"/></svg> Upload: <span>{{index $ei "created_at"}}</span>
   </span>
+  {{if index $ei "start_time"}}<span style="font-size:13px;color:var(--color-text-secondary);display:flex;align-items:center;gap:6px;">
+  <svg class="icon-svg"><use href="#hi-play"/></svg> Mulai: <span style="color:#34d399;">{{index $ei "start_time"}}</span>
+  </span>{{end}}
+  {{if index $ei "end_time"}}<span style="font-size:13px;color:var(--color-text-secondary);display:flex;align-items:center;gap:6px;">
+  <svg class="icon-svg"><use href="#hi-stop"/></svg> Selesai: <span style="color:#f87171;">{{index $ei "end_time"}}</span>
+  </span>{{end}}
  </div>
+ {{if or (index $ei "creator_name") (index $ei "delegated_name") (index $ei "pengawas")}}
+ <div style="display:flex;gap:16px 24px;flex-wrap:wrap;align-items:center;margin-top:8px;padding-top:10px;border-top:1px solid rgba(255,255,255,0.05);">
+  {{if index $ei "creator_name"}}<span style="font-size:12px;color:var(--color-text-muted);display:flex;align-items:center;gap:5px;">
+  <svg class="icon-svg" style="width:14px;height:14px;"><use href="#hi-user"/></svg> Pembuat: <span style="color:#a5b4fc;font-weight:600;">{{index $ei "creator_name"}}</span>
+  </span>{{end}}
+  {{if index $ei "delegated_name"}}<span style="font-size:12px;color:var(--color-text-muted);display:flex;align-items:center;gap:5px;">
+  <svg class="icon-svg" style="width:14px;height:14px;"><use href="#hi-link"/></svg> Penanggung Jawab: <span style="color:#fbbf24;font-weight:600;">{{index $ei "delegated_name"}}</span>
+  </span>{{end}}
+  {{if index $ei "pengawas"}}<span style="font-size:12px;color:var(--color-text-muted);display:flex;align-items:center;gap:5px;">
+  <svg class="icon-svg" style="width:14px;height:14px;"><use href="#hi-eye"/></svg> Pengawas:
+  {{range $pw := index $ei "pengawas"}}<span style="display:inline-block;padding:1px 8px;border-radius:10px;font-size:11px;background:rgba(168,85,247,0.12);color:#c084fc;border:1px solid rgba(168,85,247,0.2);margin:1px 2px;">{{$pw}}</span>{{end}}
+  </span>{{end}}
+ </div>
+ {{end}}
  </section>
  {{end}}
 
