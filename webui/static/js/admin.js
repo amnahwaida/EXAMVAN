@@ -1538,16 +1538,68 @@ function closeEditUserModal() {
 
 // Inline edit instansi (superadmin only)
 function editUserInstansi(userId, currentValue, targetEl) {
-    var newInstansi = prompt('Ubah instansi user #' + userId, currentValue);
-    if (newInstansi === null || newInstansi.trim() === currentValue) return;
-    newInstansi = newInstansi.trim();
-    if (!newInstansi) { showToast('Instansi tidak boleh kosong', 'error'); return; }
+    // Create modal overlay
+    var overlay = document.createElement('div');
+    overlay.className = 'modal-overlay';
+    overlay.style.display = 'flex';
+    overlay.setAttribute('role', 'dialog');
+    overlay.setAttribute('aria-modal', 'true');
+    overlay.setAttribute('aria-label', 'Ubah Instansi');
 
-    apiFetch('/admin/api/users/' + userId + '/edit', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ instansi: newInstansi })
-    })
+    var card = document.createElement('div');
+    card.className = 'modal-card glass-card';
+    card.style.maxWidth = '400px';
+    card.innerHTML = `
+        <div class="modal-header">
+            <h3><svg class="icon-svg" style="vertical-align:middle;margin-top:-2px;"><use href="#hi-users"/></svg> Ubah Instansi</h3>
+            <button class="modal-close" id="instansiModalClose" aria-label="Tutup"><svg class="icon-svg" style="width:18px;height:18px;"><use href="#hi-x"/></svg></button>
+        </div>
+        <div class="modal-body">
+            <div style="margin-bottom:16px;">
+                <label style="display:block;font-size:0.85rem;color:var(--color-text-secondary);margin-bottom:6px;">Nama Instansi</label>
+                <input type="text" id="instansiEditInput" value="${escapeHtml(currentValue)}" placeholder="Contoh: SMA Negeri 1 Jakarta"
+                    style="width:100%;padding:10px 12px;background:rgba(255,255,255,0.04);border:1px solid var(--color-glass-border);border-radius:8px;color:var(--color-text);font-size:14px;outline:none;transition:border-color 0.2s;box-sizing:border-box;"
+                    onfocus="this.style.borderColor='rgba(99,102,241,0.5)'" onblur="this.style.borderColor=''">
+            </div>
+            <div style="display:flex;gap:8px;justify-content:flex-end;">
+                <button class="btn-sm btn-delete" id="instansiModalCancel">Batal</button>
+                <button class="btn-upload" id="instansiModalSave" style="padding:8px 20px;"><svg class="icon-svg"><use href="#hi-check"/></svg> Simpan</button>
+            </div>
+        </div>
+    `;
+    overlay.appendChild(card);
+    document.body.appendChild(overlay);
+
+    // Focus input
+    var input = document.getElementById('instansiEditInput');
+    setTimeout(function() { input.focus(); input.select(); }, 100);
+
+    function closeModal() { overlay.remove(); }
+
+    document.getElementById('instansiModalClose').onclick = closeModal;
+    document.getElementById('instansiModalCancel').onclick = closeModal;
+    overlay.addEventListener('click', function(e) { if (e.target === overlay) closeModal(); });
+
+    // Enter key saves
+    input.addEventListener('keydown', function(e) {
+        if (e.key === 'Escape') closeModal();
+        if (e.key === 'Enter') document.getElementById('instansiModalSave').click();
+    });
+
+    document.getElementById('instansiModalSave').onclick = function() {
+        var newInstansi = input.value.trim();
+        if (!newInstansi) { showToast('Instansi tidak boleh kosong', 'error'); return; }
+        if (newInstansi === currentValue) { closeModal(); return; }
+
+        var btn = this;
+        btn.disabled = true;
+        btn.textContent = 'Menyimpan...';
+
+        apiFetch('/admin/api/users/' + userId + '/edit', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ instansi: newInstansi })
+        })
     .then(function(r) { return r.json(); })
     .then(function(res) {
         if (res.success) {
