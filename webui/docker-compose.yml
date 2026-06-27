@@ -6,7 +6,7 @@ services:
     environment:
       POSTGRES_DB: examvan
       POSTGRES_USER: examvan
-      POSTGRES_PASSWORD: ${DB_PASSWORD:-examvan2026}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-}
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
@@ -45,10 +45,10 @@ services:
     ports:
       - "5001:5000"
     environment:
-      - EXAMVAN_SECRET=${EXAMVAN_SECRET:-CHANGE_ME_TO_A_RANDOM_SECRET}
+      - EXAMVAN_SECRET=${EXAMVAN_SECRET?ERR:EXAMVAN_SECRET not set}
       - EXAMVAN_ADMIN_USER=${EXAMVAN_ADMIN_USER:-superadmin}
-      - EXAMVAN_ADMIN_PASS=examvan2026
-      - DATABASE_URL=postgresql://examvan:${DB_PASSWORD:-examvan2026}@db:5432/examvan
+      - EXAMVAN_ADMIN_PASS=${EXAMVAN_ADMIN_PASS?ERR:EXAMVAN_ADMIN_PASS not set}
+      - DATABASE_URL=postgresql://examvan:${DB_PASSWORD?ERR:DB_PASSWORD not set}@db:5432/examvan
       - REDIS_URL=redis://redis:6379/0
       - PORT=5000
       - STORAGE_PATH=/app/storage
