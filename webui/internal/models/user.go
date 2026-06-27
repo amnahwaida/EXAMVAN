@@ -480,7 +480,7 @@ func ListUsers(ctx context.Context, pool *pgxpool.Pool, opts ListUsersOpts) (Lis
 	LEFT JOIN exams e ON e.created_by = u.id` + whereClause +
 		` GROUP BY u.id ORDER BY 
 			CASE
-				WHEN u.role = 'superadmin' THEN 0
+				WHEN u.role ILIKE '%"superadmin"%' THEN 0
 				WHEN u.role ILIKE '%"operator"%' THEN 1
 				WHEN u.role ILIKE '%"guru"%' THEN 2
 				WHEN u.role ILIKE '%"pengawas"%' THEN 3
