@@ -143,8 +143,20 @@
 </style>
 {% endblock %}
 {% block scripts %}
+<script src="https://cdn.socket.io/4.7.5/socket.io.min.js"></script>
 <script>
 var EXAM_ID = {{ exam.id }};
+var wsSocket = null;
+try {
+    wsSocket = io('/admin', { transports: ['websocket', 'polling'] });
+    wsSocket.on('connect', function() {
+        wsSocket.emit('join_exam', { exam_id: EXAM_ID });
+    });
+    wsSocket.on('student_update', function(data) {
+        if (window._wsReloadTimer) clearTimeout(window._wsReloadTimer);
+        window._wsReloadTimer = setTimeout(function() { loadDetail(SUB_PAGE); }, 2000);
+    });
+} catch(e) { console.log('[WS] Not available:', e); }
 var SUB_PAGE = 1;
 
 function loadDetail(page) {

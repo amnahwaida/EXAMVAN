@@ -515,7 +515,7 @@ def admin_exam_questions(exam_id):
                 if pengawas_user:
                     try:
                         db.execute(
-                            'INSERT OR IGNORE INTO exam_pengawas (exam_id, user_id) VALUES (?, ?)',
+                            'INSERT INTO exam_pengawas (exam_id, user_id) VALUES (?, ?) ON CONFLICT (exam_id, user_id) DO NOTHING',
                             (exam_id, uid)
                         )
                     except Exception:
@@ -647,7 +647,7 @@ def admin_delegate_exam(exam_id):
             if pengawas_user:
                 try:
                     db.execute(
-                        'INSERT OR IGNORE INTO exam_pengawas (exam_id, user_id) VALUES (?, ?)',
+                        'INSERT INTO exam_pengawas (exam_id, user_id) VALUES (?, ?) ON CONFLICT (exam_id, user_id) DO NOTHING',
                         (exam_id, uid)
                     )
                 except Exception:

@@ -8,7 +8,7 @@ from flask import (
 
 from app import (
     app, get_db,
-    admin_required,
+    admin_required, redis_client,
 )
 from helpers import format_iso_utc
 from routes._shared import error_response
@@ -255,6 +255,20 @@ def admin_pengawas_exam_submissions(exam_id):
                 first_access = first_log['created_at'] if first_log['event'] in ('login', 'heartbeat') else first_access
                 last_access = last_log['created_at']
 
+        # Check Redis for real-time heartbeat
+        is_online = False
+        mac = sub['mac_address'] or ''
+        if mac and redis_client:
+            try:
+                hb_key = f'hb:{exam_id}:{mac}'
+                hb_data = redis_client.get(hb_key)
+                if hb_data:
+                    import json as _json
+                    hb = _json.loads(hb_data)
+                    is_online = hb.get('event') != 'logout'
+            except Exception:
+                pass
+
         subs_data.append({
             'id': sub['id'],
             'student_name': sub['student_name'],
@@ -266,9 +280,10 @@ def admin_pengawas_exam_submissions(exam_id):
             'created_at': sub['created_at'] or '',
             'first_access_at': first_access,
             'last_access_at': last_access,
-            'mac_address': sub['mac_address'] or '',
+            'mac_address': mac,
             'score': sub['score'],
             'access_logs': access_logs,
+            'is_online': is_online,
         })
 
     # Total stats (across ALL submissions for this exam, ignoring search/pagination)

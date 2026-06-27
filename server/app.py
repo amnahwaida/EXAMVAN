@@ -1,13 +1,12 @@
 """
 EXAMVAN Server - REST API & Admin Panel
-Version: 2.2.0
-Platform: Flask + SQLite
+Version: 2.2.2
+Platform: Flask + PostgreSQL + Redis
 """
 
 import os
 import secrets
 import string
-import sqlite3
 import hashlib
 import socket
 import json
@@ -36,6 +35,12 @@ from logging.handlers import RotatingFileHandler
 
 from dotenv import load_dotenv
 
+# ProxyFix: tell Flask it's behind nginx (trust X-Forwarded-* headers)
+try:
+    from werkzeug.middleware.proxy_fix import ProxyFix
+except ImportError:
+    ProxyFix = None
+
 # ===== Configuration =====
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 
@@ -49,13 +54,7 @@ else:
     print(f"⚠️  .env tidak ditemukan di {os.path.abspath(dotenv_path)} — fallback ke env vars sistem", file=sys.stderr)
 
 STORAGE_DIR = os.path.join(BASE_DIR, 'storage')
-_db_env = os.environ.get('DATABASE_PATH', '')
-if _db_env and not os.path.isabs(_db_env):
-    DATABASE = os.path.join(BASE_DIR, _db_env)
-elif _db_env:
-    DATABASE = _db_env
-else:
-    DATABASE = os.path.join(BASE_DIR, 'data', 'examvan.db')
+DATABASE_URL = os.environ.get('DATABASE_URL', '')
 MAX_FILE_SIZE = 5 * 1024 * 1024  # 5MB
 
 VERSION = '2.2.2'
@@ -70,8 +69,6 @@ DEFAULT_IDENTITY_FIELDS = json.dumps([
 ])
 
 os.makedirs(STORAGE_DIR, exist_ok=True)
-os.makedirs(os.path.dirname(DATABASE), exist_ok=True)
-
 logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s [%(levelname)s] %(name)s: %(message)s',
@@ -86,6 +83,11 @@ logger = logging.getLogger('examvan')
 
 # ===== App Init =====
 app = Flask(__name__)
+
+# ProxyFix: trust nginx X-Forwarded-* headers (for correct scheme, remote_addr behind LB)
+if ProxyFix is not None:
+    app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1, x_proto=1, x_host=1, x_prefix=0)
+
 app.secret_key = os.environ.get('EXAMVAN_SECRET', secrets.token_hex(32))
 # Validate secret key: reject known placeholder
 if app.secret_key == 'change_this_to_a_random_secret_key_min_32_chars':
@@ -102,134 +104,92 @@ app.config['SESSION_COOKIE_NAME'] = 'examvan_session'
 # Session cookie lifetime: 24 jam
 app.config['PERMANENT_SESSION_LIFETIME'] = timedelta(hours=24)
 
+# ===== Flask-Session (Redis-backed) =====
+_REDIS_URL = os.environ.get('REDIS_URL', '')
+if _REDIS_URL:
+    try:
+        import redis as redis_module
+        from flask_session import Session
+        app.config['SESSION_TYPE'] = 'redis'
+        app.config['SESSION_REDIS'] = redis_module.from_url(_REDIS_URL, decode_responses=False)
+        app.config['SESSION_PERMANENT'] = True
+        app.config['SESSION_USE_SIGNER'] = True
+        Session(app)
+        logger.info(f"Flask-Session: Redis-based at {_REDIS_URL}")
+    except Exception as e:
+        logger.warning(f"Flask-Session Redis init failed, falling back to cookie sessions: {e}")
+
+# ===== Redis Client (for heartbeat, caching) =====
+redis_client = None
+_redis_module = None
+if _REDIS_URL:
+    try:
+        import redis as _redis_module
+        redis_client = _redis_module.from_url(_REDIS_URL, decode_responses=True)
+        redis_client.ping()
+        logger.info(f"Redis client connected at {_REDIS_URL}")
+    except Exception as e:
+        logger.warning(f"Redis client init failed, running without Redis: {e}")
+        redis_client = None
+
+
+# ===== WebSocket (Flask-SocketIO) =====
+socketio = None
+try:
+    from flask_socketio import SocketIO, emit, join_room, leave_room
+    socketio = SocketIO(app, cors_allowed_origins="*", async_mode='gevent', logger=False, engineio_logger=False)
+    logger.info("Flask-SocketIO initialized (gevent)")
+except Exception as e:
+    logger.warning(f"Flask-SocketIO init failed, running without WebSocket: {e}")
+
+
+# ===== Async Submission Queue =====
+_submission_worker = None
+
+def _start_submission_worker():
+    """Start background submission worker if Redis is available."""
+    global _submission_worker
+    if redis_client is not None and _submission_worker is None:
+        try:
+            import submission_queue as _sworker
+            _submission_worker = _sworker.start_worker(
+                redis_client,
+                lambda: db_module.get_db_standalone(),
+            )
+            logger.info("Async submission queue worker started")
+        except Exception as e:
+            logger.warning(f"Async submission queue worker failed: {e}")
+
 
 # ===== Database =====
-def get_db():
-    """Get database connection with Row factory, request-scoped via g."""
-    if 'db' not in g:
-        g.db = sqlite3.connect(DATABASE)
-        g.db.execute('PRAGMA foreign_keys = ON')
-        g.db.execute('PRAGMA journal_mode=WAL')
-        g.db.row_factory = sqlite3.Row
-    return g.db
+import db as db_module
 
+def get_db():
+    """Get request-scoped PostgreSQL connection via db wrapper."""
+    return db_module.get_db()
 
 @app.teardown_appcontext
 def close_db(exception):
-    db = g.pop('db', None)
-    if db is not None:
-        db.close()
-
+    db_module.close_db(exception)
 
 def get_db_standalone():
-    """Get a standalone DB connection (outside request context, e.g. init_db)."""
-    db = sqlite3.connect(DATABASE)
-    db.execute('PRAGMA foreign_keys = ON')
-    db.execute('PRAGMA journal_mode=WAL')
-    db.row_factory = sqlite3.Row
-    return db
+    """Get a standalone PG connection (outside request context)."""
+    return db_module.get_db_standalone()
 
 
 def init_db():
-    """Initialize database tables and default admin user."""
+    """Initialize database tables, seed defaults, and create admin user."""
     db = get_db_standalone()
-    schema_sql = '''
-        CREATE TABLE IF NOT EXISTS exams (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            name TEXT NOT NULL,
-            file_path TEXT NOT NULL,
-            size_bytes INTEGER NOT NULL,
-            token TEXT UNIQUE NOT NULL,
-            questions_json TEXT,
-            status TEXT DEFAULT 'active' CHECK(status IN ('active', 'inactive')),
-            security_level TEXT DEFAULT 'medium' CHECK(security_level IN ('medium', 'low', 'high')),
-            strict_mode INTEGER DEFAULT 0,
-            public_results INTEGER DEFAULT 1,
-            show_answers INTEGER DEFAULT 0,
-            created_by INTEGER DEFAULT 1,
-            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-        );
 
-        CREATE TABLE IF NOT EXISTS admin_users (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            username TEXT UNIQUE NOT NULL,
-            password_hash TEXT NOT NULL,
-            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-            status TEXT DEFAULT 'active',
-            instansi TEXT DEFAULT 'personal',
-            role TEXT DEFAULT 'guru',
-            max_exams INTEGER DEFAULT 3,
-            max_pdf_size INTEGER DEFAULT 1048576,
-            max_drafts INTEGER DEFAULT 2,
-            max_draft_size INTEGER DEFAULT 1048576,
-            whatsapp_number TEXT,
-            expires_at TIMESTAMP,
-            otp_code TEXT,
-            otp_expiry TIMESTAMP
-        );
-
-        CREATE TABLE IF NOT EXISTS submissions (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            exam_id INTEGER NOT NULL,
-            student_name TEXT NOT NULL,
-            exam_number TEXT NOT NULL,
-            student_class TEXT NOT NULL,
-            answers_json TEXT NOT NULL,
-            score REAL,
-            start_time TIMESTAMP,
-            mac_address TEXT,
-            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-            FOREIGN KEY(exam_id) REFERENCES exams(id) ON DELETE CASCADE
-        );
-
-        CREATE TABLE IF NOT EXISTS saas_settings (
-            key TEXT PRIMARY KEY,
-            value TEXT
-        );
-
-        CREATE TABLE IF NOT EXISTS rate_limits (
-            key TEXT PRIMARY KEY,
-            timestamps TEXT NOT NULL,
-            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-        );
-        CREATE INDEX IF NOT EXISTS idx_rate_limits_key ON rate_limits(key);
-
-        CREATE TABLE IF NOT EXISTS exam_pengawas (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            exam_id INTEGER NOT NULL,
-            user_id INTEGER NOT NULL,
-            UNIQUE(exam_id, user_id),
-            FOREIGN KEY(exam_id) REFERENCES exams(id) ON DELETE CASCADE,
-            FOREIGN KEY(user_id) REFERENCES admin_users(id) ON DELETE CASCADE
-        );
-
-        CREATE TABLE IF NOT EXISTS student_access_logs (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            exam_id INTEGER NOT NULL,
-            submission_id INTEGER,
-            student_identifier TEXT NOT NULL,
-            student_name TEXT,
-            exam_number TEXT,
-            student_class TEXT,
-            event TEXT NOT NULL CHECK(event IN ('login','heartbeat','logout')),
-            ip_address TEXT,
-            device_info TEXT,
-            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-            FOREIGN KEY(exam_id) REFERENCES exams(id) ON DELETE CASCADE,
-            FOREIGN KEY(submission_id) REFERENCES submissions(id) ON DELETE SET NULL
-        );
-
-        CREATE INDEX IF NOT EXISTS idx_access_logs_exam ON student_access_logs(exam_id);
-        CREATE INDEX IF NOT EXISTS idx_access_logs_identifier ON student_access_logs(student_identifier);
-        CREATE INDEX IF NOT EXISTS idx_access_logs_exam_identifier ON student_access_logs(exam_id, student_identifier);
-        CREATE INDEX IF NOT EXISTS idx_exam_pengawas_exam ON exam_pengawas(exam_id);
-        CREATE INDEX IF NOT EXISTS idx_exam_pengawas_user ON exam_pengawas(user_id);
-    '''
-    try:
-        db.executescript(schema_sql)
-    except sqlite3.OperationalError as e:
-        logger.error(f"Schema creation failed: {e}")
-        raise
+    # Load schema from file
+    schema_path = os.path.join(BASE_DIR, 'schema.sql')
+    if os.path.exists(schema_path):
+        with open(schema_path, 'r') as f:
+            db.executescript(f.read())
+        db.commit()
+        logger.info("Database schema applied from schema.sql")
+    else:
+        logger.warning("schema.sql not found — skipping schema creation")
 
     # Seed default SaaS settings if not present
     default_settings = {
@@ -246,10 +206,10 @@ def init_db():
         'certificate_fingerprint': ''
     }
     for k, v in default_settings.items():
-        existing_setting = db.execute('SELECT value FROM saas_settings WHERE key = ?', (k,)).fetchone()
-        if not existing_setting:
+        existing = db.execute('SELECT value FROM saas_settings WHERE key = ?', (k,)).fetchone()
+        if not existing:
             db.execute('INSERT INTO saas_settings (key, value) VALUES (?, ?)', (k, v))
-        elif k in ('android_version', 'webapp_version') and existing_setting['value'] in ('2.1.0', '2.1.1', '2.1.2', '2.1.3', '2.1.4', '2.1.5', '2.1.6', '2.1.7', '2.1.8', '2.1.9'):
+        elif k in ('android_version', 'webapp_version') and existing['value'] in ('2.1.0', '2.1.1', '2.1.2', '2.1.3', '2.1.4', '2.1.5', '2.1.6', '2.1.7', '2.1.8', '2.1.9'):
             db.execute('UPDATE saas_settings SET value = ? WHERE key = ?', (v, k))
     db.commit()
 
@@ -263,7 +223,6 @@ def init_db():
 
     if not existing:
         if not admin_password:
-            # Generate a secure random password if no env var is set
             admin_password = secrets.token_hex(16)
             logger.warning(
                 f"No EXAMVAN_ADMIN_PASS env var set. "
@@ -278,7 +237,6 @@ def init_db():
         db.commit()
         logger.info(f"Default admin user '{admin_username}' created")
     elif admin_password:
-        # Sync password from env var if it changed
         current_hash = db.execute(
             'SELECT password_hash FROM admin_users WHERE id = ?',
             (existing['id'],)
@@ -292,90 +250,13 @@ def init_db():
             db.commit()
             logger.info(f"Admin password updated from env var for '{admin_username}'")
 
-    # ===== Migration tracking =====
-    db.execute('''CREATE TABLE IF NOT EXISTS _migrations (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        name TEXT UNIQUE NOT NULL,
-        applied_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-    )''')
-    db.commit()
-
-    applied = {row['name'] for row in db.execute('SELECT name FROM _migrations').fetchall()}
-
-    migrations = [
-        ('add_token_to_exams', 'ALTER TABLE exams ADD COLUMN token TEXT'),
-        ('add_questions_json_to_exams', 'ALTER TABLE exams ADD COLUMN questions_json TEXT'),
-        ('add_created_by_to_exams', 'ALTER TABLE exams ADD COLUMN created_by INTEGER DEFAULT 1'),
-        ('add_security_level_to_exams', "ALTER TABLE exams ADD COLUMN security_level TEXT DEFAULT 'medium'"),
-        ('add_start_time_to_submissions', 'ALTER TABLE submissions ADD COLUMN start_time TIMESTAMP'),
-        ('add_mac_address_to_submissions', 'ALTER TABLE submissions ADD COLUMN mac_address TEXT'),
-        ('add_public_results_to_exams', 'ALTER TABLE exams ADD COLUMN public_results INTEGER DEFAULT 1'),
-        ('add_show_answers_to_exams', 'ALTER TABLE exams ADD COLUMN show_answers INTEGER DEFAULT 0'),
-        ('add_max_exams_to_admin_users', 'ALTER TABLE admin_users ADD COLUMN max_exams INTEGER DEFAULT 3'),
-        ('add_max_pdf_size_to_admin_users', 'ALTER TABLE admin_users ADD COLUMN max_pdf_size INTEGER DEFAULT 1048576'),
-        ('add_max_drafts_to_admin_users', 'ALTER TABLE admin_users ADD COLUMN max_drafts INTEGER DEFAULT 2'),
-        ('add_max_draft_size_to_admin_users', 'ALTER TABLE admin_users ADD COLUMN max_draft_size INTEGER DEFAULT 1048576'),
-        ('add_whatsapp_number_to_admin_users', 'ALTER TABLE admin_users ADD COLUMN whatsapp_number TEXT'),
-        ('add_status_to_admin_users', "ALTER TABLE admin_users ADD COLUMN status TEXT DEFAULT 'active'"),
-        ('add_otp_code_to_admin_users', 'ALTER TABLE admin_users ADD COLUMN otp_code TEXT'),
-        ('add_expires_at_to_admin_users', 'ALTER TABLE admin_users ADD COLUMN expires_at TIMESTAMP'),
-        ('add_otp_expiry_to_admin_users', 'ALTER TABLE admin_users ADD COLUMN otp_expiry TIMESTAMP'),
-        ('add_identity_fields_to_exams', 'ALTER TABLE exams ADD COLUMN identity_fields TEXT'),
-        ('add_identity_data_to_submissions', 'ALTER TABLE submissions ADD COLUMN identity_data TEXT'),
-        ('add_panel_color_to_exams', 'ALTER TABLE exams ADD COLUMN panel_color TEXT'),
-        ('add_start_time_to_exams', 'ALTER TABLE exams ADD COLUMN start_time TEXT'),
-        ('add_end_time_to_exams', 'ALTER TABLE exams ADD COLUMN end_time TEXT'),
-        ('add_instansi_to_admin_users', "ALTER TABLE admin_users ADD COLUMN instansi TEXT DEFAULT ''"),
-        ('add_role_to_admin_users', "ALTER TABLE admin_users ADD COLUMN role TEXT DEFAULT 'guru'"),
-        ('set_superadmin_role', "UPDATE admin_users SET role = 'superadmin' WHERE role = 'guru' AND (username = 'superadmin' OR username = 'admin')"),
-        ('set_instansi_default_personal', f"UPDATE admin_users SET instansi = 'owner' WHERE (instansi IS NULL OR instansi = '') AND (username = '{admin_username}' OR username = 'admin')"),
-        ('set_instansi_default_others', "UPDATE admin_users SET instansi = 'personal' WHERE instansi IS NULL OR instansi = ''"),
-        ('convert_role_to_json',
-         f"UPDATE admin_users SET role = '[\"guru\"]' WHERE role = 'guru' AND username != '{admin_username}' AND username != 'admin'"),
-        ('convert_role_to_json_pengawas',
-         "UPDATE admin_users SET role = '[\"pengawas\"]' WHERE role = 'pengawas'"),
-        ('add_delegated_to_to_exams', 'ALTER TABLE exams ADD COLUMN delegated_to INTEGER REFERENCES admin_users(id)'),
-        # strict_mode is defined in CREATE TABLE, no ALTER needed
-    ]
-
-    for name, sql in migrations:
-        if name in applied:
-            continue
-        try:
-            db.execute(sql)
-            if name == 'add_token_to_exams':
-                # Generate tokens for existing rows from older databases
-                chars = string.ascii_uppercase + string.digits
-                rows = db.execute('SELECT id FROM exams WHERE token IS NULL').fetchall()
-                for row in rows:
-                    token = ''.join(secrets.choice(chars) for _ in range(6))
-                    db.execute('UPDATE exams SET token = ? WHERE id = ?',
-                               (token, row['id']))
-            db.execute('INSERT INTO _migrations (name) VALUES (?)', (name,))
-            db.commit()
-            logger.info(f"Migration '{name}' applied")
-        except sqlite3.OperationalError:
-            # Column likely already exists; record migration as done
-            try:
-                db.execute('INSERT INTO _migrations (name) VALUES (?)', (name,))
-            except sqlite3.IntegrityError:
-                pass
-            db.commit()
-
-    # ===== Ensure admin user has correct role =====
-    # Safety check: always ensure the admin user has role='superadmin'
-    # This runs on every startup to handle edge cases:
-    # - Old DB where admin was created before role column existed
-    # - Partially applied migrations
-    # - Username rename from 'admin' to 'superadmin'
+    # Ensure admin user has correct role
     try:
-        # 1. Try to find admin by configured username
         admin_row = db.execute(
             "SELECT id, role, username FROM admin_users WHERE username = ?",
             (admin_username,)
         ).fetchone()
 
-        # 2. If not found, try the old 'admin' username and rename it
         if not admin_row and admin_username != 'admin':
             old_admin = db.execute(
                 "SELECT id, role, username FROM admin_users WHERE username = 'admin'"
@@ -386,13 +267,11 @@ def init_db():
                     (admin_username, old_admin['id'])
                 )
                 db.commit()
-                logger.info(f"Renamed admin user 'admin' → '{admin_username}', role → 'superadmin'")
                 admin_row = db.execute(
                     "SELECT id, role, username FROM admin_users WHERE id = ?",
                     (old_admin['id'],)
                 ).fetchone()
 
-        # 3. Ensure role is 'superadmin'
         if admin_row and admin_row['role'] != 'superadmin':
             db.execute(
                 "UPDATE admin_users SET role = 'superadmin' WHERE id = ?",
@@ -401,24 +280,7 @@ def init_db():
             db.commit()
             logger.info(f"Admin user '{admin_row['username']}' role → 'superadmin'")
 
-        # 4. Also fix any remaining 'admin' username with wrong role
-        if admin_username != 'admin':
-            db.execute(
-                "UPDATE admin_users SET role = 'superadmin' WHERE username = 'admin' AND role != 'superadmin'"
-            )
-            db.commit()
-
         logger.info(f"Admin user check complete: '{admin_username}' is ready")
-
-        # ===== Ensure all users have instansi set =====
-        try:
-            cur = db.execute(
-                "UPDATE admin_users SET instansi = 'personal' WHERE instansi IS NULL OR instansi = ''"
-            )
-            if cur.rowcount:
-                logger.info(f"Set instansi='personal' for {cur.rowcount} user(s)")
-        except Exception as e:
-            logger.error(f"Instansi default check failed: {e}")
     except Exception as e:
         logger.error(f"Admin role check failed: {e}")
 
@@ -433,18 +295,23 @@ def _lazy_init():
     global _init_done
     if not _init_done:
         try:
+            # Connect the database pool
+            db_module.connect(DATABASE_URL)
+            # Initialize schema + seed data
             init_db()
             _init_done = True
+            # Start async submission queue worker (if Redis available)
+            _start_submission_worker()
         except Exception as e:
-            logger.error(f"Error initializing database on first request: {e}")
+            logger.error(f"Error initializing database on first request: {e}", exc_info=True)
 
 
-# ===== Rate Limiter (SQLite-backed) =====
+# ===== Rate Limiter =====
 import time
 import json
 
 def check_rate_limit(key, max_attempts=5, window_seconds=300):
-    """SQLite-backed rate limiter (works across Gunicorn workers)."""
+    """PostgreSQL-backed rate limiter (works across Gunicorn workers)."""
     now = time.time()
     ip = request.access_route[0] if request.access_route else request.remote_addr or 'unknown'
     store_key = f"{key}:{ip}"
@@ -457,16 +324,98 @@ def check_rate_limit(key, max_attempts=5, window_seconds=300):
     timestamps = [t for t in timestamps if now - t < window_seconds]
 
     if len(timestamps) >= max_attempts:
-        db.execute('INSERT OR REPLACE INTO rate_limits (key, timestamps) VALUES (?, ?)',
-                   (store_key, json.dumps(timestamps)))
+        db.execute(
+            'INSERT INTO rate_limits (key, timestamps) VALUES (?, ?) '
+            'ON CONFLICT (key) DO UPDATE SET timestamps = ?, updated_at = CURRENT_TIMESTAMP',
+            (store_key, json.dumps(timestamps), json.dumps(timestamps))
+        )
         db.commit()
         return False
 
     timestamps.append(now)
-    db.execute('INSERT OR REPLACE INTO rate_limits (key, timestamps) VALUES (?, ?)',
-               (store_key, json.dumps(timestamps)))
+    db.execute(
+        'INSERT INTO rate_limits (key, timestamps) VALUES (?, ?) '
+        'ON CONFLICT (key) DO UPDATE SET timestamps = ?, updated_at = CURRENT_TIMESTAMP',
+        (store_key, json.dumps(timestamps), json.dumps(timestamps))
+    )
     db.commit()
     return True
+
+
+# ===== Redis Helpers =====
+
+def set_student_heartbeat(exam_id, student_identifier, data):
+    """Store active student status in Redis with 60s TTL."""
+    if redis_client is None:
+        return
+    try:
+        key = f'hb:{exam_id}:{student_identifier}'
+        redis_client.setex(key, 60, json.dumps(data))
+    except Exception:
+        pass
+
+
+def get_student_heartbeat(exam_id, student_identifier):
+    """Get student heartbeat status from Redis."""
+    if redis_client is None:
+        return None
+    try:
+        key = f'hb:{exam_id}:{student_identifier}'
+        val = redis_client.get(key)
+        if val:
+            return json.loads(val)
+    except Exception:
+        pass
+    return None
+
+
+def get_active_students_for_exam(exam_id):
+    """Get all currently active (heartbeating) students for an exam."""
+    if redis_client is None:
+        return {}
+    try:
+        pattern = f'hb:{exam_id}:*'
+        keys = redis_client.keys(pattern)
+        result = {}
+        for key in keys:
+            student_id = key.split(':', 2)[2]
+            val = redis_client.get(key)
+            if val:
+                result[student_id] = json.loads(val)
+        return result
+    except Exception:
+        return {}
+
+
+def cached(ttl=30):
+    """Simple Redis caching decorator for GET endpoints.
+
+    Caches JSON responses keyed by request path + query string.
+    Only caches 200 responses.
+    """
+    def decorator(f):
+        @wraps(f)
+        def decorated(*args, **kwargs):
+            if redis_client is None or request.method != 'GET':
+                return f(*args, **kwargs)
+            cache_key = f'cache:{request.full_path}'
+            try:
+                cached_resp = redis_client.get(cache_key)
+                if cached_resp:
+                    return jsonify(json.loads(cached_resp)), 200
+            except Exception:
+                pass
+            resp = f(*args, **kwargs)
+            try:
+                if isinstance(resp, tuple) and len(resp) >= 2 and resp[1] == 200:
+                    data = resp[0].get_json() if hasattr(resp[0], 'get_json') else resp[0]
+                    if data:
+                        redis_client.setex(cache_key, ttl, json.dumps(data))
+            except Exception:
+                pass
+            return resp
+        return decorated
+    return decorator
 
 
 # ===== CSRF Protection =====
@@ -525,7 +474,11 @@ def get_saas_setting(key, default=''):
 
 def set_saas_setting(key, value):
     db = get_db()
-    db.execute('INSERT OR REPLACE INTO saas_settings (key, value) VALUES (?, ?)', (key, str(value)))
+    db.execute(
+        'INSERT INTO saas_settings (key, value) VALUES (?, ?) '
+        'ON CONFLICT (key) DO UPDATE SET value = ?',
+        (key, str(value), str(value))
+    )
     db.commit()
 
 def send_whatsapp(target, message):
@@ -798,6 +751,12 @@ def add_security_headers(response):
 # routes.py can import from app.py without a circular-reference issue.
 # Routes register themselves via @app.route(...) decorators.
 import routes
+# WebSocket routes imported separately to avoid circular dependency (app → routes → websocket → app)
+# websocket.py imports from app, so it must be imported after app is fully initialized.
+try:
+    from routes import websocket as _ws_routes
+except Exception as e:
+    logger.warning(f"WebSocket routes not loaded: {e}")
 
 @app.errorhandler(413)
 def too_large(e):
@@ -840,4 +799,7 @@ def internal_error(e):
 # ===== Main =====
 if __name__ == '__main__':
     port = int(os.environ.get('PORT', 5000))
-    app.run(host='0.0.0.0', port=port)
+    if socketio is not None:
+        socketio.run(app, host='0.0.0.0', port=port, allow_unsafe_werkzeug=True)
+    else:
+        app.run(host='0.0.0.0', port=port)

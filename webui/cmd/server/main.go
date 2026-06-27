@@ -504,6 +504,10 @@ func registerRoutes(r *gin.Engine, cfg *config.Config, pool *pgxpool.Pool) {
 		adminAPI.GET("/submissions/export", admin.ExportSubmissions())
 		adminAPI.GET("/submissions/:id/export_detail", admin.ExportSubmissionDetail())
 		adminAPI.GET("/queue/status", admin.QueueStatus())
+		adminUsersRead := adminAPI.Group("", middleware.AdminManagementRequired())
+		{
+			adminUsersRead.GET("/users", admin.ListUsers())
+		}
 		adminAPI.GET("/pengawas/exams", admin.PengawasExams())
 		adminAPI.GET("/pengawas/exams/:exam_id/submissions", admin.PengawasExamSubmissions())
 		adminAPI.GET("/saas-settings", admin.SaasSettings())

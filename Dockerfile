@@ -28,5 +28,5 @@ ENTRYPOINT ["/entrypoint.sh"]
 # Expose server port
 EXPOSE 5000
 
-# Run with Gunicorn: 1 worker + 4 threads for safe SQLite concurrent access
-CMD ["gunicorn", "-w", "1", "--threads", "4", "-b", "0.0.0.0:5000", "app:app"]
+# Run with Gunicorn: eventlet worker for WebSocket support + PostgreSQL concurrency
+CMD ["gunicorn", "-w", "4", "-k", "gevent", "--worker-connections", "1000", "-b", "0.0.0.0:5000", "app:app"]

@@ -30,15 +30,28 @@ def localize_date_string(utc_str, tz_offset_min=None):
         return utc_str
 
 
-def format_iso_utc(date_str):
-    """Convert SQLite YYYY-MM-DD HH:MM:SS string to ISO 8601 UTC format."""
-    if not date_str:
-        return date_str
-    if ' ' in date_str:
-        return date_str.replace(' ', 'T') + 'Z'
-    if 'T' in date_str or date_str.endswith('Z'):
-        return date_str
-    return date_str + 'Z'
+def format_iso_utc(date_val):
+    """Convert timestamp to ISO 8601 UTC format string.
+
+    Handles:
+      - datetime objects (PostgreSQL TIMESTAMPTZ)
+      - 'YYYY-MM-DD HH:MM:SS' strings (legacy SQLite)
+      - ISO 8601 strings
+      - None
+    """
+    if date_val is None:
+        return ''
+    if isinstance(date_val, datetime):
+        return date_val.strftime('%Y-%m-%dT%H:%M:%SZ')
+    if isinstance(date_val, str):
+        if ' ' in date_val:
+            return date_val.replace(' ', 'T') + 'Z'
+        if date_val.endswith('Z'):
+            return date_val
+        if 'T' not in date_val:
+            return date_val + 'Z'
+        return date_val
+    return str(date_val)
 
 
 def get_local_ip():

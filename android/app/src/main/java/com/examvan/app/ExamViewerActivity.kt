@@ -8,6 +8,7 @@ import android.view.View
 import androidx.activity.OnBackPressedCallback
 import androidx.activity.viewModels
 import androidx.appcompat.app.AlertDialog
+import com.examvan.app.api.WebSocketManager
 import com.examvan.app.databinding.ActivityExamViewerBinding
 import com.examvan.app.helper.AnswerSheetBuilder
 import com.examvan.app.helper.PdfRendererHelper
@@ -46,6 +47,8 @@ class ExamViewerActivity : BaseSecureActivity() {
     private var identityData: String? = null
     private var startTime = ""
     private var macAddress = ""
+    private var serverUrl = ""
+    private var examToken = ""
     private var securityLevel = "medium"
     private var examContentLoaded = false
 
@@ -94,11 +97,43 @@ class ExamViewerActivity : BaseSecureActivity() {
         studentNumber = intent.getStringExtra("student_number") ?: ""
         studentClass = intent.getStringExtra("student_class") ?: ""
         identityData = intent.getStringExtra("identity_data")
+        serverUrl = intent.getStringExtra("server_url") ?: ""
+        examToken = intent.getStringExtra("exam_token") ?: ""
 
         // Read from EncryptedSharedPreferences (not Intent) for security
         val strictMode = AppPrefs.getExamPrefs(this).getBoolean(AppPrefs.KEY_STRICT_MODE, false)
         macAddress = DeviceIdResolver.resolveDeviceId(this)
         binding.tvExamTitle.text = examName
+
+        // Start WebSocket for real-time communication
+        if (serverUrl.isNotEmpty() && examToken.isNotEmpty() && examId > 0) {
+            WebSocketManager.connect(
+                baseUrl = serverUrl,
+                examId = examId,
+                token = examToken,
+                deviceId = macAddress,
+                onEvent = { event, data ->
+                    Log.d(TAG, "WS event: $event $data")
+                    runOnUiThread {
+                        when (event) {
+                            "exam_terminated" -> {
+                                // Server terminated the exam
+                                submissionManager.autoSubmitAndExit()
+                            }
+                            "notification" -> {
+                                // Show toast with server message
+                                val msg = data["message"]?.toString() ?: ""
+                                if (msg.isNotEmpty()) {
+                                    android.widget.Toast.makeText(
+                                        this@ExamViewerActivity, msg, android.widget.Toast.LENGTH_LONG
+                                    ).show()
+                                }
+                            }
+                        }
+                    }
+                }
+            )
+        }
 
         // ---- Initialize helpers ----
         initializeHelpers(strictMode, savedInstanceState)
@@ -184,6 +219,9 @@ class ExamViewerActivity : BaseSecureActivity() {
             setShowingAppDialog = { v -> securityEnforcer.isShowingAppDialog = v }
             onFinish = { finish() }
             isActivityFinishing = { isFinishing || isDestroyed }
+            onBeforeSubmit = {
+                WebSocketManager.notifyExamCompleted()
+            }
             initNotificationChannel()
         }
 
@@ -558,6 +596,7 @@ class ExamViewerActivity : BaseSecureActivity() {
         pdfRendererHelper.cleanup()
         securityEnforcer.cleanup()
         unregisterNetworkCallback()
+        WebSocketManager.disconnect()
         AuditLog.reset()
     }
 

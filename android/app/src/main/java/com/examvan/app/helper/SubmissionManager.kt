@@ -58,6 +58,9 @@ class SubmissionManager(
     // Callback to get current answers
     var getAnswers: (() -> Map<String, Any>)? = null
 
+    // Callback called before submit (for WebSocket notification, etc.)
+    var onBeforeSubmit: (() -> Unit)? = null
+
     // Callback for lock task deactivation
     var deactivateLockTask: (() -> Unit)? = null
 
@@ -198,6 +201,9 @@ class SubmissionManager(
         isSubmitting = true
         binding.btnSubmitAnswers.isEnabled = false
         binding.btnSubmitAnswers.text = context.getString(R.string.submitting)
+
+        // Notify server via WebSocket that submission is happening
+        onBeforeSubmit?.invoke()
 
         val answers = getAnswers?.invoke() ?: emptyMap()
 
