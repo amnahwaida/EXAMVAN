@@ -451,6 +451,10 @@ if (document.readyState === 'loading') {
     document.addEventListener('DOMContentLoaded', () => {
         initMenuToggle();
         initSkipLink();
+        // Init password visibility toggles
+        togglePasswordVisibility('currentPassword', 'toggleCurPassword');
+        togglePasswordVisibility('newPassword', 'toggleNewPassword');
+        togglePasswordVisibility('confirmNewPassword', 'toggleConfirmPassword');
         // Data stats di-render server, langsung pakai API untuk refresh
         if (document.getElementById('statsGrid')) {
             refreshDashboardStats();
@@ -459,6 +463,9 @@ if (document.readyState === 'loading') {
 } else {
     initMenuToggle();
     initSkipLink();
+    togglePasswordVisibility('currentPassword', 'toggleCurPassword');
+    togglePasswordVisibility('newPassword', 'toggleNewPassword');
+    togglePasswordVisibility('confirmNewPassword', 'toggleConfirmPassword');
     if (document.getElementById('statsGrid')) {
         refreshDashboardStats();
     }

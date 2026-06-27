@@ -235,6 +235,11 @@ func ChangePassword() gin.HandlerFunc {
 			return
 		}
 
+		if models.CheckPassword(body.NewPassword, user.PasswordHash) {
+			errorResponse(c, http.StatusBadRequest, "Password baru harus berbeda dari password saat ini")
+			return
+		}
+
 		if err := models.UpdateUserField(ctx, pool, userID, "password_hash", body.NewPassword); err != nil {
 			log.Printf("change password error: %v", err)
 			errorResponse(c, http.StatusInternalServerError, "Gagal mengubah password")
