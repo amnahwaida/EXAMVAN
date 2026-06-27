@@ -471,3 +471,12 @@ code, pre, .token-code, .mono {
     a { color: #4f46e5 !important; }
 }
 
+/* Clickable table rows (pengawas page) */
+.clickable-row {
+    cursor: pointer;
+    transition: background 0.1s;
+}
+.clickable-row:hover {
+    background: rgba(99, 102, 241, 0.05);
+}
+

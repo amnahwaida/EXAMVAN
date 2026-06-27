@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"os"
 	"strconv"
 	"strings"
 	"time"
@@ -661,5 +662,63 @@ func VerifyUser() gin.HandlerFunc {
 		}
 
 		successMessage(c, fmt.Sprintf("User %s berhasil diaktifkan secara manual", targetUser.Username))
+	}
+}
+
+// DeleteUser removes a user and cascades their exams.
+func DeleteUser() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		targetID, err := strconv.Atoi(c.Param("user_id"))
+		if err != nil {
+			errorResponse(c, http.StatusBadRequest, "ID user tidak valid")
+			return
+		}
+
+		pool := getPool(c)
+		userID := getCurrentUserID(c)
+		isOp := isOperator(c)
+		isSuper := isSuperAdmin(c)
+		ctx := c.Request.Context()
+
+		if targetID == userID {
+			errorResponse(c, http.StatusBadRequest, "Tidak dapat menghapus akun sendiri")
+			return
+		}
+
+		targetUser, err := models.GetUserByID(ctx, pool, targetID)
+		if err != nil {
+			errorResponse(c, http.StatusNotFound, "User tidak ditemukan")
+			return
+		}
+
+		if isSuper {
+			// super admin can delete anyone
+		} else if isOp {
+			opInstansi := getInstansiForOperator(ctx, pool, userID)
+			if targetUser.Instansi != opInstansi {
+				errorResponse(c, http.StatusBadRequest, "Anda hanya dapat mengelola user dalam satu instansi yang sama")
+				return
+			}
+		} else {
+			errorResponse(c, http.StatusForbidden, "Tidak memiliki izin")
+			return
+		}
+
+		paths, err := models.DeleteUser(ctx, pool, targetID)
+		if err != nil {
+			log.Printf("delete user error: %v", err)
+			errorResponse(c, http.StatusInternalServerError, "Gagal menghapus user")
+			return
+		}
+
+		// Clean up associated files
+		storageDir := getStoragePath(c)
+		for _, p := range paths {
+			if fp, err := safeStoragePath(storageDir, p); err == nil {
+				os.Remove(fp)
+			}
+		}
+
+		successMessage(c, fmt.Sprintf("User %s berhasil dihapus", targetUser.Username))
 	}
 }

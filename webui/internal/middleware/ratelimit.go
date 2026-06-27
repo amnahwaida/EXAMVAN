@@ -56,7 +56,7 @@ func RateLimit(maxAttempts int, window time.Duration) gin.HandlerFunc {
 }
 
 // ---------------------------------------------------------------------------
-// In-memory rate limiter (per-node, single-process)
+// Global in-memory rate limiter store (shared, single cleanup goroutine)
 // ---------------------------------------------------------------------------
 
 type memEntry struct {
@@ -64,44 +64,66 @@ type memEntry struct {
 	start time.Time
 }
 
-func newMemoryRateLimit(maxAttempts int, window time.Duration) gin.HandlerFunc {
-	var mu sync.Mutex
-	store := make(map[string]*memEntry)
+const maxMemEntries = 10000
 
-	// Periodic cleanup of stale entries to prevent unbounded growth.
-	go func() {
-		ticker := time.NewTicker(window)
-		defer ticker.Stop()
-		for range ticker.C {
-			mu.Lock()
-			cutoff := time.Now().Add(-window * 2)
-			for ip, e := range store {
-				if e.start.Before(cutoff) {
-					delete(store, ip)
+var (
+	memStore   = make(map[string]*memEntry)
+	memStoreMu sync.Mutex
+	memCleaner sync.Once
+)
+
+// startMemCleaner starts a single background goroutine that periodically
+// evicts stale entries from the in-memory rate limit store. It runs only
+// once across all RateLimit() calls.
+func startMemCleaner(window time.Duration) {
+	memCleaner.Do(func() {
+		go func() {
+			ticker := time.NewTicker(window)
+			defer ticker.Stop()
+			for range ticker.C {
+				memStoreMu.Lock()
+				cutoff := time.Now().Add(-window * 2)
+				for ip, e := range memStore {
+					if e.start.Before(cutoff) {
+						delete(memStore, ip)
+					}
 				}
+				if len(memStore) > maxMemEntries {
+					evict := len(memStore) - maxMemEntries
+					for ip := range memStore {
+						if evict <= 0 {
+							break
+						}
+						delete(memStore, ip)
+						evict--
+					}
+				}
+				memStoreMu.Unlock()
 			}
-			mu.Unlock()
-		}
-	}()
+		}()
+	})
+}
+
+func newMemoryRateLimit(maxAttempts int, window time.Duration) gin.HandlerFunc {
+	startMemCleaner(window)
 
 	return func(c *gin.Context) {
 		ip := c.ClientIP()
 		now := time.Now()
 
-		mu.Lock()
-		e, exists := store[ip]
+		memStoreMu.Lock()
+		e, exists := memStore[ip]
 
 		if !exists || now.Sub(e.start) > window {
-			// New window.
-			store[ip] = &memEntry{count: 1, start: now}
-			mu.Unlock()
+			memStore[ip] = &memEntry{count: 1, start: now}
+			memStoreMu.Unlock()
 			c.Next()
 			return
 		}
 
 		e.count++
 		if e.count > maxAttempts {
-			mu.Unlock()
+			memStoreMu.Unlock()
 			c.AbortWithStatusJSON(http.StatusTooManyRequests, gin.H{
 				"success": false,
 				"message": fmt.Sprintf(
@@ -111,7 +133,7 @@ func newMemoryRateLimit(maxAttempts int, window time.Duration) gin.HandlerFunc {
 			})
 			return
 		}
-		mu.Unlock()
+		memStoreMu.Unlock()
 		c.Next()
 	}
 }

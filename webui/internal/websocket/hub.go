@@ -12,6 +12,7 @@ import (
 	"encoding/json"
 	"log"
 	"net/http"
+	"strings"
 	"sync"
 	"time"
 
@@ -23,10 +24,19 @@ import (
 // ---------------------------------------------------------------------------
 
 var upgrader = ws.Upgrader{
-	ReadBufferSize:  1024,
-	WriteBufferSize: 1024,
-	// Allow all origins for dev; production should restrict this.
-	CheckOrigin: func(r *http.Request) bool { return true },
+	ReadBufferSize:  4096,
+	WriteBufferSize: 4096,
+	// Validate Origin header against Host to prevent CSWSH attacks.
+	CheckOrigin: func(r *http.Request) bool {
+		origin := r.Header.Get("Origin")
+		if origin == "" {
+			// No Origin header (non-browser client) — allow.
+			return true
+		}
+		host := r.Host
+		// Allow requests whose Origin matches the Host (including scheme variants).
+		return strings.Contains(origin, "://"+host) || strings.Contains(origin, "://localhost")
+	},
 }
 
 // ---------------------------------------------------------------------------

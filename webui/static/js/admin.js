@@ -141,7 +141,10 @@ function deleteExam(examId, examName) {
     showConfirm(`Hapus ujian "${examName}"?`, 'File PDF juga akan dihapus permanen.').then(ok => {
         if (!ok) return;
 
-        apiFetch(`/admin/api/exams/${examId}`, { method: 'DELETE' })
+        apiFetch(`/admin/api/exams/${examId}/delete`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' }
+        })
             .then(r => r.json())
             .then(res => {
                 if (res.success) {
@@ -1140,7 +1143,7 @@ function renderRoleBadges(roles) {
     var labels = { guru: 'Guru', pengawas: 'Pengawas' };
     return roles.map(function(r) {
         var style = badgeStyles[r] || badgeStyles.guru;
-        var label = labels[r] || r;
+        var label = labels[r] || escapeHtml(r);
         return '<span style="display:inline-block;padding:2px 8px;border-radius:10px;font-size:11px;font-weight:600;' + style + '">' + label + '</span>';
     }).join(' ');
 }
@@ -1380,8 +1383,8 @@ function deleteUser(userId, username) {
     showConfirm(`Hapus user "${username}"?`, 'Semua ujian dan data yang dibuat oleh user ini akan ikut terhapus.').then(ok => {
         if (!ok) return;
 
-        apiFetch(`/admin/api/users/${userId}`, {
-            method: 'DELETE'
+        apiFetch(`/admin/api/users/${userId}/delete`, {
+            method: 'POST'
         })
             .then(r => r.json())
             .then(res => {
@@ -2391,63 +2394,30 @@ function toggleRowDropdown(event, examId) {
     
     const isShown = dropdown.classList.contains('show');
     
-    // Close all other dropdowns and reparent them back
-    document.querySelectorAll('.exam-action-dropdown-content').forEach(d => {
-        if (d !== dropdown) {
-            d.classList.remove('show');
-            reparentDropdownBack(d);
-        }
+    // Close all other dropdowns
+    document.querySelectorAll('.exam-action-dropdown-content.show').forEach(d => {
+        if (d !== dropdown) d.classList.remove('show');
     });
     
-    if (isShown) {
-        dropdown.classList.remove('show');
-        reparentDropdownBack(dropdown);
-        return;
-    }
+    dropdown.classList.remove('drop-up', 'drop-down', 'align-right');
+    dropdown.classList.toggle('show');
     
-    // Save original parent and siblings for later reparenting
-    dropdown._origParent = dropdown.parentNode;
-    dropdown._origNextSibling = dropdown.nextSibling;
-    
-    // Append to body to avoid any parent clipping
-    document.body.appendChild(dropdown);
-    dropdown.classList.add('show');
-    
-    // Position using fixed coordinates relative to the button
-    const btn = event.currentTarget;
-    const btnRect = btn.getBoundingClientRect();
-    const gap = 6;
-    const spaceBelow = window.innerHeight - btnRect.bottom;
-    const spaceAbove = btnRect.top;
-    
-    const _sp = (p, v) => dropdown.style.setProperty(p, v, 'important');
-    _sp('position', 'fixed');
-    _sp('left', 'auto');
-    if (spaceBelow >= 200 || spaceBelow >= spaceAbove) {
-        _sp('top', (btnRect.bottom + gap) + 'px');
-        _sp('bottom', 'auto');
-    } else {
-        _sp('top', 'auto');
-        _sp('bottom', (window.innerHeight - btnRect.top + gap) + 'px');
-    }
-    _sp('right', (window.innerWidth - btnRect.right) + 'px');
-}
-
-function reparentDropdownBack(el) {
-    if (el._origParent) {
-        if (el._origNextSibling) {
-            el._origParent.insertBefore(el, el._origNextSibling);
-        } else {
-            el._origParent.appendChild(el);
+    if (dropdown.classList.contains('show')) {
+        void dropdown.offsetHeight;
+        var r = dropdown.getBoundingClientRect();
+        if (r.top < 0) {
+            dropdown.classList.add('drop-down');
+            r = dropdown.getBoundingClientRect();
+        } else if (r.bottom > window.innerHeight) {
+            dropdown.classList.add('drop-up');
+            r = dropdown.getBoundingClientRect();
         }
-        el._origParent = null;
-        el._origNextSibling = null;
+        if (r.right > window.innerWidth) {
+            dropdown.classList.add('align-right');
+        } else if (r.left < 0) {
+            dropdown.classList.remove('align-right');
+        }
     }
-    el.style.removeProperty('position');
-    el.style.removeProperty('top');
-    el.style.removeProperty('left');
-    el.style.removeProperty('right');
-    el.style.removeProperty('bottom');
 }
 
 // Close dropdowns when clicking anywhere outside
@@ -2456,9 +2426,8 @@ document.addEventListener('click', function(event) {
     const clickedDropdown = event.target.closest('.exam-action-dropdown-content');
 
     if (!clickedBtn && !clickedDropdown) {
-        document.querySelectorAll('.exam-action-dropdown-content').forEach(el => {
+        document.querySelectorAll('.exam-action-dropdown-content.show').forEach(el => {
             el.classList.remove('show');
-            reparentDropdownBack(el);
         });
     }
 });
@@ -2466,9 +2435,8 @@ document.addEventListener('click', function(event) {
 // Close dropdowns with Escape key
 document.addEventListener('keydown', function(event) {
     if (event.key === 'Escape') {
-        document.querySelectorAll('.exam-action-dropdown-content').forEach(el => {
+        document.querySelectorAll('.exam-action-dropdown-content.show').forEach(el => {
             el.classList.remove('show');
-            reparentDropdownBack(el);
         });
     }
 });
@@ -2532,7 +2500,7 @@ async function bulkDeleteExams() {
     // Confirmation already handled by confirmBulkDelete() in template
 
     try {
-        const response = await apiFetch('/admin/exams/bulk-delete', {
+        const response = await apiFetch('/admin/api/exams/bulk-delete', {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json'
@@ -2581,7 +2549,7 @@ function exportSubmissions() {
 function deleteSubmission(id) {
     showConfirm('Hapus hasil ujian siswa ini?', 'Data akan dihapus secara permanen.').then(ok => {
         if (!ok) return;
-        apiFetch(`/admin/api/submissions/${id}`, { method: 'DELETE' })
+        apiFetch(`/admin/api/submissions/${id}/delete`, { method: 'POST' })
             .then(r => r.json())
             .then(res => {
                 if (res.success) {
@@ -2755,7 +2723,7 @@ async function bulkToggleExams() {
     if (!confirmed) return;
 
     try {
-        const response = await apiFetch('/admin/exams/bulk-toggle', {
+        const response = await apiFetch('/admin/api/exams/bulk-toggle', {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json'

@@ -23,6 +23,8 @@ import (
 
 	goredis "github.com/redis/go-redis/v9"
 	"github.com/jackc/pgx/v5/pgxpool"
+
+	"github.com/examvan/webui/internal/models"
 )
 
 // ---------------------------------------------------------------------------
@@ -157,18 +159,20 @@ type Worker struct {
 
 // StartWorker launches a background goroutine that continuously processes
 // submission jobs from the Redis queue. It blocks until the queue is
-// exhausted or Stop() is called. Call StartWorker in a goroutine.
+// exhausted or Stop() is called. Returns the Worker so callers can Stop() it.
 //
 //	pool := database.Connect(cfg)
 //	rdb := redis.Connect(ctx, cfg.RedisURL)
-//	go queue.StartWorker(rdb, pool)
-func StartWorker(rdb *goredis.Client, pool *pgxpool.Pool) {
+//	worker := queue.StartWorker(rdb, pool)
+//	// later: worker.Stop()
+func StartWorker(rdb *goredis.Client, pool *pgxpool.Pool) *Worker {
 	w := &Worker{
 		rdb:  rdb,
 		pool: pool,
 		quit: make(chan struct{}),
 	}
-	w.run()
+	go w.run()
+	return w
 }
 
 // run is the main loop. It blocks on BRPOP and processes each job.
@@ -180,16 +184,18 @@ func (w *Worker) run() {
 
 	log.Printf("queue: worker started (polling %s)", QueueKey)
 
-	ctx := context.Background()
-
 	for {
 		select {
 		case <-w.quit:
 			log.Printf("queue: worker stopped")
 			return
 		default:
+			// Use a per-iteration context with timeout so long operations
+			// don't block shutdown indefinitely.
+			ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 			// BRPOP with a timeout blocks until a job arrives.
 			result, err := w.rdb.BRPop(ctx, defaultPollTimeout, QueueKey).Result()
+			cancel()
 			if err != nil {
 				if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
 					continue
@@ -274,24 +280,28 @@ func (w *Worker) processJob(ctx context.Context, job SubmissionJob) {
 // answers, insert submission into PostgreSQL.
 func (w *Worker) doProcess(ctx context.Context, job *SubmissionJob) JobResult {
 	// Fetch exam questions.
-	exam, err := w.fetchExam(ctx, job.ExamID)
+	if w.pool == nil {
+		return w.fail(job.JobID, "database pool is nil")
+	}
+
+	var questionsJSON *string
+	err := w.pool.QueryRow(ctx,
+		`SELECT questions_json FROM exams WHERE id = $1`, job.ExamID).Scan(&questionsJSON)
 	if err != nil {
 		log.Printf("queue: fetch exam %d: %v", job.ExamID, err)
 		return w.fail(job.JobID, fmt.Sprintf("fetch exam: %v", err))
 	}
 
-	// Parse questions.
-	questions, err := parseQuestionsJSON(exam.QuestionsJSON)
-	if err != nil {
-		log.Printf("queue: parse questions: %v", err)
-		return w.fail(job.JobID, fmt.Sprintf("parse questions: %v", err))
+	// Parse & score using the shared models package.
+	questions, parseErr := models.ParseQuestionsJSON(questionsJSON)
+	if parseErr != nil {
+		log.Printf("queue: parse questions: %v", parseErr)
+		return w.fail(job.JobID, fmt.Sprintf("parse questions: %v", parseErr))
 	}
 
-	// Calculate score.
 	var score *float64
 	if len(questions) > 0 {
-		s := calculateScore(job.Answers, questions)
-		score = &s
+		score = models.CalculateSubmissionScore(job.Answers, questions)
 	}
 
 	// Insert submission into PostgreSQL.
@@ -322,21 +332,6 @@ func (w *Worker) doProcess(ctx context.Context, job *SubmissionJob) JobResult {
 		Message:     fmt.Sprintf("submission %d created", submissionID),
 		ProcessedAt: now,
 	}
-}
-
-// fetchExam retrieves exam data by ID.
-func (w *Worker) fetchExam(ctx context.Context, examID int) (*ExamRow, error) {
-	if w.pool == nil {
-		return nil, errors.New("database pool is nil")
-	}
-
-	sql := `SELECT id, questions_json FROM exams WHERE id = $1`
-	var exam ExamRow
-	err := w.pool.QueryRow(ctx, sql, examID).Scan(&exam.ID, &exam.QuestionsJSON)
-	if err != nil {
-		return nil, fmt.Errorf("query exam %d: %w", examID, err)
-	}
-	return &exam, nil
 }
 
 // insertSubmission writes the submission record into PostgreSQL and
@@ -437,60 +432,6 @@ func GetQueueStats(rdb *goredis.Client) QueueStats {
 // Helpers
 // ---------------------------------------------------------------------------
 
-// ExamRow is a minimal exam struct for the queue worker.
-type ExamRow struct {
-	ID            int
-	QuestionsJSON *string
-}
-
-// questionItem is a lightweight question struct for scoring in the queue
-// (no dependency on the models package).
-type questionItem struct {
-	Number         interface{} `json:"number"`
-	Key            interface{} `json:"key"`
-	Answer         interface{} `json:"answer"`
-	Type           string      `json:"type"`
-	Weight         float64     `json:"weight"`
-	Score          float64     `json:"score"`
-	PartialScoring bool        `json:"partial_scoring"`
-}
-
-func (q *questionItem) getWeight() float64 {
-	if q.Weight > 0 {
-		return q.Weight
-	}
-	if q.Score > 0 {
-		return q.Score
-	}
-	return 1.0
-}
-
-func parseQuestionsJSON(raw *string) ([]questionItem, error) {
-	if raw == nil || *raw == "" {
-		return nil, nil
-	}
-	var questions []questionItem
-	if err := json.Unmarshal([]byte(*raw), &questions); err != nil {
-		return nil, err
-	}
-	return questions, nil
-}
-
-func calculateScore(answers map[string]interface{}, questions []questionItem) float64 {
-	var total float64
-	for _, q := range questions {
-		qNum := normalizeQNum(q.Number)
-		studentAns := answers[qNum]
-		correctAns := q.Key
-		if correctAns == nil {
-			correctAns = q.Answer
-		}
-		earned, _, _ := evaluateSingleQuestion(studentAns, correctAns, q.Type, q.getWeight(), q.PartialScoring)
-		total += earned
-	}
-	return total
-}
-
 // generateJobID creates a unique job identifier using timestamp + random.
 func generateJobID() string {
 	now := time.Now().UnixNano()
@@ -544,255 +485,4 @@ func extractMap(data map[string]interface{}, key string) map[string]interface{} 
 		}
 	}
 	return map[string]interface{}{}
-}
-
-// ---------------------------------------------------------------------------
-// Scoring (minimal copy — no dependency on models or helpers)
-// ---------------------------------------------------------------------------
-
-func normalizeQNum(number interface{}) string {
-	switch v := number.(type) {
-	case float64:
-		if v == float64(int64(v)) {
-			return fmt.Sprintf("%.0f", v)
-		}
-		return fmt.Sprintf("%v", v)
-	case string:
-		return v
-	case int, int64, int32:
-		return fmt.Sprintf("%d", v)
-	default:
-		return fmt.Sprintf("%v", v)
-	}
-}
-
-func evaluateSingleQuestion(studentAns, correctAns interface{}, qType string, qWeight float64, partialScoring bool) (float64, string, string) {
-	if studentAns == nil || correctAns == nil {
-		if studentAns == nil {
-			return 0, "unanswered", "unanswered"
-		}
-		return 0, "incorrect", "incorrect"
-	}
-
-	switch qType {
-	case "single_choice", "true_false", "short_answer":
-		sNorm := joinFields(fmt.Sprintf("%v", studentAns))
-		cNorm := joinFields(fmt.Sprintf("%v", correctAns))
-		if sNorm == cNorm {
-			return qWeight, "correct", "correct"
-		}
-		return 0, "incorrect", "incorrect"
-
-	case "multiple_choice":
-		studentList, sOK := studentAns.([]interface{})
-		correctList, cOK := correctAns.([]interface{})
-		if !sOK || !cOK {
-			// Treat as space-separated string.
-			sFields := splitFields(fmt.Sprintf("%v", studentAns))
-			cFields := splitFields(fmt.Sprintf("%v", correctAns))
-			return evaluateMC(sFields, cFields, qWeight, partialScoring)
-		}
-		sStr := make([]string, len(studentList))
-		cStr := make([]string, len(correctList))
-		for i, v := range studentList {
-			sStr[i] = stringsToUpper(fmt.Sprintf("%v", v))
-		}
-		for i, v := range correctList {
-			cStr[i] = stringsToUpper(fmt.Sprintf("%v", v))
-		}
-		return evaluateMC(sStr, cStr, qWeight, partialScoring)
-
-	case "matching":
-		studentMap, sOK := studentAns.(map[string]interface{})
-		correctMap, cOK := correctAns.(map[string]interface{})
-		if !sOK || !cOK {
-			return 0, "incorrect", "incorrect"
-		}
-		return evaluateMatching(studentMap, correctMap, qWeight, partialScoring)
-	}
-
-	return 0, "incorrect", "incorrect"
-}
-
-func joinFields(s string) string {
-	return joinFieldsInternal(s)
-}
-
-func joinFieldsInternal(s string) string {
-	in := []byte(s)
-	out := make([]byte, 0, len(in))
-	space := false
-	for _, c := range in {
-		if c == ' ' || c == '\t' || c == '\n' || c == '\r' {
-			if !space {
-				out = append(out, ' ')
-				space = true
-			}
-		} else {
-			out = append(out, c)
-			space = false
-		}
-	}
-	// Trim leading/trailing.
-	result := string(out)
-	if len(result) > 0 && result[0] == ' ' {
-		result = result[1:]
-	}
-	if len(result) > 0 && result[len(result)-1] == ' ' {
-		result = result[:len(result)-1]
-	}
-	return stringsToUpper(result)
-}
-
-func splitFields(s string) []string {
-	return splitFieldsInternal(s)
-}
-
-func splitFieldsInternal(s string) []string {
-	s = stringsToUpper(s)
-	in := []byte(s)
-	var result []string
-	var cur []byte
-	inField := false
-	for _, c := range in {
-		if c == ' ' || c == '\t' || c == '\n' || c == '\r' {
-			if inField && len(cur) > 0 {
-				result = append(result, string(cur))
-				cur = cur[:0]
-			}
-			inField = false
-		} else {
-			cur = append(cur, c)
-			inField = true
-		}
-	}
-	if inField && len(cur) > 0 {
-		result = append(result, string(cur))
-	}
-	return result
-}
-
-func evaluateMC(studentSet, correctSet []string, qWeight float64, partialScoring bool) (float64, string, string) {
-	if partialScoring {
-		if len(correctSet) == 0 {
-			return 0, "incorrect", "incorrect"
-		}
-		correctMap := make(map[string]bool, len(correctSet))
-		for _, c := range correctSet {
-			correctMap[c] = true
-		}
-		correctSelected := 0
-		incorrectSelected := 0
-		for _, s := range studentSet {
-			if correctMap[s] {
-				correctSelected++
-			} else {
-				incorrectSelected++
-			}
-		}
-		portion := float64(correctSelected-incorrectSelected) / float64(len(correctSet))
-		if portion < 0 {
-			portion = 0
-		}
-		earned := portion * qWeight
-		switch {
-		case portion >= 1.0:
-			return earned, "correct", "correct"
-		case portion > 0:
-			return earned, "partial", "partial"
-		default:
-			return 0, "incorrect", "incorrect"
-		}
-	}
-
-	if len(studentSet) != len(correctSet) {
-		return 0, "incorrect", "incorrect"
-	}
-	sCopy := make([]string, len(studentSet))
-	cCopy := make([]string, len(correctSet))
-	copy(sCopy, studentSet)
-	copy(cCopy, correctSet)
-	sortSlice(sCopy)
-	sortSlice(cCopy)
-	for i := range sCopy {
-		if sCopy[i] != cCopy[i] {
-			return 0, "incorrect", "incorrect"
-		}
-	}
-	return qWeight, "correct", "correct"
-}
-
-func evaluateMatching(studentMap, correctMap map[string]interface{}, qWeight float64, partialScoring bool) (float64, string, string) {
-	if partialScoring {
-		if len(correctMap) == 0 {
-			return 0, "incorrect", "incorrect"
-		}
-		correctMatches := 0
-		for k, v := range correctMap {
-			sv, ok := studentMap[k]
-			if !ok {
-				continue
-			}
-			if stringsToUpper(trimSpace(fmt.Sprintf("%v", sv))) == stringsToUpper(trimSpace(fmt.Sprintf("%v", v))) {
-				correctMatches++
-			}
-		}
-		portion := float64(correctMatches) / float64(len(correctMap))
-		earned := portion * qWeight
-		switch {
-		case portion >= 1.0:
-			return earned, "correct", "correct"
-		case portion > 0:
-			return earned, "partial", "partial"
-		default:
-			return 0, "incorrect", "incorrect"
-		}
-	}
-
-	for k, v := range correctMap {
-		sv, ok := studentMap[k]
-		if !ok {
-			return 0, "incorrect", "incorrect"
-		}
-		if stringsToUpper(trimSpace(fmt.Sprintf("%v", sv))) != stringsToUpper(trimSpace(fmt.Sprintf("%v", v))) {
-			return 0, "incorrect", "incorrect"
-		}
-	}
-	return qWeight, "correct", "correct"
-}
-
-func sortSlice(s []string) {
-	for i := 0; i < len(s); i++ {
-		for j := i + 1; j < len(s); j++ {
-			if s[i] > s[j] {
-				s[i], s[j] = s[j], s[i]
-			}
-		}
-	}
-}
-
-// No-import string helpers (avoid importing "strings" and "fmt" for portability,
-// though fmt is already imported. These just keep the evaluator self-contained).
-
-func stringsToUpper(s string) string {
-	b := make([]byte, len(s))
-	for i := 0; i < len(s); i++ {
-		c := s[i]
-		if c >= 'a' && c <= 'z' {
-			c -= 32
-		}
-		b[i] = c
-	}
-	return string(b)
-}
-
-func trimSpace(s string) string {
-	start, end := 0, len(s)
-	for start < end && (s[start] == ' ' || s[start] == '\t' || s[start] == '\n' || s[start] == '\r') {
-		start++
-	}
-	for end > start && (s[end-1] == ' ' || s[end-1] == '\t' || s[end-1] == '\n' || s[end-1] == '\r') {
-		end--
-	}
-	return s[start:end]
 }

@@ -406,6 +406,9 @@ func DeleteExam(ctx context.Context, pool *pgxpool.Pool, id int) (*Exam, error) 
 	if _, err := tx.Exec(ctx, `DELETE FROM exam_pengawas WHERE exam_id = $1`, id); err != nil {
 		return nil, fmt.Errorf("delete exam: delete pengawas: %w", err)
 	}
+	if _, err := tx.Exec(ctx, `DELETE FROM student_access_logs WHERE exam_id = $1`, id); err != nil {
+		return nil, fmt.Errorf("delete exam: delete access logs: %w", err)
+	}
 	if _, err := tx.Exec(ctx, `DELETE FROM submissions WHERE exam_id = $1`, id); err != nil {
 		return nil, fmt.Errorf("delete exam: delete submissions: %w", err)
 	}

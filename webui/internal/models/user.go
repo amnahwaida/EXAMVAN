@@ -553,8 +553,28 @@ func CreateUser(ctx context.Context, pool *pgxpool.Pool, u *AdminUser) (*AdminUs
 	return &created, nil
 }
 
+// allowedUserColumns is a whitelist of columns that can be updated dynamically.
+// This prevents SQL injection via column names in UpdateUserField and UpdateUser.
+var allowedUserColumns = map[string]bool{
+	"password_hash": true,
+	"status":        true,
+	"instansi":      true,
+	"role":          true,
+	"max_exams":     true,
+	"max_pdf_size":  true,
+	"max_drafts":    true,
+	"max_draft_size": true,
+	"whatsapp_number": true,
+	"expires_at":     true,
+	"otp_code":      true,
+	"otp_expiry":    true,
+}
+
 // UpdateUserField updates a single column on the admin_users table.
 func UpdateUserField(ctx context.Context, pool *pgxpool.Pool, userID int, column string, value interface{}) error {
+	if !allowedUserColumns[column] {
+		return fmt.Errorf("update user field: disallowed column %q", column)
+	}
 	// Hash password before storing
 	val := value
 	if column == "password_hash" {
@@ -580,11 +600,14 @@ func UpdateUser(ctx context.Context, pool *pgxpool.Pool, userID int, updates map
 	if len(updates) == 0 {
 		return nil
 	}
-	// Build SET clause.
+	// Build SET clause with column whitelist to prevent SQL injection.
 	setClause := ""
 	args := make([]interface{}, 0, len(updates)+1)
 	idx := 1
 	for col, val := range updates {
+		if !allowedUserColumns[col] {
+			return fmt.Errorf("update user: disallowed column %q", col)
+		}
 		if idx > 1 {
 			setClause += ", "
 		}

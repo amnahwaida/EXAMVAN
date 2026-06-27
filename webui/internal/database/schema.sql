@@ -102,8 +102,8 @@ CREATE TABLE IF NOT EXISTS saas_settings (
 -- ============================================================
 CREATE TABLE IF NOT EXISTS student_access_logs (
     id                 SERIAL PRIMARY KEY,
-    exam_id            INTEGER NOT NULL REFERENCES exams(id),
-    submission_id      INTEGER REFERENCES submissions(id),
+    exam_id            INTEGER NOT NULL REFERENCES exams(id) ON DELETE CASCADE,
+    submission_id      INTEGER REFERENCES submissions(id) ON DELETE SET NULL,
     student_identifier TEXT DEFAULT '',
     student_name       TEXT DEFAULT '',
     exam_number        TEXT DEFAULT '',

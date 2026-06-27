@@ -14,11 +14,15 @@ services:
       interval: 5s
       timeout: 5s
       retries: 5
-    deploy:
-      resources:
-        limits:
-          memory: 256M
-          cpus: '0.5'
+    mem_limit: 256M
+    cpus: '0.5'
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+    networks:
+      - internal
 
   redis:
     image: redis:7-alpine
@@ -30,16 +34,21 @@ services:
       interval: 5s
       timeout: 3s
       retries: 5
-    deploy:
-      resources:
-        limits:
-          memory: 64M
-          cpus: '0.25'
+    mem_limit: 64M
+    cpus: '0.25'
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+    networks:
+      - internal
 
   examvan-server:
     build:
       context: .
       dockerfile: Dockerfile
+    container_name: examvan-server
     restart: unless-stopped
     environment:
       - EXAMVAN_SECRET=${EXAMVAN_SECRET?ERR:EXAMVAN_SECRET not set}
@@ -49,42 +58,56 @@ services:
       - REDIS_URL=redis://redis:6379/0
       - PORT=5000
       - TZ=UTC
+      - APP_ENV=${APP_ENV:-production}
     volumes:
-      - ./server/storage:/app/storage
+      - examvan_storage:/app/storage
     depends_on:
       db:
         condition: service_healthy
       redis:
         condition: service_healthy
-    deploy:
-      resources:
-        limits:
-          memory: 512M
-          cpus: '0.5'
+    mem_limit: 512M
+    cpus: '0.5'
+    init: true
+    security_opt:
+      - no-new-privileges:true
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:5000/api/health"]
       interval: 30s
       timeout: 10s
       retries: 3
       start_period: 10s
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+    networks:
+      - internal
 
   nginx-lb:
     image: nginx:1.27-alpine
     container_name: examvan-nginx
     restart: unless-stopped
     ports:
-      - "80:80"
+      - "127.0.0.1:80:80"
     volumes:
       - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
     depends_on:
       examvan-server:
         condition: service_healthy
-    deploy:
-      resources:
-        limits:
-          memory: 64M
-          cpus: '0.25'
-    # healthcheck removed — nginx -t sometimes flakes in container, nginx works fine without it
+    mem_limit: 64M
+    cpus: '0.25'
+    init: true
+    security_opt:
+      - no-new-privileges:true
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+    networks:
+      - internal
 
   cloudflare-tunnel:
     build:
@@ -103,11 +126,21 @@ services:
       timeout: 10s
       retries: 3
       start_period: 10s
-    deploy:
-      resources:
-        limits:
-          cpus: '0.25'
-          memory: 128M
+    init: true
+    security_opt:
+      - no-new-privileges:true
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+    networks:
+      - internal
 
 volumes:
   postgres_data:
+  examvan_storage:
+
+networks:
+  internal:
+    driver: bridge

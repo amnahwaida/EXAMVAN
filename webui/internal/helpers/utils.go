@@ -48,10 +48,30 @@ func FormatISOUTC(t time.Time) string {
 func ParseISOUTC(s string) (time.Time, error) {
 	s = strings.TrimSpace(s)
 	s = strings.ReplaceAll(s, " ", "T")
-	if !strings.HasSuffix(s, "Z") {
+	// Only append Z if the string doesn't already have a timezone suffix.
+	if !hasTimezoneSuffix(s) {
 		s += "Z"
 	}
 	return time.Parse(time.RFC3339, s)
+}
+
+// hasTimezoneSuffix checks if an ISO 8601 string already contains a timezone
+// indicator: Z, +HH:MM, -HH:MM.
+func hasTimezoneSuffix(s string) bool {
+	if len(s) == 0 {
+		return false
+	}
+	last := s[len(s)-1]
+	if last == 'Z' {
+		return true
+	}
+	// Check for ±HH:MM offset (last 6 chars like +07:00 or -05:30).
+	if len(s) >= 6 && (last == '0' || last == '5' || last == '9') &&
+		s[len(s)-3] == ':' &&
+		(s[len(s)-6] == '+' || s[len(s)-6] == '-') {
+		return true
+	}
+	return false
 }
 
 // SanitizeStudentInput strips leading/trailing whitespace and collapses

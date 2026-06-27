@@ -5,6 +5,7 @@ import (
 	"math"
 	"fmt"
 	"net/http"
+	"net/url"
 	"strconv"
 	"strings"
 
@@ -47,11 +48,13 @@ func Dashboard() gin.HandlerFunc {
 			perPage = 100
 		}
 		search := c.Query("search")
+		statusFilter := c.Query("status")
 
 		opts := models.ListExamsOpts{
 			Page:    page,
 			PerPage: perPage,
 			Search:  search,
+			Status:  statusFilter,
 		}
 
 		if !isSuper && !isOp {
@@ -117,7 +120,7 @@ func Dashboard() gin.HandlerFunc {
 			var instansi string
 			pool.QueryRow(ctx, `SELECT instansi FROM admin_users WHERE id = $1`, userID).Scan(&instansi)
 			if instansi != "" {
-				statsWheres = append(statsWheres, fmt.Sprintf(`created_by IN (SELECT id FROM admin_users WHERE instansi = $%d)`, statsArgIdx))
+				statsWheres = append(statsWheres, fmt.Sprintf(`e.created_by IN (SELECT id FROM admin_users WHERE instansi = $%d)`, statsArgIdx))
 				statsArgs = append(statsArgs, instansi)
 				statsArgIdx++
 			}
@@ -126,31 +129,43 @@ func Dashboard() gin.HandlerFunc {
 			isPengawas := hasCurrentRole(c, models.RolePengawas)
 			isGuru := hasCurrentRole(c, models.RoleGuru)
 			if isPengawas && isGuru {
-				statsWheres = append(statsWheres, fmt.Sprintf(`(created_by = $%d OR delegated_to = $%d OR id IN (SELECT exam_id FROM exam_pengawas WHERE user_id = $%d))`, statsArgIdx, statsArgIdx, statsArgIdx))
+				statsWheres = append(statsWheres, fmt.Sprintf(`(e.created_by = $%d OR e.delegated_to = $%d OR e.id IN (SELECT exam_id FROM exam_pengawas WHERE user_id = $%d))`, statsArgIdx, statsArgIdx, statsArgIdx))
 				statsArgs = append(statsArgs, uid)
 				statsArgIdx++
 			} else if isPengawas {
-				statsWheres = append(statsWheres, fmt.Sprintf(`id IN (SELECT exam_id FROM exam_pengawas WHERE user_id = $%d)`, statsArgIdx))
+				statsWheres = append(statsWheres, fmt.Sprintf(`e.id IN (SELECT exam_id FROM exam_pengawas WHERE user_id = $%d)`, statsArgIdx))
 				statsArgs = append(statsArgs, uid)
 				statsArgIdx++
 			} else {
-				statsWheres = append(statsWheres, fmt.Sprintf(`(created_by = $%d OR delegated_to = $%d)`, statsArgIdx, statsArgIdx))
+				statsWheres = append(statsWheres, fmt.Sprintf(`(e.created_by = $%d OR e.delegated_to = $%d)`, statsArgIdx, statsArgIdx))
 				statsArgs = append(statsArgs, uid)
 				statsArgIdx++
 			}
 		}
 
+		// Add search filter to stats (same as ListExams).
+		if search != "" {
+			searchPattern := "%" + search + "%"
+			statsWheres = append(statsWheres,
+				fmt.Sprintf("(e.name ILIKE $%d OR e.token ILIKE $%d OR u.username ILIKE $%d)", statsArgIdx, statsArgIdx+1, statsArgIdx+2))
+			statsArgs = append(statsArgs, searchPattern, searchPattern, searchPattern)
+			statsArgIdx += 3
+		}
+
 		// Aggregate queries: 2 fast queries instead of full ListExams
+		fromClause := " FROM exams e LEFT JOIN admin_users u ON e.created_by = u.id"
 		whereClause := ""
 		if len(statsWheres) > 0 {
 			whereClause = " WHERE " + strings.Join(statsWheres, " AND ")
 		}
-		pool.QueryRow(ctx, `SELECT COUNT(*), COALESCE(SUM(size_bytes), 0) FROM exams e`+whereClause, statsArgs...).Scan(&statsTotal, &storageBytes)
-		if whereClause != "" {
-			pool.QueryRow(ctx, `SELECT COUNT(*) FROM exams e`+whereClause+` AND status = 'active'`, statsArgs...).Scan(&statsActive)
+		pool.QueryRow(ctx, `SELECT COUNT(*), COALESCE(SUM(e.size_bytes), 0)`+fromClause+whereClause, statsArgs...).Scan(&statsTotal, &storageBytes)
+		activeWhereClause := whereClause
+		if activeWhereClause == "" {
+			activeWhereClause = " WHERE e.status = 'active'"
 		} else {
-			pool.QueryRow(ctx, `SELECT COUNT(*) FROM exams WHERE status = 'active'`).Scan(&statsActive)
+			activeWhereClause += " AND e.status = 'active'"
 		}
+		pool.QueryRow(ctx, `SELECT COUNT(*)`+fromClause+activeWhereClause, statsArgs...).Scan(&statsActive)
 
 		// Per-user limits
 		userMaxPDF := int64(1048576)
@@ -293,6 +308,8 @@ func Dashboard() gin.HandlerFunc {
 			"total_exams":     result.Total,
 			"search":          search,
 			"search_active":   search != "",
+			"status_filter":   statusFilter,
+			"query_base":      buildFilterQuery(search, statusFilter),
 		})
 	}
 }
@@ -306,42 +323,79 @@ func Stats() gin.HandlerFunc {
 		isOp := isOperator(c)
 		ctx := c.Request.Context()
 
-		opts := models.ListExamsOpts{}
-		if !isSuper && !isOp {
-			uid := userID
-			opts.UserID = &uid
-			opts.IsPengawas = hasCurrentRole(c, models.RolePengawas)
-			opts.IsGuru = hasCurrentRole(c, models.RoleGuru)
-		}
-		if isOp {
+		var statsWheres []string
+		var statsArgs []interface{}
+		statsArgIdx := 1
+
+		if isSuper {
+			// all — no filter
+		} else if isOp {
 			var instansi string
 			pool.QueryRow(ctx, `SELECT instansi FROM admin_users WHERE id = $1`, userID).Scan(&instansi)
 			if instansi != "" {
-				opts.Instansi = instansi
+				statsWheres = append(statsWheres, fmt.Sprintf(`e.created_by IN (SELECT id FROM admin_users WHERE instansi = $%d)`, statsArgIdx))
+				statsArgs = append(statsArgs, instansi)
+				statsArgIdx++
+			}
+		} else {
+			uid := userID
+			isPengawas := hasCurrentRole(c, models.RolePengawas)
+			isGuru := hasCurrentRole(c, models.RoleGuru)
+			if isPengawas && isGuru {
+				statsWheres = append(statsWheres, fmt.Sprintf(`(e.created_by = $%d OR e.delegated_to = $%d OR e.id IN (SELECT exam_id FROM exam_pengawas WHERE user_id = $%d))`, statsArgIdx, statsArgIdx, statsArgIdx))
+				statsArgs = append(statsArgs, uid)
+				statsArgIdx++
+			} else if isPengawas {
+				statsWheres = append(statsWheres, fmt.Sprintf(`e.id IN (SELECT exam_id FROM exam_pengawas WHERE user_id = $%d)`, statsArgIdx))
+				statsArgs = append(statsArgs, uid)
+				statsArgIdx++
+			} else {
+				statsWheres = append(statsWheres, fmt.Sprintf(`(e.created_by = $%d OR e.delegated_to = $%d)`, statsArgIdx, statsArgIdx))
+				statsArgs = append(statsArgs, uid)
+				statsArgIdx++
 			}
 		}
 
-		result, err := models.ListExams(ctx, pool, opts)
-		if err != nil {
-			log.Printf("ERROR Stats ListExams: %v", err)
-			errorResponse(c, http.StatusInternalServerError, "Gagal memuat statistik")
-			return
+		fromClause := " FROM exams e LEFT JOIN admin_users u ON e.created_by = u.id"
+		whereClause := ""
+		if len(statsWheres) > 0 {
+			whereClause = " WHERE " + strings.Join(statsWheres, " AND ")
 		}
 
-		active := 0
+		var total int
+		var active int
 		var storageBytes int64
-		for _, e := range result.Exams {
-			if e.IsActive() {
-				active++
-			}
-			storageBytes += e.SizeBytes
+		pool.QueryRow(ctx, `SELECT COUNT(*), COALESCE(SUM(e.size_bytes), 0)`+fromClause+whereClause, statsArgs...).Scan(&total, &storageBytes)
+
+		activeWhere := whereClause
+		if activeWhere == "" {
+			activeWhere = " WHERE e.status = 'active'"
+		} else {
+			activeWhere += " AND e.status = 'active'"
 		}
+		pool.QueryRow(ctx, `SELECT COUNT(*)`+fromClause+activeWhere, statsArgs...).Scan(&active)
 
 		successData(c, gin.H{
-			"total":      result.Total,
+			"total":      total,
 			"active":     active,
-			"inactive":   result.Total - active,
+			"inactive":   total - active,
 			"storage_mb": roundTo(float64(storageBytes)/(1024*1024), 2),
 		})
 	}
+}
+
+// buildFilterQuery builds the query string fragment for search and status
+// filters, to be appended to pagination links. Returns leading "&" or empty.
+func buildFilterQuery(search, status string) string {
+	var parts []string
+	if search != "" {
+		parts = append(parts, "search="+url.QueryEscape(search))
+	}
+	if status != "" {
+		parts = append(parts, "status="+url.QueryEscape(status))
+	}
+	if len(parts) == 0 {
+		return ""
+	}
+	return "&" + strings.Join(parts, "&")
 }

@@ -44,7 +44,7 @@ const (
 
 	rateLimitKeyPrefix   = "ratelimit:submit:"     // + exam_id
 	heartbeatKeyPrefix   = "heartbeat:"            // + exam_id:mac_address
-	heartbeatTTL         = 2 * time.Minute
+	heartbeatTTL         = 5 * time.Minute
 )
 
 var defaultIdentityFields []map[string]interface{}
@@ -356,7 +356,7 @@ func ExamByToken() gin.HandlerFunc {
 		if clientVersion != "" {
 			required := models.GetSaasSettingWithDefault(ctx, pool,
 				models.SettingAndroidVersion, requiredAndroidVersion)
-			if clientVersion != required {
+			if !isVersionAtLeast(clientVersion, required) {
 				c.JSON(http.StatusUpgradeRequired, gin.H{
 					"success": false,
 					"error":   "upgrade_required",
@@ -424,9 +424,6 @@ func ExamPDF() gin.HandlerFunc {
 		}
 
 		token := c.GetHeader("X-Exam-Token")
-		if token == "" {
-			token = c.Query("token")
-		}
 		if token == "" {
 			errorResponse(c, http.StatusUnauthorized, "Token tidak disertakan")
 			return
@@ -588,22 +585,17 @@ func SubmitExam() gin.HandlerFunc {
 			answersJSON = string(raw)
 		}
 
-		var identityDataStr string
-		if identityDataJSON != nil {
-			identityDataStr = *identityDataJSON
-		}
-
 		// === ASYNC PATH (Redis available) ===
 		if rdb != nil {
 			job := map[string]interface{}{
-				"exam_id":       examID,
-				"student_name":  studentName,
-				"exam_number":   examNumber,
-				"student_class": studentClass,
-				"identity_data": identityDataStr,
-				"answers_json":  answersJSON,
-				"start_time":    startTime,
-				"mac_address":   macAddress,
+				"exam_id":        examID,
+				"student_name":   studentName,
+				"exam_number":    examNumber,
+				"student_class":  studentClass,
+				"identity_data":  body.IdentityData,
+				"answers":        body.Answers,
+				"start_time":     startTime,
+				"mac_address":    macAddress,
 			}
 
 			jobID, err := enqueueSubmission(rdb, job)

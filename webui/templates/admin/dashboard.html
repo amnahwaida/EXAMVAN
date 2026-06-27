@@ -11,10 +11,19 @@
 <html lang="id">
 <head>
  {{adminHead .version .csrf_token "Dashboard"}}
- <style>.dropdown-user-instansi{display:block;font-size:0.7rem;color:#64748b;margin-top:1px;padding:0 16px}</style>
+ <style>
+.dropdown-user-instansi{display:block;font-size:0.7rem;color:#64748b;margin-top:1px;padding:0 16px}
+.pengawas-cell{position:relative}
+.pengawas-badge{display:inline-flex;align-items:center;gap:4px;padding:2px 8px;border-radius:8px;font-size:0.75rem;font-weight:600;background:rgba(168,85,247,0.1);color:#c084fc;border:1px solid rgba(168,85,247,0.2);cursor:pointer;white-space:nowrap;user-select:none}
+.pengawas-more{display:inline-flex;align-items:center;justify-content:center;width:18px;height:18px;border-radius:50%;background:rgba(168,85,247,0.2);font-size:0.65rem;font-weight:700;color:#a78bfa;margin-left:2px}
+.pengawas-popup{display:none;position:absolute;z-index:100;top:100%;left:0;min-width:160px;background:var(--color-card-bg,#1e1e2e);border:1px solid var(--color-glass-border);border-radius:10px;padding:6px 0;box-shadow:0 8px 32px rgba(0,0,0,0.4);margin-top:4px}
+.pengawas-popup.show{display:block}
+.pengawas-popup-item{padding:6px 14px;font-size:0.78rem;color:var(--color-text);white-space:nowrap}
+.pengawas-popup-item:hover{background:rgba(168,85,247,0.08)}
+</style>
 </head>
 <body class="dashboard-page">
-{{adminNav .active_page .admin_role .admin_user}}
+{{adminNav .active_page .admin_role .admin_user .csrf_token}}
 
 <main class="dashboard">
 <h1 class="sr-only" style="position:absolute;left:-9999px;">Dashboard Admin</h1>
@@ -27,7 +36,6 @@
 <span class="stat-value">{{index .stats "total_all"}}</span>
 <span class="stat-label">Total Ujian</span>
 </div>
-{{if .search_active}}<div style="font-size:10px;color:var(--color-warning);margin-top:4px;text-align:center;">difilter</div>{{end}}
 </div>
 <div class="stat-card stat-status">
 <div class="stat-icon">
@@ -131,9 +139,9 @@
 <h3><svg class="icon-svg" style="vertical-align:middle;margin-top:-2px;"><use href="#hi-dashboard"/></svg> Daftar Ujian</h3>
 <div class="table-toolbar">
 <select id="statusFilter" onchange="searchExamsWithStatus()" class="toolbar-select" aria-label="Filter status ujian">
-<option value="">Semua Status</option>
-<option value="active">Aktif</option>
-<option value="inactive">Nonaktif</option>
+<option value="" {{if eq $.status_filter ""}}selected{{end}}>Semua Status</option>
+<option value="active" {{if eq $.status_filter "active"}}selected{{end}}>Aktif</option>
+<option value="inactive" {{if eq $.status_filter "inactive"}}selected{{end}}>Nonaktif</option>
 </select>
 <div class="toolbar-search-wrap">
 <label for="searchExam" style="position:absolute;left:-9999px;">Cari ujian</label>
@@ -193,10 +201,16 @@
 <span class="status-badge status-{{$exam.Status}}" style="cursor:default;">{{$exam.Status}}</span>
 {{end}}
 </td>
-<td data-label="Pengawas">
+<td data-label="Pengawas" class="pengawas-cell">
 {{$pw := index $.exam_pengawas_map $exam.ID}}
 {{if $pw}}
-{{range $pw}}<span style="display:inline-block;padding:1px 6px;border-radius:8px;font-size:0.7rem;font-weight:600;background:rgba(168,85,247,0.1);color:#c084fc;border:1px solid rgba(168,85,247,0.2);margin:1px 2px;">{{.}}</span>{{end}}
+<span class="pengawas-badge" onclick="togglePengawasPopup(event, {{$exam.ID}})">
+{{index $pw 0}}
+{{if gt (len $pw) 1}}<span class="pengawas-more">+{{sub (len $pw) 1}}</span>{{end}}
+</span>
+<div class="pengawas-popup" id="pengawas-popup-{{$exam.ID}}">
+{{range $pw}}<div class="pengawas-popup-item">{{.}}</div>{{end}}
+</div>
 {{else}}
 <span style="font-size:0.8rem;color:var(--color-text-muted);">&mdash;</span>
 {{end}}
@@ -216,6 +230,9 @@
 <a href="/hasil/{{$exam.Token}}" target="_blank"><svg class="icon-svg"><use href="#hi-link"/></svg> Halaman Siswa</a>
 {{if eq $exam.PublicResults 1}}<button id="btn-public-results-{{$exam.ID}}" data-exam-id="{{$exam.ID}}" onclick="togglePublicResults(this.dataset.examId)" class="dropdown-toggle-btn" style="background:rgba(16,185,129,0.15);border-color:rgba(16,185,129,0.3);color:#34d399;"><svg class="icon-svg"><use href="#hi-eye"/></svg> Hal. Siswa Aktif</button>{{else}}<button id="btn-public-results-{{$exam.ID}}" data-exam-id="{{$exam.ID}}" onclick="togglePublicResults(this.dataset.examId)" class="dropdown-toggle-btn" style="background:rgba(239,68,68,0.15);border-color:rgba(239,68,68,0.3);color:#f87171;"><svg class="icon-svg"><use href="#hi-eye-off"/></svg> Hal. Siswa Nonaktif</button>{{end}}
 {{if eq $exam.ShowAnswers 1}}<button id="btn-show-answers-{{$exam.ID}}" data-exam-id="{{$exam.ID}}" onclick="toggleShowAnswers(this.dataset.examId)" class="dropdown-toggle-btn" style="background:rgba(251,191,36,0.15);border-color:rgba(251,191,36,0.3);color:#fbbf24;"><svg class="icon-svg"><use href="#hi-lock-open"/></svg> Kunci Terlihat</button>{{else}}<button id="btn-show-answers-{{$exam.ID}}" data-exam-id="{{$exam.ID}}" onclick="toggleShowAnswers(this.dataset.examId)" class="dropdown-toggle-btn" style="background:rgba(107,114,128,0.15);border-color:rgba(107,114,128,0.3);color:#9ca3af;"><svg class="icon-svg"><use href="#hi-lock"/></svg> Kunci Tersembunyi</button>{{end}}
+{{if or (eq $.admin_role "superadmin") (eq $.admin_role "operator")}}
+<button data-exam-id="{{$exam.ID}}" data-exam-name="{{$exam.Name}}" onclick="deleteExam(this.dataset.examId, this.dataset.examName)" class="dropdown-toggle-btn" style="color:#f87171;"><svg class="icon-svg"><use href="#hi-trash"/></svg> Hapus Ujian</button>
+{{end}}
 </div>
 </div>
 </div>
@@ -230,14 +247,14 @@
 <div style="display:flex;justify-content:space-between;align-items:center;padding:16px 0 0 0;flex-wrap:wrap;gap:12px;">
 <span style="font-size:13px;color:var(--color-text-muted);">{{len .exams}} dari {{.total_exams}} ujian</span>
 <div style="display:flex;gap:6px;align-items:center;">
-<a href="?page={{sub .page 1}}" class="btn-sm btn-toggle page-link-main {{if le .page 1}}disabled{{end}}"><svg class="icon-svg" style="width:14px;height:14px;"><use href="#hi-chevron-left"/></svg> Sebelumnya</a>
-{{$p := .page}}{{$tp := .total_pages}}
+<a href="?page={{sub .page 1}}{{.query_base}}" class="btn-sm btn-toggle page-link-main {{if le .page 1}}disabled{{end}}"><svg class="icon-svg" style="width:14px;height:14px;"><use href="#hi-chevron-left"/></svg> Sebelumnya</a>
+{{$p := .page}}{{$tp := .total_pages}}{{$qb := .query_base}}
 {{range $pagenum := $tp | seq}}
 {{if ge $pagenum (sub $p 2)}}
 {{if le $pagenum (add $p 2)}}
-<a href="?page={{$pagenum}}" class="pagination-page-num {{if eq $pagenum $p}}page-current{{end}}">{{$pagenum}}</a>
+<a href="?page={{$pagenum}}{{$qb}}" class="pagination-page-num {{if eq $pagenum $p}}page-current{{end}}">{{$pagenum}}</a>
 {{end}}{{end}}{{end}}
-<a href="?page={{add .page 1}}" class="btn-sm btn-toggle page-link-main {{if ge .page .total_pages}}disabled{{end}}">Berikutnya <svg class="icon-svg" style="width:14px;height:14px;"><use href="#hi-chevron-right"/></svg></a>
+<a href="?page={{add .page 1}}{{.query_base}}" class="btn-sm btn-toggle page-link-main {{if ge .page .total_pages}}disabled{{end}}">Berikutnya <svg class="icon-svg" style="width:14px;height:14px;"><use href="#hi-chevron-right"/></svg></a>
 </div>
 </div>
 {{end}}
@@ -602,8 +619,8 @@
 <symbol id="hi-clock" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M12 6v6h4.5m4.5 0a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z"/></symbol>
 </svg>
 
-<script src="/static/js/admin-core.js"></script>
-<script src="/static/js/admin.js"></script>
+<script src="/static/js/admin-core.js?v={{.version}}"></script>
+<script src="/static/js/admin.js?v={{.version}}"></script>
 <script>
 const ADMIN_ID = {{.admin_id}};
 const IS_PRIVILEGED = {{if or (eq .admin_role "superadmin") (eq .admin_role "operator")}}true{{else}}false{{end}};
@@ -630,6 +647,27 @@ function clearSearch() {
     document.getElementById('searchExam').value = '';
     searchExamsWithStatus();
 }
+
+function togglePengawasPopup(event, examId) {
+    event.stopPropagation();
+    var popup = document.getElementById('pengawas-popup-' + examId);
+    if (!popup) return;
+    var isOpen = popup.classList.contains('show');
+    document.querySelectorAll('.pengawas-popup.show').forEach(function(el) {
+        el.classList.remove('show');
+    });
+    if (!isOpen) {
+        popup.classList.add('show');
+    }
+}
+
+document.addEventListener('click', function(e) {
+    if (!e.target.closest('.pengawas-cell')) {
+        document.querySelectorAll('.pengawas-popup.show').forEach(function(el) {
+            el.classList.remove('show');
+        });
+    }
+});
 
 document.addEventListener('DOMContentLoaded', function() {
     var si = document.getElementById('searchExam');

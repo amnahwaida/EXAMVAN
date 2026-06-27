@@ -752,8 +752,7 @@ button:disabled, .btn-sm:disabled, .btn-upload:disabled, .btn-login:disabled {
     @apply max-w-[1200px] mx-auto p-6 flex flex-col gap-6;
 }
 .table-responsive {
-    @apply overflow-x-auto;
-    -webkit-overflow-scrolling: touch;
+    width: 100%;
 }
 
 /* === Token Display === */
@@ -1164,14 +1163,16 @@ button:disabled, .btn-sm:disabled, .btn-upload:disabled, .btn-login:disabled {
 
 .exam-action-dropdown { @apply relative inline-block; }
 .exam-action-dropdown-content {
-    @apply absolute right-0 top-full mt-1.5 z-[9999] min-w-[200px] rounded-lg
+    @apply absolute left-0 bottom-full mb-1.5 z-[9999] min-w-[200px] rounded-lg
            border border-[rgba(255,255,255,0.08)] shadow-2xl py-1 hidden;
     background: #0c0a1a;
     color: #cbd5e1;
     backdrop-filter: blur(16px);
 }
 .exam-action-dropdown-content.show { @apply block; }
+.exam-action-dropdown-content.drop-down { top: 100%; bottom: auto; margin-top: 6px; margin-bottom: 0; }
 .exam-action-dropdown-content.drop-up { top: auto; bottom: 100%; margin-top: 0; margin-bottom: 6px; }
+.exam-action-dropdown-content.align-right { left: auto; right: 0; }
 .exam-action-dropdown-content a,
 .exam-action-dropdown-content button {
     @apply flex items-center gap-2.5 w-full px-4 py-2.5 text-sm no-underline
@@ -1560,7 +1561,7 @@ button:disabled, .btn-sm:disabled, .btn-upload:disabled, .btn-login:disabled {
 .td-actions { @apply flex gap-2 flex-nowrap items-center; }
 .td-date { @apply text-xs text-[var(--color-text-secondary)]; }
 .td-name { @apply font-medium; }
-.td-token { @apply min-w-[160px]; }
+.td-token { @apply min-w-[120px]; }
 .topbar-menu-toggle { @apply bg-transparent border-none text-xl cursor-pointer p-1; color: #cbd5e1; }
 .topbar-menu-toggle:hover { color: #fff; }
 .toggle-user-name { color: #cbd5e1; font-size: 14px; }
@@ -1753,11 +1754,11 @@ button:disabled, .btn-sm:disabled, .btn-upload:disabled, .btn-login:disabled {
     .select-filter { width: 100% !important; min-width: 0 !important; }
     .submissions-actions .btn-upload { width: 100%; text-align: center; }
 
-    /* Exam Action Dropdown — !important ensures dropdown overlays card boundaries regardless of parent positioning context */
+    /* Exam Action Dropdown — opens downward on mobile (card layout, space below) */
     .exam-action-dropdown-content {
         position: absolute !important;
-        right: 0 !important;
-        left: auto !important;
+        left: 0 !important;
+        right: auto !important;
         top: 100% !important;
         bottom: auto !important;
         width: 220px !important;
@@ -1767,6 +1768,7 @@ button:disabled, .btn-sm:disabled, .btn-upload:disabled, .btn-login:disabled {
         overflow-y: auto;
         z-index: 9999 !important;
         margin-top: 6px !important;
+        margin-bottom: 0 !important;
         box-shadow: 0 10px 30px rgba(0, 0, 0, 0.6) !important;
     }
     .exam-action-dropdown-content.drop-up {
@@ -1774,6 +1776,10 @@ button:disabled, .btn-sm:disabled, .btn-upload:disabled, .btn-login:disabled {
         bottom: 100% !important;
         margin-top: 0 !important;
         margin-bottom: 6px !important;
+    }
+    .exam-action-dropdown-content.align-right {
+        left: auto !important;
+        right: 0 !important;
     }
 
     /* Bulk buttons */

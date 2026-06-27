@@ -33,9 +33,15 @@ import (
 //   - instansi   — the user's instansi (if set)
 //   - flashes    — any unread session flash messages (cleared after read)
 func TemplateData(c *gin.Context) gin.H {
+	version := config.DefaultVersion
+	if cfg, exists := c.Get("cfg"); exists {
+		if cObj, ok := cfg.(*config.Config); ok && cObj.Version != "" {
+			version = cObj.Version
+		}
+	}
 	data := gin.H{
 		"csrf_token": GenerateCSRFToken(c),
-		"version":    config.DefaultVersion,
+		"version":    version,
 	}
 
 	// Attach authenticated user info when available.

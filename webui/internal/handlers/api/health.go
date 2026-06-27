@@ -16,16 +16,18 @@ import (
 // used by the Android app for TLS pinning.
 func Health() gin.HandlerFunc {
 	return func(c *gin.Context) {
-		pool := c.MustGet("db").(*pgxpool.Pool)
-		ctx := c.Request.Context()
-
 		ver := config.DefaultVersion
 		if cfg, exists := c.Get("cfg"); exists {
 			ver = cfg.(*config.Config).Version
 		}
 
-		fingerprint := models.GetSaasSettingWithDefault(ctx, pool,
-			models.SettingCertificateFingerprint, "")
+		fingerprint := ""
+		if poolVal, exists := c.Get("db"); exists {
+			if pool, ok := poolVal.(*pgxpool.Pool); ok && pool != nil {
+				fingerprint = models.GetSaasSettingWithDefault(c.Request.Context(), pool,
+					models.SettingCertificateFingerprint, "")
+			}
+		}
 
 		c.JSON(http.StatusOK, gin.H{
 			"success":                true,

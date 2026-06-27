@@ -1291,8 +1291,7 @@ input:disabled, select:disabled, textarea:disabled, button:disabled, .btn-sm:dis
   padding: calc(var(--spacing) * 6);
 }
 .table-responsive {
-  overflow-x: auto;
-  -webkit-overflow-scrolling: touch;
+  width: 100%;
 }
 .token-code {
   font-family: var(--font-mono);
@@ -1830,10 +1829,11 @@ input:disabled, select:disabled, textarea:disabled, button:disabled, .btn-sm:dis
 }
 .exam-action-dropdown-content {
   position: absolute;
-  top: 100%;
-  right: 0;
+  top: auto;
+  bottom: 100%;
+  left: 0;
   z-index: 9999;
-  margin-top: calc(var(--spacing) * 1.5);
+  margin-bottom: calc(var(--spacing) * 1.5);
   display: none;
   min-width: 200px;
   border-radius: var(--radius-lg);
@@ -1850,11 +1850,21 @@ input:disabled, select:disabled, textarea:disabled, button:disabled, .btn-sm:dis
 .exam-action-dropdown-content.show {
   display: block;
 }
+.exam-action-dropdown-content.drop-down {
+  top: 100%;
+  bottom: auto;
+  margin-top: 6px;
+  margin-bottom: 0;
+}
 .exam-action-dropdown-content.drop-up {
   top: auto;
   bottom: 100%;
   margin-top: 0;
   margin-bottom: 6px;
+}
+.exam-action-dropdown-content.align-right {
+  left: auto;
+  right: 0;
 }
 .exam-action-dropdown-content a, .exam-action-dropdown-content button {
   display: flex;
@@ -2714,7 +2724,7 @@ input:disabled, select:disabled, textarea:disabled, button:disabled, .btn-sm:dis
   font-weight: var(--font-weight-medium);
 }
 .td-token {
-  min-width: 160px;
+  min-width: 120px;
 }
 .topbar-menu-toggle {
   cursor: pointer;
@@ -3143,8 +3153,8 @@ input:disabled, select:disabled, textarea:disabled, button:disabled, .btn-sm:dis
   }
   .exam-action-dropdown-content {
     position: absolute !important;
-    right: 0 !important;
-    left: auto !important;
+    left: 0 !important;
+    right: auto !important;
     top: 100% !important;
     bottom: auto !important;
     width: 220px !important;
@@ -3154,6 +3164,7 @@ input:disabled, select:disabled, textarea:disabled, button:disabled, .btn-sm:dis
     overflow-y: auto;
     z-index: 9999 !important;
     margin-top: 6px !important;
+    margin-bottom: 0 !important;
     box-shadow: 0 10px 30px rgba(0, 0, 0, 0.6) !important;
   }
   .exam-action-dropdown-content.drop-up {
@@ -3161,6 +3172,10 @@ input:disabled, select:disabled, textarea:disabled, button:disabled, .btn-sm:dis
     bottom: 100% !important;
     margin-top: 0 !important;
     margin-bottom: 6px !important;
+  }
+  .exam-action-dropdown-content.align-right {
+    left: auto !important;
+    right: 0 !important;
   }
   #bulkDeleteBtn, #bulkToggleBtn {
     font-size: 11px !important;

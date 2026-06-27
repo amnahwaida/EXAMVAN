@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"log"
+	"math/big"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -31,15 +32,17 @@ const maxFileSize = 100 * 1024 * 1024 // 100 MB global limit
 var tokenRegex = regexp.MustCompile(`^[A-Z0-9]{8}$`)
 
 // generateToken creates an 8-character uppercase alphanumeric token (A-Z, 0-9).
+// Uses crypto/rand.Int for unbiased distribution.
 func generateToken() string {
 	const chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
 	b := make([]byte, 8)
-	if _, err := rand.Read(b); err != nil {
-		// Fallback: time-based token.
-		return fmt.Sprintf("%08X", time.Now().UnixNano()%99999999)
-	}
 	for i := range b {
-		b[i] = chars[int(b[i])%len(chars)]
+		idx, err := rand.Int(rand.Reader, big.NewInt(int64(len(chars))))
+		if err != nil {
+			// Fallback: time-based token.
+			return fmt.Sprintf("%08X", time.Now().UnixNano()%99999999)
+		}
+		b[i] = chars[idx.Int64()]
 	}
 	return string(b)
 }
@@ -55,6 +58,26 @@ func validatePDF(data []byte, filename string, contentType string, maxSize int64
 		return false, "File tidak valid (bukan PDF)"
 	}
 	return true, ""
+}
+
+// sanitizeFilename removes characters from a filename that could break HTTP
+// Content-Disposition headers or cause filesystem issues.
+func sanitizeFilename(name string) string {
+	s := strings.TrimSpace(name)
+	// Replace any non-printable, quote, backslash, or slash characters.
+	s = regexp.MustCompile(`[^\x20-\x7E]`).ReplaceAllString(s, "")
+	s = strings.ReplaceAll(s, `"`, "")
+	s = strings.ReplaceAll(s, `\`, "")
+	s = strings.ReplaceAll(s, "/", "")
+	s = strings.ReplaceAll(s, "\n", "")
+	s = strings.ReplaceAll(s, "\r", "")
+	if len(s) > 100 {
+		s = s[:100]
+	}
+	if s == "" {
+		s = "exam"
+	}
+	return s
 }
 
 // safeStoragePath resolves a path against the storage directory and prevents
@@ -148,15 +171,22 @@ func UploadExam() gin.HandlerFunc {
 				errorResponse(c, http.StatusBadRequest, "Token kustom harus terdiri dari 8 karakter alfanumerik")
 				return
 			}
-			// Check uniqueness
-			_, err := models.GetExamByToken(ctx, pool, customToken)
-			if err == nil {
+			// Check uniqueness with retry for race condition.
+			existing, err := models.GetExamByToken(ctx, pool, customToken)
+			if err == nil && existing.ID > 0 {
 				errorResponse(c, http.StatusBadRequest, "Token kustom sudah digunakan oleh ujian lain")
 				return
 			}
 			token = customToken
 		} else {
-			token = generateToken()
+			// Retry loop for auto-generated token to handle race conditions.
+			for i := 0; i < 5; i++ {
+				token = generateToken()
+				existing, err := models.GetExamByToken(ctx, pool, token)
+				if err != nil || existing.ID == 0 {
+					break
+				}
+			}
 		}
 
 		// Save file
@@ -400,8 +430,9 @@ func ExamPDF() gin.HandlerFunc {
 
 		download := c.Query("download") == "1"
 		if download {
+			safeName := sanitizeFilename(exam.Name)
 			c.Header("Content-Disposition",
-				fmt.Sprintf(`attachment; filename="%s.pdf"`, filepath.Base(exam.Name)))
+				fmt.Sprintf(`attachment; filename="%s.pdf"`, safeName))
 		} else {
 			c.Header("Content-Disposition", `inline`)
 		}
@@ -702,8 +733,9 @@ func SaveQuestions() gin.HandlerFunc {
 			}
 		}
 
-		// Recalculate scores for existing submissions
-		go recalculateScores(ctx, pool, examID)
+		// Recalculate scores for existing submissions (background context,
+		// not the HTTP request context which may be cancelled).
+		go recalculateScores(context.Background(), pool, examID)
 
 		successMessage(c, "Konfigurasi soal berhasil disimpan")
 	}
@@ -829,13 +861,18 @@ func BulkDelete() gin.HandlerFunc {
 		isSuper := isSuperAdmin(c)
 		isOp := isOperator(c)
 
-		// For non-privileged users, filter to only owned exams
+		// For non-privileged users, filter to only owned/delegated exams
 		examIDs := body.IDs
 		if !isSuper && !isOp {
 			filtered := make([]int, 0, len(examIDs))
-			// Re-query exams explicitly
-			rows, err := pool.Query(ctx,
-				`SELECT id FROM exams WHERE id = ANY($1) AND created_by = $2`, examIDs, userID)
+			// Re-query exams explicitly — check created_by OR delegated_to OR exam_pengawas
+			rows, err := pool.Query(ctx, `
+				SELECT id FROM exams
+				WHERE id = ANY($1)
+				  AND (created_by = $2
+				    OR delegated_to = $2
+				    OR id IN (SELECT exam_id FROM exam_pengawas WHERE user_id = $2))
+			`, examIDs, userID)
 			if err != nil {
 				errorResponse(c, http.StatusInternalServerError, "Gagal memverifikasi kepemilikan")
 				return
@@ -1188,8 +1225,13 @@ func BulkToggle() gin.HandlerFunc {
 		examIDs := body.IDs
 		if !isSuper && !isOp {
 			filtered := make([]int, 0, len(examIDs))
-			rows, err := pool.Query(ctx,
-				`SELECT id FROM exams WHERE id = ANY($1) AND created_by = $2`, examIDs, userID)
+			rows, err := pool.Query(ctx, `
+				SELECT id FROM exams
+				WHERE id = ANY($1)
+				  AND (created_by = $2
+				    OR delegated_to = $2
+				    OR id IN (SELECT exam_id FROM exam_pengawas WHERE user_id = $2))
+			`, examIDs, userID)
 			if err != nil {
 				errorResponse(c, http.StatusInternalServerError, "Gagal memverifikasi kepemilikan")
 				return

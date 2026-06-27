@@ -9,7 +9,7 @@
  {{adminHead .version .csrf_token "Detail Pengawasan"}}
 </head>
 <body class="dashboard-page">
-{{adminNav .active_page .admin_role .admin_user}}
+{{adminNav .active_page .admin_role .admin_user .csrf_token}}
 
 <main class="dashboard">
 
@@ -152,8 +152,8 @@
 .no-logs { text-align:center;padding:32px;color:var(--color-text-muted);font-size:0.85rem; }
 </style>
 
-<script src="/static/js/admin-core.js"></script>
-<script src="/static/js/admin.js"></script>
+<script src="/static/js/admin-core.js?v={{.version}}"></script>
+<script src="/static/js/admin.js?v={{.version}}"></script>
 <script>
 var EXAM_ID = {{.exam.ID}};
 var SUB_PAGE = 1;

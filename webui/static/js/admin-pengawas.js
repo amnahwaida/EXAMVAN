@@ -109,7 +109,7 @@ function toggleStudentList(examId) {
                     var scoreText = s.score !== null && s.score !== undefined ? (s.submitted ? s.score : '—') : '—';
                     var studentName = s.student_name || '—';
                     var studentClass = s.student_class || '—';
-                    html += '<tr onclick="showAccessLog(' + s.id + ')" style="cursor:pointer;transition:background 0.1s;" onmouseenter="this.style.background='rgba(99,102,241,0.05)'" onmouseleave="this.style.background=''">' +
+                    html += '<tr class="clickable-row" onclick="showAccessLog(' + s.id + ')">' +
                         '<td>' + (i + 1) + '</td>' +
                         '<td><strong style="color:var(--color-text);">' + escapeHtml(studentName) + '</strong><br><span style="font-size:0.7rem;color:var(--color-text-muted);font-family:monospace;">' + escapeHtml(s.mac_address || '—') + '</span></td>' +
                         '<td>' + escapeHtml(studentClass) + '</td>' +

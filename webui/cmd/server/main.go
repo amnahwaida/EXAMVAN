@@ -108,11 +108,15 @@ func main() {
 	// Share Redis client with rate-limit middleware.
 	middleware.SetRedisClient(rdb)
 
+	// Set the configured admin username so models package can use it.
+	models.SuperAdminUsername = cfg.AdminUser
+
 	// -----------------------------------------------------------------------
 	// 4. Start submission queue worker (only when both DB and Redis ready)
 	// -----------------------------------------------------------------------
+	var worker *queue.Worker
 	if pool != nil && rdb != nil {
-		go queue.StartWorker(rdb, pool)
+		worker = queue.StartWorker(rdb, pool)
 		log.Println("Submission queue worker: started")
 	} else {
 		log.Println("Submission queue worker: not started (requires both PostgreSQL and Redis)")
@@ -121,9 +125,17 @@ func main() {
 	// -----------------------------------------------------------------------
 	// 5. Create Gin engine
 	// -----------------------------------------------------------------------
-	gin.SetMode(gin.DebugMode)
+	if cfg.IsDevelopment() {
+		gin.SetMode(gin.DebugMode)
+	} else {
+		gin.SetMode(gin.ReleaseMode)
+	}
 
 	r := gin.New()
+	// Trust only the Docker bridge network and loopback so ClientIP()
+	// reads X-Forwarded-For from nginx without allowing IP spoofing.
+	// Docker default bridge: 172.17.0.0/16; Compose internal: 172.x.x.x
+	r.SetTrustedProxies([]string{"127.0.0.1", "::1", "10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16"})
 	r.Use(gin.Logger())
 	r.Use(gin.Recovery())
 
@@ -135,7 +147,7 @@ func main() {
 		Path:     "/",
 		MaxAge:   86400 * 7, // 7 days
 		HttpOnly: true,
-		Secure:   true,
+		Secure:   !cfg.IsDevelopment(),
 		SameSite: http.SameSiteLaxMode,
 	})
 	r.Use(sessions.Sessions("examvan_session", store))
@@ -162,8 +174,18 @@ func main() {
 		},
 		"seq":       func(n int) []int { s := make([]int, n); for i := range s { s[i] = i }; return s },
 		"dict":      func(values ...interface{}) map[string]interface{} { return toMap(values...) },
-		"safe":      func(s string) template.HTML { return template.HTML(s) },
-		"safeURL":   func(s string) template.URL { return template.URL(s) },
+		"safe": func(s string) template.HTML {
+			// Only allow known-safe HTML. Never pass user-controlled data here.
+			return template.HTML(s)
+		},
+		"safeURL": func(s string) template.URL {
+			// Prevent javascript: and data: URI schemes.
+			lower := strings.ToLower(strings.TrimSpace(s))
+			if strings.HasPrefix(lower, "javascript:") || strings.HasPrefix(lower, "data:") {
+				return template.URL("#")
+			}
+			return template.URL(s)
+		},
 		"hasPrefix": strings.HasPrefix,
 		"hasSuffix": strings.HasSuffix,
 		"contains":  strings.Contains,
@@ -207,11 +229,12 @@ func main() {
 		},
 		// Layout helpers — return HTML fragments for self-contained pages
 		"adminHead": func(version, csrfToken, title string) template.HTML {
+			titleEscaped := html.EscapeString(title)
 			return template.HTML(fmt.Sprintf(
 				`<meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1.0"><title>EXAMVAN — %s</title><link rel="stylesheet" href="/static/css/theme.css?v=%s"><link rel="stylesheet" href="/static/css/tailwind/output.css?v=%s"><link rel="stylesheet" href="/static/css/admin-base.css?v=%s"><link rel="icon" type="image/png" href="/static/favicon.png"><meta name="csrf-token" content="%s">`,
-				title, version, version, version, csrfToken))
+				titleEscaped, version, version, version, csrfToken))
 		},
-		"adminNav": func(activePage, adminRole, adminUser string) template.HTML {
+		"adminNav": func(activePage, adminRole, adminUser, csrfToken string) template.HTML {
 			// Prevent XSS: escape user-controlled values
 			adminUser = html.EscapeString(adminUser)
 			adminRole = html.EscapeString(adminRole)
@@ -250,9 +273,10 @@ func main() {
 				mobileLinks += fmt.Sprintf(`<a href="/admin/users" class="dropdown-item %s"><svg class="icon-svg"><use href="#hi-users"/></svg> Kelola User</a>`, dropdownActive(activePage, "users"))
 			}
 			mobileLinks += `</div><div class="dropdown-divider"></div>`
+			csrfEscaped := html.EscapeString(csrfToken)
 			return template.HTML(fmt.Sprintf(
-				`<nav class="topbar"><div class="topbar-left"><div class="topbar-logo">E</div><a href="/" class="topbar-title" style="text-decoration:none;color:inherit;">EXAMVAN</a></div><div class="topbar-center"><div class="topbar-nav">%s%s%s</div></div><div class="topbar-right"><div class="topbar-menu-dropdown"><button class="topbar-menu-toggle" id="menuToggleBtn" onclick="event.stopPropagation();document.getElementById('menuDropdownContent').classList.toggle('show');"><span class="menu-hamburger-icon">&#9776;</span></button><div class="topbar-dropdown-content" id="menuDropdownContent"><div class="dropdown-header mobile-only-header"><div class="dropdown-brand-row"><div class="dropdown-logo">E</div><span class="dropdown-brand-title">EXAMVAN</span></div></div>%s<div class="dropdown-user-info"><span class="dropdown-user-name">%s</span><span class="dropdown-user-role">%s</span></div><div class="dropdown-divider"></div><button class="dropdown-item" onclick="openChangePasswordModal()"><svg class="icon-svg"><use href="#hi-key"/></svg> Ubah Password</button><div class="dropdown-divider"></div><a href="/admin/logout" class="dropdown-item dropdown-logout"><svg class="icon-svg" aria-hidden="true"><use href="#hi-logout"/></svg> Logout</a></div></div></div></nav>`,
-				guruLink, pengawasLink, usersLink, mobileLinks, adminUser, roleDisplay))
+				`<nav class="topbar"><div class="topbar-left"><div class="topbar-logo">E</div><a href="/" class="topbar-title" style="text-decoration:none;color:inherit;">EXAMVAN</a></div><div class="topbar-center"><div class="topbar-nav">%s%s%s</div></div><div class="topbar-right"><div class="topbar-menu-dropdown"><button class="topbar-menu-toggle" id="menuToggleBtn" onclick="event.stopPropagation();document.getElementById('menuDropdownContent').classList.toggle('show');"><span class="menu-hamburger-icon">&#9776;</span></button><div class="topbar-dropdown-content" id="menuDropdownContent"><div class="dropdown-header mobile-only-header"><div class="dropdown-brand-row"><div class="dropdown-logo">E</div><span class="dropdown-brand-title">EXAMVAN</span></div></div>%s<div class="dropdown-user-info"><span class="dropdown-user-name">%s</span><span class="dropdown-user-role">%s</span></div><div class="dropdown-divider"></div><button class="dropdown-item" onclick="openChangePasswordModal()"><svg class="icon-svg"><use href="#hi-key"/></svg> Ubah Password</button><div class="dropdown-divider"></div><form method="POST" action="/admin/logout" style="display:inline;"><input type="hidden" name="_csrf_token" value="%s"><button type="submit" class="dropdown-item dropdown-logout" style="width:100%%;border:none;background:none;cursor:pointer;"><svg class="icon-svg" aria-hidden="true"><use href="#hi-logout"/></svg> Logout</button></form></div></div></div></nav>`,
+				guruLink, pengawasLink, usersLink, mobileLinks, adminUser, roleDisplay, csrfEscaped))
 		},
 	}
 
@@ -289,7 +313,8 @@ func main() {
 	// -----------------------------------------------------------------------
 	r.Static("/static", "./static")
 	r.StaticFile("/favicon.ico", "./static/favicon.png")
-	r.Static("/storage", cfg.StoragePath)
+	// PDFs are served only through authenticated/admin/token-gated handlers.
+	// Direct /storage/* access is intentionally not exposed.
 
 	// -----------------------------------------------------------------------
 	// 9. Global middleware — inject DB connection, config, Redis, and WS hub
@@ -319,8 +344,16 @@ func main() {
 	go hub.Run()
 	log.Println("WebSocket hub: started")
 
-	// WebSocket endpoint.
+	// WebSocket endpoint (session-based auth required).
 	r.GET("/ws/:room_id", func(c *gin.Context) {
+		session := sessions.Default(c)
+		if session.Get(middleware.SessionKeyAdminID) == nil {
+			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{
+				"success": false,
+				"message": "Unauthorized",
+			})
+			return
+		}
 		roomID := c.Param("room_id")
 		if err := hub.JoinRoom(c.Writer, c.Request, roomID); err != nil {
 			log.Printf("websocket: join room %s error: %v", roomID, err)
@@ -365,6 +398,12 @@ func main() {
 		log.Printf("Shutdown: HTTP server forced to close: %v", err)
 	}
 
+	// Stop submission queue worker first so no new jobs are picked up.
+	if worker != nil {
+		worker.Stop()
+		log.Println("Shutdown: queue worker stopped")
+	}
+
 	// Close DB pool.
 	if pool != nil {
 		pool.Close()
@@ -393,14 +432,18 @@ func registerRoutes(r *gin.Engine, cfg *config.Config, pool *pgxpool.Pool) {
 
 	r.GET("/login", loginPageHandler(cfg))
 	r.POST("/login", middleware.RateLimit(10, time.Minute), loginHandler(cfg))
-	r.GET("/logout", logoutHandler())
+
+	// Logout via POST only (with CSRF protection).
+	r.POST("/logout", middleware.CSRFRequired(), logoutHandler())
+	// Legacy GET /logout redirects to login (prevents CSRF-based force-logout).
+	r.GET("/logout", func(c *gin.Context) { c.Redirect(http.StatusFound, "/login") })
 
 	// Legacy: /admin/login → /login
 	r.GET("/admin/login", func(c *gin.Context) { c.Redirect(http.StatusFound, "/login") })
-	r.POST("/admin/login", loginHandler(cfg))
+	r.POST("/admin/login", middleware.RateLimit(10, time.Minute), loginHandler(cfg))
 
 	r.GET("/register", registerPageHandler(cfg))
-	r.POST("/register", registerPostHandler(cfg))
+	r.POST("/register", middleware.RateLimit(5, time.Minute), registerPostHandler(cfg))
 
 	r.GET("/download", public.DownloadPage())
 	r.GET("/download/apk", public.DownloadAPK())
@@ -439,8 +482,9 @@ func registerRoutes(r *gin.Engine, cfg *config.Config, pool *pgxpool.Pool) {
 		adminPages.GET("/pengawas", admin.PengawasPage())
 		adminPages.GET("/pengawas/:exam_id", admin.PengawasDetailPage())
 
-		// Logout (within admin group so it works with /admin/logout links).
-		adminPages.GET("/logout", logoutHandler())
+		// Logout via POST only (CSRF-protected in the main route below).
+		// GET /admin/logout simply redirects to login (prevents CSRF-based logout).
+		adminPages.GET("/logout", func(c *gin.Context) { c.Redirect(http.StatusFound, "/login") })
 	}
 
 	// ---- Admin API (auth required) ----
@@ -478,6 +522,7 @@ func registerRoutes(r *gin.Engine, cfg *config.Config, pool *pgxpool.Pool) {
 				adminUsers.POST("/users/:user_id/edit", admin.EditUser())
 				adminUsers.POST("/users/:user_id/toggle-status", admin.ToggleUserStatus())
 				adminUsers.POST("/users/:user_id/verify", admin.VerifyUser())
+				adminUsers.POST("/users/:user_id/delete", admin.DeleteUser())
 			}
 
 			// SaaS settings (super admin only).
@@ -485,7 +530,7 @@ func registerRoutes(r *gin.Engine, cfg *config.Config, pool *pgxpool.Pool) {
 			{
 				adminSettings.POST("/saas-settings", admin.SaasSettings())
 			}
-			csrfAPI.POST("/change-password", admin.ChangePassword())
+			csrfAPI.POST("/change-password", middleware.RateLimit(3, time.Minute), admin.ChangePassword())
 		}
 
 		// ---- Non-CSRF routes (GET / read-only) ----
@@ -584,6 +629,10 @@ func loginHandler(cfg *config.Config) gin.HandlerFunc {
 		}
 
 		session := sessions.Default(c)
+		// Regenerate session — save old values, clear, set new, save.
+		// This prevents session fixation attacks.
+		_ = session.Save()
+		session.Clear()
 		session.Set(middleware.SessionKeyAdminID, user.ID)
 		session.Set(middleware.SessionKeyUsername, user.Username)
 		isSuper := user.Username == cfg.AdminUser || models.HasRole(user.Role, models.RoleSuperAdmin)
@@ -719,7 +768,7 @@ func registerPostHandler(cfg *config.Config) gin.HandlerFunc {
 			return
 		}
 
-		log.Printf("New user registered: %s (ID: %d, WA: %s)", created.Username, created.ID, created.WhatsappNumber)
+		log.Printf("New user registered: %s (ID: %d)", created.Username, created.ID)
 
 		// Set flash message and redirect to login
 		session := sessions.Default(c)
