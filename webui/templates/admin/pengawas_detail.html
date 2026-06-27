@@ -1,0 +1,373 @@
+{{/*
+  EXAMVAN Pengawas Detail — Self-Contained
+  Template variables:
+    .exam, .admin_user, .admin_role, .active_page, .version, .csrf_token
+*/}}
+<!DOCTYPE html>
+<html lang="id">
+<head>
+ {{adminHead .version .csrf_token "Detail Pengawasan"}}
+</head>
+<body class="dashboard-page">
+{{adminNav .active_page .admin_role .admin_user}}
+
+<main class="dashboard">
+
+ <!-- Access Log Modal -->
+ <div id="accessLogModal" class="modal-overlay" style="display:none;" onclick="closeAccessLogModal(event)">
+  <div class="modal-container" style="max-width: 620px;" onclick="event.stopPropagation()">
+   <div class="modal-header">
+    <h3 style="font-size:1.1rem;color:#a5b4fc;display:flex;align-items:center;gap:8px;"><svg class="icon-svg"><use href="#hi-device"/></svg> Riwayat Akses Perangkat</h3>
+    <button class="modal-close" onclick="closeAccessLogModal()" aria-label="Tutup"><svg class="icon-svg" style="width:18px;height:18px;"><use href="#hi-x"/></svg></button>
+   </div>
+   <div class="modal-body" id="accessLogBody" style="padding: 0 24px 24px; max-height: 75vh; overflow-y: auto;">
+    <div style="text-align:center;padding:40px;color:var(--color-text-secondary);">Memuat...</div>
+   </div>
+  </div>
+ </div>
+
+ <!-- Back link + Exam Header -->
+ <div style="display:flex;align-items:center;gap:12px;margin-bottom:20px;">
+  <a href="/admin/pengawas" class="btn-sm" style="gap:6px;padding:6px 12px;font-size:12px;">
+   <svg class="icon-svg" style="width:14px;height:14px;"><use href="#hi-chevron-left"/></svg> Kembali
+  </a>
+  <div>
+   <h1 style="font-size:1.4rem;font-weight:700;color:var(--color-text);">{{.exam.Name}}</h1>
+   <div style="display:flex;flex-wrap:wrap;gap:12px;margin-top:4px;font-size:0.82rem;color:var(--color-text-muted);">
+    <span>Token: <strong style="color:#a5b4fc;font-family:monospace;font-size:0.95rem;">{{.exam.Token}}</strong></span>
+    <span>Status: <span class="status-badge status-{{.exam.Status}}" style="font-size:0.72rem;">{{.exam.Status}}</span></span>
+    {{if and .exam.StartTime .exam.EndTime}}
+    <span>Jadwal: {{formatExamTime .exam.StartTime}} &mdash; {{formatExamTime .exam.EndTime}}</span>
+    {{end}}
+   </div>
+  </div>
+ </div>
+
+ <!-- Stats Cards -->
+ <section class="stats-grid" id="detailStats">
+  <div class="stat-card stat-total">
+   <div class="stat-icon"><svg class="icon-svg" style="width:24px;height:24px;"><use href="#hi-users"/></svg></div>
+   <div class="stat-info">
+    <span class="stat-value" id="statTotal">0</span>
+    <span class="stat-label">Total Perangkat</span>
+   </div>
+  </div>
+  <div class="stat-card stat-active">
+   <div class="stat-icon"><svg class="icon-svg" style="width:24px;height:24px;color:#fbbf24;"><use href="#hi-eye"/></svg></div>
+   <div class="stat-info">
+    <span class="stat-value" id="statActive">0</span>
+    <span class="stat-label">Sedang Mengerjakan</span>
+   </div>
+  </div>
+  <div class="stat-card stat-submitted">
+   <div class="stat-icon"><svg class="icon-svg" style="width:24px;height:24px;color:#34d399;"><use href="#hi-check"/></svg></div>
+   <div class="stat-info">
+    <span class="stat-value" id="statSubmitted">0</span>
+    <span class="stat-label">Terkumpul</span>
+   </div>
+  </div>
+  <div class="stat-card stat-inactive">
+   <div class="stat-icon"><svg class="icon-svg" style="width:24px;height:24px;color:#6b7280;" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 12h14"/></svg></div>
+   <div class="stat-info">
+    <span class="stat-value" id="statNotStarted">0</span>
+    <span class="stat-label">Belum Mulai</span>
+   </div>
+  </div>
+ </section>
+
+ <!-- Student Table -->
+ <section class="glass-card" style="margin-top:20px;">
+  <div class="table-header flex items-center justify-between mb-4 flex-wrap gap-3">
+   <h3 style="font-size:1rem;color:#a5b4fc;display:flex;align-items:center;gap:8px;">
+    <svg class="icon-svg"><use href="#hi-device"/></svg> Monitoring Perangkat
+   </h3>
+   <div class="table-toolbar">
+    <div class="toolbar-search-wrap">
+     <input type="text" id="pengawasSearch" class="toolbar-search-input" placeholder="Cari nama, ID perangkat, kelas..."
+      onkeyup="if(event.key==='Enter') loadDetail()">
+    </div>
+    <button class="toolbar-btn toolbar-btn-search" onclick="loadDetail()"><svg class="icon-svg"><use href="#hi-search"/></svg> Cari</button>
+    <button class="toolbar-btn toolbar-btn-refresh" onclick="loadDetail()" title="Refresh"><svg class="icon-svg"><use href="#hi-refresh"/></svg></button>
+   </div>
+  </div>
+  <div style="overflow-x:auto;">
+   <table class="exam-table" id="submissionTable">
+    <thead>
+     <tr>
+      <th>No</th>
+      <th>ID Perangkat</th>
+      <th>Status</th>
+      <th>Mulai</th>
+      <th>IP Terakhir</th>
+      <th>Score</th>
+      <th>Aksi</th>
+     </tr>
+    </thead>
+    <tbody id="submissionBody">
+     <tr><td colspan="7" style="text-align:center;padding:40px;color:var(--color-text-muted);">Memuat data...</td></tr>
+    </tbody>
+   </table>
+  </div>
+  <div id="subPagination" class="pagination-wrapper" style="display:none;"></div>
+ </section>
+</main>
+
+<style>
+#submissionTable th {
+  text-align:left;
+  padding:10px 12px;
+  border-bottom:1px solid var(--color-glass-border);
+  color:var(--color-text-muted);
+  font-weight:600;
+  font-size:0.72rem;
+  white-space:nowrap;
+}
+#submissionTable td {
+  padding:12px;
+  border-bottom:1px solid rgba(255,255,255,0.03);
+  font-size:0.82rem;
+  vertical-align:middle;
+}
+#submissionTable tbody tr { transition:background 0.1s; }
+#submissionTable tbody tr:hover { background:rgba(99,102,241,0.04); }
+.mac-cell { font-family:monospace; font-weight:600; font-size:0.82rem; color:var(--color-text); }
+.status-badge-sm { display:inline-flex;align-items:center;gap:4px;padding:3px 10px;border-radius:8px;font-size:0.7rem;font-weight:600; }
+.action-link { color:#a5b4fc;cursor:pointer;font-size:0.75rem;font-weight:600;text-decoration:none;padding:4px 10px;border-radius:6px;border:1px solid rgba(99,102,241,0.25);transition:all 0.15s; }
+.action-link:hover { background:rgba(99,102,241,0.1);border-color:rgba(99,102,241,0.4); }
+.log-modal-header-info { display:flex;flex-direction:column;gap:12px;margin-bottom:16px; }
+.log-device-row { display:flex;align-items:center;gap:10px;background:var(--color-bg-secondary);border:1px solid var(--color-glass-border);border-radius:10px;font-size:0.8rem;padding:10px 14px; }
+.access-log-timeline { position:relative;padding-left:28px;margin-top:8px; }
+.access-log-timeline::before { content:'';position:absolute;left:10px;top:8px;bottom:8px;width:2px;background:var(--color-glass-border); }
+.log-entry { position:relative;padding:10px 0 10px 18px;border-left:2px solid transparent;margin-bottom:6px;background:var(--color-bg-secondary);border-radius:8px;border:1px solid var(--color-glass-border); }
+.log-entry::before { content:'';position:absolute;left:-22px;top:14px;width:10px;height:10px;border-radius:50%;border:2px solid;background:var(--color-bg); }
+.log-entry.login::before { background:#34d399;border-color:#34d399; }
+.log-entry.heartbeat::before { background:#60a5fa;border-color:#60a5fa; }
+.log-entry.logout::before { background:#f87171;border-color:#f87171; }
+.log-entry .log-time { font-size:0.72rem;color:var(--color-text-muted);font-family:monospace;margin-top:2px; }
+.log-entry .log-event { font-size:0.85rem;font-weight:600;color:var(--color-text); }
+.log-entry .log-detail { font-size:0.72rem;color:var(--color-text-muted);margin-top:2px; }
+.log-identity { display:flex;flex-wrap:wrap;gap:6px;margin-top:8px;padding:8px 12px;background:var(--color-bg);border:1px solid var(--color-glass-border);border-radius:6px;font-size:0.72rem; }
+.log-identity span { color:var(--color-text-secondary);white-space:nowrap; }
+.log-identity strong { color:var(--color-text); }
+.no-logs { text-align:center;padding:32px;color:var(--color-text-muted);font-size:0.85rem; }
+</style>
+
+<script src="/static/js/admin-core.js"></script>
+<script src="/static/js/admin.js"></script>
+<script>
+var EXAM_ID = {{.exam.ID}};
+var SUB_PAGE = 1;
+
+function loadDetail(page) {
+    var tbody = document.getElementById('submissionBody');
+    if (!tbody) return;
+    if (page !== undefined) SUB_PAGE = page;
+    tbody.innerHTML = '<tr><td colspan="7" style="text-align:center;padding:40px;color:var(--color-text-muted);">Memuat data...</td></tr>';
+
+    var search = document.getElementById('pengawasSearch') ? document.getElementById('pengawasSearch').value.trim() : '';
+    var url = '/admin/api/pengawas/exams/' + EXAM_ID + '/submissions?page=' + SUB_PAGE + '&per_page=20';
+    if (search) url += '&search=' + encodeURIComponent(search);
+
+    fetch(url, { credentials: 'same-origin', headers: { 'Accept': 'application/json' } })
+        .then(function(r) { return r.json(); })
+        .then(function(res) {
+            if (!res || !res.success) {
+                tbody.innerHTML = '<tr><td colspan="7" style="text-align:center;padding:40px;color:#fca5a5;">Gagal memuat data</td></tr>';
+                return;
+            }
+            var subs = res.submissions || [];
+            if (res.stats) {
+                document.getElementById('statTotal').textContent = res.stats.total;
+                document.getElementById('statActive').textContent = res.stats.active;
+                document.getElementById('statSubmitted').textContent = res.stats.submitted;
+                document.getElementById('statNotStarted').textContent = res.stats.not_started;
+            }
+
+            if (subs.length === 0) {
+                var msg = search ? 'Pencarian tidak ditemukan.' : 'Belum ada perangkat terdaftar.';
+                tbody.innerHTML = '<tr><td colspan="7" style="text-align:center;padding:40px;color:var(--color-text-muted);">' + msg + '</td></tr>';
+                renderSubPagination(res);
+                return;
+            }
+
+            var html = '';
+            for (var i = 0; i < subs.length; i++) {
+                var s = subs[i];
+                var sc = s.submitted ? 'submitted' : (s.start_time ? 'in-progress' : 'not-started');
+                var sl = s.submitted ? 'Terkumpul' : (s.start_time ? 'Mengerjakan' : 'Belum Mulai');
+                var startTime = s.start_time ? localizeUTC(s.start_time) : '—';
+                var scoreTxt = s.score != null && s.submitted ? String(s.score) : '—';
+                var ipAddr = '—';
+                if (s.access_logs && s.access_logs.length > 0) {
+                    var lastLog = s.access_logs[s.access_logs.length - 1];
+                    if (lastLog.ip_address) ipAddr = lastLog.ip_address;
+                }
+                var color = sc === 'submitted' ? '#34d399' : (sc === 'in-progress' ? '#fbbf24' : '#6b7280');
+
+                html += '<tr>' +
+                    '<td>' + ((SUB_PAGE - 1) * 20 + i + 1) + '</td>' +
+                    '<td><a class="mac-cell action-link" style="cursor:pointer;display:inline-block;" onclick="showAccessLog(' + s.id + ')" title="Klik untuk riwayat akses">' + esc(s.mac_address) + '</a></td>' +
+                    '<td><span class="status-badge-sm" style="background:' + color + '15;color:' + color + ';border:1px solid ' + color + '30;">' + sl + '</span></td>' +
+                    '<td style="font-size:0.75rem;color:var(--color-text-muted);">' + startTime + '</td>' +
+                    '<td style="font-family:monospace;font-size:0.75rem;color:var(--color-text-muted);">' + esc(ipAddr) + '</td>' +
+                    '<td style="font-weight:600;color:' + (s.submitted ? '#34d399' : '#6b7280') + ';">' + scoreTxt + '</td>' +
+                    '<td><a class="action-link" onclick="showAccessLog(' + s.id + ')"><svg class="icon-svg" style="width:12px;height:12px;"><use href="#hi-eye"/></svg> Detail</a></td>' +
+                    '</tr>';
+            }
+            tbody.innerHTML = html;
+            renderSubPagination(res);
+
+            var card = document.getElementById('submissionTable');
+            if (card) card.setAttribute('data-subs', JSON.stringify(subs));
+        })
+        .catch(function() {
+            tbody.innerHTML = '<tr><td colspan="7" style="text-align:center;padding:40px;color:#fca5a5;">Gagal menghubungi server</td></tr>';
+        });
+}
+
+function renderSubPagination(res) {
+    var pagEl = document.getElementById('subPagination');
+    if (!pagEl) return;
+    if (!res.total_pages || res.total_pages <= 1) { pagEl.style.display = 'none'; return; }
+
+    var html = '<div class="pagination-wrapper">' +
+        '<span class="pagination-info">Menampilkan ' + res.submissions.length + ' dari ' + res.total + ' perangkat</span>' +
+        '<div class="pagination-links">';
+
+    if (res.page > 1) {
+        html += '<a class="pagination-page-num" onclick="loadDetail(1)" style="cursor:pointer;">&laquo;</a>';
+        html += '<a class="pagination-page-num" onclick="loadDetail(' + (res.page - 1) + ')" style="cursor:pointer;">&lsaquo;</a>';
+    }
+    var start = Math.max(1, res.page - 2);
+    var end = Math.min(res.total_pages, res.page + 2);
+    for (var p = start; p <= end; p++) {
+        html += '<a class="pagination-page-num' + (p === res.page ? ' page-current' : '') + '" onclick="loadDetail(' + p + ')" style="cursor:pointer;">' + p + '</a>';
+    }
+    if (res.page < res.total_pages) {
+        html += '<a class="pagination-page-num" onclick="loadDetail(' + (res.page + 1) + ')" style="cursor:pointer;">&rsaquo;</a>';
+        html += '<a class="pagination-page-num" onclick="loadDetail(' + res.total_pages + ')" style="cursor:pointer;">&raquo;</a>';
+    }
+    html += '</div></div>';
+    pagEl.innerHTML = html;
+    pagEl.style.display = 'block';
+}
+
+function esc(s) {
+    if (!s) return '—';
+    var d = document.createElement('div');
+    d.appendChild(document.createTextNode(s));
+    return d.innerHTML;
+}
+
+function localizeUTC(str) {
+    if (!str) return '—';
+    try {
+        var t = str.indexOf('T') >= 0 ? str : str.replace(' ', 'T') + 'Z';
+        var d = new Date(t);
+        if (isNaN(d.getTime())) return str;
+        return d.toLocaleString('id-ID', { day:'2-digit', month:'short', hour:'2-digit', minute:'2-digit' });
+    } catch(e) { return str; }
+}
+
+function showAccessLog(subId) {
+    var modal = document.getElementById('accessLogModal');
+    var body = document.getElementById('accessLogBody');
+    if (!modal || !body) return;
+
+    var subs = [];
+    try {
+        var table = document.getElementById('submissionTable');
+        subs = JSON.parse(table.getAttribute('data-subs') || '[]');
+    } catch(e) {}
+    var subData = null;
+    for (var i = 0; i < subs.length; i++) {
+        if (subs[i].id === subId) { subData = subs[i]; break; }
+    }
+
+    if (!subData) {
+        body.innerHTML = '<div style="text-align:center;padding:32px;color:#fca5a5;">Data tidak ditemukan</div>';
+        modal.style.display = 'flex';
+        return;
+    }
+
+    var logs = subData.access_logs || [];
+    var h = '<div class="log-modal-header-info">' +
+        '<div class="log-device-row" style="padding:12px 14px;">' +
+            '<svg class="icon-svg" style="width:18px;height:18px;color:#64748b;"><use href="#hi-device"/></svg> ' +
+            '<span style="font-family:monospace;font-size:1rem;font-weight:700;color:var(--color-text);letter-spacing:0.5px;">' + esc(subData.mac_address) + '</span>' +
+            '<span class="student-status ' + (subData.submitted ? 'submitted' : (subData.start_time ? 'in-progress' : 'not-started')) + '" style="margin-left:auto;">' + (subData.submitted ? 'Terkumpul' : (subData.start_time ? 'Mengerjakan' : 'Belum Mulai')) + '</span>' +
+        '</div>' +
+        '<div style="display:flex;gap:12px;flex-wrap:wrap;padding:10px 14px;background:var(--color-bg);border:1px solid var(--color-glass-border);border-radius:8px;font-size:0.8rem;">' +
+            '<span style="color:var(--color-text-muted);">Siswa: <strong style="color:var(--color-text);">' + esc(subData.student_name || '—') + '</strong></span>' +
+            '<span style="color:var(--color-text-muted);">Kelas: <strong style="color:var(--color-text);">' + esc(subData.student_class || '—') + '</strong></span>' +
+            '<span style="color:var(--color-text-muted);">No. Ujian: <strong style="color:var(--color-text);">' + esc(subData.exam_number || '—') + '</strong></span>' +
+        '</div>' +
+    '</div>';
+
+    var tl = '';
+    if (logs.length === 0) {
+        tl = '<div class="no-logs">Belum ada riwayat akses tercatat.</div>';
+    } else {
+        tl = '<div class="access-log-timeline">';
+        for (var i = 0; i < logs.length; i++) {
+            var l = logs[i];
+            var label = l.event === 'login' ? 'Login / Mulai Mengerjakan' : (l.event === 'logout' ? 'Logout / Keluar' : 'Aktif (Heartbeat)');
+            var t = l.created_at ? localizeUTC(l.created_at) : '—';
+            var extra = '';
+            if (l.ip_address) extra += ' IP: ' + esc(l.ip_address);
+            if (l.device_info) extra += ' ' + esc(l.device_info);
+            var identity = '';
+            if (l.event === 'login' && (l.student_name || l.exam_number || l.student_class)) {
+                identity = '<div class="log-identity">' +
+                    (l.student_name ? '<span>Nama: <strong>' + esc(l.student_name) + '</strong></span>' : '') +
+                    (l.exam_number ? '<span>No. Ujian: <strong>' + esc(l.exam_number) + '</strong></span>' : '') +
+                    (l.student_class ? '<span>Kelas: <strong>' + esc(l.student_class) + '</strong></span>' : '') +
+                    '</div>';
+            }
+            tl += '<div class="log-entry ' + l.event + '">' +
+                '<div class="log-event">' + label + '</div>' +
+                '<div class="log-time">' + t + '</div>' +
+                '<div class="log-detail">' + extra + '</div>' +
+                identity +
+            '</div>';
+        }
+        if (subData.submitted) {
+            tl += '<div class="log-entry login" style="border-left-color:#34d399;">' +
+                '<div class="log-event" style="color:#34d399;">Selesai / Mengumpulkan</div>' +
+                '<div class="log-time">—</div>' +
+                '<div class="log-detail" style="color:#6ee7b7;">Jawaban telah dikirimkan</div>' +
+            '</div>';
+        }
+        tl += '</div>';
+    }
+
+    body.innerHTML = h + tl;
+    modal.style.display = 'flex';
+}
+
+function closeAccessLogModal(event) {
+    if (event && event.target !== document.getElementById('accessLogModal')) return;
+    var m = document.getElementById('accessLogModal');
+    if (m) m.style.display = 'none';
+}
+
+(function() { loadDetail(); })();
+</script>
+
+<svg xmlns="http://www.w3.org/2000/svg" style="display:none;" aria-hidden="true">
+<symbol id="hi-dashboard" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M3.75 6A2.25 2.25 0 0 1 6 3.75h2.25A2.25 2.25 0 0 1 10.5 6v2.25a2.25 2.25 0 0 1-2.25 2.25H6a2.25 2.25 0 0 1-2.25-2.25V6ZM3.75 15.75A2.25 2.25 0 0 1 6 13.5h2.25a2.25 2.25 0 0 1 2.25 2.25V18a2.25 2.25 0 0 1-2.25 2.25H6A2.25 2.25 0 0 1 3.75 18v-2.25ZM13.5 6a2.25 2.25 0 0 1 2.25-2.25H18A2.25 2.25 0 0 1 20.25 6v2.25A2.25 2.25 0 0 1 18 10.5h-2.25a2.25 2.25 0 0 1-2.25-2.25V6ZM13.5 15.75a2.25 2.25 0 0 1 2.25-2.25H18a2.25 2.25 0 0 1 2.25 2.25V18A2.25 2.25 0 0 1 18 20.25h-2.25A2.25 2.25 0 0 1 13.5 18v-2.25Z"/></symbol>
+<symbol id="hi-results" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M3 13.125C3 12.504 3.504 12 4.125 12h2.25c.621 0 1.125.504 1.125 1.125v6.75C7.5 20.496 6.996 21 6.375 21h-2.25A1.125 1.125 0 0 1 3 19.875v-6.75ZM9.75 8.625c0-.621.504-1.125 1.125-1.125h2.25c.621 0 1.125.504 1.125 1.125v11.25c0 .621-.504 1.125-1.125 1.125h-2.25a1.125 1.125 0 0 1-1.125-1.125V8.625ZM16.5 4.125c0-.621.504-1.125 1.125-1.125h2.25C20.496 3 21 3.504 21 4.125v15.75c0 .621-.504 1.125-1.125 1.125h-2.25a1.125 1.125 0 0 1-1.125-1.125V4.125Z"/></symbol>
+<symbol id="hi-users" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M15 19.128a9.38 9.38 0 0 0 2.625.372 9.337 9.337 0 0 0 4.121-.952 4.125 4.125 0 0 0-7.533-2.493M15 19.128v-.003c0-1.113-.285-2.16-.786-3.07M15 19.128v.106A12.318 12.318 0 0 1 8.624 21c-2.331 0-4.512-.645-6.374-1.766l-.001-.109a6.375 6.375 0 0 1 11.964-3.07M12 6.375a3.375 3.375 0 1 1-6.75 0 3.375 3.375 0 0 1 6.75 0Zm8.25 2.25a2.625 2.625 0 1 1-5.25 0 2.625 2.625 0 0 1 5.25 0Z"/></symbol>
+<symbol id="hi-eye" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M2.036 12.322a1.012 1.012 0 0 1 0-.639C3.423 7.51 7.36 4.5 12 4.5c4.638 0 8.573 3.007 9.963 7.178.07.207.07.431 0 .639C20.577 16.49 16.64 19.5 12 19.5c-4.638 0-8.573-3.007-9.963-7.178Z"/><path d="M15 12a3 3 0 1 1-6 0 3 3 0 0 1 6 0Z"/></symbol>
+<symbol id="hi-logout" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M15.75 9V5.25A2.25 2.25 0 0 0 13.5 3h-6a2.25 2.25 0 0 0-2.25 2.25v13.5A2.25 2.25 0 0 0 7.5 21h6a2.25 2.25 0 0 0 2.25-2.25V15m3 0 3-3m0 0-3-3m3 3H9"/></symbol>
+<symbol id="hi-x" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M6 18 18 6M6 6l12 12"/></symbol>
+<symbol id="hi-device" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M10.5 1.5H8.25A2.25 2.25 0 0 0 6 3.75v16.5a2.25 2.25 0 0 0 2.25 2.25h7.5A2.25 2.25 0 0 0 18 20.25V3.75a2.25 2.25 0 0 0-2.25-2.25H13.5m-3 0V3h3V1.5m-3 0h3m-3 18.75h3"/></symbol>
+<symbol id="hi-search" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="m21 21-5.197-5.197m0 0A7.5 7.5 0 1 0 5.196 5.196a7.5 7.5 0 0 0 10.607 10.607Z"/></symbol>
+<symbol id="hi-refresh" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0 3.181 3.183a8.25 8.25 0 0 0 13.803-3.7M4.031 9.865a8.25 8.25 0 0 1 13.803-3.7l3.181 3.182"/></symbol>
+<symbol id="hi-check" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="m4.5 12.75 6 6 9-13.5"/></symbol>
+<symbol id="hi-chevron-left" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M15.75 19.5 8.25 12l7.5-7.5"/></symbol>
+<symbol id="hi-plus" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M12 4.5v15m7.5-7.5h-15"/></symbol>
+</svg>
+
+</body>
+</html>

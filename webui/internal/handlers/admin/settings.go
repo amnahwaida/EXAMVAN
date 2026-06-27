@@ -1,0 +1,196 @@
+package admin
+
+import (
+	"context"
+	"log"
+	"math"
+	"net/http"
+	"strconv"
+	"strings"
+
+	"github.com/gin-gonic/gin"
+	"github.com/jackc/pgx/v5/pgxpool"
+
+	"github.com/examvan/webui/internal/models"
+)
+
+// ---------------------------------------------------------------------------
+// SaaS Settings handler (GET + POST)
+// ---------------------------------------------------------------------------
+
+// SaasSettings handles both GET and POST for SaaS configuration.
+// It is designed to be registered as:
+//
+//	router.GET("/admin/api/saas-settings", admin.SaasSettings())
+//	router.POST("/admin/api/saas-settings", admin.SaasSettings())
+//
+// The handler inspects the request method internally.
+func SaasSettings() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		pool := getPool(c)
+		ctx := c.Request.Context()
+
+		switch c.Request.Method {
+		case http.MethodGet:
+			handleSaasSettingsGet(c, pool, ctx)
+		case http.MethodPost:
+			handleSaasSettingsPost(c, pool, ctx)
+		default:
+			errorResponse(c, http.StatusMethodNotAllowed, "Method tidak diizinkan")
+		}
+	}
+}
+
+func handleSaasSettingsGet(c *gin.Context, pool *pgxpool.Pool, ctx context.Context) {
+	settings, err := models.GetAllSaasSettings(ctx, pool)
+	if err != nil {
+		log.Printf("get saas settings error: %v", err)
+		errorResponse(c, http.StatusInternalServerError, "Gagal memuat pengaturan")
+		return
+	}
+
+	// Format settings for response (matching Python's format)
+	waEnabled := settings[models.SettingWAVerificationEnabled] == "1"
+	waToken := maskTokenSetting(settings[models.SettingWAPIToken])
+
+	defaultMaxExams := parseIntSetting(settings[models.SettingDefaultMaxExams], 3)
+	defaultMaxPDFSize := parseIntSetting(settings[models.SettingDefaultMaxPDFSize], 1048576)
+	defaultMaxDrafts := parseIntSetting(settings[models.SettingDefaultMaxDrafts], 2)
+	defaultMaxDraftSize := parseIntSetting(settings[models.SettingDefaultMaxDraftSize], 1048576)
+	defaultActiveDays := parseIntSetting(settings[models.SettingDefaultActiveDays], 1)
+
+	c.JSON(http.StatusOK, gin.H{
+		"success": true,
+		"settings": gin.H{
+			"wa_verification_enabled":  waEnabled,
+			"wa_api_token":             waToken,
+			"wa_otp_template":          settings[models.SettingWAOTPTemplate],
+			"default_max_exams":        defaultMaxExams,
+			"default_max_pdf_size_mb":  roundTo(float64(defaultMaxPDFSize)/(1024*1024), 2),
+			"default_max_drafts":       defaultMaxDrafts,
+			"default_max_draft_size_mb": roundTo(float64(defaultMaxDraftSize)/(1024*1024), 2),
+			"default_active_days":      defaultActiveDays,
+			"android_version":          settings[models.SettingAndroidVersion],
+			"webapp_version":           settings[models.SettingWebappVersion],
+			"certificate_fingerprint":  settings[models.SettingCertificateFingerprint],
+		},
+	})
+}
+
+func maskTokenSetting(token string) string {
+	if len(token) <= 8 {
+		return token
+	}
+	return strings.Repeat("*", len(token)-4) + token[len(token)-4:]
+}
+
+func parseIntSetting(val string, defaultVal int) int {
+	if val == "" {
+		return defaultVal
+	}
+	i, err := strconv.Atoi(val)
+	if err != nil {
+		return defaultVal
+	}
+	return i
+}
+
+func handleSaasSettingsPost(c *gin.Context, pool *pgxpool.Pool, ctx context.Context) {
+	var body struct {
+		WAVerificationEnabled bool    `json:"wa_verification_enabled"`
+		WAPIToken             string  `json:"wa_api_token"`
+		WAOTPTemplate         string  `json:"wa_otp_template"`
+		DefaultMaxExams       int     `json:"default_max_exams"`
+		DefaultMaxPDFSizeMB   float64 `json:"default_max_pdf_size_mb"`
+		DefaultMaxDrafts      int     `json:"default_max_drafts"`
+		DefaultMaxDraftSizeMB float64 `json:"default_max_draft_size_mb"`
+		DefaultActiveDays     int     `json:"default_active_days"`
+		AndroidVersion        string  `json:"android_version"`
+		WebappVersion         string  `json:"webapp_version"`
+		CertificateFingerprint string `json:"certificate_fingerprint"`
+	}
+
+	if err := c.ShouldBindJSON(&body); err != nil {
+		errorResponse(c, http.StatusBadRequest, "Data tidak valid")
+		return
+	}
+
+	reqCtx := c.Request.Context()
+
+	// WA settings
+	waEnabled := "0"
+	if body.WAVerificationEnabled {
+		waEnabled = "1"
+	}
+	if err := models.SetSaasSetting(reqCtx, pool, models.SettingWAVerificationEnabled, waEnabled); err != nil {
+		log.Printf("save wa_enabled error: %v", err)
+	}
+
+	// WA API token — if masked value sent, keep existing
+	waToken := strings.TrimSpace(body.WAPIToken)
+	if waToken != "" && strings.HasPrefix(waToken, "****") {
+		existing, _ := models.GetSaasSetting(reqCtx, pool, models.SettingWAPIToken)
+		if existing != "" {
+			waToken = existing
+		}
+	}
+	if waToken != "" {
+		if err := models.SetSaasSetting(reqCtx, pool, models.SettingWAPIToken, waToken); err != nil {
+			log.Printf("save wa_token error: %v", err)
+		}
+	}
+
+	// OTP template
+	otpTemplate := strings.TrimSpace(body.WAOTPTemplate)
+	if otpTemplate != "" {
+		if err := models.SetSaasSetting(reqCtx, pool, models.SettingWAOTPTemplate, otpTemplate); err != nil {
+			log.Printf("save otp_template error: %v", err)
+		}
+	}
+
+	// Numerical settings
+	defaultMaxExams := body.DefaultMaxExams
+	if defaultMaxExams <= 0 {
+		defaultMaxExams = 3
+	}
+	models.SetSaasSetting(reqCtx, pool, models.SettingDefaultMaxExams, strconv.Itoa(defaultMaxExams))
+
+	defaultPDFSize := int(math.Max(0, body.DefaultMaxPDFSizeMB*1024*1024))
+	if defaultPDFSize <= 0 {
+		defaultPDFSize = 1048576
+	}
+	models.SetSaasSetting(reqCtx, pool, models.SettingDefaultMaxPDFSize, strconv.Itoa(defaultPDFSize))
+
+	defaultDrafts := body.DefaultMaxDrafts
+	if defaultDrafts <= 0 {
+		defaultDrafts = 2
+	}
+	models.SetSaasSetting(reqCtx, pool, models.SettingDefaultMaxDrafts, strconv.Itoa(defaultDrafts))
+
+	defaultDraftSize := int(math.Max(0, body.DefaultMaxDraftSizeMB*1024*1024))
+	if defaultDraftSize <= 0 {
+		defaultDraftSize = 1048576
+	}
+	models.SetSaasSetting(reqCtx, pool, models.SettingDefaultMaxDraftSize, strconv.Itoa(defaultDraftSize))
+
+	defaultActiveDays := body.DefaultActiveDays
+	if defaultActiveDays <= 0 {
+		defaultActiveDays = 1
+	}
+	models.SetSaasSetting(reqCtx, pool, models.SettingDefaultActiveDays, strconv.Itoa(defaultActiveDays))
+
+	// App versions
+	androidVersion := strings.TrimSpace(body.AndroidVersion)
+	if androidVersion != "" {
+		models.SetSaasSetting(reqCtx, pool, models.SettingAndroidVersion, androidVersion)
+	}
+	webappVersion := strings.TrimSpace(body.WebappVersion)
+	if webappVersion != "" {
+		models.SetSaasSetting(reqCtx, pool, models.SettingWebappVersion, webappVersion)
+	}
+
+	certFingerprint := strings.TrimSpace(body.CertificateFingerprint)
+	models.SetSaasSetting(reqCtx, pool, models.SettingCertificateFingerprint, certFingerprint)
+
+	successMessage(c, "Pengaturan SaaS berhasil diperbarui")
+}

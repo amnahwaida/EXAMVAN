@@ -1,0 +1,368 @@
+{{/*
+  EXAMVAN Pengawas Monitoring Page — Self-Contained
+  Template variables:
+    .admin_user, .admin_role, .active_page, .version, .csrf_token
+*/}}
+<!DOCTYPE html>
+<html lang="id">
+<head>
+ {{adminHead .version .csrf_token "Pengawasan Ujian"}}
+</head>
+<body class="dashboard-page">
+
+{{adminNav .active_page .admin_role .admin_user}}
+
+<main class="dashboard">
+ <h1 class="sr-only" style="position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0;">Pengawasan Ujian</h1>
+
+ <!-- Access Log Modal -->
+ <div id="accessLogModal" class="modal-overlay" style="display:none;" onclick="closeAccessLogModal(event)">
+  <div class="modal-container access-log-modal" style="max-width: 620px;" onclick="event.stopPropagation()">
+   <div class="modal-header">
+    <h3 style="font-size:1.1rem;color:#a5b4fc;display:flex;align-items:center;gap:8px;"><svg class="icon-svg"><use href="#hi-eye"/></svg> Detail Akses Siswa</h3>
+    <button class="modal-close" onclick="closeAccessLogModal()" aria-label="Tutup"><svg class="icon-svg" style="width:18px;height:18px;"><use href="#hi-x"/></svg></button>
+   </div>
+   <div class="modal-body" id="accessLogBody" style="padding: 0 24px 24px; max-height: 75vh; overflow-y: auto;">
+    <div style="text-align:center;padding:40px;color:var(--color-text-secondary);">Memuat...</div>
+   </div>
+  </div>
+ </div>
+
+ <!-- Stats Cards -->
+ <section class="stats-grid" id="pengawasStats">
+  <div class="stat-card stat-total">
+   <div class="stat-icon"><svg class="icon-svg" style="width:24px;height:24px;"><use href="#hi-dashboard"/></svg></div>
+   <div class="stat-info">
+    <span class="stat-value" id="statTotalExam">0</span>
+    <span class="stat-label">Ujian Diawasi</span>
+   </div>
+  </div>
+  <div class="stat-card stat-active">
+   <div class="stat-icon"><svg class="icon-svg" style="width:24px;height:24px;color:#34d399;"><use href="#hi-eye"/></svg></div>
+   <div class="stat-info">
+    <span class="stat-value" id="statActiveExam">0</span>
+    <span class="stat-label">Sedang Berlangsung</span>
+   </div>
+  </div>
+  <div class="stat-card stat-inactive">
+   <div class="stat-icon"><svg class="icon-svg" style="width:24px;height:24px;color:#fbbf24;"><use href="#hi-users"/></svg></div>
+   <div class="stat-info">
+    <span class="stat-value" id="statTotalStudents">0</span>
+    <span class="stat-label">Total Siswa</span>
+   </div>
+  </div>
+  <div class="stat-card stat-submitted">
+   <div class="stat-icon"><svg class="icon-svg" style="width:24px;height:24px;color:#60a5fa;"><use href="#hi-check"/></svg></div>
+   <div class="stat-info">
+    <span class="stat-value" id="statSubmitted">0</span>
+    <span class="stat-label">Terkumpul</span>
+   </div>
+  </div>
+ </section>
+
+ <!-- Exam Cards -->
+ <section class="glass-card" style="margin-top: 24px;">
+  <div class="table-header flex items-center justify-between mb-5 flex-wrap gap-3">
+   <h3 style="font-size: 1.1rem; color: #a5b4fc; display: flex; align-items: center; gap: 8px;">
+    <svg class="icon-svg" style="color:#a5b4fc;"><use href="#hi-eye"/></svg> Ujian yang Saya Awasi
+   </h3>
+   <div class="table-toolbar">
+    <div class="toolbar-search-wrap">
+     <input type="text" id="pengawasSearch" class="toolbar-search-input" placeholder="Cari nama ujian, token, pembuat..."
+      onkeyup="if(event.key==='Enter') loadPengawasExams()">
+    </div>
+    <button class="toolbar-btn toolbar-btn-search" onclick="loadPengawasExams()"><svg class="icon-svg"><use href="#hi-search"/></svg> Cari</button>
+    <button class="toolbar-btn toolbar-btn-refresh" onclick="loadPengawasExams()"><svg class="icon-svg"><use href="#hi-refresh"/></svg></button>
+   </div>
+  </div>
+  <div id="pengawasExamList" style="display:flex;flex-direction:column;gap:16px;">
+   <div style="text-align:center;padding:40px;color:var(--color-text-secondary);">Memuat data...</div>
+  </div>
+  <div id="pengawasPagination" class="pagination-wrapper" style="display:none;"></div>
+ </section>
+</main>
+
+<!-- Heroicons Sprite -->
+<svg xmlns="http://www.w3.org/2000/svg" style="display:none;" aria-hidden="true">
+<symbol id="hi-dashboard" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M3.75 6A2.25 2.25 0 0 1 6 3.75h2.25A2.25 2.25 0 0 1 10.5 6v2.25a2.25 2.25 0 0 1-2.25 2.25H6a2.25 2.25 0 0 1-2.25-2.25V6ZM3.75 15.75A2.25 2.25 0 0 1 6 13.5h2.25a2.25 2.25 0 0 1 2.25 2.25V18a2.25 2.25 0 0 1-2.25 2.25H6A2.25 2.25 0 0 1 3.75 18v-2.25ZM13.5 6a2.25 2.25 0 0 1 2.25-2.25H18A2.25 2.25 0 0 1 20.25 6v2.25A2.25 2.25 0 0 1 18 10.5h-2.25a2.25 2.25 0 0 1-2.25-2.25V6ZM13.5 15.75a2.25 2.25 0 0 1 2.25-2.25H18a2.25 2.25 0 0 1 2.25 2.25V18A2.25 2.25 0 0 1 18 20.25h-2.25A2.25 2.25 0 0 1 13.5 18v-2.25Z"/></symbol>
+<symbol id="hi-results" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M3 13.125C3 12.504 3.504 12 4.125 12h2.25c.621 0 1.125.504 1.125 1.125v6.75C7.5 20.496 6.996 21 6.375 21h-2.25A1.125 1.125 0 0 1 3 19.875v-6.75ZM9.75 8.625c0-.621.504-1.125 1.125-1.125h2.25c.621 0 1.125.504 1.125 1.125v11.25c0 .621-.504 1.125-1.125 1.125h-2.25a1.125 1.125 0 0 1-1.125-1.125V8.625ZM16.5 4.125c0-.621.504-1.125 1.125-1.125h2.25C20.496 3 21 3.504 21 4.125v15.75c0 .621-.504 1.125-1.125 1.125h-2.25a1.125 1.125 0 0 1-1.125-1.125V4.125Z"/></symbol>
+<symbol id="hi-users" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M15 19.128a9.38 9.38 0 0 0 2.625.372 9.337 9.337 0 0 0 4.121-.952 4.125 4.125 0 0 0-7.533-2.493M15 19.128v-.003c0-1.113-.285-2.16-.786-3.07M15 19.128v.106A12.318 12.318 0 0 1 8.624 21c-2.331 0-4.512-.645-6.374-1.766l-.001-.109a6.375 6.375 0 0 1 11.964-3.07M12 6.375a3.375 3.375 0 1 1-6.75 0 3.375 3.375 0 0 1 6.75 0Zm8.25 2.25a2.625 2.625 0 1 1-5.25 0 2.625 2.625 0 0 1 5.25 0Z"/></symbol>
+<symbol id="hi-eye" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M2.036 12.322a1.012 1.012 0 0 1 0-.639C3.423 7.51 7.36 4.5 12 4.5c4.638 0 8.573 3.007 9.963 7.178.07.207.07.431 0 .639C20.577 16.49 16.64 19.5 12 19.5c-4.638 0-8.573-3.007-9.963-7.178Z"/><path d="M15 12a3 3 0 1 1-6 0 3 3 0 0 1 6 0Z"/></symbol>
+<symbol id="hi-logout" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M15.75 9V5.25A2.25 2.25 0 0 0 13.5 3h-6a2.25 2.25 0 0 0-2.25 2.25v13.5A2.25 2.25 0 0 0 7.5 21h6a2.25 2.25 0 0 0 2.25-2.25V15m3 0 3-3m0 0-3-3m3 3H9"/></symbol>
+<symbol id="hi-x" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M6 18 18 6M6 6l12 12"/></symbol>
+<symbol id="hi-device" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M10.5 1.5H8.25A2.25 2.25 0 0 0 6 3.75v16.5a2.25 2.25 0 0 0 2.25 2.25h7.5A2.25 2.25 0 0 0 18 20.25V3.75a2.25 2.25 0 0 0-2.25-2.25H13.5m-3 0V3h3V1.5m-3 0h3m-3 18.75h3"/></symbol>
+<symbol id="hi-search" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="m21 21-5.197-5.197m0 0A7.5 7.5 0 1 0 5.196 5.196a7.5 7.5 0 0 0 10.607 10.607Z"/></symbol>
+<symbol id="hi-refresh" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0 3.181 3.183a8.25 8.25 0 0 0 13.803-3.7M4.031 9.865a8.25 8.25 0 0 1 13.803-3.7l3.181 3.182"/></symbol>
+<symbol id="hi-check" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="m4.5 12.75 6 6 9-13.5"/></symbol>
+<symbol id="hi-chevron-right" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="m8.25 4.5 7.5 7.5-7.5 7.5"/></symbol>
+<symbol id="hi-device" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M10.5 1.5H8.25A2.25 2.25 0 0 0 6 3.75v16.5a2.25 2.25 0 0 0 2.25 2.25h7.5A2.25 2.25 0 0 0 18 20.25V3.75a2.25 2.25 0 0 0-2.25-2.25H13.5m-3 0V3h3V1.5m-3 0h3m-3 18.75h3"/></symbol>
+</svg>
+
+<style>
+.exam-monitor-card {
+  background: rgba(255,255,255,0.03);
+  border: 1px solid var(--color-glass-border);
+  border-radius: 12px;
+  padding: 16px 20px;
+  transition: border-color 0.2s;
+}
+.exam-monitor-card:hover {
+  border-color: rgba(99,102,241,0.3);
+}
+.exam-monitor-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+.exam-monitor-title {
+  font-size: 1rem;
+  font-weight: 700;
+  color: var(--color-text);
+}
+.exam-monitor-meta {
+  font-size: 0.8rem;
+  color: var(--color-text-muted);
+  display: flex;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+.exam-monitor-progress {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+.progress-bar-container {
+  flex: 1;
+  min-width: 100px;
+  height: 8px;
+  background: rgba(255,255,255,0.06);
+  border-radius: 4px;
+  overflow: hidden;
+}
+.progress-bar-fill {
+  height: 100%;
+  border-radius: 4px;
+  transition: width 0.5s ease;
+}
+.progress-text {
+  font-size: 0.85rem;
+  font-weight: 600;
+  white-space: nowrap;
+}
+.student-list-toggle {
+  font-size: 0.8rem;
+  color: #a5b4fc;
+  cursor: pointer;
+  background: none;
+  border: 1px solid rgba(99,102,241,0.3);
+  border-radius: 8px;
+  padding: 4px 12px;
+  transition: background 0.2s;
+}
+.student-list-toggle:hover {
+  background: rgba(99,102,241,0.1);
+}
+.student-table {
+  width: 100%;
+  border-collapse: collapse;
+  margin-top: 12px;
+  font-size: 0.8rem;
+}
+.student-table th {
+  text-align: left;
+  padding: 8px 10px;
+  border-bottom: 1px solid var(--color-glass-border);
+  color: var(--color-text-muted);
+  font-weight: 600;
+  font-size: 0.72rem;
+}
+.student-table td {
+  padding: 10px;
+  border-bottom: 1px solid rgba(255,255,255,0.03);
+}
+.student-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 8px;
+  border-radius: 10px;
+  font-size: 0.7rem;
+  font-weight: 600;
+}
+.student-status.submitted { background: rgba(16,185,129,0.15); color: #6ee7b7; border: 1px solid rgba(16,185,129,0.3); }
+.student-status.in-progress { background: rgba(251,191,36,0.15); color: #fbbf24; border: 1px solid rgba(251,191,36,0.3); }
+.student-status.not-started { background: rgba(107,114,128,0.15); color: #9ca3af; border: 1px solid rgba(107,114,128,0.3); }
+.student-table tbody tr { transition:background 0.1s; cursor:pointer; }
+.student-table tbody tr:hover { background:rgba(99,102,241,0.05); }
+.log-modal-header-info { display:flex;flex-direction:column;gap:12px;margin-bottom:16px;padding:0;background:transparent;border:none;border-radius:0; }
+.log-device-row { display:flex;align-items:center;gap:10px;background:var(--color-bg-secondary);border:1px solid var(--color-glass-border);border-radius:10px;font-size:0.8rem;padding:10px 14px; }
+.access-log-timeline { position:relative;padding-left:28px;margin-top:8px; }
+.access-log-timeline::before { content:'';position:absolute;left:10px;top:8px;bottom:8px;width:2px;background:var(--color-glass-border); }
+.log-entry { position:relative;padding:10px 0 10px 18px;border-left:2px solid transparent;margin-bottom:6px;background:var(--color-bg-secondary);border-radius:8px;border:1px solid var(--color-glass-border); }
+.log-entry::before { content:'';position:absolute;left:-22px;top:14px;width:10px;height:10px;border-radius:50%;border:2px solid;background:var(--color-bg); }
+.log-entry.login::before { background:#34d399;border-color:#34d399; }
+.log-entry.heartbeat::before { background:#60a5fa;border-color:#60a5fa; }
+.log-entry.logout::before { background:#f87171;border-color:#f87171; }
+.log-entry .log-time { font-size:0.72rem;color:var(--color-text-muted);font-family:monospace;margin-top:2px; }
+.log-entry .log-event { font-size:0.85rem;font-weight:600;color:var(--color-text); }
+.log-entry .log-detail { font-size:0.72rem;color:var(--color-text-muted);margin-top:2px; }
+.log-identity { display:flex;flex-wrap:wrap;gap:6px;margin-top:8px;padding:8px 12px;background:var(--color-bg);border:1px solid var(--color-glass-border);border-radius:6px;font-size:0.72rem; }
+.log-identity span { color:var(--color-text-secondary);white-space:nowrap; }
+.log-identity strong { color:var(--color-text); }
+.no-logs { text-align:center;padding:32px;color:var(--color-text-muted);font-size:0.85rem; }
+</style>
+
+<script src="/static/js/admin-core.js"></script>
+<script src="/static/js/admin.js"></script>
+<script>
+/* ===== Pengawas Monitoring ===== */
+var PENG_CURRENT_PAGE = 1;
+
+function loadPengawasExams(page) {
+    var el = document.getElementById('pengawasExamList');
+    if (!el) return;
+
+    if (page !== undefined) PENG_CURRENT_PAGE = page;
+    var search = document.getElementById('pengawasSearch') ? document.getElementById('pengawasSearch').value.trim() : '';
+
+    el.innerHTML = '<div style="text-align:center;padding:40px;color:var(--color-text-secondary);">Memuat data ujian...</div>';
+
+    var url = '/admin/api/pengawas/exams?page=' + PENG_CURRENT_PAGE + '&per_page=10';
+    if (search) url += '&search=' + encodeURIComponent(search);
+
+    fetch(url, { credentials: 'same-origin', headers: { 'Accept': 'application/json' } })
+        .then(function(r) { return r.json(); })
+        .then(function(res) {
+            if (!res || !res.success) {
+                el.innerHTML = '<div style="text-align:center;padding:40px;color:#fca5a5;">Gagal memuat data</div>';
+                return;
+            }
+            var exams = res.exams || [];
+            if (res.stats) {
+                setText('statTotalExam', res.stats.total_exams);
+                setText('statActiveExam', res.stats.active_exams);
+                setText('statTotalStudents', res.stats.total_students);
+                setText('statSubmitted', res.stats.total_submitted);
+            } else {
+                updateStats(exams);
+            }
+
+            if (exams.length === 0) {
+                var msg = res.is_privileged
+                    ? 'Belum ada ujian yang tersedia.'
+                    : 'Belum ada ujian yang ditugaskan kepada Anda sebagai pengawas.';
+                if (search) msg = 'Pencarian tidak ditemukan.';
+                el.innerHTML = '<div style="text-align:center;padding:40px;color:var(--color-text-secondary);">' + msg + '</div>';
+                renderPagination(res);
+                return;
+            }
+
+            var html = '';
+            for (var i = 0; i < exams.length; i++) {
+                var ex = exams[i];
+                var total = ex.total_students || 0;
+                var sub = ex.submitted_count || 0;
+                var pct = total > 0 ? Math.round(sub / total * 100) : 0;
+                var barColor = pct >= 100 ? '#34d399' : (pct > 0 ? '#60a5fa' : '#6b7280');
+                var statusHtml = ex.status === 'active'
+                    ? '<span class="status-badge status-active">Aktif</span>'
+                    : '<span class="status-badge status-inactive">Nonaktif</span>';
+                var sched = (ex.start_time && ex.end_time) ? (ex.start_time + ' - ' + ex.end_time) : '—';
+
+                html += '<div class="exam-monitor-card" id="exam-card-' + ex.id + '" style="cursor:pointer;" onclick="window.location=\'/admin/pengawas/' + ex.id + '\'">' +
+                    '<div class="exam-monitor-header">' +
+                        '<div>' +
+                            '<div class="exam-monitor-title">' + esc(ex.name) + '</div>' +
+                            '<div class="exam-monitor-meta">' +
+                                '<span>Token: <strong>' + esc(ex.token) + '</strong></span>' +
+                                '<span>Jadwal: ' + sched + '</span>' +
+                                '<span>Pembuat: ' + esc(ex.creator_name) + '</span>' +
+                            '</div>' +
+                        '</div>' +
+                        '<div style="display:flex;align-items:center;gap:8px;">' +
+                            statusHtml +
+                            '<svg class="icon-svg" style="width:16px;height:16px;color:#4f46e5;"><use href="#hi-chevron-right"/></svg>' +
+                        '</div>' +
+                    '</div>' +
+                    '<div class="exam-monitor-progress">' +
+                        '<div class="progress-bar-container">' +
+                            '<div class="progress-bar-fill" style="width:' + pct + '%;background:' + barColor + ';"></div>' +
+                        '</div>' +
+                        '<span class="progress-text" style="color:' + barColor + ';">' + sub + '/' + total + ' (' + pct + '%)</span>' +
+                        '<a href="/admin/pengawas/' + ex.id + '" class="student-list-toggle" style="text-decoration:none;"><svg class="icon-svg" style="width:14px;height:14px;"><use href="#hi-eye"/></svg> Pantau</a>' +
+                    '</div>' +
+                '</div>';
+            }
+            el.innerHTML = html;
+            renderPagination(res);
+        })
+        .catch(function() {
+            el.innerHTML = '<div style="text-align:center;padding:40px;color:#fca5a5;">Gagal menghubungi server</div>';
+        });
+}
+
+function renderPagination(res) {
+    var pagEl = document.getElementById('pengawasPagination');
+    if (!pagEl) return;
+    if (!res.total_pages || res.total_pages <= 1) { pagEl.style.display = 'none'; return; }
+
+    var html = '<div class="pagination-wrapper">' +
+        '<span class="pagination-info">Menampilkan ' + res.exams.length + ' dari ' + res.total + ' ujian</span>' +
+        '<div class="pagination-links">';
+
+    if (res.page > 1) {
+        html += '<a class="pagination-page-num" onclick="loadPengawasExams(1)" style="cursor:pointer;">&laquo;</a>' +
+            '<a class="pagination-page-num" onclick="loadPengawasExams(' + (res.page - 1) + ')" style="cursor:pointer;">&lsaquo;</a>';
+    }
+
+    var start = Math.max(1, res.page - 2);
+    var end = Math.min(res.total_pages, res.page + 2);
+    for (var p = start; p <= end; p++) {
+        html += '<a class="pagination-page-num' + (p === res.page ? ' page-current' : '') + '" onclick="loadPengawasExams(' + p + ')" style="cursor:pointer;">' + p + '</a>';
+    }
+
+    if (res.page < res.total_pages) {
+        html += '<a class="pagination-page-num" onclick="loadPengawasExams(' + (res.page + 1) + ')" style="cursor:pointer;">&rsaquo;</a>' +
+            '<a class="pagination-page-num" onclick="loadPengawasExams(' + res.total_pages + ')" style="cursor:pointer;">&raquo;</a>';
+    }
+
+    html += '</div></div>';
+    pagEl.innerHTML = html;
+    pagEl.style.display = 'block';
+}
+
+function updateStats(exams) {
+    var total = exams.length, active = 0, students = 0, submitted = 0;
+    for (var i = 0; i < exams.length; i++) {
+        var e = exams[i];
+        if (e.status === 'active') active++;
+        students += e.total_students || 0;
+        submitted += e.submitted_count || 0;
+    }
+    setText('statTotalExam', total);
+    setText('statActiveExam', active);
+    setText('statTotalStudents', students);
+    setText('statSubmitted', submitted);
+}
+
+function setText(id, val) { var e = document.getElementById(id); if (e) e.textContent = val; }
+
+function esc(s) {
+    if (!s) return '—';
+    var d = document.createElement('div');
+    d.appendChild(document.createTextNode(s));
+    return d.innerHTML;
+}
+
+/* Auto-load on page ready */
+(function() {
+    loadPengawasExams();
+})();
+</script>
+
+</body>
+</html>

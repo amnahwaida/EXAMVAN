@@ -1,0 +1,87 @@
+/* EXAMVAN Theme System — CSS Custom Properties for Light & Dark Mode */
+/* This is the SINGLE SOURCE OF TRUTH for all theme variables. */
+
+:root {
+    /* === Colors (Dark Mode - Default) === */
+    --color-bg: #09090e;
+    --color-bg-secondary: #111827;
+    --color-surface: rgba(255, 255, 255, 0.03);
+    --color-surface-hover: rgba(255, 255, 255, 0.07);
+    --color-glass: rgba(13, 13, 30, 0.5);
+    --color-glass-border: rgba(255, 255, 255, 0.08);
+    --color-primary: #6366f1;
+    --color-primary-dark: #4f46e5;
+    --color-primary-light: #a5b4fc;
+    --color-primary-glow: rgba(99, 102, 241, 0.25);
+    --color-accent: #8b5cf6;
+    --color-accent-light: #a78bfa;
+    --color-accent-emerald: #34d399;
+    --color-accent-cyan: #22d3ee;
+    --color-success: #10b981;
+    --color-success-bg: rgba(16, 185, 129, 0.12);
+    --color-danger: #ef4444;
+    --color-danger-bg: rgba(239, 68, 68, 0.12);
+    --color-warning: #f59e0b;
+    --color-warning-bg: rgba(245, 158, 11, 0.12);
+    --color-text: #f8fafc;
+    --color-text-secondary: #cbd5e1;
+    --color-text-muted: #a0aec0;
+    --color-text-on-primary: #ffffff;
+    --color-text-on-accent: #ffffff;
+
+    /* === Spacing & Effects === */
+    --radius: 16px;
+    --radius-sm: 10px;
+    --radius-md: 12px;
+    --radius-lg: 16px;
+    --radius-xl: 20px;
+    --shadow-card: 0 8px 32px rgba(0, 0, 0, 0.3);
+    --shadow-lg: 0 20px 50px rgba(0, 0, 0, 0.4);
+    --shadow-sm: 0 4px 12px rgba(0, 0, 0, 0.2);
+    --ease-spring: cubic-bezier(0.4, 0, 0.2, 1);
+
+    /* === Fonts === */
+    --font-sans: 'Plus Jakarta Sans', 'Inter', system-ui, -apple-system, sans-serif;
+    --font-display: 'Outfit', 'Plus Jakarta Sans', sans-serif;
+    --font-mono: 'SF Mono', 'Fira Code', 'JetBrains Mono', monospace;
+
+    /* === Background Gradient === */
+    --bg-gradient: radial-gradient(ellipse at 50% 0%, #17152f 0%, #0c0a1a 50%, #06050b 100%);
+}
+
+@media (prefers-color-scheme: light) {
+    :root {
+        --color-bg: #f1f5f9;
+        --color-bg-secondary: #ffffff;
+        --color-surface: rgba(0, 0, 0, 0.02);
+        --color-surface-hover: rgba(0, 0, 0, 0.05);
+        --color-glass: rgba(255, 255, 255, 0.7);
+        --color-glass-border: rgba(0, 0, 0, 0.08);
+        --color-primary: #6366f1;
+        --color-primary-dark: #4f46e5;
+        --color-primary-light: #818cf8;
+        --color-primary-glow: rgba(99, 102, 241, 0.15);
+        --color-accent: #7c3aed;
+        --color-accent-light: #8b5cf6;
+        --color-accent-emerald: #059669;
+        --color-accent-cyan: #0891b2;
+        --color-success: #059669;
+        --color-success-bg: rgba(5, 150, 105, 0.08);
+        --color-danger: #dc2626;
+        --color-danger-bg: rgba(220, 38, 38, 0.08);
+        --color-warning: #d97706;
+        --color-warning-bg: rgba(217, 119, 6, 0.08);
+        --color-text: #0f172a;
+        --color-text-secondary: #334155;
+        --color-text-muted: #64748b;
+        --color-text-on-primary: #ffffff;
+        --color-text-on-accent: #ffffff;
+        --shadow-card: 0 8px 32px rgba(0, 0, 0, 0.08);
+        --shadow-lg: 0 20px 50px rgba(0, 0, 0, 0.1);
+        --shadow-sm: 0 4px 12px rgba(0, 0, 0, 0.05);
+        --bg-gradient: radial-gradient(ellipse at 50% 0%, #e2e8f0 0%, #f1f5f9 50%, #f8fafc 100%);
+    }
+}
+
+/* ===== Font Face Fallbacks (Google Fonts self-host placeholder) ===== */
+/* Jika ingin self-host font, tambahkan @font-face di sini */

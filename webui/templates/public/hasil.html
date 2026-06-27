@@ -1,0 +1,783 @@
+{{/*
+  EXAMVAN Public Exam Results Page
+  =================================
+  Standalone template (does not extend base.html).
+  Variables:
+    .exam_name      — string
+    .token          — string
+    .total_students — int
+    .is_logged_in   — bool
+    .is_disabled    — bool (true when results are not public)
+    .show_answers   — bool (whether answer keys are visible)
+    .error          — bool (true when exam not found / error state)
+*/}}
+<!DOCTYPE html>
+<html lang="id">
+<head>
+ <meta charset="UTF-8">
+ <meta name="viewport" content="width=device-width, initial-scale=1.0">
+ <title>EXAMVAN - Hasil Ujian {{.exam_name}}</title>
+ <meta name="description" content="Lihat hasil ujian {{.exam_name}} - EXAMVAN">
+ <link rel="stylesheet" href="/static/css/theme.css?v={{.version}}">
+ <link rel="stylesheet" href="/static/css/tailwind/output.css?v={{.version}}">
+ <link rel="stylesheet" href="/static/css/hasil.css?v={{.version}}">
+ <link rel="icon" type="image/png" href="/static/favicon.png">
+ <script src="/static/js/admin-core.js?v={{.version}}" defer></script>
+</head>
+<body>
+ <a href="#main-content" class="skip-link" style="position:absolute;left:-9999px;z-index:9999;padding:12px 20px;background:var(--color-primary,#6366f1);color:white;border-radius:8px;font-weight:600;text-decoration:none;">Langsung ke konten</a>
+ <!-- Heroicons Sprite -->
+ <svg xmlns="http://www.w3.org/2000/svg" style="display:none;" aria-hidden="true">
+  <symbol id="hi-results" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M3 13.125C3 12.504 3.504 12 4.125 12h2.25c.621 0 1.125.504 1.125 1.125v6.75C7.5 20.496 6.996 21 6.375 21h-2.25A1.125 1.125 0 0 1 3 19.875v-6.75ZM9.75 8.625c0-.621.504-1.125 1.125-1.125h2.25c.621 0 1.125.504 1.125 1.125v11.25c0 .621-.504 1.125-1.125 1.125h-2.25a1.125 1.125 0 0 1-1.125-1.125V8.625ZM16.5 4.125c0-.621.504-1.125 1.125-1.125h2.25C20.496 3 21 3.504 21 4.125v15.75c0 .621-.504 1.125-1.125 1.125h-2.25a1.125 1.125 0 0 1-1.125-1.125V4.125Z"/></symbol>
+  <symbol id="hi-key" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M15.75 5.25a3 3 0 0 1 3 3m3 0a6 6 0 0 1-7.029 5.912c-.563-.097-1.159.026-1.563.43L10.5 17.25H8.25v2.25H6v2.25H2.25v-2.818c0-.597.237-1.17.659-1.591l6.499-6.499c.404-.404.527-1 .43-1.563A6 6 0 1 1 21.75 8.25Z"/></symbol>
+  <symbol id="hi-users" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M15 19.128a9.38 9.38 0 0 0 2.625.372 9.337 9.337 0 0 0 4.121-.952 4.125 4.125 0 0 0-7.533-2.493M15 19.128v-.003c0-1.113-.285-2.16-.786-3.07M15 19.128v.106A12.318 12.318 0 0 1 8.624 21c-2.331 0-4.512-.645-6.374-1.766l-.001-.109a6.375 6.375 0 0 1 11.964-3.07M12 6.375a3.375 3.375 0 1 1-6.75 0 3.375 3.375 0 0 1 6.75 0Zm8.25 2.25a2.625 2.625 0 1 1-5.25 0 2.625 2.625 0 0 1 5.25 0Z"/></symbol>
+  <symbol id="hi-dashboard" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M3.75 6A2.25 2.25 0 0 1 6 3.75h2.25A2.25 2.25 0 0 1 10.5 6v2.25a2.25 2.25 0 0 1-2.25 2.25H6a2.25 2.25 0 0 1-2.25-2.25V6ZM3.75 15.75A2.25 2.25 0 0 1 6 13.5h2.25a2.25 2.25 0 0 1 2.25 2.25V18a2.25 2.25 0 0 1-2.25 2.25H6A2.25 2.25 0 0 1 3.75 18v-2.25ZM13.5 6a2.25 2.25 0 0 1 2.25-2.25H18A2.25 2.25 0 0 1 20.25 6v2.25A2.25 2.25 0 0 1 18 10.5h-2.25a2.25 2.25 0 0 1-2.25-2.25V6ZM13.5 15.75a2.25 2.25 0 0 1 2.25-2.25H18a2.25 2.25 0 0 1 2.25 2.25V18A2.25 2.25 0 0 1 18 20.25h-2.25A2.25 2.25 0 0 1 13.5 18v-2.25Z"/></symbol>
+  <symbol id="hi-eye" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M2.036 12.322a1.012 1.012 0 0 1 0-.639C3.423 7.51 7.36 4.5 12 4.5c4.638 0 8.573 3.007 9.963 7.178.07.207.07.431 0 .639C20.577 16.49 16.64 19.5 12 19.5c-4.638 0-8.573-3.007-9.963-7.178Z"/><path d="M15 12a3 3 0 1 1-6 0 3 3 0 0 1 6 0Z"/></symbol>
+  <symbol id="hi-lock" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M16.5 10.5V6.75a4.5 4.5 0 1 0-9 0v3.75m-.75 11.25h10.5a2.25 2.25 0 0 0 2.25-2.25v-6.75a2.25 2.25 0 0 0-2.25-2.25H6.75a2.25 2.25 0 0 0-2.25 2.25v6.75a2.25 2.25 0 0 0 2.25 2.25Z"/></symbol>
+  <symbol id="hi-arrow-left" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M19 12H5m7-7-7 7 7 7"/></symbol>
+  <symbol id="hi-trending-up" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M2.25 18 9 11.25l4.306 4.306a11.95 11.95 0 0 1 5.814-5.518l2.74-1.22m0 0-5.94-2.281m5.94 2.28-2.28 5.941"/></symbol>
+  <symbol id="hi-magnifying-glass" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="m21 21-5.197-5.197m0 0A7.5 7.5 0 1 0 5.196 5.196a7.5 7.5 0 0 0 10.607 10.607Z"/></symbol>
+  <symbol id="hi-arrow-path" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M16.023 9.348h4.992v-4.99M16.023 9.348l3.18-3.18a9 9 0 0 0-15.147 4.364m15.147 3.348h-4.992v4.99M7.977 14.652l-3.18 3.18a9 9 0 0 0 15.147-4.364"/></symbol>
+  <symbol id="hi-chevron-down" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="m19.5 8.25-7.5 7.5-7.5-7.5"/></symbol>
+  <symbol id="hi-clock" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M12 6v6h4.5m4.5 0a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z"/></symbol>
+  <symbol id="hi-paper-airplane" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M6 12 3.269 3.125A59.769 59.769 0 0 1 21.485 12 59.768 59.768 0 0 1 3.27 20.875L5.999 12Zm0 0h7.5"/></symbol>
+  <symbol id="hi-check" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="m4.5 12.75 6 6 9-13.5"/></symbol>
+  <symbol id="hi-exclamation-triangle" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126ZM12 15.75h.007v.008H12v-.008Z"/></symbol>
+  <symbol id="hi-x" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M6 18 18 6M6 6l12 12"/></symbol>
+  <symbol id="hi-chevron-left" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="m15.75 19.5-7.5-7.5 7.5-7.5"/></symbol>
+  <symbol id="hi-chevron-right" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="m8.25 4.5 7.5 7.5-7.5 7.5"/></symbol>
+  <symbol id="hi-exclamation" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M12 9v3.75m9-.75a9 9 0 1 1-18 0 9 9 0 0 1 18 0Zm-9 3.75h.008v.008H12v-.008Z"/></symbol>
+ </svg>
+
+ <!-- Animated background -->
+ <div class="bg-orbs">
+ <div class="bg-orb bg-orb-1"></div>
+ <div class="bg-orb bg-orb-2"></div>
+ <div class="bg-orb bg-orb-3"></div>
+ </div>
+
+ <!-- Header -->
+ <header class="header">
+ <div class="header-left">
+ <a href="/" class="back-nav" title="Kembali ke beranda" aria-label="Kembali ke beranda">
+  <svg width="14" height="14" aria-hidden="true"><use href="#hi-arrow-left"/></svg>
+  Kembali
+ </a>
+ <span class="header-divider"></span>
+ <div class="header-logo">E</div>
+ <span class="header-title">EXAMVAN</span>
+ <span class="header-badge"><svg class="icon-svg-sm" style="vertical-align:middle;"><use href="#hi-results"/></svg> Hasil Ujian</span>
+ </div>
+ </header>
+
+ <main class="main" id="main-content">
+ <!-- Exam Hero -->
+ <section class="exam-hero">
+ <h1 id="examTitle">{{.exam_name}}</h1>
+ <div class="exam-meta">
+ <div class="exam-meta-item">
+ <svg class="icon-svg" style="vertical-align:middle;"><use href="#hi-key"/></svg>
+ <span>Token: <strong>{{.token}}</strong></span>
+ </div>
+ <div class="exam-meta-item">
+ <svg class="icon-svg" style="vertical-align:middle;"><use href="#hi-users"/></svg>
+ <span>Peserta: <strong id="totalStudents">{{.total_students}}</strong></span>
+ </div>
+ <div class="exam-meta-item" id="avgScoreItem" style="display: none;">
+ <svg class="icon-svg" style="vertical-align:middle;" aria-hidden="true"><use href="#hi-trending-up"/></svg>
+ <span>Rata-rata: <strong id="avgScore">&mdash;</strong></span>
+ </div>
+ <div class="exam-meta-item" id="maxScoreItem" style="display: none;">
+ <svg class="icon-svg" style="vertical-align:middle;"><use href="#hi-results"/></svg>
+ <span>Tertinggi: <strong id="maxScore">&mdash;</strong></span>
+ </div>
+ </div>
+ <div class="stats-row" id="statsRow" style="display: none;"></div>
+ {{if .is_disabled}}
+ <section class="glass-card" style="padding: 60px 40px; text-align: center; margin-top: 24px; border: 1px solid rgba(239, 68, 68, 0.15); background: rgba(239, 68, 68, 0.02);">
+ <svg class="icon-svg" style="width:60px;height:60px;margin-bottom:20px;color:#ef4444;filter:drop-shadow(0 0 10px rgba(239,68,68,0.3));" aria-hidden="true"><use href="#hi-lock"/></svg>
+ <h2 style="font-size: 1.6rem; font-weight: 800; color: #f8fafc; margin-bottom: 12px; font-family: 'Inter', sans-serif;">Halaman Hasil Dinonaktifkan</h2>
+ <p style="color: var(--color-text-secondary); max-width: 520px; margin: 0 auto 28px auto; line-height: 1.7; font-size: 0.95rem;">
+ Halaman hasil ujian untuk siswa pada ujian ini telah dinonaktifkan oleh Guru / Admin yang bersangkutan.
+ Silakan hubungi pihak sekolah untuk mendapatkan informasi nilai Anda.
+ </p>
+ <div style="display: inline-flex; justify-content: center; width: 100%;">
+ <a href="/admin/login" style="background: linear-gradient(135deg, var(--color-primary), var(--color-accent)); color: white; padding: 12px 28px; border-radius: 12px; font-weight: 600; text-decoration: none; display: inline-flex; align-items: center; gap: 8px; box-shadow: 0 4px 20px rgba(99, 102, 241, 0.25); transition: all 0.3s;">
+ <svg class="icon-svg" style="width:14px;height:14px;vertical-align:middle;" aria-hidden="true"><use href="#hi-key"/></svg> Login Webapp Admin
+ </a>
+ </div>
+ </section>
+ {{else if .error}}
+ <section class="glass-card" style="padding: 60px 40px; text-align: center; margin-top: 24px;">
+ <svg class="icon-svg" style="width:60px;height:60px;margin-bottom:20px;color:#f87171;" aria-hidden="true"><use href="#hi-x"/></svg>
+ <h2 style="font-size: 1.4rem; font-weight: 700; color: #f8fafc; margin-bottom: 12px;">Ujian Tidak Ditemukan</h2>
+ <p style="color: var(--color-text-secondary);">Token "{{.token}}" tidak valid atau ujian tidak ditemukan.</p>
+ </section>
+ {{else}}
+ <!-- Tab Navigation -->
+ <div class="tab-nav" id="tabNav" style="display: none;">
+ <button class="tab-btn active" id="tabScores" onclick="switchTab('scores')" aria-label="Daftar Nilai">
+ <svg class="icon-svg" style="vertical-align:middle;"><use href="#hi-dashboard"/></svg> Daftar Nilai
+ </button>
+ <button class="tab-btn" id="tabKeys" onclick="switchTab('keys')" style="display: none;" aria-label="Kunci Jawaban Ujian">
+ <svg class="icon-svg" style="vertical-align:middle;"><use href="#hi-key"/></svg> Kunci Jawaban Ujian
+ </button>
+ </div>
+
+ <!-- Search & Filter -->
+ <section class="search-section">
+ <div class="search-row">
+ <div class="search-input-wrapper">
+ <input type="text" class="search-input" id="searchInput"
+  placeholder="Cari berdasarkan nama siswa..."
+  oninput="filterResults(); var c=document.getElementById('searchClearBtn'); if(c)c.style.display=this.value?'flex':'none'">
+ <button class="search-clear-btn" id="searchClearBtn" onclick="document.getElementById('searchInput').value='';filterResults();this.style.display='none'" style="display:none;" title="Hapus pencarian" aria-label="Hapus pencarian"><svg class="icon-svg" style="width:14px;height:14px;"><use href="#hi-x"/></svg></button>
+ </div>
+ </div>
+ </section>
+
+ <!-- Results Content -->
+ <section class="glass-card" id="resultsSection">
+ <div class="loading-text" id="loadingIndicator">
+ <span class="loading-spinner" aria-hidden="true"></span>
+ <span>Memuat data hasil ujian...</span>
+ </div>
+
+ <!-- Scores Tab -->
+ <div id="scoresContent" style="display: none;">
+ <div class="table-wrapper">
+ <table class="results-table" id="scoresTable">
+ <thead>
+ <tr>
+ <th scope="col" style="width: 50px;">#</th>
+ <th scope="col">Nama</th>
+ <th scope="col" class="td-center">Waktu Pengerjaan</th>
+ <th scope="col" class="td-center">Nilai</th>
+ <th scope="col" style="width: 40px;"></th>
+ </tr>
+ </thead>
+ <tbody id="scoresBody">
+ <!-- Filled via JS -->
+ </tbody>
+ </table>
+ </div>
+ <!-- Pagination -->
+ <div class="pagination-wrapper" id="paginationWrapper" style="display: none;">
+ <div class="pagination-info" id="paginationInfo"></div>
+ <div class="pagination-controls">
+ <button class="pagination-btn" id="pagePrev" onclick="goToPage(currentPage - 1)" disabled aria-label="Halaman sebelumnya">
+ <svg width="14" height="14" aria-hidden="true"><use href="#hi-chevron-left"/></svg>
+ </button>
+ <div class="pagination-pages" id="paginationPages"></div>
+ <button class="pagination-btn" id="pageNext" onclick="goToPage(currentPage + 1)" disabled aria-label="Halaman selanjutnya">
+ <svg width="14" height="14" aria-hidden="true"><use href="#hi-chevron-right"/></svg>
+ </button>
+ </div>
+ </div>
+ </div>
+
+ <!-- Keys Tab -->
+ <div id="keysContent" style="display: none;">
+ <div style="padding: 16px;">
+ <h3 style="font-size: 1.1rem; font-weight: 700; margin-bottom: 8px; color: #a5b4fc; display: flex; align-items: center; gap: 8px;">
+ <svg class="icon-svg" style="vertical-align:middle;"><use href="#hi-key"/></svg> Kunci Jawaban Resmi
+ </h3>
+ <p style="font-size: 0.8rem; color: var(--color-text-muted); margin-bottom: 20px;">
+ Berikut adalah kunci jawaban resmi untuk setiap butir soal pada ujian ini.
+ </p>
+ <div class="keys-grid" id="keysGrid" style="display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 12px;">
+ <!-- Filled via JS -->
+ </div>
+ </div>
+ </div>
+
+ <!-- Empty state -->
+ <div class="empty-state" id="emptyState" style="display: none;">
+ <div class="empty-icon" aria-hidden="true"><svg class="icon-svg-xl" style="margin:0 auto 16px;opacity:0.4;"><use href="#hi-clipboard"/></svg></div>
+ <p>Belum ada siswa yang mengumpulkan jawaban untuk ujian ini.</p>
+ </div>
+
+ <!-- No search results -->
+ <div class="no-results" id="noSearchResults" style="display: none;">
+ <div class="no-results-icon" aria-hidden="true"><svg class="icon-svg" style="width:40px;height:40px;opacity:0.4;"><use href="#hi-magnifying-glass"/></svg></div>
+ <p>Tidak ditemukan hasil yang cocok dengan pencarian Anda.</p>
+ </div>
+ </section>
+ {{end}}
+ </main>
+
+ <!-- Footer -->
+ <footer class="footer">
+ <p>EXAMVAN &copy; 2026 &mdash; Sistem Ujian Digital</p>
+ </footer>
+
+  <script>
+ // ===== State =====
+ const EXAM_TOKEN = "{{.token}}";
+ const isLoggedIn = {{if .is_logged_in}}true{{else}}false{{end}};
+ const isDisabled = {{if .is_disabled}}true{{else}}false{{end}};
+ const showAnswersFromServer = {{if .show_answers}}true{{else}}false{{end}};
+ let submissionsData = [];
+ let questionsData = [];
+ let identityFieldsData = [];
+ let showCorrectAnswers = showAnswersFromServer;
+ let currentTab = 'scores';
+
+ // Pagination state
+ let currentPage = 1;
+ const PER_PAGE = 20;
+ let searchQuery = '';
+
+ // ===== Init =====
+ document.addEventListener('DOMContentLoaded', () => {
+ if (!isDisabled) {
+ loadResults();
+ }
+ });
+
+ // ===== API: Load Results =====
+ async function loadResults() {
+ try {
+ const resp = await fetch('/api/hasil/' + EXAM_TOKEN + '?per_page=500');
+ if (!resp.ok) {
+  document.getElementById('loadingIndicator').innerHTML =
+  '<div class="empty-state"><div class="empty-icon" aria-hidden="true"><svg class="icon-svg" style="width:40px;height:40px;margin-bottom:16px;opacity:0.4;"><use href="#hi-exclamation"/></svg></div><p>Gagal memuat data (HTTP ' + resp.status + '). Coba lagi nanti.</p>' +
+  '<button class="back-nav" onclick="location.reload()" style="margin-top:16px;display:inline-flex;"><svg width="14" height="14" aria-hidden="true"><use href="#hi-arrow-path"/></svg> Coba Lagi</button></div>';
+  return;
+ }
+ const data = await resp.json();
+
+ if (!data.success) {
+ document.getElementById('loadingIndicator').innerHTML =
+ `<div class="empty-state"><div class="empty-icon" aria-hidden="true"><svg class="icon-svg" style="width:40px;height:40px;margin-bottom:16px;opacity:0.4;"><use href="#hi-x"/></svg></div><p>${data.message || 'Gagal memuat data'}</p></div>`;
+ return;
+ }
+
+ submissionsData = data.submissions || [];
+ questionsData = data.questions || [];
+ identityFieldsData = data.identity_fields || [];
+
+ // Fetch remaining pages if there are more
+ const pagination = data.pagination || {};
+ const totalPages = pagination.total_pages || 1;
+ if (totalPages > 1) {
+  const fetches = [];
+  for (let p = 2; p <= totalPages; p++) {
+  fetches.push(fetch('/api/hasil/' + EXAM_TOKEN + '?per_page=500&page=' + p).then(r => r.json()));
+  }
+  const results = await Promise.all(fetches);
+  for (const res of results) {
+  if (res.success && res.submissions) {
+   submissionsData = submissionsData.concat(res.submissions);
+  }
+  }
+ }
+
+ document.getElementById('loadingIndicator').style.display = 'none';
+
+ if (submissionsData.length === 0) {
+ document.getElementById('emptyState').style.display = 'block';
+ return;
+ }
+
+ // Calculate stats
+ const scores = submissionsData.filter(s => s.score !== null && s.score !== undefined);
+ if (scores.length > 0) {
+ const avg = scores.reduce((a, b) => a + b.score, 0) / scores.length;
+ const max = Math.max(...scores.map(s => s.score));
+ const min = Math.min(...scores.map(s => s.score));
+
+ document.getElementById('avgScore').textContent = avg.toFixed(1);
+ document.getElementById('maxScore').textContent = max.toFixed(1);
+ document.getElementById('avgScoreItem').style.display = 'flex';
+ document.getElementById('maxScoreItem').style.display = 'flex';
+
+ // Stats row
+ const statsRow = document.getElementById('statsRow');
+ statsRow.style.display = 'grid';
+ statsRow.innerHTML = `
+ <div class="stat-mini">
+ <span class="stat-mini-value" style="color: var(--color-success);">${avg.toFixed(1)}</span>
+ <span class="stat-mini-label">Rata-rata</span>
+ </div>
+ <div class="stat-mini">
+ <span class="stat-mini-value" style="color: var(--color-warning);">${max.toFixed(1)}</span>
+ <span class="stat-mini-label">Tertinggi</span>
+ </div>
+ <div class="stat-mini">
+ <span class="stat-mini-value" style="color: var(--color-danger);">${min.toFixed(1)}</span>
+ <span class="stat-mini-label">Terendah</span>
+ </div>
+ <div class="stat-mini">
+ <span class="stat-mini-value" style="color: var(--color-accent-light);">${submissionsData.length}</span>
+ <span class="stat-mini-label">Total Peserta</span>
+ </div>
+ `;
+ }
+
+ // Sort by score descending once
+ submissionsData.sort((a, b) => {
+ if (a.score === null && b.score === null) return 0;
+ if (a.score === null) return 1;
+ if (b.score === null) return -1;
+ return b.score - a.score;
+ });
+
+ document.getElementById('totalStudents').textContent = submissionsData.length;
+
+ renderScoresTable();
+ renderKeysGrid();
+
+ document.getElementById('scoresContent').style.display = 'block';
+
+ // Show tabNav and tabKeys strictly if server says show_answers is enabled
+ if (questionsData.length > 0 && showAnswersFromServer) {
+ document.getElementById('tabNav').style.display = 'flex';
+ document.getElementById('tabKeys').style.display = 'flex';
+ }
+
+ } catch (err) {
+ console.error('Error loading results:', err);
+ document.getElementById('loadingIndicator').innerHTML =
+ '<div class="empty-state"><div class="empty-icon" aria-hidden="true"><svg class="icon-svg" style="width:40px;height:40px;margin-bottom:16px;opacity:0.4;"><use href="#hi-exclamation"/></svg></div><p>Gagal memuat data hasil ujian. Periksa koneksi atau coba lagi nanti.</p>' +
+ '<button class="back-nav" onclick="location.reload()" style="margin-top:16px;display:inline-flex;"><svg width="14" height="14" aria-hidden="true"><use href="#hi-arrow-path"/></svg> Coba Lagi</button></div>';
+ }
+ }
+
+ // ===== Get Duration String =====
+ function getDurationString(startTimeStr, createdAtStr) {
+ if (!startTimeStr || !createdAtStr) return '&mdash;';
+ try {
+ const start = new Date(startTimeStr);
+ const end = new Date(createdAtStr);
+ const diffMs = end - start;
+ if (diffMs < 0) return '&mdash;';
+ const diffSecs = Math.floor(diffMs / 1000);
+ const hours = Math.floor(diffSecs / 3600);
+ const minutes = Math.floor((diffSecs % 3600) / 60);
+ const seconds = diffSecs % 60;
+
+ let parts = [];
+ if (hours > 0) parts.push(hours + ' jam');
+ if (minutes > 0) parts.push(minutes + ' menit');
+ if (seconds > 0 || parts.length === 0) parts.push(seconds + ' detik');
+ return parts.join(' ');
+ } catch (e) {
+ return '&mdash;';
+ }
+ }
+
+ // ===== Get Display Data (filtered + paginated) =====
+ function getDisplayData() {
+ const query = searchQuery.toLowerCase().trim();
+ let filtered = submissionsData;
+ if (query) {
+ filtered = submissionsData.filter(s => {
+ const name = (s.student_name || '').toLowerCase();
+ return name.includes(query);
+ });
+ }
+ const total = filtered.length;
+ const totalPages = Math.max(1, Math.ceil(total / PER_PAGE));
+ // Clamp current page
+ if (currentPage > totalPages) currentPage = totalPages;
+ if (currentPage < 1) currentPage = 1;
+ const start = (currentPage - 1) * PER_PAGE;
+ const pageData = filtered.slice(start, start + PER_PAGE);
+ return { data: pageData, total, totalPages, start };
+ }
+
+ // ===== Render Scores Table (paginated) =====
+ function renderScoresTable() {
+ const { data: pageItems, total, totalPages, start } = getDisplayData();
+ const tbody = document.getElementById('scoresBody');
+ tbody.innerHTML = '';
+
+ // Handle no results state
+ const noResults = document.getElementById('noSearchResults');
+ const paginationWrapper = document.getElementById('paginationWrapper');
+ if (pageItems.length === 0) {
+ noResults.style.display = searchQuery ? 'block' : 'none';
+ paginationWrapper.style.display = 'none';
+ return;
+ }
+ noResults.style.display = 'none';
+
+ pageItems.forEach((sub, idx) => {
+ const globalRank = start + idx + 1;
+ const tr = document.createElement('tr');
+ tr.setAttribute('data-name', sub.student_name.toLowerCase());
+ tr.id = 'scores-row-' + sub.id;
+ tr.onclick = () => toggleDetailScores(sub.id);
+ tr.style.cursor = 'pointer';
+ tr.setAttribute('tabindex', '0');
+ tr.setAttribute('role', 'button');
+ tr.addEventListener('keydown', function(e) {
+  if (e.key === 'Enter' || e.key === ' ') {
+   e.preventDefault();
+   toggleDetailScores(sub.id);
+  }
+ });
+
+ const rankClass = globalRank <= 3 ? 'rank-' + globalRank : '';
+ const scoreClass = getScoreClass(sub.score, sub.max_score);
+ const scoreDisplay = sub.score !== null ? sub.score.toFixed(1) : '&mdash;';
+ const durationStr = getDurationString(sub.start_time, sub.created_at);
+
+ tr.innerHTML = `
+ <td data-label="#"><span class="rank-num ${rankClass}">${globalRank}</span></td>
+ <td data-label="Nama">
+ <div class="student-name">${escapeHtml(sub.student_name)}</div>
+ </td>
+ <td data-label="Durasi" class="td-center-secondary">${durationStr}</td>
+ <td data-label="Nilai" class="td-center">
+ <span class="score-badge ${scoreClass}">${scoreDisplay}</span>
+ </td>
+ <td data-label="" class="td-center">
+ <svg class="icon-svg expand-icon" style="width:14px;height:14px;" aria-hidden="true"><use href="#hi-chevron-down"/></svg>
+ </td>
+ `;
+ tbody.appendChild(tr);
+
+ // Detail row
+ const detailTr = document.createElement('tr');
+ detailTr.className = 'detail-row';
+ detailTr.id = 'scores-detail-' + sub.id;
+
+ const detailTd = document.createElement('td');
+ detailTd.colSpan = 5;
+ detailTd.innerHTML = '<div class="detail-content"></div>';
+ detailTr.appendChild(detailTd);
+ tbody.appendChild(detailTr);
+ });
+
+ renderPagination(total, totalPages);
+ }
+
+ // ===== Toggle Detail Scores =====
+ function toggleDetailScores(id) {
+ const detailRow = document.getElementById('scores-detail-' + id);
+ const mainRow = document.getElementById('scores-row-' + id);
+
+ if (detailRow.classList.contains('show')) {
+ detailRow.classList.remove('show');
+ mainRow.classList.remove('expanded');
+ detailRow.style.display = 'none';
+ } else {
+ // Re-render to reflect current showCorrectAnswers state
+ const sub = submissionsData.find(s => s.id === id);
+ if (sub) {
+ const detailHtml = buildDetailContent(sub);
+ detailRow.querySelector('.detail-content').innerHTML = detailHtml;
+ }
+ detailRow.classList.add('show');
+ mainRow.classList.add('expanded');
+ detailRow.style.display = 'table-row';
+ }
+ }
+
+ // ===== Build Detail Content =====
+ function buildDetailContent(sub) {
+ if (questionsData.length === 0) {
+ return '<div style="color: var(--color-text-muted); text-align: center; padding: 16px;">Tidak ada konfigurasi soal untuk ujian ini.</div>';
+ }
+
+ const shouldHideStudentAnswers = !isLoggedIn && !showCorrectAnswers;
+ const answers = sub.answers || {};
+ let totalEarned = 0;
+ let totalMax = 0;
+ let correctCount = 0;
+ let incorrectCount = 0;
+ let partialCount = 0;
+
+ let itemsHtml = '';
+
+ questionsData.forEach(q => {
+ const qNum = String(q.number);
+ const studentAns = answers[qNum];
+ const weight = parseFloat(q.weight || 1.0);
+ totalMax += weight;
+
+ let earned = 0;
+ let statusText = 'Belum Dijawab';
+ let statusClass = 'unanswered';
+
+ const evalAns = (sub.evaluated_answers || {})[qNum] || {};
+ if (evalAns.statusClass) {
+ statusClass = evalAns.statusClass;
+ statusText = evalAns.statusText;
+ earned = evalAns.earned || 0;
+
+ if (studentAns !== undefined && studentAns !== null) {
+ if (statusClass === 'correct') correctCount++;
+ else if (statusClass === 'partial') partialCount++;
+ else if (statusClass === 'incorrect') incorrectCount++;
+ }
+ }
+
+ totalEarned += earned;
+
+ const studentDisplay = shouldHideStudentAnswers ? '&#8226;&#8226;&#8226;' : formatAnswer(studentAns);
+ const correctAns = q.key;
+ const correctDisplay = showCorrectAnswers ? formatAnswer(correctAns) : '&#8226;&#8226;&#8226;';
+
+ itemsHtml += `
+ <div class="answer-item ${statusClass}">
+ <span class="q-num">No. ${escapeHtml(String(q.number))}</span>
+ <span class="q-student-ans">${studentDisplay}</span>
+ <span class="q-correct-ans correct-ans-cell">${correctDisplay}</span>
+ <span class="q-status ${statusClass}">${statusText} (${earned.toFixed(1)})</span>
+ </div>
+ `;
+ });
+
+ const startTimeStr = sub.start_time ? localizeUTC(sub.start_time) : '&mdash;';
+ const endTimeStr = sub.created_at ? localizeUTC(sub.created_at) : '&mdash;';
+ const durationStr = getDurationString(sub.start_time, sub.created_at);
+
+ // Build dynamic identity fields (excluding student_name which is already in main table)
+ let identityHtml = '';
+ if (identityFieldsData && identityFieldsData.length > 0) {
+ const idData = sub.identity_data || {};
+ identityFieldsData.forEach(f => {
+ if (f.key === 'student_name') return;
+ const label = escapeHtml(f.label || f.key);
+ // Prefer identity_data, fallback to legacy columns
+ let val = idData[f.key];
+ if (val === undefined || val === null || val === '') {
+ if (f.key === 'exam_number') val = sub.exam_number;
+ else if (f.key === 'student_class') val = sub.student_class;
+ else val = '';
+ }
+ if (val) {
+ identityHtml += `
+ <div class="detail-identity-item">
+ <span class="detail-identity-label">${label}</span>
+ <span class="detail-identity-value">${escapeHtml(String(val))}</span>
+ </div>`;
+ }
+ });
+ }
+
+ return `
+ <div class="detail-info-grid">
+ <div class="detail-info-section">
+ <div class="detail-info-heading">
+ <svg class="icon-svg-sm" style="vertical-align:middle;" aria-hidden="true"><use href="#hi-clock"/></svg> Informasi Waktu
+ </div>
+ <div class="detail-info-items">
+ <div class="detail-identity-item">
+ <span class="detail-identity-label">Waktu Mulai</span>
+ <span class="detail-identity-value">${startTimeStr}</span>
+ </div>
+ <div class="detail-identity-item">
+ <span class="detail-identity-label">Waktu Kumpul</span>
+ <span class="detail-identity-value">${endTimeStr}</span>
+ </div>
+ <div class="detail-identity-item">
+ <span class="detail-identity-label">Durasi Kerja</span>
+ <span class="detail-identity-value" style="color: var(--color-accent-light); font-weight: 700;">${durationStr}</span>
+ </div>
+ </div>
+ </div>
+ ${identityHtml ? '<div class="detail-info-section">' +
+ '<div class="detail-info-heading">' +
+ '<svg class="icon-svg-sm" style="vertical-align:middle;" aria-hidden="true"><use href="#hi-users"/></svg> Identitas Siswa' +
+ '</div>' +
+ '<div class="detail-info-items">' +
+ identityHtml +
+ '</div>' +
+ '</div>' : ''}
+ </div>
+ <div class="detail-header">
+ <div class="detail-header-labels" style="flex:1;">
+ <span style="min-width:44px;text-align:center;">No</span>
+ <span style="flex:1;">${shouldHideStudentAnswers ? 'Jawaban (Tersembunyi)' : 'Jawaban Siswa'}</span>
+ <span style="flex:1;" class="correct-ans-header">${showCorrectAnswers ? 'Kunci Jawaban' : 'Kunci (Tersembunyi)'}</span>
+ <span style="min-width:90px;text-align:right;">Status</span>
+ </div>
+ </div>
+ <div class="answer-grid">
+ ${itemsHtml}
+ </div>
+ <div class="score-summary-bar">
+ <div class="score-summary-stats">
+ <span style="color:var(--color-success);"><svg class="icon-svg-sm" style="vertical-align:middle;" aria-hidden="true"><use href="#hi-check"/></svg> Benar: ${correctCount}</span>
+ <span style="color:var(--color-warning);"><svg class="icon-svg-sm" style="vertical-align:middle;" aria-hidden="true"><use href="#hi-exclamation-triangle"/></svg> Parsial: ${partialCount}</span>
+ <span style="color:var(--color-danger);"><svg class="icon-svg-sm" style="vertical-align:middle;" aria-hidden="true"><use href="#hi-x"/></svg> Salah: ${incorrectCount}</span>
+ </div>
+ <div class="score-summary-total">
+ <span style="color:var(--color-text-muted);">Total:</span>
+ <span class="score-badge ${getScoreClass(totalEarned, totalMax)}" style="font-size:0.9rem;">
+ ${totalEarned.toFixed(1)} / ${totalMax.toFixed(1)}
+ </span>
+ </div>
+ </div>
+ `;
+ }
+
+ // ===== Render Pagination Controls =====
+ function renderPagination(total, totalPages) {
+ const wrapper = document.getElementById('paginationWrapper');
+ const info = document.getElementById('paginationInfo');
+ const pagesEl = document.getElementById('paginationPages');
+ const prevBtn = document.getElementById('pagePrev');
+ const nextBtn = document.getElementById('pageNext');
+
+ if (totalPages <= 1) {
+ wrapper.style.display = 'none';
+ return;
+ }
+ wrapper.style.display = 'flex';
+
+ // Info text: "Menampilkan 1-50 dari 200 peserta"
+ const start = (currentPage - 1) * PER_PAGE + 1;
+ const end = Math.min(currentPage * PER_PAGE, total);
+ info.textContent = 'Menampilkan ' + start + '-' + end + ' dari ' + total + ' peserta';
+
+ // Prev / Next buttons
+ prevBtn.disabled = currentPage <= 1;
+ nextBtn.disabled = currentPage >= totalPages;
+
+ // Page number buttons
+ pagesEl.innerHTML = '';
+ const maxVisiblePages = 7;
+ let pageStart = Math.max(1, currentPage - Math.floor(maxVisiblePages / 2));
+ let pageEnd = Math.min(totalPages, pageStart + maxVisiblePages - 1);
+ if (pageEnd - pageStart + 1 < maxVisiblePages) {
+ pageStart = Math.max(1, pageEnd - maxVisiblePages + 1);
+ }
+
+ // First page + ellipsis
+ if (pageStart > 1) {
+ pagesEl.appendChild(createPageBtn(1));
+ if (pageStart > 2) pagesEl.appendChild(createEllipsis());
+ }
+
+ for (let i = pageStart; i <= pageEnd; i++) {
+ pagesEl.appendChild(createPageBtn(i));
+ }
+
+ // Last page + ellipsis
+ if (pageEnd < totalPages) {
+ if (pageEnd < totalPages - 1) pagesEl.appendChild(createEllipsis());
+ pagesEl.appendChild(createPageBtn(totalPages));
+ }
+ }
+
+ function createPageBtn(page) {
+ const btn = document.createElement('button');
+ btn.className = 'pagination-page-btn' + (page === currentPage ? ' active' : '');
+ btn.textContent = page;
+ btn.setAttribute('aria-label', 'Halaman ' + page);
+ btn.onclick = () => goToPage(page);
+ return btn;
+ }
+
+ function createEllipsis() {
+ const span = document.createElement('span');
+ span.className = 'pagination-ellipsis';
+ span.textContent = '...';
+ return span;
+ }
+
+ // ===== Go To Page =====
+ function goToPage(page) {
+ const { totalPages } = getDisplayData();
+ if (page < 1 || page > totalPages) return;
+ currentPage = page;
+ renderScoresTable();
+ // Scroll to top of table
+ const scoresSection = document.getElementById('scoresContent');
+ if (scoresSection) {
+ scoresSection.scrollIntoView({ behavior: 'smooth', block: 'start' });
+ }
+ }
+
+ // ===== Switch Tab =====
+ function switchTab(tab) {
+ currentTab = tab;
+ document.getElementById('tabScores').classList.toggle('active', tab === 'scores');
+ document.getElementById('tabKeys').classList.toggle('active', tab === 'keys');
+
+ document.getElementById('scoresContent').style.display = tab === 'scores' ? 'block' : 'none';
+ document.getElementById('keysContent').style.display = tab === 'keys' ? 'block' : 'none';
+
+ // Search field visibility
+ document.getElementById('searchInput').style.display = tab === 'keys' ? 'none' : 'block';
+ }
+
+ // ===== Render Official Keys Grid =====
+ function renderKeysGrid() {
+ const grid = document.getElementById('keysGrid');
+ grid.innerHTML = '';
+
+ if (questionsData.length === 0) {
+ grid.innerHTML = '<div style="color: var(--color-text-muted); padding: 20px; text-align: center; grid-column: 1/-1;">Tidak ada kunci jawaban dikonfigurasi.</div>';
+ return;
+ }
+
+ questionsData.forEach(q => {
+ const item = document.createElement('div');
+ item.className = 'key-card';
+
+ const typeLabels = {
+ 'single_choice': 'Pilihan Ganda',
+ 'multiple_choice': 'Pilihan Ganda Kompleks',
+ 'true_false': 'Benar/Salah',
+ 'matching': 'Menjodohkan',
+ 'short_answer': 'Isian Singkat'
+ };
+
+ const typeLabel = typeLabels[q.type] || q.type;
+ const correctDisplay = formatAnswer(q.key);
+
+ item.innerHTML = `
+ <div class="key-card-header">
+ <span class="key-card-number">Soal ${q.number}</span>
+ <span class="key-card-weight">Bobot: ${q.weight || 1.0}</span>
+ </div>
+ <div style="font-size: 0.72rem; color: var(--color-text-muted); font-weight: 500;">${typeLabel}</div>
+ <div style="margin-top: 4px;">
+ <div style="font-size: 0.72rem; color: var(--color-text-muted); text-transform: uppercase; letter-spacing: 0.5px; font-weight: 700;">Kunci Jawaban:</div>
+ <div style="font-size: 0.95rem; font-weight: 700; color: var(--color-success); margin-top: 4px; word-break: break-all;">${correctDisplay}</div>
+ </div>
+ `;
+ grid.appendChild(item);
+ });
+ }
+
+ // ===== Filter Results =====
+ function filterResults() {
+ const input = document.getElementById('searchInput');
+ searchQuery = input.value;
+ currentPage = 1;
+ renderScoresTable();
+ }
+
+ // ===== Helpers =====
+ function getScoreClass(score, maxScore) {
+ if (score === null || score === undefined) return 'score-none';
+ const pct = maxScore ? (score / maxScore) * 100 : score;
+ if (pct >= 70) return 'score-high';
+ if (pct >= 40) return 'score-mid';
+ return 'score-low';
+ }
+
+ function formatAnswer(val) {
+ if (val === undefined || val === null) return '<span style="color:var(--color-text-muted);">&mdash;</span>';
+ if (Array.isArray(val)) return escapeHtml(val.join(', '));
+ if (typeof val === 'object') return escapeHtml(Object.entries(val).map(function(e) { return e[0] + '→' + e[1]; }).join(', '));
+ return escapeHtml(String(val));
+ }
+
+ function escapeHtml(str) {
+ const div = document.createElement('div');
+ div.textContent = str;
+ return div.innerHTML;
+ }
+
+ /* localizeUTC provided by admin-core.js (loaded via defer in head) */
+ </script>
+</body>
+</html>

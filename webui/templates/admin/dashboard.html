@@ -1,0 +1,671 @@
+{{/*
+  EXAMVAN Admin Dashboard — Full port from Python
+  Template variables:
+    .stats, .exams, .exam_pengawas_map, .admin_user, .admin_role,
+    .admin_id, .max_size_mb, .max_exams, .account_expires,
+    .active_page, .page, .total_pages, .total_exams,
+    .search, .search_active, .version, .csrf_token,
+    .net_info (optional), .admin_instansi (optional)
+*/}}
+<!DOCTYPE html>
+<html lang="id">
+<head>
+ {{adminHead .version .csrf_token "Dashboard"}}
+ <style>.dropdown-user-instansi{display:block;font-size:0.7rem;color:#64748b;margin-top:1px;padding:0 16px}</style>
+</head>
+<body class="dashboard-page">
+{{adminNav .active_page .admin_role .admin_user}}
+
+<main class="dashboard">
+<h1 class="sr-only" style="position:absolute;left:-9999px;">Dashboard Admin</h1>
+
+<!-- Stats Cards -->
+<section class="stats-grid" id="statsGrid">
+<div class="stat-card stat-total">
+<div class="stat-icon"><svg class="icon-svg"><use href="#hi-dashboard"/></svg></div>
+<div class="stat-info">
+<span class="stat-value">{{index .stats "total_all"}}</span>
+<span class="stat-label">Total Ujian</span>
+</div>
+{{if .search_active}}<div style="font-size:10px;color:var(--color-warning);margin-top:4px;text-align:center;">difilter</div>{{end}}
+</div>
+<div class="stat-card stat-status">
+<div class="stat-icon">
+<svg class="icon-svg"><use href="#hi-check"/></svg>
+<svg class="icon-overlay"><use href="#hi-lock"/></svg>
+</div>
+<div class="stat-info">
+<div class="stat-status-row">
+<span class="stat-value">{{index .stats "active"}}</span>
+<span class="stat-value">{{index .stats "inactive"}}</span>
+</div>
+<span class="stat-label">Aktif &middot; Nonaktif</span>
+<div class="stat-bar"><div class="stat-bar-fill" style="width:{{index .stats "active_pct"}}%;"></div></div>
+</div>
+</div>
+<div class="stat-card stat-instansi">
+<div class="stat-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M3 21h18M3 10h18M5 6l7-3 7 3M4 10v11m16-11v11M8 14v.01M12 14v.01M16 14v.01M9 21v-4h6v4"/></svg></div>
+<div class="stat-info">
+<span class="stat-value stat-value-sm">{{.admin_instansi}}</span>
+<span class="stat-label">Instansi</span>
+</div>
+</div>
+<div class="stat-card stat-storage">
+<div class="stat-icon"><svg class="icon-svg"><use href="#hi-download"/></svg></div>
+<div class="stat-info">
+<span class="stat-value">{{printf "%.2f" (index .stats "storage_mb")}} MB</span>
+<span class="stat-label">Storage</span>
+</div>
+</div>
+</section>
+
+<!-- Network Info -->
+<section class="network-info glass-card">
+<h3><svg class="icon-svg" style="vertical-align:middle;margin-top:-2px;"><use href="#hi-settings"/></svg> Info Jaringan</h3>
+<div class="network-grid">
+<div class="net-item">
+<span class="net-label">Max Ujian</span>
+<span class="net-value">{{.max_exams}}</span>
+</div>
+<div class="net-item">
+<span class="net-label">Masa Aktif</span>
+{{if .account_expires}}
+<span class="net-value" id="expiryCountdown" data-expires="{{.account_expires}}" style="font-size:13px;">&#x23F3;</span>
+{{else}}
+<span class="net-value badge-https">Selamanya</span>
+{{end}}
+</div>
+<div class="net-item">
+<span class="net-label">Max Upload</span>
+<span class="net-value">{{.max_size_mb}} MB</span>
+</div>
+</div>
+</section>
+
+{{if .account_expires}}
+<section class="expiry-banner glass-card" style="margin-top:12px;padding:12px 18px;border-left:4px solid #fbbf24;display:flex;align-items:center;gap:12px;">
+<svg class="icon-svg" style="width:22px;height:22px;flex-shrink:0;color:#fbbf24;"><use href="#hi-exclamation"/></svg>
+<div style="flex:1;"><span style="font-weight:600;font-size:14px;">Masa Aktif Akun</span>
+<span id="expiryBannerDays" style="font-size:13px;margin-left:8px;opacity:0.85;">&#x23F3; Menghitung...</span></div>
+</section>
+{{end}}
+
+<!-- Upload Section -->
+<section class="upload-section glass-card">
+<h3 style="margin-bottom:16px;display:flex;align-items:center;gap:8px;"><svg class="icon-svg"><use href="#hi-upload"/></svg> Tambah Ujian Baru</h3>
+<div id="methodPdfForm">
+<form id="uploadForm" class="upload-form" enctype="multipart/form-data">
+<input type="hidden" name="csrf_token" value="{{.csrf_token}}">
+<div class="form-row">
+<div class="form-group flex-1">
+<label class="required" for="examName">Nama Ujian</label>
+<input type="text" id="examName" name="name" placeholder="Contoh: UTS Matematika Kelas 10" required title="Nama ujian yang akan tampil di daftar ujian">
+</div>
+<div class="form-group flex-1">
+<label class="required" for="pdfFile">File PDF</label>
+<div class="file-input-wrapper">
+<input type="file" id="pdfFile" name="pdf_file" accept="application/pdf" required title="Pilih file PDF ujian yang akan diupload, maksimal {{.max_size_mb}}MB">
+<div class="file-input-display" id="fileDisplay">
+<svg class="icon-svg" style="width:20px;height:20px;"><use href="#hi-file"/></svg>
+<span class="file-text">Pilih file PDF...</span>
+</div>
+</div>
+</div>
+<div class="form-group" style="flex:0 0 220px;">
+<label for="customToken">Token Kustom</label>
+<input type="text" id="customToken" name="custom_token" maxlength="8" minlength="8" placeholder="Contoh: MAT101BK" style="text-transform:uppercase;" title="Token kustom 8 karakter (kosongkan untuk generate otomatis)">
+</div>
+</div>
+<div class="upload-progress" id="uploadProgress" style="display:none;">
+<div class="progress-bar"><div class="progress-fill" id="progressFill"></div></div>
+<span class="progress-text" id="progressText">0%</span>
+</div>
+<button type="submit" class="btn-upload" id="btnUpload" style="margin-top:16px;"><span>Upload Ujian</span></button>
+</form>
+</div>
+</section>
+
+<!-- Exam Table -->
+<section class="exam-table-section glass-card">
+<div class="table-header">
+<h3><svg class="icon-svg" style="vertical-align:middle;margin-top:-2px;"><use href="#hi-dashboard"/></svg> Daftar Ujian</h3>
+<div class="table-toolbar">
+<select id="statusFilter" onchange="searchExamsWithStatus()" class="toolbar-select" aria-label="Filter status ujian">
+<option value="">Semua Status</option>
+<option value="active">Aktif</option>
+<option value="inactive">Nonaktif</option>
+</select>
+<div class="toolbar-search-wrap">
+<label for="searchExam" style="position:absolute;left:-9999px;">Cari ujian</label>
+<input type="text" id="searchExam" class="toolbar-search-input" placeholder="Cari nama, token, atau pembuat..." value="{{.search}}">
+<button class="toolbar-search-clear" id="searchClearBtn" onclick="clearSearch()" style="display:{{if .search}}flex{{else}}none{{end}};"><svg class="icon-svg" style="width:14px;height:14px;"><use href="#hi-x"/></svg></button>
+</div>
+<button class="toolbar-btn toolbar-btn-search" onclick="searchExamsWithStatus()"><svg class="icon-svg"><use href="#hi-search"/></svg> Cari</button>
+<button class="toolbar-btn toolbar-btn-refresh" onclick="location.reload()"><svg class="icon-svg"><use href="#hi-refresh"/></svg></button>
+<button class="toolbar-btn toolbar-btn-delete" id="bulkDeleteBtn" onclick="confirmBulkDelete()" style="display:none;"><svg class="icon-svg"><use href="#hi-trash"/></svg> Hapus Terpilih (<span id="bulkDeleteCount">0</span>)</button>
+<button class="toolbar-btn toolbar-btn-toggle" id="bulkToggleBtn" onclick="bulkToggleExams()" style="display:none;"><svg class="icon-svg"><use href="#hi-lock"/></svg> Nonaktifkan Terpilih (<span id="bulkToggleCount">0</span>)</button>
+</div>
+</div>
+
+{{if not .exams}}
+<div class="empty-state">
+<div class="empty-icon"><svg class="icon-svg-xl" style="margin:0 auto 16px;opacity:0.4;"><use href="#hi-upload"/></svg></div>
+<p>Belum ada ujian. Upload ujian pertama Anda di atas.</p>
+</div>
+{{else}}
+<div class="table-responsive">
+<table class="exam-table table-with-checkbox" id="examTable">
+<thead>
+<tr>
+<th scope="col" style="width:40px;text-align:center;"><input type="checkbox" id="selectAllExams" onchange="toggleSelectAllExams(this)" title="Pilih Semua" class="exam-checkbox-input"></th>
+<th scope="col">Nama Ujian</th>
+{{if or (eq .admin_role "superadmin") (eq .admin_role "operator")}}
+<th scope="col">Pembuat</th>
+<th scope="col">Penanggung Jawab</th>
+{{end}}
+<th scope="col">Token</th>
+<th scope="col">Status</th>
+<th scope="col">Pengawas</th>
+<th scope="col">Aksi</th>
+</tr>
+</thead>
+<tbody>
+{{range $i, $exam := .exams}}
+<tr id="exam-row-{{$exam.ID}}">
+<td data-label=""><input type="checkbox" class="exam-checkbox exam-checkbox-input" value="{{$exam.ID}}" data-name="{{$exam.Name}}" data-status="{{$exam.Status}}" data-owner="{{$exam.CreatorName}}" onchange="updateBulkActions()"></td>
+<td class="td-name" data-label="Ujian"><a href="/admin/submissions?exam_id={{$exam.ID}}" class="exam-link" title="Lihat Hasil Ujian">{{$exam.Name}}</a></td>
+{{if or (eq $.admin_role "superadmin") (eq $.admin_role "operator")}}
+<td data-label="Pembuat"><span style="font-weight:600;color:var(--accent-light);">{{$exam.CreatorName}}</span></td>
+<td data-label="Penanggung Jawab"><span style="color:var(--color-text-secondary);">{{or $exam.DelegatedName "—"}}</span></td>
+{{end}}
+<td class="td-token" data-label="Token">
+<div class="token-group">
+<code class="token-code" id="token-{{$exam.ID}}" data-token="{{$exam.Token}}" onclick="copyToken(this.dataset.token)" title="Klik untuk Salin Token">{{$exam.Token}}</code>
+<button class="btn-icon btn-regen" onclick="regenerateToken({{$exam.ID}})" title="Generate Token Baru"><svg class="icon-svg" style="width:16px;height:16px;"><use href="#hi-refresh"/></svg></button>
+<button class="btn-icon btn-edit" data-exam-id="{{$exam.ID}}" data-token="{{$exam.Token}}" onclick="openEditTokenModal(this.dataset.examId, this.dataset.token)" title="Ubah Token Kustom"><svg class="icon-svg" style="width:16px;height:16px;"><use href="#hi-edit"/></svg></button>
+<button class="btn-icon btn-copy-link" data-token="{{$exam.Token}}" onclick="copyResultsLink(this.dataset.token)" title="Salin Link Hasil"><svg class="icon-svg" style="width:16px;height:16px;"><use href="#hi-link"/></svg></button>
+</div>
+</td>
+<td data-label="Status">
+{{if or (eq $.admin_role "superadmin") (eq $.admin_role "operator")}}
+<span class="status-badge status-{{$exam.Status}}" id="status-{{$exam.ID}}" onclick="toggleExam({{$exam.ID}})" tabindex="0" role="button" title="Klik untuk toggle status">{{$exam.Status}}</span>
+{{else}}
+<span class="status-badge status-{{$exam.Status}}" style="cursor:default;">{{$exam.Status}}</span>
+{{end}}
+</td>
+<td data-label="Pengawas">
+{{$pw := index $.exam_pengawas_map $exam.ID}}
+{{if $pw}}
+{{range $pw}}<span style="display:inline-block;padding:1px 6px;border-radius:8px;font-size:0.7rem;font-weight:600;background:rgba(168,85,247,0.1);color:#c084fc;border:1px solid rgba(168,85,247,0.2);margin:1px 2px;">{{.}}</span>{{end}}
+{{else}}
+<span style="font-size:0.8rem;color:var(--color-text-muted);">&mdash;</span>
+{{end}}
+</td>
+<td class="td-actions" data-label="">
+<div class="actions-group">
+<button class="btn-sm btn-questions btn-sm-compact" data-exam-id="{{$exam.ID}}" data-exam-name="{{$exam.Name}}" onclick="openQuestionsModal(this.dataset.examId, this.dataset.examName)" title="Atur Soal & Kunci Jawaban"><svg class="icon-svg"><use href="#hi-settings"/></svg></button>
+<div class="exam-action-dropdown">
+<button class="btn-sm btn-more btn-sm-compact" onclick="toggleRowDropdown(event, {{$exam.ID}})" title="Menu Tindakan Lainnya"><svg class="icon-svg"><use href="#hi-chevron-down"/></svg></button>
+<div class="exam-action-dropdown-content" id="dropdown-content-{{$exam.ID}}">
+<a href="/admin/api/exams/{{$exam.ID}}/pdf" target="_blank"><svg class="icon-svg"><use href="#hi-eye"/></svg> Lihat PDF</a>
+<a href="/admin/api/exams/{{$exam.ID}}/pdf?download=1"><svg class="icon-svg"><use href="#hi-download"/></svg> Download PDF</a>
+<button data-exam-id="{{$exam.ID}}" data-exam-name="{{$exam.Name}}" onclick="openEditExamModal(this.dataset.examId, this.dataset.examName)"><svg class="icon-svg"><use href="#hi-edit"/></svg> Edit Nama &amp; PDF</button>
+{{if or (eq $.admin_role "operator") (eq $.admin_role "superadmin")}}
+<button data-exam-id="{{$exam.ID}}" onclick="openDelegateExamModal(this.dataset.examId)"><svg class="icon-svg"><use href="#hi-users"/></svg> Delegasi Ujian</button>
+{{end}}
+<a href="/hasil/{{$exam.Token}}" target="_blank"><svg class="icon-svg"><use href="#hi-link"/></svg> Halaman Siswa</a>
+{{if eq $exam.PublicResults 1}}<button id="btn-public-results-{{$exam.ID}}" data-exam-id="{{$exam.ID}}" onclick="togglePublicResults(this.dataset.examId)" class="dropdown-toggle-btn" style="background:rgba(16,185,129,0.15);border-color:rgba(16,185,129,0.3);color:#34d399;"><svg class="icon-svg"><use href="#hi-eye"/></svg> Hal. Siswa Aktif</button>{{else}}<button id="btn-public-results-{{$exam.ID}}" data-exam-id="{{$exam.ID}}" onclick="togglePublicResults(this.dataset.examId)" class="dropdown-toggle-btn" style="background:rgba(239,68,68,0.15);border-color:rgba(239,68,68,0.3);color:#f87171;"><svg class="icon-svg"><use href="#hi-eye-off"/></svg> Hal. Siswa Nonaktif</button>{{end}}
+{{if eq $exam.ShowAnswers 1}}<button id="btn-show-answers-{{$exam.ID}}" data-exam-id="{{$exam.ID}}" onclick="toggleShowAnswers(this.dataset.examId)" class="dropdown-toggle-btn" style="background:rgba(251,191,36,0.15);border-color:rgba(251,191,36,0.3);color:#fbbf24;"><svg class="icon-svg"><use href="#hi-lock-open"/></svg> Kunci Terlihat</button>{{else}}<button id="btn-show-answers-{{$exam.ID}}" data-exam-id="{{$exam.ID}}" onclick="toggleShowAnswers(this.dataset.examId)" class="dropdown-toggle-btn" style="background:rgba(107,114,128,0.15);border-color:rgba(107,114,128,0.3);color:#9ca3af;"><svg class="icon-svg"><use href="#hi-lock"/></svg> Kunci Tersembunyi</button>{{end}}
+</div>
+</div>
+</div>
+</td>
+</tr>
+{{end}}
+</tbody>
+</table>
+</div>
+
+{{if gt .total_pages 1}}
+<div style="display:flex;justify-content:space-between;align-items:center;padding:16px 0 0 0;flex-wrap:wrap;gap:12px;">
+<span style="font-size:13px;color:var(--color-text-muted);">{{len .exams}} dari {{.total_exams}} ujian</span>
+<div style="display:flex;gap:6px;align-items:center;">
+<a href="?page={{sub .page 1}}" class="btn-sm btn-toggle page-link-main {{if le .page 1}}disabled{{end}}"><svg class="icon-svg" style="width:14px;height:14px;"><use href="#hi-chevron-left"/></svg> Sebelumnya</a>
+{{$p := .page}}{{$tp := .total_pages}}
+{{range $pagenum := $tp | seq}}
+{{if ge $pagenum (sub $p 2)}}
+{{if le $pagenum (add $p 2)}}
+<a href="?page={{$pagenum}}" class="pagination-page-num {{if eq $pagenum $p}}page-current{{end}}">{{$pagenum}}</a>
+{{end}}{{end}}{{end}}
+<a href="?page={{add .page 1}}" class="btn-sm btn-toggle page-link-main {{if ge .page .total_pages}}disabled{{end}}">Berikutnya <svg class="icon-svg" style="width:14px;height:14px;"><use href="#hi-chevron-right"/></svg></a>
+</div>
+</div>
+{{end}}
+{{end}}
+</section>
+</main>
+
+<!-- ===== Modals (copied from base.html) ===== -->
+
+<!-- Modal Ubah Password -->
+<div class="modal-overlay" id="changePasswordModal">
+<div class="modal-card glass-card" style="max-width: 420px;">
+<div class="modal-header">
+<h3 id="changePasswordModalTitle"><svg class="icon-svg" style="vertical-align:middle;margin-top:-2px;"><use href="#hi-key"/></svg> Ubah Password</h3>
+<button class="modal-close" onclick="closeChangePasswordModal()" aria-label="Tutup"><svg class="icon-svg" style="width:18px;height:18px;"><use href="#hi-x"/></svg></button>
+</div>
+<div class="modal-body">
+<form id="changePasswordForm" onsubmit="submitChangePassword(event)">
+<input type="hidden" name="csrf_token" value="{{.csrf_token}}">
+<div class="form-group" style="margin-bottom: 16px;">
+<label class="required" for="currentPassword">Password Saat Ini</label>
+<div class="password-wrapper">
+<input type="password" id="currentPassword" required placeholder="Masukkan password lama">
+<button type="button" id="toggleCurPassword" class="password-toggle-btn" aria-label="Tampilkan/sembunyikan password" style="background:none; border:none; cursor:pointer; padding:4px; line-height:1;">
+  <svg class="icon-svg pw-eye" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+   <path d="M2.036 12.322a1.012 1.012 0 0 1 0-.639C3.423 7.51 7.36 4.5 12 4.5c4.638 0 8.573 3.007 9.963 7.178.07.207.07.431 0 .639C20.577 16.49 16.64 19.5 12 19.5c-4.638 0-8.573-3.007-9.963-7.178Z"/>
+   <path d="M15 12a3 3 0 1 1-6 0 3 3 0 0 1 6 0Z"/>
+  </svg>
+</button>
+</div>
+</div>
+<div class="form-group" style="margin-bottom: 16px;">
+<label class="required" for="newPassword">Password Baru</label>
+<div class="password-wrapper">
+<input type="password" id="newPassword" required placeholder="Masukkan password baru (min. 8 karakter)" minlength="8">
+<button type="button" id="toggleNewPassword" class="password-toggle-btn" aria-label="Tampilkan/sembunyikan password" style="background:none; border:none; cursor:pointer; padding:4px; line-height:1;">
+  <svg class="icon-svg pw-eye" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+   <path d="M2.036 12.322a1.012 1.012 0 0 1 0-.639C3.423 7.51 7.36 4.5 12 4.5c4.638 0 8.573 3.007 9.963 7.178.07.207.07.431 0 .639C20.577 16.49 16.64 19.5 12 19.5c-4.638 0-8.573-3.007-9.963-7.178Z"/>
+   <path d="M15 12a3 3 0 1 1-6 0 3 3 0 0 1 6 0Z"/>
+  </svg>
+</button>
+</div>
+</div>
+<div class="form-group" style="margin-bottom: 24px;">
+<label class="required" for="confirmNewPassword">Konfirmasi Password Baru</label>
+<div class="password-wrapper">
+<input type="password" id="confirmNewPassword" required placeholder="Ulangi password baru">
+<button type="button" id="toggleConfirmPassword" class="password-toggle-btn" aria-label="Tampilkan/sembunyikan password" style="background:none; border:none; cursor:pointer; padding:4px; line-height:1;">
+  <svg class="icon-svg pw-eye" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+   <path d="M2.036 12.322a1.012 1.012 0 0 1 0-.639C3.423 7.51 7.36 4.5 12 4.5c4.638 0 8.573 3.007 9.963 7.178.07.207.07.431 0 .639C20.577 16.49 16.64 19.5 12 19.5c-4.638 0-8.573-3.007-9.963-7.178Z"/>
+   <path d="M15 12a3 3 0 1 1-6 0 3 3 0 0 1 6 0Z"/>
+  </svg>
+</button>
+</div>
+</div>
+<button type="submit" class="btn-upload" style="width: 100%;"><svg class="icon-svg" aria-hidden="true"><use href="#hi-check"/></svg> Simpan Password Baru</button>
+</form>
+</div>
+</div>
+</div>
+
+<!-- Modal Edit Ujian -->
+<div class="modal-overlay" id="editExamModal">
+<div class="modal-card glass-card" style="max-width: 480px;">
+<div class="modal-header">
+<h3><svg class="icon-svg" style="vertical-align:middle;margin-top:-2px;"><use href="#hi-edit"/></svg> Edit Ujian (Nama &amp; PDF)</h3>
+<button class="modal-close" onclick="closeEditExamModal()" aria-label="Tutup"><svg class="icon-svg" style="width:18px;height:18px;"><use href="#hi-x"/></svg></button>
+</div>
+<div class="modal-body">
+<form id="editExamForm" onsubmit="submitEditExam(event)" enctype="multipart/form-data">
+<input type="hidden" name="csrf_token" value="{{.csrf_token}}">
+<input type="hidden" id="editExamId">
+<div class="form-group" style="margin-bottom: 16px;">
+<label class="required" for="editExamName">Nama Ujian</label>
+<input type="text" id="editExamName" required placeholder="Contoh: UTS Matematika Kelas 10">
+</div>
+<div class="form-group" style="margin-bottom: 20px;">
+<label for="editPdfFile">File PDF Baru <span style="font-size: 11px; opacity: 0.7;">(Opsional)</span></label>
+<div class="file-input-wrapper">
+<input type="file" id="editPdfFile" accept="application/pdf" onchange="handleEditFileChange(this)">
+<div class="file-input-display" id="editFileDisplay">
+<svg class="icon-svg" style="width:20px;height:20px;flex-shrink:0;"><use href="#hi-file"/></svg>
+<span class="file-text" id="editFileDisplayText">Pilih file PDF baru jika ingin merubah...</span>
+</div>
+</div>
+</div>
+<div class="upload-progress" id="editUploadProgress" style="display:none; margin-bottom: 16px;">
+<div class="progress-bar"><div class="progress-fill" id="editProgressFill"></div></div>
+<span class="progress-text" id="editProgressText">0%</span>
+</div>
+<button type="submit" class="btn-upload" id="btnEditExamSave" style="width: 100%;"><svg class="icon-svg" aria-hidden="true"><use href="#hi-check"/></svg> Simpan Perubahan</button>
+</form>
+</div>
+</div>
+</div>
+
+<!-- Modal Edit Token -->
+<div class="modal-overlay" id="editTokenModal">
+<div class="modal-card glass-card" style="max-width: 400px;">
+<div class="modal-header">
+<h3 id="editTokenModalTitle"><svg class="icon-svg" style="vertical-align:middle;margin-top:-2px;"><use href="#hi-edit"/></svg> Ubah Token Kustom</h3>
+<button class="modal-close" onclick="closeEditTokenModal()" aria-label="Tutup"><svg class="icon-svg" style="width:18px;height:18px;"><use href="#hi-x"/></svg></button>
+</div>
+<div class="modal-body">
+<form id="editTokenForm" onsubmit="submitEditToken(event)">
+<input type="hidden" name="csrf_token" value="{{.csrf_token}}">
+<input type="hidden" id="editTokenExamId">
+<div class="form-group" style="margin-bottom: 20px;">
+<label class="required" for="editTokenInput">Token Kustom Baru (Tepat 8 Karakter)</label>
+<input type="text" id="editTokenInput" required maxlength="8" minlength="8" placeholder="Contoh: UN2026BK" style="text-transform: uppercase; font-size: 20px; text-align: center; letter-spacing: 4px; font-weight: bold; font-family: monospace;">
+</div>
+<button type="submit" class="btn-upload" style="width: 100%;"><svg class="icon-svg" aria-hidden="true"><use href="#hi-check"/></svg> Simpan Token Baru</button>
+</form>
+</div>
+</div>
+</div>
+
+<!-- Modal Delegasi Ujian -->
+<div class="modal-overlay" id="delegateExamModal">
+<div class="modal-card glass-card" style="max-width: 480px;">
+<div class="modal-header">
+<h3><svg class="icon-svg" style="vertical-align:middle;margin-top:-2px;"><use href="#hi-users"/></svg> Delegasi Ujian</h3>
+<button class="modal-close" onclick="closeDelegateExamModal()" aria-label="Tutup"><svg class="icon-svg" style="width:18px;height:18px;"><use href="#hi-x"/></svg></button>
+</div>
+<div class="modal-body">
+<input type="hidden" id="delegateExamId">
+
+<!-- Section: Transfer Ownership -->
+<div style="margin-bottom: 20px; padding: 12px 16px; background: rgba(255, 255, 255, 0.03); border: 1px solid var(--glass-border); border-radius: 12px;">
+<div style="display: flex; align-items: center; gap: 8px; margin-bottom: 10px;">
+<svg class="icon-svg" style="width:18px;height:18px;"><use href="#hi-link"/></svg>
+<div>
+<div style="font-weight: 600; color: var(--text-primary); font-size: 0.9rem;">Tunjuk Penanggung Jawab</div>
+<div style="font-size: 0.75rem; color: var(--color-text-muted);">Pilih guru yang bertanggung jawab. <span id="delegateCurrentOwner"></span></div>
+</div>
+</div>
+<div class="form-group" style="margin-bottom: 4px;">
+<select id="delegateOwnerSelect" style="width:100%;padding:10px 12px;background:rgba(255,255,255,0.04);border:1px solid var(--color-glass-border);border-radius:8px;color:var(--color-text);font-size:14px;">
+<option value="">-- Tidak ada penanggung jawab --</option>
+</select>
+</div>
+</div>
+
+<!-- Section: Manage Pengawas -->
+<div style="margin-bottom: 16px; padding: 12px 16px; background: rgba(255, 255, 255, 0.03); border: 1px solid var(--glass-border); border-radius: 12px;">
+<div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px;">
+<div style="display: flex; align-items: center; gap: 8px;">
+<svg class="icon-svg" style="width:18px;height:18px;"><use href="#hi-eye"/></svg>
+<div>
+<div style="font-weight: 600; color: var(--text-primary); font-size: 0.9rem;">Atur Pengawas</div>
+<div style="font-size: 0.75rem; color: var(--color-text-muted);">Centang pengawas yang akan ditugaskan di ujian ini.</div>
+</div>
+</div>
+</div>
+<div id="delegatePengawasList" style="margin-top: 6px;">
+<!-- Filled by JS -->
+</div>
+</div>
+
+<div style="display:flex;gap:8px;justify-content:flex-end;">
+<button class="btn-sm btn-delete" onclick="closeDelegateExamModal()">Batal</button>
+<button class="btn-upload" onclick="confirmDelegateExam()">Simpan</button>
+</div>
+</div>
+</div>
+</div>
+
+<!-- ===== Questions Modal (Atur Soal & Kunci Jawaban) ===== -->
+<div class="modal-overlay" id="questionsModal">
+<div class="modal-card glass-card" style="max-width: 780px;">
+<div class="modal-header">
+<h3 id="modalTitle"><svg class="icon-svg" style="vertical-align:middle;margin-top:-2px;"><use href="#hi-settings"/></svg> Atur Soal Ujian</h3>
+<button class="modal-close" onclick="closeQuestionsModal()" aria-label="Tutup"><svg class="icon-svg" style="width:18px;height:18px;"><use href="#hi-x"/></svg></button>
+</div>
+<div class="modal-body" style="max-height:80vh;overflow-y:auto;">
+
+<!-- 1. Security Level Config -->
+<div class="security-level-config" style="margin-bottom:20px;padding:12px 16px;background:rgba(255,255,255,0.03);border:1px solid var(--color-glass-border);border-radius:12px;">
+<div style="display:flex;align-items:flex-start;justify-content:space-between;flex-wrap:wrap;gap:12px;">
+<div style="display:flex;align-items:center;gap:8px;">
+<svg class="icon-svg" style="width:20px;height:20px;flex-shrink:0;"><use href="#hi-lock"/></svg>
+<div>
+<div style="font-weight:600;color:var(--color-text);font-size:0.95rem;">Mode Keamanan Ujian (Android)</div>
+<div style="font-size:0.8rem;color:var(--color-text-muted);">Menentukan apakah siswa bisa keluar aplikasi saat ujian berlangsung.</div>
+</div>
+</div>
+<div>
+<select id="examSecurityLevel" style="min-width:220px;margin:0;padding:8px 10px;background:rgba(255,255,255,0.04);border:1px solid var(--color-glass-border);border-radius:8px;color:var(--color-text);font-size:13px;">
+<option value="low">Low — Bisa Keluar (Tanpa Submit)</option>
+<option value="medium">Medium — Bisa Keluar (Auto-Submit)</option>
+<option value="high">High / Strict — TIDAK BISA Keluar (Wajib Submit)</option>
+</select>
+</div>
+</div>
+</div>
+
+<!-- 2. Panel Color Config -->
+<div class="panel-color-config" style="margin-bottom:16px;padding:12px 16px;background:rgba(255,255,255,0.03);border:1px solid var(--color-glass-border);border-radius:12px;">
+<div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:12px;">
+<div style="display:flex;align-items:center;gap:8px;">
+<svg class="icon-svg" style="width:18px;height:18px;flex-shrink:0;"><use href="#hi-dashboard"/></svg>
+<div>
+<div style="font-weight:600;color:var(--color-text);font-size:0.9rem;">Warna Panel Jawaban (Android)</div>
+<div style="font-size:0.75rem;color:var(--color-text-muted);">Warna panel lembar jawaban yang dilihat siswa di Android.</div>
+</div>
+</div>
+<div style="display:flex;align-items:center;gap:8px;">
+<input type="color" id="examPanelColor" value="#6366F1" onchange="document.getElementById('panelColorHex').value=this.value" style="width:36px;height:36px;border:none;border-radius:8px;cursor:pointer;background:transparent;">
+<input type="text" id="panelColorHex" value="#6366F1" maxlength="7" placeholder="#6366F1" oninput="document.getElementById('examPanelColor').value=this.value" style="width:80px;padding:6px 8px;border:1px solid var(--color-glass-border);border-radius:8px;background:rgba(255,255,255,0.04);color:var(--color-text);font-family:monospace;font-size:0.8rem;text-align:center;">
+</div>
+</div>
+<div style="display:flex;gap:6px;margin-top:10px;flex-wrap:wrap;">
+<button type="button" class="btn-sm" style="background:#6366F1;color:#fff;border:none;padding:4px 10px;border-radius:6px;font-size:11px;cursor:pointer;" onclick="setPanelColor('#6366F1')">Indigo</button>
+<button type="button" class="btn-sm" style="background:#10B981;color:#fff;border:none;padding:4px 10px;border-radius:6px;font-size:11px;cursor:pointer;" onclick="setPanelColor('#10B981')">Emerald</button>
+<button type="button" class="btn-sm" style="background:#F43F5E;color:#fff;border:none;padding:4px 10px;border-radius:6px;font-size:11px;cursor:pointer;" onclick="setPanelColor('#F43F5E')">Rose</button>
+<button type="button" class="btn-sm" style="background:#F59E0B;color:#fff;border:none;padding:4px 10px;border-radius:6px;font-size:11px;cursor:pointer;" onclick="setPanelColor('#F59E0B')">Amber</button>
+<button type="button" class="btn-sm" style="background:#06B6D4;color:#fff;border:none;padding:4px 10px;border-radius:6px;font-size:11px;cursor:pointer;" onclick="setPanelColor('#06B6D4')">Cyan</button>
+<button type="button" class="btn-sm" style="background:#64748B;color:#fff;border:none;padding:4px 10px;border-radius:6px;font-size:11px;cursor:pointer;" onclick="setPanelColor('#64748B')">Slate</button>
+</div>
+</div>
+
+<!-- 3. Exam Schedule Config -->
+<div class="exam-schedule-config" style="margin-bottom:16px;padding:12px 16px;background:rgba(255,255,255,0.03);border:1px solid var(--color-glass-border);border-radius:12px;">
+<div style="display:flex;align-items:flex-start;justify-content:space-between;gap:12px;margin-bottom:12px;">
+<div style="display:flex;align-items:center;gap:8px;">
+<svg class="icon-svg" style="width:18px;height:18px;flex-shrink:0;"><use href="#hi-clock"/></svg>
+<div>
+<div style="font-weight:600;color:var(--color-text);font-size:0.9rem;">Jadwal Ujian</div>
+<div style="font-size:0.75rem;color:var(--color-text-muted);">Atur jam mulai dan selesai ujian.</div>
+</div>
+</div>
+<button type="button" class="btn-sm btn-delete" onclick="clearSchedule()" style="font-size:11px;flex-shrink:0;">
+<svg class="icon-svg" style="width:12px;height:12px;"><use href="#hi-x"/></svg> Hapus Jadwal
+</button>
+</div>
+<div style="display:flex;align-items:flex-end;gap:8px;flex-wrap:wrap;">
+<div style="display:flex;flex-direction:column;gap:2px;">
+<label for="examStartDate" style="font-size:0.7rem;color:var(--color-text-muted);font-weight:600;">Tgl Mulai</label>
+<input type="date" id="examStartDate" style="padding:6px 8px;border:1px solid var(--color-glass-border);border-radius:8px;background:rgba(255,255,255,0.04);color:var(--color-text);font-size:0.85rem;width:140px;">
+</div>
+<div style="display:flex;flex-direction:column;gap:2px;">
+<label for="examStartTime" style="font-size:0.7rem;color:var(--color-text-muted);font-weight:600;">Jam</label>
+<input type="time" id="examStartTime" style="padding:6px 8px;border:1px solid var(--color-glass-border);border-radius:8px;background:rgba(255,255,255,0.04);color:var(--color-text);font-size:0.85rem;width:110px;">
+</div>
+<svg class="icon-svg" style="width:18px;height:18px;color:var(--color-text-muted);flex-shrink:0;" aria-hidden="true"><use href="#hi-chevron-right"/></svg>
+<div style="display:flex;flex-direction:column;gap:2px;">
+<label for="examEndDate" style="font-size:0.7rem;color:var(--color-text-muted);font-weight:600;">Tgl Selesai</label>
+<input type="date" id="examEndDate" style="padding:6px 8px;border:1px solid var(--color-glass-border);border-radius:8px;background:rgba(255,255,255,0.04);color:var(--color-text);font-size:0.85rem;width:140px;">
+</div>
+<div style="display:flex;flex-direction:column;gap:2px;">
+<label for="examEndTime" style="font-size:0.7rem;color:var(--color-text-muted);font-weight:600;">Jam</label>
+<input type="time" id="examEndTime" style="padding:6px 8px;border:1px solid var(--color-glass-border);border-radius:8px;background:rgba(255,255,255,0.04);color:var(--color-text);font-size:0.85rem;width:110px;">
+</div>
+</div>
+</div>
+
+<!-- 4. Pengawas Config (sebelum identity fields, sesuai Python) -->
+<div class="pengawas-config" style="margin-bottom:16px;padding:12px 16px;background:rgba(255,255,255,0.03);border:1px solid var(--color-glass-border);border-radius:12px;">
+<div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:12px;">
+<div style="display:flex;align-items:center;gap:8px;">
+<svg class="icon-svg" style="width:18px;height:18px;flex-shrink:0;"><use href="#hi-eye"/></svg>
+<div>
+<div style="font-weight:600;color:var(--color-text);font-size:0.9rem;">Pengawas Ujian</div>
+<div style="font-size:0.75rem;color:var(--color-text-muted);">Pilih pengawas dari instansi yang sama. Pengawas dapat melihat ujian ini.</div>
+</div>
+</div>
+</div>
+<div id="pengawasList" style="margin-top:10px;">
+<div style="color:var(--color-text-muted);font-size:0.82rem;padding:8px 0;">Memuat data pengawas...</div>
+</div>
+</div>
+
+<!-- 5. Identity Fields Config -->
+<div class="identity-fields-config" style="margin-bottom:16px;padding:12px 16px;background:rgba(255,255,255,0.03);border:1px solid var(--color-glass-border);border-radius:12px;">
+<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;">
+<div style="display:flex;align-items:center;gap:8px;">
+<svg class="icon-svg" style="width:18px;height:18px;flex-shrink:0;"><use href="#hi-users"/></svg>
+<div>
+<div style="font-weight:600;color:var(--color-text);font-size:0.9rem;">Identitas Siswa</div>
+<div style="font-size:0.75rem;color:var(--color-text-muted);">Data yang wajib diisi siswa sebelum memulai ujian di Android.</div>
+</div>
+</div>
+<button class="btn-sm" onclick="addIdentityField()" style="height:30px;font-size:12px;"><svg class="icon-svg" style="width:14px;height:14px;"><use href="#hi-plus"/></svg> Tambah Field</button>
+</div>
+<div id="identityFieldsList">
+<!-- Fields rendered by JS -->
+</div>
+<div style="margin-top:8px;font-size:0.75rem;color:var(--color-text-muted);text-align:right;">Field bertanda * wajib diisi siswa.</div>
+</div>
+
+<!-- 6. Questions Toolbar (matching Python structure) -->
+<div class="questions-toolbar" style="margin-bottom:16px;">
+<div style="display:flex;flex-wrap:wrap;gap:8px;align-items:center;">
+<div class="inline-group" style="display:flex;align-items:center;gap:6px;">
+<label for="generateQty" style="font-size:0.8rem;color:var(--color-text-secondary);">Jumlah:</label>
+<input type="number" id="generateQty" value="40" min="1" max="200" style="width:70px;padding:6px 8px;text-align:center;background:rgba(255,255,255,0.04);border:1px solid var(--color-glass-border);border-radius:6px;color:var(--color-text);font-size:13px;">
+<select id="generateType" style="padding:6px 8px;background:rgba(255,255,255,0.04);border:1px solid var(--color-glass-border);border-radius:6px;color:var(--color-text);font-size:13px;">
+<option value="single_choice">Pilihan Ganda</option>
+<option value="true_false">Benar / Salah</option>
+<option value="multiple_choice">PG Kompleks</option>
+<option value="matching">Menjodohkan</option>
+<option value="short_answer">Isian Singkat</option>
+</select>
+<button class="btn-sm" onclick="quickGenerateQuestions()" style="gap:4px;"><svg class="icon-svg" style="width:14px;height:14px;"><use href="#hi-plus"/></svg> Generate</button>
+</div>
+<div class="inline-group" style="display:flex;align-items:center;gap:6px;">
+<button class="btn-sm" onclick="setAllWeights()" style="gap:4px;"><svg class="icon-svg" style="width:14px;height:14px;"><use href="#hi-settings"/></svg> Set All Bobot</button>
+</div>
+<div class="xml-import-wrapper" style="display:flex;align-items:center;gap:6px;">
+<button class="btn-sm" onclick="copyAIPrompt()" style="gap:4px;"><svg class="icon-svg" style="width:14px;height:14px;"><use href="#hi-clipboard"/></svg> Prompt AI</button>
+<input type="file" id="xmlFileInput" accept=".xml" style="display:none;" onchange="importXMLQuestions(event)">
+<button class="btn-sm" onclick="document.getElementById('xmlFileInput').click()" style="gap:4px;"><svg class="icon-svg" style="width:14px;height:14px;"><use href="#hi-download"/></svg> Import XML</button>
+<button class="btn-sm" onclick="exportXMLQuestions()" style="gap:4px;"><svg class="icon-svg" style="width:14px;height:14px;"><use href="#hi-upload"/></svg> Export XML</button>
+</div>
+</div>
+</div>
+
+<!-- 7. Questions List -->
+<div class="questions-list-container" id="questionsList" style="margin-bottom:16px;">
+<div style="color:var(--color-text-muted);text-align:center;padding:16px;font-size:13px;">Memuat data soal...</div>
+</div>
+
+</div>
+<div class="modal-footer" style="display:flex;gap:8px;justify-content:flex-end;padding:12px 24px;border-top:1px solid var(--color-glass-border);">
+<button class="btn-sm btn-delete" onclick="closeQuestionsModal()">Batal</button>
+<button class="btn-upload" onclick="saveQuestionsConfig()"><svg class="icon-svg"><use href="#hi-check"/></svg> Simpan Konfigurasi</button>
+</div>
+</div>
+</div>
+
+<div class="toast-container" id="toastContainer" aria-live="polite" aria-atomic="true"></div>
+
+<!-- Heroicons Sprite -->
+<svg xmlns="http://www.w3.org/2000/svg" style="display:none;" aria-hidden="true">
+<symbol id="hi-dashboard" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M3.75 6A2.25 2.25 0 0 1 6 3.75h2.25A2.25 2.25 0 0 1 10.5 6v2.25a2.25 2.25 0 0 1-2.25 2.25H6a2.25 2.25 0 0 1-2.25-2.25V6ZM3.75 15.75A2.25 2.25 0 0 1 6 13.5h2.25a2.25 2.25 0 0 1 2.25 2.25V18a2.25 2.25 0 0 1-2.25 2.25H6A2.25 2.25 0 0 1 3.75 18v-2.25ZM13.5 6a2.25 2.25 0 0 1 2.25-2.25H18A2.25 2.25 0 0 1 20.25 6v2.25A2.25 2.25 0 0 1 18 10.5h-2.25a2.25 2.25 0 0 1-2.25-2.25V6ZM13.5 15.75a2.25 2.25 0 0 1 2.25-2.25H18a2.25 2.25 0 0 1 2.25 2.25V18A2.25 2.25 0 0 1 18 20.25h-2.25A2.25 2.25 0 0 1 13.5 18v-2.25Z"/></symbol>
+<symbol id="hi-check" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="m4.5 12.75 6 6 9-13.5"/></symbol>
+<symbol id="hi-lock" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M16.5 10.5V6.75a4.5 4.5 0 1 0-9 0v3.75m-.75 11.25h10.5a2.25 2.25 0 0 0 2.25-2.25v-6.75a2.25 2.25 0 0 0-2.25-2.25H6.75a2.25 2.25 0 0 0-2.25 2.25v6.75a2.25 2.25 0 0 0 2.25 2.25Z"/></symbol>
+<symbol id="hi-download" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M3 16.5v2.25A2.25 2.25 0 0 0 5.25 21h13.5A2.25 2.25 0 0 0 21 18.75V16.5M16.5 12 12 16.5m0 0L7.5 12m4.5 4.5V3"/></symbol>
+<symbol id="hi-upload" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M3 16.5v2.25A2.25 2.25 0 0 0 5.25 21h13.5A2.25 2.25 0 0 0 21 18.75V16.5m-13.5-9L12 3m0 0 4.5 4.5M12 3v13.5"/></symbol>
+<symbol id="hi-file" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M19.5 14.25v-2.625a3.375 3.375 0 0 0-3.375-3.375h-1.5A1.125 1.125 0 0 1 13.5 7.125v-1.5a3.375 3.375 0 0 0-3.375-3.375H8.25m0 12.75h7.5m-7.5 3H12M10.5 2.25H5.625c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 0 0-9-9Z"/></symbol>
+<symbol id="hi-trash" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="m14.74 9-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 0 1-2.244 2.077H8.084a2.25 2.25 0 0 1-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 0 0-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 0 1 3.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 0 0-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916m7.5 0a48.667 48.667 0 0 0-7.5 0"/></symbol>
+<symbol id="hi-search" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="m21 21-5.197-5.197m0 0A7.5 7.5 0 1 0 5.196 5.196a7.5 7.5 0 0 0 10.607 10.607Z"/></symbol>
+<symbol id="hi-refresh" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0 3.181 3.183a8.25 8.25 0 0 0 13.803-3.7M4.031 9.865a8.25 8.25 0 0 1 13.803-3.7l3.181 3.182"/></symbol>
+<symbol id="hi-chevron-left" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M15.75 19.5 8.25 12l7.5-7.5"/></symbol>
+<symbol id="hi-chevron-right" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="m8.25 4.5 7.5 7.5-7.5 7.5"/></symbol>
+<symbol id="hi-chevron-down" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="m19.5 8.25-7.5 7.5-7.5-7.5"/></symbol>
+<symbol id="hi-eye" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M2.036 12.322a1.012 1.012 0 0 1 0-.639C3.423 7.51 7.36 4.5 12 4.5c4.638 0 8.573 3.007 9.963 7.178.07.207.07.431 0 .639C20.577 16.49 16.64 19.5 12 19.5c-4.638 0-8.573-3.007-9.963-7.178Z"/><path d="M15 12a3 3 0 1 1-6 0 3 3 0 0 1 6 0Z"/></symbol>
+<symbol id="hi-edit" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="m16.862 4.487 1.687-1.688a1.875 1.875 0 1 1 2.652 2.652L6.832 19.82a4.5 4.5 0 0 1-1.897 1.13l-2.685.8.8-2.685a4.5 4.5 0 0 1 1.13-1.897L16.863 4.487Zm0 0L19.5 7.125"/></symbol>
+<symbol id="hi-settings" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M9.594 3.94c.09-.542.56-.94 1.11-.94h2.593c.55 0 1.02.398 1.11.94l.213 1.281c.063.374.313.686.645.87.074.04.147.083.22.127.325.196.72.257 1.075.124l1.217-.456a1.125 1.125 0 0 1 1.37.49l1.296 2.247a1.125 1.125 0 0 1-.26 1.431l-1.003.827c-.293.241-.438.613-.43.992a7.723 7.723 0 0 1 0 .255c-.008.378.137.75.43.991l1.004.827c.424.35.534.955.26 1.43l-1.298 2.247a1.125 1.125 0 0 1-1.369.491l-1.217-.456c-.355-.133-.75-.072-1.076.124a6.47 6.47 0 0 1-.22.128c-.331.183-.581.495-.644.869l-.213 1.281c-.09.543-.56.94-1.11.94h-2.594c-.55 0-1.019-.398-1.11-.94l-.213-1.281c-.062-.374-.312-.686-.644-.87a6.52 6.52 0 0 1-.22-.127c-.325-.196-.72-.257-1.076-.124l-1.217.456a1.125 1.125 0 0 1-1.369-.49l-1.297-2.247a1.125 1.125 0 0 1 .26-1.431l1.004-.827c.292-.24.437-.613.43-.991a6.932 6.932 0 0 1 0-.255c.007-.38-.138-.751-.43-.992l-1.004-.827a1.125 1.125 0 0 1-.26-1.43l1.297-2.247a1.125 1.125 0 0 1 1.37-.491l1.216.456c.356.133.751.072 1.076-.124.072-.044.146-.086.22-.128.332-.183.582-.495.644-.869l.214-1.28Z"/><path d="M15 12a3 3 0 1 1-6 0 3 3 0 0 1 6 0Z"/></symbol>
+<symbol id="hi-exclamation" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M12 9v3.75m9-.75a9 9 0 1 1-18 0 9 9 0 0 1 18 0Zm-9 3.75h.008v.008H12v-.008Z"/></symbol>
+<symbol id="hi-link" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M13.19 8.688a4.5 4.5 0 0 1 1.242 7.244l-4.5 4.5a4.5 4.5 0 0 1-6.364-6.364l1.757-1.757m13.35-.622 1.757-1.757a4.5 4.5 0 0 0-6.364-6.364l-4.5 4.5a4.5 4.5 0 0 0 1.242 7.244"/></symbol>
+<symbol id="hi-key" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M15.75 5.25a3 3 0 0 1 3 3m3 0a6 6 0 0 1-7.029 5.912c-.563-.097-1.159.026-1.563.43L10.5 17.25H8.25v2.25H6v2.25H2.25v-2.818c0-.597.237-1.17.659-1.591l6.499-6.499c.404-.404.527-1 .43-1.563A6 6 0 1 1 21.75 8.25Z"/></symbol>
+<symbol id="hi-x" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M6 18 18 6M6 6l12 12"/></symbol>
+<symbol id="hi-users" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M15 19.128a9.38 9.38 0 0 0 2.625.372 9.337 9.337 0 0 0 4.121-.952 4.125 4.125 0 0 0-7.533-2.493M15 19.128v-.003c0-1.113-.285-2.16-.786-3.07M15 19.128v.106A12.318 12.318 0 0 1 8.624 21c-2.331 0-4.512-.645-6.374-1.766l-.001-.109a6.375 6.375 0 0 1 11.964-3.07M12 6.375a3.375 3.375 0 1 1-6.75 0 3.375 3.375 0 0 1 6.75 0Zm8.25 2.25a2.625 2.625 0 1 1-5.25 0 2.625 2.625 0 0 1 5.25 0Z"/></symbol>
+<symbol id="hi-results" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M3 13.125C3 12.504 3.504 12 4.125 12h2.25c.621 0 1.125.504 1.125 1.125v6.75C7.5 20.496 6.996 21 6.375 21h-2.25A1.125 1.125 0 0 1 3 19.875v-6.75ZM9.75 8.625c0-.621.504-1.125 1.125-1.125h2.25c.621 0 1.125.504 1.125 1.125v11.25c0 .621-.504 1.125-1.125 1.125h-2.25a1.125 1.125 0 0 1-1.125-1.125V8.625ZM16.5 4.125c0-.621.504-1.125 1.125-1.125h2.25C20.496 3 21 3.504 21 4.125v15.75c0 .621-.504 1.125-1.125 1.125h-2.25a1.125 1.125 0 0 1-1.125-1.125V4.125Z"/></symbol>
+<symbol id="hi-logout" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M15.75 9V5.25A2.25 2.25 0 0 0 13.5 3h-6a2.25 2.25 0 0 0-2.25 2.25v13.5A2.25 2.25 0 0 0 7.5 21h6a2.25 2.25 0 0 0 2.25-2.25V15m3 0 3-3m0 0-3-3m3 3H9"/></symbol>
+<symbol id="hi-eye-off" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M3.98 8.223A10.477 10.477 0 0 0 1.934 12C3.226 16.338 7.244 19.5 12 19.5c.993 0 1.953-.138 2.863-.395M6.228 6.228A10.45 10.45 0 0 1 12 4.5c4.756 0 8.773 3.162 10.065 7.498a10.523 10.523 0 0 1-4.293 5.774M6.228 6.228 3 3m3.228 3.228 3.65 3.65m7.894 7.894L21 21m-3.228-3.228-3.65-3.65m0 0a3 3 0 0 1-4.242-4.242"/></symbol>
+<symbol id="hi-lock-open" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M13.5 10.5V6.75a4.5 4.5 0 1 1 9 0v3.75M3.75 21.75h10.5a2.25 2.25 0 0 0 2.25-2.25v-6.75a2.25 2.25 0 0 0-2.25-2.25H3.75a2.25 2.25 0 0 0-2.25 2.25v6.75a2.25 2.25 0 0 0 2.25 2.25Z"/></symbol>
+<symbol id="hi-plus" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M12 4.5v15m7.5-7.5h-15"/></symbol>
+<symbol id="hi-clipboard" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M15.666 3.888A2.25 2.25 0 0 0 13.5 2.25h-3c-1.03 0-1.9.693-2.166 1.638m7.332 0c.055.194.084.4.084.612v0a.75.75 0 0 1-.75.75H9a.75.75 0 0 1-.75-.75v0c0-.212.03-.418.084-.612m7.332 0c.646.049 1.288.11 1.927.184 1.1.128 1.907 1.077 1.907 2.185V19.5a2.25 2.25 0 0 1-2.25 2.25H6.75A2.25 2.25 0 0 1 4.5 19.5V6.257c0-1.108.806-2.057 1.907-2.185a48.208 48.208 0 0 1 1.927-.184"/></symbol>
+<symbol id="hi-star" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M11.48 3.499a.562.562 0 0 1 1.04 0l2.125 5.111a.563.563 0 0 0 .475.345l5.518.442c.499.04.701.663.321.988l-4.204 3.602a.563.563 0 0 0-.182.557l1.285 5.385a.562.562 0 0 1-.84.61l-4.725-2.885a.562.562 0 0 0-.586 0L6.982 20.54a.562.562 0 0 1-.84-.61l1.285-5.386a.562.562 0 0 0-.182-.557l-4.204-3.602a.562.562 0 0 1 .321-.988l5.518-.442a.563.563 0 0 0 .475-.345L11.48 3.5Z"/></symbol>
+<symbol id="hi-clock" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M12 6v6h4.5m4.5 0a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z"/></symbol>
+</svg>
+
+<script src="/static/js/admin-core.js"></script>
+<script src="/static/js/admin.js"></script>
+<script>
+const ADMIN_ID = {{.admin_id}};
+const IS_PRIVILEGED = {{if or (eq .admin_role "superadmin") (eq .admin_role "operator")}}true{{else}}false{{end}};
+
+function confirmBulkDelete() {
+    const checkboxes = document.querySelectorAll('.exam-checkbox:checked');
+    if (checkboxes.length === 0) return;
+    const names = Array.from(checkboxes).map(function(cb) { return cb.getAttribute('data-name'); });
+    showConfirm('Hapus ' + checkboxes.length + ' ujian terpilih?', names.join('\n'), 'Ya, Hapus Semua', 'Batal')
+    .then(function(ok) { if (ok) bulkDeleteExams(); });
+}
+
+function searchExamsWithStatus() {
+    var query = document.getElementById('searchExam').value.trim();
+    var status = document.getElementById('statusFilter').value;
+    var params = new URLSearchParams(window.location.search);
+    if (query) params.set('search', query); else params.delete('search');
+    if (status) params.set('status', status); else params.delete('status');
+    params.set('page', '1');
+    window.location.href = window.location.pathname + (params.toString() ? '?' + params.toString() : '');
+}
+
+function clearSearch() {
+    document.getElementById('searchExam').value = '';
+    searchExamsWithStatus();
+}
+
+document.addEventListener('DOMContentLoaded', function() {
+    var si = document.getElementById('searchExam');
+    var sf = document.getElementById('statusFilter');
+    if (si) {
+        si.addEventListener('keydown', function(e) { if (e.key === 'Enter') { e.preventDefault(); searchExamsWithStatus(); } });
+    }
+    if (sf) {
+        var up = new URLSearchParams(window.location.search);
+        if (up.has('status')) sf.value = up.get('status');
+    }
+    var expiryEl = document.getElementById('expiryCountdown');
+    var bannerDays = document.getElementById('expiryBannerDays');
+    if (expiryEl && bannerDays) {
+        var expiresStr = expiryEl.getAttribute('data-expires');
+        if (expiresStr) {
+            var expiresDate = new Date(expiresStr.replace(' ', 'T') + 'Z');
+            if (!isNaN(expiresDate.getTime())) {
+                var now = new Date();
+                var diffMs = expiresDate - now;
+                var diffDays = Math.ceil(diffMs / (1000 * 60 * 60 * 24));
+                if (diffDays < 0) bannerDays.innerHTML = '<span style="color:#f87171;font-weight:600;">Kedaluwarsa</span>';
+                else if (diffDays === 0) bannerDays.innerHTML = '<span style="color:#fbbf24;font-weight:600;">Kedaluwarsa hari ini</span>';
+                else if (diffDays <= 7) bannerDays.innerHTML = '<span style="color:#f87171;font-weight:600;">' + diffDays + ' hari lagi</span>';
+                else bannerDays.innerHTML = diffDays + ' hari lagi';
+            }
+        }
+    }
+});
+
+function toggleRowDropdown(event, examId) {
+    event.stopPropagation();
+    var el = document.getElementById('dropdown-content-' + examId);
+    if (el) { document.querySelectorAll('.exam-action-dropdown-content.show').forEach(function(e) { if (e !== el) e.classList.remove('show'); }); el.classList.toggle('show'); }
+}
+document.addEventListener('click', function() { document.querySelectorAll('.exam-action-dropdown-content.show').forEach(function(e) { e.classList.remove('show'); }); });
+</script>
+</body>
+</html>

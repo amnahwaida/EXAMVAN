@@ -1,0 +1,704 @@
+{{/*
+  EXAMVAN Download Page
+  ======================
+  Standalone template.
+  Variables:
+    .android_version — string (e.g., "2.1.0")
+    .webapp_version  — string (e.g., "2.1.0")
+    .file_size_mb    — float64 (APK file size in MB)
+*/}}
+<!DOCTYPE html>
+<html lang="id">
+<head>
+ <meta charset="UTF-8">
+ <meta name="viewport" content="width=device-width, initial-scale=1.0">
+ <title>Unduh Aplikasi Siswa - EXAMVAN</title>
+
+ <link rel="preconnect" href="https://fonts.googleapis.com">
+ <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+ <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@700;800&family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+
+ <style>
+ :root {
+ --bg-primary: #080b11;
+ --bg-secondary: #0f131c;
+ --accent-primary: #6366f1;
+ --accent-secondary: #a855f7;
+ --accent-glow: rgba(99, 102, 241, 0.15);
+ --text-main: #f3f4f6;
+ --text-muted: #9ca3af;
+ --text-secondary: #e5e7eb;
+ --glass-bg: rgba(17, 24, 39, 0.7);
+ --glass-border: rgba(255, 255, 255, 0.08);
+ --card-hover: rgba(255, 255, 255, 0.03);
+ --success-color: #10b981;
+ --warning-color: #f59e0b;
+ }
+
+ @media (prefers-color-scheme: light) {
+ :root {
+ --bg-primary: #f1f5f9;
+ --bg-secondary: #ffffff;
+ --accent-primary: #6366f1;
+ --accent-secondary: #8b5cf6;
+ --accent-glow: rgba(99, 102, 241, 0.1);
+ --text-main: #0f172a;
+ --text-muted: #64748b;
+ --text-secondary: #334155;
+ --glass-bg: rgba(255, 255, 255, 0.8);
+ --glass-border: rgba(0, 0, 0, 0.08);
+ --card-hover: rgba(0, 0, 0, 0.02);
+ --success-color: #059669;
+ --warning-color: #d97706;
+ }
+ }
+
+ * {
+ margin: 0;
+ padding: 0;
+ box-sizing: border-box;
+ font-family: 'Plus Jakarta Sans', sans-serif;
+ }
+
+ body {
+ background-color: var(--bg-primary);
+ color: var(--text-main);
+ overflow-x: hidden;
+ line-height: 1.6;
+ min-height: 100vh;
+ display: flex;
+ flex-direction: column;
+ scroll-behavior: smooth;
+ }
+
+ /* Abstract glowing background blobs */
+ .glow-blob {
+ position: absolute;
+ width: 450px;
+ height: 450px;
+ border-radius: 50%;
+ background: radial-gradient(circle, var(--accent-glow) 0%, rgba(99, 102, 241, 0) 70%);
+ filter: blur(80px);
+ z-index: -1;
+ pointer-events: none;
+ }
+
+ .blob-1 {
+ top: -150px;
+ right: -100px;
+ background: radial-gradient(circle, rgba(168, 85, 247, 0.12) 0%, rgba(168, 85, 247, 0) 70%);
+ }
+
+ .blob-2 {
+ bottom: -150px;
+ left: -150px;
+ }
+
+ /* Skip-to-content */
+ .skip-link:focus { left: 8px; }
+
+ /* Navbar */
+ nav {
+ background: rgba(8, 11, 17, 0.85);
+ backdrop-filter: blur(16px);
+ -webkit-backdrop-filter: blur(16px);
+ border-bottom: 1px solid var(--glass-border);
+ width: 100%;
+ position: fixed;
+ top: 0;
+ z-index: 100;
+ }
+
+ .nav-container {
+ max-width: 1200px;
+ margin: 0 auto;
+ display: flex;
+ justify-content: space-between;
+ align-items: center;
+ padding: 16px 20px;
+ }
+
+ .logo-container {
+ display: flex;
+ align-items: center;
+ gap: 10px;
+ text-decoration: none;
+ }
+
+ .logo-badge {
+ background: linear-gradient(135deg, var(--accent-primary), var(--accent-secondary));
+ width: 34px;
+ height: 34px;
+ border-radius: 8px;
+ display: flex;
+ align-items: center;
+ justify-content: center;
+ color: white;
+ font-size: 18px;
+ font-weight: 800;
+ font-family: 'Outfit', sans-serif;
+ box-shadow: 0 4px 12px rgba(99, 102, 241, 0.3);
+ }
+
+ .logo-text {
+ font-family: 'Outfit', sans-serif;
+ font-size: 20px;
+ font-weight: 800;
+ background: linear-gradient(to right, #ffffff, #e0e7ff);
+ -webkit-background-clip: text;
+ -webkit-text-fill-color: transparent;
+ letter-spacing: 0.5px;
+ }
+
+ .btn-nav-back {
+ color: var(--text-secondary);
+ text-decoration: none;
+ font-size: 13.5px;
+ font-weight: 600;
+ display: flex;
+ align-items: center;
+ gap: 6px;
+ transition: color 0.3s;
+ background: rgba(255, 255, 255, 0.05);
+ padding: 8px 14px;
+ border-radius: 8px;
+ border: 1px solid rgba(255, 255, 255, 0.05);
+ }
+
+ .btn-nav-back:hover {
+ color: white;
+ background: rgba(255, 255, 255, 0.1);
+ }
+
+ /* Content Area */
+ main {
+ flex: 1;
+ max-width: 1200px;
+ width: 100%;
+ margin: 0 auto;
+ padding: 36px 20px;
+ display: grid;
+ grid-template-columns: 1.1fr 0.9fr;
+ gap: 32px;
+ align-items: start;
+ }
+
+ .download-info {
+ display: flex;
+ flex-direction: column;
+ }
+
+ .badge {
+ background: rgba(16, 185, 129, 0.08);
+ border: 1px solid rgba(16, 185, 129, 0.15);
+ color: var(--success-color);
+ padding: 6px 12px;
+ border-radius: 100px;
+ font-size: 12.5px;
+ font-weight: 600;
+ align-self: flex-start;
+ margin-bottom: 16px;
+ display: inline-flex;
+ align-items: center;
+ gap: 6px;
+ }
+
+ .badge-dot {
+ width: 6px;
+ height: 6px;
+ background-color: var(--success-color);
+ border-radius: 50%;
+ animation: pulse 1.8s infinite;
+ }
+
+ @keyframes pulse {
+ 0% { transform: scale(0.9); opacity: 0.6; }
+ 50% { transform: scale(1.3); opacity: 1; }
+ 100% { transform: scale(0.9); opacity: 0.6; }
+ }
+
+ .download-title {
+ font-family: 'Outfit', sans-serif;
+ font-size: 36px;
+ font-weight: 800;
+ line-height: 1.25;
+ letter-spacing: -0.5px;
+ margin-bottom: 12px;
+ background: linear-gradient(135deg, #ffffff 40%, #c7d2fe 100%);
+ -webkit-background-clip: text;
+ -webkit-text-fill-color: transparent;
+ }
+
+ .download-desc {
+ font-size: 14.5px;
+ color: var(--text-muted);
+ margin-bottom: 24px;
+ max-width: 580px;
+ }
+
+ /* Glass download card */
+ .download-card {
+ background: rgba(17, 24, 39, 0.65);
+ border: 1px solid var(--glass-border);
+ border-radius: 20px;
+ padding: 28px;
+ backdrop-filter: blur(14px);
+ -webkit-backdrop-filter: blur(14px);
+ margin-bottom: 24px;
+ box-shadow: 0 12px 36px rgba(0, 0, 0, 0.4);
+ }
+
+ .meta-grid {
+ display: grid;
+ grid-template-columns: repeat(3, 1fr);
+ gap: 16px;
+ margin-bottom: 28px;
+ border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+ padding-bottom: 20px;
+ }
+
+ .meta-item {
+ display: flex;
+ flex-direction: column;
+ }
+
+ .meta-label {
+ font-size: 11px;
+ color: var(--text-muted);
+ text-transform: uppercase;
+ font-weight: 600;
+ letter-spacing: 0.5px;
+ margin-bottom: 4px;
+ }
+
+ .meta-val {
+ font-size: 15px;
+ font-weight: 700;
+ color: white;
+ }
+
+ .btn-download-big {
+ background: linear-gradient(135deg, var(--accent-primary), var(--accent-secondary));
+ color: white;
+ padding: 16px 24px;
+ border-radius: 12px;
+ text-decoration: none;
+ font-weight: 700;
+ font-size: 16px;
+ display: flex;
+ align-items: center;
+ justify-content: center;
+ gap: 10px;
+ box-shadow: 0 4px 18px rgba(99, 102, 241, 0.35);
+ transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+ width: 100%;
+ border: none;
+ cursor: pointer;
+ margin-bottom: 20px;
+ min-height: 52px;
+ }
+
+ .btn-download-big:active {
+ transform: scale(0.98);
+ }
+
+ @media (hover: hover) {
+ .btn-download-big:hover {
+ transform: translateY(-2px);
+ box-shadow: 0 8px 24px rgba(99, 102, 241, 0.5);
+ }
+ }
+
+ .download-security-info {
+ display: flex;
+ justify-content: center;
+ gap: 16px;
+ color: var(--text-muted);
+ font-size: 12px;
+ flex-wrap: wrap;
+ }
+
+ .security-item {
+ display: flex;
+ align-items: center;
+ gap: 5px;
+ }
+
+ .security-item svg {
+ color: var(--success-color);
+ flex-shrink: 0;
+ }
+
+ /* Server Version Banner */
+ .server-version-box {
+ background: rgba(255, 255, 255, 0.02);
+ border: 1px dashed var(--glass-border);
+ padding: 14px 20px;
+ border-radius: 12px;
+ font-size: 13px;
+ color: var(--text-muted);
+ display: flex;
+ justify-content: space-between;
+ align-items: center;
+ }
+
+ /* Instructions card */
+ .instruction-card {
+ background: rgba(15, 19, 28, 0.7);
+ border: 1px solid var(--glass-border);
+ border-radius: 20px;
+ padding: 28px;
+ backdrop-filter: blur(8px);
+ -webkit-backdrop-filter: blur(8px);
+ box-shadow: 0 8px 24px rgba(0,0,0,0.2);
+ }
+
+ .inst-title {
+ font-family: 'Outfit', sans-serif;
+ font-size: 18px;
+ font-weight: 700;
+ color: white;
+ margin-bottom: 20px;
+ display: flex;
+ align-items: center;
+ gap: 8px;
+ border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+ padding-bottom: 12px;
+ }
+
+ .inst-title svg {
+ color: var(--accent-primary);
+ }
+
+ .inst-steps {
+ display: flex;
+ flex-direction: column;
+ gap: 16px;
+ margin-bottom: 24px;
+ }
+
+ .step-item {
+ display: flex;
+ gap: 12px;
+ }
+
+ .step-number {
+ background: rgba(99, 102, 241, 0.1);
+ border: 1px solid rgba(99, 102, 241, 0.25);
+ color: #818cf8;
+ width: 24px;
+ height: 24px;
+ border-radius: 50%;
+ display: flex;
+ align-items: center;
+ justify-content: center;
+ font-weight: 700;
+ font-size: 12px;
+ flex-shrink: 0;
+ margin-top: 2px;
+ }
+
+ .step-content {
+ display: flex;
+ flex-direction: column;
+ }
+
+ .step-title {
+ font-size: 13.5px;
+ font-weight: 600;
+ color: var(--text-secondary);
+ margin-bottom: 2px;
+ }
+
+ .step-desc {
+ font-size: 12.5px;
+ color: var(--text-muted);
+ line-height: 1.45;
+ }
+
+ /* Specific Device Warning/Tips for Students */
+ .device-tips {
+ background: rgba(245, 158, 11, 0.06);
+ border: 1px solid rgba(245, 158, 11, 0.15);
+ border-radius: 12px;
+ padding: 16px;
+ }
+
+ .tips-title {
+ font-size: 13px;
+ font-weight: 700;
+ color: var(--warning-color);
+ margin-bottom: 8px;
+ display: flex;
+ align-items: center;
+ gap: 6px;
+ }
+
+ .tips-list {
+ list-style: none;
+ display: flex;
+ flex-direction: column;
+ gap: 8px;
+ }
+
+ .tips-list li {
+ font-size: 12px;
+ color: var(--text-secondary);
+ line-height: 1.4;
+ padding-left: 14px;
+ position: relative;
+ }
+
+ .tips-list li::before {
+ content: "\2022";
+ color: var(--warning-color);
+ font-weight: bold;
+ position: absolute;
+ left: 0;
+ top: 0;
+ }
+
+ /* Footer */
+ footer {
+ border-top: 1px solid var(--glass-border);
+ padding: 20px;
+ background-color: var(--bg-primary);
+ margin-top: auto;
+ }
+
+ .footer-container {
+ max-width: 1200px;
+ margin: 0 auto;
+ display: flex;
+ justify-content: space-between;
+ align-items: center;
+ color: var(--text-muted);
+ font-size: 12px;
+ flex-wrap: wrap;
+ gap: 12px;
+ }
+
+ /* Reduced Motion */
+ @media (prefers-reduced-motion: reduce) {
+ .btn-download-big, .btn-nav-back { transition: none !important; }
+ .badge-dot { animation: none !important; }
+ .glow-blob { filter: blur(60px); }
+ }
+
+ /* Mobile Optimization Media Queries */
+ @media (max-width: 968px) {
+ main {
+ grid-template-columns: 1fr;
+ gap: 28px;
+ padding: 24px 16px;
+ }
+
+ .download-title {
+ font-size: 28px;
+ }
+
+ .download-desc {
+ font-size: 13.5px;
+ margin-bottom: 20px;
+ }
+
+ .download-card {
+ padding: 20px;
+ }
+ }
+
+ @media (max-width: 600px) {
+ .nav-container {
+ padding: 12px 16px;
+ }
+
+ .logo-text {
+ font-size: 18px;
+ }
+
+ .btn-nav-back {
+ padding: 6px 10px;
+ font-size: 12px;
+ }
+
+ .meta-grid {
+ grid-template-columns: 1fr;
+ gap: 12px;
+ border-bottom: 1px dashed rgba(255, 255, 255, 0.08);
+ padding-bottom: 16px;
+ }
+
+ .meta-item {
+ flex-direction: row;
+ justify-content: space-between;
+ align-items: center;
+ background: rgba(255, 255, 255, 0.02);
+ padding: 8px 12px;
+ border-radius: 8px;
+ }
+
+ .meta-label {
+ margin-bottom: 0;
+ }
+
+ .meta-val {
+ font-size: 13.5px;
+ }
+
+ .download-security-info {
+ flex-direction: column;
+ align-items: flex-start;
+ gap: 8px;
+ background: rgba(255, 255, 255, 0.01);
+ padding: 12px;
+ border-radius: 10px;
+ }
+
+ .server-version-box {
+ flex-direction: column;
+ gap: 6px;
+ text-align: center;
+ }
+
+ .footer-container {
+ flex-direction: column;
+ text-align: center;
+ gap: 8px;
+ }
+ }
+ </style>
+ <link rel="stylesheet" href="/static/css/theme.css">
+ <link rel="icon" type="image/png" href="/static/favicon.png">
+</head>
+<body>
+ <a href="#main-content" class="skip-link" style="position:absolute;left:-9999px;z-index:9999;padding:12px 20px;background:var(--color-primary,#6366f1);color:white;border-radius:8px;font-weight:600;text-decoration:none;">Langsung ke konten</a>
+
+ <!-- Glow Blobs -->
+ <div class="glow-blob blob-1"></div>
+ <div class="glow-blob blob-2"></div>
+
+ <!-- Navigation -->
+ <nav>
+ <div class="nav-container">
+ <div class="logo-container">
+ <div class="logo-badge">E</div>
+ <a href="/" style="text-decoration:none;"><div class="logo-text">EXAMVAN</div></a>
+ </div>
+ <a href="/" class="btn-nav-back">
+ <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="19" y1="12" x2="5" y2="12"></line><polyline points="12 19 5 12 12 5"></polyline></svg>
+ Beranda
+ </a>
+ </div>
+ </nav>
+
+ <!-- Main Container -->
+ <main id="main-content">
+ <div class="download-info">
+ <div class="badge">
+ <span class="badge-dot"></span>
+ Unduhan Resmi v{{.android_version}}
+ </div>
+ <h1 class="download-title">Aplikasi Siswa EXAMVAN</h1>
+ <p class="download-desc">
+ Aplikasi client Android untuk mengikuti ujian berbasis server sekolah. Siswa cukup memasukkan alamat server dan token ujian yang diberikan guru untuk memulai ujian dalam mode lockdown kiosk.
+ </p>
+
+ <div class="download-card">
+ <div class="meta-grid">
+ <div class="meta-item">
+ <span class="meta-label">Versi Aplikasi</span>
+ <span class="meta-val">v{{.android_version}}</span>
+ </div>
+ <div class="meta-item">
+ <span class="meta-label">Ukuran Berkas</span>
+ <span class="meta-val">{{printf "%.2f" .file_size_mb}} MB</span>
+ </div>
+ <div class="meta-item">
+ <span class="meta-label">Sistem Operasi</span>
+ <span class="meta-val">Android 5.0+</span>
+ </div>
+ </div>
+
+ <a href="/download/apk" class="btn-download-big">
+ <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg>
+ Download APK ({{printf "%.2f" .file_size_mb}} MB)
+ </a>
+
+ <div class="download-security-info">
+ <div class="security-item">
+ <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg>
+ Bebas Virus &amp; Malware
+ </div>
+ <div class="security-item">
+ <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg>
+ Tanda Tangan Digital
+ </div>
+ <div class="security-item">
+ <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg>
+ Tanpa Iklan &amp; Pelacak
+ </div>
+ </div>
+ </div>
+
+ <!-- WebApp Version Info -->
+ <div class="server-version-box">
+ <span>Versi WebApp Server yang aktif saat ini:</span>
+ <strong style="color: white; font-family: 'Outfit'; font-size: 14px;">v{{.webapp_version}}</strong>
+ </div>
+ </div>
+
+ <!-- Instructions Column -->
+ <div class="instruction-card">
+ <h3 class="inst-title">
+ <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="16" x2="12" y2="12"></line><line x1="12" y1="8" x2="12.01" y2="8"></line></svg>
+ Petunjuk Instalasi APK
+ </h3>
+ <div class="inst-steps">
+ <div class="step-item">
+ <span class="step-number">1</span>
+ <div class="step-content">
+ <span class="step-title">Unduh File</span>
+ <span class="step-desc">Tekan tombol download di atas dan tunggu hingga berkas APK selesai terunduh.</span>
+ </div>
+ </div>
+ <div class="step-item">
+ <span class="step-number">2</span>
+ <div class="step-content">
+ <span class="step-title">Izinkan Pemasangan</span>
+ <span class="step-desc">Jika muncul notifikasi, klik "Izinkan" untuk mengunduh dari sumber tidak dikenal.</span>
+ </div>
+ </div>
+ <div class="step-item">
+ <span class="step-number">3</span>
+ <div class="step-content">
+ <span class="step-title">Pasang &amp; Ujian</span>
+ <span class="step-desc">Buka file hasil unduhan, klik "Instal", lalu buka aplikasi dan masukkan alamat server serta token ujian dari guru.</span>
+ </div>
+ </div>
+ </div>
+
+ <!-- Specific Brand Warnings for Indonesian Students -->
+ <div class="device-tips">
+ <div class="tips-title">
+ <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"></path><line x1="12" y1="9" x2="12" y2="13"></line><line x1="12" y1="17" x2="12.01" y2="17"></line></svg>
+ Tips Instalasi
+ </div>
+ <ul class="tips-list">
+ <li><strong style="color: #f59e0b;">Uninstall Versi Lama:</strong> Hapus versi lama dari HP Anda terlebih dahulu sebelum memasang yang baru untuk mencegah konflik.</li>
+ <li><strong style="color: #f59e0b;">Play Protect:</strong> Jika muncul peringatan dari Google Play Protect, pilih <strong>"Detail" &gt; "Install Anyway"</strong> / <strong>"Tetap Pasang"</strong>.</li>
+ <li>HP dengan sistem FuntouchOS (Vivo) atau ColorOS (Oppo/Realme) mungkin memerlukan izin pemasangan dari sumber tidak dikenal. Aktifkan di <strong>Setelan &gt; Keamanan &gt; Izinkan dari sumber ini</strong>.</li>
+ </ul>
+ </div>
+ </div>
+ </main>
+
+ <!-- Footer -->
+ <footer>
+ <div class="footer-container">
+ <span>&copy; 2026 EXAMVAN Team. Hak Cipta Dilindungi.</span>
+ <span>Versi Server: v{{.webapp_version}} (Stable)</span>
+ </div>
+ </footer>
+
+</body>
+</html>

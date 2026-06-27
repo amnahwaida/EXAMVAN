@@ -34,3 +34,6 @@ package-lock.json
 
 # APK binary files — use GitHub Releases instead
 *.apk
+.claude/
+webui/examvan-server
+webui/examvan-server
