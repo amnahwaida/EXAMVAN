@@ -720,19 +720,121 @@ function renderPengawasSelection(assigned, available) {
         return;
     }
 
+    // Build dropdown wrapper
+    var wrapper = document.createElement('div');
+    wrapper.style.cssText = 'position:relative;';
+
+    // Dropdown header — shows selected count / chips
+    var header = document.createElement('div');
+    header.id = 'pengawasDropdownHeader';
+    header.style.cssText = 'display:flex;align-items:center;flex-wrap:wrap;gap:6px;min-height:38px;padding:6px 10px;background:rgba(255,255,255,0.04);border:1px solid var(--color-glass-border);border-radius:8px;cursor:pointer;transition:border-color 0.2s;';
+    header.onclick = function(e) { e.stopPropagation(); togglePengawasDropdown(); };
+    header.onmouseenter = function() { this.style.borderColor = 'rgba(99,102,241,0.4)'; };
+    header.onmouseleave = function() { var dd = document.getElementById('pengawasDropdown'); if (!dd || dd.style.display==='none') this.style.borderColor = 'var(--color-glass-border)'; };
+
+    var selectedPengawas = available.filter(function(p) { return assignedIds.indexOf(p.id) !== -1; });
+    var unselectedPengawas = available.filter(function(p) { return assignedIds.indexOf(p.id) === -1; });
+
+    function renderHeaderChips() {
+        var currentSelected = document.querySelectorAll('#pengawasDropdown .pengawas-checkbox:checked');
+        var ids = Array.from(currentSelected).map(function(cb) { return parseInt(cb.value); });
+        var chips = available.filter(function(p) { return ids.indexOf(p.id) !== -1; });
+        header.innerHTML = '';
+        if (chips.length === 0) {
+            header.innerHTML = '<span style="color:var(--color-text-muted);font-size:0.82rem;">Pilih pengawas...</span>';
+        } else {
+            chips.forEach(function(p) {
+                var chip = document.createElement('span');
+                chip.style.cssText = 'display:inline-flex;align-items:center;gap:4px;padding:2px 8px;border-radius:12px;font-size:0.75rem;font-weight:500;background:rgba(168,85,247,0.15);color:#c084fc;border:1px solid rgba(168,85,247,0.25);';
+                chip.textContent = p.username;
+                var x = document.createElement('span');
+                x.style.cssText = 'cursor:pointer;margin-left:2px;font-size:13px;line-height:1;opacity:0.7;';
+                x.textContent = '×';
+                x.onclick = function(ev) { ev.stopPropagation(); var cb = document.querySelector('#pengawasDropdown .pengawas-checkbox[value="' + p.id + '"]'); if (cb) { cb.checked = false; renderHeaderChips(); } };
+                chip.appendChild(x);
+                header.appendChild(chip);
+            });
+        }
+        header.innerHTML += '<span style="margin-left:auto;font-size:11px;color:var(--color-text-muted);">▼</span>';
+    }
+    renderHeaderChips();
+
+    // Dropdown body (hidden by default)
+    var dropdown = document.createElement('div');
+    dropdown.id = 'pengawasDropdown';
+    dropdown.style.cssText = 'display:none;position:absolute;top:100%;left:0;right:0;z-index:100;margin-top:4px;background:rgba(30,30,50,0.98);border:1px solid rgba(255,255,255,0.1);border-radius:10px;max-height:220px;overflow-y:auto;box-shadow:0 8px 32px rgba(0,0,0,0.4);backdrop-filter:blur(12px);';
+
+    // Search input inside dropdown
+    var searchBox = document.createElement('input');
+    searchBox.type = 'text';
+    searchBox.placeholder = 'Cari pengawas...';
+    searchBox.style.cssText = 'width:100%;padding:8px 12px;background:rgba(255,255,255,0.05);border:none;border-bottom:1px solid rgba(255,255,255,0.08);color:var(--color-text);font-size:0.82rem;outline:none;box-sizing:border-box;border-radius:10px 10px 0 0;';
+    searchBox.oninput = function() {
+        var q = this.value.toLowerCase();
+        dropdown.querySelectorAll('.pengawas-option').forEach(function(opt) {
+            opt.style.display = opt.textContent.toLowerCase().indexOf(q) !== -1 ? 'flex' : 'none';
+        });
+    };
+    // Prevent dropdown from closing when clicking search
+    searchBox.onclick = function(e) { e.stopPropagation(); };
+    dropdown.appendChild(searchBox);
+
+    // Option list
+    var list = document.createElement('div');
+    list.style.cssText = 'padding:4px 0;';
+
     available.forEach(function(p) {
         var isChecked = assignedIds.indexOf(p.id) !== -1;
-        var label = document.createElement('label');
-        label.style.cssText = 'display:flex;align-items:center;gap:8px;padding:6px 0;cursor:pointer;font-size:0.85rem;color:var(--color-text);';
-        label.innerHTML = '<input type="checkbox" class="pengawas-checkbox" value="' + p.id + '"' + (isChecked ? ' checked' : '') + '> '
-            + escapeHtml(p.username)
-            + ' <span style="font-size:0.75rem;color:var(--color-text-muted);">(' + escapeHtml(p.instansi || '') + ')</span>';
-        container.appendChild(label);
+        var opt = document.createElement('label');
+        opt.className = 'pengawas-option';
+        opt.style.cssText = 'display:flex;align-items:center;gap:8px;padding:8px 12px;cursor:pointer;font-size:0.85rem;color:var(--color-text);transition:background 0.1s;';
+        opt.onmouseenter = function() { this.style.background = 'rgba(99,102,241,0.1)'; };
+        opt.onmouseleave = function() { this.style.background = 'transparent'; };
+        opt.innerHTML = '<input type="checkbox" class="pengawas-checkbox" value="' + p.id + '"' + (isChecked ? ' checked' : '') + ' style="accent-color:#818cf8;cursor:pointer;"> '
+            + '<span style="font-weight:500;">' + escapeHtml(p.username) + '</span>'
+            + ' <span style="font-size:0.7rem;color:var(--color-text-muted);margin-left:auto;">' + (p.role || 'Pengawas') + '</span>';
+        opt.querySelector('input').addEventListener('change', function() {
+            renderHeaderChips();
+        });
+        list.appendChild(opt);
     });
+    dropdown.appendChild(list);
+    wrapper.appendChild(header);
+    wrapper.appendChild(dropdown);
+    container.appendChild(wrapper);
+
+    // Close dropdown on outside click
+    if (!window._pengawasDropdownListener) {
+        window._pengawasDropdownListener = true;
+        document.addEventListener('click', function() {
+            var dd = document.getElementById('pengawasDropdown');
+            var hd = document.getElementById('pengawasDropdownHeader');
+            if (dd && hd) {
+                dd.style.display = 'none';
+                hd.style.borderColor = 'var(--color-glass-border)';
+            }
+        });
+    }
+}
+
+function togglePengawasDropdown() {
+    var dd = document.getElementById('pengawasDropdown');
+    var hd = document.getElementById('pengawasDropdownHeader');
+    if (!dd || !hd) return;
+    if (dd.style.display === 'none' || !dd.style.display) {
+        dd.style.display = 'block';
+        hd.style.borderColor = 'rgba(99,102,241,0.5)';
+        // Focus search
+        var sb = dd.querySelector('input[type="text"]');
+        if (sb) setTimeout(function() { sb.focus(); }, 50);
+    } else {
+        dd.style.display = 'none';
+        hd.style.borderColor = 'var(--color-glass-border)';
+    }
 }
 
 function getPengawasIdsFromEditor() {
-    var checkboxes = document.querySelectorAll('#pengawasList .pengawas-checkbox:checked');
+    var checkboxes = document.querySelectorAll('#pengawasDropdown .pengawas-checkbox:checked');
     return Array.from(checkboxes).map(function(cb) { return parseInt(cb.value); });
 }
 
