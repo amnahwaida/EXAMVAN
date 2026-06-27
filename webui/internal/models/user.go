@@ -478,7 +478,14 @@ func ListUsers(ctx context.Context, pool *pgxpool.Pool, opts ListUsersOpts) (Lis
 	COALESCE(COUNT(e.id), 0) as exam_count
 	FROM admin_users u
 	LEFT JOIN exams e ON e.created_by = u.id` + whereClause +
-		` GROUP BY u.id ORDER BY u.username ASC LIMIT $` + fmt.Sprintf("%d", argIdx) +
+		` GROUP BY u.id ORDER BY 
+			CASE
+				WHEN u.role = 'superadmin' THEN 0
+				WHEN u.role ILIKE '%"operator"%' THEN 1
+				WHEN u.role ILIKE '%"guru"%' THEN 2
+				WHEN u.role ILIKE '%"pengawas"%' THEN 3
+				ELSE 4
+			END, u.username ASC LIMIT $` + fmt.Sprintf("%d", argIdx) +
 		` OFFSET $` + fmt.Sprintf("%d", argIdx+1)
 	args = append(args, perPage, offset)
 
