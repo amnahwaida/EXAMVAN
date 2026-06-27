@@ -550,8 +550,19 @@ func CreateUser(ctx context.Context, pool *pgxpool.Pool, u *AdminUser) (*AdminUs
 
 // UpdateUserField updates a single column on the admin_users table.
 func UpdateUserField(ctx context.Context, pool *pgxpool.Pool, userID int, column string, value interface{}) error {
+	// Hash password before storing
+	val := value
+	if column == "password_hash" {
+		if pw, ok := value.(string); ok && pw != "" {
+			hash, err := HashPassword(pw)
+			if err != nil {
+				return fmt.Errorf("hash password: %w", err)
+			}
+			val = hash
+		}
+	}
 	sql := fmt.Sprintf(`UPDATE admin_users SET %s = $1 WHERE id = $2`, column)
-	_, err := pool.Exec(ctx, sql, value, userID)
+	_, err := pool.Exec(ctx, sql, val, userID)
 	if err != nil {
 		return fmt.Errorf("update user field %s: %w", column, err)
 	}
