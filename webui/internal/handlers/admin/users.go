@@ -73,6 +73,7 @@ func ListUsers() gin.HandlerFunc {
 		ctx := c.Request.Context()
 
 		search := strings.TrimSpace(c.Query("search"))
+		roleFilter := strings.TrimSpace(c.Query("role"))
 		page, _ := strconv.Atoi(c.DefaultQuery("page", "1"))
 		if page < 1 {
 			page = 1
@@ -88,6 +89,7 @@ func ListUsers() gin.HandlerFunc {
 			Page:              page,
 			PerPage:           perPage,
 			Search:            search,
+			RoleFilter:        roleFilter,
 			ExcludeSuperAdmin: !isSuperAdmin(c),
 			ExcludeOperator:   isOp,
 		}

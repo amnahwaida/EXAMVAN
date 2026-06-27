@@ -1063,8 +1063,10 @@ function loadUsersList(page) {
     if (!page) page = 1;
 
     var searchVal = document.getElementById('userSearchInput')?.value?.trim() || '';
+    var roleFilter = document.getElementById('userRoleFilter')?.value || '';
     var url = '/admin/api/users?page=' + page + '&per_page=10';
     if (searchVal) url += '&search=' + encodeURIComponent(searchVal);
+    if (roleFilter) url += '&role=' + encodeURIComponent(roleFilter);
 
     // Hapus popup yang tertinggal di body (dari fix backdrop-filter containing block)
     document.querySelectorAll('body > .user-info-popup').forEach(function(p) { p.remove(); });

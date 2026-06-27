@@ -383,6 +383,7 @@ type ListUsersOpts struct {
 	PerPage    int
 	Search     string
 	Instansi   string // operator instansi filter
+	RoleFilter string // optional: "guru", "pengawas", "operator"
 	ExcludeSuperAdmin bool
 	ExcludeOperator   bool
 }
@@ -432,6 +433,13 @@ func ListUsers(ctx context.Context, pool *pgxpool.Pool, opts ListUsersOpts) (Lis
 	if opts.Instansi != "" {
 		conditions = append(conditions, fmt.Sprintf(`u.instansi = $%d`, argIdx))
 		args = append(args, opts.Instansi)
+		argIdx++
+	}
+
+	// Role filter (ILIKE on JSON array string like `["guru"]`).
+	if opts.RoleFilter != "" {
+		conditions = append(conditions, fmt.Sprintf(`u.role ILIKE $%d`, argIdx))
+		args = append(args, `%`+opts.RoleFilter+`%`)
 		argIdx++
 	}
 

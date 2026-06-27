@@ -181,6 +181,12 @@
   <button class="search-clear-btn" onclick="document.getElementById('userSearchInput').value='';loadUsersList(1); this.style.display='none';" id="userSearchClearBtn" title="Hapus" aria-label="Hapus pencarian"><svg class="icon-svg" style="width:14px;height:14px;"><use href="#hi-x"/></svg></button>
  </div>
  <button class="btn-sm btn-toggle" onclick="loadUsersList(1)" style="height:32px;padding:0 12px;" title="Cari user"><svg class="icon-svg"><use href="#hi-search"/></svg> Cari</button>
+ <select id="userRoleFilter" onchange="loadUsersList(1)" class="toolbar-select" aria-label="Filter role" style="padding:8px 14px;background:rgba(255,255,255,0.04);border:1px solid var(--color-glass-border);border-radius:10px;color:var(--color-text);font-size:13px;cursor:pointer;">
+  <option value="">Semua Role</option>
+  <option value="guru">Guru</option>
+  <option value="pengawas">Pengawas</option>
+  <option value="operator">Operator</option>
+ </select>
  </div>
 
  <div class="table-responsive">
