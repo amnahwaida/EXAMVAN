@@ -1069,6 +1069,7 @@ function saveQuestionsConfig() {
             if (res.success) {
                 showToast(res.message, 'success');
                 closeQuestionsModal();
+                setTimeout(function() { location.reload(); }, 500);
             } else {
                 showToast(res.message || 'Gagal menyimpan konfigurasi', 'error');
             }
