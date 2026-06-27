@@ -1605,12 +1605,17 @@ function editUserInstansi(userId, currentValue, targetEl) {
         if (res.success) {
             showToast('Instansi berhasil diubah', 'success');
             if (targetEl) targetEl.textContent = newInstansi;
+            closeModal();
         } else {
             showToast(res.message || 'Gagal mengubah instansi', 'error');
+            btn.disabled = false;
+            btn.innerHTML = '<svg class="icon-svg"><use href="#hi-check"/></svg> Simpan';
         }
     })
     .catch(function() {
         showToast('Gagal mengubah instansi', 'error');
+        btn.disabled = false;
+        btn.innerHTML = '<svg class="icon-svg"><use href="#hi-check"/></svg> Simpan';
     });
 }
 }
