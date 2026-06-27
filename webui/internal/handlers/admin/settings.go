@@ -194,3 +194,53 @@ func handleSaasSettingsPost(c *gin.Context, pool *pgxpool.Pool, ctx context.Cont
 
 	successMessage(c, "Pengaturan SaaS berhasil diperbarui")
 }
+
+// ---------------------------------------------------------------------------
+// Change Password
+// ---------------------------------------------------------------------------
+
+func ChangePassword() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		pool := getPool(c)
+		userID := getCurrentUserID(c)
+		ctx := c.Request.Context()
+
+		var body struct {
+			CurrentPassword string `json:"current_password"`
+			NewPassword     string `json:"new_password"`
+		}
+		if err := c.ShouldBindJSON(&body); err != nil {
+			errorResponse(c, http.StatusBadRequest, "Data tidak valid")
+			return
+		}
+
+		if len(body.NewPassword) < 8 {
+			errorResponse(c, http.StatusBadRequest, "Password baru minimal 8 karakter")
+			return
+		}
+
+		if len(body.NewPassword) > 128 {
+			errorResponse(c, http.StatusBadRequest, "Password baru maksimal 128 karakter")
+			return
+		}
+
+		user, err := models.GetUserByID(ctx, pool, userID)
+		if err != nil {
+			errorResponse(c, http.StatusInternalServerError, "Terjadi kesalahan. Silakan coba lagi.")
+			return
+		}
+
+		if !models.CheckPassword(body.CurrentPassword, user.PasswordHash) {
+			errorResponse(c, http.StatusBadRequest, "Password saat ini salah")
+			return
+		}
+
+		if err := models.UpdateUserField(ctx, pool, userID, "password_hash", body.NewPassword); err != nil {
+			log.Printf("change password error: %v", err)
+			errorResponse(c, http.StatusInternalServerError, "Gagal mengubah password")
+			return
+		}
+
+		successMessage(c, "Password berhasil diperbarui")
+	}
+}

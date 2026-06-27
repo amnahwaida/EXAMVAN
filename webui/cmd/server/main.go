@@ -493,6 +493,7 @@ func registerRoutes(r *gin.Engine, cfg *config.Config, pool *pgxpool.Pool) {
 			{
 				adminSettings.POST("/saas-settings", admin.SaasSettings())
 			}
+			csrfAPI.POST("/change-password", admin.ChangePassword())
 		}
 
 		// ---- Non-CSRF routes (GET / read-only) ----
