@@ -553,6 +553,27 @@ func ToggleUserStatus() gin.HandlerFunc {
 			return
 		}
 
+		// Cascade: if an operator is suspended, suspend all users
+		// in the same instansi too (guru & pengawas).
+		if targetUser.IsOperator() && newStatus == models.UserStatusSuspended {
+			opInstansi := targetUser.Instansi
+			if opInstansi != "" {
+				var count int
+				pool.QueryRow(ctx,
+					`SELECT COUNT(*) FROM admin_users WHERE instansi = $1 AND status = 'active' AND id != $2`,
+					opInstansi, targetID).Scan(&count)
+				if count > 0 {
+					if _, err := pool.Exec(ctx,
+						`UPDATE admin_users SET status = 'suspended' WHERE instansi = $1 AND status = 'active' AND id != $2`,
+						opInstansi, targetID); err != nil {
+						log.Printf("cascade suspend for instansi %s error: %v", opInstansi, err)
+					} else {
+						msg += fmt.Sprintf(". %d user di instansi %s juga dinonaktifkan.", count, opInstansi)
+					}
+				}
+			}
+		}
+
 		c.JSON(http.StatusOK, gin.H{
 			"success":    true,
 			"message":    msg,
