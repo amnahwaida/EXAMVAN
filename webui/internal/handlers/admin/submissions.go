@@ -59,7 +59,7 @@ func SubmissionsPage() gin.HandlerFunc {
 		// Count total submissions within scope
 		var total int
 		countQuery := `SELECT COUNT(*) FROM submissions s JOIN exams e ON s.exam_id = e.id`
-		countArgs := buildScopeConditions(c, pool, &countQuery)
+		countArgs, _ := buildScopeConditions(c, pool, &countQuery)
 
 		if examFilter > 0 {
 			countQuery += ` AND s.exam_id = $` + strconv.Itoa(len(countArgs)+1)
@@ -82,10 +82,14 @@ func SubmissionsPage() gin.HandlerFunc {
 	s.answers_json, s.score, s.start_time, s.mac_address, s.created_at, s.identity_data,
 	e.name as exam_name, e.questions_json
 	FROM submissions s JOIN exams e ON s.exam_id = e.id`
-		dataArgs := buildScopeConditions(c, pool, &dataQuery)
+		dataArgs, hasWhere := buildScopeConditions(c, pool, &dataQuery)
 
 		if examFilter > 0 {
-			dataQuery += ` AND s.exam_id = $` + strconv.Itoa(len(dataArgs)+1)
+			if hasWhere {
+				dataQuery += ` AND s.exam_id = $` + strconv.Itoa(len(dataArgs)+1)
+			} else {
+				dataQuery += ` WHERE s.exam_id = $` + strconv.Itoa(len(dataArgs)+1)
+			}
 			dataArgs = append(dataArgs, examFilter)
 		}
 
@@ -181,6 +185,10 @@ func SubmissionsPage() gin.HandlerFunc {
 				MACAddress:   macAddress,
 			})
 		}
+		rows.Close()
+		if err := rows.Err(); err != nil {
+			log.Printf("rows iteration error: %v", err)
+		}
 
 		// Fetch exam list for filter dropdown
 		examList := fetchFilterExams(c, pool)
@@ -216,6 +224,9 @@ func SubmissionsPage() gin.HandlerFunc {
 						pengawasList = append(pengawasList, pName)
 					}
 					pRows.Close()
+					if err := pRows.Err(); err != nil {
+						log.Printf("rows iteration error: %v", err)
+					}
 				}
 
 				// Format timestamps
@@ -259,8 +270,9 @@ func SubmissionsPage() gin.HandlerFunc {
 }
 
 // buildScopeConditions adds WHERE conditions scoped to the current user and
-// modifies the query string in-place (adding WHERE or AND). Returns the args.
-func buildScopeConditions(c *gin.Context, pool *pgxpool.Pool, query *string) []interface{} {
+// modifies the query string in-place (adding WHERE or AND). Returns the args
+// and whether a WHERE clause was added (so callers can append correctly).
+func buildScopeConditions(c *gin.Context, pool *pgxpool.Pool, query *string) ([]interface{}, bool) {
 	userID := getCurrentUserID(c)
 	isSuper := isSuperAdmin(c)
 	isOp := isOperator(c)
@@ -290,8 +302,9 @@ func buildScopeConditions(c *gin.Context, pool *pgxpool.Pool, query *string) []i
 
 	if len(conditions) > 0 {
 		*query += " WHERE " + strings.Join(conditions, " AND ")
+		return args, true
 	}
-	return args
+	return args, false
 }
 
 func fetchFilterExams(c *gin.Context, pool *pgxpool.Pool) []gin.H {
@@ -341,6 +354,10 @@ func fetchFilterExams(c *gin.Context, pool *pgxpool.Pool) []gin.H {
 		if err := rows.Scan(&id, &name); err == nil {
 			exams = append(exams, gin.H{"id": id, "name": name})
 		}
+	}
+	rows.Close()
+	if err := rows.Err(); err != nil {
+		log.Printf("rows iteration error: %v", err)
 	}
 	return exams
 }
@@ -636,6 +653,10 @@ func fetchSubmissionsByExam(ctx context.Context, pool *pgxpool.Pool, examID int)
 		}
 		subs = append(subs, s)
 	}
+	rows.Close()
+	if err := rows.Err(); err != nil {
+		log.Printf("rows iteration error: %v", err)
+	}
 	return subs, nil
 }
 
@@ -729,6 +750,10 @@ func exportAllCSV(c *gin.Context, pool *pgxpool.Pool, ctx context.Context,
 			createdAt.Format("2006-01-02 15:04:05"),
 			csvSafe(macStr),
 		})
+	}
+	rows.Close()
+	if err := rows.Err(); err != nil {
+		log.Printf("rows iteration error: %v", err)
 	}
 	writer.Flush()
 

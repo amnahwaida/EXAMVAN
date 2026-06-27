@@ -152,31 +152,49 @@ func PengawasExams() gin.HandlerFunc {
 				EndTime:   endStr,
 				CreatedAt: formatISOUTC(e.CreatedAt),
 			}
-			// Fetch submission counts
-			var total, submitted int
-			pool.QueryRow(ctx, `SELECT COUNT(*) FROM submissions WHERE exam_id = $1`, e.ID).Scan(&total)
-			pool.QueryRow(ctx,
-				`SELECT COUNT(*) FROM submissions WHERE exam_id = $1 AND answers_json IS NOT NULL AND answers_json != ''`,
-				e.ID).Scan(&submitted)
-			item.TotalStudents = total
-			item.SubmittedCount = submitted
 			examList = append(examList, item)
 		}
 
-		// Overall stats across all matching exams
+		// Batch fetch submission counts (single query)
+		examCountMap := make(map[int][2]int)
+		if len(result.Exams) > 0 {
+			ids := make([]int, len(result.Exams))
+			for i, e := range result.Exams {
+				ids[i] = e.ID
+			}
+			cRows, cErr := pool.Query(ctx,
+				`SELECT exam_id,
+					COUNT(*) as total,
+					SUM(CASE WHEN answers_json IS NOT NULL AND answers_json != '' THEN 1 ELSE 0 END) as submitted
+				 FROM submissions WHERE exam_id = ANY($1) GROUP BY exam_id`, ids)
+			if cErr == nil {
+				for cRows.Next() {
+					var eid, total, submitted int
+					cRows.Scan(&eid, &total, &submitted)
+					examCountMap[eid] = [2]int{total, submitted}
+				}
+				cRows.Close()
+			}
+		}
+
+		// Apply batch counts
+		for i := range examList {
+			e := result.Exams[i]
+			counts := examCountMap[e.ID]
+			examList[i].TotalStudents = counts[0]
+			examList[i].SubmittedCount = counts[1]
+		}
+
+		// Overall stats from batch data
 		var totalExamsCount, activeCount, totalStudents, totalSubmitted int
 		for _, e := range result.Exams {
 			totalExamsCount++
 			if e.IsActive() {
 				activeCount++
 			}
-			var cnt int
-			pool.QueryRow(ctx, `SELECT COUNT(*) FROM submissions WHERE exam_id = $1`, e.ID).Scan(&cnt)
-			totalStudents += cnt
-			pool.QueryRow(ctx,
-				`SELECT COUNT(*) FROM submissions WHERE exam_id = $1 AND answers_json IS NOT NULL AND answers_json != ''`,
-				e.ID).Scan(&cnt)
-			totalSubmitted += cnt
+			counts := examCountMap[e.ID]
+			totalStudents += counts[0]
+			totalSubmitted += counts[1]
 		}
 
 		c.JSON(http.StatusOK, gin.H{
@@ -366,5 +384,10 @@ func fetchStudentAccessLogs(ctx context.Context, pool *pgxpool.Pool, examID int,
 		entry.CreatedAt = createdAt
 		logs = append(logs, entry)
 	}
+	rows.Close()
+	if err := rows.Err(); err != nil {
+		log.Printf("rows iteration error: %v", err)
+	}
+
 	return logs
 }

@@ -587,6 +587,9 @@ func GetQuestions() gin.HandlerFunc {
 					}
 				}
 				rows.Close()
+				if err := rows.Err(); err != nil {
+					log.Printf("rows iteration error: %v", err)
+				}
 			}
 		}
 
@@ -843,6 +846,9 @@ func BulkDelete() gin.HandlerFunc {
 				filtered = append(filtered, id)
 			}
 			rows.Close()
+			if err := rows.Err(); err != nil {
+				log.Printf("rows iteration error: %v", err)
+			}
 			examIDs = filtered
 			if len(examIDs) == 0 {
 				errorResponse(c, http.StatusBadRequest, "Tidak ada ujian yang dapat dihapus")
@@ -965,6 +971,9 @@ func DelegateData() gin.HandlerFunc {
 					}
 				}
 				rows.Close()
+				if err := rows.Err(); err != nil {
+					log.Printf("rows iteration error: %v", err)
+				}
 			}
 		}
 
@@ -991,6 +1000,9 @@ func DelegateData() gin.HandlerFunc {
 					}
 				}
 				rows.Close()
+				if err := rows.Err(); err != nil {
+					log.Printf("rows iteration error: %v", err)
+				}
 			}
 		}
 
@@ -1188,6 +1200,9 @@ func BulkToggle() gin.HandlerFunc {
 				filtered = append(filtered, id)
 			}
 			rows.Close()
+			if err := rows.Err(); err != nil {
+				log.Printf("rows iteration error: %v", err)
+			}
 			examIDs = filtered
 			if len(examIDs) == 0 {
 				errorResponse(c, http.StatusBadRequest, "Tidak ada ujian yang dapat diperbarui")

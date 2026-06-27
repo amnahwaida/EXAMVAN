@@ -77,13 +77,27 @@ func Dashboard() gin.HandlerFunc {
 			result = models.ListExamsResult{}
 		}
 
-		// Fetch pengawas for each exam
+		// Fetch pengawas for each exam (batched)
 		examPengawasMap := make(map[int][]string)
-		for _, exam := range result.Exams {
-			assignments, err := models.GetPengawasAssignments(ctx, pool, exam.ID)
-			if err == nil {
-				for _, a := range assignments {
-					examPengawasMap[exam.ID] = append(examPengawasMap[exam.ID], a.Username)
+		if len(result.Exams) > 0 {
+			ids := make([]int, len(result.Exams))
+			for i, e := range result.Exams {
+				ids[i] = e.ID
+			}
+			pRows, pErr := pool.Query(ctx,
+				`SELECT ep.exam_id, u.username FROM exam_pengawas ep
+				 JOIN admin_users u ON ep.user_id = u.id
+				 WHERE ep.exam_id = ANY($1) ORDER BY u.username`, ids)
+			if pErr == nil {
+				for pRows.Next() {
+					var eid int
+					var uname string
+					pRows.Scan(&eid, &uname)
+					examPengawasMap[eid] = append(examPengawasMap[eid], uname)
+				}
+				pRows.Close()
+				if err := pRows.Err(); err != nil {
+					log.Printf("rows iteration error: %v", err)
 				}
 			}
 		}
@@ -202,6 +216,9 @@ func Dashboard() gin.HandlerFunc {
 					}
 				}
 				rows.Close()
+				if err := rows.Err(); err != nil {
+					log.Printf("rows iteration error: %v", err)
+				}
 			}
 		}
 
@@ -221,6 +238,10 @@ func Dashboard() gin.HandlerFunc {
 				subCountMap[eid] = cnt
 			}
 			rows.Close()
+			if err := rows.Err(); err != nil {
+				log.Printf("rows iteration error: %v", err)
+			}
+
 		}
 	}
 

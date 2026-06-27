@@ -6,7 +6,6 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
-	"html"
 	"log"
 	"math"
 	"net/http"
@@ -23,6 +22,7 @@ import (
 
 	"github.com/examvan/webui/internal/config"
 	"github.com/examvan/webui/internal/models"
+	"github.com/examvan/webui/internal/queue"
 )
 
 // ---------------------------------------------------------------------------
@@ -41,7 +41,7 @@ const (
 
 	// Redis key prefixes.
 	cacheKeyPrefix       = "api:exams:list:"       // + page:per_page
-	queueKey             = "submission:queue"
+
 	rateLimitKeyPrefix   = "ratelimit:submit:"     // + exam_id
 	heartbeatKeyPrefix   = "heartbeat:"            // + exam_id:mac_address
 	heartbeatTTL         = 2 * time.Minute
@@ -109,7 +109,7 @@ func sanitize(v string) string {
 	if len(v) > 200 {
 		v = v[:200]
 	}
-	return html.EscapeString(v)
+	return v // html/template auto-escapes on render; storing escaped causes double-escape
 }
 
 // sanitizeMap sanitises all string values in a map and returns the result.
@@ -226,7 +226,7 @@ func enqueueSubmission(rdb *redis.Client, job map[string]interface{}) (string, e
 
 	pushCtx, pushCancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer pushCancel()
-	if err := rdb.LPush(pushCtx, queueKey, data).Err(); err != nil {
+	if err := rdb.LPush(pushCtx, queue.QueueKey, data).Err(); err != nil {
 		return "", fmt.Errorf("lpush: %w", err)
 	}
 	return jobID, nil
@@ -296,7 +296,6 @@ func ListExams() gin.HandlerFunc {
 			ID        int     `json:"id"`
 			Name      string  `json:"name"`
 			Status    string  `json:"status"`
-			Token     string  `json:"token"`
 			SizeMB    float64 `json:"size_mb"`
 			CreatedAt string  `json:"created_at"`
 		}
@@ -307,7 +306,6 @@ func ListExams() gin.HandlerFunc {
 				ID:        e.ID,
 				Name:      e.Name,
 				Status:    e.Status,
-				Token:     e.Token,
 				SizeMB:    roundTo(float64(e.SizeBytes)/(1024*1024), 2),
 				CreatedAt: formatISOUTC(e.CreatedAt),
 			})
@@ -502,7 +500,7 @@ func SubmitExam() gin.HandlerFunc {
 			models.SettingAndroidVersion, requiredAndroidVersion)
 
 		clientVersion := c.GetHeader("X-App-Version")
-		if clientVersion != required {
+		if !isVersionAtLeast(clientVersion, required) {
 			displayVersion := clientVersion
 			if displayVersion == "" {
 				displayVersion = "v1.x"
@@ -714,7 +712,7 @@ func sanitizeStartTime(raw string) string {
 		return ""
 	}
 	raw = strings.ReplaceAll(raw, "T", " ")
-	raw = strings.ReplaceAll(raw, "Z", "")
+	raw = strings.TrimSuffix(raw, "Z")
 	return raw
 }
 
@@ -741,7 +739,7 @@ func AccessLog() gin.HandlerFunc {
 			models.SettingAndroidVersion, requiredAndroidVersion)
 
 		clientVersion := c.GetHeader("X-App-Version")
-		if clientVersion != required {
+		if !isVersionAtLeast(clientVersion, required) {
 			displayVersion := clientVersion
 			if displayVersion == "" {
 				displayVersion = "v1.x"
@@ -864,13 +862,42 @@ func AccessLog() gin.HandlerFunc {
 
 // truncate returns the first n runes of s.
 func truncate(s string, n int) string {
-	if len(s) <= n {
+	runes := []rune(s)
+	if len(runes) <= n {
 		return s
 	}
-	return s[:n]
+	return string(runes[:n])
 }
 
 // strPtr returns a pointer to s, or nil when s is empty.
+// isVersionAtLeast compares two version strings (major.minor.patch).
+func isVersionAtLeast(client, required string) bool {
+	cp := parseVersionParts(client)
+	rp := parseVersionParts(required)
+	for i := 0; i < len(rp) && i < len(cp); i++ {
+		if cp[i] > rp[i] {
+			return true
+		}
+		if cp[i] < rp[i] {
+			return false
+		}
+	}
+	return len(cp) >= len(rp)
+}
+
+// parseVersionParts splits a version string into integer parts.
+func parseVersionParts(v string) []int {
+	parts := strings.Split(v, ".")
+	var result []int
+	for _, p := range parts {
+		var n int
+		if _, err := fmt.Sscanf(p, "%d", &n); err == nil {
+			result = append(result, n)
+		}
+	}
+	return result
+}
+
 func strPtr(s string) *string {
 	if s == "" {
 		return nil

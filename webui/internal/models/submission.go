@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"math"
+	"log"
 	"strconv"
 	"strings"
 	"time"
@@ -539,6 +540,11 @@ func ListSubmissionsByExam(ctx context.Context, pool *pgxpool.Pool, opts ListSub
 		}
 		subs = append(subs, s)
 	}
+	rows.Close()
+	if err := rows.Err(); err != nil {
+		log.Printf("rows iteration error: %v", err)
+	}
+
 	if subs == nil {
 		subs = []Submission{}
 	}
@@ -563,19 +569,14 @@ func ListSubmissionsByExam(ctx context.Context, pool *pgxpool.Pool, opts ListSub
 func GetSubmissionStats(ctx context.Context, pool *pgxpool.Pool, examID int) (SubmissionStats, error) {
 	var stats SubmissionStats
 
-	err := pool.QueryRow(ctx, `SELECT COUNT(*) FROM submissions WHERE exam_id = $1`, examID).Scan(&stats.Total)
+	err := pool.QueryRow(ctx,
+		`SELECT
+			COUNT(*) as total,
+			SUM(CASE WHEN answers_json IS NOT NULL AND answers_json != '' THEN 1 ELSE 0 END) as submitted,
+			SUM(CASE WHEN (answers_json IS NULL OR answers_json = '') AND start_time IS NOT NULL THEN 1 ELSE 0 END) as in_progress
+		 FROM submissions WHERE exam_id = $1`, examID).Scan(&stats.Total, &stats.Submitted, &stats.InProgress)
 	if err != nil {
-		return stats, fmt.Errorf("stats total: %w", err)
-	}
-
-	err = pool.QueryRow(ctx, `SELECT COUNT(*) FROM submissions WHERE exam_id = $1 AND answers_json IS NOT NULL AND answers_json != ''`, examID).Scan(&stats.Submitted)
-	if err != nil {
-		return stats, fmt.Errorf("stats submitted: %w", err)
-	}
-
-	err = pool.QueryRow(ctx, `SELECT COUNT(*) FROM submissions WHERE exam_id = $1 AND (answers_json IS NULL OR answers_json = '') AND start_time IS NOT NULL`, examID).Scan(&stats.InProgress)
-	if err != nil {
-		return stats, fmt.Errorf("stats inprogress: %w", err)
+		return stats, fmt.Errorf("stats: %w", err)
 	}
 
 	stats.NotStarted = stats.Total - stats.Submitted - stats.InProgress
@@ -663,11 +664,24 @@ func RecalculateAllScoresForExam(ctx context.Context, pool *pgxpool.Pool, examID
 		updates = append(updates, scoreUpdate{ID: id, Score: score})
 	}
 	rows.Close()
+	if err := rows.Err(); err != nil {
+		log.Printf("rows iteration error: %v", err)
+	}
 
-	// Batch update.
-	for _, u := range updates {
-		if _, err := pool.Exec(ctx, `UPDATE submissions SET score = $1 WHERE id = $2`, u.Score, u.ID); err != nil {
-			return fmt.Errorf("recalculate scores: update %d: %w", u.ID, err)
+	// Batch update via VALUES.
+	if len(updates) > 0 {
+		valueClauses := make([]string, 0, len(updates))
+		batchArgs := make([]interface{}, 0, len(updates)*2)
+		for i, u := range updates {
+			valueClauses = append(valueClauses,
+				fmt.Sprintf("($%d, $%d)", i*2+1, i*2+2))
+			batchArgs = append(batchArgs, u.Score, u.ID)
+		}
+		sql := `UPDATE submissions SET score = v.score FROM (VALUES ` +
+			strings.Join(valueClauses, ", ") +
+			`) AS v(score, id) WHERE submissions.id = v.id`
+		if _, err := pool.Exec(ctx, sql, batchArgs...); err != nil {
+			return fmt.Errorf("recalculate scores: batch update: %w", err)
 		}
 	}
 

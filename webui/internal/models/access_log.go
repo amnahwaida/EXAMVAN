@@ -3,6 +3,7 @@ package models
 import (
 	"context"
 	"fmt"
+	"log"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -92,6 +93,11 @@ func ListAccessLogsByExamAndIdentifier(ctx context.Context, pool *pgxpool.Pool, 
 		}
 		logs = append(logs, l)
 	}
+	rows.Close()
+	if err := rows.Err(); err != nil {
+		log.Printf("rows iteration error: %v", err)
+	}
+
 	if logs == nil {
 		logs = []StudentAccessLog{}
 	}
@@ -127,6 +133,11 @@ func ListAccessLogsByExam(ctx context.Context, pool *pgxpool.Pool, examID int, e
 		}
 		logs = append(logs, l)
 	}
+	rows.Close()
+	if err := rows.Err(); err != nil {
+		log.Printf("rows iteration error: %v", err)
+	}
+
 	if logs == nil {
 		logs = []StudentAccessLog{}
 	}

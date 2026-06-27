@@ -135,7 +135,7 @@ func main() {
 		Path:     "/",
 		MaxAge:   86400 * 7, // 7 days
 		HttpOnly: true,
-		Secure:   false,
+		Secure:   true,
 		SameSite: http.SameSiteLaxMode,
 	})
 	r.Use(sessions.Sessions("examvan_session", store))
@@ -154,7 +154,12 @@ func main() {
 		"add":       func(a, b int) int { return a + b },
 		"sub":       func(a, b int) int { return a - b },
 		"mul":       func(a, b int) int { return a * b },
-		"div":       func(a, b int) int { return a / b },
+		"div": func(a, b int) int {
+			if b == 0 {
+				return 0
+			}
+			return a / b
+		},
 		"seq":       func(n int) []int { s := make([]int, n); for i := range s { s[i] = i }; return s },
 		"dict":      func(values ...interface{}) map[string]interface{} { return toMap(values...) },
 		"safe":      func(s string) template.HTML { return template.HTML(s) },
@@ -173,29 +178,10 @@ func main() {
 		"roundTo":   func(val float64, decimals int) float64 { return roundTo(val, decimals) },
 		// Role helper functions
 		"hasRole": func(roleStr string, role string) bool {
-			if roleStr == "" {
-				return false
-			}
-			// Check if role is in JSON array like ["guru","pengawas"]
-			if strings.Contains(roleStr, role) {
-				return true
-			}
-			return false
+			return models.HasRole(roleStr, role)
 		},
 		"displayRole": func(roleStr string) string {
-			if roleStr == "" {
-				return "Guru"
-			}
-			if strings.Contains(roleStr, "superadmin") {
-				return "Super Admin"
-			}
-			if strings.Contains(roleStr, "operator") {
-				return "Operator"
-			}
-			if strings.Contains(roleStr, "pengawas") {
-				return "Pengawas"
-			}
-			return "Guru"
+			return models.DisplayRoles(roleStr)
 		},
 		"formatExamTime": func(t *time.Time) string {
 			if t == nil {
@@ -205,11 +191,17 @@ func main() {
 		},
 		"substr": func(s string, start, end int) string {
 			runes := []rune(s)
+			if start < 0 {
+				start = 0
+			}
 			if start >= len(runes) {
 				return ""
 			}
 			if end > len(runes) {
 				end = len(runes)
+			}
+			if end <= start {
+				return ""
 			}
 			return string(runes[start:end])
 		},
@@ -400,7 +392,7 @@ func registerRoutes(r *gin.Engine, cfg *config.Config, pool *pgxpool.Pool) {
 	r.GET("/index.html", indexHandler(cfg))
 
 	r.GET("/login", loginPageHandler(cfg))
-	r.POST("/login", loginHandler(cfg))
+	r.POST("/login", middleware.RateLimit(10, time.Minute), loginHandler(cfg))
 	r.GET("/logout", logoutHandler())
 
 	// Legacy: /admin/login → /login

@@ -3,6 +3,7 @@ package models
 import (
 	"context"
 	"fmt"
+	"log"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 )
@@ -37,6 +38,11 @@ func GetPengawasIDs(ctx context.Context, pool *pgxpool.Pool, examID int) ([]int,
 		}
 		ids = append(ids, id)
 	}
+	rows.Close()
+	if err := rows.Err(); err != nil {
+		log.Printf("rows iteration error: %v", err)
+	}
+
 	if ids == nil {
 		ids = []int{}
 	}
@@ -64,6 +70,11 @@ func GetPengawasAssignments(ctx context.Context, pool *pgxpool.Pool, examID int)
 		}
 		assignments = append(assignments, a)
 	}
+	rows.Close()
+	if err := rows.Err(); err != nil {
+		log.Printf("rows iteration error: %v", err)
+	}
+
 	if assignments == nil {
 		assignments = []PengawasAssignment{}
 	}
@@ -149,6 +160,11 @@ func GetExamsForUser(ctx context.Context, pool *pgxpool.Pool, userID int) ([]int
 		}
 		ids = append(ids, id)
 	}
+	rows.Close()
+	if err := rows.Err(); err != nil {
+		log.Printf("rows iteration error: %v", err)
+	}
+
 	if ids == nil {
 		ids = []int{}
 	}

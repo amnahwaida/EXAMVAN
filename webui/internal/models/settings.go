@@ -3,6 +3,7 @@ package models
 import (
 	"context"
 	"fmt"
+	"log"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -97,6 +98,11 @@ func GetAllSaasSettings(ctx context.Context, pool *pgxpool.Pool) (map[string]str
 		}
 		settings[k] = v
 	}
+	rows.Close()
+	if err := rows.Err(); err != nil {
+		log.Printf("rows iteration error: %v", err)
+	}
+
 
 	// Fill in defaults for any missing keys.
 	for k, v := range DefaultSettings {

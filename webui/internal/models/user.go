@@ -510,6 +510,11 @@ func ListUsers(ctx context.Context, pool *pgxpool.Pool, opts ListUsersOpts) (Lis
 		}
 		users = append(users, UserWithExamCount{AdminUser: u, ExamCount: examCount})
 	}
+	rows.Close()
+	if err := rows.Err(); err != nil {
+		log.Printf("rows iteration error: %v", err)
+	}
+
 	if users == nil {
 		users = []UserWithExamCount{}
 	}
@@ -686,6 +691,9 @@ func DeleteUser(ctx context.Context, pool *pgxpool.Pool, userID int) ([]string, 
 		paths = append(paths, fp)
 	}
 	rows.Close()
+	if err := rows.Err(); err != nil {
+		log.Printf("rows iteration error: %v", err)
+	}
 
 	// Delete the user (CASCADE will remove their exams and exam_pengawas entries).
 	_, err = pool.Exec(ctx, `DELETE FROM admin_users WHERE id = $1`, userID)
@@ -745,6 +753,11 @@ func ListUsersForInstansi(ctx context.Context, pool *pgxpool.Pool, opts ListForI
 		}
 		users = append(users, u)
 	}
+	rows.Close()
+	if err := rows.Err(); err != nil {
+		log.Printf("rows iteration error: %v", err)
+	}
+
 	if users == nil {
 		users = []AdminUser{}
 	}

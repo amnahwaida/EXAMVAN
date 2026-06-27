@@ -5,6 +5,7 @@ package models
 import (
 	"context"
 	"fmt"
+	"log"
 	"math"
 	"time"
 
@@ -235,6 +236,11 @@ LEFT JOIN admin_users u ON e.created_by = u.id` + whereClause +
 		}
 		exams = append(exams, e)
 	}
+	rows.Close()
+	if err := rows.Err(); err != nil {
+		log.Printf("rows iteration error: %v", err)
+	}
+
 	if exams == nil {
 		exams = []Exam{}
 	}
@@ -285,6 +291,11 @@ func ListActiveExams(ctx context.Context, pool *pgxpool.Pool, page, perPage int)
 		}
 		exams = append(exams, e)
 	}
+	rows.Close()
+	if err := rows.Err(); err != nil {
+		log.Printf("rows iteration error: %v", err)
+	}
+
 	if exams == nil {
 		exams = []Exam{}
 	}
@@ -378,16 +389,34 @@ func ToggleExamStatus(ctx context.Context, pool *pgxpool.Pool, id int) (string, 
 }
 
 // DeleteExam deletes an exam by ID and returns the deleted exam's file_path
-// so the caller can clean up the file from storage.
+// so the caller can clean up the file from storage. Also cleans up related data.
 func DeleteExam(ctx context.Context, pool *pgxpool.Pool, id int) (*Exam, error) {
 	exam, err := GetExamByID(ctx, pool, id)
 	if err != nil {
 		return nil, fmt.Errorf("delete exam: get exam: %w", err)
 	}
-	_, err = pool.Exec(ctx, `DELETE FROM exams WHERE id = $1`, id)
+
+	// Clean up related data in a transaction
+	tx, err := pool.Begin(ctx)
 	if err != nil {
+		return nil, fmt.Errorf("delete exam: begin tx: %w", err)
+	}
+	defer tx.Rollback(ctx)
+
+	if _, err := tx.Exec(ctx, `DELETE FROM exam_pengawas WHERE exam_id = $1`, id); err != nil {
+		return nil, fmt.Errorf("delete exam: delete pengawas: %w", err)
+	}
+	if _, err := tx.Exec(ctx, `DELETE FROM submissions WHERE exam_id = $1`, id); err != nil {
+		return nil, fmt.Errorf("delete exam: delete submissions: %w", err)
+	}
+	if _, err := tx.Exec(ctx, `DELETE FROM exams WHERE id = $1`, id); err != nil {
 		return nil, fmt.Errorf("delete exam: %w", err)
 	}
+
+	if err := tx.Commit(ctx); err != nil {
+		return nil, fmt.Errorf("delete exam: commit: %w", err)
+	}
+
 	return &exam, nil
 }
 
@@ -409,6 +438,9 @@ func BulkDeleteExams(ctx context.Context, pool *pgxpool.Pool, ids []int) ([]stri
 		paths = append(paths, fp)
 	}
 	rows.Close()
+	if err := rows.Err(); err != nil {
+		log.Printf("rows iteration error: %v", err)
+	}
 
 	_, err = pool.Exec(ctx, `DELETE FROM exams WHERE id = ANY($1)`, ids)
 	if err != nil {
@@ -553,6 +585,11 @@ FROM exams e JOIN admin_users u ON e.created_by = u.id` + where +
 		}
 		exams = append(exams, e)
 	}
+	rows.Close()
+	if err := rows.Err(); err != nil {
+		log.Printf("rows iteration error: %v", err)
+	}
+
 	if exams == nil {
 		exams = []Exam{}
 	}
