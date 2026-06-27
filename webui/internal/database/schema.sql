@@ -14,6 +14,7 @@ CREATE TABLE IF NOT EXISTS instansi (
 -- Add instansi_id column if it doesn't exist (for existing tables)
 -- MUST be before any INSERT/UPDATE referencing this column
 ALTER TABLE admin_users ADD COLUMN IF NOT EXISTS instansi_id INTEGER REFERENCES instansi(id);
+ALTER TABLE admin_users ADD COLUMN IF NOT EXISTS suspended_by_cascade BOOLEAN DEFAULT FALSE;
 
 INSERT INTO instansi (name)
 SELECT DISTINCT instansi FROM admin_users WHERE instansi != '' AND instansi IS NOT NULL
