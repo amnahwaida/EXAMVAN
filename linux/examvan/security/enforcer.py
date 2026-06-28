@@ -88,8 +88,9 @@ class SecurityEnforcer(QObject):
             x11.ungrab_pointer()
             self._grab_held = False
 
-        # Restore GNOME workspace switching
+        # Restore GNOME workspace switching + remove gesture-blocker extension
         self._gnome_ws_restore()
+        self._gnome_ext_remove()
 
         # Kill wake lock
         self._stop_inhibit()
@@ -183,6 +184,60 @@ class SecurityEnforcer(QObject):
             except Exception:
                 pass
         log.info("GNOME workspace + overview gestures restored")
+
+    # -----------------------------------------------------------------------
+    # GNOME Shell extension — block touchpad 3-finger gestures
+    # -----------------------------------------------------------------------
+
+    _EXT_UUID = "gesture-blocker@examvan.app"
+    _EXT_DIR = None
+
+    def _gnome_ext_path(self) -> str:
+        if self._EXT_DIR is None:
+            base = os.path.expanduser("~/.local/share/gnome-shell/extensions")
+            self._EXT_DIR = os.path.join(base, self._EXT_UUID)
+        return self._EXT_DIR
+
+    def _gnome_ext_install(self) -> None:
+        """Install and enable gesture-blocker GNOME Shell extension."""
+        ext_dir = self._gnome_ext_path()
+        try:
+            os.makedirs(ext_dir, exist_ok=True)
+            # Copy bundled extension files
+            import shutil
+            pkg_dir = os.path.dirname(os.path.abspath(__file__))
+            src_dir = os.path.join(pkg_dir, "gesture_block")
+            for f in ("extension.js", "metadata.json"):
+                src = os.path.join(src_dir, f)
+                if os.path.exists(src):
+                    shutil.copy2(src, os.path.join(ext_dir, f))
+            log.info("Extension installed at %s", ext_dir)
+            # Enable via gnome-extensions
+            subprocess.run(
+                ["gnome-extensions", "enable", self._EXT_UUID],
+                capture_output=True, text=True, timeout=5,
+            )
+            log.info("Extension enabled")
+        except Exception as e:
+            log.warning("Extension install failed: %s", e)
+
+    def _gnome_ext_remove(self) -> None:
+        """Disable and remove gesture-blocker extension."""
+        try:
+            subprocess.run(
+                ["gnome-extensions", "disable", self._EXT_UUID],
+                capture_output=True, text=True, timeout=5,
+            )
+        except Exception:
+            pass
+        try:
+            import shutil
+            ext_dir = self._gnome_ext_path()
+            if os.path.exists(ext_dir):
+                shutil.rmtree(ext_dir)
+                log.info("Extension removed from %s", ext_dir)
+        except Exception as e:
+            log.warning("Extension removal failed: %s", e)
 
     # -----------------------------------------------------------------------
     # Low mode: anti-screenshot, clipboard, wake lock
@@ -372,8 +427,9 @@ class SecurityEnforcer(QObject):
                 "Only fullscreen and focus monitoring active."
             )
 
-        # Lock GNOME workspace switching (Wayland compositor gesture bypass)
+        # Lock GNOME workspace switching + install gesture-blocker extension
         self._gnome_ws_lock()
+        self._gnome_ext_install()
 
         # In kiosk session mode, additional setup is handled by kiosk.py
         if self._kiosk:

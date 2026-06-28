@@ -1,0 +1,8 @@
+{
+  "name": "EXAMVAN Gesture Blocker",
+  "description": "Blokir gesture overview/app-view saat ujian strict mode",
+  "uuid": "gesture-blocker@examvan.app",
+  "shell-version": ["45", "46"],
+  "version": 1,
+  "url": "https://github.com/amnahwaida/EXAMVAN"
+}
