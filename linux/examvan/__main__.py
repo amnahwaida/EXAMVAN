@@ -9,12 +9,7 @@ import sys
 
 
 def _maximize_window(widget) -> None:
-    """Maximize a window reliably on XWayland and Wayland.
-
-    showMaximized() may not work under xcb because the WM hasn't processed
-    the request before the window is painted. Explicitly set geometry as
-    fallback, and process events so the WM can respond.
-    """
+    """Maximize a window reliably on XWayland and Wayland."""
     from PyQt5.QtWidgets import QApplication
     screen = QApplication.primaryScreen()
     if screen:
@@ -26,24 +21,30 @@ def _maximize_window(widget) -> None:
 
 
 def _recover_gnome_settings() -> None:
-    """Restore GNOME settings from crash backup file.
+    """Restore GNOME settings from crash backup (Linux only).
 
+    Safe to call on Windows (no-op).
     Called at startup, on atexit, and on SIGTERM/SIGINT.
-    Safe to call when no backup file exists (no-op).
     """
-    # Lazy import to keep startup fast when not needed
-    from examvan.security.enforcer import SecurityEnforcer
-    SecurityEnforcer.restore_gnome_settings()
+    if sys.platform == "win32":
+        return
+    try:
+        from examvan.security.enforcer import SecurityEnforcer
+        SecurityEnforcer.restore_gnome_settings()
+    except ImportError:
+        pass
 
 
 def main() -> None:
-    # Register crash-recovery handlers BEFORE anything touches GNOME settings
-    atexit.register(_recover_gnome_settings)
-    signal.signal(signal.SIGTERM, lambda *_: (_recover_gnome_settings(), os._exit(1)))
-    signal.signal(signal.SIGINT, lambda *_: (_recover_gnome_settings(), os._exit(1)))
-
-    # Restore GNOME settings in case previous session crashed
-    _recover_gnome_settings()
+    # Register crash-recovery handlers (Linux GNOME settings)
+    if sys.platform != "win32":
+        atexit.register(_recover_gnome_settings)
+        signal.signal(signal.SIGTERM, lambda *_: (_recover_gnome_settings(), os._exit(1)))
+        signal.signal(signal.SIGINT, lambda *_: (_recover_gnome_settings(), os._exit(1)))
+        _recover_gnome_settings()
+    else:
+        # Windows: register minimal exit handler
+        atexit.register(lambda: None)
 
     kiosk = "--kiosk" in sys.argv or "--kiosk-session" in sys.argv
 

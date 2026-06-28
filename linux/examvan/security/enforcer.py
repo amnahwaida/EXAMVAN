@@ -1,29 +1,19 @@
 """Security Enforcer — dispatches low/medium/strict mode enforcement.
 
-Low:    anti-screenshot, clipboard clear, screen wake lock
-Medium: all low + focus loss detection → auto-submit
-Strict: all medium + keyboard grab, pointer grab, fullscreen, kiosk
+Cross-platform: delegates platform-specific operations to a backend
+obtained from get_backend().
 """
 
 from __future__ import annotations
 
-import json
 import logging
-import os
-import subprocess
-from pathlib import Path
+import sys
 from typing import Optional
 
 from PyQt5.QtCore import QObject, Qt, QTimer, pyqtSignal
-from PyQt5.QtGui import QCloseEvent
 from PyQt5.QtWidgets import QApplication, QWidget
 
-from . import x11
-from ..utils import clear_clipboard, clear_clipboard_wl
-
-# Backup file for GNOME settings — survives crash
-_GNOME_BACKUP_DIR = Path.home() / ".config" / "examvan"
-_GNOME_BACKUP_FILE = _GNOME_BACKUP_DIR / "gnome_backup.json"
+from . import get_backend
 
 log = logging.getLogger(__name__)
 
@@ -47,24 +37,36 @@ class SecurityEnforcer(QObject):
         self._window = window
         self._kiosk = kiosk_mode
         self._active = False
-        self._inhibit_pid: Optional[int] = None
+
+        # Platform backend
+        self._backend = get_backend()
+
+        # Timers
         self._clipboard_timer = QTimer(self)
         self._clipboard_timer.timeout.connect(self._clear_clipboard)
         self._focus_timer = QTimer(self)
         self._focus_timer.setSingleShot(True)
-        self._focus_timer.setInterval(3000)  # 3 seconds
+        self._focus_timer.setInterval(3000)
         self._focus_timer.timeout.connect(self._on_focus_timeout)
-        self._grab_held = False
-        self._gnome_ws_backup: Optional[str] = None  # backup dynamic-workspaces
-        self._overlay_backup: Optional[str] = None  # backup overlay-key
-        self._hot_corners_backup: Optional[str] = None  # backup hot-corners
+
+    # ------------------------------------------------------------------
+    # Public API
+    # ------------------------------------------------------------------
 
     def activate(self) -> None:
         """Activate security enforcement based on mode."""
         if self._active:
             return
         self._active = True
+        self._backend.activate()
         log.info("Activating security: level=%s, strict=%s", self._level, self._strict)
+
+        # Check multi-monitor (Windows: display warning; Linux: log)
+        if self._backend.has_multiple_monitors():
+            log.warning("Multiple monitors detected — security risk")
+            if self._strict:
+                # In strict mode, the app stays fullscreen on primary monitor
+                log.warning("Strict mode active — secondary monitor not covered")
 
         # Low mode features (always active)
         self._activate_low()
@@ -82,349 +84,83 @@ class SecurityEnforcer(QObject):
         self._active = False
         log.info("Deactivating security")
 
-        # Stop timers
         self._clipboard_timer.stop()
         self._focus_timer.stop()
         if hasattr(self, '_poll_timer'):
             self._poll_timer.stop()
 
-        # Release X11 grabs
-        if self._grab_held:
-            x11.ungrab_keyboard()
-            x11.ungrab_pointer()
-            self._grab_held = False
+        self._backend.release_strict_mode(self._window)
+        self._backend.allow_sleep()
+        self._backend.deactivate()
 
-        # Restore GNOME workspace switching
-        self._gnome_ws_restore()
+        # Linux specific GNOME restore (if Linux)
+        if sys.platform != "win32":
+            self._recover_gnome_settings()
 
-        # Kill wake lock
-        self._stop_inhibit()
-
-    # -----------------------------------------------------------------------
-    # Persistent GNOME backup — survives crash
-    # -----------------------------------------------------------------------
-
-    @staticmethod
-    def _persist_gnome_backup(
-        dynamic_workspaces: Optional[str],
-        overlay_key: Optional[str],
-        hot_corners: Optional[str],
-        touchpad: Optional[str],
-    ) -> None:
-        """Write GNOME settings backup to file so crash recovery can restore."""
-        data = {
-            "dynamic_workspaces": dynamic_workspaces,
-            "overlay_key": overlay_key,
-            "hot_corners": hot_corners,
-            "touchpad": touchpad,
-        }
-        _GNOME_BACKUP_DIR.mkdir(parents=True, exist_ok=True)
-        try:
-            tmp = _GNOME_BACKUP_FILE.with_suffix(".tmp")
-            with open(tmp, "w") as f:
-                json.dump(data, f)
-            tmp.replace(_GNOME_BACKUP_FILE)
-        except OSError:
-            pass
-
-    @staticmethod
-    def _clear_gnome_backup() -> None:
-        """Remove backup file — settings were restored successfully."""
-        try:
-            if _GNOME_BACKUP_FILE.exists():
-                _GNOME_BACKUP_FILE.unlink()
-        except OSError:
-            pass
+    # ------------------------------------------------------------------
+    # GNOME crash recovery — Linux only
+    # ------------------------------------------------------------------
 
     @staticmethod
     def restore_gnome_settings() -> None:
-        """Restore GNOME settings from backup file.
-
-        Call this at app startup to recover from a crashed session
-        where deactivate() never ran.
-        """
-        if not _GNOME_BACKUP_FILE.exists():
+        """Restore GNOME settings from crash backup. No-op on Windows."""
+        if sys.platform == "win32":
             return
         try:
-            with open(_GNOME_BACKUP_FILE) as f:
-                data = json.load(f)
-        except (OSError, json.JSONDecodeError):
-            return
-
-        restores = []
-        val = data.get("dynamic_workspaces")
-        if val is not None:
-            restores.append(["gsettings", "set", "org.gnome.mutter", "dynamic-workspaces", val])
-            restores.append(["gsettings", "set", "org.gnome.desktop.wm.preferences", "num-workspaces", "4"])
-
-        val = data.get("overlay_key")
-        if val is not None:
-            restores.append(["gsettings", "set", "org.gnome.mutter", "overlay-key", val])
-
-        val = data.get("hot_corners")
-        if val is not None:
-            restores.append(["gsettings", "set", "org.gnome.desktop.interface", "enable-hot-corners", val])
-
-        val = data.get("touchpad")
-        if val is not None:
-            restores.append(["gsettings", "set", "org.gnome.desktop.peripherals.touchpad", "send-events", val])
-
-        for cmd in restores:
-            try:
-                subprocess.run(cmd, capture_output=True, timeout=3)
-            except Exception:
-                pass
-
-        # Re-enable touchpad — most visible symptom of crash
-        if data.get("touchpad") is not None:
-            try:
-                subprocess.run(
-                    ["gsettings", "set", "org.gnome.desktop.peripherals.touchpad", "send-events", "enabled"],
-                    capture_output=True, timeout=3,
-            )
-            except Exception:
-                pass
-
-        # Restore keybindings
-        try:
-            subprocess.run(
-                ["gsettings", "set", "org.gnome.shell.keybindings", "toggle-overview", "['<Super>s']"],
-                capture_output=True, timeout=3,
-            )
-            subprocess.run(
-                ["gsettings", "set", "org.gnome.shell.keybindings", "toggle-application-view", "['<Super>a']"],
-                capture_output=True, timeout=3,
-            )
-        except Exception:
+            from .linux_backend import LinuxBackend
+            LinuxBackend.restore_gnome_settings()
+        except ImportError:
             pass
 
-        SecurityEnforcer._clear_gnome_backup()
-        log.info("GNOME settings restored from crash backup")
-
-    # -----------------------------------------------------------------------
-    # GNOME workspace lock (block desktop switching gestures)
-    # -----------------------------------------------------------------------
-
-    def _gnome_ws_lock(self) -> None:
-        """Disable GNOME workspace switching + overview gestures.
-
-        Blocks:
-        - 3-finger swipe left/right (workspace switch) — num-workspaces=1
-        - 3-finger swipe up (overview) — clear toggle-overview binding
-        - 3-finger swipe down (app view) — clear toggle-application-view binding
-        - Super key gestures — clear overlay-key
-        """
-        # Backup dynamic-workspaces
+    def _recover_gnome_settings(self) -> None:
+        """Instance-level GNOME restore (deactivate helper)."""
         try:
-            r = subprocess.run(
-                ["gsettings", "get", "org.gnome.mutter", "dynamic-workspaces"],
-                capture_output=True, text=True, timeout=3,
-            )
-            self._gnome_ws_backup = r.stdout.strip()
-        except Exception:
-            self._gnome_ws_backup = None
-
-        # Backup overlay-key
-        try:
-            r = subprocess.run(
-                ["gsettings", "get", "org.gnome.mutter", "overlay-key"],
-                capture_output=True, text=True, timeout=3,
-            )
-            self._overlay_backup = r.stdout.strip()
-        except Exception:
-            self._overlay_backup = None
-
-        # Backup hot-corners
-        try:
-            r = subprocess.run(
-                ["gsettings", "get", "org.gnome.desktop.interface", "enable-hot-corners"],
-                capture_output=True, text=True, timeout=3,
-            )
-            self._hot_corners_backup = r.stdout.strip()
-        except Exception:
-            self._hot_corners_backup = None
-
-        # Backup touchpad state
-        self._touchpad_backup = None
-        try:
-            r = subprocess.run(
-                ["gsettings", "get", "org.gnome.desktop.peripherals.touchpad", "send-events"],
-                capture_output=True, text=True, timeout=3,
-            )
-            self._touchpad_backup = r.stdout.strip()
-        except Exception:
+            from .linux_backend import LinuxBackend
+            LinuxBackend.restore_gnome_settings()
+        except ImportError:
             pass
 
-        # Persist backups to file — survives crash if deactivate() never runs
-        self._persist_gnome_backup(
-            dynamic_workspaces=self._gnome_ws_backup,
-            overlay_key=self._overlay_backup,
-            hot_corners=self._hot_corners_backup,
-            touchpad=self._touchpad_backup,
-        )
-
-        cmds = [
-            # Only 1 workspace — no way to slide
-            ["gsettings", "set", "org.gnome.mutter", "dynamic-workspaces", "false"],
-            ["gsettings", "set", "org.gnome.desktop.wm.preferences", "num-workspaces", "1"],
-            # Block overview/app-view keyboard shortcuts
-            ["gsettings", "set", "org.gnome.shell.keybindings", "toggle-overview", "@as []"],
-            ["gsettings", "set", "org.gnome.shell.keybindings", "toggle-application-view", "@as []"],
-            # Block Super key based gestures
-            ["gsettings", "set", "org.gnome.mutter", "overlay-key", "''"],
-            # Disable hot corners
-            ["gsettings", "set", "org.gnome.desktop.interface", "enable-hot-corners", "false"],
-            # Disable touchpad entirely — GNOME Wayland compositor handles
-            # 3-finger gestures at low level, gsettings cannot block them.
-            # Disable touchpad removes all gesture capabilities.
-            ["gsettings", "set", "org.gnome.desktop.peripherals.touchpad", "send-events", "disabled"],
-        ]
-        for c in cmds:
-            try:
-                subprocess.run(c, capture_output=True, text=True, timeout=3)
-            except Exception:
-                pass
-        log.info("GNOME workspace + overview gestures disabled for strict mode")
-
-    def _gnome_ws_restore(self) -> None:
-        """Restore GNOME workspace + overview settings."""
-        if self._gnome_ws_backup is not None:
-            try:
-                subprocess.run(
-                    ["gsettings", "set", "org.gnome.mutter", "dynamic-workspaces", self._gnome_ws_backup],
-                    capture_output=True, text=True, timeout=3,
-                )
-            except Exception:
-                pass
-        if self._overlay_backup is not None:
-            try:
-                subprocess.run(
-                    ["gsettings", "set", "org.gnome.mutter", "overlay-key", self._overlay_backup],
-                    capture_output=True, text=True, timeout=3,
-                )
-            except Exception:
-                pass
-        if self._hot_corners_backup is not None:
-            try:
-                subprocess.run(
-                    ["gsettings", "set", "org.gnome.desktop.interface", "enable-hot-corners", self._hot_corners_backup],
-                    capture_output=True, text=True, timeout=3,
-                )
-            except Exception:
-                pass
-        if self._touchpad_backup is not None:
-            try:
-                subprocess.run(
-                    ["gsettings", "set", "org.gnome.desktop.peripherals.touchpad", "send-events", self._touchpad_backup],
-                    capture_output=True, text=True, timeout=3,
-                )
-            except Exception:
-                pass
-        self._clear_gnome_backup()
-        log.info("GNOME workspace + overview gestures restored")
-
-    # -----------------------------------------------------------------------
-    # GNOME Shell direct — force-close overview via gsettings + refocus
-    # -----------------------------------------------------------------------
-
-    def _gnome_overview_block(self) -> None:
-        """Force-close GNOME overview immediately via D-Bus.
-
-        Uses org.gnome.Shell.FocusSearch or WM state to refocus app.
-        On GNOME 46, gdbus can call FocusSearch to close overview.
-        """
-        try:
-            subprocess.run(
-                ["gdbus", "call", "--session",
-                 "--dest", "org.gnome.Shell",
-                 "--object-path", "/org/gnome/Shell",
-                 "--method", "org.gnome.Shell.FocusSearch", "''"],
-                capture_output=True, text=True, timeout=2,
-            )
-        except Exception:
-            pass
-
-    # -----------------------------------------------------------------------
-    # Low mode: anti-screenshot, clipboard, wake lock
-    # -----------------------------------------------------------------------
+    # ------------------------------------------------------------------
+    # Low mode
+    # ------------------------------------------------------------------
 
     def _activate_low(self) -> None:
-        # Anti-screenshot (X11 only)
-        if x11.is_x11() and self._window:
-            x11.set_bypass_compositor(self._window)
-            log.info("Anti-screenshot: X11 bypass compositor set")
-        elif x11.is_wayland():
-            log.info("Anti-screenshot: Wayland inherently protected")
+        # Anti-screenshot (Linux X11 only)
+        if sys.platform != "win32":
+            self._x11_anti_screenshot()
 
         # Clipboard clear every 3 seconds
         self._clipboard_timer.start(3000)
         self._clear_clipboard()
 
         # Screen wake lock
-        self._start_inhibit()
+        self._backend.prevent_sleep()
+
+    def _x11_anti_screenshot(self) -> None:
+        """Apply X11 bypass-compositor hint (Linux only, no-op on Windows)."""
+        try:
+            from . import x11
+            if x11.is_x11() and self._window:
+                x11.set_bypass_compositor(self._window)
+                log.info("Anti-screenshot: X11 bypass compositor set")
+            elif x11.is_wayland():
+                log.info("Anti-screenshot: Wayland inherently protected")
+        except ImportError:
+            pass
 
     def _clear_clipboard(self) -> None:
-        """Clear clipboard using appropriate method for display server."""
-        if x11.is_wayland():
-            clear_clipboard_wl()
-        clear_clipboard()  # Qt fallback always runs
+        self._backend.clear_clipboard()
 
-    def _start_inhibit(self) -> None:
-        """Prevent screen saver / DPMS via systemd-inhibit or xset."""
-        # Method 1: systemd-inhibit
-        try:
-            proc = subprocess.Popen(
-                [
-                    "systemd-inhibit",
-                    "--what=idle",
-                    "--who=examvan",
-                    "--why=Ujian sedang berlangsung",
-                    "sleep", "infinity",
-                ],
-                stdout=subprocess.DEVNULL,
-                stderr=subprocess.DEVNULL,
-            )
-            self._inhibit_pid = proc.pid
-            log.info("Screen inhibit started (PID %d)", proc.pid)
-            return
-        except FileNotFoundError:
-            log.debug("systemd-inhibit not available")
-
-        # Method 2: xset (X11 only)
-        if x11.is_x11():
-            try:
-                subprocess.run(
-                    ["xset", "s", "off", "-dpms"],
-                    stdout=subprocess.DEVNULL,
-                    stderr=subprocess.DEVNULL,
-                    timeout=3,
-                )
-                log.info("Screen saver disabled via xset")
-            except (FileNotFoundError, subprocess.TimeoutExpired):
-                log.warning("Cannot disable screen saver")
-
-    def _stop_inhibit(self) -> None:
-        """Kill wake lock subprocess."""
-        if self._inhibit_pid:
-            try:
-                os.kill(self._inhibit_pid, 15)  # SIGTERM
-                log.info("Screen inhibit stopped (PID %d)", self._inhibit_pid)
-            except OSError:
-                pass
-            self._inhibit_pid = None
-
-    # -----------------------------------------------------------------------
-    # Medium mode: focus loss detection → auto-submit
-    # -----------------------------------------------------------------------
+    # ------------------------------------------------------------------
+    # Medium mode
+    # ------------------------------------------------------------------
 
     def _activate_medium(self) -> None:
-        # Monitor application state changes (reliable on X11)
         app = QApplication.instance()
         if app:
             app.applicationStateChanged.connect(self._on_app_state_changed)
             log.info("Focus loss monitoring activated")
 
-        # Also monitor window focus if available
         if self._window:
             try:
                 self._window.windowHandle().activeChanged.connect(
@@ -433,8 +169,6 @@ class SecurityEnforcer(QObject):
             except Exception:
                 pass
 
-        # Poll timer: on Wayland, desktop switch doesn't always trigger
-        # applicationStateChanged — poll isActiveWindow() as fallback.
         self._poll_timer = QTimer(self)
         self._poll_timer.setInterval(500)
         self._poll_timer.timeout.connect(self._poll_focus)
@@ -442,7 +176,6 @@ class SecurityEnforcer(QObject):
         log.info("Focus poll timer started (500ms interval)")
 
     def _on_app_state_changed(self, state: Qt.ApplicationState) -> None:
-        """Handle application focus changes."""
         if not self._active:
             return
         if state == Qt.ApplicationInactive:
@@ -454,7 +187,6 @@ class SecurityEnforcer(QObject):
                 self._focus_timer.stop()
 
     def _on_window_active_changed(self) -> None:
-        """Handle window-level focus changes."""
         if not self._active or not self._window:
             return
         if not self._window.isActiveWindow():
@@ -463,16 +195,9 @@ class SecurityEnforcer(QObject):
             self._on_app_state_changed(Qt.ApplicationActive)
 
     def _poll_focus(self) -> None:
-        """Poll window focus. In strict mode, force-raise window to top.
-
-        On Wayland GNOME, 3-finger swipe up/down opens overview even with
-        keybindings removed. Force window to front continuously so overview
-        has no visible window to show.
-        """
         if not self._active or not self._window:
             return
 
-        # Strict mode: aggressively keep window on top
         if self._strict:
             self._window.raise_()
             self._window.activateWindow()
@@ -487,15 +212,14 @@ class SecurityEnforcer(QObject):
                 self._focus_timer.stop()
 
     def _on_focus_timeout(self) -> None:
-        """Focus lost for 3+ seconds — trigger auto-submit."""
         if not self._active:
             return
         log.warning("Focus lost timeout — triggering auto-submit")
         self.auto_submit.emit()
 
-    # -----------------------------------------------------------------------
-    # Strict mode: keyboard/pointer grab, fullscreen, kiosk
-    # -----------------------------------------------------------------------
+    # ------------------------------------------------------------------
+    # Strict mode
+    # ------------------------------------------------------------------
 
     def _activate_strict(self) -> None:
         if not self._window:
@@ -509,34 +233,14 @@ class SecurityEnforcer(QObject):
         )
         self._window.showFullScreen()
 
-        # X11 keyboard + pointer grab
-        if x11.is_x11():
-            if x11.grab_keyboard(self._window):
-                log.info("Strict mode: keyboard grabbed")
-            else:
-                log.warning("Strict mode: keyboard grab FAILED")
+        # Platform-specific strict mode (keyboard hook on Windows,
+        # X11 grabs + GNOME workspace lock on Linux)
+        self._backend.set_strict_mode(self._window)
 
-            if x11.grab_pointer(self._window):
-                log.info("Strict mode: pointer grabbed")
-            else:
-                log.warning("Strict mode: pointer grab FAILED")
-
-            self._grab_held = True
-
-            # Set window type dock to appear above panels
-            x11.set_window_type_dock(self._window)
-
-        elif x11.is_wayland():
-            log.warning(
-                "Strict mode on Wayland: keyboard/pointer grab not available. "
-                "Only fullscreen and focus monitoring active."
-            )
-
-        # Lock GNOME workspace switching
-        self._gnome_ws_lock()
-        self._gnome_overview_block()
-
-        # In kiosk session mode, additional setup is handled by kiosk.py
+        # Kiosk session setup (Linux-only)
         if self._kiosk:
-            from .kiosk import setup_kiosk_environment
-            setup_kiosk_environment()
+            try:
+                from .kiosk import setup_kiosk_environment
+                setup_kiosk_environment()
+            except ImportError:
+                pass

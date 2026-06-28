@@ -12,12 +12,17 @@ from PyQt5.QtWidgets import QApplication
 def is_system_dark() -> bool:
     """Detect if the system is using a dark theme.
 
-    Checks multiple sources (in order):
-    1. GTK_THEME env var (e.g. 'Adwaita:dark')
-    2. gsettings org.gnome.desktop.interface color-scheme
-    3. gsettings org.gnome.desktop.interface gtk-theme
-    4. Qt palette fallback
+    Platform-agnostic:
+    - Linux: GTK_THEME env, gsettings, Qt palette
+    - Windows: registry, Qt palette
     """
+    import sys as _sys
+
+    # ---- Windows: registry check ----
+    if _sys.platform == "win32":
+        return _is_windows_dark()
+
+    # ---- Linux checks ----
     # 1. GTK_THEME env var
     gtk_theme = os.environ.get("GTK_THEME", "")
     if ":dark" in gtk_theme.lower():
@@ -63,6 +68,53 @@ def is_system_dark() -> bool:
         return bg.lightness() < 128
 
     return True  # Default to dark
+
+
+def _is_windows_dark() -> bool:
+    """Detect Windows 10/11 dark mode via registry."""
+    try:
+        import ctypes
+        from ctypes.wintypes import BYTE, DWORD, HKEY, LPCWSTR
+
+        advapi32 = ctypes.windll.advapi32
+        user32 = ctypes.windll.user32
+
+        hkey = ctypes.c_void_p()
+        ret = advapi32.RegOpenKeyExW(
+            HKEY(0x80000001),  # HKEY_CURRENT_USER
+            "Software\\Microsoft\\Windows\\CurrentVersion\\Themes\\Personalize",
+            0,
+            0x20019,  # KEY_READ
+            ctypes.byref(hkey),
+        )
+        if ret != 0:
+            raise OSError(f"RegOpenKeyExW returned {ret}")
+
+        value_type = DWORD()
+        data = (BYTE * 4)()
+        data_size = DWORD(4)
+        ret = advapi32.RegQueryValueExW(
+            hkey,
+            "AppsUseLightTheme",
+            None,
+            ctypes.byref(value_type),
+            data,
+            ctypes.byref(data_size),
+        )
+        advapi32.RegCloseKey(hkey)
+
+        if ret == 0 and value_type.value == 4:  # REG_DWORD
+            return data[0] == 0  # 0 = dark, 1 = light
+    except Exception:
+        pass
+
+    # Fallback: Qt palette
+    app = QApplication.instance()
+    if app is not None:
+        palette = app.palette()
+        bg = palette.color(QPalette.Window)
+        return bg.lightness() < 128
+    return True
 
 
 def apply_theme(dark: bool = True) -> None:

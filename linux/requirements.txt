@@ -1,2 +1,4 @@
 PyQt5>=5.15
 PyMuPDF>=1.23
+# Windows only (optional, for pywin32 alternative):
+# pywin32; sys_platform == 'win32'

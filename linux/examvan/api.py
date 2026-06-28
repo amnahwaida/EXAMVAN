@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import io
 import json
+import sys
 import time
 import urllib.error
 import urllib.request
@@ -12,6 +13,9 @@ from typing import Any, Callable, Dict, Optional, Tuple
 from . import APP_VERSION
 from .models import Exam, HealthResponse, SubmitResponse, TokenExamResponse
 from .utils import map_identity_to_standard
+
+# Platform label for User-Agent
+_PLATFORM = "Windows" if sys.platform == "win32" else "Linux"
 
 
 def _make_request(
@@ -26,7 +30,7 @@ def _make_request(
     Handles both JSON and plain-text responses gracefully.
     """
     hdrs = {
-        "User-Agent": f"EXAMVAN-Linux/{APP_VERSION}",
+        "User-Agent": f"EXAMVAN-{_PLATFORM}/{APP_VERSION}",
         "Accept": "application/json",
     }
     if headers:
@@ -115,7 +119,7 @@ def download_pdf(
         url,
         headers={
             "X-Exam-Token": token,
-            "User-Agent": f"EXAMVAN-Linux/{APP_VERSION}",
+            "User-Agent": f"EXAMVAN-{_PLATFORM}/{APP_VERSION}",
         },
     )
 

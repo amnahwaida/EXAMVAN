@@ -2,17 +2,20 @@
 
 from __future__ import annotations
 
+import logging
 import os
 import tempfile
 import threading
-from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
+
+# Admin exit password — REQUIRED. Set env EXAMVAN_ADMIN_PASSWORD before launch.
+# Without this, admin exit is DISABLED (no any-password fallback).
+_ADMIN_PASSWORD = os.environ.get("EXAMVAN_ADMIN_PASSWORD")
 
 from PyQt5.QtCore import Qt, QTimer, pyqtSignal, pyqtSlot
 from PyQt5.QtGui import QCloseEvent, QKeyEvent
 from PyQt5.QtWidgets import (
     QApplication,
-    QDialog,
     QHBoxLayout,
     QLabel,
     QMainWindow,
@@ -26,11 +29,13 @@ from PyQt5.QtWidgets import (
 from .. import api, config
 from ..models import Exam
 from ..security.enforcer import SecurityEnforcer
-from ..utils import get_device_label, map_identity_to_standard
+from ..utils import clear_clipboard, get_device_label, map_identity_to_standard
 from .answer_sheet import AnswerSheetWidget
 from .pdf_viewer import PdfWidget
 from .timer import ElapsedTimerWidget
 from .styles import SECURITY_COLORS
+
+log = logging.getLogger(__name__)
 
 
 class ExamViewerWindow(QMainWindow):
@@ -38,7 +43,7 @@ class ExamViewerWindow(QMainWindow):
 
     closed = pyqtSignal()
 
-    # Thread-safe signals for background → UI updates
+    # Thread-safe signals for background -> UI updates
     _sig_status = pyqtSignal(str)
     _sig_pdf_ready = pyqtSignal()
     _sig_pdf_error = pyqtSignal(str)
@@ -59,8 +64,13 @@ class ExamViewerWindow(QMainWindow):
         self._token = token
         self._identity_data = identity_data
         self._kiosk_mode = kiosk_mode
+
+        # Thread-safe submission guards
+        self._submit_lock = threading.Lock()
         self._submitted = False
         self._submitting = False
+        self._close_in_progress = False  # prevent spam close events
+
         self._security: Optional[SecurityEnforcer] = None
         self._pdf_path: Optional[str] = None
         self._admin_exit_count = 0
@@ -76,6 +86,7 @@ class ExamViewerWindow(QMainWindow):
         self._sig_submit_result.connect(self._on_submit_result)
 
         self._setup_ui()
+        self._init_security()  # Activate security BEFORE PDF loads
         self._load_pdf_async()
 
         # Restore saved answers
@@ -84,7 +95,8 @@ class ExamViewerWindow(QMainWindow):
             QTimer.singleShot(500, lambda: self._answer_sheet.restore_answers(saved))
 
     def _setup_ui(self) -> None:
-        self.setWindowTitle(f"EXAMVAN — {self._exam.name}")
+        # Window title: generic, no exam name leakage
+        self.setWindowTitle("EXAMVAN")
         self.setMinimumSize(1024, 700)
 
         central = QWidget()
@@ -108,7 +120,7 @@ class ExamViewerWindow(QMainWindow):
         # Security banner
         mode = "strict" if self._exam.is_strict else self._exam.security_level
         bg, fg = SECURITY_COLORS.get(mode, SECURITY_COLORS["low"])
-        self._lbl_security = QLabel(f"🔒 {mode.upper()}")
+        self._lbl_security = QLabel(f"\U0001f512 {mode.upper()}")
         self._lbl_security.setStyleSheet(
             f"background-color: {bg}; color: {fg}; padding: 4px 12px;"
             f"border-radius: 4px; font-weight: bold; font-size: 12px;"
@@ -138,7 +150,6 @@ class ExamViewerWindow(QMainWindow):
         self._answer_sheet.setMaximumWidth(420)
         splitter.addWidget(self._answer_sheet)
 
-        # Default split: 70% PDF, 30% answer sheet
         splitter.setSizes([700, 300])
 
         main_layout.addWidget(splitter, 1)
@@ -155,7 +166,7 @@ class ExamViewerWindow(QMainWindow):
         self._lbl_status.setStyleSheet("font-size: 12px;")
         bottom_layout.addWidget(self._lbl_status, 1)
 
-        # Toggle answer sheet — panel color
+        # Toggle answer sheet
         pc = self._exam.panel_color
         self._btn_toggle = QPushButton(" Lembar Jawaban")
         self._btn_toggle.setCheckable(True)
@@ -170,8 +181,7 @@ class ExamViewerWindow(QMainWindow):
         )
         bottom_layout.addWidget(self._btn_toggle)
 
-        # Submit button — use exam panel color
-        pc = self._exam.panel_color
+        # Submit button
         self._btn_submit = QPushButton(" Kumpulkan Jawaban")
         self._btn_submit.setStyleSheet(
             f"QPushButton {{ background-color: {pc}; color: #ffffff; font-weight: bold;"
@@ -187,11 +197,14 @@ class ExamViewerWindow(QMainWindow):
         self._save_timer.setSingleShot(True)
         self._save_timer.setInterval(500)
         self._save_timer.timeout.connect(self._save_answers)
-
-        # Connect answer change to auto-save trigger
         self._answer_sheet.answer_changed.connect(lambda: self._save_timer.start())
 
-        # Initialize security enforcer
+    def _init_security(self) -> None:
+        """Initialize security enforcer BEFORE exam starts.
+
+        Activating here covers the PDF download period so there's
+        no unprotected gap between dialog and viewer.
+        """
         self._security = SecurityEnforcer(
             security_level=self._exam.security_level,
             strict_mode=self._exam.is_strict,
@@ -199,6 +212,8 @@ class ExamViewerWindow(QMainWindow):
             kiosk_mode=self._kiosk_mode,
         )
         self._security.auto_submit.connect(self._auto_submit)
+        self._security.activate()
+        log.info("Security activated before PDF load")
 
     # -------------------------------------------------------------------
     # PDF download (background thread)
@@ -241,8 +256,6 @@ class ExamViewerWindow(QMainWindow):
         if self._pdf_path and self._pdf_viewer.load_pdf(self._pdf_path):
             self._lbl_status.setText("PDF siap")
             self._answer_sheet.build_from_questions(self._exam.questions)
-            if self._security:
-                self._security.activate()
         else:
             self._lbl_status.setText("Gagal memuat PDF")
 
@@ -252,25 +265,13 @@ class ExamViewerWindow(QMainWindow):
 
     @pyqtSlot(bool, str)
     def _on_submit_result(self, success: bool, message: str) -> None:
-        self._submitting = False
-        self._submitted = success
+        with self._submit_lock:
+            self._submitting = False
+            if success:
+                self._submitted = True
 
         if success:
-            config.clear_answers(self._exam.id)
-            if self._security:
-                self._security.deactivate()
-            self._timer_widget.stop()
-            self._btn_submit.setEnabled(False)
-            self._btn_submit.setText("✅ Terkumpul")
-
-            QMessageBox.information(
-                self,
-                "Berhasil",
-                f"Jawaban berhasil dikumpulkan!\n\n{message}",
-            )
-            self._submitted = True
-            self.closed.emit()
-            self.close()
+            self._cleanup_after_submit(message)
         else:
             self._btn_submit.setEnabled(True)
             QMessageBox.warning(
@@ -278,6 +279,34 @@ class ExamViewerWindow(QMainWindow):
                 "Gagal",
                 f"Gagal mengumpulkan jawaban:\n{message}\n\nSilakan coba lagi.",
             )
+
+    def _cleanup_after_submit(self, message: str) -> None:
+        """Clean up after successful submit."""
+        config.clear_answers(self._exam.id)
+        if self._security:
+            self._security.deactivate()
+
+        self._timer_widget.stop()
+        self._btn_submit.setEnabled(False)
+        self._btn_submit.setText("✅ Terkumpul")
+
+        # Wipe PDF temp file
+        self._pdf_viewer.cleanup()
+        if self._pdf_path:
+            try:
+                if os.path.exists(self._pdf_path):
+                    os.remove(self._pdf_path)
+                    log.info("PDF temp file removed: %s", self._pdf_path)
+            except OSError:
+                pass
+
+        QMessageBox.information(
+            self,
+            "Berhasil",
+            f"Jawaban berhasil dikumpulkan!\n\n{message}",
+        )
+        self.closed.emit()
+        self.close()
 
     # -------------------------------------------------------------------
     # Answer persistence
@@ -294,6 +323,7 @@ class ExamViewerWindow(QMainWindow):
     # -------------------------------------------------------------------
 
     def _on_submit(self) -> None:
+        # Quick pre-check (volatile read — race window handled by _do_submit lock)
         if self._submitted or self._submitting:
             return
 
@@ -312,13 +342,16 @@ class ExamViewerWindow(QMainWindow):
         self._do_submit()
 
     def _auto_submit(self) -> None:
-        if self._submitted or self._submitting:
-            return
         self._on_status("Auto-submit: jawaban dikumpulkan otomatis...")
         self._do_submit()
 
     def _do_submit(self) -> None:
-        self._submitting = True
+        """Thread-safe submit gate. Only one submit runs at a time."""
+        with self._submit_lock:
+            if self._submitted or self._submitting:
+                return
+            self._submitting = True
+
         self._btn_submit.setEnabled(False)
 
         answers = self._answer_sheet.get_answers()
@@ -358,18 +391,36 @@ class ExamViewerWindow(QMainWindow):
     # -------------------------------------------------------------------
 
     def closeEvent(self, event: QCloseEvent) -> None:
-        if self._submitted:
+        # Guard against repeated closeEvent spam
+        if self._close_in_progress:
+            event.ignore()
+            return
+        self._close_in_progress = True
+
+        with self._submit_lock:
+            already_done = self._submitted
+
+        if already_done:
             if self._security:
                 self._security.deactivate()
             self._pdf_viewer.cleanup()
             self.closed.emit()
             event.accept()
+            self._close_in_progress = False
             return
 
         mode = self._exam.security_level
         if mode in ("medium",) or self._exam.is_strict:
-            self._auto_submit()
+            # Auto-submit on close attempt (once)
+            with self._submit_lock:
+                if self._submitted or self._submitting:
+                    self._close_in_progress = False
+                    event.ignore()
+                    return
+                self._submitting = True
+            self._close_in_progress = False
             event.ignore()
+            self._auto_submit()
             return
 
         # Low mode: confirm close
@@ -385,9 +436,12 @@ class ExamViewerWindow(QMainWindow):
                 self._security.deactivate()
             self._pdf_viewer.cleanup()
             self.closed.emit()
+            with self._submit_lock:
+                self._submitted = True
             event.accept()
         else:
             event.ignore()
+        self._close_in_progress = False
 
     def keyPressEvent(self, event: QKeyEvent) -> None:
         if self._exam.is_strict and self._security:
@@ -403,7 +457,8 @@ class ExamViewerWindow(QMainWindow):
                     self._admin_exit_prompt()
                     return
 
-            # Block dangerous keys
+            # Block dangerous keys — keyboard hook handles most but
+            # Qt-level block as defense-in-depth (works even if hook fails)
             blocked = {
                 Qt.Key_Tab: bool(event.modifiers() & Qt.AltModifier),
                 Qt.Key_F4: bool(event.modifiers() & Qt.AltModifier),
@@ -417,7 +472,6 @@ class ExamViewerWindow(QMainWindow):
                 return
 
             if event.key() == Qt.Key_Print:
-                from ..utils import clear_clipboard
                 clear_clipboard()
                 event.ignore()
                 return
@@ -434,9 +488,22 @@ class ExamViewerWindow(QMainWindow):
             QLineEdit.Password,
         )
         if ok and password:
+            # Validate against env var — fail-closed
+            if _ADMIN_PASSWORD is None:
+                QMessageBox.warning(
+                    self, "Tidak Diizinkan",
+                    "Admin exit tidak dikonfigurasi.\n"
+                    "Set environment EXAMVAN_ADMIN_PASSWORD.",
+                )
+                return
+            if password != _ADMIN_PASSWORD:
+                QMessageBox.warning(self, "Akses Ditolak", "Password salah.")
+                return
+
             if self._security:
                 self._security.deactivate()
             self._pdf_viewer.cleanup()
-            self._submitted = True
+            with self._submit_lock:
+                self._submitted = True
             self.closed.emit()
             self.close()

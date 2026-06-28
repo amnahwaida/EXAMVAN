@@ -1,4 +1,7 @@
-"""Utility functions: MAC address, device ID, clipboard helpers."""
+"""Utility functions: MAC address, device ID, clipboard helpers.
+
+Cross-platform — works on Linux and Windows.
+"""
 
 from __future__ import annotations
 
@@ -63,16 +66,23 @@ def map_identity_to_standard(identity_data: Dict[str, str]) -> Dict[str, str]:
 
 
 def get_mac_address() -> str:
-    """Get first non-loopback MAC address from /sys/class/net/*/address."""
-    try:
-        for addr_path in sorted(Path("/sys/class/net").glob("*/address")):
-            mac = addr_path.read_text().strip()
-            iface = addr_path.parent.name
-            if iface != "lo" and mac != "00:00:00:00:00:00":
-                return mac.upper()
-    except OSError:
-        pass
-    # Fallback: uuid-based
+    """Get first non-loopback MAC address.
+
+    Linux: reads /sys/class/net/*/address.
+    Windows/fallback: uuid.getnode().
+    """
+    # Linux: sysfs is fastest and most reliable
+    if not platform.system() == "Windows":
+        try:
+            for addr_path in sorted(Path("/sys/class/net").glob("*/address")):
+                mac = addr_path.read_text().strip()
+                iface = addr_path.parent.name
+                if iface != "lo" and mac != "00:00:00:00:00:00":
+                    return mac.upper()
+        except OSError:
+            pass
+
+    # Cross-platform fallback via uuid
     mac = uuid.getnode()
     return ":".join(f"{(mac >> i) & 0xFF:02X}" for i in range(40, -1, -8))
 
@@ -86,19 +96,28 @@ def get_device_id() -> str:
 
 
 def get_device_label() -> str:
-    """Return 'LINUX:<device_id>' matching Android's 'DEVICE:<uuid>' pattern."""
-    return f"LINUX:{get_device_id()}"
+    """Return 'DESKTOP:<device_id>' (universal label for desktop clients)."""
+    return f"DESKTOP:{get_device_id()}"
 
 
 def clear_clipboard() -> None:
-    """Clear system clipboard via Qt and X11 fallback tools."""
+    """Clear system clipboard via Qt and platform fallback tools."""
     try:
         app = QApplication.instance()
         if app:
             app.clipboard().clear()
     except Exception:
         pass
-    # X11 fallback
+
+    # Platform-specific tools
+    if platform.system() == "Windows":
+        _clear_clipboard_windows()
+    else:
+        _clear_clipboard_x11()
+
+
+def _clear_clipboard_x11() -> None:
+    """Clear clipboard via X11 tools (xsel/xclip)."""
     for tool, args in [
         ("xsel", ["--clipboard", "--delete"]),
         ("xclip", ["-selection", "clipboard", "-i", "/dev/null"]),
@@ -113,6 +132,19 @@ def clear_clipboard() -> None:
             return
         except (FileNotFoundError, subprocess.TimeoutExpired):
             continue
+
+
+def _clear_clipboard_windows() -> None:
+    """Clear clipboard via Win32 API."""
+    try:
+        import ctypes
+        from ctypes.wintypes import HWND
+        user32 = ctypes.windll.user32
+        if user32.OpenClipboard(HWND(0)):
+            user32.EmptyClipboard()
+            user32.CloseClipboard()
+    except Exception:
+        pass
 
 
 def clear_clipboard_wl() -> None:

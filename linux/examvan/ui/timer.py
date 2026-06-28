@@ -1,12 +1,17 @@
-"""Timer widget — countdown or elapsed depending on exam config."""
+"""Timer widget — countdown or elapsed depending on exam config.
+
+Uses monotonic clock to prevent system time manipulation.
+"""
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Optional
 
 from PyQt5.QtCore import QTimer, Qt, pyqtSignal
 from PyQt5.QtWidgets import QLabel, QWidget, QHBoxLayout
+
+import time as _time
 
 
 class ElapsedTimerWidget(QWidget):
@@ -16,15 +21,24 @@ class ElapsedTimerWidget(QWidget):
 
     def __init__(self, end_time: Optional[str] = None, parent=None):
         super().__init__(parent)
-        self._start_time = datetime.now(timezone.utc)
-        self._end_time: Optional[datetime] = None
-        self._fired_time_up = False  # guard: emit only once
+        # Monotonic clock — immune to system clock changes
+        self._start_mono = _time.monotonic()
+        self._end_mono: Optional[float] = None  # monotonic deadline
+        self._fired_time_up = False
 
         if end_time:
             try:
-                self._end_time = datetime.fromisoformat(
+                end_wall = datetime.fromisoformat(
                     end_time.replace("Z", "+00:00")
                 )
+                # Convert wall-clock deadline to monotonic time
+                now = datetime.now(timezone.utc)
+                duration = (end_wall - now).total_seconds()
+                if duration > 0:
+                    self._end_mono = _time.monotonic() + duration
+                else:
+                    # Already past deadline — fire immediately
+                    self._end_mono = _time.monotonic() - 1
             except Exception:
                 pass
 
@@ -48,39 +62,32 @@ class ElapsedTimerWidget(QWidget):
         )
         layout.addWidget(self._label)
 
-    def set_start_time(self, start: datetime) -> None:
-        self._start_time = start
-        self._update()
-
     def _update(self) -> None:
-        now = datetime.now(timezone.utc)
-        if self._end_time:
-            if now < self._end_time:
-                # countdown — time remaining
-                delta = self._end_time - now
-                total = int(delta.total_seconds())
-                if total < 0:
-                    total = 0
+        now_mono = _time.monotonic()
+
+        if self._end_mono is not None:
+            # Countdown mode via monotonic clock — immune to system clock jump
+            remaining = self._end_mono - now_mono
+            if remaining > 0:
+                total = int(remaining)
                 h = total // 3600
                 m = (total % 3600) // 60
                 s = total % 60
                 self._label.setText(f"{h:02d}:{m:02d}:{s:02d}")
-                self._fired_time_up = False  # reset so overdue fires once
             else:
-                # overdue — fire time_up once, show negative
+                # Overdue — fire time_up exactly once
                 if not self._fired_time_up:
                     self._fired_time_up = True
                     self.time_up.emit()
-                delta = now - self._end_time
-                total = int(delta.total_seconds())
-                h = total // 3600
-                m = (total % 3600) // 60
-                s = total % 60
+                overdue = int(-remaining)
+                h = overdue // 3600
+                m = (overdue % 3600) // 60
+                s = overdue % 60
                 self._label.setText(f"-{h:02d}:{m:02d}:{s:02d}")
         else:
-            # elapsed since start (no end time)
-            delta = now - self._start_time
-            total = int(delta.total_seconds())
+            # Elapsed mode (no end_time)
+            elapsed = now_mono - self._start_mono
+            total = int(elapsed)
             if total < 0:
                 total = 0
             h = total // 3600
@@ -89,7 +96,14 @@ class ElapsedTimerWidget(QWidget):
             self._label.setText(f"{h:02d}:{m:02d}:{s:02d}")
 
     def get_start_time_iso(self) -> str:
-        return self._start_time.strftime("%Y-%m-%dT%H:%M:%SZ")
+        """Return the wall-clock start time in ISO format.
+
+        Derived from monotonic clock so system time changes don't affect it.
+        """
+        elapsed = _time.monotonic() - self._start_mono
+        now_wall = datetime.now(timezone.utc)
+        start = now_wall - timedelta(seconds=elapsed)
+        return start.strftime("%Y-%m-%dT%H:%M:%SZ")
 
     def stop(self) -> None:
         self._timer.stop()

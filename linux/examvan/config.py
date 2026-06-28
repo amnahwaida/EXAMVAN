@@ -1,7 +1,11 @@
-"""Persistent configuration stored in ~/.config/examvan/config.json."""
+"""Persistent configuration stored in ~/.config/examvan/config.json.
+
+Answers saved to disk are obfuscated (XOR) to prevent casual tampering.
+"""
 
 from __future__ import annotations
 
+import base64
 import json
 import os
 from pathlib import Path
@@ -19,6 +23,32 @@ _defaults: Dict[str, Any] = {
 }
 
 _cache: Optional[Dict[str, Any]] = None
+
+# Simple XOR obfuscation key for answer files — prevents casual reading.
+# Not cryptographic security (answers stay on disk only during exam).
+_OBFUSCATE_KEY = b"EXAMVAN_OBF_2024!!"
+
+
+def _xor_obfuscate(data: bytes) -> bytes:
+    """XOR obfuscation. Same function for encrypt and decrypt."""
+    return bytes(b ^ _OBFUSCATE_KEY[i % len(_OBFUSCATE_KEY)] for i, b in enumerate(data))
+
+
+def _encode_answers(answers: Dict[str, Any]) -> str:
+    """Serialize + obfuscate + base64 encode."""
+    raw = json.dumps(answers, separators=(",", ":"), ensure_ascii=False).encode("utf-8")
+    obfuscated = _xor_obfuscate(raw)
+    return base64.urlsafe_b64encode(obfuscated).decode("ascii")
+
+
+def _decode_answers(data: str) -> Optional[Dict[str, Any]]:
+    """Base64 decode + deobfuscate + parse."""
+    try:
+        obfuscated = base64.urlsafe_b64decode(data.encode("ascii"))
+        raw = _xor_obfuscate(obfuscated)
+        return json.loads(raw.decode("utf-8"))
+    except Exception:
+        return None
 
 
 def _load() -> Dict[str, Any]:
@@ -60,29 +90,51 @@ def get_all() -> Dict[str, Any]:
 
 
 def save_answers(exam_id: int, answers: Dict[str, Any]) -> None:
-    """Save answers to disk for crash recovery."""
-    path = _CONFIG_DIR / f"answers_{exam_id}.json"
+    """Save answers to disk for crash recovery (obfuscated)."""
+    path = _CONFIG_DIR / f"answers_{exam_id}.dat"
     _CONFIG_DIR.mkdir(parents=True, exist_ok=True)
     tmp = path.with_suffix(".tmp")
-    with open(tmp, "w", encoding="utf-8") as f:
-        json.dump(answers, f, indent=2, ensure_ascii=False)
-    tmp.replace(path)
+    try:
+        encoded = _encode_answers(answers)
+        with open(tmp, "w", encoding="ascii") as f:
+            f.write(encoded)
+        tmp.replace(path)
+    except Exception:
+        # If obfuscation fails, don't write anything readable
+        if tmp.exists():
+            tmp.unlink()
 
 
 def load_answers(exam_id: int) -> Optional[Dict[str, Any]]:
     """Load saved answers for crash recovery."""
-    path = _CONFIG_DIR / f"answers_{exam_id}.json"
+    path = _CONFIG_DIR / f"answers_{exam_id}.dat"
     if not path.exists():
+        # Try legacy .json path (migration from unencrypted format)
+        legacy = path.with_suffix(".json")
+        if legacy.exists():
+            try:
+                with open(legacy, "r", encoding="utf-8") as f:
+                    data = json.load(f)
+                # Migrate to new format
+                save_answers(exam_id, data)
+                legacy.unlink()
+                return data
+            except (json.JSONDecodeError, OSError):
+                return None
         return None
     try:
-        with open(path, "r", encoding="utf-8") as f:
-            return json.load(f)
-    except (json.JSONDecodeError, OSError):
+        with open(path, "r", encoding="ascii") as f:
+            return _decode_answers(f.read())
+    except Exception:
         return None
 
 
 def clear_answers(exam_id: int) -> None:
     """Remove saved answers after successful submit."""
-    path = _CONFIG_DIR / f"answers_{exam_id}.json"
+    # Remove both legacy .json and new .dat
+    path = _CONFIG_DIR / f"answers_{exam_id}.dat"
     if path.exists():
         path.unlink()
+    legacy = path.with_suffix(".json")
+    if legacy.exists():
+        legacy.unlink()

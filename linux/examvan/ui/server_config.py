@@ -77,7 +77,7 @@ class ServerConfigDialog(QDialog):
         title.setAlignment(Qt.AlignCenter)
         card_layout.addWidget(title)
 
-        subtitle = QLabel("Sistem Ujian Digital — Linux Client")
+        subtitle = QLabel("Sistem Ujian Digital — Desktop Client")
         subtitle.setStyleSheet("font-size: 13px;")
         subtitle.setAlignment(Qt.AlignCenter)
         card_layout.addWidget(subtitle)
