@@ -120,57 +120,61 @@ def _has_openbox() -> bool:
 
 
 def launch_kiosk_session(examvan_path: str) -> int:
-    """Launch kiosk session — isolated X server via xinit (VT switch).
+    """Launch kiosk session — Xephyr nested X server.
 
-    On Wayland, GNOME compositor blocks keyboard/pointer grabs and handles
-    3-finger swipe gestures at compositor level. By launching a standalone
-    X11 session on a separate VT, we get full keyboard/pointer control and
-    no Wayland gesture interference.
+    Runs Xephyr (nested X server window) inside the Wayland desktop, then
+    launches the exam app inside it. The app gets a proper X11 environment
+    where keyboard/pointer grabs work, separate from Wayland compositor.
     """
     script_dir = os.path.dirname(os.path.abspath(__file__))
-    project_dir = os.path.normpath(os.path.join(script_dir, "..", ".."))  # EXAVAN/linux/
+    project_dir = os.path.normpath(os.path.join(script_dir, "..", ".."))
+    venv_python = os.path.join(project_dir, ".venv", "bin", "python3")
 
-    if subprocess.run(["which", "xinit"], capture_output=True).returncode != 0:
-        log.error("xinit not found. Install xinit: sudo apt install xinit")
+    if not os.path.exists(venv_python):
+        log.error("Virtual environment not found at %s", venv_python)
         return 1
 
-    ob_config = generate_openbox_kiosk_config()
-    use_openbox = _has_openbox()
+    display = ":99"
+    display_env = os.environ.copy()
+    display_env["DISPLAY"] = display
+    display_env["EXAMVAN_KIOSK"] = "1"
 
-    fd, xinitrc = tempfile.mkstemp(suffix=".sh", prefix="examvan_xinit_")
-    with os.fdopen(fd, "w") as f:
-        f.write(f"""#!/bin/bash
-export EXAMVAN_KIOSK=1
-xset s off -dpms 2>/dev/null
-""")
-        if use_openbox:
-            f.write(f"""openbox --config-file "{ob_config}" &
-sleep 1
-""")
-        f.write(f"""cd {project_dir}
-export PYTHONPATH="{project_dir}:$PYTHONPATH"
-exec {project_dir}/.venv/bin/python3 -m examvan --kiosk-session
-""")
-    os.chmod(xinitrc, 0o755)
+    # 1. Start Xephyr
+    log.info("Starting Xephyr on %s ...", display)
+    xephyr = subprocess.Popen(
+        ["Xephyr", display, "-screen", "1920x1080",
+         "-ac", "-br", "-sw-cursor", "-noreset"],
+        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+    )
 
-    log.info("Launching kiosk session via xinit (VT switch) ...")
+    # 2. Wait for Xephyr to be ready
+    for i in range(50):
+        import time
+        time.sleep(0.2)
+        r = subprocess.run(["xdpyinfo", "-display", display],
+                           capture_output=True, timeout=2)
+        if r.returncode == 0:
+            log.info("Xephyr ready after %d attempts", i + 1)
+            break
+    else:
+        log.error("Xephyr failed to start")
+        xephyr.kill()
+        return 1
+
+    # 3. Launch exam app inside Xephyr
+    log.info("Launching exam app inside Xephyr ...")
+    app = subprocess.Popen(
+        [venv_python, "-m", "examvan", "--kiosk-session"],
+        cwd=project_dir,
+        env=display_env,
+    )
+
+    # 4. Cleanup on app exit
+    app.wait()
+    log.info("Exam app exited (code %d)", app.returncode)
+    xephyr.terminate()
     try:
-        result = subprocess.run(
-            ["xinit", xinitrc, "--", ":1"],
-            timeout=86400,
-            stdin=subprocess.DEVNULL,
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.PIPE,
-        )
-        return result.returncode
-    except FileNotFoundError:
-        log.error("xinit not found. Install xinit: sudo apt install xinit")
-        return 1
+        xephyr.wait(timeout=5)
     except subprocess.TimeoutExpired:
-        log.warning("Kiosk session timed out")
-        return 1
-    finally:
-        try:
-            os.unlink(xinitrc)
-        except OSError:
-            pass
+        xephyr.kill()
+    return app.returncode
