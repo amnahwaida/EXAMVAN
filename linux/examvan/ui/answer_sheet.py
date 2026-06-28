@@ -61,7 +61,7 @@ class AnswerSheetWidget(QWidget):
 
         self._container = QWidget()
         self._container_layout = QVBoxLayout(self._container)
-        self._container_layout.setContentsMargins(0, 0, 0, 0)
+        self._container_layout.setContentsMargins(0, 0, 0, 80)
         self._container_layout.setSpacing(8)
         self._container_layout.addStretch()
 
@@ -194,6 +194,8 @@ class AnswerSheetWidget(QWidget):
         combos = {}
         for i, left in enumerate(left_items):
             row_layout = QVBoxLayout()
+            row_layout.setSpacing(6)
+            row_layout.setContentsMargins(0, 6, 0, 6)
             lbl = QLabel(str(left))
             lbl.setStyleSheet("font-size: 13px; font-weight: bold;")
             row_layout.addWidget(lbl)
