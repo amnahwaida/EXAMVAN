@@ -204,6 +204,18 @@ QRadioButton {
 QRadioButton::indicator {
     width: 18px;
     height: 18px;
+    border: 2px solid #89b4fa;
+    border-radius: 10px;
+    background-color: transparent;
+}
+
+QRadioButton::indicator:checked {
+    background-color: #89b4fa;
+    border: 2px solid #89b4fa;
+}
+
+QRadioButton::indicator:hover {
+    border: 2px solid #b4d0fb;
 }
 
 /* === GroupBox === */
@@ -540,6 +552,18 @@ QRadioButton {
 QRadioButton::indicator {
     width: 18px;
     height: 18px;
+    border: 2px solid #1e66f5;
+    border-radius: 10px;
+    background-color: transparent;
+}
+
+QRadioButton::indicator:checked {
+    background-color: #1e66f5;
+    border: 2px solid #1e66f5;
+}
+
+QRadioButton::indicator:hover {
+    border: 2px solid #2a7ae9;
 }
 
 /* === GroupBox === */
