@@ -1,38 +1,38 @@
-# EXAMVAN Linux Desktop Client
+# EXAMVAN Desktop Client (Linux & Windows)
 
-Aplikasi ujian digital EXAMVAN untuk Linux. Mendukung 3 mode keamanan: **Low**, **Medium**, dan **Strict (Kiosk)**.
+Aplikasi ujian digital EXAMVAN untuk Linux dan Windows dalam satu codebase.
+Mendukung 3 mode keamanan: **Low**, **Medium**, dan **Strict**.
 
 ## Persyaratan Sistem
 
+### Linux
 - **Python 3.8+** dengan `venv`
 - **X11** (disarankan) — fitur keamanan lengkap
 - **Wayland** — fitur keamanan terbatas (keyboard grab tidak tersedia)
 
+### Windows
+- **Windows 10/11** 64-bit
+- **Python 3.10+** 64-bit — download dari [python.org](https://python.org)
+- **Visual C++ Redistributable** (biasanya sudah terinstall dengan Python)
+
 ## Instalasi
 
-### Cara 1: Install via curl (satu perintah)
+### Linux
+
+**Cara 1: Install via curl (satu perintah)**
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/amnahwaida/EXAMVAN/main/linux/install.sh | sudo bash
 ```
 
-Script otomatis unduh source dari GitHub, install dependensi, setup venv, dan daftarkan launcher.
-
-### Cara 2: Install lokal (dari clone)
+**Cara 2: Install lokal (dari clone)**
 
 ```bash
 cd linux
 sudo ./install.sh
 ```
 
-Script akan:
-- Install dependensi sistem (python3-venv, PyQt5, xsel, dll)
-- Salin file ke `/opt/examvan/`
-- Buat virtual environment + install requirements
-- Buat launcher `/usr/bin/examvan`
-- Daftarkan menu aplikasi & sesi kiosk
-
-Setelah selesai, jalankan dari terminal:
+**Jalankan:**
 
 ```bash
 examvan
@@ -40,30 +40,42 @@ examvan
 
 Atau cari **EXAMVAN** di menu aplikasi.
 
-### Uninstall
+**Uninstall:**
 
-**Via curl (jika install dari curl):**
-```bash
-curl -fsSL https://raw.githubusercontent.com/amnahwaida/EXAMVAN/main/linux/install.sh | sudo bash -s -- --uninstall
-```
-
-**Lokal (jika clone repo):**
 ```bash
 sudo ./install.sh --uninstall
 ```
 
-Keduanya hapus: `/opt/examvan/`, `/usr/bin/examvan`, menu aplikasi, sesi kiosk.
+### Windows
 
-### Cara 2: Jalankan Langsung (tanpa install)
+**Cara 1: Install otomatis (venv + shortcut desktop)**
 
-```bash
-cd linux
-./run.sh
+Jalankan PowerShell sebagai **user biasa** (tidak perlu admin):
+
+```powershell
+cd windows
+powershell -ExecutionPolicy Bypass -File install.ps1
 ```
 
-Launcher otomatis buat virtual environment + install dependencies saat pertama jalan.
+Setelah selesai, klik dua kali `EXAMVAN.bat` di desktop.
 
-## Perintah
+**Cara 2: Jalankan langsung (tanpa install)**
+
+```powershell
+cd windows
+powershell -ExecutionPolicy Bypass -File run.ps1
+```
+
+**Cara 3: Build .exe portable (no Python needed)**
+
+```powershell
+cd windows
+powershell -ExecutionPolicy Bypass -File build-exe.ps1
+```
+
+Output: `windows\dist\EXAMVAN.exe`
+
+## Perintah (Linux)
 
 | Perintah | Fungsi |
 |----------|--------|
@@ -76,91 +88,139 @@ Launcher otomatis buat virtual environment + install dependencies saat pertama j
 
 ## Mode Keamanan
 
-### Low Mode
-| Fitur | X11 | Wayland |
-|-------|-----|---------|
-| Anti-screenshot | Bypass compositor | Inherently protected |
-| Clipboard clear | `xsel` | `wl-copy --clear` |
-| Screen wake lock | `systemd-inhibit` / `xset` | `systemd-inhibit` |
+### Low Mode (semua platform)
+| Fitur | Linux X11 | Linux Wayland | Windows |
+|-------|-----------|---------------|---------|
+| Anti-screenshot | Bypass compositor | Inherently protected | `WDA_MONITOR` |
+| Clipboard clear tiap 3 detik | `xsel` + Qt | `wl-copy --clear` + Qt | `EmptyClipboard()` + Qt |
+| Screen wake lock | `systemd-inhibit` / `xset` | `systemd-inhibit` | `SetThreadExecutionState` |
+| Sleep prevention | ✅ | ✅ | ✅ |
+| Dark mode detection | `gsettings` + env | `gsettings` + env | Registry + Qt palette |
 
 ### Medium Mode (Low +)
 - Focus loss detection → auto-submit 3 detik
-- Banner merah countdown
-- Sama di X11 & Wayland
+- Window focus polling tiap 500ms
+- Force raise window di strict mode
+- Sama di semua platform
 
-### Strict Mode (Medium + Kiosk)
-| Fitur | X11 | Wayland |
-|-------|-----|---------|
-| Keyboard grab (Alt+Tab, Super, dll) | `XGrabKeyboard` | ❌ Tidak didukung |
-| Pointer grab | `XGrabPointer` | ❌ Tidak didukung |
-| Fullscreen frameless | `Qt.FramelessWindowHint` | Sama |
-| Kiosk session (Xephyr + Openbox) | ✅ | ✅ (nested X server) |
-| Admin exit | Ctrl+Shift+Alt+Q × 3 + password | Sama |
+### Strict Mode (Medium +)
+| Fitur | Linux X11 | Linux Kiosk | Windows |
+|-------|-----------|-------------|---------|
+| Fullscreen frameless | ✅ | ✅ | ✅ |
+| Block Alt+Tab | `XGrabKeyboard` | Openbox config | Keyboard hook ✅ |
+| Block Win key | `XGrabKeyboard` | Openbox config | Keyboard hook ✅ |
+| Block PrintScreen | `XGrabKeyboard` | Openbox config | Hook + `WDA_MONITOR` ✅ |
+| Block Task Manager | — | — | ✅ `Ctrl+Shift+Esc` |
+| Block Win+L (Lock) | — | — | ✅ |
+| Block Win+Tab/G/P/S/R | — | — | ✅ (20+ Win combos) |
+| Block Magnifier/OSK | — | — | ✅ |
+| Multi-monitor warning | `xrandr` | — | `GetSystemMetrics` |
+| Pointer grab | `XGrabPointer` | Openbox | — |
+| Kiosk session | — | Xephyr + Openbox | — |
+| **Total keyboard block** | ~5 | ~5 | **40 combos** |
+| Admin exit | Ctrl+Shift+Alt+Q × 3 + password | Sama | Sama |
 
-> **Wayland**: untuk fitur keamanan lengkap, gunakan mode kiosk: `examvan --kiosk`
-> atau pilih sesi **EXAMVAN Kiosk** dari login manager (GDM/LightDM/SDDM).
+> **Catatan Windows**: `Ctrl+Alt+Del` tidak bisa di-intercept (SAS — OS level).
 
-## Instalasi Manual per Distribusi
+## Admin Exit Password
 
-### Ubuntu / Debian
-
-```bash
-sudo apt install python3 python3-venv python3-pip python3-pyqt5 xsel
-sudo apt install xserver-xephyr openbox   # opsional untuk mode kiosk
-```
-
-### Fedora
-
-```bash
-sudo dnf install python3 python3-pip python3-qt5 xsel
-sudo dnf install xorg-x11-server-Xephyr openbox   # opsional untuk mode kiosk
-```
-
-### Arch Linux
+**WAJIB** diatur sebelum menjalankan app. Tanpa ini, admin exit tidak bisa digunakan.
 
 ```bash
-sudo pacman -S python python-pip python-pyqt5 xsel
-sudo pacman -S xorg-server-xephyr openbox   # opsional untuk mode kiosk
+# Linux
+export EXAMVAN_ADMIN_PASSWORD=rahasia123
+examvan
 ```
 
-## Struktur Direktori (setelah install)
+```cmd
+:: Windows (CMD)
+set EXAMVAN_ADMIN_PASSWORD=rahasia123
+powershell -ExecutionPolicy Bypass -File run.ps1
+```
+
+```powershell
+# Windows (PowerShell)
+$env:EXAMVAN_ADMIN_PASSWORD = "rahasia123"
+.\windows\run.ps1
+```
+
+Cara pakai: tekan `Ctrl+Shift+Alt+Q` tiga kali di strict mode, masukkan password.
+
+## Timer
+
+- Menggunakan **monotonic clock** — tidak bisa dimanipulasi dengan mengubah jam sistem.
+- Countdown via server `end_time` dikonversi ke monotonic timestamp.
+- Start time dikirim ke server derived dari monotonic clock.
+
+## Keamanan Data
+
+- **Jawaban tersimpan** di disk dalam format **XOR-obfuscated + base64**, bukan plaintext.
+- **PDF file** di `%TEMP%` langsung dihapus setelah submit.
+- **Window title** generic ("EXAMVAN") — tidak bocor nama ujian.
+- **Clipboard** dibersihkan tiap 3 detik + clipboard history di-overwrite.
+
+## Struktur Direktori (Linux after install)
 
 ```
 /opt/examvan/
-├── .venv/               ← virtual environment
-│   └── bin/python3      ← venv Python
-├── examvan/             ← source code
-│   ├── __main__.py      ← entry point
-│   ├── api.py
-│   ├── config.py
-│   ├── models.py
-│   ├── utils.py
-│   ├── security/        ← enforce, kiosk, x11 grab
-│   └── ui/              ← PyQt5 widgets
-├── run.sh               ← launcher
+├── .venv/                    ← virtual environment
+│   └── bin/python3           ← venv Python
+├── examvan/                  ← source code (cross-platform)
+│   ├── __main__.py           ← entry point
+│   ├── api.py                ← HTTP client (urllib)
+│   ├── config.py             ← konfigurasi + answer cache (XOR obfuscated)
+│   ├── models.py             ← data models
+│   ├── utils.py              ← MAC, clipboard, device identity
+│   ├── security/
+│   │   ├── base.py           ← abstract SecurityBackend
+│   │   ├── __init__.py       ← factory: get_backend()
+│   │   ├── enforcer.py       ← security enforcer (cross-platform)
+│   │   ├── linux_backend.py  ← X11 grabs, GNOME lock, systemd-inhibit
+│   │   ├── windows_backend.py← Win32 API hook, clipboard, WDA_MONITOR
+│   │   ├── x11.py            ← ctypes X11 bindings
+│   │   └── kiosk.py          ← Xephyr + Openbox session
+│   └── ui/                   ← PyQt5 widgets
+│       ├── answer_sheet.py
+│       ├── exam_viewer.py
+│       ├── identity_dialog.py
+│       ├── pdf_viewer.py
+│       ├── server_config.py
+│       ├── styles.py
+│       └── timer.py          ← monotonic clock, immune to time manipulation
+├── run.sh                    ← launcher
 └── requirements.txt
+```
 
-/usr/bin/examvan         ← symlink → /opt/examvan/.venv/bin/python3 -m examvan
-/usr/share/applications/examvan.desktop
-/usr/share/xsessions/examvan-kiosk.desktop
+## Windows Build Output
+
+```
+windows/
+├── build-exe.ps1             ← PyInstaller build script
+├── run.ps1                   ← auto venv + run
+├── install.ps1               ← setup + shortcut desktop
+├── dist/
+│   └── EXAMVAN.exe           ← standalone executable (~50 MB)
+└── README.md
 ```
 
 ## Alur Kerja
 
 ```
 1. Server Config Dialog
-   └─ Masukkan URL server + token ujian (8 karakter)
+   ├─ Masukkan URL server + token ujian (8 karakter)
    └─ Health check → Token lookup → Identity dialog
 
 2. Identity Dialog
-   └─ Isi identitas siswa
+   ├─ Isi identitas siswa (dinamis dari server)
    └─ Data tersimpan untuk penggunaan berikutnya
 
 3. Exam Viewer
-   └─ PDF viewer per halaman
-   └─ Lembar jawaban (5 tipe soal)
-   └─ Timer countdown / elapsed
-   └─ Auto-save jawaban tiap 500ms
+   ├─ Security diaktifkan SEBELUM PDF download
+   ├─ PDF viewer per halaman (drag scroll, zoom)
+   ├─ Lembar jawaban (5 tipe soal)
+   ├─ Timer monotonic countdown / elapsed
+   ├─ Auto-save jawaban tiap perubahan (500ms debounce)
+   ├─ Focus loss → auto-submit 3 detik
    └─ Submit manual / auto-submit saat waktu habis
 ```
 
@@ -177,7 +237,7 @@ sudo apt install libx11-6       # Ubuntu/Debian
 sudo dnf install libX11         # Fedora
 ```
 
-### Keyboard grab gagal
+### Keyboard grab gagal (Linux)
 ```bash
 # Nonaktifkan compositor (KDE)
 qdbus org.kde.KWin /Compositor suspend
@@ -186,15 +246,30 @@ qdbus org.kde.KWin /Compositor suspend
 examvan --kiosk
 ```
 
-### Mode kiosk error "Xephyr not found"
+### Mode kiosk error "Xephyr not found" (Linux)
 ```bash
 sudo apt install xserver-xephyr openbox  # Ubuntu/Debian
 ```
 
-### Timer salah (beda 7 jam)
-Pastikan server container punya `tzdata`:
+### Keyboard hook tidak memblokir (Windows)
+Jalankan sebagai Administrator untuk jaminan blocking penuh.
 
+### "PyQt5 import error" (Windows)
+Install Visual C++ Redistributable:
+```
+https://aka.ms/vs/17/release/vc_redist.x64.exe
+```
+
+### Timer tidak sinkron
+Timer menggunakan monotonic clock — tidak terpengaruh perubahan jam sistem.
+Pastikan server container punya `tzdata` yang benar.
+
+### Proses tetap berjalan setelah close
+Jika ada masalah dengan session, taskkill manual:
 ```bash
-# Di server
-docker exec examvan-go-server ls /usr/share/zoneinfo/Asia/Jakarta
+# Linux
+pkill -f examvan
+
+# Windows
+taskkill /f /im EXAMVAN.exe
 ```
