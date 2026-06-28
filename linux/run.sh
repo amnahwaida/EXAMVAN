@@ -112,19 +112,43 @@ fi
 
 # ---- Launch ----------------------------------------------------------------
 
-# Wayland mode: always launch isolated X11 kiosk session.
-# GNOME Wayland blocks keyboard/pointer grabs needed for strict mode,
-# and 3-finger swipe gestures are hardcoded in the compositor.
+# Wayland mode: launch isolated X11 kiosk session via Xephyr.
+# GNOME Wayland blocks keyboard/pointer grabs, so we run a nested
+# X server where X11 grabs work and compositor gestures don't apply.
 if [ "$IS_WAYLAND" = "1" ] && [ "${EXAMVAN_KIOSK:-}" != "1" ]; then
     info "Running on Wayland — launching isolated X11 kiosk session ..."
     info "(GNOME Wayland blocks keyboard grabs needed for strict mode)"
-    cd "$SCRIPT_DIR"
-    "$PYTHON" -c "
-from examvan.security.kiosk import launch_kiosk_session
-import sys
-sys.exit(launch_kiosk_session('$SCRIPT_DIR'))
-"
-    exit $?
+
+    if command -v Xephyr &>/dev/null; then
+        # Detect screen size
+        SCREEN_W=$(xdpyinfo 2>/dev/null | grep "dimensions:" | awk '{print $2}' | cut -dx -f1 || echo "1920")
+        SCREEN_H=$(xdpyinfo 2>/dev/null | grep "dimensions:" | awk '{print $2}' | cut -dx -f2 || echo "1080")
+
+        info "Starting Xephyr (${SCREEN_W}x${SCREEN_H}) on display :99 ..."
+        Xephyr :99 -screen "${SCREEN_W}x${SCREEN_H}" -ac -br -sw-cursor -noreset &
+        XEPHYR_PID=$!
+
+        # Wait for Xephyr to be ready
+        for i in $(seq 1 30); do
+            if xdpyinfo -display :99 &>/dev/null; then
+                break
+            fi
+            sleep 0.2
+        done
+
+        info "Xephyr ready, launching exam app inside ..."
+        cd "$SCRIPT_DIR"
+        EXAMVAN_KIOSK=1 DISPLAY=:99 "$PYTHON" -m examvan "$@"
+        APP_EXIT=$?
+
+        info "Exam app exited (code $APP_EXIT), stopping Xephyr ..."
+        kill "$XEPHYR_PID" 2>/dev/null
+        wait "$XEPHYR_PID" 2>/dev/null
+        exit "$APP_EXIT"
+    else
+        warn "Xephyr not found. Install: sudo apt install xserver-xephyr"
+        warn "Falling back to direct display (security limited)"
+    fi
 fi
 
 # Kiosk mode: explisit flag
