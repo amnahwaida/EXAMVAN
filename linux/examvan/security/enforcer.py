@@ -7,9 +7,11 @@ Strict: all medium + keyboard grab, pointer grab, fullscreen, kiosk
 
 from __future__ import annotations
 
+import json
 import logging
 import os
 import subprocess
+from pathlib import Path
 from typing import Optional
 
 from PyQt5.QtCore import QObject, Qt, QTimer, pyqtSignal
@@ -18,6 +20,10 @@ from PyQt5.QtWidgets import QApplication, QWidget
 
 from . import x11
 from ..utils import clear_clipboard, clear_clipboard_wl
+
+# Backup file for GNOME settings — survives crash
+_GNOME_BACKUP_DIR = Path.home() / ".config" / "examvan"
+_GNOME_BACKUP_FILE = _GNOME_BACKUP_DIR / "gnome_backup.json"
 
 log = logging.getLogger(__name__)
 
@@ -95,6 +101,107 @@ class SecurityEnforcer(QObject):
         self._stop_inhibit()
 
     # -----------------------------------------------------------------------
+    # Persistent GNOME backup — survives crash
+    # -----------------------------------------------------------------------
+
+    @staticmethod
+    def _persist_gnome_backup(
+        dynamic_workspaces: Optional[str],
+        overlay_key: Optional[str],
+        hot_corners: Optional[str],
+        touchpad: Optional[str],
+    ) -> None:
+        """Write GNOME settings backup to file so crash recovery can restore."""
+        data = {
+            "dynamic_workspaces": dynamic_workspaces,
+            "overlay_key": overlay_key,
+            "hot_corners": hot_corners,
+            "touchpad": touchpad,
+        }
+        _GNOME_BACKUP_DIR.mkdir(parents=True, exist_ok=True)
+        try:
+            tmp = _GNOME_BACKUP_FILE.with_suffix(".tmp")
+            with open(tmp, "w") as f:
+                json.dump(data, f)
+            tmp.replace(_GNOME_BACKUP_FILE)
+        except OSError:
+            pass
+
+    @staticmethod
+    def _clear_gnome_backup() -> None:
+        """Remove backup file — settings were restored successfully."""
+        try:
+            if _GNOME_BACKUP_FILE.exists():
+                _GNOME_BACKUP_FILE.unlink()
+        except OSError:
+            pass
+
+    @staticmethod
+    def restore_gnome_settings() -> None:
+        """Restore GNOME settings from backup file.
+
+        Call this at app startup to recover from a crashed session
+        where deactivate() never ran.
+        """
+        if not _GNOME_BACKUP_FILE.exists():
+            return
+        try:
+            with open(_GNOME_BACKUP_FILE) as f:
+                data = json.load(f)
+        except (OSError, json.JSONDecodeError):
+            return
+
+        restores = []
+        val = data.get("dynamic_workspaces")
+        if val is not None:
+            restores.append(["gsettings", "set", "org.gnome.mutter", "dynamic-workspaces", val])
+            restores.append(["gsettings", "set", "org.gnome.desktop.wm.preferences", "num-workspaces", "4"])
+
+        val = data.get("overlay_key")
+        if val is not None:
+            restores.append(["gsettings", "set", "org.gnome.mutter", "overlay-key", val])
+
+        val = data.get("hot_corners")
+        if val is not None:
+            restores.append(["gsettings", "set", "org.gnome.desktop.interface", "enable-hot-corners", val])
+
+        val = data.get("touchpad")
+        if val is not None:
+            restores.append(["gsettings", "set", "org.gnome.desktop.peripherals.touchpad", "send-events", val])
+
+        for cmd in restores:
+            try:
+                subprocess.run(cmd, capture_output=True, timeout=3)
+            except Exception:
+                pass
+
+        # Re-enable touchpad — most visible symptom of crash
+        if data.get("touchpad") is not None:
+            try:
+                subprocess.run(
+                    ["gsettings", "set", "org.gnome.desktop.peripherals.touchpad", "send-events", "enabled"],
+                    capture_output=True, timeout=3,
+            )
+            except Exception:
+                pass
+
+        # Restore keybindings
+        try:
+            subprocess.run(
+                ["gsettings", "set", "org.gnome.shell.keybindings", "toggle-overview", "['<Super>s']"],
+                capture_output=True, timeout=3,
+            )
+            subprocess.run(
+                ["gsettings", "set", "org.gnome.shell.keybindings", "toggle-application-view", "['<Super>a']"],
+                capture_output=True, timeout=3,
+            )
+        except Exception:
+            pass
+
+        SecurityEnforcer._clear_gnome_backup()
+        log.info("GNOME settings restored from crash backup")
+
+    # -----------------------------------------------------------------------
     # GNOME workspace lock (block desktop switching gestures)
     # -----------------------------------------------------------------------
 
@@ -147,6 +254,14 @@ class SecurityEnforcer(QObject):
             self._touchpad_backup = r.stdout.strip()
         except Exception:
             pass
+
+        # Persist backups to file — survives crash if deactivate() never runs
+        self._persist_gnome_backup(
+            dynamic_workspaces=self._gnome_ws_backup,
+            overlay_key=self._overlay_backup,
+            hot_corners=self._hot_corners_backup,
+            touchpad=self._touchpad_backup,
+        )
 
         cmds = [
             # Only 1 workspace — no way to slide
@@ -205,6 +320,7 @@ class SecurityEnforcer(QObject):
                 )
             except Exception:
                 pass
+        self._clear_gnome_backup()
         log.info("GNOME workspace + overview gestures restored")
 
     # -----------------------------------------------------------------------

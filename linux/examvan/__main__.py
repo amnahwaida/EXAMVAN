@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+import atexit
+import os
+import signal
 import sys
 
 
@@ -22,41 +25,25 @@ def _maximize_window(widget) -> None:
     QApplication.processEvents()
 
 
-def _ensure_gnome_restored() -> None:
-    """Restore GNOME settings that may have been changed by strict mode.
+def _recover_gnome_settings() -> None:
+    """Restore GNOME settings from crash backup file.
 
-    Protects against crash/force-kill before deactivate() could restore.
+    Called at startup, on atexit, and on SIGTERM/SIGINT.
+    Safe to call when no backup file exists (no-op).
     """
-    import subprocess
-    # Check if dynamic-workspaces was left as false by a crashed session
-    try:
-        r = subprocess.run(
-            ["gsettings", "get", "org.gnome.mutter", "dynamic-workspaces"],
-            capture_output=True, text=True, timeout=3,
-        ).stdout.strip()
-        if r == "false":
-            # Restore defaults
-            commands = [
-                ["gsettings", "set", "org.gnome.mutter", "dynamic-workspaces", "true"],
-                ["gsettings", "set", "org.gnome.desktop.wm.preferences", "num-workspaces", "4"],
-                ["gsettings", "set", "org.gnome.shell.keybindings", "toggle-overview", "['<Super>s']"],
-                ["gsettings", "set", "org.gnome.shell.keybindings", "toggle-application-view", "['<Super>a']"],
-                ["gsettings", "set", "org.gnome.mutter", "overlay-key", "'Super_L'"],
-                ["gsettings", "set", "org.gnome.desktop.interface", "enable-hot-corners", "true"],
-                ["gsettings", "set", "org.gnome.desktop.peripherals.touchpad", "send-events", "enabled"],
-            ]
-            for cmd in commands:
-                try:
-                    subprocess.run(cmd, capture_output=True, timeout=3)
-                except Exception:
-                    pass
-    except Exception:
-        pass
+    # Lazy import to keep startup fast when not needed
+    from examvan.security.enforcer import SecurityEnforcer
+    SecurityEnforcer.restore_gnome_settings()
 
 
 def main() -> None:
-    # Restore GNOME settings in case previous session crashed before deactivate()
-    _ensure_gnome_restored()
+    # Register crash-recovery handlers BEFORE anything touches GNOME settings
+    atexit.register(_recover_gnome_settings)
+    signal.signal(signal.SIGTERM, lambda *_: (_recover_gnome_settings(), os._exit(1)))
+    signal.signal(signal.SIGINT, lambda *_: (_recover_gnome_settings(), os._exit(1)))
+
+    # Restore GNOME settings in case previous session crashed
+    _recover_gnome_settings()
 
     kiosk = "--kiosk" in sys.argv or "--kiosk-session" in sys.argv
 
