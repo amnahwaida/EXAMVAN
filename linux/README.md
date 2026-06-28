@@ -42,9 +42,17 @@ Atau cari **EXAMVAN** di menu aplikasi.
 
 ### Uninstall
 
+**Via curl (jika install dari curl):**
+```bash
+curl -fsSL https://raw.githubusercontent.com/amnahwaida/EXAMVAN/main/linux/install.sh | sudo bash -s -- --uninstall
+```
+
+**Lokal (jika clone repo):**
 ```bash
 sudo ./install.sh --uninstall
 ```
+
+Keduanya hapus: `/opt/examvan/`, `/usr/bin/examvan`, menu aplikasi, sesi kiosk.
 
 ### Cara 2: Jalankan Langsung (tanpa install)
 
