@@ -408,23 +408,37 @@ func ExamByToken() gin.HandlerFunc {
 
 		sizeMB := roundTo(float64(exam.SizeBytes)/(1024*1024), 2)
 
+		// Parse questions JSON for clients that need it (Android, Linux)
+		var questions interface{}
+		if exam.QuestionsJSON != nil && *exam.QuestionsJSON != "" {
+			var parsed interface{}
+			if err := json.Unmarshal([]byte(*exam.QuestionsJSON), &parsed); err == nil {
+				questions = parsed
+			}
+		}
+
+		examResp := gin.H{
+			"id":              exam.ID,
+			"name":            exam.Name,
+			"status":          exam.Status,
+			"security_level":  exam.SecurityLevel,
+			"strict_mode":     exam.IsStrict(),
+			"public_results":  exam.PublicResults,
+			"show_answers":    exam.ShowAnswers,
+			"identity_fields": identityFields,
+			"panel_color":     panelColor,
+			"size_mb":         sizeMB,
+			"time_limit":      nil,
+			"start_time":      formatNullableISOUTC(exam.StartTime),
+			"end_time":        formatNullableISOUTC(exam.EndTime),
+		}
+		if questions != nil {
+			examResp["questions"] = questions
+		}
+
 		c.JSON(http.StatusOK, gin.H{
 			"success": true,
-			"exam": gin.H{
-				"id":              exam.ID,
-				"name":            exam.Name,
-				"status":          exam.Status,
-				"security_level":  exam.SecurityLevel,
-				"strict_mode":     exam.IsStrict(),
-				"public_results":  exam.PublicResults,
-				"show_answers":    exam.ShowAnswers,
-				"identity_fields": identityFields,
-				"panel_color":     panelColor,
-				"size_mb":         sizeMB,
-				"time_limit":      nil,
-				"start_time":      formatNullableISOUTC(exam.StartTime),
-				"end_time":        formatNullableISOUTC(exam.EndTime),
-			},
+			"exam":    examResp,
 		})
 	}
 }
@@ -557,6 +571,7 @@ func SubmitExam() gin.HandlerFunc {
 			s := string(raw)
 			identityDataJSON = &s
 
+			// Read standard keys from identity_data if present
 			if v, ok := sanitized["student_name"].(string); ok {
 				studentName = v
 			}
@@ -566,9 +581,16 @@ func SubmitExam() gin.HandlerFunc {
 			if v, ok := sanitized["student_class"].(string); ok {
 				studentClass = v
 			}
-		} else {
+		}
+
+		// Fallback: use top-level fields (covers custom identity keys like "nama")
+		if studentName == "" {
 			studentName = sanitize(body.StudentName)
+		}
+		if examNumber == "" {
 			examNumber = sanitize(body.ExamNumber)
+		}
+		if studentClass == "" {
 			studentClass = sanitize(body.StudentClass)
 		}
 
@@ -579,7 +601,10 @@ func SubmitExam() gin.HandlerFunc {
 		startTime := sanitizeStartTime(body.StartTime)
 
 		// --- Validate required fields ---
-		if studentName == "" || examNumber == "" || studentClass == "" {
+		// Only student_name is always required. exam_number and student_class
+		// depend on the exam's identity_fields configuration — some exams
+		// only define 2 fields (name + number) without class.
+		if studentName == "" {
 			errorResponse(c, http.StatusBadRequest, "Identitas siswa tidak lengkap")
 			return
 		}

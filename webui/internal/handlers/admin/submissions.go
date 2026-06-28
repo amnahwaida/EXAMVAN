@@ -114,8 +114,10 @@ func SubmissionsPage() gin.HandlerFunc {
 			StudentClass string                 `json:"student_class"`
 			IdentityData map[string]interface{} `json:"identity_data"`
 			Score        *float64               `json:"score"`
-			MaxScore     *float64               `json:"max_score"`
-			ScorePct     *float64               `json:"score_pct"`
+			ScoreDisplay string                 `json:"score_display"`
+			MaxScore     float64                `json:"max_score"`
+			ScorePct     float64                `json:"score_pct"`
+			HasScore     bool                   `json:"has_score"`
 			StartTime    *string                `json:"start_time"`
 			CreatedAt    time.Time              `json:"created_at"`
 			MACAddress   string                 `json:"mac_address"`
@@ -150,16 +152,16 @@ func SubmissionsPage() gin.HandlerFunc {
 			}
 
 			// Compute max score
-			var maxScore *float64
-			var scorePct *float64
+			var maxScore float64
+			var scorePct float64
+			var hasScore bool
 			if questionsJSON != nil && *questionsJSON != "" {
 				questions, parseErr := models.ParseQuestionsJSON(questionsJSON)
 				if parseErr == nil {
-					ms := models.ComputeMaxScore(questions)
-					maxScore = &ms
-					if score != nil && ms > 0 {
-						pct := math.Round(*score/ms*100*10) / 10
-						scorePct = &pct
+					maxScore = models.ComputeMaxScore(questions)
+					if score != nil && maxScore > 0 {
+						scorePct = math.Round(*score/maxScore*100*10) / 10
+						hasScore = true
 					}
 				}
 			}
@@ -178,8 +180,15 @@ func SubmissionsPage() gin.HandlerFunc {
 				StudentClass: studentClass,
 				IdentityData: identityData,
 				Score:        score,
+				ScoreDisplay: func() string {
+					if score != nil {
+						return fmt.Sprintf("%.1f", *score)
+					}
+					return ""
+				}(),
 				MaxScore:     maxScore,
 				ScorePct:     scorePct,
+				HasScore:     hasScore,
 				StartTime:    startTime,
 				CreatedAt:    createdAt,
 				MACAddress:   macAddress,

@@ -57,16 +57,17 @@ const (
 
 // SubmissionJob is the payload enqueued in the Redis list.
 type SubmissionJob struct {
-	JobID       string                 `json:"job_id"`
-	ExamID      int                    `json:"exam_id"`
-	StudentName string                 `json:"student_name"`
-	ExamNumber  string                 `json:"exam_number"`
-	StudentClass string                `json:"student_class"`
-	Answers     map[string]interface{} `json:"answers"`
-	MACAddress  string                 `json:"mac_address"`
+	JobID        string                 `json:"job_id"`
+	ExamID       int                    `json:"exam_id"`
+	StudentName  string                 `json:"student_name"`
+	ExamNumber   string                 `json:"exam_number"`
+	StudentClass string                 `json:"student_class"`
+	Answers      map[string]interface{} `json:"answers"`
+	StartTime    string                 `json:"start_time,omitempty"`
+	MACAddress   string                 `json:"mac_address"`
 	IdentityData map[string]interface{} `json:"identity_data,omitempty"`
-	Retries     int                    `json:"retries"`
-	EnqueuedAt  string                 `json:"enqueued_at"` // ISO 8601 UTC
+	Retries      int                    `json:"retries"`
+	EnqueuedAt   string                 `json:"enqueued_at"` // ISO 8601 UTC
 }
 
 // JobResult is stored in Redis after a job is processed.
@@ -99,14 +100,16 @@ func EnqueueSubmission(rdb *goredis.Client, data map[string]interface{}) (string
 	now := time.Now().UTC().Format(time.RFC3339)
 
 	job := SubmissionJob{
-		JobID:       jobID,
-		ExamID:      extractInt(data, "exam_id"),
-		StudentName: extractString(data, "student_name"),
-		ExamNumber:  extractString(data, "exam_number"),
+		JobID:        jobID,
+		ExamID:       extractInt(data, "exam_id"),
+		StudentName:  extractString(data, "student_name"),
+		ExamNumber:   extractString(data, "exam_number"),
 		StudentClass: extractString(data, "student_class"),
-		MACAddress:  extractString(data, "mac_address"),
-		EnqueuedAt:  now,
-		Answers:     extractMap(data, "answers"),
+		StartTime:    extractString(data, "start_time"),
+		MACAddress:   extractString(data, "mac_address"),
+		EnqueuedAt:   now,
+		Answers:      extractMap(data, "answers"),
+		IdentityData: extractMap(data, "identity_data"),
 	}
 
 	payload, err := json.Marshal(job)
@@ -220,7 +223,11 @@ func (w *Worker) run() {
 				continue
 			}
 
-			w.processJob(ctx, job)
+			// Use a fresh context for processing — the BRPOP context was
+			// already canceled and must not be reused.
+			jobCtx, jobCancel := context.WithTimeout(context.Background(), 30*time.Second)
+			w.processJob(jobCtx, job)
+			jobCancel()
 		}
 	}
 }
@@ -355,14 +362,14 @@ func (w *Worker) insertSubmission(ctx context.Context, job *SubmissionJob, score
 	}
 
 	sql := `INSERT INTO submissions
-		(exam_id, student_name, exam_number, student_class, answers_json, score, mac_address, identity_data)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+		(exam_id, student_name, exam_number, student_class, answers_json, score, start_time, mac_address, identity_data)
+		VALUES ($1, $2, $3, $4, $5, $6, NULLIF($7, ''), $8, $9)
 		RETURNING id`
 
 	var submissionID int
 	err := w.pool.QueryRow(ctx, sql,
 		job.ExamID, job.StudentName, job.ExamNumber, job.StudentClass,
-		answersPtr, score, job.MACAddress, identityPtr,
+		answersPtr, score, job.StartTime, job.MACAddress, identityPtr,
 	).Scan(&submissionID)
 	if err != nil {
 		return 0, fmt.Errorf("insert: %w", err)

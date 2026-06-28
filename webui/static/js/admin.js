@@ -2956,7 +2956,7 @@ function closeDetailModal() {
 (function() {
     var table = document.getElementById('submissionsTable');
     if (!table) return;
-    var LABEL_MAP = { student_name: 'Nama', exam_number: 'Nomor Ujian', student_class: 'Kelas' };
+    var LABEL_MAP = { student_name: 'Nama', exam_number: 'Nomor Ujian', student_class: 'Kelas', nama: 'Nama', nomor_ujian: 'Nomor Ujian', kelas: 'Kelas' };
     table.addEventListener('click', function(e) {
         var btn = e.target.closest('.submission-identity-btn');
         if (btn) {
@@ -2966,12 +2966,26 @@ function closeDetailModal() {
             var raw = btn.getAttribute('data-identity');
             var data = {};
             try { data = JSON.parse(raw); } catch (x) {}
-            // Bangun konten popup — tampilkan SEMUA field identity
+            // Jika identity_data kosong, fallback dari kolom tabel
             var html = '<div class="identity-popup-header">Identitas Siswa</div><div class="identity-popup-body">';
+            var hasData = false;
+            var seenVals = {};
             for (var k in data) {
                 if (data.hasOwnProperty(k) && data[k]) {
+                    var v = String(data[k]);
+                    // Deduplicate: skip if same value already shown (standard key mirrors custom key)
+                    if (seenVals[v]) continue;
+                    seenVals[v] = true;
                     var label = LABEL_MAP[k] || k.replace(/_/g, ' ').replace(/\b\w/g, function(c) { return c.toUpperCase(); });
-                    html += '<div class="identity-popup-item"><span class="idp-label">' + escapeHtml(label) + '</span><strong class="idp-value">' + escapeHtml(String(data[k])) + '</strong></div>';
+                    html += '<div class="identity-popup-item"><span class="idp-label">' + escapeHtml(label) + '</span><strong class="idp-value">' + escapeHtml(v) + '</strong></div>';
+                    hasData = true;
+                }
+            }
+            // Fallback: tampilkan nama dari kolom tabel
+            if (!hasData) {
+                var name = btn.textContent.trim();
+                if (name) {
+                    html += '<div class="identity-popup-item"><span class="idp-label">Nama</span><strong class="idp-value">' + escapeHtml(name) + '</strong></div>';
                 }
             }
             html += '</div>';
@@ -3096,8 +3110,14 @@ document.addEventListener('DOMContentLoaded', function() {
         var end = el.getAttribute('data-end');
         if (start && end) {
             try {
-                var s = new Date(start.replace(' ', 'T') + 'Z');
-                var e = new Date(end.replace(' ', 'T') + 'Z');
+                var toIso = function(v) {
+                    var s = String(v).trim();
+                    if (s.includes(' ') && !s.includes('T')) s = s.replace(' ', 'T');
+                    if (!s.endsWith('Z') && !s.includes('+') && !(/-\d{2}:\d{2}$/.test(s))) s += 'Z';
+                    return s;
+                };
+                var s = new Date(toIso(start));
+                var e = new Date(toIso(end));
                 var diff = Math.floor((e - s) / 1000);
                 if (diff > 0) {
                     var h = Math.floor(diff / 3600);

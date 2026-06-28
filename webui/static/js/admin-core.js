@@ -95,9 +95,10 @@ function jsEscape(str) {
 function localizeUTC(utcStr) {
     if (!utcStr) return '—';
     try {
-        let iso = utcStr.trim();
-        if (iso.includes(' ')) iso = iso.replace(' ', 'T');
-        if (!iso.endsWith('Z') && !iso.includes('+')) iso += 'Z';
+        let iso = String(utcStr).trim();
+        if (iso.includes(' ') && !iso.includes('T')) iso = iso.replace(' ', 'T');
+        // Append Z only if no timezone info present
+        if (!iso.endsWith('Z') && !iso.includes('+') && !(/-\d{2}:\d{2}$/.test(iso))) iso += 'Z';
         const dt = new Date(iso);
         if (isNaN(dt.getTime())) return utcStr;
         const year = dt.getFullYear();

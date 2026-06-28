@@ -114,11 +114,10 @@ services:
       - internal
 
   cloudflare-tunnel:
-    build:
-      context: ../tunnel
-      dockerfile: Dockerfile
+    image: cloudflare/cloudflared:latest
     container_name: examvan-webui-tunnel
     restart: unless-stopped
+    command: tunnel --no-autoupdate run
     environment:
       - TUNNEL_TOKEN=${TUNNEL_TOKEN:-}
       - TZ=UTC

@@ -119,12 +119,12 @@
  {{if .Score}}
  <div style="display:flex;flex-direction:column;align-items:center;gap:4px;">
  <span style="font-size:16px;font-weight:800;
- {{if and $scorePct (ge $scorePct 80.0)}}color: var(--color-success);
- {{else if and $scorePct (ge $scorePct 60.0)}}color: var(--color-warning);
+ {{if ge $scorePct 80.0}}color: var(--color-success);
+ {{else if ge $scorePct 60.0}}color: var(--color-warning);
  {{else}}color: var(--color-danger);{{end}}">
- {{printf "%.1f" .Score}}
+ {{.ScoreDisplay}}
  </span>
- {{if $scorePct}}
+ {{if .HasScore}}
  <div style="width:50px;height:3px;background:rgba(255,255,255,0.06);border-radius:2px;overflow:hidden;">
  <div style="height:100%;width:{{printf "%.0f" $scorePct}}%;border-radius:2px;
  {{if ge $scorePct 80.0}}background:var(--color-success);
