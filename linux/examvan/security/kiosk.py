@@ -121,15 +121,27 @@ def _has_openbox() -> bool:
 
 
 def _find_free_display() -> Optional[str]:
-    """Find a free X display number by probing TCP ports.
+    """Find a free X display number by probing Unix sockets.
 
-    Scans display numbers from :99 to :199 and returns the first
-    whose port is not in use. Returns None if none available.
+    Xorg uses Unix sockets at /tmp/.X11-unix/X{n} by default (not TCP).
+    Scans display numbers from :0 to :199 and returns the first whose
+    socket file does not exist. Falls back to TCP probe if Unix socket
+    directory doesn't exist.
     """
-    import socket
+    # Method 1: Unix socket probe (primary for modern Xorg)
+    socket_dir = Path("/tmp/.X11-unix")
+    if socket_dir.exists():
+        for num in range(0, 200):
+            sock_path = socket_dir / f"X{num}"
+            if not sock_path.exists():
+                return f":{num}"
+        return None
+
+    # Method 2: TCP port probe (fallback)
+    import socket as _socket
     for num in range(99, 200):
         port = 6000 + num
-        sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        sock = _socket.socket(_socket.AF_INET, _socket.SOCK_STREAM)
         sock.settimeout(0.1)
         try:
             result = sock.connect_ex(("127.0.0.1", port))
@@ -156,7 +168,6 @@ def launch_kiosk_session(examvan_path: str) -> int:
         return 1
 
     # Find a free display number (avoid conflict with existing X servers)
-    import socket
     display = _find_free_display()
     if display is None:
         display = ":99"  # fallback
@@ -174,7 +185,6 @@ def launch_kiosk_session(examvan_path: str) -> int:
 
     # 2. Wait for Xephyr to be ready
     for i in range(50):
-        import time
         time.sleep(0.2)
         r = subprocess.run(["xdpyinfo", "-display", display],
                            capture_output=True, timeout=2)

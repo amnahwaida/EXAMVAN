@@ -27,15 +27,8 @@ class LinuxBackend(SecurityBackend):
     def __init__(self) -> None:
         self._inhibit_pid: Optional[int] = None
         self._grab_held = False
-        self._gnome_ws_backup: Optional[str] = None
-        self._overlay_backup: Optional[str] = None
-        self._hot_corners_backup: Optional[str] = None
-        self._touchpad_backup: Optional[str] = None
-        self._run_dialog_backup: Optional[str] = None
-        self._screenshot_backup: Optional[str] = None
-        self._screenshot_window_backup: Optional[str] = None
-        self._show_screenshot_ui_backup: Optional[str] = None
-        self._window_menu_backup: Optional[str] = None
+        # GNOME settings backups stored as {schema_key: value}
+        self._gnome_backups: dict = {}
 
     # ------------------------------------------------------------------
     # Strict mode
@@ -288,25 +281,27 @@ class LinuxBackend(SecurityBackend):
     def _gnome_ws_lock(self) -> None:
         """Disable GNOME workspace switching + overview gestures."""
         cmds_backup = [
-            ("dynamic-workspaces", "org.gnome.mutter", "dynamic-workspaces"),
-            ("overlay-key", "org.gnome.mutter", "overlay-key"),
-            ("hot-corners", "org.gnome.desktop.interface", "enable-hot-corners"),
-            ("touchpad", "org.gnome.desktop.peripherals.touchpad", "send-events"),
-            ("run-dialog", "org.gnome.desktop.wm.keybindings", "panel-run-dialog"),
-            ("screenshot", "org.gnome.shell.keybindings", "screenshot"),
-            ("screenshot-window", "org.gnome.shell.keybindings", "screenshot-window"),
-            ("show-screenshot-ui", "org.gnome.shell.keybindings", "show-screenshot-ui"),
-            ("window-menu", "org.gnome.desktop.wm.keybindings", "activate-window-menu"),
+            ("org.gnome.mutter", "dynamic-workspaces"),
+            ("org.gnome.mutter", "overlay-key"),
+            ("org.gnome.desktop.interface", "enable-hot-corners"),
+            ("org.gnome.desktop.peripherals.touchpad", "send-events"),
+            ("org.gnome.desktop.wm.keybindings", "panel-run-dialog"),
+            ("org.gnome.shell.keybindings", "screenshot"),
+            ("org.gnome.shell.keybindings", "screenshot-window"),
+            ("org.gnome.shell.keybindings", "show-screenshot-ui"),
+            ("org.gnome.desktop.wm.keybindings", "activate-window-menu"),
         ]
-        for attr, schema, key in cmds_backup:
+        self._gnome_backups.clear()
+        for schema, key in cmds_backup:
             try:
                 r = subprocess.run(
                     ["gsettings", "get", schema, key],
                     capture_output=True, text=True, timeout=3,
                 )
-                setattr(self, f"_{attr}_backup", r.stdout.strip())
+                if r.returncode == 0:
+                    self._gnome_backups[f"{schema}:{key}"] = r.stdout.strip()
             except Exception:
-                setattr(self, f"_{attr}_backup", None)
+                pass
 
         self._persist_gnome_backup()
 
@@ -337,17 +332,18 @@ class LinuxBackend(SecurityBackend):
     def _gnome_ws_restore(self) -> None:
         """Restore GNOME workspace + overview settings."""
         pairs = [
-            (self._gnome_ws_backup, "org.gnome.mutter", "dynamic-workspaces"),
-            (self._overlay_backup, "org.gnome.mutter", "overlay-key"),
-            (self._hot_corners_backup, "org.gnome.desktop.interface", "enable-hot-corners"),
-            (self._touchpad_backup, "org.gnome.desktop.peripherals.touchpad", "send-events"),
-            (self._run_dialog_backup, "org.gnome.desktop.wm.keybindings", "panel-run-dialog"),
-            (self._screenshot_backup, "org.gnome.shell.keybindings", "screenshot"),
-            (self._screenshot_window_backup, "org.gnome.shell.keybindings", "screenshot-window"),
-            (self._show_screenshot_ui_backup, "org.gnome.shell.keybindings", "show-screenshot-ui"),
-            (self._window_menu_backup, "org.gnome.desktop.wm.keybindings", "activate-window-menu"),
+            ("org.gnome.mutter", "dynamic-workspaces"),
+            ("org.gnome.mutter", "overlay-key"),
+            ("org.gnome.desktop.interface", "enable-hot-corners"),
+            ("org.gnome.desktop.peripherals.touchpad", "send-events"),
+            ("org.gnome.desktop.wm.keybindings", "panel-run-dialog"),
+            ("org.gnome.shell.keybindings", "screenshot"),
+            ("org.gnome.shell.keybindings", "screenshot-window"),
+            ("org.gnome.shell.keybindings", "show-screenshot-ui"),
+            ("org.gnome.desktop.wm.keybindings", "activate-window-menu"),
         ]
-        for val, schema, key in pairs:
+        for schema, key in pairs:
+            val = self._gnome_backups.get(f"{schema}:{key}")
             if val is not None:
                 try:
                     subprocess.run(
@@ -378,17 +374,23 @@ class LinuxBackend(SecurityBackend):
     # ------------------------------------------------------------------
 
     def _persist_gnome_backup(self) -> None:
-        data = {
-            "dynamic_workspaces": self._gnome_ws_backup,
-            "overlay_key": self._overlay_backup,
-            "hot_corners": self._hot_corners_backup,
-            "touchpad": self._touchpad_backup,
-            "run_dialog": self._run_dialog_backup,
-            "screenshot": self._screenshot_backup,
-            "screenshot_window": self._screenshot_window_backup,
-            "show_screenshot_ui": self._show_screenshot_ui_backup,
-            "window_menu": self._window_menu_backup,
+        """Write GNOME settings backup to file so crash recovery can restore."""
+        key_map = {
+            "org.gnome.mutter:dynamic-workspaces": "dynamic_workspaces",
+            "org.gnome.mutter:overlay-key": "overlay_key",
+            "org.gnome.desktop.interface:enable-hot-corners": "hot_corners",
+            "org.gnome.desktop.peripherals.touchpad:send-events": "touchpad",
+            "org.gnome.desktop.wm.keybindings:panel-run-dialog": "run_dialog",
+            "org.gnome.shell.keybindings:screenshot": "screenshot",
+            "org.gnome.shell.keybindings:screenshot-window": "screenshot_window",
+            "org.gnome.shell.keybindings:show-screenshot-ui": "show_screenshot_ui",
+            "org.gnome.desktop.wm.keybindings:activate-window-menu": "window_menu",
         }
+        data = {}
+        for dict_key, data_key in key_map.items():
+            val = self._gnome_backups.get(dict_key)
+            if val is not None:
+                data[data_key] = val
         _GNOME_BACKUP_DIR.mkdir(parents=True, exist_ok=True)
         try:
             tmp = _GNOME_BACKUP_FILE.with_suffix(".tmp")
