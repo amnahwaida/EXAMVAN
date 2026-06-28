@@ -22,7 +22,27 @@ def _maximize_window(widget) -> None:
     QApplication.processEvents()
 
 
+def _ensure_touchpad_enabled() -> None:
+    """Restore touchpad on startup (protect against crash/force-kill)."""
+    import subprocess
+    try:
+        current = subprocess.run(
+            ["gsettings", "get", "org.gnome.desktop.peripherals.touchpad", "send-events"],
+            capture_output=True, text=True, timeout=3,
+        ).stdout.strip()
+        if current == "'disabled'":
+            subprocess.run(
+                ["gsettings", "set", "org.gnome.desktop.peripherals.touchpad", "send-events", "enabled"],
+                capture_output=True, timeout=3,
+            )
+    except Exception:
+        pass
+
+
 def main() -> None:
+    # Ensure touchpad is enabled (in case previous session crashed before restore)
+    _ensure_touchpad_enabled()
+
     kiosk = "--kiosk" in sys.argv or "--kiosk-session" in sys.argv
 
     from PyQt5.QtCore import Qt
