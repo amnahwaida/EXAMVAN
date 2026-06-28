@@ -344,7 +344,7 @@ setup_venv() {
     # Remove old venv if exists
     rm -rf "$VENV_DIR"
 
-    python3 -m venv "$VENV_DIR"
+    python3 -m venv --system-site-packages "$VENV_DIR"
     "$VENV_DIR/bin/pip" install --upgrade pip --quiet
 
     ok "Virtual environment siap"
