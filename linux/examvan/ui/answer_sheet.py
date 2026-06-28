@@ -61,7 +61,7 @@ class AnswerSheetWidget(QWidget):
 
         self._container = QWidget()
         self._container_layout = QVBoxLayout(self._container)
-        self._container_layout.setContentsMargins(0, 0, 0, 80)
+        self._container_layout.setContentsMargins(0, 0, 0, 200)
         self._container_layout.setSpacing(8)
         self._container_layout.addStretch()
 
