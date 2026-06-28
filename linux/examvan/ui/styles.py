@@ -190,9 +190,21 @@ QCheckBox {
     background-color: transparent;
 }
 
+QCheckBox {
+    spacing: 8px;
+    background-color: transparent;
+}
+
 QCheckBox::indicator {
     width: 18px;
     height: 18px;
+    border: 2px solid #89b4fa;
+    border-radius: 3px;
+    background-color: #313244;
+}
+
+QCheckBox::indicator:checked {
+    background-color: #89b4fa;
 }
 
 QRadioButton {
@@ -204,6 +216,13 @@ QRadioButton {
 QRadioButton::indicator {
     width: 18px;
     height: 18px;
+    border: 2px solid #89b4fa;
+    border-radius: 10px;
+    background-color: #313244;
+}
+
+QRadioButton::indicator:checked {
+    background-color: #89b4fa;
 }
 
 /* === GroupBox === */
@@ -529,6 +548,13 @@ QCheckBox {
 QCheckBox::indicator {
     width: 18px;
     height: 18px;
+    border: 2px solid #1e66f5;
+    border-radius: 3px;
+    background-color: #ffffff;
+}
+
+QCheckBox::indicator:checked {
+    background-color: #1e66f5;
 }
 
 QRadioButton {
@@ -540,6 +566,13 @@ QRadioButton {
 QRadioButton::indicator {
     width: 18px;
     height: 18px;
+    border: 2px solid #1e66f5;
+    border-radius: 10px;
+    background-color: #ffffff;
+}
+
+QRadioButton::indicator:checked {
+    background-color: #1e66f5;
 }
 
 /* === GroupBox === */
