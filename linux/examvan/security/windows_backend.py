@@ -279,6 +279,22 @@ def _keyboard_hook_proc(nCode: int, wParam: WPARAM, lParam: LPARAM) -> int:
                 return BLOCK_KEY
             if vk == 0x5A:          # Win+Z (Snap layouts)
                 return BLOCK_KEY
+            if vk == 0x41:          # Win+A (Action Center)
+                return BLOCK_KEY
+            if vk == 0x4E:          # Win+N (Notification Center)
+                return BLOCK_KEY
+            if vk == 0x42:          # Win+B (focus notification area)
+                return BLOCK_KEY
+            if vk == 0x46:          # Win+F (Feedback Hub)
+                return BLOCK_KEY
+            if vk == 0x51:          # Win+Q (Cortana / Search)
+                return BLOCK_KEY
+            # Win+0 through Win+9 (taskbar items 0-9) -- launch pinned apps!
+            if 0x30 <= vk <= 0x39:
+                return BLOCK_KEY
+            # Win+F1 (Help)
+            if vk == 0x70:          # VK_F1
+                return BLOCK_KEY
             # Accessories & tools
             if vk == 0x47:          # Win+G (Game Bar / screen recording)
                 return BLOCK_KEY
@@ -315,6 +331,13 @@ def _keyboard_hook_proc(nCode: int, wParam: WPARAM, lParam: LPARAM) -> int:
             if vk == 0xDB:          # Win+[ (window snap left)
                 return BLOCK_KEY
             if vk == 0xDD:          # Win+] (window snap right)
+                return BLOCK_KEY
+            if vk == 0x23:          # Win+End (window snap right half)
+                return BLOCK_KEY
+            if vk == 0x24:          # Win+Home (minimize all non-active)
+                return BLOCK_KEY
+            # Arrow keys (window snap / move)
+            if vk in (0x25, 0x26, 0x27, 0x28):  # Win+Left/Up/Right/Down
                 return BLOCK_KEY
             # Accessibility
             if vk == 0xBB:          # Win+= (Magnifier zoom in)
