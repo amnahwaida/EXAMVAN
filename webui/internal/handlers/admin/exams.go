@@ -579,14 +579,15 @@ func GetQuestions() gin.HandlerFunc {
 			panelColor = *exam.PanelColor
 		}
 
-		// Schedule
+		// Schedule — stored as UTC, display in WIB
+		jakartaLoc, _ := time.LoadLocation("Asia/Jakarta")
 		startTime := ""
 		if exam.StartTime != nil {
-			startTime = exam.StartTime.Format("2006-01-02 15:04")
+			startTime = exam.StartTime.In(jakartaLoc).Format("2006-01-02 15:04")
 		}
 		endTime := ""
 		if exam.EndTime != nil {
-			endTime = exam.EndTime.Format("2006-01-02 15:04")
+			endTime = exam.EndTime.In(jakartaLoc).Format("2006-01-02 15:04")
 		}
 
 		isOp := isOperator(c)
@@ -724,16 +725,23 @@ func SaveQuestions() gin.HandlerFunc {
 			panelColor = panelColor[:7]
 		}
 
+		// Parse schedule as WIB (Asia/Jakarta), convert to UTC for storage
+		jakartaLoc, _ := time.LoadLocation("Asia/Jakarta")
 		startTime := body.StartTime
 		endTime := body.EndTime
-		// Convert empty strings to nil so PostgreSQL doesn't choke on "" as timestamp
 		var startTimePtr *string
 		var endTimePtr *string
 		if startTime != "" {
-			startTimePtr = &startTime
+			if t, err := time.ParseInLocation("2006-01-02 15:04", startTime, jakartaLoc); err == nil {
+				utc := t.UTC().Format("2006-01-02T15:04:05Z")
+				startTimePtr = &utc
+			}
 		}
 		if endTime != "" {
-			endTimePtr = &endTime
+			if t, err := time.ParseInLocation("2006-01-02 15:04", endTime, jakartaLoc); err == nil {
+				utc := t.UTC().Format("2006-01-02T15:04:05Z")
+				endTimePtr = &utc
+			}
 		}
 
 		if err := models.UpdateExamQuestions(ctx, pool, examID,

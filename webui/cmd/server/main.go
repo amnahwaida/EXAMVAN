@@ -209,7 +209,8 @@ func main() {
 			if t == nil {
 				return ""
 			}
-			return t.Format("2006-01-02 15:04")
+			jakartaLoc, _ := time.LoadLocation("Asia/Jakarta")
+			return t.In(jakartaLoc).Format("2006-01-02 15:04")
 		},
 		"substr": func(s string, start, end int) string {
 			runes := []rune(s)
