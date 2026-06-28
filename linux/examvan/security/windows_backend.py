@@ -10,6 +10,7 @@ from __future__ import annotations
 import hashlib
 import logging
 import socket
+import subprocess
 import sys
 import threading
 import time
@@ -258,24 +259,61 @@ def _keyboard_hook_proc(nCode: int, wParam: WPARAM, lParam: LPARAM) -> int:
         # Win key (Start menu)
         if vk in (VK_LWIN, VK_RWIN):
             return BLOCK_KEY
-        # Win+Shift+S (Snipping Tool) — block S when Win is held
-        if win_down and vk == 0x53:  # VK_S
-            return BLOCK_KEY
-        # Win+R (Run dialog)
-        if win_down and vk == 0x52:  # VK_R
-            return BLOCK_KEY
-        # Win+D / Win+M (show desktop / minimize all)
-        if win_down and vk in (0x44, 0x4D):  # VK_D, VK_M
-            return BLOCK_KEY
-        # Win+E (File Explorer)
-        if win_down and vk == 0x45:  # VK_E
-            return BLOCK_KEY
-        # Win+I (Settings)
-        if win_down and vk == 0x49:  # VK_I
-            return BLOCK_KEY
-        # Win+Pause (System Properties)
-        if win_down and vk == 0x13:  # VK_PAUSE
-            return BLOCK_KEY
+
+        # All Win+<key> combos
+        if win_down:
+            # Navigation & system
+            if vk == VK_TAB:        # Win+Tab (Task View)
+                return BLOCK_KEY
+            if vk == 0x4C:          # Win+L (Lock screen) -- CRITICAL
+                return BLOCK_KEY
+            if vk == 0x50:          # Win+P (Project / second screen)
+                return BLOCK_KEY
+            if vk == 0x54:          # Win+T (Cycle taskbar)
+                return BLOCK_KEY
+            if vk == 0x58:          # Win+X (Quick Link menu)
+                return BLOCK_KEY
+            if vk == 0x57:          # Win+W (Widgets)
+                return BLOCK_KEY
+            if vk == 0x5A:          # Win+Z (Snap layouts)
+                return BLOCK_KEY
+            # Accessories & tools
+            if vk == 0x47:          # Win+G (Game Bar / screen recording)
+                return BLOCK_KEY
+            if vk == 0x48:          # Win+H (Dictation)
+                return BLOCK_KEY
+            if vk == 0x4B:          # Win+K (Wireless display / Cast)
+                return BLOCK_KEY
+            if vk == 0x56:          # Win+V (Clipboard history)
+                return BLOCK_KEY
+            if vk == 0x59:          # Win+Y (Mixed Reality / desktop switch)
+                return BLOCK_KEY
+            # Files & search
+            if vk == 0x53:          # Win+S (Search / Snip)
+                return BLOCK_KEY
+            if vk == 0x52:          # Win+R (Run dialog)
+                return BLOCK_KEY
+            if vk in (0x44, 0x4D):  # Win+D / Win+M (desktop)
+                return BLOCK_KEY
+            if vk == 0x45:          # Win+E (File Explorer)
+                return BLOCK_KEY
+            if vk == 0x49:          # Win+I (Settings)
+                return BLOCK_KEY
+            if vk == 0x13:          # Win+Pause (System Properties)
+                return BLOCK_KEY
+            # Input / misc
+            if vk == 0x20:          # Win+Space (Input language)
+                return BLOCK_KEY
+            if vk == 0xBC:          # Win+, (Peek at desktop)
+                return BLOCK_KEY
+            if vk == 0xBE:          # Win+. (Emoji picker)
+                return BLOCK_KEY
+            if vk == 0xBA:          # Win+; (Emoji picker alt)
+                return BLOCK_KEY
+            if vk == 0xDB:          # Win+[ (window snap left)
+                return BLOCK_KEY
+            if vk == 0xDD:          # Win+] (window snap right)
+                return BLOCK_KEY
         # PrintScreen
         if vk == VK_SNAPSHOT:
             return BLOCK_KEY
@@ -419,9 +457,8 @@ class WindowsBackend(SecurityBackend):
                 _CloseClipboard()
         except Exception:
             pass
-        # Clear clipboard history via cmd (overwrite with empty)
+        # Clear clipboard via cmd (overwrite with empty line)
         try:
-            import subprocess
             subprocess.run(
                 ["cmd.exe", "/c", "echo.|clip"],
                 capture_output=True, timeout=2,
