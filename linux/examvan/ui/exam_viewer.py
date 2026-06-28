@@ -163,12 +163,12 @@ class ExamViewerWindow(QMainWindow):
         )
         bottom_layout.addWidget(self._btn_toggle)
 
-        # Submit button
-        self._btn_submit = QPushButton("✅ Kumpulkan Jawaban")
+        # Submit button — use exam panel color
+        pc = self._exam.panel_color
+        self._btn_submit = QPushButton(" Kumpulkan Jawaban")
         self._btn_submit.setStyleSheet(
-            "QPushButton { background-color: #2e7d32; color: #ffffff; font-weight: bold;"
-            "padding: 10px 24px; border-radius: 6px; }"
-            "QPushButton:hover { background-color: #388e3c; }"
+            f"QPushButton {{ background-color: {pc}; color: #ffffff; font-weight: bold;"
+            f"padding: 10px 24px; border-radius: 6px; }}"
         )
         self._btn_submit.clicked.connect(self._on_submit)
         bottom_layout.addWidget(self._btn_submit)
