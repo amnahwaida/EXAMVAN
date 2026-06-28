@@ -1,10 +1,14 @@
 #!/usr/bin/env bash
 # EXAMVAN Linux Client — Installer
 # Usage:
-#   sudo ./install.sh           Normal install
+#   curl -fsSL https://raw.githubusercontent.com/amnahwaida/EXAMVAN/main/linux/install.sh | sudo bash
+#   sudo ./install.sh              Install from local repo
 #   sudo ./install.sh --uninstall  Remove EXAMVAN from system
 
 set -euo pipefail
+
+REPO_URL="https://github.com/amnahwaida/EXAMVAN"
+BRANCH="main"
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 INSTALL_DIR="/opt/examvan"
@@ -25,7 +29,10 @@ err()   { printf "${RED}[ERR]${NC}   %s\n" "$*"; }
 
 # ── Root check ────────────────────────────────────────────────────────
 if [ "$(id -u)" -ne 0 ]; then
-    err "Jalankan dengan sudo: sudo ./install.sh"
+    err "Jalankan dengan sudo:"
+    err "  curl -fsSL https://raw.githubusercontent.com/amnahwaida/EXAMVAN/main/linux/install.sh | sudo bash"
+    err "  # atau"
+    err "  sudo ./install.sh"
     exit 1
 fi
 
@@ -55,7 +62,65 @@ if [ -f /etc/os-release ]; then
 fi
 ok "Terdeteksi: ${OS_ID:-unknown}"
 
-# ── Package manager helpers ─────────────────────────────────────────────
+# ── Download source (curl mode) ─────────────────────────────────────────
+SOURCE_DIR=""  # where examvan/ source live
+
+resolve_source() {
+    # Check if source files exist locally (local install mode)
+    if [ -f "$SCRIPT_DIR/examvan/__main__.py" ] && [ -f "$SCRIPT_DIR/requirements.txt" ]; then
+        SOURCE_DIR="$SCRIPT_DIR"
+        info "Mode: install lokal ($SOURCE_DIR)"
+        return
+    fi
+
+    # Check if running from repo root (git clone without cd linux)
+    if [ -f "$SCRIPT_DIR/linux/examvan/__main__.py" ] && [ -f "$SCRIPT_DIR/linux/requirements.txt" ]; then
+        SOURCE_DIR="$SCRIPT_DIR/linux"
+        info "Mode: install lokal ($SOURCE_DIR)"
+        return
+    fi
+
+    # No local source — download from GitHub
+    info "Mode: install via curl ($REPO_URL)"
+    info "Mengunduh sumber dari GitHub..."
+
+    local tmpdir
+    tmpdir=$(mktemp -d)
+
+    # Prefer git clone (preserves exact file structure)
+    if command -v git &>/dev/null; then
+        git clone --depth 1 -b "$BRANCH" "$REPO_URL" "$tmpdir/repo" --quiet 2>/dev/null || true
+        if [ -f "$tmpdir/repo/linux/install.sh" ]; then
+            SOURCE_DIR="$tmpdir/repo/linux"
+            ok "Sumber diunduh via git"
+            return
+        fi
+    fi
+
+    # Fallback: tarball
+    if command -v curl &>/dev/null; then
+        curl -fsSL "$REPO_URL/archive/refs/heads/$BRANCH.tar.gz" -o "$tmpdir/repo.tar.gz"
+        if command -v tar &>/dev/null; then
+            tar -xzf "$tmpdir/repo.tar.gz" -C "$tmpdir"
+            local dirname="EXAMVAN-$BRANCH"
+            if [ ! -d "$tmpdir/$dirname" ]; then
+                # Try to detect extracted dir name
+                dirname=$(ls "$tmpdir" | grep -v "repo.tar.gz" | head -1)
+            fi
+            if [ -f "$tmpdir/$dirname/linux/install.sh" ]; then
+                SOURCE_DIR="$tmpdir/$dirname/linux"
+                ok "Sumber diunduh via tarball"
+                return
+            fi
+        fi
+    fi
+
+    err "Gagal mengunduh sumber dari GitHub."
+    err "Pastikan git atau curl + tar tersedia."
+    err "Atau clone repo secara manual:"
+    err "  git clone $REPO_URL && cd EXAMVAN/linux && sudo ./install.sh"
+    exit 1
+}
 APT_DEPS=(python3 python3-venv python3-pip xsel xdg-utils x11-utils)
 DNF_DEPS=(python3 python3-pip python3-devel xsel xdg-utils libX11)
 PACMAN_DEPS=(python python-pip xsel xdg-utils libx11)
@@ -221,32 +286,32 @@ copy_files() {
     rm -f "$INSTALL_DIR/requirements.txt"
 
     # Copy source code (exclude __pycache__ and .venv)
-    cp -r "$SCRIPT_DIR/examvan" "$INSTALL_DIR/examvan"
+    cp -r "$SOURCE_DIR/examvan" "$INSTALL_DIR/examvan"
     # Clean pycache from copied source
     find "$INSTALL_DIR/examvan" -name "__pycache__" -type d -exec rm -rf {} + 2>/dev/null || true
     find "$INSTALL_DIR/examvan" -name "*.pyc" -delete 2>/dev/null || true
 
     # Copy support files
-    cp "$SCRIPT_DIR/run.sh" "$INSTALL_DIR/run.sh"
-    cp "$SCRIPT_DIR/requirements.txt" "$INSTALL_DIR/requirements.txt"
+    cp "$SOURCE_DIR/run.sh" "$INSTALL_DIR/run.sh"
+    cp "$SOURCE_DIR/requirements.txt" "$INSTALL_DIR/requirements.txt"
     chmod +x "$INSTALL_DIR/run.sh"
 
     # Desktop file
-    if [ -f "$SCRIPT_DIR/pkg-build/usr/share/applications/examvan.desktop" ]; then
-        cp "$SCRIPT_DIR/pkg-build/usr/share/applications/examvan.desktop" /usr/share/applications/examvan.desktop
+    if [ -f "$SOURCE_DIR/pkg-build/usr/share/applications/examvan.desktop" ]; then
+        cp "$SOURCE_DIR/pkg-build/usr/share/applications/examvan.desktop" /usr/share/applications/examvan.desktop
     fi
 
     # Kiosk session
-    if [ -f "$SCRIPT_DIR/examvan_kiosk.desktop" ]; then
-        cp "$SCRIPT_DIR/examvan_kiosk.desktop" /usr/share/xsessions/examvan-kiosk.desktop
-    elif [ -f "$SCRIPT_DIR/pkg-build/usr/share/xsessions/examvan-kiosk.desktop" ]; then
-        cp "$SCRIPT_DIR/pkg-build/usr/share/xsessions/examvan-kiosk.desktop" /usr/share/xsessions/examvan-kiosk.desktop
+    if [ -f "$SOURCE_DIR/examvan_kiosk.desktop" ]; then
+        cp "$SOURCE_DIR/examvan_kiosk.desktop" /usr/share/xsessions/examvan-kiosk.desktop
+    elif [ -f "$SOURCE_DIR/pkg-build/usr/share/xsessions/examvan-kiosk.desktop" ]; then
+        cp "$SOURCE_DIR/pkg-build/usr/share/xsessions/examvan-kiosk.desktop" /usr/share/xsessions/examvan-kiosk.desktop
     fi
     chmod 644 /usr/share/xsessions/examvan-kiosk.desktop 2>/dev/null || true
 
     # Icon
-    if [ -f "$SCRIPT_DIR/pkg-build/usr/share/icons/hicolor/256x256/apps/examvan.png" ]; then
-        cp "$SCRIPT_DIR/pkg-build/usr/share/icons/hicolor/256x256/apps/examvan.png" \
+    if [ -f "$SOURCE_DIR/pkg-build/usr/share/icons/hicolor/256x256/apps/examvan.png" ]; then
+        cp "$SOURCE_DIR/pkg-build/usr/share/icons/hicolor/256x256/apps/examvan.png" \
            /usr/share/icons/hicolor/256x256/apps/examvan.png
     fi
 
@@ -287,6 +352,7 @@ setup_venv() {
 
 # ── Main ─────────────────────────────────────────────────────────────
 main() {
+    resolve_source
     install_sys_deps
     check_python
     copy_files

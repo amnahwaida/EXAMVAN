@@ -10,11 +10,18 @@ Aplikasi ujian digital EXAMVAN untuk Linux. Mendukung 3 mode keamanan: **Low**, 
 
 ## Instalasi
 
-### Cara 1: Install Script (disarankan)
+### Cara 1: Install via curl (satu perintah)
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/amnahwaida/EXAMVAN/main/linux/install.sh | sudo bash
+```
+
+Script otomatis unduh source dari GitHub, install dependensi, setup venv, dan daftarkan launcher.
+
+### Cara 2: Install lokal (dari clone)
 
 ```bash
 cd linux
-chmod +x install.sh
 sudo ./install.sh
 ```
 
