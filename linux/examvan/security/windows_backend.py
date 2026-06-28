@@ -398,10 +398,24 @@ def _hook_thread_func() -> None:
             return
 
         log.info("Keyboard hook installed successfully")
-        _hook_ready.set()  # Signal success
 
-        # Message pump — needed for the hook to work
+        # Message pump — needed for WH_KEYBOARD_LL to deliver events.
+        # Post a self-message (WM_APP) and pump it once BEFORE signaling
+        # _hook_ready, so the pump is confirmed running when the caller
+        # returns. Without this, _stop_keyboard_hook could POST WM_QUIT
+        # before GetMessageW() starts, losing the quit message forever.
+        _user32.PostThreadMessageW(
+            _kernel32.GetCurrentThreadId(),
+            0x4A,  # WM_APP — arbitrary, ignored
+            WPARAM(0), LPARAM(0),
+        )
         msg = MSG()
+        # First GetMessageW returns the WM_APP wakeup. Pump is alive.
+        _GetMessageW(byref(msg), HWND(0), 0, 0)
+        # NOW signal success — pump can receive WM_QUIT
+        _hook_ready.set()
+
+        # Main pump loop
         while True:
             ret = _GetMessageW(byref(msg), HWND(0), 0, 0)
             if ret <= 0:  # 0 = WM_QUIT, -1 = error
