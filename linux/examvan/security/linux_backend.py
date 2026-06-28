@@ -6,6 +6,7 @@ import hashlib
 import json
 import logging
 import os
+import signal
 import socket
 import subprocess
 import uuid
@@ -29,6 +30,51 @@ class LinuxBackend(SecurityBackend):
         self._grab_held = False
         # GNOME settings backups stored as {schema_key: value}
         self._gnome_backups: dict = {}
+
+    # ------------------------------------------------------------------
+    # Inhibit PID crash recovery
+    # ------------------------------------------------------------------
+
+    def cleanup_stale_inhibit(self) -> None:
+        """Kill orphaned systemd-inhibit from crashed sessions.
+        Call at startup before activating security.
+        """
+        pid_path = _GNOME_BACKUP_DIR / "inhibit.pid"
+        if not pid_path.exists():
+            return
+        try:
+            old_pid = int(pid_path.read_text().strip())
+            try:
+                os.kill(old_pid, signal.SIGTERM)
+                log.info("Cleaned orphaned inhibit PID %d", old_pid)
+            except ProcessLookupError:
+                pass
+            except PermissionError:
+                pass
+        except (ValueError, OSError):
+            pass
+        try:
+            pid_path.unlink()
+        except OSError:
+            pass
+
+    def _persist_inhibit_pid(self) -> None:
+        if self._inhibit_pid is None:
+            return
+        _GNOME_BACKUP_DIR.mkdir(parents=True, exist_ok=True)
+        pid_path = _GNOME_BACKUP_DIR / "inhibit.pid"
+        try:
+            pid_path.write_text(str(self._inhibit_pid))
+        except OSError:
+            pass
+
+    def _clear_inhibit_pid_file(self) -> None:
+        pid_path = _GNOME_BACKUP_DIR / "inhibit.pid"
+        try:
+            if pid_path.exists():
+                pid_path.unlink()
+        except OSError:
+            pass
 
     # ------------------------------------------------------------------
     # Strict mode
@@ -101,6 +147,16 @@ class LinuxBackend(SecurityBackend):
                 return
             except (FileNotFoundError, subprocess.TimeoutExpired):
                 continue
+        # Wayland fallback (wl-copy)
+        try:
+            subprocess.run(
+                ["wl-copy", "--clear"],
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                timeout=2,
+            )
+        except (FileNotFoundError, subprocess.TimeoutExpired):
+            pass
 
     # ------------------------------------------------------------------
     # Sleep inhibition
@@ -122,6 +178,7 @@ class LinuxBackend(SecurityBackend):
             )
             self._inhibit_pid = proc.pid
             log.info("Screen inhibit started (PID %d)", proc.pid)
+            self._persist_inhibit_pid()
             return
         except FileNotFoundError:
             log.debug("systemd-inhibit not available")
@@ -146,6 +203,7 @@ class LinuxBackend(SecurityBackend):
             except OSError:
                 pass
             self._inhibit_pid = None
+        self._clear_inhibit_pid_file()
 
         # Restore xset settings (screen saver, DPMS)
         try:
@@ -239,7 +297,7 @@ class LinuxBackend(SecurityBackend):
     # ------------------------------------------------------------------
 
     def activate(self) -> None:
-        pass
+        self.cleanup_stale_inhibit()
 
     def deactivate(self) -> None:
         self._gnome_ws_restore()

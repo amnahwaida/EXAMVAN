@@ -196,7 +196,22 @@ def launch_kiosk_session(examvan_path: str) -> int:
         xephyr.kill()
         return 1
 
-    # 3. Launch exam app inside Xephyr
+    # 3. Start Openbox as window manager inside Xephyr
+    if _has_openbox():
+        ob_config = generate_openbox_kiosk_config()
+        openbox = subprocess.Popen(
+            ["openbox", "--config-file", ob_config],
+            env=display_env,
+            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+        )
+        log.info("Openbox started in kiosk session")
+        # Give Openbox time to initialize
+        time.sleep(0.5)
+    else:
+        log.warning("Openbox not found — kiosk session without WM")
+        openbox = None
+
+    # 4. Launch exam app inside Xephyr
     log.info("Launching exam app inside Xephyr ...")
     app = subprocess.Popen(
         [venv_python, "-m", "examvan", "--kiosk-session"],
@@ -204,9 +219,15 @@ def launch_kiosk_session(examvan_path: str) -> int:
         env=display_env,
     )
 
-    # 4. Cleanup on app exit
+    # 5. Cleanup on app exit
     app.wait()
     log.info("Exam app exited (code %d)", app.returncode)
+    if openbox:
+        openbox.terminate()
+        try:
+            openbox.wait(timeout=3)
+        except subprocess.TimeoutExpired:
+            openbox.kill()
     xephyr.terminate()
     try:
         xephyr.wait(timeout=5)
