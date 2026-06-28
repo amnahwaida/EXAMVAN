@@ -113,7 +113,16 @@ def _xchange_property(window_id: int, atom_name: str, value: int, atom_type: str
 
 
 def is_x11() -> bool:
-    """Check if running on X11 display server."""
+    """Check if running on X11 display server.
+
+    On GNOME Wayland, Qt5 defaults to xcb (XWayland) which supports X11
+    calls via the XWayland bridge. Both DISPLAY and WAYLAND_DISPLAY may
+    be set simultaneously. Check Qt's platform to determine actual mode.
+    """
+    from PyQt5.QtWidgets import QApplication
+    app = QApplication.instance()
+    if app and app.platformName() == "xcb":
+        return True
     session_type = os.environ.get("XDG_SESSION_TYPE", "")
     if session_type == "x11":
         return True
@@ -123,11 +132,10 @@ def is_x11() -> bool:
 
 
 def is_wayland() -> bool:
-    """Check if running on Wayland display server."""
-    session_type = os.environ.get("XDG_SESSION_TYPE", "")
-    if session_type == "wayland":
-        return True
-    if "WAYLAND_DISPLAY" in os.environ:
+    """Check if running on native Wayland platform (not XWayland)."""
+    from PyQt5.QtWidgets import QApplication
+    app = QApplication.instance()
+    if app and app.platformName() == "wayland":
         return True
     return False
 

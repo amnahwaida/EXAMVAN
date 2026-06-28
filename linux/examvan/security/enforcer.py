@@ -49,6 +49,9 @@ class SecurityEnforcer(QObject):
         self._focus_timer.setInterval(3000)  # 3 seconds
         self._focus_timer.timeout.connect(self._on_focus_timeout)
         self._grab_held = False
+        self._gnome_ws_backup: Optional[str] = None  # backup dynamic-workspaces
+        self._overlay_backup: Optional[str] = None  # backup overlay-key
+        self._hot_corners_backup: Optional[str] = None  # backup hot-corners
 
     def activate(self) -> None:
         """Activate security enforcement based on mode."""
@@ -85,8 +88,101 @@ class SecurityEnforcer(QObject):
             x11.ungrab_pointer()
             self._grab_held = False
 
+        # Restore GNOME workspace switching
+        self._gnome_ws_restore()
+
         # Kill wake lock
         self._stop_inhibit()
+
+    # -----------------------------------------------------------------------
+    # GNOME workspace lock (block desktop switching gestures)
+    # -----------------------------------------------------------------------
+
+    def _gnome_ws_lock(self) -> None:
+        """Disable GNOME workspace switching + overview gestures.
+
+        Blocks:
+        - 3-finger swipe left/right (workspace switch) — num-workspaces=1
+        - 3-finger swipe up (overview) — clear toggle-overview binding
+        - 3-finger swipe down (app view) — clear toggle-application-view binding
+        - Super key gestures — clear overlay-key
+        """
+        # Backup dynamic-workspaces
+        try:
+            r = subprocess.run(
+                ["gsettings", "get", "org.gnome.mutter", "dynamic-workspaces"],
+                capture_output=True, text=True, timeout=3,
+            )
+            self._gnome_ws_backup = r.stdout.strip()
+        except Exception:
+            self._gnome_ws_backup = None
+
+        # Backup overlay-key
+        try:
+            r = subprocess.run(
+                ["gsettings", "get", "org.gnome.mutter", "overlay-key"],
+                capture_output=True, text=True, timeout=3,
+            )
+            self._overlay_backup = r.stdout.strip()
+        except Exception:
+            self._overlay_backup = None
+
+        # Backup hot-corners
+        try:
+            r = subprocess.run(
+                ["gsettings", "get", "org.gnome.desktop.interface", "enable-hot-corners"],
+                capture_output=True, text=True, timeout=3,
+            )
+            self._hot_corners_backup = r.stdout.strip()
+        except Exception:
+            self._hot_corners_backup = None
+
+        cmds = [
+            # Only 1 workspace — no way to slide
+            ["gsettings", "set", "org.gnome.mutter", "dynamic-workspaces", "false"],
+            ["gsettings", "set", "org.gnome.desktop.wm.preferences", "num-workspaces", "1"],
+            # Block overview/app-view keyboard shortcuts
+            ["gsettings", "set", "org.gnome.shell.keybindings", "toggle-overview", "@as []"],
+            ["gsettings", "set", "org.gnome.shell.keybindings", "toggle-application-view", "@as []"],
+            # Block Super key based gestures
+            ["gsettings", "set", "org.gnome.mutter", "overlay-key", "''"],
+            # Disable hot corners
+            ["gsettings", "set", "org.gnome.desktop.interface", "enable-hot-corners", "false"],
+        ]
+        for c in cmds:
+            try:
+                subprocess.run(c, capture_output=True, text=True, timeout=3)
+            except Exception:
+                pass
+        log.info("GNOME workspace + overview gestures disabled for strict mode")
+
+    def _gnome_ws_restore(self) -> None:
+        """Restore GNOME workspace + overview settings."""
+        if self._gnome_ws_backup is not None:
+            try:
+                subprocess.run(
+                    ["gsettings", "set", "org.gnome.mutter", "dynamic-workspaces", self._gnome_ws_backup],
+                    capture_output=True, text=True, timeout=3,
+                )
+            except Exception:
+                pass
+        if self._overlay_backup is not None:
+            try:
+                subprocess.run(
+                    ["gsettings", "set", "org.gnome.mutter", "overlay-key", self._overlay_backup],
+                    capture_output=True, text=True, timeout=3,
+                )
+            except Exception:
+                pass
+        if self._hot_corners_backup is not None:
+            try:
+                subprocess.run(
+                    ["gsettings", "set", "org.gnome.desktop.interface", "enable-hot-corners", self._hot_corners_backup],
+                    capture_output=True, text=True, timeout=3,
+                )
+            except Exception:
+                pass
+        log.info("GNOME workspace + overview gestures restored")
 
     # -----------------------------------------------------------------------
     # Low mode: anti-screenshot, clipboard, wake lock
@@ -207,14 +303,20 @@ class SecurityEnforcer(QObject):
             self._on_app_state_changed(Qt.ApplicationActive)
 
     def _poll_focus(self) -> None:
-        """Poll window focus state (fallback for desktop switch detection).
+        """Poll window focus. In strict mode, force-raise window to top.
 
-        On XWayland, applicationStateChanged handles this. This poll is
-        a safety net for cases where the signal doesn't fire (e.g. GNOME
-        virtual desktop gestures on some systems).
+        On Wayland GNOME, 3-finger swipe up/down opens overview even with
+        keybindings removed. Force window to front continuously so overview
+        has no visible window to show.
         """
         if not self._active or not self._window:
             return
+
+        # Strict mode: aggressively keep window on top
+        if self._strict:
+            self._window.raise_()
+            self._window.activateWindow()
+
         if not self._window.isActiveWindow():
             if not self._focus_timer.isActive():
                 log.warning("Poll: window not active — starting 3s countdown")
@@ -269,6 +371,9 @@ class SecurityEnforcer(QObject):
                 "Strict mode on Wayland: keyboard/pointer grab not available. "
                 "Only fullscreen and focus monitoring active."
             )
+
+        # Lock GNOME workspace switching (Wayland compositor gesture bypass)
+        self._gnome_ws_lock()
 
         # In kiosk session mode, additional setup is handled by kiosk.py
         if self._kiosk:
