@@ -31,6 +31,11 @@ class LinuxBackend(SecurityBackend):
         self._overlay_backup: Optional[str] = None
         self._hot_corners_backup: Optional[str] = None
         self._touchpad_backup: Optional[str] = None
+        self._run_dialog_backup: Optional[str] = None
+        self._screenshot_backup: Optional[str] = None
+        self._screenshot_window_backup: Optional[str] = None
+        self._show_screenshot_ui_backup: Optional[str] = None
+        self._window_menu_backup: Optional[str] = None
 
     # ------------------------------------------------------------------
     # Strict mode
@@ -148,6 +153,15 @@ class LinuxBackend(SecurityBackend):
             except OSError:
                 pass
             self._inhibit_pid = None
+
+        # Restore xset settings (screen saver, DPMS)
+        try:
+            subprocess.run(
+                ["xset", "s", "on", "+dpms"],
+                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=3,
+            )
+        except (FileNotFoundError, subprocess.TimeoutExpired):
+            pass
 
     # ------------------------------------------------------------------
     # Device identity
@@ -278,6 +292,11 @@ class LinuxBackend(SecurityBackend):
             ("overlay-key", "org.gnome.mutter", "overlay-key"),
             ("hot-corners", "org.gnome.desktop.interface", "enable-hot-corners"),
             ("touchpad", "org.gnome.desktop.peripherals.touchpad", "send-events"),
+            ("run-dialog", "org.gnome.desktop.wm.keybindings", "panel-run-dialog"),
+            ("screenshot", "org.gnome.shell.keybindings", "screenshot"),
+            ("screenshot-window", "org.gnome.shell.keybindings", "screenshot-window"),
+            ("show-screenshot-ui", "org.gnome.shell.keybindings", "show-screenshot-ui"),
+            ("window-menu", "org.gnome.desktop.wm.keybindings", "activate-window-menu"),
         ]
         for attr, schema, key in cmds_backup:
             try:
@@ -299,6 +318,14 @@ class LinuxBackend(SecurityBackend):
             ["gsettings", "set", "org.gnome.mutter", "overlay-key", "''"],
             ["gsettings", "set", "org.gnome.desktop.interface", "enable-hot-corners", "false"],
             ["gsettings", "set", "org.gnome.desktop.peripherals.touchpad", "send-events", "disabled"],
+            # Block Alt+F2 (Run Command dialog) — critical bypass vector
+            ["gsettings", "set", "org.gnome.desktop.wm.keybindings", "panel-run-dialog", "@as []"],
+            # Block screenshot keybinding (PrintScreen) on Wayland GNOME
+            ["gsettings", "set", "org.gnome.shell.keybindings", "screenshot", "@as []"],
+            ["gsettings", "set", "org.gnome.shell.keybindings", "screenshot-window", "@as []"],
+            ["gsettings", "set", "org.gnome.shell.keybindings", "show-screenshot-ui", "@as []"],
+            # Block Alt+Space (window menu)
+            ["gsettings", "set", "org.gnome.desktop.wm.keybindings", "activate-window-menu", "@as []"],
         ]
         for c in cmds:
             try:
@@ -309,21 +336,26 @@ class LinuxBackend(SecurityBackend):
 
     def _gnome_ws_restore(self) -> None:
         """Restore GNOME workspace + overview settings."""
-        restores = []
-        if self._gnome_ws_backup is not None:
-            restores.append(["gsettings", "set", "org.gnome.mutter", "dynamic-workspaces", self._gnome_ws_backup])
-        if self._overlay_backup is not None:
-            restores.append(["gsettings", "set", "org.gnome.mutter", "overlay-key", self._overlay_backup])
-        if self._hot_corners_backup is not None:
-            restores.append(["gsettings", "set", "org.gnome.desktop.interface", "enable-hot-corners", self._hot_corners_backup])
-        if self._touchpad_backup is not None:
-            restores.append(["gsettings", "set", "org.gnome.desktop.peripherals.touchpad", "send-events", self._touchpad_backup])
-
-        for c in restores:
-            try:
-                subprocess.run(c, capture_output=True, text=True, timeout=3)
-            except Exception:
-                pass
+        pairs = [
+            (self._gnome_ws_backup, "org.gnome.mutter", "dynamic-workspaces"),
+            (self._overlay_backup, "org.gnome.mutter", "overlay-key"),
+            (self._hot_corners_backup, "org.gnome.desktop.interface", "enable-hot-corners"),
+            (self._touchpad_backup, "org.gnome.desktop.peripherals.touchpad", "send-events"),
+            (self._run_dialog_backup, "org.gnome.desktop.wm.keybindings", "panel-run-dialog"),
+            (self._screenshot_backup, "org.gnome.shell.keybindings", "screenshot"),
+            (self._screenshot_window_backup, "org.gnome.shell.keybindings", "screenshot-window"),
+            (self._show_screenshot_ui_backup, "org.gnome.shell.keybindings", "show-screenshot-ui"),
+            (self._window_menu_backup, "org.gnome.desktop.wm.keybindings", "activate-window-menu"),
+        ]
+        for val, schema, key in pairs:
+            if val is not None:
+                try:
+                    subprocess.run(
+                        ["gsettings", "set", schema, key, val],
+                        capture_output=True, text=True, timeout=3,
+                    )
+                except Exception:
+                    pass
 
         self._clear_gnome_backup()
         log.info("GNOME settings restored")
@@ -351,6 +383,11 @@ class LinuxBackend(SecurityBackend):
             "overlay_key": self._overlay_backup,
             "hot_corners": self._hot_corners_backup,
             "touchpad": self._touchpad_backup,
+            "run_dialog": self._run_dialog_backup,
+            "screenshot": self._screenshot_backup,
+            "screenshot_window": self._screenshot_window_backup,
+            "show_screenshot_ui": self._show_screenshot_ui_backup,
+            "window_menu": self._window_menu_backup,
         }
         _GNOME_BACKUP_DIR.mkdir(parents=True, exist_ok=True)
         try:
@@ -385,22 +422,24 @@ class LinuxBackend(SecurityBackend):
             return
 
         restores = []
-        val = data.get("dynamic_workspaces")
-        if val is not None:
-            restores.append(["gsettings", "set", "org.gnome.mutter", "dynamic-workspaces", val])
-            restores.append(["gsettings", "set", "org.gnome.desktop.wm.preferences", "num-workspaces", "4"])
 
-        val = data.get("overlay_key")
-        if val is not None:
-            restores.append(["gsettings", "set", "org.gnome.mutter", "overlay-key", val])
+        # Schema key pairs: (data_key, schema, key, default_fallback?)
+        settings_map = [
+            ("dynamic_workspaces", "org.gnome.mutter", "dynamic-workspaces", "false"),
+            ("overlay_key", "org.gnome.mutter", "overlay-key", "'Super_L'"),
+            ("hot_corners", "org.gnome.desktop.interface", "enable-hot-corners", "true"),
+            ("touchpad", "org.gnome.desktop.peripherals.touchpad", "send-events", "enabled"),
+            ("run_dialog", "org.gnome.desktop.wm.keybindings", "panel-run-dialog", "['<Alt>F2']"),
+            ("screenshot", "org.gnome.shell.keybindings", "screenshot", "['Print']"),
+            ("screenshot_window", "org.gnome.shell.keybindings", "screenshot-window", "['<Alt>Print']"),
+            ("show_screenshot_ui", "org.gnome.shell.keybindings", "show-screenshot-ui", "['<Shift>Print']"),
+            ("window_menu", "org.gnome.desktop.wm.keybindings", "activate-window-menu", "['<Alt>space']"),
+        ]
 
-        val = data.get("hot_corners")
-        if val is not None:
-            restores.append(["gsettings", "set", "org.gnome.desktop.interface", "enable-hot-corners", val])
-
-        val = data.get("touchpad")
-        if val is not None:
-            restores.append(["gsettings", "set", "org.gnome.desktop.peripherals.touchpad", "send-events", val])
+        for dk, schema, key, fallback in settings_map:
+            val = data.get(dk)
+            if val is not None:
+                restores.append(["gsettings", "set", schema, key, val])
 
         for c in restores:
             try:
@@ -408,8 +447,9 @@ class LinuxBackend(SecurityBackend):
             except Exception:
                 pass
 
-        # Re-enable touchpad
-        if data.get("touchpad") is not None:
+        # Re-enable touchpad explicitly — most visible crash symptom
+        touchpad_val = data.get("touchpad")
+        if touchpad_val is not None:
             try:
                 subprocess.run(
                     ["gsettings", "set", "org.gnome.desktop.peripherals.touchpad", "send-events", "enabled"],
@@ -418,7 +458,7 @@ class LinuxBackend(SecurityBackend):
             except Exception:
                 pass
 
-        # Restore keybindings
+        # Restore overview keybindings
         try:
             subprocess.run(
                 ["gsettings", "set", "org.gnome.shell.keybindings", "toggle-overview", "['<Super>s']"],

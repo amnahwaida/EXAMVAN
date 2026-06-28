@@ -9,6 +9,7 @@ import logging
 import os
 import subprocess
 import tempfile
+import time
 from pathlib import Path
 from typing import Optional
 
@@ -119,6 +120,26 @@ def _has_openbox() -> bool:
     return subprocess.run(["which", "openbox"], capture_output=True).returncode == 0
 
 
+def _find_free_display() -> Optional[str]:
+    """Find a free X display number by probing TCP ports.
+
+    Scans display numbers from :99 to :199 and returns the first
+    whose port is not in use. Returns None if none available.
+    """
+    import socket
+    for num in range(99, 200):
+        port = 6000 + num
+        sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        sock.settimeout(0.1)
+        try:
+            result = sock.connect_ex(("127.0.0.1", port))
+            if result != 0:
+                return f":{num}"
+        finally:
+            sock.close()
+    return None
+
+
 def launch_kiosk_session(examvan_path: str) -> int:
     """Launch kiosk session — Xephyr nested X server.
 
@@ -134,7 +155,11 @@ def launch_kiosk_session(examvan_path: str) -> int:
         log.error("Virtual environment not found at %s", venv_python)
         return 1
 
-    display = ":99"
+    # Find a free display number (avoid conflict with existing X servers)
+    import socket
+    display = _find_free_display()
+    if display is None:
+        display = ":99"  # fallback
     display_env = os.environ.copy()
     display_env["DISPLAY"] = display
     display_env["EXAMVAN_KIOSK"] = "1"

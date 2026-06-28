@@ -459,13 +459,18 @@ class ExamViewerWindow(QMainWindow):
 
             # Block dangerous keys — keyboard hook handles most but
             # Qt-level block as defense-in-depth (works even if hook fails)
+            alt_held = bool(event.modifiers() & Qt.AltModifier)
             blocked = {
-                Qt.Key_Tab: bool(event.modifiers() & Qt.AltModifier),
-                Qt.Key_F4: bool(event.modifiers() & Qt.AltModifier),
-                Qt.Key_Escape: True,
-                Qt.Key_Super_L: True,
-                Qt.Key_Super_R: True,
-                Qt.Key_Menu: True,
+                Qt.Key_Tab: alt_held,              # Alt+Tab
+                Qt.Key_F2: alt_held,               # Alt+F2 (Run Command)
+                Qt.Key_F4: alt_held,               # Alt+F4 (Close)
+                Qt.Key_F7: alt_held,               # Alt+F7 (Move)
+                Qt.Key_F8: alt_held,               # Alt+F8 (Resize)
+                Qt.Key_Space: alt_held,            # Alt+Space (Window menu)
+                Qt.Key_Escape: True,                # Alone Escape
+                Qt.Key_Super_L: True,               # Left Win
+                Qt.Key_Super_R: True,               # Right Win
+                Qt.Key_Menu: True,                  # Context menu
             }
             if blocked.get(event.key(), False):
                 event.ignore()
