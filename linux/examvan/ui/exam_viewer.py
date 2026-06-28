@@ -86,7 +86,6 @@ class ExamViewerWindow(QMainWindow):
     def _setup_ui(self) -> None:
         self.setWindowTitle(f"EXAMVAN — {self._exam.name}")
         self.setMinimumSize(1024, 700)
-        self.showMaximized()
 
         central = QWidget()
         self.setCentralWidget(central)

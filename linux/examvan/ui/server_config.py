@@ -5,8 +5,9 @@ from __future__ import annotations
 import threading
 from typing import Optional
 
-from PyQt5.QtCore import Qt, pyqtSignal, pyqtSlot
+from PyQt5.QtCore import Qt, QTimer, pyqtSignal, pyqtSlot
 from PyQt5.QtWidgets import (
+    QApplication,
     QCheckBox,
     QDialog,
     QLabel,
@@ -49,7 +50,6 @@ class ServerConfigDialog(QDialog):
     def _setup_ui(self) -> None:
         self.setWindowTitle("EXAMVAN — Server Configuration")
         self.setWindowFlags(self.windowFlags() & ~Qt.WindowContextHelpButtonHint)
-        self.showMaximized()
 
         # Outer layout centers the form card
         outer = QVBoxLayout(self)
@@ -230,6 +230,12 @@ class ServerConfigDialog(QDialog):
         saved_identity = config.get("identity_data", {})
 
         dlg = IdentityDialog(self._exam, saved_data=saved_identity, parent=self)
+        dlg.show()
+        screen = self.screen()
+        if screen:
+            dlg.setGeometry(screen.availableGeometry())
+        dlg.showMaximized()
+        QApplication.processEvents()
         if dlg.exec_() == QDialog.Accepted:
             identity = dlg.get_identity_data()
             config.set("identity_data", identity)

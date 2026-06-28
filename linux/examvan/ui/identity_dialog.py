@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Any, Dict, List, Optional
 
-from PyQt5.QtCore import Qt
+from PyQt5.QtCore import Qt, QTimer
 from PyQt5.QtWidgets import (
     QDialog,
     QLabel,
@@ -44,7 +44,6 @@ class IdentityDialog(QDialog):
     def _setup_ui(self) -> None:
         self.setWindowTitle("Identitas Siswa")
         self.setWindowFlags(self.windowFlags() & ~Qt.WindowContextHelpButtonHint)
-        self.showMaximized()
 
         # Outer layout centers the form card
         outer = QVBoxLayout(self)

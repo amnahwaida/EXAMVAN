@@ -5,6 +5,23 @@ from __future__ import annotations
 import sys
 
 
+def _maximize_window(widget) -> None:
+    """Maximize a window reliably on XWayland and Wayland.
+
+    showMaximized() may not work under xcb because the WM hasn't processed
+    the request before the window is painted. Explicitly set geometry as
+    fallback, and process events so the WM can respond.
+    """
+    from PyQt5.QtWidgets import QApplication
+    screen = QApplication.primaryScreen()
+    if screen:
+        geo = screen.availableGeometry()
+        widget.setGeometry(geo)
+    widget.show()
+    widget.showMaximized()
+    QApplication.processEvents()
+
+
 def main() -> None:
     kiosk = "--kiosk" in sys.argv or "--kiosk-session" in sys.argv
 
@@ -45,15 +62,15 @@ def main() -> None:
             windows.clear()
             # Clear saved token so user must re-enter for next exam
             dialog.input_token.clear()
-            dialog.show()
+            _maximize_window(dialog)
 
         viewer.closed.connect(_on_viewer_closed)
         windows.append(viewer)
-        viewer.show()
+        _maximize_window(viewer)
 
     dialog = ServerConfigDialog(kiosk_mode=kiosk)
     dialog.exam_selected.connect(on_exam_selected)
-    dialog.show()
+    _maximize_window(dialog)
 
     sys.exit(app.exec_())
 
