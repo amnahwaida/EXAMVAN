@@ -94,6 +94,12 @@ fi
 # Qt5 defaults to xcb (XWayland) on GNOME Wayland — this is correct because
 # X11 focus tracking properly detects desktop switching.
 
+# Detect Wayland — need kiosk session for proper security
+IS_WAYLAND=0
+if [ -n "${WAYLAND_DISPLAY:-}" ] || [ "${XDG_SESSION_TYPE:-}" = "wayland" ]; then
+    IS_WAYLAND=1
+fi
+
 # Ensure Qt picks up the system theme via xcb/xwayland
 if [ -z "${QT_QPA_PLATFORMTHEME:-}" ]; then
     if command -v gsettings &>/dev/null; then
@@ -106,7 +112,22 @@ fi
 
 # ---- Launch ----------------------------------------------------------------
 
-# Kiosk mode: launch isolated X session
+# Wayland mode: always launch isolated X11 kiosk session.
+# GNOME Wayland blocks keyboard/pointer grabs needed for strict mode,
+# and 3-finger swipe gestures are hardcoded in the compositor.
+if [ "$IS_WAYLAND" = "1" ] && [ "${EXAMVAN_KIOSK:-}" != "1" ]; then
+    info "Running on Wayland — launching isolated X11 kiosk session ..."
+    info "(GNOME Wayland blocks keyboard grabs needed for strict mode)"
+    cd "$SCRIPT_DIR"
+    "$PYTHON" -c "
+from examvan.security.kiosk import launch_kiosk_session
+import sys
+sys.exit(launch_kiosk_session('$SCRIPT_DIR'))
+"
+    exit $?
+fi
+
+# Kiosk mode: explisit flag
 if [ "${1:-}" = "--kiosk" ]; then
     info "Launching EXAMVAN in kiosk mode ..."
     cd "$SCRIPT_DIR"

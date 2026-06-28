@@ -114,55 +114,57 @@ def setup_kiosk_environment() -> None:
     log.info("Kiosk environment configured")
 
 
+def _has_openbox() -> bool:
+    """Check if Openbox window manager is installed."""
+    return subprocess.run(["which", "openbox"], capture_output=True).returncode == 0
+
+
 def launch_kiosk_session(examvan_path: str) -> int:
-    """Launch a kiosk X session with Openbox + exam app.
+    """Launch kiosk session — isolated X server via xinit (VT switch).
 
-    This creates a standalone X session (via startx/xinit) with Openbox
-    as the window manager in kiosk mode and the exam app as the sole client.
-
-    Returns the exit code of the session.
+    On Wayland, GNOME compositor blocks keyboard/pointer grabs and handles
+    3-finger swipe gestures at compositor level. By launching a standalone
+    X11 session on a separate VT, we get full keyboard/pointer control and
+    no Wayland gesture interference.
     """
-    ob_config = generate_openbox_kiosk_config()
+    script_dir = os.path.dirname(os.path.abspath(__file__))
+    project_dir = os.path.normpath(os.path.join(script_dir, "..", ".."))  # EXAVAN/linux/
 
-    # Build xinitrc script
+    if subprocess.run(["which", "xinit"], capture_output=True).returncode != 0:
+        log.error("xinit not found. Install xinit: sudo apt install xinit")
+        return 1
+
+    ob_config = generate_openbox_kiosk_config()
+    use_openbox = _has_openbox()
+
     fd, xinitrc = tempfile.mkstemp(suffix=".sh", prefix="examvan_xinit_")
     with os.fdopen(fd, "w") as f:
-        f.write(f"""#!/bin/sh
+        f.write(f"""#!/bin/bash
 export EXAMVAN_KIOSK=1
-
-# Disable screen saver and DPMS
 xset s off -dpms 2>/dev/null
-
-# Start Openbox with kiosk config
-OPENBOX_CONFIG="{ob_config}" openbox --config-file "{ob_config}" &
-OB_PID=$!
-
-# Wait for Openbox to be ready
+""")
+        if use_openbox:
+            f.write(f"""openbox --config-file "{ob_config}" &
 sleep 1
-
-# Launch exam app
-python3 -m examvan --kiosk-session
-APP_EXIT=$?
-
-# Kill Openbox
-kill $OB_PID 2>/dev/null
-
-# Clean up temp config
-rm -f "{ob_config}"
-
-exit $APP_EXIT
+""")
+        f.write(f"""cd {project_dir}
+export PYTHONPATH="{project_dir}:$PYTHONPATH"
+exec {project_dir}/.venv/bin/python3 -m examvan --kiosk-session
 """)
     os.chmod(xinitrc, 0o755)
 
-    log.info("Launching kiosk session via xinit...")
+    log.info("Launching kiosk session via xinit (VT switch) ...")
     try:
         result = subprocess.run(
-            ["xinit", xinitrc, "--", ":1", "vt7"],
-            timeout=86400,  # Max 24h session
+            ["xinit", xinitrc, "--", ":1"],
+            timeout=86400,
+            stdin=subprocess.DEVNULL,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.PIPE,
         )
         return result.returncode
     except FileNotFoundError:
-        log.error("xinit not found. Install xinit package.")
+        log.error("xinit not found. Install xinit: sudo apt install xinit")
         return 1
     except subprocess.TimeoutExpired:
         log.warning("Kiosk session timed out")
