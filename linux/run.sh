@@ -112,44 +112,8 @@ fi
 
 # ---- Launch ----------------------------------------------------------------
 
-# Wayland mode: launch isolated X11 kiosk session via Xephyr.
-# GNOME Wayland blocks keyboard/pointer grabs, so we run a nested
-# X server where X11 grabs work and compositor gestures don't apply.
-if [ "$IS_WAYLAND" = "1" ] && [ "${EXAMVAN_KIOSK:-}" != "1" ]; then
-    info "Running on Wayland — launching isolated X11 kiosk session ..."
-    info "(GNOME Wayland blocks keyboard grabs needed for strict mode)"
-
-    if command -v Xephyr &>/dev/null; then
-        # Detect screen size
-        SCREEN_W=$(xdpyinfo 2>/dev/null | grep "dimensions:" | awk '{print $2}' | cut -dx -f1 || echo "1920")
-        SCREEN_H=$(xdpyinfo 2>/dev/null | grep "dimensions:" | awk '{print $2}' | cut -dx -f2 || echo "1080")
-
-        info "Starting Xephyr (${SCREEN_W}x${SCREEN_H}) on display :99 ..."
-        Xephyr :99 -screen "${SCREEN_W}x${SCREEN_H}" -ac -br -sw-cursor -noreset &
-        XEPHYR_PID=$!
-
-        # Wait for Xephyr to be ready
-        for i in $(seq 1 30); do
-            if xdpyinfo -display :99 &>/dev/null; then
-                break
-            fi
-            sleep 0.2
-        done
-
-        info "Xephyr ready, launching exam app inside ..."
-        cd "$SCRIPT_DIR"
-        EXAMVAN_KIOSK=1 DISPLAY=:99 "$PYTHON" -m examvan "$@"
-        APP_EXIT=$?
-
-        info "Exam app exited (code $APP_EXIT), stopping Xephyr ..."
-        kill "$XEPHYR_PID" 2>/dev/null
-        wait "$XEPHYR_PID" 2>/dev/null
-        exit "$APP_EXIT"
-    else
-        warn "Xephyr not found. Install: sudo apt install xserver-xephyr"
-        warn "Falling back to direct display (security limited)"
-    fi
-fi
+# Wayland: run directly. Qt5 defaults to XWayland which supports
+# keyboard/pointer grabs. 3-finger gestures are handled by enforcer.py.
 
 # Kiosk mode: explisit flag
 if [ "${1:-}" = "--kiosk" ]; then
