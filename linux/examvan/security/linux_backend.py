@@ -8,6 +8,7 @@ import logging
 import os
 import socket
 import subprocess
+import uuid
 from pathlib import Path
 from typing import Any, Optional
 
@@ -162,7 +163,6 @@ class LinuxBackend(SecurityBackend):
         except OSError:
             pass
         # Fallback: uuid-based
-        import uuid
         mac = uuid.getnode()
         return ":".join(f"{(mac >> i) & 0xFF:02X}" for i in range(40, -1, -8))
 

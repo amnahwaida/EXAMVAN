@@ -300,6 +300,7 @@ class ExamViewerWindow(QMainWindow):
             except OSError:
                 pass
 
+        self._close_in_progress = True  # Prevent re-entry in closeEvent
         QMessageBox.information(
             self,
             "Berhasil",

@@ -22,6 +22,7 @@ from ctypes import (
     byref,
     c_char_p,
     c_int,
+    c_longlong,
     c_size_t,
     c_uint,
     c_uint32,
@@ -208,6 +209,7 @@ SM_CMONITORS = 80
 
 # GLOBALS — prevent GC of callback and hook handles
 _hook_id: Optional[HHOOK] = None
+_hook_thread: Optional[threading.Thread] = None
 _hook_thread_id: Optional[int] = None
 _hook_callback: Any = None  # Keep CFUNCTYPE wrapper reference
 _hook_proc_wrapper: Any = None  # Extra guard against GC
@@ -314,6 +316,16 @@ def _keyboard_hook_proc(nCode: int, wParam: WPARAM, lParam: LPARAM) -> int:
                 return BLOCK_KEY
             if vk == 0xDD:          # Win+] (window snap right)
                 return BLOCK_KEY
+            # Accessibility
+            if vk == 0xBB:          # Win+= (Magnifier zoom in)
+                return BLOCK_KEY
+            if vk == 0xBD:          # Win+- (Magnifier zoom out)
+                return BLOCK_KEY
+            if vk == 0x55:          # Win+U (Ease of Access)
+                return BLOCK_KEY
+            if vk == 0x4F:          # Win+Ctrl+O (OSK) — blocked via win_down
+                return BLOCK_KEY
+            # Win+Esc (exit magnifier) — handled by regular Escape block below
         # PrintScreen
         if vk == VK_SNAPSHOT:
             return BLOCK_KEY
@@ -345,7 +357,9 @@ def _hook_thread_func() -> None:
     global _hook_id, _hook_callback, _hook_proc_wrapper, _hook_ready
     try:
         # Set the hook — store global ref to prevent GC
-        HOOKPROC = CFUNCTYPE(c_int, c_int, WPARAM, LPARAM)
+        # CFUNCTYPE return c_longlong (64-bit) for LRESULT on x64 Windows.
+        # Using 32-bit c_int would truncate the return value on x64.
+        HOOKPROC = CFUNCTYPE(c_longlong, c_int, WPARAM, LPARAM)
         _hook_proc_wrapper = HOOKPROC(_keyboard_hook_proc)
         _hook_callback = _hook_proc_wrapper  # Extra guard
 
@@ -597,11 +611,12 @@ class WindowsBackend(SecurityBackend):
 
     def _start_keyboard_hook(self) -> bool:
         """Start keyboard hook thread. Returns True if installed successfully."""
-        global _hook_thread_id, _hook_ready
+        global _hook_thread, _hook_thread_id, _hook_ready
         _hook_ready.clear()
         try:
             hook_thread = threading.Thread(target=_hook_thread_func, daemon=True)
             hook_thread.start()
+            _hook_thread = hook_thread
             _hook_thread_id = hook_thread.native_id
 
             # Wait for hook to install (poll with timeout)
@@ -619,12 +634,22 @@ class WindowsBackend(SecurityBackend):
             return False
 
     def _stop_keyboard_hook(self) -> None:
-        global _hook_id, _hook_thread_id
+        """Stop keyboard hook thread.
+
+        Posts WM_QUIT to the hook thread and waits briefly for it to
+        exit. The hook thread's finally handles UnhookWindowsHookEx
+        so we DON'T set _hook_id = None here (race: we'd null it before
+        the thread reads it, leaking the hook).
+        """
+        global _hook_id, _hook_thread, _hook_thread_id
         if _hook_thread_id is not None:
             try:
                 _PostThreadMessageW(DWORD(_hook_thread_id), WM_QUIT, WPARAM(0), LPARAM(0))
             except Exception:
                 pass
+            if _hook_thread is not None:
+                _hook_thread.join(timeout=1.0)
             _hook_thread_id = None
-        _hook_id = None
-        log.info("Keyboard hook stopped")
+            _hook_thread = None
+        # Do NOT set _hook_id = None here — hook thread's finally does it
+        log.info("Keyboard hook stop requested")
