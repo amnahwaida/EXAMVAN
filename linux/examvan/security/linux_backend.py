@@ -338,12 +338,15 @@ class LinuxBackend(SecurityBackend):
 
     def _gnome_ws_lock(self) -> None:
         """Disable GNOME workspace switching + overview gestures."""
+        # ALL settings that will be modified MUST be backed up here
         cmds_backup = [
             ("org.gnome.mutter", "dynamic-workspaces"),
             ("org.gnome.mutter", "overlay-key"),
             ("org.gnome.desktop.interface", "enable-hot-corners"),
             ("org.gnome.desktop.peripherals.touchpad", "send-events"),
             ("org.gnome.desktop.wm.keybindings", "panel-run-dialog"),
+            ("org.gnome.shell.keybindings", "toggle-overview"),
+            ("org.gnome.shell.keybindings", "toggle-application-view"),
             ("org.gnome.shell.keybindings", "screenshot"),
             ("org.gnome.shell.keybindings", "screenshot-window"),
             ("org.gnome.shell.keybindings", "show-screenshot-ui"),
@@ -361,6 +364,17 @@ class LinuxBackend(SecurityBackend):
             except Exception:
                 pass
 
+        # Backup num-workspaces separately (different schema)
+        try:
+            r = subprocess.run(
+                ["gsettings", "get", "org.gnome.desktop.wm.preferences", "num-workspaces"],
+                capture_output=True, text=True, timeout=3,
+            )
+            if r.returncode == 0:
+                self._gnome_backups["org.gnome.desktop.wm.preferences:num-workspaces"] = r.stdout.strip()
+        except Exception:
+            pass
+
         self._persist_gnome_backup()
 
         cmds = [
@@ -371,13 +385,10 @@ class LinuxBackend(SecurityBackend):
             ["gsettings", "set", "org.gnome.mutter", "overlay-key", "''"],
             ["gsettings", "set", "org.gnome.desktop.interface", "enable-hot-corners", "false"],
             ["gsettings", "set", "org.gnome.desktop.peripherals.touchpad", "send-events", "disabled"],
-            # Block Alt+F2 (Run Command dialog) — critical bypass vector
             ["gsettings", "set", "org.gnome.desktop.wm.keybindings", "panel-run-dialog", "@as []"],
-            # Block screenshot keybinding (PrintScreen) on Wayland GNOME
             ["gsettings", "set", "org.gnome.shell.keybindings", "screenshot", "@as []"],
             ["gsettings", "set", "org.gnome.shell.keybindings", "screenshot-window", "@as []"],
             ["gsettings", "set", "org.gnome.shell.keybindings", "show-screenshot-ui", "@as []"],
-            # Block Alt+Space (window menu)
             ["gsettings", "set", "org.gnome.desktop.wm.keybindings", "activate-window-menu", "@as []"],
         ]
         for c in cmds:
@@ -395,10 +406,13 @@ class LinuxBackend(SecurityBackend):
             ("org.gnome.desktop.interface", "enable-hot-corners"),
             ("org.gnome.desktop.peripherals.touchpad", "send-events"),
             ("org.gnome.desktop.wm.keybindings", "panel-run-dialog"),
+            ("org.gnome.shell.keybindings", "toggle-overview"),
+            ("org.gnome.shell.keybindings", "toggle-application-view"),
             ("org.gnome.shell.keybindings", "screenshot"),
             ("org.gnome.shell.keybindings", "screenshot-window"),
             ("org.gnome.shell.keybindings", "show-screenshot-ui"),
             ("org.gnome.desktop.wm.keybindings", "activate-window-menu"),
+            ("org.gnome.desktop.wm.preferences", "num-workspaces"),
         ]
         for schema, key in pairs:
             val = self._gnome_backups.get(f"{schema}:{key}")
@@ -439,10 +453,13 @@ class LinuxBackend(SecurityBackend):
             "org.gnome.desktop.interface:enable-hot-corners": "hot_corners",
             "org.gnome.desktop.peripherals.touchpad:send-events": "touchpad",
             "org.gnome.desktop.wm.keybindings:panel-run-dialog": "run_dialog",
+            "org.gnome.shell.keybindings:toggle-overview": "toggle_overview",
+            "org.gnome.shell.keybindings:toggle-application-view": "toggle_app_view",
             "org.gnome.shell.keybindings:screenshot": "screenshot",
             "org.gnome.shell.keybindings:screenshot-window": "screenshot_window",
             "org.gnome.shell.keybindings:show-screenshot-ui": "show_screenshot_ui",
             "org.gnome.desktop.wm.keybindings:activate-window-menu": "window_menu",
+            "org.gnome.desktop.wm.preferences:num-workspaces": "num_workspaces",
         }
         data = {}
         for dict_key, data_key in key_map.items():
@@ -490,10 +507,13 @@ class LinuxBackend(SecurityBackend):
             ("hot_corners", "org.gnome.desktop.interface", "enable-hot-corners", "true"),
             ("touchpad", "org.gnome.desktop.peripherals.touchpad", "send-events", "enabled"),
             ("run_dialog", "org.gnome.desktop.wm.keybindings", "panel-run-dialog", "['<Alt>F2']"),
+            ("toggle_overview", "org.gnome.shell.keybindings", "toggle-overview", "['<Super>s']"),
+            ("toggle_app_view", "org.gnome.shell.keybindings", "toggle-application-view", "['<Super>a']"),
             ("screenshot", "org.gnome.shell.keybindings", "screenshot", "['Print']"),
             ("screenshot_window", "org.gnome.shell.keybindings", "screenshot-window", "['<Alt>Print']"),
             ("show_screenshot_ui", "org.gnome.shell.keybindings", "show-screenshot-ui", "['<Shift>Print']"),
             ("window_menu", "org.gnome.desktop.wm.keybindings", "activate-window-menu", "['<Alt>space']"),
+            ("num_workspaces", "org.gnome.desktop.wm.preferences", "num-workspaces", "4"),
         ]
 
         for dk, schema, key, fallback in settings_map:
@@ -517,19 +537,6 @@ class LinuxBackend(SecurityBackend):
                 )
             except Exception:
                 pass
-
-        # Restore overview keybindings
-        try:
-            subprocess.run(
-                ["gsettings", "set", "org.gnome.shell.keybindings", "toggle-overview", "['<Super>s']"],
-                capture_output=True, timeout=3,
-            )
-            subprocess.run(
-                ["gsettings", "set", "org.gnome.shell.keybindings", "toggle-application-view", "['<Super>a']"],
-                capture_output=True, timeout=3,
-            )
-        except Exception:
-            pass
 
         LinuxBackend._clear_gnome_backup()
         log.info("GNOME settings restored from crash backup")
