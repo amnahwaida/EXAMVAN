@@ -137,6 +137,17 @@ class SecurityEnforcer(QObject):
         except Exception:
             self._hot_corners_backup = None
 
+        # Backup touchpad state
+        self._touchpad_backup = None
+        try:
+            r = subprocess.run(
+                ["gsettings", "get", "org.gnome.desktop.peripherals.touchpad", "send-events"],
+                capture_output=True, text=True, timeout=3,
+            )
+            self._touchpad_backup = r.stdout.strip()
+        except Exception:
+            pass
+
         cmds = [
             # Only 1 workspace — no way to slide
             ["gsettings", "set", "org.gnome.mutter", "dynamic-workspaces", "false"],
@@ -148,6 +159,10 @@ class SecurityEnforcer(QObject):
             ["gsettings", "set", "org.gnome.mutter", "overlay-key", "''"],
             # Disable hot corners
             ["gsettings", "set", "org.gnome.desktop.interface", "enable-hot-corners", "false"],
+            # Disable touchpad entirely — GNOME Wayland compositor handles
+            # 3-finger gestures at low level, gsettings cannot block them.
+            # Disable touchpad removes all gesture capabilities.
+            ["gsettings", "set", "org.gnome.desktop.peripherals.touchpad", "send-events", "disabled"],
         ]
         for c in cmds:
             try:
@@ -178,6 +193,14 @@ class SecurityEnforcer(QObject):
             try:
                 subprocess.run(
                     ["gsettings", "set", "org.gnome.desktop.interface", "enable-hot-corners", self._hot_corners_backup],
+                    capture_output=True, text=True, timeout=3,
+                )
+            except Exception:
+                pass
+        if self._touchpad_backup is not None:
+            try:
+                subprocess.run(
+                    ["gsettings", "set", "org.gnome.desktop.peripherals.touchpad", "send-events", self._touchpad_backup],
                     capture_output=True, text=True, timeout=3,
                 )
             except Exception:
