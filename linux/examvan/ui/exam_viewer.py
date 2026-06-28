@@ -115,8 +115,8 @@ class ExamViewerWindow(QMainWindow):
         )
         top_layout.addWidget(self._lbl_security)
 
-        # Timer
-        self._timer_widget = ElapsedTimerWidget()
+        # Timer (countdown if end_time, else elapsed)
+        self._timer_widget = ElapsedTimerWidget(end_time=self._exam.end_time)
         top_layout.addWidget(self._timer_widget)
 
         main_layout.addWidget(top_bar)
@@ -126,7 +126,7 @@ class ExamViewerWindow(QMainWindow):
         splitter.setHandleWidth(3)
 
         # PDF viewer
-        self._pdf_viewer = PdfWidget()
+        self._pdf_viewer = PdfWidget(panel_color=self._exam.panel_color)
         splitter.addWidget(self._pdf_viewer)
 
         # Answer sheet panel
@@ -154,10 +154,16 @@ class ExamViewerWindow(QMainWindow):
         self._lbl_status.setStyleSheet("font-size: 12px;")
         bottom_layout.addWidget(self._lbl_status, 1)
 
-        # Toggle answer sheet
-        self._btn_toggle = QPushButton("📋 Lembar Jawaban")
+        # Toggle answer sheet — panel color
+        pc = self._exam.panel_color
+        self._btn_toggle = QPushButton(" Lembar Jawaban")
         self._btn_toggle.setCheckable(True)
         self._btn_toggle.setChecked(True)
+        self._btn_toggle.setStyleSheet(
+            f"QPushButton {{ background-color: {pc}; color: #ffffff; font-weight: bold;"
+            f"padding: 8px 18px; border-radius: 6px; }}"
+            f"QPushButton:checked {{ background-color: {pc}; }}"
+        )
         self._btn_toggle.clicked.connect(
             lambda checked: self._answer_sheet.setVisible(checked)
         )

@@ -97,8 +97,9 @@ class _DragScrollLabel(QLabel):
 class PdfWidget(QWidget):
     """PDF page viewer with zoom and navigation."""
 
-    def __init__(self, parent=None):
+    def __init__(self, panel_color: str = "#6366f1", parent=None):
         super().__init__(parent)
+        self._panel_color = panel_color
         self._doc: Optional[fitz.Document] = None
         self._current_page = 0
         self._total_pages = 0
@@ -110,12 +111,17 @@ class PdfWidget(QWidget):
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(4)
 
+        pc = self._panel_color
+        btn_style = (f"QPushButton {{ background-color: {pc}; color: #ffffff; "
+                     f"border: none; border-radius: 4px; font-weight: bold; }}")
+
         # Navigation bar
         nav = QHBoxLayout()
         nav.setSpacing(8)
 
         self._btn_prev = QPushButton("◀ Sebelumnya")
         self._btn_prev.setFixedHeight(32)
+        self._btn_prev.setStyleSheet(btn_style)
         self._btn_prev.clicked.connect(self.prev_page)
         nav.addWidget(self._btn_prev)
 
@@ -126,17 +132,19 @@ class PdfWidget(QWidget):
 
         self._btn_next = QPushButton("Berikutnya ▶")
         self._btn_next.setFixedHeight(32)
+        self._btn_next.setStyleSheet(btn_style)
         self._btn_next.clicked.connect(self.next_page)
         nav.addWidget(self._btn_next)
 
         layout.addLayout(nav)
 
-        # Zoom controls
+        # Zoom controls — icon buttons
         zoom_layout = QHBoxLayout()
         zoom_layout.setSpacing(4)
 
         btn_zoom_out = QPushButton("−")
         btn_zoom_out.setFixedSize(32, 32)
+        btn_zoom_out.setStyleSheet(btn_style)
         btn_zoom_out.clicked.connect(self.zoom_out)
         zoom_layout.addWidget(btn_zoom_out)
 
@@ -148,6 +156,7 @@ class PdfWidget(QWidget):
 
         btn_zoom_in = QPushButton("+")
         btn_zoom_in.setFixedSize(32, 32)
+        btn_zoom_in.setStyleSheet(btn_style)
         btn_zoom_in.clicked.connect(self.zoom_in)
         zoom_layout.addWidget(btn_zoom_in)
 

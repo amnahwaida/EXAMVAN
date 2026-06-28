@@ -1,21 +1,31 @@
-"""Elapsed timer widget — HH:MM:SS display."""
+"""Timer widget — countdown or elapsed depending on exam config."""
 
 from __future__ import annotations
 
 from datetime import datetime, timezone
+from typing import Optional
 
 from PyQt5.QtCore import QTimer, Qt
 from PyQt5.QtWidgets import QLabel, QWidget, QHBoxLayout
 
 
 class ElapsedTimerWidget(QWidget):
-    """Displays elapsed time since exam start as HH:MM:SS."""
+    """Displays countdown (if end_time set) or elapsed time."""
 
-    def __init__(self, parent=None):
+    def __init__(self, end_time: Optional[str] = None, parent=None):
         super().__init__(parent)
         self._start_time = datetime.now(timezone.utc)
-        self._setup_ui()
+        self._end_time: Optional[datetime] = None
 
+        if end_time:
+            try:
+                self._end_time = datetime.fromisoformat(
+                    end_time.replace("Z", "+00:00")
+                )
+            except Exception:
+                pass
+
+        self._setup_ui()
         self._timer = QTimer(self)
         self._timer.timeout.connect(self._update)
         self._timer.start(1000)
@@ -41,17 +51,26 @@ class ElapsedTimerWidget(QWidget):
 
     def _update(self) -> None:
         now = datetime.now(timezone.utc)
-        delta = now - self._start_time
-        total_secs = int(delta.total_seconds())
-        if total_secs < 0:
-            total_secs = 0
-        hours = total_secs // 3600
-        minutes = (total_secs % 3600) // 60
-        seconds = total_secs % 60
-        self._label.setText(f"{hours:02d}:{minutes:02d}:{seconds:02d}")
+        if self._end_time and now < self._end_time:
+            delta = self._end_time - now
+            total = int(delta.total_seconds())
+            if total < 0:
+                total = 0
+            h = total // 3600
+            m = (total % 3600) // 60
+            s = total % 60
+            self._label.setText(f"-{h:02d}:{m:02d}:{s:02d}")
+        else:
+            delta = now - self._start_time
+            total = int(delta.total_seconds())
+            if total < 0:
+                total = 0
+            h = total // 3600
+            m = (total % 3600) // 60
+            s = total % 60
+            self._label.setText(f"{h:02d}:{m:02d}:{s:02d}")
 
     def get_start_time_iso(self) -> str:
-        """Return start time as ISO 8601 UTC string."""
         return self._start_time.strftime("%Y-%m-%dT%H:%M:%SZ")
 
     def stop(self) -> None:
