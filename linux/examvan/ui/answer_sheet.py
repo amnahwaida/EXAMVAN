@@ -194,14 +194,14 @@ class AnswerSheetWidget(QWidget):
         combos = {}
         for i, left in enumerate(left_items):
             row_layout = QVBoxLayout()
-            lbl = QLabel(f"{i + 1}. {left}")
+            lbl = QLabel(str(left))
             lbl.setStyleSheet("font-size: 13px; font-weight: bold;")
             row_layout.addWidget(lbl)
 
             combo = QComboBox()
             combo.addItem("-- Pilih --")
             for ri, right in enumerate(right_items):
-                combo.addItem(f"{chr(65 + ri)}. {right}")
+                combo.addItem(str(right))
             # Restore saved
             saved_val = saved.get(str(i + 1), "")
             if saved_val:
