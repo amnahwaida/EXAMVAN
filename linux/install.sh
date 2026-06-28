@@ -10,7 +10,7 @@ set -euo pipefail
 REPO_URL="https://github.com/amnahwaida/EXAMVAN"
 BRANCH="main"
 
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]:-.}")" && pwd)"
 INSTALL_DIR="/opt/examvan"
 VENV_DIR="$INSTALL_DIR/.venv"
 BIN_LINK="/usr/bin/examvan"
@@ -380,7 +380,7 @@ main() {
     echo "  Mode kiosk:  examvan --kiosk"
     echo "  Atau pilih sesi 'EXAMVAN Kiosk' dari login manager."
     echo ""
-    echo "  Uninstall:  sudo $0 --uninstall"
+    echo "  Uninstall:  curl -fsSL https://raw.githubusercontent.com/amnahwaida/EXAMVAN/main/linux/install.sh | sudo bash -s -- --uninstall"
     echo ""
 }
 
