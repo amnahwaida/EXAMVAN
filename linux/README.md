@@ -4,117 +4,131 @@ Aplikasi ujian digital EXAMVAN untuk Linux. Mendukung 3 mode keamanan: **Low**, 
 
 ## Persyaratan Sistem
 
-- **Python 3.8+** dengan `venv` module
-- **X11** (recommended) — untuk fitur keamanan lengkap
-- **Wayland** — berjalan dengan fitur keamanan terbatas
+- **Python 3.8+** dengan `venv`
+- **X11** (disarankan) — fitur keamanan lengkap
+- **Wayland** — fitur keamanan terbatas (keyboard grab tidak tersedia)
 
 ## Instalasi
 
-### 1. Install Python 3 + venv
+### Cara 1: Install Script (disarankan)
 
-**Ubuntu / Debian:**
 ```bash
-sudo apt install python3 python3-venv python3-pip
+cd linux
+chmod +x install.sh
+sudo ./install.sh
 ```
 
-**Fedora:**
+Script akan:
+- Install dependensi sistem (python3-venv, PyQt5, xsel, dll)
+- Salin file ke `/opt/examvan/`
+- Buat virtual environment + install requirements
+- Buat launcher `/usr/bin/examvan`
+- Daftarkan menu aplikasi & sesi kiosk
+
+Setelah selesai, jalankan dari terminal:
+
 ```bash
-sudo dnf install python3 python3-pip
+examvan
 ```
 
-**Arch Linux:**
+Atau cari **EXAMVAN** di menu aplikasi.
+
+### Uninstall
+
 ```bash
-sudo pacman -S python python-pip
+sudo ./install.sh --uninstall
 ```
 
-### 2. Jalankan launcher
-
-Launcher akan **otomatis membuat virtual environment** dan menginstall dependencies saat pertama kali dijalankan:
+### Cara 2: Jalankan Langsung (tanpa install)
 
 ```bash
 cd linux
 ./run.sh
 ```
 
-Output pertama kali:
-```
-[INFO]  Creating virtual environment at /path/to/linux/.venv ...
-[INFO]  Installing dependencies into venv ...
-[INFO]  Virtual environment ready.
-```
+Launcher otomatis buat virtual environment + install dependencies saat pertama jalan.
 
-Virtual environment disimpan di `linux/.venv/` — tidak perlu install manual.
-
-## Perintah Launcher
+## Perintah
 
 | Perintah | Fungsi |
 |----------|--------|
-| `./run.sh` | Jalankan mode normal (auto-setup venv jika belum ada) |
-| `./run.sh --kiosk` | Jalankan mode kiosk (strict, isolated X session) |
+| `examvan` | Jalankan mode normal |
+| `examvan --kiosk` | Jalankan mode kiosk (Xephyr + Openbox) |
+| `./run.sh` | Jalankan tanpa install (dari direktori) |
+| `./run.sh --kiosk` | Mode kiosk tanpa install |
 | `./run.sh --setup` | Paksa buat ulang virtual environment |
 | `./run.sh --clean` | Hapus virtual environment |
-
-## Manual Setup (Tanpa Launcher)
-
-Jika ingin menjalankan tanpa `run.sh`:
-
-```bash
-cd linux
-
-# Buat virtual environment
-python3 -m venv .venv
-
-# Aktifkan
-source .venv/bin/activate
-
-# Install dependencies
-pip install -r requirements.txt
-
-# Jalankan
-python -m examvan
-
-# Deactivate saat selesai
-deactivate
-```
-
-## Struktur Virtual Environment
-
-```
-linux/
-├── .venv/               ← virtual environment (auto-created, di-gitignore)
-│   ├── bin/python       ← venv Python
-│   ├── bin/pip          ← venv pip
-│   └── lib/python3.x/   ← packages terinstall
-├── run.sh               ← launcher (auto-manage venv)
-├── requirements.txt     ← PyQt5, PyMuPDF
-└── examvan/             ← source code
-```
 
 ## Mode Keamanan
 
 ### Low Mode
 | Fitur | X11 | Wayland |
 |-------|-----|---------|
-| Anti-screenshot | `_NET_WM_BYPASS_COMPOSITOR` | Inherently protected |
-| Clipboard clear | `xsel` + Qt clipboard | `wl-copy --clear` |
+| Anti-screenshot | Bypass compositor | Inherently protected |
+| Clipboard clear | `xsel` | `wl-copy --clear` |
 | Screen wake lock | `systemd-inhibit` / `xset` | `systemd-inhibit` |
 
 ### Medium Mode (Low +)
-| Fitur | X11 | Wayland |
-|-------|-----|---------|
-| Focus loss detection | `QApplication.applicationStateChanged` | Sama |
-| Auto-submit (3 detik) | Timer + submit | Sama |
-| Visual countdown | Banner merah | Sama |
+- Focus loss detection → auto-submit 3 detik
+- Banner merah countdown
+- Sama di X11 & Wayland
 
 ### Strict Mode (Medium + Kiosk)
 | Fitur | X11 | Wayland |
 |-------|-----|---------|
-| Keyboard grab | `XGrabKeyboard` (block Alt-Tab, Super, dll) | Tidak tersedia |
-| Pointer grab | `XGrabPointer` (cursor terkunci di window) | Tidak tersedia |
+| Keyboard grab (Alt+Tab, Super, dll) | `XGrabKeyboard` | ❌ Tidak didukung |
+| Pointer grab | `XGrabPointer` | ❌ Tidak didukung |
 | Fullscreen frameless | `Qt.FramelessWindowHint` | Sama |
-| Block close event | `closeEvent` ignored | Sama |
-| Kiosk session | Openbox kiosk + isolated X session | Tidak tersedia |
+| Kiosk session (Xephyr + Openbox) | ✅ | ✅ (nested X server) |
 | Admin exit | Ctrl+Shift+Alt+Q × 3 + password | Sama |
+
+> **Wayland**: untuk fitur keamanan lengkap, gunakan mode kiosk: `examvan --kiosk`
+> atau pilih sesi **EXAMVAN Kiosk** dari login manager (GDM/LightDM/SDDM).
+
+## Instalasi Manual per Distribusi
+
+### Ubuntu / Debian
+
+```bash
+sudo apt install python3 python3-venv python3-pip python3-pyqt5 xsel
+sudo apt install xserver-xephyr openbox   # opsional untuk mode kiosk
+```
+
+### Fedora
+
+```bash
+sudo dnf install python3 python3-pip python3-qt5 xsel
+sudo dnf install xorg-x11-server-Xephyr openbox   # opsional untuk mode kiosk
+```
+
+### Arch Linux
+
+```bash
+sudo pacman -S python python-pip python-pyqt5 xsel
+sudo pacman -S xorg-server-xephyr openbox   # opsional untuk mode kiosk
+```
+
+## Struktur Direktori (setelah install)
+
+```
+/opt/examvan/
+├── .venv/               ← virtual environment
+│   └── bin/python3      ← venv Python
+├── examvan/             ← source code
+│   ├── __main__.py      ← entry point
+│   ├── api.py
+│   ├── config.py
+│   ├── models.py
+│   ├── utils.py
+│   ├── security/        ← enforce, kiosk, x11 grab
+│   └── ui/              ← PyQt5 widgets
+├── run.sh               ← launcher
+└── requirements.txt
+
+/usr/bin/examvan         ← symlink → /opt/examvan/.venv/bin/python3 -m examvan
+/usr/share/applications/examvan.desktop
+/usr/share/xsessions/examvan-kiosk.desktop
+```
 
 ## Alur Kerja
 
@@ -124,36 +138,22 @@ linux/
    └─ Health check → Token lookup → Identity dialog
 
 2. Identity Dialog
-   └─ Isi identitas siswa (nama, nomor ujian, kelas)
+   └─ Isi identitas siswa
    └─ Data tersimpan untuk penggunaan berikutnya
 
 3. Exam Viewer
-   └─ PDF diunduh dan di-render per halaman
-   └─ Lembar jawaban di panel kanan (5 tipe soal)
-   └─ Timer elapsed time di pojok kanan atas
-   └─ Jawaban auto-save setiap 500ms
-   └─ Submit manual atau auto-submit (medium/strict)
+   └─ PDF viewer per halaman
+   └─ Lembar jawaban (5 tipe soal)
+   └─ Timer countdown / elapsed
+   └─ Auto-save jawaban tiap 500ms
+   └─ Submit manual / auto-submit saat waktu habis
 ```
-
-## Install ke Sistem (opsional)
-
-```bash
-sudo cp -r linux /opt/examvan
-sudo chmod +x /opt/examvan/run.sh
-sudo cp linux/examvan_kiosk.desktop /usr/share/xsessions/
-```
-
-Siswa bisa memilih sesi "EXAMVAN Kiosk" dari login manager (GDM/LightDM/SDDM).
 
 ## Troubleshooting
 
-### Venv gagal dibuat
+### "python3-venv not found"
 ```bash
-# Pastikan python3-venv terinstall
 sudo apt install python3-venv   # Ubuntu/Debian
-
-# Atau paksa buat ulang
-./run.sh --setup
 ```
 
 ### "Cannot load libX11"
@@ -162,26 +162,24 @@ sudo apt install libx11-6       # Ubuntu/Debian
 sudo dnf install libX11         # Fedora
 ```
 
-### Package hilang di venv
-```bash
-# Rebuild venv dari nol
-./run.sh --setup
-```
-
 ### Keyboard grab gagal
-Pastikan tidak ada compositor yang mengambil alih:
 ```bash
-# Disable compositor (KDE)
+# Nonaktifkan compositor (KDE)
 qdbus org.kde.KWin /Compositor suspend
 
-# Atau gunakan kiosk session (paling aman)
-./run.sh --kiosk
+# Atau gunakan kiosk session
+examvan --kiosk
 ```
 
-### Wayland — fitur keamanan terbatas
-Untuk fitur keamanan lengkap (keyboard grab, pointer grab), gunakan X11:
+### Mode kiosk error "Xephyr not found"
 ```bash
-# Di login screen, pilih session "X11" atau "GNOME on Xorg"
-# Atau gunakan kiosk session
-./run.sh --kiosk
+sudo apt install xserver-xephyr openbox  # Ubuntu/Debian
+```
+
+### Timer salah (beda 7 jam)
+Pastikan server container punya `tzdata`:
+
+```bash
+# Di server
+docker exec examvan-go-server ls /usr/share/zoneinfo/Asia/Jakarta
 ```

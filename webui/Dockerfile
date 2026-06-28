@@ -17,7 +17,7 @@ RUN CGO_ENABLED=0 go build -o server ./cmd/server
 # Stage 2: Runtime
 FROM alpine:3.19
 
-RUN apk add --no-cache curl
+RUN apk add --no-cache curl tzdata
 
 RUN adduser -D -H -u 1000 appuser
 

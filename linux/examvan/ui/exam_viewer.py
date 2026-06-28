@@ -117,6 +117,7 @@ class ExamViewerWindow(QMainWindow):
 
         # Timer (countdown if end_time, else elapsed)
         self._timer_widget = ElapsedTimerWidget(end_time=self._exam.end_time)
+        self._timer_widget.time_up.connect(self._auto_submit)
         top_layout.addWidget(self._timer_widget)
 
         main_layout.addWidget(top_bar)
