@@ -1,0 +1,9 @@
+[Desktop Entry]
+Name=EXAMVAN
+Comment=Aplikasi ujian digital
+Exec=/usr/bin/examvan
+Icon=examvan
+Terminal=false
+Type=Application
+Categories=Education;
+StartupNotify=true

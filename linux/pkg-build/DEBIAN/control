@@ -1,0 +1,19 @@
+Package: examvan-linux
+Version: 1.0.0
+Section: education
+Priority: optional
+Architecture: amd64
+Depends: python3 (>=3.8), python3-pyqt5, python3-pip, xsel, xdg-utils
+Recommends: xserver-xephyr, openbox
+Maintainer: EXAMVAN Team <support@examvan.app>
+Description: Sistem ujian digital berbasis PDF untuk Linux
+ Aplikasi klien ujian digital untuk siswa. Mendukung 3 mode keamanan
+ (Low, Medium, Strict) dengan fitur anti-cheat.
+ .
+ Fitur:
+  - PDF viewer dengan zoom, scroll, drag
+  - Lembar jawaban 5 tipe soal
+  - Auto-submit pada mode Medium/Strict
+  - GNOME workspace lock pada mode Strict
+  - Pemasangan via USB atau jaringan lokal
+Homepage: https://github.com/amnahwaida/EXAMVAN

@@ -1,0 +1,6 @@
+[Desktop Entry]
+Name=EXAMVAN Kiosk
+Comment=Sesi kiosk ujian digital EXAMVAN
+Exec=/usr/bin/examvan --kiosk-session
+Type=Application
+DesktopNames=examvan-kiosk

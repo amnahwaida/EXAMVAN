@@ -1,0 +1,26 @@
+#!/usr/bin/env bash
+# EXAMVAN Linux Client — Launcher
+set -e
+
+SCRIPT_DIR="/opt/examvan"
+VENV_PYTHON="$SCRIPT_DIR/.venv/bin/python3"
+
+# Detect Wayland — need kiosk session for proper security
+IS_WAYLAND=0
+if [ -n "${WAYLAND_DISPLAY:-}" ] || [ "${XDG_SESSION_TYPE:-}" = "wayland" ]; then
+    IS_WAYLAND=1
+fi
+
+# Theme
+if [ -z "${QT_QPA_PLATFORMTHEME:-}" ]; then
+    if command -v gsettings &>/dev/null; then
+        GTK_THEME=$(gsettings get org.gnome.desktop.interface gtk-theme 2>/dev/null || echo "")
+        if [ -n "$GTK_THEME" ]; then
+            export QT_QPA_PLATFORMTHEME=gnome
+        fi
+    fi
+fi
+
+# Wayland: run directly (Qt5 uses XWayland, keyboard grabs work)
+cd "$SCRIPT_DIR"
+exec "$VENV_PYTHON" -m examvan "$@"
