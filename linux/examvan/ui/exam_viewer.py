@@ -300,13 +300,12 @@ class ExamViewerWindow(QMainWindow):
             except OSError:
                 pass
 
-        self._close_in_progress = True  # Prevent re-entry in closeEvent
         QMessageBox.information(
             self,
             "Berhasil",
             f"Jawaban berhasil dikumpulkan!\n\n{message}",
         )
-        self.closed.emit()
+        # closeEvent already handles self.closed.emit() when _submitted
         self.close()
 
     # -------------------------------------------------------------------
@@ -392,33 +391,33 @@ class ExamViewerWindow(QMainWindow):
     # -------------------------------------------------------------------
 
     def closeEvent(self, event: QCloseEvent) -> None:
-        # Guard against repeated closeEvent spam
-        if self._close_in_progress:
-            event.ignore()
-            return
-        self._close_in_progress = True
-
+        # Already submitted — always allow close, bypass all guards
         with self._submit_lock:
             already_done = self._submitted
-
         if already_done:
             if self._security:
                 self._security.deactivate()
             self._pdf_viewer.cleanup()
             self.closed.emit()
             event.accept()
-            self._close_in_progress = False
             return
+
+        # Guard against repeated closeEvent spam (re-entrant calls from
+        # QMessageBox or self.close() during cleanup)
+        if self._close_in_progress:
+            event.ignore()
+            return
+        self._close_in_progress = True
 
         mode = self._exam.security_level
         if mode in ("medium",) or self._exam.is_strict:
-            # Auto-submit on close attempt (once)
-            with self._submit_lock:
-                if self._submitted or self._submitting:
-                    self._close_in_progress = False
-                    event.ignore()
-                    return
-                self._submitting = True
+            # Auto-submit on close attempt
+            # _do_submit() handles its own _submitting guard under lock,
+            # so we don't set it here.
+            if self._submitted or self._submitting:
+                self._close_in_progress = False
+                event.ignore()
+                return
             self._close_in_progress = False
             event.ignore()
             self._auto_submit()
@@ -506,5 +505,5 @@ class ExamViewerWindow(QMainWindow):
             self._pdf_viewer.cleanup()
             with self._submit_lock:
                 self._submitted = True
-            self.closed.emit()
+            # closeEvent handles self.closed.emit() when _submitted
             self.close()
