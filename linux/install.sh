@@ -125,6 +125,12 @@ APT_DEPS=(python3 python3-venv python3-pip xsel xdg-utils x11-utils)
 DNF_DEPS=(python3 python3-pip python3-devel xsel xdg-utils libX11)
 PACMAN_DEPS=(python python-pip xsel xdg-utils libx11)
 ZAPPER_DEPS=(python3 python3-venv python3-pip xsel xdg-utils x11-utils)
+RHEL_DEPS=(python3 python3-pip python3-devel xsel xdg-utils libX11)
+# Build deps for PyMuPDF compilation (when system package unavailable)
+APT_BUILD_DEPS=(python3-dev build-essential)
+DNF_BUILD_DEPS=(python3-devel gcc gcc-c++)
+PACMAN_BUILD_DEPS=(python python-devel gcc)
+RHEL_BUILD_DEPS=(python3-devel gcc gcc-c++)
 
 install_sys_deps() {
     case "$OS_ID" in
@@ -134,12 +140,19 @@ install_sys_deps() {
             DEBIAN_FRONTEND=noninteractive apt-get install -y -qq "${APT_DEPS[@]}" 2>/dev/null || {
                 warn "Beberapa paket gagal diinstall, melanjutkan..."
             }
-            # Also install tzdata for PyMuPDF
             DEBIAN_FRONTEND=noninteractive apt-get install -y -qq tzdata 2>/dev/null || true
             ;;
         fedora)
             info "Menginstall dependensi sistem (dnf)..."
             dnf install -y "${DNF_DEPS[@]}" 2>/dev/null || warn "Beberapa paket gagal diinstall"
+            ;;
+        rhel|centos|rocky|alma)
+            info "Menginstall dependensi sistem (dnf)..."
+            dnf install -y "${RHEL_DEPS[@]}" 2>/dev/null || warn "Beberapa paket gagal diinstall"
+            if ! command -v pip3 &>/dev/null; then
+                dnf install -y epel-release 2>/dev/null || true
+                dnf install -y python3-pip 2>/dev/null || true
+            fi
             ;;
         arch|manjaro|endeavouros)
             info "Menginstall dependensi sistem (pacman)..."
@@ -151,7 +164,11 @@ install_sys_deps() {
             ;;
         *)
             warn "Sistem operasi '${OS_ID}' tidak dikenali."
-            warn "Pastikan Python 3.8+, python3-venv, dan PyQt5 terinstall."
+            warn "Mencoba install dependensi via paket manager default..."
+            command -v apt-get && DEBIAN_FRONTEND=noninteractive apt-get install -y -qq "${APT_DEPS[@]}" 2>/dev/null && return
+            command -v dnf && dnf install -y "${DNF_DEPS[@]}" 2>/dev/null && return
+            command -v zypper && zypper install -y "${ZAPPER_DEPS[@]}" 2>/dev/null && return
+            warn "Tidak bisa install otomatis. Pastikan Python 3.8+, python3-venv, python3-pip."
             ;;
     esac
 }
@@ -225,14 +242,23 @@ install_pymupdf() {
     if [ "$mupdf_ok" = true ]; then
         ok "PyMuPDF (sistem)"
     else
-        warn "PyMuPDF sistem tidak tersedia, menginstall via pip..."
-        # PyMuPDF often needs build deps; install them
+        warn "PyMuPDF tidak tersedia, menginstall via pip..."
         case "$OS_ID" in
             ubuntu|debian|linuxmint|pop|elementary|zorin)
-                apt-get install -y -qq python3-dev build-essential 2>/dev/null || true
+                apt-get install -y -qq "${APT_BUILD_DEPS[@]}" 2>/dev/null || true
                 ;;
             fedora)
-                dnf install -y python3-devel gcc 2>/dev/null || true
+                dnf install -y "${DNF_BUILD_DEPS[@]}" 2>/dev/null || true
+                ;;
+            rhel|centos|rocky|alma)
+                dnf install -y "${RHEL_BUILD_DEPS[@]}" 2>/dev/null || true
+                ;;
+            arch|manjaro|endeavouros)
+                pacman -S --noconfirm "${PACMAN_BUILD_DEPS[@]}" 2>/dev/null || true
+                ;;
+            *)
+                command -v apt-get && DEBIAN_FRONTEND=noninteractive apt-get install -y -qq "${APT_BUILD_DEPS[@]}" 2>/dev/null || true
+                command -v dnf && dnf install -y "${DNF_BUILD_DEPS[@]}" 2>/dev/null || true
                 ;;
         esac
         "$VENV_DIR/bin/pip" install PyMuPDF --quiet
