@@ -22,13 +22,13 @@ Mendukung 3 mode keamanan: **Low**, **Medium**, dan **Strict**.
 **Cara 1: Install via curl (satu perintah)**
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/amnahwaida/EXAMVAN/main/linux/install.sh | sudo bash
+curl -fsSL https://raw.githubusercontent.com/amnahwaida/EXAMVAN/main/desktop/install.sh | sudo bash
 ```
 
 **Cara 2: Install lokal (dari clone)**
 
 ```bash
-cd linux
+cd desktop
 sudo ./install.sh
 ```
 

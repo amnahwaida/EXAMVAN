@@ -6,7 +6,7 @@
 $ErrorActionPreference = "Stop"
 $ScriptDir = Split-Path -Parent $PSCommandPath
 $ProjectRoot = Split-Path -Parent $ScriptDir
-$SourceDir = Join-Path $ProjectRoot "linux"
+$SourceDir = Join-Path $ProjectRoot "desktop"
 $VenvDir = Join-Path $SourceDir ".venv"
 $VenvPython = Join-Path $VenvDir "Scripts\python.exe"
 

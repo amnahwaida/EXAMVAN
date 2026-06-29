@@ -6,7 +6,7 @@
 $ErrorActionPreference = "Stop"
 $ScriptDir = Split-Path -Parent $PSCommandPath
 $ProjectRoot = Split-Path -Parent $ScriptDir
-$SourceDir = Join-Path $ProjectRoot "linux"
+$SourceDir = Join-Path $ProjectRoot "desktop"
 $VenvDir = Join-Path $SourceDir ".venv"
 $VenvPython = Join-Path $VenvDir "Scripts\python.exe"
 
@@ -101,9 +101,9 @@ Write-Host "  Jalankan EXAMVAN dari shortcut di desktop:"
 Write-Host "    EXAMVAN.bat"
 Write-Host ""
 Write-Host "  Atau dari terminal:"
-Write-Host "    cd linux"
+Write-Host "    cd desktop"
 Write-Host "    .venv\Scripts\python -m examvan"
 Write-Host ""
-Write-Host "  Uninstall: hapus folder linux\.venv + shortcut desktop"
+Write-Host "  Uninstall: hapus folder desktop\.venv + shortcut desktop"
 Write-Host ""
 pause

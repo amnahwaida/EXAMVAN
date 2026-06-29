@@ -8,7 +8,7 @@
 $ErrorActionPreference = "Stop"
 
 $ProjectRoot = Split-Path -Parent $PSScriptRoot
-$SourceDir = Join-Path $ProjectRoot "linux"
+$SourceDir = Join-Path $ProjectRoot "desktop"
 $OutputDir = Join-Path $ProjectRoot "windows\dist"
 
 Write-Host "=== EXAMVAN Windows Builder ===" -ForegroundColor Cyan

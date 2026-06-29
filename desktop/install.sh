@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # EXAMVAN Linux Client — Installer
 # Usage:
-#   curl -fsSL https://raw.githubusercontent.com/amnahwaida/EXAMVAN/main/linux/install.sh | sudo bash
+#   curl -fsSL https://raw.githubusercontent.com/amnahwaida/EXAMVAN/main/desktop/install.sh | sudo bash
 #   sudo ./install.sh              Install from local repo
 #   sudo ./install.sh --uninstall  Remove EXAMVAN from system
 
@@ -30,7 +30,7 @@ err()   { printf "${RED}[ERR]${NC}   %s\n" "$*"; }
 # ── Root check ────────────────────────────────────────────────────────
 if [ "$(id -u)" -ne 0 ]; then
     err "Jalankan dengan sudo:"
-    err "  curl -fsSL https://raw.githubusercontent.com/amnahwaida/EXAMVAN/main/linux/install.sh | sudo bash"
+    err "  curl -fsSL https://raw.githubusercontent.com/amnahwaida/EXAMVAN/main/desktop/install.sh | sudo bash"
     err "  # atau"
     err "  sudo ./install.sh"
     exit 1
@@ -73,9 +73,9 @@ resolve_source() {
         return
     fi
 
-    # Check if running from repo root (git clone without cd linux)
-    if [ -f "$SCRIPT_DIR/linux/examvan/__main__.py" ] && [ -f "$SCRIPT_DIR/linux/requirements.txt" ]; then
-        SOURCE_DIR="$SCRIPT_DIR/linux"
+    # Check if running from repo root (git clone without cd desktop)
+    if [ -f "$SCRIPT_DIR/desktop/examvan/__main__.py" ] && [ -f "$SCRIPT_DIR/desktop/requirements.txt" ]; then
+        SOURCE_DIR="$SCRIPT_DIR/desktop"
         info "Mode: install lokal ($SOURCE_DIR)"
         return
     fi
@@ -90,9 +90,14 @@ resolve_source() {
     # Prefer git clone (preserves exact file structure)
     if command -v git &>/dev/null; then
         git clone --depth 1 -b "$BRANCH" "$REPO_URL" "$tmpdir/repo" --quiet 2>/dev/null || true
-        if [ -f "$tmpdir/repo/linux/install.sh" ]; then
-            SOURCE_DIR="$tmpdir/repo/linux"
+        if [ -f "$tmpdir/repo/desktop/install.sh" ]; then
+            SOURCE_DIR="$tmpdir/repo/desktop"
             ok "Sumber diunduh via git"
+            return
+        fi
+        if [ -f "$tmpdir/repo/linux/install.sh" ]; then  # backward compat
+            SOURCE_DIR="$tmpdir/repo/linux"
+            ok "Sumber diunduh via git (legacy path)"
             return
         fi
     fi
@@ -107,9 +112,14 @@ resolve_source() {
                 # Try to detect extracted dir name
                 dirname=$(ls "$tmpdir" | grep -v "repo.tar.gz" | head -1)
             fi
-            if [ -f "$tmpdir/$dirname/linux/install.sh" ]; then
-                SOURCE_DIR="$tmpdir/$dirname/linux"
+            if [ -f "$tmpdir/$dirname/desktop/install.sh" ]; then
+                SOURCE_DIR="$tmpdir/$dirname/desktop"
                 ok "Sumber diunduh via tarball"
+                return
+            fi
+            if [ -f "$tmpdir/$dirname/linux/install.sh" ]; then  # backward compat
+                SOURCE_DIR="$tmpdir/$dirname/linux"
+                ok "Sumber diunduh via tarball (legacy path)"
                 return
             fi
         fi
@@ -406,7 +416,7 @@ main() {
     echo "  Mode kiosk:  examvan --kiosk"
     echo "  Atau pilih sesi 'EXAMVAN Kiosk' dari login manager."
     echo ""
-    echo "  Uninstall:  curl -fsSL https://raw.githubusercontent.com/amnahwaida/EXAMVAN/main/linux/install.sh | sudo bash -s -- --uninstall"
+    echo "  Uninstall:  curl -fsSL https://raw.githubusercontent.com/amnahwaida/EXAMVAN/main/desktop/install.sh | sudo bash -s -- --uninstall"
     echo ""
 }
 

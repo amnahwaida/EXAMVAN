@@ -56,8 +56,8 @@ jobs:
             --exclude-module examvan.security.x11 `
             --exclude-module examvan.security.linux_backend `
             --exclude-module examvan.security.kiosk `
-            --add-data "linux/examvan;examvan" `
-            linux/examvan/__main__.py
+            --add-data "desktop/examvan;examvan" `
+            desktop/examvan/__main__.py
         working-directory: ${{ github.workspace }}
 
       - name: Upload artifact
