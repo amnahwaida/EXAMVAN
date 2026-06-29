@@ -21,6 +21,8 @@ import com.examvan.app.R
 import com.examvan.app.api.ApiClient
 import com.examvan.app.databinding.ActivityExamViewerBinding
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.GlobalScope
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -309,15 +311,19 @@ class SubmissionManager(
         AuditLog.i(AuditLog.Events.AUTO_SUBMIT, "strict=$strictMode answers=${getAnswers?.invoke()?.size}")
         deactivateLockTask?.invoke()
 
+        // Use GlobalScope + NonCancellable so submit completes even if
+        // activity is destroyed (process death, user swipe-away).
         if (isSubmitting) {
-            (lifecycleOwner as? androidx.lifecycle.LifecycleOwner)?.lifecycleScope?.launch {
+            GlobalScope.launch(NonCancellable) {
                 delay(1500)
-                if (!isActivityFinishing()) onFinish?.invoke()
+                withContext(Dispatchers.Main) {
+                    if (!isActivityFinishing()) onFinish?.invoke()
+                }
             }
             return
         }
 
-        (lifecycleOwner as? androidx.lifecycle.LifecycleOwner)?.lifecycleScope?.launch(Dispatchers.IO) {
+        GlobalScope.launch(NonCancellable + Dispatchers.IO) {
             val result = submitWithRetry()
 
             val notifTitle = if (result.first) {

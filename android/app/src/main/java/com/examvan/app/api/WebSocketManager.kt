@@ -121,11 +121,13 @@ object WebSocketManager {
             .replace("http://", "ws://")
             .replace("https://", "wss://")
 
-        // SocketIO uses a specific handshake URL with transport, EIO, and auth params
-        val socketUrl = "$wsUrl/socket.io/?EIO=4&transport=websocket&token=$token"
+        // SocketIO handshake URL — token removed from URL query params.
+        // Sent via X-Exam-Token header to prevent leakage in logs/proxies.
+        val socketUrl = "$wsUrl/socket.io/?EIO=4&transport=websocket"
 
         val request = Request.Builder()
             .url(socketUrl)
+            .header("X-Exam-Token", token)
             .build()
 
         Log.d(TAG, "Connecting to $socketUrl")
@@ -254,16 +256,62 @@ object WebSocketManager {
 
     /**
      * Notify server that exam is completed (student submitted).
+     * Tries to send the event synchronously before closing.
+     * If WS is already disconnected, sends via HTTP as fallback.
      */
     fun notifyExamCompleted() {
         val data = mapOf(
             "exam_id" to examId,
             "mac_address" to macAddress
         )
-        sendSocketIOEvent("exam_completed", data)
-        // Don't disconnect immediately - let the message send
-        shouldReconnect = false
-        webSocket?.close(1000, "Exam completed")
+        // Send synchronously — flush() ensures it goes out before close
+        if (connected && webSocket != null) {
+            val jsonData = gson.toJson(data)
+            val message = "42[\"exam_completed\",$jsonData]"
+            val sent = webSocket!!.send(message)
+            if (sent) {
+                Log.d(TAG, "exam_completed sent via WebSocket")
+            } else {
+                Log.w(TAG, "WebSocket send failed — submitting via HTTP")
+                notifyCompletedViaHttp()
+            }
+            shouldReconnect = false
+            webSocket?.close(1000, "Exam completed")
+        } else {
+            Log.w(TAG, "WebSocket not connected — submitting via HTTP")
+            notifyCompletedViaHttp()
+        }
+    }
+
+    /**
+     * Fallback: notify server via HTTP POST if WebSocket is unavailable.
+     */
+    private fun notifyCompletedViaHttp() {
+        try {
+            val httpUrl = baseUrl.replace("ws://", "http://").replace("wss://", "https://")
+            val payload = gson.toJson(mapOf(
+                "exam_id" to examId,
+                "mac_address" to macAddress,
+                "token" to token
+            ))
+            val mediaType = "application/json; charset=utf-8".toMediaTypeOrNull()
+            val request = Request.Builder()
+                .url("$httpUrl/api/exams/$examId/complete")
+                .post(payload.toRequestBody(mediaType))
+                .header("X-Exam-Token", token)
+                .build()
+            client.newCall(request).enqueue(object : Callback {
+                override fun onFailure(call: Call, e: java.io.IOException) {
+                    Log.w(TAG, "HTTP notify completed failed: ${e.message}")
+                }
+                override fun onResponse(call: Call, response: Response) {
+                    response.close()
+                    Log.d(TAG, "HTTP notify completed OK")
+                }
+            })
+        } catch (e: Exception) {
+            Log.w(TAG, "HTTP notify completed exception: ${e.message}")
+        }
     }
 
     /**

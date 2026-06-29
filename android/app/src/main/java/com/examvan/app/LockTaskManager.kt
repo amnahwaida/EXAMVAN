@@ -49,6 +49,7 @@ object LockTaskManager {
 
     private var healthCheckHandler: Handler? = null
     private var healthCheckRunnable: Runnable? = null
+    private var healthCheckActive = false
 
     // Component name untuk DeviceAdminReceiver — menggunakan string literal
     // agar kompatibel di kedua flavor (student & kiosk). Di student flavor
@@ -125,10 +126,10 @@ object LockTaskManager {
      */
     fun startHealthCheck(activity: Activity) {
         stopHealthCheck()
+        healthCheckActive = true
         healthCheckHandler = Handler(Looper.getMainLooper())
         healthCheckRunnable = Runnable {
-            @Suppress("DEPRECATION")
-            if (activity.isFinishing || activity.isDestroyed) {
+            if (!healthCheckActive || activity.isFinishing || activity.isDestroyed) {
                 stopHealthCheck()
                 return@Runnable
             }
@@ -153,6 +154,7 @@ object LockTaskManager {
      * Stop health monitoring. Aman dipanggil berkali-kali.
      */
     fun stopHealthCheck() {
+        healthCheckActive = false
         healthCheckRunnable?.let { healthCheckHandler?.removeCallbacks(it) }
         healthCheckRunnable = null
         healthCheckHandler = null
