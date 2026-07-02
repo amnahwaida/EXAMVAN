@@ -173,3 +173,28 @@ CREATE INDEX IF NOT EXISTS idx_exams_active ON exams(id) WHERE status = 'active'
 
 ALTER TABLE submissions SET (autovacuum_vacuum_scale_factor = 0.01);
 ALTER TABLE student_access_logs SET (autovacuum_vacuum_scale_factor = 0.01);
+
+-- ============================================================
+-- Subscription & Transaction features
+-- ============================================================
+ALTER TABLE admin_users ADD COLUMN IF NOT EXISTS package TEXT DEFAULT 'free';
+
+CREATE TABLE IF NOT EXISTS transactions (
+    id              SERIAL PRIMARY KEY,
+    user_id         INTEGER NOT NULL REFERENCES admin_users(id) ON DELETE CASCADE,
+    package         TEXT NOT NULL,
+    amount          BIGINT NOT NULL,
+    duration_type   TEXT NOT NULL,
+    status          TEXT DEFAULT 'pending' CHECK (status IN ('pending', 'approved', 'rejected')),
+    payment_method  TEXT DEFAULT 'transfer',
+    proof_path      TEXT DEFAULT '',
+    created_at      TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
+    updated_at      TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
+    notes           TEXT
+);
+
+-- Migrations for existing installs (safe to re-run)
+ALTER TABLE transactions ALTER COLUMN amount TYPE BIGINT USING amount::numeric::bigint;
+CREATE INDEX IF NOT EXISTS idx_transactions_user_id ON transactions(user_id);
+CREATE INDEX IF NOT EXISTS idx_transactions_status ON transactions(status);
+

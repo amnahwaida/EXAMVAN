@@ -970,13 +970,20 @@ func UpdateTokenMode() gin.HandlerFunc {
 			return
 		}
 
-		if body.TokenMode != "dynamic" {
-			body.TokenMode = "dynamic"
+		if body.TokenMode != "static" && body.TokenMode != "dynamic" {
+			errorResponse(c, http.StatusBadRequest, "Mode token tidak valid")
+			return
 		}
 
-		if body.ResetInterval == nil || *body.ResetInterval < 1 {
-			errorResponse(c, http.StatusBadRequest, "Interval reset harus diisi (minimal 1 menit)")
-			return
+		var interval *int
+		if body.TokenMode == "dynamic" {
+			if body.ResetInterval == nil || *body.ResetInterval < 1 {
+				errorResponse(c, http.StatusBadRequest, "Interval reset harus diisi (minimal 1 menit)")
+				return
+			}
+			interval = body.ResetInterval
+		} else {
+			interval = nil
 		}
 
 		pool := getPool(c)
@@ -987,7 +994,7 @@ func UpdateTokenMode() gin.HandlerFunc {
 			return
 		}
 
-		if err := models.UpdateExamTokenMode(ctx, pool, examID, body.TokenMode, body.ResetInterval); err != nil {
+		if err := models.UpdateExamTokenMode(ctx, pool, examID, body.TokenMode, interval); err != nil {
 			log.Printf("update token mode error: %v", err)
 			errorResponse(c, http.StatusInternalServerError, "Gagal memperbarui mode token")
 			return

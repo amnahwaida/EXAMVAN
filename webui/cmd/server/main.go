@@ -453,6 +453,8 @@ func registerRoutes(r *gin.Engine, cfg *config.Config, pool *pgxpool.Pool) {
 	// ---- Public pages (no auth required) ----
 	r.GET("/", indexHandler(cfg))
 	r.GET("/index.html", indexHandler(cfg))
+	r.GET("/robots.txt", robotsHandler())
+	r.GET("/pricing", pricingHandler(cfg))
 
 	r.GET("/login", loginPageHandler(cfg))
 	r.POST("/login", middleware.RateLimit(10, time.Minute), loginHandler(cfg))
@@ -494,6 +496,7 @@ func registerRoutes(r *gin.Engine, cfg *config.Config, pool *pgxpool.Pool) {
 		apiGroup.POST("/exams/:exam_id/access-log", middleware.RateLimit(30, time.Minute), middleware.AndroidVersionCheck(), api.AccessLog())
 
 		apiGroup.GET("/hasil/:token", middleware.RateLimit(30, time.Minute), public.HasilAPI())
+		apiGroup.POST("/payments/doku/notify", middleware.RateLimit(20, time.Minute), api.DokuNotifyHandler(cfg))
 	}
 
 	// ---- Admin pages (auth required) ----
@@ -504,6 +507,7 @@ func registerRoutes(r *gin.Engine, cfg *config.Config, pool *pgxpool.Pool) {
 		adminPages.GET("/submissions", admin.SubmissionsPage())
 
 		adminPages.GET("/users", middleware.AdminManagementRequired(), admin.UsersPage())
+		adminPages.GET("/billing", admin.BillingPage())
 
 		adminPages.GET("/pengawas", admin.PengawasPage())
 		adminPages.GET("/pengawas/:exam_id", admin.PengawasDetailPage())
@@ -560,6 +564,16 @@ func registerRoutes(r *gin.Engine, cfg *config.Config, pool *pgxpool.Pool) {
 				adminSettings.POST("/saas-settings", admin.SaasSettings())
 				adminSettings.POST("/saas-settings/test-smtp", admin.TestSMTPConnectionEndpoint())
 			}
+
+			// Transactions & Subscriptions
+			csrfAPI.POST("/transactions", admin.CreateTransaction(cfg))
+			csrfAPI.POST("/transactions/doku", admin.CreateDokuTransaction(cfg))
+			adminTransactions := csrfAPI.Group("", middleware.SuperAdminRequired())
+			{
+				adminTransactions.POST("/transactions/:id/approve", admin.ApproveTransaction())
+				adminTransactions.POST("/transactions/:id/reject", admin.RejectTransaction())
+			}
+
 			csrfAPI.POST("/change-password", middleware.RateLimit(3, time.Minute), admin.ChangePassword())
 		}
 
@@ -576,6 +590,9 @@ func registerRoutes(r *gin.Engine, cfg *config.Config, pool *pgxpool.Pool) {
 		{
 			adminUsersRead.GET("/users", admin.ListUsers())
 		}
+
+		adminAPI.GET("/transactions", admin.ListTransactions())
+		adminAPI.GET("/transactions/proofs/:filename", middleware.SuperAdminRequired(), admin.ServeProofFile(cfg))
 		adminAPI.GET("/pengawas/exams", admin.PengawasExams())
 		adminAPI.GET("/pengawas/exams/:exam_id/submissions", admin.PengawasExamSubmissions())
 		adminAPI.GET("/saas-settings", admin.SaasSettings())
@@ -607,9 +624,33 @@ func shortURLRedirectHandler() gin.HandlerFunc {
 
 func indexHandler(cfg *config.Config) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		c.HTML(http.StatusOK, "public/index.html", gin.H{
-			"version": cfg.Version,
-		})
+		data := middleware.TemplateData(c)
+		data["version"] = cfg.Version
+		c.HTML(http.StatusOK, "public/index.html", data)
+	}
+}
+
+func pricingHandler(cfg *config.Config) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		data := middleware.TemplateData(c)
+		data["version"] = cfg.Version
+		c.HTML(http.StatusOK, "public/pricing.html", data)
+	}
+}
+
+func robotsHandler() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		pool := c.MustGet("db").(*pgxpool.Pool)
+		ctx := c.Request.Context()
+
+		seoIndex := models.GetSaasSettingBool(ctx, pool, models.SettingSEOIndex, true)
+		
+		c.Header("Content-Type", "text/plain; charset=utf-8")
+		if seoIndex {
+			c.String(http.StatusOK, "User-agent: *\nAllow: /\nDisallow: /api/\nDisallow: /admin/\n")
+		} else {
+			c.String(http.StatusOK, "User-agent: *\nDisallow: /\n")
+		}
 	}
 }
 

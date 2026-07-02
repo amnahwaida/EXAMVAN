@@ -381,8 +381,9 @@ func ExamByToken() gin.HandlerFunc {
 			return
 		}
 
-		// Auto-reset active_token if exam has started (all exams are dynamic)
-		if exam.ExamStartedAt != nil &&
+		// Auto-reset active_token if exam has started and token mode is dynamic
+		if exam.TokenMode != nil && *exam.TokenMode == "dynamic" &&
+			exam.ExamStartedAt != nil &&
 			exam.TokenResetInterval != nil && *exam.TokenResetInterval > 0 {
 			shouldReset := true
 			if exam.TokenLastResetAt != nil {

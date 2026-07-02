@@ -10,7 +10,14 @@
 <head>
  <meta charset="UTF-8">
  <meta name="viewport" content="width=device-width, initial-scale=1.0">
- <title>EXAMVAN &mdash; Ujian Digital &amp; Lockdown Kiosk Mandiri</title>
+ <title>{{.seo_title}}</title>
+ <meta name="description" content="{{.seo_description}}">
+ <meta name="keywords" content="{{.seo_keywords}}">
+ {{if .seo_index}}
+ <meta name="robots" content="index, follow">
+ {{else}}
+ <meta name="robots" content="noindex, nofollow">
+ {{end}}
 
  <link rel="preconnect" href="https://fonts.googleapis.com">
  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -822,6 +829,7 @@
  <div class="nav-links" id="navLinks">
  <a href="#fitur" class="nav-link" onclick="closeMenu()">Fitur</a>
  <a href="/download" class="nav-link">Download App</a>
+ <a href="/pricing" class="nav-link">Harga</a>
  <a href="/admin/login" class="btn-nav-login">Masuk</a>
  </div>
  </div>

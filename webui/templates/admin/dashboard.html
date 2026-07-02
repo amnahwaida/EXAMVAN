@@ -21,6 +21,8 @@
 .pengawas-popup-item{padding:6px 14px;font-size:0.78rem;color:var(--color-text);white-space:nowrap}
 .pengawas-popup-item:hover{background:rgba(168,85,247,0.08)}
 .token-mode-group{display:flex;flex-direction:column;gap:6px}
+.token-mode-select{padding:2px 6px;background:rgba(255,255,255,0.05);border:1px solid var(--color-glass-border);border-radius:6px;color:var(--color-text-secondary);font-size:0.75rem;outline:none;cursor:pointer;margin-bottom:4px;width:100%;max-width:120px;transition:border-color 0.2s}
+.token-mode-select:focus{border-color:rgba(99,102,241,0.5)}
 .token-dynamic-settings{display:flex;align-items:center;gap:6px;flex-wrap:wrap}
 .token-interval-group{display:flex;align-items:center;gap:4px}
 .token-interval-input{width:54px;padding:4px 8px;border-radius:6px;background:var(--color-bg);border:1px solid var(--color-glass-border);color:var(--color-text);font-size:0.75rem;text-align:center;font-family:var(--font-mono);outline:none;transition:border-color 0.2s}
@@ -347,17 +349,29 @@
 {{end}}
 <td class="td-token" data-label="Token">
 <div class="token-mode-group">
-<div class="token-dynamic-settings" id="token-dynamic-{{$exam.ID}}">
-<div style="display:flex;align-items:center;gap:4px;flex-shrink:0;white-space:nowrap;">
-  <code class="token-code" id="token-dyn-{{$exam.ID}}" data-token="{{$exam.ActiveToken}}" onclick="copyToken(this.dataset.token)" title="Klik untuk Salin Token">{{$exam.ActiveToken}}</code>
-  <button class="btn-icon btn-edit" data-exam-id="{{$exam.ID}}" data-token="{{$exam.Token}}" onclick="openEditTokenModal(this.dataset.examId, this.dataset.token)" title="Kustomisasi Token Awal" style="background:transparent;border:none;cursor:pointer;color:var(--color-text-muted);padding:2px;display:inline-flex;align-items:center;justify-content:center;transition:color 0.2s;margin-left:-2px;"><svg class="icon-svg" style="width:14px;height:14px;"><use href="#hi-edit"/></svg></button>
-</div>
-<div class="token-interval-group">
-<input type="number" class="token-interval-input" id="interval-{{$exam.ID}}" value="{{if $exam.TokenResetInterval}}{{$exam.TokenResetInterval}}{{else}}5{{end}}" min="1" placeholder="menit" title="Interval reset token (menit)">
-<span class="token-interval-label">menit</span>
-<button class="btn-icon btn-save-interval" onclick="saveTokenInterval({{$exam.ID}})" title="Simpan Interval"><svg class="icon-svg" style="width:16px;height:16px;"><use href="#hi-check"/></svg></button>
-</div>
-</div>
+  <select class="token-mode-select" onchange="onTokenModeChange(this, {{$exam.ID}})">
+    <option value="static" {{if eq $exam.TokenMode "static"}}selected{{end}}>Statis</option>
+    <option value="dynamic" {{if or (not $exam.TokenMode) (eq $exam.TokenMode "dynamic")}}selected{{end}}>Dinamis</option>
+  </select>
+
+  <!-- Static settings -->
+  <div class="token-static-settings" id="token-static-{{$exam.ID}}" style="{{if eq $exam.TokenMode "static"}}display:flex;{{else}}display:none;{{end}}align-items:center;gap:4px;white-space:nowrap;">
+    <code class="token-code" id="token-{{$exam.ID}}" data-token="{{$exam.ActiveToken}}" onclick="copyToken(this.dataset.token)" title="Klik untuk Salin Token">{{$exam.ActiveToken}}</code>
+    <button class="btn-icon btn-edit" data-exam-id="{{$exam.ID}}" data-token="{{$exam.Token}}" onclick="openEditTokenModal(this.dataset.examId, this.dataset.token)" title="Kustomisasi Token Awal" style="background:transparent;border:none;cursor:pointer;color:var(--color-text-muted);padding:2px;display:inline-flex;align-items:center;justify-content:center;transition:color 0.2s;margin-left:-2px;"><svg class="icon-svg" style="width:14px;height:14px;"><use href="#hi-edit"/></svg></button>
+  </div>
+
+  <!-- Dynamic settings -->
+  <div class="token-dynamic-settings" id="token-dynamic-{{$exam.ID}}" style="{{if eq $exam.TokenMode "static"}}display:none;{{else}}display:flex;{{end}}align-items:center;gap:6px;flex-wrap:wrap;">
+    <div style="display:flex;align-items:center;gap:4px;flex-shrink:0;white-space:nowrap;">
+      <code class="token-code" id="token-dyn-{{$exam.ID}}" data-token="{{$exam.ActiveToken}}" onclick="copyToken(this.dataset.token)" title="Klik untuk Salin Token">{{$exam.ActiveToken}}</code>
+      <button class="btn-icon btn-edit" data-exam-id="{{$exam.ID}}" data-token="{{$exam.Token}}" onclick="openEditTokenModal(this.dataset.examId, this.dataset.token)" title="Kustomisasi Token Awal" style="background:transparent;border:none;cursor:pointer;color:var(--color-text-muted);padding:2px;display:inline-flex;align-items:center;justify-content:center;transition:color 0.2s;margin-left:-2px;"><svg class="icon-svg" style="width:14px;height:14px;"><use href="#hi-edit"/></svg></button>
+    </div>
+    <div class="token-interval-group">
+      <input type="number" class="token-interval-input" id="interval-{{$exam.ID}}" value="{{if $exam.TokenResetInterval}}{{$exam.TokenResetInterval}}{{else}}5{{end}}" min="1" placeholder="menit" title="Interval reset token (menit)">
+      <span class="token-interval-label">menit</span>
+      <button class="btn-icon btn-save-interval" onclick="saveTokenInterval({{$exam.ID}})" title="Simpan Interval"><svg class="icon-svg" style="width:16px;height:16px;"><use href="#hi-check"/></svg></button>
+    </div>
+  </div>
 </div>
 </td>
 <td data-label="Status">

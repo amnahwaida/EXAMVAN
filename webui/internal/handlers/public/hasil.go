@@ -14,6 +14,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/examvan/webui/internal/middleware"
 	"github.com/examvan/webui/internal/models"
 )
 
@@ -95,31 +96,31 @@ func HasilPage() gin.HandlerFunc {
 		exam, err := models.GetExamByToken(ctx, pool, token)
 		if err != nil {
 			if err == pgx.ErrNoRows {
-				c.HTML(http.StatusNotFound, "public/hasil.html", gin.H{
+				c.HTML(http.StatusNotFound, "public/hasil.html", middleware.MergeTemplateData(c, gin.H{
 					"exam_name":      "Ujian Tidak Ditemukan",
 					"token":          token,
 					"total_students": 0,
 					"error":          true,
-				})
+				}))
 				return
 			}
 			log.Printf("hasil page exam lookup error: %v", err)
-			c.HTML(http.StatusInternalServerError, "public/hasil.html", gin.H{
+			c.HTML(http.StatusInternalServerError, "public/hasil.html", middleware.MergeTemplateData(c, gin.H{
 				"exam_name":      "Error",
 				"token":          token,
 				"total_students": 0,
 				"error":          true,
-			})
+			}))
 			return
 		}
 
 		_, isLoggedIn := c.Get("user_id")
 		if !exam.AreResultsPublic() && !isLoggedIn {
-			c.HTML(http.StatusForbidden, "public/hasil.html", gin.H{
+			c.HTML(http.StatusForbidden, "public/hasil.html", middleware.MergeTemplateData(c, gin.H{
 				"exam_name":   exam.Name,
 				"token":       token,
 				"is_disabled": true,
-			})
+			}))
 			return
 		}
 
@@ -138,7 +139,7 @@ func HasilPage() gin.HandlerFunc {
 			pool.QueryRow(ctx, `SELECT username FROM admin_users WHERE id = $1`, *exam.DelegatedTo).Scan(&delegatedName)
 		}
 
-		c.HTML(http.StatusOK, "public/hasil.html", gin.H{
+		c.HTML(http.StatusOK, "public/hasil.html", middleware.MergeTemplateData(c, gin.H{
 			"exam_name":      exam.Name,
 			"token":          exam.Token,
 			"total_students": total,
@@ -146,7 +147,7 @@ func HasilPage() gin.HandlerFunc {
 			"show_answers":   exam.AreAnswersShown(),
 			"creator_name":   creatorName,
 			"delegated_name": delegatedName,
-		})
+		}))
 	}
 }
 

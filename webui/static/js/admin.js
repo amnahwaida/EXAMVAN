@@ -1280,7 +1280,7 @@ function loadUsersList(page) {
     // Hapus popup yang tertinggal di body (dari fix backdrop-filter containing block)
     document.querySelectorAll('body > .user-info-popup').forEach(function(p) { p.remove(); });
 
-    tbody.innerHTML = '<tr><td colspan="7" style="text-align:center; padding: 20px; color: var(--color-text-secondary);">⏳ Memuat...</td></tr>';
+    tbody.innerHTML = '<tr><td colspan="8" style="text-align:center; padding: 20px; color: var(--color-text-secondary);">⏳ Memuat...</td></tr>';
 
     apiFetch(url)
         .then(r => r.json())
@@ -1290,7 +1290,7 @@ function loadUsersList(page) {
                 tbody.innerHTML = '';
 
                 if (!Array.isArray(res.users) || res.users.length === 0) {
-                    tbody.innerHTML = '<tr><td colspan="7" style="text-align:center; padding: 40px; color: var(--color-text-secondary);">'
+                    tbody.innerHTML = '<tr><td colspan="8" style="text-align:center; padding: 40px; color: var(--color-text-secondary);">'
                         + (searchVal ? 'Tidak ditemukan user yang cocok dengan "' + escapeHtml(searchVal) + '"' : 'Belum ada user terdaftar')
                         + '</td></tr>';
                     renderUsersPagination(pagination, page);
@@ -1342,6 +1342,7 @@ function loadUsersList(page) {
                         </td>
                         <td data-label="Nama">${escapeHtml(user.name || '—')}</td>
                         <td data-label="Instansi">${window.__adminRole === 'superadmin' ? '<span class="editable-instansi" data-user-id="' + user.id + '" style="color:#a5b4fc;cursor:pointer;border-bottom:1px dashed rgba(165,180,252,0.3);" title="Klik untuk ubah instansi">' + escapeHtml(user.instansi || '—') + '</span>' : escapeHtml(user.instansi || '—')}</td>
+                        <td data-label="Paket"><span style="text-transform:uppercase;font-size:11px;font-weight:600;color:var(--color-accent-light);">${escapeHtml(user.package || 'free')}</span></td>
                         <td data-label="Role">${isAdmin ? '<span style="display:inline-block;padding:2px 8px;border-radius:10px;font-size:11px;font-weight:600;background:rgba(251,191,36,0.15);color:#fbbf24;border:1px solid rgba(251,191,36,0.3);">Super Admin</span>' : renderRoleBadges(user.roles)}</td>
                         <td data-label="Email">${escapeHtml(user.email || '—')}</td>
                         <td data-label="Status" style="text-align:center;">${statusBadge}</td>
@@ -1584,6 +1585,7 @@ function openEditUserModal(userId) {
             document.getElementById('editUserStorageSize').value = user.max_storage_size ? (user.max_storage_size / (1024*1024)).toFixed(1) : '0';
             document.getElementById('editUserEmail').value = user.email || '';
             document.getElementById('editUserInstansi').value = user.instansi || '';
+            document.getElementById('editUserPackage').value = user.package || 'free';
             var userRoles = user.roles || (user.role ? [user.role] : ['guru']);
             document.getElementById('editRoleGuru').checked = userRoles.indexOf('guru') !== -1;
             document.getElementById('editRolePengawas').checked = userRoles.indexOf('pengawas') !== -1;
@@ -1740,6 +1742,7 @@ function submitEditUser(e) {
         max_pdf_size_mb: (function(){ var v=document.getElementById('editUserPdfSize').value; return v==='' ? 1 : parseFloat(v); })(),
         max_storage_size_mb: (function(){ var v=document.getElementById('editUserStorageSize').value; return v==='' ? 0 : parseFloat(v); })(),
         email: document.getElementById('editUserEmail').value.trim(),
+        package: document.getElementById('editUserPackage').value,
         roles: []
     };
     // Hanya kirim instansi jika fieldnya visible (tidak disembunyikan untuk operator)
@@ -1818,6 +1821,18 @@ function createEditUserModal() {
                     <div class="form-group" style="margin-bottom:8px;">
                         <label for="editUserName">Nama Lengkap</label>
                         <input type="text" id="editUserName" placeholder="Contoh: Budi Sudarsono" style="width:100%;">
+                    </div>
+                    <div class="form-group" style="margin-bottom:8px;">
+                        <label for="editUserPackage">Paket Langganan (Preset)</label>
+                        <select id="editUserPackage" onchange="applyPackagePreset('edit')" style="width:100%;padding:8px 12px;background:rgba(255,255,255,0.05);border:1px solid var(--color-glass-border);border-radius:10px;color:var(--color-text);outline:none;font-size:13px;cursor:pointer;">
+                            <option value="free">Free / Trial</option>
+                            <option value="guru">Paket Guru</option>
+                            <option value="individu">Paket Individu</option>
+                            <option value="sekolah_kecil">Paket Sekolah Kecil</option>
+                            <option value="sekolah_menengah">Paket Sekolah Menengah</option>
+                            <option value="sekolah_besar">Paket Sekolah Besar</option>
+                            <option value="sekolah_unggulan">Paket Sekolah Unggulan</option>
+                        </select>
                     </div>
                     <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px;">
                         <div class="form-group" style="margin-bottom:8px;">
@@ -2723,6 +2738,10 @@ function saveSaasSettings(e) {
     const default_active_days = parseInt(document.getElementById('defaultActiveDaysInput').value);
     const android_version = document.getElementById('androidVersionInput').value.trim();
     const webapp_version = document.getElementById('webappVersionInput').value.trim();
+    const seo_title = document.getElementById('seoTitleInput').value.trim();
+    const seo_description = document.getElementById('seoDescriptionInput').value.trim();
+    const seo_keywords = document.getElementById('seoKeywordsInput').value.trim();
+    const seo_index = document.getElementById('seoIndexInput').checked;
 
     apiFetch('/admin/api/saas-settings', {
         method: 'POST',
@@ -2730,7 +2749,8 @@ function saveSaasSettings(e) {
         body: JSON.stringify({
             email_verification_enabled, smtp_host, smtp_port, smtp_user, smtp_password, smtp_sender_name,
             default_max_exams, default_max_pdf_size_mb,
-            default_active_days, android_version, webapp_version
+            default_active_days, android_version, webapp_version,
+            seo_title, seo_description, seo_keywords, seo_index
         })
     })
     .then(r => r.json())
@@ -2847,10 +2867,11 @@ function createUser(e) {
             }
         }
     }
+    const package = document.getElementById('packageSelect').value;
     if (!username || !password) { showToast('Username dan password wajib diisi','error'); return; }
     apiFetch('/admin/api/users', {
         method: 'POST', headers: {'Content-Type':'application/json'},
-        body: JSON.stringify({ username, name, password, email, instansi, roles, max_exams, max_pdf_size_mb, max_storage_size_mb, expires_at })
+        body: JSON.stringify({ username, name, password, email, instansi, roles, max_exams, max_pdf_size_mb, max_storage_size_mb, expires_at, package })
     }).then(r=>r.json()).then(res => {
         if (res.success) {
             showToast(res.message,'success');
@@ -2884,6 +2905,10 @@ function loadSaasSettings() {
                 document.getElementById('defaultActiveDaysInput').value = s.default_active_days || 1;
                 document.getElementById('androidVersionInput').value = s.android_version || '2.1.9';
                 document.getElementById('webappVersionInput').value = s.webapp_version || '2.1.9';
+                document.getElementById('seoTitleInput').value = s.seo_title || '';
+                document.getElementById('seoDescriptionInput').value = s.seo_description || '';
+                document.getElementById('seoKeywordsInput').value = s.seo_keywords || '';
+                document.getElementById('seoIndexInput').checked = s.seo_index || false;
                 toggleEmailFields();
             }
         });
@@ -3199,3 +3224,35 @@ document.addEventListener('DOMContentLoaded', function() {
         }
     });
 });
+
+// Subscription Package Presets Config
+const EXAMVAN_PACKAGES = {
+    free: { name: 'Free / Trial', exams: 1, pdf: 1, drafts: 1, storage: 50 },
+    guru: { name: 'Paket Guru', exams: 1, pdf: 10, drafts: 10, storage: 100 },
+    individu: { name: 'Paket Individu', exams: 2, pdf: 30, drafts: 30, storage: 300 },
+    sekolah_kecil: { name: 'Paket Sekolah Kecil', exams: 3, pdf: 50, drafts: 50, storage: 500 },
+    sekolah_menengah: { name: 'Paket Sekolah Menengah', exams: 5, pdf: 200, drafts: 200, storage: 2000 },
+    sekolah_besar: { name: 'Paket Sekolah Besar', exams: 10, pdf: 500, drafts: 500, storage: 5000 },
+    sekolah_unggulan: { name: 'Paket Sekolah Unggulan', exams: 99999, pdf: 99999, drafts: 99999, storage: 999999 }
+};
+
+function applyPackagePreset(type) {
+    if (type === 'new') {
+        const pkgKey = document.getElementById('packageSelect').value;
+        const limits = EXAMVAN_PACKAGES[pkgKey];
+        if (limits) {
+            document.getElementById('limitInput').value = limits.exams;
+            document.getElementById('pdfSizeInput').value = limits.pdf;
+            document.getElementById('storageSizeInput').value = limits.storage;
+        }
+    } else if (type === 'edit') {
+        const pkgKey = document.getElementById('editUserPackage').value;
+        const limits = EXAMVAN_PACKAGES[pkgKey];
+        if (limits) {
+            document.getElementById('editUserExams').value = limits.exams;
+            document.getElementById('editUserPdfSize').value = limits.pdf;
+            document.getElementById('editUserStorageSize').value = limits.storage;
+        }
+    }
+}
+

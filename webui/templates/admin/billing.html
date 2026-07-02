@@ -1,0 +1,532 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+ {{adminHead .version .csrf_token "Billing &amp; Paket Langganan"}}
+</head>
+<body class="dashboard-page">
+{{adminNav .active_page .admin_role .admin_user .csrf_token}}
+
+<main class="dashboard">
+<div class="billing-container" style="padding:24px;max-width:1200px;margin:0 auto;">
+
+ <!-- Page Title -->
+ <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:24px;flex-wrap:wrap;gap:12px;">
+  <div>
+   <h2 style="font-size:1.5rem;font-weight:700;color:#fff;margin:0;font-family:'Outfit',sans-serif;">Billing &amp; Paket Langganan</h2>
+   <p style="color:var(--color-text-secondary);font-size:0.875rem;margin:2px 0 0 0;">Kelola kuota, ajukan aktivasi, dan lihat riwayat pembayaran akun Anda.</p>
+  </div>
+  {{if ne .admin_role "superadmin"}}
+  <button class="btn-primary" onclick="openPaymentModal()" style="display:inline-flex;align-items:center;gap:8px;padding:10px 20px;border-radius:10px;font-weight:600;font-size:0.875rem;cursor:pointer;background:linear-gradient(135deg, var(--color-primary), var(--color-accent));border:none;color:#fff;">
+   <svg class="icon-svg" style="width:16px;height:16px;"><use href="#hi-upload"/></svg> Konfirmasi Pembayaran
+  </button>
+  {{end}}
+ </div>
+
+ <!-- Summary Grid -->
+ <div class="grid grid-cols-1 md:grid-cols-3 gap-6" style="margin-bottom:32px;display:grid;grid-template-columns:repeat(auto-fit, minmax(280px, 1fr));gap:24px;">
+  
+  <!-- Current Package Card -->
+  <div class="glass-card" style="padding:24px;border-radius:16px;position:relative;overflow:hidden;">
+   <div style="position:absolute;top:0;left:0;right:0;height:4px;background:linear-gradient(90deg, var(--color-primary), var(--color-accent));"></div>
+   <span style="font-size:11px;font-weight:700;text-transform:uppercase;color:var(--color-accent-light);letter-spacing:0.5px;display:block;margin-bottom:8px;">Paket Saat Ini</span>
+   <h3 style="font-size:1.75rem;font-weight:800;color:#fff;margin:0 0 4px 0;text-transform:uppercase;font-family:'Outfit',sans-serif;" id="currentPkgName">{{.user_package}}</h3>
+   <p style="font-size:13px;color:var(--color-text-secondary);margin:0;">Masa aktif s.d: <strong style="color:#fff;" id="expiryDateStr">{{.user_expires_at}}</strong></p>
+  </div>
+
+  <!-- Quota Details Card -->
+  <div class="glass-card" style="padding:24px;border-radius:16px;display:flex;flex-direction:column;justify-content:center;">
+   <span style="font-size:11px;font-weight:700;text-transform:uppercase;color:var(--color-accent-light);letter-spacing:0.5px;display:block;margin-bottom:12px;">Kuota Ujian &amp; PDF</span>
+   <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;font-size:13px;">
+    <span style="color:var(--color-text-secondary);">Limit Ujian Bersamaan</span>
+    <strong style="color:#fff;">{{.user_max_exams}} Ujian</strong>
+   </div>
+   <div style="display:flex;justify-content:space-between;align-items:center;font-size:13px;">
+    <span style="color:var(--color-text-secondary);">Maks. Ukuran PDF</span>
+    <strong style="color:#fff;">{{.user_max_pdf_size_mb}} MB</strong>
+   </div>
+  </div>
+
+  <!-- Storage Details Card -->
+  <div class="glass-card" style="padding:24px;border-radius:16px;display:flex;flex-direction:column;justify-content:center;">
+   <span style="font-size:11px;font-weight:700;text-transform:uppercase;color:var(--color-accent-light);letter-spacing:0.5px;display:block;margin-bottom:12px;">Kuota Storage</span>
+   <div style="display:flex;justify-content:space-between;align-items:center;font-size:13px;">
+    <span style="color:var(--color-text-secondary);">Kapasitas Penyimpanan</span>
+    <strong style="color:#fff;">{{if eq .user_max_storage_mb 999999.0}}Tanpa Batas{{else}}{{.user_max_storage_mb}} MB{{end}}</strong>
+   </div>
+  </div>
+
+ </div>
+
+ <!-- Transactions List -->
+ <section class="glass-card" style="padding:24px;border-radius:16px;min-height:350px;">
+  <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:20px;flex-wrap:wrap;gap:12px;">
+   <h3 style="font-size:1.1rem;color:#a5b4fc;margin:0;display:flex;align-items:center;gap:8px;font-family:'Outfit',sans-serif;">
+    <svg class="icon-svg" style="color:#a5b4fc;"><use href="#hi-clipboard"/></svg> 
+    {{if eq .admin_role "superadmin"}}Semua Transaksi Pelanggan{{else}}Riwayat Pembayaran Anda{{end}}
+   </h3>
+   <button class="btn-refresh" onclick="loadTransactions(1)" style="padding:6px 12px;font-size:13px;display:inline-flex;align-items:center;gap:6px;background:rgba(255,255,255,0.04);border:1px solid var(--color-glass-border);color:var(--color-text);border-radius:8px;cursor:pointer;">
+    <svg class="icon-svg" style="width:14px;height:14px;"><use href="#hi-refresh"/></svg> Refresh
+   </button>
+  </div>
+
+  <div class="table-responsive">
+   <table class="exam-table" style="width:100%;border-collapse:collapse;">
+    <thead>
+     <tr>
+      {{if eq .admin_role "superadmin"}}
+      <th scope="col" style="text-align:left;">Username</th>
+      {{end}}
+      <th scope="col" style="text-align:left;">Paket</th>
+      <th scope="col" style="text-align:left;">Durasi</th>
+      <th scope="col" style="text-align:right;">Nominal</th>
+      <th scope="col" style="text-align:center;">Bukti</th>
+      <th scope="col" style="text-align:center;">Status</th>
+      <th scope="col" style="text-align:left;">Keterangan</th>
+      <th scope="col" style="text-align:left;">Tanggal Diajukan</th>
+      {{if eq .admin_role "superadmin"}}
+      <th scope="col" style="text-align:right;">Aksi</th>
+      {{end}}
+     </tr>
+    </thead>
+    <tbody id="txTableBody">
+     <tr>
+      <td colspan="{{if eq .admin_role "superadmin"}}9{{else}}7{{end}}" style="text-align:center;padding:40px;color:var(--color-text-secondary);">
+       Memuat data transaksi...
+      </td>
+     </tr>
+    </tbody>
+   </table>
+  </div>
+  
+  <!-- Pagination -->
+  <div id="txPagination" style="display:flex;justify-content:flex-end;gap:8px;margin-top:20px;align-items:center;"></div>
+ </section>
+
+</div>
+
+<!-- Payment Confirmation Modal (Guru/User only) -->
+{{if ne .admin_role "superadmin"}}
+<div class="modal-overlay" id="paymentModal" style="display:none;">
+ <div class="modal-card glass-card" style="max-width:500px;">
+  <div class="modal-header" style="display:flex;justify-content:space-between;align-items:center;border-bottom:1px solid var(--color-glass-border);padding-bottom:12px;margin-bottom:16px;">
+    <h3 style="font-family:'Outfit',sans-serif;margin:0;"><svg class="icon-svg" style="vertical-align:middle;margin-top:-2px;margin-right:6px;"><use href="#hi-upload"/></svg> Konfirmasi Pembayaran</h3>
+    <button class="modal-close" onclick="closePaymentModal()" aria-label="Tutup" style="background:none;border:none;color:var(--color-text-secondary);cursor:pointer;font-size:1.2rem;display:flex;align-items:center;justify-content:center;padding:4px;"><svg class="icon-svg" style="width:18px;height:18px;"><use href="#hi-x"/></svg></button>
+  </div>
+  <div class="modal-body">
+   <form id="paymentForm" onsubmit="submitPayment(event)" style="display:flex;flex-direction:column;gap:12px;">
+    
+    <div class="form-group">
+     <label for="txPackageSelect" class="required">Paket Langganan</label>
+     <select id="txPackageSelect" onchange="updateCalculatedPrice()" style="width:100%;padding:8px 12px;background:rgba(255,255,255,0.05);border:1px solid var(--color-glass-border);border-radius:8px;color:var(--color-text);outline:none;cursor:pointer;">
+      <option value="guru">Paket Guru (Rp 25.000/bln)</option>
+      <option value="individu">Paket Individu (Rp 50.000/bln)</option>
+      <option value="sekolah_kecil">Paket Sekolah Kecil (Rp 75.000/bln)</option>
+      <option value="sekolah_menengah">Paket Sekolah Menengah (Rp 175.000/bln)</option>
+      <option value="sekolah_besar">Paket Sekolah Besar (Rp 375.000/bln)</option>
+      <option value="sekolah_unggulan">Paket Sekolah Unggulan (Rp 750.000/bln)</option>
+     </select>
+    </div>
+
+    <div class="form-group">
+     <label for="txDurationSelect" class="required">Durasi Langganan</label>
+     <select id="txDurationSelect" onchange="updateCalculatedPrice()" style="width:100%;padding:8px 12px;background:rgba(255,255,255,0.05);border:1px solid var(--color-glass-border);border-radius:8px;color:var(--color-text);outline:none;cursor:pointer;">
+      <option value="bulanan">Bulanan</option>
+      <option value="semester">Semester (Hemat ~17%)</option>
+      <option value="tahunan">Tahunan (Hemat ~25%)</option>
+     </select>
+    </div>
+
+    <!-- Calculated Price Info -->
+    <div class="glass-card" style="padding:14px;border-radius:10px;background:rgba(99,102,241,0.06);border-color:rgba(99,102,241,0.2);display:flex;justify-content:space-between;align-items:center;">
+     <span style="font-size:13px;color:var(--color-text-secondary);">Total Pembayaran:</span>
+     <strong style="font-size:1.15rem;color:#a5b4fc;font-family:'Outfit',sans-serif;" id="txCalculatedAmount">Rp 25.000</strong>
+    </div>
+
+
+
+    <div class="form-group">
+     <label for="txNotes">Keterangan / Catatan Tambahan (Opsional)</label>
+     <textarea id="txNotes" placeholder="Tuliskan nama pemilik rekening pengirim jika berbeda..." style="width:100%;min-height:50px;padding:8px 12px;background:rgba(255,255,255,0.05);border:1px solid var(--color-glass-border);border-radius:8px;color:var(--color-text);outline:none;font-family:inherit;font-size:13px;resize:vertical;"></textarea>
+    </div>
+
+    <button type="submit" id="txSubmitBtn" class="btn-primary" style="width:100%;padding:12px;border-radius:8px;font-weight:700;margin-top:6px;background:linear-gradient(135deg, var(--color-primary), var(--color-accent));border:none;color:#fff;cursor:pointer;">
+     Bayar Sekarang via DOKU
+    </button>
+   </form>
+  </div>
+ </div>
+</div>
+{{end}}
+
+<!-- Verification Modal (Superadmin only) -->
+{{if eq .admin_role "superadmin"}}
+<div class="modal-overlay" id="verifyModal" style="display:none;">
+ <div class="modal-card glass-card" style="max-width:440px;">
+  <div class="modal-header" style="display:flex;justify-content:space-between;align-items:center;border-bottom:1px solid var(--color-glass-border);padding-bottom:12px;margin-bottom:16px;">
+    <h3 style="font-family:'Outfit',sans-serif;margin:0;" id="verifyModalTitle">Verifikasi Pembayaran</h3>
+    <button class="modal-close" onclick="closeVerifyModal()" aria-label="Tutup" style="background:none;border:none;color:var(--color-text-secondary);cursor:pointer;font-size:1.2rem;display:flex;align-items:center;justify-content:center;padding:4px;"><svg class="icon-svg" style="width:18px;height:18px;"><use href="#hi-x"/></svg></button>
+  </div>
+  <div class="modal-body">
+   <form id="verifyForm" onsubmit="submitVerify(event)" style="display:flex;flex-direction:column;gap:12px;">
+    <input type="hidden" id="verifyTxId">
+    <input type="hidden" id="verifyStatusAction">
+
+    <div class="glass-card" style="padding:14px;border-radius:10px;background:rgba(255,255,255,0.02);font-size:13px;margin-bottom:8px;">
+     <div style="display:flex;justify-content:space-between;margin-bottom:6px;">
+      <span style="color:var(--color-text-secondary);">User:</span>
+      <strong id="verifyUsername" style="color:#fff;">guru_test</strong>
+     </div>
+     <div style="display:flex;justify-content:space-between;margin-bottom:6px;">
+      <span style="color:var(--color-text-secondary);">Paket / Durasi:</span>
+      <strong id="verifyPackageDetails" style="color:#fff;">sekolah_besar / semester</strong>
+     </div>
+     <div style="display:flex;justify-content:space-between;">
+      <span style="color:var(--color-text-secondary);">Total Nominal:</span>
+      <strong id="verifyAmount" style="color:#6ee7b7;">Rp 3.750.000</strong>
+     </div>
+    </div>
+
+    <div class="form-group">
+     <label for="verifyNotes">Catatan / Alasan (Opsional)</label>
+     <textarea id="verifyNotes" placeholder="Contoh: Pembayaran sudah masuk dan kuota telah diaktifkan, atau alasan jika bukti ditolak..." style="width:100%;min-height:70px;padding:8px 12px;background:rgba(255,255,255,0.05);border:1px solid var(--color-glass-border);border-radius:8px;color:var(--color-text);outline:none;font-family:inherit;font-size:13px;resize:vertical;"></textarea>
+    </div>
+
+    <div style="display:flex;gap:10px;margin-top:8px;">
+     <button type="button" class="btn-sm" onclick="closeVerifyModal()" style="flex:1;background:rgba(255,255,255,0.04);border:1px solid var(--color-glass-border);color:var(--color-text);height:40px;border-radius:8px;cursor:pointer;font-weight:600;">Batal</button>
+     <button type="submit" id="verifySubmitBtn" class="btn-primary" style="flex:2;height:40px;border-radius:8px;cursor:pointer;font-weight:700;border:none;color:#fff;">Konfirmasi</button>
+    </div>
+   </form>
+  </div>
+ </div>
+</div>
+{{end}}
+
+<script src="/static/js/admin-core.js?v={{.version}}"></script>
+<script src="/static/js/admin.js?v={{.version}}"></script>
+
+<!-- Billing Script -->
+<script>
+const CSRF_TOKEN = '{{.csrf_token}}';
+window.__adminRole = '{{.admin_role}}';
+var currentTxPage = 1;
+
+document.addEventListener('DOMContentLoaded', function() {
+    loadTransactions(1);
+    formatPackageName();
+});
+
+function formatPackageName() {
+    const el = document.getElementById('currentPkgName');
+    if (el) {
+        const key = el.textContent.trim().toLowerCase();
+        const pkgs = {
+            'free': 'Free / Trial',
+            'guru': 'Paket Guru',
+            'individu': 'Paket Individu',
+            'sekolah_kecil': 'Paket Sekolah Kecil',
+            'sekolah_menengah': 'Paket Sekolah Menengah',
+            'sekolah_besar': 'Paket Sekolah Besar',
+            'sekolah_unggulan': 'Paket Sekolah Unggulan'
+        };
+        el.textContent = pkgs[key] || el.textContent;
+    }
+}
+
+function loadTransactions(page) {
+    page = page || 1;
+    currentTxPage = page;
+    const tbody = document.getElementById('txTableBody');
+    if (!tbody) return;
+
+    tbody.innerHTML = `<tr><td colspan="${window.__adminRole === 'superadmin' ? '9' : '8'}" style="text-align:center;padding:30px;color:var(--color-text-secondary);"><span style="display:inline-flex;align-items:center;gap:6px;"><svg class="icon-svg spin" style="width:16px;height:16px;"><use href="#hi-refresh"/></svg> Memuat riwayat transaksi...</span></td></tr>`;
+
+    apiFetch('/admin/api/transactions?page=' + page + '&per_page=10')
+        .then(r => r.json())
+        .then(res => {
+            if (!res.success) {
+                tbody.innerHTML = `<tr><td colspan="${window.__adminRole === 'superadmin' ? '9' : '8'}" style="text-align:center;padding:30px;color:#f87171;"><span style="display:inline-flex;align-items:center;gap:6px;"><svg class="icon-svg" style="width:16px;height:16px;color:#f87171;"><use href="#hi-exclamation"/></svg> Gagal memuat data transaksi.</span></td></tr>`;
+                return;
+            }
+
+            tbody.innerHTML = '';
+            const txs = res.transactions || [];
+
+            if (txs.length === 0) {
+                tbody.innerHTML = `<tr><td colspan="${window.__adminRole === 'superadmin' ? '9' : '8'}" style="text-align:center;padding:40px;color:var(--color-text-secondary);">Belum ada riwayat transaksi.</td></tr>`;
+                document.getElementById('txPagination').innerHTML = '';
+                return;
+            }
+
+            txs.forEach(tx => {
+                const tr = document.createElement('tr');
+                
+                // Status badge
+                let statusBadge = '';
+                if (tx.status === 'pending') {
+                    statusBadge = '<span class="status-badge" style="background:rgba(245,158,11,0.15);color:#f59e0b;border:1px solid rgba(245,158,11,0.3);">Pending</span>';
+                } else if (tx.status === 'approved') {
+                    statusBadge = '<span class="status-badge" style="background:rgba(16,185,129,0.15);color:#10b981;border:1px solid rgba(16,185,129,0.3);">Disetujui</span>';
+                } else {
+                    statusBadge = '<span class="status-badge" style="background:rgba(239,68,68,0.15);color:#ef4444;border:1px solid rgba(239,68,68,0.3);">Ditolak</span>';
+                }
+
+                // Proof link/viewer
+                const proofFilename = tx.proof_path ? tx.proof_path.split('/').pop() : '';
+                const proofHtml = tx.proof_path
+                    ? (window.__adminRole === 'superadmin'
+                       ? `<a href="/admin/api/transactions/proofs/${proofFilename}" target="_blank" style="color:#a5b4fc;text-decoration:none;border-bottom:1px dashed rgba(165,180,252,0.4);display:inline-flex;align-items:center;gap:4px;" title="Klik untuk lihat bukti transfer"><svg class="icon-svg" style="width:14px;height:14px;"><use href="#hi-file"/></svg> Lihat Bukti</a>`
+                       : `<span style="color:var(--color-text-secondary);display:inline-flex;align-items:center;gap:4px;"><svg class="icon-svg" style="width:14px;height:14px;"><use href="#hi-file"/></svg> Diunggah</span>`)
+                    : '<span style="color:var(--color-text-secondary);">—</span>';
+
+                // Format values
+                const formattedAmount = 'Rp ' + Number(tx.amount).toLocaleString('id-ID');
+                const dateStr = localizeUTC(tx.created_at);
+
+                // Package display name
+                const pkgs = {
+                    'guru': 'Guru', 'individu': 'Individu', 'sekolah_kecil': 'Sek. Kecil',
+                    'sekolah_menengah': 'Sek. Menengah', 'sekolah_besar': 'Sek. Besar',
+                    'sekolah_unggulan': 'Unggulan'
+                };
+                const pkgDisplay = pkgs[tx.package] || tx.package;
+
+                // Action buttons for superadmin
+                let actionTd = '';
+                if (window.__adminRole === 'superadmin') {
+                    if (tx.status === 'pending') {
+                        actionTd = `
+                            <td style="text-align:right;">
+                                <div style="display:flex;gap:6px;justify-content:flex-end;">
+                                    <button class="btn-sm" onclick="openVerifyModal(${tx.id}, 'approved', '${tx.username}', '${tx.package}', '${tx.duration_type}', ${tx.amount})" style="background:rgba(16,185,129,0.15);border:1px solid rgba(16,185,129,0.3);color:#6ee7b7;padding:2px 8px;font-size:11px;font-weight:600;" title="Approve pembayaran dan aktifkan paket">Setujui</button>
+                                    <button class="btn-sm" onclick="openVerifyModal(${tx.id}, 'rejected', '${tx.username}', '${tx.package}', '${tx.duration_type}', ${tx.amount})" style="background:rgba(239,68,68,0.15);border:1px solid rgba(239,68,68,0.3);color:#fca5a5;padding:2px 8px;font-size:11px;font-weight:600;" title="Tolak bukti transfer">Tolak</button>
+                                </div>
+                            </td>
+                        `;
+                    } else {
+                        actionTd = '<td style="text-align:right;color:var(--color-text-secondary);font-size:11.5px;">Selesai</td>';
+                    }
+                }
+
+                tr.innerHTML = `
+                    ${window.__adminRole === 'superadmin' ? `<td style="font-weight:600;color:#fff;">${escapeHtml(tx.username)}</td>` : ''}
+                    <td style="text-transform:capitalize;">${escapeHtml(pkgDisplay)}</td>
+                    <td style="text-transform:capitalize;">${escapeHtml(tx.duration_type)}</td>
+                    <td style="text-align:right;font-weight:600;color:#fff;">${formattedAmount}</td>
+                    <td style="text-align:center;">${proofHtml}</td>
+                    <td style="text-align:center;">${statusBadge}</td>
+                    <td><span style="font-size:12px;color:var(--color-text-secondary);display:block;max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${escapeHtml(tx.notes || '')}">${escapeHtml(tx.notes || '—')}</span></td>
+                    <td style="font-size:12px;color:var(--color-text-secondary);">${dateStr}</td>
+                    ${actionTd}
+                `;
+                tbody.appendChild(tr);
+            });
+
+            renderPagination(res.pagination || { page: page, total_pages: 1 });
+        });
+}
+
+function renderPagination(pageData) {
+    const wrap = document.getElementById('txPagination');
+    if (!wrap) return;
+
+    wrap.innerHTML = '';
+    const current = pageData.page || 1;
+    const total = pageData.total_pages || 1;
+
+    if (total <= 1) return;
+
+    // Prev Button
+    const prevBtn = document.createElement('button');
+    prevBtn.className = 'btn-sm';
+    prevBtn.innerHTML = '&laquo;';
+    prevBtn.disabled = current === 1;
+    prevBtn.style.padding = '4px 10px';
+    prevBtn.onclick = () => loadTransactions(current - 1);
+    wrap.appendChild(prevBtn);
+
+    // Page indicator
+    const span = document.createElement('span');
+    span.style.fontSize = '12.5px';
+    span.style.color = 'var(--color-text-secondary)';
+    span.textContent = `Halaman ${current} dari ${total}`;
+    wrap.appendChild(span);
+
+    // Next Button
+    const nextBtn = document.createElement('button');
+    nextBtn.className = 'btn-sm';
+    nextBtn.innerHTML = '&raquo;';
+    nextBtn.disabled = current === total;
+    nextBtn.style.padding = '4px 10px';
+    nextBtn.onclick = () => loadTransactions(current + 1);
+    wrap.appendChild(nextBtn);
+}
+
+// Payment confirm modal handlers
+function openPaymentModal() {
+    const modal = document.getElementById('paymentModal');
+    if (modal) {
+        modal.style.display = 'flex';
+        updateCalculatedPrice();
+    }
+}
+
+function closePaymentModal() {
+    const modal = document.getElementById('paymentModal');
+    if (modal) modal.style.display = 'none';
+}
+
+function updateCalculatedPrice() {
+    const pkg = document.getElementById('txPackageSelect').value;
+    const dur = document.getElementById('txDurationSelect').value;
+    
+    // Pricing matrix
+    const matrix = {
+        guru: { bulanan: 25000, semester: 125000, tahunan: 225000 },
+        individu: { bulanan: 50000, semester: 250000, tahunan: 450000 },
+        sekolah_kecil: { bulanan: 75000, semester: 375000, tahunan: 675000 },
+        sekolah_menengah: { bulanan: 175000, semester: 875000, tahunan: 1575000 },
+        sekolah_besar: { bulanan: 375000, semester: 1875000, tahunan: 3375000 },
+        sekolah_unggulan: { bulanan: 750000, semester: 3750000, tahunan: 6750000 }
+    };
+
+    const amount = matrix[pkg][dur];
+    const el = document.getElementById('txCalculatedAmount');
+    if (el) {
+        el.textContent = 'Rp ' + amount.toLocaleString('id-ID');
+    }
+}
+
+function submitPayment(e) {
+    e.preventDefault();
+
+    const pkg = document.getElementById('txPackageSelect').value;
+    const duration = document.getElementById('txDurationSelect').value;
+    const notes = document.getElementById('txNotes').value;
+
+    const formData = new FormData();
+    formData.append('package', pkg);
+    formData.append('duration_type', duration);
+    formData.append('notes', notes);
+    formData.append('_csrf_token', CSRF_TOKEN);
+
+    // DOKU payment method
+    showToast('Menyiapkan sesi pembayaran DOKU...', 'info');
+
+    apiFetch('/admin/api/transactions/doku', {
+        method: 'POST',
+        body: formData
+    })
+    .then(r => r.json())
+    .then(res => {
+        if (res.success && res.redirect_url) {
+            showToast('Mengarahkan ke pembayaran DOKU...', 'success');
+            // Redirect user to DOKU Checkout
+            window.location.href = res.redirect_url;
+        } else {
+            showToast(res.message || 'Gagal menyiapkan pembayaran DOKU', 'error');
+        }
+    })
+    .catch(err => {
+        console.error(err);
+        showToast('Terjadi kesalahan koneksi', 'error');
+    });
+}
+
+// Verification Modal handlers (Superadmin)
+function openVerifyModal(txId, action, username, pkg, duration, amount) {
+    const modal = document.getElementById('verifyModal');
+    if (!modal) return;
+
+    document.getElementById('verifyTxId').value = txId;
+    document.getElementById('verifyStatusAction').value = action;
+    
+    document.getElementById('verifyUsername').textContent = username;
+    
+    const pkgs = {
+        'guru': 'Paket Guru', 'individu': 'Paket Individu', 'sekolah_kecil': 'Paket Sekolah Kecil',
+        'sekolah_menengah': 'Paket Sekolah Menengah', 'sekolah_besar': 'Paket Ujian Sekolah Besar',
+        'sekolah_unggulan': 'Paket Ujian Sekolah Unggulan'
+    };
+    document.getElementById('verifyPackageDetails').textContent = `${pkgs[pkg] || pkg} (${duration.toUpperCase()})`;
+    document.getElementById('verifyAmount').textContent = 'Rp ' + Number(amount).toLocaleString('id-ID');
+
+    const titleEl = document.getElementById('verifyModalTitle');
+    const submitBtn = document.getElementById('verifySubmitBtn');
+    
+    if (action === 'approved') {
+        titleEl.textContent = 'Setujui Pembayaran';
+        submitBtn.textContent = 'Setujui & Aktifkan Paket';
+        submitBtn.style.background = 'linear-gradient(135deg, #10b981, #059669)';
+    } else {
+        titleEl.textContent = 'Tolak Bukti Pembayaran';
+        submitBtn.textContent = 'Tolak Pembayaran';
+        submitBtn.style.background = 'linear-gradient(135deg, #ef4444, #dc2626)';
+    }
+
+    document.getElementById('verifyNotes').value = '';
+    modal.style.display = 'flex';
+}
+
+function closeVerifyModal() {
+    const modal = document.getElementById('verifyModal');
+    if (modal) modal.style.display = 'none';
+}
+
+function submitVerify(e) {
+    e.preventDefault();
+
+    const txId = document.getElementById('verifyTxId').value;
+    const action = document.getElementById('verifyStatusAction').value;
+    const notes = document.getElementById('verifyNotes').value;
+
+    const formData = new FormData();
+    formData.append('notes', notes);
+    formData.append('_csrf_token', CSRF_TOKEN);
+
+    const url = `/admin/api/transactions/${txId}/${action}`;
+
+    showToast('Memproses transaksi...', 'info');
+
+    fetch(url, {
+        method: 'POST',
+        body: formData
+    })
+    .then(r => r.json())
+    .then(res => {
+        if (res.success) {
+            showToast(res.message, 'success');
+            closeVerifyModal();
+            loadTransactions(currentTxPage);
+        } else {
+            showToast(res.message || 'Gagal memproses transaksi', 'error');
+        }
+    })
+    .catch(err => {
+        console.error(err);
+        showToast('Terjadi kesalahan koneksi', 'error');
+    });
+}
+
+window.addEventListener('DOMContentLoaded', () => {
+    const urlParams = new URLSearchParams(window.location.search);
+    const pkg = urlParams.get('package');
+    const duration = urlParams.get('duration');
+    
+    if (pkg) {
+        const pkgSelect = document.getElementById('txPackageSelect');
+        if (pkgSelect) {
+            pkgSelect.value = pkg;
+        }
+        if (duration) {
+            const durSelect = document.getElementById('txDurationSelect');
+            if (durSelect) {
+                durSelect.value = duration;
+            }
+        }
+        openPaymentModal();
+    }
+});
+</script>
+</main>
+</body>
+</html>

@@ -30,6 +30,11 @@ type Config struct {
 	R2SecretKey string
 	R2Bucket    string
 	R2Endpoint  string
+
+	// DOKU Payment Gateway
+	DokuClientID  string
+	DokuSecretKey string
+	DokuAPIURL    string
 }
 
 func Load() *Config {
@@ -48,6 +53,9 @@ func Load() *Config {
 		R2SecretKey: os.Getenv("R2_SECRET_ACCESS_KEY"),
 		R2Bucket:    envStr("R2_BUCKET", "examvan-pdfs"),
 		R2Endpoint:  os.Getenv("R2_ENDPOINT"),
+		DokuClientID:  os.Getenv("DOKU_CLIENT_ID"),
+		DokuSecretKey: os.Getenv("DOKU_SECRET_KEY"),
+		DokuAPIURL:    envStr("DOKU_API_URL", "https://api-sandbox.doku.com"),
 	}
 
 	if cfg.StoragePath == "" {

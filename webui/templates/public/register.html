@@ -4,6 +4,12 @@
  <meta charset="UTF-8">
  <meta name="viewport" content="width=device-width, initial-scale=1.0">
  <title>EXAMVAN - Daftar Akun Guru</title>
+ <meta name="description" content="{{.seo_description}}">
+ {{if .seo_index}}
+ <meta name="robots" content="index, follow">
+ {{else}}
+ <meta name="robots" content="noindex, nofollow">
+ {{end}}
  <link rel="stylesheet" href="/static/css/theme.css?v={{.version}}">
  <link rel="stylesheet" href="/static/css/tailwind/output.css?v={{.version}}">
  <link rel="icon" type="image/png" href="/static/favicon.png">

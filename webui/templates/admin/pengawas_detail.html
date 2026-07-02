@@ -53,13 +53,15 @@
    <div class="pd-info-item pd-token-card">
     <svg class="icon-svg pd-info-icon"><use href="#hi-key"/></svg>
     <div style="flex:1;">
-     <span class="pd-info-label">Token Aktif (Dinamis)</span>
+     <span class="pd-info-label">Token Aktif ({{if eq .token_mode "static"}}Statis{{else}}Dinamis{{end}})</span>
      {{if .exam.ExamStartedAt}}
      <div class="pd-token-row">
       <span class="pd-info-value pd-token-value" id="pdActiveToken">{{.exam.ActiveToken}}</span>
+      {{if ne .token_mode "static"}}
       <button class="pd-token-regen-btn" onclick="regenerateActiveToken()" title="Generate Token Baru Sekarang">
        <svg class="icon-svg" style="width:14px;height:14px;"><use href="#hi-refresh"/></svg>
       </button>
+      {{end}}
       <button class="pd-token-copy-btn" onclick="copyToken(document.getElementById('pdActiveToken').textContent)" title="Salin Token">
        <svg class="icon-svg" style="width:14px;height:14px;" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M15.666 3.888A2.25 2.25 0 0 0 13.5 2.25h-3c-1.03 0-1.9.693-2.166 1.638m7.332 0c.055.194.084.4.084.612v0a.75.75 0 0 1-.75.75H9.75a.75.75 0 0 1-.75-.75v0c0-.212.03-.418.084-.612m7.332 0c.646.049 1.288.11 1.927.184 1.1.128 1.907 1.077 1.907 2.185V19.5a2.25 2.25 0 0 1-2.25 2.25H6.75A2.25 2.25 0 0 1 4.5 19.5V6.257c0-1.108.806-2.057 1.907-2.185a48.208 48.208 0 0 1 1.927-.184"/></svg>
       </button>
@@ -1156,6 +1158,7 @@ function closeAccessLogModal(event) {
 }
 
 // ===== Dynamic Token Management =====
+var TOKEN_MODE = '{{.token_mode}}';
 var TOKEN_INTERVAL_MINUTES = {{if .exam.TokenResetInterval}}{{.exam.TokenResetInterval}}{{else}}5{{end}};
 var TOKEN_LAST_RESET = '{{if .exam.TokenLastResetAt}}{{.exam.TokenLastResetAt.Format "2006-01-02T15:04:05Z07:00"}}{{end}}';
 var TOKEN_REFRESH_TIMER = null;
@@ -1221,7 +1224,12 @@ function refreshActiveToken() {
 
 function updateCountdown() {
     var el = document.getElementById('pdTokenCountdown');
-    if (!el || !TOKEN_LAST_RESET || !TOKEN_INTERVAL_MINUTES) return;
+    if (!el) return;
+    if (TOKEN_MODE === 'static') {
+        el.innerHTML = '';
+        return;
+    }
+    if (!TOKEN_LAST_RESET || !TOKEN_INTERVAL_MINUTES) return;
 
     try {
         if (!TOKEN_LAST_RESET || TOKEN_LAST_RESET === '') {

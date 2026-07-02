@@ -1,0 +1,861 @@
+{{/*
+  EXAMVAN Public Pricing Page
+  ============================
+  Standalone template.
+  Variables:
+    .version         — app version string
+    .seo_title       — SEO title
+    .seo_description — SEO description
+    .seo_keywords    — SEO keywords
+    .seo_index       — bool, allow Google indexing
+*/}}
+<!DOCTYPE html>
+<html lang="id">
+<head>
+ <meta charset="UTF-8">
+ <meta name="viewport" content="width=device-width, initial-scale=1.0">
+ <title>Harga & Paket Langganan — EXAMVAN</title>
+ <meta name="description" content="{{.seo_description}}">
+ <meta name="keywords" content="{{.seo_keywords}}">
+ {{if .seo_index}}
+ <meta name="robots" content="index, follow">
+ {{else}}
+ <meta name="robots" content="noindex, nofollow">
+ {{end}}
+
+ <link rel="preconnect" href="https://fonts.googleapis.com">
+ <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+ <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@600;700;800&family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+ <link rel="icon" type="image/png" href="/static/favicon.png">
+
+ <style>
+ *, *::before, *::after { margin: 0; padding: 0; box-sizing: border-box; }
+
+ :root {
+  --bg: #0b0f19;
+  --bg2: #111827;
+  --accent: #6366f1;
+  --accent2: #a855f7;
+  --accent-glow: rgba(99,102,241,0.15);
+  --text: #f3f4f6;
+  --text-m: #9ca3af;
+  --text-s: #d1d5db;
+  --glass: rgba(17,24,39,0.7);
+  --glass-b: rgba(255,255,255,0.08);
+  --glass-b2: rgba(255,255,255,0.12);
+  --green: #10b981;
+  --gold: #f59e0b;
+  --radius: 16px;
+ }
+
+ html { scroll-behavior: smooth; }
+ body {
+  font-family: 'Plus Jakarta Sans', sans-serif;
+  background: var(--bg);
+  color: var(--text);
+  line-height: 1.6;
+  overflow-x: hidden;
+  -webkit-font-smoothing: antialiased;
+ }
+
+ h1,h2,h3,h4 { font-family: 'Outfit', sans-serif; }
+
+ /* === Glow Blobs === */
+ .glow-blob {
+  position: fixed; border-radius: 50%; filter: blur(120px); opacity: 0.12; pointer-events: none; z-index: 0;
+ }
+ .blob-1 { width: 500px; height: 500px; background: var(--accent); top: -100px; left: -150px; }
+ .blob-2 { width: 400px; height: 400px; background: var(--accent2); bottom: 200px; right: -100px; }
+
+ /* === Nav === */
+ nav {
+  position: fixed; top: 0; left: 0; right: 0; z-index: 100;
+  background: rgba(11,15,25,0.85); backdrop-filter: blur(16px); -webkit-backdrop-filter: blur(16px);
+  border-bottom: 1px solid var(--glass-b);
+ }
+ .nav-container {
+  max-width: 1200px; margin: 0 auto; padding: 0 24px;
+  display: flex; align-items: center; justify-content: space-between; height: 64px;
+ }
+ .logo-container { display: flex; align-items: center; gap: 10px; text-decoration: none; }
+ .logo-badge {
+  width: 36px; height: 36px; border-radius: 10px;
+  background: linear-gradient(135deg, var(--accent), var(--accent2));
+  display: flex; align-items: center; justify-content: center;
+  font-family: 'Outfit', sans-serif; font-weight: 800; font-size: 18px; color: #fff;
+ }
+ .logo-text { font-family: 'Outfit', sans-serif; font-weight: 700; font-size: 20px; color: var(--text); }
+ .nav-links { display: flex; align-items: center; gap: 8px; }
+ .nav-link {
+  padding: 8px 16px; border-radius: 8px; color: var(--text-s); text-decoration: none;
+  font-size: 14px; font-weight: 500; transition: all 0.2s;
+ }
+ .nav-link:hover, .nav-link.active { color: #fff; background: rgba(255,255,255,0.06); }
+ .btn-nav-login {
+  padding: 8px 20px; border-radius: 10px; font-size: 14px; font-weight: 600;
+  background: linear-gradient(135deg, var(--accent), var(--accent2));
+  color: #fff; text-decoration: none; transition: all 0.3s;
+ }
+ .btn-nav-login:hover { transform: translateY(-1px); box-shadow: 0 4px 20px rgba(99,102,241,0.4); }
+ .nav-hamburger {
+  display: none; background: none; border: 1px solid var(--glass-b); color: var(--text);
+  font-size: 22px; padding: 6px 10px; border-radius: 8px; cursor: pointer;
+ }
+ .nav-overlay { display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.5); z-index: 98; }
+
+ /* === Sections === */
+ section { position: relative; z-index: 1; }
+ .container { max-width: 1200px; margin: 0 auto; padding: 0 24px; }
+
+ /* === Hero === */
+ .hero {
+  padding: 140px 0 60px; text-align: center;
+ }
+ .hero-badge {
+  display: inline-flex; align-items: center; gap: 8px;
+  padding: 6px 16px; border-radius: 20px; font-size: 13px; font-weight: 600;
+  background: rgba(99,102,241,0.12); border: 1px solid rgba(99,102,241,0.25); color: #a5b4fc;
+  margin-bottom: 20px;
+ }
+ .hero-badge .dot { width: 6px; height: 6px; border-radius: 50%; background: var(--green); animation: pulse 2s infinite; }
+ @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.4} }
+ .hero h1 {
+  font-size: clamp(32px, 5vw, 52px); font-weight: 800; line-height: 1.15;
+  background: linear-gradient(135deg, #fff 30%, #a5b4fc 60%, #c084fc 100%);
+  -webkit-background-clip: text; -webkit-text-fill-color: transparent;
+  background-clip: text; margin-bottom: 16px;
+ }
+ .hero p { font-size: 17px; color: var(--text-m); max-width: 600px; margin: 0 auto 32px; }
+
+ /* === Toggle === */
+ .toggle-wrap { display: flex; justify-content: center; margin-bottom: 48px; }
+ .toggle-group {
+  display: inline-flex; background: rgba(255,255,255,0.05); border: 1px solid var(--glass-b);
+  border-radius: 12px; padding: 4px; gap: 4px;
+ }
+ .toggle-btn {
+  padding: 10px 24px; border-radius: 10px; border: none; cursor: pointer;
+  font-family: 'Plus Jakarta Sans', sans-serif; font-size: 14px; font-weight: 600;
+  color: var(--text-m); background: transparent; transition: all 0.3s; position: relative;
+ }
+ .toggle-btn.active {
+  background: linear-gradient(135deg, var(--accent), var(--accent2));
+  color: #fff; box-shadow: 0 4px 16px rgba(99,102,241,0.3);
+ }
+ .toggle-btn .badge-save {
+  position: absolute; top: -8px; right: -6px;
+  font-size: 10px; font-weight: 700; padding: 2px 6px; border-radius: 6px;
+  background: var(--green); color: #fff; line-height: 1;
+ }
+
+ /* === Pricing Grid === */
+ .pricing-grid {
+  display: grid; grid-template-columns: repeat(3, 1fr); gap: 24px;
+  margin-bottom: 80px;
+ }
+
+ /* === Card === */
+ .p-card {
+  background: var(--glass); border: 1px solid var(--glass-b); border-radius: var(--radius);
+  padding: 32px 28px; display: flex; flex-direction: column;
+  transition: all 0.35s cubic-bezier(0.4,0,0.2,1); position: relative; overflow: hidden;
+ }
+ .p-card::before {
+  content: ''; position: absolute; top: 0; left: 0; right: 0; height: 3px;
+  background: linear-gradient(90deg, var(--accent), var(--accent2)); opacity: 0;
+  transition: opacity 0.3s;
+ }
+ .p-card:hover { transform: translateY(-6px); border-color: var(--glass-b2); }
+ .p-card:hover::before { opacity: 1; }
+
+ .p-card.popular {
+  border-color: rgba(99,102,241,0.4);
+  box-shadow: 0 0 40px rgba(99,102,241,0.1), 0 8px 32px rgba(0,0,0,0.3);
+  transform: scale(1.03);
+ }
+ .p-card.popular::before { opacity: 1; }
+ .p-card.popular:hover { transform: scale(1.03) translateY(-6px); }
+
+ .popular-tag {
+  position: absolute; top: 16px; right: -32px; transform: rotate(45deg);
+  background: linear-gradient(135deg, var(--accent), var(--accent2));
+  color: #fff; font-size: 11px; font-weight: 700; padding: 4px 40px;
+  text-transform: uppercase; letter-spacing: 0.5px;
+ }
+
+ .card-icon {
+  width: 44px; height: 44px; border-radius: 12px;
+  display: flex; align-items: center; justify-content: center;
+  margin-bottom: 16px;
+ }
+ .card-icon svg {
+  width: 22px;
+  height: 22px;
+  stroke-width: 1.5;
+  fill: none;
+ }
+ .card-icon.guru { background: rgba(59,130,246,0.15); }
+ .card-icon.guru svg { stroke: #3b82f6; }
+ .card-icon.individu { background: rgba(16,185,129,0.15); }
+ .card-icon.individu svg { stroke: #10b981; }
+ .card-icon.kecil { background: rgba(245,158,11,0.15); }
+ .card-icon.kecil svg { stroke: #f59e0b; }
+ .card-icon.menengah { background: rgba(236,72,153,0.15); }
+ .card-icon.menengah svg { stroke: #ec4899; }
+ .card-icon.besar { background: rgba(99,102,241,0.15); }
+ .card-icon.besar svg { stroke: #6366f1; }
+ .card-icon.unggulan { background: rgba(168,85,247,0.15); }
+ .card-icon.unggulan svg { stroke: #a855f7; }
+
+ .card-name { font-size: 18px; font-weight: 700; margin-bottom: 4px; color: var(--text); }
+ .card-for { font-size: 13px; color: var(--text-m); margin-bottom: 20px; }
+
+ .card-price { margin-bottom: 4px; }
+ .price-amount { font-family: 'Outfit', sans-serif; font-size: 32px; font-weight: 800; color: var(--text); }
+ .price-period { font-size: 14px; color: var(--text-m); font-weight: 500; }
+ .price-per-student { font-size: 12px; color: var(--accent); font-weight: 600; margin-bottom: 20px; display: block; }
+
+ .card-divider { height: 1px; background: var(--glass-b); margin-bottom: 20px; }
+
+ .card-limits { list-style: none; margin-bottom: 20px; }
+ .card-limits li {
+  display: flex; align-items: center; gap: 10px;
+  font-size: 13.5px; color: var(--text-s); padding: 6px 0;
+ }
+ .card-limits li .li-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-m);
+  flex-shrink: 0;
+  width: 20px;
+  height: 20px;
+ }
+ .card-limits li .li-icon svg {
+  width: 18px;
+  height: 18px;
+  stroke: currentColor;
+  fill: none;
+  stroke-width: 1.5;
+ }
+ .card-limits li strong { color: var(--text); font-weight: 600; }
+
+ .card-features { list-style: none; margin-bottom: 24px; flex: 1; }
+ .card-features li {
+  display: flex; align-items: flex-start; gap: 8px;
+  font-size: 13px; color: var(--text-m); padding: 4px 0;
+ }
+ .card-features li .check {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--green);
+  flex-shrink: 0;
+  width: 16px;
+  height: 16px;
+  margin-top: 3px;
+ }
+ .card-features li .check svg {
+  width: 14px;
+  height: 14px;
+  stroke: currentColor;
+  fill: none;
+  stroke-width: 2.5;
+ }
+
+ .card-cta {
+  display: block; width: 100%; padding: 12px; border-radius: 10px; border: none;
+  font-family: 'Plus Jakarta Sans', sans-serif; font-size: 14px; font-weight: 700;
+  cursor: pointer; text-align: center; text-decoration: none; transition: all 0.3s;
+  background: rgba(255,255,255,0.06); border: 1px solid var(--glass-b); color: var(--text);
+ }
+ .card-cta:hover { background: rgba(255,255,255,0.1); border-color: var(--glass-b2); transform: translateY(-1px); }
+ .card-cta.primary {
+  background: linear-gradient(135deg, var(--accent), var(--accent2));
+  border: none; color: #fff;
+ }
+ .card-cta.primary:hover { box-shadow: 0 4px 20px rgba(99,102,241,0.4); }
+
+ /* === Comparison Table === */
+ .compare-section { margin-bottom: 80px; }
+ .compare-section h2 {
+  text-align: center; font-size: 28px; font-weight: 800; margin-bottom: 12px;
+  background: linear-gradient(135deg, #fff, #a5b4fc);
+  -webkit-background-clip: text; -webkit-text-fill-color: transparent; background-clip: text;
+ }
+ .compare-section .subtitle { text-align: center; font-size: 15px; color: var(--text-m); margin-bottom: 40px; }
+
+ .compare-wrap {
+  overflow-x: auto; border-radius: var(--radius);
+  border: 1px solid var(--glass-b); background: var(--glass);
+ }
+ .compare-wrap table { width: 100%; border-collapse: collapse; min-width: 800px; }
+ .compare-wrap th, .compare-wrap td {
+  padding: 14px 16px; text-align: center; font-size: 13px;
+  border-bottom: 1px solid var(--glass-b);
+ }
+ .compare-wrap th {
+  background: rgba(99,102,241,0.08); font-weight: 700; color: var(--text);
+  position: sticky; top: 0; font-size: 12px; text-transform: uppercase; letter-spacing: 0.5px;
+ }
+ .compare-wrap th:first-child, .compare-wrap td:first-child { text-align: left; font-weight: 600; color: var(--text-s); }
+ .compare-wrap td { color: var(--text-m); }
+ .compare-wrap tr:last-child td { border-bottom: none; }
+ .compare-wrap .check-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--green);
+  width: 16px;
+  height: 16px;
+  margin: 0 auto;
+ }
+ .compare-wrap .check-icon svg {
+  width: 16px;
+  height: 16px;
+  stroke: currentColor;
+  fill: none;
+  stroke-width: 2.5;
+ }
+ .compare-wrap .x-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: rgba(255,255,255,0.15);
+  width: 16px;
+  height: 16px;
+  margin: 0 auto;
+ }
+ .compare-wrap .x-icon svg {
+  width: 16px;
+  height: 16px;
+  stroke: currentColor;
+  fill: none;
+  stroke-width: 2;
+ }
+
+ /* === Advantages === */
+ .adv-section { margin-bottom: 80px; }
+ .adv-section h2 {
+  text-align: center; font-size: 28px; font-weight: 800; margin-bottom: 40px;
+  background: linear-gradient(135deg, #fff, #a5b4fc);
+  -webkit-background-clip: text; -webkit-text-fill-color: transparent; background-clip: text;
+ }
+ .adv-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 20px; }
+ .adv-card {
+  background: var(--glass); border: 1px solid var(--glass-b); border-radius: 14px;
+  padding: 28px 24px; text-align: center; transition: all 0.3s;
+ }
+ .adv-card:hover { transform: translateY(-4px); border-color: var(--glass-b2); }
+ .adv-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 48px;
+  height: 48px;
+  border-radius: 12px;
+  background: rgba(99,102,241,0.1);
+  color: var(--accent);
+  margin-bottom: 14px;
+ }
+ .adv-icon svg {
+  width: 24px;
+  height: 24px;
+  stroke: currentColor;
+  fill: none;
+  stroke-width: 2;
+ }
+ .adv-card h4 { font-size: 15px; font-weight: 700; margin-bottom: 8px; }
+ .adv-card p { font-size: 13px; color: var(--text-m); line-height: 1.5; }
+
+ /* === CTA === */
+ .cta-section {
+  text-align: center; padding: 60px 0 40px;
+  margin-bottom: 40px;
+ }
+ .cta-card {
+  background: linear-gradient(135deg, rgba(99,102,241,0.12), rgba(168,85,247,0.08));
+  border: 1px solid rgba(99,102,241,0.2); border-radius: 20px;
+  padding: 48px 32px; max-width: 700px; margin: 0 auto;
+ }
+ .cta-card h2 { font-size: 28px; font-weight: 800; margin-bottom: 12px; }
+ .cta-card p { color: var(--text-m); font-size: 15px; margin-bottom: 24px; }
+ .cta-trial {
+  display: inline-flex; align-items: center; gap: 8px;
+  padding: 8px 16px; border-radius: 10px; font-size: 13px; font-weight: 700;
+  background: rgba(16,185,129,0.12); border: 1px solid rgba(16,185,129,0.25);
+  color: #6ee7b7; margin-bottom: 24px;
+ }
+ .cta-trial svg {
+  width: 16px;
+  height: 16px;
+  stroke: currentColor;
+  fill: none;
+  stroke-width: 1.5;
+ }
+ .cta-buttons { display: flex; justify-content: center; gap: 12px; flex-wrap: wrap; }
+ .cta-btn {
+  display: inline-flex; align-items: center; gap: 8px;
+  padding: 14px 28px; border-radius: 12px; font-size: 15px; font-weight: 700;
+  text-decoration: none; transition: all 0.3s;
+ }
+ .cta-btn svg {
+  width: 20px;
+  height: 20px;
+  stroke: currentColor;
+  fill: none;
+  stroke-width: 1.5;
+ }
+ .cta-btn.wa { background: #25d366; color: #fff; }
+ .cta-btn.wa:hover { background: #20bd5a; transform: translateY(-2px); box-shadow: 0 4px 20px rgba(37,211,102,0.3); }
+ .cta-btn.email { background: rgba(255,255,255,0.08); border: 1px solid var(--glass-b); color: var(--text); }
+ .cta-btn.email:hover { background: rgba(255,255,255,0.12); transform: translateY(-2px); }
+
+ /* === Footer === */
+ footer { border-top: 1px solid var(--glass-b); padding: 32px 0; text-align: center; }
+ footer p { font-size: 13px; color: var(--text-m); }
+ footer a { color: var(--text-s); text-decoration: none; }
+ footer a:hover { color: #fff; }
+
+ /* === Animations === */
+ .reveal { opacity: 0; transform: translateY(30px); transition: all 0.6s cubic-bezier(0.4,0,0.2,1); }
+ .reveal.visible { opacity: 1; transform: translateY(0); }
+
+ /* === Responsive === */
+ @media (max-width: 1024px) {
+  .pricing-grid { grid-template-columns: repeat(2, 1fr); }
+  .p-card.popular { transform: scale(1); }
+  .p-card.popular:hover { transform: translateY(-6px); }
+ }
+ @media (max-width: 768px) {
+  .nav-hamburger {
+   display: flex; background: none; border: 1px solid var(--glass-b); color: var(--text);
+   padding: 6px 10px; border-radius: 8px; cursor: pointer;
+   align-items: center; justify-content: center;
+  }
+  .nav-hamburger svg {
+   width: 20px;
+   height: 20px;
+   stroke: currentColor;
+   fill: none;
+   stroke-width: 1.5;
+  }
+  .nav-links {
+   display: none; position: fixed; top: 64px; left: 0; right: 0; bottom: 0;
+   flex-direction: column; background: rgba(11,15,25,0.97); padding: 24px;
+   gap: 8px; z-index: 99;
+  }
+  .nav-links.open { display: flex; }
+  .nav-overlay.open { display: block; }
+  .nav-link, .btn-nav-login { width: 100%; text-align: center; padding: 14px; font-size: 16px; }
+
+  .pricing-grid { grid-template-columns: 1fr; max-width: 420px; margin-left: auto; margin-right: auto; }
+  .hero h1 { font-size: 28px; }
+  .hero p { font-size: 15px; }
+  .toggle-btn { padding: 8px 14px; font-size: 13px; }
+  .compare-section h2, .adv-section h2 { font-size: 22px; }
+ }
+ @media (max-width: 480px) {
+  .toggle-group { flex-direction: column; width: 100%; max-width: 280px; }
+  .toggle-btn { width: 100%; }
+  .toggle-btn .badge-save { top: 50%; right: 8px; transform: translateY(-50%); }
+ }
+ </style>
+</head>
+<body>
+
+ <div class="glow-blob blob-1"></div>
+ <div class="glow-blob blob-2"></div>
+
+ <div class="nav-overlay" id="navOverlay" onclick="toggleMenu()"></div>
+
+ <nav>
+ <div class="nav-container">
+ <a href="/" class="logo-container">
+ <div class="logo-badge">E</div>
+ <div class="logo-text">EXAMVAN</div>
+ </a>
+ <button class="nav-hamburger" id="navHamburger" onclick="toggleMenu()" aria-label="Menu">
+    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+      <path stroke-linecap="round" stroke-linejoin="round" d="M3.75 6.75h16.5M3.75 12h16.5m-16.5 5.25h16.5" />
+    </svg>
+  </button>
+ <div class="nav-links" id="navLinks">
+ <a href="/#fitur" class="nav-link">Fitur</a>
+ <a href="/download" class="nav-link">Download</a>
+ <a href="/pricing" class="nav-link active">Harga</a>
+ <a href="/admin/login" class="btn-nav-login">Masuk</a>
+ </div>
+ </div>
+ </nav>
+
+ <!-- Hero -->
+ <section class="hero">
+ <div class="container">
+ <div class="hero-badge"><span class="dot"></span> Kapasitas 15.000 siswa bersamaan</div>
+ <h1>Harga Transparan,<br>Tanpa Biaya Tersembunyi</h1>
+ <p>Pilih paket sesuai kebutuhan. Mulai dari guru les privat hingga yayasan multi-sekolah — semua bisa dijangkau.</p>
+ </div>
+ </section>
+
+ <!-- Toggle -->
+ <div class="container">
+ <div class="toggle-wrap">
+ <div class="toggle-group">
+ <button class="toggle-btn active" onclick="setBilling('bulanan')" id="tb-bulanan">Bulanan</button>
+ <button class="toggle-btn" onclick="setBilling('semester')" id="tb-semester">Semester <span class="badge-save">-17%</span></button>
+ <button class="toggle-btn" onclick="setBilling('tahunan')" id="tb-tahunan">Tahunan <span class="badge-save">-25%</span></button>
+ </div>
+ </div>
+
+ <!-- Pricing Cards -->
+ <div class="pricing-grid" id="pricingGrid">
+
+  <!-- Guru -->
+  <div class="p-card reveal">
+  <div class="card-icon guru">
+     <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+       <path stroke-linecap="round" stroke-linejoin="round" d="M4.26 10.147a60.436 60.436 0 0 0-.491 6.347A48.62 48.62 0 0 1 12 20.904a48.62 48.62 0 0 1 8.231-4.411 60.461 60.461 0 0 0-.491-6.347m-15.482 0a50.57 50.57 0 0 0-2.658-.813A5.905 5.905 0 0 1 1 9.997a5.905 5.905 0 0 1 5.432-5.799 50.8 50.8 0 0 0 11.136 0 5.907 5.907 0 0 1 5.43 5.799 5.907 5.907 0 0 1-2.105 4.35 50.58 50.58 0 0 0-2.659-.813m-15.482 0A50.71 50.71 0 0 1 12 13.489a50.702 50.702 0 0 1 7.74-3.342" />
+     </svg>
+   </div>
+  <div class="card-name">Paket Guru</div>
+  <div class="card-for">Guru les, bimbel kecil, tryout kelas</div>
+  <div class="card-price">
+   <span class="price-amount" data-b="25.000" data-s="125.000" data-t="225.000">Rp 25.000</span>
+   <span class="price-period" data-b="/bulan" data-s="/semester" data-t="/tahun">/bulan</span>
+  </div>
+  <span class="price-per-student" data-b="Rp 500/siswa/bulan" data-s="Rp 417/siswa/bulan" data-t="Rp 375/siswa/bulan">Rp 500/siswa/bulan</span>
+  <div class="card-divider"></div>
+  <ul class="card-limits">
+   <li><span class="li-icon"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M15 19.128a9.38 9.38 0 0 0 2.625.372 9.337 9.337 0 0 0 4.121-.952 4.125 4.125 0 0 0-7.533-2.493M15 19.128v-.003c0-1.113-.285-2.16-.786-3.07M15 19.128v.109A11.386 11.386 0 0 1 10.089 18M15 12.062a18.874 18.874 0 0 0-4.911-.271m4.911.271a18.874 18.874 0 0 1-4.911-.271m4.911.271v-.003c0-1.113-.288-2.16-.786-3.07M10.117 19.128v.109A11.386 11.386 0 0 1 5.089 18M10.117 19.128v-.003c0-1.113-.287-2.16-.788-3.07M5.089 18a9.337 9.337 0 0 1 4.122-.952 9.38 9.38 0 0 1 2.625.372M5.089 18v-.003c0-1.113.288-2.16.786-3.07M15 7.5a3 3 0 1 1-6 0 3 3 0 0 1 6 0Zm6 3a2.25 2.25 0 1 1-4.5 0 2.25 2.25 0 0 1 4.5 0Zm-13.5 0a2.25 2.25 0 1 1-4.5 0 2.25 2.25 0 0 1 4.5 0Z" /></svg></span> Maks <strong>50</strong> siswa aktif</li>
+   <li><span class="li-icon"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="m16.862 4.487 1.687-1.688a1.875 1.875 0 1 1 2.652 2.652L10.582 16.07a4.5 4.5 0 0 1-1.897 1.13L6 18l.8-2.685a4.5 4.5 0 0 1 1.13-1.897l8.932-8.931Zm0 0L19.5 7.125M18 14v4.75A2.25 2.25 0 0 1 15.75 21H5.25A2.25 2.25 0 0 1 3 18.75V8.25A2.25 2.25 0 0 1 5.25 6H10" /></svg></span> <strong>1</strong> ujian bersamaan</li>
+   <li><span class="li-icon"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M19.5 14.25v-2.625a3.375 3.375 0 0 0-3.375-3.375h-1.5A1.125 1.125 0 0 1 13.5 7.125v-1.5a3.375 3.375 0 0 0-3.375-3.375H8.25m0 12.75h7.5m-7.5 3H12M10.5 2.25H5.625c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 0 0-9-9Z" /></svg></span> <strong>10</strong> file PDF</li>
+   <li><span class="li-icon"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M12 6v6h4.5m4.5 0a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z" /></svg></span> Maks <strong>2 jam</strong> per ujian</li>
+  </ul>
+  <ul class="card-features">
+   <li><span class="check"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="m4.5 12.75 6 6 9-13.5" /></svg></span> Token statis</li>
+   <li><span class="check"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="m4.5 12.75 6 6 9-13.5" /></svg></span> Hasil publik</li>
+   <li><span class="check"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="m4.5 12.75 6 6 9-13.5" /></svg></span> Basic scoring</li>
+   <li><span class="check"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="m4.5 12.75 6 6 9-13.5" /></svg></span> Dukungan email</li>
+  </ul>
+  <a href="/admin/billing?package=guru&duration=bulanan" class="card-cta billing-cta" data-package="guru">Pilih Paket</a>
+  </div>
+
+  <!-- Individu -->
+  <div class="p-card reveal">
+  <div class="card-icon individu">
+     <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+       <path stroke-linecap="round" stroke-linejoin="round" d="M9 17.25v1.007a3 3 0 0 0-.879 2.122L7.5 21h9l-.621-.621A3 3 0 0 0 15 18.257V17.25m6-12V15a2.25 2.25 0 0 1-2.25 2.25H5.25A2.25 2.25 0 0 1 3 15V5.25m18 0A2.25 2.25 0 0 0 18.75 3H5.25A2.25 2.25 0 0 0 3 5.25m18 0V12a2.25 2.25 0 0 1-2.25 2.25H5.25A2.25 2.25 0 0 1 3 12V5.25" />
+     </svg>
+   </div>
+  <div class="card-name">Paket Individu</div>
+  <div class="card-for">Pembuat tryout online, bimbel 1-2 kelas</div>
+  <div class="card-price">
+   <span class="price-amount" data-b="50.000" data-s="250.000" data-t="450.000">Rp 50.000</span>
+   <span class="price-period" data-b="/bulan" data-s="/semester" data-t="/tahun">/bulan</span>
+  </div>
+  <span class="price-per-student" data-b="Rp 250/siswa/bulan" data-s="Rp 208/siswa/bulan" data-t="Rp 188/siswa/bulan">Rp 250/siswa/bulan</span>
+  <div class="card-divider"></div>
+  <ul class="card-limits">
+   <li><span class="li-icon"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M15 19.128a9.38 9.38 0 0 0 2.625.372 9.337 9.337 0 0 0 4.121-.952 4.125 4.125 0 0 0-7.533-2.493M15 19.128v-.003c0-1.113-.285-2.16-.786-3.07M15 19.128v.109A11.386 11.386 0 0 1 10.089 18M15 12.062a18.874 18.874 0 0 0-4.911-.271m4.911.271a18.874 18.874 0 0 1-4.911-.271m4.911.271v-.003c0-1.113-.288-2.16-.786-3.07M10.117 19.128v.109A11.386 11.386 0 0 1 5.089 18M10.117 19.128v-.003c0-1.113-.287-2.16-.788-3.07M5.089 18a9.337 9.337 0 0 1 4.122-.952 9.38 9.38 0 0 1 2.625.372M5.089 18v-.003c0-1.113.288-2.16.786-3.07M15 7.5a3 3 0 1 1-6 0 3 3 0 0 1 6 0Zm6 3a2.25 2.25 0 1 1-4.5 0 2.25 2.25 0 0 1 4.5 0Zm-13.5 0a2.25 2.25 0 1 1-4.5 0 2.25 2.25 0 0 1 4.5 0Z" /></svg></span> Maks <strong>200</strong> siswa aktif</li>
+   <li><span class="li-icon"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="m16.862 4.487 1.687-1.688a1.875 1.875 0 1 1 2.652 2.652L10.582 16.07a4.5 4.5 0 0 1-1.897 1.13L6 18l.8-2.685a4.5 4.5 0 0 1 1.13-1.897l8.932-8.931Zm0 0L19.5 7.125M18 14v4.75A2.25 2.25 0 0 1 15.75 21H5.25A2.25 2.25 0 0 1 3 18.75V8.25A2.25 2.25 0 0 1 5.25 6H10" /></svg></span> <strong>2</strong> ujian bersamaan</li>
+   <li><span class="li-icon"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M19.5 14.25v-2.625a3.375 3.375 0 0 0-3.375-3.375h-1.5A1.125 1.125 0 0 1 13.5 7.125v-1.5a3.375 3.375 0 0 0-3.375-3.375H8.25m0 12.75h7.5m-7.5 3H12M10.5 2.25H5.625c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 0 0-9-9Z" /></svg></span> <strong>30</strong> file PDF</li>
+   <li><span class="li-icon"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M12 6v6h4.5m4.5 0a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z" /></svg></span> Maks <strong>3 jam</strong> per ujian</li>
+  </ul>
+  <ul class="card-features">
+   <li><span class="check"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="m4.5 12.75 6 6 9-13.5" /></svg></span> Token statis &amp; dinamis</li>
+   <li><span class="check"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="m4.5 12.75 6 6 9-13.5" /></svg></span> Hasil publik</li>
+   <li><span class="check"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="m4.5 12.75 6 6 9-13.5" /></svg></span> Show answers</li>
+   <li><span class="check"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="m4.5 12.75 6 6 9-13.5" /></svg></span> Export CSV</li>
+   <li><span class="check"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="m4.5 12.75 6 6 9-13.5" /></svg></span> Dukungan Email + WA</li>
+  </ul>
+  <a href="/admin/billing?package=individu&duration=bulanan" class="card-cta billing-cta" data-package="individu">Pilih Paket</a>
+  </div>
+
+  <!-- Sekolah Kecil -->
+  <div class="p-card reveal">
+  <div class="card-icon kecil">
+     <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+       <path stroke-linecap="round" stroke-linejoin="round" d="M12 21v-8.25M15.75 21v-8.25M8.25 21v-8.25M3 9l9-6 9 6m-1.5 12V10.33A48.36 48.36 0 0 0 12 9.75c-2.55 0-5.05.2-7.5.58v10.67m16.5 0H3" />
+     </svg>
+   </div>
+  <div class="card-name">Sekolah Kecil</div>
+  <div class="card-for">SD / MI, ujian PH / UTS</div>
+  <div class="card-price">
+   <span class="price-amount" data-b="75.000" data-s="375.000" data-t="675.000">Rp 75.000</span>
+   <span class="price-period" data-b="/bulan" data-s="/semester" data-t="/tahun">/bulan</span>
+  </div>
+  <span class="price-per-student" data-b="Rp 150/siswa/bulan" data-s="Rp 125/siswa/bulan" data-t="Rp 113/siswa/bulan">Rp 150/siswa/bulan</span>
+  <div class="card-divider"></div>
+  <ul class="card-limits">
+   <li><span class="li-icon"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M15 19.128a9.38 9.38 0 0 0 2.625.372 9.337 9.337 0 0 0 4.121-.952 4.125 4.125 0 0 0-7.533-2.493M15 19.128v-.003c0-1.113-.285-2.16-.786-3.07M15 19.128v.109A11.386 11.386 0 0 1 10.089 18M15 12.062a18.874 18.874 0 0 0-4.911-.271m4.911.271a18.874 18.874 0 0 1-4.911-.271m4.911.271v-.003c0-1.113-.288-2.16-.786-3.07M10.117 19.128v.109A11.386 11.386 0 0 1 5.089 18M10.117 19.128v-.003c0-1.113-.287-2.16-.788-3.07M5.089 18a9.337 9.337 0 0 1 4.122-.952 9.38 9.38 0 0 1 2.625.372M5.089 18v-.003c0-1.113.288-2.16.786-3.07M15 7.5a3 3 0 1 1-6 0 3 3 0 0 1 6 0Zm6 3a2.25 2.25 0 1 1-4.5 0 2.25 2.25 0 0 1 4.5 0Zm-13.5 0a2.25 2.25 0 1 1-4.5 0 2.25 2.25 0 0 1 4.5 0Z" /></svg></span> Maks <strong>500</strong> siswa aktif</li>
+   <li><span class="li-icon"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="m16.862 4.487 1.687-1.688a1.875 1.875 0 1 1 2.652 2.652L10.582 16.07a4.5 4.5 0 0 1-1.897 1.13L6 18l.8-2.685a4.5 4.5 0 0 1 1.13-1.897l8.932-8.931Zm0 0L19.5 7.125M18 14v4.75A2.25 2.25 0 0 1 15.75 21H5.25A2.25 2.25 0 0 1 3 18.75V8.25A2.25 2.25 0 0 1 5.25 6H10" /></svg></span> <strong>3</strong> ujian bersamaan</li>
+   <li><span class="li-icon"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M19.5 14.25v-2.625a3.375 3.375 0 0 0-3.375-3.375h-1.5A1.125 1.125 0 0 1 13.5 7.125v-1.5a3.375 3.375 0 0 0-3.375-3.375H8.25m0 12.75h7.5m-7.5 3H12M10.5 2.25H5.625c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 0 0-9-9Z" /></svg></span> <strong>50</strong> file PDF</li>
+   <li><span class="li-icon"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M12 6v6h4.5m4.5 0a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z" /></svg></span> Maks <strong>3 jam</strong> per ujian</li>
+  </ul>
+  <ul class="card-features">
+   <li><span class="check"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="m4.5 12.75 6 6 9-13.5" /></svg></span> Token statis</li>
+   <li><span class="check"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="m4.5 12.75 6 6 9-13.5" /></svg></span> Hasil publik</li>
+   <li><span class="check"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="m4.5 12.75 6 6 9-13.5" /></svg></span> Download PDF</li>
+   <li><span class="check"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="m4.5 12.75 6 6 9-13.5" /></svg></span> Dukungan email</li>
+  </ul>
+  <a href="/admin/billing?package=sekolah_kecil&duration=bulanan" class="card-cta billing-cta" data-package="sekolah_kecil">Pilih Paket</a>
+  </div>
+
+  <!-- Sekolah Menengah -->
+  <div class="p-card reveal">
+  <div class="card-icon menengah">
+     <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+       <path stroke-linecap="round" stroke-linejoin="round" d="M2.25 21h19.5m-18-18v18m16.5-18v18m-12-18h7.5m-7.5 3h7.5m-7.5 3h7.5m-7.5 3h7.5m-7.5 3h7.5m-7.5 3h7.5" />
+     </svg>
+   </div>
+  <div class="card-name">Sekolah Menengah</div>
+  <div class="card-for">SMP / MTs, ujian PAS / PAT</div>
+  <div class="card-price">
+   <span class="price-amount" data-b="175.000" data-s="875.000" data-t="1.575.000">Rp 175.000</span>
+   <span class="price-period" data-b="/bulan" data-s="/semester" data-t="/tahun">/bulan</span>
+  </div>
+  <span class="price-per-student" data-b="Rp 87/siswa/bulan" data-s="Rp 73/siswa/bulan" data-t="Rp 66/siswa/bulan">Rp 87/siswa/bulan</span>
+  <div class="card-divider"></div>
+  <ul class="card-limits">
+   <li><span class="li-icon"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M15 19.128a9.38 9.38 0 0 0 2.625.372 9.337 9.337 0 0 0 4.121-.952 4.125 4.125 0 0 0-7.533-2.493M15 19.128v-.003c0-1.113-.285-2.16-.786-3.07M15 19.128v.109A11.386 11.386 0 0 1 10.089 18M15 12.062a18.874 18.874 0 0 0-4.911-.271m4.911.271a18.874 18.874 0 0 1-4.911-.271m4.911.271v-.003c0-1.113-.288-2.16-.786-3.07M10.117 19.128v.109A11.386 11.386 0 0 1 5.089 18M10.117 19.128v-.003c0-1.113-.287-2.16-.788-3.07M5.089 18a9.337 9.337 0 0 1 4.122-.952 9.38 9.38 0 0 1 2.625.372M5.089 18v-.003c0-1.113.288-2.16.786-3.07M15 7.5a3 3 0 1 1-6 0 3 3 0 0 1 6 0Zm6 3a2.25 2.25 0 1 1-4.5 0 2.25 2.25 0 0 1 4.5 0Zm-13.5 0a2.25 2.25 0 1 1-4.5 0 2.25 2.25 0 0 1 4.5 0Z" /></svg></span> Maks <strong>2.000</strong> siswa aktif</li>
+   <li><span class="li-icon"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="m16.862 4.487 1.687-1.688a1.875 1.875 0 1 1 2.652 2.652L10.582 16.07a4.5 4.5 0 0 1-1.897 1.13L6 18l.8-2.685a4.5 4.5 0 0 1 1.13-1.897l8.932-8.931Zm0 0L19.5 7.125M18 14v4.75A2.25 2.25 0 0 1 15.75 21H5.25A2.25 2.25 0 0 1 3 18.75V8.25A2.25 2.25 0 0 1 5.25 6H10" /></svg></span> <strong>5</strong> ujian bersamaan</li>
+   <li><span class="li-icon"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M19.5 14.25v-2.625a3.375 3.375 0 0 0-3.375-3.375h-1.5A1.125 1.125 0 0 1 13.5 7.125v-1.5a3.375 3.375 0 0 0-3.375-3.375H8.25m0 12.75h7.5m-7.5 3H12M10.5 2.25H5.625c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 0 0-9-9Z" /></svg></span> <strong>200</strong> file PDF</li>
+   <li><span class="li-icon"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M12 6v6h4.5m4.5 0a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z" /></svg></span> Maks <strong>4 jam</strong> per ujian</li>
+  </ul>
+  <ul class="card-features">
+   <li><span class="check"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="m4.5 12.75 6 6 9-13.5" /></svg></span> Token statis &amp; dinamis</li>
+   <li><span class="check"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="m4.5 12.75 6 6 9-13.5" /></svg></span> Hasil publik + show answers</li>
+   <li><span class="check"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="m4.5 12.75 6 6 9-13.5" /></svg></span> Panel warna</li>
+   <li><span class="check"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="m4.5 12.75 6 6 9-13.5" /></svg></span> Dukungan Email + WA</li>
+  </ul>
+  <a href="/admin/billing?package=sekolah_menengah&duration=bulanan" class="card-cta billing-cta" data-package="sekolah_menengah">Pilih Paket</a>
+  </div>
+
+  <!-- Sekolah Besar (POPULAR) -->
+  <div class="p-card popular reveal">
+  <div class="popular-tag">Populer</div>
+  <div class="card-icon besar">
+     <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+       <path stroke-linecap="round" stroke-linejoin="round" d="M3.75 21h16.5M4.5 3h15M5.25 3v18m13.5-18v18M9 6.75h1.5m-1.5 3h1.5m-1.5 3h1.5m3-6H15m-1.5 3H15m-1.5 3H15M9 21v-3a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v3" />
+     </svg>
+   </div>
+  <div class="card-name">Sekolah Besar</div>
+  <div class="card-for">SMA / MA / SMK, tryout skala besar</div>
+  <div class="card-price">
+   <span class="price-amount" data-b="375.000" data-s="1.875.000" data-t="3.375.000">Rp 375.000</span>
+   <span class="price-period" data-b="/bulan" data-s="/semester" data-t="/tahun">/bulan</span>
+  </div>
+  <span class="price-per-student" data-b="Rp 75/siswa/bulan" data-s="Rp 63/siswa/bulan" data-t="Rp 56/siswa/bulan">Rp 75/siswa/bulan</span>
+  <div class="card-divider"></div>
+  <ul class="card-limits">
+   <li><span class="li-icon"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M15 19.128a9.38 9.38 0 0 0 2.625.372 9.337 9.337 0 0 0 4.121-.952 4.125 4.125 0 0 0-7.533-2.493M15 19.128v-.003c0-1.113-.285-2.16-.786-3.07M15 19.128v.109A11.386 11.386 0 0 1 10.089 18M15 12.062a18.874 18.874 0 0 0-4.911-.271m4.911.271a18.874 18.874 0 0 1-4.911-.271m4.911.271v-.003c0-1.113-.288-2.16-.786-3.07M10.117 19.128v.109A11.386 11.386 0 0 1 5.089 18M10.117 19.128v-.003c0-1.113-.287-2.16-.788-3.07M5.089 18a9.337 9.337 0 0 1 4.122-.952 9.38 9.38 0 0 1 2.625.372M5.089 18v-.003c0-1.113.288-2.16.786-3.07M15 7.5a3 3 0 1 1-6 0 3 3 0 0 1 6 0Zm6 3a2.25 2.25 0 1 1-4.5 0 2.25 2.25 0 0 1 4.5 0Zm-13.5 0a2.25 2.25 0 1 1-4.5 0 2.25 2.25 0 0 1 4.5 0Z" /></svg></span> Maks <strong>5.000</strong> siswa aktif</li>
+   <li><span class="li-icon"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="m16.862 4.487 1.687-1.688a1.875 1.875 0 1 1 2.652 2.652L10.582 16.07a4.5 4.5 0 0 1-1.897 1.13L6 18l.8-2.685a4.5 4.5 0 0 1 1.13-1.897l8.932-8.931Zm0 0L19.5 7.125M18 14v4.75A2.25 2.25 0 0 1 15.75 21H5.25A2.25 2.25 0 0 1 3 18.75V8.25A2.25 2.25 0 0 1 5.25 6H10" /></svg></span> <strong>10</strong> ujian bersamaan</li>
+   <li><span class="li-icon"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M19.5 14.25v-2.625a3.375 3.375 0 0 0-3.375-3.375h-1.5A1.125 1.125 0 0 1 13.5 7.125v-1.5a3.375 3.375 0 0 0-3.375-3.375H8.25m0 12.75h7.5m-7.5 3H12M10.5 2.25H5.625c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 0 0-9-9Z" /></svg></span> <strong>500</strong> file PDF</li>
+   <li><span class="li-icon"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M12 6v6h4.5m4.5 0a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z" /></svg></span> Maks <strong>6 jam</strong> per ujian</li>
+  </ul>
+  <ul class="card-features">
+   <li><span class="check"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="m4.5 12.75 6 6 9-13.5" /></svg></span> Semua fitur Sekolah Menengah</li>
+   <li><span class="check"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="m4.5 12.75 6 6 9-13.5" /></svg></span> Pengawas realtime (WebSocket)</li>
+   <li><span class="check"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="m4.5 12.75 6 6 9-13.5" /></svg></span> Strict mode &amp; keamanan tinggi</li>
+   <li><span class="check"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="m4.5 12.75 6 6 9-13.5" /></svg></span> Export CSV lengkap</li>
+   <li><span class="check"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="m4.5 12.75 6 6 9-13.5" /></svg></span> Dukungan Email + WA + Telepon</li>
+  </ul>
+  <a href="/admin/billing?package=sekolah_besar&duration=bulanan" class="card-cta primary billing-cta" data-package="sekolah_besar">Pilih Paket Populer</a>
+  </div>
+
+  <!-- Sekolah Unggulan -->
+  <div class="p-card reveal">
+  <div class="card-icon unggulan">
+     <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+       <path stroke-linecap="round" stroke-linejoin="round" d="M11.48 3.499c.15-.427.77-.427.92 0l1.847 3.697 4.053.58c.478.069.668.65.326.98l-2.933 2.858.692 4.03c.081.478-.42.822-.843.597l-3.62-1.902-3.62 1.902c-.423.225-.924-.119-.843-.597l.69-4.03L2.24 9.35c-.342-.33-.152-.911.326-.98l4.054-.58L11.48 3.5Z" />
+     </svg>
+   </div>
+  <div class="card-name">Sekolah Unggulan</div>
+  <div class="card-for">Kampus, yayasan, tryout kabupaten/kota</div>
+  <div class="card-price">
+   <span class="price-amount" data-b="750.000" data-s="3.750.000" data-t="6.750.000">Rp 750.000</span>
+   <span class="price-period" data-b="/bulan" data-s="/semester" data-t="/tahun">/bulan</span>
+  </div>
+  <span class="price-per-student" data-b="Rp 75/siswa/bulan" data-s="Rp 63/siswa/bulan" data-t="Rp 56/siswa/bulan">Rp 75/siswa/bulan</span>
+  <div class="card-divider"></div>
+  <ul class="card-limits">
+   <li><span class="li-icon"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M15 19.128a9.38 9.38 0 0 0 2.625.372 9.337 9.337 0 0 0 4.121-.952 4.125 4.125 0 0 0-7.533-2.493M15 19.128v-.003c0-1.113-.285-2.16-.786-3.07M15 19.128v.109A11.386 11.386 0 0 1 10.089 18M15 12.062a18.874 18.874 0 0 0-4.911-.271m4.911.271a18.874 18.874 0 0 1-4.911-.271m4.911.271v-.003c0-1.113-.288-2.16-.786-3.07M10.117 19.128v.109A11.386 11.386 0 0 1 5.089 18M10.117 19.128v-.003c0-1.113-.287-2.16-.788-3.07M5.089 18a9.337 9.337 0 0 1 4.122-.952 9.38 9.38 0 0 1 2.625.372M5.089 18v-.003c0-1.113.288-2.16.786-3.07M15 7.5a3 3 0 1 1-6 0 3 3 0 0 1 6 0Zm6 3a2.25 2.25 0 1 1-4.5 0 2.25 2.25 0 0 1 4.5 0Zm-13.5 0a2.25 2.25 0 1 1-4.5 0 2.25 2.25 0 0 1 4.5 0Z" /></svg></span> Maks <strong>10.000</strong> siswa aktif</li>
+   <li><span class="li-icon"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="m16.862 4.487 1.687-1.688a1.875 1.875 0 1 1 2.652 2.652L10.582 16.07a4.5 4.5 0 0 1-1.897 1.13L6 18l.8-2.685a4.5 4.5 0 0 1 1.13-1.897l8.932-8.931Zm0 0L19.5 7.125M18 14v4.75A2.25 2.25 0 0 1 15.75 21H5.25A2.25 2.25 0 0 1 3 18.75V8.25A2.25 2.25 0 0 1 5.25 6H10" /></svg></span> <strong>Tak terbatas</strong> ujian bersamaan</li>
+   <li><span class="li-icon"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M19.5 14.25v-2.625a3.375 3.375 0 0 0-3.375-3.375h-1.5A1.125 1.125 0 0 1 13.5 7.125v-1.5a3.375 3.375 0 0 0-3.375-3.375H8.25m0 12.75h7.5m-7.5 3H12M10.5 2.25H5.625c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 0 0-9-9Z" /></svg></span> PDF <strong>tak terbatas</strong></li>
+   <li><span class="li-icon"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M12 6v6h4.5m4.5 0a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z" /></svg></span> Durasi <strong>tak terbatas</strong></li>
+  </ul>
+  <ul class="card-features">
+   <li><span class="check"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="m4.5 12.75 6 6 9-13.5" /></svg></span> Semua fitur Sekolah Besar</li>
+   <li><span class="check"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="m4.5 12.75 6 6 9-13.5" /></svg></span> Prioritas infrastruktur</li>
+   <li><span class="check"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="m4.5 12.75 6 6 9-13.5" /></svg></span> Backup mingguan</li>
+   <li><span class="check"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="m4.5 12.75 6 6 9-13.5" /></svg></span> SLA 99% uptime</li>
+   <li><span class="check"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="m4.5 12.75 6 6 9-13.5" /></svg></span> Dukungan prioritas 24 jam</li>
+  </ul>
+  <a href="/admin/billing?package=sekolah_unggulan&duration=bulanan" class="card-cta billing-cta" data-package="sekolah_unggulan">Pilih Paket</a>
+  </div>
+
+ </div>
+ </div>
+
+ <!-- Comparison Table -->
+ <section class="compare-section container reveal">
+ <h2>Perbandingan Lengkap</h2>
+ <p class="subtitle">Semua fitur dalam satu pandangan</p>
+ <div class="compare-wrap">
+ <table>
+ <thead>
+ <tr>
+  <th style="min-width:160px">Fitur</th>
+  <th>Guru</th>
+  <th>Individu</th>
+  <th>Sek. Kecil</th>
+  <th>Sek. Menengah</th>
+  <th>Sek. Besar</th>
+  <th>Unggulan</th>
+ </tr>
+ </thead>
+ <tbody>
+ <tr>
+  <td>Harga / bulan</td>
+  <td><span class="price-amount" data-b="25.000" data-s="20.833" data-t="18.750">Rp 25.000</span></td>
+  <td><span class="price-amount" data-b="50.000" data-s="41.667" data-t="37.500">Rp 50.000</span></td>
+  <td><span class="price-amount" data-b="75.000" data-s="62.500" data-t="56.250">Rp 75.000</span></td>
+  <td><span class="price-amount" data-b="175.000" data-s="145.833" data-t="131.250">Rp 175.000</span></td>
+  <td><span class="price-amount" data-b="375.000" data-s="312.500" data-t="281.250">Rp 375.000</span></td>
+  <td><span class="price-amount" data-b="750.000" data-s="625.000" data-t="562.500">Rp 750.000</span></td>
+ </tr>
+ <tr><td>Siswa aktif</td><td>50</td><td>200</td><td>500</td><td>2.000</td><td>5.000</td><td>10.000</td></tr>
+ <tr><td>Ujian bersamaan</td><td>1</td><td>2</td><td>3</td><td>5</td><td>10</td><td>Tak terbatas</td></tr>
+ <tr><td>Penyimpanan PDF</td><td>10</td><td>30</td><td>50</td><td>200</td><td>500</td><td>∞</td></tr>
+ <tr><td>Durasi ujian</td><td>2 jam</td><td>3 jam</td><td>3 jam</td><td>4 jam</td><td>6 jam</td><td>∞</td></tr>
+ <tr><td>Token statis</td><td><span class="check-icon"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="m4.5 12.75 6 6 9-13.5" /></svg></span></td><td><span class="check-icon"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="m4.5 12.75 6 6 9-13.5" /></svg></span></td><td><span class="check-icon"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="m4.5 12.75 6 6 9-13.5" /></svg></span></td><td><span class="check-icon"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="m4.5 12.75 6 6 9-13.5" /></svg></span></td><td><span class="check-icon"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="m4.5 12.75 6 6 9-13.5" /></svg></span></td><td><span class="check-icon"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="m4.5 12.75 6 6 9-13.5" /></svg></span></td></tr>
+ <tr><td>Token dinamis</td><td><span class="x-icon"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M6 18 18 6M6 6l12 12" /></svg></span></td><td><span class="check-icon"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="m4.5 12.75 6 6 9-13.5" /></svg></span></td><td><span class="x-icon"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M6 18 18 6M6 6l12 12" /></svg></span></td><td><span class="check-icon"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="m4.5 12.75 6 6 9-13.5" /></svg></span></td><td><span class="check-icon"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="m4.5 12.75 6 6 9-13.5" /></svg></span></td><td><span class="check-icon"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="m4.5 12.75 6 6 9-13.5" /></svg></span></td></tr>
+ <tr><td>Hasil publik</td><td><span class="check-icon"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="m4.5 12.75 6 6 9-13.5" /></svg></span></td><td><span class="check-icon"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="m4.5 12.75 6 6 9-13.5" /></svg></span></td><td><span class="check-icon"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="m4.5 12.75 6 6 9-13.5" /></svg></span></td><td><span class="check-icon"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="m4.5 12.75 6 6 9-13.5" /></svg></span></td><td><span class="check-icon"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="m4.5 12.75 6 6 9-13.5" /></svg></span></td><td><span class="check-icon"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="m4.5 12.75 6 6 9-13.5" /></svg></span></td></tr>
+ <tr><td>Show answers</td><td><span class="x-icon"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M6 18 18 6M6 6l12 12" /></svg></span></td><td><span class="check-icon"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="m4.5 12.75 6 6 9-13.5" /></svg></span></td><td><span class="x-icon"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M6 18 18 6M6 6l12 12" /></svg></span></td><td><span class="check-icon"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="m4.5 12.75 6 6 9-13.5" /></svg></span></td><td><span class="check-icon"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="m4.5 12.75 6 6 9-13.5" /></svg></span></td><td><span class="check-icon"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="m4.5 12.75 6 6 9-13.5" /></svg></span></td></tr>
+ <tr><td>Export CSV</td><td><span class="x-icon"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M6 18 18 6M6 6l12 12" /></svg></span></td><td><span class="check-icon"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="m4.5 12.75 6 6 9-13.5" /></svg></span></td><td><span class="x-icon"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M6 18 18 6M6 6l12 12" /></svg></span></td><td><span class="check-icon"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="m4.5 12.75 6 6 9-13.5" /></svg></span></td><td><span class="check-icon"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="m4.5 12.75 6 6 9-13.5" /></svg></span></td><td><span class="check-icon"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="m4.5 12.75 6 6 9-13.5" /></svg></span></td></tr>
+ <tr><td>Pengawas realtime</td><td><span class="x-icon"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M6 18 18 6M6 6l12 12" /></svg></span></td><td><span class="x-icon"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M6 18 18 6M6 6l12 12" /></svg></span></td><td><span class="x-icon"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M6 18 18 6M6 6l12 12" /></svg></span></td><td><span class="x-icon"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M6 18 18 6M6 6l12 12" /></svg></span></td><td><span class="check-icon"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="m4.5 12.75 6 6 9-13.5" /></svg></span></td><td><span class="check-icon"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="m4.5 12.75 6 6 9-13.5" /></svg></span></td></tr>
+ <tr><td>Strict mode</td><td><span class="x-icon"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M6 18 18 6M6 6l12 12" /></svg></span></td><td><span class="x-icon"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M6 18 18 6M6 6l12 12" /></svg></span></td><td><span class="x-icon"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M6 18 18 6M6 6l12 12" /></svg></span></td><td><span class="x-icon"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M6 18 18 6M6 6l12 12" /></svg></span></td><td><span class="check-icon"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="m4.5 12.75 6 6 9-13.5" /></svg></span></td><td><span class="check-icon"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="m4.5 12.75 6 6 9-13.5" /></svg></span></td></tr>
+ <tr><td>Backup mingguan</td><td><span class="x-icon"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M6 18 18 6M6 6l12 12" /></svg></span></td><td><span class="x-icon"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M6 18 18 6M6 6l12 12" /></svg></span></td><td><span class="x-icon"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M6 18 18 6M6 6l12 12" /></svg></span></td><td><span class="x-icon"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M6 18 18 6M6 6l12 12" /></svg></span></td><td><span class="x-icon"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M6 18 18 6M6 6l12 12" /></svg></span></td><td><span class="check-icon"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="m4.5 12.75 6 6 9-13.5" /></svg></span></td></tr>
+ <tr><td>SLA 99%</td><td><span class="x-icon"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M6 18 18 6M6 6l12 12" /></svg></span></td><td><span class="x-icon"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M6 18 18 6M6 6l12 12" /></svg></span></td><td><span class="x-icon"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M6 18 18 6M6 6l12 12" /></svg></span></td><td><span class="x-icon"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M6 18 18 6M6 6l12 12" /></svg></span></td><td><span class="x-icon"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M6 18 18 6M6 6l12 12" /></svg></span></td><td><span class="check-icon"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="m4.5 12.75 6 6 9-13.5" /></svg></span></td></tr>
+ <tr>
+  <td>Dukungan</td><td>Email</td><td>Email+WA</td><td>Email</td><td>Email+WA</td><td>Email+WA+Tel</td><td>24 jam</td>
+ </tr>
+ </tbody>
+ </table>
+ </div>
+ </section>
+
+ <!-- Advantages -->
+ <section class="adv-section container reveal">
+ <h2>Keunggulan Teknis EXAMVAN</h2>
+ <div class="adv-grid">
+  <div class="adv-card">
+  <div class="adv-icon">
+     <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="m3.75 13.5 10.5-11.25L12 10.5h8.25L9.75 21.75 12 13.5H3.75Z" /></svg>
+   </div>
+  <h4>PDF Loading Cepat</h4>
+  <p>File soal disajikan dari Cloudflare edge — 300+ lokasi global, muat dalam hitungan detik.</p>
+  </div>
+  <div class="adv-card">
+  <div class="adv-icon">
+     <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M8.288 15.038a5.25 5.25 0 0 1 7.424 0M5.106 11.856a9.75 9.75 0 0 1 13.788 0M1.924 8.674a14.25 14.25 0 0 1 20.152 0M12.53 18.22a.75.75 0 0 1-1.06 0l-.75-.75a.75.75 0 0 1 1.06-1.06l.75.75a.75.75 0 0 1 0 1.06Z" /></svg>
+   </div>
+  <h4>Bisa Offline</h4>
+  <p>Aplikasi Android tetap berjalan walau koneksi internet terputus sementara saat ujian.</p>
+  </div>
+  <div class="adv-card">
+  <div class="adv-icon">
+     <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M9 12.75L11.25 15 15 9.75m-3-7.036A11.959 11.959 0 0 1 3.598 6 11.99 11.99 0 0 0 3 9.749c0 5.592 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.31-.21-2.571-.598-3.751h-.152c-3.196 0-6.1-1.248-8.25-3.285z" /></svg>
+   </div>
+  <h4>Anti-Mencontek</h4>
+  <p>Strict mode, acak soal otomatis, blokir screenshot, pantau pengawas secara realtime.</p>
+  </div>
+  <div class="adv-card">
+  <div class="adv-icon">
+     <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M9 12.75L11.25 15 15 9.75M21 12c0 1.268-.63 2.39-1.593 3.068a3.745 3.745 0 0 1-1.043 3.296 3.745 3.745 0 0 1-3.296 1.043A3.745 3.745 0 0 1 12 21c-1.268 0-2.39-.63-3.068-1.593a3.746 3.746 0 0 1-3.296-1.043 3.745 3.745 0 0 1-1.043-3.296A3.745 3.745 0 0 1 3 12c0-1.268.63-2.39 1.593-3.068a3.745 3.745 0 0 1 1.043-3.296 3.746 3.746 0 0 1 3.296-1.043A3.746 3.746 0 0 1 12 3c1.268 0 2.39.63 3.068 1.593a3.746 3.746 0 0 1 3.296 1.043 3.746 3.746 0 0 1 1.043 3.296A3.745 3.745 0 0 1 21 12z" /></svg>
+   </div>
+  <h4>Hasil Instan</h4>
+  <p>Koreksi otomatis, skor langsung muncul setelah submit. Tidak perlu koreksi manual.</p>
+  </div>
+  <div class="adv-card">
+  <div class="adv-icon">
+     <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M3 13.125C3 12.504 3.504 12 4.125 12h2.25c.621 0 1.125.504 1.125 1.125v5.25c0 .621-.504 1.125-1.125 1.125h-2.25A1.125 1.125 0 0 1 3 18.375v-5.25ZM9.75 8.625c0-.621.504-1.125 1.125-1.125h2.25c.621 0 1.125.504 1.125 1.125v9.75c0 .621-.504 1.125-1.125 1.125h-2.25a1.125 1.125 0 0 1-1.125-1.125v-9.75ZM16.5 4.125c0-.621.504-1.125 1.125-1.125h2.25C20.496 3 21 3.504 21 4.125v14.25c0 .621-.504 1.125-1.125 1.125h-2.25a1.125 1.125 0 0 1-1.125-1.125V4.125Z" /></svg>
+   </div>
+  <h4>Laporan Lengkap</h4>
+  <p>Export CSV, statistik per kelas, per siswa, analisis butir soal untuk evaluasi.</p>
+  </div>
+ </div>
+ </section>
+
+ <!-- CTA -->
+ <section class="cta-section container reveal" id="kontak">
+ <div class="cta-card">
+  <h2>Siap Mulai Ujian Digital?</h2>
+  <p>Hubungi kami untuk berlangganan atau konsultasi kebutuhan ujian sekolah Anda.</p>
+  <div class="cta-trial">
+    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M21 11.25v8.25a1.5 1.5 0 0 1-1.5 1.5H5.25a1.5 1.5 0 0 1-1.5-1.5v-8.25M12 4.875A2.625 2.625 0 1 0 9.375 7.5H12m0-2.625V7.5m0-2.625A2.625 2.625 0 1 1 14.625 7.5H12m0 0V21m-8.625-9.75h17.25c.621 0 1.125-.504 1.125-1.125v-1.5c0-.621-.504-1.125-1.125-1.125H3.375c-.621 0-1.125.504-1.125 1.125v1.5c0 .621.504 1.125 1.125 1.125Z" /></svg>
+    Uji coba gratis 7 hari — tanpa kartu kredit
+  </div>
+  <div class="cta-buttons">
+  <a href="https://wa.me/628xxxxxxxxxx" class="cta-btn wa" target="_blank">
+   <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M8.625 12a.375.375 0 1 1-.75 0 .375.375 0 0 1 .75 0Zm0 0H8.25m4.125 0a.375.375 0 1 1-.75 0 .375.375 0 0 1 .75 0Zm0 0H12m4.125 0a.375.375 0 1 1-.75 0 .375.375 0 0 1 .75 0Zm0 0h-.375M21 12c0 4.556-4.03 8.25-9 8.25a9.764 9.764 0 0 1-2.555-.337A5.972 5.972 0 0 1 5.41 20.97a5.969 5.969 0 0 1-.474-2.833A8.9 8.9 0 0 1 3 12c0-4.556 4.03-8.25 9-8.25s9 3.694 9 8.25Z" /></svg>
+   WhatsApp
+  </a>
+  <a href="mailto:email@examvan.com" class="cta-btn email">
+   <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M21.75 6.75v10.5a2.25 2.25 0 0 1-2.25 2.25h-15a2.25 2.25 0 0 1-2.25-2.25V6.75m19.5 0A2.25 2.25 0 0 0 19.5 4.5h-15a2.25 2.25 0 0 0-2.25 2.25m19.5 0v.243a2.25 2.25 0 0 1-1.07 1.916l-7.5 4.615a2.25 2.25 0 0 1-2.36 0L3.32 8.91a2.25 2.25 0 0 1-1.07-1.916V6.75" /></svg>
+   Email
+  </a>
+  </div>
+ </div>
+ </section>
+
+ <!-- Footer -->
+ <footer>
+ <div class="container">
+  <p>&copy; 2026 <a href="/">EXAMVAN</a> — Platform Ujian Digital Mandiri. v{{.version}}</p>
+ </div>
+ </footer>
+
+ <script>
+ // Mobile menu
+ function toggleMenu() {
+  document.getElementById('navLinks').classList.toggle('open');
+  document.getElementById('navOverlay').classList.toggle('open');
+ }
+
+ // Billing toggle
+ function setBilling(mode) {
+  document.querySelectorAll('.toggle-btn').forEach(b => b.classList.remove('active'));
+  document.getElementById('tb-' + mode).classList.add('active');
+
+  var key = mode === 'bulanan' ? 'b' : (mode === 'semester' ? 's' : 't');
+
+  document.querySelectorAll('.price-amount').forEach(el => {
+   el.textContent = 'Rp ' + el.getAttribute('data-' + key);
+  });
+  document.querySelectorAll('.price-period').forEach(el => {
+   el.textContent = el.getAttribute('data-' + key);
+  });
+  document.querySelectorAll('.price-per-student').forEach(el => {
+   el.textContent = el.getAttribute('data-' + key);
+  });
+
+  const durationParam = mode === 'bulanan' ? 'bulanan' : (mode === 'semester' ? 'semester' : 'tahunan');
+  document.querySelectorAll('.billing-cta').forEach(el => {
+   const pkg = el.getAttribute('data-package');
+   el.href = `/admin/billing?package=${pkg}&duration=${durationParam}`;
+  });
+ }
+
+ // Scroll reveal
+ var observer = new IntersectionObserver(function(entries) {
+  entries.forEach(function(e) {
+   if (e.isIntersecting) { e.target.classList.add('visible'); observer.unobserve(e.target); }
+  });
+ }, { threshold: 0.1 });
+ document.querySelectorAll('.reveal').forEach(function(el) { observer.observe(el); });
+ </script>
+
+</body>
+</html>

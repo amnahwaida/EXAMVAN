@@ -52,6 +52,14 @@ func (e *Exam) AreResultsPublic() bool { return e.PublicResults != 0 }
 // AreAnswersShown returns true when show_answers is non-zero.
 func (e *Exam) AreAnswersShown() bool { return e.ShowAnswers != 0 }
 
+// GetTokenMode returns the token mode as a string, defaulting to "dynamic".
+func (e Exam) GetTokenMode() string {
+	if e.TokenMode == nil || *e.TokenMode == "" {
+		return "dynamic"
+	}
+	return *e.TokenMode
+}
+
 // DefaultExamColumns is the column list used in SELECT queries for the exams table.
 const DefaultExamColumns = `id, name, file_path, size_bytes, token, active_token, questions_json,
 status, security_level, strict_mode, public_results, show_answers,

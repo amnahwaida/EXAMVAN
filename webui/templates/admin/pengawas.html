@@ -291,12 +291,15 @@ function loadPengawasExams(page) {
                 var startedBadge = ex.exam_started_at
                     ? '<span style="font-size:0.65rem;color:rgba(16,185,129,0.8);padding:2px 6px;border-radius:4px;background:rgba(16,185,129,0.1);border:1px solid rgba(16,185,129,0.2);"><svg class="icon-svg" style="width:10px;height:10px;"><use href="#hi-check"/></svg> Sedang Diawasi</span>'
                     : '<span style="font-size:0.65rem;color:rgba(245,158,11,0.8);padding:2px 6px;border-radius:4px;background:rgba(245,158,11,0.1);border:1px solid rgba(245,158,11,0.2);">Belum Mulai Pengawasan</span>';
+                var modeBadge = ex.token_mode === 'static'
+                    ? '<span style="font-size:0.7rem;color:#60a5fa;font-weight:600;background:rgba(59,130,246,0.1);padding:1px 4px;border-radius:4px;border:1px solid rgba(59,130,246,0.2);">Statis</span>'
+                    : '<span style="font-size:0.7rem;color:#c084fc;font-weight:600;background:rgba(168,85,247,0.1);padding:1px 4px;border-radius:4px;border:1px solid rgba(168,85,247,0.2);">Dinamis</span>';
                 html += '<div class="exam-monitor-card" id="exam-card-' + ex.id + '" style="cursor:pointer;" onclick="window.location=\'/admin/pengawas/' + ex.id + '\'">' +
                     '<div class="exam-monitor-header">' +
                         '<div>' +
                             '<div class="exam-monitor-title">' + esc(ex.name) + ' ' + startedBadge + '</div>' +
                             '<div class="exam-monitor-meta">' +
-                                '<span>Token: <strong>' + esc(ex.token) + '</strong></span>' +
+                                '<span style="display:inline-flex;align-items:center;gap:4px;">Token: <strong>' + esc(ex.active_token || ex.token) + '</strong> ' + modeBadge + '</span>' +
                                 '<span>Jadwal: ' + sched + '</span>' +
                                 '<span>Pembuat: ' + esc(ex.creator_name) + '</span>' +
                             '</div>' +

@@ -53,6 +53,7 @@ type AdminUser struct {
 	WhatsappNumber  string     `json:"whatsapp_number"`
 	Email           string     `json:"email"`
 	ExpiresAt       *time.Time `json:"expires_at,omitempty"`
+	Package         string     `json:"package"`
 	OTPCode         *string    `json:"-"`
 	OTPExpiry       *time.Time `json:"-"`
 }
@@ -350,7 +351,7 @@ func checkWerkzeugPbkdf2(password, hash string) bool {
 // DefaultAdminUserColumns is the column list for admin_users SELECT queries.
 const DefaultAdminUserColumns = `id, username, name, password_hash, created_at, status,
 instansi, role, max_exams, max_pdf_size, max_drafts, max_draft_size,
-max_storage_size, whatsapp_number, email, expires_at, otp_code, otp_expiry`
+max_storage_size, whatsapp_number, email, expires_at, otp_code, otp_expiry, package`
 
 // scanAdminUser scans a row into an AdminUser struct.
 func scanAdminUser(row pgx.Row) (AdminUser, error) {
@@ -359,6 +360,7 @@ func scanAdminUser(row pgx.Row) (AdminUser, error) {
 		&u.ID, &u.Username, &u.Name, &u.PasswordHash, &u.CreatedAt, &u.Status,
 		&u.Instansi, &u.Role, &u.MaxExams, &u.MaxPDFSize, &u.MaxDrafts, &u.MaxDraftSize,
 		&u.MaxStorageSize, &u.WhatsappNumber, &u.Email, &u.ExpiresAt, &u.OTPCode, &u.OTPExpiry,
+		&u.Package,
 	)
 	return u, err
 }
@@ -538,16 +540,21 @@ func CreateUser(ctx context.Context, pool *pgxpool.Pool, u *AdminUser) (*AdminUs
 		return nil, err
 	}
 
+	if u.Package == "" {
+		u.Package = "free"
+	}
+
 	sql := `INSERT INTO admin_users
 	(username, name, password_hash, status, instansi, role, max_exams, max_pdf_size,
-	 max_drafts, max_draft_size, max_storage_size, whatsapp_number, email, expires_at, otp_code, otp_expiry)
-	VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16)
+	 max_drafts, max_draft_size, max_storage_size, whatsapp_number, email, expires_at, otp_code, otp_expiry, package)
+	VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17)
 	RETURNING ` + DefaultAdminUserColumns
 
 	created, err := scanAdminUser(pool.QueryRow(ctx, sql,
 		u.Username, u.Name, hash, u.Status, u.Instansi, u.Role,
 		u.MaxExams, u.MaxPDFSize, u.MaxDrafts, u.MaxDraftSize, u.MaxStorageSize,
 		u.WhatsappNumber, u.Email, u.ExpiresAt, u.OTPCode, u.OTPExpiry,
+		u.Package,
 	))
 	if err != nil {
 		return nil, fmt.Errorf("create user: %w", err)
@@ -573,6 +580,7 @@ var allowedUserColumns = map[string]bool{
 	"expires_at":     true,
 	"otp_code":      true,
 	"otp_expiry":    true,
+	"package":       true,
 }
 
 // UpdateUserField updates a single column on the admin_users table.

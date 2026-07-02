@@ -31,6 +31,10 @@ const (
 	SettingAndroidVersion           = "android_version"
 	SettingWebappVersion            = "webapp_version"
 	SettingCertificateFingerprint    = "certificate_fingerprint"
+	SettingSEOTitle                  = "seo_title"
+	SettingSEODescription            = "seo_description"
+	SettingSEOKeywords               = "seo_keywords"
+	SettingSEOIndex                  = "seo_index"
 )
 
 // Default settings values as defined in the Python app.py.
@@ -49,6 +53,10 @@ var DefaultSettings = map[string]string{
 	SettingAndroidVersion:           "2.2.0",
 	SettingWebappVersion:            "2.2.0",
 	SettingCertificateFingerprint:   "",
+	SettingSEOTitle:                 "EXAMVAN - Aplikasi Ujian Online Aman & Tertib",
+	SettingSEODescription:           "EXAMVAN adalah aplikasi ujian online mandiri dengan sistem keamanan tinggi terhindar dari kecurangan.",
+	SettingSEOKeywords:              "examvan, ujian online, ujian sekolah",
+	SettingSEOIndex:                 "1",
 }
 
 // GetSaasSetting retrieves a setting value by key.

@@ -3,6 +3,7 @@ package middleware
 import (
 	"github.com/gin-contrib/sessions"
 	"github.com/gin-gonic/gin"
+	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/examvan/webui/internal/config"
 )
@@ -42,6 +43,36 @@ func TemplateData(c *gin.Context) gin.H {
 	data := gin.H{
 		"csrf_token": GenerateCSRFToken(c),
 		"version":    version,
+	}
+
+	// Fetch database pool and read SEO settings
+	if dbVal, exists := c.Get("db"); exists && dbVal != nil {
+		if pool, ok := dbVal.(*pgxpool.Pool); ok {
+			var seoTitle, seoDesc, seoKeys, seoIndex string
+			
+			if err := pool.QueryRow(c.Request.Context(), `SELECT value FROM saas_settings WHERE key = $1`, "seo_title").Scan(&seoTitle); err != nil || seoTitle == "" {
+				seoTitle = "EXAMVAN - Aplikasi Ujian Online Aman & Tertib"
+			}
+			if err := pool.QueryRow(c.Request.Context(), `SELECT value FROM saas_settings WHERE key = $1`, "seo_description").Scan(&seoDesc); err != nil || seoDesc == "" {
+				seoDesc = "EXAMVAN adalah aplikasi ujian online mandiri dengan sistem keamanan tinggi terhindar dari kecurangan."
+			}
+			if err := pool.QueryRow(c.Request.Context(), `SELECT value FROM saas_settings WHERE key = $1`, "seo_keywords").Scan(&seoKeys); err != nil || seoKeys == "" {
+				seoKeys = "examvan, ujian online, ujian sekolah"
+			}
+			if err := pool.QueryRow(c.Request.Context(), `SELECT value FROM saas_settings WHERE key = $1`, "seo_index").Scan(&seoIndex); err != nil || seoIndex == "" {
+				seoIndex = "1"
+			}
+
+			data["seo_title"] = seoTitle
+			data["seo_description"] = seoDesc
+			data["seo_keywords"] = seoKeys
+			data["seo_index"] = (seoIndex == "1" || seoIndex == "true")
+		}
+	} else {
+		data["seo_title"] = "EXAMVAN - Aplikasi Ujian Online Aman & Tertib"
+		data["seo_description"] = "EXAMVAN adalah aplikasi ujian online mandiri dengan sistem keamanan tinggi terhindar dari kecurangan."
+		data["seo_keywords"] = "examvan, ujian online, ujian sekolah"
+		data["seo_index"] = true
 	}
 
 	// Attach authenticated user info when available.

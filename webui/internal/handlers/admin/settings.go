@@ -77,6 +77,10 @@ func handleSaasSettingsGet(c *gin.Context, pool *pgxpool.Pool, ctx context.Conte
 			"android_version":            settings[models.SettingAndroidVersion],
 			"webapp_version":             settings[models.SettingWebappVersion],
 			"certificate_fingerprint":    settings[models.SettingCertificateFingerprint],
+			"seo_title":                  settings[models.SettingSEOTitle],
+			"seo_description":            settings[models.SettingSEODescription],
+			"seo_keywords":               settings[models.SettingSEOKeywords],
+			"seo_index":                  settings[models.SettingSEOIndex] == "1",
 		},
 	})
 }
@@ -115,6 +119,10 @@ func handleSaasSettingsPost(c *gin.Context, pool *pgxpool.Pool, ctx context.Cont
 		AndroidVersion           string  `json:"android_version"`
 		WebappVersion            string  `json:"webapp_version"`
 		CertificateFingerprint   string  `json:"certificate_fingerprint"`
+		SEOTitle                 string  `json:"seo_title"`
+		SEODescription           string  `json:"seo_description"`
+		SEOKeywords              string  `json:"seo_keywords"`
+		SEOIndex                 bool    `json:"seo_index"`
 	}
 
 	if err := c.ShouldBindJSON(&body); err != nil {
@@ -195,6 +203,17 @@ func handleSaasSettingsPost(c *gin.Context, pool *pgxpool.Pool, ctx context.Cont
 
 	certFingerprint := strings.TrimSpace(body.CertificateFingerprint)
 	models.SetSaasSetting(reqCtx, pool, models.SettingCertificateFingerprint, certFingerprint)
+
+	// Save SEO settings
+	models.SetSaasSetting(reqCtx, pool, models.SettingSEOTitle, strings.TrimSpace(body.SEOTitle))
+	models.SetSaasSetting(reqCtx, pool, models.SettingSEODescription, strings.TrimSpace(body.SEODescription))
+	models.SetSaasSetting(reqCtx, pool, models.SettingSEOKeywords, strings.TrimSpace(body.SEOKeywords))
+	
+	seoIndexVal := "0"
+	if body.SEOIndex {
+		seoIndexVal = "1"
+	}
+	models.SetSaasSetting(reqCtx, pool, models.SettingSEOIndex, seoIndexVal)
 
 	successMessage(c, "Pengaturan SaaS berhasil diperbarui")
 }

@@ -101,8 +101,14 @@ func PengawasDetailPage() gin.HandlerFunc {
 
 		canControl := isPrivileged || exam.CreatedBy == userID || (exam.DelegatedTo != nil && *exam.DelegatedTo == userID)
 
+		tokenMode := "dynamic"
+		if exam.TokenMode != nil && *exam.TokenMode != "" {
+			tokenMode = *exam.TokenMode
+		}
+
 		renderAdminPage(c, "admin/pengawas_detail.html", gin.H{
 			"exam":                 exam,
+			"token_mode":           tokenMode,
 			"creator_name":         creatorName,
 			"delegated_name":       delegatedName,
 			"pengawas_list":        pengawasAssignments,
@@ -168,6 +174,8 @@ func PengawasExams() gin.HandlerFunc {
 			ID             int        `json:"id"`
 			Name           string     `json:"name"`
 			Token          string     `json:"token"`
+			ActiveToken    string     `json:"active_token"`
+			TokenMode      string     `json:"token_mode"`
 			Status         string     `json:"status"`
 			StartTime      string     `json:"start_time"`
 			EndTime        string     `json:"end_time"`
@@ -212,10 +220,16 @@ func PengawasExams() gin.HandlerFunc {
 			if e.EndTime != nil {
 				endStr = e.EndTime.Format("2006-01-02 15:04:05")
 			}
+			tokenMode := "dynamic"
+			if e.TokenMode != nil && *e.TokenMode != "" {
+				tokenMode = *e.TokenMode
+			}
 			item := examItem{
 				ID:            e.ID,
 				Name:          e.Name,
 				Token:         e.Token,
+				ActiveToken:   e.ActiveToken,
+				TokenMode:     tokenMode,
 				Status:        e.Status,
 				StartTime:     startStr,
 				EndTime:       endStr,
@@ -493,7 +507,8 @@ func fetchStudentAccessLogs(ctx context.Context, pool *pgxpool.Pool, examID int,
 }
 
 func autoResetActiveTokenIfNeeded(ctx context.Context, pool *pgxpool.Pool, exam *models.Exam) {
-	if exam.ExamStartedAt != nil &&
+	if exam.TokenMode != nil && *exam.TokenMode == "dynamic" &&
+		exam.ExamStartedAt != nil &&
 		exam.TokenResetInterval != nil && *exam.TokenResetInterval > 0 {
 		shouldReset := true
 		if exam.TokenLastResetAt != nil {

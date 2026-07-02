@@ -127,6 +127,7 @@ func ListUsers() gin.HandlerFunc {
 			ExpiresAt      string   `json:"expires_at"`
 			ExamCount      int      `json:"exam_count"`
 			CreatedAt      string   `json:"created_at"`
+			Package        string   `json:"package"`
 		}
 
 		users := make([]userItem, 0, len(result.Users))
@@ -154,6 +155,7 @@ func ListUsers() gin.HandlerFunc {
 				ExpiresAt:      expStr,
 				ExamCount:      u.ExamCount,
 				CreatedAt:      formatISOUTC(u.CreatedAt),
+				Package:        u.Package,
 			})
 		}
 
@@ -191,6 +193,7 @@ func CreateUser() gin.HandlerFunc {
 			MaxDraftSizeMB  float64  `json:"max_draft_size_mb"`
 			MaxStorageSizeMB float64  `json:"max_storage_size_mb"`
 			ExpiresAt       string   `json:"expires_at"`
+			Package         string   `json:"package"`
 		}
 		if err := c.ShouldBindJSON(&body); err != nil {
 			errorResponse(c, http.StatusBadRequest, "Data tidak valid")
@@ -319,6 +322,11 @@ func CreateUser() gin.HandlerFunc {
 
 		maxStorageSize := int64(body.MaxStorageSizeMB * 1024 * 1024)
 
+		pkg := strings.TrimSpace(body.Package)
+		if pkg == "" {
+			pkg = "free"
+		}
+
 		user := &models.AdminUser{
 			Username:       username,
 			Name:           strings.TrimSpace(body.Name),
@@ -334,6 +342,7 @@ func CreateUser() gin.HandlerFunc {
 			WhatsappNumber: strings.TrimSpace(body.WhatsappNumber),
 			Email:          strings.TrimSpace(body.Email),
 			ExpiresAt:      expiresAtPtr,
+			Package:        pkg,
 		}
 
 		created, err := models.CreateUser(ctx, pool, user)
@@ -378,6 +387,7 @@ func EditUser() gin.HandlerFunc {
 			MaxDraftSizeMB *float64 `json:"max_draft_size_mb"`
 			MaxStorageSizeMB *float64 `json:"max_storage_size_mb"`
 			ExpiresAt      *string  `json:"expires_at"`
+			Package        *string  `json:"package"`
 		}
 		if err := c.ShouldBindJSON(&body); err != nil {
 			errorResponse(c, http.StatusBadRequest, "Data tidak valid")
@@ -535,6 +545,10 @@ func EditUser() gin.HandlerFunc {
 				}
 				updates["expires_at"] = expVal
 			}
+		}
+
+		if body.Package != nil {
+			updates["package"] = strings.TrimSpace(*body.Package)
 		}
 
 		// Cascade: if operator's expiry changed, sync to all users in same instansi

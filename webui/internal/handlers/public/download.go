@@ -11,6 +11,7 @@ import (
 	"github.com/gin-gonic/gin"
 
 	"github.com/examvan/webui/internal/config"
+	"github.com/examvan/webui/internal/middleware"
 	"github.com/examvan/webui/internal/models"
 )
 
@@ -64,11 +65,11 @@ func DownloadPage() gin.HandlerFunc {
 			fileSizeMB = math.Round(float64(info.Size())/(1024*1024)*100) / 100
 		}
 
-		c.HTML(http.StatusOK, "public/download.html", gin.H{
+		c.HTML(http.StatusOK, "public/download.html", middleware.MergeTemplateData(c, gin.H{
 			"android_version": androidVer,
 			"webapp_version":  webappVer,
 			"file_size_mb":    fileSizeMB,
-		})
+		}))
 	}
 }
 
