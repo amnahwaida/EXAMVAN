@@ -11,6 +11,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/examvan/webui/internal/helpers"
 	"github.com/examvan/webui/internal/models"
 )
 
@@ -50,8 +51,8 @@ func handleSaasSettingsGet(c *gin.Context, pool *pgxpool.Pool, ctx context.Conte
 	}
 
 	// Format settings for response (matching Python's format)
-	waEnabled := settings[models.SettingWAVerificationEnabled] == "1"
-	waToken := maskTokenSetting(settings[models.SettingWAPIToken])
+	emailEnabled := settings[models.SettingEmailVerificationEnabled] == "1"
+	smtpPassword := maskTokenSetting(settings[models.SettingSMTPPassword])
 
 	defaultMaxExams := parseIntSetting(settings[models.SettingDefaultMaxExams], 3)
 	defaultMaxPDFSize := parseIntSetting(settings[models.SettingDefaultMaxPDFSize], 1048576)
@@ -62,17 +63,20 @@ func handleSaasSettingsGet(c *gin.Context, pool *pgxpool.Pool, ctx context.Conte
 	c.JSON(http.StatusOK, gin.H{
 		"success": true,
 		"settings": gin.H{
-			"wa_verification_enabled":  waEnabled,
-			"wa_api_token":             waToken,
-			"wa_otp_template":          settings[models.SettingWAOTPTemplate],
-			"default_max_exams":        defaultMaxExams,
-			"default_max_pdf_size_mb":  roundTo(float64(defaultMaxPDFSize)/(1024*1024), 2),
-			"default_max_drafts":       defaultMaxDrafts,
-			"default_max_draft_size_mb": roundTo(float64(defaultMaxDraftSize)/(1024*1024), 2),
-			"default_active_days":      defaultActiveDays,
-			"android_version":          settings[models.SettingAndroidVersion],
-			"webapp_version":           settings[models.SettingWebappVersion],
-			"certificate_fingerprint":  settings[models.SettingCertificateFingerprint],
+			"email_verification_enabled": emailEnabled,
+			"smtp_host":                  settings[models.SettingSMTPHost],
+			"smtp_port":                  settings[models.SettingSMTPPort],
+			"smtp_user":                  settings[models.SettingSMTPUser],
+			"smtp_password":              smtpPassword,
+			"smtp_sender_name":           settings[models.SettingSMTPSenderName],
+			"default_max_exams":          defaultMaxExams,
+			"default_max_pdf_size_mb":    roundTo(float64(defaultMaxPDFSize)/(1024*1024), 2),
+			"default_max_drafts":         defaultMaxDrafts,
+			"default_max_draft_size_mb":  roundTo(float64(defaultMaxDraftSize)/(1024*1024), 2),
+			"default_active_days":        defaultActiveDays,
+			"android_version":            settings[models.SettingAndroidVersion],
+			"webapp_version":             settings[models.SettingWebappVersion],
+			"certificate_fingerprint":    settings[models.SettingCertificateFingerprint],
 		},
 	})
 }
@@ -97,17 +101,20 @@ func parseIntSetting(val string, defaultVal int) int {
 
 func handleSaasSettingsPost(c *gin.Context, pool *pgxpool.Pool, ctx context.Context) {
 	var body struct {
-		WAVerificationEnabled bool    `json:"wa_verification_enabled"`
-		WAPIToken             string  `json:"wa_api_token"`
-		WAOTPTemplate         string  `json:"wa_otp_template"`
-		DefaultMaxExams       int     `json:"default_max_exams"`
-		DefaultMaxPDFSizeMB   float64 `json:"default_max_pdf_size_mb"`
-		DefaultMaxDrafts      int     `json:"default_max_drafts"`
-		DefaultMaxDraftSizeMB float64 `json:"default_max_draft_size_mb"`
-		DefaultActiveDays     int     `json:"default_active_days"`
-		AndroidVersion        string  `json:"android_version"`
-		WebappVersion         string  `json:"webapp_version"`
-		CertificateFingerprint string `json:"certificate_fingerprint"`
+		EmailVerificationEnabled bool    `json:"email_verification_enabled"`
+		SMTPHost                 string  `json:"smtp_host"`
+		SMTPPort                 string  `json:"smtp_port"`
+		SMTPUser                 string  `json:"smtp_user"`
+		SMTPPassword             string  `json:"smtp_password"`
+		SMTPSenderName           string  `json:"smtp_sender_name"`
+		DefaultMaxExams          int     `json:"default_max_exams"`
+		DefaultMaxPDFSizeMB      float64 `json:"default_max_pdf_size_mb"`
+		DefaultMaxDrafts         int     `json:"default_max_drafts"`
+		DefaultMaxDraftSizeMB    float64 `json:"default_max_draft_size_mb"`
+		DefaultActiveDays        int     `json:"default_active_days"`
+		AndroidVersion           string  `json:"android_version"`
+		WebappVersion            string  `json:"webapp_version"`
+		CertificateFingerprint   string  `json:"certificate_fingerprint"`
 	}
 
 	if err := c.ShouldBindJSON(&body); err != nil {
@@ -117,34 +124,31 @@ func handleSaasSettingsPost(c *gin.Context, pool *pgxpool.Pool, ctx context.Cont
 
 	reqCtx := c.Request.Context()
 
-	// WA settings
-	waEnabled := "0"
-	if body.WAVerificationEnabled {
-		waEnabled = "1"
+	// Email settings
+	emailEnabled := "0"
+	if body.EmailVerificationEnabled {
+		emailEnabled = "1"
 	}
-	if err := models.SetSaasSetting(reqCtx, pool, models.SettingWAVerificationEnabled, waEnabled); err != nil {
-		log.Printf("save wa_enabled error: %v", err)
+	if err := models.SetSaasSetting(reqCtx, pool, models.SettingEmailVerificationEnabled, emailEnabled); err != nil {
+		log.Printf("save email_enabled error: %v", err)
 	}
 
-	// WA API token — if masked value sent, keep existing
-	waToken := strings.TrimSpace(body.WAPIToken)
-	if waToken != "" && strings.HasPrefix(waToken, "****") {
-		existing, _ := models.GetSaasSetting(reqCtx, pool, models.SettingWAPIToken)
+	models.SetSaasSetting(reqCtx, pool, models.SettingSMTPHost, strings.TrimSpace(body.SMTPHost))
+	models.SetSaasSetting(reqCtx, pool, models.SettingSMTPPort, strings.TrimSpace(body.SMTPPort))
+	models.SetSaasSetting(reqCtx, pool, models.SettingSMTPUser, strings.TrimSpace(body.SMTPUser))
+	models.SetSaasSetting(reqCtx, pool, models.SettingSMTPSenderName, strings.TrimSpace(body.SMTPSenderName))
+
+	// SMTP Password — mask handling
+	smtpPassword := strings.TrimSpace(body.SMTPPassword)
+	if smtpPassword != "" && strings.HasPrefix(smtpPassword, "****") {
+		existing, _ := models.GetSaasSetting(reqCtx, pool, models.SettingSMTPPassword)
 		if existing != "" {
-			waToken = existing
+			smtpPassword = existing
 		}
 	}
-	if waToken != "" {
-		if err := models.SetSaasSetting(reqCtx, pool, models.SettingWAPIToken, waToken); err != nil {
-			log.Printf("save wa_token error: %v", err)
-		}
-	}
-
-	// OTP template
-	otpTemplate := strings.TrimSpace(body.WAOTPTemplate)
-	if otpTemplate != "" {
-		if err := models.SetSaasSetting(reqCtx, pool, models.SettingWAOTPTemplate, otpTemplate); err != nil {
-			log.Printf("save otp_template error: %v", err)
+	if smtpPassword != "" {
+		if err := models.SetSaasSetting(reqCtx, pool, models.SettingSMTPPassword, smtpPassword); err != nil {
+			log.Printf("save smtp_password error: %v", err)
 		}
 	}
 
@@ -247,5 +251,48 @@ func ChangePassword() gin.HandlerFunc {
 		}
 
 		successMessage(c, "Password berhasil diperbarui")
+	}
+}
+
+// TestSMTPConnectionEndpoint tests SMTP connection configuration.
+func TestSMTPConnectionEndpoint() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		pool := getPool(c)
+		ctx := c.Request.Context()
+
+		var body struct {
+			SMTPHost     string `json:"smtp_host"`
+			SMTPPort     string `json:"smtp_port"`
+			SMTPUser     string `json:"smtp_user"`
+			SMTPPassword string `json:"smtp_password"`
+		}
+
+		if err := c.ShouldBindJSON(&body); err != nil {
+			errorResponse(c, http.StatusBadRequest, "Data tidak valid")
+			return
+		}
+
+		smtpPassword := strings.TrimSpace(body.SMTPPassword)
+		// Mask check: if it is masked or empty, get the existing password from DB
+		if smtpPassword == "" || strings.HasPrefix(smtpPassword, "****") {
+			existing, _ := models.GetSaasSetting(ctx, pool, models.SettingSMTPPassword)
+			if existing != "" {
+				smtpPassword = existing
+			}
+		}
+
+		err := helpers.TestSMTPConnection(
+			strings.TrimSpace(body.SMTPHost),
+			strings.TrimSpace(body.SMTPPort),
+			strings.TrimSpace(body.SMTPUser),
+			smtpPassword,
+		)
+		if err != nil {
+			log.Printf("test SMTP error: %v", err)
+			errorResponse(c, http.StatusBadRequest, err.Error())
+			return
+		}
+
+		successMessage(c, "Koneksi SMTP berhasil terhubung!")
 	}
 }

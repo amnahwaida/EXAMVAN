@@ -35,10 +35,10 @@ const (
 	RoleSuperAdmin = "superadmin"
 )
 
-// AdminUser represents a row from the admin_users table.
 type AdminUser struct {
 	ID              int        `json:"id"`
 	Username        string     `json:"username"`
+	Name            string     `json:"name"`
 	PasswordHash    string     `json:"-"` // never serialized
 	CreatedAt       time.Time  `json:"created_at"`
 	Status          string     `json:"status"`
@@ -49,10 +49,12 @@ type AdminUser struct {
 	MaxPDFSize      int        `json:"max_pdf_size"`
 	MaxDrafts       int        `json:"max_drafts"`
 	MaxDraftSize    int        `json:"max_draft_size"`
+	MaxStorageSize  int64      `json:"max_storage_size"`
 	WhatsappNumber  string     `json:"whatsapp_number"`
+	Email           string     `json:"email"`
 	ExpiresAt       *time.Time `json:"expires_at,omitempty"`
 	OTPCode         *string    `json:"-"`
-	OTPExpiry       *string    `json:"-"`
+	OTPExpiry       *time.Time `json:"-"`
 }
 
 // Roles parses the Role JSON string and returns the list of roles.
@@ -346,17 +348,17 @@ func checkWerkzeugPbkdf2(password, hash string) bool {
 }
 
 // DefaultAdminUserColumns is the column list for admin_users SELECT queries.
-const DefaultAdminUserColumns = `id, username, password_hash, created_at, status,
+const DefaultAdminUserColumns = `id, username, name, password_hash, created_at, status,
 instansi, role, max_exams, max_pdf_size, max_drafts, max_draft_size,
-whatsapp_number, expires_at, otp_code, otp_expiry`
+max_storage_size, whatsapp_number, email, expires_at, otp_code, otp_expiry`
 
 // scanAdminUser scans a row into an AdminUser struct.
 func scanAdminUser(row pgx.Row) (AdminUser, error) {
 	var u AdminUser
 	err := row.Scan(
-		&u.ID, &u.Username, &u.PasswordHash, &u.CreatedAt, &u.Status,
+		&u.ID, &u.Username, &u.Name, &u.PasswordHash, &u.CreatedAt, &u.Status,
 		&u.Instansi, &u.Role, &u.MaxExams, &u.MaxPDFSize, &u.MaxDrafts, &u.MaxDraftSize,
-		&u.WhatsappNumber, &u.ExpiresAt, &u.OTPCode, &u.OTPExpiry,
+		&u.MaxStorageSize, &u.WhatsappNumber, &u.Email, &u.ExpiresAt, &u.OTPCode, &u.OTPExpiry,
 	)
 	return u, err
 }
@@ -447,9 +449,9 @@ func ListUsers(ctx context.Context, pool *pgxpool.Pool, opts ListUsersOpts) (Lis
 	if opts.Search != "" {
 		pat := "%" + opts.Search + "%"
 		conditions = append(conditions,
-			fmt.Sprintf(`(u.username ILIKE $%d OR u.whatsapp_number ILIKE $%d)`, argIdx, argIdx+1))
-		args = append(args, pat, pat)
-		argIdx += 2
+			fmt.Sprintf(`(u.username ILIKE $%d OR u.name ILIKE $%d OR u.whatsapp_number ILIKE $%d OR u.email ILIKE $%d)`, argIdx, argIdx+1, argIdx+2, argIdx+3))
+		args = append(args, pat, pat, pat, pat)
+		argIdx += 4
 	}
 
 	// Count query.
@@ -472,9 +474,9 @@ func ListUsers(ctx context.Context, pool *pgxpool.Pool, opts ListUsersOpts) (Lis
 	offset := calcOffset(opts.Page, perPage)
 
 	// Data query.
-	sql := `SELECT u.id, u.username, u.password_hash, u.created_at, u.status,
+	sql := `SELECT u.id, u.username, u.name, u.password_hash, u.created_at, u.status,
 	u.instansi, u.role, u.max_exams, u.max_pdf_size, u.max_drafts, u.max_draft_size,
-	u.whatsapp_number, u.expires_at, u.otp_code, u.otp_expiry,
+	u.max_storage_size, u.whatsapp_number, u.email, u.expires_at, u.otp_code, u.otp_expiry,
 	COALESCE(COUNT(e.id), 0) as exam_count
 	FROM admin_users u
 	LEFT JOIN exams e ON e.created_by = u.id` + whereClause +
@@ -500,9 +502,9 @@ func ListUsers(ctx context.Context, pool *pgxpool.Pool, opts ListUsersOpts) (Lis
 		var u AdminUser
 		var examCount int
 		err := rows.Scan(
-			&u.ID, &u.Username, &u.PasswordHash, &u.CreatedAt, &u.Status,
+			&u.ID, &u.Username, &u.Name, &u.PasswordHash, &u.CreatedAt, &u.Status,
 			&u.Instansi, &u.Role, &u.MaxExams, &u.MaxPDFSize, &u.MaxDrafts, &u.MaxDraftSize,
-			&u.WhatsappNumber, &u.ExpiresAt, &u.OTPCode, &u.OTPExpiry,
+			&u.MaxStorageSize, &u.WhatsappNumber, &u.Email, &u.ExpiresAt, &u.OTPCode, &u.OTPExpiry,
 			&examCount,
 		)
 		if err != nil {
@@ -537,15 +539,15 @@ func CreateUser(ctx context.Context, pool *pgxpool.Pool, u *AdminUser) (*AdminUs
 	}
 
 	sql := `INSERT INTO admin_users
-	(username, password_hash, status, instansi, role, max_exams, max_pdf_size,
-	 max_drafts, max_draft_size, whatsapp_number, expires_at, otp_code, otp_expiry)
-	VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)
+	(username, name, password_hash, status, instansi, role, max_exams, max_pdf_size,
+	 max_drafts, max_draft_size, max_storage_size, whatsapp_number, email, expires_at, otp_code, otp_expiry)
+	VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16)
 	RETURNING ` + DefaultAdminUserColumns
 
 	created, err := scanAdminUser(pool.QueryRow(ctx, sql,
-		u.Username, hash, u.Status, u.Instansi, u.Role,
-		u.MaxExams, u.MaxPDFSize, u.MaxDrafts, u.MaxDraftSize,
-		u.WhatsappNumber, u.ExpiresAt, u.OTPCode, u.OTPExpiry,
+		u.Username, u.Name, hash, u.Status, u.Instansi, u.Role,
+		u.MaxExams, u.MaxPDFSize, u.MaxDrafts, u.MaxDraftSize, u.MaxStorageSize,
+		u.WhatsappNumber, u.Email, u.ExpiresAt, u.OTPCode, u.OTPExpiry,
 	))
 	if err != nil {
 		return nil, fmt.Errorf("create user: %w", err)
@@ -556,6 +558,7 @@ func CreateUser(ctx context.Context, pool *pgxpool.Pool, u *AdminUser) (*AdminUs
 // allowedUserColumns is a whitelist of columns that can be updated dynamically.
 // This prevents SQL injection via column names in UpdateUserField and UpdateUser.
 var allowedUserColumns = map[string]bool{
+	"name":          true,
 	"password_hash": true,
 	"status":        true,
 	"instansi":      true,
@@ -564,7 +567,9 @@ var allowedUserColumns = map[string]bool{
 	"max_pdf_size":  true,
 	"max_drafts":    true,
 	"max_draft_size": true,
+	"max_storage_size": true,
 	"whatsapp_number": true,
+	"email":           true,
 	"expires_at":     true,
 	"otp_code":      true,
 	"otp_expiry":    true,
@@ -862,7 +867,7 @@ func AuthenticateUser(ctx context.Context, pool *pgxpool.Pool, username, passwor
 	}
 
 	if user.Status == UserStatusPendingOTP {
-		return nil, "Pendaftaran Anda membutuhkan konfirmasi OTP WhatsApp."
+		return nil, "Pendaftaran Anda membutuhkan konfirmasi OTP Email. Silakan cek email Anda."
 	}
 
 	if user.IsExpired() {

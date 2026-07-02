@@ -8,12 +8,14 @@ package main
 
 import (
 	"context"
+	"crypto/rand"
 	"encoding/json"
 	"fmt"
 	"html"
 	"html/template"
 	"log"
 	"math"
+	"math/big"
 	"net/http"
 	"os"
 	"os/signal"
@@ -34,6 +36,7 @@ import (
 	"github.com/examvan/webui/internal/handlers/admin"
 	"github.com/examvan/webui/internal/handlers/api"
 	"github.com/examvan/webui/internal/handlers/public"
+	"github.com/examvan/webui/internal/helpers"
 	"github.com/examvan/webui/internal/middleware"
 	"github.com/examvan/webui/internal/models"
 	"github.com/examvan/webui/internal/queue"
@@ -238,6 +241,10 @@ func main() {
 		"adminNav": func(activePage, adminRole, adminUser, csrfToken string) template.HTML {
 			// Prevent XSS: escape user-controlled values
 			adminUser = html.EscapeString(adminUser)
+			
+			roleDisplay := models.DisplayRoles(adminRole)
+			roleDisplay = html.EscapeString(roleDisplay)
+
 			adminRole = html.EscapeString(adminRole)
 			isSuper := strings.Contains(adminRole, "superadmin")
 			isOp := strings.Contains(adminRole, "operator")
@@ -249,25 +256,19 @@ func main() {
 					activePageClass(activePage, "dashboard"), activePageClass(activePage, "submissions"))
 			}
 			pengawasLink := ""
-			if isPengawas {
+			if isPengawas || isGuru {
 				pengawasLink = fmt.Sprintf(`<a href="/admin/pengawas" class="nav-link %s"><svg class="icon-svg" aria-hidden="true"><use href="#hi-eye"/></svg> Pengawasan</a>`, activePageClass(activePage, "pengawas"))
 			}
 			usersLink := ""
 			if isSuper || isOp || strings.Contains(adminRole, "operator") {
 				usersLink = fmt.Sprintf(`<a href="/admin/users" class="nav-link %s"><svg class="icon-svg" aria-hidden="true"><use href="#hi-users"/></svg> Kelola User</a>`, activePageClass(activePage, "users"))
 			}
-			roleDisplay := adminRole
-			if isSuper {
-				roleDisplay = "Super Admin"
-			} else if isOp {
-				roleDisplay = "Operator"
-			}
 			// Mobile nav links for hamburger menu
 			mobileLinks := `<div class="dropdown-divider mobile-only-divider"></div><div class="mobile-nav-links">`
 			if isGuru {
 				mobileLinks += fmt.Sprintf(`<a href="/admin/dashboard" class="dropdown-item %s"><svg class="icon-svg"><use href="#hi-dashboard"/></svg> Daftar Ujian</a><a href="/admin/submissions" class="dropdown-item %s"><svg class="icon-svg"><use href="#hi-results"/></svg> Hasil Ujian</a>`, dropdownActive(activePage, "dashboard"), dropdownActive(activePage, "submissions"))
 			}
-			if isPengawas {
+			if isPengawas || isGuru {
 				mobileLinks += fmt.Sprintf(`<a href="/admin/pengawas" class="dropdown-item %s"><svg class="icon-svg"><use href="#hi-eye"/></svg> Pengawasan</a>`, dropdownActive(activePage, "pengawas"))
 			}
 			if isSuper || isOp {
@@ -445,6 +446,8 @@ func registerRoutes(r *gin.Engine, cfg *config.Config, pool *pgxpool.Pool) {
 
 	r.GET("/register", registerPageHandler(cfg))
 	r.POST("/register", middleware.RateLimit(5, time.Minute), registerPostHandler(cfg))
+	r.GET("/register/confirm", registerConfirmPageHandler(cfg))
+	r.POST("/register/confirm", middleware.RateLimit(5, time.Minute), registerConfirmPostHandler(cfg))
 
 	r.GET("/download", public.DownloadPage())
 	r.GET("/download/apk", public.DownloadAPK())
@@ -511,6 +514,7 @@ func registerRoutes(r *gin.Engine, cfg *config.Config, pool *pgxpool.Pool) {
 			csrfAPI.POST("/exams/:exam_id/edit-token", admin.EditToken())
 			csrfAPI.POST("/exams/:exam_id/token-mode", admin.UpdateTokenMode())
 			csrfAPI.POST("/exams/:exam_id/start", admin.StartExam())
+			csrfAPI.POST("/exams/:exam_id/stop", admin.StopExam())
 			csrfAPI.POST("/exams/:exam_id/toggle-public-results", admin.TogglePublicResults())
 			csrfAPI.POST("/exams/:exam_id/toggle-show-answers", admin.ToggleShowAnswers())
 			csrfAPI.POST("/exams/:exam_id/delegate", admin.PostDelegateExam())
@@ -532,6 +536,7 @@ func registerRoutes(r *gin.Engine, cfg *config.Config, pool *pgxpool.Pool) {
 			adminSettings := csrfAPI.Group("", middleware.SuperAdminRequired())
 			{
 				adminSettings.POST("/saas-settings", admin.SaasSettings())
+				adminSettings.POST("/saas-settings/test-smtp", admin.TestSMTPConnectionEndpoint())
 			}
 			csrfAPI.POST("/change-password", middleware.RateLimit(3, time.Minute), admin.ChangePassword())
 		}
@@ -638,6 +643,7 @@ func loginHandler(cfg *config.Config) gin.HandlerFunc {
 		session.Clear()
 		session.Set(middleware.SessionKeyAdminID, user.ID)
 		session.Set(middleware.SessionKeyUsername, user.Username)
+		session.Set(middleware.SessionKeyName, user.Name)
 		isSuper := user.Username == cfg.AdminUser || models.HasRole(user.Role, models.RoleSuperAdmin)
 		isOperator := models.HasRole(user.Role, models.RoleOperator)
 		var adminRole string
@@ -676,6 +682,15 @@ func registerPageHandler(cfg *config.Config) gin.HandlerFunc {
 		data["version"] = cfg.Version
 		data["error"] = nil
 		data["flashes"] = nil
+
+		pool, exists := c.Get("db")
+		if exists && pool != nil {
+			dbPool := pool.(*pgxpool.Pool)
+			data["email_enabled"] = models.GetSaasSettingBool(c.Request.Context(), dbPool, models.SettingEmailVerificationEnabled, false)
+		} else {
+			data["email_enabled"] = false
+		}
+
 		c.HTML(http.StatusOK, "public/register.html", data)
 	}
 }
@@ -683,15 +698,15 @@ func registerPageHandler(cfg *config.Config) gin.HandlerFunc {
 func registerPostHandler(cfg *config.Config) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		username := strings.TrimSpace(c.PostForm("username"))
-		whatsapp := strings.TrimSpace(c.PostForm("whatsapp"))
+		email := strings.TrimSpace(c.PostForm("email"))
 		password := c.PostForm("password")
 
 		data := middleware.TemplateData(c)
 		data["version"] = cfg.Version
 
 		// Validate input
-		if username == "" || password == "" || whatsapp == "" {
-			data["error"] = "Username, nomor WhatsApp, dan password wajib diisi."
+		if username == "" || password == "" || email == "" {
+			data["error"] = "Username, email, dan password wajib diisi."
 			c.HTML(http.StatusOK, "public/register.html", data)
 			return
 		}
@@ -708,15 +723,8 @@ func registerPostHandler(cfg *config.Config) gin.HandlerFunc {
 			return
 		}
 
-		// Validate WhatsApp format
-		cleanWA := strings.ReplaceAll(strings.ReplaceAll(strings.ReplaceAll(whatsapp, "+", ""), "-", ""), " ", "")
-		if !strings.HasPrefix(cleanWA, "08") && !strings.HasPrefix(cleanWA, "62") {
-			data["error"] = "Format nomor WhatsApp tidak valid. Harus diawali 08 atau 62."
-			c.HTML(http.StatusOK, "public/register.html", data)
-			return
-		}
-		if len(cleanWA) < 10 || len(cleanWA) > 15 {
-			data["error"] = "Nomor WhatsApp harus 10-15 digit."
+		if !strings.Contains(email, "@") || !strings.Contains(email, ".") {
+			data["error"] = "Format email tidak valid."
 			c.HTML(http.StatusOK, "public/register.html", data)
 			return
 		}
@@ -744,18 +752,44 @@ func registerPostHandler(cfg *config.Config) gin.HandlerFunc {
 			return
 		}
 
-		// Create user with 'active' status (no OTP for now)
+		// Check if email verification is enabled
+		emailEnabled := models.GetSaasSettingBool(ctx, dbPool, models.SettingEmailVerificationEnabled, false)
+		status := models.UserStatusActive
+		var otpCode *string
+		var otpExpiry *time.Time
+
+		if emailEnabled {
+			status = models.UserStatusPendingOTP
+			const digits = "0123456789"
+			result := make([]byte, 6)
+			for i := 0; i < 6; i++ {
+				n, err := rand.Int(rand.Reader, big.NewInt(10))
+				if err != nil {
+					result[i] = digits[time.Now().UnixNano()%10]
+				} else {
+					result[i] = digits[n.Int64()]
+				}
+			}
+			codeStr := string(result)
+			otpCode = &codeStr
+			expiryTime := time.Now().UTC().Add(15 * time.Minute)
+			otpExpiry = &expiryTime
+		}
+
 		user := &models.AdminUser{
 			Username:       username,
 			PasswordHash:   password, // will be hashed by CreateUser
-			Status:         models.UserStatusActive,
+			Status:         status,
 			Instansi:       "personal",
 			Role:           models.SerializeRoles([]string{models.RoleGuru}),
 			MaxExams:       models.GetSaasSettingInt(ctx, dbPool, models.SettingDefaultMaxExams, 3),
 			MaxPDFSize:     models.GetSaasSettingInt(ctx, dbPool, models.SettingDefaultMaxPDFSize, 1048576),
 			MaxDrafts:      models.GetSaasSettingInt(ctx, dbPool, models.SettingDefaultMaxDrafts, 2),
 			MaxDraftSize:   models.GetSaasSettingInt(ctx, dbPool, models.SettingDefaultMaxDraftSize, 1048576),
-			WhatsappNumber: cleanWA,
+			WhatsappNumber: "",
+			Email:          email,
+			OTPCode:        otpCode,
+			OTPExpiry:      otpExpiry,
 		}
 
 		defaultDays := models.GetSaasSettingInt(ctx, dbPool,
@@ -773,12 +807,161 @@ func registerPostHandler(cfg *config.Config) gin.HandlerFunc {
 
 		log.Printf("New user registered: %s (ID: %d)", created.Username, created.ID)
 
+		if emailEnabled {
+			// Retrieve SMTP settings
+			smtpHost := models.GetSaasSettingWithDefault(ctx, dbPool, models.SettingSMTPHost, "smtp.gmail.com")
+			smtpPort := models.GetSaasSettingWithDefault(ctx, dbPool, models.SettingSMTPPort, "587")
+			smtpUser := models.GetSaasSettingWithDefault(ctx, dbPool, models.SettingSMTPUser, "")
+			smtpPassword := models.GetSaasSettingWithDefault(ctx, dbPool, models.SettingSMTPPassword, "")
+			senderName := models.GetSaasSettingWithDefault(ctx, dbPool, models.SettingSMTPSenderName, "EXAMVAN")
+
+			err = helpers.SendVerificationEmail(smtpHost, smtpPort, smtpUser, smtpPassword, senderName, email, username, *otpCode)
+			if err != nil {
+				log.Printf("Failed to send verification email to %s: %v", email, err)
+				// Delete user record
+				_, _ = dbPool.Exec(ctx, `DELETE FROM admin_users WHERE id = $1`, created.ID)
+
+				data["error"] = "Gagal mengirimkan email verifikasi. Pastikan pengaturan SMTP admin sudah benar atau hubungi admin."
+				c.HTML(http.StatusOK, "public/register.html", data)
+				return
+			}
+
+			c.Redirect(http.StatusFound, "/register/confirm?username="+username)
+			return
+		}
+
 		// Set flash message and redirect to login
 		session := sessions.Default(c)
 		session.AddFlash("Pendaftaran berhasil! Silakan login dengan akun Anda.")
 		if err := session.Save(); err != nil {
 			log.Printf("session save error on register: %v", err)
 		}
+
+		c.Redirect(http.StatusFound, "/login")
+	}
+}
+
+func registerConfirmPageHandler(cfg *config.Config) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		username := strings.TrimSpace(c.Query("username"))
+		data := middleware.TemplateData(c)
+		data["version"] = cfg.Version
+		data["error"] = nil
+
+		if username == "" {
+			c.Redirect(http.StatusFound, "/login")
+			return
+		}
+
+		pool, exists := c.Get("db")
+		if !exists || pool == nil {
+			c.Redirect(http.StatusFound, "/login")
+			return
+		}
+		dbPool := pool.(*pgxpool.Pool)
+		ctx := c.Request.Context()
+
+		// Fetch user details
+		var u models.AdminUser
+		err := dbPool.QueryRow(ctx,
+			`SELECT username, email, status, otp_code FROM admin_users 
+			 WHERE LOWER(username) = LOWER($1)`, username).Scan(&u.Username, &u.Email, &u.Status, &u.OTPCode)
+
+		if err != nil || u.Status != models.UserStatusPendingOTP || u.OTPCode == nil {
+			c.Redirect(http.StatusFound, "/login")
+			return
+		}
+
+		data["username"] = u.Username
+		data["email"] = u.Email
+		data["masked_email"] = maskEmail(u.Email)
+
+		c.HTML(http.StatusOK, "public/register_confirm.html", data)
+	}
+}
+
+func maskEmail(email string) string {
+	parts := strings.Split(email, "@")
+	if len(parts) != 2 {
+		return email
+	}
+	username := parts[0]
+	domain := parts[1]
+
+	if len(username) <= 2 {
+		return username + "***@" + domain
+	}
+	return string(username[0]) + strings.Repeat("*", len(username)-2) + string(username[len(username)-1]) + "@" + domain
+}
+
+func registerConfirmPostHandler(cfg *config.Config) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		username := strings.TrimSpace(c.Query("username"))
+		otpCode := strings.TrimSpace(c.PostForm("otp_code"))
+
+		data := middleware.TemplateData(c)
+		data["version"] = cfg.Version
+		data["username"] = username
+
+		pool, exists := c.Get("db")
+		if !exists || pool == nil {
+			data["error"] = "Database tidak tersedia."
+			c.HTML(http.StatusOK, "public/register_confirm.html", data)
+			return
+		}
+		dbPool := pool.(*pgxpool.Pool)
+		ctx := c.Request.Context()
+
+		var u models.AdminUser
+		err := dbPool.QueryRow(ctx,
+			`SELECT id, username, email, status, otp_code, otp_expiry FROM admin_users 
+			 WHERE LOWER(username) = LOWER($1)`, username).Scan(&u.ID, &u.Username, &u.Email, &u.Status, &u.OTPCode, &u.OTPExpiry)
+
+		if err != nil {
+			data["error"] = "User tidak ditemukan."
+			c.HTML(http.StatusOK, "public/register_confirm.html", data)
+			return
+		}
+
+		data["email"] = u.Email
+		data["masked_email"] = maskEmail(u.Email)
+
+		if u.Status != models.UserStatusPendingOTP || u.OTPCode == nil || *u.OTPCode == "" {
+			data["error"] = "Akun Anda sudah aktif atau tidak membutuhkan verifikasi."
+			c.HTML(http.StatusOK, "public/register_confirm.html", data)
+			return
+		}
+
+		if *u.OTPCode != otpCode {
+			data["error"] = "Kode OTP yang Anda masukkan salah."
+			c.HTML(http.StatusOK, "public/register_confirm.html", data)
+			return
+		}
+
+		// Check expiry
+		if u.OTPExpiry != nil {
+			if time.Now().UTC().After(*u.OTPExpiry) {
+				// Delete user record so they can try again
+				_, _ = dbPool.Exec(ctx, `DELETE FROM admin_users WHERE id = $1`, u.ID)
+				data["error"] = "Kode OTP telah kedaluwarsa. Silakan lakukan registrasi ulang."
+				c.HTML(http.StatusOK, "public/register_confirm.html", data)
+				return
+			}
+		}
+
+		// Activate user
+		_, err = dbPool.Exec(ctx,
+			`UPDATE admin_users SET status = 'active', otp_code = NULL, otp_expiry = NULL WHERE id = $1`, u.ID)
+		if err != nil {
+			log.Printf("Failed to activate user %s: %v", username, err)
+			data["error"] = "Gagal mengaktifkan akun. Silakan coba lagi."
+			c.HTML(http.StatusOK, "public/register_confirm.html", data)
+			return
+		}
+
+		session := sessions.Default(c)
+		session.AddFlash("Pendaftaran berhasil! Akun Anda telah aktif, silakan login.")
+		session.Save()
 
 		c.Redirect(http.StatusFound, "/login")
 	}

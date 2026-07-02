@@ -3,6 +3,7 @@ package admin
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"log"
 	"net/http"
 	"strconv"
@@ -49,23 +50,63 @@ func PengawasDetailPage() gin.HandlerFunc {
 		isPrivileged := isSuperAdmin(c) || isOperator(c)
 		ctx := c.Request.Context()
 
-		if !isPrivileged {
-			assigned, err := models.IsUserAssignedAsPengawas(ctx, pool, examID, userID)
-			if err != nil || !assigned {
-				c.Redirect(http.StatusFound, "/admin/pengawas")
-				return
-			}
-		}
-
 		exam, err := models.GetExamByID(ctx, pool, examID)
 		if err != nil {
 			c.Redirect(http.StatusFound, "/admin/pengawas")
 			return
 		}
 
+		if !isPrivileged {
+			isCreator := exam.CreatedBy == userID
+			isCoordinator := exam.DelegatedTo != nil && *exam.DelegatedTo == userID
+			
+			isAssigned := false
+			if hasCurrentRole(c, models.RolePengawas) {
+				assigned, err := models.IsUserAssignedAsPengawas(ctx, pool, examID, userID)
+				isAssigned = err == nil && assigned
+			}
+
+			if !isCreator && !isCoordinator && !isAssigned {
+				c.Redirect(http.StatusFound, "/admin/pengawas")
+				return
+			}
+		}
+
+		autoResetActiveTokenIfNeeded(ctx, pool, &exam)
+		
+		creatorName := "-"
+		creator, err := models.GetUserByID(ctx, pool, exam.CreatedBy)
+		if err == nil {
+			if creator.Name != "" {
+				creatorName = fmt.Sprintf("%s (%s)", creator.Name, creator.Username)
+			} else {
+				creatorName = creator.Username
+			}
+		}
+		
+		delegatedName := "-"
+		if exam.DelegatedTo != nil {
+			delegated, err := models.GetUserByID(ctx, pool, *exam.DelegatedTo)
+			if err == nil {
+				if delegated.Name != "" {
+					delegatedName = fmt.Sprintf("%s (%s)", delegated.Name, delegated.Username)
+				} else {
+					delegatedName = delegated.Username
+				}
+			}
+		}
+		
+		pengawasAssignments, _ := models.GetPengawasAssignments(ctx, pool, examID)
+
+		canControl := isPrivileged || exam.CreatedBy == userID || (exam.DelegatedTo != nil && *exam.DelegatedTo == userID)
+
 		renderAdminPage(c, "admin/pengawas_detail.html", gin.H{
-			"exam":        exam,
-			"active_page": "pengawas",
+			"exam":                 exam,
+			"creator_name":         creatorName,
+			"delegated_name":       delegatedName,
+			"pengawas_list":        pengawasAssignments,
+			"active_page":          "pengawas",
+			"can_control_settings": canControl,
 		})
 	}
 }
@@ -105,10 +146,11 @@ func PengawasExams() gin.HandlerFunc {
 			result, err = models.ListExams(ctx, pool, opts)
 		} else {
 			opts := models.ListPengawasExamsOpts{
-				Page:    page,
-				PerPage: perPage,
-				Search:  search,
-				UserID:  userID,
+				Page:            page,
+				PerPage:         perPage,
+				Search:          search,
+				UserID:          userID,
+				HasPengawasRole: hasCurrentRole(c, models.RolePengawas),
 			}
 			listResult, listErr := models.ListPengawasExams(ctx, pool, opts)
 			result = listResult
@@ -245,13 +287,14 @@ func PengawasExams() gin.HandlerFunc {
 
 // accessLogEntry is a package-level type for student access log entries.
 type accessLogEntry struct {
-	Event        string `json:"event"`
-	IPAddress    string `json:"ip_address"`
-	DeviceInfo   string `json:"device_info"`
-	CreatedAt    string `json:"created_at"`
-	StudentName  string `json:"student_name"`
-	ExamNumber   string `json:"exam_number"`
-	StudentClass string `json:"student_class"`
+	Event        string                 `json:"event"`
+	IPAddress    string                 `json:"ip_address"`
+	DeviceInfo   string                 `json:"device_info"`
+	CreatedAt    string                 `json:"created_at"`
+	StudentName  string                 `json:"student_name"`
+	ExamNumber   string                 `json:"exam_number"`
+	StudentClass string                 `json:"student_class"`
+	IdentityData map[string]interface{} `json:"identity_data"`
 }
 
 // ---------------------------------------------------------------------------
@@ -271,18 +314,27 @@ func PengawasExamSubmissions() gin.HandlerFunc {
 		isPrivileged := isSuperAdmin(c) || isOperator(c)
 		ctx := c.Request.Context()
 
-		if !isPrivileged {
-			assigned, err := models.IsUserAssignedAsPengawas(ctx, pool, examID, userID)
-			if err != nil || !assigned {
-				errorResponse(c, http.StatusForbidden, "Akses ditolak: Anda tidak ditugaskan sebagai pengawas ujian ini")
-				return
-			}
-		}
-
 		exam, err := models.GetExamByID(ctx, pool, examID)
 		if err != nil {
 			errorResponse(c, http.StatusNotFound, "Ujian tidak ditemukan")
 			return
+		}
+		autoResetActiveTokenIfNeeded(ctx, pool, &exam)
+
+		if !isPrivileged {
+			isCreator := exam.CreatedBy == userID
+			isCoordinator := exam.DelegatedTo != nil && *exam.DelegatedTo == userID
+			
+			isAssigned := false
+			if hasCurrentRole(c, models.RolePengawas) {
+				assigned, err := models.IsUserAssignedAsPengawas(ctx, pool, examID, userID)
+				isAssigned = err == nil && assigned
+			}
+
+			if !isCreator && !isCoordinator && !isAssigned {
+				errorResponse(c, http.StatusForbidden, "Akses ditolak: Anda tidak memiliki wewenang untuk mengawasi ujian ini")
+				return
+			}
 		}
 
 		page, _ := strconv.Atoi(c.DefaultQuery("page", "1"))
@@ -296,12 +348,14 @@ func PengawasExamSubmissions() gin.HandlerFunc {
 			perPage = 100
 		}
 		search := strings.TrimSpace(c.Query("search"))
+		status := strings.TrimSpace(c.Query("status"))
 
 		opts := models.ListSubmissionsByExamOpts{
 			ExamID:  examID,
 			Page:    page,
 			PerPage: perPage,
 			Search:  search,
+			Status:  status,
 		}
 
 		result, err := models.ListSubmissionsByExam(ctx, pool, opts)
@@ -373,14 +427,15 @@ func PengawasExamSubmissions() gin.HandlerFunc {
 		}
 
 		c.JSON(http.StatusOK, gin.H{
-			"success":     true,
-			"exam_name":   exam.Name,
-			"submissions": subsData,
-			"page":        result.Page,
-			"per_page":    result.PerPage,
-			"total":       result.Total,
-			"total_pages": result.TotalPages,
-			"stats":       result.Stats,
+			"success":          true,
+			"exam_name":        exam.Name,
+			"exam_active_token": exam.ActiveToken,
+			"submissions":     subsData,
+			"page":            result.Page,
+			"per_page":        result.PerPage,
+			"total":           result.Total,
+			"total_pages":     result.TotalPages,
+			"stats":           result.Stats,
 		})
 	}
 }
@@ -392,7 +447,7 @@ func fetchStudentAccessLogs(ctx context.Context, pool *pgxpool.Pool, examID int,
 
 	rows, err := pool.Query(ctx,
 		`SELECT event, ip_address, device_info, created_at,
-		 student_name, exam_number, student_class
+		 student_name, exam_number, student_class, identity_data
 		 FROM student_access_logs
 		 WHERE exam_id = $1 AND student_identifier = $2
 		 ORDER BY created_at ASC`, examID, macAddress)
@@ -404,12 +459,19 @@ func fetchStudentAccessLogs(ctx context.Context, pool *pgxpool.Pool, examID int,
 	var logs []accessLogEntry
 	for rows.Next() {
 		var entry accessLogEntry
-		var createdAt string
+		var createdAt time.Time
+		var identityDataStr *string
 		if err := rows.Scan(&entry.Event, &entry.IPAddress, &entry.DeviceInfo,
-			&createdAt, &entry.StudentName, &entry.ExamNumber, &entry.StudentClass); err != nil {
-			continue
+			&createdAt, &entry.StudentName, &entry.ExamNumber, &entry.StudentClass, &identityDataStr); err != nil {
+			log.Printf("scan error: %v", err); continue
 		}
-		entry.CreatedAt = createdAt
+		entry.CreatedAt = createdAt.Format(time.RFC3339)
+		if identityDataStr != nil {
+			var idData map[string]interface{}
+			if err := json.Unmarshal([]byte(*identityDataStr), &idData); err == nil {
+				entry.IdentityData = idData
+			}
+		}
 		logs = append(logs, entry)
 	}
 	rows.Close()
@@ -418,4 +480,25 @@ func fetchStudentAccessLogs(ctx context.Context, pool *pgxpool.Pool, examID int,
 	}
 
 	return logs
+}
+
+func autoResetActiveTokenIfNeeded(ctx context.Context, pool *pgxpool.Pool, exam *models.Exam) {
+	if exam.ExamStartedAt != nil &&
+		exam.TokenResetInterval != nil && *exam.TokenResetInterval > 0 {
+		shouldReset := true
+		if exam.TokenLastResetAt != nil {
+			nextReset := exam.TokenLastResetAt.Add(time.Duration(*exam.TokenResetInterval) * time.Minute)
+			if time.Now().UTC().Before(nextReset) {
+				shouldReset = false
+			}
+		}
+		if shouldReset {
+			newToken := generateToken()
+			if err := models.UpdateExamActiveToken(ctx, pool, exam.ID, newToken); err == nil {
+				exam.ActiveToken = newToken
+				now := time.Now().UTC()
+				exam.TokenLastResetAt = &now
+			}
+		}
+	}
 }

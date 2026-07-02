@@ -192,20 +192,38 @@ function showAccessLog(submissionId) {
         timelineHtml = '<div class="no-logs">Belum ada riwayat akses tercatat.</div>';
     } else {
         timelineHtml = '<div class="access-log-timeline">';
-        logs.forEach(function(log) {
-            var eventLabel = log.event === 'login' ? 'Login / Mulai Mengerjakan' : (log.event === 'logout' ? 'Logout / Keluar' : 'Heartbeat / Aktif');
+        var prevIdDataStr = '';
+        
+        logs.forEach(function(log, i) {
+            var eventLabel = log.event === 'login' ? 'Login / Mulai Mengerjakan' : (log.event === 'logout' ? 'Logout / Keluar' : 'Aktif (Heartbeat)');
             var timeFormatted = log.created_at ? localizeUTC(log.created_at) : '—';
             var deviceInfo = log.device_info ? ' &middot; ' + escapeHtml(log.device_info) : '';
-            var ipInfo = log.ip_address ? ' &middot; IP: ' + escapeHtml(log.ip_address) : '';
+            var ipInfo = log.ip_address ? ' IP: ' + escapeHtml(log.ip_address) : '';
 
-            // Identity used during this event (most relevant for login)
             var identityInfo = '';
-            if (log.event === 'login' && (log.student_name || log.exam_number || log.student_class)) {
-                identityInfo = '<div class="log-identity">' +
-                    (log.student_name ? '<span>Nama: <strong>' + escapeHtml(log.student_name) + '</strong></span>' : '') +
-                    (log.exam_number ? '<span>No. Ujian: <strong>' + escapeHtml(log.exam_number) + '</strong></span>' : '') +
-                    (log.student_class ? '<span>Kelas: <strong>' + escapeHtml(log.student_class) + '</strong></span>' : '') +
-                    '</div>';
+            var currentIdData = log.identity_data;
+            if (!currentIdData) {
+                currentIdData = {};
+                if (log.student_name) currentIdData["Nama"] = log.student_name;
+                if (log.exam_number) currentIdData["No. Ujian"] = log.exam_number;
+                if (log.student_class) currentIdData["Kelas"] = log.student_class;
+            }
+            
+            var currentIdDataStr = JSON.stringify(currentIdData);
+            if (Object.keys(currentIdData).length > 0 && currentIdDataStr !== prevIdDataStr) {
+                if (i !== 0) {
+                    eventLabel = '<span style="color:#f59e0b;">Mengubah Identitas</span> <span style="font-size:0.7rem;opacity:0.7;">(' + eventLabel + ')</span>';
+                }
+                var idParts = [];
+                for (var key in currentIdData) {
+                    if (currentIdData[key] && String(currentIdData[key]).trim() !== "") {
+                        idParts.push('<span>' + escapeHtml(key) + ': <strong>' + escapeHtml(String(currentIdData[key])) + '</strong></span>');
+                    }
+                }
+                if (idParts.length > 0) {
+                    identityInfo = '<div class="log-identity" style="border-color:#f59e0b44; background:rgba(245, 158, 11, 0.05);">' + idParts.join('') + '</div>';
+                }
+                prevIdDataStr = currentIdDataStr;
             }
 
             timelineHtml +=

@@ -1,7 +1,8 @@
 {{/*
   EXAMVAN Pengawas Detail — Self-Contained
   Template variables:
-    .exam, .admin_user, .admin_role, .active_page, .version, .csrf_token
+    .exam, .admin_user, .admin_role, .active_page, .version, .csrf_token,
+    .creator_name, .delegated_name, .pengawas_list
 */}}
 <!DOCTYPE html>
 <html lang="id">
@@ -10,6 +11,7 @@
 </head>
 <body class="dashboard-page">
 {{adminNav .active_page .admin_role .admin_user .csrf_token}}
+<div class="toast-container" id="toastContainer" aria-live="polite" aria-atomic="true"></div>
 
 <main class="dashboard">
 
@@ -17,7 +19,7 @@
  <div id="accessLogModal" class="modal-overlay" style="display:none;" onclick="closeAccessLogModal(event)">
   <div class="modal-container" style="max-width: 620px;" onclick="event.stopPropagation()">
    <div class="modal-header">
-    <h3 style="font-size:1.1rem;color:#a5b4fc;display:flex;align-items:center;gap:8px;"><svg class="icon-svg"><use href="#hi-device"/></svg> Riwayat Akses Perangkat</h3>
+    <h3 style="font-size:1.1rem;color:var(--color-primary-light);display:flex;align-items:center;gap:8px;"><svg class="icon-svg"><use href="#hi-device"/></svg> Riwayat Akses Perangkat</h3>
     <button class="modal-close" onclick="closeAccessLogModal()" aria-label="Tutup"><svg class="icon-svg" style="width:18px;height:18px;"><use href="#hi-x"/></svg></button>
    </div>
    <div class="modal-body" id="accessLogBody" style="padding: 0 24px 24px; max-height: 75vh; overflow-y: auto;">
@@ -26,72 +28,190 @@
   </div>
  </div>
 
- <!-- Back link + Exam Header -->
- <div style="display:flex;align-items:center;gap:12px;margin-bottom:20px;">
-  <a href="/admin/pengawas" class="btn-sm" style="gap:6px;padding:6px 12px;font-size:12px;">
-   <svg class="icon-svg" style="width:14px;height:14px;"><use href="#hi-chevron-left"/></svg> Kembali
-  </a>
-  <div>
-   <h1 style="font-size:1.4rem;font-weight:700;color:var(--color-text);">{{.exam.Name}}</h1>
-   <div style="display:flex;flex-wrap:wrap;gap:12px;margin-top:4px;font-size:0.82rem;color:var(--color-text-muted);">
-    <span>Token: <strong style="color:#a5b4fc;font-family:monospace;font-size:0.95rem;">{{.exam.Token}}</strong></span>
-    <span>Status: <span class="status-badge status-{{.exam.Status}}" style="font-size:0.72rem;">{{.exam.Status}}</span></span>
-    {{if and .exam.StartTime .exam.EndTime}}
-    <span>Jadwal: {{formatExamTime .exam.StartTime}} &mdash; {{formatExamTime .exam.EndTime}}</span>
+ <!-- ========== EXAM HEADER CARD ========== -->
+ <section class="pd-header-card">
+  <div class="pd-header-top">
+   <a href="/admin/pengawas" class="pd-back-btn">
+    <svg class="icon-svg" style="width:16px;height:16px;"><use href="#hi-chevron-left"/></svg>
+    <span>Kembali</span>
+   </a>
+   {{if .exam.ExamStartedAt}}
+   <span class="pd-status-pill pd-status-live">
+    <span class="pd-pulse"></span> Sedang Diawasi
+   </span>
+   {{else}}
+   <span class="pd-status-pill pd-status-idle">
+    <svg class="icon-svg" style="width:12px;height:12px;"><use href="#hi-key"/></svg> Belum Dimulai
+   </span>
+   {{end}}
+  </div>
+
+  <h1 class="pd-exam-title">{{.exam.Name}}</h1>
+
+  <!-- Info Grid -->
+  <div class="pd-info-grid">
+   <div class="pd-info-item pd-token-card">
+    <svg class="icon-svg pd-info-icon"><use href="#hi-key"/></svg>
+    <div style="flex:1;">
+     <span class="pd-info-label">Token Aktif (Dinamis)</span>
+     {{if .exam.ExamStartedAt}}
+     <div class="pd-token-row">
+      <span class="pd-info-value pd-token-value" id="pdActiveToken">{{.exam.ActiveToken}}</span>
+      <button class="pd-token-regen-btn" onclick="regenerateActiveToken()" title="Generate Token Baru Sekarang">
+       <svg class="icon-svg" style="width:14px;height:14px;"><use href="#hi-refresh"/></svg>
+      </button>
+      <button class="pd-token-copy-btn" onclick="copyToken(document.getElementById('pdActiveToken').textContent)" title="Salin Token">
+       <svg class="icon-svg" style="width:14px;height:14px;" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M15.666 3.888A2.25 2.25 0 0 0 13.5 2.25h-3c-1.03 0-1.9.693-2.166 1.638m7.332 0c.055.194.084.4.084.612v0a.75.75 0 0 1-.75.75H9.75a.75.75 0 0 1-.75-.75v0c0-.212.03-.418.084-.612m7.332 0c.646.049 1.288.11 1.927.184 1.1.128 1.907 1.077 1.907 2.185V19.5a2.25 2.25 0 0 1-2.25 2.25H6.75A2.25 2.25 0 0 1 4.5 19.5V6.257c0-1.108.806-2.057 1.907-2.185a48.208 48.208 0 0 1 1.927-.184"/></svg>
+      </button>
+     </div>
+     {{else}}
+     <span class="pd-info-value pd-token-hidden">Tersembunyi &mdash; mulai pengawasan dahulu</span>
+     {{end}}
+     <div class="pd-token-countdown" id="pdTokenCountdown"></div>
+    </div>
+   </div>
+   <div class="pd-info-item">
+    <svg class="icon-svg pd-info-icon" style="color:var(--color-accent-emerald);"><use href="#hi-check"/></svg>
+    <div>
+     <span class="pd-info-label">Status</span>
+     <span class="pd-info-value"><span class="status-badge status-{{.exam.Status}}" style="font-size:0.72rem;">{{.exam.Status}}</span></span>
+    </div>
+   </div>
+   {{if and .exam.StartTime .exam.EndTime}}
+   <div class="pd-info-item">
+    <svg class="icon-svg pd-info-icon" style="color:var(--color-warning);"><use href="#hi-refresh"/></svg>
+    <div>
+     <span class="pd-info-label">Jadwal</span>
+     <span class="pd-info-value">{{formatExamTime .exam.StartTime}} &mdash; {{formatExamTime .exam.EndTime}}</span>
+    </div>
+   </div>
+   {{end}}
+  </div>
+
+  <!-- Personnel -->
+  <div class="pd-personnel">
+   <div class="pd-personnel-item">
+    <span class="pd-personnel-label">Pembuat Soal</span>
+    <span class="pd-personnel-value">{{.creator_name}}</span>
+   </div>
+   <div class="pd-personnel-divider"></div>
+   <div class="pd-personnel-item">
+    <span class="pd-personnel-label">Guru</span>
+    <span class="pd-personnel-value">{{.delegated_name}}</span>
+   </div>
+   <div class="pd-personnel-divider"></div>
+   <div class="pd-personnel-item">
+    <span class="pd-personnel-label">Pengawas</span>
+    <span class="pd-personnel-value">{{range $i, $p := .pengawas_list}}{{if $i}}, {{end}}{{if $p.Name}}{{$p.Name}} ({{$p.Username}}){{else}}{{$p.Username}}{{end}}{{else}}-{{end}}</span>
+   </div>
+  </div>
+
+  <!-- Actions Bar -->
+  <div class="pd-actions-bar">
+   <div class="pd-quick-actions">
+    <a href="/hasil/{{.exam.Token}}" target="_blank" class="pd-action-btn pd-action-link">
+     <svg class="icon-svg" style="width:14px;height:14px;"><use href="#hi-link"/></svg> Halaman Siswa
+    </a>
+    {{if eq .exam.PublicResults 1}}
+    <button id="btn-public-results-{{.exam.ID}}" data-exam-id="{{.exam.ID}}" {{if not .can_control_settings}}disabled title="Hanya pembuat/guru yang dapat mengatur ini" style="opacity: 0.65; cursor: not-allowed;"{{else}}onclick="togglePublicResults(this.dataset.examId)"{{end}} class="pd-action-btn pd-action-active">
+     <svg class="icon-svg" style="width:14px;height:14px;"><use href="#hi-eye"/></svg> Hal. Siswa Aktif
+    </button>
+    {{else}}
+    <button id="btn-public-results-{{.exam.ID}}" data-exam-id="{{.exam.ID}}" {{if not .can_control_settings}}disabled title="Hanya pembuat/guru yang dapat mengatur ini" style="opacity: 0.65; cursor: not-allowed;"{{else}}onclick="togglePublicResults(this.dataset.examId)"{{end}} class="pd-action-btn pd-action-danger">
+     <svg class="icon-svg" style="width:14px;height:14px;"><use href="#hi-eye-off"/></svg> Hal. Siswa Nonaktif
+    </button>
+    {{end}}
+    {{if eq .exam.ShowAnswers 1}}
+    <button id="btn-show-answers-{{.exam.ID}}" data-exam-id="{{.exam.ID}}" {{if not .can_control_settings}}disabled title="Hanya pembuat/guru yang dapat mengatur ini" style="opacity: 0.65; cursor: not-allowed;"{{else}}onclick="toggleShowAnswers(this.dataset.examId)"{{end}} class="pd-action-btn pd-action-warning">
+     <svg class="icon-svg" style="width:14px;height:14px;"><use href="#hi-lock-open"/></svg> Kunci Terlihat
+    </button>
+    {{else}}
+    <button id="btn-show-answers-{{.exam.ID}}" data-exam-id="{{.exam.ID}}" {{if not .can_control_settings}}disabled title="Hanya pembuat/guru yang dapat mengatur ini" style="opacity: 0.65; cursor: not-allowed;"{{else}}onclick="toggleShowAnswers(this.dataset.examId)"{{end}} class="pd-action-btn pd-action-muted">
+     <svg class="icon-svg" style="width:14px;height:14px;"><use href="#hi-lock"/></svg> Kunci Tersembunyi
+    </button>
     {{end}}
    </div>
-  </div>
- </div>
-
- <!-- Stats Cards -->
- <section class="stats-grid" id="detailStats">
-  <div class="stat-card stat-total">
-   <div class="stat-icon"><svg class="icon-svg" style="width:24px;height:24px;"><use href="#hi-users"/></svg></div>
-   <div class="stat-info">
-    <span class="stat-value" id="statTotal">0</span>
-    <span class="stat-label">Total Perangkat</span>
-   </div>
-  </div>
-  <div class="stat-card stat-active">
-   <div class="stat-icon"><svg class="icon-svg" style="width:24px;height:24px;color:#fbbf24;"><use href="#hi-eye"/></svg></div>
-   <div class="stat-info">
-    <span class="stat-value" id="statActive">0</span>
-    <span class="stat-label">Sedang Mengerjakan</span>
-   </div>
-  </div>
-  <div class="stat-card stat-submitted">
-   <div class="stat-icon"><svg class="icon-svg" style="width:24px;height:24px;color:#34d399;"><use href="#hi-check"/></svg></div>
-   <div class="stat-info">
-    <span class="stat-value" id="statSubmitted">0</span>
-    <span class="stat-label">Terkumpul</span>
-   </div>
-  </div>
-  <div class="stat-card stat-inactive">
-   <div class="stat-icon"><svg class="icon-svg" style="width:24px;height:24px;color:#6b7280;" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 12h14"/></svg></div>
-   <div class="stat-info">
-    <span class="stat-value" id="statNotStarted">0</span>
-    <span class="stat-label">Belum Mulai</span>
+   <div class="pd-main-action">
+    {{if .exam.ExamStartedAt}}
+    <button class="pd-control-btn pd-control-stop" id="btnStopPengawasDetail" {{if not .can_control_settings}}disabled title="Hanya pembuat/guru yang dapat menghentikan pengawasan" style="opacity: 0.65; cursor: not-allowed;"{{else}}onclick="stopExamPengawasDetail({{.exam.ID}})"{{end}}>
+     <svg class="icon-svg" style="width:16px;height:16px;" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="6" y="6" width="12" height="12" rx="2"/></svg>
+     Hentikan Pengawasan
+    </button>
+    {{else}}
+    <button class="pd-control-btn pd-control-start" id="btnStartPengawasDetail" {{if not .can_control_settings}}disabled title="Hanya pembuat/guru yang dapat memulai pengawasan" style="opacity: 0.65; cursor: not-allowed;"{{else}}onclick="startExamPengawasDetail({{.exam.ID}})"{{end}}>
+     <svg class="icon-svg" style="width:16px;height:16px;"><use href="#hi-play"/></svg>
+     Mulai Pengawasan
+    </button>
+    {{end}}
    </div>
   </div>
  </section>
 
- <!-- Student Table -->
- <section class="glass-card" style="margin-top:20px;">
-  <div class="table-header flex items-center justify-between mb-4 flex-wrap gap-3">
-   <h3 style="font-size:1rem;color:#a5b4fc;display:flex;align-items:center;gap:8px;">
-    <svg class="icon-svg"><use href="#hi-device"/></svg> Monitoring Perangkat
-   </h3>
-   <div class="table-toolbar">
-    <div class="toolbar-search-wrap">
-     <input type="text" id="pengawasSearch" class="toolbar-search-input" placeholder="Cari nama, ID perangkat, kelas..."
-      onkeyup="if(event.key==='Enter') loadDetail()">
-    </div>
-    <button class="toolbar-btn toolbar-btn-search" onclick="loadDetail()"><svg class="icon-svg"><use href="#hi-search"/></svg> Cari</button>
-    <button class="toolbar-btn toolbar-btn-refresh" onclick="loadDetail()" title="Refresh"><svg class="icon-svg"><use href="#hi-refresh"/></svg></button>
+ <!-- ========== STATS CARDS ========== -->
+ <section class="pd-stats-grid" id="detailStats">
+  <div class="pd-stat-card">
+   <div class="pd-stat-icon" style="background:rgba(99,102,241,0.12);color:var(--color-primary-light);">
+    <svg class="icon-svg" style="width:22px;height:22px;"><use href="#hi-users"/></svg>
+   </div>
+   <div class="pd-stat-body">
+    <span class="pd-stat-value" id="statTotal">0</span>
+    <span class="pd-stat-label">Total Perangkat</span>
    </div>
   </div>
-  <div style="overflow-x:auto;">
-   <table class="exam-table" id="submissionTable">
+  <div class="pd-stat-card">
+   <div class="pd-stat-icon" style="background:rgba(251,191,36,0.12);color:#fbbf24;">
+    <svg class="icon-svg" style="width:22px;height:22px;"><use href="#hi-eye"/></svg>
+   </div>
+   <div class="pd-stat-body">
+    <span class="pd-stat-value" id="statActive">0</span>
+    <span class="pd-stat-label">Mengerjakan</span>
+   </div>
+  </div>
+  <div class="pd-stat-card">
+   <div class="pd-stat-icon" style="background:rgba(52,211,153,0.12);color:#34d399;">
+    <svg class="icon-svg" style="width:22px;height:22px;"><use href="#hi-check"/></svg>
+   </div>
+   <div class="pd-stat-body">
+    <span class="pd-stat-value" id="statSubmitted">0</span>
+    <span class="pd-stat-label">Terkumpul</span>
+   </div>
+  </div>
+  <div class="pd-stat-card">
+   <div class="pd-stat-icon" style="background:rgba(107,114,128,0.12);color:#9ca3af;">
+    <svg class="icon-svg" style="width:22px;height:22px;" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 12h14"/></svg>
+   </div>
+   <div class="pd-stat-body">
+    <span class="pd-stat-value" id="statNotStarted">0</span>
+    <span class="pd-stat-label">Belum Mulai</span>
+   </div>
+  </div>
+ </section>
+
+ <!-- ========== STUDENT TABLE ========== -->
+ <section class="pd-table-card">
+  <div class="pd-table-header">
+   <h3 class="pd-table-title">
+    <svg class="icon-svg"><use href="#hi-device"/></svg> Monitoring Perangkat
+   </h3>
+   <div class="pd-table-toolbar">
+    <select id="statusFilter" class="pd-status-select" onchange="loadDetail()" aria-label="Filter status siswa">
+     <option value="">Semua Status</option>
+     <option value="in_progress">Sedang Mengerjakan</option>
+     <option value="submitted">Terkumpul</option>
+     <option value="not_started">Belum Mulai</option>
+    </select>
+    <div class="pd-search-wrap">
+     <svg class="icon-svg pd-search-icon"><use href="#hi-search"/></svg>
+     <input type="text" id="pengawasSearch" class="pd-search-input" placeholder="Cari nama, ID perangkat..."
+      onkeyup="if(event.key==='Enter') loadDetail()">
+    </div>
+    <button class="pd-toolbar-btn" onclick="loadDetail()" title="Refresh">
+     <svg class="icon-svg"><use href="#hi-refresh"/></svg>
+    </button>
+   </div>
+  </div>
+  <div class="pd-table-responsive">
+   <table class="pd-table" id="submissionTable">
     <thead>
      <tr>
       <th>No</th>
@@ -104,7 +224,7 @@
      </tr>
     </thead>
     <tbody id="submissionBody">
-     <tr><td colspan="7" style="text-align:center;padding:40px;color:var(--color-text-muted);">Memuat data...</td></tr>
+     <tr><td colspan="7" class="pd-table-empty">Memuat data...</td></tr>
     </tbody>
    </table>
   </div>
@@ -112,44 +232,660 @@
  </section>
 </main>
 
+<!-- ========== STYLES ========== -->
 <style>
-#submissionTable th {
-  text-align:left;
-  padding:10px 12px;
-  border-bottom:1px solid var(--color-glass-border);
-  color:var(--color-text-muted);
-  font-weight:600;
-  font-size:0.72rem;
-  white-space:nowrap;
+/* --- Header Card --- */
+.pd-header-card {
+  background: var(--color-surface);
+  border: 1px solid var(--color-glass-border);
+  border-radius: var(--radius-lg);
+  padding: 24px 28px;
+  margin-bottom: 20px;
+  backdrop-filter: blur(12px);
+  animation: pdFadeIn 0.4s var(--ease-spring);
 }
-#submissionTable td {
-  padding:12px;
-  border-bottom:1px solid rgba(255,255,255,0.03);
-  font-size:0.82rem;
-  vertical-align:middle;
+@keyframes pdFadeIn {
+  from { opacity:0; transform:translateY(12px); }
+  to   { opacity:1; transform:translateY(0); }
 }
-#submissionTable tbody tr { transition:background 0.1s; }
-#submissionTable tbody tr:hover { background:rgba(99,102,241,0.04); }
-.mac-cell { font-family:monospace; font-weight:600; font-size:0.82rem; color:var(--color-text); }
-.status-badge-sm { display:inline-flex;align-items:center;gap:4px;padding:3px 10px;border-radius:8px;font-size:0.7rem;font-weight:600; }
-.action-link { color:#a5b4fc;cursor:pointer;font-size:0.75rem;font-weight:600;text-decoration:none;padding:4px 10px;border-radius:6px;border:1px solid rgba(99,102,241,0.25);transition:all 0.15s; }
-.action-link:hover { background:rgba(99,102,241,0.1);border-color:rgba(99,102,241,0.4); }
+.pd-header-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 12px;
+}
+.pd-back-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: var(--color-text-muted);
+  text-decoration: none;
+  padding: 6px 14px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--color-glass-border);
+  background: transparent;
+  transition: all 0.2s var(--ease-spring);
+}
+.pd-back-btn:hover {
+  color: var(--color-primary-light);
+  border-color: rgba(99,102,241,0.3);
+  background: rgba(99,102,241,0.06);
+}
+.pd-status-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.72rem;
+  font-weight: 700;
+  padding: 5px 14px;
+  border-radius: 20px;
+  letter-spacing: 0.02em;
+}
+.pd-status-live {
+  background: rgba(16,185,129,0.12);
+  color: #34d399;
+  border: 1px solid rgba(16,185,129,0.25);
+}
+.pd-status-idle {
+  background: rgba(245,158,11,0.12);
+  color: #fbbf24;
+  border: 1px solid rgba(245,158,11,0.25);
+}
+.pd-pulse {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #34d399;
+  animation: pdPulse 1.6s infinite;
+}
+@keyframes pdPulse {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(52,211,153,0.5); }
+  50% { box-shadow: 0 0 0 6px rgba(52,211,153,0); }
+}
+.pd-exam-title {
+  font-size: 1.5rem;
+  font-weight: 800;
+  color: var(--color-text);
+  margin: 0 0 16px;
+  line-height: 1.3;
+  font-family: var(--font-display);
+}
+
+/* --- Info Grid --- */
+.pd-info-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: 12px;
+  margin-bottom: 16px;
+}
+.pd-info-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 10px 14px;
+  background: var(--color-bg-secondary);
+  border: 1px solid var(--color-glass-border);
+  border-radius: var(--radius-sm);
+}
+.pd-info-icon {
+  width: 18px;
+  height: 18px;
+  color: var(--color-primary-light);
+  flex-shrink: 0;
+  margin-top: 2px;
+}
+.pd-info-label {
+  display: block;
+  font-size: 0.68rem;
+  font-weight: 600;
+  color: var(--color-text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  margin-bottom: 2px;
+}
+.pd-info-value {
+  display: block;
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: var(--color-text);
+}
+.pd-token-value {
+  font-family: var(--font-mono);
+  font-size: 1.15rem;
+  color: var(--color-primary-light);
+  letter-spacing: 1px;
+  user-select: all;
+  font-weight: 800;
+  transition: all 0.3s var(--ease-spring);
+}
+.pd-token-value.pd-token-flash {
+  color: var(--color-accent-emerald);
+  text-shadow: 0 0 12px rgba(52,211,153,0.4);
+}
+.pd-token-hidden {
+  font-style: italic;
+  font-weight: 400;
+  color: var(--color-text-muted);
+  font-size: 0.78rem;
+}
+.pd-token-card {
+  border-color: rgba(99,102,241,0.2);
+  background: linear-gradient(135deg, var(--color-bg-secondary) 0%, rgba(99,102,241,0.04) 100%);
+}
+.pd-token-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 2px;
+}
+.pd-token-regen-btn, .pd-token-copy-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  border-radius: 8px;
+  border: 1px solid var(--color-glass-border);
+  background: var(--color-surface);
+  color: var(--color-text-muted);
+  cursor: pointer;
+  transition: all 0.2s var(--ease-spring);
+  flex-shrink: 0;
+}
+.pd-token-regen-btn:hover {
+  border-color: var(--color-primary);
+  color: var(--color-primary-light);
+  background: rgba(99,102,241,0.1);
+  transform: rotate(90deg);
+}
+.pd-token-copy-btn:hover {
+  border-color: var(--color-accent-emerald);
+  color: var(--color-accent-emerald);
+  background: rgba(52,211,153,0.1);
+}
+.pd-token-countdown {
+  font-size: 0.68rem;
+  color: var(--color-text-muted);
+  margin-top: 6px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.pd-token-countdown .pd-countdown-bar {
+  flex: 1;
+  height: 3px;
+  background: rgba(255,255,255,0.06);
+  border-radius: 2px;
+  overflow: hidden;
+  max-width: 120px;
+}
+.pd-token-countdown .pd-countdown-fill {
+  height: 100%;
+  background: var(--color-primary);
+  border-radius: 2px;
+  transition: width 1s linear;
+}
+.pd-interval-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 4px;
+}
+.pd-interval-input {
+  width: 60px;
+  padding: 5px 8px;
+  font-size: 0.8rem;
+  border: 1px solid var(--color-glass-border);
+  border-radius: 6px;
+  background: var(--color-bg);
+  color: var(--color-text);
+  outline: none;
+  text-align: center;
+  font-family: var(--font-mono);
+}
+.pd-interval-input:focus {
+  border-color: var(--color-primary);
+  box-shadow: 0 0 0 2px var(--color-primary-glow);
+}
+.pd-interval-label {
+  font-size: 0.72rem;
+  color: var(--color-text-muted);
+}
+.pd-interval-save {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 0.68rem;
+  font-weight: 600;
+  padding: 4px 10px;
+  border-radius: 6px;
+  border: 1px solid rgba(52,211,153,0.3);
+  background: rgba(52,211,153,0.1);
+  color: var(--color-accent-emerald);
+  cursor: pointer;
+  transition: all 0.2s;
+}
+.pd-interval-save:hover {
+  background: rgba(52,211,153,0.2);
+  border-color: rgba(52,211,153,0.5);
+}
+
+/* --- Personnel --- */
+.pd-personnel {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  flex-wrap: wrap;
+  padding: 12px 16px;
+  background: var(--color-bg-secondary);
+  border: 1px solid var(--color-glass-border);
+  border-radius: var(--radius-sm);
+  margin-bottom: 16px;
+}
+.pd-personnel-item {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.pd-personnel-label {
+  font-size: 0.65rem;
+  font-weight: 600;
+  color: var(--color-text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+.pd-personnel-value {
+  font-size: 0.82rem;
+  font-weight: 700;
+  color: var(--color-primary-light);
+}
+.pd-personnel-divider {
+  width: 1px;
+  height: 28px;
+  background: var(--color-glass-border);
+}
+
+/* --- Actions Bar --- */
+.pd-actions-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.pd-quick-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.pd-action-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.72rem;
+  font-weight: 600;
+  padding: 6px 12px;
+  border-radius: 8px;
+  border: 1px solid;
+  cursor: pointer;
+  transition: all 0.2s var(--ease-spring);
+  text-decoration: none;
+  white-space: nowrap;
+}
+.pd-action-link {
+  background: rgba(99,102,241,0.08);
+  color: var(--color-primary-light);
+  border-color: rgba(99,102,241,0.25);
+}
+.pd-action-link:hover { background: rgba(99,102,241,0.15); border-color: rgba(99,102,241,0.4); }
+.pd-action-active {
+  background: rgba(16,185,129,0.1);
+  color: #34d399;
+  border-color: rgba(16,185,129,0.3);
+}
+.pd-action-active:hover { background: rgba(16,185,129,0.18); }
+.pd-action-danger {
+  background: rgba(239,68,68,0.1);
+  color: #f87171;
+  border-color: rgba(239,68,68,0.3);
+}
+.pd-action-danger:hover { background: rgba(239,68,68,0.18); }
+.pd-action-warning {
+  background: rgba(251,191,36,0.1);
+  color: #fbbf24;
+  border-color: rgba(251,191,36,0.3);
+}
+.pd-action-warning:hover { background: rgba(251,191,36,0.18); }
+.pd-action-muted {
+  background: rgba(107,114,128,0.1);
+  color: #9ca3af;
+  border-color: rgba(107,114,128,0.3);
+}
+.pd-action-muted:hover { background: rgba(107,114,128,0.18); }
+
+/* --- Control Buttons (Start/Stop) --- */
+.pd-main-action { display: flex; gap: 8px; }
+.pd-control-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 0.85rem;
+  font-weight: 700;
+  padding: 10px 22px;
+  border-radius: var(--radius-sm);
+  border: none;
+  cursor: pointer;
+  color: #fff;
+  transition: all 0.2s var(--ease-spring);
+  box-shadow: var(--shadow-sm);
+}
+.pd-control-start {
+  background: linear-gradient(135deg, #6366f1 0%, #4f46e5 100%);
+}
+.pd-control-start:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 6px 20px rgba(99,102,241,0.35);
+}
+.pd-control-stop {
+  background: linear-gradient(135deg, #ef4444 0%, #dc2626 100%);
+}
+.pd-control-stop:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 6px 20px rgba(239,68,68,0.35);
+}
+.pd-control-btn:disabled {
+  opacity: 0.6;
+  transform: none !important;
+  cursor: not-allowed;
+}
+
+/* --- Stats Grid --- */
+.pd-stats-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 14px;
+  margin-bottom: 20px;
+  animation: pdFadeIn 0.5s var(--ease-spring) 0.1s both;
+}
+.pd-stat-card {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 18px 20px;
+  background: var(--color-surface);
+  border: 1px solid var(--color-glass-border);
+  border-radius: var(--radius-md);
+  backdrop-filter: blur(12px);
+  transition: border-color 0.2s, transform 0.2s;
+}
+.pd-stat-card:hover {
+  border-color: rgba(99,102,241,0.2);
+  transform: translateY(-2px);
+}
+.pd-stat-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 44px;
+  height: 44px;
+  border-radius: 12px;
+  flex-shrink: 0;
+}
+.pd-stat-body {
+  display: flex;
+  flex-direction: column;
+}
+.pd-stat-value {
+  font-size: 1.5rem;
+  font-weight: 800;
+  color: var(--color-text);
+  line-height: 1.1;
+  font-family: var(--font-display);
+}
+.pd-stat-label {
+  font-size: 0.72rem;
+  color: var(--color-text-muted);
+  font-weight: 500;
+  margin-top: 2px;
+}
+
+/* --- Table Card --- */
+.pd-table-card {
+  background: var(--color-surface);
+  border: 1px solid var(--color-glass-border);
+  border-radius: var(--radius-lg);
+  padding: 24px;
+  backdrop-filter: blur(12px);
+  animation: pdFadeIn 0.5s var(--ease-spring) 0.2s both;
+}
+.pd-table-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 16px;
+  flex-wrap: wrap;
+}
+.pd-table-title {
+  font-size: 1rem;
+  font-weight: 700;
+  color: var(--color-primary-light);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0;
+}
+.pd-table-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.pd-status-select {
+  padding: 8px 12px;
+  border-radius: 8px;
+  background: var(--color-bg-secondary);
+  border: 1px solid var(--color-glass-border);
+  color: var(--color-text);
+  font-size: 0.8rem;
+  outline: none;
+  cursor: pointer;
+  transition: border-color 0.2s;
+  height: 36px;
+}
+.pd-status-select:focus {
+  border-color: var(--color-primary);
+}
+.pd-search-wrap {
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+.pd-search-icon {
+  position: absolute;
+  left: 10px;
+  width: 14px;
+  height: 14px;
+  color: var(--color-text-muted);
+  pointer-events: none;
+}
+.pd-search-input {
+  padding: 8px 12px 8px 32px;
+  font-size: 0.8rem;
+  border: 1px solid var(--color-glass-border);
+  border-radius: 8px;
+  background: var(--color-bg-secondary);
+  color: var(--color-text);
+  outline: none;
+  width: 220px;
+  transition: border-color 0.2s;
+}
+.pd-search-input:focus {
+  border-color: var(--color-primary);
+  box-shadow: 0 0 0 3px var(--color-primary-glow);
+}
+.pd-toolbar-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  border-radius: 8px;
+  border: 1px solid var(--color-glass-border);
+  background: var(--color-bg-secondary);
+  color: var(--color-text-muted);
+  cursor: pointer;
+  transition: all 0.2s;
+}
+.pd-toolbar-btn:hover {
+  border-color: var(--color-primary);
+  color: var(--color-primary-light);
+  background: rgba(99,102,241,0.06);
+}
+
+/* --- Table --- */
+.pd-table-responsive { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+.pd-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.82rem;
+}
+.pd-table th {
+  text-align: left;
+  padding: 12px 14px;
+  border-bottom: 2px solid var(--color-glass-border);
+  color: var(--color-text-muted);
+  font-weight: 700;
+  font-size: 0.72rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  white-space: nowrap;
+}
+.pd-table td {
+  padding: 14px;
+  border-bottom: 1px solid rgba(255,255,255,0.03);
+  vertical-align: middle;
+}
+.pd-table tbody tr {
+  transition: background 0.15s;
+}
+.pd-table tbody tr:hover {
+  background: rgba(99,102,241,0.04);
+}
+.pd-table-empty {
+  text-align: center;
+  padding: 48px !important;
+  color: var(--color-text-muted);
+  font-size: 0.85rem;
+}
+
+/* Table cell styles */
+.mac-cell {
+  font-family: var(--font-mono);
+  font-weight: 600;
+  font-size: 0.8rem;
+  color: var(--color-primary-light);
+  max-width: 160px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  cursor: pointer;
+  text-decoration: none;
+  padding: 4px 10px;
+  border-radius: 6px;
+  border: 1px solid rgba(99,102,241,0.2);
+  transition: all 0.15s;
+  display: inline-block;
+}
+.mac-cell:hover {
+  background: rgba(99,102,241,0.1);
+  border-color: rgba(99,102,241,0.4);
+}
+.status-badge-sm {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 12px;
+  border-radius: 20px;
+  font-size: 0.7rem;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+}
+.action-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  color: var(--color-primary-light);
+  cursor: pointer;
+  font-size: 0.72rem;
+  font-weight: 600;
+  text-decoration: none;
+  padding: 5px 12px;
+  border-radius: 6px;
+  border: 1px solid rgba(99,102,241,0.2);
+  transition: all 0.15s;
+}
+.action-link:hover {
+  background: rgba(99,102,241,0.1);
+  border-color: rgba(99,102,241,0.4);
+}
+
+/* --- Modal Styles --- */
 .log-modal-header-info { display:flex;flex-direction:column;gap:12px;margin-bottom:16px; }
-.log-device-row { display:flex;align-items:center;gap:10px;background:var(--color-bg-secondary);border:1px solid var(--color-glass-border);border-radius:10px;font-size:0.8rem;padding:10px 14px; }
+.log-device-row { display:flex;align-items:center;gap:10px;background:var(--color-bg-secondary);border:1px solid var(--color-glass-border);border-radius:var(--radius-sm);font-size:0.8rem;padding:12px 16px; }
 .access-log-timeline { position:relative;padding-left:28px;margin-top:8px; }
 .access-log-timeline::before { content:'';position:absolute;left:10px;top:8px;bottom:8px;width:2px;background:var(--color-glass-border); }
-.log-entry { position:relative;padding:10px 0 10px 18px;border-left:2px solid transparent;margin-bottom:6px;background:var(--color-bg-secondary);border-radius:8px;border:1px solid var(--color-glass-border); }
-.log-entry::before { content:'';position:absolute;left:-22px;top:14px;width:10px;height:10px;border-radius:50%;border:2px solid;background:var(--color-bg); }
+.log-entry { position:relative;padding:12px 14px 12px 18px;border-left:2px solid transparent;margin-bottom:8px;background:var(--color-bg-secondary);border-radius:var(--radius-sm);border:1px solid var(--color-glass-border);transition:border-color 0.2s; }
+.log-entry:hover { border-color:rgba(99,102,241,0.2); }
+.log-entry::before { content:'';position:absolute;left:-22px;top:16px;width:10px;height:10px;border-radius:50%;border:2px solid;background:var(--color-bg); }
 .log-entry.login::before { background:#34d399;border-color:#34d399; }
 .log-entry.heartbeat::before { background:#60a5fa;border-color:#60a5fa; }
 .log-entry.logout::before { background:#f87171;border-color:#f87171; }
-.log-entry .log-time { font-size:0.72rem;color:var(--color-text-muted);font-family:monospace;margin-top:2px; }
-.log-entry .log-event { font-size:0.85rem;font-weight:600;color:var(--color-text); }
+.log-entry .log-time { font-size:0.72rem;color:var(--color-text-muted);font-family:var(--font-mono);margin-top:2px; }
+.log-entry .log-event { font-size:0.85rem;font-weight:700;color:var(--color-text); }
 .log-entry .log-detail { font-size:0.72rem;color:var(--color-text-muted);margin-top:2px; }
 .log-identity { display:flex;flex-wrap:wrap;gap:6px;margin-top:8px;padding:8px 12px;background:var(--color-bg);border:1px solid var(--color-glass-border);border-radius:6px;font-size:0.72rem; }
 .log-identity span { color:var(--color-text-secondary);white-space:nowrap; }
 .log-identity strong { color:var(--color-text); }
 .no-logs { text-align:center;padding:32px;color:var(--color-text-muted);font-size:0.85rem; }
+
+/* --- Responsive --- */
+@media (max-width: 1024px) {
+  .pd-stats-grid { grid-template-columns: repeat(2, 1fr); }
+}
+@media (max-width: 768px) {
+  .pd-header-card { padding: 16px 18px; }
+  .pd-exam-title { font-size: 1.2rem; }
+  .pd-info-grid { grid-template-columns: 1fr; }
+  .pd-personnel { flex-direction: column; align-items: flex-start; gap: 10px; }
+  .pd-personnel-divider { width: 100%; height: 1px; }
+  .pd-actions-bar { flex-direction: column; align-items: stretch; }
+  .pd-quick-actions { flex-wrap: wrap; }
+  .pd-main-action { justify-content: stretch; }
+  .pd-control-btn { width: 100%; justify-content: center; }
+  .pd-stats-grid { grid-template-columns: repeat(2, 1fr); gap: 10px; }
+  .pd-stat-card { padding: 14px; gap: 10px; }
+  .pd-stat-icon { width: 38px; height: 38px; }
+  .pd-stat-value { font-size: 1.2rem; }
+  .pd-table-card { padding: 16px; }
+  .pd-table-header { flex-direction: column; align-items: stretch; }
+  .pd-table-toolbar { justify-content: space-between; flex-wrap: wrap; gap: 8px; }
+  .pd-status-select { flex: 1 1 120px; width: 100%; }
+  .pd-search-wrap { flex: 2 1 160px; width: 100%; }
+  .pd-search-input { width: 100%; }
+  .pd-table th { padding: 10px 8px; font-size: 0.65rem; }
+  .pd-table td { padding: 10px 8px; font-size: 0.78rem; }
+}
+@media (max-width: 480px) {
+  .pd-stats-grid { grid-template-columns: 1fr 1fr; gap: 8px; }
+  .pd-stat-card { padding: 12px 10px; }
+  .pd-stat-value { font-size: 1.1rem; }
+  .pd-stat-label { font-size: 0.65rem; }
+  .pd-action-btn { font-size: 0.65rem; padding: 5px 8px; }
+  .pd-control-btn { font-size: 0.8rem; padding: 10px 16px; }
+}
 </style>
 
 <script src="/static/js/admin-core.js?v={{.version}}"></script>
@@ -158,21 +894,69 @@
 var EXAM_ID = {{.exam.ID}};
 var SUB_PAGE = 1;
 
+function startExamPengawasDetail(examId) {
+    if (!confirm('Mulai pengawasan untuk ujian ini? (Ini akan memperbarui waktu mulai pengawasan)')) return;
+    var btn = document.getElementById('btnStartPengawasDetail');
+    if (btn) { btn.disabled = true; btn.innerHTML = '<svg class="icon-svg" style="width:16px;height:16px;"><use href="#hi-refresh"/></svg> Memulai...'; }
+    apiFetch('/admin/api/exams/' + examId + '/start', { method: 'POST' })
+        .then(function(r) { return r.json(); })
+        .then(function(res) {
+            if (res.success) {
+                showToast('Pengawasan berhasil dimulai', 'success');
+                setTimeout(function() { window.location.reload(); }, 1000);
+            } else {
+                showToast(res.message || 'Gagal memulai pengawasan', 'error');
+                if (btn) { btn.disabled = false; btn.innerHTML = '<svg class="icon-svg" style="width:16px;height:16px;"><use href="#hi-play"/></svg> Mulai Pengawasan'; }
+            }
+        })
+        .catch(function(err) {
+            console.error('Fetch error:', err);
+            alert('Terjadi kesalahan jaringan atau server: ' + err);
+            showToast('Gagal menghubungi server', 'error');
+            if (btn) { btn.disabled = false; btn.innerHTML = '<svg class="icon-svg" style="width:16px;height:16px;"><use href="#hi-play"/></svg> Mulai Pengawasan'; }
+        });
+}
+
+function stopExamPengawasDetail(examId) {
+    if (!confirm('Hentikan pengawasan untuk ujian ini? (Ini akan mengubah status ujian menjadi nonaktif)')) return;
+    var btn = document.getElementById('btnStopPengawasDetail');
+    if (btn) { btn.disabled = true; btn.innerHTML = '<svg class="icon-svg" style="width:16px;height:16px;"><use href="#hi-refresh"/></svg> Menghentikan...'; }
+    apiFetch('/admin/api/exams/' + examId + '/stop', { method: 'POST' })
+        .then(function(r) { return r.json(); })
+        .then(function(res) {
+            if (res.success) {
+                showToast('Pengawasan dihentikan', 'success');
+                setTimeout(function() { window.location.reload(); }, 1000);
+            } else {
+                showToast(res.message || 'Gagal menghentikan pengawasan', 'error');
+                if (btn) { btn.disabled = false; btn.innerHTML = '<svg class="icon-svg" style="width:16px;height:16px;" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="6" y="6" width="12" height="12" rx="2"/></svg> Hentikan Pengawasan'; }
+            }
+        })
+        .catch(function(err) {
+            console.error('Fetch error:', err);
+            alert('Terjadi kesalahan jaringan atau server: ' + err);
+            showToast('Gagal menghubungi server', 'error');
+            if (btn) { btn.disabled = false; btn.innerHTML = '<svg class="icon-svg" style="width:16px;height:16px;" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="6" y="6" width="12" height="12" rx="2"/></svg> Hentikan Pengawasan'; }
+        });
+}
+
 function loadDetail(page) {
     var tbody = document.getElementById('submissionBody');
     if (!tbody) return;
     if (page !== undefined) SUB_PAGE = page;
-    tbody.innerHTML = '<tr><td colspan="7" style="text-align:center;padding:40px;color:var(--color-text-muted);">Memuat data...</td></tr>';
+    tbody.innerHTML = '<tr><td colspan="7" class="pd-table-empty">Memuat data...</td></tr>';
 
     var search = document.getElementById('pengawasSearch') ? document.getElementById('pengawasSearch').value.trim() : '';
+    var status = document.getElementById('statusFilter') ? document.getElementById('statusFilter').value : '';
     var url = '/admin/api/pengawas/exams/' + EXAM_ID + '/submissions?page=' + SUB_PAGE + '&per_page=20';
     if (search) url += '&search=' + encodeURIComponent(search);
+    if (status) url += '&status=' + encodeURIComponent(status);
 
     fetch(url, { credentials: 'same-origin', headers: { 'Accept': 'application/json' } })
         .then(function(r) { return r.json(); })
         .then(function(res) {
             if (!res || !res.success) {
-                tbody.innerHTML = '<tr><td colspan="7" style="text-align:center;padding:40px;color:#fca5a5;">Gagal memuat data</td></tr>';
+                tbody.innerHTML = '<tr><td colspan="7" class="pd-table-empty" style="color:#fca5a5;">Gagal memuat data</td></tr>';
                 return;
             }
             var subs = res.submissions || [];
@@ -185,7 +969,7 @@ function loadDetail(page) {
 
             if (subs.length === 0) {
                 var msg = search ? 'Pencarian tidak ditemukan.' : 'Belum ada perangkat terdaftar.';
-                tbody.innerHTML = '<tr><td colspan="7" style="text-align:center;padding:40px;color:var(--color-text-muted);">' + msg + '</td></tr>';
+                tbody.innerHTML = '<tr><td colspan="7" class="pd-table-empty">' + msg + '</td></tr>';
                 renderSubPagination(res);
                 return;
             }
@@ -205,12 +989,12 @@ function loadDetail(page) {
                 var color = sc === 'submitted' ? '#34d399' : (sc === 'in-progress' ? '#fbbf24' : '#6b7280');
 
                 html += '<tr>' +
-                    '<td>' + ((SUB_PAGE - 1) * 20 + i + 1) + '</td>' +
-                    '<td><a class="mac-cell action-link" style="cursor:pointer;display:inline-block;" onclick="showAccessLog(' + s.id + ')" title="Klik untuk riwayat akses">' + esc(s.mac_address) + '</a></td>' +
+                    '<td style="font-weight:600;color:var(--color-text-muted);width:40px;">' + ((SUB_PAGE - 1) * 20 + i + 1) + '</td>' +
+                    '<td><a class="mac-cell" onclick="showAccessLog(' + s.id + ')" title="' + esc(s.mac_address) + ' (Klik untuk riwayat akses)">' + esc(s.mac_address) + '</a></td>' +
                     '<td><span class="status-badge-sm" style="background:' + color + '15;color:' + color + ';border:1px solid ' + color + '30;">' + sl + '</span></td>' +
-                    '<td style="font-size:0.75rem;color:var(--color-text-muted);">' + startTime + '</td>' +
-                    '<td style="font-family:monospace;font-size:0.75rem;color:var(--color-text-muted);">' + esc(ipAddr) + '</td>' +
-                    '<td style="font-weight:600;color:' + (s.submitted ? '#34d399' : '#6b7280') + ';">' + scoreTxt + '</td>' +
+                    '<td style="font-size:0.75rem;color:var(--color-text-muted);font-family:var(--font-mono);">' + startTime + '</td>' +
+                    '<td style="font-family:var(--font-mono);font-size:0.75rem;color:var(--color-text-muted);">' + esc(ipAddr) + '</td>' +
+                    '<td style="font-weight:700;color:' + (s.submitted ? '#34d399' : '#6b7280') + ';">' + scoreTxt + '</td>' +
                     '<td><a class="action-link" onclick="showAccessLog(' + s.id + ')"><svg class="icon-svg" style="width:12px;height:12px;"><use href="#hi-eye"/></svg> Detail</a></td>' +
                     '</tr>';
             }
@@ -221,7 +1005,7 @@ function loadDetail(page) {
             if (card) card.setAttribute('data-subs', JSON.stringify(subs));
         })
         .catch(function() {
-            tbody.innerHTML = '<tr><td colspan="7" style="text-align:center;padding:40px;color:#fca5a5;">Gagal menghubungi server</td></tr>';
+            tbody.innerHTML = '<tr><td colspan="7" class="pd-table-empty" style="color:#fca5a5;">Gagal menghubungi server</td></tr>';
         });
 }
 
@@ -292,9 +1076,9 @@ function showAccessLog(subId) {
 
     var logs = subData.access_logs || [];
     var h = '<div class="log-modal-header-info">' +
-        '<div class="log-device-row" style="padding:12px 14px;">' +
+        '<div class="log-device-row">' +
             '<svg class="icon-svg" style="width:18px;height:18px;color:#64748b;"><use href="#hi-device"/></svg> ' +
-            '<span style="font-family:monospace;font-size:1rem;font-weight:700;color:var(--color-text);letter-spacing:0.5px;">' + esc(subData.mac_address) + '</span>' +
+            '<span style="font-family:var(--font-mono);font-size:1rem;font-weight:700;color:var(--color-text);letter-spacing:0.5px;">' + esc(subData.mac_address) + '</span>' +
             '<span class="student-status ' + (subData.submitted ? 'submitted' : (subData.start_time ? 'in-progress' : 'not-started')) + '" style="margin-left:auto;">' + (subData.submitted ? 'Terkumpul' : (subData.start_time ? 'Mengerjakan' : 'Belum Mulai')) + '</span>' +
         '</div>' +
         '<div style="display:flex;gap:12px;flex-wrap:wrap;padding:10px 14px;background:var(--color-bg);border:1px solid var(--color-glass-border);border-radius:8px;font-size:0.8rem;">' +
@@ -309,6 +1093,7 @@ function showAccessLog(subId) {
         tl = '<div class="no-logs">Belum ada riwayat akses tercatat.</div>';
     } else {
         tl = '<div class="access-log-timeline">';
+        var prevIdDataStr = '';
         for (var i = 0; i < logs.length; i++) {
             var l = logs[i];
             var label = l.event === 'login' ? 'Login / Mulai Mengerjakan' : (l.event === 'logout' ? 'Logout / Keluar' : 'Aktif (Heartbeat)');
@@ -316,14 +1101,33 @@ function showAccessLog(subId) {
             var extra = '';
             if (l.ip_address) extra += ' IP: ' + esc(l.ip_address);
             if (l.device_info) extra += ' ' + esc(l.device_info);
+
             var identity = '';
-            if (l.event === 'login' && (l.student_name || l.exam_number || l.student_class)) {
-                identity = '<div class="log-identity">' +
-                    (l.student_name ? '<span>Nama: <strong>' + esc(l.student_name) + '</strong></span>' : '') +
-                    (l.exam_number ? '<span>No. Ujian: <strong>' + esc(l.exam_number) + '</strong></span>' : '') +
-                    (l.student_class ? '<span>Kelas: <strong>' + esc(l.student_class) + '</strong></span>' : '') +
-                    '</div>';
+            var currentIdData = l.identity_data;
+            if (!currentIdData) {
+                currentIdData = {};
+                if (l.student_name) currentIdData["Nama"] = l.student_name;
+                if (l.exam_number) currentIdData["No. Ujian"] = l.exam_number;
+                if (l.student_class) currentIdData["Kelas"] = l.student_class;
             }
+
+            var currentIdDataStr = JSON.stringify(currentIdData);
+            if (Object.keys(currentIdData).length > 0 && currentIdDataStr !== prevIdDataStr) {
+                if (i !== 0) {
+                    label = '<span style="color:#f59e0b;">Mengubah Identitas</span> <span style="font-size:0.7rem;opacity:0.7;">(' + label + ')</span>';
+                }
+                var idParts = [];
+                for (var key in currentIdData) {
+                    if (currentIdData[key] && String(currentIdData[key]).trim() !== "") {
+                        idParts.push('<span>' + esc(key) + ': <strong>' + esc(String(currentIdData[key])) + '</strong></span>');
+                    }
+                }
+                if (idParts.length > 0) {
+                    identity = '<div class="log-identity" style="border-color:#f59e0b44; background:rgba(245, 158, 11, 0.05);">' + idParts.join('') + '</div>';
+                }
+                prevIdDataStr = currentIdDataStr;
+            }
+
             tl += '<div class="log-entry ' + l.event + '">' +
                 '<div class="log-event">' + label + '</div>' +
                 '<div class="log-time">' + t + '</div>' +
@@ -351,7 +1155,111 @@ function closeAccessLogModal(event) {
     if (m) m.style.display = 'none';
 }
 
-(function() { loadDetail(); })();
+// ===== Dynamic Token Management =====
+var TOKEN_INTERVAL_MINUTES = {{if .exam.TokenResetInterval}}{{.exam.TokenResetInterval}}{{else}}5{{end}};
+var TOKEN_LAST_RESET = '{{if .exam.TokenLastResetAt}}{{.exam.TokenLastResetAt.Format "2006-01-02T15:04:05Z07:00"}}{{end}}';
+var TOKEN_REFRESH_TIMER = null;
+
+function copyToken(token) {
+    if (!token || token === '—') return;
+    if (navigator.clipboard) {
+        navigator.clipboard.writeText(token).then(function() {
+            showToast('Token "' + token + '" berhasil disalin', 'success');
+        });
+    } else {
+        var ta = document.createElement('textarea');
+        ta.value = token;
+        document.body.appendChild(ta);
+        ta.select();
+        document.execCommand('copy');
+        document.body.removeChild(ta);
+        showToast('Token "' + token + '" berhasil disalin', 'success');
+    }
+}
+
+function regenerateActiveToken() {
+    if (!confirm('Generate token baru sekarang? Token lama tidak akan bisa digunakan lagi oleh siswa.')) return;
+    apiFetch('/admin/api/exams/' + EXAM_ID + '/regenerate-token', { method: 'POST' })
+        .then(function(r) { return r.json(); })
+        .then(function(res) {
+            if (res.success) {
+                updateTokenDisplay(res.token);
+                TOKEN_LAST_RESET = new Date().toISOString();
+                showToast('Token baru: ' + res.token, 'success');
+            } else {
+                showToast(res.message || 'Gagal regenerate token', 'error');
+            }
+        })
+        .catch(function() { showToast('Koneksi gagal', 'error'); });
+}
+
+function updateTokenDisplay(newToken) {
+    var el = document.getElementById('pdActiveToken');
+    if (!el) return;
+    el.textContent = newToken;
+    el.classList.add('pd-token-flash');
+    setTimeout(function() { el.classList.remove('pd-token-flash'); }, 2000);
+}
+
+function refreshActiveToken() {
+    fetch('/admin/api/pengawas/exams/' + EXAM_ID + '/submissions?page=1&per_page=1', {
+        credentials: 'same-origin',
+        headers: { 'Accept': 'application/json' }
+    })
+    .then(function(r) { return r.json(); })
+    .then(function(res) {
+        if (res && res.exam_active_token) {
+            var el = document.getElementById('pdActiveToken');
+            if (el && el.textContent !== res.exam_active_token) {
+                updateTokenDisplay(res.exam_active_token);
+                TOKEN_LAST_RESET = new Date().toISOString();
+            }
+        }
+    })
+    .catch(function() {});
+}
+
+function updateCountdown() {
+    var el = document.getElementById('pdTokenCountdown');
+    if (!el || !TOKEN_LAST_RESET || !TOKEN_INTERVAL_MINUTES) return;
+
+    try {
+        if (!TOKEN_LAST_RESET || TOKEN_LAST_RESET === '') {
+            el.innerHTML = '<span style="color:var(--color-text-muted);font-size:0.75rem;">Rotasi otomatis belum aktif</span>';
+            return;
+        }
+        var lastReset = new Date(TOKEN_LAST_RESET);
+        if (isNaN(lastReset.getTime())) { el.innerHTML = ''; return; }
+        var nextReset = new Date(lastReset.getTime() + TOKEN_INTERVAL_MINUTES * 60 * 1000);
+        var now = new Date();
+        var remainMs = nextReset.getTime() - now.getTime();
+
+        if (remainMs <= 0) {
+            el.innerHTML = '<span style="color:var(--color-accent-emerald);">Token akan segera diperbarui...</span>';
+            refreshActiveToken();
+            return;
+        }
+
+        var remainSec = Math.floor(remainMs / 1000);
+        var m = Math.floor(remainSec / 60);
+        var s = remainSec % 60;
+        var totalSec = TOKEN_INTERVAL_MINUTES * 60;
+        var pct = Math.max(0, Math.min(100, (remainSec / totalSec) * 100));
+
+        el.innerHTML = 'Berubah dalam <strong style="color:var(--color-text);">' + m + ':' + (s < 10 ? '0' : '') + s + '</strong>' +
+            ' <div class="pd-countdown-bar"><div class="pd-countdown-fill" style="width:' + pct + '%;"></div></div>';
+    } catch(e) {
+        el.innerHTML = '';
+    }
+}
+
+(function() {
+    loadDetail();
+    // Auto-refresh token every 30 seconds
+    setInterval(refreshActiveToken, 30000);
+    setInterval(updateCountdown, 1000);
+    updateCountdown();
+})();
 </script>
 
 <svg xmlns="http://www.w3.org/2000/svg" style="display:none;" aria-hidden="true">
@@ -359,6 +1267,10 @@ function closeAccessLogModal(event) {
 <symbol id="hi-results" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M3 13.125C3 12.504 3.504 12 4.125 12h2.25c.621 0 1.125.504 1.125 1.125v6.75C7.5 20.496 6.996 21 6.375 21h-2.25A1.125 1.125 0 0 1 3 19.875v-6.75ZM9.75 8.625c0-.621.504-1.125 1.125-1.125h2.25c.621 0 1.125.504 1.125 1.125v11.25c0 .621-.504 1.125-1.125 1.125h-2.25a1.125 1.125 0 0 1-1.125-1.125V8.625ZM16.5 4.125c0-.621.504-1.125 1.125-1.125h2.25C20.496 3 21 3.504 21 4.125v15.75c0 .621-.504 1.125-1.125 1.125h-2.25a1.125 1.125 0 0 1-1.125-1.125V4.125Z"/></symbol>
 <symbol id="hi-users" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M15 19.128a9.38 9.38 0 0 0 2.625.372 9.337 9.337 0 0 0 4.121-.952 4.125 4.125 0 0 0-7.533-2.493M15 19.128v-.003c0-1.113-.285-2.16-.786-3.07M15 19.128v.106A12.318 12.318 0 0 1 8.624 21c-2.331 0-4.512-.645-6.374-1.766l-.001-.109a6.375 6.375 0 0 1 11.964-3.07M12 6.375a3.375 3.375 0 1 1-6.75 0 3.375 3.375 0 0 1 6.75 0Zm8.25 2.25a2.625 2.625 0 1 1-5.25 0 2.625 2.625 0 0 1 5.25 0Z"/></symbol>
 <symbol id="hi-eye" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M2.036 12.322a1.012 1.012 0 0 1 0-.639C3.423 7.51 7.36 4.5 12 4.5c4.638 0 8.573 3.007 9.963 7.178.07.207.07.431 0 .639C20.577 16.49 16.64 19.5 12 19.5c-4.638 0-8.573-3.007-9.963-7.178Z"/><path d="M15 12a3 3 0 1 1-6 0 3 3 0 0 1 6 0Z"/></symbol>
+<symbol id="hi-eye-off" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M3.98 8.223A10.477 10.477 0 0 0 1.934 12c1.292 4.338 5.31 7.5 10.066 7.5.993 0 1.953-.138 2.863-.395M6.228 6.228A10.451 10.451 0 0 1 12 4.5c4.756 0 8.773 3.162 10.065 7.498a10.522 10.522 0 0 1-4.293 5.774M6.228 6.228 3 3m3.228 3.228 3.65 3.65m7.894 7.894L21 21m-3.228-3.228-3.65-3.65m0 0a3 3 0 1 0-4.243-4.243m4.242 4.242L9.88 9.88"/></symbol>
+<symbol id="hi-lock-open" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M13.5 10.5V6.75a4.5 4.5 0 1 1 9 0v3.75M3.75 21.75h10.5a2.25 2.25 0 0 0 2.25-2.25v-6.75a2.25 2.25 0 0 0-2.25-2.25H3.75a2.25 2.25 0 0 0-2.25 2.25v6.75a2.25 2.25 0 0 0 2.25 2.25Z"/></symbol>
+<symbol id="hi-lock" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M16.5 10.5V6.75a4.5 4.5 0 1 0-9 0v3.75m-.75 11.25h10.5a2.25 2.25 0 0 0 2.25-2.25v-6.75a2.25 2.25 0 0 0-2.25-2.25H6.75a2.25 2.25 0 0 0-2.25 2.25v6.75a2.25 2.25 0 0 0 2.25 2.25Z"/></symbol>
+<symbol id="hi-link" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M13.19 8.688a4.5 4.5 0 0 1 1.242 7.244l-4.5 4.5a4.5 4.5 0 0 1-6.364-6.364l1.757-1.757m13.35-.622 1.757-1.757a4.5 4.5 0 0 0-6.364-6.364l-4.5 4.5a4.5 4.5 0 0 0 1.242 7.244"/></symbol>
 <symbol id="hi-logout" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M15.75 9V5.25A2.25 2.25 0 0 0 13.5 3h-6a2.25 2.25 0 0 0-2.25 2.25v13.5A2.25 2.25 0 0 0 7.5 21h6a2.25 2.25 0 0 0 2.25-2.25V15m3 0 3-3m0 0-3-3m3 3H9"/></symbol>
 <symbol id="hi-x" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M6 18 18 6M6 6l12 12"/></symbol>
 <symbol id="hi-device" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M10.5 1.5H8.25A2.25 2.25 0 0 0 6 3.75v16.5a2.25 2.25 0 0 0 2.25 2.25h7.5A2.25 2.25 0 0 0 18 20.25V3.75a2.25 2.25 0 0 0-2.25-2.25H13.5m-3 0V3h3V1.5m-3 0h3m-3 18.75h3"/></symbol>
@@ -368,6 +1280,7 @@ function closeAccessLogModal(event) {
 <symbol id="hi-chevron-left" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M15.75 19.5 8.25 12l7.5-7.5"/></symbol>
 <symbol id="hi-plus" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M12 4.5v15m7.5-7.5h-15"/></symbol>
 <symbol id="hi-key" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M15.75 5.25a3 3 0 0 1 3 3m3 0a6 6 0 0 1-7.029 5.912c-.563-.097-1.159.026-1.563.43L10.5 17.25H8.25v2.25H6v2.25H2.25v-2.818c0-.597.237-1.17.659-1.591l6.499-6.499c.404-.404.527-1 .43-1.563A6 6 0 1 1 21.75 8.25Z"/></symbol>
+<symbol id="hi-play" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M5.25 5.653c0-.856.917-1.398 1.667-.986l11.54 6.347a1.125 1.125 0 0 1 0 1.972l-11.54 6.347a1.125 1.125 0 0 1-1.667-.986V5.653Z"/></symbol>
 </svg>
 
 </body>

@@ -235,26 +235,6 @@
 <script>
 /* ===== Pengawas Monitoring ===== */
 
-function startExamPengawas(examId) {
-    if (!confirm('Mulai pengawasan untuk ujian ini?')) return;
-    var btn = document.querySelector('#exam-card-' + examId + ' .btn-start-pengawas');
-    if (btn) { btn.disabled = true; btn.textContent = 'Memulai...'; }
-    apiFetch('/admin/api/exams/' + examId + '/start', { method: 'POST' })
-        .then(function(r) { return r.json(); })
-        .then(function(res) {
-            if (res.success) {
-                showToast('Pengawasan dimulai', 'success');
-                loadPengawasExams();
-            } else {
-                showToast(res.message || 'Gagal memulai pengawasan', 'error');
-                if (btn) { btn.disabled = false; btn.textContent = 'Mulai Pengawasan'; }
-            }
-        })
-        .catch(function() {
-            showToast('Gagal menghubungi server', 'error');
-            if (btn) { btn.disabled = false; btn.textContent = 'Mulai Pengawasan'; }
-        });
-}
 var PENG_CURRENT_PAGE = 1;
 
 function loadPengawasExams(page) {
@@ -309,8 +289,8 @@ function loadPengawasExams(page) {
                 var sched = (ex.start_time && ex.end_time) ? (ex.start_time + ' - ' + ex.end_time) : '—';
 
                 var startedBadge = ex.exam_started_at
-                    ? '<span style="font-size:0.65rem;color:rgba(16,185,129,0.8);padding:2px 6px;border-radius:4px;background:rgba(16,185,129,0.1);border:1px solid rgba(16,185,129,0.2);"><svg class="icon-svg" style="width:10px;height:10px;"><use href="#hi-check"/></svg> Pengawasan Dimulai</span>'
-                    : '<button class="btn-start-pengawas" onclick="event.stopPropagation();startExamPengawas(' + ex.id + ')" title="Mulai Pengawasan"><svg class="icon-svg" style="width:12px;height:12px;"><use href="#hi-play"/></svg> Mulai Pengawasan</button>';
+                    ? '<span style="font-size:0.65rem;color:rgba(16,185,129,0.8);padding:2px 6px;border-radius:4px;background:rgba(16,185,129,0.1);border:1px solid rgba(16,185,129,0.2);"><svg class="icon-svg" style="width:10px;height:10px;"><use href="#hi-check"/></svg> Sedang Diawasi</span>'
+                    : '<span style="font-size:0.65rem;color:rgba(245,158,11,0.8);padding:2px 6px;border-radius:4px;background:rgba(245,158,11,0.1);border:1px solid rgba(245,158,11,0.2);">Belum Mulai Pengawasan</span>';
                 html += '<div class="exam-monitor-card" id="exam-card-' + ex.id + '" style="cursor:pointer;" onclick="window.location=\'/admin/pengawas/' + ex.id + '\'">' +
                     '<div class="exam-monitor-header">' +
                         '<div>' +

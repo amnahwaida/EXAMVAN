@@ -8,6 +8,175 @@
  <link rel="stylesheet" href="/static/css/tailwind/output.css?v={{.version}}">
  <link rel="icon" type="image/png" href="/static/favicon.png">
  <meta name="csrf-token" content="{{.csrf_token}}">
+ <style>
+  /* Inline input icons */
+  .input-icon-wrap {
+   position: relative;
+   display: flex;
+   align-items: center;
+   width: 100%;
+  }
+  .input-icon-wrap .input-icon {
+   position: absolute;
+   left: 14px;
+   width: 18px;
+   height: 18px;
+   color: var(--color-text-muted);
+   pointer-events: none;
+   transition: color 0.25s;
+   z-index: 1;
+  }
+  .input-icon-wrap input {
+   padding-left: 42px !important;
+  }
+  .input-icon-wrap input:focus ~ .input-icon,
+  .input-icon-wrap:focus-within .input-icon {
+   color: #a5b4fc;
+  }
+
+  /* Password strength bar */
+  .pw-strength-bar {
+   height: 4px;
+   border-radius: 4px;
+   background: rgba(255,255,255,0.06);
+   margin-top: 8px;
+   overflow: hidden;
+   transition: opacity 0.3s;
+  }
+  .pw-strength-bar .pw-bar-fill {
+   height: 100%;
+   border-radius: 4px;
+   width: 0%;
+   transition: width 0.4s cubic-bezier(.4,0,.2,1), background 0.4s;
+  }
+  .pw-strength-bar .pw-bar-fill.weak { width: 25%; background: #ef4444; }
+  .pw-strength-bar .pw-bar-fill.fair { width: 50%; background: #f59e0b; }
+  .pw-strength-bar .pw-bar-fill.good { width: 75%; background: #22c55e; }
+  .pw-strength-bar .pw-bar-fill.strong { width: 100%; background: linear-gradient(90deg,#22c55e,#06b6d4); }
+  .pw-strength-text {
+   font-size: 11px;
+   margin-top: 4px;
+   color: var(--color-text-muted);
+   transition: color 0.3s;
+   min-height: 16px;
+  }
+
+  /* Step progress indicator */
+  .reg-steps {
+   display: flex;
+   align-items: center;
+   justify-content: center;
+   gap: 0;
+   margin-bottom: 28px;
+  }
+  .reg-step {
+   display: flex;
+   align-items: center;
+   gap: 8px;
+  }
+  .reg-step-num {
+   width: 28px;
+   height: 28px;
+   border-radius: 50%;
+   display: flex;
+   align-items: center;
+   justify-content: center;
+   font-size: 12px;
+   font-weight: 700;
+   border: 2px solid rgba(255,255,255,0.1);
+   color: var(--color-text-muted);
+   background: transparent;
+   transition: all 0.3s;
+   flex-shrink: 0;
+  }
+  .reg-step.active .reg-step-num {
+   border-color: rgba(99,102,241,0.5);
+   background: rgba(99,102,241,0.15);
+   color: #a5b4fc;
+   box-shadow: 0 0 12px rgba(99,102,241,0.2);
+  }
+  .reg-step-label {
+   font-size: 12px;
+   color: var(--color-text-muted);
+   font-weight: 500;
+   transition: color 0.3s;
+  }
+  .reg-step.active .reg-step-label {
+   color: var(--color-text);
+  }
+  .reg-step-line {
+   width: 40px;
+   height: 2px;
+   background: rgba(255,255,255,0.06);
+   margin: 0 8px;
+   border-radius: 2px;
+   flex-shrink: 0;
+  }
+
+  /* Info banner */
+  .reg-info-banner {
+   display: flex;
+   align-items: flex-start;
+   gap: 10px;
+   background: rgba(99,102,241,0.06);
+   border: 1px solid rgba(99,102,241,0.12);
+   border-radius: 12px;
+   padding: 12px 14px;
+   margin-bottom: 24px;
+   font-size: 12.5px;
+   line-height: 1.6;
+   color: var(--color-text-secondary);
+   animation: bannerSlideIn 0.5s cubic-bezier(.16,1,.3,1) 0.3s both;
+  }
+  .reg-info-banner svg {
+   width: 18px;
+   height: 18px;
+   color: #818cf8;
+   flex-shrink: 0;
+   margin-top: 1px;
+  }
+  @keyframes bannerSlideIn {
+   from { opacity: 0; transform: translateY(-8px); }
+   to { opacity: 1; transform: translateY(0); }
+  }
+
+  /* Staggered form group animation */
+  .login-form .form-group {
+   animation: fieldFadeIn 0.45s cubic-bezier(.16,1,.3,1) both;
+  }
+  .login-form .form-group:nth-child(2) { animation-delay: 0.08s; }
+  .login-form .form-group:nth-child(3) { animation-delay: 0.16s; }
+  .login-form .form-group:nth-child(4) { animation-delay: 0.24s; }
+  @keyframes fieldFadeIn {
+   from { opacity: 0; transform: translateY(10px); }
+   to { opacity: 1; transform: translateY(0); }
+  }
+
+  /* Button shimmer */
+  .btn-login {
+   position: relative;
+   overflow: hidden;
+  }
+  .btn-login::before {
+   content: '';
+   position: absolute;
+   top: 0;
+   left: -100%;
+   width: 100%;
+   height: 100%;
+   background: linear-gradient(90deg, transparent, rgba(255,255,255,0.04), transparent);
+   transition: left 0.5s;
+  }
+  .btn-login:hover::before {
+   left: 100%;
+  }
+
+  /* Responsive */
+  @media (max-width: 480px) {
+   .reg-step-label { display: none; }
+   .reg-step-line { width: 24px; }
+  }
+ </style>
 </head>
 <body class="login-page">
  <a href="#main-content" class="skip-link" style="position:absolute;left:-9999px;z-index:9999;padding:12px 20px;background:var(--color-primary,#6366f1);color:white;border-radius:8px;font-weight:600;text-decoration:none;">Langsung ke konten</a>
@@ -17,14 +186,41 @@
  </div>
  <div class="login-container" id="main-content">
  <div class="login-card">
+
+ <!-- Header -->
  <div class="login-header">
  <div class="login-logo">E</div>
  <h1>EXAMVAN</h1>
- <p class="login-subtitle">Daftar Akun Guru / Pembuat Soal</p>
+ <p class="login-subtitle">Buat Akun Guru &amp; Pembuat Soal</p>
  </div>
+
+ <!-- Step Indicator -->
+ <div class="reg-steps">
+  <div class="reg-step active">
+   <div class="reg-step-num">1</div>
+   <span class="reg-step-label">Isi Data</span>
+  </div>
+  <div class="reg-step-line"></div>
+  <div class="reg-step" id="step2">
+   <div class="reg-step-num">2</div>
+   <span class="reg-step-label">{{if .email_enabled}}Verifikasi{{else}}Selesai{{end}}</span>
+  </div>
+ </div>
+
+ {{if .email_enabled}}
+ <div class="reg-info-banner">
+  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M21.75 6.75v10.5a2.25 2.25 0 0 1-2.25 2.25h-15a2.25 2.25 0 0 1-2.25-2.25V6.75m19.5 0A2.25 2.25 0 0 0 19.5 4.5h-15a2.25 2.25 0 0 0-2.25 2.25m19.5 0v.243a2.25 2.25 0 0 1-1.07 1.916l-7.5 4.615a2.25 2.25 0 0 1-2.36 0L3.32 8.91a2.25 2.25 0 0 1-1.07-1.916V6.75"/></svg>
+  <span>Setelah mendaftar, kode OTP akan dikirim ke email Anda untuk verifikasi akun.</span>
+ </div>
+ {{end}}
+
+ <!-- Flash / Error Messages -->
  {{if .error}}
  <div class="flash-messages">
- <div class="flash-msg flash-error">{{.error}}</div>
+ <div class="flash-msg flash-error">
+  <svg style="width:16px;height:16px;flex-shrink:0;margin-right:6px;vertical-align:middle;display:inline;" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 9v3.75m9-.75a9 9 0 1 1-18 0 9 9 0 0 1 18 0Zm-9 3.75h.008v.008H12v-.008Z"/></svg>
+  {{.error}}
+ </div>
  </div>
  {{end}}
  {{if .flashes}}
@@ -34,54 +230,138 @@
  {{end}}
  </div>
  {{end}}
+
+ <!-- Registration Form -->
  <form method="POST" action="/register" class="login-form" id="registerForm" autocomplete="off">
  <input type="hidden" name="csrf_token" value="{{.csrf_token}}">
+
+ <!-- Username -->
  <div class="form-group">
- <label class="required" for="username">Username</label>
- <input type="text" id="username" name="username" placeholder="Pilih username unik" required minlength="3" autofocus>
+  <label class="required" for="username">Username</label>
+  <div class="input-icon-wrap">
+   <input type="text" id="username" name="username" placeholder="Pilih username unik (min. 3 karakter)" required minlength="3" autofocus autocomplete="off">
+   <svg class="input-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M15.75 6a3.75 3.75 0 1 1-7.5 0 3.75 3.75 0 0 1 7.5 0ZM4.501 20.118a7.5 7.5 0 0 1 14.998 0A17.933 17.933 0 0 1 12 21.75c-2.676 0-5.216-.584-7.499-1.632Z"/></svg>
+  </div>
  </div>
+
+ <!-- Email -->
  <div class="form-group">
- <label class="required" for="whatsapp">Nomor WhatsApp</label>
- <input type="tel" id="whatsapp" name="whatsapp" placeholder="Contoh: 081234567890" required pattern="\+?[0-9]{10,15}">
- <span class="form-hint-subtle">Digunakan untuk menerima kode OTP via WhatsApp</span>
+  <label class="required" for="email">Email</label>
+  <div class="input-icon-wrap">
+   <input type="email" id="email" name="email" placeholder="contoh@gmail.com" required autocomplete="email">
+   <svg class="input-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M21.75 6.75v10.5a2.25 2.25 0 0 1-2.25 2.25h-15a2.25 2.25 0 0 1-2.25-2.25V6.75m19.5 0A2.25 2.25 0 0 0 19.5 4.5h-15a2.25 2.25 0 0 0-2.25 2.25m19.5 0v.243a2.25 2.25 0 0 1-1.07 1.916l-7.5 4.615a2.25 2.25 0 0 1-2.36 0L3.32 8.91a2.25 2.25 0 0 1-1.07-1.916V6.75"/></svg>
+  </div>
+  <span class="form-hint-subtle">{{if .email_enabled}}Kode OTP verifikasi akan dikirim ke alamat ini{{else}}Digunakan untuk keperluan akun Anda{{end}}</span>
  </div>
+
+ <!-- Password -->
  <div class="form-group">
- <label class="required" for="password">Password</label>
- <div class="password-wrapper">
- <input type="password" id="password" name="password" placeholder="Masukkan password (min. 8 karakter)" required minlength="8">
- <button type="button" id="togglePassword" class="password-toggle-btn" aria-label="Tampilkan password">
- <svg class="pw-icon pw-eye" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2.036 12.322a1.012 1.012 0 0 1 0-.639C3.423 7.51 7.36 4.5 12 4.5c4.638 0 8.573 3.007 9.963 7.178.07.207.07.431 0 .639C20.577 16.49 16.64 19.5 12 19.5c-4.638 0-8.573-3.007-9.963-7.178Z"/><path d="M15 12a3 3 0 1 1-6 0 3 3 0 0 1 6 0Z"/></svg>
+  <label class="required" for="password">Password</label>
+  <div class="input-icon-wrap">
+   <div class="password-wrapper" style="width:100%;">
+    <input type="password" id="password" name="password" placeholder="Buat password yang kuat" required minlength="8" style="padding-left:42px !important;">
+    <button type="button" id="togglePassword" class="password-toggle-btn" aria-label="Tampilkan password">
+     <svg class="pw-icon pw-eye" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2.036 12.322a1.012 1.012 0 0 1 0-.639C3.423 7.51 7.36 4.5 12 4.5c4.638 0 8.573 3.007 9.963 7.178.07.207.07.431 0 .639C20.577 16.49 16.64 19.5 12 19.5c-4.638 0-8.573-3.007-9.963-7.178Z"/><path d="M15 12a3 3 0 1 1-6 0 3 3 0 0 1 6 0Z"/></svg>
+    </button>
+   </div>
+   <svg class="input-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M16.5 10.5V6.75a4.5 4.5 0 1 0-9 0v3.75m-.75 11.25h10.5a2.25 2.25 0 0 0 2.25-2.25v-6.75a2.25 2.25 0 0 0-2.25-2.25H6.75a2.25 2.25 0 0 0-2.25 2.25v6.75a2.25 2.25 0 0 0 2.25 2.25Z"/></svg>
+  </div>
+  <div class="pw-strength-bar" id="pwStrengthBar"><div class="pw-bar-fill" id="pwBarFill"></div></div>
+  <div class="pw-strength-text" id="pwStrengthText"></div>
+ </div>
+
+ <!-- Submit Button -->
+ {{if .email_enabled}}
+ <button type="submit" class="btn-login" id="registerSubmitBtn">
+  <svg style="width:18px;height:18px;vertical-align:middle;margin-right:6px;display:inline;" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M21.75 6.75v10.5a2.25 2.25 0 0 1-2.25 2.25h-15a2.25 2.25 0 0 1-2.25-2.25V6.75m19.5 0A2.25 2.25 0 0 0 19.5 4.5h-15a2.25 2.25 0 0 0-2.25 2.25m19.5 0v.243a2.25 2.25 0 0 1-1.07 1.916l-7.5 4.615a2.25 2.25 0 0 1-2.36 0L3.32 8.91a2.25 2.25 0 0 1-1.07-1.916V6.75"/></svg>
+  Daftar &amp; Kirim Kode OTP
  </button>
- </div>
- <span class="form-hint-subtle">Minimal 8 karakter</span>
- </div>
- <button type="submit" class="btn-login" id="registerSubmitBtn">Daftar Akun</button>
+ {{else}}
+ <button type="submit" class="btn-login" id="registerSubmitBtn">
+  <svg style="width:18px;height:18px;vertical-align:middle;margin-right:6px;display:inline;" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M15.75 6a3.75 3.75 0 1 1-7.5 0 3.75 3.75 0 0 1 7.5 0ZM4.501 20.118a7.5 7.5 0 0 1 14.998 0A17.933 17.933 0 0 1 12 21.75c-2.676 0-5.216-.584-7.499-1.632Z"/></svg>
+  Daftar Akun
+ </button>
+ {{end}}
  </form>
+
  <hr class="divider-subtle">
  <div class="login-link-row">
  <span class="login-link-text">Sudah memiliki akun? <a href="/login">Masuk Disini</a></span>
  </div>
  <div class="login-footer"><p>&copy; 2026 EXAMVAN</p></div>
+
  </div>
  </div>
+
  <script src="/static/js/admin-core.js?v={{.version}}"></script>
  <script>
  document.addEventListener('DOMContentLoaded', function() {
- togglePasswordVisibility('password', 'togglePassword');
- const form = document.getElementById('registerForm');
- const btn = document.getElementById('registerSubmitBtn');
- if (form && btn) {
- form.addEventListener('submit', function() { btn.classList.add('loading'); btn.disabled = true; btn.textContent = 'Mendaftarkan...'; });
- }
- /* Auto-dismiss flash messages after 5 seconds */
- var flashMessages = document.querySelector('.flash-messages');
- if (flashMessages) {
-  setTimeout(function() {
-   flashMessages.style.transition = 'opacity 0.5s ease';
-   flashMessages.style.opacity = '0';
-   setTimeout(function() { flashMessages.style.display = 'none'; }, 500);
-  }, 5000);
- }
+  togglePasswordVisibility('password', 'togglePassword');
+
+  // Form submit loading state
+  var form = document.getElementById('registerForm');
+  var btn = document.getElementById('registerSubmitBtn');
+  if (form && btn) {
+   form.addEventListener('submit', function() {
+    btn.classList.add('loading');
+    btn.disabled = true;
+    btn.innerHTML = '<span style="vertical-align:middle;">Memproses...</span>';
+   });
+   if (document.querySelector('.flash-messages')) {
+    btn.classList.remove('loading');
+    btn.disabled = false;
+   }
+  }
+
+  // Password strength meter
+  var pwInput = document.getElementById('password');
+  var barFill = document.getElementById('pwBarFill');
+  var strengthText = document.getElementById('pwStrengthText');
+  if (pwInput && barFill && strengthText) {
+   pwInput.addEventListener('input', function() {
+    var val = pwInput.value;
+    if (!val) {
+     barFill.className = 'pw-bar-fill';
+     strengthText.textContent = '';
+     return;
+    }
+    var score = 0;
+    if (val.length >= 8) score++;
+    if (val.length >= 12) score++;
+    if (/[A-Z]/.test(val) && /[a-z]/.test(val)) score++;
+    if (/[0-9]/.test(val)) score++;
+    if (/[^A-Za-z0-9]/.test(val)) score++;
+    var levels = [
+     { cls: 'weak', label: 'Lemah — tambahkan karakter', color: '#ef4444' },
+     { cls: 'weak', label: 'Lemah — tambahkan variasi', color: '#ef4444' },
+     { cls: 'fair', label: 'Cukup — bisa lebih baik', color: '#f59e0b' },
+     { cls: 'good', label: 'Bagus — password cukup kuat', color: '#22c55e' },
+     { cls: 'strong', label: 'Kuat — password sangat aman!', color: '#06b6d4' }
+    ];
+    var idx = Math.min(score, levels.length - 1);
+    barFill.className = 'pw-bar-fill ' + levels[idx].cls;
+    strengthText.textContent = levels[idx].label;
+    strengthText.style.color = levels[idx].color;
+   });
+  }
+
+  // Username live validation hint
+  var usernameInput = document.getElementById('username');
+  if (usernameInput) {
+   usernameInput.addEventListener('input', function() {
+    this.value = this.value.toLowerCase().replace(/[^a-z0-9._-]/g, '');
+   });
+  }
+
+  // Auto-dismiss flash messages
+  var flashMessages = document.querySelector('.flash-messages');
+  if (flashMessages) {
+   setTimeout(function() {
+    flashMessages.style.transition = 'opacity 0.5s ease';
+    flashMessages.style.opacity = '0';
+    setTimeout(function() { flashMessages.style.display = 'none'; }, 500);
+   }, 5000);
+  }
  });
  </script>
 </body>

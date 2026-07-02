@@ -111,12 +111,16 @@ func ListUsers() gin.HandlerFunc {
 		type userItem struct {
 			ID             int      `json:"id"`
 			Username       string   `json:"username"`
+			Name           string   `json:"name"`
 			WhatsappNumber string   `json:"whatsapp_number"`
+			Email          string   `json:"email"`
 			Status         string   `json:"status"`
 			MaxExams       int      `json:"max_exams"`
 			MaxPDFSize     int      `json:"max_pdf_size"`
 			MaxDrafts      int      `json:"max_drafts"`
 			MaxDraftSize   int      `json:"max_draft_size"`
+			MaxStorageSize int64    `json:"max_storage_size"`
+			MaxStorageMB   int      `json:"max_storage_mb"`
 			Instansi       string   `json:"instansi"`
 			Roles          []string `json:"roles"`
 			Role           string   `json:"role"`
@@ -134,12 +138,16 @@ func ListUsers() gin.HandlerFunc {
 			users = append(users, userItem{
 				ID:             u.ID,
 				Username:       u.Username,
+				Name:           u.Name,
 				WhatsappNumber: u.WhatsappNumber,
+				Email:          u.Email,
 				Status:         u.Status,
 				MaxExams:       u.MaxExams,
 				MaxPDFSize:     u.MaxPDFSize,
 				MaxDrafts:      u.MaxDrafts,
 				MaxDraftSize:   u.MaxDraftSize,
+				MaxStorageSize: u.MaxStorageSize,
+				MaxStorageMB:   int(u.MaxStorageSize / (1024 * 1024)),
 				Instansi:       u.Instansi,
 				Roles:          models.ParseRoles(u.Role),
 				Role:           models.SerializeRoles(models.ParseRoles(u.Role)),
@@ -170,8 +178,10 @@ func CreateUser() gin.HandlerFunc {
 	return func(c *gin.Context) {
 		var body struct {
 			Username        string   `json:"username"`
+			Name            string   `json:"name"`
 			Password        string   `json:"password"`
 			WhatsappNumber  string   `json:"whatsapp_number"`
+			Email           string   `json:"email"`
 			Roles           []string `json:"roles"`
 			Role            string   `json:"role"` // fallback if Roles is empty
 			Instansi        string   `json:"instansi"`
@@ -179,6 +189,7 @@ func CreateUser() gin.HandlerFunc {
 			MaxPDFSizeMB    float64  `json:"max_pdf_size_mb"`
 			MaxDrafts       int      `json:"max_drafts"`
 			MaxDraftSizeMB  float64  `json:"max_draft_size_mb"`
+			MaxStorageSizeMB float64  `json:"max_storage_size_mb"`
 			ExpiresAt       string   `json:"expires_at"`
 		}
 		if err := c.ShouldBindJSON(&body); err != nil {
@@ -236,9 +247,9 @@ func CreateUser() gin.HandlerFunc {
 			instansi = opInstansi
 			opUser, opErr := models.GetUserByID(ctx, pool, userID)
 			if opErr == nil {
-				// Force whatsapp from operator's account
-				if opUser.WhatsappNumber != "" {
-					body.WhatsappNumber = opUser.WhatsappNumber
+				// Force email from operator's account
+				if opUser.Email != "" {
+					body.Email = opUser.Email
 				}
 				// Force expiry: user expiry = operator's expiry
 				if opUser.ExpiresAt != nil {
@@ -306,8 +317,11 @@ func CreateUser() gin.HandlerFunc {
 				models.SettingDefaultMaxDraftSize, 1048576)
 		}
 
+		maxStorageSize := int64(body.MaxStorageSizeMB * 1024 * 1024)
+
 		user := &models.AdminUser{
 			Username:       username,
+			Name:           strings.TrimSpace(body.Name),
 			PasswordHash:   password, // will be hashed by CreateUser
 			Status:         models.UserStatusActive,
 			Instansi:       instansi,
@@ -316,7 +330,9 @@ func CreateUser() gin.HandlerFunc {
 			MaxPDFSize:     maxPDFSize,
 			MaxDrafts:      maxDrafts,
 			MaxDraftSize:   maxDraftSize,
+			MaxStorageSize: maxStorageSize,
 			WhatsappNumber: strings.TrimSpace(body.WhatsappNumber),
+			Email:          strings.TrimSpace(body.Email),
 			ExpiresAt:      expiresAtPtr,
 		}
 
@@ -348,9 +364,11 @@ func EditUser() gin.HandlerFunc {
 		}
 
 		var body struct {
+			Name           *string  `json:"name"`
 			MaxExams       *int     `json:"max_exams"`
 			MaxPDFSizeMB   *float64 `json:"max_pdf_size_mb"`
 			WhatsappNumber *string  `json:"whatsapp_number"`
+			Email          *string  `json:"email"`
 			Status         *string  `json:"status"`
 			Password       *string  `json:"password"`
 			Instansi       *string  `json:"instansi"`
@@ -358,6 +376,7 @@ func EditUser() gin.HandlerFunc {
 			Roles          []string `json:"roles"`
 			MaxDrafts      *int     `json:"max_drafts"`
 			MaxDraftSizeMB *float64 `json:"max_draft_size_mb"`
+			MaxStorageSizeMB *float64 `json:"max_storage_size_mb"`
 			ExpiresAt      *string  `json:"expires_at"`
 		}
 		if err := c.ShouldBindJSON(&body); err != nil {
@@ -403,6 +422,10 @@ func EditUser() gin.HandlerFunc {
 
 		updates := make(map[string]interface{})
 
+		if body.Name != nil {
+			updates["name"] = strings.TrimSpace(*body.Name)
+		}
+
 		if body.MaxExams != nil {
 			updates["max_exams"] = *body.MaxExams
 		}
@@ -421,8 +444,17 @@ func EditUser() gin.HandlerFunc {
 			updates["max_draft_size"] = draftSize
 		}
 
+		if body.MaxStorageSizeMB != nil {
+			storageSize := int64(*body.MaxStorageSizeMB * 1024 * 1024)
+			updates["max_storage_size"] = storageSize
+		}
+
 		if body.WhatsappNumber != nil {
 			updates["whatsapp_number"] = strings.TrimSpace(*body.WhatsappNumber)
+		}
+
+		if body.Email != nil {
+			updates["email"] = strings.TrimSpace(*body.Email)
 		}
 
 		if body.Instansi != nil {

@@ -202,7 +202,9 @@ func Dashboard() gin.HandlerFunc {
 			SizeMB             float64    `json:"size_mb"`
 			SubCount           int        `json:"sub_count"`
 			CreatorName        string     `json:"creator_name"`
+			CreatedBy          int        `json:"created_by"`
 			DelegatedName      string     `json:"delegated_name"`
+			DelegatedTo        *int       `json:"delegated_to,omitempty"`
 			CreatedAt          string     `json:"created_at"`
 			PublicResults      int        `json:"public_results"`
 			ShowAnswers        int        `json:"show_answers"`
@@ -271,7 +273,7 @@ func Dashboard() gin.HandlerFunc {
 			if e.DelegatedTo != nil {
 				delegatedName = usernameMap[*e.DelegatedTo]
 			}
-			tokenMode := "static"
+			tokenMode := "dynamic"
 			if e.TokenMode != nil && *e.TokenMode != "" {
 				tokenMode = *e.TokenMode
 			}
@@ -284,7 +286,9 @@ func Dashboard() gin.HandlerFunc {
 				SizeMB:             roundTo(float64(e.SizeBytes)/(1024*1024), 2),
 				SubCount:           subCountMap[e.ID],
 				CreatorName:        usernameMap[e.CreatedBy],
+				CreatedBy:          e.CreatedBy,
 				DelegatedName:      delegatedName,
+				DelegatedTo:        e.DelegatedTo,
 				CreatedAt:          formatISOUTC(e.CreatedAt),
 				PublicResults:      e.PublicResults,
 				ShowAnswers:        e.ShowAnswers,
@@ -300,8 +304,24 @@ func Dashboard() gin.HandlerFunc {
 			activePct = roundTo(float64(statsActive)/float64(statsTotal)*100, 1)
 		}
 
+		storageDir := getStoragePath(c)
+		freeSpaceBytes := getFreeDiskSpace(storageDir)
+		freeSpaceMB := freeSpaceBytes / (1024 * 1024)
+		var remainingStorage string
+		if freeSpaceMB >= 1024 {
+			remainingStorage = fmt.Sprintf("%.2f GB", freeSpaceMB/1024)
+		} else {
+			remainingStorage = fmt.Sprintf("%.2f MB", freeSpaceMB)
+		}
+
+		scheme := "http"
+		if c.Request.TLS != nil || c.GetHeader("X-Forwarded-Proto") == "https" {
+			scheme = "https"
+		}
+		serverURL := fmt.Sprintf("%s://%s", scheme, c.Request.Host)
+
 		renderAdminPage(c, "admin/dashboard.html", gin.H{
-			"exams":            examItems,
+			"exams":             examItems,
 			"exam_pengawas_map": examPengawasMap,
 			"stats": gin.H{
 				"total":      statsTotal,
@@ -311,18 +331,20 @@ func Dashboard() gin.HandlerFunc {
 				"total_all":  statsTotal,
 				"active_pct": activePct,
 			},
-			"max_size_mb":     roundTo(float64(userMaxPDF)/(1024*1024), 1),
-			"max_exams":       userMaxExams,
-			"account_expires": accountExpires,
-			"active_page":     "dashboard",
-			"page":            page,
-			"per_page":        perPage,
-			"total_pages":     totalPages,
-			"total_exams":     result.Total,
-			"search":          search,
-			"search_active":   search != "",
-			"status_filter":   statusFilter,
-			"query_base":      buildFilterQuery(search, statusFilter),
+			"max_size_mb":       roundTo(float64(userMaxPDF)/(1024*1024), 1),
+			"max_exams":         userMaxExams,
+			"account_expires":   accountExpires,
+			"remaining_storage": remainingStorage,
+			"server_url":        serverURL,
+			"active_page":       "dashboard",
+			"page":              page,
+			"per_page":          perPage,
+			"total_pages":       totalPages,
+			"total_exams":       result.Total,
+			"search":            search,
+			"search_active":     search != "",
+			"status_filter":     statusFilter,
+			"query_base":        buildFilterQuery(search, statusFilter),
 		})
 	}
 }

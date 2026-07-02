@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"math"
 	"net/http"
+	"os"
+	"syscall"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -34,6 +36,22 @@ func getStoragePath(c *gin.Context) string {
 	return config.DefaultStoragePath
 }
 
+// getFreeDiskSpace returns the free space of the storage partition in bytes.
+func getFreeDiskSpace(path string) float64 {
+	var stat syscall.Statfs_t
+	// Create the path directory if it doesn't exist to ensure we can check it
+	if err := os.MkdirAll(path, 0755); err != nil {
+		return 0
+	}
+	err := syscall.Statfs(path, &stat)
+	if err != nil {
+		return 0
+	}
+	// Available blocks * size per block
+	freeBytes := stat.Bavail * uint64(stat.Bsize)
+	return float64(freeBytes)
+}
+
 // getCurrentUserID returns the authenticated user's ID from the gin context.
 // These fields are expected to be set by auth middleware.
 func getCurrentUserID(c *gin.Context) int {
@@ -48,6 +66,16 @@ func getCurrentUserID(c *gin.Context) int {
 // getCurrentUsername returns the authenticated user's username from context.
 func getCurrentUsername(c *gin.Context) string {
 	if v, exists := c.Get("username"); exists {
+		if s, ok := v.(string); ok {
+			return s
+		}
+	}
+	return ""
+}
+
+// getCurrentName returns the authenticated user's name from context.
+func getCurrentName(c *gin.Context) string {
+	if v, exists := c.Get("name"); exists {
 		if s, ok := v.(string); ok {
 			return s
 		}
@@ -134,7 +162,11 @@ func renderAdminPage(c *gin.Context, pageTemplate string, data gin.H) {
 		data["version"] = cfg.(*config.Config).Version
 	}
 	data["csrf_token"] = middleware.GenerateCSRFToken(c)
-	data["admin_user"] = getCurrentUsername(c)
+	displayName := getCurrentUsername(c)
+	if name := getCurrentName(c); name != "" {
+		displayName = fmt.Sprintf("%s (%s)", name, displayName)
+	}
+	data["admin_user"] = displayName
 	data["admin_role"] = getCurrentUserRole(c)
 	data["admin_id"] = getCurrentUserID(c)
 	if v, exists := c.Get("instansi"); exists {

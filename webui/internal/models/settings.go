@@ -17,32 +17,38 @@ type SaasSetting struct {
 
 // Default settings keys.
 const (
-	SettingWAVerificationEnabled = "wa_verification_enabled"
-	SettingWAPIToken             = "wa_api_token"
-	SettingWAOTPTemplate         = "wa_otp_template"
-	SettingDefaultMaxExams       = "default_max_exams"
-	SettingDefaultMaxPDFSize     = "default_max_pdf_size"
-	SettingDefaultActiveDays     = "default_active_days"
-	SettingDefaultMaxDrafts      = "default_max_drafts"
-	SettingDefaultMaxDraftSize   = "default_max_draft_size"
-	SettingAndroidVersion        = "android_version"
-	SettingWebappVersion         = "webapp_version"
-	SettingCertificateFingerprint = "certificate_fingerprint"
+	SettingEmailVerificationEnabled = "email_verification_enabled"
+	SettingSMTPHost                 = "smtp_host"
+	SettingSMTPPort                 = "smtp_port"
+	SettingSMTPUser                 = "smtp_user"
+	SettingSMTPPassword             = "smtp_password"
+	SettingSMTPSenderName           = "smtp_sender_name"
+	SettingDefaultMaxExams          = "default_max_exams"
+	SettingDefaultMaxPDFSize        = "default_max_pdf_size"
+	SettingDefaultActiveDays        = "default_active_days"
+	SettingDefaultMaxDrafts         = "default_max_drafts"
+	SettingDefaultMaxDraftSize      = "default_max_draft_size"
+	SettingAndroidVersion           = "android_version"
+	SettingWebappVersion            = "webapp_version"
+	SettingCertificateFingerprint    = "certificate_fingerprint"
 )
 
 // Default settings values as defined in the Python app.py.
 var DefaultSettings = map[string]string{
-	SettingWAVerificationEnabled: "0",
-	SettingWAPIToken:             "",
-	SettingWAOTPTemplate:         "Kode OTP EXAMVAN Anda: {otp}. Berlaku selama 5 menit.",
-	SettingDefaultMaxExams:       "3",
-	SettingDefaultMaxPDFSize:     "1048576",
-	SettingDefaultActiveDays:     "1",
-	SettingDefaultMaxDrafts:      "2",
-	SettingDefaultMaxDraftSize:   "1048576",
-	SettingAndroidVersion:        "2.2.0",
-	SettingWebappVersion:         "2.2.0",
-	SettingCertificateFingerprint: "",
+	SettingEmailVerificationEnabled: "0",
+	SettingSMTPHost:                 "smtp.gmail.com",
+	SettingSMTPPort:                 "587",
+	SettingSMTPUser:                 "",
+	SettingSMTPPassword:             "",
+	SettingSMTPSenderName:           "EXAMVAN",
+	SettingDefaultMaxExams:          "3",
+	SettingDefaultMaxPDFSize:        "1048576",
+	SettingDefaultActiveDays:        "1",
+	SettingDefaultMaxDrafts:         "2",
+	SettingDefaultMaxDraftSize:      "1048576",
+	SettingAndroidVersion:           "2.2.0",
+	SettingWebappVersion:            "2.2.0",
+	SettingCertificateFingerprint:   "",
 }
 
 // GetSaasSetting retrieves a setting value by key.

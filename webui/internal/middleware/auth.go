@@ -9,6 +9,7 @@ import (
 
 	"github.com/gin-contrib/sessions"
 	"github.com/gin-gonic/gin"
+	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/examvan/webui/internal/models"
 )
@@ -20,6 +21,7 @@ import (
 const (
 	SessionKeyAdminID     = "admin_id"
 	SessionKeyUsername    = "username"
+	SessionKeyName        = "name"
 	SessionKeyRole        = "role"
 	SessionKeyIsSuper     = "is_super_admin"
 	SessionKeyInstansi    = "instansi"
@@ -32,6 +34,7 @@ const (
 const (
 	ContextKeyUserID      = "user_id"
 	ContextKeyUsername    = "username"
+	ContextKeyName        = "name"
 	ContextKeyRole        = "role"
 	ContextKeyIsSuper     = "is_super_admin"
 	ContextKeyIsOperator  = "is_operator"
@@ -72,6 +75,24 @@ func AuthRequired() gin.HandlerFunc {
 		}
 
 		username, _ := session.Get(SessionKeyUsername).(string)
+		nameVal := session.Get(SessionKeyName)
+		var name string
+		if nameVal == nil {
+			// Query the database for the name to populate existing sessions
+			pool, exists := c.Get("db")
+			if exists && pool != nil {
+				dbPool := pool.(*pgxpool.Pool)
+				var dbName string
+				err := dbPool.QueryRow(c.Request.Context(), `SELECT name FROM admin_users WHERE id = $1`, id).Scan(&dbName)
+				if err == nil {
+					name = dbName
+					session.Set(SessionKeyName, name)
+					_ = session.Save()
+				}
+			}
+		} else {
+			name, _ = nameVal.(string)
+		}
 		role, _ := session.Get(SessionKeyRole).(string)
 		isSuper, _ := session.Get(SessionKeyIsSuper).(bool)
 		isOperator := models.HasRole(role, models.RoleOperator)
@@ -79,6 +100,7 @@ func AuthRequired() gin.HandlerFunc {
 
 		c.Set(ContextKeyUserID, id)
 		c.Set(ContextKeyUsername, username)
+		c.Set(ContextKeyName, name)
 		c.Set(ContextKeyRole, role)
 		c.Set(ContextKeyIsSuper, isSuper)
 		c.Set(ContextKeyIsOperator, isOperator)

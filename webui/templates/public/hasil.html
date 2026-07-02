@@ -75,22 +75,34 @@
  <section class="exam-hero">
  <h1 id="examTitle">{{.exam_name}}</h1>
  <div class="exam-meta">
- <div class="exam-meta-item">
- <svg class="icon-svg" style="vertical-align:middle;"><use href="#hi-key"/></svg>
- <span>Token: <strong>{{.token}}</strong></span>
- </div>
- <div class="exam-meta-item">
- <svg class="icon-svg" style="vertical-align:middle;"><use href="#hi-users"/></svg>
- <span>Peserta: <strong id="totalStudents">{{.total_students}}</strong></span>
- </div>
- <div class="exam-meta-item" id="avgScoreItem" style="display: none;">
- <svg class="icon-svg" style="vertical-align:middle;" aria-hidden="true"><use href="#hi-trending-up"/></svg>
- <span>Rata-rata: <strong id="avgScore">&mdash;</strong></span>
- </div>
- <div class="exam-meta-item" id="maxScoreItem" style="display: none;">
- <svg class="icon-svg" style="vertical-align:middle;"><use href="#hi-results"/></svg>
- <span>Tertinggi: <strong id="maxScore">&mdash;</strong></span>
- </div>
+  <div class="exam-meta-item">
+  <svg class="icon-svg" style="vertical-align:middle;"><use href="#hi-key"/></svg>
+  <span>Token: <strong>{{.token}}</strong></span>
+  </div>
+  <div class="exam-meta-item">
+  <svg class="icon-svg" style="vertical-align:middle;"><use href="#hi-users"/></svg>
+  <span>Peserta: <strong id="totalStudents">{{.total_students}}</strong></span>
+  </div>
+  {{if .creator_name}}
+  <div class="exam-meta-item">
+  <svg class="icon-svg" style="vertical-align:middle;width:16px;height:16px;" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M15.75 6a3.75 3.75 0 1 1-7.5 0 3.75 3.75 0 0 1 7.5 0ZM4.501 20.118a7.5 7.5 0 0 1 14.998 0A17.933 17.933 0 0 1 12 21.75c-2.676 0-5.216-.584-7.499-1.632Z"/></svg>
+  <span>Pembuat: <strong style="color:var(--color-primary-light,#a5b4fc);">{{.creator_name}}</strong></span>
+  </div>
+  {{end}}
+  {{if .delegated_name}}
+  <div class="exam-meta-item">
+  <svg class="icon-svg" style="vertical-align:middle;width:16px;height:16px;" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M13.19 8.688a4.5 4.5 0 0 1 1.242 7.244l-4.5 4.5a4.5 4.5 0 0 1-6.364-6.364l1.757-1.757m13.35-.622 1.757-1.757a4.5 4.5 0 0 0-6.364-6.364l-4.5 4.5a4.5 4.5 0 0 0 1.242 7.244"/></svg>
+  <span>Guru: <strong style="color:var(--color-warning,#fbbf24);">{{.delegated_name}}</strong></span>
+  </div>
+  {{end}}
+  <div class="exam-meta-item" id="avgScoreItem" style="display: none;">
+  <svg class="icon-svg" style="vertical-align:middle;" aria-hidden="true"><use href="#hi-trending-up"/></svg>
+  <span>Rata-rata: <strong id="avgScore">&mdash;</strong></span>
+  </div>
+  <div class="exam-meta-item" id="maxScoreItem" style="display: none;">
+  <svg class="icon-svg" style="vertical-align:middle;"><use href="#hi-results"/></svg>
+  <span>Tertinggi: <strong id="maxScore">&mdash;</strong></span>
+  </div>
  </div>
  <div class="stats-row" id="statsRow" style="display: none;"></div>
  {{if .is_disabled}}

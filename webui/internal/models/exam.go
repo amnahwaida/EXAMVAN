@@ -90,7 +90,7 @@ func GetExamByID(ctx context.Context, pool *pgxpool.Pool, id int) (Exam, error) 
 
 // GetExamByToken retrieves an exam by its unique 8-character token.
 func GetExamByToken(ctx context.Context, pool *pgxpool.Pool, token string) (Exam, error) {
-	sql := `SELECT ` + DefaultExamColumns + ` FROM exams e WHERE e.token = $1`
+	sql := `SELECT ` + DefaultExamColumns + ` FROM exams e WHERE e.token = $1 OR e.active_token = $1`
 	return scanExam(pool.QueryRow(ctx, sql, token))
 }
 
@@ -397,9 +397,18 @@ func UpdateExamActiveToken(ctx context.Context, pool *pgxpool.Pool, id int, acti
 
 // StartExam marks an exam as started (sets exam_started_at) and optionally resets the active_token.
 func StartExam(ctx context.Context, pool *pgxpool.Pool, id int) error {
-	_, err := pool.Exec(ctx, `UPDATE exams SET exam_started_at = CURRENT_TIMESTAMP, token_last_reset_at = CURRENT_TIMESTAMP WHERE id = $1 AND exam_started_at IS NULL`, id)
+	_, err := pool.Exec(ctx, `UPDATE exams SET status = 'active', exam_started_at = CURRENT_TIMESTAMP, token_last_reset_at = CURRENT_TIMESTAMP WHERE id = $1`, id)
 	if err != nil {
 		return fmt.Errorf("start exam: %w", err)
+	}
+	return nil
+}
+
+// StopExam marks an exam as inactive and clears the exam_started_at flag.
+func StopExam(ctx context.Context, pool *pgxpool.Pool, id int) error {
+	_, err := pool.Exec(ctx, `UPDATE exams SET status = 'inactive', exam_started_at = NULL WHERE id = $1`, id)
+	if err != nil {
+		return fmt.Errorf("stop exam: %w", err)
 	}
 	return nil
 }
@@ -597,10 +606,11 @@ func joinConditions(parts []string, sep string) string {
 // ListExamsByPengawas returns exams assigned to a specific user as pengawas,
 // with pagination and optional search.
 type ListPengawasExamsOpts struct {
-	Page    int
-	PerPage int
-	Search  string
-	UserID  int
+	Page            int
+	PerPage         int
+	Search          string
+	UserID          int
+	HasPengawasRole bool
 }
 
 func ListPengawasExams(ctx context.Context, pool *pgxpool.Pool, opts ListPengawasExamsOpts) (ListExamsResult, error) {
@@ -613,7 +623,11 @@ func ListPengawasExams(ctx context.Context, pool *pgxpool.Pool, opts ListPengawa
 	var args []interface{}
 	argIdx := 1
 
-	conditions = append(conditions, fmt.Sprintf(`e.id IN (SELECT exam_id FROM exam_pengawas WHERE user_id = $%d)`, argIdx))
+	if opts.HasPengawasRole {
+		conditions = append(conditions, fmt.Sprintf(`(e.created_by = $%d OR e.delegated_to = $%d OR e.id IN (SELECT exam_id FROM exam_pengawas WHERE user_id = $%d))`, argIdx, argIdx, argIdx))
+	} else {
+		conditions = append(conditions, fmt.Sprintf(`(e.created_by = $%d OR e.delegated_to = $%d)`, argIdx, argIdx))
+	}
 	args = append(args, opts.UserID)
 	argIdx++
 

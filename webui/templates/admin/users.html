@@ -8,8 +8,186 @@
 <html lang="id">
 <head>
  {{adminHead .version .csrf_token "Kelola User"}}
+ <style>
+ @media (max-width: 768px) {
+   /* Put user list card at the top on mobile screens */
+   .users-layout {
+     display: flex !important;
+     flex-direction: column-reverse !important;
+     gap: 16px !important;
+   }
+   
+   /* Tighten card padding on mobile */
+   .glass-card {
+     padding: 16px !important;
+   }
+   .glass-card h3 {
+     font-size: 1rem !important;
+     margin-bottom: 12px !important;
+   }
+   
+   /* Card-based layout for user table */
+   .exam-table, 
+   .exam-table tbody, 
+   .exam-table tr, 
+   .exam-table td {
+     display: block !important;
+     width: 100% !important;
+   }
+   .exam-table thead {
+     display: none !important;
+   }
+   
+   .exam-table tbody tr {
+     position: relative !important;
+     margin-bottom: 14px !important;
+     padding: 14px 16px !important;
+     display: flex !important;
+     flex-direction: column !important;
+     gap: 6px !important;
+     border-radius: 12px !important;
+   }
+   
+   .exam-table td {
+     display: flex !important;
+     align-items: center !important;
+     justify-content: space-between !important;
+     padding: 5px 0 !important;
+     border: none !important;
+     font-size: 0.8rem !important;
+     text-align: left !important;
+   }
+   
+   .exam-table td::before {
+     content: attr(data-label) !important;
+     font-weight: 700 !important;
+     font-size: 0.68rem !important;
+     text-transform: uppercase !important;
+     letter-spacing: 0.04em !important;
+     color: var(--color-text-muted) !important;
+   }
+   
+   /* Username Header inside Card */
+   .exam-table td[data-label="Username"] {
+     display: block !important;
+     padding: 0 0 6px 0 !important;
+     border-bottom: 1px dashed var(--color-glass-border) !important;
+     margin-bottom: 4px !important;
+   }
+   .exam-table td[data-label="Username"]::before {
+     content: none !important;
+   }
+   .exam-table td[data-label="Username"] strong {
+     font-size: 1rem !important;
+     font-weight: 700 !important;
+   }
+   
+   /* Action buttons alignment */
+   .exam-table td[data-label="Aksi"] {
+     justify-content: flex-end !important;
+     border-top: 1px solid var(--color-glass-border) !important;
+     margin-top: 6px !important;
+     padding-top: 10px !important;
+   }
+   .exam-table td[data-label="Aksi"]::before {
+     content: none !important;
+   }
+ }
+
+ /* Global styles for Default Paket Pendaftaran (Desktop & Mobile) */
+ .default-pkg-row {
+   display: grid !important;
+   grid-template-columns: repeat(3, 1fr) !important;
+   gap: 16px !important;
+   width: 100% !important;
+ }
+ .default-pkg-row .form-group {
+   width: 100% !important;
+   flex: none !important;
+ }
+ .default-pkg-row .form-group label {
+   font-size: 0.8rem !important;
+   line-height: 1.2 !important;
+   height: 26px !important;
+   display: flex !important;
+   align-items: flex-end !important;
+   margin-bottom: 4px !important;
+ }
+
+ /* Responsive tweaks for mobile */
+ @media (max-width: 768px) {
+   .default-pkg-row {
+     gap: 8px !important;
+   }
+   .default-pkg-row .form-group label {
+     font-size: 0.65rem !important;
+     height: 24px !important;
+   }
+ }
+
+  /* Email OTP Verification Toggle Switch Styles */
+  .switch-container {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 8px 0;
+    margin-bottom: 8px;
+  }
+  .switch-label {
+    font-size: 0.85rem;
+    font-weight: 500;
+    color: var(--color-text);
+  }
+  .switch {
+    position: relative;
+    display: inline-block;
+    width: 44px;
+    height: 24px;
+    flex-shrink: 0;
+  }
+  .switch input {
+    opacity: 0;
+    width: 0;
+    height: 0;
+  }
+  .slider {
+    position: absolute;
+    cursor: pointer;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background-color: rgba(255, 255, 255, 0.08);
+    border: 1px solid var(--color-glass-border);
+    transition: .3s;
+    border-radius: 24px;
+  }
+  .slider:before {
+    position: absolute;
+    content: "";
+    height: 16px;
+    width: 16px;
+    left: 3px;
+    bottom: 3px;
+    background-color: var(--color-text-muted);
+    transition: .3s;
+    border-radius: 50%;
+  }
+  .switch input:checked + .slider {
+    background-color: var(--color-primary);
+  }
+  .switch input:checked + .slider:before {
+    background-color: #fff;
+    transform: translateX(20px);
+  }
+  .switch input:focus + .slider {
+    box-shadow: 0 0 1px var(--color-primary);
+  }
+ </style>
 </head>
 <body class="dashboard-page">
+
+<div class="toast-container" id="toastContainer" aria-live="polite" aria-atomic="true"></div>
 
 {{adminNav .active_page .admin_role .admin_user .csrf_token}}
 
@@ -18,30 +196,55 @@
  <div class="users-layout">
  <!-- Left Column: SaaS Config & Add User -->
  <div style="display:flex;flex-direction:column;gap:24px;">
-  <!-- SaaS & WhatsApp Verification Settings -->
+  <!-- SaaS & SMTP Email Verification Settings -->
   {{if eq .admin_role "superadmin"}}
   <section class="glass-card">
   <h3 style="margin-bottom:16px;font-size:1.1rem;color:#a5b4fc;display:flex;align-items:center;gap:8px;">
-  <svg class="icon-svg" style="color:#a5b4fc;"><use href="#hi-settings"/></svg> SaaS &amp; WhatsApp Settings
+  <svg class="icon-svg" style="color:#a5b4fc;"><use href="#hi-settings"/></svg> SaaS &amp; SMTP Email Settings
   </h3>
   <form id="saasSettingsForm" onsubmit="saveSaasSettings(event)" style="display:flex;flex-direction:column;gap:12px;">
- <div class="switch-container">
- <span class="switch-label">Verifikasi OTP WhatsApp</span>
- <label class="switch">
- <input type="checkbox" id="waEnabledInput" onchange="toggleWaFields()">
- <span class="slider"></span>
- </label>
- </div>
+  <div class="switch-container">
+  <span class="switch-label" title="Aktifkan untuk mewajibkan verifikasi kode OTP lewat email saat pendaftaran akun baru">Verifikasi OTP Email</span>
+  <label class="switch">
+  <input type="checkbox" id="emailEnabledInput" onchange="toggleEmailFields()">
+  <span class="slider"></span>
+  </label>
+  </div>
 
- <div class="form-group space-y-1" id="waTokenGroup">
- <label for="waTokenInput">Fonnte API Token</label>
- <input type="password" id="waTokenInput" placeholder="Masukkan token API Fonnte">
- </div>
+  <div id="emailSettingsFields" style="display:flex;flex-direction:column;gap:12px;">
+  <div class="form-row-2col grid grid-cols-1 sm:grid-cols-2 gap-4">
+  <div class="form-group space-y-1">
+  <label for="smtpHostInput" title="Alamat server SMTP penyedia email (contoh: smtp.gmail.com)">SMTP Host</label>
+  <input type="text" id="smtpHostInput" placeholder="smtp.gmail.com">
+  </div>
+  <div class="form-group space-y-1">
+  <label for="smtpPortInput" title="Port server SMTP (contoh: 587 untuk TLS/STARTTLS, 465 untuk SSL)">SMTP Port</label>
+  <input type="text" id="smtpPortInput" placeholder="587">
+  </div>
+  </div>
 
- <div class="form-group space-y-1" id="waTemplateGroup">
- <label for="waTemplateInput">Template Pesan OTP</label>
- <textarea id="waTemplateInput" rows="2" style="resize:none;" placeholder="Gunakan tag {otp} untuk kode OTP"></textarea>
- </div>
+  <div class="form-row-2col grid grid-cols-1 sm:grid-cols-2 gap-4">
+  <div class="form-group space-y-1">
+  <label for="smtpUserInput" title="Alamat email yang digunakan sebagai pengirim kode verifikasi OTP">Email Pengirim</label>
+  <input type="email" id="smtpUserInput" placeholder="nama-email@gmail.com">
+  </div>
+  <div class="form-group space-y-1">
+  <label for="smtpPasswordInput" title="Sandi aplikasi 16-karakter (misal Gmail App Password) atau kata sandi akun SMTP Anda">Sandi Aplikasi</label>
+  <input type="password" id="smtpPasswordInput" placeholder="Masukkan password aplikasi atau sandi SMTP">
+  </div>
+  </div>
+
+  <div class="form-group space-y-1">
+  <label for="smtpSenderNameInput" title="Nama pengirim yang muncul di email penerima (contoh: EXAMVAN Verification)">Nama Pengirim Email</label>
+  <input type="text" id="smtpSenderNameInput" placeholder="EXAMVAN Verification">
+  </div>
+  <div style="display:flex;justify-content:flex-end;margin-top:4px;">
+  <button type="button" id="testSmtpBtn" onclick="testSmtpConnection()" class="btn-sm" style="background:rgba(59,130,246,0.2);border:1px solid rgba(59,130,246,0.4);color:#93c5fd;display:flex;align-items:center;gap:6px;cursor:pointer;padding:6px 12px;border-radius:6px;font-size:13px;transition:all 0.2s;">
+  <svg class="icon-svg" style="width:16px;height:16px;" id="testSmtpIcon"><use href="#hi-refresh"/></svg>
+  <span id="testSmtpText">Test Koneksi SMTP</span>
+  </button>
+  </div>
+  </div>
 
  <div style="border-top:1px solid var(--color-glass-border);margin-top:16px;padding-top:16px;margin-bottom:6px;">
  <h4 style="margin:0;font-size:0.85rem;font-weight:600;text-transform:uppercase;letter-spacing:0.5px;color:var(--color-accent-light);display:flex;align-items:center;gap:6px;">
@@ -49,20 +252,20 @@
  </h4>
  </div>
 
- <div class="form-row-3col grid grid-cols-1 sm:grid-cols-3 gap-4">
- <div class="form-group space-y-1">
- <label class="required" for="defaultExamsInput">Default Ujian</label>
- <input type="number" id="defaultExamsInput" required min="1">
- </div>
- <div class="form-group space-y-1">
- <label class="required" for="defaultPdfInput">Default PDF (MB)</label>
- <input type="number" id="defaultPdfInput" required min="0.1" step="0.1">
- </div>
- <div class="form-group space-y-1">
- <label class="required" for="defaultActiveDaysInput">Default Masa Aktif (Hari)</label>
- <input type="number" id="defaultActiveDaysInput" required min="1">
- </div>
- </div>
+  <div class="form-row-3col grid grid-cols-1 sm:grid-cols-3 gap-4 default-pkg-row">
+  <div class="form-group space-y-1">
+  <label class="required" for="defaultExamsInput" title="Default limit jumlah ujian untuk pendaftaran baru">Limit Ujian</label>
+  <input type="number" id="defaultExamsInput" required min="1" title="Limit jumlah ujian">
+  </div>
+  <div class="form-group space-y-1">
+  <label class="required" for="defaultPdfInput" title="Default limit ukuran file PDF (dalam Megabytes / MB) untuk pendaftaran baru">Limit PDF</label>
+  <input type="number" id="defaultPdfInput" required min="0.1" step="0.1" title="Limit ukuran file PDF (dalam Megabytes / MB)">
+  </div>
+  <div class="form-group space-y-1">
+  <label class="required" for="defaultActiveDaysInput" title="Default masa aktif akun (dalam Hari) untuk pendaftaran baru">Masa Aktif</label>
+  <input type="number" id="defaultActiveDaysInput" required min="1" title="Masa aktif akun (dalam Hari)">
+  </div>
+  </div>
 
  <div style="border-top:1px solid var(--color-glass-border);margin-top:16px;padding-top:16px;margin-bottom:6px;">
  <h4 style="margin:0;font-size:0.85rem;font-weight:600;text-transform:uppercase;letter-spacing:0.5px;color:var(--color-accent-light);display:flex;align-items:center;gap:6px;">
@@ -94,21 +297,26 @@
  <svg class="icon-svg" style="color:#a5b4fc;"><use href="#hi-plus"/></svg> Tambah User Manual
  </h3>
  <form id="newUserForm" onsubmit="createUser(event)" style="display:flex;flex-direction:column;gap:12px;">
- <div class="form-row-2col grid grid-cols-1 sm:grid-cols-2 gap-4">
- <div class="form-group space-y-1">
- <label class="required" for="usernameInput">Username</label>
- <input type="text" id="usernameInput" required placeholder="Contoh: pak_budi" minlength="3">
- </div>
- <div class="form-group space-y-1">
-   <label for="instansiInput">Instansi</label>
-   <input type="text" id="instansiInput" placeholder="Nama instansi">
- </div>
- </div>
- <div class="form-row-2col grid grid-cols-1 sm:grid-cols-2 gap-4">
- <div class="form-group space-y-1">
- <label class="required" for="passwordInput">Password</label>
- <input type="password" id="passwordInput" required placeholder="Password awal" minlength="8">
- </div>
+  <div class="form-row-2col grid grid-cols-1 sm:grid-cols-2 gap-4">
+  <div class="form-group space-y-1">
+  <label class="required" for="usernameInput">Username</label>
+  <input type="text" id="usernameInput" required placeholder="Contoh: pak_budi" minlength="3">
+  </div>
+  <div class="form-group space-y-1">
+  <label for="nameInput">Nama</label>
+  <input type="text" id="nameInput" placeholder="Contoh: Budi Sudarsono">
+  </div>
+  </div>
+  <div class="form-row-2col grid grid-cols-1 sm:grid-cols-2 gap-4">
+  <div class="form-group space-y-1">
+  <label class="required" for="passwordInput">Password</label>
+  <input type="password" id="passwordInput" required placeholder="Password awal" minlength="8">
+  </div>
+  <div class="form-group space-y-1">
+    <label for="instansiInput">Instansi</label>
+    <input type="text" id="instansiInput" placeholder="Nama instansi">
+  </div>
+  </div>
   <div class="form-group space-y-1">
   <label>Role <span class="multirole-hint">multirole</span></label>
   <div class="role-chips">
@@ -125,15 +333,18 @@
   {{end}}
   </div>
   </div>
- </div>
- <div class="form-row-2col grid grid-cols-1 sm:grid-cols-2 gap-4">
+ <div class="form-row-2col grid grid-cols-1 sm:grid-cols-3 gap-4">
  <div class="form-group space-y-1">
- <label class="required" for="limitInput">Limit Ujian</label>
- <input type="number" id="limitInput" required value="0" min="0" class="q-field-input">
+  <label class="required" for="limitInput">Limit Ujian</label>
+  <input type="number" id="limitInput" required value="0" min="0" class="q-field-input">
  </div>
  <div class="form-group space-y-1">
- <label class="required" for="pdfSizeInput">Limit PDF (MB)</label>
- <input type="number" id="pdfSizeInput" required value="0.5" min="0" step="0.1" class="q-field-input">
+  <label class="required" for="pdfSizeInput">Limit PDF (MB)</label>
+  <input type="number" id="pdfSizeInput" required value="0.5" min="0" step="0.1" class="q-field-input">
+ </div>
+ <div class="form-group space-y-1">
+  <label class="required" for="storageSizeInput" title="Batas total kapasitas storage (0 = tidak terbatas)">Limit Storage (MB)</label>
+  <input type="number" id="storageSizeInput" required value="0" min="0" class="q-field-input">
  </div>
  </div>
  {{if and (eq .admin_role "operator") .operator_expires_at}}
@@ -174,7 +385,7 @@
  <!-- Search Bar -->
  <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;padding:0 0 16px 0;">
  <div style="position:relative;display:inline-block;">
-  <input type="text" id="userSearchInput" placeholder="Cari username atau WA..."
+  <input type="text" id="userSearchInput" placeholder="Cari username atau email..."
    style="padding:8px 32px 8px 14px;background:rgba(255,255,255,0.04);border:1px solid var(--color-glass-border);border-radius:10px;color:var(--color-text);outline:none;font-size:13px;width:220px;transition:border-color 0.2s;"
    onkeyup="if(event.key==='Enter') { loadUsersList(1); }"
    onfocus="this.style.borderColor='var(--color-primary)'" onblur="this.style.borderColor=''">
@@ -194,16 +405,17 @@
  <thead>
  <tr>
  <th scope="col">Username</th>
+ <th scope="col">Nama</th>
  <th scope="col">Instansi</th>
  <th scope="col">Role</th>
- <th scope="col">WhatsApp</th>
+ <th scope="col">Email</th>
  <th scope="col" class="text-center">Status</th>
  <th scope="col" class="text-right">Aksi</th>
  </tr>
  </thead>
  <tbody id="usersTableBody">
  <tr>
- <td colspan="6" style="text-align:center;padding:40px;color:var(--color-text-secondary);">
+ <td colspan="7" style="text-align:center;padding:40px;color:var(--color-text-secondary);">
  Memuat data user...
  </td>
  </tr>
@@ -250,7 +462,7 @@ window.__adminRole = '{{.admin_role}}';
 window.__adminInstansi = '{{.admin_instansi}}';
 document.addEventListener('DOMContentLoaded', function() {
  loadUsersList();
- if (document.getElementById('waEnabledInput')) loadSaasSettings();
+ if (document.getElementById('emailEnabledInput')) loadSaasSettings();
  if (window.__adminRole === 'operator') {
   var inp = document.getElementById('instansiInput');
   if (inp) {

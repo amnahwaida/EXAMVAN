@@ -23,6 +23,7 @@ type StudentAccessLog struct {
 	IPAddress         string     `json:"ip_address"`
 	DeviceInfo        string     `json:"device_info"`
 	CreatedAt         time.Time  `json:"created_at"`
+	IdentityData      *string    `json:"identity_data,omitempty"`
 }
 
 // AccessLogEvent constants.
@@ -33,14 +34,14 @@ const (
 )
 
 const defaultAccessLogColumns = `id, exam_id, submission_id, student_identifier,
-student_name, exam_number, student_class, event, ip_address, device_info, created_at`
+student_name, exam_number, student_class, event, ip_address, device_info, created_at, identity_data`
 
 func scanAccessLog(row pgx.Row) (StudentAccessLog, error) {
 	var l StudentAccessLog
 	err := row.Scan(
 		&l.ID, &l.ExamID, &l.SubmissionID, &l.StudentIdentifier,
 		&l.StudentName, &l.ExamNumber, &l.StudentClass, &l.Event,
-		&l.IPAddress, &l.DeviceInfo, &l.CreatedAt,
+		&l.IPAddress, &l.DeviceInfo, &l.CreatedAt, &l.IdentityData,
 	)
 	return l, err
 }
@@ -49,14 +50,14 @@ func scanAccessLog(row pgx.Row) (StudentAccessLog, error) {
 func CreateAccessLog(ctx context.Context, pool *pgxpool.Pool, l *StudentAccessLog) (*StudentAccessLog, error) {
 	sql := `INSERT INTO student_access_logs
 (exam_id, submission_id, student_identifier, student_name, exam_number, student_class,
- event, ip_address, device_info)
-VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)
+ event, ip_address, device_info, identity_data)
+VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)
 RETURNING ` + defaultAccessLogColumns
 
 	created, err := scanAccessLog(pool.QueryRow(ctx, sql,
 		l.ExamID, l.SubmissionID, l.StudentIdentifier,
 		l.StudentName, l.ExamNumber, l.StudentClass,
-		l.Event, l.IPAddress, l.DeviceInfo,
+		l.Event, l.IPAddress, l.DeviceInfo, l.IdentityData,
 	))
 	if err != nil {
 		return nil, fmt.Errorf("create access log: %w", err)

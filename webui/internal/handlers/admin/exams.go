@@ -151,6 +151,18 @@ func UploadExam() gin.HandlerFunc {
 				errorResponse(c, http.StatusForbidden, errMsg)
 				return
 			}
+			// Check storage limit (only enforce when MaxStorageSize > 0)
+			if user.MaxStorageSize > 0 {
+				var currentStorageBytes int64
+				err := pool.QueryRow(ctx, `SELECT COALESCE(SUM(size_bytes), 0) FROM exams WHERE created_by = $1`, userID).Scan(&currentStorageBytes)
+				if err == nil && currentStorageBytes+int64(len(fileData)) > user.MaxStorageSize {
+					limitMB := roundTo(float64(user.MaxStorageSize)/(1024*1024), 1)
+					errorResponse(c, http.StatusForbidden,
+						fmt.Sprintf("Batas kapasitas storage tercapai. Batas akun Anda adalah %.1f MB.", limitMB))
+					return
+				}
+			}
+
 			// Count existing exams (only enforce when MaxExams > 0 — 0 means unlimited)
 			if user.MaxExams > 0 {
 				opts := models.ListExamsOpts{CreatedBy: &userID}
@@ -205,15 +217,26 @@ func UploadExam() gin.HandlerFunc {
 			return
 		}
 
+		defaultMode := "dynamic"
+		defaultInterval := 5
+
+		var delegatedTo *int
+		if hasCurrentRole(c, models.RoleGuru) {
+			delegatedTo = &userID
+		}
+
 		exam := &models.Exam{
-			Name:          name,
-			FilePath:      filename,
-			SizeBytes:     int64(len(fileData)),
-			Token:         token,
-			Status:        "active",
-			SecurityLevel: "medium",
-			PublicResults: 1,
-			CreatedBy:     userID,
+			Name:               name,
+			FilePath:           filename,
+			SizeBytes:          int64(len(fileData)),
+			Token:              token,
+			Status:             "active",
+			SecurityLevel:      "medium",
+			PublicResults:      1,
+			CreatedBy:          userID,
+			DelegatedTo:        delegatedTo,
+			TokenMode:          &defaultMode,
+			TokenResetInterval: &defaultInterval,
 		}
 
 		created, err := models.CreateExam(ctx, pool, exam)
@@ -898,12 +921,11 @@ func UpdateTokenMode() gin.HandlerFunc {
 			return
 		}
 
-		if body.TokenMode != "static" && body.TokenMode != "dynamic" {
-			errorResponse(c, http.StatusBadRequest, "Mode token harus 'static' atau 'dynamic'")
-			return
+		if body.TokenMode != "dynamic" {
+			body.TokenMode = "dynamic"
 		}
 
-		if body.TokenMode == "dynamic" && (body.ResetInterval == nil || *body.ResetInterval < 1) {
+		if body.ResetInterval == nil || *body.ResetInterval < 1 {
 			errorResponse(c, http.StatusBadRequest, "Interval reset harus diisi (minimal 1 menit)")
 			return
 		}
@@ -961,15 +983,41 @@ func StartExam() gin.HandlerFunc {
 			return
 		}
 
-		// If mode is dynamic, also generate a new active_token on start
-		if exam.TokenMode != nil && *exam.TokenMode == "dynamic" {
-			newToken := generateToken()
-			if err := models.UpdateExamActiveToken(ctx, pool, examID, newToken); err != nil {
-				log.Printf("start exam: generate active token error: %v", err)
-			}
+		// Generate a new active_token on start (dynamic token)
+		newToken := generateToken()
+		if err := models.UpdateExamActiveToken(ctx, pool, examID, newToken); err != nil {
+			log.Printf("start exam: generate active token error: %v", err)
 		}
 
 		successMessage(c, "Ujian berhasil dimulai")
+	}
+}
+
+// StopExam marks an exam as inactive and stops supervision.
+// POST /admin/api/exams/:exam_id/stop
+func StopExam() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		examID, err := strconv.Atoi(c.Param("exam_id"))
+		if err != nil {
+			errorResponse(c, http.StatusBadRequest, "ID ujian tidak valid")
+			return
+		}
+
+		pool := getPool(c)
+		ctx := c.Request.Context()
+
+		if !checkExamOwnership(c, pool, examID) {
+			errorResponse(c, http.StatusForbidden, "Akses ditolak")
+			return
+		}
+
+		if err := models.StopExam(ctx, pool, examID); err != nil {
+			log.Printf("stop exam error: %v", err)
+			errorResponse(c, http.StatusInternalServerError, "Gagal menghentikan ujian")
+			return
+		}
+
+		successMessage(c, "Pengawasan berhasil dihentikan, ujian dinonaktifkan")
 	}
 }
 
@@ -1276,14 +1324,14 @@ func PostDelegateExam() gin.HandlerFunc {
 
 				if err := models.DelegateExam(ctx, pool, examID, &newOwnerID); err != nil {
 					log.Printf("delegate exam error: %v", err)
-					errorResponse(c, http.StatusInternalServerError, "Gagal mengatur penanggung jawab")
+					errorResponse(c, http.StatusInternalServerError, "Gagal mengatur Guru")
 					return
 				}
 			} else {
 				// Remove delegation
 				if err := models.DelegateExam(ctx, pool, examID, nil); err != nil {
 					log.Printf("delegate exam remove error: %v", err)
-					errorResponse(c, http.StatusInternalServerError, "Gagal menghapus penanggung jawab")
+					errorResponse(c, http.StatusInternalServerError, "Gagal menghapus Guru")
 					return
 				}
 			}

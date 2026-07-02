@@ -130,12 +130,22 @@ func HasilPage() gin.HandlerFunc {
 			total = 0
 		}
 
+		var creatorName string
+		pool.QueryRow(ctx, `SELECT username FROM admin_users WHERE id = $1`, exam.CreatedBy).Scan(&creatorName)
+
+		var delegatedName string
+		if exam.DelegatedTo != nil {
+			pool.QueryRow(ctx, `SELECT username FROM admin_users WHERE id = $1`, *exam.DelegatedTo).Scan(&delegatedName)
+		}
+
 		c.HTML(http.StatusOK, "public/hasil.html", gin.H{
 			"exam_name":      exam.Name,
 			"token":          exam.Token,
 			"total_students": total,
 			"is_logged_in":   isLoggedIn,
 			"show_answers":   exam.AreAnswersShown(),
+			"creator_name":   creatorName,
+			"delegated_name": delegatedName,
 		})
 	}
 }

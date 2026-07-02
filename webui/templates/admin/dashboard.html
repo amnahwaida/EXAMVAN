@@ -21,15 +21,155 @@
 .pengawas-popup-item{padding:6px 14px;font-size:0.78rem;color:var(--color-text);white-space:nowrap}
 .pengawas-popup-item:hover{background:rgba(168,85,247,0.08)}
 .token-mode-group{display:flex;flex-direction:column;gap:6px}
-.token-mode-select{padding:4px 8px;border-radius:6px;background:rgba(255,255,255,0.04);border:1px solid var(--color-glass-border);color:var(--color-text);font-size:0.75rem;cursor:pointer;width:100%;min-width:80px}
-.token-mode-select:focus{outline:none;border-color:rgba(99,102,241,0.5)}
-.token-static-settings,.token-dynamic-settings{display:flex;align-items:center;gap:6px;flex-wrap:wrap}
+.token-dynamic-settings{display:flex;align-items:center;gap:6px;flex-wrap:wrap}
 .token-interval-group{display:flex;align-items:center;gap:4px}
-.token-interval-input{width:50px;padding:3px 6px;border-radius:6px;background:rgba(255,255,255,0.04);border:1px solid var(--color-glass-border);color:var(--color-text);font-size:0.75rem;text-align:center}
-.token-interval-input:focus{outline:none;border-color:rgba(99,102,241,0.5)}
+.token-interval-input{width:54px;padding:4px 8px;border-radius:6px;background:var(--color-bg);border:1px solid var(--color-glass-border);color:var(--color-text);font-size:0.75rem;text-align:center;font-family:var(--font-mono);outline:none;transition:border-color 0.2s}
+.token-interval-input:focus{outline:none;border-color:rgba(99,102,241,0.5);box-shadow:0 0 0 2px var(--color-primary-glow)}
 .token-interval-label{font-size:0.7rem;color:var(--color-text-muted);white-space:nowrap}
-.btn-save-interval{background:rgba(16,185,129,0.15);border:1px solid rgba(16,185,129,0.3);color:#34d399;border-radius:6px;padding:3px 6px;cursor:pointer;display:inline-flex;align-items:center;line-height:1}
+.btn-save-interval{background:rgba(16,185,129,0.15);border:1px solid rgba(16,185,129,0.3);color:#34d399;border-radius:6px;padding:4px 8px;cursor:pointer;display:inline-flex;align-items:center;line-height:1}
 .btn-save-interval:hover{background:rgba(16,185,129,0.25)}
+/* Mobile layout overrides (preserving project theme/colors) */
+@media (max-width: 768px) {
+  .exam-table, 
+  .exam-table tbody, 
+  .exam-table tr, 
+  .exam-table td {
+    display: block !important;
+    width: 100% !important;
+  }
+  .exam-table thead {
+    display: none !important;
+  }
+  
+  /* Layout-only Card adjustments */
+  .exam-table tbody tr {
+    position: relative !important;
+    margin-bottom: 16px !important;
+    padding: 16px 18px !important;
+    display: flex !important;
+    flex-direction: column !important;
+    gap: 8px !important;
+  }
+
+  /* Cells layout */
+  .exam-table td {
+    display: flex !important;
+    align-items: center !important;
+    justify-content: space-between !important;
+    padding: 6px 0 !important;
+    border: none !important;
+    font-size: 0.8rem !important;
+  }
+  
+  .exam-table td::before {
+    content: attr(data-label) !important;
+    font-weight: 700 !important;
+    font-size: 0.68rem !important;
+    text-transform: uppercase !important;
+    letter-spacing: 0.04em !important;
+  }
+
+  /* Floating Checkbox */
+  .exam-table.table-with-checkbox td:first-child {
+    position: absolute !important;
+    top: 18px !important;
+    right: 18px !important;
+    width: auto !important;
+    padding: 0 !important;
+    z-index: 10 !important;
+  }
+  .exam-table.table-with-checkbox td:first-child::before {
+    content: none !important;
+  }
+
+  /* Card Title (Exam Name) */
+  .exam-table td.td-name {
+    padding: 0 !important;
+    margin-bottom: 8px !important;
+    width: calc(100% - 30px) !important;
+  }
+  .exam-table td.td-name::before {
+    content: none !important;
+  }
+  .exam-table td.td-name a {
+    font-size: 1.1rem !important;
+    font-weight: 800 !important;
+    line-height: 1.3 !important;
+  }
+
+  /* Action Buttons Row */
+  .exam-table td.td-actions {
+    justify-content: flex-end !important;
+    border-top: 1px solid var(--color-glass-border) !important;
+    margin-top: 8px !important;
+    padding-top: 12px !important;
+  }
+  .exam-table td.td-actions::before {
+    content: none !important;
+  }
+
+  /* Reset table cell borders */
+  .exam-table td:first-child,
+  .exam-table td:last-child {
+    border-radius: 0 !important;
+  }
+
+  /* Spacing adjustments for Upload form on mobile */
+  .network-info {
+    margin-bottom: 12px !important;
+  }
+  .upload-section {
+    margin-top: 0 !important;
+    margin-bottom: 14px !important;
+    padding: 16px !important;
+  }
+  .upload-section h3 {
+    font-size: 1rem !important;
+    margin-bottom: 12px !important;
+  }
+  .upload-form .form-row {
+    display: flex !important;
+    flex-direction: column !important;
+    gap: 12px !important;
+    width: 100% !important;
+  }
+  .upload-form .form-group {
+    width: 100% !important;
+    max-width: 100% !important;
+    flex: 1 1 100% !important;
+  }
+  .upload-form .file-input-wrapper,
+  .upload-form .file-input-display {
+    width: 100% !important;
+  }
+  .upload-form .form-group label {
+    font-size: 0.75rem !important;
+    font-weight: 700 !important;
+  }
+  .upload-form input[type="text"],
+  .upload-form .file-input-display {
+    padding: 10px 12px !important;
+    font-size: 0.82rem !important;
+    border-radius: 8px !important;
+  }
+  .upload-form .file-input-display {
+    height: auto !important;
+    display: flex !important;
+    align-items: center !important;
+    gap: 8px !important;
+  }
+  #btnUpload {
+    margin-top: 14px !important;
+    width: 100% !important;
+    padding: 12px !important;
+    font-size: 0.85rem !important;
+    font-weight: 700 !important;
+    border-radius: 8px !important;
+    display: flex !important;
+    justify-content: center !important;
+    align-items: center !important;
+  }
+}
 </style>
 </head>
 <body class="dashboard-page">
@@ -97,16 +237,25 @@
 <span class="net-label">Max Upload</span>
 <span class="net-value">{{.max_size_mb}} MB</span>
 </div>
+<div class="net-item">
+<span class="net-label">Sisa Storage</span>
+<span class="net-value">{{.remaining_storage}}</span>
+</div>
+</div>
+<!-- Server Address Box -->
+<div class="server-url-box" style="margin-top:16px;padding:12px;background:rgba(255,255,255,0.05);border-radius:8px;border:1px solid rgba(255,255,255,0.1);display:flex;align-items:center;justify-content:space-between;gap:12px;">
+  <div style="display:flex;align-items:center;gap:8px;">
+    <svg class="icon-svg" style="color:var(--color-primary-light);width:18px;height:18px;"><use href="#hi-link"/></svg>
+    <div style="display:flex;flex-direction:column;">
+      <span style="font-size:0.75rem;color:var(--color-text-muted);font-weight:500;">Alamat API / Server (Android &amp; Desktop)</span>
+      <code id="serverUrlValue" style="font-size:0.85rem;color:var(--color-text);font-family:monospace;word-break:break-all;">{{.server_url}}</code>
+    </div>
+  </div>
+  <button class="btn-sm" onclick="copyServerURL('{{.server_url}}')" style="padding:4px 8px;font-size:0.75rem;display:inline-flex;align-items:center;gap:4px;flex-shrink:0;">
+    <svg class="icon-svg" style="width:12px;height:12px;"><use href="#hi-clipboard"/></svg> Salin
+  </button>
 </div>
 </section>
-
-{{if .account_expires}}
-<section class="expiry-banner glass-card" style="margin-top:12px;padding:12px 18px;border-left:4px solid #fbbf24;display:flex;align-items:center;gap:12px;">
-<svg class="icon-svg" style="width:22px;height:22px;flex-shrink:0;color:#fbbf24;"><use href="#hi-exclamation"/></svg>
-<div style="flex:1;"><span style="font-weight:600;font-size:14px;">Masa Aktif Akun</span>
-<span id="expiryBannerDays" style="font-size:13px;margin-left:8px;opacity:0.85;">&#x23F3; Menghitung...</span></div>
-</section>
-{{end}}
 
 <!-- Upload Section -->
 <section class="upload-section glass-card">
@@ -198,17 +347,11 @@
 {{end}}
 <td class="td-token" data-label="Token">
 <div class="token-mode-group">
-<select class="token-mode-select" data-exam-id="{{$exam.ID}}" onchange="onTokenModeChange(this, {{$exam.ID}})">
-<option value="static" {{if eq $exam.TokenMode "static"}}selected{{end}}>Statis</option>
-<option value="dynamic" {{if eq $exam.TokenMode "dynamic"}}selected{{end}}>Dinamis</option>
-</select>
-<div class="token-static-settings" id="token-static-{{$exam.ID}}" {{if eq $exam.TokenMode "dynamic"}}style="display:none"{{end}}>
-<code class="token-code" id="token-{{$exam.ID}}" data-token="{{$exam.ActiveToken}}" onclick="copyToken(this.dataset.token)" title="Klik untuk Salin Token">{{$exam.ActiveToken}}</code>
-<button class="btn-icon btn-regen" onclick="regenerateToken({{$exam.ID}})" title="Generate Token Baru (mengubah semua token)"><svg class="icon-svg" style="width:16px;height:16px;"><use href="#hi-refresh"/></svg></button>
-<button class="btn-icon btn-edit" data-exam-id="{{$exam.ID}}" data-token="{{$exam.Token}}" onclick="openEditTokenModal(this.dataset.examId, this.dataset.token)" title="Ubah Token Kustom"><svg class="icon-svg" style="width:16px;height:16px;"><use href="#hi-edit"/></svg></button>
+<div class="token-dynamic-settings" id="token-dynamic-{{$exam.ID}}">
+<div style="display:flex;align-items:center;gap:4px;flex-shrink:0;white-space:nowrap;">
+  <code class="token-code" id="token-dyn-{{$exam.ID}}" data-token="{{$exam.ActiveToken}}" onclick="copyToken(this.dataset.token)" title="Klik untuk Salin Token">{{$exam.ActiveToken}}</code>
+  <button class="btn-icon btn-edit" data-exam-id="{{$exam.ID}}" data-token="{{$exam.Token}}" onclick="openEditTokenModal(this.dataset.examId, this.dataset.token)" title="Kustomisasi Token Awal" style="background:transparent;border:none;cursor:pointer;color:var(--color-text-muted);padding:2px;display:inline-flex;align-items:center;justify-content:center;transition:color 0.2s;margin-left:-2px;"><svg class="icon-svg" style="width:14px;height:14px;"><use href="#hi-edit"/></svg></button>
 </div>
-<div class="token-dynamic-settings" id="token-dynamic-{{$exam.ID}}" {{if eq $exam.TokenMode "static"}}style="display:none"{{end}}>
-<code class="token-code" id="token-dyn-{{$exam.ID}}" data-token="{{$exam.ActiveToken}}" onclick="copyToken(this.dataset.token)" title="Klik untuk Salin Token">{{$exam.ActiveToken}}</code>
 <div class="token-interval-group">
 <input type="number" class="token-interval-input" id="interval-{{$exam.ID}}" value="{{if $exam.TokenResetInterval}}{{$exam.TokenResetInterval}}{{else}}5{{end}}" min="1" placeholder="menit" title="Interval reset token (menit)">
 <span class="token-interval-label">menit</span>
@@ -218,7 +361,7 @@
 </div>
 </td>
 <td data-label="Status">
-{{if or (eq $.admin_role "superadmin") (eq $.admin_role "operator")}}
+{{if or (eq $.admin_role "superadmin") (eq $.admin_role "operator") (eq $.admin_id $exam.CreatedBy) (and $exam.DelegatedTo (eq $.admin_id $exam.DelegatedTo))}}
 <span class="status-badge status-{{$exam.Status}}" id="status-{{$exam.ID}}" onclick="toggleExam({{$exam.ID}})" tabindex="0" role="button" title="Klik untuk toggle status">{{$exam.Status}}</span>
 {{else}}
 <span class="status-badge status-{{$exam.Status}}" style="cursor:default;">{{$exam.Status}}</span>
@@ -250,10 +393,7 @@
 {{if or (eq $.admin_role "operator") (eq $.admin_role "superadmin")}}
 <button data-exam-id="{{$exam.ID}}" onclick="openDelegateExamModal(this.dataset.examId)"><svg class="icon-svg"><use href="#hi-users"/></svg> Delegasi Ujian</button>
 {{end}}
-<a href="/hasil/{{$exam.Token}}" target="_blank"><svg class="icon-svg"><use href="#hi-link"/></svg> Halaman Siswa</a>
-{{if eq $exam.PublicResults 1}}<button id="btn-public-results-{{$exam.ID}}" data-exam-id="{{$exam.ID}}" onclick="togglePublicResults(this.dataset.examId)" class="dropdown-toggle-btn" style="background:rgba(16,185,129,0.15);border-color:rgba(16,185,129,0.3);color:#34d399;"><svg class="icon-svg"><use href="#hi-eye"/></svg> Hal. Siswa Aktif</button>{{else}}<button id="btn-public-results-{{$exam.ID}}" data-exam-id="{{$exam.ID}}" onclick="togglePublicResults(this.dataset.examId)" class="dropdown-toggle-btn" style="background:rgba(239,68,68,0.15);border-color:rgba(239,68,68,0.3);color:#f87171;"><svg class="icon-svg"><use href="#hi-eye-off"/></svg> Hal. Siswa Nonaktif</button>{{end}}
-{{if eq $exam.ShowAnswers 1}}<button id="btn-show-answers-{{$exam.ID}}" data-exam-id="{{$exam.ID}}" onclick="toggleShowAnswers(this.dataset.examId)" class="dropdown-toggle-btn" style="background:rgba(251,191,36,0.15);border-color:rgba(251,191,36,0.3);color:#fbbf24;"><svg class="icon-svg"><use href="#hi-lock-open"/></svg> Kunci Terlihat</button>{{else}}<button id="btn-show-answers-{{$exam.ID}}" data-exam-id="{{$exam.ID}}" onclick="toggleShowAnswers(this.dataset.examId)" class="dropdown-toggle-btn" style="background:rgba(107,114,128,0.15);border-color:rgba(107,114,128,0.3);color:#9ca3af;"><svg class="icon-svg"><use href="#hi-lock"/></svg> Kunci Tersembunyi</button>{{end}}
-{{if or (eq $.admin_role "superadmin") (eq $.admin_role "operator")}}
+{{if or (eq $.admin_role "superadmin") (eq $.admin_role "operator") (eq $.admin_id $exam.CreatedBy) (and $exam.DelegatedTo (eq $.admin_id $exam.DelegatedTo))}}
 <button data-exam-id="{{$exam.ID}}" data-exam-name="{{$exam.Name}}" onclick="deleteExam(this.dataset.examId, this.dataset.examName)" class="dropdown-toggle-btn" style="color:#f87171;"><svg class="icon-svg"><use href="#hi-trash"/></svg> Hapus Ujian</button>
 {{end}}
 </div>
@@ -410,13 +550,13 @@
 <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 10px;">
 <svg class="icon-svg" style="width:18px;height:18px;"><use href="#hi-link"/></svg>
 <div>
-<div style="font-weight: 600; color: var(--text-primary); font-size: 0.9rem;">Tunjuk Penanggung Jawab</div>
-<div style="font-size: 0.75rem; color: var(--color-text-muted);">Pilih guru yang bertanggung jawab. <span id="delegateCurrentOwner"></span></div>
+<div style="font-weight: 600; color: var(--text-primary); font-size: 0.9rem;">Tunjuk Guru</div>
+<div style="font-size: 0.75rem; color: var(--color-text-muted);">Pilih guru pengampu ujian. <span id="delegateCurrentOwner"></span></div>
 </div>
 </div>
 <div class="form-group" style="margin-bottom: 4px;">
 <select id="delegateOwnerSelect" style="width:100%;padding:10px 12px;background:rgba(255,255,255,0.04);border:1px solid var(--color-glass-border);border-radius:8px;color:var(--color-text);font-size:14px;">
-<option value="">-- Tidak ada penanggung jawab --</option>
+<option value="">-- Tidak ada Guru --</option>
 </select>
 </div>
 </div>
@@ -706,8 +846,7 @@ document.addEventListener('DOMContentLoaded', function() {
         if (up.has('status')) sf.value = up.get('status');
     }
     var expiryEl = document.getElementById('expiryCountdown');
-    var bannerDays = document.getElementById('expiryBannerDays');
-    if (expiryEl && bannerDays) {
+    if (expiryEl) {
         var expiresStr = expiryEl.getAttribute('data-expires');
         if (expiresStr) {
             var expiresDate = new Date(expiresStr.replace(' ', 'T') + 'Z');
@@ -715,10 +854,10 @@ document.addEventListener('DOMContentLoaded', function() {
                 var now = new Date();
                 var diffMs = expiresDate - now;
                 var diffDays = Math.ceil(diffMs / (1000 * 60 * 60 * 24));
-                if (diffDays < 0) bannerDays.innerHTML = '<span style="color:#f87171;font-weight:600;">Kedaluwarsa</span>';
-                else if (diffDays === 0) bannerDays.innerHTML = '<span style="color:#fbbf24;font-weight:600;">Kedaluwarsa hari ini</span>';
-                else if (diffDays <= 7) bannerDays.innerHTML = '<span style="color:#f87171;font-weight:600;">' + diffDays + ' hari lagi</span>';
-                else bannerDays.innerHTML = diffDays + ' hari lagi';
+                if (diffDays < 0) expiryEl.innerHTML = '<span style="color:#f87171;font-weight:600;">Kedaluwarsa</span>';
+                else if (diffDays === 0) expiryEl.innerHTML = '<span style="color:#fbbf24;font-weight:600;">Kedaluwarsa hari ini</span>';
+                else if (diffDays <= 7) expiryEl.innerHTML = '<span style="color:#f87171;font-weight:600;">' + diffDays + ' hari lagi</span>';
+                else expiryEl.innerHTML = diffDays + ' hari lagi';
             }
         }
     }
@@ -730,6 +869,25 @@ function toggleRowDropdown(event, examId) {
     if (el) { document.querySelectorAll('.exam-action-dropdown-content.show').forEach(function(e) { if (e !== el) e.classList.remove('show'); }); el.classList.toggle('show'); }
 }
 document.addEventListener('click', function() { document.querySelectorAll('.exam-action-dropdown-content.show').forEach(function(e) { e.classList.remove('show'); }); });
+
+function copyServerURL(url) {
+    if (!url) return;
+    if (navigator.clipboard) {
+        navigator.clipboard.writeText(url).then(function() {
+            showToast('Alamat API / Server berhasil disalin', 'success');
+        }).catch(function() {
+            showToast('Gagal menyalin alamat', 'error');
+        });
+    } else {
+        const textarea = document.createElement('textarea');
+        textarea.value = url;
+        document.body.appendChild(textarea);
+        textarea.select();
+        document.execCommand('copy');
+        textarea.remove();
+        showToast('Alamat API / Server berhasil disalin', 'success');
+    }
+}
 </script>
 </body>
 </html>

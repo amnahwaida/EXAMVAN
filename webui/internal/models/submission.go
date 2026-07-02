@@ -460,6 +460,7 @@ type ListSubmissionsByExamOpts struct {
 	Page     int
 	PerPage  int
 	Search   string
+	Status   string
 }
 
 // ListSubmissionsResult holds paginated submissions and stats.
@@ -502,6 +503,16 @@ func ListSubmissionsByExam(ctx context.Context, pool *pgxpool.Pool, opts ListSub
 				argIdx, argIdx+1, argIdx+2, argIdx+3))
 		args = append(args, pat, pat, pat, pat)
 		argIdx += 4
+	}
+
+	if opts.Status != "" {
+		if opts.Status == "submitted" {
+			conditions = append(conditions, "answers_json IS NOT NULL AND answers_json != ''")
+		} else if opts.Status == "in_progress" {
+			conditions = append(conditions, "(answers_json IS NULL OR answers_json = '') AND start_time IS NOT NULL")
+		} else if opts.Status == "not_started" {
+			conditions = append(conditions, "(answers_json IS NULL OR answers_json = '') AND start_time IS NULL")
+		}
 	}
 
 	where := " WHERE " + joinConditions(conditions, " AND ")

@@ -1280,7 +1280,7 @@ function loadUsersList(page) {
     // Hapus popup yang tertinggal di body (dari fix backdrop-filter containing block)
     document.querySelectorAll('body > .user-info-popup').forEach(function(p) { p.remove(); });
 
-    tbody.innerHTML = '<tr><td colspan="6" style="text-align:center; padding: 20px; color: var(--color-text-secondary);">⏳ Memuat...</td></tr>';
+    tbody.innerHTML = '<tr><td colspan="7" style="text-align:center; padding: 20px; color: var(--color-text-secondary);">⏳ Memuat...</td></tr>';
 
     apiFetch(url)
         .then(r => r.json())
@@ -1290,7 +1290,7 @@ function loadUsersList(page) {
                 tbody.innerHTML = '';
 
                 if (!Array.isArray(res.users) || res.users.length === 0) {
-                    tbody.innerHTML = '<tr><td colspan="6" style="text-align:center; padding: 40px; color: var(--color-text-secondary);">'
+                    tbody.innerHTML = '<tr><td colspan="7" style="text-align:center; padding: 40px; color: var(--color-text-secondary);">'
                         + (searchVal ? 'Tidak ditemukan user yang cocok dengan "' + escapeHtml(searchVal) + '"' : 'Belum ada user terdaftar')
                         + '</td></tr>';
                     renderUsersPagination(pagination, page);
@@ -1302,13 +1302,14 @@ function loadUsersList(page) {
                     const isAdmin = user.username === 'superadmin';
                     var statusClick = isAdmin ? '' : ' onclick="toggleUserStatus(' + user.id + ')"';
                     var statusBadge = user.status === 'active'
-                        ? '<span class="status-badge status-active"' + statusClick + '>Aktif</span>'
-                        : user.status === 'suspended'
-                        ? '<span class="status-badge status-suspended"' + statusClick + '>Suspen</span>'
-                        : '<span class="status-badge status-inactive"' + statusClick + '>Pending</span>';
+                         ? '<span class="status-badge status-active"' + statusClick + '>Aktif</span>'
+                         : user.status === 'suspended'
+                         ? '<span class="status-badge status-suspended"' + statusClick + '>Suspen</span>'
+                         : '<span class="status-badge status-inactive"' + statusClick + '>Pending</span>';
                     const expiresAt = user.expires_at || '—';
                     const createdAt = user.created_at ? localizeUTC(user.created_at) : '—';
                     const limitPdfMb = user.max_pdf_size ? (user.max_pdf_size / (1024*1024)).toFixed(1) + ' MB' : '—';
+                    const limitStorageMb = user.max_storage_size ? (user.max_storage_size / (1024*1024)).toFixed(1) + ' MB' : '—';
 
                     // Build action buttons for non-admin users
                     var actionsHtml = '<span style="font-size:11px; color: var(--color-text-secondary);">—</span>';
@@ -1334,13 +1335,15 @@ function loadUsersList(page) {
                                 <div class="user-info-item"><span>Ujian</span><strong>${user.exam_count ?? 0}</strong></div>
                                 <div class="user-info-item"><span>Limit Ujian</span><strong>${user.max_exams ?? '—'}</strong></div>
                                 <div class="user-info-item"><span>Limit PDF</span><strong>${limitPdfMb}</strong></div>
+                                <div class="user-info-item"><span>Limit Storage</span><strong>${limitStorageMb}</strong></div>
                                 <div class="user-info-item"><span>Masa Aktif</span><strong>${expiresAt}</strong></div>
                                 <div class="user-info-item"><span>Terdaftar</span><strong>${createdAt}</strong></div>
                             </div>
                         </td>
+                        <td data-label="Nama">${escapeHtml(user.name || '—')}</td>
                         <td data-label="Instansi">${window.__adminRole === 'superadmin' ? '<span class="editable-instansi" data-user-id="' + user.id + '" style="color:#a5b4fc;cursor:pointer;border-bottom:1px dashed rgba(165,180,252,0.3);" title="Klik untuk ubah instansi">' + escapeHtml(user.instansi || '—') + '</span>' : escapeHtml(user.instansi || '—')}</td>
                         <td data-label="Role">${isAdmin ? '<span style="display:inline-block;padding:2px 8px;border-radius:10px;font-size:11px;font-weight:600;background:rgba(251,191,36,0.15);color:#fbbf24;border:1px solid rgba(251,191,36,0.3);">Super Admin</span>' : renderRoleBadges(user.roles)}</td>
-                        <td data-label="WhatsApp">${escapeHtml(user.whatsapp_number || '—')}</td>
+                        <td data-label="Email">${escapeHtml(user.email || '—')}</td>
                         <td data-label="Status" style="text-align:center;">${statusBadge}</td>
                         <td data-label="Aksi" style="text-align:right;">${actionsHtml}</td>
                     `;
@@ -1358,7 +1361,7 @@ function loadUsersList(page) {
                 });
                 renderUsersPagination(pagination, page);
             } else {
-                tbody.innerHTML = '<tr><td colspan="6" style="text-align:center; padding: 20px; color: #fca5a5;">Gagal memuat daftar user</td></tr>';
+                tbody.innerHTML = '<tr><td colspan="7" style="text-align:center; padding: 20px; color: #fca5a5;">Gagal memuat daftar user</td></tr>';
             }
         })
         .catch(() => {
@@ -1522,7 +1525,7 @@ function toggleUserStatus(userId) {
 }
 
 function verifyUser(userId, username) {
-    showConfirm(`Verifikasi user "${username}"?`, 'User ini akan diaktifkan secara manual tanpa verifikasi WhatsApp.').then(ok => {
+    showConfirm(`Verifikasi user "${username}"?`, 'User ini akan diaktifkan secara manual tanpa verifikasi Email.').then(ok => {
         if (!ok) return;
         apiFetch(`/admin/api/users/${userId}/verify`, {
             method: 'POST'
@@ -1575,9 +1578,11 @@ function openEditUserModal(userId) {
             // Populate fields
             document.getElementById('editUserId').value = user.id;
             document.getElementById('editUserUsername').textContent = user.username;
+            document.getElementById('editUserName').value = user.name || '';
             document.getElementById('editUserExams').value = user.max_exams ?? 3;
             document.getElementById('editUserPdfSize').value = user.max_pdf_size ? (user.max_pdf_size / (1024*1024)).toFixed(1) : '1';
-            document.getElementById('editUserWhatsapp').value = user.whatsapp_number || '';
+            document.getElementById('editUserStorageSize').value = user.max_storage_size ? (user.max_storage_size / (1024*1024)).toFixed(1) : '0';
+            document.getElementById('editUserEmail').value = user.email || '';
             document.getElementById('editUserInstansi').value = user.instansi || '';
             var userRoles = user.roles || (user.role ? [user.role] : ['guru']);
             document.getElementById('editRoleGuru').checked = userRoles.indexOf('guru') !== -1;
@@ -1730,9 +1735,11 @@ function submitEditUser(e) {
     e.preventDefault();
     var userId = document.getElementById('editUserId').value;
     var data = {
+        name: document.getElementById('editUserName').value.trim(),
         max_exams: (function(){ var v=document.getElementById('editUserExams').value; return v==='' ? 3 : parseInt(v); })(),
         max_pdf_size_mb: (function(){ var v=document.getElementById('editUserPdfSize').value; return v==='' ? 1 : parseFloat(v); })(),
-        whatsapp_number: document.getElementById('editUserWhatsapp').value.trim(),
+        max_storage_size_mb: (function(){ var v=document.getElementById('editUserStorageSize').value; return v==='' ? 0 : parseFloat(v); })(),
+        email: document.getElementById('editUserEmail').value.trim(),
         roles: []
     };
     // Hanya kirim instansi jika fieldnya visible (tidak disembunyikan untuk operator)
@@ -1808,7 +1815,11 @@ function createEditUserModal() {
             <div class="modal-body">
                 <form id="editUserForm" onsubmit="submitEditUser(event)">
                     <input type="hidden" id="editUserId">
-                    <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;">
+                    <div class="form-group" style="margin-bottom:8px;">
+                        <label for="editUserName">Nama Lengkap</label>
+                        <input type="text" id="editUserName" placeholder="Contoh: Budi Sudarsono" style="width:100%;">
+                    </div>
+                    <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px;">
                         <div class="form-group" style="margin-bottom:8px;">
                             <label for="editUserExams">Limit Ujian</label>
                             <input type="number" id="editUserExams" required min="0" style="width:100%;">
@@ -1817,10 +1828,14 @@ function createEditUserModal() {
                             <label for="editUserPdfSize">Limit PDF (MB)</label>
                             <input type="number" id="editUserPdfSize" required min="0" step="0.1" style="width:100%;">
                         </div>
+                        <div class="form-group" style="margin-bottom:8px;">
+                            <label for="editUserStorageSize">Limit Storage (MB)</label>
+                            <input type="number" id="editUserStorageSize" required min="0" style="width:100%;">
+                        </div>
                     </div>
                     <div class="form-group" style="margin-bottom:8px;">
-                        <label for="editUserWhatsapp">WhatsApp Number</label>
-                        <input type="text" id="editUserWhatsapp" placeholder="Contoh: 081234567890" style="width:100%;">
+                        <label for="editUserEmail">Email</label>
+                        <input type="email" id="editUserEmail" placeholder="Contoh: guru@gmail.com" style="width:100%;">
                     </div>
                     <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;">
                         <div class="form-group" style="margin-bottom:8px;">
@@ -2299,7 +2314,7 @@ function openDelegateExamModal(examId) {
     fetch('/admin/api/exams/' + examId + '/delegate-data')
         .then(function(r) { return r.json(); })
         .then(function(res) {
-            guruSelect.innerHTML = '<option value="">-- Tidak ada penanggung jawab --</option>';
+            guruSelect.innerHTML = '<option value="">-- Tidak ada Guru --</option>';
 
             if (res.success && res.data) {
                 var d = res.data;
@@ -2316,7 +2331,7 @@ function openDelegateExamModal(examId) {
                         var lbl = document.createElement('div');
                         lbl.id = 'delegateCurrentLabel';
                         lbl.style.cssText = 'font-size:0.8rem;color:#94a3b8;margin-bottom:6px;';
-                        lbl.textContent = 'Penanggung jawab saat ini: ' + d.delegated_to.username;
+                        lbl.textContent = 'Guru saat ini: ' + d.delegated_to.username;
                         infoDiv.parentNode.insertBefore(lbl, infoDiv);
                     }
                 } else if (delegateLabel) {
@@ -2697,9 +2712,12 @@ function deleteSubmission(id) {
 
 function saveSaasSettings(e) {
     e.preventDefault();
-    const wa_verification_enabled = document.getElementById('waEnabledInput').checked;
-    const wa_api_token = document.getElementById('waTokenInput').value.trim();
-    const wa_otp_template = document.getElementById('waTemplateInput').value.trim();
+    const email_verification_enabled = document.getElementById('emailEnabledInput').checked;
+    const smtp_host = document.getElementById('smtpHostInput').value.trim();
+    const smtp_port = document.getElementById('smtpPortInput').value.trim();
+    const smtp_user = document.getElementById('smtpUserInput').value.trim();
+    const smtp_password = document.getElementById('smtpPasswordInput').value.trim();
+    const smtp_sender_name = document.getElementById('smtpSenderNameInput').value.trim();
     const default_max_exams = parseInt(document.getElementById('defaultExamsInput').value);
     const default_max_pdf_size_mb = parseFloat(document.getElementById('defaultPdfInput').value);
     const default_active_days = parseInt(document.getElementById('defaultActiveDaysInput').value);
@@ -2710,7 +2728,7 @@ function saveSaasSettings(e) {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-            wa_verification_enabled, wa_api_token, wa_otp_template,
+            email_verification_enabled, smtp_host, smtp_port, smtp_user, smtp_password, smtp_sender_name,
             default_max_exams, default_max_pdf_size_mb,
             default_active_days, android_version, webapp_version
         })
@@ -2725,6 +2743,51 @@ function saveSaasSettings(e) {
         }
     })
     .catch(() => showToast('Gagal menyimpan setelan SaaS', 'error'));
+}
+
+function testSmtpConnection() {
+    const smtp_host = document.getElementById('smtpHostInput').value.trim();
+    const smtp_port = document.getElementById('smtpPortInput').value.trim();
+    const smtp_user = document.getElementById('smtpUserInput').value.trim();
+    const smtp_password = document.getElementById('smtpPasswordInput').value.trim();
+
+    if (!smtp_host || !smtp_port) {
+        showToast('SMTP Host dan Port harus diisi', 'error');
+        return;
+    }
+
+    const btn = document.getElementById('testSmtpBtn');
+    const btnText = document.getElementById('testSmtpText');
+    const btnIcon = document.getElementById('testSmtpIcon');
+
+    // Disable button and show loading state
+    btn.disabled = true;
+    btn.style.opacity = '0.6';
+    btnText.innerText = 'Menghubungkan...';
+    if (btnIcon) btnIcon.style.animation = 'loginSpinner 0.8s linear infinite';
+
+    apiFetch('/admin/api/saas-settings/test-smtp', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ smtp_host, smtp_port, smtp_user, smtp_password })
+    })
+    .then(r => r.json().then(data => ({ status: r.status, body: data })))
+    .then(({ status, body }) => {
+        if (status === 200 && body.success) {
+            showToast(body.message || 'Koneksi SMTP berhasil terhubung!', 'success');
+        } else {
+            showToast(body.message || 'Koneksi SMTP gagal', 'error');
+        }
+    })
+    .catch(() => {
+        showToast('Terjadi kesalahan saat menghubungi server', 'error');
+    })
+    .finally(() => {
+        btn.disabled = false;
+        btn.style.opacity = '1';
+        btnText.innerText = 'Test Koneksi SMTP';
+        if (btnIcon) btnIcon.style.animation = 'none';
+    });
 }
 
 function syncLimitFields() {
@@ -2756,9 +2819,10 @@ document.addEventListener('DOMContentLoaded', function() {
 function createUser(e) {
     e.preventDefault();
     const username = document.getElementById('usernameInput').value.trim();
+    const name = document.getElementById('nameInput')?.value?.trim() || '';
     const password = document.getElementById('passwordInput').value;
-    const whatsappEl = document.getElementById('whatsappInput');
-    const whatsapp_number = whatsappEl ? whatsappEl.value.trim() : '';
+    const emailEl = document.getElementById('emailInput');
+    const email = emailEl ? emailEl.value.trim() : '';
     const instansi = document.getElementById('instansiInput').value.trim() || 'personal';
     var roles = [];
     if (document.getElementById('roleGuru').checked) roles.push('guru');
@@ -2768,6 +2832,7 @@ function createUser(e) {
     if (roles.length === 0) { showToast('Pilih minimal 1 role','error'); return; }
     const max_exams = parseInt(document.getElementById('limitInput').value);
     const max_pdf_size_mb = parseFloat(document.getElementById('pdfSizeInput').value);
+    const max_storage_size_mb = parseFloat(document.getElementById('storageSizeInput').value);
     const opExpiryEl = document.getElementById('operatorExpiresAt');
     let expires_at = '';
     if (opExpiryEl && opExpiryEl.value) {
@@ -2785,7 +2850,7 @@ function createUser(e) {
     if (!username || !password) { showToast('Username dan password wajib diisi','error'); return; }
     apiFetch('/admin/api/users', {
         method: 'POST', headers: {'Content-Type':'application/json'},
-        body: JSON.stringify({ username, password, whatsapp_number, instansi, roles, max_exams, max_pdf_size_mb, expires_at })
+        body: JSON.stringify({ username, name, password, email, instansi, roles, max_exams, max_pdf_size_mb, max_storage_size_mb, expires_at })
     }).then(r=>r.json()).then(res => {
         if (res.success) {
             showToast(res.message,'success');
@@ -2808,22 +2873,25 @@ function loadSaasSettings() {
         .then(res => {
             if (res.success) {
                 const s = res.settings;
-                document.getElementById('waEnabledInput').checked = s.wa_verification_enabled || false;
-                document.getElementById('waTokenInput').value = s.wa_api_token || '';
-                document.getElementById('waTemplateInput').value = s.wa_otp_template || '';
+                document.getElementById('emailEnabledInput').checked = s.email_verification_enabled || false;
+                document.getElementById('smtpHostInput').value = s.smtp_host || 'smtp.gmail.com';
+                document.getElementById('smtpPortInput').value = s.smtp_port || '587';
+                document.getElementById('smtpUserInput').value = s.smtp_user || '';
+                document.getElementById('smtpPasswordInput').value = s.smtp_password || '';
+                document.getElementById('smtpSenderNameInput').value = s.smtp_sender_name || 'EXAMVAN';
                 document.getElementById('defaultExamsInput').value = s.default_max_exams || 3;
                 document.getElementById('defaultPdfInput').value = s.default_max_pdf_size_mb || 1;
                 document.getElementById('defaultActiveDaysInput').value = s.default_active_days || 1;
                 document.getElementById('androidVersionInput').value = s.android_version || '2.1.9';
                 document.getElementById('webappVersionInput').value = s.webapp_version || '2.1.9';
+                toggleEmailFields();
             }
         });
 }
 
-function toggleWaFields() {
-    const enabled = document.getElementById('waEnabledInput').checked;
-    document.getElementById('waTokenGroup').style.display = enabled ? 'block' : 'none';
-    document.getElementById('waTemplateGroup').style.display = enabled ? 'block' : 'none';
+function toggleEmailFields() {
+    const enabled = document.getElementById('emailEnabledInput').checked;
+    document.getElementById('emailSettingsFields').style.display = enabled ? 'flex' : 'none';
 }
 
 async function bulkToggleExams() {

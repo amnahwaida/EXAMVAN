@@ -2782,7 +2782,7 @@ input:disabled, select:disabled, textarea:disabled, button:disabled, .btn-sm:dis
 .nav-link.active {
   color: var(--color-white);
 }
-.form-group input[type="text"], .form-group input[type="password"], .form-group input[type="number"], .form-group input[type="tel"], .form-group input[type="date"], .form-group input[type="time"], .form-group textarea, .form-group select {
+.form-group input[type="text"], .form-group input[type="email"], .form-group input[type="password"], .form-group input[type="number"], .form-group input[type="tel"], .form-group input[type="date"], .form-group input[type="time"], .form-group textarea, .form-group select {
   width: 100%;
   border-radius: var(--radius-xl);
   padding-inline: calc(var(--spacing) * 3.5);

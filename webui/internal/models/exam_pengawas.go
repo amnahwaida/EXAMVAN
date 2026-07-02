@@ -19,6 +19,7 @@ type ExamPengawas struct {
 type PengawasAssignment struct {
 	UserID   int    `json:"id"`
 	Username string `json:"username"`
+	Name     string `json:"name"`
 	Instansi string `json:"instansi"`
 }
 
@@ -52,7 +53,7 @@ func GetPengawasIDs(ctx context.Context, pool *pgxpool.Pool, examID int) ([]int,
 // GetPengawasAssignments returns the list of pengawas with user details for an exam.
 func GetPengawasAssignments(ctx context.Context, pool *pgxpool.Pool, examID int) ([]PengawasAssignment, error) {
 	rows, err := pool.Query(ctx, `
-		SELECT ep.user_id, u.username, COALESCE(u.instansi, '') as instansi
+		SELECT ep.user_id, u.username, u.name, COALESCE(u.instansi, '') as instansi
 		FROM exam_pengawas ep
 		JOIN admin_users u ON ep.user_id = u.id
 		WHERE ep.exam_id = $1
@@ -65,7 +66,7 @@ func GetPengawasAssignments(ctx context.Context, pool *pgxpool.Pool, examID int)
 	var assignments []PengawasAssignment
 	for rows.Next() {
 		var a PengawasAssignment
-		if err := rows.Scan(&a.UserID, &a.Username, &a.Instansi); err != nil {
+		if err := rows.Scan(&a.UserID, &a.Username, &a.Name, &a.Instansi); err != nil {
 			return nil, fmt.Errorf("scan pengawas assignment: %w", err)
 		}
 		assignments = append(assignments, a)

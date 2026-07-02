@@ -17,6 +17,7 @@ CREATE TABLE IF NOT EXISTS instansi (
 CREATE TABLE IF NOT EXISTS admin_users (
     id              SERIAL PRIMARY KEY,
     username        TEXT NOT NULL UNIQUE,
+    name            TEXT DEFAULT '',
     password_hash   TEXT NOT NULL,
     created_at      TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
     status          TEXT DEFAULT 'active'
@@ -59,7 +60,7 @@ CREATE TABLE IF NOT EXISTS exams (
     start_time      TIMESTAMPTZ,
     end_time        TIMESTAMPTZ,
     delegated_to    INTEGER REFERENCES admin_users(id),
-    token_mode          TEXT DEFAULT 'static'
+    token_mode          TEXT DEFAULT 'dynamic'
                         CHECK (token_mode IN ('static', 'dynamic')),
     token_reset_interval INTEGER,
     token_last_reset_at  TIMESTAMPTZ,
@@ -150,7 +151,7 @@ FROM instansi i WHERE u.instansi = i.name AND u.instansi_id IS NULL;
 -- ============================================================
 -- Migration: token_mode + token_reset_interval + token_last_reset_at (safe to re-run)
 -- ============================================================
-ALTER TABLE exams ADD COLUMN IF NOT EXISTS token_mode TEXT DEFAULT 'static';
+ALTER TABLE exams ADD COLUMN IF NOT EXISTS token_mode TEXT DEFAULT 'dynamic';
 ALTER TABLE exams ADD COLUMN IF NOT EXISTS token_reset_interval INTEGER;
 ALTER TABLE exams ADD COLUMN IF NOT EXISTS token_last_reset_at TIMESTAMPTZ;
 ALTER TABLE exams ADD COLUMN IF NOT EXISTS active_token TEXT NOT NULL DEFAULT '';
@@ -158,3 +159,7 @@ ALTER TABLE exams ADD COLUMN IF NOT EXISTS exam_started_at TIMESTAMPTZ;
 
 -- Set active_token = token for existing rows where active_token is empty
 UPDATE exams SET active_token = token WHERE active_token = '' OR active_token IS NULL;
+UPDATE exams SET token_mode = 'dynamic' WHERE token_mode = 'static' OR token_mode IS NULL;
+UPDATE exams SET token_reset_interval = 5 WHERE token_reset_interval IS NULL;
+ALTER TABLE student_access_logs ADD COLUMN IF NOT EXISTS identity_data TEXT;
+ALTER TABLE admin_users ADD COLUMN IF NOT EXISTS name TEXT DEFAULT '';

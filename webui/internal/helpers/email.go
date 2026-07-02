@@ -1,0 +1,102 @@
+package helpers
+
+import (
+	"crypto/tls"
+	"fmt"
+	"net"
+	"net/smtp"
+	"time"
+)
+
+// SendVerificationEmail sends an email containing the OTP verification code using SMTP.
+func SendVerificationEmail(smtpHost, smtpPort, smtpUser, smtpPassword, senderName, toEmail, username, otpCode string) error {
+	auth := smtp.PlainAuth("", smtpUser, smtpPassword, smtpHost)
+
+	subject := "Verifikasi Pendaftaran Akun EXAMVAN"
+	body := fmt.Sprintf(
+		"Halo %s,\n\n"+
+			"Terima kasih telah mendaftar di EXAMVAN.\n"+
+			"Berikut adalah kode verifikasi OTP Anda:\n\n"+
+			"👉 KODE OTP: %s\n\n"+
+			"Masukkan kode di atas pada halaman verifikasi untuk mengaktifkan akun Anda.\n"+
+			"Kode ini berlaku selama 15 menit.\n\n"+
+			"Salam,\n%s",
+		username, otpCode, senderName,
+	)
+
+	msg := []byte(fmt.Sprintf(
+		"From: %s <%s>\r\n"+
+			"To: %s\r\n"+
+			"Subject: %s\r\n"+
+			"MIME-Version: 1.0\r\n"+
+			"Content-Type: text/plain; charset=utf-8\r\n"+
+			"\r\n"+
+			"%s",
+		senderName, smtpUser, toEmail, subject, body,
+	))
+
+	addr := fmt.Sprintf("%s:%s", smtpHost, smtpPort)
+	err := smtp.SendMail(addr, auth, smtpUser, []string{toEmail}, msg)
+	if err != nil {
+		return fmt.Errorf("send email via smtp: %w", err)
+	}
+	return nil
+}
+
+// TestSMTPConnection tests the SMTP server connection and credentials.
+func TestSMTPConnection(smtpHost, smtpPort, smtpUser, smtpPassword string) error {
+	if smtpHost == "" || smtpPort == "" {
+		return fmt.Errorf("SMTP Host dan SMTP Port tidak boleh kosong")
+	}
+
+	addr := fmt.Sprintf("%s:%s", smtpHost, smtpPort)
+	dialer := &net.Dialer{
+		Timeout: 8 * time.Second,
+	}
+
+	var conn net.Conn
+	var err error
+
+	if smtpPort == "465" {
+		// Secure connection directly via SSL/TLS
+		conn, err = tls.DialWithDialer(dialer, "tcp", addr, &tls.Config{
+			ServerName: smtpHost,
+		})
+	} else {
+		// Non-secure standard TCP connection (usually 587 or 25)
+		conn, err = dialer.Dial("tcp", addr)
+	}
+	if err != nil {
+		return fmt.Errorf("gagal terhubung ke host SMTP %s: %w", addr, err)
+	}
+	defer conn.Close()
+
+	// Set connection deadline to prevent hangs (e.g., waiting for SMTP banner on SSL/TLS port mismatch)
+	_ = conn.SetDeadline(time.Now().Add(6 * time.Second))
+
+	client, err := smtp.NewClient(conn, smtpHost)
+	if err != nil {
+		return fmt.Errorf("gagal menginisialisasi client SMTP: %w", err)
+	}
+	defer client.Close()
+
+	// Negotiate STARTTLS for non-465 ports if the server supports it
+	if smtpPort != "465" {
+		if hasStartTLS, _ := client.Extension("STARTTLS"); hasStartTLS {
+			config := &tls.Config{ServerName: smtpHost}
+			if err := client.StartTLS(config); err != nil {
+				return fmt.Errorf("gagal memulai STARTTLS: %w", err)
+			}
+		}
+	}
+
+	// Perform plain auth if user credentials are provided
+	if smtpUser != "" || smtpPassword != "" {
+		auth := smtp.PlainAuth("", smtpUser, smtpPassword, smtpHost)
+		if err := client.Auth(auth); err != nil {
+			return fmt.Errorf("autentikasi gagal (periksa kembali email/password): %w", err)
+		}
+	}
+
+	return nil
+}

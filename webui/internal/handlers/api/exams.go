@@ -380,9 +380,8 @@ func ExamByToken() gin.HandlerFunc {
 			return
 		}
 
-		// Auto-reset active_token if dynamic mode and exam has started
+		// Auto-reset active_token if exam has started (all exams are dynamic)
 		if exam.ExamStartedAt != nil &&
-			exam.TokenMode != nil && *exam.TokenMode == "dynamic" &&
 			exam.TokenResetInterval != nil && *exam.TokenResetInterval > 0 {
 			shouldReset := true
 			if exam.TokenLastResetAt != nil {
@@ -793,12 +792,13 @@ func AccessLog() gin.HandlerFunc {
 
 		// --- Parse request body ---
 		var body struct {
-			Event       string `json:"event"`
-			MACAddress  string `json:"mac_address"`
-			StudentName string `json:"student_name"`
-			ExamNumber  string `json:"exam_number"`
-			StudentClass string `json:"student_class"`
-			DeviceInfo  string `json:"device_info"`
+			Event        string                 `json:"event"`
+			MACAddress   string                 `json:"mac_address"`
+			StudentName  string                 `json:"student_name"`
+			ExamNumber   string                 `json:"exam_number"`
+			StudentClass string                 `json:"student_class"`
+			DeviceInfo   string                 `json:"device_info"`
+			IdentityData map[string]interface{} `json:"identity_data"`
 		}
 		if err := c.ShouldBindJSON(&body); err != nil {
 			errorResponse(c, http.StatusBadRequest, "Data tidak valid")
@@ -827,6 +827,16 @@ func AccessLog() gin.HandlerFunc {
 		studentClass := truncate(body.StudentClass, 100)
 		deviceInfo := truncate(body.DeviceInfo, 200)
 		ipAddress := c.ClientIP()
+		
+		var identityDataJSON *string
+		if body.IdentityData != nil {
+			sanitized := sanitizeMap(body.IdentityData)
+			b, err := json.Marshal(sanitized)
+			if err == nil {
+				s := string(b)
+				identityDataJSON = &s
+			}
+		}
 
 		// --- Verify exam exists and is active ---
 		var examExists int
@@ -865,6 +875,7 @@ func AccessLog() gin.HandlerFunc {
 			Event:             event,
 			IPAddress:         ipAddress,
 			DeviceInfo:        deviceInfo,
+			IdentityData:      identityDataJSON,
 		}
 
 		if _, err := models.CreateAccessLog(ctx, pool, accessLog); err != nil {

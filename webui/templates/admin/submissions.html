@@ -9,6 +9,119 @@
 <html lang="id">
 <head>
  {{adminHead .version .csrf_token "Hasil Ujian"}}
+ <style>
+ @media (max-width: 768px) {
+   /* Card-based layout for submissions table */
+   .exam-table, 
+   .exam-table tbody, 
+   .exam-table tr, 
+   .exam-table td {
+     display: block !important;
+     width: 100% !important;
+   }
+   .exam-table thead {
+     display: none !important;
+   }
+   
+   .exam-table tbody tr {
+     position: relative !important;
+     margin-bottom: 14px !important;
+     padding: 14px 16px !important;
+     display: flex !important;
+     flex-direction: column !important;
+     gap: 6px !important;
+     border-radius: 12px !important;
+   }
+   
+   .exam-table td {
+     display: flex !important;
+     align-items: center !important;
+     justify-content: space-between !important;
+     padding: 5px 0 !important;
+     border: none !important;
+     font-size: 0.8rem !important;
+     text-align: left !important;
+   }
+   
+   .exam-table td::before {
+     content: attr(data-label) !important;
+     font-weight: 700 !important;
+     font-size: 0.68rem !important;
+     text-transform: uppercase !important;
+     letter-spacing: 0.04em !important;
+     color: var(--color-text-muted) !important;
+   }
+   
+   /* Student Name Header inside Card */
+   .exam-table td[data-label="Siswa"] {
+     display: block !important;
+     padding: 0 0 6px 0 !important;
+     border-bottom: 1px dashed var(--color-glass-border) !important;
+     margin-bottom: 4px !important;
+   }
+   .exam-table td[data-label="Siswa"]::before {
+     content: none !important;
+   }
+   .exam-table td[data-label="Siswa"] strong {
+     font-size: 1rem !important;
+     font-weight: 700 !important;
+   }
+   
+   /* Action buttons alignment */
+   .exam-table td.td-actions {
+     justify-content: flex-end !important;
+     border-top: 1px solid var(--color-glass-border) !important;
+     margin-top: 6px !important;
+     padding-top: 10px !important;
+   }
+   .exam-table td.td-actions::before {
+     content: none !important;
+   }
+
+   /* Pagination alignment */
+   .pagination-wrapper {
+     flex-direction: column !important;
+     align-items: center !important;
+     text-align: center !important;
+     gap: 10px !important;
+   }
+
+   /* Exam Info Card Mobile Styles */
+   .exam-info-card {
+     padding: 16px !important;
+   }
+   .exam-info-header {
+     flex-direction: column !important;
+     align-items: flex-start !important;
+     gap: 8px !important;
+     padding-bottom: 10px !important;
+     margin-bottom: 12px !important;
+   }
+   .exam-info-header h2 {
+     font-size: 1rem !important;
+   }
+   .exam-info-grid {
+     gap: 14px !important;
+   }
+   .info-group h4 {
+     margin-bottom: 6px !important;
+     font-size: 0.7rem !important;
+   }
+   .info-group div {
+     font-size: 0.8rem !important;
+     gap: 6px !important;
+   }
+
+   /* Submissions table card mobile styling */
+   .submissions-list-card {
+     padding: 16px !important;
+   }
+   .submissions-list-card .table-header {
+     margin-bottom: 12px !important;
+     padding-bottom: 10px !important;
+   }
+ }
+ </style>
 </head>
 <body class="dashboard-page">
 
@@ -17,85 +130,126 @@
 <main class="dashboard">
  <h1 class="sr-only" style="position:absolute;left:-9999px;">Rekapitulasi Hasil Ujian</h1>
 
- <!-- Filter and Export Section -->
- <section class="glass-card" style="padding:20px;">
- <div class="table-header flex items-center justify-between mb-4 flex-wrap gap-3">
- <h3><svg class="icon-svg" style="vertical-align:middle;margin-top:-2px;"><use href="#hi-results"/></svg> Rekapitulasi Hasil Ujian</h3>
- <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
- <label for="filterExam" style="position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0;">Filter ujian</label>
- <select id="filterExam" onchange="filterSubmissions()" class="toolbar-select">
- <option value="">Semua Ujian</option>
- {{range .exams}}
- <option value="{{index . "id"}}" {{if eq (printf "%d" (index . "id")) (printf "%d" $.exam_filter_param)}}selected{{end}}>{{index . "name"}}</option>
- {{end}}
- </select>
- <button class="toolbar-btn" onclick="exportSubmissions()"><svg class="icon-svg"><use href="#hi-download"/></svg> Export Excel/CSV</button>
- </div>
- </div>
- </section>
+  <!-- Page Header: Title & Filter Controls (Borderless) -->
+  <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:20px;flex-wrap:wrap;gap:12px;">
+    <h2 style="font-size:1.35rem;font-weight:800;color:var(--color-text);margin:0;display:flex;align-items:center;gap:8px;">
+      <svg class="icon-svg" style="width:24px;height:24px;color:var(--color-primary);"><use href="#hi-results"/></svg>
+      Rekapitulasi Hasil Ujian
+    </h2>
+    <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
+      <label for="filterExam" style="position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0;">Filter ujian</label>
+      <select id="filterExam" onchange="filterSubmissions()" class="toolbar-select" style="min-width:180px;">
+        <option value="">Semua Ujian</option>
+        {{range .exams}}
+        <option value="{{index . "id"}}" {{if eq (printf "%d" (index . "id")) (printf "%d" $.exam_filter_param)}}selected{{end}}>{{index . "name"}} (oleh {{index . "creator"}})</option>
+        {{end}}
+      </select>
+      <button class="toolbar-btn" onclick="exportSubmissions()" style="height:36px;display:inline-flex;align-items:center;gap:6px;font-size:13px;"><svg class="icon-svg" style="width:16px;height:16px;"><use href="#hi-download"/></svg> Export Excel/CSV</button>
+    </div>
+  </div>
 
  {{if .exam_info}}
- {{$ei := .exam_info}}
- <section class="glass-card" style="margin-top:16px;padding:14px 20px;">
- <div style="display:flex;gap:16px 24px;flex-wrap:wrap;align-items:center;">
-  <span style="font-size:15px;font-weight:700;color:#a5b4fc;display:flex;align-items:center;gap:6px;">
-  <svg class="icon-svg" style="width:20px;height:20px;"><use href="#hi-dashboard"/></svg>
-  {{index $ei "name"}}
-  </span>
-  <span style="font-size:13px;color:var(--color-text-secondary);display:flex;align-items:center;gap:6px;">
-  <svg class="icon-svg"><use href="#hi-key"/></svg> Token: <code style="color:#a5b4fc;">{{index $ei "token"}}</code>
-  </span>
-  <span style="font-size:13px;color:var(--color-text-secondary);display:flex;align-items:center;gap:6px;">
-  <svg class="icon-svg"><use href="#hi-users"/></svg> <strong style="color:var(--color-text);">{{index $ei "sub_count"}}</strong> peserta
-  </span>
-  <span style="font-size:13px;color:var(--color-text-secondary);display:flex;align-items:center;gap:6px;">
-  <svg class="icon-svg"><use href="#hi-upload"/></svg> {{printf "%.2f" (index $ei "size_mb")}} MB
-  </span>
-  <span style="font-size:13px;color:var(--color-text-secondary);display:flex;align-items:center;gap:6px;">
-  <svg class="icon-svg"><use href="#hi-clock"/></svg> Upload: <span>{{index $ei "created_at"}}</span>
-  </span>
-  {{if index $ei "start_time"}}<span style="font-size:13px;color:var(--color-text-secondary);display:flex;align-items:center;gap:6px;">
-  <svg class="icon-svg"><use href="#hi-play"/></svg> Mulai: <span style="color:#34d399;">{{index $ei "start_time"}}</span>
-  </span>{{end}}
-  {{if index $ei "end_time"}}<span style="font-size:13px;color:var(--color-text-secondary);display:flex;align-items:center;gap:6px;">
-  <svg class="icon-svg"><use href="#hi-stop"/></svg> Selesai: <span style="color:#f87171;">{{index $ei "end_time"}}</span>
-  </span>{{end}}
- </div>
- {{if or (index $ei "creator_name") (index $ei "delegated_name") (index $ei "pengawas")}}
- <div style="display:flex;gap:16px 24px;flex-wrap:wrap;align-items:center;margin-top:8px;padding-top:10px;border-top:1px solid rgba(255,255,255,0.05);">
-  {{if index $ei "creator_name"}}<span style="font-size:12px;color:var(--color-text-muted);display:flex;align-items:center;gap:5px;">
-  <svg class="icon-svg" style="width:14px;height:14px;"><use href="#hi-user"/></svg> Pembuat: <span style="color:#a5b4fc;font-weight:600;">{{index $ei "creator_name"}}</span>
-  </span>{{end}}
-  {{if index $ei "delegated_name"}}<span style="font-size:12px;color:var(--color-text-muted);display:flex;align-items:center;gap:5px;">
-  <svg class="icon-svg" style="width:14px;height:14px;"><use href="#hi-link"/></svg> Penanggung Jawab: <span style="color:#fbbf24;font-weight:600;">{{index $ei "delegated_name"}}</span>
-  </span>{{end}}
-  {{if index $ei "pengawas"}}<span style="font-size:12px;color:var(--color-text-muted);display:flex;align-items:center;gap:5px;">
-  <svg class="icon-svg" style="width:14px;height:14px;"><use href="#hi-eye"/></svg> Pengawas:
-  {{range $pw := index $ei "pengawas"}}<span style="display:inline-block;padding:1px 8px;border-radius:10px;font-size:11px;background:rgba(168,85,247,0.12);color:#c084fc;border:1px solid rgba(168,85,247,0.2);margin:1px 2px;">{{$pw}}</span>{{end}}
-  </span>{{end}}
- </div>
- {{end}}
- </section>
- {{end}}
+  {{$ei := .exam_info}}
+  <section class="glass-card exam-info-card" style="margin-top:16px;padding:20px;">
+    <!-- Top Row: Exam Name and Token Badge -->
+    <div class="exam-info-header" style="display:flex;justify-content:space-between;align-items:center;border-bottom:1px solid var(--color-glass-border);padding-bottom:12px;margin-bottom:16px;flex-wrap:wrap;gap:12px;">
+      <h2 style="font-size:1.15rem;font-weight:700;color:var(--color-primary-light);display:flex;align-items:center;gap:8px;margin:0;">
+        <svg class="icon-svg" style="width:20px;height:20px;"><use href="#hi-dashboard"/></svg>
+        {{index $ei "name"}}
+      </h2>
+      <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
+        <span class="info-badge-token" style="font-family:monospace;font-size:0.8rem;padding:4px 10px;background:rgba(99,102,241,0.1);border:1px solid rgba(99,102,241,0.3);color:var(--color-primary-light);border-radius:20px;font-weight:700;display:flex;align-items:center;gap:4px;">
+          <svg class="icon-svg" style="width:12px;height:12px;"><use href="#hi-key"/></svg> {{index $ei "token"}}
+        </span>
+      </div>
+    </div>
 
- {{$subsLen := len .submissions}}{{$showStats := and (gt $subsLen 0) (gt .total_submissions 0)}}
- {{if $showStats}}
- <section class="glass-card" style="margin-top:16px;padding:14px 20px;">
- <div style="display:flex;gap:24px;flex-wrap:wrap;align-items:center;">
- <span style="font-size:13px;color:var(--color-text-secondary);">
- <svg class="icon-svg" style="vertical-align:middle;"><use href="#hi-clipboard"/></svg> <strong style="color:var(--color-text);">{{.total_submissions}}</strong> total hasil
- </span>
- </div>
- </section>
- {{end}}
+    <!-- Metadata Grid -->
+    <div class="exam-info-grid" style="display:grid;grid-template-columns:repeat(auto-fit, minmax(220px, 1fr));gap:20px;">
+      <!-- Column 1: Statistik Ujian -->
+      <div class="info-group">
+        <h4 style="margin:0 0 10px 0;font-size:0.75rem;text-transform:uppercase;color:var(--color-text-muted);letter-spacing:0.5px;">Statistik Ujian</h4>
+        <div style="display:flex;flex-direction:column;gap:8px;">
+          <div style="display:flex;align-items:center;gap:8px;font-size:0.85rem;color:var(--color-text-secondary);">
+            <svg class="icon-svg" style="color:var(--color-text-muted);"><use href="#hi-users"/></svg>
+            <span>Peserta: <strong>{{index $ei "sub_count"}}</strong> orang</span>
+          </div>
+          <div style="display:flex;align-items:center;gap:8px;font-size:0.85rem;color:var(--color-text-secondary);">
+            <svg class="icon-svg" style="color:var(--color-text-muted);"><use href="#hi-upload"/></svg>
+            <span>Ukuran: <strong>{{printf "%.2f" (index $ei "size_mb")}} MB</strong></span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Column 2: Alur Waktu -->
+      <div class="info-group">
+        <h4 style="margin:0 0 10px 0;font-size:0.75rem;text-transform:uppercase;color:var(--color-text-muted);letter-spacing:0.5px;">Waktu &amp; Jadwal</h4>
+        <div style="display:flex;flex-direction:column;gap:8px;">
+          <div style="display:flex;align-items:center;gap:8px;font-size:0.85rem;color:var(--color-text-secondary);">
+            <svg class="icon-svg" style="color:var(--color-text-muted);"><use href="#hi-clock"/></svg>
+            <span>Upload: <span class="utc-date">{{index $ei "created_at"}}</span></span>
+          </div>
+          {{if index $ei "start_time"}}
+          <div style="display:flex;align-items:center;gap:8px;font-size:0.85rem;color:var(--color-text-secondary);">
+            <svg class="icon-svg" style="color:var(--color-success);"><use href="#hi-play"/></svg>
+            <span>Mulai: <strong style="color:var(--color-success);">{{index $ei "start_time"}}</strong></span>
+          </div>
+          {{end}}
+          {{if index $ei "end_time"}}
+          <div style="display:flex;align-items:center;gap:8px;font-size:0.85rem;color:var(--color-text-secondary);">
+            <svg class="icon-svg" style="color:var(--color-danger);"><use href="#hi-stop"/></svg>
+            <span>Selesai: <strong style="color:var(--color-danger);">{{index $ei "end_time"}}</strong></span>
+          </div>
+          {{end}}
+        </div>
+      </div>
+
+      <!-- Column 3: Pembuat & Guru -->
+      <div class="info-group">
+        <h4 style="margin:0 0 10px 0;font-size:0.75rem;text-transform:uppercase;color:var(--color-text-muted);letter-spacing:0.5px;">Pembuat &amp; Guru</h4>
+        <div style="display:flex;flex-direction:column;gap:8px;">
+          <div style="display:flex;align-items:center;gap:8px;font-size:0.85rem;color:var(--color-text-secondary);">
+            <svg class="icon-svg" style="color:var(--color-text-muted);"><use href="#hi-user"/></svg>
+            <span>Pembuat: <strong style="color:var(--color-primary-light);">{{index $ei "creator_name"}}</strong></span>
+          </div>
+          <div style="display:flex;align-items:center;gap:8px;font-size:0.85rem;color:var(--color-text-secondary);">
+            <svg class="icon-svg" style="color:var(--color-text-muted);"><use href="#hi-link"/></svg>
+            <span>Guru: <strong style="color:var(--color-warning);">{{or (index $ei "delegated_name") "—"}}</strong></span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Column 4: Pengawas Ujian -->
+      {{if index $ei "pengawas"}}
+      <div class="info-group">
+        <h4 style="margin:0 0 10px 0;font-size:0.75rem;text-transform:uppercase;color:var(--color-text-muted);letter-spacing:0.5px;">Pengawas Terdaftar</h4>
+        <div style="display:flex;flex-wrap:wrap;gap:4px;margin-top:2px;">
+          {{range $pw := index $ei "pengawas"}}
+          <span style="display:inline-block;padding:2px 8px;border-radius:10px;font-size:11px;background:rgba(99,102,241,0.12);color:var(--color-primary-light);border:1px solid rgba(99,102,241,0.2);">{{$pw}}</span>
+          {{end}}
+        </div>
+      </div>
+      {{end}}
+    </div>
+  </section>
+  {{end}}
 
  <!-- Submissions Table -->
- <section class="glass-card" style="margin-top:16px;">
+ <section class="glass-card submissions-list-card" style="margin-top:16px;padding:20px;">
+ {{$subsLen := len .submissions}}{{$showStats := and (gt $subsLen 0) (gt .total_submissions 0)}}
  {{if not $showStats}}
  <div style="text-align:center;padding:60px 20px;">
  <p style="font-size:16px;color:var(--color-text-secondary);">Belum ada hasil ujian yang dikumpulkan oleh siswa.</p>
  </div>
  {{else}}
+ <div class="table-header flex items-center justify-between mb-4 flex-wrap gap-3" style="border-bottom:1px solid var(--color-glass-border);padding-bottom:12px;margin-bottom:16px;">
+    <h3 style="font-size:1.1rem;color:var(--color-primary-light);display:flex;align-items:center;gap:8px;margin:0;">
+      <svg class="icon-svg" style="color:var(--color-primary-light);"><use href="#hi-clipboard"/></svg> Daftar Hasil Siswa
+    </h3>
+    <span style="font-size:0.75rem;padding:3px 8px;background:rgba(99,102,241,0.12);color:var(--color-primary-light);border:1px solid rgba(99,102,241,0.2);border-radius:12px;font-weight:600;">
+      {{.total_submissions}} Siswa
+    </span>
+  </div>
  <div class="table-responsive">
  <table class="exam-table" id="submissionsTable">
  <thead>
@@ -114,7 +268,7 @@
  <td data-label="Siswa" class="max-md:flex max-md:gap-1 max-md:items-baseline">
   <strong class="submission-identity-btn" style="cursor:pointer;" data-identity='{{json .IdentityData}}'>{{.StudentName}}</strong>
  </td>
- <td data-label="Perangkat"><code style="font-size:11px;color:var(--color-text-muted);font-family:monospace;">{{or .MACAddress "—"}}</code></td>
+ <td data-label="Perangkat"><code style="font-size:11px;color:var(--color-text-muted);font-family:monospace;max-width:160px;display:inline-block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;vertical-align:middle;" title="{{.MACAddress}}">{{or .MACAddress "—"}}</code></td>
  <td data-label="Nilai">
  {{if .Score}}
  <div style="display:flex;flex-direction:column;align-items:center;gap:4px;">
@@ -145,16 +299,16 @@
  —
  {{end}}
  </td>
- <td class="td-actions" data-label="Aksi" style="text-align:center;">
- <div style="display:flex;gap:6px;justify-content:center;">
- <button class="btn-sm btn-toggle" onclick="showSubmissionDetail({{.ID}})" style="padding:8px 16px;font-size:13px;min-height:40px;min-width:80px;display:inline-flex;align-items:center;gap:6px;">
- <svg class="icon-svg"><use href="#hi-eye"/></svg> Detail
- </button>
- <button class="btn-sm btn-delete" onclick="deleteSubmission({{.ID}})" aria-label="Hapus hasil ujian" style="padding:8px 14px;font-size:13px;min-height:40px;min-width:40px;display:inline-flex;align-items:center;justify-content:center;">
- <svg class="icon-svg"><use href="#hi-trash"/></svg>
- </button>
- </div>
- </td>
+  <td class="td-actions" data-label="Aksi" style="text-align:center;">
+  <div style="display:flex;gap:6px;justify-content:center;">
+  <button class="btn-sm btn-toggle" onclick="showSubmissionDetail({{.ID}})" style="display:inline-flex;align-items:center;gap:4px;height:30px;font-size:12px;padding:0 10px;">
+  <svg class="icon-svg" style="width:14px;height:14px;"><use href="#hi-eye"/></svg> Detail
+  </button>
+  <button class="btn-sm btn-delete" onclick="deleteSubmission({{.ID}})" aria-label="Hapus hasil ujian" style="display:inline-flex;align-items:center;justify-content:center;height:30px;width:30px;padding:0;">
+  <svg class="icon-svg" style="width:14px;height:14px;"><use href="#hi-trash"/></svg>
+  </button>
+  </div>
+  </td>
  </tr>
  {{end}}
  </tbody>
