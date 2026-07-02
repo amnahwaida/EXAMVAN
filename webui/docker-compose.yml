@@ -63,6 +63,11 @@ services:
       - STORAGE_PATH=/app/storage
       - TZ=UTC
       - APP_ENV=${APP_ENV:-production}
+      - R2_ACCESS_KEY_ID=${R2_ACCESS_KEY_ID:-}
+      - R2_SECRET_ACCESS_KEY=${R2_SECRET_ACCESS_KEY:-}
+      - R2_BUCKET=${R2_BUCKET:-examvan-pdfs}
+      - R2_ENDPOINT=${R2_ENDPOINT:-}
+      - DATABASE_MAX_CONNS=${DATABASE_MAX_CONNS:-100}
     volumes:
       - webui_storage:/app/storage
     depends_on:
@@ -97,6 +102,7 @@ services:
       - "127.0.0.1:80:80"
     volumes:
       - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+      - webui_storage:/opt/examvan/storage:ro
     depends_on:
       webui-server:
         condition: service_healthy

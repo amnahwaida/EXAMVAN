@@ -41,6 +41,8 @@ import (
 	"github.com/examvan/webui/internal/models"
 	"github.com/examvan/webui/internal/queue"
 	redisclient "github.com/examvan/webui/internal/redis"
+	redis "github.com/redis/go-redis/v9"
+	r2client "github.com/examvan/webui/internal/handlers/r2"
 	"github.com/examvan/webui/internal/websocket"
 )
 
@@ -121,8 +123,24 @@ func main() {
 	if pool != nil && rdb != nil {
 		worker = queue.StartWorker(rdb, pool)
 		log.Println("Submission queue worker: started")
+		startHeartbeatFlusher(rdb, pool)
 	} else {
 		log.Println("Submission queue worker: not started (requires both PostgreSQL and Redis)")
+	}
+
+	// -----------------------------------------------------------------------
+	// 4b. Init Cloudflare R2 client (optional — for PDF offloading)
+	// -----------------------------------------------------------------------
+	var r2 *r2client.Client
+	if cfg.R2AccessKey != "" && cfg.R2SecretKey != "" && cfg.R2Endpoint != "" {
+		r2 = r2client.NewClient(cfg.R2AccessKey, cfg.R2SecretKey, cfg.R2Endpoint, cfg.R2Bucket)
+		if r2 != nil && r2.Enabled() {
+			log.Println("Cloudflare R2: ready — PDF upload/download via R2")
+		} else {
+			log.Println("Cloudflare R2: init failed — PDF will be served locally")
+		}
+	} else {
+		log.Println("Cloudflare R2: not configured — PDF will be served from local storage")
 	}
 
 	// -----------------------------------------------------------------------
@@ -332,6 +350,10 @@ func main() {
 	// Inject Redis client when available.
 	if rdb != nil {
 		r.Use(func(c *gin.Context) { c.Set("redis", rdb); c.Next() })
+	}
+	// Inject R2 client when available.
+	if r2 != nil && r2.Enabled() {
+		r.Use(func(c *gin.Context) { c.Set("r2", r2); c.Next() })
 	}
 
 	// -----------------------------------------------------------------------
@@ -1044,4 +1066,89 @@ func percentOf(p, t float64) float64 {
 func roundTo(val float64, decimals int) float64 {
 	pow := math.Pow(10, float64(decimals))
 	return math.Round(val*pow) / pow
+}
+
+// startHeartbeatFlusher periodically flushes heartbeat data from Redis to PostgreSQL.
+// Runs in the background, does not block API requests.
+func startHeartbeatFlusher(rdb *redis.Client, pool *pgxpool.Pool) {
+	if rdb == nil || pool == nil {
+		log.Println("heartbeat-flusher: skipped (requires Redis + PostgreSQL)")
+		return
+	}
+
+	go func() {
+		ticker := time.NewTicker(30 * time.Second)
+		defer ticker.Stop()
+
+		for range ticker.C {
+			flushHeartbeatsQueue(context.Background(), rdb, pool)
+		}
+	}()
+	log.Println("heartbeat-flusher: started (flush every 30s)")
+}
+
+func flushHeartbeatsQueue(ctx context.Context, rdb *redis.Client, pool *pgxpool.Pool) {
+	const batchSize = 100
+	
+	// Pop up to batchSize items from the list
+	var payloads []string
+	for i := 0; i < batchSize; i++ {
+		val, err := rdb.RPop(ctx, "examvan:heartbeats:pending").Result()
+		if err != nil {
+			break
+		}
+		payloads = append(payloads, val)
+	}
+
+	if len(payloads) == 0 {
+		return
+	}
+
+	type heartbeatData struct {
+		ExamID       int    `json:"exam_id"`
+		MacAddress   string `json:"mac_address"`
+		StudentName  string `json:"student_name"`
+		ExamNumber   string `json:"exam_number"`
+		StudentClass string `json:"student_class"`
+		DeviceInfo   string `json:"device_info"`
+		IPAddress    string `json:"ip_address"`
+		Event        string `json:"event"`
+		LastSeenStr  string `json:"last_seen"`
+	}
+
+	tx, err := pool.Begin(ctx)
+	if err != nil {
+		log.Printf("heartbeat-flusher: tx begin error: %v", err)
+		return
+	}
+	defer tx.Rollback(ctx)
+
+	for _, payload := range payloads {
+		var hb heartbeatData
+		if err := json.Unmarshal([]byte(payload), &hb); err != nil {
+			continue
+		}
+		
+		t, err := time.Parse(time.RFC3339, hb.LastSeenStr)
+		if err != nil {
+			t = time.Now().UTC()
+		}
+
+		_, err = tx.Exec(ctx,
+			`INSERT INTO student_access_logs
+			 (exam_id, student_identifier, student_name, exam_number, student_class, event, ip_address, device_info, created_at)
+			 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
+			hb.ExamID, hb.MacAddress, hb.StudentName, hb.ExamNumber, hb.StudentClass,
+			hb.Event, hb.IPAddress, hb.DeviceInfo, t,
+		)
+		if err != nil {
+			log.Printf("heartbeat-flusher: insert error: %v", err)
+		}
+	}
+
+	if err := tx.Commit(ctx); err != nil {
+		log.Printf("heartbeat-flusher: tx commit error: %v", err)
+	} else {
+		log.Printf("heartbeat-flusher: successfully flushed %d heartbeats to PostgreSQL", len(payloads))
+	}
 }

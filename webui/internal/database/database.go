@@ -31,8 +31,11 @@ func Connect(cfg *config.Config) (*pgxpool.Pool, error) {
 		return nil, fmt.Errorf("database: failed to parse DATABASE_URL: %w", err)
 	}
 
-	poolCfg.MaxConns = 25
-	poolCfg.MinConns = 5
+	poolCfg.MaxConns = int32(cfg.DatabaseMaxConns)
+	poolCfg.MinConns = int32(cfg.DatabaseMaxConns / 5)
+	if poolCfg.MinConns < 2 {
+		poolCfg.MinConns = 2
+	}
 
 	poolCfg.ConnConfig.ConnectTimeout = 15 * time.Second
 

@@ -163,3 +163,13 @@ UPDATE exams SET token_mode = 'dynamic' WHERE token_mode = 'static' OR token_mod
 UPDATE exams SET token_reset_interval = 5 WHERE token_reset_interval IS NULL;
 ALTER TABLE student_access_logs ADD COLUMN IF NOT EXISTS identity_data TEXT;
 ALTER TABLE admin_users ADD COLUMN IF NOT EXISTS name TEXT DEFAULT '';
+
+-- ============================================================
+-- Scaling & performance optimizations (Step 15 Priority #3)
+-- ============================================================
+CREATE INDEX IF NOT EXISTS idx_access_logs_exam_time ON student_access_logs(exam_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_submissions_exam_mac ON submissions(exam_id, mac_address);
+CREATE INDEX IF NOT EXISTS idx_exams_active ON exams(id) WHERE status = 'active';
+
+ALTER TABLE submissions SET (autovacuum_vacuum_scale_factor = 0.01);
+ALTER TABLE student_access_logs SET (autovacuum_vacuum_scale_factor = 0.01);

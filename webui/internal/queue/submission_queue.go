@@ -19,6 +19,7 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"sync"
 	"time"
 
 	goredis "github.com/redis/go-redis/v9"
@@ -155,42 +156,63 @@ func EnqueueSubmissionWithJob(rdb *goredis.Client, job *SubmissionJob) error {
 // scores the answers, inserts the submission into PostgreSQL, stores the
 // result in Redis, and publishes a notification via Redis Pub/Sub.
 type Worker struct {
-	rdb  *goredis.Client
-	pool *pgxpool.Pool
-	quit chan struct{}
+	rdb       *goredis.Client
+	pool      *pgxpool.Pool
+	quit      chan struct{}
+	batchChan chan SubmissionResult
+	wg        sync.WaitGroup
 }
 
-// StartWorker launches a background goroutine that continuously processes
-// submission jobs from the Redis queue. It blocks until the queue is
-// exhausted or Stop() is called. Returns the Worker so callers can Stop() it.
-//
-//	pool := database.Connect(cfg)
-//	rdb := redis.Connect(ctx, cfg.RedisURL)
-//	worker := queue.StartWorker(rdb, pool)
-//	// later: worker.Stop()
+// SubmissionResult wraps a job result for the batch inserter.
+type SubmissionResult struct {
+	Job   SubmissionJob
+	Score *float64
+	Error error
+}
+
+// StartWorker launches a pool of background goroutines that concurrently
+// process submission jobs from the Redis queue, and flushes results in batches.
 func StartWorker(rdb *goredis.Client, pool *pgxpool.Pool) *Worker {
+	const workerCount = 8
+	const batchSize = 50
+
 	w := &Worker{
-		rdb:  rdb,
-		pool: pool,
-		quit: make(chan struct{}),
+		rdb:       rdb,
+		pool:      pool,
+		quit:      make(chan struct{}),
+		batchChan: make(chan SubmissionResult, batchSize*2),
 	}
-	go w.run()
+
+	log.Printf("queue: starting submission worker pool (%d workers, batch size %d)", workerCount, batchSize)
+
+	// Spawn workers to read and process jobs
+	for i := 1; i <= workerCount; i++ {
+		w.wg.Add(1)
+		go w.runWorker(i)
+	}
+
+	// Spawn batch inserter
+	w.wg.Add(1)
+	go w.runBatchInserter(batchSize)
+
 	return w
 }
 
-// run is the main loop. It blocks on BRPOP and processes each job.
-func (w *Worker) run() {
+// runWorker is the main loop for a single worker thread.
+func (w *Worker) runWorker(id int) {
+	defer w.wg.Done()
+
 	if isRedisUnavailable(w.rdb) {
-		log.Printf("queue: Redis unavailable — worker not started")
+		log.Printf("queue: Redis unavailable — worker %d not started", id)
 		return
 	}
 
-	log.Printf("queue: worker started (polling %s)", QueueKey)
+	log.Printf("queue: worker %d started (polling %s)", id, QueueKey)
 
 	for {
 		select {
 		case <-w.quit:
-			log.Printf("queue: worker stopped")
+			log.Printf("queue: worker %d stopped", id)
 			return
 		default:
 			// Use a per-iteration context with timeout so long operations
@@ -206,7 +228,7 @@ func (w *Worker) run() {
 				if errors.Is(err, goredis.Nil) {
 					continue
 				}
-				log.Printf("queue: BRPOP error: %v", err)
+				log.Printf("queue: worker %d BRPOP error: %v", id, err)
 				time.Sleep(time.Second)
 				continue
 			}
@@ -219,15 +241,22 @@ func (w *Worker) run() {
 
 			var job SubmissionJob
 			if err := json.Unmarshal(payload, &job); err != nil {
-				log.Printf("queue: unmarshal job error: %v", err)
+				log.Printf("queue: worker %d unmarshal job error: %v", id, err)
 				continue
 			}
 
-			// Use a fresh context for processing — the BRPOP context was
-			// already canceled and must not be reused.
+			// Process and score submission
 			jobCtx, jobCancel := context.WithTimeout(context.Background(), 30*time.Second)
-			w.processJob(jobCtx, job)
+			score, err := w.processSubmission(jobCtx, &job)
 			jobCancel()
+
+			// Send to batch channel
+			select {
+			case w.batchChan <- SubmissionResult{Job: job, Score: score, Error: err}:
+			case <-w.quit:
+				log.Printf("queue: worker %d shutdown, dropping job %s", id, job.JobID)
+				return
+			}
 		}
 	}
 }
@@ -235,75 +264,26 @@ func (w *Worker) run() {
 // Stop signals the worker to shut down after the current job finishes.
 func (w *Worker) Stop() {
 	close(w.quit)
+	w.wg.Wait()
+	log.Println("queue: worker pool stopped")
 }
 
-// processJob handles a single submission job.
-func (w *Worker) processJob(ctx context.Context, job SubmissionJob) {
-	start := time.Now()
-	log.Printf("queue: processing job %s (exam %d, student %s)", job.JobID, job.ExamID, job.StudentName)
-
-	// Set worker heartbeat (30s TTL)
-	if !isRedisUnavailable(w.rdb) {
-		w.rdb.Set(ctx, "examvan:submissions:worker_heartbeat", time.Now().UTC().Format(time.RFC3339), 30*time.Second)
-	}
-
-	result := w.doProcess(ctx, &job)
-	elapsed := time.Since(start)
-
-	// Store result in Redis.
-	if isRedisUnavailable(w.rdb) {
-		log.Printf("queue: Redis unavailable — cannot store result for %s", job.JobID)
-		return
-	}
-
-	resultPayload, err := json.Marshal(result)
-	if err != nil {
-		log.Printf("queue: marshal result error: %v", err)
-		return
-	}
-
-	resultKey := ResultKeyPrefix + job.JobID
-	if err := w.rdb.Set(ctx, resultKey, resultPayload, resultTTL).Err(); err != nil {
-		log.Printf("queue: store result error: %v", err)
-	}
-
-	// Publish to Pub/Sub channel.
-	if err := w.rdb.Publish(ctx, pubSubChannel, resultPayload).Err(); err != nil {
-		log.Printf("queue: publish error: %v", err)
-	}
-
-	// Update stats counters.
-	statsKey := "examvan:submissions:stats"
-	if result.Success {
-		w.rdb.HIncrBy(ctx, statsKey, "processed", 1)
-	} else {
-		w.rdb.HIncrBy(ctx, statsKey, "errored", 1)
-	}
-
-	log.Printf("queue: completed job %s in %v (success=%v, score=%v)", job.JobID, elapsed, result.Success, result.Score)
-}
-
-// doProcess performs the actual work: fetch exam, parse questions, score
-// answers, insert submission into PostgreSQL.
-func (w *Worker) doProcess(ctx context.Context, job *SubmissionJob) JobResult {
-	// Fetch exam questions.
+// processSubmission fetches the exam questions and calculates the score.
+func (w *Worker) processSubmission(ctx context.Context, job *SubmissionJob) (*float64, error) {
 	if w.pool == nil {
-		return w.fail(job.JobID, "database pool is nil")
+		return nil, errors.New("database pool is nil")
 	}
 
 	var questionsJSON *string
 	err := w.pool.QueryRow(ctx,
 		`SELECT questions_json FROM exams WHERE id = $1`, job.ExamID).Scan(&questionsJSON)
 	if err != nil {
-		log.Printf("queue: fetch exam %d: %v", job.ExamID, err)
-		return w.fail(job.JobID, fmt.Sprintf("fetch exam: %v", err))
+		return nil, fmt.Errorf("fetch exam: %w", err)
 	}
 
-	// Parse & score using the shared models package.
 	questions, parseErr := models.ParseQuestionsJSON(questionsJSON)
 	if parseErr != nil {
-		log.Printf("queue: parse questions: %v", parseErr)
-		return w.fail(job.JobID, fmt.Sprintf("parse questions: %v", parseErr))
+		return nil, fmt.Errorf("parse questions: %w", parseErr)
 	}
 
 	var score *float64
@@ -311,79 +291,166 @@ func (w *Worker) doProcess(ctx context.Context, job *SubmissionJob) JobResult {
 		score = models.CalculateSubmissionScore(job.Answers, questions)
 	}
 
-	// Insert submission into PostgreSQL.
-	submissionID, err := w.insertSubmission(ctx, job, score)
-	if err != nil {
-		log.Printf("queue: insert submission: %v", err)
-		// Retry logic.
-		if job.Retries < maxRetriesPerJob {
-			job.Retries++
-			log.Printf("queue: retrying job %s (attempt %d/%d)", job.JobID, job.Retries, maxRetriesPerJob)
-			if err := EnqueueSubmissionWithJob(w.rdb, job); err != nil {
-				return w.fail(job.JobID, fmt.Sprintf("retry failed: %v", err))
-			}
-			return JobResult{
-				JobID:   job.JobID,
-				Success: true,
-				Message: "retried",
-			}
+	return score, nil
+}
+
+// runBatchInserter continuously reads from batchChan and flushes to PostgreSQL.
+func (w *Worker) runBatchInserter(batchSize int) {
+	defer w.wg.Done()
+
+	ticker := time.NewTicker(500 * time.Millisecond)
+	defer ticker.Stop()
+
+	var buf []SubmissionResult
+
+	flush := func() {
+		if len(buf) == 0 {
+			return
 		}
-		return w.fail(job.JobID, fmt.Sprintf("insert submission after %d retries: %v", maxRetriesPerJob, err))
+		w.flushBatch(context.Background(), buf)
+		buf = buf[:0]
 	}
 
-	now := time.Now().UTC().Format(time.RFC3339)
-	return JobResult{
-		JobID:       job.JobID,
-		Success:     true,
-		Score:       score,
-		Message:     fmt.Sprintf("submission %d created", submissionID),
-		ProcessedAt: now,
+	for {
+		select {
+		case <-w.quit:
+			flush()
+			// Drain channel before exiting
+			for {
+				select {
+				case res := <-w.batchChan:
+					buf = append(buf, res)
+					if len(buf) >= batchSize {
+						flush()
+					}
+				default:
+					flush()
+					return
+				}
+			}
+		case result := <-w.batchChan:
+			buf = append(buf, result)
+			if len(buf) >= batchSize {
+				flush()
+			}
+		case <-ticker.C:
+			flush()
+		}
 	}
 }
 
-// insertSubmission writes the submission record into PostgreSQL and
-// returns the new submission ID.
-func (w *Worker) insertSubmission(ctx context.Context, job *SubmissionJob, score *float64) (int, error) {
+// flushBatch inserts a batch of submissions into PostgreSQL in a single transaction.
+func (w *Worker) flushBatch(ctx context.Context, results []SubmissionResult) {
 	if w.pool == nil {
-		return 0, errors.New("database pool is nil")
+		log.Printf("queue batch: database pool is nil")
+		return
 	}
 
-	answersJSON, _ := json.Marshal(job.Answers)
-	identityJSON, _ := json.Marshal(job.IdentityData)
-
-	var answersPtr, identityPtr *string
-	answersStr := string(answersJSON)
-	identityStr := string(identityJSON)
-	if answersStr != "null" && answersStr != "{}" {
-		answersPtr = &answersStr
-	}
-	if identityStr != "null" && identityStr != "{}" {
-		identityPtr = &identityStr
-	}
-
-	sql := `INSERT INTO submissions
-		(exam_id, student_name, exam_number, student_class, answers_json, score, start_time, mac_address, identity_data)
-		VALUES ($1, $2, $3, $4, $5, $6, NULLIF($7, ''), $8, $9)
-		RETURNING id`
-
-	var submissionID int
-	err := w.pool.QueryRow(ctx, sql,
-		job.ExamID, job.StudentName, job.ExamNumber, job.StudentClass,
-		answersPtr, score, job.StartTime, job.MACAddress, identityPtr,
-	).Scan(&submissionID)
+	start := time.Now()
+	tx, err := w.pool.Begin(ctx)
 	if err != nil {
-		return 0, fmt.Errorf("insert: %w", err)
+		log.Printf("queue batch: tx begin error: %v", err)
+		return
+	}
+	defer tx.Rollback(ctx)
+
+	// Set worker heartbeat in Redis (best effort)
+	if !isRedisUnavailable(w.rdb) {
+		w.rdb.Set(ctx, "examvan:submissions:worker_heartbeat", time.Now().UTC().Format(time.RFC3339), 30*time.Second)
 	}
 
-	return submissionID, nil
+	successCount := 0
+	failedCount := 0
+
+	for _, r := range results {
+		if r.Error != nil {
+			log.Printf("queue batch: skip job %s due to error: %v", r.Job.JobID, r.Error)
+			failedCount++
+			w.storeResult(ctx, r.Job.JobID, false, nil, fmt.Sprintf("process error: %v", r.Error))
+			continue
+		}
+
+		answersJSON, _ := json.Marshal(r.Job.Answers)
+		identityJSON, _ := json.Marshal(r.Job.IdentityData)
+
+		var answersPtr, identityPtr *string
+		answersStr := string(answersJSON)
+		identityStr := string(identityJSON)
+		if answersStr != "null" && answersStr != "{}" {
+			answersPtr = &answersStr
+		}
+		if identityStr != "null" && identityStr != "{}" {
+			identityPtr = &identityStr
+		}
+
+		sql := `INSERT INTO submissions
+			(exam_id, student_name, exam_number, student_class, answers_json, score, start_time, mac_address, identity_data)
+			VALUES ($1, $2, $3, $4, $5, $6, NULLIF($7, ''), $8, $9)
+			RETURNING id`
+
+		var submissionID int
+		err := tx.QueryRow(ctx, sql,
+			r.Job.ExamID, r.Job.StudentName, r.Job.ExamNumber, r.Job.StudentClass,
+			answersPtr, r.Score, r.Job.StartTime, r.Job.MACAddress, identityPtr,
+		).Scan(&submissionID)
+
+		if err != nil {
+			log.Printf("queue batch: insert job %s error: %v", r.Job.JobID, err)
+			if r.Job.Retries < maxRetriesPerJob {
+				r.Job.Retries++
+				log.Printf("queue batch: retrying job %s (attempt %d/%d)", r.Job.JobID, r.Job.Retries, maxRetriesPerJob)
+				_ = EnqueueSubmissionWithJob(w.rdb, &r.Job)
+			} else {
+				failedCount++
+				w.storeResult(ctx, r.Job.JobID, false, nil, fmt.Sprintf("database insert error: %v", err))
+			}
+		} else {
+			successCount++
+			w.storeResult(ctx, r.Job.JobID, true, r.Score, fmt.Sprintf("submission %d created", submissionID))
+		}
+	}
+
+	if err := tx.Commit(ctx); err != nil {
+		log.Printf("queue batch: tx commit error: %v", err)
+		return
+	}
+
+	elapsed := time.Since(start)
+	log.Printf("queue batch: flushed batch of %d items in %v (success: %d, failed: %d)",
+		len(results), elapsed, successCount, failedCount)
 }
 
-// fail creates a failed JobResult.
-func (w *Worker) fail(jobID, message string) JobResult {
-	return JobResult{
-		JobID:   jobID,
-		Success: false,
-		Message: message,
+// storeResult writes job result to Redis and publishes updates.
+func (w *Worker) storeResult(ctx context.Context, jobID string, success bool, score *float64, message string) {
+	if isRedisUnavailable(w.rdb) {
+		return
+	}
+
+	result := JobResult{
+		JobID:       jobID,
+		Success:     success,
+		Score:       score,
+		Message:     message,
+		ProcessedAt: time.Now().UTC().Format(time.RFC3339),
+	}
+
+	resultPayload, err := json.Marshal(result)
+	if err != nil {
+		return
+	}
+
+	resultKey := ResultKeyPrefix + jobID
+	_ = w.rdb.Set(ctx, resultKey, resultPayload, resultTTL).Err()
+
+	// Publish to Pub/Sub channel.
+	_ = w.rdb.Publish(ctx, pubSubChannel, resultPayload).Err()
+
+	// Update stats counters.
+	statsKey := "examvan:submissions:stats"
+	if success {
+		w.rdb.HIncrBy(ctx, statsKey, "processed", 1)
+	} else {
+		w.rdb.HIncrBy(ctx, statsKey, "errored", 1)
 	}
 }
 

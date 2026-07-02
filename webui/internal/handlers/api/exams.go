@@ -22,6 +22,7 @@ import (
 	"github.com/redis/go-redis/v9"
 
 	"github.com/examvan/webui/internal/config"
+	r2client "github.com/examvan/webui/internal/handlers/r2"
 	"github.com/examvan/webui/internal/models"
 	"github.com/examvan/webui/internal/queue"
 )
@@ -481,6 +482,21 @@ func ExamPDF() gin.HandlerFunc {
 			return
 		}
 
+		// Priority 1: Serve PDF via Cloudflare R2 signed URL
+		if r2c, exists := c.Get("r2"); exists {
+			client := r2c.(*r2client.Client)
+			if client.Enabled() {
+				r2Key := fmt.Sprintf("pdfs/%s", exam.FilePath)
+				signedURL, err := client.SignedURL(ctx, r2Key, 1*time.Hour)
+				if err == nil {
+					c.Redirect(http.StatusFound, signedURL)
+					return
+				}
+				log.Printf("api: R2 signed URL error: %v — fallback to local", err)
+			}
+		}
+
+		// Priority 2: Fallback — serve from local storage
 		storageDir := getStoragePath(c)
 		pdfPath, err := safeStoragePath(storageDir, exam.FilePath)
 		if err != nil {
@@ -494,7 +510,8 @@ func ExamPDF() gin.HandlerFunc {
 		}
 
 		c.Header("Content-Type", "application/pdf")
-		c.File(pdfPath)
+		c.Header("X-Accel-Redirect", "/internal/pdf/"+exam.FilePath)
+		c.Status(http.StatusOK)
 	}
 }
 
@@ -864,29 +881,31 @@ func AccessLog() gin.HandlerFunc {
 			}
 		}
 
-		// --- Insert access log ---
-		accessLog := &models.StudentAccessLog{
-			ExamID:            examID,
-			SubmissionID:      submissionID,
-			StudentIdentifier: macAddress,
-			StudentName:       strPtr(studentName),
-			ExamNumber:        strPtr(examNumber),
-			StudentClass:      strPtr(studentClass),
-			Event:             event,
-			IPAddress:         ipAddress,
-			DeviceInfo:        deviceInfo,
-			IdentityData:      identityDataJSON,
-		}
+		// --- Insert access log (login/logout only, heartbeats are Redis-only for database performance) ---
+		if event != "heartbeat" {
+			accessLog := &models.StudentAccessLog{
+				ExamID:            examID,
+				SubmissionID:      submissionID,
+				StudentIdentifier: macAddress,
+				StudentName:       strPtr(studentName),
+				ExamNumber:        strPtr(examNumber),
+				StudentClass:      strPtr(studentClass),
+				Event:             event,
+				IPAddress:         ipAddress,
+				DeviceInfo:        deviceInfo,
+				IdentityData:      identityDataJSON,
+			}
 
-		if _, err := models.CreateAccessLog(ctx, pool, accessLog); err != nil {
-			log.Printf("access-log insert error: %v", err)
-			errorResponse(c, http.StatusInternalServerError, "Gagal menyimpan log")
-			return
+			if _, err := models.CreateAccessLog(ctx, pool, accessLog); err != nil {
+				log.Printf("access-log insert error: %v", err)
+				errorResponse(c, http.StatusInternalServerError, "Gagal menyimpan log")
+				return
+			}
 		}
 
 		// --- Write heartbeat to Redis (login / heartbeat only) ---
 		if event == "login" || event == "heartbeat" {
-			setStudentHeartbeat(rdb, examID, macAddress, map[string]interface{}{
+			heartbeatData := map[string]interface{}{
 				"student_name":  studentName,
 				"exam_number":   examNumber,
 				"student_class": studentClass,
@@ -894,7 +913,17 @@ func AccessLog() gin.HandlerFunc {
 				"ip_address":    ipAddress,
 				"event":         event,
 				"last_seen":     time.Now().UTC().Format(time.RFC3339),
-			})
+			}
+			setStudentHeartbeat(rdb, examID, macAddress, heartbeatData)
+
+			// Push heartbeat to Redis queue to be flushed to DB asynchronously
+			if event == "heartbeat" && rdb != nil {
+				heartbeatData["exam_id"] = examID
+				heartbeatData["mac_address"] = macAddress
+				if payload, err := json.Marshal(heartbeatData); err == nil {
+					_ = rdb.LPush(ctx, "examvan:heartbeats:pending", payload).Err()
+				}
+			}
 		}
 
 		c.JSON(http.StatusOK, gin.H{

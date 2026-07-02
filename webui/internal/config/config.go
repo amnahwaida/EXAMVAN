@@ -23,6 +23,13 @@ type Config struct {
 	StoragePath string
 	MaxFileSize int64
 	Version     string
+	DatabaseMaxConns int
+
+	// Cloudflare R2 (S3-compatible object storage)
+	R2AccessKey string
+	R2SecretKey string
+	R2Bucket    string
+	R2Endpoint  string
 }
 
 func Load() *Config {
@@ -36,6 +43,11 @@ func Load() *Config {
 		StoragePath: envStr("STORAGE_PATH", DefaultStoragePath),
 		MaxFileSize: DefaultMaxFileSize,
 		Version:     DefaultVersion,
+		DatabaseMaxConns: envInt("DATABASE_MAX_CONNS", 100),
+		R2AccessKey: os.Getenv("R2_ACCESS_KEY_ID"),
+		R2SecretKey: os.Getenv("R2_SECRET_ACCESS_KEY"),
+		R2Bucket:    envStr("R2_BUCKET", "examvan-pdfs"),
+		R2Endpoint:  os.Getenv("R2_ENDPOINT"),
 	}
 
 	if cfg.StoragePath == "" {

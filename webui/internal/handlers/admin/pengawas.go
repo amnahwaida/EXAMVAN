@@ -12,6 +12,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/jackc/pgx/v5/pgxpool"
+	redis "github.com/redis/go-redis/v9"
 
 	"github.com/examvan/webui/internal/models"
 )
@@ -408,6 +409,15 @@ func PengawasExamSubmissions() gin.HandlerFunc {
 
 			submitted := sub.AnswersJSON != nil && *sub.AnswersJSON != ""
 
+			isOnline := false
+			if rdb, exists := c.Get("redis"); exists && rdb != nil {
+				if redisClient, ok := rdb.(*redis.Client); ok {
+					key := fmt.Sprintf("heartbeat:%d:%s", examID, sub.MACAddress)
+					existsVal, err := redisClient.Exists(ctx, key).Result()
+					isOnline = (err == nil && existsVal > 0)
+				}
+			}
+
 			subsData = append(subsData, subItem{
 				ID:            sub.ID,
 				StudentName:   sub.StudentName,
@@ -422,7 +432,7 @@ func PengawasExamSubmissions() gin.HandlerFunc {
 				LastAccessAt:  lastAccess,
 				MACAddress:    sub.MACAddress,
 				AccessLogs:    accessLogs,
-				IsOnline:      false,
+				IsOnline:      isOnline,
 			})
 		}
 

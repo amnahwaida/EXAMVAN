@@ -20,6 +20,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	r2client "github.com/examvan/webui/internal/handlers/r2"
 	"github.com/examvan/webui/internal/models"
 )
 
@@ -217,6 +218,19 @@ func UploadExam() gin.HandlerFunc {
 			return
 		}
 
+		// Upload to R2 if configured
+		if r2c, exists := c.Get("r2"); exists {
+			client := r2c.(*r2client.Client)
+			if client.Enabled() {
+				r2Key := fmt.Sprintf("pdfs/%s", filename)
+				if err := client.UploadBytes(ctx, r2Key, fileData); err != nil {
+					log.Printf("admin: R2 upload error: %v — fallback to local only", err)
+				} else {
+					log.Printf("admin: PDF uploaded to R2: %s", r2Key)
+				}
+			}
+		}
+
 		defaultMode := "dynamic"
 		defaultInterval := 5
 
@@ -328,6 +342,17 @@ func DeleteExam() gin.HandlerFunc {
 			}
 		}
 
+		// Delete from R2 if configured
+		if r2c, exists := c.Get("r2"); exists {
+			client := r2c.(*r2client.Client)
+			if client.Enabled() {
+				r2Key := fmt.Sprintf("pdfs/%s", exam.FilePath)
+				if err := client.Delete(ctx, r2Key); err != nil {
+					log.Printf("admin: R2 delete error: %v", err)
+				}
+			}
+		}
+
 		successMessage(c, "Ujian berhasil dihapus")
 	}
 }
@@ -380,10 +405,21 @@ func EditExam() gin.HandlerFunc {
 				return
 			}
 
-			// Delete old file
+			// Delete old file locally
 			storageDir := getStoragePath(c)
 			if oldPath, err := safeStoragePath(storageDir, exam.FilePath); err == nil {
 				os.Remove(oldPath)
+			}
+
+			// Delete old file from R2 if configured
+			if r2c, exists := c.Get("r2"); exists {
+				client := r2c.(*r2client.Client)
+				if client.Enabled() {
+					oldR2Key := fmt.Sprintf("pdfs/%s", exam.FilePath)
+					if err := client.Delete(ctx, oldR2Key); err != nil {
+						log.Printf("admin: R2 delete old file error: %v", err)
+					}
+				}
 			}
 
 			// Save new file
@@ -399,6 +435,19 @@ func EditExam() gin.HandlerFunc {
 				log.Printf("edit exam save file error: %v", err)
 				errorResponse(c, http.StatusInternalServerError, "Gagal menyimpan file")
 				return
+			}
+
+			// Upload new file to R2 if configured
+			if r2c, exists := c.Get("r2"); exists {
+				client := r2c.(*r2client.Client)
+				if client.Enabled() {
+					r2Key := fmt.Sprintf("pdfs/%s", filename)
+					if err := client.UploadBytes(ctx, r2Key, fileData); err != nil {
+						log.Printf("admin: R2 upload error: %v — fallback to local only", err)
+					} else {
+						log.Printf("admin: PDF uploaded to R2: %s", r2Key)
+					}
+				}
 			}
 
 			exam.Name = name
@@ -1086,6 +1135,19 @@ func BulkDelete() gin.HandlerFunc {
 		for _, p := range paths {
 			if fp, err := safeStoragePath(storageDir, p); err == nil {
 				os.Remove(fp)
+			}
+		}
+
+		// Delete from R2 if configured
+		if r2c, exists := c.Get("r2"); exists {
+			client := r2c.(*r2client.Client)
+			if client.Enabled() {
+				for _, p := range paths {
+					r2Key := fmt.Sprintf("pdfs/%s", p)
+					if err := client.Delete(ctx, r2Key); err != nil {
+						log.Printf("admin: R2 bulk delete error for %s: %v", r2Key, err)
+					}
+				}
 			}
 		}
 
