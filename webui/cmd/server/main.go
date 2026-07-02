@@ -496,6 +496,7 @@ func registerRoutes(r *gin.Engine, cfg *config.Config, pool *pgxpool.Pool) {
 		apiGroup.POST("/exams/:exam_id/access-log", middleware.RateLimit(30, time.Minute), middleware.AndroidVersionCheck(), api.AccessLog())
 
 		apiGroup.GET("/hasil/:token", middleware.RateLimit(30, time.Minute), public.HasilAPI())
+		apiGroup.GET("/payments/doku/notify", func(c *gin.Context) { c.JSON(http.StatusOK, gin.H{"status": "active"}) })
 		apiGroup.POST("/payments/doku/notify", middleware.RateLimit(20, time.Minute), api.DokuNotifyHandler(cfg))
 	}
 

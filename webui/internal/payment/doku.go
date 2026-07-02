@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log"
 	"net/http"
 	"time"
 
@@ -38,25 +39,37 @@ type DokuOrderRequest struct {
 		InvoiceNumber string `json:"invoice_number"`
 		Amount        int64  `json:"amount"`
 		CallbackURL   string `json:"callback_url"`
+		LineItems     []DokuLineItem `json:"line_items,omitempty"`
 	} `json:"order"`
+	Payment struct {
+		PaymentDueDate int `json:"payment_due_date"`
+	} `json:"payment"`
 	Customer struct {
 		Name  string `json:"name"`
 		Email string `json:"email"`
 	} `json:"customer"`
 }
 
+type DokuLineItem struct {
+	ID       string `json:"id"`
+	Name     string `json:"name"`
+	Quantity int    `json:"quantity"`
+	Price    int64  `json:"price"`
+	Category string `json:"category"`
+}
+
 type DokuOrderResponse struct {
-	Order struct {
-		InvoiceNumber string `json:"invoice_number"`
-		Amount        int64  `json:"amount"`
-	} `json:"order"`
-	Payment struct {
-		URL         string `json:"url"`
-		ExpiredDate string `json:"expired_date"`
-	} `json:"payment"`
-	Error struct {
-		Message []string `json:"message"`
-	} `json:"error"`
+	Message  []string          `json:"message"`
+	Response *DokuResponseData `json:"response,omitempty"`
+}
+
+type DokuResponseData struct {
+	Payment DokuPaymentInfo `json:"payment"`
+}
+
+type DokuPaymentInfo struct {
+	URL         string `json:"url"`
+	ExpiredDate string `json:"expired_date"`
 }
 
 // CreateCheckout initiates a checkout request to DOKU and returns the payment redirect URL
@@ -65,6 +78,16 @@ func (d *DokuClient) CreateCheckout(invoiceNum string, amount int64, callbackURL
 	reqBody.Order.InvoiceNumber = invoiceNum
 	reqBody.Order.Amount = amount
 	reqBody.Order.CallbackURL = callbackURL
+	reqBody.Order.LineItems = []DokuLineItem{
+		{
+			ID:       invoiceNum + "-item-1",
+			Name:     "Paket Langganan EXAMVAN",
+			Quantity: 1,
+			Price:    amount,
+			Category: "Subscription",
+		},
+	}
+	reqBody.Payment.PaymentDueDate = 120
 	reqBody.Customer.Name = customerName
 	reqBody.Customer.Email = customerEmail
 
@@ -72,6 +95,7 @@ func (d *DokuClient) CreateCheckout(invoiceNum string, amount int64, callbackURL
 	if err != nil {
 		return "", err
 	}
+	log.Printf("Doku Request body: %s", string(jsonBytes))
 
 	requestID := uuid.New().String()
 	timestamp := time.Now().UTC().Format("2006-01-02T15:04:05Z")
@@ -104,6 +128,7 @@ func (d *DokuClient) CreateCheckout(invoiceNum string, amount int64, callbackURL
 	}
 
 	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusCreated {
+		log.Printf("Doku Response (status %d): %s", resp.StatusCode, string(respBytes))
 		return "", fmt.Errorf("doku api error (status %d): %s", resp.StatusCode, string(respBytes))
 	}
 
@@ -112,15 +137,15 @@ func (d *DokuClient) CreateCheckout(invoiceNum string, amount int64, callbackURL
 		return "", err
 	}
 
-	if len(res.Error.Message) > 0 {
-		return "", fmt.Errorf("doku response error: %v", res.Error.Message)
+	if len(res.Message) > 0 && res.Message[0] != "" && res.Message[0] != "SUCCESS" {
+		return "", fmt.Errorf("doku response error: %v", res.Message)
 	}
 
-	if res.Payment.URL == "" {
+	if res.Response == nil || res.Response.Payment.URL == "" {
 		return "", fmt.Errorf("doku response missing payment url: %s", string(respBytes))
 	}
 
-	return res.Payment.URL, nil
+	return res.Response.Payment.URL, nil
 }
 
 // GenerateDokuSignature generates a DOKU-compliant HMAC-SHA256 signature for requests/notifications

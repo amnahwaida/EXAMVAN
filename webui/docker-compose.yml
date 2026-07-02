@@ -68,6 +68,9 @@ services:
       - R2_BUCKET=${R2_BUCKET:-examvan-pdfs}
       - R2_ENDPOINT=${R2_ENDPOINT:-}
       - DATABASE_MAX_CONNS=${DATABASE_MAX_CONNS:-100}
+      - DOKU_CLIENT_ID=${DOKU_CLIENT_ID:-}
+      - DOKU_SECRET_KEY=${DOKU_SECRET_KEY:-}
+      - DOKU_API_URL=${DOKU_API_URL:-https://api-sandbox.doku.com}
     volumes:
       - webui_storage:/app/storage
     depends_on:
