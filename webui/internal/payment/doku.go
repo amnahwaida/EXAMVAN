@@ -38,7 +38,6 @@ type DokuOrderRequest struct {
 		InvoiceNumber string `json:"invoice_number"`
 		Amount        int64  `json:"amount"`
 		CallbackURL   string `json:"callback_url"`
-		Currency      string `json:"currency"`
 	} `json:"order"`
 	Customer struct {
 		Name  string `json:"name"`
@@ -66,7 +65,6 @@ func (d *DokuClient) CreateCheckout(invoiceNum string, amount int64, callbackURL
 	reqBody.Order.InvoiceNumber = invoiceNum
 	reqBody.Order.Amount = amount
 	reqBody.Order.CallbackURL = callbackURL
-	reqBody.Order.Currency = "IDR"
 	reqBody.Customer.Name = customerName
 	reqBody.Customer.Email = customerEmail
 
