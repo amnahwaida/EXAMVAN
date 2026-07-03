@@ -197,7 +197,7 @@ func NewHub() *Hub {
 		rooms:      make(map[string]map[*Client]bool),
 		register:   make(chan *Client),
 		unregister: make(chan *Client),
-		broadcast:  make(chan *roomMessage, 256),
+		broadcast:  make(chan *roomMessage, 4096),
 	}
 }
 
@@ -322,11 +322,7 @@ func (h *Hub) BroadcastToRoom(roomID string, event string, payload interface{}) 
 		log.Printf("websocket: marshal broadcast: %v", err)
 		return
 	}
-	select {
-	case h.broadcast <- &roomMessage{room: roomID, message: data}:
-	default:
-		log.Printf("websocket: broadcast buffer full for room %s, dropping message", roomID)
-	}
+	h.broadcast <- &roomMessage{room: roomID, message: data}
 }
 
 // BroadcastToExam is a convenience alias for BroadcastToRoom that accepts an int exam ID.

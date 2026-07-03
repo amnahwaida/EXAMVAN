@@ -31,7 +31,12 @@ _OBFUSCATE_KEY = b"EXAMVAN_OBF_2024!!"
 
 def _xor_obfuscate(data: bytes) -> bytes:
     """XOR obfuscation. Same function for encrypt and decrypt."""
-    return bytes(b ^ _OBFUSCATE_KEY[i % len(_OBFUSCATE_KEY)] for i, b in enumerate(data))
+    token = get("exam_token") or ""
+    if token:
+        mixed_key = bytes(b ^ ord(token[i % len(token)]) for i, b in enumerate(_OBFUSCATE_KEY))
+    else:
+        mixed_key = _OBFUSCATE_KEY
+    return bytes(b ^ mixed_key[i % len(mixed_key)] for i, b in enumerate(data))
 
 
 def _encode_answers(answers: Dict[str, Any]) -> str:

@@ -48,6 +48,7 @@
 | **Durasi ujian** | Maks 3 jam |
 | **Harga** | **Rp 75.000**/bulan • **Rp 375.000**/semester • **Rp 675.000**/tahun |
 | **Fitur** | Token statis/dinamis, strict mode, pengawasan realtime, export CSV, hasil publik, show answers |
+| **Akses** | Operator — kelola guru sendiri, reset password |
 | **Dukungan** | Email |
 | **Ideal untuk** | SD/MI — 6 mapel, ujian PH/UTS/PAS |
 
@@ -62,6 +63,7 @@
 | **Durasi ujian** | Maks 4 jam |
 | **Harga** | **Rp 175.000**/bulan • **Rp 875.000**/semester • **Rp 1.575.000**/tahun |
 | **Fitur** | Token statis/dinamis, strict mode, pengawasan realtime, export CSV, hasil publik, show answers, panel warna |
+| **Akses** | Operator — kelola tim guru, reset password, manage users |
 | **Dukungan** | Email + WA |
 | **Ideal untuk** | SMP/MTs — 10-15 mapel, ujian PAS/PAT |
 
@@ -76,6 +78,8 @@
 | **Durasi ujian** | Maks 6 jam |
 | **Harga** | **Rp 375.000**/bulan • **Rp 1.875.000**/semester • **Rp 3.375.000**/tahun |
 | **Fitur** | Token statis/dinamis, strict mode, pengawasan realtime, export CSV, hasil publik, show answers, panel warna |
+| **Akses** | Operator — kelola tim guru, reset password, manage users |
+| **Akses** | Operator — kelola tim guru, reset password, manage users |
 | **Dukungan** | Email + WA + telepon (jam kerja) |
 | **Ideal untuk** | SMA/MA/SMK — 15+ mapel, tryout, ujian sekolah, US |
 

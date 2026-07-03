@@ -39,9 +39,11 @@ func getStoragePath(c *gin.Context) string {
 // getFreeDiskSpace returns the free space of the storage partition in bytes.
 func getFreeDiskSpace(path string) float64 {
 	var stat syscall.Statfs_t
-	// Create the path directory if it doesn't exist to ensure we can check it
-	if err := os.MkdirAll(path, 0755); err != nil {
-		return 0
+	// Only attempt directory creation if it doesn't already exist
+	if _, err := os.Stat(path); os.IsNotExist(err) {
+		if err := os.MkdirAll(path, 0755); err != nil {
+			return 0
+		}
 	}
 	err := syscall.Statfs(path, &stat)
 	if err != nil {

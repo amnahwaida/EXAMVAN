@@ -336,19 +336,32 @@ func ProcessTransactionApproval(ctx context.Context, pool *pgxpool.Pool, txID in
 		return fmt.Errorf("transaksi sudah diproses oleh pengguna lain")
 	}
 
+	// Upgrade role — sekolah packages get operator privileges
+	newRole := ""
+	switch tx.Package {
+	case "sekolah_kecil", "sekolah_menengah", "sekolah_besar", "sekolah_unggulan":
+		newRole = models.SerializeRoles([]string{models.RoleOperator})
+	}
+
 	// Update user limits and package
-	_, err = dbTx.Exec(ctx,
-		`UPDATE admin_users SET
-			package = $1,
-			max_exams = $2,
-			max_pdf_size = $3,
-			max_drafts = $4,
-			max_storage_size = $5,
-			expires_at = $6,
-			status = 'active'
-		WHERE id = $7`,
-		tx.Package, exams, pdf, drafts, storage, newExpiry, tx.UserID,
-	)
+	var updateSQL string
+	var updateArgs []interface{}
+	if newRole != "" {
+		updateSQL = `UPDATE admin_users SET
+			package = $1, max_exams = $2, max_pdf_size = $3,
+			max_drafts = $4, max_storage_size = $5,
+			expires_at = $6, status = 'active', role = $7
+			WHERE id = $8`
+		updateArgs = []interface{}{tx.Package, exams, pdf, drafts, storage, newExpiry, newRole, tx.UserID}
+	} else {
+		updateSQL = `UPDATE admin_users SET
+			package = $1, max_exams = $2, max_pdf_size = $3,
+			max_drafts = $4, max_storage_size = $5,
+			expires_at = $6, status = 'active'
+			WHERE id = $7`
+		updateArgs = []interface{}{tx.Package, exams, pdf, drafts, storage, newExpiry, tx.UserID}
+	}
+	_, err = dbTx.Exec(ctx, updateSQL, updateArgs...)
 	if err != nil {
 		return fmt.Errorf("gagal memperbarui kuota paket pengguna: %w", err)
 	}
@@ -558,9 +571,13 @@ func CreateDokuTransaction(cfg *config.Config) gin.HandlerFunc {
 			return
 		}
 
+		// Read active payment methods from settings (comma-separated)
+		dokuPaymentMethods := models.GetSaasSettingWithDefault(ctx, pool, models.SettingDokuPaymentMethods,
+			"VIRTUAL_ACCOUNT_BCA,VIRTUAL_ACCOUNT_MANDIRI,VIRTUAL_ACCOUNT_BRI,VIRTUAL_ACCOUNT_BNI,QRIS,EMONEY_SHOPEEPAY,EMONEY_DANA,EMONEY_OVO,CREDIT_CARD")
+
 		// Initialize DokuClient
 		dokuClient := payment.NewDokuClient(cfg.DokuClientID, cfg.DokuSecretKey, cfg.DokuAPIURL)
-		redirectURL, err := dokuClient.CreateCheckout(invoiceNumber, amount, callbackURL, callbackURLCancel, customerName, customerEmail)
+		redirectURL, err := dokuClient.CreateCheckout(invoiceNumber, amount, callbackURL, callbackURLCancel, customerName, customerEmail, dokuPaymentMethods)
 		if err != nil {
 			log.Printf("failed to create checkout session with DOKU: %v", err)
 			errorResponse(c, http.StatusInternalServerError, "Gagal membuat sesi pembayaran DOKU: "+err.Error())

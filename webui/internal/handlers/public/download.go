@@ -52,6 +52,12 @@ func getAPKPath(c *gin.Context) string {
 func DownloadPage() gin.HandlerFunc {
 	return func(c *gin.Context) {
 		pool := getPool(c)
+		if pool == nil {
+			c.HTML(http.StatusInternalServerError, "public/download.html", middleware.MergeTemplateData(c, gin.H{
+				"error": "Database tidak tersedia.",
+			}))
+			return
+		}
 		ctx := c.Request.Context()
 
 		androidVer := models.GetSaasSettingWithDefault(ctx, pool,

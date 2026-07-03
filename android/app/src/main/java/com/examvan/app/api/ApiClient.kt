@@ -59,7 +59,25 @@ object ApiClient {
     private var baseUrl: String = ""
 
     fun setBaseUrl(url: String) {
-        baseUrl = url.trimEnd('/')
+        var cleanUrl = url.trimEnd('/')
+        // Enforce https if it's a remote domain (not a private IP or local hostname)
+        if (cleanUrl.startsWith("http://")) {
+            val isPrivate = try {
+                val host = java.net.URI(cleanUrl).host ?: ""
+                host == "localhost" ||
+                host == "127.0.0.1" ||
+                host.startsWith("192.168.") ||
+                host.startsWith("10.") ||
+                (host.startsWith("172.") && host.split(".").getOrNull(1)?.toIntOrNull() in 16..31) ||
+                !host.contains(".")
+            } catch (e: Exception) {
+                false
+            }
+            if (!isPrivate) {
+                cleanUrl = cleanUrl.replace("http://", "https://")
+            }
+        }
+        baseUrl = cleanUrl
     }
 
     fun getBaseUrl(): String = baseUrl
@@ -103,8 +121,12 @@ object ApiClient {
                                 }
                                 // Dynamic pinning (TOFU): first-fingerprint-wins
                                 certificateFingerprint != fp -> {
-                                    certificateFingerprint = fp
-                                    rebuildClientWithPinning(fp)
+                                    synchronized(ApiClient) {
+                                        if (certificateFingerprint != fp) {
+                                            certificateFingerprint = fp
+                                            rebuildClientWithPinning(fp)
+                                        }
+                                    }
                                 }
                             }
                         }

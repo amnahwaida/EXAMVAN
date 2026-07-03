@@ -81,6 +81,7 @@ func handleSaasSettingsGet(c *gin.Context, pool *pgxpool.Pool, ctx context.Conte
 			"seo_description":            settings[models.SettingSEODescription],
 			"seo_keywords":               settings[models.SettingSEOKeywords],
 			"seo_index":                  settings[models.SettingSEOIndex] == "1",
+			"doku_payment_methods":       settings[models.SettingDokuPaymentMethods],
 		},
 	})
 }
@@ -123,6 +124,7 @@ func handleSaasSettingsPost(c *gin.Context, pool *pgxpool.Pool, ctx context.Cont
 		SEODescription           string  `json:"seo_description"`
 		SEOKeywords              string  `json:"seo_keywords"`
 		SEOIndex                 bool    `json:"seo_index"`
+		DokuPaymentMethods       string  `json:"doku_payment_methods"`
 	}
 
 	if err := c.ShouldBindJSON(&body); err != nil {
@@ -214,6 +216,12 @@ func handleSaasSettingsPost(c *gin.Context, pool *pgxpool.Pool, ctx context.Cont
 		seoIndexVal = "1"
 	}
 	models.SetSaasSetting(reqCtx, pool, models.SettingSEOIndex, seoIndexVal)
+
+	// DOKU Payment Methods
+	dokuMethods := strings.TrimSpace(body.DokuPaymentMethods)
+	if dokuMethods != "" {
+		models.SetSaasSetting(reqCtx, pool, models.SettingDokuPaymentMethods, dokuMethods)
+	}
 
 	successMessage(c, "Pengaturan SaaS berhasil diperbarui")
 }

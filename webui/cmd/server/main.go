@@ -200,22 +200,6 @@ func main() {
 		},
 		"seq":       func(n int) []int { s := make([]int, n); for i := range s { s[i] = i }; return s },
 		"dict":      func(values ...interface{}) map[string]interface{} { return toMap(values...) },
-		"safe": func(s string) template.HTML {
-			// Basic sanitization to prevent XSS while allowing basic HTML formatting
-			lower := strings.ToLower(s)
-			if strings.Contains(lower, "<script") || strings.Contains(lower, "onload") || strings.Contains(lower, "onerror") || strings.Contains(lower, "onclick") || strings.Contains(lower, "onmouseover") || strings.Contains(lower, "javascript:") {
-				return template.HTML(html.EscapeString(s))
-			}
-			return template.HTML(s)
-		},
-		"safeURL": func(s string) template.URL {
-			// Prevent javascript: and data: URI schemes.
-			lower := strings.ToLower(strings.TrimSpace(s))
-			if strings.HasPrefix(lower, "javascript:") || strings.HasPrefix(lower, "data:") {
-				return template.URL("#")
-			}
-			return template.URL(s)
-		},
 		"hasPrefix": strings.HasPrefix,
 		"hasSuffix": strings.HasSuffix,
 		"contains":  strings.Contains,
@@ -731,9 +715,7 @@ func loginHandler(cfg *config.Config) gin.HandlerFunc {
 		}
 
 		session := sessions.Default(c)
-		// Regenerate session — save old values, clear, set new, save.
-		// This prevents session fixation attacks.
-		_ = session.Save()
+		// Regenerate session — clear old values, set new, save.
 		session.Clear()
 		session.Set(middleware.SessionKeyAdminID, user.ID)
 		session.Set(middleware.SessionKeyUsername, user.Username)

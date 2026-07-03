@@ -38,7 +38,15 @@ func init() {
 // ---------------------------------------------------------------------------
 
 func getPool(c *gin.Context) *pgxpool.Pool {
-	return c.MustGet("db").(*pgxpool.Pool)
+	val, exists := c.Get("db")
+	if !exists || val == nil {
+		return nil
+	}
+	pool, ok := val.(*pgxpool.Pool)
+	if !ok {
+		return nil
+	}
+	return pool
 }
 
 // ---------------------------------------------------------------------------
@@ -77,6 +85,15 @@ func HasilPage() gin.HandlerFunc {
 		token := strings.ToUpper(strings.TrimSpace(c.Param("token")))
 
 		pool := getPool(c)
+		if pool == nil {
+			c.HTML(http.StatusInternalServerError, "public/hasil.html", middleware.MergeTemplateData(c, gin.H{
+				"exam_name":      "Database Tidak Tersedia",
+				"token":          token,
+				"total_students": 0,
+				"error":          true,
+			}))
+			return
+		}
 		ctx := c.Request.Context()
 
 		exam, err := models.GetExamByToken(ctx, pool, token)
@@ -147,6 +164,13 @@ func HasilAPI() gin.HandlerFunc {
 		token := strings.ToUpper(strings.TrimSpace(c.Param("token")))
 
 		pool := getPool(c)
+		if pool == nil {
+			c.JSON(http.StatusInternalServerError, gin.H{
+				"success": false,
+				"message": "Database tidak tersedia.",
+			})
+			return
+		}
 		ctx := c.Request.Context()
 
 		exam, err := models.GetExamByToken(ctx, pool, token)

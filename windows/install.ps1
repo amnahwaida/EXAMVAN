@@ -31,6 +31,9 @@ if (-not $py) {
     Write-Host "Download Python 3.10+ (64-bit) dari:"
     Write-Host "  https://www.python.org/downloads/"
     Write-Host ""
+    Write-Warn "Keamanan: Verifikasi integritas berkas instalasi Python (.exe) menggunakan PowerShell:"
+    Write-Host "  Get-FileHash -Algorithm SHA256 .\python-3.xx.x-amd64.exe"
+    Write-Host ""
     Write-Host "PASTIKAN centang 'Add Python to PATH' saat install."
     pause
     exit 1

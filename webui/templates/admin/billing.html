@@ -2,6 +2,24 @@
 <html lang="id">
 <head>
  {{adminHead .version .csrf_token "Billing &amp; Paket Langganan"}}
+ <style>
+ .pkg-card {
+  transition: transform 0.2s ease, border-color 0.2s ease, box-shadow 0.2s ease;
+ }
+ .pkg-card:hover {
+  transform: translateY(-4px);
+  border-color: rgba(99,102,241,0.4) !important;
+  box-shadow: 0 10px 25px rgba(99,102,241,0.15);
+ }
+ .pkg-card-popular {
+  transition: transform 0.2s ease, border-color 0.2s ease, box-shadow 0.2s ease;
+ }
+ .pkg-card-popular:hover {
+  transform: translateY(-4px);
+  border-color: rgba(99,102,241,0.6) !important;
+  box-shadow: 0 12px 30px rgba(99,102,241,0.25);
+ }
+ </style>
 </head>
 <body class="dashboard-page">
 {{adminNav .active_page .admin_role .admin_user .csrf_token}}
@@ -17,7 +35,7 @@
   </div>
   {{if ne .admin_role "superadmin"}}
   <button class="btn-primary" onclick="openPaymentModal()" style="display:inline-flex;align-items:center;gap:8px;padding:10px 20px;border-radius:10px;font-weight:600;font-size:0.875rem;cursor:pointer;background:linear-gradient(135deg, var(--color-primary), var(--color-accent));border:none;color:#fff;">
-   <svg class="icon-svg" style="width:16px;height:16px;"><use href="#hi-upload"/></svg> Konfirmasi Pembayaran
+   <svg class="icon-svg" style="width:16px;height:16px;"><use href="#hi-star"/></svg> Upgrade Paket
   </button>
   {{end}}
  </div>
@@ -56,6 +74,154 @@
   </div>
 
  </div>
+
+ {{if ne .admin_role "superadmin"}}
+ <!-- Available Packages Section -->
+ <section class="glass-card" style="padding:24px;border-radius:16px;margin-bottom:32px;">
+  <h3 style="font-size:1.15rem;color:#a5b4fc;margin:0 0 4px 0;font-family:'Outfit',sans-serif;display:flex;align-items:center;gap:8px;">
+   <svg class="icon-svg" style="color:#a5b4fc;width:20px;height:20px;"><use href="#hi-star"/></svg>
+   Pilih & Upgrade Paket Langganan
+  </h3>
+  <p style="color:var(--color-text-secondary);font-size:0.85rem;margin:0 0 24px 0;">Pilih paket yang paling sesuai dengan kapasitas siswa dan kebutuhan ujian sekolah Anda.</p>
+
+  <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6" style="display:grid;grid-template-columns:repeat(auto-fit, minmax(280px, 1fr));gap:20px;">
+   
+   <!-- Paket Guru -->
+   <div class="glass-card pkg-card" style="padding:20px;border-radius:14px;border:1px solid var(--color-glass-border);background:rgba(255,255,255,0.01);display:flex;flex-direction:column;justify-content:space-between;">
+    <div>
+     <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;">
+      <span style="font-size:11px;font-weight:700;text-transform:uppercase;color:#3b82f6;background:rgba(59,130,246,0.1);padding:4px 8px;border-radius:6px;letter-spacing:0.5px;">Guru</span>
+     </div>
+     <h4 style="font-size:1.2rem;font-weight:700;color:#fff;margin:0 0 4px 0;font-family:'Outfit',sans-serif;">Paket Guru</h4>
+     <p style="font-size:12px;color:var(--color-text-secondary);margin-bottom:12px;min-height:36px;">Bimbel kecil, les privat, tryout kelas.</p>
+     <div style="margin-bottom:16px;">
+      <span style="font-size:1.5rem;font-weight:800;color:#fff;font-family:'Outfit',sans-serif;">Rp 25.000</span>
+      <span style="font-size:12px;color:var(--color-text-secondary);">/bulan</span>
+     </div>
+     <ul style="list-style:none;padding:0;margin:0 0 20px 0;font-size:12.5px;color:var(--color-text-secondary);display:flex;flex-direction:column;gap:8px;">
+      <li style="display:flex;align-items:center;gap:6px;"><svg class="icon-svg" style="width:14px;height:14px;color:var(--color-success);flex-shrink:0;"><use href="#hi-check"/></svg> Maks <strong>50</strong> Siswa Aktif</li>
+      <li style="display:flex;align-items:center;gap:6px;"><svg class="icon-svg" style="width:14px;height:14px;color:var(--color-success);flex-shrink:0;"><use href="#hi-check"/></svg> Maks <strong>1</strong> Ujian Bersamaan</li>
+      <li style="display:flex;align-items:center;gap:6px;"><svg class="icon-svg" style="width:14px;height:14px;color:var(--color-success);flex-shrink:0;"><use href="#hi-check"/></svg> Maks <strong>10</strong> File PDF</li>
+      <li style="display:flex;align-items:center;gap:6px;"><svg class="icon-svg" style="width:14px;height:14px;color:var(--color-success);flex-shrink:0;"><use href="#hi-check"/></svg> Maks <strong>2 Jam</strong> / Ujian</li>
+     </ul>
+    </div>
+    <button class="btn-primary" onclick="openPaymentModal('guru')" style="width:100%;padding:10px;border-radius:10px;font-weight:600;font-size:13px;cursor:pointer;background:rgba(255,255,255,0.06);border:1px solid var(--color-glass-border);color:#fff;transition:all 0.2s;">Pilih Paket</button>
+   </div>
+
+   <!-- Paket Individu -->
+   <div class="glass-card pkg-card" style="padding:20px;border-radius:14px;border:1px solid var(--color-glass-border);background:rgba(255,255,255,0.01);display:flex;flex-direction:column;justify-content:space-between;">
+    <div>
+     <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;">
+      <span style="font-size:11px;font-weight:700;text-transform:uppercase;color:#10b981;background:rgba(16,185,129,0.1);padding:4px 8px;border-radius:6px;letter-spacing:0.5px;">Individu</span>
+     </div>
+     <h4 style="font-size:1.2rem;font-weight:700;color:#fff;margin:0 0 4px 0;font-family:'Outfit',sans-serif;">Paket Individu</h4>
+     <p style="font-size:12px;color:var(--color-text-secondary);margin-bottom:12px;min-height:36px;">Pembuat tryout online, bimbel 1-2 kelas.</p>
+     <div style="margin-bottom:16px;">
+      <span style="font-size:1.5rem;font-weight:800;color:#fff;font-family:'Outfit',sans-serif;">Rp 50.000</span>
+      <span style="font-size:12px;color:var(--color-text-secondary);">/bulan</span>
+     </div>
+     <ul style="list-style:none;padding:0;margin:0 0 20px 0;font-size:12.5px;color:var(--color-text-secondary);display:flex;flex-direction:column;gap:8px;">
+      <li style="display:flex;align-items:center;gap:6px;"><svg class="icon-svg" style="width:14px;height:14px;color:var(--color-success);flex-shrink:0;"><use href="#hi-check"/></svg> Maks <strong>200</strong> Siswa Aktif</li>
+      <li style="display:flex;align-items:center;gap:6px;"><svg class="icon-svg" style="width:14px;height:14px;color:var(--color-success);flex-shrink:0;"><use href="#hi-check"/></svg> Maks <strong>2</strong> Ujian Bersamaan</li>
+      <li style="display:flex;align-items:center;gap:6px;"><svg class="icon-svg" style="width:14px;height:14px;color:var(--color-success);flex-shrink:0;"><use href="#hi-check"/></svg> Maks <strong>30</strong> File PDF</li>
+      <li style="display:flex;align-items:center;gap:6px;"><svg class="icon-svg" style="width:14px;height:14px;color:var(--color-success);flex-shrink:0;"><use href="#hi-check"/></svg> Maks <strong>3 Jam</strong> / Ujian</li>
+     </ul>
+    </div>
+    <button class="btn-primary" onclick="openPaymentModal('individu')" style="width:100%;padding:10px;border-radius:10px;font-weight:600;font-size:13px;cursor:pointer;background:rgba(255,255,255,0.06);border:1px solid var(--color-glass-border);color:#fff;transition:all 0.2s;">Pilih Paket</button>
+   </div>
+
+   <!-- Paket Sekolah Kecil -->
+   <div class="glass-card pkg-card" style="padding:20px;border-radius:14px;border:1px solid var(--color-glass-border);background:rgba(255,255,255,0.01);display:flex;flex-direction:column;justify-content:space-between;">
+    <div>
+     <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;">
+      <span style="font-size:11px;font-weight:700;text-transform:uppercase;color:#f59e0b;background:rgba(245,158,11,0.1);padding:4px 8px;border-radius:6px;letter-spacing:0.5px;">Sekolah Kecil</span>
+     </div>
+     <h4 style="font-size:1.2rem;font-weight:700;color:#fff;margin:0 0 4px 0;font-family:'Outfit',sans-serif;">Sekolah Kecil</h4>
+     <p style="font-size:12px;color:var(--color-text-secondary);margin-bottom:12px;min-height:36px;">SD / MI, ujian harian & UTS.</p>
+     <div style="margin-bottom:16px;">
+      <span style="font-size:1.5rem;font-weight:800;color:#fff;font-family:'Outfit',sans-serif;">Rp 75.000</span>
+      <span style="font-size:12px;color:var(--color-text-secondary);">/bulan</span>
+     </div>
+     <ul style="list-style:none;padding:0;margin:0 0 20px 0;font-size:12.5px;color:var(--color-text-secondary);display:flex;flex-direction:column;gap:8px;">
+      <li style="display:flex;align-items:center;gap:6px;"><svg class="icon-svg" style="width:14px;height:14px;color:var(--color-success);flex-shrink:0;"><use href="#hi-check"/></svg> Maks <strong>500</strong> Siswa Aktif</li>
+      <li style="display:flex;align-items:center;gap:6px;"><svg class="icon-svg" style="width:14px;height:14px;color:var(--color-success);flex-shrink:0;"><use href="#hi-check"/></svg> Maks <strong>3</strong> Ujian Bersamaan</li>
+      <li style="display:flex;align-items:center;gap:6px;"><svg class="icon-svg" style="width:14px;height:14px;color:var(--color-success);flex-shrink:0;"><use href="#hi-check"/></svg> Maks <strong>50</strong> File PDF</li>
+      <li style="display:flex;align-items:center;gap:6px;"><svg class="icon-svg" style="width:14px;height:14px;color:var(--color-success);flex-shrink:0;"><use href="#hi-check"/></svg> Maks <strong>3 Jam</strong> / Ujian</li>
+     </ul>
+    </div>
+    <button class="btn-primary" onclick="openPaymentModal('sekolah_kecil')" style="width:100%;padding:10px;border-radius:10px;font-weight:600;font-size:13px;cursor:pointer;background:rgba(255,255,255,0.06);border:1px solid var(--color-glass-border);color:#fff;transition:all 0.2s;">Pilih Paket</button>
+   </div>
+
+   <!-- Paket Sekolah Menengah -->
+   <div class="glass-card pkg-card" style="padding:20px;border-radius:14px;border:1px solid var(--color-glass-border);background:rgba(255,255,255,0.01);display:flex;flex-direction:column;justify-content:space-between;">
+    <div>
+     <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;">
+      <span style="font-size:11px;font-weight:700;text-transform:uppercase;color:#ec4899;background:rgba(236,72,153,0.1);padding:4px 8px;border-radius:6px;letter-spacing:0.5px;">Sekolah Menengah</span>
+     </div>
+     <h4 style="font-size:1.2rem;font-weight:700;color:#fff;margin:0 0 4px 0;font-family:'Outfit',sans-serif;">Sekolah Menengah</h4>
+     <p style="font-size:12px;color:var(--color-text-secondary);margin-bottom:12px;min-height:36px;">SMP / MTs, ujian PAS / PAT.</p>
+     <div style="margin-bottom:16px;">
+      <span style="font-size:1.5rem;font-weight:800;color:#fff;font-family:'Outfit',sans-serif;">Rp 175.000</span>
+      <span style="font-size:12px;color:var(--color-text-secondary);">/bulan</span>
+     </div>
+     <ul style="list-style:none;padding:0;margin:0 0 20px 0;font-size:12.5px;color:var(--color-text-secondary);display:flex;flex-direction:column;gap:8px;">
+      <li style="display:flex;align-items:center;gap:6px;"><svg class="icon-svg" style="width:14px;height:14px;color:var(--color-success);flex-shrink:0;"><use href="#hi-check"/></svg> Maks <strong>2.000</strong> Siswa Aktif</li>
+      <li style="display:flex;align-items:center;gap:6px;"><svg class="icon-svg" style="width:14px;height:14px;color:var(--color-success);flex-shrink:0;"><use href="#hi-check"/></svg> Maks <strong>5</strong> Ujian Bersamaan</li>
+      <li style="display:flex;align-items:center;gap:6px;"><svg class="icon-svg" style="width:14px;height:14px;color:var(--color-success);flex-shrink:0;"><use href="#hi-check"/></svg> Maks <strong>200</strong> File PDF</li>
+      <li style="display:flex;align-items:center;gap:6px;"><svg class="icon-svg" style="width:14px;height:14px;color:var(--color-success);flex-shrink:0;"><use href="#hi-check"/></svg> Maks <strong>4 Jam</strong> / Ujian</li>
+     </ul>
+    </div>
+    <button class="btn-primary" onclick="openPaymentModal('sekolah_menengah')" style="width:100%;padding:10px;border-radius:10px;font-weight:600;font-size:13px;cursor:pointer;background:rgba(255,255,255,0.06);border:1px solid var(--color-glass-border);color:#fff;transition:all 0.2s;">Pilih Paket</button>
+   </div>
+
+   <!-- Paket Sekolah Besar -->
+   <div class="glass-card pkg-card-popular" style="padding:20px;border-radius:14px;border:1px solid rgba(99,102,241,0.3);background:rgba(99,102,241,0.03);display:flex;flex-direction:column;justify-content:space-between;box-shadow:0 8px 24px rgba(99,102,241,0.08);position:relative;overflow:hidden;">
+    <div style="position:absolute;top:10px;right:-25px;transform:rotate(45deg);background:#6366f1;color:#fff;font-size:9px;font-weight:700;padding:2px 25px;text-transform:uppercase;letter-spacing:0.5px;">Populer</div>
+    <div>
+     <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;">
+      <span style="font-size:11px;font-weight:700;text-transform:uppercase;color:#6366f1;background:rgba(99,102,241,0.15);padding:4px 8px;border-radius:6px;letter-spacing:0.5px;">Sekolah Besar</span>
+     </div>
+     <h4 style="font-size:1.2rem;font-weight:700;color:#fff;margin:0 0 4px 0;font-family:'Outfit',sans-serif;">Sekolah Besar</h4>
+     <p style="font-size:12px;color:var(--color-text-secondary);margin-bottom:12px;min-height:36px;">SMA / MA / SMK, tryout skala besar.</p>
+     <div style="margin-bottom:16px;">
+      <span style="font-size:1.5rem;font-weight:800;color:#fff;font-family:'Outfit',sans-serif;">Rp 375.000</span>
+      <span style="font-size:12px;color:var(--color-text-secondary);">/bulan</span>
+     </div>
+     <ul style="list-style:none;padding:0;margin:0 0 20px 0;font-size:12.5px;color:var(--color-text-secondary);display:flex;flex-direction:column;gap:8px;">
+      <li style="display:flex;align-items:center;gap:6px;"><svg class="icon-svg" style="width:14px;height:14px;color:var(--color-success);flex-shrink:0;"><use href="#hi-check"/></svg> Maks <strong>5.000</strong> Siswa Aktif</li>
+      <li style="display:flex;align-items:center;gap:6px;"><svg class="icon-svg" style="width:14px;height:14px;color:var(--color-success);flex-shrink:0;"><use href="#hi-check"/></svg> Maks <strong>10</strong> Ujian Bersamaan</li>
+      <li style="display:flex;align-items:center;gap:6px;"><svg class="icon-svg" style="width:14px;height:14px;color:var(--color-success);flex-shrink:0;"><use href="#hi-check"/></svg> Maks <strong>500</strong> File PDF</li>
+      <li style="display:flex;align-items:center;gap:6px;"><svg class="icon-svg" style="width:14px;height:14px;color:var(--color-success);flex-shrink:0;"><use href="#hi-check"/></svg> Maks <strong>6 Jam</strong> / Ujian</li>
+     </ul>
+    </div>
+    <button class="btn-primary" onclick="openPaymentModal('sekolah_besar')" style="width:100%;padding:10px;border-radius:10px;font-weight:600;font-size:13px;cursor:pointer;background:linear-gradient(135deg, var(--color-primary), var(--color-accent));border:none;color:#fff;transition:all 0.2s;">Pilih Paket</button>
+   </div>
+
+   <!-- Paket Sekolah Unggulan -->
+   <div class="glass-card pkg-card" style="padding:20px;border-radius:14px;border:1px solid var(--color-glass-border);background:rgba(255,255,255,0.01);display:flex;flex-direction:column;justify-content:space-between;">
+    <div>
+     <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;">
+      <span style="font-size:11px;font-weight:700;text-transform:uppercase;color:#a855f7;background:rgba(168,85,247,0.1);padding:4px 8px;border-radius:6px;letter-spacing:0.5px;">Unggulan</span>
+     </div>
+     <h4 style="font-size:1.2rem;font-weight:700;color:#fff;margin:0 0 4px 0;font-family:'Outfit',sans-serif;">Sekolah Unggulan</h4>
+     <p style="font-size:12px;color:var(--color-text-secondary);margin-bottom:12px;min-height:36px;">Yayasan, kampus, tryout kabupaten.</p>
+     <div style="margin-bottom:16px;">
+      <span style="font-size:1.5rem;font-weight:800;color:#fff;font-family:'Outfit',sans-serif;">Rp 750.000</span>
+      <span style="font-size:12px;color:var(--color-text-secondary);">/bulan</span>
+     </div>
+     <ul style="list-style:none;padding:0;margin:0 0 20px 0;font-size:12.5px;color:var(--color-text-secondary);display:flex;flex-direction:column;gap:8px;">
+      <li style="display:flex;align-items:center;gap:6px;"><svg class="icon-svg" style="width:14px;height:14px;color:var(--color-success);flex-shrink:0;"><use href="#hi-check"/></svg> Maks <strong>10.000</strong> Siswa Aktif</li>
+      <li style="display:flex;align-items:center;gap:6px;"><svg class="icon-svg" style="width:14px;height:14px;color:var(--color-success);flex-shrink:0;"><use href="#hi-check"/></svg> <strong>Tanpa Batas</strong> Ujian</li>
+      <li style="display:flex;align-items:center;gap:6px;"><svg class="icon-svg" style="width:14px;height:14px;color:var(--color-success);flex-shrink:0;"><use href="#hi-check"/></svg> <strong>Tanpa Batas</strong> PDF</li>
+      <li style="display:flex;align-items:center;gap:6px;"><svg class="icon-svg" style="width:14px;height:14px;color:var(--color-success);flex-shrink:0;"><use href="#hi-check"/></svg> <strong>Tanpa Batas</strong> Durasi Ujian</li>
+     </ul>
+    </div>
+    <button class="btn-primary" onclick="openPaymentModal('sekolah_unggulan')" style="width:100%;padding:10px;border-radius:10px;font-weight:600;font-size:13px;cursor:pointer;background:rgba(255,255,255,0.06);border:1px solid var(--color-glass-border);color:#fff;transition:all 0.2s;">Pilih Paket</button>
+   </div>
+
+  </div>
+ </section>
+ {{end}}
 
  <!-- Transactions List -->
  <section class="glass-card" style="padding:24px;border-radius:16px;min-height:350px;">
@@ -109,7 +275,7 @@
 <div class="modal-overlay" id="paymentModal" style="display:none;">
  <div class="modal-card glass-card" style="max-width:500px;">
   <div class="modal-header" style="display:flex;justify-content:space-between;align-items:center;border-bottom:1px solid var(--color-glass-border);padding-bottom:12px;margin-bottom:16px;">
-    <h3 style="font-family:'Outfit',sans-serif;margin:0;"><svg class="icon-svg" style="vertical-align:middle;margin-top:-2px;margin-right:6px;"><use href="#hi-upload"/></svg> Konfirmasi Pembayaran</h3>
+    <h3 style="font-family:'Outfit',sans-serif;margin:0;"><svg class="icon-svg" style="vertical-align:middle;margin-top:-2px;margin-right:6px;width:18px;height:18px;color:#a5b4fc;"><use href="#hi-credit-card"/></svg> Upgrade Paket Langganan</h3>
     <button class="modal-close" onclick="closePaymentModal()" aria-label="Tutup" style="background:none;border:none;color:var(--color-text-secondary);cursor:pointer;font-size:1.2rem;display:flex;align-items:center;justify-content:center;padding:4px;"><svg class="icon-svg" style="width:18px;height:18px;"><use href="#hi-x"/></svg></button>
   </div>
   <div class="modal-body">
@@ -362,7 +528,13 @@ function renderPagination(pageData) {
 }
 
 // Payment confirm modal handlers
-function openPaymentModal() {
+function openPaymentModal(pkg) {
+    if (pkg) {
+        const pkgSelect = document.getElementById('txPackageSelect');
+        if (pkgSelect) {
+            pkgSelect.value = pkg;
+        }
+    }
     const modal = document.getElementById('paymentModal');
     if (modal) {
         modal.style.display = 'flex';

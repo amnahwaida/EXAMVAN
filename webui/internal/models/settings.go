@@ -35,6 +35,7 @@ const (
 	SettingSEODescription            = "seo_description"
 	SettingSEOKeywords               = "seo_keywords"
 	SettingSEOIndex                  = "seo_index"
+	SettingDokuPaymentMethods        = "doku_payment_methods"
 )
 
 // Default settings values as defined in the Python app.py.
@@ -57,6 +58,7 @@ var DefaultSettings = map[string]string{
 	SettingSEODescription:           "EXAMVAN adalah aplikasi ujian online mandiri dengan sistem keamanan tinggi terhindar dari kecurangan.",
 	SettingSEOKeywords:              "examvan, ujian online, ujian sekolah",
 	SettingSEOIndex:                 "1",
+	SettingDokuPaymentMethods:       "VIRTUAL_ACCOUNT_BCA,VIRTUAL_ACCOUNT_MANDIRI,VIRTUAL_ACCOUNT_BRI,VIRTUAL_ACCOUNT_BNI,QRIS,EMONEY_SHOPEEPAY,EMONEY_DANA,EMONEY_OVO,CREDIT_CARD",
 }
 
 // GetSaasSetting retrieves a setting value by key.

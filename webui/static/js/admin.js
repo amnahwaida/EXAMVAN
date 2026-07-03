@@ -2743,6 +2743,13 @@ function saveSaasSettings(e) {
     const seo_keywords = document.getElementById('seoKeywordsInput').value.trim();
     const seo_index = document.getElementById('seoIndexInput').checked;
 
+    // DOKU payment methods: collect checked checkboxes
+    const dokuMethods = [];
+    document.querySelectorAll('input[name="doku_payment_method"]:checked').forEach(cb => {
+        dokuMethods.push(cb.value);
+    });
+    const doku_payment_methods = dokuMethods.join(',');
+
     apiFetch('/admin/api/saas-settings', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -2750,7 +2757,8 @@ function saveSaasSettings(e) {
             email_verification_enabled, smtp_host, smtp_port, smtp_user, smtp_password, smtp_sender_name,
             default_max_exams, default_max_pdf_size_mb,
             default_active_days, android_version, webapp_version,
-            seo_title, seo_description, seo_keywords, seo_index
+            seo_title, seo_description, seo_keywords, seo_index,
+            doku_payment_methods
         })
     })
     .then(r => r.json())
@@ -2909,6 +2917,14 @@ function loadSaasSettings() {
                 document.getElementById('seoDescriptionInput').value = s.seo_description || '';
                 document.getElementById('seoKeywordsInput').value = s.seo_keywords || '';
                 document.getElementById('seoIndexInput').checked = s.seo_index || false;
+
+                // DOKU payment methods checkboxes
+                const activeMethods = (s.doku_payment_methods || '').split(',').map(m => m.trim()).filter(Boolean);
+                const dokuCheckboxes = document.querySelectorAll('input[name="doku_payment_method"]');
+                dokuCheckboxes.forEach(cb => {
+                    cb.checked = activeMethods.includes(cb.value);
+                });
+
                 toggleEmailFields();
             }
         });

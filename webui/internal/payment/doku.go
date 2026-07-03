@@ -10,6 +10,7 @@ import (
 	"io"
 	"log"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -44,7 +45,8 @@ type DokuOrderRequest struct {
 		LineItems         []DokuLineItem `json:"line_items,omitempty"`
 	} `json:"order"`
 	Payment struct {
-		PaymentDueDate int `json:"payment_due_date"`
+		PaymentDueDate     int      `json:"payment_due_date"`
+		PaymentMethodTypes []string `json:"payment_method_types,omitempty"`
 	} `json:"payment"`
 	Customer struct {
 		Name  string `json:"name"`
@@ -74,8 +76,9 @@ type DokuPaymentInfo struct {
 	ExpiredDate string `json:"expired_date"`
 }
 
-// CreateCheckout initiates a checkout request to DOKU and returns the payment redirect URL
-func (d *DokuClient) CreateCheckout(invoiceNum string, amount int64, callbackURL, callbackURLCancel string, customerName, customerEmail string) (string, error) {
+// CreateCheckout initiates a checkout request to DOKU and returns the payment redirect URL.
+// paymentMethods is a comma-separated list (e.g. "VIRTUAL_ACCOUNT_BCA,QRIS").
+func (d *DokuClient) CreateCheckout(invoiceNum string, amount int64, callbackURL, callbackURLCancel, customerName, customerEmail string, paymentMethods string) (string, error) {
 	reqBody := DokuOrderRequest{}
 	reqBody.Order.InvoiceNumber = invoiceNum
 	reqBody.Order.Amount = amount
@@ -92,6 +95,9 @@ func (d *DokuClient) CreateCheckout(invoiceNum string, amount int64, callbackURL
 		},
 	}
 	reqBody.Payment.PaymentDueDate = 120
+	if paymentMethods != "" {
+		reqBody.Payment.PaymentMethodTypes = strings.Split(paymentMethods, ",")
+	}
 	reqBody.Customer.Name = customerName
 	reqBody.Customer.Email = customerEmail
 
