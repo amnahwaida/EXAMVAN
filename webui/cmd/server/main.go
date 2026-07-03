@@ -649,8 +649,73 @@ func pricingHandler(cfg *config.Config) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		data := middleware.TemplateData(c)
 		data["version"] = cfg.Version
+
+		pool, exists := c.Get("db")
+		var prices map[string]int64
+		if exists && pool != nil {
+			dbPool := pool.(*pgxpool.Pool)
+			ctx := c.Request.Context()
+			settings, errSettings := models.GetAllSaasSettings(ctx, dbPool)
+			if errSettings == nil {
+				prices = map[string]int64{
+					"guru_bulanan":             parsePrice(settings[models.SettingPriceGuruBulanan], 25000),
+					"guru_semester":            parsePrice(settings[models.SettingPriceGuruSemester], 125000),
+					"guru_tahunan":             parsePrice(settings[models.SettingPriceGuruTahunan], 225000),
+					"individu_bulanan":         parsePrice(settings[models.SettingPriceIndividuBulanan], 50000),
+					"individu_semester":        parsePrice(settings[models.SettingPriceIndividuSemester], 250000),
+					"individu_tahunan":         parsePrice(settings[models.SettingPriceIndividuTahunan], 450000),
+					"sekolah_kecil_bulanan":    parsePrice(settings[models.SettingPriceSekolahKecilBulanan], 75000),
+					"sekolah_kecil_semester":   parsePrice(settings[models.SettingPriceSekolahKecilSemester], 375000),
+					"sekolah_kecil_tahunan":    parsePrice(settings[models.SettingPriceSekolahKecilTahunan], 675000),
+					"sekolah_menengah_bulanan":  parsePrice(settings[models.SettingPriceSekolahMenengahBulanan], 175000),
+					"sekolah_menengah_semester": parsePrice(settings[models.SettingPriceSekolahMenengahSemester], 875000),
+					"sekolah_menengah_tahunan":  parsePrice(settings[models.SettingPriceSekolahMenengahTahunan], 1575000),
+					"sekolah_besar_bulanan":    parsePrice(settings[models.SettingPriceSekolahBesarBulanan], 375000),
+					"sekolah_besar_semester":   parsePrice(settings[models.SettingPriceSekolahBesarSemester], 1875000),
+					"sekolah_besar_tahunan":    parsePrice(settings[models.SettingPriceSekolahBesarTahunan], 3375000),
+					"sekolah_unggulan_bulanan":  parsePrice(settings[models.SettingPriceSekolahUnggulanBulanan], 750000),
+					"sekolah_unggulan_semester": parsePrice(settings[models.SettingPriceSekolahUnggulanSemester], 3750000),
+					"sekolah_unggulan_tahunan":  parsePrice(settings[models.SettingPriceSekolahUnggulanTahunan], 6750000),
+				}
+			}
+		}
+
+		if prices == nil {
+			prices = map[string]int64{
+				"guru_bulanan":             25000,
+				"guru_semester":            125000,
+				"guru_tahunan":             225000,
+				"individu_bulanan":         50000,
+				"individu_semester":        250000,
+				"individu_tahunan":         450000,
+				"sekolah_kecil_bulanan":    75000,
+				"sekolah_kecil_semester":   375000,
+				"sekolah_kecil_tahunan":    675000,
+				"sekolah_menengah_bulanan":  175000,
+				"sekolah_menengah_semester": 875000,
+				"sekolah_menengah_tahunan":  1575000,
+				"sekolah_besar_bulanan":    375000,
+				"sekolah_besar_semester":   1875000,
+				"sekolah_besar_tahunan":    3375000,
+				"sekolah_unggulan_bulanan":  750000,
+				"sekolah_unggulan_semester": 3750000,
+				"sekolah_unggulan_tahunan":  6750000,
+			}
+		}
+		data["prices"] = prices
 		c.HTML(http.StatusOK, "public/pricing.html", data)
 	}
+}
+
+func parsePrice(val string, defaultVal int64) int64 {
+	if val == "" {
+		return defaultVal
+	}
+	p, err := strconv.ParseInt(val, 10, 64)
+	if err != nil {
+		return defaultVal
+	}
+	return p
 }
 
 func robotsHandler() gin.HandlerFunc {

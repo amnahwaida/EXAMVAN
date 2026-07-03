@@ -316,6 +316,63 @@
   </div>
   </div>
 
+  <div style="border-top:1px solid var(--color-glass-border);margin-top:16px;padding-top:16px;margin-bottom:6px;">
+  <h4 style="margin:0;font-size:0.85rem;font-weight:600;text-transform:uppercase;letter-spacing:0.5px;color:var(--color-accent-light);display:flex;align-items:center;gap:6px;">
+  <svg class="icon-svg"><use href="#hi-banknotes"/></svg> Harga Paket Langganan (Rupiah)
+  </h4>
+  </div>
+
+  <div class="table-responsive" style="margin-bottom:12px;overflow-x:auto;">
+  <table style="width:100%;border-collapse:collapse;font-size:12.5px;min-width:380px;">
+   <thead>
+    <tr>
+     <th style="text-align:left;padding:6px;border-bottom:1px solid var(--color-glass-border);color:var(--color-text-secondary);">Paket</th>
+     <th style="text-align:right;padding:6px;border-bottom:1px solid var(--color-glass-border);color:var(--color-text-secondary);">Bulanan</th>
+     <th style="text-align:right;padding:6px;border-bottom:1px solid var(--color-glass-border);color:var(--color-text-secondary);">Semester</th>
+     <th style="text-align:right;padding:6px;border-bottom:1px solid var(--color-glass-border);color:var(--color-text-secondary);">Tahunan</th>
+    </tr>
+   </thead>
+   <tbody>
+    <tr>
+     <td style="padding:6px;color:#fff;font-weight:600;">Guru</td>
+     <td style="padding:4px;"><input type="number" id="priceGuruBulanan" style="width:100%;text-align:right;padding:4px 8px;background:rgba(255,255,255,0.05);border:1px solid var(--color-glass-border);border-radius:4px;color:#fff;" required min="0"></td>
+     <td style="padding:4px;"><input type="number" id="priceGuruSemester" style="width:100%;text-align:right;padding:4px 8px;background:rgba(255,255,255,0.05);border:1px solid var(--color-glass-border);border-radius:4px;color:#fff;" required min="0"></td>
+     <td style="padding:4px;"><input type="number" id="priceGuruTahunan" style="width:100%;text-align:right;padding:4px 8px;background:rgba(255,255,255,0.05);border:1px solid var(--color-glass-border);border-radius:4px;color:#fff;" required min="0"></td>
+    </tr>
+    <tr>
+     <td style="padding:6px;color:#fff;font-weight:600;">Individu</td>
+     <td style="padding:4px;"><input type="number" id="priceIndividuBulanan" style="width:100%;text-align:right;padding:4px 8px;background:rgba(255,255,255,0.05);border:1px solid var(--color-glass-border);border-radius:4px;color:#fff;" required min="0"></td>
+     <td style="padding:4px;"><input type="number" id="priceIndividuSemester" style="width:100%;text-align:right;padding:4px 8px;background:rgba(255,255,255,0.05);border:1px solid var(--color-glass-border);border-radius:4px;color:#fff;" required min="0"></td>
+     <td style="padding:4px;"><input type="number" id="priceIndividuTahunan" style="width:100%;text-align:right;padding:4px 8px;background:rgba(255,255,255,0.05);border:1px solid var(--color-glass-border);border-radius:4px;color:#fff;" required min="0"></td>
+    </tr>
+    <tr>
+     <td style="padding:6px;color:#fff;font-weight:600;">Sek. Kecil</td>
+     <td style="padding:4px;"><input type="number" id="priceSekolahKecilBulanan" style="width:100%;text-align:right;padding:4px 8px;background:rgba(255,255,255,0.05);border:1px solid var(--color-glass-border);border-radius:4px;color:#fff;" required min="0"></td>
+     <td style="padding:4px;"><input type="number" id="priceSekolahKecilSemester" style="width:100%;text-align:right;padding:4px 8px;background:rgba(255,255,255,0.05);border:1px solid var(--color-glass-border);border-radius:4px;color:#fff;" required min="0"></td>
+     <td style="padding:4px;"><input type="number" id="priceSekolahKecilTahunan" style="width:100%;text-align:right;padding:4px 8px;background:rgba(255,255,255,0.05);border:1px solid var(--color-glass-border);border-radius:4px;color:#fff;" required min="0"></td>
+    </tr>
+    <tr>
+     <td style="padding:6px;color:#fff;font-weight:600;">Sek. Menengah</td>
+     <td style="padding:4px;"><input type="number" id="priceSekolahMenengahBulanan" style="width:100%;text-align:right;padding:4px 8px;background:rgba(255,255,255,0.05);border:1px solid var(--color-glass-border);border-radius:4px;color:#fff;" required min="0"></td>
+     <td style="padding:4px;"><input type="number" id="priceSekolahMenengahSemester" style="width:100%;text-align:right;padding:4px 8px;background:rgba(255,255,255,0.05);border:1px solid var(--color-glass-border);border-radius:4px;color:#fff;" required min="0"></td>
+     <td style="padding:4px;"><input type="number" id="priceSekolahMenengahTahunan" style="width:100%;text-align:right;padding:4px 8px;background:rgba(255,255,255,0.05);border:1px solid var(--color-glass-border);border-radius:4px;color:#fff;" required min="0"></td>
+    </tr>
+    <tr>
+     <td style="padding:6px;color:#fff;font-weight:600;">Sek. Besar</td>
+     <td style="padding:4px;"><input type="number" id="priceSekolahBesarBulanan" style="width:100%;text-align:right;padding:4px 8px;background:rgba(255,255,255,0.05);border:1px solid var(--color-glass-border);border-radius:4px;color:#fff;" required min="0"></td>
+     <td style="padding:4px;"><input type="number" id="priceSekolahBesarSemester" style="width:100%;text-align:right;padding:4px 8px;background:rgba(255,255,255,0.05);border:1px solid var(--color-glass-border);border-radius:4px;color:#fff;" required min="0"></td>
+     <td style="padding:4px;"><input type="number" id="priceSekolahBesarTahunan" style="width:100%;text-align:right;padding:4px 8px;background:rgba(255,255,255,0.05);border:1px solid var(--color-glass-border);border-radius:4px;color:#fff;" required min="0"></td>
+    </tr>
+    <tr>
+     <td style="padding:6px;color:#fff;font-weight:600;">Unggulan</td>
+     <td style="padding:4px;"><input type="number" id="priceSekolahUnggulanBulanan" style="width:100%;text-align:right;padding:4px 8px;background:rgba(255,255,255,0.05);border:1px solid var(--color-glass-border);border-radius:4px;color:#fff;" required min="0"></td>
+     <td style="padding:4px;"><input type="number" id="priceSekolahUnggulanSemester" style="width:100%;text-align:right;padding:4px 8px;background:rgba(255,255,255,0.05);border:1px solid var(--color-glass-border);border-radius:4px;color:#fff;" required min="0"></td>
+     <td style="padding:4px;"><input type="number" id="priceSekolahUnggulanTahunan" style="width:100%;text-align:right;padding:4px 8px;background:rgba(255,255,255,0.05);border:1px solid var(--color-glass-border);border-radius:4px;color:#fff;" required min="0"></td>
+    </tr>
+   </tbody>
+  </table>
+  </div>
+
  <div style="border-top:1px solid var(--color-glass-border);margin-top:16px;padding-top:16px;margin-bottom:6px;">
  <h4 style="margin:0;font-size:0.85rem;font-weight:600;text-transform:uppercase;letter-spacing:0.5px;color:var(--color-accent-light);display:flex;align-items:center;gap:6px;">
  <svg class="icon-svg"><use href="#hi-credit-card"/></svg> Metode Pembayaran DOKU

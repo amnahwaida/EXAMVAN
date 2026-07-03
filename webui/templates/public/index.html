@@ -842,14 +842,14 @@
  <span class="version-dot"></span>
  EXAMVAN v{{.version}} Rilis Terbaru
  </div>
- <h1 class="hero-title">Ujian Digital Aman &amp; Terkelola</h1>
+ <h1 class="hero-title">Ujian Digital LAN &amp; Cloud Teraman</h1>
  <p class="hero-desc">
- Platform ujian digital sekolah mandiri. Kelola soal, pantau ujian realtime, dan koreksi otomatis via dashboard. Client Android Lockdown Kiosk mencegah screenshot, split-screen, dan akses aplikasi lain selama ujian.
+ Platform ujian digital sekolah mandiri berbasis PDF &amp; Lembar Jawaban Digital. Kelola soal, pantau ujian realtime, dan koreksi otomatis. Client Android dengan perlindungan anti-cheat berlapis (anti-screenshot, zero-friction, deteksi kehilangan fokus, serta Managed Kiosk Mode Device Owner).
  </p>
  <div class="hero-actions">
  <a href="/download" class="btn-primary">
  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg>
- Download Aplikasi Siswa
+ Unduh Aplikasi Siswa
  </a>
  <a href="/admin/login" class="btn-secondary">
  Panel Admin
@@ -866,12 +866,12 @@
  </div>
  <div class="mockup-screen">
  <div class="mockup-logo">E</div>
- <h3 class="mockup-title">EXAMVAN KIOSK</h3>
+ <h3 class="mockup-title">EXAMVAN CLIENT</h3>
  <p class="mockup-desc">Masukkan alamat server &amp; token ujian sekolah Anda</p>
  <div class="mockup-input">http://192.168.1.100:5000</div>
  <div class="mockup-input" style="font-weight: bold; color: white; justify-content: center; letter-spacing: 2px;">TOKEN UJIAN</div>
  <div class="mockup-btn">Mulai Ujian Sekarang</div>
- <span class="mockup-footer">Aplikasi Siswa Android &mdash; Unduh Gratis</span>
+ <span class="mockup-footer">Aplikasi Siswa Android (Nougat+) &mdash; Unduh Gratis</span>
  </div>
  </div>
  </div>
@@ -881,16 +881,16 @@
  <section class="stats">
  <div class="stats-container">
  <div class="stat-item">
- <span class="stat-val">100%</span>
- <span class="stat-lbl">Lockdown Aman</span>
+ <span class="stat-val">Low &amp; Medium</span>
+ <span class="stat-lbl">Mode Keamanan</span>
  </div>
  <div class="stat-item">
- <span class="stat-val">F4/2-Kol</span>
- <span class="stat-lbl">Optimal Cetak PDF</span>
+ <span class="stat-val">4 Tipe Soal</span>
+ <span class="stat-lbl">Lembar Jawaban Digital</span>
  </div>
  <div class="stat-item">
- <span class="stat-val">&lt; 1 Detik</span>
- <span class="stat-lbl">Sinkronisasi Realtime</span>
+ <span class="stat-val">&lt; 3 Detik</span>
+ <span class="stat-lbl">Deteksi Focus Loss &amp; Submit</span>
  </div>
  </div>
  </section>
@@ -907,32 +907,48 @@
  <div class="feature-icon-wrapper">
  <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"></rect><path d="M7 11V7a5 5 0 0 1 10 0v4"></path></svg>
  </div>
- <h3 class="feature-name">Lockdown Kiosk Mode</h3>
- <p class="feature-desc">Mengunci total HP siswa ke dalam satu tampilan ujian. Siswa tidak dapat keluar aplikasi, membuka browser, membagi layar, atau mengambil screenshot selama ujian berlangsung.</p>
+ <h3 class="feature-name">Lockdown Kiosk &amp; Device Owner</h3>
+ <p class="feature-desc">Mencegah siswa berpindah aplikasi, membagi layar, screenshot, atau screen recording. Untuk tablet sekolah, aktifkan managed kiosk mode via ADB untuk penguncian tombol fisik absolut.</p>
  </div>
  <!-- Feature 2 -->
  <div class="feature-card">
  <div class="feature-icon-wrapper">
- <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline><line x1="16" y1="13" x2="8" y2="13"></line><line x1="16" y1="17" x2="8" y2="17"></line><polyline points="10 9 9 9 8 9"></polyline></svg>
+ <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"></circle><polyline points="12 6 12 12 16 14"></polyline></svg>
  </div>
- <h3 class="feature-name">PDF Cetak Lembar Soal</h3>
- <p class="feature-desc">Mendukung format cetak profesional (Legal/F4, A4) dalam format 2 kolom mepet untuk menghemat kertas sekolah secara maksimal lengkap dengan kop surat kustom borderless.</p>
+ <h3 class="feature-name">Auto-Submit Kehilangan Fokus</h3>
+ <p class="feature-desc">Dalam Medium Mode, apabila siswa meminimalkan aplikasi, membuka panel notifikasi, atau berpindah tab, sistem mendeteksi focus loss dan otomatis mengumpulkan jawaban secara instan dalam 3 detik.</p>
  </div>
  <!-- Feature 3 -->
  <div class="feature-card">
  <div class="feature-icon-wrapper">
- <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 4.354a4 4 0 1 1 5.292 5.292M15 21H3v-1a6 6 0 0 1 12 0v1Zm0 0h6v-1a6 6 0 0 0-9-5.197M13 7a4 4 0 1 1-8 0 4 4 0 0 1 8 0Z"/></svg>
+ <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline><line x1="16" y1="13" x2="8" y2="13"></line><line x1="16" y1="17" x2="8" y2="17"></line><polyline points="10 9 9 9 8 9"></polyline></svg>
  </div>
- <h3 class="feature-name">Multi-Role &amp; Delegasi Ujian</h3>
- <p class="feature-desc">Dukung peran Guru, Pengawas, dan Operator dalam satu sistem. Operator dapat mendelegasikan ujian ke guru tertentu. Pengawas memantau ujian tanpa bisa mengubah soal atau konfigurasi.</p>
+ <h3 class="feature-name">4 Tipe Soal &amp; Partial Scoring</h3>
+ <p class="feature-desc">Mendukung Pilihan Ganda Tunggal, Pilihan Ganda Kompleks, Benar/Salah, dan Menjodohkan. Pilihan kompleks mendukung penilaian parsial dinamis yang dihitung otomatis oleh server.</p>
  </div>
  <!-- Feature 4 -->
  <div class="feature-card">
  <div class="feature-icon-wrapper">
+ <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"></path><circle cx="9" cy="7" r="4"></circle><path d="M23 21v-2a4 4 0 0 0-3-3.87"></path><path d="M16 3.13a4 4 0 0 1 0 7.75"></path></svg>
+ </div>
+ <h3 class="feature-name">Hak Akses &amp; Delegasi Ujian</h3>
+ <p class="feature-desc">Mendukung kolaborasi Superadmin, Guru, dan Pengawas. Guru hanya mengelola ujian mereka sendiri secara privat. Ujian dapat didelegasikan ke guru lain dan diawasi realtime oleh pengawas.</p>
+ </div>
+ <!-- Feature 5 -->
+ <div class="feature-card">
+ <div class="feature-icon-wrapper">
  <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="22 2 15 22 11 13 2 9 22 2"></polygon><line x1="22" y1="2" x2="11" y2="13"></line></svg>
  </div>
- <h3 class="feature-name">Koreksi &amp; Hasil Instan</h3>
- <p class="feature-desc">Jawaban siswa tersimpan otomatis ke server. Pantau status pengerjaan secara realtime dan unduh hasil dalam format Excel/CSV. Nilai langsung tampil setelah submit.</p>
+ <h3 class="feature-name">Koreksi &amp; Rekalkulasi Instan</h3>
+ <p class="feature-desc">Hasil ujian dikoreksi secara realtime. Jika guru merevisi kunci jawaban atau bobot soal pasca-ujian, server secara instan menghitung ulang seluruh skor siswa tanpa perlu submit ulang.</p>
+ </div>
+ <!-- Feature 6 -->
+ <div class="feature-card">
+ <div class="feature-icon-wrapper">
+ <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"></path><polyline points="3.27 6.96 12 12.01 20.73 6.96"></polyline><line x1="12" y1="22.08" x2="12" y2="12"></line></svg>
+ </div>
+ <h3 class="feature-name">Zero-Friction Launch</h3>
+ <p class="feature-desc">Siswa tidak perlu membuat akun atau login yang rumit. Cukup unduh aplikasi, hubungkan ke IP server sekolah, dan masukkan token ujian 8-karakter untuk langsung mulai mengerjakan.</p>
  </div>
  </div>
  </section>
@@ -941,11 +957,11 @@
  <section class="cta-section">
  <div class="cta-card">
  <h2 class="cta-title">Siap Memulai Ujian Digital Sekolah?</h2>
- <p class="cta-desc">Atur soal, kelola pengawas, delegasi ujian, dan pantau hasil secara realtime &mdash; semuanya dari dashboard.</p>
+ <p class="cta-desc">Atur soal PDF, kelola hak akses guru, awasi pengawas, dan pantau statistik hasil ujian realtime &mdash; semuanya dari dashboard.</p>
  <div class="cta-buttons">
  <a href="/download" class="btn-primary">
  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg>
- Download APK Siswa
+ Unduh APK Siswa
  </a>
  <a href="/admin/login" class="btn-secondary">Masuk ke Panel Admin</a>
  </div>

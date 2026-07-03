@@ -19,8 +19,19 @@ import (
 	"github.com/examvan/webui/internal/payment"
 )
 
-// CalculatePackagePrice calculates pricing based on penawaran.md (halved pricing)
-func CalculatePackagePrice(pkgName, durationType string) int64 {
+// CalculatePackagePrice calculates pricing based on settings db, falling back to hardcoded defaults
+func CalculatePackagePrice(ctx context.Context, pool *pgxpool.Pool, pkgName, durationType string) int64 {
+	key := fmt.Sprintf("price_%s_%s", pkgName, durationType)
+	if pool != nil {
+		priceVal := models.GetSaasSettingWithDefault(ctx, pool, key, "")
+		if priceVal != "" {
+			if p, err := strconv.ParseInt(priceVal, 10, 64); err == nil {
+				return p
+			}
+		}
+	}
+
+	// Fallback to original hardcoded pricing matrix if not in db
 	switch pkgName {
 	case "guru":
 		switch durationType {
@@ -142,7 +153,7 @@ func CreateTransaction(cfg *config.Config) gin.HandlerFunc {
 		}
 
 		// Calculate pricing based on penawaran.md (halved pricing)
-		amount := CalculatePackagePrice(pkgName, durationType)
+		amount := CalculatePackagePrice(ctx, pool, pkgName, durationType)
 		if amount == 0 {
 			errorResponse(c, http.StatusBadRequest, "Paket atau jenis durasi tidak valid")
 			return
@@ -494,7 +505,7 @@ func CreateDokuTransaction(cfg *config.Config) gin.HandlerFunc {
 			return
 		}
 
-		amount := CalculatePackagePrice(pkgName, durationType)
+		amount := CalculatePackagePrice(ctx, pool, pkgName, durationType)
 		if amount == 0 {
 			errorResponse(c, http.StatusBadRequest, "Paket atau jenis durasi tidak valid")
 			return
@@ -645,6 +656,17 @@ func ServeProofFile(cfg *config.Config) gin.HandlerFunc {
 	}
 }
 
+func parsePrice(val string, defaultVal int64) int64 {
+	if val == "" {
+		return defaultVal
+	}
+	p, err := strconv.ParseInt(val, 10, 64)
+	if err != nil {
+		return defaultVal
+	}
+	return p
+}
+
 // BillingPage renders GET /admin/billing page.
 func BillingPage() gin.HandlerFunc {
 	return func(c *gin.Context) {
@@ -665,6 +687,53 @@ func BillingPage() gin.HandlerFunc {
 			expiresStr = user.ExpiresAt.Format("2006-01-02 15:04:05")
 		}
 
+		// Load prices from database
+		settings, errSettings := models.GetAllSaasSettings(ctx, pool)
+		var prices map[string]int64
+		if errSettings == nil {
+			prices = map[string]int64{
+				"guru_bulanan":             parsePrice(settings[models.SettingPriceGuruBulanan], 25000),
+				"guru_semester":            parsePrice(settings[models.SettingPriceGuruSemester], 125000),
+				"guru_tahunan":             parsePrice(settings[models.SettingPriceGuruTahunan], 225000),
+				"individu_bulanan":         parsePrice(settings[models.SettingPriceIndividuBulanan], 50000),
+				"individu_semester":        parsePrice(settings[models.SettingPriceIndividuSemester], 250000),
+				"individu_tahunan":         parsePrice(settings[models.SettingPriceIndividuTahunan], 450000),
+				"sekolah_kecil_bulanan":    parsePrice(settings[models.SettingPriceSekolahKecilBulanan], 75000),
+				"sekolah_kecil_semester":   parsePrice(settings[models.SettingPriceSekolahKecilSemester], 375000),
+				"sekolah_kecil_tahunan":    parsePrice(settings[models.SettingPriceSekolahKecilTahunan], 675000),
+				"sekolah_menengah_bulanan":  parsePrice(settings[models.SettingPriceSekolahMenengahBulanan], 175000),
+				"sekolah_menengah_semester": parsePrice(settings[models.SettingPriceSekolahMenengahSemester], 875000),
+				"sekolah_menengah_tahunan":  parsePrice(settings[models.SettingPriceSekolahMenengahTahunan], 1575000),
+				"sekolah_besar_bulanan":    parsePrice(settings[models.SettingPriceSekolahBesarBulanan], 375000),
+				"sekolah_besar_semester":   parsePrice(settings[models.SettingPriceSekolahBesarSemester], 1875000),
+				"sekolah_besar_tahunan":    parsePrice(settings[models.SettingPriceSekolahBesarTahunan], 3375000),
+				"sekolah_unggulan_bulanan":  parsePrice(settings[models.SettingPriceSekolahUnggulanBulanan], 750000),
+				"sekolah_unggulan_semester": parsePrice(settings[models.SettingPriceSekolahUnggulanSemester], 3750000),
+				"sekolah_unggulan_tahunan":  parsePrice(settings[models.SettingPriceSekolahUnggulanTahunan], 6750000),
+			}
+		} else {
+			prices = map[string]int64{
+				"guru_bulanan":             25000,
+				"guru_semester":            125000,
+				"guru_tahunan":             225000,
+				"individu_bulanan":         50000,
+				"individu_semester":        250000,
+				"individu_tahunan":         450000,
+				"sekolah_kecil_bulanan":    75000,
+				"sekolah_kecil_semester":   375000,
+				"sekolah_kecil_tahunan":    675000,
+				"sekolah_menengah_bulanan":  175000,
+				"sekolah_menengah_semester": 875000,
+				"sekolah_menengah_tahunan":  1575000,
+				"sekolah_besar_bulanan":    375000,
+				"sekolah_besar_semester":   1875000,
+				"sekolah_besar_tahunan":    3375000,
+				"sekolah_unggulan_bulanan":  750000,
+				"sekolah_unggulan_semester": 3750000,
+				"sekolah_unggulan_tahunan":  6750000,
+			}
+		}
+
 		renderAdminPage(c, "admin/billing.html", gin.H{
 			"active_page":          "billing",
 			"user_package":         user.Package,
@@ -672,6 +741,7 @@ func BillingPage() gin.HandlerFunc {
 			"user_max_exams":       user.MaxExams,
 			"user_max_pdf_size_mb": float64(user.MaxPDFSize) / (1024 * 1024),
 			"user_max_storage_mb":  float64(user.MaxStorageSize) / (1024 * 1024),
+			"prices":               prices,
 		})
 	}
 }

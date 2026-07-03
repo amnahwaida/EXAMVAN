@@ -36,6 +36,26 @@ const (
 	SettingSEOKeywords               = "seo_keywords"
 	SettingSEOIndex                  = "seo_index"
 	SettingDokuPaymentMethods        = "doku_payment_methods"
+
+	// Price settings
+	SettingPriceGuruBulanan          = "price_guru_bulanan"
+	SettingPriceGuruSemester         = "price_guru_semester"
+	SettingPriceGuruTahunan          = "price_guru_tahunan"
+	SettingPriceIndividuBulanan      = "price_individu_bulanan"
+	SettingPriceIndividuSemester     = "price_individu_semester"
+	SettingPriceIndividuTahunan      = "price_individu_tahunan"
+	SettingPriceSekolahKecilBulanan   = "price_sekolah_kecil_bulanan"
+	SettingPriceSekolahKecilSemester  = "price_sekolah_kecil_semester"
+	SettingPriceSekolahKecilTahunan   = "price_sekolah_kecil_tahunan"
+	SettingPriceSekolahMenengahBulanan  = "price_sekolah_menengah_bulanan"
+	SettingPriceSekolahMenengahSemester = "price_sekolah_menengah_semester"
+	SettingPriceSekolahMenengahTahunan  = "price_sekolah_menengah_tahunan"
+	SettingPriceSekolahBesarBulanan   = "price_sekolah_besar_bulanan"
+	SettingPriceSekolahBesarSemester  = "price_sekolah_besar_semester"
+	SettingPriceSekolahBesarTahunan   = "price_sekolah_besar_tahunan"
+	SettingPriceSekolahUnggulanBulanan  = "price_sekolah_unggulan_bulanan"
+	SettingPriceSekolahUnggulanSemester = "price_sekolah_unggulan_semester"
+	SettingPriceSekolahUnggulanTahunan  = "price_sekolah_unggulan_tahunan"
 )
 
 // Default settings values as defined in the Python app.py.
@@ -59,6 +79,26 @@ var DefaultSettings = map[string]string{
 	SettingSEOKeywords:              "examvan, ujian online, ujian sekolah",
 	SettingSEOIndex:                 "1",
 	SettingDokuPaymentMethods:       "VIRTUAL_ACCOUNT_BCA,VIRTUAL_ACCOUNT_MANDIRI,VIRTUAL_ACCOUNT_BRI,VIRTUAL_ACCOUNT_BNI,QRIS,EMONEY_SHOPEEPAY,EMONEY_DANA,EMONEY_OVO,CREDIT_CARD",
+
+	// Default price values
+	SettingPriceGuruBulanan:          "25000",
+	SettingPriceGuruSemester:         "125000",
+	SettingPriceGuruTahunan:          "225000",
+	SettingPriceIndividuBulanan:      "50000",
+	SettingPriceIndividuSemester:     "250000",
+	SettingPriceIndividuTahunan:      "450000",
+	SettingPriceSekolahKecilBulanan:   "75000",
+	SettingPriceSekolahKecilSemester:  "375000",
+	SettingPriceSekolahKecilTahunan:   "675000",
+	SettingPriceSekolahMenengahBulanan:  "175000",
+	SettingPriceSekolahMenengahSemester: "875000",
+	SettingPriceSekolahMenengahTahunan:  "1575000",
+	SettingPriceSekolahBesarBulanan:   "375000",
+	SettingPriceSekolahBesarSemester:  "1875000",
+	SettingPriceSekolahBesarTahunan:   "3375000",
+	SettingPriceSekolahUnggulanBulanan:  "750000",
+	SettingPriceSekolahUnggulanSemester: "3750000",
+	SettingPriceSekolahUnggulanTahunan:  "6750000",
 }
 
 // GetSaasSetting retrieves a setting value by key.

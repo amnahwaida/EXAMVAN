@@ -521,10 +521,10 @@
   <div class="card-name">Paket Guru</div>
   <div class="card-for">Guru les, bimbel kecil, tryout kelas</div>
   <div class="card-price">
-   <span class="price-amount" data-b="25.000" data-s="125.000" data-t="225.000">Rp 25.000</span>
+   <span class="price-amount" data-package="guru" data-b="{{.prices.guru_bulanan}}" data-s="{{.prices.guru_semester}}" data-t="{{.prices.guru_tahunan}}">Rp 25.000</span>
    <span class="price-period" data-b="/bulan" data-s="/semester" data-t="/tahun">/bulan</span>
   </div>
-  <span class="price-per-student" data-b="Rp 500/siswa/bulan" data-s="Rp 417/siswa/bulan" data-t="Rp 375/siswa/bulan">Rp 500/siswa/bulan</span>
+  <span class="price-per-student" data-package="guru">Rp 500/siswa/bulan</span>
   <div class="card-divider"></div>
   <ul class="card-limits">
    <li><span class="li-icon"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M15 19.128a9.38 9.38 0 0 0 2.625.372 9.337 9.337 0 0 0 4.121-.952 4.125 4.125 0 0 0-7.533-2.493M15 19.128v-.003c0-1.113-.285-2.16-.786-3.07M15 19.128v.109A11.386 11.386 0 0 1 10.089 18M15 12.062a18.874 18.874 0 0 0-4.911-.271m4.911.271a18.874 18.874 0 0 1-4.911-.271m4.911.271v-.003c0-1.113-.288-2.16-.786-3.07M10.117 19.128v.109A11.386 11.386 0 0 1 5.089 18M10.117 19.128v-.003c0-1.113-.287-2.16-.788-3.07M5.089 18a9.337 9.337 0 0 1 4.122-.952 9.38 9.38 0 0 1 2.625.372M5.089 18v-.003c0-1.113.288-2.16.786-3.07M15 7.5a3 3 0 1 1-6 0 3 3 0 0 1 6 0Zm6 3a2.25 2.25 0 1 1-4.5 0 2.25 2.25 0 0 1 4.5 0Zm-13.5 0a2.25 2.25 0 1 1-4.5 0 2.25 2.25 0 0 1 4.5 0Z" /></svg></span> Maks <strong>50</strong> siswa aktif</li>
@@ -551,10 +551,10 @@
   <div class="card-name">Paket Individu</div>
   <div class="card-for">Pembuat tryout online, bimbel 1-2 kelas</div>
   <div class="card-price">
-   <span class="price-amount" data-b="50.000" data-s="250.000" data-t="450.000">Rp 50.000</span>
+   <span class="price-amount" data-package="individu" data-b="{{.prices.individu_bulanan}}" data-s="{{.prices.individu_semester}}" data-t="{{.prices.individu_tahunan}}">Rp 50.000</span>
    <span class="price-period" data-b="/bulan" data-s="/semester" data-t="/tahun">/bulan</span>
   </div>
-  <span class="price-per-student" data-b="Rp 250/siswa/bulan" data-s="Rp 208/siswa/bulan" data-t="Rp 188/siswa/bulan">Rp 250/siswa/bulan</span>
+  <span class="price-per-student" data-package="individu">Rp 250/siswa/bulan</span>
   <div class="card-divider"></div>
   <ul class="card-limits">
    <li><span class="li-icon"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M15 19.128a9.38 9.38 0 0 0 2.625.372 9.337 9.337 0 0 0 4.121-.952 4.125 4.125 0 0 0-7.533-2.493M15 19.128v-.003c0-1.113-.285-2.16-.786-3.07M15 19.128v.109A11.386 11.386 0 0 1 10.089 18M15 12.062a18.874 18.874 0 0 0-4.911-.271m4.911.271a18.874 18.874 0 0 1-4.911-.271m4.911.271v-.003c0-1.113-.288-2.16-.786-3.07M10.117 19.128v.109A11.386 11.386 0 0 1 5.089 18M10.117 19.128v-.003c0-1.113-.287-2.16-.788-3.07M5.089 18a9.337 9.337 0 0 1 4.122-.952 9.38 9.38 0 0 1 2.625.372M5.089 18v-.003c0-1.113.288-2.16.786-3.07M15 7.5a3 3 0 1 1-6 0 3 3 0 0 1 6 0Zm6 3a2.25 2.25 0 1 1-4.5 0 2.25 2.25 0 0 1 4.5 0Zm-13.5 0a2.25 2.25 0 1 1-4.5 0 2.25 2.25 0 0 1 4.5 0Z" /></svg></span> Maks <strong>200</strong> siswa aktif</li>
@@ -582,10 +582,10 @@
   <div class="card-name">Sekolah Kecil</div>
   <div class="card-for">SD / MI, ujian PH / UTS</div>
   <div class="card-price">
-   <span class="price-amount" data-b="75.000" data-s="375.000" data-t="675.000">Rp 75.000</span>
+   <span class="price-amount" data-package="sekolah_kecil" data-b="{{.prices.sekolah_kecil_bulanan}}" data-s="{{.prices.sekolah_kecil_semester}}" data-t="{{.prices.sekolah_kecil_tahunan}}">Rp 75.000</span>
    <span class="price-period" data-b="/bulan" data-s="/semester" data-t="/tahun">/bulan</span>
   </div>
-  <span class="price-per-student" data-b="Rp 150/siswa/bulan" data-s="Rp 125/siswa/bulan" data-t="Rp 113/siswa/bulan">Rp 150/siswa/bulan</span>
+  <span class="price-per-student" data-package="sekolah_kecil">Rp 150/siswa/bulan</span>
   <div class="card-divider"></div>
   <ul class="card-limits">
    <li><span class="li-icon"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M15 19.128a9.38 9.38 0 0 0 2.625.372 9.337 9.337 0 0 0 4.121-.952 4.125 4.125 0 0 0-7.533-2.493M15 19.128v-.003c0-1.113-.285-2.16-.786-3.07M15 19.128v.109A11.386 11.386 0 0 1 10.089 18M15 12.062a18.874 18.874 0 0 0-4.911-.271m4.911.271a18.874 18.874 0 0 1-4.911-.271m4.911.271v-.003c0-1.113-.288-2.16-.786-3.07M10.117 19.128v.109A11.386 11.386 0 0 1 5.089 18M10.117 19.128v-.003c0-1.113-.287-2.16-.788-3.07M5.089 18a9.337 9.337 0 0 1 4.122-.952 9.38 9.38 0 0 1 2.625.372M5.089 18v-.003c0-1.113.288-2.16.786-3.07M15 7.5a3 3 0 1 1-6 0 3 3 0 0 1 6 0Zm6 3a2.25 2.25 0 1 1-4.5 0 2.25 2.25 0 0 1 4.5 0Zm-13.5 0a2.25 2.25 0 1 1-4.5 0 2.25 2.25 0 0 1 4.5 0Z" /></svg></span> Maks <strong>500</strong> siswa aktif</li>
@@ -612,10 +612,10 @@
   <div class="card-name">Sekolah Menengah</div>
   <div class="card-for">SMP / MTs, ujian PAS / PAT</div>
   <div class="card-price">
-   <span class="price-amount" data-b="175.000" data-s="875.000" data-t="1.575.000">Rp 175.000</span>
+   <span class="price-amount" data-package="sekolah_menengah" data-b="{{.prices.sekolah_menengah_bulanan}}" data-s="{{.prices.sekolah_menengah_semester}}" data-t="{{.prices.sekolah_menengah_tahunan}}">Rp 175.000</span>
    <span class="price-period" data-b="/bulan" data-s="/semester" data-t="/tahun">/bulan</span>
   </div>
-  <span class="price-per-student" data-b="Rp 87/siswa/bulan" data-s="Rp 73/siswa/bulan" data-t="Rp 66/siswa/bulan">Rp 87/siswa/bulan</span>
+  <span class="price-per-student" data-package="sekolah_menengah">Rp 87/siswa/bulan</span>
   <div class="card-divider"></div>
   <ul class="card-limits">
    <li><span class="li-icon"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M15 19.128a9.38 9.38 0 0 0 2.625.372 9.337 9.337 0 0 0 4.121-.952 4.125 4.125 0 0 0-7.533-2.493M15 19.128v-.003c0-1.113-.285-2.16-.786-3.07M15 19.128v.109A11.386 11.386 0 0 1 10.089 18M15 12.062a18.874 18.874 0 0 0-4.911-.271m4.911.271a18.874 18.874 0 0 1-4.911-.271m4.911.271v-.003c0-1.113-.288-2.16-.786-3.07M10.117 19.128v.109A11.386 11.386 0 0 1 5.089 18M10.117 19.128v-.003c0-1.113-.287-2.16-.788-3.07M5.089 18a9.337 9.337 0 0 1 4.122-.952 9.38 9.38 0 0 1 2.625.372M5.089 18v-.003c0-1.113.288-2.16.786-3.07M15 7.5a3 3 0 1 1-6 0 3 3 0 0 1 6 0Zm6 3a2.25 2.25 0 1 1-4.5 0 2.25 2.25 0 0 1 4.5 0Zm-13.5 0a2.25 2.25 0 1 1-4.5 0 2.25 2.25 0 0 1 4.5 0Z" /></svg></span> Maks <strong>2.000</strong> siswa aktif</li>
@@ -643,10 +643,10 @@
   <div class="card-name">Sekolah Besar</div>
   <div class="card-for">SMA / MA / SMK, tryout skala besar</div>
   <div class="card-price">
-   <span class="price-amount" data-b="375.000" data-s="1.875.000" data-t="3.375.000">Rp 375.000</span>
+   <span class="price-amount" data-package="sekolah_besar" data-b="{{.prices.sekolah_besar_bulanan}}" data-s="{{.prices.sekolah_besar_semester}}" data-t="{{.prices.sekolah_besar_tahunan}}">Rp 375.000</span>
    <span class="price-period" data-b="/bulan" data-s="/semester" data-t="/tahun">/bulan</span>
   </div>
-  <span class="price-per-student" data-b="Rp 75/siswa/bulan" data-s="Rp 63/siswa/bulan" data-t="Rp 56/siswa/bulan">Rp 75/siswa/bulan</span>
+  <span class="price-per-student" data-package="sekolah_besar">Rp 75/siswa/bulan</span>
   <div class="card-divider"></div>
   <ul class="card-limits">
    <li><span class="li-icon"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M15 19.128a9.38 9.38 0 0 0 2.625.372 9.337 9.337 0 0 0 4.121-.952 4.125 4.125 0 0 0-7.533-2.493M15 19.128v-.003c0-1.113-.285-2.16-.786-3.07M15 19.128v.109A11.386 11.386 0 0 1 10.089 18M15 12.062a18.874 18.874 0 0 0-4.911-.271m4.911.271a18.874 18.874 0 0 1-4.911-.271m4.911.271v-.003c0-1.113-.288-2.16-.786-3.07M10.117 19.128v.109A11.386 11.386 0 0 1 5.089 18M10.117 19.128v-.003c0-1.113-.287-2.16-.788-3.07M5.089 18a9.337 9.337 0 0 1 4.122-.952 9.38 9.38 0 0 1 2.625.372M5.089 18v-.003c0-1.113.288-2.16.786-3.07M15 7.5a3 3 0 1 1-6 0 3 3 0 0 1 6 0Zm6 3a2.25 2.25 0 1 1-4.5 0 2.25 2.25 0 0 1 4.5 0Zm-13.5 0a2.25 2.25 0 1 1-4.5 0 2.25 2.25 0 0 1 4.5 0Z" /></svg></span> Maks <strong>5.000</strong> siswa aktif</li>
@@ -674,10 +674,10 @@
   <div class="card-name">Sekolah Unggulan</div>
   <div class="card-for">Kampus, yayasan, tryout kabupaten/kota</div>
   <div class="card-price">
-   <span class="price-amount" data-b="750.000" data-s="3.750.000" data-t="6.750.000">Rp 750.000</span>
+   <span class="price-amount" data-package="sekolah_unggulan" data-b="{{.prices.sekolah_unggulan_bulanan}}" data-s="{{.prices.sekolah_unggulan_semester}}" data-t="{{.prices.sekolah_unggulan_tahunan}}">Rp 750.000</span>
    <span class="price-period" data-b="/bulan" data-s="/semester" data-t="/tahun">/bulan</span>
   </div>
-  <span class="price-per-student" data-b="Rp 75/siswa/bulan" data-s="Rp 63/siswa/bulan" data-t="Rp 56/siswa/bulan">Rp 75/siswa/bulan</span>
+  <span class="price-per-student" data-package="sekolah_unggulan">Rp 75/siswa/bulan</span>
   <div class="card-divider"></div>
   <ul class="card-limits">
    <li><span class="li-icon"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M15 19.128a9.38 9.38 0 0 0 2.625.372 9.337 9.337 0 0 0 4.121-.952 4.125 4.125 0 0 0-7.533-2.493M15 19.128v-.003c0-1.113-.285-2.16-.786-3.07M15 19.128v.109A11.386 11.386 0 0 1 10.089 18M15 12.062a18.874 18.874 0 0 0-4.911-.271m4.911.271a18.874 18.874 0 0 1-4.911-.271m4.911.271v-.003c0-1.113-.288-2.16-.786-3.07M10.117 19.128v.109A11.386 11.386 0 0 1 5.089 18M10.117 19.128v-.003c0-1.113-.287-2.16-.788-3.07M5.089 18a9.337 9.337 0 0 1 4.122-.952 9.38 9.38 0 0 1 2.625.372M5.089 18v-.003c0-1.113.288-2.16.786-3.07M15 7.5a3 3 0 1 1-6 0 3 3 0 0 1 6 0Zm6 3a2.25 2.25 0 1 1-4.5 0 2.25 2.25 0 0 1 4.5 0Zm-13.5 0a2.25 2.25 0 1 1-4.5 0 2.25 2.25 0 0 1 4.5 0Z" /></svg></span> Maks <strong>10.000</strong> siswa aktif</li>
@@ -718,12 +718,12 @@
  <tbody>
  <tr>
   <td>Harga / bulan</td>
-  <td><span class="price-amount" data-b="25.000" data-s="20.833" data-t="18.750">Rp 25.000</span></td>
-  <td><span class="price-amount" data-b="50.000" data-s="41.667" data-t="37.500">Rp 50.000</span></td>
-  <td><span class="price-amount" data-b="75.000" data-s="62.500" data-t="56.250">Rp 75.000</span></td>
-  <td><span class="price-amount" data-b="175.000" data-s="145.833" data-t="131.250">Rp 175.000</span></td>
-  <td><span class="price-amount" data-b="375.000" data-s="312.500" data-t="281.250">Rp 375.000</span></td>
-  <td><span class="price-amount" data-b="750.000" data-s="625.000" data-t="562.500">Rp 750.000</span></td>
+  <td><span class="price-amount-compare" data-package="guru">Rp 25.000</span></td>
+  <td><span class="price-amount-compare" data-package="individu">Rp 50.000</span></td>
+  <td><span class="price-amount-compare" data-package="sekolah_kecil">Rp 75.000</span></td>
+  <td><span class="price-amount-compare" data-package="sekolah_menengah">Rp 175.000</span></td>
+  <td><span class="price-amount-compare" data-package="sekolah_besar">Rp 375.000</span></td>
+  <td><span class="price-amount-compare" data-package="sekolah_unggulan">Rp 750.000</span></td>
  </tr>
  <tr><td>Siswa aktif</td><td>50</td><td>200</td><td>500</td><td>2.000</td><td>5.000</td><td>10.000</td></tr>
  <tr><td>Ujian bersamaan</td><td>1</td><td>2</td><td>3</td><td>5</td><td>10</td><td>Tak terbatas</td></tr>
@@ -824,21 +824,47 @@
   document.getElementById('navOverlay').classList.toggle('open');
  }
 
+ // Student limits for calculating cost per student dynamically
+ const studentLimits = {
+     guru: 50,
+     individu: 200,
+     sekolah_kecil: 500,
+     sekolah_menengah: 2000,
+     sekolah_besar: 5000,
+     sekolah_unggulan: 10000
+ };
+
  // Billing toggle
  function setBilling(mode) {
   document.querySelectorAll('.toggle-btn').forEach(b => b.classList.remove('active'));
   document.getElementById('tb-' + mode).classList.add('active');
 
   var key = mode === 'bulanan' ? 'b' : (mode === 'semester' ? 's' : 't');
+  var periodText = mode === 'bulanan' ? '/bulan' : (mode === 'semester' ? '/semester' : '/tahun');
 
   document.querySelectorAll('.price-amount').forEach(el => {
-   el.textContent = 'Rp ' + el.getAttribute('data-' + key);
+   const rawVal = Number(el.getAttribute('data-' + key));
+   el.textContent = 'Rp ' + rawVal.toLocaleString('id-ID');
   });
   document.querySelectorAll('.price-period').forEach(el => {
-   el.textContent = el.getAttribute('data-' + key);
+   el.textContent = periodText;
   });
   document.querySelectorAll('.price-per-student').forEach(el => {
-   el.textContent = el.getAttribute('data-' + key);
+   const pkg = el.getAttribute('data-package');
+   const limit = studentLimits[pkg] || 1;
+   const months = mode === 'bulanan' ? 1 : (mode === 'semester' ? 6 : 12);
+   const amountEl = document.querySelector(`.price-amount[data-package="${pkg}"]`);
+   const rawVal = Number(amountEl.getAttribute('data-' + key));
+   const costPerStudent = Math.round(rawVal / months / limit);
+   el.textContent = 'Rp ' + costPerStudent.toLocaleString('id-ID') + '/siswa/bulan';
+  });
+  document.querySelectorAll('.price-amount-compare').forEach(el => {
+   const pkg = el.getAttribute('data-package');
+   const months = mode === 'bulanan' ? 1 : (mode === 'semester' ? 6 : 12);
+   const amountEl = document.querySelector(`.price-amount[data-package="${pkg}"]`);
+   const rawVal = Number(amountEl.getAttribute('data-' + key));
+   const pricePerMonth = Math.round(rawVal / months);
+   el.textContent = 'Rp ' + pricePerMonth.toLocaleString('id-ID');
   });
 
   const durationParam = mode === 'bulanan' ? 'bulanan' : (mode === 'semester' ? 'semester' : 'tahunan');
@@ -847,6 +873,11 @@
    el.href = `/admin/billing?package=${pkg}&duration=${durationParam}`;
   });
  }
+
+ // Set prices correctly on load
+ document.addEventListener('DOMContentLoaded', () => {
+     setBilling('bulanan');
+ });
 
  // Scroll reveal
  var observer = new IntersectionObserver(function(entries) {

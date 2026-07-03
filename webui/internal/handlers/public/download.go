@@ -84,9 +84,43 @@ func DownloadPage() gin.HandlerFunc {
 // ---------------------------------------------------------------------------
 
 // DownloadAPK serves the EXAMVAN.apk file as a downloadable attachment.
+// It supports '?flavor=student' (default) and '?flavor=kiosk'.
 func DownloadAPK() gin.HandlerFunc {
 	return func(c *gin.Context) {
-		apkPath := getAPKPath(c)
+		flavor := c.DefaultQuery("flavor", "student")
+		var filename string
+		if flavor == "kiosk" {
+			filename = "EXAMVAN-kiosk.apk"
+		} else {
+			filename = "EXAMVAN-student.apk"
+		}
+
+		var apkPath string
+		// First check configuration directory
+		if cfg, exists := c.Get("cfg"); exists {
+			baseDir := filepath.Dir(cfg.(*config.Config).StoragePath)
+			cfgPath := filepath.Join(baseDir, "static", filename)
+			if _, err := os.Stat(cfgPath); err == nil {
+				apkPath = cfgPath
+			}
+		}
+
+		// Fallback relative to working directory
+		if apkPath == "" {
+			wd, err := os.Getwd()
+			if err == nil {
+				wdPath := filepath.Join(wd, "static", filename)
+				if _, err := os.Stat(wdPath); err == nil {
+					apkPath = wdPath
+				}
+			}
+		}
+
+		// Last fallback: use the legacy EXAMVAN.apk path
+		if apkPath == "" {
+			apkPath = getAPKPath(c)
+			filename = "EXAMVAN.apk"
+		}
 
 		if _, err := os.Stat(apkPath); os.IsNotExist(err) {
 			log.Printf("APK file not found at %s", apkPath)
@@ -97,6 +131,6 @@ func DownloadAPK() gin.HandlerFunc {
 			return
 		}
 
-		c.FileAttachment(apkPath, "EXAMVAN.apk")
+		c.FileAttachment(apkPath, filename)
 	}
 }

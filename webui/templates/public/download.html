@@ -601,93 +601,134 @@
  <h1 class="download-title">Aplikasi Siswa EXAMVAN</h1>
  <p class="download-desc">
  Aplikasi client Android untuk mengikuti ujian berbasis server sekolah. Siswa cukup memasukkan alamat server dan token ujian yang diberikan guru untuk memulai ujian dalam mode lockdown kiosk.
- </p>
+   <div class="download-card">
+  <div class="meta-grid">
+  <div class="meta-item">
+  <span class="meta-label">Versi Aplikasi</span>
+  <span class="meta-val">v{{.android_version}}</span>
+  </div>
+  <div class="meta-item">
+  <span class="meta-label">Ukuran Berkas</span>
+  <span class="meta-val">{{printf "%.2f" .file_size_mb}} MB</span>
+  </div>
+  <div class="meta-item">
+  <span class="meta-label">Sistem Operasi</span>
+  <span class="meta-val">Android 7.0+ (Nougat)</span>
+  </div>
+  </div>
 
- <div class="download-card">
- <div class="meta-grid">
- <div class="meta-item">
- <span class="meta-label">Versi Aplikasi</span>
- <span class="meta-val">v{{.android_version}}</span>
- </div>
- <div class="meta-item">
- <span class="meta-label">Ukuran Berkas</span>
- <span class="meta-val">{{printf "%.2f" .file_size_mb}} MB</span>
- </div>
- <div class="meta-item">
- <span class="meta-label">Sistem Operasi</span>
- <span class="meta-val">Android 5.0+</span>
- </div>
- </div>
+  <!-- Flavor Selection Grid -->
+  <div class="flavor-grid-container" style="margin-top: 24px; display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 16px;">
+    <!-- Student Flavor Card -->
+    <div style="background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.06); border-radius: 12px; padding: 20px; text-align: center; display: flex; flex-direction: column; justify-content: space-between;">
+      <div>
+        <h4 style="color: white; margin-top: 0; margin-bottom: 8px; font-family: 'Outfit'; font-size: 16px;">Flavor Student</h4>
+        <p style="color: var(--color-text-muted); font-size: 13px; line-height: 1.5; margin-bottom: 20px;">Dirancang untuk HP/Tablet pribadi milik siswa. Pemasangan reguler tanpa perlu akses komputer (ADB).</p>
+      </div>
+      <a href="/download/apk?flavor=student" class="btn-download-big" style="width: 100%; margin: 0; padding: 12px; font-size: 14px; text-decoration: none;">
+        Unduh Student APK
+      </a>
+    </div>
 
- <a href="/download/apk" class="btn-download-big">
- <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg>
- Download APK ({{printf "%.2f" .file_size_mb}} MB)
- </a>
+    <!-- Kiosk Flavor Card -->
+    <div style="background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.06); border-radius: 12px; padding: 20px; text-align: center; display: flex; flex-direction: column; justify-content: space-between;">
+      <div>
+        <h4 style="color: white; margin-top: 0; margin-bottom: 8px; font-family: 'Outfit'; font-size: 16px;">Flavor Kiosk (Device Owner)</h4>
+        <p style="color: var(--color-text-muted); font-size: 13px; line-height: 1.5; margin-bottom: 20px;">Khusus perangkat milik sekolah. Mengunci absolut tombol fisik di tingkat OS menggunakan Device Owner mode.</p>
+      </div>
+      <a href="/download/apk?flavor=kiosk" class="btn-download-big" style="width: 100%; margin: 0; padding: 12px; font-size: 14px; background: linear-gradient(135deg, #4f46e5, #6366f1); text-decoration: none;">
+        Unduh Kiosk APK
+      </a>
+    </div>
+  </div>
 
- <div class="download-security-info">
- <div class="security-item">
- <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg>
- Bebas Virus &amp; Malware
- </div>
- <div class="security-item">
- <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg>
- Tanda Tangan Digital
- </div>
- <div class="security-item">
- <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg>
- Tanpa Iklan &amp; Pelacak
- </div>
- </div>
- </div>
+  <div class="download-security-info" style="margin-top: 24px;">
+  <div class="security-item">
+  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg>
+  Bebas Virus &amp; Malware
+  </div>
+  <div class="security-item">
+  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg>
+  Tanda Tangan Digital
+  </div>
+  <div class="security-item">
+  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg>
+  Tanpa Iklan &amp; Pelacak
+  </div>
+  </div>
+  </div>
 
- <!-- WebApp Version Info -->
- <div class="server-version-box">
- <span>Versi WebApp Server yang aktif saat ini:</span>
- <strong style="color: white; font-family: 'Outfit'; font-size: 14px;">v{{.webapp_version}}</strong>
- </div>
- </div>
+  <!-- WebApp Version Info -->
+  <div class="server-version-box">
+  <span>Versi WebApp Server yang aktif saat ini:</span>
+  <strong style="color: white; font-family: 'Outfit'; font-size: 14px;">v{{.webapp_version}}</strong>
+  </div>
+  </div>
 
- <!-- Instructions Column -->
- <div class="instruction-card">
- <h3 class="inst-title">
- <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="16" x2="12" y2="12"></line><line x1="12" y1="8" x2="12.01" y2="8"></line></svg>
- Petunjuk Instalasi APK
- </h3>
- <div class="inst-steps">
- <div class="step-item">
- <span class="step-number">1</span>
- <div class="step-content">
- <span class="step-title">Unduh File</span>
- <span class="step-desc">Tekan tombol download di atas dan tunggu hingga berkas APK selesai terunduh.</span>
- </div>
- </div>
- <div class="step-item">
- <span class="step-number">2</span>
- <div class="step-content">
- <span class="step-title">Izinkan Pemasangan</span>
- <span class="step-desc">Jika muncul notifikasi, klik "Izinkan" untuk mengunduh dari sumber tidak dikenal.</span>
- </div>
- </div>
- <div class="step-item">
- <span class="step-number">3</span>
- <div class="step-content">
- <span class="step-title">Pasang &amp; Ujian</span>
- <span class="step-desc">Buka file hasil unduhan, klik "Instal", lalu buka aplikasi dan masukkan alamat server serta token ujian dari guru.</span>
- </div>
- </div>
- </div>
+  <!-- Instructions Column -->
+  <div class="instruction-card">
+  <h3 class="inst-title">
+  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="16" x2="12" y2="12"></line><line x1="12" y1="8" x2="12.01" y2="8"></line></svg>
+  Petunjuk Aktivasi Flavor Kiosk (Device Owner)
+  </h3>
+  <div class="inst-steps" style="margin-bottom: 24px;">
+  <div class="step-item">
+  <span class="step-number">1</span>
+  <div class="step-content">
+  <span class="step-title">Reset Pabrik &amp; Pasang APK</span>
+  <span class="step-desc">Pastikan <strong>tidak ada akun Google</strong> atau akun pengguna lain terdaftar di perangkat (lakukan reset pabrik jika perlu). Pasang berkas <strong>EXAMVAN-kiosk.apk</strong>.</span>
+  </div>
+  </div>
+  <div class="step-item">
+  <span class="step-number">2</span>
+  <div class="step-content">
+  <span class="step-title">Aktifkan USB Debugging</span>
+  <span class="step-desc">Aktifkan Opsi Developer (Ketuk "Build Number" 7x di Setelan Tentang Ponsel), lalu centang **USB Debugging**. Hubungkan perangkat ke komputer via USB.</span>
+  </div>
+  </div>
+  <div class="step-item">
+  <span class="step-number">3</span>
+  <div class="step-content">
+  <span class="step-title">Jalankan Perintah ADB</span>
+  <span class="step-desc">Buka Terminal/CMD di komputer Anda dan jalankan perintah berikut:<br>
+  <code style="background: rgba(0,0,0,0.3); color: #818cf8; padding: 4px 8px; border-radius: 4px; font-family: monospace; font-size: 12px; display: inline-block; margin-top: 6px; word-break: break-all;">adb shell dpm set-device-owner com.examvan.app/com.examvan.app.receiver.MyDeviceAdminReceiver</code>
+  </span>
+  </div>
+  </div>
+  </div>
 
- <!-- Specific Brand Warnings for Indonesian Students -->
- <div class="device-tips">
- <div class="tips-title">
- <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"></path><line x1="12" y1="9" x2="12" y2="13"></line><line x1="12" y1="17" x2="12.01" y2="17"></line></svg>
- Tips Instalasi
- </div>
- <ul class="tips-list">
- <li><strong style="color: #f59e0b;">Uninstall Versi Lama:</strong> Hapus versi lama dari HP Anda terlebih dahulu sebelum memasang yang baru untuk mencegah konflik.</li>
- <li><strong style="color: #f59e0b;">Play Protect:</strong> Jika muncul peringatan dari Google Play Protect, pilih <strong>"Detail" &gt; "Install Anyway"</strong> / <strong>"Tetap Pasang"</strong>.</li>
- <li>HP dengan sistem FuntouchOS (Vivo) atau ColorOS (Oppo/Realme) mungkin memerlukan izin pemasangan dari sumber tidak dikenal. Aktifkan di <strong>Setelan &gt; Keamanan &gt; Izinkan dari sumber ini</strong>.</li>
- </ul>
+  <h3 class="inst-title">
+  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="16" x2="12" y2="12"></line><line x1="12" y1="8" x2="12.01" y2="8"></line></svg>
+  Petunjuk Instalasi APK Student (Reguler)
+  </h3>
+  <div class="inst-steps">
+  <div class="step-item">
+  <span class="step-number">1</span>
+  <div class="step-content">
+  <span class="step-title">Unduh &amp; Izinkan Pemasangan</span>
+  <span class="step-desc">Unduh berkas <strong>EXAMVAN-student.apk</strong>. Klik file apk hasil unduhan dan klik "Izinkan Pemasangan dari Sumber Tidak Dikenal" jika diminta.</span>
+  </div>
+  </div>
+  <div class="step-item">
+  <span class="step-number">2</span>
+  <div class="step-content">
+  <span class="step-title">Mulai Ujian</span>
+  <span class="step-desc">Buka aplikasi EXAMVAN di HP, hubungkan ke IP server sekolah, lalu masukkan Token Ujian 8-karakter yang diberikan oleh guru.</span>
+  </div>
+  </div>
+  </div>
+
+  <!-- Specific Brand Warnings for Indonesian Students -->
+  <div class="device-tips">
+  <div class="tips-title">
+  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"></path><line x1="12" y1="9" x2="12" y2="13"></line><line x1="12" y1="17" x2="12.01" y2="17"></line></svg>
+  Tips Pemasangan &amp; Pemecahan Masalah
+  </div>
+  <ul class="tips-list">
+  <li><strong style="color: #f59e0b;">Uninstall Versi Lama:</strong> Hapus versi lama dari HP Anda terlebih dahulu sebelum memasang yang baru untuk mencegah konflik tanda tangan digital.</li>
+  <li><strong style="color: #f59e0b;">Play Protect:</strong> Jika muncul peringatan dari Google Play Protect, pilih <strong>"Detail" &gt; "Install Anyway"</strong> / <strong>"Tetap Pasang"</strong>.</li>
+  <li>HP Vivo (FuntouchOS), Oppo/Realme (ColorOS), dan Xiaomi (MIUI/HyperOS) memerlukan izin tambahan. Aktifkan di <strong>Setelan &gt; Keamanan &gt; Izinkan Pemasangan Aplikasi dari Sumber Tidak Dikenal</strong>.</li>
+  </ul>
  </div>
  </div>
  </main>
