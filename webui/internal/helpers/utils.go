@@ -7,8 +7,10 @@ import (
 	"crypto/rand"
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
 	"fmt"
 	"math/big"
+	"path/filepath"
 	"strings"
 	"time"
 )
@@ -214,4 +216,44 @@ func serializeRolesInternal(roles []string) string {
 		parts[i] = `"` + r + `"`
 	}
 	return "[" + strings.Join(parts, ",") + "]"
+}
+
+// GenerateExamToken creates an 8-character uppercase alphanumeric token (A-Z, 0-9).
+// Uses crypto/rand.Int for unbiased distribution.
+func GenerateExamToken() string {
+	const chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
+	b := make([]byte, 8)
+	for i := range b {
+		idx, err := rand.Int(rand.Reader, big.NewInt(int64(len(chars))))
+		if err != nil {
+			// Fallback: time-based token.
+			return fmt.Sprintf("%08X", time.Now().UnixNano()%99999999)
+		}
+		b[i] = chars[idx.Int64()]
+	}
+	return string(b)
+}
+
+// SafeStoragePath resolves a relative file path against the storage
+// directory and verifies the result does not escape via directory traversal.
+func SafeStoragePath(baseDir, relPath string) (string, error) {
+	cleanBase := filepath.Clean(baseDir)
+	full := filepath.Join(cleanBase, filepath.Clean(relPath))
+	if !strings.HasPrefix(full, cleanBase) {
+		return "", fmt.Errorf("path traversal detected: %s", relPath)
+	}
+	return full, nil
+}
+
+// ParseIdentityFields unmarshals the identity_fields JSON column.
+// Falls back to the provided default fields.
+func ParseIdentityFields(raw *string, defaultFields []map[string]interface{}) []map[string]interface{} {
+	if raw == nil || *raw == "" {
+		return defaultFields
+	}
+	var fields []map[string]interface{}
+	if err := json.Unmarshal([]byte(*raw), &fields); err != nil || len(fields) == 0 {
+		return defaultFields
+	}
+	return fields
 }

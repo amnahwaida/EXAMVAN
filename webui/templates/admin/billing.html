@@ -511,6 +511,13 @@ window.addEventListener('DOMContentLoaded', () => {
     const urlParams = new URLSearchParams(window.location.search);
     const pkg = urlParams.get('package');
     const duration = urlParams.get('duration');
+    const status = urlParams.get('status');
+
+    if (status === 'success') {
+        showToast('Pembayaran berhasil diproses!', 'success');
+    } else if (status === 'cancel') {
+        showToast('Pembayaran DOKU dibatalkan.', 'warning');
+    }
     
     if (pkg) {
         const pkgSelect = document.getElementById('txPackageSelect');

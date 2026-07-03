@@ -13,6 +13,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/examvan/webui/internal/helpers"
 	"github.com/examvan/webui/internal/models"
 )
 
@@ -757,7 +758,7 @@ func DeleteUser() gin.HandlerFunc {
 		// Clean up associated files
 		storageDir := getStoragePath(c)
 		for _, p := range paths {
-			if fp, err := safeStoragePath(storageDir, p); err == nil {
+			if fp, err := helpers.SafeStoragePath(storageDir, p); err == nil {
 				os.Remove(fp)
 			}
 		}

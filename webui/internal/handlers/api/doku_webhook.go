@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
+	redis "github.com/redis/go-redis/v9"
 
 	"github.com/examvan/webui/internal/config"
 	"github.com/examvan/webui/internal/handlers/admin"
@@ -44,6 +45,11 @@ func DokuNotifyHandler(cfg *config.Config) gin.HandlerFunc {
 			return
 		}
 		ctx := c.Request.Context()
+
+		var rdb *redis.Client
+		if r, exists := c.Get("redis"); exists && r != nil {
+			rdb = r.(*redis.Client)
+		}
 
 		// 1. Read request body bytes to verify signature
 		bodyBytes, err := io.ReadAll(c.Request.Body)
@@ -95,12 +101,31 @@ func DokuNotifyHandler(cfg *config.Config) gin.HandlerFunc {
 			return
 		}
 
-		// 2c. Replay check — reject if same Request-Id seen within TTL
-		if _, loaded := processedRequests.LoadOrStore(requestIDHeader, time.Now()); loaded {
+		// 2c. Replay check — reject if same Request-Id seen within TTL (Redis dedup with in-memory fallback)
+		isDuplicate := false
+		if rdb != nil {
+			redisKey := "doku:webhook:request_id:" + requestIDHeader
+			set, err := rdb.SetNX(ctx, redisKey, "processed", 10*time.Minute).Result()
+			if err != nil {
+				log.Printf("Doku Webhook: Redis deduplication error: %v, falling back to in-memory", err)
+				if _, loaded := processedRequests.LoadOrStore(requestIDHeader, time.Now()); loaded {
+					isDuplicate = true
+				}
+			} else if !set {
+				isDuplicate = true
+			}
+		} else {
+			if _, loaded := processedRequests.LoadOrStore(requestIDHeader, time.Now()); loaded {
+				isDuplicate = true
+			}
+		}
+
+		if isDuplicate {
 			log.Printf("Doku Webhook: duplicate Request-Id: %s", requestIDHeader)
 			c.JSON(http.StatusOK, gin.H{"success": true, "message": "Duplicate notification, already processed"})
 			return
 		}
+
 		// Cleanup stale entries lazily in background once per successful request
 		go func() {
 			processedRequests.Range(func(key, val interface{}) bool {
@@ -171,24 +196,42 @@ func DokuNotifyHandler(cfg *config.Config) gin.HandlerFunc {
 			return
 		}
 
-		// 6. Check payment status
-		paymentSuccess := strings.ToUpper(notification.Transaction.Status) == "SUCCESS"
-		if !paymentSuccess {
-			log.Printf("Doku Webhook: transaction status is not SUCCESS: %s", notification.Transaction.Status)
-			c.JSON(http.StatusOK, gin.H{"success": true, "message": "Notification received, but status is not SUCCESS"})
+		// 6. Check and process payment status
+		status := strings.ToUpper(notification.Transaction.Status)
+		if status == "SUCCESS" {
+			// Approve transaction in DB
+			notes := "Approved automatically via DOKU Payment Gateway (Request-Id: " + requestIDHeader + ")"
+			err = admin.ProcessTransactionApproval(ctx, pool, txID, notes)
+			if err != nil {
+				log.Printf("Doku Webhook: failed to process transaction approval: %v", err)
+				c.JSON(http.StatusInternalServerError, gin.H{"success": false, "message": "Failed to approve transaction"})
+				return
+			}
+			log.Printf("Doku Webhook: transaction %d approved automatically", txID)
+		} else if status == "CANCEL" || status == "CANCELLED" || status == "FAILED" || status == "EXPIRED" {
+			notes := "Cancelled/Failed automatically via DOKU Payment Gateway (Request-Id: " + requestIDHeader + ", Status: " + status + ")"
+			err = admin.ProcessTransactionReversal(ctx, pool, txID, models.TxStatusRejected, notes)
+			if err != nil {
+				log.Printf("Doku Webhook: failed to process transaction cancellation: %v", err)
+				c.JSON(http.StatusInternalServerError, gin.H{"success": false, "message": "Failed to cancel transaction"})
+				return
+			}
+			log.Printf("Doku Webhook: transaction %d cancelled/rejected (status=%s)", txID, status)
+		} else if status == "REFUND" || status == "VOID" || status == "REVERSAL" {
+			notes := "Refunded/Voided automatically via DOKU Payment Gateway (Request-Id: " + requestIDHeader + ", Status: " + status + ")"
+			err = admin.ProcessTransactionReversal(ctx, pool, txID, models.TxStatusRejected, notes)
+			if err != nil {
+				log.Printf("Doku Webhook: failed to process transaction reversal: %v", err)
+				c.JSON(http.StatusInternalServerError, gin.H{"success": false, "message": "Failed to reverse transaction"})
+				return
+			}
+			log.Printf("Doku Webhook: transaction %d reversed/refunded (status=%s)", txID, status)
+		} else {
+			log.Printf("Doku Webhook: unknown transaction status: %s", status)
+			c.JSON(http.StatusBadRequest, gin.H{"success": false, "message": "Unknown transaction status"})
 			return
 		}
 
-		// 7. Approve transaction in DB
-		notes := "Approved automatically via DOKU Payment Gateway (Request-Id: " + requestIDHeader + ")"
-		err = admin.ProcessTransactionApproval(ctx, pool, txID, notes)
-		if err != nil {
-			log.Printf("Doku Webhook: failed to process transaction approval: %v", err)
-			c.JSON(http.StatusInternalServerError, gin.H{"success": false, "message": "Failed to approve transaction"})
-			return
-		}
-
-		log.Printf("Doku Webhook: transaction %d approved automatically", txID)
 		c.JSON(http.StatusOK, gin.H{"success": true, "message": "Notification processed successfully"})
 	}
 }

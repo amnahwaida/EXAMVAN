@@ -36,10 +36,12 @@ func NewDokuClient(clientID, secretKey, apiURL string) *DokuClient {
 
 type DokuOrderRequest struct {
 	Order struct {
-		InvoiceNumber string `json:"invoice_number"`
-		Amount        int64  `json:"amount"`
-		CallbackURL   string `json:"callback_url"`
-		LineItems     []DokuLineItem `json:"line_items,omitempty"`
+		InvoiceNumber     string `json:"invoice_number"`
+		Amount            int64  `json:"amount"`
+		CallbackURL       string `json:"callback_url"`
+		CallbackURLCancel string `json:"callback_url_cancel,omitempty"`
+		AutoRedirect      bool   `json:"auto_redirect"`
+		LineItems         []DokuLineItem `json:"line_items,omitempty"`
 	} `json:"order"`
 	Payment struct {
 		PaymentDueDate int `json:"payment_due_date"`
@@ -73,11 +75,13 @@ type DokuPaymentInfo struct {
 }
 
 // CreateCheckout initiates a checkout request to DOKU and returns the payment redirect URL
-func (d *DokuClient) CreateCheckout(invoiceNum string, amount int64, callbackURL, customerName, customerEmail string) (string, error) {
+func (d *DokuClient) CreateCheckout(invoiceNum string, amount int64, callbackURL, callbackURLCancel string, customerName, customerEmail string) (string, error) {
 	reqBody := DokuOrderRequest{}
 	reqBody.Order.InvoiceNumber = invoiceNum
 	reqBody.Order.Amount = amount
 	reqBody.Order.CallbackURL = callbackURL
+	reqBody.Order.CallbackURLCancel = callbackURLCancel
+	reqBody.Order.AutoRedirect = true
 	reqBody.Order.LineItems = []DokuLineItem{
 		{
 			ID:       invoiceNum + "-item-1",

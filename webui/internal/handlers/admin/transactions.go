@@ -361,6 +361,67 @@ func ProcessTransactionApproval(ctx context.Context, pool *pgxpool.Pool, txID in
 	return nil
 }
 
+// ProcessTransactionReversal handles transaction cancellations, refunds, voids, and reversals.
+// If the transaction was previously approved, it downgrades the user back to the default 'free' limits and package.
+func ProcessTransactionReversal(ctx context.Context, pool *pgxpool.Pool, txID int, newStatus string, notes string) error {
+	dbTx, err := pool.Begin(ctx)
+	if err != nil {
+		return fmt.Errorf("failed to begin transaction: %w", err)
+	}
+	defer func() {
+		_ = dbTx.Rollback(ctx)
+	}()
+
+	var tx models.Transaction
+	err = dbTx.QueryRow(ctx,
+		`SELECT id, user_id, package, amount, duration_type, status, created_at, updated_at
+		FROM transactions WHERE id = $1 FOR UPDATE`,
+		txID,
+	).Scan(
+		&tx.ID, &tx.UserID, &tx.Package, &tx.Amount, &tx.DurationType, &tx.Status,
+		&tx.CreatedAt, &tx.UpdatedAt,
+	)
+	if err != nil {
+		return fmt.Errorf("transaction not found: %w", err)
+	}
+
+	// Only proceed if status is different
+	if tx.Status == newStatus {
+		return nil
+	}
+
+	// Update transaction status
+	_, err = dbTx.Exec(ctx,
+		`UPDATE transactions SET status = $1, notes = $2, updated_at = CURRENT_TIMESTAMP
+		WHERE id = $3`,
+		newStatus, notes, txID,
+	)
+	if err != nil {
+		return fmt.Errorf("failed to update transaction status: %w", err)
+	}
+
+	// If transaction was previously approved, we need to revert the user's package and limits to 'free'
+	if tx.Status == models.TxStatusApproved {
+		_, err = dbTx.Exec(ctx,
+			`UPDATE admin_users SET
+				package = 'free',
+				max_exams = 1,
+				max_pdf_size = 1048576, -- 1 MB
+				max_drafts = 1,
+				max_storage_size = 52428800, -- 50 MB
+				expires_at = NULL
+			WHERE id = $1`,
+			tx.UserID,
+		)
+		if err != nil {
+			return fmt.Errorf("failed to downgrade user limits: %w", err)
+		}
+	}
+
+	return dbTx.Commit(ctx)
+}
+
+
 // ApproveTransaction handles POST /admin/api/transactions/:id/approve (Superadmin only).
 // Approves payment, updates user's package and limits.
 func ApproveTransaction() gin.HandlerFunc {
@@ -380,30 +441,25 @@ func ApproveTransaction() gin.HandlerFunc {
 			return
 		}
 
-		// Fetch transaction to display user and package info in success message
-		tx, _ := models.GetTransactionByID(ctx, pool, txID)
-		user, _ := models.GetUserByID(ctx, pool, tx.UserID)
-		
-		var days int
-		switch tx.DurationType {
-		case "bulanan":
-			days = 30
-		case "semester":
-			days = 180
-		case "tahunan":
-			days = 365
-		default:
-			days = 30
+		// Fetch transaction and user to display correct info in success message
+		tx, errTx := models.GetTransactionByID(ctx, pool, txID)
+		if errTx != nil {
+			successMessage(c, "Transaksi berhasil disetujui")
+			return
 		}
-		var newExpiry time.Time
-		if user.ExpiresAt != nil && user.ExpiresAt.After(time.Now()) {
-			newExpiry = user.ExpiresAt.AddDate(0, 0, days)
-		} else {
-			newExpiry = time.Now().AddDate(0, 0, days)
+		user, errUser := models.GetUserByID(ctx, pool, tx.UserID)
+		if errUser != nil {
+			successMessage(c, "Transaksi berhasil disetujui")
+			return
+		}
+
+		expiryStr := "—"
+		if user.ExpiresAt != nil {
+			expiryStr = user.ExpiresAt.Format("2006-01-02 15:04:05")
 		}
 
 		successMessage(c, fmt.Sprintf("Transaksi approved. Akun %s telah diaktifkan ke %s s.d %s", 
-			user.Username, tx.Package, newExpiry.Format("2006-01-02 15:04:05")))
+			user.Username, tx.Package, expiryStr))
 	}
 }
 
@@ -428,6 +484,25 @@ func CreateDokuTransaction(cfg *config.Config) gin.HandlerFunc {
 		amount := CalculatePackagePrice(pkgName, durationType)
 		if amount == 0 {
 			errorResponse(c, http.StatusBadRequest, "Paket atau jenis durasi tidak valid")
+			return
+		}
+
+		// Limit 1 pending per (user, package) to prevent invoice flooding
+		var existsPending bool
+		err := pool.QueryRow(ctx,
+			`SELECT EXISTS(
+				SELECT 1 FROM transactions 
+				WHERE user_id = $1 AND package = $2 AND status = 'pending'
+			)`,
+			userID, pkgName,
+		).Scan(&existsPending)
+		if err != nil {
+			log.Printf("failed to check existing pending transaction: %v", err)
+			errorResponse(c, http.StatusInternalServerError, "Gagal memproses pembuatan invoice")
+			return
+		}
+		if existsPending {
+			errorResponse(c, http.StatusConflict, "Anda sudah memiliki transaksi pending untuk paket ini. Silakan selesaikan pembayaran sebelumnya.")
 			return
 		}
 
@@ -472,7 +547,8 @@ func CreateDokuTransaction(cfg *config.Config) gin.HandlerFunc {
 			scheme = "https"
 		}
 		baseURL := fmt.Sprintf("%s://%s", scheme, c.Request.Host)
-		callbackURL := fmt.Sprintf("%s/admin/billing", baseURL)
+		callbackURL := fmt.Sprintf("%s/admin/billing?status=success", baseURL)
+		callbackURLCancel := fmt.Sprintf("%s/admin/billing?status=cancel", baseURL)
 		invoiceNumber := fmt.Sprintf("EXAMVAN-TX-%d", created.ID)
 
 		// Check if DOKU settings are configured
@@ -484,7 +560,7 @@ func CreateDokuTransaction(cfg *config.Config) gin.HandlerFunc {
 
 		// Initialize DokuClient
 		dokuClient := payment.NewDokuClient(cfg.DokuClientID, cfg.DokuSecretKey, cfg.DokuAPIURL)
-		redirectURL, err := dokuClient.CreateCheckout(invoiceNumber, amount, callbackURL, customerName, customerEmail)
+		redirectURL, err := dokuClient.CreateCheckout(invoiceNumber, amount, callbackURL, callbackURLCancel, customerName, customerEmail)
 		if err != nil {
 			log.Printf("failed to create checkout session with DOKU: %v", err)
 			errorResponse(c, http.StatusInternalServerError, "Gagal membuat sesi pembayaran DOKU: "+err.Error())

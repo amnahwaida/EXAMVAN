@@ -3,12 +3,10 @@ package admin
 import (
 	"bytes"
 	"context"
-	"crypto/rand"
 	"encoding/json"
 	"fmt"
 	"io"
 	"log"
-	"math/big"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -21,6 +19,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	r2client "github.com/examvan/webui/internal/handlers/r2"
+	"github.com/examvan/webui/internal/helpers"
 	"github.com/examvan/webui/internal/models"
 )
 
@@ -32,21 +31,7 @@ const maxFileSize = 100 * 1024 * 1024 // 100 MB global limit
 
 var tokenRegex = regexp.MustCompile(`^[A-Z0-9]{8}$`)
 
-// generateToken creates an 8-character uppercase alphanumeric token (A-Z, 0-9).
-// Uses crypto/rand.Int for unbiased distribution.
-func generateToken() string {
-	const chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
-	b := make([]byte, 8)
-	for i := range b {
-		idx, err := rand.Int(rand.Reader, big.NewInt(int64(len(chars))))
-		if err != nil {
-			// Fallback: time-based token.
-			return fmt.Sprintf("%08X", time.Now().UnixNano()%99999999)
-		}
-		b[i] = chars[idx.Int64()]
-	}
-	return string(b)
-}
+
 
 // validatePDF checks that the uploaded data is a valid PDF and respects size
 // limits. Returns (isValid, errorMessage).
@@ -81,16 +66,7 @@ func sanitizeFilename(name string) string {
 	return s
 }
 
-// safeStoragePath resolves a path against the storage directory and prevents
-// directory traversal.
-func safeStoragePath(baseDir, relPath string) (string, error) {
-	cleanBase := filepath.Clean(baseDir)
-	full := filepath.Join(cleanBase, filepath.Clean(relPath))
-	if !strings.HasPrefix(full, cleanBase) {
-		return "", fmt.Errorf("path traversal detected: %s", relPath)
-	}
-	return full, nil
-}
+
 
 // ---------------------------------------------------------------------------
 // 1. GET /admin/dashboard — rendered by Dashboard() already, but the user spec
@@ -194,7 +170,7 @@ func UploadExam() gin.HandlerFunc {
 		} else {
 			// Retry loop for auto-generated token to handle race conditions.
 			for i := 0; i < 5; i++ {
-				token = generateToken()
+				token = helpers.GenerateExamToken()
 				existing, err := models.GetExamByToken(ctx, pool, token)
 				if err != nil || existing.ID == 0 {
 					break
@@ -336,7 +312,7 @@ func DeleteExam() gin.HandlerFunc {
 
 		// Clean up PDF
 		storageDir := getStoragePath(c)
-		if fp, err := safeStoragePath(storageDir, exam.FilePath); err == nil {
+		if fp, err := helpers.SafeStoragePath(storageDir, exam.FilePath); err == nil {
 			if err := os.Remove(fp); err != nil && !os.IsNotExist(err) {
 				log.Printf("delete exam file cleanup error: %v", err)
 			}
@@ -407,7 +383,7 @@ func EditExam() gin.HandlerFunc {
 
 			// Delete old file locally
 			storageDir := getStoragePath(c)
-			if oldPath, err := safeStoragePath(storageDir, exam.FilePath); err == nil {
+			if oldPath, err := helpers.SafeStoragePath(storageDir, exam.FilePath); err == nil {
 				os.Remove(oldPath)
 			}
 
@@ -494,7 +470,7 @@ func ExamPDF() gin.HandlerFunc {
 		}
 
 		storageDir := getStoragePath(c)
-		pdfPath, err := safeStoragePath(storageDir, exam.FilePath)
+		pdfPath, err := helpers.SafeStoragePath(storageDir, exam.FilePath)
 		if err != nil {
 			c.AbortWithStatus(http.StatusBadRequest)
 			return
@@ -875,7 +851,7 @@ func RegenerateToken() gin.HandlerFunc {
 			return
 		}
 
-		newToken := generateToken()
+		newToken := helpers.GenerateExamToken()
 		if err := models.UpdateExamToken(ctx, pool, examID, newToken); err != nil {
 			log.Printf("regenerate token error: %v", err)
 			errorResponse(c, http.StatusInternalServerError, "Gagal memperbarui token")
@@ -1040,7 +1016,7 @@ func StartExam() gin.HandlerFunc {
 		}
 
 		// Generate a new active_token on start (dynamic token)
-		newToken := generateToken()
+		newToken := helpers.GenerateExamToken()
 		if err := models.UpdateExamActiveToken(ctx, pool, examID, newToken); err != nil {
 			log.Printf("start exam: generate active token error: %v", err)
 		}
@@ -1140,7 +1116,7 @@ func BulkDelete() gin.HandlerFunc {
 		// Clean up files
 		storageDir := getStoragePath(c)
 		for _, p := range paths {
-			if fp, err := safeStoragePath(storageDir, p); err == nil {
+			if fp, err := helpers.SafeStoragePath(storageDir, p); err == nil {
 				os.Remove(fp)
 			}
 		}

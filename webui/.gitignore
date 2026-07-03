@@ -1,1 +1,6 @@
 server
+main
+examvan-server
+.env
+storage/data/*
+!storage/data/.gitkeep

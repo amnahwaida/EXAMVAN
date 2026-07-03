@@ -14,6 +14,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 	redis "github.com/redis/go-redis/v9"
 
+	"github.com/examvan/webui/internal/helpers"
 	"github.com/examvan/webui/internal/models"
 )
 
@@ -518,7 +519,7 @@ func autoResetActiveTokenIfNeeded(ctx context.Context, pool *pgxpool.Pool, exam 
 			}
 		}
 		if shouldReset {
-			newToken := generateToken()
+			newToken := helpers.GenerateExamToken()
 			if err := models.UpdateExamActiveToken(ctx, pool, exam.ID, newToken); err == nil {
 				exam.ActiveToken = newToken
 				now := time.Now().UTC()

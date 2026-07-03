@@ -14,6 +14,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/examvan/webui/internal/helpers"
 	"github.com/examvan/webui/internal/middleware"
 	"github.com/examvan/webui/internal/models"
 )
@@ -64,22 +65,7 @@ func formatISOUTCString(s string) interface{} {
 	return s + "Z"
 }
 
-// ---------------------------------------------------------------------------
-// Identity-field parsing
-// ---------------------------------------------------------------------------
 
-// parseIdentityFields unmarshals the identity_fields JSON column.
-// Falls back to the three-field default (student_name, exam_number, student_class).
-func parseIdentityFields(raw *string) []map[string]interface{} {
-	if raw == nil || *raw == "" {
-		return defaultIdentityFields
-	}
-	var fields []map[string]interface{}
-	if err := json.Unmarshal([]byte(*raw), &fields); err != nil || len(fields) == 0 {
-		return defaultIdentityFields
-	}
-	return fields
-}
 
 // ---------------------------------------------------------------------------
 // 1. GET /hasil/:token — Public exam results page (HTML)
@@ -327,7 +313,7 @@ func HasilAPI() gin.HandlerFunc {
 			}
 		}
 
-		identityFields := parseIdentityFields(exam.IdentityFields)
+		identityFields := helpers.ParseIdentityFields(exam.IdentityFields, defaultIdentityFields)
 
 		// Pagination metadata
 		totalPages := (total + perPage - 1) / perPage

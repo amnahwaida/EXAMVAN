@@ -128,6 +128,10 @@ func main() {
 		log.Println("Submission queue worker: not started (requires both PostgreSQL and Redis)")
 	}
 
+	if pool != nil {
+		startTransactionCleaner(pool)
+	}
+
 	// -----------------------------------------------------------------------
 	// 4b. Init Cloudflare R2 client (optional — for PDF offloading)
 	// -----------------------------------------------------------------------
@@ -1194,3 +1198,39 @@ func flushHeartbeatsQueue(ctx context.Context, rdb *redis.Client, pool *pgxpool.
 		log.Printf("heartbeat-flusher: successfully flushed %d heartbeats to PostgreSQL", len(payloads))
 	}
 }
+
+// startTransactionCleaner runs a background routine to reject pending transactions older than 24 hours.
+func startTransactionCleaner(pool *pgxpool.Pool) {
+	if pool == nil {
+		return
+	}
+	go func() {
+		ticker := time.NewTicker(1 * time.Hour)
+		defer ticker.Stop()
+
+		// Run immediately on start
+		cleanExpiredTransactions(context.Background(), pool)
+
+		for range ticker.C {
+			cleanExpiredTransactions(context.Background(), pool)
+		}
+	}()
+	log.Println("transaction-cleaner: started (clean every 1h)")
+}
+
+func cleanExpiredTransactions(ctx context.Context, pool *pgxpool.Pool) {
+	result, err := pool.Exec(ctx,
+		`UPDATE transactions 
+		 SET status = 'rejected', notes = 'Expired automatically after 24h pending'
+		 WHERE status = 'pending' AND created_at < CURRENT_TIMESTAMP - INTERVAL '24 hours'`,
+	)
+	if err != nil {
+		log.Printf("transaction-cleaner: failed to clean expired transactions: %v", err)
+		return
+	}
+	rows := result.RowsAffected()
+	if rows > 0 {
+		log.Printf("transaction-cleaner: successfully expired %d pending transactions", rows)
+	}
+}
+

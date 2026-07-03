@@ -8,10 +8,8 @@ import (
 	"fmt"
 	"log"
 	"math"
-	"math/big"
 	"net/http"
 	"os"
-	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
@@ -23,6 +21,7 @@ import (
 
 	"github.com/examvan/webui/internal/config"
 	r2client "github.com/examvan/webui/internal/handlers/r2"
+	"github.com/examvan/webui/internal/helpers"
 	"github.com/examvan/webui/internal/models"
 	"github.com/examvan/webui/internal/queue"
 )
@@ -150,39 +149,6 @@ func roundTo(val float64, decimals int) float64 {
 	return math.Round(val*pow) / pow
 }
 
-// ---------------------------------------------------------------------------
-// Identity-fields parsing
-// ---------------------------------------------------------------------------
-
-// parseIdentityFields unmarshals the identity_fields JSON column.  Falls
-// back to the three-field default (student_name, exam_number, student_class).
-func parseIdentityFields(raw *string) []map[string]interface{} {
-	if raw == nil || *raw == "" {
-		return defaultIdentityFields
-	}
-	var fields []map[string]interface{}
-	if err := json.Unmarshal([]byte(*raw), &fields); err != nil || len(fields) == 0 {
-		return defaultIdentityFields
-	}
-	return fields
-}
-
-// ---------------------------------------------------------------------------
-// Safe storage-path resolution
-// ---------------------------------------------------------------------------
-
-// safeStoragePath resolves a relative file path against the storage
-// directory and verifies the result does not escape via directory traversal.
-func safeStoragePath(baseDir, relPath string) (string, error) {
-	cleanBase := filepath.Clean(baseDir)
-	full := filepath.Join(cleanBase, filepath.Clean(relPath))
-	if !strings.HasPrefix(full, cleanBase) {
-		return "", fmt.Errorf("path traversal detected: %s", relPath)
-	}
-	return full, nil
-}
-
-// ---------------------------------------------------------------------------
 // Redis helpers
 // ---------------------------------------------------------------------------
 
@@ -393,14 +359,14 @@ func ExamByToken() gin.HandlerFunc {
 				}
 			}
 			if shouldReset {
-				newToken := generateToken()
+				newToken := helpers.GenerateExamToken()
 				if err := models.UpdateExamActiveToken(ctx, pool, exam.ID, newToken); err == nil {
 					exam.ActiveToken = newToken
 				}
 			}
 		}
 
-		identityFields := parseIdentityFields(exam.IdentityFields)
+		identityFields := helpers.ParseIdentityFields(exam.IdentityFields, defaultIdentityFields)
 
 		panelColor := "#6366f1"
 		if exam.PanelColor != nil && *exam.PanelColor != "" {
@@ -499,7 +465,7 @@ func ExamPDF() gin.HandlerFunc {
 
 		// Priority 2: Fallback — serve from local storage
 		storageDir := getStoragePath(c)
-		pdfPath, err := safeStoragePath(storageDir, exam.FilePath)
+		pdfPath, err := helpers.SafeStoragePath(storageDir, exam.FilePath)
 		if err != nil {
 			errorResponse(c, http.StatusBadRequest, "Path tidak valid")
 			return
@@ -938,19 +904,7 @@ func AccessLog() gin.HandlerFunc {
 // Small utilities
 // ---------------------------------------------------------------------------
 
-// generateToken creates an 8-character uppercase alphanumeric token (A-Z, 0-9).
-func generateToken() string {
-	const chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
-	b := make([]byte, 8)
-	for i := range b {
-		idx, err := rand.Int(rand.Reader, big.NewInt(int64(len(chars))))
-		if err != nil {
-			return fmt.Sprintf("%08X", time.Now().UnixNano()%99999999)
-		}
-		b[i] = chars[idx.Int64()]
-	}
-	return string(b)
-}
+
 
 // truncate returns the first n runes of s.
 func truncate(s string, n int) string {
