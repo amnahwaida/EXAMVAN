@@ -3,6 +3,7 @@ package middleware
 import (
 	"context"
 	"fmt"
+	"log"
 	"net/http"
 	"sync"
 	"time"
@@ -11,39 +12,17 @@ import (
 	"github.com/redis/go-redis/v9"
 )
 
-// ---------------------------------------------------------------------------
-// Redis client (optional) — set at startup to enable distributed rate limiting.
-// ---------------------------------------------------------------------------
-
 var (
 	globalRedis *redis.Client
 	redisMu     sync.Mutex
 )
 
-// SetRedisClient configures the global Redis client used by RateLimit.
-// Pass nil to disable Redis-based rate limiting (the middleware will fall
-// back to the in-memory implementation).
 func SetRedisClient(client *redis.Client) {
 	redisMu.Lock()
 	defer redisMu.Unlock()
 	globalRedis = client
 }
 
-// ---------------------------------------------------------------------------
-// RateLimit middleware factory
-// ---------------------------------------------------------------------------
-
-// RateLimit returns a Gin middleware that restricts each client IP to
-// maxAttempts requests per window duration.
-//
-// When a Redis client has been configured via SetRedisClient the middleware
-// uses Redis sorted sets (ZADD / ZREMRANGEBYSCORE / ZCARD) for distributed
-// rate limiting. Otherwise it falls back to a per-node in-memory map.
-//
-// Usage:
-//
-//	r := gin.Default()
-//	r.POST("/api/exams/token", middleware.RateLimit(10, time.Minute), handler)
 func RateLimit(maxAttempts int, window time.Duration) gin.HandlerFunc {
 	redisMu.Lock()
 	useRedis := globalRedis != nil
@@ -55,16 +34,13 @@ func RateLimit(maxAttempts int, window time.Duration) gin.HandlerFunc {
 	return newMemoryRateLimit(maxAttempts, window)
 }
 
-// ---------------------------------------------------------------------------
-// Global in-memory rate limiter store (shared, single cleanup goroutine)
-// ---------------------------------------------------------------------------
-
 type memEntry struct {
-	count int
-	start time.Time
+	count  int
+	start  time.Time
+	window time.Duration
 }
 
-const maxMemEntries = 10000
+const maxMemEntries = 5000
 
 var (
 	memStore   = make(map[string]*memEntry)
@@ -72,22 +48,21 @@ var (
 	memCleaner sync.Once
 )
 
-// startMemCleaner starts a single background goroutine that periodically
-// evicts stale entries from the in-memory rate limit store. It runs only
-// once across all RateLimit() calls.
-func startMemCleaner(window time.Duration) {
+func startMemCleaner() {
 	memCleaner.Do(func() {
 		go func() {
-			ticker := time.NewTicker(window)
+			// Check every 10 seconds to keep memory bounded and clean stale entries
+			ticker := time.NewTicker(10 * time.Second)
 			defer ticker.Stop()
 			for range ticker.C {
 				memStoreMu.Lock()
-				cutoff := time.Now().Add(-window * 2)
+				now := time.Now()
 				for ip, e := range memStore {
-					if e.start.Before(cutoff) {
+					if now.Sub(e.start) > e.window {
 						delete(memStore, ip)
 					}
 				}
+				// If still exceeding, evict oldest entries
 				if len(memStore) > maxMemEntries {
 					evict := len(memStore) - maxMemEntries
 					for ip := range memStore {
@@ -105,17 +80,26 @@ func startMemCleaner(window time.Duration) {
 }
 
 func newMemoryRateLimit(maxAttempts int, window time.Duration) gin.HandlerFunc {
-	startMemCleaner(window)
+	startMemCleaner()
 
 	return func(c *gin.Context) {
 		ip := c.ClientIP()
 		now := time.Now()
 
 		memStoreMu.Lock()
+		// Double check size bounds on write
+		if len(memStore) >= maxMemEntries && memStore[ip] == nil {
+			// Evict oldest random entry to avoid unbounded growth
+			for k := range memStore {
+				delete(memStore, k)
+				break
+			}
+		}
+
 		e, exists := memStore[ip]
 
 		if !exists || now.Sub(e.start) > window {
-			memStore[ip] = &memEntry{count: 1, start: now}
+			memStore[ip] = &memEntry{count: 1, start: now, window: window}
 			memStoreMu.Unlock()
 			c.Next()
 			return
@@ -138,10 +122,6 @@ func newMemoryRateLimit(maxAttempts int, window time.Duration) gin.HandlerFunc {
 	}
 }
 
-// ---------------------------------------------------------------------------
-// Redis-backed rate limiter (distributed)
-// ---------------------------------------------------------------------------
-
 func newRedisRateLimit(maxAttempts int, window time.Duration) gin.HandlerFunc {
 	windowMillis := window.Milliseconds()
 
@@ -156,8 +136,6 @@ func newRedisRateLimit(maxAttempts int, window time.Duration) gin.HandlerFunc {
 		redisMu.Unlock()
 
 		if rdb == nil {
-			// Redis became unavailable between middleware construction and
-			// this request — let it through rather than blocking.
 			c.Next()
 			return
 		}
@@ -165,21 +143,33 @@ func newRedisRateLimit(maxAttempts int, window time.Duration) gin.HandlerFunc {
 		ctx, cancel := context.WithTimeout(c.Request.Context(), 500*time.Millisecond)
 		defer cancel()
 
-		// Remove entries outside the current sliding window.
-		if err := rdb.ZRemRangeByScore(ctx, key, "0", fmt.Sprintf("%d", cutoff)).Err(); err != nil {
-			// Transient Redis error; allow the request.
+		// sliding window implementation using transaction pipeline
+		member := fmt.Sprintf("%d-%d", now, time.Now().UnixNano())
+		pipe := rdb.Pipeline()
+		pipe.ZAdd(ctx, key, redis.Z{Score: float64(now), Member: member})
+		pipe.ZRemRangeByScore(ctx, key, "0", fmt.Sprintf("%d", cutoff))
+		pipe.ZCard(ctx, key)
+		pipe.Expire(ctx, key, window)
+
+		cmds, err := pipe.Exec(ctx)
+		if err != nil {
+			log.Printf("ratelimit: redis exec error: %v", err)
 			c.Next()
 			return
 		}
 
-		// Count entries in the current window.
-		count, err := rdb.ZCard(ctx, key).Result()
+		zcardCmd, ok := cmds[2].(*redis.IntCmd)
+		if !ok {
+			c.Next()
+			return
+		}
+		count, err := zcardCmd.Result()
 		if err != nil {
 			c.Next()
 			return
 		}
 
-		if count >= int64(maxAttempts) {
+		if count > int64(maxAttempts) {
 			c.AbortWithStatusJSON(http.StatusTooManyRequests, gin.H{
 				"success": false,
 				"message": fmt.Sprintf(
@@ -188,15 +178,6 @@ func newRedisRateLimit(maxAttempts int, window time.Duration) gin.HandlerFunc {
 				),
 			})
 			return
-		}
-
-		// Record this request.
-		member := fmt.Sprintf("%d", now)
-		pipe := rdb.Pipeline()
-		pipe.ZAddNX(ctx, key, redis.Z{Score: float64(now), Member: member})
-		pipe.Expire(ctx, key, window)
-		if _, err := pipe.Exec(ctx); err != nil {
-			// Non-critical; request still goes through.
 		}
 
 		c.Next()

@@ -10,8 +10,6 @@ import (
 
 // SendVerificationEmail sends an email containing the OTP verification code using SMTP.
 func SendVerificationEmail(smtpHost, smtpPort, smtpUser, smtpPassword, senderName, toEmail, username, otpCode string) error {
-	auth := smtp.PlainAuth("", smtpUser, smtpPassword, smtpHost)
-
 	subject := "Verifikasi Pendaftaran Akun EXAMVAN"
 	body := fmt.Sprintf(
 		"Halo %s,\n\n"+
@@ -36,11 +34,69 @@ func SendVerificationEmail(smtpHost, smtpPort, smtpUser, smtpPassword, senderNam
 	))
 
 	addr := fmt.Sprintf("%s:%s", smtpHost, smtpPort)
-	err := smtp.SendMail(addr, auth, smtpUser, []string{toEmail}, msg)
-	if err != nil {
-		return fmt.Errorf("send email via smtp: %w", err)
+	dialer := &net.Dialer{
+		Timeout: 10 * time.Second,
 	}
-	return nil
+
+	var conn net.Conn
+	var err error
+
+	if smtpPort == "465" {
+		conn, err = tls.DialWithDialer(dialer, "tcp", addr, &tls.Config{
+			ServerName: smtpHost,
+		})
+	} else {
+		conn, err = dialer.Dial("tcp", addr)
+	}
+	if err != nil {
+		return fmt.Errorf("failed to connect to SMTP server: %w", err)
+	}
+	defer conn.Close()
+
+	_ = conn.SetDeadline(time.Now().Add(10 * time.Second))
+
+	client, err := smtp.NewClient(conn, smtpHost)
+	if err != nil {
+		return fmt.Errorf("failed to initialize SMTP client: %w", err)
+	}
+	defer client.Close()
+
+	if smtpPort != "465" {
+		if hasStartTLS, _ := client.Extension("STARTTLS"); hasStartTLS {
+			config := &tls.Config{ServerName: smtpHost}
+			if err := client.StartTLS(config); err != nil {
+				return fmt.Errorf("failed to start STARTTLS: %w", err)
+			}
+		}
+	}
+
+	if smtpUser != "" || smtpPassword != "" {
+		auth := smtp.PlainAuth("", smtpUser, smtpPassword, smtpHost)
+		if err := client.Auth(auth); err != nil {
+			return fmt.Errorf("SMTP authentication failed: %w", err)
+		}
+	}
+
+	if err := client.Mail(smtpUser); err != nil {
+		return fmt.Errorf("SMTP mail command failed: %w", err)
+	}
+	if err := client.Rcpt(toEmail); err != nil {
+		return fmt.Errorf("SMTP rcpt command failed: %w", err)
+	}
+	w, err := client.Data()
+	if err != nil {
+		return fmt.Errorf("SMTP data command failed: %w", err)
+	}
+	_, err = w.Write(msg)
+	if err != nil {
+		return fmt.Errorf("failed to write email body: %w", err)
+	}
+	err = w.Close()
+	if err != nil {
+		return fmt.Errorf("failed to close data writer: %w", err)
+	}
+
+	return client.Quit()
 }
 
 // TestSMTPConnection tests the SMTP server connection and credentials.

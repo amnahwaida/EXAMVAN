@@ -35,6 +35,9 @@ type Config struct {
 	DokuClientID  string
 	DokuSecretKey string
 	DokuAPIURL    string
+
+	// CORS Origins
+	CORSOrigins string
 }
 
 func Load() *Config {
@@ -56,6 +59,7 @@ func Load() *Config {
 		DokuClientID:  os.Getenv("DOKU_CLIENT_ID"),
 		DokuSecretKey: os.Getenv("DOKU_SECRET_KEY"),
 		DokuAPIURL:    envStr("DOKU_API_URL", "https://api-sandbox.doku.com"),
+		CORSOrigins:   os.Getenv("EXAMVAN_CORS_ORIGINS"),
 	}
 
 	if cfg.StoragePath == "" {

@@ -163,6 +163,7 @@ func main() {
 	r.SetTrustedProxies([]string{"127.0.0.1", "::1", "10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16"})
 	r.Use(gin.Logger())
 	r.Use(gin.Recovery())
+	r.Use(middleware.CORS(cfg.CORSOrigins))
 
 	// -----------------------------------------------------------------------
 	// 6. Session store (cookie-based)
@@ -200,7 +201,11 @@ func main() {
 		"seq":       func(n int) []int { s := make([]int, n); for i := range s { s[i] = i }; return s },
 		"dict":      func(values ...interface{}) map[string]interface{} { return toMap(values...) },
 		"safe": func(s string) template.HTML {
-			// Only allow known-safe HTML. Never pass user-controlled data here.
+			// Basic sanitization to prevent XSS while allowing basic HTML formatting
+			lower := strings.ToLower(s)
+			if strings.Contains(lower, "<script") || strings.Contains(lower, "onload") || strings.Contains(lower, "onerror") || strings.Contains(lower, "onclick") || strings.Contains(lower, "onmouseover") || strings.Contains(lower, "javascript:") {
+				return template.HTML(html.EscapeString(s))
+			}
 			return template.HTML(s)
 		},
 		"safeURL": func(s string) template.URL {
@@ -285,6 +290,13 @@ func main() {
 			if isSuper || isOp || strings.Contains(adminRole, "operator") {
 				usersLink = fmt.Sprintf(`<a href="/admin/users" class="nav-link %s"><svg class="icon-svg" aria-hidden="true"><use href="#hi-users"/></svg> Kelola User</a>`, activePageClass(activePage, "users"))
 			}
+			billingLink := ""
+			if isSuper || isOp {
+				billingLink = fmt.Sprintf(`<a href="/admin/billing" class="nav-link %s"><svg class="icon-svg" aria-hidden="true"><use href="#hi-clipboard"/></svg> Billing & Paket</a>`, activePageClass(activePage, "billing"))
+			} else if isGuru {
+				billingLink = fmt.Sprintf(`<a href="/admin/billing" class="nav-link %s"><svg class="icon-svg" aria-hidden="true"><use href="#hi-clipboard"/></svg> Upgrade Paket</a>`, activePageClass(activePage, "billing"))
+			}
+
 			// Mobile nav links for hamburger menu
 			mobileLinks := `<div class="dropdown-divider mobile-only-divider"></div><div class="mobile-nav-links">`
 			if isGuru {
@@ -296,11 +308,24 @@ func main() {
 			if isSuper || isOp {
 				mobileLinks += fmt.Sprintf(`<a href="/admin/users" class="dropdown-item %s"><svg class="icon-svg"><use href="#hi-users"/></svg> Kelola User</a>`, dropdownActive(activePage, "users"))
 			}
+			if isSuper || isOp {
+				mobileLinks += fmt.Sprintf(`<a href="/admin/billing" class="dropdown-item %s"><svg class="icon-svg"><use href="#hi-clipboard"/></svg> Billing & Paket</a>`, dropdownActive(activePage, "billing"))
+			} else if isGuru {
+				mobileLinks += fmt.Sprintf(`<a href="/admin/billing" class="dropdown-item %s"><svg class="icon-svg"><use href="#hi-clipboard"/></svg> Upgrade Paket</a>`, dropdownActive(activePage, "billing"))
+			}
 			mobileLinks += `</div><div class="dropdown-divider"></div>`
+
+			dropdownBillingLink := ""
+			if isSuper || isOp {
+				dropdownBillingLink = `<a href="/admin/billing" class="dropdown-item" style="text-decoration:none;color:inherit;"><svg class="icon-svg"><use href="#hi-clipboard"/></svg> Billing & Paket</a><div class="dropdown-divider"></div>`
+			} else if isGuru {
+				dropdownBillingLink = `<a href="/admin/billing" class="dropdown-item" style="text-decoration:none;color:inherit;"><svg class="icon-svg"><use href="#hi-clipboard"/></svg> Upgrade Paket</a><div class="dropdown-divider"></div>`
+			}
+
 			csrfEscaped := html.EscapeString(csrfToken)
 			return template.HTML(fmt.Sprintf(
-				`<nav class="topbar"><div class="topbar-left"><div class="topbar-logo">E</div><a href="/" class="topbar-title" style="text-decoration:none;color:inherit;">EXAMVAN</a></div><div class="topbar-center"><div class="topbar-nav">%s%s%s</div></div><div class="topbar-right"><div class="topbar-menu-dropdown"><button class="topbar-menu-toggle" id="menuToggleBtn" onclick="event.stopPropagation();document.getElementById('menuDropdownContent').classList.toggle('show');"><span class="menu-hamburger-icon">&#9776;</span></button><div class="topbar-dropdown-content" id="menuDropdownContent"><div class="dropdown-header mobile-only-header"><div class="dropdown-brand-row"><div class="dropdown-logo">E</div><span class="dropdown-brand-title">EXAMVAN</span></div></div>%s<div class="dropdown-user-info"><span class="dropdown-user-name">%s</span><span class="dropdown-user-role">%s</span></div><div class="dropdown-divider"></div><button class="dropdown-item" onclick="openChangePasswordModal()"><svg class="icon-svg"><use href="#hi-key"/></svg> Ubah Password</button><div class="dropdown-divider"></div><form method="POST" action="/logout" style="display:inline;"><input type="hidden" name="_csrf_token" value="%s"><button type="submit" class="dropdown-item dropdown-logout" style="width:100%%;border:none;background:none;cursor:pointer;"><svg class="icon-svg" aria-hidden="true"><use href="#hi-logout"/></svg> Logout</button></form></div></div></div></nav>`,
-				guruLink, pengawasLink, usersLink, mobileLinks, adminUser, roleDisplay, csrfEscaped))
+				`<nav class="topbar"><div class="topbar-left"><div class="topbar-logo">E</div><a href="/" class="topbar-title" style="text-decoration:none;color:inherit;">EXAMVAN</a></div><div class="topbar-center"><div class="topbar-nav">%s%s%s%s</div></div><div class="topbar-right"><div class="topbar-menu-dropdown"><button class="topbar-menu-toggle" id="menuToggleBtn" onclick="event.stopPropagation();document.getElementById('menuDropdownContent').classList.toggle('show');"><span class="menu-hamburger-icon">&#9776;</span></button><div class="topbar-dropdown-content" id="menuDropdownContent"><div class="dropdown-header mobile-only-header"><div class="dropdown-brand-row"><div class="dropdown-logo">E</div><span class="dropdown-brand-title">EXAMVAN</span></div></div>%s<div class="dropdown-user-info"><span class="dropdown-user-name">%s</span><span class="dropdown-user-role">%s</span></div><div class="dropdown-divider"></div>%s<button class="dropdown-item" onclick="openChangePasswordModal()"><svg class="icon-svg"><use href="#hi-key"/></svg> Ubah Password</button><div class="dropdown-divider"></div><form method="POST" action="/logout" style="display:inline;"><input type="hidden" name="_csrf_token" value="%s"><button type="submit" class="dropdown-item dropdown-logout" style="width:100%%;border:none;background:none;cursor:pointer;"><svg class="icon-svg" aria-hidden="true"><use href="#hi-logout"/></svg> Logout</button></form></div></div></div></nav>`,
+				guruLink, pengawasLink, usersLink, billingLink, mobileLinks, adminUser, roleDisplay, dropdownBillingLink, csrfEscaped))
 		},
 	}
 
@@ -496,8 +521,8 @@ func registerRoutes(r *gin.Engine, cfg *config.Config, pool *pgxpool.Pool) {
 		apiGroup.GET("/exams", middleware.RateLimit(60, time.Minute), middleware.AndroidVersionCheck(), api.ListExams())
 		apiGroup.GET("/exams/token/:token", middleware.RateLimit(30, time.Minute), middleware.AndroidVersionCheck(), api.ExamByToken())
 		apiGroup.GET("/exams/:exam_id/pdf", middleware.RateLimit(30, time.Minute), middleware.AndroidVersionCheck(), api.ExamPDF())
-		apiGroup.POST("/exams/:exam_id/submit", middleware.RateLimit(10, time.Minute), middleware.AndroidVersionCheck(), api.SubmitExam())
-		apiGroup.POST("/exams/:exam_id/access-log", middleware.RateLimit(30, time.Minute), middleware.AndroidVersionCheck(), api.AccessLog())
+		apiGroup.POST("/exams/:exam_id/submit", middleware.LimitBodySize(5*1024*1024), middleware.RateLimit(10, time.Minute), middleware.AndroidVersionCheck(), api.SubmitExam())
+		apiGroup.POST("/exams/:exam_id/access-log", middleware.LimitBodySize(256*1024), middleware.RateLimit(30, time.Minute), middleware.AndroidVersionCheck(), api.AccessLog())
 
 		apiGroup.GET("/hasil/:token", middleware.RateLimit(30, time.Minute), public.HasilAPI())
 		apiGroup.GET("/payments/doku/notify", func(c *gin.Context) { c.JSON(http.StatusOK, gin.H{"status": "active"}) })
@@ -531,55 +556,56 @@ func registerRoutes(r *gin.Engine, cfg *config.Config, pool *pgxpool.Pool) {
 
 		// ---- CSRF-protected routes (all POST) ----
 		csrfAPI := adminAPI.Group("", middleware.CSRFRequired())
+		csrfAPI.Use(middleware.RateLimit(120, time.Minute))
 		{
 
 			// Exams.
 			csrfAPI.POST("/upload", middleware.RateLimit(10, time.Minute), admin.UploadExam())
-			csrfAPI.POST("/exams/bulk-delete", admin.BulkDelete())
-			csrfAPI.POST("/exams/bulk-toggle", admin.BulkToggle())
-			csrfAPI.POST("/exams/:exam_id/toggle", admin.ToggleExam())
-			csrfAPI.POST("/exams/:exam_id/delete", admin.DeleteExam())
-			csrfAPI.POST("/exams/:exam_id/edit", admin.EditExam())
-			csrfAPI.POST("/exams/:exam_id/questions", admin.SaveQuestions())
-			csrfAPI.POST("/exams/:exam_id/regenerate-token", admin.RegenerateToken())
-			csrfAPI.POST("/exams/:exam_id/edit-token", admin.EditToken())
-			csrfAPI.POST("/exams/:exam_id/token-mode", admin.UpdateTokenMode())
-			csrfAPI.POST("/exams/:exam_id/start", admin.StartExam())
-			csrfAPI.POST("/exams/:exam_id/stop", admin.StopExam())
-			csrfAPI.POST("/exams/:exam_id/toggle-public-results", admin.TogglePublicResults())
-			csrfAPI.POST("/exams/:exam_id/toggle-show-answers", admin.ToggleShowAnswers())
-			csrfAPI.POST("/exams/:exam_id/delegate", admin.PostDelegateExam())
+			csrfAPI.POST("/exams/bulk-delete", middleware.LimitBodySize(1024*1024), admin.BulkDelete())
+			csrfAPI.POST("/exams/bulk-toggle", middleware.LimitBodySize(1024*1024), admin.BulkToggle())
+			csrfAPI.POST("/exams/:exam_id/toggle", middleware.LimitBodySize(256*1024), admin.ToggleExam())
+			csrfAPI.POST("/exams/:exam_id/delete", middleware.LimitBodySize(256*1024), admin.DeleteExam())
+			csrfAPI.POST("/exams/:exam_id/edit", middleware.LimitBodySize(2*1024*1024), admin.EditExam())
+			csrfAPI.POST("/exams/:exam_id/questions", middleware.LimitBodySize(5*1024*1024), admin.SaveQuestions())
+			csrfAPI.POST("/exams/:exam_id/regenerate-token", middleware.LimitBodySize(256*1024), admin.RegenerateToken())
+			csrfAPI.POST("/exams/:exam_id/edit-token", middleware.LimitBodySize(256*1024), admin.EditToken())
+			csrfAPI.POST("/exams/:exam_id/token-mode", middleware.LimitBodySize(256*1024), admin.UpdateTokenMode())
+			csrfAPI.POST("/exams/:exam_id/start", middleware.LimitBodySize(256*1024), admin.StartExam())
+			csrfAPI.POST("/exams/:exam_id/stop", middleware.LimitBodySize(256*1024), admin.StopExam())
+			csrfAPI.POST("/exams/:exam_id/toggle-public-results", middleware.LimitBodySize(256*1024), admin.TogglePublicResults())
+			csrfAPI.POST("/exams/:exam_id/toggle-show-answers", middleware.LimitBodySize(256*1024), admin.ToggleShowAnswers())
+			csrfAPI.POST("/exams/:exam_id/delegate", middleware.LimitBodySize(256*1024), admin.PostDelegateExam())
 
 			// Submissions.
-			csrfAPI.POST("/submissions/:id/delete", admin.DeleteSubmission())
+			csrfAPI.POST("/submissions/:id/delete", middleware.LimitBodySize(256*1024), admin.DeleteSubmission())
 
 			// Users (super admin / operator only).
 			adminUsers := csrfAPI.Group("", middleware.AdminManagementRequired())
 			{
-				adminUsers.POST("/users", admin.CreateUser())
-				adminUsers.POST("/users/:user_id/edit", admin.EditUser())
-				adminUsers.POST("/users/:user_id/toggle-status", admin.ToggleUserStatus())
-				adminUsers.POST("/users/:user_id/verify", admin.VerifyUser())
-				adminUsers.POST("/users/:user_id/delete", admin.DeleteUser())
+				adminUsers.POST("/users", middleware.LimitBodySize(256*1024), admin.CreateUser())
+				adminUsers.POST("/users/:user_id/edit", middleware.LimitBodySize(256*1024), admin.EditUser())
+				adminUsers.POST("/users/:user_id/toggle-status", middleware.LimitBodySize(256*1024), admin.ToggleUserStatus())
+				adminUsers.POST("/users/:user_id/verify", middleware.LimitBodySize(256*1024), admin.VerifyUser())
+				adminUsers.POST("/users/:user_id/delete", middleware.LimitBodySize(256*1024), admin.DeleteUser())
 			}
 
 			// SaaS settings (super admin only).
 			adminSettings := csrfAPI.Group("", middleware.SuperAdminRequired())
 			{
-				adminSettings.POST("/saas-settings", admin.SaasSettings())
-				adminSettings.POST("/saas-settings/test-smtp", admin.TestSMTPConnectionEndpoint())
+				adminSettings.POST("/saas-settings", middleware.LimitBodySize(1*1024*1024), admin.SaasSettings())
+				adminSettings.POST("/saas-settings/test-smtp", middleware.LimitBodySize(256*1024), admin.TestSMTPConnectionEndpoint())
 			}
 
 			// Transactions & Subscriptions
-			csrfAPI.POST("/transactions", admin.CreateTransaction(cfg))
-			csrfAPI.POST("/transactions/doku", admin.CreateDokuTransaction(cfg))
+			csrfAPI.POST("/transactions", middleware.LimitBodySize(5*1024*1024), admin.CreateTransaction(cfg))
+			csrfAPI.POST("/transactions/doku", middleware.LimitBodySize(256*1024), admin.CreateDokuTransaction(cfg))
 			adminTransactions := csrfAPI.Group("", middleware.SuperAdminRequired())
 			{
-				adminTransactions.POST("/transactions/:id/approve", admin.ApproveTransaction())
-				adminTransactions.POST("/transactions/:id/reject", admin.RejectTransaction())
+				adminTransactions.POST("/transactions/:id/approve", middleware.LimitBodySize(256*1024), admin.ApproveTransaction())
+				adminTransactions.POST("/transactions/:id/reject", middleware.LimitBodySize(256*1024), admin.RejectTransaction())
 			}
 
-			csrfAPI.POST("/change-password", middleware.RateLimit(3, time.Minute), admin.ChangePassword())
+			csrfAPI.POST("/change-password", middleware.LimitBodySize(256*1024), middleware.RateLimit(3, time.Minute), admin.ChangePassword())
 		}
 
 		// ---- Non-CSRF routes (GET / read-only) ----
