@@ -95,4 +95,24 @@
     <string name="logout_default_title">Keluar dari Ujian</string>
     <string name="logout_default_message">Apakah Anda yakin ingin logout dan keluar dari ujian?\n\nJawaban yang sudah Anda isi akan dikumpulkan secara otomatis sebelum keluar.</string>
     <string name="logout_default_positive">Ya, Logout &amp; Kirim</string>
+
+    <!-- Waiting Approval Screen -->
+    <string name="approval_waiting_title">Menunggu Persetujuan</string>
+    <string name="approval_waiting_subtitle">Permintaan Anda telah dikirim ke pengawas ujian.\nMohon tunggu di halaman ini sampai pengawas memberikan persetujuan.</string>
+    <string name="approval_exam_label">Ujian</string>
+    <string name="approval_identity_label">Data Peserta</string>
+    <string name="approval_status_connected">Terhubung ke server — menunggu pengawas</string>
+    <string name="approval_status_retrying">Koneksi terganggu, mencoba ulang…</string>
+    <string name="approval_warning_message">Koneksi ke server terganggu: %1$s\nAplikasi akan terus mencoba secara otomatis.</string>
+    <string name="approval_approved_title">Disetujui! ✓</string>
+    <string name="approval_approved_message">Pengawas telah menyetujui permintaan Anda.\nMemasuki ujian…</string>
+    <string name="approval_rejected_title">Permintaan Ditolak</string>
+    <string name="approval_rejected_subtitle">Pengawas menolak permintaan Anda.</string>
+    <string name="approval_rejected_message">Pengawas ujian menolak permintaan Anda untuk masuk ke ujian ini.\nSilakan hubungi pengawas untuk informasi lebih lanjut.</string>
+    <string name="approval_btn_cancel">Batalkan Permintaan</string>
+    <string name="approval_btn_back">Kembali</string>
+    <string name="approval_cancel_title">Batalkan Permintaan?</string>
+    <string name="approval_cancel_message">Apakah Anda yakin ingin membatalkan permintaan persetujuan dan kembali ke layar sebelumnya?</string>
+    <string name="approval_cancel_yes">Ya, Batalkan</string>
+    <string name="approval_cancel_no">Tetap Menunggu</string>
 </resources>

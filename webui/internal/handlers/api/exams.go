@@ -650,9 +650,20 @@ func SubmitExam() gin.HandlerFunc {
 			errorResponse(c, http.StatusInternalServerError, "Gagal memproses jawaban")
 			return
 		}
-		if !exam.IsActive() || exam.ExamStartedAt == nil || !examtoken.Matches(exam, token) {
+		if !exam.IsActive() || exam.ExamStartedAt == nil {
 			errorResponse(c, http.StatusNotFound, "Ujian tidak ditemukan")
 			return
+		}
+
+		if !examtoken.Matches(exam, token) {
+			// Token mismatch (maybe stale/refreshed). Check if device is already approved.
+			var approvalStatus string
+			err := pool.QueryRow(ctx, "SELECT status FROM exam_approvals WHERE exam_id = $1 AND mac_address = $2", examID, macAddress).Scan(&approvalStatus)
+			if err != nil || approvalStatus != "approved" {
+				errorResponse(c, http.StatusNotFound, "Ujian tidak ditemukan")
+				return
+			}
+			// Device is approved, so allow submission even with stale token
 		}
 
 		// Validate that all identity fields in the exam's config are filled.

@@ -49,6 +49,12 @@
             android:exported="false" />
 
         <activity
+            android:name=".WaitingApprovalActivity"
+            android:exported="false"
+            android:screenOrientation="portrait" />
+
+
+        <activity
             android:name=".ExamViewerActivity"
             android:exported="false"
             android:configChanges="orientation|screenSize"

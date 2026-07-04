@@ -353,7 +353,14 @@ class SubmissionManager(
         GlobalScope.launch(NonCancellable + Dispatchers.IO) {
             val result = submitWithRetry()
 
-            clearSavedAnswers()
+            // Only clear saved answers if submission was successful.
+            // If failed, keep answers in SharedPreferences so they can be
+            // recovered or retried later (e.g. after token issue is resolved).
+            if (result.first) {
+                clearSavedAnswers()
+            } else {
+                Log.w(TAG, "Auto-submit failed after retries, keeping saved answers for recovery: ${result.second}")
+            }
 
             val notifTitle = if (result.first) {
                 context.getString(R.string.auto_submit_success_title)
