@@ -287,6 +287,13 @@ class SecurityEnforcer(
                         focusLostRunnable = null
                         return@Runnable
                     }
+
+                    // Suspicious focus loss detected in strict mode (e.g. system overlay, split screen, notification shade)
+                    if (strictMode && !isShowingAppDialog && isPdfReady && !submittedOrExited) {
+                        Log.w(TAG, "Suspected cheating/app bypass: lost focus in strict mode for >500ms")
+                        autoSubmitCallback()
+                    }
+
                     if (strictMode && !LockTaskManager.isPinningPending && !LockTaskManager.isActive(activity)) {
                         Log.w(TAG, "Focus lost + lock task inactive — kemungkinan system overlay/bypass")
                         LockTaskManager.activate(activity) { success ->

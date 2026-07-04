@@ -566,10 +566,11 @@ class ExamViewerActivity : BaseSecureActivity() {
         securityEnforcer.submittedOrExited = viewModel.submittedOrExited.value
         securityEnforcer.handleUserLeave()
 
-        // Auto-submit on user exit for medium security
-        if (!securityEnforcer.strictMode && !submissionManager.submittedOrExited
-            && viewModel.isPdfReady.value && securityLevel == "medium") {
-            submissionManager.autoSubmitAndExit()
+        // Auto-submit on user exit for medium security or strict mode (as bypass defense)
+        if (!submissionManager.submittedOrExited && viewModel.isPdfReady.value) {
+            if (securityLevel == "medium" || securityEnforcer.strictMode) {
+                submissionManager.autoSubmitAndExit()
+            }
         }
     }
 
