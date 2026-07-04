@@ -341,6 +341,10 @@ class SubmissionManager(
 
         AuditLog.i(AuditLog.Events.AUTO_SUBMIT, "strict=$strictMode answers=${getAnswers?.invoke()?.size}")
 
+        // Immediately persist submitted/exited state in SharedPreferences before starting network request.
+        // This prevents the student from re-entering the exam if they exit via network disconnection bypass.
+        onSubmitSuccess?.invoke()
+
         // Use GlobalScope + NonCancellable so submit completes even if
         // activity is destroyed (process death, user swipe-away).
         if (isSubmitting) {
@@ -349,7 +353,8 @@ class SubmissionManager(
                 while (isSubmitting && System.currentTimeMillis() < timeoutTime) {
                     delay(100)
                 }
-                if (!isActivityFinishing() && lastSubmitSuccess) onFinish?.invoke()
+                deactivateLockTask?.invoke()
+                if (!isActivityFinishing()) onFinish?.invoke()
             }
             return
         }
@@ -357,13 +362,9 @@ class SubmissionManager(
         GlobalScope.launch(NonCancellable + Dispatchers.IO) {
             val result = submitWithRetry()
 
-            if (result.first) {
-                clearSavedAnswers()
-                onSubmitSuccess?.invoke()
-                deactivateLockTask?.invoke()
-            } else {
-                submittedOrExited = false
-            }
+            // Always clear local answers and deactivate lock task when exiting
+            clearSavedAnswers()
+            deactivateLockTask?.invoke()
 
             val notifTitle = if (result.first) {
                 context.getString(R.string.auto_submit_success_title)
