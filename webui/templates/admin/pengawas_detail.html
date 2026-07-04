@@ -909,8 +909,60 @@
   .pd-status-select { flex: 1 1 120px; width: 100%; }
   .pd-search-wrap { flex: 2 1 160px; width: 100%; }
   .pd-search-input { width: 100%; }
-  .pd-table th { padding: 10px 8px; font-size: 0.65rem; }
-  .pd-table td { padding: 10px 8px; font-size: 0.78rem; }
+  
+  /* Card-based layout for table */
+  .pd-table, .pd-table tbody, .pd-table tr, .pd-table td {
+    display: block !important;
+    width: 100% !important;
+  }
+  .pd-table thead { display: none !important; }
+  .pd-table tbody tr {
+    position: relative !important;
+    margin-bottom: 14px !important;
+    padding: 14px 16px !important;
+    display: flex !important;
+    flex-direction: column !important;
+    gap: 6px !important;
+    border-radius: 12px !important;
+    background: rgba(255,255,255,0.02);
+    border: 1px solid var(--color-glass-border);
+  }
+  .pd-table td {
+    display: flex !important;
+    align-items: center !important;
+    justify-content: space-between !important;
+    padding: 5px 0 !important;
+    border: none !important;
+    font-size: 0.8rem !important;
+    text-align: left !important;
+  }
+  .pd-table td.pd-table-empty {
+    justify-content: center !important;
+  }
+  .pd-table td::before {
+    content: attr(data-label) !important;
+    font-weight: 700 !important;
+    font-size: 0.68rem !important;
+    text-transform: uppercase !important;
+    letter-spacing: 0.04em !important;
+    color: var(--color-text-muted) !important;
+  }
+  .pd-table td[data-label="ID Perangkat"] {
+    display: block !important;
+    padding: 0 0 6px 0 !important;
+    border-bottom: 1px dashed var(--color-glass-border) !important;
+    margin-bottom: 4px !important;
+  }
+  .pd-table td[data-label="ID Perangkat"]::before { content: none !important; }
+  .pd-table td[data-label="ID Perangkat"] a { font-size: 1rem !important; }
+  
+  .pd-table td[data-label="Aksi"] {
+    justify-content: flex-end !important;
+    border-top: 1px solid var(--color-glass-border) !important;
+    margin-top: 6px !important;
+    padding-top: 10px !important;
+  }
+  .pd-table td[data-label="Aksi"]::before { content: none !important; }
 }
 @media (max-width: 480px) {
   .pd-stats-grid { grid-template-columns: 1fr 1fr; gap: 8px; }
@@ -1037,11 +1089,11 @@ function loadApprovals() {
                 if (!studentInfo || studentInfo === '—') studentInfo = '<em>Anonim</em>';
                 
                 html += '<tr>' +
-                    '<td>' + (i + 1) + '</td>' +
-                    '<td style="font-family:var(--font-mono); font-weight:700;">' + esc(a.mac_address) + '</td>' +
-                    '<td>' + studentInfo + '</td>' +
-                    '<td>' + t + '</td>' +
-                    '<td style="text-align:right;">' +
+                    '<td data-label="No">' + (i + 1) + '</td>' +
+                    '<td data-label="ID Perangkat" style="font-family:var(--font-mono); font-weight:700;">' + esc(a.mac_address) + '</td>' +
+                    '<td data-label="Siswa">' + studentInfo + '</td>' +
+                    '<td data-label="Waktu Minta Izin">' + t + '</td>' +
+                    '<td data-label="Aksi" style="text-align:right;">' +
                         '<button class="pd-toolbar-btn" style="background:#34d399;color:#fff;border:none;padding:4px 10px;border-radius:6px;font-size:0.75rem;margin-right:6px;" onclick="setApproval(\'' + a.mac_address + '\', \'approved\')">Izinkan</button>' +
                         '<button class="pd-toolbar-btn" style="background:#f87171;color:#fff;border:none;padding:4px 10px;border-radius:6px;font-size:0.75rem;" onclick="setApproval(\'' + a.mac_address + '\', \'rejected\')">Tolak</button>' +
                     '</td>' +
@@ -1125,12 +1177,12 @@ function loadDetail(page) {
                 var attCount = s.attempt_count > 1 ? '<span style="background:rgba(239,68,68,0.1);color:#ef4444;padding:2px 6px;border-radius:10px;font-size:0.7rem;font-weight:700;" title="' + s.attempt_count + 'x Mengerjakan">' + s.attempt_count + 'x</span>' : '<span style="color:var(--color-text-muted);">' + (s.attempt_count || 1) + 'x</span>';
 
                 html += '<tr>' +
-                    '<td style="font-weight:600;color:var(--color-text-muted);width:40px;">' + ((SUB_PAGE - 1) * 20 + i + 1) + '</td>' +
-                    '<td><a class="mac-cell" onclick="showAccessLog(' + s.id + ')" title="' + esc(s.mac_address) + ' (Klik untuk riwayat akses)">' + esc(s.mac_address) + '</a></td>' +
-                    '<td><span class="status-badge-sm" style="background:' + color + '15;color:' + color + ';border:1px solid ' + color + '30;">' + sl + '</span></td>' +
-                    '<td style="font-size:0.75rem;color:var(--color-text-muted);font-family:var(--font-mono);">' + startTime + '</td>' +
-                    '<td style="text-align:center;">' + attCount + '</td>' +
-                    '<td><a class="action-link" onclick="showAccessLog(' + s.id + ')"><svg class="icon-svg" style="width:12px;height:12px;"><use href="#hi-eye"/></svg> Detail</a></td>' +
+                    '<td data-label="No" style="font-weight:600;color:var(--color-text-muted);width:40px;">' + ((SUB_PAGE - 1) * 20 + i + 1) + '</td>' +
+                    '<td data-label="ID Perangkat"><a class="mac-cell" onclick="showAccessLog(' + s.id + ')" title="' + esc(s.mac_address) + ' (Klik untuk riwayat akses)">' + esc(s.mac_address) + '</a></td>' +
+                    '<td data-label="Status"><span class="status-badge-sm" style="background:' + color + '15;color:' + color + ';border:1px solid ' + color + '30;">' + sl + '</span></td>' +
+                    '<td data-label="Mulai" style="font-size:0.75rem;color:var(--color-text-muted);font-family:var(--font-mono);">' + startTime + '</td>' +
+                    '<td data-label="Upaya" style="text-align:center;">' + attCount + '</td>' +
+                    '<td data-label="Aksi"><a class="action-link" onclick="showAccessLog(' + s.id + ')"><svg class="icon-svg" style="width:12px;height:12px;"><use href="#hi-eye"/></svg> Detail</a></td>' +
                     '</tr>';
             }
             tbody.innerHTML = html;
