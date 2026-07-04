@@ -195,6 +195,9 @@
     <svg class="icon-svg"><use href="#hi-users"/></svg> Antrean Peserta (Menunggu Persetujuan)
    </h3>
    <div class="pd-table-toolbar">
+    <label style="display:flex;align-items:center;gap:6px;font-size:0.85rem;color:var(--color-text-muted);cursor:pointer;margin-right:12px;">
+     <input type="checkbox" id="autoAcceptToggle"> Auto Accept
+    </label>
     <button class="pd-toolbar-btn" onclick="loadApprovals()" title="Refresh Antrean" style="color:#fbbf24; background:rgba(245, 158, 11, 0.1);">
      <svg class="icon-svg"><use href="#hi-refresh"/></svg>
     </button>
@@ -207,13 +210,12 @@
       <th>No</th>
       <th>ID Perangkat</th>
       <th>Siswa</th>
-      <th>No. Ujian / Kelas</th>
       <th>Waktu Minta Izin</th>
       <th style="text-align:right;">Aksi</th>
      </tr>
     </thead>
     <tbody id="approvalBody">
-     <tr><td colspan="6" class="pd-table-empty">Belum ada antrean peserta...</td></tr>
+     <tr><td colspan="5" class="pd-table-empty">Belum ada antrean peserta...</td></tr>
     </tbody>
    </table>
   </div>
@@ -250,14 +252,12 @@
       <th>ID Perangkat</th>
       <th>Status</th>
       <th>Mulai</th>
-      <th>IP Terakhir</th>
-      <th>Score</th>
       <th>Upaya</th>
       <th>Aksi</th>
      </tr>
     </thead>
     <tbody id="submissionBody">
-     <tr><td colspan="8" class="pd-table-empty">Memuat data...</td></tr>
+     <tr><td colspan="6" class="pd-table-empty">Memuat data...</td></tr>
     </tbody>
    </table>
   </div>
@@ -982,28 +982,34 @@ function loadApprovals() {
         .then(function(r) { return r.json(); })
         .then(function(res) {
             if (!res || !res.success || !res.data || res.data.length === 0) {
-                tbody.innerHTML = '<tr><td colspan="6" class="pd-table-empty" style="color:var(--color-text-muted);">Belum ada antrean peserta.</td></tr>';
+                tbody.innerHTML = '<tr><td colspan="5" class="pd-table-empty" style="color:var(--color-text-muted);">Belum ada antrean peserta.</td></tr>';
                 return;
             }
+            var isAutoAccept = document.getElementById('autoAcceptToggle') && document.getElementById('autoAcceptToggle').checked;
             var html = '';
             for (var i = 0; i < res.data.length; i++) {
                 var a = res.data[i];
+                if (isAutoAccept) {
+                    setApproval(a.mac_address, 'approved', true);
+                    continue;
+                }
                 var t = a.created_at ? localizeUTC(a.created_at) : '—';
                 var studentInfo = esc(a.student_name);
                 if (!studentInfo || studentInfo === '—') studentInfo = '<em>Anonim</em>';
-                var classInfo = esc(a.exam_number) + ' / ' + esc(a.student_class);
                 
                 html += '<tr>' +
                     '<td>' + (i + 1) + '</td>' +
                     '<td style="font-family:var(--font-mono); font-weight:700;">' + esc(a.mac_address) + '</td>' +
                     '<td>' + studentInfo + '</td>' +
-                    '<td>' + classInfo + '</td>' +
                     '<td>' + t + '</td>' +
                     '<td style="text-align:right;">' +
                         '<button class="pd-toolbar-btn" style="background:#34d399;color:#fff;border:none;padding:4px 10px;border-radius:6px;font-size:0.75rem;margin-right:6px;" onclick="setApproval(\'' + a.mac_address + '\', \'approved\')">Izinkan</button>' +
                         '<button class="pd-toolbar-btn" style="background:#f87171;color:#fff;border:none;padding:4px 10px;border-radius:6px;font-size:0.75rem;" onclick="setApproval(\'' + a.mac_address + '\', \'rejected\')">Tolak</button>' +
                     '</td>' +
                 '</tr>';
+            }
+            if (html === '' && isAutoAccept) {
+                html = '<tr><td colspan="5" class="pd-table-empty" style="color:var(--color-text-muted);">Menerima peserta secara otomatis...</td></tr>';
             }
             tbody.innerHTML = html;
         })
@@ -1012,8 +1018,8 @@ function loadApprovals() {
         });
 }
 
-function setApproval(macAddress, status) {
-    if (!confirm('Apakah Anda yakin ingin ' + (status === 'approved' ? 'MENGIZINKAN' : 'MENOLAK') + ' perangkat ini?')) return;
+function setApproval(macAddress, status, skipConfirm) {
+    if (!skipConfirm && !confirm('Apakah Anda yakin ingin ' + (status === 'approved' ? 'MENGIZINKAN' : 'MENOLAK') + ' perangkat ini?')) return;
     fetch('/admin/api/pengawas/exams/' + EXAM_ID + '/approvals/' + encodeURIComponent(macAddress), {
         method: 'POST',
         headers: {
@@ -1052,7 +1058,7 @@ function loadDetail(page) {
         .then(function(r) { return r.json(); })
         .then(function(res) {
             if (!res || !res.success) {
-                tbody.innerHTML = '<tr><td colspan="8" class="pd-table-empty" style="color:#fca5a5;">Gagal memuat data</td></tr>';
+                tbody.innerHTML = '<tr><td colspan="6" class="pd-table-empty" style="color:#fca5a5;">Gagal memuat data</td></tr>';
                 return;
             }
             var subs = res.submissions || [];
@@ -1065,7 +1071,7 @@ function loadDetail(page) {
 
             if (subs.length === 0) {
                 var msg = search ? 'Pencarian tidak ditemukan.' : 'Belum ada perangkat terdaftar.';
-                tbody.innerHTML = '<tr><td colspan="8" class="pd-table-empty">' + msg + '</td></tr>';
+                tbody.innerHTML = '<tr><td colspan="6" class="pd-table-empty">' + msg + '</td></tr>';
                 renderSubPagination(res);
                 return;
             }
@@ -1076,12 +1082,6 @@ function loadDetail(page) {
                 var sc = s.submitted ? 'submitted' : (s.start_time ? 'in-progress' : 'not-started');
                 var sl = s.submitted ? 'Terkumpul' : (s.start_time ? 'Mengerjakan' : 'Belum Mulai');
                 var startTime = s.start_time ? localizeUTC(s.start_time) : '—';
-                var scoreTxt = s.score != null && s.submitted ? String(s.score) : '—';
-                var ipAddr = '—';
-                if (s.access_logs && s.access_logs.length > 0) {
-                    var lastLog = s.access_logs[s.access_logs.length - 1];
-                    if (lastLog.ip_address) ipAddr = lastLog.ip_address;
-                }
                 var color = sc === 'submitted' ? '#34d399' : (sc === 'in-progress' ? '#fbbf24' : '#6b7280');
                 var attCount = s.attempt_count > 1 ? '<span style="background:rgba(239,68,68,0.1);color:#ef4444;padding:2px 6px;border-radius:10px;font-size:0.7rem;font-weight:700;" title="' + s.attempt_count + 'x Mengerjakan">' + s.attempt_count + 'x</span>' : '<span style="color:var(--color-text-muted);">' + (s.attempt_count || 1) + 'x</span>';
 
@@ -1090,8 +1090,6 @@ function loadDetail(page) {
                     '<td><a class="mac-cell" onclick="showAccessLog(' + s.id + ')" title="' + esc(s.mac_address) + ' (Klik untuk riwayat akses)">' + esc(s.mac_address) + '</a></td>' +
                     '<td><span class="status-badge-sm" style="background:' + color + '15;color:' + color + ';border:1px solid ' + color + '30;">' + sl + '</span></td>' +
                     '<td style="font-size:0.75rem;color:var(--color-text-muted);font-family:var(--font-mono);">' + startTime + '</td>' +
-                    '<td style="font-family:var(--font-mono);font-size:0.75rem;color:var(--color-text-muted);">' + esc(ipAddr) + '</td>' +
-                    '<td style="font-weight:700;color:' + (s.submitted ? '#34d399' : '#6b7280') + ';">' + scoreTxt + '</td>' +
                     '<td style="text-align:center;">' + attCount + '</td>' +
                     '<td><a class="action-link" onclick="showAccessLog(' + s.id + ')"><svg class="icon-svg" style="width:12px;height:12px;"><use href="#hi-eye"/></svg> Detail</a></td>' +
                     '</tr>';
