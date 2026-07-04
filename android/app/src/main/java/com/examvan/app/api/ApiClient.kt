@@ -253,8 +253,19 @@ object ApiClient {
                         onError("Token tidak valid atau ujian sudah berakhir")
                         return
                     }
+                    if (it.code == 403) {
+                        onError("Ujian belum dimulai oleh pengawas")
+                        return
+                    }
                     if (!it.isSuccessful) {
-                        onError("Server error: ${it.code}")
+                        try {
+                            val body = it.body?.string() ?: ""
+                            val json = org.json.JSONObject(body)
+                            val message = json.optString("message", json.optString("error", "Server error: ${it.code}"))
+                            onError(message)
+                        } catch (_: Exception) {
+                            onError("Server error: ${it.code}")
+                        }
                         return
                     }
                     try {
