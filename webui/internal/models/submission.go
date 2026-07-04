@@ -402,17 +402,38 @@ func CreateSubmission(ctx context.Context, pool *pgxpool.Pool, s *Submission) (*
 		}
 	}
 
-	sql := `INSERT INTO submissions
-(exam_id, student_name, exam_number, student_class, answers_json, score, start_time, mac_address, identity_data)
-VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)
-RETURNING ` + defaultSubmissionColumns
+	// Try to update an existing un-submitted row first
+	var existingID int
+	err := pool.QueryRow(ctx, "SELECT id FROM submissions WHERE exam_id = $1 AND mac_address = $2 AND (answers_json IS NULL OR answers_json = '') ORDER BY created_at DESC LIMIT 1", s.ExamID, s.MACAddress).Scan(&existingID)
+	
+	var sql string
+	var created Submission
+	if err == nil {
+		// Update existing row
+		sql = `UPDATE submissions
+		SET answers_json = $1, score = $2, start_time = COALESCE(start_time, $3), student_name = $4, exam_number = $5, student_class = $6, identity_data = $7
+		WHERE id = $8
+		RETURNING ` + defaultSubmissionColumns
+		
+		created, err = scanSubmission(pool.QueryRow(ctx, sql,
+			s.AnswersJSON, s.Score, s.StartTime, s.StudentName, s.ExamNumber, s.StudentClass, s.IdentityData,
+			existingID,
+		))
+	} else {
+		// Insert new row
+		sql = `INSERT INTO submissions
+		(exam_id, student_name, exam_number, student_class, answers_json, score, start_time, mac_address, identity_data)
+		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)
+		RETURNING ` + defaultSubmissionColumns
+		
+		created, err = scanSubmission(pool.QueryRow(ctx, sql,
+			s.ExamID, s.StudentName, s.ExamNumber, s.StudentClass,
+			s.AnswersJSON, s.Score, s.StartTime, s.MACAddress, s.IdentityData,
+		))
+	}
 
-	created, err := scanSubmission(pool.QueryRow(ctx, sql,
-		s.ExamID, s.StudentName, s.ExamNumber, s.StudentClass,
-		s.AnswersJSON, s.Score, s.StartTime, s.MACAddress, s.IdentityData,
-	))
 	if err != nil {
-		return nil, fmt.Errorf("create submission: %w", err)
+		return nil, fmt.Errorf("create/update submission: %w", err)
 	}
 	return &created, nil
 }
@@ -518,7 +539,11 @@ func ListSubmissionsByExam(ctx context.Context, pool *pgxpool.Pool, opts ListSub
 	where := " WHERE " + joinConditions(conditions, " AND ")
 
 	// Count.
-	countSQL := `SELECT COUNT(*) FROM submissions` + where
+	countSQL := `
+		SELECT COUNT(*) FROM (
+			SELECT DISTINCT ON (mac_address) id 
+			FROM submissions ` + where + `
+		) AS sub`
 	var total int
 	err := pool.QueryRow(ctx, countSQL, args...).Scan(&total)
 	if err != nil {
@@ -532,9 +557,15 @@ func ListSubmissionsByExam(ctx context.Context, pool *pgxpool.Pool, opts ListSub
 	offset := calcOffset(opts.Page, perPage)
 
 	// Fetch data.
-	sql := `SELECT ` + defaultSubmissionColumns + ` FROM submissions` + where +
-		` ORDER BY student_name ASC LIMIT $` + fmt.Sprintf("%d", argIdx) +
-		` OFFSET $` + fmt.Sprintf("%d", argIdx+1)
+	sql := `
+		SELECT ` + defaultSubmissionColumns + ` 
+		FROM (
+			SELECT DISTINCT ON (mac_address) ` + defaultSubmissionColumns + `
+			FROM submissions
+			` + where + `
+			ORDER BY mac_address, created_at DESC
+		) AS latest_subs
+		ORDER BY student_name ASC LIMIT $` + fmt.Sprintf("%d", argIdx) + ` OFFSET $` + fmt.Sprintf("%d", argIdx+1)
 	args = append(args, perPage, offset)
 
 	rows, err := pool.Query(ctx, sql, args...)

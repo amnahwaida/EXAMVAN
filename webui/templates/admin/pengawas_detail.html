@@ -188,6 +188,36 @@
    </div>
   </div>
  </section>
+ <!-- ========== APPROVALS TABLE ========== -->
+ <section class="pd-table-card" id="approvalSection" style="margin-bottom:20px; border-color:rgba(245, 158, 11, 0.4);">
+  <div class="pd-table-header" style="border-bottom-color:rgba(245, 158, 11, 0.1);">
+   <h3 class="pd-table-title" style="color:#fbbf24;">
+    <svg class="icon-svg"><use href="#hi-users"/></svg> Antrean Peserta (Menunggu Persetujuan)
+   </h3>
+   <div class="pd-table-toolbar">
+    <button class="pd-toolbar-btn" onclick="loadApprovals()" title="Refresh Antrean" style="color:#fbbf24; background:rgba(245, 158, 11, 0.1);">
+     <svg class="icon-svg"><use href="#hi-refresh"/></svg>
+    </button>
+   </div>
+  </div>
+  <div class="pd-table-responsive">
+   <table class="pd-table" id="approvalTable">
+    <thead>
+     <tr>
+      <th>No</th>
+      <th>ID Perangkat</th>
+      <th>Siswa</th>
+      <th>No. Ujian / Kelas</th>
+      <th>Waktu Minta Izin</th>
+      <th style="text-align:right;">Aksi</th>
+     </tr>
+    </thead>
+    <tbody id="approvalBody">
+     <tr><td colspan="6" class="pd-table-empty">Belum ada antrean peserta...</td></tr>
+    </tbody>
+   </table>
+  </div>
+ </section>
 
  <!-- ========== STUDENT TABLE ========== -->
  <section class="pd-table-card">
@@ -222,11 +252,12 @@
       <th>Mulai</th>
       <th>IP Terakhir</th>
       <th>Score</th>
+      <th>Upaya</th>
       <th>Aksi</th>
      </tr>
     </thead>
     <tbody id="submissionBody">
-     <tr><td colspan="7" class="pd-table-empty">Memuat data...</td></tr>
+     <tr><td colspan="8" class="pd-table-empty">Memuat data...</td></tr>
     </tbody>
    </table>
   </div>
@@ -942,11 +973,74 @@ function stopExamPengawasDetail(examId) {
         });
 }
 
+function loadApprovals() {
+    var tbody = document.getElementById('approvalBody');
+    var section = document.getElementById('approvalSection');
+    if (!tbody || !section) return;
+
+    fetch('/admin/api/pengawas/exams/' + EXAM_ID + '/approvals', { credentials: 'same-origin', headers: { 'Accept': 'application/json' } })
+        .then(function(r) { return r.json(); })
+        .then(function(res) {
+            if (!res || !res.success || !res.data || res.data.length === 0) {
+                tbody.innerHTML = '<tr><td colspan="6" class="pd-table-empty" style="color:var(--color-text-muted);">Belum ada antrean peserta.</td></tr>';
+                return;
+            }
+            var html = '';
+            for (var i = 0; i < res.data.length; i++) {
+                var a = res.data[i];
+                var t = a.created_at ? localizeUTC(a.created_at) : '—';
+                var studentInfo = esc(a.student_name);
+                if (!studentInfo || studentInfo === '—') studentInfo = '<em>Anonim</em>';
+                var classInfo = esc(a.exam_number) + ' / ' + esc(a.student_class);
+                
+                html += '<tr>' +
+                    '<td>' + (i + 1) + '</td>' +
+                    '<td style="font-family:var(--font-mono); font-weight:700;">' + esc(a.mac_address) + '</td>' +
+                    '<td>' + studentInfo + '</td>' +
+                    '<td>' + classInfo + '</td>' +
+                    '<td>' + t + '</td>' +
+                    '<td style="text-align:right;">' +
+                        '<button class="pd-toolbar-btn" style="background:#34d399;color:#fff;border:none;padding:4px 10px;border-radius:6px;font-size:0.75rem;margin-right:6px;" onclick="setApproval(\'' + a.mac_address + '\', \'approved\')">Izinkan</button>' +
+                        '<button class="pd-toolbar-btn" style="background:#f87171;color:#fff;border:none;padding:4px 10px;border-radius:6px;font-size:0.75rem;" onclick="setApproval(\'' + a.mac_address + '\', \'rejected\')">Tolak</button>' +
+                    '</td>' +
+                '</tr>';
+            }
+            tbody.innerHTML = html;
+        })
+        .catch(function(err) {
+            console.error('Fetch approvals error:', err);
+        });
+}
+
+function setApproval(macAddress, status) {
+    if (!confirm('Apakah Anda yakin ingin ' + (status === 'approved' ? 'MENGIZINKAN' : 'MENOLAK') + ' perangkat ini?')) return;
+    fetch('/admin/api/pengawas/exams/' + EXAM_ID + '/approvals/' + encodeURIComponent(macAddress), {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+            'X-CSRF-Token': getCsrfToken()
+        },
+        body: JSON.stringify({ status: status })
+    })
+    .then(function(r) { return r.json(); })
+    .then(function(res) {
+        if (res.success) {
+            showToast('Persetujuan berhasil disimpan', 'success');
+            loadApprovals();
+        } else {
+            showToast(res.message || 'Gagal menyimpan persetujuan', 'error');
+        }
+    })
+    .catch(function(err) {
+        showToast('Terjadi kesalahan jaringan', 'error');
+    });
+}
+
 function loadDetail(page) {
     var tbody = document.getElementById('submissionBody');
     if (!tbody) return;
     if (page !== undefined) SUB_PAGE = page;
-    tbody.innerHTML = '<tr><td colspan="7" class="pd-table-empty">Memuat data...</td></tr>';
+    tbody.innerHTML = '<tr><td colspan="8" class="pd-table-empty">Memuat data...</td></tr>';
 
     var search = document.getElementById('pengawasSearch') ? document.getElementById('pengawasSearch').value.trim() : '';
     var status = document.getElementById('statusFilter') ? document.getElementById('statusFilter').value : '';
@@ -958,7 +1052,7 @@ function loadDetail(page) {
         .then(function(r) { return r.json(); })
         .then(function(res) {
             if (!res || !res.success) {
-                tbody.innerHTML = '<tr><td colspan="7" class="pd-table-empty" style="color:#fca5a5;">Gagal memuat data</td></tr>';
+                tbody.innerHTML = '<tr><td colspan="8" class="pd-table-empty" style="color:#fca5a5;">Gagal memuat data</td></tr>';
                 return;
             }
             var subs = res.submissions || [];
@@ -971,7 +1065,7 @@ function loadDetail(page) {
 
             if (subs.length === 0) {
                 var msg = search ? 'Pencarian tidak ditemukan.' : 'Belum ada perangkat terdaftar.';
-                tbody.innerHTML = '<tr><td colspan="7" class="pd-table-empty">' + msg + '</td></tr>';
+                tbody.innerHTML = '<tr><td colspan="8" class="pd-table-empty">' + msg + '</td></tr>';
                 renderSubPagination(res);
                 return;
             }
@@ -989,6 +1083,7 @@ function loadDetail(page) {
                     if (lastLog.ip_address) ipAddr = lastLog.ip_address;
                 }
                 var color = sc === 'submitted' ? '#34d399' : (sc === 'in-progress' ? '#fbbf24' : '#6b7280');
+                var attCount = s.attempt_count > 1 ? '<span style="background:rgba(239,68,68,0.1);color:#ef4444;padding:2px 6px;border-radius:10px;font-size:0.7rem;font-weight:700;" title="' + s.attempt_count + 'x Mengerjakan">' + s.attempt_count + 'x</span>' : '<span style="color:var(--color-text-muted);">' + (s.attempt_count || 1) + 'x</span>';
 
                 html += '<tr>' +
                     '<td style="font-weight:600;color:var(--color-text-muted);width:40px;">' + ((SUB_PAGE - 1) * 20 + i + 1) + '</td>' +
@@ -997,6 +1092,7 @@ function loadDetail(page) {
                     '<td style="font-size:0.75rem;color:var(--color-text-muted);font-family:var(--font-mono);">' + startTime + '</td>' +
                     '<td style="font-family:var(--font-mono);font-size:0.75rem;color:var(--color-text-muted);">' + esc(ipAddr) + '</td>' +
                     '<td style="font-weight:700;color:' + (s.submitted ? '#34d399' : '#6b7280') + ';">' + scoreTxt + '</td>' +
+                    '<td style="text-align:center;">' + attCount + '</td>' +
                     '<td><a class="action-link" onclick="showAccessLog(' + s.id + ')"><svg class="icon-svg" style="width:12px;height:12px;"><use href="#hi-eye"/></svg> Detail</a></td>' +
                     '</tr>';
             }
@@ -1007,7 +1103,7 @@ function loadDetail(page) {
             if (card) card.setAttribute('data-subs', JSON.stringify(subs));
         })
         .catch(function() {
-            tbody.innerHTML = '<tr><td colspan="7" class="pd-table-empty" style="color:#fca5a5;">Gagal menghubungi server</td></tr>';
+            tbody.innerHTML = '<tr><td colspan="8" class="pd-table-empty" style="color:#fca5a5;">Gagal menghubungi server</td></tr>';
         });
 }
 
@@ -1091,10 +1187,40 @@ function showAccessLog(subId) {
     '</div>';
 
     var tl = '';
+    
+    if (subData.submission_history && subData.submission_history.length > 0) {
+        tl += '<div style="margin-bottom:24px;">';
+        tl += '<h4 style="font-size:0.85rem;font-weight:700;color:var(--color-text);margin-bottom:12px;text-transform:uppercase;letter-spacing:0.05em;opacity:0.8;">Riwayat Pengumpulan (Upaya)</h4>';
+        tl += '<div style="display:flex;flex-direction:column;gap:12px;">';
+        for (var j = 0; j < subData.submission_history.length; j++) {
+            var sh = subData.submission_history[j];
+            var shSubmitted = sh.answers_json && sh.answers_json !== "" && sh.answers_json !== "null"; 
+            var shStatus = shSubmitted ? "Terkumpul" : (sh.start_time ? "Mengerjakan" : "Belum Mulai");
+            var shColor = shSubmitted ? "#34d399" : (sh.start_time ? "#fbbf24" : "#6b7280");
+            var shScore = (sh.score != null && shSubmitted) ? sh.score : "—";
+            var shStart = sh.start_time ? localizeUTC(sh.start_time) : "—";
+            var shEnd = shSubmitted ? localizeUTC(sh.created_at) : "—";
+            
+            tl += '<div style="padding:14px;background:var(--color-bg);border:1px solid var(--color-glass-border);border-radius:10px;box-shadow:0 2px 8px rgba(0,0,0,0.02);">' +
+                '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;border-bottom:1px solid var(--color-glass-border);padding-bottom:10px;">' +
+                    '<span style="font-weight:800;font-size:0.9rem;color:var(--color-primary-light);">Upaya ' + (j + 1) + '</span>' +
+                    '<span style="font-size:0.7rem;font-weight:700;color:' + shColor + ';background:' + shColor + '15;padding:4px 10px;border-radius:12px;border:1px solid ' + shColor + '30;">' + shStatus + '</span>' +
+                '</div>' +
+                '<div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px;font-size:0.75rem;">' +
+                    '<div><span style="color:var(--color-text-muted);display:block;margin-bottom:4px;font-size:0.7rem;text-transform:uppercase;letter-spacing:0.02em;">Mulai Mengerjakan</span><strong style="color:var(--color-text);font-family:var(--font-mono);">' + shStart + '</strong></div>' +
+                    '<div><span style="color:var(--color-text-muted);display:block;margin-bottom:4px;font-size:0.7rem;text-transform:uppercase;letter-spacing:0.02em;">Waktu Terkumpul</span><strong style="color:var(--color-text);font-family:var(--font-mono);">' + shEnd + '</strong></div>' +
+                    '<div><span style="color:var(--color-text-muted);display:block;margin-bottom:4px;font-size:0.7rem;text-transform:uppercase;letter-spacing:0.02em;">Nilai / Score</span><strong style="color:' + (shSubmitted ? '#34d399' : 'var(--color-text)') + ';font-size:0.9rem;">' + shScore + '</strong></div>' +
+                '</div>' +
+            '</div>';
+        }
+        tl += '</div></div>';
+        tl += '<h4 style="font-size:0.85rem;font-weight:700;color:var(--color-text);margin-bottom:12px;text-transform:uppercase;letter-spacing:0.05em;opacity:0.8;">Aktivitas Akses (Log Sistem)</h4>';
+    }
+
     if (logs.length === 0) {
-        tl = '<div class="no-logs">Belum ada riwayat akses tercatat.</div>';
+        tl += '<div class="no-logs">Belum ada riwayat akses tercatat.</div>';
     } else {
-        tl = '<div class="access-log-timeline">';
+        tl += '<div class="access-log-timeline">';
         var prevIdDataStr = '';
         for (var i = 0; i < logs.length; i++) {
             var l = logs[i];
@@ -1263,7 +1389,8 @@ function updateCountdown() {
 
 (function() {
     loadDetail();
-    // Auto-refresh token every 30 seconds
+    loadApprovals();
+    setInterval(loadApprovals, 5000);
     setInterval(refreshActiveToken, 30000);
     setInterval(updateCountdown, 1000);
     updateCountdown();

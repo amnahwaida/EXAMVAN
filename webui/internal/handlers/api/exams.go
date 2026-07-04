@@ -310,7 +310,59 @@ func ListExams() gin.HandlerFunc {
 }
 
 // ---------------------------------------------------------------------------
-// 2. GET /api/exams/token/:token — Get exam details by token (Android)
+// Request Approval (Android)
+// ---------------------------------------------------------------------------
+func RequestApproval() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		var req struct {
+			ExamID       int                    `json:"exam_id"`
+			MACAddress   string                 `json:"mac_address"`
+			StudentName  string                 `json:"student_name"`
+			ExamNumber   string                 `json:"exam_number"`
+			StudentClass string                 `json:"student_class"`
+			IdentityData map[string]interface{} `json:"identity_data"`
+		}
+		if err := c.ShouldBindJSON(&req); err != nil {
+			errorResponse(c, http.StatusBadRequest, "Payload tidak valid")
+			return
+		}
+
+		pool := getPool(c)
+		ctx := c.Request.Context()
+
+		idDataStr, _ := json.Marshal(req.IdentityData)
+		if string(idDataStr) == "null" {
+			idDataStr = []byte("{}")
+		}
+
+		var status string
+		err := pool.QueryRow(ctx, 
+			`INSERT INTO exam_approvals (exam_id, mac_address, student_name, exam_number, student_class, identity_data)
+			 VALUES ($1, $2, $3, $4, $5, $6)
+			 ON CONFLICT (exam_id, mac_address) DO UPDATE 
+			 SET student_name = EXCLUDED.student_name,
+			     exam_number = EXCLUDED.exam_number,
+			     student_class = EXCLUDED.student_class,
+			     identity_data = EXCLUDED.identity_data,
+			     updated_at = CURRENT_TIMESTAMP
+			 RETURNING status`,
+			req.ExamID, req.MACAddress, req.StudentName, req.ExamNumber, req.StudentClass, string(idDataStr)).Scan(&status)
+
+		if err != nil {
+			log.Printf("request approval error: %v", err)
+			errorResponse(c, http.StatusInternalServerError, "Gagal memproses persetujuan")
+			return
+		}
+
+		c.JSON(http.StatusOK, gin.H{
+			"success": true,
+			"status":  status,
+		})
+	}
+}
+
+// ---------------------------------------------------------------------------
+// 2. GET /api/exams/token/:token — Start Exam (Android/Web)
 // ---------------------------------------------------------------------------
 
 // ExamByToken returns a gin.HandlerFunc for the token-based exam lookup.
@@ -681,6 +733,8 @@ func SubmitExam() gin.HandlerFunc {
 					"event":         "login",
 					"last_seen":     time.Now().UTC().Format(time.RFC3339),
 				})
+				// Cabut izin agar sesi berikutnya butuh persetujuan lagi
+				_, _ = pool.Exec(ctx, "DELETE FROM exam_approvals WHERE exam_id = $1 AND mac_address = $2", examID, macAddress)
 
 				c.JSON(http.StatusOK, gin.H{
 					"success": true,
@@ -713,6 +767,8 @@ func SubmitExam() gin.HandlerFunc {
 			errorResponse(c, http.StatusInternalServerError, "Gagal menyimpan jawaban")
 			return
 		}
+		// Cabut izin agar sesi berikutnya butuh persetujuan lagi
+		_, _ = pool.Exec(ctx, "DELETE FROM exam_approvals WHERE exam_id = $1 AND mac_address = $2", examID, macAddress)
 
 		c.JSON(http.StatusOK, gin.H{
 			"success": true,

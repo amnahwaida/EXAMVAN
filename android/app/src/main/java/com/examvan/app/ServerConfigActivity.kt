@@ -5,6 +5,8 @@ import android.content.Context
 import android.content.Intent
 import android.content.SharedPreferences
 import android.os.Bundle
+import android.os.Handler
+import android.os.Looper
 import android.security.keystore.KeyPermanentlyInvalidatedException
 import android.view.LayoutInflater
 import android.view.View
@@ -426,7 +428,7 @@ class ServerConfigActivity : BaseSecureActivity() {
                 }
             }
 
-            startExamViewer(exam.id, exam.name, serverUrl, token, name, number, sClass, identityDataStr, exam.end_time, securityLevel, strictMode)
+            showApprovalWaitingDialog(exam.id, exam.name, serverUrl, token, name, number, sClass, identityDataStr, exam.end_time, securityLevel, strictMode)
         }
 
         alertDialog.show()
@@ -436,6 +438,73 @@ class ServerConfigActivity : BaseSecureActivity() {
             w.setFlags(WindowManager.LayoutParams.FLAG_WATCH_OUTSIDE_TOUCH,
                 WindowManager.LayoutParams.FLAG_WATCH_OUTSIDE_TOUCH)
         }
+    }
+
+    private fun showApprovalWaitingDialog(examId: Int, examName: String, serverUrl: String, token: String, name: String, number: String, studentClass: String, identityDataStr: String, endTime: String?, securityLevel: String, strictMode: Boolean) {
+        val dialog = AlertDialog.Builder(this)
+            .setTitle("Menunggu Persetujuan")
+            .setMessage("Sedang meminta izin kepada pengawas ujian...\n\nMohon tunggu di layar ini.")
+            .setCancelable(false)
+            .setNegativeButton("Batal") { d, _ ->
+                d.dismiss()
+            }
+            .create()
+        dialog.show()
+        
+        dialog.window?.let { w ->
+            w.setFlags(WindowManager.LayoutParams.FLAG_WATCH_OUTSIDE_TOUCH, WindowManager.LayoutParams.FLAG_WATCH_OUTSIDE_TOUCH)
+        }
+        
+        val macAddress = DeviceIdResolver.resolveDeviceId(this)
+        val handler = Handler(Looper.getMainLooper())
+        
+        var isWaiting = true
+        dialog.setOnDismissListener { isWaiting = false }
+        
+        val pollRunnable = object : Runnable {
+            override fun run() {
+                if (!isWaiting) return
+                
+                ApiClient.requestApproval(
+                    examId = examId,
+                    macAddress = macAddress,
+                    studentName = name,
+                    examNumber = number,
+                    studentClass = studentClass,
+                    identityDataStr = identityDataStr,
+                    onSuccess = { status ->
+                        runOnUiThread {
+                            if (!isWaiting) return@runOnUiThread
+                            if (status == "approved") {
+                                isWaiting = false
+                                dialog.dismiss()
+                                startExamViewer(examId, examName, serverUrl, token, name, number, studentClass, identityDataStr, endTime, securityLevel, strictMode)
+                            } else if (status == "rejected") {
+                                isWaiting = false
+                                dialog.dismiss()
+                                AlertDialog.Builder(this@ServerConfigActivity)
+                                    .setTitle("Ditolak")
+                                    .setMessage("Pengawas menolak permintaan Anda untuk masuk ke ujian ini.")
+                                    .setPositiveButton("OK", null)
+                                    .show()
+                            } else {
+                                // pending, keep polling
+                                handler.postDelayed(this, 5000)
+                            }
+                        }
+                    },
+                    onError = { errorMsg ->
+                        runOnUiThread {
+                            if (!isWaiting) return@runOnUiThread
+                            dialog.setMessage("Sedang meminta izin kepada pengawas ujian...\n\n(Koneksi terganggu, mencoba ulang...)")
+                            handler.postDelayed(this, 5000)
+                        }
+                    }
+                )
+            }
+        }
+        
+        handler.post(pollRunnable)
     }
 
     private fun startExamViewer(examId: Int, examName: String, serverUrl: String, token: String, name: String, number: String, studentClass: String, identityData: String = "{}", endTime: String? = null, securityLevel: String = "medium", strictMode: Boolean = false) {

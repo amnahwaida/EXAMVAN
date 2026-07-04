@@ -124,6 +124,23 @@ CREATE TABLE IF NOT EXISTS student_access_logs (
 );
 
 -- ============================================================
+-- exam_approvals
+-- ============================================================
+CREATE TABLE IF NOT EXISTS exam_approvals (
+    id                 SERIAL PRIMARY KEY,
+    exam_id            INTEGER NOT NULL REFERENCES exams(id) ON DELETE CASCADE,
+    mac_address        TEXT NOT NULL,
+    student_name       TEXT DEFAULT '',
+    exam_number        TEXT DEFAULT '',
+    student_class      TEXT DEFAULT '',
+    identity_data      TEXT DEFAULT '',
+    status             TEXT DEFAULT 'pending' CHECK (status IN ('pending', 'approved', 'rejected')),
+    created_at         TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
+    updated_at         TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE(exam_id, mac_address)
+);
+
+-- ============================================================
 -- Indexes for frequently queried foreign key columns
 -- ============================================================
 CREATE INDEX IF NOT EXISTS idx_exams_created_by ON exams(created_by);

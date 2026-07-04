@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 	redis "github.com/redis/go-redis/v9"
 
@@ -395,7 +396,22 @@ func PengawasExamSubmissions() gin.HandlerFunc {
 			LastAccessAt  string                 `json:"last_access_at"`
 			MACAddress    string                 `json:"mac_address"`
 			AccessLogs    []accessLogEntry       `json:"access_logs"`
-			IsOnline      bool                   `json:"is_online"`
+			IsOnline          bool                   `json:"is_online"`
+			AttemptCount      int                    `json:"attempt_count"`
+			SubmissionHistory []models.Submission    `json:"submission_history"`
+		}
+
+		attemptCounts := make(map[string]int)
+		rows, countErr := pool.Query(ctx, "SELECT mac_address, COUNT(*) FROM submissions WHERE exam_id = $1 GROUP BY 1", examID)
+		if countErr == nil {
+			for rows.Next() {
+				var key string
+				var count int
+				if err := rows.Scan(&key, &count); err == nil {
+					attemptCounts[key] = count
+				}
+			}
+			rows.Close()
 		}
 
 		subsData := make([]subItem, 0, len(result.Submissions))
@@ -405,7 +421,8 @@ func PengawasExamSubmissions() gin.HandlerFunc {
 				json.Unmarshal([]byte(*sub.IdentityData), &identityData)
 			}
 
-			accessLogs := fetchStudentAccessLogs(ctx, pool, examID, sub.MACAddress)
+			var accessLogs []accessLogEntry
+			accessLogs = fetchStudentAccessLogs(ctx, pool, examID, sub.MACAddress)
 
 			firstAccess := ""
 			lastAccess := sub.CreatedAt.Format("2006-01-02T15:04:05Z")
@@ -433,21 +450,48 @@ func PengawasExamSubmissions() gin.HandlerFunc {
 				}
 			}
 
+			attKey := sub.MACAddress
+			if attKey == "" {
+				attKey = strconv.Itoa(sub.ID)
+			}
+			attCount := attemptCounts[attKey]
+			if attCount == 0 {
+				attCount = 1
+			}
+
+			// Fetch submission history for this MAC Address
+			var subHistory []models.Submission
+			histRows, histErr := pool.Query(ctx, 
+				"SELECT id, start_time, created_at, answers_json, score FROM submissions WHERE exam_id = $1 AND mac_address = $2 ORDER BY created_at ASC", 
+				examID, sub.MACAddress)
+			if histErr == nil {
+				for histRows.Next() {
+					var h models.Submission
+					var created time.Time
+					histRows.Scan(&h.ID, &h.StartTime, &created, &h.AnswersJSON, &h.Score)
+					h.CreatedAt = created
+					subHistory = append(subHistory, h)
+				}
+				histRows.Close()
+			}
+
 			subsData = append(subsData, subItem{
-				ID:            sub.ID,
-				StudentName:   sub.StudentName,
-				ExamNumber:    sub.ExamNumber,
-				StudentClass:  sub.StudentClass,
-				IdentityData:  identityData,
-				Submitted:     submitted,
-				Score:         sub.Score,
-				StartTime:     startTimeStr,
-				CreatedAt:     sub.CreatedAt.Format("2006-01-02T15:04:05Z"),
-				FirstAccessAt: firstAccess,
-				LastAccessAt:  lastAccess,
-				MACAddress:    sub.MACAddress,
-				AccessLogs:    accessLogs,
-				IsOnline:      isOnline,
+				ID:                sub.ID,
+				StudentName:       sub.StudentName,
+				ExamNumber:        sub.ExamNumber,
+				StudentClass:      sub.StudentClass,
+				IdentityData:      identityData,
+				Submitted:         submitted,
+				Score:             sub.Score,
+				StartTime:         startTimeStr,
+				CreatedAt:         sub.CreatedAt.Format("2006-01-02T15:04:05Z"),
+				FirstAccessAt:     firstAccess,
+				LastAccessAt:      lastAccess,
+				MACAddress:        sub.MACAddress,
+				AccessLogs:        accessLogs,
+				IsOnline:          isOnline,
+				AttemptCount:      attCount,
+				SubmissionHistory: subHistory,
 			})
 		}
 
@@ -508,8 +552,155 @@ func fetchStudentAccessLogs(ctx context.Context, pool *pgxpool.Pool, examID int,
 	return logs
 }
 
+func fetchStudentAccessLogsByExamNumber(ctx context.Context, pool *pgxpool.Pool, examID int, examNumber string) []accessLogEntry {
+	if examNumber == "" {
+		return nil
+	}
+
+	rows, err := pool.Query(ctx,
+		`SELECT event, ip_address, device_info, created_at,
+		 student_name, exam_number, student_class, identity_data, student_identifier
+		 FROM student_access_logs
+		 WHERE exam_id = $1 AND exam_number = $2
+		 ORDER BY created_at ASC`, examID, examNumber)
+	if err != nil {
+		return nil
+	}
+	defer rows.Close()
+
+	var logs []accessLogEntry
+	for rows.Next() {
+		var entry accessLogEntry
+		var createdAt time.Time
+		var identityDataStr *string
+		var macAddr *string
+		if err := rows.Scan(&entry.Event, &entry.IPAddress, &entry.DeviceInfo,
+			&createdAt, &entry.StudentName, &entry.ExamNumber, &entry.StudentClass, &identityDataStr, &macAddr); err != nil {
+			continue
+		}
+		entry.CreatedAt = createdAt.Format(time.RFC3339)
+		if identityDataStr != nil {
+			var idData map[string]interface{}
+			if err := json.Unmarshal([]byte(*identityDataStr), &idData); err == nil {
+				entry.IdentityData = idData
+			}
+		}
+		if macAddr != nil {
+			entry.DeviceInfo = *macAddr + " - " + entry.DeviceInfo
+		}
+		logs = append(logs, entry)
+	}
+	return logs
+}
+
 func autoResetActiveTokenIfNeeded(ctx context.Context, pool *pgxpool.Pool, exam *models.Exam) {
 	if err := examtoken.MaybeResetActiveToken(ctx, pool, exam, time.Now().UTC()); err != nil {
 		log.Printf("auto reset active token error: %v", err)
+	}
+}
+
+func GetPendingApprovals() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		examID, _ := strconv.Atoi(c.Param("exam_id"))
+		pool := getPool(c)
+		ctx := c.Request.Context()
+
+		rows, err := pool.Query(ctx, 
+			`SELECT mac_address, student_name, exam_number, student_class, identity_data, created_at, status 
+			 FROM exam_approvals 
+			 WHERE exam_id = $1 AND status = 'pending'
+			 ORDER BY created_at ASC`, examID)
+		
+		if err != nil {
+			errorResponse(c, http.StatusInternalServerError, "Gagal memuat persetujuan")
+			return
+		}
+		defer rows.Close()
+
+		type approvalItem struct {
+			MACAddress   string                 `json:"mac_address"`
+			StudentName  string                 `json:"student_name"`
+			ExamNumber   string                 `json:"exam_number"`
+			StudentClass string                 `json:"student_class"`
+			IdentityData map[string]interface{} `json:"identity_data"`
+			CreatedAt    string                 `json:"created_at"`
+			Status       string                 `json:"status"`
+		}
+
+		var items []approvalItem
+		for rows.Next() {
+			var i approvalItem
+			var created time.Time
+			var idDataStr string
+			if err := rows.Scan(&i.MACAddress, &i.StudentName, &i.ExamNumber, &i.StudentClass, &idDataStr, &created, &i.Status); err == nil {
+				i.CreatedAt = created.Format("2006-01-02T15:04:05Z")
+				i.IdentityData = make(map[string]interface{})
+				if idDataStr != "" {
+					json.Unmarshal([]byte(idDataStr), &i.IdentityData)
+				}
+				items = append(items, i)
+			}
+		}
+
+		c.JSON(http.StatusOK, gin.H{
+			"success": true,
+			"data":    items,
+		})
+	}
+}
+
+func SetApprovalStatus() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		examID, _ := strconv.Atoi(c.Param("exam_id"))
+		macAddress := c.Param("mac_address")
+		
+		var req struct {
+			Status string `json:"status"`
+		}
+		if err := c.ShouldBindJSON(&req); err != nil {
+			errorResponse(c, http.StatusBadRequest, "Payload tidak valid")
+			return
+		}
+
+		if req.Status != "approved" && req.Status != "rejected" {
+			errorResponse(c, http.StatusBadRequest, "Status tidak valid")
+			return
+		}
+
+		pool := getPool(c)
+		ctx := c.Request.Context()
+
+		_, err := pool.Exec(ctx, 
+			`UPDATE exam_approvals SET status = $1, updated_at = CURRENT_TIMESTAMP WHERE exam_id = $2 AND mac_address = $3`,
+			req.Status, examID, macAddress)
+		
+		if err != nil {
+			errorResponse(c, http.StatusInternalServerError, "Gagal mengubah status persetujuan")
+			return
+		}
+
+		if req.Status == "approved" {
+			var sName, eNum, sClass, iData string
+			if err := pool.QueryRow(ctx, "SELECT student_name, exam_number, student_class, COALESCE(identity_data, '{}') FROM exam_approvals WHERE exam_id=$1 AND mac_address=$2", examID, macAddress).Scan(&sName, &eNum, &sClass, &iData); err == nil {
+				// Check if the latest submission is already submitted
+				var latestAnswers *string
+				errLookup := pool.QueryRow(ctx, "SELECT answers_json FROM submissions WHERE exam_id=$1 AND mac_address=$2 ORDER BY created_at DESC LIMIT 1", examID, macAddress).Scan(&latestAnswers)
+				
+				// Create new row if no submissions exist, or if the latest one is already submitted
+				if errLookup == pgx.ErrNoRows || (errLookup == nil && latestAnswers != nil && *latestAnswers != "") {
+					_, err = pool.Exec(ctx, `
+						INSERT INTO submissions (exam_id, mac_address, student_name, exam_number, student_class, identity_data, start_time, created_at)
+						VALUES ($1, $2, $3, $4, $5, $6, $7, CURRENT_TIMESTAMP)
+					`, examID, macAddress, sName, eNum, sClass, iData, time.Now().UTC().Format(time.RFC3339))
+					if err != nil {
+						log.Printf("failed to insert submission on approval: %v", err)
+					}
+				}
+			}
+		}
+
+		c.JSON(http.StatusOK, gin.H{
+			"success": true,
+		})
 	}
 }

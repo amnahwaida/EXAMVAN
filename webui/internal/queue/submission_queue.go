@@ -23,6 +23,7 @@ import (
 	"time"
 
 	goredis "github.com/redis/go-redis/v9"
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/examvan/webui/internal/models"
@@ -376,23 +377,37 @@ func (w *Worker) flushBatch(ctx context.Context, results []SubmissionResult) {
 		var answersPtr, identityPtr *string
 		answersStr := string(answersJSON)
 		identityStr := string(identityJSON)
-		if answersStr != "null" && answersStr != "{}" {
+		if answersStr != "null" {
 			answersPtr = &answersStr
 		}
 		if identityStr != "null" && identityStr != "{}" {
 			identityPtr = &identityStr
 		}
 
-		sql := `INSERT INTO submissions
-			(exam_id, student_name, exam_number, student_class, answers_json, score, start_time, mac_address, identity_data)
-			VALUES ($1, $2, $3, $4, $5, $6, NULLIF($7, ''), $8, $9)
-			RETURNING id`
-
+		// UPSERT: Try to update existing un-submitted row first
 		var submissionID int
-		err := tx.QueryRow(ctx, sql,
-			r.Job.ExamID, r.Job.StudentName, r.Job.ExamNumber, r.Job.StudentClass,
-			answersPtr, r.Score, r.Job.StartTime, r.Job.MACAddress, identityPtr,
-		).Scan(&submissionID)
+		err := tx.QueryRow(ctx, `
+			UPDATE submissions
+			SET answers_json = $1, score = $2, start_time = COALESCE(start_time, NULLIF($3, '')), student_name = $4, exam_number = $5, student_class = $6, identity_data = $7
+			WHERE id = (
+				SELECT id FROM submissions 
+				WHERE exam_id = $8 AND mac_address = $9 AND (answers_json IS NULL OR answers_json = '')
+				ORDER BY created_at DESC LIMIT 1
+			)
+			RETURNING id
+		`, answersPtr, r.Score, r.Job.StartTime, r.Job.StudentName, r.Job.ExamNumber, r.Job.StudentClass, identityPtr, r.Job.ExamID, r.Job.MACAddress).Scan(&submissionID)
+
+		if err == pgx.ErrNoRows {
+			// If no row exists, insert a new one
+			sql := `INSERT INTO submissions
+				(exam_id, student_name, exam_number, student_class, answers_json, score, start_time, mac_address, identity_data)
+				VALUES ($1, $2, $3, $4, $5, $6, NULLIF($7, ''), $8, $9)
+				RETURNING id`
+			err = tx.QueryRow(ctx, sql,
+				r.Job.ExamID, r.Job.StudentName, r.Job.ExamNumber, r.Job.StudentClass,
+				answersPtr, r.Score, r.Job.StartTime, r.Job.MACAddress, identityPtr,
+			).Scan(&submissionID)
+		}
 
 		if err != nil {
 			log.Printf("queue batch: insert job %s error: %v", r.Job.JobID, err)

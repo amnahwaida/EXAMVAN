@@ -29,6 +29,7 @@ import (
 	"github.com/gin-contrib/sessions"
 	"github.com/gin-contrib/sessions/cookie"
 	"github.com/gin-gonic/gin"
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/examvan/webui/internal/config"
@@ -533,6 +534,7 @@ func registerRoutes(r *gin.Engine, cfg *config.Config, pool *pgxpool.Pool) {
 		apiGroup.GET("/time", api.ServerTime())
 
 		apiGroup.GET("/exams", middleware.RateLimit(60, time.Minute), middleware.AndroidVersionCheck(), api.ListExams())
+		apiGroup.POST("/exams/request-approval", middleware.RateLimit(30, time.Minute), middleware.AndroidVersionCheck(), api.RequestApproval())
 		apiGroup.GET("/exams/token/:token", middleware.RateLimit(30, time.Minute), middleware.AndroidVersionCheck(), api.ExamByToken())
 		apiGroup.GET("/exams/:exam_id/pdf", middleware.RateLimit(30, time.Minute), middleware.AndroidVersionCheck(), api.ExamPDF())
 		apiGroup.POST("/exams/:exam_id/submit", middleware.LimitBodySize(5*1024*1024), middleware.RateLimit(10, time.Minute), middleware.AndroidVersionCheck(), api.SubmitExam())
@@ -641,6 +643,8 @@ func registerRoutes(r *gin.Engine, cfg *config.Config, pool *pgxpool.Pool) {
 		adminAPI.GET("/transactions/proofs/:filename", middleware.SuperAdminRequired(), admin.ServeProofFile(cfg))
 		adminAPI.GET("/pengawas/exams", admin.PengawasExams())
 		adminAPI.GET("/pengawas/exams/:exam_id/submissions", admin.PengawasExamSubmissions())
+		adminAPI.GET("/pengawas/exams/:exam_id/approvals", admin.GetPendingApprovals())
+		adminAPI.POST("/pengawas/exams/:exam_id/approvals/:mac_address", admin.SetApprovalStatus())
 		adminAPI.GET("/saas-settings", middleware.SuperAdminRequired(), admin.SaasSettings())
 	}
 
@@ -1290,6 +1294,21 @@ func flushHeartbeatsQueue(ctx context.Context, rdb *redis.Client, pool *pgxpool.
 		)
 		if err != nil {
 			log.Printf("heartbeat-flusher: insert error: %v", err)
+		}
+		
+		// UPSERT into submissions to make the student appear in "Monitoring Perangkat" immediately
+		var latestAnswers *string
+		errLookup := tx.QueryRow(ctx, "SELECT answers_json FROM submissions WHERE exam_id=$1 AND mac_address=$2 ORDER BY created_at DESC LIMIT 1", hb.ExamID, hb.MacAddress).Scan(&latestAnswers)
+		
+		// If no row exists, or the latest one is already submitted, insert a new empty row
+		if errLookup == pgx.ErrNoRows || (errLookup == nil && latestAnswers != nil && *latestAnswers != "") {
+			_, err = tx.Exec(ctx, `
+				INSERT INTO submissions (exam_id, student_name, exam_number, student_class, mac_address, start_time, created_at, identity_data)
+				VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+			`, hb.ExamID, hb.StudentName, hb.ExamNumber, hb.StudentClass, hb.MacAddress, t.Format(time.RFC3339), t, "{}")
+			if err != nil {
+				log.Printf("heartbeat-flusher: failed to create empty submission: %v", err)
+			}
 		}
 	}
 

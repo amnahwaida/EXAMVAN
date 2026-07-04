@@ -230,6 +230,69 @@ object ApiClient {
     }
 
     /**
+     * Request approval from pengawas.
+     */
+    fun requestApproval(
+        examId: Int,
+        macAddress: String,
+        studentName: String,
+        examNumber: String,
+        studentClass: String,
+        identityDataStr: String,
+        onSuccess: (String) -> Unit, // returns status (pending, approved, rejected)
+        onError: (String) -> Unit
+    ) {
+        val json = org.json.JSONObject().apply {
+            put("exam_id", examId)
+            put("mac_address", macAddress)
+            put("student_name", studentName)
+            put("exam_number", examNumber)
+            put("student_class", studentClass)
+            try {
+                put("identity_data", org.json.JSONObject(identityDataStr))
+            } catch (e: Exception) {
+                put("identity_data", org.json.JSONObject())
+            }
+        }
+
+        val mediaType = "application/json; charset=utf-8".toMediaTypeOrNull()
+        val request = Request.Builder()
+            .url("$baseUrl/api/exams/request-approval")
+            .post(json.toString().toRequestBody(mediaType))
+            .build()
+
+        client.newCall(request).enqueue(object : Callback {
+            override fun onFailure(call: Call, e: IOException) {
+                onError(e.message ?: "Koneksi gagal")
+            }
+
+            override fun onResponse(call: Call, response: Response) {
+                response.use {
+                    if (!it.isSuccessful) {
+                        try {
+                            val body = it.body?.string() ?: ""
+                            val errJson = org.json.JSONObject(body)
+                            val message = errJson.optString("message", errJson.optString("error", "Server error: ${it.code}"))
+                            onError(message)
+                        } catch (_: Exception) {
+                            onError("Server error: ${it.code}")
+                        }
+                        return
+                    }
+                    try {
+                        val body = it.body?.string() ?: ""
+                        val resJson = org.json.JSONObject(body)
+                        val status = resJson.optString("status", "pending")
+                        onSuccess(status)
+                    } catch (e: Exception) {
+                        onError("Response tidak valid")
+                    }
+                }
+            }
+        })
+    }
+
+    /**
      * Fetch exam by Token.
      */
     fun getExamByToken(
