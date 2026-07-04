@@ -99,9 +99,9 @@ BEGIN
   -- 2. Ujian Sedang Berlangsung (SMA 1) - DENGAN PERUBAHAN IDENTITAS
   -- ==========================================================
   tkn := seed_rand_token();
-  INSERT INTO exams (name, file_path, size_bytes, token, active_token, questions_json, status, created_by, identity_fields, panel_color, start_time, end_time, exam_started_at)
+  INSERT INTO exams (name, file_path, size_bytes, token, active_token, questions_json, status, created_by, identity_fields, panel_color, start_time, end_time, exam_started_at, security_level, strict_mode)
   VALUES ('Penilaian Akhir Tahun Matematika', 'dummy.pdf', 2000, tkn, tkn, q_json, 'active', 
-    (SELECT id FROM admin_users WHERE username='guru.sma1'), id_fields, '#EF4444', now_ts - interval '30 minutes', now_ts + interval '2 hours', now_ts - interval '30 minutes')
+    (SELECT id FROM admin_users WHERE username='guru.sma1'), id_fields, '#EF4444', now_ts - interval '30 minutes', now_ts + interval '2 hours', now_ts - interval '30 minutes', 'high', 1)
   RETURNING id INTO e_id;
   
   INSERT INTO exam_pengawas (exam_id, user_id) VALUES (e_id, (SELECT id FROM admin_users WHERE username='pengawas.sma1'));
