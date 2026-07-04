@@ -1016,10 +1016,10 @@ func StartExam() gin.HandlerFunc {
 			return
 		}
 
-		// Generate a new active_token on start (dynamic token)
-		newToken := helpers.GenerateExamToken()
-		if err := models.UpdateExamActiveToken(ctx, pool, examID, newToken); err != nil {
-			log.Printf("start exam: generate active token error: %v", err)
+		// Saat mulai ujian, gunakan token permanen sebagai active_token awal.
+		// Untuk mode dynamic, token ini baru akan di-rotate/regenerasi setelah interval waktu terlewati.
+		if err := models.UpdateExamActiveToken(ctx, pool, examID, exam.Token); err != nil {
+			log.Printf("start exam: set active token to permanent error: %v", err)
 		}
 
 		successMessage(c, "Ujian berhasil dimulai")
