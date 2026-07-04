@@ -195,8 +195,9 @@
     <svg class="icon-svg"><use href="#hi-users"/></svg> Antrean Peserta (Menunggu Persetujuan)
    </h3>
    <div class="pd-table-toolbar">
-    <label style="display:flex;align-items:center;gap:6px;font-size:0.85rem;color:var(--color-text-muted);cursor:pointer;margin-right:12px;">
-     <input type="checkbox" id="autoAcceptToggle"> Auto Accept
+    <label class="pd-toggle-switch" title="Terima Otomatis (Otomatis menyetujui siswa yang meminta izin masuk ke ujian)" style="margin-right:12px;">
+     <input type="checkbox" id="autoAcceptToggle">
+     <span class="pd-toggle-slider"></span>
     </label>
     <button class="pd-toolbar-btn" onclick="loadApprovals()" title="Refresh Antrean" style="color:#fbbf24; background:rgba(245, 158, 11, 0.1);">
      <svg class="icon-svg"><use href="#hi-refresh"/></svg>
@@ -919,6 +920,44 @@
   .pd-action-btn { font-size: 0.65rem; padding: 5px 8px; }
   .pd-control-btn { font-size: 0.8rem; padding: 10px 16px; }
 }
+/* --- Toggle Switch --- */
+.pd-toggle-switch {
+  position: relative;
+  display: inline-block;
+  width: 44px;
+  height: 24px;
+  cursor: pointer;
+}
+.pd-toggle-switch input {
+  opacity: 0;
+  width: 0;
+  height: 0;
+}
+.pd-toggle-slider {
+  position: absolute;
+  top: 0; left: 0; right: 0; bottom: 0;
+  background-color: var(--color-glass-border);
+  transition: .3s var(--ease-spring);
+  border-radius: 24px;
+}
+.pd-toggle-slider:before {
+  position: absolute;
+  content: "";
+  height: 18px;
+  width: 18px;
+  left: 3px;
+  bottom: 3px;
+  background-color: white;
+  transition: .3s var(--ease-spring);
+  border-radius: 50%;
+  box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+}
+.pd-toggle-switch input:checked + .pd-toggle-slider {
+  background-color: var(--color-primary);
+}
+.pd-toggle-switch input:checked + .pd-toggle-slider:before {
+  transform: translateX(20px);
+}
 </style>
 
 <script src="/static/js/admin-core.js?v={{.version}}"></script>
@@ -1386,6 +1425,15 @@ function updateCountdown() {
 }
 
 (function() {
+    var aaToggle = document.getElementById('autoAcceptToggle');
+    if (aaToggle) {
+        var aaKey = 'examvan_auto_accept_' + EXAM_ID;
+        aaToggle.checked = localStorage.getItem(aaKey) === 'true';
+        aaToggle.addEventListener('change', function() {
+            localStorage.setItem(aaKey, this.checked ? 'true' : 'false');
+        });
+    }
+
     loadDetail();
     loadApprovals();
     setInterval(loadApprovals, 5000);
