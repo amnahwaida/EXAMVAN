@@ -352,7 +352,7 @@ func ExamByToken() gin.HandlerFunc {
 			return
 		}
 
-		if !exam.IsActive() {
+		if !exam.IsActive() || exam.ExamStartedAt == nil {
 			errorResponse(c, http.StatusForbidden, "Ujian belum dimulai oleh pengawas")
 			return
 		}
@@ -440,7 +440,7 @@ func ExamPDF() gin.HandlerFunc {
 			errorResponse(c, http.StatusInternalServerError, "Gagal memuat data ujian")
 			return
 		}
-		if !exam.IsActive() || !examtoken.Matches(exam, token) {
+		if !exam.IsActive() || exam.ExamStartedAt == nil || !examtoken.Matches(exam, token) {
 			errorResponse(c, http.StatusNotFound, "Ujian tidak ditemukan")
 			return
 		}
@@ -598,7 +598,7 @@ func SubmitExam() gin.HandlerFunc {
 			errorResponse(c, http.StatusInternalServerError, "Gagal memproses jawaban")
 			return
 		}
-		if !exam.IsActive() || !examtoken.Matches(exam, token) {
+		if !exam.IsActive() || exam.ExamStartedAt == nil || !examtoken.Matches(exam, token) {
 			errorResponse(c, http.StatusNotFound, "Ujian tidak ditemukan")
 			return
 		}
@@ -867,7 +867,7 @@ func AccessLog() gin.HandlerFunc {
 		// --- Verify exam exists and is active ---
 		var examExists int
 		err = pool.QueryRow(ctx,
-			`SELECT 1 FROM exams WHERE id = $1 AND status = 'active'`, examID).Scan(&examExists)
+			`SELECT 1 FROM exams WHERE id = $1 AND status = 'active' AND exam_started_at IS NOT NULL`, examID).Scan(&examExists)
 		if err != nil {
 			if err == pgx.ErrNoRows {
 				errorResponse(c, http.StatusNotFound, "Ujian tidak ditemukan")

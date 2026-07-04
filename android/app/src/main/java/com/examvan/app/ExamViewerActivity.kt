@@ -588,9 +588,9 @@ class ExamViewerActivity : BaseSecureActivity() {
             securityEnforcer.submittedOrExited = viewModel.submittedOrExited.value
             securityEnforcer.handleUserLeave()
 
-            // Auto-submit on user exit for medium security or strict mode (as bypass defense)
+            // Auto-submit on user exit for medium security only (as bypass defense)
             if (!submissionManager.submittedOrExited && viewModel.isPdfReady.value) {
-                if (securityLevel == "medium" || securityEnforcer.strictMode) {
+                if (securityLevel == "medium") {
                     submissionManager.autoSubmitAndExit()
                 }
             }
@@ -603,7 +603,15 @@ class ExamViewerActivity : BaseSecureActivity() {
             securityEnforcer.isPdfReady = viewModel.isPdfReady.value
             securityEnforcer.submittedOrExited = viewModel.submittedOrExited.value
             securityEnforcer.handleWindowFocusChanged(hasFocus) {
-                submissionManager.autoSubmitAndExit()
+                // For medium security, auto-submit and exit immediately.
+                // For strict mode, block screen (show security violation) but stay pinned!
+                if (securityLevel == "medium") {
+                    submissionManager.autoSubmitAndExit()
+                } else if (securityEnforcer.strictMode) {
+                    securityEnforcer.showSecurityViolation("Fokus layar terganggu. Pastikan tidak ada aplikasi overlay, split-screen, atau notifikasi aktif.") {
+                        securityEnforcer.retryStrictMode()
+                    }
+                }
             }
         }
     }

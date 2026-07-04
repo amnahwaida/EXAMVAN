@@ -278,7 +278,7 @@ func ListActiveExams(ctx context.Context, pool *pgxpool.Pool, page, perPage int)
 
 	// Count.
 	var total int
-	err := pool.QueryRow(ctx, `SELECT COUNT(*) FROM exams WHERE status = 'active'`).Scan(&total)
+	err := pool.QueryRow(ctx, `SELECT COUNT(*) FROM exams WHERE status = 'active' AND exam_started_at IS NOT NULL`).Scan(&total)
 	if err != nil {
 		return ListExamsResult{}, fmt.Errorf("count active exams: %w", err)
 	}
@@ -290,7 +290,7 @@ func ListActiveExams(ctx context.Context, pool *pgxpool.Pool, page, perPage int)
 	offset := calcOffset(page, perPage)
 
 	rows, err := pool.Query(ctx,
-		`SELECT `+DefaultExamColumns+` FROM exams WHERE status = 'active' ORDER BY created_at DESC LIMIT $1 OFFSET $2`,
+		`SELECT `+DefaultExamColumns+` FROM exams WHERE status = 'active' AND exam_started_at IS NOT NULL ORDER BY created_at DESC LIMIT $1 OFFSET $2`,
 		perPage, offset)
 	if err != nil {
 		return ListExamsResult{}, fmt.Errorf("list active exams: %w", err)
