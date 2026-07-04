@@ -341,30 +341,19 @@ class SubmissionManager(
 
         AuditLog.i(AuditLog.Events.AUTO_SUBMIT, "strict=$strictMode answers=${getAnswers?.invoke()?.size}")
 
-        // Immediately persist submitted/exited state in SharedPreferences before starting network request.
-        // This prevents the student from re-entering the exam if they exit via network disconnection bypass.
+        // 1. Immediately persist submitted/exited state in SharedPreferences
         onSubmitSuccess?.invoke()
 
-        // Use GlobalScope + NonCancellable so submit completes even if
-        // activity is destroyed (process death, user swipe-away).
-        if (isSubmitting) {
-            GlobalScope.launch(NonCancellable + Dispatchers.Main) {
-                val timeoutTime = System.currentTimeMillis() + 10000
-                while (isSubmitting && System.currentTimeMillis() < timeoutTime) {
-                    delay(100)
-                }
-                deactivateLockTask?.invoke()
-                if (!isActivityFinishing()) onFinish?.invoke()
-            }
-            return
-        }
+        // 2. Immediately close the app and deactivate lock task.
+        // Do not wait for the network request to finish, which prevents the student from reopening the activity during delays.
+        deactivateLockTask?.invoke()
+        onFinish?.invoke()
 
+        // 3. Perform network submission in the background using GlobalScope
         GlobalScope.launch(NonCancellable + Dispatchers.IO) {
             val result = submitWithRetry()
 
-            // Always clear local answers and deactivate lock task when exiting
             clearSavedAnswers()
-            deactivateLockTask?.invoke()
 
             val notifTitle = if (result.first) {
                 context.getString(R.string.auto_submit_success_title)
@@ -377,11 +366,7 @@ class SubmissionManager(
                 context.getString(R.string.toast_auto_submit_failed, result.second)
             }
 
-            withContext(Dispatchers.Main) {
-                showAutoSubmitNotification(notifTitle, notifMessage)
-                delay(400)
-                if (!isActivityFinishing()) onFinish?.invoke()
-            }
+            showAutoSubmitNotification(notifTitle, notifMessage)
         }
     }
 
