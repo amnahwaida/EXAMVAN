@@ -578,15 +578,6 @@ func SubmitExam() gin.HandlerFunc {
 		// --- Start time ---
 		startTime := sanitizeStartTime(body.StartTime)
 
-		// --- Validate required fields ---
-		// Only student_name is always required. exam_number and student_class
-		// depend on the exam's identity_fields configuration — some exams
-		// only define 2 fields (name + number) without class.
-		if studentName == "" {
-			errorResponse(c, http.StatusBadRequest, "Identitas siswa tidak lengkap")
-			return
-		}
-
 		// --- Verify exam is active and request carries the current token ---
 		token := strings.TrimSpace(c.GetHeader("X-Exam-Token"))
 		if token == "" {
@@ -610,6 +601,51 @@ func SubmitExam() gin.HandlerFunc {
 		if !exam.IsActive() || !examtoken.Matches(exam, token) {
 			errorResponse(c, http.StatusNotFound, "Ujian tidak ditemukan")
 			return
+		}
+
+		// Validate that all identity fields in the exam's config are filled.
+		// If identity_fields config is empty, default to student_name, exam_number, student_class.
+		var expectedFields []struct {
+			Key      string `json:"key"`
+			Label    string `json:"label"`
+			Required bool   `json:"required"`
+		}
+
+		if exam.IdentityFields != nil && *exam.IdentityFields != "" && *exam.IdentityFields != "[]" {
+			_ = json.Unmarshal([]byte(*exam.IdentityFields), &expectedFields)
+		} else {
+			expectedFields = []struct {
+				Key      string `json:"key"`
+				Label    string `json:"label"`
+				Required bool   `json:"required"`
+			}{
+				{Key: "student_name", Label: "Nama Siswa", Required: true},
+				{Key: "exam_number", Label: "Nomor Ujian", Required: true},
+				{Key: "student_class", Label: "Kelas", Required: true},
+			}
+		}
+
+		for _, field := range expectedFields {
+			var val string
+			if body.IdentityData != nil {
+				if v, ok := body.IdentityData[field.Key].(string); ok {
+					val = strings.TrimSpace(v)
+				}
+			}
+			if val == "" {
+				if field.Key == "student_name" {
+					val = strings.TrimSpace(studentName)
+				} else if field.Key == "exam_number" {
+					val = strings.TrimSpace(examNumber)
+				} else if field.Key == "student_class" {
+					val = strings.TrimSpace(studentClass)
+				}
+			}
+
+			if val == "" {
+				errorResponse(c, http.StatusBadRequest, fmt.Sprintf("Identitas '%s' wajib diisi", field.Label))
+				return
+			}
 		}
 
 		// --- Answers JSON ---

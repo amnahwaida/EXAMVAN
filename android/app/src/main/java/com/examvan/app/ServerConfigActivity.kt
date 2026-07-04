@@ -269,8 +269,8 @@ class ServerConfigActivity : BaseSecureActivity() {
     }
 
     private fun showStudentIdentityDialog(exam: Exam, serverUrl: String, token: String) {
-        // Use identity_fields from server, or fall back to defaults
-        val fields = if (!exam.identity_fields.isNullOrEmpty()) {
+        // Use identity_fields from server, or fall back to defaults, forcing all fields to be required
+        val rawFields = if (!exam.identity_fields.isNullOrEmpty()) {
             exam.identity_fields
         } else {
             listOf(
@@ -279,6 +279,7 @@ class ServerConfigActivity : BaseSecureActivity() {
                 IdentityField("student_class", "Kelas", true)
             )
         }
+        val fields = rawFields.map { it.copy(required = true) }
 
         // Inflate XML layout template — lebih maintainable daripada build 100% programmatic
         val dialogView = LayoutInflater.from(this).inflate(R.layout.dialog_student_identity, null)
