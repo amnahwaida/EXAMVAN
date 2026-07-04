@@ -423,7 +423,7 @@ class ServerConfigActivity : BaseSecureActivity() {
                 }
             }
 
-            startExamViewer(exam.id, exam.name, serverUrl, token, name, number, sClass, identityDataStr)
+            startExamViewer(exam.id, exam.name, serverUrl, token, name, number, sClass, identityDataStr, exam.end_time)
         }
 
         alertDialog.show()
@@ -435,7 +435,7 @@ class ServerConfigActivity : BaseSecureActivity() {
         }
     }
 
-    private fun startExamViewer(examId: Int, examName: String, serverUrl: String, token: String, name: String, number: String, studentClass: String, identityData: String = "{}") {
+    private fun startExamViewer(examId: Int, examName: String, serverUrl: String, token: String, name: String, number: String, studentClass: String, identityData: String = "{}", endTime: String? = null) {
         val intent = Intent(this@ServerConfigActivity, ExamViewerActivity::class.java).apply {
             putExtra("exam_id", examId)
             putExtra("exam_name", examName)
@@ -445,6 +445,7 @@ class ServerConfigActivity : BaseSecureActivity() {
             putExtra("student_number", number)
             putExtra("student_class", studentClass)
             putExtra("identity_data", identityData)
+            putExtra("end_time", endTime)
         }
         startActivity(intent)
     }

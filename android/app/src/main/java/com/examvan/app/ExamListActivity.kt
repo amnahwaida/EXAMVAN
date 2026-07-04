@@ -74,6 +74,7 @@ class ExamListActivity : BaseSecureActivity() {
                 putExtra("student_number", number)
                 putExtra("student_class", sClass)
                 putExtra("identity_data", identityJsonStr)
+                putExtra("end_time", exam.end_time)
             }
             startActivity(intent)
         }

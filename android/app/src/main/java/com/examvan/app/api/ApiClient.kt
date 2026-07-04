@@ -73,6 +73,9 @@ object ApiClient {
 
     private var baseUrl: String = ""
 
+    @JvmStatic
+    var serverTimeSkewMs: Long = 0L
+
     fun setBaseUrl(url: String) {
         var cleanUrl = url.trimEnd('/')
         // Enforce https if it's a remote domain (not a private IP or local hostname)
@@ -123,6 +126,13 @@ object ApiClient {
                     try {
                         val body = it.body?.string() ?: ""
                         val health = gson.fromJson(body, HealthResponse::class.java)
+                        health.server_time_utc?.let { utcStr ->
+                            try {
+                                val serverTime = java.time.Instant.parse(utcStr).toEpochMilli()
+                                val deviceTime = System.currentTimeMillis()
+                                serverTimeSkewMs = serverTime - deviceTime
+                            } catch (_: Exception) {}
+                        }
 
                         // Certificate pinning: if server provides a fingerprint and we're on HTTPS,
                         // validate against EXPECTED_FINGERPRINT if set, then rebuild with pinning.

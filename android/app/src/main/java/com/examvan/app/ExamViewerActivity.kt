@@ -48,6 +48,8 @@ class ExamViewerActivity : BaseSecureActivity() {
     private var studentClass = ""
     private var identityData: String? = null
     private var startTime = ""
+    private var endTime: String? = null
+    private var countDownTimer: android.os.CountDownTimer? = null
     private var macAddress = ""
     private var serverUrl = ""
     private var examToken = ""
@@ -99,6 +101,7 @@ class ExamViewerActivity : BaseSecureActivity() {
         identityData = intent.getStringExtra("identity_data")
         serverUrl = intent.getStringExtra("server_url") ?: ""
         examToken = intent.getStringExtra("exam_token") ?: ""
+        endTime = intent.getStringExtra("end_time")
 
         val submittedKey = AppPrefs.getSubmittedOrExitedKey(examId)
         val wasSubmittedOrExited = AppPrefs.getExamPrefs(this).getBoolean(submittedKey, false)
@@ -175,6 +178,7 @@ class ExamViewerActivity : BaseSecureActivity() {
                 securityEnforcer.isPdfReady = true
                 // One-time gesture warning in strict mode
                 securityEnforcer.showGestureWarningOnce()
+                startCountdownTimer()
             }
             onError = { msg ->
                 runOnUiThread {
@@ -309,6 +313,11 @@ class ExamViewerActivity : BaseSecureActivity() {
         val savedDrift = savedInstanceState?.getLong("initialClockDrift", 0L) ?: 0L
         if (savedDrift != 0L) {
             securityEnforcer.initialClockDrift = savedDrift
+        }
+
+        val savedEndTime = savedInstanceState?.getString("endTime")
+        if (savedEndTime != null) {
+            endTime = savedEndTime
         }
 
         // submittedOrExited restore
@@ -558,11 +567,14 @@ class ExamViewerActivity : BaseSecureActivity() {
             }
         }
         securityEnforcer.onResume()
+        if (viewModel.isPdfReady.value) {
+            startCountdownTimer()
+        }
     }
 
     override fun onPause() {
         super.onPause()
-        // onPause fires for many scenarios — auto-submit is handled in onUserLeaveHint
+        countDownTimer?.cancel()
     }
 
     override fun onUserLeaveHint() {
@@ -615,10 +627,12 @@ class ExamViewerActivity : BaseSecureActivity() {
         outState.putString("securityLevel", securityLevel)
         outState.putString("startTime", startTime)
         outState.putLong("initialClockDrift", securityEnforcer.initialClockDrift)
+        outState.putString("endTime", endTime)
     }
 
     override fun onDestroy() {
         super.onDestroy()
+        countDownTimer?.cancel()
         pdfRendererHelper.cleanup()
         securityEnforcer.cleanup()
         unregisterNetworkCallback()
@@ -642,6 +656,48 @@ class ExamViewerActivity : BaseSecureActivity() {
             .addCapability(android.net.NetworkCapabilities.NET_CAPABILITY_INTERNET)
             .build()
         cm.registerNetworkCallback(request, networkCallback)
+    }
+
+    private fun startCountdownTimer() {
+        val end = endTime ?: return
+        countDownTimer?.cancel()
+
+        try {
+            val endInstant = Instant.parse(end)
+            // Adjust current time for server time skew to make it bypass-resilient
+            val serverNowMs = System.currentTimeMillis() + com.examvan.app.api.ApiClient.serverTimeSkewMs
+            val remainingMs = endInstant.toEpochMilli() - serverNowMs
+
+            if (remainingMs <= 0) {
+                runOnUiThread {
+                    Toast.makeText(this, "Waktu ujian telah berakhir!", Toast.LENGTH_LONG).show()
+                    submissionManager.autoSubmitAndExit()
+                }
+                return
+            }
+
+            binding.tvTimer.visibility = View.VISIBLE
+
+            countDownTimer = object : android.os.CountDownTimer(remainingMs, 1000) {
+                override fun onTick(millisUntilFinished: Long) {
+                    val seconds = millisUntilFinished / 1000
+                    val hours = seconds / 3600
+                    val minutes = (seconds % 3600) / 60
+                    val secs = seconds % 60
+                    val timeStr = String.format("Sisa: %02d:%02d:%02d", hours, minutes, secs)
+                    binding.tvTimer.text = timeStr
+                }
+
+                override fun onFinish() {
+                    binding.tvTimer.text = "Sisa: 00:00:00"
+                    Toast.makeText(this@ExamViewerActivity, "Waktu habis! Menyerahkan jawaban...", Toast.LENGTH_LONG).show()
+                    submissionManager.autoSubmitAndExit()
+                }
+            }.start()
+
+        } catch (e: Exception) {
+            Log.e("ExamViewerActivity", "Failed to parse or start countdown timer", e)
+        }
     }
 
     private fun showExamAlreadySubmittedScreen() {
