@@ -15,7 +15,9 @@ import com.examvan.app.helper.PdfRendererHelper
 import com.examvan.app.helper.SecurityEnforcer
 import com.examvan.app.helper.SubmissionManager
 import com.google.gson.Gson
+import android.widget.Toast
 import com.google.gson.reflect.TypeToken
+import androidx.lifecycle.lifecycleScope
 import java.time.Instant
 
 /**
@@ -66,9 +68,7 @@ class ExamViewerActivity : BaseSecureActivity() {
                 android.os.Handler(android.os.Looper.getMainLooper()).post {
                     if (!isFinishing && !isDestroyed && !viewModel.isPdfReady.value) {
                         Log.i(TAG, "Network restored — auto-retrying download")
-                        pdfRendererHelper.downloadPdf(examId,
-                            AppPrefs.getConfigPrefs(this@ExamViewerActivity)
-                                .getString(AppPrefs.KEY_EXAM_TOKEN, "") ?: "")
+                        pdfRendererHelper.downloadPdf(examId, examToken)
                     }
                 }
             }
@@ -100,10 +100,21 @@ class ExamViewerActivity : BaseSecureActivity() {
         serverUrl = intent.getStringExtra("server_url") ?: ""
         examToken = intent.getStringExtra("exam_token") ?: ""
 
+        val submittedKey = AppPrefs.getSubmittedOrExitedKey(examId)
+        val wasSubmittedOrExited = AppPrefs.getExamPrefs(this).getBoolean(submittedKey, false)
+        if (wasSubmittedOrExited) {
+            binding.tvExamTitle.text = examName
+            showExamAlreadySubmittedScreen()
+            return
+        }
+
         // Read from EncryptedSharedPreferences (not Intent) for security
         val strictMode = AppPrefs.getExamPrefs(this).getBoolean(AppPrefs.KEY_STRICT_MODE, false)
         macAddress = DeviceIdResolver.resolveDeviceId(this)
         binding.tvExamTitle.text = examName
+
+        // ---- Initialize helpers ----
+        initializeHelpers(strictMode, savedInstanceState)
 
         // Start WebSocket for real-time communication
         if (serverUrl.isNotEmpty() && examToken.isNotEmpty() && examId > 0) {
@@ -112,6 +123,10 @@ class ExamViewerActivity : BaseSecureActivity() {
                 examId = examId,
                 token = examToken,
                 deviceId = macAddress,
+                student_name = studentName,
+                exam_number = studentNumber,
+                student_class = studentClass,
+                device_info = android.os.Build.MODEL,
                 onEvent = { event, data ->
                     Log.d(TAG, "WS event: $event $data")
                     runOnUiThread {
@@ -135,19 +150,18 @@ class ExamViewerActivity : BaseSecureActivity() {
             )
         }
 
-        // ---- Initialize helpers ----
-        initializeHelpers(strictMode, savedInstanceState)
-
         if (examId == -1) {
             showError(getString(R.string.exam_invalid_id))
             return
         }
 
         // Strict mode activation
-        if (strictMode && !handleStrictMode(savedInstanceState)) return
-
-        // Load exam content
-        loadExamContent(savedInstanceState)
+        if (strictMode) {
+            handleStrictMode(savedInstanceState)
+        } else {
+            // Load exam content
+            loadExamContent(savedInstanceState)
+        }
     }
 
     /**
@@ -210,7 +224,8 @@ class ExamViewerActivity : BaseSecureActivity() {
             studentClass = this@ExamViewerActivity.studentClass
             identityData = this@ExamViewerActivity.identityData
             macAddress = this@ExamViewerActivity.macAddress
-            strictMode = strictMode
+            token = this@ExamViewerActivity.examToken
+            this.strictMode = strictMode
             deactivateLockTask = {
                 if (strictMode) LockTaskManager.deactivate(this@ExamViewerActivity)
             }
@@ -219,8 +234,10 @@ class ExamViewerActivity : BaseSecureActivity() {
             setShowingAppDialog = { v -> securityEnforcer.isShowingAppDialog = v }
             onFinish = { finish() }
             isActivityFinishing = { isFinishing || isDestroyed }
-            onBeforeSubmit = {
+            onSubmitSuccess = {
                 WebSocketManager.notifyExamCompleted()
+                viewModel.setSubmittedOrExited(true)
+                persistSubmittedState()
             }
             initNotificationChannel()
         }
@@ -230,23 +247,26 @@ class ExamViewerActivity : BaseSecureActivity() {
     }
 
     /**
-     * Handle strict mode activation. Returns false if blocked and should return.
+     * Handle strict mode activation.
      */
-    private fun handleStrictMode(savedInstanceState: Bundle?): Boolean {
-        val activated = securityEnforcer.activateStrictMode()
+    private fun handleStrictMode(savedInstanceState: Bundle?) {
+        if (securityEnforcer.isGestureNavigationEnabled()) {
+            securityEnforcer.showGestureBlocked {
+                handleStrictMode(savedInstanceState)
+            }
+            return
+        }
+
+        val activated = securityEnforcer.activateStrictMode {
+            loadExamContent(savedInstanceState)
+        }
         if (!activated) {
             securityEnforcer.showStrictModeFailed {
-                if (securityEnforcer.retryStrictMode()) {
+                securityEnforcer.retryStrictMode {
                     loadExamContent(savedInstanceState)
-                } else {
-                    Toast.makeText(this, "Mode Strict masih gagal. " +
-                            "Coba lagi atau hubungi pengawas.",
-                        android.widget.Toast.LENGTH_LONG).show()
                 }
             }
-            return false
         }
-        return true
     }
 
     /**
@@ -255,8 +275,7 @@ class ExamViewerActivity : BaseSecureActivity() {
     private fun loadExamContent(savedInstanceState: Bundle?) {
         if (examContentLoaded) {
             if (!viewModel.isPdfReady.value) {
-                pdfRendererHelper.downloadPdf(examId,
-                    AppPrefs.getConfigPrefs(this).getString(AppPrefs.KEY_EXAM_TOKEN, "") ?: "")
+                pdfRendererHelper.downloadPdf(examId, examToken)
             }
             return
         }
@@ -285,10 +304,12 @@ class ExamViewerActivity : BaseSecureActivity() {
             prefs.edit().putString(AppPrefs.KEY_EXAM_START_TIME, startTime).apply()
             Log.i(TAG, "New startTime: $startTime")
         }
+        submissionManager.startTime = startTime
 
         // submittedOrExited restore
+        val submittedKeyToRestore = AppPrefs.getSubmittedOrExitedKey(examId)
         val wasSubmittedOrExited = savedInstanceState?.getBoolean("submittedOrExited")
-            ?: prefs.getBoolean(AppPrefs.KEY_SUBMITTED_OR_EXITED, false)
+            ?: prefs.getBoolean(submittedKeyToRestore, false)
         if (wasSubmittedOrExited) {
             viewModel.setSubmittedOrExited(true)
             submissionManager.submittedOrExited = true
@@ -311,8 +332,7 @@ class ExamViewerActivity : BaseSecureActivity() {
 
         // Start PDF download
         try {
-            pdfRendererHelper.downloadPdf(examId,
-                AppPrefs.getConfigPrefs(this).getString(AppPrefs.KEY_EXAM_TOKEN, "") ?: "")
+            pdfRendererHelper.downloadPdf(examId, examToken)
         } catch (e: Exception) {
             showError(getString(R.string.download_failed_format, e.message ?: ""))
         }
@@ -335,8 +355,7 @@ class ExamViewerActivity : BaseSecureActivity() {
         binding.btnNext.setOnClickListener { pdfRendererHelper.nextPage() }
 
         binding.btnRetryDownload.setOnClickListener {
-            pdfRendererHelper.downloadPdf(examId,
-                AppPrefs.getConfigPrefs(this).getString(AppPrefs.KEY_EXAM_TOKEN, "") ?: "")
+            pdfRendererHelper.downloadPdf(examId, examToken)
         }
 
         binding.btnCancel.setOnClickListener {
@@ -616,6 +635,24 @@ class ExamViewerActivity : BaseSecureActivity() {
             .addCapability(android.net.NetworkCapabilities.NET_CAPABILITY_INTERNET)
             .build()
         cm.registerNetworkCallback(request, networkCallback)
+    }
+
+    private fun showExamAlreadySubmittedScreen() {
+        binding.btnBack.visibility = View.GONE
+        binding.btnToggleAnswerSheet.visibility = View.GONE
+        binding.btnSubmitAnswers.visibility = View.GONE
+        binding.btnPrev.visibility = View.GONE
+        binding.btnNext.visibility = View.GONE
+        binding.answerSheetToggle.visibility = View.GONE
+        binding.layoutDownload.visibility = View.GONE
+        binding.ivPdfPage.visibility = View.GONE
+
+        binding.tvErrorMsg.text = "Ujian Sudah Selesai!\n\nAnda telah mengumpulkan jawaban untuk ujian ini. Terima kasih!"
+        binding.btnRetryDownload.text = "Keluar"
+        binding.btnRetryDownload.setOnClickListener {
+            finish()
+        }
+        binding.layoutError.visibility = View.VISIBLE
     }
 
     private fun unregisterNetworkCallback() {

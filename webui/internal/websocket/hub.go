@@ -9,14 +9,18 @@
 package websocket
 
 import (
+	"context"
 	"encoding/json"
+	"fmt"
 	"log"
 	"net/http"
-	"strings"
+	"net/url"
+	"strconv"
 	"sync"
 	"time"
 
 	ws "github.com/gorilla/websocket"
+	redis "github.com/redis/go-redis/v9"
 )
 
 // ---------------------------------------------------------------------------
@@ -33,9 +37,14 @@ var upgrader = ws.Upgrader{
 			// No Origin header (non-browser client) — allow.
 			return true
 		}
-		host := r.Host
-		// Allow requests whose Origin matches the Host (including scheme variants).
-		return strings.Contains(origin, "://"+host) || strings.Contains(origin, "://localhost")
+		
+		u, err := url.Parse(origin)
+		if err != nil {
+			return false
+		}
+
+		// Allow requests whose Origin host matches Host exactly, or is localhost/127.0.0.1
+		return u.Host == r.Host || u.Hostname() == "localhost" || u.Hostname() == "127.0.0.1"
 	},
 }
 
@@ -183,6 +192,8 @@ type Hub struct {
 	broadcast chan *roomMessage
 
 	mu sync.RWMutex
+
+	rdb *redis.Client
 }
 
 // roomMessage carries a message targeted at a specific room.
@@ -192,12 +203,13 @@ type roomMessage struct {
 }
 
 // NewHub creates and returns a new Hub. Call Run() as a goroutine.
-func NewHub() *Hub {
+func NewHub(rdb *redis.Client) *Hub {
 	return &Hub{
 		rooms:      make(map[string]map[*Client]bool),
 		register:   make(chan *Client),
 		unregister: make(chan *Client),
 		broadcast:  make(chan *roomMessage, 4096),
+		rdb:        rdb,
 	}
 }
 
@@ -279,6 +291,84 @@ func (h *Hub) handleClientMessage(client *Client, msg SocketIOMessage) {
 		case client.send <- payload:
 		default:
 		}
+	case "heartbeat":
+		payloadMap, ok := msg.Payload.(map[string]interface{})
+		if !ok || h.rdb == nil {
+			return
+		}
+		
+		// Enforce client.room as the only source of truth for exam ID to prevent cross-exam spoofing
+		examIDStr := client.room
+		examID, err := strconv.Atoi(examIDStr)
+		if err != nil || examID == 0 {
+			return
+		}
+		
+		macAddress, _ := payloadMap["mac_address"].(string)
+		if macAddress == "" {
+			return
+		}
+		studentName, _ := payloadMap["student_name"].(string)
+		examNumber, _ := payloadMap["exam_number"].(string)
+		studentClass, _ := payloadMap["student_class"].(string)
+		deviceInfo, _ := payloadMap["device_info"].(string)
+
+		heartbeatData := map[string]interface{}{
+			"student_name":  studentName,
+			"exam_number":   examNumber,
+			"student_class": studentClass,
+			"device_info":   deviceInfo,
+			"event":         "heartbeat",
+			"last_seen":     time.Now().UTC().Format(time.RFC3339),
+		}
+
+		key := fmt.Sprintf("heartbeat:%d:%s", examID, macAddress)
+		payloadBytes, err := json.Marshal(heartbeatData)
+		if err == nil {
+			ctx := context.Background()
+			_ = h.rdb.Set(ctx, key, payloadBytes, 5*time.Minute).Err()
+
+			// Push to pending queue for database sync
+			heartbeatData["exam_id"] = examID
+			heartbeatData["mac_address"] = macAddress
+			if queuePayload, err := json.Marshal(heartbeatData); err == nil {
+				_ = h.rdb.LPush(ctx, "examvan:heartbeats:pending", queuePayload).Err()
+			}
+		}
+
+		// Ensure exam_id is correctly set in the broadcast map
+		payloadMap["exam_id"] = examIDStr
+
+		// Broadcast heartbeat status to room so other clients/dashboards get it
+		h.BroadcastToRoom(client.room, "student_update", payloadMap)
+
+	case "exam_completed":
+		payloadMap, ok := msg.Payload.(map[string]interface{})
+		if !ok || h.rdb == nil {
+			return
+		}
+
+		// Enforce client.room as the only source of truth for exam ID to prevent cross-exam spoofing
+		examIDStr := client.room
+		examID, err := strconv.Atoi(examIDStr)
+		if err != nil || examID == 0 {
+			return
+		}
+
+		macAddress, _ := payloadMap["mac_address"].(string)
+		if macAddress == "" {
+			return
+		}
+
+		// Delete heartbeat from Redis so student shows offline immediately
+		key := fmt.Sprintf("heartbeat:%d:%s", examID, macAddress)
+		_ = h.rdb.Del(context.Background(), key).Err()
+
+		// Ensure exam_id is correctly set in the broadcast map
+		payloadMap["exam_id"] = examIDStr
+
+		// Broadcast completion update to room
+		h.BroadcastToRoom(client.room, "student_update", payloadMap)
 	}
 }
 

@@ -89,7 +89,7 @@
             android:layout_width="match_parent"
             android:layout_height="52dp"
             android:hint="@string/hint_token"
-            android:inputType="textCapCharacters"
+            android:inputType="text"
             android:textSize="18sp"
             android:textStyle="bold"
             android:textColor="@color/on_surface"

@@ -1,5 +1,7 @@
 package com.examvan.app.model
 
+import com.google.gson.annotations.SerializedName
+
 /**
  * Represents a configurable identity field for student data entry.
  */
@@ -41,6 +43,7 @@ data class ExamListResponse(
  */
 data class TokenExamResponse(
     val success: Boolean,
+    @SerializedName("exam")
     val data: Exam? = null,
     val error: String? = null,
     val message: String? = null

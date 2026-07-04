@@ -6,6 +6,8 @@ package middleware
 
 import (
 	"net/http"
+	"net/url"
+	"strings"
 
 	"github.com/gin-contrib/sessions"
 	"github.com/gin-gonic/gin"
@@ -19,12 +21,12 @@ import (
 // ---------------------------------------------------------------------------
 
 const (
-	SessionKeyAdminID     = "admin_id"
-	SessionKeyUsername    = "username"
-	SessionKeyName        = "name"
-	SessionKeyRole        = "role"
-	SessionKeyIsSuper     = "is_super_admin"
-	SessionKeyInstansi    = "instansi"
+	SessionKeyAdminID  = "admin_id"
+	SessionKeyUsername = "username"
+	SessionKeyName     = "name"
+	SessionKeyRole     = "role"
+	SessionKeyIsSuper  = "is_super_admin"
+	SessionKeyInstansi = "instansi"
 )
 
 // ---------------------------------------------------------------------------
@@ -32,15 +34,48 @@ const (
 // ---------------------------------------------------------------------------
 
 const (
-	ContextKeyUserID      = "user_id"
-	ContextKeyUsername    = "username"
-	ContextKeyName        = "name"
-	ContextKeyRole        = "role"
-	ContextKeyIsSuper     = "is_super_admin"
-	ContextKeyIsOperator  = "is_operator"
-	ContextKeyUserRoles   = "user_roles"
-	ContextKeyInstansi    = "instansi"
+	ContextKeyUserID     = "user_id"
+	ContextKeyUsername   = "username"
+	ContextKeyName       = "name"
+	ContextKeyRole       = "role"
+	ContextKeyIsSuper    = "is_super_admin"
+	ContextKeyIsOperator = "is_operator"
+	ContextKeyUserRoles  = "user_roles"
+	ContextKeyInstansi   = "instansi"
 )
+
+// SafeRedirectPath normalizes an in-app redirect target.
+// It only accepts relative paths within the site and strips malformed values.
+func SafeRedirectPath(raw string) string {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return ""
+	}
+
+	u, err := url.Parse(raw)
+	if err != nil {
+		return ""
+	}
+	if u.IsAbs() || u.Scheme != "" || u.Host != "" {
+		return ""
+	}
+	if !strings.HasPrefix(u.Path, "/") || strings.HasPrefix(u.Path, "//") {
+		return ""
+	}
+	if strings.HasPrefix(u.Path, "/login") || strings.HasPrefix(u.Path, "/admin/login") {
+		return ""
+	}
+	return u.RequestURI()
+}
+
+// LoginURLWithNext builds the login URL with an optional safe next target.
+func LoginURLWithNext(next string) string {
+	safeNext := SafeRedirectPath(next)
+	if safeNext == "" {
+		return "/login"
+	}
+	return "/login?next=" + url.QueryEscape(safeNext)
+}
 
 // AuthRequired ensures the request has a valid session containing admin_id.
 // It sets user info in the gin context for downstream handlers.
@@ -58,7 +93,7 @@ func AuthRequired() gin.HandlerFunc {
 					"message": "Sesi telah berakhir. Silakan login kembali.",
 				})
 			} else {
-				c.Redirect(http.StatusFound, "/login")
+				c.Redirect(http.StatusFound, LoginURLWithNext(c.Request.URL.RequestURI()))
 			}
 			c.Abort()
 			return

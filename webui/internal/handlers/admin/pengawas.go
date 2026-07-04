@@ -14,8 +14,8 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 	redis "github.com/redis/go-redis/v9"
 
-	"github.com/examvan/webui/internal/helpers"
 	"github.com/examvan/webui/internal/models"
+	"github.com/examvan/webui/internal/services/examtoken"
 )
 
 // ---------------------------------------------------------------------------
@@ -61,7 +61,7 @@ func PengawasDetailPage() gin.HandlerFunc {
 		if !isPrivileged {
 			isCreator := exam.CreatedBy == userID
 			isCoordinator := exam.DelegatedTo != nil && *exam.DelegatedTo == userID
-			
+
 			isAssigned := false
 			if hasCurrentRole(c, models.RolePengawas) {
 				assigned, err := models.IsUserAssignedAsPengawas(ctx, pool, examID, userID)
@@ -75,7 +75,7 @@ func PengawasDetailPage() gin.HandlerFunc {
 		}
 
 		autoResetActiveTokenIfNeeded(ctx, pool, &exam)
-		
+
 		creatorName := "-"
 		creator, err := models.GetUserByID(ctx, pool, exam.CreatedBy)
 		if err == nil {
@@ -85,7 +85,7 @@ func PengawasDetailPage() gin.HandlerFunc {
 				creatorName = creator.Username
 			}
 		}
-		
+
 		delegatedName := "-"
 		if exam.DelegatedTo != nil {
 			delegated, err := models.GetUserByID(ctx, pool, *exam.DelegatedTo)
@@ -97,7 +97,7 @@ func PengawasDetailPage() gin.HandlerFunc {
 				}
 			}
 		}
-		
+
 		pengawasAssignments, _ := models.GetPengawasAssignments(ctx, pool, examID)
 
 		canControl := isPrivileged || exam.CreatedBy == userID || (exam.DelegatedTo != nil && *exam.DelegatedTo == userID)
@@ -340,7 +340,7 @@ func PengawasExamSubmissions() gin.HandlerFunc {
 		if !isPrivileged {
 			isCreator := exam.CreatedBy == userID
 			isCoordinator := exam.DelegatedTo != nil && *exam.DelegatedTo == userID
-			
+
 			isAssigned := false
 			if hasCurrentRole(c, models.RolePengawas) {
 				assigned, err := models.IsUserAssignedAsPengawas(ctx, pool, examID, userID)
@@ -452,15 +452,15 @@ func PengawasExamSubmissions() gin.HandlerFunc {
 		}
 
 		c.JSON(http.StatusOK, gin.H{
-			"success":          true,
-			"exam_name":        exam.Name,
+			"success":           true,
+			"exam_name":         exam.Name,
 			"exam_active_token": exam.ActiveToken,
-			"submissions":     subsData,
-			"page":            result.Page,
-			"per_page":        result.PerPage,
-			"total":           result.Total,
-			"total_pages":     result.TotalPages,
-			"stats":           result.Stats,
+			"submissions":       subsData,
+			"page":              result.Page,
+			"per_page":          result.PerPage,
+			"total":             result.Total,
+			"total_pages":       result.TotalPages,
+			"stats":             result.Stats,
 		})
 	}
 }
@@ -488,7 +488,8 @@ func fetchStudentAccessLogs(ctx context.Context, pool *pgxpool.Pool, examID int,
 		var identityDataStr *string
 		if err := rows.Scan(&entry.Event, &entry.IPAddress, &entry.DeviceInfo,
 			&createdAt, &entry.StudentName, &entry.ExamNumber, &entry.StudentClass, &identityDataStr); err != nil {
-			log.Printf("scan error: %v", err); continue
+			log.Printf("scan error: %v", err)
+			continue
 		}
 		entry.CreatedAt = createdAt.Format(time.RFC3339)
 		if identityDataStr != nil {
@@ -508,23 +509,7 @@ func fetchStudentAccessLogs(ctx context.Context, pool *pgxpool.Pool, examID int,
 }
 
 func autoResetActiveTokenIfNeeded(ctx context.Context, pool *pgxpool.Pool, exam *models.Exam) {
-	if exam.TokenMode != nil && *exam.TokenMode == "dynamic" &&
-		exam.ExamStartedAt != nil &&
-		exam.TokenResetInterval != nil && *exam.TokenResetInterval > 0 {
-		shouldReset := true
-		if exam.TokenLastResetAt != nil {
-			nextReset := exam.TokenLastResetAt.Add(time.Duration(*exam.TokenResetInterval) * time.Minute)
-			if time.Now().UTC().Before(nextReset) {
-				shouldReset = false
-			}
-		}
-		if shouldReset {
-			newToken := helpers.GenerateExamToken()
-			if err := models.UpdateExamActiveToken(ctx, pool, exam.ID, newToken); err == nil {
-				exam.ActiveToken = newToken
-				now := time.Now().UTC()
-				exam.TokenLastResetAt = &now
-			}
-		}
+	if err := examtoken.MaybeResetActiveToken(ctx, pool, exam, time.Now().UTC()); err != nil {
+		log.Printf("auto reset active token error: %v", err)
 	}
 }

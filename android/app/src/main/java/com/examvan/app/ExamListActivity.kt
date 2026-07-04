@@ -33,13 +33,48 @@ class ExamListActivity : BaseSecureActivity() {
             ApiClient.setBaseUrl(serverUrl)
         }
 
-        // Setup RecyclerView
         adapter = ExamAdapter { exam ->
-            val intent = Intent(this, ExamViewerActivity::class.java)
-            intent.putExtra("exam_id", exam.id)
-            // Token dibaca dari EncryptedSharedPreferences oleh ExamViewerActivity, bukan dari Intent
-            intent.putExtra("exam_token", "")
-            intent.putExtra("exam_name", exam.name)
+            val configPrefs = AppPrefs.getConfigPrefs(this)
+            val resolvedServerUrl = if (serverUrl.isNotEmpty()) serverUrl else configPrefs.getString(AppPrefs.KEY_SERVER_URL, "") ?: ""
+            val storedExamId = configPrefs.getInt(AppPrefs.KEY_EXAM_ID, -1)
+
+            if (exam.id != storedExamId) {
+                androidx.appcompat.app.AlertDialog.Builder(this)
+                    .setTitle("Ujian Tidak Dapat Diakses")
+                    .setMessage("Ujian ini memerlukan token yang berbeda. Silakan kembali ke layar awal untuk memasukkan token yang valid.")
+                    .setPositiveButton("OK", null)
+                    .show()
+                return@ExamAdapter
+            }
+
+            val submittedKey = AppPrefs.getSubmittedOrExitedKey(exam.id)
+            val submitted = AppPrefs.getExamPrefs(this).getBoolean(submittedKey, false)
+            if (submitted) {
+                androidx.appcompat.app.AlertDialog.Builder(this)
+                    .setTitle("Ujian Sudah Selesai")
+                    .setMessage("Ujian ini sudah Anda kumpulkan dan tidak dapat dikerjakan kembali.")
+                    .setPositiveButton("OK", null)
+                    .show()
+                return@ExamAdapter
+            }
+
+            val resolvedToken = configPrefs.getString(AppPrefs.KEY_EXAM_TOKEN, "") ?: ""
+            val identityJsonStr = configPrefs.getString(AppPrefs.KEY_IDENTITY_DATA, "{}") ?: "{}"
+            val identityJson = try { org.json.JSONObject(identityJsonStr) } catch (_: Exception) { org.json.JSONObject() }
+            val name = identityJson.optString("student_name", "")
+            val number = identityJson.optString("exam_number", "")
+            val sClass = identityJson.optString("student_class", "")
+
+            val intent = Intent(this, ExamViewerActivity::class.java).apply {
+                putExtra("exam_id", exam.id)
+                putExtra("exam_token", resolvedToken)
+                putExtra("exam_name", exam.name)
+                putExtra("server_url", resolvedServerUrl)
+                putExtra("student_name", name)
+                putExtra("student_number", number)
+                putExtra("student_class", sClass)
+                putExtra("identity_data", identityJsonStr)
+            }
             startActivity(intent)
         }
 

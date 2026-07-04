@@ -1,3 +1,6 @@
+//go:build ignore
+// +build ignore
+
 package main
 
 import (
@@ -18,7 +21,7 @@ func main() {
 	resp, _ := client.Get("http://localhost:5001/admin/login")
 	body, _ := io.ReadAll(resp.Body)
 	resp.Body.Close()
-	
+
 	re := regexp.MustCompile(`name="csrf_token" value="([^"]+)"`)
 	matches := re.FindStringSubmatch(string(body))
 	csrf := matches[1]
@@ -28,7 +31,7 @@ func main() {
 	form.Add("username", "superadmin")
 	form.Add("password", "examvan2026")
 	form.Add("csrf_token", csrf)
-	
+
 	req, _ := http.NewRequest("POST", "http://localhost:5001/admin/login", strings.NewReader(form.Encode()))
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	resp2, _ := client.Do(req)
@@ -49,7 +52,7 @@ func main() {
 	body4, _ := io.ReadAll(resp4.Body)
 	resp4.Body.Close()
 	fmt.Printf("API Stop Status: %s\nBody: %s\n", resp4.Status, string(body4))
-	
+
 	// 5. Hit /admin/api/exams/1/start
 	req5, _ := http.NewRequest("POST", "http://localhost:5001/admin/api/exams/1/start", nil)
 	req5.Header.Set("X-CSRF-Token", apiCsrf)

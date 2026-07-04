@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
@@ -42,6 +43,24 @@ func CreateTransaction(ctx context.Context, pool *pgxpool.Pool, tx *Transaction)
 	).Scan(&tx.ID, &tx.CreatedAt, &tx.UpdatedAt)
 	if err != nil {
 		return nil, fmt.Errorf("create transaction: %w", err)
+	}
+
+	return tx, nil
+}
+
+// CreateTransactionTx inserts a new pending transaction within an existing transaction.
+func CreateTransactionTx(ctx context.Context, dbTx pgx.Tx, tx *Transaction) (*Transaction, error) {
+	sql := `INSERT INTO transactions
+		(user_id, package, amount, duration_type, status, payment_method, proof_path, notes)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+		RETURNING id, created_at, updated_at`
+
+	err := dbTx.QueryRow(ctx, sql,
+		tx.UserID, tx.Package, tx.Amount, tx.DurationType, TxStatusPending,
+		tx.PaymentMethod, tx.ProofPath, tx.Notes,
+	).Scan(&tx.ID, &tx.CreatedAt, &tx.UpdatedAt)
+	if err != nil {
+		return nil, fmt.Errorf("create transaction in tx: %w", err)
 	}
 
 	return tx, nil

@@ -601,6 +601,7 @@
  <h1 class="download-title">Aplikasi Siswa EXAMVAN</h1>
  <p class="download-desc">
  Aplikasi client Android untuk mengikuti ujian berbasis server sekolah. Siswa cukup memasukkan alamat server dan token ujian yang diberikan guru untuk memulai ujian dalam mode lockdown kiosk.
+ </p>
    <div class="download-card">
   <div class="meta-grid">
   <div class="meta-item">
@@ -620,27 +621,45 @@
   <!-- Flavor Selection Grid -->
   <div class="flavor-grid-container" style="margin-top: 24px; display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 16px;">
     <!-- Student Flavor Card -->
-    <div style="background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.06); border-radius: 12px; padding: 20px; text-align: center; display: flex; flex-direction: column; justify-content: space-between;">
+    <div style="background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.06); border-radius: 12px; padding: 20px; text-align: center; display: flex; flex-direction: column; justify-content: space-between; gap: 14px;">
       <div>
         <h4 style="color: white; margin-top: 0; margin-bottom: 8px; font-family: 'Outfit'; font-size: 16px;">Flavor Student</h4>
-        <p style="color: var(--color-text-muted); font-size: 13px; line-height: 1.5; margin-bottom: 20px;">Dirancang untuk HP/Tablet pribadi milik siswa. Pemasangan reguler tanpa perlu akses komputer (ADB).</p>
+        <p style="color: var(--color-text-muted); font-size: 13px; line-height: 1.5; margin-bottom: 0;">Dirancang untuk HP/Tablet pribadi milik siswa. Pemasangan reguler tanpa perlu akses komputer (ADB).</p>
       </div>
+      {{if .student_apk_available}}
       <a href="/download/apk?flavor=student" class="btn-download-big" style="width: 100%; margin: 0; padding: 12px; font-size: 14px; text-decoration: none;">
         Unduh Student APK
       </a>
+      {{else}}
+      <span class="btn-download-big" style="width: 100%; margin: 0; padding: 12px; font-size: 14px; text-decoration: none; opacity: 0.55; cursor: not-allowed; pointer-events: none;">
+        Student APK Belum Tersedia
+      </span>
+      {{end}}
     </div>
 
     <!-- Kiosk Flavor Card -->
-    <div style="background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.06); border-radius: 12px; padding: 20px; text-align: center; display: flex; flex-direction: column; justify-content: space-between;">
+    <div style="background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.06); border-radius: 12px; padding: 20px; text-align: center; display: flex; flex-direction: column; justify-content: space-between; gap: 14px;">
       <div>
         <h4 style="color: white; margin-top: 0; margin-bottom: 8px; font-family: 'Outfit'; font-size: 16px;">Flavor Kiosk (Device Owner)</h4>
-        <p style="color: var(--color-text-muted); font-size: 13px; line-height: 1.5; margin-bottom: 20px;">Khusus perangkat milik sekolah. Mengunci absolut tombol fisik di tingkat OS menggunakan Device Owner mode.</p>
+        <p style="color: var(--color-text-muted); font-size: 13px; line-height: 1.5; margin-bottom: 0;">Khusus perangkat milik sekolah. Mengunci absolut tombol fisik di tingkat OS menggunakan Device Owner mode.</p>
       </div>
+      {{if .kiosk_apk_available}}
       <a href="/download/apk?flavor=kiosk" class="btn-download-big" style="width: 100%; margin: 0; padding: 12px; font-size: 14px; background: linear-gradient(135deg, #4f46e5, #6366f1); text-decoration: none;">
         Unduh Kiosk APK
       </a>
+      {{else}}
+      <span class="btn-download-big" style="width: 100%; margin: 0; padding: 12px; font-size: 14px; background: linear-gradient(135deg, #4f46e5, #6366f1); text-decoration: none; opacity: 0.55; cursor: not-allowed; pointer-events: none;">
+        Kiosk APK Belum Tersedia
+      </span>
+      {{end}}
     </div>
   </div>
+
+  {{if not .apk_available}}
+  <div style="margin-top: 18px; padding: 12px 14px; border-radius: 10px; border: 1px solid rgba(245,158,11,0.18); background: rgba(245,158,11,0.06); color: #fcd34d; font-size: 13px; line-height: 1.6;">
+    {{.download_notice}}
+  </div>
+  {{end}}
 
   <div class="download-security-info" style="margin-top: 24px;">
   <div class="security-item">

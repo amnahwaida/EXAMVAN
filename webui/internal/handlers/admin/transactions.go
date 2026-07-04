@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/examvan/webui/internal/config"
@@ -20,75 +21,84 @@ import (
 )
 
 // CalculatePackagePrice calculates pricing based on settings db, falling back to hardcoded defaults
-func CalculatePackagePrice(ctx context.Context, pool *pgxpool.Pool, pkgName, durationType string) int64 {
-	key := fmt.Sprintf("price_%s_%s", pkgName, durationType)
-	if pool != nil {
-		priceVal := models.GetSaasSettingWithDefault(ctx, pool, key, "")
-		if priceVal != "" {
-			if p, err := strconv.ParseInt(priceVal, 10, 64); err == nil {
-				return p
-			}
-		}
-	}
 
-	// Fallback to original hardcoded pricing matrix if not in db
-	switch pkgName {
+func packageEntitlement(pkg string) (exams, pdf, drafts, storage int64, role string) {
+	switch pkg {
 	case "guru":
-		switch durationType {
-		case "bulanan":
-			return 25000
-		case "semester":
-			return 125000
-		case "tahunan":
-			return 225000
-		}
+		return 1, 10 * 1024 * 1024, 10, 100 * 1024 * 1024, ""
 	case "individu":
-		switch durationType {
-		case "bulanan":
-			return 50000
-		case "semester":
-			return 250000
-		case "tahunan":
-			return 450000
-		}
+		return 2, 30 * 1024 * 1024, 30, 300 * 1024 * 1024, ""
 	case "sekolah_kecil":
-		switch durationType {
-		case "bulanan":
-			return 75000
-		case "semester":
-			return 375000
-		case "tahunan":
-			return 675000
-		}
+		return 3, 50 * 1024 * 1024, 50, 500 * 1024 * 1024, models.SerializeRoles([]string{models.RoleOperator})
 	case "sekolah_menengah":
-		switch durationType {
-		case "bulanan":
-			return 175000
-		case "semester":
-			return 875000
-		case "tahunan":
-			return 1575000
-		}
+		return 5, 200 * 1024 * 1024, 200, 2000 * 1024 * 1024, models.SerializeRoles([]string{models.RoleOperator})
 	case "sekolah_besar":
-		switch durationType {
-		case "bulanan":
-			return 375000
-		case "semester":
-			return 1875000
-		case "tahunan":
-			return 3375000
-		}
+		return 10, 500 * 1024 * 1024, 500, 5000 * 1024 * 1024, models.SerializeRoles([]string{models.RoleOperator})
 	case "sekolah_unggulan":
-		switch durationType {
-		case "bulanan":
-			return 750000
-		case "semester":
-			return 3750000
-		case "tahunan":
-			return 6750000
-		}
+		return 99999, 99999 * 1024 * 1024, 99999, 999999 * 1024 * 1024, models.SerializeRoles([]string{models.RoleOperator})
+	default:
+		return 1, 1 * 1024 * 1024, 1, 50 * 1024 * 1024, ""
 	}
-	return 0
+}
+
+func durationDays(durationType string) int {
+	switch durationType {
+	case "bulanan":
+		return 30
+	case "semester":
+		return 180
+	case "tahunan":
+		return 365
+	default:
+		return 30
+	}
+}
+
+func latestApprovedTransactionForUser(ctx context.Context, tx pgx.Tx, userID, excludeTxID int) (*models.Transaction, error) {
+	var t models.Transaction
+	err := tx.QueryRow(ctx, `
+		SELECT id, user_id, package, amount, duration_type, status, payment_method, proof_path, created_at, updated_at, notes
+		FROM transactions
+		WHERE user_id = $1 AND status = $2 AND id <> $3
+		ORDER BY updated_at DESC, id DESC
+		LIMIT 1`, userID, models.TxStatusApproved, excludeTxID).Scan(
+		&t.ID, &t.UserID, &t.Package, &t.Amount, &t.DurationType, &t.Status,
+		&t.PaymentMethod, &t.ProofPath, &t.CreatedAt, &t.UpdatedAt, &t.Notes,
+	)
+	if err != nil {
+		if err == pgx.ErrNoRows {
+			return nil, nil
+		}
+		return nil, err
+	}
+	return &t, nil
+}
+
+func applyApprovedTransactionEntitlement(ctx context.Context, tx pgx.Tx, userID int, pkg, durationType string, expiresAt time.Time, role string) error {
+	exams, pdf, drafts, storage, newRole := packageEntitlement(pkg)
+	if role == "" {
+		role = newRole
+	}
+	if role != "" {
+		_, err := tx.Exec(ctx, `UPDATE admin_users SET
+			package = $1, max_exams = $2, max_pdf_size = $3,
+			max_drafts = $4, max_storage_size = $5,
+			expires_at = $6, status = 'active', role = $7
+			WHERE id = $8`, pkg, exams, pdf, drafts, storage, expiresAt, role, userID)
+		return err
+	}
+	_, err := tx.Exec(ctx, `UPDATE admin_users SET
+		package = $1, max_exams = $2, max_pdf_size = $3,
+		max_drafts = $4, max_storage_size = $5,
+		expires_at = $6, status = 'active'
+		WHERE id = $7`, pkg, exams, pdf, drafts, storage, expiresAt, userID)
+	return err
+}
+
+func CalculatePackagePrice(ctx context.Context, pool *pgxpool.Pool, pkgName, durationType string) int64 {
+	prices := models.GetPricingMap(ctx, pool)
+	key := fmt.Sprintf("%s_%s", pkgName, durationType)
+	return prices[key]
 }
 
 // ListTransactions handles GET /admin/api/transactions.
@@ -274,64 +284,15 @@ func ProcessTransactionApproval(ctx context.Context, pool *pgxpool.Pool, txID in
 	}
 
 	// Calculate expiry days extension
-	var days int
-	switch tx.DurationType {
-	case "bulanan":
-		days = 30
-	case "semester":
-		days = 180
-	case "tahunan":
-		days = 365
-	default:
-		days = 30
-	}
+	days := durationDays(tx.DurationType)
 
 	var newExpiry time.Time
+	now := time.Now().UTC()
 	// If user already active and not expired, extend from user's current expires_at. Otherwise extend from now.
-	if user.ExpiresAt != nil && user.ExpiresAt.After(time.Now()) {
+	if user.ExpiresAt != nil && user.ExpiresAt.After(now) {
 		newExpiry = user.ExpiresAt.AddDate(0, 0, days)
 	} else {
-		newExpiry = time.Now().AddDate(0, 0, days)
-	}
-
-	// Quotas based on penawaran.md
-	var exams, pdf, drafts, storage int64
-	switch tx.Package {
-	case "guru":
-		exams = 1
-		pdf = 10 * 1024 * 1024
-		drafts = 10
-		storage = 100 * 1024 * 1024
-	case "individu":
-		exams = 2
-		pdf = 30 * 1024 * 1024
-		drafts = 30
-		storage = 300 * 1024 * 1024
-	case "sekolah_kecil":
-		exams = 3
-		pdf = 50 * 1024 * 1024
-		drafts = 50
-		storage = 500 * 1024 * 1024
-	case "sekolah_menengah":
-		exams = 5
-		pdf = 200 * 1024 * 1024
-		drafts = 200
-		storage = 2000 * 1024 * 1024
-	case "sekolah_besar":
-		exams = 10
-		pdf = 500 * 1024 * 1024
-		drafts = 500
-		storage = 5000 * 1024 * 1024
-	case "sekolah_unggulan":
-		exams = 99999
-		pdf = 99999 * 1024 * 1024 // virtually unlimited
-		drafts = 99999
-		storage = 999999 * 1024 * 1024
-	default:
-		exams = 1
-		pdf = 1 * 1024 * 1024
-		drafts = 1
-		storage = 50 * 1024 * 1024
+		newExpiry = now.AddDate(0, 0, days)
 	}
 
 	// Extra safety: only approve if still pending (atomic check + update)
@@ -349,31 +310,11 @@ func ProcessTransactionApproval(ctx context.Context, pool *pgxpool.Pool, txID in
 
 	// Upgrade role — sekolah packages get operator privileges
 	newRole := ""
-	switch tx.Package {
-	case "sekolah_kecil", "sekolah_menengah", "sekolah_besar", "sekolah_unggulan":
-		newRole = models.SerializeRoles([]string{models.RoleOperator})
+	if _, _, _, _, role := packageEntitlement(tx.Package); role != "" {
+		newRole = role
 	}
 
-	// Update user limits and package
-	var updateSQL string
-	var updateArgs []interface{}
-	if newRole != "" {
-		updateSQL = `UPDATE admin_users SET
-			package = $1, max_exams = $2, max_pdf_size = $3,
-			max_drafts = $4, max_storage_size = $5,
-			expires_at = $6, status = 'active', role = $7
-			WHERE id = $8`
-		updateArgs = []interface{}{tx.Package, exams, pdf, drafts, storage, newExpiry, newRole, tx.UserID}
-	} else {
-		updateSQL = `UPDATE admin_users SET
-			package = $1, max_exams = $2, max_pdf_size = $3,
-			max_drafts = $4, max_storage_size = $5,
-			expires_at = $6, status = 'active'
-			WHERE id = $7`
-		updateArgs = []interface{}{tx.Package, exams, pdf, drafts, storage, newExpiry, tx.UserID}
-	}
-	_, err = dbTx.Exec(ctx, updateSQL, updateArgs...)
-	if err != nil {
+	if err := applyApprovedTransactionEntitlement(ctx, dbTx, tx.UserID, tx.Package, tx.DurationType, newExpiry, newRole); err != nil {
 		return fmt.Errorf("gagal memperbarui kuota paket pengguna: %w", err)
 	}
 
@@ -424,27 +365,46 @@ func ProcessTransactionReversal(ctx context.Context, pool *pgxpool.Pool, txID in
 		return fmt.Errorf("failed to update transaction status: %w", err)
 	}
 
-	// If transaction was previously approved, we need to revert the user's package and limits to 'free'
+	// If transaction was previously approved, recompute the user's entitlement from remaining approved txs.
 	if tx.Status == models.TxStatusApproved {
-		_, err = dbTx.Exec(ctx,
-			`UPDATE admin_users SET
-				package = 'free',
-				max_exams = 1,
-				max_pdf_size = 1048576, -- 1 MB
-				max_drafts = 1,
-				max_storage_size = 52428800, -- 50 MB
-				expires_at = NULL
-			WHERE id = $1`,
-			tx.UserID,
-		)
+		latest, err := latestApprovedTransactionForUser(ctx, dbTx, tx.UserID, tx.ID)
 		if err != nil {
-			return fmt.Errorf("failed to downgrade user limits: %w", err)
+			return fmt.Errorf("failed to load latest approved transaction: %w", err)
+		}
+		if latest == nil {
+			_, err = dbTx.Exec(ctx,
+				`UPDATE admin_users SET
+					package = 'free',
+					max_exams = 1,
+					max_pdf_size = 1048576,
+					max_drafts = 1,
+					max_storage_size = 52428800,
+					expires_at = NULL
+				WHERE id = $1`,
+				tx.UserID,
+			)
+			if err != nil {
+				return fmt.Errorf("failed to downgrade user limits: %w", err)
+			}
+		} else {
+			now := time.Now().UTC()
+			var user models.AdminUser
+			if err := dbTx.QueryRow(ctx, `SELECT id, username, name, email, role, package, max_exams, max_pdf_size, max_drafts, max_draft_size, max_storage_size, expires_at, status, instansi, instansi_id FROM admin_users WHERE id = $1 FOR UPDATE`, tx.UserID).Scan(&user.ID, &user.Username, &user.Name, &user.Email, &user.Role, &user.Package, &user.MaxExams, &user.MaxPDFSize, &user.MaxDrafts, &user.MaxDraftSize, &user.MaxStorageSize, &user.ExpiresAt, &user.Status, &user.Instansi, &user.InstansiID); err != nil {
+				return fmt.Errorf("failed to reload user for reversal: %w", err)
+			}
+			expiresAt := now.AddDate(0, 0, durationDays(latest.DurationType))
+			if user.ExpiresAt != nil && user.ExpiresAt.After(now) {
+				expiresAt = *user.ExpiresAt
+			}
+			_, _, _, _, role := packageEntitlement(latest.Package)
+			if err := applyApprovedTransactionEntitlement(ctx, dbTx, tx.UserID, latest.Package, latest.DurationType, expiresAt, role); err != nil {
+				return fmt.Errorf("failed to restore user entitlement: %w", err)
+			}
 		}
 	}
 
 	return dbTx.Commit(ctx)
 }
-
 
 // ApproveTransaction handles POST /admin/api/transactions/:id/approve (Superadmin only).
 // Approves payment, updates user's package and limits.
@@ -482,7 +442,7 @@ func ApproveTransaction() gin.HandlerFunc {
 			expiryStr = user.ExpiresAt.Format("2006-01-02 15:04:05")
 		}
 
-		successMessage(c, fmt.Sprintf("Transaksi approved. Akun %s telah diaktifkan ke %s s.d %s", 
+		successMessage(c, fmt.Sprintf("Transaksi approved. Akun %s telah diaktifkan ke %s s.d %s",
 			user.Username, tx.Package, expiryStr))
 	}
 }
@@ -511,21 +471,54 @@ func CreateDokuTransaction(cfg *config.Config) gin.HandlerFunc {
 			return
 		}
 
-		// Limit 1 pending per (user, package) to prevent invoice flooding
-		var existsPending bool
-		err := pool.QueryRow(ctx,
-			`SELECT EXISTS(
-				SELECT 1 FROM transactions 
-				WHERE user_id = $1 AND package = $2 AND status = 'pending'
-			)`,
-			userID, pkgName,
-		).Scan(&existsPending)
+		if cfg.DokuClientID == "" || cfg.DokuSecretKey == "" {
+			log.Printf("DOKU payment gateway is not fully configured. ClientID: %s, SecretKey: %s", cfg.DokuClientID, cfg.DokuSecretKey)
+			errorResponse(c, http.StatusInternalServerError, "Metode pembayaran DOKU sedang tidak tersedia. Silakan hubungi Admin.")
+			return
+		}
+
+		// Fetch user before inserting a pending transaction so failures do not block retry.
+		user, err := models.GetUserByID(ctx, pool, userID)
 		if err != nil {
-			log.Printf("failed to check existing pending transaction: %v", err)
+			log.Printf("failed to get user: %v", err)
+			errorResponse(c, http.StatusInternalServerError, "User tidak ditemukan")
+			return
+		}
+
+		// Lock pending DOKU rows so duplicate invoice creation is serialized.
+		dbTx, err := pool.Begin(ctx)
+		if err != nil {
+			log.Printf("failed to begin doku transaction: %v", err)
 			errorResponse(c, http.StatusInternalServerError, "Gagal memproses pembuatan invoice")
 			return
 		}
-		if existsPending {
+		defer func() {
+			_ = dbTx.Rollback(ctx)
+		}()
+
+		rows, err := dbTx.Query(ctx,
+			`SELECT id FROM transactions
+				 WHERE user_id = $1 AND package = $2 AND status = 'pending' AND payment_method = 'doku'
+				 FOR UPDATE`,
+			userID, pkgName,
+		)
+		if err != nil {
+			log.Printf("failed to check existing pending doku transaction: %v", err)
+			errorResponse(c, http.StatusInternalServerError, "Gagal memproses pembuatan invoice")
+			return
+		}
+		defer rows.Close()
+
+		pendingCount := 0
+		for rows.Next() {
+			pendingCount++
+		}
+		if err := rows.Err(); err != nil {
+			log.Printf("failed to read existing pending doku transaction: %v", err)
+			errorResponse(c, http.StatusInternalServerError, "Gagal memproses pembuatan invoice")
+			return
+		}
+		if pendingCount > 0 {
 			errorResponse(c, http.StatusConflict, "Anda sudah memiliki transaksi pending untuk paket ini. Silakan selesaikan pembayaran sebelumnya.")
 			return
 		}
@@ -541,20 +534,20 @@ func CreateDokuTransaction(cfg *config.Config) gin.HandlerFunc {
 			Status:        models.TxStatusPending,
 		}
 
-		created, err := models.CreateTransaction(ctx, pool, tx)
+		created, err := models.CreateTransactionTx(ctx, dbTx, tx)
 		if err != nil {
 			log.Printf("failed to create transaction row for doku: %v", err)
 			errorResponse(c, http.StatusInternalServerError, "Gagal menyimpan data transaksi")
 			return
 		}
 
-		// Fetch user to supply customer name/email to DOKU
-		user, err := models.GetUserByID(ctx, pool, userID)
-		if err != nil {
-			log.Printf("failed to get user: %v", err)
-			errorResponse(c, http.StatusInternalServerError, "User tidak ditemukan")
+		if err := dbTx.Commit(ctx); err != nil {
+			log.Printf("failed to commit doku transaction: %v", err)
+			errorResponse(c, http.StatusInternalServerError, "Gagal menyimpan data transaksi")
 			return
 		}
+
+		// User was loaded before creating the pending transaction.
 
 		customerName := user.Name
 		if customerName == "" {
@@ -575,13 +568,6 @@ func CreateDokuTransaction(cfg *config.Config) gin.HandlerFunc {
 		callbackURLCancel := fmt.Sprintf("%s/admin/billing?status=cancel", baseURL)
 		invoiceNumber := fmt.Sprintf("EXAMVAN-TX-%d", created.ID)
 
-		// Check if DOKU settings are configured
-		if cfg.DokuClientID == "" || cfg.DokuSecretKey == "" {
-			log.Printf("DOKU payment gateway is not fully configured. ClientID: %s, SecretKey: %s", cfg.DokuClientID, cfg.DokuSecretKey)
-			errorResponse(c, http.StatusInternalServerError, "Metode pembayaran DOKU sedang tidak tersedia. Silakan hubungi Admin.")
-			return
-		}
-
 		// Read active payment methods from settings (comma-separated)
 		dokuPaymentMethods := models.GetSaasSettingWithDefault(ctx, pool, models.SettingDokuPaymentMethods,
 			"VIRTUAL_ACCOUNT_BCA,VIRTUAL_ACCOUNT_MANDIRI,VIRTUAL_ACCOUNT_BRI,VIRTUAL_ACCOUNT_BNI,QRIS,EMONEY_SHOPEEPAY,EMONEY_DANA,EMONEY_OVO,CREDIT_CARD")
@@ -591,6 +577,12 @@ func CreateDokuTransaction(cfg *config.Config) gin.HandlerFunc {
 		redirectURL, err := dokuClient.CreateCheckout(invoiceNumber, amount, callbackURL, callbackURLCancel, customerName, customerEmail, dokuPaymentMethods)
 		if err != nil {
 			log.Printf("failed to create checkout session with DOKU: %v", err)
+			if _, updateErr := pool.Exec(ctx,
+				`UPDATE transactions SET status = $1, notes = $2, updated_at = CURRENT_TIMESTAMP WHERE id = $3 AND status = $4`,
+				models.TxStatusRejected, "DOKU checkout creation failed: "+err.Error(), created.ID, models.TxStatusPending,
+			); updateErr != nil {
+				log.Printf("failed to reject failed DOKU transaction %d: %v", created.ID, updateErr)
+			}
 			errorResponse(c, http.StatusInternalServerError, "Gagal membuat sesi pembayaran DOKU: "+err.Error())
 			return
 		}
@@ -687,54 +679,34 @@ func BillingPage() gin.HandlerFunc {
 			expiresStr = user.ExpiresAt.Format("2006-01-02 15:04:05")
 		}
 
-		// Load prices from database
-		settings, errSettings := models.GetAllSaasSettings(ctx, pool)
-		var prices map[string]int64
-		if errSettings == nil {
-			prices = map[string]int64{
-				"guru_bulanan":             parsePrice(settings[models.SettingPriceGuruBulanan], 25000),
-				"guru_semester":            parsePrice(settings[models.SettingPriceGuruSemester], 125000),
-				"guru_tahunan":             parsePrice(settings[models.SettingPriceGuruTahunan], 225000),
-				"individu_bulanan":         parsePrice(settings[models.SettingPriceIndividuBulanan], 50000),
-				"individu_semester":        parsePrice(settings[models.SettingPriceIndividuSemester], 250000),
-				"individu_tahunan":         parsePrice(settings[models.SettingPriceIndividuTahunan], 450000),
-				"sekolah_kecil_bulanan":    parsePrice(settings[models.SettingPriceSekolahKecilBulanan], 75000),
-				"sekolah_kecil_semester":   parsePrice(settings[models.SettingPriceSekolahKecilSemester], 375000),
-				"sekolah_kecil_tahunan":    parsePrice(settings[models.SettingPriceSekolahKecilTahunan], 675000),
-				"sekolah_menengah_bulanan":  parsePrice(settings[models.SettingPriceSekolahMenengahBulanan], 175000),
-				"sekolah_menengah_semester": parsePrice(settings[models.SettingPriceSekolahMenengahSemester], 875000),
-				"sekolah_menengah_tahunan":  parsePrice(settings[models.SettingPriceSekolahMenengahTahunan], 1575000),
-				"sekolah_besar_bulanan":    parsePrice(settings[models.SettingPriceSekolahBesarBulanan], 375000),
-				"sekolah_besar_semester":   parsePrice(settings[models.SettingPriceSekolahBesarSemester], 1875000),
-				"sekolah_besar_tahunan":    parsePrice(settings[models.SettingPriceSekolahBesarTahunan], 3375000),
-				"sekolah_unggulan_bulanan":  parsePrice(settings[models.SettingPriceSekolahUnggulanBulanan], 750000),
-				"sekolah_unggulan_semester": parsePrice(settings[models.SettingPriceSekolahUnggulanSemester], 3750000),
-				"sekolah_unggulan_tahunan":  parsePrice(settings[models.SettingPriceSekolahUnggulanTahunan], 6750000),
-			}
-		} else {
-			prices = map[string]int64{
-				"guru_bulanan":             25000,
-				"guru_semester":            125000,
-				"guru_tahunan":             225000,
-				"individu_bulanan":         50000,
-				"individu_semester":        250000,
-				"individu_tahunan":         450000,
-				"sekolah_kecil_bulanan":    75000,
-				"sekolah_kecil_semester":   375000,
-				"sekolah_kecil_tahunan":    675000,
-				"sekolah_menengah_bulanan":  175000,
-				"sekolah_menengah_semester": 875000,
-				"sekolah_menengah_tahunan":  1575000,
-				"sekolah_besar_bulanan":    375000,
-				"sekolah_besar_semester":   1875000,
-				"sekolah_besar_tahunan":    3375000,
-				"sekolah_unggulan_bulanan":  750000,
-				"sekolah_unggulan_semester": 3750000,
-				"sekolah_unggulan_tahunan":  6750000,
-			}
+		prices := models.GetPricingMap(ctx, pool)
+
+		plans := []struct {
+			Key, Title, Audience, Accent                                              string
+			Popular                                                                   bool
+			Monthly, Semester, Annual                                                 int64
+			MaxExams, PdfLimit, DraftLimit, StorageLimit, TokenMode, Results, Answers string
+		}{
+			{Key: "guru", Title: "Paket Guru", Audience: "Guru les, bimbel kecil, tryout kelas", Accent: "guru", Monthly: prices[models.SettingPriceGuruBulanan], Semester: prices[models.SettingPriceGuruSemester], Annual: prices[models.SettingPriceGuruTahunan], MaxExams: "1 ujian aktif", PdfLimit: "10 MB per PDF", DraftLimit: "10 draft soal", StorageLimit: "100 MB storage", TokenMode: "Statis", Results: "Aktif", Answers: "Nonaktif"},
+			{Key: "individu", Title: "Paket Individu", Audience: "Pembuat tryout online, bimbel 1-2 kelas", Accent: "individu", Monthly: prices[models.SettingPriceIndividuBulanan], Semester: prices[models.SettingPriceIndividuSemester], Annual: prices[models.SettingPriceIndividuTahunan], MaxExams: "2 ujian aktif", PdfLimit: "30 MB per PDF", DraftLimit: "30 draft soal", StorageLimit: "300 MB storage", TokenMode: "Statis + dinamis", Results: "Aktif", Answers: "Aktif"},
+			{Key: "sekolah_kecil", Title: "Sekolah Kecil", Audience: "SD / MI, ujian PH / UTS", Accent: "kecil", Monthly: prices[models.SettingPriceSekolahKecilBulanan], Semester: prices[models.SettingPriceSekolahKecilSemester], Annual: prices[models.SettingPriceSekolahKecilTahunan], MaxExams: "3 ujian aktif", PdfLimit: "50 MB per PDF", DraftLimit: "50 draft soal", StorageLimit: "500 MB storage", TokenMode: "Statis", Results: "Aktif", Answers: "Nonaktif"},
+			{Key: "sekolah_menengah", Title: "Sekolah Menengah", Audience: "SMP / MTs, ujian PAS / PAT", Accent: "menengah", Monthly: prices[models.SettingPriceSekolahMenengahBulanan], Semester: prices[models.SettingPriceSekolahMenengahSemester], Annual: prices[models.SettingPriceSekolahMenengahTahunan], MaxExams: "5 ujian aktif", PdfLimit: "200 MB per PDF", DraftLimit: "200 draft soal", StorageLimit: "2 GB storage", TokenMode: "Statis + dinamis", Results: "Aktif", Answers: "Aktif"},
+			{Key: "sekolah_besar", Title: "Sekolah Besar", Audience: "SMA / MA / SMK, tryout skala besar", Popular: true, Accent: "besar", Monthly: prices[models.SettingPriceSekolahBesarBulanan], Semester: prices[models.SettingPriceSekolahBesarSemester], Annual: prices[models.SettingPriceSekolahBesarTahunan], MaxExams: "10 ujian aktif", PdfLimit: "500 MB per PDF", DraftLimit: "500 draft soal", StorageLimit: "5 GB storage", TokenMode: "Statis + dinamis", Results: "Aktif", Answers: "Aktif"},
+			{Key: "sekolah_unggulan", Title: "Sekolah Unggulan", Audience: "Kampus, yayasan, skala kabupaten/kota", Accent: "unggulan", Monthly: prices[models.SettingPriceSekolahUnggulanBulanan], Semester: prices[models.SettingPriceSekolahUnggulanSemester], Annual: prices[models.SettingPriceSekolahUnggulanTahunan], MaxExams: "Tak terbatas", PdfLimit: "Tak terbatas", DraftLimit: "Tak terbatas", StorageLimit: "Tak terbatas", TokenMode: "Statis + dinamis", Results: "Aktif", Answers: "Aktif"},
 		}
 
-		renderAdminPage(c, "admin/billing.html", gin.H{
+		selectedPackage := strings.TrimSpace(c.Query("package"))
+		selectedDuration := strings.TrimSpace(c.Query("duration"))
+		validPackage := map[string]bool{"guru": true, "individu": true, "sekolah_kecil": true, "sekolah_menengah": true, "sekolah_besar": true, "sekolah_unggulan": true}
+		if !validPackage[selectedPackage] {
+			selectedPackage = ""
+		}
+		validDuration := map[string]bool{"bulanan": true, "semester": true, "tahunan": true}
+		if !validDuration[selectedDuration] {
+			selectedDuration = ""
+		}
+
+		data := gin.H{
 			"active_page":          "billing",
 			"user_package":         user.Package,
 			"user_expires_at":      expiresStr,
@@ -742,7 +714,11 @@ func BillingPage() gin.HandlerFunc {
 			"user_max_pdf_size_mb": float64(user.MaxPDFSize) / (1024 * 1024),
 			"user_max_storage_mb":  float64(user.MaxStorageSize) / (1024 * 1024),
 			"prices":               prices,
-		})
+			"plans":                plans,
+			"selected_package":     selectedPackage,
+			"selected_duration":    selectedDuration,
+		}
+
+		renderAdminPage(c, "admin/billing.html", data)
 	}
 }
-

@@ -2,21 +2,8 @@
 <network-security-config
     xmlns:tools="http://schemas.android.com/tools"
     tools:ignore="NetworkSecurityConfig">
-    <!--
-        Allow cleartext (HTTP) for private LAN IP ranges using proper CIDR notation.
-        NOTE: <ip-range> requires API 24+ (minSdk = 24, so this is always supported).
-    -->
-    <domain-config cleartextTrafficPermitted="true">
-        <!-- Dummy domain untuk memenuhi lint — ip-range hanya bekerja di API 24+ -->
-        <domain includeSubdomains="true">local</domain>
-        <ip-range>10.0.0.0/8</ip-range>
-        <ip-range>172.16.0.0/12</ip-range>
-        <ip-range>192.168.0.0/16</ip-range>
-        <ip-range>127.0.0.0/8</ip-range>
-    </domain-config>
-
-    <!-- Default: disallow cleartext for non-LAN traffic -->
-    <base-config cleartextTrafficPermitted="false">
+    <!-- Default config: allow cleartext traffic for local LAN school deployments -->
+    <base-config cleartextTrafficPermitted="true">
         <trust-anchors>
             <certificates src="system" />
         </trust-anchors>

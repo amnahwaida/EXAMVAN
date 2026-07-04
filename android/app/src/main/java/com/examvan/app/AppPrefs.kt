@@ -11,6 +11,7 @@ object AppPrefs {
     private const val PREFS_DEVICE = "device_id_encrypted"
 
     const val KEY_SERVER_URL = "server_url"
+    const val KEY_EXAM_ID = "exam_id"
     const val KEY_EXAM_TOKEN = "exam_token"
     const val KEY_REMEMBER_URL = "remember_url"
     const val KEY_IDENTITY_DATA = "identity_data"
@@ -24,6 +25,10 @@ object AppPrefs {
     const val KEY_SAVED_ANSWERS_TIMESTAMP = "saved_answers_timestamp"
     const val KEY_EXAM_START_TIME = "exam_start_time"
     const val KEY_SUBMITTED_OR_EXITED = "submitted_or_exited"
+
+    fun getSubmittedOrExitedKey(examId: Int): String {
+        return "${KEY_SUBMITTED_OR_EXITED}_$examId"
+    }
 
     @Volatile
     private var masterKey: MasterKey? = null

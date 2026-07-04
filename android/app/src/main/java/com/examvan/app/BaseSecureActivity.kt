@@ -135,7 +135,12 @@ abstract class BaseSecureActivity : AppCompatActivity() {
     protected fun clearClipboard() {
         try {
             val clipboard = getSystemService(Context.CLIPBOARD_SERVICE) as? ClipboardManager
-            clipboard?.clearPrimaryClip()
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+                clipboard?.clearPrimaryClip()
+            } else {
+                val clip = android.content.ClipData.newPlainText("", "")
+                clipboard?.setPrimaryClip(clip)
+            }
         } catch (_: Throwable) { }
     }
 }

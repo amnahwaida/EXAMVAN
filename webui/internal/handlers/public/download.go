@@ -20,11 +20,15 @@ import (
 // (derived from StoragePath), then falls back to the working directory's
 // static/ folder.
 func getAPKPath(c *gin.Context) string {
+	return findAPKPath(c, "EXAMVAN.apk")
+}
+
+func findAPKPath(c *gin.Context, filename string) string {
 	// Derive base directory from the configured storage path, e.g.
-	// StoragePath="/app/storage" → base="/app", APK at "/app/static/EXAMVAN.apk".
+	// StoragePath="/app/storage" → base="/app", APK at "/app/static/<file>".
 	if cfg, exists := c.Get("cfg"); exists {
 		baseDir := filepath.Dir(cfg.(*config.Config).StoragePath)
-		cfgPath := filepath.Join(baseDir, "static", "EXAMVAN.apk")
+		cfgPath := filepath.Join(baseDir, "static", filename)
 		if _, err := os.Stat(cfgPath); err == nil {
 			return cfgPath
 		}
@@ -33,14 +37,14 @@ func getAPKPath(c *gin.Context) string {
 	// Fallback: relative to working directory.
 	wd, err := os.Getwd()
 	if err == nil {
-		wdPath := filepath.Join(wd, "static", "EXAMVAN.apk")
+		wdPath := filepath.Join(wd, "static", filename)
 		if _, err := os.Stat(wdPath); err == nil {
 			return wdPath
 		}
 	}
 
 	// Last resort: bare relative path.
-	return "static/EXAMVAN.apk"
+	return filepath.Join("static", filename)
 }
 
 // ---------------------------------------------------------------------------
@@ -52,29 +56,42 @@ func getAPKPath(c *gin.Context) string {
 func DownloadPage() gin.HandlerFunc {
 	return func(c *gin.Context) {
 		pool := getPool(c)
-		if pool == nil {
-			c.HTML(http.StatusInternalServerError, "public/download.html", middleware.MergeTemplateData(c, gin.H{
-				"error": "Database tidak tersedia.",
-			}))
-			return
-		}
 		ctx := c.Request.Context()
 
-		androidVer := models.GetSaasSettingWithDefault(ctx, pool,
-			models.SettingAndroidVersion, "2.1.0")
-		webappVer := models.GetSaasSettingWithDefault(ctx, pool,
-			models.SettingWebappVersion, "2.1.0")
+		androidVer := models.DefaultSettings[models.SettingAndroidVersion]
+		webappVer := models.DefaultSettings[models.SettingWebappVersion]
+		if pool != nil {
+			androidVer = models.GetSaasSettingWithDefault(ctx, pool, models.SettingAndroidVersion, androidVer)
+			webappVer = models.GetSaasSettingWithDefault(ctx, pool, models.SettingWebappVersion, webappVer)
+		}
 
-		apkPath := getAPKPath(c)
+		studentAPKPath := findAPKPath(c, "EXAMVAN-student.apk")
+		kioskAPKPath := findAPKPath(c, "EXAMVAN-kiosk.apk")
+		legacyAPKPath := getAPKPath(c)
+		activeAPKPath := ""
+		if _, err := os.Stat(studentAPKPath); err == nil {
+			activeAPKPath = studentAPKPath
+		} else if _, err := os.Stat(kioskAPKPath); err == nil {
+			activeAPKPath = kioskAPKPath
+		} else if _, err := os.Stat(legacyAPKPath); err == nil {
+			activeAPKPath = legacyAPKPath
+		}
+
 		fileSizeMB := float64(0)
-		if info, err := os.Stat(apkPath); err == nil {
-			fileSizeMB = math.Round(float64(info.Size())/(1024*1024)*100) / 100
+		if activeAPKPath != "" {
+			if info, err := os.Stat(activeAPKPath); err == nil {
+				fileSizeMB = math.Round(float64(info.Size())/(1024*1024)*100) / 100
+			}
 		}
 
 		c.HTML(http.StatusOK, "public/download.html", middleware.MergeTemplateData(c, gin.H{
-			"android_version": androidVer,
-			"webapp_version":  webappVer,
-			"file_size_mb":    fileSizeMB,
+			"android_version":       androidVer,
+			"webapp_version":        webappVer,
+			"file_size_mb":          fileSizeMB,
+			"student_apk_available": studentAPKPath != "" && studentAPKPath != "static/EXAMVAN-student.apk",
+			"kiosk_apk_available":   kioskAPKPath != "" && kioskAPKPath != "static/EXAMVAN-kiosk.apk",
+			"apk_available":         activeAPKPath != "",
+			"download_notice":       "Unduhan APK belum tersedia di environment ini.",
 		}))
 	}
 }
@@ -88,45 +105,17 @@ func DownloadPage() gin.HandlerFunc {
 func DownloadAPK() gin.HandlerFunc {
 	return func(c *gin.Context) {
 		flavor := c.DefaultQuery("flavor", "student")
-		var filename string
+		filename := "EXAMVAN-student.apk"
 		if flavor == "kiosk" {
 			filename = "EXAMVAN-kiosk.apk"
-		} else {
-			filename = "EXAMVAN-student.apk"
 		}
 
-		var apkPath string
-		// First check configuration directory
-		if cfg, exists := c.Get("cfg"); exists {
-			baseDir := filepath.Dir(cfg.(*config.Config).StoragePath)
-			cfgPath := filepath.Join(baseDir, "static", filename)
-			if _, err := os.Stat(cfgPath); err == nil {
-				apkPath = cfgPath
-			}
-		}
-
-		// Fallback relative to working directory
-		if apkPath == "" {
-			wd, err := os.Getwd()
-			if err == nil {
-				wdPath := filepath.Join(wd, "static", filename)
-				if _, err := os.Stat(wdPath); err == nil {
-					apkPath = wdPath
-				}
-			}
-		}
-
-		// Last fallback: use the legacy EXAMVAN.apk path
-		if apkPath == "" {
-			apkPath = getAPKPath(c)
-			filename = "EXAMVAN.apk"
-		}
-
+		apkPath := findAPKPath(c, filename)
 		if _, err := os.Stat(apkPath); os.IsNotExist(err) {
 			log.Printf("APK file not found at %s", apkPath)
-			c.JSON(http.StatusNotFound, gin.H{
+			c.JSON(http.StatusServiceUnavailable, gin.H{
 				"success": false,
-				"message": "File APK tidak ditemukan.",
+				"message": "File APK belum tersedia saat ini.",
 			})
 			return
 		}

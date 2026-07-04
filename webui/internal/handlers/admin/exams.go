@@ -21,6 +21,7 @@ import (
 	r2client "github.com/examvan/webui/internal/handlers/r2"
 	"github.com/examvan/webui/internal/helpers"
 	"github.com/examvan/webui/internal/models"
+	"github.com/examvan/webui/internal/websocket"
 )
 
 // ---------------------------------------------------------------------------
@@ -1047,6 +1048,15 @@ func StopExam() gin.HandlerFunc {
 			log.Printf("stop exam error: %v", err)
 			errorResponse(c, http.StatusInternalServerError, "Gagal menghentikan ujian")
 			return
+		}
+
+		if hubVal, exists := c.Get("ws_hub"); exists && hubVal != nil {
+			if hub, ok := hubVal.(*websocket.Hub); ok {
+				hub.BroadcastToRoom(strconv.Itoa(examID), "exam_terminated", map[string]interface{}{
+					"exam_id": examID,
+					"message": "Ujian dihentikan oleh pengawas",
+				})
+			}
 		}
 
 		successMessage(c, "Pengawasan berhasil dihentikan, ujian dinonaktifkan")

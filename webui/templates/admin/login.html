@@ -52,6 +52,7 @@
  {{end}}
  <form method="POST" action="/admin/login" class="login-form" id="loginForm">
   <input type="hidden" name="csrf_token" value="{{.csrf_token}}">
+  <input type="hidden" name="next" value="{{.next}}">
  <div class="form-group">
  <label class="required" for="username">Username</label>
  <input type="text" id="username" name="username" placeholder="Masukkan username" required autofocus autocomplete="username">

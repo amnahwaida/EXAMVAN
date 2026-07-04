@@ -48,6 +48,21 @@ object ApiClient {
                 .build()
             chain.proceed(request)
         }
+        .addNetworkInterceptor { chain ->
+            val original = chain.request()
+            val baseHost = try {
+                if (baseUrl.isNotEmpty()) java.net.URI(baseUrl).host else null
+            } catch (_: Exception) { null }
+
+            if (baseHost != null && original.url.host != baseHost && original.header("X-Exam-Token") != null) {
+                val cleanRequest = original.newBuilder()
+                    .removeHeader("X-Exam-Token")
+                    .build()
+                chain.proceed(cleanRequest)
+            } else {
+                chain.proceed(original)
+            }
+        }
         .build()
 
     private val clientRef = AtomicReference<OkHttpClient>(defaultClient())
@@ -112,21 +127,25 @@ object ApiClient {
                         // Certificate pinning: if server provides a fingerprint and we're on HTTPS,
                         // validate against EXPECTED_FINGERPRINT if set, then rebuild with pinning.
                         val fp = health.certificate_fingerprint
-                        if (fp != null && baseUrl.startsWith("https://")) {
+                        if (!fp.isNullOrEmpty() && baseUrl.startsWith("https://")) {
                             when {
                                 // Static pinning: verify fingerprint matches EXPECTED_FINGERPRINT first
                                 EXPECTED_FINGERPRINT != null && !fp.equals(EXPECTED_FINGERPRINT, ignoreCase = true) -> {
-                                    // Fingerprint mismatch — log warning but don't pin (could be MITM)
-                                    println("WARNING: Server fingerprint $fp does not match expected $EXPECTED_FINGERPRINT")
+                                    onError("Sidik jari sertifikat server tidak cocok dengan konfigurasi (static mismatch)")
+                                    return
                                 }
                                 // Dynamic pinning (TOFU): first-fingerprint-wins
-                                certificateFingerprint != fp -> {
+                                certificateFingerprint == null -> {
                                     synchronized(ApiClient) {
-                                        if (certificateFingerprint != fp) {
+                                        if (certificateFingerprint == null) {
                                             certificateFingerprint = fp
                                             rebuildClientWithPinning(fp)
                                         }
                                     }
+                                }
+                                certificateFingerprint != fp -> {
+                                    onError("Sidik jari sertifikat server berubah secara mencurigakan (dynamic mismatch)")
+                                    return
                                 }
                             }
                         }
@@ -348,6 +367,7 @@ object ApiClient {
     /** Build the submit request body, shared by async and sync submit methods. */
     private fun buildSubmitRequest(
         examId: Int,
+        token: String,
         studentName: String,
         examNumber: String,
         studentClass: String,
@@ -366,8 +386,9 @@ object ApiClient {
         if (macAddress != null) payload["mac_address"] = macAddress
         if (identityData != null) {
             try {
-                val identityJson = org.json.JSONObject(identityData)
-                payload["identity_data"] = identityJson
+                val type = object : com.google.gson.reflect.TypeToken<Map<String, Any>>() {}.type
+                val identityMap: Map<String, Any> = gson.fromJson(identityData, type)
+                payload["identity_data"] = identityMap
             } catch (_: Exception) {
                 payload["identity_data"] = identityData
             }
@@ -378,6 +399,7 @@ object ApiClient {
         return Request.Builder()
             .url("$baseUrl/api/exams/$examId/submit")
             .post(bodyStr.toRequestBody(mediaType))
+            .header("X-Exam-Token", token)
             .build()
     }
 
@@ -401,6 +423,7 @@ object ApiClient {
      */
     fun submitExam(
         examId: Int,
+        token: String,
         studentName: String,
         examNumber: String,
         studentClass: String,
@@ -411,7 +434,7 @@ object ApiClient {
         onSuccess: (String) -> Unit,
         onError: (String) -> Unit
     ) {
-        val request = buildSubmitRequest(examId, studentName, examNumber, studentClass, answers, startTime, macAddress, identityData)
+        val request = buildSubmitRequest(examId, token, studentName, examNumber, studentClass, answers, startTime, macAddress, identityData)
 
         client.newCall(request).enqueue(object : Callback {
             override fun onFailure(call: Call, e: IOException) {
@@ -433,6 +456,7 @@ object ApiClient {
      */
     fun submitExamSync(
         examId: Int,
+        token: String,
         studentName: String,
         examNumber: String,
         studentClass: String,
@@ -442,7 +466,7 @@ object ApiClient {
         identityData: String? = null
     ): Pair<Boolean, String> {
         return try {
-            val request = buildSubmitRequest(examId, studentName, examNumber, studentClass, answers, startTime, macAddress, identityData)
+            val request = buildSubmitRequest(examId, token, studentName, examNumber, studentClass, answers, startTime, macAddress, identityData)
             client.newCall(request).execute().use { response ->
                 parseSubmitResponse(response)
             }

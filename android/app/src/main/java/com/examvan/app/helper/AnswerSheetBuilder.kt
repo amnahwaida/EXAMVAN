@@ -272,7 +272,11 @@ class AnswerSheetBuilder(
                         selected.add(child.text.toString())
                     }
                 }
-                onAnswerChanged?.invoke(number.toString(), selected)
+                if (selected.isEmpty()) {
+                    onAnswerRemoved?.invoke(number.toString())
+                } else {
+                    onAnswerChanged?.invoke(number.toString(), selected)
+                }
             }
 
             checkboxLayout.addView(cb)
@@ -326,7 +330,11 @@ class AnswerSheetBuilder(
                     } else {
                         matchingAnswers.remove(leftItem)
                     }
-                    onAnswerChanged?.invoke(number.toString(), HashMap(matchingAnswers))
+                    if (matchingAnswers.isEmpty()) {
+                        onAnswerRemoved?.invoke(number.toString())
+                    } else {
+                        onAnswerChanged?.invoke(number.toString(), HashMap(matchingAnswers))
+                    }
                 }
                 override fun onNothingSelected(parent: AdapterView<*>?) {
                     onSpinnerPopupChanged?.invoke(-1)

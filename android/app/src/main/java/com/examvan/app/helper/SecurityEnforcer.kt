@@ -59,6 +59,9 @@ class SecurityEnforcer(
     // Whether app dialog is showing
     var isShowingAppDialog: Boolean = false
 
+    private var gestureRetryCallback: (() -> Unit)? = null
+    var isGestureBlockedShowing: Boolean = false
+
     var onCreateTime: Long = 0L
     var isPdfReady: Boolean = false
     var submittedOrExited: Boolean = false
@@ -81,9 +84,25 @@ class SecurityEnforcer(
      * Attempt to activate strict mode (lock task).
      * Returns true if successful, false otherwise.
      */
-    fun activateStrictMode(): Boolean {
+    fun activateStrictMode(onConfirmed: () -> Unit = {}): Boolean {
         strictMode = true
-        val activated = LockTaskManager.activate(activity)
+        val activated = LockTaskManager.activate(activity) { success ->
+            if (success) {
+                strictModeFailed = false
+                lockTaskActivated = true
+                enterImmersiveMode()
+                restoreButtonVisibility()
+                binding.layoutError.visibility = View.GONE
+                binding.btnRetryDownload.text = activity.getString(R.string.btn_retry)
+                LockTaskManager.startHealthCheck(activity)
+                onConfirmed()
+            } else {
+                strictModeFailed = true
+                showStrictModeFailed {
+                    retryStrictMode(onConfirmed)
+                }
+            }
+        }
         lockTaskActivated = activated
 
         if (activated) {
@@ -122,15 +141,26 @@ class SecurityEnforcer(
     /**
      * Retry strict mode activation after failure.
      */
-    fun retryStrictMode(): Boolean {
-        val retryActivated = LockTaskManager.activate(activity)
-        if (retryActivated) {
-            strictModeFailed = false
-            lockTaskActivated = true
-            enterImmersiveMode()
-            restoreButtonVisibility()
-            binding.layoutError.visibility = View.GONE
-            binding.btnRetryDownload.text = activity.getString(R.string.btn_retry)
+    fun retryStrictMode(onConfirmed: () -> Unit = {}): Boolean {
+        val retryActivated = LockTaskManager.activate(activity) { success ->
+            if (success) {
+                strictModeFailed = false
+                lockTaskActivated = true
+                enterImmersiveMode()
+                restoreButtonVisibility()
+                binding.layoutError.visibility = View.GONE
+                binding.btnRetryDownload.text = activity.getString(R.string.btn_retry)
+                LockTaskManager.startHealthCheck(activity)
+                onConfirmed()
+            } else {
+                strictModeFailed = true
+                showStrictModeFailed {
+                    retryStrictMode(onConfirmed)
+                }
+            }
+        }
+        if (!retryActivated) {
+            strictModeFailed = true
         }
         return retryActivated
     }
@@ -222,9 +252,14 @@ class SecurityEnforcer(
             }
             activePopupCount = 0
 
-            if (strictMode && !LockTaskManager.isActive(activity)) {
+            if (strictMode && !LockTaskManager.isPinningPending && !LockTaskManager.isActive(activity)) {
                 Log.w(TAG, "Lock task inactive on focus gained — re-activating")
-                LockTaskManager.activate(activity)
+                LockTaskManager.activate(activity) { success ->
+                    if (!success) {
+                        strictModeFailed = true
+                        showStrictModeFailed { retryStrictMode() }
+                    }
+                }
             }
             if (strictMode) {
                 enterImmersiveMode()
@@ -252,9 +287,14 @@ class SecurityEnforcer(
                         focusLostRunnable = null
                         return@Runnable
                     }
-                    if (strictMode && !LockTaskManager.isActive(activity)) {
+                    if (strictMode && !LockTaskManager.isPinningPending && !LockTaskManager.isActive(activity)) {
                         Log.w(TAG, "Focus lost + lock task inactive — kemungkinan system overlay/bypass")
-                        LockTaskManager.activate(activity)
+                        LockTaskManager.activate(activity) { success ->
+                            if (!success) {
+                                strictModeFailed = true
+                                showStrictModeFailed { retryStrictMode() }
+                            }
+                        }
                     }
                     focusLostRunnable = null
                 }
@@ -313,11 +353,62 @@ class SecurityEnforcer(
         return false
     }
 
+    fun isGestureNavigationEnabled(): Boolean {
+        return try {
+            val resources = activity.resources
+            val resourceId = resources.getIdentifier("config_navBarInteractionMode", "integer", "android")
+            val mode = if (resourceId > 0) {
+                resources.getInteger(resourceId)
+            } else {
+                Settings.Secure.getInt(activity.contentResolver, "navigation_mode", 0)
+            }
+            mode == 2
+        } catch (e: Exception) {
+            false
+        }
+    }
+
+    fun showGestureBlocked(retryCallback: () -> Unit) {
+        gestureRetryCallback = retryCallback
+        isGestureBlockedShowing = true
+
+        binding.btnBack.visibility = View.GONE
+        binding.btnToggleAnswerSheet.visibility = View.GONE
+        binding.btnSubmitAnswers.visibility = View.GONE
+        binding.btnPrev.visibility = View.GONE
+        binding.btnNext.visibility = View.GONE
+        binding.answerSheetToggle.visibility = View.GONE
+        binding.layoutDownload.visibility = View.GONE
+        binding.ivPdfPage.visibility = View.GONE
+
+        binding.tvErrorMsg.text = "Navigasi Gesture Terdeteksi!\n\n" +
+                "Untuk keamanan ujian, Anda WAJIB mengaktifkan Navigasi 3 Tombol (3-Button Navigation) terlebih dahulu.\n\nSilakan ubah mode navigasi Anda."
+
+        val isGesture = isGestureNavigationEnabled()
+        if (isGesture) {
+            binding.btnRetryDownload.text = "Buka Settings"
+            binding.btnRetryDownload.setOnClickListener {
+                val navIntent = buildNavigationSettingsIntent()
+                safeStartSettings(navIntent)
+                showGestureBlocked(retryCallback)
+            }
+        } else {
+            binding.btnRetryDownload.text = "Mulai Ujian"
+            binding.btnRetryDownload.setOnClickListener {
+                binding.layoutError.visibility = View.GONE
+                isGestureBlockedShowing = false
+                retryCallback()
+            }
+        }
+        binding.layoutError.visibility = View.VISIBLE
+    }
+
     /**
      * Show one-time gesture navigation warning in strict mode.
      */
     fun showGestureWarningOnce() {
         if (!strictMode || gestureWarningShown || activity.isFinishing || activity.isDestroyed) return
+        if (!isGestureNavigationEnabled()) return
         gestureWarningShown = true
         if (Build.VERSION.SDK_INT < 28) return
 
@@ -381,9 +472,15 @@ class SecurityEnforcer(
      * Returns true if lock task was restored.
      */
     fun verifyLockTask(): Boolean {
+        if (LockTaskManager.isPinningPending) return false
         if (strictMode && lockTaskActivated && !LockTaskManager.isActive(activity)) {
             Log.w(TAG, "Lock task inactive — re-activating")
-            return LockTaskManager.activate(activity)
+            return LockTaskManager.activate(activity) { success ->
+                if (!success) {
+                    strictModeFailed = true
+                    showStrictModeFailed { retryStrictMode() }
+                }
+            }
         }
         return false
     }
@@ -392,22 +489,30 @@ class SecurityEnforcer(
      * Re-apply immersive mode and start health check.
      */
     fun onResume() {
+        if (isGestureBlockedShowing) {
+            gestureRetryCallback?.let { showGestureBlocked(it) }
+            return
+        }
         if (strictMode) {
             LockTaskManager.stopHealthCheck()
+            if (LockTaskManager.isPinningPending) return
             if (!LockTaskManager.isActive(activity)) {
                 Log.w(TAG, "Lock task inactive di onResume — re-activating")
-                LockTaskManager.activate(activity)
+                LockTaskManager.activate(activity) { success ->
+                    if (!success) {
+                        strictModeFailed = true
+                        showStrictModeFailed { retryStrictMode() }
+                    }
+                }
             } else {
                 LockTaskManager.startHealthCheck(activity)
             }
         }
     }
 
-    /**
-     * Deactivate lock task.
-     */
     fun deactivateLockTask() {
         if (strictMode) {
+            strictMode = false
             LockTaskManager.deactivate(activity)
         }
     }

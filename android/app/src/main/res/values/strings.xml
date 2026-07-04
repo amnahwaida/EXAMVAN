@@ -1,10 +1,10 @@
 <resources>
     <string name="app_name">Examvan</string>
     <string name="server_config_title">Konfigurasi Server</string>
-    <string name="hint_server_url">http://192.168.1.100:5000</string>
+    <string name="hint_server_url">https://examvan.my.id</string>
     <string name="label_server_url">URL Server</string>
     <string name="label_token">Token Ujian</string>
-    <string name="hint_token">ABC123</string>
+    <string name="hint_token">ABC12345</string>
     <string name="cb_remember_url">Ingat URL Server ini untuk selanjutnya</string>
     <string name="btn_connect">Simpan &amp; Lanjut</string>
     <string name="btn_start_exam">Mulai Ujian</string>
@@ -64,7 +64,10 @@
     <string name="submitting">Mengirim...</string>
     <string name="submitted_label">Sudah Dikumpulkan</string>
     <string name="submit_success_title">Jawaban Berhasil Dikumpulkan</string>
-    <string name="submit_success_message">%1$s\n\nNama: %2$s\nNomor: %3$s\nKelas: %4$s</string>
+    <string name="label_student_name">Nama</string>
+    <string name="label_exam_number">Nomor</string>
+    <string name="label_student_class">Kelas</string>
+    <string name="submit_success_message">%1$s</string>
     <string name="submit_success_done">Selesai</string>
     <string name="submit_failed_retry">Kumpulkan Jawaban</string>
     <string name="submit_failed_title">Gagal</string>

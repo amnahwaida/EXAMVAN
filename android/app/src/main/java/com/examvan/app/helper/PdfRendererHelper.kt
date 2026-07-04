@@ -7,7 +7,7 @@ import android.graphics.pdf.PdfRenderer
 import android.os.ParcelFileDescriptor
 import android.util.Log
 import android.view.View
-import androidx.lifecycle.LifecycleScope
+import androidx.lifecycle.LifecycleCoroutineScope
 import com.examvan.app.api.ApiClient
 import com.examvan.app.databinding.ActivityExamViewerBinding
 import com.examvan.app.view.ZoomableImageView
@@ -28,7 +28,7 @@ import java.io.File
  */
 class PdfRendererHelper(
     private val binding: ActivityExamViewerBinding,
-    private val lifecycleScope: LifecycleScope,
+    private val lifecycleScope: LifecycleCoroutineScope,
     private val context: Context
 ) {
     private var pdfRenderer: PdfRenderer? = null
@@ -39,6 +39,7 @@ class PdfRendererHelper(
         private set
     private var currentBitmap: Bitmap? = null
     private var downloadCall: Call? = null
+    private var isCleanedUp = false
 
     /**
      * Mutex serializes PdfRenderer access (thread-safe — PdfRenderer is NOT thread-safe).
@@ -88,18 +89,31 @@ class PdfRendererHelper(
         }
 
         downloadCall?.cancel()
+        val mainHandler = android.os.Handler(android.os.Looper.getMainLooper())
         downloadCall = ApiClient.downloadPdf(
             examId = examId,
             token = token,
             cacheDir = context.cacheDir,
             onProgress = { percent ->
-                onProgress?.invoke(percent)
+                mainHandler.post {
+                    val isActivityFinishing = (context as? android.app.Activity)?.let { it.isFinishing || it.isDestroyed } ?: false
+                    if (isCleanedUp || isActivityFinishing) return@post
+                    onProgress?.invoke(percent)
+                }
             },
             onSuccess = { file ->
-                openPdf(file)
+                mainHandler.post {
+                    val isActivityFinishing = (context as? android.app.Activity)?.let { it.isFinishing || it.isDestroyed } ?: false
+                    if (isCleanedUp || isActivityFinishing) return@post
+                    openPdf(file)
+                }
             },
             onError = { errorMsg ->
-                onError?.invoke(errorMsg)
+                mainHandler.post {
+                    val isActivityFinishing = (context as? android.app.Activity)?.let { it.isFinishing || it.isDestroyed } ?: false
+                    if (isCleanedUp || isActivityFinishing) return@post
+                    onError?.invoke(errorMsg)
+                }
             }
         )
     }
@@ -274,6 +288,7 @@ class PdfRendererHelper(
     }
 
     fun cleanup() {
+        isCleanedUp = true
         cancelDownload()
         setSwipeListener(null)
         renderVersion++ // invalidates any in-flight render

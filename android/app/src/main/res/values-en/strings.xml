@@ -1,10 +1,10 @@
 <resources>
     <string name="app_name">Examvan</string>
     <string name="server_config_title">Server Configuration</string>
-    <string name="hint_server_url">http://192.168.1.100:5000</string>
+    <string name="hint_server_url">https://examvan.my.id</string>
     <string name="label_server_url">Server URL</string>
     <string name="label_token">Exam Token</string>
-    <string name="hint_token">ABC123</string>
+    <string name="hint_token">ABC12345</string>
     <string name="cb_remember_url">Remember this Server URL for next time</string>
     <string name="btn_connect">Save &amp; Continue</string>
     <string name="btn_start_exam">Start Exam</string>
@@ -64,7 +64,10 @@
     <string name="submitting">Submitting...</string>
     <string name="submitted_label">✅ Submitted</string>
     <string name="submit_success_title">Success</string>
-    <string name="submit_success_message">%1$s\n\nName: %2$s\nNumber: %3$s\nClass: %4$s</string>
+    <string name="label_student_name">Name</string>
+    <string name="label_exam_number">Number</string>
+    <string name="label_student_class">Class</string>
+    <string name="submit_success_message">%1$s</string>
     <string name="submit_success_done">Done</string>
     <string name="submit_failed_retry">📤 Submit Answers</string>
     <string name="submit_failed_title">Failed</string>
@@ -78,6 +81,12 @@
     <string name="auto_submit_failed_title">❌ Failed to Submit Answers</string>
     <string name="notification_channel_name">Exam Answer Submission</string>
     <string name="notification_channel_desc">Notification when exam answers are submitted automatically</string>
+
+    <!-- Gesture navigation warning -->
+    <string name="gesture_warning_title">Disable Gesture Navigation</string>
+    <string name="gesture_warning_message">STRICT mode requires 3-Button Navigation for security.\n\nSteps:\n1. Open Settings → System → Gestures\n2. Select "3-button navigation"\n3. Return to the exam\n\nIf you cannot change it, select "Ignore" — protection will run with limitations.</string>
+    <string name="gesture_warning_ok">Open Settings</string>
+    <string name="gesture_warning_skip">Ignore, I Understand</string>
 
     <!-- Logout dialog -->
     <string name="logout_low_title">Exit Exam</string>

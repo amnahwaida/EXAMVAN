@@ -7,6 +7,8 @@ import android.util.Log
 import com.examvan.app.BuildConfig
 import com.google.gson.Gson
 import okhttp3.*
+import okhttp3.MediaType.Companion.toMediaTypeOrNull
+import okhttp3.RequestBody.Companion.toRequestBody
 import java.util.concurrent.TimeUnit
 
 /**
@@ -120,10 +122,9 @@ object WebSocketManager {
         val wsUrl = baseUrl
             .replace("http://", "ws://")
             .replace("https://", "wss://")
+            .removeSuffix("/")
 
-        // SocketIO handshake URL — token removed from URL query params.
-        // Sent via X-Exam-Token header to prevent leakage in logs/proxies.
-        val socketUrl = "$wsUrl/socket.io/?EIO=4&transport=websocket"
+        val socketUrl = "$wsUrl/ws/$examId"
 
         val request = Request.Builder()
             .url(socketUrl)
@@ -138,6 +139,8 @@ object WebSocketManager {
                 reconnectAttempts = 0
                 Log.d(TAG, "WebSocket connected")
                 startHeartbeat()
+                // Send initial heartbeat immediately to register activity on dashboard
+                sendHeartbeat()
             }
 
             override fun onMessage(webSocket: WebSocket, text: String) {
@@ -172,25 +175,25 @@ object WebSocketManager {
     private fun handleMessage(text: String) {
         Log.d(TAG, "WS message: $text")
         try {
-            if (text.startsWith("42")) {
-                // SocketIO event: "42[\"event_name\",{...}]"
-                val jsonStr = text.substring(2)
-                val arr = gson.fromJson(jsonStr, Array::class.java) as? List<*>
-                if (arr != null && arr.size >= 2) {
-                    val eventName = arr[0]?.toString() ?: return
-                    val eventData = arr[1] as? Map<String, Any> ?: emptyMap()
+            if (text.startsWith("[")) {
+                // Raw JSON array event: "[\"event_name\",{...}]"
+                val arr = gson.fromJson(text, com.google.gson.JsonArray::class.java)
+                if (arr != null && arr.size() >= 2) {
+                    val eventName = arr[0].asString
+                    @Suppress("UNCHECKED_CAST")
+                    val eventData = gson.fromJson(arr[1], Map::class.java) as? Map<String, Any> ?: emptyMap()
                     handleServerEvent(eventName, eventData)
                 }
-            } else if (text.startsWith("40")) {
-                // Connected to namespace
-                Log.d(TAG, "Connected to /student namespace")
-                // Send join exam room
-                sendSocketIOEvent("join_exam", mapOf("exam_id" to examId, "mac_address" to macAddress))
-            } else if (text.startsWith("0")) {
-                // SocketIO open packet - engine.io handshake
-                Log.d(TAG, "Engine.IO handshake received")
-            } else if (text.startsWith("3")) {
-                // SocketIO ping-pong
+            } else if (text.startsWith("42")) {
+                // Legacy SocketIO event: "42[\"event_name\",{...}]"
+                val jsonStr = text.substring(2)
+                val arr = gson.fromJson(jsonStr, com.google.gson.JsonArray::class.java)
+                if (arr != null && arr.size() >= 2) {
+                    val eventName = arr[0].asString
+                    @Suppress("UNCHECKED_CAST")
+                    val eventData = gson.fromJson(arr[1], Map::class.java) as? Map<String, Any> ?: emptyMap()
+                    handleServerEvent(eventName, eventData)
+                }
             }
         } catch (e: Exception) {
             Log.e(TAG, "Failed to parse message: ${e.message}")
@@ -225,8 +228,8 @@ object WebSocketManager {
     private fun sendSocketIOEvent(event: String, data: Map<String, Any>) {
         if (webSocket == null || !connected) return
         try {
-            val jsonData = gson.toJson(data)
-            val message = "42[\"$event\",$jsonData]"
+            val wrapper = listOf(event, data)
+            val message = gson.toJson(wrapper)
             webSocket?.send(message)
         } catch (e: Exception) {
             Log.e(TAG, "Failed to send event: ${e.message}")
@@ -266,8 +269,8 @@ object WebSocketManager {
         )
         // Send synchronously — flush() ensures it goes out before close
         if (connected && webSocket != null) {
-            val jsonData = gson.toJson(data)
-            val message = "42[\"exam_completed\",$jsonData]"
+            val wrapper = listOf("exam_completed", data)
+            val message = gson.toJson(wrapper)
             val sent = webSocket!!.send(message)
             if (sent) {
                 Log.d(TAG, "exam_completed sent via WebSocket")

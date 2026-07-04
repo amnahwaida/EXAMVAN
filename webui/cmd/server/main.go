@@ -19,8 +19,8 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
-	"regexp"
 	"path/filepath"
+	"regexp"
 	"strconv"
 	"strings"
 	"syscall"
@@ -36,14 +36,15 @@ import (
 	"github.com/examvan/webui/internal/handlers/admin"
 	"github.com/examvan/webui/internal/handlers/api"
 	"github.com/examvan/webui/internal/handlers/public"
+	r2client "github.com/examvan/webui/internal/handlers/r2"
 	"github.com/examvan/webui/internal/helpers"
 	"github.com/examvan/webui/internal/middleware"
 	"github.com/examvan/webui/internal/models"
+	"github.com/examvan/webui/internal/services/examtoken"
 	"github.com/examvan/webui/internal/queue"
 	redisclient "github.com/examvan/webui/internal/redis"
-	redis "github.com/redis/go-redis/v9"
-	r2client "github.com/examvan/webui/internal/handlers/r2"
 	"github.com/examvan/webui/internal/websocket"
+	redis "github.com/redis/go-redis/v9"
 )
 
 // version is set at build time via -ldflags. Defaults to config.DefaultVersion.
@@ -189,16 +190,22 @@ func main() {
 			}
 			return localizeUTCString(utcStr, offset)
 		},
-		"add":       func(a, b int) int { return a + b },
-		"sub":       func(a, b int) int { return a - b },
-		"mul":       func(a, b int) int { return a * b },
+		"add": func(a, b int) int { return a + b },
+		"sub": func(a, b int) int { return a - b },
+		"mul": func(a, b int) int { return a * b },
 		"div": func(a, b int) int {
 			if b == 0 {
 				return 0
 			}
 			return a / b
 		},
-		"seq":       func(n int) []int { s := make([]int, n); for i := range s { s[i] = i }; return s },
+		"seq": func(n int) []int {
+			s := make([]int, n)
+			for i := range s {
+				s[i] = i
+			}
+			return s
+		},
 		"dict":      func(values ...interface{}) map[string]interface{} { return toMap(values...) },
 		"hasPrefix": strings.HasPrefix,
 		"hasSuffix": strings.HasSuffix,
@@ -252,7 +259,7 @@ func main() {
 		"adminNav": func(activePage, adminRole, adminUser, csrfToken string) template.HTML {
 			// Prevent XSS: escape user-controlled values
 			adminUser = html.EscapeString(adminUser)
-			
+
 			roleDisplay := models.DisplayRoles(adminRole)
 			roleDisplay = html.EscapeString(roleDisplay)
 
@@ -370,37 +377,60 @@ func main() {
 	}
 
 	// -----------------------------------------------------------------------
-	// 10. Register routes
 	// -----------------------------------------------------------------------
-	registerRoutes(r, cfg, pool)
-
+	// 10. Start WebSocket hub
 	// -----------------------------------------------------------------------
-	// 11. Start WebSocket hub
-	// -----------------------------------------------------------------------
-	hub := websocket.NewHub()
+	hub := websocket.NewHub(rdb)
 	go hub.Run()
 	log.Println("WebSocket hub: started")
 
-	// WebSocket endpoint (session-based auth required).
+	// Inject hub into context for handlers.
+	r.Use(func(c *gin.Context) {
+		c.Set("ws_hub", hub)
+		c.Next()
+	})
+
+	// -----------------------------------------------------------------------
+	// 11. Register routes
+	// -----------------------------------------------------------------------
+	registerRoutes(r, cfg, pool)
+
+	// WebSocket endpoint (session-based or token-based auth required).
 	r.GET("/ws/:room_id", func(c *gin.Context) {
 		session := sessions.Default(c)
-		if session.Get(middleware.SessionKeyAdminID) == nil {
+		roomID := c.Param("room_id")
+
+		authorized := false
+		if session.Get(middleware.SessionKeyAdminID) != nil {
+			authorized = true
+		} else {
+			token := c.GetHeader("X-Exam-Token")
+			if token == "" {
+				token = c.Query("token")
+			}
+			if token != "" {
+				examID, err := strconv.Atoi(roomID)
+				if err == nil {
+					ctx := c.Request.Context()
+					exam, err := models.GetExamByID(ctx, pool, examID)
+					if err == nil && exam.IsActive() && examtoken.Matches(exam, token) {
+						authorized = true
+					}
+				}
+			}
+		}
+
+		if !authorized {
 			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{
 				"success": false,
 				"message": "Unauthorized",
 			})
 			return
 		}
-		roomID := c.Param("room_id")
+
 		if err := hub.JoinRoom(c.Writer, c.Request, roomID); err != nil {
 			log.Printf("websocket: join room %s error: %v", roomID, err)
 		}
-	})
-
-	// Inject hub into context for handlers.
-	r.Use(func(c *gin.Context) {
-		c.Set("ws_hub", hub)
-		c.Next()
 	})
 
 	// -----------------------------------------------------------------------
@@ -478,7 +508,7 @@ func registerRoutes(r *gin.Engine, cfg *config.Config, pool *pgxpool.Pool) {
 	r.GET("/logout", func(c *gin.Context) { c.Redirect(http.StatusFound, "/login") })
 
 	// Legacy: /admin/login → /login
-	r.GET("/admin/login", func(c *gin.Context) { c.Redirect(http.StatusFound, "/login") })
+	r.GET("/admin/login", func(c *gin.Context) { c.Redirect(http.StatusFound, middleware.LoginURLWithNext(c.Query("next"))) })
 	r.POST("/admin/login", middleware.RateLimit(10, time.Minute), loginHandler(cfg))
 
 	r.GET("/register", registerPageHandler(cfg))
@@ -507,6 +537,7 @@ func registerRoutes(r *gin.Engine, cfg *config.Config, pool *pgxpool.Pool) {
 		apiGroup.GET("/exams/:exam_id/pdf", middleware.RateLimit(30, time.Minute), middleware.AndroidVersionCheck(), api.ExamPDF())
 		apiGroup.POST("/exams/:exam_id/submit", middleware.LimitBodySize(5*1024*1024), middleware.RateLimit(10, time.Minute), middleware.AndroidVersionCheck(), api.SubmitExam())
 		apiGroup.POST("/exams/:exam_id/access-log", middleware.LimitBodySize(256*1024), middleware.RateLimit(30, time.Minute), middleware.AndroidVersionCheck(), api.AccessLog())
+		apiGroup.POST("/exams/:exam_id/complete", middleware.LimitBodySize(256*1024), middleware.RateLimit(30, time.Minute), middleware.AndroidVersionCheck(), api.CompleteExam())
 
 		apiGroup.GET("/hasil/:token", middleware.RateLimit(30, time.Minute), public.HasilAPI())
 		apiGroup.GET("/payments/doku/notify", func(c *gin.Context) { c.JSON(http.StatusOK, gin.H{"status": "active"}) })
@@ -610,10 +641,10 @@ func registerRoutes(r *gin.Engine, cfg *config.Config, pool *pgxpool.Pool) {
 		adminAPI.GET("/transactions/proofs/:filename", middleware.SuperAdminRequired(), admin.ServeProofFile(cfg))
 		adminAPI.GET("/pengawas/exams", admin.PengawasExams())
 		adminAPI.GET("/pengawas/exams/:exam_id/submissions", admin.PengawasExamSubmissions())
-		adminAPI.GET("/saas-settings", admin.SaasSettings())
+		adminAPI.GET("/saas-settings", middleware.SuperAdminRequired(), admin.SaasSettings())
 	}
 
-		// ---- Legacy redirects ----
+	// ---- Legacy redirects ----
 	r.GET("/admin", func(c *gin.Context) { c.Redirect(http.StatusFound, "/admin/dashboard") })
 }
 
@@ -645,64 +676,47 @@ func indexHandler(cfg *config.Config) gin.HandlerFunc {
 	}
 }
 
+type pricingPlan struct {
+	Key           string
+	Title         string
+	Audience      string
+	Popular       bool
+	Accent        string
+	MonthlyPrice  int64
+	SemesterPrice int64
+	AnnualPrice   int64
+	MaxExams      string
+	PdfLimit      string
+	DraftLimit    string
+	StorageLimit  string
+	TokenMode     string
+	Results       string
+	Answers       string
+	Features      []string
+}
+
 func pricingHandler(cfg *config.Config) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		data := middleware.TemplateData(c)
 		data["version"] = cfg.Version
 
-		pool, exists := c.Get("db")
-		var prices map[string]int64
-		if exists && pool != nil {
-			dbPool := pool.(*pgxpool.Pool)
-			ctx := c.Request.Context()
-			settings, errSettings := models.GetAllSaasSettings(ctx, dbPool)
-			if errSettings == nil {
-				prices = map[string]int64{
-					"guru_bulanan":             parsePrice(settings[models.SettingPriceGuruBulanan], 25000),
-					"guru_semester":            parsePrice(settings[models.SettingPriceGuruSemester], 125000),
-					"guru_tahunan":             parsePrice(settings[models.SettingPriceGuruTahunan], 225000),
-					"individu_bulanan":         parsePrice(settings[models.SettingPriceIndividuBulanan], 50000),
-					"individu_semester":        parsePrice(settings[models.SettingPriceIndividuSemester], 250000),
-					"individu_tahunan":         parsePrice(settings[models.SettingPriceIndividuTahunan], 450000),
-					"sekolah_kecil_bulanan":    parsePrice(settings[models.SettingPriceSekolahKecilBulanan], 75000),
-					"sekolah_kecil_semester":   parsePrice(settings[models.SettingPriceSekolahKecilSemester], 375000),
-					"sekolah_kecil_tahunan":    parsePrice(settings[models.SettingPriceSekolahKecilTahunan], 675000),
-					"sekolah_menengah_bulanan":  parsePrice(settings[models.SettingPriceSekolahMenengahBulanan], 175000),
-					"sekolah_menengah_semester": parsePrice(settings[models.SettingPriceSekolahMenengahSemester], 875000),
-					"sekolah_menengah_tahunan":  parsePrice(settings[models.SettingPriceSekolahMenengahTahunan], 1575000),
-					"sekolah_besar_bulanan":    parsePrice(settings[models.SettingPriceSekolahBesarBulanan], 375000),
-					"sekolah_besar_semester":   parsePrice(settings[models.SettingPriceSekolahBesarSemester], 1875000),
-					"sekolah_besar_tahunan":    parsePrice(settings[models.SettingPriceSekolahBesarTahunan], 3375000),
-					"sekolah_unggulan_bulanan":  parsePrice(settings[models.SettingPriceSekolahUnggulanBulanan], 750000),
-					"sekolah_unggulan_semester": parsePrice(settings[models.SettingPriceSekolahUnggulanSemester], 3750000),
-					"sekolah_unggulan_tahunan":  parsePrice(settings[models.SettingPriceSekolahUnggulanTahunan], 6750000),
-				}
-			}
+		var dbPool *pgxpool.Pool
+		if dbValue, exists := c.Get("db"); exists && dbValue != nil {
+			dbPool, _ = dbValue.(*pgxpool.Pool)
+		}
+		prices := models.GetPricingMap(c.Request.Context(), dbPool)
+
+		plans := []pricingPlan{
+			{Key: "guru", Title: "Paket Guru", Audience: "Guru les, bimbel kecil, tryout kelas", Accent: "guru", MonthlyPrice: prices["guru_bulanan"], SemesterPrice: prices["guru_semester"], AnnualPrice: prices["guru_tahunan"], MaxExams: "1 ujian aktif", PdfLimit: "10 MB per PDF", DraftLimit: "10 draft soal", StorageLimit: "100 MB storage", TokenMode: "Statis", Results: "Aktif", Answers: "Nonaktif", Features: []string{"Cocok untuk kelas kecil", "Support email"}},
+			{Key: "individu", Title: "Paket Individu", Audience: "Pembuat tryout online, bimbel 1-2 kelas", Accent: "individu", MonthlyPrice: prices["individu_bulanan"], SemesterPrice: prices["individu_semester"], AnnualPrice: prices["individu_tahunan"], MaxExams: "2 ujian aktif", PdfLimit: "30 MB per PDF", DraftLimit: "30 draft soal", StorageLimit: "300 MB storage", TokenMode: "Statis + dinamis", Results: "Aktif", Answers: "Aktif", Features: []string{"Export CSV", "Support email + WA"}},
+			{Key: "sekolah_kecil", Title: "Sekolah Kecil", Audience: "SD / MI, ujian PH / UTS", Accent: "kecil", MonthlyPrice: prices["sekolah_kecil_bulanan"], SemesterPrice: prices["sekolah_kecil_semester"], AnnualPrice: prices["sekolah_kecil_tahunan"], MaxExams: "3 ujian aktif", PdfLimit: "50 MB per PDF", DraftLimit: "50 draft soal", StorageLimit: "500 MB storage", TokenMode: "Statis", Results: "Aktif", Answers: "Nonaktif", Features: []string{"Manajemen Pengguna", "Paket hemat sekolah dasar"}},
+			{Key: "sekolah_menengah", Title: "Sekolah Menengah", Audience: "SMP / MTs, ujian PAS / PAT", Accent: "menengah", MonthlyPrice: prices["sekolah_menengah_bulanan"], SemesterPrice: prices["sekolah_menengah_semester"], AnnualPrice: prices["sekolah_menengah_tahunan"], MaxExams: "5 ujian aktif", PdfLimit: "200 MB per PDF", DraftLimit: "200 draft soal", StorageLimit: "2 GB storage", TokenMode: "Statis + dinamis", Results: "Aktif", Answers: "Aktif", Features: []string{"Manajemen Pengguna", "Panel warna", "Dukungan email + WA"}},
+			{Key: "sekolah_besar", Title: "Sekolah Besar", Audience: "SMA / MA / SMK, tryout skala besar", Popular: true, Accent: "besar", MonthlyPrice: prices["sekolah_besar_bulanan"], SemesterPrice: prices["sekolah_besar_semester"], AnnualPrice: prices["sekolah_besar_tahunan"], MaxExams: "10 ujian aktif", PdfLimit: "500 MB per PDF", DraftLimit: "500 draft soal", StorageLimit: "5 GB storage", TokenMode: "Statis + dinamis", Results: "Aktif", Answers: "Aktif", Features: []string{"Manajemen Pengguna", "Realtime pengawas", "Strict mode", "Export CSV lengkap"}},
+			{Key: "sekolah_unggulan", Title: "Sekolah Unggulan", Audience: "Kampus, yayasan, skala kabupaten/kota", Accent: "unggulan", MonthlyPrice: prices["sekolah_unggulan_bulanan"], SemesterPrice: prices["sekolah_unggulan_semester"], AnnualPrice: prices["sekolah_unggulan_tahunan"], MaxExams: "Tak terbatas", PdfLimit: "Tak terbatas", DraftLimit: "Tak terbatas", StorageLimit: "Tak terbatas", TokenMode: "Statis + dinamis", Results: "Aktif", Answers: "Aktif", Features: []string{"Manajemen Pengguna", "Prioritas infrastruktur", "Backup mingguan", "SLA 99% uptime"}},
 		}
 
-		if prices == nil {
-			prices = map[string]int64{
-				"guru_bulanan":             25000,
-				"guru_semester":            125000,
-				"guru_tahunan":             225000,
-				"individu_bulanan":         50000,
-				"individu_semester":        250000,
-				"individu_tahunan":         450000,
-				"sekolah_kecil_bulanan":    75000,
-				"sekolah_kecil_semester":   375000,
-				"sekolah_kecil_tahunan":    675000,
-				"sekolah_menengah_bulanan":  175000,
-				"sekolah_menengah_semester": 875000,
-				"sekolah_menengah_tahunan":  1575000,
-				"sekolah_besar_bulanan":    375000,
-				"sekolah_besar_semester":   1875000,
-				"sekolah_besar_tahunan":    3375000,
-				"sekolah_unggulan_bulanan":  750000,
-				"sekolah_unggulan_semester": 3750000,
-				"sekolah_unggulan_tahunan":  6750000,
-			}
-		}
 		data["prices"] = prices
+		data["plans"] = plans
 		c.HTML(http.StatusOK, "public/pricing.html", data)
 	}
 }
@@ -720,11 +734,13 @@ func parsePrice(val string, defaultVal int64) int64 {
 
 func robotsHandler() gin.HandlerFunc {
 	return func(c *gin.Context) {
-		pool := c.MustGet("db").(*pgxpool.Pool)
-		ctx := c.Request.Context()
+		seoIndex := true
+		if dbValue, exists := c.Get("db"); exists && dbValue != nil {
+			if pool, ok := dbValue.(*pgxpool.Pool); ok && pool != nil {
+				seoIndex = models.GetSaasSettingBool(c.Request.Context(), pool, models.SettingSEOIndex, true)
+			}
+		}
 
-		seoIndex := models.GetSaasSettingBool(ctx, pool, models.SettingSEOIndex, true)
-		
 		c.Header("Content-Type", "text/plain; charset=utf-8")
 		if seoIndex {
 			c.String(http.StatusOK, "User-agent: *\nAllow: /\nDisallow: /api/\nDisallow: /admin/\n")
@@ -740,6 +756,7 @@ func loginPageHandler(cfg *config.Config) gin.HandlerFunc {
 		data["version"] = cfg.Version
 		data["error"] = nil
 		data["flashes"] = nil
+		data["next"] = middleware.SafeRedirectPath(c.Query("next"))
 		c.HTML(http.StatusOK, "admin/login.html", data)
 	}
 }
@@ -748,11 +765,16 @@ func loginHandler(cfg *config.Config) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		username := strings.TrimSpace(c.PostForm("username"))
 		password := c.PostForm("password")
+		nextTarget := middleware.SafeRedirectPath(c.PostForm("next"))
+		if nextTarget == "" {
+			nextTarget = middleware.SafeRedirectPath(c.Query("next"))
+		}
 
 		if username == "" || password == "" {
 			data := middleware.TemplateData(c)
 			data["error"] = "Username dan password wajib diisi."
 			data["version"] = cfg.Version
+			data["next"] = nextTarget
 			c.HTML(http.StatusOK, "admin/login.html", data)
 			return
 		}
@@ -763,6 +785,7 @@ func loginHandler(cfg *config.Config) gin.HandlerFunc {
 			data := middleware.TemplateData(c)
 			data["error"] = "Database tidak tersedia. Silakan hubungi administrator."
 			data["version"] = cfg.Version
+			data["next"] = nextTarget
 			c.HTML(http.StatusOK, "admin/login.html", data)
 			return
 		}
@@ -775,6 +798,7 @@ func loginHandler(cfg *config.Config) gin.HandlerFunc {
 			data := middleware.TemplateData(c)
 			data["error"] = errMsg
 			data["version"] = cfg.Version
+			data["next"] = nextTarget
 			c.HTML(http.StatusOK, "admin/login.html", data)
 			return
 		}
@@ -802,7 +826,11 @@ func loginHandler(cfg *config.Config) gin.HandlerFunc {
 			log.Printf("session save error: %v", err)
 		}
 
-		c.Redirect(http.StatusFound, "/admin/dashboard")
+		redirectTarget := "/admin/dashboard"
+		if nextTarget != "" {
+			redirectTarget = nextTarget
+		}
+		c.Redirect(http.StatusFound, redirectTarget)
 	}
 }
 
@@ -1208,7 +1236,7 @@ func startHeartbeatFlusher(rdb *redis.Client, pool *pgxpool.Pool) {
 
 func flushHeartbeatsQueue(ctx context.Context, rdb *redis.Client, pool *pgxpool.Pool) {
 	const batchSize = 100
-	
+
 	// Pop up to batchSize items from the list
 	var payloads []string
 	for i := 0; i < batchSize; i++ {
@@ -1247,7 +1275,7 @@ func flushHeartbeatsQueue(ctx context.Context, rdb *redis.Client, pool *pgxpool.
 		if err := json.Unmarshal([]byte(payload), &hb); err != nil {
 			continue
 		}
-		
+
 		t, err := time.Parse(time.RFC3339, hb.LastSeenStr)
 		if err != nil {
 			t = time.Now().UTC()
@@ -1306,4 +1334,3 @@ func cleanExpiredTransactions(ctx context.Context, pool *pgxpool.Pool) {
 		log.Printf("transaction-cleaner: successfully expired %d pending transactions", rows)
 	}
 }
-

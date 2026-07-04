@@ -64,10 +64,37 @@ class ServerConfigActivity : BaseSecureActivity() {
         binding.cbRememberUrl.isChecked = rememberUrl
         if (savedUrl.isNotEmpty()) {
             binding.etServerUrl.setText(savedUrl)
+        } else {
+            binding.etServerUrl.setText("https://examvan.my.id")
         }
         if (savedToken.isNotEmpty()) {
             binding.etToken.setText(savedToken)
         }
+
+        // Enforce UPPERCASE as the user types
+        binding.etToken.addTextChangedListener(object : android.text.TextWatcher {
+            private var isUpdating = false
+            override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) {}
+            override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) {}
+            override fun afterTextChanged(s: android.text.Editable?) {
+                if (isUpdating) return
+                s?.let {
+                    val str = it.toString()
+                    val upper = str.uppercase()
+                    if (str != upper) {
+                        isUpdating = true
+                        val selectionStart = binding.etToken.selectionStart
+                        val selectionEnd = binding.etToken.selectionEnd
+                        it.replace(0, it.length, upper)
+                        binding.etToken.setSelection(
+                            selectionStart.coerceAtMost(upper.length),
+                            selectionEnd.coerceAtMost(upper.length)
+                        )
+                        isUpdating = false
+                    }
+                }
+            }
+        })
 
         // Set version from BuildConfig instead of hardcoded string
         binding.tvVersion.text = "EXAMVAN v${BuildConfig.VERSION_NAME}"
@@ -97,7 +124,14 @@ class ServerConfigActivity : BaseSecureActivity() {
             val token = binding.etToken.text.toString().trim().uppercase()
 
             if (url.isNotEmpty() && !url.startsWith("http://") && !url.startsWith("https://")) {
-                url = "https://$url"
+                val isLocalOrIp = url.startsWith("localhost") ||
+                        url.startsWith("127.0.0.1") ||
+                        url.matches(Regex("^(\\d{1,3}\\.\\d{1,3}\\.\\d{1,3}\\.\\d{1,3})(:\\d+)?.*"))
+                url = if (isLocalOrIp) {
+                    "http://$url"
+                } else {
+                    "https://$url"
+                }
                 binding.etServerUrl.setText(url)
             }
 
@@ -193,22 +227,25 @@ class ServerConfigActivity : BaseSecureActivity() {
                             if (exam != null) {
                                 // Save connection preferences if remember is checked
                                 val configPrefs = AppPrefs.getConfigPrefs(this@ServerConfigActivity)
+                                val tokenToUse = exam.token ?: token
                                 if (binding.cbRememberUrl.isChecked) {
                                     configPrefs.edit()
                                         .putString(AppPrefs.KEY_SERVER_URL, url)
-                                        .putString(AppPrefs.KEY_EXAM_TOKEN, token)
+                                        .putInt(AppPrefs.KEY_EXAM_ID, exam.id)
+                                        .putString(AppPrefs.KEY_EXAM_TOKEN, tokenToUse)
                                         .putBoolean(AppPrefs.KEY_REMEMBER_URL, true)
                                         .apply()
                                 } else {
                                     configPrefs.edit()
                                         .putBoolean(AppPrefs.KEY_REMEMBER_URL, false)
                                         .remove(AppPrefs.KEY_SERVER_URL)
+                                        .remove(AppPrefs.KEY_EXAM_ID)
                                         .remove(AppPrefs.KEY_EXAM_TOKEN)
                                         .apply()
                                 }
 
                                 // Show student identity dialog
-                                showStudentIdentityDialog(exam, url)
+                                showStudentIdentityDialog(exam, url, tokenToUse)
                             } else {
                                 showError(getString(R.string.error_token_not_found))
                             }
@@ -231,7 +268,7 @@ class ServerConfigActivity : BaseSecureActivity() {
         )
     }
 
-    private fun showStudentIdentityDialog(exam: Exam, serverUrl: String) {
+    private fun showStudentIdentityDialog(exam: Exam, serverUrl: String, token: String) {
         // Use identity_fields from server, or fall back to defaults
         val fields = if (!exam.identity_fields.isNullOrEmpty()) {
             exam.identity_fields
@@ -341,11 +378,52 @@ class ServerConfigActivity : BaseSecureActivity() {
                 .putString(AppPrefs.KEY_PANEL_COLOR, panelColor)
                 .apply()
 
-            // Extract legacy fields for backward compat with ExamViewer
-            val name = identityJson.optString("student_name", "")
-            val number = identityJson.optString("exam_number", "")
-            val sClass = identityJson.optString("student_class", "")
-            startExamViewer(exam.id, exam.name, serverUrl, name, number, sClass, identityDataStr)
+            // Extract legacy fields for backward compat with ExamViewer with smart fallbacks for custom keys
+            var name = identityJson.optString("student_name", "")
+            if (name.isEmpty()) {
+                for (key in identityJson.keys()) {
+                    val lowerKey = key.lowercase()
+                    if (lowerKey.contains("nama") || lowerKey.contains("name")) {
+                        name = identityJson.optString(key, "")
+                        if (name.isNotEmpty()) break
+                    }
+                }
+            }
+            if (name.isEmpty() && identityJson.length() > 0) {
+                val firstKey = identityJson.keys().next()
+                name = identityJson.optString(firstKey, "")
+            }
+
+            var number = identityJson.optString("exam_number", "")
+            if (number.isEmpty()) {
+                for (key in identityJson.keys()) {
+                    val lowerKey = key.lowercase()
+                    if (lowerKey.contains("nomor") || lowerKey.contains("no") || lowerKey.contains("nis") || lowerKey.contains("number")) {
+                        number = identityJson.optString(key, "")
+                        if (number.isNotEmpty()) break
+                    }
+                }
+            }
+            if (number.isEmpty() && identityJson.length() > 1) {
+                val keys = identityJson.keys()
+                keys.next()
+                if (keys.hasNext()) {
+                    number = identityJson.optString(keys.next(), "")
+                }
+            }
+
+            var sClass = identityJson.optString("student_class", "")
+            if (sClass.isEmpty()) {
+                for (key in identityJson.keys()) {
+                    val lowerKey = key.lowercase()
+                    if (lowerKey.contains("kelas") || lowerKey.contains("class")) {
+                        sClass = identityJson.optString(key, "")
+                        if (sClass.isNotEmpty()) break
+                    }
+                }
+            }
+
+            startExamViewer(exam.id, exam.name, serverUrl, token, name, number, sClass, identityDataStr)
         }
 
         alertDialog.show()
@@ -357,20 +435,17 @@ class ServerConfigActivity : BaseSecureActivity() {
         }
     }
 
-    private fun startExamViewer(examId: Int, examName: String, serverUrl: String, name: String, number: String, studentClass: String, identityData: String = "{}") {
-        // Token & strict mode dibaca langsung dari EncryptedSharedPreferences oleh ExamViewerActivity,
-        // dikirim via Intent hanya exam_id dan exam_name (bukan data sensitif)
+    private fun startExamViewer(examId: Int, examName: String, serverUrl: String, token: String, name: String, number: String, studentClass: String, identityData: String = "{}") {
         val intent = Intent(this@ServerConfigActivity, ExamViewerActivity::class.java).apply {
             putExtra("exam_id", examId)
             putExtra("exam_name", examName)
             putExtra("server_url", serverUrl)
+            putExtra("exam_token", token)
             putExtra("student_name", name)
             putExtra("student_number", number)
             putExtra("student_class", studentClass)
             putExtra("identity_data", identityData)
         }
-        // Clean sensitive extras before launch — token is read from EncryptedSharedPreferences
-        intent.putExtra("exam_token", "")
         startActivity(intent)
     }
 

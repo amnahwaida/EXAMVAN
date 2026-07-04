@@ -24,6 +24,7 @@ import (
 	"github.com/examvan/webui/internal/helpers"
 	"github.com/examvan/webui/internal/models"
 	"github.com/examvan/webui/internal/queue"
+	"github.com/examvan/webui/internal/services/examtoken"
 )
 
 // ---------------------------------------------------------------------------
@@ -41,11 +42,11 @@ const (
 	submitRateLimitWindow = 60 * time.Second
 
 	// Redis key prefixes.
-	cacheKeyPrefix       = "api:exams:list:"       // + page:per_page
+	cacheKeyPrefix = "api:exams:list:" // + page:per_page
 
-	rateLimitKeyPrefix   = "ratelimit:submit:"     // + exam_id
-	heartbeatKeyPrefix   = "heartbeat:"            // + exam_id:mac_address
-	heartbeatTTL         = 5 * time.Minute
+	rateLimitKeyPrefix = "ratelimit:submit:" // + exam_id
+	heartbeatKeyPrefix = "heartbeat:"        // + exam_id:mac_address
+	heartbeatTTL       = 5 * time.Minute
 )
 
 var defaultIdentityFields []map[string]interface{}
@@ -347,23 +348,14 @@ func ExamByToken() gin.HandlerFunc {
 			return
 		}
 
-		// Auto-reset active_token if exam has started and token mode is dynamic
-		if exam.TokenMode != nil && *exam.TokenMode == "dynamic" &&
-			exam.ExamStartedAt != nil &&
-			exam.TokenResetInterval != nil && *exam.TokenResetInterval > 0 {
-			shouldReset := true
-			if exam.TokenLastResetAt != nil {
-				nextReset := exam.TokenLastResetAt.Add(time.Duration(*exam.TokenResetInterval) * time.Minute)
-				if time.Now().UTC().Before(nextReset) {
-					shouldReset = false
-				}
-			}
-			if shouldReset {
-				newToken := helpers.GenerateExamToken()
-				if err := models.UpdateExamActiveToken(ctx, pool, exam.ID, newToken); err == nil {
-					exam.ActiveToken = newToken
-				}
-			}
+		if !exam.IsActive() {
+			errorResponse(c, http.StatusForbidden, "Ujian belum dimulai oleh pengawas")
+			return
+		}
+
+		// Auto-reset active_token if exam has started and token mode is dynamic.
+		if err := examtoken.MaybeResetActiveToken(ctx, pool, &exam, time.Now().UTC()); err != nil {
+			log.Printf("exam token reset error: %v", err)
 		}
 
 		identityFields := helpers.ParseIdentityFields(exam.IdentityFields, defaultIdentityFields)
@@ -433,7 +425,7 @@ func ExamPDF() gin.HandlerFunc {
 		pool := getPool(c)
 		ctx := c.Request.Context()
 
-		// Verify exam exists with matching token.
+		// Verify exam exists with matching active token.
 		exam, err := models.GetExamByID(ctx, pool, examID)
 		if err != nil {
 			if err == pgx.ErrNoRows {
@@ -444,7 +436,7 @@ func ExamPDF() gin.HandlerFunc {
 			errorResponse(c, http.StatusInternalServerError, "Gagal memuat data ujian")
 			return
 		}
-		if exam.Token != token {
+		if !exam.IsActive() || !examtoken.Matches(exam, token) {
 			errorResponse(c, http.StatusNotFound, "Ujian tidak ditemukan")
 			return
 		}
@@ -477,8 +469,7 @@ func ExamPDF() gin.HandlerFunc {
 		}
 
 		c.Header("Content-Type", "application/pdf")
-		c.Header("X-Accel-Redirect", "/internal/pdf/"+exam.FilePath)
-		c.Status(http.StatusOK)
+		c.File(pdfPath)
 	}
 }
 
@@ -592,10 +583,17 @@ func SubmitExam() gin.HandlerFunc {
 			return
 		}
 
-		// --- Verify exam is active ---
-		var exists int
-		err = pool.QueryRow(ctx,
-			`SELECT 1 FROM exams WHERE id = $1 AND status = 'active'`, examID).Scan(&exists)
+		// --- Verify exam is active and request carries the current token ---
+		token := strings.TrimSpace(c.GetHeader("X-Exam-Token"))
+		if token == "" {
+			token = strings.TrimSpace(c.Query("token"))
+		}
+		if token == "" {
+			errorResponse(c, http.StatusUnauthorized, "Token tidak disertakan")
+			return
+		}
+
+		exam, err := models.GetExamByID(ctx, pool, examID)
 		if err != nil {
 			if err == pgx.ErrNoRows {
 				errorResponse(c, http.StatusNotFound, "Ujian tidak ditemukan")
@@ -603,6 +601,10 @@ func SubmitExam() gin.HandlerFunc {
 			}
 			log.Printf("submit exam lookup error: %v", err)
 			errorResponse(c, http.StatusInternalServerError, "Gagal memproses jawaban")
+			return
+		}
+		if !exam.IsActive() || !examtoken.Matches(exam, token) {
+			errorResponse(c, http.StatusNotFound, "Ujian tidak ditemukan")
 			return
 		}
 
@@ -616,14 +618,14 @@ func SubmitExam() gin.HandlerFunc {
 		// === ASYNC PATH (Redis available) ===
 		if rdb != nil {
 			job := map[string]interface{}{
-				"exam_id":        examID,
-				"student_name":   studentName,
-				"exam_number":    examNumber,
-				"student_class":  studentClass,
-				"identity_data":  body.IdentityData,
-				"answers":        body.Answers,
-				"start_time":     startTime,
-				"mac_address":    macAddress,
+				"exam_id":       examID,
+				"student_name":  studentName,
+				"exam_number":   examNumber,
+				"student_class": studentClass,
+				"identity_data": body.IdentityData,
+				"answers":       body.Answers,
+				"start_time":    startTime,
+				"mac_address":   macAddress,
 			}
 
 			jobID, err := enqueueSubmission(rdb, job)
@@ -811,7 +813,7 @@ func AccessLog() gin.HandlerFunc {
 		studentClass := truncate(body.StudentClass, 100)
 		deviceInfo := truncate(body.DeviceInfo, 200)
 		ipAddress := c.ClientIP()
-		
+
 		var identityDataJSON *string
 		if body.IdentityData != nil {
 			sanitized := sanitizeMap(body.IdentityData)
@@ -900,11 +902,79 @@ func AccessLog() gin.HandlerFunc {
 	}
 }
 
+// CompleteExam records the completion of an exam by deleting the student's heartbeat.
+// POST /api/exams/:exam_id/complete
+func CompleteExam() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		examID, err := strconv.Atoi(c.Param("exam_id"))
+		if err != nil {
+			errorResponse(c, http.StatusBadRequest, "ID ujian tidak valid")
+			return
+		}
+
+		var body struct {
+			MACAddress string `json:"mac_address"`
+			Token      string `json:"token"`
+		}
+		if err := c.ShouldBindJSON(&body); err != nil {
+			errorResponse(c, http.StatusBadRequest, "Payload tidak valid")
+			return
+		}
+
+		if body.MACAddress == "" {
+			errorResponse(c, http.StatusBadRequest, "MAC address diperlukan")
+			return
+		}
+
+		// --- Verify token ---
+		token := strings.TrimSpace(c.GetHeader("X-Exam-Token"))
+		if token == "" {
+			token = strings.TrimSpace(body.Token)
+		}
+		if token == "" {
+			token = strings.TrimSpace(c.Query("token"))
+		}
+		if token == "" {
+			errorResponse(c, http.StatusUnauthorized, "Token tidak disertakan")
+			return
+		}
+
+		pool := getPool(c)
+		ctx := c.Request.Context()
+
+		exam, err := models.GetExamByID(ctx, pool, examID)
+		if err != nil {
+			if err == pgx.ErrNoRows {
+				errorResponse(c, http.StatusNotFound, "Ujian tidak ditemukan")
+				return
+			}
+			log.Printf("complete exam lookup error: %v", err)
+			errorResponse(c, http.StatusInternalServerError, "Gagal memproses permintaan")
+			return
+		}
+		if !exam.IsActive() || !examtoken.Matches(exam, token) {
+			errorResponse(c, http.StatusNotFound, "Ujian tidak ditemukan")
+			return
+		}
+
+		// Delete heartbeat from Redis so student shows offline immediately
+		if rdb, exists := c.Get("redis"); exists && rdb != nil {
+			if redisClient, ok := rdb.(*redis.Client); ok {
+				key := fmt.Sprintf("heartbeat:%d:%s", examID, body.MACAddress)
+				_ = redisClient.Del(ctx, key).Err()
+			}
+		}
+
+		c.JSON(http.StatusOK, gin.H{
+			"success": true,
+			"message": "Exam completed status recorded",
+		})
+	}
+}
+
 // ---------------------------------------------------------------------------
 // Small utilities
 // ---------------------------------------------------------------------------
-
-
 
 // truncate returns the first n runes of s.
 func truncate(s string, n int) string {

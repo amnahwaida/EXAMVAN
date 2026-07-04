@@ -2,6 +2,7 @@ package api
 
 import (
 	"bytes"
+	"context"
 	"io"
 	"log"
 	"net/http"
@@ -25,6 +26,30 @@ var (
 	processedRequests sync.Map
 	replayTTL         = 10 * time.Minute
 )
+
+func markDokuRequestProcessed(ctx context.Context, rdb *redis.Client, requestID string) (bool, error) {
+	if rdb != nil {
+		redisKey := "doku:webhook:request_id:" + requestID
+		set, err := rdb.SetNX(ctx, redisKey, "processed", replayTTL).Result()
+		if err != nil {
+			return false, err
+		}
+		return !set, nil
+	}
+	if _, loaded := processedRequests.LoadOrStore(requestID, time.Now().UTC()); loaded {
+		return true, nil
+	}
+	return false, nil
+}
+
+func cleanupStaleDokuRequestMarkers() {
+	processedRequests.Range(func(key, val interface{}) bool {
+		if t, ok := val.(time.Time); ok && time.Since(t) > replayTTL {
+			processedRequests.Delete(key)
+		}
+		return true
+	})
+}
 
 type DokuNotification struct {
 	Order struct {
@@ -101,41 +126,6 @@ func DokuNotifyHandler(cfg *config.Config) gin.HandlerFunc {
 			return
 		}
 
-		// 2c. Replay check — reject if same Request-Id seen within TTL (Redis dedup with in-memory fallback)
-		isDuplicate := false
-		if rdb != nil {
-			redisKey := "doku:webhook:request_id:" + requestIDHeader
-			set, err := rdb.SetNX(ctx, redisKey, "processed", 10*time.Minute).Result()
-			if err != nil {
-				log.Printf("Doku Webhook: Redis deduplication error: %v, falling back to in-memory", err)
-				if _, loaded := processedRequests.LoadOrStore(requestIDHeader, time.Now()); loaded {
-					isDuplicate = true
-				}
-			} else if !set {
-				isDuplicate = true
-			}
-		} else {
-			if _, loaded := processedRequests.LoadOrStore(requestIDHeader, time.Now()); loaded {
-				isDuplicate = true
-			}
-		}
-
-		if isDuplicate {
-			log.Printf("Doku Webhook: duplicate Request-Id: %s", requestIDHeader)
-			c.JSON(http.StatusOK, gin.H{"success": true, "message": "Duplicate notification, already processed"})
-			return
-		}
-
-		// Cleanup stale entries lazily in background once per successful request
-		go func() {
-			processedRequests.Range(func(key, val interface{}) bool {
-				if t, ok := val.(time.Time); ok && time.Since(t) > replayTTL {
-					processedRequests.Delete(key)
-				}
-				return true
-			})
-		}()
-
 		// 3. Signature Validation (after Client-Id confirmed)
 		digest := payment.CalculateDigest(bodyBytes)
 		targetPath := c.Request.URL.Path
@@ -196,8 +186,28 @@ func DokuNotifyHandler(cfg *config.Config) gin.HandlerFunc {
 			return
 		}
 
-		// 6. Check and process payment status
 		status := strings.ToUpper(notification.Transaction.Status)
+		if status != "SUCCESS" && status != "CANCEL" && status != "CANCELLED" && status != "FAILED" && status != "EXPIRED" && status != "REFUND" && status != "VOID" && status != "REVERSAL" {
+			log.Printf("Doku Webhook: unknown transaction status: %s", status)
+			c.JSON(http.StatusBadRequest, gin.H{"success": false, "message": "Unknown transaction status"})
+			return
+		}
+
+		// 6. Mark request as processed only after validation succeeds
+		isDuplicate, err := markDokuRequestProcessed(ctx, rdb, requestIDHeader)
+		if err != nil {
+			log.Printf("Doku Webhook: replay mark error: %v", err)
+			c.JSON(http.StatusInternalServerError, gin.H{"success": false, "message": "Failed to record webhook"})
+			return
+		}
+		if isDuplicate {
+			log.Printf("Doku Webhook: duplicate Request-Id: %s", requestIDHeader)
+			c.JSON(http.StatusOK, gin.H{"success": true, "message": "Duplicate notification, already processed"})
+			return
+		}
+		cleanupStaleDokuRequestMarkers()
+
+		// 7. Check and process payment status
 		if status == "SUCCESS" {
 			// Approve transaction in DB
 			notes := "Approved automatically via DOKU Payment Gateway (Request-Id: " + requestIDHeader + ")"
@@ -226,10 +236,6 @@ func DokuNotifyHandler(cfg *config.Config) gin.HandlerFunc {
 				return
 			}
 			log.Printf("Doku Webhook: transaction %d reversed/refunded (status=%s)", txID, status)
-		} else {
-			log.Printf("Doku Webhook: unknown transaction status: %s", status)
-			c.JSON(http.StatusBadRequest, gin.H{"success": false, "message": "Unknown transaction status"})
-			return
 		}
 
 		c.JSON(http.StatusOK, gin.H{"success": true, "message": "Notification processed successfully"})

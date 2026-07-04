@@ -51,6 +51,9 @@ object LockTaskManager {
     private var healthCheckRunnable: Runnable? = null
     private var healthCheckActive = false
 
+    var isPinningPending = false
+        private set
+
     // Component name untuk DeviceAdminReceiver — menggunakan string literal
     // agar kompatibel di kedua flavor (student & kiosk). Di student flavor
     // adminReceiver tidak terdaftar di manifest, jadi isAdminActive() = false.
@@ -71,23 +74,31 @@ object LockTaskManager {
      *
      * NOTE: minSdk=24, API 23+ guard tidak diperlukan.
      */
-    fun activate(activity: Activity): Boolean {
+    fun activate(activity: Activity, onResult: ((Boolean) -> Unit)? = null): Boolean {
         if (isLockTaskActive(activity)) {
             Log.d(TAG, "Already in lock task mode")
+            onResult?.invoke(true)
             return true
         }
         // Tier 1: DPM-based silent lock task (device admin aktif)
         if (tryDpmLockTask(activity)) {
             Log.i(TAG, "Lock task activated via DevicePolicyManager (silent)")
             AuditLog.i(AuditLog.Events.LOCKTASK_ACTIVATE, "DPM:silent")
+            onResult?.invoke(true)
             return true
         }
         // Tier 2: Regular startLockTask (mungkin muncul dialog konfirmasi)
-        val result = tryStartLockTask(activity)
+        isPinningPending = true
+        val result = tryStartLockTask(activity) { success ->
+            isPinningPending = false
+            onResult?.invoke(success)
+        }
         if (result) {
             AuditLog.i(AuditLog.Events.LOCKTASK_ACTIVATE, "regular")
         } else {
+            isPinningPending = false
             AuditLog.e(AuditLog.Events.LOCKTASK_ACTIVATE, "FAILED")
+            onResult?.invoke(false)
         }
         return result
     }
@@ -98,6 +109,7 @@ object LockTaskManager {
      */
     fun deactivate(activity: Activity) {
         try {
+            stopHealthCheck()
             activity.stopLockTask()
             Log.d(TAG, "stopLockTask() called")
             AuditLog.i(AuditLog.Events.LOCKTASK_DEACTIVATE, "normal")
@@ -186,20 +198,20 @@ object LockTaskManager {
             // Cek apakah admin ini benar-benar aktif (device admin enabled)
             if (!dpm.isAdminActive(cn)) return false
 
+            // Enable lock task untuk package kita — ini membuat startLockTask()
+            // berikutnya tidak memunculkan dialog konfirmasi.
+            val packageName = activity.packageName
+            dpm.setLockTaskPackages(cn, arrayOf(packageName))
+            Log.d(TAG, "DPM: setLockTaskPackages() berhasil untuk $packageName")
+
             // Cek apakah lock task policy didukung oleh admin.
             // Pada compileSdk 34, API ini menerima String (packageName),
             // bukan ComponentName (berubah di API 33+).
-            val packageName = activity.packageName
             if (!dpm.isLockTaskPermitted(packageName)) {
                 Log.w(TAG, "Device admin aktif tapi lock task tidak diizinkan " +
                         "(cek device_admin_rules.xml)")
                 return false
             }
-
-            // Enable lock task untuk package kita — ini membuat startLockTask()
-            // berikutnya tidak memunculkan dialog konfirmasi.
-            dpm.setLockTaskPackages(cn, arrayOf(packageName))
-            Log.d(TAG, "DPM: setLockTaskPackages() berhasil untuk $packageName")
 
             // Sekarang startLockTask() bisa dipanggil — tanpa dialog
             activity.startLockTask()
@@ -227,14 +239,14 @@ object LockTaskManager {
      * Fallback: startLockTask biasa. Mungkin menampilkan dialog konfirmasi.
      * @return true jika sukses dipanggil (verifikasi tetap via [isActive]).
      */
-    private fun tryStartLockTask(activity: Activity): Boolean {
+    private fun tryStartLockTask(activity: Activity, onResult: (Boolean) -> Unit = {}): Boolean {
         return try {
             activity.startLockTask()
             Log.d(TAG, "startLockTask() called (regular)")
 
             // Deferred verifikasi: jika user menolak dialog konfirmasi,
             // lock task tidak aktif tapi tidak ada exception.
-            deferredLogOnReject(activity)
+            deferredLogOnReject(activity, onResult)
             true
         } catch (e: SecurityException) {
             Log.e(TAG, "SecurityException — mungkin device admin/policy block", e)
@@ -257,7 +269,8 @@ object LockTaskManager {
         try {
             val am = activity.getSystemService(Context.ACTIVITY_SERVICE) as? ActivityManager ?: return false
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-                return am.lockTaskModeState == ActivityManager.LOCK_TASK_MODE_PINNED
+                val state = am.lockTaskModeState
+                return state == ActivityManager.LOCK_TASK_MODE_PINNED || state == ActivityManager.LOCK_TASK_MODE_LOCKED
             } else {
                 @Suppress("DEPRECATION")
                 return am.isInLockTaskMode
@@ -283,28 +296,26 @@ object LockTaskManager {
      * Tidak ada callback dari sistem saat user menolak dialog konfirmasi
      * pinning, jadi kita polling isLockTaskActive() dengan interval.
      *
-     * Strategi: poll 3 kali (400ms, 800ms, 1200ms).
-     * - Jika user accept di T+300ms → poll pertama sukses, tidak ada log error.
-     * - Jika user accept di T+900ms → poll kedua sukses, tidak ada log error.
-     * - Jika user reject atau timeout → poll ketiga masih inactive, log ditolak.
-     *
-     * Menggantikan single-shot 1200ms yang bisa memberikan false positive
-     * jika user butuh waktu >1200ms untuk berinteraksi dengan dialog.
+     * Strategi: poll 15 kali (400ms interval, total 6 detik).
      */
-    private fun deferredLogOnReject(activity: Activity) {
+    private fun deferredLogOnReject(activity: Activity, onResult: (Boolean) -> Unit) {
         val pollHandler = Handler(Looper.getMainLooper())
         val pollIntervalMs = 400L
-        val maxPolls = 3
+        val maxPolls = 15
         var pollCount = 0
 
         val pollRunnable = object : Runnable {
             override fun run() {
                 pollCount++
-                if (activity.isFinishing || activity.isDestroyed) return
+                if (activity.isFinishing || activity.isDestroyed) {
+                    onResult(false)
+                    return
+                }
 
                 if (isLockTaskActive(activity)) {
                     // Lock task aktif — user menerima dialog
                     Log.d(TAG, "Lock task aktivasi dikonfirmasi user (poll #$pollCount)")
+                    onResult(true)
                     return // stop polling — sukses
                 }
 
@@ -312,6 +323,7 @@ object LockTaskManager {
                     // Semua poll gagal — user menolak dialog atau timeout
                     Log.w(TAG, "⚠️ startLockTask REGULAR ditolak user (${maxPolls}x polls failed)")
                     AuditLog.w(AuditLog.Events.LOCKTASK_REJECTED, "user_cancelled_dialog")
+                    onResult(false)
                     return // stop polling — ditolak
                 }
 

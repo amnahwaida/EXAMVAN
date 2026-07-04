@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"strconv"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -30,29 +31,29 @@ const (
 	SettingDefaultMaxDraftSize      = "default_max_draft_size"
 	SettingAndroidVersion           = "android_version"
 	SettingWebappVersion            = "webapp_version"
-	SettingCertificateFingerprint    = "certificate_fingerprint"
-	SettingSEOTitle                  = "seo_title"
-	SettingSEODescription            = "seo_description"
-	SettingSEOKeywords               = "seo_keywords"
-	SettingSEOIndex                  = "seo_index"
-	SettingDokuPaymentMethods        = "doku_payment_methods"
+	SettingCertificateFingerprint   = "certificate_fingerprint"
+	SettingSEOTitle                 = "seo_title"
+	SettingSEODescription           = "seo_description"
+	SettingSEOKeywords              = "seo_keywords"
+	SettingSEOIndex                 = "seo_index"
+	SettingDokuPaymentMethods       = "doku_payment_methods"
 
 	// Price settings
-	SettingPriceGuruBulanan          = "price_guru_bulanan"
-	SettingPriceGuruSemester         = "price_guru_semester"
-	SettingPriceGuruTahunan          = "price_guru_tahunan"
-	SettingPriceIndividuBulanan      = "price_individu_bulanan"
-	SettingPriceIndividuSemester     = "price_individu_semester"
-	SettingPriceIndividuTahunan      = "price_individu_tahunan"
-	SettingPriceSekolahKecilBulanan   = "price_sekolah_kecil_bulanan"
-	SettingPriceSekolahKecilSemester  = "price_sekolah_kecil_semester"
-	SettingPriceSekolahKecilTahunan   = "price_sekolah_kecil_tahunan"
+	SettingPriceGuruBulanan             = "price_guru_bulanan"
+	SettingPriceGuruSemester            = "price_guru_semester"
+	SettingPriceGuruTahunan             = "price_guru_tahunan"
+	SettingPriceIndividuBulanan         = "price_individu_bulanan"
+	SettingPriceIndividuSemester        = "price_individu_semester"
+	SettingPriceIndividuTahunan         = "price_individu_tahunan"
+	SettingPriceSekolahKecilBulanan     = "price_sekolah_kecil_bulanan"
+	SettingPriceSekolahKecilSemester    = "price_sekolah_kecil_semester"
+	SettingPriceSekolahKecilTahunan     = "price_sekolah_kecil_tahunan"
 	SettingPriceSekolahMenengahBulanan  = "price_sekolah_menengah_bulanan"
 	SettingPriceSekolahMenengahSemester = "price_sekolah_menengah_semester"
 	SettingPriceSekolahMenengahTahunan  = "price_sekolah_menengah_tahunan"
-	SettingPriceSekolahBesarBulanan   = "price_sekolah_besar_bulanan"
-	SettingPriceSekolahBesarSemester  = "price_sekolah_besar_semester"
-	SettingPriceSekolahBesarTahunan   = "price_sekolah_besar_tahunan"
+	SettingPriceSekolahBesarBulanan     = "price_sekolah_besar_bulanan"
+	SettingPriceSekolahBesarSemester    = "price_sekolah_besar_semester"
+	SettingPriceSekolahBesarTahunan     = "price_sekolah_besar_tahunan"
 	SettingPriceSekolahUnggulanBulanan  = "price_sekolah_unggulan_bulanan"
 	SettingPriceSekolahUnggulanSemester = "price_sekolah_unggulan_semester"
 	SettingPriceSekolahUnggulanTahunan  = "price_sekolah_unggulan_tahunan"
@@ -81,21 +82,21 @@ var DefaultSettings = map[string]string{
 	SettingDokuPaymentMethods:       "VIRTUAL_ACCOUNT_BCA,VIRTUAL_ACCOUNT_MANDIRI,VIRTUAL_ACCOUNT_BRI,VIRTUAL_ACCOUNT_BNI,QRIS,EMONEY_SHOPEEPAY,EMONEY_DANA,EMONEY_OVO,CREDIT_CARD",
 
 	// Default price values
-	SettingPriceGuruBulanan:          "25000",
-	SettingPriceGuruSemester:         "125000",
-	SettingPriceGuruTahunan:          "225000",
-	SettingPriceIndividuBulanan:      "50000",
-	SettingPriceIndividuSemester:     "250000",
-	SettingPriceIndividuTahunan:      "450000",
-	SettingPriceSekolahKecilBulanan:   "75000",
-	SettingPriceSekolahKecilSemester:  "375000",
-	SettingPriceSekolahKecilTahunan:   "675000",
+	SettingPriceGuruBulanan:             "25000",
+	SettingPriceGuruSemester:            "125000",
+	SettingPriceGuruTahunan:             "225000",
+	SettingPriceIndividuBulanan:         "50000",
+	SettingPriceIndividuSemester:        "250000",
+	SettingPriceIndividuTahunan:         "450000",
+	SettingPriceSekolahKecilBulanan:     "75000",
+	SettingPriceSekolahKecilSemester:    "375000",
+	SettingPriceSekolahKecilTahunan:     "675000",
 	SettingPriceSekolahMenengahBulanan:  "175000",
 	SettingPriceSekolahMenengahSemester: "875000",
 	SettingPriceSekolahMenengahTahunan:  "1575000",
-	SettingPriceSekolahBesarBulanan:   "375000",
-	SettingPriceSekolahBesarSemester:  "1875000",
-	SettingPriceSekolahBesarTahunan:   "3375000",
+	SettingPriceSekolahBesarBulanan:     "375000",
+	SettingPriceSekolahBesarSemester:    "1875000",
+	SettingPriceSekolahBesarTahunan:     "3375000",
 	SettingPriceSekolahUnggulanBulanan:  "750000",
 	SettingPriceSekolahUnggulanSemester: "3750000",
 	SettingPriceSekolahUnggulanTahunan:  "6750000",
@@ -154,19 +155,55 @@ func GetAllSaasSettings(ctx context.Context, pool *pgxpool.Pool) (map[string]str
 		}
 		settings[k] = v
 	}
-	rows.Close()
 	if err := rows.Err(); err != nil {
 		log.Printf("rows iteration error: %v", err)
 	}
 
-
-	// Fill in defaults for any missing keys.
 	for k, v := range DefaultSettings {
 		if _, exists := settings[k]; !exists {
 			settings[k] = v
 		}
 	}
 	return settings, nil
+}
+
+// GetPricingMap returns the canonical 18 package price matrix with DB overrides applied.
+func GetPricingMap(ctx context.Context, pool *pgxpool.Pool) map[string]int64 {
+	prices := map[string]int64{
+		"guru_bulanan":              25000,
+		"guru_semester":             125000,
+		"guru_tahunan":              225000,
+		"individu_bulanan":          50000,
+		"individu_semester":         250000,
+		"individu_tahunan":          450000,
+		"sekolah_kecil_bulanan":     75000,
+		"sekolah_kecil_semester":    375000,
+		"sekolah_kecil_tahunan":     675000,
+		"sekolah_menengah_bulanan":  175000,
+		"sekolah_menengah_semester": 875000,
+		"sekolah_menengah_tahunan":  1575000,
+		"sekolah_besar_bulanan":     375000,
+		"sekolah_besar_semester":    1875000,
+		"sekolah_besar_tahunan":     3375000,
+		"sekolah_unggulan_bulanan":  750000,
+		"sekolah_unggulan_semester": 3750000,
+		"sekolah_unggulan_tahunan":  6750000,
+	}
+	if pool == nil {
+		return prices
+	}
+	settings, err := GetAllSaasSettings(ctx, pool)
+	if err != nil {
+		return prices
+	}
+	for k := range prices {
+		if v, ok := settings[k]; ok && v != "" {
+			if parsed, err := strconv.ParseInt(v, 10, 64); err == nil {
+				prices[k] = parsed
+			}
+		}
+	}
+	return prices
 }
 
 // DeleteSaasSetting removes a setting by key.

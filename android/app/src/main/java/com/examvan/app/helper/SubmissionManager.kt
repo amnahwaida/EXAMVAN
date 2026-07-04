@@ -43,6 +43,7 @@ class SubmissionManager(
     var isSubmitting: Boolean = false
     var submittedOrExited: Boolean = false
     var strictMode: Boolean = false
+    private var lastSubmitSuccess: Boolean = false
 
     /** Total number of questions in the exam (set by Activity after building answer sheet). */
     var totalQuestions: Int = 0
@@ -54,14 +55,15 @@ class SubmissionManager(
     var studentNumber: String = ""
     var studentClass: String = ""
     var identityData: String? = null
+    var token: String = ""
     var startTime: String = ""
     var macAddress: String = ""
 
     // Callback to get current answers
     var getAnswers: (() -> Map<String, Any>)? = null
 
-    // Callback called before submit (for WebSocket notification, etc.)
-    var onBeforeSubmit: (() -> Unit)? = null
+    // Callback called when submit is successful
+    var onSubmitSuccess: (() -> Unit)? = null
 
     // Callback for lock task deactivation
     var deactivateLockTask: (() -> Unit)? = null
@@ -156,18 +158,20 @@ class SubmissionManager(
     }
 
     fun clearSavedAnswers() {
+        val submittedKey = AppPrefs.getSubmittedOrExitedKey(examId)
         AppPrefs.getExamPrefs(context).edit()
             .remove(AppPrefs.KEY_SAVED_ANSWERS)
             .remove(AppPrefs.KEY_SAVED_ANSWERS_EXAM_ID)
             .remove(AppPrefs.KEY_SAVED_ANSWERS_TIMESTAMP)
             .remove(AppPrefs.KEY_EXAM_START_TIME)
-            .remove(AppPrefs.KEY_SUBMITTED_OR_EXITED)
+            .remove(submittedKey)
             .apply()
     }
 
     fun persistSubmittedState() {
+        val submittedKey = AppPrefs.getSubmittedOrExitedKey(examId)
         AppPrefs.getExamPrefs(context).edit()
-            .putBoolean(AppPrefs.KEY_SUBMITTED_OR_EXITED, true).apply()
+            .putBoolean(submittedKey, true).apply()
     }
 
     // ---- Submit ----
@@ -201,16 +205,17 @@ class SubmissionManager(
     private fun submitAnswers() {
         if (isSubmitting) return
         isSubmitting = true
+        lastSubmitSuccess = false
         binding.btnSubmitAnswers.isEnabled = false
         binding.btnSubmitAnswers.text = context.getString(R.string.submitting)
 
-        // Notify server via WebSocket that submission is happening
-        onBeforeSubmit?.invoke()
+
 
         val answers = getAnswers?.invoke() ?: emptyMap()
 
         ApiClient.submitExam(
             examId = examId,
+            token = token,
             studentName = studentName,
             examNumber = studentNumber,
             studentClass = studentClass,
@@ -219,54 +224,80 @@ class SubmissionManager(
             macAddress = macAddress,
             identityData = identityData,
             onSuccess = { message ->
-                isSubmitting = false
-                submittedOrExited = true
-                clearSavedAnswers()
-                AuditLog.i(AuditLog.Events.SUBMIT_SUCCESS, "examId=$examId")
-                deactivateLockTask?.invoke()
+                android.os.Handler(android.os.Looper.getMainLooper()).post {
+                    isSubmitting = false
+                    lastSubmitSuccess = true
+                    submittedOrExited = true
+                    clearSavedAnswers()
+                    onSubmitSuccess?.invoke()
+                    AuditLog.i(AuditLog.Events.SUBMIT_SUCCESS, "examId=$examId")
+                    deactivateLockTask?.invoke()
 
-                if (isActivityFinishing()) return@submitExam
-
-                binding.btnSubmitAnswers.isEnabled = false
-                binding.btnSubmitAnswers.text = context.getString(R.string.submitted_label)
-
-                setShowingAppDialog(true)
-                AlertDialog.Builder(context)
-                    .setTitle(context.getString(R.string.submit_success_title))
-                    .setMessage(
-                        context.getString(R.string.submit_success_message,
-                            message,
-                            Html.escapeHtml(studentName),
-                            Html.escapeHtml(studentNumber),
-                            Html.escapeHtml(studentClass))
-                    )
-                    .setCancelable(false)
-                    .setPositiveButton(context.getString(R.string.submit_success_done)) { _, _ ->
-                        setShowingAppDialog(false)
-                        onFinish?.invoke()
+                    if (isActivityFinishing()) {
+                        showAutoSubmitNotification(
+                            context.getString(R.string.auto_submit_success_title),
+                            context.getString(R.string.toast_auto_submit_success)
+                        )
+                        return@post
                     }
-                    .show()
+
+                    val sb = StringBuilder(message)
+                    if (studentName.isNotEmpty()) {
+                        sb.append("\n\n").append(context.getString(R.string.label_student_name)).append(": ").append(studentName)
+                    }
+                    if (studentNumber.isNotEmpty()) {
+                        sb.append("\n").append(context.getString(R.string.label_exam_number)).append(": ").append(studentNumber)
+                    }
+                    if (studentClass.isNotEmpty()) {
+                        sb.append("\n").append(context.getString(R.string.label_student_class)).append(": ").append(studentClass)
+                    }
+                    val msgText = sb.toString()
+
+                    binding.btnSubmitAnswers.isEnabled = false
+                    binding.btnSubmitAnswers.text = context.getString(R.string.submitted_label)
+
+                    setShowingAppDialog(true)
+                    AlertDialog.Builder(context)
+                        .setTitle(context.getString(R.string.submit_success_title))
+                        .setMessage(context.getString(R.string.submit_success_message, msgText))
+                        .setCancelable(false)
+                        .setPositiveButton(context.getString(R.string.submit_success_done)) { _, _ ->
+                            setShowingAppDialog(false)
+                            onFinish?.invoke()
+                        }
+                        .show()
+                }
             },
             onError = { errorMsg ->
-                isSubmitting = false
-                if (isActivityFinishing()) return@submitExam
-
-                binding.btnSubmitAnswers.isEnabled = true
-                binding.btnSubmitAnswers.text = context.getString(R.string.submit_failed_retry)
-
-                val dialogTitle = if (strictMode) context.getString(R.string.submit_failed_title_strict) else context.getString(R.string.submit_failed_title)
-                val dialogMsg = if (strictMode) context.getString(R.string.submit_failed_message_strict, errorMsg) else context.getString(R.string.submit_failed_message, errorMsg)
-
-                setShowingAppDialog(true)
-                AlertDialog.Builder(context)
-                    .setTitle(dialogTitle)
-                    .setMessage(dialogMsg)
-                    .setPositiveButton(context.getString(R.string.dialog_ok)) { _, _ ->
-                        setShowingAppDialog(false)
+                android.os.Handler(android.os.Looper.getMainLooper()).post {
+                    isSubmitting = false
+                    lastSubmitSuccess = false
+                    submittedOrExited = false
+                    if (isActivityFinishing()) {
+                        showAutoSubmitNotification(
+                            context.getString(R.string.auto_submit_failed_title),
+                            context.getString(R.string.toast_auto_submit_failed, errorMsg)
+                        )
+                        return@post
                     }
-                    .setOnCancelListener { setShowingAppDialog(false) }
-                    .show()
-                AuditLog.e(AuditLog.Events.SUBMIT_FAILED, "examId=$examId error=${errorMsg.take(80)}")
+
+                    binding.btnSubmitAnswers.isEnabled = true
+                    binding.btnSubmitAnswers.text = context.getString(R.string.submit_failed_retry)
+
+                    val dialogTitle = if (strictMode) context.getString(R.string.submit_failed_title_strict) else context.getString(R.string.submit_failed_title)
+                    val dialogMsg = if (strictMode) context.getString(R.string.submit_failed_message_strict, errorMsg) else context.getString(R.string.submit_failed_message, errorMsg)
+
+                    setShowingAppDialog(true)
+                    AlertDialog.Builder(context)
+                        .setTitle(dialogTitle)
+                        .setMessage(dialogMsg)
+                        .setPositiveButton(context.getString(R.string.dialog_ok)) { _, _ ->
+                            setShowingAppDialog(false)
+                        }
+                        .setOnCancelListener { setShowingAppDialog(false) }
+                        .show()
+                    AuditLog.e(AuditLog.Events.SUBMIT_FAILED, "examId=$examId error=${errorMsg.take(80)}")
+                }
             }
         )
     }
@@ -281,6 +312,7 @@ class SubmissionManager(
                 val result = withContext(Dispatchers.IO) {
                     ApiClient.submitExamSync(
                         examId = examId,
+                        token = token,
                         studentName = studentName,
                         examNumber = studentNumber,
                         studentClass = studentClass,
@@ -306,25 +338,32 @@ class SubmissionManager(
     fun autoSubmitAndExit() {
         if (submittedOrExited) return
         submittedOrExited = true
-        persistSubmittedState()
 
         AuditLog.i(AuditLog.Events.AUTO_SUBMIT, "strict=$strictMode answers=${getAnswers?.invoke()?.size}")
-        deactivateLockTask?.invoke()
 
         // Use GlobalScope + NonCancellable so submit completes even if
         // activity is destroyed (process death, user swipe-away).
         if (isSubmitting) {
-            GlobalScope.launch(NonCancellable) {
-                delay(1500)
-                withContext(Dispatchers.Main) {
-                    if (!isActivityFinishing()) onFinish?.invoke()
+            GlobalScope.launch(NonCancellable + Dispatchers.Main) {
+                val timeoutTime = System.currentTimeMillis() + 10000
+                while (isSubmitting && System.currentTimeMillis() < timeoutTime) {
+                    delay(100)
                 }
+                if (!isActivityFinishing() && lastSubmitSuccess) onFinish?.invoke()
             }
             return
         }
 
         GlobalScope.launch(NonCancellable + Dispatchers.IO) {
             val result = submitWithRetry()
+
+            if (result.first) {
+                clearSavedAnswers()
+                onSubmitSuccess?.invoke()
+                deactivateLockTask?.invoke()
+            } else {
+                submittedOrExited = false
+            }
 
             val notifTitle = if (result.first) {
                 context.getString(R.string.auto_submit_success_title)

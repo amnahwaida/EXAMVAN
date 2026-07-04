@@ -18,6 +18,7 @@ CREATE TABLE IF NOT EXISTS admin_users (
     id              SERIAL PRIMARY KEY,
     username        TEXT NOT NULL UNIQUE,
     name            TEXT DEFAULT '',
+    email           TEXT DEFAULT '',
     password_hash   TEXT NOT NULL,
     created_at      TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
     status          TEXT DEFAULT 'active'
@@ -29,6 +30,7 @@ CREATE TABLE IF NOT EXISTS admin_users (
     max_pdf_size    INTEGER DEFAULT 1048576,
     max_drafts      INTEGER DEFAULT 2,
     max_draft_size  INTEGER DEFAULT 1048576,
+    max_storage_size BIGINT DEFAULT 52428800,
     whatsapp_number TEXT DEFAULT '',
     expires_at      TIMESTAMPTZ,
     otp_code        TEXT,
@@ -156,10 +158,12 @@ ALTER TABLE exams ADD COLUMN IF NOT EXISTS token_reset_interval INTEGER;
 ALTER TABLE exams ADD COLUMN IF NOT EXISTS token_last_reset_at TIMESTAMPTZ;
 ALTER TABLE exams ADD COLUMN IF NOT EXISTS active_token TEXT NOT NULL DEFAULT '';
 ALTER TABLE exams ADD COLUMN IF NOT EXISTS exam_started_at TIMESTAMPTZ;
+ALTER TABLE admin_users ADD COLUMN IF NOT EXISTS email TEXT DEFAULT '';
+ALTER TABLE admin_users ADD COLUMN IF NOT EXISTS max_storage_size BIGINT DEFAULT 52428800;
 
 -- Set active_token = token for existing rows where active_token is empty
 UPDATE exams SET active_token = token WHERE active_token = '' OR active_token IS NULL;
-UPDATE exams SET token_mode = 'dynamic' WHERE token_mode = 'static' OR token_mode IS NULL;
+UPDATE exams SET token_mode = 'dynamic' WHERE token_mode IS NULL;
 UPDATE exams SET token_reset_interval = 5 WHERE token_reset_interval IS NULL;
 ALTER TABLE student_access_logs ADD COLUMN IF NOT EXISTS identity_data TEXT;
 ALTER TABLE admin_users ADD COLUMN IF NOT EXISTS name TEXT DEFAULT '';
@@ -197,4 +201,45 @@ CREATE TABLE IF NOT EXISTS transactions (
 ALTER TABLE transactions ALTER COLUMN amount TYPE BIGINT USING amount::numeric::bigint;
 CREATE INDEX IF NOT EXISTS idx_transactions_user_id ON transactions(user_id);
 CREATE INDEX IF NOT EXISTS idx_transactions_status ON transactions(status);
+
+-- Resolve duplicate pending DOKU transactions before enforcing uniqueness.
+DO $$
+DECLARE
+    dup RECORD;
+    keep_id INTEGER;
+BEGIN
+    FOR dup IN (
+        SELECT user_id, package
+        FROM transactions
+        WHERE status = 'pending' AND payment_method = 'doku'
+        GROUP BY user_id, package
+        HAVING COUNT(*) > 1
+    ) LOOP
+        SELECT id INTO keep_id
+        FROM transactions
+        WHERE user_id = dup.user_id
+          AND package = dup.package
+          AND status = 'pending'
+          AND payment_method = 'doku'
+        ORDER BY created_at DESC, id DESC
+        LIMIT 1;
+
+        UPDATE transactions
+        SET status = 'rejected',
+            updated_at = CURRENT_TIMESTAMP,
+            notes = CASE
+                WHEN notes IS NULL OR notes = '' THEN 'Auto-rejected duplicate pending DOKU transaction during startup migration.'
+                ELSE notes || ' | Auto-rejected duplicate pending DOKU transaction during startup migration.'
+            END
+        WHERE user_id = dup.user_id
+          AND package = dup.package
+          AND status = 'pending'
+          AND payment_method = 'doku'
+          AND id <> keep_id;
+    END LOOP;
+END $$;
+
+CREATE UNIQUE INDEX IF NOT EXISTS idx_transactions_pending_doku_unique
+    ON transactions(user_id, package)
+    WHERE status = 'pending' AND payment_method = 'doku';
 
