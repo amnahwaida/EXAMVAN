@@ -476,12 +476,23 @@ class ExamViewerActivity : BaseSecureActivity() {
             val color = android.graphics.Color.parseColor(panelColor)
             val darkerColor = darkenColor(color, 0.85f)
 
+            // Determine if background is dark or light using luminance helper
+            val isDark = androidx.core.graphics.ColorUtils.calculateLuminance(color) < 0.5
+            val textColor = if (isDark) android.graphics.Color.WHITE else android.graphics.Color.BLACK
+
             // Apply to answer sheet panel background
             binding.answerSheetPanel.setBackgroundColor(color)
             // Apply to toggle bar button
             binding.btnToggleAnswerSheet.setBackgroundColor(darkerColor)
+            binding.btnToggleAnswerSheet.setTextColor(textColor)
             // Apply to bottom bar
             binding.bottomBar.setBackgroundColor(color)
+            binding.tvPageCounter.setTextColor(textColor)
+
+            // Set variables to answerSheetBuilder for dynamic text styling of generated views
+            answerSheetBuilder.panelTextColor = textColor
+            answerSheetBuilder.isPanelColorDark = isDark
+            answerSheetBuilder.applyDynamicTextColors()
         } catch (_: Exception) { }
     }
 

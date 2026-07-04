@@ -22,6 +22,10 @@ class AnswerSheetBuilder(
 ) {
     private var questions: List<Map<String, Any>> = emptyList()
 
+    // Dynamic coloring variables based on exam panel_color
+    var panelTextColor: Int? = null
+    var isPanelColorDark: Boolean = false
+
     // Callback when a student answer changes
     var onAnswerChanged: ((String, Any) -> Unit)? = null
     // Callback when a student answer is removed
@@ -57,6 +61,8 @@ class AnswerSheetBuilder(
                 "short_answer" -> addShortAnswerQuestion(container, number)
             }
         }
+
+        applyDynamicTextColors()
     }
 
     /**
@@ -325,6 +331,9 @@ class AnswerSheetBuilder(
             spinner.onItemSelectedListener = object : AdapterView.OnItemSelectedListener {
                 override fun onItemSelected(parent: AdapterView<*>?, v: View?, position: Int, id: Long) {
                     onSpinnerPopupChanged?.invoke(-1)
+                    if (v is TextView) {
+                        v.setTextColor(panelTextColor ?: ContextCompat.getColor(context, R.color.on_surface))
+                    }
                     if (position > 0) {
                         matchingAnswers[leftItem] = rightItems[position - 1]
                     } else {
@@ -378,6 +387,33 @@ class AnswerSheetBuilder(
         })
 
         container.addView(view)
+    }
+
+    fun applyDynamicTextColors() {
+        val textColor = panelTextColor ?: return
+        val container = binding.answerListContainer
+        applyColorToViewHierarchy(container, textColor, isPanelColorDark)
+    }
+
+    private fun applyColorToViewHierarchy(view: View, textColor: Int, isDark: Boolean) {
+        if (view is ViewGroup) {
+            for (i in 0 until view.childCount) {
+                applyColorToViewHierarchy(view.getChildAt(i), textColor, isDark)
+            }
+        }
+        if (view is TextView) {
+            view.setTextColor(textColor)
+            if (view is EditText) {
+                view.setHintTextColor(if (isDark) android.graphics.Color.parseColor("#B0FFFFFF") else android.graphics.Color.parseColor("#80000000"))
+                view.backgroundTintList = android.content.res.ColorStateList.valueOf(textColor)
+            }
+            if (view is RadioButton) {
+                view.buttonTintList = android.content.res.ColorStateList.valueOf(textColor)
+            }
+            if (view is CheckBox) {
+                view.buttonTintList = android.content.res.ColorStateList.valueOf(textColor)
+            }
+        }
     }
 
     companion object {
