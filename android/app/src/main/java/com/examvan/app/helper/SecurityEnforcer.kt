@@ -65,6 +65,7 @@ class SecurityEnforcer(
     var onCreateTime: Long = 0L
     var isPdfReady: Boolean = false
     var submittedOrExited: Boolean = false
+    var initialClockDrift: Long = System.currentTimeMillis() - android.os.SystemClock.elapsedRealtime()
 
     // Callback when user requests to logout
     var onLogoutRequested: (() -> Unit)? = null
@@ -492,14 +493,147 @@ class SecurityEnforcer(
         return false
     }
 
+    var isSecurityViolationShowing: Boolean = false
+    private var securityViolationMessage: String = ""
+    private var securityRetryCallback: (() -> Unit)? = null
+
+    fun showSecurityViolation(message: String, retryCallback: () -> Unit) {
+        securityViolationMessage = message
+        securityRetryCallback = retryCallback
+        isSecurityViolationShowing = true
+
+        binding.btnBack.visibility = View.GONE
+        binding.btnToggleAnswerSheet.visibility = View.GONE
+        binding.btnSubmitAnswers.visibility = View.GONE
+        binding.btnPrev.visibility = View.GONE
+        binding.btnNext.visibility = View.GONE
+        binding.answerSheetToggle.visibility = View.GONE
+        binding.layoutDownload.visibility = View.GONE
+        binding.ivPdfPage.visibility = View.GONE
+
+        binding.tvErrorMsg.text = message
+        binding.btnRetryDownload.text = "Periksa Ulang"
+        binding.btnRetryDownload.setOnClickListener {
+            binding.layoutError.visibility = View.GONE
+            isSecurityViolationShowing = false
+            retryCallback()
+        }
+        binding.layoutError.visibility = View.VISIBLE
+    }
+
+    fun checkSecurityViolations(): String? {
+        // 1. Emulator check
+        if (isEmulator()) {
+            return "Perangkat Simulator/Emulator Terdeteksi!\n\nUntuk alasan keamanan, EXAMVAN tidak dapat dijalankan di dalam emulator (seperti BlueStacks, Nox, dll.). Silakan gunakan perangkat ponsel Android fisik."
+        }
+
+        // 2. Root check
+        if (isDeviceRooted()) {
+            return "Perangkat Ter-Root Terdeteksi!\n\nEXAMVAN mendeteksi akses root pada perangkat ini. Untuk menjaga integritas ujian, perangkat ter-root tidak diizinkan mengakses halaman ujian. Silakan un-root perangkat Anda."
+        }
+
+        // 3. USB Debugging check
+        if (isUsbDebuggingEnabled()) {
+            return "USB Debugging Aktif!\n\nUntuk alasan keamanan, Anda WAJIB mematikan opsi pengembang 'USB Debugging' di pengaturan sistem perangkat Anda terlebih dahulu sebelum memulai ujian."
+        }
+
+        // 4. Screen mirroring / casting check
+        if (isScreenMirrored()) {
+            return "Proyeksi / Duplikasi Layar Terdeteksi!\n\nEXAMVAN mendeteksi bahwa layar perangkat Anda sedang dibagikan/diproyeksikan ke layar eksternal (Cast Screen/Wireless Display). Silakan putuskan koneksi proyeksi layar Anda terlebih dahulu."
+        }
+
+        // 5. Clock manipulation check
+        val currentDrift = System.currentTimeMillis() - android.os.SystemClock.elapsedRealtime()
+        if (initialClockDrift != 0L && Math.abs(currentDrift - initialClockDrift) > 10_000L) { // 10 seconds threshold
+            return "Perubahan Waktu Sistem Terdeteksi!\n\nAnda terdeteksi melakukan perubahan waktu sistem (jam perangkat) saat ujian berlangsung. Untuk alasan keamanan, manipulasi waktu tidak diizinkan. Silakan kembalikan jam Anda ke waktu yang benar."
+        }
+
+        return null
+    }
+
+    private fun isEmulator(): Boolean {
+        val fingerprint = Build.FINGERPRINT
+        val model = Build.MODEL
+        val manufacturer = Build.MANUFACTURER
+        val hardware = Build.HARDWARE
+        val product = Build.PRODUCT
+        val board = Build.BOARD
+        val brand = Build.BRAND
+        val device = Build.DEVICE
+
+        return (fingerprint.startsWith("generic")
+                || fingerprint.startsWith("unknown")
+                || model.contains("google_sdk")
+                || model.contains("Emulator")
+                || model.contains("Android SDK built for x86")
+                || manufacturer.contains("Genymotion")
+                || hardware.contains("goldfish")
+                || hardware.contains("ranchu")
+                || product.contains("sdk_gphone")
+                || product.contains("google_sdk")
+                || product.contains("emulator")
+                || board.contains("nox")
+                || manufacturer.contains("nox")
+                || brand.startsWith("generic") && device.startsWith("generic")
+                || "google_sdk" == product)
+    }
+
+    private fun isDeviceRooted(): Boolean {
+        val paths = arrayOf(
+            "/system/app/Superuser.apk",
+            "/sbin/su",
+            "/system/bin/su",
+            "/system/xbin/su",
+            "/data/local/xbin/su",
+            "/data/local/bin/su",
+            "/system/sd/xbin/su",
+            "/system/bin/failsafe/su",
+            "/data/local/su"
+        )
+        for (path in paths) {
+            if (java.io.File(path).exists()) return true
+        }
+        return false
+    }
+
+    private fun isUsbDebuggingEnabled(): Boolean {
+        return Settings.Global.getInt(activity.contentResolver, Settings.Global.ADB_ENABLED, 0) != 0
+    }
+
+    private fun isScreenMirrored(): Boolean {
+        val dm = activity.getSystemService(Context.DISPLAY_SERVICE) as? android.hardware.display.DisplayManager
+        val displays = dm?.displays ?: return false
+        if (displays.size > 1) {
+            for (display in displays) {
+                if (display.displayId != android.view.Display.DEFAULT_DISPLAY) {
+                    return true
+                }
+            }
+        }
+        return false
+    }
+
     /**
      * Re-apply immersive mode and start health check.
      */
     fun onResume() {
+        if (isSecurityViolationShowing) {
+            securityRetryCallback?.let { showSecurityViolation(securityViolationMessage, it) }
+            return
+        }
         if (isGestureBlockedShowing) {
             gestureRetryCallback?.let { showGestureBlocked(it) }
             return
         }
+
+        val violation = checkSecurityViolations()
+        if (violation != null) {
+            showSecurityViolation(violation) {
+                onResume()
+            }
+            return
+        }
+
         if (strictMode) {
             LockTaskManager.stopHealthCheck()
             if (LockTaskManager.isPinningPending) return

@@ -306,6 +306,11 @@ class ExamViewerActivity : BaseSecureActivity() {
         }
         submissionManager.startTime = startTime
 
+        val savedDrift = savedInstanceState?.getLong("initialClockDrift", 0L) ?: 0L
+        if (savedDrift != 0L) {
+            securityEnforcer.initialClockDrift = savedDrift
+        }
+
         // submittedOrExited restore
         val submittedKeyToRestore = AppPrefs.getSubmittedOrExitedKey(examId)
         val wasSubmittedOrExited = savedInstanceState?.getBoolean("submittedOrExited")
@@ -609,6 +614,7 @@ class ExamViewerActivity : BaseSecureActivity() {
         outState.putBoolean("isPdfReady", viewModel.isPdfReady.value)
         outState.putString("securityLevel", securityLevel)
         outState.putString("startTime", startTime)
+        outState.putLong("initialClockDrift", securityEnforcer.initialClockDrift)
     }
 
     override fun onDestroy() {
