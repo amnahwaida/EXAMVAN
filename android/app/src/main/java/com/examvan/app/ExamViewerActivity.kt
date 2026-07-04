@@ -552,23 +552,27 @@ class ExamViewerActivity : BaseSecureActivity() {
 
     override fun onStart() {
         super.onStart()
-        securityEnforcer.verifyLockTask()
-        if (securityEnforcer.strictMode) {
-            securityEnforcer.enterImmersiveMode()
+        if (::securityEnforcer.isInitialized) {
+            securityEnforcer.verifyLockTask()
+            if (securityEnforcer.strictMode) {
+                securityEnforcer.enterImmersiveMode()
+            }
         }
     }
 
     override fun onResume() {
         super.onResume()
-        // Reset dialog flag
-        android.os.Handler(android.os.Looper.getMainLooper()).post {
-            if (!isFinishing && !isDestroyed) {
-                securityEnforcer.isShowingAppDialog = false
+        if (::securityEnforcer.isInitialized) {
+            // Reset dialog flag
+            android.os.Handler(android.os.Looper.getMainLooper()).post {
+                if (!isFinishing && !isDestroyed) {
+                    securityEnforcer.isShowingAppDialog = false
+                }
             }
-        }
-        securityEnforcer.onResume()
-        if (viewModel.isPdfReady.value) {
-            startCountdownTimer()
+            securityEnforcer.onResume()
+            if (viewModel.isPdfReady.value) {
+                startCountdownTimer()
+            }
         }
     }
 
@@ -579,62 +583,76 @@ class ExamViewerActivity : BaseSecureActivity() {
 
     override fun onUserLeaveHint() {
         super.onUserLeaveHint()
-        securityEnforcer.isPdfReady = viewModel.isPdfReady.value
-        securityEnforcer.submittedOrExited = viewModel.submittedOrExited.value
-        securityEnforcer.handleUserLeave()
+        if (::securityEnforcer.isInitialized && ::submissionManager.isInitialized) {
+            securityEnforcer.isPdfReady = viewModel.isPdfReady.value
+            securityEnforcer.submittedOrExited = viewModel.submittedOrExited.value
+            securityEnforcer.handleUserLeave()
 
-        // Auto-submit on user exit for medium security or strict mode (as bypass defense)
-        if (!submissionManager.submittedOrExited && viewModel.isPdfReady.value) {
-            if (securityLevel == "medium" || securityEnforcer.strictMode) {
-                submissionManager.autoSubmitAndExit()
+            // Auto-submit on user exit for medium security or strict mode (as bypass defense)
+            if (!submissionManager.submittedOrExited && viewModel.isPdfReady.value) {
+                if (securityLevel == "medium" || securityEnforcer.strictMode) {
+                    submissionManager.autoSubmitAndExit()
+                }
             }
         }
     }
 
     override fun onWindowFocusChanged(hasFocus: Boolean) {
         super.onWindowFocusChanged(hasFocus)
-        securityEnforcer.isPdfReady = viewModel.isPdfReady.value
-        securityEnforcer.submittedOrExited = viewModel.submittedOrExited.value
-        securityEnforcer.handleWindowFocusChanged(hasFocus) {
-            submissionManager.autoSubmitAndExit()
+        if (::securityEnforcer.isInitialized && ::submissionManager.isInitialized) {
+            securityEnforcer.isPdfReady = viewModel.isPdfReady.value
+            securityEnforcer.submittedOrExited = viewModel.submittedOrExited.value
+            securityEnforcer.handleWindowFocusChanged(hasFocus) {
+                submissionManager.autoSubmitAndExit()
+            }
         }
     }
 
     override fun onKeyDown(keyCode: Int, event: KeyEvent?): Boolean {
-        if (securityEnforcer.handleVolumeKey(keyCode)) return true
-        if (keyCode == KeyEvent.KEYCODE_POWER) securityEnforcer.handlePowerKey()
+        if (::securityEnforcer.isInitialized) {
+            if (securityEnforcer.handleVolumeKey(keyCode)) return true
+            if (keyCode == KeyEvent.KEYCODE_POWER) securityEnforcer.handlePowerKey()
+        }
         return super.onKeyDown(keyCode, event)
     }
 
     override fun onKeyLongPress(keyCode: Int, event: KeyEvent?): Boolean {
-        if (keyCode == KeyEvent.KEYCODE_VOLUME_UP || keyCode == KeyEvent.KEYCODE_VOLUME_DOWN) {
-            return securityEnforcer.handleVolumeKeyLongPress()
-        }
-        if (keyCode == KeyEvent.KEYCODE_POWER && securityEnforcer.strictMode) {
-            return securityEnforcer.handlePowerKeyLongPress()
+        if (::securityEnforcer.isInitialized) {
+            if (keyCode == KeyEvent.KEYCODE_VOLUME_UP || keyCode == KeyEvent.KEYCODE_VOLUME_DOWN) {
+                return securityEnforcer.handleVolumeKeyLongPress()
+            }
+            if (keyCode == KeyEvent.KEYCODE_POWER && securityEnforcer.strictMode) {
+                return securityEnforcer.handlePowerKeyLongPress()
+            }
         }
         return super.onKeyLongPress(keyCode, event)
     }
 
     override fun onSaveInstanceState(outState: Bundle) {
         super.onSaveInstanceState(outState)
-        outState.putInt("currentPage", pdfRendererHelper.currentPage)
+        if (::pdfRendererHelper.isInitialized) {
+            outState.putInt("currentPage", pdfRendererHelper.currentPage)
+        }
         outState.putBoolean("answerSheetExpanded", binding.answerSheetPanel.visibility == View.VISIBLE)
-        outState.putBoolean("strictMode", securityEnforcer.strictMode)
+        if (::securityEnforcer.isInitialized) {
+            outState.putBoolean("strictMode", securityEnforcer.strictMode)
+            outState.putLong("initialClockDrift", securityEnforcer.initialClockDrift)
+        }
         outState.putBoolean("submittedOrExited", viewModel.submittedOrExited.value)
-        outState.putBoolean("isSubmitting", submissionManager.isSubmitting)
+        if (::submissionManager.isInitialized) {
+            outState.putBoolean("isSubmitting", submissionManager.isSubmitting)
+        }
         outState.putBoolean("isPdfReady", viewModel.isPdfReady.value)
         outState.putString("securityLevel", securityLevel)
         outState.putString("startTime", startTime)
-        outState.putLong("initialClockDrift", securityEnforcer.initialClockDrift)
         outState.putString("endTime", endTime)
     }
 
     override fun onDestroy() {
         super.onDestroy()
         countDownTimer?.cancel()
-        pdfRendererHelper.cleanup()
-        securityEnforcer.cleanup()
+        if (::pdfRendererHelper.isInitialized) pdfRendererHelper.cleanup()
+        if (::securityEnforcer.isInitialized) securityEnforcer.cleanup()
         unregisterNetworkCallback()
         WebSocketManager.disconnect()
         AuditLog.reset()
