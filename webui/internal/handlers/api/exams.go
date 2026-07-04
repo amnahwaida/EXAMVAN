@@ -262,11 +262,13 @@ func ListExams() gin.HandlerFunc {
 		}
 
 		type item struct {
-			ID        int     `json:"id"`
-			Name      string  `json:"name"`
-			Status    string  `json:"status"`
-			SizeMB    float64 `json:"size_mb"`
-			CreatedAt string  `json:"created_at"`
+			ID        int         `json:"id"`
+			Name      string      `json:"name"`
+			Status    string      `json:"status"`
+			SizeMB    float64     `json:"size_mb"`
+			StartTime interface{} `json:"start_time"`
+			EndTime   interface{} `json:"end_time"`
+			CreatedAt string      `json:"created_at"`
 		}
 
 		items := make([]item, 0, len(result.Exams))
@@ -276,6 +278,8 @@ func ListExams() gin.HandlerFunc {
 				Name:      e.Name,
 				Status:    e.Status,
 				SizeMB:    roundTo(float64(e.SizeBytes)/(1024*1024), 2),
+				StartTime: formatNullableISOUTC(e.StartTime),
+				EndTime:   formatNullableISOUTC(e.EndTime),
 				CreatedAt: formatISOUTC(e.CreatedAt),
 			})
 		}
