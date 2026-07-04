@@ -283,6 +283,8 @@ class ServerConfigActivity : BaseSecureActivity() {
 
         // Inflate XML layout template — lebih maintainable daripada build 100% programmatic
         val dialogView = LayoutInflater.from(this).inflate(R.layout.dialog_student_identity, null)
+        val tvDialogExamTitle = dialogView.findViewById<TextView>(R.id.tvDialogExamTitle)
+        tvDialogExamTitle.text = exam.name
         val fieldsContainer = dialogView.findViewById<LinearLayout>(R.id.fieldsContainer)
         val tvDialogError = dialogView.findViewById<TextView>(R.id.tvDialogError)
         val btnConfirm = dialogView.findViewById<Button>(R.id.btnConfirmStart)

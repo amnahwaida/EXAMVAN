@@ -114,7 +114,7 @@ class ExamViewerActivity : BaseSecureActivity() {
         // Read from EncryptedSharedPreferences (not Intent) for security
         val strictMode = AppPrefs.getExamPrefs(this).getBoolean(AppPrefs.KEY_STRICT_MODE, false)
         macAddress = DeviceIdResolver.resolveDeviceId(this)
-        binding.tvExamTitle.text = examName
+        binding.tvExamTitle.text = ""
 
         // ---- Initialize helpers ----
         initializeHelpers(strictMode, savedInstanceState)

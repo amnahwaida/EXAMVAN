@@ -16,7 +16,18 @@
         android:textStyle="bold"
         android:textColor="@color/on_surface"
         android:gravity="center"
-        android:layout_marginBottom="6dp" />
+        android:layout_marginBottom="4dp" />
+
+    <!-- Exam Title Display -->
+    <TextView
+        android:id="@+id/tvDialogExamTitle"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:textSize="15sp"
+        android:textStyle="bold"
+        android:textColor="@color/primary"
+        android:gravity="center"
+        android:layout_marginBottom="12dp" />
 
     <!-- Subtitle -->
     <TextView
