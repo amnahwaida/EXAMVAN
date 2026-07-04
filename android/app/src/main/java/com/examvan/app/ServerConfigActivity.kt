@@ -379,7 +379,7 @@ class ServerConfigActivity : BaseSecureActivity() {
                 .putString(AppPrefs.KEY_SECURITY_LEVEL, securityLevel)
                 .putBoolean(AppPrefs.KEY_STRICT_MODE, strictMode)
                 .putString(AppPrefs.KEY_PANEL_COLOR, panelColor)
-                .apply()
+                .commit()
 
             // Extract legacy fields for backward compat with ExamViewer with smart fallbacks for custom keys
             var name = identityJson.optString("student_name", "")
@@ -426,7 +426,7 @@ class ServerConfigActivity : BaseSecureActivity() {
                 }
             }
 
-            startExamViewer(exam.id, exam.name, serverUrl, token, name, number, sClass, identityDataStr, exam.end_time)
+            startExamViewer(exam.id, exam.name, serverUrl, token, name, number, sClass, identityDataStr, exam.end_time, securityLevel, strictMode)
         }
 
         alertDialog.show()
@@ -438,7 +438,7 @@ class ServerConfigActivity : BaseSecureActivity() {
         }
     }
 
-    private fun startExamViewer(examId: Int, examName: String, serverUrl: String, token: String, name: String, number: String, studentClass: String, identityData: String = "{}", endTime: String? = null) {
+    private fun startExamViewer(examId: Int, examName: String, serverUrl: String, token: String, name: String, number: String, studentClass: String, identityData: String = "{}", endTime: String? = null, securityLevel: String = "medium", strictMode: Boolean = false) {
         val intent = Intent(this@ServerConfigActivity, ExamViewerActivity::class.java).apply {
             putExtra("exam_id", examId)
             putExtra("exam_name", examName)
@@ -449,6 +449,8 @@ class ServerConfigActivity : BaseSecureActivity() {
             putExtra("student_class", studentClass)
             putExtra("identity_data", identityData)
             putExtra("end_time", endTime)
+            putExtra("security_level", securityLevel)
+            putExtra("strict_mode", strictMode)
         }
         startActivity(intent)
     }

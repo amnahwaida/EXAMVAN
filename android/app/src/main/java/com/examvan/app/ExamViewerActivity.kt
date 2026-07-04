@@ -111,8 +111,11 @@ class ExamViewerActivity : BaseSecureActivity() {
             return
         }
 
-        // Read from EncryptedSharedPreferences (not Intent) for security
-        val strictMode = AppPrefs.getExamPrefs(this).getBoolean(AppPrefs.KEY_STRICT_MODE, false)
+        // Read from Intent first (to avoid race conditions on fresh save), fallback to EncryptedSharedPreferences
+        val strictMode = intent.getBooleanExtra("strict_mode", false) ||
+                AppPrefs.getExamPrefs(this).getBoolean(AppPrefs.KEY_STRICT_MODE, false)
+        securityLevel = intent.getStringExtra("security_level") ?:
+                AppPrefs.getExamPrefs(this).getString(AppPrefs.KEY_SECURITY_LEVEL, "medium") ?: "medium"
         macAddress = DeviceIdResolver.resolveDeviceId(this)
         binding.tvExamTitle.text = ""
 
@@ -399,7 +402,7 @@ class ExamViewerActivity : BaseSecureActivity() {
         try {
             val prefs = AppPrefs.getExamPrefs(this)
             val json = prefs.getString(AppPrefs.KEY_QUESTIONS_JSON, null)
-            securityLevel = prefs.getString(AppPrefs.KEY_SECURITY_LEVEL, "medium") ?: "medium"
+            securityLevel = intent.getStringExtra("security_level") ?: prefs.getString(AppPrefs.KEY_SECURITY_LEVEL, "medium") ?: "medium"
             updateSecurityBanner()
             applyPanelColor()
             submissionManager.requestNotificationPermission()
