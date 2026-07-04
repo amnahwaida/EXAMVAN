@@ -289,9 +289,20 @@ class SecurityEnforcer(
                         return@Runnable
                     }
 
-                    // Suspicious focus loss detected in strict mode (e.g. system overlay, split screen, notification shade)
+                    // In strict mode: do NOT call autoSubmitCallback — it releases the pin and lets students out.
+                    // Instead, just re-activate the lock task to keep the student trapped.
+                    // The autoSubmitCallback is only for medium security mode.
                     if (strictMode && !isShowingAppDialog && isPdfReady && !submittedOrExited) {
-                        Log.w(TAG, "Suspected cheating/app bypass: lost focus in strict mode for >500ms")
+                        Log.w(TAG, "Focus lost in strict mode for >500ms — re-activating lock task")
+                        LockTaskManager.activate(activity) { success ->
+                            if (!success) {
+                                strictModeFailed = true
+                                showStrictModeFailed { retryStrictMode() }
+                            }
+                        }
+                        enterImmersiveMode()
+                    } else if (!strictMode && !isShowingAppDialog && isPdfReady && !submittedOrExited) {
+                        Log.w(TAG, "Focus lost in medium mode for >500ms — auto-submitting")
                         autoSubmitCallback()
                     }
 

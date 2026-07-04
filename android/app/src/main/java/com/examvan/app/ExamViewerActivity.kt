@@ -591,9 +591,12 @@ class ExamViewerActivity : BaseSecureActivity() {
             securityEnforcer.submittedOrExited = viewModel.submittedOrExited.value
             securityEnforcer.handleUserLeave()
 
-            // Auto-submit on user exit for medium security or strict mode (as bypass defense)
+            // STRICT MODE: Do NOT auto-submit. The lock task pin IS the security.
+            // Calling autoSubmitAndExit releases the pin (stopLockTask) and lets students out freely.
+            // Instead, let Android handle it: forced unpin → Android lockscreen → student can't open anything.
+            // MEDIUM MODE: Auto-submit and exit immediately.
             if (!submissionManager.submittedOrExited && viewModel.isPdfReady.value) {
-                if (securityLevel == "medium" || securityEnforcer.strictMode) {
+                if (securityLevel == "medium" && !securityEnforcer.strictMode) {
                     submissionManager.autoSubmitAndExit()
                 }
             }
@@ -606,7 +609,10 @@ class ExamViewerActivity : BaseSecureActivity() {
             securityEnforcer.isPdfReady = viewModel.isPdfReady.value
             securityEnforcer.submittedOrExited = viewModel.submittedOrExited.value
             securityEnforcer.handleWindowFocusChanged(hasFocus) {
-                submissionManager.autoSubmitAndExit()
+                // Only auto-submit for medium mode. Strict mode relies on lock task pin.
+                if (!securityEnforcer.strictMode) {
+                    submissionManager.autoSubmitAndExit()
+                }
             }
         }
     }
