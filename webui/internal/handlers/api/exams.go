@@ -497,35 +497,21 @@ func ExamPDF() gin.HandlerFunc {
 			return
 		}
 
-		// Priority 1: Serve PDF via Cloudflare R2 signed URL
+		// Serve PDF via Cloudflare R2 signed URL (Mandatory)
 		if r2c, exists := c.Get("r2"); exists {
 			client := r2c.(*r2client.Client)
-			if client.Enabled() {
-				r2Key := fmt.Sprintf("pdfs/%s", exam.FilePath)
-				signedURL, err := client.SignedURL(ctx, r2Key, 1*time.Hour)
-				if err == nil {
-					c.Redirect(http.StatusFound, signedURL)
-					return
-				}
-				log.Printf("api: R2 signed URL error: %v — fallback to local", err)
+			r2Key := fmt.Sprintf("pdfs/%s", exam.FilePath)
+			signedURL, err := client.SignedURL(ctx, r2Key, 1*time.Hour)
+			if err == nil {
+				c.Redirect(http.StatusFound, signedURL)
+				return
 			}
-		}
-
-		// Priority 2: Fallback — serve from local storage
-		storageDir := getStoragePath(c)
-		pdfPath, err := helpers.SafeStoragePath(storageDir, exam.FilePath)
-		if err != nil {
-			errorResponse(c, http.StatusBadRequest, "Path tidak valid")
+			log.Printf("api: R2 signed URL error: %v", err)
+			errorResponse(c, http.StatusInternalServerError, "Gagal men-generate URL soal dari Cloudflare R2")
 			return
 		}
 
-		if _, err := os.Stat(pdfPath); os.IsNotExist(err) {
-			errorResponse(c, http.StatusNotFound, "File PDF tidak ditemukan")
-			return
-		}
-
-		c.Header("Content-Type", "application/pdf")
-		c.File(pdfPath)
+		errorResponse(c, http.StatusInternalServerError, "Cloudflare R2 client tidak dikonfigurasi")
 	}
 }
 

@@ -18,6 +18,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/examvan/webui/internal/config"
 	r2client "github.com/examvan/webui/internal/handlers/r2"
 	"github.com/examvan/webui/internal/helpers"
 	"github.com/examvan/webui/internal/models"
@@ -30,7 +31,7 @@ import (
 
 const maxFileSize = 100 * 1024 * 1024 // 100 MB global limit
 
-var tokenRegex = regexp.MustCompile(`^[A-Z0-9]{8}$`)
+var tokenRegex = regexp.MustCompile(fmt.Sprintf(`^[A-Z0-9]{%d}$`, config.TokenLength))
 
 
 
@@ -44,7 +45,55 @@ func validatePDF(data []byte, filename string, contentType string, maxSize int64
 	if !bytes.HasPrefix(data, []byte("%PDF")) {
 		return false, "File tidak valid (bukan PDF)"
 	}
+
+	// Validate PDF EOF marker (%%EOF) in the last 1024 bytes
+	lastBytes := data
+	if len(data) > 1024 {
+		lastBytes = data[len(data)-1024:]
+	}
+	if !bytes.Contains(lastBytes, []byte("%%EOF")) {
+		return false, "File tidak valid (PDF rusak atau tidak lengkap)"
+	}
+
+	// Detect HTML/JS polyglots to prevent stored XSS
+	dangerousSigs := [][]byte{
+		[]byte("<script"),
+		[]byte("<html"),
+		[]byte("<iframe"),
+		[]byte("javascript:"),
+		[]byte("<body"),
+	}
+	dataLower := bytes.ToLower(data)
+	for _, sig := range dangerousSigs {
+		if bytes.Contains(dataLower, sig) {
+			return false, "File terdeteksi mengandung konten berbahaya (potensi XSS)"
+		}
+	}
+
 	return true, ""
+}
+
+// cleanUploadedFilename extracts the base name and cleans it to prevent path traversal
+func cleanUploadedFilename(filename string) string {
+	parts := strings.FieldsFunc(filename, func(r rune) bool {
+		return r == '/' || r == '\\'
+	})
+	if len(parts) == 0 {
+		return "exam.pdf"
+	}
+	base := parts[len(parts)-1]
+
+	reg := regexp.MustCompile(`[^a-zA-Z0-9._-]`)
+	safe := reg.ReplaceAllString(base, "_")
+
+	if safe == "" || safe == "." || safe == ".." {
+		return "exam.pdf"
+	}
+
+	if !strings.HasSuffix(strings.ToLower(safe), ".pdf") {
+		safe = safe + ".pdf"
+	}
+	return safe
 }
 
 // sanitizeFilename removes characters from a filename that could break HTTP
@@ -179,33 +228,23 @@ func UploadExam() gin.HandlerFunc {
 			}
 		}
 
-		// Save file
-		storageDir := getStoragePath(c)
 		timestamp := time.Now().UTC().Format("20060102_150405")
-		safeName := filepath.Base(header.Filename)
-		if safeName == "." || safeName == "/" {
-			safeName = "exam.pdf"
-		}
+		safeName := cleanUploadedFilename(header.Filename)
 		filename := fmt.Sprintf("%s_%s", timestamp, safeName)
-		destPath := filepath.Join(storageDir, filename)
 
-		if err := os.WriteFile(destPath, fileData, 0644); err != nil {
-			log.Printf("upload save file error: %v", err)
-			errorResponse(c, http.StatusInternalServerError, "Gagal menyimpan file")
-			return
-		}
-
-		// Upload to R2 if configured
+		// Upload to R2 (Mandatory)
 		if r2c, exists := c.Get("r2"); exists {
 			client := r2c.(*r2client.Client)
-			if client.Enabled() {
-				r2Key := fmt.Sprintf("pdfs/%s", filename)
-				if err := client.UploadBytes(ctx, r2Key, fileData); err != nil {
-					log.Printf("admin: R2 upload error: %v — fallback to local only", err)
-				} else {
-					log.Printf("admin: PDF uploaded to R2: %s", r2Key)
-				}
+			r2Key := fmt.Sprintf("pdfs/%s", filename)
+			if err := client.UploadBytes(ctx, r2Key, fileData); err != nil {
+				log.Printf("admin: R2 upload error: %v", err)
+				errorResponse(c, http.StatusInternalServerError, "Gagal mengupload file ke Cloudflare R2")
+				return
 			}
+			log.Printf("admin: PDF uploaded to R2: %s", r2Key)
+		} else {
+			errorResponse(c, http.StatusInternalServerError, "Cloudflare R2 client tidak ditemukan")
+			return
 		}
 
 		defaultMode := "dynamic"
@@ -311,22 +350,12 @@ func DeleteExam() gin.HandlerFunc {
 			return
 		}
 
-		// Clean up PDF
-		storageDir := getStoragePath(c)
-		if fp, err := helpers.SafeStoragePath(storageDir, exam.FilePath); err == nil {
-			if err := os.Remove(fp); err != nil && !os.IsNotExist(err) {
-				log.Printf("delete exam file cleanup error: %v", err)
-			}
-		}
-
-		// Delete from R2 if configured
+		// Delete from R2 (Mandatory)
 		if r2c, exists := c.Get("r2"); exists {
 			client := r2c.(*r2client.Client)
-			if client.Enabled() {
-				r2Key := fmt.Sprintf("pdfs/%s", exam.FilePath)
-				if err := client.Delete(ctx, r2Key); err != nil {
-					log.Printf("admin: R2 delete error: %v", err)
-				}
+			r2Key := fmt.Sprintf("pdfs/%s", exam.FilePath)
+			if err := client.Delete(ctx, r2Key); err != nil {
+				log.Printf("admin: R2 delete error: %v", err)
 			}
 		}
 
@@ -382,49 +411,32 @@ func EditExam() gin.HandlerFunc {
 				return
 			}
 
-			// Delete old file locally
-			storageDir := getStoragePath(c)
-			if oldPath, err := helpers.SafeStoragePath(storageDir, exam.FilePath); err == nil {
-				os.Remove(oldPath)
-			}
-
-			// Delete old file from R2 if configured
+			// Delete old file from R2 (Mandatory)
 			if r2c, exists := c.Get("r2"); exists {
 				client := r2c.(*r2client.Client)
-				if client.Enabled() {
-					oldR2Key := fmt.Sprintf("pdfs/%s", exam.FilePath)
-					if err := client.Delete(ctx, oldR2Key); err != nil {
-						log.Printf("admin: R2 delete old file error: %v", err)
-					}
+				oldR2Key := fmt.Sprintf("pdfs/%s", exam.FilePath)
+				if err := client.Delete(ctx, oldR2Key); err != nil {
+					log.Printf("admin: R2 delete old file error: %v", err)
 				}
 			}
 
-			// Save new file
+			// Save new file to R2 (Mandatory)
 			timestamp := time.Now().UTC().Format("20060102_150405")
-			safeName := filepath.Base(header.Filename)
-			if safeName == "." || safeName == "/" {
-				safeName = "exam.pdf"
-			}
+			safeName := cleanUploadedFilename(header.Filename)
 			filename := fmt.Sprintf("%s_%s", timestamp, safeName)
-			destPath := filepath.Join(storageDir, filename)
 
-			if err := os.WriteFile(destPath, fileData, 0644); err != nil {
-				log.Printf("edit exam save file error: %v", err)
-				errorResponse(c, http.StatusInternalServerError, "Gagal menyimpan file")
-				return
-			}
-
-			// Upload new file to R2 if configured
 			if r2c, exists := c.Get("r2"); exists {
 				client := r2c.(*r2client.Client)
-				if client.Enabled() {
-					r2Key := fmt.Sprintf("pdfs/%s", filename)
-					if err := client.UploadBytes(ctx, r2Key, fileData); err != nil {
-						log.Printf("admin: R2 upload error: %v — fallback to local only", err)
-					} else {
-						log.Printf("admin: PDF uploaded to R2: %s", r2Key)
-					}
+				r2Key := fmt.Sprintf("pdfs/%s", filename)
+				if err := client.UploadBytes(ctx, r2Key, fileData); err != nil {
+					log.Printf("admin: R2 upload error: %v", err)
+					errorResponse(c, http.StatusInternalServerError, "Gagal mengupload file ke Cloudflare R2")
+					return
 				}
+				log.Printf("admin: PDF uploaded to R2: %s", r2Key)
+			} else {
+				errorResponse(c, http.StatusInternalServerError, "Cloudflare R2 client tidak ditemukan")
+				return
 			}
 
 			exam.Name = name
@@ -470,30 +482,19 @@ func ExamPDF() gin.HandlerFunc {
 			return
 		}
 
-		storageDir := getStoragePath(c)
-		pdfPath, err := helpers.SafeStoragePath(storageDir, exam.FilePath)
-		if err != nil {
-			c.AbortWithStatus(http.StatusBadRequest)
-			return
+		// Serve PDF via Cloudflare R2 signed URL (Mandatory)
+		if r2c, exists := c.Get("r2"); exists {
+			client := r2c.(*r2client.Client)
+			r2Key := fmt.Sprintf("pdfs/%s", exam.FilePath)
+			signedURL, err := client.SignedURL(ctx, r2Key, 1*time.Hour)
+			if err == nil {
+				c.Redirect(http.StatusFound, signedURL)
+				return
+			}
+			log.Printf("admin: R2 signed URL error: %v", err)
 		}
-
-		if _, err := os.Stat(pdfPath); os.IsNotExist(err) {
-			c.AbortWithStatus(http.StatusNotFound)
-			return
-		}
-
-		download := c.Query("download") == "1"
-		if download {
-			safeName := sanitizeFilename(exam.Name)
-			c.Header("Content-Disposition",
-				fmt.Sprintf(`attachment; filename="%s.pdf"`, safeName))
-		} else {
-			c.Header("Content-Disposition", `inline`)
-		}
-		c.Header("Content-Type", "application/pdf")
-		c.Header("Cache-Control", "no-store, no-cache, must-revalidate")
-		c.Header("X-Content-Type-Options", "nosniff")
-		c.File(pdfPath)
+		
+		c.AbortWithStatus(http.StatusInternalServerError)
 	}
 }
 

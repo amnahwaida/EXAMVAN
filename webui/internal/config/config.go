@@ -1,16 +1,17 @@
 package config
 
 import (
+	"log"
 	"os"
 	"strconv"
 )
 
 const (
 	DefaultPort         = 5000
-	DefaultAdminUser    = "superadmin"
 	DefaultStoragePath  = "/app/storage"
 	DefaultMaxFileSize  = 5 * 1024 * 1024 // 5 MB
 	DefaultVersion      = "2.2.3"
+	TokenLength         = 8
 )
 
 type Config struct {
@@ -46,7 +47,7 @@ func Load() *Config {
 		DatabaseURL: os.Getenv("DATABASE_URL"),
 		RedisURL:    os.Getenv("REDIS_URL"),
 		SecretKey:   os.Getenv("EXAMVAN_SECRET"),
-		AdminUser:   envStr("EXAMVAN_ADMIN_USER", DefaultAdminUser),
+		AdminUser:   os.Getenv("EXAMVAN_ADMIN_USER"),
 		AdminPass:   os.Getenv("EXAMVAN_ADMIN_PASS"),
 		StoragePath: envStr("STORAGE_PATH", DefaultStoragePath),
 		MaxFileSize: DefaultMaxFileSize,
@@ -64,6 +65,29 @@ func Load() *Config {
 
 	if cfg.StoragePath == "" {
 		cfg.StoragePath = DefaultStoragePath
+	}
+
+	if cfg.AdminUser == "" {
+		log.Fatalf("EXAMVAN_ADMIN_USER environment variable is required and must not be empty.")
+	}
+
+	if cfg.AdminPass == "" {
+		log.Fatalf("EXAMVAN_ADMIN_PASS environment variable is required and must not be empty.")
+	}
+
+	// Cloudflare R2 Mandatory configuration validation
+	if cfg.R2AccessKey == "" || cfg.R2SecretKey == "" || cfg.R2Endpoint == "" {
+		log.Fatalf("Cloudflare R2 is MANDATORY: R2_ACCESS_KEY_ID, R2_SECRET_ACCESS_KEY, and R2_ENDPOINT must all be set in .env.")
+	}
+
+	// DOKU payment gateway partial config validation
+	if (cfg.DokuClientID != "" || cfg.DokuSecretKey != "") &&
+		(cfg.DokuClientID == "" || cfg.DokuSecretKey == "") {
+		log.Fatalf("Partial DOKU configuration: DOKU_CLIENT_ID and DOKU_SECRET_KEY must both be set together.")
+	}
+
+	if len(cfg.SecretKey) < 32 {
+		log.Fatalf("EXAMVAN_SECRET must be at least 32 characters long for security purposes.")
 	}
 
 	return cfg

@@ -57,8 +57,13 @@ func (c *Client) Enabled() bool {
 	return c != nil && c.enabled
 }
 
-// Upload reads from reader and uploads to R2 with the given key.
+// Upload reads from reader and uploads to R2 with the given key (default to pdf).
 func (c *Client) Upload(ctx context.Context, key string, reader io.Reader) error {
+	return c.UploadWithContentType(ctx, key, reader, "application/pdf")
+}
+
+// UploadWithContentType reads from reader and uploads to R2 with the given key and content type.
+func (c *Client) UploadWithContentType(ctx context.Context, key string, reader io.Reader, contentType string) error {
 	data, err := io.ReadAll(reader)
 	if err != nil {
 		return fmt.Errorf("r2 read: %w", err)
@@ -68,7 +73,7 @@ func (c *Client) Upload(ctx context.Context, key string, reader io.Reader) error
 		Bucket:      aws.String(c.Bucket),
 		Key:         aws.String(key),
 		Body:        bytes.NewReader(data),
-		ContentType: aws.String("application/pdf"),
+		ContentType: aws.String(contentType),
 	})
 	if err != nil {
 		return fmt.Errorf("r2 upload: %w", err)
@@ -76,6 +81,7 @@ func (c *Client) Upload(ctx context.Context, key string, reader io.Reader) error
 	log.Printf("r2: uploaded %s (%d bytes)", key, len(data))
 	return nil
 }
+
 
 // UploadBytes uploads raw bytes to R2 with the given key.
 func (c *Client) UploadBytes(ctx context.Context, key string, data []byte) error {

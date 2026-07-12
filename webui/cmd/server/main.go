@@ -23,6 +23,7 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"sync"
 	"syscall"
 	"time"
 
@@ -62,7 +63,6 @@ func main() {
 
 	log.Printf("EXAMVAN WebUI v%s starting...", cfg.Version)
 	log.Printf("Storage path: %s", cfg.StoragePath)
-	log.Printf("Admin user: %s", cfg.AdminUser)
 
 	if cfg.SecretKey == "" {
 		log.Fatal("EXAMVAN_SECRET is required — set it to a random string of at least 32 characters")
@@ -112,8 +112,7 @@ func main() {
 		log.Println("Redis: connected")
 	}
 
-	// Share Redis client with rate-limit middleware.
-	middleware.SetRedisClient(rdb)
+	// Share Redis client with context (already handled by injectServices middleware)
 
 	// Set the configured admin username so models package can use it.
 	models.SuperAdminUsername = cfg.AdminUser
@@ -173,7 +172,7 @@ func main() {
 	store := cookie.NewStore([]byte(cfg.SecretKey))
 	store.Options(sessions.Options{
 		Path:     "/",
-		MaxAge:   86400 * 7, // 7 days
+		MaxAge:   86400, // 1 day
 		HttpOnly: true,
 		Secure:   !cfg.IsDevelopment(),
 		SameSite: http.SameSiteLaxMode,
@@ -289,6 +288,10 @@ func main() {
 				billingLink = fmt.Sprintf(`<a href="/admin/billing" class="nav-link %s"><svg class="icon-svg" aria-hidden="true"><use href="#hi-clipboard"/></svg> Upgrade Paket</a>`, activePageClass(activePage, "billing"))
 			}
 
+			if isSuper {
+				billingLink += fmt.Sprintf(`<a href="/admin/system-apps" class="nav-link %s"><svg class="icon-svg" aria-hidden="true"><use href="#hi-download"/></svg> Aplikasi Sistem</a>`, activePageClass(activePage, "system-apps"))
+			}
+
 			// Mobile nav links for hamburger menu
 			mobileLinks := `<div class="dropdown-divider mobile-only-divider"></div><div class="mobile-nav-links">`
 			if isGuru {
@@ -305,13 +308,22 @@ func main() {
 			} else if isGuru {
 				mobileLinks += fmt.Sprintf(`<a href="/admin/billing" class="dropdown-item %s"><svg class="icon-svg"><use href="#hi-clipboard"/></svg> Upgrade Paket</a>`, dropdownActive(activePage, "billing"))
 			}
+			if isSuper {
+				mobileLinks += fmt.Sprintf(`<a href="/admin/system-apps" class="dropdown-item %s"><svg class="icon-svg"><use href="#hi-download"/></svg> Aplikasi Sistem</a>`, dropdownActive(activePage, "system-apps"))
+			}
 			mobileLinks += `</div><div class="dropdown-divider"></div>`
 
 			dropdownBillingLink := ""
 			if isSuper || isOp {
-				dropdownBillingLink = `<a href="/admin/billing" class="dropdown-item" style="text-decoration:none;color:inherit;"><svg class="icon-svg"><use href="#hi-clipboard"/></svg> Billing & Paket</a><div class="dropdown-divider"></div>`
+				dropdownBillingLink = `<a href="/admin/billing" class="dropdown-item" style="text-decoration:none;color:inherit;"><svg class="icon-svg"><use href="#hi-clipboard"/></svg> Billing & Paket</a>`
 			} else if isGuru {
-				dropdownBillingLink = `<a href="/admin/billing" class="dropdown-item" style="text-decoration:none;color:inherit;"><svg class="icon-svg"><use href="#hi-clipboard"/></svg> Upgrade Paket</a><div class="dropdown-divider"></div>`
+				dropdownBillingLink = `<a href="/admin/billing" class="dropdown-item" style="text-decoration:none;color:inherit;"><svg class="icon-svg"><use href="#hi-clipboard"/></svg> Upgrade Paket</a>`
+			}
+			if isSuper {
+				dropdownBillingLink += `<a href="/admin/system-apps" class="dropdown-item" style="text-decoration:none;color:inherit;"><svg class="icon-svg"><use href="#hi-download"/></svg> Aplikasi Sistem</a>`
+			}
+			if dropdownBillingLink != "" {
+				dropdownBillingLink += `<div class="dropdown-divider"></div>`
 			}
 
 			csrfEscaped := html.EscapeString(csrfToken)
@@ -519,6 +531,7 @@ func registerRoutes(r *gin.Engine, cfg *config.Config, pool *pgxpool.Pool) {
 
 	r.GET("/download", public.DownloadPage())
 	r.GET("/download/apk", public.DownloadAPK())
+	r.GET("/download/app/:id", middleware.RateLimit(60, time.Minute), public.DownloadSystemApp())
 	r.GET("/hasil/:token", public.HasilPage())
 
 	// ---- Short URL redirect: /<8-char-token> → /hasil/<token> ----
@@ -558,6 +571,7 @@ func registerRoutes(r *gin.Engine, cfg *config.Config, pool *pgxpool.Pool) {
 
 		adminPages.GET("/pengawas", admin.PengawasPage())
 		adminPages.GET("/pengawas/:exam_id", admin.PengawasDetailPage())
+		adminPages.GET("/system-apps", middleware.SuperAdminRequired(), admin.SystemAppsPage())
 
 		// Logout via POST only (CSRF-protected in the main route below).
 		// GET /admin/logout simply redirects to login (prevents CSRF-based logout).
@@ -592,6 +606,7 @@ func registerRoutes(r *gin.Engine, cfg *config.Config, pool *pgxpool.Pool) {
 			csrfAPI.POST("/exams/:exam_id/toggle-public-results", middleware.LimitBodySize(256*1024), admin.TogglePublicResults())
 			csrfAPI.POST("/exams/:exam_id/toggle-show-answers", middleware.LimitBodySize(256*1024), admin.ToggleShowAnswers())
 			csrfAPI.POST("/exams/:exam_id/delegate", middleware.LimitBodySize(256*1024), admin.PostDelegateExam())
+			csrfAPI.POST("/pengawas/exams/:exam_id/approvals/:mac_address", middleware.LimitBodySize(256*1024), admin.SetApprovalStatus())
 
 			// Submissions.
 			csrfAPI.POST("/submissions/:id/delete", middleware.LimitBodySize(256*1024), admin.DeleteSubmission())
@@ -611,6 +626,8 @@ func registerRoutes(r *gin.Engine, cfg *config.Config, pool *pgxpool.Pool) {
 			{
 				adminSettings.POST("/saas-settings", middleware.LimitBodySize(1*1024*1024), admin.SaasSettings())
 				adminSettings.POST("/saas-settings/test-smtp", middleware.LimitBodySize(256*1024), admin.TestSMTPConnectionEndpoint())
+				adminSettings.POST("/system-apps", middleware.LimitBodySize(500*1024*1024), admin.UploadSystemApp())
+				adminSettings.POST("/system-apps/:id/delete", middleware.LimitBodySize(256*1024), admin.DeleteSystemApp())
 			}
 
 			// Transactions & Subscriptions
@@ -644,7 +661,6 @@ func registerRoutes(r *gin.Engine, cfg *config.Config, pool *pgxpool.Pool) {
 		adminAPI.GET("/pengawas/exams", admin.PengawasExams())
 		adminAPI.GET("/pengawas/exams/:exam_id/submissions", admin.PengawasExamSubmissions())
 		adminAPI.GET("/pengawas/exams/:exam_id/approvals", admin.GetPendingApprovals())
-		adminAPI.POST("/pengawas/exams/:exam_id/approvals/:mac_address", admin.SetApprovalStatus())
 		adminAPI.GET("/saas-settings", middleware.SuperAdminRequired(), admin.SaasSettings())
 	}
 
@@ -656,7 +672,7 @@ func registerRoutes(r *gin.Engine, cfg *config.Config, pool *pgxpool.Pool) {
 // Uses regex to only match 8-character alphanumeric tokens (A-Z, 0-9),
 // so it won't catch legitimate paths like /login, /admin, /api, etc.
 func shortURLRedirectHandler() gin.HandlerFunc {
-	tokenRe := regexp.MustCompile(`^[A-Z0-9]{8}$`)
+	tokenRe := regexp.MustCompile(fmt.Sprintf(`^[A-Z0-9]{%d}$`, config.TokenLength))
 	return func(c *gin.Context) {
 		token := strings.ToUpper(strings.TrimSpace(c.Param("token")))
 		if !tokenRe.MatchString(token) {
@@ -765,6 +781,12 @@ func loginPageHandler(cfg *config.Config) gin.HandlerFunc {
 	}
 }
 
+var (
+	failedLogins = make(map[string]int)
+	lockoutTimes = make(map[string]time.Time)
+	loginLock    sync.Mutex
+)
+
 func loginHandler(cfg *config.Config) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		username := strings.TrimSpace(c.PostForm("username"))
@@ -797,14 +819,76 @@ func loginHandler(cfg *config.Config) gin.HandlerFunc {
 		dbPool := pool.(*pgxpool.Pool)
 		ctx := c.Request.Context()
 
+		// Account Lockout check
+		rdbVal, redisExists := c.Get("redis")
+		var rdb *redis.Client
+		if redisExists && rdbVal.(*redis.Client) != nil {
+			rdb = rdbVal.(*redis.Client)
+		}
+
+		lockoutKey := "lockout:" + username
+		if rdb != nil {
+			val, err := rdb.Get(ctx, lockoutKey).Result()
+			if err == nil {
+				attempts, _ := strconv.Atoi(val)
+				if attempts >= 5 {
+					ttl, _ := rdb.TTL(ctx, lockoutKey).Result()
+					data := middleware.TemplateData(c)
+					data["error"] = fmt.Sprintf("Akun dikunci sementara karena terlalu banyak kegagalan login. Silakan coba lagi dalam %d menit.", int(ttl.Minutes())+1)
+					data["version"] = cfg.Version
+					data["next"] = nextTarget
+					c.HTML(http.StatusOK, "admin/login.html", data)
+					return
+				}
+			}
+		} else {
+			loginLock.Lock()
+			if exp, locked := lockoutTimes[username]; locked && time.Now().Before(exp) {
+				loginLock.Unlock()
+				data := middleware.TemplateData(c)
+				data["error"] = fmt.Sprintf("Akun dikunci sementara karena terlalu banyak kegagalan login. Silakan coba lagi dalam %d menit.", int(time.Until(exp).Minutes())+1)
+				data["version"] = cfg.Version
+				data["next"] = nextTarget
+				c.HTML(http.StatusOK, "admin/login.html", data)
+				return
+			}
+			loginLock.Unlock()
+		}
+
 		user, errMsg := models.AuthenticateUser(ctx, dbPool, username, password)
 		if errMsg != "" {
+			// Increment failed attempts
+			if rdb != nil {
+				pipe := rdb.Pipeline()
+				pipe.Incr(ctx, lockoutKey)
+				pipe.Expire(ctx, lockoutKey, 15*time.Minute)
+				_, _ = pipe.Exec(ctx)
+			} else {
+				loginLock.Lock()
+				failedLogins[username]++
+				if failedLogins[username] >= 5 {
+					lockoutTimes[username] = time.Now().Add(15 * time.Minute)
+					failedLogins[username] = 0
+				}
+				loginLock.Unlock()
+			}
+
 			data := middleware.TemplateData(c)
 			data["error"] = errMsg
 			data["version"] = cfg.Version
 			data["next"] = nextTarget
 			c.HTML(http.StatusOK, "admin/login.html", data)
 			return
+		}
+
+		// Reset failed attempts upon successful login
+		if rdb != nil {
+			rdb.Del(ctx, lockoutKey)
+		} else {
+			loginLock.Lock()
+			delete(failedLogins, username)
+			delete(lockoutTimes, username)
+			loginLock.Unlock()
 		}
 
 		session := sessions.Default(c)

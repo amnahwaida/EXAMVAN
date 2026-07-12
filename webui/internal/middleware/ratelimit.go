@@ -12,26 +12,28 @@ import (
 	"github.com/redis/go-redis/v9"
 )
 
-var (
-	globalRedis *redis.Client
-	redisMu     sync.Mutex
-)
-
-func SetRedisClient(client *redis.Client) {
-	redisMu.Lock()
-	defer redisMu.Unlock()
-	globalRedis = client
+func getRateLimitKey(c *gin.Context) string {
+	if uidVal, exists := c.Get("user_id"); exists {
+		if uid, ok := uidVal.(int); ok {
+			return fmt.Sprintf("user_%d", uid)
+		}
+	}
+	return c.ClientIP()
 }
 
 func RateLimit(maxAttempts int, window time.Duration) gin.HandlerFunc {
-	redisMu.Lock()
-	useRedis := globalRedis != nil
-	redisMu.Unlock()
+	// Pre-create the handlers so we don't recreate them on every request
+	memHandler := newMemoryRateLimit(maxAttempts, window)
+	redisHandler := newRedisRateLimit(maxAttempts, window)
 
-	if useRedis {
-		return newRedisRateLimit(maxAttempts, window)
+	return func(c *gin.Context) {
+		rdbVal, exists := c.Get("redis")
+		if exists && rdbVal.(*redis.Client) != nil {
+			redisHandler(c)
+		} else {
+			memHandler(c)
+		}
 	}
-	return newMemoryRateLimit(maxAttempts, window)
 }
 
 type memEntry struct {
@@ -83,12 +85,12 @@ func newMemoryRateLimit(maxAttempts int, window time.Duration) gin.HandlerFunc {
 	startMemCleaner()
 
 	return func(c *gin.Context) {
-		ip := c.ClientIP()
+		key := getRateLimitKey(c)
 		now := time.Now()
 
 		memStoreMu.Lock()
 		// Double check size bounds on write
-		if len(memStore) >= maxMemEntries && memStore[ip] == nil {
+		if len(memStore) >= maxMemEntries && memStore[key] == nil {
 			// Evict oldest random entry to avoid unbounded growth
 			for k := range memStore {
 				delete(memStore, k)
@@ -96,10 +98,10 @@ func newMemoryRateLimit(maxAttempts int, window time.Duration) gin.HandlerFunc {
 			}
 		}
 
-		e, exists := memStore[ip]
+		e, exists := memStore[key]
 
 		if !exists || now.Sub(e.start) > window {
-			memStore[ip] = &memEntry{count: 1, start: now, window: window}
+			memStore[key] = &memEntry{count: 1, start: now, window: window}
 			memStoreMu.Unlock()
 			c.Next()
 			return
@@ -126,19 +128,17 @@ func newRedisRateLimit(maxAttempts int, window time.Duration) gin.HandlerFunc {
 	windowMillis := window.Milliseconds()
 
 	return func(c *gin.Context) {
-		ip := c.ClientIP()
+		limitKey := getRateLimitKey(c)
 		now := time.Now().UnixMilli()
-		key := fmt.Sprintf("ratelimit:%s:%d", ip, windowMillis)
+		key := fmt.Sprintf("ratelimit:%s:%d", limitKey, windowMillis)
 		cutoff := now - windowMillis
 
-		redisMu.Lock()
-		rdb := globalRedis
-		redisMu.Unlock()
-
-		if rdb == nil {
+		rdbVal, exists := c.Get("redis")
+		if !exists || rdbVal.(*redis.Client) == nil {
 			c.Next()
 			return
 		}
+		rdb := rdbVal.(*redis.Client)
 
 		ctx, cancel := context.WithTimeout(c.Request.Context(), 500*time.Millisecond)
 		defer cancel()

@@ -605,6 +605,28 @@ func GetPendingApprovals() gin.HandlerFunc {
 		pool := getPool(c)
 		ctx := c.Request.Context()
 
+		// Otorisasi Pengawas & Owner Ujian
+		userID := getCurrentUserID(c)
+		isPrivileged := isSuperAdmin(c) || isOperator(c)
+		exam, err := models.GetExamByID(ctx, pool, examID)
+		if err != nil {
+			errorResponse(c, http.StatusNotFound, "Ujian tidak ditemukan")
+			return
+		}
+		if !isPrivileged {
+			isCreator := exam.CreatedBy == userID
+			isCoordinator := exam.DelegatedTo != nil && *exam.DelegatedTo == userID
+			isAssigned := false
+			if hasCurrentRole(c, models.RolePengawas) {
+				assigned, err := models.IsUserAssignedAsPengawas(ctx, pool, examID, userID)
+				isAssigned = err == nil && assigned
+			}
+			if !isCreator && !isCoordinator && !isAssigned {
+				errorResponse(c, http.StatusForbidden, "Akses ditolak: Anda tidak memiliki wewenang untuk mengawasi ujian ini")
+				return
+			}
+		}
+
 		rows, err := pool.Query(ctx, 
 			`SELECT mac_address, student_name, exam_number, student_class, identity_data, created_at, status 
 			 FROM exam_approvals 
@@ -670,7 +692,29 @@ func SetApprovalStatus() gin.HandlerFunc {
 		pool := getPool(c)
 		ctx := c.Request.Context()
 
-		_, err := pool.Exec(ctx, 
+		// Otorisasi Pengawas & Owner Ujian
+		userID := getCurrentUserID(c)
+		isPrivileged := isSuperAdmin(c) || isOperator(c)
+		exam, err := models.GetExamByID(ctx, pool, examID)
+		if err != nil {
+			errorResponse(c, http.StatusNotFound, "Ujian tidak ditemukan")
+			return
+		}
+		if !isPrivileged {
+			isCreator := exam.CreatedBy == userID
+			isCoordinator := exam.DelegatedTo != nil && *exam.DelegatedTo == userID
+			isAssigned := false
+			if hasCurrentRole(c, models.RolePengawas) {
+				assigned, err := models.IsUserAssignedAsPengawas(ctx, pool, examID, userID)
+				isAssigned = err == nil && assigned
+			}
+			if !isCreator && !isCoordinator && !isAssigned {
+				errorResponse(c, http.StatusForbidden, "Akses ditolak: Anda tidak memiliki wewenang untuk mengawasi ujian ini")
+				return
+			}
+		}
+
+		_, err = pool.Exec(ctx, 
 			`UPDATE exam_approvals SET status = $1, updated_at = CURRENT_TIMESTAMP WHERE exam_id = $2 AND mac_address = $3`,
 			req.Status, examID, macAddress)
 		

@@ -260,3 +260,17 @@ CREATE UNIQUE INDEX IF NOT EXISTS idx_transactions_pending_doku_unique
     ON transactions(user_id, package)
     WHERE status = 'pending' AND payment_method = 'doku';
 
+-- ============================================================
+-- system_apps
+-- ============================================================
+CREATE TABLE IF NOT EXISTS system_apps (
+    id            SERIAL PRIMARY KEY,
+    name          TEXT NOT NULL,
+    platform      TEXT NOT NULL,
+    version       TEXT NOT NULL,
+    file_path     TEXT NOT NULL,
+    size_bytes    BIGINT DEFAULT 0,
+    created_at    TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
+    updated_at    TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE(name, platform, version)
+);

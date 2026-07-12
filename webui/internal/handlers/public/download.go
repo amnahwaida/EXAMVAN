@@ -7,10 +7,13 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"strconv"
+	"time"
 
 	"github.com/gin-gonic/gin"
 
 	"github.com/examvan/webui/internal/config"
+	r2client "github.com/examvan/webui/internal/handlers/r2"
 	"github.com/examvan/webui/internal/middleware"
 	"github.com/examvan/webui/internal/models"
 )
@@ -84,6 +87,14 @@ func DownloadPage() gin.HandlerFunc {
 			}
 		}
 
+		var systemApps []models.SystemApp
+		if pool != nil {
+			apps, err := models.GetAllSystemApps(ctx, pool)
+			if err == nil {
+				systemApps = apps
+			}
+		}
+
 		c.HTML(http.StatusOK, "public/download.html", middleware.MergeTemplateData(c, gin.H{
 			"android_version":       androidVer,
 			"webapp_version":        webappVer,
@@ -92,6 +103,7 @@ func DownloadPage() gin.HandlerFunc {
 			"kiosk_apk_available":   kioskAPKPath != "" && kioskAPKPath != "static/EXAMVAN-kiosk.apk",
 			"apk_available":         activeAPKPath != "",
 			"download_notice":       "Unduhan APK belum tersedia di environment ini.",
+			"system_apps":           systemApps,
 		}))
 	}
 }
@@ -121,5 +133,45 @@ func DownloadAPK() gin.HandlerFunc {
 		}
 
 		c.FileAttachment(apkPath, filename)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// 3. GET /download/app/:id — Serve System App from R2
+// ---------------------------------------------------------------------------
+
+func DownloadSystemApp() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		pool := getPool(c)
+		ctx := c.Request.Context()
+
+		idStr := c.Param("id")
+		id, err := strconv.Atoi(idStr)
+		if err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"success": false, "message": "ID tidak valid."})
+			return
+		}
+
+		app, err := models.GetSystemAppByID(ctx, pool, id)
+		if err != nil {
+			c.JSON(http.StatusNotFound, gin.H{"success": false, "message": "Aplikasi tidak ditemukan."})
+			return
+		}
+
+		r2Val, exists := c.Get("r2")
+		if !exists || r2Val.(*r2client.Client) == nil || !r2Val.(*r2client.Client).Enabled() {
+			c.JSON(http.StatusInternalServerError, gin.H{"success": false, "message": "Cloudflare R2 tidak dikonfigurasi."})
+			return
+		}
+		r2 := r2Val.(*r2client.Client)
+
+		// Generate presigned URL for download valid for 5 minutes
+		url, err := r2.SignedURL(ctx, app.FilePath, 5*time.Minute)
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"success": false, "message": "Gagal menghasilkan URL unduhan."})
+			return
+		}
+
+		c.Redirect(http.StatusFound, url)
 	}
 }

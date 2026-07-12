@@ -15,6 +15,8 @@ package queue
 
 import (
 	"context"
+	"crypto/rand"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -521,20 +523,14 @@ func GetQueueStats(rdb *goredis.Client) QueueStats {
 // Helpers
 // ---------------------------------------------------------------------------
 
-// generateJobID creates a unique job identifier using timestamp + random.
+// generateJobID creates a unique 16-hex-char identifier using crypto/rand.
 func generateJobID() string {
-	now := time.Now().UnixNano()
-	const charset = "abcdefghijklmnopqrstuvwxyz0123456789"
-	b := make([]byte, 12)
-	for i := 0; i < 8; i++ {
-		b[i] = charset[(now>>(i*4))%36]
-		now /= 36
+	b := make([]byte, 8)
+	if _, err := rand.Read(b); err != nil {
+		// Fallback if rand fails, though extremely rare
+		return fmt.Sprintf("%x", time.Now().UnixNano())
 	}
-	// Add 4 random chars.
-	for i := 8; i < 12; i++ {
-		b[i] = charset[(now+int64(i)*7)%36]
-	}
-	return string(b)
+	return hex.EncodeToString(b)
 }
 
 // ---------------------------------------------------------------------------

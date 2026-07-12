@@ -1,4 +1,4 @@
-# EXAMVAN — Sistem Ujian Digital Berbasis PDF (LAN-Optimized & Secure)
+# EXAMVAN — Sistem Ujian Digital Berbasis PDF (Cloudflare R2 & Secure)
 
 > Platform distribusi & pelaksanaan ujian digital aman untuk infrastruktur jaringan lokal (LAN/Intranet) sekolah dan kampus dengan perlindungan anti-cheat berlapis di sisi Android.
 
@@ -6,9 +6,9 @@
 
 ## Tujuan & Manfaat Project
 
-EXAMVAN diciptakan khusus untuk memenuhi kebutuhan instansi pendidikan dalam menyelenggarakan ujian secara mandiri tanpa ketergantungan pada koneksi internet publik.
+EXAMVAN diciptakan khusus untuk memenuhi kebutuhan instansi pendidikan dengan arsitektur *hybrid* yang sangat efisien untuk perangkat server minim resource (seperti STB).
 
-- **Kemandirian Jaringan:** Server berjalan 100% secara offline di LAN (Local Area Network) sekolah, mengurangi biaya bandwidth internet dan mencegah kegagalan koneksi massal.
+- **Cloudflare R2 Mandatory:** Penyimpanan file soal (PDF) wajib menggunakan Cloudflare R2 (Edge CDN). Server lokal/STB Anda tidak menyimpan file berat sama sekali, melainkan hanya bertugas melayani API JSON yang sangat ringan. Ini menjamin umur penyimpanan (eMMC/MicroSD) server Anda tahan lama dan sanggup menampung ribuan siswa secara simultan. (Koneksi internet wajib diperlukan).
 - **Keamanan Tingkat Tinggi (Anti-Cheat):** Mengamankan berkas soal PDF dari penyebaran liar dan membatasi gerak-gerik siswa agar tidak dapat mencari jawaban di aplikasi lain.
 - **Kemudahan Pengelolaan:** Memungkinkan guru untuk mengelola soal mereka sendiri secara terpisah, sementara Administrator memegang kontrol pengawasan penuh.
 
@@ -149,7 +149,11 @@ Buka file `.env` dan atur variabel berikut:
 | `EXAMVAN_ADMIN_USER` | Username super admin (default: `superadmin`) | Tidak |
 | `EXAMVAN_ADMIN_PASS` | Password super admin (kosongkan untuk generate otomatis) | Tidak |
 | `APP_ENV` | `production` atau `development` | Tidak |
-| `TUNNEL_TOKEN` | Token Cloudflare Tunnel untuk akses internet (kosongkan untuk mode LAN) | Tidak |
+| `TUNNEL_TOKEN` | Token Cloudflare Tunnel untuk akses internet | Ya |
+| `R2_ACCESS_KEY_ID` | Access Key ID Cloudflare R2 | Ya |
+| `R2_SECRET_ACCESS_KEY` | Secret Access Key Cloudflare R2 | Ya |
+| `R2_BUCKET` | Nama bucket R2 (contoh: examvan-pdfs) | Ya |
+| `R2_ENDPOINT` | Endpoint R2 Cloudflare Anda | Ya |
 | `EXAMVAN_CORS_ORIGINS` | Origin yang diizinkan (kosongkan untuk allow all) | Tidak |
 
 #### 3. Jalankan Layanan
