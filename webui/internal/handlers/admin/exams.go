@@ -316,7 +316,11 @@ func ToggleExam() gin.HandlerFunc {
 			return
 		}
 
-		successMessage(c, fmt.Sprintf("Status ujian diubah ke %s", newStatus))
+		c.JSON(http.StatusOK, gin.H{
+			"success":    true,
+			"message":    fmt.Sprintf("Status ujian diubah ke %s", newStatus),
+			"new_status": newStatus,
+		})
 	}
 }
 

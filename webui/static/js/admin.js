@@ -129,10 +129,11 @@ function toggleExam(examId) {
         })
         .catch(function() {
             showToast('Koneksi gagal', 'error');
-            badge.style.opacity = '1';
+            badge.style.opacity = '';
         })
         .finally(function() {
             badge.style.pointerEvents = '';
+            badge.style.opacity = '';
         });
 }
 
