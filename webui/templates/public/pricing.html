@@ -1,120 +1,639 @@
 {{ define "extra_head" }}
 <style>
-  .toggle-wrap{display:flex;justify-content:center;margin:28px 0 34px}.toggle-group{display:inline-flex;background:rgba(255,255,255,.055);border:1px solid var(--line);border-radius:14px;padding:5px;gap:5px}.toggle-btn{position:relative;padding:10px 22px;border:0;border-radius:11px;background:transparent;color:var(--muted);font:700 14px 'Plus Jakarta Sans';cursor:pointer}.toggle-btn.active{background:linear-gradient(135deg,var(--accent),var(--accent2));color:#fff;box-shadow:0 10px 26px rgba(99,102,241,.26)}.badge-save{position:absolute;top:-9px;right:-8px;background:var(--green);color:#fff;border-radius:8px;padding:2px 6px;font-size:10px}
-  .pricing-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:22px;margin-bottom:76px}.p-card{position:relative;display:flex;flex-direction:column;min-height:100%;padding:28px;background:var(--glass);border:1px solid var(--line);border-radius:var(--radius);overflow:hidden;transition:.25s}.p-card::before{content:'';position:absolute;inset:0 0 auto;height:3px;background:linear-gradient(90deg,var(--accent),var(--accent2));opacity:.85}.p-card:hover{transform:translateY(-5px);border-color:var(--line2)}.p-card.popular{border-color:rgba(99,102,241,.44);box-shadow:0 18px 50px rgba(0,0,0,.28),0 0 46px rgba(99,102,241,.12)}.popular-tag{position:absolute;top:15px;right:-34px;transform:rotate(45deg);background:linear-gradient(135deg,var(--accent),var(--accent2));font-size:11px;font-weight:800;padding:4px 42px}.plan-top{display:flex;gap:14px;align-items:flex-start;margin-bottom:18px}.card-icon{width:46px;height:46px;border-radius:14px;display:grid;place-items:center;background:rgba(99,102,241,.13);font-size:21px}.card-name{font-size:20px;font-weight:800}.card-for{font-size:13px;color:var(--muted)}.card-price{margin-bottom:6px}.price-amount{font:800 34px 'Outfit';letter-spacing:-.02em}.price-period{color:var(--muted);font-weight:600}.price-note{display:block;color:#a5b4fc;font-size:12px;font-weight:700;margin-bottom:20px}.limit-grid{display:grid;grid-template-columns:1fr 1fr;gap:9px;margin:18px 0}.limit{padding:11px;border:1px solid var(--line);border-radius:12px;background:rgba(255,255,255,.035)}.limit span{display:block;font-size:11px;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);font-weight:800}.limit strong{font-size:13px;color:white}.features{list-style:none;display:grid;gap:8px;margin:8px 0 24px;flex:1}.features li{display:flex;gap:9px;color:var(--soft);font-size:13px}.features li::before{content:'✓';color:var(--green);font-weight:900}.card-cta{display:block;text-align:center;text-decoration:none;margin-top:auto;border-radius:12px;padding:13px 14px;font-weight:800;color:white;background:rgba(255,255,255,.075);border:1px solid var(--line)}.card-cta.primary,.card-cta:hover{background:linear-gradient(135deg,var(--accent),var(--accent2));border-color:transparent}
-  .compare-section,.adv-section{margin-bottom:76px}.section-title{text-align:center;margin-bottom:12px;font-size:30px;font-weight:800}.section-subtitle{text-align:center;max-width:640px;margin:0 auto 30px;color:var(--muted)}.compare-wrap{overflow-x:auto;border:1px solid var(--line);border-radius:var(--radius);background:var(--glass)}table{width:100%;border-collapse:collapse;min-width:760px}th,td{padding:14px 16px;text-align:center;border-bottom:1px solid var(--line);font-size:13px}th{background:rgba(99,102,241,.08);font-size:12px;text-transform:uppercase;letter-spacing:.05em}th:first-child,td:first-child{text-align:left;color:white;font-weight:800}td{color:var(--soft)}tr:last-child td{border-bottom:0}.adv-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:18px}.adv-card{border:1px solid var(--line);background:var(--glass);border-radius:16px;padding:24px}.adv-card h3{font-size:16px;margin-bottom:8px}.adv-card p{font-size:13px;color:var(--muted)}.cta-card{text-align:center;margin:0 auto 52px;max-width:760px;padding:44px 30px;border:1px solid rgba(99,102,241,.24);border-radius:22px;background:linear-gradient(135deg,rgba(99,102,241,.13),rgba(168,85,247,.08))}.cta-card h2{font-size:30px;margin-bottom:10px}.cta-card p{color:var(--muted);margin-bottom:24px}.cta-buttons{display:flex;justify-content:center;gap:12px;flex-wrap:wrap}.cta-btn{padding:13px 24px;border-radius:12px;text-decoration:none;color:white;font-weight:800}.cta-btn.primary{background:linear-gradient(135deg,var(--accent),var(--accent2))}.cta-btn.ghost{border:1px solid var(--line);background:rgba(255,255,255,.07)}footer{border-top:1px solid var(--line);padding:32px 0;text-align:center;color:var(--muted);font-size:13px}footer a{color:var(--soft);text-decoration:none}
-  @media(max-width:1024px){.pricing-grid{grid-template-columns:repeat(2,1fr)}.adv-grid{grid-template-columns:repeat(2,1fr)}}@media(max-width:760px){.pricing-grid{grid-template-columns:1fr;max-width:440px;margin-left:auto;margin-right:auto}.hero{padding-top:118px}.hero h1{font-size:32px}.toggle-group{width:100%;max-width:330px}.toggle-btn{flex:1;padding:10px 8px}.adv-grid{grid-template-columns:1fr}.limit-grid{grid-template-columns:1fr}}
+  main {
+    flex: 1;
+    max-width: 1240px;
+    width: 100%;
+    margin: 0 auto;
+    padding: 120px 24px 48px;
+  }
+  
+  .hero-section {
+    text-align: center;
+    margin-bottom: 60px;
+  }
+  .hero-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 18px;
+    border: 1px solid rgba(16, 185, 129, 0.25);
+    border-radius: 99px;
+    background: rgba(16, 185, 129, 0.1);
+    color: #34d399;
+    font-size: 13.5px;
+    font-weight: 700;
+    margin-bottom: 24px;
+    box-shadow: 0 0 20px rgba(16, 185, 129, 0.1);
+  }
+  .hero-badge .dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: #10b981;
+    box-shadow: 0 0 0 4px rgba(16, 185, 129, 0.2);
+    animation: pulseDot 2s infinite;
+  }
+  @keyframes pulseDot {
+    0% { box-shadow: 0 0 0 0 rgba(16, 185, 129, 0.4); }
+    70% { box-shadow: 0 0 0 6px rgba(16, 185, 129, 0); }
+    100% { box-shadow: 0 0 0 0 rgba(16, 185, 129, 0); }
+  }
+  .hero-title {
+    font-family: 'Outfit', sans-serif;
+    font-size: clamp(34px, 5vw, 60px);
+    font-weight: 800;
+    background: linear-gradient(135deg, #ffffff 30%, #a5b4fc 100%);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    margin-bottom: 20px;
+    letter-spacing: -0.03em;
+    line-height: 1.1;
+  }
+  .hero-desc {
+    font-size: 18px;
+    color: var(--text-muted);
+    max-width: 700px;
+    margin: 0 auto;
+    line-height: 1.6;
+  }
+  
+  .billing-toggle-wrapper {
+    display: flex;
+    justify-content: center;
+    margin-bottom: 60px;
+  }
+  .billing-toggle {
+    display: inline-flex;
+    background: rgba(17, 24, 39, 0.6);
+    border: 1px solid var(--glass-border);
+    border-radius: 16px;
+    padding: 6px;
+    backdrop-filter: blur(12px);
+    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.2);
+  }
+  .toggle-btn {
+    position: relative;
+    padding: 12px 28px;
+    border: none;
+    background: transparent;
+    border-radius: 12px;
+    color: var(--text-muted);
+    font-family: 'Plus Jakarta Sans', sans-serif;
+    font-weight: 700;
+    font-size: 15px;
+    cursor: pointer;
+    transition: all 0.3s ease;
+  }
+  .toggle-btn.active {
+    background: linear-gradient(135deg, var(--accent-primary), var(--accent-secondary));
+    color: white;
+    box-shadow: 0 4px 15px rgba(99, 102, 241, 0.3);
+  }
+  .save-badge {
+    position: absolute;
+    top: -12px;
+    right: -12px;
+    background: #10b981;
+    color: white;
+    font-size: 10px;
+    font-weight: 800;
+    padding: 4px 8px;
+    border-radius: 8px;
+    text-transform: uppercase;
+    box-shadow: 0 4px 10px rgba(16, 185, 129, 0.3);
+    border: 2px solid #080b11;
+  }
+
+  .pricing-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+    gap: 30px;
+    margin-bottom: 100px;
+  }
+  
+  .pricing-card {
+    position: relative;
+    background: rgba(17, 24, 39, 0.5);
+    border: 1px solid rgba(255, 255, 255, 0.06);
+    border-radius: 28px;
+    padding: 40px 32px;
+    display: flex;
+    flex-direction: column;
+    backdrop-filter: blur(16px);
+    transition: all 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+    overflow: hidden;
+  }
+  .pricing-card::before {
+    content: '';
+    position: absolute;
+    top: 0; left: 0; right: 0;
+    height: 4px;
+    background: linear-gradient(90deg, rgba(99, 102, 241, 0.5), rgba(168, 85, 247, 0.5));
+    opacity: 0;
+    transition: opacity 0.4s;
+  }
+  .pricing-card:hover {
+    transform: translateY(-8px);
+    border-color: rgba(99, 102, 241, 0.3);
+    box-shadow: 0 24px 48px rgba(0, 0, 0, 0.4), 0 0 30px rgba(99, 102, 241, 0.1);
+  }
+  .pricing-card:hover::before {
+    opacity: 1;
+  }
+  
+  .pricing-card.popular {
+    border-color: rgba(168, 85, 247, 0.4);
+    background: rgba(17, 24, 39, 0.75);
+    box-shadow: 0 16px 48px rgba(0, 0, 0, 0.4), 0 0 0 1px rgba(168, 85, 247, 0.15);
+  }
+  .pricing-card.popular::before {
+    opacity: 1;
+    background: linear-gradient(90deg, var(--accent-primary), var(--accent-secondary));
+  }
+  .popular-ribbon {
+    position: absolute;
+    top: 24px;
+    right: -35px;
+    transform: rotate(45deg);
+    background: linear-gradient(135deg, var(--accent-primary), var(--accent-secondary));
+    color: white;
+    font-size: 11px;
+    font-weight: 800;
+    padding: 6px 40px;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    box-shadow: 0 4px 12px rgba(0,0,0,0.2);
+  }
+  
+  .card-header {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    margin-bottom: 24px;
+  }
+  .card-icon {
+    width: 54px;
+    height: 54px;
+    border-radius: 16px;
+    background: rgba(99, 102, 241, 0.1);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 26px;
+    border: 1px solid rgba(99, 102, 241, 0.2);
+  }
+  .card-title-wrap h3 {
+    font-size: 22px;
+    font-weight: 800;
+    margin: 0;
+    color: white;
+    font-family: 'Outfit', sans-serif;
+  }
+  .card-audience {
+    font-size: 13.5px;
+    color: var(--accent-secondary);
+    font-weight: 600;
+  }
+  
+  .card-price-wrap {
+    margin-bottom: 28px;
+    padding-bottom: 24px;
+    border-bottom: 1px dashed rgba(255, 255, 255, 0.1);
+  }
+  .price-amount {
+    font-size: 42px;
+    font-weight: 800;
+    font-family: 'Outfit', sans-serif;
+    color: white;
+    letter-spacing: -0.03em;
+    line-height: 1;
+  }
+  .price-period {
+    font-size: 15px;
+    color: var(--text-muted);
+    font-weight: 600;
+  }
+  .price-note {
+    display: block;
+    font-size: 13px;
+    color: #a5b4fc;
+    margin-top: 10px;
+    font-weight: 500;
+  }
+  
+  .card-limits {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 12px;
+    margin-bottom: 28px;
+  }
+  .limit-item {
+    background: rgba(0, 0, 0, 0.25);
+    border: 1px solid rgba(255, 255, 255, 0.04);
+    border-radius: 14px;
+    padding: 12px 14px;
+    transition: background 0.3s;
+  }
+  .pricing-card:hover .limit-item {
+    background: rgba(255, 255, 255, 0.03);
+  }
+  .limit-label {
+    display: block;
+    font-size: 11.5px;
+    color: var(--text-muted);
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    font-weight: 700;
+    margin-bottom: 4px;
+  }
+  .limit-value {
+    display: block;
+    font-size: 16px;
+    color: white;
+    font-weight: 800;
+  }
+  
+  .card-features {
+    list-style: none;
+    margin: 0 0 32px 0;
+    padding: 0;
+    flex: 1;
+  }
+  .card-features li {
+    display: flex;
+    align-items: flex-start;
+    gap: 12px;
+    font-size: 14.5px;
+    color: var(--text-secondary);
+    margin-bottom: 16px;
+    line-height: 1.5;
+  }
+  .card-features li svg {
+    flex-shrink: 0;
+    width: 20px;
+    height: 20px;
+    color: #10b981;
+    margin-top: 1px;
+  }
+  
+  .card-cta {
+    display: block;
+    text-align: center;
+    padding: 16px 24px;
+    border-radius: 14px;
+    font-weight: 700;
+    font-size: 15px;
+    text-decoration: none;
+    transition: all 0.3s;
+    background: rgba(255, 255, 255, 0.05);
+    color: white;
+    border: 1px solid rgba(255, 255, 255, 0.1);
+  }
+  .card-cta:hover {
+    background: rgba(255, 255, 255, 0.1);
+    border-color: rgba(255, 255, 255, 0.2);
+  }
+  .card-cta.primary {
+    background: linear-gradient(135deg, var(--accent-primary), var(--accent-secondary));
+    border: none;
+    box-shadow: 0 4px 15px rgba(99, 102, 241, 0.3);
+  }
+  .card-cta.primary:hover {
+    box-shadow: 0 6px 24px rgba(99, 102, 241, 0.5);
+    transform: translateY(-2px);
+  }
+
+  .section-header {
+    text-align: center;
+    margin-bottom: 48px;
+  }
+  .section-title {
+    font-size: 34px;
+    font-family: 'Outfit', sans-serif;
+    font-weight: 800;
+    margin-bottom: 12px;
+  }
+  .section-subtitle {
+    font-size: 16px;
+    color: var(--text-muted);
+    max-width: 640px;
+    margin: 0 auto;
+    line-height: 1.6;
+  }
+  
+  .compare-wrap {
+    overflow-x: auto;
+    background: rgba(17, 24, 39, 0.5);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    border-radius: 24px;
+    backdrop-filter: blur(16px);
+    margin-bottom: 100px;
+    box-shadow: 0 10px 40px rgba(0,0,0,0.2);
+  }
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    min-width: 800px;
+  }
+  th, td {
+    padding: 20px 24px;
+    text-align: center;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+  }
+  th {
+    background: rgba(255, 255, 255, 0.02);
+    font-size: 13px;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    color: var(--text-muted);
+    font-weight: 800;
+  }
+  td {
+    font-size: 14.5px;
+    color: var(--text-secondary);
+  }
+  th:first-child, td:first-child {
+    text-align: left;
+    font-weight: 700;
+    color: white;
+    background: rgba(17, 24, 39, 0.95);
+    position: sticky;
+    left: 0;
+    z-index: 2;
+    border-right: 1px solid rgba(255, 255, 255, 0.05);
+  }
+  tr:last-child td {
+    border-bottom: none;
+  }
+  
+  .adv-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+    gap: 24px;
+    margin-bottom: 80px;
+  }
+  .adv-card {
+    background: rgba(255, 255, 255, 0.02);
+    border: 1px solid rgba(255, 255, 255, 0.05);
+    padding: 32px;
+    border-radius: 20px;
+    transition: 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  }
+  .adv-card:hover {
+    background: rgba(255, 255, 255, 0.04);
+    transform: translateY(-6px);
+    border-color: rgba(99, 102, 241, 0.2);
+  }
+  .adv-icon {
+    width: 48px;
+    height: 48px;
+    border-radius: 14px;
+    background: rgba(16, 185, 129, 0.1);
+    color: #10b981;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    margin-bottom: 20px;
+  }
+  .adv-card h3 {
+    font-size: 18px;
+    font-weight: 700;
+    color: white;
+    margin-bottom: 12px;
+  }
+  .adv-card p {
+    font-size: 14.5px;
+    color: var(--text-muted);
+    line-height: 1.6;
+  }
+
+  .reveal {
+    opacity: 0;
+    transform: translateY(30px);
+    transition: all 0.7s cubic-bezier(0.16, 1, 0.3, 1);
+  }
+  .reveal.visible {
+    opacity: 1;
+    transform: translateY(0);
+  }
+  
+  @media (max-width: 768px) {
+    main { padding: 100px 20px 40px; }
+    .hero-title { font-size: 34px; }
+    .hero-desc { font-size: 16px; }
+    .billing-toggle { flex-direction: column; width: 100%; border-radius: 20px; }
+    .toggle-btn { width: 100%; padding: 14px 20px; }
+    .save-badge { right: 10px; top: -5px; }
+  }
 </style>
 {{ end }}
 {{ template "public_head" . }}
- <section class="hero">
-  <div class="container">
-   <div class="hero-badge"><span class="dot"></span> Paket mengikuti kuota sistem saat ini</div>
-   <h1>Pilih paket sesuai skala ujian Anda</h1>
-   <p>Harga dan batas paket di bawah mengikuti konfigurasi billing EXAMVAN saat ini: jumlah ujian aktif, batas PDF, draft soal, storage, token, dan fitur hasil.</p>
-   <div class="hero-stats">
-    <div class="stat-pill"><strong>6 paket</strong> dari guru sampai yayasan</div>
-    <div class="stat-pill"><strong>DOKU Checkout</strong> untuk pembayaran otomatis</div>
-    <div class="stat-pill"><strong>Token dinamis</strong> untuk paket tertentu</div>
-   </div>
-  </div>
- </section>
 
- <main class="container">
-  <div class="toggle-wrap">
-   <div class="toggle-group">
-    <button class="toggle-btn active" onclick="setBilling('bulanan')" id="tb-bulanan">Bulanan</button>
-    <button class="toggle-btn" onclick="setBilling('semester')" id="tb-semester">Semester <span class="badge-save">hemat</span></button>
-    <button class="toggle-btn" onclick="setBilling('tahunan')" id="tb-tahunan">Tahunan <span class="badge-save">hemat</span></button>
-   </div>
+<main id="main-content">
+  <section class="hero-section reveal">
+    <div class="hero-badge"><span class="dot"></span> Kuota Sistem Terkini</div>
+    <h1 class="hero-title">Pilih paket sesuai skala ujian Anda</h1>
+    <p class="hero-desc">Harga dan batas paket di bawah mengikuti konfigurasi billing EXAMVAN saat ini: jumlah ujian aktif, batas PDF, draft soal, storage, token, dan fitur hasil.</p>
+  </section>
+
+  <div class="billing-toggle-wrapper reveal">
+    <div class="billing-toggle">
+      <button class="toggle-btn active" onclick="setBilling('bulanan')" id="tb-bulanan">Bulanan</button>
+      <button class="toggle-btn" onclick="setBilling('semester')" id="tb-semester">Semester <span class="save-badge">Hemat</span></button>
+      <button class="toggle-btn" onclick="setBilling('tahunan')" id="tb-tahunan">Tahunan <span class="save-badge">Hemat</span></button>
+    </div>
   </div>
 
   <section class="pricing-grid">
-   {{range .plans}}
-   <article class="p-card {{if .Popular}}popular{{end}} reveal">
-    {{if .Popular}}<div class="popular-tag">Populer</div>{{end}}
-    <div class="plan-top">
-     <div class="card-icon {{.Accent}}">{{if eq .Key "guru"}}👨‍🏫{{else if eq .Key "individu"}}💻{{else if eq .Key "sekolah_kecil"}}🏫{{else if eq .Key "sekolah_menengah"}}🏢{{else if eq .Key "sekolah_besar"}}🏛️{{else}}⭐{{end}}</div>
-     <div><h3 class="card-name">{{.Title}}</h3><p class="card-for">{{.Audience}}</p></div>
-    </div>
-    <div class="card-price">
-     <span class="price-amount" data-package="{{.Key}}" data-b="{{.MonthlyPrice}}" data-s="{{.SemesterPrice}}" data-t="{{.AnnualPrice}}">Rp 0</span>
-     <span class="price-period">/bulan</span>
-    </div>
-    <span class="price-note" data-package="{{.Key}}">Harga mengikuti periode pilihan</span>
-    <div class="limit-grid">
-     <div class="limit"><span>Ujian</span><strong>{{.MaxExams}}</strong></div>
-     <div class="limit"><span>PDF</span><strong>{{.PdfLimit}}</strong></div>
-     <div class="limit"><span>Draft</span><strong>{{.DraftLimit}}</strong></div>
-     <div class="limit"><span>Storage</span><strong>{{.StorageLimit}}</strong></div>
-    </div>
-    <ul class="features">
-     <li>Token: {{.TokenMode}}</li>
-     <li>Hasil publik: {{.Results}}</li>
-     <li>Show answers: {{.Answers}}</li>
-     {{range .Features}}<li>{{.}}</li>{{end}}
-    </ul>
-    <a href="/admin/billing?package={{.Key}}&duration=bulanan" class="card-cta {{if .Popular}}primary{{end}} billing-cta" data-package="{{.Key}}">Pilih {{.Title}}</a>
-   </article>
-   {{end}}
+    {{range .plans}}
+    <article class="pricing-card {{if .Popular}}popular{{end}} reveal">
+      {{if .Popular}}<div class="popular-ribbon">Populer</div>{{end}}
+      <div class="card-header">
+        <div class="card-icon {{.Accent}}">{{if eq .Key "guru"}}👨‍🏫{{else if eq .Key "individu"}}💻{{else if eq .Key "sekolah_kecil"}}🏫{{else if eq .Key "sekolah_menengah"}}🏢{{else if eq .Key "sekolah_besar"}}🏛️{{else}}⭐{{end}}</div>
+        <div class="card-title-wrap">
+          <h3>{{.Title}}</h3>
+          <div class="card-audience">{{.Audience}}</div>
+        </div>
+      </div>
+      
+      <div class="card-price-wrap">
+        <div style="display:flex; align-items:baseline; gap:4px;">
+          <span class="price-amount" data-package="{{.Key}}" data-b="{{.MonthlyPrice}}" data-s="{{.SemesterPrice}}" data-t="{{.AnnualPrice}}">Rp 0</span>
+          <span class="price-period">/bln</span>
+        </div>
+        <span class="price-note" data-package="{{.Key}}">Dibayar bulanan</span>
+      </div>
+
+      <div class="card-limits">
+        <div class="limit-item">
+          <span class="limit-label">Ujian Aktif</span>
+          <span class="limit-value">{{.MaxExams}}</span>
+        </div>
+        <div class="limit-item">
+          <span class="limit-label">Batas PDF</span>
+          <span class="limit-value">{{.PdfLimit}}</span>
+        </div>
+        <div class="limit-item">
+          <span class="limit-label">Draft Soal</span>
+          <span class="limit-value">{{.DraftLimit}}</span>
+        </div>
+        <div class="limit-item">
+          <span class="limit-label">Storage</span>
+          <span class="limit-value">{{.StorageLimit}}</span>
+        </div>
+      </div>
+
+      <ul class="card-features">
+        <li>
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg>
+          <span>Token Ujian: <strong>{{.TokenMode}}</strong></span>
+        </li>
+        <li>
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg>
+          <span>Hasil Publik: <strong>{{.Results}}</strong></span>
+        </li>
+        {{range .Features}}
+        <li>
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg>
+          <span>{{.}}</span>
+        </li>
+        {{end}}
+      </ul>
+
+      <a href="/admin/billing?package={{.Key}}&duration=bulanan" class="card-cta {{if .Popular}}primary{{end}} billing-cta" data-package="{{.Key}}">Pilih {{.Title}}</a>
+    </article>
+    {{end}}
   </section>
 
-  <section class="compare-section reveal">
-   <h2 class="section-title">Perbandingan Ringkas</h2>
-   <p class="section-subtitle">Fokus pada kuota yang benar-benar dipakai sistem billing saat paket disetujui.</p>
-   <div class="compare-wrap">
+  <section class="section-header reveal">
+    <h2 class="section-title">Perbandingan Ringkas</h2>
+    <p class="section-subtitle">Fokus pada kuota yang benar-benar dipakai sistem saat paket disetujui.</p>
+  </section>
+
+  <div class="compare-wrap reveal">
     <table>
-     <thead><tr><th>Item</th>{{range .plans}}<th>{{.Title}}</th>{{end}}</tr></thead>
-     <tbody>
-      <tr><td>Harga efektif / bulan</td>{{range .plans}}<td><span class="price-amount-compare" data-package="{{.Key}}">Rp 0</span></td>{{end}}</tr>
-      <tr><td>Ujian aktif</td>{{range .plans}}<td>{{.MaxExams}}</td>{{end}}</tr>
-      <tr><td>Batas PDF</td>{{range .plans}}<td>{{.PdfLimit}}</td>{{end}}</tr>
-      <tr><td>Draft soal</td>{{range .plans}}<td>{{.DraftLimit}}</td>{{end}}</tr>
-      <tr><td>Storage</td>{{range .plans}}<td>{{.StorageLimit}}</td>{{end}}</tr>
-      <tr><td>Token</td>{{range .plans}}<td>{{.TokenMode}}</td>{{end}}</tr>
-     </tbody>
+      <thead>
+        <tr>
+          <th>Item</th>
+          {{range .plans}}<th>{{.Title}}</th>{{end}}
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td>Harga efektif / bulan</td>
+          {{range .plans}}<td><strong class="price-amount-compare" data-package="{{.Key}}">Rp 0</strong></td>{{end}}
+        </tr>
+        <tr>
+          <td>Ujian aktif</td>
+          {{range .plans}}<td>{{.MaxExams}}</td>{{end}}
+        </tr>
+        <tr>
+          <td>Batas PDF</td>
+          {{range .plans}}<td>{{.PdfLimit}}</td>{{end}}
+        </tr>
+        <tr>
+          <td>Draft soal</td>
+          {{range .plans}}<td>{{.DraftLimit}}</td>{{end}}
+        </tr>
+        <tr>
+          <td>Storage</td>
+          {{range .plans}}<td>{{.StorageLimit}}</td>{{end}}
+        </tr>
+        <tr>
+          <td>Token</td>
+          {{range .plans}}<td>{{.TokenMode}}</td>{{end}}
+        </tr>
+      </tbody>
     </table>
-   </div>
+  </div>
+
+  <section class="section-header reveal">
+    <h2 class="section-title">Yang sudah termasuk</h2>
+    <p class="section-subtitle">Semua paket menggunakan platform yang sama; perbedaan utamanya ada pada kuota dan prioritas dukungan teknis.</p>
   </section>
 
-  <section class="adv-section reveal">
-   <h2 class="section-title">Yang sudah termasuk</h2>
-   <p class="section-subtitle">Semua paket memakai platform yang sama; perbedaan utamanya ada pada kuota dan prioritas dukungan.</p>
-   <div class="adv-grid">
-    <div class="adv-card"><h3>PDF aman</h3><p>File soal disajikan melalui endpoint terproteksi token dan storage internal/R2.</p></div>
-    <div class="adv-card"><h3>Submit tervalidasi</h3><p>Pengumpulan jawaban sekarang wajib membawa token ujian yang aktif.</p></div>
-    <div class="adv-card"><h3>Billing otomatis</h3><p>DOKU Checkout dapat membuat invoice dan memproses notifikasi pembayaran.</p></div>
-    <div class="adv-card"><h3>Monitoring ujian</h3><p>Panel pengawas memantau status peserta dan token dinamis untuk paket yang mendukung.</p></div>
-   </div>
-  </section>
-
-  <section class="cta-card reveal">
-   <h2>Butuh paket khusus?</h2>
-   <p>Jika sekolah membutuhkan kuota berbeda, gunakan paket terdekat lalu hubungi admin untuk penyesuaian konfigurasi.</p>
-   <div class="cta-buttons">
-    <a href="/register" class="cta-btn primary">Mulai daftar</a>
-    <a href="/download" class="cta-btn ghost">Download aplikasi</a>
-   </div>
-  </section>
- </main>
+  <div class="adv-grid reveal">
+    <div class="adv-card">
+      <div class="adv-icon">
+        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"></path></svg>
+      </div>
+      <h3>PDF Terenkripsi & Aman</h3>
+      <p>File soal PDF disajikan melalui endpoint terproteksi khusus dan didistribusikan melalui R2/internal storage.</p>
+    </div>
+    <div class="adv-card">
+      <div class="adv-icon">
+        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"></path><polyline points="22 4 12 14.01 9 11.01"></polyline></svg>
+      </div>
+      <h3>Submit Tervalidasi</h3>
+      <p>Pengumpulan jawaban wajib divalidasi dengan token ujian yang aktif, menghilangkan resiko manipulasi waktu.</p>
+    </div>
+    <div class="adv-card">
+      <div class="adv-icon">
+        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="5" width="20" height="14" rx="2"></rect><line x1="2" y1="10" x2="22" y2="10"></line></svg>
+      </div>
+      <h3>Pembayaran Instan</h3>
+      <p>Dukungan DOKU Checkout untuk verifikasi invoice instan, tanpa konfirmasi manual admin.</p>
+    </div>
+    <div class="adv-card">
+      <div class="adv-icon">
+        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"></path><circle cx="12" cy="12" r="3"></circle></svg>
+      </div>
+      <h3>Monitoring Realtime</h3>
+      <p>Panel pengawas memungkinkan pemantauan status peserta dan akses token dinamis saat ujian berjalan.</p>
+    </div>
+  </div>
+</main>
 
 {{ define "extra_scripts" }}
- <script>
-  function rupiah(n){return 'Rp '+Number(n||0).toLocaleString('id-ID')}
-  function setBilling(mode){
-   document.querySelectorAll('.toggle-btn').forEach(b=>b.classList.remove('active'));
-   document.getElementById('tb-'+mode).classList.add('active');
-   const key=mode==='bulanan'?'b':(mode==='semester'?'s':'t');
-   const months=mode==='bulanan'?1:(mode==='semester'?6:12);
-   const period=mode==='bulanan'?'/bulan':(mode==='semester'?'/semester':'/tahun');
-   const duration=mode==='bulanan'?'bulanan':(mode==='semester'?'semester':'tahunan');
-   document.querySelectorAll('.price-amount').forEach(el=>{el.textContent=rupiah(el.getAttribute('data-'+key))});
-   document.querySelectorAll('.price-period').forEach(el=>{el.textContent=period});
-   document.querySelectorAll('.price-note').forEach(el=>{const pkg=el.getAttribute('data-package');const amount=document.querySelector(`.price-amount[data-package="${pkg}"]`).getAttribute('data-'+key);el.textContent=mode==='bulanan'?'Dibayar bulanan':'Setara '+rupiah(Math.round(Number(amount)/months))+'/bulan'});
-   document.querySelectorAll('.price-amount-compare').forEach(el=>{const pkg=el.getAttribute('data-package');const amount=document.querySelector(`.price-amount[data-package="${pkg}"]`).getAttribute('data-'+key);el.textContent=rupiah(Math.round(Number(amount)/months))});
-   document.querySelectorAll('.billing-cta').forEach(el=>{el.href=`/admin/billing?package=${el.getAttribute('data-package')}&duration=${duration}`});
+<script>
+  function rupiah(n) {
+    return 'Rp ' + Number(n || 0).toLocaleString('id-ID');
   }
-  document.addEventListener('DOMContentLoaded',()=>{setBilling('bulanan');const obs=new IntersectionObserver(entries=>{entries.forEach(e=>{if(e.isIntersecting){e.target.classList.add('visible');obs.unobserve(e.target)}})},{threshold:.12});document.querySelectorAll('.reveal').forEach(el=>obs.observe(el))});
- </script>
+
+  function setBilling(mode) {
+    document.querySelectorAll('.toggle-btn').forEach(b => b.classList.remove('active'));
+    document.getElementById('tb-' + mode).classList.add('active');
+    
+    const key = mode === 'bulanan' ? 'b' : (mode === 'semester' ? 's' : 't');
+    const months = mode === 'bulanan' ? 1 : (mode === 'semester' ? 6 : 12);
+    const duration = mode === 'bulanan' ? 'bulanan' : (mode === 'semester' ? 'semester' : 'tahunan');
+    
+    document.querySelectorAll('.price-amount').forEach(el => {
+      el.textContent = rupiah(el.getAttribute('data-' + key));
+    });
+    
+    document.querySelectorAll('.price-note').forEach(el => {
+      const pkg = el.getAttribute('data-package');
+      const amount = document.querySelector(`.price-amount[data-package="${pkg}"]`).getAttribute('data-' + key);
+      el.textContent = mode === 'bulanan' ? 'Dibayar bulanan' : 'Setara ' + rupiah(Math.round(Number(amount) / months)) + '/bln';
+    });
+    
+    document.querySelectorAll('.price-amount-compare').forEach(el => {
+      const pkg = el.getAttribute('data-package');
+      const amount = document.querySelector(`.price-amount[data-package="${pkg}"]`).getAttribute('data-' + key);
+      el.textContent = rupiah(Math.round(Number(amount) / months));
+    });
+    
+    document.querySelectorAll('.billing-cta').forEach(el => {
+      el.href = `/admin/billing?package=${el.getAttribute('data-package')}&duration=${duration}`;
+    });
+  }
+
+  document.addEventListener('DOMContentLoaded', () => {
+    setBilling('bulanan');
+    
+    const obs = new IntersectionObserver(entries => {
+      entries.forEach(e => {
+        if (e.isIntersecting) {
+          e.target.classList.add('visible');
+          obs.unobserve(e.target);
+        }
+      });
+    }, { threshold: 0.1 });
+    
+    document.querySelectorAll('.reveal').forEach(el => obs.observe(el));
+  });
+</script>
 {{ end }}
 {{ template "public_foot" . }}
