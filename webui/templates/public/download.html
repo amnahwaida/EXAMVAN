@@ -1,4 +1,4 @@
-{{ define "extra_head" }}
+{{ template "public_head" . }}
 <style>
   main {
     flex: 1;
@@ -351,8 +351,7 @@
     .server-version-box { flex-direction: column; gap: 12px; text-align: center; }
   }
 </style>
-{{ end }}
-{{ template "public_head" . }}
+
   <main id="main-content">
     
     <div class="hero-section reveal">
@@ -651,7 +650,6 @@
 
   </main>
 
-{{ define "extra_scripts" }}
   <script>
     function switchTab(platform) {
       document.querySelectorAll('.tab-btn').forEach(btn => btn.classList.remove('active'));
@@ -674,5 +672,4 @@
       document.querySelectorAll('.reveal').forEach(el => obs.observe(el));
     });
   </script>
-{{ end }}
 {{ template "public_foot" . }}

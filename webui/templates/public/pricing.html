@@ -1,4 +1,4 @@
-{{ define "extra_head" }}
+{{ template "public_head" . }}
 <style>
   main {
     flex: 1;
@@ -427,8 +427,7 @@
     .save-badge { right: 10px; top: -5px; }
   }
 </style>
-{{ end }}
-{{ template "public_head" . }}
+
 
 <main id="main-content">
   <section class="hero-section reveal">
@@ -585,7 +584,6 @@
   </div>
 </main>
 
-{{ define "extra_scripts" }}
 <script>
   function rupiah(n) {
     return 'Rp ' + Number(n || 0).toLocaleString('id-ID');
@@ -635,5 +633,4 @@
     document.querySelectorAll('.reveal').forEach(el => obs.observe(el));
   });
 </script>
-{{ end }}
 {{ template "public_foot" . }}
