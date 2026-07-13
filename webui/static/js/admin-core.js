@@ -126,6 +126,10 @@ function initMenuToggle() {
                 if (!menuToggle.contains(e.target) && !dropdownContent.contains(e.target)) {
                     dropdownContent.classList.remove('show');
                 }
+                const pengaturanDropdown = document.getElementById('pengaturanDropdown');
+                if (pengaturanDropdown && !pengaturanDropdown.contains(e.target) && !e.target.closest('.nav-link')) {
+                    pengaturanDropdown.classList.remove('show');
+                }
             });
             document.addEventListener('keydown', function(e) {
                 if (e.key === 'Escape') {
