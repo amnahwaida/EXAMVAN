@@ -562,32 +562,32 @@
             </div>
           </div>
 
-          <!-- Dynamic Android Releases from Superadmin/R2 -->
-          {{ $hasR2Android := false }}
+          <!-- Dynamic Android Releases from Sistem -->
+          {{ $hasAndroidApp := false }}
           {{ if .system_apps }}
             {{ range .system_apps }}
               {{ if eq .Platform "android" }}
-                {{ $hasR2Android = true }}
+                {{ $hasAndroidApp = true }}
                 <div class="flavor-box">
                   <div>
                     <h4 style="color: white; margin: 0 0 6px 0; font-family: 'Outfit'; font-size: 15.5px;">{{.Name}}</h4>
                     <p style="color: var(--text-muted); font-size: 12.5px; line-height: 1.5; margin: 0;">
-                      Rilis Superadmin • Versi: <span class="meta-val">v{{.Version}}</span> • Ukuran: <span class="meta-val"><script>document.write( ({{ .SizeBytes }} / 1048576.0).toFixed(2) );</script> MB</span>
+                      Rilis Resmi • Versi: <span class="meta-val">v{{.Version}}</span> • Ukuran: <span class="meta-val"><script>document.write( ({{ .SizeBytes }} / 1048576.0).toFixed(2) );</script> MB</span>
                     </p>
                   </div>
                   <a href="/download/app/{{.ID}}" class="btn-download-big">
                     <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg>
-                    Unduh Aplikasi Klien (R2)
+                    Unduh Aplikasi Klien
                   </a>
                 </div>
               {{ end }}
             {{ end }}
           {{ end }}
 
-          {{ if not $hasR2Android }}
+          {{ if not $hasAndroidApp }}
             <div style="text-align: center; padding: 40px 20px; color: var(--text-muted);">
               <svg width="44" height="44" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" style="margin-bottom:12px; opacity:0.4;"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="8" x2="12" y2="12"></line><line x1="12" y1="16" x2="12.01" y2="16"></line></svg>
-              <p style="font-size:13.5px;">Belum ada installer Android (APK) yang diunggah oleh superadmin.</p>
+              <p style="font-size:13.5px;">Belum ada installer Android (APK) yang tersedia di sistem.</p>
             </div>
           {{ end }}
         </div>
@@ -672,17 +672,17 @@
             </div>
           </div>
 
-          <!-- Dynamic Windows Releases from Superadmin/R2 -->
-          {{ $hasR2Windows := false }}
+          <!-- Dynamic Windows Releases from Sistem -->
+          {{ $hasWindowsApp := false }}
           {{ if .system_apps }}
             {{ range .system_apps }}
               {{ if eq .Platform "windows" }}
-                {{ $hasR2Windows = true }}
+                {{ $hasWindowsApp = true }}
                 <div class="flavor-box">
                   <div>
                     <h4 style="color: white; margin: 0 0 6px 0; font-family: 'Outfit'; font-size: 15.5px;">{{.Name}}</h4>
                     <p style="color: var(--text-muted); font-size: 12.5px; line-height: 1.5; margin: 0;">
-                      Rilis Superadmin • Versi: <span class="meta-val">v{{.Version}}</span> • Ukuran: <span class="meta-val"><script>document.write( ({{ .SizeBytes }} / 1048576.0).toFixed(2) );</script> MB</span>
+                      Rilis Resmi • Versi: <span class="meta-val">v{{.Version}}</span> • Ukuran: <span class="meta-val"><script>document.write( ({{ .SizeBytes }} / 1048576.0).toFixed(2) );</script> MB</span>
                     </p>
                   </div>
                   <a href="/download/app/{{.ID}}" class="btn-download-big" style="background: linear-gradient(135deg, #3b82f6, #2563eb);">
@@ -694,10 +694,10 @@
             {{ end }}
           {{ end }}
 
-          {{ if not $hasR2Windows }}
+          {{ if not $hasWindowsApp }}
             <div style="text-align: center; padding: 40px 20px; color: var(--text-muted);">
               <svg width="44" height="44" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" style="margin-bottom:12px; opacity:0.4;"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="8" x2="12" y2="12"></line><line x1="12" y1="16" x2="12.01" y2="16"></line></svg>
-              <p style="font-size:13.5px;">Belum ada installer Windows (.exe) yang diunggah oleh superadmin.</p>
+              <p style="font-size:13.5px;">Belum ada installer Windows (.exe) yang tersedia di sistem.</p>
             </div>
           {{ end }}
         </div>
@@ -751,17 +751,17 @@
             </div>
           </div>
 
-          <!-- Dynamic Linux Releases from Superadmin/R2 -->
-          {{ $hasR2Linux := false }}
+          <!-- Dynamic Linux Releases from Sistem -->
+          {{ $hasLinuxApp := false }}
           {{ if .system_apps }}
             {{ range .system_apps }}
               {{ if eq .Platform "linux" }}
-                {{ $hasR2Linux = true }}
+                {{ $hasLinuxApp = true }}
                 <div class="flavor-box">
                   <div>
                     <h4 style="color: white; margin: 0 0 6px 0; font-family: 'Outfit'; font-size: 15.5px;">{{.Name}}</h4>
                     <p style="color: var(--text-muted); font-size: 12.5px; line-height: 1.5; margin: 0;">
-                      Rilis Superadmin • Versi: <span class="meta-val">v{{.Version}}</span> • Ukuran: <span class="meta-val"><script>document.write( ({{ .SizeBytes }} / 1048576.0).toFixed(2) );</script> MB</span>
+                      Rilis Resmi • Versi: <span class="meta-val">v{{.Version}}</span> • Ukuran: <span class="meta-val"><script>document.write( ({{ .SizeBytes }} / 1048576.0).toFixed(2) );</script> MB</span>
                     </p>
                   </div>
                   <a href="/download/app/{{.ID}}" class="btn-download-big" style="background: linear-gradient(135deg, #8b5cf6, #7c3aed);">
@@ -773,10 +773,10 @@
             {{ end }}
           {{ end }}
 
-          {{ if not $hasR2Linux }}
+          {{ if not $hasLinuxApp }}
             <div style="text-align: center; padding: 40px 20px; color: var(--text-muted);">
               <svg width="44" height="44" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" style="margin-bottom:12px; opacity:0.4;"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="8" x2="12" y2="12"></line><line x1="12" y1="16" x2="12.01" y2="16"></line></svg>
-              <p style="font-size:13.5px;">Belum ada installer Linux (.AppImage) yang diunggah oleh superadmin.</p>
+              <p style="font-size:13.5px;">Belum ada installer Linux (.AppImage) yang tersedia di sistem.</p>
             </div>
           {{ end }}
         </div>
