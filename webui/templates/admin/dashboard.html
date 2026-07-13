@@ -182,14 +182,14 @@
 
 <!-- Stats Cards -->
 <section class="stats-grid" id="statsGrid">
-<div class="stat-card stat-total">
+<div class="stat-card stat-total" title="Jumlah keseluruhan ujian yang telah Anda buat atau kelola">
 <div class="stat-icon"><svg class="icon-svg"><use href="#hi-dashboard"/></svg></div>
 <div class="stat-info">
 <span class="stat-value">{{index .stats "total_all"}}</span>
 <span class="stat-label">Total Ujian</span>
 </div>
 </div>
-<div class="stat-card stat-status">
+<div class="stat-card stat-status" title="Jumlah ujian yang berstatus aktif (bisa dikerjakan) dan nonaktif (ditutup)">
 <div class="stat-icon">
 <svg class="icon-svg"><use href="#hi-check"/></svg>
 <svg class="icon-overlay"><use href="#hi-lock"/></svg>
@@ -203,14 +203,14 @@
 <div class="stat-bar"><div class="stat-bar-fill" style="width:{{index .stats "active_pct"}}%;"></div></div>
 </div>
 </div>
-<div class="stat-card stat-instansi">
+<div class="stat-card stat-instansi" title="Nama instansi atau sekolah yang terhubung dengan akun Anda">
 <div class="stat-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M3 21h18M3 10h18M5 6l7-3 7 3M4 10v11m16-11v11M8 14v.01M12 14v.01M16 14v.01M9 21v-4h6v4"/></svg></div>
 <div class="stat-info">
 <span class="stat-value stat-value-sm">{{.admin_instansi}}</span>
 <span class="stat-label">Instansi</span>
 </div>
 </div>
-<div class="stat-card stat-storage">
+<div class="stat-card stat-storage" title="Total ukuran dari seluruh ujian yang sudah Anda unggah sejauh ini">
 <div class="stat-icon"><svg class="icon-svg"><use href="#hi-download"/></svg></div>
 <div class="stat-info">
 <span class="stat-value">{{printf "%.2f" (index .stats "storage_mb")}} MB</span>
@@ -223,11 +223,11 @@
 <section class="network-info glass-card">
 <h3><svg class="icon-svg" style="vertical-align:middle;margin-top:-2px;"><use href="#hi-settings"/></svg> Info Jaringan</h3>
 <div class="network-grid">
-<div class="net-item">
+<div class="net-item" title="Maksimal ujian yang dapat dibuat">
 <span class="net-label">Max Ujian</span>
 <span class="net-value">{{.max_exams}}</span>
 </div>
-<div class="net-item">
+<div class="net-item" title="Batas waktu berlakunya akun Anda">
 <span class="net-label">Masa Aktif</span>
 {{if .account_expires}}
 <span class="net-value" id="expiryCountdown" data-expires="{{.account_expires}}" style="font-size:13px;">&#x23F3;</span>
@@ -235,25 +235,25 @@
 <span class="net-value badge-https">Selamanya</span>
 {{end}}
 </div>
-<div class="net-item">
+<div class="net-item" title="Maksimal ukuran file PDF dalam sekali upload">
 <span class="net-label">Max Upload</span>
 <span class="net-value">{{.max_size_mb}} MB</span>
 </div>
-<div class="net-item">
+<div class="net-item" title="Sisa penyimpanan yang dapat digunakan yang diberikan oleh superadmin">
 <span class="net-label">Sisa Storage</span>
 <span class="net-value">{{.remaining_storage}}</span>
 </div>
 </div>
 <!-- Server Address Box -->
-<div class="server-url-box" style="margin-top:16px;padding:12px;background:rgba(255,255,255,0.05);border-radius:8px;border:1px solid rgba(255,255,255,0.1);display:flex;align-items:center;justify-content:space-between;gap:12px;">
+<div class="server-url-box" title="Informasi pengaturan API aplikasi ujian" style="margin-top:16px;padding:12px;background:rgba(255,255,255,0.05);border-radius:8px;border:1px solid rgba(255,255,255,0.1);display:flex;align-items:center;justify-content:space-between;gap:12px;">
   <div style="display:flex;align-items:center;gap:8px;">
     <svg class="icon-svg" style="color:var(--color-primary-light);width:18px;height:18px;"><use href="#hi-link"/></svg>
     <div style="display:flex;flex-direction:column;">
-      <span style="font-size:0.75rem;color:var(--color-text-muted);font-weight:500;">Alamat API / Server (Android &amp; Desktop)</span>
-      <code id="serverUrlValue" style="font-size:0.85rem;color:var(--color-text);font-family:monospace;word-break:break-all;">{{.server_url}}</code>
+      <span style="font-size:0.75rem;color:var(--color-text-muted);font-weight:500;" title="Gunakan URL ini pada aplikasi Android/Desktop peserta ujian">Alamat API / Server (Android &amp; Desktop)</span>
+      <code id="serverUrlValue" title="URL yang dibutuhkan untuk login dan mengakses ujian dari aplikasi" style="font-size:0.85rem;color:var(--color-text);font-family:monospace;word-break:break-all;">{{.server_url}}</code>
     </div>
   </div>
-  <button class="btn-sm" onclick="copyServerURL('{{.server_url}}')" style="padding:4px 8px;font-size:0.75rem;display:inline-flex;align-items:center;gap:4px;flex-shrink:0;">
+  <button class="btn-sm" title="Salin alamat URL server ini" onclick="copyServerURL('{{.server_url}}')" style="padding:4px 8px;font-size:0.75rem;display:inline-flex;align-items:center;gap:4px;flex-shrink:0;">
     <svg class="icon-svg" style="width:12px;height:12px;"><use href="#hi-clipboard"/></svg> Salin
   </button>
 </div>

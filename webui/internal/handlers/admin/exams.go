@@ -9,7 +9,6 @@ import (
 	"log"
 	"net/http"
 	"os"
-	"path/filepath"
 	"regexp"
 	"strconv"
 	"strings"
@@ -272,8 +271,6 @@ func UploadExam() gin.HandlerFunc {
 		created, err := models.CreateExam(ctx, pool, exam)
 		if err != nil {
 			log.Printf("upload create exam error: %v", err)
-			// Clean up saved file
-			os.Remove(destPath)
 			errorResponse(c, http.StatusInternalServerError, "Gagal menyimpan ujian")
 			return
 		}

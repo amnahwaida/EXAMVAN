@@ -171,6 +171,7 @@ func Dashboard() gin.HandlerFunc {
 		// Per-user limits
 		userMaxPDF := int64(1048576)
 		userMaxExams := "3"
+		var remainingStorage string
 		var accountExpires *string
 
 		if !isSuper && !isOp {
@@ -178,15 +179,42 @@ func Dashboard() gin.HandlerFunc {
 			if err == nil {
 				if user.MaxPDFSize > 0 {
 					userMaxPDF = int64(user.MaxPDFSize)
+				} else {
+					userMaxPDF = 100 * 1024 * 1024 // 100MB limit globally if 0
 				}
-				userMaxExams = strconv.Itoa(user.MaxExams)
+				
+				if user.MaxExams > 0 {
+					userMaxExams = strconv.Itoa(user.MaxExams)
+				} else {
+					userMaxExams = "Tidak Terbatas"
+				}
+
+				if user.MaxStorageSize > 0 {
+					var currentStorageBytes int64
+					pool.QueryRow(ctx, `SELECT COALESCE(SUM(size_bytes), 0) FROM exams WHERE created_by = $1`, userID).Scan(&currentStorageBytes)
+					rem := user.MaxStorageSize - currentStorageBytes
+					if rem < 0 {
+						rem = 0
+					}
+					remMB := float64(rem) / (1024 * 1024)
+					if remMB >= 1024 {
+						remainingStorage = fmt.Sprintf("%.2f GB", remMB/1024)
+					} else {
+						remainingStorage = fmt.Sprintf("%.2f MB", remMB)
+					}
+				} else {
+					remainingStorage = "Tidak Terbatas"
+				}
+
 				if user.ExpiresAt != nil {
 					s := user.ExpiresAt.Format("2006-01-02 15:04:05")
 					accountExpires = &s
 				}
 			}
 		} else {
-			userMaxExams = "∞" // infinity symbol
+			userMaxPDF = 100 * 1024 * 1024
+			userMaxExams = "Tidak Terbatas"
+			remainingStorage = "Tidak Terbatas"
 		}
 
 		totalPages := int(math.Max(1, float64((result.Total+perPage-1)/perPage)))
@@ -304,15 +332,7 @@ func Dashboard() gin.HandlerFunc {
 			activePct = roundTo(float64(statsActive)/float64(statsTotal)*100, 1)
 		}
 
-		storageDir := getStoragePath(c)
-		freeSpaceBytes := getFreeDiskSpace(storageDir)
-		freeSpaceMB := freeSpaceBytes / (1024 * 1024)
-		var remainingStorage string
-		if freeSpaceMB >= 1024 {
-			remainingStorage = fmt.Sprintf("%.2f GB", freeSpaceMB/1024)
-		} else {
-			remainingStorage = fmt.Sprintf("%.2f MB", freeSpaceMB)
-		}
+		// remainingStorage is already calculated above
 
 		scheme := "http"
 		if c.Request.TLS != nil || c.GetHeader("X-Forwarded-Proto") == "https" {
