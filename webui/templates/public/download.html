@@ -584,40 +584,10 @@
             {{ end }}
           {{ end }}
 
-          <!-- Local Static Fallbacks (If R2 is empty or as additional option) -->
-          <div class="flavor-box">
-            <div>
-              <h4 style="color: white; margin: 0 0 6px 0; font-family: 'Outfit'; font-size: 15.5px;">Flavor Student (Reguler)</h4>
-              <p style="color: var(--text-muted); font-size: 12.5px; line-height: 1.5; margin: 0;">Dirancang untuk HP/Tablet pribadi milik siswa. Pemasangan reguler tanpa perlu akses komputer (ADB).</p>
-            </div>
-            {{ if .student_apk_available }}
-              <a href="/download/apk?flavor=student" class="btn-download-big">
-                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg>
-                Unduh Student APK
-              </a>
-            {{ else }}
-              <button class="btn-download-big btn-disabled">Student APK Belum Tersedia</button>
-            {{ end }}
-          </div>
-
-          <div class="flavor-box">
-            <div>
-              <h4 style="color: white; margin: 0 0 6px 0; font-family: 'Outfit'; font-size: 15.5px;">Flavor Kiosk (Device Owner)</h4>
-              <p style="color: var(--text-muted); font-size: 12.5px; line-height: 1.5; margin: 0;">Khusus perangkat milik sekolah. Mengunci absolut tombol fisik di tingkat OS menggunakan Device Owner mode.</p>
-            </div>
-            {{ if .kiosk_apk_available }}
-              <a href="/download/apk?flavor=kiosk" class="btn-download-big" style="background: linear-gradient(135deg, #4f46e5, #6366f1);">
-                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg>
-                Unduh Kiosk APK
-              </a>
-            {{ else }}
-              <button class="btn-download-big btn-disabled">Kiosk APK Belum Tersedia</button>
-            {{ end }}
-          </div>
-
-          {{ if and (not .apk_available) (not $hasR2Android) }}
-            <div style="margin-top: 14px; padding: 12px; border-radius: 10px; border: 1px solid rgba(245,158,11,0.18); background: rgba(245,158,11,0.06); color: #fcd34d; font-size: 13px;">
-              {{.download_notice}}
+          {{ if not $hasR2Android }}
+            <div style="text-align: center; padding: 40px 20px; color: var(--text-muted);">
+              <svg width="44" height="44" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" style="margin-bottom:12px; opacity:0.4;"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="8" x2="12" y2="12"></line><line x1="12" y1="16" x2="12.01" y2="16"></line></svg>
+              <p style="font-size:13.5px;">Belum ada installer Android (APK) yang diunggah oleh superadmin.</p>
             </div>
           {{ end }}
         </div>

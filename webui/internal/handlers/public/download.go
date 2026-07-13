@@ -3,7 +3,6 @@ package public
 
 import (
 	"log"
-	"math"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -68,25 +67,6 @@ func DownloadPage() gin.HandlerFunc {
 			webappVer = models.GetSaasSettingWithDefault(ctx, pool, models.SettingWebappVersion, webappVer)
 		}
 
-		studentAPKPath := findAPKPath(c, "EXAMVAN-student.apk")
-		kioskAPKPath := findAPKPath(c, "EXAMVAN-kiosk.apk")
-		legacyAPKPath := getAPKPath(c)
-		activeAPKPath := ""
-		if _, err := os.Stat(studentAPKPath); err == nil {
-			activeAPKPath = studentAPKPath
-		} else if _, err := os.Stat(kioskAPKPath); err == nil {
-			activeAPKPath = kioskAPKPath
-		} else if _, err := os.Stat(legacyAPKPath); err == nil {
-			activeAPKPath = legacyAPKPath
-		}
-
-		fileSizeMB := float64(0)
-		if activeAPKPath != "" {
-			if info, err := os.Stat(activeAPKPath); err == nil {
-				fileSizeMB = math.Round(float64(info.Size())/(1024*1024)*100) / 100
-			}
-		}
-
 		var systemApps []models.SystemApp
 		if pool != nil {
 			apps, err := models.GetAllSystemApps(ctx, pool)
@@ -96,14 +76,9 @@ func DownloadPage() gin.HandlerFunc {
 		}
 
 		c.HTML(http.StatusOK, "public/download.html", middleware.MergeTemplateData(c, gin.H{
-			"android_version":       androidVer,
-			"webapp_version":        webappVer,
-			"file_size_mb":          fileSizeMB,
-			"student_apk_available": studentAPKPath != "" && studentAPKPath != "static/EXAMVAN-student.apk",
-			"kiosk_apk_available":   kioskAPKPath != "" && kioskAPKPath != "static/EXAMVAN-kiosk.apk",
-			"apk_available":         activeAPKPath != "",
-			"download_notice":       "Unduhan APK belum tersedia di environment ini.",
-			"system_apps":           systemApps,
+			"android_version": androidVer,
+			"webapp_version":  webappVer,
+			"system_apps":     systemApps,
 		}))
 	}
 }
