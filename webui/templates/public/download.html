@@ -572,7 +572,7 @@
                   <div>
                     <h4 style="color: white; margin: 0 0 6px 0; font-family: 'Outfit'; font-size: 15.5px;">{{.Name}}</h4>
                     <p style="color: var(--text-muted); font-size: 12.5px; line-height: 1.5; margin: 0;">
-                      Rilis Superadmin • Versi: <span class="meta-val">v{{.Version}}</span> • Ukuran: <span class="meta-val">{{roundTo (div .SizeBytes 1048576.0) 2}} MB</span>
+                      Rilis Superadmin • Versi: <span class="meta-val">v{{.Version}}</span> • Ukuran: <span class="meta-val"><script>document.write( ({{ .SizeBytes }} / 1048576.0).toFixed(2) );</script> MB</span>
                     </p>
                   </div>
                   <a href="/download/app/{{.ID}}" class="btn-download-big">
@@ -682,7 +682,7 @@
                   <div>
                     <h4 style="color: white; margin: 0 0 6px 0; font-family: 'Outfit'; font-size: 15.5px;">{{.Name}}</h4>
                     <p style="color: var(--text-muted); font-size: 12.5px; line-height: 1.5; margin: 0;">
-                      Rilis Superadmin • Versi: <span class="meta-val">v{{.Version}}</span> • Ukuran: <span class="meta-val">{{roundTo (div .SizeBytes 1048576.0) 2}} MB</span>
+                      Rilis Superadmin • Versi: <span class="meta-val">v{{.Version}}</span> • Ukuran: <span class="meta-val"><script>document.write( ({{ .SizeBytes }} / 1048576.0).toFixed(2) );</script> MB</span>
                     </p>
                   </div>
                   <a href="/download/app/{{.ID}}" class="btn-download-big" style="background: linear-gradient(135deg, #3b82f6, #2563eb);">
@@ -761,7 +761,7 @@
                   <div>
                     <h4 style="color: white; margin: 0 0 6px 0; font-family: 'Outfit'; font-size: 15.5px;">{{.Name}}</h4>
                     <p style="color: var(--text-muted); font-size: 12.5px; line-height: 1.5; margin: 0;">
-                      Rilis Superadmin • Versi: <span class="meta-val">v{{.Version}}</span> • Ukuran: <span class="meta-val">{{roundTo (div .SizeBytes 1048576.0) 2}} MB</span>
+                      Rilis Superadmin • Versi: <span class="meta-val">v{{.Version}}</span> • Ukuran: <span class="meta-val"><script>document.write( ({{ .SizeBytes }} / 1048576.0).toFixed(2) );</script> MB</span>
                     </p>
                   </div>
                   <a href="/download/app/{{.ID}}" class="btn-download-big" style="background: linear-gradient(135deg, #8b5cf6, #7c3aed);">
