@@ -1,169 +1,5 @@
-{{/*
-  EXAMVAN Download Page
-  ======================
-  Standalone template.
-  Variables:
-    .android_version — string (e.g., "2.1.0")
-    .webapp_version  — string (e.g., "2.1.0")
-    .file_size_mb    — float64 (APK file size in MB)
-    .student_apk_available — bool
-    .kiosk_apk_available — bool
-    .apk_available — bool
-    .download_notice — string
-    .system_apps — []models.SystemApp
-*/}}
-<!DOCTYPE html>
-<html lang="id">
-<head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Unduh Aplikasi Siswa - EXAMVAN</title>
-
-  <link rel="preconnect" href="https://fonts.googleapis.com">
-  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@700;800&family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
-
-  <style>
-    :root {
-      --bg-primary: #080b11;
-      --bg-secondary: #0f131c;
-      --accent-primary: #6366f1;
-      --accent-secondary: #a855f7;
-      --accent-glow: rgba(99, 102, 241, 0.15);
-      --text-main: #f3f4f6;
-      --text-muted: #9ca3af;
-      --text-secondary: #e5e7eb;
-      --glass-bg: rgba(17, 24, 39, 0.7);
-      --glass-border: rgba(255, 255, 255, 0.08);
-      --card-hover: rgba(255, 255, 255, 0.03);
-      --success-color: #10b981;
-      --warning-color: #f59e0b;
-    }
-
-    @media (prefers-color-scheme: light) {
-      :root {
-        --bg-primary: #f1f5f9;
-        --bg-secondary: #ffffff;
-        --accent-primary: #6366f1;
-        --accent-secondary: #8b5cf6;
-        --accent-glow: rgba(99, 102, 241, 0.1);
-        --text-main: #0f172a;
-        --text-muted: #64748b;
-        --text-secondary: #334155;
-        --glass-bg: rgba(255, 255, 255, 0.8);
-        --glass-border: rgba(0, 0, 0, 0.08);
-        --card-hover: rgba(0, 0, 0, 0.02);
-        --success-color: #059669;
-        --warning-color: #d97706;
-      }
-    }
-
-    * {
-      margin: 0;
-      padding: 0;
-      box-sizing: border-box;
-      font-family: 'Plus Jakarta Sans', sans-serif;
-    }
-
-    body {
-      background-color: var(--bg-primary);
-      color: var(--text-main);
-      overflow-x: hidden;
-      line-height: 1.6;
-      min-height: 100vh;
-      display: flex;
-      flex-direction: column;
-      scroll-behavior: smooth;
-    }
-
-    /* Background blobs */
-    .glow-blob {
-      position: absolute;
-      width: 450px;
-      height: 450px;
-      border-radius: 50%;
-      background: radial-gradient(circle, var(--accent-glow) 0%, rgba(99, 102, 241, 0) 70%);
-      filter: blur(80px);
-      z-index: -1;
-      pointer-events: none;
-    }
-    .blob-1 {
-      top: -150px;
-      right: -100px;
-      background: radial-gradient(circle, rgba(168, 85, 247, 0.12) 0%, rgba(168, 85, 247, 0) 70%);
-    }
-    .blob-2 {
-      bottom: -150px;
-      left: -150px;
-    }
-
-    /* Navbar */
-    nav {
-      background: rgba(8, 11, 17, 0.85);
-      backdrop-filter: blur(16px);
-      -webkit-backdrop-filter: blur(16px);
-      border-bottom: 1px solid var(--glass-border);
-      width: 100%;
-      position: sticky;
-      top: 0;
-      z-index: 100;
-    }
-    .nav-container {
-      max-width: 1200px;
-      margin: 0 auto;
-      display: flex;
-      justify-content: space-between;
-      align-items: center;
-      padding: 16px 20px;
-    }
-    .logo-container {
-      display: flex;
-      align-items: center;
-      gap: 10px;
-      text-decoration: none;
-    }
-    .logo-badge {
-      background: linear-gradient(135deg, var(--accent-primary), var(--accent-secondary));
-      width: 34px;
-      height: 34px;
-      border-radius: 8px;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      color: white;
-      font-size: 18px;
-      font-weight: 800;
-      font-family: 'Outfit', sans-serif;
-      box-shadow: 0 4px 12px rgba(99, 102, 241, 0.3);
-    }
-    .logo-text {
-      font-family: 'Outfit', sans-serif;
-      font-size: 20px;
-      font-weight: 800;
-      background: linear-gradient(to right, #ffffff, #e0e7ff);
-      -webkit-background-clip: text;
-      -webkit-text-fill-color: transparent;
-      letter-spacing: 0.5px;
-    }
-    .btn-nav-back {
-      color: var(--text-secondary);
-      text-decoration: none;
-      font-size: 13.5px;
-      font-weight: 600;
-      display: flex;
-      align-items: center;
-      gap: 6px;
-      transition: color 0.3s;
-      background: rgba(255, 255, 255, 0.05);
-      padding: 8px 14px;
-      border-radius: 8px;
-      border: 1px solid rgba(255, 255, 255, 0.05);
-    }
-    .btn-nav-back:hover {
-      color: white;
-      background: rgba(255, 255, 255, 0.1);
-    }
-
+{{ define "extra_head" }}
+<style>
     /* Content Area */
     main {
       flex: 1;
@@ -477,49 +313,9 @@
       align-items: center;
     }
 
-    /* Footer */
-    footer {
-      border-top: 1px solid var(--glass-border);
-      padding: 24px 20px;
-      background-color: #05070a;
-      margin-top: auto;
-    }
-    .footer-container {
-      max-width: 1200px;
-      margin: 0 auto;
-      display: flex;
-      justify-content: space-between;
-      align-items: center;
-      color: var(--text-muted);
-      font-size: 12.5px;
-      flex-wrap: wrap;
-      gap: 12px;
-    }
-  </style>
-  <link rel="stylesheet" href="/static/css/theme.css">
-  <link rel="icon" type="image/png" href="/static/favicon.png">
-</head>
-<body>
-
-  <!-- Glow Blobs -->
-  <div class="glow-blob blob-1"></div>
-  <div class="glow-blob blob-2"></div>
-
-  <!-- Navigation -->
-  <nav>
-    <div class="nav-container">
-      <div class="logo-container">
-        <div class="logo-badge">E</div>
-        <div class="logo-text">EXAMVAN</div>
-      </div>
-      <a href="/" class="btn-nav-back">
-        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="19" y1="12" x2="5" y2="12"></line><polyline points="12 19 5 12 12 5"></polyline></svg>
-        Beranda
-      </a>
-    </div>
-  </nav>
-
-  <!-- Main Container -->
+</style>
+{{ end }}
+{{ template "public_head" . }}
   <main id="main-content">
     
     <div class="hero-section">
@@ -819,13 +615,7 @@
   </main>
 
   <!-- Footer -->
-  <footer>
-    <div class="footer-container">
-      <span>&copy; 2026 EXAMVAN Team. Hak Cipta Dilindungi.</span>
-      <span>Versi Server: v{{.webapp_version}}</span>
-    </div>
-  </footer>
-
+{{ define "extra_scripts" }}
   <script>
     function switchTab(platform) {
       document.querySelectorAll('.tab-btn').forEach(btn => btn.classList.remove('active'));
@@ -835,5 +625,5 @@
       document.getElementById('section-' + platform).style.display = 'block';
     }
   </script>
-</body>
-</html>
+{{ end }}
+{{ template "public_foot" . }}
