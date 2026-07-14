@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="id">
 <head>
- {{adminHead .version .csrf_token "Aplikasi Sistem"}}
+ {{template "admin/partials/head.html" dict "version" .version "csrf_token" .csrf_token "title" "Aplikasi Sistem"}}
 </head>
 <body class="dashboard-page">
 

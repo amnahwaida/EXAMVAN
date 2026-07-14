@@ -1,0 +1,108 @@
+{{ $adminRole := .admin_role }}
+{{ $isSuper := contains $adminRole "superadmin" }}
+{{ $isOp := contains $adminRole "operator" }}
+{{ $isGuru := or (contains $adminRole "guru") (or $isSuper $isOp) }}
+{{ $isPengawas := or (contains $adminRole "pengawas") $isSuper }}
+{{ $activePage := .active_page }}
+
+<nav class="topbar">
+ <div class="topbar-left">
+  <div class="topbar-logo">E</div>
+  <a href="/" class="topbar-title" style="text-decoration:none;color:inherit;">EXAMVAN</a>
+ </div>
+ <div class="topbar-center">
+  <div class="topbar-nav">
+   {{ if $isGuru }}
+    <a href="/admin/dashboard" class="nav-link {{if eq $activePage "dashboard"}}active{{end}}"><svg class="icon-svg" aria-hidden="true"><use href="#hi-dashboard"/></svg> Daftar Ujian</a>
+    <a href="/admin/submissions" class="nav-link {{if eq $activePage "submissions"}}active{{end}}"><svg class="icon-svg" aria-hidden="true"><use href="#hi-results"/></svg> Hasil Ujian</a>
+   {{ end }}
+   {{ if or $isPengawas $isGuru }}
+    <a href="/admin/pengawas" class="nav-link {{if eq $activePage "pengawas"}}active{{end}}"><svg class="icon-svg" aria-hidden="true"><use href="#hi-eye"/></svg> Pengawasan</a>
+   {{ end }}
+   {{ if or $isSuper $isOp }}
+    <div class="topbar-menu-dropdown" style="display:inline-block;position:relative;">
+     <button class="nav-link {{if or (eq $activePage "users") (eq $activePage "billing") (eq $activePage "system-apps")}}active{{end}}" onclick="event.stopPropagation();document.getElementById('pengaturanDropdown').classList.toggle('show');" style="background:none;border:none;cursor:pointer;font-family:inherit;font-size:inherit;display:inline-flex;align-items:center;padding:0 16px;">
+      <svg class="icon-svg" aria-hidden="true"><use href="#hi-settings"/></svg> Pengaturan <svg class="icon-svg" style="width:12px;height:12px;margin-left:4px;"><use href="#hi-chevron-down"/></svg>
+     </button>
+     <div class="topbar-dropdown-content" id="pengaturanDropdown" style="left:0;right:auto;top:100%;margin-top:8px;min-width:200px;">
+      <a href="/admin/users" class="dropdown-item {{if eq $activePage "users"}}active{{end}}"><svg class="icon-svg"><use href="#hi-users"/></svg> Kelola User</a>
+      <a href="/admin/billing" class="dropdown-item {{if eq $activePage "billing"}}active{{end}}"><svg class="icon-svg"><use href="#hi-clipboard"/></svg> Billing & Paket</a>
+      {{ if $isSuper }}
+       <a href="/admin/system-apps" class="dropdown-item {{if eq $activePage "system-apps"}}active{{end}}"><svg class="icon-svg"><use href="#hi-download"/></svg> Aplikasi Sistem</a>
+      {{ end }}
+     </div>
+    </div>
+   {{ else if $isGuru }}
+    <a href="/admin/billing" class="nav-link {{if eq $activePage "billing"}}active{{end}}"><svg class="icon-svg" aria-hidden="true"><use href="#hi-clipboard"/></svg> Upgrade Paket</a>
+   {{ end }}
+  </div>
+ </div>
+ <div class="topbar-right">
+  <div class="topbar-menu-dropdown">
+   <button class="topbar-menu-toggle" id="menuToggleBtn" onclick="event.stopPropagation();document.getElementById('menuDropdownContent').classList.toggle('show');">
+    <span class="menu-hamburger-icon">&#9776;</span>
+   </button>
+   <div class="topbar-dropdown-content" id="menuDropdownContent">
+    <div class="dropdown-header mobile-only-header">
+     <div class="dropdown-brand-row">
+      <div class="dropdown-logo">E</div>
+      <span class="dropdown-brand-title">EXAMVAN</span>
+     </div>
+    </div>
+    
+    <div class="dropdown-divider mobile-only-divider"></div>
+    <div class="mobile-nav-links">
+     {{ if $isGuru }}
+      <a href="/admin/dashboard" class="dropdown-item {{if eq $activePage "dashboard"}}active{{end}}"><svg class="icon-svg"><use href="#hi-dashboard"/></svg> Daftar Ujian</a>
+      <a href="/admin/submissions" class="dropdown-item {{if eq $activePage "submissions"}}active{{end}}"><svg class="icon-svg"><use href="#hi-results"/></svg> Hasil Ujian</a>
+     {{ end }}
+     {{ if or $isPengawas $isGuru }}
+      <a href="/admin/pengawas" class="dropdown-item {{if eq $activePage "pengawas"}}active{{end}}"><svg class="icon-svg"><use href="#hi-eye"/></svg> Pengawasan</a>
+     {{ end }}
+     {{ if or $isSuper $isOp }}
+      <div class="dropdown-divider"></div>
+      <div style="padding: 8px 16px; font-size: 11px; font-weight: 600; color: #94a3b8; text-transform: uppercase; letter-spacing: 0.5px;">Pengaturan</div>
+      <a href="/admin/users" class="dropdown-item {{if eq $activePage "users"}}active{{end}}"><svg class="icon-svg"><use href="#hi-users"/></svg> Kelola User</a>
+      <a href="/admin/billing" class="dropdown-item {{if eq $activePage "billing"}}active{{end}}"><svg class="icon-svg"><use href="#hi-clipboard"/></svg> Billing & Paket</a>
+      {{ if $isSuper }}
+       <a href="/admin/system-apps" class="dropdown-item {{if eq $activePage "system-apps"}}active{{end}}"><svg class="icon-svg"><use href="#hi-download"/></svg> Aplikasi Sistem</a>
+      {{ end }}
+     {{ else if $isGuru }}
+      <div class="dropdown-divider"></div>
+      <a href="/admin/billing" class="dropdown-item {{if eq $activePage "billing"}}active{{end}}"><svg class="icon-svg"><use href="#hi-clipboard"/></svg> Upgrade Paket</a>
+     {{ end }}
+    </div>
+    <div class="dropdown-divider"></div>
+    
+    <div class="dropdown-user-info">
+     <span class="dropdown-user-name">{{.admin_user}}</span>
+     <span class="dropdown-user-role">{{displayRole $adminRole}}</span>
+    </div>
+    <div class="dropdown-divider"></div>
+    
+    {{ if or $isSuper $isOp }}
+     <a href="/admin/billing" class="dropdown-item" style="text-decoration:none;color:inherit;"><svg class="icon-svg"><use href="#hi-clipboard"/></svg> Billing & Paket</a>
+    {{ else if $isGuru }}
+     <a href="/admin/billing" class="dropdown-item" style="text-decoration:none;color:inherit;"><svg class="icon-svg"><use href="#hi-clipboard"/></svg> Upgrade Paket</a>
+    {{ end }}
+    {{ if $isSuper }}
+     <a href="/admin/system-apps" class="dropdown-item" style="text-decoration:none;color:inherit;"><svg class="icon-svg"><use href="#hi-download"/></svg> Aplikasi Sistem</a>
+    {{ end }}
+    {{ if or $isSuper $isOp $isGuru }}
+     <div class="dropdown-divider"></div>
+    {{ end }}
+    
+    <button class="dropdown-item" onclick="openChangePasswordModal()">
+     <svg class="icon-svg"><use href="#hi-key"/></svg> Ubah Password
+    </button>
+    <div class="dropdown-divider"></div>
+    <form method="POST" action="/logout" style="display:inline;">
+     <input type="hidden" name="_csrf_token" value="{{.csrf_token}}">
+     <button type="submit" class="dropdown-item dropdown-logout" style="width:100%;border:none;background:none;cursor:pointer;">
+      <svg class="icon-svg" aria-hidden="true"><use href="#hi-logout"/></svg> Logout
+     </button>
+    </form>
+   </div>
+  </div>
+ </div>
+</nav>

@@ -6,11 +6,11 @@
 <!DOCTYPE html>
 <html lang="id">
 <head>
- {{adminHead .version .csrf_token "Pengawasan Ujian"}}
+ {{template "admin/partials/head.html" dict "version" .version "csrf_token" .csrf_token "title" "Pengawasan Ujian"}}
 </head>
 <body class="dashboard-page">
 
-{{adminNav .active_page .admin_role .admin_user .csrf_token}}
+{{template "admin/partials/nav.html" dict "active_page" .active_page "admin_role" .admin_role "admin_user" .admin_user "csrf_token" .csrf_token}}
 
 <main class="dashboard">
  <h1 class="sr-only" style="position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0;">Pengawasan Ujian</h1>

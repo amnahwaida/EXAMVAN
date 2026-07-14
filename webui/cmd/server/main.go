@@ -11,7 +11,7 @@ import (
 	"crypto/rand"
 	"encoding/json"
 	"fmt"
-	"html"
+
 	"html/template"
 	"log"
 	"math"
@@ -253,91 +253,7 @@ func main() {
 			}
 			return string(runes[start:end])
 		},
-		// Layout helpers — return HTML fragments for self-contained pages
-		"adminHead": func(version, csrfToken, title string) template.HTML {
-			titleEscaped := html.EscapeString(title)
-			return template.HTML(fmt.Sprintf(
-				`<meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1.0"><title>EXAMVAN — %s</title><link rel="stylesheet" href="/static/css/theme.css?v=%s"><link rel="stylesheet" href="/static/css/tailwind/output.css?v=%s"><link rel="stylesheet" href="/static/css/admin-base.css?v=%s"><link rel="icon" type="image/png" href="/static/favicon.png"><meta name="csrf-token" content="%s">`,
-				titleEscaped, version, version, version, csrfToken))
-		},
-		"adminNav": func(activePage, adminRole, adminUser, csrfToken string) template.HTML {
-			// Prevent XSS: escape user-controlled values
-			adminUser = html.EscapeString(adminUser)
-
-			roleDisplay := models.DisplayRoles(adminRole)
-			roleDisplay = html.EscapeString(roleDisplay)
-
-			adminRole = html.EscapeString(adminRole)
-			isSuper := strings.Contains(adminRole, "superadmin")
-			isOp := strings.Contains(adminRole, "operator")
-			isGuru := strings.Contains(adminRole, "guru") || isSuper || isOp
-			isPengawas := strings.Contains(adminRole, "pengawas") || isSuper
-			guruLink := ""
-			if isGuru {
-				guruLink = fmt.Sprintf(`<a href="/admin/dashboard" class="nav-link %s"><svg class="icon-svg" aria-hidden="true"><use href="#hi-dashboard"/></svg> Daftar Ujian</a><a href="/admin/submissions" class="nav-link %s"><svg class="icon-svg" aria-hidden="true"><use href="#hi-results"/></svg> Hasil Ujian</a>`,
-					activePageClass(activePage, "dashboard"), activePageClass(activePage, "submissions"))
-			}
-			pengawasLink := ""
-			if isPengawas || isGuru {
-				pengawasLink = fmt.Sprintf(`<a href="/admin/pengawas" class="nav-link %s"><svg class="icon-svg" aria-hidden="true"><use href="#hi-eye"/></svg> Pengawasan</a>`, activePageClass(activePage, "pengawas"))
-			}
-			pengaturanLink := ""
-			if isSuper || isOp || strings.Contains(adminRole, "operator") {
-				isActiveSettings := activePage == "users" || activePage == "billing" || activePage == "system-apps"
-				activeClass := ""
-				if isActiveSettings {
-					activeClass = "active"
-				}
-				pengaturanLink = fmt.Sprintf(`<div class="topbar-menu-dropdown" style="display:inline-block;position:relative;"><button class="nav-link %s" onclick="event.stopPropagation();document.getElementById('pengaturanDropdown').classList.toggle('show');" style="background:none;border:none;cursor:pointer;font-family:inherit;font-size:inherit;display:inline-flex;align-items:center;padding:0 16px;"><svg class="icon-svg" aria-hidden="true"><use href="#hi-settings"/></svg> Pengaturan <svg class="icon-svg" style="width:12px;height:12px;margin-left:4px;"><use href="#hi-chevron-down"/></svg></button><div class="topbar-dropdown-content" id="pengaturanDropdown" style="left:0;right:auto;top:100%%;margin-top:8px;min-width:200px;">`, activeClass)
-				pengaturanLink += fmt.Sprintf(`<a href="/admin/users" class="dropdown-item %s"><svg class="icon-svg"><use href="#hi-users"/></svg> Kelola User</a>`, dropdownActive(activePage, "users"))
-				pengaturanLink += fmt.Sprintf(`<a href="/admin/billing" class="dropdown-item %s"><svg class="icon-svg"><use href="#hi-clipboard"/></svg> Billing & Paket</a>`, dropdownActive(activePage, "billing"))
-				if isSuper {
-					pengaturanLink += fmt.Sprintf(`<a href="/admin/system-apps" class="dropdown-item %s"><svg class="icon-svg"><use href="#hi-download"/></svg> Aplikasi Sistem</a>`, dropdownActive(activePage, "system-apps"))
-				}
-				pengaturanLink += `</div></div>`
-			} else if isGuru {
-				pengaturanLink = fmt.Sprintf(`<a href="/admin/billing" class="nav-link %s"><svg class="icon-svg" aria-hidden="true"><use href="#hi-clipboard"/></svg> Upgrade Paket</a>`, activePageClass(activePage, "billing"))
-			}
-
-			// Mobile nav links for hamburger menu
-			mobileLinks := `<div class="dropdown-divider mobile-only-divider"></div><div class="mobile-nav-links">`
-			if isGuru {
-				mobileLinks += fmt.Sprintf(`<a href="/admin/dashboard" class="dropdown-item %s"><svg class="icon-svg"><use href="#hi-dashboard"/></svg> Daftar Ujian</a><a href="/admin/submissions" class="dropdown-item %s"><svg class="icon-svg"><use href="#hi-results"/></svg> Hasil Ujian</a>`, dropdownActive(activePage, "dashboard"), dropdownActive(activePage, "submissions"))
-			}
-			if isPengawas || isGuru {
-				mobileLinks += fmt.Sprintf(`<a href="/admin/pengawas" class="dropdown-item %s"><svg class="icon-svg"><use href="#hi-eye"/></svg> Pengawasan</a>`, dropdownActive(activePage, "pengawas"))
-			}
-			if isSuper || isOp {
-				mobileLinks += `<div class="dropdown-divider"></div><div style="padding: 8px 16px; font-size: 11px; font-weight: 600; color: #94a3b8; text-transform: uppercase; letter-spacing: 0.5px;">Pengaturan</div>`
-				mobileLinks += fmt.Sprintf(`<a href="/admin/users" class="dropdown-item %s"><svg class="icon-svg"><use href="#hi-users"/></svg> Kelola User</a>`, dropdownActive(activePage, "users"))
-				mobileLinks += fmt.Sprintf(`<a href="/admin/billing" class="dropdown-item %s"><svg class="icon-svg"><use href="#hi-clipboard"/></svg> Billing & Paket</a>`, dropdownActive(activePage, "billing"))
-				if isSuper {
-					mobileLinks += fmt.Sprintf(`<a href="/admin/system-apps" class="dropdown-item %s"><svg class="icon-svg"><use href="#hi-download"/></svg> Aplikasi Sistem</a>`, dropdownActive(activePage, "system-apps"))
-				}
-			} else if isGuru {
-				mobileLinks += `<div class="dropdown-divider"></div>`
-				mobileLinks += fmt.Sprintf(`<a href="/admin/billing" class="dropdown-item %s"><svg class="icon-svg"><use href="#hi-clipboard"/></svg> Upgrade Paket</a>`, dropdownActive(activePage, "billing"))
-			}
-			mobileLinks += `</div><div class="dropdown-divider"></div>`
-
-			dropdownBillingLink := ""
-			if isSuper || isOp {
-				dropdownBillingLink = `<a href="/admin/billing" class="dropdown-item" style="text-decoration:none;color:inherit;"><svg class="icon-svg"><use href="#hi-clipboard"/></svg> Billing & Paket</a>`
-			} else if isGuru {
-				dropdownBillingLink = `<a href="/admin/billing" class="dropdown-item" style="text-decoration:none;color:inherit;"><svg class="icon-svg"><use href="#hi-clipboard"/></svg> Upgrade Paket</a>`
-			}
-			if isSuper {
-				dropdownBillingLink += `<a href="/admin/system-apps" class="dropdown-item" style="text-decoration:none;color:inherit;"><svg class="icon-svg"><use href="#hi-download"/></svg> Aplikasi Sistem</a>`
-			}
-			if dropdownBillingLink != "" {
-				dropdownBillingLink += `<div class="dropdown-divider"></div>`
-			}
-
-			csrfEscaped := html.EscapeString(csrfToken)
-			return template.HTML(fmt.Sprintf(
-				`<nav class="topbar"><div class="topbar-left"><div class="topbar-logo">E</div><a href="/" class="topbar-title" style="text-decoration:none;color:inherit;">EXAMVAN</a></div><div class="topbar-center"><div class="topbar-nav">%s%s%s%s</div></div><div class="topbar-right"><div class="topbar-menu-dropdown"><button class="topbar-menu-toggle" id="menuToggleBtn" onclick="event.stopPropagation();document.getElementById('menuDropdownContent').classList.toggle('show');"><span class="menu-hamburger-icon">&#9776;</span></button><div class="topbar-dropdown-content" id="menuDropdownContent"><div class="dropdown-header mobile-only-header"><div class="dropdown-brand-row"><div class="dropdown-logo">E</div><span class="dropdown-brand-title">EXAMVAN</span></div></div>%s<div class="dropdown-user-info"><span class="dropdown-user-name">%s</span><span class="dropdown-user-role">%s</span></div><div class="dropdown-divider"></div>%s<button class="dropdown-item" onclick="openChangePasswordModal()"><svg class="icon-svg"><use href="#hi-key"/></svg> Ubah Password</button><div class="dropdown-divider"></div><form method="POST" action="/logout" style="display:inline;"><input type="hidden" name="_csrf_token" value="%s"><button type="submit" class="dropdown-item dropdown-logout" style="width:100%%;border:none;background:none;cursor:pointer;"><svg class="icon-svg" aria-hidden="true"><use href="#hi-logout"/></svg> Logout</button></form></div></div></div></nav>`,
-				guruLink, pengawasLink, pengaturanLink, "", mobileLinks, adminUser, roleDisplay, dropdownBillingLink, csrfEscaped))
-		},
+		// Layout helpers are now handled via Go HTML templates in templates/admin/partials/
 	}
 
 	r.SetFuncMap(funcMap)
