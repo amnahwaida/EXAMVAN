@@ -362,8 +362,8 @@
  try {
  const start = new Date(startTimeStr);
  const end = new Date(createdAtStr);
- const diffMs = end - start;
- if (diffMs < 0) return '&mdash;';
+ let diffMs = end - start;
+ if (diffMs < 0) diffMs = 0;
  const diffSecs = Math.floor(diffMs / 1000);
  const hours = Math.floor(diffSecs / 3600);
  const minutes = Math.floor((diffSecs % 3600) / 60);

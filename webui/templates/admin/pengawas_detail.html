@@ -1073,7 +1073,7 @@ function loadApprovals() {
         .then(function(r) { return r.json(); })
         .then(function(res) {
             if (!res || !res.success || !res.data || res.data.length === 0) {
-                tbody.innerHTML = '<tr><td colspan="5" class="pd-table-empty" style="color:var(--color-text-muted);">Belum ada antrean peserta.</td></tr>';
+                tbody.innerHTML = '<tr><td colspan="5" class="pd-table-empty" style="color:var(--color-text-muted);">Belum ada antrean peserta saat ini.</td></tr>';
                 return;
             }
             var isAutoAccept = document.getElementById('autoAcceptToggle') && document.getElementById('autoAcceptToggle').checked;
@@ -1086,21 +1086,36 @@ function loadApprovals() {
                 }
                 var t = a.created_at ? localizeUTC(a.created_at) : '—';
                 var studentInfo = esc(a.student_name);
-                if (!studentInfo || studentInfo === '—') studentInfo = '<em>Anonim</em>';
+                if (!studentInfo || studentInfo === '—') studentInfo = '<em style="color:var(--color-text-muted);">Tidak diketahui (Anonim)</em>';
                 
-                html += '<tr>' +
+                // Revamped table row design matching the premium theme
+                html += '<tr style="transition: all 0.2s; border-bottom: 1px solid rgba(245, 158, 11, 0.1);">' +
                     '<td data-label="No">' + (i + 1) + '</td>' +
-                    '<td data-label="ID Perangkat" style="font-family:var(--font-mono); font-weight:700;">' + esc(a.mac_address) + '</td>' +
-                    '<td data-label="Siswa">' + studentInfo + '</td>' +
-                    '<td data-label="Waktu Minta Izin">' + t + '</td>' +
+                    '<td data-label="ID Perangkat">' +
+                        '<div style="display:inline-flex; align-items:center; gap:6px; background:rgba(99,102,241,0.1); color:#818cf8; padding:4px 8px; border-radius:6px; font-family:var(--font-mono); font-size:0.75rem; font-weight:600; border:1px solid rgba(99,102,241,0.2);">' +
+                            '<svg class="icon-svg" style="width:12px;height:12px;"><use href="#hi-device"/></svg> ' + esc(a.mac_address) +
+                        '</div>' +
+                    '</td>' +
+                    '<td data-label="Siswa" style="font-weight:600;">' + studentInfo + '</td>' +
+                    '<td data-label="Waktu Minta Izin" style="font-size:0.8rem; color:var(--color-text-secondary);">' +
+                        '<div style="display:flex; align-items:center; gap:4px;">' +
+                            '<svg class="icon-svg" style="width:12px;height:12px;"><use href="#hi-clock"/></svg> ' + t +
+                        '</div>' +
+                    '</td>' +
                     '<td data-label="Aksi" style="text-align:right;">' +
-                        '<button class="pd-toolbar-btn" style="background:#34d399;color:#fff;border:none;padding:4px 10px;border-radius:6px;font-size:0.75rem;margin-right:6px;" onclick="setApproval(\'' + a.mac_address + '\', \'approved\')">Izinkan</button>' +
-                        '<button class="pd-toolbar-btn" style="background:#f87171;color:#fff;border:none;padding:4px 10px;border-radius:6px;font-size:0.75rem;" onclick="setApproval(\'' + a.mac_address + '\', \'rejected\')">Tolak</button>' +
+                        '<div style="display:flex; justify-content:flex-end; gap:8px;">' +
+                            '<button class="pd-action-btn pd-action-active" onclick="setApproval(\'' + a.mac_address + '\', \'approved\')" style="padding:6px 12px; border-radius:8px; font-weight:600;">' +
+                                '<svg class="icon-svg" style="width:14px;height:14px;"><use href="#hi-check"/></svg> Izinkan' +
+                            '</button>' +
+                            '<button class="pd-action-btn pd-action-danger" onclick="setApproval(\'' + a.mac_address + '\', \'rejected\')" style="padding:6px 12px; border-radius:8px; font-weight:600;">' +
+                                '<svg class="icon-svg" style="width:14px;height:14px;"><use href="#hi-x"/></svg> Tolak' +
+                            '</button>' +
+                        '</div>' +
                     '</td>' +
                 '</tr>';
             }
             if (html === '' && isAutoAccept) {
-                html = '<tr><td colspan="5" class="pd-table-empty" style="color:var(--color-text-muted);">Menerima peserta secara otomatis...</td></tr>';
+                html = '<tr><td colspan="5" class="pd-table-empty" style="color:var(--color-text-muted);"><div class="pd-pulse" style="display:inline-block;margin-right:8px;background:#34d399;"></div> Menerima antrean peserta secara otomatis...</td></tr>';
             }
             tbody.innerHTML = html;
         })
@@ -1122,10 +1137,15 @@ function setApproval(macAddress, status, skipConfirm) {
     .then(function(r) { return r.json(); })
     .then(function(res) {
         if (res.success) {
-            showToast('Persetujuan berhasil disimpan', 'success');
-            loadApprovals();
+            if (!skipConfirm) {
+                showToast(status === 'approved' ? 'Perangkat diizinkan' : 'Perangkat ditolak', 'success');
+                loadApprovals();
+            }
         } else {
-            showToast(res.message || 'Gagal menyimpan persetujuan', 'error');
+            // Only show error toasts if not auto-accepting, or if we want to surface issues
+            if (!skipConfirm) {
+                showToast(res.message || 'Gagal menyimpan persetujuan', 'error');
+            }
         }
     })
     .catch(function(err) {

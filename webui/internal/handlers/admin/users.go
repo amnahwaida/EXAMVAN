@@ -770,3 +770,63 @@ func DeleteUser() gin.HandlerFunc {
 		successMessage(c, msg)
 	}
 }
+
+// ---------------------------------------------------------------------------
+// 8. POST /admin/api/users/update-instansi — Update Operator Instansi
+// ---------------------------------------------------------------------------
+
+func UpdateInstansi() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		pool := getPool(c)
+		userID := getCurrentUserID(c)
+		ctx := c.Request.Context()
+
+		var body struct {
+			Instansi string `json:"instansi"`
+		}
+		if err := c.ShouldBindJSON(&body); err != nil {
+			errorResponse(c, http.StatusBadRequest, "Data tidak valid")
+			return
+		}
+
+		newInstansi := strings.TrimSpace(body.Instansi)
+		if newInstansi == "" || strings.ToLower(newInstansi) == "personal" {
+			errorResponse(c, http.StatusBadRequest, "Nama instansi tidak valid")
+			return
+		}
+
+		// Verify user is operator and current instansi is personal
+		user, err := models.GetUserByID(ctx, pool, userID)
+		if err != nil {
+			errorResponse(c, http.StatusNotFound, "Pengguna tidak ditemukan")
+			return
+		}
+
+		if !models.HasRole(user.Role, models.RoleOperator) {
+			errorResponse(c, http.StatusForbidden, "Hanya operator yang dapat mengatur instansi")
+			return
+		}
+
+		if strings.ToLower(user.Instansi) != "personal" {
+			errorResponse(c, http.StatusBadRequest, "Instansi sudah diatur sebelumnya")
+			return
+		}
+
+		// Update instansi string
+		_, err = pool.Exec(ctx, `UPDATE admin_users SET instansi = $1 WHERE id = $2`, newInstansi, userID)
+		if err != nil {
+			log.Printf("failed to update instansi for user %d: %v", userID, err)
+			errorResponse(c, http.StatusInternalServerError, "Gagal memperbarui instansi")
+			return
+		}
+
+		// Try to also manage instansi_id for schema consistency (optional fallback)
+		var instansiID int
+		err = pool.QueryRow(ctx, `INSERT INTO instansi (name) VALUES ($1) ON CONFLICT (name) DO UPDATE SET name=EXCLUDED.name RETURNING id`, newInstansi).Scan(&instansiID)
+		if err == nil {
+			_, _ = pool.Exec(ctx, `UPDATE admin_users SET instansi_id = $1 WHERE id = $2`, instansiID, userID)
+		}
+
+		successMessage(c, "Instansi berhasil diperbarui")
+	}
+}

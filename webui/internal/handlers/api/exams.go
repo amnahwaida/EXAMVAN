@@ -343,6 +343,7 @@ func RequestApproval() gin.HandlerFunc {
 			     exam_number = EXCLUDED.exam_number,
 			     student_class = EXCLUDED.student_class,
 			     identity_data = EXCLUDED.identity_data,
+			     status = CASE WHEN exam_approvals.status = 'rejected' THEN 'pending' ELSE exam_approvals.status END,
 			     updated_at = CURRENT_TIMESTAMP
 			 RETURNING status`,
 			req.ExamID, req.MACAddress, req.StudentName, req.ExamNumber, req.StudentClass, string(idDataStr)).Scan(&status)

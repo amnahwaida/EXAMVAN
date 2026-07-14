@@ -106,3 +106,82 @@
   </div>
  </div>
 </nav>
+
+{{if hasRole .admin_role "operator"}}
+    {{if eq (toLower (default "" .admin_instansi)) "personal"}}
+    <div id="instansiOnboardingModal" class="modal-overlay" style="display:flex; z-index:9999; background: rgba(0,0,0,0.85); backdrop-filter: blur(8px);">
+        <div class="modal" style="width: 460px;">
+            <div class="modal-header" style="border-bottom: 1px solid var(--color-glass-border); padding-bottom: 12px; margin-bottom: 16px;">
+                <h2 class="modal-title" style="margin:0; font-size:1.25rem;">Atur Nama Instansi Anda</h2>
+            </div>
+            <div class="modal-body">
+                <p style="margin-bottom: 16px; color: var(--color-text-secondary); font-size: 0.9rem; line-height: 1.5;">
+                    Selamat datang! Anda memiliki akses <b>Operator</b>. Sebelum melanjutkan menggunakan fitur aplikasi, silakan atur nama instansi/sekolah Anda. 
+                    Nama instansi ini akan digunakan sebagai identitas sekolah Anda dan <b>tidak boleh</b> berupa "personal".
+                </p>
+                <div class="form-group" style="margin-bottom:0;">
+                    <label for="newInstansiName" style="display:block; margin-bottom:6px; font-weight:600; font-size:0.85rem;">Nama Sekolah / Instansi <span style="color:var(--color-danger);">*</span></label>
+                    <input type="text" id="newInstansiName" class="form-control" style="width:100%; padding:10px 12px;" placeholder="Contoh: SMAN 1 Jakarta" autocomplete="off">
+                    <div class="form-help" style="margin-top: 6px; font-size:0.75rem; color:var(--color-text-muted);">Pastikan nama instansi diisi dengan benar.</div>
+                </div>
+            </div>
+            <div class="modal-footer" style="margin-top: 24px;">
+                <button type="button" class="btn btn-primary" id="btnSaveInstansi" style="width: 100%; justify-content:center; padding:10px;">Simpan Instansi</button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+    document.addEventListener('DOMContentLoaded', function() {
+        var btnSaveInstansi = document.getElementById('btnSaveInstansi');
+        var inputInstansi = document.getElementById('newInstansiName');
+        
+        btnSaveInstansi.addEventListener('click', function() {
+            var val = inputInstansi.value.trim();
+            if(!val || val.toLowerCase() === 'personal') {
+                showToast('Silakan masukkan nama instansi yang valid selain "personal".', 'error');
+                inputInstansi.focus();
+                return;
+            }
+            
+            var oldText = btnSaveInstansi.innerText;
+            btnSaveInstansi.innerText = 'Menyimpan...';
+            btnSaveInstansi.disabled = true;
+            
+            fetch('/admin/api/users/update-instansi', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'X-CSRF-Token': '{{.csrf_token}}'
+                },
+                body: JSON.stringify({ instansi: val })
+            })
+            .then(r => r.json())
+            .then(data => {
+                if(data.success) {
+                    showToast(data.message || 'Instansi berhasil disimpan!', 'success');
+                    setTimeout(function(){ window.location.reload(); }, 1500);
+                } else {
+                    showToast(data.message || 'Gagal menyimpan instansi', 'error');
+                    btnSaveInstansi.innerText = oldText;
+                    btnSaveInstansi.disabled = false;
+                }
+            })
+            .catch(err => {
+                console.error(err);
+                showToast('Terjadi kesalahan jaringan', 'error');
+                btnSaveInstansi.innerText = oldText;
+                btnSaveInstansi.disabled = false;
+            });
+        });
+        
+        inputInstansi.addEventListener('keydown', function(e) {
+            if (e.key === 'Enter') {
+                e.preventDefault();
+                btnSaveInstansi.click();
+            }
+        });
+    });
+    </script>
+    {{end}}
+{{end}}

@@ -391,7 +391,34 @@ Mulai: <span id="detailStartTime">—</span> | Kumpul: <span id="detailSubmitTim
 <script src="/static/js/admin.js?v={{.version}}"></script>
 <script>
 document.addEventListener('DOMContentLoaded', function() {
- localizeUTC(document.querySelectorAll('.duration-cell'));
+    document.querySelectorAll('.duration-cell').forEach(function(el) {
+        var startStr = el.getAttribute('data-start');
+        var endStr = el.getAttribute('data-end');
+        if (!startStr || !endStr) return;
+        
+        var isoStart = startStr.trim();
+        if (isoStart.includes(' ') && !isoStart.includes('T')) isoStart = isoStart.replace(' ', 'T');
+        if (!isoStart.endsWith('Z') && !isoStart.includes('+') && !(/-\d{2}:\d{2}$/.test(isoStart))) isoStart += 'Z';
+        
+        var startDt = new Date(isoStart);
+        var endDt = new Date(endStr);
+        if (isNaN(startDt.getTime()) || isNaN(endDt.getTime())) return;
+        
+        var diffMs = endDt - startDt;
+        if (diffMs < 0) diffMs = 0;
+        
+        var diffSecs = Math.floor(diffMs / 1000);
+        var hours = Math.floor(diffSecs / 3600);
+        var minutes = Math.floor((diffSecs % 3600) / 60);
+        var seconds = diffSecs % 60;
+        
+        var parts = [];
+        if (hours > 0) parts.push(hours + ' jam');
+        if (minutes > 0) parts.push(minutes + ' menit');
+        if (seconds > 0 || parts.length === 0) parts.push(seconds + ' detik');
+        
+        el.textContent = parts.join(' ');
+    });
 });
 </script>
 

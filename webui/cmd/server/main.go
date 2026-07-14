@@ -538,6 +538,7 @@ func registerRoutes(r *gin.Engine, cfg *config.Config, pool *pgxpool.Pool) {
 			adminUsers := csrfAPI.Group("", middleware.AdminManagementRequired())
 			{
 				adminUsers.POST("/users", middleware.LimitBodySize(256*1024), admin.CreateUser())
+				adminUsers.POST("/users/update-instansi", middleware.LimitBodySize(256*1024), admin.UpdateInstansi())
 				adminUsers.POST("/users/:user_id/edit", middleware.LimitBodySize(256*1024), admin.EditUser())
 				adminUsers.POST("/users/:user_id/toggle-status", middleware.LimitBodySize(256*1024), admin.ToggleUserStatus())
 				adminUsers.POST("/users/:user_id/verify", middleware.LimitBodySize(256*1024), admin.VerifyUser())
