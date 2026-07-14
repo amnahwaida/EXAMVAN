@@ -274,3 +274,31 @@ CREATE TABLE IF NOT EXISTS system_apps (
     updated_at    TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
     UNIQUE(name, platform, version)
 );
+
+-- ============================================================
+-- pricing_plans
+-- ============================================================
+CREATE TABLE IF NOT EXISTS pricing_plans (
+    id            SERIAL PRIMARY KEY,
+    key           TEXT NOT NULL UNIQUE,
+    title         TEXT NOT NULL,
+    audience      TEXT NOT NULL DEFAULT '',
+    popular       BOOLEAN NOT NULL DEFAULT false,
+    accent        TEXT NOT NULL DEFAULT '',
+    icon          TEXT NOT NULL DEFAULT '',
+    max_exams     TEXT NOT NULL DEFAULT '',
+    pdf_limit     TEXT NOT NULL DEFAULT '',
+    draft_limit   TEXT NOT NULL DEFAULT '',
+    storage_limit TEXT NOT NULL DEFAULT '',
+    token_mode    TEXT NOT NULL DEFAULT '',
+    results       TEXT NOT NULL DEFAULT '',
+    answers       TEXT NOT NULL DEFAULT '',
+    features      TEXT NOT NULL DEFAULT '',
+    price_bulanan  BIGINT NOT NULL DEFAULT 0,
+    price_semester BIGINT NOT NULL DEFAULT 0,
+    price_tahunan  BIGINT NOT NULL DEFAULT 0,
+    sort_order    INT NOT NULL DEFAULT 0,
+    active        BOOLEAN NOT NULL DEFAULT true,
+    created_at    TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
+    updated_at    TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
+);

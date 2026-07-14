@@ -1,5 +1,66 @@
 {{ template "public_head" . }}
 <style>
+  .tooltip {
+    position: relative;
+    cursor: help;
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    border-bottom: 1px dotted rgba(255,255,255,0.4);
+  }
+  .tooltip::after {
+    content: attr(data-tooltip);
+    position: absolute;
+    bottom: calc(100% + 8px);
+    left: 50%;
+    transform: translateX(-50%) translateY(5px);
+    background: rgba(15, 23, 42, 0.95);
+    backdrop-filter: blur(8px);
+    color: #fff;
+    padding: 8px 12px;
+    border-radius: 8px;
+    font-size: 12px;
+    font-weight: 500;
+    white-space: nowrap;
+    opacity: 0;
+    visibility: hidden;
+    transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+    z-index: 100;
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    box-shadow: 0 10px 25px rgba(0,0,0,0.3);
+    pointer-events: none;
+    text-transform: none !important;
+    letter-spacing: normal !important;
+  }
+  .tooltip::before {
+    content: '';
+    position: absolute;
+    bottom: 100%;
+    left: 50%;
+    transform: translateX(-50%) translateY(5px);
+    border: 5px solid transparent;
+    border-top-color: rgba(15, 23, 42, 0.95);
+    opacity: 0;
+    visibility: hidden;
+    transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+    z-index: 100;
+    pointer-events: none;
+  }
+  .tooltip:hover::after,
+  .tooltip:hover::before {
+    opacity: 1;
+    visibility: visible;
+    transform: translateX(-50%) translateY(0);
+  }
+  .tooltip svg {
+    opacity: 0.6;
+    width: 14px;
+    height: 14px;
+  }
+  .tooltip:hover svg {
+    opacity: 1;
+    color: var(--color-primary);
+  }
   main {
     flex: 1;
     max-width: 1240px;
@@ -122,7 +183,7 @@
     flex-direction: column;
     backdrop-filter: blur(16px);
     transition: all 0.4s cubic-bezier(0.4, 0, 0.2, 1);
-    overflow: hidden;
+    overflow: visible;
   }
   .pricing-card::before {
     content: '';
@@ -150,6 +211,13 @@
   .pricing-card.popular::before {
     opacity: 1;
     background: linear-gradient(90deg, var(--accent-primary), var(--accent-secondary));
+  }
+  .ribbon-wrapper {
+    position: absolute;
+    inset: 0;
+    overflow: hidden;
+    border-radius: 28px;
+    pointer-events: none;
   }
   .popular-ribbon {
     position: absolute;
@@ -447,9 +515,25 @@
   <section class="pricing-grid">
     {{range .plans}}
     <article class="pricing-card {{if .Popular}}popular{{end}} reveal">
-      {{if .Popular}}<div class="popular-ribbon">Populer</div>{{end}}
+      {{if .Popular}}<div class="ribbon-wrapper"><div class="popular-ribbon">Populer</div></div>{{end}}
       <div class="card-header">
-        <div class="card-icon {{.Accent}}">{{if eq .Key "guru"}}👨‍🏫{{else if eq .Key "individu"}}💻{{else if eq .Key "sekolah_kecil"}}🏫{{else if eq .Key "sekolah_menengah"}}🏢{{else if eq .Key "sekolah_besar"}}🏛️{{else}}⭐{{end}}</div>
+        <div class="card-icon {{.Accent}}">
+          {{if eq .Key "guru"}}
+            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" style="width:28px;height:28px;color:#3b82f6;"><path stroke-linecap="round" stroke-linejoin="round" d="M4.26 10.147a60.436 60.436 0 00-.491 6.347A48.627 48.627 0 0112 20.904a48.627 48.627 0 018.232-4.41 60.46 60.46 0 00-.491-6.347m-15.482 0a50.57 50.57 0 00-2.658-.813A59.905 59.905 0 0112 3.493a59.902 59.902 0 0110.399 5.84c-.896.248-1.783.52-2.658.814m-15.482 0A50.697 50.697 0 0112 13.489a50.702 50.702 0 017.74-3.342M6.75 15a.75.75 0 100-1.5.75.75 0 000 1.5zm0 0v-3.675A55.378 55.378 0 0112 8.443m-7.007 11.55A5.981 5.981 0 006.75 15.75v-1.5" /></svg>
+          {{else if eq .Key "individu"}}
+            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" style="width:28px;height:28px;color:#10b981;"><path stroke-linecap="round" stroke-linejoin="round" d="M15.75 6a3.75 3.75 0 11-7.5 0 3.75 3.75 0 017.5 0zM4.501 20.118a7.5 7.5 0 0114.998 0A17.933 17.933 0 0112 21.75c-2.676 0-5.216-.584-7.499-1.632z" /></svg>
+          {{else if eq .Key "sekolah_kecil"}}
+            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" style="width:28px;height:28px;color:#f59e0b;"><path stroke-linecap="round" stroke-linejoin="round" d="M2.25 21h19.5m-18-18v18m10.5-18v18m6-13.5V21M6.75 6.75h.75m-.75 3h.75m-.75 3h.75m3-6h.75m-.75 3h.75m-.75 3h.75M6.75 21v-3.375c0-.621.504-1.125 1.125-1.125h2.25c.621 0 1.125.504 1.125 1.125V21M3 3h12m-.75 4.5H21m-3.75 3.75h.008v.008h-.008v-.008zm0 3h.008v.008h-.008v-.008zm0 3h.008v.008h-.008v-.008z" /></svg>
+          {{else if eq .Key "sekolah_menengah"}}
+            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" style="width:28px;height:28px;color:#ec4899;"><path stroke-linecap="round" stroke-linejoin="round" d="M3.75 21h16.5M4.5 3h15M5.25 3v18m13.5-18v18M9 6.75h1.5m-1.5 3h1.5m-1.5 3h1.5m3-6H15m-1.5 3H15m-1.5 3H15M9 21v-3.375c0-.621.504-1.125 1.125-1.125h3.75c.621 0 1.125.504 1.125 1.125V21" /></svg>
+          {{else if eq .Key "sekolah_besar"}}
+            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" style="width:28px;height:28px;color:#6366f1;"><path stroke-linecap="round" stroke-linejoin="round" d="M12 21v-8.25M15.75 21v-8.25M8.25 21v-8.25M3 9l9-6 9 6m-1.5 12V10.332A48.36 48.36 0 0012 9.75c-2.551 0-5.056.2-7.5.582V21M3 21h18M12 6.75h.008v.008H12V6.75z" /></svg>
+          {{else if eq .Key "sekolah_unggulan"}}
+            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" style="width:28px;height:28px;color:#a855f7;"><path stroke-linecap="round" stroke-linejoin="round" d="M11.48 3.499a.562.562 0 011.04 0l2.125 5.111a.563.563 0 00.475.345l5.518.442c.499.04.701.663.321.988l-4.204 3.602a.563.563 0 00-1.82 1.057l1.214 5.09a.563.563 0 01-.84.61l-4.725-2.885a.563.563 0 00-.586 0L6.982 20.54a.562.562 0 01-.84-.61l1.214-5.09a.563.563 0 00-1.82-1.057l-4.204-3.602a.563.563 0 01.321-.988l5.518-.442a.563.563 0 00.475-.345L11.48 3.5z" /></svg>
+          {{else}}
+            {{.Icon}}
+          {{end}}
+        </div>
         <div class="card-title-wrap">
           <h3>{{.Title}}</h3>
           <div class="card-audience">{{.Audience}}</div>
@@ -458,7 +542,7 @@
       
       <div class="card-price-wrap">
         <div style="display:flex; align-items:baseline; gap:4px;">
-          <span class="price-amount" data-package="{{.Key}}" data-b="{{.MonthlyPrice}}" data-s="{{.SemesterPrice}}" data-t="{{.AnnualPrice}}">Rp 0</span>
+          <span class="price-amount" data-package="{{.Key}}" data-b="{{.PriceBulanan}}" data-s="{{.PriceSemester}}" data-t="{{.PriceTahunan}}">Rp 0</span>
           <span class="price-period">/bln</span>
         </div>
         <span class="price-note" data-package="{{.Key}}">Dibayar bulanan</span>
@@ -466,35 +550,35 @@
 
       <div class="card-limits">
         <div class="limit-item">
-          <span class="limit-label">Ujian Aktif</span>
+          <span class="limit-label tooltip" data-tooltip="Ujian yang berjalan aktif (bisa dikerjakan) secara bersamaan">Ujian Aktif <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M11.25 11.25l.041-.02a.75.75 0 011.063.852l-.708 2.836a.75.75 0 001.063.853l.041-.021M21 12a9 9 0 11-18 0 9 9 0 0118 0zm-9-3.75h.008v.008H12V8.25z" /></svg></span>
           <span class="limit-value">{{.MaxExams}}</span>
         </div>
         <div class="limit-item">
-          <span class="limit-label">Batas PDF</span>
+          <span class="limit-label tooltip" data-tooltip="Batas ukuran unggah PDF per soal ujian">Batas PDF <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M11.25 11.25l.041-.02a.75.75 0 011.063.852l-.708 2.836a.75.75 0 001.063.853l.041-.021M21 12a9 9 0 11-18 0 9 9 0 0118 0zm-9-3.75h.008v.008H12V8.25z" /></svg></span>
           <span class="limit-value">{{.PdfLimit}}</span>
         </div>
         <div class="limit-item">
-          <span class="limit-label">Draft Soal</span>
+          <span class="limit-label tooltip" data-tooltip="Batas jumlah ujian yang bisa disimpan ke bank soal (tidak aktif)">Draft Ujian <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M11.25 11.25l.041-.02a.75.75 0 011.063.852l-.708 2.836a.75.75 0 001.063.853l.041-.021M21 12a9 9 0 11-18 0 9 9 0 0118 0zm-9-3.75h.008v.008H12V8.25z" /></svg></span>
           <span class="limit-value">{{.DraftLimit}}</span>
         </div>
         <div class="limit-item">
-          <span class="limit-label">Storage</span>
+          <span class="limit-label tooltip" data-tooltip="Total ruang penyimpanan server untuk soal/media Anda">Storage <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M11.25 11.25l.041-.02a.75.75 0 011.063.852l-.708 2.836a.75.75 0 001.063.853l.041-.021M21 12a9 9 0 11-18 0 9 9 0 0118 0zm-9-3.75h.008v.008H12V8.25z" /></svg></span>
           <span class="limit-value">{{.StorageLimit}}</span>
         </div>
       </div>
 
       <ul class="card-features">
         <li>
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg>
-          <span>Token Ujian: <strong>{{.TokenMode}}</strong></span>
+          <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M4.5 12.75l6 6 9-13.5" /></svg>
+          <span>Token Ujian: <strong class="tooltip" data-tooltip="Statis: 1 token untuk semua | Dinamis: Token berubah tiap menit">{{.TokenMode}} <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M11.25 11.25l.041-.02a.75.75 0 011.063.852l-.708 2.836a.75.75 0 001.063.853l.041-.021M21 12a9 9 0 11-18 0 9 9 0 0118 0zm-9-3.75h.008v.008H12V8.25z" /></svg></strong></span>
         </li>
         <li>
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg>
-          <span>Hasil Publik: <strong>{{.Results}}</strong></span>
+          <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M4.5 12.75l6 6 9-13.5" /></svg>
+          <span>Hasil Publik: <strong class="tooltip" data-tooltip="Aktif = peserta dapat melihat nilainya langsung setelah ujian selesai">{{.Results}} <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M11.25 11.25l.041-.02a.75.75 0 011.063.852l-.708 2.836a.75.75 0 001.063.853l.041-.021M21 12a9 9 0 11-18 0 9 9 0 0118 0zm-9-3.75h.008v.008H12V8.25z" /></svg></strong></span>
         </li>
-        {{range .Features}}
+        {{range .FeaturesSlice}}
         <li>
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg>
+          <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M4.5 12.75l6 6 9-13.5" /></svg>
           <span>{{.}}</span>
         </li>
         {{end}}

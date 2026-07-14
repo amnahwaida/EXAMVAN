@@ -19,6 +19,67 @@
   border-color: rgba(99,102,241,0.6) !important;
   box-shadow: 0 12px 30px rgba(99,102,241,0.25);
  }
+ .tooltip {
+   position: relative;
+   cursor: help;
+   display: inline-flex;
+   align-items: center;
+   gap: 4px;
+   border-bottom: 1px dotted rgba(255,255,255,0.4);
+ }
+ .tooltip::after {
+   content: attr(data-tooltip);
+   position: absolute;
+   bottom: calc(100% + 8px);
+   left: 50%;
+   transform: translateX(-50%) translateY(5px);
+   background: rgba(15, 23, 42, 0.95);
+   backdrop-filter: blur(8px);
+   color: #fff;
+   padding: 8px 12px;
+   border-radius: 8px;
+   font-size: 12px;
+   font-weight: 500;
+   white-space: nowrap;
+   opacity: 0;
+   visibility: hidden;
+   transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+   z-index: 100;
+   border: 1px solid rgba(255, 255, 255, 0.1);
+   box-shadow: 0 10px 25px rgba(0,0,0,0.3);
+   pointer-events: none;
+   text-transform: none !important;
+   letter-spacing: normal !important;
+ }
+ .tooltip::before {
+   content: '';
+   position: absolute;
+   bottom: 100%;
+   left: 50%;
+   transform: translateX(-50%) translateY(5px);
+   border: 5px solid transparent;
+   border-top-color: rgba(15, 23, 42, 0.95);
+   opacity: 0;
+   visibility: hidden;
+   transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+   z-index: 100;
+   pointer-events: none;
+ }
+ .tooltip:hover::after,
+ .tooltip:hover::before {
+   opacity: 1;
+   visibility: visible;
+   transform: translateX(-50%) translateY(0);
+ }
+ .tooltip svg {
+   opacity: 0.6;
+   width: 14px;
+   height: 14px;
+ }
+ .tooltip:hover svg {
+   opacity: 1;
+   color: var(--color-primary);
+ }
  </style>
 </head>
 <body class="dashboard-page">
@@ -55,11 +116,11 @@
   <div class="glass-card" style="padding:24px;border-radius:16px;display:flex;flex-direction:column;justify-content:center;">
    <span style="font-size:11px;font-weight:700;text-transform:uppercase;color:var(--color-accent-light);letter-spacing:0.5px;display:block;margin-bottom:12px;">Kuota Ujian &amp; PDF</span>
    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;font-size:13px;">
-    <span style="color:var(--color-text-secondary);">Limit Ujian Bersamaan</span>
+    <span class="tooltip" data-tooltip="Ujian yang bisa aktif dalam waktu bersamaan" style="color:var(--color-text-secondary);">Limit Ujian Bersamaan <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M11.25 11.25l.041-.02a.75.75 0 011.063.852l-.708 2.836a.75.75 0 001.063.853l.041-.021M21 12a9 9 0 11-18 0 9 9 0 0118 0zm-9-3.75h.008v.008H12V8.25z" /></svg></span>
     <strong style="color:#fff;">{{.user_max_exams}} Ujian</strong>
    </div>
    <div style="display:flex;justify-content:space-between;align-items:center;font-size:13px;">
-    <span style="color:var(--color-text-secondary);">Maks. Ukuran PDF</span>
+    <span class="tooltip" data-tooltip="Batas ukuran unggah PDF per soal ujian" style="color:var(--color-text-secondary);">Maks. Ukuran PDF <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M11.25 11.25l.041-.02a.75.75 0 011.063.852l-.708 2.836a.75.75 0 001.063.853l.041-.021M21 12a9 9 0 11-18 0 9 9 0 0118 0zm-9-3.75h.008v.008H12V8.25z" /></svg></span>
     <strong style="color:#fff;">{{.user_max_pdf_size_mb}} MB</strong>
    </div>
   </div>
@@ -68,7 +129,7 @@
   <div class="glass-card" style="padding:24px;border-radius:16px;display:flex;flex-direction:column;justify-content:center;">
    <span style="font-size:11px;font-weight:700;text-transform:uppercase;color:var(--color-accent-light);letter-spacing:0.5px;display:block;margin-bottom:12px;">Kuota Storage</span>
    <div style="display:flex;justify-content:space-between;align-items:center;font-size:13px;">
-    <span style="color:var(--color-text-secondary);">Kapasitas Penyimpanan</span>
+    <span class="tooltip" data-tooltip="Total ruang penyimpanan server untuk soal dan media" style="color:var(--color-text-secondary);">Kapasitas Penyimpanan <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M11.25 11.25l.041-.02a.75.75 0 011.063.852l-.708 2.836a.75.75 0 001.063.853l.041-.021M21 12a9 9 0 11-18 0 9 9 0 0118 0zm-9-3.75h.008v.008H12V8.25z" /></svg></span>
     <strong style="color:#fff;">{{if eq .user_max_storage_mb 999999.0}}Tanpa Batas{{else}}{{.user_max_storage_mb}} MB{{end}}</strong>
    </div>
   </div>
@@ -227,6 +288,40 @@
  </section>
  {{end}}
 
+ {{if eq .admin_role "superadmin"}}
+ <!-- Manage Pricing Plans Section -->
+ <section class="glass-card" style="padding:24px;border-radius:16px;margin-bottom:32px;">
+  <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:20px;flex-wrap:wrap;gap:12px;">
+   <h3 style="font-size:1.15rem;color:#10b981;margin:0;font-family:'Outfit',sans-serif;display:flex;align-items:center;gap:8px;">
+    <svg class="icon-svg" style="color:#10b981;width:20px;height:20px;"><use href="#hi-clipboard"/></svg>
+    Kelola Paket Penawaran (Public Pricing)
+   </h3>
+   <button class="btn-primary" onclick="openPlanModal()" style="display:inline-flex;align-items:center;gap:8px;padding:8px 16px;border-radius:8px;font-weight:600;font-size:0.875rem;cursor:pointer;background:rgba(16,185,129,0.1);border:1px solid rgba(16,185,129,0.3);color:#10b981;">
+    <svg class="icon-svg" style="width:14px;height:14px;"><use href="#hi-plus"/></svg> Tambah Paket
+   </button>
+  </div>
+  <p style="color:var(--color-text-secondary);font-size:0.85rem;margin:-10px 0 20px 0;">Paket ini akan ditampilkan pada halaman publik (/pricing).</p>
+
+  <div class="table-responsive">
+   <table class="exam-table" style="width:100%;border-collapse:collapse;">
+    <thead>
+     <tr>
+      <th scope="col" style="text-align:center;width:40px;">Urutan</th>
+      <th scope="col" style="text-align:left;">Key & Nama</th>
+      <th scope="col" style="text-align:left;">Harga (Bln / Smt / Thn)</th>
+      <th scope="col" style="text-align:left;">Kuota Utama</th>
+      <th scope="col" style="text-align:center;">Status</th>
+      <th scope="col" style="text-align:right;">Aksi</th>
+     </tr>
+    </thead>
+    <tbody id="pricingPlansTableBody">
+     <tr><td colspan="6" style="text-align:center;padding:20px;color:var(--color-text-secondary);">Memuat data...</td></tr>
+    </tbody>
+   </table>
+  </div>
+ </section>
+ {{end}}
+
  <!-- Transactions List -->
  <section class="glass-card" style="padding:24px;border-radius:16px;min-height:350px;">
   <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:20px;flex-wrap:wrap;gap:12px;">
@@ -364,6 +459,124 @@
     <div style="display:flex;gap:10px;margin-top:8px;">
      <button type="button" class="btn-sm" onclick="closeVerifyModal()" style="flex:1;background:rgba(255,255,255,0.04);border:1px solid var(--color-glass-border);color:var(--color-text);height:40px;border-radius:8px;cursor:pointer;font-weight:600;">Batal</button>
      <button type="submit" id="verifySubmitBtn" class="btn-primary" style="flex:2;height:40px;border-radius:8px;cursor:pointer;font-weight:700;border:none;color:#fff;">Konfirmasi</button>
+    </div>
+   </form>
+  </div>
+ </div>
+</div>
+{{end}}
+
+<!-- Pricing Plan Modal (Superadmin only) -->
+{{if eq .admin_role "superadmin"}}
+<div class="modal-overlay" id="planModal" style="display:none;">
+ <div class="modal-card glass-card" style="max-width:600px; width:100%; max-height:90vh; overflow-y:auto;">
+  <div class="modal-header" style="display:flex;justify-content:space-between;align-items:center;border-bottom:1px solid var(--color-glass-border);padding-bottom:12px;margin-bottom:16px;">
+    <h3 style="font-family:'Outfit',sans-serif;margin:0;" id="planModalTitle">Tambah Paket</h3>
+    <button class="modal-close" onclick="closePlanModal()" aria-label="Tutup" style="background:none;border:none;color:var(--color-text-secondary);cursor:pointer;font-size:1.2rem;display:flex;align-items:center;justify-content:center;padding:4px;"><svg class="icon-svg" style="width:18px;height:18px;"><use href="#hi-x"/></svg></button>
+  </div>
+  <div class="modal-body">
+   <form id="planForm" onsubmit="submitPlan(event)" style="display:flex;flex-direction:column;gap:16px;">
+    <input type="hidden" id="planId">
+    
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;">
+      <div class="form-group">
+       <label for="planKey">Key <span style="color:#ef4444;">*</span></label>
+       <input type="text" id="planKey" required placeholder="misal: guru" style="width:100%;padding:8px 12px;background:rgba(255,255,255,0.05);border:1px solid var(--color-glass-border);border-radius:8px;color:#fff;">
+      </div>
+      <div class="form-group">
+       <label for="planTitle">Nama Paket <span style="color:#ef4444;">*</span></label>
+       <input type="text" id="planTitle" required placeholder="Paket Guru" style="width:100%;padding:8px 12px;background:rgba(255,255,255,0.05);border:1px solid var(--color-glass-border);border-radius:8px;color:#fff;">
+      </div>
+    </div>
+
+    <div class="form-group">
+     <label for="planAudience">Target Audience <span style="color:#ef4444;">*</span></label>
+     <input type="text" id="planAudience" required placeholder="Guru les, bimbel kecil..." style="width:100%;padding:8px 12px;background:rgba(255,255,255,0.05);border:1px solid var(--color-glass-border);border-radius:8px;color:#fff;">
+    </div>
+
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;">
+      <div class="form-group">
+       <label for="planAccent">Aksen Warna CSS</label>
+       <input type="text" id="planAccent" placeholder="guru, individu, kecil..." style="width:100%;padding:8px 12px;background:rgba(255,255,255,0.05);border:1px solid var(--color-glass-border);border-radius:8px;color:#fff;">
+      </div>
+      <div class="form-group">
+       <label for="planIcon">Ikon (Emoji/Teks)</label>
+       <input type="text" id="planIcon" placeholder="👨‍🏫" style="width:100%;padding:8px 12px;background:rgba(255,255,255,0.05);border:1px solid var(--color-glass-border);border-radius:8px;color:#fff;">
+      </div>
+    </div>
+
+    <div style="background:rgba(255,255,255,0.02);padding:12px;border-radius:8px;border:1px solid var(--color-glass-border);">
+      <h4 style="margin:0 0 12px 0;font-size:13px;color:#a5b4fc;">Harga Paket</h4>
+      <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px;">
+        <div class="form-group">
+         <label for="planPriceB">Bulanan (Rp)</label>
+         <input type="number" id="planPriceB" required value="0" style="width:100%;padding:8px 12px;background:rgba(255,255,255,0.05);border:1px solid var(--color-glass-border);border-radius:8px;color:#fff;">
+        </div>
+        <div class="form-group">
+         <label for="planPriceS">Semester (Rp)</label>
+         <input type="number" id="planPriceS" required value="0" style="width:100%;padding:8px 12px;background:rgba(255,255,255,0.05);border:1px solid var(--color-glass-border);border-radius:8px;color:#fff;">
+        </div>
+        <div class="form-group">
+         <label for="planPriceT">Tahunan (Rp)</label>
+         <input type="number" id="planPriceT" required value="0" style="width:100%;padding:8px 12px;background:rgba(255,255,255,0.05);border:1px solid var(--color-glass-border);border-radius:8px;color:#fff;">
+        </div>
+      </div>
+    </div>
+
+    <div style="background:rgba(255,255,255,0.02);padding:12px;border-radius:8px;border:1px solid var(--color-glass-border);">
+      <h4 style="margin:0 0 12px 0;font-size:13px;color:#a5b4fc;">Kuota</h4>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;">
+        <div class="form-group">
+         <label for="planMaxExams">Maks Ujian</label>
+         <input type="text" id="planMaxExams" required placeholder="1 ujian aktif" style="width:100%;padding:8px 12px;background:rgba(255,255,255,0.05);border:1px solid var(--color-glass-border);border-radius:8px;color:#fff;">
+        </div>
+        <div class="form-group">
+         <label for="planPdfLimit">Maks PDF</label>
+         <input type="text" id="planPdfLimit" required placeholder="10 MB per PDF" style="width:100%;padding:8px 12px;background:rgba(255,255,255,0.05);border:1px solid var(--color-glass-border);border-radius:8px;color:#fff;">
+        </div>
+        <div class="form-group">
+         <label for="planDraftLimit">Draft Soal</label>
+         <input type="text" id="planDraftLimit" required placeholder="10 draft soal" style="width:100%;padding:8px 12px;background:rgba(255,255,255,0.05);border:1px solid var(--color-glass-border);border-radius:8px;color:#fff;">
+        </div>
+        <div class="form-group">
+         <label for="planStorageLimit">Storage Limit</label>
+         <input type="text" id="planStorageLimit" required placeholder="100 MB storage" style="width:100%;padding:8px 12px;background:rgba(255,255,255,0.05);border:1px solid var(--color-glass-border);border-radius:8px;color:#fff;">
+        </div>
+      </div>
+    </div>
+
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;">
+      <div class="form-group">
+       <label for="planTokenMode">Token Ujian</label>
+       <input type="text" id="planTokenMode" placeholder="Statis" style="width:100%;padding:8px 12px;background:rgba(255,255,255,0.05);border:1px solid var(--color-glass-border);border-radius:8px;color:#fff;">
+      </div>
+      <div class="form-group">
+       <label for="planResults">Hasil Publik</label>
+       <input type="text" id="planResults" placeholder="Aktif" style="width:100%;padding:8px 12px;background:rgba(255,255,255,0.05);border:1px solid var(--color-glass-border);border-radius:8px;color:#fff;">
+      </div>
+    </div>
+
+    <div class="form-group">
+     <label for="planFeatures">Fitur Lainnya (Pisahkan dengan koma)</label>
+     <textarea id="planFeatures" placeholder="Cocok untuk kelas kecil, Support email" style="width:100%;min-height:50px;padding:8px 12px;background:rgba(255,255,255,0.05);border:1px solid var(--color-glass-border);border-radius:8px;color:var(--color-text);outline:none;font-family:inherit;font-size:13px;resize:vertical;"></textarea>
+    </div>
+
+    <div style="display:flex;gap:16px;align-items:center;">
+      <label style="display:flex;align-items:center;gap:6px;cursor:pointer;font-size:13px;color:var(--color-text-secondary);">
+        <input type="checkbox" id="planPopular" style="width:16px;height:16px;accent-color:var(--color-primary);"> Tandai Populer
+      </label>
+      <label style="display:flex;align-items:center;gap:6px;cursor:pointer;font-size:13px;color:var(--color-text-secondary);">
+        <input type="checkbox" id="planActive" checked style="width:16px;height:16px;accent-color:var(--color-success);"> Aktif (Ditampilkan)
+      </label>
+      <div style="margin-left:auto;display:flex;align-items:center;gap:8px;">
+        <label for="planSortOrder" style="font-size:13px;color:var(--color-text-secondary);">Urutan:</label>
+        <input type="number" id="planSortOrder" value="0" style="width:60px;padding:4px 8px;background:rgba(255,255,255,0.05);border:1px solid var(--color-glass-border);border-radius:6px;color:#fff;">
+      </div>
+    </div>
+
+    <div style="display:flex;gap:10px;margin-top:8px;">
+     <button type="button" class="btn-sm" onclick="closePlanModal()" style="flex:1;background:rgba(255,255,255,0.04);border:1px solid var(--color-glass-border);color:var(--color-text);height:40px;border-radius:8px;cursor:pointer;font-weight:600;">Batal</button>
+     <button type="submit" id="planSubmitBtn" class="btn-primary" style="flex:2;height:40px;border-radius:8px;cursor:pointer;font-weight:700;border:none;color:#fff;">Simpan Paket</button>
     </div>
    </form>
   </div>
@@ -761,7 +974,199 @@ window.addEventListener('DOMContentLoaded', () => {
         }
         openPaymentModal();
     }
+    
+    if (window.__adminRole === 'superadmin') {
+        loadPricingPlans();
+    }
 });
+
+// Pricing Plans Management (Superadmin)
+let _allPricingPlans = [];
+
+function loadPricingPlans() {
+    const tbody = document.getElementById('pricingPlansTableBody');
+    if (!tbody) return;
+    tbody.innerHTML = '<tr><td colspan="6" style="text-align:center;padding:20px;color:var(--color-text-secondary);"><span style="display:inline-flex;align-items:center;gap:6px;"><svg class="icon-svg spin" style="width:16px;height:16px;"><use href="#hi-refresh"/></svg> Memuat data paket...</span></td></tr>';
+    
+    apiFetch('/admin/api/pricing-plans')
+        .then(r => r.json())
+        .then(res => {
+            if (!res.success) throw new Error(res.message);
+            _allPricingPlans = res.data || [];
+            renderPricingPlansTable();
+        })
+        .catch(err => {
+            tbody.innerHTML = '<tr><td colspan="6" style="text-align:center;padding:20px;color:#ef4444;">Gagal memuat paket harga</td></tr>';
+            showToast('Gagal memuat paket harga', 'error');
+        });
+}
+
+function renderPricingPlansTable() {
+    const tbody = document.getElementById('pricingPlansTableBody');
+    if (!tbody) return;
+    
+    if (_allPricingPlans.length === 0) {
+        tbody.innerHTML = '<tr><td colspan="6" style="text-align:center;padding:20px;color:var(--color-text-secondary);">Belum ada paket penawaran</td></tr>';
+        return;
+    }
+    
+    tbody.innerHTML = _allPricingPlans.map(p => {
+        const statusBadge = p.active 
+            ? '<span class="status-badge" style="background:rgba(16,185,129,0.15);color:#10b981;border:1px solid rgba(16,185,129,0.3);">Aktif</span>'
+            : '<span class="status-badge" style="background:rgba(239,68,68,0.15);color:#ef4444;border:1px solid rgba(239,68,68,0.3);">Nonaktif</span>';
+            
+        const harga = `
+            <div style="font-size:12px;margin-bottom:2px;"><span style="color:var(--color-text-secondary);">B:</span> Rp ${p.price_bulanan.toLocaleString('id-ID')}</div>
+            <div style="font-size:12px;margin-bottom:2px;"><span style="color:var(--color-text-secondary);">S:</span> Rp ${p.price_semester.toLocaleString('id-ID')}</div>
+            <div style="font-size:12px;"><span style="color:var(--color-text-secondary);">T:</span> Rp ${p.price_tahunan.toLocaleString('id-ID')}</div>
+        `;
+        
+        const kuota = `
+            <div style="font-size:12px;margin-bottom:2px;"><span style="color:var(--color-text-secondary);">Ujian:</span> ${p.max_exams}</div>
+            <div style="font-size:12px;margin-bottom:2px;"><span style="color:var(--color-text-secondary);">PDF:</span> ${p.pdf_limit}</div>
+            <div style="font-size:12px;"><span style="color:var(--color-text-secondary);">Storage:</span> ${p.storage_limit}</div>
+        `;
+        
+        return `
+        <tr>
+            <td style="text-align:center;"><strong>${p.sort_order}</strong></td>
+            <td>
+                <div style="font-weight:700;color:#fff;">${escapeHtml(p.title)} ${p.popular ? '<span style="color:#fbbf24;font-size:10px;margin-left:4px;">★</span>' : ''}</div>
+                <div style="font-size:12px;color:var(--color-text-secondary);font-family:monospace;">${escapeHtml(p.key)}</div>
+            </td>
+            <td>${harga}</td>
+            <td>${kuota}</td>
+            <td style="text-align:center;">${statusBadge}</td>
+            <td style="text-align:right;">
+                <button class="btn-sm" onclick="editPlan(${p.id})" style="background:rgba(59,130,246,0.15);color:#60a5fa;border:1px solid rgba(59,130,246,0.3);padding:4px 8px;margin-right:4px;">Edit</button>
+                <button class="btn-sm" onclick="deletePlan(${p.id})" style="background:rgba(239,68,68,0.15);color:#fca5a5;border:1px solid rgba(239,68,68,0.3);padding:4px 8px;">Hapus</button>
+            </td>
+        </tr>
+        `;
+    }).join('');
+}
+
+function openPlanModal() {
+    document.getElementById('planForm').reset();
+    document.getElementById('planId').value = '';
+    document.getElementById('planModalTitle').innerText = 'Tambah Paket';
+    document.getElementById('planModal').style.display = 'flex';
+}
+
+function closePlanModal() {
+    document.getElementById('planModal').style.display = 'none';
+}
+
+function editPlan(id) {
+    const plan = _allPricingPlans.find(p => p.id === id);
+    if (!plan) return;
+    
+    document.getElementById('planId').value = plan.id;
+    document.getElementById('planKey').value = plan.key;
+    document.getElementById('planTitle').value = plan.title;
+    document.getElementById('planAudience').value = plan.audience;
+    document.getElementById('planAccent').value = plan.accent;
+    document.getElementById('planIcon').value = plan.icon;
+    
+    document.getElementById('planPriceB').value = plan.price_bulanan;
+    document.getElementById('planPriceS').value = plan.price_semester;
+    document.getElementById('planPriceT').value = plan.price_tahunan;
+    
+    document.getElementById('planMaxExams').value = plan.max_exams;
+    document.getElementById('planPdfLimit').value = plan.pdf_limit;
+    document.getElementById('planDraftLimit').value = plan.draft_limit;
+    document.getElementById('planStorageLimit').value = plan.storage_limit;
+    
+    document.getElementById('planTokenMode').value = plan.token_mode;
+    document.getElementById('planResults').value = plan.results;
+    
+    document.getElementById('planFeatures').value = plan.features;
+    document.getElementById('planPopular').checked = plan.popular;
+    document.getElementById('planActive').checked = plan.active;
+    document.getElementById('planSortOrder').value = plan.sort_order;
+    
+    document.getElementById('planModalTitle').innerText = 'Edit Paket: ' + plan.title;
+    document.getElementById('planModal').style.display = 'flex';
+}
+
+function submitPlan(e) {
+    e.preventDefault();
+    
+    const id = document.getElementById('planId').value;
+    const isEdit = !!id;
+    
+    const payload = {
+        key: document.getElementById('planKey').value,
+        title: document.getElementById('planTitle').value,
+        audience: document.getElementById('planAudience').value,
+        accent: document.getElementById('planAccent').value,
+        icon: document.getElementById('planIcon').value,
+        
+        price_bulanan: parseInt(document.getElementById('planPriceB').value) || 0,
+        price_semester: parseInt(document.getElementById('planPriceS').value) || 0,
+        price_tahunan: parseInt(document.getElementById('planPriceT').value) || 0,
+        
+        max_exams: document.getElementById('planMaxExams').value,
+        pdf_limit: document.getElementById('planPdfLimit').value,
+        draft_limit: document.getElementById('planDraftLimit').value,
+        storage_limit: document.getElementById('planStorageLimit').value,
+        
+        token_mode: document.getElementById('planTokenMode').value,
+        results: document.getElementById('planResults').value,
+        
+        features: document.getElementById('planFeatures').value,
+        popular: document.getElementById('planPopular').checked,
+        active: document.getElementById('planActive').checked,
+        sort_order: parseInt(document.getElementById('planSortOrder').value) || 0
+    };
+    
+    const url = isEdit ? `/admin/api/pricing-plans/${id}/update` : '/admin/api/pricing-plans';
+    const btn = document.getElementById('planSubmitBtn');
+    const oldText = btn.innerText;
+    btn.innerText = 'Menyimpan...';
+    btn.disabled = true;
+    
+    apiFetch(url, {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+            'X-CSRF-Token': CSRF_TOKEN
+        },
+        body: JSON.stringify(payload)
+    })
+    .then(r => r.json())
+    .then(res => {
+        if (res.success) {
+            showToast(res.message, 'success');
+            closePlanModal();
+            loadPricingPlans();
+        } else {
+            showToast(res.message, 'error');
+        }
+    })
+    .catch(err => {
+        console.error(err);
+        showToast('Terjadi kesalahan', 'error');
+    })
+    .finally(() => {
+        btn.innerText = oldText;
+        btn.disabled = false;
+    });
+}
+
+function deletePlan(id) {
+    if(!confirm("Yakin ingin menghapus paket ini?")) return;
+    apiFetch('/admin/api/pricing-plans/' + id + '/delete', { method: 'POST', body: new FormData() })
+        .then(r => r.json())
+        .then(res => {
+            if (res.success) {
+                showToast("Paket dihapus", "success");
+                loadPricingPlans();
+            } else {
+                showToast(res.message, "error");
+            }
+        });
+}
 </script>
 </main>
 </body>

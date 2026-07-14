@@ -99,6 +99,10 @@ func main() {
 				log.Printf("WARNING: admin password migration failed: %v", err)
 			}
 		}
+		// Seed default pricing plans
+		if err := models.SeedDefaultPricingPlans(ctx, pool); err != nil {
+			log.Printf("WARNING: pricing plans seed failed: %v", err)
+		}
 	}
 	rdb, err := redisclient.Connect(ctx, cfg.RedisURL)
 	if err != nil {
@@ -631,6 +635,10 @@ func registerRoutes(r *gin.Engine, cfg *config.Config, pool *pgxpool.Pool) {
 				adminSettings.POST("/saas-settings/test-smtp", middleware.LimitBodySize(256*1024), admin.TestSMTPConnectionEndpoint())
 				adminSettings.POST("/system-apps", middleware.LimitBodySize(500*1024*1024), admin.UploadSystemApp())
 				adminSettings.POST("/system-apps/:id/delete", middleware.LimitBodySize(256*1024), admin.DeleteSystemApp())
+				// Pricing plans CRUD
+				adminSettings.POST("/pricing-plans", middleware.LimitBodySize(256*1024), admin.CreatePricingPlan())
+				adminSettings.POST("/pricing-plans/:id/update", middleware.LimitBodySize(256*1024), admin.UpdatePricingPlan())
+				adminSettings.POST("/pricing-plans/:id/delete", middleware.LimitBodySize(256*1024), admin.DeletePricingPlan())
 			}
 
 			// Transactions & Subscriptions
@@ -665,6 +673,7 @@ func registerRoutes(r *gin.Engine, cfg *config.Config, pool *pgxpool.Pool) {
 		adminAPI.GET("/pengawas/exams/:exam_id/submissions", admin.PengawasExamSubmissions())
 		adminAPI.GET("/pengawas/exams/:exam_id/approvals", admin.GetPendingApprovals())
 		adminAPI.GET("/saas-settings", middleware.SuperAdminRequired(), admin.SaasSettings())
+		adminAPI.GET("/pricing-plans", middleware.SuperAdminRequired(), admin.ListPricingPlans())
 	}
 
 	// ---- Legacy redirects ----
@@ -727,18 +736,17 @@ func pricingHandler(cfg *config.Config) gin.HandlerFunc {
 		if dbValue, exists := c.Get("db"); exists && dbValue != nil {
 			dbPool, _ = dbValue.(*pgxpool.Pool)
 		}
-		prices := models.GetPricingMap(c.Request.Context(), dbPool)
 
-		plans := []pricingPlan{
-			{Key: "guru", Title: "Paket Guru", Audience: "Guru les, bimbel kecil, tryout kelas", Accent: "guru", MonthlyPrice: prices["guru_bulanan"], SemesterPrice: prices["guru_semester"], AnnualPrice: prices["guru_tahunan"], MaxExams: "1 ujian aktif", PdfLimit: "10 MB per PDF", DraftLimit: "10 draft soal", StorageLimit: "100 MB storage", TokenMode: "Statis", Results: "Aktif", Answers: "Nonaktif", Features: []string{"Cocok untuk kelas kecil", "Support email"}},
-			{Key: "individu", Title: "Paket Individu", Audience: "Pembuat tryout online, bimbel 1-2 kelas", Accent: "individu", MonthlyPrice: prices["individu_bulanan"], SemesterPrice: prices["individu_semester"], AnnualPrice: prices["individu_tahunan"], MaxExams: "2 ujian aktif", PdfLimit: "30 MB per PDF", DraftLimit: "30 draft soal", StorageLimit: "300 MB storage", TokenMode: "Statis + dinamis", Results: "Aktif", Answers: "Aktif", Features: []string{"Export CSV", "Support email + WA"}},
-			{Key: "sekolah_kecil", Title: "Sekolah Kecil", Audience: "SD / MI, ujian PH / UTS", Accent: "kecil", MonthlyPrice: prices["sekolah_kecil_bulanan"], SemesterPrice: prices["sekolah_kecil_semester"], AnnualPrice: prices["sekolah_kecil_tahunan"], MaxExams: "3 ujian aktif", PdfLimit: "50 MB per PDF", DraftLimit: "50 draft soal", StorageLimit: "500 MB storage", TokenMode: "Statis", Results: "Aktif", Answers: "Nonaktif", Features: []string{"Manajemen Pengguna", "Paket hemat sekolah dasar"}},
-			{Key: "sekolah_menengah", Title: "Sekolah Menengah", Audience: "SMP / MTs, ujian PAS / PAT", Accent: "menengah", MonthlyPrice: prices["sekolah_menengah_bulanan"], SemesterPrice: prices["sekolah_menengah_semester"], AnnualPrice: prices["sekolah_menengah_tahunan"], MaxExams: "5 ujian aktif", PdfLimit: "200 MB per PDF", DraftLimit: "200 draft soal", StorageLimit: "2 GB storage", TokenMode: "Statis + dinamis", Results: "Aktif", Answers: "Aktif", Features: []string{"Manajemen Pengguna", "Panel warna", "Dukungan email + WA"}},
-			{Key: "sekolah_besar", Title: "Sekolah Besar", Audience: "SMA / MA / SMK, tryout skala besar", Popular: true, Accent: "besar", MonthlyPrice: prices["sekolah_besar_bulanan"], SemesterPrice: prices["sekolah_besar_semester"], AnnualPrice: prices["sekolah_besar_tahunan"], MaxExams: "10 ujian aktif", PdfLimit: "500 MB per PDF", DraftLimit: "500 draft soal", StorageLimit: "5 GB storage", TokenMode: "Statis + dinamis", Results: "Aktif", Answers: "Aktif", Features: []string{"Manajemen Pengguna", "Realtime pengawas", "Strict mode", "Export CSV lengkap"}},
-			{Key: "sekolah_unggulan", Title: "Sekolah Unggulan", Audience: "Kampus, yayasan, skala kabupaten/kota", Accent: "unggulan", MonthlyPrice: prices["sekolah_unggulan_bulanan"], SemesterPrice: prices["sekolah_unggulan_semester"], AnnualPrice: prices["sekolah_unggulan_tahunan"], MaxExams: "Tak terbatas", PdfLimit: "Tak terbatas", DraftLimit: "Tak terbatas", StorageLimit: "Tak terbatas", TokenMode: "Statis + dinamis", Results: "Aktif", Answers: "Aktif", Features: []string{"Manajemen Pengguna", "Prioritas infrastruktur", "Backup mingguan", "SLA 99% uptime"}},
+		// Read pricing plans from database
+		var plans []models.PricingPlan
+		if dbPool != nil {
+			var err error
+			plans, err = models.GetAllPricingPlans(c.Request.Context(), dbPool)
+			if err != nil {
+				log.Printf("pricing: failed to load plans: %v", err)
+			}
 		}
 
-		data["prices"] = prices
 		data["plans"] = plans
 		c.HTML(http.StatusOK, "public/pricing.html", data)
 	}
