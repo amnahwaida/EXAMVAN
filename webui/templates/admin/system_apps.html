@@ -5,7 +5,7 @@
 </head>
 <body class="dashboard-page">
 
-{{ adminNav "system-apps" .admin_role .admin_user .csrf_token }}
+{{template "admin/partials/nav.html" dict "active_page" "system-apps" "admin_role" .admin_role "admin_user" .admin_user "csrf_token" .csrf_token}}
 
 <style>
     /* Premium UI Enhancements */
@@ -542,5 +542,8 @@ async function deleteApp(id, name) {
     }
 }
 </script>
+{{template "admin/partials/svg-symbols.html"}}
+<script src="/static/js/admin-core.js?v={{.version}}"></script>
+<script src="/static/js/admin.js?v={{.version}}"></script>
 </body>
 </html>

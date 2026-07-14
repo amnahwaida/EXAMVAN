@@ -252,3 +252,43 @@ def submit_with_retry(
             return resp
 
     return resp
+
+# ---------------------------------------------------------------------------
+# Request Approval
+# ---------------------------------------------------------------------------
+
+def request_approval(
+    base_url: str,
+    exam_id: int,
+    student_name: str,
+    exam_number: str,
+    student_class: str,
+    identity_data: Dict[str, Any],
+    mac_address: str,
+):
+    """POST /api/exams/request-approval."""
+    from .models import RequestApprovalResponse
+    body = {
+        "exam_id": exam_id,
+        "mac_address": mac_address,
+        "student_name": student_name,
+        "exam_number": exam_number,
+        "student_class": student_class,
+        "identity_data": identity_data,
+    }
+    try:
+        data = _make_request(
+            _url_join(base_url, "/api/exams/request-approval"),
+            method="POST",
+            body=body,
+            timeout=10,
+        )
+        return RequestApprovalResponse.from_json(data)
+    except urllib.error.HTTPError as e:
+        try:
+            body_data = json.loads(e.read().decode("utf-8"))
+            return RequestApprovalResponse.from_json(body_data)
+        except Exception:
+            return RequestApprovalResponse(success=False, message=f"HTTP {e.code}")
+    except Exception as e:
+        return RequestApprovalResponse(success=False, message=str(e))

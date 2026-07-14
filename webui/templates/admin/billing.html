@@ -633,34 +633,34 @@ const CSRF_TOKEN = '{{.csrf_token}}';
 window.__adminRole = '{{.admin_role}}';
 const PRICING_MATRIX = {
     guru: {
-        bulanan: {{default 25000 .prices.guru_bulanan}},
-        semester: {{default 125000 .prices.guru_semester}},
-        tahunan: {{default 225000 .prices.guru_tahunan}}
+        bulanan: {{default 25000 .prices.price_guru_bulanan}},
+        semester: {{default 125000 .prices.price_guru_semester}},
+        tahunan: {{default 225000 .prices.price_guru_tahunan}}
     },
     individu: {
-        bulanan: {{default 50000 .prices.individu_bulanan}},
-        semester: {{default 250000 .prices.individu_semester}},
-        tahunan: {{default 450000 .prices.individu_tahunan}}
+        bulanan: {{default 50000 .prices.price_individu_bulanan}},
+        semester: {{default 250000 .prices.price_individu_semester}},
+        tahunan: {{default 450000 .prices.price_individu_tahunan}}
     },
     sekolah_kecil: {
-        bulanan: {{default 75000 .prices.sekolah_kecil_bulanan}},
-        semester: {{default 375000 .prices.sekolah_kecil_semester}},
-        tahunan: {{default 675000 .prices.sekolah_kecil_tahunan}}
+        bulanan: {{default 75000 .prices.price_sekolah_kecil_bulanan}},
+        semester: {{default 375000 .prices.price_sekolah_kecil_semester}},
+        tahunan: {{default 675000 .prices.price_sekolah_kecil_tahunan}}
     },
     sekolah_menengah: {
-        bulanan: {{default 175000 .prices.sekolah_menengah_bulanan}},
-        semester: {{default 875000 .prices.sekolah_menengah_semester}},
-        tahunan: {{default 1575000 .prices.sekolah_menengah_tahunan}}
+        bulanan: {{default 175000 .prices.price_sekolah_menengah_bulanan}},
+        semester: {{default 875000 .prices.price_sekolah_menengah_semester}},
+        tahunan: {{default 1575000 .prices.price_sekolah_menengah_tahunan}}
     },
     sekolah_besar: {
-        bulanan: {{default 375000 .prices.sekolah_besar_bulanan}},
-        semester: {{default 1875000 .prices.sekolah_besar_semester}},
-        tahunan: {{default 3375000 .prices.sekolah_besar_tahunan}}
+        bulanan: {{default 375000 .prices.price_sekolah_besar_bulanan}},
+        semester: {{default 1875000 .prices.price_sekolah_besar_semester}},
+        tahunan: {{default 3375000 .prices.price_sekolah_besar_tahunan}}
     },
     sekolah_unggulan: {
-        bulanan: {{default 750000 .prices.sekolah_unggulan_bulanan}},
-        semester: {{default 3750000 .prices.sekolah_unggulan_semester}},
-        tahunan: {{default 6750000 .prices.sekolah_unggulan_tahunan}}
+        bulanan: {{default 750000 .prices.price_sekolah_unggulan_bulanan}},
+        semester: {{default 3750000 .prices.price_sekolah_unggulan_semester}},
+        tahunan: {{default 6750000 .prices.price_sekolah_unggulan_tahunan}}
     }
 };
 var currentTxPage = 1;
@@ -1209,5 +1209,6 @@ function deletePlan(id) {
 }
 </script>
 </main>
+{{template "admin/partials/svg-symbols.html"}}
 </body>
 </html>

@@ -72,6 +72,18 @@ def main() -> None:
 
     def on_exam_selected(exam, server_url, identity_data):
         dialog.hide()
+
+        from .ui.waiting_approval import WaitingApprovalDialog
+        from PyQt5.QtWidgets import QDialog
+        
+        waiting_dlg = WaitingApprovalDialog(exam, server_url, identity_data, parent=dialog)
+        _maximize_window(waiting_dlg)
+        
+        if waiting_dlg.exec_() != QDialog.Accepted:
+            dialog.show()
+            _maximize_window(dialog)
+            return
+
         viewer = ExamViewerWindow(
             exam=exam,
             server_url=server_url,

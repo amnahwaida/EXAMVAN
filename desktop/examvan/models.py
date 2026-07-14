@@ -119,3 +119,18 @@ class SubmitResponse:
             job_id=data.get("job_id"),
             score=score,
         )
+
+@dataclass
+class RequestApprovalResponse:
+    success: bool
+    status: str = "pending"
+    message: str = ""
+
+    @classmethod
+    def from_json(cls, data: Dict[str, Any]) -> "RequestApprovalResponse":
+        return cls(
+            success=bool(data.get("success", "status" in data)),
+            status=data.get("status", "pending"),
+            message=data.get("message", data.get("error", ""))
+        )
+
