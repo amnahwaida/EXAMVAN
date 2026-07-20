@@ -203,11 +203,14 @@
 <div class="stat-bar"><div class="stat-bar-fill" style="width:{{index .stats "active_pct"}}%;"></div></div>
 </div>
 </div>
-<div class="stat-card stat-instansi" title="Nama instansi atau sekolah yang terhubung dengan akun Anda">
+<div class="stat-card stat-instansi" title="Klik untuk mengubah nama Instansi/Sekolah Anda" style="cursor:pointer;" onclick="openEditInstansiModal()">
 <div class="stat-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M3 21h18M3 10h18M5 6l7-3 7 3M4 10v11m16-11v11M8 14v.01M12 14v.01M16 14v.01M9 21v-4h6v4"/></svg></div>
-<div class="stat-info">
-<span class="stat-value stat-value-sm">{{.admin_instansi}}</span>
-<span class="stat-label">Instansi</span>
+<div class="stat-info" style="flex:1;">
+<div style="display:flex;align-items:center;justify-content:space-between;gap:4px;width:100%;">
+  <span class="stat-value stat-value-sm">{{default "Belum Ditetapkan" .admin_instansi}}</span>
+  <svg class="icon-svg" style="width:14px;height:14px;color:#c084fc;opacity:0.85;" title="Ubah Nama Instansi"><use href="#hi-pencil"/></svg>
+</div>
+<span class="stat-label">Instansi (Klik untuk Ubah)</span>
 </div>
 </div>
 <div class="stat-card stat-storage" title="Total ukuran dari seluruh ujian yang sudah Anda unggah sejauh ini">
@@ -918,8 +921,92 @@ function copyServerURL(url) {
         showToast('Alamat API / Server berhasil disalin', 'success');
     }
     }
+<!-- Modal Ubah Instansi -->
+<div class="modal-overlay" id="editInstansiModal" style="display:none;" onclick="closeEditInstansiModal()">
+  <div class="modal-card" style="max-width: 440px;" onclick="event.stopPropagation()">
+    <div class="modal-header" style="border-bottom:1px solid rgba(255,255,255,0.1);padding-bottom:12px;">
+      <h3 style="margin:0;font-size:1.1rem;color:#fff;display:flex;align-items:center;gap:8px;">
+        <svg class="icon-svg" style="width:20px;height:20px;color:#c084fc;"><use href="#hi-building-library"/></svg>
+        Ubah Nama Instansi / Sekolah
+      </h3>
+      <button class="btn-close" onclick="closeEditInstansiModal()" style="background:none;border:none;color:#94a3b8;font-size:1.4rem;cursor:pointer;">&times;</button>
+    </div>
+    <form id="formEditInstansi" onsubmit="saveEditInstansi(event)" style="margin-top:16px;">
+      <div style="margin-bottom:20px;">
+        <label for="editInstansiInput" style="display:block;font-size:0.85rem;font-weight:600;color:var(--color-text-secondary);margin-bottom:8px;">
+          Nama Instansi / Sekolah <span style="color:#ef4444;">*</span>
+        </label>
+        <input type="text" id="editInstansiInput" required value="{{.admin_instansi}}" placeholder="Contoh: SMA Negeri 1 Jakarta" style="width:100%;padding:10px 12px;border-radius:8px;background:rgba(255,255,255,0.06);border:1px solid rgba(255,255,255,0.15);color:#fff;font-size:0.9rem;">
+        <span style="font-size:0.75rem;color:var(--color-text-muted);display:block;margin-top:6px;">
+          Perubahan nama instansi akan otomatis berlaku untuk seluruh akun guru/pengawas di sekolah Anda.
+        </span>
+      </div>
+      <div style="display:flex;justify-content:flex-end;gap:10px;">
+        <button type="button" class="btn btn-secondary" onclick="closeEditInstansiModal()" style="padding:8px 16px;border-radius:8px;background:rgba(255,255,255,0.1);border:none;color:#fff;cursor:pointer;">Batal</button>
+        <button type="submit" id="btnSaveEditInstansi" class="btn btn-primary" style="padding:8px 16px;border-radius:8px;background:linear-gradient(135deg, #a855f7, #6366f1);border:none;color:#fff;font-weight:600;cursor:pointer;">
+          Simpan Perubahan
+        </button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<script>
+function openEditInstansiModal() {
+  var modal = document.getElementById('editInstansiModal');
+  if (modal) {
+    modal.style.display = 'flex';
+    var inp = document.getElementById('editInstansiInput');
+    if (inp) inp.focus();
+  }
+}
+function closeEditInstansiModal() {
+  var modal = document.getElementById('editInstansiModal');
+  if (modal) modal.style.display = 'none';
+}
+function saveEditInstansi(e) {
+  e.preventDefault();
+  var inp = document.getElementById('editInstansiInput');
+  var val = inp ? inp.value.trim() : '';
+  if (!val || val.length < 3 || val.toLowerCase() === 'personal') {
+    showToast('Silakan masukkan nama instansi/sekolah yang valid (min. 3 karakter).', 'error');
+    return;
+  }
+  var btn = document.getElementById('btnSaveEditInstansi');
+  var oldText = btn ? btn.innerText : 'Simpan Perubahan';
+  if (btn) {
+    btn.disabled = true;
+    btn.innerText = 'Menyimpan...';
+  }
+
+  apiFetch('/admin/api/instansi/update', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ instansi: val })
+  })
+  .then(function(r) { return r.json(); })
+  .then(function(res) {
+    if (btn) {
+      btn.disabled = false;
+      btn.innerText = oldText;
+    }
+    if (res.success) {
+      showToast(res.message || 'Nama Instansi berhasil diperbarui!', 'success');
+      closeEditInstansiModal();
+      setTimeout(function() { location.reload(); }, 1200);
+    } else {
+      showToast(res.message || 'Gagal mengubah nama instansi', 'error');
+    }
+  })
+  .catch(function(err) {
+    console.error(err);
+    if (btn) {
+      btn.disabled = false;
+      btn.innerText = oldText;
+    }
+    showToast('Terjadi kesalahan jaringan', 'error');
+  });
 }
 </script>
-
 </body>
 </html>

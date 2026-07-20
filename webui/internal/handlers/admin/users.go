@@ -822,36 +822,38 @@ func UpdateInstansi() gin.HandlerFunc {
 			return
 		}
 
-		instTrim := strings.TrimSpace(user.Instansi)
-		isUnset := instTrim == "" || strings.ToLower(instTrim) == "personal" || instTrim == "Belum Ditetapkan"
-
-		if !isUnset && !isSuperAdmin(c) {
-			errorResponse(c, http.StatusBadRequest, "Nama instansi sudah diatur sebelumnya")
-			return
-		}
-
-		// Generate unique instansi code for this new school entity
+		// If user already has instansi_id, update name across all linked users
 		var instansiID int
 		var instansiCode string
 
-		codeCandidate := generateInstansiCode()
-		err = pool.QueryRow(ctx, `
-			INSERT INTO instansi (name, code)
-			VALUES ($1, $2)
-			RETURNING id, code`, newInstansi, codeCandidate).Scan(&instansiID, &instansiCode)
-		if err != nil {
-			codeCandidate = generateInstansiCode()
-			_ = pool.QueryRow(ctx, `
+		if user.InstansiID != nil && *user.InstansiID > 0 {
+			instansiID = *user.InstansiID
+			_ = pool.QueryRow(ctx, `SELECT COALESCE(code, '') FROM instansi WHERE id = $1`, instansiID).Scan(&instansiCode)
+			if instansiCode == "" {
+				instansiCode = generateInstansiCode()
+				_, _ = pool.Exec(ctx, `UPDATE instansi SET code = $1 WHERE id = $2`, instansiCode, instansiID)
+			}
+			_, _ = pool.Exec(ctx, `UPDATE instansi SET name = $1 WHERE id = $2`, newInstansi, instansiID)
+			_, err = pool.Exec(ctx, `UPDATE admin_users SET instansi = $1, instansi_code = $2 WHERE instansi_id = $3`, newInstansi, instansiCode, instansiID)
+		} else {
+			codeCandidate := generateInstansiCode()
+			err = pool.QueryRow(ctx, `
 				INSERT INTO instansi (name, code)
 				VALUES ($1, $2)
 				RETURNING id, code`, newInstansi, codeCandidate).Scan(&instansiID, &instansiCode)
-		}
+			if err != nil {
+				codeCandidate = generateInstansiCode()
+				_ = pool.QueryRow(ctx, `
+					INSERT INTO instansi (name, code)
+					VALUES ($1, $2)
+					RETURNING id, code`, newInstansi, codeCandidate).Scan(&instansiID, &instansiCode)
+			}
 
-		// Update admin_users with name, instansi_id, and unique instansi_code
-		_, err = pool.Exec(ctx, `
-			UPDATE admin_users 
-			SET instansi = $1, instansi_id = $2, instansi_code = $3 
-			WHERE id = $4`, newInstansi, instansiID, instansiCode, userID)
+			_, err = pool.Exec(ctx, `
+				UPDATE admin_users 
+				SET instansi = $1, instansi_id = $2, instansi_code = $3 
+				WHERE id = $4`, newInstansi, instansiID, instansiCode, userID)
+		}
 		if err != nil {
 			log.Printf("failed to update instansi for user %d: %v", userID, err)
 			errorResponse(c, http.StatusInternalServerError, "Gagal memperbarui instansi")
