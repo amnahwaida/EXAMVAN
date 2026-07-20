@@ -116,12 +116,18 @@
      </div>
      <div>
       <label style="display:block;font-size:12px;color:var(--color-text-secondary);margin-bottom:4px;">Durasi</label>
-      <select id="singleDuration" required style="width:100%;padding:10px;background:rgba(15,23,42,0.9);border:1px solid var(--color-glass-border);border-radius:8px;color:#fff;outline:none;">
+      <select id="singleDuration" required onchange="toggleCustomDuration('single')" style="width:100%;padding:10px;background:rgba(15,23,42,0.9);border:1px solid var(--color-glass-border);border-radius:8px;color:#fff;outline:none;">
        <option value="bulanan">Bulanan (30 Hari)</option>
        <option value="semester">Semester (180 Hari)</option>
        <option value="tahunan">Tahunan (365 Hari)</option>
+       <option value="custom">⚙️ Kustom (Jumlah Hari...)</option>
       </select>
      </div>
+    </div>
+
+    <div id="singleCustomDaysGroup" style="display:none;margin-bottom:14px;">
+     <label style="display:block;font-size:12px;color:#c084fc;margin-bottom:4px;font-weight:600;">Jumlah Hari Masa Aktif (Kustom)</label>
+     <input type="number" id="singleCustomDays" placeholder="Misal: 7, 14, 45, 90..." min="1" value="7" style="width:100%;padding:10px;background:rgba(0,0,0,0.3);border:1px solid rgba(168,85,247,0.4);border-radius:8px;color:#fff;outline:none;" />
     </div>
 
     <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:14px;">
@@ -183,12 +189,18 @@
      </div>
      <div>
       <label style="display:block;font-size:12px;color:var(--color-text-secondary);margin-bottom:4px;">Durasi</label>
-      <select id="batchDuration" required style="width:100%;padding:10px;background:rgba(15,23,42,0.9);border:1px solid var(--color-glass-border);border-radius:8px;color:#fff;outline:none;">
+      <select id="batchDuration" required onchange="toggleCustomDuration('batch')" style="width:100%;padding:10px;background:rgba(15,23,42,0.9);border:1px solid var(--color-glass-border);border-radius:8px;color:#fff;outline:none;">
        <option value="bulanan">Bulanan (30 Hari)</option>
        <option value="semester">Semester (180 Hari)</option>
        <option value="tahunan">Tahunan (365 Hari)</option>
+       <option value="custom">⚙️ Kustom (Jumlah Hari...)</option>
       </select>
      </div>
+    </div>
+
+    <div id="batchCustomDaysGroup" style="display:none;margin-bottom:14px;">
+     <label style="display:block;font-size:12px;color:#c084fc;margin-bottom:4px;font-weight:600;">Jumlah Hari Masa Aktif (Kustom)</label>
+     <input type="number" id="batchCustomDays" placeholder="Misal: 7, 14, 45, 90..." min="1" value="7" style="width:100%;padding:10px;background:rgba(0,0,0,0.3);border:1px solid rgba(168,85,247,0.4);border-radius:8px;color:#fff;outline:none;" />
     </div>
 
     <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:14px;">
@@ -286,6 +298,12 @@ function renderVouchersTable(vouchers) {
 
         const expiryStr = v.expires_at ? new Date(v.expires_at).toLocaleDateString('id-ID', { year: 'numeric', month: 'short', day: 'numeric' }) : 'Selamanya';
 
+        let durationText = v.duration_type;
+        if (v.duration_type === 'bulanan') durationText = 'Bulanan (30 Hari)';
+        else if (v.duration_type === 'semester') durationText = 'Semester (180 Hari)';
+        else if (v.duration_type === 'tahunan') durationText = 'Tahunan (365 Hari)';
+        else if (!isNaN(parseInt(v.duration_type))) durationText = `${v.duration_type} Hari (Kustom)`;
+
         html += `
         <tr style="border-bottom:1px solid rgba(255,255,255,0.04);">
             <td style="padding:14px 20px;">
@@ -296,7 +314,7 @@ function renderVouchersTable(vouchers) {
             </td>
             <td style="padding:14px 20px;">
                 <strong style="color:#fff;text-transform:uppercase;font-size:12px;">${v.package}</strong>
-                <div style="font-size:11px;color:var(--color-text-secondary);">${v.duration_type}</div>
+                <div style="font-size:11px;color:var(--color-text-secondary);">${durationText}</div>
             </td>
             <td style="padding:14px 20px;">
                 <span style="font-weight:700;color:${v.used_count > 0 ? '#c084fc' : '#94a3b8'};">${v.used_count}</span> / ${v.max_usage}
@@ -343,16 +361,28 @@ function openBatchModal() { document.getElementById('batchModal').style.display 
 function closeBatchModal() { document.getElementById('batchModal').style.display = 'none'; }
 function closeRedemptionsModal() { document.getElementById('redemptionsModal').style.display = 'none'; }
 
+function toggleCustomDuration(type) {
+    const sel = document.getElementById(type + 'Duration');
+    const grp = document.getElementById(type + 'CustomDaysGroup');
+    if (sel && grp) {
+        grp.style.display = sel.value === 'custom' ? 'block' : 'none';
+    }
+}
+
 function submitSingleVoucher(e) {
     e.preventDefault();
     const btn = document.getElementById('btnSubmitSingle');
     btn.disabled = true;
     btn.textContent = 'Menyimpan...';
 
+    const durationVal = document.getElementById('singleDuration').value;
     const formData = new FormData();
     formData.append('code', document.getElementById('singleCode').value.trim());
     formData.append('package', document.getElementById('singlePackage').value);
-    formData.append('duration_type', document.getElementById('singleDuration').value);
+    formData.append('duration_type', durationVal);
+    if (durationVal === 'custom') {
+        formData.append('custom_days', document.getElementById('singleCustomDays').value);
+    }
     formData.append('max_usage', document.getElementById('singleMaxUsage').value);
     formData.append('expires_at', document.getElementById('singleExpiresAt').value);
     formData.append('notes', document.getElementById('singleNotes').value.trim());
@@ -388,11 +418,15 @@ function submitBatchVoucher(e) {
     btn.disabled = true;
     btn.textContent = 'Generating...';
 
+    const durationVal = document.getElementById('batchDuration').value;
     const formData = new FormData();
     formData.append('prefix', document.getElementById('batchPrefix').value.trim());
     formData.append('count', document.getElementById('batchCount').value);
     formData.append('package', document.getElementById('batchPackage').value);
-    formData.append('duration_type', document.getElementById('batchDuration').value);
+    formData.append('duration_type', durationVal);
+    if (durationVal === 'custom') {
+        formData.append('custom_days', document.getElementById('batchCustomDays').value);
+    }
     formData.append('max_usage', document.getElementById('batchMaxUsage').value);
     formData.append('expires_at', document.getElementById('batchExpiresAt').value);
     formData.append('notes', document.getElementById('batchNotes').value.trim());

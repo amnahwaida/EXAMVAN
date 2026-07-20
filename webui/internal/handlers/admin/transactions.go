@@ -50,6 +50,9 @@ func durationDays(durationType string) int {
 	case "tahunan":
 		return 365
 	default:
+		if d, err := strconv.Atoi(durationType); err == nil && d > 0 {
+			return d
+		}
 		return 30
 	}
 }

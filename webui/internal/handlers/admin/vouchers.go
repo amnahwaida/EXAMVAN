@@ -87,6 +87,16 @@ func CreateVoucherHandler() gin.HandlerFunc {
 			return
 		}
 
+		if durationType == "custom" {
+			customDaysStr := strings.TrimSpace(c.PostForm("custom_days"))
+			if d, err := strconv.Atoi(customDaysStr); err == nil && d > 0 {
+				durationType = strconv.Itoa(d)
+			} else {
+				errorResponse(c, http.StatusBadRequest, "Jumlah hari durasi kustom harus berupa angka positif")
+				return
+			}
+		}
+
 		maxUsage := 1
 		if maxUsageStr != "" {
 			if m, err := strconv.Atoi(maxUsageStr); err == nil && m > 0 {
@@ -151,6 +161,16 @@ func CreateBatchVouchersHandler() gin.HandlerFunc {
 		if pkg == "" || durationType == "" {
 			errorResponse(c, http.StatusBadRequest, "Paket dan tipe durasi wajib diisi")
 			return
+		}
+
+		if durationType == "custom" {
+			customDaysStr := strings.TrimSpace(c.PostForm("custom_days"))
+			if d, err := strconv.Atoi(customDaysStr); err == nil && d > 0 {
+				durationType = strconv.Itoa(d)
+			} else {
+				errorResponse(c, http.StatusBadRequest, "Jumlah hari durasi kustom harus berupa angka positif")
+				return
+			}
 		}
 
 		count := 5
