@@ -243,6 +243,7 @@
 
 </main>
 {{template "admin/partials/svg-symbols.html"}}
+<script src="/static/js/admin-core.js?v={{.version}}"></script>
 
 <script>
 const CSRF_TOKEN = '{{.csrf_token}}';
@@ -259,7 +260,7 @@ function loadVouchers(page = 1) {
     const search = document.getElementById('searchVoucher').value.trim();
     const url = `/admin/api/vouchers?page=${page}&search=${encodeURIComponent(search)}`;
     
-    fetch(url)
+    apiFetch(url)
     .then(r => r.json())
     .then(res => {
         if (!res.success) {
@@ -387,9 +388,8 @@ function submitSingleVoucher(e) {
     formData.append('expires_at', document.getElementById('singleExpiresAt').value);
     formData.append('notes', document.getElementById('singleNotes').value.trim());
 
-    fetch('/admin/api/vouchers', {
+    apiFetch('/admin/api/vouchers', {
         method: 'POST',
-        headers: { 'X-CSRF-Token': CSRF_TOKEN },
         body: formData
     })
     .then(r => r.json())
@@ -431,9 +431,8 @@ function submitBatchVoucher(e) {
     formData.append('expires_at', document.getElementById('batchExpiresAt').value);
     formData.append('notes', document.getElementById('batchNotes').value.trim());
 
-    fetch('/admin/api/vouchers/batch', {
+    apiFetch('/admin/api/vouchers/batch', {
         method: 'POST',
-        headers: { 'X-CSRF-Token': CSRF_TOKEN },
         body: formData
     })
     .then(r => r.json())
@@ -456,9 +455,8 @@ function submitBatchVoucher(e) {
 }
 
 function toggleVoucher(id) {
-    fetch(`/admin/api/vouchers/${id}/toggle`, {
-        method: 'POST',
-        headers: { 'X-CSRF-Token': CSRF_TOKEN }
+    apiFetch(`/admin/api/vouchers/${id}/toggle`, {
+        method: 'POST'
     })
     .then(r => r.json())
     .then(res => {
@@ -473,9 +471,8 @@ function toggleVoucher(id) {
 
 function deleteVoucher(id, code) {
     if (!confirm(`Apakah Anda yakin ingin menghapus voucher "${code}"?`)) return;
-    fetch(`/admin/api/vouchers/${id}/delete`, {
-        method: 'POST',
-        headers: { 'X-CSRF-Token': CSRF_TOKEN }
+    apiFetch(`/admin/api/vouchers/${id}/delete`, {
+        method: 'POST'
     })
     .then(r => r.json())
     .then(res => {
@@ -493,7 +490,7 @@ function viewRedemptions(id, code) {
     document.getElementById('redemptionsBody').innerHTML = `<p style="text-align:center;color:var(--color-text-secondary);">Memuat...</p>`;
     document.getElementById('redemptionsModal').style.display = 'flex';
 
-    fetch(`/admin/api/vouchers/${id}/redemptions`)
+    apiFetch(`/admin/api/vouchers/${id}/redemptions`)
     .then(r => r.json())
     .then(res => {
         if (!res.success || !res.redemptions || res.redemptions.length === 0) {
