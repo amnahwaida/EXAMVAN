@@ -242,8 +242,10 @@
 <span class="net-label">Masa Aktif</span>
 {{if .account_expires}}
 <span class="net-value" id="expiryCountdown" data-expires="{{.account_expires}}" style="font-size:13px;">&#x23F3;</span>
-{{else}}
+{{else if .is_super}}
 <span class="net-value badge-https">Selamanya</span>
+{{else}}
+<span class="net-value" style="color:#f87171;font-weight:600;font-size:13px;">Belum Berlangganan</span>
 {{end}}
 </div>
 <div class="net-item" title="Maksimal ukuran file PDF dalam sekali upload">
@@ -882,7 +884,10 @@ document.addEventListener('DOMContentLoaded', function() {
     if (expiryEl) {
         var expiresStr = expiryEl.getAttribute('data-expires');
         if (expiresStr) {
-            var expiresDate = new Date(expiresStr.replace(' ', 'T') + 'Z');
+            var expiresDate = new Date(expiresStr);
+            if (isNaN(expiresDate.getTime())) {
+                expiresDate = new Date(expiresStr.replace(' ', 'T').split('.')[0] + 'Z');
+            }
             if (!isNaN(expiresDate.getTime())) {
                 var now = new Date();
                 var diffMs = expiresDate - now;
@@ -890,7 +895,7 @@ document.addEventListener('DOMContentLoaded', function() {
                 if (diffDays < 0) expiryEl.innerHTML = '<span style="color:#f87171;font-weight:600;">Kedaluwarsa</span>';
                 else if (diffDays === 0) expiryEl.innerHTML = '<span style="color:#fbbf24;font-weight:600;">Kedaluwarsa hari ini</span>';
                 else if (diffDays <= 7) expiryEl.innerHTML = '<span style="color:#f87171;font-weight:600;">' + diffDays + ' hari lagi</span>';
-                else expiryEl.innerHTML = diffDays + ' hari lagi';
+                else expiryEl.innerHTML = '<span style="color:#34d399;font-weight:700;">' + diffDays + ' hari lagi</span>';
             }
         }
     }

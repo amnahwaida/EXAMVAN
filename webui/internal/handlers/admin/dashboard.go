@@ -232,7 +232,7 @@ func Dashboard() gin.HandlerFunc {
 
 			// Expiry date
 			if user.ExpiresAt != nil {
-				s := user.ExpiresAt.Format("2006-01-02 15:04:05")
+				s := user.ExpiresAt.Format(time.RFC3339)
 				accountExpires = &s
 			}
 		} else {
@@ -387,6 +387,7 @@ func Dashboard() gin.HandlerFunc {
 			"user_package":      userPackage,
 			"package_name":      packageName,
 			"instansi_code":     userInstansiCode,
+			"is_super":          isSuper,
 			"account_expires":   accountExpires,
 			"remaining_storage": remainingStorage,
 			"server_url":        serverURL,
