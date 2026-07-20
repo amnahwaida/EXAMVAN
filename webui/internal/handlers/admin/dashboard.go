@@ -182,48 +182,46 @@ func Dashboard() gin.HandlerFunc {
 				userPackage = "free"
 			}
 
-			if !isSuper && !isOp {
-				if user.MaxPDFSize > 0 {
-					userMaxPDF = int64(user.MaxPDFSize)
-				} else {
-					userMaxPDF = 100 * 1024 * 1024
-				}
+			// Read PDF upload limit
+			if user.MaxPDFSize > 0 {
+				userMaxPDF = int64(user.MaxPDFSize)
+			} else {
+				userMaxPDF = 100 * 1024 * 1024
+			}
 
-				if user.MaxExams >= 99999 || user.MaxExams <= 0 {
-					userMaxExams = "Tidak Terbatas"
-				} else {
-					userMaxExams = fmt.Sprintf("%d Ujian", user.MaxExams)
-				}
+			// Read Max Exams limit (unless pure SuperAdmin with 0 limit)
+			if user.MaxExams >= 99999 || (isSuper && user.MaxExams <= 0) {
+				userMaxExams = "Tidak Terbatas"
+			} else if user.MaxExams > 0 {
+				userMaxExams = fmt.Sprintf("%d Ujian", user.MaxExams)
+			} else {
+				userMaxExams = "3 Ujian"
+			}
 
-				if user.MaxStorageSize > 0 && user.MaxStorageSize < 900000*1024*1024 {
-					var currentStorageBytes int64
-					pool.QueryRow(ctx, `SELECT COALESCE(SUM(size_bytes), 0) FROM exams WHERE created_by = $1`, userID).Scan(&currentStorageBytes)
-					rem := user.MaxStorageSize - currentStorageBytes
-					if rem < 0 {
-						rem = 0
-					}
-					remMB := float64(rem) / (1024 * 1024)
-					if remMB >= 1024 {
-						remainingStorage = fmt.Sprintf("%.2f GB", remMB/1024)
-					} else {
-						remainingStorage = fmt.Sprintf("%.2f MB", remMB)
-					}
-				} else {
-					remainingStorage = "Tidak Terbatas"
+			// Read Remaining Storage limit
+			if isSuper && user.MaxStorageSize <= 0 {
+				remainingStorage = "Tidak Terbatas"
+			} else if user.MaxStorageSize > 0 && user.MaxStorageSize < 900000*1024*1024 {
+				var currentStorageBytes int64
+				pool.QueryRow(ctx, `SELECT COALESCE(SUM(size_bytes), 0) FROM exams WHERE created_by = $1`, userID).Scan(&currentStorageBytes)
+				rem := user.MaxStorageSize - currentStorageBytes
+				if rem < 0 {
+					rem = 0
 				}
-
-				if user.ExpiresAt != nil {
-					s := user.ExpiresAt.Format("2006-01-02 15:04:05")
-					accountExpires = &s
+				remMB := float64(rem) / (1024 * 1024)
+				if remMB >= 1024 {
+					remainingStorage = fmt.Sprintf("%.2f GB", remMB/1024)
+				} else {
+					remainingStorage = fmt.Sprintf("%.2f MB", remMB)
 				}
 			} else {
-				userMaxPDF = 500 * 1024 * 1024
-				userMaxExams = "Tidak Terbatas"
 				remainingStorage = "Tidak Terbatas"
-				if user.ExpiresAt != nil {
-					s := user.ExpiresAt.Format("2006-01-02 15:04:05")
-					accountExpires = &s
-				}
+			}
+
+			// Expiry date
+			if user.ExpiresAt != nil {
+				s := user.ExpiresAt.Format("2006-01-02 15:04:05")
+				accountExpires = &s
 			}
 		} else {
 			userMaxPDF = 100 * 1024 * 1024
