@@ -221,8 +221,12 @@
 
 <!-- Network Info -->
 <section class="network-info glass-card">
-<h3><svg class="icon-svg" style="vertical-align:middle;margin-top:-2px;"><use href="#hi-settings"/></svg> Info Jaringan</h3>
-<div class="network-grid">
+<h3><svg class="icon-svg" style="vertical-align:middle;margin-top:-2px;"><use href="#hi-settings"/></svg> Info Jaringan & Paket Aktif</h3>
+<div class="network-grid" style="grid-template-columns: repeat(auto-fit, minmax(130px, 1fr));">
+<div class="net-item" title="Paket langganan akun Anda saat ini">
+<span class="net-label">Paket Aktif</span>
+<span class="net-value" style="color:#c084fc;font-weight:800;font-size:13px;">{{default "Gratis / Trial" .package_name}}</span>
+</div>
 <div class="net-item" title="Maksimal ujian yang dapat dibuat">
 <span class="net-label">Max Ujian</span>
 <span class="net-value">{{.max_exams}}</span>

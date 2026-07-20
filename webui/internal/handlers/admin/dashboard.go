@@ -168,28 +168,34 @@ func Dashboard() gin.HandlerFunc {
 		}
 		pool.QueryRow(ctx, `SELECT COUNT(*)`+fromClause+activeWhereClause, statsArgs...).Scan(&statsActive)
 
-		// Per-user limits
+		// Per-user limits and package info
 		userMaxPDF := int64(1048576)
 		userMaxExams := "3"
+		userPackage := "free"
 		var remainingStorage string
 		var accountExpires *string
 
-		if !isSuper && !isOp {
-			user, err := models.GetUserByID(ctx, pool, userID)
-			if err == nil {
+		user, err := models.GetUserByID(ctx, pool, userID)
+		if err == nil {
+			userPackage = user.Package
+			if userPackage == "" {
+				userPackage = "free"
+			}
+
+			if !isSuper && !isOp {
 				if user.MaxPDFSize > 0 {
 					userMaxPDF = int64(user.MaxPDFSize)
 				} else {
-					userMaxPDF = 100 * 1024 * 1024 // 100MB limit globally if 0
-				}
-				
-				if user.MaxExams > 0 {
-					userMaxExams = strconv.Itoa(user.MaxExams)
-				} else {
-					userMaxExams = "Tidak Terbatas"
+					userMaxPDF = 100 * 1024 * 1024
 				}
 
-				if user.MaxStorageSize > 0 {
+				if user.MaxExams >= 99999 || user.MaxExams <= 0 {
+					userMaxExams = "Tidak Terbatas"
+				} else {
+					userMaxExams = fmt.Sprintf("%d Ujian", user.MaxExams)
+				}
+
+				if user.MaxStorageSize > 0 && user.MaxStorageSize < 900000*1024*1024 {
 					var currentStorageBytes int64
 					pool.QueryRow(ctx, `SELECT COALESCE(SUM(size_bytes), 0) FROM exams WHERE created_by = $1`, userID).Scan(&currentStorageBytes)
 					rem := user.MaxStorageSize - currentStorageBytes
@@ -210,11 +216,24 @@ func Dashboard() gin.HandlerFunc {
 					s := user.ExpiresAt.Format("2006-01-02 15:04:05")
 					accountExpires = &s
 				}
+			} else {
+				userMaxPDF = 500 * 1024 * 1024
+				userMaxExams = "Tidak Terbatas"
+				remainingStorage = "Tidak Terbatas"
+				if user.ExpiresAt != nil {
+					s := user.ExpiresAt.Format("2006-01-02 15:04:05")
+					accountExpires = &s
+				}
 			}
 		} else {
 			userMaxPDF = 100 * 1024 * 1024
 			userMaxExams = "Tidak Terbatas"
 			remainingStorage = "Tidak Terbatas"
+		}
+
+		packageName := packageDisplayName(userPackage)
+		if isSuper && userPackage == "free" {
+			packageName = "SuperAdmin (Full)"
 		}
 
 		totalPages := int(math.Max(1, float64((result.Total+perPage-1)/perPage)))
@@ -353,6 +372,8 @@ func Dashboard() gin.HandlerFunc {
 			},
 			"max_size_mb":       roundTo(float64(userMaxPDF)/(1024*1024), 1),
 			"max_exams":         userMaxExams,
+			"user_package":      userPackage,
+			"package_name":      packageName,
 			"account_expires":   accountExpires,
 			"remaining_storage": remainingStorage,
 			"server_url":        serverURL,
@@ -453,4 +474,25 @@ func buildFilterQuery(search, status string) string {
 		return ""
 	}
 	return "&" + strings.Join(parts, "&")
+}
+
+func packageDisplayName(pkg string) string {
+	switch strings.ToLower(pkg) {
+	case "guru":
+		return "Paket Guru"
+	case "individu":
+		return "Paket Individu"
+	case "sekolah_kecil":
+		return "Paket Sekolah Kecil"
+	case "sekolah_menengah":
+		return "Paket Sekolah Menengah"
+	case "sekolah_besar":
+		return "Paket Sekolah Besar"
+	case "sekolah_unggulan":
+		return "Paket Sekolah Unggulan"
+	case "free", "":
+		return "Gratis / Trial"
+	default:
+		return strings.Title(strings.ReplaceAll(pkg, "_", " "))
+	}
 }
