@@ -92,6 +92,11 @@ class WaitingApprovalDialog(QDialog):
 
         card_layout.addSpacing(20)
 
+        self.btn_retry = QPushButton("Minta Izin Lagi")
+        self.btn_retry.clicked.connect(self._retry_approval)
+        self.btn_retry.hide()
+        card_layout.addWidget(self.btn_retry, alignment=Qt.AlignCenter)
+
         self.btn_cancel = QPushButton("Batal")
         self.btn_cancel.clicked.connect(self.reject)
         card_layout.addWidget(self.btn_cancel, alignment=Qt.AlignCenter)
@@ -103,6 +108,7 @@ class WaitingApprovalDialog(QDialog):
         threading.Thread(target=self._poll_thread, daemon=True).start()
 
     def _poll_thread(self):
+        first_check = True
         while self.is_waiting:
             resp = api.request_approval(
                 self.server_url,
@@ -111,8 +117,10 @@ class WaitingApprovalDialog(QDialog):
                 self.exam_number,
                 self.student_class,
                 self.identity_data,
-                self.mac_address
+                self.mac_address,
+                reset=first_check
             )
+            first_check = False
 
             if not self.is_waiting:
                 break
@@ -140,16 +148,29 @@ class WaitingApprovalDialog(QDialog):
         if status_type == "approved":
             self.icon_label.setText("✅")
             self.btn_cancel.setEnabled(False)
+            self.btn_retry.hide()
             # Auto close and proceed after a short delay
             QTimer.singleShot(1500, self.accept)
         elif status_type == "rejected":
             self.icon_label.setText("🚫")
             self.btn_cancel.setText("Kembali")
+            self.btn_retry.show()
             self.is_waiting = False
         elif status_type == "error":
             self.icon_label.setText("⚠️")
         else:
             self.icon_label.setText("⏳")
+            self.btn_retry.hide()
+            self.btn_cancel.setText("Batal")
+
+    def _retry_approval(self):
+        self.is_waiting = True
+        self.btn_retry.hide()
+        self.btn_cancel.setText("Batal")
+        self.icon_label.setText("⏳")
+        self.title_label.setText("Menunggu Persetujuan")
+        self.subtitle_label.setText(f"Ujian: {self.exam.name}\nSilakan tunggu pengawas menyetujui akses Anda.")
+        self._start_polling()
 
     def reject(self):
         self.is_waiting = False

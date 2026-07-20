@@ -239,6 +239,7 @@ object ApiClient {
         examNumber: String,
         studentClass: String,
         identityDataStr: String,
+        reset: Boolean = false,
         onSuccess: (String) -> Unit, // returns status (pending, approved, rejected)
         onError: (String) -> Unit
     ) {
@@ -248,6 +249,7 @@ object ApiClient {
             put("student_name", studentName)
             put("exam_number", examNumber)
             put("student_class", studentClass)
+            put("reset", reset)
             try {
                 put("identity_data", org.json.JSONObject(identityDataStr))
             } catch (e: Exception) {

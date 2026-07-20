@@ -15,9 +15,28 @@
 
 <main class="dashboard">
 
+ <!-- Confirm Approval Modal -->
+ <div id="confirmApprovalModal" class="modal-overlay" style="display:none;" onclick="closeConfirmApprovalModal(event)">
+  <div class="modal-card" style="max-width: 420px;" onclick="event.stopPropagation()">
+   <div class="modal-header">
+    <h3 style="font-size:1.1rem;color:var(--color-primary-light);display:flex;align-items:center;gap:8px;" id="confirmApprovalTitle">
+     <svg class="icon-svg"><use href="#hi-shield-check"/></svg> Konfirmasi
+    </h3>
+    <button class="modal-close" onclick="closeConfirmApprovalModal()" aria-label="Tutup"><svg class="icon-svg" style="width:18px;height:18px;"><use href="#hi-x"/></svg></button>
+   </div>
+   <div class="modal-body" style="padding: 16px 24px 24px;">
+    <p id="confirmApprovalText" style="color:var(--color-text-secondary);line-height:1.5;margin-bottom:24px;font-size:14px;"></p>
+    <div style="display:flex;gap:12px;justify-content:flex-end;">
+     <button class="btn-modal-cancel" onclick="closeConfirmApprovalModal()">Batal</button>
+     <button id="confirmApprovalBtn">Konfirmasi</button>
+    </div>
+   </div>
+  </div>
+ </div>
+
  <!-- Access Log Modal -->
  <div id="accessLogModal" class="modal-overlay" style="display:none;" onclick="closeAccessLogModal(event)">
-  <div class="modal-container" style="max-width: 620px;" onclick="event.stopPropagation()">
+  <div class="modal-card" style="max-width: 620px;" onclick="event.stopPropagation()">
    <div class="modal-header">
     <h3 style="font-size:1.1rem;color:var(--color-primary-light);display:flex;align-items:center;gap:8px;"><svg class="icon-svg"><use href="#hi-device"/></svg> Riwayat Akses Perangkat</h3>
     <button class="modal-close" onclick="closeAccessLogModal()" aria-label="Tutup"><svg class="icon-svg" style="width:18px;height:18px;"><use href="#hi-x"/></svg></button>
@@ -867,6 +886,54 @@
 }
 
 /* --- Modal Styles --- */
+.btn-modal-cancel {
+  padding: 10px 20px;
+  border-radius: 8px;
+  font-size: 0.85rem;
+  font-weight: 600;
+  cursor: pointer;
+  background: rgba(255, 255, 255, 0.05);
+  color: var(--color-text-secondary);
+  border: 1px solid var(--color-glass-border);
+  transition: all 0.2s;
+}
+.btn-modal-cancel:hover {
+  background: rgba(255, 255, 255, 0.1);
+  color: #fff;
+}
+.btn-modal-approve {
+  padding: 10px 20px;
+  border-radius: 8px;
+  font-size: 0.85rem;
+  font-weight: 600;
+  cursor: pointer;
+  background: var(--color-primary);
+  color: #fff;
+  border: 1px solid var(--color-primary);
+  box-shadow: 0 4px 12px rgba(99, 102, 241, 0.3);
+  transition: all 0.2s;
+}
+.btn-modal-approve:hover {
+  background: var(--color-primary-light);
+  transform: translateY(-1px);
+}
+.btn-modal-reject {
+  padding: 10px 20px;
+  border-radius: 8px;
+  font-size: 0.85rem;
+  font-weight: 600;
+  cursor: pointer;
+  background: #ef4444;
+  color: #fff;
+  border: 1px solid #ef4444;
+  box-shadow: 0 4px 12px rgba(239, 68, 68, 0.3);
+  transition: all 0.2s;
+}
+.btn-modal-reject:hover {
+  background: #f87171;
+  transform: translateY(-1px);
+}
+
 .log-modal-header-info { display:flex;flex-direction:column;gap:12px;margin-bottom:16px; }
 .log-device-row { display:flex;align-items:center;gap:10px;background:var(--color-bg-secondary);border:1px solid var(--color-glass-border);border-radius:var(--radius-sm);font-size:0.8rem;padding:12px 16px; }
 .access-log-timeline { position:relative;padding-left:28px;margin-top:8px; }
@@ -1125,7 +1192,10 @@ function loadApprovals() {
 }
 
 function setApproval(macAddress, status, skipConfirm) {
-    if (!skipConfirm && !confirm('Apakah Anda yakin ingin ' + (status === 'approved' ? 'MENGIZINKAN' : 'MENOLAK') + ' perangkat ini?')) return;
+    if (!skipConfirm) {
+        showConfirmApprovalModal(macAddress, status);
+        return;
+    }
     fetch('/admin/api/pengawas/exams/' + EXAM_ID + '/approvals/' + encodeURIComponent(macAddress), {
         method: 'POST',
         headers: {
@@ -1138,7 +1208,7 @@ function setApproval(macAddress, status, skipConfirm) {
     .then(function(res) {
         if (res.success) {
             if (!skipConfirm) {
-                showToast(status === 'approved' ? 'Perangkat diizinkan' : 'Perangkat ditolak', 'success');
+                showToast(status === 'approved' ? 'Perangkat diizinkan' : 'Perangkat ditolak', status === 'approved' ? 'success' : 'error');
                 loadApprovals();
             }
         } else {
@@ -1389,6 +1459,40 @@ function showAccessLog(subId) {
 function closeAccessLogModal(event) {
     if (event && event.target !== document.getElementById('accessLogModal')) return;
     var m = document.getElementById('accessLogModal');
+    if (m) m.style.display = 'none';
+}
+
+function showConfirmApprovalModal(macAddress, status) {
+    var modal = document.getElementById('confirmApprovalModal');
+    var title = document.getElementById('confirmApprovalTitle');
+    var text = document.getElementById('confirmApprovalText');
+    var btn = document.getElementById('confirmApprovalBtn');
+    
+    if (status === 'approved') {
+        title.innerHTML = '<svg class="icon-svg"><use href="#hi-check"/></svg> Izinkan Siswa';
+        title.style.color = 'var(--color-primary-light)';
+        text.innerHTML = 'Apakah Anda yakin ingin <strong>mengizinkan</strong> perangkat ini untuk memulai ujian?';
+        btn.className = 'btn-modal-approve';
+        btn.textContent = 'Ya, Izinkan';
+    } else {
+        title.innerHTML = '<svg class="icon-svg"><use href="#hi-x"/></svg> Tolak Siswa';
+        title.style.color = '#ef4444';
+        text.innerHTML = 'Apakah Anda yakin ingin <strong>menolak</strong> perangkat ini? Siswa tidak akan bisa memulai ujian.';
+        btn.className = 'btn-modal-reject';
+        btn.textContent = 'Ya, Tolak';
+    }
+    
+    btn.onclick = function() {
+        closeConfirmApprovalModal();
+        setApproval(macAddress, status, true);
+    };
+    
+    modal.style.display = 'flex';
+}
+
+function closeConfirmApprovalModal(event) {
+    if (event && event.target !== document.getElementById('confirmApprovalModal')) return;
+    var m = document.getElementById('confirmApprovalModal');
     if (m) m.style.display = 'none';
 }
 

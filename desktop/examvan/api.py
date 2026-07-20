@@ -265,6 +265,7 @@ def request_approval(
     student_class: str,
     identity_data: Dict[str, Any],
     mac_address: str,
+    reset: bool = False,
 ):
     """POST /api/exams/request-approval."""
     from .models import RequestApprovalResponse
@@ -275,6 +276,7 @@ def request_approval(
         "exam_number": exam_number,
         "student_class": student_class,
         "identity_data": identity_data,
+        "reset": reset,
     }
     try:
         data = _make_request(

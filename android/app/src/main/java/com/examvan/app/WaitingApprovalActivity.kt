@@ -45,6 +45,7 @@ class WaitingApprovalActivity : BaseSecureActivity() {
 
     private val handler = Handler(Looper.getMainLooper())
     private var isWaiting = true
+    private var isFirstCheck = true
     private var pulseAnimator: ObjectAnimator? = null
     private var dotsAnimator: ValueAnimator? = null
 
@@ -227,6 +228,7 @@ class WaitingApprovalActivity : BaseSecureActivity() {
                 examNumber = studentNumber,
                 studentClass = studentClass,
                 identityDataStr = identityDataStr,
+                reset = false,
                 onSuccess = { status ->
                     runOnUiThread {
                         if (!isWaiting) return@runOnUiThread
@@ -285,9 +287,53 @@ class WaitingApprovalActivity : BaseSecureActivity() {
         binding.layoutRejected.visibility = View.VISIBLE
         binding.layoutWarning.visibility = View.GONE
 
+        // Setup retry button
+        binding.btnRetryRequest.setOnClickListener { retryApproval() }
+
         // Change cancel button to "Kembali"
         binding.btnCancel.text = getString(R.string.approval_btn_back)
         binding.btnCancel.setOnClickListener { finish() }
+    }
+
+    private fun retryApproval() {
+        val macAddress = DeviceIdResolver.resolveDeviceId(this)
+
+        // Send reset=true to flip rejected → pending on the server
+        ApiClient.requestApproval(
+            examId = examId,
+            macAddress = macAddress,
+            studentName = studentName,
+            examNumber = studentNumber,
+            studentClass = studentClass,
+            identityDataStr = identityDataStr,
+            reset = true,
+            onSuccess = { _ ->
+                runOnUiThread {
+                    // Reset UI back to waiting state
+                    binding.tvWaitingIcon.text = "⏳"
+                    binding.tvWaitingTitle.text = getString(R.string.approval_waiting_title)
+                    binding.tvWaitingSubtitle.text = getString(R.string.approval_waiting_subtitle)
+                    binding.progressCircular.visibility = View.VISIBLE
+                    binding.tvPollingDots.visibility = View.VISIBLE
+                    binding.layoutRejected.visibility = View.GONE
+
+                    // Restore cancel button
+                    binding.btnCancel.text = getString(R.string.approval_btn_cancel)
+                    binding.btnCancel.setOnClickListener { showCancelConfirmation() }
+
+                    // Resume polling
+                    isWaiting = true
+                    startPulseAnimation()
+                    startDotsAnimation()
+                    handler.post(pollRunnable)
+                }
+            },
+            onError = { errorMsg ->
+                runOnUiThread {
+                    showConnectionWarning(errorMsg)
+                }
+            }
+        )
     }
 
     private fun showConnected() {
