@@ -8,9 +8,11 @@ import (
 	"strings"
 	"time"
 
+	"github.com/gin-contrib/sessions"
 	"github.com/gin-gonic/gin"
 	"github.com/jackc/pgx/v5"
 
+	"github.com/examvan/webui/internal/middleware"
 	"github.com/examvan/webui/internal/models"
 )
 
@@ -298,12 +300,27 @@ func RedeemVoucherHandler() gin.HandlerFunc {
 	return func(c *gin.Context) {
 		code := strings.ToUpper(strings.TrimSpace(c.PostForm("code")))
 		if code == "" {
+			code = strings.ToUpper(strings.TrimSpace(c.Query("code")))
+		}
+		if code == "" {
+			var body struct {
+				Code string `json:"code"`
+			}
+			_ = c.ShouldBindJSON(&body)
+			code = strings.ToUpper(strings.TrimSpace(body.Code))
+		}
+
+		if code == "" {
 			errorResponse(c, http.StatusBadRequest, "Silakan masukkan kode voucher")
 			return
 		}
 
 		pool := getPool(c)
 		userID := getCurrentUserID(c)
+		if userID == 0 {
+			errorResponse(c, http.StatusUnauthorized, "Sesi tidak valid. Silakan login kembali.")
+			return
+		}
 		ctx := c.Request.Context()
 
 		dbTx, err := pool.Begin(ctx)
@@ -316,12 +333,12 @@ func RedeemVoucherHandler() gin.HandlerFunc {
 			_ = dbTx.Rollback(ctx)
 		}()
 
-		// 1. Lock and fetch voucher
+		// 1. Lock and fetch voucher (case-insensitive & space-trimmed match)
 		var v models.Voucher
 		err = dbTx.QueryRow(ctx, `
 			SELECT id, code, package, duration_type, max_usage, used_count, expires_at, is_active
 			FROM vouchers
-			WHERE code = $1
+			WHERE UPPER(TRIM(code)) = UPPER(TRIM($1))
 			FOR UPDATE`, code).Scan(
 			&v.ID, &v.Code, &v.Package, &v.DurationType, &v.MaxUsage, &v.UsedCount, &v.ExpiresAt, &v.IsActive,
 		)
@@ -368,10 +385,10 @@ func RedeemVoucherHandler() gin.HandlerFunc {
 			return
 		}
 
-		// 4. Lock and fetch user
+		// 4. Lock and fetch user (COALESCE to avoid NULL scan errors)
 		var user models.AdminUser
 		err = dbTx.QueryRow(ctx, `
-			SELECT id, username, expires_at, package, role
+			SELECT id, username, expires_at, COALESCE(package, 'free'), COALESCE(role, '["guru"]')
 			FROM admin_users
 			WHERE id = $1
 			FOR UPDATE`, userID).Scan(&user.ID, &user.Username, &user.ExpiresAt, &user.Package, &user.Role)
@@ -435,18 +452,25 @@ func RedeemVoucherHandler() gin.HandlerFunc {
 			return
 		}
 
-		// Commit
+		// Commit transaction
 		if err := dbTx.Commit(ctx); err != nil {
 			log.Printf("redeem commit error: %v", err)
 			errorResponse(c, http.StatusInternalServerError, "Gagal menyimpan klaim voucher")
 			return
 		}
 
+		// Update session role if package upgrades role
+		session := sessions.Default(c)
+		if newRole != "" {
+			session.Set(middleware.SessionKeyRole, newRole)
+			_ = session.Save()
+		}
+
 		expiryStr := newExpiry.Format("2006-01-02 15:04:05")
 		c.JSON(http.StatusOK, gin.H{
-			"success": true,
-			"message": fmt.Sprintf("Selamat! Voucher %s berhasil diklaim. Paket Anda kini aktif sebagai %s sampai %s.", v.Code, v.Package, expiryStr),
-			"package": v.Package,
+			"success":    true,
+			"message":    fmt.Sprintf("Selamat! Voucher %s berhasil diklaim. Paket Anda kini aktif sebagai %s sampai %s.", v.Code, strings.ToUpper(v.Package), expiryStr),
+			"package":    v.Package,
 			"expires_at": expiryStr,
 		})
 	}
