@@ -243,6 +243,9 @@ func CreateUser() gin.HandlerFunc {
 		// Operator restrictions
 		var expiresAtPtr *time.Time
 		instansi := strings.TrimSpace(body.Instansi)
+		var opInstansiID *int
+		var opInstansiCode string
+
 		if isOp {
 			// Operator cannot create operator accounts
 			for _, r := range roles {
@@ -251,10 +254,12 @@ func CreateUser() gin.HandlerFunc {
 					return
 				}
 			}
-			opInstansi := getInstansiForOperator(ctx, pool, userID)
-			instansi = opInstansi
 			opUser, opErr := models.GetUserByID(ctx, pool, userID)
 			if opErr == nil {
+				instansi = opUser.Instansi
+				opInstansiID = opUser.InstansiID
+				_ = pool.QueryRow(ctx, `SELECT COALESCE(instansi_code, '') FROM admin_users WHERE id = $1`, userID).Scan(&opInstansiCode)
+
 				// Force email from operator's account
 				if opUser.Email != "" {
 					body.Email = opUser.Email
@@ -355,6 +360,11 @@ func CreateUser() gin.HandlerFunc {
 			log.Printf("create user error: %v", err)
 			errorResponse(c, http.StatusInternalServerError, "Gagal membuat user")
 			return
+		}
+
+		// Ensure created user explicitly inherits operator's instansi_id and instansi_code
+		if isOp && created != nil {
+			_, _ = pool.Exec(ctx, `UPDATE admin_users SET instansi_id = $1, instansi_code = $2 WHERE id = $3`, opInstansiID, opInstansiCode, created.ID)
 		}
 
 		c.JSON(http.StatusOK, gin.H{
