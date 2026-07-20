@@ -7,7 +7,8 @@
 -- ============================================================
 CREATE TABLE IF NOT EXISTS instansi (
     id          SERIAL PRIMARY KEY,
-    name        TEXT NOT NULL UNIQUE,
+    name        TEXT NOT NULL,
+    code        TEXT UNIQUE,
     created_at  TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
 );
 
@@ -330,4 +331,22 @@ CREATE TABLE IF NOT EXISTS voucher_redemptions (
 );
 
 CREATE INDEX IF NOT EXISTS idx_vouchers_code ON vouchers(code);
+
+-- ============================================================
+-- Migration: Unique Code per Instansi
+-- ============================================================
+ALTER TABLE instansi DROP CONSTRAINT IF EXISTS instansi_name_key;
+ALTER TABLE instansi ADD COLUMN IF NOT EXISTS code TEXT UNIQUE;
+ALTER TABLE admin_users ADD COLUMN IF NOT EXISTS instansi_code TEXT;
+
+-- Auto-assign instansi code to any instansi lacking a code
+UPDATE instansi
+SET code = 'SCH-' || UPPER(SUBSTRING(MD5(id::text || name || RANDOM()::text), 1, 4)) || '-' || UPPER(SUBSTRING(MD5(id::text || RANDOM()::text), 1, 4))
+WHERE code IS NULL OR code = '';
+
+-- Sync admin_users instansi_code from instansi table
+UPDATE admin_users u
+SET instansi_code = i.code
+FROM instansi i
+WHERE u.instansi_id = i.id AND (u.instansi_code IS NULL OR u.instansi_code = '');
 

@@ -251,6 +251,14 @@
 <span class="net-label">Sisa Storage</span>
 <span class="net-value">{{.remaining_storage}}</span>
 </div>
+{{if .instansi_code}}
+<div class="net-item" title="Kode Unik Instansi Anda (Identitas unik sekolah)">
+<span class="net-label">Kode Instansi</span>
+<span class="net-value" style="font-family:var(--font-mono);color:#34d399;font-weight:700;font-size:12px;cursor:pointer;" onclick="copyCode(this, '{{.instansi_code}}')" title="Klik untuk menyalin Kode Instansi">
+  {{.instansi_code}}
+</span>
+</div>
+{{end}}
 </div>
 <!-- Server Address Box -->
 <div class="server-url-box" title="Informasi pengaturan API aplikasi ujian" style="margin-top:16px;padding:12px;background:rgba(255,255,255,0.05);border-radius:8px;border:1px solid rgba(255,255,255,0.1);display:flex;align-items:center;justify-content:space-between;gap:12px;">

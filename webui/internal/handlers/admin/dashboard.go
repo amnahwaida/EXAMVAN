@@ -176,12 +176,14 @@ func Dashboard() gin.HandlerFunc {
 		var remainingStorage string
 		var accountExpires *string
 
+		var userInstansiCode string
 		user, err := models.GetUserByID(ctx, pool, userID)
 		if err == nil {
 			userPackage = user.Package
 			if userPackage == "" {
 				userPackage = "free"
 			}
+			_ = pool.QueryRow(ctx, `SELECT COALESCE(instansi_code, '') FROM admin_users WHERE id = $1`, userID).Scan(&userInstansiCode)
 
 			// Read PDF upload limit
 			if user.MaxPDFSize > 0 {
@@ -384,6 +386,7 @@ func Dashboard() gin.HandlerFunc {
 			"max_concurrent":    userMaxConcurrent,
 			"user_package":      userPackage,
 			"package_name":      packageName,
+			"instansi_code":     userInstansiCode,
 			"account_expires":   accountExpires,
 			"remaining_storage": remainingStorage,
 			"server_url":        serverURL,

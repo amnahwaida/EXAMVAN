@@ -2,6 +2,8 @@ package admin
 
 import (
 	"context"
+	cryptoRand "crypto/rand"
+	"encoding/hex"
 	"fmt"
 	"log"
 	"net/http"
@@ -777,6 +779,14 @@ func DeleteUser() gin.HandlerFunc {
 // 8. POST /admin/api/users/update-instansi — Update Operator Instansi
 // ---------------------------------------------------------------------------
 
+func generateInstansiCode() string {
+	b := make([]byte, 4)
+	_, _ = cryptoRand.Read(b)
+	hexStr := strings.ToUpper(hex.EncodeToString(b))
+	return fmt.Sprintf("SCH-%s-%s", hexStr[:4], hexStr[4:])
+}
+
+// UpdateInstansi handles POST /admin/api/instansi/update
 func UpdateInstansi() gin.HandlerFunc {
 	return func(c *gin.Context) {
 		var body struct {
@@ -810,8 +820,28 @@ func UpdateInstansi() gin.HandlerFunc {
 			return
 		}
 
-		// Update instansi string
-		_, err = pool.Exec(ctx, `UPDATE admin_users SET instansi = $1 WHERE id = $2`, newInstansi, userID)
+		// Generate unique instansi code for this new school entity
+		var instansiID int
+		var instansiCode string
+
+		codeCandidate := generateInstansiCode()
+		err = pool.QueryRow(ctx, `
+			INSERT INTO instansi (name, code)
+			VALUES ($1, $2)
+			RETURNING id, code`, newInstansi, codeCandidate).Scan(&instansiID, &instansiCode)
+		if err != nil {
+			codeCandidate = generateInstansiCode()
+			_ = pool.QueryRow(ctx, `
+				INSERT INTO instansi (name, code)
+				VALUES ($1, $2)
+				RETURNING id, code`, newInstansi, codeCandidate).Scan(&instansiID, &instansiCode)
+		}
+
+		// Update admin_users with name, instansi_id, and unique instansi_code
+		_, err = pool.Exec(ctx, `
+			UPDATE admin_users 
+			SET instansi = $1, instansi_id = $2, instansi_code = $3 
+			WHERE id = $4`, newInstansi, instansiID, instansiCode, userID)
 		if err != nil {
 			log.Printf("failed to update instansi for user %d: %v", userID, err)
 			errorResponse(c, http.StatusInternalServerError, "Gagal memperbarui instansi")
@@ -822,13 +852,10 @@ func UpdateInstansi() gin.HandlerFunc {
 		session.Set(middleware.SessionKeyInstansi, newInstansi)
 		_ = session.Save()
 
-		// Try to also manage instansi_id for schema consistency (optional fallback)
-		var instansiID int
-		err = pool.QueryRow(ctx, `INSERT INTO instansi (name) VALUES ($1) ON CONFLICT (name) DO UPDATE SET name=EXCLUDED.name RETURNING id`, newInstansi).Scan(&instansiID)
-		if err == nil {
-			_, _ = pool.Exec(ctx, `UPDATE admin_users SET instansi_id = $1 WHERE id = $2`, instansiID, userID)
-		}
-
-		successMessage(c, "Nama Instansi / Sekolah berhasil disimpan!")
+		c.JSON(http.StatusOK, gin.H{
+			"success":       true,
+			"message":       fmt.Sprintf("Nama Instansi '%s' berhasil disimpan! (Kode Unik: %s)", newInstansi, instansiCode),
+			"instansi_code": instansiCode,
+		})
 	}
 }
