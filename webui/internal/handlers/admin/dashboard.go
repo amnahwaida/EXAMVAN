@@ -170,7 +170,8 @@ func Dashboard() gin.HandlerFunc {
 
 		// Per-user limits and package info
 		userMaxPDF := int64(1048576)
-		userMaxExams := "3"
+		userMaxConcurrent := "1 Ujian"
+		userMaxDrafts := "10 Ujian"
 		userPackage := "free"
 		var remainingStorage string
 		var accountExpires *string
@@ -189,13 +190,22 @@ func Dashboard() gin.HandlerFunc {
 				userMaxPDF = 100 * 1024 * 1024
 			}
 
-			// Read Max Exams limit (unless pure SuperAdmin with 0 limit)
+			// Read Max Concurrent Active Exams limit (user.MaxExams)
 			if user.MaxExams >= 99999 || (isSuper && user.MaxExams <= 0) {
-				userMaxExams = "Tidak Terbatas"
+				userMaxConcurrent = "Tidak Terbatas"
 			} else if user.MaxExams > 0 {
-				userMaxExams = fmt.Sprintf("%d Ujian", user.MaxExams)
+				userMaxConcurrent = fmt.Sprintf("%d Ujian", user.MaxExams)
 			} else {
-				userMaxExams = "3 Ujian"
+				userMaxConcurrent = "1 Ujian"
+			}
+
+			// Read Max Total Drafts/PDFs limit (user.MaxDrafts)
+			if user.MaxDrafts >= 99999 || (isSuper && user.MaxDrafts <= 0) {
+				userMaxDrafts = "Tidak Terbatas"
+			} else if user.MaxDrafts > 0 {
+				userMaxDrafts = fmt.Sprintf("%d Ujian", user.MaxDrafts)
+			} else {
+				userMaxDrafts = "10 Ujian"
 			}
 
 			// Read Remaining Storage limit
@@ -225,7 +235,8 @@ func Dashboard() gin.HandlerFunc {
 			}
 		} else {
 			userMaxPDF = 100 * 1024 * 1024
-			userMaxExams = "Tidak Terbatas"
+			userMaxConcurrent = "Tidak Terbatas"
+			userMaxDrafts = "Tidak Terbatas"
 			remainingStorage = "Tidak Terbatas"
 		}
 
@@ -369,7 +380,8 @@ func Dashboard() gin.HandlerFunc {
 				"active_pct": activePct,
 			},
 			"max_size_mb":       roundTo(float64(userMaxPDF)/(1024*1024), 1),
-			"max_exams":         userMaxExams,
+			"max_exams":         userMaxDrafts,
+			"max_concurrent":    userMaxConcurrent,
 			"user_package":      userPackage,
 			"package_name":      packageName,
 			"account_expires":   accountExpires,

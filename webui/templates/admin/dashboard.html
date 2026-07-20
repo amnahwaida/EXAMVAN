@@ -227,9 +227,13 @@
 <span class="net-label">Paket Aktif</span>
 <span class="net-value" style="color:#c084fc;font-weight:800;font-size:13px;">{{default "Gratis / Trial" .package_name}}</span>
 </div>
-<div class="net-item" title="Maksimal ujian yang dapat dibuat">
-<span class="net-label">Max Ujian</span>
+<div class="net-item" title="Maksimal total ujian/PDF yang dapat disimpan di sistem">
+<span class="net-label">Max Total Ujian</span>
 <span class="net-value">{{.max_exams}}</span>
+</div>
+<div class="net-item" title="Maksimal jumlah ujian yang dapat aktif secara bersamaan/serentak">
+<span class="net-label">Ujian Serentak</span>
+<span class="net-value" style="color:#38bdf8;font-weight:700;">{{.max_concurrent}}</span>
 </div>
 <div class="net-item" title="Batas waktu berlakunya akun Anda">
 <span class="net-label">Masa Aktif</span>
@@ -243,7 +247,7 @@
 <span class="net-label">Max Upload</span>
 <span class="net-value">{{.max_size_mb}} MB</span>
 </div>
-<div class="net-item" title="Sisa penyimpanan yang dapat digunakan yang diberikan oleh superadmin">
+<div class="net-item" title="Sisa penyimpanan yang dapat digunakan">
 <span class="net-label">Sisa Storage</span>
 <span class="net-value">{{.remaining_storage}}</span>
 </div>
