@@ -10,10 +10,12 @@ import (
 	"strings"
 	"time"
 
+	"github.com/gin-contrib/sessions"
 	"github.com/gin-gonic/gin"
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/examvan/webui/internal/helpers"
+	"github.com/examvan/webui/internal/middleware"
 	"github.com/examvan/webui/internal/models"
 )
 
@@ -777,38 +779,34 @@ func DeleteUser() gin.HandlerFunc {
 
 func UpdateInstansi() gin.HandlerFunc {
 	return func(c *gin.Context) {
+		var body struct {
+			Instansi string `json:"instansi" form:"instansi"`
+		}
+		if err := c.ShouldBindJSON(&body); err != nil {
+			_ = c.ShouldBind(&body)
+		}
+
 		pool := getPool(c)
 		userID := getCurrentUserID(c)
 		ctx := c.Request.Context()
 
-		var body struct {
-			Instansi string `json:"instansi"`
-		}
-		if err := c.ShouldBindJSON(&body); err != nil {
-			errorResponse(c, http.StatusBadRequest, "Data tidak valid")
-			return
-		}
-
 		newInstansi := strings.TrimSpace(body.Instansi)
-		if newInstansi == "" || strings.ToLower(newInstansi) == "personal" {
-			errorResponse(c, http.StatusBadRequest, "Nama instansi tidak valid")
+		if newInstansi == "" || strings.ToLower(newInstansi) == "personal" || len(newInstansi) < 3 {
+			errorResponse(c, http.StatusBadRequest, "Nama instansi/sekolah tidak valid (min. 3 karakter)")
 			return
 		}
 
-		// Verify user is operator and current instansi is personal
 		user, err := models.GetUserByID(ctx, pool, userID)
 		if err != nil {
 			errorResponse(c, http.StatusNotFound, "Pengguna tidak ditemukan")
 			return
 		}
 
-		if !models.HasRole(user.Role, models.RoleOperator) {
-			errorResponse(c, http.StatusForbidden, "Hanya operator yang dapat mengatur instansi")
-			return
-		}
+		instTrim := strings.TrimSpace(user.Instansi)
+		isUnset := instTrim == "" || strings.ToLower(instTrim) == "personal" || instTrim == "Belum Ditetapkan"
 
-		if strings.ToLower(user.Instansi) != "personal" {
-			errorResponse(c, http.StatusBadRequest, "Instansi sudah diatur sebelumnya")
+		if !isUnset && !isSuperAdmin(c) {
+			errorResponse(c, http.StatusBadRequest, "Nama instansi sudah diatur sebelumnya")
 			return
 		}
 
@@ -820,6 +818,10 @@ func UpdateInstansi() gin.HandlerFunc {
 			return
 		}
 
+		session := sessions.Default(c)
+		session.Set(middleware.SessionKeyInstansi, newInstansi)
+		_ = session.Save()
+
 		// Try to also manage instansi_id for schema consistency (optional fallback)
 		var instansiID int
 		err = pool.QueryRow(ctx, `INSERT INTO instansi (name) VALUES ($1) ON CONFLICT (name) DO UPDATE SET name=EXCLUDED.name RETURNING id`, newInstansi).Scan(&instansiID)
@@ -827,6 +829,6 @@ func UpdateInstansi() gin.HandlerFunc {
 			_, _ = pool.Exec(ctx, `UPDATE admin_users SET instansi_id = $1 WHERE id = $2`, instansiID, userID)
 		}
 
-		successMessage(c, "Instansi berhasil diperbarui")
+		successMessage(c, "Nama Instansi / Sekolah berhasil disimpan!")
 	}
 }

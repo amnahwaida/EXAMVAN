@@ -110,81 +110,82 @@
  </div>
 </nav>
 
-{{if hasRole .admin_role "operator"}}
-    {{if eq (toLower (default "" .admin_instansi)) "personal"}}
-    <div id="instansiOnboardingModal" class="modal-overlay" style="display:flex; z-index:9999; background: rgba(0,0,0,0.85); backdrop-filter: blur(8px);">
-        <div class="modal" style="width: 460px;">
-            <div class="modal-header" style="border-bottom: 1px solid var(--color-glass-border); padding-bottom: 12px; margin-bottom: 16px;">
-                <h2 class="modal-title" style="margin:0; font-size:1.25rem;">Atur Nama Instansi Anda</h2>
-            </div>
-            <div class="modal-body">
-                <p style="margin-bottom: 16px; color: var(--color-text-secondary); font-size: 0.9rem; line-height: 1.5;">
-                    Selamat datang! Anda memiliki akses <b>Operator</b>. Sebelum melanjutkan menggunakan fitur aplikasi, silakan atur nama instansi/sekolah Anda. 
-                    Nama instansi ini akan digunakan sebagai identitas sekolah Anda dan <b>tidak boleh</b> berupa "personal".
+{{if .needs_instansi}}
+<div id="instansiOnboardingModal" class="modal-overlay" style="display:flex; z-index:99999; background: rgba(15, 23, 42, 0.88); backdrop-filter: blur(12px);" onclick="event.stopPropagation()">
+    <div class="modal-card" style="max-width: 480px; border: 1px solid rgba(168, 85, 247, 0.4); box-shadow: 0 0 30px rgba(168, 85, 247, 0.35);" onclick="event.stopPropagation()">
+        <div class="modal-header" style="border-bottom: 1px solid rgba(255,255,255,0.1); padding-bottom: 14px; margin-bottom: 16px;">
+            <h3 style="margin:0; font-size:1.15rem; color:#fff; display:flex; align-items:center; gap:10px;">
+                <svg class="icon-svg" style="width:24px;height:24px;color:#c084fc;"><use href="#hi-building-library"/></svg>
+                Wajib Atur Nama Instansi / Sekolah
+            </h3>
+        </div>
+        <div class="modal-body">
+            <div style="background:rgba(168,85,247,0.12); border:1px solid rgba(168,85,247,0.3); padding:14px 16px; border-radius:10px; margin-bottom:20px;">
+                <p style="margin:0; color:#e9d5ff; font-size:0.88rem; line-height:1.5;">
+                    <strong>Selamat!</strong> Akun Anda telah mengaktifkan <strong>Paket Sekolah</strong>. 
+                    Sebelum menggunakan fitur aplikasi, silakan atur nama resmi Sekolah/Instansi Anda terlebih dahulu.
                 </p>
-                <div class="form-group" style="margin-bottom:0;">
-                    <label for="newInstansiName" style="display:block; margin-bottom:6px; font-weight:600; font-size:0.85rem;">Nama Sekolah / Instansi <span style="color:var(--color-danger);">*</span></label>
-                    <input type="text" id="newInstansiName" class="form-control" style="width:100%; padding:10px 12px;" placeholder="Contoh: SMAN 1 Jakarta" autocomplete="off">
-                    <div class="form-help" style="margin-top: 6px; font-size:0.75rem; color:var(--color-text-muted);">Pastikan nama instansi diisi dengan benar.</div>
+            </div>
+            <form id="formMandatoryInstansi" onsubmit="submitMandatoryInstansi(event)">
+                <div style="margin-bottom:20px;">
+                    <label for="newInstansiName" style="display:block; margin-bottom:8px; font-weight:600; font-size:0.85rem; color:var(--color-text-secondary);">
+                        Nama Sekolah / Instansi <span style="color:#ef4444;">*</span>
+                    </label>
+                    <input type="text" id="newInstansiName" required placeholder="Contoh: SMA Negeri 1 Jakarta" style="width:100%; padding:12px 14px; border-radius:8px; background:rgba(255,255,255,0.06); border:1px solid rgba(255,255,255,0.15); color:#fff; font-size:0.95rem;" autofocus autocomplete="off">
+                    <div style="margin-top: 6px; font-size:0.75rem; color:var(--color-text-muted);">
+                        Nama instansi ini digunakan untuk menghubungkan akun pengawas &amp; guru di sekolah Anda.
+                    </div>
                 </div>
-            </div>
-            <div class="modal-footer" style="margin-top: 24px;">
-                <button type="button" class="btn btn-primary" id="btnSaveInstansi" style="width: 100%; justify-content:center; padding:10px;">Simpan Instansi</button>
-            </div>
+                <div>
+                    <button type="submit" id="btnSaveInstansi" style="width: 100%; padding:12px; border-radius:8px; font-weight:700; font-size:0.95rem; background:linear-gradient(135deg, #a855f7, #6366f1); border:none; color:#fff; cursor:pointer; box-shadow:0 4px 14px rgba(168,85,247,0.35);">
+                        Simpan &amp; Aktifkan Fitur Sekolah
+                    </button>
+                </div>
+            </form>
         </div>
     </div>
+</div>
 
-    <script>
-    document.addEventListener('DOMContentLoaded', function() {
-        var btnSaveInstansi = document.getElementById('btnSaveInstansi');
-        var inputInstansi = document.getElementById('newInstansiName');
-        
-        btnSaveInstansi.addEventListener('click', function() {
-            var val = inputInstansi.value.trim();
-            if(!val || val.toLowerCase() === 'personal') {
-                showToast('Silakan masukkan nama instansi yang valid selain "personal".', 'error');
-                inputInstansi.focus();
-                return;
-            }
-            
-            var oldText = btnSaveInstansi.innerText;
-            btnSaveInstansi.innerText = 'Menyimpan...';
-            btnSaveInstansi.disabled = true;
-            
-            fetch('/admin/api/users/update-instansi', {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                    'X-CSRF-Token': '{{.csrf_token}}'
-                },
-                body: JSON.stringify({ instansi: val })
-            })
-            .then(r => r.json())
-            .then(data => {
-                if(data.success) {
-                    showToast(data.message || 'Instansi berhasil disimpan!', 'success');
-                    setTimeout(function(){ window.location.reload(); }, 1500);
-                } else {
-                    showToast(data.message || 'Gagal menyimpan instansi', 'error');
-                    btnSaveInstansi.innerText = oldText;
-                    btnSaveInstansi.disabled = false;
-                }
-            })
-            .catch(err => {
-                console.error(err);
-                showToast('Terjadi kesalahan jaringan', 'error');
-                btnSaveInstansi.innerText = oldText;
-                btnSaveInstansi.disabled = false;
-            });
-        });
-        
-        inputInstansi.addEventListener('keydown', function(e) {
-            if (e.key === 'Enter') {
-                e.preventDefault();
-                btnSaveInstansi.click();
-            }
-        });
+<script>
+function submitMandatoryInstansi(e) {
+    e.preventDefault();
+    var input = document.getElementById('newInstansiName');
+    var val = input.value.trim();
+    if (!val || val.length < 3 || val.toLowerCase() === 'personal') {
+        showToast('Silakan masukkan nama instansi/sekolah yang valid (min. 3 karakter).', 'error');
+        input.focus();
+        return;
+    }
+    
+    var btn = document.getElementById('btnSaveInstansi');
+    var oldText = btn.innerText;
+    btn.innerText = 'Menyimpan...';
+    btn.disabled = true;
+    
+    apiFetch('/admin/api/instansi/update', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({ instansi: val })
+    })
+    .then(function(r) { return r.json(); })
+    .then(function(data) {
+        if(data.success) {
+            showToast(data.message || 'Nama Instansi berhasil disimpan!', 'success');
+            setTimeout(function(){ window.location.reload(); }, 1200);
+        } else {
+            showToast(data.message || 'Gagal menyimpan instansi', 'error');
+            btn.innerText = oldText;
+            btn.disabled = false;
+        }
+    })
+    .catch(function(err) {
+        console.error(err);
+        showToast('Terjadi kesalahan jaringan', 'error');
+        btn.innerText = oldText;
+        btn.disabled = false;
     });
-    </script>
-    {{end}}
+}
+</script>
 {{end}}

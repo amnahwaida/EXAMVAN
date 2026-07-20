@@ -579,6 +579,7 @@ func registerRoutes(r *gin.Engine, cfg *config.Config, pool *pgxpool.Pool) {
 			}
 
 			csrfAPI.POST("/change-password", middleware.LimitBodySize(256*1024), middleware.RateLimit(3, time.Minute), admin.ChangePassword())
+			csrfAPI.POST("/instansi/update", middleware.LimitBodySize(256*1024), admin.UpdateInstansi())
 		}
 
 		// ---- Non-CSRF routes (GET / read-only) ----

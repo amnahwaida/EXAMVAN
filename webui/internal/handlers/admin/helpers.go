@@ -7,6 +7,7 @@ import (
 	"math"
 	"net/http"
 	"os"
+	"strings"
 	"syscall"
 	"time"
 
@@ -171,9 +172,22 @@ func renderAdminPage(c *gin.Context, pageTemplate string, data gin.H) {
 	data["admin_user"] = displayName
 	data["admin_role"] = getCurrentUserRole(c)
 	data["admin_id"] = getCurrentUserID(c)
-	if v, exists := c.Get("instansi"); exists {
-		if s, ok := v.(string); ok {
-			data["admin_instansi"] = s
+
+	pool := getPool(c)
+	if pool != nil {
+		userID := getCurrentUserID(c)
+		if userID > 0 {
+			var pkg, inst string
+			err := pool.QueryRow(c.Request.Context(), `SELECT COALESCE(package, 'free'), COALESCE(instansi, '') FROM admin_users WHERE id = $1`, userID).Scan(&pkg, &inst)
+			if err == nil {
+				data["admin_package"] = pkg
+				data["admin_instansi"] = inst
+				instTrim := strings.TrimSpace(inst)
+				isSuper := getCurrentUserRole(c) == models.RoleSuperAdmin
+				if !isSuper && strings.HasPrefix(strings.ToLower(pkg), "sekolah") && (instTrim == "" || strings.ToLower(instTrim) == "personal" || instTrim == "Belum Ditetapkan") {
+					data["needs_instansi"] = true
+				}
+			}
 		}
 	}
 
