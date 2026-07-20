@@ -161,8 +161,9 @@ ALTER TABLE admin_users ADD COLUMN IF NOT EXISTS suspended_by_cascade BOOLEAN DE
 
 -- Populate instansi reference table
 INSERT INTO instansi (name)
-SELECT DISTINCT instansi FROM admin_users WHERE instansi != '' AND instansi IS NOT NULL
-ON CONFLICT (name) DO NOTHING;
+SELECT DISTINCT instansi FROM admin_users u
+WHERE instansi != '' AND instansi IS NOT NULL
+  AND NOT EXISTS (SELECT 1 FROM instansi i WHERE i.name = u.instansi);
 
 -- Update instansi_id from instansi name
 UPDATE admin_users u SET instansi_id = i.id
