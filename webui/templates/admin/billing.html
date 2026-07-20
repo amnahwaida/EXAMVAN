@@ -635,6 +635,32 @@
 </div>
 {{end}}
 
+<!-- Confirm Redeem Voucher Modal -->
+<div class="modal-overlay" id="confirmRedeemModal" style="display:none;" onclick="closeConfirmRedeemModal(event)">
+ <div class="modal-card" style="max-width: 440px;" onclick="event.stopPropagation()">
+  <div class="modal-header">
+   <h3 style="font-size:1.1rem;color:#fff;margin:0;display:flex;align-items:center;gap:8px;">
+    <svg class="icon-svg" style="width:20px;height:20px;color:#c084fc;"><use href="#hi-ticket"/></svg>
+    Konfirmasi Klaim Voucher
+   </h3>
+   <button class="modal-close" onclick="closeConfirmRedeemModal()" aria-label="Tutup">&times;</button>
+  </div>
+  <div class="modal-body" style="padding:20px 24px 24px;">
+   <p style="color:var(--color-text-secondary);font-size:13.5px;margin:0 0 16px 0;">
+    Apakah Anda yakin ingin mengklaim kode voucher berikut? Paket langganan akun Anda akan langsung diperbarui.
+   </p>
+   <div style="background:rgba(168,85,247,0.1);border:1px solid rgba(168,85,247,0.25);padding:14px 18px;border-radius:10px;margin-bottom:20px;text-align:center;">
+    <span style="font-size:11px;color:#c084fc;text-transform:uppercase;font-weight:700;letter-spacing:0.5px;display:block;margin-bottom:4px;">Kode Voucher:</span>
+    <span style="font-family:var(--font-mono);font-weight:800;font-size:1.25rem;color:#fff;" id="confirmRedeemCodeDisplay">PROMO</span>
+   </div>
+   <div style="display:flex;justify-content:flex-end;gap:10px;">
+    <button class="btn-secondary" onclick="closeConfirmRedeemModal()" style="padding:10px 18px;border-radius:8px;cursor:pointer;">Batal</button>
+    <button id="btnConfirmDoRedeem" onclick="doRedeemVoucher()" style="padding:10px 20px;border-radius:8px;font-weight:600;background:linear-gradient(135deg, #a855f7, #6366f1);border:none;color:#fff;cursor:pointer;">Ya, Klaim Sekarang</button>
+   </div>
+  </div>
+ </div>
+</div>
+
 <script src="/static/js/admin-core.js?v={{.version}}"></script>
 <script src="/static/js/admin.js?v={{.version}}"></script>
 
@@ -1206,12 +1232,12 @@ function submitPlan(e) {
 }
 
 function deletePlan(id) {
-    if(!confirm("Yakin ingin menghapus paket ini?")) return;
+    showToast('Memproses hapus paket...', 'info');
     apiFetch('/admin/api/pricing-plans/' + id + '/delete', { method: 'POST', body: new FormData() })
         .then(r => r.json())
         .then(res => {
             if (res.success) {
-                showToast("Paket dihapus", "success");
+                showToast("Paket berhasil dihapus", "success");
                 loadPricingPlans();
             } else {
                 showToast(res.message, "error");
@@ -1219,19 +1245,35 @@ function deletePlan(id) {
         });
 }
 
+let pendingRedeemCode = '';
+
 function redeemVoucher() {
     var input = document.getElementById('voucherCodeInput');
-    var code = input.value.trim();
+    var code = input.value.trim().toUpperCase();
     if (!code) {
         showToast('Silakan masukkan kode voucher', 'error');
         return;
     }
-    var btn = document.getElementById('btnRedeemVoucher');
+    pendingRedeemCode = code;
+    document.getElementById('confirmRedeemCodeDisplay').textContent = code;
+    document.getElementById('confirmRedeemModal').style.display = 'flex';
+}
+
+function closeConfirmRedeemModal(e) {
+    if (!e || e.target.id === 'confirmRedeemModal' || e.target.classList.contains('modal-close') || e.target.tagName === 'BUTTON') {
+        document.getElementById('confirmRedeemModal').style.display = 'none';
+    }
+}
+
+function doRedeemVoucher() {
+    if (!pendingRedeemCode) return;
+    var btn = document.getElementById('btnConfirmDoRedeem');
+    var origText = btn.textContent;
     btn.disabled = true;
     btn.textContent = 'Memproses...';
 
     var formData = new FormData();
-    formData.append('code', code);
+    formData.append('code', pendingRedeemCode);
 
     apiFetch('/admin/api/vouchers/redeem', {
         method: 'POST',
@@ -1240,10 +1282,11 @@ function redeemVoucher() {
     .then(function(r) { return r.json(); })
     .then(function(res) {
         btn.disabled = false;
-        btn.textContent = 'Klaim';
+        btn.textContent = origText;
+        closeConfirmRedeemModal();
         if (res.success) {
             showToast(res.message, 'success');
-            input.value = '';
+            document.getElementById('voucherCodeInput').value = '';
             setTimeout(function() { location.reload(); }, 1500);
         } else {
             showToast(res.message || 'Gagal mengklaim voucher', 'error');
@@ -1251,7 +1294,8 @@ function redeemVoucher() {
     })
     .catch(function(err) {
         btn.disabled = false;
-        btn.textContent = 'Klaim';
+        btn.textContent = origText;
+        closeConfirmRedeemModal();
         showToast('Gagal terhubung ke server', 'error');
     });
 }

@@ -239,6 +239,25 @@
    <p style="text-align:center;color:var(--color-text-secondary);">Memuat...</p>
   </div>
  </div>
+<!-- Confirm Action Modal -->
+<div class="modal-overlay" id="confirmActionModal" style="display:none;" onclick="closeConfirmActionModal(event)">
+ <div class="modal-card" style="max-width:440px;" onclick="event.stopPropagation()">
+  <div class="modal-header">
+   <h3 style="font-size:1.1rem;color:#fff;margin:0;display:flex;align-items:center;gap:8px;" id="confirmActionTitle">
+    Konfirmasi Tindakan
+   </h3>
+   <button class="modal-close" onclick="closeConfirmActionModal()">&times;</button>
+  </div>
+  <div style="padding:20px 24px 24px;">
+   <p style="color:var(--color-text-secondary);font-size:13.5px;margin:0 0 20px 0;" id="confirmActionMessage">
+    Apakah Anda yakin ingin melanjutkan tindakan ini?
+   </p>
+   <div style="display:flex;justify-content:flex-end;gap:10px;">
+    <button class="btn-secondary" onclick="closeConfirmActionModal()" style="padding:10px 18px;border-radius:8px;cursor:pointer;">Batal</button>
+    <button id="btnConfirmActionSubmit" style="padding:10px 20px;border-radius:8px;font-weight:600;border:none;color:#fff;cursor:pointer;">Ya, Lanjutkan</button>
+   </div>
+  </div>
+ </div>
 </div>
 
 </main>
@@ -324,7 +343,7 @@ function renderVouchersTable(vouchers) {
             <td style="padding:14px 20px;">${statusBadge}</td>
             <td style="padding:14px 20px;font-size:12px;color:var(--color-text-secondary);">${v.notes || '—'}</td>
             <td style="padding:14px 20px;text-align:right;">
-                <button onclick="toggleVoucher(${v.id})" style="background:rgba(255,255,255,0.06);border:1px solid var(--color-glass-border);color:#fff;padding:4px 10px;border-radius:6px;font-size:11px;cursor:pointer;margin-right:4px;">
+                <button onclick="toggleVoucher(${v.id}, '${v.code}', ${v.is_active})" style="background:rgba(255,255,255,0.06);border:1px solid var(--color-glass-border);color:#fff;padding:4px 10px;border-radius:6px;font-size:11px;cursor:pointer;margin-right:4px;">
                     ${v.is_active ? 'Matikan' : 'Aktifkan'}
                 </button>
                 <button onclick="deleteVoucher(${v.id}, '${v.code}')" style="background:rgba(239,68,68,0.15);border:1px solid rgba(239,68,68,0.3);color:#ef4444;padding:4px 10px;border-radius:6px;font-size:11px;cursor:pointer;">
@@ -453,35 +472,88 @@ function submitBatchVoucher(e) {
     });
 }
 
-function toggleVoucher(id) {
-    apiFetch(`/admin/api/vouchers/${id}/toggle`, {
-        method: 'POST'
-    })
-    .then(r => r.json())
-    .then(res => {
-        if (res.success) {
-            showToast(res.message, 'success');
-            loadVouchers();
-        } else {
-            showToast(res.message, 'error');
+let pendingConfirmCallback = null;
+
+function showConfirmModal(title, message, actionBtnText, isDanger, onConfirm) {
+    document.getElementById('confirmActionTitle').textContent = title;
+    document.getElementById('confirmActionMessage').innerHTML = message;
+    
+    const btn = document.getElementById('btnConfirmActionSubmit');
+    btn.textContent = actionBtnText || 'Ya, Lanjutkan';
+    if (isDanger) {
+        btn.style.background = '#ef4444';
+        btn.style.border = 'none';
+        btn.style.color = '#fff';
+    } else {
+        btn.style.background = 'linear-gradient(135deg, #a855f7, #6366f1)';
+        btn.style.border = 'none';
+        btn.style.color = '#fff';
+    }
+    
+    pendingConfirmCallback = onConfirm;
+    document.getElementById('confirmActionModal').style.display = 'flex';
+}
+
+function closeConfirmActionModal(e) {
+    if (!e || e.target.id === 'confirmActionModal' || e.target.classList.contains('modal-close') || e.target.tagName === 'BUTTON') {
+        document.getElementById('confirmActionModal').style.display = 'none';
+        pendingConfirmCallback = null;
+    }
+}
+
+document.getElementById('btnConfirmActionSubmit').addEventListener('click', () => {
+    if (pendingConfirmCallback) {
+        const cb = pendingConfirmCallback;
+        pendingConfirmCallback = null;
+        document.getElementById('confirmActionModal').style.display = 'none';
+        cb();
+    }
+});
+
+function toggleVoucher(id, code, isActive) {
+    const actionText = isActive ? 'menonaktifkan' : 'mengaktifkan kembali';
+    const btnText = isActive ? 'Matikan Voucher' : 'Aktifkan Voucher';
+    showConfirmModal(
+        'Konfirmasi Status Voucher',
+        `Apakah Anda yakin ingin ${actionText} kode voucher <strong style="color:#c084fc;">${code}</strong>?`,
+        btnText,
+        isActive,
+        () => {
+            apiFetch(`/admin/api/vouchers/${id}/toggle`, { method: 'POST' })
+            .then(r => r.json())
+            .then(res => {
+                if (res.success) {
+                    showToast(res.message, 'success');
+                    loadVouchers();
+                } else {
+                    showToast(res.message, 'error');
+                }
+            })
+            .catch(() => showToast('Gagal terhubung ke server', 'error'));
         }
-    });
+    );
 }
 
 function deleteVoucher(id, code) {
-    if (!confirm(`Apakah Anda yakin ingin menghapus voucher "${code}"?`)) return;
-    apiFetch(`/admin/api/vouchers/${id}/delete`, {
-        method: 'POST'
-    })
-    .then(r => r.json())
-    .then(res => {
-        if (res.success) {
-            showToast(res.message, 'success');
-            loadVouchers();
-        } else {
-            showToast(res.message, 'error');
+    showConfirmModal(
+        'Konfirmasi Hapus Voucher',
+        `Apakah Anda yakin ingin menghapus kode voucher <strong style="color:#c084fc;">${code}</strong>? Tindakan ini tidak dapat dibatalkan.`,
+        'Hapus Voucher',
+        true,
+        () => {
+            apiFetch(`/admin/api/vouchers/${id}/delete`, { method: 'POST' })
+            .then(r => r.json())
+            .then(res => {
+                if (res.success) {
+                    showToast(res.message, 'success');
+                    loadVouchers();
+                } else {
+                    showToast(res.message, 'error');
+                }
+            })
+            .catch(() => showToast('Gagal terhubung ke server', 'error'));
         }
-    });
+    );
 }
 
 function viewRedemptions(id, code) {
