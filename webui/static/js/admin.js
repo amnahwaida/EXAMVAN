@@ -2599,10 +2599,16 @@ document.addEventListener('keydown', function(event) {
 });
 
 // Bulk Selection Functions
+function getCheckboxOwnerId(cb) {
+    const attr = cb.getAttribute('data-owner-id') || cb.getAttribute('data-owner');
+    return parseInt(attr, 10);
+}
+
 function toggleSelectAllExams(masterCheckbox) {
     const checkboxes = document.querySelectorAll('.exam-checkbox');
     checkboxes.forEach(cb => {
-        if (masterCheckbox.checked && !IS_PRIVILEGED && parseInt(cb.getAttribute('data-owner')) !== ADMIN_ID) return;
+        const ownerId = getCheckboxOwnerId(cb);
+        if (masterCheckbox.checked && !IS_PRIVILEGED && !isNaN(ownerId) && ownerId !== ADMIN_ID) return;
         cb.checked = masterCheckbox.checked;
     });
     updateBulkActions();
@@ -2611,7 +2617,10 @@ function toggleSelectAllExams(masterCheckbox) {
 function updateBulkActions() {
     const checkboxes = document.querySelectorAll('.exam-checkbox:checked');
     // Only count exams the user can manage (own or privileged)
-    const manageable = IS_PRIVILEGED ? checkboxes : Array.from(checkboxes).filter(cb => parseInt(cb.getAttribute('data-owner')) === ADMIN_ID);
+    const manageable = IS_PRIVILEGED ? Array.from(checkboxes) : Array.from(checkboxes).filter(cb => {
+        const ownerId = getCheckboxOwnerId(cb);
+        return isNaN(ownerId) || ownerId === ADMIN_ID;
+    });
     const totalSelected = manageable.length;
     
     const bulkDeleteBtn = document.getElementById('bulkDeleteBtn');

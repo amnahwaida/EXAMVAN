@@ -362,7 +362,7 @@
 <tbody>
 {{range $i, $exam := .exams}}
 <tr id="exam-row-{{$exam.ID}}">
-<td data-label=""><input type="checkbox" class="exam-checkbox exam-checkbox-input" value="{{$exam.ID}}" data-name="{{$exam.Name}}" data-status="{{$exam.Status}}" data-owner="{{$exam.CreatorName}}" onchange="updateBulkActions()"></td>
+<td data-label=""><input type="checkbox" class="exam-checkbox exam-checkbox-input" value="{{$exam.ID}}" data-name="{{$exam.Name}}" data-status="{{$exam.Status}}" data-owner="{{$exam.CreatorName}}" data-owner-id="{{$exam.CreatedBy}}" onchange="updateBulkActions()"></td>
 <td class="td-name" data-label="Ujian"><a href="/admin/submissions?exam_id={{$exam.ID}}" class="exam-link" title="Lihat Hasil Ujian">{{$exam.Name}}</a></td>
 {{if or (eq $.admin_role "superadmin") (eq $.admin_role "operator")}}
 <td data-label="Pembuat"><span style="font-weight:600;color:var(--accent-light);">{{$exam.CreatorName}}</span></td>
