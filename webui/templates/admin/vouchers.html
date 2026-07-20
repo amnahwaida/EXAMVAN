@@ -5,24 +5,51 @@
  <style>
   .voucher-code-badge {
     font-family: var(--font-mono);
-    font-size: 0.9rem;
+    font-size: 0.88rem;
     font-weight: 700;
-    padding: 4px 10px;
-    border-radius: 6px;
-    background: rgba(168, 85, 247, 0.15);
+    padding: 5px 12px;
+    border-radius: 8px;
+    background: rgba(168, 85, 247, 0.12);
     border: 1px solid rgba(168, 85, 247, 0.3);
     color: #c084fc;
     display: inline-flex;
     align-items: center;
     gap: 8px;
+    cursor: pointer;
+    user-select: all;
+    transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+    position: relative;
+  }
+  .voucher-code-badge:hover {
+    background: rgba(168, 85, 247, 0.25);
+    border-color: rgba(168, 85, 247, 0.5);
+    box-shadow: 0 0 12px rgba(168, 85, 247, 0.25);
+    transform: translateY(-1px);
+  }
+  .voucher-code-badge.copied {
+    background: rgba(16, 185, 129, 0.2) !important;
+    border-color: rgba(16, 185, 129, 0.6) !important;
+    color: #34d399 !important;
+    box-shadow: 0 0 16px rgba(16, 185, 129, 0.45);
+    animation: copyPulse 0.4s ease-out;
+  }
+  .voucher-code-badge.copied .voucher-copy-btn {
+    color: #34d399;
+    opacity: 1;
+  }
+  @keyframes copyPulse {
+    0% { transform: scale(1); }
+    50% { transform: scale(1.08); }
+    100% { transform: scale(1); }
   }
   .voucher-copy-btn {
     cursor: pointer;
-    opacity: 0.7;
-    transition: opacity 0.2s;
+    opacity: 0.75;
+    transition: all 0.2s;
   }
-  .voucher-copy-btn:hover {
+  .voucher-code-badge:hover .voucher-copy-btn {
     opacity: 1;
+    transform: scale(1.1);
   }
  </style>
 </head>
@@ -266,9 +293,39 @@
 <script>
 const CSRF_TOKEN = '{{.csrf_token}}';
 
-function copyCode(code) {
-    navigator.clipboard.writeText(code).then(() => {
-        showToast('Kode ' + code + ' disalin ke clipboard!', 'success');
+function copyCode(el, code) {
+    let textToCopy = '';
+    let targetBadge = null;
+
+    if (typeof el === 'string') {
+        textToCopy = el;
+    } else if (el) {
+        textToCopy = code || el.textContent.trim();
+        targetBadge = el.closest('.voucher-code-badge') || el;
+    }
+
+    if (!textToCopy) return;
+
+    navigator.clipboard.writeText(textToCopy).then(() => {
+        showToast(`Kode ${textToCopy} tersalin ke clipboard!`, 'success');
+        
+        if (targetBadge) {
+            targetBadge.classList.add('copied');
+            
+            const useEl = targetBadge.querySelector('use');
+            let origHref = '';
+            if (useEl) {
+                origHref = useEl.getAttribute('href');
+                useEl.setAttribute('href', '#hi-check');
+            }
+            
+            setTimeout(() => {
+                targetBadge.classList.remove('copied');
+                if (useEl && origHref) {
+                    useEl.setAttribute('href', origHref);
+                }
+            }, 1400);
+        }
     }).catch(() => {
         showToast('Gagal menyalin kode', 'error');
     });
@@ -326,9 +383,9 @@ function renderVouchersTable(vouchers) {
         html += `
         <tr style="border-bottom:1px solid rgba(255,255,255,0.04);">
             <td style="padding:14px 20px;">
-                <div class="voucher-code-badge">
+                <div class="voucher-code-badge" onclick="copyCode(this, '${v.code}')" title="Klik untuk menyalin kode">
                     <span>${v.code}</span>
-                    <svg class="icon-svg voucher-copy-btn" style="width:14px;height:14px;" onclick="copyCode('${v.code}')" title="Salin Kode"><use href="#hi-clipboard"/></svg>
+                    <svg class="icon-svg voucher-copy-btn" style="width:14px;height:14px;"><use href="#hi-clipboard"/></svg>
                 </div>
             </td>
             <td style="padding:14px 20px;">
