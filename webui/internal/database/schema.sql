@@ -302,3 +302,32 @@ CREATE TABLE IF NOT EXISTS pricing_plans (
     created_at    TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
     updated_at    TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
 );
+
+-- ============================================================
+-- Vouchers & Redemptions
+-- ============================================================
+CREATE TABLE IF NOT EXISTS vouchers (
+    id              SERIAL PRIMARY KEY,
+    code            TEXT UNIQUE NOT NULL,
+    package         TEXT NOT NULL,
+    duration_type   TEXT NOT NULL DEFAULT 'bulanan',
+    max_usage       INT NOT NULL DEFAULT 1,
+    used_count      INT NOT NULL DEFAULT 0,
+    expires_at      TIMESTAMPTZ,
+    is_active       BOOLEAN NOT NULL DEFAULT true,
+    notes           TEXT DEFAULT '',
+    created_by      INT REFERENCES admin_users(id) ON DELETE SET NULL,
+    created_at      TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
+    updated_at      TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS voucher_redemptions (
+    id           SERIAL PRIMARY KEY,
+    voucher_id   INT NOT NULL REFERENCES vouchers(id) ON DELETE CASCADE,
+    user_id      INT NOT NULL REFERENCES admin_users(id) ON DELETE CASCADE,
+    redeemed_at  TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE(voucher_id, user_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_vouchers_code ON vouchers(code);
+

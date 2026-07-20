@@ -1,0 +1,487 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+ {{template "admin/partials/head.html" dict "version" .version "csrf_token" .csrf_token "title" "Manajemen Voucher"}}
+ <style>
+  .voucher-code-badge {
+    font-family: var(--font-mono);
+    font-size: 0.9rem;
+    font-weight: 700;
+    padding: 4px 10px;
+    border-radius: 6px;
+    background: rgba(168, 85, 247, 0.15);
+    border: 1px solid rgba(168, 85, 247, 0.3);
+    color: #c084fc;
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .voucher-copy-btn {
+    cursor: pointer;
+    opacity: 0.7;
+    transition: opacity 0.2s;
+  }
+  .voucher-copy-btn:hover {
+    opacity: 1;
+  }
+ </style>
+</head>
+<body class="dashboard-page">
+{{template "admin/partials/nav.html" dict "active_page" .active_page "admin_role" .admin_role "admin_user" .admin_user "csrf_token" .csrf_token}}
+
+<main class="dashboard">
+<div class="billing-container" style="padding:24px;max-width:1200px;margin:0 auto;">
+
+ <!-- Page Title -->
+ <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:24px;flex-wrap:wrap;gap:12px;">
+  <div>
+   <h2 style="font-size:1.5rem;font-weight:700;color:#fff;margin:0;font-family:'Outfit',sans-serif;display:flex;align-items:center;gap:10px;">
+    <svg class="icon-svg" style="width:26px;height:26px;color:#c084fc;"><use href="#hi-ticket"/></svg>
+    Manajemen Voucher Promo
+   </h2>
+   <p style="color:var(--color-text-secondary);font-size:0.875rem;margin:2px 0 0 0;">Buat dan kelola kode voucher untuk klaim paket otomatis.</p>
+  </div>
+  <div style="display:flex;gap:10px;">
+   <button onclick="openBatchModal()" class="btn-secondary" style="display:inline-flex;align-items:center;gap:8px;padding:10px 18px;border-radius:10px;font-weight:600;font-size:0.875rem;cursor:pointer;background:rgba(255,255,255,0.06);border:1px solid var(--color-glass-border);color:#fff;">
+    <svg class="icon-svg" style="width:16px;height:16px;"><use href="#hi-plus"/></svg> Batch Generate
+   </button>
+   <button onclick="openSingleModal()" class="btn-primary" style="display:inline-flex;align-items:center;gap:8px;padding:10px 18px;border-radius:10px;font-weight:600;font-size:0.875rem;cursor:pointer;background:linear-gradient(135deg, #a855f7, #6366f1);border:none;color:#fff;">
+    <svg class="icon-svg" style="width:16px;height:16px;"><use href="#hi-plus"/></svg> Buat Voucher Single
+   </button>
+  </div>
+ </div>
+
+ <!-- Filter & Search -->
+ <div class="glass-card" style="padding:16px 20px;border-radius:12px;margin-bottom:24px;display:flex;align-items:center;justify-content:space-between;gap:16px;flex-wrap:wrap;">
+  <div style="display:flex;align-items:center;gap:12px;flex:1;max-width:400px;">
+   <input type="text" id="searchVoucher" placeholder="Cari kode atau catatan..." style="width:100%;padding:8px 14px;background:rgba(0,0,0,0.3);border:1px solid var(--color-glass-border);border-radius:8px;color:#fff;font-size:13px;outline:none;" onkeyup="if(event.key==='Enter') loadVouchers(1)" />
+   <button onclick="loadVouchers(1)" class="btn-secondary" style="padding:8px 16px;border-radius:8px;font-size:13px;cursor:pointer;">Cari</button>
+  </div>
+ </div>
+
+ <!-- Vouchers Table -->
+ <div class="glass-card" style="border-radius:16px;overflow:hidden;">
+  <div style="overflow-x:auto;">
+   <table class="exam-table" style="width:100%;border-collapse:collapse;text-align:left;font-size:13.5px;">
+    <thead>
+     <tr style="border-bottom:1px solid var(--color-glass-border);background:rgba(255,255,255,0.02);color:var(--color-text-secondary);font-size:12px;text-transform:uppercase;letter-spacing:0.5px;">
+      <th style="padding:16px 20px;">Kode Voucher</th>
+      <th style="padding:16px 20px;">Paket & Durasi</th>
+      <th style="padding:16px 20px;">Penggunaan</th>
+      <th style="padding:16px 20px;">Kadaluarsa</th>
+      <th style="padding:16px 20px;">Status</th>
+      <th style="padding:16px 20px;">Catatan</th>
+      <th style="padding:16px 20px;text-align:right;">Aksi</th>
+     </tr>
+    </thead>
+    <tbody id="vouchersTableBody">
+     <tr>
+      <td colspan="7" style="padding:40px;text-align:center;color:var(--color-text-secondary);">Memuat data voucher...</td>
+     </tr>
+    </tbody>
+   </table>
+  </div>
+  
+  <!-- Pagination -->
+  <div id="paginationContainer" style="padding:16px 20px;border-top:1px solid var(--color-glass-border);display:flex;justify-content:space-between;align-items:center;"></div>
+ </div>
+
+</div>
+
+<!-- Single Voucher Modal -->
+<div class="modal-overlay" id="singleModal" style="display:none;">
+ <div class="modal-card" style="max-width:500px;">
+  <div class="modal-header">
+   <h3 style="font-size:1.1rem;color:#fff;margin:0;">Buat Voucher Single</h3>
+   <button class="modal-close" onclick="closeSingleModal()">&times;</button>
+  </div>
+  <div style="padding:20px;">
+   <form id="formSingleVoucher" onsubmit="submitSingleVoucher(event)">
+    <div style="margin-bottom:14px;">
+     <label style="display:block;font-size:12px;color:var(--color-text-secondary);margin-bottom:4px;">Kode Voucher (Kosongkan untuk otomatis)</label>
+     <input type="text" id="singleCode" placeholder="Misal: HARIGURU2026" style="width:100%;padding:10px;background:rgba(0,0,0,0.3);border:1px solid var(--color-glass-border);border-radius:8px;color:#fff;font-family:var(--font-mono);text-transform:uppercase;outline:none;" />
+    </div>
+
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:14px;">
+     <div>
+      <label style="display:block;font-size:12px;color:var(--color-text-secondary);margin-bottom:4px;">Paket</label>
+      <select id="singlePackage" required style="width:100%;padding:10px;background:rgba(15,23,42,0.9);border:1px solid var(--color-glass-border);border-radius:8px;color:#fff;outline:none;">
+       <option value="guru">Guru</option>
+       <option value="individu">Individu</option>
+       <option value="sekolah_kecil">Sekolah Kecil</option>
+       <option value="sekolah_menengah">Sekolah Menengah</option>
+       <option value="sekolah_besar">Sekolah Besar</option>
+       <option value="sekolah_unggulan">Sekolah Unggulan</option>
+      </select>
+     </div>
+     <div>
+      <label style="display:block;font-size:12px;color:var(--color-text-secondary);margin-bottom:4px;">Durasi</label>
+      <select id="singleDuration" required style="width:100%;padding:10px;background:rgba(15,23,42,0.9);border:1px solid var(--color-glass-border);border-radius:8px;color:#fff;outline:none;">
+       <option value="bulanan">Bulanan (30 Hari)</option>
+       <option value="semester">Semester (180 Hari)</option>
+       <option value="tahunan">Tahunan (365 Hari)</option>
+      </select>
+     </div>
+    </div>
+
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:14px;">
+     <div>
+      <label style="display:block;font-size:12px;color:var(--color-text-secondary);margin-bottom:4px;">Maksimal Penggunaan</label>
+      <input type="number" id="singleMaxUsage" value="1" min="1" required style="width:100%;padding:10px;background:rgba(0,0,0,0.3);border:1px solid var(--color-glass-border);border-radius:8px;color:#fff;outline:none;" />
+     </div>
+     <div>
+      <label style="display:block;font-size:12px;color:var(--color-text-secondary);margin-bottom:4px;">Tanggal Kadaluarsa (Opsional)</label>
+      <input type="date" id="singleExpiresAt" style="width:100%;padding:10px;background:rgba(0,0,0,0.3);border:1px solid var(--color-glass-border);border-radius:8px;color:#fff;outline:none;" />
+     </div>
+    </div>
+
+    <div style="margin-bottom:20px;">
+     <label style="display:block;font-size:12px;color:var(--color-text-secondary);margin-bottom:4px;">Catatan / Nama Campaign</label>
+     <input type="text" id="singleNotes" placeholder="Misal: Promo WhatsApp Grup Guru" style="width:100%;padding:10px;background:rgba(0,0,0,0.3);border:1px solid var(--color-glass-border);border-radius:8px;color:#fff;outline:none;" />
+    </div>
+
+    <div style="display:flex;justify-content:flex-end;gap:10px;">
+     <button type="button" onclick="closeSingleModal()" style="padding:10px 18px;border-radius:8px;background:rgba(255,255,255,0.06);border:1px solid var(--color-glass-border);color:#fff;cursor:pointer;">Batal</button>
+     <button type="submit" id="btnSubmitSingle" style="padding:10px 20px;border-radius:8px;background:linear-gradient(135deg, #a855f7, #6366f1);border:none;color:#fff;font-weight:600;cursor:pointer;">Simpan Voucher</button>
+    </div>
+   </form>
+  </div>
+ </div>
+</div>
+
+<!-- Batch Voucher Modal -->
+<div class="modal-overlay" id="batchModal" style="display:none;">
+ <div class="modal-card" style="max-width:500px;">
+  <div class="modal-header">
+   <h3 style="font-size:1.1rem;color:#fff;margin:0;">Generate Batch Voucher (Banyak)</h3>
+   <button class="modal-close" onclick="closeBatchModal()">&times;</button>
+  </div>
+  <div style="padding:20px;">
+   <form id="formBatchVoucher" onsubmit="submitBatchVoucher(event)">
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:14px;">
+     <div>
+      <label style="display:block;font-size:12px;color:var(--color-text-secondary);margin-bottom:4px;">Prefix Kode</label>
+      <input type="text" id="batchPrefix" placeholder="EV-SEKOLAH" value="PROMO" style="width:100%;padding:10px;background:rgba(0,0,0,0.3);border:1px solid var(--color-glass-border);border-radius:8px;color:#fff;font-family:var(--font-mono);text-transform:uppercase;outline:none;" />
+     </div>
+     <div>
+      <label style="display:block;font-size:12px;color:var(--color-text-secondary);margin-bottom:4px;">Jumlah Voucher</label>
+      <input type="number" id="batchCount" value="10" min="1" max="100" required style="width:100%;padding:10px;background:rgba(0,0,0,0.3);border:1px solid var(--color-glass-border);border-radius:8px;color:#fff;outline:none;" />
+     </div>
+    </div>
+
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:14px;">
+     <div>
+      <label style="display:block;font-size:12px;color:var(--color-text-secondary);margin-bottom:4px;">Paket</label>
+      <select id="batchPackage" required style="width:100%;padding:10px;background:rgba(15,23,42,0.9);border:1px solid var(--color-glass-border);border-radius:8px;color:#fff;outline:none;">
+       <option value="guru">Guru</option>
+       <option value="individu">Individu</option>
+       <option value="sekolah_kecil">Sekolah Kecil</option>
+       <option value="sekolah_menengah">Sekolah Menengah</option>
+       <option value="sekolah_besar">Sekolah Besar</option>
+       <option value="sekolah_unggulan">Sekolah Unggulan</option>
+      </select>
+     </div>
+     <div>
+      <label style="display:block;font-size:12px;color:var(--color-text-secondary);margin-bottom:4px;">Durasi</label>
+      <select id="batchDuration" required style="width:100%;padding:10px;background:rgba(15,23,42,0.9);border:1px solid var(--color-glass-border);border-radius:8px;color:#fff;outline:none;">
+       <option value="bulanan">Bulanan (30 Hari)</option>
+       <option value="semester">Semester (180 Hari)</option>
+       <option value="tahunan">Tahunan (365 Hari)</option>
+      </select>
+     </div>
+    </div>
+
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:14px;">
+     <div>
+      <label style="display:block;font-size:12px;color:var(--color-text-secondary);margin-bottom:4px;">Limit Penggunaan / Voucher</label>
+      <input type="number" id="batchMaxUsage" value="1" min="1" required style="width:100%;padding:10px;background:rgba(0,0,0,0.3);border:1px solid var(--color-glass-border);border-radius:8px;color:#fff;outline:none;" />
+     </div>
+     <div>
+      <label style="display:block;font-size:12px;color:var(--color-text-secondary);margin-bottom:4px;">Kadaluarsa (Opsional)</label>
+      <input type="date" id="batchExpiresAt" style="width:100%;padding:10px;background:rgba(0,0,0,0.3);border:1px solid var(--color-glass-border);border-radius:8px;color:#fff;outline:none;" />
+     </div>
+    </div>
+
+    <div style="margin-bottom:20px;">
+     <label style="display:block;font-size:12px;color:var(--color-text-secondary);margin-bottom:4px;">Catatan / Campaign Name</label>
+     <input type="text" id="batchNotes" placeholder="Misal: Workshop Digitalisasi Sekolah 2026" style="width:100%;padding:10px;background:rgba(0,0,0,0.3);border:1px solid var(--color-glass-border);border-radius:8px;color:#fff;outline:none;" />
+    </div>
+
+    <div style="display:flex;justify-content:flex-end;gap:10px;">
+     <button type="button" onclick="closeBatchModal()" style="padding:10px 18px;border-radius:8px;background:rgba(255,255,255,0.06);border:1px solid var(--color-glass-border);color:#fff;cursor:pointer;">Batal</button>
+     <button type="submit" id="btnSubmitBatch" style="padding:10px 20px;border-radius:8px;background:linear-gradient(135deg, #a855f7, #6366f1);border:none;color:#fff;font-weight:600;cursor:pointer;">Generate Batch</button>
+    </div>
+   </form>
+  </div>
+ </div>
+</div>
+
+<!-- Redemptions History Modal -->
+<div class="modal-overlay" id="redemptionsModal" style="display:none;">
+ <div class="modal-card" style="max-width:550px;">
+  <div class="modal-header">
+   <h3 style="font-size:1.1rem;color:#fff;margin:0;" id="redemptionsTitle">Pengguna Voucher</h3>
+   <button class="modal-close" onclick="closeRedemptionsModal()">&times;</button>
+  </div>
+  <div style="padding:20px;max-height:60vh;overflow-y:auto;" id="redemptionsBody">
+   <p style="text-align:center;color:var(--color-text-secondary);">Memuat...</p>
+  </div>
+ </div>
+</div>
+
+</main>
+{{template "admin/partials/svg-symbols.html"}}
+
+<script>
+const CSRF_TOKEN = '{{.csrf_token}}';
+
+function copyCode(code) {
+    navigator.clipboard.writeText(code).then(() => {
+        showToast('Kode ' + code + ' disalin ke clipboard!', 'success');
+    }).catch(() => {
+        showToast('Gagal menyalin kode', 'error');
+    });
+}
+
+function loadVouchers(page = 1) {
+    const search = document.getElementById('searchVoucher').value.trim();
+    const url = `/admin/api/vouchers?page=${page}&search=${encodeURIComponent(search)}`;
+    
+    fetch(url)
+    .then(r => r.json())
+    .then(res => {
+        if (!res.success) {
+            showToast(res.message || 'Gagal memuat voucher', 'error');
+            return;
+        }
+        renderVouchersTable(res.vouchers);
+        renderPagination(res.pagination);
+    })
+    .catch(err => {
+        console.error(err);
+        showToast('Gagal terhubung ke server', 'error');
+    });
+}
+
+function renderVouchersTable(vouchers) {
+    const tbody = document.getElementById('vouchersTableBody');
+    if (!vouchers || vouchers.length === 0) {
+        tbody.innerHTML = `<tr><td colspan="7" style="padding:40px;text-align:center;color:var(--color-text-secondary);">Belum ada voucher yang dibuat.</td></tr>`;
+        return;
+    }
+
+    let html = '';
+    vouchers.forEach(v => {
+        const isExpired = v.expires_at && new Date(v.expires_at) < new Date();
+        const isFull = v.used_count >= v.max_usage;
+        let statusBadge = `<span style="padding:3px 8px;border-radius:12px;font-size:11px;font-weight:700;background:rgba(16,185,129,0.15);color:#10b981;">Aktif</span>`;
+        
+        if (!v.is_active) {
+            statusBadge = `<span style="padding:3px 8px;border-radius:12px;font-size:11px;font-weight:700;background:rgba(239,68,68,0.15);color:#ef4444;">Nonaktif</span>`;
+        } else if (isExpired) {
+            statusBadge = `<span style="padding:3px 8px;border-radius:12px;font-size:11px;font-weight:700;background:rgba(245,158,11,0.15);color:#f59e0b;">Kadaluarsa</span>`;
+        } else if (isFull) {
+            statusBadge = `<span style="padding:3px 8px;border-radius:12px;font-size:11px;font-weight:700;background:rgba(148,163,184,0.15);color:#94a3b8;">Habis</span>`;
+        }
+
+        const expiryStr = v.expires_at ? new Date(v.expires_at).toLocaleDateString('id-ID', { year: 'numeric', month: 'short', day: 'numeric' }) : 'Selamanya';
+
+        html += `
+        <tr style="border-bottom:1px solid rgba(255,255,255,0.04);">
+            <td style="padding:14px 20px;">
+                <div class="voucher-code-badge">
+                    <span>${v.code}</span>
+                    <svg class="icon-svg voucher-copy-btn" style="width:14px;height:14px;" onclick="copyCode('${v.code}')" title="Salin Kode"><use href="#hi-clipboard"/></svg>
+                </div>
+            </td>
+            <td style="padding:14px 20px;">
+                <strong style="color:#fff;text-transform:uppercase;font-size:12px;">${v.package}</strong>
+                <div style="font-size:11px;color:var(--color-text-secondary);">${v.duration_type}</div>
+            </td>
+            <td style="padding:14px 20px;">
+                <span style="font-weight:700;color:${v.used_count > 0 ? '#c084fc' : '#94a3b8'};">${v.used_count}</span> / ${v.max_usage}
+                ${v.used_count > 0 ? `<button onclick="viewRedemptions(${v.id}, '${v.code}')" style="background:none;border:none;color:#a855f7;font-size:11px;cursor:pointer;margin-left:4px;text-decoration:underline;">(Lihat User)</button>` : ''}
+            </td>
+            <td style="padding:14px 20px;font-size:12px;color:var(--color-text-secondary);">${expiryStr}</td>
+            <td style="padding:14px 20px;">${statusBadge}</td>
+            <td style="padding:14px 20px;font-size:12px;color:var(--color-text-secondary);">${v.notes || '—'}</td>
+            <td style="padding:14px 20px;text-align:right;">
+                <button onclick="toggleVoucher(${v.id})" style="background:rgba(255,255,255,0.06);border:1px solid var(--color-glass-border);color:#fff;padding:4px 10px;border-radius:6px;font-size:11px;cursor:pointer;margin-right:4px;">
+                    ${v.is_active ? 'Matikan' : 'Aktifkan'}
+                </button>
+                <button onclick="deleteVoucher(${v.id}, '${v.code}')" style="background:rgba(239,68,68,0.15);border:1px solid rgba(239,68,68,0.3);color:#ef4444;padding:4px 10px;border-radius:6px;font-size:11px;cursor:pointer;">
+                    Hapus
+                </button>
+            </td>
+        </tr>`;
+    });
+
+    tbody.innerHTML = html;
+}
+
+function renderPagination(pg) {
+    const container = document.getElementById('paginationContainer');
+    if (!pg || pg.total_pages <= 1) {
+        container.innerHTML = `<span style="font-size:12px;color:var(--color-text-secondary);">Total: ${pg ? pg.total : 0} voucher</span>`;
+        return;
+    }
+
+    let btns = '';
+    for (let i = 1; i <= pg.total_pages; i++) {
+        const activeStyle = i === pg.page ? 'background:var(--color-primary);color:#fff;' : 'background:rgba(255,255,255,0.06);color:var(--color-text-secondary);';
+        btns += `<button onclick="loadVouchers(${i})" style="padding:4px 10px;border-radius:6px;border:none;font-size:12px;cursor:pointer;margin-left:4px;${activeStyle}">${i}</button>`;
+    }
+
+    container.innerHTML = `
+        <span style="font-size:12px;color:var(--color-text-secondary);">Halaman ${pg.page} dari ${pg.total_pages} (Total ${pg.total} voucher)</span>
+        <div>${btns}</div>`;
+}
+
+function openSingleModal() { document.getElementById('singleModal').style.display = 'flex'; }
+function closeSingleModal() { document.getElementById('singleModal').style.display = 'none'; }
+function openBatchModal() { document.getElementById('batchModal').style.display = 'flex'; }
+function closeBatchModal() { document.getElementById('batchModal').style.display = 'none'; }
+function closeRedemptionsModal() { document.getElementById('redemptionsModal').style.display = 'none'; }
+
+function submitSingleVoucher(e) {
+    e.preventDefault();
+    const btn = document.getElementById('btnSubmitSingle');
+    btn.disabled = true;
+    btn.textContent = 'Menyimpan...';
+
+    const formData = new FormData();
+    formData.append('code', document.getElementById('singleCode').value.trim());
+    formData.append('package', document.getElementById('singlePackage').value);
+    formData.append('duration_type', document.getElementById('singleDuration').value);
+    formData.append('max_usage', document.getElementById('singleMaxUsage').value);
+    formData.append('expires_at', document.getElementById('singleExpiresAt').value);
+    formData.append('notes', document.getElementById('singleNotes').value.trim());
+
+    fetch('/admin/api/vouchers', {
+        method: 'POST',
+        headers: { 'X-CSRF-Token': CSRF_TOKEN },
+        body: formData
+    })
+    .then(r => r.json())
+    .then(res => {
+        btn.disabled = false;
+        btn.textContent = 'Simpan Voucher';
+        if (res.success) {
+            showToast(res.message, 'success');
+            closeSingleModal();
+            document.getElementById('formSingleVoucher').reset();
+            loadVouchers(1);
+        } else {
+            showToast(res.message || 'Gagal membuat voucher', 'error');
+        }
+    })
+    .catch(err => {
+        btn.disabled = false;
+        btn.textContent = 'Simpan Voucher';
+        showToast('Gagal terhubung ke server', 'error');
+    });
+}
+
+function submitBatchVoucher(e) {
+    e.preventDefault();
+    const btn = document.getElementById('btnSubmitBatch');
+    btn.disabled = true;
+    btn.textContent = 'Generating...';
+
+    const formData = new FormData();
+    formData.append('prefix', document.getElementById('batchPrefix').value.trim());
+    formData.append('count', document.getElementById('batchCount').value);
+    formData.append('package', document.getElementById('batchPackage').value);
+    formData.append('duration_type', document.getElementById('batchDuration').value);
+    formData.append('max_usage', document.getElementById('batchMaxUsage').value);
+    formData.append('expires_at', document.getElementById('batchExpiresAt').value);
+    formData.append('notes', document.getElementById('batchNotes').value.trim());
+
+    fetch('/admin/api/vouchers/batch', {
+        method: 'POST',
+        headers: { 'X-CSRF-Token': CSRF_TOKEN },
+        body: formData
+    })
+    .then(r => r.json())
+    .then(res => {
+        btn.disabled = false;
+        btn.textContent = 'Generate Batch';
+        if (res.success) {
+            showToast(res.message, 'success');
+            closeBatchModal();
+            loadVouchers(1);
+        } else {
+            showToast(res.message || 'Gagal generate batch', 'error');
+        }
+    })
+    .catch(err => {
+        btn.disabled = false;
+        btn.textContent = 'Generate Batch';
+        showToast('Gagal terhubung ke server', 'error');
+    });
+}
+
+function toggleVoucher(id) {
+    fetch(`/admin/api/vouchers/${id}/toggle`, {
+        method: 'POST',
+        headers: { 'X-CSRF-Token': CSRF_TOKEN }
+    })
+    .then(r => r.json())
+    .then(res => {
+        if (res.success) {
+            showToast(res.message, 'success');
+            loadVouchers();
+        } else {
+            showToast(res.message, 'error');
+        }
+    });
+}
+
+function deleteVoucher(id, code) {
+    if (!confirm(`Apakah Anda yakin ingin menghapus voucher "${code}"?`)) return;
+    fetch(`/admin/api/vouchers/${id}/delete`, {
+        method: 'POST',
+        headers: { 'X-CSRF-Token': CSRF_TOKEN }
+    })
+    .then(r => r.json())
+    .then(res => {
+        if (res.success) {
+            showToast(res.message, 'success');
+            loadVouchers();
+        } else {
+            showToast(res.message, 'error');
+        }
+    });
+}
+
+function viewRedemptions(id, code) {
+    document.getElementById('redemptionsTitle').textContent = `Pengguna Voucher (${code})`;
+    document.getElementById('redemptionsBody').innerHTML = `<p style="text-align:center;color:var(--color-text-secondary);">Memuat...</p>`;
+    document.getElementById('redemptionsModal').style.display = 'flex';
+
+    fetch(`/admin/api/vouchers/${id}/redemptions`)
+    .then(r => r.json())
+    .then(res => {
+        if (!res.success || !res.redemptions || res.redemptions.length === 0) {
+            document.getElementById('redemptionsBody').innerHTML = `<p style="text-align:center;color:var(--color-text-secondary);">Belum ada user yang mengklaim voucher ini.</p>`;
+            return;
+        }
+        let html = '<ul style="list-style:none;padding:0;margin:0;">';
+        res.redemptions.forEach(r => {
+            const dateStr = new Date(r.redeemed_at).toLocaleString('id-ID');
+            html += `<li style="padding:10px 14px;border-bottom:1px solid var(--color-glass-border);display:flex;justify-content:space-between;align-items:center;">
+                <strong style="color:#fff;">${r.username}</strong>
+                <span style="font-size:12px;color:var(--color-text-secondary);">${dateStr}</span>
+            </li>`;
+        });
+        html += '</ul>';
+        document.getElementById('redemptionsBody').innerHTML = html;
+    });
+}
+
+document.addEventListener('DOMContentLoaded', () => {
+    loadVouchers(1);
+});
+</script>
+</body>
+</html>

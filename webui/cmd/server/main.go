@@ -491,6 +491,7 @@ func registerRoutes(r *gin.Engine, cfg *config.Config, pool *pgxpool.Pool) {
 
 		adminPages.GET("/users", middleware.AdminManagementRequired(), admin.UsersPage())
 		adminPages.GET("/billing", admin.BillingPage())
+		adminPages.GET("/vouchers", middleware.SuperAdminRequired(), admin.VouchersPage())
 
 		adminPages.GET("/pengawas", admin.PengawasPage())
 		adminPages.GET("/pengawas/:exam_id", admin.PengawasDetailPage())
@@ -567,6 +568,16 @@ func registerRoutes(r *gin.Engine, cfg *config.Config, pool *pgxpool.Pool) {
 				adminTransactions.POST("/transactions/:id/reject", middleware.LimitBodySize(256*1024), admin.RejectTransaction())
 			}
 
+			// Vouchers
+			csrfAPI.POST("/vouchers/redeem", middleware.LimitBodySize(256*1024), admin.RedeemVoucherHandler())
+			adminVouchers := csrfAPI.Group("", middleware.SuperAdminRequired())
+			{
+				adminVouchers.POST("/vouchers", middleware.LimitBodySize(256*1024), admin.CreateVoucherHandler())
+				adminVouchers.POST("/vouchers/batch", middleware.LimitBodySize(256*1024), admin.CreateBatchVouchersHandler())
+				adminVouchers.POST("/vouchers/:id/toggle", middleware.LimitBodySize(256*1024), admin.ToggleVoucherStatusHandler())
+				adminVouchers.POST("/vouchers/:id/delete", middleware.LimitBodySize(256*1024), admin.DeleteVoucherHandler())
+			}
+
 			csrfAPI.POST("/change-password", middleware.LimitBodySize(256*1024), middleware.RateLimit(3, time.Minute), admin.ChangePassword())
 		}
 
@@ -591,6 +602,8 @@ func registerRoutes(r *gin.Engine, cfg *config.Config, pool *pgxpool.Pool) {
 		adminAPI.GET("/pengawas/exams/:exam_id/approvals", admin.GetPendingApprovals())
 		adminAPI.GET("/saas-settings", middleware.SuperAdminRequired(), admin.SaasSettings())
 		adminAPI.GET("/pricing-plans", middleware.SuperAdminRequired(), admin.ListPricingPlans())
+		adminAPI.GET("/vouchers", middleware.SuperAdminRequired(), admin.ListVouchers())
+		adminAPI.GET("/vouchers/:id/redemptions", middleware.SuperAdminRequired(), admin.ListVoucherRedemptionsHandler())
 	}
 
 	// ---- Legacy redirects ----

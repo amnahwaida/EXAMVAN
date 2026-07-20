@@ -152,6 +152,17 @@
    <p style="font-size:13px;color:var(--color-text-secondary);margin:0;">Masa aktif s.d: <strong style="color:#fff;" id="expiryDateStr">{{.user_expires_at}}</strong></p>
   </div>
 
+  <!-- Voucher Redeem Card -->
+  <div class="glass-card" style="padding:24px;border-radius:16px;display:flex;flex-direction:column;justify-content:center;position:relative;overflow:hidden;border:1px solid rgba(168,85,247,0.3);background:linear-gradient(135deg, rgba(168,85,247,0.05), rgba(99,102,241,0.05));">
+   <div style="position:absolute;top:0;left:0;right:0;height:4px;background:linear-gradient(90deg, #a855f7, #6366f1);"></div>
+   <span style="font-size:11px;font-weight:700;text-transform:uppercase;color:#c084fc;letter-spacing:0.5px;display:block;margin-bottom:6px;">Punya Kode Voucher?</span>
+   <p style="font-size:12px;color:var(--color-text-secondary);margin:0 0 10px 0;">Masukkan kode promo untuk upgrade paket instan.</p>
+   <div style="display:flex;gap:8px;">
+    <input type="text" id="voucherCodeInput" placeholder="EV-PROMO-2026" style="flex:1;padding:8px 12px;background:rgba(0,0,0,0.3);border:1px solid rgba(255,255,255,0.15);border-radius:8px;color:#fff;font-family:var(--font-mono);font-size:13px;text-transform:uppercase;outline:none;" />
+    <button onclick="redeemVoucher()" id="btnRedeemVoucher" style="padding:8px 16px;border-radius:8px;font-weight:600;font-size:13px;cursor:pointer;background:linear-gradient(135deg, #a855f7, #6366f1);border:none;color:#fff;white-space:nowrap;transition:all 0.2s;">Klaim</button>
+   </div>
+  </div>
+
   <!-- Quota Details Card -->
   <div class="glass-card" style="padding:24px;border-radius:16px;display:flex;flex-direction:column;justify-content:center;">
    <span style="font-size:11px;font-weight:700;text-transform:uppercase;color:var(--color-accent-light);letter-spacing:0.5px;display:block;margin-bottom:12px;">Kuota Ujian &amp; PDF</span>
@@ -1206,6 +1217,43 @@ function deletePlan(id) {
                 showToast(res.message, "error");
             }
         });
+}
+
+function redeemVoucher() {
+    var input = document.getElementById('voucherCodeInput');
+    var code = input.value.trim();
+    if (!code) {
+        showToast('Silakan masukkan kode voucher', 'error');
+        return;
+    }
+    var btn = document.getElementById('btnRedeemVoucher');
+    btn.disabled = true;
+    btn.textContent = 'Memproses...';
+
+    var formData = new FormData();
+    formData.append('code', code);
+
+    apiFetch('/admin/api/vouchers/redeem', {
+        method: 'POST',
+        body: formData
+    })
+    .then(function(r) { return r.json(); })
+    .then(function(res) {
+        btn.disabled = false;
+        btn.textContent = 'Klaim';
+        if (res.success) {
+            showToast(res.message, 'success');
+            input.value = '';
+            setTimeout(function() { location.reload(); }, 1500);
+        } else {
+            showToast(res.message || 'Gagal mengklaim voucher', 'error');
+        }
+    })
+    .catch(function(err) {
+        btn.disabled = false;
+        btn.textContent = 'Klaim';
+        showToast('Gagal terhubung ke server', 'error');
+    });
 }
 </script>
 </main>
