@@ -2793,6 +2793,11 @@ function saveSaasSettings(e) {
     });
     const doku_payment_methods = dokuMethods.join(',');
 
+    // Monetization toggles
+    const doku_payment_enabled = !!(document.getElementById('dokuPaymentEnabledInput') || {}).checked;
+    const pricing_page_enabled = !!(document.getElementById('pricingPageEnabledInput') || {}).checked;
+    const voucher_redeem_enabled = !!(document.getElementById('voucherRedeemEnabledInput') || {}).checked;
+
     apiFetch('/admin/api/saas-settings', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -2802,6 +2807,7 @@ function saveSaasSettings(e) {
             default_active_days, android_version, webapp_version,
             seo_title, seo_description, seo_keywords, seo_index,
             doku_payment_methods,
+            doku_payment_enabled, pricing_page_enabled, voucher_redeem_enabled,
             price_guru_bulanan, price_guru_semester, price_guru_tahunan,
             price_individu_bulanan, price_individu_semester, price_individu_tahunan,
             price_sekolah_kecil_bulanan, price_sekolah_kecil_semester, price_sekolah_kecil_tahunan,
@@ -2998,6 +3004,14 @@ function loadSaasSettings() {
                 dokuCheckboxes.forEach(cb => {
                     cb.checked = activeMethods.includes(cb.value);
                 });
+
+                // Monetization toggles (default enabled when unset)
+                var _dp = document.getElementById('dokuPaymentEnabledInput');
+                if (_dp) _dp.checked = s.doku_payment_enabled !== false;
+                var _pp = document.getElementById('pricingPageEnabledInput');
+                if (_pp) _pp.checked = s.pricing_page_enabled !== false;
+                var _vr = document.getElementById('voucherRedeemEnabledInput');
+                if (_vr) _vr.checked = s.voucher_redeem_enabled !== false;
 
                 toggleEmailFields();
             }

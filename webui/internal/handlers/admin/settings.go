@@ -83,6 +83,11 @@ func handleSaasSettingsGet(c *gin.Context, pool *pgxpool.Pool, ctx context.Conte
 			"seo_index":                  settings[models.SettingSEOIndex] == "1",
 			"doku_payment_methods":       settings[models.SettingDokuPaymentMethods],
 
+			// Monetization toggles (default enabled when unset).
+			"doku_payment_enabled":   settings[models.SettingDokuPaymentEnabled] != "0",
+			"pricing_page_enabled":   settings[models.SettingPricingPageEnabled] != "0",
+			"voucher_redeem_enabled": settings[models.SettingVoucherRedeemEnabled] != "0",
+
 			// Pricing values
 			"price_guru_bulanan":          parseIntSetting(settings[models.SettingPriceGuruBulanan], 25000),
 			"price_guru_semester":         parseIntSetting(settings[models.SettingPriceGuruSemester], 125000),
@@ -124,6 +129,14 @@ func parseIntSetting(val string, defaultVal int) int {
 	return i
 }
 
+// boolFlag maps a boolean to the "1"/"0" string used for SaaS toggle settings.
+func boolFlag(b bool) string {
+	if b {
+		return "1"
+	}
+	return "0"
+}
+
 func handleSaasSettingsPost(c *gin.Context, pool *pgxpool.Pool, ctx context.Context) {
 	var body struct {
 		EmailVerificationEnabled bool    `json:"email_verification_enabled"`
@@ -145,6 +158,11 @@ func handleSaasSettingsPost(c *gin.Context, pool *pgxpool.Pool, ctx context.Cont
 		SEOKeywords              string  `json:"seo_keywords"`
 		SEOIndex                 bool    `json:"seo_index"`
 		DokuPaymentMethods       string  `json:"doku_payment_methods"`
+
+		// Monetization toggles
+		DokuPaymentEnabled   bool `json:"doku_payment_enabled"`
+		PricingPageEnabled   bool `json:"pricing_page_enabled"`
+		VoucherRedeemEnabled bool `json:"voucher_redeem_enabled"`
 
 		// Price Settings
 		PriceGuruBulanan          int     `json:"price_guru_bulanan"`
@@ -262,6 +280,11 @@ func handleSaasSettingsPost(c *gin.Context, pool *pgxpool.Pool, ctx context.Cont
 	if dokuMethods != "" {
 		models.SetSaasSetting(reqCtx, pool, models.SettingDokuPaymentMethods, dokuMethods)
 	}
+
+	// Monetization toggles
+	models.SetSaasSetting(reqCtx, pool, models.SettingDokuPaymentEnabled, boolFlag(body.DokuPaymentEnabled))
+	models.SetSaasSetting(reqCtx, pool, models.SettingPricingPageEnabled, boolFlag(body.PricingPageEnabled))
+	models.SetSaasSetting(reqCtx, pool, models.SettingVoucherRedeemEnabled, boolFlag(body.VoucherRedeemEnabled))
 
 	// Save Pricing Settings
 	models.SetSaasSetting(reqCtx, pool, models.SettingPriceGuruBulanan, strconv.Itoa(body.PriceGuruBulanan))

@@ -688,6 +688,15 @@ func pricingHandler(cfg *config.Config) gin.HandlerFunc {
 			dbPool, _ = dbValue.(*pgxpool.Pool)
 		}
 
+		// SuperAdmin can disable the whole pricing page. When disabled, show a
+		// friendly "sementara tidak tersedia" state instead of the plans.
+		if dbPool != nil && !models.GetSaasSettingBool(c.Request.Context(), dbPool, models.SettingPricingPageEnabled, true) {
+			data["unavailable"] = true
+			data["plans"] = []models.PricingPlan{}
+			c.HTML(http.StatusOK, "public/pricing.html", data)
+			return
+		}
+
 		// Read pricing plans from database
 		var plans []models.PricingPlan
 		if dbPool != nil {

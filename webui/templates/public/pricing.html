@@ -504,6 +504,13 @@
     <p class="hero-desc">Harga dan batas paket di bawah mengikuti konfigurasi billing EXAMVAN saat ini: jumlah ujian aktif, batas PDF, draft soal, storage, token, dan fitur hasil.</p>
   </section>
 
+  {{if .unavailable}}
+  <section class="reveal" style="text-align:center;padding:70px 20px;max-width:640px;margin:0 auto;">
+    <h2 style="font-size:26px;font-weight:800;margin:0 0 10px;">Halaman harga sementara tidak tersedia</h2>
+    <p style="color:#94a3b8;font-size:16px;margin:0;">Informasi paket &amp; penawaran sedang tidak ditampilkan untuk saat ini. Silakan kembali lagi nanti.</p>
+  </section>
+  {{else}}
+
   <div class="billing-toggle-wrapper reveal">
     <div class="billing-toggle">
       <button class="toggle-btn active" onclick="setBilling('bulanan')" id="tb-bulanan">Bulanan</button>
@@ -635,6 +642,7 @@
     <h2 class="section-title">Yang sudah termasuk</h2>
     <p class="section-subtitle">Semua paket menggunakan platform yang sama; perbedaan utamanya ada pada kuota dan prioritas dukungan teknis.</p>
   </section>
+  {{end}}
 
   <div class="adv-grid reveal">
     <div class="adv-card">

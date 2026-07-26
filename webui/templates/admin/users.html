@@ -375,6 +375,27 @@
 
  <div style="border-top:1px solid var(--color-glass-border);margin-top:16px;padding-top:16px;margin-bottom:6px;">
  <h4 style="margin:0;font-size:0.85rem;font-weight:600;text-transform:uppercase;letter-spacing:0.5px;color:var(--color-accent-light);display:flex;align-items:center;gap:6px;">
+ <svg class="icon-svg"><use href="#hi-credit-card"/></svg> Kontrol Monetisasi &amp; Penawaran
+ </h4>
+ <p style="font-size:12px;color:var(--color-text-secondary);margin:4px 0 8px 0;">Aktifkan/nonaktifkan cara pembayaran &amp; penawaran. Saat dimatikan, halaman/opsi terkait menampilkan pesan "sementara tidak tersedia".</p>
+ <div style="display:flex;flex-direction:column;gap:8px;">
+  <label style="display:flex;align-items:center;gap:8px;font-size:13px;cursor:pointer;padding:8px 10px;border-radius:8px;background:rgba(255,255,255,0.03);">
+   <input type="checkbox" id="pricingPageEnabledInput" style="accent-color:var(--color-primary);">
+   <span><strong>Halaman Pricing &amp; Beli Paket</strong><br><span style="font-size:11px;color:var(--color-text-secondary);">Halaman /pricing publik dan pembelian paket (transfer manual &amp; DOKU) di Billing. Penukaran kode promo tetap bisa.</span></span>
+  </label>
+  <label style="display:flex;align-items:center;gap:8px;font-size:13px;cursor:pointer;padding:8px 10px;border-radius:8px;background:rgba(255,255,255,0.03);">
+   <input type="checkbox" id="dokuPaymentEnabledInput" style="accent-color:var(--color-primary);">
+   <span><strong>Pembayaran via DOKU</strong><br><span style="font-size:11px;color:var(--color-text-secondary);">Opsi bayar online via DOKU (Virtual Account, QRIS, e-money, dsb).</span></span>
+  </label>
+  <label style="display:flex;align-items:center;gap:8px;font-size:13px;cursor:pointer;padding:8px 10px;border-radius:8px;background:rgba(255,255,255,0.03);">
+   <input type="checkbox" id="voucherRedeemEnabledInput" style="accent-color:var(--color-primary);">
+   <span><strong>Redeem Kode Promo / Voucher</strong><br><span style="font-size:11px;color:var(--color-text-secondary);">Penukaran kode promo/voucher oleh pengguna.</span></span>
+  </label>
+ </div>
+ </div>
+
+ <div style="border-top:1px solid var(--color-glass-border);margin-top:16px;padding-top:16px;margin-bottom:6px;">
+ <h4 style="margin:0;font-size:0.85rem;font-weight:600;text-transform:uppercase;letter-spacing:0.5px;color:var(--color-accent-light);display:flex;align-items:center;gap:6px;">
  <svg class="icon-svg"><use href="#hi-credit-card"/></svg> Metode Pembayaran DOKU
  </h4>
  <p style="font-size:12px;color:var(--color-text-secondary);margin:4px 0 8px 0;">Centang metode pembayaran yang ingin diaktifkan untuk pelanggan.</p>

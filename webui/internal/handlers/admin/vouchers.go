@@ -298,6 +298,12 @@ func ListVoucherRedemptionsHandler() gin.HandlerFunc {
 // RedeemVoucherHandler handles POST /admin/api/vouchers/redeem (Available to any logged-in user).
 func RedeemVoucherHandler() gin.HandlerFunc {
 	return func(c *gin.Context) {
+		// Voucher/promo redemption can be disabled by SuperAdmin.
+		if !models.GetSaasSettingBool(c.Request.Context(), getPool(c), models.SettingVoucherRedeemEnabled, true) {
+			errorResponse(c, http.StatusForbidden, "Penukaran kode promo sedang tidak tersedia untuk saat ini.")
+			return
+		}
+
 		code := strings.ToUpper(strings.TrimSpace(c.PostForm("code")))
 		if code == "" {
 			code = strings.ToUpper(strings.TrimSpace(c.Query("code")))

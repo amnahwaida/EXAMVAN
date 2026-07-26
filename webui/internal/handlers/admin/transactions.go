@@ -191,6 +191,12 @@ func CreateTransaction(cfg *config.Config) gin.HandlerFunc {
 		userID := getCurrentUserID(c)
 		ctx := c.Request.Context()
 
+		// Buying packages is gated by the pricing/offers toggle.
+		if !models.GetSaasSettingBool(ctx, pool, models.SettingPricingPageEnabled, true) {
+			errorResponse(c, http.StatusForbidden, "Pembelian paket sedang tidak tersedia untuk saat ini.")
+			return
+		}
+
 		// Get form parameters
 		pkgName := strings.TrimSpace(c.PostForm("package"))
 		durationType := strings.TrimSpace(c.PostForm("duration_type")) // bulanan, semester, tahunan
@@ -512,6 +518,17 @@ func CreateDokuTransaction(cfg *config.Config) gin.HandlerFunc {
 		userID := getCurrentUserID(c)
 		ctx := c.Request.Context()
 
+		// Buying a package via DOKU requires BOTH the pricing/offers toggle and
+		// the DOKU payment toggle to be enabled.
+		if !models.GetSaasSettingBool(ctx, pool, models.SettingPricingPageEnabled, true) {
+			errorResponse(c, http.StatusForbidden, "Pembelian paket sedang tidak tersedia untuk saat ini.")
+			return
+		}
+		if !models.GetSaasSettingBool(ctx, pool, models.SettingDokuPaymentEnabled, true) {
+			errorResponse(c, http.StatusForbidden, "Pembayaran via DOKU sedang dinonaktifkan.")
+			return
+		}
+
 		pkgName := strings.TrimSpace(c.PostForm("package"))
 		durationType := strings.TrimSpace(c.PostForm("duration_type")) // bulanan, semester, tahunan
 		notes := strings.TrimSpace(c.PostForm("notes"))
@@ -775,6 +792,11 @@ func BillingPage() gin.HandlerFunc {
 			"plans":                plans,
 			"selected_package":     selectedPackage,
 			"selected_duration":    selectedDuration,
+			// Monetization toggles (SuperAdmin-controlled) so the page can hide
+			// the buy flow / DOKU option / voucher form when disabled.
+			"pricing_enabled": models.GetSaasSettingBool(ctx, pool, models.SettingPricingPageEnabled, true),
+			"doku_enabled":    models.GetSaasSettingBool(ctx, pool, models.SettingDokuPaymentEnabled, true),
+			"voucher_enabled": models.GetSaasSettingBool(ctx, pool, models.SettingVoucherRedeemEnabled, true),
 		}
 
 		renderAdminPage(c, "admin/billing.html", data)

@@ -38,6 +38,11 @@ const (
 	SettingSEOIndex                 = "seo_index"
 	SettingDokuPaymentMethods       = "doku_payment_methods"
 
+	// Monetization feature toggles (SuperAdmin). "1" = enabled, "0" = disabled.
+	SettingDokuPaymentEnabled   = "doku_payment_enabled"   // online payment via DOKU
+	SettingPricingPageEnabled   = "pricing_page_enabled"   // public /pricing + buy-package flow
+	SettingVoucherRedeemEnabled = "voucher_redeem_enabled" // redeem promo/voucher codes
+
 	// Price settings
 	SettingPriceGuruBulanan             = "price_guru_bulanan"
 	SettingPriceGuruSemester            = "price_guru_semester"
@@ -80,6 +85,11 @@ var DefaultSettings = map[string]string{
 	SettingSEOKeywords:              "examvan, ujian online, ujian sekolah",
 	SettingSEOIndex:                 "1",
 	SettingDokuPaymentMethods:       "VIRTUAL_ACCOUNT_BCA,VIRTUAL_ACCOUNT_MANDIRI,VIRTUAL_ACCOUNT_BRI,VIRTUAL_ACCOUNT_BNI,QRIS,EMONEY_SHOPEEPAY,EMONEY_DANA,EMONEY_OVO,CREDIT_CARD",
+
+	// Monetization toggles default to enabled to preserve existing behavior.
+	SettingDokuPaymentEnabled:   "1",
+	SettingPricingPageEnabled:   "1",
+	SettingVoucherRedeemEnabled: "1",
 
 	// Default price values
 	SettingPriceGuruBulanan:             "25000",
