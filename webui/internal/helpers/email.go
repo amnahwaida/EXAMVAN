@@ -8,20 +8,9 @@ import (
 	"time"
 )
 
-// SendVerificationEmail sends an email containing the OTP verification code using SMTP.
-func SendVerificationEmail(smtpHost, smtpPort, smtpUser, smtpPassword, senderName, toEmail, username, otpCode string) error {
-	subject := "Verifikasi Pendaftaran Akun EXAMVAN"
-	body := fmt.Sprintf(
-		"Halo %s,\n\n"+
-			"Terima kasih telah mendaftar di EXAMVAN.\n"+
-			"Berikut adalah kode verifikasi OTP Anda:\n\n"+
-			"👉 KODE OTP: %s\n\n"+
-			"Masukkan kode di atas pada halaman verifikasi untuk mengaktifkan akun Anda.\n"+
-			"Kode ini berlaku selama 15 menit.\n\n"+
-			"Salam,\n%s",
-		username, otpCode, senderName,
-	)
-
+// sendSMTPMessage delivers a plain-text UTF-8 email via SMTP. It is the shared
+// transport used by the verification and password-reset emails.
+func sendSMTPMessage(smtpHost, smtpPort, smtpUser, smtpPassword, senderName, toEmail, subject, body string) error {
 	msg := []byte(fmt.Sprintf(
 		"From: %s <%s>\r\n"+
 			"To: %s\r\n"+
@@ -87,16 +76,47 @@ func SendVerificationEmail(smtpHost, smtpPort, smtpUser, smtpPassword, senderNam
 	if err != nil {
 		return fmt.Errorf("SMTP data command failed: %w", err)
 	}
-	_, err = w.Write(msg)
-	if err != nil {
+	if _, err = w.Write(msg); err != nil {
 		return fmt.Errorf("failed to write email body: %w", err)
 	}
-	err = w.Close()
-	if err != nil {
+	if err = w.Close(); err != nil {
 		return fmt.Errorf("failed to close data writer: %w", err)
 	}
 
 	return client.Quit()
+}
+
+// SendVerificationEmail sends an email containing the OTP verification code.
+func SendVerificationEmail(smtpHost, smtpPort, smtpUser, smtpPassword, senderName, toEmail, username, otpCode string) error {
+	subject := "Verifikasi Pendaftaran Akun EXAMVAN"
+	body := fmt.Sprintf(
+		"Halo %s,\n\n"+
+			"Terima kasih telah mendaftar di EXAMVAN.\n"+
+			"Berikut adalah kode verifikasi OTP Anda:\n\n"+
+			"👉 KODE OTP: %s\n\n"+
+			"Masukkan kode di atas pada halaman verifikasi untuk mengaktifkan akun Anda.\n"+
+			"Kode ini berlaku selama 15 menit.\n\n"+
+			"Salam,\n%s",
+		username, otpCode, senderName,
+	)
+	return sendSMTPMessage(smtpHost, smtpPort, smtpUser, smtpPassword, senderName, toEmail, subject, body)
+}
+
+// SendPasswordResetEmail sends an email containing the password-reset OTP code.
+func SendPasswordResetEmail(smtpHost, smtpPort, smtpUser, smtpPassword, senderName, toEmail, username, otpCode string) error {
+	subject := "Reset Password Akun EXAMVAN"
+	body := fmt.Sprintf(
+		"Halo %s,\n\n"+
+			"Kami menerima permintaan untuk mereset password akun EXAMVAN Anda.\n"+
+			"Berikut adalah kode verifikasi (OTP) untuk mereset password:\n\n"+
+			"👉 KODE OTP: %s\n\n"+
+			"Masukkan kode di atas beserta password baru Anda pada halaman reset password.\n"+
+			"Kode ini berlaku selama 15 menit.\n\n"+
+			"Jika Anda tidak meminta reset password, abaikan email ini — password Anda tidak berubah.\n\n"+
+			"Salam,\n%s",
+		username, otpCode, senderName,
+	)
+	return sendSMTPMessage(smtpHost, smtpPort, smtpUser, smtpPassword, senderName, toEmail, subject, body)
 }
 
 // TestSMTPConnection tests the SMTP server connection and credentials.

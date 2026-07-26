@@ -1,6 +1,10 @@
-server
-main
-examvan-server
+# Compiled binaries at the webui root (anchored so they don't match the
+# cmd/server/ SOURCE directory or other nested paths).
+/server
+/main
+/examvan-server
+/bin/
+/test_bin
 .env
 storage/data/*
 !storage/data/.gitkeep

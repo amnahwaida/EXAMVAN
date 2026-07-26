@@ -468,6 +468,13 @@ func registerRoutes(r *gin.Engine, cfg *config.Config, pool *pgxpool.Pool) {
 	r.POST("/register", middleware.RateLimit(5, time.Minute), registerPostHandler(cfg))
 	r.GET("/register/confirm", registerConfirmPageHandler(cfg))
 	r.POST("/register/confirm", middleware.RateLimit(5, time.Minute), registerConfirmPostHandler(cfg))
+	r.POST("/register/resend", middleware.RateLimit(5, time.Minute), resendOTPHandler(cfg))
+
+	// Password recovery
+	r.GET("/forgot-password", forgotPasswordPageHandler(cfg))
+	r.POST("/forgot-password", middleware.RateLimit(5, time.Minute), forgotPasswordPostHandler(cfg))
+	r.GET("/reset-password", resetPasswordPageHandler(cfg))
+	r.POST("/reset-password", middleware.RateLimit(5, time.Minute), resetPasswordPostHandler(cfg))
 
 	r.GET("/download", public.DownloadPage())
 	r.GET("/download/apk", public.DownloadAPK())

@@ -239,7 +239,9 @@
    </form>
 
    <div class="resend-hint" id="resendHint">
-    <span id="resendTimer">Kode berlaku selama 15 menit</span>
+    <span id="resendMsg" style="display:block;margin-bottom:4px;"></span>
+    <span id="resendTimer">Tidak menerima kode?</span>
+    <a href="#" id="resendLink" role="button" onclick="resendOtp(event)">Kirim ulang kode</a>
    </div>
 
    <hr class="divider-subtle" style="margin:20px 0 14px;">
@@ -251,6 +253,7 @@
  </div>
 
  <script>
+ var USERNAME = "{{.username}}";
  document.addEventListener('DOMContentLoaded', function() {
   var digits = document.querySelectorAll('.otp-digit');
   var hiddenInput = document.getElementById('otp_code');
@@ -334,6 +337,56 @@
     setTimeout(function() { flashMessages.style.display = 'none'; }, 500);
    }, 6000);
   }
+
+  // ---- Resend OTP ----
+  var resendLink = document.getElementById('resendLink');
+  var resendTimer = document.getElementById('resendTimer');
+  var resendMsg = document.getElementById('resendMsg');
+  var cooldownIv = null;
+
+  function startCooldown(seconds) {
+   if (!resendLink || !resendTimer) return;
+   var remaining = seconds;
+   resendLink.style.display = 'none';
+   resendTimer.textContent = 'Kirim ulang kode dalam ' + remaining + ' detik';
+   if (cooldownIv) clearInterval(cooldownIv);
+   cooldownIv = setInterval(function() {
+    remaining--;
+    if (remaining <= 0) {
+     clearInterval(cooldownIv);
+     resendTimer.textContent = 'Tidak menerima kode?';
+     resendLink.style.display = '';
+    } else {
+     resendTimer.textContent = 'Kirim ulang kode dalam ' + remaining + ' detik';
+    }
+   }, 1000);
+  }
+
+  window.resendOtp = function(e) {
+   if (e) e.preventDefault();
+   if (resendMsg) resendMsg.textContent = '';
+   if (resendLink) resendLink.style.pointerEvents = 'none';
+   fetch('/register/resend?username=' + encodeURIComponent(USERNAME), {
+    method: 'POST',
+    headers: { 'X-Requested-With': 'XMLHttpRequest' }
+   })
+   .then(function(r) { return r.json().then(function(j) { return { ok: r.ok, j: j }; }); })
+   .then(function(res) {
+    if (resendLink) resendLink.style.pointerEvents = '';
+    if (resendMsg) {
+     resendMsg.textContent = res.j.message || (res.ok ? 'Kode baru terkirim.' : 'Gagal mengirim ulang.');
+     resendMsg.style.color = res.ok && res.j.success ? '#34d399' : '#f87171';
+    }
+    if (res.ok && res.j.success) startCooldown(60);
+   })
+   .catch(function() {
+    if (resendLink) resendLink.style.pointerEvents = '';
+    if (resendMsg) { resendMsg.textContent = 'Gagal terhubung ke server.'; resendMsg.style.color = '#f87171'; }
+   });
+  };
+
+  // A code was just sent when this page loaded, so start the 60s cooldown.
+  startCooldown(60);
  });
  </script>
 </body>
