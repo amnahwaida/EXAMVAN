@@ -40,8 +40,9 @@
  --card-hover: rgba(255, 255, 255, 0.03);
  }
 
- @media (prefers-color-scheme: light) {
- :root {
+ /* Dark-only UI: light palette kept for a future explicit toggle only, not
+    auto-applied on OS light mode (gradient headings/dark surfaces broke in it). */
+ :root[data-theme="light"] {
  --bg-primary: #f1f5f9;
  --bg-secondary: #ffffff;
  --accent-primary: #6366f1;
@@ -53,7 +54,6 @@
  --glass-bg: rgba(255, 255, 255, 0.8);
  --glass-border: rgba(0, 0, 0, 0.08);
  --card-hover: rgba(0, 0, 0, 0.02);
- }
  }
 
  * {
@@ -832,6 +832,7 @@
  <div class="nav-links" id="navLinks">
  <a href="/download" class="nav-link">Download App</a>
  <a href="/pricing" class="nav-link">Harga</a>
+ <a href="/register" class="nav-link">Daftar</a>
  <a href="/admin/login" class="btn-nav-login">Masuk</a>
  </div>
  </div>

@@ -215,7 +215,7 @@
    </h3>
    <div class="pd-table-toolbar">
     <label class="pd-toggle-switch" title="Terima Otomatis (Otomatis menyetujui siswa yang meminta izin masuk ke ujian)" style="margin-right:12px;">
-     <input type="checkbox" id="autoAcceptToggle">
+     <input type="checkbox" id="autoAcceptToggle" aria-label="Terima otomatis semua peserta yang meminta izin masuk">
      <span class="pd-toggle-slider"></span>
     </label>
     <button class="pd-toolbar-btn" onclick="loadApprovals()" title="Refresh Antrean" style="color:#fbbf24; background:rgba(245, 158, 11, 0.1);">
@@ -1151,7 +1151,7 @@ function loadApprovals() {
             for (var i = 0; i < res.data.length; i++) {
                 var a = res.data[i];
                 if (isAutoAccept) {
-                    setApproval(a.mac_address, 'approved', true);
+                    setApproval(a.mac_address, 'approved', true, true);
                     continue;
                 }
                 var t = a.created_at ? localizeUTC(a.created_at) : '—';
@@ -1194,7 +1194,7 @@ function loadApprovals() {
         });
 }
 
-function setApproval(macAddress, status, skipConfirm) {
+function setApproval(macAddress, status, skipConfirm, auto) {
     if (!skipConfirm) {
         showConfirmApprovalModal(macAddress, status);
         return;
@@ -1209,28 +1209,29 @@ function setApproval(macAddress, status, skipConfirm) {
     })
     .then(function(r) { return r.json(); })
     .then(function(res) {
+        // Manual (confirmed) actions give explicit feedback + refresh the queue.
+        // Auto-accept stays silent (the 5s interval refreshes) to avoid a burst
+        // of toasts and duplicate re-fetches when many devices are approved.
         if (res.success) {
-            if (!skipConfirm) {
+            if (!auto) {
                 showToast(status === 'approved' ? 'Perangkat diizinkan' : 'Perangkat ditolak', status === 'approved' ? 'success' : 'error');
                 loadApprovals();
             }
-        } else {
-            // Only show error toasts if not auto-accepting, or if we want to surface issues
-            if (!skipConfirm) {
-                showToast(res.message || 'Gagal menyimpan persetujuan', 'error');
-            }
+        } else if (!auto) {
+            showToast(res.message || 'Gagal menyimpan persetujuan', 'error');
         }
     })
     .catch(function(err) {
-        showToast('Terjadi kesalahan jaringan', 'error');
+        if (!auto) showToast('Terjadi kesalahan jaringan', 'error');
     });
 }
 
-function loadDetail(page) {
+function loadDetail(page, silent) {
     var tbody = document.getElementById('submissionBody');
     if (!tbody) return;
     if (page !== undefined) SUB_PAGE = page;
-    tbody.innerHTML = '<tr><td colspan="8" class="pd-table-empty">Memuat data...</td></tr>';
+    // On silent auto-refresh, keep the current rows in place (no loading flash).
+    if (!silent) tbody.innerHTML = '<tr><td colspan="8" class="pd-table-empty">Memuat data...</td></tr>';
 
     var search = document.getElementById('pengawasSearch') ? document.getElementById('pengawasSearch').value.trim() : '';
     var status = document.getElementById('statusFilter') ? document.getElementById('statusFilter').value : '';
@@ -1616,6 +1617,9 @@ function updateCountdown() {
     loadDetail();
     loadApprovals();
     setInterval(loadApprovals, 5000);
+    // Keep the "live" monitoring stats + student table actually live (silent
+    // refresh preserves the current page/filter and avoids a loading flash).
+    setInterval(function() { loadDetail(SUB_PAGE, true); }, 12000);
     setInterval(refreshActiveToken, 30000);
     setInterval(updateCountdown, 1000);
     updateCountdown();

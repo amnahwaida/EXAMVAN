@@ -525,3 +525,19 @@ code, pre, .token-code, .mono {
         padding-bottom: calc(12px + env(safe-area-inset-bottom, 0px));
     }
 }
+
+/* ===== Wayfinding & a11y (general-UX audit) ===== */
+/* Clearer active-nav state (previously only color:white — imperceptible). */
+.nav-link.active { color: var(--color-accent-light) !important; }
+.topbar-nav .nav-link.active { background: rgba(99,102,241,0.14); border-radius: 8px; }
+.topbar-dropdown-content a.active,
+.topbar-dropdown-content .dropdown-item.active,
+.dropdown-item.active {
+    color: var(--color-accent-light) !important;
+    background: rgba(99,102,241,0.12);
+}
+/* Keyboard-focus affordance for div/span elements promoted to role="button". */
+[role="button"]:focus-visible {
+    outline: 2px solid var(--color-primary);
+    outline-offset: 2px;
+}

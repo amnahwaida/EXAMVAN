@@ -383,7 +383,7 @@
 {{end}}
 <td class="td-token" data-label="Token">
 <div class="token-mode-group">
-  <select class="token-mode-select" onchange="onTokenModeChange(this, {{$exam.ID}})">
+  <select class="token-mode-select" aria-label="Mode token ujian" title="Statis: token tetap sepanjang ujian. Dinamis: token berganti otomatis tiap beberapa menit demi keamanan (anti-bocor)." onchange="onTokenModeChange(this, {{$exam.ID}})">
     <option value="static" {{if eq $exam.TokenMode "static"}}selected{{end}}>Statis</option>
     <option value="dynamic" {{if or (not $exam.TokenMode) (eq $exam.TokenMode "dynamic")}}selected{{end}}>Dinamis</option>
   </select>
@@ -410,9 +410,9 @@
 </td>
 <td data-label="Status">
 {{if or (eq $.admin_role "superadmin") (eq $.admin_role "operator") (eq $.admin_id $exam.CreatedBy) (and $exam.DelegatedTo (eq $.admin_id $exam.DelegatedTo))}}
-<span class="status-badge status-{{$exam.Status}}" id="status-{{$exam.ID}}" onclick="toggleExam({{$exam.ID}})" onkeydown="if(event.key==='Enter' || event.key===' '){event.preventDefault();toggleExam({{$exam.ID}});}" tabindex="0" role="button" aria-label="Ubah status ujian {{$exam.Name}}" title="Klik untuk toggle status">{{$exam.Status}}</span>
+<span class="status-badge status-{{$exam.Status}}" id="status-{{$exam.ID}}" onclick="toggleExam({{$exam.ID}})" onkeydown="if(event.key==='Enter' || event.key===' '){event.preventDefault();toggleExam({{$exam.ID}});}" tabindex="0" role="button" aria-label="Ubah status ujian {{$exam.Name}}" title="Klik untuk toggle status">{{if eq $exam.Status "active"}}Aktif{{else}}Nonaktif{{end}}</span>
 {{else}}
-<span class="status-badge status-{{$exam.Status}}" style="cursor:default;">{{$exam.Status}}</span>
+<span class="status-badge status-{{$exam.Status}}" style="cursor:default;">{{if eq $exam.Status "active"}}Aktif{{else}}Nonaktif{{end}}</span>
 {{end}}
 </td>
 <td data-label="Pengawas" class="pengawas-cell">

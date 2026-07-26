@@ -2,6 +2,9 @@
 /* This is the SINGLE SOURCE OF TRUTH for all theme variables. */
 
 :root {
+    /* App is a dark-only UI; declare it so native controls/scrollbars match and
+       the browser does not auto-flip form widgets to light. */
+    color-scheme: dark;
     /* === Colors (Dark Mode - Default) === */
     --color-bg: #09090e;
     --color-bg-secondary: #111827;
@@ -46,11 +49,15 @@
     --font-mono: 'SF Mono', 'Fira Code', 'JetBrains Mono', monospace;
 
     /* === Background Gradient === */
+    --color-card-bg: #1e1e2e;
     --bg-gradient: radial-gradient(ellipse at 50% 0%, #17152f 0%, #0c0a1a 50%, #06050b 100%);
 }
 
-@media (prefers-color-scheme: light) {
-    :root {
+/* Light palette preserved for a FUTURE explicit toggle only. It is intentionally
+   NOT auto-applied on OS light mode: the app's surfaces (topbar, cards, modals)
+   are hardcoded dark, so prefers-color-scheme:light produced a broken, low-contrast
+   half-light UI with no way to recover. Opt in via <html data-theme="light">. */
+:root[data-theme="light"] {
         --color-bg: #f1f5f9;
         --color-bg-secondary: #ffffff;
         --color-surface: rgba(0, 0, 0, 0.02);
@@ -76,11 +83,11 @@
         --color-text-muted: #64748b;
         --color-text-on-primary: #ffffff;
         --color-text-on-accent: #ffffff;
+        --color-card-bg: #ffffff;
         --shadow-card: 0 8px 32px rgba(0, 0, 0, 0.08);
         --shadow-lg: 0 20px 50px rgba(0, 0, 0, 0.1);
         --shadow-sm: 0 4px 12px rgba(0, 0, 0, 0.05);
         --bg-gradient: radial-gradient(ellipse at 50% 0%, #e2e8f0 0%, #f1f5f9 50%, #f8fafc 100%);
-    }
 }
 
 /* ===== Font Face Fallbacks (Google Fonts self-host placeholder) ===== */

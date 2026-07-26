@@ -70,6 +70,28 @@ function dismissToast(toast) {
     }, 300);
 }
 
+// Generic click-to-copy helper with toast feedback. Pages that need custom
+// behaviour (e.g. the vouchers badge animation) may define their own copyCode
+// which will override this one because their inline script loads afterwards.
+// Accepts copyCode(text) or copyCode(element, text).
+function copyCode(elOrText, maybeText) {
+    var text = typeof elOrText === 'string' ? elOrText : (maybeText || (elOrText && elOrText.textContent) || '');
+    text = (text || '').trim();
+    if (!text) return;
+    var ok = function () { showToast('"' + text + '" tersalin ke clipboard', 'success'); };
+    var fail = function () { showToast('Gagal menyalin', 'error'); };
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(text).then(ok).catch(fail);
+    } else {
+        try {
+            var ta = document.createElement('textarea');
+            ta.value = text; ta.style.position = 'fixed'; ta.style.opacity = '0';
+            document.body.appendChild(ta); ta.select(); document.execCommand('copy');
+            document.body.removeChild(ta); ok();
+        } catch (e) { fail(); }
+    }
+}
+
 // Escape HTML to prevent XSS — also escapes single quotes for safe use in HTML attributes
 function escapeHtml(str) {
     return String(str)
@@ -475,3 +497,19 @@ if (document.readyState === 'loading') {
         refreshDashboardStats();
     }
 }
+
+// Keyboard accessibility: let elements promoted to role="button" (div/span/strong
+// with an onclick) be activated with Enter/Space like a native button. Native
+// <button>/<a> already handle this, so they are excluded.
+document.addEventListener('keydown', function (e) {
+    if (e.key !== 'Enter' && e.key !== ' ' && e.key !== 'Spacebar') return;
+    var el = e.target;
+    if (!el || el.getAttribute('role') !== 'button') return;
+    var tag = el.tagName;
+    if (tag === 'BUTTON' || tag === 'A' || tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return;
+    // Skip elements that already define their own keyboard handling, otherwise
+    // both their inline onkeydown and this handler would fire (double action).
+    if (el.hasAttribute('onkeydown')) return;
+    e.preventDefault();
+    el.click();
+});
