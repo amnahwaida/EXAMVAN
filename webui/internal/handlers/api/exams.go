@@ -242,9 +242,33 @@ func ListExams() gin.HandlerFunc {
 			perPage = 200
 		}
 
-		// --- Redis cache lookup ---
+		// --- School scope ---
+		// This endpoint is a shared multi-tenant SaaS API, so the exam list is
+		// scoped to a single school by its unique instansi CODE. Without a code
+		// we return an EMPTY list rather than every school's active exams (which
+		// would be a cross-tenant leak). Names are intentionally NOT accepted
+		// (non-unique -> could bleed across same-named schools).
+		instansi := strings.TrimSpace(c.Query("instansi"))
+		if instansi == "" {
+			instansi = strings.TrimSpace(c.Query("kode"))
+		}
+		if instansi == "" {
+			instansi = strings.TrimSpace(c.Query("code"))
+		}
+		if instansi == "" {
+			c.JSON(http.StatusOK, gin.H{
+				"success": true,
+				"data":    []interface{}{},
+				"pagination": gin.H{
+					"page": page, "per_page": perPage, "total": 0, "total_pages": 0,
+				},
+			})
+			return
+		}
+
+		// --- Redis cache lookup (keyed per school to avoid cross-school mixing) ---
+		cacheKey := fmt.Sprintf("%s%s:%d:%d", cacheKeyPrefix, strings.ToLower(instansi), page, perPage)
 		if rdb != nil {
-			cacheKey := fmt.Sprintf("%s%d:%d", cacheKeyPrefix, page, perPage)
 			cached, err := rdb.Get(ctx, cacheKey).Result()
 			if err == nil {
 				c.Data(http.StatusOK, "application/json; charset=utf-8", []byte(cached))
@@ -252,8 +276,8 @@ func ListExams() gin.HandlerFunc {
 			}
 		}
 
-		// --- Database query ---
-		result, err := models.ListActiveExams(ctx, pool, page, perPage)
+		// --- Database query (scoped to the requested school) ---
+		result, err := models.ListActiveExamsByInstansi(ctx, pool, instansi, page, perPage)
 		if err != nil {
 			log.Printf("list active exams error: %v", err)
 			errorResponse(c, http.StatusInternalServerError, "Gagal memuat daftar ujian")
@@ -294,9 +318,8 @@ func ListExams() gin.HandlerFunc {
 			},
 		}
 
-		// --- Store in Redis cache ---
+		// --- Store in Redis cache (same per-school key as the lookup) ---
 		if rdb != nil {
-			cacheKey := fmt.Sprintf("%s%d:%d", cacheKeyPrefix, page, perPage)
 			if jsonBytes, err := json.Marshal(resp); err == nil {
 				if err := rdb.Set(ctx, cacheKey, jsonBytes, cacheTTL).Err(); err != nil {
 					log.Printf("redis cache set error: %v", err)

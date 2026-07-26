@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"log"
 	"math"
+	"strings"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -268,60 +269,9 @@ LEFT JOIN admin_users u ON e.created_by = u.id` + whereClause +
 	}, nil
 }
 
-// ListActiveExams returns all exams with status='active', ordered by creation date DESC,
-// with optional pagination.
-func ListActiveExams(ctx context.Context, pool *pgxpool.Pool, page, perPage int) (ListExamsResult, error) {
-	if page < 1 {
-		page = 1
-	}
-	perPage = clampPerPage(perPage)
-
-	// Count.
-	var total int
-	err := pool.QueryRow(ctx, `SELECT COUNT(*) FROM exams WHERE status = 'active' AND exam_started_at IS NOT NULL`).Scan(&total)
-	if err != nil {
-		return ListExamsResult{}, fmt.Errorf("count active exams: %w", err)
-	}
-
-	totalPages := calcTotalPages(total, perPage)
-	if page > totalPages && total > 0 {
-		page = totalPages
-	}
-	offset := calcOffset(page, perPage)
-
-	rows, err := pool.Query(ctx,
-		`SELECT `+DefaultExamColumns+` FROM exams WHERE status = 'active' AND exam_started_at IS NOT NULL ORDER BY created_at DESC LIMIT $1 OFFSET $2`,
-		perPage, offset)
-	if err != nil {
-		return ListExamsResult{}, fmt.Errorf("list active exams: %w", err)
-	}
-	defer rows.Close()
-
-	var exams []Exam
-	for rows.Next() {
-		e, err := scanExamFromRows(rows)
-		if err != nil {
-			return ListExamsResult{}, fmt.Errorf("scan active exam: %w", err)
-		}
-		exams = append(exams, e)
-	}
-	rows.Close()
-	if err := rows.Err(); err != nil {
-		log.Printf("rows iteration error: %v", err)
-	}
-
-	if exams == nil {
-		exams = []Exam{}
-	}
-
-	return ListExamsResult{
-		Exams:      exams,
-		Total:      total,
-		TotalPages: totalPages,
-		Page:       page,
-		PerPage:    perPage,
-	}, nil
-}
+// (ListActiveExams was removed: a global, unscoped list of every tenant's active
+// exams is a cross-tenant leak on the shared SaaS API. The public exam-list
+// endpoint now uses ListActiveExamsByInstansi to scope results to one school.)
 
 // CreateExam inserts a new exam row and returns the created Exam with its generated ID.
 func CreateExam(ctx context.Context, pool *pgxpool.Pool, e *Exam) (*Exam, error) {
@@ -542,6 +492,75 @@ func BulkDeleteExams(ctx context.Context, pool *pgxpool.Pool, ids []int) ([]stri
 		return nil, fmt.Errorf("bulk delete: exec: %w", err)
 	}
 	return paths, nil
+}
+
+// ListActiveExamsByInstansi lists active, started exams whose creator belongs to
+// the given school, identified by its unique instansi_code (case-insensitive).
+// Used by the public mobile exam-list endpoint so a client only ever sees ONE
+// school's exams — never a cross-tenant global list.
+//
+// Matching is by CODE only (not the free-text instansi name): names are not
+// unique (the unique-name constraint was dropped and names are not deduplicated
+// on creation), so a name match could bleed exams across two schools that
+// happen to share a name. An empty/unknown code returns no exams.
+func ListActiveExamsByInstansi(ctx context.Context, pool *pgxpool.Pool, code string, page, perPage int) (ListExamsResult, error) {
+	if page < 1 {
+		page = 1
+	}
+	perPage = clampPerPage(perPage)
+
+	empty := ListExamsResult{Exams: []Exam{}, Total: 0, TotalPages: 1, Page: page, PerPage: perPage}
+	if strings.TrimSpace(code) == "" {
+		return empty, nil
+	}
+
+	const scope = ` FROM exams e JOIN admin_users u ON e.created_by = u.id
+		WHERE e.status = 'active' AND e.exam_started_at IS NOT NULL
+		  AND u.instansi_code IS NOT NULL AND u.instansi_code <> ''
+		  AND LOWER(u.instansi_code) = LOWER($1)`
+
+	var total int
+	if err := pool.QueryRow(ctx, `SELECT COUNT(*)`+scope, code).Scan(&total); err != nil {
+		return ListExamsResult{}, fmt.Errorf("count active exams by instansi: %w", err)
+	}
+
+	totalPages := calcTotalPages(total, perPage)
+	if page > totalPages && total > 0 {
+		page = totalPages
+	}
+	offset := calcOffset(page, perPage)
+
+	rows, err := pool.Query(ctx,
+		`SELECT `+DefaultExamColumnsWithAlias+scope+` ORDER BY e.created_at DESC LIMIT $2 OFFSET $3`,
+		code, perPage, offset)
+	if err != nil {
+		return ListExamsResult{}, fmt.Errorf("list active exams by instansi: %w", err)
+	}
+	defer rows.Close()
+
+	var exams []Exam
+	for rows.Next() {
+		e, err := scanExamFromRows(rows)
+		if err != nil {
+			return ListExamsResult{}, fmt.Errorf("scan active exam by instansi: %w", err)
+		}
+		exams = append(exams, e)
+	}
+	rows.Close()
+	if err := rows.Err(); err != nil {
+		log.Printf("rows iteration error: %v", err)
+	}
+	if exams == nil {
+		exams = []Exam{}
+	}
+
+	return ListExamsResult{
+		Exams:      exams,
+		Total:      total,
+		TotalPages: totalPages,
+		Page:       page,
+		PerPage:    perPage,
+	}, nil
 }
 
 // BulkToggleExamStatus changes the status of multiple exams at once.
