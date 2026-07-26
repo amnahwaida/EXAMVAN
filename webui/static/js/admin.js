@@ -2746,6 +2746,7 @@ function deleteSubmission(id) {
 function saveSaasSettings(e) {
     e.preventDefault();
     const email_verification_enabled = document.getElementById('emailEnabledInput').checked;
+    const email_domain_whitelist = (document.getElementById('emailDomainWhitelistInput') || {}).value || '';
     const smtp_host = document.getElementById('smtpHostInput').value.trim();
     const smtp_port = document.getElementById('smtpPortInput').value.trim();
     const smtp_user = document.getElementById('smtpUserInput').value.trim();
@@ -2802,7 +2803,7 @@ function saveSaasSettings(e) {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-            email_verification_enabled, smtp_host, smtp_port, smtp_user, smtp_password, smtp_sender_name,
+            email_verification_enabled, email_domain_whitelist, smtp_host, smtp_port, smtp_user, smtp_password, smtp_sender_name,
             default_max_exams, default_max_pdf_size_mb,
             default_active_days, android_version, webapp_version,
             seo_title, seo_description, seo_keywords, seo_index,
@@ -2958,6 +2959,8 @@ function loadSaasSettings() {
             if (res.success) {
                 const s = res.settings;
                 document.getElementById('emailEnabledInput').checked = s.email_verification_enabled || false;
+                var _edw = document.getElementById('emailDomainWhitelistInput');
+                if (_edw) _edw.value = s.email_domain_whitelist || '';
                 document.getElementById('smtpHostInput').value = s.smtp_host || 'smtp.gmail.com';
                 document.getElementById('smtpPortInput').value = s.smtp_port || '587';
                 document.getElementById('smtpUserInput').value = s.smtp_user || '';

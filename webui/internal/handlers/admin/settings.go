@@ -64,6 +64,7 @@ func handleSaasSettingsGet(c *gin.Context, pool *pgxpool.Pool, ctx context.Conte
 		"success": true,
 		"settings": gin.H{
 			"email_verification_enabled": emailEnabled,
+			"email_domain_whitelist":     settings[models.SettingEmailDomainWhitelist],
 			"smtp_host":                  settings[models.SettingSMTPHost],
 			"smtp_port":                  settings[models.SettingSMTPPort],
 			"smtp_user":                  settings[models.SettingSMTPUser],
@@ -140,6 +141,7 @@ func boolFlag(b bool) string {
 func handleSaasSettingsPost(c *gin.Context, pool *pgxpool.Pool, ctx context.Context) {
 	var body struct {
 		EmailVerificationEnabled bool    `json:"email_verification_enabled"`
+		EmailDomainWhitelist     string  `json:"email_domain_whitelist"`
 		SMTPHost                 string  `json:"smtp_host"`
 		SMTPPort                 string  `json:"smtp_port"`
 		SMTPUser                 string  `json:"smtp_user"`
@@ -200,6 +202,10 @@ func handleSaasSettingsPost(c *gin.Context, pool *pgxpool.Pool, ctx context.Cont
 	if err := models.SetSaasSetting(reqCtx, pool, models.SettingEmailVerificationEnabled, emailEnabled); err != nil {
 		log.Printf("save email_enabled error: %v", err)
 	}
+
+	// Email domain whitelist — normalize (lowercase, dedupe format) and store CSV.
+	models.SetSaasSetting(reqCtx, pool, models.SettingEmailDomainWhitelist,
+		strings.Join(models.ParseDomainList(body.EmailDomainWhitelist), ","))
 
 	models.SetSaasSetting(reqCtx, pool, models.SettingSMTPHost, strings.TrimSpace(body.SMTPHost))
 	models.SetSaasSetting(reqCtx, pool, models.SettingSMTPPort, strings.TrimSpace(body.SMTPPort))

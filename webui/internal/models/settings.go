@@ -5,10 +5,55 @@ import (
 	"fmt"
 	"log"
 	"strconv"
+	"strings"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
+
+// ParseDomainList splits a whitelist string (comma / semicolon / whitespace /
+// newline separated) into normalized, lowercased domains, stripping any
+// leading "@", "*.", or dots. Order is preserved; blanks are dropped.
+func ParseDomainList(s string) []string {
+	fields := strings.FieldsFunc(s, func(r rune) bool {
+		return r == ',' || r == ';' || r == '\n' || r == '\r' || r == ' ' || r == '\t'
+	})
+	out := make([]string, 0, len(fields))
+	for _, f := range fields {
+		d := strings.ToLower(strings.TrimSpace(f))
+		d = strings.TrimPrefix(d, "@")
+		d = strings.TrimPrefix(d, "*.")
+		d = strings.Trim(d, ".")
+		if d != "" {
+			out = append(out, d)
+		}
+	}
+	return out
+}
+
+// EmailDomainAllowed reports whether the given email's domain is permitted by
+// the whitelist. An empty whitelist allows ANY domain. Each entry matches the
+// exact domain OR any of its subdomains (e.g. "sch.id" allows "x.sch.id").
+func EmailDomainAllowed(whitelist, email string) bool {
+	entries := ParseDomainList(whitelist)
+	if len(entries) == 0 {
+		return true
+	}
+	at := strings.LastIndex(email, "@")
+	if at < 0 || at == len(email)-1 {
+		return false
+	}
+	dom := strings.ToLower(strings.TrimSpace(email[at+1:]))
+	if dom == "" {
+		return false
+	}
+	for _, e := range entries {
+		if dom == e || strings.HasSuffix(dom, "."+e) {
+			return true
+		}
+	}
+	return false
+}
 
 // SaasSetting represents a row from the saas_settings table.
 type SaasSetting struct {
@@ -19,6 +64,7 @@ type SaasSetting struct {
 // Default settings keys.
 const (
 	SettingEmailVerificationEnabled = "email_verification_enabled"
+	SettingEmailDomainWhitelist     = "email_domain_whitelist"
 	SettingSMTPHost                 = "smtp_host"
 	SettingSMTPPort                 = "smtp_port"
 	SettingSMTPUser                 = "smtp_user"
@@ -67,6 +113,10 @@ const (
 // Default settings values as defined in the Python app.py.
 var DefaultSettings = map[string]string{
 	SettingEmailVerificationEnabled: "0",
+	// Trusted email domains allowed for registration. Each entry also matches
+	// its subdomains (e.g. "sch.id" allows "smanegeri1.sch.id"). Empty = allow
+	// any domain. SuperAdmin can edit this in SaaS settings.
+	SettingEmailDomainWhitelist: "gmail.com,googlemail.com,yahoo.com,yahoo.co.id,outlook.com,hotmail.com,live.com,icloud.com,proton.me,protonmail.com,sch.id,ac.id,go.id",
 	SettingSMTPHost:                 "smtp.gmail.com",
 	SettingSMTPPort:                 "587",
 	SettingSMTPUser:                 "",

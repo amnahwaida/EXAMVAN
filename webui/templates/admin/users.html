@@ -211,6 +211,12 @@
   </label>
   </div>
 
+  <div class="form-group space-y-1">
+  <label for="emailDomainWhitelistInput">Whitelist Domain Email Pendaftaran</label>
+  <textarea id="emailDomainWhitelistInput" rows="3" placeholder="gmail.com, yahoo.com, sch.id, ac.id" style="width:100%;background:rgba(255,255,255,0.05);border:1px solid var(--color-glass-border);border-radius:6px;padding:8px;color:var(--color-text);font-family:var(--font-mono);font-size:0.8rem;resize:vertical;"></textarea>
+  <span class="form-hint">Hanya email dari domain ini yang boleh mendaftar. Pisahkan dengan koma atau baris baru. Subdomain otomatis diizinkan (mis. <code>sch.id</code> mengizinkan <code>smanegeri1.sch.id</code>). Kosongkan untuk mengizinkan semua domain.</span>
+  </div>
+
   <div id="emailSettingsFields" style="display:flex;flex-direction:column;gap:12px;">
   <div class="form-row-2col grid grid-cols-1 sm:grid-cols-2 gap-4">
   <div class="form-group space-y-1">

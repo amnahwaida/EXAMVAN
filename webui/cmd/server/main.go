@@ -990,6 +990,15 @@ func registerPostHandler(cfg *config.Config) gin.HandlerFunc {
 		dbPool := pool.(*pgxpool.Pool)
 		ctx := c.Request.Context()
 
+		// Enforce the trusted email-domain whitelist (SuperAdmin-managed).
+		whitelist := models.GetSaasSettingWithDefault(ctx, dbPool, models.SettingEmailDomainWhitelist, "")
+		if !models.EmailDomainAllowed(whitelist, email) {
+			allowed := strings.Join(models.ParseDomainList(whitelist), ", ")
+			data["error"] = "Domain email tidak diizinkan untuk pendaftaran. Gunakan email dari domain terpercaya: " + allowed
+			c.HTML(http.StatusOK, "public/register.html", data)
+			return
+		}
+
 		// Check if username is taken
 		if username == cfg.AdminUser || username == "admin" || username == "superadmin" {
 			data["error"] = "Username tidak tersedia."
