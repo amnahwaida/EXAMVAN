@@ -337,8 +337,25 @@ func main() {
 		roomID := c.Param("room_id")
 
 		authorized := false
-		if session.Get(middleware.SessionKeyAdminID) != nil {
-			authorized = true
+		if adminID := session.Get(middleware.SessionKeyAdminID); adminID != nil {
+			// Logged-in admin: only authorize for exams they may monitor.
+			// Without this, any authenticated tenant could join any exam room
+			// and receive another tenant's live student PII broadcasts.
+			if examID, err := strconv.Atoi(roomID); err == nil {
+				var uid int
+				switch v := adminID.(type) {
+				case int:
+					uid = v
+				case int64:
+					uid = int(v)
+				case float64:
+					uid = int(v)
+				}
+				isSuper, _ := session.Get(middleware.SessionKeyIsSuper).(bool)
+				if uid > 0 && models.UserCanAccessExam(c.Request.Context(), pool, uid, isSuper, examID) {
+					authorized = true
+				}
+			}
 		} else {
 			token := c.GetHeader("X-Exam-Token")
 			if token == "" {
@@ -473,7 +490,10 @@ func registerRoutes(r *gin.Engine, cfg *config.Config, pool *pgxpool.Pool) {
 		apiGroup.POST("/exams/request-approval", middleware.RateLimit(30, time.Minute), middleware.AndroidVersionCheck(), api.RequestApproval())
 		apiGroup.GET("/exams/token/:token", middleware.RateLimit(30, time.Minute), middleware.AndroidVersionCheck(), api.ExamByToken())
 		apiGroup.GET("/exams/:exam_id/pdf", middleware.RateLimit(30, time.Minute), middleware.AndroidVersionCheck(), api.ExamPDF())
-		apiGroup.POST("/exams/:exam_id/submit", middleware.LimitBodySize(5*1024*1024), middleware.RateLimit(10, time.Minute), middleware.AndroidVersionCheck(), api.SubmitExam())
+		// Per-IP limit is high because an entire classroom often submits from a
+		// single NAT'd school IP near the deadline; per-device throttling is
+		// enforced inside SubmitExam (keyed by exam+MAC).
+		apiGroup.POST("/exams/:exam_id/submit", middleware.LimitBodySize(5*1024*1024), middleware.RateLimit(120, time.Minute), middleware.AndroidVersionCheck(), api.SubmitExam())
 		apiGroup.POST("/exams/:exam_id/access-log", middleware.LimitBodySize(256*1024), middleware.RateLimit(30, time.Minute), middleware.AndroidVersionCheck(), api.AccessLog())
 		apiGroup.POST("/exams/:exam_id/complete", middleware.LimitBodySize(256*1024), middleware.RateLimit(30, time.Minute), middleware.AndroidVersionCheck(), api.CompleteExam())
 
@@ -731,7 +751,10 @@ var (
 
 func loginHandler(cfg *config.Config) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		username := strings.TrimSpace(c.PostForm("username"))
+		// Lowercase to match the storage convention (register/CreateUser store
+		// usernames lowercase) and to keep the failed-login lockout keyed
+		// consistently regardless of the case typed.
+		username := strings.ToLower(strings.TrimSpace(c.PostForm("username")))
 		password := c.PostForm("password")
 		nextTarget := middleware.SafeRedirectPath(c.PostForm("next"))
 		if nextTarget == "" {
@@ -807,9 +830,23 @@ func loginHandler(cfg *config.Config) gin.HandlerFunc {
 				_, _ = pipe.Exec(ctx)
 			} else {
 				loginLock.Lock()
+				// Opportunistic cleanup so these in-memory maps (keyed by
+				// attacker-controlled usernames when Redis is absent) cannot
+				// grow unbounded: drop expired lockouts, and hard-cap as a
+				// backstop against a flood of unique usernames.
+				now := time.Now()
+				for u, exp := range lockoutTimes {
+					if now.After(exp) {
+						delete(lockoutTimes, u)
+						delete(failedLogins, u)
+					}
+				}
+				if len(failedLogins) > 10000 {
+					failedLogins = make(map[string]int)
+				}
 				failedLogins[username]++
 				if failedLogins[username] >= 5 {
-					lockoutTimes[username] = time.Now().Add(15 * time.Minute)
+					lockoutTimes[username] = now.Add(15 * time.Minute)
 					failedLogins[username] = 0
 				}
 				loginLock.Unlock()
@@ -896,7 +933,7 @@ func registerPageHandler(cfg *config.Config) gin.HandlerFunc {
 
 func registerPostHandler(cfg *config.Config) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		username := strings.TrimSpace(c.PostForm("username"))
+		username := strings.ToLower(strings.TrimSpace(c.PostForm("username")))
 		email := strings.TrimSpace(c.PostForm("email"))
 		password := c.PostForm("password")
 
@@ -910,8 +947,8 @@ func registerPostHandler(cfg *config.Config) gin.HandlerFunc {
 			return
 		}
 
-		if len(username) < 3 {
-			data["error"] = "Username minimal 3 karakter."
+		if !models.IsValidUsername(username) {
+			data["error"] = "Username hanya boleh berisi huruf kecil, angka, titik, garis bawah, dan strip (3-32 karakter)."
 			c.HTML(http.StatusOK, "public/register.html", data)
 			return
 		}

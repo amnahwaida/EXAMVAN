@@ -611,12 +611,21 @@ func ListSubmissionsByExam(ctx context.Context, pool *pgxpool.Pool, opts ListSub
 func GetSubmissionStats(ctx context.Context, pool *pgxpool.Pool, examID int) (SubmissionStats, error) {
 	var stats SubmissionStats
 
+	// Deduplicate by device (DISTINCT ON mac_address, latest row) so the stat
+	// cards match the deduplicated submissions list, and COALESCE the SUMs so
+	// an exam with zero submissions does not fail the scan (SUM -> NULL).
 	err := pool.QueryRow(ctx,
-		`SELECT
-			COUNT(*) as total,
-			SUM(CASE WHEN answers_json IS NOT NULL AND answers_json != '' THEN 1 ELSE 0 END) as submitted,
-			SUM(CASE WHEN (answers_json IS NULL OR answers_json = '') AND start_time IS NOT NULL THEN 1 ELSE 0 END) as in_progress
-		 FROM submissions WHERE exam_id = $1`, examID).Scan(&stats.Total, &stats.Submitted, &stats.InProgress)
+		`WITH latest AS (
+			SELECT DISTINCT ON (mac_address) answers_json, start_time
+			FROM submissions
+			WHERE exam_id = $1
+			ORDER BY mac_address, created_at DESC
+		)
+		SELECT
+			COUNT(*) AS total,
+			COALESCE(SUM(CASE WHEN answers_json IS NOT NULL AND answers_json != '' THEN 1 ELSE 0 END), 0) AS submitted,
+			COALESCE(SUM(CASE WHEN (answers_json IS NULL OR answers_json = '') AND start_time IS NOT NULL THEN 1 ELSE 0 END), 0) AS in_progress
+		 FROM latest`, examID).Scan(&stats.Total, &stats.Submitted, &stats.InProgress)
 	if err != nil {
 		return stats, fmt.Errorf("stats: %w", err)
 	}

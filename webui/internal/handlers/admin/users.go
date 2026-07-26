@@ -218,6 +218,11 @@ func CreateUser() gin.HandlerFunc {
 			return
 		}
 
+		if !models.IsValidUsername(username) {
+			errorResponse(c, http.StatusBadRequest, "Username hanya boleh berisi huruf kecil, angka, titik, garis bawah, dan strip (3-32 karakter)")
+			return
+		}
+
 		if username == models.SuperAdminUsername {
 			errorResponse(c, http.StatusBadRequest,
 				fmt.Sprintf("Username %s sudah terdaftar sebagai Super Admin", models.SuperAdminUsername))
@@ -434,13 +439,18 @@ func EditUser() gin.HandlerFunc {
 				errorResponse(c, http.StatusBadRequest, "Operator tidak dapat mengelola akun dengan role Operator")
 				return
 			}
-			// Operator cannot grant operator role
-			if body.Roles != nil {
-				for _, r := range body.Roles {
-					if r == models.RoleOperator {
-						errorResponse(c, http.StatusBadRequest, "Operator tidak dapat memberikan role Operator")
-						return
-					}
+			// Operator cannot grant operator role. Check BOTH the plural
+			// `roles` field and the singular `role` fallback, resolved exactly
+			// like the apply logic below — otherwise sending {"role":"operator"}
+			// (no `roles`) would bypass this restriction and escalate a user.
+			requestedRoles := body.Roles
+			if len(requestedRoles) == 0 && body.Role != nil {
+				requestedRoles = strings.Split(*body.Role, ",")
+			}
+			for _, r := range requestedRoles {
+				if strings.TrimSpace(r) == models.RoleOperator {
+					errorResponse(c, http.StatusBadRequest, "Operator tidak dapat memberikan role Operator")
+					return
 				}
 			}
 		}
@@ -625,6 +635,13 @@ func ToggleUserStatus() gin.HandlerFunc {
 			opInstansi := getInstansiForOperator(ctx, pool, userID)
 			if targetUser.Instansi != opInstansi {
 				errorResponse(c, http.StatusBadRequest, "Anda hanya dapat mengelola user dalam satu instansi yang sama")
+				return
+			}
+			// An operator must not toggle another operator's status (mirrors
+			// EditUser). Otherwise operator A could suspend peer operator B and
+			// the cascade below would suspend the entire instansi.
+			if targetUser.IsOperator() {
+				errorResponse(c, http.StatusBadRequest, "Operator tidak dapat mengelola akun dengan role Operator")
 				return
 			}
 		}

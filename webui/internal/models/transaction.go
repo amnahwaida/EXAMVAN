@@ -69,7 +69,9 @@ func CreateTransactionTx(ctx context.Context, dbTx pgx.Tx, tx *Transaction) (*Tr
 // GetTransactionByID retrieves a single transaction.
 func GetTransactionByID(ctx context.Context, pool *pgxpool.Pool, id int) (*Transaction, error) {
 	var tx Transaction
-	sql := `SELECT id, user_id, package, amount, duration_type, status, payment_method, proof_path, created_at, updated_at, notes
+	// COALESCE nullable text columns so a legacy/migrated row with NULL
+	// proof_path or notes does not fail the scan into a plain string.
+	sql := `SELECT id, user_id, package, amount, duration_type, status, payment_method, COALESCE(proof_path, ''), created_at, updated_at, COALESCE(notes, '')
 	FROM transactions WHERE id = $1`
 
 	err := pool.QueryRow(ctx, sql, id).Scan(
@@ -117,6 +119,11 @@ func ListTransactions(ctx context.Context, pool *pgxpool.Pool, opts ListTransact
 	if opts.PerPage < 1 {
 		opts.PerPage = 10
 	}
+	// Clamp the upper bound so a caller cannot request an unbounded page
+	// (e.g. per_page=5000000) and stream the entire table in one response.
+	if opts.PerPage > 200 {
+		opts.PerPage = 200
+	}
 
 	whereClause := "WHERE 1=1"
 	args := []interface{}{}
@@ -150,8 +157,8 @@ func ListTransactions(ctx context.Context, pool *pgxpool.Pool, opts ListTransact
 	// Fetch query
 	offset := (opts.Page - 1) * opts.PerPage
 	fetchSQL := fmt.Sprintf(`
-		SELECT t.id, t.user_id, u.username, t.package, t.amount, t.duration_type, t.status, 
-		       t.payment_method, t.proof_path, t.created_at, t.updated_at, t.notes
+		SELECT t.id, t.user_id, u.username, t.package, t.amount, t.duration_type, t.status,
+		       t.payment_method, COALESCE(t.proof_path, ''), t.created_at, t.updated_at, COALESCE(t.notes, '')
 		FROM transactions t
 		JOIN admin_users u ON t.user_id = u.id
 		%s
@@ -176,6 +183,9 @@ func ListTransactions(ctx context.Context, pool *pgxpool.Pool, opts ListTransact
 			return nil, fmt.Errorf("scan transaction: %w", err)
 		}
 		txs = append(txs, tx)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("list transactions rows: %w", err)
 	}
 
 	return &ListTransactionsResult{

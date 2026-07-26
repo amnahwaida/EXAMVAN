@@ -252,7 +252,11 @@ func checkExamOwnership(ctx *gin.Context, pool *pgxpool.Pool, examID int) bool {
 		var userInstansi string
 		pool.QueryRow(ctx.Request.Context(),
 			`SELECT instansi FROM admin_users WHERE id = $1`, userID).Scan(&userInstansi)
-		return userInstansi == ownerInstansi
+		// An empty or "personal" (unset sentinel) instansi must never match
+		// (consistent with UserCanAccessExam / FilterAccessibleExamIDs):
+		// otherwise accounts in the shared default bucket would grant
+		// cross-tenant access.
+		return userInstansi != "" && userInstansi != "personal" && userInstansi == ownerInstansi
 	}
 
 	return false

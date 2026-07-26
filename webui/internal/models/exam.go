@@ -556,6 +556,102 @@ func BulkToggleExamStatus(ctx context.Context, pool *pgxpool.Pool, ids []int, st
 	return nil
 }
 
+// UserCanAccessExam reports whether a user may monitor an exam (e.g. join its
+// WebSocket room / view live data). SuperAdmin always may. Otherwise access
+// requires ownership (created_by), delegation (delegated_to), a pengawas
+// assignment, or being an operator in the exam creator's (non-empty) instansi.
+// An empty instansi never matches, so mis-provisioned/empty-instansi operators
+// cannot reach other tenants' exams.
+func UserCanAccessExam(ctx context.Context, pool *pgxpool.Pool, userID int, isSuper bool, examID int) bool {
+	if isSuper {
+		return true
+	}
+	var cnt int
+	err := pool.QueryRow(ctx, `
+		SELECT COUNT(*) FROM exams e
+		LEFT JOIN admin_users owner ON owner.id = e.created_by
+		WHERE e.id = $1 AND (
+			e.created_by = $2
+			OR e.delegated_to = $2
+			OR e.id IN (SELECT exam_id FROM exam_pengawas WHERE user_id = $2)
+			OR EXISTS (
+				SELECT 1 FROM admin_users me
+				WHERE me.id = $2 AND me.role ILIKE '%"operator"%'
+				  AND me.instansi NOT IN ('', 'personal') AND me.instansi = owner.instansi
+			)
+		)`, examID, userID).Scan(&cnt)
+	if err != nil {
+		return false
+	}
+	return cnt > 0
+}
+
+// UserCanControlExam reports whether a user may perform management/control
+// actions on a single exam (settings, start/stop, delegation, approvals):
+// SuperAdmin, the owner, a delegate, or an operator in the exam creator's
+// (non-empty) instansi. Unlike UserCanAccessExam, a pengawas-only assignment
+// does NOT grant control. This is the single-exam analogue of
+// FilterAccessibleExamIDs.
+func UserCanControlExam(ctx context.Context, pool *pgxpool.Pool, userID int, isSuper bool, examID int) bool {
+	if isSuper {
+		return true
+	}
+	var cnt int
+	err := pool.QueryRow(ctx, `
+		SELECT COUNT(*) FROM exams e
+		LEFT JOIN admin_users owner ON owner.id = e.created_by
+		WHERE e.id = $1 AND (
+			e.created_by = $2
+			OR e.delegated_to = $2
+			OR EXISTS (
+				SELECT 1 FROM admin_users me
+				WHERE me.id = $2 AND me.role ILIKE '%"operator"%'
+				  AND me.instansi NOT IN ('', 'personal') AND me.instansi = owner.instansi
+			)
+		)`, examID, userID).Scan(&cnt)
+	if err != nil {
+		return false
+	}
+	return cnt > 0
+}
+
+// FilterAccessibleExamIDs returns the subset of ids a non-super user may
+// MANAGE (delete / toggle). Access requires ownership or delegation, or — for
+// operators — being in the exam creator's (non-empty) instansi. Unlike
+// UserCanAccessExam, pengawas-only assignments do NOT grant management rights,
+// matching the single-exam authorization in checkExamOwnership. SuperAdmin
+// callers should skip this filter entirely.
+func FilterAccessibleExamIDs(ctx context.Context, pool *pgxpool.Pool, userID int, ids []int) ([]int, error) {
+	if len(ids) == 0 {
+		return nil, nil
+	}
+	rows, err := pool.Query(ctx, `
+		SELECT e.id FROM exams e
+		LEFT JOIN admin_users owner ON owner.id = e.created_by
+		WHERE e.id = ANY($1) AND (
+			e.created_by = $2
+			OR e.delegated_to = $2
+			OR EXISTS (
+				SELECT 1 FROM admin_users me
+				WHERE me.id = $2 AND me.role ILIKE '%"operator"%'
+				  AND me.instansi NOT IN ('', 'personal') AND me.instansi = owner.instansi
+			)
+		)`, ids, userID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []int
+	for rows.Next() {
+		var id int
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		out = append(out, id)
+	}
+	return out, rows.Err()
+}
+
 // TogglePublicResults toggles the public_results flag for an exam.
 func TogglePublicResults(ctx context.Context, pool *pgxpool.Pool, id int) (int, error) {
 	exam, err := GetExamByID(ctx, pool, id)

@@ -60,7 +60,7 @@ func durationDays(durationType string) int {
 func latestApprovedTransactionForUser(ctx context.Context, tx pgx.Tx, userID, excludeTxID int) (*models.Transaction, error) {
 	var t models.Transaction
 	err := tx.QueryRow(ctx, `
-		SELECT id, user_id, package, amount, duration_type, status, payment_method, proof_path, created_at, updated_at, notes
+		SELECT id, user_id, package, amount, duration_type, status, payment_method, COALESCE(proof_path, ''), created_at, updated_at, COALESCE(notes, '')
 		FROM transactions
 		WHERE user_id = $1 AND status = $2 AND id <> $3
 		ORDER BY updated_at DESC, id DESC
@@ -82,25 +82,61 @@ func applyApprovedTransactionEntitlement(ctx context.Context, tx pgx.Tx, userID 
 	if role == "" {
 		role = newRole
 	}
-	if role != "" {
+
+	// Load current roles so applying a package role neither demotes a
+	// SuperAdmin nor strips existing functional roles (guru/pengawas).
+	// Previously the role column was overwritten outright, e.g. a SuperAdmin
+	// redeeming a voucher was demoted to ["operator"].
+	var currentRoleJSON string
+	if err := tx.QueryRow(ctx, `SELECT COALESCE(role, '') FROM admin_users WHERE id = $1`, userID).Scan(&currentRoleJSON); err != nil {
+		return err
+	}
+	currentRoles := models.ParseRoles(currentRoleJSON)
+	if containsRole(currentRoles, models.RoleSuperAdmin) {
+		role = "" // never change a SuperAdmin's role
+	}
+
+	if role == "" {
+		// Apply package/limits/expiry without touching the role column.
 		_, err := tx.Exec(ctx, `UPDATE admin_users SET
 			package = $1, max_exams = $2, max_pdf_size = $3,
 			max_drafts = $4, max_storage_size = $5,
-			expires_at = $6, status = 'active', role = $7
-			WHERE id = $8`, pkg, exams, pdf, drafts, storage, expiresAt, role, userID)
+			expires_at = $6, status = 'active'
+			WHERE id = $7`, pkg, exams, pdf, drafts, storage, expiresAt, userID)
 		return err
 	}
+
+	// Union the package role(s) with the existing roles.
+	merged := append([]string{}, currentRoles...)
+	for _, r := range models.ParseRoles(role) {
+		if !containsRole(merged, r) {
+			merged = append(merged, r)
+		}
+	}
+	mergedJSON := models.SerializeRoles(merged)
+
 	_, err := tx.Exec(ctx, `UPDATE admin_users SET
 		package = $1, max_exams = $2, max_pdf_size = $3,
 		max_drafts = $4, max_storage_size = $5,
-		expires_at = $6, status = 'active'
-		WHERE id = $7`, pkg, exams, pdf, drafts, storage, expiresAt, userID)
+		expires_at = $6, status = 'active', role = $7
+		WHERE id = $8`, pkg, exams, pdf, drafts, storage, expiresAt, mergedJSON, userID)
 	return err
+}
+
+// containsRole reports whether roles contains target.
+func containsRole(roles []string, target string) bool {
+	for _, r := range roles {
+		if r == target {
+			return true
+		}
+	}
+	return false
 }
 
 func CalculatePackagePrice(ctx context.Context, pool *pgxpool.Pool, pkgName, durationType string) int64 {
 	prices := models.GetPricingMap(ctx, pool)
-	key := fmt.Sprintf("%s_%s", pkgName, durationType)
+	// Keys are "price_<pkg>_<duration>" to match GetPricingMap / DB settings.
+	key := fmt.Sprintf("price_%s_%s", pkgName, durationType)
 	return prices[key]
 }
 
@@ -254,7 +290,7 @@ func ProcessTransactionApproval(ctx context.Context, pool *pgxpool.Pool, txID in
 	// Lock & fetch transaction row with FOR UPDATE to prevent concurrent approval
 	var tx models.Transaction
 	err = dbTx.QueryRow(ctx,
-		`SELECT id, user_id, package, amount, duration_type, status, payment_method, proof_path, created_at, updated_at, notes
+		`SELECT id, user_id, package, amount, duration_type, status, payment_method, COALESCE(proof_path, ''), created_at, updated_at, COALESCE(notes, '')
 		FROM transactions WHERE id = $1 FOR UPDATE`,
 		txID,
 	).Scan(
@@ -375,17 +411,36 @@ func ProcessTransactionReversal(ctx context.Context, pool *pgxpool.Pool, txID in
 			return fmt.Errorf("failed to load latest approved transaction: %w", err)
 		}
 		if latest == nil {
-			_, err = dbTx.Exec(ctx,
-				`UPDATE admin_users SET
-					package = 'free',
-					max_exams = 1,
-					max_pdf_size = 1048576,
-					max_drafts = 1,
-					max_storage_size = 52428800,
-					expires_at = NULL
-				WHERE id = $1`,
-				tx.UserID,
-			)
+			// No remaining approved transaction: downgrade to free. Also drop
+			// the package-granted operator role (preserving other functional
+			// roles, defaulting to guru), unless the user is a SuperAdmin whose
+			// role must never change. Otherwise a refunded user would keep
+			// operator privileges.
+			var roleJSON string
+			if err := dbTx.QueryRow(ctx, `SELECT COALESCE(role, '') FROM admin_users WHERE id = $1`, tx.UserID).Scan(&roleJSON); err != nil {
+				return fmt.Errorf("failed to load user role for reversal: %w", err)
+			}
+			roles := models.ParseRoles(roleJSON)
+			if containsRole(roles, models.RoleSuperAdmin) {
+				_, err = dbTx.Exec(ctx,
+					`UPDATE admin_users SET package = 'free', max_exams = 1, max_pdf_size = 1048576,
+						max_drafts = 1, max_storage_size = 52428800, expires_at = NULL
+					WHERE id = $1`, tx.UserID)
+			} else {
+				kept := make([]string, 0, len(roles))
+				for _, r := range roles {
+					if r != models.RoleOperator {
+						kept = append(kept, r)
+					}
+				}
+				if len(kept) == 0 {
+					kept = []string{models.RoleGuru}
+				}
+				_, err = dbTx.Exec(ctx,
+					`UPDATE admin_users SET package = 'free', max_exams = 1, max_pdf_size = 1048576,
+						max_drafts = 1, max_storage_size = 52428800, expires_at = NULL, role = $2
+					WHERE id = $1`, tx.UserID, models.SerializeRoles(kept))
+			}
 			if err != nil {
 				return fmt.Errorf("failed to downgrade user limits: %w", err)
 			}

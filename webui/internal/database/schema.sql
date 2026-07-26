@@ -216,8 +216,19 @@ CREATE TABLE IF NOT EXISTS transactions (
     notes           TEXT
 );
 
--- Migrations for existing installs (safe to re-run)
-ALTER TABLE transactions ALTER COLUMN amount TYPE BIGINT USING amount::numeric::bigint;
+-- Migrations for existing installs (safe to re-run).
+-- Only rewrite the amount column when it is NOT already bigint. Running the
+-- ALTER ... TYPE unconditionally takes an ACCESS EXCLUSIVE lock and rewrites the
+-- whole table on every startup, blocking concurrent reads/writes.
+DO $$
+BEGIN
+    IF EXISTS (
+        SELECT 1 FROM information_schema.columns
+        WHERE table_name = 'transactions' AND column_name = 'amount' AND data_type <> 'bigint'
+    ) THEN
+        ALTER TABLE transactions ALTER COLUMN amount TYPE BIGINT USING amount::numeric::bigint;
+    END IF;
+END $$;
 CREATE INDEX IF NOT EXISTS idx_transactions_user_id ON transactions(user_id);
 CREATE INDEX IF NOT EXISTS idx_transactions_status ON transactions(status);
 

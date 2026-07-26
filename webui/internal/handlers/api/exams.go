@@ -43,7 +43,7 @@ const (
 	// Redis key prefixes.
 	cacheKeyPrefix = "api:exams:list:" // + page:per_page
 
-	rateLimitKeyPrefix = "ratelimit:submit:" // + exam_id
+	rateLimitKeyPrefix = "ratelimit:submit:" // + exam_id:mac_address
 	heartbeatKeyPrefix = "heartbeat:"        // + exam_id:mac_address
 	heartbeatTTL       = 5 * time.Minute
 )
@@ -330,16 +330,28 @@ func RequestApproval() gin.HandlerFunc {
 		pool := getPool(c)
 		ctx := c.Request.Context()
 
-		idDataStr, _ := json.Marshal(req.IdentityData)
+		// Sanitise all attacker-controlled fields before persisting: this data
+		// is rendered by the admin monitoring UI (innerHTML), so restrict the
+		// MAC to a safe charset and trim/cap the free-text identity fields.
+		macAddress := sanitizeMAC(req.MACAddress)
+		if macAddress == "" || macAddress == "unknown" {
+			errorResponse(c, http.StatusBadRequest, "MAC address diperlukan")
+			return
+		}
+		studentName := sanitize(req.StudentName)
+		examNumber := sanitize(req.ExamNumber)
+		studentClass := sanitize(req.StudentClass)
+
+		idDataStr, _ := json.Marshal(sanitizeMap(req.IdentityData))
 		if string(idDataStr) == "null" {
 			idDataStr = []byte("{}")
 		}
 
 		var status string
-		err := pool.QueryRow(ctx, 
+		err := pool.QueryRow(ctx,
 			`INSERT INTO exam_approvals (exam_id, mac_address, student_name, exam_number, student_class, identity_data)
 			 VALUES ($1, $2, $3, $4, $5, $6)
-			 ON CONFLICT (exam_id, mac_address) DO UPDATE 
+			 ON CONFLICT (exam_id, mac_address) DO UPDATE
 			 SET student_name = EXCLUDED.student_name,
 			     exam_number = EXCLUDED.exam_number,
 			     student_class = EXCLUDED.student_class,
@@ -347,7 +359,7 @@ func RequestApproval() gin.HandlerFunc {
 			     status = CASE WHEN $7::boolean THEN 'pending' ELSE exam_approvals.status END,
 			     updated_at = CURRENT_TIMESTAMP
 			 RETURNING status`,
-			req.ExamID, req.MACAddress, req.StudentName, req.ExamNumber, req.StudentClass, string(idDataStr), req.Reset).Scan(&status)
+			req.ExamID, macAddress, studentName, examNumber, studentClass, string(idDataStr), req.Reset).Scan(&status)
 
 		if err != nil {
 			log.Printf("request approval error: %v", err)
@@ -535,14 +547,6 @@ func SubmitExam() gin.HandlerFunc {
 		rdb := getRedis(c)
 		ctx := c.Request.Context()
 
-		// --- Rate limit ---
-		if !checkRateLimit(rdb, fmt.Sprintf("%s%d", rateLimitKeyPrefix, examID),
-			submitRateLimitMax, submitRateLimitWindow) {
-			errorResponse(c, http.StatusTooManyRequests,
-				"Terlalu banyak percobaan submit. Silakan coba lagi nanti.")
-			return
-		}
-
 		// --- Required Android version check ---
 		required := models.GetSaasSettingWithDefault(ctx, pool,
 			models.SettingAndroidVersion, requiredAndroidVersion)
@@ -613,6 +617,17 @@ func SubmitExam() gin.HandlerFunc {
 
 		// --- MAC address sanitisation ---
 		macAddress := sanitizeMAC(body.MACAddress)
+
+		// --- Rate limit (per exam + device) ---
+		// Keyed by exam AND MAC so that a single device cannot spam submissions,
+		// while many distinct students in the same exam are NOT throttled by a
+		// shared per-exam bucket (which previously 429'd legitimate classmates).
+		if !checkRateLimit(rdb, fmt.Sprintf("%s%d:%s", rateLimitKeyPrefix, examID, macAddress),
+			submitRateLimitMax, submitRateLimitWindow) {
+			errorResponse(c, http.StatusTooManyRequests,
+				"Terlalu banyak percobaan submit. Silakan coba lagi nanti.")
+			return
+		}
 
 		// --- Start time ---
 		startTime := sanitizeStartTime(body.StartTime)
@@ -802,12 +817,19 @@ func calculateScoreSync(ctx context.Context, pool *pgxpool.Pool, examID int, ans
 	return models.CalculateSubmissionScore(answers, questions)
 }
 
-// sanitizeMAC filters printable characters from a MAC address string and
-// caps its length to 100 characters.
+// sanitizeMAC restricts a MAC address / device identifier to a safe character
+// set and caps its length to 100 characters.
+//
+// Only characters valid in MAC addresses and device IDs are kept
+// ([A-Za-z0-9:._-]); HTML/JS metacharacters (" ' < > & space, etc.) are
+// stripped. This is a security boundary: the value is later rendered by the
+// admin monitoring UI into HTML and JS-attribute contexts (via innerHTML),
+// which are NOT protected by Go's html/template auto-escaping.
 func sanitizeMAC(raw string) string {
 	var b strings.Builder
 	for _, r := range raw {
-		if r >= 32 && r <= 126 { // printable ASCII
+		if (r >= 'A' && r <= 'Z') || (r >= 'a' && r <= 'z') || (r >= '0' && r <= '9') ||
+			r == ':' || r == '.' || r == '-' || r == '_' {
 			b.WriteRune(r)
 		}
 	}
@@ -918,18 +940,28 @@ func AccessLog() gin.HandlerFunc {
 			}
 		}
 
-		// --- Verify exam exists and is active ---
-		var examExists int
-		err = pool.QueryRow(ctx,
-			`SELECT 1 FROM exams WHERE id = $1 AND status = 'active' AND exam_started_at IS NOT NULL`, examID).Scan(&examExists)
-		if err != nil {
-			if err == pgx.ErrNoRows {
+		// --- Verify exam is active and the request carries a valid token ---
+		// Same contract as SubmitExam/CompleteExam: a valid current token, or an
+		// already-approved device (tolerates token rotation). Without this,
+		// anyone could inject login/logout logs and heartbeat presence for any
+		// active exam ID and pollute the monitoring dashboard.
+		token := strings.TrimSpace(c.GetHeader("X-Exam-Token"))
+		if token == "" {
+			token = strings.TrimSpace(c.Query("token"))
+		}
+		exam, err := models.GetExamByID(ctx, pool, examID)
+		if err != nil || !exam.IsActive() || exam.ExamStartedAt == nil {
+			errorResponse(c, http.StatusNotFound, "Ujian tidak ditemukan")
+			return
+		}
+		if !examtoken.Matches(exam, token) {
+			var approvalStatus string
+			e := pool.QueryRow(ctx,
+				"SELECT status FROM exam_approvals WHERE exam_id = $1 AND mac_address = $2", examID, macAddress).Scan(&approvalStatus)
+			if e != nil || approvalStatus != "approved" {
 				errorResponse(c, http.StatusNotFound, "Ujian tidak ditemukan")
 				return
 			}
-			log.Printf("access-log exam lookup error: %v", err)
-			errorResponse(c, http.StatusInternalServerError, "Gagal memproses log")
-			return
 		}
 
 		// --- Find matching submission by MAC address ---

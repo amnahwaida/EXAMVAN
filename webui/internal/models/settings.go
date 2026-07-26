@@ -169,25 +169,30 @@ func GetAllSaasSettings(ctx context.Context, pool *pgxpool.Pool) (map[string]str
 
 // GetPricingMap returns the canonical 18 package price matrix with DB overrides applied.
 func GetPricingMap(ctx context.Context, pool *pgxpool.Pool) map[string]int64 {
+	// Keys use the same "price_" prefix as the DB settings (SettingPrice*
+	// constants) and as consumers (BillingPage, CalculatePackagePrice,
+	// billing.html), so DB overrides actually apply. Previously the map used
+	// unprefixed keys, so settings["guru_bulanan"] never matched the stored
+	// "price_guru_bulanan" and every override was silently ignored.
 	prices := map[string]int64{
-		"guru_bulanan":              25000,
-		"guru_semester":             125000,
-		"guru_tahunan":              225000,
-		"individu_bulanan":          50000,
-		"individu_semester":         250000,
-		"individu_tahunan":          450000,
-		"sekolah_kecil_bulanan":     75000,
-		"sekolah_kecil_semester":    375000,
-		"sekolah_kecil_tahunan":     675000,
-		"sekolah_menengah_bulanan":  175000,
-		"sekolah_menengah_semester": 875000,
-		"sekolah_menengah_tahunan":  1575000,
-		"sekolah_besar_bulanan":     375000,
-		"sekolah_besar_semester":    1875000,
-		"sekolah_besar_tahunan":     3375000,
-		"sekolah_unggulan_bulanan":  750000,
-		"sekolah_unggulan_semester": 3750000,
-		"sekolah_unggulan_tahunan":  6750000,
+		SettingPriceGuruBulanan:             25000,
+		SettingPriceGuruSemester:            125000,
+		SettingPriceGuruTahunan:             225000,
+		SettingPriceIndividuBulanan:         50000,
+		SettingPriceIndividuSemester:        250000,
+		SettingPriceIndividuTahunan:         450000,
+		SettingPriceSekolahKecilBulanan:     75000,
+		SettingPriceSekolahKecilSemester:    375000,
+		SettingPriceSekolahKecilTahunan:     675000,
+		SettingPriceSekolahMenengahBulanan:  175000,
+		SettingPriceSekolahMenengahSemester: 875000,
+		SettingPriceSekolahMenengahTahunan:  1575000,
+		SettingPriceSekolahBesarBulanan:     375000,
+		SettingPriceSekolahBesarSemester:    1875000,
+		SettingPriceSekolahBesarTahunan:     3375000,
+		SettingPriceSekolahUnggulanBulanan:  750000,
+		SettingPriceSekolahUnggulanSemester: 3750000,
+		SettingPriceSekolahUnggulanTahunan:  6750000,
 	}
 	if pool == nil {
 		return prices

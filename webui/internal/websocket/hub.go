@@ -174,6 +174,25 @@ func (c *Client) Close() {
 	}
 }
 
+// trySend performs a non-blocking send on the client's send channel, guarded by
+// the client mutex so it can never send on a channel that Close() has closed.
+// Direct sends from the readPump goroutine (e.g. ping replies) MUST use this,
+// because Close() may run concurrently in the hub's Run goroutine. Returns
+// false if the client is closed or its buffer is full.
+func (c *Client) trySend(msg []byte) bool {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.closed {
+		return false
+	}
+	select {
+	case c.send <- msg:
+		return true
+	default:
+		return false
+	}
+}
+
 // ---------------------------------------------------------------------------
 // Hub
 // ---------------------------------------------------------------------------
@@ -287,10 +306,7 @@ func (h *Hub) handleClientMessage(client *Client, msg SocketIOMessage) {
 	switch msg.Event {
 	case "ping":
 		payload, _ := MarshalSocketIO(SocketIOMessage{Event: "pong", Payload: time.Now().UTC().Format(time.RFC3339)})
-		select {
-		case client.send <- payload:
-		default:
-		}
+		client.trySend(payload)
 	case "heartbeat":
 		payloadMap, ok := msg.Payload.(map[string]interface{})
 		if !ok || h.rdb == nil {

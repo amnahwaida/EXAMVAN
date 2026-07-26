@@ -569,7 +569,13 @@ func ExportSubmissions() gin.HandlerFunc {
 		}
 
 		if examFilter > 0 {
-			// Specific exam export
+			// Specific exam export — enforce tenant ownership (mirrors
+			// SubmissionDetail/ExportSubmissionDetail) to prevent cross-tenant
+			// IDOR that would otherwise leak another tenant's student PII.
+			if !checkExamOwnership(c, pool, examFilter) {
+				errorResponse(c, http.StatusForbidden, "Akses ditolak")
+				return
+			}
 			exportSingleExamCSV(c, pool, ctx, examFilter)
 		} else {
 			// All exports

@@ -1171,10 +1171,10 @@ function loadApprovals() {
                     '</td>' +
                     '<td data-label="Aksi" style="text-align:right;">' +
                         '<div style="display:flex; justify-content:flex-end; gap:8px;">' +
-                            '<button class="pd-action-btn pd-action-active" onclick="setApproval(\'' + a.mac_address + '\', \'approved\')" style="padding:6px 12px; border-radius:8px; font-weight:600;">' +
+                            '<button class="pd-action-btn pd-action-active" onclick="setApproval(\'' + escapeHtml(jsEscape(a.mac_address)) + '\', \'approved\')" style="padding:6px 12px; border-radius:8px; font-weight:600;">' +
                                 '<svg class="icon-svg" style="width:14px;height:14px;"><use href="#hi-check"/></svg> Izinkan' +
                             '</button>' +
-                            '<button class="pd-action-btn pd-action-danger" onclick="setApproval(\'' + a.mac_address + '\', \'rejected\')" style="padding:6px 12px; border-radius:8px; font-weight:600;">' +
+                            '<button class="pd-action-btn pd-action-danger" onclick="setApproval(\'' + escapeHtml(jsEscape(a.mac_address)) + '\', \'rejected\')" style="padding:6px 12px; border-radius:8px; font-weight:600;">' +
                                 '<svg class="icon-svg" style="width:14px;height:14px;"><use href="#hi-x"/></svg> Tolak' +
                             '</button>' +
                         '</div>' +
@@ -1268,7 +1268,7 @@ function loadDetail(page) {
 
                 html += '<tr>' +
                     '<td data-label="No" style="font-weight:600;color:var(--color-text-muted);width:40px;">' + ((SUB_PAGE - 1) * 20 + i + 1) + '</td>' +
-                    '<td data-label="ID Perangkat"><a class="mac-cell" onclick="showAccessLog(' + s.id + ')" title="' + esc(s.mac_address) + ' (Klik untuk riwayat akses)">' + esc(s.mac_address) + '</a></td>' +
+                    '<td data-label="ID Perangkat"><a class="mac-cell" onclick="showAccessLog(' + s.id + ')" title="' + escapeHtml(s.mac_address) + ' (Klik untuk riwayat akses)">' + escapeHtml(s.mac_address) + '</a></td>' +
                     '<td data-label="Status"><span class="status-badge-sm" style="background:' + color + '15;color:' + color + ';border:1px solid ' + color + '30;">' + sl + '</span></td>' +
                     '<td data-label="Mulai" style="font-size:0.75rem;color:var(--color-text-muted);font-family:var(--font-mono);">' + startTime + '</td>' +
                     '<td data-label="Upaya" style="text-align:center;">' + attCount + '</td>' +

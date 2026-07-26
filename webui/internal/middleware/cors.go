@@ -26,20 +26,34 @@ func CORS(corsOrigins string) gin.HandlerFunc {
 			return
 		}
 
-		// Check if the origin matches our allowed list
+		// Check if the origin matches our allowed list. An exact match is
+		// preferred over a "*" wildcard so we can safely send credentials.
 		allowed := false
+		wildcard := false
 		for _, o := range origins {
-			if o == "*" || o == origin {
+			if o == origin {
 				allowed = true
+				wildcard = false
 				break
+			}
+			if o == "*" {
+				allowed = true
+				wildcard = true
 			}
 		}
 
 		if allowed {
-			c.Header("Access-Control-Allow-Origin", origin)
 			c.Header("Access-Control-Allow-Methods", "POST, GET, OPTIONS, PUT, DELETE, PATCH")
 			c.Header("Access-Control-Allow-Headers", "Content-Type, Content-Length, Accept-Encoding, X-CSRF-Token, Authorization, accept, origin, Cache-Control, X-Requested-With, Client-Id, Request-Id, Request-Timestamp, Signature")
-			c.Header("Access-Control-Allow-Credentials", "true")
+			if wildcard {
+				// Reflecting an arbitrary Origin together with
+				// Allow-Credentials:true is the credentialed-wildcard flaw, so
+				// with "*" we emit a literal wildcard and NO credentials.
+				c.Header("Access-Control-Allow-Origin", "*")
+			} else {
+				c.Header("Access-Control-Allow-Origin", origin)
+				c.Header("Access-Control-Allow-Credentials", "true")
+			}
 		}
 
 		if c.Request.Method == "OPTIONS" {

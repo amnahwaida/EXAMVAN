@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"log"
 	"math"
+	"regexp"
 	"strings"
 	"time"
 
@@ -34,6 +35,18 @@ const (
 	RoleOperator  = "operator"
 	RoleSuperAdmin = "superadmin"
 )
+
+// usernameRe restricts usernames to lowercase letters, digits, dot, underscore
+// and hyphen, 3-32 characters. This charset contains no HTML/JS metacharacters,
+// preventing stored XSS when usernames are rendered by the admin UI (which
+// builds HTML via innerHTML and is not protected by html/template escaping).
+var usernameRe = regexp.MustCompile(`^[a-z0-9._-]{3,32}$`)
+
+// IsValidUsername reports whether s is an acceptable username. Callers should
+// TrimSpace/ToLower before calling.
+func IsValidUsername(s string) bool {
+	return usernameRe.MatchString(s)
+}
 
 type AdminUser struct {
 	ID              int        `json:"id"`
@@ -371,7 +384,13 @@ func scanAdminUserFromRows(rows pgx.Rows) (AdminUser, error) {
 
 // GetUserByUsername retrieves a user by username (case-sensitive).
 func GetUserByUsername(ctx context.Context, pool *pgxpool.Pool, username string) (AdminUser, error) {
-	sql := `SELECT ` + DefaultAdminUserColumns + ` FROM admin_users WHERE username = $1`
+	// Case-insensitive lookup: usernames are stored lowercase for new accounts,
+	// but legacy rows may be mixed-case. This keeps login working regardless of
+	// the case typed and makes uniqueness checks case-insensitive. A
+	// deterministic tie-break (prefer an exact-case match, then lowest id)
+	// ensures a stable row when legacy case-variant duplicates exist.
+	sql := `SELECT ` + DefaultAdminUserColumns + ` FROM admin_users WHERE LOWER(username) = LOWER($1)
+		ORDER BY (username = $1) DESC, id ASC LIMIT 1`
 	return scanAdminUser(pool.QueryRow(ctx, sql, username))
 }
 
@@ -479,6 +498,7 @@ func ListUsers(ctx context.Context, pool *pgxpool.Pool, opts ListUsersOpts) (Lis
 	sql := `SELECT u.id, u.username, u.name, u.password_hash, u.created_at, u.status,
 	u.instansi, u.role, u.max_exams, u.max_pdf_size, u.max_drafts, u.max_draft_size,
 	u.max_storage_size, u.whatsapp_number, u.email, u.expires_at, u.otp_code, u.otp_expiry,
+	COALESCE(u.package, 'free'),
 	COALESCE(COUNT(e.id), 0) as exam_count
 	FROM admin_users u
 	LEFT JOIN exams e ON e.created_by = u.id` + whereClause +
@@ -507,6 +527,7 @@ func ListUsers(ctx context.Context, pool *pgxpool.Pool, opts ListUsersOpts) (Lis
 			&u.ID, &u.Username, &u.Name, &u.PasswordHash, &u.CreatedAt, &u.Status,
 			&u.Instansi, &u.Role, &u.MaxExams, &u.MaxPDFSize, &u.MaxDrafts, &u.MaxDraftSize,
 			&u.MaxStorageSize, &u.WhatsappNumber, &u.Email, &u.ExpiresAt, &u.OTPCode, &u.OTPExpiry,
+			&u.Package,
 			&examCount,
 		)
 		if err != nil {

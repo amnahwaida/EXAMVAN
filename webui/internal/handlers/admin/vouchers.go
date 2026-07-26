@@ -459,11 +459,17 @@ func RedeemVoucherHandler() gin.HandlerFunc {
 			return
 		}
 
-		// Update session role if package upgrades role
-		session := sessions.Default(c)
+		// Refresh session role to match the (merged) role now stored, without
+		// demoting a SuperAdmin. Read the actual persisted role rather than
+		// blindly setting the package role, which could strip existing roles.
 		if newRole != "" {
-			session.Set(middleware.SessionKeyRole, newRole)
-			_ = session.Save()
+			var updatedRole string
+			if err := pool.QueryRow(ctx, `SELECT COALESCE(role, '') FROM admin_users WHERE id = $1`, userID).Scan(&updatedRole); err == nil &&
+				updatedRole != "" && !models.HasRole(updatedRole, models.RoleSuperAdmin) {
+				session := sessions.Default(c)
+				session.Set(middleware.SessionKeyRole, updatedRole)
+				_ = session.Save()
+			}
 		}
 
 		expiryStr := newExpiry.Format("2006-01-02 15:04:05")

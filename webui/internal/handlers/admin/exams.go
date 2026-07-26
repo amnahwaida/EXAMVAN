@@ -32,6 +32,17 @@ const maxFileSize = 100 * 1024 * 1024 // 100 MB global limit
 
 var tokenRegex = regexp.MustCompile(fmt.Sprintf(`^[A-Z0-9]{%d}$`, config.TokenLength))
 
+// jakartaLocation returns the Asia/Jakarta timezone, falling back to UTC when
+// the IANA tz database is unavailable. This avoids a nil *time.Location, which
+// would make time.Time.In / time.ParseInLocation panic.
+func jakartaLocation() *time.Location {
+	loc, err := time.LoadLocation("Asia/Jakarta")
+	if err != nil || loc == nil {
+		return time.UTC
+	}
+	return loc
+}
+
 
 
 // validatePDF checks that the uploaded data is a valid PDF and respects size
@@ -631,7 +642,7 @@ func GetQuestions() gin.HandlerFunc {
 		}
 
 		// Schedule — stored as UTC, display in WIB
-		jakartaLoc, _ := time.LoadLocation("Asia/Jakarta")
+		jakartaLoc := jakartaLocation()
 		startTime := ""
 		if exam.StartTime != nil {
 			startTime = exam.StartTime.In(jakartaLoc).Format("2006-01-02 15:04")
@@ -777,7 +788,7 @@ func SaveQuestions() gin.HandlerFunc {
 		}
 
 		// Parse schedule as WIB (Asia/Jakarta), convert to UTC for storage
-		jakartaLoc, _ := time.LoadLocation("Asia/Jakarta")
+		jakartaLoc := jakartaLocation()
 		startTime := body.StartTime
 		endTime := body.EndTime
 		var startTimePtr *string
@@ -807,16 +818,20 @@ func SaveQuestions() gin.HandlerFunc {
 		userID := getCurrentUserID(c)
 		isOp := isOperator(c)
 		if isOp || isSuperAdmin(c) {
-			// Operator/superadmin can freely assign pengawas
+			// Operator/superadmin manage the pengawas roster via the delegate
+			// modal, which sends pengawas_ids. Only replace the roster when the
+			// field is actually present.
 			if body.PengawasIDs != nil {
 				if err := models.SetPengawasForExam(ctx, pool, examID, body.PengawasIDs); err != nil {
 					log.Printf("save pengawas error: %v", err)
 				}
 			}
 		} else {
-			// Guru: only the creator can be pengawas
-			if err := models.SetPengawasForExam(ctx, pool, examID, []int{userID}); err != nil {
-				log.Printf("save pengawas error: %v", err)
+			// Guru: ensure the creator can supervise, but do NOT wipe the
+			// existing roster (e.g. pengawas assigned by an operator). The guru
+			// questions editor does not manage pengawas.
+			if err := models.CreateExamPengawas(ctx, pool, examID, userID); err != nil {
+				log.Printf("ensure creator pengawas error: %v", err)
 			}
 		}
 
@@ -1083,32 +1098,17 @@ func BulkDelete() gin.HandlerFunc {
 		ctx := c.Request.Context()
 		userID := getCurrentUserID(c)
 		isSuper := isSuperAdmin(c)
-		isOp := isOperator(c)
 
-		// For non-privileged users, filter to only owned/delegated exams
+		// For non-super users, filter to only exams they may manage (own or
+		// delegated, or — for operators — within their own instansi). Operators
+		// previously bypassed this filter entirely and could delete any
+		// tenant's exams; pengawas-only assignments do not grant deletion.
 		examIDs := body.IDs
-		if !isSuper && !isOp {
-			filtered := make([]int, 0, len(examIDs))
-			// Re-query exams explicitly — check created_by OR delegated_to OR exam_pengawas
-			rows, err := pool.Query(ctx, `
-				SELECT id FROM exams
-				WHERE id = ANY($1)
-				  AND (created_by = $2
-				    OR delegated_to = $2
-				    OR id IN (SELECT exam_id FROM exam_pengawas WHERE user_id = $2))
-			`, examIDs, userID)
+		if !isSuper {
+			filtered, err := models.FilterAccessibleExamIDs(ctx, pool, userID, examIDs)
 			if err != nil {
 				errorResponse(c, http.StatusInternalServerError, "Gagal memverifikasi kepemilikan")
 				return
-			}
-			for rows.Next() {
-				var id int
-				rows.Scan(&id)
-				filtered = append(filtered, id)
-			}
-			rows.Close()
-			if err := rows.Err(); err != nil {
-				log.Printf("rows iteration error: %v", err)
 			}
 			examIDs = filtered
 			if len(examIDs) == 0 {
@@ -1457,30 +1457,16 @@ func BulkToggle() gin.HandlerFunc {
 		ctx := c.Request.Context()
 		userID := getCurrentUserID(c)
 		isSuper := isSuperAdmin(c)
-		isOp := isOperator(c)
 
+		// For non-super users, filter to only exams they may manage. Operators
+		// previously bypassed this and could toggle any tenant's exams;
+		// pengawas-only assignments do not grant status changes.
 		examIDs := body.IDs
-		if !isSuper && !isOp {
-			filtered := make([]int, 0, len(examIDs))
-			rows, err := pool.Query(ctx, `
-				SELECT id FROM exams
-				WHERE id = ANY($1)
-				  AND (created_by = $2
-				    OR delegated_to = $2
-				    OR id IN (SELECT exam_id FROM exam_pengawas WHERE user_id = $2))
-			`, examIDs, userID)
+		if !isSuper {
+			filtered, err := models.FilterAccessibleExamIDs(ctx, pool, userID, examIDs)
 			if err != nil {
 				errorResponse(c, http.StatusInternalServerError, "Gagal memverifikasi kepemilikan")
 				return
-			}
-			for rows.Next() {
-				var id int
-				rows.Scan(&id)
-				filtered = append(filtered, id)
-			}
-			rows.Close()
-			if err := rows.Err(); err != nil {
-				log.Printf("rows iteration error: %v", err)
 			}
 			examIDs = filtered
 			if len(examIDs) == 0 {

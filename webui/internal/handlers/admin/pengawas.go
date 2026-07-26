@@ -50,7 +50,7 @@ func PengawasDetailPage() gin.HandlerFunc {
 
 		pool := getPool(c)
 		userID := getCurrentUserID(c)
-		isPrivileged := isSuperAdmin(c) || isOperator(c)
+		isSuper := isSuperAdmin(c)
 		ctx := c.Request.Context()
 
 		exam, err := models.GetExamByID(ctx, pool, examID)
@@ -59,20 +59,11 @@ func PengawasDetailPage() gin.HandlerFunc {
 			return
 		}
 
-		if !isPrivileged {
-			isCreator := exam.CreatedBy == userID
-			isCoordinator := exam.DelegatedTo != nil && *exam.DelegatedTo == userID
-
-			isAssigned := false
-			if hasCurrentRole(c, models.RolePengawas) {
-				assigned, err := models.IsUserAssignedAsPengawas(ctx, pool, examID, userID)
-				isAssigned = err == nil && assigned
-			}
-
-			if !isCreator && !isCoordinator && !isAssigned {
-				c.Redirect(http.StatusFound, "/admin/pengawas")
-				return
-			}
+		// Authorization is exam-scoped: operators are constrained to their own
+		// instansi (UserCanAccessExam), not treated as globally privileged.
+		if !models.UserCanAccessExam(ctx, pool, userID, isSuper, examID) {
+			c.Redirect(http.StatusFound, "/admin/pengawas")
+			return
 		}
 
 		autoResetActiveTokenIfNeeded(ctx, pool, &exam)
@@ -101,7 +92,9 @@ func PengawasDetailPage() gin.HandlerFunc {
 
 		pengawasAssignments, _ := models.GetPengawasAssignments(ctx, pool, examID)
 
-		canControl := isPrivileged || exam.CreatedBy == userID || (exam.DelegatedTo != nil && *exam.DelegatedTo == userID)
+		// Control (settings/start-stop) is management-level: excludes a
+		// pengawas-only viewer and scopes operators to their instansi.
+		canControl := models.UserCanControlExam(ctx, pool, userID, isSuper, examID)
 
 		tokenMode := "dynamic"
 		if exam.TokenMode != nil && *exam.TokenMode != "" {
@@ -128,7 +121,10 @@ func PengawasExams() gin.HandlerFunc {
 	return func(c *gin.Context) {
 		pool := getPool(c)
 		userID := getCurrentUserID(c)
-		isPrivileged := isSuperAdmin(c) || isOperator(c)
+		isSuper := isSuperAdmin(c)
+		isOp := isOperator(c)
+		// UI flag only; the data query below is tenant-scoped for operators.
+		isPrivileged := isSuper || isOp
 		ctx := c.Request.Context()
 
 		page, _ := strconv.Atoi(c.DefaultQuery("page", "1"))
@@ -146,11 +142,25 @@ func PengawasExams() gin.HandlerFunc {
 		var result models.ListExamsResult
 		var err error
 
-		if isPrivileged {
-			opts := models.ListExamsOpts{
+		if isSuper {
+			// SuperAdmin sees all exams.
+			result, err = models.ListExams(ctx, pool, models.ListExamsOpts{
 				Page:    page,
 				PerPage: perPage,
 				Search:  search,
+			})
+		} else if isOp {
+			// Operators are scoped to their own instansi — previously this
+			// listed every tenant's exams (including active tokens). "" and the
+			// "personal" sentinel are NOT real tenants (the shared default
+			// bucket), so an operator without a real instansi sees only own exams.
+			opts := models.ListExamsOpts{Page: page, PerPage: perPage, Search: search}
+			opInstansi := getInstansiForOperator(ctx, pool, userID)
+			if opInstansi != "" && opInstansi != "personal" {
+				opts.Instansi = opInstansi
+			} else {
+				uid := userID
+				opts.CreatedBy = &uid
 			}
 			result, err = models.ListExams(ctx, pool, opts)
 		} else {
@@ -328,7 +338,7 @@ func PengawasExamSubmissions() gin.HandlerFunc {
 
 		pool := getPool(c)
 		userID := getCurrentUserID(c)
-		isPrivileged := isSuperAdmin(c) || isOperator(c)
+		isSuper := isSuperAdmin(c)
 		ctx := c.Request.Context()
 
 		exam, err := models.GetExamByID(ctx, pool, examID)
@@ -338,20 +348,10 @@ func PengawasExamSubmissions() gin.HandlerFunc {
 		}
 		autoResetActiveTokenIfNeeded(ctx, pool, &exam)
 
-		if !isPrivileged {
-			isCreator := exam.CreatedBy == userID
-			isCoordinator := exam.DelegatedTo != nil && *exam.DelegatedTo == userID
-
-			isAssigned := false
-			if hasCurrentRole(c, models.RolePengawas) {
-				assigned, err := models.IsUserAssignedAsPengawas(ctx, pool, examID, userID)
-				isAssigned = err == nil && assigned
-			}
-
-			if !isCreator && !isCoordinator && !isAssigned {
-				errorResponse(c, http.StatusForbidden, "Akses ditolak: Anda tidak memiliki wewenang untuk mengawasi ujian ini")
-				return
-			}
+		// Exam-scoped authorization (operators limited to their instansi).
+		if !models.UserCanAccessExam(ctx, pool, userID, isSuper, examID) {
+			errorResponse(c, http.StatusForbidden, "Akses ditolak: Anda tidak memiliki wewenang untuk mengawasi ujian ini")
+			return
 		}
 
 		page, _ := strconv.Atoi(c.DefaultQuery("page", "1"))
@@ -605,31 +605,20 @@ func GetPendingApprovals() gin.HandlerFunc {
 		pool := getPool(c)
 		ctx := c.Request.Context()
 
-		// Otorisasi Pengawas & Owner Ujian
+		// Exam-scoped authorization (operators limited to their instansi).
 		userID := getCurrentUserID(c)
-		isPrivileged := isSuperAdmin(c) || isOperator(c)
-		exam, err := models.GetExamByID(ctx, pool, examID)
-		if err != nil {
+		if _, err := models.GetExamByID(ctx, pool, examID); err != nil {
 			errorResponse(c, http.StatusNotFound, "Ujian tidak ditemukan")
 			return
 		}
-		if !isPrivileged {
-			isCreator := exam.CreatedBy == userID
-			isCoordinator := exam.DelegatedTo != nil && *exam.DelegatedTo == userID
-			isAssigned := false
-			if hasCurrentRole(c, models.RolePengawas) {
-				assigned, err := models.IsUserAssignedAsPengawas(ctx, pool, examID, userID)
-				isAssigned = err == nil && assigned
-			}
-			if !isCreator && !isCoordinator && !isAssigned {
-				errorResponse(c, http.StatusForbidden, "Akses ditolak: Anda tidak memiliki wewenang untuk mengawasi ujian ini")
-				return
-			}
+		if !models.UserCanAccessExam(ctx, pool, userID, isSuperAdmin(c), examID) {
+			errorResponse(c, http.StatusForbidden, "Akses ditolak: Anda tidak memiliki wewenang untuk mengawasi ujian ini")
+			return
 		}
 
-		rows, err := pool.Query(ctx, 
-			`SELECT mac_address, student_name, exam_number, student_class, identity_data, created_at, status 
-			 FROM exam_approvals 
+		rows, err := pool.Query(ctx,
+			`SELECT mac_address, student_name, exam_number, student_class, identity_data, created_at, status
+			 FROM exam_approvals
 			 WHERE exam_id = $1 AND status = 'pending'
 			 ORDER BY created_at ASC`, examID)
 		
@@ -692,29 +681,20 @@ func SetApprovalStatus() gin.HandlerFunc {
 		pool := getPool(c)
 		ctx := c.Request.Context()
 
-		// Otorisasi Pengawas & Owner Ujian
+		// Exam-scoped authorization (operators limited to their instansi).
+		// Approving/rejecting devices is part of the pengawas role, so a valid
+		// pengawas/owner/delegate/in-instansi-operator/super may act.
 		userID := getCurrentUserID(c)
-		isPrivileged := isSuperAdmin(c) || isOperator(c)
-		exam, err := models.GetExamByID(ctx, pool, examID)
-		if err != nil {
+		if _, err := models.GetExamByID(ctx, pool, examID); err != nil {
 			errorResponse(c, http.StatusNotFound, "Ujian tidak ditemukan")
 			return
 		}
-		if !isPrivileged {
-			isCreator := exam.CreatedBy == userID
-			isCoordinator := exam.DelegatedTo != nil && *exam.DelegatedTo == userID
-			isAssigned := false
-			if hasCurrentRole(c, models.RolePengawas) {
-				assigned, err := models.IsUserAssignedAsPengawas(ctx, pool, examID, userID)
-				isAssigned = err == nil && assigned
-			}
-			if !isCreator && !isCoordinator && !isAssigned {
-				errorResponse(c, http.StatusForbidden, "Akses ditolak: Anda tidak memiliki wewenang untuk mengawasi ujian ini")
-				return
-			}
+		if !models.UserCanAccessExam(ctx, pool, userID, isSuperAdmin(c), examID) {
+			errorResponse(c, http.StatusForbidden, "Akses ditolak: Anda tidak memiliki wewenang untuk mengawasi ujian ini")
+			return
 		}
 
-		_, err = pool.Exec(ctx, 
+		_, err := pool.Exec(ctx,
 			`UPDATE exam_approvals SET status = $1, updated_at = CURRENT_TIMESTAMP WHERE exam_id = $2 AND mac_address = $3`,
 			req.Status, examID, macAddress)
 		

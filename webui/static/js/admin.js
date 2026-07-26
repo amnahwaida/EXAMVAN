@@ -1316,13 +1316,13 @@ function loadUsersList(page) {
                     var actionsHtml = '<span style="font-size:11px; color: var(--color-text-secondary);">—</span>';
                     if (!isAdmin) {
                         var verifyBtn = user.status === 'pending_otp'
-                            ? '<button class="btn-sm" onclick="verifyUser(' + user.id + ', \'' + jsEscape(user.username) + '\')" title="Verifikasi manual" style="font-size:11px;padding:0 8px;height:26px;background:rgba(99,102,241,0.15);border:1px solid rgba(99,102,241,0.3);color:#a5b4fc;"><svg class="icon-svg" style="width:14px;height:14px;"><use href="#hi-check"/></svg></button> '
+                            ? '<button class="btn-sm" onclick="verifyUser(' + user.id + ', \'' + escapeHtml(jsEscape(user.username)) + '\')" title="Verifikasi manual" style="font-size:11px;padding:0 8px;height:26px;background:rgba(99,102,241,0.15);border:1px solid rgba(99,102,241,0.3);color:#a5b4fc;"><svg class="icon-svg" style="width:14px;height:14px;"><use href="#hi-check"/></svg></button> '
                             : '';
 
                         actionsHtml = '<div style="display:flex;gap:4px;flex-wrap:wrap;justify-content:flex-end;">'
                             + verifyBtn
                             + '<button class="btn-sm" onclick="openEditUserModal(' + user.id + ')" title="Atur limit & reset password" style="font-size:11px;padding:0 8px;height:26px;background:rgba(99,102,241,0.1);border:1px solid rgba(99,102,241,0.2);color:#a5b4fc;"><svg class="icon-svg" style="width:14px;height:14px;"><use href="#hi-edit"/></svg></button> '
-                            + '<button class="btn-sm btn-delete" onclick="deleteUser(' + user.id + ', \'' + jsEscape(user.username) + '\')" style="font-size:11px;padding:0 8px;height:26px;"><svg class="icon-svg" style="width:14px;height:14px;"><use href="#hi-trash"/></svg></button>'
+                            + '<button class="btn-sm btn-delete" onclick="deleteUser(' + user.id + ', \'' + escapeHtml(jsEscape(user.username)) + '\')" style="font-size:11px;padding:0 8px;height:26px;"><svg class="icon-svg" style="width:14px;height:14px;"><use href="#hi-trash"/></svg></button>'
                             + '</div>';
                     }
 
@@ -1766,11 +1766,19 @@ function submitEditUser(e) {
         data.password = newPass;
     }
 
-    // Expiry
+    // Expiry — convert the admin's LOCAL date/time to a UTC timestamp before
+    // sending, so it is stored consistently with createUser and the UTC-based
+    // read path (which appends 'Z'). Sending a naive local string caused the
+    // expiry to drift by the browser's timezone offset on every save.
     var expDate = document.getElementById('editUserExpiry').value;
     var expTime = document.getElementById('editUserExpiryTime').value || '23:59';
     if (expDate) {
-        data.expires_at = expDate + ' ' + expTime + ':00';
+        var localExpiry = new Date(expDate + 'T' + expTime + ':00');
+        if (!isNaN(localExpiry.getTime())) {
+            data.expires_at = localExpiry.toISOString().replace('T', ' ').substring(0, 19);
+        } else {
+            data.expires_at = expDate + ' ' + expTime + ':00';
+        }
     } else {
         data.expires_at = '';
     }

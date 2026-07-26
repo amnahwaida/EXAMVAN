@@ -342,7 +342,19 @@ func (w *Worker) runBatchInserter(batchSize int) {
 	}
 }
 
-// flushBatch inserts a batch of submissions into PostgreSQL in a single transaction.
+// succeededRow tracks a row that was inserted/updated successfully inside the
+// batch transaction, so its success result is only published AFTER commit.
+type succeededRow struct {
+	job          SubmissionJob
+	score        *float64
+	submissionID int
+}
+
+// flushBatch inserts a batch of submissions into PostgreSQL. Each row is written
+// inside its own savepoint so that a single failing row does not abort the whole
+// batch, and success results are only published to Redis AFTER the transaction
+// commits — otherwise a commit failure would report "success" to students while
+// silently discarding their answers.
 func (w *Worker) flushBatch(ctx context.Context, results []SubmissionResult) {
 	if w.pool == nil {
 		log.Printf("queue batch: database pool is nil")
@@ -353,88 +365,140 @@ func (w *Worker) flushBatch(ctx context.Context, results []SubmissionResult) {
 	tx, err := w.pool.Begin(ctx)
 	if err != nil {
 		log.Printf("queue batch: tx begin error: %v", err)
+		// Nothing was persisted — retry/park every job so none are lost.
+		for i := range results {
+			w.retryOrFail(&results[i], fmt.Sprintf("tx begin error: %v", err))
+		}
 		return
 	}
-	defer tx.Rollback(ctx)
+	committed := false
+	defer func() {
+		if !committed {
+			_ = tx.Rollback(ctx)
+		}
+	}()
 
 	// Set worker heartbeat in Redis (best effort)
 	if !isRedisUnavailable(w.rdb) {
 		w.rdb.Set(ctx, "examvan:submissions:worker_heartbeat", time.Now().UTC().Format(time.RFC3339), 30*time.Second)
 	}
 
-	successCount := 0
-	failedCount := 0
+	var succeeded []succeededRow
+	var failed []*SubmissionResult
 
-	for _, r := range results {
+	for i := range results {
+		r := &results[i]
 		if r.Error != nil {
 			log.Printf("queue batch: skip job %s due to error: %v", r.Job.JobID, r.Error)
-			failedCount++
-			w.storeResult(ctx, r.Job.JobID, false, nil, fmt.Sprintf("process error: %v", r.Error))
+			failed = append(failed, r)
 			continue
 		}
 
-		answersJSON, _ := json.Marshal(r.Job.Answers)
-		identityJSON, _ := json.Marshal(r.Job.IdentityData)
-
-		var answersPtr, identityPtr *string
-		answersStr := string(answersJSON)
-		identityStr := string(identityJSON)
-		if answersStr != "null" {
-			answersPtr = &answersStr
-		}
-		if identityStr != "null" && identityStr != "{}" {
-			identityPtr = &identityStr
+		// Per-row savepoint (pgx pseudo-nested tx) isolates row failures.
+		sp, spErr := tx.Begin(ctx)
+		if spErr != nil {
+			log.Printf("queue batch: savepoint begin error for job %s: %v", r.Job.JobID, spErr)
+			r.Error = spErr
+			failed = append(failed, r)
+			continue
 		}
 
-		// UPSERT: Try to update existing un-submitted row first
-		var submissionID int
-		err := tx.QueryRow(ctx, `
-			UPDATE submissions
-			SET answers_json = $1, score = $2, start_time = COALESCE(start_time, NULLIF($3, '')), student_name = $4, exam_number = $5, student_class = $6, identity_data = $7
-			WHERE id = (
-				SELECT id FROM submissions 
-				WHERE exam_id = $8 AND mac_address = $9 AND (answers_json IS NULL OR answers_json = '')
-				ORDER BY created_at DESC LIMIT 1
-			)
-			RETURNING id
-		`, answersPtr, r.Score, r.Job.StartTime, r.Job.StudentName, r.Job.ExamNumber, r.Job.StudentClass, identityPtr, r.Job.ExamID, r.Job.MACAddress).Scan(&submissionID)
-
-		if err == pgx.ErrNoRows {
-			// If no row exists, insert a new one
-			sql := `INSERT INTO submissions
-				(exam_id, student_name, exam_number, student_class, answers_json, score, start_time, mac_address, identity_data)
-				VALUES ($1, $2, $3, $4, $5, $6, NULLIF($7, ''), $8, $9)
-				RETURNING id`
-			err = tx.QueryRow(ctx, sql,
-				r.Job.ExamID, r.Job.StudentName, r.Job.ExamNumber, r.Job.StudentClass,
-				answersPtr, r.Score, r.Job.StartTime, r.Job.MACAddress, identityPtr,
-			).Scan(&submissionID)
+		submissionID, insErr := upsertSubmissionRow(ctx, sp, &r.Job, r.Score)
+		if insErr != nil {
+			_ = sp.Rollback(ctx)
+			log.Printf("queue batch: insert job %s error: %v", r.Job.JobID, insErr)
+			r.Error = insErr
+			failed = append(failed, r)
+			continue
 		}
-
-		if err != nil {
-			log.Printf("queue batch: insert job %s error: %v", r.Job.JobID, err)
-			if r.Job.Retries < maxRetriesPerJob {
-				r.Job.Retries++
-				log.Printf("queue batch: retrying job %s (attempt %d/%d)", r.Job.JobID, r.Job.Retries, maxRetriesPerJob)
-				_ = EnqueueSubmissionWithJob(w.rdb, &r.Job)
-			} else {
-				failedCount++
-				w.storeResult(ctx, r.Job.JobID, false, nil, fmt.Sprintf("database insert error: %v", err))
-			}
-		} else {
-			successCount++
-			w.storeResult(ctx, r.Job.JobID, true, r.Score, fmt.Sprintf("submission %d created", submissionID))
+		if relErr := sp.Commit(ctx); relErr != nil {
+			log.Printf("queue batch: savepoint release error for job %s: %v", r.Job.JobID, relErr)
+			r.Error = relErr
+			failed = append(failed, r)
+			continue
 		}
+		succeeded = append(succeeded, succeededRow{job: r.Job, score: r.Score, submissionID: submissionID})
 	}
 
 	if err := tx.Commit(ctx); err != nil {
-		log.Printf("queue batch: tx commit error: %v", err)
+		log.Printf("queue batch: tx commit error: %v — nothing persisted, re-enqueuing %d rows", err, len(succeeded))
+		// The commit failed, so every "succeeded" row was rolled back. Retry
+		// them all rather than reporting a false success.
+		for i := range succeeded {
+			jr := &SubmissionResult{Job: succeeded[i].job, Score: succeeded[i].score}
+			w.retryOrFail(jr, fmt.Sprintf("batch commit failed: %v", err))
+		}
+		for _, r := range failed {
+			w.retryOrFail(r, fmt.Sprintf("batch commit failed: %v", err))
+		}
 		return
+	}
+	committed = true
+
+	// Data is durable now — safe to publish results / retry failures.
+	for i := range succeeded {
+		w.storeResult(ctx, succeeded[i].job.JobID, true, succeeded[i].score,
+			fmt.Sprintf("submission %d created", succeeded[i].submissionID))
+	}
+	for _, r := range failed {
+		w.retryOrFail(r, fmt.Sprintf("submission error: %v", r.Error))
 	}
 
 	elapsed := time.Since(start)
 	log.Printf("queue batch: flushed batch of %d items in %v (success: %d, failed: %d)",
-		len(results), elapsed, successCount, failedCount)
+		len(results), elapsed, len(succeeded), len(failed))
+}
+
+// upsertSubmissionRow updates the student's un-submitted placeholder row (if any)
+// or inserts a new submission, returning the row id.
+func upsertSubmissionRow(ctx context.Context, q pgx.Tx, job *SubmissionJob, score *float64) (int, error) {
+	answersJSON, _ := json.Marshal(job.Answers)
+	identityJSON, _ := json.Marshal(job.IdentityData)
+
+	var answersPtr, identityPtr *string
+	answersStr := string(answersJSON)
+	identityStr := string(identityJSON)
+	if answersStr != "null" {
+		answersPtr = &answersStr
+	}
+	if identityStr != "null" && identityStr != "{}" {
+		identityPtr = &identityStr
+	}
+
+	var submissionID int
+	err := q.QueryRow(ctx, `
+		UPDATE submissions
+		SET answers_json = $1, score = $2, start_time = COALESCE(start_time, NULLIF($3, '')), student_name = $4, exam_number = $5, student_class = $6, identity_data = $7
+		WHERE id = (
+			SELECT id FROM submissions
+			WHERE exam_id = $8 AND mac_address = $9 AND (answers_json IS NULL OR answers_json = '')
+			ORDER BY created_at DESC LIMIT 1
+		)
+		RETURNING id
+	`, answersPtr, score, job.StartTime, job.StudentName, job.ExamNumber, job.StudentClass, identityPtr, job.ExamID, job.MACAddress).Scan(&submissionID)
+
+	if err == pgx.ErrNoRows {
+		err = q.QueryRow(ctx, `INSERT INTO submissions
+			(exam_id, student_name, exam_number, student_class, answers_json, score, start_time, mac_address, identity_data)
+			VALUES ($1, $2, $3, $4, $5, $6, NULLIF($7, ''), $8, $9)
+			RETURNING id`,
+			job.ExamID, job.StudentName, job.ExamNumber, job.StudentClass,
+			answersPtr, score, job.StartTime, job.MACAddress, identityPtr,
+		).Scan(&submissionID)
+	}
+	return submissionID, err
+}
+
+// retryOrFail re-enqueues a job for another attempt, or records a terminal
+// failure result once the retry budget is exhausted.
+func (w *Worker) retryOrFail(r *SubmissionResult, msg string) {
+	if r.Job.Retries < maxRetriesPerJob {
+		r.Job.Retries++
+		log.Printf("queue batch: retrying job %s (attempt %d/%d): %s", r.Job.JobID, r.Job.Retries, maxRetriesPerJob, msg)
+		_ = EnqueueSubmissionWithJob(w.rdb, &r.Job)
+		return
+	}
+	w.storeResult(context.Background(), r.Job.JobID, false, nil, msg)
 }
 
 // storeResult writes job result to Redis and publishes updates.
