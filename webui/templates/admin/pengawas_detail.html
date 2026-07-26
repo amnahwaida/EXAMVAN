@@ -976,7 +976,10 @@
   .pd-status-select { flex: 1 1 120px; width: 100%; }
   .pd-search-wrap { flex: 2 1 160px; width: 100%; }
   .pd-search-input { width: 100%; }
-  
+  /* Comfortable tap target for approve/reject + let long identity values wrap. */
+  .pd-action-btn { min-height: 40px; }
+  .log-identity span { white-space: normal; overflow-wrap: anywhere; }
+
   /* Card-based layout for table */
   .pd-table, .pd-table tbody, .pd-table tr, .pd-table td {
     display: block !important;
@@ -1385,7 +1388,7 @@ function showAccessLog(subId) {
                     '<span style="font-weight:800;font-size:0.9rem;color:var(--color-primary-light);">Upaya ' + (j + 1) + '</span>' +
                     '<span style="font-size:0.7rem;font-weight:700;color:' + shColor + ';background:' + shColor + '15;padding:4px 10px;border-radius:12px;border:1px solid ' + shColor + '30;">' + shStatus + '</span>' +
                 '</div>' +
-                '<div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px;font-size:0.75rem;">' +
+                '<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(110px,1fr));gap:12px;font-size:0.75rem;">' +
                     '<div><span style="color:var(--color-text-muted);display:block;margin-bottom:4px;font-size:0.7rem;text-transform:uppercase;letter-spacing:0.02em;">Mulai Mengerjakan</span><strong style="color:var(--color-text);font-family:var(--font-mono);">' + shStart + '</strong></div>' +
                     '<div><span style="color:var(--color-text-muted);display:block;margin-bottom:4px;font-size:0.7rem;text-transform:uppercase;letter-spacing:0.02em;">Waktu Terkumpul</span><strong style="color:var(--color-text);font-family:var(--font-mono);">' + shEnd + '</strong></div>' +
                     '<div><span style="color:var(--color-text-muted);display:block;margin-bottom:4px;font-size:0.7rem;text-transform:uppercase;letter-spacing:0.02em;">Nilai / Score</span><strong style="color:' + (shSubmitted ? '#34d399' : 'var(--color-text)') + ';font-size:0.9rem;">' + shScore + '</strong></div>' +

@@ -786,9 +786,9 @@
  .mockup-logo { width: 40px; height: 40px; font-size: 20px; }
  .mockup-title { font-size: 17px; }
 
- .stats-container { grid-template-columns: repeat(3, 1fr); gap: 10px; }
- .stat-val { font-size: 24px; }
- .stat-lbl { font-size: 10px; }
+ .stats-container { grid-template-columns: 1fr; gap: 10px; }
+ .stat-val { font-size: 22px; }
+ .stat-lbl { font-size: 12px; }
 
  .section-header { margin-bottom: 36px; }
  .section-subtitle { font-size: 12px; }
@@ -849,10 +849,11 @@
 
  <script>
  function toggleMenu() {
- document.getElementById('navLinks').classList.toggle('open');
+ var open = document.getElementById('navLinks').classList.toggle('open');
  document.getElementById('navOverlay').classList.toggle('active');
- var btn = document.getElementById('navHamburger');
- btn.innerHTML = btn.innerHTML.trim() === '&#9776;' ? '&#10005;' : '&#9776;';
+ // Drive the icon from actual state (comparing innerHTML to an entity string
+ // never matched, so the icon used to stick on the X after first tap).
+ document.getElementById('navHamburger').innerHTML = open ? '✕' : '☰';
  }
  function closeMenu() {
  document.getElementById('navLinks').classList.remove('open');

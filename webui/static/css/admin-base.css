@@ -480,3 +480,48 @@ code, pre, .token-code, .mono {
     background: rgba(99, 102, 241, 0.05);
 }
 
+
+/* ===================================================================== */
+/* Mobile UX fixes (audit 2026-07) — this file loads AFTER output.css so  */
+/* these rules win on equal specificity. Phones: <= 768px.               */
+/* ===================================================================== */
+@media (max-width: 768px) {
+    /* Prevent iOS Safari auto-zoom on focus: form controls must be >= 16px.
+       !important overrides the many inline font-sizes on modal inputs. */
+    input:not([type="checkbox"]):not([type="radio"]):not([type="range"]),
+    select,
+    textarea {
+        font-size: 16px !important;
+    }
+
+    /* Hamburger — the sole nav control on phones — needs a full 44px tap area. */
+    .topbar-menu-toggle {
+        min-width: 44px;
+        min-height: 44px;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+    }
+
+    /* Nav / settings dropdown: cap height and scroll so the last items
+       (Ubah Password, Logout) are always reachable on short/landscape phones. */
+    .topbar-dropdown-content {
+        max-height: calc(100vh - 70px);
+        overflow-y: auto;
+        -webkit-overflow-scrolling: touch;
+    }
+
+    /* Comfortable touch targets for icon / small action buttons. */
+    .btn-icon {
+        min-width: 40px;
+        min-height: 40px;
+    }
+    .btn-sm {
+        min-height: 40px;
+    }
+
+    /* Respect the notch / home-indicator safe area for the fixed bottom bar. */
+    .mobile-bottom-bar {
+        padding-bottom: calc(12px + env(safe-area-inset-bottom, 0px));
+    }
+}

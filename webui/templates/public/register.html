@@ -178,6 +178,9 @@
   }
 
   /* Responsive */
+  /* 16px form controls to prevent iOS Safari auto-zoom on focus. */
+  .login-form .form-group input,
+  .login-form .form-group select { font-size: 16px; }
   @media (max-width: 480px) {
    .reg-step-label { display: none; }
    .reg-step-line { width: 24px; }
