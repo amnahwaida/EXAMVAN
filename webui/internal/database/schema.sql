@@ -36,6 +36,7 @@ CREATE TABLE IF NOT EXISTS admin_users (
     expires_at      TIMESTAMPTZ,
     otp_code        TEXT,
     otp_expiry      TIMESTAMPTZ,
+    otp_attempts    INT NOT NULL DEFAULT 0,
     suspended_by_cascade BOOLEAN DEFAULT FALSE
 );
 
@@ -179,6 +180,7 @@ ALTER TABLE exams ADD COLUMN IF NOT EXISTS active_token TEXT NOT NULL DEFAULT ''
 ALTER TABLE exams ADD COLUMN IF NOT EXISTS exam_started_at TIMESTAMPTZ;
 ALTER TABLE admin_users ADD COLUMN IF NOT EXISTS email TEXT DEFAULT '';
 ALTER TABLE admin_users ADD COLUMN IF NOT EXISTS max_storage_size BIGINT DEFAULT 52428800;
+ALTER TABLE admin_users ADD COLUMN IF NOT EXISTS otp_attempts INT NOT NULL DEFAULT 0;
 
 -- Widen max_pdf_size / max_draft_size to BIGINT so large limits (e.g. the
 -- sekolah_unggulan package or a custom voucher setting multi-GB sizes) fit;

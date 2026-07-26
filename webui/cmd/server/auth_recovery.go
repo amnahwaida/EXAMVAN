@@ -25,6 +25,11 @@ const otpTTL = 15 * time.Minute
 // otpResendCooldown is the minimum gap between OTP (re)sends for one account.
 const otpResendCooldown = 60 * time.Second
 
+// maxOTPAttempts is the number of wrong OTP guesses allowed before the code is
+// invalidated (the user must request a new one). Guards against brute force
+// beyond the per-IP rate limit (e.g. distributed guessing).
+const maxOTPAttempts = 5
+
 // generateOTP returns a random 6-digit numeric OTP.
 func generateOTP() string {
 	const digits = "0123456789"
@@ -128,7 +133,7 @@ func resendOTPHandler(cfg *config.Config) gin.HandlerFunc {
 		code := generateOTP()
 		expiry := time.Now().UTC().Add(otpTTL)
 		if _, err := pool.Exec(ctx,
-			`UPDATE admin_users SET otp_code = $1, otp_expiry = $2 WHERE id = $3`, code, expiry, id); err != nil {
+			`UPDATE admin_users SET otp_code = $1, otp_expiry = $2, otp_attempts = 0 WHERE id = $3`, code, expiry, id); err != nil {
 			log.Printf("resend otp: update error: %v", err)
 			uniform()
 			return
@@ -199,7 +204,7 @@ func forgotPasswordPostHandler(cfg *config.Config) gin.HandlerFunc {
 				code := generateOTP()
 				expiry := time.Now().UTC().Add(otpTTL)
 				if _, e := pool.Exec(ctx,
-					`UPDATE admin_users SET otp_code = $1, otp_expiry = $2 WHERE id = $3`, code, expiry, id); e == nil {
+					`UPDATE admin_users SET otp_code = $1, otp_expiry = $2, otp_attempts = 0 WHERE id = $3`, code, expiry, id); e == nil {
 					// Async send: no timing side-channel + not blocked on SMTP.
 					go func(s smtpSettings, to, uname, otp string) {
 						if err := helpers.SendPasswordResetEmail(s.host, s.port, s.user, s.password, s.sender, to, uname, otp); err != nil {
@@ -285,17 +290,33 @@ func resetPasswordPostHandler(cfg *config.Config) gin.HandlerFunc {
 			status    string
 			dbOTP     *string
 			otpExpiry *time.Time
+			attempts  int
 		)
 		err := pool.QueryRow(ctx,
-			`SELECT id, status, otp_code, otp_expiry FROM admin_users WHERE LOWER(username) = LOWER($1)`,
-			username).Scan(&id, &status, &dbOTP, &otpExpiry)
-		// Generic message avoids revealing which part failed / whether the user exists.
-		if err != nil || status == models.UserStatusPendingOTP || dbOTP == nil || *dbOTP == "" || *dbOTP != otpCode {
+			`SELECT id, status, otp_code, otp_expiry, otp_attempts FROM admin_users WHERE LOWER(username) = LOWER($1)`,
+			username).Scan(&id, &status, &dbOTP, &otpExpiry, &attempts)
+		// No live reset code -> generic message (does not reveal existence and is
+		// not counted as a guess). Covers unknown user, pending account, or a
+		// code that was already used/invalidated.
+		if err != nil || status == models.UserStatusPendingOTP || dbOTP == nil || *dbOTP == "" {
 			render("Kode OTP salah atau sudah tidak berlaku. Silakan minta kode baru.")
 			return
 		}
 		if otpExpiry == nil || time.Now().UTC().After(*otpExpiry) {
 			render("Kode OTP telah kedaluwarsa. Silakan minta kode baru.")
+			return
+		}
+		// Wrong code: count the guess and invalidate the OTP once the limit is
+		// hit — but keep the message identical to the "no live code" case above
+		// so an attacker cannot distinguish (via forgot->reset) which accounts
+		// actually have a pending reset code.
+		if *dbOTP != otpCode {
+			if attempts+1 >= maxOTPAttempts {
+				_, _ = pool.Exec(ctx, `UPDATE admin_users SET otp_code = NULL, otp_expiry = NULL, otp_attempts = 0 WHERE id = $1`, id)
+			} else {
+				_, _ = pool.Exec(ctx, `UPDATE admin_users SET otp_attempts = otp_attempts + 1 WHERE id = $1`, id)
+			}
+			render("Kode OTP salah atau sudah tidak berlaku. Silakan minta kode baru.")
 			return
 		}
 
@@ -306,7 +327,7 @@ func resetPasswordPostHandler(cfg *config.Config) gin.HandlerFunc {
 			return
 		}
 		if _, err := pool.Exec(ctx,
-			`UPDATE admin_users SET password_hash = $1, otp_code = NULL, otp_expiry = NULL WHERE id = $2`,
+			`UPDATE admin_users SET password_hash = $1, otp_code = NULL, otp_expiry = NULL, otp_attempts = 0 WHERE id = $2`,
 			hash, id); err != nil {
 			log.Printf("reset password: update error: %v", err)
 			render("Gagal menyimpan password baru. Coba lagi.")

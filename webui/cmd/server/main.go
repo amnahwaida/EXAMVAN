@@ -1165,9 +1165,10 @@ func registerConfirmPostHandler(cfg *config.Config) gin.HandlerFunc {
 		ctx := c.Request.Context()
 
 		var u models.AdminUser
+		var otpAttempts int
 		err := dbPool.QueryRow(ctx,
-			`SELECT id, username, email, status, otp_code, otp_expiry FROM admin_users 
-			 WHERE LOWER(username) = LOWER($1)`, username).Scan(&u.ID, &u.Username, &u.Email, &u.Status, &u.OTPCode, &u.OTPExpiry)
+			`SELECT id, username, email, status, otp_code, otp_expiry, otp_attempts FROM admin_users
+			 WHERE LOWER(username) = LOWER($1)`, username).Scan(&u.ID, &u.Username, &u.Email, &u.Status, &u.OTPCode, &u.OTPExpiry, &otpAttempts)
 
 		if err != nil {
 			data["error"] = "User tidak ditemukan."
@@ -1185,7 +1186,16 @@ func registerConfirmPostHandler(cfg *config.Config) gin.HandlerFunc {
 		}
 
 		if *u.OTPCode != otpCode {
-			data["error"] = "Kode OTP yang Anda masukkan salah."
+			// Count the wrong guess. After the limit, delete the (still
+			// unverified) registration so brute force cannot continue — the
+			// user simply registers again. Mirrors the expiry-delete behaviour.
+			if otpAttempts+1 >= maxOTPAttempts {
+				_, _ = dbPool.Exec(ctx, `DELETE FROM admin_users WHERE id = $1`, u.ID)
+				data["error"] = "Terlalu banyak percobaan salah. Silakan lakukan registrasi ulang."
+			} else {
+				_, _ = dbPool.Exec(ctx, `UPDATE admin_users SET otp_attempts = otp_attempts + 1 WHERE id = $1`, u.ID)
+				data["error"] = "Kode OTP yang Anda masukkan salah. Sisa percobaan: " + strconv.Itoa(maxOTPAttempts-otpAttempts-1) + "."
+			}
 			c.HTML(http.StatusOK, "public/register_confirm.html", data)
 			return
 		}
