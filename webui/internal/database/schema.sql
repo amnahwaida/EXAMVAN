@@ -180,6 +180,22 @@ ALTER TABLE exams ADD COLUMN IF NOT EXISTS exam_started_at TIMESTAMPTZ;
 ALTER TABLE admin_users ADD COLUMN IF NOT EXISTS email TEXT DEFAULT '';
 ALTER TABLE admin_users ADD COLUMN IF NOT EXISTS max_storage_size BIGINT DEFAULT 52428800;
 
+-- Widen max_pdf_size / max_draft_size to BIGINT so large limits (e.g. the
+-- sekolah_unggulan package or a custom voucher setting multi-GB sizes) fit;
+-- INTEGER overflows above ~2 GB. Guarded so it only rewrites once (not on
+-- every boot). Safe to re-run.
+DO $$
+BEGIN
+    IF EXISTS (SELECT 1 FROM information_schema.columns
+               WHERE table_name = 'admin_users' AND column_name = 'max_pdf_size' AND data_type <> 'bigint') THEN
+        ALTER TABLE admin_users ALTER COLUMN max_pdf_size TYPE BIGINT;
+    END IF;
+    IF EXISTS (SELECT 1 FROM information_schema.columns
+               WHERE table_name = 'admin_users' AND column_name = 'max_draft_size' AND data_type <> 'bigint') THEN
+        ALTER TABLE admin_users ALTER COLUMN max_draft_size TYPE BIGINT;
+    END IF;
+END $$;
+
 -- Set active_token = token for existing rows where active_token is empty
 UPDATE exams SET active_token = token WHERE active_token = '' OR active_token IS NULL;
 UPDATE exams SET token_mode = 'dynamic' WHERE token_mode IS NULL;
@@ -341,6 +357,18 @@ CREATE TABLE IF NOT EXISTS voucher_redemptions (
     redeemed_at  TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
     UNIQUE(voucher_id, user_id)
 );
+
+-- Custom voucher entitlement (SuperAdmin-defined limits/role, independent of
+-- the fixed packages). When is_custom = true, redemption applies these values
+-- instead of packageEntitlement(). Safe to re-run.
+ALTER TABLE vouchers ADD COLUMN IF NOT EXISTS is_custom BOOLEAN NOT NULL DEFAULT false;
+ALTER TABLE vouchers ADD COLUMN IF NOT EXISTS custom_label TEXT DEFAULT '';
+ALTER TABLE vouchers ADD COLUMN IF NOT EXISTS custom_max_exams INT DEFAULT 0;
+ALTER TABLE vouchers ADD COLUMN IF NOT EXISTS custom_max_pdf_size BIGINT DEFAULT 0;
+ALTER TABLE vouchers ADD COLUMN IF NOT EXISTS custom_max_drafts INT DEFAULT 0;
+ALTER TABLE vouchers ADD COLUMN IF NOT EXISTS custom_max_draft_size BIGINT DEFAULT 0;
+ALTER TABLE vouchers ADD COLUMN IF NOT EXISTS custom_max_storage_size BIGINT DEFAULT 0;
+ALTER TABLE vouchers ADD COLUMN IF NOT EXISTS custom_role TEXT DEFAULT '';
 
 CREATE INDEX IF NOT EXISTS idx_vouchers_code ON vouchers(code);
 

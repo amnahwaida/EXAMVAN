@@ -26,6 +26,16 @@ type Voucher struct {
 	CreatedBy    string     `json:"created_by,omitempty"`
 	CreatedAt    time.Time  `json:"created_at"`
 	UpdatedAt    time.Time  `json:"updated_at"`
+
+	// Custom entitlement (used only when IsCustom is true). Sizes are in bytes.
+	IsCustom             bool   `json:"is_custom"`
+	CustomLabel          string `json:"custom_label"`
+	CustomMaxExams       int    `json:"custom_max_exams"`
+	CustomMaxPDFSize     int64  `json:"custom_max_pdf_size"`
+	CustomMaxDrafts      int    `json:"custom_max_drafts"`
+	CustomMaxDraftSize   int64  `json:"custom_max_draft_size"`
+	CustomMaxStorageSize int64  `json:"custom_max_storage_size"`
+	CustomRole           string `json:"custom_role"`
 }
 
 type VoucherRedemption struct {
@@ -66,13 +76,17 @@ func CreateVoucher(ctx context.Context, pool *pgxpool.Pool, v *Voucher) (*Vouche
 		v.MaxUsage = 1
 	}
 
-	sql := `INSERT INTO vouchers 
-		(code, package, duration_type, max_usage, expires_at, is_active, notes, created_by)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+	sql := `INSERT INTO vouchers
+		(code, package, duration_type, max_usage, expires_at, is_active, notes, created_by,
+		 is_custom, custom_label, custom_max_exams, custom_max_pdf_size, custom_max_drafts,
+		 custom_max_draft_size, custom_max_storage_size, custom_role)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)
 		RETURNING id, used_count, created_at, updated_at`
 
 	err := pool.QueryRow(ctx, sql,
 		v.Code, v.Package, v.DurationType, v.MaxUsage, v.ExpiresAt, v.IsActive, v.Notes, v.CreatedByID,
+		v.IsCustom, v.CustomLabel, v.CustomMaxExams, v.CustomMaxPDFSize, v.CustomMaxDrafts,
+		v.CustomMaxDraftSize, v.CustomMaxStorageSize, v.CustomRole,
 	).Scan(&v.ID, &v.UsedCount, &v.CreatedAt, &v.UpdatedAt)
 
 	if err != nil {
@@ -82,8 +96,10 @@ func CreateVoucher(ctx context.Context, pool *pgxpool.Pool, v *Voucher) (*Vouche
 	return v, nil
 }
 
-// CreateBatchVouchers generates multiple unique vouchers at once.
-func CreateBatchVouchers(ctx context.Context, pool *pgxpool.Pool, prefix, pkg, durationType string, count, maxUsage int, expiresAt *time.Time, notes string, createdByID int) ([]Voucher, error) {
+// CreateBatchVouchers generates multiple unique vouchers at once, all sharing
+// the given template's package/duration/usage/expiry/notes and (if set) custom
+// entitlement. Only the code is randomized per voucher.
+func CreateBatchVouchers(ctx context.Context, pool *pgxpool.Pool, prefix string, count int, tmpl Voucher) ([]Voucher, error) {
 	if count <= 0 {
 		count = 1
 	}
@@ -93,17 +109,9 @@ func CreateBatchVouchers(ctx context.Context, pool *pgxpool.Pool, prefix, pkg, d
 
 	var created []Voucher
 	for i := 0; i < count; i++ {
-		code := GenerateRandomVoucherCode(prefix)
-		v := Voucher{
-			Code:         code,
-			Package:      pkg,
-			DurationType: durationType,
-			MaxUsage:     maxUsage,
-			ExpiresAt:    expiresAt,
-			IsActive:     true,
-			Notes:        notes,
-			CreatedByID:  &createdByID,
-		}
+		v := tmpl // copy template
+		v.Code = GenerateRandomVoucherCode(prefix)
+		v.IsActive = true
 
 		res, err := CreateVoucher(ctx, pool, &v)
 		if err != nil {
@@ -123,9 +131,13 @@ func CreateBatchVouchers(ctx context.Context, pool *pgxpool.Pool, prefix, pkg, d
 // GetVoucherByCode fetches a voucher by its code.
 func GetVoucherByCode(ctx context.Context, pool *pgxpool.Pool, code string) (*Voucher, error) {
 	code = strings.ToUpper(strings.TrimSpace(code))
-	sql := `SELECT v.id, v.code, v.package, v.duration_type, v.max_usage, v.used_count, 
+	sql := `SELECT v.id, v.code, v.package, v.duration_type, v.max_usage, v.used_count,
 	               v.expires_at, v.is_active, v.notes, v.created_by, COALESCE(u.username, ''),
-	               v.created_at, v.updated_at
+	               v.created_at, v.updated_at,
+	               v.is_custom, COALESCE(v.custom_label, ''), COALESCE(v.custom_max_exams, 0),
+	               COALESCE(v.custom_max_pdf_size, 0), COALESCE(v.custom_max_drafts, 0),
+	               COALESCE(v.custom_max_draft_size, 0), COALESCE(v.custom_max_storage_size, 0),
+	               COALESCE(v.custom_role, '')
 	        FROM vouchers v
 	        LEFT JOIN admin_users u ON v.created_by = u.id
 	        WHERE v.code = $1`
@@ -135,6 +147,8 @@ func GetVoucherByCode(ctx context.Context, pool *pgxpool.Pool, code string) (*Vo
 		&v.ID, &v.Code, &v.Package, &v.DurationType, &v.MaxUsage, &v.UsedCount,
 		&v.ExpiresAt, &v.IsActive, &v.Notes, &v.CreatedByID, &v.CreatedBy,
 		&v.CreatedAt, &v.UpdatedAt,
+		&v.IsCustom, &v.CustomLabel, &v.CustomMaxExams, &v.CustomMaxPDFSize, &v.CustomMaxDrafts,
+		&v.CustomMaxDraftSize, &v.CustomMaxStorageSize, &v.CustomRole,
 	)
 	if err != nil {
 		if err == pgx.ErrNoRows {
@@ -194,7 +208,11 @@ func ListVouchers(ctx context.Context, pool *pgxpool.Pool, opts ListVouchersOpts
 	querySQL := fmt.Sprintf(`
 		SELECT v.id, v.code, v.package, v.duration_type, v.max_usage, v.used_count,
 		       v.expires_at, v.is_active, v.notes, v.created_by, COALESCE(u.username, ''),
-		       v.created_at, v.updated_at
+		       v.created_at, v.updated_at,
+		       v.is_custom, COALESCE(v.custom_label, ''), COALESCE(v.custom_max_exams, 0),
+		       COALESCE(v.custom_max_pdf_size, 0), COALESCE(v.custom_max_drafts, 0),
+		       COALESCE(v.custom_max_draft_size, 0), COALESCE(v.custom_max_storage_size, 0),
+		       COALESCE(v.custom_role, '')
 		FROM vouchers v
 		LEFT JOIN admin_users u ON v.created_by = u.id
 		%s
@@ -216,6 +234,8 @@ func ListVouchers(ctx context.Context, pool *pgxpool.Pool, opts ListVouchersOpts
 			&v.ID, &v.Code, &v.Package, &v.DurationType, &v.MaxUsage, &v.UsedCount,
 			&v.ExpiresAt, &v.IsActive, &v.Notes, &v.CreatedByID, &v.CreatedBy,
 			&v.CreatedAt, &v.UpdatedAt,
+			&v.IsCustom, &v.CustomLabel, &v.CustomMaxExams, &v.CustomMaxPDFSize, &v.CustomMaxDrafts,
+			&v.CustomMaxDraftSize, &v.CustomMaxStorageSize, &v.CustomRole,
 		); err != nil {
 			return nil, fmt.Errorf("scan voucher: %w", err)
 		}

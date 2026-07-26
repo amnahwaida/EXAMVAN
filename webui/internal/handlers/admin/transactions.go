@@ -133,6 +133,51 @@ func containsRole(roles []string, target string) bool {
 	return false
 }
 
+// applyCustomVoucherEntitlement applies a custom voucher's entitlement to a user
+// by OVERWRITING their quota limits with the voucher's values and extending
+// expiry to expiresAt. When the voucher specifies a custom role it is MERGED
+// into the user's existing roles (never stripping them); a SuperAdmin's role is
+// never changed. Package label defaults to "custom" when the voucher gives none.
+func applyCustomVoucherEntitlement(ctx context.Context, tx pgx.Tx, userID int, v *models.Voucher, expiresAt time.Time) error {
+	var currentRoleJSON string
+	if err := tx.QueryRow(ctx, `SELECT COALESCE(role, '') FROM admin_users WHERE id = $1`, userID).Scan(&currentRoleJSON); err != nil {
+		return err
+	}
+	currentRoles := models.ParseRoles(currentRoleJSON)
+
+	pkgLabel := strings.TrimSpace(v.CustomLabel)
+	if pkgLabel == "" {
+		pkgLabel = "custom"
+	}
+
+	role := strings.TrimSpace(v.CustomRole)
+	// Only change the role when the voucher specifies one AND the target is not
+	// a SuperAdmin (whose role must never be altered by a voucher).
+	if role != "" && role != models.RoleSuperAdmin && !containsRole(currentRoles, models.RoleSuperAdmin) {
+		merged := append([]string{}, currentRoles...)
+		if !containsRole(merged, role) {
+			merged = append(merged, role)
+		}
+		_, err := tx.Exec(ctx, `UPDATE admin_users SET
+			package = $1, max_exams = $2, max_pdf_size = $3, max_drafts = $4,
+			max_draft_size = $5, max_storage_size = $6, expires_at = $7,
+			status = 'active', role = $8
+			WHERE id = $9`,
+			pkgLabel, v.CustomMaxExams, v.CustomMaxPDFSize, v.CustomMaxDrafts,
+			v.CustomMaxDraftSize, v.CustomMaxStorageSize, expiresAt,
+			models.SerializeRoles(merged), userID)
+		return err
+	}
+
+	_, err := tx.Exec(ctx, `UPDATE admin_users SET
+		package = $1, max_exams = $2, max_pdf_size = $3, max_drafts = $4,
+		max_draft_size = $5, max_storage_size = $6, expires_at = $7, status = 'active'
+		WHERE id = $8`,
+		pkgLabel, v.CustomMaxExams, v.CustomMaxPDFSize, v.CustomMaxDrafts,
+		v.CustomMaxDraftSize, v.CustomMaxStorageSize, expiresAt, userID)
+	return err
+}
+
 func CalculatePackagePrice(ctx context.Context, pool *pgxpool.Pool, pkgName, durationType string) int64 {
 	prices := models.GetPricingMap(ctx, pool)
 	// Keys are "price_<pkg>_<duration>" to match GetPricingMap / DB settings.

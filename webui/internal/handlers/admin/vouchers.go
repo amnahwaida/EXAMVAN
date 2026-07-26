@@ -70,6 +70,52 @@ func ListVouchers() gin.HandlerFunc {
 	}
 }
 
+// voucherAtoiDefault parses a positive integer form value, or returns def.
+func voucherAtoiDefault(s string, def int) int {
+	if n, err := strconv.Atoi(strings.TrimSpace(s)); err == nil && n >= 0 {
+		return n
+	}
+	return def
+}
+
+// voucherMBToBytes parses a megabyte float form value into bytes, or def (MB).
+func voucherMBToBytes(s string, defMB float64) int64 {
+	mb, err := strconv.ParseFloat(strings.TrimSpace(s), 64)
+	if err != nil || mb < 0 {
+		mb = defMB
+	}
+	return int64(mb * 1024 * 1024)
+}
+
+// parseCustomVoucherInto reads the custom-* form fields into v (used when the
+// selected package is "custom"). Returns a non-empty error message on invalid
+// input, otherwise "".
+func parseCustomVoucherInto(c *gin.Context, v *models.Voucher) string {
+	role := strings.TrimSpace(c.PostForm("custom_role"))
+	switch role {
+	case "", models.RoleGuru, models.RolePengawas, models.RoleOperator:
+		// allowed (empty = do not change role)
+	default:
+		return "Role kustom tidak valid"
+	}
+
+	label := strings.TrimSpace(c.PostForm("custom_label"))
+	if label == "" {
+		label = "custom"
+	}
+
+	v.IsCustom = true
+	v.CustomLabel = label
+	v.Package = label // shown in listings / recorded in history
+	v.CustomMaxExams = voucherAtoiDefault(c.PostForm("custom_max_exams"), 1)
+	v.CustomMaxDrafts = voucherAtoiDefault(c.PostForm("custom_max_drafts"), 1)
+	v.CustomMaxPDFSize = voucherMBToBytes(c.PostForm("custom_max_pdf_size_mb"), 1)
+	v.CustomMaxDraftSize = voucherMBToBytes(c.PostForm("custom_max_draft_size_mb"), 1)
+	v.CustomMaxStorageSize = voucherMBToBytes(c.PostForm("custom_max_storage_size_mb"), 100)
+	v.CustomRole = role
+	return ""
+}
+
 // CreateVoucherHandler handles POST /admin/api/vouchers (SuperAdmin only).
 func CreateVoucherHandler() gin.HandlerFunc {
 	return func(c *gin.Context) {
@@ -124,6 +170,14 @@ func CreateVoucherHandler() gin.HandlerFunc {
 			IsActive:     true,
 			Notes:        notes,
 			CreatedByID:  &userID,
+		}
+
+		// Custom package: SuperAdmin defines the entitlement directly.
+		if pkg == "custom" {
+			if msg := parseCustomVoucherInto(c, v); msg != "" {
+				errorResponse(c, http.StatusBadRequest, msg)
+				return
+			}
 		}
 
 		created, err := models.CreateVoucher(ctx, pool, v)
@@ -197,7 +251,25 @@ func CreateBatchVouchersHandler() gin.HandlerFunc {
 			}
 		}
 
-		createdList, err := models.CreateBatchVouchers(ctx, pool, prefix, pkg, durationType, count, maxUsage, expiresAt, notes, userID)
+		tmpl := models.Voucher{
+			Package:      pkg,
+			DurationType: durationType,
+			MaxUsage:     maxUsage,
+			ExpiresAt:    expiresAt,
+			Notes:        notes,
+			CreatedByID:  &userID,
+		}
+
+		// Custom package: SuperAdmin defines the entitlement directly (applied
+		// to every code in the batch).
+		if pkg == "custom" {
+			if msg := parseCustomVoucherInto(c, &tmpl); msg != "" {
+				errorResponse(c, http.StatusBadRequest, msg)
+				return
+			}
+		}
+
+		createdList, err := models.CreateBatchVouchers(ctx, pool, prefix, count, tmpl)
 		if err != nil {
 			log.Printf("batch create vouchers error: %v", err)
 			errorResponse(c, http.StatusInternalServerError, "Gagal membuat batch voucher")
@@ -342,11 +414,17 @@ func RedeemVoucherHandler() gin.HandlerFunc {
 		// 1. Lock and fetch voucher (case-insensitive & space-trimmed match)
 		var v models.Voucher
 		err = dbTx.QueryRow(ctx, `
-			SELECT id, code, package, duration_type, max_usage, used_count, expires_at, is_active
+			SELECT id, code, package, duration_type, max_usage, used_count, expires_at, is_active,
+			       is_custom, COALESCE(custom_label, ''), COALESCE(custom_max_exams, 0),
+			       COALESCE(custom_max_pdf_size, 0), COALESCE(custom_max_drafts, 0),
+			       COALESCE(custom_max_draft_size, 0), COALESCE(custom_max_storage_size, 0),
+			       COALESCE(custom_role, '')
 			FROM vouchers
 			WHERE UPPER(TRIM(code)) = UPPER(TRIM($1))
 			FOR UPDATE`, code).Scan(
 			&v.ID, &v.Code, &v.Package, &v.DurationType, &v.MaxUsage, &v.UsedCount, &v.ExpiresAt, &v.IsActive,
+			&v.IsCustom, &v.CustomLabel, &v.CustomMaxExams, &v.CustomMaxPDFSize, &v.CustomMaxDrafts,
+			&v.CustomMaxDraftSize, &v.CustomMaxStorageSize, &v.CustomRole,
 		)
 		if err != nil {
 			if err == pgx.ErrNoRows {
@@ -413,16 +491,29 @@ func RedeemVoucherHandler() gin.HandlerFunc {
 			newExpiry = now.AddDate(0, 0, days)
 		}
 
-		// 6. Apply package entitlement
-		newRole := ""
-		if _, _, _, _, role := packageEntitlement(v.Package); role != "" {
-			newRole = role
-		}
-
-		if err := applyApprovedTransactionEntitlement(ctx, dbTx, userID, v.Package, v.DurationType, newExpiry, newRole); err != nil {
-			log.Printf("redeem apply entitlement error: %v", err)
-			errorResponse(c, http.StatusInternalServerError, "Gagal menerapkan paket dari voucher")
-			return
+		// 6. Apply entitlement — custom vouchers carry their own limits/role;
+		// otherwise fall back to the fixed package entitlement.
+		roleMayChange := false
+		if v.IsCustom {
+			if v.CustomRole != "" {
+				roleMayChange = true
+			}
+			if err := applyCustomVoucherEntitlement(ctx, dbTx, userID, &v, newExpiry); err != nil {
+				log.Printf("redeem apply custom entitlement error: %v", err)
+				errorResponse(c, http.StatusInternalServerError, "Gagal menerapkan paket dari voucher")
+				return
+			}
+		} else {
+			newRole := ""
+			if _, _, _, _, role := packageEntitlement(v.Package); role != "" {
+				newRole = role
+				roleMayChange = true
+			}
+			if err := applyApprovedTransactionEntitlement(ctx, dbTx, userID, v.Package, v.DurationType, newExpiry, newRole); err != nil {
+				log.Printf("redeem apply entitlement error: %v", err)
+				errorResponse(c, http.StatusInternalServerError, "Gagal menerapkan paket dari voucher")
+				return
+			}
 		}
 
 		// 7. Increment voucher used count
@@ -468,7 +559,7 @@ func RedeemVoucherHandler() gin.HandlerFunc {
 		// Refresh session role to match the (merged) role now stored, without
 		// demoting a SuperAdmin. Read the actual persisted role rather than
 		// blindly setting the package role, which could strip existing roles.
-		if newRole != "" {
+		if roleMayChange {
 			var updatedRole string
 			if err := pool.QueryRow(ctx, `SELECT COALESCE(role, '') FROM admin_users WHERE id = $1`, userID).Scan(&updatedRole); err == nil &&
 				updatedRole != "" && !models.HasRole(updatedRole, models.RoleSuperAdmin) {

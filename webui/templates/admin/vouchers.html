@@ -132,13 +132,14 @@
     <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:14px;">
      <div>
       <label style="display:block;font-size:12px;color:var(--color-text-secondary);margin-bottom:4px;">Paket</label>
-      <select id="singlePackage" required style="width:100%;padding:10px;background:rgba(15,23,42,0.9);border:1px solid var(--color-glass-border);border-radius:8px;color:#fff;outline:none;">
+      <select id="singlePackage" required onchange="toggleCustomPackage('single')" style="width:100%;padding:10px;background:rgba(15,23,42,0.9);border:1px solid var(--color-glass-border);border-radius:8px;color:#fff;outline:none;">
        <option value="guru">Guru</option>
        <option value="individu">Individu</option>
        <option value="sekolah_kecil">Sekolah Kecil</option>
        <option value="sekolah_menengah">Sekolah Menengah</option>
        <option value="sekolah_besar">Sekolah Besar</option>
        <option value="sekolah_unggulan">Sekolah Unggulan</option>
+       <option value="custom">⚙️ Kustom (Atur Limit Sendiri)</option>
       </select>
      </div>
      <div>
@@ -155,6 +156,46 @@
     <div id="singleCustomDaysGroup" style="display:none;margin-bottom:14px;">
      <label style="display:block;font-size:12px;color:#c084fc;margin-bottom:4px;font-weight:600;">Jumlah Hari Masa Aktif (Kustom)</label>
      <input type="number" id="singleCustomDays" placeholder="Misal: 7, 14, 45, 90..." min="1" value="7" style="width:100%;padding:10px;background:rgba(0,0,0,0.3);border:1px solid rgba(168,85,247,0.4);border-radius:8px;color:#fff;outline:none;" />
+    </div>
+
+    <div id="singleCustomGroup" style="display:none;margin-bottom:14px;padding:12px;border:1px dashed rgba(168,85,247,0.4);border-radius:8px;background:rgba(168,85,247,0.05);">
+     <div style="font-size:12px;color:#c084fc;font-weight:700;margin-bottom:8px;">⚙️ Entitlement Kustom (menimpa limit akun saat redeem)</div>
+     <div style="margin-bottom:10px;">
+      <label style="display:block;font-size:12px;color:var(--color-text-secondary);margin-bottom:4px;">Label Paket</label>
+      <input type="text" id="singleCustomLabel" placeholder="Misal: PROMO-KHUSUS" style="width:100%;padding:8px;background:rgba(0,0,0,0.3);border:1px solid var(--color-glass-border);border-radius:8px;color:#fff;outline:none;" />
+     </div>
+     <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:10px;">
+      <div>
+       <label style="display:block;font-size:12px;color:var(--color-text-secondary);margin-bottom:4px;">Maks Ujian Aktif</label>
+       <input type="number" id="singleCustomMaxExams" value="1" min="0" style="width:100%;padding:8px;background:rgba(0,0,0,0.3);border:1px solid var(--color-glass-border);border-radius:8px;color:#fff;outline:none;" />
+      </div>
+      <div>
+       <label style="display:block;font-size:12px;color:var(--color-text-secondary);margin-bottom:4px;">Maks PDF (MB)</label>
+       <input type="number" id="singleCustomPdfMb" value="10" min="0" step="0.1" style="width:100%;padding:8px;background:rgba(0,0,0,0.3);border:1px solid var(--color-glass-border);border-radius:8px;color:#fff;outline:none;" />
+      </div>
+      <div>
+       <label style="display:block;font-size:12px;color:var(--color-text-secondary);margin-bottom:4px;">Maks Draft Soal</label>
+       <input type="number" id="singleCustomMaxDrafts" value="10" min="0" style="width:100%;padding:8px;background:rgba(0,0,0,0.3);border:1px solid var(--color-glass-border);border-radius:8px;color:#fff;outline:none;" />
+      </div>
+      <div>
+       <label style="display:block;font-size:12px;color:var(--color-text-secondary);margin-bottom:4px;">Maks Ukuran Draft (MB)</label>
+       <input type="number" id="singleCustomDraftMb" value="10" min="0" step="0.1" style="width:100%;padding:8px;background:rgba(0,0,0,0.3);border:1px solid var(--color-glass-border);border-radius:8px;color:#fff;outline:none;" />
+      </div>
+      <div>
+       <label style="display:block;font-size:12px;color:var(--color-text-secondary);margin-bottom:4px;">Maks Storage (MB)</label>
+       <input type="number" id="singleCustomStorageMb" value="100" min="0" step="0.1" style="width:100%;padding:8px;background:rgba(0,0,0,0.3);border:1px solid var(--color-glass-border);border-radius:8px;color:#fff;outline:none;" />
+      </div>
+      <div>
+       <label style="display:block;font-size:12px;color:var(--color-text-secondary);margin-bottom:4px;">Role Akun</label>
+       <select id="singleCustomRole" style="width:100%;padding:8px;background:rgba(15,23,42,0.9);border:1px solid var(--color-glass-border);border-radius:8px;color:#fff;outline:none;">
+        <option value="">— Jangan ubah role —</option>
+        <option value="guru">Guru</option>
+        <option value="pengawas">Pengawas</option>
+        <option value="operator">Operator</option>
+       </select>
+      </div>
+     </div>
+     <p style="font-size:11px;color:var(--color-text-secondary);margin:0;">Durasi tetap mengikuti pilihan "Durasi" di atas (boleh custom hari).</p>
     </div>
 
     <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:14px;">
@@ -205,13 +246,14 @@
     <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:14px;">
      <div>
       <label style="display:block;font-size:12px;color:var(--color-text-secondary);margin-bottom:4px;">Paket</label>
-      <select id="batchPackage" required style="width:100%;padding:10px;background:rgba(15,23,42,0.9);border:1px solid var(--color-glass-border);border-radius:8px;color:#fff;outline:none;">
+      <select id="batchPackage" required onchange="toggleCustomPackage('batch')" style="width:100%;padding:10px;background:rgba(15,23,42,0.9);border:1px solid var(--color-glass-border);border-radius:8px;color:#fff;outline:none;">
        <option value="guru">Guru</option>
        <option value="individu">Individu</option>
        <option value="sekolah_kecil">Sekolah Kecil</option>
        <option value="sekolah_menengah">Sekolah Menengah</option>
        <option value="sekolah_besar">Sekolah Besar</option>
        <option value="sekolah_unggulan">Sekolah Unggulan</option>
+       <option value="custom">⚙️ Kustom (Atur Limit Sendiri)</option>
       </select>
      </div>
      <div>
@@ -228,6 +270,45 @@
     <div id="batchCustomDaysGroup" style="display:none;margin-bottom:14px;">
      <label style="display:block;font-size:12px;color:#c084fc;margin-bottom:4px;font-weight:600;">Jumlah Hari Masa Aktif (Kustom)</label>
      <input type="number" id="batchCustomDays" placeholder="Misal: 7, 14, 45, 90..." min="1" value="7" style="width:100%;padding:10px;background:rgba(0,0,0,0.3);border:1px solid rgba(168,85,247,0.4);border-radius:8px;color:#fff;outline:none;" />
+    </div>
+
+    <div id="batchCustomGroup" style="display:none;margin-bottom:14px;padding:12px;border:1px dashed rgba(168,85,247,0.4);border-radius:8px;background:rgba(168,85,247,0.05);">
+     <div style="font-size:12px;color:#c084fc;font-weight:700;margin-bottom:8px;">⚙️ Entitlement Kustom (berlaku untuk semua kode di batch)</div>
+     <div style="margin-bottom:10px;">
+      <label style="display:block;font-size:12px;color:var(--color-text-secondary);margin-bottom:4px;">Label Paket</label>
+      <input type="text" id="batchCustomLabel" placeholder="Misal: PROMO-KHUSUS" style="width:100%;padding:8px;background:rgba(0,0,0,0.3);border:1px solid var(--color-glass-border);border-radius:8px;color:#fff;outline:none;" />
+     </div>
+     <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;">
+      <div>
+       <label style="display:block;font-size:12px;color:var(--color-text-secondary);margin-bottom:4px;">Maks Ujian Aktif</label>
+       <input type="number" id="batchCustomMaxExams" value="1" min="0" style="width:100%;padding:8px;background:rgba(0,0,0,0.3);border:1px solid var(--color-glass-border);border-radius:8px;color:#fff;outline:none;" />
+      </div>
+      <div>
+       <label style="display:block;font-size:12px;color:var(--color-text-secondary);margin-bottom:4px;">Maks PDF (MB)</label>
+       <input type="number" id="batchCustomPdfMb" value="10" min="0" step="0.1" style="width:100%;padding:8px;background:rgba(0,0,0,0.3);border:1px solid var(--color-glass-border);border-radius:8px;color:#fff;outline:none;" />
+      </div>
+      <div>
+       <label style="display:block;font-size:12px;color:var(--color-text-secondary);margin-bottom:4px;">Maks Draft Soal</label>
+       <input type="number" id="batchCustomMaxDrafts" value="10" min="0" style="width:100%;padding:8px;background:rgba(0,0,0,0.3);border:1px solid var(--color-glass-border);border-radius:8px;color:#fff;outline:none;" />
+      </div>
+      <div>
+       <label style="display:block;font-size:12px;color:var(--color-text-secondary);margin-bottom:4px;">Maks Ukuran Draft (MB)</label>
+       <input type="number" id="batchCustomDraftMb" value="10" min="0" step="0.1" style="width:100%;padding:8px;background:rgba(0,0,0,0.3);border:1px solid var(--color-glass-border);border-radius:8px;color:#fff;outline:none;" />
+      </div>
+      <div>
+       <label style="display:block;font-size:12px;color:var(--color-text-secondary);margin-bottom:4px;">Maks Storage (MB)</label>
+       <input type="number" id="batchCustomStorageMb" value="100" min="0" step="0.1" style="width:100%;padding:8px;background:rgba(0,0,0,0.3);border:1px solid var(--color-glass-border);border-radius:8px;color:#fff;outline:none;" />
+      </div>
+      <div>
+       <label style="display:block;font-size:12px;color:var(--color-text-secondary);margin-bottom:4px;">Role Akun</label>
+       <select id="batchCustomRole" style="width:100%;padding:8px;background:rgba(15,23,42,0.9);border:1px solid var(--color-glass-border);border-radius:8px;color:#fff;outline:none;">
+        <option value="">— Jangan ubah role —</option>
+        <option value="guru">Guru</option>
+        <option value="pengawas">Pengawas</option>
+        <option value="operator">Operator</option>
+       </select>
+      </div>
+     </div>
     </div>
 
     <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:14px;">
@@ -445,6 +526,25 @@ function toggleCustomDuration(type) {
     }
 }
 
+function toggleCustomPackage(type) {
+    const sel = document.getElementById(type + 'Package');
+    const grp = document.getElementById(type + 'CustomGroup');
+    if (sel && grp) {
+        grp.style.display = sel.value === 'custom' ? 'block' : 'none';
+    }
+}
+
+// Appends the custom entitlement fields (used when package === 'custom').
+function appendCustomVoucherFields(formData, type) {
+    formData.append('custom_label', (document.getElementById(type + 'CustomLabel').value || '').trim());
+    formData.append('custom_max_exams', document.getElementById(type + 'CustomMaxExams').value);
+    formData.append('custom_max_pdf_size_mb', document.getElementById(type + 'CustomPdfMb').value);
+    formData.append('custom_max_drafts', document.getElementById(type + 'CustomMaxDrafts').value);
+    formData.append('custom_max_draft_size_mb', document.getElementById(type + 'CustomDraftMb').value);
+    formData.append('custom_max_storage_size_mb', document.getElementById(type + 'CustomStorageMb').value);
+    formData.append('custom_role', document.getElementById(type + 'CustomRole').value);
+}
+
 function submitSingleVoucher(e) {
     e.preventDefault();
     const btn = document.getElementById('btnSubmitSingle');
@@ -452,12 +552,16 @@ function submitSingleVoucher(e) {
     btn.textContent = 'Menyimpan...';
 
     const durationVal = document.getElementById('singleDuration').value;
+    const pkgVal = document.getElementById('singlePackage').value;
     const formData = new FormData();
     formData.append('code', document.getElementById('singleCode').value.trim());
-    formData.append('package', document.getElementById('singlePackage').value);
+    formData.append('package', pkgVal);
     formData.append('duration_type', durationVal);
     if (durationVal === 'custom') {
         formData.append('custom_days', document.getElementById('singleCustomDays').value);
+    }
+    if (pkgVal === 'custom') {
+        appendCustomVoucherFields(formData, 'single');
     }
     formData.append('max_usage', document.getElementById('singleMaxUsage').value);
     formData.append('expires_at', document.getElementById('singleExpiresAt').value);
@@ -494,13 +598,17 @@ function submitBatchVoucher(e) {
     btn.textContent = 'Generating...';
 
     const durationVal = document.getElementById('batchDuration').value;
+    const pkgVal = document.getElementById('batchPackage').value;
     const formData = new FormData();
     formData.append('prefix', document.getElementById('batchPrefix').value.trim());
     formData.append('count', document.getElementById('batchCount').value);
-    formData.append('package', document.getElementById('batchPackage').value);
+    formData.append('package', pkgVal);
     formData.append('duration_type', durationVal);
     if (durationVal === 'custom') {
         formData.append('custom_days', document.getElementById('batchCustomDays').value);
+    }
+    if (pkgVal === 'custom') {
+        appendCustomVoucherFields(formData, 'batch');
     }
     formData.append('max_usage', document.getElementById('batchMaxUsage').value);
     formData.append('expires_at', document.getElementById('batchExpiresAt').value);
