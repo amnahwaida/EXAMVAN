@@ -92,3 +92,17 @@
 
 /* ===== Font Face Fallbacks (Google Fonts self-host placeholder) ===== */
 /* Jika ingin self-host font, tambahkan @font-face di sini */
+
+/* ===== Skip link (WCAG 2.4.1) =====
+   The links themselves are positioned off-screen via inline style
+   (left:-9999px), so the focus reveal must win over that inline style.
+   admin-core.js also reveals it via JS where loaded; this CSS covers pages
+   that don't load admin-core.js (register_confirm, forgot_password, etc). */
+.skip-link:focus,
+.skip-link:focus-visible {
+        left: 12px !important;
+        top: 12px;
+        z-index: 10002;
+        outline: 2px solid #fff;
+        outline-offset: 2px;
+}

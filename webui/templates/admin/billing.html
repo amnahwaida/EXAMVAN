@@ -723,12 +723,15 @@ var currentTxPage = 1;
 
 const INITIAL_PACKAGE = '{{.selected_package}}';
 const INITIAL_DURATION = '{{.selected_duration}}';
+const PRICING_ENABLED = {{if .pricing_enabled}}true{{else}}false{{end}};
 
 document.addEventListener('DOMContentLoaded', function() {
     loadTransactions(1);
     formatPackageName();
     formatCardPrices();
-    if (INITIAL_PACKAGE || INITIAL_DURATION) {
+    // Jangan auto-buka modal pembelian (mis. dari tautan lama ?package=...)
+    // saat halaman pricing/pembelian sedang dinonaktifkan.
+    if (PRICING_ENABLED && (INITIAL_PACKAGE || INITIAL_DURATION)) {
         openPaymentModal(INITIAL_PACKAGE || undefined, INITIAL_DURATION || undefined);
     }
 });
@@ -1077,7 +1080,7 @@ window.addEventListener('DOMContentLoaded', () => {
         showToast('Pembayaran DOKU dibatalkan.', 'warning');
     }
     
-    if (pkg) {
+    if (pkg && PRICING_ENABLED) {
         const pkgSelect = document.getElementById('txPackageSelect');
         if (pkgSelect) {
             pkgSelect.value = pkg;

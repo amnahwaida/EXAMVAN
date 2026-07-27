@@ -349,8 +349,16 @@
   var resendMsg = document.getElementById('resendMsg');
   var cooldownIv = null;
 
-  function startCooldown(seconds) {
+  // Cooldown persists across re-renders (a failed verify POST reloads this
+  // page); otherwise every wrong code restarted the full 60s wait even
+  // though no new code was sent.
+  var CD_KEY = 'otpResendCooldownEnd:' + USERNAME;
+
+  function startCooldown(seconds, fromStorage) {
    if (!resendLink || !resendTimer) return;
+   if (!fromStorage) {
+    try { sessionStorage.setItem(CD_KEY, String(Date.now() + seconds * 1000)); } catch (_) {}
+   }
    var remaining = seconds;
    resendLink.style.display = 'none';
    resendTimer.textContent = 'Kirim ulang kode dalam ' + remaining + ' detik';
@@ -390,8 +398,20 @@
    });
   };
 
-  // A code was just sent when this page loaded, so start the 60s cooldown.
-  startCooldown(60);
+  // On load: resume a stored cooldown if one is still running (e.g. the page
+  // re-rendered after a wrong code). Only start a fresh 60s window when no
+  // cooldown was ever stored for this user — i.e. the code was just sent.
+  var storedEnd = 0;
+  try { storedEnd = parseInt(sessionStorage.getItem(CD_KEY) || '0', 10); } catch (_) {}
+  if (storedEnd > Date.now()) {
+   startCooldown(Math.ceil((storedEnd - Date.now()) / 1000), true);
+  } else if (!storedEnd) {
+   startCooldown(60);
+  } else if (resendLink && resendTimer) {
+   // Cooldown already expired — allow resending immediately.
+   resendTimer.textContent = 'Tidak menerima kode?';
+   resendLink.style.display = '';
+  }
  });
  </script>
 </body>

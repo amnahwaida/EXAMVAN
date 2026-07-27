@@ -561,3 +561,94 @@ body.modal-open {
 .toast-container {
     z-index: 10001;
 }
+
+/* ===== Medium-severity UI fixes (July 2026 audit) ===== */
+
+/* .btn-secondary was referenced in vouchers/billing but never defined,
+   falling back to the browser's default light-gray button on the dark UI. */
+.btn-secondary {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    background: rgba(255, 255, 255, 0.06);
+    border: 1px solid var(--color-glass-border);
+    color: var(--color-text);
+    border-radius: 8px;
+    cursor: pointer;
+    font-size: 13px;
+    transition: background 0.2s ease, border-color 0.2s ease;
+}
+.btn-secondary:hover {
+    background: rgba(255, 255, 255, 0.12);
+}
+
+/* Loading spinner: billing uses <svg class="icon-svg spin"> but no admin
+   stylesheet defined the animation (it existed only in hasil.css). */
+.spin {
+    animation: adminSpin 0.8s linear infinite;
+}
+@keyframes adminSpin {
+    to { transform: rotate(360deg); }
+}
+
+/* Wide tables previously only got horizontal scroll inside the mobile media
+   query; at 769–1150px an 8-column table clipped its last column under
+   body{overflow-x:hidden} with no way to reach it. Scroll at every width. */
+.table-responsive {
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+}
+
+/* Compact inline hint chip. output.css defines .form-hint twice and the
+   full-width block variant wins, so inline "label hints" need their own class. */
+.form-hint-inline {
+    display: inline-block;
+    margin-left: 6px;
+    padding: 1px 8px;
+    border-radius: 999px;
+    font-size: 0.68rem;
+    font-weight: 600;
+    letter-spacing: 0.03em;
+    background: rgba(99, 102, 241, 0.14);
+    color: var(--color-accent-light);
+    border: 1px solid rgba(99, 102, 241, 0.25);
+    white-space: nowrap;
+    vertical-align: middle;
+}
+
+/* Status badges are only interactive when promoted to role="button"
+   (dashboard toggle). Read-only badges (pengawas pages) previously showed a
+   pointer cursor and hovered to the OPPOSITE color, implying a toggle. */
+.status-badge:not([role="button"]) {
+    cursor: default;
+}
+.status-badge:not([role="button"]):active {
+    transform: none;
+}
+.status-active:not([role="button"]):hover {
+    background: rgba(16, 185, 129, 0.12);
+    border-color: rgba(16, 185, 129, 0.2);
+    color: var(--color-success);
+}
+.status-inactive:not([role="button"]):hover {
+    background: rgba(245, 158, 11, 0.12);
+    border-color: rgba(245, 158, 11, 0.2);
+    color: var(--color-warning);
+}
+
+/* Student status pill — promoted from pengawas.html's inline styles because
+   pengawas_detail's access-log modal renders the same markup and previously
+   showed unstyled plain text. */
+.student-status {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    padding: 2px 8px;
+    border-radius: 10px;
+    font-size: 0.7rem;
+    font-weight: 600;
+}
+.student-status.submitted { background: rgba(16,185,129,0.15); color: #6ee7b7; border: 1px solid rgba(16,185,129,0.3); }
+.student-status.in-progress { background: rgba(251,191,36,0.15); color: #fbbf24; border: 1px solid rgba(251,191,36,0.3); }
+.student-status.not-started { background: rgba(107,114,128,0.15); color: #9ca3af; border: 1px solid rgba(107,114,128,0.3); }

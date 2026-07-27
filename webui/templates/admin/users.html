@@ -504,7 +504,7 @@
  {{if and (eq .admin_role "operator") .operator_expires_at}}
  {{$exp := .operator_expires_at}}
  <div class="expiry-group">
- <label>Masa Aktif Akun <span class="form-hint">ikuti operator</span></label>
+ <label>Masa Aktif Akun <span class="form-hint-inline">ikuti operator</span></label>
  <div class="expiry-input-row">
  <input type="date" id="newUserExpiry" value="{{substr $exp 0 10}}" disabled class="expiry-field">
  <input type="time" id="newUserExpiryTime" value="{{substr $exp 11 16}}" disabled class="expiry-field">

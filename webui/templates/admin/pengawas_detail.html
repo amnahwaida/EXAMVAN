@@ -259,7 +259,8 @@
      <input type="text" id="pengawasSearch" class="pd-search-input" placeholder="Cari nama, ID perangkat..."
       onkeyup="if(event.key==='Enter') loadDetail()">
     </div>
-    <button class="pd-toolbar-btn" onclick="loadDetail()" title="Refresh">
+    <span id="lastUpdatedLabel" style="font-size:11px;color:var(--color-text-muted);white-space:nowrap;align-self:center;" aria-live="off"></span>
+    <button class="pd-toolbar-btn" onclick="loadDetail()" title="Refresh" aria-label="Muat ulang data peserta">
      <svg class="icon-svg"><use href="#hi-refresh"/></svg>
     </button>
    </div>
@@ -1191,6 +1192,11 @@ function loadApprovals() {
         })
         .catch(function(err) {
             console.error('Fetch approvals error:', err);
+            // Without this, a failed first load was indistinguishable from an
+            // empty queue. Only replace placeholder text, never real rows.
+            if (tbody && /Belum ada antrean|Memuat/.test(tbody.textContent)) {
+                tbody.innerHTML = '<tr><td colspan="5" class="pd-table-empty" style="color:#fca5a5;">Gagal memuat antrean — mencoba lagi otomatis...</td></tr>';
+            }
         });
 }
 
@@ -1226,6 +1232,16 @@ function setApproval(macAddress, status, skipConfirm, auto) {
     });
 }
 
+// Small "data is live" cue: stamp the time of the last successful refresh so
+// a stale screen is distinguishable from a live one.
+function markUpdated() {
+    var el = document.getElementById('lastUpdatedLabel');
+    if (!el) return;
+    var d = new Date();
+    var pad = function(n) { return (n < 10 ? '0' : '') + n; };
+    el.textContent = 'Diperbarui ' + pad(d.getHours()) + ':' + pad(d.getMinutes()) + ':' + pad(d.getSeconds());
+}
+
 function loadDetail(page, silent) {
     var tbody = document.getElementById('submissionBody');
     if (!tbody) return;
@@ -1246,6 +1262,7 @@ function loadDetail(page, silent) {
                 tbody.innerHTML = '<tr><td colspan="6" class="pd-table-empty" style="color:#fca5a5;">Gagal memuat data</td></tr>';
                 return;
             }
+            markUpdated();
             var subs = res.submissions || [];
             if (res.stats) {
                 document.getElementById('statTotal').textContent = res.stats.total;

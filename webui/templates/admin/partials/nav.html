@@ -83,18 +83,8 @@
     </div>
     <div class="dropdown-divider"></div>
     
-    {{ if or $isSuper $isOp }}
-     <a href="/admin/billing" class="dropdown-item" style="text-decoration:none;color:inherit;"><svg class="icon-svg"><use href="#hi-clipboard"/></svg> Billing & Paket</a>
-    {{ else if $isGuru }}
-     <a href="/admin/billing" class="dropdown-item" style="text-decoration:none;color:inherit;"><svg class="icon-svg"><use href="#hi-clipboard"/></svg> Upgrade Paket</a>
-    {{ end }}
-    {{ if $isSuper }}
-     <a href="/admin/system-apps" class="dropdown-item" style="text-decoration:none;color:inherit;"><svg class="icon-svg"><use href="#hi-download"/></svg> Aplikasi Sistem</a>
-    {{ end }}
-    {{ if or $isSuper $isOp $isGuru }}
-     <div class="dropdown-divider"></div>
-    {{ end }}
-    
+    {{/* Tautan Billing/Aplikasi Sistem sudah ada di blok "Pengaturan" di atas —
+         jangan diduplikasi lagi di blok akun (membuat menu mobile dobel). */}}
     <button class="dropdown-item" onclick="openChangePasswordModal()">
      <svg class="icon-svg"><use href="#hi-key"/></svg> Ubah Password
     </button>

@@ -873,3 +873,55 @@ to { opacity: 1; transform: translateY(0); }
 *, *::before, *::after { animation-duration: 0.01ms !important; transition-duration: 0.01ms !important; }
 .bg-orb { animation: none !important; opacity: 0.15; }
 }
+
+/* ===== July 2026 UI audit fixes ===== */
+
+/* .table-wrapper was referenced in the markup but never defined, so wide
+   tables clipped invisibly under body{overflow-x:hidden} at 768-1100px. */
+.table-wrapper {
+overflow-x: auto;
+-webkit-overflow-scrolling: touch;
+}
+
+/* Long unbroken names must wrap instead of stretching their grid track and
+   pushing the score badge off the card edge. */
+.student-name { overflow-wrap: anywhere; }
+
+@media (max-width: 768px) {
+.results-table tbody td[data-label="Nama"] { min-width: 0 !important; }
+/* The detail column headers are hidden on mobile, which left the two answer
+   values unlabeled (worse when both are masked as "•••"). Prefix each value
+   with a compact label instead. */
+.q-student-ans::before {
+content: "Jawaban: ";
+color: var(--color-text-muted);
+font-size: 0.68rem;
+font-weight: 600;
+}
+.q-correct-ans::before {
+content: "Kunci: ";
+color: var(--color-text-muted);
+font-size: 0.68rem;
+font-weight: 600;
+}
+}
+
+/* Teachers print/save this page; the dark-theme palette would otherwise
+   produce near-white text on white paper. */
+@media print {
+body {
+background: #fff !important;
+color: #111827 !important;
+}
+.bg-orbs, .bg-orb, .back-nav, .tab-nav, .search-card, .pagination, .skip-link { display: none !important; }
+.exam-hero, .glass-card, .results-table tbody tr {
+background: #fff !important;
+border-color: #d1d5db !important;
+box-shadow: none !important;
+}
+.exam-hero *, .glass-card *, .results-table * {
+color: #111827 !important;
+text-shadow: none !important;
+}
+.detail-row { page-break-inside: avoid; }
+}

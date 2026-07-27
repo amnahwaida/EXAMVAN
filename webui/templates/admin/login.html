@@ -24,6 +24,12 @@
  <link rel="stylesheet" href="/static/css/tailwind/output.css?v={{.version}}">
  <link rel="icon" type="image/png" href="/static/favicon.png">
  <meta name="csrf-token" content="{{.csrf_token}}">
+ <style>
+  /* 16px form controls to prevent iOS Safari auto-zoom on focus
+     (same fix as register/forgot/reset pages). */
+  .login-form .form-group input,
+  .login-form .form-group select { font-size: 16px; }
+ </style>
 </head>
 <body class="login-page">
  <a href="#main-content" class="skip-link" style="position:absolute;left:-9999px;z-index:9999;padding:12px 20px;background:var(--color-primary,#6366f1);color:white;border-radius:8px;font-weight:600;text-decoration:none;">Langsung ke konten</a>

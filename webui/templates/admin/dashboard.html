@@ -219,9 +219,9 @@
 <div class="stat-card stat-instansi" title="Klik untuk mengubah nama Instansi/Sekolah Anda" style="cursor:pointer;" onclick="openEditInstansiModal()">
 <div class="stat-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M3 21h18M3 10h18M5 6l7-3 7 3M4 10v11m16-11v11M8 14v.01M12 14v.01M16 14v.01M9 21v-4h6v4"/></svg></div>
 <div class="stat-info" style="flex:1;">
-<div style="display:flex;align-items:center;justify-content:space-between;gap:4px;width:100%;">
-  <span class="stat-value stat-value-sm">{{default "Belum Ditetapkan" .admin_instansi}}</span>
-  <svg class="icon-svg" style="width:14px;height:14px;color:#c084fc;opacity:0.85;" title="Ubah Nama Instansi"><use href="#hi-edit"/></svg>
+<div style="display:flex;align-items:center;justify-content:space-between;gap:4px;width:100%;min-width:0;">
+  <span class="stat-value stat-value-sm" style="min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="{{default "Belum Ditetapkan" .admin_instansi}}">{{default "Belum Ditetapkan" .admin_instansi}}</span>
+  <svg class="icon-svg" style="width:14px;height:14px;color:#c084fc;opacity:0.85;flex-shrink:0;" title="Ubah Nama Instansi"><use href="#hi-edit"/></svg>
 </div>
 <span class="stat-label">Instansi (Klik untuk Ubah)</span>
 </div>
