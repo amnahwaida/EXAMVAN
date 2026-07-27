@@ -1254,7 +1254,11 @@ input:disabled, select:disabled, textarea:disabled, button:disabled, .btn-sm:dis
   font-size: 0.82rem;
   font-weight: 500;
   line-height: 1.5;
-  border: 1px solid;
+  border: 1px solid rgba(99, 102, 241, 0.3);
+  /* Default (untyped) flashes get a readable info style instead of a bare
+     currentColor border with no background. Typed variants override below. */
+  background: rgba(99, 102, 241, 0.12);
+  color: #c7d2fe;
   animation: toastIn 0.3s ease;
   font-family: var(--font-sans);
 }
@@ -1775,8 +1779,8 @@ input:disabled, select:disabled, textarea:disabled, button:disabled, .btn-sm:dis
   display: flex;
   align-items: center;
   justify-content: center;
-  width: 32px;
-  height: 32px;
+  width: 40px;
+  height: 40px;
   border-radius: 6px;
   transition: background 0.2s;
   background: transparent;

@@ -81,7 +81,7 @@
  <!-- Filter & Search -->
  <div class="glass-card" style="padding:16px 20px;border-radius:12px;margin-bottom:24px;display:flex;align-items:center;justify-content:space-between;gap:16px;flex-wrap:wrap;">
   <div style="display:flex;align-items:center;gap:12px;flex:1;max-width:400px;">
-   <input type="text" id="searchVoucher" placeholder="Cari kode atau catatan..." style="width:100%;padding:8px 14px;background:rgba(0,0,0,0.3);border:1px solid var(--color-glass-border);border-radius:8px;color:#fff;font-size:13px;outline:none;" onkeyup="if(event.key==='Enter') loadVouchers(1)" />
+   <input type="text" id="searchVoucher" placeholder="Cari kode atau catatan..." aria-label="Cari voucher" style="width:100%;padding:8px 14px;background:rgba(0,0,0,0.3);border:1px solid var(--color-glass-border);border-radius:8px;color:#fff;font-size:13px;outline:none;" onkeyup="if(event.key==='Enter') loadVouchers(1)" />
    <button onclick="loadVouchers(1)" class="btn-secondary" style="padding:8px 16px;border-radius:8px;font-size:13px;cursor:pointer;">Cari</button>
   </div>
  </div>
@@ -120,7 +120,7 @@
  <div class="modal-card" style="max-width:500px;">
   <div class="modal-header">
    <h3 style="font-size:1.1rem;color:#fff;margin:0;">Buat Voucher Single</h3>
-   <button class="modal-close" onclick="closeSingleModal()">&times;</button>
+   <button class="modal-close" onclick="closeSingleModal()" aria-label="Tutup">&times;</button>
   </div>
   <div style="padding:20px;max-height:calc(90vh - 60px);overflow-y:auto;-webkit-overflow-scrolling:touch;">
    <form id="formSingleVoucher" onsubmit="submitSingleVoucher(event)">
@@ -228,7 +228,7 @@
  <div class="modal-card" style="max-width:500px;">
   <div class="modal-header">
    <h3 style="font-size:1.1rem;color:#fff;margin:0;">Generate Batch Voucher (Banyak)</h3>
-   <button class="modal-close" onclick="closeBatchModal()">&times;</button>
+   <button class="modal-close" onclick="closeBatchModal()" aria-label="Tutup">&times;</button>
   </div>
   <div style="padding:20px;max-height:calc(90vh - 60px);overflow-y:auto;-webkit-overflow-scrolling:touch;">
    <form id="formBatchVoucher" onsubmit="submitBatchVoucher(event)">
@@ -341,7 +341,7 @@
  <div class="modal-card" style="max-width:550px;">
   <div class="modal-header">
    <h3 style="font-size:1.1rem;color:#fff;margin:0;" id="redemptionsTitle">Pengguna Voucher</h3>
-   <button class="modal-close" onclick="closeRedemptionsModal()">&times;</button>
+   <button class="modal-close" onclick="closeRedemptionsModal()" aria-label="Tutup">&times;</button>
   </div>
   <div style="padding:20px;max-height:60vh;overflow-y:auto;" id="redemptionsBody">
    <p style="text-align:center;color:var(--color-text-secondary);">Memuat...</p>
@@ -476,16 +476,16 @@ function renderVouchersTable(vouchers) {
             </td>
             <td data-label="Penggunaan" style="padding:14px 20px;">
                 <span style="font-weight:700;color:${v.used_count > 0 ? '#c084fc' : '#94a3b8'};">${v.used_count}</span> / ${v.max_usage}
-                ${v.used_count > 0 ? `<button onclick="viewRedemptions(${v.id}, '${v.code}')" style="background:none;border:none;color:#a855f7;font-size:11px;cursor:pointer;margin-left:4px;text-decoration:underline;">(Lihat User)</button>` : ''}
+                ${v.used_count > 0 ? `<button onclick="viewRedemptions(${v.id}, '${v.code}')" style="background:none;border:none;color:#a855f7;font-size:12px;cursor:pointer;margin-left:4px;text-decoration:underline;padding:8px 6px;">(Lihat User)</button>` : ''}
             </td>
             <td data-label="Kadaluarsa" style="padding:14px 20px;font-size:12px;color:var(--color-text-secondary);">${expiryStr}</td>
             <td data-label="Status" style="padding:14px 20px;">${statusBadge}</td>
             <td data-label="Catatan" style="padding:14px 20px;font-size:12px;color:var(--color-text-secondary);">${v.notes || '—'}</td>
             <td data-label="Aksi" style="padding:14px 20px;text-align:right;">
-                <button onclick="toggleVoucher(${v.id}, '${v.code}', ${v.is_active})" style="background:rgba(255,255,255,0.06);border:1px solid var(--color-glass-border);color:#fff;padding:4px 10px;border-radius:6px;font-size:11px;cursor:pointer;margin-right:4px;">
+                <button onclick="toggleVoucher(${v.id}, '${v.code}', ${v.is_active})" style="background:rgba(255,255,255,0.06);border:1px solid var(--color-glass-border);color:#fff;padding:8px 12px;border-radius:8px;font-size:12px;cursor:pointer;margin-right:8px;min-height:36px;">
                     ${v.is_active ? 'Matikan' : 'Aktifkan'}
                 </button>
-                <button onclick="deleteVoucher(${v.id}, '${v.code}')" style="background:rgba(239,68,68,0.15);border:1px solid rgba(239,68,68,0.3);color:#ef4444;padding:4px 10px;border-radius:6px;font-size:11px;cursor:pointer;">
+                <button onclick="deleteVoucher(${v.id}, '${v.code}')" style="background:rgba(239,68,68,0.15);border:1px solid rgba(239,68,68,0.3);color:#ef4444;padding:8px 12px;border-radius:8px;font-size:12px;cursor:pointer;min-height:36px;">
                     Hapus
                 </button>
             </td>

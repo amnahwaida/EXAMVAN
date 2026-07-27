@@ -652,3 +652,40 @@ body.modal-open {
 .student-status.submitted { background: rgba(16,185,129,0.15); color: #6ee7b7; border: 1px solid rgba(16,185,129,0.3); }
 .student-status.in-progress { background: rgba(251,191,36,0.15); color: #fbbf24; border: 1px solid rgba(251,191,36,0.3); }
 .student-status.not-started { background: rgba(107,114,128,0.15); color: #9ca3af; border: 1px solid rgba(107,114,128,0.3); }
+
+/* Mobile "select all exams" control — the thead (and its master checkbox) is
+   hidden in the card layout, which left phones with row-by-row selection only. */
+.mobile-select-all-exams {
+    display: none;
+}
+@media (max-width: 768px) {
+    .mobile-select-all-exams {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        padding: 10px 12px;
+        margin-bottom: 10px;
+        border-radius: 10px;
+        background: rgba(255, 255, 255, 0.04);
+        border: 1px solid var(--color-glass-border);
+        font-size: 13px;
+        cursor: pointer;
+        min-height: 44px;
+    }
+    .mobile-select-all-exams input {
+        width: 18px;
+        height: 18px;
+        accent-color: var(--color-primary);
+    }
+    /* Interactive status toggle needs a real touch target on phones. */
+    .status-badge[role="button"] {
+        min-height: 34px;
+        padding-block: calc(var(--spacing) * 2);
+    }
+    /* pengawas_detail row action links were ~26px tall. */
+    .action-link {
+        min-height: 40px;
+        display: inline-flex;
+        align-items: center;
+    }
+}

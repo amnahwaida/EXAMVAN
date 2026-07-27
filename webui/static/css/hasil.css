@@ -925,3 +925,12 @@ text-shadow: none !important;
 }
 .detail-row { page-break-inside: avoid; }
 }
+
+/* Touch targets: search-clear (26px), back-nav (~30px), and tab buttons
+   (~37px) were below the ~44px minimum on phones. */
+@media (max-width: 768px) {
+.search-clear-btn { width: 38px; height: 38px; }
+.back-nav { min-height: 42px; }
+.tab-btn { min-height: 42px; }
+.pagination-btn { min-width: 42px; min-height: 42px; }
+}

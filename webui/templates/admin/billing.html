@@ -159,7 +159,7 @@
    {{if .voucher_enabled}}
    <p style="font-size:12px;color:var(--color-text-secondary);margin:0 0 10px 0;">Masukkan kode promo untuk upgrade paket instan.</p>
    <div style="display:flex;gap:8px;">
-    <input type="text" id="voucherCodeInput" placeholder="EV-PROMO-2026" style="flex:1;padding:8px 12px;background:rgba(0,0,0,0.3);border:1px solid rgba(255,255,255,0.15);border-radius:8px;color:#fff;font-family:var(--font-mono);font-size:13px;text-transform:uppercase;outline:none;" />
+    <input type="text" id="voucherCodeInput" placeholder="EV-PROMO-2026" aria-label="Kode voucher / promo" style="flex:1;padding:8px 12px;background:rgba(0,0,0,0.3);border:1px solid rgba(255,255,255,0.15);border-radius:8px;color:#fff;font-family:var(--font-mono);font-size:13px;text-transform:uppercase;outline:none;" />
     <button onclick="redeemVoucher()" id="btnRedeemVoucher" style="padding:8px 16px;border-radius:8px;font-weight:600;font-size:13px;cursor:pointer;background:linear-gradient(135deg, #a855f7, #6366f1);border:none;color:#fff;white-space:nowrap;transition:all 0.2s;">Klaim</button>
    </div>
    {{else}}

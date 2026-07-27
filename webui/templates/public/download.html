@@ -341,6 +341,10 @@
     opacity: 1;
     transform: translateY(0);
   }
+  /* Reduced-motion: tampilkan konten langsung tanpa animasi reveal. */
+  @media (prefers-reduced-motion: reduce) {
+    .reveal { opacity: 1; transform: none; transition: none; }
+  }
 
   @media (max-width: 768px) {
     main { padding: 100px 20px 40px; }
@@ -353,6 +357,7 @@
     .download-card, .instruction-card { padding: 24px 18px; }
   }
 </style>
+<noscript><style>.reveal { opacity: 1 !important; transform: none !important; }</style></noscript>
 
   <main id="main-content">
     
@@ -656,12 +661,20 @@
     function switchTab(platform) {
       document.querySelectorAll('.tab-btn').forEach(btn => btn.classList.remove('active'));
       document.querySelectorAll('.platform-section').forEach(sec => sec.style.display = 'none');
-      
+
       document.getElementById('tab-' + platform).classList.add('active');
-      document.getElementById('section-' + platform).style.display = 'block';
+      const section = document.getElementById('section-' + platform);
+      section.style.display = 'block';
+      // Konten tab yang baru ditampilkan mungkin belum pernah ter-observe
+      // dalam keadaan terlihat — tampilkan langsung agar tidak blank.
+      section.querySelectorAll('.reveal:not(.visible)').forEach(el => el.classList.add('visible'));
     }
 
     document.addEventListener('DOMContentLoaded', () => {
+      if (!('IntersectionObserver' in window)) {
+        document.querySelectorAll('.reveal').forEach(el => el.classList.add('visible'));
+        return;
+      }
       const obs = new IntersectionObserver(entries => {
         entries.forEach(e => {
           if (e.isIntersecting) {
@@ -670,7 +683,7 @@
           }
         });
       }, { threshold: 0.1 });
-      
+
       document.querySelectorAll('.reveal').forEach(el => obs.observe(el));
     });
   </script>

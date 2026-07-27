@@ -30,6 +30,20 @@ function showToast(message, type = 'success') {
     const container = document.getElementById('toastContainer');
     if (!container) return;
 
+    // De-duplicate: an identical visible toast gets its lifetime extended
+    // instead of stacking (rapid repeated actions previously piled up to 5
+    // copies of the same message).
+    for (const existing of container.children) {
+        const msgEl = existing.querySelector('.toast-msg');
+        if (msgEl && msgEl.textContent === message && existing.classList.contains('toast-' + type)) {
+            if (existing.__dismissTimer) clearTimeout(existing.__dismissTimer);
+            existing.__dismissTimer = setTimeout(() => {
+                if (existing.isConnected) dismissToast(existing);
+            }, TOAST_DURATION[type] || 3500);
+            return;
+        }
+    }
+
     // Limit visible toasts
     while (container.children.length >= MAX_TOASTS) {
         const oldest = container.firstElementChild;
@@ -57,7 +71,7 @@ function showToast(message, type = 'success') {
     container.appendChild(toast);
 
     const duration = TOAST_DURATION[type] || 3500;
-    setTimeout(() => {
+    toast.__dismissTimer = setTimeout(() => {
         if (toast.isConnected) dismissToast(toast);
     }, duration);
 }

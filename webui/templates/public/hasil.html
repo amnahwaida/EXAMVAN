@@ -66,7 +66,7 @@
  <span class="header-divider"></span>
  <div class="header-logo">E</div>
  <span class="header-title">EXAMVAN</span>
- <span class="header-badge"><svg class="icon-svg-sm" style="vertical-align:middle;"><use href="#hi-results"/></svg> Hasil Ujian</span>
+ <span class="header-badge"><svg class="icon-svg-sm" style="vertical-align:middle;" aria-hidden="true"><use href="#hi-results"/></svg> Hasil Ujian</span>
  </div>
  </header>
 
@@ -76,22 +76,22 @@
  <h1 id="examTitle">{{.exam_name}}</h1>
  <div class="exam-meta">
   <div class="exam-meta-item">
-  <svg class="icon-svg" style="vertical-align:middle;"><use href="#hi-key"/></svg>
+  <svg class="icon-svg" style="vertical-align:middle;" aria-hidden="true"><use href="#hi-key"/></svg>
   <span>Token: <strong>{{.token}}</strong></span>
   </div>
   <div class="exam-meta-item">
-  <svg class="icon-svg" style="vertical-align:middle;"><use href="#hi-users"/></svg>
+  <svg class="icon-svg" style="vertical-align:middle;" aria-hidden="true"><use href="#hi-users"/></svg>
   <span>Peserta: <strong id="totalStudents">{{.total_students}}</strong></span>
   </div>
   {{if .creator_name}}
   <div class="exam-meta-item">
-  <svg class="icon-svg" style="vertical-align:middle;width:16px;height:16px;" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M15.75 6a3.75 3.75 0 1 1-7.5 0 3.75 3.75 0 0 1 7.5 0ZM4.501 20.118a7.5 7.5 0 0 1 14.998 0A17.933 17.933 0 0 1 12 21.75c-2.676 0-5.216-.584-7.499-1.632Z"/></svg>
+  <svg class="icon-svg" style="vertical-align:middle;width:16px;height:16px;" aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M15.75 6a3.75 3.75 0 1 1-7.5 0 3.75 3.75 0 0 1 7.5 0ZM4.501 20.118a7.5 7.5 0 0 1 14.998 0A17.933 17.933 0 0 1 12 21.75c-2.676 0-5.216-.584-7.499-1.632Z"/></svg>
   <span>Pembuat: <strong style="color:var(--color-primary-light,#a5b4fc);">{{.creator_name}}</strong></span>
   </div>
   {{end}}
   {{if .delegated_name}}
   <div class="exam-meta-item">
-  <svg class="icon-svg" style="vertical-align:middle;width:16px;height:16px;" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M13.19 8.688a4.5 4.5 0 0 1 1.242 7.244l-4.5 4.5a4.5 4.5 0 0 1-6.364-6.364l1.757-1.757m13.35-.622 1.757-1.757a4.5 4.5 0 0 0-6.364-6.364l-4.5 4.5a4.5 4.5 0 0 0 1.242 7.244"/></svg>
+  <svg class="icon-svg" style="vertical-align:middle;width:16px;height:16px;" aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M13.19 8.688a4.5 4.5 0 0 1 1.242 7.244l-4.5 4.5a4.5 4.5 0 0 1-6.364-6.364l1.757-1.757m13.35-.622 1.757-1.757a4.5 4.5 0 0 0-6.364-6.364l-4.5 4.5a4.5 4.5 0 0 0 1.242 7.244"/></svg>
   <span>Guru: <strong style="color:var(--color-warning,#fbbf24);">{{.delegated_name}}</strong></span>
   </div>
   {{end}}
@@ -100,7 +100,7 @@
   <span>Rata-rata: <strong id="avgScore">&mdash;</strong></span>
   </div>
   <div class="exam-meta-item" id="maxScoreItem" style="display: none;">
-  <svg class="icon-svg" style="vertical-align:middle;"><use href="#hi-results"/></svg>
+  <svg class="icon-svg" style="vertical-align:middle;" aria-hidden="true"><use href="#hi-results"/></svg>
   <span>Tertinggi: <strong id="maxScore">&mdash;</strong></span>
   </div>
  </div>
@@ -133,7 +133,7 @@
  <svg class="icon-svg" style="vertical-align:middle;"><use href="#hi-dashboard"/></svg> Daftar Nilai
  </button>
  <button class="tab-btn" id="tabKeys" onclick="switchTab('keys')" style="display: none;" aria-label="Kunci Jawaban Ujian">
- <svg class="icon-svg" style="vertical-align:middle;"><use href="#hi-key"/></svg> Kunci Jawaban Ujian
+ <svg class="icon-svg" style="vertical-align:middle;" aria-hidden="true"><use href="#hi-key"/></svg> Kunci Jawaban Ujian
  </button>
  </div>
 
@@ -193,7 +193,7 @@
  <div id="keysContent" style="display: none;">
  <div style="padding: 16px;">
  <h3 style="font-size: 1.1rem; font-weight: 700; margin-bottom: 8px; color: #a5b4fc; display: flex; align-items: center; gap: 8px;">
- <svg class="icon-svg" style="vertical-align:middle;"><use href="#hi-key"/></svg> Kunci Jawaban Resmi
+ <svg class="icon-svg" style="vertical-align:middle;" aria-hidden="true"><use href="#hi-key"/></svg> Kunci Jawaban Resmi
  </h3>
  <p style="font-size: 0.8rem; color: var(--color-text-muted); margin-bottom: 20px;">
  Berikut adalah kunci jawaban resmi untuk setiap butir soal pada ujian ini.
@@ -425,6 +425,8 @@
  tr.style.cursor = 'pointer';
  tr.setAttribute('tabindex', '0');
  tr.setAttribute('role', 'button');
+ tr.setAttribute('aria-expanded', 'false');
+ tr.setAttribute('aria-label', 'Lihat rincian jawaban ' + sub.student_name);
  tr.addEventListener('keydown', function(e) {
   if (e.key === 'Enter' || e.key === ' ') {
    e.preventDefault();
@@ -475,6 +477,7 @@
  if (detailRow.classList.contains('show')) {
  detailRow.classList.remove('show');
  mainRow.classList.remove('expanded');
+ mainRow.setAttribute('aria-expanded', 'false');
  detailRow.style.display = 'none';
  } else {
  // Re-render to reflect current showCorrectAnswers state
@@ -485,6 +488,7 @@
  }
  detailRow.classList.add('show');
  mainRow.classList.add('expanded');
+ mainRow.setAttribute('aria-expanded', 'true');
  detailRow.style.display = 'table-row';
  }
  }

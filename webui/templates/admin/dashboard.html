@@ -356,6 +356,11 @@
 <p>Belum ada ujian. Upload ujian pertama Anda di atas.</p>
 </div>
 {{else}}
+{{/* Di ponsel thead disembunyikan (layout kartu), jadi kontrol "pilih semua"
+     perlu tersedia di luar thead. */}}
+<label class="mobile-select-all-exams">
+<input type="checkbox" onchange="toggleSelectAllExams(this)" class="exam-checkbox-input"> Pilih semua ujian
+</label>
 <div class="table-responsive">
 <table class="exam-table table-with-checkbox" id="examTable">
 <thead>

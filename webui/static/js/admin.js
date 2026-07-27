@@ -670,6 +670,7 @@ function setAllWeights() {
     // Build modal
     const overlay = document.createElement('div');
     overlay.className = 'modal-overlay';
+    overlay.id = 'bulkWeightModal';
     overlay.style.display = 'flex';
 
     const card = document.createElement('div');
@@ -1316,13 +1317,13 @@ function loadUsersList(page) {
                     var actionsHtml = '<span style="font-size:11px; color: var(--color-text-secondary);">—</span>';
                     if (!isAdmin) {
                         var verifyBtn = user.status === 'pending_otp'
-                            ? '<button class="btn-sm" onclick="verifyUser(' + user.id + ', \'' + escapeHtml(jsEscape(user.username)) + '\')" title="Verifikasi manual" style="font-size:11px;padding:0 8px;height:26px;background:rgba(99,102,241,0.15);border:1px solid rgba(99,102,241,0.3);color:#a5b4fc;"><svg class="icon-svg" style="width:14px;height:14px;"><use href="#hi-check"/></svg></button> '
+                            ? '<button class="btn-sm" onclick="verifyUser(' + user.id + ', \'' + escapeHtml(jsEscape(user.username)) + '\')" title="Verifikasi manual" style="font-size:11px;padding:2px 8px;background:rgba(99,102,241,0.15);border:1px solid rgba(99,102,241,0.3);color:#a5b4fc;"><svg class="icon-svg" style="width:14px;height:14px;"><use href="#hi-check"/></svg></button> '
                             : '';
 
                         actionsHtml = '<div style="display:flex;gap:4px;flex-wrap:wrap;justify-content:flex-end;">'
                             + verifyBtn
-                            + '<button class="btn-sm" onclick="openEditUserModal(' + user.id + ')" title="Atur limit & reset password" style="font-size:11px;padding:0 8px;height:26px;background:rgba(99,102,241,0.1);border:1px solid rgba(99,102,241,0.2);color:#a5b4fc;"><svg class="icon-svg" style="width:14px;height:14px;"><use href="#hi-edit"/></svg></button> '
-                            + '<button class="btn-sm btn-delete" onclick="deleteUser(' + user.id + ', \'' + escapeHtml(jsEscape(user.username)) + '\')" style="font-size:11px;padding:0 8px;height:26px;"><svg class="icon-svg" style="width:14px;height:14px;"><use href="#hi-trash"/></svg></button>'
+                            + '<button class="btn-sm" onclick="openEditUserModal(' + user.id + ')" title="Atur limit & reset password" style="font-size:11px;padding:2px 8px;background:rgba(99,102,241,0.1);border:1px solid rgba(99,102,241,0.2);color:#a5b4fc;"><svg class="icon-svg" style="width:14px;height:14px;"><use href="#hi-edit"/></svg></button> '
+                            + '<button class="btn-sm btn-delete" onclick="deleteUser(' + user.id + ', \'' + escapeHtml(jsEscape(user.username)) + '\')" style="font-size:11px;padding:2px 8px;"><svg class="icon-svg" style="width:14px;height:14px;"><use href="#hi-trash"/></svg></button>'
                             + '</div>';
                     }
 

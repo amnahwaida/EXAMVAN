@@ -828,7 +828,7 @@
  <div class="logo-badge">E</div>
  <div class="logo-text">EXAMVAN</div>
  </a>
- <button class="nav-hamburger" id="navHamburger" onclick="toggleMenu()" aria-label="Menu">&#9776;</button>
+ <button class="nav-hamburger" id="navHamburger" onclick="toggleMenu()" aria-label="Menu navigasi" aria-expanded="false" aria-controls="navLinks">&#9776;</button>
  <div class="nav-links" id="navLinks">
  <a href="/download" class="nav-link">Download App</a>
  <a href="/pricing" class="nav-link">Harga</a>
@@ -854,12 +854,19 @@
  document.getElementById('navOverlay').classList.toggle('active');
  // Drive the icon from actual state (comparing innerHTML to an entity string
  // never matched, so the icon used to stick on the X after first tap).
- document.getElementById('navHamburger').innerHTML = open ? '✕' : '☰';
+ var burger = document.getElementById('navHamburger');
+ burger.innerHTML = open ? '✕' : '☰';
+ burger.setAttribute('aria-expanded', open ? 'true' : 'false');
+ // Kunci scroll halaman selagi menu off-canvas terbuka.
+ document.body.style.overflow = open ? 'hidden' : '';
  }
  function closeMenu() {
  document.getElementById('navLinks').classList.remove('open');
  document.getElementById('navOverlay').classList.remove('active');
- document.getElementById('navHamburger').innerHTML = '&#9776;';
+ var burger = document.getElementById('navHamburger');
+ burger.innerHTML = '&#9776;';
+ burger.setAttribute('aria-expanded', 'false');
+ document.body.style.overflow = '';
  }
  document.addEventListener('keydown', function(e) { if (e.key === 'Escape') { closeMenu(); } });
  </script>
