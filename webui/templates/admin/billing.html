@@ -936,6 +936,9 @@ function updateCalculatedPrice() {
 function submitPayment(e) {
     e.preventDefault();
 
+    const submitBtn = document.getElementById('txSubmitBtn');
+    if (submitBtn && submitBtn.disabled) return;
+
     const pkg = document.getElementById('txPackageSelect').value;
     const duration = document.getElementById('txDurationSelect').value;
     const notes = document.getElementById('txNotes').value;
@@ -945,6 +948,21 @@ function submitPayment(e) {
     formData.append('duration_type', duration);
     formData.append('notes', notes);
     formData.append('_csrf_token', CSRF_TOKEN);
+
+    let originalLabel = '';
+    if (submitBtn) {
+        originalLabel = submitBtn.textContent;
+        submitBtn.disabled = true;
+        submitBtn.style.opacity = '0.6';
+        submitBtn.textContent = 'Menyiapkan pembayaran...';
+    }
+    const restoreBtn = () => {
+        if (submitBtn) {
+            submitBtn.disabled = false;
+            submitBtn.style.opacity = '';
+            submitBtn.textContent = originalLabel;
+        }
+    };
 
     // DOKU payment method
     showToast('Menyiapkan sesi pembayaran DOKU...', 'info');
@@ -957,14 +975,16 @@ function submitPayment(e) {
     .then(res => {
         if (res.success && res.redirect_url) {
             showToast('Mengarahkan ke pembayaran DOKU...', 'success');
-            // Redirect user to DOKU Checkout
+            // Keep the button disabled: the page is about to navigate away.
             window.location.href = res.redirect_url;
         } else {
+            restoreBtn();
             showToast(res.message || 'Gagal menyiapkan pembayaran DOKU', 'error');
         }
     })
     .catch(err => {
         console.error(err);
+        restoreBtn();
         showToast('Terjadi kesalahan koneksi', 'error');
     });
 }

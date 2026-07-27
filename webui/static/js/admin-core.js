@@ -513,3 +513,131 @@ document.addEventListener('keydown', function (e) {
     e.preventDefault();
     el.click();
 });
+
+// ===== Global modal manager =====
+// Every modal in the app opens by toggling inline display (or a .show class)
+// on a .modal-overlay / .modal-backdrop element. Rather than rewriting each
+// call site, this manager observes those state changes and layers on the
+// behavior dialogs are expected to have: body scroll-lock while any modal is
+// open, Escape-to-close, a Tab focus trap inside the top-most dialog, initial
+// focus into the dialog, and focus restore to the trigger on close.
+(function () {
+    const OVERLAY_SELECTOR = '.modal-overlay, .modal-backdrop';
+    let openSet = new Set();
+    let lastFocused = null;
+
+    function isOpen(el) {
+        return document.contains(el) && getComputedStyle(el).display !== 'none';
+    }
+
+    function openOverlays() {
+        return Array.from(document.querySelectorAll(OVERLAY_SELECTOR)).filter(isOpen);
+    }
+
+    function focusables(overlay) {
+        return Array.from(overlay.querySelectorAll(
+            'a[href], button:not([disabled]), input:not([disabled]):not([type="hidden"]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])'
+        )).filter(el => el.offsetParent !== null);
+    }
+
+    function syncState() {
+        const open = openOverlays();
+        const openNow = new Set(open);
+
+        for (const overlay of open) {
+            if (!openSet.has(overlay)) {
+                // First modal of a stack: remember where focus came from.
+                if (openSet.size === 0 && !lastFocused) lastFocused = document.activeElement;
+                if (!overlay.contains(document.activeElement)) {
+                    const f = focusables(overlay);
+                    if (f.length) setTimeout(() => {
+                        if (isOpen(overlay) && !overlay.contains(document.activeElement)) f[0].focus();
+                    }, 40);
+                }
+            }
+        }
+
+        if (open.length > 0) {
+            document.body.classList.add('modal-open');
+        } else {
+            document.body.classList.remove('modal-open');
+            if (openSet.size > 0 && lastFocused && document.contains(lastFocused) &&
+                typeof lastFocused.focus === 'function') {
+                try { lastFocused.focus(); } catch (_) { /* detached */ }
+            }
+            if (openSet.size > 0) lastFocused = null;
+        }
+        openSet = openNow;
+    }
+
+    new MutationObserver(syncState).observe(document.documentElement, {
+        subtree: true,
+        childList: true,
+        attributes: true,
+        attributeFilter: ['style', 'class']
+    });
+    if (document.readyState === 'loading') {
+        document.addEventListener('DOMContentLoaded', syncState);
+    } else {
+        syncState();
+    }
+
+    // Force-close fallback: dispatch a click on the backdrop first so any
+    // page-specific close routine (or showConfirm's promise resolution) runs;
+    // only if the overlay is still open afterwards, hide it directly. Id-less
+    // overlays are left alone at that point — promise-based dialogs manage
+    // their own lifecycle and must not be removed out from under their caller.
+    function forceClose(overlay) {
+        if (!isOpen(overlay)) return;
+        overlay.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
+        if (isOpen(overlay)) {
+            if (overlay.classList.contains('show')) overlay.classList.remove('show');
+            else if (overlay.id) overlay.style.display = 'none';
+        }
+    }
+
+    // Backdrop click: pages with their own handlers run first (this listener
+    // defers via setTimeout); anything still open afterwards gets hidden.
+    document.addEventListener('click', function (e) {
+        const el = e.target;
+        if (!el.classList || !(el.classList.contains('modal-overlay') || el.classList.contains('modal-backdrop'))) return;
+        setTimeout(() => {
+            if (isOpen(el)) {
+                if (el.classList.contains('show')) el.classList.remove('show');
+                else if (el.id) el.style.display = 'none';
+            }
+        }, 0);
+    });
+
+    document.addEventListener('keydown', function (e) {
+        if (e.defaultPrevented) return;
+        const open = openOverlays();
+        if (!open.length) return;
+        const top = open[open.length - 1];
+
+        if (e.key === 'Escape') {
+            // An open dropdown takes priority: let its own Escape handler
+            // close it without also dismissing the modal underneath.
+            if (document.querySelector('.exam-action-dropdown-content.show, .topbar-dropdown-content.show')) return;
+            forceClose(top);
+            return;
+        }
+
+        if (e.key === 'Tab') {
+            const f = focusables(top);
+            if (!f.length) return;
+            const first = f[0];
+            const last = f[f.length - 1];
+            if (!top.contains(document.activeElement)) {
+                e.preventDefault();
+                first.focus();
+            } else if (e.shiftKey && document.activeElement === first) {
+                e.preventDefault();
+                last.focus();
+            } else if (!e.shiftKey && document.activeElement === last) {
+                e.preventDefault();
+                first.focus();
+            }
+        }
+    });
+})();

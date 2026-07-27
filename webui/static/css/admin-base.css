@@ -541,3 +541,23 @@ code, pre, .token-code, .mono {
     outline: 2px solid var(--color-primary);
     outline-offset: 2px;
 }
+
+/* ===== Modal manager (paired with admin-core.js) ===== */
+/* Lock the page behind any open modal; the manager toggles this class. */
+body.modal-open {
+    overflow: hidden;
+}
+/* Dialogs must cover every floating layer (mobile bottom bar 9997, shortcuts
+   hint 9998, action dropdowns 9999) — previously they sat at z-index 1000
+   underneath all of them. Toasts stay one step above the dialogs. */
+.modal-overlay,
+.modal-backdrop {
+    z-index: 10000;
+    overscroll-behavior: contain;
+}
+.modal-body {
+    overscroll-behavior: contain;
+}
+.toast-container {
+    z-index: 10001;
+}
