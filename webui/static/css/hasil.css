@@ -8,6 +8,9 @@ background: var(--bg-gradient);
 background-attachment: fixed;
 color: var(--color-text);
 min-height: 100vh;
+min-height: 100dvh;
+display: flex;
+flex-direction: column;
 -webkit-font-smoothing: antialiased;
 overflow-x: hidden;
 color-scheme: dark;
@@ -114,6 +117,8 @@ letter-spacing: 0.5px;
 .main {
 position: relative;
 z-index: 1;
+width: 100%;
+flex: 1 0 auto;
 max-width: 1100px;
 margin: 0 auto;
 padding: 28px 20px 50px;
@@ -736,7 +741,7 @@ transition: transform 0.3s; display: inline-block;
 .footer {
 text-align: center; padding: 24px 20px;
 color: var(--color-text-muted); font-size: 0.72rem;
-position: relative; z-index: 1;
+position: relative; z-index: 1; flex: 0 0 auto;
 }
 
 @keyframes fadeUp {

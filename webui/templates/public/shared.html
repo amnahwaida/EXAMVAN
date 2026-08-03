@@ -68,13 +68,20 @@
  body {
  background-color: var(--bg-primary);
  color: var(--text-main);
- overflow-x: hidden;
+ display: flex;
+ flex-direction: column;
+ min-height: 100vh;
+ min-height: 100dvh;
+ overflow-x: clip;
  line-height: 1.6;
  }
 
+ body > main { flex: 1 0 auto; }
+ body > footer { flex: 0 0 auto; margin-top: auto; }
+
  /* Abstract glowing background blobs */
  .glow-blob {
- position: absolute;
+ position: fixed;
  width: 500px;
  height: 500px;
  border-radius: 50%;
@@ -841,7 +848,7 @@
  html.touch-device .btn-nav-login { text-align:center; padding:14px 16px; margin-top:8px; }
  </style>
  <link rel="stylesheet" href="/static/css/theme.css">
- <link rel="stylesheet" href="/static/css/public-mobile.css?v={{.version}}-2">
+ <link rel="stylesheet" href="/static/css/public-mobile.css?v={{.version}}-4">
  <link rel="icon" type="image/png" href="/static/favicon.png">
  
 </head>
