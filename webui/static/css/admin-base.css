@@ -710,3 +710,40 @@ img, video, canvas, svg { max-width: 100%; }
   .topbar-right, .topbar-menu-dropdown, .topbar-menu-toggle { flex: 0 0 auto; }
   .topbar-menu-toggle { position: relative; z-index: 10002; }
 }
+
+/* Touch devices may expose a desktop-like ~980px layout viewport. */
+@media (max-width: 1100px), (hover: none) and (pointer: coarse) {
+  .topbar {
+    display: flex !important;
+    width: 100%;
+    max-width: 100vw;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    padding-left: max(14px, env(safe-area-inset-left, 0px)) !important;
+    padding-right: max(14px, env(safe-area-inset-right, 0px)) !important;
+  }
+  .topbar-center, .topbar-nav, .toggle-user-name, .topbar-badge, .desktop-only-item {
+    display: none !important;
+  }
+  .topbar-left { flex: 1 1 auto; min-width: 0; overflow: hidden; }
+  .topbar-right, .topbar-menu-dropdown, .topbar-menu-toggle { flex: 0 0 auto; }
+  .topbar-menu-toggle {
+    position: relative;
+    z-index: 10002;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 44px;
+    min-height: 44px;
+  }
+  .mobile-nav-links { display: block; }
+  .mobile-only-header { display: flex !important; }
+  .mobile-only-divider { display: block !important; }
+  .topbar-dropdown-content {
+    right: -6px;
+    width: min(260px, calc(100vw - 20px));
+    max-height: calc(100dvh - 70px);
+    overflow-y: auto;
+  }
+}
