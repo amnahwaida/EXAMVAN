@@ -751,3 +751,33 @@ img, video, canvas, svg { max-width: 100%; }
     overflow-y: auto;
   }
 }
+
+/* Android fallback when Chromium reports desktop media capabilities. */
+html.android-device .topbar {
+  display: flex !important;
+  width: 100%; max-width: 100vw;
+  align-items: center; justify-content: space-between; gap: 8px;
+  padding-left: 14px !important; padding-right: 14px !important;
+}
+html.android-device .topbar-center,
+html.android-device .topbar-nav,
+html.android-device .toggle-user-name,
+html.android-device .topbar-badge,
+html.android-device .desktop-only-item { display: none !important; }
+html.android-device .topbar-left { flex: 1 1 auto; min-width: 0; overflow: hidden; }
+html.android-device .topbar-right,
+html.android-device .topbar-menu-dropdown,
+html.android-device .topbar-menu-toggle { flex: 0 0 auto; }
+html.android-device .topbar-menu-toggle {
+  position: fixed; top: 8px; right: 10px; z-index: 10002;
+  display: inline-flex; align-items: center; justify-content: center;
+  min-width: 44px; min-height: 44px;
+}
+html.android-device .mobile-nav-links { display: block; }
+html.android-device .mobile-only-header { display: flex !important; }
+html.android-device .mobile-only-divider { display: block !important; }
+html.android-device .topbar-dropdown-content {
+  position: fixed; top: 62px; right: 10px;
+  width: min(260px, calc(100vw - 20px));
+  max-height: calc(100dvh - 70px); overflow-y: auto;
+}
