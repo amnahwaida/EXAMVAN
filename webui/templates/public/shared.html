@@ -665,10 +665,12 @@
  display: inline-flex;
  align-items: center;
  justify-content: center;
- position: relative;
+ position: fixed;
+ top: max(14px, env(safe-area-inset-top, 0px));
+ right: max(16px, env(safe-area-inset-right, 0px));
  flex: 0 0 auto;
  margin-left: auto;
- z-index: 200;
+ z-index: 220;
  }
 
  .nav-links {

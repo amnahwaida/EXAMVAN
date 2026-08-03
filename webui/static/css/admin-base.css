@@ -729,7 +729,9 @@ img, video, canvas, svg { max-width: 100%; }
   .topbar-left { flex: 1 1 auto; min-width: 0; overflow: hidden; }
   .topbar-right, .topbar-menu-dropdown, .topbar-menu-toggle { flex: 0 0 auto; }
   .topbar-menu-toggle {
-    position: relative;
+    position: fixed;
+    top: max(8px, env(safe-area-inset-top, 0px));
+    right: max(10px, env(safe-area-inset-right, 0px));
     z-index: 10002;
     display: inline-flex;
     align-items: center;
@@ -741,7 +743,9 @@ img, video, canvas, svg { max-width: 100%; }
   .mobile-only-header { display: flex !important; }
   .mobile-only-divider { display: block !important; }
   .topbar-dropdown-content {
-    right: -6px;
+    position: fixed;
+    top: max(62px, calc(env(safe-area-inset-top, 0px) + 62px));
+    right: max(10px, env(safe-area-inset-right, 0px));
     width: min(260px, calc(100vw - 20px));
     max-height: calc(100dvh - 70px);
     overflow-y: auto;
