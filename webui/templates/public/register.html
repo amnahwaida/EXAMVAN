@@ -186,7 +186,7 @@
    .reg-step-line { width: 24px; }
   }
  </style>
- <link rel="stylesheet" href="/static/css/public-mobile.css?v={{.version}}-2">
+ <link rel="stylesheet" href="/static/css/public-mobile.css?v={{.version}}-3">
 </head>
 <body class="login-page">
  <a href="#main-content" class="skip-link" style="position:absolute;left:-9999px;z-index:9999;padding:12px 20px;background:var(--color-primary,#6366f1);color:white;border-radius:8px;font-weight:600;text-decoration:none;">Langsung ke konten</a>
@@ -249,7 +249,7 @@
  <div class="form-group">
   <label class="required" for="username">Username</label>
   <div class="input-icon-wrap">
-   <input type="text" id="username" name="username" placeholder="Pilih username unik (min. 3 karakter)" required minlength="3" autofocus autocomplete="off">
+   <input type="text" id="username" name="username" placeholder="Pilih username unik (min. 3 karakter)" required minlength="3" autocomplete="username">
    <svg class="input-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M15.75 6a3.75 3.75 0 1 1-7.5 0 3.75 3.75 0 0 1 7.5 0ZM4.501 20.118a7.5 7.5 0 0 1 14.998 0A17.933 17.933 0 0 1 12 21.75c-2.676 0-5.216-.584-7.499-1.632Z"/></svg>
   </div>
  </div>
@@ -303,10 +303,17 @@
  </div>
  </div>
 
- <script src="/static/js/admin-core.js?v={{.version}}"></script>
  <script>
  document.addEventListener('DOMContentLoaded', function() {
-  togglePasswordVisibility('password', 'togglePassword');
+  var password = document.getElementById('password');
+  var toggle = document.getElementById('togglePassword');
+  if (password && toggle) {
+   toggle.addEventListener('click', function() {
+    var show = password.type === 'password';
+    password.type = show ? 'text' : 'password';
+    toggle.setAttribute('aria-label', show ? 'Sembunyikan password' : 'Tampilkan password');
+   });
+  }
 
   // Form submit loading state
   var form = document.getElementById('registerForm');

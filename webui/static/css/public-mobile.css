@@ -84,7 +84,10 @@ body main { padding-top: 96px; }
 .login-page { min-height: 100dvh; padding: 16px; align-items: flex-start; }
 .login-bg, .login-orb { display: none !important; }
 .login-container { padding: 16px 0 !important; margin: auto; }
-.login-card { width: 100%; max-width: 100%; padding: 22px 18px !important; border-radius: 8px !important; }
+.login-card {
+  width: 100%; max-width: 100%; padding: 22px 18px !important; border-radius: 8px !important;
+  opacity: 1 !important; transform: none !important; animation: none !important;
+}
 .login-header h1 { font-size: 24px !important; letter-spacing: 0 !important; }
 .login-form input, .login-form select, .login-form textarea { width: 100%; min-height: 48px; font-size: 16px !important; }
 .btn-login { width: 100%; min-height: 50px; }
