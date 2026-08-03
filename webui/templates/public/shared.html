@@ -650,13 +650,33 @@
 
  /* ===== Responsive: Tablet & below ===== */
  @media (max-width: 968px) {
- .nav-hamburger { display: block; }
+ html, body { width: 100%; max-width: 100%; overflow-x: clip; }
+ .nav-container {
+ max-width: 100vw;
+ min-width: 0;
+ gap: 12px;
+ padding-left: max(16px, env(safe-area-inset-left, 0px));
+ padding-right: max(16px, env(safe-area-inset-right, 0px));
+ }
+ .logo-container { flex: 1 1 auto; min-width: 0; overflow: hidden; }
+ .logo-badge { flex: 0 0 auto; }
+ .logo-text { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+ .nav-hamburger {
+ display: inline-flex;
+ align-items: center;
+ justify-content: center;
+ position: relative;
+ flex: 0 0 auto;
+ margin-left: auto;
+ z-index: 200;
+ }
 
  .nav-links {
  position: fixed;
  top: 0;
  right: -280px;
- width: 280px;
+ width: min(280px, calc(100vw - 32px));
+ max-width: 100%;
  height: 100dvh;
  background: var(--bg-secondary);
  flex-direction: column;

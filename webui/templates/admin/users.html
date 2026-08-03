@@ -183,6 +183,17 @@
   .switch input:focus + .slider {
     box-shadow: 0 0 1px var(--color-primary);
   }
+  .saas-domain-hint {
+    margin-left: 0;
+    white-space: normal;
+    overflow-wrap: anywhere;
+    pointer-events: none;
+  }
+  .saas-save-btn {
+    position: relative;
+    z-index: 1;
+    width: 100%;
+  }
  </style>
 </head>
 <body class="dashboard-page">
@@ -202,7 +213,7 @@
   <h3 style="margin-bottom:16px;font-size:1.1rem;color:#a5b4fc;display:flex;align-items:center;gap:8px;">
   <svg class="icon-svg" style="color:#a5b4fc;"><use href="#hi-settings"/></svg> SaaS &amp; SMTP Email Settings
   </h3>
-  <form id="saasSettingsForm" onsubmit="saveSaasSettings(event)" style="display:flex;flex-direction:column;gap:12px;">
+  <form id="saasSettingsForm" onsubmit="saveSaasSettings(event)" novalidate style="display:flex;flex-direction:column;gap:12px;">
   <div class="switch-container">
   <span class="switch-label" title="Aktifkan untuk mewajibkan verifikasi kode OTP lewat email saat pendaftaran akun baru">Verifikasi OTP Email</span>
   <label class="switch">
@@ -214,7 +225,7 @@
   <div class="form-group space-y-1">
   <label for="emailDomainWhitelistInput">Whitelist Domain Email Pendaftaran</label>
   <textarea id="emailDomainWhitelistInput" rows="3" placeholder="gmail.com, yahoo.com, sch.id, ac.id" style="width:100%;background:rgba(255,255,255,0.05);border:1px solid var(--color-glass-border);border-radius:6px;padding:8px;color:var(--color-text);font-family:var(--font-mono);font-size:0.8rem;resize:vertical;"></textarea>
-  <span class="form-hint">Hanya email dari domain ini yang boleh mendaftar. Pisahkan dengan koma atau baris baru. Subdomain otomatis diizinkan (mis. <code>sch.id</code> mengizinkan <code>smanegeri1.sch.id</code>). Kosongkan untuk mengizinkan semua domain.</span>
+  <span class="form-hint saas-domain-hint">Hanya email dari domain ini yang boleh mendaftar. Pisahkan dengan koma atau baris baru. Subdomain otomatis diizinkan (mis. <code>sch.id</code> mengizinkan <code>smanegeri1.sch.id</code>). Kosongkan untuk mengizinkan semua domain.</span>
   </div>
 
   <div id="emailSettingsFields" style="display:flex;flex-direction:column;gap:12px;">
@@ -420,7 +431,7 @@
  </div>
  </div>
 
-  <button type="submit" class="btn-upload" style="margin-top:6px;background:rgba(16,185,129,0.2);border-color:rgba(16,185,129,0.4);color:#6ee7b7;">
+  <button type="submit" id="saveSaasSettingsBtn" class="btn-upload saas-save-btn" style="margin-top:6px;background:rgba(16,185,129,0.2);border-color:rgba(16,185,129,0.4);color:#6ee7b7;">
   <svg class="icon-svg"><use href="#hi-check"/></svg> Simpan Setelan SaaS
   </button>
   </form>

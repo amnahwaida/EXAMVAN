@@ -2746,6 +2746,20 @@ function deleteSubmission(id) {
 
 function saveSaasSettings(e) {
     e.preventDefault();
+    const form = e.currentTarget;
+    if (!form.checkValidity()) {
+        form.reportValidity();
+        showToast("Lengkapi atau perbaiki kolom setelan yang ditandai", "error");
+        return;
+    }
+
+    const saveButton = document.getElementById("saveSaasSettingsBtn");
+    const originalButtonHTML = saveButton ? saveButton.innerHTML : "";
+    if (saveButton) {
+        saveButton.disabled = true;
+        saveButton.textContent = "Menyimpan...";
+    }
+
     const email_verification_enabled = document.getElementById('emailEnabledInput').checked;
     const email_domain_whitelist = (document.getElementById('emailDomainWhitelistInput') || {}).value || '';
     const smtp_host = document.getElementById('smtpHostInput').value.trim();
@@ -2827,7 +2841,13 @@ function saveSaasSettings(e) {
             showToast(res.message || 'Gagal menyimpan', 'error');
         }
     })
-    .catch(() => showToast('Gagal menyimpan setelan SaaS', 'error'));
+    .catch(() => showToast('Gagal menyimpan setelan SaaS', 'error'))
+    .finally(() => {
+        if (saveButton) {
+            saveButton.disabled = false;
+            saveButton.innerHTML = originalButtonHTML;
+        }
+    });
 }
 
 function testSmtpConnection() {
