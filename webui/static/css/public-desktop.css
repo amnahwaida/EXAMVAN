@@ -62,7 +62,7 @@
   .adv-card { padding: 24px; border-radius: 8px; }
   .adv-card:hover { transform: translateY(-2px); }
 
-  .login-page { padding: 48px; align-items: center; background: #090d16; }
+  .login-page { padding: calc(72px + 48px) 48px 48px; align-items: center; background: #090d16; }
   .login-page::before { content: ''; position: fixed; inset: 0 50% 0 0; background: #0f1724; border-right: 1px solid rgba(255,255,255,.06); pointer-events: none; }
   .login-container { max-width: 520px !important; margin: auto 12% auto auto; padding: 0 !important; }
   .login-card { max-width: 520px !important; padding: 38px !important; border-radius: 8px !important; background: #111827; box-shadow: 0 24px 70px rgba(0,0,0,.32); }

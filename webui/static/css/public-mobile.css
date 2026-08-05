@@ -81,7 +81,7 @@ body main { padding-top: 96px; }
 .comparison-table { min-width: 680px !important; }
 
 /* Public auth and recovery pages. */
-.login-page { min-height: 100dvh; padding: 16px; align-items: flex-start; }
+.login-page { min-height: 100dvh; padding: calc(var(--public-nav-height) + 16px) 16px 16px; align-items: flex-start; }
 .login-bg, .login-orb { display: none !important; }
 .login-container { padding: 16px 0 !important; margin: auto; }
 .login-card {
