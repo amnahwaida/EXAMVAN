@@ -171,7 +171,7 @@ func Dashboard() gin.HandlerFunc {
 		// Per-user limits and package info
 		userMaxPDF := int64(1048576)
 		userMaxConcurrent := "1 Ujian"
-		userMaxDrafts := "10 Ujian"
+		userMaxTotal := "10 Ujian"
 		userPackage := "free"
 		var remainingStorage string
 		var accountExpires *string
@@ -192,22 +192,22 @@ func Dashboard() gin.HandlerFunc {
 				userMaxPDF = 100 * 1024 * 1024
 			}
 
-			// Read Max Concurrent Active Exams limit (user.MaxExams)
+			// Max Total Ujian — read from user.MaxExams (enforced total quota at exam creation)
 			if user.MaxExams >= 99999 || (isSuper && user.MaxExams <= 0) {
-				userMaxConcurrent = "Tidak Terbatas"
+				userMaxTotal = "Tidak Terbatas"
 			} else if user.MaxExams > 0 {
-				userMaxConcurrent = fmt.Sprintf("%d Ujian", user.MaxExams)
+				userMaxTotal = fmt.Sprintf("%d Ujian", user.MaxExams)
 			} else {
-				userMaxConcurrent = "1 Ujian"
+				userMaxTotal = "10 Ujian"
 			}
 
-			// Read Max Total Drafts/PDFs limit (user.MaxDrafts)
+			// Ujian Serentak — read from user.MaxDrafts (draft quota set via vouchers/transactions)
 			if user.MaxDrafts >= 99999 || (isSuper && user.MaxDrafts <= 0) {
-				userMaxDrafts = "Tidak Terbatas"
+				userMaxConcurrent = "Tidak Terbatas"
 			} else if user.MaxDrafts > 0 {
-				userMaxDrafts = fmt.Sprintf("%d Ujian", user.MaxDrafts)
+				userMaxConcurrent = fmt.Sprintf("%d Ujian", user.MaxDrafts)
 			} else {
-				userMaxDrafts = "10 Ujian"
+				userMaxConcurrent = "1 Ujian"
 			}
 
 			// Read Remaining Storage limit
@@ -238,7 +238,7 @@ func Dashboard() gin.HandlerFunc {
 		} else {
 			userMaxPDF = 100 * 1024 * 1024
 			userMaxConcurrent = "Tidak Terbatas"
-			userMaxDrafts = "Tidak Terbatas"
+			userMaxTotal = "Tidak Terbatas"
 			remainingStorage = "Tidak Terbatas"
 		}
 
@@ -382,7 +382,7 @@ func Dashboard() gin.HandlerFunc {
 				"active_pct": activePct,
 			},
 			"max_size_mb":       roundTo(float64(userMaxPDF)/(1024*1024), 1),
-			"max_exams":         userMaxDrafts,
+			"max_exams":         userMaxTotal,
 			"max_concurrent":    userMaxConcurrent,
 			"user_package":      userPackage,
 			"package_name":      packageName,
