@@ -30,6 +30,54 @@
 .token-interval-label{font-size:0.7rem;color:var(--color-text-muted);white-space:nowrap}
 .btn-save-interval{background:rgba(16,185,129,0.15);border:1px solid rgba(16,185,129,0.3);color:#34d399;border-radius:6px;padding:4px 8px;cursor:pointer;display:inline-flex;align-items:center;line-height:1}
 .btn-save-interval:hover{background:rgba(16,185,129,0.25)}
+/* Student access & answer-key controls (moved from pengawasan page) */
+.pd-action-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.72rem;
+  font-weight: 600;
+  padding: 6px 12px;
+  border-radius: 8px;
+  border: 1px solid;
+  cursor: pointer;
+  transition: all 0.2s;
+  text-decoration: none;
+  white-space: nowrap;
+}
+.pd-action-link {
+  background: rgba(99,102,241,0.08);
+  color: var(--color-primary-light);
+  border-color: rgba(99,102,241,0.25);
+}
+.pd-action-link:hover { background: rgba(99,102,241,0.15); border-color: rgba(99,102,241,0.4); }
+.pd-action-active {
+  background: rgba(16,185,129,0.1);
+  color: #34d399;
+  border-color: rgba(16,185,129,0.3);
+}
+.pd-action-active:hover { background: rgba(16,185,129,0.18); }
+.pd-action-danger {
+  background: rgba(239,68,68,0.1);
+  color: #f87171;
+  border-color: rgba(239,68,68,0.3);
+}
+.pd-action-danger:hover { background: rgba(239,68,68,0.18); }
+.pd-action-warning {
+  background: rgba(251,191,36,0.1);
+  color: #fbbf24;
+  border-color: rgba(251,191,36,0.3);
+}
+.pd-action-warning:hover { background: rgba(251,191,36,0.18); }
+.pd-action-muted {
+  background: rgba(107,114,128,0.1);
+  color: #9ca3af;
+  border-color: rgba(107,114,128,0.3);
+}
+.pd-action-muted:hover { background: rgba(107,114,128,0.18); }
+@media (max-width: 768px) {
+  .pd-action-btn { min-height: 40px; }
+}
 /* Mobile layout overrides (preserving project theme/colors) */
 @media (max-width: 768px) {
   .exam-table, 
@@ -667,7 +715,23 @@
 </div>
 </div>
 
-<!-- 2. Panel Color Config -->
+<!-- 2. Student Access & Answer Keys Config -->
+<div class="student-access-config" style="margin-bottom:16px;padding:12px 16px;background:rgba(255,255,255,0.03);border:1px solid var(--color-glass-border);border-radius:12px;">
+<div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:12px;">
+<div style="display:flex;align-items:center;gap:8px;">
+<svg class="icon-svg" style="width:18px;height:18px;flex-shrink:0;"><use href="#hi-link"/></svg>
+<div>
+<div style="font-weight:600;color:var(--color-text);font-size:0.9rem;">Akses Halaman Siswa &amp; Kunci</div>
+<div style="font-size:0.75rem;color:var(--color-text-muted);">Halaman hasil untuk siswa dan tampilan kunci jawaban.</div>
+</div>
+</div>
+</div>
+<div id="studentAccessControls" style="margin-top:10px;display:flex;gap:8px;flex-wrap:wrap;">
+<div style="color:var(--color-text-muted);font-size:0.82rem;padding:8px 0;">Memuat data akses...</div>
+</div>
+</div>
+
+<!-- 3. Panel Color Config -->
 <div class="panel-color-config" style="margin-bottom:16px;padding:12px 16px;background:rgba(255,255,255,0.03);border:1px solid var(--color-glass-border);border-radius:12px;">
 <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:12px;">
 <div style="display:flex;align-items:center;gap:8px;">

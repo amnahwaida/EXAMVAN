@@ -703,6 +703,9 @@ func GetQuestions() gin.HandlerFunc {
 				"panel_color":        panelColor,
 				"start_time":         startTime,
 				"end_time":           endTime,
+				"token":              exam.Token,
+				"public_results":     exam.PublicResults,
+				"show_answers":       exam.ShowAnswers,
 				"assigned_pengawas":  assignedPengawas,
 				"available_pengawas": availablePengawas,
 			})
@@ -716,6 +719,9 @@ func GetQuestions() gin.HandlerFunc {
 				"panel_color":     panelColor,
 				"start_time":      startTime,
 				"end_time":        endTime,
+				"token":           exam.Token,
+				"public_results":  exam.PublicResults,
+				"show_answers":    exam.ShowAnswers,
 			})
 		}
 	}

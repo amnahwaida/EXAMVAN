@@ -129,29 +129,6 @@
 
   <!-- Actions Bar -->
   <div class="pd-actions-bar">
-   <div class="pd-quick-actions">
-    <a href="/hasil/{{.exam.Token}}" target="_blank" class="pd-action-btn pd-action-link">
-     <svg class="icon-svg" style="width:14px;height:14px;"><use href="#hi-link"/></svg> Halaman Siswa
-    </a>
-    {{if eq .exam.PublicResults 1}}
-    <button id="btn-public-results-{{.exam.ID}}" data-exam-id="{{.exam.ID}}" {{if not .can_control_settings}}disabled title="Hanya pembuat/guru yang dapat mengatur ini" style="opacity: 0.65; cursor: not-allowed;"{{else}}onclick="togglePublicResults(this.dataset.examId)"{{end}} class="pd-action-btn pd-action-active">
-     <svg class="icon-svg" style="width:14px;height:14px;"><use href="#hi-eye"/></svg> Hal. Siswa Aktif
-    </button>
-    {{else}}
-    <button id="btn-public-results-{{.exam.ID}}" data-exam-id="{{.exam.ID}}" {{if not .can_control_settings}}disabled title="Hanya pembuat/guru yang dapat mengatur ini" style="opacity: 0.65; cursor: not-allowed;"{{else}}onclick="togglePublicResults(this.dataset.examId)"{{end}} class="pd-action-btn pd-action-danger">
-     <svg class="icon-svg" style="width:14px;height:14px;"><use href="#hi-eye-off"/></svg> Hal. Siswa Nonaktif
-    </button>
-    {{end}}
-    {{if eq .exam.ShowAnswers 1}}
-    <button id="btn-show-answers-{{.exam.ID}}" data-exam-id="{{.exam.ID}}" {{if not .can_control_settings}}disabled title="Hanya pembuat/guru yang dapat mengatur ini" style="opacity: 0.65; cursor: not-allowed;"{{else}}onclick="toggleShowAnswers(this.dataset.examId)"{{end}} class="pd-action-btn pd-action-warning">
-     <svg class="icon-svg" style="width:14px;height:14px;"><use href="#hi-lock-open"/></svg> Kunci Terlihat
-    </button>
-    {{else}}
-    <button id="btn-show-answers-{{.exam.ID}}" data-exam-id="{{.exam.ID}}" {{if not .can_control_settings}}disabled title="Hanya pembuat/guru yang dapat mengatur ini" style="opacity: 0.65; cursor: not-allowed;"{{else}}onclick="toggleShowAnswers(this.dataset.examId)"{{end}} class="pd-action-btn pd-action-muted">
-     <svg class="icon-svg" style="width:14px;height:14px;"><use href="#hi-lock"/></svg> Kunci Tersembunyi
-    </button>
-    {{end}}
-   </div>
    <div class="pd-main-action">
     {{if .exam.ExamStartedAt}}
     <button class="pd-control-btn pd-control-stop" id="btnStopPengawasDetail" {{if not .can_control_settings}}disabled title="Hanya pembuat/guru yang dapat menghentikan pengawasan" style="opacity: 0.65; cursor: not-allowed;"{{else}}onclick="stopExamPengawasDetail({{.exam.ID}})"{{end}}>

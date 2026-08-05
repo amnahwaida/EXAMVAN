@@ -416,6 +416,7 @@ function openQuestionsModal(examId, examName) {
                 }
                 parseSchedule(res.start_time, startDateInput, startInput);
                 parseSchedule(res.end_time, endDateInput, endInput);
+                renderStudentAccessControls(examId, res);
                 renderQuestions(res.questions);
                 renderIdentityFields(res.identity_fields || []);
                 if (res.assigned_pengawas) {
@@ -435,6 +436,26 @@ function closeQuestionsModal() {
     document.getElementById('questionsModal').style.display = 'none';
     activeExamId = null;
     activeExamName = '';
+}
+
+// Render the student access & answer-key controls inside the questions modal
+// (moved here from the pengawasan page).
+function renderStudentAccessControls(examId, res) {
+    const wrap = document.getElementById('studentAccessControls');
+    if (!wrap) return;
+    const token = res.token || '';
+    const prActive = res.public_results === 1;
+    const saActive = res.show_answers === 1;
+    wrap.innerHTML = `
+        <a href="/hasil/${token}" target="_blank" class="pd-action-btn pd-action-link" title="Buka halaman hasil ujian untuk siswa">
+            <svg class="icon-svg" style="width:14px;height:14px;"><use href="#hi-link"/></svg> Halaman Siswa
+        </a>
+        <button id="btn-public-results-${examId}" data-exam-id="${examId}" onclick="togglePublicResults(this.dataset.examId)" class="pd-action-btn ${prActive ? 'pd-action-active' : 'pd-action-danger'}" title="Aktifkan/nonaktifkan halaman hasil ujian siswa">
+            <svg class="icon-svg" style="width:14px;height:14px;"><use href="${prActive ? '#hi-eye' : '#hi-eye-off'}"/></svg> ${prActive ? 'Hal. Siswa Aktif' : 'Hal. Siswa Nonaktif'}
+        </button>
+        <button id="btn-show-answers-${examId}" data-exam-id="${examId}" onclick="toggleShowAnswers(this.dataset.examId)" class="pd-action-btn ${saActive ? 'pd-action-warning' : 'pd-action-muted'}" title="Tampilkan/sembunyikan kunci jawaban untuk siswa">
+            <svg class="icon-svg" style="width:14px;height:14px;"><use href="${saActive ? '#hi-lock-open' : '#hi-lock'}"/></svg> ${saActive ? 'Kunci Terlihat' : 'Kunci Tersembunyi'}
+        </button>`;
 }
 
 function setPanelColor(hex) {
