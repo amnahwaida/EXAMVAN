@@ -2558,8 +2558,6 @@ function toggleRowDropdown(event, examId) {
     const dropdown = document.getElementById(`dropdown-content-${examId}`);
     if (!dropdown) return;
     
-    const isShown = dropdown.classList.contains('show');
-    
     // Close all other dropdowns
     document.querySelectorAll('.exam-action-dropdown-content.show').forEach(d => {
         if (d !== dropdown) d.classList.remove('show');
@@ -2570,19 +2568,69 @@ function toggleRowDropdown(event, examId) {
     
     if (dropdown.classList.contains('show')) {
         void dropdown.offsetHeight;
-        var r = dropdown.getBoundingClientRect();
-        if (r.top < 0) {
-            dropdown.classList.add('drop-down');
+        const isMobile = window.matchMedia && window.matchMedia('(max-width: 768px)').matches;
+        if (isMobile) {
+            // Mobile: keep the absolute menu inside the card and flip up/down
+            // within the viewport using the drop-up/drop-down classes.
+            var r = dropdown.getBoundingClientRect();
+            if (r.top < 0) {
+                dropdown.classList.add('drop-down');
+            } else if (r.bottom > window.innerHeight) {
+                dropdown.classList.add('drop-up');
+            }
             r = dropdown.getBoundingClientRect();
-        } else if (r.bottom > window.innerHeight) {
-            dropdown.classList.add('drop-up');
-            r = dropdown.getBoundingClientRect();
+            if (r.right > window.innerWidth) {
+                dropdown.classList.add('align-right');
+            } else if (r.left < 0) {
+                dropdown.classList.remove('align-right');
+            }
+            return;
         }
-        if (r.right > window.innerWidth) {
-            dropdown.classList.add('align-right');
-        } else if (r.left < 0) {
-            dropdown.classList.remove('align-right');
+        // Desktop: the dropdown lives inside a <table> (and under a glass-card
+        // with backdrop-filter). Chromium paints such a table as its own
+        // stacking unit and treats backdrop-filter as a containing block for
+        // fixed/absolute descendants — so a menu opened with position:absolute
+        // gets its overhang covered by surrounding sections, and the viewport
+        // math no longer holds. Fix: re-parent the opened menu to <body> and
+        // position it from the button rect, so it always paints above everything.
+        const wrapper = dropdown.closest('.exam-action-dropdown') || dropdown.__btnWrap;
+        const btn = wrapper ? wrapper.querySelector('.btn-more') : null;
+        if (btn && dropdown.parentElement !== document.body) {
+            if (!dropdown.__btnWrap) dropdown.__btnWrap = wrapper;
+            document.body.appendChild(dropdown);
+            const br = btn.getBoundingClientRect();
+            const h = dropdown.offsetHeight;
+            const gap = 6;
+            const spaceUp = br.top;
+            const spaceDown = window.innerHeight - br.bottom;
+            const openUp = spaceUp >= h + gap || spaceUp >= spaceDown;
+            let top = openUp ? br.top - h - gap : br.bottom + gap;
+            if (top < 8) top = 8;
+            if (top + h > window.innerHeight - 8) top = Math.max(8, window.innerHeight - h - 8);
+            let left = br.left;
+            if (left + dropdown.offsetWidth > window.innerWidth - 8) {
+                left = window.innerWidth - dropdown.offsetWidth - 8;
+            }
+            if (left < 8) left = 8;
+            dropdown.style.position = 'fixed';
+            dropdown.style.top = top + 'px';
+            dropdown.style.bottom = 'auto';
+            dropdown.style.left = left + 'px';
+            dropdown.style.marginBottom = '0';
+            dropdown.style.maxHeight = (window.innerHeight - 16) + 'px';
+            dropdown.style.overflowY = 'auto';
         }
+    } else {
+        if (dropdown.__btnWrap && dropdown.parentElement === document.body) {
+            dropdown.__btnWrap.appendChild(dropdown);
+        }
+        dropdown.style.position = '';
+        dropdown.style.top = '';
+        dropdown.style.bottom = '';
+        dropdown.style.left = '';
+        dropdown.style.marginBottom = '';
+        dropdown.style.maxHeight = '';
+        dropdown.style.overflowY = '';
     }
 }
 
