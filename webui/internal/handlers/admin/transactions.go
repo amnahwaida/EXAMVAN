@@ -826,17 +826,32 @@ func BillingPage() gin.HandlerFunc {
 			selectedDuration = ""
 		}
 
+		isSuper := isSuperAdmin(c)
+		userMaxTotal := "10 Ujian"
+		userMaxConcurrent := "1 Ujian"
+		if user.MaxExams >= 99999 || (isSuper && user.MaxExams <= 0) {
+			userMaxTotal = "Tanpa Batas"
+		} else if user.MaxExams > 0 {
+			userMaxTotal = fmt.Sprintf("%d Ujian", user.MaxExams)
+		}
+		if user.MaxDrafts >= 99999 || (isSuper && user.MaxDrafts <= 0) {
+			userMaxConcurrent = "Tanpa Batas"
+		} else if user.MaxDrafts > 0 {
+			userMaxConcurrent = fmt.Sprintf("%d Ujian", user.MaxDrafts)
+		}
+
 		data := gin.H{
-			"active_page":          "billing",
-			"user_package":         user.Package,
-			"user_expires_at":      expiresStr,
-			"user_max_exams":       user.MaxExams,
-			"user_max_pdf_size_mb": float64(user.MaxPDFSize) / (1024 * 1024),
-			"user_max_storage_mb":  float64(user.MaxStorageSize) / (1024 * 1024),
-			"prices":               prices,
-			"plans":                plans,
-			"selected_package":     selectedPackage,
-			"selected_duration":    selectedDuration,
+			"active_page":            "billing",
+			"user_package":           user.Package,
+			"user_expires_at":        expiresStr,
+			"user_max_total_exams":   userMaxTotal,
+			"user_max_concurrent":    userMaxConcurrent,
+			"user_max_pdf_size_mb":   float64(user.MaxPDFSize) / (1024 * 1024),
+			"user_max_storage_mb":    float64(user.MaxStorageSize) / (1024 * 1024),
+			"prices":                 prices,
+			"plans":                  plans,
+			"selected_package":       selectedPackage,
+			"selected_duration":      selectedDuration,
 			// Monetization toggles (SuperAdmin-controlled) so the page can hide
 			// the buy flow / DOKU option / voucher form when disabled.
 			"pricing_enabled": models.GetSaasSettingBool(ctx, pool, models.SettingPricingPageEnabled, true),
