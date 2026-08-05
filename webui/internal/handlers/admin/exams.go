@@ -43,8 +43,6 @@ func jakartaLocation() *time.Location {
 	return loc
 }
 
-
-
 // validatePDF checks that the uploaded data is a valid PDF and respects size
 // limits. Returns (isValid, errorMessage).
 func validatePDF(data []byte, filename string, contentType string, maxSize int64) (bool, string) {
@@ -126,8 +124,6 @@ func sanitizeFilename(name string) string {
 	return s
 }
 
-
-
 // ---------------------------------------------------------------------------
 // 1. GET /admin/dashboard — rendered by Dashboard() already, but the user spec
 //    lists a separate "GET /" handler for the dashboard; we provide it as
@@ -175,13 +171,17 @@ func UploadExam() gin.HandlerFunc {
 			return
 		}
 
-		// Per-user limits (unless super admin / operator)
+		// Per-user limits (unless super admin / operator). maxExams tracks the
+		// quota for the (atomic) check+insert below; -1 means "no limit"
+		// (super/operator accounts bypass, matching previous behaviour).
+		maxExams := -1
 		if !isSuper && !isOp {
 			user, err := models.GetUserByID(ctx, pool, userID)
 			if err != nil {
 				errorResponse(c, http.StatusInternalServerError, "Gagal memuat data user")
 				return
 			}
+			maxExams = user.MaxExams
 			if user.MaxPDFSize > 0 && len(fileData) > user.MaxPDFSize {
 				limitMB := roundTo(float64(user.MaxPDFSize)/(1024*1024), 2)
 				errMsg := fmt.Sprintf("Ukuran file melebihi batas akun Anda (%.2fMB). Silakan hubungi Super Admin.", limitMB)
@@ -196,17 +196,6 @@ func UploadExam() gin.HandlerFunc {
 					limitMB := roundTo(float64(user.MaxStorageSize)/(1024*1024), 1)
 					errorResponse(c, http.StatusForbidden,
 						fmt.Sprintf("Batas kapasitas storage tercapai. Batas akun Anda adalah %.1f MB.", limitMB))
-					return
-				}
-			}
-
-			// Count existing exams (only enforce when MaxExams > 0 — 0 means unlimited)
-			if user.MaxExams > 0 {
-				opts := models.ListExamsOpts{CreatedBy: &userID}
-				countResult, err := models.ListExams(ctx, pool, opts)
-				if err == nil && countResult.Total >= user.MaxExams {
-					errorResponse(c, http.StatusForbidden,
-						fmt.Sprintf("Batas pembuatan ujian tercapai. Batas akun Anda adalah %d ujian.", user.MaxExams))
 					return
 				}
 			}
@@ -266,11 +255,13 @@ func UploadExam() gin.HandlerFunc {
 		}
 
 		exam := &models.Exam{
-			Name:               name,
-			FilePath:           filename,
-			SizeBytes:          int64(len(fileData)),
-			Token:              token,
-			Status:             "active",
+			Name:      name,
+			FilePath:  filename,
+			SizeBytes: int64(len(fileData)),
+			Token:     token,
+			// New exams start INACTIVE: they only become joinable for students
+			// after the admin explicitly activates and starts them.
+			Status:             "inactive",
 			SecurityLevel:      "medium",
 			PublicResults:      1,
 			CreatedBy:          userID,
@@ -279,11 +270,68 @@ func UploadExam() gin.HandlerFunc {
 			TokenResetInterval: &defaultInterval,
 		}
 
-		created, err := models.CreateExam(ctx, pool, exam)
-		if err != nil {
-			log.Printf("upload create exam error: %v", err)
-			errorResponse(c, http.StatusInternalServerError, "Gagal menyimpan ujian")
-			return
+		// Atomic quota check + insert: lock the user row FOR UPDATE so two
+		// concurrent uploads for the same account are serialized (this closes
+		// the check-then-insert race window), then count + insert in one
+		// transaction. Only enforced when maxExams > 0 (0 = unlimited).
+		var created *models.Exam
+		if maxExams >= 0 {
+			tx, err := pool.Begin(ctx)
+			if err != nil {
+				log.Printf("upload begin tx error: %v", err)
+				errorResponse(c, http.StatusInternalServerError, "Gagal menyimpan ujian")
+				return
+			}
+			defer func() { _ = tx.Rollback(ctx) }()
+
+			var lockedMaxExams int
+			if err := tx.QueryRow(ctx,
+				`SELECT max_exams FROM admin_users WHERE id = $1 FOR UPDATE`, userID).Scan(&lockedMaxExams); err != nil {
+				log.Printf("upload lock user error: %v", err)
+				errorResponse(c, http.StatusInternalServerError, "Gagal menyimpan ujian")
+				return
+			}
+
+			var cnt int
+			if err := tx.QueryRow(ctx,
+				`SELECT COUNT(*) FROM exams WHERE created_by = $1`, userID).Scan(&cnt); err != nil {
+				log.Printf("upload count exams error: %v", err)
+				errorResponse(c, http.StatusInternalServerError, "Gagal menyimpan ujian")
+				return
+			}
+			if lockedMaxExams > 0 && cnt >= lockedMaxExams {
+				_ = tx.Rollback(ctx)
+				// Remove the just-uploaded R2 object so we do not leak an orphan.
+				if r2c, ok := c.Get("r2"); ok {
+					if client, ok2 := r2c.(*r2client.Client); ok2 {
+						if delErr := client.Delete(ctx, fmt.Sprintf("pdfs/%s", filename)); delErr != nil {
+							log.Printf("admin: cleanup orphan R2 object after quota rejection: %v", delErr)
+						}
+					}
+				}
+				errorResponse(c, http.StatusForbidden,
+					fmt.Sprintf("Batas pembuatan ujian tercapai. Batas akun Anda adalah %d ujian.", lockedMaxExams))
+				return
+			}
+
+			created, err = models.CreateExamTx(ctx, tx, exam)
+			if err != nil {
+				log.Printf("upload create exam error: %v", err)
+				errorResponse(c, http.StatusInternalServerError, "Gagal menyimpan ujian")
+				return
+			}
+			if err := tx.Commit(ctx); err != nil {
+				log.Printf("upload commit error: %v", err)
+				errorResponse(c, http.StatusInternalServerError, "Gagal menyimpan ujian")
+				return
+			}
+		} else {
+			created, err = models.CreateExam(ctx, pool, exam)
+			if err != nil {
+				log.Printf("upload create exam error: %v", err)
+				errorResponse(c, http.StatusInternalServerError, "Gagal menyimpan ujian")
+				return
+			}
 		}
 
 		// Auto-assign creator as pengawas for this exam
@@ -293,7 +341,7 @@ func UploadExam() gin.HandlerFunc {
 
 		c.JSON(http.StatusOK, gin.H{
 			"success": true,
-			"message": fmt.Sprintf(`Ujian "%s" berhasil diupload dengan token: %s`, name, token),
+			"message": fmt.Sprintf(`Ujian "%s" berhasil diupload dalam status nonaktif dengan token: %s`, name, token),
 			"token":   token,
 			"id":      created.ID,
 		})
@@ -318,6 +366,25 @@ func ToggleExam() gin.HandlerFunc {
 		if !checkExamOwnership(c, pool, examID) {
 			errorResponse(c, http.StatusForbidden, "Akses ditolak: Anda tidak memiliki akses ke ujian ini")
 			return
+		}
+
+		// Enforce the concurrent-exam quota (max_concurrent_exams) when
+		// re-activating an exam that has ALREADY been started: such an exam
+		// becomes "running" again on activation even without going through
+		// StartExam (ToggleExamStatus does not clear exam_started_at).
+		if !isSuperAdmin(c) && !isOperator(c) {
+			exam, err := models.GetExamByID(ctx, pool, examID)
+			if err == nil && exam.Status == "inactive" && exam.ExamStartedAt != nil {
+				owner, err := models.GetUserByID(ctx, pool, exam.CreatedBy)
+				if err == nil && owner.MaxConcurrentExams > 0 {
+					running, err := models.CountRunningExams(ctx, pool, exam.CreatedBy, examID)
+					if err == nil && running >= owner.MaxConcurrentExams {
+						errorResponse(c, http.StatusForbidden,
+							fmt.Sprintf("Batas ujian serentak tercapai. Maksimal %d ujian dapat berjalan bersamaan.", owner.MaxConcurrentExams))
+						return
+					}
+				}
+			}
 		}
 
 		newStatus, err := models.ToggleExamStatus(ctx, pool, examID)
@@ -505,7 +572,7 @@ func ExamPDF() gin.HandlerFunc {
 			}
 			log.Printf("admin: R2 signed URL error: %v", err)
 		}
-		
+
 		c.AbortWithStatus(http.StatusInternalServerError)
 	}
 }
@@ -583,9 +650,9 @@ func ToggleShowAnswers() gin.HandlerFunc {
 		}
 
 		c.JSON(http.StatusOK, gin.H{
-			"success":       true,
-			"message":       fmt.Sprintf("Kunci jawaban berhasil %s untuk siswa", statusStr),
-			"show_answers":  newVal,
+			"success":      true,
+			"message":      fmt.Sprintf("Kunci jawaban berhasil %s untuk siswa", statusStr),
+			"show_answers": newVal,
 		})
 	}
 }
@@ -750,12 +817,12 @@ func SaveQuestions() gin.HandlerFunc {
 
 		var body struct {
 			Questions      []map[string]interface{} `json:"questions"`
-			SecurityLevel  string                    `json:"security_level"`
+			SecurityLevel  string                   `json:"security_level"`
 			IdentityFields []map[string]interface{} `json:"identity_fields"`
-			PanelColor     string                    `json:"panel_color"`
-			StartTime      string                    `json:"start_time"`
-			EndTime        string                    `json:"end_time"`
-			PengawasIDs    []int                     `json:"pengawas_ids"`
+			PanelColor     string                   `json:"panel_color"`
+			StartTime      string                   `json:"start_time"`
+			EndTime        string                   `json:"end_time"`
+			PengawasIDs    []int                    `json:"pengawas_ids"`
 		}
 		if err := c.ShouldBindJSON(&body); err != nil {
 			errorResponse(c, http.StatusBadRequest, "Data tidak valid")
@@ -962,8 +1029,8 @@ func UpdateTokenMode() gin.HandlerFunc {
 		}
 
 		var body struct {
-			TokenMode      string `json:"token_mode"`
-			ResetInterval  *int   `json:"reset_interval"`
+			TokenMode     string `json:"token_mode"`
+			ResetInterval *int   `json:"reset_interval"`
 		}
 		if err := c.ShouldBindJSON(&body); err != nil {
 			errorResponse(c, http.StatusBadRequest, "Data tidak valid")
@@ -1031,6 +1098,22 @@ func StartExam() gin.HandlerFunc {
 		if exam.ExamStartedAt != nil {
 			errorResponse(c, http.StatusBadRequest, "Ujian sudah dimulai")
 			return
+		}
+
+		// Enforce the concurrent-exam quota (max_concurrent_exams): starting an
+		// exam is what makes it "running" for students, so this is the primary
+		// enforcement point. Super admins and operators bypass (operators
+		// manage exams on behalf of their school, mirroring the upload bypass).
+		if !isSuperAdmin(c) && !isOperator(c) {
+			owner, err := models.GetUserByID(ctx, pool, exam.CreatedBy)
+			if err == nil && owner.MaxConcurrentExams > 0 {
+				running, err := models.CountRunningExams(ctx, pool, exam.CreatedBy, examID)
+				if err == nil && running >= owner.MaxConcurrentExams {
+					errorResponse(c, http.StatusForbidden,
+						fmt.Sprintf("Batas ujian serentak tercapai. Maksimal %d ujian dapat berjalan bersamaan.", owner.MaxConcurrentExams))
+					return
+				}
+			}
 		}
 
 		if err := models.StartExam(ctx, pool, examID); err != nil {
@@ -1292,10 +1375,10 @@ func DelegateData() gin.HandlerFunc {
 		c.JSON(http.StatusOK, gin.H{
 			"success": true,
 			"data": gin.H{
-				"current_owner":        currentOwner,
-				"delegated_to":         delegatedTo,
-				"available_gurus":      availableGurus,
-				"available_pengawas":   availablePengawas,
+				"current_owner":         currentOwner,
+				"delegated_to":          delegatedTo,
+				"available_gurus":       availableGurus,
+				"available_pengawas":    availablePengawas,
 				"assigned_pengawas_ids": assignedIDs,
 			},
 		})
@@ -1463,6 +1546,7 @@ func BulkToggle() gin.HandlerFunc {
 		ctx := c.Request.Context()
 		userID := getCurrentUserID(c)
 		isSuper := isSuperAdmin(c)
+		isOp := isOperator(c)
 
 		// For non-super users, filter to only exams they may manage. Operators
 		// previously bypassed this and could toggle any tenant's exams;
@@ -1478,6 +1562,29 @@ func BulkToggle() gin.HandlerFunc {
 			if len(examIDs) == 0 {
 				errorResponse(c, http.StatusBadRequest, "Tidak ada ujian yang dapat diperbarui")
 				return
+			}
+		}
+
+		// Enforce the concurrent-exam quota for bulk activation: selected exams
+		// that have already been started (exam_started_at set) would become
+		// running once activated, so they count against the owner's quota.
+		if body.Status == "active" && !isSuper && !isOp && len(examIDs) > 0 {
+			counts, err := models.RunningExamCountsAfterActivation(ctx, pool, examIDs)
+			if err == nil {
+				for ownerID, after := range counts {
+					owner, err := models.GetUserByID(ctx, pool, ownerID)
+					if err != nil || owner.MaxConcurrentExams <= 0 {
+						continue
+					}
+					// `after > max` (not >=) matches the single-exam ToggleExam
+					// semantics: reaching the limit is allowed, only exceeding it is
+					// rejected.
+					if after > owner.MaxConcurrentExams {
+						errorResponse(c, http.StatusForbidden,
+							fmt.Sprintf("Batas ujian serentak tercapai. Maksimal %d ujian dapat berjalan bersamaan.", owner.MaxConcurrentExams))
+						return
+					}
+				}
 			}
 		}
 

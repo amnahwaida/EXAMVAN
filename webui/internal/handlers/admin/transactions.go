@@ -22,22 +22,26 @@ import (
 
 // CalculatePackagePrice calculates pricing based on settings db, falling back to hardcoded defaults
 
-func packageEntitlement(pkg string) (exams, pdf, drafts, storage int64, role string) {
+// packageEntitlement returns (exams, pdfBytes, drafts, concurrent, storageBytes, role)
+// for a fixed package. `concurrent` is the max_concurrent_exams quota: the
+// number of exams that may RUN simultaneously (mirrors the "Ujian Aktif"
+// values advertised on the pricing page, so concurrent <= total exams).
+func packageEntitlement(pkg string) (exams, pdf, drafts, concurrent, storage int64, role string) {
 	switch pkg {
 	case "guru":
-		return 1, 10 * 1024 * 1024, 10, 100 * 1024 * 1024, ""
+		return 1, 10 * 1024 * 1024, 10, 1, 100 * 1024 * 1024, ""
 	case "individu":
-		return 2, 30 * 1024 * 1024, 30, 300 * 1024 * 1024, ""
+		return 2, 30 * 1024 * 1024, 30, 2, 300 * 1024 * 1024, ""
 	case "sekolah_kecil":
-		return 3, 50 * 1024 * 1024, 50, 500 * 1024 * 1024, models.SerializeRoles([]string{models.RoleOperator})
+		return 3, 50 * 1024 * 1024, 50, 3, 500 * 1024 * 1024, models.SerializeRoles([]string{models.RoleOperator})
 	case "sekolah_menengah":
-		return 5, 200 * 1024 * 1024, 200, 2000 * 1024 * 1024, models.SerializeRoles([]string{models.RoleOperator})
+		return 5, 200 * 1024 * 1024, 200, 5, 2000 * 1024 * 1024, models.SerializeRoles([]string{models.RoleOperator})
 	case "sekolah_besar":
-		return 10, 500 * 1024 * 1024, 500, 5000 * 1024 * 1024, models.SerializeRoles([]string{models.RoleOperator})
+		return 10, 500 * 1024 * 1024, 500, 10, 5000 * 1024 * 1024, models.SerializeRoles([]string{models.RoleOperator})
 	case "sekolah_unggulan":
-		return 99999, 99999 * 1024 * 1024, 99999, 999999 * 1024 * 1024, models.SerializeRoles([]string{models.RoleOperator})
+		return 99999, 99999 * 1024 * 1024, 99999, 99999, 999999 * 1024 * 1024, models.SerializeRoles([]string{models.RoleOperator})
 	default:
-		return 1, 1 * 1024 * 1024, 1, 50 * 1024 * 1024, ""
+		return 1, 1 * 1024 * 1024, 1, 1, 50 * 1024 * 1024, ""
 	}
 }
 
@@ -78,7 +82,7 @@ func latestApprovedTransactionForUser(ctx context.Context, tx pgx.Tx, userID, ex
 }
 
 func applyApprovedTransactionEntitlement(ctx context.Context, tx pgx.Tx, userID int, pkg, durationType string, expiresAt time.Time, role string) error {
-	exams, pdf, drafts, storage, newRole := packageEntitlement(pkg)
+	exams, pdf, drafts, concurrent, storage, newRole := packageEntitlement(pkg)
 	if role == "" {
 		role = newRole
 	}
@@ -100,9 +104,9 @@ func applyApprovedTransactionEntitlement(ctx context.Context, tx pgx.Tx, userID 
 		// Apply package/limits/expiry without touching the role column.
 		_, err := tx.Exec(ctx, `UPDATE admin_users SET
 			package = $1, max_exams = $2, max_pdf_size = $3,
-			max_drafts = $4, max_storage_size = $5,
-			expires_at = $6, status = 'active'
-			WHERE id = $7`, pkg, exams, pdf, drafts, storage, expiresAt, userID)
+			max_drafts = $4, max_concurrent_exams = $5, max_storage_size = $6,
+			expires_at = $7, status = 'active'
+			WHERE id = $8`, pkg, exams, pdf, drafts, concurrent, storage, expiresAt, userID)
 		return err
 	}
 
@@ -117,9 +121,9 @@ func applyApprovedTransactionEntitlement(ctx context.Context, tx pgx.Tx, userID 
 
 	_, err := tx.Exec(ctx, `UPDATE admin_users SET
 		package = $1, max_exams = $2, max_pdf_size = $3,
-		max_drafts = $4, max_storage_size = $5,
-		expires_at = $6, status = 'active', role = $7
-		WHERE id = $8`, pkg, exams, pdf, drafts, storage, expiresAt, mergedJSON, userID)
+		max_drafts = $4, max_concurrent_exams = $5, max_storage_size = $6,
+		expires_at = $7, status = 'active', role = $8
+		WHERE id = $9`, pkg, exams, pdf, drafts, concurrent, storage, expiresAt, mergedJSON, userID)
 	return err
 }
 
@@ -151,6 +155,19 @@ func applyCustomVoucherEntitlement(ctx context.Context, tx pgx.Tx, userID int, v
 	}
 
 	role := strings.TrimSpace(v.CustomRole)
+
+	// Custom vouchers created before the max_concurrent_exams column existed
+	// carry a 0 in custom_max_concurrent_exams; fall back to the exam quota
+	// (a sane ceiling: you cannot run more exams than you can create) rather
+	// than silently granting unlimited concurrency.
+	concurrent := v.CustomMaxConcurrentExams
+	if concurrent <= 0 {
+		concurrent = v.CustomMaxExams
+	}
+	if concurrent <= 0 {
+		concurrent = 1
+	}
+
 	// Only change the role when the voucher specifies one AND the target is not
 	// a SuperAdmin (whose role must never be altered by a voucher).
 	if role != "" && role != models.RoleSuperAdmin && !containsRole(currentRoles, models.RoleSuperAdmin) {
@@ -160,21 +177,21 @@ func applyCustomVoucherEntitlement(ctx context.Context, tx pgx.Tx, userID int, v
 		}
 		_, err := tx.Exec(ctx, `UPDATE admin_users SET
 			package = $1, max_exams = $2, max_pdf_size = $3, max_drafts = $4,
-			max_draft_size = $5, max_storage_size = $6, expires_at = $7,
-			status = 'active', role = $8
-			WHERE id = $9`,
+			max_concurrent_exams = $5, max_draft_size = $6, max_storage_size = $7, expires_at = $8,
+			status = 'active', role = $9
+			WHERE id = $10`,
 			pkgLabel, v.CustomMaxExams, v.CustomMaxPDFSize, v.CustomMaxDrafts,
-			v.CustomMaxDraftSize, v.CustomMaxStorageSize, expiresAt,
+			concurrent, v.CustomMaxDraftSize, v.CustomMaxStorageSize, expiresAt,
 			models.SerializeRoles(merged), userID)
 		return err
 	}
 
 	_, err := tx.Exec(ctx, `UPDATE admin_users SET
 		package = $1, max_exams = $2, max_pdf_size = $3, max_drafts = $4,
-		max_draft_size = $5, max_storage_size = $6, expires_at = $7, status = 'active'
-		WHERE id = $8`,
+		max_concurrent_exams = $5, max_draft_size = $6, max_storage_size = $7, expires_at = $8, status = 'active'
+		WHERE id = $9`,
 		pkgLabel, v.CustomMaxExams, v.CustomMaxPDFSize, v.CustomMaxDrafts,
-		v.CustomMaxDraftSize, v.CustomMaxStorageSize, expiresAt, userID)
+		concurrent, v.CustomMaxDraftSize, v.CustomMaxStorageSize, expiresAt, userID)
 	return err
 }
 
@@ -400,7 +417,7 @@ func ProcessTransactionApproval(ctx context.Context, pool *pgxpool.Pool, txID in
 
 	// Upgrade role — sekolah packages get operator privileges
 	newRole := ""
-	if _, _, _, _, role := packageEntitlement(tx.Package); role != "" {
+	if _, _, _, _, _, role := packageEntitlement(tx.Package); role != "" {
 		newRole = role
 	}
 
@@ -475,7 +492,7 @@ func ProcessTransactionReversal(ctx context.Context, pool *pgxpool.Pool, txID in
 			if containsRole(roles, models.RoleSuperAdmin) {
 				_, err = dbTx.Exec(ctx,
 					`UPDATE admin_users SET package = 'free', max_exams = 1, max_pdf_size = 1048576,
-						max_drafts = 1, max_storage_size = 52428800, expires_at = NULL
+						max_drafts = 1, max_concurrent_exams = 1, max_storage_size = 52428800, expires_at = NULL
 					WHERE id = $1`, tx.UserID)
 			} else {
 				kept := make([]string, 0, len(roles))
@@ -489,7 +506,7 @@ func ProcessTransactionReversal(ctx context.Context, pool *pgxpool.Pool, txID in
 				}
 				_, err = dbTx.Exec(ctx,
 					`UPDATE admin_users SET package = 'free', max_exams = 1, max_pdf_size = 1048576,
-						max_drafts = 1, max_storage_size = 52428800, expires_at = NULL, role = $2
+						max_drafts = 1, max_concurrent_exams = 1, max_storage_size = 52428800, expires_at = NULL, role = $2
 					WHERE id = $1`, tx.UserID, models.SerializeRoles(kept))
 			}
 			if err != nil {
@@ -505,7 +522,7 @@ func ProcessTransactionReversal(ctx context.Context, pool *pgxpool.Pool, txID in
 			if user.ExpiresAt != nil && user.ExpiresAt.After(now) {
 				expiresAt = *user.ExpiresAt
 			}
-			_, _, _, _, role := packageEntitlement(latest.Package)
+			_, _, _, _, _, role := packageEntitlement(latest.Package)
 			if err := applyApprovedTransactionEntitlement(ctx, dbTx, tx.UserID, latest.Package, latest.DurationType, expiresAt, role); err != nil {
 				return fmt.Errorf("failed to restore user entitlement: %w", err)
 			}
@@ -834,24 +851,24 @@ func BillingPage() gin.HandlerFunc {
 		} else if user.MaxExams > 0 {
 			userMaxTotal = fmt.Sprintf("%d Ujian", user.MaxExams)
 		}
-		if user.MaxDrafts >= 99999 || (isSuper && user.MaxDrafts <= 0) {
+		if user.MaxConcurrentExams >= 99999 || (isSuper && user.MaxConcurrentExams <= 0) {
 			userMaxConcurrent = "Tanpa Batas"
-		} else if user.MaxDrafts > 0 {
-			userMaxConcurrent = fmt.Sprintf("%d Ujian", user.MaxDrafts)
+		} else if user.MaxConcurrentExams > 0 {
+			userMaxConcurrent = fmt.Sprintf("%d Ujian", user.MaxConcurrentExams)
 		}
 
 		data := gin.H{
-			"active_page":            "billing",
-			"user_package":           user.Package,
-			"user_expires_at":        expiresStr,
-			"user_max_total_exams":   userMaxTotal,
-			"user_max_concurrent":    userMaxConcurrent,
-			"user_max_pdf_size_mb":   float64(user.MaxPDFSize) / (1024 * 1024),
-			"user_max_storage_mb":    float64(user.MaxStorageSize) / (1024 * 1024),
-			"prices":                 prices,
-			"plans":                  plans,
-			"selected_package":       selectedPackage,
-			"selected_duration":      selectedDuration,
+			"active_page":          "billing",
+			"user_package":         user.Package,
+			"user_expires_at":      expiresStr,
+			"user_max_total_exams": userMaxTotal,
+			"user_max_concurrent":  userMaxConcurrent,
+			"user_max_pdf_size_mb": float64(user.MaxPDFSize) / (1024 * 1024),
+			"user_max_storage_mb":  float64(user.MaxStorageSize) / (1024 * 1024),
+			"prices":               prices,
+			"plans":                plans,
+			"selected_package":     selectedPackage,
+			"selected_duration":    selectedDuration,
 			// Monetization toggles (SuperAdmin-controlled) so the page can hide
 			// the buy flow / DOKU option / voucher form when disabled.
 			"pricing_enabled": models.GetSaasSettingBool(ctx, pool, models.SettingPricingPageEnabled, true),

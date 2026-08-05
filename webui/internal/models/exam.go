@@ -25,9 +25,9 @@ type Exam struct {
 	QuestionsJSON      *string    `json:"questions_json,omitempty"`
 	Status             string     `json:"status"`
 	SecurityLevel      string     `json:"security_level"`
-	StrictMode         int        `json:"strict_mode"`      // 0/1 integer stored in DB
-	PublicResults      int        `json:"public_results"`   // 0/1 integer stored in DB
-	ShowAnswers        int        `json:"show_answers"`     // 0/1 integer stored in DB
+	StrictMode         int        `json:"strict_mode"`    // 0/1 integer stored in DB
+	PublicResults      int        `json:"public_results"` // 0/1 integer stored in DB
+	ShowAnswers        int        `json:"show_answers"`   // 0/1 integer stored in DB
 	CreatedBy          int        `json:"created_by"`
 	CreatedAt          time.Time  `json:"created_at"`
 	IdentityFields     *string    `json:"identity_fields,omitempty"`
@@ -118,11 +118,11 @@ type ListExamsOpts struct {
 
 // ListExamsResult holds the paginated exam list and total count.
 type ListExamsResult struct {
-	Exams       []Exam
-	Total       int
-	TotalPages  int
-	Page        int
-	PerPage     int
+	Exams      []Exam
+	Total      int
+	TotalPages int
+	Page       int
+	PerPage    int
 }
 
 const maxPerPage = 100
@@ -273,8 +273,15 @@ LEFT JOIN admin_users u ON e.created_by = u.id` + whereClause +
 // exams is a cross-tenant leak on the shared SaaS API. The public exam-list
 // endpoint now uses ListActiveExamsByInstansi to scope results to one school.)
 
-// CreateExam inserts a new exam row and returns the created Exam with its generated ID.
-func CreateExam(ctx context.Context, pool *pgxpool.Pool, e *Exam) (*Exam, error) {
+// queryRower abstracts the query interface shared by *pgxpool.Pool and pgx.Tx
+// so CreateExam can run both standalone and inside a transaction.
+type queryRower interface {
+	QueryRow(ctx context.Context, sql string, args ...any) pgx.Row
+}
+
+// createExam inserts a new exam row using the given queryer (pool or tx) and
+// returns the created Exam with its generated ID.
+func createExam(ctx context.Context, q queryRower, e *Exam) (*Exam, error) {
 	// Set active_token = token on creation
 	if e.ActiveToken == "" {
 		e.ActiveToken = e.Token
@@ -286,7 +293,7 @@ func CreateExam(ctx context.Context, pool *pgxpool.Pool, e *Exam) (*Exam, error)
 VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20)
 RETURNING ` + DefaultExamColumns
 
-	created, err := scanExam(pool.QueryRow(ctx, sql,
+	created, err := scanExam(q.QueryRow(ctx, sql,
 		e.Name, e.FilePath, e.SizeBytes, e.Token, e.ActiveToken, e.QuestionsJSON,
 		e.Status, e.SecurityLevel, e.StrictMode, e.PublicResults, e.ShowAnswers,
 		e.CreatedBy, e.IdentityFields, e.PanelColor, e.StartTime, e.EndTime,
@@ -296,6 +303,68 @@ RETURNING ` + DefaultExamColumns
 		return nil, fmt.Errorf("create exam: %w", err)
 	}
 	return &created, nil
+}
+
+// CreateExam inserts a new exam row and returns the created Exam with its generated ID.
+func CreateExam(ctx context.Context, pool *pgxpool.Pool, e *Exam) (*Exam, error) {
+	return createExam(ctx, pool, e)
+}
+
+// CreateExamTx inserts a new exam row inside an existing transaction.
+func CreateExamTx(ctx context.Context, tx pgx.Tx, e *Exam) (*Exam, error) {
+	return createExam(ctx, tx, e)
+}
+
+// CountRunningExams returns the number of exams created by createdBy that are
+// currently RUNNING (status='active' AND exam_started_at IS NOT NULL), i.e.
+// exams students can actually work on right now. excludeID is not counted
+// (used when the caller is about to start/activate that exam itself).
+func CountRunningExams(ctx context.Context, pool *pgxpool.Pool, createdBy, excludeID int) (int, error) {
+	var n int
+	err := pool.QueryRow(ctx, `SELECT COUNT(*) FROM exams
+		WHERE created_by = $1 AND status = 'active' AND exam_started_at IS NOT NULL AND id <> $2`,
+		createdBy, excludeID).Scan(&n)
+	if err != nil {
+		return 0, fmt.Errorf("count running exams: %w", err)
+	}
+	return n, nil
+}
+
+// RunningExamCountsAfterActivation returns, per distinct created_by owner of
+// the given exam ids, the number of running exams that owner would have if
+// every selected exam were activated. Only exams with exam_started_at already
+// set become "running" on activation (activating a never-started exam is not
+// enough for students to join it). Used to enforce the concurrent-exam quota
+// on bulk activation.
+func RunningExamCountsAfterActivation(ctx context.Context, pool *pgxpool.Pool, ids []int) (map[int]int, error) {
+	out := make(map[int]int)
+	if len(ids) == 0 {
+		return out, nil
+	}
+	rows, err := pool.Query(ctx, `
+		SELECT e.created_by,
+		       (SELECT COUNT(*) FROM exams x
+		         WHERE x.created_by = e.created_by
+		           AND x.status = 'active' AND x.exam_started_at IS NOT NULL)
+		       + COUNT(*) FILTER (WHERE e.status <> 'active' AND e.exam_started_at IS NOT NULL) AS running_after
+		FROM exams e
+		WHERE e.id = ANY($1) AND e.exam_started_at IS NOT NULL
+		GROUP BY e.created_by`, ids)
+	if err != nil {
+		return nil, fmt.Errorf("running exam counts after activation: %w", err)
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var owner, after int
+		if err := rows.Scan(&owner, &after); err != nil {
+			return nil, fmt.Errorf("scan running exam count: %w", err)
+		}
+		out[owner] = after
+	}
+	if err := rows.Err(); err != nil {
+		log.Printf("rows iteration error: %v", err)
+	}
+	return out, nil
 }
 
 // UpdateExam updates exam name and optionally file_path + size_bytes.

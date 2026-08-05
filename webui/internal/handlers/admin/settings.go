@@ -57,32 +57,34 @@ func handleSaasSettingsGet(c *gin.Context, pool *pgxpool.Pool, ctx context.Conte
 	defaultMaxExams := parseIntSetting(settings[models.SettingDefaultMaxExams], 3)
 	defaultMaxPDFSize := parseIntSetting(settings[models.SettingDefaultMaxPDFSize], 1048576)
 	defaultMaxDrafts := parseIntSetting(settings[models.SettingDefaultMaxDrafts], 2)
+	defaultMaxConcurrentExams := parseIntSetting(settings[models.SettingDefaultMaxConcurrentExams], 2)
 	defaultMaxDraftSize := parseIntSetting(settings[models.SettingDefaultMaxDraftSize], 1048576)
 	defaultActiveDays := parseIntSetting(settings[models.SettingDefaultActiveDays], 1)
 
 	c.JSON(http.StatusOK, gin.H{
 		"success": true,
 		"settings": gin.H{
-			"email_verification_enabled": emailEnabled,
-			"email_domain_whitelist":     settings[models.SettingEmailDomainWhitelist],
-			"smtp_host":                  settings[models.SettingSMTPHost],
-			"smtp_port":                  settings[models.SettingSMTPPort],
-			"smtp_user":                  settings[models.SettingSMTPUser],
-			"smtp_password":              smtpPassword,
-			"smtp_sender_name":           settings[models.SettingSMTPSenderName],
-			"default_max_exams":          defaultMaxExams,
-			"default_max_pdf_size_mb":    roundTo(float64(defaultMaxPDFSize)/(1024*1024), 2),
-			"default_max_drafts":         defaultMaxDrafts,
-			"default_max_draft_size_mb":  roundTo(float64(defaultMaxDraftSize)/(1024*1024), 2),
-			"default_active_days":        defaultActiveDays,
-			"android_version":            settings[models.SettingAndroidVersion],
-			"webapp_version":             settings[models.SettingWebappVersion],
-			"certificate_fingerprint":    settings[models.SettingCertificateFingerprint],
-			"seo_title":                  settings[models.SettingSEOTitle],
-			"seo_description":            settings[models.SettingSEODescription],
-			"seo_keywords":               settings[models.SettingSEOKeywords],
-			"seo_index":                  settings[models.SettingSEOIndex] == "1",
-			"doku_payment_methods":       settings[models.SettingDokuPaymentMethods],
+			"email_verification_enabled":   emailEnabled,
+			"email_domain_whitelist":       settings[models.SettingEmailDomainWhitelist],
+			"smtp_host":                    settings[models.SettingSMTPHost],
+			"smtp_port":                    settings[models.SettingSMTPPort],
+			"smtp_user":                    settings[models.SettingSMTPUser],
+			"smtp_password":                smtpPassword,
+			"smtp_sender_name":             settings[models.SettingSMTPSenderName],
+			"default_max_exams":            defaultMaxExams,
+			"default_max_pdf_size_mb":      roundTo(float64(defaultMaxPDFSize)/(1024*1024), 2),
+			"default_max_drafts":           defaultMaxDrafts,
+			"default_max_concurrent_exams": defaultMaxConcurrentExams,
+			"default_max_draft_size_mb":    roundTo(float64(defaultMaxDraftSize)/(1024*1024), 2),
+			"default_active_days":          defaultActiveDays,
+			"android_version":              settings[models.SettingAndroidVersion],
+			"webapp_version":               settings[models.SettingWebappVersion],
+			"certificate_fingerprint":      settings[models.SettingCertificateFingerprint],
+			"seo_title":                    settings[models.SettingSEOTitle],
+			"seo_description":              settings[models.SettingSEODescription],
+			"seo_keywords":                 settings[models.SettingSEOKeywords],
+			"seo_index":                    settings[models.SettingSEOIndex] == "1",
+			"doku_payment_methods":         settings[models.SettingDokuPaymentMethods],
 
 			// Monetization toggles (default enabled when unset).
 			"doku_payment_enabled":   settings[models.SettingDokuPaymentEnabled] != "0",
@@ -90,21 +92,21 @@ func handleSaasSettingsGet(c *gin.Context, pool *pgxpool.Pool, ctx context.Conte
 			"voucher_redeem_enabled": settings[models.SettingVoucherRedeemEnabled] != "0",
 
 			// Pricing values
-			"price_guru_bulanan":          parseIntSetting(settings[models.SettingPriceGuruBulanan], 25000),
-			"price_guru_semester":         parseIntSetting(settings[models.SettingPriceGuruSemester], 125000),
-			"price_guru_tahunan":          parseIntSetting(settings[models.SettingPriceGuruTahunan], 225000),
-			"price_individu_bulanan":      parseIntSetting(settings[models.SettingPriceIndividuBulanan], 50000),
-			"price_individu_semester":     parseIntSetting(settings[models.SettingPriceIndividuSemester], 250000),
-			"price_individu_tahunan":      parseIntSetting(settings[models.SettingPriceIndividuTahunan], 450000),
-			"price_sekolah_kecil_bulanan":   parseIntSetting(settings[models.SettingPriceSekolahKecilBulanan], 75000),
-			"price_sekolah_kecil_semester":  parseIntSetting(settings[models.SettingPriceSekolahKecilSemester], 375000),
-			"price_sekolah_kecil_tahunan":   parseIntSetting(settings[models.SettingPriceSekolahKecilTahunan], 675000),
+			"price_guru_bulanan":              parseIntSetting(settings[models.SettingPriceGuruBulanan], 25000),
+			"price_guru_semester":             parseIntSetting(settings[models.SettingPriceGuruSemester], 125000),
+			"price_guru_tahunan":              parseIntSetting(settings[models.SettingPriceGuruTahunan], 225000),
+			"price_individu_bulanan":          parseIntSetting(settings[models.SettingPriceIndividuBulanan], 50000),
+			"price_individu_semester":         parseIntSetting(settings[models.SettingPriceIndividuSemester], 250000),
+			"price_individu_tahunan":          parseIntSetting(settings[models.SettingPriceIndividuTahunan], 450000),
+			"price_sekolah_kecil_bulanan":     parseIntSetting(settings[models.SettingPriceSekolahKecilBulanan], 75000),
+			"price_sekolah_kecil_semester":    parseIntSetting(settings[models.SettingPriceSekolahKecilSemester], 375000),
+			"price_sekolah_kecil_tahunan":     parseIntSetting(settings[models.SettingPriceSekolahKecilTahunan], 675000),
 			"price_sekolah_menengah_bulanan":  parseIntSetting(settings[models.SettingPriceSekolahMenengahBulanan], 175000),
 			"price_sekolah_menengah_semester": parseIntSetting(settings[models.SettingPriceSekolahMenengahSemester], 875000),
 			"price_sekolah_menengah_tahunan":  parseIntSetting(settings[models.SettingPriceSekolahMenengahTahunan], 1575000),
-			"price_sekolah_besar_bulanan":   parseIntSetting(settings[models.SettingPriceSekolahBesarBulanan], 375000),
-			"price_sekolah_besar_semester":  parseIntSetting(settings[models.SettingPriceSekolahBesarSemester], 1875000),
-			"price_sekolah_besar_tahunan":   parseIntSetting(settings[models.SettingPriceSekolahBesarTahunan], 3375000),
+			"price_sekolah_besar_bulanan":     parseIntSetting(settings[models.SettingPriceSekolahBesarBulanan], 375000),
+			"price_sekolah_besar_semester":    parseIntSetting(settings[models.SettingPriceSekolahBesarSemester], 1875000),
+			"price_sekolah_besar_tahunan":     parseIntSetting(settings[models.SettingPriceSekolahBesarTahunan], 3375000),
 			"price_sekolah_unggulan_bulanan":  parseIntSetting(settings[models.SettingPriceSekolahUnggulanBulanan], 750000),
 			"price_sekolah_unggulan_semester": parseIntSetting(settings[models.SettingPriceSekolahUnggulanSemester], 3750000),
 			"price_sekolah_unggulan_tahunan":  parseIntSetting(settings[models.SettingPriceSekolahUnggulanTahunan], 6750000),
@@ -140,26 +142,27 @@ func boolFlag(b bool) string {
 
 func handleSaasSettingsPost(c *gin.Context, pool *pgxpool.Pool, ctx context.Context) {
 	var body struct {
-		EmailVerificationEnabled bool    `json:"email_verification_enabled"`
-		EmailDomainWhitelist     string  `json:"email_domain_whitelist"`
-		SMTPHost                 string  `json:"smtp_host"`
-		SMTPPort                 string  `json:"smtp_port"`
-		SMTPUser                 string  `json:"smtp_user"`
-		SMTPPassword             string  `json:"smtp_password"`
-		SMTPSenderName           string  `json:"smtp_sender_name"`
-		DefaultMaxExams          int     `json:"default_max_exams"`
-		DefaultMaxPDFSizeMB      float64 `json:"default_max_pdf_size_mb"`
-		DefaultMaxDrafts         int     `json:"default_max_drafts"`
-		DefaultMaxDraftSizeMB    float64 `json:"default_max_draft_size_mb"`
-		DefaultActiveDays        int     `json:"default_active_days"`
-		AndroidVersion           string  `json:"android_version"`
-		WebappVersion            string  `json:"webapp_version"`
-		CertificateFingerprint   string  `json:"certificate_fingerprint"`
-		SEOTitle                 string  `json:"seo_title"`
-		SEODescription           string  `json:"seo_description"`
-		SEOKeywords              string  `json:"seo_keywords"`
-		SEOIndex                 bool    `json:"seo_index"`
-		DokuPaymentMethods       string  `json:"doku_payment_methods"`
+		EmailVerificationEnabled  bool    `json:"email_verification_enabled"`
+		EmailDomainWhitelist      string  `json:"email_domain_whitelist"`
+		SMTPHost                  string  `json:"smtp_host"`
+		SMTPPort                  string  `json:"smtp_port"`
+		SMTPUser                  string  `json:"smtp_user"`
+		SMTPPassword              string  `json:"smtp_password"`
+		SMTPSenderName            string  `json:"smtp_sender_name"`
+		DefaultMaxExams           int     `json:"default_max_exams"`
+		DefaultMaxPDFSizeMB       float64 `json:"default_max_pdf_size_mb"`
+		DefaultMaxDrafts          int     `json:"default_max_drafts"`
+		DefaultMaxConcurrentExams int     `json:"default_max_concurrent_exams"`
+		DefaultMaxDraftSizeMB     float64 `json:"default_max_draft_size_mb"`
+		DefaultActiveDays         int     `json:"default_active_days"`
+		AndroidVersion            string  `json:"android_version"`
+		WebappVersion             string  `json:"webapp_version"`
+		CertificateFingerprint    string  `json:"certificate_fingerprint"`
+		SEOTitle                  string  `json:"seo_title"`
+		SEODescription            string  `json:"seo_description"`
+		SEOKeywords               string  `json:"seo_keywords"`
+		SEOIndex                  bool    `json:"seo_index"`
+		DokuPaymentMethods        string  `json:"doku_payment_methods"`
 
 		// Monetization toggles
 		DokuPaymentEnabled   bool `json:"doku_payment_enabled"`
@@ -167,24 +170,24 @@ func handleSaasSettingsPost(c *gin.Context, pool *pgxpool.Pool, ctx context.Cont
 		VoucherRedeemEnabled bool `json:"voucher_redeem_enabled"`
 
 		// Price Settings
-		PriceGuruBulanan          int     `json:"price_guru_bulanan"`
-		PriceGuruSemester         int     `json:"price_guru_semester"`
-		PriceGuruTahunan          int     `json:"price_guru_tahunan"`
-		PriceIndividuBulanan      int     `json:"price_individu_bulanan"`
-		PriceIndividuSemester     int     `json:"price_individu_semester"`
-		PriceIndividuTahunan      int     `json:"price_individu_tahunan"`
-		PriceSekolahKecilBulanan   int     `json:"price_sekolah_kecil_bulanan"`
-		PriceSekolahKecilSemester  int     `json:"price_sekolah_kecil_semester"`
-		PriceSekolahKecilTahunan   int     `json:"price_sekolah_kecil_tahunan"`
-		PriceSekolahMenengahBulanan  int     `json:"price_sekolah_menengah_bulanan"`
-		PriceSekolahMenengahSemester int     `json:"price_sekolah_menengah_semester"`
-		PriceSekolahMenengahTahunan  int     `json:"price_sekolah_menengah_tahunan"`
-		PriceSekolahBesarBulanan   int     `json:"price_sekolah_besar_bulanan"`
-		PriceSekolahBesarSemester  int     `json:"price_sekolah_besar_semester"`
-		PriceSekolahBesarTahunan   int     `json:"price_sekolah_besar_tahunan"`
-		PriceSekolahUnggulanBulanan  int     `json:"price_sekolah_unggulan_bulanan"`
-		PriceSekolahUnggulanSemester int     `json:"price_sekolah_unggulan_semester"`
-		PriceSekolahUnggulanTahunan  int     `json:"price_sekolah_unggulan_tahunan"`
+		PriceGuruBulanan             int `json:"price_guru_bulanan"`
+		PriceGuruSemester            int `json:"price_guru_semester"`
+		PriceGuruTahunan             int `json:"price_guru_tahunan"`
+		PriceIndividuBulanan         int `json:"price_individu_bulanan"`
+		PriceIndividuSemester        int `json:"price_individu_semester"`
+		PriceIndividuTahunan         int `json:"price_individu_tahunan"`
+		PriceSekolahKecilBulanan     int `json:"price_sekolah_kecil_bulanan"`
+		PriceSekolahKecilSemester    int `json:"price_sekolah_kecil_semester"`
+		PriceSekolahKecilTahunan     int `json:"price_sekolah_kecil_tahunan"`
+		PriceSekolahMenengahBulanan  int `json:"price_sekolah_menengah_bulanan"`
+		PriceSekolahMenengahSemester int `json:"price_sekolah_menengah_semester"`
+		PriceSekolahMenengahTahunan  int `json:"price_sekolah_menengah_tahunan"`
+		PriceSekolahBesarBulanan     int `json:"price_sekolah_besar_bulanan"`
+		PriceSekolahBesarSemester    int `json:"price_sekolah_besar_semester"`
+		PriceSekolahBesarTahunan     int `json:"price_sekolah_besar_tahunan"`
+		PriceSekolahUnggulanBulanan  int `json:"price_sekolah_unggulan_bulanan"`
+		PriceSekolahUnggulanSemester int `json:"price_sekolah_unggulan_semester"`
+		PriceSekolahUnggulanTahunan  int `json:"price_sekolah_unggulan_tahunan"`
 	}
 
 	if err := c.ShouldBindJSON(&body); err != nil {
@@ -245,6 +248,12 @@ func handleSaasSettingsPost(c *gin.Context, pool *pgxpool.Pool, ctx context.Cont
 	}
 	models.SetSaasSetting(reqCtx, pool, models.SettingDefaultMaxDrafts, strconv.Itoa(defaultDrafts))
 
+	defaultConcurrent := body.DefaultMaxConcurrentExams
+	if defaultConcurrent <= 0 {
+		defaultConcurrent = 2
+	}
+	models.SetSaasSetting(reqCtx, pool, models.SettingDefaultMaxConcurrentExams, strconv.Itoa(defaultConcurrent))
+
 	defaultDraftSize := int(math.Max(0, body.DefaultMaxDraftSizeMB*1024*1024))
 	if defaultDraftSize <= 0 {
 		defaultDraftSize = 1048576
@@ -274,7 +283,7 @@ func handleSaasSettingsPost(c *gin.Context, pool *pgxpool.Pool, ctx context.Cont
 	models.SetSaasSetting(reqCtx, pool, models.SettingSEOTitle, strings.TrimSpace(body.SEOTitle))
 	models.SetSaasSetting(reqCtx, pool, models.SettingSEODescription, strings.TrimSpace(body.SEODescription))
 	models.SetSaasSetting(reqCtx, pool, models.SettingSEOKeywords, strings.TrimSpace(body.SEOKeywords))
-	
+
 	seoIndexVal := "0"
 	if body.SEOIndex {
 		seoIndexVal = "1"

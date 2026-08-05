@@ -23,16 +23,16 @@ import (
 
 // Valid status values for admin_users.
 const (
-	UserStatusActive    = "active"
-	UserStatusSuspended = "suspended"
+	UserStatusActive     = "active"
+	UserStatusSuspended  = "suspended"
 	UserStatusPendingOTP = "pending_otp"
 )
 
 // Valid role values within the JSON role array.
 const (
-	RoleGuru      = "guru"
-	RolePengawas  = "pengawas"
-	RoleOperator  = "operator"
+	RoleGuru       = "guru"
+	RolePengawas   = "pengawas"
+	RoleOperator   = "operator"
 	RoleSuperAdmin = "superadmin"
 )
 
@@ -49,26 +49,27 @@ func IsValidUsername(s string) bool {
 }
 
 type AdminUser struct {
-	ID              int        `json:"id"`
-	Username        string     `json:"username"`
-	Name            string     `json:"name"`
-	PasswordHash    string     `json:"-"` // never serialized
-	CreatedAt       time.Time  `json:"created_at"`
-	Status          string     `json:"status"`
-	Instansi        string     `json:"instansi"`
-	InstansiID      *int       `json:"instansi_id,omitempty"`
-	Role            string     `json:"role"` // JSON array string e.g. '["guru"]', or 'superadmin'
-	MaxExams        int        `json:"max_exams"`
-	MaxPDFSize      int        `json:"max_pdf_size"`
-	MaxDrafts       int        `json:"max_drafts"`
-	MaxDraftSize    int        `json:"max_draft_size"`
-	MaxStorageSize  int64      `json:"max_storage_size"`
-	WhatsappNumber  string     `json:"whatsapp_number"`
-	Email           string     `json:"email"`
-	ExpiresAt       *time.Time `json:"expires_at,omitempty"`
-	Package         string     `json:"package"`
-	OTPCode         *string    `json:"-"`
-	OTPExpiry       *time.Time `json:"-"`
+	ID                 int        `json:"id"`
+	Username           string     `json:"username"`
+	Name               string     `json:"name"`
+	PasswordHash       string     `json:"-"` // never serialized
+	CreatedAt          time.Time  `json:"created_at"`
+	Status             string     `json:"status"`
+	Instansi           string     `json:"instansi"`
+	InstansiID         *int       `json:"instansi_id,omitempty"`
+	Role               string     `json:"role"` // JSON array string e.g. '["guru"]', or 'superadmin'
+	MaxExams           int        `json:"max_exams"`
+	MaxPDFSize         int        `json:"max_pdf_size"`
+	MaxDrafts          int        `json:"max_drafts"`
+	MaxConcurrentExams int        `json:"max_concurrent_exams"`
+	MaxDraftSize       int        `json:"max_draft_size"`
+	MaxStorageSize     int64      `json:"max_storage_size"`
+	WhatsappNumber     string     `json:"whatsapp_number"`
+	Email              string     `json:"email"`
+	ExpiresAt          *time.Time `json:"expires_at,omitempty"`
+	Package            string     `json:"package"`
+	OTPCode            *string    `json:"-"`
+	OTPExpiry          *time.Time `json:"-"`
 }
 
 // Roles parses the Role JSON string and returns the list of roles.
@@ -363,7 +364,7 @@ func checkWerkzeugPbkdf2(password, hash string) bool {
 
 // DefaultAdminUserColumns is the column list for admin_users SELECT queries.
 const DefaultAdminUserColumns = `id, username, name, password_hash, created_at, status,
-instansi, role, max_exams, max_pdf_size, max_drafts, max_draft_size,
+instansi, role, max_exams, max_pdf_size, max_drafts, max_concurrent_exams, max_draft_size,
 max_storage_size, whatsapp_number, email, expires_at, otp_code, otp_expiry, package`
 
 // scanAdminUser scans a row into an AdminUser struct.
@@ -371,7 +372,7 @@ func scanAdminUser(row pgx.Row) (AdminUser, error) {
 	var u AdminUser
 	err := row.Scan(
 		&u.ID, &u.Username, &u.Name, &u.PasswordHash, &u.CreatedAt, &u.Status,
-		&u.Instansi, &u.Role, &u.MaxExams, &u.MaxPDFSize, &u.MaxDrafts, &u.MaxDraftSize,
+		&u.Instansi, &u.Role, &u.MaxExams, &u.MaxPDFSize, &u.MaxDrafts, &u.MaxConcurrentExams, &u.MaxDraftSize,
 		&u.MaxStorageSize, &u.WhatsappNumber, &u.Email, &u.ExpiresAt, &u.OTPCode, &u.OTPExpiry,
 		&u.Package,
 	)
@@ -402,11 +403,11 @@ func GetUserByID(ctx context.Context, pool *pgxpool.Pool, id int) (AdminUser, er
 
 // ListUsersOpts holds optional filters for listing users.
 type ListUsersOpts struct {
-	Page       int
-	PerPage    int
-	Search     string
-	Instansi   string // operator instansi filter
-	RoleFilter string // optional: "guru", "pengawas", "operator"
+	Page              int
+	PerPage           int
+	Search            string
+	Instansi          string // operator instansi filter
+	RoleFilter        string // optional: "guru", "pengawas", "operator"
 	ExcludeSuperAdmin bool
 	ExcludeOperator   bool
 }
@@ -496,7 +497,7 @@ func ListUsers(ctx context.Context, pool *pgxpool.Pool, opts ListUsersOpts) (Lis
 
 	// Data query.
 	sql := `SELECT u.id, u.username, u.name, u.password_hash, u.created_at, u.status,
-	u.instansi, u.role, u.max_exams, u.max_pdf_size, u.max_drafts, u.max_draft_size,
+	u.instansi, u.role, u.max_exams, u.max_pdf_size, u.max_drafts, u.max_concurrent_exams, u.max_draft_size,
 	u.max_storage_size, u.whatsapp_number, u.email, u.expires_at, u.otp_code, u.otp_expiry,
 	COALESCE(u.package, 'free'),
 	COALESCE(COUNT(e.id), 0) as exam_count
@@ -525,7 +526,7 @@ func ListUsers(ctx context.Context, pool *pgxpool.Pool, opts ListUsersOpts) (Lis
 		var examCount int
 		err := rows.Scan(
 			&u.ID, &u.Username, &u.Name, &u.PasswordHash, &u.CreatedAt, &u.Status,
-			&u.Instansi, &u.Role, &u.MaxExams, &u.MaxPDFSize, &u.MaxDrafts, &u.MaxDraftSize,
+			&u.Instansi, &u.Role, &u.MaxExams, &u.MaxPDFSize, &u.MaxDrafts, &u.MaxConcurrentExams, &u.MaxDraftSize,
 			&u.MaxStorageSize, &u.WhatsappNumber, &u.Email, &u.ExpiresAt, &u.OTPCode, &u.OTPExpiry,
 			&u.Package,
 			&examCount,
@@ -567,13 +568,13 @@ func CreateUser(ctx context.Context, pool *pgxpool.Pool, u *AdminUser) (*AdminUs
 
 	sql := `INSERT INTO admin_users
 	(username, name, password_hash, status, instansi, role, max_exams, max_pdf_size,
-	 max_drafts, max_draft_size, max_storage_size, whatsapp_number, email, expires_at, otp_code, otp_expiry, package)
-	VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17)
+	 max_drafts, max_concurrent_exams, max_draft_size, max_storage_size, whatsapp_number, email, expires_at, otp_code, otp_expiry, package)
+	VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18)
 	RETURNING ` + DefaultAdminUserColumns
 
 	created, err := scanAdminUser(pool.QueryRow(ctx, sql,
 		u.Username, u.Name, hash, u.Status, u.Instansi, u.Role,
-		u.MaxExams, u.MaxPDFSize, u.MaxDrafts, u.MaxDraftSize, u.MaxStorageSize,
+		u.MaxExams, u.MaxPDFSize, u.MaxDrafts, u.MaxConcurrentExams, u.MaxDraftSize, u.MaxStorageSize,
 		u.WhatsappNumber, u.Email, u.ExpiresAt, u.OTPCode, u.OTPExpiry,
 		u.Package,
 	))
@@ -586,22 +587,23 @@ func CreateUser(ctx context.Context, pool *pgxpool.Pool, u *AdminUser) (*AdminUs
 // allowedUserColumns is a whitelist of columns that can be updated dynamically.
 // This prevents SQL injection via column names in UpdateUserField and UpdateUser.
 var allowedUserColumns = map[string]bool{
-	"name":          true,
-	"password_hash": true,
-	"status":        true,
-	"instansi":      true,
-	"role":          true,
-	"max_exams":     true,
-	"max_pdf_size":  true,
-	"max_drafts":    true,
-	"max_draft_size": true,
-	"max_storage_size": true,
-	"whatsapp_number": true,
-	"email":           true,
-	"expires_at":     true,
-	"otp_code":      true,
-	"otp_expiry":    true,
-	"package":       true,
+	"name":                 true,
+	"password_hash":        true,
+	"status":               true,
+	"instansi":             true,
+	"role":                 true,
+	"max_exams":            true,
+	"max_pdf_size":         true,
+	"max_drafts":           true,
+	"max_concurrent_exams": true,
+	"max_draft_size":       true,
+	"max_storage_size":     true,
+	"whatsapp_number":      true,
+	"email":                true,
+	"expires_at":           true,
+	"otp_code":             true,
+	"otp_expiry":           true,
+	"package":              true,
 }
 
 // UpdateUserField updates a single column on the admin_users table.

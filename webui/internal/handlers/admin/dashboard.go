@@ -1,9 +1,9 @@
 package admin
 
 import (
+	"fmt"
 	"log"
 	"math"
-	"fmt"
 	"net/http"
 	"net/url"
 	"strconv"
@@ -201,11 +201,12 @@ func Dashboard() gin.HandlerFunc {
 				userMaxTotal = "10 Ujian"
 			}
 
-			// Ujian Serentak — read from user.MaxDrafts (draft quota set via vouchers/transactions)
-			if user.MaxDrafts >= 99999 || (isSuper && user.MaxDrafts <= 0) {
+			// Ujian Serentak — read from user.MaxConcurrentExams (dedicated
+			// quota, enforced at StartExam/ToggleExam/BulkToggle)
+			if user.MaxConcurrentExams >= 99999 || (isSuper && user.MaxConcurrentExams <= 0) {
 				userMaxConcurrent = "Tidak Terbatas"
-			} else if user.MaxDrafts > 0 {
-				userMaxConcurrent = fmt.Sprintf("%d Ujian", user.MaxDrafts)
+			} else if user.MaxConcurrentExams > 0 {
+				userMaxConcurrent = fmt.Sprintf("%d Ujian", user.MaxConcurrentExams)
 			} else {
 				userMaxConcurrent = "1 Ujian"
 			}
@@ -303,27 +304,27 @@ func Dashboard() gin.HandlerFunc {
 		}
 
 		// Batch fetch submission counts
-	subCountMap := make(map[int]int)
-	if len(result.Exams) > 0 {
-		examIDs := make([]int, len(result.Exams))
-		for i, e := range result.Exams {
-			examIDs[i] = e.ID
-		}
-		rows, err := pool.Query(ctx,
-			`SELECT exam_id, COUNT(*) FROM submissions WHERE exam_id = ANY($1) GROUP BY exam_id`, examIDs)
-		if err == nil {
-			for rows.Next() {
-				var eid, cnt int
-				rows.Scan(&eid, &cnt)
-				subCountMap[eid] = cnt
+		subCountMap := make(map[int]int)
+		if len(result.Exams) > 0 {
+			examIDs := make([]int, len(result.Exams))
+			for i, e := range result.Exams {
+				examIDs[i] = e.ID
 			}
-			rows.Close()
-			if err := rows.Err(); err != nil {
-				log.Printf("rows iteration error: %v", err)
-			}
+			rows, err := pool.Query(ctx,
+				`SELECT exam_id, COUNT(*) FROM submissions WHERE exam_id = ANY($1) GROUP BY exam_id`, examIDs)
+			if err == nil {
+				for rows.Next() {
+					var eid, cnt int
+					rows.Scan(&eid, &cnt)
+					subCountMap[eid] = cnt
+				}
+				rows.Close()
+				if err := rows.Err(); err != nil {
+					log.Printf("rows iteration error: %v", err)
+				}
 
+			}
 		}
-	}
 
 		examItems := make([]examItem, 0, len(result.Exams))
 		for _, e := range result.Exams {

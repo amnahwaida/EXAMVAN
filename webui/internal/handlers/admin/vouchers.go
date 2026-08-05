@@ -109,6 +109,7 @@ func parseCustomVoucherInto(c *gin.Context, v *models.Voucher) string {
 	v.Package = label // shown in listings / recorded in history
 	v.CustomMaxExams = voucherAtoiDefault(c.PostForm("custom_max_exams"), 1)
 	v.CustomMaxDrafts = voucherAtoiDefault(c.PostForm("custom_max_drafts"), 1)
+	v.CustomMaxConcurrentExams = voucherAtoiDefault(c.PostForm("custom_max_concurrent_exams"), 1)
 	v.CustomMaxPDFSize = voucherMBToBytes(c.PostForm("custom_max_pdf_size_mb"), 1)
 	v.CustomMaxDraftSize = voucherMBToBytes(c.PostForm("custom_max_draft_size_mb"), 1)
 	v.CustomMaxStorageSize = voucherMBToBytes(c.PostForm("custom_max_storage_size_mb"), 100)
@@ -417,6 +418,7 @@ func RedeemVoucherHandler() gin.HandlerFunc {
 			SELECT id, code, package, duration_type, max_usage, used_count, expires_at, is_active,
 			       is_custom, COALESCE(custom_label, ''), COALESCE(custom_max_exams, 0),
 			       COALESCE(custom_max_pdf_size, 0), COALESCE(custom_max_drafts, 0),
+			       COALESCE(custom_max_concurrent_exams, 0),
 			       COALESCE(custom_max_draft_size, 0), COALESCE(custom_max_storage_size, 0),
 			       COALESCE(custom_role, '')
 			FROM vouchers
@@ -424,6 +426,7 @@ func RedeemVoucherHandler() gin.HandlerFunc {
 			FOR UPDATE`, code).Scan(
 			&v.ID, &v.Code, &v.Package, &v.DurationType, &v.MaxUsage, &v.UsedCount, &v.ExpiresAt, &v.IsActive,
 			&v.IsCustom, &v.CustomLabel, &v.CustomMaxExams, &v.CustomMaxPDFSize, &v.CustomMaxDrafts,
+			&v.CustomMaxConcurrentExams,
 			&v.CustomMaxDraftSize, &v.CustomMaxStorageSize, &v.CustomRole,
 		)
 		if err != nil {
@@ -505,7 +508,7 @@ func RedeemVoucherHandler() gin.HandlerFunc {
 			}
 		} else {
 			newRole := ""
-			if _, _, _, _, role := packageEntitlement(v.Package); role != "" {
+			if _, _, _, _, _, role := packageEntitlement(v.Package); role != "" {
 				newRole = role
 				roleMayChange = true
 			}

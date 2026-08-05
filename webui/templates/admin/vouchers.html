@@ -170,6 +170,10 @@
        <input type="number" id="singleCustomMaxExams" value="1" min="0" style="width:100%;padding:8px;background:rgba(0,0,0,0.3);border:1px solid var(--color-glass-border);border-radius:8px;color:#fff;outline:none;" />
       </div>
       <div>
+       <label title="Maksimal ujian yang berjalan bersamaan (sudah dimulai &amp; bisa dikerjakan siswa)" style="display:block;font-size:12px;color:var(--color-text-secondary);margin-bottom:4px;">Ujian Serentak</label>
+       <input type="number" id="singleCustomConcurrent" value="1" min="0" style="width:100%;padding:8px;background:rgba(0,0,0,0.3);border:1px solid var(--color-glass-border);border-radius:8px;color:#fff;outline:none;" />
+      </div>
+      <div>
        <label style="display:block;font-size:12px;color:var(--color-text-secondary);margin-bottom:4px;">Maks PDF (MB)</label>
        <input type="number" id="singleCustomPdfMb" value="10" min="0" step="0.1" style="width:100%;padding:8px;background:rgba(0,0,0,0.3);border:1px solid var(--color-glass-border);border-radius:8px;color:#fff;outline:none;" />
       </div>
@@ -282,6 +286,10 @@
       <div>
        <label style="display:block;font-size:12px;color:var(--color-text-secondary);margin-bottom:4px;">Maks Ujian Aktif</label>
        <input type="number" id="batchCustomMaxExams" value="1" min="0" style="width:100%;padding:8px;background:rgba(0,0,0,0.3);border:1px solid var(--color-glass-border);border-radius:8px;color:#fff;outline:none;" />
+      </div>
+      <div>
+       <label title="Maksimal ujian yang berjalan bersamaan (sudah dimulai &amp; bisa dikerjakan siswa)" style="display:block;font-size:12px;color:var(--color-text-secondary);margin-bottom:4px;">Ujian Serentak</label>
+       <input type="number" id="batchCustomConcurrent" value="1" min="0" style="width:100%;padding:8px;background:rgba(0,0,0,0.3);border:1px solid var(--color-glass-border);border-radius:8px;color:#fff;outline:none;" />
       </div>
       <div>
        <label style="display:block;font-size:12px;color:var(--color-text-secondary);margin-bottom:4px;">Maks PDF (MB)</label>
@@ -539,6 +547,7 @@ function toggleCustomPackage(type) {
 function appendCustomVoucherFields(formData, type) {
     formData.append('custom_label', (document.getElementById(type + 'CustomLabel').value || '').trim());
     formData.append('custom_max_exams', document.getElementById(type + 'CustomMaxExams').value);
+    formData.append('custom_max_concurrent_exams', document.getElementById(type + 'CustomConcurrent').value);
     formData.append('custom_max_pdf_size_mb', document.getElementById(type + 'CustomPdfMb').value);
     formData.append('custom_max_drafts', document.getElementById(type + 'CustomMaxDrafts').value);
     formData.append('custom_max_draft_size_mb', document.getElementById(type + 'CustomDraftMb').value);

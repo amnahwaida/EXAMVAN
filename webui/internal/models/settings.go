@@ -63,26 +63,27 @@ type SaasSetting struct {
 
 // Default settings keys.
 const (
-	SettingEmailVerificationEnabled = "email_verification_enabled"
-	SettingEmailDomainWhitelist     = "email_domain_whitelist"
-	SettingSMTPHost                 = "smtp_host"
-	SettingSMTPPort                 = "smtp_port"
-	SettingSMTPUser                 = "smtp_user"
-	SettingSMTPPassword             = "smtp_password"
-	SettingSMTPSenderName           = "smtp_sender_name"
-	SettingDefaultMaxExams          = "default_max_exams"
-	SettingDefaultMaxPDFSize        = "default_max_pdf_size"
-	SettingDefaultActiveDays        = "default_active_days"
-	SettingDefaultMaxDrafts         = "default_max_drafts"
-	SettingDefaultMaxDraftSize      = "default_max_draft_size"
-	SettingAndroidVersion           = "android_version"
-	SettingWebappVersion            = "webapp_version"
-	SettingCertificateFingerprint   = "certificate_fingerprint"
-	SettingSEOTitle                 = "seo_title"
-	SettingSEODescription           = "seo_description"
-	SettingSEOKeywords              = "seo_keywords"
-	SettingSEOIndex                 = "seo_index"
-	SettingDokuPaymentMethods       = "doku_payment_methods"
+	SettingEmailVerificationEnabled  = "email_verification_enabled"
+	SettingEmailDomainWhitelist      = "email_domain_whitelist"
+	SettingSMTPHost                  = "smtp_host"
+	SettingSMTPPort                  = "smtp_port"
+	SettingSMTPUser                  = "smtp_user"
+	SettingSMTPPassword              = "smtp_password"
+	SettingSMTPSenderName            = "smtp_sender_name"
+	SettingDefaultMaxExams           = "default_max_exams"
+	SettingDefaultMaxPDFSize         = "default_max_pdf_size"
+	SettingDefaultActiveDays         = "default_active_days"
+	SettingDefaultMaxDrafts          = "default_max_drafts"
+	SettingDefaultMaxConcurrentExams = "default_max_concurrent_exams"
+	SettingDefaultMaxDraftSize       = "default_max_draft_size"
+	SettingAndroidVersion            = "android_version"
+	SettingWebappVersion             = "webapp_version"
+	SettingCertificateFingerprint    = "certificate_fingerprint"
+	SettingSEOTitle                  = "seo_title"
+	SettingSEODescription            = "seo_description"
+	SettingSEOKeywords               = "seo_keywords"
+	SettingSEOIndex                  = "seo_index"
+	SettingDokuPaymentMethods        = "doku_payment_methods"
 
 	// Monetization feature toggles (SuperAdmin). "1" = enabled, "0" = disabled.
 	SettingDokuPaymentEnabled   = "doku_payment_enabled"   // online payment via DOKU
@@ -116,25 +117,26 @@ var DefaultSettings = map[string]string{
 	// Trusted email domains allowed for registration. Each entry also matches
 	// its subdomains (e.g. "sch.id" allows "smanegeri1.sch.id"). Empty = allow
 	// any domain. SuperAdmin can edit this in SaaS settings.
-	SettingEmailDomainWhitelist: "gmail.com,googlemail.com,yahoo.com,yahoo.co.id,outlook.com,hotmail.com,live.com,icloud.com,proton.me,protonmail.com,sch.id,ac.id,go.id",
-	SettingSMTPHost:                 "smtp.gmail.com",
-	SettingSMTPPort:                 "587",
-	SettingSMTPUser:                 "",
-	SettingSMTPPassword:             "",
-	SettingSMTPSenderName:           "EXAMVAN",
-	SettingDefaultMaxExams:          "3",
-	SettingDefaultMaxPDFSize:        "1048576",
-	SettingDefaultActiveDays:        "1",
-	SettingDefaultMaxDrafts:         "2",
-	SettingDefaultMaxDraftSize:      "1048576",
-	SettingAndroidVersion:           "2.2.0",
-	SettingWebappVersion:            "2.2.0",
-	SettingCertificateFingerprint:   "",
-	SettingSEOTitle:                 "EXAMVAN - Aplikasi Ujian Online Aman & Tertib",
-	SettingSEODescription:           "EXAMVAN adalah aplikasi ujian online mandiri dengan sistem keamanan tinggi terhindar dari kecurangan.",
-	SettingSEOKeywords:              "examvan, ujian online, ujian sekolah",
-	SettingSEOIndex:                 "1",
-	SettingDokuPaymentMethods:       "VIRTUAL_ACCOUNT_BCA,VIRTUAL_ACCOUNT_MANDIRI,VIRTUAL_ACCOUNT_BRI,VIRTUAL_ACCOUNT_BNI,QRIS,EMONEY_SHOPEEPAY,EMONEY_DANA,EMONEY_OVO,CREDIT_CARD",
+	SettingEmailDomainWhitelist:      "gmail.com,googlemail.com,yahoo.com,yahoo.co.id,outlook.com,hotmail.com,live.com,icloud.com,proton.me,protonmail.com,sch.id,ac.id,go.id",
+	SettingSMTPHost:                  "smtp.gmail.com",
+	SettingSMTPPort:                  "587",
+	SettingSMTPUser:                  "",
+	SettingSMTPPassword:              "",
+	SettingSMTPSenderName:            "EXAMVAN",
+	SettingDefaultMaxExams:           "3",
+	SettingDefaultMaxPDFSize:         "1048576",
+	SettingDefaultActiveDays:         "1",
+	SettingDefaultMaxDrafts:          "2",
+	SettingDefaultMaxConcurrentExams: "2",
+	SettingDefaultMaxDraftSize:       "1048576",
+	SettingAndroidVersion:            "2.2.0",
+	SettingWebappVersion:             "2.2.0",
+	SettingCertificateFingerprint:    "",
+	SettingSEOTitle:                  "EXAMVAN - Aplikasi Ujian Online Aman & Tertib",
+	SettingSEODescription:            "EXAMVAN adalah aplikasi ujian online mandiri dengan sistem keamanan tinggi terhindar dari kecurangan.",
+	SettingSEOKeywords:               "examvan, ujian online, ujian sekolah",
+	SettingSEOIndex:                  "1",
+	SettingDokuPaymentMethods:        "VIRTUAL_ACCOUNT_BCA,VIRTUAL_ACCOUNT_MANDIRI,VIRTUAL_ACCOUNT_BRI,VIRTUAL_ACCOUNT_BNI,QRIS,EMONEY_SHOPEEPAY,EMONEY_DANA,EMONEY_OVO,CREDIT_CARD",
 
 	// Monetization toggles default to enabled to preserve existing behavior.
 	SettingDokuPaymentEnabled:   "1",

@@ -78,11 +78,12 @@ if (uploadForm) {
             btn.disabled = false;
             btn.innerHTML = '<span>Upload Ujian</span>';
             try {
-                const res = JSON.parse(xhr.responseText);
-                if (res.success) {
-                    showToast(res.message, 'success');
-                    setTimeout(() => location.reload(), 1000);
-                } else {
+                const res = JSON.parse(xhr.responseText);				if (res.success) {
+					// New exams are uploaded as INACTIVE; guide the admin to activate
+					// and start the exam before sharing the token with students.
+					showToast(res.message + ' Aktifkan & mulai ujian sebelum token dibagikan ke siswa.', 'success');
+					setTimeout(() => location.reload(), 2000);
+				} else {
                     showToast(res.message || 'Upload gagal', 'error');
                     progressDiv.style.display = 'none';
                     progressFill.style.width = '0';
@@ -1357,6 +1358,7 @@ function loadUsersList(page) {
                             <div class="user-info-popup" style="display:none;">
                                 <div class="user-info-item"><span>Ujian</span><strong>${user.exam_count ?? 0}</strong></div>
                                 <div class="user-info-item"><span>Limit Ujian</span><strong>${user.max_exams ?? '—'}</strong></div>
+                                <div class="user-info-item"><span title="Maksimal ujian yang berjalan bersamaan (sudah dimulai &amp; bisa dikerjakan siswa)">Ujian Serentak</span><strong>${user.max_concurrent_exams ?? '—'}</strong></div>
                                 <div class="user-info-item"><span>Limit PDF</span><strong>${limitPdfMb}</strong></div>
                                 <div class="user-info-item"><span>Limit Storage</span><strong>${limitStorageMb}</strong></div>
                                 <div class="user-info-item"><span>Masa Aktif</span><strong>${expiresAt}</strong></div>
@@ -1604,6 +1606,7 @@ function openEditUserModal(userId) {
             document.getElementById('editUserUsername').textContent = user.username;
             document.getElementById('editUserName').value = user.name || '';
             document.getElementById('editUserExams').value = user.max_exams ?? 3;
+            document.getElementById('editUserConcurrent').value = user.max_concurrent_exams ?? 2;
             document.getElementById('editUserPdfSize').value = user.max_pdf_size ? (user.max_pdf_size / (1024*1024)).toFixed(1) : '1';
             document.getElementById('editUserStorageSize').value = user.max_storage_size ? (user.max_storage_size / (1024*1024)).toFixed(1) : '0';
             document.getElementById('editUserEmail').value = user.email || '';
@@ -1655,14 +1658,17 @@ function syncEditLimitFields() {
     var guruChecked = document.getElementById('editRoleGuru').checked;
     var pengawasOnly = document.getElementById('editRolePengawas').checked && !guruChecked;
     var limitInput = document.getElementById('editUserExams');
+    var concurrentInput = document.getElementById('editUserConcurrent');
     var pdfInput = document.getElementById('editUserPdfSize');
     if (pengawasOnly) {
         limitInput.disabled = true;
         limitInput.value = '0';
+        if (concurrentInput) { concurrentInput.disabled = true; concurrentInput.value = '0'; }
         pdfInput.disabled = true;
         pdfInput.value = '0';
     } else {
         limitInput.disabled = false;
+        if (concurrentInput) concurrentInput.disabled = false;
         pdfInput.disabled = false;
     }
 }
@@ -1762,6 +1768,7 @@ function submitEditUser(e) {
     var data = {
         name: document.getElementById('editUserName').value.trim(),
         max_exams: (function(){ var v=document.getElementById('editUserExams').value; return v==='' ? 3 : parseInt(v); })(),
+        max_concurrent_exams: (function(){ var v=document.getElementById('editUserConcurrent').value; return v==='' ? 2 : parseInt(v); })(),
         max_pdf_size_mb: (function(){ var v=document.getElementById('editUserPdfSize').value; return v==='' ? 1 : parseFloat(v); })(),
         max_storage_size_mb: (function(){ var v=document.getElementById('editUserStorageSize').value; return v==='' ? 0 : parseFloat(v); })(),
         email: document.getElementById('editUserEmail').value.trim(),
@@ -1865,10 +1872,14 @@ function createEditUserModal() {
                             <option value="sekolah_unggulan">Paket Sekolah Unggulan</option>
                         </select>
                     </div>
-                    <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px;">
+                    <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;">
                         <div class="form-group" style="margin-bottom:8px;">
                             <label for="editUserExams">Limit Ujian</label>
                             <input type="number" id="editUserExams" required min="0" style="width:100%;">
+                        </div>
+                        <div class="form-group" style="margin-bottom:8px;">
+                            <label for="editUserConcurrent" title="Maksimal ujian yang berjalan bersamaan (sudah dimulai &amp; bisa dikerjakan siswa)">Ujian Serentak</label>
+                            <input type="number" id="editUserConcurrent" required min="0" style="width:100%;">
                         </div>
                         <div class="form-group" style="margin-bottom:8px;">
                             <label for="editUserPdfSize">Limit PDF (MB)</label>
@@ -2837,6 +2848,7 @@ function saveSaasSettings(e) {
     const smtp_password = document.getElementById('smtpPasswordInput').value.trim();
     const smtp_sender_name = document.getElementById('smtpSenderNameInput').value.trim();
     const default_max_exams = parseInt(document.getElementById('defaultExamsInput').value);
+    const default_max_concurrent_exams = parseInt(document.getElementById('defaultConcurrentInput').value);
     const default_max_pdf_size_mb = parseFloat(document.getElementById('defaultPdfInput').value);
     const default_active_days = parseInt(document.getElementById('defaultActiveDaysInput').value);
     const android_version = document.getElementById('androidVersionInput').value.trim();
@@ -2888,7 +2900,7 @@ function saveSaasSettings(e) {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
             email_verification_enabled, email_domain_whitelist, smtp_host, smtp_port, smtp_user, smtp_password, smtp_sender_name,
-            default_max_exams, default_max_pdf_size_mb,
+            default_max_exams, default_max_concurrent_exams, default_max_pdf_size_mb,
             default_active_days, android_version, webapp_version,
             seo_title, seo_description, seo_keywords, seo_index,
             doku_payment_methods,
@@ -2968,14 +2980,17 @@ function syncLimitFields() {
     var guruChecked = document.getElementById('roleGuru').checked;
     var pengawasOnly = document.getElementById('rolePengawas').checked && !guruChecked;
     var limitInput = document.getElementById('limitInput');
+    var concurrentInput = document.getElementById('concurrentInput');
     var pdfInput = document.getElementById('pdfSizeInput');
     if (pengawasOnly) {
         limitInput.disabled = true;
         limitInput.value = '0';
+        if (concurrentInput) { concurrentInput.disabled = true; concurrentInput.value = '0'; }
         pdfInput.disabled = true;
         pdfInput.value = '0';
     } else {
         limitInput.disabled = false;
+        if (concurrentInput) concurrentInput.disabled = false;
         pdfInput.disabled = false;
     }
 }
@@ -3005,6 +3020,7 @@ function createUser(e) {
     if (roleOpEl && roleOpEl.checked) roles.push('operator');
     if (roles.length === 0) { showToast('Pilih minimal 1 role','error'); return; }
     const max_exams = parseInt(document.getElementById('limitInput').value);
+    const max_concurrent_exams = parseInt(document.getElementById('concurrentInput').value);
     const max_pdf_size_mb = parseFloat(document.getElementById('pdfSizeInput').value);
     const max_storage_size_mb = parseFloat(document.getElementById('storageSizeInput').value);
     const opExpiryEl = document.getElementById('operatorExpiresAt');
@@ -3025,7 +3041,7 @@ function createUser(e) {
     if (!username || !password) { showToast('Username dan password wajib diisi','error'); return; }
     apiFetch('/admin/api/users', {
         method: 'POST', headers: {'Content-Type':'application/json'},
-        body: JSON.stringify({ username, name, password, email, instansi, roles, max_exams, max_pdf_size_mb, max_storage_size_mb, expires_at, package })
+        body: JSON.stringify({ username, name, password, email, instansi, roles, max_exams, max_concurrent_exams, max_pdf_size_mb, max_storage_size_mb, expires_at, package })
     }).then(r=>r.json()).then(res => {
         if (res.success) {
             showToast(res.message,'success');
@@ -3038,6 +3054,7 @@ function createUser(e) {
 
 function resetNewUserFormDefaults() {
     document.getElementById('limitInput').value = 0;
+    document.getElementById('concurrentInput').value = 0;
     document.getElementById('pdfSizeInput').value = 1.0;
     syncLimitFields();
 }
@@ -3057,6 +3074,7 @@ function loadSaasSettings() {
                 document.getElementById('smtpPasswordInput').value = s.smtp_password || '';
                 document.getElementById('smtpSenderNameInput').value = s.smtp_sender_name || 'EXAMVAN';
                 document.getElementById('defaultExamsInput').value = s.default_max_exams || 3;
+                document.getElementById('defaultConcurrentInput').value = s.default_max_concurrent_exams || 2;
                 document.getElementById('defaultPdfInput').value = s.default_max_pdf_size_mb || 1;
                 document.getElementById('defaultActiveDaysInput').value = s.default_active_days || 1;
                 document.getElementById('androidVersionInput').value = s.android_version || '2.1.9';
@@ -3424,13 +3442,13 @@ document.addEventListener('DOMContentLoaded', function() {
 
 // Subscription Package Presets Config
 const EXAMVAN_PACKAGES = {
-    free: { name: 'Free / Trial', exams: 1, pdf: 1, drafts: 1, storage: 50 },
-    guru: { name: 'Paket Guru', exams: 1, pdf: 10, drafts: 10, storage: 100 },
-    individu: { name: 'Paket Individu', exams: 2, pdf: 30, drafts: 30, storage: 300 },
-    sekolah_kecil: { name: 'Paket Sekolah Kecil', exams: 3, pdf: 50, drafts: 50, storage: 500 },
-    sekolah_menengah: { name: 'Paket Sekolah Menengah', exams: 5, pdf: 200, drafts: 200, storage: 2000 },
-    sekolah_besar: { name: 'Paket Sekolah Besar', exams: 10, pdf: 500, drafts: 500, storage: 5000 },
-    sekolah_unggulan: { name: 'Paket Sekolah Unggulan', exams: 99999, pdf: 99999, drafts: 99999, storage: 999999 }
+    free: { name: 'Free / Trial', exams: 1, concurrent: 1, pdf: 1, drafts: 1, storage: 50 },
+    guru: { name: 'Paket Guru', exams: 1, concurrent: 1, pdf: 10, drafts: 10, storage: 100 },
+    individu: { name: 'Paket Individu', exams: 2, concurrent: 2, pdf: 30, drafts: 30, storage: 300 },
+    sekolah_kecil: { name: 'Paket Sekolah Kecil', exams: 3, concurrent: 3, pdf: 50, drafts: 50, storage: 500 },
+    sekolah_menengah: { name: 'Paket Sekolah Menengah', exams: 5, concurrent: 5, pdf: 200, drafts: 200, storage: 2000 },
+    sekolah_besar: { name: 'Paket Sekolah Besar', exams: 10, concurrent: 10, pdf: 500, drafts: 500, storage: 5000 },
+    sekolah_unggulan: { name: 'Paket Sekolah Unggulan', exams: 99999, concurrent: 99999, pdf: 99999, drafts: 99999, storage: 999999 }
 };
 
 function applyPackagePreset(type) {
@@ -3439,6 +3457,7 @@ function applyPackagePreset(type) {
         const limits = EXAMVAN_PACKAGES[pkgKey];
         if (limits) {
             document.getElementById('limitInput').value = limits.exams;
+            document.getElementById('concurrentInput').value = limits.concurrent;
             document.getElementById('pdfSizeInput').value = limits.pdf;
             document.getElementById('storageSizeInput').value = limits.storage;
         }
@@ -3447,6 +3466,7 @@ function applyPackagePreset(type) {
         const limits = EXAMVAN_PACKAGES[pkgKey];
         if (limits) {
             document.getElementById('editUserExams').value = limits.exams;
+            document.getElementById('editUserConcurrent').value = limits.concurrent;
             document.getElementById('editUserPdfSize').value = limits.pdf;
             document.getElementById('editUserStorageSize').value = limits.storage;
         }

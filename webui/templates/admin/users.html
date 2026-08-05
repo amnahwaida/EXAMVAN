@@ -97,7 +97,7 @@
  /* Global styles for Default Paket Pendaftaran (Desktop & Mobile) */
  .default-pkg-row {
    display: grid !important;
-   grid-template-columns: repeat(3, 1fr) !important;
+   grid-template-columns: repeat(4, 1fr) !important;
    gap: 16px !important;
    width: 100% !important;
  }
@@ -269,10 +269,14 @@
  </h4>
  </div>
 
-  <div class="form-row-3col grid grid-cols-1 sm:grid-cols-3 gap-4 default-pkg-row">
+  <div class="form-row-3col grid grid-cols-1 sm:grid-cols-4 gap-4 default-pkg-row">
   <div class="form-group space-y-1">
   <label class="required" for="defaultExamsInput" title="Default limit jumlah ujian untuk pendaftaran baru">Limit Ujian</label>
   <input type="number" id="defaultExamsInput" required min="1" title="Limit jumlah ujian">
+  </div>
+  <div class="form-group space-y-1">
+  <label class="required" for="defaultConcurrentInput" title="Default maksimal ujian yang berjalan bersamaan (sudah dimulai &amp; bisa dikerjakan siswa) untuk pendaftaran baru">Ujian Serentak</label>
+  <input type="number" id="defaultConcurrentInput" required min="1" title="Maksimal ujian berjalan bersamaan (sudah dimulai & bisa dikerjakan siswa)">
   </div>
   <div class="form-group space-y-1">
   <label class="required" for="defaultPdfInput" title="Default limit ukuran file PDF (dalam Megabytes / MB) untuk pendaftaran baru">Limit PDF</label>
@@ -498,10 +502,14 @@
        <option value="sekolah_unggulan">Paket Sekolah Unggulan (Rp 1.5jt)</option>
      </select>
    </div>
-  <div class="form-row-2col grid grid-cols-1 sm:grid-cols-3 gap-4">
+  <div class="form-row-2col grid grid-cols-1 sm:grid-cols-4 gap-4">
  <div class="form-group space-y-1">
   <label class="required" for="limitInput">Limit Ujian</label>
   <input type="number" id="limitInput" required value="0" min="0" class="q-field-input">
+ </div>
+ <div class="form-group space-y-1">
+  <label class="required" for="concurrentInput" title="Maksimal ujian yang berjalan bersamaan (sudah dimulai &amp; bisa dikerjakan siswa)">Ujian Serentak</label>
+  <input type="number" id="concurrentInput" required value="0" min="0" class="q-field-input">
  </div>
  <div class="form-group space-y-1">
   <label class="required" for="pdfSizeInput">Limit PDF (MB)</label>

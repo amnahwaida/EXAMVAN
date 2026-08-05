@@ -30,6 +30,7 @@ CREATE TABLE IF NOT EXISTS admin_users (
     max_exams       INTEGER DEFAULT 3,
     max_pdf_size    INTEGER DEFAULT 1048576,
     max_drafts      INTEGER DEFAULT 2,
+    max_concurrent_exams INTEGER DEFAULT 2,
     max_draft_size  INTEGER DEFAULT 1048576,
     max_storage_size BIGINT DEFAULT 52428800,
     whatsapp_number TEXT DEFAULT '',
@@ -50,7 +51,7 @@ CREATE TABLE IF NOT EXISTS exams (
     size_bytes      BIGINT DEFAULT 0,
     token           TEXT NOT NULL UNIQUE,
     questions_json  TEXT,
-    status          TEXT DEFAULT 'active'
+    status          TEXT DEFAULT 'inactive'
                     CHECK (status IN ('active', 'inactive')),
     security_level  TEXT DEFAULT 'medium'
                     CHECK (security_level IN ('low', 'medium', 'high')),
@@ -197,6 +198,28 @@ BEGIN
         ALTER TABLE admin_users ALTER COLUMN max_draft_size TYPE BIGINT;
     END IF;
 END $$;
+
+-- ============================================================
+-- Migration: dedicated concurrent-exam quota (max_concurrent_exams)
+-- ============================================================
+-- Previously the draft-soal quota (max_drafts) was borrowed and displayed as
+-- "Ujian Serentak" in the UI but was never enforced. This adds a dedicated
+-- column for the maximum simultaneously-RUNNING exams, separate from the
+-- (currently unused) draft-soal quota, so the two concepts never collide.
+-- The backfill preserves the previously displayed value (max_drafts) for
+-- existing accounts; only NULL rows are touched, so re-running schema.sql on
+-- every boot never clobbers manually adjusted limits.
+ALTER TABLE admin_users ADD COLUMN IF NOT EXISTS max_concurrent_exams INTEGER;
+UPDATE admin_users
+SET max_concurrent_exams = CASE WHEN max_drafts IS NOT NULL AND max_drafts > 0 THEN max_drafts ELSE 2 END
+WHERE max_concurrent_exams IS NULL;
+ALTER TABLE admin_users ALTER COLUMN max_concurrent_exams SET DEFAULT 2;
+ALTER TABLE vouchers ADD COLUMN IF NOT EXISTS custom_max_concurrent_exams INT DEFAULT 0;
+
+-- New exams default to 'inactive': an uploaded exam is only joinable after the
+-- admin explicitly activates AND starts it (status='active' + exam_started_at).
+-- Safe to re-run on every boot; only alters the column default, not existing rows.
+ALTER TABLE exams ALTER COLUMN status SET DEFAULT 'inactive';
 
 -- Set active_token = token for existing rows where active_token is empty
 UPDATE exams SET active_token = token WHERE active_token = '' OR active_token IS NULL;
