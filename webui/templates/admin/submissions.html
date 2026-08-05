@@ -144,7 +144,7 @@
         <option value="{{index . "id"}}" {{if eq (printf "%d" (index . "id")) (printf "%d" $.exam_filter_param)}}selected{{end}}>{{index . "name"}} (oleh {{index . "creator"}})</option>
         {{end}}
       </select>
-      <button class="toolbar-btn" onclick="exportSubmissions()" style="height:36px;display:inline-flex;align-items:center;gap:6px;font-size:13px;"><svg class="icon-svg" style="width:16px;height:16px;"><use href="#hi-download"/></svg> Export Excel/CSV</button>
+      <button class="toolbar-btn" onclick="exportSubmissions()" title="Ekspor ke Excel sesuai filter ujian yang dipilih. Pilih Semua Ujian di filter untuk mengekspor seluruh data." style="height:36px;display:inline-flex;align-items:center;gap:6px;font-size:13px;"><svg class="icon-svg" style="width:16px;height:16px;"><use href="#hi-download"/></svg> Export Excel</button>
     </div>
   </div>
 

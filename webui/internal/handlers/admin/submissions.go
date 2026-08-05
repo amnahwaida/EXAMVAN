@@ -1,9 +1,7 @@
 package admin
 
 import (
-	"bytes"
 	"context"
-	"encoding/csv"
 	"encoding/json"
 	"fmt"
 	"log"
@@ -14,8 +12,9 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
-	goredis "github.com/redis/go-redis/v9"
 	"github.com/jackc/pgx/v5/pgxpool"
+	goredis "github.com/redis/go-redis/v9"
+	"github.com/xuri/excelize/v2"
 
 	"github.com/examvan/webui/internal/models"
 	"github.com/examvan/webui/internal/queue"
@@ -126,14 +125,14 @@ func SubmissionsPage() gin.HandlerFunc {
 		subData := make([]subItem, 0)
 		for rows.Next() {
 			var (
-				id, examID                                 int
-				studentName, examNumber, studentClass       string
-				answersJSON, identityDataRaw                *string
-				score                                       *float64
-				startTime                                   *string
-				macAddress                                  string
-				createdAt                                   time.Time
-				examName, questionsJSON                     *string
+				id, examID                            int
+				studentName, examNumber, studentClass string
+				answersJSON, identityDataRaw          *string
+				score                                 *float64
+				startTime                             *string
+				macAddress                            string
+				createdAt                             time.Time
+				examName, questionsJSON               *string
 			)
 			err := rows.Scan(
 				&id, &examID, &studentName, &examNumber, &studentClass,
@@ -186,12 +185,12 @@ func SubmissionsPage() gin.HandlerFunc {
 					}
 					return ""
 				}(),
-				MaxScore:     maxScore,
-				ScorePct:     scorePct,
-				HasScore:     hasScore,
-				StartTime:    startTime,
-				CreatedAt:    createdAt,
-				MACAddress:   macAddress,
+				MaxScore:   maxScore,
+				ScorePct:   scorePct,
+				HasScore:   hasScore,
+				StartTime:  startTime,
+				CreatedAt:  createdAt,
+				MACAddress: macAddress,
 			})
 		}
 		rows.Close()
@@ -431,7 +430,7 @@ func ListSubmissions() gin.HandlerFunc {
 		}
 
 		c.JSON(http.StatusOK, gin.H{
-			"success":    true,
+			"success":     true,
 			"submissions": result.Submissions,
 			"pagination": gin.H{
 				"page":        result.Page,
@@ -551,7 +550,7 @@ func DeleteSubmission() gin.HandlerFunc {
 }
 
 // ---------------------------------------------------------------------------
-// 5. GET /admin/api/submissions/export — CSV or XLSX export
+// 5. GET /admin/api/submissions/export — Excel (.xlsx) export
 // ---------------------------------------------------------------------------
 
 func ExportSubmissions() gin.HandlerFunc {
@@ -576,16 +575,17 @@ func ExportSubmissions() gin.HandlerFunc {
 				errorResponse(c, http.StatusForbidden, "Akses ditolak")
 				return
 			}
-			exportSingleExamCSV(c, pool, ctx, examFilter)
+			exportSingleExamXLSX(c, pool, ctx, examFilter)
 		} else {
 			// All exports
-			exportAllCSV(c, pool, ctx, userID, isSuper, isOp)
+			exportAllXLSX(c, pool, ctx, userID, isSuper, isOp)
 		}
 	}
 }
 
-func exportSingleExamCSV(c *gin.Context, pool *pgxpool.Pool, ctx context.Context, examID int) {
-	// Simplified CSV export for a single exam
+func exportSingleExamXLSX(c *gin.Context, pool *pgxpool.Pool, ctx context.Context, examID int) {
+	// Excel export for a single exam: a summary sheet of all students plus one
+	// detail worksheet per student (per-question answers and scoring).
 	exam, err := models.GetExamByID(ctx, pool, examID)
 	if err != nil {
 		errorResponse(c, http.StatusNotFound, "Ujian tidak ditemukan")
@@ -599,51 +599,81 @@ func exportSingleExamCSV(c *gin.Context, pool *pgxpool.Pool, ctx context.Context
 		return
 	}
 
-	var buf bytes.Buffer
-	writer := csv.NewWriter(&buf)
+	questions, _ := models.ParseQuestionsJSON(exam.QuestionsJSON)
+	if questions == nil {
+		questions = []models.Question{}
+	}
 
-	// Header row
-	headers := []string{"ID", "Nama Ujian", "Nama Siswa", "Nomor Ujian", "Kelas",
-		"Nilai", "Waktu Mulai", "Waktu Kumpul", "ID Perangkat"}
-	if err := writer.Write(headers); err != nil {
-		errorResponse(c, http.StatusInternalServerError, "Gagal menulis CSV")
+	f := excelize.NewFile()
+	defer f.Close()
+	st := newXLSXStyles(f)
+
+	summarySheet := "Rekapitulasi"
+	if err := f.SetSheetName("Sheet1", summarySheet); err != nil {
+		errorResponse(c, http.StatusInternalServerError, "Gagal mengekspor data")
 		return
 	}
 
-	for _, sub := range submissions {
+	headers := []interface{}{"ID", "Nama Ujian", "Nama Siswa", "Nomor Ujian", "Kelas",
+		"Nilai", "Waktu Mulai", "Waktu Kumpul", "ID Perangkat"}
+	_ = f.SetSheetRow(summarySheet, "A1", &headers)
+	if st.headerStyle > 0 {
+		_ = f.SetCellStyle(summarySheet, "A1", "I1", st.headerStyle)
+	}
+
+	usedSheets := map[string]int{}
+	for i, sub := range submissions {
+		row := i + 2
 		startTimeStr := ""
 		if sub.StartTime != nil {
 			startTimeStr = *sub.StartTime
 		}
-		scoreStr := ""
+		var scoreVal interface{}
 		if sub.Score != nil {
-			scoreStr = fmt.Sprintf("%.2f", *sub.Score)
+			scoreVal = *sub.Score
 		}
-		row := []string{
-			strconv.Itoa(sub.ID),
-			csvSafe(exam.Name),
-			csvSafe(sub.StudentName),
-			csvSafe(sub.ExamNumber),
-			csvSafe(sub.StudentClass),
-			scoreStr,
-			startTimeStr,
-			sub.CreatedAt.Format("2006-01-02 15:04:05"),
-			csvSafe(sub.MACAddress),
+		_ = f.SetCellInt(summarySheet, cellRef(1, row), int64(sub.ID))
+		_ = f.SetCellStr(summarySheet, cellRef(2, row), exam.Name)
+		_ = f.SetCellStr(summarySheet, cellRef(3, row), sub.StudentName)
+		_ = f.SetCellStr(summarySheet, cellRef(4, row), sub.ExamNumber)
+		_ = f.SetCellStr(summarySheet, cellRef(5, row), sub.StudentClass)
+		_ = f.SetCellValue(summarySheet, cellRef(6, row), scoreVal)
+		_ = f.SetCellStr(summarySheet, cellRef(7, row), startTimeStr)
+		_ = f.SetCellStr(summarySheet, cellRef(8, row), sub.CreatedAt.Format("2006-01-02 15:04:05"))
+		_ = f.SetCellStr(summarySheet, cellRef(9, row), sub.MACAddress)
+
+		// Per-student detail sheet.
+		answers, _ := models.ParseAnswersJSON(sub.AnswersJSON)
+		if answers == nil {
+			answers = map[string]interface{}{}
 		}
-		if err := writer.Write(row); err != nil {
+		evaluated := models.EvaluateAnswersDetailed(answers, questions)
+
+		base := sanitizeSheetName("Detail - " + sub.StudentName)
+		detailSheet := base
+		// Excel sheet names are case-insensitive, so key uniqueness on the
+		// lowercased name to avoid NewSheet errors for e.g. "Budi" vs "BUDI".
+		key := strings.ToLower(base)
+		if usedSheets[key] > 0 {
+			detailSheet = fmt.Sprintf("%s (%d)", base, usedSheets[key]+1)
+			if r := []rune(detailSheet); len(r) > 31 {
+				detailSheet = string(r[:31])
+			}
+		}
+		usedSheets[key]++
+		if _, err := f.NewSheet(detailSheet); err != nil {
+			log.Printf("export: skip detail sheet for %q: %v", sub.StudentName, err)
 			continue
 		}
+		writeStudentDetailSheet(f, detailSheet, exam.Name, sub, answers, evaluated, questions, st)
 	}
-	writer.Flush()
 
-	filename := fmt.Sprintf("Hasil_Ujian_%s_%s.csv",
-		strings.ReplaceAll(exam.Name, " ", "_"),
+	setXLSXSummaryLayout(f, summarySheet, 9)
+
+	filename := fmt.Sprintf("Hasil_Ujian_%s_%s.xlsx",
+		sanitizeFilename(exam.Name),
 		time.Now().UTC().Format("20060102_150405"))
-
-	c.Header("Content-Type", "text/csv; charset=utf-8")
-	c.Header("Content-Disposition", fmt.Sprintf(`attachment; filename="%s"`, filename))
-	c.Header("Cache-Control", "no-store, no-cache, must-revalidate")
-	c.Data(http.StatusOK, "text/csv; charset=utf-8", buf.Bytes())
+	writeXLSXResponse(c, f, filename)
 }
 
 func fetchSubmissionsByExam(ctx context.Context, pool *pgxpool.Pool, examID int) ([]models.Submission, error) {
@@ -675,7 +705,7 @@ func fetchSubmissionsByExam(ctx context.Context, pool *pgxpool.Pool, examID int)
 	return subs, nil
 }
 
-func exportAllCSV(c *gin.Context, pool *pgxpool.Pool, ctx context.Context,
+func exportAllXLSX(c *gin.Context, pool *pgxpool.Pool, ctx context.Context,
 	userID int, isSuper, isOp bool) {
 
 	var instansi string
@@ -707,37 +737,48 @@ func exportAllCSV(c *gin.Context, pool *pgxpool.Pool, ctx context.Context,
 	if len(conditions) > 0 {
 		query += " WHERE " + strings.Join(conditions, " AND ")
 	}
-	query += " ORDER BY s.created_at DESC"
+	query += " ORDER BY e.name, s.student_class, s.student_name"
 
 	rows, err := pool.Query(ctx, query, args...)
 	if err != nil {
-		log.Printf("export all csv error: %v", err)
+		log.Printf("export all xlsx error: %v", err)
 		errorResponse(c, http.StatusInternalServerError, "Gagal mengekspor data")
 		return
 	}
 	defer rows.Close()
 
-	var buf bytes.Buffer
-	writer := csv.NewWriter(&buf)
+	f := excelize.NewFile()
+	defer f.Close()
+	sheet := "Semua Hasil"
+	if err := f.SetSheetName("Sheet1", sheet); err != nil {
+		errorResponse(c, http.StatusInternalServerError, "Gagal mengekspor data")
+		return
+	}
 
-	headers := []string{"ID", "Nama Ujian", "Nama Siswa", "Nomor Ujian", "Kelas",
+	headers := []interface{}{"ID", "Nama Ujian", "Nama Siswa", "Nomor Ujian", "Kelas",
 		"Nilai", "Waktu Mulai", "Waktu Kumpul", "ID Perangkat"}
-	writer.Write(headers)
+	_ = f.SetSheetRow(sheet, "A1", &headers)
+	if style, err := xlsxHeaderStyle(f); err == nil {
+		_ = f.SetCellStyle(sheet, "A1", "I1", style)
+	}
 
+	row := 2
 	for rows.Next() {
 		var (
-			id, examID                         int
-			studentName, examNumber, studentClass string
-			identityDataRaw, score              *float64
-			startTime, macAddress               *string
-			createdAt                           time.Time
-			examName                            string
+			id, examID                   int
+			studentName, examNumber, cls string
+			identityDataRaw              *string
+			score                        *float64
+			startTime, macAddress        *string
+			createdAt                    time.Time
+			examName                     string
 		)
-		var answersJSON *string //nolint:revive
-		err := rows.Scan(&id, &examID, &studentName, &examNumber, &studentClass,
-			&identityDataRaw, &score, &startTime, &macAddress, &createdAt, &examName,
-			&answersJSON)
-		if err != nil {
+		// NOTE: scan targets must match the 11 selected columns exactly. A
+		// previous mismatch (12 targets / identity_data scanned as *float64)
+		// made every row fail the scan and produced an empty export.
+		if err := rows.Scan(&id, &examID, &studentName, &examNumber, &cls,
+			&identityDataRaw, &score, &startTime, &macAddress, &createdAt, &examName); err != nil {
+			log.Printf("export all scan error: %v", err)
 			continue
 		}
 
@@ -745,40 +786,36 @@ func exportAllCSV(c *gin.Context, pool *pgxpool.Pool, ctx context.Context,
 		if startTime != nil {
 			startTimeStr = *startTime
 		}
-		scoreStr := ""
-		if score != nil {
-			scoreStr = fmt.Sprintf("%.2f", *score)
-		}
 		macStr := ""
 		if macAddress != nil {
 			macStr = *macAddress
 		}
+		var scoreVal interface{}
+		if score != nil {
+			scoreVal = *score
+		}
 
-		writer.Write([]string{
-			strconv.Itoa(id),
-			csvSafe(examName),
-			csvSafe(studentName),
-			csvSafe(examNumber),
-			csvSafe(studentClass),
-			scoreStr,
-			startTimeStr,
-			createdAt.Format("2006-01-02 15:04:05"),
-			csvSafe(macStr),
-		})
+		_ = f.SetCellInt(sheet, cellRef(1, row), int64(id))
+		_ = f.SetCellStr(sheet, cellRef(2, row), examName)
+		_ = f.SetCellStr(sheet, cellRef(3, row), studentName)
+		_ = f.SetCellStr(sheet, cellRef(4, row), examNumber)
+		_ = f.SetCellStr(sheet, cellRef(5, row), cls)
+		_ = f.SetCellValue(sheet, cellRef(6, row), scoreVal)
+		_ = f.SetCellStr(sheet, cellRef(7, row), startTimeStr)
+		_ = f.SetCellStr(sheet, cellRef(8, row), createdAt.Format("2006-01-02 15:04:05"))
+		_ = f.SetCellStr(sheet, cellRef(9, row), macStr)
+		row++
 	}
 	rows.Close()
 	if err := rows.Err(); err != nil {
 		log.Printf("rows iteration error: %v", err)
 	}
-	writer.Flush()
 
-	filename := fmt.Sprintf("hasil_ujian_%s.csv",
+	setXLSXSummaryLayout(f, sheet, 9)
+
+	filename := fmt.Sprintf("hasil_ujian_%s.xlsx",
 		time.Now().UTC().Format("20060102_150405"))
-
-	c.Header("Content-Type", "text/csv; charset=utf-8")
-	c.Header("Content-Disposition", fmt.Sprintf(`attachment; filename="%s"`, filename))
-	c.Header("Cache-Control", "no-store, no-cache, must-revalidate")
-	c.Data(http.StatusOK, "text/csv; charset=utf-8", buf.Bytes())
+	writeXLSXResponse(c, f, filename)
 }
 
 // ---------------------------------------------------------------------------
@@ -814,7 +851,7 @@ func QueueStatus() gin.HandlerFunc {
 }
 
 // ---------------------------------------------------------------------------
-// 7. GET /admin/api/submissions/:id/export_detail — Export per-student CSV
+// 7. GET /admin/api/submissions/:id/export_detail — Export per-student Excel
 // ---------------------------------------------------------------------------
 
 func ExportSubmissionDetail() gin.HandlerFunc {
@@ -853,97 +890,205 @@ func ExportSubmissionDetail() gin.HandlerFunc {
 
 		evaluated := models.EvaluateAnswersDetailed(answers, questions)
 
-		// Parse identity data
-		identityData := make(map[string]interface{})
-		if detail.IdentityData != nil && *detail.IdentityData != "" {
-			json.Unmarshal([]byte(*detail.IdentityData), &identityData)
+		f := excelize.NewFile()
+		defer f.Close()
+		st := newXLSXStyles(f)
+		sheet := "Detail"
+		if err := f.SetSheetName("Sheet1", sheet); err != nil {
+			errorResponse(c, http.StatusInternalServerError, "Gagal mengekspor data")
+			return
 		}
+		writeStudentDetailSheet(f, sheet, detail.ExamName, detail.Submission, answers, evaluated, questions, st)
 
-		startTimeStr := ""
-		if detail.StartTime != nil {
-			startTimeStr = *detail.StartTime
-		}
-
-		var buf bytes.Buffer
-		writer := csv.NewWriter(&buf)
-
-		// Metadata header
-		writer.Write([]string{"Detail Hasil Ujian Siswa"})
-		writer.Write([]string{"Ujian", csvSafe(detail.ExamName)})
-		writer.Write([]string{"Nama Siswa", csvSafe(detail.StudentName)})
-		writer.Write([]string{"Nomor Ujian", csvSafe(detail.ExamNumber)})
-		writer.Write([]string{"Kelas", csvSafe(detail.StudentClass)})
-		writer.Write([]string{"Waktu Mulai", startTimeStr})
-		writer.Write([]string{"Waktu Kumpul", detail.CreatedAt.Format("2006-01-02 15:04:05")})
-		writer.Write([]string{"ID Perangkat", csvSafe(detail.MACAddress)})
-		scoreStr := ""
-		if detail.Score != nil {
-			scoreStr = fmt.Sprintf("%.2f", *detail.Score)
-		}
-		writer.Write([]string{"Total Nilai", scoreStr})
-		writer.Write([]string{}) // Empty row
-
-		// Questions header
-		writer.Write([]string{"No", "Tipe", "Bobot", "Jawaban Siswa", "Kunci Jawaban", "Status", "Poin"})
-
-		for _, q := range questions {
-			qNum := fmt.Sprintf("%v", q.Number)
-			qType := q.Type
-			qWeight := fmt.Sprintf("%.1f", q.GetWeight())
-
-			// Get student answer
-			studentAns := ""
-			if ans, ok := answers[qNum]; ok {
-				studentAns = fmt.Sprintf("%v", ans)
-			}
-
-			// Get correct answer
-			correctAns := ""
-			if q.GetKey() != nil {
-				correctAns = fmt.Sprintf("%v", q.GetKey())
-			}
-
-			// Get evaluation
-			eval, hasEval := evaluated[qNum]
-			statusText := "-"
-			poin := "0"
-			if hasEval {
-				statusText = eval.StatusText
-				poin = fmt.Sprintf("%.2f", eval.Earned)
-			}
-
-			writer.Write([]string{
-				qNum,
-				qType,
-				qWeight,
-				csvSafe(studentAns),
-				csvSafe(correctAns),
-				statusText,
-				poin,
-			})
-		}
-
-		writer.Flush()
-
-		filename := fmt.Sprintf("Detail_%s_%s.csv",
-			strings.ReplaceAll(detail.StudentName, " ", "_"),
+		filename := fmt.Sprintf("Detail_%s_%s.xlsx",
+			sanitizeFilename(detail.StudentName),
 			time.Now().UTC().Format("20060102_150405"))
-
-		c.Header("Content-Type", "text/csv; charset=utf-8")
-		c.Header("Content-Disposition", fmt.Sprintf(`attachment; filename="%s"`, filename))
-		c.Header("Cache-Control", "no-store, no-cache, must-revalidate")
-		c.Data(http.StatusOK, "text/csv; charset=utf-8", buf.Bytes())
+		writeXLSXResponse(c, f, filename)
 	}
 }
 
-// csvSafe prevents CSV formula injection.
-func csvSafe(value string) string {
-	if value == "" {
-		return value
+// ---------------------------------------------------------------------------
+// Excel export helpers
+// ---------------------------------------------------------------------------
+
+const xlsxContentType = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+
+// cellRef returns an A1-style cell reference for 1-based column/row numbers.
+func cellRef(col, row int) string {
+	ref, err := excelize.CoordinatesToCellName(col, row)
+	if err != nil {
+		return fmt.Sprintf("R%dC%d", row, col)
 	}
-	switch value[0] {
-	case '=', '+', '-', '@', '\t', '\r':
-		return "\t" + value
+	return ref
+}
+
+// xlsxHeaderStyle returns the shared bold white-on-indigo header style.
+func xlsxHeaderStyle(f *excelize.File) (int, error) {
+	return f.NewStyle(&excelize.Style{
+		Font:      &excelize.Font{Bold: true, Color: "FFFFFF", Size: 11},
+		Fill:      excelize.Fill{Type: "pattern", Color: []string{"4F46E5"}, Pattern: 1},
+		Alignment: &excelize.Alignment{Horizontal: "center", Vertical: "center"},
+	})
+}
+
+// setXLSXSummaryLayout applies column widths, freezes the header row and adds
+// an auto-filter to a summary export sheet.
+func setXLSXSummaryLayout(f *excelize.File, sheet string, lastCol int) {
+	widths := []float64{8, 32, 26, 14, 12, 10, 20, 20, 20, 14, 14, 14, 14}
+	for i := 1; i <= lastCol && i <= len(widths); i++ {
+		colName, _ := excelize.ColumnNumberToName(i)
+		_ = f.SetColWidth(sheet, colName, colName, widths[i-1])
 	}
-	return value
+	lastColName, _ := excelize.ColumnNumberToName(lastCol)
+	_ = f.SetPanes(sheet, &excelize.Panes{Freeze: true, YSplit: 1, TopLeftCell: "A2", ActivePane: "bottomLeft"})
+	_ = f.AutoFilter(sheet, "A1:"+lastColName+"1", nil)
+}
+
+// writeXLSXResponse streams the workbook to the client as an Excel attachment.
+func writeXLSXResponse(c *gin.Context, f *excelize.File, filename string) {
+	buf, err := f.WriteToBuffer()
+	if err != nil {
+		errorResponse(c, http.StatusInternalServerError, "Gagal menulis file Excel")
+		return
+	}
+	c.Header("Content-Type", xlsxContentType)
+	c.Header("Content-Disposition", fmt.Sprintf(`attachment; filename="%s"`, filename))
+	c.Header("Cache-Control", "no-store, no-cache, must-revalidate")
+	c.Data(http.StatusOK, xlsxContentType, buf.Bytes())
+}
+
+// xlsxStyles groups the reusable style IDs shared by export sheets.
+type xlsxStyles struct {
+	titleStyle  int
+	labelStyle  int
+	headerStyle int
+}
+
+// newXLSXStyles creates the shared styles used across an export workbook.
+func newXLSXStyles(f *excelize.File) xlsxStyles {
+	title, _ := f.NewStyle(&excelize.Style{
+		Font:      &excelize.Font{Bold: true, Size: 14, Color: "FFFFFF"},
+		Fill:      excelize.Fill{Type: "pattern", Color: []string{"4F46E5"}, Pattern: 1},
+		Alignment: &excelize.Alignment{Vertical: "center"},
+	})
+	label, _ := f.NewStyle(&excelize.Style{Font: &excelize.Font{Bold: true}})
+	header, _ := xlsxHeaderStyle(f)
+	return xlsxStyles{titleStyle: title, labelStyle: label, headerStyle: header}
+}
+
+// sanitizeSheetName makes a name safe for an Excel sheet tab: Excel limits
+// names to 31 characters, forbids []:*?/\ characters, and disallows names that
+// start or end with an apostrophe.
+func sanitizeSheetName(name string) string {
+	name = strings.Map(func(r rune) rune {
+		switch r {
+		case '[', ']', ':', '*', '?', '/', '\\':
+			return '_'
+		}
+		if r < 0x20 {
+			return '_'
+		}
+		return r
+	}, name)
+	name = strings.TrimSpace(name)
+	name = strings.Trim(name, "'")
+	if name == "" {
+		return "Siswa"
+	}
+	if r := []rune(name); len(r) > 31 {
+		name = string(r[:31])
+	}
+	return name
+}
+
+// writeStudentDetailSheet fills a worksheet with one student's exam detail: a
+// metadata block followed by a per-question table (student answer, key,
+// status, earned points). Shared by the per-student export and the single-exam
+// export (which emits one detail sheet per student).
+func writeStudentDetailSheet(f *excelize.File, sheet, examName string, sub models.Submission,
+	answers map[string]interface{}, evaluated map[string]models.EvaluationDetail,
+	questions []models.Question, st xlsxStyles) {
+
+	startTimeStr := ""
+	if sub.StartTime != nil {
+		startTimeStr = *sub.StartTime
+	}
+	scoreStr := ""
+	if sub.Score != nil {
+		scoreStr = fmt.Sprintf("%.2f", *sub.Score)
+	}
+
+	_ = f.SetCellValue(sheet, "A1", "Detail Hasil Ujian Siswa")
+	if st.titleStyle > 0 {
+		_ = f.SetCellStyle(sheet, "A1", "A1", st.titleStyle)
+	}
+
+	meta := [][2]string{
+		{"Ujian", examName},
+		{"Nama Siswa", sub.StudentName},
+		{"Nomor Ujian", sub.ExamNumber},
+		{"Kelas", sub.StudentClass},
+		{"Waktu Mulai", startTimeStr},
+		{"Waktu Kumpul", sub.CreatedAt.Format("2006-01-02 15:04:05")},
+		{"ID Perangkat", sub.MACAddress},
+		{"Total Nilai", scoreStr},
+	}
+	for i, m := range meta {
+		r := i + 2
+		_ = f.SetCellStr(sheet, cellRef(1, r), m[0])
+		if st.labelStyle > 0 {
+			_ = f.SetCellStyle(sheet, cellRef(1, r), cellRef(1, r), st.labelStyle)
+		}
+		_ = f.SetCellStr(sheet, cellRef(2, r), m[1])
+	}
+
+	// Questions header (after an empty spacer row)
+	qHeaderRow := len(meta) + 3
+	qHeaders := []interface{}{"No", "Tipe", "Bobot", "Jawaban Siswa", "Kunci Jawaban", "Status", "Poin"}
+	_ = f.SetSheetRow(sheet, "A"+strconv.Itoa(qHeaderRow), &qHeaders)
+	if st.headerStyle > 0 {
+		lastCol, _ := excelize.ColumnNumberToName(len(qHeaders))
+		_ = f.SetCellStyle(sheet, "A"+strconv.Itoa(qHeaderRow), lastCol+strconv.Itoa(qHeaderRow), st.headerStyle)
+	}
+
+	for i, q := range questions {
+		row := qHeaderRow + 1 + i
+		qNum := fmt.Sprintf("%v", q.Number)
+		qType := q.Type
+		qWeight := fmt.Sprintf("%.1f", q.GetWeight())
+
+		// Get student answer
+		studentAns := ""
+		if ans, ok := answers[qNum]; ok {
+			studentAns = fmt.Sprintf("%v", ans)
+		}
+
+		// Get correct answer
+		correctAns := ""
+		if q.GetKey() != nil {
+			correctAns = fmt.Sprintf("%v", q.GetKey())
+		}
+
+		// Get evaluation
+		eval, hasEval := evaluated[qNum]
+		statusText := "-"
+		poin := "0"
+		if hasEval {
+			statusText = eval.StatusText
+			poin = fmt.Sprintf("%.2f", eval.Earned)
+		}
+
+		_ = f.SetCellStr(sheet, cellRef(1, row), qNum)
+		_ = f.SetCellStr(sheet, cellRef(2, row), qType)
+		_ = f.SetCellStr(sheet, cellRef(3, row), qWeight)
+		_ = f.SetCellStr(sheet, cellRef(4, row), studentAns)
+		_ = f.SetCellStr(sheet, cellRef(5, row), correctAns)
+		_ = f.SetCellStr(sheet, cellRef(6, row), statusText)
+		_ = f.SetCellStr(sheet, cellRef(7, row), poin)
+	}
+
+	for i, w := range []float64{6, 16, 8, 46, 32, 12, 10} {
+		colName, _ := excelize.ColumnNumberToName(i + 1)
+		_ = f.SetColWidth(sheet, colName, colName, w)
+	}
 }
