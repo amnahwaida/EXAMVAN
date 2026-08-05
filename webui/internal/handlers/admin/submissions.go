@@ -321,7 +321,7 @@ func fetchFilterExams(c *gin.Context, pool *pgxpool.Pool) []gin.H {
 	isOp := isOperator(c)
 	ctx := c.Request.Context()
 
-	query := `SELECT id, name FROM exams`
+	query := `SELECT e.id, e.name, u.username FROM exams e LEFT JOIN admin_users u ON u.id = e.created_by`
 	var conditions []string
 	var args []interface{}
 	argIdx := 1
@@ -338,7 +338,7 @@ func fetchFilterExams(c *gin.Context, pool *pgxpool.Pool) []gin.H {
 		argIdx++
 	} else {
 		conditions = append(conditions,
-			fmt.Sprintf(`(created_by = $%d OR delegated_to = $%d OR id IN (SELECT exam_id FROM exam_pengawas WHERE user_id = $%d))`,
+			fmt.Sprintf(`(e.created_by = $%d OR e.delegated_to = $%d OR e.id IN (SELECT exam_id FROM exam_pengawas WHERE user_id = $%d))`,
 				argIdx, argIdx, argIdx))
 		args = append(args, userID)
 		argIdx++
@@ -347,7 +347,7 @@ func fetchFilterExams(c *gin.Context, pool *pgxpool.Pool) []gin.H {
 	if len(conditions) > 0 {
 		query += " WHERE " + strings.Join(conditions, " AND ")
 	}
-	query += " ORDER BY created_at DESC"
+	query += " ORDER BY e.created_at DESC"
 
 	rows, err := pool.Query(ctx, query, args...)
 	if err != nil {
@@ -359,8 +359,9 @@ func fetchFilterExams(c *gin.Context, pool *pgxpool.Pool) []gin.H {
 	for rows.Next() {
 		var id int
 		var name string
-		if err := rows.Scan(&id, &name); err == nil {
-			exams = append(exams, gin.H{"id": id, "name": name})
+		var creator string
+		if err := rows.Scan(&id, &name, &creator); err == nil {
+			exams = append(exams, gin.H{"id": id, "name": name, "creator": creator})
 		}
 	}
 	rows.Close()
