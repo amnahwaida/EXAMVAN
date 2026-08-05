@@ -11,8 +11,11 @@ RUN go mod download
 # Copy the rest of the source.
 COPY webui/ .
 
-# Build statically linked binary.
-RUN CGO_ENABLED=0 go build -o server ./cmd/server
+# Build statically linked binary. The version is derived from a hash of the
+# static assets so ?v= URLs change whenever CSS/JS change — this busts the
+# long-lived (365d, immutable) browser/Cloudflare asset caches automatically.
+RUN VERSION_SUFFIX=$(find static -type f 2>/dev/null | sort | xargs md5sum 2>/dev/null | md5sum | cut -c1-8); \
+    CGO_ENABLED=0 go build -ldflags "-X github.com/examvan/webui/internal/config.DefaultVersion=2.2.3-${VERSION_SUFFIX}" -o server ./cmd/server
 
 # Stage 2: Runtime
 FROM alpine:3.19

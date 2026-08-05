@@ -7,12 +7,17 @@ import (
 )
 
 const (
-	DefaultPort         = 5000
-	DefaultStoragePath  = "/app/storage"
-	DefaultMaxFileSize  = 5 * 1024 * 1024 // 5 MB
-	DefaultVersion      = "2.2.3"
-	TokenLength         = 8
+	DefaultPort        = 5000
+	DefaultStoragePath = "/app/storage"
+	DefaultMaxFileSize = 5 * 1024 * 1024 // 5 MB
+	TokenLength        = 8
 )
+
+// DefaultVersion is shown in the UI and used for asset cache-busting (?v=...).
+// It is overridden at build time via -ldflags "-X ..." with a per-build value
+// (e.g. a hash of the static assets) so that browsers/Cloudflare never serve
+// stale CSS/JS from a previous build.
+var DefaultVersion = "2.2.3"
 
 type Config struct {
 	ServerPort  int

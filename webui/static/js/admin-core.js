@@ -571,10 +571,19 @@ document.addEventListener('keydown', function (e) {
             }
         }
 
-        if (open.length > 0) {
+        // Toggle the body scroll-lock class ONLY when its state actually
+        // changes. Writing it unconditionally is not a no-op for the observer
+        // below: classList.remove('modal-open') is recorded as a class mutation
+        // even when the token is absent (as long as <body> already has a class
+        // attribute), so the observer would re-fire syncState forever and freeze
+        // the page — every admin page got stuck "loading" because of this.
+        const hasModalOpen = document.body.classList.contains('modal-open');
+        if (open.length > 0 && !hasModalOpen) {
             document.body.classList.add('modal-open');
-        } else {
+        } else if (open.length === 0 && hasModalOpen) {
             document.body.classList.remove('modal-open');
+        }
+        if (open.length === 0) {
             if (openSet.size > 0 && lastFocused && document.contains(lastFocused) &&
                 typeof lastFocused.focus === 'function') {
                 try { lastFocused.focus(); } catch (_) { /* detached */ }
@@ -584,7 +593,33 @@ document.addEventListener('keydown', function (e) {
         openSet = openNow;
     }
 
-    new MutationObserver(syncState).observe(document.documentElement, {
+    // Only react to mutations that involve an overlay (or content inside one).
+    // Reacting to every class/style change anywhere in the document would
+    // re-run syncState on unrelated updates (toasts, dropdowns, animations)
+    // and — combined with the body class toggle above — feed back into itself.
+    // childList mutations are also inspected so overlays that are appended or
+    // removed at runtime (e.g. showConfirm) still drive scroll-lock/focus.
+    function mutationInvolvesOverlay(muts) {
+        return muts.some((m) => {
+            const t = m.target;
+            if (t && t.nodeType === 1 && t.closest(OVERLAY_SELECTOR)) return true;
+            if (m.type === 'childList') {
+                const check = (node) =>
+                    node.nodeType === 1 &&
+                    (node.matches(OVERLAY_SELECTOR) || node.querySelector(OVERLAY_SELECTOR));
+                for (const node of m.addedNodes) if (check(node)) return true;
+                for (const node of m.removedNodes) if (check(node)) return true;
+            }
+            return false;
+        });
+    }
+
+    let syncing = false;
+    new MutationObserver((muts) => {
+        if (syncing || !mutationInvolvesOverlay(muts)) return;
+        syncing = true;
+        try { syncState(); } finally { syncing = false; }
+    }).observe(document.documentElement, {
         subtree: true,
         childList: true,
         attributes: true,
