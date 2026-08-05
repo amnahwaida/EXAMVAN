@@ -77,9 +77,10 @@
    gap: 8px;
    margin: 20px 0;
   }
-  .otp-digit {
-   width: 46px;
-   height: 54px;
+   .otp-input-wrapper .otp-digit {
+    width: 46px;
+    flex: 0 0 46px;
+    height: 54px;
    text-align: center;
    font-size: 22px;
    font-weight: 700;
@@ -97,10 +98,10 @@
    box-shadow: 0 0 0 3px rgba(99,102,241,0.12);
    background: rgba(99,102,241,0.06);
   }
-  .otp-digit.filled {
-   border-color: rgba(99,102,241,0.35);
-   background: rgba(99,102,241,0.08);
-  }
+   .otp-input-wrapper .otp-digit.filled {
+    border-color: rgba(99,102,241,0.35);
+    background: rgba(99,102,241,0.08);
+   }
 
   /* Email badge */
   .email-badge {
@@ -158,7 +159,7 @@
   @media (max-width: 480px) {
    .reg-step-label { display: none; }
    .reg-step-line { width: 24px; }
-   .otp-digit { width: 40px; height: 48px; font-size: 20px; }
+   .otp-input-wrapper .otp-digit { width: 40px; height: 48px; font-size: 20px; flex-basis: 40px; }
    /* Kartu ber-padding 32px membuat 6 kotak OTP (280px) tidak muat di layar
       ≤360px dan terpotong oleh overflow:hidden — rapatkan di layar kecil. */
    .login-card { padding: 24px 16px; }
