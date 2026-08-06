@@ -594,8 +594,8 @@ func registerRoutes(r *gin.Engine, cfg *config.Config, pool *pgxpool.Pool) {
 		adminAPI.GET("/exams/:exam_id/pdf", admin.ExamPDF())
 		adminAPI.GET("/submissions", admin.ListSubmissions())
 		adminAPI.GET("/submissions/:id/detail", admin.SubmissionDetail())
-		adminAPI.GET("/submissions/export", admin.ExportSubmissions())
-		adminAPI.GET("/submissions/:id/export_detail", admin.ExportSubmissionDetail())
+		adminAPI.GET("/submissions/export", middleware.RateLimit(30, time.Minute), admin.ExportSubmissions())
+		adminAPI.GET("/submissions/:id/export_detail", middleware.RateLimit(30, time.Minute), admin.ExportSubmissionDetail())
 		adminAPI.GET("/queue/status", admin.QueueStatus())
 		adminUsersRead := adminAPI.Group("", middleware.AdminManagementRequired())
 		{

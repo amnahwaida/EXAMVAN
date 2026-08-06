@@ -60,7 +60,7 @@ func TestExportSingleExamWorkbookDetailSheets(t *testing.T) {
 		if _, err := f.NewSheet(name); err != nil {
 			t.Fatalf("new sheet %q: %v", name, err)
 		}
-		writeStudentDetailSheet(f, name, "Ujian Matematika", sub, answers, evaluated, questions, st)
+		writeStudentDetailSheet(f, name, "Ujian Matematika", sub, answers, evaluated, questions, st, nil)
 	}
 
 	sheets := f.GetSheetList()
@@ -79,12 +79,12 @@ func TestExportSingleExamWorkbookDetailSheets(t *testing.T) {
 		t.Errorf("expected student name in B3, got %q", v)
 	}
 	// Question 1 header at row 11 (8 meta rows + spacer), answer row 12:
-	// D12 = student answer "A", E12 = key "A", F12 = status "correct".
+	// D12 = student answer "A", E12 = key "A", F12 = localized status "Benar".
 	if v, _ := f.GetCellValue("Detail - Budi Santoso", "D12"); v != "A" {
 		t.Errorf("expected answer A in D12, got %q", v)
 	}
-	if v, _ := f.GetCellValue("Detail - Budi Santoso", "F12"); v != "correct" {
-		t.Errorf("expected status correct in F12, got %q", v)
+	if v, _ := f.GetCellValue("Detail - Budi Santoso", "F12"); v != "Benar" {
+		t.Errorf("expected localized status 'Benar' in F12, got %q", v)
 	}
 
 	// Sanitization: invalid sheet characters replaced, length capped at 31.
@@ -110,4 +110,94 @@ func contains(list []string, want string) bool {
 		}
 	}
 	return false
+}
+
+// TestLocalizeExportTime verifies the browser timezone offset is applied to
+// UTC export timestamps (JS getTimezoneOffset: UTC+7 = -420).
+func TestLocalizeExportTime(t *testing.T) {
+	utc := time.Date(2026, 8, 5, 8, 0, 0, 0, time.UTC)
+
+	// Nil offset keeps UTC.
+	if got := localizeExportTime(utc, nil); got != "2026-08-05 08:00:00" {
+		t.Errorf("nil offset: expected UTC time, got %q", got)
+	}
+
+	// UTC+7 (WIB) — browser reports -420 minutes.
+	tz := -420
+	if got := localizeExportTime(utc, &tz); got != "2026-08-05 15:00:00" {
+		t.Errorf("UTC+7: expected 15:00:00 WIB, got %q", got)
+	}
+
+	// UTC-5 (e.g. parts of the Americas) — browser reports +300 minutes.
+	tz = 300
+	if got := localizeExportTime(utc, &tz); got != "2026-08-05 03:00:00" {
+		t.Errorf("UTC-5: expected 03:00:00, got %q", got)
+	}
+}
+
+// TestLocalizeExportTimeStr verifies legacy "YYYY-MM-DD HH:MM:SS" strings
+// (stored as UTC) are localized the same way as the admin UI.
+func TestLocalizeExportTimeStr(t *testing.T) {
+	if got := localizeExportTimeStr("", nil); got != "" {
+		t.Errorf("empty string should stay empty, got %q", got)
+	}
+	tz := -420
+	if got := localizeExportTimeStr("2026-08-05 08:00:00", &tz); got != "2026-08-05 15:00:00" {
+		t.Errorf("expected 15:00:00 WIB, got %q", got)
+	}
+}
+
+// TestLocalizeStatusText verifies scoring statuses are localized to
+// Indonesian labels in exported detail sheets.
+func TestLocalizeStatusText(t *testing.T) {
+	cases := map[string]string{
+		models.StatusCorrect:    "Benar",
+		models.StatusIncorrect:  "Salah",
+		models.StatusPartial:    "Sebagian",
+		models.StatusUnanswered: "Tidak Dijawab",
+		"unknown_status":       "unknown_status",
+	}
+	for in, want := range cases {
+		if got := localizeStatusText(in); got != want {
+			t.Errorf("localizeStatusText(%q) = %q, want %q", in, got, want)
+		}
+	}
+}
+
+// TestExportIdentityColumns verifies custom identity fields are derived from
+// identity_fields (standard student fields excluded) with ordered labels.
+func TestExportIdentityColumns(t *testing.T) {
+	fields := []map[string]interface{}{
+		{"key": "student_name", "label": "Nama", "required": true},
+		{"key": "nis", "label": "NIS", "required": true},
+		{"key": "nisn", "label": "NISN"},
+		{"key": "nis", "label": "Duplikat"}, // duplicate key — must be skipped
+	}
+	cols := exportIdentityColumns(fields)
+	if len(cols) != 2 {
+		t.Fatalf("expected 2 custom columns, got %d: %+v", len(cols), cols)
+	}
+	if cols[0].key != "nis" || cols[0].label != "NIS" {
+		t.Errorf("first col should be nis/NIS, got %+v", cols[0])
+	}
+	if cols[1].key != "nisn" || cols[1].label != "NISN" {
+		t.Errorf("second col should be nisn/NISN, got %+v", cols[1])
+	}
+
+	labels := identityColLabels(cols)
+	if len(labels) != 2 || labels[0] != "NIS" || labels[1] != "NISN" {
+		t.Errorf("labels mismatch: %v", labels)
+	}
+
+	// identityValueString reads values and returns "" for missing keys.
+	data := map[string]interface{}{"nis": "12345", "nisn": nil}
+	if got := identityValueString(data, "nis"); got != "12345" {
+		t.Errorf("identityValueString(nis) = %q, want 12345", got)
+	}
+	if got := identityValueString(data, "nisn"); got != "" {
+		t.Errorf("identityValueString(nisn=nil) = %q, want empty", got)
+	}
+	if got := identityValueString(data, "missing"); got != "" {
+		t.Errorf("identityValueString(missing) = %q, want empty", got)
+	}
 }

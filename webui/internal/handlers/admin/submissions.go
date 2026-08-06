@@ -7,6 +7,7 @@ import (
 	"log"
 	"math"
 	"net/http"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -16,6 +17,7 @@ import (
 	goredis "github.com/redis/go-redis/v9"
 	"github.com/xuri/excelize/v2"
 
+	"github.com/examvan/webui/internal/helpers"
 	"github.com/examvan/webui/internal/models"
 	"github.com/examvan/webui/internal/queue"
 )
@@ -562,6 +564,8 @@ func ExportSubmissions() gin.HandlerFunc {
 		isOp := isOperator(c)
 		ctx := c.Request.Context()
 
+		tzOffset := parseTZOffset(c)
+
 		examIDStr := c.Query("exam_id")
 		var examFilter int
 		if examIDStr != "" {
@@ -576,15 +580,30 @@ func ExportSubmissions() gin.HandlerFunc {
 				errorResponse(c, http.StatusForbidden, "Akses ditolak")
 				return
 			}
-			exportSingleExamXLSX(c, pool, ctx, examFilter)
+			exportSingleExamXLSX(c, pool, ctx, examFilter, tzOffset)
 		} else {
 			// All exports
-			exportAllXLSX(c, pool, ctx, userID, isSuper, isOp)
+			exportAllXLSX(c, pool, ctx, userID, isSuper, isOp, tzOffset)
 		}
 	}
 }
 
-func exportSingleExamXLSX(c *gin.Context, pool *pgxpool.Pool, ctx context.Context, examID int) {
+// parseTZOffset reads the optional tz_offset query parameter (the browser's
+// getTimezoneOffset() in minutes) and returns it as an *int. Returns nil when
+// absent or invalid (exports stay in UTC).
+func parseTZOffset(c *gin.Context) *int {
+	v := c.Query("tz_offset")
+	if v == "" {
+		return nil
+	}
+	n, err := strconv.Atoi(v)
+	if err != nil {
+		return nil
+	}
+	return &n
+}
+
+func exportSingleExamXLSX(c *gin.Context, pool *pgxpool.Pool, ctx context.Context, examID int, tzOffset *int) {
 	// Excel export for a single exam: a summary sheet of all students plus one
 	// detail worksheet per student (per-question answers and scoring).
 	exam, err := models.GetExamByID(ctx, pool, examID)
@@ -604,6 +623,11 @@ func exportSingleExamXLSX(c *gin.Context, pool *pgxpool.Pool, ctx context.Contex
 	if questions == nil {
 		questions = []models.Question{}
 	}
+	maxScore := models.ComputeMaxScore(questions)
+
+	// Custom identity fields configured for this exam (NIS, NISN, etc.).
+	identityFields := helpers.ParseIdentityFields(exam.IdentityFields, defaultIdentityFields)
+	identityCols := exportIdentityColumns(identityFields)
 
 	f := excelize.NewFile()
 	defer f.Close()
@@ -615,20 +639,34 @@ func exportSingleExamXLSX(c *gin.Context, pool *pgxpool.Pool, ctx context.Contex
 		return
 	}
 
-	headers := []interface{}{"ID", "Nama Ujian", "Nama Siswa", "Nomor Ujian", "Kelas",
-		"Nilai", "Waktu Mulai", "Waktu Kumpul", "ID Perangkat"}
+	headers := append([]interface{}{"ID", "Nama Ujian", "Nama Siswa", "Nomor Ujian", "Kelas"},
+		identityColLabels(identityCols)...)
+	headers = append(headers, "Nilai", "Skor Maks", "Persentase", "Waktu Mulai", "Waktu Kumpul", "ID Perangkat")
 	_ = f.SetSheetRow(summarySheet, "A1", &headers)
 	if st.headerStyle > 0 {
-		_ = f.SetCellStyle(summarySheet, "A1", "I1", st.headerStyle)
+		lastCol, _ := excelize.ColumnNumberToName(len(headers))
+		_ = f.SetCellStyle(summarySheet, "A1", lastCol+"1", st.headerStyle)
 	}
 
 	usedSheets := map[string]int{}
 	for i, sub := range submissions {
+		if err := ctx.Err(); err != nil {
+			errorResponse(c, http.StatusRequestTimeout, "Export dibatalkan: batas waktu terlampaui")
+			return
+		}
+
 		row := i + 2
 		startTimeStr := ""
 		if sub.StartTime != nil {
-			startTimeStr = *sub.StartTime
+			startTimeStr = localizeExportTimeStr(*sub.StartTime, tzOffset)
 		}
+
+		// Parse identity data for this student.
+		identityData := make(map[string]interface{})
+		if sub.IdentityData != nil && *sub.IdentityData != "" {
+			_ = json.Unmarshal([]byte(*sub.IdentityData), &identityData)
+		}
+
 		var scoreVal interface{}
 		if sub.Score != nil {
 			scoreVal = *sub.Score
@@ -638,12 +676,39 @@ func exportSingleExamXLSX(c *gin.Context, pool *pgxpool.Pool, ctx context.Contex
 		_ = f.SetCellStr(summarySheet, cellRef(3, row), sub.StudentName)
 		_ = f.SetCellStr(summarySheet, cellRef(4, row), sub.ExamNumber)
 		_ = f.SetCellStr(summarySheet, cellRef(5, row), sub.StudentClass)
-		_ = f.SetCellValue(summarySheet, cellRef(6, row), scoreVal)
-		_ = f.SetCellStr(summarySheet, cellRef(7, row), startTimeStr)
-		_ = f.SetCellStr(summarySheet, cellRef(8, row), sub.CreatedAt.Format("2006-01-02 15:04:05"))
-		_ = f.SetCellStr(summarySheet, cellRef(9, row), sub.MACAddress)
+		col := 6
+		for _, ic := range identityCols {
+			_ = f.SetCellStr(summarySheet, cellRef(col, row), identityValueString(identityData, ic.key))
+			col++
+		}
+		_ = f.SetCellValue(summarySheet, cellRef(col, row), scoreVal)
+		col++
+		if maxScore > 0 {
+			_ = f.SetCellValue(summarySheet, cellRef(col, row), maxScore)
+		} else {
+			_ = f.SetCellStr(summarySheet, cellRef(col, row), "")
+		}
+		col++
+		if sub.Score != nil && maxScore > 0 {
+			pct := math.Round(*sub.Score/maxScore*1000) / 10
+			_ = f.SetCellValue(summarySheet, cellRef(col, row), pct)
+		} else {
+			_ = f.SetCellStr(summarySheet, cellRef(col, row), "")
+		}
+		col++
+		_ = f.SetCellStr(summarySheet, cellRef(col, row), startTimeStr)
+		col++
+		_ = f.SetCellStr(summarySheet, cellRef(col, row), localizeExportTime(sub.CreatedAt, tzOffset))
+		col++
+		_ = f.SetCellStr(summarySheet, cellRef(col, row), sub.MACAddress)
 
-		// Per-student detail sheet.
+		// Per-student detail sheet — only for students who actually submitted
+		// answers. In-progress rows (heartbeat placeholders) have no answers
+		// and would produce an empty sheet, so skip them.
+		if sub.AnswersJSON == nil || *sub.AnswersJSON == "" {
+			continue
+		}
+
 		answers, _ := models.ParseAnswersJSON(sub.AnswersJSON)
 		if answers == nil {
 			answers = map[string]interface{}{}
@@ -666,10 +731,10 @@ func exportSingleExamXLSX(c *gin.Context, pool *pgxpool.Pool, ctx context.Contex
 			log.Printf("export: skip detail sheet for %q: %v", sub.StudentName, err)
 			continue
 		}
-		writeStudentDetailSheet(f, detailSheet, exam.Name, sub, answers, evaluated, questions, st)
+		writeStudentDetailSheet(f, detailSheet, exam.Name, sub, answers, evaluated, questions, st, tzOffset)
 	}
 
-	setXLSXSummaryLayout(f, summarySheet, 9)
+	setXLSXSummaryLayout(f, summarySheet, len(headers))
 
 	filename := fmt.Sprintf("Hasil_Ujian_%s_%s.xlsx",
 		sanitizeFilename(exam.Name),
@@ -707,7 +772,7 @@ func fetchSubmissionsByExam(ctx context.Context, pool *pgxpool.Pool, examID int)
 }
 
 func exportAllXLSX(c *gin.Context, pool *pgxpool.Pool, ctx context.Context,
-	userID int, isSuper, isOp bool) {
+	userID int, isSuper, isOp bool, tzOffset *int) {
 
 	var instansi string
 	query := `SELECT s.id, s.exam_id, s.student_name, s.exam_number, s.student_class,
@@ -746,25 +811,30 @@ func exportAllXLSX(c *gin.Context, pool *pgxpool.Pool, ctx context.Context,
 		errorResponse(c, http.StatusInternalServerError, "Gagal mengekspor data")
 		return
 	}
-	defer rows.Close()
 
-	f := excelize.NewFile()
-	defer f.Close()
-	sheet := "Semua Hasil"
-	if err := f.SetSheetName("Sheet1", sheet); err != nil {
-		errorResponse(c, http.StatusInternalServerError, "Gagal mengekspor data")
-		return
+	// Collect rows first so we can derive the union of custom identity columns
+	// across all exams in scope before writing the header.
+	type allRow struct {
+		id, examID   int
+		studentName  string
+		examNumber   string
+		cls          string
+		identityData map[string]interface{}
+		score        *float64
+		startTime    string
+		macAddress   string
+		createdAt    time.Time
+		examName     string
 	}
 
-	headers := []interface{}{"ID", "Nama Ujian", "Nama Siswa", "Nomor Ujian", "Kelas",
-		"Nilai", "Waktu Mulai", "Waktu Kumpul", "ID Perangkat"}
-	_ = f.SetSheetRow(sheet, "A1", &headers)
-	if style, err := xlsxHeaderStyle(f); err == nil {
-		_ = f.SetCellStyle(sheet, "A1", "I1", style)
-	}
-
-	row := 2
+	var data []allRow
+	examIDs := map[int]bool{}
 	for rows.Next() {
+		if err := ctx.Err(); err != nil {
+			rows.Close()
+			errorResponse(c, http.StatusRequestTimeout, "Export dibatalkan: batas waktu terlampaui")
+			return
+		}
 		var (
 			id, examID                   int
 			studentName, examNumber, cls string
@@ -791,28 +861,75 @@ func exportAllXLSX(c *gin.Context, pool *pgxpool.Pool, ctx context.Context,
 		if macAddress != nil {
 			macStr = *macAddress
 		}
-		var scoreVal interface{}
-		if score != nil {
-			scoreVal = *score
+
+		idData := make(map[string]interface{})
+		if identityDataRaw != nil && *identityDataRaw != "" {
+			_ = json.Unmarshal([]byte(*identityDataRaw), &idData)
 		}
 
-		_ = f.SetCellInt(sheet, cellRef(1, row), int64(id))
-		_ = f.SetCellStr(sheet, cellRef(2, row), examName)
-		_ = f.SetCellStr(sheet, cellRef(3, row), studentName)
-		_ = f.SetCellStr(sheet, cellRef(4, row), examNumber)
-		_ = f.SetCellStr(sheet, cellRef(5, row), cls)
-		_ = f.SetCellValue(sheet, cellRef(6, row), scoreVal)
-		_ = f.SetCellStr(sheet, cellRef(7, row), startTimeStr)
-		_ = f.SetCellStr(sheet, cellRef(8, row), createdAt.Format("2006-01-02 15:04:05"))
-		_ = f.SetCellStr(sheet, cellRef(9, row), macStr)
-		row++
+		data = append(data, allRow{
+			id: id, examID: examID, studentName: studentName, examNumber: examNumber,
+			cls: cls, identityData: idData, score: score, startTime: startTimeStr,
+			macAddress: macStr, createdAt: createdAt, examName: examName,
+		})
+		examIDs[examID] = true
 	}
 	rows.Close()
 	if err := rows.Err(); err != nil {
 		log.Printf("rows iteration error: %v", err)
 	}
 
-	setXLSXSummaryLayout(f, sheet, 9)
+	// Union of custom identity columns across all exams in scope.
+	identityCols := collectAllIdentityColumns(ctx, pool, examIDs)
+
+	f := excelize.NewFile()
+	defer f.Close()
+	sheet := "Semua Hasil"
+	if err := f.SetSheetName("Sheet1", sheet); err != nil {
+		errorResponse(c, http.StatusInternalServerError, "Gagal mengekspor data")
+		return
+	}
+
+	headers := append([]interface{}{"ID", "Nama Ujian", "Nama Siswa", "Nomor Ujian", "Kelas"},
+		identityColLabels(identityCols)...)
+	headers = append(headers, "Nilai", "Waktu Mulai", "Waktu Kumpul", "ID Perangkat")
+	_ = f.SetSheetRow(sheet, "A1", &headers)
+	if style, err := xlsxHeaderStyle(f); err == nil {
+		lastCol, _ := excelize.ColumnNumberToName(len(headers))
+		_ = f.SetCellStyle(sheet, "A1", lastCol+"1", style)
+	}
+
+	for i, r := range data {
+		if err := ctx.Err(); err != nil {
+			errorResponse(c, http.StatusRequestTimeout, "Export dibatalkan: batas waktu terlampaui")
+			return
+		}
+		row := i + 2
+		var scoreVal interface{}
+		if r.score != nil {
+			scoreVal = *r.score
+		}
+
+		_ = f.SetCellInt(sheet, cellRef(1, row), int64(r.id))
+		_ = f.SetCellStr(sheet, cellRef(2, row), r.examName)
+		_ = f.SetCellStr(sheet, cellRef(3, row), r.studentName)
+		_ = f.SetCellStr(sheet, cellRef(4, row), r.examNumber)
+		_ = f.SetCellStr(sheet, cellRef(5, row), r.cls)
+		col := 6
+		for _, ic := range identityCols {
+			_ = f.SetCellStr(sheet, cellRef(col, row), identityValueString(r.identityData, ic.key))
+			col++
+		}
+		_ = f.SetCellValue(sheet, cellRef(col, row), scoreVal)
+		col++
+		_ = f.SetCellStr(sheet, cellRef(col, row), localizeExportTimeStr(r.startTime, tzOffset))
+		col++
+		_ = f.SetCellStr(sheet, cellRef(col, row), localizeExportTime(r.createdAt, tzOffset))
+		col++
+		_ = f.SetCellStr(sheet, cellRef(col, row), r.macAddress)
+	}
+
+	setXLSXSummaryLayout(f, sheet, len(headers))
 
 	filename := fmt.Sprintf("hasil_ujian_%s.xlsx",
 		time.Now().UTC().Format("20060102_150405"))
@@ -891,6 +1008,8 @@ func ExportSubmissionDetail() gin.HandlerFunc {
 
 		evaluated := models.EvaluateAnswersDetailed(answers, questions)
 
+		tzOffset := parseTZOffset(c)
+
 		f := excelize.NewFile()
 		defer f.Close()
 		st := newXLSXStyles(f)
@@ -899,7 +1018,7 @@ func ExportSubmissionDetail() gin.HandlerFunc {
 			errorResponse(c, http.StatusInternalServerError, "Gagal mengekspor data")
 			return
 		}
-		writeStudentDetailSheet(f, sheet, detail.ExamName, detail.Submission, answers, evaluated, questions, st)
+		writeStudentDetailSheet(f, sheet, detail.ExamName, detail.Submission, answers, evaluated, questions, st, tzOffset)
 
 		filename := fmt.Sprintf("Detail_%s_%s.xlsx",
 			sanitizeFilename(detail.StudentName),
@@ -946,16 +1065,168 @@ func setXLSXSummaryLayout(f *excelize.File, sheet string, lastCol int) {
 }
 
 // writeXLSXResponse streams the workbook to the client as an Excel attachment.
+// The workbook is written directly to the response writer (instead of
+// buffering the whole file in memory via WriteToBuffer) so large exports do
+// not double memory usage.
+//
+// NOTE: a serialization failure mid-stream is only visible in the server log
+// (the client receives a truncated file). This is the accepted trade-off for
+// streaming instead of buffering; headers have already been sent by then.
 func writeXLSXResponse(c *gin.Context, f *excelize.File, filename string) {
-	buf, err := f.WriteToBuffer()
-	if err != nil {
-		errorResponse(c, http.StatusInternalServerError, "Gagal menulis file Excel")
-		return
-	}
 	c.Header("Content-Type", xlsxContentType)
 	c.Header("Content-Disposition", fmt.Sprintf(`attachment; filename="%s"`, filename))
 	c.Header("Cache-Control", "no-store, no-cache, must-revalidate")
-	c.Data(http.StatusOK, xlsxContentType, buf.Bytes())
+	if err := f.Write(c.Writer); err != nil {
+		log.Printf("export: stream workbook failed: %v", err)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Export helper utilities
+// ---------------------------------------------------------------------------
+
+// defaultIdentityFields mirrors the public package's default identity fields
+// used when an exam has no custom identity_fields configured.
+var defaultIdentityFields []map[string]interface{}
+
+func init() {
+	_ = json.Unmarshal([]byte(`[
+		{"key":"student_name","label":"Nama","required":true},
+		{"key":"exam_number","label":"Nomor Ujian","required":true},
+		{"key":"student_class","label":"Kelas","required":true}
+	]`), &defaultIdentityFields)
+}
+
+// identityCol describes one custom identity column in the export.
+type identityCol struct {
+	key   string
+	label string
+}
+
+// exportIdentityColumns derives the custom identity columns (excluding the
+// three standard student fields) from an exam's identity_fields config.
+func exportIdentityColumns(fields []map[string]interface{}) []identityCol {
+	var cols []identityCol
+	standard := map[string]bool{"student_name": true, "exam_number": true, "student_class": true}
+	seen := map[string]bool{}
+	for _, f := range fields {
+		key, _ := f["key"].(string)
+		if key == "" || standard[key] || seen[key] {
+			continue
+		}
+		seen[key] = true
+		label, _ := f["label"].(string)
+		if label == "" {
+			label = key
+		}
+		cols = append(cols, identityCol{key: key, label: label})
+	}
+	return cols
+}
+
+// identityColLabels returns the header labels for a set of identity columns.
+func identityColLabels(cols []identityCol) []interface{} {
+	labels := make([]interface{}, 0, len(cols))
+	for _, c := range cols {
+		labels = append(labels, c.label)
+	}
+	return labels
+}
+
+// identityValueString returns the string value of an identity key for a
+// student, or "" when missing.
+func identityValueString(data map[string]interface{}, key string) string {
+	if v, ok := data[key]; ok && v != nil {
+		return fmt.Sprintf("%v", v)
+	}
+	return ""
+}
+
+// collectAllIdentityColumns fetches identity_fields for all exams in scope and
+// returns the union of custom identity columns (first-seen label wins). IDs are
+// sorted so the resulting column order is deterministic across exports.
+func collectAllIdentityColumns(ctx context.Context, pool *pgxpool.Pool, examIDs map[int]bool) []identityCol {
+	if len(examIDs) == 0 {
+		return nil
+	}
+	ids := make([]int, 0, len(examIDs))
+	for id := range examIDs {
+		ids = append(ids, id)
+	}
+	sort.Ints(ids)
+
+	rows, err := pool.Query(ctx,
+		`SELECT identity_fields FROM exams WHERE id = ANY($1)`, ids)
+	if err != nil {
+		log.Printf("export all: identity fields query error: %v", err)
+		return nil
+	}
+	defer rows.Close()
+
+	standard := map[string]bool{"student_name": true, "exam_number": true, "student_class": true}
+	seen := map[string]bool{}
+	var cols []identityCol
+	for rows.Next() {
+		var raw *string
+		if err := rows.Scan(&raw); err != nil {
+			continue
+		}
+		for _, f := range helpers.ParseIdentityFields(raw, defaultIdentityFields) {
+			key, _ := f["key"].(string)
+			if key == "" || standard[key] || seen[key] {
+				continue
+			}
+			seen[key] = true
+			label, _ := f["label"].(string)
+			if label == "" {
+				label = key
+			}
+			cols = append(cols, identityCol{key: key, label: label})
+		}
+	}
+	rows.Close()
+	if err := rows.Err(); err != nil {
+		log.Printf("rows iteration error: %v", err)
+	}
+	return cols
+}
+
+// localizeExportTime converts a UTC time.Time to a localized display string
+// using the browser timezone offset (minutes). When tzOffset is nil the time
+// stays UTC without a suffix (cleaner for Excel cells) — matching the admin
+// UI's localizeUTC behaviour. It delegates to helpers.LocalizeDateString so
+// the timezone math lives in a single place.
+func localizeExportTime(t time.Time, tzOffset *int) string {
+	if tzOffset == nil {
+		return t.UTC().Format("2006-01-02 15:04:05")
+	}
+	return helpers.LocalizeDateString(helpers.FormatISOUTC(t), tzOffset)
+}
+
+// localizeExportTimeStr localizes a legacy timestamp string (e.g.
+// "2026-08-05 08:00:00", stored as UTC) using the browser timezone offset.
+func localizeExportTimeStr(s string, tzOffset *int) string {
+	if s == "" {
+		return ""
+	}
+	return helpers.LocalizeDateString(s, tzOffset)
+}
+
+// localizeStatusText maps the English scoring statuses to Indonesian labels
+// so exported sheets match the admin UI language.
+func localizeStatusText(status string) string {
+	switch status {
+	case models.StatusCorrect:
+		return "Benar"
+	case models.StatusIncorrect:
+		return "Salah"
+	case models.StatusPartial:
+		return "Sebagian"
+	case models.StatusUnanswered:
+		return "Tidak Dijawab"
+	default:
+		return status
+	}
 }
 
 // xlsxStyles groups the reusable style IDs shared by export sheets.
@@ -1008,11 +1279,11 @@ func sanitizeSheetName(name string) string {
 // export (which emits one detail sheet per student).
 func writeStudentDetailSheet(f *excelize.File, sheet, examName string, sub models.Submission,
 	answers map[string]interface{}, evaluated map[string]models.EvaluationDetail,
-	questions []models.Question, st xlsxStyles) {
+	questions []models.Question, st xlsxStyles, tzOffset *int) {
 
 	startTimeStr := ""
 	if sub.StartTime != nil {
-		startTimeStr = *sub.StartTime
+		startTimeStr = localizeExportTimeStr(*sub.StartTime, tzOffset)
 	}
 	scoreStr := ""
 	if sub.Score != nil {
@@ -1030,7 +1301,7 @@ func writeStudentDetailSheet(f *excelize.File, sheet, examName string, sub model
 		{"Nomor Ujian", sub.ExamNumber},
 		{"Kelas", sub.StudentClass},
 		{"Waktu Mulai", startTimeStr},
-		{"Waktu Kumpul", sub.CreatedAt.Format("2006-01-02 15:04:05")},
+		{"Waktu Kumpul", localizeExportTime(sub.CreatedAt, tzOffset)},
 		{"ID Perangkat", sub.MACAddress},
 		{"Total Nilai", scoreStr},
 	}
@@ -1075,7 +1346,7 @@ func writeStudentDetailSheet(f *excelize.File, sheet, examName string, sub model
 		statusText := "-"
 		poin := "0"
 		if hasEval {
-			statusText = eval.StatusText
+			statusText = localizeStatusText(eval.StatusText)
 			poin = fmt.Sprintf("%.2f", eval.Earned)
 		}
 
