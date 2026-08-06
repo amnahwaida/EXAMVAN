@@ -166,7 +166,7 @@
      </div>
      <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:10px;">
       <div>
-       <label style="display:block;font-size:12px;color:var(--color-text-secondary);margin-bottom:4px;">Maks Ujian Aktif</label>
+       <label title="Maksimal total ujian yang dapat disimpan di sistem" style="display:block;font-size:12px;color:var(--color-text-secondary);margin-bottom:4px;">Maks Total Ujian</label>
        <input type="number" id="singleCustomMaxExams" value="1" min="0" style="width:100%;padding:8px;background:rgba(0,0,0,0.3);border:1px solid var(--color-glass-border);border-radius:8px;color:#fff;outline:none;" />
       </div>
       <div>
@@ -174,16 +174,8 @@
        <input type="number" id="singleCustomConcurrent" value="1" min="0" style="width:100%;padding:8px;background:rgba(0,0,0,0.3);border:1px solid var(--color-glass-border);border-radius:8px;color:#fff;outline:none;" />
       </div>
       <div>
-       <label style="display:block;font-size:12px;color:var(--color-text-secondary);margin-bottom:4px;">Maks PDF (MB)</label>
+       <label title="Maksimal ukuran file PDF dalam sekali upload" style="display:block;font-size:12px;color:var(--color-text-secondary);margin-bottom:4px;">Maks Upload (MB)</label>
        <input type="number" id="singleCustomPdfMb" value="10" min="0" step="0.1" style="width:100%;padding:8px;background:rgba(0,0,0,0.3);border:1px solid var(--color-glass-border);border-radius:8px;color:#fff;outline:none;" />
-      </div>
-      <div>
-       <label style="display:block;font-size:12px;color:var(--color-text-secondary);margin-bottom:4px;">Maks Draft Soal</label>
-       <input type="number" id="singleCustomMaxDrafts" value="10" min="0" style="width:100%;padding:8px;background:rgba(0,0,0,0.3);border:1px solid var(--color-glass-border);border-radius:8px;color:#fff;outline:none;" />
-      </div>
-      <div>
-       <label style="display:block;font-size:12px;color:var(--color-text-secondary);margin-bottom:4px;">Maks Ukuran Draft (MB)</label>
-       <input type="number" id="singleCustomDraftMb" value="10" min="0" step="0.1" style="width:100%;padding:8px;background:rgba(0,0,0,0.3);border:1px solid var(--color-glass-border);border-radius:8px;color:#fff;outline:none;" />
       </div>
       <div>
        <label style="display:block;font-size:12px;color:var(--color-text-secondary);margin-bottom:4px;">Maks Storage (MB)</label>
@@ -284,7 +276,7 @@
      </div>
      <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;">
       <div>
-       <label style="display:block;font-size:12px;color:var(--color-text-secondary);margin-bottom:4px;">Maks Ujian Aktif</label>
+       <label title="Maksimal total ujian yang dapat disimpan di sistem" style="display:block;font-size:12px;color:var(--color-text-secondary);margin-bottom:4px;">Maks Total Ujian</label>
        <input type="number" id="batchCustomMaxExams" value="1" min="0" style="width:100%;padding:8px;background:rgba(0,0,0,0.3);border:1px solid var(--color-glass-border);border-radius:8px;color:#fff;outline:none;" />
       </div>
       <div>
@@ -292,16 +284,8 @@
        <input type="number" id="batchCustomConcurrent" value="1" min="0" style="width:100%;padding:8px;background:rgba(0,0,0,0.3);border:1px solid var(--color-glass-border);border-radius:8px;color:#fff;outline:none;" />
       </div>
       <div>
-       <label style="display:block;font-size:12px;color:var(--color-text-secondary);margin-bottom:4px;">Maks PDF (MB)</label>
+       <label title="Maksimal ukuran file PDF dalam sekali upload" style="display:block;font-size:12px;color:var(--color-text-secondary);margin-bottom:4px;">Maks Upload (MB)</label>
        <input type="number" id="batchCustomPdfMb" value="10" min="0" step="0.1" style="width:100%;padding:8px;background:rgba(0,0,0,0.3);border:1px solid var(--color-glass-border);border-radius:8px;color:#fff;outline:none;" />
-      </div>
-      <div>
-       <label style="display:block;font-size:12px;color:var(--color-text-secondary);margin-bottom:4px;">Maks Draft Soal</label>
-       <input type="number" id="batchCustomMaxDrafts" value="10" min="0" style="width:100%;padding:8px;background:rgba(0,0,0,0.3);border:1px solid var(--color-glass-border);border-radius:8px;color:#fff;outline:none;" />
-      </div>
-      <div>
-       <label style="display:block;font-size:12px;color:var(--color-text-secondary);margin-bottom:4px;">Maks Ukuran Draft (MB)</label>
-       <input type="number" id="batchCustomDraftMb" value="10" min="0" step="0.1" style="width:100%;padding:8px;background:rgba(0,0,0,0.3);border:1px solid var(--color-glass-border);border-radius:8px;color:#fff;outline:none;" />
       </div>
       <div>
        <label style="display:block;font-size:12px;color:var(--color-text-secondary);margin-bottom:4px;">Maks Storage (MB)</label>
@@ -549,8 +533,6 @@ function appendCustomVoucherFields(formData, type) {
     formData.append('custom_max_exams', document.getElementById(type + 'CustomMaxExams').value);
     formData.append('custom_max_concurrent_exams', document.getElementById(type + 'CustomConcurrent').value);
     formData.append('custom_max_pdf_size_mb', document.getElementById(type + 'CustomPdfMb').value);
-    formData.append('custom_max_drafts', document.getElementById(type + 'CustomMaxDrafts').value);
-    formData.append('custom_max_draft_size_mb', document.getElementById(type + 'CustomDraftMb').value);
     formData.append('custom_max_storage_size_mb', document.getElementById(type + 'CustomStorageMb').value);
     formData.append('custom_role', document.getElementById(type + 'CustomRole').value);
 }

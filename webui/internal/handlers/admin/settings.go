@@ -56,9 +56,7 @@ func handleSaasSettingsGet(c *gin.Context, pool *pgxpool.Pool, ctx context.Conte
 
 	defaultMaxExams := parseIntSetting(settings[models.SettingDefaultMaxExams], 3)
 	defaultMaxPDFSize := parseIntSetting(settings[models.SettingDefaultMaxPDFSize], 1048576)
-	defaultMaxDrafts := parseIntSetting(settings[models.SettingDefaultMaxDrafts], 2)
 	defaultMaxConcurrentExams := parseIntSetting(settings[models.SettingDefaultMaxConcurrentExams], 2)
-	defaultMaxDraftSize := parseIntSetting(settings[models.SettingDefaultMaxDraftSize], 1048576)
 	defaultActiveDays := parseIntSetting(settings[models.SettingDefaultActiveDays], 1)
 
 	c.JSON(http.StatusOK, gin.H{
@@ -73,9 +71,7 @@ func handleSaasSettingsGet(c *gin.Context, pool *pgxpool.Pool, ctx context.Conte
 			"smtp_sender_name":             settings[models.SettingSMTPSenderName],
 			"default_max_exams":            defaultMaxExams,
 			"default_max_pdf_size_mb":      roundTo(float64(defaultMaxPDFSize)/(1024*1024), 2),
-			"default_max_drafts":           defaultMaxDrafts,
 			"default_max_concurrent_exams": defaultMaxConcurrentExams,
-			"default_max_draft_size_mb":    roundTo(float64(defaultMaxDraftSize)/(1024*1024), 2),
 			"default_active_days":          defaultActiveDays,
 			"android_version":              settings[models.SettingAndroidVersion],
 			"webapp_version":               settings[models.SettingWebappVersion],
@@ -151,9 +147,7 @@ func handleSaasSettingsPost(c *gin.Context, pool *pgxpool.Pool, ctx context.Cont
 		SMTPSenderName            string  `json:"smtp_sender_name"`
 		DefaultMaxExams           int     `json:"default_max_exams"`
 		DefaultMaxPDFSizeMB       float64 `json:"default_max_pdf_size_mb"`
-		DefaultMaxDrafts          int     `json:"default_max_drafts"`
 		DefaultMaxConcurrentExams int     `json:"default_max_concurrent_exams"`
-		DefaultMaxDraftSizeMB     float64 `json:"default_max_draft_size_mb"`
 		DefaultActiveDays         int     `json:"default_active_days"`
 		AndroidVersion            string  `json:"android_version"`
 		WebappVersion             string  `json:"webapp_version"`
@@ -242,23 +236,11 @@ func handleSaasSettingsPost(c *gin.Context, pool *pgxpool.Pool, ctx context.Cont
 	}
 	models.SetSaasSetting(reqCtx, pool, models.SettingDefaultMaxPDFSize, strconv.Itoa(defaultPDFSize))
 
-	defaultDrafts := body.DefaultMaxDrafts
-	if defaultDrafts <= 0 {
-		defaultDrafts = 2
-	}
-	models.SetSaasSetting(reqCtx, pool, models.SettingDefaultMaxDrafts, strconv.Itoa(defaultDrafts))
-
 	defaultConcurrent := body.DefaultMaxConcurrentExams
 	if defaultConcurrent <= 0 {
 		defaultConcurrent = 2
 	}
 	models.SetSaasSetting(reqCtx, pool, models.SettingDefaultMaxConcurrentExams, strconv.Itoa(defaultConcurrent))
-
-	defaultDraftSize := int(math.Max(0, body.DefaultMaxDraftSizeMB*1024*1024))
-	if defaultDraftSize <= 0 {
-		defaultDraftSize = 1048576
-	}
-	models.SetSaasSetting(reqCtx, pool, models.SettingDefaultMaxDraftSize, strconv.Itoa(defaultDraftSize))
 
 	defaultActiveDays := body.DefaultActiveDays
 	if defaultActiveDays <= 0 {

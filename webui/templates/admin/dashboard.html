@@ -311,7 +311,11 @@
 </div>
 <div class="net-item" title="Maksimal ukuran file PDF dalam sekali upload">
 <span class="net-label">Max Upload</span>
+{{if .is_super}}
+<span class="net-value">Tidak Terbatas</span>
+{{else}}
 <span class="net-value">{{.max_size_mb}} MB</span>
+{{end}}
 </div>
 <div class="net-item" title="Sisa penyimpanan yang dapat digunakan">
 <span class="net-label">Sisa Storage</span>

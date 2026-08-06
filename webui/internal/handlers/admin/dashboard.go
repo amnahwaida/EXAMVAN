@@ -243,6 +243,15 @@ func Dashboard() gin.HandlerFunc {
 			remainingStorage = "Tidak Terbatas"
 		}
 
+		// Super admins bypass all quota enforcement (exam upload, PDF/storage
+		// size, concurrent exams), so present their dashboard as unlimited
+		// regardless of the raw values on their admin_users row.
+		if isSuper {
+			userMaxTotal = "Tidak Terbatas"
+			userMaxConcurrent = "Tidak Terbatas"
+			remainingStorage = "Tidak Terbatas"
+		}
+
 		packageName := packageDisplayName(userPackage)
 		if isSuper && userPackage == "free" {
 			packageName = "SuperAdmin (Full)"

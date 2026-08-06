@@ -677,7 +677,6 @@ type pricingPlan struct {
 	AnnualPrice   int64
 	MaxExams      string
 	PdfLimit      string
-	DraftLimit    string
 	StorageLimit  string
 	TokenMode     string
 	Results       string
@@ -1045,8 +1044,6 @@ func registerPostHandler(cfg *config.Config) gin.HandlerFunc {
 			Role:           models.SerializeRoles([]string{models.RoleGuru}),
 			MaxExams:       models.GetSaasSettingInt(ctx, dbPool, models.SettingDefaultMaxExams, 3),
 			MaxPDFSize:     models.GetSaasSettingInt(ctx, dbPool, models.SettingDefaultMaxPDFSize, 1048576),
-			MaxDrafts:      models.GetSaasSettingInt(ctx, dbPool, models.SettingDefaultMaxDrafts, 2),
-			MaxDraftSize:   models.GetSaasSettingInt(ctx, dbPool, models.SettingDefaultMaxDraftSize, 1048576),
 			WhatsappNumber: "",
 			Email:          email,
 			OTPCode:        otpCode,

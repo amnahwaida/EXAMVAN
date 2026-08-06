@@ -19,7 +19,6 @@ type PricingPlan struct {
 	Icon          string   `json:"icon"`
 	MaxExams      string   `json:"max_exams"`
 	PdfLimit      string   `json:"pdf_limit"`
-	DraftLimit    string   `json:"draft_limit"`
 	StorageLimit  string   `json:"storage_limit"`
 	TokenMode     string   `json:"token_mode"`
 	Results       string   `json:"results"`
@@ -63,7 +62,6 @@ func InitPricingPlansTable(ctx context.Context, pool *pgxpool.Pool) error {
 			icon TEXT NOT NULL DEFAULT '',
 			max_exams TEXT NOT NULL DEFAULT '',
 			pdf_limit TEXT NOT NULL DEFAULT '',
-			draft_limit TEXT NOT NULL DEFAULT '',
 			storage_limit TEXT NOT NULL DEFAULT '',
 			token_mode TEXT NOT NULL DEFAULT '',
 			results TEXT NOT NULL DEFAULT '',
@@ -101,7 +99,7 @@ func SeedDefaultPricingPlans(ctx context.Context, pool *pgxpool.Pool) error {
 			Audience: "Guru les, bimbel kecil, tryout kelas",
 			Accent: "guru", Icon: "👨‍🏫",
 			MaxExams: "1 ujian aktif", PdfLimit: "1 MB per PDF",
-			DraftLimit: "10 draft soal", StorageLimit: "100 MB storage",
+			StorageLimit: "100 MB storage",
 			TokenMode: "Statis", Results: "Aktif", Answers: "Nonaktif",
 			Features:      "Cocok untuk kelas kecil,Support email",
 			PriceBulanan:  25000,
@@ -114,7 +112,7 @@ func SeedDefaultPricingPlans(ctx context.Context, pool *pgxpool.Pool) error {
 			Audience: "Pembuat tryout online, bimbel 1-2 kelas",
 			Accent: "individu", Icon: "💻",
 			MaxExams: "2 ujian aktif", PdfLimit: "3 MB per PDF",
-			DraftLimit: "30 draft soal", StorageLimit: "300 MB storage",
+			StorageLimit: "300 MB storage",
 			TokenMode: "Statis + Dinamis", Results: "Aktif", Answers: "Aktif",
 			Features:      "Export CSV,Support email + WA",
 			PriceBulanan:  50000,
@@ -127,7 +125,7 @@ func SeedDefaultPricingPlans(ctx context.Context, pool *pgxpool.Pool) error {
 			Audience: "SD / MI, ujian PH / UTS",
 			Accent: "kecil", Icon: "🏫",
 			MaxExams: "3 ujian aktif", PdfLimit: "3 MB per PDF",
-			DraftLimit: "50 draft soal", StorageLimit: "500 MB storage",
+			StorageLimit: "500 MB storage",
 			TokenMode: "Statis + Dinamis", Results: "Aktif", Answers: "Nonaktif",
 			Features:      "Manajemen Pengguna,Paket hemat sekolah dasar",
 			PriceBulanan:  75000,
@@ -140,7 +138,7 @@ func SeedDefaultPricingPlans(ctx context.Context, pool *pgxpool.Pool) error {
 			Audience: "SMP / MTs, ujian PAS / PAT",
 			Accent: "menengah", Icon: "🏢",
 			MaxExams: "5 ujian aktif", PdfLimit: "5 MB per PDF",
-			DraftLimit: "200 draft soal", StorageLimit: "2 GB storage",
+			StorageLimit: "2 GB storage",
 			TokenMode: "Statis + Dinamis", Results: "Aktif", Answers: "Aktif",
 			Features:      "Manajemen Pengguna,Panel warna,Dukungan email + WA",
 			PriceBulanan:  175000,
@@ -153,7 +151,7 @@ func SeedDefaultPricingPlans(ctx context.Context, pool *pgxpool.Pool) error {
 			Audience: "SMA / MA / SMK, tryout skala besar",
 			Popular: true, Accent: "besar", Icon: "🏛️",
 			MaxExams: "10 ujian aktif", PdfLimit: "10 MB per PDF",
-			DraftLimit: "500 draft soal", StorageLimit: "5 GB storage",
+			StorageLimit: "5 GB storage",
 			TokenMode: "Statis + dinamis", Results: "Aktif", Answers: "Aktif",
 			Features:      "Manajemen Pengguna,Realtime pengawas,Strict mode,Export CSV lengkap",
 			PriceBulanan:  375000,
@@ -166,7 +164,7 @@ func SeedDefaultPricingPlans(ctx context.Context, pool *pgxpool.Pool) error {
 			Audience: "Kampus, yayasan, skala kabupaten/kota",
 			Accent: "unggulan", Icon: "⭐",
 			MaxExams: "Tak terbatas", PdfLimit: "Tak terbatas",
-			DraftLimit: "Tak terbatas", StorageLimit: "Tak terbatas",
+			StorageLimit: "Tak terbatas",
 			TokenMode: "Statis + dinamis", Results: "Aktif", Answers: "Aktif",
 			Features:      "Manajemen Pengguna,Prioritas infrastruktur,Backup mingguan,SLA 99% uptime",
 			PriceBulanan:  750000,
@@ -179,12 +177,12 @@ func SeedDefaultPricingPlans(ctx context.Context, pool *pgxpool.Pool) error {
 	for _, plan := range defaults {
 		_, err := pool.Exec(ctx, `
 			INSERT INTO pricing_plans (key, title, audience, popular, accent, icon,
-				max_exams, pdf_limit, draft_limit, storage_limit, token_mode,
+				max_exams, pdf_limit, storage_limit, token_mode,
 				results, answers, features,
 				price_bulanan, price_semester, price_tahunan, sort_order, active)
-			VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19)
+			VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18)
 		`, plan.Key, plan.Title, plan.Audience, plan.Popular, plan.Accent, plan.Icon,
-			plan.MaxExams, plan.PdfLimit, plan.DraftLimit, plan.StorageLimit, plan.TokenMode,
+			plan.MaxExams, plan.PdfLimit, plan.StorageLimit, plan.TokenMode,
 			plan.Results, plan.Answers, plan.Features,
 			plan.PriceBulanan, plan.PriceSemester, plan.PriceTahunan, plan.SortOrder, plan.Active,
 		)
@@ -197,7 +195,7 @@ func SeedDefaultPricingPlans(ctx context.Context, pool *pgxpool.Pool) error {
 
 // planColumns is the shared column list for SELECT queries.
 const planColumns = `id, key, title, audience, popular, accent, icon,
-	max_exams, pdf_limit, draft_limit, storage_limit, token_mode,
+	max_exams, pdf_limit, storage_limit, token_mode,
 	results, answers, features,
 	price_bulanan, price_semester, price_tahunan, sort_order, active`
 
@@ -206,7 +204,7 @@ func scanPlan(scan func(dest ...any) error) (PricingPlan, error) {
 	var p PricingPlan
 	err := scan(
 		&p.ID, &p.Key, &p.Title, &p.Audience, &p.Popular, &p.Accent, &p.Icon,
-		&p.MaxExams, &p.PdfLimit, &p.DraftLimit, &p.StorageLimit, &p.TokenMode,
+		&p.MaxExams, &p.PdfLimit, &p.StorageLimit, &p.TokenMode,
 		&p.Results, &p.Answers, &p.Features,
 		&p.PriceBulanan, &p.PriceSemester, &p.PriceTahunan, &p.SortOrder, &p.Active,
 	)
@@ -271,13 +269,13 @@ func GetPricingPlanByID(ctx context.Context, pool *pgxpool.Pool, id int) (Pricin
 func CreatePricingPlan(ctx context.Context, pool *pgxpool.Pool, plan *PricingPlan) error {
 	return pool.QueryRow(ctx, `
 		INSERT INTO pricing_plans (key, title, audience, popular, accent, icon,
-			max_exams, pdf_limit, draft_limit, storage_limit, token_mode,
+			max_exams, pdf_limit, storage_limit, token_mode,
 			results, answers, features,
 			price_bulanan, price_semester, price_tahunan, sort_order, active)
-		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19)
+		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18)
 		RETURNING id
 	`, plan.Key, plan.Title, plan.Audience, plan.Popular, plan.Accent, plan.Icon,
-		plan.MaxExams, plan.PdfLimit, plan.DraftLimit, plan.StorageLimit, plan.TokenMode,
+		plan.MaxExams, plan.PdfLimit, plan.StorageLimit, plan.TokenMode,
 		plan.Results, plan.Answers, plan.Features,
 		plan.PriceBulanan, plan.PriceSemester, plan.PriceTahunan, plan.SortOrder, plan.Active,
 	).Scan(&plan.ID)
@@ -288,13 +286,13 @@ func UpdatePricingPlan(ctx context.Context, pool *pgxpool.Pool, plan *PricingPla
 	_, err := pool.Exec(ctx, `
 		UPDATE pricing_plans SET
 			key = $1, title = $2, audience = $3, popular = $4, accent = $5, icon = $6,
-			max_exams = $7, pdf_limit = $8, draft_limit = $9, storage_limit = $10,
-			token_mode = $11, results = $12, answers = $13, features = $14,
-			price_bulanan = $15, price_semester = $16, price_tahunan = $17,
-			sort_order = $18, active = $19, updated_at = NOW()
-		WHERE id = $20
+			max_exams = $7, pdf_limit = $8, storage_limit = $9,
+			token_mode = $10, results = $11, answers = $12, features = $13,
+			price_bulanan = $14, price_semester = $15, price_tahunan = $16,
+			sort_order = $17, active = $18, updated_at = NOW()
+		WHERE id = $19
 	`, plan.Key, plan.Title, plan.Audience, plan.Popular, plan.Accent, plan.Icon,
-		plan.MaxExams, plan.PdfLimit, plan.DraftLimit, plan.StorageLimit,
+		plan.MaxExams, plan.PdfLimit, plan.StorageLimit,
 		plan.TokenMode, plan.Results, plan.Answers, plan.Features,
 		plan.PriceBulanan, plan.PriceSemester, plan.PriceTahunan,
 		plan.SortOrder, plan.Active, plan.ID,

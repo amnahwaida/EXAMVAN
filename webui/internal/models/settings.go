@@ -73,9 +73,7 @@ const (
 	SettingDefaultMaxExams           = "default_max_exams"
 	SettingDefaultMaxPDFSize         = "default_max_pdf_size"
 	SettingDefaultActiveDays         = "default_active_days"
-	SettingDefaultMaxDrafts          = "default_max_drafts"
 	SettingDefaultMaxConcurrentExams = "default_max_concurrent_exams"
-	SettingDefaultMaxDraftSize       = "default_max_draft_size"
 	SettingAndroidVersion            = "android_version"
 	SettingWebappVersion             = "webapp_version"
 	SettingCertificateFingerprint    = "certificate_fingerprint"
@@ -126,9 +124,7 @@ var DefaultSettings = map[string]string{
 	SettingDefaultMaxExams:           "3",
 	SettingDefaultMaxPDFSize:         "1048576",
 	SettingDefaultActiveDays:         "1",
-	SettingDefaultMaxDrafts:          "2",
 	SettingDefaultMaxConcurrentExams: "2",
-	SettingDefaultMaxDraftSize:       "1048576",
 	SettingAndroidVersion:            "2.2.0",
 	SettingWebappVersion:             "2.2.0",
 	SettingCertificateFingerprint:    "",

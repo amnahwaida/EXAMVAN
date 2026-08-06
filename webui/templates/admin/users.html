@@ -271,7 +271,7 @@
 
   <div class="form-row-3col grid grid-cols-1 sm:grid-cols-4 gap-4 default-pkg-row">
   <div class="form-group space-y-1">
-  <label class="required" for="defaultExamsInput" title="Default limit jumlah ujian untuk pendaftaran baru">Limit Ujian</label>
+  <label class="required" for="defaultExamsInput" title="Default limit jumlah ujian untuk pendaftaran baru">Maks Total Ujian</label>
   <input type="number" id="defaultExamsInput" required min="1" title="Limit jumlah ujian">
   </div>
   <div class="form-group space-y-1">
@@ -279,7 +279,7 @@
   <input type="number" id="defaultConcurrentInput" required min="1" title="Maksimal ujian berjalan bersamaan (sudah dimulai & bisa dikerjakan siswa)">
   </div>
   <div class="form-group space-y-1">
-  <label class="required" for="defaultPdfInput" title="Default limit ukuran file PDF (dalam Megabytes / MB) untuk pendaftaran baru">Limit PDF</label>
+  <label class="required" for="defaultPdfInput" title="Default limit ukuran file PDF (dalam Megabytes / MB) untuk pendaftaran baru">Maks Upload (MB)</label>
   <input type="number" id="defaultPdfInput" required min="0.1" step="0.1" title="Limit ukuran file PDF (dalam Megabytes / MB)">
   </div>
   <div class="form-group space-y-1">
@@ -504,7 +504,7 @@
    </div>
   <div class="form-row-2col grid grid-cols-1 sm:grid-cols-4 gap-4">
  <div class="form-group space-y-1">
-  <label class="required" for="limitInput">Limit Ujian</label>
+  <label class="required" for="limitInput">Maks Total Ujian</label>
   <input type="number" id="limitInput" required value="0" min="0" class="q-field-input">
  </div>
  <div class="form-group space-y-1">
@@ -512,11 +512,11 @@
   <input type="number" id="concurrentInput" required value="0" min="0" class="q-field-input">
  </div>
  <div class="form-group space-y-1">
-  <label class="required" for="pdfSizeInput">Limit PDF (MB)</label>
+  <label class="required" for="pdfSizeInput">Maks Upload (MB)</label>
   <input type="number" id="pdfSizeInput" required value="0.5" min="0" step="0.1" class="q-field-input">
  </div>
  <div class="form-group space-y-1">
-  <label class="required" for="storageSizeInput" title="Batas total kapasitas storage (0 = tidak terbatas)">Limit Storage (MB)</label>
+  <label class="required" for="storageSizeInput" title="Batas total kapasitas storage (0 = tidak terbatas)">Maks Storage (MB)</label>
   <input type="number" id="storageSizeInput" required value="0" min="0" class="q-field-input">
  </div>
  </div>

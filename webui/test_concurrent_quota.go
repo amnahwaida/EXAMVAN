@@ -281,8 +281,8 @@ func createUser(ctx context.Context, pool *pgxpool.Pool, username, password stri
 	var id int
 	err := pool.QueryRow(ctx, `
 		INSERT INTO admin_users (username, name, email, password_hash, status, instansi, role,
-		                         max_exams, max_pdf_size, max_drafts, max_concurrent_exams, max_draft_size, max_storage_size, package)
-		VALUES ($1,$2,$3,$4,'active','Instansi Uji','["guru"]',$5,10485760,2,$6,1048576,0,'free')
+		                         max_exams, max_pdf_size, max_concurrent_exams, max_storage_size, package)
+		VALUES ($1,$2,$3,$4,'active','Instansi Uji','["guru"]',$5,10485760,$6,0,'free')
 		RETURNING id`,
 		username, "User Uji", username+"@test.local", string(hash), maxExams, concurrent).Scan(&id)
 	if err != nil {

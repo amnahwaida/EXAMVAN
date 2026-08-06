@@ -22,26 +22,26 @@ import (
 
 // CalculatePackagePrice calculates pricing based on settings db, falling back to hardcoded defaults
 
-// packageEntitlement returns (exams, pdfBytes, drafts, concurrent, storageBytes, role)
+// packageEntitlement returns (exams, pdfBytes, concurrent, storageBytes, role)
 // for a fixed package. `concurrent` is the max_concurrent_exams quota: the
 // number of exams that may RUN simultaneously (mirrors the "Ujian Aktif"
 // values advertised on the pricing page, so concurrent <= total exams).
-func packageEntitlement(pkg string) (exams, pdf, drafts, concurrent, storage int64, role string) {
+func packageEntitlement(pkg string) (exams, pdf, concurrent, storage int64, role string) {
 	switch pkg {
 	case "guru":
-		return 1, 10 * 1024 * 1024, 10, 1, 100 * 1024 * 1024, ""
+		return 1, 10 * 1024 * 1024, 1, 100 * 1024 * 1024, ""
 	case "individu":
-		return 2, 30 * 1024 * 1024, 30, 2, 300 * 1024 * 1024, ""
+		return 2, 30 * 1024 * 1024, 2, 300 * 1024 * 1024, ""
 	case "sekolah_kecil":
-		return 3, 50 * 1024 * 1024, 50, 3, 500 * 1024 * 1024, models.SerializeRoles([]string{models.RoleOperator})
+		return 3, 50 * 1024 * 1024, 3, 500 * 1024 * 1024, models.SerializeRoles([]string{models.RoleOperator})
 	case "sekolah_menengah":
-		return 5, 200 * 1024 * 1024, 200, 5, 2000 * 1024 * 1024, models.SerializeRoles([]string{models.RoleOperator})
+		return 5, 200 * 1024 * 1024, 5, 2000 * 1024 * 1024, models.SerializeRoles([]string{models.RoleOperator})
 	case "sekolah_besar":
-		return 10, 500 * 1024 * 1024, 500, 10, 5000 * 1024 * 1024, models.SerializeRoles([]string{models.RoleOperator})
+		return 10, 500 * 1024 * 1024, 10, 5000 * 1024 * 1024, models.SerializeRoles([]string{models.RoleOperator})
 	case "sekolah_unggulan":
-		return 99999, 99999 * 1024 * 1024, 99999, 99999, 999999 * 1024 * 1024, models.SerializeRoles([]string{models.RoleOperator})
+		return 99999, 99999 * 1024 * 1024, 99999, 999999 * 1024 * 1024, models.SerializeRoles([]string{models.RoleOperator})
 	default:
-		return 1, 1 * 1024 * 1024, 1, 1, 50 * 1024 * 1024, ""
+		return 1, 1 * 1024 * 1024, 1, 50 * 1024 * 1024, ""
 	}
 }
 
@@ -82,7 +82,7 @@ func latestApprovedTransactionForUser(ctx context.Context, tx pgx.Tx, userID, ex
 }
 
 func applyApprovedTransactionEntitlement(ctx context.Context, tx pgx.Tx, userID int, pkg, durationType string, expiresAt time.Time, role string) error {
-	exams, pdf, drafts, concurrent, storage, newRole := packageEntitlement(pkg)
+	exams, pdf, concurrent, storage, newRole := packageEntitlement(pkg)
 	if role == "" {
 		role = newRole
 	}
@@ -104,9 +104,9 @@ func applyApprovedTransactionEntitlement(ctx context.Context, tx pgx.Tx, userID 
 		// Apply package/limits/expiry without touching the role column.
 		_, err := tx.Exec(ctx, `UPDATE admin_users SET
 			package = $1, max_exams = $2, max_pdf_size = $3,
-			max_drafts = $4, max_concurrent_exams = $5, max_storage_size = $6,
-			expires_at = $7, status = 'active'
-			WHERE id = $8`, pkg, exams, pdf, drafts, concurrent, storage, expiresAt, userID)
+			max_concurrent_exams = $4, max_storage_size = $5,
+			expires_at = $6, status = 'active'
+			WHERE id = $7`, pkg, exams, pdf, concurrent, storage, expiresAt, userID)
 		return err
 	}
 
@@ -121,9 +121,9 @@ func applyApprovedTransactionEntitlement(ctx context.Context, tx pgx.Tx, userID 
 
 	_, err := tx.Exec(ctx, `UPDATE admin_users SET
 		package = $1, max_exams = $2, max_pdf_size = $3,
-		max_drafts = $4, max_concurrent_exams = $5, max_storage_size = $6,
-		expires_at = $7, status = 'active', role = $8
-		WHERE id = $9`, pkg, exams, pdf, drafts, concurrent, storage, expiresAt, mergedJSON, userID)
+		max_concurrent_exams = $4, max_storage_size = $5,
+		expires_at = $6, status = 'active', role = $7
+		WHERE id = $8`, pkg, exams, pdf, concurrent, storage, expiresAt, mergedJSON, userID)
 	return err
 }
 
@@ -176,22 +176,22 @@ func applyCustomVoucherEntitlement(ctx context.Context, tx pgx.Tx, userID int, v
 			merged = append(merged, role)
 		}
 		_, err := tx.Exec(ctx, `UPDATE admin_users SET
-			package = $1, max_exams = $2, max_pdf_size = $3, max_drafts = $4,
-			max_concurrent_exams = $5, max_draft_size = $6, max_storage_size = $7, expires_at = $8,
-			status = 'active', role = $9
-			WHERE id = $10`,
-			pkgLabel, v.CustomMaxExams, v.CustomMaxPDFSize, v.CustomMaxDrafts,
-			concurrent, v.CustomMaxDraftSize, v.CustomMaxStorageSize, expiresAt,
+			package = $1, max_exams = $2, max_pdf_size = $3,
+			max_concurrent_exams = $4, max_storage_size = $5, expires_at = $6,
+			status = 'active', role = $7
+			WHERE id = $8`,
+			pkgLabel, v.CustomMaxExams, v.CustomMaxPDFSize,
+			concurrent, v.CustomMaxStorageSize, expiresAt,
 			models.SerializeRoles(merged), userID)
 		return err
 	}
 
 	_, err := tx.Exec(ctx, `UPDATE admin_users SET
-		package = $1, max_exams = $2, max_pdf_size = $3, max_drafts = $4,
-		max_concurrent_exams = $5, max_draft_size = $6, max_storage_size = $7, expires_at = $8, status = 'active'
-		WHERE id = $9`,
-		pkgLabel, v.CustomMaxExams, v.CustomMaxPDFSize, v.CustomMaxDrafts,
-		concurrent, v.CustomMaxDraftSize, v.CustomMaxStorageSize, expiresAt, userID)
+		package = $1, max_exams = $2, max_pdf_size = $3,
+		max_concurrent_exams = $4, max_storage_size = $5, expires_at = $6, status = 'active'
+		WHERE id = $7`,
+		pkgLabel, v.CustomMaxExams, v.CustomMaxPDFSize,
+		concurrent, v.CustomMaxStorageSize, expiresAt, userID)
 	return err
 }
 
@@ -376,14 +376,14 @@ func ProcessTransactionApproval(ctx context.Context, pool *pgxpool.Pool, txID in
 	// Lock & fetch user inside same transaction
 	var user models.AdminUser
 	err = dbTx.QueryRow(ctx,
-		`SELECT id, username, name, email, role, package, max_exams, max_pdf_size, max_drafts,
-		        max_draft_size, max_storage_size, expires_at, status, instansi, instansi_id
+		`SELECT id, username, name, email, role, package, max_exams, max_pdf_size,
+		        max_storage_size, expires_at, status, instansi, instansi_id
 		FROM admin_users WHERE id = $1 FOR UPDATE`,
 		tx.UserID,
 	).Scan(
 		&user.ID, &user.Username, &user.Name, &user.Email, &user.Role,
-		&user.Package, &user.MaxExams, &user.MaxPDFSize, &user.MaxDrafts,
-		&user.MaxDraftSize, &user.MaxStorageSize, &user.ExpiresAt, &user.Status,
+		&user.Package, &user.MaxExams, &user.MaxPDFSize,
+		&user.MaxStorageSize, &user.ExpiresAt, &user.Status,
 		&user.Instansi, &user.InstansiID,
 	)
 	if err != nil {
@@ -417,7 +417,7 @@ func ProcessTransactionApproval(ctx context.Context, pool *pgxpool.Pool, txID in
 
 	// Upgrade role — sekolah packages get operator privileges
 	newRole := ""
-	if _, _, _, _, _, role := packageEntitlement(tx.Package); role != "" {
+	if _, _, _, _, role := packageEntitlement(tx.Package); role != "" {
 		newRole = role
 	}
 
@@ -492,7 +492,7 @@ func ProcessTransactionReversal(ctx context.Context, pool *pgxpool.Pool, txID in
 			if containsRole(roles, models.RoleSuperAdmin) {
 				_, err = dbTx.Exec(ctx,
 					`UPDATE admin_users SET package = 'free', max_exams = 1, max_pdf_size = 1048576,
-						max_drafts = 1, max_concurrent_exams = 1, max_storage_size = 52428800, expires_at = NULL
+						max_concurrent_exams = 1, max_storage_size = 52428800, expires_at = NULL
 					WHERE id = $1`, tx.UserID)
 			} else {
 				kept := make([]string, 0, len(roles))
@@ -506,7 +506,7 @@ func ProcessTransactionReversal(ctx context.Context, pool *pgxpool.Pool, txID in
 				}
 				_, err = dbTx.Exec(ctx,
 					`UPDATE admin_users SET package = 'free', max_exams = 1, max_pdf_size = 1048576,
-						max_drafts = 1, max_concurrent_exams = 1, max_storage_size = 52428800, expires_at = NULL, role = $2
+						max_concurrent_exams = 1, max_storage_size = 52428800, expires_at = NULL, role = $2
 					WHERE id = $1`, tx.UserID, models.SerializeRoles(kept))
 			}
 			if err != nil {
@@ -515,14 +515,14 @@ func ProcessTransactionReversal(ctx context.Context, pool *pgxpool.Pool, txID in
 		} else {
 			now := time.Now().UTC()
 			var user models.AdminUser
-			if err := dbTx.QueryRow(ctx, `SELECT id, username, name, email, role, package, max_exams, max_pdf_size, max_drafts, max_draft_size, max_storage_size, expires_at, status, instansi, instansi_id FROM admin_users WHERE id = $1 FOR UPDATE`, tx.UserID).Scan(&user.ID, &user.Username, &user.Name, &user.Email, &user.Role, &user.Package, &user.MaxExams, &user.MaxPDFSize, &user.MaxDrafts, &user.MaxDraftSize, &user.MaxStorageSize, &user.ExpiresAt, &user.Status, &user.Instansi, &user.InstansiID); err != nil {
+			if err := dbTx.QueryRow(ctx, `SELECT id, username, name, email, role, package, max_exams, max_pdf_size, max_storage_size, expires_at, status, instansi, instansi_id FROM admin_users WHERE id = $1 FOR UPDATE`, tx.UserID).Scan(&user.ID, &user.Username, &user.Name, &user.Email, &user.Role, &user.Package, &user.MaxExams, &user.MaxPDFSize, &user.MaxStorageSize, &user.ExpiresAt, &user.Status, &user.Instansi, &user.InstansiID); err != nil {
 				return fmt.Errorf("failed to reload user for reversal: %w", err)
 			}
 			expiresAt := now.AddDate(0, 0, durationDays(latest.DurationType))
 			if user.ExpiresAt != nil && user.ExpiresAt.After(now) {
 				expiresAt = *user.ExpiresAt
 			}
-			_, _, _, _, _, role := packageEntitlement(latest.Package)
+			_, _, _, _, role := packageEntitlement(latest.Package)
 			if err := applyApprovedTransactionEntitlement(ctx, dbTx, tx.UserID, latest.Package, latest.DurationType, expiresAt, role); err != nil {
 				return fmt.Errorf("failed to restore user entitlement: %w", err)
 			}
@@ -822,14 +822,14 @@ func BillingPage() gin.HandlerFunc {
 			Key, Title, Audience, Accent                                              string
 			Popular                                                                   bool
 			Monthly, Semester, Annual                                                 int64
-			MaxExams, PdfLimit, DraftLimit, StorageLimit, TokenMode, Results, Answers string
+			MaxExams, PdfLimit, StorageLimit, TokenMode, Results, Answers string
 		}{
-			{Key: "guru", Title: "Paket Guru", Audience: "Guru les, bimbel kecil, tryout kelas", Accent: "guru", Monthly: prices[models.SettingPriceGuruBulanan], Semester: prices[models.SettingPriceGuruSemester], Annual: prices[models.SettingPriceGuruTahunan], MaxExams: "1 ujian aktif", PdfLimit: "10 MB per PDF", DraftLimit: "10 draft soal", StorageLimit: "100 MB storage", TokenMode: "Statis", Results: "Aktif", Answers: "Nonaktif"},
-			{Key: "individu", Title: "Paket Individu", Audience: "Pembuat tryout online, bimbel 1-2 kelas", Accent: "individu", Monthly: prices[models.SettingPriceIndividuBulanan], Semester: prices[models.SettingPriceIndividuSemester], Annual: prices[models.SettingPriceIndividuTahunan], MaxExams: "2 ujian aktif", PdfLimit: "30 MB per PDF", DraftLimit: "30 draft soal", StorageLimit: "300 MB storage", TokenMode: "Statis + dinamis", Results: "Aktif", Answers: "Aktif"},
-			{Key: "sekolah_kecil", Title: "Sekolah Kecil", Audience: "SD / MI, ujian PH / UTS", Accent: "kecil", Monthly: prices[models.SettingPriceSekolahKecilBulanan], Semester: prices[models.SettingPriceSekolahKecilSemester], Annual: prices[models.SettingPriceSekolahKecilTahunan], MaxExams: "3 ujian aktif", PdfLimit: "50 MB per PDF", DraftLimit: "50 draft soal", StorageLimit: "500 MB storage", TokenMode: "Statis", Results: "Aktif", Answers: "Nonaktif"},
-			{Key: "sekolah_menengah", Title: "Sekolah Menengah", Audience: "SMP / MTs, ujian PAS / PAT", Accent: "menengah", Monthly: prices[models.SettingPriceSekolahMenengahBulanan], Semester: prices[models.SettingPriceSekolahMenengahSemester], Annual: prices[models.SettingPriceSekolahMenengahTahunan], MaxExams: "5 ujian aktif", PdfLimit: "200 MB per PDF", DraftLimit: "200 draft soal", StorageLimit: "2 GB storage", TokenMode: "Statis + dinamis", Results: "Aktif", Answers: "Aktif"},
-			{Key: "sekolah_besar", Title: "Sekolah Besar", Audience: "SMA / MA / SMK, tryout skala besar", Popular: true, Accent: "besar", Monthly: prices[models.SettingPriceSekolahBesarBulanan], Semester: prices[models.SettingPriceSekolahBesarSemester], Annual: prices[models.SettingPriceSekolahBesarTahunan], MaxExams: "10 ujian aktif", PdfLimit: "500 MB per PDF", DraftLimit: "500 draft soal", StorageLimit: "5 GB storage", TokenMode: "Statis + dinamis", Results: "Aktif", Answers: "Aktif"},
-			{Key: "sekolah_unggulan", Title: "Sekolah Unggulan", Audience: "Kampus, yayasan, skala kabupaten/kota", Accent: "unggulan", Monthly: prices[models.SettingPriceSekolahUnggulanBulanan], Semester: prices[models.SettingPriceSekolahUnggulanSemester], Annual: prices[models.SettingPriceSekolahUnggulanTahunan], MaxExams: "Tak terbatas", PdfLimit: "Tak terbatas", DraftLimit: "Tak terbatas", StorageLimit: "Tak terbatas", TokenMode: "Statis + dinamis", Results: "Aktif", Answers: "Aktif"},
+			{Key: "guru", Title: "Paket Guru", Audience: "Guru les, bimbel kecil, tryout kelas", Accent: "guru", Monthly: prices[models.SettingPriceGuruBulanan], Semester: prices[models.SettingPriceGuruSemester], Annual: prices[models.SettingPriceGuruTahunan], MaxExams: "1 ujian aktif", PdfLimit: "10 MB per PDF", StorageLimit: "100 MB storage", TokenMode: "Statis", Results: "Aktif", Answers: "Nonaktif"},
+			{Key: "individu", Title: "Paket Individu", Audience: "Pembuat tryout online, bimbel 1-2 kelas", Accent: "individu", Monthly: prices[models.SettingPriceIndividuBulanan], Semester: prices[models.SettingPriceIndividuSemester], Annual: prices[models.SettingPriceIndividuTahunan], MaxExams: "2 ujian aktif", PdfLimit: "30 MB per PDF", StorageLimit: "300 MB storage", TokenMode: "Statis + dinamis", Results: "Aktif", Answers: "Aktif"},
+			{Key: "sekolah_kecil", Title: "Sekolah Kecil", Audience: "SD / MI, ujian PH / UTS", Accent: "kecil", Monthly: prices[models.SettingPriceSekolahKecilBulanan], Semester: prices[models.SettingPriceSekolahKecilSemester], Annual: prices[models.SettingPriceSekolahKecilTahunan], MaxExams: "3 ujian aktif", PdfLimit: "50 MB per PDF", StorageLimit: "500 MB storage", TokenMode: "Statis", Results: "Aktif", Answers: "Nonaktif"},
+			{Key: "sekolah_menengah", Title: "Sekolah Menengah", Audience: "SMP / MTs, ujian PAS / PAT", Accent: "menengah", Monthly: prices[models.SettingPriceSekolahMenengahBulanan], Semester: prices[models.SettingPriceSekolahMenengahSemester], Annual: prices[models.SettingPriceSekolahMenengahTahunan], MaxExams: "5 ujian aktif", PdfLimit: "200 MB per PDF", StorageLimit: "2 GB storage", TokenMode: "Statis + dinamis", Results: "Aktif", Answers: "Aktif"},
+			{Key: "sekolah_besar", Title: "Sekolah Besar", Audience: "SMA / MA / SMK, tryout skala besar", Popular: true, Accent: "besar", Monthly: prices[models.SettingPriceSekolahBesarBulanan], Semester: prices[models.SettingPriceSekolahBesarSemester], Annual: prices[models.SettingPriceSekolahBesarTahunan], MaxExams: "10 ujian aktif", PdfLimit: "500 MB per PDF", StorageLimit: "5 GB storage", TokenMode: "Statis + dinamis", Results: "Aktif", Answers: "Aktif"},
+			{Key: "sekolah_unggulan", Title: "Sekolah Unggulan", Audience: "Kampus, yayasan, skala kabupaten/kota", Accent: "unggulan", Monthly: prices[models.SettingPriceSekolahUnggulanBulanan], Semester: prices[models.SettingPriceSekolahUnggulanSemester], Annual: prices[models.SettingPriceSekolahUnggulanTahunan], MaxExams: "Tak terbatas", PdfLimit: "Tak terbatas", StorageLimit: "Tak terbatas", TokenMode: "Statis + dinamis", Results: "Aktif", Answers: "Aktif"},
 		}
 
 		selectedPackage := strings.TrimSpace(c.Query("package"))
@@ -857,14 +857,27 @@ func BillingPage() gin.HandlerFunc {
 			userMaxConcurrent = fmt.Sprintf("%d Ujian", user.MaxConcurrentExams)
 		}
 
+		// Super admins bypass all quota enforcement, so present their
+		// entitlements as unlimited on the billing page.
+		if isSuper {
+			userMaxTotal = "Tanpa Batas"
+			userMaxConcurrent = "Tanpa Batas"
+		}
+
+		userPkg := user.Package
+		if isSuper && userPkg == "free" {
+			userPkg = "SuperAdmin (Full)"
+		}
+
 		data := gin.H{
 			"active_page":          "billing",
-			"user_package":         user.Package,
+			"user_package":         userPkg,
 			"user_expires_at":      expiresStr,
 			"user_max_total_exams": userMaxTotal,
 			"user_max_concurrent":  userMaxConcurrent,
 			"user_max_pdf_size_mb": float64(user.MaxPDFSize) / (1024 * 1024),
 			"user_max_storage_mb":  float64(user.MaxStorageSize) / (1024 * 1024),
+			"user_is_super":        isSuper,
 			"prices":               prices,
 			"plans":                plans,
 			"selected_package":     selectedPackage,

@@ -122,9 +122,7 @@ func ListUsers() gin.HandlerFunc {
 			Status             string   `json:"status"`
 			MaxExams           int      `json:"max_exams"`
 			MaxPDFSize         int      `json:"max_pdf_size"`
-			MaxDrafts          int      `json:"max_drafts"`
 			MaxConcurrentExams int      `json:"max_concurrent_exams"`
-			MaxDraftSize       int      `json:"max_draft_size"`
 			MaxStorageSize     int64    `json:"max_storage_size"`
 			MaxStorageMB       int      `json:"max_storage_mb"`
 			Instansi           string   `json:"instansi"`
@@ -151,9 +149,7 @@ func ListUsers() gin.HandlerFunc {
 				Status:             u.Status,
 				MaxExams:           u.MaxExams,
 				MaxPDFSize:         u.MaxPDFSize,
-				MaxDrafts:          u.MaxDrafts,
 				MaxConcurrentExams: u.MaxConcurrentExams,
-				MaxDraftSize:       u.MaxDraftSize,
 				MaxStorageSize:     u.MaxStorageSize,
 				MaxStorageMB:       int(u.MaxStorageSize / (1024 * 1024)),
 				Instansi:           u.Instansi,
@@ -196,9 +192,7 @@ func CreateUser() gin.HandlerFunc {
 			Instansi           string   `json:"instansi"`
 			MaxExams           int      `json:"max_exams"`
 			MaxPDFSizeMB       float64  `json:"max_pdf_size_mb"`
-			MaxDrafts          int      `json:"max_drafts"`
 			MaxConcurrentExams int      `json:"max_concurrent_exams"`
-			MaxDraftSizeMB     float64  `json:"max_draft_size_mb"`
 			MaxStorageSizeMB   float64  `json:"max_storage_size_mb"`
 			ExpiresAt          string   `json:"expires_at"`
 			Package            string   `json:"package"`
@@ -326,22 +320,10 @@ func CreateUser() gin.HandlerFunc {
 				models.SettingDefaultMaxPDFSize, 1048576)
 		}
 
-		maxDrafts := body.MaxDrafts
-		if maxDrafts <= 0 {
-			maxDrafts = models.GetSaasSettingInt(ctx, pool,
-				models.SettingDefaultMaxDrafts, 2)
-		}
-
 		maxConcurrentExams := body.MaxConcurrentExams
 		if maxConcurrentExams <= 0 {
 			maxConcurrentExams = models.GetSaasSettingInt(ctx, pool,
 				models.SettingDefaultMaxConcurrentExams, 2)
-		}
-
-		maxDraftSize := int(body.MaxDraftSizeMB * 1024 * 1024)
-		if maxDraftSize <= 0 {
-			maxDraftSize = models.GetSaasSettingInt(ctx, pool,
-				models.SettingDefaultMaxDraftSize, 1048576)
 		}
 
 		maxStorageSize := int64(body.MaxStorageSizeMB * 1024 * 1024)
@@ -360,9 +342,7 @@ func CreateUser() gin.HandlerFunc {
 			Role:               roleStr,
 			MaxExams:           maxExams,
 			MaxPDFSize:         maxPDFSize,
-			MaxDrafts:          maxDrafts,
 			MaxConcurrentExams: maxConcurrentExams,
-			MaxDraftSize:       maxDraftSize,
 			MaxStorageSize:     maxStorageSize,
 			WhatsappNumber:     strings.TrimSpace(body.WhatsappNumber),
 			Email:              strings.TrimSpace(body.Email),
@@ -413,9 +393,7 @@ func EditUser() gin.HandlerFunc {
 			Instansi           *string  `json:"instansi"`
 			Role               *string  `json:"role"`
 			Roles              []string `json:"roles"`
-			MaxDrafts          *int     `json:"max_drafts"`
 			MaxConcurrentExams *int     `json:"max_concurrent_exams"`
-			MaxDraftSizeMB     *float64 `json:"max_draft_size_mb"`
 			MaxStorageSizeMB   *float64 `json:"max_storage_size_mb"`
 			ExpiresAt          *string  `json:"expires_at"`
 			Package            *string  `json:"package"`
@@ -481,17 +459,8 @@ func EditUser() gin.HandlerFunc {
 			updates["max_pdf_size"] = pdfSize
 		}
 
-		if body.MaxDrafts != nil {
-			updates["max_drafts"] = *body.MaxDrafts
-		}
-
 		if body.MaxConcurrentExams != nil {
 			updates["max_concurrent_exams"] = *body.MaxConcurrentExams
-		}
-
-		if body.MaxDraftSizeMB != nil {
-			draftSize := int(*body.MaxDraftSizeMB * 1024 * 1024)
-			updates["max_draft_size"] = draftSize
 		}
 
 		if body.MaxStorageSizeMB != nil {

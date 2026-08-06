@@ -502,7 +502,7 @@
   <section class="hero-section reveal">
     <div class="hero-badge"><span class="dot"></span> Kuota Sistem Terkini</div>
     <h1 class="hero-title">Pilih paket sesuai skala ujian Anda</h1>
-    <p class="hero-desc">Harga dan batas paket di bawah mengikuti konfigurasi billing EXAMVAN saat ini: jumlah ujian aktif, batas PDF, draft soal, storage, token, dan fitur hasil.</p>
+    <p class="hero-desc">Harga dan batas paket di bawah mengikuti konfigurasi billing EXAMVAN saat ini: jumlah ujian aktif, batas PDF, storage, token, dan fitur hasil.</p>
   </section>
 
   {{if .unavailable}}
@@ -558,16 +558,12 @@
 
       <div class="card-limits">
         <div class="limit-item">
-          <span class="limit-label tooltip" data-tooltip="Ujian yang berjalan aktif (bisa dikerjakan) secara bersamaan">Ujian Aktif <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M11.25 11.25l.041-.02a.75.75 0 011.063.852l-.708 2.836a.75.75 0 001.063.853l.041-.021M21 12a9 9 0 11-18 0 9 9 0 0118 0zm-9-3.75h.008v.008H12V8.25z" /></svg></span>
+          <span class="limit-label tooltip" data-tooltip="Maksimal total ujian yang dapat disimpan di sistem">Total Ujian <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M11.25 11.25l.041-.02a.75.75 0 011.063.852l-.708 2.836a.75.75 0 001.063.853l.041-.021M21 12a9 9 0 11-18 0 9 9 0 0118 0zm-9-3.75h.008v.008H12V8.25z" /></svg></span>
           <span class="limit-value">{{.MaxExams}}</span>
         </div>
-        <div class="limit-item">
-          <span class="limit-label tooltip" data-tooltip="Batas ukuran unggah PDF per soal ujian">Batas PDF <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M11.25 11.25l.041-.02a.75.75 0 011.063.852l-.708 2.836a.75.75 0 001.063.853l.041-.021M21 12a9 9 0 11-18 0 9 9 0 0118 0zm-9-3.75h.008v.008H12V8.25z" /></svg></span>
+<div class="limit-item">
+          <span class="limit-label tooltip" data-tooltip="Maksimal ukuran file PDF dalam sekali upload">Maks Upload <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M11.25 11.25l.041-.02a.75.75 0 011.063.852l-.708 2.836a.75.75 0 001.063.853l.041-.021M21 12a9 9 0 11-18 0 9 9 0 0118 0zm-9-3.75h.008v.008H12V8.25z" /></svg></span>
           <span class="limit-value">{{.PdfLimit}}</span>
-        </div>
-        <div class="limit-item">
-          <span class="limit-label tooltip" data-tooltip="Batas jumlah ujian yang bisa disimpan ke bank soal (tidak aktif)">Draft Ujian <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M11.25 11.25l.041-.02a.75.75 0 011.063.852l-.708 2.836a.75.75 0 001.063.853l.041-.021M21 12a9 9 0 11-18 0 9 9 0 0118 0zm-9-3.75h.008v.008H12V8.25z" /></svg></span>
-          <span class="limit-value">{{.DraftLimit}}</span>
         </div>
         <div class="limit-item">
           <span class="limit-label tooltip" data-tooltip="Total ruang penyimpanan server untuk soal/media Anda">Storage <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M11.25 11.25l.041-.02a.75.75 0 011.063.852l-.708 2.836a.75.75 0 001.063.853l.041-.021M21 12a9 9 0 11-18 0 9 9 0 0118 0zm-9-3.75h.008v.008H12V8.25z" /></svg></span>
@@ -616,16 +612,12 @@
           {{range .plans}}<td><strong class="price-amount-compare" data-package="{{.Key}}">Rp 0</strong></td>{{end}}
         </tr>
         <tr>
-          <td>Ujian aktif</td>
+          <td>Total Ujian</td>
           {{range .plans}}<td>{{.MaxExams}}</td>{{end}}
         </tr>
         <tr>
-          <td>Batas PDF</td>
+          <td>Maks Upload</td>
           {{range .plans}}<td>{{.PdfLimit}}</td>{{end}}
-        </tr>
-        <tr>
-          <td>Draft soal</td>
-          {{range .plans}}<td>{{.DraftLimit}}</td>{{end}}
         </tr>
         <tr>
           <td>Storage</td>

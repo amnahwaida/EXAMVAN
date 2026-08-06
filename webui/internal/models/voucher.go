@@ -32,9 +32,7 @@ type Voucher struct {
 	CustomLabel              string `json:"custom_label"`
 	CustomMaxExams           int    `json:"custom_max_exams"`
 	CustomMaxPDFSize         int64  `json:"custom_max_pdf_size"`
-	CustomMaxDrafts          int    `json:"custom_max_drafts"`
 	CustomMaxConcurrentExams int    `json:"custom_max_concurrent_exams"`
-	CustomMaxDraftSize       int64  `json:"custom_max_draft_size"`
 	CustomMaxStorageSize     int64  `json:"custom_max_storage_size"`
 	CustomRole               string `json:"custom_role"`
 }
@@ -79,15 +77,15 @@ func CreateVoucher(ctx context.Context, pool *pgxpool.Pool, v *Voucher) (*Vouche
 
 	sql := `INSERT INTO vouchers
 		(code, package, duration_type, max_usage, expires_at, is_active, notes, created_by,
-		 is_custom, custom_label, custom_max_exams, custom_max_pdf_size, custom_max_drafts,
-		 custom_max_concurrent_exams, custom_max_draft_size, custom_max_storage_size, custom_role)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17)
+		 is_custom, custom_label, custom_max_exams, custom_max_pdf_size,
+		 custom_max_concurrent_exams, custom_max_storage_size, custom_role)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)
 		RETURNING id, used_count, created_at, updated_at`
 
 	err := pool.QueryRow(ctx, sql,
 		v.Code, v.Package, v.DurationType, v.MaxUsage, v.ExpiresAt, v.IsActive, v.Notes, v.CreatedByID,
-		v.IsCustom, v.CustomLabel, v.CustomMaxExams, v.CustomMaxPDFSize, v.CustomMaxDrafts,
-		v.CustomMaxConcurrentExams, v.CustomMaxDraftSize, v.CustomMaxStorageSize, v.CustomRole,
+		v.IsCustom, v.CustomLabel, v.CustomMaxExams, v.CustomMaxPDFSize,
+		v.CustomMaxConcurrentExams, v.CustomMaxStorageSize, v.CustomRole,
 	).Scan(&v.ID, &v.UsedCount, &v.CreatedAt, &v.UpdatedAt)
 
 	if err != nil {
@@ -136,9 +134,9 @@ func GetVoucherByCode(ctx context.Context, pool *pgxpool.Pool, code string) (*Vo
 	               v.expires_at, v.is_active, v.notes, v.created_by, COALESCE(u.username, ''),
 	               v.created_at, v.updated_at,
 	               v.is_custom, COALESCE(v.custom_label, ''), COALESCE(v.custom_max_exams, 0),
-	               COALESCE(v.custom_max_pdf_size, 0), COALESCE(v.custom_max_drafts, 0),
+	               COALESCE(v.custom_max_pdf_size, 0),
 	               COALESCE(v.custom_max_concurrent_exams, 0),
-	               COALESCE(v.custom_max_draft_size, 0), COALESCE(v.custom_max_storage_size, 0),
+	               COALESCE(v.custom_max_storage_size, 0),
 	               COALESCE(v.custom_role, '')
 	        FROM vouchers v
 	        LEFT JOIN admin_users u ON v.created_by = u.id
@@ -149,9 +147,9 @@ func GetVoucherByCode(ctx context.Context, pool *pgxpool.Pool, code string) (*Vo
 		&v.ID, &v.Code, &v.Package, &v.DurationType, &v.MaxUsage, &v.UsedCount,
 		&v.ExpiresAt, &v.IsActive, &v.Notes, &v.CreatedByID, &v.CreatedBy,
 		&v.CreatedAt, &v.UpdatedAt,
-		&v.IsCustom, &v.CustomLabel, &v.CustomMaxExams, &v.CustomMaxPDFSize, &v.CustomMaxDrafts,
+		&v.IsCustom, &v.CustomLabel, &v.CustomMaxExams, &v.CustomMaxPDFSize,
 		&v.CustomMaxConcurrentExams,
-		&v.CustomMaxDraftSize, &v.CustomMaxStorageSize, &v.CustomRole,
+		&v.CustomMaxStorageSize, &v.CustomRole,
 	)
 	if err != nil {
 		if err == pgx.ErrNoRows {
@@ -213,9 +211,9 @@ func ListVouchers(ctx context.Context, pool *pgxpool.Pool, opts ListVouchersOpts
 		       v.expires_at, v.is_active, v.notes, v.created_by, COALESCE(u.username, ''),
 		       v.created_at, v.updated_at,
 		       v.is_custom, COALESCE(v.custom_label, ''), COALESCE(v.custom_max_exams, 0),
-		       COALESCE(v.custom_max_pdf_size, 0), COALESCE(v.custom_max_drafts, 0),
+		       COALESCE(v.custom_max_pdf_size, 0),
 		       COALESCE(v.custom_max_concurrent_exams, 0),
-		       COALESCE(v.custom_max_draft_size, 0), COALESCE(v.custom_max_storage_size, 0),
+		       COALESCE(v.custom_max_storage_size, 0),
 		       COALESCE(v.custom_role, '')
 		FROM vouchers v
 		LEFT JOIN admin_users u ON v.created_by = u.id
@@ -238,9 +236,9 @@ func ListVouchers(ctx context.Context, pool *pgxpool.Pool, opts ListVouchersOpts
 			&v.ID, &v.Code, &v.Package, &v.DurationType, &v.MaxUsage, &v.UsedCount,
 			&v.ExpiresAt, &v.IsActive, &v.Notes, &v.CreatedByID, &v.CreatedBy,
 			&v.CreatedAt, &v.UpdatedAt,
-			&v.IsCustom, &v.CustomLabel, &v.CustomMaxExams, &v.CustomMaxPDFSize, &v.CustomMaxDrafts,
+			&v.IsCustom, &v.CustomLabel, &v.CustomMaxExams, &v.CustomMaxPDFSize,
 			&v.CustomMaxConcurrentExams,
-			&v.CustomMaxDraftSize, &v.CustomMaxStorageSize, &v.CustomRole,
+			&v.CustomMaxStorageSize, &v.CustomRole,
 		); err != nil {
 			return nil, fmt.Errorf("scan voucher: %w", err)
 		}

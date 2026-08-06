@@ -224,11 +224,11 @@
    <span style="font-size:11px;font-weight:700;text-transform:uppercase;color:var(--color-accent-light);letter-spacing:0.5px;display:block;margin-bottom:12px;">Kuota Storage</span>
    <div style="display:flex;justify-content:space-between;align-items:center;font-size:13px;">
     <span class="tooltip" data-tooltip="Batas ukuran unggah PDF per soal ujian" style="color:var(--color-text-secondary);">Maks. Ukuran PDF <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M11.25 11.25l.041-.02a.75.75 0 011.063.852l-.708 2.836a.75.75 0 001.063.853l.041-.021M21 12a9 9 0 11-18 0 9 9 0 0118 0zm-9-3.75h.008v.008H12V8.25z" /></svg></span>
-    <strong style="color:#fff;">{{.user_max_pdf_size_mb}} MB</strong>
+    <strong style="color:#fff;">{{if .user_is_super}}Tanpa Batas{{else}}{{.user_max_pdf_size_mb}} MB{{end}}</strong>
    </div>
    <div style="display:flex;justify-content:space-between;align-items:center;font-size:13px;">
     <span class="tooltip" data-tooltip="Total ruang penyimpanan server untuk soal dan media" style="color:var(--color-text-secondary);">Kapasitas Penyimpanan <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M11.25 11.25l.041-.02a.75.75 0 011.063.852l-.708 2.836a.75.75 0 001.063.853l.041-.021M21 12a9 9 0 11-18 0 9 9 0 0118 0zm-9-3.75h.008v.008H12V8.25z" /></svg></span>
-    <strong style="color:#fff;">{{if eq .user_max_storage_mb 999999.0}}Tanpa Batas{{else}}{{.user_max_storage_mb}} MB{{end}}</strong>
+    <strong style="color:#fff;">{{if .user_is_super}}Tanpa Batas{{else if eq .user_max_storage_mb 999999.0}}Tanpa Batas{{else}}{{.user_max_storage_mb}} MB{{end}}</strong>
    </div>
   </div>
 
@@ -640,19 +640,15 @@
       <h4 style="margin:0 0 12px 0;font-size:13px;color:#a5b4fc;">Kuota</h4>
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;">
         <div class="form-group">
-         <label for="planMaxExams">Maks Ujian</label>
+         <label for="planMaxExams">Maks Total Ujian</label>
          <input type="text" id="planMaxExams" required placeholder="1 ujian aktif" style="width:100%;padding:8px 12px;background:rgba(255,255,255,0.05);border:1px solid var(--color-glass-border);border-radius:8px;color:#fff;">
         </div>
         <div class="form-group">
-         <label for="planPdfLimit">Maks PDF</label>
+         <label for="planPdfLimit">Maks Upload</label>
          <input type="text" id="planPdfLimit" required placeholder="10 MB per PDF" style="width:100%;padding:8px 12px;background:rgba(255,255,255,0.05);border:1px solid var(--color-glass-border);border-radius:8px;color:#fff;">
         </div>
         <div class="form-group">
-         <label for="planDraftLimit">Draft Soal</label>
-         <input type="text" id="planDraftLimit" required placeholder="10 draft soal" style="width:100%;padding:8px 12px;background:rgba(255,255,255,0.05);border:1px solid var(--color-glass-border);border-radius:8px;color:#fff;">
-        </div>
-        <div class="form-group">
-         <label for="planStorageLimit">Storage Limit</label>
+         <label for="planStorageLimit">Maks Storage</label>
          <input type="text" id="planStorageLimit" required placeholder="100 MB storage" style="width:100%;padding:8px 12px;background:rgba(255,255,255,0.05);border:1px solid var(--color-glass-border);border-radius:8px;color:#fff;">
         </div>
       </div>
@@ -1236,7 +1232,6 @@ function editPlan(id) {
     
     document.getElementById('planMaxExams').value = plan.max_exams;
     document.getElementById('planPdfLimit').value = plan.pdf_limit;
-    document.getElementById('planDraftLimit').value = plan.draft_limit;
     document.getElementById('planStorageLimit').value = plan.storage_limit;
     
     document.getElementById('planTokenMode').value = plan.token_mode;
@@ -1270,7 +1265,6 @@ function submitPlan(e) {
         
         max_exams: document.getElementById('planMaxExams').value,
         pdf_limit: document.getElementById('planPdfLimit').value,
-        draft_limit: document.getElementById('planDraftLimit').value,
         storage_limit: document.getElementById('planStorageLimit').value,
         
         token_mode: document.getElementById('planTokenMode').value,

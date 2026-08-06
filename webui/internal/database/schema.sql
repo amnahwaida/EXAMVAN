@@ -29,9 +29,7 @@ CREATE TABLE IF NOT EXISTS admin_users (
     role            TEXT DEFAULT '["guru"]',
     max_exams       INTEGER DEFAULT 3,
     max_pdf_size    INTEGER DEFAULT 1048576,
-    max_drafts      INTEGER DEFAULT 2,
     max_concurrent_exams INTEGER DEFAULT 2,
-    max_draft_size  INTEGER DEFAULT 1048576,
     max_storage_size BIGINT DEFAULT 52428800,
     whatsapp_number TEXT DEFAULT '',
     expires_at      TIMESTAMPTZ,
@@ -183,35 +181,29 @@ ALTER TABLE admin_users ADD COLUMN IF NOT EXISTS email TEXT DEFAULT '';
 ALTER TABLE admin_users ADD COLUMN IF NOT EXISTS max_storage_size BIGINT DEFAULT 52428800;
 ALTER TABLE admin_users ADD COLUMN IF NOT EXISTS otp_attempts INT NOT NULL DEFAULT 0;
 
--- Widen max_pdf_size / max_draft_size to BIGINT so large limits (e.g. the
--- sekolah_unggulan package or a custom voucher setting multi-GB sizes) fit;
--- INTEGER overflows above ~2 GB. Guarded so it only rewrites once (not on
--- every boot). Safe to re-run.
+-- Widen max_pdf_size to BIGINT so large limits (e.g. the sekolah_unggulan
+-- package or a custom voucher setting multi-GB sizes) fit; INTEGER overflows
+-- above ~2 GB. Guarded so it only rewrites once (not on every boot). Safe to
+-- re-run.
 DO $$
 BEGIN
     IF EXISTS (SELECT 1 FROM information_schema.columns
                WHERE table_name = 'admin_users' AND column_name = 'max_pdf_size' AND data_type <> 'bigint') THEN
         ALTER TABLE admin_users ALTER COLUMN max_pdf_size TYPE BIGINT;
     END IF;
-    IF EXISTS (SELECT 1 FROM information_schema.columns
-               WHERE table_name = 'admin_users' AND column_name = 'max_draft_size' AND data_type <> 'bigint') THEN
-        ALTER TABLE admin_users ALTER COLUMN max_draft_size TYPE BIGINT;
-    END IF;
 END $$;
 
 -- ============================================================
 -- Migration: dedicated concurrent-exam quota (max_concurrent_exams)
 -- ============================================================
--- Previously the draft-soal quota (max_drafts) was borrowed and displayed as
--- "Ujian Serentak" in the UI but was never enforced. This adds a dedicated
--- column for the maximum simultaneously-RUNNING exams, separate from the
--- (currently unused) draft-soal quota, so the two concepts never collide.
--- The backfill preserves the previously displayed value (max_drafts) for
--- existing accounts; only NULL rows are touched, so re-running schema.sql on
--- every boot never clobbers manually adjusted limits.
+-- A dedicated column for the maximum simultaneously-RUNNING exams, separate
+-- from the total exam quota. Called it out explicitly because older builds
+-- mislabelled the (unused) draft-soal quota as "Ujian Serentak". Only NULL
+-- rows are touched, so re-running schema.sql on every boot never clobbers
+-- manually adjusted limits.
 ALTER TABLE admin_users ADD COLUMN IF NOT EXISTS max_concurrent_exams INTEGER;
 UPDATE admin_users
-SET max_concurrent_exams = CASE WHEN max_drafts IS NOT NULL AND max_drafts > 0 THEN max_drafts ELSE 2 END
+SET max_concurrent_exams = COALESCE(max_concurrent_exams, 2)
 WHERE max_concurrent_exams IS NULL;
 ALTER TABLE admin_users ALTER COLUMN max_concurrent_exams SET DEFAULT 2;
 ALTER TABLE vouchers ADD COLUMN IF NOT EXISTS custom_max_concurrent_exams INT DEFAULT 0;
@@ -342,7 +334,6 @@ CREATE TABLE IF NOT EXISTS pricing_plans (
     icon          TEXT NOT NULL DEFAULT '',
     max_exams     TEXT NOT NULL DEFAULT '',
     pdf_limit     TEXT NOT NULL DEFAULT '',
-    draft_limit   TEXT NOT NULL DEFAULT '',
     storage_limit TEXT NOT NULL DEFAULT '',
     token_mode    TEXT NOT NULL DEFAULT '',
     results       TEXT NOT NULL DEFAULT '',
@@ -390,10 +381,20 @@ ALTER TABLE vouchers ADD COLUMN IF NOT EXISTS is_custom BOOLEAN NOT NULL DEFAULT
 ALTER TABLE vouchers ADD COLUMN IF NOT EXISTS custom_label TEXT DEFAULT '';
 ALTER TABLE vouchers ADD COLUMN IF NOT EXISTS custom_max_exams INT DEFAULT 0;
 ALTER TABLE vouchers ADD COLUMN IF NOT EXISTS custom_max_pdf_size BIGINT DEFAULT 0;
-ALTER TABLE vouchers ADD COLUMN IF NOT EXISTS custom_max_drafts INT DEFAULT 0;
-ALTER TABLE vouchers ADD COLUMN IF NOT EXISTS custom_max_draft_size BIGINT DEFAULT 0;
 ALTER TABLE vouchers ADD COLUMN IF NOT EXISTS custom_max_storage_size BIGINT DEFAULT 0;
 ALTER TABLE vouchers ADD COLUMN IF NOT EXISTS custom_role TEXT DEFAULT '';
+
+-- ============================================================
+-- Migration: remove unused legacy draft quotas
+-- ============================================================
+-- max_drafts / max_draft_size (and their voucher counterparts) were never
+-- enforced anywhere in the codebase; they existed only as a leftover from
+-- before the dedicated max_concurrent_exams quota. Drop them entirely.
+ALTER TABLE admin_users DROP COLUMN IF EXISTS max_drafts;
+ALTER TABLE admin_users DROP COLUMN IF EXISTS max_draft_size;
+ALTER TABLE vouchers DROP COLUMN IF EXISTS custom_max_drafts;
+ALTER TABLE vouchers DROP COLUMN IF EXISTS custom_max_draft_size;
+ALTER TABLE pricing_plans DROP COLUMN IF EXISTS draft_limit;
 
 CREATE INDEX IF NOT EXISTS idx_vouchers_code ON vouchers(code);
 

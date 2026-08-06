@@ -60,9 +60,7 @@ type AdminUser struct {
 	Role               string     `json:"role"` // JSON array string e.g. '["guru"]', or 'superadmin'
 	MaxExams           int        `json:"max_exams"`
 	MaxPDFSize         int        `json:"max_pdf_size"`
-	MaxDrafts          int        `json:"max_drafts"`
 	MaxConcurrentExams int        `json:"max_concurrent_exams"`
-	MaxDraftSize       int        `json:"max_draft_size"`
 	MaxStorageSize     int64      `json:"max_storage_size"`
 	WhatsappNumber     string     `json:"whatsapp_number"`
 	Email              string     `json:"email"`
@@ -364,7 +362,7 @@ func checkWerkzeugPbkdf2(password, hash string) bool {
 
 // DefaultAdminUserColumns is the column list for admin_users SELECT queries.
 const DefaultAdminUserColumns = `id, username, name, password_hash, created_at, status,
-instansi, role, max_exams, max_pdf_size, max_drafts, max_concurrent_exams, max_draft_size,
+instansi, role, max_exams, max_pdf_size, max_concurrent_exams,
 max_storage_size, whatsapp_number, email, expires_at, otp_code, otp_expiry, package`
 
 // scanAdminUser scans a row into an AdminUser struct.
@@ -372,7 +370,7 @@ func scanAdminUser(row pgx.Row) (AdminUser, error) {
 	var u AdminUser
 	err := row.Scan(
 		&u.ID, &u.Username, &u.Name, &u.PasswordHash, &u.CreatedAt, &u.Status,
-		&u.Instansi, &u.Role, &u.MaxExams, &u.MaxPDFSize, &u.MaxDrafts, &u.MaxConcurrentExams, &u.MaxDraftSize,
+		&u.Instansi, &u.Role, &u.MaxExams, &u.MaxPDFSize, &u.MaxConcurrentExams,
 		&u.MaxStorageSize, &u.WhatsappNumber, &u.Email, &u.ExpiresAt, &u.OTPCode, &u.OTPExpiry,
 		&u.Package,
 	)
@@ -497,7 +495,7 @@ func ListUsers(ctx context.Context, pool *pgxpool.Pool, opts ListUsersOpts) (Lis
 
 	// Data query.
 	sql := `SELECT u.id, u.username, u.name, u.password_hash, u.created_at, u.status,
-	u.instansi, u.role, u.max_exams, u.max_pdf_size, u.max_drafts, u.max_concurrent_exams, u.max_draft_size,
+	u.instansi, u.role, u.max_exams, u.max_pdf_size, u.max_concurrent_exams,
 	u.max_storage_size, u.whatsapp_number, u.email, u.expires_at, u.otp_code, u.otp_expiry,
 	COALESCE(u.package, 'free'),
 	COALESCE(COUNT(e.id), 0) as exam_count
@@ -526,7 +524,7 @@ func ListUsers(ctx context.Context, pool *pgxpool.Pool, opts ListUsersOpts) (Lis
 		var examCount int
 		err := rows.Scan(
 			&u.ID, &u.Username, &u.Name, &u.PasswordHash, &u.CreatedAt, &u.Status,
-			&u.Instansi, &u.Role, &u.MaxExams, &u.MaxPDFSize, &u.MaxDrafts, &u.MaxConcurrentExams, &u.MaxDraftSize,
+			&u.Instansi, &u.Role, &u.MaxExams, &u.MaxPDFSize, &u.MaxConcurrentExams,
 			&u.MaxStorageSize, &u.WhatsappNumber, &u.Email, &u.ExpiresAt, &u.OTPCode, &u.OTPExpiry,
 			&u.Package,
 			&examCount,
@@ -568,13 +566,13 @@ func CreateUser(ctx context.Context, pool *pgxpool.Pool, u *AdminUser) (*AdminUs
 
 	sql := `INSERT INTO admin_users
 	(username, name, password_hash, status, instansi, role, max_exams, max_pdf_size,
-	 max_drafts, max_concurrent_exams, max_draft_size, max_storage_size, whatsapp_number, email, expires_at, otp_code, otp_expiry, package)
-	VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18)
+	 max_concurrent_exams, max_storage_size, whatsapp_number, email, expires_at, otp_code, otp_expiry, package)
+	VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16)
 	RETURNING ` + DefaultAdminUserColumns
 
 	created, err := scanAdminUser(pool.QueryRow(ctx, sql,
 		u.Username, u.Name, hash, u.Status, u.Instansi, u.Role,
-		u.MaxExams, u.MaxPDFSize, u.MaxDrafts, u.MaxConcurrentExams, u.MaxDraftSize, u.MaxStorageSize,
+		u.MaxExams, u.MaxPDFSize, u.MaxConcurrentExams, u.MaxStorageSize,
 		u.WhatsappNumber, u.Email, u.ExpiresAt, u.OTPCode, u.OTPExpiry,
 		u.Package,
 	))
@@ -594,9 +592,7 @@ var allowedUserColumns = map[string]bool{
 	"role":                 true,
 	"max_exams":            true,
 	"max_pdf_size":         true,
-	"max_drafts":           true,
 	"max_concurrent_exams": true,
-	"max_draft_size":       true,
 	"max_storage_size":     true,
 	"whatsapp_number":      true,
 	"email":                true,

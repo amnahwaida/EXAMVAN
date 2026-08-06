@@ -1357,10 +1357,10 @@ function loadUsersList(page) {
                             ${isAdmin ? '<span style="font-size:11px; color: var(--color-text-secondary); display:block;">Super Admin</span>' : ''}
                             <div class="user-info-popup" style="display:none;">
                                 <div class="user-info-item"><span>Ujian</span><strong>${user.exam_count ?? 0}</strong></div>
-                                <div class="user-info-item"><span>Limit Ujian</span><strong>${user.max_exams ?? '—'}</strong></div>
+                                <div class="user-info-item"><span>Maks Total Ujian</span><strong>${user.max_exams ?? '—'}</strong></div>
                                 <div class="user-info-item"><span title="Maksimal ujian yang berjalan bersamaan (sudah dimulai &amp; bisa dikerjakan siswa)">Ujian Serentak</span><strong>${user.max_concurrent_exams ?? '—'}</strong></div>
-                                <div class="user-info-item"><span>Limit PDF</span><strong>${limitPdfMb}</strong></div>
-                                <div class="user-info-item"><span>Limit Storage</span><strong>${limitStorageMb}</strong></div>
+                                <div class="user-info-item"><span>Maks Upload (MB)</span><strong>${limitPdfMb}</strong></div>
+                                <div class="user-info-item"><span>Maks Storage (MB)</span><strong>${limitStorageMb}</strong></div>
                                 <div class="user-info-item"><span>Masa Aktif</span><strong>${expiresAt}</strong></div>
                                 <div class="user-info-item"><span>Terdaftar</span><strong>${createdAt}</strong></div>
                             </div>
@@ -1874,7 +1874,7 @@ function createEditUserModal() {
                     </div>
                     <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;">
                         <div class="form-group" style="margin-bottom:8px;">
-                            <label for="editUserExams">Limit Ujian</label>
+                            <label for="editUserExams">Maks Total Ujian</label>
                             <input type="number" id="editUserExams" required min="0" style="width:100%;">
                         </div>
                         <div class="form-group" style="margin-bottom:8px;">
@@ -1882,11 +1882,11 @@ function createEditUserModal() {
                             <input type="number" id="editUserConcurrent" required min="0" style="width:100%;">
                         </div>
                         <div class="form-group" style="margin-bottom:8px;">
-                            <label for="editUserPdfSize">Limit PDF (MB)</label>
+                            <label for="editUserPdfSize">Maks Upload (MB)</label>
                             <input type="number" id="editUserPdfSize" required min="0" step="0.1" style="width:100%;">
                         </div>
                         <div class="form-group" style="margin-bottom:8px;">
-                            <label for="editUserStorageSize">Limit Storage (MB)</label>
+                            <label for="editUserStorageSize">Maks Storage (MB)</label>
                             <input type="number" id="editUserStorageSize" required min="0" style="width:100%;">
                         </div>
                     </div>
@@ -3442,13 +3442,13 @@ document.addEventListener('DOMContentLoaded', function() {
 
 // Subscription Package Presets Config
 const EXAMVAN_PACKAGES = {
-    free: { name: 'Free / Trial', exams: 1, concurrent: 1, pdf: 1, drafts: 1, storage: 50 },
-    guru: { name: 'Paket Guru', exams: 1, concurrent: 1, pdf: 10, drafts: 10, storage: 100 },
-    individu: { name: 'Paket Individu', exams: 2, concurrent: 2, pdf: 30, drafts: 30, storage: 300 },
-    sekolah_kecil: { name: 'Paket Sekolah Kecil', exams: 3, concurrent: 3, pdf: 50, drafts: 50, storage: 500 },
-    sekolah_menengah: { name: 'Paket Sekolah Menengah', exams: 5, concurrent: 5, pdf: 200, drafts: 200, storage: 2000 },
-    sekolah_besar: { name: 'Paket Sekolah Besar', exams: 10, concurrent: 10, pdf: 500, drafts: 500, storage: 5000 },
-    sekolah_unggulan: { name: 'Paket Sekolah Unggulan', exams: 99999, concurrent: 99999, pdf: 99999, drafts: 99999, storage: 999999 }
+    free: { name: 'Free / Trial', exams: 1, concurrent: 1, pdf: 1, storage: 50 },
+    guru: { name: 'Paket Guru', exams: 1, concurrent: 1, pdf: 10, storage: 100 },
+    individu: { name: 'Paket Individu', exams: 2, concurrent: 2, pdf: 30, storage: 300 },
+    sekolah_kecil: { name: 'Paket Sekolah Kecil', exams: 3, concurrent: 3, pdf: 50, storage: 500 },
+    sekolah_menengah: { name: 'Paket Sekolah Menengah', exams: 5, concurrent: 5, pdf: 200, storage: 2000 },
+    sekolah_besar: { name: 'Paket Sekolah Besar', exams: 10, concurrent: 10, pdf: 500, storage: 5000 },
+    sekolah_unggulan: { name: 'Paket Sekolah Unggulan', exams: 99999, concurrent: 99999, pdf: 99999, storage: 999999 }
 };
 
 function applyPackagePreset(type) {
