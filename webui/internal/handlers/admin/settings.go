@@ -81,6 +81,10 @@ func handleSaasSettingsGet(c *gin.Context, pool *pgxpool.Pool, ctx context.Conte
 			"seo_keywords":                 settings[models.SettingSEOKeywords],
 			"seo_index":                    settings[models.SettingSEOIndex] == "1",
 
+			// Footer teks yang tampil di semua halaman publik.
+			"footer_text":                  settings[models.SettingFooterText],
+			"footer_tagline":               settings[models.SettingFooterTagline],
+
 			// Voucher redemption toggle (default enabled when unset).
 			"voucher_redeem_enabled": settings[models.SettingVoucherRedeemEnabled] != "0",
 		},
@@ -133,6 +137,8 @@ func handleSaasSettingsPost(c *gin.Context, pool *pgxpool.Pool, ctx context.Cont
 		SEODescription            string  `json:"seo_description"`
 		SEOKeywords               string  `json:"seo_keywords"`
 		SEOIndex                  bool    `json:"seo_index"`
+		FooterText                string  `json:"footer_text"`
+		FooterTagline             string  `json:"footer_tagline"`
 		VoucherRedeemEnabled      bool    `json:"voucher_redeem_enabled"`
 	}
 
@@ -223,6 +229,10 @@ func handleSaasSettingsPost(c *gin.Context, pool *pgxpool.Pool, ctx context.Cont
 		seoIndexVal = "1"
 	}
 	models.SetSaasSetting(reqCtx, pool, models.SettingSEOIndex, seoIndexVal)
+
+	// Save footer settings
+	models.SetSaasSetting(reqCtx, pool, models.SettingFooterText, strings.TrimSpace(body.FooterText))
+	models.SetSaasSetting(reqCtx, pool, models.SettingFooterTagline, strings.TrimSpace(body.FooterTagline))
 
 	// Voucher redemption toggle
 	models.SetSaasSetting(reqCtx, pool, models.SettingVoucherRedeemEnabled, boolFlag(body.VoucherRedeemEnabled))

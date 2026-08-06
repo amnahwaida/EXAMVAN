@@ -63,16 +63,29 @@ func TemplateData(c *gin.Context) gin.H {
 				seoIndex = "1"
 			}
 
+			var footerText, footerTagline string
+
+			if err := pool.QueryRow(c.Request.Context(), `SELECT value FROM saas_settings WHERE key = $1`, "footer_text").Scan(&footerText); err != nil || footerText == "" {
+				footerText = "© 2026 EXAMVAN Team. All rights reserved."
+			}
+			if err := pool.QueryRow(c.Request.Context(), `SELECT value FROM saas_settings WHERE key = $1`, "footer_tagline").Scan(&footerTagline); err != nil || footerTagline == "" {
+				footerTagline = "Dibuat khusus untuk pengujian sekolah digital mandiri yang aman."
+			}
+
 			data["seo_title"] = seoTitle
 			data["seo_description"] = seoDesc
 			data["seo_keywords"] = seoKeys
 			data["seo_index"] = (seoIndex == "1" || seoIndex == "true")
+			data["footer_text"] = footerText
+			data["footer_tagline"] = footerTagline
 		}
 	} else {
 		data["seo_title"] = "EXAMVAN - Aplikasi Ujian Online Aman & Tertib"
 		data["seo_description"] = "EXAMVAN adalah aplikasi ujian online mandiri dengan sistem keamanan tinggi terhindar dari kecurangan."
 		data["seo_keywords"] = "examvan, ujian online, ujian sekolah"
 		data["seo_index"] = true
+		data["footer_text"] = "© 2026 EXAMVAN Team. All rights reserved."
+		data["footer_tagline"] = "Dibuat khusus untuk pengujian sekolah digital mandiri yang aman."
 	}
 
 	// Attach authenticated user info when available.

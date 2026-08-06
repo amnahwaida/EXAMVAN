@@ -2857,6 +2857,8 @@ function saveSaasSettings(e) {
     const seo_description = document.getElementById('seoDescriptionInput').value.trim();
     const seo_keywords = document.getElementById('seoKeywordsInput').value.trim();
     const seo_index = document.getElementById('seoIndexInput').checked;
+    const footer_text = document.getElementById('footerTextInput').value.trim();
+    const footer_tagline = document.getElementById('footerTaglineInput').value.trim();
 
     // Monetization toggles
     const voucher_redeem_enabled = !!(document.getElementById('voucherRedeemEnabledInput') || {}).checked;
@@ -2869,6 +2871,7 @@ function saveSaasSettings(e) {
             default_max_exams, default_max_concurrent_exams, default_max_pdf_size_mb,
             default_active_days, android_version, webapp_version,
             seo_title, seo_description, seo_keywords, seo_index,
+            footer_text, footer_tagline,
             voucher_redeem_enabled
         })
     })
@@ -3042,6 +3045,8 @@ function loadSaasSettings() {
                 document.getElementById('seoDescriptionInput').value = s.seo_description || '';
                 document.getElementById('seoKeywordsInput').value = s.seo_keywords || '';
                 document.getElementById('seoIndexInput').checked = s.seo_index || false;
+                document.getElementById('footerTextInput').value = s.footer_text || '© 2026 EXAMVAN Team. All rights reserved.';
+                document.getElementById('footerTaglineInput').value = s.footer_tagline || '';
 
                 // Monetization toggles (default enabled when unset)
                 var _vr = document.getElementById('voucherRedeemEnabledInput');

@@ -80,6 +80,8 @@ const (
 	SettingSEODescription            = "seo_description"
 	SettingSEOKeywords               = "seo_keywords"
 	SettingSEOIndex                  = "seo_index"
+	SettingFooterText                = "footer_text"
+	SettingFooterTagline             = "footer_tagline"
 
 	// Monetization feature toggles (SuperAdmin). "1" = enabled, "0" = disabled.
 	SettingVoucherRedeemEnabled = "voucher_redeem_enabled" // redeem promo/voucher codes
@@ -108,6 +110,10 @@ var DefaultSettings = map[string]string{
 	SettingSEODescription:            "EXAMVAN adalah aplikasi ujian online mandiri dengan sistem keamanan tinggi terhindar dari kecurangan.",
 	SettingSEOKeywords:               "examvan, ujian online, ujian sekolah",
 	SettingSEOIndex:                  "1",
+
+	// Footer teks yang tampil di semua halaman publik (SuperAdmin bisa edit).
+	SettingFooterText:                "© 2026 EXAMVAN Team. All rights reserved.",
+	SettingFooterTagline:             "Dibuat khusus untuk pengujian sekolah digital mandiri yang aman.",
 
 	// Monetization toggle defaults to enabled to preserve existing behavior.
 	SettingVoucherRedeemEnabled: "1",
