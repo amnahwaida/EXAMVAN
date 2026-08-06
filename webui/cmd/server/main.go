@@ -17,6 +17,7 @@ import (
 	"math"
 	"math/big"
 	"net/http"
+	"net/url"
 	"os"
 	"os/signal"
 	"path/filepath"
@@ -42,9 +43,9 @@ import (
 	"github.com/examvan/webui/internal/helpers"
 	"github.com/examvan/webui/internal/middleware"
 	"github.com/examvan/webui/internal/models"
-	"github.com/examvan/webui/internal/services/examtoken"
 	"github.com/examvan/webui/internal/queue"
 	redisclient "github.com/examvan/webui/internal/redis"
+	"github.com/examvan/webui/internal/services/examtoken"
 	"github.com/examvan/webui/internal/websocket"
 	redis "github.com/redis/go-redis/v9"
 )
@@ -884,16 +885,72 @@ func registerPageHandler(cfg *config.Config) gin.HandlerFunc {
 		data["error"] = nil
 		data["flashes"] = nil
 
-		pool, exists := c.Get("db")
-		if exists && pool != nil {
-			dbPool := pool.(*pgxpool.Pool)
-			data["email_enabled"] = models.GetSaasSettingBool(c.Request.Context(), dbPool, models.SettingEmailVerificationEnabled, false)
-		} else {
-			data["email_enabled"] = false
-		}
+		applyRegisterPageData(c, data)
 
 		c.HTML(http.StatusOK, "public/register.html", data)
 	}
+}
+
+// applyRegisterPageData fills the template keys shared by the register page and
+// the register POST handler: email-verification state and the Cloudflare
+// Turnstile widget config. The POST handler re-renders public/register.html on
+// every validation error, so both paths must populate these consistently
+// (otherwise the widget would vanish and the email banner would mis-label the
+// second step after a failed submit).
+func applyRegisterPageData(c *gin.Context, data gin.H) {
+	pool, exists := c.Get("db")
+	if exists && pool != nil {
+		dbPool := pool.(*pgxpool.Pool)
+		ctx := c.Request.Context()
+		data["email_enabled"] = models.GetSaasSettingBool(ctx, dbPool, models.SettingEmailVerificationEnabled, false)
+		data["turnstile_enabled"] = models.GetSaasSettingBool(ctx, dbPool, models.SettingTurnstileEnabled, false)
+		data["turnstile_site_key"] = models.GetSaasSettingWithDefault(ctx, dbPool, models.SettingTurnstileSiteKey, "")
+	} else {
+		data["email_enabled"] = false
+		data["turnstile_enabled"] = false
+		data["turnstile_site_key"] = ""
+	}
+}
+
+// verifyTurnstileToken validates a Cloudflare Turnstile widget response token
+// against the siteverify endpoint. It fails closed: any error (network, empty
+// secret/token, invalid token) returns false so the registration is rejected.
+func verifyTurnstileToken(ctx context.Context, secret, response, remoteIP string) bool {
+	if strings.TrimSpace(secret) == "" || strings.TrimSpace(response) == "" {
+		return false
+	}
+	// Use the caller's context so the siteverify call is canceled when the
+	// request context is aborted (e.g. the 30s timeout middleware) or the
+	// client disconnects — not just after our own 10s timeout.
+	form := url.Values{}
+	form.Set("secret", secret)
+	form.Set("response", response)
+	if remoteIP != "" {
+		form.Set("remoteip", remoteIP)
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost,
+		"https://challenges.cloudflare.com/turnstile/v0/siteverify",
+		strings.NewReader(form.Encode()))
+	if err != nil {
+		log.Printf("turnstile siteverify request error: %v", err)
+		return false
+	}
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	client := &http.Client{Timeout: 10 * time.Second}
+	resp, err := client.Do(req)
+	if err != nil {
+		log.Printf("turnstile siteverify error: %v", err)
+		return false
+	}
+	defer resp.Body.Close()
+	var out struct {
+		Success bool `json:"success"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
+		log.Printf("turnstile siteverify decode error: %v", err)
+		return false
+	}
+	return out.Success
 }
 
 func registerPostHandler(cfg *config.Config) gin.HandlerFunc {
@@ -904,6 +961,9 @@ func registerPostHandler(cfg *config.Config) gin.HandlerFunc {
 
 		data := middleware.TemplateData(c)
 		data["version"] = cfg.Version
+
+		// Keep the register-page render keys consistent on error re-renders.
+		applyRegisterPageData(c, data)
 
 		// Validate input
 		if username == "" || password == "" || email == "" {
@@ -938,6 +998,21 @@ func registerPostHandler(cfg *config.Config) gin.HandlerFunc {
 		}
 		dbPool := pool.(*pgxpool.Pool)
 		ctx := c.Request.Context()
+
+		// Cloudflare Turnstile bot protection (SuperAdmin-managed). Fail-closed:
+		// when enabled, a submission without a valid widget token is rejected.
+		// This blocks mass-registration scripts even when they rotate IPs, since
+		// each account creation now needs a fresh, single-use Turnstile token.
+		if models.GetSaasSettingBool(ctx, dbPool, models.SettingTurnstileEnabled, false) {
+			secret := models.GetSaasSettingWithDefault(ctx, dbPool, models.SettingTurnstileSecretKey, "")
+			token := strings.TrimSpace(c.PostForm("cf-turnstile-response"))
+			if !verifyTurnstileToken(ctx, secret, token, c.ClientIP()) {
+				log.Printf("register blocked: turnstile verification failed for username=%q", username)
+				data["error"] = "Verifikasi keamanan gagal. Silakan coba lagi."
+				c.HTML(http.StatusOK, "public/register.html", data)
+				return
+			}
+		}
 
 		// Enforce the trusted email-domain whitelist (SuperAdmin-managed).
 		whitelist := models.GetSaasSettingWithDefault(ctx, dbPool, models.SettingEmailDomainWhitelist, "")
@@ -1340,11 +1415,11 @@ func flushHeartbeatsQueue(ctx context.Context, rdb *redis.Client, pool *pgxpool.
 		if err != nil {
 			log.Printf("heartbeat-flusher: insert error: %v", err)
 		}
-		
+
 		// UPSERT into submissions to make the student appear in "Monitoring Perangkat" immediately
 		var latestAnswers *string
 		errLookup := tx.QueryRow(ctx, "SELECT answers_json FROM submissions WHERE exam_id=$1 AND mac_address=$2 ORDER BY created_at DESC LIMIT 1", hb.ExamID, hb.MacAddress).Scan(&latestAnswers)
-		
+
 		// If no row exists, or the latest one is already submitted, insert a new empty row
 		if errLookup == pgx.ErrNoRows || (errLookup == nil && latestAnswers != nil && *latestAnswers != "") {
 			_, err = tx.Exec(ctx, `

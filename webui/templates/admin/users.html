@@ -263,11 +263,37 @@
   </div>
   </div>
 
- <div style="border-top:1px solid var(--color-glass-border);margin-top:16px;padding-top:16px;margin-bottom:6px;">
- <h4 style="margin:0;font-size:0.85rem;font-weight:600;text-transform:uppercase;letter-spacing:0.5px;color:var(--color-accent-light);display:flex;align-items:center;gap:6px;">
- <svg class="icon-svg"><use href="#hi-clipboard"/></svg> Default Paket Pendaftaran
- </h4>
- </div>
+  <div style="border-top:1px solid var(--color-glass-border);margin-top:16px;padding-top:16px;margin-bottom:6px;">
+  <h4 style="margin:0;font-size:0.85rem;font-weight:600;text-transform:uppercase;letter-spacing:0.5px;color:var(--color-accent-light);display:flex;align-items:center;gap:6px;">
+  <svg class="icon-svg" style="width:16px;height:16px;"><use href="#hi-lock"/></svg> Cloudflare Turnstile (Anti-Bot)
+  </h4>
+  <p style="font-size:12px;color:var(--color-text-secondary);margin:4px 0 8px 0;">Wajibkan verifikasi Turnstile pada form pendaftaran untuk memblokir registrasi massal otomatis. Buat widget gratis di <code style="font-size:11px;color:#a5b4fc;">dash.cloudflare.com &rarr; Turnstile</code> lalu tempel Site Key &amp; Secret Key di sini.</p>
+  <div class="switch-container">
+  <span class="switch-label" title="Aktifkan verifikasi Turnstile di halaman /register">Aktifkan Turnstile</span>
+  <label class="switch">
+  <input type="checkbox" id="turnstileEnabledInput" onchange="toggleTurnstileFields()">
+  <span class="slider"></span>
+  </label>
+  </div>
+  <div id="turnstileFields" style="display:none;flex-direction:column;gap:12px;">
+  <div class="form-row-2col grid grid-cols-1 sm:grid-cols-2 gap-4">
+  <div class="form-group space-y-1">
+  <label for="turnstileSiteKeyInput" title="Site Key dari dashboard Turnstile Cloudflare">Site Key</label>
+  <input type="text" id="turnstileSiteKeyInput" placeholder="0x4AAAAAAA...">
+  </div>
+  <div class="form-group space-y-1">
+  <label for="turnstileSecretKeyInput" title="Secret Key dari dashboard Turnstile Cloudflare. Hanya untuk verifikasi server, tidak pernah ditampilkan utuh">Secret Key</label>
+  <input type="password" id="turnstileSecretKeyInput" placeholder="0x4AAAAAAA...">
+  </div>
+  </div>
+  </div>
+  </div>
+
+  <div style="border-top:1px solid var(--color-glass-border);margin-top:16px;padding-top:16px;margin-bottom:6px;">
+  <h4 style="margin:0;font-size:0.85rem;font-weight:600;text-transform:uppercase;letter-spacing:0.5px;color:var(--color-accent-light);display:flex;align-items:center;gap:6px;">
+  <svg class="icon-svg"><use href="#hi-clipboard"/></svg> Default Paket Pendaftaran
+  </h4>
+  </div>
 
   <div class="form-row-3col grid grid-cols-1 sm:grid-cols-4 gap-4 default-pkg-row">
   <div class="form-group space-y-1">

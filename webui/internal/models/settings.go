@@ -85,6 +85,14 @@ const (
 
 	// Monetization feature toggles (SuperAdmin). "1" = enabled, "0" = disabled.
 	SettingVoucherRedeemEnabled = "voucher_redeem_enabled" // redeem promo/voucher codes
+
+	// Cloudflare Turnstile bot protection on the public registration form.
+	// Enabled = "1" makes /register render the Turnstile widget and rejects
+	// submissions whose response token fails siteverify. Keys are managed by
+	// SuperAdmin in the SaaS settings panel (https://dash.cloudflare.com).
+	SettingTurnstileEnabled   = "turnstile_enabled"
+	SettingTurnstileSiteKey   = "turnstile_site_key"
+	SettingTurnstileSecretKey = "turnstile_secret_key"
 )
 
 // Default settings values as defined in the Python app.py.
@@ -112,11 +120,17 @@ var DefaultSettings = map[string]string{
 	SettingSEOIndex:                  "1",
 
 	// Footer teks yang tampil di semua halaman publik (SuperAdmin bisa edit).
-	SettingFooterText:                "© 2026 EXAMVAN Team. All rights reserved.",
-	SettingFooterTagline:             "Dibuat khusus untuk pengujian sekolah digital mandiri yang aman.",
+	SettingFooterText:    "© 2026 EXAMVAN Team. All rights reserved.",
+	SettingFooterTagline: "Dibuat khusus untuk pengujian sekolah digital mandiri yang aman.",
 
 	// Monetization toggle defaults to enabled to preserve existing behavior.
 	SettingVoucherRedeemEnabled: "1",
+
+	// Turnstile bot protection defaults to disabled; the SuperAdmin enables it
+	// and supplies site + secret keys from Cloudflare's Turnstile dashboard.
+	SettingTurnstileEnabled:   "0",
+	SettingTurnstileSiteKey:   "",
+	SettingTurnstileSecretKey: "",
 }
 
 // GetSaasSetting retrieves a setting value by key.

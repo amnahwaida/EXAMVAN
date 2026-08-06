@@ -82,11 +82,17 @@ func handleSaasSettingsGet(c *gin.Context, pool *pgxpool.Pool, ctx context.Conte
 			"seo_index":                    settings[models.SettingSEOIndex] == "1",
 
 			// Footer teks yang tampil di semua halaman publik.
-			"footer_text":                  settings[models.SettingFooterText],
-			"footer_tagline":               settings[models.SettingFooterTagline],
+			"footer_text":    settings[models.SettingFooterText],
+			"footer_tagline": settings[models.SettingFooterTagline],
 
 			// Voucher redemption toggle (default enabled when unset).
 			"voucher_redeem_enabled": settings[models.SettingVoucherRedeemEnabled] != "0",
+
+			// Cloudflare Turnstile bot protection on registration (default off).
+			// The secret key is masked on read, like the SMTP password.
+			"turnstile_enabled":    settings[models.SettingTurnstileEnabled] == "1",
+			"turnstile_site_key":   settings[models.SettingTurnstileSiteKey],
+			"turnstile_secret_key": maskTokenSetting(settings[models.SettingTurnstileSecretKey]),
 		},
 	})
 }
@@ -140,6 +146,9 @@ func handleSaasSettingsPost(c *gin.Context, pool *pgxpool.Pool, ctx context.Cont
 		FooterText                string  `json:"footer_text"`
 		FooterTagline             string  `json:"footer_tagline"`
 		VoucherRedeemEnabled      bool    `json:"voucher_redeem_enabled"`
+		TurnstileEnabled          bool    `json:"turnstile_enabled"`
+		TurnstileSiteKey          string  `json:"turnstile_site_key"`
+		TurnstileSecretKey        string  `json:"turnstile_secret_key"`
 	}
 
 	if err := c.ShouldBindJSON(&body); err != nil {
@@ -148,6 +157,23 @@ func handleSaasSettingsPost(c *gin.Context, pool *pgxpool.Pool, ctx context.Cont
 	}
 
 	reqCtx := c.Request.Context()
+
+	// Turnstile validation must happen BEFORE any settings are written: enabling
+	// Turnstile without keys would silently block ALL registrations (server-side
+	// verification is fail-closed), and a late rejection here would leave the
+	// earlier writes half-saved.
+	if body.TurnstileEnabled {
+		if strings.TrimSpace(body.TurnstileSiteKey) == "" {
+			errorResponse(c, http.StatusBadRequest, "Site Key Turnstile wajib diisi untuk mengaktifkan Turnstile.")
+			return
+		}
+		existingSecret, _ := models.GetSaasSetting(reqCtx, pool, models.SettingTurnstileSecretKey)
+		secretProvided := strings.TrimSpace(body.TurnstileSecretKey) != "" && !strings.HasPrefix(strings.TrimSpace(body.TurnstileSecretKey), "****")
+		if existingSecret == "" && !secretProvided {
+			errorResponse(c, http.StatusBadRequest, "Secret Key Turnstile wajib diisi untuk mengaktifkan Turnstile.")
+			return
+		}
+	}
 
 	// Email settings
 	emailEnabled := "0"
@@ -236,6 +262,24 @@ func handleSaasSettingsPost(c *gin.Context, pool *pgxpool.Pool, ctx context.Cont
 
 	// Voucher redemption toggle
 	models.SetSaasSetting(reqCtx, pool, models.SettingVoucherRedeemEnabled, boolFlag(body.VoucherRedeemEnabled))
+
+	// Cloudflare Turnstile bot protection. The secret key is stored only when
+	// it is not the masked placeholder ("****...") — mirroring SMTP password
+	// handling so an unchanged secret survives a save.
+	models.SetSaasSetting(reqCtx, pool, models.SettingTurnstileEnabled, boolFlag(body.TurnstileEnabled))
+	models.SetSaasSetting(reqCtx, pool, models.SettingTurnstileSiteKey, strings.TrimSpace(body.TurnstileSiteKey))
+	turnstileSecret := strings.TrimSpace(body.TurnstileSecretKey)
+	if turnstileSecret != "" && strings.HasPrefix(turnstileSecret, "****") {
+		existing, _ := models.GetSaasSetting(reqCtx, pool, models.SettingTurnstileSecretKey)
+		if existing != "" {
+			turnstileSecret = existing
+		}
+	}
+	if turnstileSecret != "" {
+		if err := models.SetSaasSetting(reqCtx, pool, models.SettingTurnstileSecretKey, turnstileSecret); err != nil {
+			log.Printf("save turnstile_secret_key error: %v", err)
+		}
+	}
 
 	successMessage(c, "Pengaturan SaaS berhasil diperbarui")
 }

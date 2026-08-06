@@ -189,6 +189,10 @@
  </style>
  <link rel="stylesheet" href="/static/css/public-mobile.css?v={{.version}}-5">
  <link rel="stylesheet" href="/static/css/public-desktop.css?v={{.version}}-3">
+ {{if .turnstile_enabled}}
+ <!-- Cloudflare Turnstile — bot protection on registration (SuperAdmin-managed) -->
+ <script src="https://challenges.cloudflare.com/turnstile/v0/api.js" async defer></script>
+ {{end}}
 </head>
 <body class="login-page">
  {{ template "public_auth_nav" . }}
@@ -283,6 +287,14 @@
   <div class="pw-strength-text" id="pwStrengthText"></div>
  </div>
 
+ <!-- Cloudflare Turnstile bot protection -->
+ {{if .turnstile_enabled}}
+ <div class="form-group" style="display:flex;flex-direction:column;align-items:center;">
+  <div class="cf-turnstile" data-sitekey="{{.turnstile_site_key}}" data-theme="dark"></div>
+  <div id="turnstileError" style="display:none;color:#f87171;font-size:12px;margin-top:8px;text-align:center;"></div>
+ </div>
+ {{end}}
+
  <!-- Submit Button -->
  {{if .email_enabled}}
  <button type="submit" class="btn-login" id="registerSubmitBtn">
@@ -307,6 +319,7 @@
  </div>
 
  <script>
+ window.__turnstileEnabled = {{if .turnstile_enabled}}true{{else}}false{{end}};
  document.addEventListener('DOMContentLoaded', function() {
   var password = document.getElementById('password');
   var toggle = document.getElementById('togglePassword');
@@ -318,11 +331,23 @@
    });
   }
 
-  // Form submit loading state
+  // Form submit loading state (+ Turnstile token guard when enabled)
   var form = document.getElementById('registerForm');
   var btn = document.getElementById('registerSubmitBtn');
   if (form && btn) {
-   form.addEventListener('submit', function() {
+   form.addEventListener('submit', function(e) {
+    if (window.__turnstileEnabled) {
+     var tok = document.querySelector('input[name="cf-turnstile-response"]');
+     if (!tok || !tok.value) {
+      e.preventDefault();
+      var terr = document.getElementById('turnstileError');
+      if (terr) {
+       terr.style.display = 'block';
+       terr.textContent = 'Harap selesaikan verifikasi keamanan di atas sebelum mendaftar.';
+      }
+      return;
+     }
+    }
     btn.classList.add('loading');
     btn.disabled = true;
     btn.innerHTML = '<span style="vertical-align:middle;">Memproses...</span>';

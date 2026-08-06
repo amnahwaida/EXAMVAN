@@ -2875,6 +2875,11 @@ function saveSaasSettings(e) {
     // Monetization toggles
     const voucher_redeem_enabled = !!(document.getElementById('voucherRedeemEnabledInput') || {}).checked;
 
+    // Cloudflare Turnstile bot protection
+    const turnstile_enabled = !!(document.getElementById('turnstileEnabledInput') || {}).checked;
+    const turnstile_site_key = (document.getElementById('turnstileSiteKeyInput') || {}).value || '';
+    const turnstile_secret_key = (document.getElementById('turnstileSecretKeyInput') || {}).value || '';
+
     apiFetch('/admin/api/saas-settings', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -2884,7 +2889,8 @@ function saveSaasSettings(e) {
             default_active_days, android_version, webapp_version,
             seo_title, seo_description, seo_keywords, seo_index,
             footer_text, footer_tagline,
-            voucher_redeem_enabled
+            voucher_redeem_enabled,
+            turnstile_enabled, turnstile_site_key, turnstile_secret_key
         })
     })
     .then(r => r.json())
@@ -3064,7 +3070,16 @@ function loadSaasSettings() {
                 var _vr = document.getElementById('voucherRedeemEnabledInput');
                 if (_vr) _vr.checked = s.voucher_redeem_enabled !== false;
 
+                // Cloudflare Turnstile bot protection (secret is masked on read)
+                var _ts = document.getElementById('turnstileEnabledInput');
+                if (_ts) _ts.checked = s.turnstile_enabled || false;
+                var _tssk = document.getElementById('turnstileSiteKeyInput');
+                if (_tssk) _tssk.value = s.turnstile_site_key || '';
+                var _tskr = document.getElementById('turnstileSecretKeyInput');
+                if (_tskr) _tskr.value = s.turnstile_secret_key || '';
+
                 toggleEmailFields();
+                toggleTurnstileFields();
             }
         });
 }
@@ -3072,6 +3087,12 @@ function loadSaasSettings() {
 function toggleEmailFields() {
     const enabled = document.getElementById('emailEnabledInput').checked;
     document.getElementById('emailSettingsFields').style.display = enabled ? 'flex' : 'none';
+}
+
+function toggleTurnstileFields() {
+    const enabled = document.getElementById('turnstileEnabledInput').checked;
+    const fields = document.getElementById('turnstileFields');
+    if (fields) fields.style.display = enabled ? 'flex' : 'none';
 }
 
 async function bulkToggleExams() {
