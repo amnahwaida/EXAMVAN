@@ -854,6 +854,12 @@ func logoutHandler() gin.HandlerFunc {
 
 func registerPageHandler(cfg *config.Config) gin.HandlerFunc {
 	return func(c *gin.Context) {
+		// Sudah login? Tidak perlu mendaftar lagi, langsung ke dashboard.
+		session := sessions.Default(c)
+		if session.Get(middleware.SessionKeyAdminID) != nil {
+			c.Redirect(http.StatusFound, "/admin/dashboard")
+			return
+		}
 		data := middleware.TemplateData(c)
 		data["version"] = cfg.Version
 		data["error"] = nil
