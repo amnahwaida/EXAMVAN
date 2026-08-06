@@ -72,9 +72,15 @@ func Load() *Config {
 		log.Fatalf("EXAMVAN_ADMIN_PASS environment variable is required and must not be empty.")
 	}
 
-	// Cloudflare R2 Mandatory configuration validation
-	if cfg.R2AccessKey == "" || cfg.R2SecretKey == "" || cfg.R2Endpoint == "" {
-		log.Fatalf("Cloudflare R2 is MANDATORY: R2_ACCESS_KEY_ID, R2_SECRET_ACCESS_KEY, and R2_ENDPOINT must all be set in .env.")
+	// Cloudflare R2 configuration validation.
+	// R2 is optional: when fully configured, PDFs are offloaded to R2; otherwise
+	// the server serves PDFs from local storage (main.go handles both paths).
+	// A partially-configured R2 (only some vars set) fails fast, because that is
+	// always a misconfiguration.
+	r2Set := cfg.R2AccessKey != "" || cfg.R2SecretKey != "" || cfg.R2Endpoint != ""
+	r2Complete := cfg.R2AccessKey != "" && cfg.R2SecretKey != "" && cfg.R2Endpoint != ""
+	if r2Set && !r2Complete {
+		log.Fatalf("Cloudflare R2 configuration is incomplete: R2_ACCESS_KEY_ID, R2_SECRET_ACCESS_KEY, and R2_ENDPOINT must all be set together, or all left empty to use local storage.")
 	}
 
 	if len(cfg.SecretKey) < 32 {
