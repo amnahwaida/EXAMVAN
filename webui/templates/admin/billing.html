@@ -130,7 +130,7 @@
    <div style="position:absolute;top:0;left:0;right:0;height:4px;background:linear-gradient(90deg, var(--color-primary), var(--color-accent));"></div>
    <span style="font-size:11px;font-weight:700;text-transform:uppercase;color:var(--color-accent-light);letter-spacing:0.5px;display:block;margin-bottom:8px;">Paket Saat Ini</span>
    <h3 style="font-size:1.75rem;font-weight:800;color:#fff;margin:0 0 4px 0;text-transform:uppercase;font-family:'Outfit',sans-serif;" id="currentPkgName">{{.user_package}}</h3>
-   <p style="font-size:13px;color:var(--color-text-secondary);margin:0;">Masa aktif s.d: <strong style="color:#fff;">{{if .user_expires_at}}{{.user_expires_at}}{{else}}—{{end}}</strong></p>
+   <p style="font-size:13px;color:var(--color-text-secondary);margin:0;">Masa aktif s.d: <strong id="expiresAtLabel" style="color:#fff;">{{default "—" .user_expires_at}}</strong></p>
   </div>
 
   <!-- Voucher Redeem Card -->
@@ -411,6 +411,11 @@ function activatePackage(redemptionId) {
 }
 
 document.addEventListener('DOMContentLoaded', function() {
+    var expEl = document.getElementById('expiresAtLabel');
+    if (expEl) {
+        var raw = expEl.textContent.trim();
+        if (raw && raw !== '—') expEl.textContent = localizeUTC(raw);
+    }
     if (window.__adminRole !== 'superadmin') {
         loadMyPackages();
     }
