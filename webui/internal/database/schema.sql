@@ -443,3 +443,35 @@ SET instansi_code = i.code
 FROM instansi i
 WHERE u.instansi_id = i.id AND (u.instansi_code IS NULL OR u.instansi_code = '');
 
+-- ============================================================
+-- Package quotas configuration (SuperAdmin-editable)
+-- ============================================================
+-- Default quotas for the fixed packages, editable by SuperAdmin on
+-- /admin/packages. NEW voucher claims snapshot these values at redeem time;
+-- existing redemptions keep their own snapshot. The seed mirrors
+-- packageEntitlement() in Go and the one-time redemption backfill. Sizes are
+-- in bytes; role is a JSON array of roles (serialized). Safe to re-run: any
+-- edited row is preserved via ON CONFLICT DO NOTHING.
+CREATE TABLE IF NOT EXISTS package_settings (
+    pkg_key              TEXT PRIMARY KEY,
+    label                TEXT        NOT NULL DEFAULT '',
+    max_exams            BIGINT      NOT NULL DEFAULT 1,
+    max_pdf_size         BIGINT      NOT NULL DEFAULT 1048576,
+    max_concurrent_exams BIGINT      NOT NULL DEFAULT 1,
+    max_storage_size     BIGINT      NOT NULL DEFAULT 52428800,
+    role                 TEXT        NOT NULL DEFAULT '',
+    updated_at           TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
+);
+
+INSERT INTO package_settings
+    (pkg_key, label, max_exams, max_pdf_size, max_concurrent_exams, max_storage_size, role)
+VALUES
+    ('free',             'Free / Trial',           1, (1::bigint)*1024*1024, 1, (50::bigint)*1024*1024, ''),
+    ('guru',             'Paket Guru',             1, (10::bigint)*1024*1024, 1, (100::bigint)*1024*1024, ''),
+    ('individu',         'Paket Individu',         2, (30::bigint)*1024*1024, 2, (300::bigint)*1024*1024, ''),
+    ('sekolah_kecil',    'Paket Sekolah Kecil',    3, (50::bigint)*1024*1024, 3, (500::bigint)*1024*1024, '["operator"]'),
+    ('sekolah_menengah', 'Paket Sekolah Menengah', 5, (200::bigint)*1024*1024, 5, (2000::bigint)*1024*1024, '["operator"]'),
+    ('sekolah_besar',    'Paket Sekolah Besar',    10, (500::bigint)*1024*1024, 10, (5000::bigint)*1024*1024, '["operator"]'),
+    ('sekolah_unggulan', 'Paket Sekolah Unggulan', 99999, (99999::bigint)*1024*1024, 99999, (999999::bigint)*1024*1024, '["operator"]')
+ON CONFLICT (pkg_key) DO NOTHING;
+

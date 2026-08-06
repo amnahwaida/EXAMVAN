@@ -50,16 +50,16 @@ type VoucherRedemption struct {
 	// of the source voucher row). Only the ACTIVE package consumes lifetime:
 	// remaining_seconds shrinks while is_active (from activated_at onwards);
 	// inactive packages are paused and resume automatically when activated.
-	RemainingSeconds int64  `json:"remaining_seconds"`
-	ActivatedAt      *time.Time `json:"activated_at"`
-	IsActive         bool    `json:"is_active"`
-	Package          string  `json:"package"`
-	Code             string  `json:"code,omitempty"`
-	MaxExams         int64   `json:"max_exams"`
-	MaxPDFSize       int64   `json:"max_pdf_size"`
-	MaxConcurrentExams int64 `json:"max_concurrent_exams"`
-	MaxStorageSize   int64   `json:"max_storage_size"`
-	Role             string  `json:"role"`
+	RemainingSeconds   int64      `json:"remaining_seconds"`
+	ActivatedAt        *time.Time `json:"activated_at"`
+	IsActive           bool       `json:"is_active"`
+	Package            string     `json:"package"`
+	Code               string     `json:"code,omitempty"`
+	MaxExams           int64      `json:"max_exams"`
+	MaxPDFSize         int64      `json:"max_pdf_size"`
+	MaxConcurrentExams int64      `json:"max_concurrent_exams"`
+	MaxStorageSize     int64      `json:"max_storage_size"`
+	Role               string     `json:"role"`
 }
 
 // GenerateRandomVoucherCode generates a random code formatted like PROMO-XXXX-XXXX

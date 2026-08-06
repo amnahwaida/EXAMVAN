@@ -503,7 +503,9 @@ func RedeemVoucherHandler() gin.HandlerFunc {
 				snapshot.Package = "custom"
 			}
 		} else {
-			exams, pdf, concurrent, storage, role := packageEntitlement(v.Package)
+			// Fixed packages read their quotas from the SuperAdmin-editable
+			// package_settings table (falling back to the built-in defaults).
+			exams, pdf, concurrent, storage, role := getPackageEntitlement(ctx, dbTx, v.Package)
 			snapshot = models.VoucherRedemption{
 				Package:            v.Package,
 				MaxExams:           exams,
@@ -655,8 +657,8 @@ func ListMyRedemptionsHandler() gin.HandlerFunc {
 		}
 
 		c.JSON(http.StatusOK, gin.H{
-			"success":      true,
-			"redemptions":  items,
+			"success":     true,
+			"redemptions": items,
 		})
 	}
 }

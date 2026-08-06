@@ -508,6 +508,7 @@ func registerRoutes(r *gin.Engine, cfg *config.Config, pool *pgxpool.Pool) {
 		adminPages.GET("/users", middleware.AdminManagementRequired(), admin.UsersPage())
 		adminPages.GET("/billing", admin.BillingPage())
 		adminPages.GET("/vouchers", middleware.SuperAdminRequired(), admin.VouchersPage())
+		adminPages.GET("/packages", middleware.SuperAdminRequired(), admin.PackagesPage())
 
 		adminPages.GET("/pengawas", admin.PengawasPage())
 		adminPages.GET("/pengawas/:exam_id", admin.PengawasDetailPage())
@@ -569,6 +570,7 @@ func registerRoutes(r *gin.Engine, cfg *config.Config, pool *pgxpool.Pool) {
 				adminSettings.POST("/saas-settings/test-smtp", middleware.LimitBodySize(256*1024), admin.TestSMTPConnectionEndpoint())
 				adminSettings.POST("/system-apps", middleware.LimitBodySize(500*1024*1024), admin.UploadSystemApp())
 				adminSettings.POST("/system-apps/:id/delete", middleware.LimitBodySize(256*1024), admin.DeleteSystemApp())
+				adminSettings.POST("/packages", middleware.LimitBodySize(256*1024), admin.SavePackageSettingsHandler())
 			}
 
 			// Vouchers
@@ -604,6 +606,7 @@ func registerRoutes(r *gin.Engine, cfg *config.Config, pool *pgxpool.Pool) {
 		adminAPI.GET("/pengawas/exams/:exam_id/submissions", admin.PengawasExamSubmissions())
 		adminAPI.GET("/pengawas/exams/:exam_id/approvals", admin.GetPendingApprovals())
 		adminAPI.GET("/saas-settings", middleware.SuperAdminRequired(), admin.SaasSettings())
+		adminAPI.GET("/packages", middleware.SuperAdminRequired(), admin.ListPackagesSettingsHandler())
 		adminAPI.GET("/vouchers", middleware.SuperAdminRequired(), admin.ListVouchers())
 		adminAPI.GET("/vouchers/mine", admin.ListMyRedemptionsHandler())
 		adminAPI.GET("/vouchers/:id/redemptions", middleware.SuperAdminRequired(), admin.ListVoucherRedemptionsHandler())
