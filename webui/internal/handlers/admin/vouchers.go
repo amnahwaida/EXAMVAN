@@ -482,9 +482,9 @@ func RedeemVoucherHandler() gin.HandlerFunc {
 
 		// 5. Build the entitlement snapshot for this redemption: the voucher's
 		// package/quota/role captured at claim time, independent of the source
-		// voucher row. Each redemption also gets its OWN lifetime starting now
-		// (no merging with the account's current expiry), so the user can later
-		// switch between claimed packages without their lifetimes interleaving.
+		// voucher row. Each redemption also gets its OWN remaining lifetime,
+		// which ONLY decreases while the package is the active one (paused
+		// packages freeze and resume automatically when activated again).
 		var snapshot models.VoucherRedemption
 		if v.IsCustom {
 			snapshot = models.VoucherRedemption{
@@ -510,12 +510,18 @@ func RedeemVoucherHandler() gin.HandlerFunc {
 			}
 		}
 
-		days := durationDays(v.DurationType)
-		redeemExpiry := time.Now().UTC().AddDate(0, 0, days)
-		snapshot.ExpiresAt = &redeemExpiry
+		now = time.Now().UTC()
+		snapshot.RemainingSeconds = int64(durationDays(v.DurationType)) * 86400
+		snapshot.ActivatedAt = &now
 
-		// 6. Apply the entitlement snapshot (overwrites quotas, merges role,
-		// never touches a SuperAdmin's role).
+		// 6. Pause the user's current active package (freeze its remaining
+		// lifetime), then apply the new package's snapshot (overwrites quotas,
+		// merges role, never touches a SuperAdmin's role).
+		if err := pauseActiveRedemption(ctx, dbTx, userID); err != nil {
+			log.Printf("redeem pause previous error: %v", err)
+			errorResponse(c, http.StatusInternalServerError, "Gagal memproses klaim voucher")
+			return
+		}
 		roleMayChange := strings.TrimSpace(snapshot.Role) != ""
 		if err := applyRedemptionEntitlement(ctx, dbTx, userID, &snapshot); err != nil {
 			log.Printf("redeem apply entitlement error: %v", err)
@@ -534,24 +540,15 @@ func RedeemVoucherHandler() gin.HandlerFunc {
 			return
 		}
 
-		// 8. Record redemption with its snapshot + lifetime, and make it the
-		// user's active package (deactivate the previous one first so the
-		// partial unique index on (user_id) WHERE is_active holds).
-		_, err = dbTx.Exec(ctx, `
-			UPDATE voucher_redemptions SET is_active = false
-			WHERE user_id = $1 AND is_active`, userID)
-		if err != nil {
-			log.Printf("redeem deactivate previous error: %v", err)
-			errorResponse(c, http.StatusInternalServerError, "Gagal mencatat klaim voucher")
-			return
-		}
-
+		// 8. Record the redemption as the user's active package with its full
+		// remaining lifetime (the partial unique index on (user_id) WHERE
+		// is_active holds because the previous active row was just paused).
 		_, err = dbTx.Exec(ctx, `
 			INSERT INTO voucher_redemptions
-				(voucher_id, user_id, expires_at, is_active, package,
+				(voucher_id, user_id, remaining_seconds, activated_at, is_active, package,
 				 max_exams, max_pdf_size, max_concurrent_exams, max_storage_size, role)
-			VALUES ($1, $2, $3, true, $4, $5, $6, $7, $8, $9)`,
-			v.ID, userID, redeemExpiry, snapshot.Package,
+			VALUES ($1, $2, $3, $4, true, $5, $6, $7, $8, $9, $10)`,
+			v.ID, userID, snapshot.RemainingSeconds, now, snapshot.Package,
 			snapshot.MaxExams, snapshot.MaxPDFSize, snapshot.MaxConcurrentExams,
 			snapshot.MaxStorageSize, snapshot.Role)
 		if err != nil {
@@ -580,10 +577,10 @@ func RedeemVoucherHandler() gin.HandlerFunc {
 			}
 		}
 
-		expiryStr := redeemExpiry.Format("2006-01-02 15:04:05")
+		expiryStr := now.Add(time.Duration(snapshot.RemainingSeconds) * time.Second).Format("2006-01-02 15:04:05")
 		c.JSON(http.StatusOK, gin.H{
 			"success":    true,
-			"message":    fmt.Sprintf("Selamat! Voucher %s berhasil diklaim. Paket Anda kini aktif sebagai %s sampai %s.", v.Code, strings.ToUpper(snapshot.Package), expiryStr),
+			"message":    fmt.Sprintf("Selamat! Voucher %s berhasil diklaim. Paket %s kini aktif sampai %s; paket lain otomatis dijeda.", v.Code, strings.ToUpper(snapshot.Package), expiryStr),
 			"package":    snapshot.Package,
 			"expires_at": expiryStr,
 		})
@@ -611,33 +608,41 @@ func ListMyRedemptionsHandler() gin.HandlerFunc {
 
 		now := time.Now().UTC()
 		type item struct {
-			ID           int        `json:"id"`
-			Code         string     `json:"code"`
-			Package      string     `json:"package"`
-			RedeemedAt   time.Time  `json:"redeemed_at"`
-			ExpiresAt    *time.Time `json:"expires_at"`
-			IsActive     bool       `json:"is_active"`
-			IsExpired    bool       `json:"is_expired"`
-			MaxExams     int64      `json:"max_exams"`
-			MaxPDFSizeMB float64    `json:"max_pdf_size_mb"`
-			MaxConcurrent int64     `json:"max_concurrent_exams"`
-			MaxStorageMB float64    `json:"max_storage_mb"`
+			ID               int       `json:"id"`
+			Code             string    `json:"code"`
+			Package          string    `json:"package"`
+			RedeemedAt       time.Time `json:"redeemed_at"`
+			RemainingSeconds int64     `json:"remaining_seconds"`
+			IsActive         bool      `json:"is_active"`
+			IsExpired        bool      `json:"is_expired"`
+			MaxExams         int64     `json:"max_exams"`
+			MaxPDFSizeMB     float64   `json:"max_pdf_size_mb"`
+			MaxConcurrent    int64     `json:"max_concurrent_exams"`
+			MaxStorageMB     float64   `json:"max_storage_mb"`
 		}
 		items := make([]item, 0, len(redemptions))
 		for _, r := range redemptions {
-			expired := r.ExpiresAt == nil || r.ExpiresAt.Before(now)
+			// Effective remaining lifetime: while a package is active its clock
+			// is running, so subtract the time elapsed since it was activated.
+			remaining := r.RemainingSeconds
+			if r.IsActive && r.ActivatedAt != nil {
+				remaining -= int64(now.Sub(*r.ActivatedAt).Seconds())
+				if remaining < 0 {
+					remaining = 0
+				}
+			}
 			items = append(items, item{
-				ID:            r.ID,
-				Code:          r.Code,
-				Package:       r.Package,
-				RedeemedAt:    r.RedeemedAt,
-				ExpiresAt:     r.ExpiresAt,
-				IsActive:      r.IsActive,
-				IsExpired:     expired,
-				MaxExams:      r.MaxExams,
-				MaxPDFSizeMB:  roundTo(float64(r.MaxPDFSize)/(1024*1024), 1),
-				MaxConcurrent: r.MaxConcurrentExams,
-				MaxStorageMB:  roundTo(float64(r.MaxStorageSize)/(1024*1024), 2),
+				ID:               r.ID,
+				Code:             r.Code,
+				Package:          r.Package,
+				RedeemedAt:       r.RedeemedAt,
+				RemainingSeconds: remaining,
+				IsActive:         r.IsActive,
+				IsExpired:        remaining <= 0,
+				MaxExams:         r.MaxExams,
+				MaxPDFSizeMB:     roundTo(float64(r.MaxPDFSize)/(1024*1024), 1),
+				MaxConcurrent:    r.MaxConcurrentExams,
+				MaxStorageMB:     roundTo(float64(r.MaxStorageSize)/(1024*1024), 2),
 			})
 		}
 
@@ -650,8 +655,10 @@ func ListMyRedemptionsHandler() gin.HandlerFunc {
 
 // ActivateVoucherHandler handles POST /admin/api/vouchers/activate (any
 // logged-in user). Makes a previously-claimed voucher the user's ACTIVE package
-// (only if its own lifetime has not expired yet), applying its entitlement
-// snapshot to the account. At most one package can be active at a time.
+// (only if it still has remaining lifetime), applying its entitlement snapshot
+// to the account. The previously active package is automatically paused: its
+// remaining lifetime freezes. This is the automatic resume — there is no
+// user-facing pause/resume control.
 func ActivateVoucherHandler() gin.HandlerFunc {
 	return func(c *gin.Context) {
 		pool := getPool(c)
@@ -678,17 +685,26 @@ func ActivateVoucherHandler() gin.HandlerFunc {
 			_ = dbTx.Rollback(ctx)
 		}()
 
+		// Lock the user row so concurrent activates/redeems by the same user
+		// serialize (only one package may be active at a time).
+		var lockedUserID int
+		if err := dbTx.QueryRow(ctx, `SELECT id FROM admin_users WHERE id = $1 FOR UPDATE`, userID).Scan(&lockedUserID); err != nil {
+			log.Printf("activate lock user error: %v", err)
+			errorResponse(c, http.StatusInternalServerError, "User tidak ditemukan")
+			return
+		}
+
 		// Lock and fetch the redemption (must belong to the current user).
 		var r models.VoucherRedemption
 		err = dbTx.QueryRow(ctx, `
-			SELECT id, voucher_id, user_id, redeemed_at, expires_at, is_active,
+			SELECT id, voucher_id, user_id, redeemed_at, remaining_seconds, activated_at, is_active,
 			       COALESCE(package, ''), COALESCE(max_exams, 0),
 			       COALESCE(max_pdf_size, 0), COALESCE(max_concurrent_exams, 0),
 			       COALESCE(max_storage_size, 0), COALESCE(role, '')
 			FROM voucher_redemptions
 			WHERE id = $1 AND user_id = $2
 			FOR UPDATE`, redemptionID, userID).Scan(
-			&r.ID, &r.VoucherID, &r.UserID, &r.RedeemedAt, &r.ExpiresAt, &r.IsActive,
+			&r.ID, &r.VoucherID, &r.UserID, &r.RedeemedAt, &r.RemainingSeconds, &r.ActivatedAt, &r.IsActive,
 			&r.Package, &r.MaxExams, &r.MaxPDFSize, &r.MaxConcurrentExams,
 			&r.MaxStorageSize, &r.Role,
 		)
@@ -707,31 +723,33 @@ func ActivateVoucherHandler() gin.HandlerFunc {
 			return
 		}
 
-		now := time.Now().UTC()
-		if r.ExpiresAt == nil || r.ExpiresAt.Before(now) {
+		if r.RemainingSeconds <= 0 {
 			errorResponse(c, http.StatusBadRequest, "Masa aktif paket ini sudah berakhir, tidak dapat diaktifkan")
 			return
 		}
 
-		// Apply the snapshot to the account.
-		if err := applyRedemptionEntitlement(ctx, dbTx, userID, &r); err != nil {
-			log.Printf("activate apply entitlement error: %v", err)
+		now := time.Now().UTC()
+
+		// Pause the current active package (freeze its remaining lifetime),
+		// then resume this one from where it left off.
+		if err := pauseActiveRedemption(ctx, dbTx, userID); err != nil {
+			log.Printf("activate pause current error: %v", err)
+			errorResponse(c, http.StatusInternalServerError, "Gagal mengaktifkan paket")
+			return
+		}
+		if _, err := dbTx.Exec(ctx, `
+			UPDATE voucher_redemptions SET is_active = true, activated_at = $2
+			WHERE id = $1`, redemptionID, now); err != nil {
+			log.Printf("activate set active error: %v", err)
 			errorResponse(c, http.StatusInternalServerError, "Gagal mengaktifkan paket")
 			return
 		}
 
-		// Deactivate any other active package first, then activate this one.
-		if _, err := dbTx.Exec(ctx, `
-			UPDATE voucher_redemptions SET is_active = false
-			WHERE user_id = $1 AND is_active AND id <> $2`, userID, redemptionID); err != nil {
-			log.Printf("activate deactivate others error: %v", err)
-			errorResponse(c, http.StatusInternalServerError, "Gagal mengaktifkan paket")
-			return
-		}
-		if _, err := dbTx.Exec(ctx, `
-			UPDATE voucher_redemptions SET is_active = true
-			WHERE id = $1`, redemptionID); err != nil {
-			log.Printf("activate set active error: %v", err)
+		// Apply the snapshot to the account (sets admin_users.expires_at =
+		// now + remaining_seconds, resuming the timer).
+		r.ActivatedAt = &now
+		if err := applyRedemptionEntitlement(ctx, dbTx, userID, &r); err != nil {
+			log.Printf("activate apply entitlement error: %v", err)
 			errorResponse(c, http.StatusInternalServerError, "Gagal mengaktifkan paket")
 			return
 		}
@@ -753,13 +771,10 @@ func ActivateVoucherHandler() gin.HandlerFunc {
 			}
 		}
 
-		expiryStr := "—"
-		if r.ExpiresAt != nil {
-			expiryStr = r.ExpiresAt.Format("2006-01-02 15:04:05")
-		}
+		expiryStr := now.Add(time.Duration(r.RemainingSeconds) * time.Second).Format("2006-01-02 15:04:05")
 		c.JSON(http.StatusOK, gin.H{
 			"success":    true,
-			"message":    fmt.Sprintf("Paket %s kini aktif sampai %s", strings.ToUpper(r.Package), expiryStr),
+			"message":    fmt.Sprintf("Paket %s kini aktif dan melanjutkan sisa masanya sampai %s; paket lain otomatis dijeda.", strings.ToUpper(r.Package), expiryStr),
 			"package":    r.Package,
 			"expires_at": expiryStr,
 		})

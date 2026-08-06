@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/jackc/pgx/v5"
 
@@ -64,13 +65,19 @@ func containsRole(roles []string, target string) bool {
 
 // applyRedemptionEntitlement applies a voucher redemption's snapshot to a user:
 // overwrites the quota columns with the snapshot values, sets the account
-// expiry to the redemption's own lifetime, and MERGES the snapshot role into
-// the existing roles (never stripping them, never touching a SuperAdmin).
-// Package column becomes the snapshot's package label.
+// expiry to the redemption's current running period (activated_at +
+// remaining_seconds), and MERGES the snapshot role into the existing roles
+// (never stripping them, never touching a SuperAdmin). The caller must have
+// set ActivatedAt (the start of the currently-running period) and
+// RemainingSeconds before calling.
 func applyRedemptionEntitlement(ctx context.Context, tx pgx.Tx, userID int, r *models.VoucherRedemption) error {
-	if r.ExpiresAt == nil {
-		return fmt.Errorf("redemption has no expiry")
+	if r.ActivatedAt == nil {
+		return fmt.Errorf("redemption has no running period (activated_at is nil)")
 	}
+	if r.RemainingSeconds <= 0 {
+		return fmt.Errorf("redemption has no remaining lifetime")
+	}
+	expiry := r.ActivatedAt.Add(time.Duration(r.RemainingSeconds) * time.Second)
 
 	var currentRoleJSON string
 	if err := tx.QueryRow(ctx, `SELECT COALESCE(role, '') FROM admin_users WHERE id = $1`, userID).Scan(&currentRoleJSON); err != nil {
@@ -102,7 +109,7 @@ func applyRedemptionEntitlement(ctx context.Context, tx pgx.Tx, userID int, r *m
 			max_concurrent_exams = $4, max_storage_size = $5,
 			expires_at = $6, status = 'active'
 			WHERE id = $7`,
-			pkgLabel, r.MaxExams, r.MaxPDFSize, concurrent, r.MaxStorageSize, *r.ExpiresAt, userID)
+			pkgLabel, r.MaxExams, r.MaxPDFSize, concurrent, r.MaxStorageSize, expiry, userID)
 		return err
 	}
 
@@ -119,12 +126,24 @@ func applyRedemptionEntitlement(ctx context.Context, tx pgx.Tx, userID int, r *m
 		max_concurrent_exams = $4, max_storage_size = $5,
 		expires_at = $6, status = 'active', role = $7
 		WHERE id = $8`,
-		pkgLabel, r.MaxExams, r.MaxPDFSize, concurrent, r.MaxStorageSize, *r.ExpiresAt,
+		pkgLabel, r.MaxExams, r.MaxPDFSize, concurrent, r.MaxStorageSize, expiry,
 		models.SerializeRoles(merged), userID)
 	return err
 }
 
-// applyCustomVoucherEntitlement applies a custom voucher's entitlement to a user
-// by OVERWRITING their quota limits with the voucher's values and extending
-// expiry to expiresAt. When the voucher specifies a custom role it is MERGED
-// into the user's existing roles (never stripping them); a SuperAdmin's role is
+// pauseActiveRedemption freezes the user's currently-active redemption: its
+// remaining_seconds is reduced by the time elapsed since activated_at, then the
+// row is marked inactive. No-op when the user has no active package. This is
+// the automatic "pause" — there is no user-facing pause/resume control.
+func pauseActiveRedemption(ctx context.Context, tx pgx.Tx, userID int) error {
+	_, err := tx.Exec(ctx, `
+		UPDATE voucher_redemptions
+		SET remaining_seconds = GREATEST(
+				remaining_seconds -
+				COALESCE(EXTRACT(EPOCH FROM (now() - activated_at))::bigint, 0),
+				0),
+			activated_at = NULL,
+			is_active = false
+		WHERE user_id = $1 AND is_active`, userID)
+	return err
+}
