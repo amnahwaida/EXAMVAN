@@ -398,6 +398,10 @@ func RedeemVoucherHandler() gin.HandlerFunc {
 			errorResponse(c, http.StatusUnauthorized, "Sesi tidak valid. Silakan login kembali.")
 			return
 		}
+		if getCurrentUserRole(c) == models.RoleSuperAdmin {
+			errorResponse(c, http.StatusForbidden, "Akun SuperAdmin tidak dapat menukar kode voucher")
+			return
+		}
 		ctx := c.Request.Context()
 
 		dbTx, err := pool.Begin(ctx)
@@ -598,6 +602,10 @@ func ListMyRedemptionsHandler() gin.HandlerFunc {
 			errorResponse(c, http.StatusUnauthorized, "Sesi tidak valid. Silakan login kembali.")
 			return
 		}
+		if getCurrentUserRole(c) == models.RoleSuperAdmin {
+			errorResponse(c, http.StatusForbidden, "Akun SuperAdmin tidak memiliki paket voucher")
+			return
+		}
 
 		redemptions, err := models.ListMyRedemptions(c.Request.Context(), pool, userID)
 		if err != nil {
@@ -665,6 +673,10 @@ func ActivateVoucherHandler() gin.HandlerFunc {
 		userID := getCurrentUserID(c)
 		if userID == 0 {
 			errorResponse(c, http.StatusUnauthorized, "Sesi tidak valid. Silakan login kembali.")
+			return
+		}
+		if getCurrentUserRole(c) == models.RoleSuperAdmin {
+			errorResponse(c, http.StatusForbidden, "Akun SuperAdmin tidak memiliki paket voucher")
 			return
 		}
 		ctx := c.Request.Context()

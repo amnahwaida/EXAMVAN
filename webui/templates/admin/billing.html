@@ -118,7 +118,7 @@
  <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:24px;flex-wrap:wrap;gap:12px;">
   <div>
    <h2 style="font-size:1.5rem;font-weight:700;color:#fff;margin:0;font-family:'Outfit',sans-serif;display:flex;align-items:center;gap:10px;"><svg class="icon-svg" style="width:26px;height:26px;color:#a5b4fc;"><use href="#hi-clipboard"/></svg>Paket &amp; Voucher</h2>
-   <p style="color:var(--color-text-secondary);font-size:0.875rem;margin:2px 0 0 0;">Lihat kuota akun Anda dan klaim kode voucher untuk upgrade paket.</p>
+   <p style="color:var(--color-text-secondary);font-size:0.875rem;margin:2px 0 0 0;">{{if eq .admin_role "superadmin"}}Lihat kuota akun Anda.{{else}}Lihat kuota akun Anda dan klaim kode voucher untuk upgrade paket.{{end}}</p>
   </div>
  </div>
 
@@ -134,6 +134,7 @@
   </div>
 
   <!-- Voucher Redeem Card -->
+  {{if ne .admin_role "superadmin"}}
   <div class="glass-card" style="padding:24px;border-radius:16px;display:flex;flex-direction:column;justify-content:center;position:relative;overflow:hidden;border:1px solid rgba(168,85,247,0.3);background:linear-gradient(135deg, rgba(168,85,247,0.05), rgba(99,102,241,0.05));">
    <div style="position:absolute;top:0;left:0;right:0;height:4px;background:linear-gradient(90deg, #a855f7, #6366f1);"></div>
    <span style="font-size:11px;font-weight:700;text-transform:uppercase;color:#c084fc;letter-spacing:0.5px;display:block;margin-bottom:6px;">Punya Kode Voucher?</span>
@@ -147,6 +148,7 @@
    <p style="font-size:12px;color:var(--color-text-secondary);margin:0;">Penukaran kode promo sedang tidak tersedia untuk saat ini.</p>
    {{end}}
   </div>
+  {{ end }}
 
   <!-- Quota Details Card -->
   <div class="glass-card" style="padding:24px;border-radius:16px;display:flex;flex-direction:column;justify-content:center;">
@@ -237,6 +239,7 @@ window.__adminRole = '{{.admin_role}}';
 let pendingRedeemCode = '';
 
 function redeemVoucher() {
+    if (window.__adminRole === 'superadmin') return;
     var input = document.getElementById('voucherCodeInput');
     var code = input.value.trim().toUpperCase();
     if (!code) {
@@ -382,6 +385,7 @@ function loadMyPackages() {
 }
 
 function activatePackage(redemptionId) {
+    if (window.__adminRole === 'superadmin') return;
     var formData = new FormData();
     formData.append('redemption_id', redemptionId);
 
