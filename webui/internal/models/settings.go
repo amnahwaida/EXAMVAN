@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"log"
-	"strconv"
 	"strings"
 
 	"github.com/jackc/pgx/v5"
@@ -81,32 +80,9 @@ const (
 	SettingSEODescription            = "seo_description"
 	SettingSEOKeywords               = "seo_keywords"
 	SettingSEOIndex                  = "seo_index"
-	SettingDokuPaymentMethods        = "doku_payment_methods"
 
 	// Monetization feature toggles (SuperAdmin). "1" = enabled, "0" = disabled.
-	SettingDokuPaymentEnabled   = "doku_payment_enabled"   // online payment via DOKU
-	SettingPricingPageEnabled   = "pricing_page_enabled"   // public /pricing + buy-package flow
 	SettingVoucherRedeemEnabled = "voucher_redeem_enabled" // redeem promo/voucher codes
-
-	// Price settings
-	SettingPriceGuruBulanan             = "price_guru_bulanan"
-	SettingPriceGuruSemester            = "price_guru_semester"
-	SettingPriceGuruTahunan             = "price_guru_tahunan"
-	SettingPriceIndividuBulanan         = "price_individu_bulanan"
-	SettingPriceIndividuSemester        = "price_individu_semester"
-	SettingPriceIndividuTahunan         = "price_individu_tahunan"
-	SettingPriceSekolahKecilBulanan     = "price_sekolah_kecil_bulanan"
-	SettingPriceSekolahKecilSemester    = "price_sekolah_kecil_semester"
-	SettingPriceSekolahKecilTahunan     = "price_sekolah_kecil_tahunan"
-	SettingPriceSekolahMenengahBulanan  = "price_sekolah_menengah_bulanan"
-	SettingPriceSekolahMenengahSemester = "price_sekolah_menengah_semester"
-	SettingPriceSekolahMenengahTahunan  = "price_sekolah_menengah_tahunan"
-	SettingPriceSekolahBesarBulanan     = "price_sekolah_besar_bulanan"
-	SettingPriceSekolahBesarSemester    = "price_sekolah_besar_semester"
-	SettingPriceSekolahBesarTahunan     = "price_sekolah_besar_tahunan"
-	SettingPriceSekolahUnggulanBulanan  = "price_sekolah_unggulan_bulanan"
-	SettingPriceSekolahUnggulanSemester = "price_sekolah_unggulan_semester"
-	SettingPriceSekolahUnggulanTahunan  = "price_sekolah_unggulan_tahunan"
 )
 
 // Default settings values as defined in the Python app.py.
@@ -132,32 +108,9 @@ var DefaultSettings = map[string]string{
 	SettingSEODescription:            "EXAMVAN adalah aplikasi ujian online mandiri dengan sistem keamanan tinggi terhindar dari kecurangan.",
 	SettingSEOKeywords:               "examvan, ujian online, ujian sekolah",
 	SettingSEOIndex:                  "1",
-	SettingDokuPaymentMethods:        "VIRTUAL_ACCOUNT_BCA,VIRTUAL_ACCOUNT_MANDIRI,VIRTUAL_ACCOUNT_BRI,VIRTUAL_ACCOUNT_BNI,QRIS,EMONEY_SHOPEEPAY,EMONEY_DANA,EMONEY_OVO,CREDIT_CARD",
 
-	// Monetization toggles default to enabled to preserve existing behavior.
-	SettingDokuPaymentEnabled:   "1",
-	SettingPricingPageEnabled:   "1",
+	// Monetization toggle defaults to enabled to preserve existing behavior.
 	SettingVoucherRedeemEnabled: "1",
-
-	// Default price values
-	SettingPriceGuruBulanan:             "25000",
-	SettingPriceGuruSemester:            "125000",
-	SettingPriceGuruTahunan:             "225000",
-	SettingPriceIndividuBulanan:         "50000",
-	SettingPriceIndividuSemester:        "250000",
-	SettingPriceIndividuTahunan:         "450000",
-	SettingPriceSekolahKecilBulanan:     "75000",
-	SettingPriceSekolahKecilSemester:    "375000",
-	SettingPriceSekolahKecilTahunan:     "675000",
-	SettingPriceSekolahMenengahBulanan:  "175000",
-	SettingPriceSekolahMenengahSemester: "875000",
-	SettingPriceSekolahMenengahTahunan:  "1575000",
-	SettingPriceSekolahBesarBulanan:     "375000",
-	SettingPriceSekolahBesarSemester:    "1875000",
-	SettingPriceSekolahBesarTahunan:     "3375000",
-	SettingPriceSekolahUnggulanBulanan:  "750000",
-	SettingPriceSekolahUnggulanSemester: "3750000",
-	SettingPriceSekolahUnggulanTahunan:  "6750000",
 }
 
 // GetSaasSetting retrieves a setting value by key.
@@ -223,59 +176,6 @@ func GetAllSaasSettings(ctx context.Context, pool *pgxpool.Pool) (map[string]str
 		}
 	}
 	return settings, nil
-}
-
-// GetPricingMap returns the canonical 18 package price matrix with DB overrides applied.
-func GetPricingMap(ctx context.Context, pool *pgxpool.Pool) map[string]int64 {
-	// Keys use the same "price_" prefix as the DB settings (SettingPrice*
-	// constants) and as consumers (BillingPage, CalculatePackagePrice,
-	// billing.html), so DB overrides actually apply. Previously the map used
-	// unprefixed keys, so settings["guru_bulanan"] never matched the stored
-	// "price_guru_bulanan" and every override was silently ignored.
-	prices := map[string]int64{
-		SettingPriceGuruBulanan:             25000,
-		SettingPriceGuruSemester:            125000,
-		SettingPriceGuruTahunan:             225000,
-		SettingPriceIndividuBulanan:         50000,
-		SettingPriceIndividuSemester:        250000,
-		SettingPriceIndividuTahunan:         450000,
-		SettingPriceSekolahKecilBulanan:     75000,
-		SettingPriceSekolahKecilSemester:    375000,
-		SettingPriceSekolahKecilTahunan:     675000,
-		SettingPriceSekolahMenengahBulanan:  175000,
-		SettingPriceSekolahMenengahSemester: 875000,
-		SettingPriceSekolahMenengahTahunan:  1575000,
-		SettingPriceSekolahBesarBulanan:     375000,
-		SettingPriceSekolahBesarSemester:    1875000,
-		SettingPriceSekolahBesarTahunan:     3375000,
-		SettingPriceSekolahUnggulanBulanan:  750000,
-		SettingPriceSekolahUnggulanSemester: 3750000,
-		SettingPriceSekolahUnggulanTahunan:  6750000,
-	}
-	if pool == nil {
-		return prices
-	}
-	settings, err := GetAllSaasSettings(ctx, pool)
-	if err != nil {
-		return prices
-	}
-	for k := range prices {
-		if v, ok := settings[k]; ok && v != "" {
-			if parsed, err := strconv.ParseInt(v, 10, 64); err == nil {
-				prices[k] = parsed
-			}
-		}
-	}
-	return prices
-}
-
-// DeleteSaasSetting removes a setting by key.
-func DeleteSaasSetting(ctx context.Context, pool *pgxpool.Pool, key string) error {
-	_, err := pool.Exec(ctx, `DELETE FROM saas_settings WHERE key = $1`, key)
-	if err != nil {
-		return fmt.Errorf("delete setting %s: %w", key, err)
-	}
-	return nil
 }
 
 // SeedDefaultSettings ensures all default settings exist in the database.

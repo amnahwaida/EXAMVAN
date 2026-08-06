@@ -339,101 +339,16 @@
 
   <div style="border-top:1px solid var(--color-glass-border);margin-top:16px;padding-top:16px;margin-bottom:6px;">
   <h4 style="margin:0;font-size:0.85rem;font-weight:600;text-transform:uppercase;letter-spacing:0.5px;color:var(--color-accent-light);display:flex;align-items:center;gap:6px;">
-  <svg class="icon-svg"><use href="#hi-banknotes"/></svg> Harga Paket Langganan (Rupiah)
+  <svg class="icon-svg"><use href="#hi-credit-card"/></svg> Kontrol Monetisasi
   </h4>
+  <p style="font-size:12px;color:var(--color-text-secondary);margin:4px 0 8px 0;">Kelola penukaran kode promo/voucher oleh pengguna.</p>
+  <div style="display:flex;flex-direction:column;gap:8px;">
+   <label style="display:flex;align-items:center;gap:8px;font-size:13px;cursor:pointer;padding:8px 10px;border-radius:8px;background:rgba(255,255,255,0.03);">
+    <input type="checkbox" id="voucherRedeemEnabledInput" style="accent-color:var(--color-primary);">
+    <span><strong>Redeem Kode Promo / Voucher</strong><br><span style="font-size:11px;color:var(--color-text-secondary);">Penukaran kode promo/voucher oleh pengguna.</span></span>
+   </label>
   </div>
-
-  <div class="table-responsive" style="margin-bottom:12px;overflow-x:auto;">
-  <table style="width:100%;border-collapse:collapse;font-size:12.5px;min-width:380px;">
-   <thead>
-    <tr>
-     <th style="text-align:left;padding:6px;border-bottom:1px solid var(--color-glass-border);color:var(--color-text-secondary);">Paket</th>
-     <th style="text-align:right;padding:6px;border-bottom:1px solid var(--color-glass-border);color:var(--color-text-secondary);">Bulanan</th>
-     <th style="text-align:right;padding:6px;border-bottom:1px solid var(--color-glass-border);color:var(--color-text-secondary);">Semester</th>
-     <th style="text-align:right;padding:6px;border-bottom:1px solid var(--color-glass-border);color:var(--color-text-secondary);">Tahunan</th>
-    </tr>
-   </thead>
-   <tbody>
-    <tr>
-     <td style="padding:6px;color:#fff;font-weight:600;">Guru</td>
-     <td style="padding:4px;"><input type="number" id="priceGuruBulanan" style="width:100%;text-align:right;padding:4px 8px;background:rgba(255,255,255,0.05);border:1px solid var(--color-glass-border);border-radius:4px;color:#fff;" required min="0"></td>
-     <td style="padding:4px;"><input type="number" id="priceGuruSemester" style="width:100%;text-align:right;padding:4px 8px;background:rgba(255,255,255,0.05);border:1px solid var(--color-glass-border);border-radius:4px;color:#fff;" required min="0"></td>
-     <td style="padding:4px;"><input type="number" id="priceGuruTahunan" style="width:100%;text-align:right;padding:4px 8px;background:rgba(255,255,255,0.05);border:1px solid var(--color-glass-border);border-radius:4px;color:#fff;" required min="0"></td>
-    </tr>
-    <tr>
-     <td style="padding:6px;color:#fff;font-weight:600;">Individu</td>
-     <td style="padding:4px;"><input type="number" id="priceIndividuBulanan" style="width:100%;text-align:right;padding:4px 8px;background:rgba(255,255,255,0.05);border:1px solid var(--color-glass-border);border-radius:4px;color:#fff;" required min="0"></td>
-     <td style="padding:4px;"><input type="number" id="priceIndividuSemester" style="width:100%;text-align:right;padding:4px 8px;background:rgba(255,255,255,0.05);border:1px solid var(--color-glass-border);border-radius:4px;color:#fff;" required min="0"></td>
-     <td style="padding:4px;"><input type="number" id="priceIndividuTahunan" style="width:100%;text-align:right;padding:4px 8px;background:rgba(255,255,255,0.05);border:1px solid var(--color-glass-border);border-radius:4px;color:#fff;" required min="0"></td>
-    </tr>
-    <tr>
-     <td style="padding:6px;color:#fff;font-weight:600;">Sek. Kecil</td>
-     <td style="padding:4px;"><input type="number" id="priceSekolahKecilBulanan" style="width:100%;text-align:right;padding:4px 8px;background:rgba(255,255,255,0.05);border:1px solid var(--color-glass-border);border-radius:4px;color:#fff;" required min="0"></td>
-     <td style="padding:4px;"><input type="number" id="priceSekolahKecilSemester" style="width:100%;text-align:right;padding:4px 8px;background:rgba(255,255,255,0.05);border:1px solid var(--color-glass-border);border-radius:4px;color:#fff;" required min="0"></td>
-     <td style="padding:4px;"><input type="number" id="priceSekolahKecilTahunan" style="width:100%;text-align:right;padding:4px 8px;background:rgba(255,255,255,0.05);border:1px solid var(--color-glass-border);border-radius:4px;color:#fff;" required min="0"></td>
-    </tr>
-    <tr>
-     <td style="padding:6px;color:#fff;font-weight:600;">Sek. Menengah</td>
-     <td style="padding:4px;"><input type="number" id="priceSekolahMenengahBulanan" style="width:100%;text-align:right;padding:4px 8px;background:rgba(255,255,255,0.05);border:1px solid var(--color-glass-border);border-radius:4px;color:#fff;" required min="0"></td>
-     <td style="padding:4px;"><input type="number" id="priceSekolahMenengahSemester" style="width:100%;text-align:right;padding:4px 8px;background:rgba(255,255,255,0.05);border:1px solid var(--color-glass-border);border-radius:4px;color:#fff;" required min="0"></td>
-     <td style="padding:4px;"><input type="number" id="priceSekolahMenengahTahunan" style="width:100%;text-align:right;padding:4px 8px;background:rgba(255,255,255,0.05);border:1px solid var(--color-glass-border);border-radius:4px;color:#fff;" required min="0"></td>
-    </tr>
-    <tr>
-     <td style="padding:6px;color:#fff;font-weight:600;">Sek. Besar</td>
-     <td style="padding:4px;"><input type="number" id="priceSekolahBesarBulanan" style="width:100%;text-align:right;padding:4px 8px;background:rgba(255,255,255,0.05);border:1px solid var(--color-glass-border);border-radius:4px;color:#fff;" required min="0"></td>
-     <td style="padding:4px;"><input type="number" id="priceSekolahBesarSemester" style="width:100%;text-align:right;padding:4px 8px;background:rgba(255,255,255,0.05);border:1px solid var(--color-glass-border);border-radius:4px;color:#fff;" required min="0"></td>
-     <td style="padding:4px;"><input type="number" id="priceSekolahBesarTahunan" style="width:100%;text-align:right;padding:4px 8px;background:rgba(255,255,255,0.05);border:1px solid var(--color-glass-border);border-radius:4px;color:#fff;" required min="0"></td>
-    </tr>
-    <tr>
-     <td style="padding:6px;color:#fff;font-weight:600;">Unggulan</td>
-     <td style="padding:4px;"><input type="number" id="priceSekolahUnggulanBulanan" style="width:100%;text-align:right;padding:4px 8px;background:rgba(255,255,255,0.05);border:1px solid var(--color-glass-border);border-radius:4px;color:#fff;" required min="0"></td>
-     <td style="padding:4px;"><input type="number" id="priceSekolahUnggulanSemester" style="width:100%;text-align:right;padding:4px 8px;background:rgba(255,255,255,0.05);border:1px solid var(--color-glass-border);border-radius:4px;color:#fff;" required min="0"></td>
-     <td style="padding:4px;"><input type="number" id="priceSekolahUnggulanTahunan" style="width:100%;text-align:right;padding:4px 8px;background:rgba(255,255,255,0.05);border:1px solid var(--color-glass-border);border-radius:4px;color:#fff;" required min="0"></td>
-    </tr>
-   </tbody>
-  </table>
   </div>
-
- <div style="border-top:1px solid var(--color-glass-border);margin-top:16px;padding-top:16px;margin-bottom:6px;">
- <h4 style="margin:0;font-size:0.85rem;font-weight:600;text-transform:uppercase;letter-spacing:0.5px;color:var(--color-accent-light);display:flex;align-items:center;gap:6px;">
- <svg class="icon-svg"><use href="#hi-credit-card"/></svg> Kontrol Monetisasi &amp; Penawaran
- </h4>
- <p style="font-size:12px;color:var(--color-text-secondary);margin:4px 0 8px 0;">Aktifkan/nonaktifkan cara pembayaran &amp; penawaran. Saat dimatikan, halaman/opsi terkait menampilkan pesan "sementara tidak tersedia".</p>
- <div style="display:flex;flex-direction:column;gap:8px;">
-  <label style="display:flex;align-items:center;gap:8px;font-size:13px;cursor:pointer;padding:8px 10px;border-radius:8px;background:rgba(255,255,255,0.03);">
-   <input type="checkbox" id="pricingPageEnabledInput" style="accent-color:var(--color-primary);">
-   <span><strong>Halaman Pricing &amp; Beli Paket</strong><br><span style="font-size:11px;color:var(--color-text-secondary);">Halaman /pricing publik dan pembelian paket (transfer manual &amp; DOKU) di Billing. Penukaran kode promo tetap bisa.</span></span>
-  </label>
-  <label style="display:flex;align-items:center;gap:8px;font-size:13px;cursor:pointer;padding:8px 10px;border-radius:8px;background:rgba(255,255,255,0.03);">
-   <input type="checkbox" id="dokuPaymentEnabledInput" style="accent-color:var(--color-primary);">
-   <span><strong>Pembayaran via DOKU</strong><br><span style="font-size:11px;color:var(--color-text-secondary);">Opsi bayar online via DOKU (Virtual Account, QRIS, e-money, dsb).</span></span>
-  </label>
-  <label style="display:flex;align-items:center;gap:8px;font-size:13px;cursor:pointer;padding:8px 10px;border-radius:8px;background:rgba(255,255,255,0.03);">
-   <input type="checkbox" id="voucherRedeemEnabledInput" style="accent-color:var(--color-primary);">
-   <span><strong>Redeem Kode Promo / Voucher</strong><br><span style="font-size:11px;color:var(--color-text-secondary);">Penukaran kode promo/voucher oleh pengguna.</span></span>
-  </label>
- </div>
- </div>
-
- <div style="border-top:1px solid var(--color-glass-border);margin-top:16px;padding-top:16px;margin-bottom:6px;">
- <h4 style="margin:0;font-size:0.85rem;font-weight:600;text-transform:uppercase;letter-spacing:0.5px;color:var(--color-accent-light);display:flex;align-items:center;gap:6px;">
- <svg class="icon-svg"><use href="#hi-credit-card"/></svg> Metode Pembayaran DOKU
- </h4>
- <p style="font-size:12px;color:var(--color-text-secondary);margin:4px 0 8px 0;">Centang metode pembayaran yang ingin diaktifkan untuk pelanggan.</p>
- <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:6px;">
-  <label style="display:flex;align-items:center;gap:6px;font-size:13px;cursor:pointer;padding:4px 6px;border-radius:6px;background:rgba(255,255,255,0.03);"><input type="checkbox" name="doku_payment_method" value="VIRTUAL_ACCOUNT_BCA" style="accent-color:var(--color-primary);"> BCA Virtual Account</label>
-  <label style="display:flex;align-items:center;gap:6px;font-size:13px;cursor:pointer;padding:4px 6px;border-radius:6px;background:rgba(255,255,255,0.03);"><input type="checkbox" name="doku_payment_method" value="VIRTUAL_ACCOUNT_MANDIRI" style="accent-color:var(--color-primary);"> Mandiri Virtual Account</label>
-  <label style="display:flex;align-items:center;gap:6px;font-size:13px;cursor:pointer;padding:4px 6px;border-radius:6px;background:rgba(255,255,255,0.03);"><input type="checkbox" name="doku_payment_method" value="VIRTUAL_ACCOUNT_BRI" style="accent-color:var(--color-primary);"> BRI Virtual Account</label>
-  <label style="display:flex;align-items:center;gap:6px;font-size:13px;cursor:pointer;padding:4px 6px;border-radius:6px;background:rgba(255,255,255,0.03);"><input type="checkbox" name="doku_payment_method" value="VIRTUAL_ACCOUNT_BNI" style="accent-color:var(--color-primary);"> BNI Virtual Account</label>
-  <label style="display:flex;align-items:center;gap:6px;font-size:13px;cursor:pointer;padding:4px 6px;border-radius:6px;background:rgba(255,255,255,0.03);"><input type="checkbox" name="doku_payment_method" value="VIRTUAL_ACCOUNT_DOKU" style="accent-color:var(--color-primary);"> DOKU Virtual Account</label>
-  <label style="display:flex;align-items:center;gap:6px;font-size:13px;cursor:pointer;padding:4px 6px;border-radius:6px;background:rgba(255,255,255,0.03);"><input type="checkbox" name="doku_payment_method" value="QRIS" style="accent-color:var(--color-primary);"> QRIS</label>
-  <label style="display:flex;align-items:center;gap:6px;font-size:13px;cursor:pointer;padding:4px 6px;border-radius:6px;background:rgba(255,255,255,0.03);"><input type="checkbox" name="doku_payment_method" value="EMONEY_SHOPEEPAY" style="accent-color:var(--color-primary);"> ShopeePay</label>
-  <label style="display:flex;align-items:center;gap:6px;font-size:13px;cursor:pointer;padding:4px 6px;border-radius:6px;background:rgba(255,255,255,0.03);"><input type="checkbox" name="doku_payment_method" value="EMONEY_DANA" style="accent-color:var(--color-primary);"> DANA</label>
-  <label style="display:flex;align-items:center;gap:6px;font-size:13px;cursor:pointer;padding:4px 6px;border-radius:6px;background:rgba(255,255,255,0.03);"><input type="checkbox" name="doku_payment_method" value="EMONEY_OVO" style="accent-color:var(--color-primary);"> OVO</label>
-  <label style="display:flex;align-items:center;gap:6px;font-size:13px;cursor:pointer;padding:4px 6px;border-radius:6px;background:rgba(255,255,255,0.03);"><input type="checkbox" name="doku_payment_method" value="CREDIT_CARD" style="accent-color:var(--color-primary);"> Kartu Kredit</label>
-  <label style="display:flex;align-items:center;gap:6px;font-size:13px;cursor:pointer;padding:4px 6px;border-radius:6px;background:rgba(255,255,255,0.03);"><input type="checkbox" name="doku_payment_method" value="EMONEY_LINKAJA" style="accent-color:var(--color-primary);"> LinkAja</label>
- </div>
- </div>
 
   <button type="submit" id="saveSaasSettingsBtn" class="btn-upload saas-save-btn" style="margin-top:6px;background:rgba(16,185,129,0.2);border-color:rgba(16,185,129,0.4);color:#6ee7b7;">
   <svg class="icon-svg"><use href="#hi-check"/></svg> Simpan Setelan SaaS

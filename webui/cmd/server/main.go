@@ -99,10 +99,6 @@ func main() {
 				log.Printf("WARNING: admin password migration failed: %v", err)
 			}
 		}
-		// Seed default pricing plans
-		if err := models.SeedDefaultPricingPlans(ctx, pool); err != nil {
-			log.Printf("WARNING: pricing plans seed failed: %v", err)
-		}
 	}
 	rdb, err := redisclient.Connect(ctx, cfg.RedisURL)
 	if err != nil {
@@ -131,10 +127,6 @@ func main() {
 		startHeartbeatFlusher(rdb, pool)
 	} else {
 		log.Println("Submission queue worker: not started (requires both PostgreSQL and Redis)")
-	}
-
-	if pool != nil {
-		startTransactionCleaner(pool)
 	}
 
 	// -----------------------------------------------------------------------
@@ -450,7 +442,6 @@ func registerRoutes(r *gin.Engine, cfg *config.Config, pool *pgxpool.Pool) {
 	r.GET("/", indexHandler(cfg))
 	r.GET("/index.html", indexHandler(cfg))
 	r.GET("/robots.txt", robotsHandler())
-	r.GET("/pricing", pricingHandler(cfg))
 
 	r.GET("/login", loginPageHandler(cfg))
 	r.POST("/login", middleware.RateLimit(10, time.Minute), loginHandler(cfg))
@@ -505,8 +496,6 @@ func registerRoutes(r *gin.Engine, cfg *config.Config, pool *pgxpool.Pool) {
 		apiGroup.POST("/exams/:exam_id/complete", middleware.LimitBodySize(256*1024), middleware.RateLimit(30, time.Minute), middleware.AndroidVersionCheck(), api.CompleteExam())
 
 		apiGroup.GET("/hasil/:token", middleware.RateLimit(30, time.Minute), public.HasilAPI())
-		apiGroup.GET("/payments/doku/notify", func(c *gin.Context) { c.JSON(http.StatusOK, gin.H{"status": "active"}) })
-		apiGroup.POST("/payments/doku/notify", middleware.RateLimit(20, time.Minute), api.DokuNotifyHandler(cfg))
 	}
 
 	// ---- Admin pages (auth required) ----
@@ -580,19 +569,6 @@ func registerRoutes(r *gin.Engine, cfg *config.Config, pool *pgxpool.Pool) {
 				adminSettings.POST("/saas-settings/test-smtp", middleware.LimitBodySize(256*1024), admin.TestSMTPConnectionEndpoint())
 				adminSettings.POST("/system-apps", middleware.LimitBodySize(500*1024*1024), admin.UploadSystemApp())
 				adminSettings.POST("/system-apps/:id/delete", middleware.LimitBodySize(256*1024), admin.DeleteSystemApp())
-				// Pricing plans CRUD
-				adminSettings.POST("/pricing-plans", middleware.LimitBodySize(256*1024), admin.CreatePricingPlan())
-				adminSettings.POST("/pricing-plans/:id/update", middleware.LimitBodySize(256*1024), admin.UpdatePricingPlan())
-				adminSettings.POST("/pricing-plans/:id/delete", middleware.LimitBodySize(256*1024), admin.DeletePricingPlan())
-			}
-
-			// Transactions & Subscriptions
-			csrfAPI.POST("/transactions", middleware.LimitBodySize(5*1024*1024), admin.CreateTransaction(cfg))
-			csrfAPI.POST("/transactions/doku", middleware.LimitBodySize(256*1024), admin.CreateDokuTransaction(cfg))
-			adminTransactions := csrfAPI.Group("", middleware.SuperAdminRequired())
-			{
-				adminTransactions.POST("/transactions/:id/approve", middleware.LimitBodySize(256*1024), admin.ApproveTransaction())
-				adminTransactions.POST("/transactions/:id/reject", middleware.LimitBodySize(256*1024), admin.RejectTransaction())
 			}
 
 			// Vouchers
@@ -623,13 +599,10 @@ func registerRoutes(r *gin.Engine, cfg *config.Config, pool *pgxpool.Pool) {
 			adminUsersRead.GET("/users", admin.ListUsers())
 		}
 
-		adminAPI.GET("/transactions", admin.ListTransactions())
-		adminAPI.GET("/transactions/proofs/:filename", middleware.SuperAdminRequired(), admin.ServeProofFile(cfg))
 		adminAPI.GET("/pengawas/exams", admin.PengawasExams())
 		adminAPI.GET("/pengawas/exams/:exam_id/submissions", admin.PengawasExamSubmissions())
 		adminAPI.GET("/pengawas/exams/:exam_id/approvals", admin.GetPendingApprovals())
 		adminAPI.GET("/saas-settings", middleware.SuperAdminRequired(), admin.SaasSettings())
-		adminAPI.GET("/pricing-plans", middleware.SuperAdminRequired(), admin.ListPricingPlans())
 		adminAPI.GET("/vouchers", middleware.SuperAdminRequired(), admin.ListVouchers())
 		adminAPI.GET("/vouchers/:id/redemptions", middleware.SuperAdminRequired(), admin.ListVoucherRedemptionsHandler())
 	}
@@ -664,69 +637,6 @@ func indexHandler(cfg *config.Config) gin.HandlerFunc {
 		data["version"] = cfg.Version
 		c.HTML(http.StatusOK, "public/index.html", data)
 	}
-}
-
-type pricingPlan struct {
-	Key           string
-	Title         string
-	Audience      string
-	Popular       bool
-	Accent        string
-	MonthlyPrice  int64
-	SemesterPrice int64
-	AnnualPrice   int64
-	MaxExams      string
-	PdfLimit      string
-	StorageLimit  string
-	TokenMode     string
-	Results       string
-	Answers       string
-	Features      []string
-}
-
-func pricingHandler(cfg *config.Config) gin.HandlerFunc {
-	return func(c *gin.Context) {
-		data := middleware.TemplateData(c)
-		data["version"] = cfg.Version
-
-		var dbPool *pgxpool.Pool
-		if dbValue, exists := c.Get("db"); exists && dbValue != nil {
-			dbPool, _ = dbValue.(*pgxpool.Pool)
-		}
-
-		// SuperAdmin can disable the whole pricing page. When disabled, show a
-		// friendly "sementara tidak tersedia" state instead of the plans.
-		if dbPool != nil && !models.GetSaasSettingBool(c.Request.Context(), dbPool, models.SettingPricingPageEnabled, true) {
-			data["unavailable"] = true
-			data["plans"] = []models.PricingPlan{}
-			c.HTML(http.StatusOK, "public/pricing.html", data)
-			return
-		}
-
-		// Read pricing plans from database
-		var plans []models.PricingPlan
-		if dbPool != nil {
-			var err error
-			plans, err = models.GetAllPricingPlans(c.Request.Context(), dbPool)
-			if err != nil {
-				log.Printf("pricing: failed to load plans: %v", err)
-			}
-		}
-
-		data["plans"] = plans
-		c.HTML(http.StatusOK, "public/pricing.html", data)
-	}
-}
-
-func parsePrice(val string, defaultVal int64) int64 {
-	if val == "" {
-		return defaultVal
-	}
-	p, err := strconv.ParseInt(val, 10, 64)
-	if err != nil {
-		return defaultVal
-	}
-	return p
 }
 
 func robotsHandler() gin.HandlerFunc {
@@ -1411,40 +1321,5 @@ func flushHeartbeatsQueue(ctx context.Context, rdb *redis.Client, pool *pgxpool.
 		log.Printf("heartbeat-flusher: tx commit error: %v", err)
 	} else {
 		log.Printf("heartbeat-flusher: successfully flushed %d heartbeats to PostgreSQL", len(payloads))
-	}
-}
-
-// startTransactionCleaner runs a background routine to reject pending transactions older than 24 hours.
-func startTransactionCleaner(pool *pgxpool.Pool) {
-	if pool == nil {
-		return
-	}
-	go func() {
-		ticker := time.NewTicker(1 * time.Hour)
-		defer ticker.Stop()
-
-		// Run immediately on start
-		cleanExpiredTransactions(context.Background(), pool)
-
-		for range ticker.C {
-			cleanExpiredTransactions(context.Background(), pool)
-		}
-	}()
-	log.Println("transaction-cleaner: started (clean every 1h)")
-}
-
-func cleanExpiredTransactions(ctx context.Context, pool *pgxpool.Pool) {
-	result, err := pool.Exec(ctx,
-		`UPDATE transactions 
-		 SET status = 'rejected', notes = 'Expired automatically after 24h pending'
-		 WHERE status = 'pending' AND created_at < CURRENT_TIMESTAMP - INTERVAL '24 hours'`,
-	)
-	if err != nil {
-		log.Printf("transaction-cleaner: failed to clean expired transactions: %v", err)
-		return
-	}
-	rows := result.RowsAffected()
-	if rows > 0 {
-		log.Printf("transaction-cleaner: successfully expired %d pending transactions", rows)
 	}
 }

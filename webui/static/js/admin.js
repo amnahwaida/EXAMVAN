@@ -2858,41 +2858,7 @@ function saveSaasSettings(e) {
     const seo_keywords = document.getElementById('seoKeywordsInput').value.trim();
     const seo_index = document.getElementById('seoIndexInput').checked;
 
-    // Pricing values
-    const price_guru_bulanan = parseInt(document.getElementById('priceGuruBulanan').value) || 0;
-    const price_guru_semester = parseInt(document.getElementById('priceGuruSemester').value) || 0;
-    const price_guru_tahunan = parseInt(document.getElementById('priceGuruTahunan').value) || 0;
-
-    const price_individu_bulanan = parseInt(document.getElementById('priceIndividuBulanan').value) || 0;
-    const price_individu_semester = parseInt(document.getElementById('priceIndividuSemester').value) || 0;
-    const price_individu_tahunan = parseInt(document.getElementById('priceIndividuTahunan').value) || 0;
-
-    const price_sekolah_kecil_bulanan = parseInt(document.getElementById('priceSekolahKecilBulanan').value) || 0;
-    const price_sekolah_kecil_semester = parseInt(document.getElementById('priceSekolahKecilSemester').value) || 0;
-    const price_sekolah_kecil_tahunan = parseInt(document.getElementById('priceSekolahKecilTahunan').value) || 0;
-
-    const price_sekolah_menengah_bulanan = parseInt(document.getElementById('priceSekolahMenengahBulanan').value) || 0;
-    const price_sekolah_menengah_semester = parseInt(document.getElementById('priceSekolahMenengahSemester').value) || 0;
-    const price_sekolah_menengah_tahunan = parseInt(document.getElementById('priceSekolahMenengahTahunan').value) || 0;
-
-    const price_sekolah_besar_bulanan = parseInt(document.getElementById('priceSekolahBesarBulanan').value) || 0;
-    const price_sekolah_besar_semester = parseInt(document.getElementById('priceSekolahBesarSemester').value) || 0;
-    const price_sekolah_besar_tahunan = parseInt(document.getElementById('priceSekolahBesarTahunan').value) || 0;
-
-    const price_sekolah_unggulan_bulanan = parseInt(document.getElementById('priceSekolahUnggulanBulanan').value) || 0;
-    const price_sekolah_unggulan_semester = parseInt(document.getElementById('priceSekolahUnggulanSemester').value) || 0;
-    const price_sekolah_unggulan_tahunan = parseInt(document.getElementById('priceSekolahUnggulanTahunan').value) || 0;
-
-    // DOKU payment methods: collect checked checkboxes
-    const dokuMethods = [];
-    document.querySelectorAll('input[name="doku_payment_method"]:checked').forEach(cb => {
-        dokuMethods.push(cb.value);
-    });
-    const doku_payment_methods = dokuMethods.join(',');
-
     // Monetization toggles
-    const doku_payment_enabled = !!(document.getElementById('dokuPaymentEnabledInput') || {}).checked;
-    const pricing_page_enabled = !!(document.getElementById('pricingPageEnabledInput') || {}).checked;
     const voucher_redeem_enabled = !!(document.getElementById('voucherRedeemEnabledInput') || {}).checked;
 
     apiFetch('/admin/api/saas-settings', {
@@ -2903,14 +2869,7 @@ function saveSaasSettings(e) {
             default_max_exams, default_max_concurrent_exams, default_max_pdf_size_mb,
             default_active_days, android_version, webapp_version,
             seo_title, seo_description, seo_keywords, seo_index,
-            doku_payment_methods,
-            doku_payment_enabled, pricing_page_enabled, voucher_redeem_enabled,
-            price_guru_bulanan, price_guru_semester, price_guru_tahunan,
-            price_individu_bulanan, price_individu_semester, price_individu_tahunan,
-            price_sekolah_kecil_bulanan, price_sekolah_kecil_semester, price_sekolah_kecil_tahunan,
-            price_sekolah_menengah_bulanan, price_sekolah_menengah_semester, price_sekolah_menengah_tahunan,
-            price_sekolah_besar_bulanan, price_sekolah_besar_semester, price_sekolah_besar_tahunan,
-            price_sekolah_unggulan_bulanan, price_sekolah_unggulan_semester, price_sekolah_unggulan_tahunan
+            voucher_redeem_enabled
         })
     })
     .then(r => r.json())
@@ -3084,43 +3043,7 @@ function loadSaasSettings() {
                 document.getElementById('seoKeywordsInput').value = s.seo_keywords || '';
                 document.getElementById('seoIndexInput').checked = s.seo_index || false;
 
-                // Pricing values
-                document.getElementById('priceGuruBulanan').value = s.price_guru_bulanan || 25000;
-                document.getElementById('priceGuruSemester').value = s.price_guru_semester || 125000;
-                document.getElementById('priceGuruTahunan').value = s.price_guru_tahunan || 225000;
-
-                document.getElementById('priceIndividuBulanan').value = s.price_individu_bulanan || 50000;
-                document.getElementById('priceIndividuSemester').value = s.price_individu_semester || 250000;
-                document.getElementById('priceIndividuTahunan').value = s.price_individu_tahunan || 450000;
-
-                document.getElementById('priceSekolahKecilBulanan').value = s.price_sekolah_kecil_bulanan || 75000;
-                document.getElementById('priceSekolahKecilSemester').value = s.price_sekolah_kecil_semester || 375000;
-                document.getElementById('priceSekolahKecilTahunan').value = s.price_sekolah_kecil_tahunan || 675000;
-
-                document.getElementById('priceSekolahMenengahBulanan').value = s.price_sekolah_menengah_bulanan || 175000;
-                document.getElementById('priceSekolahMenengahSemester').value = s.price_sekolah_menengah_semester || 875000;
-                document.getElementById('priceSekolahMenengahTahunan').value = s.price_sekolah_menengah_tahunan || 1575000;
-
-                document.getElementById('priceSekolahBesarBulanan').value = s.price_sekolah_besar_bulanan || 375000;
-                document.getElementById('priceSekolahBesarSemester').value = s.price_sekolah_besar_semester || 1875000;
-                document.getElementById('priceSekolahBesarTahunan').value = s.price_sekolah_besar_tahunan || 3375000;
-
-                document.getElementById('priceSekolahUnggulanBulanan').value = s.price_sekolah_unggulan_bulanan || 750000;
-                document.getElementById('priceSekolahUnggulanSemester').value = s.price_sekolah_unggulan_semester || 3750000;
-                document.getElementById('priceSekolahUnggulanTahunan').value = s.price_sekolah_unggulan_tahunan || 6750000;
-
-                // DOKU payment methods checkboxes
-                const activeMethods = (s.doku_payment_methods || '').split(',').map(m => m.trim()).filter(Boolean);
-                const dokuCheckboxes = document.querySelectorAll('input[name="doku_payment_method"]');
-                dokuCheckboxes.forEach(cb => {
-                    cb.checked = activeMethods.includes(cb.value);
-                });
-
                 // Monetization toggles (default enabled when unset)
-                var _dp = document.getElementById('dokuPaymentEnabledInput');
-                if (_dp) _dp.checked = s.doku_payment_enabled !== false;
-                var _pp = document.getElementById('pricingPageEnabledInput');
-                if (_pp) _pp.checked = s.pricing_page_enabled !== false;
                 var _vr = document.getElementById('voucherRedeemEnabledInput');
                 if (_vr) _vr.checked = s.voucher_redeem_enabled !== false;
 

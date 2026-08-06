@@ -80,32 +80,9 @@ func handleSaasSettingsGet(c *gin.Context, pool *pgxpool.Pool, ctx context.Conte
 			"seo_description":              settings[models.SettingSEODescription],
 			"seo_keywords":                 settings[models.SettingSEOKeywords],
 			"seo_index":                    settings[models.SettingSEOIndex] == "1",
-			"doku_payment_methods":         settings[models.SettingDokuPaymentMethods],
 
-			// Monetization toggles (default enabled when unset).
-			"doku_payment_enabled":   settings[models.SettingDokuPaymentEnabled] != "0",
-			"pricing_page_enabled":   settings[models.SettingPricingPageEnabled] != "0",
+			// Voucher redemption toggle (default enabled when unset).
 			"voucher_redeem_enabled": settings[models.SettingVoucherRedeemEnabled] != "0",
-
-			// Pricing values
-			"price_guru_bulanan":              parseIntSetting(settings[models.SettingPriceGuruBulanan], 25000),
-			"price_guru_semester":             parseIntSetting(settings[models.SettingPriceGuruSemester], 125000),
-			"price_guru_tahunan":              parseIntSetting(settings[models.SettingPriceGuruTahunan], 225000),
-			"price_individu_bulanan":          parseIntSetting(settings[models.SettingPriceIndividuBulanan], 50000),
-			"price_individu_semester":         parseIntSetting(settings[models.SettingPriceIndividuSemester], 250000),
-			"price_individu_tahunan":          parseIntSetting(settings[models.SettingPriceIndividuTahunan], 450000),
-			"price_sekolah_kecil_bulanan":     parseIntSetting(settings[models.SettingPriceSekolahKecilBulanan], 75000),
-			"price_sekolah_kecil_semester":    parseIntSetting(settings[models.SettingPriceSekolahKecilSemester], 375000),
-			"price_sekolah_kecil_tahunan":     parseIntSetting(settings[models.SettingPriceSekolahKecilTahunan], 675000),
-			"price_sekolah_menengah_bulanan":  parseIntSetting(settings[models.SettingPriceSekolahMenengahBulanan], 175000),
-			"price_sekolah_menengah_semester": parseIntSetting(settings[models.SettingPriceSekolahMenengahSemester], 875000),
-			"price_sekolah_menengah_tahunan":  parseIntSetting(settings[models.SettingPriceSekolahMenengahTahunan], 1575000),
-			"price_sekolah_besar_bulanan":     parseIntSetting(settings[models.SettingPriceSekolahBesarBulanan], 375000),
-			"price_sekolah_besar_semester":    parseIntSetting(settings[models.SettingPriceSekolahBesarSemester], 1875000),
-			"price_sekolah_besar_tahunan":     parseIntSetting(settings[models.SettingPriceSekolahBesarTahunan], 3375000),
-			"price_sekolah_unggulan_bulanan":  parseIntSetting(settings[models.SettingPriceSekolahUnggulanBulanan], 750000),
-			"price_sekolah_unggulan_semester": parseIntSetting(settings[models.SettingPriceSekolahUnggulanSemester], 3750000),
-			"price_sekolah_unggulan_tahunan":  parseIntSetting(settings[models.SettingPriceSekolahUnggulanTahunan], 6750000),
 		},
 	})
 }
@@ -156,32 +133,7 @@ func handleSaasSettingsPost(c *gin.Context, pool *pgxpool.Pool, ctx context.Cont
 		SEODescription            string  `json:"seo_description"`
 		SEOKeywords               string  `json:"seo_keywords"`
 		SEOIndex                  bool    `json:"seo_index"`
-		DokuPaymentMethods        string  `json:"doku_payment_methods"`
-
-		// Monetization toggles
-		DokuPaymentEnabled   bool `json:"doku_payment_enabled"`
-		PricingPageEnabled   bool `json:"pricing_page_enabled"`
-		VoucherRedeemEnabled bool `json:"voucher_redeem_enabled"`
-
-		// Price Settings
-		PriceGuruBulanan             int `json:"price_guru_bulanan"`
-		PriceGuruSemester            int `json:"price_guru_semester"`
-		PriceGuruTahunan             int `json:"price_guru_tahunan"`
-		PriceIndividuBulanan         int `json:"price_individu_bulanan"`
-		PriceIndividuSemester        int `json:"price_individu_semester"`
-		PriceIndividuTahunan         int `json:"price_individu_tahunan"`
-		PriceSekolahKecilBulanan     int `json:"price_sekolah_kecil_bulanan"`
-		PriceSekolahKecilSemester    int `json:"price_sekolah_kecil_semester"`
-		PriceSekolahKecilTahunan     int `json:"price_sekolah_kecil_tahunan"`
-		PriceSekolahMenengahBulanan  int `json:"price_sekolah_menengah_bulanan"`
-		PriceSekolahMenengahSemester int `json:"price_sekolah_menengah_semester"`
-		PriceSekolahMenengahTahunan  int `json:"price_sekolah_menengah_tahunan"`
-		PriceSekolahBesarBulanan     int `json:"price_sekolah_besar_bulanan"`
-		PriceSekolahBesarSemester    int `json:"price_sekolah_besar_semester"`
-		PriceSekolahBesarTahunan     int `json:"price_sekolah_besar_tahunan"`
-		PriceSekolahUnggulanBulanan  int `json:"price_sekolah_unggulan_bulanan"`
-		PriceSekolahUnggulanSemester int `json:"price_sekolah_unggulan_semester"`
-		PriceSekolahUnggulanTahunan  int `json:"price_sekolah_unggulan_tahunan"`
+		VoucherRedeemEnabled      bool    `json:"voucher_redeem_enabled"`
 	}
 
 	if err := c.ShouldBindJSON(&body); err != nil {
@@ -272,41 +224,8 @@ func handleSaasSettingsPost(c *gin.Context, pool *pgxpool.Pool, ctx context.Cont
 	}
 	models.SetSaasSetting(reqCtx, pool, models.SettingSEOIndex, seoIndexVal)
 
-	// DOKU Payment Methods
-	dokuMethods := strings.TrimSpace(body.DokuPaymentMethods)
-	if dokuMethods != "" {
-		models.SetSaasSetting(reqCtx, pool, models.SettingDokuPaymentMethods, dokuMethods)
-	}
-
-	// Monetization toggles
-	models.SetSaasSetting(reqCtx, pool, models.SettingDokuPaymentEnabled, boolFlag(body.DokuPaymentEnabled))
-	models.SetSaasSetting(reqCtx, pool, models.SettingPricingPageEnabled, boolFlag(body.PricingPageEnabled))
+	// Voucher redemption toggle
 	models.SetSaasSetting(reqCtx, pool, models.SettingVoucherRedeemEnabled, boolFlag(body.VoucherRedeemEnabled))
-
-	// Save Pricing Settings
-	models.SetSaasSetting(reqCtx, pool, models.SettingPriceGuruBulanan, strconv.Itoa(body.PriceGuruBulanan))
-	models.SetSaasSetting(reqCtx, pool, models.SettingPriceGuruSemester, strconv.Itoa(body.PriceGuruSemester))
-	models.SetSaasSetting(reqCtx, pool, models.SettingPriceGuruTahunan, strconv.Itoa(body.PriceGuruTahunan))
-
-	models.SetSaasSetting(reqCtx, pool, models.SettingPriceIndividuBulanan, strconv.Itoa(body.PriceIndividuBulanan))
-	models.SetSaasSetting(reqCtx, pool, models.SettingPriceIndividuSemester, strconv.Itoa(body.PriceIndividuSemester))
-	models.SetSaasSetting(reqCtx, pool, models.SettingPriceIndividuTahunan, strconv.Itoa(body.PriceIndividuTahunan))
-
-	models.SetSaasSetting(reqCtx, pool, models.SettingPriceSekolahKecilBulanan, strconv.Itoa(body.PriceSekolahKecilBulanan))
-	models.SetSaasSetting(reqCtx, pool, models.SettingPriceSekolahKecilSemester, strconv.Itoa(body.PriceSekolahKecilSemester))
-	models.SetSaasSetting(reqCtx, pool, models.SettingPriceSekolahKecilTahunan, strconv.Itoa(body.PriceSekolahKecilTahunan))
-
-	models.SetSaasSetting(reqCtx, pool, models.SettingPriceSekolahMenengahBulanan, strconv.Itoa(body.PriceSekolahMenengahBulanan))
-	models.SetSaasSetting(reqCtx, pool, models.SettingPriceSekolahMenengahSemester, strconv.Itoa(body.PriceSekolahMenengahSemester))
-	models.SetSaasSetting(reqCtx, pool, models.SettingPriceSekolahMenengahTahunan, strconv.Itoa(body.PriceSekolahMenengahTahunan))
-
-	models.SetSaasSetting(reqCtx, pool, models.SettingPriceSekolahBesarBulanan, strconv.Itoa(body.PriceSekolahBesarBulanan))
-	models.SetSaasSetting(reqCtx, pool, models.SettingPriceSekolahBesarSemester, strconv.Itoa(body.PriceSekolahBesarSemester))
-	models.SetSaasSetting(reqCtx, pool, models.SettingPriceSekolahBesarTahunan, strconv.Itoa(body.PriceSekolahBesarTahunan))
-
-	models.SetSaasSetting(reqCtx, pool, models.SettingPriceSekolahUnggulanBulanan, strconv.Itoa(body.PriceSekolahUnggulanBulanan))
-	models.SetSaasSetting(reqCtx, pool, models.SettingPriceSekolahUnggulanSemester, strconv.Itoa(body.PriceSekolahUnggulanSemester))
-	models.SetSaasSetting(reqCtx, pool, models.SettingPriceSekolahUnggulanTahunan, strconv.Itoa(body.PriceSekolahUnggulanTahunan))
 
 	successMessage(c, "Pengaturan SaaS berhasil diperbarui")
 }

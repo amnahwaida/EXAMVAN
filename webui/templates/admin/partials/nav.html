@@ -27,7 +27,7 @@
      </button>
      <div class="topbar-dropdown-content" id="pengaturanDropdown" style="left:0;right:auto;top:100%;margin-top:8px;min-width:200px;">
       <a href="/admin/users" class="dropdown-item {{if eq $activePage "users"}}active{{end}}"><svg class="icon-svg"><use href="#hi-users"/></svg> Kelola User</a>
-      <a href="/admin/billing" class="dropdown-item {{if eq $activePage "billing"}}active{{end}}"><svg class="icon-svg"><use href="#hi-clipboard"/></svg> Billing & Paket</a>
+      <a href="/admin/billing" class="dropdown-item {{if eq $activePage "billing"}}active{{end}}"><svg class="icon-svg"><use href="#hi-clipboard"/></svg> Paket & Voucher</a>
       {{ if $isSuper }}
        <a href="/admin/vouchers" class="dropdown-item {{if eq $activePage "vouchers"}}active{{end}}"><svg class="icon-svg"><use href="#hi-ticket"/></svg> Kelola Voucher</a>
        <a href="/admin/system-apps" class="dropdown-item {{if eq $activePage "system-apps"}}active{{end}}"><svg class="icon-svg"><use href="#hi-download"/></svg> Aplikasi Sistem</a>
@@ -35,7 +35,7 @@
      </div>
     </div>
    {{ else if $isGuru }}
-    <a href="/admin/billing" class="nav-link {{if eq $activePage "billing"}}active{{end}}"><svg class="icon-svg" aria-hidden="true"><use href="#hi-clipboard"/></svg> Upgrade Paket</a>
+    <a href="/admin/billing" class="nav-link {{if eq $activePage "billing"}}active{{end}}"><svg class="icon-svg" aria-hidden="true"><use href="#hi-clipboard"/></svg> Paket & Voucher</a>
    {{ end }}
   </div>
  </div>
@@ -65,14 +65,14 @@
       <div class="dropdown-divider"></div>
       <div style="padding: 8px 16px; font-size: 11px; font-weight: 600; color: #94a3b8; text-transform: uppercase; letter-spacing: 0.5px;">Pengaturan</div>
       <a href="/admin/users" class="dropdown-item {{if eq $activePage "users"}}active{{end}}"><svg class="icon-svg"><use href="#hi-users"/></svg> Kelola User</a>
-      <a href="/admin/billing" class="dropdown-item {{if eq $activePage "billing"}}active{{end}}"><svg class="icon-svg"><use href="#hi-clipboard"/></svg> Billing & Paket</a>
+      <a href="/admin/billing" class="dropdown-item {{if eq $activePage "billing"}}active{{end}}"><svg class="icon-svg"><use href="#hi-clipboard"/></svg> Paket & Voucher</a>
       {{ if $isSuper }}
        <a href="/admin/vouchers" class="dropdown-item {{if eq $activePage "vouchers"}}active{{end}}"><svg class="icon-svg"><use href="#hi-ticket"/></svg> Kelola Voucher</a>
        <a href="/admin/system-apps" class="dropdown-item {{if eq $activePage "system-apps"}}active{{end}}"><svg class="icon-svg"><use href="#hi-download"/></svg> Aplikasi Sistem</a>
       {{ end }}
      {{ else if $isGuru }}
       <div class="dropdown-divider"></div>
-      <a href="/admin/billing" class="dropdown-item {{if eq $activePage "billing"}}active{{end}}"><svg class="icon-svg"><use href="#hi-clipboard"/></svg> Upgrade Paket</a>
+      <a href="/admin/billing" class="dropdown-item {{if eq $activePage "billing"}}active{{end}}"><svg class="icon-svg"><use href="#hi-clipboard"/></svg> Paket & Voucher</a>
      {{ end }}
     </div>
     <div class="dropdown-divider"></div>

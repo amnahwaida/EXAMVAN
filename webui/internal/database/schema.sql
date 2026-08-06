@@ -231,80 +231,22 @@ ALTER TABLE submissions SET (autovacuum_vacuum_scale_factor = 0.01);
 ALTER TABLE student_access_logs SET (autovacuum_vacuum_scale_factor = 0.01);
 
 -- ============================================================
--- Subscription & Transaction features
+-- Package column & pricing/payment removals
 -- ============================================================
 ALTER TABLE admin_users ADD COLUMN IF NOT EXISTS package TEXT DEFAULT 'free';
 
-CREATE TABLE IF NOT EXISTS transactions (
-    id              SERIAL PRIMARY KEY,
-    user_id         INTEGER NOT NULL REFERENCES admin_users(id) ON DELETE CASCADE,
-    package         TEXT NOT NULL,
-    amount          BIGINT NOT NULL,
-    duration_type   TEXT NOT NULL,
-    status          TEXT DEFAULT 'pending' CHECK (status IN ('pending', 'approved', 'rejected')),
-    payment_method  TEXT DEFAULT 'transfer',
-    proof_path      TEXT DEFAULT '',
-    created_at      TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
-    updated_at      TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
-    notes           TEXT
-);
+-- The self-serve purchasing flow, subscription "transactions", and the DOKU
+-- payment-gateway integration were removed. Vouchers are now the only
+-- mechanism for granting packages/quota, so drop the legacy tables that are
+-- no longer referenced by the codebase. Safe to re-run.
+DROP TABLE IF EXISTS transactions;
+DROP TABLE IF EXISTS pricing_plans;
 
--- Migrations for existing installs (safe to re-run).
--- Only rewrite the amount column when it is NOT already bigint. Running the
--- ALTER ... TYPE unconditionally takes an ACCESS EXCLUSIVE lock and rewrites the
--- whole table on every startup, blocking concurrent reads/writes.
-DO $$
-BEGIN
-    IF EXISTS (
-        SELECT 1 FROM information_schema.columns
-        WHERE table_name = 'transactions' AND column_name = 'amount' AND data_type <> 'bigint'
-    ) THEN
-        ALTER TABLE transactions ALTER COLUMN amount TYPE BIGINT USING amount::numeric::bigint;
-    END IF;
-END $$;
-CREATE INDEX IF NOT EXISTS idx_transactions_user_id ON transactions(user_id);
-CREATE INDEX IF NOT EXISTS idx_transactions_status ON transactions(status);
-
--- Resolve duplicate pending DOKU transactions before enforcing uniqueness.
-DO $$
-DECLARE
-    dup RECORD;
-    keep_id INTEGER;
-BEGIN
-    FOR dup IN (
-        SELECT user_id, package
-        FROM transactions
-        WHERE status = 'pending' AND payment_method = 'doku'
-        GROUP BY user_id, package
-        HAVING COUNT(*) > 1
-    ) LOOP
-        SELECT id INTO keep_id
-        FROM transactions
-        WHERE user_id = dup.user_id
-          AND package = dup.package
-          AND status = 'pending'
-          AND payment_method = 'doku'
-        ORDER BY created_at DESC, id DESC
-        LIMIT 1;
-
-        UPDATE transactions
-        SET status = 'rejected',
-            updated_at = CURRENT_TIMESTAMP,
-            notes = CASE
-                WHEN notes IS NULL OR notes = '' THEN 'Auto-rejected duplicate pending DOKU transaction during startup migration.'
-                ELSE notes || ' | Auto-rejected duplicate pending DOKU transaction during startup migration.'
-            END
-        WHERE user_id = dup.user_id
-          AND package = dup.package
-          AND status = 'pending'
-          AND payment_method = 'doku'
-          AND id <> keep_id;
-    END LOOP;
-END $$;
-
-CREATE UNIQUE INDEX IF NOT EXISTS idx_transactions_pending_doku_unique
-    ON transactions(user_id, package)
-    WHERE status = 'pending' AND payment_method = 'doku';
+-- Clean up legacy SaaS settings that belong to the removed features.
+DELETE FROM saas_settings
+WHERE key LIKE 'price_%'
+   OR key LIKE 'doku_%'
+   OR key = 'pricing_page_enabled';
 
 -- ============================================================
 -- system_apps
@@ -319,33 +261,6 @@ CREATE TABLE IF NOT EXISTS system_apps (
     created_at    TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
     updated_at    TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
     UNIQUE(name, platform, version)
-);
-
--- ============================================================
--- pricing_plans
--- ============================================================
-CREATE TABLE IF NOT EXISTS pricing_plans (
-    id            SERIAL PRIMARY KEY,
-    key           TEXT NOT NULL UNIQUE,
-    title         TEXT NOT NULL,
-    audience      TEXT NOT NULL DEFAULT '',
-    popular       BOOLEAN NOT NULL DEFAULT false,
-    accent        TEXT NOT NULL DEFAULT '',
-    icon          TEXT NOT NULL DEFAULT '',
-    max_exams     TEXT NOT NULL DEFAULT '',
-    pdf_limit     TEXT NOT NULL DEFAULT '',
-    storage_limit TEXT NOT NULL DEFAULT '',
-    token_mode    TEXT NOT NULL DEFAULT '',
-    results       TEXT NOT NULL DEFAULT '',
-    answers       TEXT NOT NULL DEFAULT '',
-    features      TEXT NOT NULL DEFAULT '',
-    price_bulanan  BIGINT NOT NULL DEFAULT 0,
-    price_semester BIGINT NOT NULL DEFAULT 0,
-    price_tahunan  BIGINT NOT NULL DEFAULT 0,
-    sort_order    INT NOT NULL DEFAULT 0,
-    active        BOOLEAN NOT NULL DEFAULT true,
-    created_at    TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
-    updated_at    TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
 );
 
 -- ============================================================
@@ -394,7 +309,6 @@ ALTER TABLE admin_users DROP COLUMN IF EXISTS max_drafts;
 ALTER TABLE admin_users DROP COLUMN IF EXISTS max_draft_size;
 ALTER TABLE vouchers DROP COLUMN IF EXISTS custom_max_drafts;
 ALTER TABLE vouchers DROP COLUMN IF EXISTS custom_max_draft_size;
-ALTER TABLE pricing_plans DROP COLUMN IF EXISTS draft_limit;
 
 CREATE INDEX IF NOT EXISTS idx_vouchers_code ON vouchers(code);
 

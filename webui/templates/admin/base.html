@@ -48,7 +48,7 @@
     {{if or (eq .admin_role "superadmin") (eq .admin_role "operator") (hasRole .admin_role "operator")}}
     <a href="/admin/users" class="nav-link {{if eq .active_page "users"}}active{{end}}"><svg class="icon-svg" aria-hidden="true"><use href="#hi-users"/></svg> Kelola User</a>
     {{end}}
-    <a href="/admin/billing" class="nav-link {{if eq .active_page "billing"}}active{{end}}"><svg class="icon-svg" aria-hidden="true"><use href="#hi-clipboard"/></svg> Billing &amp; Paket</a>
+    <a href="/admin/billing" class="nav-link {{if eq .active_page "billing"}}active{{end}}"><svg class="icon-svg" aria-hidden="true"><use href="#hi-clipboard"/></svg> Paket &amp; Voucher</a>
   </div>
  </div>
  <div class="topbar-right">
@@ -85,7 +85,7 @@
    </a>
    {{end}}
    <a href="/admin/billing" class="dropdown-item {{if eq .active_page "billing"}}active-dropdown-item{{end}}">
-   <svg class="icon-svg" aria-hidden="true"><use href="#hi-clipboard"/></svg> Billing &amp; Paket
+   <svg class="icon-svg" aria-hidden="true"><use href="#hi-clipboard"/></svg> Paket &amp; Voucher
    </a>
    <div class="dropdown-divider"></div>
    </div>

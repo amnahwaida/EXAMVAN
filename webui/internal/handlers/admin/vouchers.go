@@ -510,7 +510,7 @@ func RedeemVoucherHandler() gin.HandlerFunc {
 				newRole = role
 				roleMayChange = true
 			}
-			if err := applyApprovedTransactionEntitlement(ctx, dbTx, userID, v.Package, v.DurationType, newExpiry, newRole); err != nil {
+			if err := applyPackageEntitlement(ctx, dbTx, userID, v.Package, v.DurationType, newExpiry, newRole); err != nil {
 				log.Printf("redeem apply entitlement error: %v", err)
 				errorResponse(c, http.StatusInternalServerError, "Gagal menerapkan paket dari voucher")
 				return
@@ -535,18 +535,6 @@ func RedeemVoucherHandler() gin.HandlerFunc {
 		if err != nil {
 			log.Printf("redeem insert redemption record error: %v", err)
 			errorResponse(c, http.StatusInternalServerError, "Gagal mencatat klaim voucher")
-			return
-		}
-
-		// 9. Record transaction history entry for auditability
-		notes := fmt.Sprintf("Redeemed voucher %s", v.Code)
-		_, err = dbTx.Exec(ctx, `
-			INSERT INTO transactions (user_id, package, amount, duration_type, status, payment_method, proof_path, notes)
-			VALUES ($1, $2, 0, $3, $4, 'voucher', '', $5)`,
-			userID, v.Package, v.DurationType, models.TxStatusApproved, notes)
-		if err != nil {
-			log.Printf("redeem create transaction record error: %v", err)
-			errorResponse(c, http.StatusInternalServerError, "Gagal mencatat transaksi voucher")
 			return
 		}
 
