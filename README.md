@@ -1,4 +1,4 @@
-# EXAMVAN — Sistem Ujian Digital Berbasis PDF (Cloudflare R2 & Secure)
+# EXAMVAN — Sistem Ujian Digital Berbasis PDF (Secure — LAN & Cloud)
 
 > Platform distribusi & pelaksanaan ujian digital aman untuk infrastruktur jaringan lokal (LAN/Intranet) sekolah dan kampus dengan perlindungan anti-cheat berlapis di sisi Android.
 
@@ -8,7 +8,7 @@
 
 EXAMVAN diciptakan khusus untuk memenuhi kebutuhan instansi pendidikan dengan arsitektur *hybrid* yang sangat efisien untuk perangkat server minim resource (seperti STB).
 
-- **Cloudflare R2 Mandatory:** Penyimpanan file soal (PDF) wajib menggunakan Cloudflare R2 (Edge CDN). Server lokal/STB Anda tidak menyimpan file berat sama sekali, melainkan hanya bertugas melayani API JSON yang sangat ringan. Ini menjamin umur penyimpanan (eMMC/MicroSD) server Anda tahan lama dan sanggup menampung ribuan siswa secara simultan. (Koneksi internet wajib diperlukan).
+- **Penyimpanan PDF Fleksibel (Cloudflare R2 opsional):** File soal (PDF) dapat di-offload ke Cloudflare R2 (Edge CDN), sehingga server lokal/STB tidak menyimpan file berat dan bandwidth egress terselamatkan — ideal untuk skala ribuan siswa secara simultan. R2 bersifat **opsional**: jika `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY`, dan `R2_ENDPOINT` terisi lengkap, PDF di-upload ke R2 dan di-serve via signed URL; jika tidak, server otomatis menyimpan & menyajikan PDF dari penyimpanan lokal (volume `webui_storage`). Mode R2 memerlukan koneksi internet.
 - **Keamanan Tingkat Tinggi (Anti-Cheat):** Mengamankan berkas soal PDF dari penyebaran liar dan membatasi gerak-gerik siswa agar tidak dapat mencari jawaban di aplikasi lain.
 - **Kemudahan Pengelolaan:** Memungkinkan guru untuk mengelola soal mereka sendiri secara terpisah, sementara Administrator memegang kontrol pengawasan penuh.
 
@@ -44,18 +44,20 @@ EXAMVAN terdiri dari dua komponen utama:
 * **Ubah Password Mandiri:** Setiap pengguna dapat memperbarui kata sandinya kapan saja melalui UI modal yang aman.
 
 ### 2. Lembar Jawaban Digital & Koreksi Otomatis
-* **Mendukung 4 Tipe Soal:**
-  1. *Pilihan Ganda Tunggal (Single Choice)*
+* **Mendukung 5 Tipe Soal:**
+  1. *Pilihan Ganda (Single Choice)*
   2. *Pilihan Ganda Kompleks (Multiple Choice)*
   3. *Benar / Salah (True/False)*
   4. *Menjodohkan (Matching)*
+  5. *Isian Singkat (Short Answer)*
 * **Pengaturan Bobot & Penilaian Parsial:** Bobot nilai per soal dapat disesuaikan. Pilihan ganda kompleks mendukung opsi **Penilaian Parsial (Partial Scoring)** yang dinamis.
 * **Rekalkulasi Nilai Otomatis:** Apabila guru mengubah bobot soal atau mengaktifkan/menonaktifkan opsi penilaian parsial *setelah* ujian disubmit oleh siswa, sistem secara otomatis menghitung ulang nilai siswa secara instan tanpa perlu submit ulang.
 
 ### 3. Keamanan Klien Seluler (Android)
-* **Dua Tingkat Keamanan Dinamis (Low, Medium):**
+* **Tiga Tingkat Keamanan Dinamis (Low, Medium, High/Strict):**
   1. **Low Mode:** Proteksi dasar berupa anti-screenshot (`FLAG_SECURE`) dan pembersihan papan klip (clipboard). Siswa bebas keluar masuk aplikasi tanpa konsekuensi.
   2. **Medium Mode:** Jika siswa menekan tombol Home, berpindah aplikasi, membuka laci notifikasi, atau meminimalkan aplikasi, sistem langsung mendeteksi kehilangan fokus dan melakukan **Auto-Submit (Kumpul Jawaban Otomatis)** dalam waktu 3 detik.
+  3. **High/Strict Mode:** Aplikasi mengunci perangkat (lock task) sehingga siswa **tidak bisa keluar** dari aplikasi ujian; jawaban hanya terkumpul saat ujian selesai atau waktu habis.
 * **Zero-Friction Launch:** Siswa tidak lagi dibebani dengan pengaturan rumit. Ujian langsung dimulai secara instan, menghemat waktu persiapan ujian hingga 100%.
 * **Optimasi Layar Anti-Mati (FLAG_KEEP_SCREEN_ON):** Layar perangkat siswa akan tetap menyala terang secara konstan selama aplikasi dibuka.
 * **Anti-Screenshot & Recording:** Layar aplikasi otomatis menjadi hitam jika siswa mencoba menangkap layar atau merekam layar.
@@ -150,11 +152,13 @@ Buka file `.env` dan atur variabel berikut:
 | `EXAMVAN_ADMIN_PASS` | Password super admin (kosongkan untuk generate otomatis) | Tidak |
 | `APP_ENV` | `production` atau `development` | Tidak |
 | `TUNNEL_TOKEN` | Token Cloudflare Tunnel untuk akses internet | Ya |
-| `R2_ACCESS_KEY_ID` | Access Key ID Cloudflare R2 | Ya |
-| `R2_SECRET_ACCESS_KEY` | Secret Access Key Cloudflare R2 | Ya |
-| `R2_BUCKET` | Nama bucket R2 (contoh: examvan-pdfs) | Ya |
-| `R2_ENDPOINT` | Endpoint R2 Cloudflare Anda | Ya |
+| `R2_ACCESS_KEY_ID` | Access Key ID Cloudflare R2 | Tidak |
+| `R2_SECRET_ACCESS_KEY` | Secret Access Key Cloudflare R2 | Tidak |
+| `R2_BUCKET` | Nama bucket R2 (contoh: examvan-pdfs) | Tidak |
+| `R2_ENDPOINT` | Endpoint R2 Cloudflare Anda | Tidak |
 | `EXAMVAN_CORS_ORIGINS` | Origin yang diizinkan (kosongkan untuk allow all) | Tidak |
+
+> **Catatan R2:** Keempat variabel `R2_*` harus diisi **sekaligus** untuk mengaktifkan mode R2 (PDF via Cloudflare edge). Jika semuanya dikosongkan, PDF disimpan di penyimpanan lokal server.
 
 #### 3. Jalankan Layanan
 ```bash
@@ -171,7 +175,7 @@ Layanan yang berjalan:
 
 #### 4. Persistensi Data
 - **Database:** Volume Docker `postgres_data` untuk PostgreSQL.
-- **File PDF:** Volume Docker `webui_storage` untuk file ujian yang diupload.
+- **File PDF:** Volume Docker `webui_storage` untuk file ujian (saat mode lokal). Jika R2 aktif, PDF tersimpan di bucket Cloudflare R2.
 
 #### 5. Monitoring
 ```bash

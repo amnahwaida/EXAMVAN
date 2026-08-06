@@ -1,6 +1,8 @@
 # Upgrade Arsitektur EXAMVAN — Prioritas #1: Cloudflare R2
 
 > **Dokumen ini fokus 100% ke koneksi Cloudflare R2, karena ini adalah satu-satunya upgrade yang dampaknya paling besar: PDF pindah ke Cloudflare, server beban file hilang, bandwidth 100mbps cukup untuk 50.000 siswa.**
+
+> **Status saat ini (Agustus 2026):** R2 kini bersifat **opsional** — server berjalan normal tanpa R2 dengan fallback penyimpanan lokal (PDF di-serve dari disk/volume `webui_storage`). Jika keempat variabel `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY`, `R2_BUCKET`, dan `R2_ENDPOINT` di `.env` terisi lengkap, PDF otomatis di-upload ke R2 dan di-serve via signed URL. Panduan setup di bawah ini tetap berlaku sebagai langkah mengaktifkan mode R2.
 >
 > Upgrade lain (RAM, CPU, scaling) sifatnya opsional — nanti kalau sudah mentok.
 
