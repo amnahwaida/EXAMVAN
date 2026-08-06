@@ -115,10 +115,15 @@ func applyRedemptionEntitlement(ctx context.Context, tx pgx.Tx, userID int, r *m
 		concurrent = 1
 	}
 
+	// Never touch the account's status here: expired accounts keep status
+	// 'active' (expiry is time-based), and a suspended account must STAY
+	// suspended — writing status = 'active' would let a suspended user
+	// self-reactivate by redeeming/activating a voucher (the caller already
+	// rejects suspended accounts, this is the last line of defense).
 	_, err := tx.Exec(ctx, `UPDATE admin_users SET
 		package = $1, max_exams = $2, max_pdf_size = $3,
 		max_concurrent_exams = $4, max_storage_size = $5,
-		expires_at = $6, status = 'active', role = $7, package_role = $8, base_role = $9
+		expires_at = $6, role = $7, package_role = $8, base_role = $9
 		WHERE id = $10`,
 		pkgLabel, r.MaxExams, r.MaxPDFSize, concurrent, r.MaxStorageSize, expiry,
 		roleJSON, nextPkgRole, nextBaseRole, userID)
@@ -156,6 +161,25 @@ func nextRolesState(currentRoleJSON, currentPkgRoleJSON, currentBaseRoleJSON, ne
 		return models.SerializeRoles(currentRoles), "", currentBaseRoleJSON
 	}
 
+	// Defense-in-depth: a package must never grant the superadmin role to a
+	// user who is not already superadmin. Every creation path (custom voucher
+	// role, package_settings) whitelists roles, but a direct DB edit could
+	// inject "superadmin" — strip it here at the last line of defense and
+	// never track it in package_role.
+	sanitized := newPkgRoles[:0]
+	for _, r := range newPkgRoles {
+		if r != models.RoleSuperAdmin {
+			sanitized = append(sanitized, r)
+		}
+	}
+	if len(sanitized) != len(newPkgRoles) {
+		newPkgRoles = sanitized
+		nextPkgRole = models.SerializeRoles(sanitized)
+		if len(sanitized) == 0 {
+			nextPkgRole = ""
+		}
+	}
+
 	// The base is the user's roles beyond packages. Once tracked it is
 	// preserved across switches; for fresh/pre-migration accounts it is
 	// derived lazily as the current roles minus the current package's grant
@@ -190,7 +214,7 @@ func nextRolesState(currentRoleJSON, currentPkgRoleJSON, currentBaseRoleJSON, ne
 	if len(base) == 0 {
 		base = []string{models.RoleGuru}
 	}
-	return models.SerializeRoles(merged), newPkgRole, models.SerializeRoles(base)
+	return models.SerializeRoles(merged), nextPkgRole, models.SerializeRoles(base)
 }
 
 // parsePackageRoles parses a package-granted role string, treating an empty

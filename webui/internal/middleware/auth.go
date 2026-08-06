@@ -109,6 +109,46 @@ func AuthRequired() gin.HandlerFunc {
 			return
 		}
 
+		// Per-request status enforcement: a suspended (or unverified) account
+		// must lose access immediately — the cookie may still be valid, but the
+		// account's status revokes its authority. Without this, an admin
+		// suspension would only take effect after the 1-day session expired
+		// (or could even be reversed by the user via voucher redeem/activate).
+		if pool, exists := c.Get("db"); exists && pool != nil {
+			dbPool := pool.(*pgxpool.Pool)
+			var dbStatus string
+			if err := dbPool.QueryRow(c.Request.Context(), `SELECT status FROM admin_users WHERE id = $1`, id).Scan(&dbStatus); err != nil {
+				// Account no longer exists — drop the stale session.
+				session.Clear()
+				_ = session.Save()
+				if isAPIRequest(c) {
+					c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{
+						"success": false,
+						"message": "Sesi telah berakhir. Silakan login kembali.",
+					})
+				} else {
+					c.Redirect(http.StatusFound, LoginURLWithNext(c.Request.URL.RequestURI()))
+				}
+				c.Abort()
+				return
+			}
+			if dbStatus == models.UserStatusSuspended || dbStatus == models.UserStatusPendingOTP {
+				session.Clear()
+				_ = session.Save()
+				msg := "Akun Anda telah dinonaktifkan oleh administrator."
+				if dbStatus == models.UserStatusPendingOTP {
+					msg = "Pendaftaran Anda membutuhkan konfirmasi OTP Email. Silakan cek email Anda."
+				}
+				if isAPIRequest(c) {
+					c.AbortWithStatusJSON(http.StatusForbidden, gin.H{"success": false, "message": msg})
+				} else {
+					c.Redirect(http.StatusFound, "/login")
+				}
+				c.Abort()
+				return
+			}
+		}
+
 		username, _ := session.Get(SessionKeyUsername).(string)
 		nameVal := session.Get(SessionKeyName)
 		var name string

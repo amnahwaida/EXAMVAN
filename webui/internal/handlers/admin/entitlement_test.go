@@ -180,6 +180,42 @@ func TestNextRolesStateLegacyBackfilledPackage(t *testing.T) {
 	}
 }
 
+// TestNextRolesStatePackageCannotGrantSuperAdmin guards the defense-in-depth
+// rule: even if a package snapshot somehow carried the superadmin role (e.g. a
+// direct DB edit of package_settings/custom_role), it must never be granted to
+// a non-superadmin account nor tracked in package_role.
+func TestNextRolesStatePackageCannotGrantSuperAdmin(t *testing.T) {
+	// Single forbidden role: nothing is granted and nothing is tracked.
+	role, pkgRole, baseRole := nextRolesState(`["guru"]`, "", "", `["superadmin"]`)
+	if strings.Contains(role, "superadmin") {
+		t.Errorf("role = %s must never contain superadmin", role)
+	}
+	if pkgRole != "" {
+		t.Errorf("package_role = %s, want empty (forbidden role not tracked)", pkgRole)
+	}
+	if want := `["guru"]`; baseRole != want {
+		t.Errorf("base_role = %s, want %s", baseRole, want)
+	}
+
+	// Mixed list: superadmin is stripped, the legitimate role is still granted.
+	role, pkgRole, _ = nextRolesState(`["guru"]`, "", "", `["operator","superadmin"]`)
+	if strings.Contains(role, "superadmin") {
+		t.Errorf("role = %s must never contain superadmin", role)
+	}
+	if !strings.Contains(role, "operator") {
+		t.Errorf("role = %s should still grant operator", role)
+	}
+	if pkgRole != `["operator"]` {
+		t.Errorf("package_role = %s, want %s", pkgRole, `["operator"]`)
+	}
+
+	// A real superadmin account is unaffected (existing behavior).
+	role, pkgRole, _ = nextRolesState(`["superadmin"]`, "", "", `["operator"]`)
+	if role != `["superadmin"]` || pkgRole != "" {
+		t.Errorf("superadmin must stay untouched: role=%s pkg=%s", role, pkgRole)
+	}
+}
+
 // TestNextRolesStateHandEditedBaseRole guards against a hand-edited "[]"
 // base_role producing a literal "[]" role via models.ParseRoles' fallback.
 // "[]" means "no base roles", so only the package-granted operator remains in

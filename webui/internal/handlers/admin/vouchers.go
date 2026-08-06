@@ -16,6 +16,12 @@ import (
 	"github.com/examvan/webui/internal/models"
 )
 
+// voucherInvalidMsg is the single, generic message returned for every
+// code-level voucher failure (unknown, inactive, expired, quota full, already
+// redeemed). Returning distinct messages would act as an oracle that lets an
+// attacker distinguish a valid-but-exhausted code from a bogus one.
+const voucherInvalidMsg = "Kode voucher tidak valid atau sudah tidak dapat digunakan."
+
 // VouchersPage renders the GET /admin/vouchers management page for SuperAdmin.
 func VouchersPage() gin.HandlerFunc {
 	return func(c *gin.Context) {
@@ -433,7 +439,7 @@ func RedeemVoucherHandler() gin.HandlerFunc {
 		)
 		if err != nil {
 			if err == pgx.ErrNoRows {
-				errorResponse(c, http.StatusNotFound, "Kode voucher tidak ditemukan atau salah")
+				errorResponse(c, http.StatusBadRequest, voucherInvalidMsg)
 				return
 			}
 			log.Printf("redeem voucher query error: %v", err)
@@ -441,20 +447,13 @@ func RedeemVoucherHandler() gin.HandlerFunc {
 			return
 		}
 
-		// 2. Validate voucher
-		if !v.IsActive {
-			errorResponse(c, http.StatusBadRequest, "Kode voucher ini sudah tidak aktif")
-			return
-		}
-
+		// 2. Validate voucher. All code-level failures return the SAME generic
+		// message (no "not found" vs "expired" vs "quota full" oracle) so an
+		// attacker cannot distinguish a valid-but-exhausted code from a bogus
+		// one while enumerating codes.
 		now := time.Now().UTC()
-		if v.ExpiresAt != nil && v.ExpiresAt.Before(now) {
-			errorResponse(c, http.StatusBadRequest, "Kode voucher ini telah kadaluarsa")
-			return
-		}
-
-		if v.UsedCount >= v.MaxUsage {
-			errorResponse(c, http.StatusBadRequest, "Kuota penggunaan kode voucher ini telah habis")
+		if !v.IsActive || (v.ExpiresAt != nil && v.ExpiresAt.Before(now)) || v.UsedCount >= v.MaxUsage {
+			errorResponse(c, http.StatusBadRequest, voucherInvalidMsg)
 			return
 		}
 
@@ -470,17 +469,25 @@ func RedeemVoucherHandler() gin.HandlerFunc {
 		}
 
 		if existingCount > 0 {
-			errorResponse(c, http.StatusBadRequest, "Anda sudah pernah menggunakan kode voucher ini")
+			errorResponse(c, http.StatusBadRequest, voucherInvalidMsg)
 			return
 		}
 
 		// 4. Lock the user row so concurrent claims by the same user serialize
-		// (only one can be the "active package" at a time).
+		// (only one can be the "active package" at a time). A suspended account
+		// must not be able to redeem: besides being against the admin's
+		// decision, applyRedemptionEntitlement never touches status, so a
+		// redeem here would only change quota/role/expiry on a frozen account.
 		var lockedUserID int
-		err = dbTx.QueryRow(ctx, `SELECT id FROM admin_users WHERE id = $1 FOR UPDATE`, userID).Scan(&lockedUserID)
+		var lockedStatus string
+		err = dbTx.QueryRow(ctx, `SELECT id, status FROM admin_users WHERE id = $1 FOR UPDATE`, userID).Scan(&lockedUserID, &lockedStatus)
 		if err != nil {
 			log.Printf("redeem fetch user error: %v", err)
 			errorResponse(c, http.StatusInternalServerError, "User tidak ditemukan")
+			return
+		}
+		if lockedStatus == models.UserStatusSuspended {
+			errorResponse(c, http.StatusForbidden, "Akun Anda telah dinonaktifkan oleh administrator.")
 			return
 		}
 
@@ -717,11 +724,19 @@ func ActivateVoucherHandler() gin.HandlerFunc {
 		}()
 
 		// Lock the user row so concurrent activates/redeems by the same user
-		// serialize (only one package may be active at a time).
+		// serialize (only one package may be active at a time). A suspended
+		// account must not be able to switch/activate packages: the account
+		// clock is frozen while suspended, and applyRedemptionEntitlement never
+		// touches status.
 		var lockedUserID int
-		if err := dbTx.QueryRow(ctx, `SELECT id FROM admin_users WHERE id = $1 FOR UPDATE`, userID).Scan(&lockedUserID); err != nil {
+		var lockedStatus string
+		if err := dbTx.QueryRow(ctx, `SELECT id, status FROM admin_users WHERE id = $1 FOR UPDATE`, userID).Scan(&lockedUserID, &lockedStatus); err != nil {
 			log.Printf("activate lock user error: %v", err)
 			errorResponse(c, http.StatusInternalServerError, "User tidak ditemukan")
+			return
+		}
+		if lockedStatus == models.UserStatusSuspended {
+			errorResponse(c, http.StatusForbidden, "Akun Anda telah dinonaktifkan oleh administrator.")
 			return
 		}
 
