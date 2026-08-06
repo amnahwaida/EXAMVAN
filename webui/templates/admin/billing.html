@@ -176,6 +176,25 @@
 
  </div>
 
+ <!-- Claimed Packages / Active package selection -->
+ {{if ne .admin_role "superadmin"}}
+ <section class="glass-card" style="padding:24px;border-radius:16px;margin-top:32px;">
+  <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;flex-wrap:wrap;gap:8px;">
+   <h3 style="font-size:1.15rem;color:#a5b4fc;margin:0;font-family:'Outfit',sans-serif;display:flex;align-items:center;gap:8px;">
+    <svg class="icon-svg" style="width:20px;height:20px;color:#a5b4fc;"><use href="#hi-ticket"/></svg>
+    Paket yang Sudah Anda Klaim
+   </h3>
+  </div>
+  <p style="color:var(--color-text-secondary);font-size:0.85rem;margin:0 0 20px 0;">Pilih salah satu paket voucher yang aktif untuk dipakai. Masa aktif setiap paket dihitung sejak voucher diklaim.</p>
+
+  <div id="myPackagesList" class="table-responsive">
+   <div style="text-align:center;padding:24px;color:var(--color-text-secondary);">
+    <span style="display:inline-flex;align-items:center;gap:6px;"><svg class="icon-svg spin" style="width:16px;height:16px;"><use href="#hi-refresh"/></svg> Memuat paket...</span>
+   </div>
+  </div>
+ </section>
+ {{ end }}
+
 </div>
 
 <!-- Confirm Redeem Voucher Modal -->
@@ -269,6 +288,116 @@ function doRedeemVoucher() {
         showToast('Gagal terhubung ke server', 'error');
     });
 }
+
+// ---------------------------------------------------------------------------
+// Claimed packages: list them and let the user choose the active one
+// ---------------------------------------------------------------------------
+var PACKAGE_DISPLAY = {
+    'free': 'Free / Trial',
+    'guru': 'Paket Guru',
+    'individu': 'Paket Individu',
+    'sekolah_kecil': 'Paket Sekolah Kecil',
+    'sekolah_menengah': 'Paket Sekolah Menengah',
+    'sekolah_besar': 'Paket Sekolah Besar',
+    'sekolah_unggulan': 'Paket Sekolah Unggulan'
+};
+
+function packageDisplayName(key) {
+    return PACKAGE_DISPLAY[key] || key || 'Paket';
+}
+
+function fmtMB(v) {
+    if (v >= 999999) return 'Tanpa Batas';
+    if (v >= 1024) return (v / 1024).toFixed(2) + ' GB';
+    return v + ' MB';
+}
+
+function loadMyPackages() {
+    var wrap = document.getElementById('myPackagesList');
+    if (!wrap) return;
+
+    apiFetch('/admin/api/vouchers/mine')
+        .then(function(r) { return r.json(); })
+        .then(function(res) {
+            if (!res.success) throw new Error(res.message);
+            var list = res.redemptions || [];
+            if (list.length === 0) {
+                wrap.innerHTML = '<div style="text-align:center;padding:24px;color:var(--color-text-secondary);">Belum ada voucher yang diklaim. Gunakan kartu "Punya Kode Voucher?" di atas untuk klaim paket pertama Anda.</div>';
+                return;
+            }
+
+            var html = '<table class="exam-table" style="width:100%;border-collapse:collapse;">' +
+                '<thead><tr>' +
+                '<th scope="col" style="text-align:left;">Paket</th>' +
+                '<th scope="col" style="text-align:left;">Kode</th>' +
+                '<th scope="col" style="text-align:left;">Masa Aktif</th>' +
+                '<th scope="col" style="text-align:center;">Status</th>' +
+                '<th scope="col" style="text-align:right;">Aksi</th>' +
+                '</tr></thead><tbody>';
+
+            list.forEach(function(p) {
+                var badge = '';
+                var action = '';
+                if (p.is_active) {
+                    badge = '<span class="status-badge" style="background:rgba(16,185,129,0.15);color:#10b981;border:1px solid rgba(16,185,129,0.3);">Paket Aktif</span>';
+                    action = '<span style="color:var(--color-text-secondary);font-size:12px;">Aktif</span>';
+                } else if (p.is_expired) {
+                    badge = '<span class="status-badge" style="background:rgba(239,68,68,0.15);color:#ef4444;border:1px solid rgba(239,68,68,0.3);">Berakhir</span>';
+                    action = '<span style="color:var(--color-text-secondary);font-size:12px;">Tidak tersedia</span>';
+                } else {
+                    badge = '<span class="status-badge" style="background:rgba(245,158,11,0.15);color:#f59e0b;border:1px solid rgba(245,158,11,0.3);">Tersedia</span>';
+                    action = '<button class="btn-sm" onclick="activatePackage(' + p.id + ')" style="background:rgba(168,85,247,0.15);color:#c084fc;border:1px solid rgba(168,85,247,0.3);padding:4px 12px;cursor:pointer;">Aktifkan</button>';
+                }
+
+                var expiry = p.expires_at ? localizeUTC(p.expires_at) : '—';
+                html += '<tr>' +
+                    '<td data-label="Paket"><strong style="color:#fff;">' + escapeHtml(packageDisplayName(p.package)) + '</strong><div style="font-size:11px;color:var(--color-text-secondary);">' + p.max_exams + ' ujian serentak &middot; PDF ' + fmtMB(p.max_pdf_size_mb) + ' &middot; Storage ' + fmtMB(p.max_storage_mb) + '</div></td>' +
+                    '<td data-label="Kode"><span style="font-family:var(--font-mono);font-size:12.5px;">' + escapeHtml(p.code || '—') + '</span></td>' +
+                    '<td data-label="Masa Aktif"><span style="font-size:12.5px;">' + expiry + '</span></td>' +
+                    '<td data-label="Status" style="text-align:center;">' + badge + '</td>' +
+                    '<td data-label="Aksi" style="text-align:right;">' + action + '</td>' +
+                    '</tr>';
+            });
+
+            html += '</tbody></table>';
+            wrap.innerHTML = html;
+        })
+        .catch(function(err) {
+            console.error(err);
+            wrap.innerHTML = '<div style="text-align:center;padding:24px;color:#f87171;">Gagal memuat daftar paket.</div>';
+        });
+}
+
+function activatePackage(redemptionId) {
+    var formData = new FormData();
+    formData.append('redemption_id', redemptionId);
+
+    showToast('Mengaktifkan paket...', 'info');
+    apiFetch('/admin/api/vouchers/activate', {
+        method: 'POST',
+        body: formData
+    })
+    .then(function(r) { return r.json(); })
+    .then(function(res) {
+        if (res.success) {
+            showToast(res.message, 'success');
+            setTimeout(function() { location.reload(); }, 1200);
+        } else {
+            showToast(res.message || 'Gagal mengaktifkan paket', 'error');
+            loadMyPackages();
+        }
+    })
+    .catch(function(err) {
+        console.error(err);
+        showToast('Gagal terhubung ke server', 'error');
+    });
+}
+
+document.addEventListener('DOMContentLoaded', function() {
+    if (window.__adminRole !== 'superadmin') {
+        loadMyPackages();
+    }
+});
 </script>
 </main>
 </body>

@@ -289,6 +289,107 @@ CREATE TABLE IF NOT EXISTS voucher_redemptions (
     UNIQUE(voucher_id, user_id)
 );
 
+-- ============================================================
+-- Multiple-package selection for claimed vouchers
+-- ============================================================
+-- Each claimed voucher becomes a selectable "package" for the user: the
+-- redemption row stores its own lifetime (expires_at) plus a snapshot of the
+-- entitlement (quota + role) taken at claim time, so the user can later switch
+-- which voucher is the active package without depending on the source voucher
+-- row still existing. Safe to re-run.
+ALTER TABLE voucher_redemptions ADD COLUMN IF NOT EXISTS expires_at TIMESTAMPTZ;
+ALTER TABLE voucher_redemptions ADD COLUMN IF NOT EXISTS is_active BOOLEAN NOT NULL DEFAULT false;
+ALTER TABLE voucher_redemptions ADD COLUMN IF NOT EXISTS package TEXT NOT NULL DEFAULT '';
+ALTER TABLE voucher_redemptions ADD COLUMN IF NOT EXISTS max_exams BIGINT NOT NULL DEFAULT 0;
+ALTER TABLE voucher_redemptions ADD COLUMN IF NOT EXISTS max_pdf_size BIGINT NOT NULL DEFAULT 0;
+ALTER TABLE voucher_redemptions ADD COLUMN IF NOT EXISTS max_concurrent_exams BIGINT NOT NULL DEFAULT 0;
+ALTER TABLE voucher_redemptions ADD COLUMN IF NOT EXISTS max_storage_size BIGINT NOT NULL DEFAULT 0;
+ALTER TABLE voucher_redemptions ADD COLUMN IF NOT EXISTS role TEXT NOT NULL DEFAULT '';
+
+-- At most one active package per user.
+CREATE UNIQUE INDEX IF NOT EXISTS idx_voucher_redemptions_one_active
+    ON voucher_redemptions(user_id) WHERE is_active;
+
+-- ---------------------------------------------------------------------------
+-- Backfill for redemptions created before these columns existed. Runs once per
+-- install (guarded by the existence of legacy rows without a lifetime). The
+-- old flow always made the latest claim the effective one, so the newest
+-- redemption per user is restored as the active package (only when still valid).
+DO $$
+DECLARE
+    snapshot_sql TEXT;
+BEGIN
+    IF EXISTS (
+        SELECT 1 FROM voucher_redemptions WHERE expires_at IS NULL
+    ) THEN
+        snapshot_sql := $SNAP$
+            UPDATE voucher_redemptions r
+            SET expires_at = r.redeemed_at + (
+                    CASE
+                        WHEN v.duration_type = 'bulanan' THEN INTERVAL '30 days'
+                        WHEN v.duration_type = 'semester' THEN INTERVAL '180 days'
+                        WHEN v.duration_type = 'tahunan' THEN INTERVAL '365 days'
+                        WHEN v.duration_type ~ '^[0-9]+$' THEN (v.duration_type || ' days')::interval
+                        ELSE INTERVAL '30 days'
+                    END),
+                package = CASE WHEN v.is_custom THEN COALESCE(NULLIF(TRIM(v.custom_label), ''), 'custom') ELSE v.package END,
+                max_exams = CASE
+                    WHEN v.is_custom THEN GREATEST(COALESCE(v.custom_max_exams, 0), 1)
+                    ELSE (CASE v.package
+                        WHEN 'guru' THEN 1 WHEN 'individu' THEN 2
+                        WHEN 'sekolah_kecil' THEN 3 WHEN 'sekolah_menengah' THEN 5
+                        WHEN 'sekolah_besar' THEN 10 WHEN 'sekolah_unggulan' THEN 99999
+                        ELSE 1 END)
+                END,
+                max_pdf_size = CASE
+                    WHEN v.is_custom THEN GREATEST(COALESCE(v.custom_max_pdf_size, 0), 1)
+                    ELSE (CASE v.package
+                        WHEN 'guru' THEN 10*1024*1024 WHEN 'individu' THEN 30*1024*1024
+                        WHEN 'sekolah_kecil' THEN 50*1024*1024 WHEN 'sekolah_menengah' THEN 200*1024*1024
+                        WHEN 'sekolah_besar' THEN 500*1024*1024 WHEN 'sekolah_unggulan' THEN 99999*1024*1024
+                        ELSE 1*1024*1024 END)
+                END,
+                max_concurrent_exams = CASE
+                    WHEN v.is_custom THEN GREATEST(
+                        COALESCE(v.custom_max_concurrent_exams, 0),
+                        COALESCE(v.custom_max_exams, 1), 1)
+                    ELSE (CASE v.package
+                        WHEN 'guru' THEN 1 WHEN 'individu' THEN 2
+                        WHEN 'sekolah_kecil' THEN 3 WHEN 'sekolah_menengah' THEN 5
+                        WHEN 'sekolah_besar' THEN 10 WHEN 'sekolah_unggulan' THEN 99999
+                        ELSE 1 END)
+                END,
+                max_storage_size = CASE
+                    WHEN v.is_custom THEN GREATEST(COALESCE(v.custom_max_storage_size, 0), 1)
+                    ELSE (CASE v.package
+                        WHEN 'guru' THEN 100*1024*1024 WHEN 'individu' THEN 300*1024*1024
+                        WHEN 'sekolah_kecil' THEN 500*1024*1024 WHEN 'sekolah_menengah' THEN 2000*1024*1024
+                        WHEN 'sekolah_besar' THEN 5000*1024*1024 WHEN 'sekolah_unggulan' THEN 999999*1024*1024
+                        ELSE 50*1024*1024 END)
+                END,
+                role = CASE WHEN v.is_custom THEN COALESCE(v.custom_role, '')
+                            WHEN v.package IN ('sekolah_kecil','sekolah_menengah','sekolah_besar','sekolah_unggulan')
+                                THEN '["operator"]'
+                            ELSE '' END
+            FROM vouchers v
+            WHERE r.voucher_id = v.id
+        $SNAP$;
+        EXECUTE snapshot_sql;
+
+        -- Restore the newest (still-valid) redemption per user as active.
+        WITH latest AS (
+            SELECT DISTINCT ON (user_id) id, user_id
+            FROM voucher_redemptions
+            WHERE expires_at > CURRENT_TIMESTAMP
+            ORDER BY user_id, redeemed_at DESC
+        )
+        UPDATE voucher_redemptions r
+        SET is_active = true
+        FROM latest l
+        WHERE r.id = l.id;
+    END IF;
+END $$;
+
 -- Custom voucher entitlement (SuperAdmin-defined limits/role, independent of
 -- the fixed packages). When is_custom = true, redemption applies these values
 -- instead of packageEntitlement(). Safe to re-run.

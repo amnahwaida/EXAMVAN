@@ -573,6 +573,7 @@ func registerRoutes(r *gin.Engine, cfg *config.Config, pool *pgxpool.Pool) {
 
 			// Vouchers
 			csrfAPI.POST("/vouchers/redeem", middleware.LimitBodySize(256*1024), admin.RedeemVoucherHandler())
+			csrfAPI.POST("/vouchers/activate", middleware.LimitBodySize(256*1024), admin.ActivateVoucherHandler())
 			adminVouchers := csrfAPI.Group("", middleware.SuperAdminRequired())
 			{
 				adminVouchers.POST("/vouchers", middleware.LimitBodySize(256*1024), admin.CreateVoucherHandler())
@@ -604,6 +605,7 @@ func registerRoutes(r *gin.Engine, cfg *config.Config, pool *pgxpool.Pool) {
 		adminAPI.GET("/pengawas/exams/:exam_id/approvals", admin.GetPendingApprovals())
 		adminAPI.GET("/saas-settings", middleware.SuperAdminRequired(), admin.SaasSettings())
 		adminAPI.GET("/vouchers", middleware.SuperAdminRequired(), admin.ListVouchers())
+		adminAPI.GET("/vouchers/mine", admin.ListMyRedemptionsHandler())
 		adminAPI.GET("/vouchers/:id/redemptions", middleware.SuperAdminRequired(), admin.ListVoucherRedemptionsHandler())
 	}
 

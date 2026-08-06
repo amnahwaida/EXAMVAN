@@ -43,6 +43,20 @@ type VoucherRedemption struct {
 	UserID     int       `json:"user_id"`
 	Username   string    `json:"username,omitempty"`
 	RedeemedAt time.Time `json:"redeemed_at"`
+
+	// Per-redemption lifetime + entitlement snapshot. Since a user may hold
+	// several claimed vouchers and choose which one is active, each redemption
+	// keeps its own expiry and its own quota snapshot (independent of the
+	// source voucher row).
+	ExpiresAt           *time.Time `json:"expires_at"`
+	IsActive            bool       `json:"is_active"`
+	Package             string     `json:"package"`
+	Code                string     `json:"code,omitempty"`
+	MaxExams            int64      `json:"max_exams"`
+	MaxPDFSize          int64      `json:"max_pdf_size"`
+	MaxConcurrentExams  int64      `json:"max_concurrent_exams"`
+	MaxStorageSize      int64      `json:"max_storage_size"`
+	Role                string     `json:"role"`
 }
 
 // GenerateRandomVoucherCode generates a random code formatted like PROMO-XXXX-XXXX
@@ -296,6 +310,44 @@ func ListVoucherRedemptions(ctx context.Context, pool *pgxpool.Pool, voucherID i
 	for rows.Next() {
 		var r VoucherRedemption
 		if err := rows.Scan(&r.ID, &r.VoucherID, &r.UserID, &r.Username, &r.RedeemedAt); err != nil {
+			return nil, err
+		}
+		redemptions = append(redemptions, r)
+	}
+	if redemptions == nil {
+		redemptions = []VoucherRedemption{}
+	}
+	return redemptions, nil
+}
+
+// ListMyRedemptions returns the currently-logged-in user's claimed vouchers
+// (with their entitlement snapshots and the source voucher code), most recent
+// first. Expired ones are included so the UI can mark them, but the handler
+// may filter.
+func ListMyRedemptions(ctx context.Context, pool *pgxpool.Pool, userID int) ([]VoucherRedemption, error) {
+	rows, err := pool.Query(ctx, `
+		SELECT r.id, r.voucher_id, r.user_id, r.redeemed_at,
+		       r.expires_at, r.is_active, r.package, COALESCE(v.code, ''),
+		       r.max_exams, r.max_pdf_size, r.max_concurrent_exams,
+		       r.max_storage_size, r.role
+		FROM voucher_redemptions r
+		LEFT JOIN vouchers v ON r.voucher_id = v.id
+		WHERE r.user_id = $1
+		ORDER BY r.redeemed_at DESC, r.id DESC`, userID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var redemptions []VoucherRedemption
+	for rows.Next() {
+		var r VoucherRedemption
+		if err := rows.Scan(
+			&r.ID, &r.VoucherID, &r.UserID, &r.RedeemedAt,
+			&r.ExpiresAt, &r.IsActive, &r.Package, &r.Code,
+			&r.MaxExams, &r.MaxPDFSize, &r.MaxConcurrentExams,
+			&r.MaxStorageSize, &r.Role,
+		); err != nil {
 			return nil, err
 		}
 		redemptions = append(redemptions, r)
