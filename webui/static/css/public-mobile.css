@@ -1,5 +1,12 @@
 /* EXAMVAN public UI - mobile-first layout layer. Loaded after page styles. */
 :root { --public-gutter: 16px; --public-nav-height: 72px; }
+
+/* Apply the brand sans font everywhere — single source for the auth pages,
+   which have no inline `* { font-family }` rule of their own. Matches the
+   landing page's own rule in templates/public/shared.html, so every public
+   page renders with the same font. */
+* { font-family: var(--font-sans); }
+
 html, body { width: 100%; max-width: 100%; overflow-x: clip; }
 body { min-width: 0; }
 body *, body *::before, body *::after { min-width: 0; }
@@ -7,7 +14,49 @@ img, video, canvas, iframe { display: block; max-width: 100%; height: auto; }
 .reveal { opacity: 1 !important; transform: none !important; }
 
 /* Public navigation is mobile by default. Desktop is an enhancement below. */
-body > nav { width: 100%; max-width: 100vw; }
+
+/* Shared base — single source of truth for the public navbar, used by
+   landing/download (public_head) and auth pages (public_auth_nav).
+   The mobile/desktop layers below override these at their breakpoints. */
+body > nav {
+  position: fixed; top: 0; left: 0; z-index: 100;
+  width: 100%; max-width: 100vw;
+  background: rgba(11, 15, 25, .75);
+  -webkit-backdrop-filter: blur(12px);
+  backdrop-filter: blur(12px);
+  border-bottom: 1px solid rgba(255, 255, 255, .08);
+}
+.nav-container {
+  max-width: 1200px; margin: 0 auto;
+  display: flex; justify-content: space-between; align-items: center;
+}
+.logo-container { display: flex; align-items: center; gap: 12px; text-decoration: none; }
+.logo-badge {
+  display: flex; align-items: center; justify-content: center;
+  background: linear-gradient(135deg, #6366f1, #a855f7);
+  color: #fff; font-size: 20px; font-weight: 800;
+  font-family: 'Outfit', sans-serif;
+  box-shadow: 0 4px 15px rgba(99, 102, 241, .4);
+}
+.logo-text {
+  font-size: 22px; font-weight: 800;
+  font-family: 'Outfit', sans-serif;
+  letter-spacing: .5px;
+  background: linear-gradient(to right, #fff, #e0e7ff);
+  -webkit-background-clip: text; -webkit-text-fill-color: transparent;
+}
+.nav-links { display: flex; align-items: center; }
+.nav-link { color: #9ca3af; text-decoration: none; font-size: 15px; font-weight: 500; transition: color .3s; }
+.nav-link:hover { color: #fff; }
+.btn-nav-login {
+  background: rgba(255, 255, 255, .05); border: 1px solid rgba(255, 255, 255, .08);
+  color: #fff; padding: 10px 22px; border-radius: 8px;
+  text-decoration: none; font-size: 14px; font-weight: 600; transition: all .3s;
+}
+.btn-nav-login:hover { background: rgba(255, 255, 255, .1); border-color: rgba(255, 255, 255, .2); }
+.nav-hamburger { display: none; }
+.nav-overlay { position: fixed; inset: 0; background: rgba(0, 0, 0, .5); display: none; z-index: 90; }
+.nav-overlay.active { display: block; }
 .nav-container {
   width: 100%; max-width: 100%; min-height: var(--public-nav-height);
   padding: 12px var(--public-gutter); gap: 10px;
@@ -19,14 +68,14 @@ body > nav { width: 100%; max-width: 100vw; }
   display: inline-flex !important; align-items: center; justify-content: center;
   position: fixed; top: 12px; right: var(--public-gutter); z-index: 220;
   width: 48px; height: 48px; padding: 0; border-radius: 8px;
-  background: #111827; border: 1px solid var(--glass-border);
+  background: #111827; border: 1px solid rgba(255, 255, 255, .08);
 }
 .nav-overlay { z-index: 90; }
 .nav-links {
   display: flex; position: fixed; top: 0; right: -100%; z-index: 210;
   width: min(300px, calc(100vw - 32px)); max-width: 100%; height: 100dvh;
   padding: 76px 16px 24px; flex-direction: column; align-items: stretch; gap: 6px;
-  overflow-y: auto; background: #111827; border-left: 1px solid var(--glass-border);
+  overflow-y: auto; background: #111827; border-left: 1px solid rgba(255, 255, 255, .08);
   transition: right .22s ease;
 }
 .nav-links.open { right: 0; }
