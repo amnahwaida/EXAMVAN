@@ -664,6 +664,16 @@ func robotsHandler() gin.HandlerFunc {
 
 func loginPageHandler(cfg *config.Config) gin.HandlerFunc {
 	return func(c *gin.Context) {
+		// Sudah login? Langsung ke dashboard, jangan tampilkan form login lagi.
+		session := sessions.Default(c)
+		if session.Get(middleware.SessionKeyAdminID) != nil {
+			next := middleware.SafeRedirectPath(c.Query("next"))
+			if next == "" {
+				next = "/admin/dashboard"
+			}
+			c.Redirect(http.StatusFound, next)
+			return
+		}
 		data := middleware.TemplateData(c)
 		data["version"] = cfg.Version
 		data["error"] = nil
