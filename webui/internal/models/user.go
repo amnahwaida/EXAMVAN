@@ -57,7 +57,9 @@ type AdminUser struct {
 	Status             string     `json:"status"`
 	Instansi           string     `json:"instansi"`
 	InstansiID         *int       `json:"instansi_id,omitempty"`
-	Role               string     `json:"role"` // JSON array string e.g. '["guru"]', or 'superadmin'
+	Role               string     `json:"role"`         // JSON array string e.g. '["guru"]', or 'superadmin'
+	BaseRole           string     `json:"base_role"`    // roles held independently of packages (JSON array string)
+	PackageRole        string     `json:"package_role"` // roles granted by the currently-ACTIVE package (JSON array string)
 	MaxExams           int        `json:"max_exams"`
 	MaxPDFSize         int        `json:"max_pdf_size"`
 	MaxConcurrentExams int        `json:"max_concurrent_exams"`
@@ -363,7 +365,8 @@ func checkWerkzeugPbkdf2(password, hash string) bool {
 // DefaultAdminUserColumns is the column list for admin_users SELECT queries.
 const DefaultAdminUserColumns = `id, username, name, password_hash, created_at, status,
 instansi, role, max_exams, max_pdf_size, max_concurrent_exams,
-max_storage_size, whatsapp_number, email, expires_at, otp_code, otp_expiry, package`
+max_storage_size, whatsapp_number, email, expires_at, otp_code, otp_expiry, package,
+base_role, package_role`
 
 // scanAdminUser scans a row into an AdminUser struct.
 func scanAdminUser(row pgx.Row) (AdminUser, error) {
@@ -372,7 +375,7 @@ func scanAdminUser(row pgx.Row) (AdminUser, error) {
 		&u.ID, &u.Username, &u.Name, &u.PasswordHash, &u.CreatedAt, &u.Status,
 		&u.Instansi, &u.Role, &u.MaxExams, &u.MaxPDFSize, &u.MaxConcurrentExams,
 		&u.MaxStorageSize, &u.WhatsappNumber, &u.Email, &u.ExpiresAt, &u.OTPCode, &u.OTPExpiry,
-		&u.Package,
+		&u.Package, &u.BaseRole, &u.PackageRole,
 	)
 	return u, err
 }
@@ -497,6 +500,7 @@ func ListUsers(ctx context.Context, pool *pgxpool.Pool, opts ListUsersOpts) (Lis
 	sql := `SELECT u.id, u.username, u.name, u.password_hash, u.created_at, u.status,
 	u.instansi, u.role, u.max_exams, u.max_pdf_size, u.max_concurrent_exams,
 	u.max_storage_size, u.whatsapp_number, u.email, u.expires_at, u.otp_code, u.otp_expiry,
+	u.base_role, u.package_role,
 	COALESCE(u.package, 'free'),
 	COALESCE(COUNT(e.id), 0) as exam_count
 	FROM admin_users u
@@ -526,6 +530,7 @@ func ListUsers(ctx context.Context, pool *pgxpool.Pool, opts ListUsersOpts) (Lis
 			&u.ID, &u.Username, &u.Name, &u.PasswordHash, &u.CreatedAt, &u.Status,
 			&u.Instansi, &u.Role, &u.MaxExams, &u.MaxPDFSize, &u.MaxConcurrentExams,
 			&u.MaxStorageSize, &u.WhatsappNumber, &u.Email, &u.ExpiresAt, &u.OTPCode, &u.OTPExpiry,
+			&u.BaseRole, &u.PackageRole,
 			&u.Package,
 			&examCount,
 		)
@@ -590,6 +595,8 @@ var allowedUserColumns = map[string]bool{
 	"status":               true,
 	"instansi":             true,
 	"role":                 true,
+	"base_role":            true,
+	"package_role":         true,
 	"max_exams":            true,
 	"max_pdf_size":         true,
 	"max_concurrent_exams": true,
@@ -597,6 +604,7 @@ var allowedUserColumns = map[string]bool{
 	"whatsapp_number":      true,
 	"email":                true,
 	"expires_at":           true,
+	"suspended_at":         true,
 	"otp_code":             true,
 	"otp_expiry":           true,
 	"package":              true,
@@ -688,44 +696,105 @@ func ToggleUserStatus(ctx context.Context, pool *pgxpool.Pool, userID int) (stri
 	} else {
 		newStatus = UserStatusActive
 		if user.ExpiresAt == nil {
-			// No expiry set: add +1 day from now.
+			// No expiry set: add +1 day from now. This explicit renewal grant
+			// supersedes the suspension freeze (no frozen remaining exists).
 			newExp := time.Now().UTC().Add(24 * time.Hour)
 			_, execErr := pool.Exec(ctx,
-				`UPDATE admin_users SET status = $1, expires_at = $2 WHERE id = $3`,
+				`UPDATE admin_users SET status = $1, expires_at = $2, suspended_at = NULL WHERE id = $3`,
 				newStatus, newExp, userID)
 			if execErr != nil {
 				return "", "", fmt.Errorf("toggle user status update with default expiry: %w", execErr)
+			}
+			// Keep the active package's clock aligned with the renewed expiry so
+			// the billing display and future pause computations stay accurate.
+			if err := SyncActiveRedemptionToExpiry(ctx, pool, userID, newExp); err != nil {
+				log.Printf("toggle user status: sync redemption expiry error: %v", err)
 			}
 			msg = fmt.Sprintf("User \"%s\" diaktifkan. Masa aktif: +1 hari", user.Username)
 			return newStatus, msg, nil
 		}
 		if user.ExpiresAt.Before(time.Now().UTC()) {
-			// Expired: renew with +1 day.
+			// Expired: renew with +1 day. This explicit renewal grant supersedes
+			// the suspension freeze — the admin deliberately grants a fresh
+			// period instead of restoring the remaining-at-suspension time.
 			newExp := time.Now().UTC().Add(24 * time.Hour)
 			_, execErr := pool.Exec(ctx,
-				`UPDATE admin_users SET status = $1, expires_at = $2 WHERE id = $3`,
+				`UPDATE admin_users SET status = $1, expires_at = $2, suspended_at = NULL WHERE id = $3`,
 				newStatus, newExp, userID)
 			if execErr != nil {
 				return "", "", fmt.Errorf("toggle user status update with expiry: %w", execErr)
+			}
+			// Keep the active package's clock aligned with the renewed expiry so
+			// the billing display and future pause computations stay accurate.
+			if err := SyncActiveRedemptionToExpiry(ctx, pool, userID, newExp); err != nil {
+				log.Printf("toggle user status: sync redemption expiry error: %v", err)
 			}
 			msg = fmt.Sprintf("User \"%s\" diaktifkan. Masa aktif: +1 hari (expired)", user.Username)
 			return newStatus, msg, nil
 		}
 
-		// Active with valid future expiry: activate without changing expiry.
-		_, err = pool.Exec(ctx, `UPDATE admin_users SET status = $1 WHERE id = $2`, newStatus, userID)
+		// Active with valid future expiry: activate without changing expiry,
+		// but freeze the account clock for the suspension period so the
+		// package lifetime did not burn while the user was locked out.
+		extendedExpiry, err := ResumeSuspendedAccountClock(ctx, pool, userID)
 		if err != nil {
-			return "", "", fmt.Errorf("toggle user status update: %w", err)
+			return "", "", fmt.Errorf("toggle user status reactivate: %w", err)
 		}
 		msg = fmt.Sprintf("User \"%s\" diaktifkan (masa aktif dipertahankan)", user.Username)
+		if extendedExpiry != nil {
+			msg = fmt.Sprintf("User \"%s\" diaktifkan. Masa aktif diperpanjang sampai %s (jam dijeda selama suspend)",
+				user.Username, extendedExpiry.Format("2006-01-02 15:04:05"))
+		}
 		return newStatus, msg, nil
 	}
 
-	_, err = pool.Exec(ctx, `UPDATE admin_users SET status = $1 WHERE id = $2`, newStatus, userID)
+	// Suspending: record when it started so reactivation can freeze the
+	// account clock for the suspension period.
+	_, err = pool.Exec(ctx, `UPDATE admin_users SET status = $1, suspended_at = now() WHERE id = $2`, newStatus, userID)
 	if err != nil {
 		return "", "", fmt.Errorf("toggle user status update: %w", err)
 	}
 	return newStatus, msg, nil
+}
+
+// ResumeSuspendedAccountClock reactivates the account clock after a
+// suspension: the account's expires_at is extended by the suspension duration
+// (so the package lifetime did not burn while the user was locked out),
+// suspended_at is cleared, and the active redemption's clock is realigned to
+// the extended expiry. No-op freeze when the account was never suspended or
+// has no expiry (the marker is still cleared). Returns the resulting expiry
+// (nil when unchanged).
+func ResumeSuspendedAccountClock(ctx context.Context, pool *pgxpool.Pool, userID int) (*time.Time, error) {
+	var suspendedAt *time.Time
+	var expiresAt *time.Time
+	if err := pool.QueryRow(ctx,
+		`SELECT suspended_at, expires_at FROM admin_users WHERE id = $1`, userID).Scan(&suspendedAt, &expiresAt); err != nil {
+		return nil, err
+	}
+
+	if suspendedAt == nil || expiresAt == nil || !suspendedAt.Before(time.Now().UTC()) {
+		// Nothing to freeze (never suspended, no expiry, or clock skew): just
+		// make sure the account is active and the marker is gone.
+		if _, err := pool.Exec(ctx,
+			`UPDATE admin_users SET status = $1, suspended_at = NULL WHERE id = $2`,
+			UserStatusActive, userID); err != nil {
+			return nil, err
+		}
+		return nil, nil
+	}
+
+	newExpiry := expiresAt.Add(time.Since(*suspendedAt))
+	if _, err := pool.Exec(ctx,
+		`UPDATE admin_users SET status = $1, expires_at = $2, suspended_at = NULL WHERE id = $3`,
+		UserStatusActive, newExpiry, userID); err != nil {
+		return nil, err
+	}
+	// Realign the active package's clock so future pause computations and the
+	// billing display match the (frozen) account expiry.
+	if err := SyncActiveRedemptionToExpiry(ctx, pool, userID, newExpiry); err != nil {
+		return nil, err
+	}
+	return &newExpiry, nil
 }
 
 // DeleteUser deletes a user and returns their ID and the file paths of their exams
@@ -917,7 +986,19 @@ func AuthenticateUser(ctx context.Context, pool *pgxpool.Pool, username, passwor
 	}
 
 	if user.IsExpired() {
-		return nil, "Masa aktif akun Anda telah habis. Silakan hubungi administrator."
+		// A user whose account expiry has passed may still hold a claimed
+		// voucher with remaining lifetime that they could activate (the
+		// background auto-fallback job may not have run yet, or the server was
+		// down when the package expired). Let them in so they can pick a
+		// package on the billing page; otherwise they would be locked out
+		// despite owning a usable package.
+		var usable int
+		if err := pool.QueryRow(ctx,
+			`SELECT COUNT(*) FROM voucher_redemptions
+			 WHERE user_id = $1 AND NOT is_active AND remaining_seconds > 0`,
+			user.ID).Scan(&usable); err != nil || usable == 0 {
+			return nil, "Masa aktif akun Anda telah habis. Silakan hubungi administrator."
+		}
 	}
 
 	return &user, ""

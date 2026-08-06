@@ -122,6 +122,15 @@
   </div>
  </div>
 
+ <!-- Expired account notice: only reachable when the safety-net login
+      allowed an expired user in because they still own a usable package. -->
+ {{if .user_expired}}
+ <div style="display:flex;align-items:center;gap:12px;background:rgba(245,158,11,0.12);border:1px solid rgba(245,158,11,0.35);color:#fbbf24;padding:14px 18px;border-radius:12px;margin-bottom:24px;font-size:13.5px;">
+  <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="flex:0 0 auto;"><path d="M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
+  <span>Masa aktif akun Anda telah berakhir. Jika Anda masih memiliki paket yang sudah diklaim, aktifkan salah satunya di bawah untuk melanjutkan penggunaan.</span>
+ </div>
+ {{end}}
+
  <!-- Summary Grid -->
  <div class="grid grid-cols-1 md:grid-cols-3 gap-6" style="margin-bottom:32px;display:grid;grid-template-columns:repeat(auto-fit, minmax(min(100%, 240px), 1fr));gap:24px;">
 
@@ -354,18 +363,25 @@ function loadMyPackages() {
             list.forEach(function(p) {
                 var badge = '';
                 var action = '';
-                if (p.is_active) {
-                    badge = '<span class="status-badge" style="background:rgba(16,185,129,0.15);color:#10b981;border:1px solid rgba(16,185,129,0.3);">Paket Aktif</span>';
-                    action = '<span style="color:var(--color-text-secondary);font-size:12px;">Berjalan</span>';
-                } else if (p.is_expired) {
+                // Expired wins over active: an exhausted package whose clock
+                // has run out must read as "Berakhir", not "Paket Aktif".
+                if (p.is_expired) {
                     badge = '<span class="status-badge" style="background:rgba(239,68,68,0.15);color:#ef4444;border:1px solid rgba(239,68,68,0.3);">Berakhir</span>';
                     action = '<span style="color:var(--color-text-secondary);font-size:12px;">Tidak tersedia</span>';
+                } else if (p.is_active) {
+                    badge = '<span class="status-badge" style="background:rgba(16,185,129,0.15);color:#10b981;border:1px solid rgba(16,185,129,0.3);">Paket Aktif</span>';
+                    action = '<span style="color:var(--color-text-secondary);font-size:12px;">Berjalan</span>';
                 } else {
                     badge = '<span class="status-badge" style="background:rgba(245,158,11,0.15);color:#f59e0b;border:1px solid rgba(245,158,11,0.3);">Dijeda</span>';
                     action = '<button class="btn-sm" onclick="activatePackage(' + p.id + ')" style="background:rgba(168,85,247,0.15);color:#c084fc;border:1px solid rgba(168,85,247,0.3);padding:4px 12px;cursor:pointer;">Aktifkan</button>';
                 }
 
-                var remaining = p.is_active ? fmtRemaining(p.remaining_seconds) + ' (berjalan)' : fmtRemaining(p.remaining_seconds);
+                var remaining;
+                if (p.is_unlimited) {
+                    remaining = 'Tanpa Batas';
+                } else {
+                    remaining = p.is_active ? fmtRemaining(p.remaining_seconds) + ' (berjalan)' : fmtRemaining(p.remaining_seconds);
+                }
                 html += '<tr>' +
                     '<td data-label="Paket"><strong style="color:#fff;">' + escapeHtml(packageDisplayName(p.package)) + '</strong><div style="font-size:11px;color:var(--color-text-secondary);">' + p.max_exams + ' ujian serentak &middot; PDF ' + fmtMB(p.max_pdf_size_mb) + ' &middot; Storage ' + fmtMB(p.max_storage_mb) + '</div></td>' +
                     '<td data-label="Kode"><span style="font-family:var(--font-mono);font-size:12.5px;">' + escapeHtml(p.code || '—') + '</span></td>' +

@@ -25,6 +25,28 @@ import (
 // helpers
 // ---------------------------------------------------------------------------
 
+// effectiveBaseRoles returns the user's base roles for display on the users
+// page. base_role is empty for fresh and pre-migration accounts (CreateUser
+// does not set it, and the boot backfill only syncs package_role), so mirror
+// applyRedemptionEntitlement's lazy init: base = current roles minus whatever
+// the ACTIVE package grants. This keeps the badge split consistent with what
+// the next package activation would compute.
+func effectiveBaseRoles(u models.AdminUser) []string {
+	base := parsePackageRoles(u.BaseRole)
+	if u.BaseRole != "" {
+		return base
+	}
+	pkg := parsePackageRoles(u.PackageRole)
+	merged := models.ParseRoles(u.Role)
+	out := make([]string, 0, len(merged))
+	for _, r := range merged {
+		if !containsRole(pkg, r) {
+			out = append(out, r)
+		}
+	}
+	return out
+}
+
 // getInstansiForOperator retrieves the instansi of the current operator user.
 func getInstansiForOperator(ctx context.Context, pool *pgxpool.Pool, userID int) string {
 	var instansi string
@@ -126,7 +148,9 @@ func ListUsers() gin.HandlerFunc {
 			MaxStorageSize     int64    `json:"max_storage_size"`
 			MaxStorageMB       int      `json:"max_storage_mb"`
 			Instansi           string   `json:"instansi"`
-			Roles              []string `json:"roles"`
+			Roles              []string `json:"roles"`         // merged role list (base ∪ package)
+			BaseRoles          []string `json:"base_roles"`    // roles held independently of packages
+			PackageRoles       []string `json:"package_roles"` // roles granted by the active package
 			Role               string   `json:"role"`
 			ExpiresAt          string   `json:"expires_at"`
 			ExamCount          int      `json:"exam_count"`
@@ -154,6 +178,8 @@ func ListUsers() gin.HandlerFunc {
 				MaxStorageMB:       int(u.MaxStorageSize / (1024 * 1024)),
 				Instansi:           u.Instansi,
 				Roles:              models.ParseRoles(u.Role),
+				BaseRoles:          effectiveBaseRoles(u.AdminUser),  // lazy-derived when base_role is empty
+				PackageRoles:       parsePackageRoles(u.PackageRole), // empty-safe: '' means no package roles
 				Role:               models.SerializeRoles(models.ParseRoles(u.Role)),
 				ExpiresAt:          expStr,
 				ExamCount:          u.ExamCount,
@@ -520,6 +546,11 @@ func EditUser() gin.HandlerFunc {
 			switch status {
 			case models.UserStatusActive, models.UserStatusSuspended, models.UserStatusPendingOTP:
 				updates["status"] = status
+				if status == models.UserStatusSuspended {
+					// Record when the suspension starts so reactivation can
+					// freeze the account clock for the suspension period.
+					updates["suspended_at"] = time.Now().UTC()
+				}
 			}
 		}
 
@@ -537,6 +568,35 @@ func EditUser() gin.HandlerFunc {
 			}
 			if len(filtered) > 0 {
 				updates["role"] = models.SerializeRoles(filtered)
+				// Keep base_role in sync so admin-granted roles survive package
+				// switches: base = (new roles minus whatever the current package
+				// grants) ∪ (roles already held independently that are still
+				// listed). The second term preserves an admin-granted role that
+				// coincides with a package grant — e.g. an admin-granted operator
+				// on a user whose active sekolah package also grants operator —
+				// while an explicit removal still drops it. The union never
+				// exceeds the roles the admin listed, so no role can appear in
+				// base that the admin did not choose.
+				var pkgRole, curBaseRole string
+				_ = pool.QueryRow(ctx,
+					`SELECT COALESCE(package_role, ''), COALESCE(base_role, '') FROM admin_users WHERE id = $1`,
+					targetID).Scan(&pkgRole, &curBaseRole)
+				pkgRoles := parsePackageRoles(pkgRole)
+				base := make([]string, 0, len(filtered))
+				for _, r := range filtered {
+					if !containsRole(pkgRoles, r) {
+						base = append(base, r)
+					}
+				}
+				for _, r := range parsePackageRoles(curBaseRole) {
+					if containsRole(filtered, r) && !containsRole(base, r) {
+						base = append(base, r)
+					}
+				}
+				if len(base) == 0 {
+					base = []string{models.RoleGuru}
+				}
+				updates["base_role"] = models.SerializeRoles(base)
 			}
 		}
 
@@ -572,6 +632,16 @@ func EditUser() gin.HandlerFunc {
 					expVal, targetUser.Instansi, targetID); err != nil {
 					log.Printf("cascade expiry for instansi %s error: %v", targetUser.Instansi, err)
 				}
+				// Align the instansi users' active packages with the new expiry too.
+				if _, err := pool.Exec(ctx, `
+					UPDATE voucher_redemptions r
+					SET remaining_seconds = GREATEST(EXTRACT(EPOCH FROM ($1::timestamp - now()))::bigint, 0),
+					    activated_at = now()
+					FROM admin_users u
+					WHERE r.user_id = u.id AND r.is_active AND u.instansi = $2 AND u.id != $3`,
+					expVal, targetUser.Instansi, targetID); err != nil {
+					log.Printf("cascade sync redemption expiry for instansi %s error: %v", targetUser.Instansi, err)
+				}
 			}
 		}
 
@@ -580,6 +650,33 @@ func EditUser() gin.HandlerFunc {
 				log.Printf("edit user error: %v", err)
 				errorResponse(c, http.StatusInternalServerError, "Gagal memperbarui user")
 				return
+			}
+		}
+
+		// Keep the active package's clock in sync with an admin-set expiry so
+		// the billing display and later pause computations always match the
+		// account (the account expiry is the authoritative clock).
+		if body.ExpiresAt != nil {
+			expVal := strings.TrimSpace(*body.ExpiresAt)
+			if expVal != "" {
+				if !strings.Contains(expVal, " ") {
+					expVal += " 23:59:59"
+				}
+				if t, err := time.Parse("2006-01-02 15:04:05", expVal); err == nil {
+					if syncErr := models.SyncActiveRedemptionToExpiry(ctx, pool, targetID, t); syncErr != nil {
+						log.Printf("edit user: sync redemption expiry error: %v", syncErr)
+					}
+				}
+			}
+		}
+
+		// Reactivating via the edit form: apply the suspension freeze (extend
+		// expiry by the suspension duration) so the package clock did not burn
+		// while the account was suspended. When a fresh expiry is explicitly set
+		// in the same request, that grant supersedes the freeze.
+		if body.Status != nil && *body.Status == models.UserStatusActive && !isSuperAdminTarget && body.ExpiresAt == nil {
+			if _, err := models.ResumeSuspendedAccountClock(ctx, pool, targetID); err != nil {
+				log.Printf("edit user: resume suspended account clock error: %v", err)
 			}
 		}
 
@@ -648,11 +745,33 @@ func ToggleUserStatus() gin.HandlerFunc {
 						`SELECT COUNT(*) FROM admin_users WHERE instansi = $1 AND suspended_by_cascade = TRUE AND id != $2`,
 						opInstansi, targetID).Scan(&count)
 					if count > 0 {
-						if _, err := pool.Exec(ctx,
-							`UPDATE admin_users SET status = 'active', suspended_by_cascade = FALSE WHERE instansi = $1 AND suspended_by_cascade = TRUE AND id != $2`,
+						// Freeze the restored accounts' clocks for the suspension
+						// period: expires_at is extended by (now - suspended_at), then
+						// the active packages are realigned to the frozen expiry.
+						if _, err := pool.Exec(ctx, `
+						UPDATE admin_users u
+						SET status = 'active',
+						    suspended_by_cascade = FALSE,
+						    suspended_at = NULL,
+						    expires_at = CASE
+						        WHEN u.suspended_at IS NOT NULL AND u.expires_at IS NOT NULL AND u.suspended_at < now()
+						            THEN u.expires_at + (now() - u.suspended_at)
+						        ELSE u.expires_at
+						    END
+						WHERE u.instansi = $1 AND u.suspended_by_cascade = TRUE AND u.id != $2`,
 							opInstansi, targetID); err != nil {
 							log.Printf("cascade restore for instansi %s error: %v", opInstansi, err)
 						} else {
+							if _, err := pool.Exec(ctx, `
+							UPDATE voucher_redemptions r
+							SET remaining_seconds = GREATEST(EXTRACT(EPOCH FROM (u.expires_at - now()))::bigint, 0),
+							    activated_at = now()
+							FROM admin_users u
+							WHERE r.user_id = u.id AND r.is_active AND u.expires_at IS NOT NULL
+							  AND u.instansi = $1 AND u.id != $2`,
+								opInstansi, targetID); err != nil {
+								log.Printf("cascade sync redemption expiry for instansi %s error: %v", opInstansi, err)
+							}
 							msg += fmt.Sprintf(". %d user di instansi %s juga diaktifkan kembali.", count, opInstansi)
 						}
 					}
@@ -664,7 +783,7 @@ func ToggleUserStatus() gin.HandlerFunc {
 						opInstansi, targetID).Scan(&count)
 					if count > 0 {
 						if _, err := pool.Exec(ctx,
-							`UPDATE admin_users SET status = 'suspended', suspended_by_cascade = TRUE WHERE instansi = $1 AND status = 'active' AND id != $2`,
+							`UPDATE admin_users SET status = 'suspended', suspended_by_cascade = TRUE, suspended_at = now() WHERE instansi = $1 AND status = 'active' AND id != $2`,
 							opInstansi, targetID); err != nil {
 							log.Printf("cascade suspend for instansi %s error: %v", opInstansi, err)
 						} else {

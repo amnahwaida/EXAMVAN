@@ -2,6 +2,7 @@ package admin
 
 import (
 	"log"
+	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/examvan/webui/internal/models"
@@ -26,6 +27,7 @@ func BillingPage() gin.HandlerFunc {
 		userMaxConcurrent := int64(1)
 		var userMaxStorage int64
 		var userExpires string
+		userExpired := false
 		isSuper := getCurrentUserRole(c) == models.RoleSuperAdmin
 
 		if pool != nil {
@@ -49,6 +51,9 @@ func BillingPage() gin.HandlerFunc {
 				userMaxStorage = int64(user.MaxStorageSize)
 				if user.ExpiresAt != nil {
 					userExpires = user.ExpiresAt.UTC().Format("2006-01-02T15:04:05Z")
+					if user.ExpiresAt.Before(time.Now().UTC()) {
+						userExpired = true
+					}
 				}
 			}
 		}
@@ -63,6 +68,7 @@ func BillingPage() gin.HandlerFunc {
 			"user_max_pdf_size_mb": roundTo(float64(userMaxPDF)/(1024*1024), 1),
 			"user_max_storage_mb":  roundTo(float64(userMaxStorage)/(1024*1024), 2),
 			"user_is_super":        isSuper,
+			"user_expired":         userExpired,
 		})
 	}
 }

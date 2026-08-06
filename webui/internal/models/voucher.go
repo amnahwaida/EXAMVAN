@@ -323,6 +323,25 @@ func ListVoucherRedemptions(ctx context.Context, pool *pgxpool.Pool, voucherID i
 	return redemptions, nil
 }
 
+// SyncActiveRedemptionToExpiry realigns the user's currently-active
+// redemption clock with the account's expires_at (the authoritative expiry
+// used to gate login): the active package's remaining lifetime is rewritten to
+// `newExpiry - now` and its clock restarts now. Called whenever an admin
+// manually changes an account's expiry (renewal, user edit, instansi-wide
+// cascade) so the billing display and later pause computations never disagree
+// with the account state. No-op when the user has no active redemption.
+func SyncActiveRedemptionToExpiry(ctx context.Context, pool *pgxpool.Pool, userID int, newExpiry time.Time) error {
+	_, err := pool.Exec(ctx, `
+		UPDATE voucher_redemptions
+		SET remaining_seconds = GREATEST(EXTRACT(EPOCH FROM ($1 - now()))::bigint, 0),
+		    activated_at = now()
+		WHERE user_id = $2 AND is_active`, newExpiry, userID)
+	if err != nil {
+		return fmt.Errorf("sync active redemption expiry: %w", err)
+	}
+	return nil
+}
+
 // ListMyRedemptions returns the currently-logged-in user's claimed vouchers
 // (with their entitlement snapshots and the source voucher code), most recent
 // first. Expired ones are included so the UI can mark them, but the handler

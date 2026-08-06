@@ -522,13 +522,13 @@ func RedeemVoucherHandler() gin.HandlerFunc {
 
 		// 6. Pause the user's current active package (freeze its remaining
 		// lifetime), then apply the new package's snapshot (overwrites quotas,
-		// merges role, never touches a SuperAdmin's role).
+		// makes the role follow the active package, never touches a
+		// SuperAdmin's role).
 		if err := pauseActiveRedemption(ctx, dbTx, userID); err != nil {
 			log.Printf("redeem pause previous error: %v", err)
 			errorResponse(c, http.StatusInternalServerError, "Gagal memproses klaim voucher")
 			return
 		}
-		roleMayChange := strings.TrimSpace(snapshot.Role) != ""
 		if err := applyRedemptionEntitlement(ctx, dbTx, userID, &snapshot); err != nil {
 			log.Printf("redeem apply entitlement error: %v", err)
 			errorResponse(c, http.StatusInternalServerError, "Gagal menerapkan paket dari voucher")
@@ -570,17 +570,15 @@ func RedeemVoucherHandler() gin.HandlerFunc {
 			return
 		}
 
-		// Refresh session role to match the (merged) role now stored, without
-		// demoting a SuperAdmin. Read the actual persisted role rather than
-		// blindly setting the package role, which could strip existing roles.
-		if roleMayChange {
-			var updatedRole string
-			if err := pool.QueryRow(ctx, `SELECT COALESCE(role, '') FROM admin_users WHERE id = $1`, userID).Scan(&updatedRole); err == nil &&
-				updatedRole != "" && !models.HasRole(updatedRole, models.RoleSuperAdmin) {
-				session := sessions.Default(c)
-				session.Set(middleware.SessionKeyRole, updatedRole)
-				_ = session.Save()
-			}
+		// Refresh the session role to match the persisted role: a package switch
+		// can both grant AND remove roles (e.g. leaving a sekolah package drops
+		// the operator role), so always sync. Never demote a SuperAdmin.
+		var updatedRole string
+		if err := pool.QueryRow(ctx, `SELECT COALESCE(role, '') FROM admin_users WHERE id = $1`, userID).Scan(&updatedRole); err == nil &&
+			updatedRole != "" && !models.HasRole(updatedRole, models.RoleSuperAdmin) {
+			session := sessions.Default(c)
+			session.Set(middleware.SessionKeyRole, updatedRole)
+			_ = session.Save()
 		}
 
 		expiryStr := now.Add(time.Duration(snapshot.RemainingSeconds) * time.Second).Format("2006-01-02 15:04:05")
@@ -616,6 +614,17 @@ func ListMyRedemptionsHandler() gin.HandlerFunc {
 			return
 		}
 
+		// The account's expires_at is the single authoritative clock for the
+		// ACTIVE package (it gates login and is kept in sync with the package
+		// clock on every redeem/activate and admin extension). Derive the
+		// active package's remaining lifetime from it so an admin extension is
+		// reflected immediately and the badge never contradicts the account
+		// state. Paused packages keep their frozen remaining_seconds.
+		var accountExpires *time.Time
+		if err := pool.QueryRow(c.Request.Context(), `SELECT expires_at FROM admin_users WHERE id = $1`, userID).Scan(&accountExpires); err != nil {
+			log.Printf("list my redemptions: load account expiry error: %v", err)
+		}
+
 		now := time.Now().UTC()
 		type item struct {
 			ID               int       `json:"id"`
@@ -625,6 +634,7 @@ func ListMyRedemptionsHandler() gin.HandlerFunc {
 			RemainingSeconds int64     `json:"remaining_seconds"`
 			IsActive         bool      `json:"is_active"`
 			IsExpired        bool      `json:"is_expired"`
+			IsUnlimited      bool      `json:"is_unlimited"`
 			MaxExams         int64     `json:"max_exams"`
 			MaxPDFSizeMB     float64   `json:"max_pdf_size_mb"`
 			MaxConcurrent    int64     `json:"max_concurrent_exams"`
@@ -632,13 +642,19 @@ func ListMyRedemptionsHandler() gin.HandlerFunc {
 		}
 		items := make([]item, 0, len(redemptions))
 		for _, r := range redemptions {
-			// Effective remaining lifetime: while a package is active its clock
-			// is running, so subtract the time elapsed since it was activated.
 			remaining := r.RemainingSeconds
-			if r.IsActive && r.ActivatedAt != nil {
-				remaining -= int64(now.Sub(*r.ActivatedAt).Seconds())
-				if remaining < 0 {
+			unlimited := false
+			if r.IsActive {
+				if accountExpires == nil {
+					// Account has no expiry (admin cleared it): the active
+					// package's clock is not running.
+					unlimited = true
 					remaining = 0
+				} else {
+					remaining = int64(accountExpires.Sub(now).Seconds())
+					if remaining < 0 {
+						remaining = 0
+					}
 				}
 			}
 			items = append(items, item{
@@ -648,7 +664,8 @@ func ListMyRedemptionsHandler() gin.HandlerFunc {
 				RedeemedAt:       r.RedeemedAt,
 				RemainingSeconds: remaining,
 				IsActive:         r.IsActive,
-				IsExpired:        remaining <= 0,
+				IsUnlimited:      unlimited,
+				IsExpired:        !unlimited && remaining <= 0,
 				MaxExams:         r.MaxExams,
 				MaxPDFSizeMB:     roundTo(float64(r.MaxPDFSize)/(1024*1024), 1),
 				MaxConcurrent:    r.MaxConcurrentExams,
@@ -774,15 +791,15 @@ func ActivateVoucherHandler() gin.HandlerFunc {
 			return
 		}
 
-		// Refresh session role if the activated package grants roles.
-		if strings.TrimSpace(r.Role) != "" {
-			var updatedRole string
-			if err := pool.QueryRow(ctx, `SELECT COALESCE(role, '') FROM admin_users WHERE id = $1`, userID).Scan(&updatedRole); err == nil &&
-				updatedRole != "" && !models.HasRole(updatedRole, models.RoleSuperAdmin) {
-				session := sessions.Default(c)
-				session.Set(middleware.SessionKeyRole, updatedRole)
-				_ = session.Save()
-			}
+		// Refresh the session role to match the persisted role: a package switch
+		// can both grant AND remove roles (e.g. leaving a sekolah package drops
+		// the operator role), so always sync. Never demote a SuperAdmin.
+		var updatedRole string
+		if err := pool.QueryRow(ctx, `SELECT COALESCE(role, '') FROM admin_users WHERE id = $1`, userID).Scan(&updatedRole); err == nil &&
+			updatedRole != "" && !models.HasRole(updatedRole, models.RoleSuperAdmin) {
+			session := sessions.Default(c)
+			session.Set(middleware.SessionKeyRole, updatedRole)
+			_ = session.Save()
 		}
 
 		expiryStr := now.Add(time.Duration(r.RemainingSeconds) * time.Second).Format("2006-01-02 15:04:05")

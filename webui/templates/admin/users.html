@@ -505,6 +505,18 @@
  </select>
  </div>
 
+ <!-- Role legend: base (permanent) roles vs roles granted by the active package -->
+ <div style="display:flex;align-items:center;gap:16px;flex-wrap:wrap;padding:0 0 12px 0;font-size:11px;color:var(--color-text-muted);">
+  <span style="display:inline-flex;align-items:center;gap:6px;">
+   <span style="display:inline-block;width:9px;height:9px;border-radius:50%;background:#a5b4fc;box-shadow:0 0 0 3px rgba(99,102,241,0.15);"></span>
+   Role tetap (pemberian admin / identitas)
+  </span>
+  <span style="display:inline-flex;align-items:center;gap:6px;">
+   <span style="display:inline-block;width:9px;height:9px;border-radius:50%;background:#34d399;box-shadow:0 0 0 3px rgba(16,185,129,0.15);"></span>
+   Role dari paket aktif <em style="font-style:normal;opacity:0.75;">(hilang saat paket diganti/berakhir)</em>
+  </span>
+ </div>
+
  <div class="table-responsive">
  <table class="exam-table">
  <thead>

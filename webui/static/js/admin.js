@@ -1261,18 +1261,30 @@ function submitChangePassword(e) {
 }
 
 
-function renderRoleBadges(roles) {
-    if (!Array.isArray(roles) || roles.length === 0) return '<span style="color:var(--color-text-muted);font-size:12px;">—</span>';
+function renderRoleBadges(baseRoles, pkgRoles) {
+    if (!Array.isArray(baseRoles)) baseRoles = [];
+    if (!Array.isArray(pkgRoles)) pkgRoles = [];
+    if (baseRoles.length + pkgRoles.length === 0) return '<span style="color:var(--color-text-muted);font-size:12px;">—</span>';
     var badgeStyles = {
         guru: 'background:rgba(99,102,241,0.15);color:#a5b4fc;border:1px solid rgba(99,102,241,0.3);',
         pengawas: 'background:rgba(168,85,247,0.15);color:#c084fc;border:1px solid rgba(168,85,247,0.3);'
     };
+    // Roles granted by the ACTIVE package get an emerald tone + a small "paket"
+    // tag so admins can tell them apart from base (permanent) roles — these
+    // disappear when the package is switched or expires.
+    var pkgStyle = 'background:rgba(16,185,129,0.15);color:#34d399;border:1px solid rgba(16,185,129,0.3);';
     var labels = { guru: 'Guru', pengawas: 'Pengawas' };
-    return roles.map(function(r) {
+    var badges = [];
+    baseRoles.forEach(function(r) {
         var style = badgeStyles[r] || badgeStyles.guru;
         var label = labels[r] || escapeHtml(r);
-        return '<span style="display:inline-block;padding:2px 8px;border-radius:10px;font-size:11px;font-weight:600;' + style + '">' + label + '</span>';
-    }).join(' ');
+        badges.push('<span style="display:inline-block;padding:2px 8px;border-radius:10px;font-size:11px;font-weight:600;' + style + '">' + label + '</span>');
+    });
+    pkgRoles.forEach(function(r) {
+        var label = labels[r] || escapeHtml(r);
+        badges.push('<span title="Dari paket aktif — hilang saat paket diganti/berakhir" style="display:inline-block;padding:2px 8px;border-radius:10px;font-size:11px;font-weight:600;cursor:help;' + pkgStyle + '">' + label + ' <em style="font-style:normal;opacity:0.75;font-weight:500;font-size:9px;text-transform:uppercase;letter-spacing:0.03em;">paket</em></span>');
+    });
+    return badges.join(' ');
 }
 
 // ===== Manage Users Modal (Super Admin Only) =====
@@ -1368,7 +1380,7 @@ function loadUsersList(page) {
                         <td data-label="Nama">${escapeHtml(user.name || '—')}</td>
                         <td data-label="Instansi">${window.__adminRole === 'superadmin' ? '<span class="editable-instansi" data-user-id="' + user.id + '" style="color:#a5b4fc;cursor:pointer;border-bottom:1px dashed rgba(165,180,252,0.3);" title="Klik untuk ubah instansi">' + escapeHtml(user.instansi || '—') + '</span>' : escapeHtml(user.instansi || '—')}</td>
                         <td data-label="Paket"><span style="text-transform:uppercase;font-size:11px;font-weight:600;color:var(--color-accent-light);">${escapeHtml(user.package || 'free')}</span></td>
-                        <td data-label="Role">${isAdmin ? '<span style="display:inline-block;padding:2px 8px;border-radius:10px;font-size:11px;font-weight:600;background:rgba(251,191,36,0.15);color:#fbbf24;border:1px solid rgba(251,191,36,0.3);">Super Admin</span>' : renderRoleBadges(user.roles)}</td>
+                        <td data-label="Role">${isAdmin ? '<span style="display:inline-block;padding:2px 8px;border-radius:10px;font-size:11px;font-weight:600;background:rgba(251,191,36,0.15);color:#fbbf24;border:1px solid rgba(251,191,36,0.3);">Super Admin</span>' : renderRoleBadges(user.base_roles, user.package_roles)}</td>
                         <td data-label="Email">${escapeHtml(user.email || '—')}</td>
                         <td data-label="Status" style="text-align:center;">${statusBadge}</td>
                         <td data-label="Aksi" style="text-align:right;">${actionsHtml}</td>

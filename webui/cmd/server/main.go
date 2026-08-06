@@ -89,6 +89,11 @@ func main() {
 	// -----------------------------------------------------------------------
 	ctx := context.Background()
 
+	// Cancellable context for background jobs (package-expiry reconciliation).
+	// Canceled during graceful shutdown so jobs stop before the DB pool closes.
+	jobCtx, cancelJobs := context.WithCancel(context.Background())
+	defer cancelJobs()
+
 	// Ensure admin user exists and migrate werkzeug password hashes to bcrypt
 	if pool != nil {
 		if err := models.EnsureAdminUser(ctx, pool, cfg.AdminUser, cfg.AdminPass); err != nil {
@@ -142,6 +147,16 @@ func main() {
 		}
 	} else {
 		log.Println("Cloudflare R2: not configured — PDF will be served from local storage")
+	}
+
+	// -----------------------------------------------------------------------
+	// 4c. Package-expiry reconciliation job: pauses an exhausted active
+	// package and auto-activates another claimed voucher that still has
+	// remaining lifetime (auto-fallback), so a user is never locked out while
+	// a usable package is on hand.
+	// -----------------------------------------------------------------------
+	if pool != nil {
+		admin.StartPackageExpiryJob(jobCtx, pool)
 	}
 
 	// -----------------------------------------------------------------------
@@ -415,6 +430,10 @@ func main() {
 		worker.Stop()
 		log.Println("Shutdown: queue worker stopped")
 	}
+
+	// Stop background jobs (package-expiry reconciliation) before closing the
+	// DB pool so they never query a closed connection.
+	cancelJobs()
 
 	// Close DB pool.
 	if pool != nil {

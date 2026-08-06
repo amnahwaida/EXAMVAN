@@ -475,3 +475,35 @@ VALUES
     ('sekolah_unggulan', 'Paket Sekolah Unggulan', 99999, (99999::bigint)*1024*1024, 99999, (999999::bigint)*1024*1024, '["operator"]')
 ON CONFLICT (pkg_key) DO NOTHING;
 
+-- ============================================================
+-- Migration: suspension freeze (suspended_at)
+-- ============================================================
+-- Records when an account was suspended so reactivation can extend
+-- admin_users.expires_at by the suspension duration — the package clock must
+-- not keep burning while the user is locked out. Safe to re-run.
+ALTER TABLE admin_users ADD COLUMN IF NOT EXISTS suspended_at TIMESTAMPTZ;
+
+-- ============================================================
+-- Migration: package-granted roles tracked separately
+-- ============================================================
+-- Roles granted by the currently-ACTIVE package are stored in admin_users.
+-- package_role so they can be removed again when the user switches to a
+-- package that does not grant them: a sekolah package's operator role must not
+-- linger after the user activates a guru voucher. Roles from other sources
+-- (admin-granted operator, delegated pengawas, the base guru role) live in
+-- base_role — the roles the user holds independently of packages — so an
+-- admin-granted operator survives a package switch even when it coincides
+-- with what the package grants. A SuperAdmin's role is never modified.
+-- Safe to re-run on every boot.
+ALTER TABLE admin_users ADD COLUMN IF NOT EXISTS package_role TEXT NOT NULL DEFAULT '';
+ALTER TABLE admin_users ADD COLUMN IF NOT EXISTS base_role TEXT NOT NULL DEFAULT '';
+
+-- Keep package_role in sync with the active redemption's snapshot role on
+-- every boot. This also migrates rows created under the old accumulate-forever
+-- model: the active package's granted roles become tracked and removable the
+-- next time the user switches packages.
+UPDATE admin_users u
+SET package_role = COALESCE(r.role, '')
+FROM voucher_redemptions r
+WHERE r.user_id = u.id AND r.is_active;
+
