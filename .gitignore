@@ -35,6 +35,11 @@ package-lock.json
 # APK binary files — use GitHub Releases instead
 *.apk
 .claude/
+.qoder/
+
+# Local screenshots
+Screenshot_*.jpg
+Screenshot_*.png
 
 # Go binaries
 webui/main

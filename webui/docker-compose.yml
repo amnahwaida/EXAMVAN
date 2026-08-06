@@ -101,6 +101,8 @@ services:
     image: nginx:1.27-alpine
     container_name: examvan-webui-nginx
     restart: unless-stopped
+    # Cloud-only: bind localhost only — tidak ada akses LAN/IP publik.
+    # Satu-satunya akses publik via cloudflare-tunnel (HTTPS/domain).
     ports:
       - "127.0.0.1:80:80"
     volumes:
@@ -133,10 +135,12 @@ services:
     depends_on:
       nginx-lb:
         condition: service_started
+    # Image cloudflared bersifat distroless (tidak ada sh/wget), jadi pakai
+    # exec-form pada binary-nya sendiri; restart: unless-stopped menangani crash.
     healthcheck:
-      test: ["CMD", "sh", "-c", "[ -z \"$TUNNEL_TOKEN\" ] || wget -qO- http://localhost:4312/health || exit 1"]
+      test: ["CMD", "cloudflared", "version"]
       interval: 30s
-      timeout: 10s
+      timeout: 5s
       retries: 3
       start_period: 10s
     init: true

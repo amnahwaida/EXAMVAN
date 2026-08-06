@@ -17,7 +17,8 @@
     <string name="btn_prev">Sebelumnya</string>
     <string name="btn_next">Selanjutnya</string>
     <string name="error_network">Gagal terhubung ke server. Periksa jaringan Anda.</string>
-    <string name="error_invalid_url">Format URL tidak valid. Gunakan format http://IP:PORT</string>
+    <string name="error_invalid_url">Format URL tidak valid. Gunakan format https://domain</string>
+    <string name="https_required_error">Koneksi HTTP (cleartext) tidak didukung. Gunakan HTTPS.</string>
     <string name="error_invalid_token">Token tidak boleh kosong</string>
     <string name="error_token_not_found">Token tidak valid atau ujian sudah berakhir</string>
     <string name="error_download">Gagal mengunduh file ujian</string>

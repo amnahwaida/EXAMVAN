@@ -107,7 +107,7 @@ cd windows
 
 ```
 1. Server Config Dialog
-   ├─ Masukkan URL server (contoh: http://192.168.1.100:80)
+   ├─ Masukkan URL server (contoh: https://examvan.my.id)
    └─ Masukkan token ujian (8 karakter) → connect
 
 2. Identity Dialog

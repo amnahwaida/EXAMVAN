@@ -17,7 +17,8 @@
     <string name="btn_prev">Previous</string>
     <string name="btn_next">Next</string>
     <string name="error_network">Failed to connect to server. Check your network.</string>
-    <string name="error_invalid_url">Invalid URL format. Use http://IP:PORT</string>
+    <string name="error_invalid_url">Invalid URL format. Use https://domain</string>
+    <string name="https_required_error">HTTP (cleartext) connections are not supported. Use HTTPS.</string>
     <string name="error_invalid_token">Token cannot be empty</string>
     <string name="error_token_not_found">Invalid token or exam has ended</string>
     <string name="error_download">Failed to download exam file</string>

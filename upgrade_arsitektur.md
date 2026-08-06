@@ -545,15 +545,25 @@ http {
 
     client_max_body_size 100M;
 
+    # Determine the correct scheme (HTTPS/HTTP) forwarded from client or upstream proxy
+    map $http_x_forwarded_proto $the_scheme {
+        default $http_x_forwarded_proto;
+        ""      $scheme;
+    }
+
     upstream backend {
         server 127.0.0.1:5000;
-        # Kalau pake STB atau server lain:
-        # server 10.0.0.3:5000;
     }
 
     server {
         listen 80 default_server;
         server_name _;
+
+        # Cloud-only: tolak request cleartext. Semua request yang TIDAK berasal
+        # dari Cloudflare Tunnel (tanpa X-Forwarded-Proto: https) di-redirect ke HTTPS.
+        if ($the_scheme != "https") {
+            return 301 https://$host$request_uri;
+        }
 
         # === TAMBAH: Internal redirect untuk PDF (fallback kalo R2 mati) ===
         location /internal/pdf/ {
@@ -597,7 +607,7 @@ http {
             proxy_set_header Host $host;
             proxy_set_header X-Real-IP $remote_addr;
             proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-            proxy_set_header X-Forwarded-Proto $scheme;
+            proxy_set_header X-Forwarded-Proto $the_scheme;
             proxy_read_timeout 120s;
             proxy_send_timeout 120s;
         }
@@ -628,7 +638,7 @@ R2 MATI:
 # Upload file PDF ke R2 via API (simulasi admin)
 R2_KEY="pdfs/test-upload.pdf"
 
-curl -X POST https://YOUR-VPS-IP/admin/upload \
+curl -X POST https://<domain>/admin/upload \
   -F "file=@/path/to/test.pdf"
 ```
 
@@ -636,7 +646,7 @@ curl -X POST https://YOUR-VPS-IP/admin/upload \
 
 ```bash
 # Request PDF via API (simulasi Android)
-curl -v http://YOUR-VPS-IP/api/exams/1/pdf \
+curl -v https://<domain>/api/exams/1/pdf \
   -H "X-Exam-Token: TOKEN_EXAM"
 
 # Response harusnya:
@@ -1191,7 +1201,7 @@ export default function () {
     });
 
     const res = http.post(
-        `http://YOUR-VPS-IP/api/exams/1/submit`,
+        `https://<domain>/api/exams/1/submit`,
         payload,
         {
             headers: {

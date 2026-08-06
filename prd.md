@@ -2,6 +2,11 @@
 
 > **NOTE:** This PRD was written for v1.1.0 (MVP). The current version is 2.2.0
 > with many additional features. See README.md for current documentation.
+>
+> ⚠️ **PERUBAHAN ARAH (Agustus 2026):** Dukungan LAN/Intranet telah **DIHAPUS**.
+> Produk kini **cloud-only**: client terhubung via HTTPS/domain publik (Cloudflare Tunnel),
+> cleartext HTTP & IP privat tidak lagi diizinkan. Bagian-bagian LAN di bawah ini
+> hanya dokumentasi historis MVP dan **tidak berlaku lagi**.
 
 **Versi:** 1.1.0 (Revisi Intranet & Slow-Network)  
 **Status:** READY FOR DEVELOPMENT  
@@ -12,9 +17,9 @@
 ---
 
 ## 1. 🎯 Ringkasan Eksekutif & Visi Produk
-**EXAMVAN** adalah aplikasi Android ringan untuk distribusi & pelaksanaan ujian digital berbasis PDF. Aplikasi ini dirancang khusus untuk lingkungan **jaringan lokal (intranet/LAN)**, mendukung koneksi internet lambat, dan mencegah penyalahgunaan konten (screenshot & copy-paste). Pengelolaan soal terpusat melalui panel admin web, sehingga guru/admin cukup upload PDF → siswa langsung melihat daftar ujian.
+**EXAMVAN** adalah aplikasi Android ringan untuk distribusi & pelaksanaan ujian digital berbasis PDF. Aplikasi ini dirancang untuk akses **cloud** (HTTPS via domain publik), mendukung koneksi internet lambat, dan mencegah penyalahgunaan konten (screenshot & copy-paste). Pengelolaan soal terpusat melalui panel admin web, sehingga guru/admin cukup upload PDF → siswa langsung melihat daftar ujian.
 
-**Visi MVP:** Memberikan akses ujian yang stabil di jaringan sekolah/kampus, dengan footprint teknis seminimal mungkin, konfigurasi server yang fleksibel, dan pengalaman siswa yang tetap lancar meski bandwidth terbatas.
+**Visi (sekarang):** Memberikan akses ujian yang stabil dan aman melalui cloud, dengan footprint teknis seminimal mungkin dan pengalaman siswa yang tetap lancar meski bandwidth terbatas.
 
 ---
 
@@ -54,7 +59,7 @@
 |----------|--------|--------|----------|
 | `/api/exams` | `GET` | Ambil daftar ujian aktif | `{"success":true,"data":[{"id":1,"name":"UTS Matematika","status":"active","size_mb":3.2}]}` |
 | `/api/exams/{id}/pdf` | `GET` | Stream file PDF ujian | `Content-Type: application/pdf`, `Cache-Control: no-store`, stream byte |
-| `/api/health` | `GET` | Cek ketersediaan server | `{"status":"ok","version":"1.1","lan_mode":true}` |
+| `/api/health` | `GET` | Cek ketersediaan server | `{"status":"ok","version":"2.2","certificate_fingerprint":"sha256/..."}` |
 
 ### 4.3 Panel Admin Web (MVP)
 | Fitur | Deskripsi |

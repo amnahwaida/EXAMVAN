@@ -56,7 +56,6 @@ data class HealthResponse(
     val status: String,
     val version: String,
     val required_app_version: String? = null,
-    val lan_mode: Boolean,
     val timestamp: String? = null,
     val server_time_utc: String? = null,
     val certificate_fingerprint: String? = null

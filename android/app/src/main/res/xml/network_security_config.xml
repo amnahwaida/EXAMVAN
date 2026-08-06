@@ -2,8 +2,8 @@
 <network-security-config
     xmlns:tools="http://schemas.android.com/tools"
     tools:ignore="NetworkSecurityConfig">
-    <!-- Default config: allow cleartext traffic for local LAN school deployments -->
-    <base-config cleartextTrafficPermitted="true">
+    <!-- Cloud-only: HTTPS only. Cleartext HTTP (incl. LAN/IP privat) is blocked. -->
+    <base-config cleartextTrafficPermitted="false">
         <trust-anchors>
             <certificates src="system" />
         </trust-anchors>

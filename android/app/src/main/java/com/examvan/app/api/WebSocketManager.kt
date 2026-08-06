@@ -73,7 +73,7 @@ object WebSocketManager {
     /**
      * Connect to the EXAMVAN WebSocket server.
      *
-     * @param baseUrl The server base URL (e.g. http://192.168.1.100:5000)
+     * @param baseUrl The server base URL (e.g. https://examvan.my.id)
      * @param examId The exam ID
      * @param token The exam token for authentication
      * @param deviceId The device identifier (macAddress/device UUID)

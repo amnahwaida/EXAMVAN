@@ -29,7 +29,7 @@ import org.json.JSONObject
 
 /**
  * Screen 1: Server & Token Configuration
- * - Input URL base server (e.g. http://192.168.1.100:5000)
+ * - Input URL base server (e.g. https://examvan.my.id)
  * - Input 6-character unique Exam Token
  * - Checkbox to persist URL/Token in SharedPreferences
  * - Validates server health and Token existence before showing student identity form
@@ -123,34 +123,20 @@ class ServerConfigActivity : BaseSecureActivity() {
             var url = binding.etServerUrl.text.toString().trim()
             val token = binding.etToken.text.toString().trim().uppercase()
 
+            // Cloud-only: tanpa skema, default HTTPS. Cleartext HTTP tidak didukung.
             if (url.isNotEmpty() && !url.startsWith("http://") && !url.startsWith("https://")) {
-                val isLocalOrIp = url.startsWith("localhost") ||
-                        url.startsWith("127.0.0.1") ||
-                        url.matches(Regex("^(\\d{1,3}\\.\\d{1,3}\\.\\d{1,3}\\.\\d{1,3})(:\\d+)?.*"))
-                url = if (isLocalOrIp) {
-                    "http://$url"
-                } else {
-                    "https://$url"
-                }
+                url = "https://$url"
                 binding.etServerUrl.setText(url)
             }
 
             if (!validateInputs(url, token)) return@setOnClickListener
 
-            // Warn if using plain HTTP (cleartext) — MITM risk on public networks
+            // Cloud-only: cleartext HTTP diblokir (network_security_config + validasi).
             if (url.startsWith("http://")) {
-                AlertDialog.Builder(this)
-                    .setTitle("Peringatan Keamanan")
-                    .setMessage("HTTP tidak aman di jaringan publik. Gunakan HTTPS jika tersedia.\n\n" +
-                            "Koneksi HTTP dapat disadap (man-in-the-middle) oleh pihak ketiga.")
-                    .setPositiveButton("Tetap Lanjutkan") { _, _ ->
-                        connectAndFetchExam(url, token)
-                    }
-                    .setNegativeButton("Batal", null)
-                    .show()
-            } else {
-                connectAndFetchExam(url, token)
+                showError(getString(R.string.https_required_error))
+                return@setOnClickListener
             }
+            connectAndFetchExam(url, token)
         }
     }
 

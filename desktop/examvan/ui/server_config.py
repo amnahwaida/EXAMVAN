@@ -87,7 +87,7 @@ class ServerConfigDialog(QDialog):
         # Server URL
         lbl_url = QLabel("Server URL")
         self.input_url = QLineEdit()
-        self.input_url.setPlaceholderText("http://192.168.1.100:80 atau localhost")
+        self.input_url.setPlaceholderText("https://examvan.my.id")
         card_layout.addWidget(lbl_url)
         card_layout.addWidget(self.input_url)
 
@@ -153,11 +153,17 @@ class ServerConfigDialog(QDialog):
             self.input_url.setFocus()
             return
 
-        # Auto-prepend http:// if no scheme, strip trailing slashes
+        # Cloud-only: default HTTPS, strip trailing slashes. Cleartext HTTP not supported.
         if not url.startswith("http://") and not url.startswith("https://"):
-            url = "http://" + url
+            url = "https://" + url
         url = url.rstrip("/")
         self.input_url.setText(url)
+
+        if url.startswith("http://"):
+            self.lbl_status.setStyleSheet("color: #e53935;")
+            self.lbl_status.setText("Koneksi HTTP (cleartext) tidak didukung. Gunakan HTTPS.")
+            self.input_url.setFocus()
+            return
 
         if not token or len(token) != 8:
             self.lbl_status.setStyleSheet("color: #e53935;")

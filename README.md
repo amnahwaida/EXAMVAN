@@ -1,6 +1,6 @@
-# EXAMVAN — Sistem Ujian Digital Berbasis PDF (Secure — LAN & Cloud)
+# EXAMVAN — Sistem Ujian Digital Berbasis PDF (Secure — Cloud)
 
-> Platform distribusi & pelaksanaan ujian digital aman untuk infrastruktur jaringan lokal (LAN/Intranet) sekolah dan kampus dengan perlindungan anti-cheat berlapis di sisi Android.
+> Platform distribusi & pelaksanaan ujian digital aman berbasis cloud (HTTPS) untuk sekolah dan kampus dengan perlindungan anti-cheat berlapis di sisi Android.
 
 ---
 
@@ -173,6 +173,9 @@ Layanan yang berjalan:
 - **nginx-lb** — Reverse proxy (port 80, localhost only)
 - **cloudflare-tunnel** — Akses internet opsional
 
+> ⚠️ **Aktifkan HTTPS wajib di dashboard Cloudflare:** Setelah tunnel aktif dan domain publik mengarah ke server, buka **Cloudflare Dashboard → SSL/TLS → Edge Certificates** dan nyalakan **Always Use HTTPS**.
+> Ini lapisan kedua setelah redirect HTTP→HTTPS di nginx: semua request cleartext langsung di-redirect ke HTTPS di edge Cloudflare — request HTTP tidak pernah masuk ke tunnel, lebih cepat, dan tetap aman sekalipun konfigurasi nginx berubah. Tanpa setting ini, `http://<domain>` masih dapat diakses (dengan peringatan "Not Secure" di browser) sebelum redirect nginx bekerja.
+
 #### 4. Persistensi Data
 - **Database:** Volume Docker `postgres_data` untuk PostgreSQL.
 - **File PDF:** Volume Docker `webui_storage` untuk file ujian (saat mode lokal). Jika R2 aktif, PDF tersimpan di bucket Cloudflare R2.
@@ -231,7 +234,7 @@ Server berjalan di port 5000 (default).
 
 ## Informasi Akses Default Admin Panel
 
-Akses halaman admin di: **`http://<IP_SERVER>:80/admin/login`** (Docker) atau **`http://<IP_SERVER>:5000/admin/login`** (tanpa Docker)
+Akses halaman admin melalui domain publik (Cloudflare Tunnel): **`https://<domain>/admin/login`**
 
 * **Username:** `superadmin` (atau sesuai `EXAMVAN_ADMIN_USER`)
 * **Password:** Sesuai `EXAMVAN_ADMIN_PASS` di `.env` (atau cek log jika dikosongkan)
@@ -262,7 +265,7 @@ SERVER (Docker, TZ=UTC)
 
 Endpoint verifikasi waktu server:
 ```bash
-curl http://<IP_SERVER>:5000/api/time
+curl https://<domain>/api/time
 ```
 
 ---

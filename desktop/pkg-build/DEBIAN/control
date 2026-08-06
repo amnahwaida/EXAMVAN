@@ -15,5 +15,5 @@ Description: Sistem ujian digital berbasis PDF untuk Linux
   - Lembar jawaban 5 tipe soal
   - Auto-submit pada mode Medium/Strict
   - GNOME workspace lock pada mode Strict
-  - Pemasangan via USB atau jaringan lokal
+  - Pemasangan via USB atau media penyimpanan
 Homepage: https://github.com/amnahwaida/EXAMVAN

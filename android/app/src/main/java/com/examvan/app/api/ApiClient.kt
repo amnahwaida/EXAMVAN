@@ -19,7 +19,7 @@ import okhttp3.CertificatePinner
 
 /**
  * API client for communicating with the EXAMVAN server.
- * Configured with extended timeouts for slow LAN connections.
+ * Configured with generous timeouts for reliable connections over the internet.
  *
  * For production over HTTPS, set ApiClient.EXPECTED_FINGERPRINT to a known
  * certificate fingerprint at app startup to enable static certificate pinning.
@@ -78,22 +78,10 @@ object ApiClient {
 
     fun setBaseUrl(url: String) {
         var cleanUrl = url.trimEnd('/')
-        // Enforce https if it's a remote domain (not a private IP or local hostname)
+        // Cloud-only deployment: every connection uses HTTPS. Cleartext http:// is
+        // blocked by the network security config, so upgrade it defensively here.
         if (cleanUrl.startsWith("http://")) {
-            val isPrivate = try {
-                val host = java.net.URI(cleanUrl).host ?: ""
-                host == "localhost" ||
-                host == "127.0.0.1" ||
-                host.startsWith("192.168.") ||
-                host.startsWith("10.") ||
-                (host.startsWith("172.") && host.split(".").getOrNull(1)?.toIntOrNull() in 16..31) ||
-                !host.contains(".")
-            } catch (e: Exception) {
-                false
-            }
-            if (!isPrivate) {
-                cleanUrl = cleanUrl.replace("http://", "https://")
-            }
+            cleanUrl = cleanUrl.replace("http://", "https://")
         }
         baseUrl = cleanUrl
     }
