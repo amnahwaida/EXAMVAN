@@ -33,6 +33,10 @@
  </style>
 <link rel="stylesheet" href="/static/css/public-mobile.css?v={{.version}}-5">
 <link rel="stylesheet" href="/static/css/public-desktop.css?v={{.version}}-3">
+ {{if .turnstile_enabled}}
+ <!-- Cloudflare Turnstile — bot protection on login (SuperAdmin-managed) -->
+ <script src="https://challenges.cloudflare.com/turnstile/v0/api.js" async defer></script>
+ {{end}}
 </head>
 <body class="login-page">
  {{ template "public_auth_nav" . }}
@@ -76,6 +80,12 @@
  </button>
  </div>
  </div>
+ {{if .turnstile_enabled}}
+ <div class="form-group" style="display:flex;flex-direction:column;align-items:center;">
+  <div class="cf-turnstile" data-sitekey="{{.turnstile_site_key}}" data-theme="dark"></div>
+  <div id="turnstileError" style="display:none;color:#f87171;font-size:12px;margin-top:8px;text-align:center;"></div>
+ </div>
+ {{end}}
  <button type="submit" class="btn-login" id="loginSubmitBtn">Masuk</button>
  </form>
  <div class="login-link-row" style="margin-top:12px;">
@@ -88,6 +98,7 @@
  </div>
  </div>
  <script>
+ window.__turnstileEnabled = {{if .turnstile_enabled}}true{{else}}false{{end}};
  document.addEventListener('DOMContentLoaded', function() {
  const password = document.getElementById('password');
  const toggle = document.getElementById('togglePassword');
@@ -101,7 +112,21 @@
  const form = document.getElementById('loginForm');
  const btn = document.getElementById('loginSubmitBtn');
  if (form && btn) {
- form.addEventListener('submit', function() { btn.classList.add('loading'); btn.disabled = true; btn.textContent = 'Memproses...'; });
+ form.addEventListener('submit', function(e) {
+  if (window.__turnstileEnabled) {
+   var tok = document.querySelector('input[name="cf-turnstile-response"]');
+   if (!tok || !tok.value) {
+    e.preventDefault();
+    var terr = document.getElementById('turnstileError');
+    if (terr) {
+     terr.style.display = 'block';
+     terr.textContent = 'Harap selesaikan verifikasi keamanan di atas terlebih dahulu.';
+    }
+    return;
+   }
+  }
+  btn.classList.add('loading'); btn.disabled = true; btn.textContent = 'Memproses...';
+ });
  if (document.querySelector('.flash-messages')) {
   btn.classList.remove('loading');
   btn.disabled = false;

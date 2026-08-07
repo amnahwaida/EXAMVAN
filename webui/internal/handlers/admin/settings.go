@@ -93,6 +93,10 @@ func handleSaasSettingsGet(c *gin.Context, pool *pgxpool.Pool, ctx context.Conte
 			"turnstile_enabled":    settings[models.SettingTurnstileEnabled] == "1",
 			"turnstile_site_key":   settings[models.SettingTurnstileSiteKey],
 			"turnstile_secret_key": maskTokenSetting(settings[models.SettingTurnstileSecretKey]),
+
+			// Per-IP registration cap (0 = unlimited), defense-in-depth on top
+			// of Turnstile against mass-registration.
+			"max_accounts_per_ip": parseIntSetting(settings[models.SettingMaxAccountsPerIP], 3),
 		},
 	})
 }
@@ -149,6 +153,7 @@ func handleSaasSettingsPost(c *gin.Context, pool *pgxpool.Pool, ctx context.Cont
 		TurnstileEnabled          bool    `json:"turnstile_enabled"`
 		TurnstileSiteKey          string  `json:"turnstile_site_key"`
 		TurnstileSecretKey        string  `json:"turnstile_secret_key"`
+		MaxAccountsPerIP          int     `json:"max_accounts_per_ip"`
 	}
 
 	if err := c.ShouldBindJSON(&body); err != nil {
@@ -280,6 +285,13 @@ func handleSaasSettingsPost(c *gin.Context, pool *pgxpool.Pool, ctx context.Cont
 			log.Printf("save turnstile_secret_key error: %v", err)
 		}
 	}
+
+	// Per-IP registration cap (0 = unlimited); clamp negatives to 0.
+	maxPerIP := body.MaxAccountsPerIP
+	if maxPerIP < 0 {
+		maxPerIP = 0
+	}
+	models.SetSaasSetting(reqCtx, pool, models.SettingMaxAccountsPerIP, strconv.Itoa(maxPerIP))
 
 	successMessage(c, "Pengaturan SaaS berhasil diperbarui")
 }

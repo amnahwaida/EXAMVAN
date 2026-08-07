@@ -93,6 +93,11 @@ const (
 	SettingTurnstileEnabled   = "turnstile_enabled"
 	SettingTurnstileSiteKey   = "turnstile_site_key"
 	SettingTurnstileSecretKey = "turnstile_secret_key"
+
+	// SettingMaxAccountsPerIP caps how many accounts may be registered from a
+	// single IP within 24 hours ("0" = unlimited). Defense-in-depth layered on
+	// top of Turnstile against mass-registration.
+	SettingMaxAccountsPerIP = "max_accounts_per_ip"
 )
 
 // Default settings values as defined in the Python app.py.
@@ -131,6 +136,10 @@ var DefaultSettings = map[string]string{
 	SettingTurnstileEnabled:   "0",
 	SettingTurnstileSiteKey:   "",
 	SettingTurnstileSecretKey: "",
+
+	// Default per-IP cap: 3 accounts per 24h. Schools behind a shared NAT can
+	// raise this in SaaS settings if several teachers register from one IP.
+	SettingMaxAccountsPerIP: "3",
 }
 
 // GetSaasSetting retrieves a setting value by key.

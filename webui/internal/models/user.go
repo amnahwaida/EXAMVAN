@@ -66,6 +66,7 @@ type AdminUser struct {
 	MaxStorageSize     int64      `json:"max_storage_size"`
 	WhatsappNumber     string     `json:"whatsapp_number"`
 	Email              string     `json:"email"`
+	RegisteredIP       string     `json:"registered_ip"` // IP the account was registered from (anti mass-registration)
 	ExpiresAt          *time.Time `json:"expires_at,omitempty"`
 	Package            string     `json:"package"`
 	OTPCode            *string    `json:"-"`
@@ -571,15 +572,15 @@ func CreateUser(ctx context.Context, pool *pgxpool.Pool, u *AdminUser) (*AdminUs
 
 	sql := `INSERT INTO admin_users
 	(username, name, password_hash, status, instansi, role, max_exams, max_pdf_size,
-	 max_concurrent_exams, max_storage_size, whatsapp_number, email, expires_at, otp_code, otp_expiry, package)
-	VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16)
+	 max_concurrent_exams, max_storage_size, whatsapp_number, email, expires_at, otp_code, otp_expiry, package, registered_ip)
+	VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17)
 	RETURNING ` + DefaultAdminUserColumns
 
 	created, err := scanAdminUser(pool.QueryRow(ctx, sql,
 		u.Username, u.Name, hash, u.Status, u.Instansi, u.Role,
 		u.MaxExams, u.MaxPDFSize, u.MaxConcurrentExams, u.MaxStorageSize,
 		u.WhatsappNumber, u.Email, u.ExpiresAt, u.OTPCode, u.OTPExpiry,
-		u.Package,
+		u.Package, u.RegisteredIP,
 	))
 	if err != nil {
 		return nil, fmt.Errorf("create user: %w", err)

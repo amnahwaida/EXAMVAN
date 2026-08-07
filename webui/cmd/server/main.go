@@ -699,6 +699,7 @@ func loginPageHandler(cfg *config.Config) gin.HandlerFunc {
 		data["error"] = nil
 		data["flashes"] = nil
 		data["next"] = middleware.SafeRedirectPath(c.Query("next"))
+		applyTurnstileData(c, data)
 		c.HTML(http.StatusOK, "admin/login.html", data)
 	}
 }
@@ -722,27 +723,32 @@ func loginHandler(cfg *config.Config) gin.HandlerFunc {
 		}
 
 		if username == "" || password == "" {
-			data := middleware.TemplateData(c)
-			data["error"] = "Username dan password wajib diisi."
-			data["version"] = cfg.Version
-			data["next"] = nextTarget
-			c.HTML(http.StatusOK, "admin/login.html", data)
+			renderLoginPage(c, cfg, nextTarget, "Username dan password wajib diisi.")
 			return
 		}
 
 		// When there is no database, authentication is not possible.
 		pool, exists := c.Get("db")
 		if !exists || pool == nil {
-			data := middleware.TemplateData(c)
-			data["error"] = "Database tidak tersedia. Silakan hubungi administrator."
-			data["version"] = cfg.Version
-			data["next"] = nextTarget
-			c.HTML(http.StatusOK, "admin/login.html", data)
+			renderLoginPage(c, cfg, nextTarget, "Database tidak tersedia. Silakan hubungi administrator.")
 			return
 		}
 
 		dbPool := pool.(*pgxpool.Pool)
 		ctx := c.Request.Context()
+
+		// Cloudflare Turnstile bot protection (SuperAdmin-managed), same
+		// fail-closed policy as registration: a failed check rejects the
+		// request WITHOUT counting toward the lockout below.
+		if models.GetSaasSettingBool(ctx, dbPool, models.SettingTurnstileEnabled, false) {
+			secret := models.GetSaasSettingWithDefault(ctx, dbPool, models.SettingTurnstileSecretKey, "")
+			token := strings.TrimSpace(c.PostForm("cf-turnstile-response"))
+			if !verifyTurnstileToken(ctx, secret, token, c.ClientIP()) {
+				log.Printf("login blocked: turnstile verification failed for username=%q", username)
+				renderLoginPage(c, cfg, nextTarget, "Verifikasi keamanan gagal. Silakan coba lagi.")
+				return
+			}
+		}
 
 		// Account Lockout check
 		rdbVal, redisExists := c.Get("redis")
@@ -758,11 +764,7 @@ func loginHandler(cfg *config.Config) gin.HandlerFunc {
 				attempts, _ := strconv.Atoi(val)
 				if attempts >= 5 {
 					ttl, _ := rdb.TTL(ctx, lockoutKey).Result()
-					data := middleware.TemplateData(c)
-					data["error"] = fmt.Sprintf("Akun dikunci sementara karena terlalu banyak kegagalan login. Silakan coba lagi dalam %d menit.", int(ttl.Minutes())+1)
-					data["version"] = cfg.Version
-					data["next"] = nextTarget
-					c.HTML(http.StatusOK, "admin/login.html", data)
+					renderLoginPage(c, cfg, nextTarget, fmt.Sprintf("Akun dikunci sementara karena terlalu banyak kegagalan login. Silakan coba lagi dalam %d menit.", int(ttl.Minutes())+1))
 					return
 				}
 			}
@@ -770,11 +772,7 @@ func loginHandler(cfg *config.Config) gin.HandlerFunc {
 			loginLock.Lock()
 			if exp, locked := lockoutTimes[username]; locked && time.Now().Before(exp) {
 				loginLock.Unlock()
-				data := middleware.TemplateData(c)
-				data["error"] = fmt.Sprintf("Akun dikunci sementara karena terlalu banyak kegagalan login. Silakan coba lagi dalam %d menit.", int(time.Until(exp).Minutes())+1)
-				data["version"] = cfg.Version
-				data["next"] = nextTarget
-				c.HTML(http.StatusOK, "admin/login.html", data)
+				renderLoginPage(c, cfg, nextTarget, fmt.Sprintf("Akun dikunci sementara karena terlalu banyak kegagalan login. Silakan coba lagi dalam %d menit.", int(time.Until(exp).Minutes())+1))
 				return
 			}
 			loginLock.Unlock()
@@ -812,11 +810,7 @@ func loginHandler(cfg *config.Config) gin.HandlerFunc {
 				loginLock.Unlock()
 			}
 
-			data := middleware.TemplateData(c)
-			data["error"] = errMsg
-			data["version"] = cfg.Version
-			data["next"] = nextTarget
-			c.HTML(http.StatusOK, "admin/login.html", data)
+			renderLoginPage(c, cfg, nextTarget, errMsg)
 			return
 		}
 
@@ -900,16 +894,39 @@ func registerPageHandler(cfg *config.Config) gin.HandlerFunc {
 func applyRegisterPageData(c *gin.Context, data gin.H) {
 	pool, exists := c.Get("db")
 	if exists && pool != nil {
+		data["email_enabled"] = models.GetSaasSettingBool(c.Request.Context(), pool.(*pgxpool.Pool), models.SettingEmailVerificationEnabled, false)
+	} else {
+		data["email_enabled"] = false
+	}
+	applyTurnstileData(c, data)
+}
+
+// applyTurnstileData fills the Cloudflare Turnstile widget config for any
+// public form page (register, login, forgot-password). Keys come from the
+// SuperAdmin-managed SaaS settings; the widget simply isn't rendered when
+// Turnstile is disabled or the DB is unavailable.
+func applyTurnstileData(c *gin.Context, data gin.H) {
+	pool, exists := c.Get("db")
+	if exists && pool != nil {
 		dbPool := pool.(*pgxpool.Pool)
 		ctx := c.Request.Context()
-		data["email_enabled"] = models.GetSaasSettingBool(ctx, dbPool, models.SettingEmailVerificationEnabled, false)
 		data["turnstile_enabled"] = models.GetSaasSettingBool(ctx, dbPool, models.SettingTurnstileEnabled, false)
 		data["turnstile_site_key"] = models.GetSaasSettingWithDefault(ctx, dbPool, models.SettingTurnstileSiteKey, "")
 	} else {
-		data["email_enabled"] = false
 		data["turnstile_enabled"] = false
 		data["turnstile_site_key"] = ""
 	}
+}
+
+// renderLoginPage re-renders admin/login.html with the given error while
+// keeping the page context (next target, Turnstile widget config) consistent.
+func renderLoginPage(c *gin.Context, cfg *config.Config, next, errMsg string) {
+	data := middleware.TemplateData(c)
+	data["version"] = cfg.Version
+	data["error"] = errMsg
+	data["next"] = next
+	applyTurnstileData(c, data)
+	c.HTML(http.StatusOK, "admin/login.html", data)
 }
 
 // verifyTurnstileToken validates a Cloudflare Turnstile widget response token
@@ -999,6 +1016,23 @@ func registerPostHandler(cfg *config.Config) gin.HandlerFunc {
 		dbPool := pool.(*pgxpool.Pool)
 		ctx := c.Request.Context()
 
+		// Per-IP account creation cap (SuperAdmin-managed; 0 = unlimited) — a
+		// defense-in-depth layer on top of Turnstile. Counts accounts registered
+		// from this IP within the last 24 hours, so a script that rotates past
+		// the Turnstile challenge still cannot farm many accounts from one IP.
+		if maxPerIP := models.GetSaasSettingInt(ctx, dbPool, models.SettingMaxAccountsPerIP, 3); maxPerIP > 0 {
+			clientIP := c.ClientIP()
+			var recent int
+			if err := dbPool.QueryRow(ctx,
+				`SELECT COUNT(*) FROM admin_users WHERE registered_ip = $1 AND created_at > now() - interval '24 hours'`,
+				clientIP).Scan(&recent); err == nil && recent >= maxPerIP {
+				log.Printf("register blocked: per-IP limit reached for %s (%d/%d in 24h)", clientIP, recent, maxPerIP)
+				data["error"] = fmt.Sprintf("Terlalu banyak pendaftaran dari alamat IP ini dalam 24 jam terakhir (maks %d akun). Silakan coba lagi besok atau hubungi administrator.", maxPerIP)
+				c.HTML(http.StatusOK, "public/register.html", data)
+				return
+			}
+		}
+
 		// Cloudflare Turnstile bot protection (SuperAdmin-managed). Fail-closed:
 		// when enabled, a submission without a valid widget token is rejected.
 		// This blocks mass-registration scripts even when they rotate IPs, since
@@ -1066,6 +1100,7 @@ func registerPostHandler(cfg *config.Config) gin.HandlerFunc {
 			PasswordHash:   password, // will be hashed by CreateUser
 			Status:         status,
 			Instansi:       "personal",
+			RegisteredIP:   c.ClientIP(),
 			Role:           models.SerializeRoles([]string{models.RoleGuru}),
 			MaxExams:       models.GetSaasSettingInt(ctx, dbPool, models.SettingDefaultMaxExams, 3),
 			MaxPDFSize:     models.GetSaasSettingInt(ctx, dbPool, models.SettingDefaultMaxPDFSize, 1048576),

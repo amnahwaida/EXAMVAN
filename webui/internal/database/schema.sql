@@ -498,6 +498,11 @@ ALTER TABLE admin_users ADD COLUMN IF NOT EXISTS suspended_at TIMESTAMPTZ;
 ALTER TABLE admin_users ADD COLUMN IF NOT EXISTS package_role TEXT NOT NULL DEFAULT '';
 ALTER TABLE admin_users ADD COLUMN IF NOT EXISTS base_role TEXT NOT NULL DEFAULT '';
 
+-- IP address the account was registered from, used to enforce a per-IP
+-- registration cap (anti mass-registration defense-in-depth, layered on top
+-- of Cloudflare Turnstile). Empty for legacy/imported rows.
+ALTER TABLE admin_users ADD COLUMN IF NOT EXISTS registered_ip TEXT NOT NULL DEFAULT '';
+
 -- Keep package_role in sync with the active redemption's snapshot role on
 -- every boot. This also migrates rows created under the old accumulate-forever
 -- model: the active package's granted roles become tracked and removable the

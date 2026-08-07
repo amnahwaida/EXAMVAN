@@ -2875,10 +2875,11 @@ function saveSaasSettings(e) {
     // Monetization toggles
     const voucher_redeem_enabled = !!(document.getElementById('voucherRedeemEnabledInput') || {}).checked;
 
-    // Cloudflare Turnstile bot protection
+    // Cloudflare Turnstile bot protection + per-IP registration cap
     const turnstile_enabled = !!(document.getElementById('turnstileEnabledInput') || {}).checked;
     const turnstile_site_key = (document.getElementById('turnstileSiteKeyInput') || {}).value || '';
     const turnstile_secret_key = (document.getElementById('turnstileSecretKeyInput') || {}).value || '';
+    const max_accounts_per_ip = parseInt((document.getElementById('maxAccountsPerIpInput') || {}).value) || 0;
 
     apiFetch('/admin/api/saas-settings', {
         method: 'POST',
@@ -2890,7 +2891,8 @@ function saveSaasSettings(e) {
             seo_title, seo_description, seo_keywords, seo_index,
             footer_text, footer_tagline,
             voucher_redeem_enabled,
-            turnstile_enabled, turnstile_site_key, turnstile_secret_key
+            turnstile_enabled, turnstile_site_key, turnstile_secret_key,
+            max_accounts_per_ip
         })
     })
     .then(r => r.json())
@@ -3077,6 +3079,10 @@ function loadSaasSettings() {
                 if (_tssk) _tssk.value = s.turnstile_site_key || '';
                 var _tskr = document.getElementById('turnstileSecretKeyInput');
                 if (_tskr) _tskr.value = s.turnstile_secret_key || '';
+
+                // Per-IP registration cap
+                var _map = document.getElementById('maxAccountsPerIpInput');
+                if (_map) _map.value = (typeof s.max_accounts_per_ip === 'number') ? s.max_accounts_per_ip : 3;
 
                 toggleEmailFields();
                 toggleTurnstileFields();

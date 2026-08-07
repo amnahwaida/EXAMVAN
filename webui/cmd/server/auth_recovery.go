@@ -159,6 +159,7 @@ func forgotPasswordPageHandler(cfg *config.Config) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		data := middleware.TemplateData(c)
 		data["version"] = cfg.Version
+		applyTurnstileData(c, data)
 		c.HTML(http.StatusOK, "public/forgot_password.html", data)
 	}
 }
@@ -168,6 +169,8 @@ func forgotPasswordPostHandler(cfg *config.Config) gin.HandlerFunc {
 		username := strings.ToLower(strings.TrimSpace(c.PostForm("username")))
 		data := middleware.TemplateData(c)
 		data["version"] = cfg.Version
+
+		applyTurnstileData(c, data)
 
 		if username == "" {
 			data["error"] = "Silakan masukkan username akun Anda."
@@ -182,6 +185,20 @@ func forgotPasswordPostHandler(cfg *config.Config) gin.HandlerFunc {
 			return
 		}
 		ctx := c.Request.Context()
+
+		// Cloudflare Turnstile bot protection (SuperAdmin-managed), fail-closed
+		// like registration/login: a failed check stops the neutral flow so
+		// scripts cannot spam OTP requests.
+		if models.GetSaasSettingBool(ctx, pool, models.SettingTurnstileEnabled, false) {
+			secret := models.GetSaasSettingWithDefault(ctx, pool, models.SettingTurnstileSecretKey, "")
+			token := strings.TrimSpace(c.PostForm("cf-turnstile-response"))
+			if !verifyTurnstileToken(ctx, secret, token, c.ClientIP()) {
+				log.Printf("forgot-password blocked: turnstile verification failed for username=%q", username)
+				data["error"] = "Verifikasi keamanan gagal. Silakan coba lagi."
+				c.HTML(http.StatusOK, "public/forgot_password.html", data)
+				return
+			}
+		}
 
 		// Look up the account. We proceed to the reset page regardless of whether
 		// it exists (neutral flow) so account existence is not revealed; the OTP
