@@ -39,11 +39,12 @@ type Exam struct {
 	TokenResetInterval *int       `json:"token_reset_interval,omitempty"`
 	TokenLastResetAt   *time.Time `json:"token_last_reset_at,omitempty"`
 	ExamStartedAt      *time.Time `json:"exam_started_at,omitempty"`
-	// TombstonedAt is set when the school's operator is cut off (voucher
-	// switch or manual suspension) and this active-but-unstarted exam was
-	// auto-inactivated (policy B). It lets the admin UI distinguish an
-	// auto-tombstoned exam from a manually inactivated one. Cleared whenever
-	// the exam is (re)activated.
+	// TombstonedAt is set when this active-but-unstarted exam is
+	// auto-inactivated (policy B): the school's operator is cut off (voucher
+	// switch or manual suspension) or the creating account's active period
+	// expired (trial/personal accounts — see tombstoneExpiredUsersExamsPass).
+	// It lets the admin UI distinguish an auto-tombstoned exam from a manually
+	// inactivated one. Cleared whenever the exam is (re)activated.
 	TombstonedAt *time.Time `json:"tombstoned_at,omitempty"`
 }
 

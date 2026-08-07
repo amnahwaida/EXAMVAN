@@ -99,7 +99,7 @@
       {{if eq .exam.Status "active"}}
       <span class="status-badge status-active" style="font-size:0.72rem;">Aktif</span>
       {{else if .exam.TombstonedAt}}
-      <span class="status-badge status-tombstoned" style="font-size:0.72rem;" title="Nonaktif otomatis oleh sistem saat paket sekolah berganti/berakhir ({{formatExamTime .exam.TombstonedAt}} WIB)">Ditombstone</span>
+      <span class="status-badge status-tombstoned" style="font-size:0.72rem;" title="Nonaktif otomatis oleh sistem saat paket berakhir/berganti atau masa aktif akun habis ({{formatExamTime .exam.TombstonedAt}} WIB)">Ditombstone</span>
       {{else}}
       <span class="status-badge status-inactive" style="font-size:0.72rem;">Nonaktif</span>
       {{end}}

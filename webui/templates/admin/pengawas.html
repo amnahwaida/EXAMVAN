@@ -282,7 +282,7 @@ function loadPengawasExams(page) {
                 if (ex.status === 'active') {
                     statusHtml = '<span class="status-badge status-active">Aktif</span>';
                 } else if (ex.tombstoned) {
-                    var tombTitle = 'Nonaktif otomatis oleh sistem saat paket sekolah berganti/berakhir' + (ex.tombstoned_at ? ' (' + ex.tombstoned_at + ')' : '');
+                    var tombTitle = 'Nonaktif otomatis oleh sistem saat paket berakhir/berganti atau masa aktif akun habis' + (ex.tombstoned_at ? ' (' + ex.tombstoned_at + ')' : '');
                     statusHtml = '<span class="status-badge status-tombstoned" title="' + tombTitle + '">Ditombstone</span>';
                 } else {
                     statusHtml = '<span class="status-badge status-inactive">Nonaktif</span>';

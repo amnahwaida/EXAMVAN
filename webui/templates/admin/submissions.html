@@ -160,7 +160,7 @@
         {{if eq (index $ei "status") "active"}}
         <span class="status-badge status-active" style="cursor:default;">Aktif</span>
         {{else if index $ei "tombstoned"}}
-        <span class="status-badge status-tombstoned" style="cursor:default;" title="Nonaktif otomatis oleh sistem saat paket sekolah berganti/berakhir{{if index $ei "tombstoned_at"}} ({{formatExamTime (index $ei "tombstoned_at")}} WIB){{end}}">Ditombstone</span>
+        <span class="status-badge status-tombstoned" style="cursor:default;" title="Nonaktif otomatis oleh sistem saat paket berakhir/berganti atau masa aktif akun habis{{if index $ei "tombstoned_at"}} ({{formatExamTime (index $ei "tombstoned_at")}} WIB){{end}}">Ditombstone</span>
         {{else}}
         <span class="status-badge status-inactive" style="cursor:default;">Nonaktif</span>
         {{end}}

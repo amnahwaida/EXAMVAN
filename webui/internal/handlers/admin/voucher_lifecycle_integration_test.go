@@ -160,6 +160,17 @@ func newVoucherTestRouter(pool *pgxpool.Pool) *gin.Engine {
 	r.Use(sessions.Sessions("examvan_session", store))
 	r.Use(func(c *gin.Context) { c.Set("db", pool) })
 
+	// /login mirror of the real login page: renders (and consumes) pending
+	// flash messages as JSON so tests can assert the forced-logout reason is
+	// shown after AuthRequired redirects an HTML request.
+	r.GET("/login", func(c *gin.Context) {
+		flashes := sessions.Default(c).Flashes()
+		if flashes == nil {
+			flashes = []interface{}{}
+		}
+		c.JSON(http.StatusOK, gin.H{"flashes": flashes})
+	})
+
 	r.POST("/test/login/:id", func(c *gin.Context) {
 		id, _ := strconv.Atoi(c.Param("id"))
 		u, err := models.GetUserByID(c.Request.Context(), pool, id)
@@ -184,6 +195,12 @@ func newVoucherTestRouter(pool *pgxpool.Pool) *gin.Engine {
 	api.POST("/users/:user_id/toggle-status", middleware.AdminManagementRequired(), ToggleUserStatus())
 	api.POST("/vouchers/redeem", RedeemVoucherHandler())
 	api.POST("/vouchers/activate", ActivateVoucherHandler())
+	// AuthRequired probe: a protected GET that answers 200 only when a valid
+	// session passes the middleware — used to observe per-request status and
+	// expiry enforcement without depending on a handler's own logic.
+	api.GET("/auth-ping", func(c *gin.Context) {
+		c.JSON(http.StatusOK, gin.H{"success": true})
+	})
 	return r
 }
 

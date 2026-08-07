@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"net/url"
 	"strings"
+	"time"
 
 	"github.com/gin-contrib/sessions"
 	"github.com/gin-gonic/gin"
@@ -117,7 +118,9 @@ func AuthRequired() gin.HandlerFunc {
 		if pool, exists := c.Get("db"); exists && pool != nil {
 			dbPool := pool.(*pgxpool.Pool)
 			var dbStatus string
-			if err := dbPool.QueryRow(c.Request.Context(), `SELECT status FROM admin_users WHERE id = $1`, id).Scan(&dbStatus); err != nil {
+			var dbExpiresAt *time.Time
+			if err := dbPool.QueryRow(c.Request.Context(),
+				`SELECT status, expires_at FROM admin_users WHERE id = $1`, id).Scan(&dbStatus, &dbExpiresAt); err != nil {
 				// Account no longer exists — drop the stale session.
 				session.Clear()
 				_ = session.Save()
@@ -146,6 +149,38 @@ func AuthRequired() gin.HandlerFunc {
 				}
 				c.Abort()
 				return
+			}
+			// Per-request expiry enforcement: an account whose active period has
+			// passed must lose access immediately — the cookie may still be
+			// valid, but the account's expiry revokes its authority. Without
+			// this, a user whose trial ran out while logged in would keep using
+			// the app until the 1-day session cookie expired. Mirrors
+			// AuthenticateUser's login gate exactly: an expired account is
+			// still let through while it holds a claimed-but-unactivated voucher
+			// with remaining lifetime (so the owner can reach the billing page
+			// and activate it); otherwise the session is dropped with a flash
+			// explaining why.
+			if dbExpiresAt != nil && dbExpiresAt.Before(time.Now().UTC()) {
+				var usable int
+				if err := dbPool.QueryRow(c.Request.Context(),
+					`SELECT COUNT(*) FROM voucher_redemptions
+					 WHERE user_id = $1 AND NOT is_active AND remaining_seconds > 0`,
+					id).Scan(&usable); err != nil || usable == 0 {
+					isAPI := isAPIRequest(c)
+					msg := "Masa aktif akun Anda telah habis. Silakan hubungi administrator."
+					session.Clear()
+					if !isAPI {
+						session.AddFlash(msg)
+					}
+					_ = session.Save()
+					if isAPI {
+						c.AbortWithStatusJSON(http.StatusForbidden, gin.H{"success": false, "message": msg})
+					} else {
+						c.Redirect(http.StatusFound, "/login")
+					}
+					c.Abort()
+					return
+				}
 			}
 		}
 

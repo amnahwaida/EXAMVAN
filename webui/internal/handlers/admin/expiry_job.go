@@ -26,11 +26,17 @@ const packageExpiryJobInterval = 30 * time.Second
 //     entitlement snapshot is applied, extending the account expiry — the user
 //     is never locked out while a usable package is on hand;
 //  3. if no usable fallback exists, the account keeps its past expires_at and
-//     login stays blocked.
+//     login stays blocked;
+//  4. accounts whose expiry still reads in the past after the reconciliation
+//     (trial/personal and any account without a usable fallback) have their
+//     active-but-unstarted exams tombstoned (tombstoneExpiredUsersExamsPass),
+//     mirroring policy B for schools.
 //
-// Runs one pass immediately, then every packageExpiryJobInterval. The loop
-// stops when ctx is canceled (during graceful shutdown). Safe to call with a
-// nil pool (no-op).
+// Each tick runs the package pass first, then the tombstone pass, so a user
+// whose fallback was auto-activated (expiry re-opened) is spared by the
+// tombstone. Runs one pass immediately, then every packageExpiryJobInterval.
+// The loop stops when ctx is canceled (during graceful shutdown). Safe to
+// call with a nil pool (no-op).
 func StartPackageExpiryJob(ctx context.Context, pool *pgxpool.Pool) {
 	if pool == nil {
 		return
@@ -38,6 +44,7 @@ func StartPackageExpiryJob(ctx context.Context, pool *pgxpool.Pool) {
 
 	go func() {
 		runPackageExpiryPass(ctx, pool)
+		tombstoneExpiredUsersExamsPass(ctx, pool)
 		ticker := time.NewTicker(packageExpiryJobInterval)
 		defer ticker.Stop()
 		for {
@@ -47,10 +54,62 @@ func StartPackageExpiryJob(ctx context.Context, pool *pgxpool.Pool) {
 				return
 			case <-ticker.C:
 				runPackageExpiryPass(ctx, pool)
+				tombstoneExpiredUsersExamsPass(ctx, pool)
 			}
 		}
 	}()
 	log.Printf("package-expiry job: started (every %s)", packageExpiryJobInterval)
+}
+
+// tombstoneExpiredUsersExamsPass (policy B for expired accounts) finds every
+// non-suspended, non-superadmin user whose account expiry has passed and sets
+// their active-but-unstarted exams inactive with the tombstone marker — the
+// same "unpublished exams go dormant" semantics as the school tombstone
+// (tombstoneUnstartedInstansiExams), now applied to trial/personal and any
+// other account that ran out of active time. Exams already running are
+// deliberately left untouched so students working on them can finish, and the
+// tombstone is never auto-reversed: the owner (after a renewal) or a
+// superadmin re-activates manually, so an admin's explicit inactivation is
+// never clobbered.
+//
+// The pass must run AFTER runPackageExpiryPass: a user whose active voucher
+// package expired but who still holds a usable claimed voucher is re-opened
+// by the auto-fallback (expires_at extended into the future) in that pass, so
+// their exams are spared here — only accounts that stay expired get
+// tombstoned. Suspended accounts are skipped because their clock is frozen
+// (their expiry is extended back on reactivation).
+//
+// The rule is continuous, not event-driven: while an account stays expired,
+// re-activating one of its tombstoned exams only lasts until the next pass
+// re-tombstones it — a re-activation sticks only after the account is renewed
+// (expires_at in the future). Expired users who still hold a claimed-but-
+// UNACTIVATED voucher (the ones AuthenticateUser lets in to activate on the
+// billing page) are also covered: their account expiry has passed, so their
+// unstarted exams go dormant too, consistent with policy B where a package
+// end is never auto-reversed.
+func tombstoneExpiredUsersExamsPass(ctx context.Context, pool *pgxpool.Pool) {
+	if pool == nil {
+		return
+	}
+	// tombstoned_at marks the exam as auto-inactivated (policy B) so the admin
+	// UI can tell it apart from a manual inactivation; the marker is cleared
+	// whenever the exam is (re)activated. The status='active' filter makes the
+	// pass idempotent — a tombstoned exam is inactive and is never re-selected.
+	_, err := pool.Exec(ctx, `
+		UPDATE exams e
+		SET status = 'inactive', tombstoned_at = now()
+		FROM admin_users u
+		WHERE e.created_by = u.id
+		  AND e.status = 'active'
+		  AND e.exam_started_at IS NULL
+		  AND e.tombstoned_at IS NULL
+		  AND u.status = 'active' -- suspended accounts: clock is frozen
+		  AND u.expires_at IS NOT NULL
+		  AND u.expires_at < now()
+		  AND NOT (u.role = 'superadmin' OR u.role ILIKE '%"superadmin"%')`)
+	if err != nil {
+		log.Printf("package-expiry job: tombstone expired users' exams: %v", err)
+	}
 }
 
 // runPackageExpiryPass finds every user with an exhausted active package and

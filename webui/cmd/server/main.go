@@ -697,7 +697,11 @@ func loginPageHandler(cfg *config.Config) gin.HandlerFunc {
 		data := middleware.TemplateData(c)
 		data["version"] = cfg.Version
 		data["error"] = nil
-		data["flashes"] = nil
+		// Flashes (e.g. "Pendaftaran berhasil..." or the forced-logout reason
+		// from AuthRequired when an account's active period expired mid-session)
+		// are consumed here so the login page can explain why the user was
+		// signed out.
+		data["flashes"] = session.Flashes()
 		data["next"] = middleware.SafeRedirectPath(c.Query("next"))
 		applyTurnstileData(c, data)
 		c.HTML(http.StatusOK, "admin/login.html", data)
@@ -924,6 +928,10 @@ func renderLoginPage(c *gin.Context, cfg *config.Config, next, errMsg string) {
 	data := middleware.TemplateData(c)
 	data["version"] = cfg.Version
 	data["error"] = errMsg
+	// Consume pending flashes so a flash set before a failed login attempt is
+	// not replayed forever (and the expiry flash from AuthRequired still shows
+	// even when the next request is a failed login POST).
+	data["flashes"] = sessions.Default(c).Flashes()
 	data["next"] = next
 	applyTurnstileData(c, data)
 	c.HTML(http.StatusOK, "admin/login.html", data)

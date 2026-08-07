@@ -1,0 +1,185 @@
+package models
+
+import (
+	"context"
+	"fmt"
+	"os"
+	"strings"
+	"testing"
+	"time"
+
+	"github.com/jackc/pgx/v5/pgxpool"
+
+	"github.com/examvan/webui/internal/database"
+)
+
+// ---------------------------------------------------------------------------
+// DB-backed tests for AuthenticateUser (skipped when TEST_DATABASE_URL is
+// unset, so plain `go test ./...` in CI keeps passing). The account expiry is
+// the authoritative login clock: an expired account is rejected UNLESS it
+// still holds a claimed-but-unactivated voucher with remaining lifetime (the
+// user is let in so they can activate their package on the billing page).
+// ---------------------------------------------------------------------------
+
+// setupAuthTestDB connects to the dedicated test database named by
+// TEST_DATABASE_URL, applies the schema, and wipes the data tables so the
+// tests are repeatable. Skips (not fails) when TEST_DATABASE_URL is unset.
+func setupAuthTestDB(t *testing.T) *pgxpool.Pool {
+	t.Helper()
+	dbURL := strings.TrimSpace(os.Getenv("TEST_DATABASE_URL"))
+	if dbURL == "" {
+		t.Skip("TEST_DATABASE_URL is not set; skipping integration test. " +
+			"Run: TEST_DATABASE_URL=postgresql://user:pass@localhost:5432/examvan_test " +
+			"go test ./internal/models/ -run TestAuthenticateUser -v")
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	pool, err := pgxpool.New(ctx, dbURL)
+	if err != nil {
+		t.Fatalf("connect test database: %v", err)
+	}
+	t.Cleanup(pool.Close)
+	if err := pool.Ping(ctx); err != nil {
+		t.Fatalf("ping test database: %v", err)
+	}
+	if err := database.ApplySchema(ctx, pool); err != nil {
+		t.Fatalf("apply schema: %v", err)
+	}
+	// Wipe only the data tables. CASCADE covers referencing tables.
+	if _, err := pool.Exec(ctx, `
+		TRUNCATE instansi, admin_users, exams, exam_pengawas, submissions,
+		         student_access_logs, exam_approvals, vouchers, voucher_redemptions
+		RESTART IDENTITY CASCADE`); err != nil {
+		t.Fatalf("truncate data tables: %v", err)
+	}
+	return pool
+}
+
+// createAuthTestUser inserts an active guru account with the given expiry
+// (past = expired, future = valid) and a unique username.
+func createAuthTestUser(t *testing.T, pool *pgxpool.Pool, username string, expiresAt time.Time) AdminUser {
+	t.Helper()
+	u, err := CreateUser(context.Background(), pool, &AdminUser{
+		Username: username, Name: username,
+		PasswordHash: "pass-" + username,
+		Status:       UserStatusActive,
+		Instansi:     "personal",
+		Role:         SerializeRoles([]string{RoleGuru}),
+		MaxExams:     3, MaxPDFSize: 1048576, MaxConcurrentExams: 1,
+		MaxStorageSize: 50 * 1024 * 1024, Package: "free",
+		ExpiresAt: &expiresAt,
+	})
+	if err != nil {
+		t.Fatalf("create user %s: %v", username, err)
+	}
+	return *u
+}
+
+// claimUnactivatedVoucher inserts a claimed-but-NOT-active voucher redemption
+// for the user with the given remaining lifetime, exactly the row shape
+// AuthenticateUser's usable-voucher query counts (`NOT is_active AND
+// remaining_seconds > 0` — note active redemptions are deliberately excluded
+// from the count).
+func claimUnactivatedVoucher(t *testing.T, pool *pgxpool.Pool, userID int, remainingSeconds int64) {
+	t.Helper()
+	ctx := context.Background()
+	v, err := CreateVoucher(ctx, pool, &Voucher{
+		Code: fmt.Sprintf("T-%d", userID), Package: "guru",
+		DurationType: "bulanan", MaxUsage: 1, IsActive: true,
+	})
+	if err != nil {
+		t.Fatalf("create voucher: %v", err)
+	}
+	if _, err := pool.Exec(ctx, `
+		INSERT INTO voucher_redemptions
+			(voucher_id, user_id, is_active, remaining_seconds, package,
+			 max_exams, max_pdf_size, max_concurrent_exams, max_storage_size, role)
+		VALUES ($1, $2, false, $3, 'guru', 1, 1048576, 1, 52428800, '')`,
+		v.ID, userID, remainingSeconds); err != nil {
+		t.Fatalf("insert redemption: %v", err)
+	}
+}
+
+// TestAuthenticateUserExpiredWithoutVoucher locks in the base rejection: an
+// account whose expiry has passed and that holds NO usable claimed voucher
+// cannot log in.
+func TestAuthenticateUserExpiredWithoutVoucher(t *testing.T) {
+	pool := setupAuthTestDB(t)
+	ctx := context.Background()
+
+	user := createAuthTestUser(t, pool, "expired-novc", time.Now().UTC().Add(-24*time.Hour))
+	if !user.IsExpired() {
+		t.Fatalf("test fixture: user must be expired")
+	}
+
+	got, msg := AuthenticateUser(ctx, pool, "expired-novc", "pass-expired-novc")
+	if got != nil {
+		t.Errorf("login expired-without-voucher: got user %q, want nil", got.Username)
+	}
+	if !strings.Contains(msg, "Masa aktif akun Anda telah habis") {
+		t.Errorf("login expired-without-voucher: msg=%q, want expiry message", msg)
+	}
+}
+
+// TestAuthenticateUserExpiredWithUsableVoucher locks in the exception: an
+// expired account that still holds a claimed-but-unactivated voucher with
+// remaining lifetime is let in (so the user can activate the package on the
+// billing page) — even though their account expiry has passed.
+func TestAuthenticateUserExpiredWithUsableVoucher(t *testing.T) {
+	pool := setupAuthTestDB(t)
+	ctx := context.Background()
+
+	user := createAuthTestUser(t, pool, "expired-vc", time.Now().UTC().Add(-24*time.Hour))
+	if !user.IsExpired() {
+		t.Fatalf("test fixture: user must be expired")
+	}
+	claimUnactivatedVoucher(t, pool, user.ID, 30*86400) // ~30 days left
+
+	got, msg := AuthenticateUser(ctx, pool, "expired-vc", "pass-expired-vc")
+	if msg != "" {
+		t.Errorf("login expired-with-usable-voucher: msg=%q, want success", msg)
+	}
+	if got == nil || got.ID != user.ID {
+		t.Errorf("login expired-with-usable-voucher: got user=%+v, want user %d", got, user.ID)
+	}
+}
+
+// TestAuthenticateUserExpiredWithExhaustedVoucher guards the boundary of the
+// usable-voucher query (`remaining_seconds > 0`): a claimed voucher whose
+// lifetime is fully spent does NOT reopen the login.
+func TestAuthenticateUserExpiredWithExhaustedVoucher(t *testing.T) {
+	pool := setupAuthTestDB(t)
+	ctx := context.Background()
+
+	user := createAuthTestUser(t, pool, "expired-vc0", time.Now().UTC().Add(-24*time.Hour))
+	claimUnactivatedVoucher(t, pool, user.ID, 0) // no lifetime left
+
+	got, msg := AuthenticateUser(ctx, pool, "expired-vc0", "pass-expired-vc0")
+	if got != nil {
+		t.Errorf("login expired-with-exhausted-voucher: got user %q, want nil", got.Username)
+	}
+	if !strings.Contains(msg, "Masa aktif akun Anda telah habis") {
+		t.Errorf("login expired-with-exhausted-voucher: msg=%q, want expiry message", msg)
+	}
+}
+
+// TestAuthenticateUserValidAccountBaseline guards the control case: a
+// non-expired account with a correct password logs in regardless of vouchers.
+func TestAuthenticateUserValidAccountBaseline(t *testing.T) {
+	pool := setupAuthTestDB(t)
+	ctx := context.Background()
+
+	user := createAuthTestUser(t, pool, "valid-baseline", time.Now().UTC().Add(7*24*time.Hour))
+	if user.IsExpired() {
+		t.Fatalf("test fixture: user must not be expired")
+	}
+
+	got, msg := AuthenticateUser(ctx, pool, "valid-baseline", "pass-valid-baseline")
+	if msg != "" {
+		t.Errorf("login valid account: msg=%q, want success", msg)
+	}
+	if got == nil || got.ID != user.ID {
+		t.Errorf("login valid account: got user=%+v, want user %d", got, user.ID)
+	}
+}

@@ -1346,6 +1346,11 @@ function loadUsersList(page) {
                          : user.status === 'suspended'
                          ? '<span class="status-badge status-suspended"' + statusClick + '>Suspen</span>'
                          : '<span class="status-badge status-inactive"' + statusClick + '>Pending</span>';
+                    // expires_at dikirim server dalam format UTC "YYYY-MM-DD HH:MM:SS"
+                    // (dikonversi ke Date dengan + 'Z'). Akun dianggap "masa aktif habis"
+                    // bila expires_at terisi dan sudah lewat dari waktu sekarang.
+                    const isExpired = Boolean(user.expires_at && new Date(user.expires_at.replace(' ', 'T') + 'Z').getTime() <= Date.now());
+                    const expiredBadge = isExpired ? '<span class="status-badge status-expired" title="Masa aktif akun telah habis. Perpanjang masa aktif agar user dapat login kembali.">Masa aktif habis</span>' : '';
                     const expiresAt = user.expires_at || '—';
                     const createdAt = user.created_at ? localizeUTC(user.created_at) : '—';
                     const limitPdfMb = user.max_pdf_size ? (user.max_pdf_size / (1024*1024)).toFixed(1) + ' MB' : '—';
@@ -1377,7 +1382,7 @@ function loadUsersList(page) {
                                 <div class="user-info-item"><span title="Maksimal ujian yang berjalan bersamaan (sudah dimulai &amp; bisa dikerjakan siswa)">Ujian Serentak</span><strong>${user.max_concurrent_exams ?? '—'}</strong></div>
                                 <div class="user-info-item"><span>Maks Upload (MB)</span><strong>${limitPdfMb}</strong></div>
                                 <div class="user-info-item"><span>Maks Storage (MB)</span><strong>${limitStorageMb}</strong></div>
-                                <div class="user-info-item"><span>Masa Aktif</span><strong>${expiresAt}</strong></div>
+                                <div class="user-info-item"><span>Masa Aktif</span><strong${isExpired ? ' style="color:#f87171;"' : ''}>${expiresAt}</strong></div>
                                 <div class="user-info-item"><span>Terdaftar</span><strong>${createdAt}</strong></div>
                             </div>
                         </td>
@@ -1386,7 +1391,7 @@ function loadUsersList(page) {
                         <td data-label="Paket"><span style="text-transform:uppercase;font-size:11px;font-weight:600;color:var(--color-accent-light);">${escapeHtml(user.package || 'free')}</span></td>
                         <td data-label="Role">${isAdmin ? '<span style="display:inline-block;padding:2px 8px;border-radius:10px;font-size:11px;font-weight:600;background:rgba(251,191,36,0.15);color:#fbbf24;border:1px solid rgba(251,191,36,0.3);">Super Admin</span>' : renderRoleBadges(user.base_roles, user.package_roles)}</td>
                         <td data-label="Email">${escapeHtml(user.email || '—')}</td>
-                        <td data-label="Status" style="text-align:center;">${statusBadge}</td>
+                        <td data-label="Status" style="text-align:center;">${statusBadge}${expiredBadge ? '<div style="margin-top:4px;">' + expiredBadge + '</div>' : ''}</td>
                         <td data-label="Aksi" style="text-align:right;">${actionsHtml}</td>
                     `;
                     tbody.appendChild(tr);

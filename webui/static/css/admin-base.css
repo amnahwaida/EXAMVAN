@@ -650,6 +650,19 @@ body.modal-open {
     border-color: rgba(16, 185, 129, 0.3);
     color: var(--color-success);
 }
+/* Expired-account badge (users page): the account's expires_at is in the
+   past, so it cannot log in anymore (server enforces on login & per request)
+   until an admin extends its expiry. Red solid border = needs action, unlike
+   the dashed system-dormant tombstone badge above. */
+.status-expired {
+    background: rgba(239, 68, 68, 0.12);
+    color: #fca5a5;
+    border: 1px solid rgba(239, 68, 68, 0.4);
+}
+.status-expired:hover {
+    background: rgba(239, 68, 68, 0.2);
+    border-color: rgba(239, 68, 68, 0.6);
+}
 
 /* Student status pill — promoted from pengawas.html's inline styles because
    pengawas_detail's access-log modal renders the same markup and previously

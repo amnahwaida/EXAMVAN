@@ -468,7 +468,7 @@
 </td>
 <td data-label="Status">
 {{$canToggle := or (eq $.admin_role "superadmin") (eq $.admin_role "operator") (eq $.admin_id $exam.CreatedBy) (and $exam.DelegatedTo (eq $.admin_id $exam.DelegatedTo))}}
-{{$tombTitle := "Nonaktif otomatis oleh sistem saat paket sekolah berganti/berakhir"}}
+{{$tombTitle := "Nonaktif otomatis oleh sistem saat paket berakhir/berganti atau masa aktif akun habis"}}
 {{if $exam.TombstonedAt}}{{$tombTitle = printf "%s (%s)" $tombTitle $exam.TombstonedAt}}{{end}}
 {{if $canToggle}}
 {{if eq $exam.Status "active"}}
