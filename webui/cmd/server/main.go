@@ -1022,10 +1022,8 @@ func registerPostHandler(cfg *config.Config) gin.HandlerFunc {
 		// the Turnstile challenge still cannot farm many accounts from one IP.
 		if maxPerIP := models.GetSaasSettingInt(ctx, dbPool, models.SettingMaxAccountsPerIP, 3); maxPerIP > 0 {
 			clientIP := c.ClientIP()
-			var recent int
-			if err := dbPool.QueryRow(ctx,
-				`SELECT COUNT(*) FROM admin_users WHERE registered_ip = $1 AND created_at > now() - interval '24 hours'`,
-				clientIP).Scan(&recent); err == nil && recent >= maxPerIP {
+			recent, err := models.CountRecentRegistrationsByIP(ctx, dbPool, clientIP)
+			if err == nil && !models.RegistrationAllowedByPerIPLimit(recent, maxPerIP) {
 				log.Printf("register blocked: per-IP limit reached for %s (%d/%d in 24h)", clientIP, recent, maxPerIP)
 				data["error"] = fmt.Sprintf("Terlalu banyak pendaftaran dari alamat IP ini dalam 24 jam terakhir (maks %d akun). Silakan coba lagi besok atau hubungi administrator.", maxPerIP)
 				c.HTML(http.StatusOK, "public/register.html", data)

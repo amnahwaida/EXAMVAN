@@ -558,6 +558,37 @@ func ListUsers(ctx context.Context, pool *pgxpool.Pool, opts ListUsersOpts) (Lis
 	}, nil
 }
 
+// rowQuerier abstracts a single-query source (pgx.Tx or pgxpool.Pool) so the
+// per-IP registration query can be unit-tested without a live database.
+type rowQuerier interface {
+	QueryRow(ctx context.Context, sql string, args ...any) pgx.Row
+}
+
+// CountRecentRegistrationsByIP returns how many accounts were registered from
+// the given IP within the last 24 hours. It backs the per-IP registration cap
+// (admin_users.registered_ip), a defense-in-depth layer against
+// mass-registration on top of Cloudflare Turnstile.
+func CountRecentRegistrationsByIP(ctx context.Context, q rowQuerier, ip string) (int, error) {
+	var n int
+	err := q.QueryRow(ctx,
+		`SELECT COUNT(*) FROM admin_users WHERE registered_ip = $1 AND created_at > now() - interval '24 hours'`,
+		ip).Scan(&n)
+	if err != nil {
+		return 0, fmt.Errorf("count recent registrations by IP: %w", err)
+	}
+	return n, nil
+}
+
+// RegistrationAllowedByPerIPLimit reports whether a new registration from an IP
+// is permitted given how many accounts were already registered from that IP in
+// the last 24 hours and the configured cap. A cap <= 0 means unlimited.
+func RegistrationAllowedByPerIPLimit(recentRegistrations, maxPerIP int) bool {
+	if maxPerIP <= 0 {
+		return true
+	}
+	return recentRegistrations < maxPerIP
+}
+
 // CreateUser inserts a new admin_users row. The password is hashed with bcrypt.
 // Returns the created AdminUser with its generated ID.
 func CreateUser(ctx context.Context, pool *pgxpool.Pool, u *AdminUser) (*AdminUser, error) {
