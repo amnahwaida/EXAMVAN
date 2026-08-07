@@ -117,6 +117,7 @@ func parseCustomVoucherInto(c *gin.Context, v *models.Voucher) string {
 	v.CustomMaxConcurrentExams = voucherAtoiDefault(c.PostForm("custom_max_concurrent_exams"), 1)
 	v.CustomMaxPDFSize = voucherMBToBytes(c.PostForm("custom_max_pdf_size_mb"), 1)
 	v.CustomMaxStorageSize = voucherMBToBytes(c.PostForm("custom_max_storage_size_mb"), 100)
+	v.CustomMaxUsers = int64(voucherAtoiDefault(c.PostForm("custom_max_users"), 0))
 	v.CustomRole = role
 	return ""
 }
@@ -423,19 +424,20 @@ func RedeemVoucherHandler() gin.HandlerFunc {
 		// 1. Lock and fetch voucher (case-insensitive & space-trimmed match)
 		var v models.Voucher
 		err = dbTx.QueryRow(ctx, `
-			SELECT id, code, package, duration_type, max_usage, used_count, expires_at, is_active,
-			       is_custom, COALESCE(custom_label, ''), COALESCE(custom_max_exams, 0),
-			       COALESCE(custom_max_pdf_size, 0),
-			       COALESCE(custom_max_concurrent_exams, 0),
-			       COALESCE(custom_max_storage_size, 0),
-			       COALESCE(custom_role, '')
-			FROM vouchers
-			WHERE UPPER(TRIM(code)) = UPPER(TRIM($1))
-			FOR UPDATE`, code).Scan(
+		SELECT id, code, package, duration_type, max_usage, used_count, expires_at, is_active,
+		       is_custom, COALESCE(custom_label, ''), COALESCE(custom_max_exams, 0),
+		       COALESCE(custom_max_pdf_size, 0),
+		       COALESCE(custom_max_concurrent_exams, 0),
+		       COALESCE(custom_max_storage_size, 0),
+		       COALESCE(custom_max_users, 0),
+		       COALESCE(custom_role, '')
+		FROM vouchers
+		WHERE UPPER(TRIM(code)) = UPPER(TRIM($1))
+		FOR UPDATE`, code).Scan(
 			&v.ID, &v.Code, &v.Package, &v.DurationType, &v.MaxUsage, &v.UsedCount, &v.ExpiresAt, &v.IsActive,
 			&v.IsCustom, &v.CustomLabel, &v.CustomMaxExams, &v.CustomMaxPDFSize,
 			&v.CustomMaxConcurrentExams,
-			&v.CustomMaxStorageSize, &v.CustomRole,
+			&v.CustomMaxStorageSize, &v.CustomMaxUsers, &v.CustomRole,
 		)
 		if err != nil {
 			if err == pgx.ErrNoRows {
@@ -504,6 +506,7 @@ func RedeemVoucherHandler() gin.HandlerFunc {
 				MaxPDFSize:         v.CustomMaxPDFSize,
 				MaxConcurrentExams: int64(v.CustomMaxConcurrentExams),
 				MaxStorageSize:     v.CustomMaxStorageSize,
+				MaxUsers:           v.CustomMaxUsers,
 				Role:               strings.TrimSpace(v.CustomRole),
 			}
 			if snapshot.Package == "" {
@@ -512,13 +515,14 @@ func RedeemVoucherHandler() gin.HandlerFunc {
 		} else {
 			// Fixed packages read their quotas from the SuperAdmin-editable
 			// package_settings table (falling back to the built-in defaults).
-			exams, pdf, concurrent, storage, role := getPackageEntitlement(ctx, dbTx, v.Package)
+			exams, pdf, concurrent, storage, maxUsers, role := getPackageEntitlement(ctx, dbTx, v.Package)
 			snapshot = models.VoucherRedemption{
 				Package:            v.Package,
 				MaxExams:           exams,
 				MaxPDFSize:         pdf,
 				MaxConcurrentExams: concurrent,
 				MaxStorageSize:     storage,
+				MaxUsers:           maxUsers,
 				Role:               role,
 			}
 		}
@@ -559,11 +563,11 @@ func RedeemVoucherHandler() gin.HandlerFunc {
 		_, err = dbTx.Exec(ctx, `
 			INSERT INTO voucher_redemptions
 				(voucher_id, user_id, remaining_seconds, activated_at, is_active, package,
-				 max_exams, max_pdf_size, max_concurrent_exams, max_storage_size, role)
-			VALUES ($1, $2, $3, $4, true, $5, $6, $7, $8, $9, $10)`,
+				 max_exams, max_pdf_size, max_concurrent_exams, max_storage_size, max_users, role)
+			VALUES ($1, $2, $3, $4, true, $5, $6, $7, $8, $9, $10, $11)`,
 			v.ID, userID, snapshot.RemainingSeconds, now, snapshot.Package,
 			snapshot.MaxExams, snapshot.MaxPDFSize, snapshot.MaxConcurrentExams,
-			snapshot.MaxStorageSize, snapshot.Role)
+			snapshot.MaxStorageSize, snapshot.MaxUsers, snapshot.Role)
 		if err != nil {
 			log.Printf("redeem insert redemption record error: %v", err)
 			errorResponse(c, http.StatusInternalServerError, "Gagal mencatat klaim voucher")

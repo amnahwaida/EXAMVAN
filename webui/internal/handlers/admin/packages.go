@@ -52,6 +52,7 @@ func ListPackagesSettingsHandler() gin.HandlerFunc {
 			MaxPDFMB   float64 `json:"max_pdf_size_mb"`
 			Concurrent int64   `json:"max_concurrent_exams"`
 			MaxStoMB   float64 `json:"max_storage_mb"`
+			MaxUsers   int64   `json:"max_users"`
 			Role       string  `json:"role"`
 		}
 		items := make([]item, 0, len(settings))
@@ -63,6 +64,7 @@ func ListPackagesSettingsHandler() gin.HandlerFunc {
 				MaxPDFMB:   roundTo(float64(s.MaxPDFSize)/(1024*1024), 1),
 				Concurrent: s.MaxConcurrentExams,
 				MaxStoMB:   roundTo(float64(s.MaxStorageSize)/(1024*1024), 2),
+				MaxUsers:   s.MaxUsers,
 				Role:       s.Role,
 			})
 		}
@@ -87,6 +89,7 @@ func SavePackageSettingsHandler() gin.HandlerFunc {
 				Concurrent   int64   `json:"max_concurrent_exams"`
 				MaxPDFMB     float64 `json:"max_pdf_size_mb"`
 				MaxStorageMB float64 `json:"max_storage_mb"`
+				MaxUsers     int64   `json:"max_users"`
 				Role         string  `json:"role"`
 			} `json:"packages"`
 		}
@@ -140,6 +143,9 @@ func SavePackageSettingsHandler() gin.HandlerFunc {
 			if p.MaxStorageMB < 1 {
 				p.MaxStorageMB = 1
 			}
+			if p.MaxUsers < 0 {
+				p.MaxUsers = 0
+			}
 			role, roleMsg := validPackageRole(p.Role)
 			if roleMsg != "" {
 				errorResponse(c, http.StatusBadRequest, roleMsg)
@@ -149,18 +155,19 @@ func SavePackageSettingsHandler() gin.HandlerFunc {
 			if _, err := dbTx.Exec(ctx, `
 				INSERT INTO package_settings
 					(pkg_key, label, max_exams, max_pdf_size, max_concurrent_exams,
-					 max_storage_size, role, updated_at)
-				VALUES ($1, $2, $3, $4, $5, $6, $7, CURRENT_TIMESTAMP)
+					 max_storage_size, max_users, role, updated_at)
+				VALUES ($1, $2, $3, $4, $5, $6, $7, $8, CURRENT_TIMESTAMP)
 				ON CONFLICT (pkg_key) DO UPDATE SET
 					label = EXCLUDED.label,
 					max_exams = EXCLUDED.max_exams,
 					max_pdf_size = EXCLUDED.max_pdf_size,
 					max_concurrent_exams = EXCLUDED.max_concurrent_exams,
 					max_storage_size = EXCLUDED.max_storage_size,
+					max_users = EXCLUDED.max_users,
 					role = EXCLUDED.role,
 					updated_at = CURRENT_TIMESTAMP`,
 				key, label, p.MaxExams, int64(p.MaxPDFMB*1024*1024),
-				concurrent, int64(p.MaxStorageMB*1024*1024), role); err != nil {
+				concurrent, int64(p.MaxStorageMB*1024*1024), p.MaxUsers, role); err != nil {
 				log.Printf("save package setting error: %v", err)
 				errorResponse(c, http.StatusInternalServerError, "Gagal menyimpan pengaturan paket")
 				return
@@ -205,19 +212,20 @@ func validPackageRole(role string) (string, string) {
 }
 
 // getPackageEntitlement returns (exams, pdfBytes, concurrent, storageBytes,
-// role) for a fixed package, preferring the SuperAdmin-editable package_settings
-// row when present and falling back to the built-in packageEntitlement defaults.
-func getPackageEntitlement(ctx context.Context, q rowQuerier, pkg string) (int64, int64, int64, int64, string) {
-	exams, pdf, concurrent, storage, role := packageEntitlement(pkg)
+// maxUsers, role) for a fixed package, preferring the SuperAdmin-editable
+// package_settings row when present and falling back to the built-in
+// packageEntitlement defaults.
+func getPackageEntitlement(ctx context.Context, q rowQuerier, pkg string) (int64, int64, int64, int64, int64, string) {
+	exams, pdf, concurrent, storage, maxUsers, role := packageEntitlement(pkg)
 	err := q.QueryRow(ctx, `
 		SELECT max_exams, max_pdf_size, max_concurrent_exams, max_storage_size,
-		       COALESCE(role, '')
+		       COALESCE(max_users, 0), COALESCE(role, '')
 		FROM package_settings WHERE pkg_key = $1`, pkg).
-		Scan(&exams, &pdf, &concurrent, &storage, &role)
+		Scan(&exams, &pdf, &concurrent, &storage, &maxUsers, &role)
 	if err != nil {
 		return packageEntitlement(pkg)
 	}
-	return exams, pdf, concurrent, storage, role
+	return exams, pdf, concurrent, storage, maxUsers, role
 }
 
 // rowQuerier abstracts a single-query source (pgx.Tx or pgxpool.Pool).

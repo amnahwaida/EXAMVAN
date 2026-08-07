@@ -792,10 +792,11 @@ func ToggleUserStatus(ctx context.Context, pool *pgxpool.Pool, userID int) (stri
 // ResumeSuspendedAccountClock reactivates the account clock after a
 // suspension: the account's expires_at is extended by the suspension duration
 // (so the package lifetime did not burn while the user was locked out),
-// suspended_at is cleared, and the active redemption's clock is realigned to
-// the extended expiry. No-op freeze when the account was never suspended or
-// has no expiry (the marker is still cleared). Returns the resulting expiry
-// (nil when unchanged).
+// suspended_at is cleared, the cascade marker (suspended_by_cascade) is
+// dropped — a manual activation lifts the cascade origin — and the active
+// redemption's clock is realigned to the extended expiry. No-op freeze when
+// the account was never suspended or has no expiry (the markers are still
+// cleared). Returns the resulting expiry (nil when unchanged).
 func ResumeSuspendedAccountClock(ctx context.Context, pool *pgxpool.Pool, userID int) (*time.Time, error) {
 	var suspendedAt *time.Time
 	var expiresAt *time.Time
@@ -806,9 +807,9 @@ func ResumeSuspendedAccountClock(ctx context.Context, pool *pgxpool.Pool, userID
 
 	if suspendedAt == nil || expiresAt == nil || !suspendedAt.Before(time.Now().UTC()) {
 		// Nothing to freeze (never suspended, no expiry, or clock skew): just
-		// make sure the account is active and the marker is gone.
+		// make sure the account is active and the markers are gone.
 		if _, err := pool.Exec(ctx,
-			`UPDATE admin_users SET status = $1, suspended_at = NULL WHERE id = $2`,
+			`UPDATE admin_users SET status = $1, suspended_at = NULL, suspended_by_cascade = FALSE WHERE id = $2`,
 			UserStatusActive, userID); err != nil {
 			return nil, err
 		}
@@ -817,7 +818,7 @@ func ResumeSuspendedAccountClock(ctx context.Context, pool *pgxpool.Pool, userID
 
 	newExpiry := expiresAt.Add(time.Since(*suspendedAt))
 	if _, err := pool.Exec(ctx,
-		`UPDATE admin_users SET status = $1, expires_at = $2, suspended_at = NULL WHERE id = $3`,
+		`UPDATE admin_users SET status = $1, expires_at = $2, suspended_at = NULL, suspended_by_cascade = FALSE WHERE id = $3`,
 		UserStatusActive, newExpiry, userID); err != nil {
 		return nil, err
 	}

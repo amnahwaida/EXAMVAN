@@ -636,6 +636,20 @@ body.modal-open {
     border-color: rgba(245, 158, 11, 0.2);
     color: var(--color-warning);
 }
+/* Tombstoned badge (policy B): the exam was auto-inactivated when the
+   school's operator was cut off (voucher switch / manual suspension), not
+   manually — the dashed border signals "dormant by the system". On the
+   dashboard it is a toggle, so hovering hints the next click reactivates. */
+.status-tombstoned {
+    background: rgba(148, 163, 184, 0.12);
+    color: #94a3b8;
+    border: 1px dashed rgba(148, 163, 184, 0.45);
+}
+.status-tombstoned:hover {
+    background: rgba(16, 185, 129, 0.12);
+    border-color: rgba(16, 185, 129, 0.3);
+    color: var(--color-success);
+}
 
 /* Student status pill — promoted from pengawas.html's inline styles because
    pengawas_detail's access-log modal renders the same markup and previously

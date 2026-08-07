@@ -1,0 +1,58 @@
+# CI for the EXAMVAN web server (the Go project lives in webui/).
+#
+# This workflow must live at the repository ROOT (.github/workflows/): GitHub
+# Actions only discovers workflow files in the root .github/workflows
+# directory — a workflow inside webui/.github/workflows would be ignored.
+#
+# The voucher lifecycle integration tests (internal/handlers/admin
+# voucher_lifecycle_integration_test.go) need a real PostgreSQL, which they
+# read from TEST_DATABASE_URL and SKIP when it is unset. The postgres service
+# below provides that database, so the integration tests actually run on every
+# push / pull request instead of silently skipping.
+
+name: CI
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  go:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: webui
+    env:
+      # The service database below; the integration tests apply the schema
+      # themselves and wipe only the data tables, so a fresh DB per run is
+      # not required.
+      TEST_DATABASE_URL: postgresql://examvan:examvan@localhost:5432/examvan_test
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: examvan
+          POSTGRES_PASSWORD: examvan
+          POSTGRES_DB: examvan_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U examvan -d examvan_test"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          # go-version-file is resolved relative to the repository root, and
+          # the module lives in webui/ — hence the webui/ prefix.
+          go-version-file: webui/go.mod
+      - name: Download dependencies
+        run: go mod download
+      - name: Run tests
+        run: go test ./...
+      - name: Run vet
+        run: go vet ./...
+      - name: Build server
+        run: go build ./cmd/server

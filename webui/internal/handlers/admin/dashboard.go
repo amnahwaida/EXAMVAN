@@ -280,6 +280,11 @@ func Dashboard() gin.HandlerFunc {
 			TokenMode          string     `json:"token_mode"`
 			TokenResetInterval *int       `json:"token_reset_interval"`
 			ExamStartedAt      *time.Time `json:"exam_started_at"`
+			// Tombstoned: the exam was auto-inactivated (policy B) when the
+			// school's operator was cut off (voucher switch / manual suspension),
+			// not manually. Lets the dashboard badge explain itself.
+			Tombstoned   bool   `json:"tombstoned"`
+			TombstonedAt string `json:"tombstoned_at"`
 		}
 
 		// Batch lookup usernames for creators and delegated users
@@ -345,6 +350,10 @@ func Dashboard() gin.HandlerFunc {
 			if e.TokenMode != nil && *e.TokenMode != "" {
 				tokenMode = *e.TokenMode
 			}
+			tombstonedAt := ""
+			if e.TombstonedAt != nil {
+				tombstonedAt = formatISOUTC(*e.TombstonedAt)
+			}
 			examItems = append(examItems, examItem{
 				ID:                 e.ID,
 				Name:               e.Name,
@@ -364,6 +373,8 @@ func Dashboard() gin.HandlerFunc {
 				TokenMode:          tokenMode,
 				TokenResetInterval: e.TokenResetInterval,
 				ExamStartedAt:      e.ExamStartedAt,
+				Tombstoned:         e.TombstonedAt != nil,
+				TombstonedAt:       tombstonedAt,
 			})
 		}
 

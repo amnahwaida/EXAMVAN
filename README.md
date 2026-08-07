@@ -232,6 +232,61 @@ Server berjalan di port 5000 (default).
 
 ---
 
+## Pengujian (Tes Otomatis)
+
+### 1. Tes Unit (tanpa database)
+
+Sebagian besar tes (model, entitlement, helper) adalah unit test murni dan berjalan tanpa PostgreSQL:
+
+```bash
+cd webui
+go test ./...
+```
+
+> Tes integrasi voucher (`internal/handlers/admin/voucher_lifecycle_integration_test.go`) otomatis **di-skip** bila `TEST_DATABASE_URL` tidak diatur — jadi perintah di atas selalu hijau walau tanpa database.
+
+### 2. Tes Integrasi (membutuhkan PostgreSQL)
+
+Tes integrasi voucher menguji alur lengkap sistem paket/voucher terhadap database nyata:
+
+- operator membuat akun → pindah ke voucher guru → akun di-suspend → kembali ke sekolah → akun pulih (dengan clock-freeze);
+- auto-fallback expiry job: paket sekolah habis masa → akun sub di-suspend → auto-aktif ke voucher guru;
+- tanpa voucher cadangan → akun tetap expired dan login tetap terblokir;
+- akun sub yang membeli voucher sendiri tetap ikut ter-suspend saat operator keluar dari paket sekolah, dan paket miliknya sendiri tidak ikut di-pause.
+
+**Cara termudah** — jalankan PostgreSQL 16 sekali pakai via Docker, lalu arahkan `TEST_DATABASE_URL` ke database tersebut (tidak perlu diisi apa pun; tes akan menerapkan skema dan membersihkan tabel data sendiri):
+
+```bash
+# 1) Jalankan PostgreSQL 16 sekali pakai
+docker run -d --name examvan-test-pg \
+  -e POSTGRES_USER=examvan -e POSTGRES_PASSWORD=examvan \
+  -e POSTGRES_DB=examvan_test -p 5432:5432 postgres:16-alpine
+
+# 2) Jalankan seluruh tes (termasuk integrasi)
+cd webui
+TEST_DATABASE_URL=postgresql://examvan:examvan@localhost:5432/examvan_test \
+  go test ./...
+
+# 3) Hapus container uji
+docker rm -f examvan-test-pg
+```
+
+Hanya tes voucher (lebih cepat, verbose):
+
+```bash
+cd webui
+TEST_DATABASE_URL=postgresql://examvan:examvan@localhost:5432/examvan_test \
+  go test ./internal/handlers/admin/ -run 'TestVoucher' -v
+```
+
+> ⚠️ **Penting:** `TEST_DATABASE_URL` harus mengarah ke database **sekali pakai** — saat setup, tes menerapkan `schema.sql` dan me-truncate tabel data. Jangan pernah mengarahkannya ke database produksi.
+
+### 3. CI (GitHub Actions)
+
+Workflow `.github/workflows/ci.yml` (di root repo, bukan di `webui/.github`) otomatis menjalankan seluruh suite — termasuk tes integrasi — pada setiap push/pull request, menggunakan service `postgres:16-alpine` bawaan GitHub Actions. Tidak diperlukan konfigurasi tambahan.
+
+---
+
 ## Informasi Akses Default Admin Panel
 
 Akses halaman admin melalui domain publik (Cloudflare Tunnel): **`https://<domain>/admin/login`**

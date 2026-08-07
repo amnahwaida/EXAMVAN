@@ -182,6 +182,10 @@
        <input type="number" id="singleCustomStorageMb" value="100" min="0" step="0.1" style="width:100%;padding:8px;background:rgba(0,0,0,0.3);border:1px solid var(--color-glass-border);border-radius:8px;color:#fff;outline:none;" />
       </div>
       <div>
+       <label title="Batas jumlah akun yang boleh dibuat operator di instansi (0 = tanpa batas)" style="display:block;font-size:12px;color:var(--color-text-secondary);margin-bottom:4px;">Maks Akun Guru (0 = tanpa batas)</label>
+       <input type="number" id="singleCustomMaxUsers" value="0" min="0" style="width:100%;padding:8px;background:rgba(0,0,0,0.3);border:1px solid var(--color-glass-border);border-radius:8px;color:#fff;outline:none;" />
+      </div>
+      <div>
        <label style="display:block;font-size:12px;color:var(--color-text-secondary);margin-bottom:4px;">Role Akun</label>
        <select id="singleCustomRole" style="width:100%;padding:8px;background:rgba(15,23,42,0.9);border:1px solid var(--color-glass-border);border-radius:8px;color:#fff;outline:none;">
         <option value="">— Jangan ubah role —</option>
@@ -290,6 +294,10 @@
       <div>
        <label style="display:block;font-size:12px;color:var(--color-text-secondary);margin-bottom:4px;">Maks Storage (MB)</label>
        <input type="number" id="batchCustomStorageMb" value="100" min="0" step="0.1" style="width:100%;padding:8px;background:rgba(0,0,0,0.3);border:1px solid var(--color-glass-border);border-radius:8px;color:#fff;outline:none;" />
+      </div>
+      <div>
+       <label title="Batas jumlah akun yang boleh dibuat operator di instansi (0 = tanpa batas)" style="display:block;font-size:12px;color:var(--color-text-secondary);margin-bottom:4px;">Maks Akun Guru (0 = tanpa batas)</label>
+       <input type="number" id="batchCustomMaxUsers" value="0" min="0" style="width:100%;padding:8px;background:rgba(0,0,0,0.3);border:1px solid var(--color-glass-border);border-radius:8px;color:#fff;outline:none;" />
       </div>
       <div>
        <label style="display:block;font-size:12px;color:var(--color-text-secondary);margin-bottom:4px;">Role Akun</label>
@@ -534,6 +542,7 @@ function appendCustomVoucherFields(formData, type) {
     formData.append('custom_max_concurrent_exams', document.getElementById(type + 'CustomConcurrent').value);
     formData.append('custom_max_pdf_size_mb', document.getElementById(type + 'CustomPdfMb').value);
     formData.append('custom_max_storage_size_mb', document.getElementById(type + 'CustomStorageMb').value);
+    formData.append('custom_max_users', document.getElementById(type + 'CustomMaxUsers').value);
     formData.append('custom_role', document.getElementById(type + 'CustomRole').value);
 }
 

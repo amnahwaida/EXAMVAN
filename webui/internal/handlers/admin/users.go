@@ -58,6 +58,45 @@ func getInstansiForOperator(ctx context.Context, pool *pgxpool.Pool, userID int)
 	return instansi
 }
 
+// loadOperatorAccountQuota returns the school package's sub-account quota
+// (maxUsers, 0 = unlimited) and the current number of accounts in the
+// operator's instansi (used, excluding the operator themself). The quota comes
+// from the active redemption's snapshot (captured at redeem time from
+// package_settings or the custom voucher field); operators without an active
+// redemption (legacy/imported) fall back to the package_settings row for
+// their package label. Shared by the CreateUser enforcement and the billing
+// page display so the two can never disagree. (0, 0) when not applicable.
+func loadOperatorAccountQuota(ctx context.Context, pool *pgxpool.Pool, userID int, isOperator bool, instansi string) (maxUsers, used int64) {
+	instansi = strings.TrimSpace(instansi)
+	if !isOperator || instansi == "" || strings.EqualFold(instansi, "personal") {
+		return 0, 0
+	}
+	err := pool.QueryRow(ctx, `
+		SELECT COALESCE(max_users, 0) FROM voucher_redemptions
+		WHERE user_id = $1 AND is_active`, userID).Scan(&maxUsers)
+	if err != nil {
+		// Only an error (no active redemption) triggers the fallback, so an
+		// active snapshot of 0 (intentional unlimited) is never overridden.
+		if ferr := pool.QueryRow(ctx, `
+			SELECT COALESCE(ps.max_users, 0)
+			FROM package_settings ps
+			JOIN admin_users u ON u.package = ps.pkg_key
+			WHERE u.id = $1`, userID).Scan(&maxUsers); ferr != nil {
+			// Fail open (0 = unlimited) but make the glitch visible: a
+			// transient DB error must not silently bypass the quota.
+			log.Printf("load operator account quota failed (redemption: %v, package: %v); treating as unlimited", err, ferr)
+			maxUsers = 0
+		}
+	}
+	if maxUsers <= 0 {
+		return 0, 0
+	}
+	_ = pool.QueryRow(ctx,
+		`SELECT COUNT(*) FROM admin_users WHERE instansi = $1 AND id <> $2`,
+		instansi, userID).Scan(&used)
+	return maxUsers, used
+}
+
 // ---------------------------------------------------------------------------
 // 1. GET /admin/users — Render users management page
 // ---------------------------------------------------------------------------
@@ -302,6 +341,19 @@ func CreateUser() gin.HandlerFunc {
 
 		if instansi == "" {
 			instansi = "personal"
+		}
+
+		// School sub-account quota (max_users): an operator may only create
+		// accounts while the ACTIVE package still has room (see
+		// loadOperatorAccountQuota). 0 = unlimited; the count is all accounts in
+		// the operator's instansi except the operator themself.
+		if isOp {
+			maxUsers, used := loadOperatorAccountQuota(ctx, pool, userID, true, instansi)
+			if maxUsers > 0 && used >= maxUsers {
+				errorResponse(c, http.StatusBadRequest,
+					fmt.Sprintf("Kuota akun di instansi Anda telah mencapai batas paket (%d akun). Silakan hubungi administrator untuk menambah kuota.", maxUsers))
+				return
+			}
 		}
 
 		filteredRoles := make([]string, 0, len(roles))
@@ -789,6 +841,17 @@ func ToggleUserStatus() gin.HandlerFunc {
 						} else {
 							msg += fmt.Sprintf(". %d user di instansi %s juga dinonaktifkan.", count, opInstansi)
 						}
+					}
+					// Tombstone the school's unpublished exams (policy B,
+					// mirroring the voucher switch): a manual suspension freezes
+					// the whole school, so every active-but-unstarted exam in the
+					// instansi goes inactive (spareOperatorRoleCreators=false —
+					// even operator-role subs are suspended by this cascade).
+					// Exams already running stay untouched so students can
+					// finish, and the tombstone is not auto-reversed when the
+					// operator is reactivated.
+					if err := tombstoneUnstartedInstansiExams(ctx, pool, opInstansi, false); err != nil {
+						log.Printf("cascade tombstone exams for instansi %s error: %v", opInstansi, err)
 					}
 				}
 			}

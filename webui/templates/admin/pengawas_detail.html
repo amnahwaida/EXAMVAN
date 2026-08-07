@@ -95,7 +95,15 @@
     <svg class="icon-svg pd-info-icon" style="color:var(--color-accent-emerald);"><use href="#hi-check"/></svg>
     <div>
      <span class="pd-info-label">Status</span>
-     <span class="pd-info-value"><span class="status-badge status-{{.exam.Status}}" style="font-size:0.72rem;">{{.exam.Status}}</span></span>
+     <span class="pd-info-value">
+      {{if eq .exam.Status "active"}}
+      <span class="status-badge status-active" style="font-size:0.72rem;">Aktif</span>
+      {{else if .exam.TombstonedAt}}
+      <span class="status-badge status-tombstoned" style="font-size:0.72rem;" title="Nonaktif otomatis oleh sistem saat paket sekolah berganti/berakhir ({{formatExamTime .exam.TombstonedAt}} WIB)">Ditombstone</span>
+      {{else}}
+      <span class="status-badge status-inactive" style="font-size:0.72rem;">Nonaktif</span>
+      {{end}}
+     </span>
     </div>
    </div>
    {{if and .exam.StartTime .exam.EndTime}}

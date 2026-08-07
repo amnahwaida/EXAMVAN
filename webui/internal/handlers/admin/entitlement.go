@@ -8,30 +8,34 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 
 	"github.com/examvan/webui/internal/models"
 )
 
-// packageEntitlement returns (exams, pdfBytes, concurrent, storageBytes, role)
-// for a fixed package. `concurrent` is the max_concurrent_exams quota: the
-// number of exams that may RUN simultaneously (mirrors the "Ujian Aktif"
-// values advertised on the pricing page, so concurrent <= total exams).
-func packageEntitlement(pkg string) (exams, pdf, concurrent, storage int64, role string) {
+// packageEntitlement returns (exams, pdfBytes, concurrent, storageBytes,
+// maxUsers, role) for a fixed package. `concurrent` is the max_concurrent_exams
+// quota: the number of exams that may RUN simultaneously (mirrors the
+// "Ujian Aktif" values advertised on the pricing page, so concurrent <= total
+// exams). `maxUsers` is the sub-account quota: how many accounts (besides the
+// operator) may exist in one school instansi; 0 = unlimited. These defaults
+// mirror the package_settings seed in schema.sql (SuperAdmin-editable).
+func packageEntitlement(pkg string) (exams, pdf, concurrent, storage, maxUsers int64, role string) {
 	switch pkg {
 	case "guru":
-		return 1, 10 * 1024 * 1024, 1, 100 * 1024 * 1024, ""
+		return 1, 10 * 1024 * 1024, 1, 100 * 1024 * 1024, 0, ""
 	case "individu":
-		return 2, 30 * 1024 * 1024, 2, 300 * 1024 * 1024, ""
+		return 2, 30 * 1024 * 1024, 2, 300 * 1024 * 1024, 0, ""
 	case "sekolah_kecil":
-		return 3, 50 * 1024 * 1024, 3, 500 * 1024 * 1024, models.SerializeRoles([]string{models.RoleOperator})
+		return 3, 50 * 1024 * 1024, 3, 500 * 1024 * 1024, 10, models.SerializeRoles([]string{models.RoleOperator})
 	case "sekolah_menengah":
-		return 5, 200 * 1024 * 1024, 5, 2000 * 1024 * 1024, models.SerializeRoles([]string{models.RoleOperator})
+		return 5, 200 * 1024 * 1024, 5, 2000 * 1024 * 1024, 25, models.SerializeRoles([]string{models.RoleOperator})
 	case "sekolah_besar":
-		return 10, 500 * 1024 * 1024, 10, 5000 * 1024 * 1024, models.SerializeRoles([]string{models.RoleOperator})
+		return 10, 500 * 1024 * 1024, 10, 5000 * 1024 * 1024, 50, models.SerializeRoles([]string{models.RoleOperator})
 	case "sekolah_unggulan":
-		return 99999, 99999 * 1024 * 1024, 99999, 999999 * 1024 * 1024, models.SerializeRoles([]string{models.RoleOperator})
+		return 99999, 99999 * 1024 * 1024, 99999, 999999 * 1024 * 1024, 0, models.SerializeRoles([]string{models.RoleOperator})
 	default:
-		return 1, 1 * 1024 * 1024, 1, 50 * 1024 * 1024, ""
+		return 1, 1 * 1024 * 1024, 1, 50 * 1024 * 1024, 0, ""
 	}
 }
 
@@ -127,7 +131,174 @@ func applyRedemptionEntitlement(ctx context.Context, tx pgx.Tx, userID int, r *m
 		WHERE id = $10`,
 		pkgLabel, r.MaxExams, r.MaxPDFSize, concurrent, r.MaxStorageSize, expiry,
 		roleJSON, nextPkgRole, nextBaseRole, userID)
+	if err != nil {
+		return err
+	}
+
+	// Keep the school's sub-accounts consistent with the package-granted
+	// operator role (see syncInstansiWithOperatorRole).
+	return syncInstansiWithOperatorRole(ctx, tx, userID, currentRoleJSON, roleJSON, expiry)
+}
+
+// syncInstansiWithOperatorRole keeps the accounts of a school instansi in sync
+// with the package-granted operator role after a package activation:
+//
+//   - role HAS operator: restore accounts that were cascade-suspended when the
+//     operator left the school package (freezing their clocks for the
+//     suspension period), then align the expiry of sub-accounts that do not
+//     run their own active package to the operator's new expiry — a school
+//     operator's accounts follow the operator's expiry;
+//   - role LOST operator: suspend the instansi's active non-operator accounts
+//     (suspended_by_cascade), so accounts created under a school package stop
+//     being usable once the operator leaves the school package. Their exams
+//     that are active but have never been started (exam_started_at IS NULL)
+//     are tombstoned to inactive too, so the school's unpublished exams go
+//     dormant the moment the operator role is lost — exams already running
+//     are left untouched so students working on them can finish.
+//
+// Pure guru → guru switches (no operator involved at all) are no-ops. The
+// operator's own row, SuperAdmin, and manually suspended accounts are never
+// touched. Must be called inside the redemption transaction, after the user's
+// role columns have been updated.
+func syncInstansiWithOperatorRole(ctx context.Context, tx pgx.Tx, userID int, prevRoleJSON, roleJSON string, expiry time.Time) error {
+	if containsRole(models.ParseRoles(roleJSON), models.RoleSuperAdmin) {
+		return nil // SuperAdmin role is never touched anywhere.
+	}
+
+	var instansi string
+	if err := tx.QueryRow(ctx, `SELECT COALESCE(instansi, '') FROM admin_users WHERE id = $1`, userID).Scan(&instansi); err != nil {
+		return err
+	}
+	instansi = strings.TrimSpace(instansi)
+	if instansi == "" || strings.EqualFold(instansi, "personal") {
+		return nil // No school, no sub-accounts.
+	}
+
+	switch operatorRoleTransition(prevRoleJSON, roleJSON) {
+	case "none":
+		return nil // e.g. guru → guru: nothing to reconcile.
+	case "suspend":
+		// The operator role is gone: suspend every active non-operator account
+		// in the instansi so accounts created under the school package stop
+		// working. suspended_by_cascade lets them come back (with a clock
+		// freeze) when the operator returns to a school package.
+		if _, err := tx.Exec(ctx, `
+			UPDATE admin_users
+			SET status = 'suspended', suspended_by_cascade = TRUE, suspended_at = now()
+			WHERE instansi = $1 AND status = 'active' AND id <> $2
+			  AND NOT (role ILIKE '%"operator"%')`, instansi, userID); err != nil {
+			return err
+		}
+		// Tombstone the school's unpublished exams (policy B): the accounts
+		// cut off from the school package (the operator who just lost the
+		// role and every cascade-suspended sub) have their active-but-unstarted
+		// exams set inactive. Accounts that still hold the operator role (their
+		// own school voucher) stay valid operators, so their exams are spared.
+		return tombstoneUnstartedInstansiExams(ctx, tx, instansi, true)
+	default: // restore
+		// Operator role is present: restore accounts that were cascade-suspended
+		// when the operator last left the school package (clock freeze applies).
+		if _, err := tx.Exec(ctx, `
+			UPDATE admin_users u
+			SET status = 'active',
+			    suspended_by_cascade = FALSE,
+			    suspended_at = NULL,
+			    expires_at = CASE
+			        WHEN u.suspended_at IS NOT NULL AND u.expires_at IS NOT NULL AND u.suspended_at < now()
+			            THEN u.expires_at + (now() - u.suspended_at)
+			        ELSE u.expires_at
+			    END
+			WHERE u.instansi = $1 AND u.suspended_by_cascade = TRUE AND u.id <> $2`, instansi, userID); err != nil {
+			return err
+		}
+		// Realign restored accounts' active package clocks with their (frozen)
+		// expiry, mirroring the admin restore cascade in users.go.
+		if _, err := tx.Exec(ctx, `
+			UPDATE voucher_redemptions vr
+			SET remaining_seconds = GREATEST(EXTRACT(EPOCH FROM (u.expires_at - now()))::bigint, 0),
+			    activated_at = now()
+			FROM admin_users u
+			WHERE vr.user_id = u.id AND vr.is_active AND u.expires_at IS NOT NULL
+			  AND u.instansi = $1 AND u.id <> $2`, instansi, userID); err != nil {
+			return err
+		}
+		// Sub-accounts that do not run their own active package follow the
+		// operator's expiry. GREATEST only ever EXTENDS an existing expiry
+		// (never shortens a sub-account when the operator switches to a
+		// shorter school package); when the operator truly leaves the school
+		// package the suspend branch above takes over.
+		_, err := tx.Exec(ctx, `
+			UPDATE admin_users u
+			SET expires_at = GREATEST(COALESCE(u.expires_at, $2::timestamptz), $2::timestamptz)
+			WHERE u.instansi = $1 AND u.id <> $3
+			  AND NOT (u.role ILIKE '%"operator"%')
+			  AND NOT EXISTS (
+			      SELECT 1 FROM voucher_redemptions vr
+			      WHERE vr.user_id = u.id AND vr.is_active
+			  )`, instansi, expiry, userID)
+		return err
+	}
+}
+
+// executor abstracts a statement runner with the pgx Exec signature so
+// tombstoneUnstartedInstansiExams works both inside the redemption
+// transaction (pgx.Tx) and in the standalone toggle-status handler
+// (*pgxpool.Pool).
+type executor interface {
+	Exec(ctx context.Context, sql string, args ...any) (pgconn.CommandTag, error)
+}
+
+// tombstoneUnstartedInstansiExams (policy B) sets every exam in the instansi
+// that is active but has never been started (exam_started_at IS NULL) to
+// inactive — the school's unpublished exams go dormant when the school's
+// operator is cut off (voucher switch or manual suspension). Exams already
+// running are deliberately left untouched so students working on them can
+// finish, and the tombstone is never auto-reversed: the owner re-activates
+// manually, so an admin's explicit inactivation is never clobbered.
+//
+// spareOperatorRoleCreators controls which exams are covered. When true
+// (voucher switch), accounts that still hold the operator role (their own
+// school voucher) remain valid operators, so their exams are spared; when
+// false (a manual operator suspension freezes the whole school), every
+// account in the instansi is covered.
+func tombstoneUnstartedInstansiExams(ctx context.Context, exec executor, instansi string, spareOperatorRoleCreators bool) error {
+	creatorFilter := `TRUE`
+	if spareOperatorRoleCreators {
+		creatorFilter = `NOT (role ILIKE '%"operator"%')`
+	}
+	// tombstoned_at marks the exam as auto-inactivated (policy B) so the admin
+	// UI can tell it apart from a manual inactivation; the marker is cleared
+	// whenever the exam is (re)activated.
+	_, err := exec.Exec(ctx, fmt.Sprintf(`
+		UPDATE exams e
+		SET status = 'inactive', tombstoned_at = now()
+		WHERE e.status = 'active' AND e.exam_started_at IS NULL
+		  AND e.created_by IN (
+		      SELECT id FROM admin_users
+		      WHERE instansi = $1 AND %s
+		  )`, creatorFilter), instansi)
 	return err
+}
+
+// operatorRoleTransition decides how the school's sub-accounts must react to a
+// package activation based on the operator role before and after:
+//   - "suspend": the operator role was lost — sub-accounts are deactivated;
+//   - "restore": the operator role is present (gained or retained) —
+//     cascade-suspended sub-accounts are restored and their expiry realigned;
+//   - "none": no operator role on either side — nothing to reconcile.
+//
+// Pure function (no DB access) so the school → guru → school transition can be
+// unit-tested directly; the SQL wrapper is syncInstansiWithOperatorRole.
+func operatorRoleTransition(prevRoleJSON, roleJSON string) string {
+	prevHasOp := containsRole(models.ParseRoles(prevRoleJSON), models.RoleOperator)
+	newHasOp := containsRole(models.ParseRoles(roleJSON), models.RoleOperator)
+	if !prevHasOp && !newHasOp {
+		return "none"
+	}
+	if newHasOp {
+		return "restore"
+	}
+	return "suspend"
 }
 
 // nextRolesState computes the (role, package_role, base_role) columns for a

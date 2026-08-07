@@ -274,9 +274,19 @@ function loadPengawasExams(page) {
                 var sub = ex.submitted_count || 0;
                 var pct = total > 0 ? Math.round(sub / total * 100) : 0;
                 var barColor = pct >= 100 ? '#34d399' : (pct > 0 ? '#60a5fa' : '#6b7280');
-                var statusHtml = ex.status === 'active'
-                    ? '<span class="status-badge status-active">Aktif</span>'
-                    : '<span class="status-badge status-inactive">Nonaktif</span>';
+                // Three-state badge: a tombstoned exam (auto-inactivated by
+                // policy B when the school operator was cut off) reads
+                // "Ditombstone" instead of a bare "Nonaktif" so the operator
+                // is not left wondering why the exam is dormant.
+                var statusHtml;
+                if (ex.status === 'active') {
+                    statusHtml = '<span class="status-badge status-active">Aktif</span>';
+                } else if (ex.tombstoned) {
+                    var tombTitle = 'Nonaktif otomatis oleh sistem saat paket sekolah berganti/berakhir' + (ex.tombstoned_at ? ' (' + ex.tombstoned_at + ')' : '');
+                    statusHtml = '<span class="status-badge status-tombstoned" title="' + tombTitle + '">Ditombstone</span>';
+                } else {
+                    statusHtml = '<span class="status-badge status-inactive">Nonaktif</span>';
+                }
                 var sched = (ex.start_time && ex.end_time) ? (ex.start_time + ' - ' + ex.end_time) : '—';
 
                 var startedBadge = ex.exam_started_at

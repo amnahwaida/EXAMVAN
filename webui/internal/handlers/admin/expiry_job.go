@@ -160,7 +160,14 @@ func handleExpiredPackage(ctx context.Context, pool *pgxpool.Pool, userID int) {
 		&r.MaxStorageSize, &r.Role,
 	)
 	if err == pgx.ErrNoRows {
-		// No usable fallback — the account stays expired; nothing more to do.
+		// No usable fallback — persist the pause of the exhausted package (the
+		// account keeps its past expires_at and login stays blocked). Committing
+		// here matters: a bare return would roll the pause back, leaving the
+		// redemption active-with-zero-lifetime and re-selecting this user on
+		// every pass.
+		if cerr := tx.Commit(ctx); cerr != nil {
+			log.Printf("package-expiry job: commit pause (user %d): %v", userID, cerr)
+		}
 		return
 	}
 	if err != nil {

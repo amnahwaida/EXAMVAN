@@ -216,6 +216,63 @@ func TestNextRolesStatePackageCannotGrantSuperAdmin(t *testing.T) {
 	}
 }
 
+// TestOperatorRoleTransition guards the sub-account reconciliation decision
+// behind syncInstansiWithOperatorRole: the school → guru → school package
+// switch must suspend sub-accounts when the operator role is lost, restore
+// them when it is back, and ignore pure non-operator switches.
+func TestOperatorRoleTransition(t *testing.T) {
+	cases := []struct {
+		name string
+		prev string
+		next string
+		want string
+	}{
+		{
+			name: "guru to guru",
+			prev: `["guru"]`,
+			next: `["guru"]`,
+			want: "none",
+		},
+		{
+			name: "sekolah to guru (operator dropped)",
+			prev: `["guru","operator"]`,
+			next: `["guru"]`,
+			want: "suspend",
+		},
+		{
+			name: "guru to sekolah (operator gained)",
+			prev: `["guru"]`,
+			next: `["guru","operator"]`,
+			want: "restore",
+		},
+		{
+			name: "sekolah renewal (operator retained)",
+			prev: `["guru","operator"]`,
+			next: `["guru","operator"]`,
+			want: "restore",
+		},
+		{
+			name: "superadmin never touched",
+			prev: `["superadmin"]`,
+			next: `["superadmin"]`,
+			want: "none",
+		},
+		{
+			name: "admin-granted operator survives guru switch",
+			prev: `["guru","operator"]`,
+			next: `["guru","operator"]`,
+			want: "restore",
+		},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			if got := operatorRoleTransition(c.prev, c.next); got != c.want {
+				t.Errorf("operatorRoleTransition(%s -> %s) = %q, want %q", c.prev, c.next, got, c.want)
+			}
+		})
+	}
+}
+
 // TestNextRolesStateHandEditedBaseRole guards against a hand-edited "[]"
 // base_role producing a literal "[]" role via models.ParseRoles' fallback.
 // "[]" means "no base roles", so only the package-granted operator remains in

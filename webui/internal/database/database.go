@@ -72,3 +72,11 @@ func runSchema(ctx context.Context, pool *pgxpool.Pool) error {
 	}
 	return nil
 }
+
+// ApplySchema executes the embedded schema.sql against the pool — the same
+// initialization Connect performs on startup. It is exported so integration
+// tests can bring up (and reset) a disposable database without reaching into
+// the unexported embedded SQL.
+func ApplySchema(ctx context.Context, pool *pgxpool.Pool) error {
+	return runSchema(ctx, pool)
+}

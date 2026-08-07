@@ -172,6 +172,21 @@
    </div>
   </div>
 
+  <!-- Sub-Account Quota Card (school operators only) -->
+  {{if .user_max_accounts}}
+  <div class="glass-card" style="padding:24px;border-radius:16px;display:flex;flex-direction:column;justify-content:center;">
+   <span style="font-size:11px;font-weight:700;text-transform:uppercase;color:var(--color-accent-light);letter-spacing:0.5px;display:block;margin-bottom:12px;">Kuota Akun Guru</span>
+   <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;font-size:13px;">
+    <span class="tooltip" data-tooltip="Batas jumlah akun yang dapat dibuat di instansi sekolah Anda. Akun yang dinonaktifkan saat paket sekolah tidak aktif juga ikut terhitung." style="color:var(--color-text-secondary);">Akun Terpakai <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M11.25 11.25l.041-.02a.75.75 0 011.063.852l-.708 2.836a.75.75 0 001.063.853l.041-.021M21 12a9 9 0 11-18 0 9 9 0 0118 0zm-9-3.75h.008v.008H12V8.25z" /></svg></span>
+    <strong style="color:#fff;">{{.user_accounts_used}} / {{.user_max_accounts}}</strong>
+   </div>
+   <div style="height:6px;border-radius:99px;background:rgba(255,255,255,0.08);overflow:hidden;margin-bottom:8px;">
+    <div style="height:100%;width:{{.user_accounts_pct}}%;border-radius:99px;background:{{if ge .user_accounts_pct 100}}#ef4444{{else if ge .user_accounts_pct 80}}#f59e0b{{else}}linear-gradient(90deg, #a855f7, #6366f1){{end}};transition:width 0.4s ease;"></div>
+   </div>
+   <p style="font-size:12px;color:var(--color-text-secondary);margin:0;">Sisa kuota: <strong style="color:{{if ge .user_accounts_pct 100}}#ef4444{{else}}#fff{{end}};">{{.user_accounts_remaining}} akun</strong>{{if ge .user_accounts_pct 100}} — batas tercapai, pembuatan akun baru diblokir.{{end}}</p>
+  </div>
+  {{end}}
+
   <!-- Storage Details Card -->
   <div class="glass-card" style="padding:24px;border-radius:16px;display:flex;flex-direction:column;justify-content:center;">
    <span style="font-size:11px;font-weight:700;text-transform:uppercase;color:var(--color-accent-light);letter-spacing:0.5px;display:block;margin-bottom:12px;">Kuota Storage</span>

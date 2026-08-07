@@ -196,6 +196,12 @@ func PengawasExams() gin.HandlerFunc {
 			SubmittedCount int        `json:"submitted_count"`
 			CreatedAt      string     `json:"created_at"`
 			ExamStartedAt  *time.Time `json:"exam_started_at"`
+			// Tombstoned: the exam was auto-inactivated (policy B) when the
+			// school's operator was cut off (voucher switch / manual
+			// suspension), not manually. Lets the pengawas page explain why a
+			// Nonaktif exam is dormant instead of leaving the operator puzzled.
+			Tombstoned   bool   `json:"tombstoned"`
+			TombstonedAt string `json:"tombstoned_at"`
 		}
 
 		// Build username map
@@ -236,18 +242,24 @@ func PengawasExams() gin.HandlerFunc {
 			if e.TokenMode != nil && *e.TokenMode != "" {
 				tokenMode = *e.TokenMode
 			}
+			tombstonedAt := ""
+			if e.TombstonedAt != nil {
+				tombstonedAt = formatISOUTC(*e.TombstonedAt)
+			}
 			item := examItem{
-				ID:            e.ID,
-				Name:          e.Name,
-				Token:         e.Token,
-				ActiveToken:   e.ActiveToken,
-				TokenMode:     tokenMode,
-				Status:        e.Status,
-				StartTime:     startStr,
-				EndTime:       endStr,
-				CreatedAt:     formatISOUTC(e.CreatedAt),
-				ExamStartedAt: e.ExamStartedAt,
-				CreatorName:   usernameMap[e.CreatedBy],
+				ID:             e.ID,
+				Name:           e.Name,
+				Token:          e.Token,
+				ActiveToken:    e.ActiveToken,
+				TokenMode:      tokenMode,
+				Status:         e.Status,
+				StartTime:      startStr,
+				EndTime:        endStr,
+				CreatedAt:      formatISOUTC(e.CreatedAt),
+				ExamStartedAt:  e.ExamStartedAt,
+				CreatorName:    usernameMap[e.CreatedBy],
+				Tombstoned:     e.TombstonedAt != nil,
+				TombstonedAt:   tombstonedAt,
 			}
 			examList = append(examList, item)
 		}

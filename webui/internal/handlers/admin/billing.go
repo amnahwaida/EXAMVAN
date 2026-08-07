@@ -4,8 +4,8 @@ import (
 	"log"
 	"time"
 
-	"github.com/gin-gonic/gin"
 	"github.com/examvan/webui/internal/models"
+	"github.com/gin-gonic/gin"
 )
 
 // BillingPage renders the slimmed-down package & voucher page. Purchasing and
@@ -28,6 +28,10 @@ func BillingPage() gin.HandlerFunc {
 		var userMaxStorage int64
 		var userExpires string
 		userExpired := false
+		var userMaxAccounts int64 // sub-account quota of the active package (0 = n/a or unlimited)
+		var userAccountsUsed int64
+		userAccountsPct := 0
+		var userAccountsRemaining int64
 		isSuper := getCurrentUserRole(c) == models.RoleSuperAdmin
 
 		if pool != nil {
@@ -55,20 +59,41 @@ func BillingPage() gin.HandlerFunc {
 						userExpired = true
 					}
 				}
+
+				// Sub-account quota (school packages): show how many accounts the
+				// operator may create and how many already exist, so the limit
+				// is visible before it is reached. Same source and count as the
+				// CreateUser enforcement (loadOperatorAccountQuota), so display
+				// and enforcement can never disagree.
+				userMaxAccounts, userAccountsUsed = loadOperatorAccountQuota(ctx, pool, userID, user.IsOperator(), user.Instansi)
+				if userMaxAccounts > 0 {
+					userAccountsPct = int(userAccountsUsed * 100 / userMaxAccounts)
+					if userAccountsPct > 100 {
+						userAccountsPct = 100
+					}
+					userAccountsRemaining = userMaxAccounts - userAccountsUsed
+					if userAccountsRemaining < 0 {
+						userAccountsRemaining = 0
+					}
+				}
 			}
 		}
 
 		renderAdminPage(c, "admin/billing.html", gin.H{
-			"active_page":          "billing",
-			"voucher_enabled":      voucherEnabled,
-			"user_package":         userPackage,
-			"user_expires_at":      userExpires,
-			"user_max_total_exams": userMaxTotal,
-			"user_max_concurrent":  userMaxConcurrent,
-			"user_max_pdf_size_mb": roundTo(float64(userMaxPDF)/(1024*1024), 1),
-			"user_max_storage_mb":  roundTo(float64(userMaxStorage)/(1024*1024), 2),
-			"user_is_super":        isSuper,
-			"user_expired":         userExpired,
+			"active_page":             "billing",
+			"voucher_enabled":         voucherEnabled,
+			"user_package":            userPackage,
+			"user_expires_at":         userExpires,
+			"user_max_total_exams":    userMaxTotal,
+			"user_max_concurrent":     userMaxConcurrent,
+			"user_max_pdf_size_mb":    roundTo(float64(userMaxPDF)/(1024*1024), 1),
+			"user_max_storage_mb":     roundTo(float64(userMaxStorage)/(1024*1024), 2),
+			"user_is_super":           isSuper,
+			"user_expired":            userExpired,
+			"user_max_accounts":       userMaxAccounts,
+			"user_accounts_used":      userAccountsUsed,
+			"user_accounts_pct":       userAccountsPct,
+			"user_accounts_remaining": userAccountsRemaining,
 		})
 	}
 }

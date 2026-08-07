@@ -16,6 +16,7 @@ type PackageSetting struct {
 	MaxPDFSize         int64     `json:"max_pdf_size"`
 	MaxConcurrentExams int64     `json:"max_concurrent_exams"`
 	MaxStorageSize     int64     `json:"max_storage_size"`
+	MaxUsers           int64     `json:"max_users"` // sub-account quota (0 = unlimited)
 	Role               string    `json:"role"`
 	UpdatedAt          time.Time `json:"updated_at"`
 }
@@ -35,7 +36,7 @@ var PackageSettingKeys = []string{
 func ListPackageSettings(ctx context.Context, pool *pgxpool.Pool) ([]PackageSetting, error) {
 	rows, err := pool.Query(ctx, `
 		SELECT pkg_key, COALESCE(label, ''), max_exams, max_pdf_size,
-		       max_concurrent_exams, max_storage_size, COALESCE(role, ''), updated_at
+		       max_concurrent_exams, max_storage_size, max_users, COALESCE(role, ''), updated_at
 		FROM package_settings
 		ORDER BY array_position($1::text[], pkg_key)`, PackageSettingKeys)
 	if err != nil {
@@ -48,7 +49,7 @@ func ListPackageSettings(ctx context.Context, pool *pgxpool.Pool) ([]PackageSett
 		var s PackageSetting
 		if err := rows.Scan(
 			&s.Key, &s.Label, &s.MaxExams, &s.MaxPDFSize,
-			&s.MaxConcurrentExams, &s.MaxStorageSize, &s.Role, &s.UpdatedAt,
+			&s.MaxConcurrentExams, &s.MaxStorageSize, &s.MaxUsers, &s.Role, &s.UpdatedAt,
 		); err != nil {
 			return nil, err
 		}

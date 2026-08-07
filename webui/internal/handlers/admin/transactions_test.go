@@ -25,7 +25,7 @@ func TestPackageEntitlementConcurrentQuota(t *testing.T) {
 		{"sekolah_unggulan", 99999, 99999},
 	}
 	for _, c := range cases {
-		exams, _, concurrent, _, _ := packageEntitlement(c.pkg)
+		exams, _, concurrent, _, _, _ := packageEntitlement(c.pkg)
 		if exams != c.wantExams || concurrent != c.wantConcurrent {
 			t.Errorf("packageEntitlement(%q) exams=%d concurrent=%d, want exams=%d concurrent=%d",
 				c.pkg, exams, concurrent, c.wantExams, c.wantConcurrent)
@@ -36,11 +36,23 @@ func TestPackageEntitlementConcurrentQuota(t *testing.T) {
 	}
 
 	// School packages must still grant the operator role.
-	if _, _, _, _, role := packageEntitlement("sekolah_kecil"); role != models.SerializeRoles([]string{models.RoleOperator}) {
+	if _, _, _, _, _, role := packageEntitlement("sekolah_kecil"); role != models.SerializeRoles([]string{models.RoleOperator}) {
 		t.Errorf("sekolah_kecil should grant operator role, got %q", role)
 	}
 	// Non-school packages must not grant a role.
-	if _, _, _, _, role := packageEntitlement("guru"); role != "" {
+	if _, _, _, _, _, role := packageEntitlement("guru"); role != "" {
 		t.Errorf("guru should not grant a role, got %q", role)
+	}
+
+	// Sub-account quota defaults: school packages cap how many accounts the
+	// operator may create (0 = unlimited for non-school / unggulan).
+	wantUsers := map[string]int64{
+		"": 0, "guru": 0, "individu": 0,
+		"sekolah_kecil": 10, "sekolah_menengah": 25, "sekolah_besar": 50, "sekolah_unggulan": 0,
+	}
+	for pkg, want := range wantUsers {
+		if _, _, _, _, maxUsers, _ := packageEntitlement(pkg); maxUsers != want {
+			t.Errorf("packageEntitlement(%q) max_users=%d, want %d", pkg, maxUsers, want)
+		}
 	}
 }

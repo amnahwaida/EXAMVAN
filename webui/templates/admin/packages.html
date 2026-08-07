@@ -64,12 +64,13 @@
       <th style="padding:16px 20px;min-width:120px;">Ujian Serentak</th>
       <th style="padding:16px 20px;min-width:120px;">Maks. PDF (MB)</th>
       <th style="padding:16px 20px;min-width:130px;">Storage (MB)</th>
+      <th style="padding:16px 20px;min-width:130px;">Maks. Akun Guru</th>
       <th style="padding:16px 20px;min-width:140px;">Role</th>
      </tr>
     </thead>
     <tbody id="packagesTableBody">
      <tr>
-      <td colspan="6" style="padding:32px;text-align:center;color:var(--color-text-secondary);">
+      <td colspan="7" style="padding:32px;text-align:center;color:var(--color-text-secondary);">
        <span style="display:inline-flex;align-items:center;gap:6px;"><svg class="icon-svg spin" style="width:16px;height:16px;"><use href="#hi-refresh"/></svg> Memuat pengaturan paket...</span>
       </td>
      </tr>
@@ -79,7 +80,7 @@
  </div>
 
  <p style="color:var(--color-text-secondary);font-size:12.5px;margin-top:14px;">
-  Keterangan: <strong style="color:#fff;">Total Ujian</strong> = maksimal ujian yang dapat dibuat; <strong style="color:#fff;">Ujian Serentak</strong> = maksimal ujian yang berjalan bersamaan (otomatis dibatasi tidak melebihi Total Ujian); <strong style="color:#fff;">Role</strong> = peran tambahan yang diberikan saat voucher paket ini diklaim.
+  Keterangan: <strong style="color:#fff;">Total Ujian</strong> = maksimal ujian yang dapat dibuat; <strong style="color:#fff;">Ujian Serentak</strong> = maksimal ujian yang berjalan bersamaan (otomatis dibatasi tidak melebihi Total Ujian); <strong style="color:#fff;">Maks. Akun Guru</strong> = batas jumlah akun yang boleh dibuat operator di instansi (0 = tanpa batas); <strong style="color:#fff;">Role</strong> = peran tambahan yang diberikan saat voucher paket ini diklaim.
  </p>
 
 </div>
@@ -106,7 +107,7 @@
  function renderTable() {
   var tbody = document.getElementById('packagesTableBody');
   if (!PACKAGES.length) {
-   tbody.innerHTML = '<tr><td colspan="6" style="padding:32px;text-align:center;color:var(--color-text-secondary);">Belum ada data paket.</td></tr>';
+   tbody.innerHTML = '<tr><td colspan="7" style="padding:32px;text-align:center;color:var(--color-text-secondary);">Belum ada data paket.</td></tr>';
    return;
   }
   var html = '';
@@ -123,6 +124,7 @@
     '<td data-label="Ujian Serentak" style="padding:14px 20px;"><input type="number" min="1" step="1" data-field="concurrent" value="' + p.concurrent + '" /></td>' +
     '<td data-label="Maks. PDF (MB)" style="padding:14px 20px;"><input type="number" min="1" step="0.5" data-field="pdf_mb" value="' + p.pdf_mb + '" /></td>' +
     '<td data-label="Storage (MB)" style="padding:14px 20px;"><input type="number" min="1" step="0.5" data-field="storage_mb" value="' + p.storage_mb + '" /></td>' +
+    '<td data-label="Maks. Akun Guru" style="padding:14px 20px;"><input type="number" min="0" step="1" data-field="max_users" value="' + p.max_users + '" title="Batas jumlah akun yang boleh dibuat operator di instansi ini (0 = tanpa batas)" /></td>' +
     '<td data-label="Role" style="padding:14px 20px;"><select data-field="role">' + roleOpts + '</select></td>' +
     '</tr>';
   });
@@ -142,6 +144,7 @@
       concurrent: p.max_concurrent_exams,
       pdf_mb: p.max_pdf_size_mb,
       storage_mb: p.max_storage_mb,
+      max_users: p.max_users || 0,
       role: parseRole(p.role)
      };
     });
@@ -150,7 +153,7 @@
    .catch(function(err) {
     console.error(err);
     document.getElementById('packagesTableBody').innerHTML =
-     '<tr><td colspan="6" style="padding:32px;text-align:center;color:#f87171;">Gagal memuat pengaturan paket.</td></tr>';
+     '<tr><td colspan="7" style="padding:32px;text-align:center;color:#f87171;">Gagal memuat pengaturan paket.</td></tr>';
    });
  }
 
@@ -170,6 +173,7 @@
     max_concurrent_exams: Math.max(1, parseInt(tr.querySelector('input[data-field="concurrent"]').value, 10) || 1),
     max_pdf_size_mb: Math.max(1, parseFloat(tr.querySelector('input[data-field="pdf_mb"]').value) || 1),
     max_storage_mb: Math.max(1, parseFloat(tr.querySelector('input[data-field="storage_mb"]').value) || 1),
+    max_users: Math.max(0, parseInt(tr.querySelector('input[data-field="max_users"]').value, 10) || 0),
     role: tr.querySelector('select[data-field="role"]').value
    });
   });

@@ -117,11 +117,15 @@ function toggleExam(examId) {
         .then(r => r.json())
         .then(res => {
             if (res.success) {
-                // Update badge in-place berdasarkan new_status dari server
+                // Update badge in-place berdasarkan new_status dari server.
+                // status-tombstoned dibuang: mengaktifkan ujian otomatis
+                // membersihkan penanda tombstone di server, jadi badge harus
+                // kembali normal (Aktif/Nonaktif), bukan lagi "Ditombstone".
                 var isActive = res.new_status === 'active';
+                badge.classList.remove('status-tombstoned');
                 badge.classList.toggle('status-active', isActive);
                 badge.classList.toggle('status-inactive', !isActive);
-                badge.textContent = res.new_status || (isActive ? 'active' : 'inactive');
+                badge.textContent = isActive ? 'Aktif' : 'Nonaktif';
                 showToast(res.message, 'success');
             } else {
                 showToast(res.message || 'Gagal mengubah status', 'error');

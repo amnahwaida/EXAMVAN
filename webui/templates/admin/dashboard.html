@@ -466,10 +466,25 @@
 </div>
 </td>
 <td data-label="Status">
-{{if or (eq $.admin_role "superadmin") (eq $.admin_role "operator") (eq $.admin_id $exam.CreatedBy) (and $exam.DelegatedTo (eq $.admin_id $exam.DelegatedTo))}}
-<span class="status-badge status-{{$exam.Status}}" id="status-{{$exam.ID}}" onclick="toggleExam({{$exam.ID}})" onkeydown="if(event.key==='Enter' || event.key===' '){event.preventDefault();toggleExam({{$exam.ID}});}" tabindex="0" role="button" aria-label="Ubah status ujian {{$exam.Name}}" title="Klik untuk toggle status">{{if eq $exam.Status "active"}}Aktif{{else}}Nonaktif{{end}}</span>
+{{$canToggle := or (eq $.admin_role "superadmin") (eq $.admin_role "operator") (eq $.admin_id $exam.CreatedBy) (and $exam.DelegatedTo (eq $.admin_id $exam.DelegatedTo))}}
+{{$tombTitle := "Nonaktif otomatis oleh sistem saat paket sekolah berganti/berakhir"}}
+{{if $exam.TombstonedAt}}{{$tombTitle = printf "%s (%s)" $tombTitle $exam.TombstonedAt}}{{end}}
+{{if $canToggle}}
+{{if eq $exam.Status "active"}}
+<span class="status-badge status-active" id="status-{{$exam.ID}}" onclick="toggleExam({{$exam.ID}})" onkeydown="if(event.key==='Enter' || event.key===' '){event.preventDefault();toggleExam({{$exam.ID}});}" tabindex="0" role="button" aria-label="Ubah status ujian {{$exam.Name}}" title="Klik untuk menonaktifkan ujian">Aktif</span>
+{{else if $exam.Tombstoned}}
+<span class="status-badge status-tombstoned" id="status-{{$exam.ID}}" onclick="toggleExam({{$exam.ID}})" onkeydown="if(event.key==='Enter' || event.key===' '){event.preventDefault();toggleExam({{$exam.ID}});}" tabindex="0" role="button" aria-label="Aktifkan kembali ujian {{$exam.Name}}" title="{{$tombTitle}}. Klik untuk mengaktifkan kembali">Ditombstone</span>
 {{else}}
-<span class="status-badge status-{{$exam.Status}}" style="cursor:default;">{{if eq $exam.Status "active"}}Aktif{{else}}Nonaktif{{end}}</span>
+<span class="status-badge status-inactive" id="status-{{$exam.ID}}" onclick="toggleExam({{$exam.ID}})" onkeydown="if(event.key==='Enter' || event.key===' '){event.preventDefault();toggleExam({{$exam.ID}});}" tabindex="0" role="button" aria-label="Ubah status ujian {{$exam.Name}}" title="Klik untuk mengaktifkan ujian">Nonaktif</span>
+{{end}}
+{{else}}
+{{if eq $exam.Status "active"}}
+<span class="status-badge status-active" style="cursor:default;">Aktif</span>
+{{else if $exam.Tombstoned}}
+<span class="status-badge status-tombstoned" style="cursor:default;" title="{{$tombTitle}}">Ditombstone</span>
+{{else}}
+<span class="status-badge status-inactive" style="cursor:default;">Nonaktif</span>
+{{end}}
 {{end}}
 </td>
 <td data-label="Pengawas" class="pengawas-cell">

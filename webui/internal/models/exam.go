@@ -39,6 +39,12 @@ type Exam struct {
 	TokenResetInterval *int       `json:"token_reset_interval,omitempty"`
 	TokenLastResetAt   *time.Time `json:"token_last_reset_at,omitempty"`
 	ExamStartedAt      *time.Time `json:"exam_started_at,omitempty"`
+	// TombstonedAt is set when the school's operator is cut off (voucher
+	// switch or manual suspension) and this active-but-unstarted exam was
+	// auto-inactivated (policy B). It lets the admin UI distinguish an
+	// auto-tombstoned exam from a manually inactivated one. Cleared whenever
+	// the exam is (re)activated.
+	TombstonedAt *time.Time `json:"tombstoned_at,omitempty"`
 }
 
 // IsActive returns true when the exam status is "active".
@@ -65,13 +71,13 @@ func (e Exam) GetTokenMode() string {
 const DefaultExamColumns = `id, name, file_path, size_bytes, token, active_token, questions_json,
 status, security_level, strict_mode, public_results, show_answers,
 created_by, created_at, identity_fields, panel_color,
-start_time, end_time, delegated_to, token_mode, token_reset_interval, token_last_reset_at, exam_started_at`
+start_time, end_time, delegated_to, token_mode, token_reset_interval, token_last_reset_at, exam_started_at, tombstoned_at`
 
 // DefaultExamColumnsWithAlias for JOIN queries with e. prefix.
 const DefaultExamColumnsWithAlias = `e.id, e.name, e.file_path, e.size_bytes, e.token, e.active_token, e.questions_json,
 e.status, e.security_level, e.strict_mode, e.public_results, e.show_answers,
 e.created_by, e.created_at, e.identity_fields, e.panel_color,
-e.start_time, e.end_time, e.delegated_to, e.token_mode, e.token_reset_interval, e.token_last_reset_at, e.exam_started_at`
+e.start_time, e.end_time, e.delegated_to, e.token_mode, e.token_reset_interval, e.token_last_reset_at, e.exam_started_at, e.tombstoned_at`
 
 // scanExam scans a row into an Exam struct. The columns must match DefaultExamColumns order.
 func scanExam(row pgx.Row) (Exam, error) {
@@ -82,6 +88,7 @@ func scanExam(row pgx.Row) (Exam, error) {
 		&e.CreatedBy, &e.CreatedAt, &e.IdentityFields, &e.PanelColor,
 		&e.StartTime, &e.EndTime, &e.DelegatedTo,
 		&e.TokenMode, &e.TokenResetInterval, &e.TokenLastResetAt, &e.ExamStartedAt,
+		&e.TombstonedAt,
 	)
 	return e, err
 }
@@ -423,8 +430,9 @@ func UpdateExamActiveToken(ctx context.Context, pool *pgxpool.Pool, id int, acti
 }
 
 // StartExam marks an exam as started (sets exam_started_at) and optionally resets the active_token.
+// Starting is an activation, so any tombstone marker is cleared.
 func StartExam(ctx context.Context, pool *pgxpool.Pool, id int) error {
-	_, err := pool.Exec(ctx, `UPDATE exams SET status = 'active', exam_started_at = CURRENT_TIMESTAMP, token_last_reset_at = CURRENT_TIMESTAMP WHERE id = $1`, id)
+	_, err := pool.Exec(ctx, `UPDATE exams SET status = 'active', exam_started_at = CURRENT_TIMESTAMP, token_last_reset_at = CURRENT_TIMESTAMP, tombstoned_at = NULL WHERE id = $1`, id)
 	if err != nil {
 		return fmt.Errorf("start exam: %w", err)
 	}
@@ -492,7 +500,11 @@ func ToggleExamStatus(ctx context.Context, pool *pgxpool.Pool, id int) (string, 
 	if exam.Status == "inactive" {
 		newStatus = "active"
 	}
-	_, err = pool.Exec(ctx, `UPDATE exams SET status = $1 WHERE id = $2`, newStatus, id)
+	// (Re)activating clears the tombstone marker: the exam is back under the
+	// owner's control, so it is no longer "auto-inactivated" (policy B).
+	_, err = pool.Exec(ctx, `UPDATE exams SET status = $1,
+		tombstoned_at = CASE WHEN $1 = 'active' THEN NULL ELSE tombstoned_at END
+		WHERE id = $2`, newStatus, id)
 	if err != nil {
 		return "", fmt.Errorf("toggle status: %w", err)
 	}
@@ -633,11 +645,14 @@ func ListActiveExamsByInstansi(ctx context.Context, pool *pgxpool.Pool, code str
 }
 
 // BulkToggleExamStatus changes the status of multiple exams at once.
+// Bulk activation clears any tombstone markers (policy B).
 func BulkToggleExamStatus(ctx context.Context, pool *pgxpool.Pool, ids []int, status string) error {
 	if len(ids) == 0 {
 		return nil
 	}
-	_, err := pool.Exec(ctx, `UPDATE exams SET status = $1 WHERE id = ANY($2)`, status, ids)
+	_, err := pool.Exec(ctx, `UPDATE exams SET status = $1,
+		tombstoned_at = CASE WHEN $1 = 'active' THEN NULL ELSE tombstoned_at END
+		WHERE id = ANY($2)`, status, ids)
 	if err != nil {
 		return fmt.Errorf("bulk toggle: %w", err)
 	}

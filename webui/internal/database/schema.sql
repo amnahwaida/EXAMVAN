@@ -304,6 +304,7 @@ ALTER TABLE voucher_redemptions ADD COLUMN IF NOT EXISTS max_pdf_size BIGINT NOT
 ALTER TABLE voucher_redemptions ADD COLUMN IF NOT EXISTS max_concurrent_exams BIGINT NOT NULL DEFAULT 0;
 ALTER TABLE voucher_redemptions ADD COLUMN IF NOT EXISTS max_storage_size BIGINT NOT NULL DEFAULT 0;
 ALTER TABLE voucher_redemptions ADD COLUMN IF NOT EXISTS role TEXT NOT NULL DEFAULT '';
+ALTER TABLE voucher_redemptions ADD COLUMN IF NOT EXISTS max_users BIGINT NOT NULL DEFAULT 0;
 ALTER TABLE voucher_redemptions ADD COLUMN IF NOT EXISTS remaining_seconds BIGINT NOT NULL DEFAULT 0;
 ALTER TABLE voucher_redemptions ADD COLUMN IF NOT EXISTS activated_at TIMESTAMPTZ;
 
@@ -410,6 +411,7 @@ ALTER TABLE vouchers ADD COLUMN IF NOT EXISTS custom_max_exams INT DEFAULT 0;
 ALTER TABLE vouchers ADD COLUMN IF NOT EXISTS custom_max_concurrent_exams INT DEFAULT 0;
 ALTER TABLE vouchers ADD COLUMN IF NOT EXISTS custom_max_pdf_size BIGINT DEFAULT 0;
 ALTER TABLE vouchers ADD COLUMN IF NOT EXISTS custom_max_storage_size BIGINT DEFAULT 0;
+ALTER TABLE vouchers ADD COLUMN IF NOT EXISTS custom_max_users BIGINT DEFAULT 0;
 ALTER TABLE vouchers ADD COLUMN IF NOT EXISTS custom_role TEXT DEFAULT '';
 
 -- ============================================================
@@ -459,21 +461,59 @@ CREATE TABLE IF NOT EXISTS package_settings (
     max_pdf_size         BIGINT      NOT NULL DEFAULT 1048576,
     max_concurrent_exams BIGINT      NOT NULL DEFAULT 1,
     max_storage_size     BIGINT      NOT NULL DEFAULT 52428800,
+    max_users            BIGINT      NOT NULL DEFAULT 0,
     role                 TEXT        NOT NULL DEFAULT '',
     updated_at           TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
 );
 
+-- Sub-account quota for existing installs: the column is added with default 0
+-- ("unlimited"). On the first boot after this migration every row still holds
+-- the fresh 0, so a single backfill plants the school-package defaults; later
+-- SuperAdmin edits (including an intentional 0 = unlimited) are preserved
+-- because the guard below only fires while no row has a non-zero value.
+ALTER TABLE package_settings ADD COLUMN IF NOT EXISTS max_users BIGINT NOT NULL DEFAULT 0;
+DO $$
+BEGIN
+    IF NOT EXISTS (SELECT 1 FROM package_settings WHERE max_users <> 0) THEN
+        UPDATE package_settings SET max_users = CASE pkg_key
+            WHEN 'sekolah_kecil'    THEN 10
+            WHEN 'sekolah_menengah' THEN 25
+            WHEN 'sekolah_besar'    THEN 50
+            ELSE 0 END;
+    END IF;
+END $$;
+
 INSERT INTO package_settings
-    (pkg_key, label, max_exams, max_pdf_size, max_concurrent_exams, max_storage_size, role)
+    (pkg_key, label, max_exams, max_pdf_size, max_concurrent_exams, max_storage_size, max_users, role)
 VALUES
-    ('free',             'Free / Trial',           1, (1::bigint)*1024*1024, 1, (50::bigint)*1024*1024, ''),
-    ('guru',             'Paket Guru',             1, (10::bigint)*1024*1024, 1, (100::bigint)*1024*1024, ''),
-    ('individu',         'Paket Individu',         2, (30::bigint)*1024*1024, 2, (300::bigint)*1024*1024, ''),
-    ('sekolah_kecil',    'Paket Sekolah Kecil',    3, (50::bigint)*1024*1024, 3, (500::bigint)*1024*1024, '["operator"]'),
-    ('sekolah_menengah', 'Paket Sekolah Menengah', 5, (200::bigint)*1024*1024, 5, (2000::bigint)*1024*1024, '["operator"]'),
-    ('sekolah_besar',    'Paket Sekolah Besar',    10, (500::bigint)*1024*1024, 10, (5000::bigint)*1024*1024, '["operator"]'),
-    ('sekolah_unggulan', 'Paket Sekolah Unggulan', 99999, (99999::bigint)*1024*1024, 99999, (999999::bigint)*1024*1024, '["operator"]')
+    ('free',             'Free / Trial',           1, (1::bigint)*1024*1024, 1, (50::bigint)*1024*1024, 0, ''),
+    ('guru',             'Paket Guru',             1, (10::bigint)*1024*1024, 1, (100::bigint)*1024*1024, 0, ''),
+    ('individu',         'Paket Individu',         2, (30::bigint)*1024*1024, 2, (300::bigint)*1024*1024, 0, ''),
+    ('sekolah_kecil',    'Paket Sekolah Kecil',    3, (50::bigint)*1024*1024, 3, (500::bigint)*1024*1024, 10, '["operator"]'),
+    ('sekolah_menengah', 'Paket Sekolah Menengah', 5, (200::bigint)*1024*1024, 5, (2000::bigint)*1024*1024, 25, '["operator"]'),
+    ('sekolah_besar',    'Paket Sekolah Besar',    10, (500::bigint)*1024*1024, 10, (5000::bigint)*1024*1024, 50, '["operator"]'),
+    ('sekolah_unggulan', 'Paket Sekolah Unggulan', 99999, (99999::bigint)*1024*1024, 99999, (999999::bigint)*1024*1024, 0, '["operator"]')
 ON CONFLICT (pkg_key) DO NOTHING;
+
+-- Backfill the sub-account quota into snapshots claimed before max_users
+-- existed: paused/fresh rows fall back to the package_settings default for
+-- the package label they carry (custom labels simply stay 0 = unlimited).
+-- Must run AFTER the package_settings table is created and seeded above, so a
+-- fresh install (and every boot — the UPDATE is idempotent) can re-run it.
+UPDATE voucher_redemptions r
+SET max_users = ps.max_users
+FROM package_settings ps
+WHERE r.max_users = 0 AND r.package = ps.pkg_key;
+
+-- ============================================================
+-- Migration: exam tombstone marker (tombstoned_at)
+-- ============================================================
+-- Set when the school's operator is cut off (voucher switch or manual
+-- suspension) and the exam's active-but-unstarted status is auto-inactivated
+-- (policy B tombstone); cleared when the exam is (re)activated. Lets the
+-- admin UI tell an auto-tombstoned exam apart from a manually inactivated
+-- one. Safe to re-run on every boot.
+ALTER TABLE exams ADD COLUMN IF NOT EXISTS tombstoned_at TIMESTAMPTZ;
 
 -- ============================================================
 -- Migration: suspension freeze (suspended_at)
