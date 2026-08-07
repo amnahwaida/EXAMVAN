@@ -261,6 +261,12 @@ func SubmissionsPage() gin.HandlerFunc {
 					"sub_count":      subCount,
 					"start_time":     startTime,
 					"end_time":       endTime,
+					// Status + tombstone marker so the hasil page can show the
+					// same three-state badge (Aktif/Nonaktif/Ditombstone) as the
+					// dashboard and pengawas pages.
+					"status":        exam.Status,
+					"tombstoned":    exam.TombstonedAt != nil,
+					"tombstoned_at": exam.TombstonedAt,
 				}
 			}
 		}
@@ -323,7 +329,7 @@ func fetchFilterExams(c *gin.Context, pool *pgxpool.Pool) []gin.H {
 	isOp := isOperator(c)
 	ctx := c.Request.Context()
 
-	query := `SELECT e.id, e.name, u.username FROM exams e LEFT JOIN admin_users u ON u.id = e.created_by`
+	query := `SELECT e.id, e.name, u.username, e.tombstoned_at FROM exams e LEFT JOIN admin_users u ON u.id = e.created_by`
 	var conditions []string
 	var args []interface{}
 	argIdx := 1
@@ -362,8 +368,14 @@ func fetchFilterExams(c *gin.Context, pool *pgxpool.Pool) []gin.H {
 		var id int
 		var name string
 		var creator string
-		if err := rows.Scan(&id, &name, &creator); err == nil {
-			exams = append(exams, gin.H{"id": id, "name": name, "creator": creator})
+		var tombstonedAt *time.Time
+		if err := rows.Scan(&id, &name, &creator, &tombstonedAt); err == nil {
+			exams = append(exams, gin.H{
+				"id":         id,
+				"name":       name,
+				"creator":    creator,
+				"tombstoned": tombstonedAt != nil,
+			})
 		}
 	}
 	rows.Close()
