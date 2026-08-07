@@ -389,6 +389,7 @@
 <option value="" {{if eq $.status_filter ""}}selected{{end}}>Semua Status</option>
 <option value="active" {{if eq $.status_filter "active"}}selected{{end}}>Aktif</option>
 <option value="inactive" {{if eq $.status_filter "inactive"}}selected{{end}}>Nonaktif</option>
+<option value="tombstoned" {{if eq $.status_filter "tombstoned"}}selected{{end}}>Ditombstone</option>
 </select>
 <div class="toolbar-search-wrap">
 <label for="searchExam" style="position:absolute;left:-9999px;">Cari ujian</label>

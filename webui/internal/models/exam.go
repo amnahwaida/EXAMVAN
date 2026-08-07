@@ -166,11 +166,18 @@ func ListExams(ctx context.Context, pool *pgxpool.Pool, opts ListExamsOpts) (Lis
 	var args []interface{}
 	argIdx := 1
 
-	// Status filter.
+	// Status filter. "tombstoned" is a virtual status: exams auto-inactivated
+	// by policy B (voucher switch / manual suspension) — inactive with the
+	// tombstoned_at marker set — so the dashboard can list them apart from a
+	// plain manual deactivation.
 	if opts.Status != "" {
-		conditions = append(conditions, fmt.Sprintf("e.status = $%d", argIdx))
-		args = append(args, opts.Status)
-		argIdx++
+		if opts.Status == "tombstoned" {
+			conditions = append(conditions, "e.status = 'inactive' AND e.tombstoned_at IS NOT NULL")
+		} else {
+			conditions = append(conditions, fmt.Sprintf("e.status = $%d", argIdx))
+			args = append(args, opts.Status)
+			argIdx++
+		}
 	}
 
 	// Search filter.

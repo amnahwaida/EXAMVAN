@@ -3314,7 +3314,11 @@ function filterExamRows() {
             creatorEl?.textContent || ''
         ].join(' ').toLowerCase();
         const matchQuery = !query || text.includes(query);
-        const matchStatus = !status || (statusEl?.textContent.trim() === status);
+        // Select values are machine keys (active/inactive/tombstoned) while the
+        // badges read localized labels (Aktif/Nonaktif/Ditombstone) — map the
+        // value to the label so the client-side filter matches the rows.
+        const statusText = { active: 'Aktif', inactive: 'Nonaktif', tombstoned: 'Ditombstone' };
+        const matchStatus = !status || (statusEl?.textContent.trim() === (statusText[status] || status));
         if (matchQuery && matchStatus) {
             row.style.display = '';
             visibleCount++;
