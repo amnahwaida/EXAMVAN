@@ -255,6 +255,7 @@ func resetPasswordPageHandler(cfg *config.Config) gin.HandlerFunc {
 		data := middleware.TemplateData(c)
 		data["version"] = cfg.Version
 		data["username"] = username
+		applyTurnstileData(c, data)
 		c.HTML(http.StatusOK, "public/reset_password.html", data)
 	}
 }
@@ -272,6 +273,7 @@ func resetPasswordPostHandler(cfg *config.Config) gin.HandlerFunc {
 		data := middleware.TemplateData(c)
 		data["version"] = cfg.Version
 		data["username"] = username
+		applyTurnstileData(c, data)
 
 		render := func(msg string) {
 			data["error"] = msg
@@ -301,6 +303,19 @@ func resetPasswordPostHandler(cfg *config.Config) gin.HandlerFunc {
 			return
 		}
 		ctx := c.Request.Context()
+
+		// Cloudflare Turnstile bot protection (SuperAdmin-managed), fail-closed
+		// like the other public forms: without a valid widget token the reset
+		// attempt is rejected before any OTP state is touched.
+		if models.GetSaasSettingBool(ctx, pool, models.SettingTurnstileEnabled, false) {
+			secret := models.GetSaasSettingWithDefault(ctx, pool, models.SettingTurnstileSecretKey, "")
+			token := strings.TrimSpace(c.PostForm("cf-turnstile-response"))
+			if !verifyTurnstileToken(ctx, secret, token, c.ClientIP()) {
+				log.Printf("reset-password blocked: turnstile verification failed for username=%q", username)
+				render("Verifikasi keamanan gagal. Silakan coba lagi.")
+				return
+			}
+		}
 
 		var (
 			id        int
