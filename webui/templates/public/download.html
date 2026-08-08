@@ -403,8 +403,42 @@
             </div>
           </div>
 
-          <!-- Dynamic Android Releases from Sistem -->
+          <!-- Official EXAMVAN APK (student & kiosk) from static/ -->
           {{ $hasAndroidApp := false }}
+          {{ if gt .apk_student_size 0 }}{{ $hasAndroidApp = true }}{{ end }}
+          {{ if gt .apk_kiosk_size 0 }}{{ $hasAndroidApp = true }}{{ end }}
+
+          {{ if gt .apk_student_size 0 }}
+          <div class="flavor-box" style="border-color: rgba(139,92,246,0.35); background: rgba(139,92,246,0.06);">
+            <div>
+              <h4 class="flavor-title" style="color:#c4b5fd;">EXAMVAN Student (HP Pribadi)</h4>
+              <p class="flavor-meta">
+                Rilis Resmi • Versi: <span class="meta-val">v{{.android_version}}</span> • Ukuran: <span class="meta-val"><script>document.write( ({{ .apk_student_size }} / 1048576.0).toFixed(2) );</script> MB</span>
+              </p>
+            </div>
+            <a href="/download/apk?flavor=student" class="btn-download-big" style="background: linear-gradient(135deg, #8b5cf6, #7c3aed);">
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg>
+              Unduh APK Student
+            </a>
+          </div>
+          {{ end }}
+
+          {{ if gt .apk_kiosk_size 0 }}
+          <div class="flavor-box" style="border-color: rgba(59,130,246,0.35); background: rgba(59,130,246,0.06);">
+            <div>
+              <h4 class="flavor-title" style="color:#93c5fd;">EXAMVAN Kiosk (Tablet Sekolah)</h4>
+              <p class="flavor-meta">
+                Rilis Resmi • Versi: <span class="meta-val">v{{.android_version}}</span> • Ukuran: <span class="meta-val"><script>document.write( ({{ .apk_kiosk_size }} / 1048576.0).toFixed(2) );</script> MB</span>
+              </p>
+            </div>
+            <a href="/download/apk?flavor=kiosk" class="btn-download-big" style="background: linear-gradient(135deg, #3b82f6, #2563eb);">
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg>
+              Unduh APK Kiosk
+            </a>
+          </div>
+          {{ end }}
+
+          <!-- Dynamic Android Releases from Sistem -->
           {{ if .system_apps }}
             {{ range .system_apps }}
               {{ if eq .Platform "android" }}

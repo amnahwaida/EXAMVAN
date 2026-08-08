@@ -118,6 +118,27 @@ Kompilasi dapat dilakukan di sistem operasi **Windows, macOS, maupun Linux**.
    - **`student`** — Aplikasi bersih untuk HP pribadi siswa (tanpa Device Admin)
    - **`kiosk`** — Aplikasi dengan Device Admin + lock-task untuk tablet sekolah (mengunci perangkat saat ujian)
 
+### Merilis Versi APK Baru (Force Update)
+
+Siswa menerima APK lewat halaman unduhan server (`/download`). Setelah versi APK baru dirilis, aplikasi versi lama otomatis **diblokir** (HTTP 426) dan diarahkan ke halaman unduhan. Langkah rilis:
+
+1. **Build kedua flavor** (lihat perintah di atas).
+2. **Rename output ke nama yang dikenali server**:
+   ```bash
+   cp android/app/build/outputs/apk/student/debug/app-student-debug.apk webui/static/EXAMVAN-student.apk
+   cp android/app/build/outputs/apk/kiosk/debug/app-kiosk-debug.apk  webui/static/EXAMVAN-kiosk.apk
+   ```
+   > APK resmi di halaman `/download` dibaca dari `webui/static/` (nama `EXAMVAN-student.apk` / `EXAMVAN-kiosk.apk`). Tanpa file ini halaman tidak menampilkan tombol unduh resmi.
+3. **Rebuild & restart container webui** (perubahan static tidak ikut tanpa rebuild image):
+   ```bash
+   cd webui && docker compose build && docker compose up -d
+   ```
+4. **Naikkan versi minimum** di panel admin → **SaaS Settings → Android Version** (mis. dari `2.2.0` ke `2.3.0`). Begitu versi disimpan:
+   - `/api/health` mengembalikan `required_app_version` yang baru.
+   - Rute API yang diproteksi menolak versi lama dengan **HTTP 426**.
+   - Aplikasi siswa yang versinya lama menampilkan dialog **"Versi Aplikasi Kedaluwarsa"** dengan tombol *Buka Halaman Download* (membuka `/download`) dan *Keluar* — tidak bisa ikut ujian sampai update.
+5. **Verifikasi**: buka `/download` → kartu *EXAMVAN Student* & *EXAMVAN Kiosk* tampil dengan versi terbaru. Cek `curl -H "X-App-Version: 0.0.1" https://<host>/api/exams` → harus respons **426**.
+
 ### Build dengan Android Studio (GUI)
 1. Buka **Android Studio**.
 2. Pilih **Open an Existing Project** dan arahkan ke folder `./android`.

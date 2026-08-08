@@ -75,10 +75,26 @@ func DownloadPage() gin.HandlerFunc {
 			}
 		}
 
+		// Official APK releases from static/ (student & kiosk flavors).
+		// Expose existence + size so the download page can render a card even
+		// when no R2 system apps have been uploaded.
+		apkStudentPath := findAPKPath(c, "EXAMVAN-student.apk")
+		apkKioskPath := findAPKPath(c, "EXAMVAN-kiosk.apk")
+		apkStudentSize := int64(0)
+		apkKioskSize := int64(0)
+		if st, err := os.Stat(apkStudentPath); err == nil {
+			apkStudentSize = st.Size()
+		}
+		if st, err := os.Stat(apkKioskPath); err == nil {
+			apkKioskSize = st.Size()
+		}
+
 		c.HTML(http.StatusOK, "public/download.html", middleware.MergeTemplateData(c, gin.H{
-			"android_version": androidVer,
-			"webapp_version":  webappVer,
-			"system_apps":     systemApps,
+			"android_version":  androidVer,
+			"webapp_version":   webappVer,
+			"system_apps":      systemApps,
+			"apk_student_size": apkStudentSize,
+			"apk_kiosk_size":   apkKioskSize,
 		}))
 	}
 }

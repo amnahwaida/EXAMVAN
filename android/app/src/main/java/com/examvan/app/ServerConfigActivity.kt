@@ -21,6 +21,7 @@ import androidx.security.crypto.EncryptedSharedPreferences
 import androidx.security.crypto.MasterKey
 import com.examvan.app.api.ApiClient
 import com.examvan.app.databinding.ActivityServerConfigBinding
+import com.examvan.app.helper.UpdateManager
 import com.examvan.app.model.Exam
 import com.examvan.app.model.IdentityField
 import com.examvan.app.BuildConfig
@@ -140,33 +141,6 @@ class ServerConfigActivity : BaseSecureActivity() {
         }
     }
 
-    private fun isVersionCompatible(appVersion: String, requiredVersion: String): Boolean {
-        try {
-            // Parse version into integer segments, stripping non-numeric suffixes
-            // e.g. "2.1.10-beta" -> [2, 1, 10]
-            fun parseVersion(v: String): List<Int> {
-                return v.split(".").map { seg ->
-                    // Take leading digits only (discard non-numeric suffix like "-beta")
-                    val digits = seg.takeWhile { it.isDigit() }
-                    if (digits.isEmpty()) 0 else digits.toInt()
-                }
-            }
-            val appParts = parseVersion(appVersion)
-            val reqParts = parseVersion(requiredVersion)
-            val length = maxOf(appParts.size, reqParts.size)
-            for (i in 0 until length) {
-                val appPart = appParts.getOrElse(i) { 0 }
-                val reqPart = reqParts.getOrElse(i) { 0 }
-                if (appPart > reqPart) return true
-                if (appPart < reqPart) return false
-            }
-            // All segments equal — version is compatible
-            return true
-        } catch (e: Exception) {
-            return appVersion == requiredVersion
-        }
-    }
-
     private fun validateInputs(url: String, token: String): Boolean {
         if (url.isEmpty()) {
             showError(getString(R.string.url_empty_error))
@@ -191,14 +165,17 @@ class ServerConfigActivity : BaseSecureActivity() {
         // First check server health
         ApiClient.checkHealth(
             onSuccess = { health ->
-                // Version check: compare app version with server's required version
+                // Version check: compare app version with server's required version.
+                // Outdated APKs are BLOCKED with a dialog that sends the student
+                // to the server download page (a plain error text would let them
+                // bypass the update).
                 val requiredVersion = health.required_app_version
                 val appVersion = BuildConfig.VERSION_NAME
 
-                if (requiredVersion != null && !isVersionCompatible(appVersion, requiredVersion)) {
+                if (requiredVersion != null && UpdateManager.isOutdated(appVersion, requiredVersion)) {
                     runOnUiThread {
                         setLoading(false)
-                        showError(getString(R.string.version_mismatch_error, appVersion, requiredVersion))
+                        UpdateManager.showUpdateRequiredDialog(this@ServerConfigActivity, appVersion, requiredVersion, url)
                     }
                     return@checkHealth
                 }
@@ -237,10 +214,19 @@ class ServerConfigActivity : BaseSecureActivity() {
                             }
                         }
                     },
-                    onError = { errorMsg ->
+                    onError = { statusCode, errorMsg ->
                         runOnUiThread {
                             setLoading(false)
-                            showError(errorMsg)
+                            if (statusCode == ApiClient.HTTP_UPGRADE_REQUIRED) {
+                                UpdateManager.showUpdateRequiredDialog(
+                                    this@ServerConfigActivity,
+                                    BuildConfig.VERSION_NAME,
+                                    health.required_app_version,
+                                    url
+                                )
+                            } else {
+                                showError(errorMsg)
+                            }
                         }
                     }
                 )

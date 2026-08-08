@@ -25,6 +25,7 @@ object AppPrefs {
     const val KEY_SAVED_ANSWERS_TIMESTAMP = "saved_answers_timestamp"
     const val KEY_EXAM_START_TIME = "exam_start_time"
     const val KEY_SUBMITTED_OR_EXITED = "submitted_or_exited"
+    const val KEY_LAST_VERSION_CHECK_TS = "last_version_check_ts"
 
     fun getSubmittedOrExitedKey(examId: Int): String {
         return "${KEY_SUBMITTED_OR_EXITED}_$examId"

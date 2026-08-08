@@ -29,6 +29,12 @@ object ApiClient {
     private val gson = Gson()
 
     /**
+     * HTTP status returned by the server (middleware.AndroidVersionCheck)
+     * when the installed app version is older than the required one.
+     */
+    const val HTTP_UPGRADE_REQUIRED = 426
+
+    /**
      * Set this to a known sha256/... certificate fingerprint to enable
      * static certificate pinning. When non-null, the fingerprint from
      * /api/health is validated against this expected value before being applied.
@@ -108,7 +114,7 @@ object ApiClient {
             override fun onResponse(call: Call, response: Response) {
                 response.use {
                     if (!it.isSuccessful) {
-                        onError("Server error: ${it.code}")
+                        onError(parseErrorBody(it))
                         return
                     }
                     try {
@@ -184,10 +190,12 @@ object ApiClient {
 
     /**
      * Fetch list of active exams.
+     * onError receives (statusCode, message); statusCode is 0 for network
+     * failures so callers can distinguish HTTP 426 (app update required).
      */
     fun getExams(
         onSuccess: (ExamListResponse) -> Unit,
-        onError: (String) -> Unit
+        onError: (statusCode: Int, message: String) -> Unit
     ) {
         val request = Request.Builder()
             .url("$baseUrl/api/exams")
@@ -196,13 +204,16 @@ object ApiClient {
 
         client.newCall(request).enqueue(object : Callback {
             override fun onFailure(call: Call, e: IOException) {
-                onError(e.message ?: "Koneksi gagal")
+                onError(0, e.message ?: "Koneksi gagal")
             }
 
             override fun onResponse(call: Call, response: Response) {
                 response.use {
                     if (!it.isSuccessful) {
-                        onError("Server error: ${it.code}")
+                        // Parse JSON error body (e.g. 426 "Versi aplikasi Anda ...")
+                        // so the message is shown instead of a generic "Server error: <code>".
+                        val msg = parseErrorBody(it)
+                        onError(it.code, msg)
                         return
                     }
                     try {
@@ -210,11 +221,22 @@ object ApiClient {
                         val result = gson.fromJson(body, ExamListResponse::class.java)
                         onSuccess(result)
                     } catch (e: Exception) {
-                        onError("Response tidak valid")
+                        onError(it.code, "Response tidak valid")
                     }
                 }
             }
         })
+    }
+
+    /** Extract a human-readable message from a JSON error body (message|error keys). */
+    private fun parseErrorBody(response: Response): String {
+        return try {
+            val body = response.body?.string() ?: ""
+            val errJson = org.json.JSONObject(body)
+            errJson.optString("message", errJson.optString("error", "Server error: ${response.code}"))
+        } catch (_: Exception) {
+            "Server error: ${response.code}"
+        }
     }
 
     /**
@@ -284,11 +306,13 @@ object ApiClient {
 
     /**
      * Fetch exam by Token.
+     * onError receives (statusCode, message); statusCode is 0 for network
+     * failures so callers can distinguish HTTP 426 (app update required).
      */
     fun getExamByToken(
         token: String,
         onSuccess: (com.examvan.app.model.TokenExamResponse) -> Unit,
-        onError: (String) -> Unit
+        onError: (statusCode: Int, message: String) -> Unit
     ) {
         val request = Request.Builder()
             .url("$baseUrl/api/exams/token/$token")
@@ -297,28 +321,21 @@ object ApiClient {
 
         client.newCall(request).enqueue(object : Callback {
             override fun onFailure(call: Call, e: IOException) {
-                onError(e.message ?: "Koneksi gagal")
+                onError(0, e.message ?: "Koneksi gagal")
             }
 
             override fun onResponse(call: Call, response: Response) {
                 response.use {
                     if (it.code == 404) {
-                        onError("Token tidak valid atau ujian sudah berakhir")
+                        onError(it.code, "Token tidak valid atau ujian sudah berakhir")
                         return
                     }
                     if (it.code == 403) {
-                        onError("Ujian belum dimulai oleh pengawas")
+                        onError(it.code, "Ujian belum dimulai oleh pengawas")
                         return
                     }
                     if (!it.isSuccessful) {
-                        try {
-                            val body = it.body?.string() ?: ""
-                            val json = org.json.JSONObject(body)
-                            val message = json.optString("message", json.optString("error", "Server error: ${it.code}"))
-                            onError(message)
-                        } catch (_: Exception) {
-                            onError("Server error: ${it.code}")
-                        }
+                        onError(it.code, parseErrorBody(it))
                         return
                     }
                     try {
@@ -326,7 +343,7 @@ object ApiClient {
                         val result = gson.fromJson(body, com.examvan.app.model.TokenExamResponse::class.java)
                         onSuccess(result)
                     } catch (e: Exception) {
-                        onError("Response tidak valid")
+                        onError(it.code, "Response tidak valid")
                     }
                 }
             }

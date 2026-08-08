@@ -24,17 +24,25 @@ func Health() gin.HandlerFunc {
 		}
 
 		fingerprint := ""
+		requiredAppVersion := models.DefaultSettings[models.SettingAndroidVersion]
 		if poolVal, exists := c.Get("db"); exists {
 			if pool, ok := poolVal.(*pgxpool.Pool); ok && pool != nil {
-				fingerprint = models.GetSaasSettingWithDefault(c.Request.Context(), pool,
+				ctx := c.Request.Context()
+				fingerprint = models.GetSaasSettingWithDefault(ctx, pool,
 					models.SettingCertificateFingerprint, "")
+				requiredAppVersion = models.GetSaasSettingWithDefault(ctx, pool,
+					models.SettingAndroidVersion, requiredAppVersion)
 			}
 		}
 
 		c.JSON(http.StatusOK, gin.H{
-			"success":                 true,
-			"status":                  "healthy",
-			"version":                 ver,
+			"success": true,
+			"status":  "healthy",
+			"version": ver,
+			// required_app_version lets the Android app compare its installed
+			// version against the server's minimum before hitting protected
+			// routes (which return HTTP 426 when outdated).
+			"required_app_version":    requiredAppVersion,
 			"certificate_fingerprint": fingerprint,
 			"server_time_utc":         time.Now().UTC().Format("2006-01-02T15:04:05Z"),
 		})

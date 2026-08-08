@@ -43,7 +43,6 @@
     <string name="url_empty_error">URL cannot be empty</string>
     <string name="token_length_error">Token must be 8 characters</string>
     <string name="connection_error_format">Unable to connect to server: %1$s</string>
-    <string name="version_mismatch_error">App version mismatch!\nYour app: v%1$s\nRequired version: v%2$s\n\nPlease update your EXAMVAN app to the latest version.</string>
     <string name="answer_submit_error">An error occurred while submitting answers.</string>
     <string name="error_pdf_render">Failed to render PDF</string>
 
@@ -106,4 +105,11 @@
     <string name="logout_default_title">Logout / Exit Exam</string>
     <string name="logout_default_message">Are you sure you want to logout and exit the exam?\n\nYour answers will be submitted automatically before exiting.</string>
     <string name="logout_default_positive">Yes, Logout &amp; Submit</string>
+
+    <!-- Force update dialog -->
+    <string name="update_required_title">App Version Expired</string>
+    <string name="update_required_message">Your EXAMVAN app is no longer supported.\n\nInstalled version: v%1$s\nRequired version: v%2$s\n\nTo take the exam, please download and install the latest version from the Download page.</string>
+    <string name="update_required_message_generic">Your EXAMVAN app is no longer supported.\n\nTo take the exam, please download and install the latest version from the Download page.</string>
+    <string name="update_required_action">Open Download Page</string>
+    <string name="update_required_exit">Exit</string>
 </resources>

@@ -43,7 +43,6 @@
     <string name="url_empty_error">URL tidak boleh kosong</string>
     <string name="token_length_error">Token harus terdiri dari 8 karakter</string>
     <string name="connection_error_format">Tidak dapat terhubung ke server: %1$s</string>
-    <string name="version_mismatch_error">Versi aplikasi tidak sesuai!\nAplikasi Anda: v%1$s\nVersi yang dibutuhkan: v%2$s\n\nSilakan update aplikasi EXAMVAN Anda ke versi terbaru.</string>
     <string name="answer_submit_error">Terjadi kesalahan saat mengirim jawaban.</string>
     <string name="error_pdf_render">Gagal merender PDF</string>
 
@@ -127,4 +126,11 @@
     <string name="approval_cancel_yes">Ya, Batalkan</string>
     <string name="approval_cancel_no">Tetap Menunggu</string>
     <string name="approval_btn_retry">Minta Izin Lagi</string>
+
+    <!-- Force update dialog -->
+    <string name="update_required_title">Versi Aplikasi Kedaluwarsa</string>
+    <string name="update_required_message">Aplikasi EXAMVAN Anda sudah tidak didukung.\n\nVersi terpasang: v%1$s\nVersi dibutuhkan: v%2$s\n\nUntuk mengikuti ujian, silakan unduh dan pasang versi terbaru dari halaman Download.</string>
+    <string name="update_required_message_generic">Aplikasi EXAMVAN Anda sudah tidak didukung.\n\nUntuk mengikuti ujian, silakan unduh dan pasang versi terbaru dari halaman Download.</string>
+    <string name="update_required_action">Buka Halaman Download</string>
+    <string name="update_required_exit">Keluar</string>
 </resources>
