@@ -1017,35 +1017,41 @@ func registerPostHandler(cfg *config.Config) gin.HandlerFunc {
 		// Keep the register-page render keys consistent on error re-renders.
 		applyRegisterPageData(c, data)
 
+		// Validation failures re-render the form; echo the submitted username and
+		// email back so the user does not have to retype them (the password is
+		// deliberately never echoed back — a failed submit must re-enter it).
+		// registerError centralizes this so every error path is consistent.
+		registerError := func(errMsg string) {
+			data["error"] = errMsg
+			data["form_username"] = username
+			data["form_email"] = email
+			c.HTML(http.StatusOK, "public/register.html", data)
+		}
+
 		// Validate input
 		if username == "" || password == "" || email == "" {
-			data["error"] = "Username, email, dan password wajib diisi."
-			c.HTML(http.StatusOK, "public/register.html", data)
+			registerError("Username, email, dan password wajib diisi.")
 			return
 		}
 
 		if !models.IsValidUsername(username) {
-			data["error"] = "Username hanya boleh berisi huruf kecil, angka, titik, garis bawah, dan strip (3-32 karakter)."
-			c.HTML(http.StatusOK, "public/register.html", data)
+			registerError("Username hanya boleh berisi huruf kecil, angka, titik, garis bawah, dan strip (3-32 karakter).")
 			return
 		}
 
 		if len(password) < 8 {
-			data["error"] = "Password minimal 8 karakter."
-			c.HTML(http.StatusOK, "public/register.html", data)
+			registerError("Password minimal 8 karakter.")
 			return
 		}
 
 		if !strings.Contains(email, "@") || !strings.Contains(email, ".") {
-			data["error"] = "Format email tidak valid."
-			c.HTML(http.StatusOK, "public/register.html", data)
+			registerError("Format email tidak valid.")
 			return
 		}
 
 		pool, exists := c.Get("db")
 		if !exists || pool == nil {
-			data["error"] = "Database tidak tersedia. Silakan hubungi administrator."
-			c.HTML(http.StatusOK, "public/register.html", data)
+			registerError("Database tidak tersedia. Silakan hubungi administrator.")
 			return
 		}
 		dbPool := pool.(*pgxpool.Pool)
@@ -1060,8 +1066,7 @@ func registerPostHandler(cfg *config.Config) gin.HandlerFunc {
 			recent, err := models.CountRecentRegistrationsByIP(ctx, dbPool, clientIP)
 			if err == nil && !models.RegistrationAllowedByPerIPLimit(recent, maxPerIP) {
 				log.Printf("register blocked: per-IP limit reached for %s (%d/%d in 24h)", clientIP, recent, maxPerIP)
-				data["error"] = fmt.Sprintf("Terlalu banyak pendaftaran dari alamat IP ini dalam 24 jam terakhir (maks %d akun). Silakan coba lagi besok atau hubungi administrator.", maxPerIP)
-				c.HTML(http.StatusOK, "public/register.html", data)
+				registerError(fmt.Sprintf("Terlalu banyak pendaftaran dari alamat IP ini dalam 24 jam terakhir (maks %d akun). Silakan coba lagi besok atau hubungi administrator.", maxPerIP))
 				return
 			}
 		}
@@ -1075,8 +1080,7 @@ func registerPostHandler(cfg *config.Config) gin.HandlerFunc {
 			token := strings.TrimSpace(c.PostForm("cf-turnstile-response"))
 			if !verifyTurnstileToken(ctx, secret, token, c.ClientIP()) {
 				log.Printf("register blocked: turnstile verification failed for username=%q", username)
-				data["error"] = "Verifikasi keamanan gagal. Silakan coba lagi."
-				c.HTML(http.StatusOK, "public/register.html", data)
+				registerError("Verifikasi keamanan gagal. Silakan coba lagi.")
 				return
 			}
 		}
@@ -1085,22 +1089,19 @@ func registerPostHandler(cfg *config.Config) gin.HandlerFunc {
 		whitelist := models.GetSaasSettingWithDefault(ctx, dbPool, models.SettingEmailDomainWhitelist, "")
 		if !models.EmailDomainAllowed(whitelist, email) {
 			allowed := strings.Join(models.ParseDomainList(whitelist), ", ")
-			data["error"] = "Domain email tidak diizinkan untuk pendaftaran. Gunakan email dari domain terpercaya: " + allowed
-			c.HTML(http.StatusOK, "public/register.html", data)
+			registerError("Domain email tidak diizinkan untuk pendaftaran. Gunakan email dari domain terpercaya: " + allowed)
 			return
 		}
 
 		// Check if username is taken
 		if username == cfg.AdminUser || username == "admin" || username == "superadmin" {
-			data["error"] = "Username tidak tersedia."
-			c.HTML(http.StatusOK, "public/register.html", data)
+			registerError("Username tidak tersedia.")
 			return
 		}
 
 		existing, err := models.GetUserByUsername(ctx, dbPool, username)
 		if err == nil && existing.Username != "" {
-			data["error"] = "Username sudah digunakan."
-			c.HTML(http.StatusOK, "public/register.html", data)
+			registerError("Username sudah digunakan.")
 			return
 		}
 
@@ -1109,8 +1110,7 @@ func registerPostHandler(cfg *config.Config) gin.HandlerFunc {
 		// friendlier message than a raw DB constraint violation.
 		existingByEmail, err := models.GetUserByEmail(ctx, dbPool, email)
 		if err == nil && existingByEmail.Email != "" {
-			data["error"] = "Email sudah terdaftar. Gunakan email lain atau masuk dengan akun yang ada."
-			c.HTML(http.StatusOK, "public/register.html", data)
+			registerError("Email sudah terdaftar. Gunakan email lain atau masuk dengan akun yang ada.")
 			return
 		}
 
@@ -1139,18 +1139,20 @@ func registerPostHandler(cfg *config.Config) gin.HandlerFunc {
 		}
 
 		user := &models.AdminUser{
-			Username:       username,
-			PasswordHash:   password, // will be hashed by CreateUser
-			Status:         status,
-			Instansi:       "personal",
-			RegisteredIP:   c.ClientIP(),
-			Role:           models.SerializeRoles([]string{models.RoleGuru}),
-			MaxExams:       models.GetSaasSettingInt(ctx, dbPool, models.SettingDefaultMaxExams, 3),
-			MaxPDFSize:     models.GetSaasSettingInt(ctx, dbPool, models.SettingDefaultMaxPDFSize, 1048576),
-			WhatsappNumber: "",
-			Email:          email,
-			OTPCode:        otpCode,
-			OTPExpiry:      otpExpiry,
+			Username:           username,
+			PasswordHash:       password, // will be hashed by CreateUser
+			Status:             status,
+			Instansi:           "personal",
+			RegisteredIP:       c.ClientIP(),
+			Role:               models.SerializeRoles([]string{models.RoleGuru}),
+			MaxExams:           models.GetSaasSettingInt(ctx, dbPool, models.SettingDefaultMaxExams, 3),
+			MaxPDFSize:         models.GetSaasSettingInt(ctx, dbPool, models.SettingDefaultMaxPDFSize, 1048576),
+			MaxConcurrentExams: models.GetSaasSettingInt(ctx, dbPool, models.SettingDefaultMaxConcurrentExams, 2),
+			MaxStorageSize:     int64(models.GetSaasSettingInt(ctx, dbPool, models.SettingDefaultMaxStorageSize, 52428800)),
+			WhatsappNumber:     "",
+			Email:              email,
+			OTPCode:            otpCode,
+			OTPExpiry:          otpExpiry,
 		}
 
 		defaultDays := models.GetSaasSettingInt(ctx, dbPool,
@@ -1183,6 +1185,8 @@ func registerPostHandler(cfg *config.Config) gin.HandlerFunc {
 				_, _ = dbPool.Exec(ctx, `DELETE FROM admin_users WHERE id = $1`, created.ID)
 
 				data["error"] = "Gagal mengirimkan email verifikasi. Pastikan pengaturan SMTP admin sudah benar atau hubungi admin."
+				data["form_username"] = username
+				data["form_email"] = email
 				c.HTML(http.StatusOK, "public/register.html", data)
 				return
 			}

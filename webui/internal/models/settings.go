@@ -73,6 +73,7 @@ const (
 	SettingDefaultMaxPDFSize         = "default_max_pdf_size"
 	SettingDefaultActiveDays         = "default_active_days"
 	SettingDefaultMaxConcurrentExams = "default_max_concurrent_exams"
+	SettingDefaultMaxStorageSize     = "default_max_storage_size"
 	SettingAndroidVersion            = "android_version"
 	SettingWebappVersion             = "webapp_version"
 	SettingCertificateFingerprint    = "certificate_fingerprint"
@@ -116,6 +117,7 @@ var DefaultSettings = map[string]string{
 	SettingDefaultMaxPDFSize:         "1048576",
 	SettingDefaultActiveDays:         "1",
 	SettingDefaultMaxConcurrentExams: "2",
+	SettingDefaultMaxStorageSize:     "52428800",
 	SettingAndroidVersion:            "2.2.0",
 	SettingWebappVersion:             "2.2.0",
 	SettingCertificateFingerprint:    "",

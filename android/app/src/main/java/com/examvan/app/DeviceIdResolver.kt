@@ -12,7 +12,7 @@ object DeviceIdResolver {
         // Pengecekan jika null, kosong, atau bernilai "9774d56d682e549c" (bug emulator/perangkat tertentu)
         if (androidId.isNullOrBlank() || androidId.equals("9774d56d682e549c", ignoreCase = true)) {
             // Gunakan SharedPreferences sebagai fallback jika Android ID tidak tersedia
-            val prefs = AppPrefs.getDevicePrefs(context)
+            val prefs = AppPrefs.getDevicePrefsSafe(context)
             var deviceId = prefs.getString(AppPrefs.KEY_DEVICE_UUID, null)
             if (deviceId.isNullOrBlank()) {
                 deviceId = UUID.randomUUID().toString()

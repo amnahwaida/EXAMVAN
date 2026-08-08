@@ -256,7 +256,7 @@
  <div class="form-group">
   <label class="required" for="username">Username</label>
   <div class="input-icon-wrap">
-   <input type="text" id="username" name="username" placeholder="Pilih username unik (min. 3 karakter)" required minlength="3" autocomplete="username">
+   <input type="text" id="username" name="username" placeholder="Pilih username unik (min. 3 karakter)" required minlength="3" autocomplete="username"{{if .form_username}} value="{{.form_username}}"{{end}}>
    <svg class="input-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M15.75 6a3.75 3.75 0 1 1-7.5 0 3.75 3.75 0 0 1 7.5 0ZM4.501 20.118a7.5 7.5 0 0 1 14.998 0A17.933 17.933 0 0 1 12 21.75c-2.676 0-5.216-.584-7.499-1.632Z"/></svg>
   </div>
  </div>
@@ -265,7 +265,7 @@
  <div class="form-group">
   <label class="required" for="email">Email</label>
   <div class="input-icon-wrap">
-   <input type="email" id="email" name="email" placeholder="contoh@gmail.com" required autocomplete="email">
+   <input type="email" id="email" name="email" placeholder="contoh@gmail.com" required autocomplete="email"{{if .form_email}} value="{{.form_email}}"{{end}}>
    <svg class="input-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M21.75 6.75v10.5a2.25 2.25 0 0 1-2.25 2.25h-15a2.25 2.25 0 0 1-2.25-2.25V6.75m19.5 0A2.25 2.25 0 0 0 19.5 4.5h-15a2.25 2.25 0 0 0-2.25 2.25m19.5 0v.243a2.25 2.25 0 0 1-1.07 1.916l-7.5 4.615a2.25 2.25 0 0 1-2.36 0L3.32 8.91a2.25 2.25 0 0 1-1.07-1.916V6.75"/></svg>
   </div>
   <span class="form-hint-subtle">{{if .email_enabled}}Kode OTP verifikasi akan dikirim ke alamat ini{{else}}Digunakan untuk keperluan akun Anda{{end}}</span>

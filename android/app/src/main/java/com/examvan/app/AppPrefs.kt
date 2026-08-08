@@ -2,8 +2,11 @@ package com.examvan.app
 
 import android.content.Context
 import android.content.SharedPreferences
+import android.util.Log
 import androidx.security.crypto.EncryptedSharedPreferences
 import androidx.security.crypto.MasterKey
+import java.io.IOException
+import java.security.GeneralSecurityException
 
 object AppPrefs {
     private const val PREFS_CONFIG = "app_config_encrypted"
@@ -73,6 +76,62 @@ object AppPrefs {
             EncryptedSharedPreferences.PrefKeyEncryptionScheme.AES256_SIV,
             EncryptedSharedPreferences.PrefValueEncryptionScheme.AES256_GCM
         )
+    }
+
+    // ── Safe accessors (keystore-corruption resilient) ─────────────────────
+    //
+    // EncryptedSharedPreferences can throw GeneralSecurityException /
+    // IOException when the Android Keystore key is invalidated or the
+    // encrypted blob cannot be decrypted. ServerConfigActivity guards this
+    // itself, but ExamList/WaitingApproval/ExamViewer read prefs at many
+    // points. These accessors fall back to a plain (non-encrypted) prefs file
+    // named "<name>_fallback" so the app still runs: the student re-enters
+    // their config once and continues working; previously encrypted values are
+    // simply gone. A corrupt keystore must never hard-crash the app.
+
+    private val fallbacked = java.util.Collections.newSetFromMap(java.util.concurrent.ConcurrentHashMap<String, Boolean>())
+
+    fun getConfigPrefsSafe(context: Context): SharedPreferences {
+        return try {
+            getConfigPrefs(context)
+        } catch (e: GeneralSecurityException) {
+            fallback(context, PREFS_CONFIG, e)
+        } catch (e: IOException) {
+            fallback(context, PREFS_CONFIG, e)
+        }
+    }
+
+    fun getExamPrefsSafe(context: Context): SharedPreferences {
+        return try {
+            getExamPrefs(context)
+        } catch (e: GeneralSecurityException) {
+            fallback(context, PREFS_EXAM, e)
+        } catch (e: IOException) {
+            fallback(context, PREFS_EXAM, e)
+        }
+    }
+
+    fun getDevicePrefsSafe(context: Context): SharedPreferences {
+        return try {
+            getDevicePrefs(context)
+        } catch (e: GeneralSecurityException) {
+            fallback(context, PREFS_DEVICE, e)
+        } catch (e: IOException) {
+            fallback(context, PREFS_DEVICE, e)
+        }
+    }
+
+    /**
+     * True when the encrypted backend for this prefs file was substituted with
+     * the plain fallback (i.e. the keystore is corrupt on this device). Callers
+     * can use this to warn the user instead of silently losing data.
+     */
+    fun isFallbackInUse(key: String): Boolean = fallbacked.contains(key)
+
+    private fun fallback(context: Context, prefsName: String, cause: Exception): SharedPreferences {
+        Log.w("AppPrefs", "EncryptedSharedPreferences unavailable for $prefsName: ${cause.javaClass.simpleName} — using plain fallback")
+        fallbacked.add(prefsName)
+        return context.getSharedPreferences(prefsName + "_fallback", Context.MODE_PRIVATE)
     }
 
     fun clearIdentityData(context: Context) {

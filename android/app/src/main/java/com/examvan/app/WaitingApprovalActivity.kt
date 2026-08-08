@@ -397,7 +397,7 @@ class WaitingApprovalActivity : BaseSecureActivity() {
     private fun maybeCheckVersion() {
         if (serverUrl.isEmpty()) return
 
-        val configPrefs = AppPrefs.getConfigPrefs(this)
+        val configPrefs = AppPrefs.getConfigPrefsSafe(this)
         val lastCheck = configPrefs.getLong(AppPrefs.KEY_LAST_VERSION_CHECK_TS, 0L)
         val now = System.currentTimeMillis()
         if (now - lastCheck < 24 * 60 * 60 * 1000L) return

@@ -106,7 +106,7 @@ class ExamViewerActivity : BaseSecureActivity() {
         endTime = intent.getStringExtra("end_time")
 
         val submittedKey = AppPrefs.getSubmittedOrExitedKey(examId)
-        val wasSubmittedOrExited = AppPrefs.getExamPrefs(this).getBoolean(submittedKey, false)
+        val wasSubmittedOrExited = AppPrefs.getExamPrefsSafe(this).getBoolean(submittedKey, false)
         if (wasSubmittedOrExited) {
             binding.tvExamTitle.text = examName
             showExamAlreadySubmittedScreen()
@@ -115,9 +115,9 @@ class ExamViewerActivity : BaseSecureActivity() {
 
         // Read from Intent first (to avoid race conditions on fresh save), fallback to EncryptedSharedPreferences
         val strictMode = intent.getBooleanExtra("strict_mode", false) ||
-                AppPrefs.getExamPrefs(this).getBoolean(AppPrefs.KEY_STRICT_MODE, false)
+                AppPrefs.getExamPrefsSafe(this).getBoolean(AppPrefs.KEY_STRICT_MODE, false)
         securityLevel = intent.getStringExtra("security_level") ?:
-                AppPrefs.getExamPrefs(this).getString(AppPrefs.KEY_SECURITY_LEVEL, "medium") ?: "medium"
+                AppPrefs.getExamPrefsSafe(this).getString(AppPrefs.KEY_SECURITY_LEVEL, "medium") ?: "medium"
         macAddress = DeviceIdResolver.resolveDeviceId(this)
         binding.tvExamTitle.text = ""
 
@@ -303,7 +303,7 @@ class ExamViewerActivity : BaseSecureActivity() {
         }
 
         // Start time process death resilience
-        val prefs = AppPrefs.getExamPrefs(this)
+        val prefs = AppPrefs.getExamPrefsSafe(this)
         val savedStartTime = savedInstanceState?.getString("startTime")
             ?: prefs.getString(AppPrefs.KEY_EXAM_START_TIME, null)
         if (savedStartTime != null) {
@@ -403,7 +403,7 @@ class ExamViewerActivity : BaseSecureActivity() {
 
     private fun loadQuestionsAndBuildSheet() {
         try {
-            val prefs = AppPrefs.getExamPrefs(this)
+            val prefs = AppPrefs.getExamPrefsSafe(this)
             val json = prefs.getString(AppPrefs.KEY_QUESTIONS_JSON, null)
             securityLevel = intent.getStringExtra("security_level") ?: prefs.getString(AppPrefs.KEY_SECURITY_LEVEL, "medium") ?: "medium"
             updateSecurityBanner()
@@ -472,7 +472,7 @@ class ExamViewerActivity : BaseSecureActivity() {
     }
 
     private fun applyPanelColor() {
-        val panelColor = AppPrefs.getExamPrefs(this).getString(AppPrefs.KEY_PANEL_COLOR, "") ?: ""
+        val panelColor = AppPrefs.getExamPrefsSafe(this).getString(AppPrefs.KEY_PANEL_COLOR, "") ?: ""
         if (panelColor.isEmpty() || !panelColor.startsWith("#")) return
 
         try {

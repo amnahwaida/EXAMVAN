@@ -125,7 +125,7 @@ class SubmissionManager(
 
     private fun saveAnswersToPrefs(answers: Map<String, Any>) {
         try {
-            val prefs = AppPrefs.getExamPrefs(context)
+            val prefs = AppPrefs.getExamPrefsSafe(context)
             val stringMap = answers.mapValues { it.value.toString() }
             val json = gsonForSave.toJson(stringMap)
             prefs.edit()
@@ -140,7 +140,7 @@ class SubmissionManager(
 
     fun restoreAnswersFromPrefs(): Map<String, String>? {
         try {
-            val prefs = AppPrefs.getExamPrefs(context)
+            val prefs = AppPrefs.getExamPrefsSafe(context)
             val savedExamId = prefs.getInt(AppPrefs.KEY_SAVED_ANSWERS_EXAM_ID, -1)
             if (savedExamId != examId) {
                 clearSavedAnswers()
@@ -162,7 +162,7 @@ class SubmissionManager(
 
     fun clearSavedAnswers() {
         val submittedKey = AppPrefs.getSubmittedOrExitedKey(examId)
-        AppPrefs.getExamPrefs(context).edit()
+        AppPrefs.getExamPrefsSafe(context).edit()
             .remove(AppPrefs.KEY_SAVED_ANSWERS)
             .remove(AppPrefs.KEY_SAVED_ANSWERS_EXAM_ID)
             .remove(AppPrefs.KEY_SAVED_ANSWERS_TIMESTAMP)
@@ -173,7 +173,7 @@ class SubmissionManager(
 
     fun persistSubmittedState() {
         val submittedKey = AppPrefs.getSubmittedOrExitedKey(examId)
-        AppPrefs.getExamPrefs(context).edit()
+        AppPrefs.getExamPrefsSafe(context).edit()
             .putBoolean(submittedKey, true).apply()
     }
 

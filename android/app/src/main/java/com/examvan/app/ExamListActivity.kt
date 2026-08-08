@@ -36,7 +36,7 @@ class ExamListActivity : BaseSecureActivity() {
         }
 
         adapter = ExamAdapter { exam ->
-            val configPrefs = AppPrefs.getConfigPrefs(this)
+            val configPrefs = AppPrefs.getConfigPrefsSafe(this)
             val resolvedServerUrl = if (serverUrl.isNotEmpty()) serverUrl else configPrefs.getString(AppPrefs.KEY_SERVER_URL, "") ?: ""
             val storedExamId = configPrefs.getInt(AppPrefs.KEY_EXAM_ID, -1)
 
@@ -50,7 +50,7 @@ class ExamListActivity : BaseSecureActivity() {
             }
 
             val submittedKey = AppPrefs.getSubmittedOrExitedKey(exam.id)
-            val submitted = AppPrefs.getExamPrefs(this).getBoolean(submittedKey, false)
+            val submitted = AppPrefs.getExamPrefsSafe(this).getBoolean(submittedKey, false)
             if (submitted) {
                 androidx.appcompat.app.AlertDialog.Builder(this)
                     .setTitle("Ujian Sudah Selesai")
@@ -146,12 +146,12 @@ class ExamListActivity : BaseSecureActivity() {
     private fun currentServerUrl(): String {
         val serverUrl = intent.getStringExtra("server_url") ?: ""
         return if (serverUrl.isNotEmpty()) serverUrl
-        else AppPrefs.getConfigPrefs(this).getString(AppPrefs.KEY_SERVER_URL, "") ?: ""
+        else AppPrefs.getConfigPrefsSafe(this).getString(AppPrefs.KEY_SERVER_URL, "") ?: ""
     }
 
     /** Check health once per day; show blocking update dialog when outdated. */
     private fun maybeCheckVersion() {
-        val configPrefs = AppPrefs.getConfigPrefs(this)
+        val configPrefs = AppPrefs.getConfigPrefsSafe(this)
         val lastCheck = configPrefs.getLong(AppPrefs.KEY_LAST_VERSION_CHECK_TS, 0L)
         val now = System.currentTimeMillis()
         if (now - lastCheck < 24 * 60 * 60 * 1000L) return
