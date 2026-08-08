@@ -504,18 +504,22 @@ func registerRoutes(r *gin.Engine, cfg *config.Config, pool *pgxpool.Pool) {
 		apiGroup.GET("/health", api.Health())
 		apiGroup.GET("/time", api.ServerTime())
 
-		apiGroup.GET("/exams", middleware.RateLimit(60, time.Minute), middleware.AndroidVersionCheck(), api.ListExams())
-		apiGroup.POST("/exams/request-approval", middleware.RateLimit(30, time.Minute), middleware.AndroidVersionCheck(), api.RequestApproval())
-		apiGroup.GET("/exams/token/:token", middleware.RateLimit(30, time.Minute), middleware.AndroidVersionCheck(), api.ExamByToken())
-		apiGroup.GET("/exams/:exam_id/pdf", middleware.RateLimit(30, time.Minute), middleware.AndroidVersionCheck(), api.ExamPDF())
-		// Per-IP limit is high because an entire classroom often submits from a
-		// single NAT'd school IP near the deadline; per-device throttling is
-		// enforced inside SubmitExam (keyed by exam+MAC).
-		apiGroup.POST("/exams/:exam_id/submit", middleware.LimitBodySize(5*1024*1024), middleware.RateLimit(120, time.Minute), middleware.AndroidVersionCheck(), api.SubmitExam())
-		apiGroup.POST("/exams/:exam_id/access-log", middleware.LimitBodySize(256*1024), middleware.RateLimit(30, time.Minute), middleware.AndroidVersionCheck(), api.AccessLog())
-		apiGroup.POST("/exams/:exam_id/complete", middleware.LimitBodySize(256*1024), middleware.RateLimit(30, time.Minute), middleware.AndroidVersionCheck(), api.CompleteExam())
+		// Student exam routes deliberately use RateLimitIP (IP-only, no
+		// fingerprint dimension). The app sends no fingerprint measure here by
+		// design: a mid-exam device_id change (reinstall/clear-data) must never
+		// retarget this limiter under an in-progress exam. Per-device throttling
+		// is enforced inside SubmitExam keyed by exam+MAC.
+		apiGroup.GET("/exams", middleware.RateLimitIP(60, time.Minute), middleware.AndroidVersionCheck(), api.ListExams())
+		apiGroup.POST("/exams/request-approval", middleware.RateLimitIP(30, time.Minute), middleware.AndroidVersionCheck(), api.RequestApproval())
+		apiGroup.GET("/exams/token/:token", middleware.RateLimitIP(30, time.Minute), middleware.AndroidVersionCheck(), api.ExamByToken())
+		apiGroup.GET("/exams/:exam_id/pdf", middleware.RateLimitIP(30, time.Minute), middleware.AndroidVersionCheck(), api.ExamPDF())
+		// Per-IP limit stays high because an entire classroom often submits from
+		// a single NAT'd school IP near the deadline.
+		apiGroup.POST("/exams/:exam_id/submit", middleware.LimitBodySize(5*1024*1024), middleware.RateLimitIP(120, time.Minute), middleware.AndroidVersionCheck(), api.SubmitExam())
+		apiGroup.POST("/exams/:exam_id/access-log", middleware.LimitBodySize(256*1024), middleware.RateLimitIP(30, time.Minute), middleware.AndroidVersionCheck(), api.AccessLog())
+		apiGroup.POST("/exams/:exam_id/complete", middleware.LimitBodySize(256*1024), middleware.RateLimitIP(30, time.Minute), middleware.AndroidVersionCheck(), api.CompleteExam())
 
-		apiGroup.GET("/hasil/:token", middleware.RateLimit(30, time.Minute), public.HasilAPI())
+		apiGroup.GET("/hasil/:token", middleware.RateLimitIP(30, time.Minute), public.HasilAPI())
 	}
 
 	// ---- Admin pages (auth required) ----

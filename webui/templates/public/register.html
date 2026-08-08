@@ -251,6 +251,7 @@
  <!-- Registration Form -->
  <form method="POST" action="/register" class="login-form" id="registerForm" autocomplete="off">
  <input type="hidden" name="csrf_token" value="{{.csrf_token}}">
+ <input type="hidden" name="device_fingerprint" value="">
 
  <!-- Username -->
  <div class="form-group">
@@ -409,5 +410,8 @@
   }
  });
  </script>
+
+ <script src="/static/js/fingerprintjs.min.js?v={{.version}}"></script>
+ <script src="/static/js/device-fingerprint.js?v={{.version}}"></script>
 </body>
 </html>

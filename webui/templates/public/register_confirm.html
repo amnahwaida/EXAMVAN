@@ -230,6 +230,7 @@
     <!-- Hidden real input -->
     <input type="hidden" id="otp_code" name="otp_code" value="">
     <input type="hidden" name="csrf_token" value="{{.csrf_token}}">
+    <input type="hidden" name="device_fingerprint" value="">
 
     <div style="text-align:center;">
      <label style="display:block;margin-bottom:6px;font-weight:500;font-size:13px;color:var(--color-text);">Masukkan Kode OTP</label>
@@ -425,5 +426,8 @@
   }
  });
  </script>
+
+ <script src="/static/js/fingerprintjs.min.js?v={{.version}}"></script>
+ <script src="/static/js/device-fingerprint.js?v={{.version}}"></script>
 </body>
 </html>
