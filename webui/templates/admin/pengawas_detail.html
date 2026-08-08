@@ -1075,49 +1075,61 @@ var EXAM_ID = {{.exam.ID}};
 var SUB_PAGE = 1;
 
 function startExamPengawasDetail(examId) {
-    if (!confirm('Mulai pengawasan untuk ujian ini? (Ini akan memperbarui waktu mulai pengawasan)')) return;
-    var btn = document.getElementById('btnStartPengawasDetail');
-    if (btn) { btn.disabled = true; btn.innerHTML = '<svg class="icon-svg" style="width:16px;height:16px;"><use href="#hi-refresh"/></svg> Memulai...'; }
-    apiFetch('/admin/api/exams/' + examId + '/start', { method: 'POST' })
-        .then(function(r) { return r.json(); })
-        .then(function(res) {
-            if (res.success) {
-                showToast('Pengawasan berhasil dimulai', 'success');
-                setTimeout(function() { window.location.reload(); }, 1000);
-            } else {
-                showToast(res.message || 'Gagal memulai pengawasan', 'error');
+    showConfirm(
+        'Mulai pengawasan untuk ujian ini?',
+        'Ini akan memperbarui waktu mulai pengawasan.',
+        'Ya, Mulai',
+        'Batal'
+    ).then(function(confirmed) {
+        if (!confirmed) return;
+        var btn = document.getElementById('btnStartPengawasDetail');
+        if (btn) { btn.disabled = true; btn.innerHTML = '<svg class="icon-svg" style="width:16px;height:16px;"><use href="#hi-refresh"/></svg> Memulai...'; }
+        apiFetch('/admin/api/exams/' + examId + '/start', { method: 'POST' })
+            .then(function(r) { return r.json(); })
+            .then(function(res) {
+                if (res.success) {
+                    showToast('Pengawasan berhasil dimulai', 'success');
+                    setTimeout(function() { window.location.reload(); }, 1000);
+                } else {
+                    showToast(res.message || 'Gagal memulai pengawasan', 'error');
+                    if (btn) { btn.disabled = false; btn.innerHTML = '<svg class="icon-svg" style="width:16px;height:16px;"><use href="#hi-play"/></svg> Mulai Pengawasan'; }
+                }
+            })
+            .catch(function(err) {
+                console.error('Fetch error:', err);
+                showToast('Gagal menghubungi server: ' + err, 'error');
                 if (btn) { btn.disabled = false; btn.innerHTML = '<svg class="icon-svg" style="width:16px;height:16px;"><use href="#hi-play"/></svg> Mulai Pengawasan'; }
-            }
-        })
-        .catch(function(err) {
-            console.error('Fetch error:', err);
-            alert('Terjadi kesalahan jaringan atau server: ' + err);
-            showToast('Gagal menghubungi server', 'error');
-            if (btn) { btn.disabled = false; btn.innerHTML = '<svg class="icon-svg" style="width:16px;height:16px;"><use href="#hi-play"/></svg> Mulai Pengawasan'; }
-        });
+            });
+    });
 }
 
 function stopExamPengawasDetail(examId) {
-    if (!confirm('Hentikan pengawasan untuk ujian ini? (Ini akan mengubah status ujian menjadi nonaktif)')) return;
-    var btn = document.getElementById('btnStopPengawasDetail');
-    if (btn) { btn.disabled = true; btn.innerHTML = '<svg class="icon-svg" style="width:16px;height:16px;"><use href="#hi-refresh"/></svg> Menghentikan...'; }
-    apiFetch('/admin/api/exams/' + examId + '/stop', { method: 'POST' })
-        .then(function(r) { return r.json(); })
-        .then(function(res) {
-            if (res.success) {
-                showToast('Pengawasan dihentikan', 'success');
-                setTimeout(function() { window.location.reload(); }, 1000);
-            } else {
-                showToast(res.message || 'Gagal menghentikan pengawasan', 'error');
+    showConfirm(
+        'Hentikan pengawasan untuk ujian ini?',
+        'Ini akan mengubah status ujian menjadi nonaktif.',
+        'Ya, Hentikan',
+        'Batal'
+    ).then(function(confirmed) {
+        if (!confirmed) return;
+        var btn = document.getElementById('btnStopPengawasDetail');
+        if (btn) { btn.disabled = true; btn.innerHTML = '<svg class="icon-svg" style="width:16px;height:16px;"><use href="#hi-refresh"/></svg> Menghentikan...'; }
+        apiFetch('/admin/api/exams/' + examId + '/stop', { method: 'POST' })
+            .then(function(r) { return r.json(); })
+            .then(function(res) {
+                if (res.success) {
+                    showToast('Pengawasan dihentikan', 'success');
+                    setTimeout(function() { window.location.reload(); }, 1000);
+                } else {
+                    showToast(res.message || 'Gagal menghentikan pengawasan', 'error');
+                    if (btn) { btn.disabled = false; btn.innerHTML = '<svg class="icon-svg" style="width:16px;height:16px;" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="6" y="6" width="12" height="12" rx="2"/></svg> Hentikan Pengawasan'; }
+                }
+            })
+            .catch(function(err) {
+                console.error('Fetch error:', err);
+                showToast('Gagal menghubungi server: ' + err, 'error');
                 if (btn) { btn.disabled = false; btn.innerHTML = '<svg class="icon-svg" style="width:16px;height:16px;" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="6" y="6" width="12" height="12" rx="2"/></svg> Hentikan Pengawasan'; }
-            }
-        })
-        .catch(function(err) {
-            console.error('Fetch error:', err);
-            alert('Terjadi kesalahan jaringan atau server: ' + err);
-            showToast('Gagal menghubungi server', 'error');
-            if (btn) { btn.disabled = false; btn.innerHTML = '<svg class="icon-svg" style="width:16px;height:16px;" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="6" y="6" width="12" height="12" rx="2"/></svg> Hentikan Pengawasan'; }
-        });
+            });
+    });
 }
 
 function loadApprovals() {
@@ -1526,19 +1538,26 @@ function copyToken(token) {
 }
 
 function regenerateActiveToken() {
-    if (!confirm('Generate token baru sekarang? Token lama tidak akan bisa digunakan lagi oleh siswa.')) return;
-    apiFetch('/admin/api/exams/' + EXAM_ID + '/regenerate-token', { method: 'POST' })
-        .then(function(r) { return r.json(); })
-        .then(function(res) {
-            if (res.success) {
-                updateTokenDisplay(res.token);
-                TOKEN_LAST_RESET = new Date().toISOString();
-                showToast('Token baru: ' + res.token, 'success');
-            } else {
-                showToast(res.message || 'Gagal regenerate token', 'error');
-            }
-        })
-        .catch(function() { showToast('Koneksi gagal', 'error'); });
+    showConfirm(
+        'Generate token baru sekarang?',
+        'Token lama tidak akan bisa digunakan lagi oleh siswa.',
+        'Ya, Generate',
+        'Batal'
+    ).then(function(confirmed) {
+        if (!confirmed) return;
+        apiFetch('/admin/api/exams/' + EXAM_ID + '/regenerate-token', { method: 'POST' })
+            .then(function(r) { return r.json(); })
+            .then(function(res) {
+                if (res.success) {
+                    updateTokenDisplay(res.token);
+                    TOKEN_LAST_RESET = new Date().toISOString();
+                    showToast('Token baru: ' + res.token, 'success');
+                } else {
+                    showToast(res.message || 'Gagal regenerate token', 'error');
+                }
+            })
+            .catch(function() { showToast('Koneksi gagal', 'error'); });
+    });
 }
 
 function updateTokenDisplay(newToken) {

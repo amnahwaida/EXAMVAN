@@ -5,6 +5,8 @@
 </head>
 <body class="dashboard-page">
 
+<div class="toast-container" id="toastContainer" aria-live="polite" aria-atomic="true"></div>
+
 {{template "admin/partials/nav.html" dict "active_page" "system-apps" "admin_role" .admin_role "admin_user" .admin_user "csrf_token" .csrf_token}}
 
 <style>
@@ -526,8 +528,14 @@ function submitUpload(event) {
 }
 
 async function deleteApp(id, name) {
-    if (!confirm('Yakin ingin menghapus aplikasi "' + name + '" secara permanen?')) return;
-    
+    const confirmed = await showConfirm(
+        'Hapus aplikasi "' + name + '"?',
+        'Aplikasi akan dihapus secara permanen dan tidak bisa dikembalikan.',
+        'Ya, Hapus',
+        'Batal'
+    );
+    if (!confirmed) return;
+
     try {
         const res = await fetch('/admin/api/system-apps/' + id + '/delete', {
             method: 'POST',
@@ -535,12 +543,13 @@ async function deleteApp(id, name) {
         });
         const data = await res.json();
         if (data.success) {
+            showToast('Aplikasi berhasil dihapus', 'success');
             window.location.reload();
         } else {
-            alert('Error: ' + data.message);
+            showToast('Error: ' + data.message, 'error');
         }
     } catch (e) {
-        alert('Gagal menghapus: ' + e.message);
+        showToast('Gagal menghapus: ' + e.message, 'error');
     }
 }
 </script>
