@@ -32,6 +32,11 @@ type Exam struct {
 	CreatedAt          time.Time  `json:"created_at"`
 	IdentityFields     *string    `json:"identity_fields,omitempty"`
 	PanelColor         *string    `json:"panel_color,omitempty"`
+	// CongratsMessage is the customizable message shown on the Android
+	// congratulations page after a student submits. Free text (not HTML),
+	// rendered plain on the client; nil/empty means the app falls back to its
+	// default wording.
+	CongratsMessage *string `json:"congrats_message,omitempty"`
 	StartTime          *time.Time `json:"start_time,omitempty"`
 	EndTime            *time.Time `json:"end_time,omitempty"`
 	DelegatedTo        *int       `json:"delegated_to,omitempty"`
@@ -72,13 +77,13 @@ func (e Exam) GetTokenMode() string {
 const DefaultExamColumns = `id, name, file_path, size_bytes, token, active_token, questions_json,
 status, security_level, strict_mode, public_results, show_answers,
 created_by, created_at, identity_fields, panel_color,
-start_time, end_time, delegated_to, token_mode, token_reset_interval, token_last_reset_at, exam_started_at, tombstoned_at`
+start_time, end_time, delegated_to, token_mode, token_reset_interval, token_last_reset_at, exam_started_at, tombstoned_at, congrats_message`
 
 // DefaultExamColumnsWithAlias for JOIN queries with e. prefix.
 const DefaultExamColumnsWithAlias = `e.id, e.name, e.file_path, e.size_bytes, e.token, e.active_token, e.questions_json,
 e.status, e.security_level, e.strict_mode, e.public_results, e.show_answers,
 e.created_by, e.created_at, e.identity_fields, e.panel_color,
-e.start_time, e.end_time, e.delegated_to, e.token_mode, e.token_reset_interval, e.token_last_reset_at, e.exam_started_at, e.tombstoned_at`
+e.start_time, e.end_time, e.delegated_to, e.token_mode, e.token_reset_interval, e.token_last_reset_at, e.exam_started_at, e.tombstoned_at, e.congrats_message`
 
 // scanExam scans a row into an Exam struct. The columns must match DefaultExamColumns order.
 func scanExam(row pgx.Row) (Exam, error) {
@@ -89,7 +94,7 @@ func scanExam(row pgx.Row) (Exam, error) {
 		&e.CreatedBy, &e.CreatedAt, &e.IdentityFields, &e.PanelColor,
 		&e.StartTime, &e.EndTime, &e.DelegatedTo,
 		&e.TokenMode, &e.TokenResetInterval, &e.TokenLastResetAt, &e.ExamStartedAt,
-		&e.TombstonedAt,
+		&e.TombstonedAt, &e.CongratsMessage,
 	)
 	return e, err
 }
@@ -397,16 +402,18 @@ WHERE id = $4`
 }
 
 // UpdateExamQuestions updates the questions_json, security_level, strict_mode,
-// identity_fields, panel_color, start_time, end_time for an exam.
+// identity_fields, panel_color, start_time, end_time, and the custom
+// congrats_message for an exam.
 func UpdateExamQuestions(ctx context.Context, pool *pgxpool.Pool, id int,
-	questionsJSON, securityLevel, identityFieldsJSON, panelColor, startTime, endTime *string, strictMode int) error {
+	questionsJSON, securityLevel, identityFieldsJSON, panelColor, startTime, endTime, congratsMessage *string, strictMode int) error {
 	sql := `UPDATE exams SET
 questions_json = $1, security_level = $2, strict_mode = $3,
-identity_fields = $4, panel_color = $5, start_time = $6, end_time = $7
-WHERE id = $8`
+identity_fields = $4, panel_color = $5, start_time = $6, end_time = $7,
+congrats_message = $8
+WHERE id = $9`
 	_, err := pool.Exec(ctx, sql,
 		questionsJSON, securityLevel, strictMode,
-		identityFieldsJSON, panelColor, startTime, endTime, id)
+		identityFieldsJSON, panelColor, startTime, endTime, congratsMessage, id)
 	if err != nil {
 		return fmt.Errorf("update exam questions: %w", err)
 	}

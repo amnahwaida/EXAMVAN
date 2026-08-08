@@ -773,11 +773,12 @@ func SubmitExam() gin.HandlerFunc {
 				_, _ = pool.Exec(ctx, "DELETE FROM exam_approvals WHERE exam_id = $1 AND mac_address = $2", examID, macAddress)
 
 				c.JSON(http.StatusOK, gin.H{
-					"success": true,
-					"message": "Jawaban berhasil dikirim",
-					"status":  "queued",
-					"job_id":  jobID,
-					"score":   nil,
+					"success":         true,
+					"message":         "Jawaban berhasil dikirim",
+					"status":          "queued",
+					"job_id":          jobID,
+					"score":           nil,
+					"congrats_message": exam.CongratsMessage,
 				})
 				return
 			}
@@ -807,9 +808,10 @@ func SubmitExam() gin.HandlerFunc {
 		_, _ = pool.Exec(ctx, "DELETE FROM exam_approvals WHERE exam_id = $1 AND mac_address = $2", examID, macAddress)
 
 		c.JSON(http.StatusOK, gin.H{
-			"success": true,
-			"message": "Jawaban berhasil dikirim",
-			"score":   score,
+			"success":          true,
+			"message":          "Jawaban berhasil dikirim",
+			"score":            score,
+			"congrats_message": exam.CongratsMessage,
 		})
 	}
 }

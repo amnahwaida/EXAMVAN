@@ -70,6 +70,16 @@
     <string name="label_student_class">Class</string>
     <string name="submit_success_message">%1$s</string>
     <string name="submit_success_done">Done</string>
+
+    <!-- Congratulations screen (shown after a successful submit) -->
+    <string name="congrats_title">Exam Complete!</string>
+    <string name="congrats_default_message">Congratulations! Your answers have been submitted.</string>
+    <string name="congrats_copy_link">📋 Copy Result Link</string>
+    <string name="congrats_open_result">Open Results Page</string>
+    <string name="congrats_result_url_hint">Share this link to view your exam results</string>
+    <string name="congrats_link_copied">Result link copied</string>
+    <string name="congrats_link_missing">Result link unavailable</string>
+
     <string name="submit_failed_retry">📤 Submit Answers</string>
     <string name="submit_failed_title">Failed</string>
     <string name="submit_failed_title_strict">❌ Failed — Must Retry</string>

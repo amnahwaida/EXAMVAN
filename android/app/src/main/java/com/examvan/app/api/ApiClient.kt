@@ -477,18 +477,38 @@ object ApiClient {
             .build()
     }
 
+    /**
+     * Result of a submit-exam call: whether it succeeded, the server message,
+     * and the optional custom congratulations message to show on the success
+     * screen (null when the teacher left it unset — the app falls back to its
+     * default wording).
+     */
+    data class SubmitResult(
+        val success: Boolean,
+        val message: String,
+        val congratsMessage: String?
+    )
+
     /** Parse submit response, shared by async and sync submit methods. */
-    private fun parseSubmitResponse(response: Response): Pair<Boolean, String> {
+    private fun parseSubmitResponse(response: Response): SubmitResult {
         return try {
             val bodyText = response.body?.string() ?: ""
             val json = org.json.JSONObject(bodyText)
             if (response.isSuccessful && json.optBoolean("success", false)) {
-                Pair(true, json.optString("message", "Ujian berhasil dikumpulkan"))
+                SubmitResult(
+                    success = true,
+                    message = json.optString("message", "Ujian berhasil dikumpulkan"),
+                    congratsMessage = json.optString("congrats_message", "").ifBlank { null }
+                )
             } else {
-                Pair(false, json.optString("message", "Gagal mengumpulkan jawaban"))
+                SubmitResult(
+                    success = false,
+                    message = json.optString("message", "Gagal mengumpulkan jawaban"),
+                    congratsMessage = null
+                )
             }
         } catch (e: Exception) {
-            Pair(false, "Gagal memproses respon server")
+            SubmitResult(false, "Gagal memproses respon server", null)
         }
     }
 
@@ -505,7 +525,7 @@ object ApiClient {
         startTime: String? = null,
         macAddress: String? = null,
         identityData: String? = null,
-        onSuccess: (String) -> Unit,
+        onSuccess: (SubmitResult) -> Unit,
         onError: (String) -> Unit
     ) {
         val request = buildSubmitRequest(examId, token, studentName, examNumber, studentClass, answers, startTime, macAddress, identityData)
@@ -517,8 +537,8 @@ object ApiClient {
 
             override fun onResponse(call: Call, response: Response) {
                 response.use {
-                    val (success, message) = parseSubmitResponse(it)
-                    if (success) onSuccess(message) else onError(message)
+                    val result = parseSubmitResponse(it)
+                    if (result.success) onSuccess(result) else onError(result.message)
                 }
             }
         })
@@ -538,14 +558,14 @@ object ApiClient {
         startTime: String? = null,
         macAddress: String? = null,
         identityData: String? = null
-    ): Pair<Boolean, String> {
+    ): SubmitResult {
         return try {
             val request = buildSubmitRequest(examId, token, studentName, examNumber, studentClass, answers, startTime, macAddress, identityData)
             client.newCall(request).execute().use { response ->
                 parseSubmitResponse(response)
             }
         } catch (e: Exception) {
-            Pair(false, e.message ?: "Koneksi gagal")
+            SubmitResult(false, e.message ?: "Koneksi gagal", null)
         }
     }
 }

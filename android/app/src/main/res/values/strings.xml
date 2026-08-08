@@ -70,6 +70,16 @@
     <string name="label_student_class">Kelas</string>
     <string name="submit_success_message">%1$s</string>
     <string name="submit_success_done">Selesai</string>
+
+    <!-- Congratulations screen (shown after a successful submit) -->
+    <string name="congrats_title">Ujian Selesai!</string>
+    <string name="congrats_default_message">Selamat! Jawaban Anda telah dikumpulkan.</string>
+    <string name="congrats_copy_link">📋 Salin Link Hasil</string>
+    <string name="congrats_open_result">Buka Halaman Hasil</string>
+    <string name="congrats_result_url_hint">Bagikan link ini untuk melihat hasil ujian Anda</string>
+    <string name="congrats_link_copied">Link hasil disalin</string>
+    <string name="congrats_link_missing">Link hasil tidak tersedia</string>
+
     <string name="submit_failed_retry">Kumpulkan Jawaban</string>
     <string name="submit_failed_title">Gagal</string>
     <string name="submit_failed_title_strict">Gagal — Wajib Coba Lagi</string>

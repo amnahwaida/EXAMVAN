@@ -68,7 +68,8 @@ CREATE TABLE IF NOT EXISTS exams (
     token_reset_interval INTEGER,
     token_last_reset_at  TIMESTAMPTZ,
     active_token        TEXT NOT NULL DEFAULT '',
-    exam_started_at     TIMESTAMPTZ
+    exam_started_at     TIMESTAMPTZ,
+    congrats_message    TEXT
 );
 
 -- ============================================================
@@ -177,6 +178,10 @@ ALTER TABLE exams ADD COLUMN IF NOT EXISTS token_reset_interval INTEGER;
 ALTER TABLE exams ADD COLUMN IF NOT EXISTS token_last_reset_at TIMESTAMPTZ;
 ALTER TABLE exams ADD COLUMN IF NOT EXISTS active_token TEXT NOT NULL DEFAULT '';
 ALTER TABLE exams ADD COLUMN IF NOT EXISTS exam_started_at TIMESTAMPTZ;
+-- Custom congratulations message shown on the Android page after a student
+-- submits (configurable from the "Atur Soal & Kunci Jawaban" modal). Free
+-- text, rendered plain on the client. Safe to re-run on every boot.
+ALTER TABLE exams ADD COLUMN IF NOT EXISTS congrats_message TEXT;
 ALTER TABLE admin_users ADD COLUMN IF NOT EXISTS email TEXT DEFAULT '';
 ALTER TABLE admin_users ADD COLUMN IF NOT EXISTS max_storage_size BIGINT DEFAULT 52428800;
 ALTER TABLE admin_users ADD COLUMN IF NOT EXISTS otp_attempts INT NOT NULL DEFAULT 0;

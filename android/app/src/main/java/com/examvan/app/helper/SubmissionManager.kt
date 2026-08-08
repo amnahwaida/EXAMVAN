@@ -4,6 +4,7 @@ import android.Manifest
 import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.content.Context
+import android.content.Intent
 import android.content.pm.PackageManager
 import android.os.Build
 import android.text.Html
@@ -17,6 +18,7 @@ import androidx.lifecycle.LifecycleOwner
 import androidx.lifecycle.lifecycleScope
 import com.examvan.app.AppPrefs
 import com.examvan.app.AuditLog
+import com.examvan.app.CongratulationsActivity
 import com.examvan.app.R
 import com.examvan.app.api.ApiClient
 import com.examvan.app.databinding.ActivityExamViewerBinding
@@ -58,6 +60,7 @@ class SubmissionManager(
     var token: String = ""
     var startTime: String = ""
     var macAddress: String = ""
+    var serverUrl: String = ""
 
     // Callback to get current answers
     var getAnswers: (() -> Map<String, Any>)? = null
@@ -223,7 +226,7 @@ class SubmissionManager(
             startTime = startTime,
             macAddress = macAddress,
             identityData = identityData,
-            onSuccess = { message ->
+            onSuccess = { result ->
                 android.os.Handler(android.os.Looper.getMainLooper()).post {
                     isSubmitting = false
                     lastSubmitSuccess = true
@@ -241,31 +244,40 @@ class SubmissionManager(
                         return@post
                     }
 
-                    val sb = StringBuilder(message)
-                    if (studentName.isNotEmpty()) {
-                        sb.append("\n\n").append(context.getString(R.string.label_student_name)).append(": ").append(studentName)
-                    }
-                    if (studentNumber.isNotEmpty()) {
-                        sb.append("\n").append(context.getString(R.string.label_exam_number)).append(": ").append(studentNumber)
-                    }
-                    if (studentClass.isNotEmpty()) {
-                        sb.append("\n").append(context.getString(R.string.label_student_class)).append(": ").append(studentClass)
-                    }
-                    val msgText = sb.toString()
-
                     binding.btnSubmitAnswers.isEnabled = false
                     binding.btnSubmitAnswers.text = context.getString(R.string.submitted_label)
 
+                    // Dedicated congratulations screen with the teacher's custom
+                    // message (server congrats_message) and a copy/open button
+                    // for the student results page.
                     setShowingAppDialog(true)
-                    AlertDialog.Builder(context)
-                        .setTitle(context.getString(R.string.submit_success_title))
-                        .setMessage(context.getString(R.string.submit_success_message, msgText))
-                        .setCancelable(false)
-                        .setPositiveButton(context.getString(R.string.submit_success_done)) { _, _ ->
-                            setShowingAppDialog(false)
-                            onFinish?.invoke()
+                    try {
+                        val intent = Intent(context, CongratulationsActivity::class.java).apply {
+                            putExtra("server_url", serverUrl)
+                            putExtra("exam_token", token)
+                            putExtra("exam_name", examName)
+                            putExtra("student_name", studentName)
+                            putExtra("student_number", studentNumber)
+                            putExtra("student_class", studentClass)
+                            putExtra("congrats_message", result.congratsMessage)
+                            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
                         }
-                        .show()
+                        context.startActivity(intent)
+                    } catch (_: Exception) {
+                        // Fallback if launching fails: plain dialog as before.
+                        AlertDialog.Builder(context)
+                            .setTitle(context.getString(R.string.submit_success_title))
+                            .setMessage(context.getString(R.string.submit_success_message, result.message))
+                            .setCancelable(false)
+                            .setPositiveButton(context.getString(R.string.submit_success_done)) { _, _ ->
+                                setShowingAppDialog(false)
+                                onFinish?.invoke()
+                            }
+                            .show()
+                        return@post
+                    }
+                    setShowingAppDialog(false)
+                    onFinish?.invoke()
                 }
             },
             onError = { errorMsg ->
@@ -322,7 +334,7 @@ class SubmissionManager(
                         identityData = identityData
                     )
                 }
-                if (result.first) return result
+                if (result.success) return Pair(result.success, result.message)
                 if (attempt < 3) delay(delays[attempt])
             } catch (e: Exception) {
                 if (attempt < 3) {

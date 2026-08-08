@@ -770,6 +770,7 @@ func GetQuestions() gin.HandlerFunc {
 				"panel_color":        panelColor,
 				"start_time":         startTime,
 				"end_time":           endTime,
+				"congrats_message":   exam.CongratsMessage,
 				"token":              exam.Token,
 				"public_results":     exam.PublicResults,
 				"show_answers":       exam.ShowAnswers,
@@ -786,6 +787,7 @@ func GetQuestions() gin.HandlerFunc {
 				"panel_color":     panelColor,
 				"start_time":      startTime,
 				"end_time":        endTime,
+				"congrats_message": exam.CongratsMessage,
 				"token":           exam.Token,
 				"public_results":  exam.PublicResults,
 				"show_answers":    exam.ShowAnswers,
@@ -816,13 +818,14 @@ func SaveQuestions() gin.HandlerFunc {
 		}
 
 		var body struct {
-			Questions      []map[string]interface{} `json:"questions"`
-			SecurityLevel  string                   `json:"security_level"`
-			IdentityFields []map[string]interface{} `json:"identity_fields"`
-			PanelColor     string                   `json:"panel_color"`
-			StartTime      string                   `json:"start_time"`
-			EndTime        string                   `json:"end_time"`
-			PengawasIDs    []int                    `json:"pengawas_ids"`
+			Questions       []map[string]interface{} `json:"questions"`
+			SecurityLevel   string                   `json:"security_level"`
+			IdentityFields  []map[string]interface{} `json:"identity_fields"`
+			PanelColor      string                   `json:"panel_color"`
+			StartTime       string                   `json:"start_time"`
+			EndTime         string                   `json:"end_time"`
+			CongratsMessage string                   `json:"congrats_message"`
+			PengawasIDs     []int                    `json:"pengawas_ids"`
 		}
 		if err := c.ShouldBindJSON(&body); err != nil {
 			errorResponse(c, http.StatusBadRequest, "Data tidak valid")
@@ -879,9 +882,17 @@ func SaveQuestions() gin.HandlerFunc {
 			}
 		}
 
+		// Custom congratulations message: free text (not HTML), trimmed; an
+		// empty value is stored as NULL so the Android app falls back to its
+		// default wording.
+		var congratsMessage *string
+		if msg := strings.TrimSpace(body.CongratsMessage); msg != "" {
+			congratsMessage = &msg
+		}
+
 		if err := models.UpdateExamQuestions(ctx, pool, examID,
 			&questionsJSON, &securityLevel, &identityFieldsJSON,
-			&panelColor, startTimePtr, endTimePtr, strictMode); err != nil {
+			&panelColor, startTimePtr, endTimePtr, congratsMessage, strictMode); err != nil {
 			log.Printf("save questions error: %v", err)
 			errorResponse(c, http.StatusInternalServerError, "Gagal menyimpan konfigurasi soal")
 			return

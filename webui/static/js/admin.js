@@ -421,6 +421,9 @@ function openQuestionsModal(examId, examName) {
                 }
                 parseSchedule(res.start_time, startDateInput, startInput);
                 parseSchedule(res.end_time, endDateInput, endInput);
+                // Congratulations message (nullable — empty when unset)
+                const congratsEl = document.getElementById('examCongratsMessage');
+                if (congratsEl) congratsEl.value = res.congrats_message || '';
                 renderStudentAccessControls(examId, res);
                 renderQuestions(res.questions);
                 renderIdentityFields(res.identity_fields || []);
@@ -1192,11 +1195,12 @@ function saveQuestionsConfig() {
     const startTime = buildSchedule('examStartDate', 'examStartTime');
     const endTime = buildSchedule('examEndDate', 'examEndTime');
     const pengawasIds = getPengawasIdsFromEditor();
+    const congratsMessage = document.getElementById('examCongratsMessage') ? document.getElementById('examCongratsMessage').value.trim() : '';
 
     apiFetch(`/admin/api/exams/${activeExamId}/questions`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ questions: questions, security_level: securityLevel, strict_mode: strictMode, identity_fields: identityFields, panel_color: panelColor, start_time: startTime, end_time: endTime, pengawas_ids: pengawasIds })
+        body: JSON.stringify({ questions: questions, security_level: securityLevel, strict_mode: strictMode, identity_fields: identityFields, panel_color: panelColor, start_time: startTime, end_time: endTime, pengawas_ids: pengawasIds, congrats_message: congratsMessage })
     })
         .then(r => r.json())
         .then(res => {

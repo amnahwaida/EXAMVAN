@@ -178,6 +178,17 @@
             android:backgroundTint="@color/primary"
             android:textColor="@color/on_primary"
             android:paddingHorizontal="32dp" />
+
+        <Button
+            android:id="@+id/btnOpenResult"
+            android:layout_width="wrap_content"
+            android:layout_height="44dp"
+            android:text="@string/congrats_open_result"
+            android:backgroundTint="@color/surface_variant"
+            android:textColor="@color/primary"
+            android:paddingHorizontal="32dp"
+            android:layout_marginTop="8dp"
+            android:visibility="gone" />
     </LinearLayout>
 
     <!-- Answer Sheet Toggle Bar -->

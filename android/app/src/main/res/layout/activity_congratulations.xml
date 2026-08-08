@@ -1,0 +1,180 @@
+<?xml version="1.0" encoding="utf-8"?>
+<androidx.constraintlayout.widget.ConstraintLayout
+    xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:id="@+id/rootLayout"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="@color/background">
+
+    <androidx.core.widget.NestedScrollView
+        android:layout_width="0dp"
+        android:layout_height="0dp"
+        android:fillViewport="true"
+        app:layout_constraintTop_toTopOf="parent"
+        app:layout_constraintBottom_toBottomOf="parent"
+        app:layout_constraintStart_toStartOf="parent"
+        app:layout_constraintEnd_toEndOf="parent"
+        app:layout_constraintWidth_max="440dp">
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical"
+            android:gravity="center_horizontal"
+            android:padding="24dp">
+
+            <!-- Spacer top -->
+            <View
+                android:layout_width="0dp"
+                android:layout_height="0dp"
+                android:layout_weight="1" />
+
+            <!-- Main Card -->
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="vertical"
+                android:gravity="center_horizontal"
+                android:background="@drawable/bg_approval_card"
+                android:padding="32dp"
+                android:elevation="4dp">
+
+                <!-- Success icon -->
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="🎉"
+                    android:textSize="64sp"
+                    android:layout_marginBottom="16dp" />
+
+                <!-- Title -->
+                <TextView
+                    android:id="@+id/tvCongratsTitle"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="@string/congrats_title"
+                    android:textSize="24sp"
+                    android:textStyle="bold"
+                    android:textColor="@color/on_surface"
+                    android:gravity="center"
+                    android:layout_marginBottom="12dp" />
+
+                <!-- Custom message from server (fallback to default) -->
+                <TextView
+                    android:id="@+id/tvCongratsMessage"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:text="@string/congrats_default_message"
+                    android:textSize="15sp"
+                    android:textColor="@color/text_secondary"
+                    android:gravity="center"
+                    android:lineSpacingMultiplier="1.4"
+                    android:layout_marginBottom="24dp" />
+
+                <!-- Exam name badge -->
+                <LinearLayout
+                    android:id="@+id/layoutExamInfo"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="vertical"
+                    android:background="@drawable/bg_identity_badge"
+                    android:padding="16dp"
+                    android:layout_marginBottom="12dp">
+
+                    <TextView
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="@string/approval_exam_label"
+                        android:textSize="11sp"
+                        android:textColor="@color/text_muted"
+                        android:textAllCaps="true"
+                        android:letterSpacing="0.08"
+                        android:layout_marginBottom="4dp" />
+
+                    <TextView
+                        android:id="@+id/tvExamName"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:textSize="16sp"
+                        android:textStyle="bold"
+                        android:textColor="@color/on_surface" />
+
+                </LinearLayout>
+
+                <!-- Student identity -->
+                <LinearLayout
+                    android:id="@+id/layoutIdentityInfo"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="vertical"
+                    android:background="@drawable/bg_identity_badge"
+                    android:padding="16dp"
+                    android:layout_marginBottom="20dp">
+
+                    <TextView
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="@string/approval_identity_label"
+                        android:textSize="11sp"
+                        android:textColor="@color/text_muted"
+                        android:textAllCaps="true"
+                        android:letterSpacing="0.08"
+                        android:layout_marginBottom="8dp" />
+
+                    <!-- Dynamic identity rows added here -->
+                    <LinearLayout
+                        android:id="@+id/containerIdentityFields"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:orientation="vertical" />
+
+                </LinearLayout>
+
+                <!-- Result link hint -->
+                <TextView
+                    android:id="@+id/tvResultUrlHint"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="@string/congrats_result_url_hint"
+                    android:textSize="12sp"
+                    android:textColor="@color/text_muted"
+                    android:gravity="center"
+                    android:layout_marginBottom="12dp" />
+
+                <!-- Copy link button -->
+                <Button
+                    android:id="@+id/btnCopyLink"
+                    android:layout_width="match_parent"
+                    android:layout_height="52dp"
+                    android:text="@string/congrats_copy_link"
+                    android:textSize="15sp"
+                    android:textColor="@android:color/white"
+                    android:background="@drawable/btn_primary"
+                    android:textAllCaps="false"
+                    android:layout_marginBottom="12dp" />
+
+                <!-- Open results button -->
+                <Button
+                    android:id="@+id/btnOpenResult"
+                    android:layout_width="match_parent"
+                    android:layout_height="52dp"
+                    android:text="@string/congrats_open_result"
+                    android:textSize="15sp"
+                    android:textColor="@color/primary"
+                    android:background="@drawable/btn_secondary_outlined"
+                    android:textAllCaps="false" />
+
+            </LinearLayout>
+
+            <!-- Spacer bottom -->
+            <View
+                android:layout_width="0dp"
+                android:layout_height="0dp"
+                android:layout_weight="1" />
+
+        </LinearLayout>
+
+    </androidx.core.widget.NestedScrollView>
+
+</androidx.constraintlayout.widget.ConstraintLayout>

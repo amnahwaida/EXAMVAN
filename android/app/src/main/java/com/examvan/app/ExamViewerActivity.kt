@@ -1,6 +1,8 @@
 package com.examvan.app
 
+import android.content.Intent
 import android.content.pm.PackageManager
+import android.net.Uri
 import android.os.Bundle
 import android.util.Log
 import android.view.KeyEvent
@@ -232,6 +234,7 @@ class ExamViewerActivity : BaseSecureActivity() {
             identityData = this@ExamViewerActivity.identityData
             macAddress = this@ExamViewerActivity.macAddress
             token = this@ExamViewerActivity.examToken
+            serverUrl = this@ExamViewerActivity.serverUrl
             this.strictMode = strictMode
             deactivateLockTask = {
                 if (strictMode) LockTaskManager.deactivate(this@ExamViewerActivity)
@@ -753,6 +756,27 @@ class ExamViewerActivity : BaseSecureActivity() {
         binding.btnRetryDownload.setOnClickListener {
             finish()
         }
+
+        // "Buka Halaman Hasil" — also available when re-entering an already
+        // submitted exam, so the student can still reach their results page.
+        binding.btnOpenResult.visibility = View.VISIBLE
+        binding.btnOpenResult.setOnClickListener {
+            val base = serverUrl.trim().trimEnd('/')
+            val token = examToken.trim()
+            if (base.isNotEmpty() && token.isNotEmpty()) {
+                try {
+                    startActivity(
+                        Intent(Intent.ACTION_VIEW, Uri.parse("$base/$token"))
+                            .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                    )
+                } catch (_: Exception) {
+                    Toast.makeText(this, R.string.congrats_link_missing, Toast.LENGTH_SHORT).show()
+                }
+            } else {
+                Toast.makeText(this, R.string.congrats_link_missing, Toast.LENGTH_SHORT).show()
+            }
+        }
+
         binding.layoutError.visibility = View.VISIBLE
     }
 
