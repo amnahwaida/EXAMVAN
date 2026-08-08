@@ -229,6 +229,7 @@
    <form method="POST" action="/register/confirm?username={{.username}}" class="login-form" id="otpForm" autocomplete="off">
     <!-- Hidden real input -->
     <input type="hidden" id="otp_code" name="otp_code" value="">
+    <input type="hidden" name="csrf_token" value="{{.csrf_token}}">
 
     <div style="text-align:center;">
      <label style="display:block;margin-bottom:6px;font-weight:500;font-size:13px;color:var(--color-text);">Masukkan Kode OTP</label>
@@ -384,9 +385,14 @@
    if (e) e.preventDefault();
    if (resendMsg) resendMsg.textContent = '';
    if (resendLink) resendLink.style.pointerEvents = 'none';
+   var csrfInput = document.querySelector('#otpForm input[name="csrf_token"]');
+   var csrfToken = csrfInput ? csrfInput.value : '';
    fetch('/register/resend?username=' + encodeURIComponent(USERNAME), {
     method: 'POST',
-    headers: { 'X-Requested-With': 'XMLHttpRequest' }
+    headers: {
+     'X-Requested-With': 'XMLHttpRequest',
+     'X-CSRF-Token': csrfToken
+    }
    })
    .then(function(r) { return r.json().then(function(j) { return { ok: r.ok, j: j }; }); })
    .then(function(res) {

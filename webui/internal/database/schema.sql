@@ -557,3 +557,35 @@ SET package_role = COALESCE(r.role, '')
 FROM voucher_redemptions r
 WHERE r.user_id = u.id AND r.is_active;
 
+-- ============================================================
+-- Migration: unique email (enforce no duplicate accounts per address)
+-- ============================================================
+-- admin_users.email did not previously have a uniqueness guarantee. Legacy
+-- rows may hold duplicates (e.g. created through non-registration paths).
+-- Before adding the partial unique index we collapse case-variant / exact
+-- duplicates to their lowest-id row (the original account), blanking the
+-- email on the later duplicates so the index creation cannot fail and the
+-- duplicate account is no longer matched by GetUserByEmail. Only rows with a
+-- non-empty email and a lower-id twin are affected — genuinely-unique and
+-- empty-email rows are untouched. Safe to re-run on every boot.
+DO $$
+BEGIN
+    UPDATE admin_users d
+    SET email = ''
+    FROM (
+        SELECT LOWER(email) AS le, MIN(id) AS keep_id
+        FROM admin_users
+        WHERE email <> ''
+        GROUP BY LOWER(email)
+        HAVING COUNT(*) > 1
+    ) dup
+    WHERE d.id <> dup.keep_id
+      AND LOWER(d.email) = dup.le
+      AND d.email <> '';
+END $$;
+
+-- Email is unique only when non-empty, so accounts that never provide an
+-- email (legacy rows DEFAULT '') do not collide with each other.
+CREATE UNIQUE INDEX IF NOT EXISTS uq_admin_users_email
+    ON admin_users (LOWER(email)) WHERE email <> '';
+

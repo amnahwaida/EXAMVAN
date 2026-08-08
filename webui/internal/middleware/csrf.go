@@ -69,10 +69,16 @@ func CSRFRequired() gin.HandlerFunc {
 			return
 		}
 
-		// Check header first, then fall back to form field.
+		// Check header first, then fall back to form field. The public
+		// register/login forms submit a plain HTML form with a hidden
+		// `csrf_token`, while the admin SPA sends `X-CSRF-Token`. Both are
+		// accepted; `_csrf_token` is kept as a legacy alias.
 		provided := c.GetHeader("X-CSRF-Token")
 		if provided == "" {
 			provided = c.GetHeader("X-Csrf-Token")
+		}
+		if provided == "" {
+			provided = c.PostForm("csrf_token")
 		}
 		if provided == "" {
 			provided = c.PostForm("_csrf_token")

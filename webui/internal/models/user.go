@@ -412,6 +412,16 @@ func GetUserByUsername(ctx context.Context, pool *pgxpool.Pool, username string)
 	return scanAdminUser(pool.QueryRow(ctx, sql, username))
 }
 
+// GetUserByEmail retrieves a user by email (case-insensitive). Used to
+// enforce email uniqueness at registration. Empty emails are never matched —
+// legacy rows with DEFAULT ” must not collide.
+func GetUserByEmail(ctx context.Context, pool *pgxpool.Pool, email string) (AdminUser, error) {
+	sql := `SELECT ` + DefaultAdminUserColumns + ` FROM admin_users
+		WHERE LOWER(email) = LOWER($1) AND email <> ''
+		ORDER BY id ASC LIMIT 1`
+	return scanAdminUser(pool.QueryRow(ctx, sql, email))
+}
+
 // GetUserByID retrieves a user by primary key.
 func GetUserByID(ctx context.Context, pool *pgxpool.Pool, id int) (AdminUser, error) {
 	sql := `SELECT ` + DefaultAdminUserColumns + ` FROM admin_users WHERE id = $1`

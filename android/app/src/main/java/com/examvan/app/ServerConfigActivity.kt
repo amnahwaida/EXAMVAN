@@ -108,13 +108,7 @@ class ServerConfigActivity : BaseSecureActivity() {
                 .setTitle("Hapus Data Tersimpan")
                 .setMessage("Hapus URL server, token, dan data identitas yang tersimpan?")
                 .setPositiveButton("Ya, Hapus") { _, _ ->
-                    AppPrefs.getConfigPrefs(this).edit().clear().apply()
-                    AppPrefs.getExamPrefs(this).edit().clear().apply()
-                    AppPrefs.getDevicePrefs(this).edit().clear().apply()
-                    binding.etServerUrl.setText("")
-                    binding.etToken.setText("")
-                    binding.btnClearData.visibility = View.GONE
-                    showError("Data tersimpan berhasil dihapus")
+                    clearAllSavedData()
                 }
                 .setNegativeButton("Batal", null)
                 .show()
@@ -189,22 +183,21 @@ class ServerConfigActivity : BaseSecureActivity() {
                             val exam = response.data
                             if (exam != null) {
                                 // Save connection preferences if remember is checked
-                                val configPrefs = AppPrefs.getConfigPrefs(this@ServerConfigActivity)
                                 val tokenToUse = exam.token ?: token
                                 if (binding.cbRememberUrl.isChecked) {
-                                    configPrefs.edit()
-                                        .putString(AppPrefs.KEY_SERVER_URL, url)
-                                        .putInt(AppPrefs.KEY_EXAM_ID, exam.id)
-                                        .putString(AppPrefs.KEY_EXAM_TOKEN, tokenToUse)
-                                        .putBoolean(AppPrefs.KEY_REMEMBER_URL, true)
-                                        .apply()
+                                    safeConfigWrite {
+                                        putString(AppPrefs.KEY_SERVER_URL, url)
+                                        putInt(AppPrefs.KEY_EXAM_ID, exam.id)
+                                        putString(AppPrefs.KEY_EXAM_TOKEN, tokenToUse)
+                                        putBoolean(AppPrefs.KEY_REMEMBER_URL, true)
+                                    }
                                 } else {
-                                    configPrefs.edit()
-                                        .putBoolean(AppPrefs.KEY_REMEMBER_URL, false)
-                                        .remove(AppPrefs.KEY_SERVER_URL)
-                                        .remove(AppPrefs.KEY_EXAM_ID)
-                                        .remove(AppPrefs.KEY_EXAM_TOKEN)
-                                        .apply()
+                                    safeConfigWrite {
+                                        putBoolean(AppPrefs.KEY_REMEMBER_URL, false)
+                                        remove(AppPrefs.KEY_SERVER_URL)
+                                        remove(AppPrefs.KEY_EXAM_ID)
+                                        remove(AppPrefs.KEY_EXAM_TOKEN)
+                                    }
                                 }
 
                                 // Show student identity dialog
@@ -335,9 +328,9 @@ class ServerConfigActivity : BaseSecureActivity() {
             val identityDataStr = identityJson.toString()
 
             // Save identity data to SharedPreferences
-            AppPrefs.getConfigPrefs(this@ServerConfigActivity).edit()
-                .putString(AppPrefs.KEY_IDENTITY_DATA, identityDataStr)
-                .apply()
+            safeConfigWrite {
+                putString(AppPrefs.KEY_IDENTITY_DATA, identityDataStr)
+            }
 
             alertDialog.dismiss()
 
@@ -346,12 +339,18 @@ class ServerConfigActivity : BaseSecureActivity() {
             val securityLevel = exam.security_level ?: "medium"
             val strictMode = exam.strict_mode ?: false
             val panelColor = exam.panel_color ?: ""
-            AppPrefs.getExamPrefs(this@ServerConfigActivity).edit()
-                .putString(AppPrefs.KEY_QUESTIONS_JSON, questionsJson)
-                .putString(AppPrefs.KEY_SECURITY_LEVEL, securityLevel)
-                .putBoolean(AppPrefs.KEY_STRICT_MODE, strictMode)
-                .putString(AppPrefs.KEY_PANEL_COLOR, panelColor)
-                .commit()
+            try {
+                AppPrefs.getExamPrefs(this@ServerConfigActivity).edit()
+                    .putString(AppPrefs.KEY_QUESTIONS_JSON, questionsJson)
+                    .putString(AppPrefs.KEY_SECURITY_LEVEL, securityLevel)
+                    .putBoolean(AppPrefs.KEY_STRICT_MODE, strictMode)
+                    .putString(AppPrefs.KEY_PANEL_COLOR, panelColor)
+                    .commit()
+            } catch (e: GeneralSecurityException) {
+                showError("Penyimpanan aman tidak tersedia: ${e.message}")
+            } catch (e: java.io.IOException) {
+                showError("Penyimpanan aman tidak tersedia: ${e.message}")
+            }
 
             // Extract legacy fields for backward compat with ExamViewer with smart fallbacks for custom keys
             var name = identityJson.optString("student_name", "")
@@ -442,6 +441,50 @@ class ServerConfigActivity : BaseSecureActivity() {
             putExtra("strict_mode", strictMode)
         }
         startActivity(intent)
+    }
+
+    /**
+     * Wipe every saved (encrypted) preference. Keystore corruption can make
+     * EncryptedSharedPreferences throw on first access (or during apply) — so
+     * this runs each prefs access inside a guard and reports instead of
+     * crashing the activity.
+     */
+    private fun clearAllSavedData() {
+        val clearedAll = try {
+            AppPrefs.getConfigPrefs(this).edit().clear().apply()
+            AppPrefs.getExamPrefs(this).edit().clear().apply()
+            AppPrefs.getDevicePrefs(this).edit().clear().apply()
+            true
+        } catch (e: GeneralSecurityException) {
+            false
+        } catch (e: java.io.IOException) {
+            false
+        }
+        binding.etServerUrl.setText("")
+        binding.etToken.setText("")
+        if (clearedAll) {
+            binding.btnClearData.visibility = View.GONE
+            showError("Data tersimpan berhasil dihapus")
+        } else {
+            showError("Gagal menghapus data tersimpan: enkripsi tidak tersedia di perangkat ini.")
+        }
+    }
+
+    /**
+     * Persist a write to the config prefs without crashing when the keystore /
+     * encrypted-prefs backend is unavailable. Returns true on success.
+     */
+    private fun safeConfigWrite(block: SharedPreferences.Editor.() -> Unit): Boolean {
+        return try {
+            AppPrefs.getConfigPrefs(this).edit().apply(block)
+            true
+        } catch (e: GeneralSecurityException) {
+            showError("Penyimpanan aman tidak tersedia: ${e.message}")
+            false
+        } catch (e: java.io.IOException) {
+            showError("Penyimpanan aman tidak tersedia: ${e.message}")
+            false
+        }
     }
 
     private fun setLoading(loading: Boolean) {

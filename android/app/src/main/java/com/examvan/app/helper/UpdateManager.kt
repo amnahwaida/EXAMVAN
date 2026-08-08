@@ -88,7 +88,18 @@ object UpdateManager {
         // "Buka Halaman Download" — opens the server download page
         val downloadUrl = serverUrl.trimEnd('/') + "/download"
         builder.setPositiveButton(activity.getString(R.string.update_required_action)) { _, _ ->
-            openDownloadPage(activity, downloadUrl)
+            if (serverUrl.isBlank()) {
+                // No server URL resolved (e.g. config not yet saved): there is
+                // nothing meaningful to open. Keep the dialog blocking so the
+                // student can only exit, and surface the URL we would use.
+                android.widget.Toast.makeText(
+                    activity,
+                    activity.getString(R.string.update_required_url_missing),
+                    android.widget.Toast.LENGTH_LONG
+                ).show()
+            } else {
+                openDownloadPage(activity, downloadUrl)
+            }
         }
 
         builder.show()

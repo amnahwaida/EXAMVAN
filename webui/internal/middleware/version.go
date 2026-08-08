@@ -100,37 +100,48 @@ func getRequiredVersion(ctx context.Context, pool *pgxpool.Pool) string {
 
 // isVersionCompatible compares two version strings using simple semantic
 // versioning (major.minor.patch). A client version is compatible when it
-// is greater than or equal to the required version.
+// is greater than or equal to the required version. Missing trailing parts
+// are treated as 0, so a client on "2.4" is compatible with a required
+// "2.4.0" — matching the Android client's UpdateManager (getOrElse { 0 }).
 //
 // Returns true when the client version is compatible.
 func isVersionCompatible(required, client string) bool {
 	reqParts := parseVersion(required)
 	cliParts := parseVersion(client)
 
-	// Compare major.minor.patch
-	for i := 0; i < len(reqParts) && i < len(cliParts); i++ {
-		if cliParts[i] > reqParts[i] {
+	for i := 0; i < len(reqParts) || i < len(cliParts); i++ {
+		var reqPart, cliPart int
+		if i < len(reqParts) {
+			reqPart = reqParts[i]
+		}
+		if i < len(cliParts) {
+			cliPart = cliParts[i]
+		}
+		if cliPart > reqPart {
 			return true
 		}
-		if cliParts[i] < reqParts[i] {
+		if cliPart < reqPart {
 			return false
 		}
 	}
 
-	// Client has fewer parts or equal major.minor → compatible.
-	return len(cliParts) >= len(reqParts)
+	// All parts equal (to the widest version) → compatible.
+	return true
 }
 
 // parseVersion splits a version string into integer parts.
-// e.g. "2.2.0" → []int{2, 2, 0}
+// e.g. "2.2.0" → []int{2, 2, 0}; a segment like "x" contributes 0 (so
+// "2.x.0" == "2.0.0"), mirroring models.CompareVersions and the Android
+// client's UpdateManager parser.
 func parseVersion(v string) []int {
 	parts := strings.Split(v, ".")
 	result := make([]int, 0, len(parts))
 	for _, p := range parts {
 		var n int
-		if _, err := fmt.Sscanf(p, "%d", &n); err == nil {
-			result = append(result, n)
+		if _, err := fmt.Sscanf(p, "%d", &n); err != nil {
+			n = 0
 		}
+		result = append(result, n)
 	}
 	return result
 }

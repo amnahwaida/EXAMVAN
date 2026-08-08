@@ -464,7 +464,7 @@ func registerRoutes(r *gin.Engine, cfg *config.Config, pool *pgxpool.Pool) {
 	r.GET("/robots.txt", robotsHandler())
 
 	r.GET("/login", loginPageHandler(cfg))
-	r.POST("/login", middleware.RateLimit(10, time.Minute), loginHandler(cfg))
+	r.POST("/login", middleware.RateLimit(10, time.Minute), middleware.CSRFRequired(), loginHandler(cfg))
 
 	// Logout via POST only (with CSRF protection).
 	r.POST("/logout", middleware.CSRFRequired(), logoutHandler())
@@ -473,19 +473,19 @@ func registerRoutes(r *gin.Engine, cfg *config.Config, pool *pgxpool.Pool) {
 
 	// Legacy: /admin/login → /login
 	r.GET("/admin/login", func(c *gin.Context) { c.Redirect(http.StatusFound, middleware.LoginURLWithNext(c.Query("next"))) })
-	r.POST("/admin/login", middleware.RateLimit(10, time.Minute), loginHandler(cfg))
+	r.POST("/admin/login", middleware.RateLimit(10, time.Minute), middleware.CSRFRequired(), loginHandler(cfg))
 
 	r.GET("/register", registerPageHandler(cfg))
-	r.POST("/register", middleware.RateLimit(5, time.Minute), registerPostHandler(cfg))
+	r.POST("/register", middleware.RateLimit(5, time.Minute), middleware.CSRFRequired(), registerPostHandler(cfg))
 	r.GET("/register/confirm", registerConfirmPageHandler(cfg))
-	r.POST("/register/confirm", middleware.RateLimit(5, time.Minute), registerConfirmPostHandler(cfg))
-	r.POST("/register/resend", middleware.RateLimit(5, time.Minute), resendOTPHandler(cfg))
+	r.POST("/register/confirm", middleware.RateLimit(5, time.Minute), middleware.CSRFRequired(), registerConfirmPostHandler(cfg))
+	r.POST("/register/resend", middleware.RateLimit(5, time.Minute), middleware.CSRFRequired(), resendOTPHandler(cfg))
 
 	// Password recovery
 	r.GET("/forgot-password", forgotPasswordPageHandler(cfg))
-	r.POST("/forgot-password", middleware.RateLimit(5, time.Minute), forgotPasswordPostHandler(cfg))
+	r.POST("/forgot-password", middleware.RateLimit(5, time.Minute), middleware.CSRFRequired(), forgotPasswordPostHandler(cfg))
 	r.GET("/reset-password", resetPasswordPageHandler(cfg))
-	r.POST("/reset-password", middleware.RateLimit(5, time.Minute), resetPasswordPostHandler(cfg))
+	r.POST("/reset-password", middleware.RateLimit(5, time.Minute), middleware.CSRFRequired(), resetPasswordPostHandler(cfg))
 
 	r.GET("/download", public.DownloadPage())
 	r.GET("/download/apk", public.DownloadAPK())
@@ -1100,6 +1100,16 @@ func registerPostHandler(cfg *config.Config) gin.HandlerFunc {
 		existing, err := models.GetUserByUsername(ctx, dbPool, username)
 		if err == nil && existing.Username != "" {
 			data["error"] = "Username sudah digunakan."
+			c.HTML(http.StatusOK, "public/register.html", data)
+			return
+		}
+
+		// Email must also be unique across accounts. Syncs with the partial
+		// unique index in schema.sql (email <> ''), and is done here for a
+		// friendlier message than a raw DB constraint violation.
+		existingByEmail, err := models.GetUserByEmail(ctx, dbPool, email)
+		if err == nil && existingByEmail.Email != "" {
+			data["error"] = "Email sudah terdaftar. Gunakan email lain atau masuk dengan akun yang ada."
 			c.HTML(http.StatusOK, "public/register.html", data)
 			return
 		}

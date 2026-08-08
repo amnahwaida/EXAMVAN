@@ -16,7 +16,9 @@ import androidx.appcompat.app.AlertDialog
 import androidx.core.content.ContextCompat
 import com.examvan.app.api.ApiClient
 import com.examvan.app.databinding.ActivityWaitingApprovalBinding
+import com.examvan.app.helper.UpdateManager
 import org.json.JSONObject
+import com.examvan.app.BuildConfig
 
 /**
  * Halaman Menunggu Persetujuan Pengawas
@@ -82,6 +84,10 @@ class WaitingApprovalActivity : BaseSecureActivity() {
 
         // Start polling for approval
         handler.post(pollRunnable)
+
+        // Belt-and-braces: catch an outdated build via health once per day
+        // (the 426 path above uses server-side enforcement).
+        maybeCheckVersion()
     }
 
     private fun extractIntentData() {
@@ -243,11 +249,15 @@ class WaitingApprovalActivity : BaseSecureActivity() {
                         }
                     }
                 },
-                onError = { errorMsg ->
+                onError = { statusCode, errorMsg ->
                     runOnUiThread {
                         if (!isWaiting) return@runOnUiThread
-                        showConnectionWarning(errorMsg)
-                        handler.postDelayed(this, 5000)
+                        if (statusCode == ApiClient.HTTP_UPGRADE_REQUIRED) {
+                            onUpdateRequired()
+                        } else {
+                            showConnectionWarning(errorMsg)
+                            handler.postDelayed(this, 5000)
+                        }
                     }
                 }
             )
@@ -328,9 +338,13 @@ class WaitingApprovalActivity : BaseSecureActivity() {
                     handler.post(pollRunnable)
                 }
             },
-            onError = { errorMsg ->
+            onError = { statusCode, errorMsg ->
                 runOnUiThread {
-                    showConnectionWarning(errorMsg)
+                    if (statusCode == ApiClient.HTTP_UPGRADE_REQUIRED) {
+                        onUpdateRequired()
+                    } else {
+                        showConnectionWarning(errorMsg)
+                    }
                 }
             }
         )
@@ -353,6 +367,52 @@ class WaitingApprovalActivity : BaseSecureActivity() {
         binding.tvConnectionStatus.text = getString(R.string.approval_status_retrying)
         binding.layoutWarning.visibility = View.VISIBLE
         binding.tvWarningMessage.text = getString(R.string.approval_warning_message, errorMsg)
+    }
+
+    /**
+     * Called when the approval polling (or retry) receives HTTP 426 (app
+     * update required). Stops polling and shows the blocking update dialog so
+     * an outdated student cannot sit on the waiting screen forever — they must
+     * update the APK. The dialog's "Buka Halaman Download" points at the
+     * server's /download page (hosted on the same URL as the exam API).
+     */
+    private fun onUpdateRequired() {
+        isWaiting = false
+        stopAnimations()
+        UpdateManager.showUpdateRequiredDialog(
+            this,
+            BuildConfig.VERSION_NAME,
+            null,
+            serverUrl
+        )
+    }
+
+    /**
+     * Check health once per day; show the blocking update dialog when this
+     * build is older than the required version. A belt-and-braces layer on top
+     * of the HTTP 426 handling above: the 426 only appears once the server's
+     * android_version setting is raised, whereas this catches a mismatch the
+     * moment health reports it (e.g. system_apps moved ahead first).
+     */
+    private fun maybeCheckVersion() {
+        if (serverUrl.isEmpty()) return
+
+        val configPrefs = AppPrefs.getConfigPrefs(this)
+        val lastCheck = configPrefs.getLong(AppPrefs.KEY_LAST_VERSION_CHECK_TS, 0L)
+        val now = System.currentTimeMillis()
+        if (now - lastCheck < 24 * 60 * 60 * 1000L) return
+
+        configPrefs.edit().putLong(AppPrefs.KEY_LAST_VERSION_CHECK_TS, now).apply()
+
+        ApiClient.checkHealth(
+            onSuccess = { health ->
+                val required = health.required_app_version
+                if (required != null && UpdateManager.isOutdated(BuildConfig.VERSION_NAME, required)) {
+                    runOnUiThread { onUpdateRequired() }
+                }
+            },
+            onError = { /* jaringan — biarkan polling menangani pesannya */ }
+        )
     }
 
     private fun showCancelConfirmation() {

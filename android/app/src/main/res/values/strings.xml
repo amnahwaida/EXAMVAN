@@ -133,4 +133,5 @@
     <string name="update_required_message_generic">Aplikasi EXAMVAN Anda sudah tidak didukung.\n\nUntuk mengikuti ujian, silakan unduh dan pasang versi terbaru dari halaman Download.</string>
     <string name="update_required_action">Buka Halaman Download</string>
     <string name="update_required_exit">Keluar</string>
+    <string name="update_required_url_missing">Alamat server belum tersimpan. Hubungi pengawas untuk memperbarui aplikasi.</string>
 </resources>

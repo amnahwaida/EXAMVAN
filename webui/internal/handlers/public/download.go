@@ -129,6 +129,11 @@ func DownloadSystemApp() gin.HandlerFunc {
 			return
 		}
 
+		if pool == nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"success": false, "message": "Database tidak tersedia."})
+			return
+		}
+
 		app, err := models.GetSystemAppByID(ctx, pool, id)
 		if err != nil {
 			c.JSON(http.StatusNotFound, gin.H{"success": false, "message": "Aplikasi tidak ditemukan."})

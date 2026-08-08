@@ -241,6 +241,8 @@ object ApiClient {
 
     /**
      * Request approval from pengawas.
+     * onError receives (statusCode, message); statusCode is 0 for network
+     * failures so callers can distinguish HTTP 426 (app update required).
      */
     fun requestApproval(
         examId: Int,
@@ -251,7 +253,7 @@ object ApiClient {
         identityDataStr: String,
         reset: Boolean = false,
         onSuccess: (String) -> Unit, // returns status (pending, approved, rejected)
-        onError: (String) -> Unit
+        onError: (statusCode: Int, message: String) -> Unit
     ) {
         val json = org.json.JSONObject().apply {
             put("exam_id", examId)
@@ -275,7 +277,7 @@ object ApiClient {
 
         client.newCall(request).enqueue(object : Callback {
             override fun onFailure(call: Call, e: IOException) {
-                onError(e.message ?: "Koneksi gagal")
+                onError(0, e.message ?: "Koneksi gagal")
             }
 
             override fun onResponse(call: Call, response: Response) {
@@ -285,9 +287,9 @@ object ApiClient {
                             val body = it.body?.string() ?: ""
                             val errJson = org.json.JSONObject(body)
                             val message = errJson.optString("message", errJson.optString("error", "Server error: ${it.code}"))
-                            onError(message)
+                            onError(it.code, message)
                         } catch (_: Exception) {
-                            onError("Server error: ${it.code}")
+                            onError(it.code, "Server error: ${it.code}")
                         }
                         return
                     }
@@ -297,7 +299,7 @@ object ApiClient {
                         val status = resJson.optString("status", "pending")
                         onSuccess(status)
                     } catch (e: Exception) {
-                        onError("Response tidak valid")
+                        onError(it.code, "Response tidak valid")
                     }
                 }
             }

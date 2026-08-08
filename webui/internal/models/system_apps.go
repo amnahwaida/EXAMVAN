@@ -46,38 +46,44 @@ func BestAndroidAppVersion(apps []SystemApp) string {
 }
 
 // CompareVersions returns -1 when a < b, 0 when equal, 1 when a > b.
-// Ignores non-numeric suffixes; mirrors middleware/version.go's parser.
+// Ignores non-numeric suffixes and treats missing trailing parts as 0, so
+// "2.4" == "2.4.0" and "2.4.1" > "2.4". This mirrors the Android client's
+// UpdateManager.compareVersions (getOrElse { 0 }).
 func CompareVersions(a, b string) int {
 	ap := parseVersionParts(a)
 	bp := parseVersionParts(b)
-	for i := 0; i < len(ap) && i < len(bp); i++ {
-		if ap[i] > bp[i] {
+	for i := 0; i < len(ap) || i < len(bp); i++ {
+		var av, bv int
+		if i < len(ap) {
+			av = ap[i]
+		}
+		if i < len(bp) {
+			bv = bp[i]
+		}
+		if av > bv {
 			return 1
 		}
-		if ap[i] < bp[i] {
+		if av < bv {
 			return -1
 		}
 	}
-	switch {
-	case len(ap) < len(bp):
-		return -1
-	case len(ap) > len(bp):
-		return 1
-	default:
-		return 0
-	}
+	return 0
 }
 
 // parseVersionParts splits a version string into integer parts.
 // e.g. "2.1.10-beta" → []int{2, 1, 10}
+// A segment whose leading digits are empty (e.g. "2.x.1") contributes 0, never
+// skipping the position — mirrors the Android client's UpdateManager parser so
+// "2.x.1" and "2.0.1" compare equal on both sides.
 func parseVersionParts(v string) []int {
 	parts := strings.Split(v, ".")
 	result := make([]int, 0, len(parts))
 	for _, p := range parts {
 		var n int
-		if _, err := fmt.Sscanf(p, "%d", &n); err == nil {
-			result = append(result, n)
+		if _, err := fmt.Sscanf(p, "%d", &n); err != nil {
+			n = 0
 		}
+		result = append(result, n)
 	}
 	return result
 }
