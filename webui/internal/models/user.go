@@ -120,6 +120,21 @@ func (u *AdminUser) IsExpired() bool {
 	return time.Now().UTC().After(*u.ExpiresAt)
 }
 
+// IsFeatureLocked reports whether the account's active period has run out and
+// it must be restricted to the billing page. The account can still log in
+// (unlike a suspended account), but every feature except package/voucher
+// management is disabled until its expiry is extended (voucher activation or
+// an admin renewal). SuperAdmin is never feature-locked: its expiry may be
+// absent or stale and must not gate the platform owner. Callers are expected
+// to check the suspended status before this — a suspended account is handled
+// by the suspension branch, not the feature lock.
+func (u *AdminUser) IsFeatureLocked() bool {
+	if u.IsSuperAdmin() {
+		return false
+	}
+	return u.IsExpired()
+}
+
 // ParseRoles parses a role string into a slice of role names.
 // Handles the hardcoded 'superadmin' value and JSON array formats.
 func ParseRoles(roleStr string) []string {
@@ -1018,21 +1033,12 @@ func AuthenticateUser(ctx context.Context, pool *pgxpool.Pool, username, passwor
 		return nil, "Pendaftaran Anda membutuhkan konfirmasi OTP Email. Silakan cek email Anda."
 	}
 
-	if user.IsExpired() {
-		// A user whose account expiry has passed may still hold a claimed
-		// voucher with remaining lifetime that they could activate (the
-		// background auto-fallback job may not have run yet, or the server was
-		// down when the package expired). Let them in so they can pick a
-		// package on the billing page; otherwise they would be locked out
-		// despite owning a usable package.
-		var usable int
-		if err := pool.QueryRow(ctx,
-			`SELECT COUNT(*) FROM voucher_redemptions
-			 WHERE user_id = $1 AND NOT is_active AND remaining_seconds > 0`,
-			user.ID).Scan(&usable); err != nil || usable == 0 {
-			return nil, "Masa aktif akun Anda telah habis. Silakan hubungi administrator."
-		}
-	}
+	// An expired account is NOT rejected here: the owner is admitted so they
+	// can reach the billing page and renew (redeem/activate a voucher or wait
+	// for an admin renewal). Feature access is gated downstream: the login
+	// handler sends feature-locked accounts straight to /admin/billing, and
+	// FeatureLockRequired middleware blocks every other admin page/API until
+	// the account's expiry is extended. Suspended accounts were rejected above.
 
 	return &user, ""
 }

@@ -122,12 +122,23 @@
   </div>
  </div>
 
- <!-- Expired account notice: only reachable when the safety-net login
-      allowed an expired user in because they still own a usable package. -->
+ {{if .flashes}}
+ <div style="margin-bottom:24px;">
+  {{range .flashes}}
+  <div style="display:flex;align-items:center;gap:12px;background:rgba(245,158,11,0.12);border:1px solid rgba(245,158,11,0.35);color:#fbbf24;padding:14px 18px;border-radius:12px;margin-bottom:8px;font-size:13.5px;">
+   {{.}}
+  </div>
+  {{end}}
+ </div>
+ {{end}}
+
+ <!-- Expired account notice: the standard locked state. The owner keeps their
+      session so they can renew here — every other admin page is redirected
+      back to this page until the account's expiry is extended. -->
  {{if .user_expired}}
  <div style="display:flex;align-items:center;gap:12px;background:rgba(245,158,11,0.12);border:1px solid rgba(245,158,11,0.35);color:#fbbf24;padding:14px 18px;border-radius:12px;margin-bottom:24px;font-size:13.5px;">
   <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="flex:0 0 auto;"><path d="M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
-  <span>Masa aktif akun Anda telah berakhir. Jika Anda masih memiliki paket yang sudah diklaim, aktifkan salah satunya di bawah untuk melanjutkan penggunaan.</span>
+  <span>Masa aktif akun Anda telah berakhir. Seluruh fitur dikunci; Anda hanya dapat mengakses halaman ini. Klaim/aktifkan paket di bawah atau hubungi administrator untuk memperpanjang masa aktif.</span>
  </div>
  {{end}}
 

@@ -14,10 +14,11 @@ import (
 )
 
 // ---------------------------------------------------------------------------
-// Per-request expiry enforcement in middleware.AuthRequired (closes the
-// 1-day-session gap: an account whose active period expired while logged in
-// loses access immediately, not at the next login). Requires PostgreSQL
-// (TEST_DATABASE_URL), same infra as the voucher lifecycle tests.
+// Per-request feature-lock enforcement in middleware.AuthRequired +
+// FeatureLockRequired: an account whose active period expired while logged in
+// keeps its session (so the owner can renew) but every feature except the
+// billing endpoints is blocked immediately, not at the next login. Requires
+// PostgreSQL (TEST_DATABASE_URL), same infra as the voucher lifecycle tests.
 // ---------------------------------------------------------------------------
 
 // claimPausedVoucher inserts a claimed-but-NOT-active voucher redemption with
@@ -43,8 +44,8 @@ func claimPausedVoucher(t *testing.T, pool *pgxpool.Pool, userID int, remainingS
 	}
 }
 
-// getAuthPing hits the protected /api/auth-ping probe with an Accept:
-// application/json header (so AuthRequired answers with JSON instead of an
+// getAuthPing hits the feature-gated /api/auth-ping probe with an Accept:
+// application/json header (so the middlewares answer with JSON instead of an
 // HTML redirect, exactly like the real admin frontend's AJAX calls) and
 // returns the response status.
 func getAuthPing(t *testing.T, tc *voucherTestClient) int {
@@ -63,12 +64,31 @@ func getAuthPing(t *testing.T, tc *voucherTestClient) int {
 	return resp.StatusCode
 }
 
-// TestAuthRequiredExpiredSessionKicksUserOut locks in the core of the
-// feature: a logged-in account whose expiry passes (no usable voucher on
-// hand) is rejected on the very next request — previously the session kept
-// working until its 1-day cookie expired. The session is dropped, so a
-// follow-up request is unauthenticated.
-func TestAuthRequiredExpiredSessionKicksUserOut(t *testing.T) {
+// getBillingPing hits the billing-exempt /api/billing-ping probe (the test
+// analogue of GET /admin/api/vouchers/mine) with an Accept: application/json
+// header and returns the response status.
+func getBillingPing(t *testing.T, tc *voucherTestClient) int {
+	t.Helper()
+	req, err := http.NewRequest(http.MethodGet, tc.srv.URL+"/api/billing-ping", nil)
+	if err != nil {
+		t.Fatalf("build billing-ping request: %v", err)
+	}
+	req.Header.Set("Accept", "application/json")
+	resp, err := tc.client.Do(req)
+	if err != nil {
+		t.Fatalf("GET /api/billing-ping: %v", err)
+	}
+	defer resp.Body.Close()
+	_, _ = io.Copy(io.Discard, resp.Body)
+	return resp.StatusCode
+}
+
+// TestAuthRequiredExpiredSessionLocksFeatures locks in the core of the
+// feature: a logged-in account whose expiry passes is feature-locked on the
+// very next request — every feature endpoint answers 403, but the session is
+// KEPT and the billing endpoints still work, so the owner can renew. The
+// session is never dropped (unlike a suspension).
+func TestAuthRequiredExpiredSessionLocksFeatures(t *testing.T) {
 	pool := setupVoucherITDB(t)
 	ctx := context.Background()
 
@@ -87,20 +107,26 @@ func TestAuthRequiredExpiredSessionKicksUserOut(t *testing.T) {
 		t.Fatalf("expire account: %v", err)
 	}
 
-	// The very next request is rejected (403 for API calls).
+	// The very next request is rejected by FeatureLockRequired (403 for API).
 	if status := getAuthPing(t, tc); status != http.StatusForbidden {
 		t.Errorf("auth-ping after expiry: status=%d, want 403", status)
 	}
-	// The session was dropped: a follow-up request is unauthenticated (401).
-	if status := getAuthPing(t, tc); status != http.StatusUnauthorized {
-		t.Errorf("auth-ping after session drop: status=%d, want 401", status)
+	// The billing endpoint stays reachable: the owner can still renew.
+	if status := getBillingPing(t, tc); status != http.StatusOK {
+		t.Errorf("billing-ping after expiry: status=%d, want 200 (billing exempt)", status)
+	}
+	// The session was NOT dropped: a follow-up feature request is still 403
+	// (authenticated but locked), never 401.
+	if status := getAuthPing(t, tc); status != http.StatusForbidden {
+		t.Errorf("auth-ping after lock persists: status=%d, want 403 (session kept)", status)
 	}
 }
 
-// TestAuthRequiredExpiredWithUsableVoucherKeepsAccess locks in the exception,
-// mirroring AuthenticateUser's login gate: an expired account still holding a
-// claimed-but-unactivated voucher with remaining lifetime keeps its access
-// (it may reach the billing page to activate the package).
+// TestAuthRequiredExpiredWithUsableVoucherKeepsAccess locks in the retained
+// behavior: an expired account still holding a claimed-but-unactivated voucher
+// is feature-locked on non-billing routes but keeps billing access (it may
+// reach the billing page to activate the package) — now one case of the
+// general rule that expired accounts keep their session with locked features.
 func TestAuthRequiredExpiredWithUsableVoucherKeepsAccess(t *testing.T) {
 	pool := setupVoucherITDB(t)
 	ctx := context.Background()
@@ -115,15 +141,18 @@ func TestAuthRequiredExpiredWithUsableVoucherKeepsAccess(t *testing.T) {
 
 	tc := newVoucherTestClient(t, pool)
 	tc.login(t, user.ID)
-	if status := getAuthPing(t, tc); status != http.StatusOK {
-		t.Errorf("auth-ping expired-with-usable-voucher: status=%d, want 200", status)
+	if status := getAuthPing(t, tc); status != http.StatusForbidden {
+		t.Errorf("auth-ping expired-with-usable-voucher: status=%d, want 403 (feature-locked)", status)
+	}
+	if status := getBillingPing(t, tc); status != http.StatusOK {
+		t.Errorf("billing-ping expired-with-usable-voucher: status=%d, want 200 (billing exempt)", status)
 	}
 }
 
 // TestAuthRequiredExpiredHTMLRedirectShowsFlash covers the HTML (non-API)
-// branch: an expired account navigating the admin UI is redirected to /login
-// with a flash explaining why — the login page renders it, so the forced
-// logout is not silent.
+// branch: a feature-locked account navigating the admin UI is redirected to
+// /admin/billing with a flash explaining why — the billing page renders it,
+// so the lock is not silent and the owner lands where they can renew.
 func TestAuthRequiredExpiredHTMLRedirectShowsFlash(t *testing.T) {
 	pool := setupVoucherITDB(t)
 	ctx := context.Background()
@@ -137,8 +166,8 @@ func TestAuthRequiredExpiredHTMLRedirectShowsFlash(t *testing.T) {
 	tc := newVoucherTestClient(t, pool)
 	tc.login(t, user.ID)
 
-	// Plain navigation (no Accept: application/json): the middleware answers
-	// with a redirect to /login, which the client follows; the login page
+	// Plain navigation (no Accept: application/json): FeatureLockRequired
+	// redirects to /admin/billing, which the client follows; the billing page
 	// consumes the flash and shows the expiry reason.
 	resp, err := tc.client.Get(tc.srv.URL + "/api/auth-ping")
 	if err != nil {
@@ -147,9 +176,9 @@ func TestAuthRequiredExpiredHTMLRedirectShowsFlash(t *testing.T) {
 	defer resp.Body.Close()
 	body, _ := io.ReadAll(resp.Body)
 	if resp.StatusCode != http.StatusOK {
-		t.Fatalf("login page after redirect: status=%d, want 200", resp.StatusCode)
+		t.Fatalf("billing page after redirect: status=%d, want 200", resp.StatusCode)
 	}
 	if !strings.Contains(string(body), "Masa aktif akun Anda telah habis") {
-		t.Errorf("login page missing expiry flash, body=%s", string(body))
+		t.Errorf("billing page missing expiry flash, body=%s", string(body))
 	}
 }

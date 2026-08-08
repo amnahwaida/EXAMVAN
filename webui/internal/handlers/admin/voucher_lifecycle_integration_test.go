@@ -189,15 +189,40 @@ func newVoucherTestRouter(pool *pgxpool.Pool) *gin.Engine {
 		c.JSON(http.StatusOK, gin.H{"success": true})
 	})
 
+	// /admin/billing mirror of the real billing page: renders (and consumes)
+	// pending flash messages as JSON so tests can assert the feature-lock
+	// notice is shown after FeatureLockRequired redirects an HTML request.
+	r.GET("/admin/billing", func(c *gin.Context) {
+		flashes := sessions.Default(c).Flashes()
+		if flashes == nil {
+			flashes = []interface{}{}
+		}
+		c.JSON(http.StatusOK, gin.H{"flashes": flashes})
+	})
+
+	// Billing-exempt endpoints: a feature-locked (expired) account may still
+	// reach these — redeem/activate keep working so the owner can renew.
+	billingAPI := r.Group("/api")
+	billingAPI.Use(middleware.AuthRequired())
+	billingAPI.POST("/vouchers/redeem", RedeemVoucherHandler())
+	billingAPI.POST("/vouchers/activate", ActivateVoucherHandler())
+	// Billing probe: answers 200 for any valid session (even a feature-locked
+	// one) — the analogue of GET /admin/api/vouchers/mine in production.
+	billingAPI.GET("/billing-ping", func(c *gin.Context) {
+		c.JSON(http.StatusOK, gin.H{"success": true})
+	})
+
+	// Feature-gated endpoints: mirror production wiring (AuthRequired →
+	// FeatureLockRequired → AdminManagementRequired).
 	api := r.Group("/api")
 	api.Use(middleware.AuthRequired())
+	api.Use(middleware.FeatureLockRequired())
 	api.POST("/users", middleware.AdminManagementRequired(), CreateUser())
 	api.POST("/users/:user_id/toggle-status", middleware.AdminManagementRequired(), ToggleUserStatus())
-	api.POST("/vouchers/redeem", RedeemVoucherHandler())
-	api.POST("/vouchers/activate", ActivateVoucherHandler())
-	// AuthRequired probe: a protected GET that answers 200 only when a valid
-	// session passes the middleware — used to observe per-request status and
-	// expiry enforcement without depending on a handler's own logic.
+	// AuthRequired/FeatureLockRequired probe: a protected GET that answers 200
+	// only when a valid, non-locked session passes both middlewares — used to
+	// observe per-request status and feature-lock enforcement without depending
+	// on a handler's own logic.
 	api.GET("/auth-ping", func(c *gin.Context) {
 		c.JSON(http.StatusOK, gin.H{"success": true})
 	})
@@ -636,8 +661,10 @@ func TestVoucherExpiryAutoFallbackSuspendsSubAccounts(t *testing.T) {
 
 // TestVoucherExpiryNoFallbackStaysExpired guards the other expiry-job branch:
 // when the exhausted package is the user's only claim, the job pauses it but
-// there is nothing to fall back to — the account keeps its past expiry and
-// login stays blocked until the user redeems a new voucher.
+// there is nothing to fall back to — the account keeps its past expiry. Login
+// is no longer expiry-gated, so the account is admitted as feature-locked
+// (its owner can still reach the billing page and redeem a new voucher);
+// only a redemption with remaining lifetime re-opens full access.
 func TestVoucherExpiryNoFallbackStaysExpired(t *testing.T) {
 	pool := setupVoucherITDB(t)
 	ctx := context.Background()
@@ -669,16 +696,20 @@ func TestVoucherExpiryNoFallbackStaysExpired(t *testing.T) {
 		t.Errorf("school redemption after expiry: is_active=%v remaining=%d, want paused (false, 0)", active, remaining)
 	}
 
-	// The account keeps its past expiry (nothing re-opened it) and login stays
-	// blocked. (The operator role is not reconciled here — no entitlement is
-	// applied without a fallback — which is harmless because login is
-	// expiry-gated.)
+	// The account keeps its past expiry (nothing re-opened it). Login is no
+	// longer expiry-gated: the account is admitted but feature-locked, so its
+	// owner can still reach the billing page to redeem a new voucher. (The
+	// operator role is not reconciled here — no entitlement is applied without
+	// a fallback — which is harmless because feature access is gated by the
+	// lock, not by role.)
 	opAfter := mustGetUser(t, pool, "op3")
 	if opAfter.ExpiresAt == nil || opAfter.ExpiresAt.After(time.Now().UTC()) {
 		t.Errorf("op3 expires_at=%v, want still in the past", opAfter.ExpiresAt)
 	}
-	if _, msg := models.AuthenticateUser(ctx, pool, "op3", "pass-op3"); msg == "" {
-		t.Errorf("op3 login without fallback must stay blocked, got success")
+	if got, msg := models.AuthenticateUser(ctx, pool, "op3", "pass-op3"); msg != "" || got == nil {
+		t.Errorf("op3 login without fallback must succeed (feature-locked), got msg=%q user=%+v", msg, got)
+	} else if !got.IsFeatureLocked() {
+		t.Errorf("op3 login without fallback: want IsFeatureLocked()=true, got false")
 	}
 
 	// The pass is idempotent: re-running it must NOT re-select this user (the

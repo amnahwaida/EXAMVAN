@@ -5,6 +5,7 @@ import (
 	"errors"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/jackc/pgx/v5"
 )
@@ -107,6 +108,61 @@ func TestRegistrationAllowedByPerIPLimit(t *testing.T) {
 		if got := RegistrationAllowedByPerIPLimit(c.recent, c.maxPerIP); got != c.want {
 			t.Errorf("%s: RegistrationAllowedByPerIPLimit(%d, %d) = %v, want %v",
 				c.name, c.recent, c.maxPerIP, got, c.want)
+		}
+	}
+}
+
+// TestIsFeatureLocked covers the pure helper behind the feature-lock: an
+// account whose active period has run out (expires_at in the past) is locked —
+// except SuperAdmin, whose expiry may be absent or stale and must never gate
+// the platform owner. Suspended status is deliberately out of scope here:
+// callers (AuthenticateUser / middleware.AuthRequired) route suspended
+// accounts through the suspension branch first, so IsFeatureLocked only ever
+// decides between "valid, use normally" and "expired, billing-only".
+func TestIsFeatureLocked(t *testing.T) {
+	now := time.Now().UTC()
+	past := now.Add(-time.Hour)
+	future := now.Add(time.Hour)
+
+	cases := []struct {
+		name string
+		u    AdminUser
+		want bool
+	}{
+		{
+			name: "expired guru is feature-locked",
+			u:    AdminUser{Role: SerializeRoles([]string{RoleGuru}), Status: UserStatusActive, ExpiresAt: &past},
+			want: true,
+		},
+		{
+			name: "future expiry is not locked",
+			u:    AdminUser{Role: SerializeRoles([]string{RoleGuru}), Status: UserStatusActive, ExpiresAt: &future},
+			want: false,
+		},
+		{
+			name: "nil expiry (lifetime account) is not locked",
+			u:    AdminUser{Role: SerializeRoles([]string{RoleGuru}), Status: UserStatusActive, ExpiresAt: nil},
+			want: false,
+		},
+		{
+			name: "bare 'superadmin' role with past expiry is never locked",
+			u:    AdminUser{Role: RoleSuperAdmin, Status: UserStatusActive, ExpiresAt: &past},
+			want: false,
+		},
+		{
+			name: "JSON superadmin role with past expiry is never locked",
+			u:    AdminUser{Role: SerializeRoles([]string{RoleSuperAdmin, RoleGuru}), Status: UserStatusActive, ExpiresAt: &past},
+			want: false,
+		},
+		{
+			name: "suspended guru with past expiry still reports locked",
+			u:    AdminUser{Role: SerializeRoles([]string{RoleGuru}), Status: UserStatusSuspended, ExpiresAt: &past},
+			want: true, // callers short-circuit on status before consulting this
+		},
+	}
+	for _, c := range cases {
+		if got := c.u.IsFeatureLocked(); got != c.want {
+			t.Errorf("%s: IsFeatureLocked() = %v, want %v", c.name, got, c.want)
 		}
 	}
 }

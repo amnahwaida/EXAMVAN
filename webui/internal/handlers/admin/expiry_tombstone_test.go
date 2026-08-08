@@ -15,11 +15,13 @@ import (
 // TestExpiredAccountTombstonesUnstartedExams locks in the policy for
 // trial/personal (and any voucher-less) accounts: when an account's active
 // period expires (expires_at passed while status stays 'active' — expiry is
-// time-based), its active-but-unstarted exams are auto-inactivated with the
-// tombstone marker, mirroring the school policy B. Exams already running are
-// deliberately left untouched so students working on them can finish, the
-// tombstone is never auto-reversed, and a re-activation clears the marker.
-// Superadmin accounts and accounts with a future expiry are spared.
+// time-based), ALL its active exams are auto-inactivated with the tombstone
+// marker — including ones already running, whose exam_started_at is cleared
+// so the Android app can no longer continue them — mirroring the school
+// policy B. The tombstone is never auto-reversed, and a re-activation clears
+// the marker. Superadmin accounts and accounts with a future expiry are
+// spared. The account itself stays able to log in (feature-locked, not
+// blocked) so its owner can renew on the billing page.
 func TestExpiredAccountTombstonesUnstartedExams(t *testing.T) {
 	pool := setupVoucherITDB(t)
 	ctx := context.Background()
@@ -31,9 +33,13 @@ func TestExpiredAccountTombstonesUnstartedExams(t *testing.T) {
 		`UPDATE admin_users SET expires_at = now() - interval '1 second' WHERE id = $1`, trial.ID); err != nil {
 		t.Fatalf("expire trial account: %v", err)
 	}
-	// An expired account cannot authenticate (no usable voucher on hand).
-	if _, msg := models.AuthenticateUser(ctx, pool, "trial1", "pass-trial1"); msg == "" {
-		t.Fatalf("expired trial login must be blocked, got success")
+	// An expired account can still authenticate (login is no longer expiry-
+	// gated) — it is admitted so its owner can renew on the billing page; the
+	// feature lock is enforced downstream, not at login.
+	if got, msg := models.AuthenticateUser(ctx, pool, "trial1", "pass-trial1"); msg != "" || got == nil {
+		t.Fatalf("expired trial login must succeed (feature-locked), got msg=%q user=%+v", msg, got)
+	} else if !got.IsFeatureLocked() {
+		t.Fatalf("expired trial login: want IsFeatureLocked()=true, got false")
 	}
 
 	// A healthy account whose expiry is still in the future (must be spared).
@@ -54,9 +60,10 @@ func TestExpiredAccountTombstonesUnstartedExams(t *testing.T) {
 	}
 
 	// Seed exams: an unstarted one by the expired trial account (must be
-	// tombstoned), a running one by the same account (must survive so students
-	// can finish), and unstarted ones by the future-valid account and the
-	// superadmin (both must be spared).
+	// tombstoned), a running one by the same account (now also tombstoned,
+	// with exam_started_at cleared so the Android app cannot continue it), and
+	// unstarted ones by the future-valid account and the superadmin (both
+	// must be spared).
 	trialUnstarted := insertTestExam(t, pool, trial.ID, "trial-unstarted", nil)
 	started := time.Now().UTC().Add(-5 * time.Minute)
 	trialRunning := insertTestExam(t, pool, trial.ID, "trial-running", &started)
@@ -73,19 +80,18 @@ func TestExpiredAccountTombstonesUnstartedExams(t *testing.T) {
 		id   int
 		name string
 		want string
-	}{{trialUnstarted, "trial-unstarted", "inactive"}, {trialRunning, "trial-running", "active"}, {futureUnstarted, "future-unstarted", "active"}, {rootUnstarted, "root-unstarted", "active"}} {
+	}{{trialUnstarted, "trial-unstarted", "inactive"}, {trialRunning, "trial-running", "inactive"}, {futureUnstarted, "future-unstarted", "active"}, {rootUnstarted, "root-unstarted", "active"}} {
 		if got := mustGetExam(t, pool, e.id).Status; got != e.want {
 			t.Errorf("%s after pass: status=%s, want %s", e.name, got, e.want)
 		}
 	}
-	// The tombstone marker is set exactly on the auto-inactivated exam — and
-	// on no others — so the admin UI can tell them apart from manual
-	// inactivations.
+	// The tombstone marker is set on every auto-inactivated exam — and on no
+	// others — so the admin UI can tell them apart from manual inactivations.
 	if got := mustGetExam(t, pool, trialUnstarted).TombstonedAt; got == nil {
 		t.Errorf("trial-unstarted: tombstoned_at must be set")
 	}
-	if got := mustGetExam(t, pool, trialRunning).TombstonedAt; got != nil {
-		t.Errorf("trial-running: tombstoned_at=%v, want nil (running)", got)
+	if got := mustGetExam(t, pool, trialRunning).TombstonedAt; got == nil {
+		t.Errorf("trial-running: tombstoned_at must be set (running exam is cut off)")
 	}
 	if got := mustGetExam(t, pool, futureUnstarted).TombstonedAt; got != nil {
 		t.Errorf("future-unstarted: tombstoned_at=%v, want nil (valid account)", got)
@@ -93,9 +99,10 @@ func TestExpiredAccountTombstonesUnstartedExams(t *testing.T) {
 	if got := mustGetExam(t, pool, rootUnstarted).TombstonedAt; got != nil {
 		t.Errorf("root-unstarted: tombstoned_at=%v, want nil (superadmin)", got)
 	}
-	// The running exam is not just active — it is still marked as started.
-	if got := mustGetExam(t, pool, trialRunning).ExamStartedAt; got == nil {
-		t.Errorf("trial-running: exam_started_at cleared, want still set")
+	// The cut-off running exam is no longer marked as started, so it cannot be
+	// resumed and the dashboard shows no phantom running exam.
+	if got := mustGetExam(t, pool, trialRunning).ExamStartedAt; got != nil {
+		t.Errorf("trial-running: exam_started_at=%v, want cleared (cut off)", got)
 	}
 
 	// The pass is idempotent: re-running it leaves the state untouched.
@@ -104,7 +111,7 @@ func TestExpiredAccountTombstonesUnstartedExams(t *testing.T) {
 		id   int
 		name string
 		want string
-	}{{trialUnstarted, "trial-unstarted", "inactive"}, {trialRunning, "trial-running", "active"}, {futureUnstarted, "future-unstarted", "active"}, {rootUnstarted, "root-unstarted", "active"}} {
+	}{{trialUnstarted, "trial-unstarted", "inactive"}, {trialRunning, "trial-running", "inactive"}, {futureUnstarted, "future-unstarted", "active"}, {rootUnstarted, "root-unstarted", "active"}} {
 		if got := mustGetExam(t, pool, e.id).Status; got != e.want {
 			t.Errorf("%s after second pass: status=%s, want %s", e.name, got, e.want)
 		}
@@ -125,14 +132,16 @@ func TestExpiredAccountTombstonesUnstartedExams(t *testing.T) {
 		t.Errorf("re-activated exam of still-expired account after next pass: status=%s tombstoned_at=%v, want re-tombstoned (inactive with marker)", re.Status, re.TombstonedAt)
 	}
 
-	// A renewal (admin extends expires_at) re-opens login but does NOT
+	// A renewal (admin extends expires_at) un-locks the account but does NOT
 	// auto-restore the tombstoned exams — the owner re-activates manually.
 	if _, err := pool.Exec(ctx,
 		`UPDATE admin_users SET expires_at = now() + interval '7 days' WHERE id = $1`, trial.ID); err != nil {
 		t.Fatalf("renew trial account: %v", err)
 	}
-	if _, msg := models.AuthenticateUser(ctx, pool, "trial1", "pass-trial1"); msg != "" {
-		t.Errorf("login after renewal: msg=%q, want success", msg)
+	if got, msg := models.AuthenticateUser(ctx, pool, "trial1", "pass-trial1"); msg != "" || got == nil {
+		t.Errorf("login after renewal: msg=%q user=%+v, want success", msg, got)
+	} else if got.IsFeatureLocked() {
+		t.Errorf("login after renewal: want IsFeatureLocked()=false, got true")
 	}
 	if got := mustGetExam(t, pool, trialUnstarted).Status; got != "inactive" {
 		t.Errorf("trial-unstarted after renewal: status=%s, want still inactive (no auto-restore)", got)

@@ -11,6 +11,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/gin-contrib/sessions"
 	"github.com/gin-gonic/gin"
 	"github.com/jackc/pgx/v5/pgxpool"
 
@@ -172,6 +173,15 @@ func renderAdminPage(c *gin.Context, pageTemplate string, data gin.H) {
 	data["admin_user"] = displayName
 	data["admin_role"] = getCurrentUserRole(c)
 	data["admin_id"] = getCurrentUserID(c)
+
+	// Consume any pending session flash (e.g. the feature-lock notice left by
+	// FeatureLockRequired when a locked account was redirected here) so the
+	// template can surface it. Admin pages don't go through TemplateData, which
+	// is what normally reads flashes for the public/login pages.
+	if flashes := sessions.Default(c).Flashes(); len(flashes) > 0 {
+		data["flashes"] = flashes
+		_ = sessions.Default(c).Save()
+	}
 
 	pool := getPool(c)
 	if pool != nil {

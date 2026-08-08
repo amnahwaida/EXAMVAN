@@ -15,10 +15,10 @@ import (
 
 // ---------------------------------------------------------------------------
 // DB-backed tests for AuthenticateUser (skipped when TEST_DATABASE_URL is
-// unset, so plain `go test ./...` in CI keeps passing). The account expiry is
-// the authoritative login clock: an expired account is rejected UNLESS it
-// still holds a claimed-but-unactivated voucher with remaining lifetime (the
-// user is let in so they can activate their package on the billing page).
+// unset, so plain `go test ./...` in CI keeps passing). Expiry no longer
+// blocks login: an expired account is admitted so its owner can renew on the
+// billing page — feature access is gated downstream by IsFeatureLocked and
+// the FeatureLockRequired middleware, not by AuthenticateUser.
 // ---------------------------------------------------------------------------
 
 // setupAuthTestDB connects to the dedicated test database named by
@@ -101,9 +101,10 @@ func claimUnactivatedVoucher(t *testing.T, pool *pgxpool.Pool, userID int, remai
 	}
 }
 
-// TestAuthenticateUserExpiredWithoutVoucher locks in the base rejection: an
-// account whose expiry has passed and that holds NO usable claimed voucher
-// cannot log in.
+// TestAuthenticateUserExpiredWithoutVoucher locks in the new rule: an account
+// whose expiry has passed — holding NO usable claimed voucher — can still log
+// in. It is admitted so its owner can reach the billing page and renew; the
+// feature lock (IsFeatureLocked) is enforced downstream, not here.
 func TestAuthenticateUserExpiredWithoutVoucher(t *testing.T) {
 	pool := setupAuthTestDB(t)
 	ctx := context.Background()
@@ -114,18 +115,22 @@ func TestAuthenticateUserExpiredWithoutVoucher(t *testing.T) {
 	}
 
 	got, msg := AuthenticateUser(ctx, pool, "expired-novc", "pass-expired-novc")
-	if got != nil {
-		t.Errorf("login expired-without-voucher: got user %q, want nil", got.Username)
+	if msg != "" {
+		t.Errorf("login expired-without-voucher: msg=%q, want success", msg)
 	}
-	if !strings.Contains(msg, "Masa aktif akun Anda telah habis") {
-		t.Errorf("login expired-without-voucher: msg=%q, want expiry message", msg)
+	if got == nil || got.ID != user.ID {
+		t.Errorf("login expired-without-voucher: got user=%+v, want user %d", got, user.ID)
+	}
+	if !got.IsFeatureLocked() {
+		t.Errorf("login expired-without-voucher: want IsFeatureLocked()=true, got false")
 	}
 }
 
-// TestAuthenticateUserExpiredWithUsableVoucher locks in the exception: an
-// expired account that still holds a claimed-but-unactivated voucher with
-// remaining lifetime is let in (so the user can activate the package on the
-// billing page) — even though their account expiry has passed.
+// TestAuthenticateUserExpiredWithUsableVoucher locks in the retained behavior:
+// an expired account that holds a claimed-but-unactivated voucher with
+// remaining lifetime can still log in (so the user can activate the package on
+// the billing page) — now just one case of the general rule that expired
+// accounts may log in.
 func TestAuthenticateUserExpiredWithUsableVoucher(t *testing.T) {
 	pool := setupAuthTestDB(t)
 	ctx := context.Background()
@@ -143,11 +148,14 @@ func TestAuthenticateUserExpiredWithUsableVoucher(t *testing.T) {
 	if got == nil || got.ID != user.ID {
 		t.Errorf("login expired-with-usable-voucher: got user=%+v, want user %d", got, user.ID)
 	}
+	if !got.IsFeatureLocked() {
+		t.Errorf("login expired-with-usable-voucher: want IsFeatureLocked()=true, got false")
+	}
 }
 
-// TestAuthenticateUserExpiredWithExhaustedVoucher guards the boundary of the
-// usable-voucher query (`remaining_seconds > 0`): a claimed voucher whose
-// lifetime is fully spent does NOT reopen the login.
+// TestAuthenticateUserExpiredWithExhaustedVoucher guards that an expired
+// account whose claimed voucher lifetime is fully spent is still admitted
+// (same rule as above — expiry no longer gates login).
 func TestAuthenticateUserExpiredWithExhaustedVoucher(t *testing.T) {
 	pool := setupAuthTestDB(t)
 	ctx := context.Background()
@@ -156,11 +164,14 @@ func TestAuthenticateUserExpiredWithExhaustedVoucher(t *testing.T) {
 	claimUnactivatedVoucher(t, pool, user.ID, 0) // no lifetime left
 
 	got, msg := AuthenticateUser(ctx, pool, "expired-vc0", "pass-expired-vc0")
-	if got != nil {
-		t.Errorf("login expired-with-exhausted-voucher: got user %q, want nil", got.Username)
+	if msg != "" {
+		t.Errorf("login expired-with-exhausted-voucher: msg=%q, want success", msg)
 	}
-	if !strings.Contains(msg, "Masa aktif akun Anda telah habis") {
-		t.Errorf("login expired-with-exhausted-voucher: msg=%q, want expiry message", msg)
+	if got == nil || got.ID != user.ID {
+		t.Errorf("login expired-with-exhausted-voucher: got user=%+v, want user %d", got, user.ID)
+	}
+	if !got.IsFeatureLocked() {
+		t.Errorf("login expired-with-exhausted-voucher: want IsFeatureLocked()=true, got false")
 	}
 }
 

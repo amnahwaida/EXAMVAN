@@ -521,22 +521,30 @@ func registerRoutes(r *gin.Engine, cfg *config.Config, pool *pgxpool.Pool) {
 	// ---- Admin pages (auth required) ----
 	adminPages := r.Group("/admin", middleware.AuthRequired())
 	{
-		adminPages.GET("/dashboard", admin.Dashboard())
-		adminPages.GET("/dashboard/redirect", admin.DashboardRedirect())
-		adminPages.GET("/submissions", admin.SubmissionsPage())
-
-		adminPages.GET("/users", middleware.AdminManagementRequired(), admin.UsersPage())
+		// Billing is the ONLY page a feature-locked (expired) account may use —
+		// it is where the owner renews (redeems/activates a voucher).
 		adminPages.GET("/billing", admin.BillingPage())
-		adminPages.GET("/vouchers", middleware.SuperAdminRequired(), admin.VouchersPage())
-		adminPages.GET("/packages", middleware.SuperAdminRequired(), admin.PackagesPage())
 
-		adminPages.GET("/pengawas", admin.PengawasPage())
-		adminPages.GET("/pengawas/:exam_id", admin.PengawasDetailPage())
-		adminPages.GET("/system-apps", middleware.SuperAdminRequired(), admin.SystemAppsPage())
-
-		// Logout via POST only (CSRF-protected in the main route below).
-		// GET /admin/logout simply redirects to login (prevents CSRF-based logout).
+		// Logout must stay reachable for locked accounts (GET redirects to login,
+		// so a locked owner can always sign out).
 		adminPages.GET("/logout", func(c *gin.Context) { c.Redirect(http.StatusFound, "/login") })
+
+		// Every other page requires full feature access: a feature-locked
+		// account is redirected to /admin/billing by FeatureLockRequired.
+		lockedPages := adminPages.Group("", middleware.FeatureLockRequired())
+		{
+			lockedPages.GET("/dashboard", admin.Dashboard())
+			lockedPages.GET("/dashboard/redirect", admin.DashboardRedirect())
+			lockedPages.GET("/submissions", admin.SubmissionsPage())
+
+			lockedPages.GET("/users", middleware.AdminManagementRequired(), admin.UsersPage())
+			lockedPages.GET("/vouchers", middleware.SuperAdminRequired(), admin.VouchersPage())
+			lockedPages.GET("/packages", middleware.SuperAdminRequired(), admin.PackagesPage())
+
+			lockedPages.GET("/pengawas", admin.PengawasPage())
+			lockedPages.GET("/pengawas/:exam_id", admin.PengawasDetailPage())
+			lockedPages.GET("/system-apps", middleware.SuperAdminRequired(), admin.SystemAppsPage())
+		}
 	}
 
 	// ---- Admin API (auth required) ----
@@ -544,92 +552,105 @@ func registerRoutes(r *gin.Engine, cfg *config.Config, pool *pgxpool.Pool) {
 		middleware.AuthRequired(),
 	)
 	{
-		adminAPI.GET("/stats", admin.Stats())
-
-		// ---- CSRF-protected routes (all POST) ----
-		csrfAPI := adminAPI.Group("", middleware.CSRFRequired())
-		csrfAPI.Use(middleware.RateLimit(120, time.Minute))
+		// Billing endpoints a feature-locked (expired) account may still call:
+		// list its claimed packages, redeem a voucher, and activate one. These
+		// are the ONLY admin APIs not gated by FeatureLockRequired.
+		billingAPI := adminAPI.Group("", middleware.CSRFRequired())
+		billingAPI.Use(middleware.RateLimit(120, time.Minute))
 		{
-
-			// Exams.
-			csrfAPI.POST("/upload", middleware.RateLimit(10, time.Minute), admin.UploadExam())
-			csrfAPI.POST("/exams/bulk-delete", middleware.LimitBodySize(1024*1024), admin.BulkDelete())
-			csrfAPI.POST("/exams/bulk-toggle", middleware.LimitBodySize(1024*1024), admin.BulkToggle())
-			csrfAPI.POST("/exams/:exam_id/toggle", middleware.LimitBodySize(256*1024), admin.ToggleExam())
-			csrfAPI.POST("/exams/:exam_id/delete", middleware.LimitBodySize(256*1024), admin.DeleteExam())
-			csrfAPI.POST("/exams/:exam_id/edit", middleware.LimitBodySize(2*1024*1024), admin.EditExam())
-			csrfAPI.POST("/exams/:exam_id/questions", middleware.LimitBodySize(5*1024*1024), admin.SaveQuestions())
-			csrfAPI.POST("/exams/:exam_id/regenerate-token", middleware.LimitBodySize(256*1024), admin.RegenerateToken())
-			csrfAPI.POST("/exams/:exam_id/edit-token", middleware.LimitBodySize(256*1024), admin.EditToken())
-			csrfAPI.POST("/exams/:exam_id/token-mode", middleware.LimitBodySize(256*1024), admin.UpdateTokenMode())
-			csrfAPI.POST("/exams/:exam_id/start", middleware.LimitBodySize(256*1024), admin.StartExam())
-			csrfAPI.POST("/exams/:exam_id/stop", middleware.LimitBodySize(256*1024), admin.StopExam())
-			csrfAPI.POST("/exams/:exam_id/toggle-public-results", middleware.LimitBodySize(256*1024), admin.TogglePublicResults())
-			csrfAPI.POST("/exams/:exam_id/toggle-show-answers", middleware.LimitBodySize(256*1024), admin.ToggleShowAnswers())
-			csrfAPI.POST("/exams/:exam_id/delegate", middleware.LimitBodySize(256*1024), admin.PostDelegateExam())
-			csrfAPI.POST("/pengawas/exams/:exam_id/approvals/:mac_address", middleware.LimitBodySize(256*1024), admin.SetApprovalStatus())
-
-			// Submissions.
-			csrfAPI.POST("/submissions/:id/delete", middleware.LimitBodySize(256*1024), admin.DeleteSubmission())
-
-			// Users (super admin / operator only).
-			adminUsers := csrfAPI.Group("", middleware.AdminManagementRequired())
-			{
-				adminUsers.POST("/users", middleware.LimitBodySize(256*1024), admin.CreateUser())
-				adminUsers.POST("/users/update-instansi", middleware.LimitBodySize(256*1024), admin.UpdateInstansi())
-				adminUsers.POST("/users/:user_id/edit", middleware.LimitBodySize(256*1024), admin.EditUser())
-				adminUsers.POST("/users/:user_id/toggle-status", middleware.LimitBodySize(256*1024), admin.ToggleUserStatus())
-				adminUsers.POST("/users/:user_id/verify", middleware.LimitBodySize(256*1024), admin.VerifyUser())
-				adminUsers.POST("/users/:user_id/delete", middleware.LimitBodySize(256*1024), admin.DeleteUser())
-			}
-
-			// SaaS settings (super admin only).
-			adminSettings := csrfAPI.Group("", middleware.SuperAdminRequired())
-			{
-				adminSettings.POST("/saas-settings", middleware.LimitBodySize(1*1024*1024), admin.SaasSettings())
-				adminSettings.POST("/saas-settings/test-smtp", middleware.LimitBodySize(256*1024), admin.TestSMTPConnectionEndpoint())
-				adminSettings.POST("/system-apps", middleware.LimitBodySize(500*1024*1024), admin.UploadSystemApp())
-				adminSettings.POST("/system-apps/:id/delete", middleware.LimitBodySize(256*1024), admin.DeleteSystemApp())
-				adminSettings.POST("/packages", middleware.LimitBodySize(256*1024), admin.SavePackageSettingsHandler())
-			}
-
-			// Vouchers
-			csrfAPI.POST("/vouchers/redeem", middleware.LimitBodySize(256*1024), admin.RedeemVoucherHandler())
-			csrfAPI.POST("/vouchers/activate", middleware.LimitBodySize(256*1024), admin.ActivateVoucherHandler())
-			adminVouchers := csrfAPI.Group("", middleware.SuperAdminRequired())
-			{
-				adminVouchers.POST("/vouchers", middleware.LimitBodySize(256*1024), admin.CreateVoucherHandler())
-				adminVouchers.POST("/vouchers/batch", middleware.LimitBodySize(256*1024), admin.CreateBatchVouchersHandler())
-				adminVouchers.POST("/vouchers/:id/toggle", middleware.LimitBodySize(256*1024), admin.ToggleVoucherStatusHandler())
-				adminVouchers.POST("/vouchers/:id/delete", middleware.LimitBodySize(256*1024), admin.DeleteVoucherHandler())
-			}
-
-			csrfAPI.POST("/change-password", middleware.LimitBodySize(256*1024), middleware.RateLimit(3, time.Minute), admin.ChangePassword())
-			csrfAPI.POST("/instansi/update", middleware.LimitBodySize(256*1024), admin.UpdateInstansi())
+			billingAPI.POST("/vouchers/redeem", middleware.LimitBodySize(256*1024), admin.RedeemVoucherHandler())
+			billingAPI.POST("/vouchers/activate", middleware.LimitBodySize(256*1024), admin.ActivateVoucherHandler())
 		}
-
-		// ---- Non-CSRF routes (GET / read-only) ----
-		adminAPI.GET("/exams/:exam_id/questions", admin.GetQuestions())
-		adminAPI.GET("/exams/:exam_id/delegate-data", admin.DelegateData())
-		adminAPI.GET("/exams/:exam_id/pdf", admin.ExamPDF())
-		adminAPI.GET("/submissions", admin.ListSubmissions())
-		adminAPI.GET("/submissions/:id/detail", admin.SubmissionDetail())
-		adminAPI.GET("/submissions/export", middleware.RateLimit(30, time.Minute), admin.ExportSubmissions())
-		adminAPI.GET("/submissions/:id/export_detail", middleware.RateLimit(30, time.Minute), admin.ExportSubmissionDetail())
-		adminAPI.GET("/queue/status", admin.QueueStatus())
-		adminUsersRead := adminAPI.Group("", middleware.AdminManagementRequired())
-		{
-			adminUsersRead.GET("/users", admin.ListUsers())
-		}
-
-		adminAPI.GET("/pengawas/exams", admin.PengawasExams())
-		adminAPI.GET("/pengawas/exams/:exam_id/submissions", admin.PengawasExamSubmissions())
-		adminAPI.GET("/pengawas/exams/:exam_id/approvals", admin.GetPendingApprovals())
-		adminAPI.GET("/saas-settings", middleware.SuperAdminRequired(), admin.SaasSettings())
-		adminAPI.GET("/packages", middleware.SuperAdminRequired(), admin.ListPackagesSettingsHandler())
-		adminAPI.GET("/vouchers", middleware.SuperAdminRequired(), admin.ListVouchers())
 		adminAPI.GET("/vouchers/mine", admin.ListMyRedemptionsHandler())
-		adminAPI.GET("/vouchers/:id/redemptions", middleware.SuperAdminRequired(), admin.ListVoucherRedemptionsHandler())
+
+		// ---- Everything else requires full feature access ----
+		lockedAPI := adminAPI.Group("", middleware.FeatureLockRequired())
+		{
+			lockedAPI.GET("/stats", admin.Stats())
+
+			// ---- CSRF-protected routes (all POST) ----
+			csrfAPI := lockedAPI.Group("", middleware.CSRFRequired())
+			csrfAPI.Use(middleware.RateLimit(120, time.Minute))
+			{
+
+				// Exams.
+				csrfAPI.POST("/upload", middleware.RateLimit(10, time.Minute), admin.UploadExam())
+				csrfAPI.POST("/exams/bulk-delete", middleware.LimitBodySize(1024*1024), admin.BulkDelete())
+				csrfAPI.POST("/exams/bulk-toggle", middleware.LimitBodySize(1024*1024), admin.BulkToggle())
+				csrfAPI.POST("/exams/:exam_id/toggle", middleware.LimitBodySize(256*1024), admin.ToggleExam())
+				csrfAPI.POST("/exams/:exam_id/delete", middleware.LimitBodySize(256*1024), admin.DeleteExam())
+				csrfAPI.POST("/exams/:exam_id/edit", middleware.LimitBodySize(2*1024*1024), admin.EditExam())
+				csrfAPI.POST("/exams/:exam_id/questions", middleware.LimitBodySize(5*1024*1024), admin.SaveQuestions())
+				csrfAPI.POST("/exams/:exam_id/regenerate-token", middleware.LimitBodySize(256*1024), admin.RegenerateToken())
+				csrfAPI.POST("/exams/:exam_id/edit-token", middleware.LimitBodySize(256*1024), admin.EditToken())
+				csrfAPI.POST("/exams/:exam_id/token-mode", middleware.LimitBodySize(256*1024), admin.UpdateTokenMode())
+				csrfAPI.POST("/exams/:exam_id/start", middleware.LimitBodySize(256*1024), admin.StartExam())
+				csrfAPI.POST("/exams/:exam_id/stop", middleware.LimitBodySize(256*1024), admin.StopExam())
+				csrfAPI.POST("/exams/:exam_id/toggle-public-results", middleware.LimitBodySize(256*1024), admin.TogglePublicResults())
+				csrfAPI.POST("/exams/:exam_id/toggle-show-answers", middleware.LimitBodySize(256*1024), admin.ToggleShowAnswers())
+				csrfAPI.POST("/exams/:exam_id/delegate", middleware.LimitBodySize(256*1024), admin.PostDelegateExam())
+				csrfAPI.POST("/pengawas/exams/:exam_id/approvals/:mac_address", middleware.LimitBodySize(256*1024), admin.SetApprovalStatus())
+
+				// Submissions.
+				csrfAPI.POST("/submissions/:id/delete", middleware.LimitBodySize(256*1024), admin.DeleteSubmission())
+
+				// Users (super admin / operator only).
+				adminUsers := csrfAPI.Group("", middleware.AdminManagementRequired())
+				{
+					adminUsers.POST("/users", middleware.LimitBodySize(256*1024), admin.CreateUser())
+					adminUsers.POST("/users/update-instansi", middleware.LimitBodySize(256*1024), admin.UpdateInstansi())
+					adminUsers.POST("/users/:user_id/edit", middleware.LimitBodySize(256*1024), admin.EditUser())
+					adminUsers.POST("/users/:user_id/toggle-status", middleware.LimitBodySize(256*1024), admin.ToggleUserStatus())
+					adminUsers.POST("/users/:user_id/verify", middleware.LimitBodySize(256*1024), admin.VerifyUser())
+					adminUsers.POST("/users/:user_id/delete", middleware.LimitBodySize(256*1024), admin.DeleteUser())
+				}
+
+				// SaaS settings (super admin only).
+				adminSettings := csrfAPI.Group("", middleware.SuperAdminRequired())
+				{
+					adminSettings.POST("/saas-settings", middleware.LimitBodySize(1*1024*1024), admin.SaasSettings())
+					adminSettings.POST("/saas-settings/test-smtp", middleware.LimitBodySize(256*1024), admin.TestSMTPConnectionEndpoint())
+					adminSettings.POST("/system-apps", middleware.LimitBodySize(500*1024*1024), admin.UploadSystemApp())
+					adminSettings.POST("/system-apps/:id/delete", middleware.LimitBodySize(256*1024), admin.DeleteSystemApp())
+					adminSettings.POST("/packages", middleware.LimitBodySize(256*1024), admin.SavePackageSettingsHandler())
+				}
+
+				// Vouchers (management — creation, toggling, deletion are
+				// super-admin-only; redeem/activate above are billing-exempt).
+				adminVouchers := csrfAPI.Group("", middleware.SuperAdminRequired())
+				{
+					adminVouchers.POST("/vouchers", middleware.LimitBodySize(256*1024), admin.CreateVoucherHandler())
+					adminVouchers.POST("/vouchers/batch", middleware.LimitBodySize(256*1024), admin.CreateBatchVouchersHandler())
+					adminVouchers.POST("/vouchers/:id/toggle", middleware.LimitBodySize(256*1024), admin.ToggleVoucherStatusHandler())
+					adminVouchers.POST("/vouchers/:id/delete", middleware.LimitBodySize(256*1024), admin.DeleteVoucherHandler())
+				}
+
+				csrfAPI.POST("/change-password", middleware.LimitBodySize(256*1024), middleware.RateLimit(3, time.Minute), admin.ChangePassword())
+				csrfAPI.POST("/instansi/update", middleware.LimitBodySize(256*1024), admin.UpdateInstansi())
+			}
+
+			// ---- Non-CSRF routes (GET / read-only) ----
+			lockedAPI.GET("/exams/:exam_id/questions", admin.GetQuestions())
+			lockedAPI.GET("/exams/:exam_id/delegate-data", admin.DelegateData())
+			lockedAPI.GET("/exams/:exam_id/pdf", admin.ExamPDF())
+			lockedAPI.GET("/submissions", admin.ListSubmissions())
+			lockedAPI.GET("/submissions/:id/detail", admin.SubmissionDetail())
+			lockedAPI.GET("/submissions/export", middleware.RateLimit(30, time.Minute), admin.ExportSubmissions())
+			lockedAPI.GET("/submissions/:id/export_detail", middleware.RateLimit(30, time.Minute), admin.ExportSubmissionDetail())
+			lockedAPI.GET("/queue/status", admin.QueueStatus())
+			adminUsersRead := lockedAPI.Group("", middleware.AdminManagementRequired())
+			{
+				adminUsersRead.GET("/users", admin.ListUsers())
+			}
+
+			lockedAPI.GET("/pengawas/exams", admin.PengawasExams())
+			lockedAPI.GET("/pengawas/exams/:exam_id/submissions", admin.PengawasExamSubmissions())
+			lockedAPI.GET("/pengawas/exams/:exam_id/approvals", admin.GetPendingApprovals())
+			lockedAPI.GET("/saas-settings", middleware.SuperAdminRequired(), admin.SaasSettings())
+			lockedAPI.GET("/packages", middleware.SuperAdminRequired(), admin.ListPackagesSettingsHandler())
+			lockedAPI.GET("/vouchers", middleware.SuperAdminRequired(), admin.ListVouchers())
+			lockedAPI.GET("/vouchers/:id/redemptions", middleware.SuperAdminRequired(), admin.ListVoucherRedemptionsHandler())
+		}
 	}
 
 	// ---- Legacy redirects ----
@@ -854,6 +875,12 @@ func loginHandler(cfg *config.Config) gin.HandlerFunc {
 		redirectTarget := "/admin/dashboard"
 		if nextTarget != "" {
 			redirectTarget = nextTarget
+		}
+		// A feature-locked (expired) account is sent straight to the billing
+		// page: it can renew there (redeem/activate a voucher) but every other
+		// admin page is blocked by FeatureLockRequired.
+		if user.IsFeatureLocked() {
+			redirectTarget = "/admin/billing"
 		}
 		c.Redirect(http.StatusFound, redirectTarget)
 	}

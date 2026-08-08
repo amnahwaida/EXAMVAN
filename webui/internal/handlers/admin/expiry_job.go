@@ -63,13 +63,15 @@ func StartPackageExpiryJob(ctx context.Context, pool *pgxpool.Pool) {
 
 // tombstoneExpiredUsersExamsPass (policy B for expired accounts) finds every
 // non-suspended, non-superadmin user whose account expiry has passed and sets
-// their active-but-unstarted exams inactive with the tombstone marker — the
-// same "unpublished exams go dormant" semantics as the school tombstone
+// their active exams inactive with the tombstone marker — the same "unpublished
+// exams go dormant" semantics as the school tombstone
 // (tombstoneUnstartedInstansiExams), now applied to trial/personal and any
-// other account that ran out of active time. Exams already running are
-// deliberately left untouched so students working on them can finish, and the
-// tombstone is never auto-reversed: the owner (after a renewal) or a
-// superadmin re-activates manually, so an admin's explicit inactivation is
+// other account that ran out of active time. Unlike the school path, ALL exams
+// are covered — including ones already running: an expired account owns no
+// active time, so its students are cut off immediately (their exam_started_at
+// and active token are cleared so the Android app can no longer continue the
+// exam). The tombstone is never auto-reversed: the owner (after a renewal) or
+// a superadmin re-activates manually, so an admin's explicit inactivation is
 // never clobbered.
 //
 // The pass must run AFTER runPackageExpiryPass: a user whose active voucher
@@ -83,25 +85,25 @@ func StartPackageExpiryJob(ctx context.Context, pool *pgxpool.Pool) {
 // re-activating one of its tombstoned exams only lasts until the next pass
 // re-tombstones it — a re-activation sticks only after the account is renewed
 // (expires_at in the future). Expired users who still hold a claimed-but-
-// UNACTIVATED voucher (the ones AuthenticateUser lets in to activate on the
-// billing page) are also covered: their account expiry has passed, so their
-// unstarted exams go dormant too, consistent with policy B where a package
-// end is never auto-reversed.
+// UNACTIVATED voucher are also covered: their account expiry has passed, so
+// their exams go dormant too, consistent with policy B where a package end is
+// never auto-reversed.
 func tombstoneExpiredUsersExamsPass(ctx context.Context, pool *pgxpool.Pool) {
 	if pool == nil {
 		return
 	}
 	// tombstoned_at marks the exam as auto-inactivated (policy B) so the admin
 	// UI can tell it apart from a manual inactivation; the marker is cleared
-	// whenever the exam is (re)activated. The status='active' filter makes the
+	// whenever the exam is (re)activated. exam_started_at is cleared so a
+	// cut-off running exam does not keep its "running" state (and its token is
+	// no longer usable for a fresh start). The status='active' filter makes the
 	// pass idempotent — a tombstoned exam is inactive and is never re-selected.
 	_, err := pool.Exec(ctx, `
 		UPDATE exams e
-		SET status = 'inactive', tombstoned_at = now()
+		SET status = 'inactive', tombstoned_at = now(), exam_started_at = NULL
 		FROM admin_users u
 		WHERE e.created_by = u.id
 		  AND e.status = 'active'
-		  AND e.exam_started_at IS NULL
 		  AND e.tombstoned_at IS NULL
 		  AND u.status = 'active' -- suspended accounts: clock is frozen
 		  AND u.expires_at IS NOT NULL
