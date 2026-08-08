@@ -2,6 +2,8 @@ package models
 
 import (
 	"context"
+	"fmt"
+	"strings"
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -16,6 +18,68 @@ type SystemApp struct {
 	SizeBytes int64     `json:"size_bytes"`
 	CreatedAt time.Time `json:"created_at"`
 	UpdatedAt time.Time `json:"updated_at"`
+}
+
+// BestAndroidApp returns the system_app entry for the Android platform with the
+// highest version. Returns nil when no Android entry exists.
+func BestAndroidApp(apps []SystemApp) *SystemApp {
+	var best *SystemApp
+	for i := range apps {
+		app := &apps[i]
+		if app.Platform != "android" {
+			continue
+		}
+		if best == nil || CompareVersions(app.Version, best.Version) > 0 {
+			best = app
+		}
+	}
+	return best
+}
+
+// BestAndroidAppVersion returns the version string of the highest-version
+// Android system_app, or "" when none exists.
+func BestAndroidAppVersion(apps []SystemApp) string {
+	if best := BestAndroidApp(apps); best != nil {
+		return best.Version
+	}
+	return ""
+}
+
+// CompareVersions returns -1 when a < b, 0 when equal, 1 when a > b.
+// Ignores non-numeric suffixes; mirrors middleware/version.go's parser.
+func CompareVersions(a, b string) int {
+	ap := parseVersionParts(a)
+	bp := parseVersionParts(b)
+	for i := 0; i < len(ap) && i < len(bp); i++ {
+		if ap[i] > bp[i] {
+			return 1
+		}
+		if ap[i] < bp[i] {
+			return -1
+		}
+	}
+	switch {
+	case len(ap) < len(bp):
+		return -1
+	case len(ap) > len(bp):
+		return 1
+	default:
+		return 0
+	}
+}
+
+// parseVersionParts splits a version string into integer parts.
+// e.g. "2.1.10-beta" → []int{2, 1, 10}
+func parseVersionParts(v string) []int {
+	parts := strings.Split(v, ".")
+	result := make([]int, 0, len(parts))
+	for _, p := range parts {
+		var n int
+		if _, err := fmt.Sscanf(p, "%d", &n); err == nil {
+			result = append(result, n)
+		}
+	}
+	return result
 }
 
 func GetAllSystemApps(ctx context.Context, pool *pgxpool.Pool) ([]SystemApp, error) {

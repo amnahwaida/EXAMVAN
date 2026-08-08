@@ -83,8 +83,8 @@ Untuk komputer tablet atau handphone inventaris sekolah (bukan HP pribadi siswa)
 ## Download Aplikasi Siswa
 
 ### Perangkat Android
-* **[Download EXAMVAN Android APK](./EXAMVAN.apk)** *(Siap langsung dipasang di HP siswa).*
-* **Alternative Build:** Anda juga dapat menggunakan berkas **[examvan-debug.apk](./examvan-debug.apk)**, **[examvan-release.apk](./examvan-release.apk)**, **[examvan-student-debug.apk](./examvan-student-debug.apk)**, atau **[examvan-kiosk-debug.apk](./examvan-kiosk-debug.apk)** yang terletak di folder root.
+* **Rilis resmi diunduh dari halaman `/download` server** — kartu APK di halaman itu dibaca dari tabel **System Apps** (Cloudflare R2), bukan dari folder `static/` atau root repo.
+* **Alternative Build:** Untuk pengembangan lokal, gunakan output Gradle langsung, mis. `android/app/build/outputs/apk/student/debug/app-student-debug.apk` (lihat *Panduan Build* di bawah).
 * **Kompatibilitas:** Minimal **Android 7.0 (Nougat - API 24)** hingga versi terbaru. Membutuhkan API 24+ untuk dukungan `network_security_config.xml` dengan tag `<ip-range>`.
 
 ---
@@ -120,24 +120,24 @@ Kompilasi dapat dilakukan di sistem operasi **Windows, macOS, maupun Linux**.
 
 ### Merilis Versi APK Baru (Force Update)
 
-Siswa menerima APK lewat halaman unduhan server (`/download`). Setelah versi APK baru dirilis, aplikasi versi lama otomatis **diblokir** (HTTP 426) dan diarahkan ke halaman unduhan. Langkah rilis:
+Siswa menerima APK lewat halaman unduhan server (`/download`). Setelah versi APK baru dirilis, aplikasi versi lama otomatis **diblokir** (HTTP 426) dan diarahkan ke halaman unduhan. APK resmi disimpan di **Cloudflare R2** dan didaftarkan di tabel **System Apps** — bukan di `static/` server.
+
+Langkah rilis:
 
 1. **Build kedua flavor** (lihat perintah di atas).
-2. **Rename output ke nama yang dikenali server**:
-   ```bash
-   cp android/app/build/outputs/apk/student/debug/app-student-debug.apk webui/static/EXAMVAN-student.apk
-   cp android/app/build/outputs/apk/kiosk/debug/app-kiosk-debug.apk  webui/static/EXAMVAN-kiosk.apk
-   ```
-   > APK resmi di halaman `/download` dibaca dari `webui/static/` (nama `EXAMVAN-student.apk` / `EXAMVAN-kiosk.apk`). Tanpa file ini halaman tidak menampilkan tombol unduh resmi.
-3. **Rebuild & restart container webui** (perubahan static tidak ikut tanpa rebuild image):
-   ```bash
-   cd webui && docker compose build && docker compose up -d
-   ```
-4. **Naikkan versi minimum** di panel admin → **SaaS Settings → Android Version** (mis. dari `2.2.0` ke `2.3.0`). Begitu versi disimpan:
-   - `/api/health` mengembalikan `required_app_version` yang baru.
+2. **Upload APK ke R2 & daftarkan di System Apps** via panel admin → **System Apps → Tambah**:
+   - Upload berkas `app-student-debug.apk` (dan `app-kiosk-debug.apk` untuk tablet sekolah) — server meng-upload ke bucket R2 dan mencatat versi + ukuran di database.
+   - Versi APK yang dicatat (mis. `2.4.0`) otomatis menjadi **sumber utama** untuk:
+     - `/api/health` → `required_app_version` (versi system_app android tertinggi).
+     - Halaman `/download` → kartu APK resmi (link ke signed URL R2, bukan file server).
+3. **Naikkan versi minimum** di panel admin → **SaaS Settings → Android Version** (mis. dari `2.2.0` ke `2.4.0`). Ini **wajib** agar rute API memblokir APK lama:
    - Rute API yang diproteksi menolak versi lama dengan **HTTP 426**.
    - Aplikasi siswa yang versinya lama menampilkan dialog **"Versi Aplikasi Kedaluwarsa"** dengan tombol *Buka Halaman Download* (membuka `/download`) dan *Keluar* — tidak bisa ikut ujian sampai update.
-5. **Verifikasi**: buka `/download` → kartu *EXAMVAN Student* & *EXAMVAN Kiosk* tampil dengan versi terbaru. Cek `curl -H "X-App-Version: 0.0.1" https://<host>/api/exams` → harus respons **426**.
+4. **Verifikasi**:
+   - Buka `/download` → kartu APK resmi tampil dengan versi & ukuran dari R2.
+   - `curl -I "https://<host>/download/apk?flavor=student"` → respons **302** ke signed URL Cloudflare R2.
+   - `curl https://<host>/api/health` → `required_app_version` = versi terbaru.
+   - `curl -H "X-App-Version: 0.0.1" https://<host>/api/exams` → harus respons **426**.
 
 ### Build dengan Android Studio (GUI)
 1. Buka **Android Studio**.
@@ -381,7 +381,7 @@ EXAMVAN/
 │   ├── seed.sql                # Seed data (opsional)
 │   ├── go.mod                  # Go module dependencies
 │   └── go.sum                  # Go dependency checksums
-├── *.apk                       # Pre-built Android APKs
+│   └── app/build/outputs/apk/  # Output build APK (student/kiosk) — di-upload ke R2 via System Apps
 ├── CLAUDE.md                   # Project instructions
 ├── README.md                   # Dokumentasi ini
 └── package.json                # Tailwind CSS build scripts

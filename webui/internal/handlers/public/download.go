@@ -4,50 +4,16 @@ package public
 import (
 	"log"
 	"net/http"
-	"os"
-	"path/filepath"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/gin-gonic/gin"
 
-	"github.com/examvan/webui/internal/config"
 	r2client "github.com/examvan/webui/internal/handlers/r2"
 	"github.com/examvan/webui/internal/middleware"
 	"github.com/examvan/webui/internal/models"
 )
-
-// getAPKPath returns the filesystem path to EXAMVAN.apk.
-// It first checks the static/ directory relative to the application base
-// (derived from StoragePath), then falls back to the working directory's
-// static/ folder.
-func getAPKPath(c *gin.Context) string {
-	return findAPKPath(c, "EXAMVAN.apk")
-}
-
-func findAPKPath(c *gin.Context, filename string) string {
-	// Derive base directory from the configured storage path, e.g.
-	// StoragePath="/app/storage" → base="/app", APK at "/app/static/<file>".
-	if cfg, exists := c.Get("cfg"); exists {
-		baseDir := filepath.Dir(cfg.(*config.Config).StoragePath)
-		cfgPath := filepath.Join(baseDir, "static", filename)
-		if _, err := os.Stat(cfgPath); err == nil {
-			return cfgPath
-		}
-	}
-
-	// Fallback: relative to working directory.
-	wd, err := os.Getwd()
-	if err == nil {
-		wdPath := filepath.Join(wd, "static", filename)
-		if _, err := os.Stat(wdPath); err == nil {
-			return wdPath
-		}
-	}
-
-	// Last resort: bare relative path.
-	return filepath.Join("static", filename)
-}
 
 // ---------------------------------------------------------------------------
 // 1. GET /download — Render download page
@@ -62,60 +28,52 @@ func DownloadPage() gin.HandlerFunc {
 
 		androidVer := models.DefaultSettings[models.SettingAndroidVersion]
 		webappVer := models.DefaultSettings[models.SettingWebappVersion]
+		var systemApps []models.SystemApp
 		if pool != nil {
 			androidVer = models.GetSaasSettingWithDefault(ctx, pool, models.SettingAndroidVersion, androidVer)
 			webappVer = models.GetSaasSettingWithDefault(ctx, pool, models.SettingWebappVersion, webappVer)
-		}
-
-		var systemApps []models.SystemApp
-		if pool != nil {
 			apps, err := models.GetAllSystemApps(ctx, pool)
 			if err == nil {
 				systemApps = apps
 			}
 		}
 
-		// Official APK releases from static/ (student & kiosk flavors).
-		// Expose existence + size so the download page can render a card even
-		// when no R2 system apps have been uploaded.
-		apkStudentPath := findAPKPath(c, "EXAMVAN-student.apk")
-		apkKioskPath := findAPKPath(c, "EXAMVAN-kiosk.apk")
-		apkStudentSize := int64(0)
-		apkKioskSize := int64(0)
-		if st, err := os.Stat(apkStudentPath); err == nil {
-			apkStudentSize = st.Size()
-		}
-		if st, err := os.Stat(apkKioskPath); err == nil {
-			apkKioskSize = st.Size()
+		// Official Android APK release: the highest-version system_app entry
+		// with platform=android (served from Cloudflare R2). This is the
+		// primary card on the page; static/ is not used in production.
+		androidApp := models.BestAndroidApp(systemApps)
+		if androidApp != nil {
+			androidVer = androidApp.Version
 		}
 
 		c.HTML(http.StatusOK, "public/download.html", middleware.MergeTemplateData(c, gin.H{
-			"android_version":  androidVer,
-			"webapp_version":   webappVer,
-			"system_apps":      systemApps,
-			"apk_student_size": apkStudentSize,
-			"apk_kiosk_size":   apkKioskSize,
+			"android_version": androidVer,
+			"webapp_version":  webappVer,
+			"system_apps":     systemApps,
+			"android_app":     androidApp,
 		}))
 	}
 }
 
 // ---------------------------------------------------------------------------
-// 2. GET /download/apk — Serve APK file
+// 2. GET /download/apk — Serve APK file (from Cloudflare R2)
 // ---------------------------------------------------------------------------
 
-// DownloadAPK serves the EXAMVAN.apk file as a downloadable attachment.
+// DownloadAPK serves the EXAMVAN APK. It redirects to a signed R2 URL for the
+// highest-version Android system_app entry.
 // It supports '?flavor=student' (default) and '?flavor=kiosk'.
 func DownloadAPK() gin.HandlerFunc {
 	return func(c *gin.Context) {
-		flavor := c.DefaultQuery("flavor", "student")
-		filename := "EXAMVAN-student.apk"
-		if flavor == "kiosk" {
-			filename = "EXAMVAN-kiosk.apk"
-		}
+		pool := getPool(c)
+		ctx := c.Request.Context()
 
-		apkPath := findAPKPath(c, filename)
-		if _, err := os.Stat(apkPath); os.IsNotExist(err) {
-			log.Printf("APK file not found at %s", apkPath)
+		var apps []models.SystemApp
+		if pool != nil {
+			apps, _ = models.GetAllSystemApps(ctx, pool)
+		}
+		app := models.BestAndroidApp(apps)
+		if app == nil {
+			log.Println("DownloadAPK: no Android system_app available")
 			c.JSON(http.StatusServiceUnavailable, gin.H{
 				"success": false,
 				"message": "File APK belum tersedia saat ini.",
@@ -123,7 +81,35 @@ func DownloadAPK() gin.HandlerFunc {
 			return
 		}
 
-		c.FileAttachment(apkPath, filename)
+		// flavor=kiosk prefers an entry whose name mentions kiosk; otherwise
+		// both flavors fall back to the best Android entry (currently a single
+		// "EXAMVAN" entry serves both).
+		flavor := c.DefaultQuery("flavor", "student")
+		if flavor == "kiosk" {
+			for i := range apps {
+				if apps[i].Platform == "android" &&
+					strings.Contains(strings.ToLower(apps[i].Name), "kiosk") {
+					app = &apps[i]
+					break
+				}
+			}
+		}
+
+		r2Val, exists := c.Get("r2")
+		if !exists || r2Val.(*r2client.Client) == nil || !r2Val.(*r2client.Client).Enabled() {
+			c.JSON(http.StatusInternalServerError, gin.H{"success": false, "message": "Cloudflare R2 tidak dikonfigurasi."})
+			return
+		}
+		r2 := r2Val.(*r2client.Client)
+
+		// Generate presigned URL for download valid for 5 minutes.
+		url, err := r2.SignedURL(ctx, app.FilePath, 5*time.Minute)
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"success": false, "message": "Gagal menghasilkan URL unduhan."})
+			return
+		}
+
+		c.Redirect(http.StatusFound, url)
 	}
 }
 

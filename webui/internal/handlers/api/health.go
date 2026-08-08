@@ -30,8 +30,17 @@ func Health() gin.HandlerFunc {
 				ctx := c.Request.Context()
 				fingerprint = models.GetSaasSettingWithDefault(ctx, pool,
 					models.SettingCertificateFingerprint, "")
+
+				// Required app version: prefer the highest-version Android
+				// system_app (the official APK release in R2); fall back to
+				// the manually-configured saas_setting android_version.
 				requiredAppVersion = models.GetSaasSettingWithDefault(ctx, pool,
 					models.SettingAndroidVersion, requiredAppVersion)
+				if apps, err := models.GetAllSystemApps(ctx, pool); err == nil {
+					if best := models.BestAndroidAppVersion(apps); best != "" {
+						requiredAppVersion = best
+					}
+				}
 			}
 		}
 
