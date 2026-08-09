@@ -60,16 +60,28 @@ func getInstansiForOperator(ctx context.Context, pool *pgxpool.Pool, userID int)
 }
 
 // loadOperatorAccountQuota returns the school package's sub-account quota
-// (maxUsers, 0 = unlimited) and the current number of accounts in the
-// operator's instansi (used, excluding the operator themself). The quota comes
-// from the active redemption's snapshot (captured at redeem time from
-// package_settings or the custom voucher field); operators without an active
-// redemption (legacy/imported) fall back to the package_settings row for
-// their package label. Shared by the CreateUser enforcement and the billing
-// page display so the two can never disagree. (0, 0) when not applicable.
+// (maxUsers, 0 = unlimited) and the current number of accounts the operator
+// may count against it (used, excluding the operator themself). The quota
+// comes from the ACTIVE REDEMPTION's snapshot (captured at redeem time from
+// package_settings or the custom voucher field) — NOT from the instansi label:
+// a guru who redeemed a school voucher without yet setting a school instansi
+// (instansi still the shared "personal" default) is still bound by the school
+// package's max_users. Operators without an active redemption
+// (legacy/imported) fall back to the package_settings row for their package
+// label. For a real school instansi the used count is every account in that
+// instansi; for the shared "personal" bucket only the operator's OWN
+// sub-accounts count: scoped by created_by (the operator id recorded at
+// creation), so several personal-bucket operators no longer count each
+// other's sub-accounts. Legacy operator-created rows predating the created_by
+// column (created_by IS NULL) cannot be attributed to any specific operator,
+// so they keep the conservative shared-bucket fallback (counted against every
+// personal operator) — strictly safer than silently ignoring them.
+// Self-registered personal accounts are not sub-accounts and never consume a
+// school quota. Shared by the CreateUser enforcement and the billing page
+// display so the two can never disagree. (0, 0) when not applicable.
 func loadOperatorAccountQuota(ctx context.Context, pool *pgxpool.Pool, userID int, isOperator bool, instansi string) (maxUsers, used int64) {
 	instansi = strings.TrimSpace(instansi)
-	if !isOperator || instansi == "" || strings.EqualFold(instansi, "personal") {
+	if !isOperator || instansi == "" {
 		return 0, 0
 	}
 	err := pool.QueryRow(ctx, `
@@ -91,6 +103,26 @@ func loadOperatorAccountQuota(ctx context.Context, pool *pgxpool.Pool, userID in
 	}
 	if maxUsers <= 0 {
 		return 0, 0
+	}
+	if strings.EqualFold(instansi, "personal") {
+		// Shared "personal" bucket (operator redeemed a school voucher but has
+		// not set a real school instansi yet): only sub-accounts the CURRENT
+		// operator created (created_by = userID) are counted — the precise
+		// per-operator attribution, so multiple personal-bucket operators no
+		// longer share each other's sub-accounts. Legacy operator-created
+		// rows predating the created_by column (operator_created = true,
+		// created_by IS NULL) cannot be attributed to any specific operator,
+		// so they keep the conservative shared-bucket fallback: counted
+		// against every personal operator, never ignored. Self-registered
+		// personal accounts (operator_created = false) are NOT sub-accounts
+		// and must not consume the school quota — counting them would let
+		// anyone starve a school's quota by registering personal accounts.
+		_ = pool.QueryRow(ctx,
+			`SELECT COUNT(*) FROM admin_users
+			 WHERE instansi = $1 AND id <> $2
+			   AND (created_by = $2 OR (created_by IS NULL AND operator_created))`,
+			instansi, userID).Scan(&used)
+		return maxUsers, used
 	}
 	_ = pool.QueryRow(ctx,
 		`SELECT COUNT(*) FROM admin_users WHERE instansi = $1 AND id <> $2`,
@@ -121,14 +153,28 @@ func UsersPage() gin.HandlerFunc {
 			}
 		}
 
+		freeMB := getFreeDiskSpace(getStoragePath(c)) / (1024 * 1024)
+		// Preformatted "Sisa disk server: X GB/MB" supaya badge di header
+		// Default Paket Pendaftaran langsung terisi saat render (tanpa flash
+		// "memuat…"). Format disamakan dengan fmtStorageSize di admin.js.
+		storageFreeDisplay := ""
+		if freeMB > 0 {
+			if freeMB >= 1024 {
+				storageFreeDisplay = fmt.Sprintf("Sisa disk server: %.2f GB", freeMB/1024)
+			} else {
+				storageFreeDisplay = fmt.Sprintf("Sisa disk server: %.0f MB", freeMB)
+			}
+		}
+
 		renderAdminPage(c, "admin/users.html", gin.H{
-			"active_page":         "users",
-			"admin_instansi":      adminInstansi,
-			"operator_expires_at": operatorExpiresAt,
+			"active_page":          "users",
+			"admin_instansi":       adminInstansi,
+			"operator_expires_at":  operatorExpiresAt,
 			// Free space on the storage partition (MB), so the Tambah User &
 			// Atur Limit forms can cap Maks Storage at what the server disk can
 			// actually hold (0 = tidak dapat ditentukan).
-			"storage_free_mb": roundTo(getFreeDiskSpace(getStoragePath(c))/(1024*1024), 2),
+			"storage_free_mb":      roundTo(freeMB, 2),
+			"storage_free_display": storageFreeDisplay,
 		})
 	}
 }
@@ -394,9 +440,15 @@ func CreateUser() gin.HandlerFunc {
 		var opInstansiCode string
 
 		if isOp {
-			// Operator cannot create operator accounts
+			// Operator cannot create operator accounts. Trim + case-insensitive
+			// compare so a hand-crafted " operator" / "OPERATOR" / " Operator "
+			// (variants that would otherwise fall through the exact-match
+			// whitelist below and silently degrade to guru) is rejected with the
+			// intended 400 — mirroring the EditUser guard. The whitelist filter
+			// keeps storing only exact lowercase role names, so a non-canonical
+			// spelling can never be persisted.
 			for _, r := range roles {
-				if r == models.RoleOperator {
+				if strings.EqualFold(strings.TrimSpace(r), models.RoleOperator) {
 					errorResponse(c, http.StatusBadRequest, "Operator tidak dapat membuat akun dengan role Operator")
 					return
 				}
@@ -492,8 +544,15 @@ func CreateUser() gin.HandlerFunc {
 
 		maxStorageSize := int64(body.MaxStorageSizeMB * 1024 * 1024)
 
+		// Sub-account package policy: an operator may never choose the
+		// subscription package of the accounts it creates. Accounts created by
+		// an operator (operator_created sub-accounts) cannot run their own
+		// package — they cannot redeem/activate vouchers, and their quota,
+		// role and expiry all follow the operator's school package — so the
+		// package label is forced to "free" (a tampered request can no longer
+		// label a sub-account with a paid school package).
 		pkg := strings.TrimSpace(body.Package)
-		if pkg == "" {
+		if pkg == "" || isOp {
 			pkg = "free"
 		}
 
@@ -516,6 +575,13 @@ func CreateUser() gin.HandlerFunc {
 			// marked operator_created and can never claim/activate vouchers
 			// (origin-based, immutable — see RedeemVoucherHandler).
 			OperatorCreated: isOp,
+			// CreatedBy records WHICH operator created the account (the precise
+			// attribution behind the shared "personal" bucket — see
+			// loadOperatorAccountQuota). Set once at creation, never changed.
+		}
+		if isOp {
+			createdByID := userID
+			user.CreatedBy = &createdByID
 		}
 
 		created, err := models.CreateUser(ctx, pool, user)
@@ -623,7 +689,7 @@ func EditUser() gin.HandlerFunc {
 				requestedRoles = strings.Split(*body.Role, ",")
 			}
 			for _, r := range requestedRoles {
-				if strings.TrimSpace(r) == models.RoleOperator {
+				if strings.EqualFold(strings.TrimSpace(r), models.RoleOperator) {
 					errorResponse(c, http.StatusBadRequest, "Operator tidak dapat memberikan role Operator")
 					return
 				}
@@ -776,7 +842,12 @@ func EditUser() gin.HandlerFunc {
 			}
 		}
 
-		if body.Package != nil {
+		// Sub-account package policy (mirror of CreateUser): an operator may
+		// never change the subscription package of the accounts below it — a
+		// sub-account cannot run its own package, so the label stays as the
+		// SuperAdmin left it ("free" for accounts the operator created). Only
+		// a SuperAdmin may assign a package.
+		if body.Package != nil && !isOp {
 			updates["package"] = strings.TrimSpace(*body.Package)
 		}
 
@@ -1154,7 +1225,8 @@ func DeleteUser() gin.HandlerFunc {
 }
 
 // ---------------------------------------------------------------------------
-// 8. POST /admin/api/users/update-instansi — Update Operator Instansi
+// 8. POST /admin/api/instansi/update — Update Operator Instansi (management
+// level: SuperAdmin & Operator, enforced at route registration)
 // ---------------------------------------------------------------------------
 
 func generateInstansiCode() string {
@@ -1164,7 +1236,10 @@ func generateInstansiCode() string {
 	return fmt.Sprintf("SCH-%s-%s", hexStr[:4], hexStr[4:])
 }
 
-// UpdateInstansi handles POST /admin/api/instansi/update
+// UpdateInstansi handles POST /admin/api/instansi/update (route is registered
+// under AdminManagementRequired — only SuperAdmin & Operator may rename a
+// school instansi, since the rename applies to every account sharing the
+// instansi_id).
 func UpdateInstansi() gin.HandlerFunc {
 	return func(c *gin.Context) {
 		var body struct {
@@ -1226,6 +1301,31 @@ func UpdateInstansi() gin.HandlerFunc {
 			log.Printf("failed to update instansi for user %d: %v", userID, err)
 			errorResponse(c, http.StatusInternalServerError, "Gagal memperbarui instansi")
 			return
+		}
+
+		// Sub-account migration: an operator who created sub-accounts while
+		// still in the shared "personal" bucket (school instansi not yet set —
+		// see loadOperatorAccountQuota) has those sub-accounts moved to the new
+		// school instansi (instansi + instansi_id + instansi_code). Without
+		// this, the subs keep their "personal" label and stop counting toward
+		// the school quota (which counts by the operator's instansi label),
+		// letting the operator create max_users more on top of the ones already
+		// created. Scoped by created_by = the operator, so only sub-accounts
+		// THIS operator created move — the precise per-operator attribution
+		// that replaces the old shared-bucket approximation (where one personal
+		// operator claiming a school would sweep another operator's personal
+		// sub-accounts along). Legacy rows with created_by IS NULL cannot be
+		// attributed and are deliberately left in "personal" (their quota
+		// still counts via the loadOperatorAccountQuota legacy fallback).
+		// Self-registered accounts (operator_created=false) are never touched.
+		if user.IsOperator() && strings.EqualFold(strings.TrimSpace(user.Instansi), "personal") {
+			if _, err := pool.Exec(ctx, `
+				UPDATE admin_users
+				SET instansi = $1, instansi_id = $2, instansi_code = $3
+				WHERE created_by = $4 AND LOWER(instansi) = 'personal' AND id <> $4`,
+				newInstansi, instansiID, instansiCode, userID); err != nil {
+				log.Printf("migrate personal-bucket sub-accounts for user %d error: %v", userID, err)
+			}
 		}
 
 		session := sessions.Default(c)

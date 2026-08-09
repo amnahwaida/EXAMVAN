@@ -131,7 +131,19 @@ func newDashboardPageTestRouter(t *testing.T, pool *pgxpool.Pool, storagePath st
 		s.Set(middleware.SessionKeyAdminID, u.ID)
 		s.Set(middleware.SessionKeyUsername, u.Username)
 		s.Set(middleware.SessionKeyName, u.Name)
-		s.Set(middleware.SessionKeyRole, u.Role)
+		// Mirror the production login handler's session-role normalization
+		// (cmd/server/main.go loginHandler): superadmin → "superadmin",
+		// operator → "operator", everyone else keeps the raw role JSON. The
+		// template role guards (e.g. if eq .admin_role "operator") compare
+		// against these exact values, so the seam must reproduce them for the
+		// rendered pages to be asserted faithfully.
+		adminRole := u.Role
+		if u.IsSuperAdmin() {
+			adminRole = "superadmin"
+		} else if models.HasRole(u.Role, models.RoleOperator) {
+			adminRole = "operator"
+		}
+		s.Set(middleware.SessionKeyRole, adminRole)
 		s.Set(middleware.SessionKeyIsSuper, u.IsSuperAdmin())
 		s.Set(middleware.SessionKeyInstansi, u.Instansi)
 		_ = s.Save()
@@ -375,4 +387,296 @@ func TestDashboardHidesServerDiskForNonSuper(t *testing.T) {
 	if !strings.Contains(body, `class="stat-card stat-storage"`) {
 		t.Error("dashboard must still render the storage card for a non-superadmin (page rendered fully)")
 	}
+}
+
+// ---------------------------------------------------------------------------
+// Instansi UI visibility tests: the dashboard's "Instansi (Klik untuk Ubah)"
+// card and the mandatory-instansi onboarding modal in nav.html. Both drive
+// POST /admin/api/instansi/update, which is registered under
+// AdminManagementRequired — so the card must be rendered ONLY for SuperAdmin
+// & Operator (a guru/pengawas must never see a control that would 403), and
+// the onboarding modal only for a school-package account whose instansi is
+// still the unset "personal" sentinel (a SuperAdmin or an operator that
+// already claimed its school name must not be nagged). These lock in the
+// server-side half of the UI flow: the seam login reproduces the production
+// session-role normalization ("superadmin"/"operator"), and the templates
+// are rendered through the REAL Dashboard handler + REAL nav partial.
+// ---------------------------------------------------------------------------
+
+// fetchInstansiUIPage logs in as the given user and fetches /admin/dashboard,
+// returning the HTTP status and the rendered HTML (plus the redirect Location
+// when the response is a redirect — a pengawas-only account is sent away from
+// the dashboard by Dashboard()'s guru-only gate, so the caller asserts on the
+// redirect rather than a 200 render).
+func fetchInstansiUIPage(t *testing.T, pool *pgxpool.Pool, srv *httptest.Server, userID int) (int, string, string) {
+	t.Helper()
+	jar, _ := cookiejar.New(nil)
+	client := &http.Client{
+		Jar: jar,
+		// Do not follow redirects: following would land on the unregistered
+		// /admin/pengawas route's 404 and hide the 302 we want to assert.
+		CheckRedirect: func(req *http.Request, via []*http.Request) error {
+			return http.ErrUseLastResponse
+		},
+	}
+	if resp, err := client.Post(srv.URL+"/test/login/"+strconv.Itoa(userID), "application/json", nil); err != nil || resp.StatusCode != http.StatusOK {
+		t.Fatalf("test login: status=%v err=%v", resp, err)
+	}
+	resp, err := client.Get(srv.URL + "/admin/dashboard")
+	if err != nil {
+		t.Fatalf("GET /admin/dashboard: %v", err)
+	}
+	defer resp.Body.Close()
+	body, _ := io.ReadAll(resp.Body)
+	return resp.StatusCode, string(body), resp.Header.Get("Location")
+}
+
+// TestDashboardInstansiCardOnlyForManagementRoles locks in the visibility
+// policy of the "Instansi (Klik untuk Ubah)" stat card: SuperAdmin and
+// Operator see it (they may call the AdminManagementRequired endpoint it
+// drives), while guru and pengawas must not — the card would only invite a
+// 403. The page still renders fully for every role (storage card sanity
+// marker), so the absence is a real conditional, not a broken render.
+func TestDashboardInstansiCardOnlyForManagementRoles(t *testing.T) {
+	pool := database.NewPackageTestPool(t, "admin")
+	ctx := context.Background()
+
+	su, err := models.CreateUser(ctx, pool, &models.AdminUser{
+		Username: "it_inst_su", Name: "IT Inst SU",
+		PasswordHash: "x", Status: models.UserStatusActive,
+		Role: models.SerializeRoles([]string{models.RoleSuperAdmin}),
+	})
+	if err != nil {
+		t.Fatalf("create superadmin: %v", err)
+	}
+	op, err := models.CreateUser(ctx, pool, &models.AdminUser{
+		Username: "it_inst_op", Name: "IT Inst Op",
+		PasswordHash: "x", Status: models.UserStatusActive,
+		Instansi:     "SMK Alpha",
+		Role:         models.SerializeRoles([]string{models.RoleGuru, models.RoleOperator}),
+		Package:      "sekolah-test",
+		MaxExams:     3, MaxPDFSize: 1048576, MaxConcurrentExams: 2,
+		MaxStorageSize: 50 * 1024 * 1024,
+	})
+	if err != nil {
+		t.Fatalf("create operator: %v", err)
+	}
+	guru, err := models.CreateUser(ctx, pool, &models.AdminUser{
+		Username: "it_inst_guru", Name: "IT Inst Guru",
+		PasswordHash: "x", Status: models.UserStatusActive,
+		Instansi:     "SMK Alpha",
+		Role:         models.SerializeRoles([]string{models.RoleGuru}),
+		MaxExams:     3, MaxPDFSize: 1048576, MaxConcurrentExams: 2,
+		MaxStorageSize: 50 * 1024 * 1024, Package: "free",
+	})
+	if err != nil {
+		t.Fatalf("create guru: %v", err)
+	}
+	pw, err := models.CreateUser(ctx, pool, &models.AdminUser{
+		Username: "it_inst_pw", Name: "IT Inst PW",
+		PasswordHash: "x", Status: models.UserStatusActive,
+		Instansi:     "SMK Alpha",
+		Role:         models.SerializeRoles([]string{models.RolePengawas}),
+		MaxExams:     3, MaxPDFSize: 1048576, MaxConcurrentExams: 2,
+		MaxStorageSize: 50 * 1024 * 1024, Package: "free",
+	})
+	if err != nil {
+		t.Fatalf("create pengawas: %v", err)
+	}
+
+	storageDir, err := os.MkdirTemp("", "examvan-inst-ui")
+	if err != nil {
+		t.Fatalf("make temp storage dir: %v", err)
+	}
+	defer os.RemoveAll(storageDir)
+
+	srv := httptest.NewServer(newDashboardPageTestRouter(t, pool, storageDir))
+	defer srv.Close()
+
+	const cardMarker = `class="stat-card stat-instansi"`
+	const cardLabel = "Instansi (Klik untuk Ubah)"
+	cases := []struct {
+		name     string
+		userID   int
+		want     bool
+		redirect bool // the dashboard sends this role away (Dashboard()'s guru-only gate)
+	}{
+		{"superadmin", su.ID, true, false},
+		{"operator", op.ID, true, false},
+		{"guru", guru.ID, false, false},
+		{"pengawas", pw.ID, false, true},
+	}
+	for _, tc := range cases {
+		status, body, location := fetchInstansiUIPage(t, pool, srv, tc.userID)
+		// A pengawas-only account is sent to /admin/pengawas by Dashboard()'s
+		// guru-only gate — it never renders the dashboard, so it cannot see
+		// the card either (and its 302 is itself the assertion that the card
+		// is out of reach).
+		if tc.redirect {
+			if status != http.StatusFound || !strings.Contains(location, "/admin/pengawas") {
+				t.Errorf("%s: dashboard status=%d location=%q, want 302 to /admin/pengawas", tc.name, status, location)
+			}
+			continue
+		}
+		if status != http.StatusOK {
+			t.Fatalf("%s: dashboard status=%d, want 200", tc.name, status)
+		}
+		gotCard := strings.Contains(body, cardMarker)
+		if gotCard != tc.want {
+			t.Errorf("%s: instansi card present=%v, want %v", tc.name, gotCard, tc.want)
+		}
+		gotLabel := strings.Contains(body, cardLabel)
+		if gotLabel != tc.want {
+			t.Errorf("%s: instansi card label present=%v, want %v", tc.name, gotLabel, tc.want)
+		}
+		// Sanity: the page rendered fully for every role.
+		if !strings.Contains(body, `class="stat-card stat-storage"`) {
+			t.Errorf("%s: storage card missing — page did not render fully", tc.name)
+		}
+	}
+}
+
+// TestMandatoryInstansiModalOnlyForUnclaimedSchoolOperator locks in the
+// onboarding modal in nav.html (shared by every admin page): it must appear
+// ONLY for a school-package ("sekolah…") account whose instansi is still the
+// unset "personal" sentinel — i.e. a school operator who redeemed its voucher
+// but has not claimed a school name yet (helpers.go needs_instansi). It must
+// NOT appear for an operator that already set its school name, for the
+// SuperAdmin, or for a plain guru. This also pins the nav partial receiving
+// the flag: every page passes needs_instansi into the nav dict, so the modal
+// actually renders (previously the flag was computed server-side but never
+// forwarded to the partial, silently dropping the modal).
+func TestMandatoryInstansiModalOnlyForUnclaimedSchoolOperator(t *testing.T) {
+	pool := database.NewPackageTestPool(t, "admin")
+	ctx := context.Background()
+
+	unclaimed, err := models.CreateUser(ctx, pool, &models.AdminUser{
+		Username: "it_inst_uncl", Name: "IT Inst Unclaimed",
+		PasswordHash: "x", Status: models.UserStatusActive,
+		Instansi:     "personal", // redeemed the school voucher, school name not yet set
+		Role:         models.SerializeRoles([]string{models.RoleGuru, models.RoleOperator}),
+		Package:      "sekolah-test",
+		MaxExams:     3, MaxPDFSize: 1048576, MaxConcurrentExams: 2,
+		MaxStorageSize: 50 * 1024 * 1024,
+	})
+	if err != nil {
+		t.Fatalf("create unclaimed operator: %v", err)
+	}
+	claimed, err := models.CreateUser(ctx, pool, &models.AdminUser{
+		Username: "it_inst_claim", Name: "IT Inst Claimed",
+		PasswordHash: "x", Status: models.UserStatusActive,
+		Instansi:     "SMK Beta", // already claimed a school name
+		Role:         models.SerializeRoles([]string{models.RoleGuru, models.RoleOperator}),
+		Package:      "sekolah-test",
+		MaxExams:     3, MaxPDFSize: 1048576, MaxConcurrentExams: 2,
+		MaxStorageSize: 50 * 1024 * 1024,
+	})
+	if err != nil {
+		t.Fatalf("create claimed operator: %v", err)
+	}
+	su, err := models.CreateUser(ctx, pool, &models.AdminUser{
+		Username: "it_inst_su2", Name: "IT Inst SU2",
+		PasswordHash: "x", Status: models.UserStatusActive,
+		Role: models.SerializeRoles([]string{models.RoleSuperAdmin}),
+	})
+	if err != nil {
+		t.Fatalf("create superadmin: %v", err)
+	}
+	guru, err := models.CreateUser(ctx, pool, &models.AdminUser{
+		Username: "it_inst_guru2", Name: "IT Inst Guru2",
+		PasswordHash: "x", Status: models.UserStatusActive,
+		Instansi:     "personal",
+		Role:         models.SerializeRoles([]string{models.RoleGuru}),
+		MaxExams:     3, MaxPDFSize: 1048576, MaxConcurrentExams: 2,
+		MaxStorageSize: 50 * 1024 * 1024, Package: "free",
+	})
+	if err != nil {
+		t.Fatalf("create guru: %v", err)
+	}
+
+	storageDir, err := os.MkdirTemp("", "examvan-inst-modal")
+	if err != nil {
+		t.Fatalf("make temp storage dir: %v", err)
+	}
+	defer os.RemoveAll(storageDir)
+
+	srv := httptest.NewServer(newDashboardPageTestRouter(t, pool, storageDir))
+	defer srv.Close()
+
+	const modalMarker = `id="instansiOnboardingModal"`
+	const modalTitle = "Wajib Atur Nama Instansi / Sekolah"
+	cases := []struct {
+		name   string
+		userID int
+		want   bool
+	}{
+		{"unclaimed school operator", unclaimed.ID, true},
+		{"claimed school operator", claimed.ID, false},
+		{"superadmin", su.ID, false},
+		{"plain guru", guru.ID, false},
+	}
+	for _, tc := range cases {
+		status, body, _ := fetchInstansiUIPage(t, pool, srv, tc.userID)
+		if status != http.StatusOK {
+			t.Fatalf("%s: dashboard status=%d, want 200", tc.name, status)
+		}
+		gotModal := strings.Contains(body, modalMarker)
+		if gotModal != tc.want {
+			t.Errorf("%s: onboarding modal present=%v, want %v", tc.name, gotModal, tc.want)
+		}
+		gotTitle := strings.Contains(body, modalTitle)
+		if gotTitle != tc.want {
+			t.Errorf("%s: onboarding modal title present=%v, want %v", tc.name, gotTitle, tc.want)
+		}
+		if !strings.Contains(body, `class="stat-card stat-storage"`) {
+			t.Errorf("%s: storage card missing — page did not render fully", tc.name)
+		}
+	}
+}
+
+// TestAllNavIncludesForwardNeedsInstansi locks in the needs_instansi plumbing
+// contract across EVERY admin template: each page that includes the shared
+// nav.html partial must also forward the needs_instansi flag into the partial's
+// dict — otherwise the mandatory-instansi onboarding modal silently disappears
+// (the server computes the flag in renderAdminPage, but nav.html only renders
+// the modal when the flag reaches it). This is a textual guard over the actual
+// templates, so adding a new admin page (or editing an existing nav include)
+// without forwarding the flag fails the test. Pages that deliberately do NOT
+// include nav (login.html, the base.html reference, the public/ pages) are
+// irrelevant here — they have no authenticated session to be a school operator.
+func TestAllNavIncludesForwardNeedsInstansi(t *testing.T) {
+	templatesDir := "templates"
+	if _, err := os.Stat(templatesDir); err != nil {
+		templatesDir = filepath.Join("..", "..", "..", "templates")
+	}
+	matches, err := filepath.Glob(filepath.Join(templatesDir, "admin", "*.html"))
+	if err != nil {
+		t.Fatalf("glob admin templates: %v", err)
+	}
+	if len(matches) == 0 {
+		t.Fatalf("no admin templates found under %s", templatesDir)
+	}
+	checked := 0
+	for _, m := range matches {
+		data, err := os.ReadFile(m)
+		if err != nil {
+			t.Fatalf("read %s: %v", m, err)
+		}
+		// Only templates that include the shared nav partial are relevant.
+		if !strings.Contains(string(data), `admin/partials/nav.html`) {
+			continue
+		}
+		checked++
+		// The nav include must carry the flag in its dict. The opening and
+		// closing braces of the same {{template …}} invocation, so a partial
+		// string search for "needs_instansi" is safe (it can only appear in
+		// the dict on that line).
+		if !strings.Contains(string(data), `"needs_instansi" .needs_instansi`) {
+			t.Errorf("%s: nav include must forward \"needs_instansi\" .needs_instansi", filepath.Base(m))
+		}
+	}
+	if checked == 0 {
+		t.Fatalf("no admin template includes the nav partial — guard is vacuous")
+	}
+	t.Logf("verified needs_instansi forwarding in %d admin templates", checked)
 }

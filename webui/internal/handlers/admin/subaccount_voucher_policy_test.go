@@ -419,3 +419,618 @@ func TestUsersListAPIReportsOperatorCreated(t *testing.T) {
 		t.Errorf("op-list-origin.operator_created in /api/users = %v, want %v (operator itself is not a sub-account)", got, want)
 	}
 }
+
+// TestOperatorCannotCreateOperatorAccount locks in the operator restriction:
+// an operator (school sub-account manager) must never be able to create an
+// account that holds the operator role — whether sent via the plural `roles`
+// array or the singular `role` fallback. The CreateUser handler answers 400
+// before any account is created, so no operator account can sneak in through
+// the Tambah User form or a hand-crafted request.
+func TestOperatorCannotCreateOperatorAccount(t *testing.T) {
+	pool := setupVoucherITDB(t)
+	ctx := context.Background()
+
+	createSchoolVoucher(t, pool)
+	op := createOperatorUser(t, pool, "op-no-op", "SMK No Operator", "pass-op-no-op")
+	tc := newVoucherTestClient(t, pool)
+	tc.login(t, op.ID)
+	tc.redeem(t, "IT-SEKOLAH")
+	if !models.HasRole(mustGetUser(t, pool, "op-no-op").Role, models.RoleOperator) {
+		t.Fatalf("op must hold the operator role after redeeming the school voucher")
+	}
+
+	// Both the plural `roles` form and the singular `role` fallback are
+	// rejected with the operator-role message, and no account is created.
+	// Whitespace and case variants are covered too: the guard trims each
+	// candidate and compares case-insensitively (mirroring EditUser), so a
+	// hand-crafted " operator" / "OPERATOR" cannot slip past the comparison
+	// and silently degrade the account to guru.
+	for i, roles := range []interface{}{
+		[]string{models.RoleGuru, models.RoleOperator},
+		models.RoleOperator, // sent as the singular `role` field
+		[]string{models.RoleGuru, " operator"}, // leading space in the plural array
+		" operator, guru",                      // padding around the comma in the singular fallback
+		[]string{models.RoleGuru, "OPERATOR"},  // uppercase variant
+		" Operator ",                           // mixed case with padding
+	} {
+		payload := map[string]interface{}{
+			"username": "wannabe-op", "password": "pass-wannabe-op", "name": "Wannabe Op",
+		}
+		if s, ok := roles.([]string); ok {
+			payload["roles"] = s
+		} else {
+			payload["role"] = roles
+		}
+		status, resp := postJSON(t, tc.client, tc.srv, "/api/users", payload)
+		if status != http.StatusBadRequest || !strings.Contains(resp.Message, "Operator tidak dapat membuat akun dengan role Operator") {
+			t.Errorf("operator create attempt #%d: status=%d resp=%+v, want 400 operator-role message", i, status, resp)
+		}
+	}
+	if _, err := models.GetUserByUsername(ctx, pool, "wannabe-op"); err == nil {
+		t.Error("wannabe-op was created despite the operator-role restriction")
+	}
+}
+
+// TestOperatorCannotAssignPackageToSubAccount locks in the sub-account package
+// policy: an operator may never choose the subscription package of the
+// accounts below it. CreateUser forces the package label to "free" (the
+// sub-account's real quota/role/expiry all follow the operator's school
+// package), and EditUser ignores any package change the operator submits —
+// only a SuperAdmin may assign a package.
+func TestOperatorCannotAssignPackageToSubAccount(t *testing.T) {
+	pool := setupVoucherITDB(t)
+	ctx := context.Background()
+
+	createSchoolVoucher(t, pool)
+	op := createOperatorUser(t, pool, "op-no-pkg", "SMK No Pkg", "pass-op-no-pkg")
+	tc := newVoucherTestClient(t, pool)
+	tc.login(t, op.ID)
+	tc.redeem(t, "IT-SEKOLAH")
+
+	// Create: even with a paid school package in the payload, the sub-account
+	// is forced to "free" — and no operator role leaks through the package.
+	status, resp := postJSON(t, tc.client, tc.srv, "/api/users", map[string]interface{}{
+		"username": "sub-no-pkg", "password": "pass-sub-no-pkg", "name": "Sub No Pkg",
+		"roles":   []string{models.RoleGuru},
+		"package": "sekolah_unggulan",
+	})
+	if status != http.StatusOK || !resp.Success {
+		t.Fatalf("create sub-no-pkg: status=%d resp=%+v", status, resp)
+	}
+	sub := mustGetUser(t, pool, "sub-no-pkg")
+	if sub.Package != "free" {
+		t.Errorf("sub-no-pkg package=%q after operator create, want \"free\" (forced)", sub.Package)
+	}
+	if models.HasRole(sub.Role, models.RoleOperator) {
+		t.Errorf("sub-no-pkg role=%s, want NO operator role (package must not leak a role)", sub.Role)
+	}
+
+	// Edit: a package change submitted by the operator is ignored — the label
+	// stays exactly as it was.
+	if status, resp := postJSON(t, tc.client, tc.srv, "/api/users/"+strconv.Itoa(sub.ID)+"/edit",
+		map[string]interface{}{"package": "sekolah_kecil"}); status != http.StatusOK || !resp.Success {
+		t.Fatalf("edit sub-no-pkg package: status=%d resp=%+v", status, resp)
+	}
+	sub = mustGetUser(t, pool, "sub-no-pkg")
+	if sub.Package != "free" {
+		t.Errorf("sub-no-pkg package=%q after operator edit, want unchanged \"free\" (ignored)", sub.Package)
+	}
+	if models.HasRole(sub.Role, models.RoleOperator) {
+		t.Errorf("sub-no-pkg role=%s after operator edit, want still no operator role", sub.Role)
+	}
+
+	// A SuperAdmin CAN still assign a package through the same handler — the
+	// restriction is scoped to operators.
+	root, err := models.CreateUser(ctx, pool, &models.AdminUser{
+		Username: "root-pkg", Name: "Root Pkg",
+		PasswordHash: "pass-root-pkg", Status: models.UserStatusActive,
+		Role: models.SerializeRoles([]string{models.RoleSuperAdmin}),
+	})
+	if err != nil {
+		t.Fatalf("create superadmin: %v", err)
+	}
+	rt := newVoucherTestClient(t, pool)
+	rt.login(t, root.ID)
+	if status, resp := postJSON(t, rt.client, rt.srv, "/api/users/"+strconv.Itoa(sub.ID)+"/edit",
+		map[string]interface{}{"package": "guru"}); status != http.StatusOK || !resp.Success {
+		t.Fatalf("superadmin edit sub-no-pkg package: status=%d resp=%+v", status, resp)
+	}
+	sub = mustGetUser(t, pool, "sub-no-pkg")
+	if sub.Package != "guru" {
+		t.Errorf("sub-no-pkg package=%q after superadmin edit, want \"guru\" (superadmin may assign)", sub.Package)
+	}
+}
+
+// TestOperatorQuotaEnforcedForPersonalInstansi locks in the sub-account quota
+// fix: a guru who redeems a school voucher becomes an operator but keeps the
+// shared "personal" instansi until a school name is set (UpdateInstansi). The
+// school package's max_users quota must still bind it — the quota comes from
+// the ACTIVE REDEMPTION, not from the instansi label. Previously
+// loadOperatorAccountQuota returned (0,0)=unlimited for "personal", so a
+// personal-bucket operator could create unlimited sub-accounts. Self-
+// registered personal accounts (operator_created=false, exactly what
+// /register creates) are NOT sub-accounts and must not consume the quota.
+func TestOperatorQuotaEnforcedForPersonalInstansi(t *testing.T) {
+	pool := setupVoucherITDB(t)
+	ctx := context.Background()
+
+	createSchoolVoucher(t, pool)
+
+	// The operator's instansi is the shared "personal" default — the shape of
+	// a guru who redeemed a school voucher before ever setting a school name.
+	op, err := models.CreateUser(ctx, pool, &models.AdminUser{
+		Username: "op-personal", Name: "Op Personal",
+		PasswordHash: "pass-op-personal", Status: models.UserStatusActive,
+		Instansi: "personal",
+		Role:     models.SerializeRoles([]string{models.RoleGuru}),
+		MaxExams: 3, MaxPDFSize: 1048576, MaxConcurrentExams: 2,
+		MaxStorageSize: 50 * 1024 * 1024, Package: "free",
+	})
+	if err != nil {
+		t.Fatalf("create personal operator: %v", err)
+	}
+
+	tc := newVoucherTestClient(t, pool)
+	tc.login(t, op.ID)
+	tc.redeem(t, "IT-SEKOLAH")
+
+	opAfter := mustGetUser(t, pool, "op-personal")
+	if !models.HasRole(opAfter.Role, models.RoleOperator) {
+		t.Fatalf("op must hold the operator role after redeeming the school voucher")
+	}
+	if opAfter.Instansi != "personal" {
+		t.Fatalf("fixture: op instansi=%q, want the shared \"personal\" bucket", opAfter.Instansi)
+	}
+
+	// A self-registered personal account (instansi "personal",
+	// operator_created=false — exactly what /register creates) is NOT a
+	// sub-account: it must not consume the school quota.
+	if _, err := models.CreateUser(ctx, pool, &models.AdminUser{
+		Username: "selfreg-personal", Name: "Self Reg",
+		PasswordHash: "pass-selfreg", Status: models.UserStatusActive,
+		Instansi:     "personal",
+		RegisteredIP: "203.0.113.77",
+		Role:         models.SerializeRoles([]string{models.RoleGuru}),
+		MaxExams: 3, MaxPDFSize: 1048576, MaxConcurrentExams: 2,
+		MaxStorageSize: 50 * 1024 * 1024, Package: "free",
+	}); err != nil {
+		t.Fatalf("create self-registered personal account: %v", err)
+	}
+
+	// The quota comes from the active redemption, not the instansi label: a
+	// personal-bucket operator still reports the school package's 2 accounts.
+	if gotMax, gotUsed := loadOperatorAccountQuota(ctx, pool, opAfter.ID, true, opAfter.Instansi); gotMax != 2 || gotUsed != 0 {
+		t.Fatalf("loadOperatorAccountQuota after redeem = (%d,%d), want (2,0) — school quota applies to the personal bucket", gotMax, gotUsed)
+	}
+
+	// The school quota binds the personal operator: only 2 sub-accounts.
+	for _, name := range []string{"sub1", "sub2"} {
+		if status, resp := tc.createUser(t, name); status != http.StatusOK || !resp.Success {
+			t.Fatalf("create %s: status=%d resp=%+v", name, status, resp)
+		}
+	}
+	if gotMax, gotUsed := loadOperatorAccountQuota(ctx, pool, opAfter.ID, true, opAfter.Instansi); gotMax != 2 || gotUsed != 2 {
+		t.Errorf("loadOperatorAccountQuota after 2 subs = (%d,%d), want (2,2)", gotMax, gotUsed)
+	}
+
+	// A third account is blocked by the quota — this is the fix: previously
+	// the "personal" label skipped the quota entirely.
+	if status, resp := tc.createUser(t, "sub3"); status != http.StatusBadRequest || !strings.Contains(resp.Message, "Kuota akun") {
+		t.Errorf("create sub3: status=%d resp=%+v, want 400 quota message", status, resp)
+	}
+	if _, err := models.GetUserByUsername(ctx, pool, "sub3"); err == nil {
+		t.Error("sub3 was created despite the personal-bucket quota")
+	}
+}
+
+// TestInstansiUpdateRouteRequiresManagementRole locks in the route-level
+// authorization of POST /admin/api/instansi/update: renaming a school
+// instansi applies to EVERY account sharing the instansi_id, so it must be
+// management-level. The production route is registered under
+// AdminManagementRequired (this test router mirrors that wiring: AuthRequired
+// → FeatureLockRequired → AdminManagementRequired) — a guru or pengawas gets
+// 403 BEFORE the handler runs (no rename, no instansi row created), while an
+// operator and the SuperAdmin both succeed.
+func TestInstansiUpdateRouteRequiresManagementRole(t *testing.T) {
+	pool := setupVoucherITDB(t)
+	ctx := context.Background()
+
+	createSchoolVoucher(t, pool)
+
+	// Fixtures: SuperAdmin, an operator (redeemed the school voucher), a
+	// plain guru, and a pengawas.
+	root, err := models.CreateUser(ctx, pool, &models.AdminUser{
+		Username: "root-instansi", Name: "Root Instansi",
+		PasswordHash: "pass-root-instansi", Status: models.UserStatusActive,
+		Role: models.SerializeRoles([]string{models.RoleSuperAdmin}),
+	})
+	if err != nil {
+		t.Fatalf("create superadmin: %v", err)
+	}
+	op := createOperatorUser(t, pool, "op-instansi", "SMK Alpha", "pass-op-instansi")
+	guru := createOperatorUser(t, pool, "guru-instansi", "personal", "pass-guru-instansi")
+	pw, err := models.CreateUser(ctx, pool, &models.AdminUser{
+		Username: "pengawas-instansi", Name: "Pengawas Instansi",
+		PasswordHash: "pass-pengawas-instansi", Status: models.UserStatusActive,
+		Instansi: "SMK Alpha",
+		Role:     models.SerializeRoles([]string{models.RolePengawas}),
+		MaxExams: 3, MaxPDFSize: 1048576, MaxConcurrentExams: 2,
+		MaxStorageSize: 50 * 1024 * 1024, Package: "free",
+	})
+	if err != nil {
+		t.Fatalf("create pengawas: %v", err)
+	}
+
+	tc := newVoucherTestClient(t, pool)
+
+	// Operator: redeem the school voucher to actually hold the operator role
+	// (the redeem handler refreshes the session role, so later management
+	// calls in this session are authorized as an operator).
+	tc.login(t, op.ID)
+	tc.redeem(t, "IT-SEKOLAH")
+	op = mustGetUser(t, pool, "op-instansi")
+	if !models.HasRole(op.Role, models.RoleOperator) {
+		t.Fatalf("op must hold the operator role after redeeming the school voucher")
+	}
+
+	// Guru: 403 from AdminManagementRequired (pinned by the message) — the
+	// handler never runs, so the rename must not happen.
+	tc.login(t, guru.ID)
+	if status, resp := postJSON(t, tc.client, tc.srv, "/api/instansi/update",
+		map[string]interface{}{"instansi": "SMA Guru Hacker"}); status != http.StatusForbidden || !strings.Contains(resp.Message, "khusus Super Admin atau Operator") {
+		t.Errorf("guru instansi/update: status=%d resp=%+v, want 403 AdminManagementRequired message", status, resp)
+	}
+	if got := mustGetUser(t, pool, "guru-instansi").Instansi; got != "personal" {
+		t.Errorf("guru instansi changed to %q despite 403 — handler must not run", got)
+	}
+
+	// Pengawas: 403 as well.
+	tc.login(t, pw.ID)
+	if status, resp := postJSON(t, tc.client, tc.srv, "/api/instansi/update",
+		map[string]interface{}{"instansi": "SMA Pengawas Hacker"}); status != http.StatusForbidden || !strings.Contains(resp.Message, "khusus Super Admin atau Operator") {
+		t.Errorf("pengawas instansi/update: status=%d resp=%+v, want 403 AdminManagementRequired message", status, resp)
+	}
+	if got := mustGetUser(t, pool, "pengawas-instansi").Instansi; got != "SMK Alpha" {
+		t.Errorf("pengawas instansi changed to %q despite 403 — handler must not run", got)
+	}
+
+	// No instansi row may have been created by the blocked attempts.
+	var instansiRows int
+	if err := pool.QueryRow(ctx, `SELECT COUNT(*) FROM instansi`).Scan(&instansiRows); err != nil {
+		t.Fatalf("count instansi rows: %v", err)
+	}
+	if instansiRows != 0 {
+		t.Errorf("instansi rows=%d after blocked attempts, want 0 (handler must not run for guru/pengawas)", instansiRows)
+	}
+
+	// Operator: 200, the rename applies to the operator's own row.
+	tc.login(t, op.ID)
+	if status, resp := postJSON(t, tc.client, tc.srv, "/api/instansi/update",
+		map[string]interface{}{"instansi": "SMK Alpha Baru"}); status != http.StatusOK || !resp.Success {
+		t.Fatalf("operator instansi/update: status=%d resp=%+v, want 200 success", status, resp)
+	}
+	if got := mustGetUser(t, pool, "op-instansi").Instansi; got != "SMK Alpha Baru" {
+		t.Errorf("operator instansi after update = %q, want %q", got, "SMK Alpha Baru")
+	}
+	// The operator had no instansi_id, so the rename is scoped to its own row:
+	// the pengawas that merely shares the old instansi STRING (no instansi_id)
+	// is untouched — documents the instansi_id-NULL behavior of UpdateInstansi.
+	if got := mustGetUser(t, pool, "pengawas-instansi").Instansi; got != "SMK Alpha" {
+		t.Errorf("pengawas instansi after operator rename = %q, want unchanged \"SMK Alpha\" (no instansi_id link)", got)
+	}
+
+	// SuperAdmin: 200 too.
+	tc.login(t, root.ID)
+	if status, resp := postJSON(t, tc.client, tc.srv, "/api/instansi/update",
+		map[string]interface{}{"instansi": "Root Corp"}); status != http.StatusOK || !resp.Success {
+		t.Fatalf("superadmin instansi/update: status=%d resp=%+v, want 200 success", status, resp)
+	}
+	if got := mustGetUser(t, pool, "root-instansi").Instansi; got != "Root Corp" {
+		t.Errorf("superadmin instansi after update = %q, want %q", got, "Root Corp")
+	}
+}
+
+// instansiLink reads the instansi_id + instansi_code columns of an account
+// (the AdminUser model does not scan them — only explicit SQL does).
+func instansiLink(t *testing.T, pool *pgxpool.Pool, userID int) (instansiID int, code string) {
+	t.Helper()
+	if err := pool.QueryRow(context.Background(),
+		`SELECT COALESCE(instansi_id, 0), COALESCE(instansi_code, '') FROM admin_users WHERE id = $1`,
+		userID).Scan(&instansiID, &code); err != nil {
+		t.Fatalf("load instansi link for user %d: %v", userID, err)
+	}
+	return instansiID, code
+}
+
+// TestUpdateInstansiMigratesPersonalBucketSubAccounts locks in the
+// UpdateInstansi migration: an operator who created sub-accounts while still
+// in the shared "personal" bucket (school instansi not yet set) has those
+// sub-accounts moved to the new school instansi (instansi + instansi_id +
+// instansi_code) when it finally sets one. Without the migration the subs
+// would keep the "personal" label and stop counting toward the school quota
+// (loadOperatorAccountQuota counts by the operator's instansi), letting the
+// operator create max_users more on top of the ones already created.
+// Self-registered personal accounts (operator_created=false) are NOT
+// sub-accounts and are never migrated.
+func TestUpdateInstansiMigratesPersonalBucketSubAccounts(t *testing.T) {
+	pool := setupVoucherITDB(t)
+	ctx := context.Background()
+
+	createSchoolVoucher(t, pool)
+
+	op, err := models.CreateUser(ctx, pool, &models.AdminUser{
+		Username: "op-migrate", Name: "Op Migrate",
+		PasswordHash: "pass-op-migrate", Status: models.UserStatusActive,
+		Instansi: "personal",
+		Role:     models.SerializeRoles([]string{models.RoleGuru}),
+		MaxExams: 3, MaxPDFSize: 1048576, MaxConcurrentExams: 2,
+		MaxStorageSize: 50 * 1024 * 1024, Package: "free",
+	})
+	if err != nil {
+		t.Fatalf("create personal operator: %v", err)
+	}
+	// A self-registered personal account must never be migrated.
+	if _, err := models.CreateUser(ctx, pool, &models.AdminUser{
+		Username: "selfreg-migrate", Name: "Self Reg",
+		PasswordHash: "pass-selfreg-migrate", Status: models.UserStatusActive,
+		Instansi:     "personal",
+		RegisteredIP: "203.0.113.99",
+		Role:         models.SerializeRoles([]string{models.RoleGuru}),
+		MaxExams: 3, MaxPDFSize: 1048576, MaxConcurrentExams: 2,
+		MaxStorageSize: 50 * 1024 * 1024, Package: "free",
+	}); err != nil {
+		t.Fatalf("create self-registered personal account: %v", err)
+	}
+
+	tc := newVoucherTestClient(t, pool)
+	tc.login(t, op.ID)
+	tc.redeem(t, "IT-SEKOLAH")
+	opAfter := mustGetUser(t, pool, "op-migrate")
+	if !models.HasRole(opAfter.Role, models.RoleOperator) {
+		t.Fatalf("op must hold the operator role after redeeming the school voucher")
+	}
+	if opAfter.Instansi != "personal" {
+		t.Fatalf("fixture: op instansi=%q, want the shared \"personal\" bucket", opAfter.Instansi)
+	}
+
+	// Two sub-accounts created while still in the personal bucket (quota 2/2).
+	for _, name := range []string{"sub1", "sub2"} {
+		if status, resp := tc.createUser(t, name); status != http.StatusOK || !resp.Success {
+			t.Fatalf("create %s: status=%d resp=%+v", name, status, resp)
+		}
+	}
+	for _, name := range []string{"sub1", "sub2"} {
+		sub := mustGetUser(t, pool, name)
+		if !sub.OperatorCreated || sub.Instansi != "personal" {
+			t.Fatalf("fixture: %s operator_created=%v instansi=%q, want sub-account in the personal bucket", name, sub.OperatorCreated, sub.Instansi)
+		}
+	}
+
+	// The operator sets its school instansi.
+	tc.login(t, op.ID)
+	if status, resp := postJSON(t, tc.client, tc.srv, "/api/instansi/update",
+		map[string]interface{}{"instansi": "SMK Baru"}); status != http.StatusOK || !resp.Success {
+		t.Fatalf("operator instansi/update: status=%d resp=%+v", status, resp)
+	}
+
+	opAfter = mustGetUser(t, pool, "op-migrate")
+	opInstID, opCode := instansiLink(t, pool, opAfter.ID)
+	if opAfter.Instansi != "SMK Baru" || opInstID == 0 || opCode == "" {
+		t.Fatalf("op after update: instansi=%q instansi_id=%d code=%q, want \"SMK Baru\" with a real link", opAfter.Instansi, opInstID, opCode)
+	}
+
+	// The sub-accounts were migrated to the school: label, instansi_id and
+	// instansi_code all follow the operator.
+	for _, name := range []string{"sub1", "sub2"} {
+		sub := mustGetUser(t, pool, name)
+		subInstID, subCode := instansiLink(t, pool, sub.ID)
+		if sub.Instansi != "SMK Baru" {
+			t.Errorf("%s instansi after migration = %q, want \"SMK Baru\"", name, sub.Instansi)
+		}
+		if subInstID != opInstID {
+			t.Errorf("%s instansi_id after migration = %d, want the operator's %d", name, subInstID, opInstID)
+		}
+		if subCode != opCode {
+			t.Errorf("%s instansi_code after migration = %q, want the operator's %q", name, subCode, opCode)
+		}
+	}
+	// The self-registered personal account is untouched.
+	if got := mustGetUser(t, pool, "selfreg-migrate").Instansi; got != "personal" {
+		t.Errorf("self-registered account instansi = %q, want still \"personal\" (never migrated)", got)
+	}
+
+	// Quota stays accurate: the migrated subs now count in the school bucket,
+	// so a third account is still blocked.
+	if gotMax, gotUsed := loadOperatorAccountQuota(ctx, pool, opAfter.ID, true, opAfter.Instansi); gotMax != 2 || gotUsed != 2 {
+		t.Errorf("loadOperatorAccountQuota after migration = (%d,%d), want (2,2) — subs followed the operator", gotMax, gotUsed)
+	}
+	if status, resp := tc.createUser(t, "sub3"); status != http.StatusBadRequest || !strings.Contains(resp.Message, "Kuota akun") {
+		t.Errorf("create sub3 after migration: status=%d resp=%+v, want 400 quota message", status, resp)
+	}
+}
+
+// TestPersonalBucketQuotaAndMigrationScopedPerOperator locks in the
+// created_by attribution that replaces the old shared-bucket approximation:
+// when TWO personal-bucket operators share the "personal" instansi, each
+// operator's sub-account quota counts ONLY the sub-accounts IT created
+// (created_by = operator id, not every operator_created row in the bucket),
+// and the UpdateInstansi migration moves ONLY the operator's own sub-accounts
+// to its new school — the other operator's subs stay in "personal". This
+// closes the documented approximation where multiple personal operators
+// counted each other's sub-accounts and one claiming a school swept the
+// other's sub-accounts along.
+func TestPersonalBucketQuotaAndMigrationScopedPerOperator(t *testing.T) {
+	pool := setupVoucherITDB(t)
+	ctx := context.Background()
+
+	// Each operator gets its OWN school voucher (quota 2 per operator).
+	createSchoolVoucher(t, pool)
+	createSchoolVoucherCode(t, pool, "IT-SEKOLAH-B")
+
+	makePersonal := func(username string) models.AdminUser {
+		op, err := models.CreateUser(ctx, pool, &models.AdminUser{
+			Username: username, Name: username,
+			PasswordHash: "pass-" + username, Status: models.UserStatusActive,
+			Instansi: "personal",
+			Role:     models.SerializeRoles([]string{models.RoleGuru}),
+			MaxExams: 3, MaxPDFSize: 1048576, MaxConcurrentExams: 2,
+			MaxStorageSize: 50 * 1024 * 1024, Package: "free",
+		})
+		if err != nil {
+			t.Fatalf("create %s: %v", username, err)
+		}
+		return *op
+	}
+	opA := makePersonal("op-scope-a")
+	opB := makePersonal("op-scope-b")
+
+	tc := newVoucherTestClient(t, pool)
+	tc.login(t, opA.ID)
+	tc.redeem(t, "IT-SEKOLAH")
+	opA = mustGetUser(t, pool, "op-scope-a")
+	if !models.HasRole(opA.Role, models.RoleOperator) {
+		t.Fatalf("op-scope-a must hold the operator role after redeeming")
+	}
+	tc.login(t, opB.ID)
+	tc.redeem(t, "IT-SEKOLAH-B")
+	opB = mustGetUser(t, pool, "op-scope-b")
+	if !models.HasRole(opB.Role, models.RoleOperator) {
+		t.Fatalf("op-scope-b must hold the operator role after redeeming")
+	}
+
+	// A fills its own quota (2 subs); B creates 1.
+	tc.login(t, opA.ID)
+	for _, name := range []string{"subA1", "subA2"} {
+		if status, resp := tc.createUser(t, name); status != http.StatusOK || !resp.Success {
+			t.Fatalf("create %s: status=%d resp=%+v", name, status, resp)
+		}
+	}
+	tc.login(t, opB.ID)
+	if status, resp := tc.createUser(t, "subB1"); status != http.StatusOK || !resp.Success {
+		t.Fatalf("create subB1: status=%d resp=%+v", status, resp)
+	}
+
+	// created_by attribution: each sub records its own creator.
+	for name, creatorUsername := range map[string]string{
+		"subA1": "op-scope-a", "subA2": "op-scope-a", "subB1": "op-scope-b",
+	} {
+		sub := mustGetUser(t, pool, name)
+		if sub.CreatedBy == nil {
+			t.Fatalf("%s.created_by = NULL, want the creating operator's id", name)
+		}
+		creator := mustGetUser(t, pool, creatorUsername)
+		if *sub.CreatedBy != creator.ID {
+			t.Errorf("%s.created_by = %d, want %d (%s)", name, *sub.CreatedBy, creator.ID, creatorUsername)
+		}
+	}
+
+	// Quota per operator counts only its OWN subs — the shared bucket no
+	// longer mixes operators' sub-accounts.
+	if gotMax, gotUsed := loadOperatorAccountQuota(ctx, pool, opA.ID, true, "personal"); gotMax != 2 || gotUsed != 2 {
+		t.Errorf("quota(op-scope-a) = (%d,%d), want (2,2) — only its own subs count", gotMax, gotUsed)
+	}
+	if gotMax, gotUsed := loadOperatorAccountQuota(ctx, pool, opB.ID, true, "personal"); gotMax != 2 || gotUsed != 1 {
+		t.Errorf("quota(op-scope-b) = (%d,%d), want (2,1) — subA* must NOT count against B", gotMax, gotUsed)
+	}
+
+	// A is full (its own 2 subs); B still has room for one more.
+	tc.login(t, opA.ID)
+	if status, resp := tc.createUser(t, "subA3"); status != http.StatusBadRequest || !strings.Contains(resp.Message, "Kuota akun") {
+		t.Errorf("create subA3: status=%d resp=%+v, want 400 quota message", status, resp)
+	}
+	tc.login(t, opB.ID)
+	if status, resp := tc.createUser(t, "subB2"); status != http.StatusOK || !resp.Success {
+		t.Fatalf("create subB2: status=%d resp=%+v, want success (B still has quota room)", status, resp)
+	}
+
+	// A claims its school instansi: only A's subs migrate. B's subB1 stays in
+	// "personal" — the old approximation would have swept it into A's school.
+	tc.login(t, opA.ID)
+	if status, resp := postJSON(t, tc.client, tc.srv, "/api/instansi/update",
+		map[string]interface{}{"instansi": "SMK Scope A"}); status != http.StatusOK || !resp.Success {
+		t.Fatalf("op-scope-a instansi/update: status=%d resp=%+v", status, resp)
+	}
+	opA = mustGetUser(t, pool, "op-scope-a")
+	aInstID, aCode := instansiLink(t, pool, opA.ID)
+	for _, name := range []string{"subA1", "subA2"} {
+		sub := mustGetUser(t, pool, name)
+		subInstID, subCode := instansiLink(t, pool, sub.ID)
+		if sub.Instansi != "SMK Scope A" || subInstID != aInstID || subCode != aCode {
+			t.Errorf("%s after migration: instansi=%q instansi_id=%d code=%q, want the operator's school",
+				name, sub.Instansi, subInstID, subCode)
+		}
+	}
+	if got := mustGetUser(t, pool, "subB1").Instansi; got != "personal" {
+		t.Errorf("subB1 instansi after op-scope-a migration = %q, want still \"personal\" (not A's sub-account)", got)
+	}
+
+	// B's quota still counts its own subs in the personal bucket (subB1,
+	// subB2 = 2/2) — A's migration must not have stolen them.
+	if gotMax, gotUsed := loadOperatorAccountQuota(ctx, pool, opB.ID, true, "personal"); gotMax != 2 || gotUsed != 2 {
+		t.Errorf("quota(op-scope-b) after A's migration = (%d,%d), want (2,2) — B's subs stayed in personal", gotMax, gotUsed)
+	}
+}
+
+// TestCreatedByDeleteSetsNull locks in the ON DELETE SET NULL FK behavior:
+// deleting the creating operator must never be blocked by a sub-account that a
+// SuperAdmin moved out of the operator's instansi (DeleteUser only cascades
+// within the operator's instansi, so such a sub survives the delete — a plain
+// REFERENCES would trip the FK and 500 the delete). The orphaned sub-account's
+// created_by is nulled instead, falling back to the legacy shared-bucket
+// counting (created_by IS NULL AND operator_created) — it stays a valid
+// sub-account, just no longer attributed to a specific operator.
+func TestCreatedByDeleteSetsNull(t *testing.T) {
+	pool := setupVoucherITDB(t)
+	ctx := context.Background()
+
+	createSchoolVoucher(t, pool)
+	op := createOperatorUser(t, pool, "op-del-cb", "personal", "pass-op-del-cb")
+	tc := newVoucherTestClient(t, pool)
+	tc.login(t, op.ID)
+	tc.redeem(t, "IT-SEKOLAH")
+	if status, resp := tc.createUser(t, "sub-del-cb"); status != http.StatusOK || !resp.Success {
+		t.Fatalf("create sub-del-cb: status=%d resp=%+v", status, resp)
+	}
+	sub := mustGetUser(t, pool, "sub-del-cb")
+	if sub.CreatedBy == nil || *sub.CreatedBy != op.ID {
+		t.Fatalf("fixture: sub-del-cb.created_by = %v, want %d (the operator)", sub.CreatedBy, op.ID)
+	}
+
+	// A SuperAdmin moves the sub-account to another instansi (allowed — only
+	// operators are restricted from changing instansi), so the sub no longer
+	// lives in the operator's bucket and survives an operator-scoped delete.
+	root, err := models.CreateUser(ctx, pool, &models.AdminUser{
+		Username: "root-del-cb", Name: "Root Del CB",
+		PasswordHash: "pass-root-del-cb", Status: models.UserStatusActive,
+		Role: models.SerializeRoles([]string{models.RoleSuperAdmin}),
+	})
+	if err != nil {
+		t.Fatalf("create superadmin: %v", err)
+	}
+	rt := newVoucherTestClient(t, pool)
+	rt.login(t, root.ID)
+	if status, resp := postJSON(t, rt.client, rt.srv, "/api/users/"+strconv.Itoa(sub.ID)+"/edit",
+		map[string]interface{}{"instansi": "SMA Pindahan"}); status != http.StatusOK || !resp.Success {
+		t.Fatalf("superadmin move sub to another instansi: status=%d resp=%+v", status, resp)
+	}
+
+	// Deleting the operator must succeed (ON DELETE SET NULL — no FK block).
+	if status, resp := postJSON(t, rt.client, rt.srv, "/api/users/"+strconv.Itoa(op.ID)+"/delete",
+		map[string]interface{}{}); status != http.StatusOK || !resp.Success {
+		t.Fatalf("delete operator with moved sub-account: status=%d resp=%+v, want 200 (FK must not block)", status, resp)
+	}
+
+	// The moved sub-account survived, with created_by nulled (legacy fallback).
+	sub = mustGetUser(t, pool, "sub-del-cb")
+	if sub.CreatedBy != nil {
+		t.Errorf("sub-del-cb.created_by after operator delete = %v, want NULL (ON DELETE SET NULL)", *sub.CreatedBy)
+	}
+	if sub.Instansi != "SMA Pindahan" {
+		t.Errorf("sub-del-cb instansi = %q, want \"SMA Pindahan\" (survived the operator delete)", sub.Instansi)
+	}
+	// The orphan still counts toward the shared legacy bucket of any personal
+	// operator via the (created_by IS NULL AND operator_created) fallback.
+	if gotMax, gotUsed := loadOperatorAccountQuota(ctx, pool, root.ID, false, "personal"); gotMax != 0 || gotUsed != 0 {
+		t.Errorf("quota for non-operator after sub orphan = (%d,%d), want (0,0) — not applicable", gotMax, gotUsed)
+	}
+}

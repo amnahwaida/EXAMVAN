@@ -236,7 +236,7 @@
 </style>
 </head>
 <body class="dashboard-page">
-{{template "admin/partials/nav.html" dict "active_page" .active_page "admin_role" .admin_role "admin_user" .admin_user "csrf_token" .csrf_token}}
+{{template "admin/partials/nav.html" dict "active_page" .active_page "admin_role" .admin_role "admin_user" .admin_user "csrf_token" .csrf_token "needs_instansi" .needs_instansi}}
 
 <main class="dashboard">
 <h1 class="sr-only" style="position:absolute;left:-9999px;">Dashboard Admin</h1>
@@ -264,6 +264,11 @@
 <div class="stat-bar"><div class="stat-bar-fill" style="width:{{index .stats "active_pct"}}%;"></div></div>
 </div>
 </div>
+{{/* Kartu ubah instansi hanya untuk Super Admin & Operator — endpoint
+     /admin/api/instansi/update kini di bawah AdminManagementRequired, jadi
+     guru/pengawas tidak boleh melihat kontrol yang akan gagal (dan tidak
+     seharusnya mengganti nama instansi sekolah). */}}
+{{if or (eq .admin_role "superadmin") (eq .admin_role "operator")}}
 <div class="stat-card stat-instansi" title="Klik untuk mengubah nama Instansi/Sekolah Anda" style="cursor:pointer;" onclick="openEditInstansiModal()">
 <div class="stat-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M3 21h18M3 10h18M5 6l7-3 7 3M4 10v11m16-11v11M8 14v.01M12 14v.01M16 14v.01M9 21v-4h6v4"/></svg></div>
 <div class="stat-info" style="flex:1;">
@@ -274,6 +279,7 @@
 <span class="stat-label">Instansi (Klik untuk Ubah)</span>
 </div>
 </div>
+{{end}}
 <div class="stat-card stat-storage" title="Total ukuran dari seluruh ujian yang sudah Anda unggah sejauh ini">
 <div class="stat-icon"><svg class="icon-svg"><use href="#hi-download"/></svg></div>
 <div class="stat-info">

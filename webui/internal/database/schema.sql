@@ -44,7 +44,17 @@ CREATE TABLE IF NOT EXISTS admin_users (
     -- and immutable: set once at creation by the CreateUser handler, never
     -- changed afterwards. False for superadmin-created, self-registered and
     -- legacy/imported accounts.
-    operator_created BOOLEAN NOT NULL DEFAULT FALSE
+    operator_created BOOLEAN NOT NULL DEFAULT FALSE,
+    -- ID of the operator (admin_users.id) that CREATED this account — the
+    -- precise per-operator attribution behind operator_created. NULL for
+    -- superadmin-created, self-registered and legacy accounts (whose creator
+    -- predates this column and cannot be recovered). ON DELETE SET NULL:
+    -- deleting the creating operator must never block the delete (DeleteUser
+    -- only cascades within the operator's instansi; a sub-account a
+    -- SuperAdmin moved to another instansi would otherwise trip the FK) — the
+    -- orphaned sub-account simply falls back to the legacy shared-bucket
+    -- counting (created_by IS NULL).
+    created_by      INTEGER REFERENCES admin_users(id) ON DELETE SET NULL
 );
 
 -- ============================================================
@@ -167,6 +177,12 @@ CREATE INDEX IF NOT EXISTS idx_saas_settings_key ON saas_settings(key);
 -- ============================================================
 ALTER TABLE admin_users ADD COLUMN IF NOT EXISTS instansi_id INTEGER REFERENCES instansi(id);
 ALTER TABLE admin_users ADD COLUMN IF NOT EXISTS suspended_by_cascade BOOLEAN DEFAULT FALSE;
+
+-- Index — admin_users.instansi_id (FK ke instansi). Dipakai oleh migrasi
+-- UpdateInstansi (`UPDATE admin_users SET instansi = ... WHERE instansi_id =
+-- <id>`) saat operator menetapkan/merename instansi sekolah, dan melengkapi
+-- audit FK: setiap kolom FK yang di-query punya index pendukung.
+CREATE INDEX IF NOT EXISTS idx_admin_users_instansi_id ON admin_users(instansi_id);
 
 -- Populate instansi reference table
 INSERT INTO instansi (name)
@@ -325,6 +341,17 @@ ALTER TABLE voucher_redemptions ADD COLUMN IF NOT EXISTS activated_at TIMESTAMPT
 CREATE UNIQUE INDEX IF NOT EXISTS idx_voucher_redemptions_one_active
     ON voucher_redemptions(user_id) WHERE is_active;
 
+-- Index — FK voucher_redemptions (voucher_id → vouchers, user_id →
+-- admin_users). voucher_id dipakai di setiap pengecekan used_count saat
+-- redeem (`WHERE voucher_id = $1`), riwayat pemakaian per voucher
+-- (`GET /admin/api/vouchers/:id/redemptions`), dan join backfill legacy.
+-- user_id dipakai pada seluruh lookup paket per akun (daftar "Paket yang
+-- Sudah Anda Klaim", guard entitlement, job expiry/cascade). Index penuh di
+-- user_id melengkapi index parsial one-active di atas untuk query yang
+-- tidak memfilter is_active. Safe to re-run on every boot.
+CREATE INDEX IF NOT EXISTS idx_voucher_redemptions_voucher_id ON voucher_redemptions(voucher_id);
+CREATE INDEX IF NOT EXISTS idx_voucher_redemptions_user_id ON voucher_redemptions(user_id);
+
 -- ---------------------------------------------------------------------------
 -- One-time conversion of redemptions created under the older absolute-expiry
 -- model (expires_at fixed at claim time, latest claim always active). Under the
@@ -439,6 +466,12 @@ ALTER TABLE vouchers DROP COLUMN IF EXISTS custom_max_drafts;
 ALTER TABLE vouchers DROP COLUMN IF EXISTS custom_max_draft_size;
 
 CREATE INDEX IF NOT EXISTS idx_vouchers_code ON vouchers(code);
+
+-- Index — vouchers.created_by (FK ke admin_users, ON DELETE SET NULL).
+-- Dipakai oleh JOIN daftar voucher (`LEFT JOIN admin_users u ON v.created_by =
+-- u.id`, models/voucher.go) untuk menampilkan username pembuat voucher.
+-- Safe to re-run on every boot.
+CREATE INDEX IF NOT EXISTS idx_vouchers_created_by ON vouchers(created_by);
 
 -- ============================================================
 -- Migration: Unique Code per Instansi
@@ -567,6 +600,33 @@ ALTER TABLE admin_users ADD COLUMN IF NOT EXISTS registered_ip TEXT NOT NULL DEF
 -- the school package the operator holds. Legacy/imported rows stay false.
 -- Safe to re-run on every boot.
 ALTER TABLE admin_users ADD COLUMN IF NOT EXISTS operator_created BOOLEAN NOT NULL DEFAULT FALSE;
+
+-- ============================================================
+-- Migration: sub-account creator attribution (created_by)
+-- ============================================================
+-- Precise per-operator attribution for the shared "personal" bucket: the
+-- operator_created flag alone cannot tell WHICH operator created a
+-- sub-account, so quota counting and the UpdateInstansi migration had to treat
+-- every personal-bucket sub-account as one shared pool (the documented
+-- approximation). created_by = admin_users.id of the creating operator makes
+-- both precise: a personal-bucket operator's quota counts only its OWN
+-- sub-accounts, and the school-instansi migration moves only its own. NULL
+-- for accounts created before this column existed — their creator is
+-- unknowable, so they keep the conservative shared-bucket fallback (counted
+-- against every personal operator, migrated by none). Safe to re-run on every
+-- boot.
+ALTER TABLE admin_users ADD COLUMN IF NOT EXISTS created_by INTEGER REFERENCES admin_users(id) ON DELETE SET NULL;
+
+-- Speed up the per-operator sub-account lookups on the shared "personal"
+-- bucket: loadOperatorAccountQuota counts `created_by = <operator id>` for
+-- every sub-account quota check (CreateUser enforcement + billing page), and
+-- UpdateInstansi migrates `created_by = <operator id>` sub-accounts when a
+-- school instansi is claimed. Both become index scans instead of full-table
+-- scans once an operator's sub-account list grows large. (The school-instansi
+-- count filters on instansi instead, which is a different access path; the
+-- personal bucket is the one where created_by is the selective predicate.)
+-- Safe to re-run on every boot.
+CREATE INDEX IF NOT EXISTS idx_admin_users_created_by ON admin_users(created_by);
 
 -- Keep package_role in sync with the active redemption's snapshot role on
 -- every boot. This also migrates rows created under the old accumulate-forever

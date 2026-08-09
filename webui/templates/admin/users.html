@@ -195,13 +195,49 @@
     z-index: 1;
     width: 100%;
   }
+  /* Catatan paket akun sub untuk Operator — pemilih paket disembunyikan karena
+     akun sub tidak memiliki paket langganan sendiri (kuota & masa aktif
+     mengikuti paket sekolah Operator/Super Admin). */
+  .sub-pkg-note {
+    display: flex;
+    align-items: flex-start;
+    gap: 8px;
+    padding: 10px 12px;
+    border-radius: 10px;
+    font-size: 12px;
+    line-height: 1.5;
+    color: var(--color-text-secondary);
+    background: rgba(255, 255, 255, 0.04);
+    border: 1px solid var(--color-glass-border);
+  }
+  /* Badge sisa disk server — tampil SEKALI di header Default Paket Pendaftaran */
+  .disk-free-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    padding: 3px 10px;
+    border-radius: 999px;
+    font-size: 0.72rem;
+    font-weight: 600;
+    letter-spacing: 0.02em;
+    line-height: 1.4;
+    background: rgba(245, 158, 11, 0.12);
+    color: #fbbf24;
+    border: 1px solid rgba(245, 158, 11, 0.28);
+    cursor: help;
+    animation: diskBadgeIn 0.4s ease both;
+  }
+  @keyframes diskBadgeIn {
+    from { opacity: 0; transform: translateY(-3px); }
+    to { opacity: 1; transform: translateY(0); }
+  }
  </style>
 </head>
 <body class="dashboard-page">
 
 <div class="toast-container" id="toastContainer" aria-live="polite" aria-atomic="true"></div>
 
-{{template "admin/partials/nav.html" dict "active_page" .active_page "admin_role" .admin_role "admin_user" .admin_user "csrf_token" .csrf_token}}
+{{template "admin/partials/nav.html" dict "active_page" .active_page "admin_role" .admin_role "admin_user" .admin_user "csrf_token" .csrf_token "needs_instansi" .needs_instansi}}
 
 <main class="dashboard">
  <h1 class="sr-only" style="position:absolute;left:-9999px;">Kelola User</h1>
@@ -296,9 +332,16 @@
   </div>
 
   <div style="border-top:1px solid var(--color-glass-border);margin-top:16px;padding-top:16px;margin-bottom:6px;">
+  <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;">
   <h4 style="margin:0;font-size:0.85rem;font-weight:600;text-transform:uppercase;letter-spacing:0.5px;color:var(--color-accent-light);display:flex;align-items:center;gap:6px;">
   <svg class="icon-svg"><use href="#hi-clipboard"/></svg> Default Paket Pendaftaran
   </h4>
+  <span class="disk-free-badge" id="diskFreeBadge" title="Sisa kapasitas disk partisi penyimpanan server. Nilai Maks Upload &amp; Maks Storage tidak boleh melebihi sisa disk ini.">
+  <svg class="icon-svg" style="width:13px;height:13px;flex-shrink:0;" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><rect x="3" y="4" width="18" height="7" rx="1.5"/><rect x="3" y="13" width="18" height="7" rx="1.5"/><path d="M7 7.5h.01M7 16.5h.01M11 7.5h6M11 16.5h6"/></svg>
+  <span id="diskFreeBadgeText">{{if .storage_free_display}}{{.storage_free_display}}{{else}}Sisa disk server tidak dapat ditentukan{{end}}</span>
+  </span>
+  </div>
+  <p style="font-size:12px;color:var(--color-text-secondary);margin:6px 0 0 0;">Kuota default yang otomatis diterapkan ke akun baru yang mendaftar mandiri.</p>
   </div>
 
   <div class="form-row-3col grid grid-cols-1 sm:grid-cols-4 gap-4 default-pkg-row">
@@ -313,12 +356,12 @@
   <div class="form-group space-y-1">
   <label class="required" for="defaultPdfInput" title="Default limit ukuran file PDF (dalam Megabytes / MB) untuk pendaftaran baru">Maks Upload (MB)</label>
   <input type="number" id="defaultPdfInput" required min="0.1" step="0.1" title="Limit ukuran file PDF (MB). Tidak boleh melebihi sisa disk server (maks 100 MB global).">
-  <span class="form-hint saas-domain-hint" id="defaultPdfHint">Tidak boleh melebihi sisa disk server (maks 100 MB global).</span>
+  <span class="form-hint saas-domain-hint" id="defaultPdfHint">Maks 100 MB per file PDF.</span>
   </div>
   <div class="form-group space-y-1">
   <label class="required" for="defaultStorageInput" title="Default batas total kapasitas storage (dalam Megabytes / MB) untuk pendaftaran baru. 0 = tidak terbatas.">Maks Storage (MB)</label>
   <input type="number" id="defaultStorageInput" required min="0" step="0.1" title="Batas total kapasitas storage (dalam Megabytes / MB). 0 = tidak terbatas. Tidak boleh melebihi sisa disk server.">
-  <span class="form-hint saas-domain-hint" id="defaultStorageHint">0 = tidak terbatas. Nilai tidak boleh melebihi sisa kapasitas disk server.</span>
+  <span class="form-hint saas-domain-hint" id="defaultStorageHint">0 = tidak terbatas.</span>
   </div>
   <div class="form-group space-y-1">
   <label class="required" for="defaultActiveDaysInput" title="Default masa aktif akun (dalam Hari) untuk pendaftaran baru">Masa Aktif</label>
@@ -460,6 +503,7 @@
   {{end}}
   </div>
    </div>
+   {{if ne .admin_role "operator"}}
    <div class="form-group space-y-1" style="margin-bottom: 8px;">
      <label for="packageSelect">Paket Langganan (Preset)</label>
      <select id="packageSelect" onchange="applyPackagePreset('new')" style="width:100%;padding:8px 12px;background:rgba(255,255,255,0.05);border:1px solid var(--color-glass-border);border-radius:10px;color:var(--color-text);outline:none;font-size:13px;cursor:pointer;">
@@ -472,6 +516,15 @@
        <option value="sekolah_unggulan">Paket Sekolah Unggulan (Rp 1.5jt)</option>
      </select>
    </div>
+   {{else}}
+   <div class="form-group space-y-1" style="margin-bottom: 8px;">
+     <label>Paket Langganan</label>
+     <div class="sub-pkg-note" title="Akun sub sekolah tidak memiliki paket langganan sendiri — paket tidak dapat dipilih. Masa aktif akun mengikuti akun Anda; kuota diatur pada form di bawah.">
+       <svg class="icon-svg" style="width:14px;height:14px;flex-shrink:0;margin-top:1px;"><use href="#hi-lock"/></svg>
+       <span>Akun sub sekolah: paket langganan tidak dapat dipilih. Masa aktif akun mengikuti akun Anda; kuota diatur pada form di bawah.</span>
+     </div>
+   </div>
+   {{end}}
   <div class="form-row-2col grid grid-cols-1 sm:grid-cols-4 gap-4">
  <div class="form-group space-y-1">
   <label class="required" for="limitInput">Maks Total Ujian</label>
@@ -620,15 +673,22 @@ window.__adminInstansi = '{{.admin_instansi}}';
 window.__storageFreeMb = {{if .storage_free_mb}}{{.storage_free_mb}}{{else}}0{{end}};
 document.addEventListener('DOMContentLoaded', function() {
  loadUsersList();
- if (document.getElementById('emailEnabledInput')) loadSaasSettings();
- // Cap Maks Storage di form Tambah User pada sisa kapasitas disk server.
- if (window.__storageFreeMb > 0) {
-  var si = document.getElementById('storageSizeInput');
-  if (si) {
-   si.max = Math.floor(window.__storageFreeMb);
-   si.title = 'Batas total kapasitas storage (MB). 0 = tidak terbatas. Sisa disk server: ' + fmtStorageSize(window.__storageFreeMb) + '.';
+ if (document.getElementById('emailEnabledInput')) loadSaasSettings();  // Cap Maks Storage di form Tambah User pada sisa kapasitas disk server.
+  if (window.__storageFreeMb > 0) {
+   var si = document.getElementById('storageSizeInput');
+   if (si) {
+    si.max = Math.floor(window.__storageFreeMb);
+    si.title = 'Batas total kapasitas storage (MB). 0 = tidak terbatas. Sisa disk server: ' + fmtStorageSize(window.__storageFreeMb) + '.';
+   }
   }
- }
+  // Isi badge "Sisa disk server" di header Default Paket Pendaftaran segera
+  // (tanpa menunggu fetch API) dari nilai yang dirender server-side.
+  var _dbt = document.getElementById('diskFreeBadgeText');
+  if (_dbt) {
+   _dbt.textContent = window.__storageFreeMb > 0
+    ? 'Sisa disk server: ' + fmtStorageSize(window.__storageFreeMb)
+    : 'Sisa disk server tidak dapat ditentukan';
+  }
  if (window.__adminRole === 'operator') {
   var inp = document.getElementById('instansiInput');
   if (inp) {

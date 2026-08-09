@@ -1150,6 +1150,19 @@ CREATE INDEX IF NOT EXISTS idx_submissions_exam_mac
 -- Partial index — hanya exam yang aktif
 CREATE INDEX IF NOT EXISTS idx_exams_active
     ON exams(id) WHERE status = 'active';
+
+-- Index — sub-account per-operator lookup (kolom created_by di admin_users).
+-- Mempercepat dua akses yang menyasar `created_by = <id operator>`:
+--   * loadOperatorAccountQuota — COUNT sub-akun di bucket 'personal' saat
+--     pengecekan kuota (CreateUser + halaman billing);
+--   * UpdateInstansi — migrasi sub-akun milik operator saat klaim instansi
+--     sekolah.
+-- Keduanya berubah dari full-table scan menjadi index scan begitu daftar
+-- sub-akun sebuah operator membesar. (Count bucket sekolah memfilter instansi
+-- — access path berbeda; bucket 'personal' adalah yang menjadikan created_by
+-- predikat selektif.) Idempotent — aman dijalankan ulang setiap boot.
+CREATE INDEX IF NOT EXISTS idx_admin_users_created_by
+    ON admin_users(created_by);
 ```
 
 #### Autovacuum agresif untuk tabel write-heavy

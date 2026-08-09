@@ -198,6 +198,12 @@ func newVoucherTestRouter(pool *pgxpool.Pool) *gin.Engine {
 	api.POST("/users/:user_id/toggle-status", middleware.AdminManagementRequired(), ToggleUserStatus())
 	api.POST("/users/:user_id/edit", middleware.AdminManagementRequired(), EditUser())
 	api.POST("/users/:user_id/verify", middleware.AdminManagementRequired(), VerifyUser())
+	api.POST("/users/:user_id/delete", middleware.AdminManagementRequired(), DeleteUser())
+	// POST /instansi/update mirrors production (AuthRequired →
+	// FeatureLockRequired → AdminManagementRequired): renaming a school
+	// instansi applies to every account sharing the instansi_id, so it must
+	// be management-level (SuperAdmin & Operator only).
+	api.POST("/instansi/update", middleware.AdminManagementRequired(), UpdateInstansi())
 	// GET /users mirror of production GET /admin/api/users (AuthRequired →
 	// FeatureLockRequired → AdminManagementRequired): the Kelola Users page
 	// list endpoint. Tests assert the JSON carries operator_created so the

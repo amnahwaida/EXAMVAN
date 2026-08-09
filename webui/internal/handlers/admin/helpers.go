@@ -193,8 +193,19 @@ func renderAdminPage(c *gin.Context, pageTemplate string, data gin.H) {
 				data["admin_package"] = pkg
 				data["admin_instansi"] = inst
 				instTrim := strings.TrimSpace(inst)
-				isSuper := getCurrentUserRole(c) == models.RoleSuperAdmin
-				if !isSuper && strings.HasPrefix(strings.ToLower(pkg), "sekolah") && (instTrim == "" || strings.ToLower(instTrim) == "personal" || instTrim == "Belum Ditetapkan") {
+				// The mandatory-instansi onboarding modal is for SCHOOL
+				// OPERATORS only: a school package whose instansi is still the
+				// unset "personal" sentinel. Requiring the operator role keeps
+				// the modal off accounts that could not act on it anyway — the
+				// submit endpoint (POST /admin/api/instansi/update) is
+				// AdminManagementRequired, so a plain guru holding a
+				// SuperAdmin-assigned "sekolah_*" package label would see a
+				// modal that always 403s. isSuperAdmin reads the bool context
+				// key AuthRequired sets from the session (more robust than
+				// comparing the normalized role string).
+				if isOperator(c) && !isSuperAdmin(c) &&
+					strings.HasPrefix(strings.ToLower(pkg), "sekolah") &&
+					(instTrim == "" || strings.ToLower(instTrim) == "personal" || instTrim == "Belum Ditetapkan") {
 					data["needs_instansi"] = true
 				}
 			}

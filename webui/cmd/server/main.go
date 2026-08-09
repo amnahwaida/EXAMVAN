@@ -599,7 +599,12 @@ func registerRoutes(r *gin.Engine, cfg *config.Config, pool *pgxpool.Pool) {
 				adminUsers := csrfAPI.Group("", middleware.AdminManagementRequired())
 				{
 					adminUsers.POST("/users", middleware.LimitBodySize(256*1024), admin.CreateUser())
-					adminUsers.POST("/users/update-instansi", middleware.LimitBodySize(256*1024), admin.UpdateInstansi())
+					// UpdateInstansi renames the whole school instansi (all users
+					// sharing the instansi_id), so it must be management-level —
+					// this registration replaced the old unrestricted
+					// csrfAPI.POST("/instansi/update") that any authenticated
+					// guru/pengawas could call to rename the school.
+					adminUsers.POST("/instansi/update", middleware.LimitBodySize(256*1024), admin.UpdateInstansi())
 					adminUsers.POST("/users/:user_id/edit", middleware.LimitBodySize(256*1024), admin.EditUser())
 					adminUsers.POST("/users/:user_id/toggle-status", middleware.LimitBodySize(256*1024), admin.ToggleUserStatus())
 					adminUsers.POST("/users/:user_id/verify", middleware.LimitBodySize(256*1024), admin.VerifyUser())
@@ -627,7 +632,6 @@ func registerRoutes(r *gin.Engine, cfg *config.Config, pool *pgxpool.Pool) {
 				}
 
 				csrfAPI.POST("/change-password", middleware.LimitBodySize(256*1024), middleware.RateLimit(3, time.Minute), admin.ChangePassword())
-				csrfAPI.POST("/instansi/update", middleware.LimitBodySize(256*1024), admin.UpdateInstansi())
 			}
 
 			// ---- Non-CSRF routes (GET / read-only) ----

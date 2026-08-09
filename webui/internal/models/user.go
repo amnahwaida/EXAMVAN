@@ -80,6 +80,13 @@ type AdminUser struct {
 	// manages (see RedeemVoucherHandler / ActivateVoucherHandler). False for
 	// superadmin-created, self-registered and legacy/imported accounts.
 	OperatorCreated bool `json:"operator_created"`
+	// CreatedBy records WHICH operator (admin_users.id) created this account.
+	// The precise per-operator attribution behind the shared "personal"
+	// bucket: sub-account quota counting and the school-instansi migration
+	// scope by created_by instead of assuming every personal-bucket
+	// sub-account belongs to the current operator. Nil for superadmin-created,
+	// self-registered and legacy accounts (created before the column existed).
+	CreatedBy *int `json:"created_by,omitempty"`
 }
 
 // Roles parses the Role JSON string and returns the list of roles.
@@ -391,7 +398,7 @@ func checkWerkzeugPbkdf2(password, hash string) bool {
 const DefaultAdminUserColumns = `id, username, name, password_hash, created_at, status,
 instansi, role, max_exams, max_pdf_size, max_concurrent_exams,
 max_storage_size, whatsapp_number, email, expires_at, otp_code, otp_expiry, package,
-base_role, package_role, operator_created`
+base_role, package_role, operator_created, created_by`
 
 // scanAdminUser scans a row into an AdminUser struct.
 func scanAdminUser(row pgx.Row) (AdminUser, error) {
@@ -400,7 +407,7 @@ func scanAdminUser(row pgx.Row) (AdminUser, error) {
 		&u.ID, &u.Username, &u.Name, &u.PasswordHash, &u.CreatedAt, &u.Status,
 		&u.Instansi, &u.Role, &u.MaxExams, &u.MaxPDFSize, &u.MaxConcurrentExams,
 		&u.MaxStorageSize, &u.WhatsappNumber, &u.Email, &u.ExpiresAt, &u.OTPCode, &u.OTPExpiry,
-		&u.Package, &u.BaseRole, &u.PackageRole, &u.OperatorCreated,
+		&u.Package, &u.BaseRole, &u.PackageRole, &u.OperatorCreated, &u.CreatedBy,
 	)
 	return u, err
 }
@@ -535,7 +542,7 @@ func ListUsers(ctx context.Context, pool *pgxpool.Pool, opts ListUsersOpts) (Lis
 	sql := `SELECT u.id, u.username, u.name, u.password_hash, u.created_at, u.status,
 	u.instansi, u.role, u.max_exams, u.max_pdf_size, u.max_concurrent_exams,
 	u.max_storage_size, u.whatsapp_number, u.email, u.expires_at, u.otp_code, u.otp_expiry,
-	u.base_role, u.package_role, u.operator_created,
+	u.base_role, u.package_role, u.operator_created, u.created_by,
 	COALESCE(u.package, 'free'),
 	COALESCE(COUNT(e.id), 0) as exam_count
 	FROM admin_users u
@@ -565,7 +572,7 @@ func ListUsers(ctx context.Context, pool *pgxpool.Pool, opts ListUsersOpts) (Lis
 			&u.ID, &u.Username, &u.Name, &u.PasswordHash, &u.CreatedAt, &u.Status,
 			&u.Instansi, &u.Role, &u.MaxExams, &u.MaxPDFSize, &u.MaxConcurrentExams,
 			&u.MaxStorageSize, &u.WhatsappNumber, &u.Email, &u.ExpiresAt, &u.OTPCode, &u.OTPExpiry,
-			&u.BaseRole, &u.PackageRole, &u.OperatorCreated,
+			&u.BaseRole, &u.PackageRole, &u.OperatorCreated, &u.CreatedBy,
 			&u.Package,
 			&examCount,
 		)
@@ -637,15 +644,15 @@ func CreateUser(ctx context.Context, pool *pgxpool.Pool, u *AdminUser) (*AdminUs
 
 	sql := `INSERT INTO admin_users
 	(username, name, password_hash, status, instansi, role, max_exams, max_pdf_size,
-	 max_concurrent_exams, max_storage_size, whatsapp_number, email, expires_at, otp_code, otp_expiry, package, registered_ip, operator_created)
-	VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18)
+	 max_concurrent_exams, max_storage_size, whatsapp_number, email, expires_at, otp_code, otp_expiry, package, registered_ip, operator_created, created_by)
+	VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19)
 	RETURNING ` + DefaultAdminUserColumns
 
 	created, err := scanAdminUser(pool.QueryRow(ctx, sql,
 		u.Username, u.Name, hash, u.Status, u.Instansi, u.Role,
 		u.MaxExams, u.MaxPDFSize, u.MaxConcurrentExams, u.MaxStorageSize,
 		u.WhatsappNumber, u.Email, u.ExpiresAt, u.OTPCode, u.OTPExpiry,
-		u.Package, u.RegisteredIP, u.OperatorCreated,
+		u.Package, u.RegisteredIP, u.OperatorCreated, u.CreatedBy,
 	))
 	if err != nil {
 		return nil, fmt.Errorf("create user: %w", err)

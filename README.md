@@ -292,9 +292,12 @@ Sejak kebijakan ini diberlakukan, **akun yang dibuat oleh operator** (akun sub d
 **Cara kerja (implementasi):**
 
 - Kolom `admin_users.operator_created` (`BOOLEAN NOT NULL DEFAULT FALSE`) menandai akun yang **dibuat oleh operator**. Di-set oleh handler `CreateUser` (`webui/internal/handlers/admin/users.go`) saat caller adalah operator — **berbasis asal (origin), bukan role saat ini**: flag tidak pernah berubah setelah akun dibuat, sehingga akun sub yang nanti rolenya dinaikkan tetap tidak bisa klaim.
+- Kolom `admin_users.created_by` (`INTEGER REFERENCES admin_users(id) ON DELETE SET NULL`) mencatat **operator mana** yang membuat akun — atribusi per-operator yang presisi di balik flag `operator_created`. Kuota bucket `"personal"` (`loadOperatorAccountQuota`, `webui/internal/handlers/admin/users.go`) menghitung hanya `created_by = <id operator>` (bukan seluruh akun operator_created di bucket bersama), dan migrasi saat operator menetapkan instansi sekolah (`UpdateInstansi`) hanya memindahkan **sub-akun miliknya sendiri**. Baris legacy (dibuat sebelum kolom ini ada, `created_by` NULL) memakai fallback konservatif bucket bersama (dihitung terhadap semua operator personal, tidak dipindah migrasi). `ON DELETE SET NULL`: menghapus operator tidak pernah diblokir FK, sub-akun yang sudah dipindah SuperAdmin ke instansi lain jatuh ke fallback legacy. Migrasi idempoten + index pendukung: `ALTER TABLE admin_users ADD COLUMN IF NOT EXISTS created_by ...` dan `CREATE INDEX IF NOT EXISTS idx_admin_users_created_by ON admin_users(created_by)` (`webui/internal/database/schema.sql`) — index ini mengubah pencarian per-operator (kuota di setiap cek `CreateUser`/halaman billing + migrasi klaim sekolah) dari full-table scan menjadi index scan saat data sub-akun membesar.
 - `RedeemVoucherHandler` dan `ActivateVoucherHandler` (`webui/internal/handlers/admin/vouchers.go`) menolak akun dengan `operator_created = true` dengan HTTP **403** dan pesan penjelas. Pengecekan dilakukan **sebelum pencarian voucher**, sehingga akun sub tidak dapat membedakan kode valid vs tidak valid dari responsnya — aturan anti-oracle `voucherInvalidMsg` (satu pesan generik untuk semua kegagalan kode) tetap berlaku untuk semua akun lain.
 - Halaman **Paket & Voucher** (`/admin/billing`) menyembunyikan seluruh UI voucher untuk akun sub — form klaim maupun daftar "Paket yang Sudah Anda Klaim" — dan menampilkan penjelasan singkat (kuota & masa aktif dikelola Operator/Super Admin). Dengan begitu tidak ada tombol/tindakan voucher yang berujung buntu di UI, termasuk redemption lama (pra-kebijakan) yang tersisa di akun.
 - Halaman **Kelola Users** (`/admin/users`) menampilkan badge **"Dibuat oleh Operator"** di samping username setiap akun sub, sehingga Super Admin bisa melihat asal akun sekilas. Implementasi: `ListUsers` (`webui/internal/handlers/admin/users.go`) menyertakan `operator_created` dalam JSON tiap baris user, dan `webui/static/js/admin.js` (`loadUsersList`) merender badge tersebut (tooltip menjelaskan bahwa paket/kuota/masa aktif akun dikelola via paket sekolah Operator).
+- **Paket akun sub terkunci** — operator tidak bisa memilih/mengubah paket langganan akun yang dibuatnya: di `CreateUser` label paket dipaksa `"free"` (request tamper sekalipun ditimpa), dan di `EditUser` field `package` diabaikan saat caller operator (`webui/internal/handlers/admin/users.go`). UI-nya menyembunyikan pemilih paket di form Tambah User & modal Atur Limit (`users.html` + `admin.js`), karena kuota/masa aktif akun sub mengikuti paket sekolah operator.
+- **Endpoint ubah instansi kini management-level:** `POST /admin/api/instansi/update` (pengganti lama `/admin/api/users/update-instansi`) terdaftar di bawah `AdminManagementRequired` (`webui/cmd/server/main.go`) — hanya **SuperAdmin & Operator** yang boleh mengganti nama instansi sekolah, karena rename berlaku untuk seluruh akun yang berbagi `instansi_id`. Guru/pengawas — yang sebelumnya dapat memanggil route ini (semua user terautentikasi) — kini ditolak **403**. UI disesuaikan: kartu **"Instansi (Klik untuk Ubah)"** di dashboard hanya dirender untuk SuperAdmin & Operator (`dashboard.html`), dan modal onboarding **"Wajib Atur Nama Instansi/Sekolah"** (`nav.html`, di-drive `needs_instansi` dari `helpers.go`) hanya muncul untuk **operator paket sekolah** yang instansinya belum ditetapkan (kosong / `"personal"` / `"Belum Ditetapkan"`) — guru yang kebetulan memegang label paket `sekolah_*` pemberian SuperAdmin tidak melihat modal yang pasti gagal (403).
 - Migrasi skema aman dijalankan ulang: `ALTER TABLE admin_users ADD COLUMN IF NOT EXISTS operator_created BOOLEAN NOT NULL DEFAULT FALSE` (`webui/internal/database/schema.sql`).
 
 **Yang TIDAK terkena dampak:**
@@ -311,6 +314,14 @@ Sejak kebijakan ini diberlakukan, **akun yang dibuat oleh operator** (akun sub d
 - `TestDirectCreatedAccountsCanStillRedeem` — akun buatan SuperAdmin dan akun registrasi mandiri tetap bisa klaim (200).
 - `TestBillingPageHidesRedeemFormForSubAccount` — me-render halaman **Paket & Voucher** yang asli (handler `BillingPage` + template nyata) dan memastikan form klaim serta daftar "Paket yang Sudah Anda Klaim" **tidak** dirender untuk akun sub (muncul kartu penjelasan "Akun Sub (Dibuat Operator)"), sedangkan akun biasa tetap mendapat form klaim.
 - `TestUsersListAPIReportsOperatorCreated` — endpoint daftar user (produksi `GET /admin/api/users`) mengirim `operator_created: true` untuk akun sub hasil buatan operator dan `false` untuk akun buatan SuperAdmin/registrasi mandiri — kontrak API di balik badge "Dibuat oleh Operator" di halaman Kelola Users.
+- `TestOperatorCannotCreateOperatorAccount` — operator (termasuk varian non-kanonik `" operator"` / `"OPERATOR"`) ditolak **400** saat mencoba membuat akun dengan role Operator (guard kini `strings.EqualFold` + `TrimSpace`, menyelaraskan `CreateUser` dengan `EditUser`).
+- `TestOperatorCannotAssignPackageToSubAccount` — operator tidak bisa menetapkan paket langganan akun yang dibuatnya: `CreateUser` memaksa label `free`, `EditUser` mengabaikan field `package` untuk caller operator — hanya SuperAdmin yang boleh menetapkan paket.
+- `TestOperatorQuotaEnforcedForPersonalInstansi` — kuota bucket `"personal"` (operator sudah redeem paket sekolah tapi belum menetapkan nama instansi) tetap ditegakkan; akun registrasi mandiri (`operator_created = false`) **tidak** ikut menghabiskan kuota sekolah.
+- `TestInstansiUpdateRouteRequiresManagementRole` — `POST /admin/api/instansi/update` (wiring produksi) ditolak **403** untuk guru & pengawas (AdminManagementRequired), sukses untuk operator & superadmin.
+- `TestUpdateInstansiMigratesPersonalBucketSubAccounts` — saat operator menetapkan instansi sekolah, sub-akun miliknya di bucket `"personal"` ikut dipindah (`instansi` + `instansi_id` + `instansi_code`); akun registrasi mandiri tidak tersentuh.
+- `TestPersonalBucketQuotaAndMigrationScopedPerOperator` — **gagal sebelum fix `created_by`**: dua operator personal yang berbagi bucket menghitung sub-akun operator lain sebagai miliknya dan migrasi klaim sekolah menyapu sub-akun operator lain; setelah fix kuota & migrasi scoped per-operator.
+- `TestCreatedByDeleteSetsNull` — FK `ON DELETE SET NULL`: menghapus operator tetap sukses walau sub-akunnya sudah dipindah SuperAdmin ke instansi lain; sub-akun selamat dengan `created_by` NULL (fallback legacy bucket bersama).
+- `TestDashboardInstansiCardOnlyForManagementRoles` + `TestMandatoryInstansiModalOnlyForUnclaimedSchoolOperator` + `TestAllNavIncludesForwardNeedsInstansi` (`dashboard_page_test.go`) — merender halaman nyata: kartu **"Instansi (Klik untuk Ubah)"** hanya tampil untuk SuperAdmin & Operator (guru/pengawas tidak melihat kontrol yang akan 403), modal onboarding instansi hanya muncul untuk operator paket sekolah yang belum menetapkan instansi, dan partial `nav.html` meneruskan `needs_instansi` (template dicompile dengan data terpotong yang sama seperti produksi).
 - `TestNoPublicVoucherRoutes` (`webui/cmd/server/routes_voucher_public_test.go`) — menginspeksi tabel rute hasil `registerRoutes` asli (fungsi yang dipakai `main()`): **tidak ada** jalur claim/aktivasi voucher yang terdaftar di luar prefix `/admin` (pencocokan path `voucher`/`redeem`/`activate`, jadi endpoint publik bernama lain pun tertangkap — claim/aktivasi hanya boleh hidup di `/admin/api/*`, tidak ada versi publik untuk klien token), sekaligus memastikan `POST /admin/api/vouchers/redeem`, `POST /admin/api/vouchers/activate`, dan `GET /admin/api/vouchers/mine` **tetap** terdaftar. Kontrak routing di balik temuan audit bahwa klien Android/desktop tidak punya UI claim voucher dan tidak memanggil endpoint ini. Test ini **tanpa database** — `registerRoutes` hanya membangun handler; pool dibaca dari konteks saat request.
 - Test integrasi lama yang memerlukan skenario "sub-akun dengan paket sendiri" (uji suspend/restore cascade & guard masa aktif) kini menanam state tersebut sebagai **klaim pra-kebijakan** via helper `claimSubOwnVoucher`, karena jalur redeem asli sudah ditutup untuk akun sub.
 
@@ -318,7 +329,7 @@ Jalankan dengan:
 
 ```bash
 TEST_DATABASE_URL=postgresql://user:pass@localhost:5432/examvan_test \
-  go test ./internal/handlers/admin/ -run 'TestSubAccount|TestDirectCreatedAccounts|TestBillingPage|TestUsersListAPIReportsOperatorCreated' -v
+  go test ./internal/handlers/admin/ -run 'TestSubAccount|TestDirectCreatedAccounts|TestBillingPage|TestUsersListAPIReportsOperatorCreated|TestOperator|TestPersonalBucket|TestCreatedBy|TestInstansiUpdate|TestUpdateInstansi|TestDashboardInstansi|TestMandatoryInstansi|TestAllNav' -v
 ```
 
 Test kontrak rute (tanpa database):
@@ -627,6 +638,32 @@ Endpoint verifikasi waktu server:
 ```bash
 curl https://<domain>/api/time
 ```
+
+---
+
+## Index Database (Kolom FK yang Sering Di-Query)
+
+Audit menyeluruh kolom **FOREIGN KEY** di `webui/internal/database/schema.sql`: setiap kolom FK yang **sering di-query** memiliki index pendukung. Semua index dibuat dengan `CREATE INDEX IF NOT EXISTS` — idempotent, aman dijalankan ulang setiap boot (skema diterapkan otomatis saat server start).
+
+| Tabel | Kolom FK | Referensi | Index pendukung | Dipakai oleh |
+|---|---|---|---|---|
+| `exams` | `created_by` | `admin_users(id)` | `idx_exams_created_by` | Scoping kepemilikan exam (guru/operator), stats dashboard, list submissions, tombstone |
+| `exams` | `delegated_to` | `admin_users(id)` | `idx_exams_delegated_to` | Scoping kepemilikan (delegasi pengawas) |
+| `admin_users` | `created_by` | `admin_users(id)` | `idx_admin_users_created_by` | Kuota bucket `"personal"` per-operator (`loadOperatorAccountQuota`) & migrasi sub-akun saat klaim sekolah (`UpdateInstansi`) |
+| `admin_users` | `instansi_id` | `instansi(id)` | `idx_admin_users_instansi_id` | Migrasi `UpdateInstansi` (rename/pindah seluruh user se-instansi) |
+| `exam_pengawas` | `exam_id` | `exams(id)` | `idx_exam_pengawas_exam_id` (+ `UNIQUE(exam_id, user_id)`) | Daftar pengawas per exam, cek kepemilikan |
+| `exam_pengawas` | `user_id` | `admin_users(id)` | `idx_exam_pengawas_user_id` | Daftar exam per pengawas, cek kepemilikan |
+| `submissions` | `exam_id` | `exams(id)` | `idx_submissions_exam_id` + `idx_submissions_exam_mac` | List hasil per exam, dedup perangkat/nomor ujian |
+| `student_access_logs` | `exam_id` | `exams(id)` | `idx_student_access_logs_exam_id` + `idx_access_logs_exam_time` | Log kehadiran per exam, riwayat perangkat |
+| `student_access_logs` | `submission_id` | `submissions(id)` | — (sengaja tanpa index) | Kolom **hanya ditulis** (`ON DELETE SET NULL`); tidak pernah dipakai sebagai filter/join |
+| `exam_approvals` | `exam_id` | `exams(id)` | `UNIQUE(exam_id, mac_address)` (kolom pertama) | Status persetujuan perangkat per exam |
+| `vouchers` | `created_by` | `admin_users(id)` | `idx_vouchers_created_by` | JOIN daftar voucher → username pembuat |
+| `voucher_redemptions` | `voucher_id` | `vouchers(id)` | `idx_voucher_redemptions_voucher_id` | Cek `used_count` saat redeem, riwayat pemakaian per voucher, backfill legacy |
+| `voucher_redemptions` | `user_id` | `admin_users(id)` | `idx_voucher_redemptions_user_id` (+ parsial unik `idx_voucher_redemptions_one_active WHERE is_active`) | Daftar paket per akun, guard entitlement, job expiry/cascade |
+
+> **Catatan desain:** `student_access_logs.submission_id` sengaja **tidak** diberi index — kolom itu hanya diisi saat submit dan di-null-kan oleh `ON DELETE SET NULL`; tidak ada query yang memfilter/join dengannya, jadi index hanya menambah biaya write pada tabel yang paling sering di-INSERT. Index parsial `idx_voucher_redemptions_one_active` (unik, `WHERE is_active`) menegakkan "maks satu paket aktif per user"; index penuh `idx_voucher_redemptions_user_id` melengkapinya untuk query yang tidak memfilter `is_active`.
+
+Daftar index tambahan untuk tuning skala besar (access log, submissions, exam aktif) ada di [upgrade_arsitektur.md → Priority #3: PostgreSQL Tuning + Index](upgrade_arsitektur.md#priority-3-postgresql-tuning--index).
 
 ---
 

@@ -1815,9 +1815,14 @@ function submitEditUser(e) {
         max_pdf_size_mb: (function(){ var v=document.getElementById('editUserPdfSize').value; return v==='' ? 1 : parseFloat(v); })(),
         max_storage_size_mb: (function(){ var v=document.getElementById('editUserStorageSize').value; return v==='' ? 0 : parseFloat(v); })(),
         email: document.getElementById('editUserEmail').value.trim(),
-        package: document.getElementById('editUserPackage').value,
         roles: []
     };
+    // Sub-account package policy: operator tidak boleh memilih/mengubah paket
+    // langganan akun di bawahnya — field package tidak dikirim (server juga
+    // mengabaikannya). Hanya Super Admin yang dapat menetapkan paket.
+    if (window.__adminRole !== 'operator') {
+        data.package = document.getElementById('editUserPackage').value;
+    }
     // Hanya kirim instansi jika fieldnya visible (tidak disembunyikan untuk operator)
     var instansiEl = document.getElementById('editUserInstansi');
     if (instansiEl && instansiEl.offsetParent !== null) {
@@ -1918,7 +1923,7 @@ function createEditUserModal() {
                         <label for="editUserName">Nama Lengkap</label>
                         <input type="text" id="editUserName" placeholder="Contoh: Budi Sudarsono" style="width:100%;">
                     </div>
-                    <div class="form-group" style="margin-bottom:8px;">
+                    <div class="form-group" style="margin-bottom:8px;" id="editUserPackageGroup">
                         <label for="editUserPackage">Paket Langganan (Preset)</label>
                         <select id="editUserPackage" onchange="applyPackagePreset('edit')" style="width:100%;padding:8px 12px;background:rgba(255,255,255,0.05);border:1px solid var(--color-glass-border);border-radius:10px;color:var(--color-text);outline:none;font-size:13px;cursor:pointer;">
                             <option value="free">Free / Trial</option>
@@ -1999,6 +2004,11 @@ function createEditUserModal() {
         // Sembunyikan field instansi untuk operator
         var instansiGroup = document.getElementById('editUserInstansi').closest('.form-group') || document.getElementById('editUserInstansi').parentNode;
         if (instansiGroup) instansiGroup.style.display = 'none';
+        // Sub-account package policy: sembunyikan pemilih paket langganan —
+        // akun sub tidak memiliki paket sendiri (kuota & masa aktif mengikuti
+        // paket sekolah Operator/Super Admin).
+        var pkgGroup = document.getElementById('editUserPackageGroup');
+        if (pkgGroup) pkgGroup.style.display = 'none';
     }
 
     // Close on overlay click
@@ -3087,7 +3097,11 @@ function createUser(e) {
             }
         }
     }
-    const package = document.getElementById('packageSelect').value;
+    // Sub-account package policy: untuk Operator pemilih paket disembunyikan
+    // (akun sub tidak punya paket sendiri) — kirim 'free', server memaksa nilai
+    // yang sama untuk akun yang dibuat operator.
+    var pkgEl = document.getElementById('packageSelect');
+    const package = pkgEl ? pkgEl.value : 'free';
     if (!username || !password) { showToast('Username dan password wajib diisi','error'); return; }
     apiFetch('/admin/api/users', {
         method: 'POST', headers: {'Content-Type':'application/json'},
@@ -3131,26 +3145,30 @@ function loadSaasSettings() {
                 var _dsInp = document.getElementById('defaultStorageInput');
                 _dsInp.value = (_dsmb === undefined || _dsmb === null) ? 50 : _dsmb;
                 // Cap input pada sisa kapasitas disk server (dikirim GET sebagai
-                // storage_free_mb; 0 berarti tidak dapat ditentukan).
+                // storage_free_mb; 0 berarti tidak dapat ditentukan). Sisa disk
+                // ditampilkan SEKALI di badge header section (diskFreeBadge) —
+                // hint per-field hanya memuat aturan inputnya masing-masing.
                 var _freeMb = typeof s.storage_free_mb === 'number' ? s.storage_free_mb : 0;
-                var _dsHint = document.getElementById('defaultStorageHint');
                 if (_freeMb > 0) {
                     _dsInp.max = Math.floor(_freeMb);
-                    if (_dsHint) _dsHint.textContent = 'Sisa disk server: ' + fmtStorageSize(_freeMb) + ' — 0 = tidak terbatas. Nilai tidak boleh melebihi sisa disk.';
                 } else {
                     _dsInp.removeAttribute('max');
-                    if (_dsHint) _dsHint.textContent = 'Sisa disk server tidak dapat ditentukan saat ini. 0 = tidak terbatas.';
                 }
                 // Cap PDF upload default pada min(sisa disk, 100 MB) — 100 MB
                 // adalah batas upload global (maxFileSize, exams.go).
                 var _dpInp = document.getElementById('defaultPdfInput');
-                var _dpHint = document.getElementById('defaultPdfHint');
                 if (_freeMb > 0) {
                     _dpInp.max = Math.min(Math.floor(_freeMb), 100);
-                    if (_dpHint) _dpHint.textContent = 'Sisa disk server: ' + fmtStorageSize(_freeMb) + ' — maks 100 MB (batas upload global).';
                 } else {
                     _dpInp.removeAttribute('max');
-                    if (_dpHint) _dpHint.textContent = 'Sisa disk server tidak dapat ditentukan saat ini. Maks 100 MB (batas upload global).';
+                }
+                // Badge sisa disk (idempotent: nilai API sama dengan
+                // window.__storageFreeMb yang sudah dirender server-side).
+                var _dbText = document.getElementById('diskFreeBadgeText');
+                if (_dbText) {
+                    _dbText.textContent = _freeMb > 0
+                        ? 'Sisa disk server: ' + fmtStorageSize(_freeMb)
+                        : 'Sisa disk server tidak dapat ditentukan';
                 }
                 document.getElementById('defaultActiveDaysInput').value = s.default_active_days || 14;
                 document.getElementById('androidVersionInput').value = s.android_version || '2.1.9';
