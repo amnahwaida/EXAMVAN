@@ -391,16 +391,19 @@ func Dashboard() gin.HandlerFunc {
 		}
 		serverURL := fmt.Sprintf("%s://%s", scheme, c.Request.Host)
 
-		// Sisa kapasitas disk fisik pada partisi penyimpanan server (dipakai
-		// sebagai indikator "Sisa Disk Server" di dashboard; "—" bila tidak
-		// dapat ditentukan).
+		// Sisa kapasitas disk fisik pada partisi penyimpanan server (indikator
+		// "Sisa Disk Server" di dashboard). Hanya dihitung & dirender untuk
+		// SuperAdmin — role lain tidak melihat kartu ini; "—" bila tidak dapat
+		// ditentukan.
 		serverDiskFree := "—"
-		if freeBytes := getFreeDiskSpace(getStoragePath(c)); freeBytes > 0 {
-			freeMB := roundTo(freeBytes/(1024*1024), 2)
-			if freeMB >= 1024 {
-				serverDiskFree = fmt.Sprintf("%.2f GB", freeMB/1024)
-			} else {
-				serverDiskFree = fmt.Sprintf("%.1f MB", freeMB)
+		if isSuper {
+			if freeBytes := getFreeDiskSpace(getStoragePath(c)); freeBytes > 0 {
+				freeMB := roundTo(freeBytes/(1024*1024), 2)
+				if freeMB >= 1024 {
+					serverDiskFree = fmt.Sprintf("%.2f GB", freeMB/1024)
+				} else {
+					serverDiskFree = fmt.Sprintf("%.1f MB", freeMB)
+				}
 			}
 		}
 
@@ -500,13 +503,18 @@ func Stats() gin.HandlerFunc {
 		}
 		pool.QueryRow(ctx, `SELECT COUNT(*)`+fromClause+activeWhere, statsArgs...).Scan(&active)
 
-		successData(c, gin.H{
-			"total":               total,
-			"active":              active,
-			"inactive":            total - active,
-			"storage_mb":          roundTo(float64(storageBytes)/(1024*1024), 2),
-			"server_disk_free_mb": roundTo(getFreeDiskSpace(getStoragePath(c))/(1024*1024), 2),
-		})
+		data := gin.H{
+			"total":      total,
+			"active":     active,
+			"inactive":   total - active,
+			"storage_mb": roundTo(float64(storageBytes)/(1024*1024), 2),
+		}
+		// Sisa disk server hanya diekspos ke SuperAdmin (indikator "Sisa Disk
+		// Server" di dashboard); role lain tidak menerima nilai ini di API.
+		if isSuper {
+			data["server_disk_free_mb"] = roundTo(getFreeDiskSpace(getStoragePath(c))/(1024*1024), 2)
+		}
+		successData(c, data)
 	}
 }
 

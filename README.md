@@ -363,8 +363,8 @@ Field **"Maks Storage (MB)"** ada di panel **Default Paket Pendaftaran** (halama
 - Di UI, input diberi batas `max` sesuai sisa disk + hint dinamis *"Sisa disk server: X GB"* — `GET /admin/api/saas-settings` mengembalikan `storage_free_mb` untuk itu.
 - **Validasi yang sama berlaku di form "Tambah User" dan modal "Atur Limit" per-user** (`CreateUser`/`EditUser`, `webui/internal/handlers/admin/users.go`): nilai negatif ditolak, dan nilai positif yang melebihi sisa disk ditolak (HTTP 400) **sebelum akun dibuat / sebelum field lain diubah**. Halaman Users mengirim `storage_free_mb` ke template (`window.__storageFreeMb`) untuk membatasi `max` input kedua form + pre-check klien di `static/js/admin.js` (`createUser`/`submitEditUser`) — server tetap memvalidasi sebagai lapisan final.
 - **Alur voucher & paket** menerapkan batas disk yang sama pada **kedua editor kuota**-nya — lihat [Cap Disk di Alur Voucher dan Paket](#cap-disk-di-alur-voucher-dan-paket).
-- Dashboard admin menampilkan sisa disk fisik pada **kartu statistik atas → "Sisa Disk Server"** (`admin/dashboard`); `GET /admin/api/stats` juga menyertakan `server_disk_free_mb`.
-- **Test stats API & halaman Dashboard** (`webui/internal/handlers/admin/saas_settings_test.go` + `dashboard_page_test.go`): `TestStatsServerDiskFree` memverifikasi `GET /admin/api/stats` — auth-gate 401 tanpa sesi, `server_disk_free_mb > 0` dan konsisten dengan `getFreeDiskSpace` (±1 MB), serta aggregate benar; `TestStatsScopeByRole` memverifikasi scoping per-role — superadmin melihat semua exam, operator hanya exam se-`instansi`, guru hanya `created_by`/`delegated_to` miliknya, pengawas hanya exam yang ditugaskan lewat `exam_pengawas` (dan gabungan guru+pengawas = union), dengan `server_disk_free_mb` dilaporkan untuk semua role. `TestDashboardRendersServerDiskFree` merender **halaman HTML nyata** `/admin/dashboard` dan memastikan kartu **"Sisa Disk Server"** menampilkan nilai sisa disk yang riil (bukan fallback "—", format `X.XX GB`/`X.X MB`), konsisten dengan `getFreeDiskSpace` pada partisi yang sama (bounding snapshot sebelum/sesudah request ± 8 MB — lebih tahan flake daripada toleransi tetap karena tampilan GB membulatkan ke 0.01 GB), serta redirect 302 ke login tanpa sesi.
+- Dashboard admin menampilkan sisa disk fisik pada **kartu statistik atas → "Sisa Disk Server"** (`admin/dashboard`) — **khusus Super Admin** (role lain tidak melihat kartunya); `GET /admin/api/stats` juga menyertakan `server_disk_free_mb` hanya untuk superadmin (role lain tidak menerima nilai ini).
+- **Test stats API & halaman Dashboard** (`webui/internal/handlers/admin/saas_settings_test.go` + `dashboard_page_test.go`): `TestStatsServerDiskFree` memverifikasi `GET /admin/api/stats` — auth-gate 401 tanpa sesi, `server_disk_free_mb > 0` dan konsisten dengan `getFreeDiskSpace` (±1 MB), serta aggregate benar; `TestStatsScopeByRole` memverifikasi scoping per-role — superadmin melihat semua exam, operator hanya exam se-`instansi`, guru hanya `created_by`/`delegated_to` miliknya, pengawas hanya exam yang ditugaskan lewat `exam_pengawas` (dan gabungan guru+pengawas = union), dengan `server_disk_free_mb` **hanya untuk superadmin** (role lain = 0/tidak disertakan). `TestDashboardRendersServerDiskFree` merender **halaman HTML nyata** `/admin/dashboard` dan memastikan kartu **"Sisa Disk Server"** menampilkan nilai sisa disk yang riil (bukan fallback "—", format `X.XX GB`/`X.X MB`), konsisten dengan `getFreeDiskSpace` pada partisi yang sama (bounding snapshot sebelum/sesudah request ± 8 MB — lebih tahan flake daripada toleransi tetap karena tampilan GB membulatkan ke 0.01 GB), serta redirect 302 ke login tanpa sesi; `TestDashboardHidesServerDiskForNonSuper` memastikan role non-superadmin **tidak** melihat kartu/label tersebut (halaman tetap ter-render normal).
 
 > ⚠️ **Catatan:** seperti `default_active_days`, pengaturan ini hanya memengaruhi **akun yang dibuat setelah perubahan** — akun yang sudah ada tidak diubah; kuota storage per-akun diubah lewat tombol **"Atur limit"** di daftar user (nilai `0` di editor itu juga berarti tidak terbatas). Form **Tambah User** dan **Atur Limit** ikut menerapkan batas disk yang sama (lihat di atas).
 
@@ -383,6 +383,41 @@ UPDATE saas_settings SET value = '262144000' WHERE key = 'default_max_storage_si
 ```
 
 Ganti `262144000` dengan batas dalam **byte** (contoh: 250 MB = `250 * 1024 * 1024`). Nilai `0` = tidak terbatas. Lokasi default di kode: `webui/internal/models/settings.go` → `DefaultSettings` (dipakai hanya jika baris setting belum ada di database).
+
+---
+
+## Cloudflare Turnstile (Anti-Bot) — Aktivasi & Pemecahan Masalah
+
+Turnstile melindungi halaman publik **`/register`**, **`/login`**, **`/forgot-password`**, dan **`/reset-password`** dari bot/registrasi massal. Kebijakan verifikasi bersifat **fail-closed**: saat diaktifkan, submit tanpa token Turnstile yang valid akan ditolak server.
+
+### Langkah Aktivasi
+
+1. **Buat widget di Cloudflare dashboard** — buka `dash.cloudflare.com` → **Turnstile** → **Add Site**:
+   - Beri nama widget (mis. "EXAMVAN"), pilih mode (disarankan **Managed**), dan isi **Hostname/Domain** situs Anda (mis. `examvan.school.id`). Domain yang tidak terdaftar di sini akan menampilkan kotak error merah pada widget.
+   - Catat **Site Key** dan **Secret Key** (format `0x4AAAA...`).
+2. **Aktifkan di panel admin** — login SuperAdmin → **Users** (`/admin/users`) → panel **"SaaS & SMTP Email Settings"** → bagian **Cloudflare Turnstile (Anti-Bot)**:
+   - Centang **Aktifkan Turnstile**.
+   - Tempel **Site Key** dan **Secret Key** (secret disimpan terenkripsi/masked, tidak pernah ditampilkan utuh).
+   - Klik **Simpan Setelan SaaS**. Server menolak penyimpanan bila salah satu key kosong saat Turnstile diaktifkan.
+3. **Pastikan CSP nginx mengizinkan domain Turnstile** — header `Content-Security-Policy` di `webui/nginx/nginx.conf` harus memuat `https://challenges.cloudflare.com` di `script-src`, `frame-src`, `connect-src`, dan `img-src` (sudah terpasang di versi saat ini; jika Anda memakai CSP kustom, tambahkan keempat direktif tersebut sesuai [dokumentasi Cloudflare](https://developers.cloudflare.com/turnstile/)).
+4. **Reload nginx** setelah mengubah `nginx.conf`:
+   ```bash
+   docker exec examvan-webui-nginx nginx -s reload
+   ```
+5. **Verifikasi** — hard-refresh browser (Ctrl+Shift+R), lalu pastikan widget checkbox muncul di `/register`:
+   ```bash
+   curl -s -o /dev/null -D - -H 'X-Forwarded-Proto: https' http://localhost/register | grep -i content-security-policy
+   # → header harus memuat: script-src ... https://challenges.cloudflare.com ... frame-src https://challenges.cloudflare.com
+   ```
+
+### Pemecahan Masalah
+
+| Gejala | Penyebab | Solusi |
+|--------|----------|--------|
+| Widget tidak muncul sama sekali, submit diblokir dengan *"Harap selesaikan verifikasi keamanan di atas..."* | Script `api.js` Turnstile diblokir CSP (domain `challenges.cloudflare.com` tidak ada di `script-src`/`frame-src`) | Perbaiki CSP di `webui/nginx/nginx.conf` lalu reload nginx (langkah 3–4) |
+| Widget tampil sebagai **kotak merah/error** | Site Key salah, atau domain situs belum terdaftar di daftar Domain widget di dashboard Turnstile | Perbaiki Site Key / tambahkan domain di dashboard Turnstile |
+| Widget muncul & tercentang, tapi server tetap menolak | **Secret Key** salah di panel admin | Periksa Secret Key di **Users → SaaS Settings → Cloudflare Turnstile** |
+| CSP memblokir resource lain (mis. di luar nginx) | Ada header CSP kedua dari aplikasi/proxy lain | Pastikan hanya satu sumber CSP, atau gabungkan keempat direktif Turnstile ke header kustom |
 
 ---
 

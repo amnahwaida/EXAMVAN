@@ -939,9 +939,9 @@ func TestStatsServerDiskFree(t *testing.T) {
 // a superadmin sees every exam, an operator only the exams created by accounts
 // of their own instansi, a plain guru only their own (created or delegated)
 // exams, and a pengawas-only account only the exams assigned via exam_pengawas.
-// server_disk_free_mb is reported identically for every role (it is not
-// exam-scoped), so the endpoint stays useful for the dashboard's "Sisa Disk
-// Server" card regardless of who views it.
+// server_disk_free_mb (the dashboard's "Sisa Disk Server" indicator) is
+// reported ONLY to the superadmin — every other role gets 0/absent, so the
+// server disk capacity is never exposed to non-super roles.
 func TestStatsScopeByRole(t *testing.T) {
 	pool := database.NewPackageTestPool(t, "admin")
 	ctx := context.Background()
@@ -1021,7 +1021,8 @@ func TestStatsScopeByRole(t *testing.T) {
 
 	// fetchStats logs in as the given user and returns the parsed stats
 	// payload, failing on any auth/status/decode error (every role must be
-	// able to reach the endpoint — Stats is NOT super-admin-gated).
+	// able to reach the endpoint — Stats is NOT super-admin-gated). The
+	// server_disk_free_mb assertion is per-case (superadmin only).
 	fetchStats := func(as models.AdminUser) statsResp {
 		t.Helper()
 		jar, _ := cookiejar.New(nil)
@@ -1044,9 +1045,6 @@ func TestStatsScopeByRole(t *testing.T) {
 		if !out.Success {
 			t.Fatalf("stats as %s: success=false", as.Username)
 		}
-		if out.Data.ServerDiskFreeMB <= 0 {
-			t.Fatalf("stats as %s: server_disk_free_mb=%v, want > 0", as.Username, out.Data.ServerDiskFreeMB)
-		}
 		return out
 	}
 
@@ -1056,13 +1054,14 @@ func TestStatsScopeByRole(t *testing.T) {
 		wantTotal     int
 		wantActive    int
 		wantStorageMB float64
+		wantDiskFree  bool // server_disk_free_mb > 0 only for superadmin
 	}{
-		{"superadmin sees all 5 exams", su, 5, 4, 20},
-		{"operator scoped to own instansi (SMA)", op, 4, 3, 17},
-		{"guruA sees own exams (E1, E3, E4)", guruA, 3, 2, 11},
-		{"guruB sees own + delegated (E2, E3)", guruB, 2, 1, 5},
-		{"pengawas sees assigned exam only (E4)", pw, 1, 1, 4},
-		{"guru+pengawas sees union (E2 assigned, E5 created)", gp, 2, 2, 9},
+		{"superadmin sees all 5 exams", su, 5, 4, 20, true},
+		{"operator scoped to own instansi (SMA)", op, 4, 3, 17, false},
+		{"guruA sees own exams (E1, E3, E4)", guruA, 3, 2, 11, false},
+		{"guruB sees own + delegated (E2, E3)", guruB, 2, 1, 5, false},
+		{"pengawas sees assigned exam only (E4)", pw, 1, 1, 4, false},
+		{"guru+pengawas sees union (E2 assigned, E5 created)", gp, 2, 2, 9, false},
 	}
 	for _, tc := range cases {
 		got := fetchStats(tc.user)
@@ -1073,6 +1072,13 @@ func TestStatsScopeByRole(t *testing.T) {
 		}
 		if got.Data.StorageMB != tc.wantStorageMB {
 			t.Errorf("%s: storage_mb=%v, want %v", tc.label, got.Data.StorageMB, tc.wantStorageMB)
+		}
+		if tc.wantDiskFree {
+			if got.Data.ServerDiskFreeMB <= 0 {
+				t.Errorf("%s: server_disk_free_mb=%v, want > 0 (superadmin)", tc.label, got.Data.ServerDiskFreeMB)
+			}
+		} else if got.Data.ServerDiskFreeMB != 0 {
+			t.Errorf("%s: server_disk_free_mb=%v, want 0/absent (only superadmin sees the server disk free space)", tc.label, got.Data.ServerDiskFreeMB)
 		}
 	}
 }

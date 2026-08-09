@@ -311,3 +311,68 @@ func TestDashboardRendersServerDiskFree(t *testing.T) {
 			rendered, renderedMB, lo, hi, displayMarginMB)
 	}
 }
+
+// TestDashboardHidesServerDiskForNonSuper locks in the "Sisa Disk Server"
+// visibility policy: the stat-disk card (and its label) must be rendered ONLY
+// for the superadmin. Every other role (operator, guru, pengawas) must not see
+// it — the dashboard still renders normally (sanity-checked via the storage
+// card) so the absence is a real conditional, not a broken page. The
+// superadmin side is covered by TestDashboardRendersServerDiskFree above, so
+// this test together with it pins both branches of the {{if .is_super}} guard.
+func TestDashboardHidesServerDiskForNonSuper(t *testing.T) {
+	pool := database.NewPackageTestPool(t, "admin")
+	ctx := context.Background()
+
+	guru, err := models.CreateUser(ctx, pool, &models.AdminUser{
+		Username: "it_dash_guru", Name: "IT Dash Guru",
+		PasswordHash: "x", Status: models.UserStatusActive,
+		Instansi:     "SMA Test",
+		Role:         models.SerializeRoles([]string{models.RoleGuru}),
+		MaxExams:     3, MaxPDFSize: 1048576, MaxConcurrentExams: 2,
+		MaxStorageSize: 50 * 1024 * 1024, Package: "free",
+	})
+	if err != nil {
+		t.Fatalf("create guru: %v", err)
+	}
+
+	// Seed one exam owned by the guru so the page renders with real data and
+	// the storage card (the sanity marker below) is definitely present.
+	if _, err := pool.Exec(ctx, `INSERT INTO exams (name, file_path, size_bytes, token, active_token, status, created_by)
+		VALUES ('IT Guru Dashboard Exam', '/tmp/it-guru-dashboard.pdf', 2*1024*1024, 'ITGDASH1', 'ITGDASH1', 'active', $1)`, guru.ID); err != nil {
+		t.Fatalf("seed exam: %v", err)
+	}
+
+	storageDir, err := os.MkdirTemp("", "examvan-dash-guru-it")
+	if err != nil {
+		t.Fatalf("make temp storage dir: %v", err)
+	}
+	defer os.RemoveAll(storageDir)
+
+	srv := httptest.NewServer(newDashboardPageTestRouter(t, pool, storageDir))
+	defer srv.Close()
+
+	jar, _ := cookiejar.New(nil)
+	client := &http.Client{Jar: jar}
+	if resp, err := client.Post(srv.URL+"/test/login/"+strconv.Itoa(guru.ID), "application/json", nil); err != nil || resp.StatusCode != http.StatusOK {
+		t.Fatalf("test login: status=%v err=%v", resp, err)
+	}
+
+	status, body := getDashboardPage(t, client, srv)
+	if status != http.StatusOK {
+		t.Fatalf("dashboard page (guru): status=%d, want 200", status)
+	}
+
+	// The disk card + label must be hidden for a non-superadmin.
+	if strings.Contains(body, `class="stat-card stat-disk"`) {
+		t.Error("non-superadmin dashboard must NOT render the stat-disk card")
+	}
+	if strings.Contains(body, "Sisa Disk Server") {
+		t.Error("non-superadmin dashboard must NOT render the 'Sisa Disk Server' label")
+	}
+
+	// Sanity: the page rendered fully (storage card present) — otherwise the
+	// assertions above would pass vacuously on a broken/empty page.
+	if !strings.Contains(body, `class="stat-card stat-storage"`) {
+		t.Error("dashboard must still render the storage card for a non-superadmin (page rendered fully)")
+	}
+}
