@@ -14,7 +14,7 @@ DBURL="postgresql://examvan:${DBPASS}@db:5432/examvan"
 APK="/home/vannyezha/project/sekolah/EXAMVAN/android/app/build/outputs/apk/student/debug/app-student-debug.apk"
 [ -f "$APK" ] || ERROR "APK not found: $APK"
 
-echo ">> Release APK 2.4.0 -> R2 + system_apps id=4 (production)"
+echo ">> Release APK 2.4.1 -> R2 + system_apps id=4 (production)"
 echo ">> APK: $APK ($(stat -c%s "$APK") bytes)"
 
 docker run --rm --network webui_internal \

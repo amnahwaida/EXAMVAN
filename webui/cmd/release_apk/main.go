@@ -1,8 +1,8 @@
 //go:build ignore
 
-// One-off operational script: upload the freshly built 2.4.0 APK to Cloudflare
+// One-off operational script: upload the freshly built 2.4.1 APK to Cloudflare
 // R2 and point the system_apps android record (id=4) at the new file, so the
-// R2 label matches the real BuildConfig.VERSION_NAME (bump 2.2.0 -> 2.4.0).
+// R2 label matches the real BuildConfig.VERSION_NAME (bump 2.2.0 -> 2.4.1).
 //
 // Run from webui/:  go run cmd/release_apk/main.go
 package main
@@ -82,7 +82,7 @@ func main() {
 	fmt.Printf("Record lama: id=%d name=%s platform=%s version=%s\n  file=%s\n  size=%d\n",
 		app.ID, app.Name, app.Platform, app.Version, app.FilePath, app.SizeBytes)
 
-	// 2. Upload APK student baru (versionName 2.4.0) ke R2
+	// 2. Upload APK student baru (versionName 2.4.1) ke R2
 	apkPath := "../android/app/build/outputs/apk/student/debug/app-student-debug.apk"
 	f, err := os.Open(apkPath)
 	if err != nil {
@@ -93,16 +93,16 @@ func main() {
 	st, _ := f.Stat()
 	fmt.Printf("APK baru: %s (%d bytes)\n", apkPath, st.Size())
 
-	newKey := fmt.Sprintf("apps/android/2.4.0/%s-%d", filepath.Base(apkPath), time.Now().UnixNano())
+	newKey := fmt.Sprintf("apps/android/2.4.1/%s-%d", filepath.Base(apkPath), time.Now().UnixNano())
 	if err := r2c.UploadWithContentType(ctx, newKey, f, "application/vnd.android.package-archive"); err != nil {
 		fmt.Printf("FATAL: upload R2: %v\n", err)
 		os.Exit(1)
 	}
 	fmt.Printf("Upload OK: %s\n", newKey)
 
-	// 3. Update record id=4: versi tetap 2.4.0, file & ukuran baru
+	// 3. Update record id=4: versi tetap 2.4.1, file & ukuran baru
 	oldKey := app.FilePath
-	app.Version = "2.4.0"
+	app.Version = "2.4.1"
 	app.FilePath = newKey
 	app.SizeBytes = st.Size()
 	// Tidak ada model.UpdateSystemApp; pakai SQL langsung
@@ -114,9 +114,9 @@ func main() {
 		_ = r2c.Delete(ctx, newKey)
 		os.Exit(1)
 	}
-	fmt.Println("DB update OK — record id=4 kini menunjuk APK 2.4.0 baru.")
+	fmt.Println("DB update OK — record id=4 kini menunjuk APK 2.4.1 baru.")
 
-	// 4. Hapus file R2 lama (supaya tidak ada duplikasi label 2.4.0)
+	// 4. Hapus file R2 lama (supaya tidak ada duplikasi label 2.4.1)
 	if err := r2c.Delete(ctx, oldKey); err != nil {
 		fmt.Printf("WARN: hapus file R2 lama gagal: %v\n", err)
 	} else {

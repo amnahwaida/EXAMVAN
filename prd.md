@@ -1,7 +1,7 @@
 # 📄 PRD: EXAMVAN (MVP)
 
-> **NOTE:** This PRD was written for v1.1.0 (MVP). The current version is 2.2.0
-> with many additional features. See README.md for current documentation.
+> **NOTE:** This PRD was written for v1.1.0 (MVP). The current version is **2.4.1**
+> (tag rilis `v2.4.1`, Agustus 2026) with many additional features. See README.md for current documentation.
 >
 > ⚠️ **PERUBAHAN ARAH (Agustus 2026):** Dukungan LAN/Intranet telah **DIHAPUS**.
 > Produk kini **cloud-only**: client terhubung via HTTPS/domain publik (Cloudflare Tunnel),
@@ -59,7 +59,7 @@
 |----------|--------|--------|----------|
 | `/api/exams` | `GET` | Ambil daftar ujian aktif | `{"success":true,"data":[{"id":1,"name":"UTS Matematika","status":"active","size_mb":3.2}]}` |
 | `/api/exams/{id}/pdf` | `GET` | Stream file PDF ujian | `Content-Type: application/pdf`, `Cache-Control: no-store`, stream byte |
-| `/api/health` | `GET` | Cek ketersediaan server | `{"status":"ok","version":"2.2","certificate_fingerprint":"sha256/..."}` |
+| `/api/health` | `GET` | Cek ketersediaan server | `{"status":"ok","version":"2.4.1","certificate_fingerprint":"sha256/..."}` |
 
 ### 4.3 Panel Admin Web (MVP)
 | Fitur | Deskripsi |

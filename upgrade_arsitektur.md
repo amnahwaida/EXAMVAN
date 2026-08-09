@@ -4,6 +4,8 @@
 
 > **Status saat ini (Agustus 2026):** R2 kini bersifat **wajib** — server menolak start (fail-fast) tanpa keempat variabel `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY`, `R2_BUCKET`, dan `R2_ENDPOINT` di `.env`. Semua PDF & APK di-upload ke R2 dan di-serve via signed URL; **tidak ada lagi fallback penyimpanan lokal**. Panduan setup di bawah ini tetap berlaku untuk menyiapkan bucket & kredensial R2.
 >
+> 🏷️ **Rilis:** Kondisi ini (bersama versi Android efektif, grace period ujian, & isolasi skema tes DB) dirilis dalam tag **`v2.4.1`** (9 Agustus 2026) — changelog di [GitHub Releases](https://github.com/amnahwaida/EXAMVAN/releases).
+>
 > Upgrade lain (RAM, CPU, scaling) sifatnya opsional — nanti kalau sudah mentok.
 
 ---

@@ -1,6 +1,8 @@
 # EXAMVAN — Sistem Ujian Digital Berbasis PDF (Secure — Cloud)
 
 > Platform distribusi & pelaksanaan ujian digital aman berbasis cloud (HTTPS) untuk sekolah dan kampus dengan perlindungan anti-cheat berlapis di sisi Android.
+>
+> 🏷️ **Rilis terbaru:** tag **`v2.4.1`** (9 Agustus 2026) — changelog lengkap di [GitHub Releases](https://github.com/amnahwaida/EXAMVAN/releases).
 
 ---
 
