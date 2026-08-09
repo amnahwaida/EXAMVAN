@@ -742,7 +742,8 @@ type ToggleUserStatusOutcome struct {
 	NewStatus string
 	Message   string
 	// RenewExpiry is set only when the account's expiry is already in the
-	// past: the admin explicitly grants a fresh +1-day period.
+	// past: the admin explicitly grants a fresh renewal period whose length
+	// follows the default_active_days SaaS setting.
 	RenewExpiry *time.Time
 	// ReactivateLegacyNull marks the legacy account whose expires_at is NULL
 	// (unlimited): reactivate WITHOUT touching expires_at and WITHOUT
@@ -769,7 +770,7 @@ var ErrPendingOTPToggleBlocked = errors.New("User masih menunggu verifikasi emai
 // planToggleUserStatus decides what ToggleUserStatus must do for a user,
 // given the account state and the current time. Pure (no DB) so the branch
 // logic — especially the legacy NULL-expiry case — is unit-testable.
-func planToggleUserStatus(user AdminUser, now time.Time) ToggleUserStatusOutcome {
+func planToggleUserStatus(user AdminUser, now time.Time, renewDays int) ToggleUserStatusOutcome {
 	if user.Status == UserStatusPendingOTP {
 		// The toggle is refused outright (ErrPendingOTPToggleBlocked carries the
 		// user-facing message): no status change, no activation flags.
@@ -791,11 +792,16 @@ func planToggleUserStatus(user AdminUser, now time.Time) ToggleUserStatusOutcome
 		}
 	}
 	if user.ExpiresAt.Before(now) {
-		newExp := now.Add(24 * time.Hour)
+		// The admin explicitly grants a fresh period on reactivation; its
+		// length follows the default_active_days SaaS setting.
+		if renewDays < 1 {
+			renewDays = 14
+		}
+		newExp := now.AddDate(0, 0, renewDays)
 		return ToggleUserStatusOutcome{
 			NewStatus:   UserStatusActive,
 			RenewExpiry: &newExp,
-			Message:     fmt.Sprintf("User \"%s\" diaktifkan. Masa aktif: +1 hari (expired)", user.Username),
+			Message:     fmt.Sprintf("User \"%s\" diaktifkan. Masa aktif: +%d hari (expired)", user.Username, renewDays),
 		}
 	}
 	return ToggleUserStatusOutcome{
@@ -806,7 +812,8 @@ func planToggleUserStatus(user AdminUser, now time.Time) ToggleUserStatusOutcome
 }
 
 // ToggleUserStatus switches the user status between 'active' and 'suspended'.
-// When activating an expired user, a new expiry date of +1 day is set.
+// When activating an expired user, a new expiry date of default_active_days
+// days is set.
 // Returns the new status and an optional message.
 func ToggleUserStatus(ctx context.Context, pool *pgxpool.Pool, userID int) (string, string, error) {
 	user, err := GetUserByID(ctx, pool, userID)
@@ -814,7 +821,8 @@ func ToggleUserStatus(ctx context.Context, pool *pgxpool.Pool, userID int) (stri
 		return "", "", fmt.Errorf("toggle user status: get user: %w", err)
 	}
 
-	out := planToggleUserStatus(user, time.Now().UTC())
+	renewDays := GetSaasSettingInt(ctx, pool, SettingDefaultActiveDays, 14)
+	out := planToggleUserStatus(user, time.Now().UTC(), renewDays)
 
 	// An account still awaiting email verification (pending_otp) must not be
 	// activated through the generic suspend/activate toggle: that would bypass
@@ -857,7 +865,8 @@ func ToggleUserStatus(ctx context.Context, pool *pgxpool.Pool, userID int) (stri
 		}
 		return out.NewStatus, out.Message, nil
 	case out.RenewExpiry != nil:
-		// Expired: renew with +1 day. This explicit renewal grant supersedes
+		// Expired: renew with the default_active_days renewal period. This
+		// explicit renewal grant supersedes
 		// the suspension freeze — the admin deliberately grants a fresh
 		// period instead of restoring the remaining-at-suspension time.
 		if _, execErr := pool.Exec(ctx,

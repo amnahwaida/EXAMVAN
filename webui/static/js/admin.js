@@ -3075,7 +3075,7 @@ function loadSaasSettings() {
                 document.getElementById('defaultExamsInput').value = s.default_max_exams || 3;
                 document.getElementById('defaultConcurrentInput').value = s.default_max_concurrent_exams || 2;
                 document.getElementById('defaultPdfInput').value = s.default_max_pdf_size_mb || 1;
-                document.getElementById('defaultActiveDaysInput').value = s.default_active_days || 1;
+                document.getElementById('defaultActiveDaysInput').value = s.default_active_days || 14;
                 document.getElementById('androidVersionInput').value = s.android_version || '2.1.9';
                 document.getElementById('webappVersionInput').value = s.webapp_version || '2.1.9';
                 document.getElementById('seoTitleInput').value = s.seo_title || '';

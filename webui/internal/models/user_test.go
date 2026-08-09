@@ -125,7 +125,7 @@ func TestPlanToggleUserStatus(t *testing.T) {
 
 	t.Run("pending_otp account is blocked from toggling", func(t *testing.T) {
 		u := AdminUser{Username: "pending_guru", Status: UserStatusPendingOTP, ExpiresAt: nil}
-		out := planToggleUserStatus(u, now)
+		out := planToggleUserStatus(u, now, 14)
 		if !out.PendingOTPBlocked {
 			t.Error("PendingOTPBlocked = false, want true (email verification incomplete)")
 		}
@@ -139,7 +139,7 @@ func TestPlanToggleUserStatus(t *testing.T) {
 
 	t.Run("suspending an active user has no renewal side effects", func(t *testing.T) {
 		u := AdminUser{Username: "guru1", Status: UserStatusActive, ExpiresAt: &future}
-		out := planToggleUserStatus(u, now)
+		out := planToggleUserStatus(u, now, 14)
 		if out.NewStatus != UserStatusSuspended {
 			t.Errorf("NewStatus = %q, want %q", out.NewStatus, UserStatusSuspended)
 		}
@@ -151,9 +151,9 @@ func TestPlanToggleUserStatus(t *testing.T) {
 		}
 	})
 
-	t.Run("reactivating legacy NULL-expiry keeps NULL (no +1 day)", func(t *testing.T) {
+	t.Run("reactivating legacy NULL-expiry keeps NULL (no renewal)", func(t *testing.T) {
 		u := AdminUser{Username: "legacy_guru", Status: UserStatusSuspended, ExpiresAt: nil}
-		out := planToggleUserStatus(u, now)
+		out := planToggleUserStatus(u, now, 14)
 		if out.NewStatus != UserStatusActive {
 			t.Errorf("NewStatus = %q, want %q", out.NewStatus, UserStatusActive)
 		}
@@ -161,7 +161,7 @@ func TestPlanToggleUserStatus(t *testing.T) {
 			t.Error("ReactivateLegacyNull = false, want true (NULL-expiry legacy account)")
 		}
 		if out.RenewExpiry != nil {
-			t.Errorf("RenewExpiry = %v, want nil — legacy NULL expiry must NOT be granted +1 day", out.RenewExpiry)
+			t.Errorf("RenewExpiry = %v, want nil — legacy NULL expiry must NOT be granted a renewal period", out.RenewExpiry)
 		}
 		if out.FreezeClock {
 			t.Error("FreezeClock = true, want false — no expiry to freeze")
@@ -171,30 +171,30 @@ func TestPlanToggleUserStatus(t *testing.T) {
 		}
 	})
 
-	t.Run("reactivating expired account grants exactly +1 day", func(t *testing.T) {
+	t.Run("reactivating expired account grants the default renew period (14 days)", func(t *testing.T) {
 		u := AdminUser{Username: "expired_guru", Status: UserStatusSuspended, ExpiresAt: &past}
-		out := planToggleUserStatus(u, now)
+		out := planToggleUserStatus(u, now, 14)
 		if out.NewStatus != UserStatusActive {
 			t.Errorf("NewStatus = %q, want %q", out.NewStatus, UserStatusActive)
 		}
 		if out.RenewExpiry == nil {
-			t.Fatal("RenewExpiry = nil, want +1 day renewal for an expired account")
+			t.Fatal("RenewExpiry = nil, want renewal for an expired account")
 		}
-		want := now.Add(24 * time.Hour)
+		want := now.AddDate(0, 0, 14)
 		if !out.RenewExpiry.Equal(want) {
 			t.Errorf("RenewExpiry = %v, want %v", out.RenewExpiry, want)
 		}
 		if out.ReactivateLegacyNull {
 			t.Error("ReactivateLegacyNull = true, want false")
 		}
-		if !strings.Contains(out.Message, "+1 hari") {
-			t.Errorf("Message = %q, want '+1 hari' indicator", out.Message)
+		if !strings.Contains(out.Message, "+14 hari") {
+			t.Errorf("Message = %q, want '+14 hari' indicator", out.Message)
 		}
 	})
 
 	t.Run("reactivating account with valid future expiry freezes clock", func(t *testing.T) {
 		u := AdminUser{Username: "future_guru", Status: UserStatusSuspended, ExpiresAt: &future}
-		out := planToggleUserStatus(u, now)
+		out := planToggleUserStatus(u, now, 14)
 		if out.NewStatus != UserStatusActive {
 			t.Errorf("NewStatus = %q, want %q", out.NewStatus, UserStatusActive)
 		}

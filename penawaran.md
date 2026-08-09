@@ -188,8 +188,8 @@ Modal operasional sudah termasuk server, domain, dan biaya lain. Berapa pelangga
 
 - **Support:** Email, grup WA, dokumentasi
 - **Pembayaran:** Transfer bank, QRIS
-- **Masa aktif:** 30 hari sejak pembayaran
-- **Uji coba:** 7 hari gratis untuk Paket Guru atau Sekolah Kecil
+- **Masa aktif:** 30 hari sejak pembayaran (paket berbayar)
+- **Uji coba:** 14 hari gratis untuk semua akun baru
 - **Migrasi data:** Gratis untuk pengguna baru
 
 ---

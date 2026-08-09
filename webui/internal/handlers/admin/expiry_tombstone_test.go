@@ -268,7 +268,7 @@ func TestToggleUserStatusLegacyNullExpiryRoundtrip(t *testing.T) {
 	// The regression assertion: expires_at must STILL be NULL (unlimited
 	// preserved) — the SQL executed by the reactivation must not set it.
 	if u.ExpiresAt != nil {
-		t.Errorf("after reactivate: expires_at = %v, want NULL — legacy NULL expiry must not be granted +1 day", u.ExpiresAt)
+		t.Errorf("after reactivate: expires_at = %v, want NULL — legacy NULL expiry must not be granted a renewal period", u.ExpiresAt)
 	}
 
 	// 3) The account behaves as unlimited: not feature-locked, can log in.
@@ -284,12 +284,12 @@ func TestToggleUserStatusLegacyNullExpiryRoundtrip(t *testing.T) {
 // branch-selection stability of planToggleUserStatus for the legacy NULL-expiry
 // account across REPEATED suspend/reactivate cycles: every reactivation must
 // keep selecting the legacy-NULL branch (expires_at stays NULL, unlimited
-// preserved) — never drifting into RenewExpiry (+1 hari grant) or FreezeClock
+// preserved) — never drifting into RenewExpiry (renewal grant) or FreezeClock
 // (suspension-duration extension). Branch selection reads Status and ExpiresAt
 // only, so as long as expires_at stays NULL the branch cannot drift on its own
 // — the regression this guards is a plan reordering that would treat NULL as
-// "already expired" (granting +1 day and silently converting an unlimited
-// account into an expiring one). The repeated loop also locks in the execution
+// "already expired" (granting a renewal period and silently converting an
+// unlimited account into an expiring one). The repeated loop also locks in the execution
 // side: each suspend sets suspended_at freshly, and every reactivation must
 // clear it, so no stale marker is left behind to double-freeze the clock if
 // the account later gains a real expiry.
@@ -342,8 +342,8 @@ func TestToggleUserStatusLegacyNullRepeatedCyclesNeverDriftsBranch(t *testing.T)
 		if !strings.Contains(msg, "tanpa batas") {
 			t.Errorf("cycle %d reactivate msg = %q, want the legacy-NULL (tanpa batas) message", cycle, msg)
 		}
-		if strings.Contains(msg, "+1 hari") || strings.Contains(msg, "diperpanjang sampai") {
-			t.Errorf("cycle %d reactivate msg = %q, want NO +1-day/freeze wording (branch must not drift to RenewExpiry/FreezeClock)", cycle, msg)
+		if strings.Contains(msg, "+14 hari") || strings.Contains(msg, "diperpanjang sampai") {
+			t.Errorf("cycle %d reactivate msg = %q, want NO renewal/freeze wording (branch must not drift to RenewExpiry/FreezeClock)", cycle, msg)
 		}
 		u = mustGetUser(t, pool, "legacycycles")
 		if u.ExpiresAt != nil {
@@ -1106,12 +1106,13 @@ func TestBillingDisplayShowsFrozenRemainingAfterFreezeClock(t *testing.T) {
 // TestBillingDisplayShowsRenewedRemainingAfterExpiryRenewal locks in what the
 // billing page shows after the RenewExpiry branch of ToggleUserStatus: an
 // EXPIRED suspended account (expires_at in the past) reactivated by the
-// toggle is granted a fresh +1-day period — the renewal SUPERSEDES the
-// suspension freeze — and the ACTIVE package's clock is realigned to the
-// renewed expiry (SyncActiveRedemptionToExpiry). The billing display (derived
-// from the account expires_at) must therefore show ~1 day, NOT the stale
-// pre-renewal ~30d remaining_seconds, and must agree with the realigned
-// stored clock. Drives the real /admin/api/vouchers/mine endpoint.
+// toggle is granted a fresh renewal period (default_active_days = 14 days) —
+// the renewal SUPERSEDES the suspension freeze — and the ACTIVE package's
+// clock is realigned to the renewed expiry (SyncActiveRedemptionToExpiry).
+// The billing display (derived from the account expires_at) must therefore
+// show ~14 days, NOT the stale pre-renewal ~30d remaining_seconds, and must
+// agree with the realigned stored clock. Drives the real
+// /admin/api/vouchers/mine endpoint.
 func TestBillingDisplayShowsRenewedRemainingAfterExpiryRenewal(t *testing.T) {
 	pool := setupVoucherITDB(t)
 	ctx := context.Background()
@@ -1130,7 +1131,7 @@ func TestBillingDisplayShowsRenewedRemainingAfterExpiryRenewal(t *testing.T) {
 
 	// Deterministic suspended+EXPIRED state (Go clock, stored verbatim):
 	// suspended 2h ago with the expiry ALREADY in the past (1h ago) — the
-	// exact condition that selects the RenewExpiry (+1 day) branch, not the
+	// exact condition that selects the RenewExpiry (renewal) branch, not the
 	// FreezeClock branch.
 	goNow := time.Now().UTC()
 	pinSuspendedState(t, pool, u.ID, false, goNow.Add(-2*time.Hour), goNow.Add(-time.Hour))
@@ -1144,8 +1145,9 @@ func TestBillingDisplayShowsRenewedRemainingAfterExpiryRenewal(t *testing.T) {
 		t.Fatalf("fixture: pre-renewal remaining=%d, want ~30 days (the stale clock the renewal must supersede)", storedBefore)
 	}
 
-	// Reactivate via the toggle: the RenewExpiry branch grants a fresh +1-day
-	// period (now + 24h) and realigns the active package clock to it.
+	// Reactivate via the toggle: the RenewExpiry branch grants a fresh renewal
+	// period (now + default_active_days) and realigns the active package clock
+	// to it.
 	newStatus, msg, err := models.ToggleUserStatus(ctx, pool, u.ID)
 	if err != nil {
 		t.Fatalf("toggle reactivate: %v", err)
@@ -1153,8 +1155,8 @@ func TestBillingDisplayShowsRenewedRemainingAfterExpiryRenewal(t *testing.T) {
 	if newStatus != models.UserStatusActive {
 		t.Fatalf("newStatus = %q, want %q", newStatus, models.UserStatusActive)
 	}
-	if !strings.Contains(msg, "+1 hari") {
-		t.Errorf("msg = %q, want the +1-day renewal indicator", msg)
+	if !strings.Contains(msg, "+14 hari") {
+		t.Errorf("msg = %q, want the +14-day renewal indicator", msg)
 	}
 
 	// The renewed account expiry is the authoritative clock the display
@@ -1163,10 +1165,10 @@ func TestBillingDisplayShowsRenewedRemainingAfterExpiryRenewal(t *testing.T) {
 	if got.ExpiresAt == nil {
 		t.Fatal("expires_at = nil after renewal reactivation")
 	}
-	// Sanity: the renewal really granted +1 day from now (not a freeze of the
+	// Sanity: the renewal really granted ~14 days from now (not a freeze of the
 	// stale past expiry).
-	if got.ExpiresAt.Before(time.Now().UTC().Add(23 * time.Hour)) {
-		t.Errorf("renewed expires_at = %v, want ~now + 1 day", got.ExpiresAt)
+	if got.ExpiresAt.Before(time.Now().UTC().Add(13 * 24 * time.Hour)) {
+		t.Errorf("renewed expires_at = %v, want ~now + 14 days", got.ExpiresAt)
 	}
 	var redemptionID int
 	var redemptionPackage string
@@ -1184,9 +1186,9 @@ func TestBillingDisplayShowsRenewedRemainingAfterExpiryRenewal(t *testing.T) {
 		*got.ExpiresAt, storedRemaining, redemptionID, redemptionPackage, payload.Redemptions[activeIdx])
 
 	// The renewal visibly replaced the stale clock: the displayed lifetime is
-	// ~1 day — far below the pre-renewal ~30d.
-	if active.RemainingSeconds > 3*86400 {
-		t.Errorf("display remaining_seconds=%d, want ~1 day after renewal (stale %d must be superseded)",
+	// ~14 days — far below the pre-renewal ~30d.
+	if active.RemainingSeconds > 15*86400 {
+		t.Errorf("display remaining_seconds=%d, want ~14 days after renewal (stale %d must be superseded)",
 			active.RemainingSeconds, storedBefore)
 	}
 }

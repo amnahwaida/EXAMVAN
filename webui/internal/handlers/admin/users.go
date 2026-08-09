@@ -372,7 +372,7 @@ func CreateUser() gin.HandlerFunc {
 
 		// Default expiry — only apply form value when operator didn't already set it.
 		defaultDays := models.GetSaasSettingInt(ctx, pool,
-			models.SettingDefaultActiveDays, 1)
+			models.SettingDefaultActiveDays, 14)
 		if expiresAtPtr == nil {
 			expiresAtStr := strings.TrimSpace(body.ExpiresAt)
 			if expiresAtStr != "" {

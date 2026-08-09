@@ -57,7 +57,7 @@ func handleSaasSettingsGet(c *gin.Context, pool *pgxpool.Pool, ctx context.Conte
 	defaultMaxExams := parseIntSetting(settings[models.SettingDefaultMaxExams], 3)
 	defaultMaxPDFSize := parseIntSetting(settings[models.SettingDefaultMaxPDFSize], 1048576)
 	defaultMaxConcurrentExams := parseIntSetting(settings[models.SettingDefaultMaxConcurrentExams], 2)
-	defaultActiveDays := parseIntSetting(settings[models.SettingDefaultActiveDays], 1)
+	defaultActiveDays := parseIntSetting(settings[models.SettingDefaultActiveDays], 14)
 
 	c.JSON(http.StatusOK, gin.H{
 		"success": true,
@@ -233,7 +233,7 @@ func handleSaasSettingsPost(c *gin.Context, pool *pgxpool.Pool, ctx context.Cont
 
 	defaultActiveDays := body.DefaultActiveDays
 	if defaultActiveDays <= 0 {
-		defaultActiveDays = 1
+		defaultActiveDays = 14
 	}
 	models.SetSaasSetting(reqCtx, pool, models.SettingDefaultActiveDays, strconv.Itoa(defaultActiveDays))
 

@@ -69,6 +69,14 @@
 | **Manajemen Daftar** | Tabel daftar ujian, toggle status aktif/nonaktif, hapus file + DB |
 | **Info Jaringan** | Tampilkan IP server lokal, status HTTP/HTTPS, log akses terakhir |
 
+### 4.4 Masa Aktif Default & Perpanjangan (SaaS)
+| Fitur | Deskripsi |
+|-------|-----------|
+| **Masa Aktif Awal (Trial)** | Akun baru (registrasi `/register` atau dibuat admin) mendapat masa aktif **14 hari** (setting SaaS `default_active_days`, dapat diubah SuperAdmin). |
+| **Setelah Masa Aktif Habis** | Login **tetap diizinkan**; seluruh fitur terkunci kecuali halaman **Paket & Voucher** (`/admin/billing`) untuk klaim kode voucher. |
+| **Perpanjangan** | Melalui **klaim voucher** oleh pemilik akun, atau **perpanjangan manual** oleh SuperAdmin/Operator. SuperAdmin tidak pernah terkunci masa aktif. |
+| **Cakupan** | Hanya akun yang dibuat **setelah** pengaturan diubah; akun lama tidak terpengaruh otomatis. |
+
 ---
 
 ## 5. 🛡️ Lingkup Non-Fungsional (Non-Functional Requirements)

@@ -255,6 +255,32 @@ Server berjalan di port 5000 (default).
 
 ---
 
+## Konfigurasi Masa Aktif Default (Trial)
+
+Setiap akun **baru** (baik lewat registrasi publik `/register` maupun dibuat oleh admin/operator) mendapat **masa aktif awal 14 hari** — dihitung dari saat akun dibuat. Ini dikontrol oleh pengaturan SaaS **`default_active_days`**.
+
+Setelah masa aktif habis, akun **tetap bisa login**, tetapi seluruh fitur terkunci kecuali halaman **Paket & Voucher** (`/admin/billing`) — tempat pemilik akun dapat mengklaim kode voucher atau menunggu perpanjangan manual oleh admin. SuperAdmin tidak pernah terpengaruh masa aktif.
+
+> ⚠️ **Catatan:** pengaturan ini hanya memengaruhi **akun yang dibuat setelah perubahan** — akun yang sudah ada tidak diperpanjang mundur. Nilai yang tersimpan di database **menimpa** default di kode.
+
+### Cara Mengubah
+
+**Opsi A — Lewat UI Admin (disarankan):**
+1. Login sebagai SuperAdmin.
+2. Buka halaman **Users** (`/admin/users`) → panel **"SaaS & SMTP Email Settings"**.
+3. Ubah field **"Masa Aktif"** (default: `14`, minimal `1`), lalu klik **Simpan Setelan SaaS**.
+4. Berlaku langsung untuk pendaftaran/pembuatan akun berikutnya tanpa perlu deploy ulang.
+
+**Opsi B — Langsung di database (mis. untuk sinkronisasi batch/instalasi baru):**
+
+```sql
+UPDATE saas_settings SET value = '14' WHERE key = 'default_active_days';
+```
+
+Ganti `14` dengan jumlah hari yang diinginkan. Lokasi default di kode: `webui/internal/models/settings.go` → `DefaultSettings` (dipakai hanya jika baris setting belum ada di database).
+
+---
+
 ## Pengujian (Tes Otomatis)
 
 ### 1. Tes Unit (tanpa database)

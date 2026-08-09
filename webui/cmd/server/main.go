@@ -1153,7 +1153,7 @@ func registerPostHandler(cfg *config.Config) gin.HandlerFunc {
 		}
 
 		defaultDays := models.GetSaasSettingInt(ctx, dbPool,
-			models.SettingDefaultActiveDays, 1)
+			models.SettingDefaultActiveDays, 14)
 		t := time.Now().UTC().AddDate(0, 0, defaultDays)
 		user.ExpiresAt = &t
 

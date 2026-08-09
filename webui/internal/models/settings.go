@@ -115,7 +115,7 @@ var DefaultSettings = map[string]string{
 	SettingSMTPSenderName:            "EXAMVAN",
 	SettingDefaultMaxExams:           "3",
 	SettingDefaultMaxPDFSize:         "1048576",
-	SettingDefaultActiveDays:         "1",
+	SettingDefaultActiveDays:         "14",
 	SettingDefaultMaxConcurrentExams: "2",
 	SettingDefaultMaxStorageSize:     "52428800",
 	SettingAndroidVersion:            "2.2.0",
