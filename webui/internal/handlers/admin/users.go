@@ -196,6 +196,9 @@ func ListUsers() gin.HandlerFunc {
 			ExamCount          int      `json:"exam_count"`
 			CreatedAt          string   `json:"created_at"`
 			Package            string   `json:"package"`
+			// OperatorCreated exposes the origin flag to the Kelola Users page so
+			// it can render the "Dibuat oleh Operator" badge on sub-accounts.
+			OperatorCreated bool `json:"operator_created"`
 		}
 
 		users := make([]userItem, 0, len(result.Users))
@@ -225,6 +228,7 @@ func ListUsers() gin.HandlerFunc {
 				ExamCount:          u.ExamCount,
 				CreatedAt:          formatISOUTC(u.CreatedAt),
 				Package:            u.Package,
+				OperatorCreated:    u.OperatorCreated,
 			})
 		}
 
@@ -439,6 +443,10 @@ func CreateUser() gin.HandlerFunc {
 			Email:              strings.TrimSpace(body.Email),
 			ExpiresAt:          expiresAtPtr,
 			Package:            pkg,
+			// Sub-account voucher policy: an account created BY an operator is
+			// marked operator_created and can never claim/activate vouchers
+			// (origin-based, immutable — see RedeemVoucherHandler).
+			OperatorCreated: isOp,
 		}
 
 		created, err := models.CreateUser(ctx, pool, user)

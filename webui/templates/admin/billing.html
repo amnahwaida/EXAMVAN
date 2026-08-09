@@ -139,7 +139,11 @@
  {{if .user_expired}}
  <div style="display:flex;align-items:center;gap:12px;background:rgba(245,158,11,0.12);border:1px solid rgba(245,158,11,0.35);color:#fbbf24;padding:14px 18px;border-radius:12px;margin-bottom:24px;font-size:13.5px;">
   <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="flex:0 0 auto;"><path d="M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
+  {{if .user_operator_created}}
+  <span>Masa aktif akun Anda telah berakhir. Seluruh fitur dikunci; Anda hanya dapat mengakses halaman ini. Hubungi Operator/Super Admin sekolah untuk memperpanjang masa aktif.</span>
+  {{else}}
   <span>Masa aktif akun Anda telah berakhir. Seluruh fitur dikunci; Anda hanya dapat mengakses halaman ini. Klaim/aktifkan paket di bawah atau hubungi administrator untuk memperpanjang masa aktif.</span>
+  {{end}}
  </div>
  {{end}}
 
@@ -156,6 +160,13 @@
 
   <!-- Voucher Redeem Card -->
   {{if ne .admin_role "superadmin"}}
+  {{if .user_operator_created}}
+  <div class="glass-card" style="padding:24px;border-radius:16px;display:flex;flex-direction:column;justify-content:center;position:relative;overflow:hidden;border:1px solid rgba(245,158,11,0.35);background:linear-gradient(135deg, rgba(245,158,11,0.06), rgba(99,102,241,0.04));">
+   <div style="position:absolute;top:0;left:0;right:0;height:4px;background:linear-gradient(90deg, #f59e0b, #6366f1);"></div>
+   <span style="font-size:11px;font-weight:700;text-transform:uppercase;color:#fbbf24;letter-spacing:0.5px;display:block;margin-bottom:6px;">Akun Sub (Dibuat Operator)</span>
+   <p style="font-size:12px;color:var(--color-text-secondary);margin:0;line-height:1.5;">Akun yang dibuat oleh Operator tidak dapat menukar kode voucher. Kuota, paket, dan masa aktif akun ini dikelola oleh Operator/Super Admin sekolah Anda.</p>
+  </div>
+  {{else}}
   <div class="glass-card" style="padding:24px;border-radius:16px;display:flex;flex-direction:column;justify-content:center;position:relative;overflow:hidden;border:1px solid rgba(168,85,247,0.3);background:linear-gradient(135deg, rgba(168,85,247,0.05), rgba(99,102,241,0.05));">
    <div style="position:absolute;top:0;left:0;right:0;height:4px;background:linear-gradient(90deg, #a855f7, #6366f1);"></div>
    <span style="font-size:11px;font-weight:700;text-transform:uppercase;color:#c084fc;letter-spacing:0.5px;display:block;margin-bottom:6px;">Punya Kode Voucher?</span>
@@ -169,6 +180,7 @@
    <p style="font-size:12px;color:var(--color-text-secondary);margin:0;">Penukaran kode promo sedang tidak tersedia untuk saat ini.</p>
    {{end}}
   </div>
+  {{end}}
   {{ end }}
 
   <!-- Quota Details Card -->
@@ -215,7 +227,7 @@
  </div>
 
  <!-- Claimed Packages / Active package selection -->
- {{if ne .admin_role "superadmin"}}
+ {{if and (ne .admin_role "superadmin") (not .user_operator_created)}}
  <section class="glass-card" style="padding:24px;border-radius:16px;margin-top:32px;">
   <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;flex-wrap:wrap;gap:8px;">
    <h3 style="font-size:1.15rem;color:#a5b4fc;margin:0;font-family:'Outfit',sans-serif;display:flex;align-items:center;gap:8px;">

@@ -28,8 +28,9 @@ func BillingPage() gin.HandlerFunc {
 		var userMaxStorage int64
 		var userExpires string
 		userExpired := false
-		var userMaxAccounts int64 // sub-account quota of the active package (0 = n/a or unlimited)
-		var userAccountsUsed int64
+	var userMaxAccounts int64 // sub-account quota of the active package (0 = n/a or unlimited)
+	var userAccountsUsed int64
+	userOperatorCreated := false // account created by an operator (sub-account voucher policy)
 		userAccountsPct := 0
 		var userAccountsRemaining int64
 		isSuper := getCurrentUserRole(c) == models.RoleSuperAdmin
@@ -69,13 +70,20 @@ func BillingPage() gin.HandlerFunc {
 				if userMaxAccounts > 0 {
 					userAccountsPct = int(userAccountsUsed * 100 / userMaxAccounts)
 					if userAccountsPct > 100 {
-						userAccountsPct = 100
+					userAccountsPct = 100
 					}
 					userAccountsRemaining = userMaxAccounts - userAccountsUsed
 					if userAccountsRemaining < 0 {
 						userAccountsRemaining = 0
 					}
 				}
+				// Sub-account voucher policy: hide the voucher-claim UI entirely
+				// for accounts created by an operator — they can never
+				// redeem/activate a voucher (the API rejects them with 403), so
+				// the form would only mislead. Their package/kuota are managed
+				// by the school operator. Read from the user already loaded
+				// above (no second query).
+				userOperatorCreated = user.OperatorCreated
 			}
 		}
 
@@ -94,6 +102,7 @@ func BillingPage() gin.HandlerFunc {
 			"user_accounts_used":      userAccountsUsed,
 			"user_accounts_pct":       userAccountsPct,
 			"user_accounts_remaining": userAccountsRemaining,
+			"user_operator_created":    userOperatorCreated,
 		})
 	}
 }

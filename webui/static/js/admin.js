@@ -1384,6 +1384,7 @@ function loadUsersList(page) {
                                 ${isAdmin ? '<svg class="icon-svg" style="width:16px;height:16px;vertical-align:middle;color:#fbbf24;"><use href="#hi-star"/></svg> ' : ''}${escapeHtml(user.username)}
                             </strong>
                             ${isAdmin ? '<span style="font-size:11px; color: var(--color-text-secondary); display:block;">Super Admin</span>' : ''}
+                            ${user.operator_created ? '<span title="Akun ini dibuat oleh Operator (akun sub sekolah). Paket, kuota, dan masa aktifnya dikelola melalui paket sekolah Operator — akun ini tidak dapat menukar kode voucher sendiri." style="display:inline-block;margin-top:3px;padding:1px 8px;border-radius:10px;font-size:10px;font-weight:600;background:rgba(251,146,60,0.12);color:#fb923c;border:1px solid rgba(251,146,60,0.25);cursor:help;">Dibuat oleh Operator</span>' : ''}
                             <div class="user-info-popup" style="display:none;">
                                 <div class="user-info-item"><span>Ujian</span><strong>${user.exam_count ?? 0}</strong></div>
                                 <div class="user-info-item"><span>Maks Total Ujian</span><strong>${user.max_exams ?? '—'}</strong></div>

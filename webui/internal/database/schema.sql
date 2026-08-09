@@ -36,7 +36,15 @@ CREATE TABLE IF NOT EXISTS admin_users (
     otp_code        TEXT,
     otp_expiry      TIMESTAMPTZ,
     otp_attempts    INT NOT NULL DEFAULT 0,
-    suspended_by_cascade BOOLEAN DEFAULT FALSE
+    suspended_by_cascade BOOLEAN DEFAULT FALSE,
+    -- True when the account was CREATED by an operator (a school sub-account).
+    -- Such accounts may never claim/activate vouchers: their package, quota
+    -- and expiry come exclusively from the school package the operator
+    -- manages (see the sub-account voucher policy in README.md). Origin-based
+    -- and immutable: set once at creation by the CreateUser handler, never
+    -- changed afterwards. False for superadmin-created, self-registered and
+    -- legacy/imported accounts.
+    operator_created BOOLEAN NOT NULL DEFAULT FALSE
 );
 
 -- ============================================================
@@ -547,6 +555,18 @@ ALTER TABLE admin_users ADD COLUMN IF NOT EXISTS base_role TEXT NOT NULL DEFAULT
 -- registration cap (anti mass-registration defense-in-depth, layered on top
 -- of Cloudflare Turnstile). Empty for legacy/imported rows.
 ALTER TABLE admin_users ADD COLUMN IF NOT EXISTS registered_ip TEXT NOT NULL DEFAULT '';
+
+-- ============================================================
+-- Migration: sub-account voucher policy (operator_created)
+-- ============================================================
+-- Marks accounts CREATED BY an operator (school sub-accounts). The CreateUser
+-- handler sets the flag when the caller is an operator; it is never modified
+-- afterwards (origin-based, not current-role-based). RedeemVoucherHandler and
+-- ActivateVoucherHandler reject these accounts with 403, so a sub-account can
+-- never claim or activate a voucher — its package/quota/expiry are managed by
+-- the school package the operator holds. Legacy/imported rows stay false.
+-- Safe to re-run on every boot.
+ALTER TABLE admin_users ADD COLUMN IF NOT EXISTS operator_created BOOLEAN NOT NULL DEFAULT FALSE;
 
 -- Keep package_role in sync with the active redemption's snapshot role on
 -- every boot. This also migrates rows created under the old accumulate-forever

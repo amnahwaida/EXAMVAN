@@ -42,6 +42,26 @@ Review lanjutan tiga temuan di alur submission/penjadwalan. **Semua sudah diperb
 
 ---
 
+## ✅ AUDIT PERMUKAAN VOUCHER — KLIEN & WEB (9 Agustus 2026)
+
+Audit lanjutan dari kebijakan "akun sub (dibuat operator) tidak boleh klaim voucher": memastikan tidak ada permukaan lain selain `/admin/billing` (yang sudah disesuaikan) yang menampilkan aksi klaim kepada akun sub. **Hasil: tidak ditemukan permukaan lain — tidak ada penyesuaian UI yang diperlukan.** Kontrak routing dikunci test `TestNoPublicVoucherRoutes` (tanpa database). Catatan lengkap di [README.md → Kebijakan Klaim Voucher Akun Sub](../README.md#kebijakan-klaim-voucher-akun-sub-dibuat-operator).
+
+### A. Klien Android & desktop — tidak punya UI klaim voucher (0 kemunculan)
+- Kedua klien (Android `api/ApiClient.kt`, desktop `examvan/api.py` + salinan `desktop/pkg-build/`) adalah aplikasi **ujian berbasis token**, bukan aplikasi manajemen akun. Di kode sumber klien (Java/Kotlin, layout & string `res/`, Python desktop, salinan `pkg-build/`) pencarian istilah `voucher`/`redeem`/`billing`/`claim`/`klaim` menghasilkan **0 kemunculan** (kata `paket` hanya muncul di skrip packaging `desktop/install.sh` dalam konteks manajer paket OS, bukan paket voucher).
+- Endpoint yang dipanggil hanyalah rute ujian publik (`/api/health`, `/api/exams`, `/api/exams/request-approval`, `/api/exams/token/{token}`, `/api/exams/{exam_id}/pdf`, `/api/exams/{exam_id}/submit`). Endpoint claim/aktivasi (`/admin/api/vouchers/*`) bersifat **session-based admin** tanpa versi publik — klien token secara teknis pun tidak bisa memanggilnya.
+
+### B. Permukaan web publik — bersih (0 referensi voucher)
+- `templates/public/` (index, register, register_confirm, forgot_password, reset_password, hasil, download, shared), `templates/admin/login.html`, `internal/handlers/public/`, serta JS/CSS publik: **0 referensi** voucher/klaim/billing/paket. Satu-satunya kecocokan adalah teks lisensi `static/js/fingerprintjs.min.js` ("CLAIM, DAMAGES") — bukan kode aplikasi.
+
+### C. Halaman admin lain yang terjangkau akun sub — sudah terkunci
+- Dashboard/submissions/pengawas/system-apps: 0 referensi voucher. Satu-satunya halaman berisi form klaim adalah `/admin/billing` — sudah menyembunyikan form klaim + daftar "Paket yang Sudah Anda Klaim" untuk akun sub (kartu penjelasan "Akun Sub (Dibuat Operator)").
+- Nav "Kelola Voucher"/"Pengaturan Paket" dibungkus `{{if $isSuper}}` (`nav.html`); toggle "Redeem Kode Promo / Voucher" di panel "Kontrol Monetisasi" (`users.html`) hanya dirender di dalam panel SaaS `{{if eq .admin_role "superadmin"}}` — keduanya bukan aksi klaim per akun.
+
+### D. Kontrak rute
+- `TestNoPublicVoucherRoutes` (`cmd/server/routes_voucher_public_test.go`) menginspeksi tabel rute hasil `registerRoutes` asli: tidak ada rute ber-`voucher`/`redeem`/`activate` di luar prefix `/admin`, dan `POST /admin/api/vouchers/redeem`, `POST /admin/api/vouchers/activate`, `GET /admin/api/vouchers/mine` tetap terdaftar.
+
+---
+
 ### 1. Stored XSS lewat MAC address di antrean approval pengawas
 - **Lokasi:** `templates/admin/pengawas_detail.html:1174,1177` (render) + `internal/handlers/api/exams.go:339` (`RequestApproval`, insert tanpa sanitasi) + route publik `cmd/server/main.go:473`.
 - **Masalah:** Badge MAC di baris 1163 di-escape (`esc()`), tapi baris 1174/1177 menyisipkan `a.mac_address` **mentah** ke atribut `onclick="setApproval('...')"` lalu `tbody.innerHTML = html` (1187). `RequestApproval` menyimpan `mac_address` apa adanya, dan endpoint `POST /api/exams/request-approval` **tanpa autentikasi** (hanya rate-limit + version check).

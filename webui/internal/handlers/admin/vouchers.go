@@ -11,6 +11,7 @@ import (
 	"github.com/gin-contrib/sessions"
 	"github.com/gin-gonic/gin"
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/examvan/webui/internal/middleware"
 	"github.com/examvan/webui/internal/models"
@@ -21,6 +22,37 @@ import (
 // redeemed). Returning distinct messages would act as an oracle that lets an
 // attacker distinguish a valid-but-exhausted code from a bogus one.
 const voucherInvalidMsg = "Kode voucher tidak valid atau sudah tidak dapat digunakan."
+
+// subAccountRedeemBlockedMsg is returned whenever an account CREATED BY AN
+// OPERATOR (admin_users.operator_created = true, a school sub-account) tries
+// to claim or activate a voucher. Such accounts get their package, quota and
+// expiry exclusively from the school package the operator manages; letting
+// them self-service vouchers would let them bypass those controls (e.g.
+// self-upgrade to an operator role via a sekolah voucher, or extend their own
+// expiry independently of the school's). Origin-based: the block sticks even
+// if the account's role changes later.
+const subAccountRedeemBlockedMsg = "Akun yang dibuat oleh Operator tidak dapat menukar kode voucher. Kuota dan masa aktif akun ini dikelola oleh Operator/Super Admin."
+
+// rejectOperatorCreatedAccount answers 403 when the current user is an
+// operator-created sub-account and returns true; otherwise it returns false
+// and the handler continues. It must be called BEFORE any voucher/redemption
+// lookup so a blocked account can never use the response to distinguish a
+// valid voucher code from a bogus one (the voucherInvalidMsg oracle rule):
+// every claim attempt by a sub-account is answered with the same message.
+func rejectOperatorCreatedAccount(c *gin.Context, pool *pgxpool.Pool, userID int, dbErrMsg string) bool {
+	var operatorCreated bool
+	if err := pool.QueryRow(c.Request.Context(),
+		`SELECT COALESCE(operator_created, FALSE) FROM admin_users WHERE id = $1`, userID).Scan(&operatorCreated); err != nil {
+		log.Printf("fetch operator_created error: %v", err)
+		errorResponse(c, http.StatusInternalServerError, dbErrMsg)
+		return true
+	}
+	if operatorCreated {
+		errorResponse(c, http.StatusForbidden, subAccountRedeemBlockedMsg)
+		return true
+	}
+	return false
+}
 
 // VouchersPage renders the GET /admin/vouchers management page for SuperAdmin.
 func VouchersPage() gin.HandlerFunc {
@@ -409,6 +441,12 @@ func RedeemVoucherHandler() gin.HandlerFunc {
 			errorResponse(c, http.StatusForbidden, "Akun SuperAdmin tidak dapat menukar kode voucher")
 			return
 		}
+		// Sub-account voucher policy: an account created by an operator can
+		// never claim any voucher. Checked before the tx and any voucher
+		// lookup so the block is airtight and leaks no code-validity oracle.
+		if rejectOperatorCreatedAccount(c, pool, userID, "Gagal memproses klaim voucher") {
+			return
+		}
 		ctx := c.Request.Context()
 
 		dbTx, err := pool.Begin(ctx)
@@ -707,6 +745,12 @@ func ActivateVoucherHandler() gin.HandlerFunc {
 		}
 		if getCurrentUserRole(c) == models.RoleSuperAdmin {
 			errorResponse(c, http.StatusForbidden, "Akun SuperAdmin tidak memiliki paket voucher")
+			return
+		}
+		// Sub-account voucher policy: an operator-created account can never
+		// activate a voucher package either (it can never have claimed one;
+		// this also blocks legacy/pre-policy redemptions still on its row).
+		if rejectOperatorCreatedAccount(c, pool, userID, "Gagal memproses aktivasi paket") {
 			return
 		}
 		ctx := c.Request.Context()

@@ -281,6 +281,52 @@ Saat operator diperpanjang, perilaku akun sub bergantung pada jalur perpanjangan
 
 Sub-account yang **memiliki voucher/paket aktif sendiri** atau **ber-role operator** tidak disentuh oleh perpanjangan/cascade di atas — mereka memakai jam mandirinya masing-masing. Sub yang sudah **unlimited** (`expires_at` NULL) tetap unlimited (cascade tidak pernah menimpa status unlimited yang sudah ada).
 
+### Kebijakan Klaim Voucher Akun Sub (Dibuat Operator)
+
+Sejak kebijakan ini diberlakukan, **akun yang dibuat oleh operator** (akun sub dalam satu `instansi` sekolah) **tidak dapat menukar (klaim) kode voucher apa pun** — baik lewat halaman Paket & Voucher, lewat API, maupun lewat klien Android/desktop (semuanya memanggil API yang sama) — dan **tidak dapat mengaktifkan** paket voucher yang mungkin tertinggal di akunnya (mis. klaim sebelum kebijakan berlaku).
+
+**Klien Android & Desktop — hasil audit (tidak ada penyesuaian UI yang diperlukan):** Kedua klien adalah aplikasi **ujian berbasis token**, bukan aplikasi manajemen akun. Klien Android (`android/app/src/main/java/com/examvan/app/api/ApiClient.kt`) dan klien desktop (`desktop/examvan/api.py`, termasuk salinan paket di `desktop/pkg-build/`) **tidak memiliki layar billing/voucher sama sekali** — di kode sumber klien (Java/Kotlin, layout & string `res/`, Python desktop, salinan `pkg-build/`) pencarian istilah `voucher`/`redeem`/`billing`/`claim`/`klaim` menghasilkan **0 kemunculan** (kata `paket` hanya muncul di skrip packaging `desktop/install.sh` dalam konteks manajer paket OS, bukan paket voucher). Endpoint yang mereka panggil hanyalah rute ujian publik (`/api/health`, `/api/exams`, `/api/exams/request-approval`, `/api/exams/token/{token}`, `/api/exams/{exam_id}/pdf`, `/api/exams/{exam_id}/submit`). Endpoint claim/aktivasi (`/admin/api/vouchers/*`) bersifat **session-based admin** dan tidak punya versi publik — klien token secara teknis pun tidak bisa memanggilnya. Karena itu perlindungan akun sub sepenuhnya di sisi server (403 `rejectOperatorCreatedAccount` **sebelum** pencarian voucher, yang juga menutup skenario andai suatu hari klien mencoba memanggil endpoint itu), dan kontrak routing ini dikunci oleh test `TestNoPublicVoucherRoutes`. Permukaan UI satu-satunya yang berisi form klaim adalah halaman web Paket & Voucher (`/admin/billing`) — yang sudah disesuaikan untuk akun sub (lihat bagian *Cara kerja* di bawah).
+
+**Alasan:** paket, kuota, dan masa aktif akun sub dikelola secara terpusat oleh paket sekolah yang dipegang operator (kuota `max_users`, cascade masa aktif, dsb.). Jika akun sub bisa klaim voucher sendiri, ia dapat melewati kendali tersebut — misalnya mengklaim voucher paket sekolah yang memberinya role **Operator** (self-upgrade), atau memperpanjang/mengubah masa aktifnya sendiri secara independen dari jam sekolah.
+
+**Cara kerja (implementasi):**
+
+- Kolom `admin_users.operator_created` (`BOOLEAN NOT NULL DEFAULT FALSE`) menandai akun yang **dibuat oleh operator**. Di-set oleh handler `CreateUser` (`webui/internal/handlers/admin/users.go`) saat caller adalah operator — **berbasis asal (origin), bukan role saat ini**: flag tidak pernah berubah setelah akun dibuat, sehingga akun sub yang nanti rolenya dinaikkan tetap tidak bisa klaim.
+- `RedeemVoucherHandler` dan `ActivateVoucherHandler` (`webui/internal/handlers/admin/vouchers.go`) menolak akun dengan `operator_created = true` dengan HTTP **403** dan pesan penjelas. Pengecekan dilakukan **sebelum pencarian voucher**, sehingga akun sub tidak dapat membedakan kode valid vs tidak valid dari responsnya — aturan anti-oracle `voucherInvalidMsg` (satu pesan generik untuk semua kegagalan kode) tetap berlaku untuk semua akun lain.
+- Halaman **Paket & Voucher** (`/admin/billing`) menyembunyikan seluruh UI voucher untuk akun sub — form klaim maupun daftar "Paket yang Sudah Anda Klaim" — dan menampilkan penjelasan singkat (kuota & masa aktif dikelola Operator/Super Admin). Dengan begitu tidak ada tombol/tindakan voucher yang berujung buntu di UI, termasuk redemption lama (pra-kebijakan) yang tersisa di akun.
+- Halaman **Kelola Users** (`/admin/users`) menampilkan badge **"Dibuat oleh Operator"** di samping username setiap akun sub, sehingga Super Admin bisa melihat asal akun sekilas. Implementasi: `ListUsers` (`webui/internal/handlers/admin/users.go`) menyertakan `operator_created` dalam JSON tiap baris user, dan `webui/static/js/admin.js` (`loadUsersList`) merender badge tersebut (tooltip menjelaskan bahwa paket/kuota/masa aktif akun dikelola via paket sekolah Operator).
+- Migrasi skema aman dijalankan ulang: `ALTER TABLE admin_users ADD COLUMN IF NOT EXISTS operator_created BOOLEAN NOT NULL DEFAULT FALSE` (`webui/internal/database/schema.sql`).
+
+**Yang TIDAK terkena dampak:**
+
+- Operator itu sendiri (akun yang membuat sub-akun) — tetap bisa klaim voucher, termasuk voucher paket sekolahnya;
+- Akun yang dibuat **SuperAdmin** lewat panel Users — tetap bisa klaim;
+- Akun hasil **registrasi mandiri** (`/register`, `instansi = "personal"`) — tetap bisa klaim;
+- Akun lama/import (flag `false`).
+
+**Verifikasi (test integrasi otomatis, `webui/internal/handlers/admin/subaccount_voucher_policy_test.go`):**
+
+- `TestSubAccountCannotRedeemVoucher` — sub-akun hasil handler `CreateUser` ditolak **403** untuk kode valid maupun tidak valid (tanpa oracle), tanpa baris redemption, dan kuota voucher tidak terpakai; operatornya sendiri tetap bisa klaim.
+- `TestSubAccountCannotActivateVoucher` — redemption pra-kebijakan yang tertinggal di akun sub tidak dapat diaktifkan (403) dan tidak diubah.
+- `TestDirectCreatedAccountsCanStillRedeem` — akun buatan SuperAdmin dan akun registrasi mandiri tetap bisa klaim (200).
+- `TestBillingPageHidesRedeemFormForSubAccount` — me-render halaman **Paket & Voucher** yang asli (handler `BillingPage` + template nyata) dan memastikan form klaim serta daftar "Paket yang Sudah Anda Klaim" **tidak** dirender untuk akun sub (muncul kartu penjelasan "Akun Sub (Dibuat Operator)"), sedangkan akun biasa tetap mendapat form klaim.
+- `TestUsersListAPIReportsOperatorCreated` — endpoint daftar user (produksi `GET /admin/api/users`) mengirim `operator_created: true` untuk akun sub hasil buatan operator dan `false` untuk akun buatan SuperAdmin/registrasi mandiri — kontrak API di balik badge "Dibuat oleh Operator" di halaman Kelola Users.
+- `TestNoPublicVoucherRoutes` (`webui/cmd/server/routes_voucher_public_test.go`) — menginspeksi tabel rute hasil `registerRoutes` asli (fungsi yang dipakai `main()`): **tidak ada** jalur claim/aktivasi voucher yang terdaftar di luar prefix `/admin` (pencocokan path `voucher`/`redeem`/`activate`, jadi endpoint publik bernama lain pun tertangkap — claim/aktivasi hanya boleh hidup di `/admin/api/*`, tidak ada versi publik untuk klien token), sekaligus memastikan `POST /admin/api/vouchers/redeem`, `POST /admin/api/vouchers/activate`, dan `GET /admin/api/vouchers/mine` **tetap** terdaftar. Kontrak routing di balik temuan audit bahwa klien Android/desktop tidak punya UI claim voucher dan tidak memanggil endpoint ini. Test ini **tanpa database** — `registerRoutes` hanya membangun handler; pool dibaca dari konteks saat request.
+- Test integrasi lama yang memerlukan skenario "sub-akun dengan paket sendiri" (uji suspend/restore cascade & guard masa aktif) kini menanam state tersebut sebagai **klaim pra-kebijakan** via helper `claimSubOwnVoucher`, karena jalur redeem asli sudah ditutup untuk akun sub.
+
+Jalankan dengan:
+
+```bash
+TEST_DATABASE_URL=postgresql://user:pass@localhost:5432/examvan_test \
+  go test ./internal/handlers/admin/ -run 'TestSubAccount|TestDirectCreatedAccounts|TestBillingPage|TestUsersListAPIReportsOperatorCreated' -v
+
+Test kontrak rute (tanpa database):
+
+```bash
+cd webui
+go test ./cmd/server/ -run TestNoPublicVoucherRoutes -v
+```
+
 ### Cara Mengubah
 
 **Opsi A — Lewat UI Admin (disarankan):**
@@ -589,13 +635,24 @@ Tes: `TestUpsertSubmissionRowTwoStudentsShareDevice` (`webui/internal/queue/subm
 | POST | `/api/exams/:exam_id/complete` | Tandai ujian selesai di perangkat (hapus heartbeat) |
 
 ### Admin API (Session-based + CSRF)
-| Method | Endpoint | Keterangan |
-|--------|----------|------------|
-| POST | `/admin/login` | Login admin |
-| GET | `/admin/api/dashboard` | Data dashboard |
-| CRUD | `/admin/api/exams` | Kelola ujian |
-| CRUD | `/admin/api/users` | Kelola pengguna |
-| GET | `/admin/api/submissions` | Data submissions |
+| Method | Endpoint | Akses | Keterangan |
+|--------|----------|-------|------------|
+| POST | `/admin/login` | Publik (pre-auth) | Login admin |
+| GET | `/admin/api/dashboard` | Semua login | Data dashboard |
+| CRUD | `/admin/api/exams` | Semua login | Kelola ujian (scoped per pemilik/instansi) |
+| CRUD | `/admin/api/users` | SuperAdmin & Operator | Kelola pengguna |
+| GET | `/admin/api/submissions` | Semua login | Data submissions (scoped per kepemilikan) |
+| POST | `/admin/api/vouchers/redeem` | Semua login (billing-exempt) | Klaim kode voucher — **403 untuk akun sub** (dibuat operator) |
+| POST | `/admin/api/vouchers/activate` | Semua login (billing-exempt) | Aktivasi paket voucher yang sudah diklaim — **403 untuk akun sub** |
+| GET | `/admin/api/vouchers/mine` | Semua login (billing-exempt) | Daftar paket yang sudah diklaim (halaman Paket & Voucher — daftarnya disembunyikan untuk akun sub, bukan via 403) |
+| POST | `/admin/api/vouchers` | SuperAdmin | Buat kode voucher single |
+| POST | `/admin/api/vouchers/batch` | SuperAdmin | Buat kode voucher batch |
+| POST | `/admin/api/vouchers/:id/toggle` | SuperAdmin | Aktifkan/nonaktifkan voucher |
+| POST | `/admin/api/vouchers/:id/delete` | SuperAdmin | Hapus voucher |
+| GET | `/admin/api/vouchers` | SuperAdmin | Daftar & kelola voucher (halaman Kelola Voucher) |
+| GET | `/admin/api/vouchers/:id/redemptions` | SuperAdmin | Riwayat pemakaian sebuah voucher |
+
+> **Akses endpoint voucher:** `redeem` & `activate` menolak **HTTP 403** untuk akun sub (`operator_created = true`); `mine` tetap bisa dibaca akun sub, tetapi halaman Paket & Voucher **menyembunyikan daftar paketnya** di UI (bukan via 403). Ketiga endpoint bersifat **billing-exempt** — tetap bisa dipanggil oleh akun yang masa aktifnya habis (semua endpoint admin lain di-gate `FeatureLockRequired`; hanya baris billing-exempt ini yang bisa diakses akun terkunci). Endpoint manajemen voucher (buat/batch/toggle/delete/daftar/riwayat) **SuperAdmin-only**. **Tidak ada versi publik** dari seluruh endpoint voucher (di API publik `/api/*` tidak ada satupun) — dikunci oleh test `TestNoPublicVoucherRoutes`.
 
 ### Public Pages
 | Endpoint | Keterangan |

@@ -793,8 +793,9 @@ func TestToggleOperatorRestoreFreezeClockSyncsSubRedemption(t *testing.T) {
 		t.Fatalf("create guru2: status=%d resp=%+v", status, resp)
 	}
 	guru2 := mustGetUser(t, pool, "guru2")
-	tc.login(t, guru2.ID)
-	tc.redeem(t, "IT-GURU-SUB")
+	// Pre-policy claim simulation (see claimSubOwnVoucher): operator-created
+	// accounts may not redeem vouchers under the sub-account policy.
+	claimSubOwnVoucher(t, pool, guru2.ID)
 	if _, msg := models.AuthenticateUser(ctx, pool, "guru2", "pass-guru2"); msg != "" {
 		t.Fatalf("guru2 login after own redeem: msg=%q, want success", msg)
 	}
@@ -897,11 +898,12 @@ func TestToggleOperatorReactivationCascadesRenewalToSubs(t *testing.T) {
 			t.Fatalf("create %s: status=%d resp=%+v", name, status, resp)
 		}
 	}
-	// guru2 buys its own active package → must be spared by the expiry
-	// cascade when the operator is reactivated.
+	// guru2 runs its own active package → must be spared by the expiry
+	// cascade when the operator is reactivated. Since the sub-account voucher
+	// policy forbids operator-created accounts from redeeming, the own-package
+	// state is planted as a pre-policy claim (see claimSubOwnVoucher).
 	guru2 := mustGetUser(t, pool, "guru2")
-	tc.login(t, guru2.ID)
-	tc.redeem(t, "IT-GURU-SUB")
+	claimSubOwnVoucher(t, pool, guru2.ID)
 
 	// A superadmin suspends the operator → the cascade suspends every active
 	// sub-account in the instansi.
@@ -1060,8 +1062,9 @@ func TestEditUserClearOperatorExpiryCascadesUnlimitedToSubs(t *testing.T) {
 		t.Fatalf("fixture: guru1 must have a concrete expiry before the clear")
 	}
 	guru2 := mustGetUser(t, pool, "guru2")
-	tc.login(t, guru2.ID)
-	tc.redeem(t, "IT-GURU-SUB")
+	// Pre-policy claim simulation (see claimSubOwnVoucher): operator-created
+	// accounts may not redeem vouchers under the sub-account policy.
+	claimSubOwnVoucher(t, pool, guru2.ID)
 	guru2 = mustGetUser(t, pool, "guru2")
 	if guru2.ExpiresAt == nil {
 		t.Fatalf("fixture: guru2 must have a concrete expiry from its own package")
@@ -1502,8 +1505,9 @@ func TestEditUserOperatorExpiryCascadeSyncsInstansiRedemptions(t *testing.T) {
 		t.Fatalf("create guru2: status=%d resp=%+v", status, resp)
 	}
 	guru2 := mustGetUser(t, pool, "guru2")
-	tc.login(t, guru2.ID)
-	tc.redeem(t, "IT-GURU-SUB")
+	// Pre-policy claim simulation (see claimSubOwnVoucher): operator-created
+	// accounts may not redeem vouchers under the sub-account policy.
+	claimSubOwnVoucher(t, pool, guru2.ID)
 	var subRedemptionID int
 	var subRemainingBefore int64
 	if err := pool.QueryRow(ctx,

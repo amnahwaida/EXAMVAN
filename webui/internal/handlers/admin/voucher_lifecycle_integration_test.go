@@ -198,6 +198,11 @@ func newVoucherTestRouter(pool *pgxpool.Pool) *gin.Engine {
 	api.POST("/users/:user_id/toggle-status", middleware.AdminManagementRequired(), ToggleUserStatus())
 	api.POST("/users/:user_id/edit", middleware.AdminManagementRequired(), EditUser())
 	api.POST("/users/:user_id/verify", middleware.AdminManagementRequired(), VerifyUser())
+	// GET /users mirror of production GET /admin/api/users (AuthRequired →
+	// FeatureLockRequired → AdminManagementRequired): the Kelola Users page
+	// list endpoint. Tests assert the JSON carries operator_created so the
+	// page can render the "Dibuat oleh Operator" badge on sub-accounts.
+	api.GET("/users", middleware.AdminManagementRequired(), ListUsers())
 	// AuthRequired/FeatureLockRequired probe: a protected GET that answers 200
 	// only when a valid, non-locked session passes both middlewares — used to
 	// observe per-request status and feature-lock enforcement without depending
@@ -1043,8 +1048,11 @@ func TestUnlimitedAccountExpiredPackageDoesNotRelimit(t *testing.T) {
 // ---------------------------------------------------------------------------
 
 // TestVoucherOperatorExitSuspendsSubAccountWithOwnVoucher locks in the answer
-// to "does an account that bought its own voucher still get suspended when the
-// operator leaves the school package?": YES. The cascade suspend branch in
+// to "does an account that holds its own voucher still get suspended when the
+// operator leaves the school package?": YES. Note that since the sub-account
+// voucher policy (operator-created accounts may not redeem) the own-package
+// state here is planted as a pre-policy claim via claimSubOwnVoucher — new
+// sub-accounts can no longer acquire their own voucher. The cascade suspend branch in
 // syncInstansiWithOperatorRole matches EVERY active non-operator account in
 // the instansi, regardless of whether it runs its own active package. The
 // sub-account's own package is NOT paused by the suspension — its lifetime
@@ -1072,11 +1080,13 @@ func TestVoucherOperatorExitSuspendsSubAccountWithOwnVoucher(t *testing.T) {
 		}
 	}
 
-	// guru2 buys its OWN voucher: an independent guru package with its own
-	// lifetime, claimed while inside the operator's instansi.
+	// guru2's own package is planted as a PRE-POLICY claim: the sub-account
+	// voucher policy (operator-created accounts may not redeem vouchers)
+	// blocks the real RedeemVoucherHandler path, so claimSubOwnVoucher
+	// inserts the redemption + expiry directly — mirroring exactly what a
+	// claim produced before the policy.
 	guru2 := mustGetUser(t, pool, "guru2")
-	tc.login(t, guru2.ID)
-	tc.redeem(t, "IT-GURU-SUB")
+	claimSubOwnVoucher(t, pool, guru2.ID)
 	var subRedemptionID int
 	var subRemaining int64
 	if err := pool.QueryRow(ctx,
@@ -1209,8 +1219,9 @@ func TestVoucherSwitchRestoreFreezeClockSyncsSubRedemption(t *testing.T) {
 		t.Fatalf("create guru2: status=%d resp=%+v", status, resp)
 	}
 	guru2 := mustGetUser(t, pool, "guru2")
-	tc.login(t, guru2.ID)
-	tc.redeem(t, "IT-GURU-SUB")
+	// Pre-policy claim simulation (see claimSubOwnVoucher): the sub-account
+	// policy forbids operator-created accounts from redeeming vouchers.
+	claimSubOwnVoucher(t, pool, guru2.ID)
 
 	// Operator leaves the school package → the sub is cascade-suspended.
 	tc.login(t, op.ID)
@@ -1304,10 +1315,13 @@ func TestVoucherOperatorExitSkipsSubWithOwnOperatorRole(t *testing.T) {
 		}
 	}
 
-	// guru2 buys its OWN school voucher → holds the operator role itself.
+	// guru2 runs its own school package → holds the operator role itself
+	// (pre-policy claim — see claimSubOwnSchoolVoucher).
 	guru2 := mustGetUser(t, pool, "guru2")
-	tc.login(t, guru2.ID)
-	tc.redeem(t, "IT-SEKOLAH-SUB")
+	// Pre-policy school-package claim (see claimSubOwnSchoolVoucher): the
+	// sub-account voucher policy forbids operator-created accounts from
+	// redeeming vouchers.
+	claimSubOwnSchoolVoucher(t, pool, guru2.ID)
 	guru2 = mustGetUser(t, pool, "guru2")
 	if !models.HasRole(guru2.Role, models.RoleOperator) {
 		t.Fatalf("guru2 must hold the operator role after redeeming its own school voucher")
@@ -1524,11 +1538,14 @@ func TestVoucherOperatorExitTombstonesUnstartedExams(t *testing.T) {
 	}
 	sub := mustGetUser(t, pool, "guru1")
 
-	// guru2 buys its OWN school voucher → holds the operator role itself, so
-	// its exams must be spared by the tombstone's operator-role filter.
+	// guru2 runs its own school package → holds the operator role itself, so
+	// its exams must be spared by the tombstone's operator-role filter
+	// (pre-policy claim — see claimSubOwnSchoolVoucher).
 	guru2 := mustGetUser(t, pool, "guru2")
-	tc.login(t, guru2.ID)
-	tc.redeem(t, "IT-SEKOLAH-SUB")
+	// Pre-policy school-package claim (see claimSubOwnSchoolVoucher): the
+	// sub-account voucher policy forbids operator-created accounts from
+	// redeeming vouchers.
+	claimSubOwnSchoolVoucher(t, pool, guru2.ID)
 	guru2 = mustGetUser(t, pool, "guru2")
 	if !models.HasRole(guru2.Role, models.RoleOperator) {
 		t.Fatalf("guru2 must hold the operator role after redeeming its own school voucher")
@@ -1645,13 +1662,15 @@ func TestToggleOperatorStatusTombstonesUnstartedExams(t *testing.T) {
 	}
 	sub := mustGetUser(t, pool, "guru1")
 
-	// guru2 buys its own school voucher → holds the operator role itself. The
+	// guru2 runs its own school package → holds the operator role itself. The
 	// manual-suspend tombstone freezes the WHOLE school
 	// (spareOperatorRoleCreators=false), so its exam must be tombstoned too —
 	// unlike the voucher switch (Test 7), where it is spared.
 	guru2 := mustGetUser(t, pool, "guru2")
-	tc.login(t, guru2.ID)
-	tc.redeem(t, "IT-SEKOLAH-SUB")
+	// Pre-policy school-package claim (see claimSubOwnSchoolVoucher): the
+	// sub-account voucher policy forbids operator-created accounts from
+	// redeeming vouchers.
+	claimSubOwnSchoolVoucher(t, pool, guru2.ID)
 	if !models.HasRole(mustGetUser(t, pool, "guru2").Role, models.RoleOperator) {
 		t.Fatalf("guru2 must hold the operator role after redeeming its own school voucher")
 	}
