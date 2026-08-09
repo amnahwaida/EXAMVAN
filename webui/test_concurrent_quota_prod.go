@@ -18,9 +18,11 @@
 //
 // Run from webui/ against the running Docker stack:
 //
-//	DATABASE_URL=postgresql://examvan:examvan2026@172.18.0.2:5432/examvan \
+//	DATABASE_URL=postgresql://examvan:<DB_PASSWORD>@<ip-db-container>:5432/examvan \
 //	  go run test_concurrent_quota_prod.go
 //
+// <ip-db-container> is the DB container's IP on the Docker network (find it
+// with `docker inspect <db-container>` / `docker network inspect`).
 // Point BASE_URL elsewhere when nginx listens on another host/port (default
 // http://localhost:80).
 

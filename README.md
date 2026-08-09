@@ -350,11 +350,12 @@ Workflow `.github/workflows/ci.yml` (di root repo, bukan di `webui/.github`) oto
 Dua skrip E2E di `webui/` memverifikasi perbaikan kuota "ujian serentak" secara end-to-end: membuat user & ujian uji sekali pakai (via SQL langsung), login lewat API admin asli (login + CSRF), menegakkan kuota, lalu membersihkan semuanya — termasuk menghapus objek PDF palsu di R2 lewat API delete:
 
 - **`test_concurrent_quota.go`** — terhadap **server native dev** di `:5001` (`APP_ENV=development`: cookie tidak Secure, tanpa Redis). Base URL bisa di-override via env `BASE_URL`.
-- **`test_concurrent_quota_prod.go`** — terhadap **stack Docker produksi** via nginx `:80`; transport-nya menambahkan header `X-Forwarded-Proto: https` (mensimulasikan hop Cloudflare Tunnel) dan menerima cookie `Secure` seperti browser di HTTPS.
+- **`test_concurrent_quota_prod.go`** — terhadap **stack Docker produksi** via nginx `:80`; transport-nya menambahkan header `X-Forwarded-Proto: https` (mensimulasikan hop Cloudflare Tunnel) dan menerima cookie `Secure` seperti browser di HTTPS. Base URL juga bisa di-override via env `BASE_URL` (default `http://localhost:80`).
 
 Kedua skrip menjalankan **14 asersi**: enforce kuota ujian serentak (`start`/`toggle`/`bulk-toggle` ditolak **403** saat kuota penuh, `stop` membebaskan kuota, superadmin bypass) dan kuota `max_exams` saat upload (dari 5× upload → **tepat 3 sukses**, 2 ditolak, tanpa overshoot race).
 
 > ✅ **Hasil verifikasi (9 Agustus 2026):** kedua skenario lulus **14 PASS / 0 FAIL** — dev native (`test_concurrent_quota.go`) dan stack produksi (`test_concurrent_quota_prod.go`).
+> 🔧 **Override `BASE_URL` terverifikasi:** kedua skrip membaca env `BASE_URL` (default `http://localhost:5001` untuk dev, `http://localhost:80` untuk produksi). Diuji dengan `BASE_URL=http://127.0.0.1:59999` — request login mengarah ke URL custom tersebut (error connection-refused menyebut `127.0.0.1:59999`), bukan default.
 
 **Menjalankan versi dev native:**
 

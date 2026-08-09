@@ -21,9 +21,10 @@
 9. [Step 6 — Init R2 Client di main.go](#9-step-6--init-r2-client-di-maingo)
 10. [Step 7 — Upload PDF ke R2 (Admin Upload)](#10-step-7--upload-pdf-ke-r2-admin-upload)
 11. [Step 8 — Serve PDF via R2 Signed URL (Download)](#11-step-8--serve-pdf-via-r2-signed-url-download)
-12. [Step 9 — Fallback Nginx X-Accel (arsip: sudah dihapus — R2 wajib)](#12-step-9--fallback-nginx-x-accel-kalo-r2-mati)
+12. [Step 9 — Fallback Nginx X-Accel (ARSIP — fallback lokal sudah dihapus)](#12-step-9--fallback-nginx-x-accel-arsip--fallback-lokal-sudah-dihapus)
 13. [Step 10 — Testing R2](#13-step-10--testing-r2)
 14. [Capacity Planner Lengkap](#14-capacity-planner-lengkap)
+15. [Next Step — Setelah R2 Aktif](#15-next-step--setelah-r2-aktif)
 16. [Lampiran — Pola Test Database (NewPackageTestPool)](#lampiran--pola-test-database-newpackagetestpool)
 17. [Lampiran — Hasil Verifikasi E2E Kuota "Ujian Serentak"](#lampiran--hasil-verifikasi-e2e-kuota-ujian-serentak)
 
@@ -1436,7 +1437,7 @@ Dokumentasi penggunaannya juga ada di [README → Pengujian (Tes Otomatis)](READ
 | Skrip | Target | Perbedaan dari skenario lain |
 |-------|--------|------------------------------|
 | `webui/test_concurrent_quota.go` | Server native dev `:5001` (`APP_ENV=development`) | Cookie tidak Secure, tanpa Redis; base URL via env `BASE_URL`. |
-| `webui/test_concurrent_quota_prod.go` | Stack Docker produksi via nginx `:80` | Header `X-Forwarded-Proto: https` (simulasi hop Cloudflare Tunnel) + menerima cookie Secure seperti browser HTTPS. |
+| `webui/test_concurrent_quota_prod.go` | Stack Docker produksi via nginx `:80` | Header `X-Forwarded-Proto: https` (simulasi hop Cloudflare Tunnel) + menerima cookie Secure seperti browser HTTPS; base URL via env `BASE_URL` (default `http://localhost:80`). |
 
 Keduanya membuat user & ujian uji sekali pakai (via SQL langsung), login lewat API admin asli (login + CSRF), menegakkan kuota, lalu membersihkan semuanya — termasuk menghapus objek PDF palsu di R2 lewat API delete.
 
