@@ -263,6 +263,24 @@ Setelah masa aktif habis, akun **tetap bisa login**, tetapi seluruh fitur terkun
 
 > ⚠️ **Catatan:** pengaturan ini hanya memengaruhi **akun yang dibuat setelah perubahan** — akun yang sudah ada tidak diperpanjang mundur. Nilai yang tersimpan di database **menimpa** default di kode.
 
+### Nasib Akun Sub saat Operator Habis Masa Aktif
+
+Akun yang dibuat oleh **operator sekolah** (akun sub dalam satu `instansi`) tidak tertaut langsung ke operatornya, tetapi **mewarisi `expires_at` operator saat dibuat** — termasuk status **unlimited**: operator yang tidak punya masa aktif (`expires_at` NULL, mis. sudah di-clear admin) membuat akun sub yang **juga unlimited** (bukan trial 14 hari). Karena itu, ketika masa aktif operator habis, akun sub umumnya ikut habis di waktu yang hampir bersamaan:
+
+- Akun sub **tidak dihapus** dan **tidak di-suspend otomatis** — status tetap `active`;
+- Akun sub **tetap bisa login**, tetapi terkunci ke halaman **Paket & Voucher** (`/admin/billing`) — sama seperti operator (feature lock);
+- **Ujian aktif yang belum dimulai** di-*tombstone* (jadi `inactive`) oleh job berkala; **ujian yang sedang berjalan** dibiarkan selesai (grace 24 jam).
+
+Saat operator diperpanjang, perilaku akun sub bergantung pada jalur perpanjangannya:
+
+| Jalur perpanjangan operator | Akun sub ikut diperpanjang? |
+|---|---|
+| Klaim/aktivasi **voucher paket sekolah** | ✅ Ya — sub tanpa paket aktif sendiri mengikuti expiry baru operator (hanya memanjang, tidak pernah memendekkan) |
+| **Edit form** admin mengubah expiry operator | ✅ Ya — cascade ke seluruh user di instansi yang sama; bila expiry **dikosongkan** (`expires_at` dihapus → unlimited), sub tanpa paket sendiri ikut **unlimited** |
+| Tombol **"Aktifkan"** (toggle-status, `+default_active_days`) | ✅ Ya — sub tanpa paket aktif sendiri ikut diperpanjang mengikuti expiry baru operator |
+
+Sub-account yang **memiliki voucher/paket aktif sendiri** atau **ber-role operator** tidak disentuh oleh perpanjangan/cascade di atas — mereka memakai jam mandirinya masing-masing. Sub yang sudah **unlimited** (`expires_at` NULL) tetap unlimited (cascade tidak pernah menimpa status unlimited yang sudah ada).
+
 ### Cara Mengubah
 
 **Opsi A — Lewat UI Admin (disarankan):**

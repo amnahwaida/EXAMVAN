@@ -974,6 +974,164 @@ func TestToggleOperatorReactivationCascadesRenewalToSubs(t *testing.T) {
 	}
 }
 
+// TestOperatorUnlimitedCreatesUnlimitedSub locks in the edge case where the
+// operator's own expiry is NULL (unlimited — e.g. cleared by a superadmin via
+// the edit form): sub-accounts the operator creates must inherit the unlimited
+// state too, NOT fall back to the default_active_days trial (14 days). The
+// "force expiry = operator's expiry" rule must extend to the unlimited state.
+func TestOperatorUnlimitedCreatesUnlimitedSub(t *testing.T) {
+	pool := setupVoucherITDB(t)
+	ctx := context.Background()
+
+	createSchoolVoucher(t, pool)
+	op := createOperatorUser(t, pool, "op-unlsub", "SMK Unlimited Sub", "pass-op-unlsub")
+
+	tc := newVoucherTestClient(t, pool)
+	tc.login(t, op.ID)
+	tc.redeem(t, "IT-SEKOLAH")
+	op = mustGetUser(t, pool, "op-unlsub")
+	if !models.HasRole(op.Role, models.RoleOperator) {
+		t.Fatalf("op must hold the operator role after redeeming the school voucher")
+	}
+
+	// A superadmin clears the operator's expiry via the edit form → unlimited.
+	root, err := models.CreateUser(ctx, pool, &models.AdminUser{
+		Username: "rootadmin-unlsub", Name: "Root Unl Sub",
+		PasswordHash: "pass-root-unlsub", Status: models.UserStatusActive,
+		Role: models.SerializeRoles([]string{models.RoleSuperAdmin}),
+	})
+	if err != nil {
+		t.Fatalf("create superadmin: %v", err)
+	}
+	tc.login(t, root.ID)
+	if status, resp := postJSON(t, tc.client, tc.srv, "/api/users/"+strconv.Itoa(op.ID)+"/edit",
+		map[string]interface{}{"expires_at": ""}); status != http.StatusOK || !resp.Success {
+		t.Fatalf("clear op expiry: status=%d resp=%+v", status, resp)
+	}
+	op = mustGetUser(t, pool, "op-unlsub")
+	if op.ExpiresAt != nil {
+		t.Fatalf("fixture: op expires_at = %v, want NULL (unlimited)", op.ExpiresAt)
+	}
+
+	// The operator creates a sub-account → it must inherit the unlimited state.
+	tc.login(t, op.ID)
+	if status, resp := tc.createUser(t, "guru1"); status != http.StatusOK || !resp.Success {
+		t.Fatalf("create guru1: status=%d resp=%+v", status, resp)
+	}
+	sub := mustGetUser(t, pool, "guru1")
+	if sub.ExpiresAt != nil {
+		t.Errorf("guru1 expires_at = %v, want NULL (inherit operator's unlimited state)", sub.ExpiresAt)
+	}
+	if _, msg := models.AuthenticateUser(ctx, pool, "guru1", "pass-guru1"); msg != "" {
+		t.Errorf("login guru1: msg=%q, want success", msg)
+	}
+}
+
+// TestEditUserClearOperatorExpiryCascadesUnlimitedToSubs locks in the EditUser
+// counterpart of TestOperatorUnlimitedCreatesUnlimitedSub: when a superadmin
+// clears an existing operator's expiry via the edit form (expires_at = "" →
+// NULL = unlimited), the school's already-created sub-accounts follow the
+// operator's unlimited state — sub-accounts that run their own active package
+// (or hold an operator role, or are already unlimited) keep their own state.
+func TestEditUserClearOperatorExpiryCascadesUnlimitedToSubs(t *testing.T) {
+	pool := setupVoucherITDB(t)
+	ctx := context.Background()
+
+	createSchoolVoucher(t, pool)
+	createGuruVoucherCode(t, pool, "IT-GURU-SUB") // guru2's own active package
+	op := createOperatorUser(t, pool, "op-clr", "SMK Clear Unlimited", "pass-op-clr")
+
+	tc := newVoucherTestClient(t, pool)
+	tc.login(t, op.ID)
+	tc.redeem(t, "IT-SEKOLAH")
+	op = mustGetUser(t, pool, "op-clr")
+	if !models.HasRole(op.Role, models.RoleOperator) {
+		t.Fatalf("op must hold the operator role after redeeming the school voucher")
+	}
+	for _, name := range []string{"guru1", "guru2"} {
+		if status, resp := tc.createUser(t, name); status != http.StatusOK || !resp.Success {
+			t.Fatalf("create %s: status=%d resp=%+v", name, status, resp)
+		}
+	}
+	// guru1: created by the operator, no own package → expires_at ≈ operator's
+	// (concrete). guru2: buys its own active package → own concrete expiry.
+	guru1 := mustGetUser(t, pool, "guru1")
+	if guru1.ExpiresAt == nil {
+		t.Fatalf("fixture: guru1 must have a concrete expiry before the clear")
+	}
+	guru2 := mustGetUser(t, pool, "guru2")
+	tc.login(t, guru2.ID)
+	tc.redeem(t, "IT-GURU-SUB")
+	guru2 = mustGetUser(t, pool, "guru2")
+	if guru2.ExpiresAt == nil {
+		t.Fatalf("fixture: guru2 must have a concrete expiry from its own package")
+	}
+	guru2OwnExpiry := *guru2.ExpiresAt
+
+	// A superadmin clears the operator's expiry → unlimited cascades to the
+	// sub-accounts that do not run their own active package.
+	root, err := models.CreateUser(ctx, pool, &models.AdminUser{
+		Username: "rootadmin-clr", Name: "Root Clr",
+		PasswordHash: "pass-root-clr", Status: models.UserStatusActive,
+		Role: models.SerializeRoles([]string{models.RoleSuperAdmin}),
+	})
+	if err != nil {
+		t.Fatalf("create superadmin: %v", err)
+	}
+	tc.login(t, root.ID)
+	// The superadmin also created an operator-role sub-account that runs NO
+	// package of its own (guru3): the operator-role guard must spare it from
+	// the unlimited cascade — only plain sub-accounts without their own
+	// package follow the operator into the unlimited state.
+	if status, resp := postJSON(t, tc.client, tc.srv, "/api/users", map[string]interface{}{
+		"username":   "guru3",
+		"password":   "pass-guru3",
+		"name":       "guru3",
+		"roles":      []string{models.RoleOperator},
+		"instansi":   op.Instansi,
+		"expires_at": "2030-06-15 12:00:00",
+	}); status != http.StatusOK || !resp.Success {
+		t.Fatalf("superadmin create guru3: status=%d resp=%+v", status, resp)
+	}
+	guru3 := mustGetUser(t, pool, "guru3")
+	if guru3.ExpiresAt == nil {
+		t.Fatalf("fixture: guru3 must have a concrete expiry before the clear")
+	}
+	guru3OwnExpiry := *guru3.ExpiresAt
+	status, resp := postJSON(t, tc.client, tc.srv, "/api/users/"+strconv.Itoa(op.ID)+"/edit",
+		map[string]interface{}{"expires_at": ""})
+	if status != http.StatusOK || !resp.Success {
+		t.Fatalf("clear op expiry: status=%d resp=%+v", status, resp)
+	}
+	if !strings.Contains(resp.Message, "ikut menjadi unlimited") {
+		t.Errorf("clear message=%q, want cascade-unlimited indicator", resp.Message)
+	}
+
+	op = mustGetUser(t, pool, "op-clr")
+	if op.ExpiresAt != nil {
+		t.Errorf("op expires_at = %v, want NULL (unlimited)", op.ExpiresAt)
+	}
+	// guru1 (no own package) followed the operator → unlimited.
+	guru1 = mustGetUser(t, pool, "guru1")
+	if guru1.ExpiresAt != nil {
+		t.Errorf("guru1 expires_at = %v, want NULL (cascade unlimited)", guru1.ExpiresAt)
+	}
+	if _, msg := models.AuthenticateUser(ctx, pool, "guru1", "pass-guru1"); msg != "" {
+		t.Errorf("login guru1: msg=%q, want success", msg)
+	}
+	// guru2 (own active package) keeps its own concrete expiry — NOT cleared.
+	guru2 = mustGetUser(t, pool, "guru2")
+	if guru2.ExpiresAt == nil || !approxEqual(*guru2.ExpiresAt, guru2OwnExpiry, time.Minute) {
+		t.Errorf("guru2 expires_at = %v, want own package expiry %v preserved (spared from the unlimited cascade)", guru2.ExpiresAt, guru2OwnExpiry)
+	}
+	// guru3 (operator-role sub, no own package) keeps its own concrete
+	// expiry — the operator-role guard spared it from the unlimited cascade.
+	guru3 = mustGetUser(t, pool, "guru3")
+	if guru3.ExpiresAt == nil || !approxEqual(*guru3.ExpiresAt, guru3OwnExpiry, time.Minute) {
+		t.Errorf("guru3 (operator role) expires_at = %v, want own expiry %v preserved (spared from the unlimited cascade)", guru3.ExpiresAt, guru3OwnExpiry)
+	}
+}
+
 // TestEditUserReactivationShowsFreezeMessage covers the EditUser reactivation
 // path for a suspended account whose expiry has ALREADY passed (suspended_at <
 // now, expires_at < now). The suspension-clock freeze pushes expires_at back
@@ -1299,13 +1457,15 @@ func TestBillingDisplayShowsRenewedRemainingAfterExpiryRenewal(t *testing.T) {
 }
 
 // TestEditUserOperatorExpiryCascadeSyncsInstansiRedemptions locks in the
-// shared instansi-wide redemption realignment (SyncInstansiActiveRedemptions-
-// ToExpiry) through real SQL: when a superadmin rewrites an operator's expiry,
-// every instansi account's expires_at follows the operator's new expiry AND
-// their ACTIVE package clocks are rewritten to match — so the billing display
-// and later pause computations never disagree with the account state. This is
-// the only call site of the shared helper not already covered by the voucher
-// switch / toggle-status restore tests.
+// EditUser operator-expiry cascade through real SQL: when a superadmin
+// rewrites an operator's expiry, the instansi's sub-accounts that do NOT run
+// their own active package follow the operator's new expiry (the guards mirror
+// the other expiry-alignment paths — own-package, operator-role, and already-
+// unlimited accounts are spared), and the aligned accounts' ACTIVE package
+// clocks are rewritten to match via SyncInstansiActiveRedemptionsToExpiry (a
+// per-account realignment reading each account's own expires_at) — so the
+// billing display and later pause computations never disagree with the
+// account state.
 func TestEditUserOperatorExpiryCascadeSyncsInstansiRedemptions(t *testing.T) {
 	pool := setupVoucherITDB(t)
 	ctx := context.Background()
@@ -1329,25 +1489,37 @@ func TestEditUserOperatorExpiryCascadeSyncsInstansiRedemptions(t *testing.T) {
 		t.Fatalf("load op redemption: %v", err)
 	}
 
-	// The sub redeems its own guru voucher → an ACTIVE redemption whose clock
-	// must be realigned when the operator's expiry changes (the cascade
-	// touches every instansi account, own package or not).
+	// Two sub-accounts: guru1 WITHOUT any package of its own (expires_at ≈ the
+	// operator's, so it must follow the operator's rewrite), and guru2 that
+	// redeems its own guru voucher → an ACTIVE redemption whose clock must be
+	// PRESERVED when the operator's expiry changes (the guards spare accounts
+	// that run their own active package — only accounts that follow the
+	// operator are realigned).
 	if status, resp := tc.createUser(t, "guru1"); status != http.StatusOK || !resp.Success {
 		t.Fatalf("create guru1: status=%d resp=%+v", status, resp)
 	}
-	guru1 := mustGetUser(t, pool, "guru1")
-	tc.login(t, guru1.ID)
+	if status, resp := tc.createUser(t, "guru2"); status != http.StatusOK || !resp.Success {
+		t.Fatalf("create guru2: status=%d resp=%+v", status, resp)
+	}
+	guru2 := mustGetUser(t, pool, "guru2")
+	tc.login(t, guru2.ID)
 	tc.redeem(t, "IT-GURU-SUB")
 	var subRedemptionID int
 	var subRemainingBefore int64
 	if err := pool.QueryRow(ctx,
 		`SELECT id, remaining_seconds FROM voucher_redemptions WHERE user_id=$1 AND is_active`,
-		guru1.ID).Scan(&subRedemptionID, &subRemainingBefore); err != nil {
-		t.Fatalf("load guru1 redemption: %v", err)
+		guru2.ID).Scan(&subRedemptionID, &subRemainingBefore); err != nil {
+		t.Fatalf("load guru2 redemption: %v", err)
 	}
 	if subRemainingBefore < 20*86400 {
-		t.Fatalf("guru1 redemption remaining=%d, want ~30 days before the edit", subRemainingBefore)
+		t.Fatalf("guru2 redemption remaining=%d, want ~30 days before the edit", subRemainingBefore)
 	}
+	// Pin guru2's own expiry BEFORE the edit so the spared-clock assertion
+	// below can prove the rewrite did not touch it.
+	if guru2.ExpiresAt == nil {
+		t.Fatalf("fixture: guru2 must have a concrete expiry from its own package")
+	}
+	guru2OwnExpiry := *guru2.ExpiresAt
 
 	// A superadmin rewrites the operator's expiry to ~7 days out (Go clock,
 	// truncated to seconds for a clean round-trip through the handler's
@@ -1362,6 +1534,45 @@ func TestEditUserOperatorExpiryCascadeSyncsInstansiRedemptions(t *testing.T) {
 		t.Fatalf("create superadmin: %v", err)
 	}
 	tc.login(t, root.ID)
+	// Two more sub-accounts exercise the remaining cascade guards: guru3 is
+	// ALREADY unlimited (a superadmin cleared its expiry → NULL), which the
+	// `expires_at IS NOT NULL` guard must keep unlimited when the operator
+	// gains a new concrete expiry; guru4 is an operator-role sub-account with
+	// NO package of its own, which the operator-role guard must spare (its
+	// own concrete expiry is untouched by the rewrite).
+	if status, resp := postJSON(t, tc.client, tc.srv, "/api/users", map[string]interface{}{
+		"username":   "guru3",
+		"password":   "pass-guru3",
+		"name":       "guru3",
+		"roles":      []string{models.RoleGuru},
+		"instansi":   op.Instansi,
+		"expires_at": "2030-06-15 12:00:00",
+	}); status != http.StatusOK || !resp.Success {
+		t.Fatalf("superadmin create guru3: status=%d resp=%+v", status, resp)
+	}
+	if status, resp := postJSON(t, tc.client, tc.srv, "/api/users/"+strconv.Itoa(mustGetUser(t, pool, "guru3").ID)+"/edit",
+		map[string]interface{}{"expires_at": ""}); status != http.StatusOK || !resp.Success {
+		t.Fatalf("superadmin clear guru3 expiry: status=%d resp=%+v", status, resp)
+	}
+	if status, resp := postJSON(t, tc.client, tc.srv, "/api/users", map[string]interface{}{
+		"username":   "guru4",
+		"password":   "pass-guru4",
+		"name":       "guru4",
+		"roles":      []string{models.RoleOperator},
+		"instansi":   op.Instansi,
+		"expires_at": "2030-06-15 12:00:00",
+	}); status != http.StatusOK || !resp.Success {
+		t.Fatalf("superadmin create guru4: status=%d resp=%+v", status, resp)
+	}
+	guru3 := mustGetUser(t, pool, "guru3")
+	if guru3.ExpiresAt != nil {
+		t.Fatalf("fixture: guru3 must be unlimited (expires_at NULL) before the edit")
+	}
+	guru4 := mustGetUser(t, pool, "guru4")
+	if guru4.ExpiresAt == nil {
+		t.Fatalf("fixture: guru4 must have a concrete expiry before the edit")
+	}
+	guru4OwnExpiry := *guru4.ExpiresAt
 	status, resp := postJSON(t, tc.client, tc.srv, "/api/users/"+strconv.Itoa(op.ID)+"/edit",
 		map[string]interface{}{"expires_at": newExpiry.Format("2006-01-02 15:04:05")})
 	if status != http.StatusOK || !resp.Success {
@@ -1369,27 +1580,47 @@ func TestEditUserOperatorExpiryCascadeSyncsInstansiRedemptions(t *testing.T) {
 	}
 
 	// The instansi accounts' expires_at follow the operator's new expiry
-	// (cascade) and their active package clocks were realigned to it: the
-	// ~30 days remaining are rewritten to ~7 days — NOT preserved.
+	// (cascade) — but only the accounts that do NOT run their own active
+	// package: guru1 (no own package) is rewritten to ≈ the operator's new
+	// expiry, while guru2 (own active package) keeps its own clock and its
+	// ~30 days remaining are NOT realigned to the operator's ~7 days.
 	// remaining_seconds is computed as EPOCH(expires_at - now()) inside the
 	// DB: expires_at was written from the Go clock and now() is the DB clock,
 	// so any host/container clock misalignment shifts the stored value by
 	// that amount — the ±10 min tolerance below absorbs realistic skew.
 	wantRemaining := int64(7 * 24 * time.Hour / time.Second)
 	const tol int64 = 600 // ±10 min: absorbs clock alignment + the sync-to-read gap
-	guru1 = mustGetUser(t, pool, "guru1")
+	guru1 := mustGetUser(t, pool, "guru1")
 	if guru1.ExpiresAt == nil || !approxEqual(*guru1.ExpiresAt, newExpiry, time.Minute) {
-		t.Errorf("guru1 expires_at=%v, want ≈ %v (cascade)", guru1.ExpiresAt, newExpiry)
+		t.Errorf("guru1 expires_at=%v, want ≈ %v (cascade: no own package)", guru1.ExpiresAt, newExpiry)
+	}
+	// guru2 keeps its own package clock untouched by the operator's rewrite.
+	guru2 = mustGetUser(t, pool, "guru2")
+	if guru2.ExpiresAt == nil || !approxEqual(*guru2.ExpiresAt, guru2OwnExpiry, time.Minute) {
+		t.Errorf("guru2 expires_at=%v, want own package expiry %v preserved (spared from the cascade)", guru2.ExpiresAt, guru2OwnExpiry)
 	}
 	var subRemainingAfter int64
 	if err := pool.QueryRow(ctx,
 		`SELECT remaining_seconds FROM voucher_redemptions WHERE id=$1`,
 		subRedemptionID).Scan(&subRemainingAfter); err != nil {
-		t.Fatalf("load guru1 redemption after edit: %v", err)
+		t.Fatalf("load guru2 redemption after edit: %v", err)
 	}
-	if subRemainingAfter < wantRemaining-tol || subRemainingAfter > wantRemaining+tol {
-		t.Errorf("guru1 redemption remaining after edit=%d, want ≈ %d (realigned from %d)",
-			subRemainingAfter, wantRemaining, subRemainingBefore)
+	if subRemainingAfter < subRemainingBefore-tol || subRemainingAfter > subRemainingBefore+tol {
+		t.Errorf("guru2 redemption remaining after edit=%d, want own ≈ %d preserved (NOT realigned to the operator's %d)",
+			subRemainingAfter, subRemainingBefore, wantRemaining)
+	}
+
+	// guru3 (already unlimited) stays unlimited — the `expires_at IS NOT
+	// NULL` guard spares it from inheriting the operator's concrete expiry.
+	guru3 = mustGetUser(t, pool, "guru3")
+	if guru3.ExpiresAt != nil {
+		t.Errorf("guru3 (already unlimited) expires_at=%v, want NULL (spared from the cascade)", guru3.ExpiresAt)
+	}
+	// guru4 (operator-role sub, no own package) keeps its own expiry — the
+	// operator-role guard spares it from the rewrite.
+	guru4 = mustGetUser(t, pool, "guru4")
+	if guru4.ExpiresAt == nil || !approxEqual(*guru4.ExpiresAt, guru4OwnExpiry, time.Minute) {
+		t.Errorf("guru4 (operator role) expires_at=%v, want own expiry %v preserved (spared from the cascade)", guru4.ExpiresAt, guru4OwnExpiry)
 	}
 
 	// The operator's own active package clock is realigned the same way

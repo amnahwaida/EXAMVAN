@@ -310,6 +310,12 @@ func CreateUser() gin.HandlerFunc {
 
 		// Operator restrictions
 		var expiresAtPtr *time.Time
+		// inheritUnlimited marks an operator whose own expiry is NULL
+		// (unlimited — e.g. an admin cleared it in the edit form): its
+		// sub-accounts inherit the unlimited state instead of falling back to
+		// the default_active_days trial, mirroring the "Force expiry: user
+		// expiry = operator's expiry" rule for operators with a concrete expiry.
+		inheritUnlimited := false
 		instansi := strings.TrimSpace(body.Instansi)
 		var opInstansiID *int
 		var opInstansiCode string
@@ -332,10 +338,14 @@ func CreateUser() gin.HandlerFunc {
 				if opUser.Email != "" {
 					body.Email = opUser.Email
 				}
-				// Force expiry: user expiry = operator's expiry
+				// Force expiry: user expiry = operator's expiry (termasuk status
+				// unlimited — operator dengan expires_at NULL membuat akun sub
+				// yang unlimited juga, bukan trial default).
 				if opUser.ExpiresAt != nil {
 					expiresAt := *opUser.ExpiresAt
 					expiresAtPtr = &expiresAt
+				} else {
+					inheritUnlimited = true
 				}
 			}
 		}
@@ -371,9 +381,11 @@ func CreateUser() gin.HandlerFunc {
 		roleStr := models.SerializeRoles(filteredRoles)
 
 		// Default expiry — only apply form value when operator didn't already set it.
+		// Operator unlimited (inheritUnlimited) skips both the form value and the
+		// default_active_days fallback so the sub-account stays unlimited.
 		defaultDays := models.GetSaasSettingInt(ctx, pool,
 			models.SettingDefaultActiveDays, 14)
-		if expiresAtPtr == nil {
+		if expiresAtPtr == nil && !inheritUnlimited {
 			expiresAtStr := strings.TrimSpace(body.ExpiresAt)
 			if expiresAtStr != "" {
 				t, err := time.Parse("2006-01-02 15:04:05", expiresAtStr)
@@ -382,7 +394,7 @@ func CreateUser() gin.HandlerFunc {
 				}
 			}
 		}
-		if expiresAtPtr == nil {
+		if expiresAtPtr == nil && !inheritUnlimited {
 			t := time.Now().UTC().AddDate(0, 0, defaultDays)
 			expiresAtPtr = &t
 		}
@@ -673,6 +685,10 @@ func EditUser() gin.HandlerFunc {
 			updates["package"] = strings.TrimSpace(*body.Package)
 		}
 
+		// cascadeMsg collects the operator-expiry cascade result (set expiry or
+		// cleared to unlimited) so the final success message surfaces it.
+		var cascadeMsg string
+
 		// Cascade: if operator's expiry changed, sync to all users in same instansi
 		if targetUser.IsOperator() && body.ExpiresAt != nil {
 			expVal := strings.TrimSpace(*body.ExpiresAt)
@@ -680,9 +696,21 @@ func EditUser() gin.HandlerFunc {
 				if !strings.Contains(expVal, " ") {
 					expVal += " 23:59:59"
 				}
-				if _, err := pool.Exec(ctx,
-					`UPDATE admin_users SET expires_at = $1::timestamp WHERE instansi = $2 AND id != $3`,
-					expVal, targetUser.Instansi, targetID); err != nil {
+				// Same guards as the unlimited branch below (and the other
+				// expiry-alignment paths): sub-accounts that run their own
+				// active package (NOT EXISTS), hold an operator role themselves,
+				// or are already unlimited (NULL) keep their own state — only
+				// accounts that follow the operator get the new expiry.
+				if _, err := pool.Exec(ctx, `
+					UPDATE admin_users
+					SET expires_at = $1::timestamp
+					WHERE instansi = $2 AND id <> $3
+					  AND expires_at IS NOT NULL
+					  AND NOT (role ILIKE '%"operator"%')
+					  AND NOT EXISTS (
+					      SELECT 1 FROM voucher_redemptions vr
+					      WHERE vr.user_id = admin_users.id AND vr.is_active
+					  )`, expVal, targetUser.Instansi, targetID); err != nil {
 					log.Printf("cascade expiry for instansi %s error: %v", targetUser.Instansi, err)
 				}
 				// Align the instansi users' active packages with the new expiry too
@@ -690,6 +718,29 @@ func EditUser() gin.HandlerFunc {
 				// reads the authoritative per-account expiry).
 				if err := models.SyncInstansiActiveRedemptionsToExpiry(ctx, pool, targetUser.Instansi, targetID); err != nil {
 					log.Printf("cascade sync redemption expiry for instansi %s error: %v", targetUser.Instansi, err)
+				}
+			} else {
+				// Operator cleared to unlimited (expires_at = "" → NULL): the
+				// school's sub-accounts follow the operator's unlimited state —
+				// mirror of the CreateUser inheritUnlimited rule, applied to
+				// already-created accounts. Guards are consistent with the other
+				// expiry-alignment paths: sub-accounts that run their own active
+				// package (NOT EXISTS), hold an operator role themselves, or are
+				// already unlimited (NULL) keep their own state untouched.
+				tag, err := pool.Exec(ctx, `
+					UPDATE admin_users
+					SET expires_at = NULL
+					WHERE instansi = $1 AND id <> $2
+					  AND expires_at IS NOT NULL
+					  AND NOT (role ILIKE '%"operator"%')
+					  AND NOT EXISTS (
+					      SELECT 1 FROM voucher_redemptions vr
+					      WHERE vr.user_id = admin_users.id AND vr.is_active
+					  )`, targetUser.Instansi, targetID)
+				if err != nil {
+					log.Printf("cascade unlimited for instansi %s error: %v", targetUser.Instansi, err)
+				} else if n := tag.RowsAffected(); n > 0 {
+					cascadeMsg = fmt.Sprintf(". %d akun di instansi %s ikut menjadi unlimited (masa aktif dihapus).", n, targetUser.Instansi)
 				}
 			}
 		}
@@ -738,6 +789,9 @@ func EditUser() gin.HandlerFunc {
 		}
 
 		msg := fmt.Sprintf("Pengaturan user %s berhasil diperbarui.", targetUser.Username)
+		if cascadeMsg != "" {
+			msg += cascadeMsg
+		}
 		if freezeMsg != "" {
 			msg += freezeMsg
 		}
