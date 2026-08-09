@@ -484,6 +484,13 @@ func ExamByToken() gin.HandlerFunc {
 			"end_time":        formatNullableISOUTC(exam.EndTime),
 		}
 		if questions != nil {
+			// Strip answer keys before sending to students. The answer key for
+			// each question is stored under either "key" (primary) or "answer"
+			// (legacy alias), and this endpoint is public — a student must not
+			// be able to read the correct answers before/while taking the exam.
+			// Mirrors the stripping the public hasil page applies to anonymous
+			// viewers.
+			stripAnswerKeys(questions)
 			examResp["questions"] = questions
 		}
 
@@ -1126,6 +1133,31 @@ func CompleteExam() gin.HandlerFunc {
 // ---------------------------------------------------------------------------
 // Small utilities
 // ---------------------------------------------------------------------------
+
+// stripAnswerKeys removes the answer-key fields ("key" and its legacy alias
+// "answer") from every question in a questions payload. The payload is decoded
+// from JSON as interface{} (json.Unmarshal), so questions arrive as []interface{}
+// of map[string]interface{} — the helper walks that generic shape and deletes
+// the key/answer entries in place. It also accepts the typed
+// []map[string]interface{} shape used by other callers. Nil, non-array, and
+// non-map payloads are no-ops. It mirrors the stripping the public hasil page
+// applies to anonymous viewers (see public/hasil.go).
+func stripAnswerKeys(questions interface{}) {
+	switch v := questions.(type) {
+	case []interface{}:
+		for _, item := range v {
+			if q, ok := item.(map[string]interface{}); ok {
+				delete(q, "key")
+				delete(q, "answer")
+			}
+		}
+	case []map[string]interface{}:
+		for _, q := range v {
+			delete(q, "key")
+			delete(q, "answer")
+		}
+	}
+}
 
 // truncate returns the first n runes of s.
 func truncate(s string, n int) string {
