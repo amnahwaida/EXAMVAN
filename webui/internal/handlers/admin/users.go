@@ -825,6 +825,43 @@ func ToggleUserStatus() gin.HandlerFunc {
 							msg += fmt.Sprintf(". %d user di instansi %s juga diaktifkan kembali.", count, opInstansi)
 						}
 					}
+
+					// Align the sub-accounts' expiry with the operator's renewed
+					// expiry (mirror of the restore branch in
+					// syncInstansiWithOperatorRole): sub-accounts that do not run
+					// their own active package follow the operator's expiry — a
+					// school operator's accounts follow the operator's expiry — so
+					// reactivating an expired operator also re-opens its school's
+					// accounts instead of leaving them feature-locked. GREATEST
+					// only ever EXTENDS an existing expiry (never shortens a
+					// sub-account whose own expiry is already later than the
+					// operator's new one), and sub-accounts with their own active
+					// package (NOT EXISTS guard) or their own operator role are
+					// left on their own clocks.
+					var opExpiresAt *time.Time
+					_ = pool.QueryRow(ctx, `SELECT expires_at FROM admin_users WHERE id = $1`, targetID).Scan(&opExpiresAt)
+					if opExpiresAt != nil && opExpiresAt.After(time.Now().UTC()) {						tag, err := pool.Exec(ctx, `
+							UPDATE admin_users u
+							SET expires_at = GREATEST(COALESCE(u.expires_at, $2::timestamptz), $2::timestamptz)
+							WHERE u.instansi = $1 AND u.id <> $3
+							  AND u.expires_at IS NOT NULL -- unlimited (NULL) subs keep their admin-set unlimited state
+							  AND NOT (u.role ILIKE '%"operator"%')
+							  AND NOT EXISTS (
+							      SELECT 1 FROM voucher_redemptions vr
+							      WHERE vr.user_id = u.id AND vr.is_active
+							  )`, opInstansi, *opExpiresAt, targetID)
+						if err != nil {
+							log.Printf("cascade expiry for instansi %s error: %v", opInstansi, err)
+						} else if n := tag.RowsAffected(); n > 0 {
+							// Realign the sub-accounts' active package clocks with
+							// their new expiry (their rows were just rewritten above,
+							// so the per-account expiry is authoritative).
+							if err := models.SyncInstansiActiveRedemptionsToExpiry(ctx, pool, opInstansi, targetID); err != nil {
+								log.Printf("cascade sync redemption expiry for instansi %s error: %v", opInstansi, err)
+							}
+							msg += fmt.Sprintf(". %d akun di instansi %s ikut diperpanjang mengikuti masa aktif operator.", n, opInstansi)
+						}
+					}
 				} else if newStatus == models.UserStatusSuspended {
 					// Suspend active users with cascade flag
 					var count int

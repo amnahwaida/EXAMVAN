@@ -869,6 +869,111 @@ func TestToggleOperatorRestoreFreezeClockSyncsSubRedemption(t *testing.T) {
 	assertFrozenRedemptionSync(t, "guru2 after toggle restore", expiresBefore, remainingBefore, activatedBefore, got.ExpiresAt, remainingAfter, activatedAfter)
 }
 
+// TestToggleOperatorReactivationCascadesRenewalToSubs locks in the policy for
+// reactivating an EXPIRED school operator via toggle-status: the operator is
+// renewed with the default_active_days period, and the instansi's
+// sub-accounts that do not run their own active package follow the operator's
+// new expiry (GREATEST — only extends, never shortens), so the whole school
+// is re-opened in one click instead of leaving the sub-accounts
+// feature-locked. Sub-accounts that run their own active package keep their
+// own clock (NOT EXISTS guard), and operator-role accounts are never touched.
+func TestToggleOperatorReactivationCascadesRenewalToSubs(t *testing.T) {
+	pool := setupVoucherITDB(t)
+	ctx := context.Background()
+
+	createSchoolVoucher(t, pool)
+	createGuruVoucherCode(t, pool, "IT-GURU-SUB") // guru2's own active package
+	op := createOperatorUser(t, pool, "op-rea", "SMK Reactivate", "pass-op-rea")
+
+	tc := newVoucherTestClient(t, pool)
+	tc.login(t, op.ID)
+	tc.redeem(t, "IT-SEKOLAH")
+	op = mustGetUser(t, pool, "op-rea")
+	if !models.HasRole(op.Role, models.RoleOperator) {
+		t.Fatalf("op must hold the operator role after redeeming the school voucher")
+	}
+	for _, name := range []string{"guru1", "guru2"} {
+		if status, resp := tc.createUser(t, name); status != http.StatusOK || !resp.Success {
+			t.Fatalf("create %s: status=%d resp=%+v", name, status, resp)
+		}
+	}
+	// guru2 buys its own active package → must be spared by the expiry
+	// cascade when the operator is reactivated.
+	guru2 := mustGetUser(t, pool, "guru2")
+	tc.login(t, guru2.ID)
+	tc.redeem(t, "IT-GURU-SUB")
+
+	// A superadmin suspends the operator → the cascade suspends every active
+	// sub-account in the instansi.
+	root, err := models.CreateUser(ctx, pool, &models.AdminUser{
+		Username: "rootadmin-rea", Name: "Root Rea",
+		PasswordHash: "pass-root-rea", Status: models.UserStatusActive,
+		Role: models.SerializeRoles([]string{models.RoleSuperAdmin}),
+	})
+	if err != nil {
+		t.Fatalf("create superadmin: %v", err)
+	}
+	tc.login(t, root.ID)
+	if status, resp := postForm(t, tc.client, tc.srv, "/api/users/"+strconv.Itoa(op.ID)+"/toggle-status", nil); status != http.StatusOK || !resp.Success {
+		t.Fatalf("toggle suspend op: status=%d resp=%+v", status, resp)
+	}
+	guru1 := mustGetUser(t, pool, "guru1")
+	if status, cascade, _ := subFlags(t, pool, guru1.ID); status != models.UserStatusSuspended || !cascade {
+		t.Fatalf("guru1 must be cascade-suspended, got status=%s cascade=%v", status, cascade)
+	}
+
+	// Simulate the operator's masa aktif running out while suspended: pin
+	// deterministic clocks (Go clock) — the operator and guru1 (no own
+	// package) are expired (expiry in the past), guru2 keeps its own future
+	// package expiry. suspended_at 2h ago so the freeze arithmetic is
+	// single-clock and deterministic.
+	goNow := time.Now().UTC()
+	pinSuspendedState(t, pool, op.ID, false, goNow.Add(-2*time.Hour), goNow.Add(-1*time.Hour))
+	pinSuspendedClock(t, pool, guru1.ID, goNow.Add(-2*time.Hour), goNow.Add(-1*time.Hour))
+	pinSuspendedClock(t, pool, guru2.ID, goNow.Add(-2*time.Hour), goNow.Add(30*24*time.Hour))
+
+	// Reactivating the operator → RenewExpiry (+default_active_days) AND the
+	// instansi cascade: guru1 (no own package) follows the operator's new
+	// expiry; guru2 (own active package) keeps its own clock.
+	if status, resp := postForm(t, tc.client, tc.srv, "/api/users/"+strconv.Itoa(op.ID)+"/toggle-status", nil); status != http.StatusOK || !resp.Success {
+		t.Fatalf("toggle reactivate op: status=%d resp=%+v", status, resp)
+	}
+
+	opAfter := mustGetUser(t, pool, "op-rea")
+	if opAfter.Status != models.UserStatusActive {
+		t.Errorf("op after reactivate: status=%s, want active", opAfter.Status)
+	}
+	want := goNow.Add(14 * 24 * time.Hour)
+	if opAfter.ExpiresAt == nil || !approxEqual(*opAfter.ExpiresAt, want, 30*time.Second) {
+		t.Errorf("op after reactivate: expires_at=%v, want ≈ now+14d (%v)", opAfter.ExpiresAt, want)
+	}
+
+	guru1 = mustGetUser(t, pool, "guru1")
+	if status, cascade, _ := subFlags(t, pool, guru1.ID); status != models.UserStatusActive || cascade {
+		t.Errorf("guru1 after reactivate: status=%s cascade=%v, want active without cascade", status, cascade)
+	}
+	// guru1 followed the operator's new expiry (the renewal cascaded).
+	if guru1.ExpiresAt == nil || !approxEqual(*guru1.ExpiresAt, *opAfter.ExpiresAt, 30*time.Second) {
+		t.Errorf("guru1 after reactivate: expires_at=%v, want ≈ operator's %v (renewal cascaded)", guru1.ExpiresAt, opAfter.ExpiresAt)
+	}
+	if _, msg := models.AuthenticateUser(ctx, pool, "guru1", "pass-guru1"); msg != "" {
+		t.Errorf("login guru1 after reactivate: msg=%q, want success", msg)
+	}
+
+	// guru2 (own active package) keeps its own clock — the NOT EXISTS guard
+	// spared it from the expiry cascade.
+	guru2 = mustGetUser(t, pool, "guru2")
+	if status, cascade, _ := subFlags(t, pool, guru2.ID); status != models.UserStatusActive || cascade {
+		t.Errorf("guru2 after reactivate: status=%s cascade=%v, want active without cascade", status, cascade)
+	}
+	if guru2.ExpiresAt == nil || !guru2.ExpiresAt.After(time.Now().UTC().Add(20*24*time.Hour)) {
+		t.Errorf("guru2 after reactivate: expires_at=%v, want own ~30d package expiry preserved (spared from the cascade)", guru2.ExpiresAt)
+	}
+	if _, msg := models.AuthenticateUser(ctx, pool, "guru2", "pass-guru2"); msg != "" {
+		t.Errorf("login guru2 after reactivate: msg=%q, want success", msg)
+	}
+}
+
 // TestEditUserReactivationShowsFreezeMessage covers the EditUser reactivation
 // path for a suspended account whose expiry has ALREADY passed (suspended_at <
 // now, expires_at < now). The suspension-clock freeze pushes expires_at back
