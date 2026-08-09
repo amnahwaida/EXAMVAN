@@ -339,9 +339,55 @@ TEST_DATABASE_URL=postgresql://examvan:examvan@localhost:5432/examvan_test \
   go test ./internal/models/ -run TestAuthenticateUser -v
 ```
 
+> **Lanjutan:** latar belakang & detail pola isolasi skema per-paket juga dibahas di [upgrade_arsitektur.md → Lampiran — Pola Test Database (NewPackageTestPool)](upgrade_arsitektur.md#lampiran--pola-test-database-newpackagetestpool).
+
 ### 3. CI (GitHub Actions)
 
 Workflow `.github/workflows/ci.yml` (di root repo, bukan di `webui/.github`) otomatis menjalankan seluruh suite — termasuk tes integrasi — pada setiap push/pull request, menggunakan service `postgres:16-alpine` bawaan GitHub Actions. Tidak diperlukan konfigurasi tambahan.
+
+### 4. Tes E2E Kuota "Ujian Serentak" (opsional, manual)
+
+Dua skrip E2E di `webui/` memverifikasi perbaikan kuota "ujian serentak" secara end-to-end: membuat user & ujian uji sekali pakai (via SQL langsung), login lewat API admin asli (login + CSRF), menegakkan kuota, lalu membersihkan semuanya — termasuk menghapus objek PDF palsu di R2 lewat API delete:
+
+- **`test_concurrent_quota.go`** — terhadap **server native dev** di `:5001` (`APP_ENV=development`: cookie tidak Secure, tanpa Redis). Base URL bisa di-override via env `BASE_URL`.
+- **`test_concurrent_quota_prod.go`** — terhadap **stack Docker produksi** via nginx `:80`; transport-nya menambahkan header `X-Forwarded-Proto: https` (mensimulasikan hop Cloudflare Tunnel) dan menerima cookie `Secure` seperti browser di HTTPS.
+
+Kedua skrip menjalankan **14 asersi**: enforce kuota ujian serentak (`start`/`toggle`/`bulk-toggle` ditolak **403** saat kuota penuh, `stop` membebaskan kuota, superadmin bypass) dan kuota `max_exams` saat upload (dari 5× upload → **tepat 3 sukses**, 2 ditolak, tanpa overshoot race).
+
+> ✅ **Hasil verifikasi (9 Agustus 2026):** kedua skenario lulus **14 PASS / 0 FAIL** — dev native (`test_concurrent_quota.go`) dan stack produksi (`test_concurrent_quota_prod.go`).
+
+**Menjalankan versi dev native:**
+
+```bash
+# 1) PostgreSQL 16 sekali pakai
+docker run -d --name examvan-test-pg \
+  -e POSTGRES_USER=examvan -e POSTGRES_PASSWORD=examvan \
+  -e POSTGRES_DB=examvan_test -p 5432:5432 postgres:16-alpine
+
+# 2) Start server native :5001 (R2 wajib — isi R2_* & EXAMVAN_SECRET dari .env)
+cd webui
+PORT=5001 APP_ENV=development \
+DATABASE_URL=postgresql://examvan:examvan@localhost:5432/examvan_test?sslmode=disable \
+  go run ./cmd/server
+
+# 3) Terminal lain — jalankan test (server :5001 harus hidup)
+cd webui
+DATABASE_URL=postgresql://examvan:examvan@localhost:5432/examvan_test?sslmode=disable \
+  go run test_concurrent_quota.go
+```
+
+**Menjalankan versi stack produksi** (kredensial diambil dari `webui/.env`; arahkan `DATABASE_URL` ke container DB di jaringan Docker, mis. IP `172.18.0.x`):
+
+```bash
+cd webui
+DATABASE_URL=postgresql://examvan:<DB_PASSWORD>@<ip-db-container>:5432/examvan \
+EXAMVAN_ADMIN_USER=<admin> EXAMVAN_ADMIN_PASS=<pass> \
+  go run test_concurrent_quota_prod.go
+```
+
+> ⚠️ **Catatan:** kedua skrip menulis langsung ke database yang dituju (membuat/menghapus user & ujian uji) dan meng-upload PDF palsu ke R2. Untuk versi dev gunakan database **sekali pakai**; untuk versi produksi pastikan Anda bersedia menerima data uji sementara (keduanya membersihkan sendiri setelah selesai). Jangan arahkan `DATABASE_URL` ke database produksi sungguhan.
+
+> **Lanjutan:** ringkasan hasil verifikasi & cara menjalankan juga ada di [upgrade_arsitektur.md → Lampiran — Hasil Verifikasi E2E Kuota "Ujian Serentak"](upgrade_arsitektur.md#lampiran--hasil-verifikasi-e2e-kuota-ujian-serentak).
 
 ---
 

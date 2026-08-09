@@ -25,6 +25,7 @@
 13. [Step 10 — Testing R2](#13-step-10--testing-r2)
 14. [Capacity Planner Lengkap](#14-capacity-planner-lengkap)
 16. [Lampiran — Pola Test Database (NewPackageTestPool)](#lampiran--pola-test-database-newpackagetestpool)
+17. [Lampiran — Hasil Verifikasi E2E Kuota "Ujian Serentak"](#lampiran--hasil-verifikasi-e2e-kuota-ujian-serentak)
 
 ---
 
@@ -1422,7 +1423,43 @@ TEST_DATABASE_URL=postgresql://examvan:examvan@localhost:5432/examvan_test \
   go test ./...
 ```
 
-Dokumentasi penggunaannya juga ada di **README → Pengujian (Tes Otomatis)**.
+Dokumentasi penggunaannya juga ada di [README → Pengujian (Tes Otomatis)](README.md#pengujian-tes-otomatis).
+
+---
+
+## Lampiran — Hasil Verifikasi E2E Kuota "Ujian Serentak"
+
+> **Status (Agustus 2026):** Perbaikan kuota "ujian serentak" (enforce kuota ujian berjalan + kuota `max_exams` saat upload) sudah diverifikasi end-to-end di **dua skenario** — keduanya **14 PASS / 0 FAIL**.
+
+### Skrip E2E
+
+| Skrip | Target | Perbedaan dari skenario lain |
+|-------|--------|------------------------------|
+| `webui/test_concurrent_quota.go` | Server native dev `:5001` (`APP_ENV=development`) | Cookie tidak Secure, tanpa Redis; base URL via env `BASE_URL`. |
+| `webui/test_concurrent_quota_prod.go` | Stack Docker produksi via nginx `:80` | Header `X-Forwarded-Proto: https` (simulasi hop Cloudflare Tunnel) + menerima cookie Secure seperti browser HTTPS. |
+
+Keduanya membuat user & ujian uji sekali pakai (via SQL langsung), login lewat API admin asli (login + CSRF), menegakkan kuota, lalu membersihkan semuanya — termasuk menghapus objek PDF palsu di R2 lewat API delete.
+
+### Cakupan (14 asersi)
+
+- **Enforce kuota ujian serentak:** `start` ujian ke-3 saat kuota penuh → **403**; `toggle`/`bulk-toggle` re-aktivasi saat penuh → **403**; `stop` membebaskan kuota; superadmin **bypass**;
+- **Kuota `max_exams` saat upload:** dari 5× upload → **tepat 3 sukses**, 2 ditolak **403** ("Batas pembuatan ujian tercapai"), tanpa overshoot race (DB count == 3, semua default `inactive`).
+
+### Hasil (9 Agustus 2026)
+
+| Skenario | Hasil |
+|----------|-------|
+| `test_concurrent_quota.go` (dev native :5001) | ✅ **14 PASS / 0 FAIL** |
+| `test_concurrent_quota_prod.go` (stack produksi :80) | ✅ **14 PASS / 0 FAIL** |
+
+### Menjalankan
+
+Detail lengkap ada di [README → Pengujian → Tes E2E Kuota "Ujian Serentak"](README.md#4-tes-e2e-kuota-ujian-serentak-opsional-manual). Ringkasnya:
+
+- **Dev native:** start `postgres:16-alpine` sekali pakai di `:5432`, jalankan `go run ./cmd/server` dengan `PORT=5001 APP_ENV=development` + `DATABASE_URL` ke DB uji, lalu `DATABASE_URL=... go run test_concurrent_quota.go`;
+- **Stack produksi:** `DATABASE_URL=postgresql://examvan:<DB_PASSWORD>@<ip-db-container>:5432/examvan` (kredensial dari `webui/.env`) lalu `go run test_concurrent_quota_prod.go`.
+
+> ⚠️ Kedua skrip menulis langsung ke DB tujuan dan meng-upload PDF palsu ke R2 — untuk dev gunakan database **sekali pakai**; untuk produksi pastikan menerima data uji sementara. Jangan arahkan `DATABASE_URL` ke database produksi sungguhan.
 
 ---
 

@@ -20,6 +20,9 @@
 //
 //	DATABASE_URL=postgresql://examvan:examvan2026@172.18.0.2:5432/examvan \
 //	  go run test_concurrent_quota_prod.go
+//
+// Point BASE_URL elsewhere when nginx listens on another host/port (default
+// http://localhost:80).
 
 package main
 
@@ -42,8 +45,19 @@ import (
 	"golang.org/x/crypto/bcrypt"
 )
 
+// baseURL is overridable via the BASE_URL env var; it defaults to the local
+// nginx entry point of the production Docker stack on :80. Kept as a package
+// var so login/apiPost can read it without threading the value through every
+// call.
+var baseURL = "http://localhost:80"
+
+func init() {
+	if v := strings.TrimSpace(os.Getenv("BASE_URL")); v != "" {
+		baseURL = v
+	}
+}
+
 const (
-	baseURL         = "http://localhost:80"
 	usernameA       = "quota_test_guru"
 	usernameB       = "quota_test_upload"
 	passA           = "TestPassA123!"
