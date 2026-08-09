@@ -519,6 +519,59 @@ EXAMVAN/
 
 ---
 
+## Perbaikan Ujian Serentak — Submit Async, Jadwal, & Perangkat Bersama (9 Agustus 2026)
+
+Tiga perbaikan menyusul pemeriksaan alur ujian. Kode + tes integrasi ada di `webui/`; ringkasan temuan ada di [webui/BUG_REVIEW.md](webui/BUG_REVIEW.md) (bagian "Perbaikan tambahan — alur ujian (9 Agustus 2026)").
+
+### 1. Submit async kini punya jalur kembali ke skor siswa (Fix #2)
+
+**Masalah:** Saat Redis aktif, `POST /api/exams/:exam_id/submit` men-*enqueue* job dan membalas `status:"queued"` dengan `job_id` — tetapi tidak ada endpoint untuk menanyakan hasilnya. Worker menulis key hasil ke Redis (`examvan:submissions:result:<job_id>`, TTL 5 menit) dan `retryOrFail` (maks 3×) bisa gagal diam-diam, sementara siswa mengira jawabannya sudah terkumpul.
+
+**Solusi (endpoint polling):** endpoint publik baru **`GET /api/exams/:exam_id/result`** (`webui/internal/handlers/api/exams.go` → `ExamResult`, terdaftar di `cmd/server/main.go:515`). Klien memanggil dengan:
+
+```
+GET /api/exams/:exam_id/result?job_id=<dari submit>
+# atau, bila key Redis sudah kedaluwarsa, sertakan identitas perangkat:
+GET /api/exams/:exam_id/result?mac_address=DEVICE:...&identity_data=<json utk identitas>
+```
+
+Urutan pencarian hasil: **key Redis job (authoritative)** → bila key sudah TTL 5 menit, **fallback ke database** via `models.GetLatestSubmissionByIdentity` (cocokkan `mac_address` + `identity_data` pada submit) → kalau belum ada, balas `pending`. Bentuk respons menyamai bentuk submit sinkron sehingga klien menangani kedua jalur sama:
+
+```json
+{"success":true,  "status":"done",    "score":87.5, "message":"Jawaban berhasil disimpan"}
+{"success":true,  "status":"pending", "score":null, "message":"Jawaban masih diproses"}
+{"success":false, "status":"failed",  "message":"<alasan>"}
+```
+
+Tes: `TestExamResultReturnsScoreFromDB`, `TestExamResultPending` (`webui/internal/handlers/api/exams_test.go`).
+
+### 2. `end_time` kini ditegakkan server-side dengan grace 60 detik (Fix #3)
+
+**Masalah:** `start_time`/`end_time` hanya dihitung oleh aplikasi Android; server hanya memeriksa `IsActive() && ExamStartedAt != nil`, jadi ujian yang waktunya sudah lewat masih bisa dibuka/disubmit dari luar aplikasi.
+
+**Solusi:** helper `examScheduleEnded(exam, now)` (`webui/internal/handlers/api/exams.go:902`) mengembalikan `true` bila `now > end_time + 60s` (konstanta grace `scheduleGraceEnd` untuk submit yang datang tepat di tenggat lewat koneksi lambat). Diterapkan **konsisten** di empat jalur:
+
+| Jalur | Penolakan |
+|-------|-----------|
+| `GET /api/exams/token/:token` (buka soal) | `403 "Waktu ujian telah berakhir"` |
+| `GET /api/exams/:exam_id/pdf` (download PDF) | `403 "Waktu ujian telah berakhir"` |
+| `POST /api/exams/:exam_id/submit` (kumpulkan) | `403 "Waktu ujian telah berakhir"` |
+| `POST /api/exams/:exam_id/access-log` (heartbeat) | `403 "Waktu ujian telah berakhir"` |
+
+`end_time` sekarang juga dikembalikan dalam payload `ExamByToken`. `CompleteExam` **sengaja tidak di-gate** — klien memanggilnya tepat setelah submit di batas waktu untuk membersihkan heartbeat offline.
+
+Tes: `TestExamScheduleEnded` (unit — end tak diset, future, dalam grace 60s, lewat 5 menit, lewat 2 hari), `TestExamByTokenRejectsPastEndTime` (403), `TestExamByTokenAllowsInsideWindow` (200).
+
+### 3. Dua siswa berbagi satu perangkat tidak lagi tergabung satu baris (Fix #4)
+
+**Masalah:** Baris submission **dide-dup murni per `mac_address`** (identitas device). Dua siswa yang memakai satu perangkat secara bergantian akan disatukan ke satu baris → kehadiran/in-progress salah hitung dan hasil ujian salah.
+
+**Solusi:** dedup kini di-scope dengan `exam_number` saat tidak kosong — di `upsertSubmissionRow` (`webui/internal/queue/submission_queue.go:475`) dan `CreateSubmission` (`webui/internal/models/submission.go:405`). Perangkat bersama + 2 nomor ujian → **dua baris terpisah**; nomor ujian kosong → perilaku lama (satu baris per perangkat) dipertahankan.
+
+Tes: `TestUpsertSubmissionRowTwoStudentsShareDevice` (`webui/internal/queue/submission_queue_test.go`).
+
+---
+
 ## API Endpoints
 
 ### Public API (Token-based)
@@ -526,8 +579,14 @@ EXAMVAN/
 |--------|----------|------------|
 | GET | `/api/health` | Health check |
 | GET | `/api/time` | Waktu server (UTC) |
-| GET | `/api/exams/token/<token>` | Ambil data ujian berdasarkan token |
-| POST | `/api/exams/token/<token>/submit` | Submit jawaban ujian |
+| GET | `/api/exams` | Daftar ujian aktif sekolah (`?instansi=<kode>` wajib; tanpa kode → list kosong) |
+| POST | `/api/exams/request-approval` | Minta persetujuan perangkat siswa (tanpa auth) |
+| GET | `/api/exams/token/:token` | Ambil data ujian berdasarkan token |
+| GET | `/api/exams/:exam_id/pdf` | Redirect ke soal PDF (signed URL R2) |
+| POST | `/api/exams/:exam_id/submit` | Submit jawaban ujian (async via Redis → `200 status:"queued"` + `job_id`, atau sync `200` + `score`) |
+| GET | `/api/exams/:exam_id/result` | Poll hasil submit async — `?job_id=...` atau `&mac_address=...&identity_data=...` → `done`/`pending`/`failed` |
+| POST | `/api/exams/:exam_id/access-log` | Log kehadiran siswa (login/logout/heartbeat) |
+| POST | `/api/exams/:exam_id/complete` | Tandai ujian selesai di perangkat (hapus heartbeat) |
 
 ### Admin API (Session-based + CSRF)
 | Method | Endpoint | Keterangan |

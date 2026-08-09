@@ -444,6 +444,10 @@ func ExamByToken() gin.HandlerFunc {
 			errorResponse(c, http.StatusForbidden, "Ujian belum dimulai oleh pengawas")
 			return
 		}
+		if examScheduleEnded(&exam, time.Now().UTC()) {
+			errorResponse(c, http.StatusForbidden, "Waktu ujian telah berakhir")
+			return
+		}
 
 		// Auto-reset active_token if exam has started and token mode is dynamic.
 		if err := examtoken.MaybeResetActiveToken(ctx, pool, &exam, time.Now().UTC()); err != nil {
@@ -537,6 +541,10 @@ func ExamPDF() gin.HandlerFunc {
 		}
 		if !exam.IsActive() || exam.ExamStartedAt == nil || !examtoken.Matches(exam, token) {
 			errorResponse(c, http.StatusNotFound, "Ujian tidak ditemukan")
+			return
+		}
+		if examScheduleEnded(&exam, time.Now().UTC()) {
+			errorResponse(c, http.StatusForbidden, "Waktu ujian telah berakhir")
 			return
 		}
 
@@ -684,6 +692,10 @@ func SubmitExam() gin.HandlerFunc {
 		}
 		if !exam.IsActive() || exam.ExamStartedAt == nil {
 			errorResponse(c, http.StatusNotFound, "Ujian tidak ditemukan")
+			return
+		}
+		if examScheduleEnded(&exam, time.Now().UTC()) {
+			errorResponse(c, http.StatusForbidden, "Waktu ujian telah berakhir")
 			return
 		}
 
@@ -875,6 +887,25 @@ func sanitizeMAC(raw string) string {
 	return s
 }
 
+// scheduleGraceEnd is how long after end_time a submission is still accepted.
+// The Android app auto-submits right at the deadline, and a borderline request
+// may arrive a few seconds late over a slow link — a small grace window keeps
+// that legitimate submit from being dropped while still enforcing the hard
+// cutoff for anyone who tries to keep working well past the deadline.
+const scheduleGraceEnd = 60 * time.Second
+
+// examScheduleEnded reports whether the exam's scheduled end_time has passed
+// (plus the submission grace window). A nil end_time means no schedule limit is
+// set — the exam is governed purely by manual start/stop — so this returns
+// false. When end_time IS set, joining/working/submitting after it is rejected
+// so the server-side deadline matches the countdown the Android app displays.
+func examScheduleEnded(exam *models.Exam, now time.Time) bool {
+	if exam == nil || exam.EndTime == nil {
+		return false
+	}
+	return now.UTC().After(exam.EndTime.UTC().Add(scheduleGraceEnd))
+}
+
 // sanitizeStartTime normalises a start-time string by replacing 'T' with a
 // space and stripping trailing 'Z', matching the Python behaviour.
 func sanitizeStartTime(raw string) string {
@@ -884,6 +915,94 @@ func sanitizeStartTime(raw string) string {
 	raw = strings.ReplaceAll(raw, "T", " ")
 	raw = strings.TrimSuffix(raw, "Z")
 	return raw
+}
+
+// ---------------------------------------------------------------------------
+// 4b. GET /api/exams/:exam_id/result — Poll async submission result
+// ---------------------------------------------------------------------------
+
+// ExamResult returns a gin.HandlerFunc that lets a client poll the outcome of
+// an async submission. When Redis is available, SubmitExam enqueues the job
+// and answers status:"queued" with a job_id — there was previously no way for
+// the student to learn the score (or even whether the submission was
+// persisted). This endpoint reads the job result Redis key written by the
+// queue worker; if that key has expired (5-minute TTL) it falls back to the
+// database, matching the latest submission for the same exam + device identity
+// so the score survives even a delayed poll.
+//
+// The client supplies either the job_id from the submit response, or the same
+// mac_address + identity_data used on submit (used to match the DB row when
+// the Redis result is gone). The response mirrors the sync submit shape so a
+// client can treat both paths uniformly:
+//
+//	{"success":true, "status":"done", "score":87.5, "message":"..."}
+//	{"success":true, "status":"pending"}          // queued but not yet processed
+//	{"success":false, "message":"..."}            // job failed after retries
+func ExamResult() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		examID, err := strconv.Atoi(c.Param("exam_id"))
+		if err != nil {
+			errorResponse(c, http.StatusBadRequest, "ID ujian tidak valid")
+			return
+		}
+
+		pool := getPool(c)
+		rdb := getRedis(c)
+		ctx := c.Request.Context()
+
+		jobID := strings.TrimSpace(c.Query("job_id"))
+		macAddress := sanitizeMAC(c.Query("mac_address"))
+		identityData := strings.TrimSpace(c.Query("identity_data"))
+
+		// Redis result first — the authoritative worker outcome.
+		if jobID != "" && rdb != nil {
+			if val, err := rdb.Get(ctx, queue.ResultKeyPrefix+jobID).Bytes(); err == nil {
+				var res queue.JobResult
+				if json.Unmarshal(val, &res) == nil {
+					if res.Success {
+						c.JSON(http.StatusOK, gin.H{
+							"success": true,
+							"status":  "done",
+							"score":   res.Score,
+							"message": "Jawaban berhasil disimpan",
+						})
+					} else {
+						c.JSON(http.StatusOK, gin.H{
+							"success": false,
+							"status":  "failed",
+							"message": res.Message,
+						})
+					}
+					return
+				}
+			}
+		}
+
+		// Fallback: query the DB for the submission the async job would have
+		// written, matching by exam + device identity (Redis result may have
+		// expired). Only applies when the poller can identify the submission.
+		if macAddress != "" {
+			sub, err := models.GetLatestSubmissionByIdentity(ctx, pool, examID, macAddress, identityData)
+			if err == nil && sub.AnswersJSON != nil && *sub.AnswersJSON != "" {
+				c.JSON(http.StatusOK, gin.H{
+					"success": true,
+					"status":  "done",
+					"score":   sub.Score,
+					"message": "Jawaban berhasil disimpan",
+				})
+				return
+			}
+		}
+
+		// Still nothing durable — either the job is queued/processing or its
+		// Redis result expired before the worker finished. Report pending.
+		c.JSON(http.StatusOK, gin.H{
+			"success": true,
+			"status":  "pending",
+			"score":   nil,
+			"message": "Jawaban masih diproses",
+		})
+	}
 }
 
 // ---------------------------------------------------------------------------
@@ -984,6 +1103,10 @@ func AccessLog() gin.HandlerFunc {
 		exam, err := models.GetExamByID(ctx, pool, examID)
 		if err != nil || !exam.IsActive() || exam.ExamStartedAt == nil {
 			errorResponse(c, http.StatusNotFound, "Ujian tidak ditemukan")
+			return
+		}
+		if examScheduleEnded(&exam, time.Now().UTC()) {
+			errorResponse(c, http.StatusForbidden, "Waktu ujian telah berakhir")
 			return
 		}
 		if !examtoken.Matches(exam, token) {
@@ -1114,6 +1237,9 @@ func CompleteExam() gin.HandlerFunc {
 			errorResponse(c, http.StatusNotFound, "Ujian tidak ditemukan")
 			return
 		}
+		// NOTE: CompleteExam is deliberately NOT gated on end_time — the client
+		// calls it right after a (valid) submit at the deadline to clear its
+		// heartbeat; blocking it there would strand the offline indicator.
 
 		// Delete heartbeat from Redis so student shows offline immediately
 		if rdb, exists := c.Get("redis"); exists && rdb != nil {

@@ -7,6 +7,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"reflect"
 	"testing"
 	"time"
@@ -127,6 +128,7 @@ func newExamByTokenRouter(pool *pgxpool.Pool) *gin.Engine {
 	r.Use(sessions.Sessions("examvan_session", store))
 	r.Use(func(c *gin.Context) { c.Set("db", pool) })
 	r.GET("/api/exams/token/:token", ExamByToken())
+	r.GET("/api/exams/:exam_id/result", ExamResult())
 	return r
 }
 
@@ -267,6 +269,269 @@ func TestExamByTokenNotStarted(t *testing.T) {
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusForbidden {
 		t.Fatalf("status = %d, want 403", resp.StatusCode)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Unit tests: examScheduleEnded (Fix #3 — end_time enforcement)
+// ---------------------------------------------------------------------------
+
+// TestExamScheduleEnded covers the end_time window logic: a nil end_time means
+// "no schedule limit" (manual start/stop governs), a past end_time (beyond the
+// 60s grace) means ended, and a recent end_time inside the grace window is
+// still accepted for a borderline submit.
+func TestExamScheduleEnded(t *testing.T) {
+	now := time.Date(2026, 8, 9, 10, 0, 0, 0, time.UTC)
+
+	cases := []struct {
+		name   string
+		end    *time.Time
+		now    time.Time
+		wantEnd bool
+	}{
+		{
+			name:    "nil end_time = no schedule limit",
+			end:     nil,
+			now:     now,
+			wantEnd: false,
+		},
+		{
+			name:    "future end_time = open",
+			end:     ptrTime(now.Add(2 * time.Hour)),
+			now:     now,
+			wantEnd: false,
+		},
+		{
+			name:    "just-past end_time inside 60s grace = still open",
+			end:     ptrTime(now.Add(-30 * time.Second)),
+			now:     now,
+			wantEnd: false,
+		},
+		{
+			name:    "well-past end_time = ended",
+			end:     ptrTime(now.Add(-5 * time.Minute)),
+			now:     now,
+			wantEnd: true,
+		},
+		{
+			name:    "thousands past = ended",
+			end:     ptrTime(now.Add(-48 * time.Hour)),
+			now:     now,
+			wantEnd: true,
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			exam := &models.Exam{EndTime: tc.end}
+			if got := examScheduleEnded(exam, tc.now); got != tc.wantEnd {
+				t.Errorf("examScheduleEnded(end=%v) = %v, want %v", tc.end, got, tc.wantEnd)
+			}
+		})
+	}
+}
+
+func ptrTime(t time.Time) *time.Time { return &t }
+
+// ---------------------------------------------------------------------------
+// Integration tests: GET /api/exams/:exam_id/result (Fix #2 — async result)
+// ---------------------------------------------------------------------------
+
+// TestExamResultReturnsScoreFromDB verifies the result endpoint's DB fallback:
+// when the Redis result key has expired, a poll that supplies the device
+// identity (mac_address + identity_data used on submit) finds the persisted
+// submission and returns its score with status "done".
+func TestExamResultReturnsScoreFromDB(t *testing.T) {
+	pool := database.NewPackageTestPool(t, "api")
+	ctx := context.Background()
+
+	owner, err := models.CreateUser(ctx, pool, &models.AdminUser{
+		Username: "api-result-guru", Name: "Guru Hasil",
+		PasswordHash: "pass", Status: models.UserStatusActive,
+		Role: models.SerializeRoles([]string{models.RoleGuru}),
+	})
+	if err != nil {
+		t.Fatalf("create owner: %v", err)
+	}
+	token := fmt.Sprintf("R%07d", time.Now().UnixNano()%10000000)
+	var examID int
+	if err := pool.QueryRow(ctx, `
+		INSERT INTO exams (name, file_path, size_bytes, token, active_token, status,
+		                   security_level, created_by, exam_started_at, questions_json)
+		VALUES ('Ujian Hasil', 'hasil.pdf', 1024, $1, $1, 'active', 'medium', $2, CURRENT_TIMESTAMP, $3)
+		RETURNING id`, token, owner.ID, `[{"number":1,"type":"multiple_choice","label":"S","weight":1,"key":"jakarta"}]`).Scan(&examID); err != nil {
+		t.Fatalf("insert exam: %v", err)
+	}
+
+	// Simulate the durable row the async worker would have written.
+	answers := `{"1":"jakarta"}`
+	score := 100.0
+	identity := `{"student_name":"Siti","exam_number":"E1","student_class":"XII-A"}`
+	if _, err := pool.Exec(ctx, `
+		INSERT INTO submissions (exam_id, student_name, exam_number, student_class,
+		                         answers_json, score, start_time, mac_address, identity_data)
+		VALUES ($1,'Siti','E1','XII-A',$2,$3,'2026-08-09 08:00:00','DEVICE:result1',$4)`,
+		examID, answers, score, identity); err != nil {
+		t.Fatalf("insert submission: %v", err)
+	}
+
+	srv := httptest.NewServer(newExamByTokenRouter(pool))
+	defer srv.Close()
+
+	// Poll with the same device + identity (non-expired Redis result not needed —
+	// this exercises the durable fallback).
+	resp, err := http.Get(fmt.Sprintf("%s/api/exams/%d/result?mac_address=%s&identity_data=%s",
+		srv.URL, examID, "DEVICE:result1", url.QueryEscape(identity)))
+	if err != nil {
+		t.Fatalf("GET result: %v", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("status = %d, want 200 (%s)", resp.StatusCode, readBody(t, resp))
+	}
+	var body struct {
+		Success bool     `json:"success"`
+		Status  string   `json:"status"`
+		Score   *float64 `json:"score"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&body); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if !body.Success || body.Status != "done" {
+		t.Fatalf("got success=%v status=%q, want true/done", body.Success, body.Status)
+	}
+	if body.Score == nil || *body.Score != 100 {
+		t.Fatalf("score = %v, want 100", body.Score)
+	}
+}
+
+// TestExamResultPending confirms a poll that cannot find any persisted row (job
+// still queued/processing or already failed with no DB row) reports "pending",
+// never a hard error.
+func TestExamResultPending(t *testing.T) {
+	pool := database.NewPackageTestPool(t, "api")
+	ctx := context.Background()
+	owner, err := models.CreateUser(ctx, pool, &models.AdminUser{
+		Username: "api-result-gur2", Name: "Guru API",
+		PasswordHash: "pass", Status: models.UserStatusActive,
+		Role: models.SerializeRoles([]string{models.RoleGuru}),
+	})
+	if err != nil {
+		t.Fatalf("create owner: %v", err)
+	}
+	token := fmt.Sprintf("R%07d", time.Now().UnixNano()%10000000)
+	var examID int
+	if err := pool.QueryRow(ctx, `
+		INSERT INTO exams (name, file_path, size_bytes, token, active_token, status,
+		                   security_level, created_by, exam_started_at)
+		VALUES ('Ujian Hasil B', 'hasilb.pdf', 1024, $1, $1, 'active', 'medium', $2, CURRENT_TIMESTAMP)
+		RETURNING id`, token, owner.ID).Scan(&examID); err != nil {
+		t.Fatalf("insert exam: %v", err)
+	}
+
+	srv := httptest.NewServer(newExamByTokenRouter(pool))
+	defer srv.Close()
+
+	// Unknown job_id, no matching DB row → "pending".
+	resp, err := http.Get(fmt.Sprintf("%s/api/exams/%d/result?job_id=nonexistent&mac_address=DEVICE:xyz",
+		srv.URL, examID))
+	if err != nil {
+		t.Fatalf("GET result: %v", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("status = %d, want 200 (%s)", resp.StatusCode, readBody(t, resp))
+	}
+	var body struct {
+		Success bool   `json:"success"`
+		Status  string `json:"status"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&body); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if !body.Success || body.Status != "pending" {
+		t.Fatalf("got success=%v status=%q, want true/pending", body.Success, body.Status)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Integration tests: end_time enforcement (Fix #3)
+// ---------------------------------------------------------------------------
+
+// createExamWithEndTime inserts an active, started exam whose questions_json
+// carries answer keys, with an optional end_time (nil = no schedule). Returns
+// its active token and exam id.
+func createExamWithEndTime(t *testing.T, pool *pgxpool.Pool, end *time.Time) (string, int) {
+	t.Helper()
+	ctx := context.Background()
+	owner, err := models.CreateUser(ctx, pool, &models.AdminUser{
+		Username: "api-sched-guru", Name: "Guru Jadwal",
+		PasswordHash: "pass", Status: models.UserStatusActive,
+		Role: models.SerializeRoles([]string{models.RoleGuru}),
+	})
+	if err != nil {
+		t.Fatalf("create owner: %v", err)
+	}
+	token := fmt.Sprintf("S%07d", time.Now().UnixNano()%10000000)
+	var examID int
+	if end != nil {
+		err = pool.QueryRow(ctx, `
+			INSERT INTO exams (name, file_path, size_bytes, token, active_token, status,
+			                   security_level, created_by, exam_started_at, end_time)
+			VALUES ('Ujian Berakhir', 's.pdf', 1024, $1, $1, 'active', 'medium', $2, CURRENT_TIMESTAMP, $3)
+			RETURNING id`, token, owner.ID, end).Scan(&examID)
+	} else {
+		err = pool.QueryRow(ctx, `
+			INSERT INTO exams (name, file_path, size_bytes, token, active_token, status,
+			                   security_level, created_by, exam_started_at)
+			VALUES ('Ujian Berakhir', 's.pdf', 1024, $1, $1, 'active', 'medium', $2, CURRENT_TIMESTAMP)
+			RETURNING id`, token, owner.ID).Scan(&examID)
+	}
+	if err != nil {
+		t.Fatalf("insert exam: %v", err)
+	}
+	return token, examID
+}
+
+// TestExamByTokenRejectsPastEndTime locks in Fix #3 for the join path: joining
+// an exam whose end_time has long passed must be denied (403), not silently
+// allowed as it was before.
+func TestExamByTokenRejectsPastEndTime(t *testing.T) {
+	pool := database.NewPackageTestPool(t, "api")
+	past := time.Now().UTC().Add(-2 * time.Hour)
+	tok, _ := createExamWithEndTime(t, pool, &past)
+
+	srv := httptest.NewServer(newExamByTokenRouter(pool))
+	defer srv.Close()
+
+	resp, err := http.Get(srv.URL + "/api/exams/token/" + tok)
+	if err != nil {
+		t.Fatalf("GET: %v", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusForbidden {
+		t.Fatalf("status = %d, want 403 (end_time enforcement)", resp.StatusCode)
+	}
+}
+
+// TestExamByTokenAllowsInsideWindow verifies a future end_time does not block
+// joining an otherwise-active exam.
+func TestExamByTokenAllowsInsideWindow(t *testing.T) {
+	pool := database.NewPackageTestPool(t, "api")
+	future := time.Now().UTC().Add(2 * time.Hour)
+	tok, _ := createExamWithEndTime(t, pool, &future)
+
+	srv := httptest.NewServer(newExamByTokenRouter(pool))
+	defer srv.Close()
+
+	resp, err := http.Get(srv.URL + "/api/exams/token/" + tok)
+	if err != nil {
+		t.Fatalf("GET: %v", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("status = %d, want 200 (%s)", resp.StatusCode, readBody(t, resp))
 	}
 }
 

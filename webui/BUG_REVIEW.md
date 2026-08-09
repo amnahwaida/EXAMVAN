@@ -17,11 +17,30 @@ Semua temuan CRITICAL/HIGH/MEDIUM/LOW **sudah diperbaiki** + plausibles yang ama
 - **HIGH exam-flow:** rate-limit submit per `exam:mac` (+ route per-IP dinaikkan utk kelas NAT); `flushBatch` savepoint per-row & `storeResult` hanya setelah commit; WS `trySend` mutex-guarded; `GetPricingMap` pakai key `price_*` (billing tak lagi Rp 0); guard eskalasi role operator mencakup field `role` singular.
 - **MEDIUM/LOW:** DOKU refund/void kini diproses saat approved + `hmac.Equal` + signature tak di-log + unmark on failure; entitlement merge role (SuperAdmin tak di-demote) + clawback role saat refund; `SaveQuestions` tak menghapus roster pengawas; `ListUsers` sertakan package; migrasi `ALTER amount` dikondisikan; expiry edit-user dikonversi UTC; map lockout dibatasi; stats dedup + COALESCE; `ToggleUserStatus` guard operator; `ListTransactions` clamp per_page + rows.Err; null-scan notes/proof di-COALESCE; CORS tak gabung `*`+credentials; `AccessLog` cek token; `jakartaLocation()` fallback UTC.
 - **#14 `GET /api/exams` — SUDAH DIPERBAIKI (scoped per-sekolah, by CODE):** endpoint kini mewajibkan **kode sekolah unik** via query `?instansi=<kode>` (alias `?kode=` / `?code=`), dicocokkan HANYA dengan `instansi_code` (case-insensitive). Nama instansi TIDAK dipakai (tidak unik → bisa bocor antar sekolah bernama sama). Tanpa kode → daftar kosong (`data: []`), bukan daftar lintas-tenant. Cache Redis di-key per-sekolah. Fungsi lama `models.ListActiveExams` (list global tanpa scope) dihapus.
-  - **PERUBAHAN KONTRAK API (perlu update aplikasi Android):** layar "Daftar Ujian" harus mengirim **kode instansi** (`instansi.code`, mis. `SCH-XXXXXXXX`). Response tetap `{"success":true,"data":[...]}`. Tanpa/salah kode → list kosong. Sarankan menambahkan input "Kode Sekolah" di layar konfigurasi server, atau pindah ke alur token-only.
+  - **PERUBAHAN KONTRAK API:** layar "Daftar Ujian" harus mengirim **kode instansi** (`instansi.code`, mis. `SCH-XXXXXXXX`). Response tetap `{"success":true,"data":[...]}`. Tanpa/salah kode → list kosong. Sarankan menambahkan input "Kode Sekolah" di layar konfigurasi server, atau pindah ke alur token-only.
 
 ---
 
-## 🔴 CRITICAL
+## ✅ PERBAIKAN TAMBAHAN — ALUR UJIAN (9 Agustus 2026)
+
+Review lanjutan tiga temuan di alur submission/penjadwalan. **Semua sudah diperbaiki + ditest** (`go build`, `go vet`, `go test` lolos; status 9 Agustus 2026). Catatan lengkap di [README.md → Perbaikan Ujian Serentak](../README.md#perbaikan-ujian-serentak--submit-async-jadwal--perangkat-bersama-9-agustus-2026).
+
+### A. Submit async tidak punya jalur kembali ke skor siswa (TINGGI) — endpoint `GET /api/exams/:exam_id/result`
+- **Masalah lama:** Saat Redis aktif, `SubmitExam` men-*enqueue* job → `status:"queued"`, `score:nil`, `job_id`; **tidak ada endpoint** untuk mem-poll hasilnya. Key Redis `ResultKeyPrefix` tak pernah dibaca siapa pun; `retryOrFail` (maks 3×) bisa gagal senyap sementara siswa mengira jawaban sudah terkumpul.
+- **Fix:** endpoint publik **`GET /api/exams/:exam_id/result`** (`api.ExamResult`, `cmd/server/main.go:515`) membaca key hasil Redis worker → bila TTL (5 mnt) habis, **fallback ke DB** via `GetLatestSubmissionByIdentity` (cocokkan `mac_address` + `identity_data` dari submit) → jika belum ada, balas `pending`. Respons meniru bentuk submit sinkron (`done`/`pending`/`failed`).
+- **Test:** `TestExamResultReturnsScoreFromDB`, `TestExamResultPending` di `internal/handlers/api/exams_test.go`.
+
+### B. `end_time` tak pernah ditegakkan server-side (TINGGI)
+- **Masalah lama:** `ExamByToken`/`SubmitExam` hanya cek `IsActive() && ExamStartedAt != nil`; ujian di luar jendela masih bisa dibuka/disubmit (hanya aplikasi yang menghitung `end_time`). `time_limit:null` juga ditampilkan.
+- **Fix:** helper `examScheduleEnded(exam, now)` (`internal/handlers/api/exams.go:902`) — `now > end_time + 60s` (grace `scheduleGraceEnd`, :895) untuk submit yang datang tepat di tenggat. Diterapkan di **4 jalur**: `ExamByToken`, `ExamPDF`, `SubmitExam`, `AccessLog` (masing-masing `403 "Waktu ujian telah berakhir"`). `CompleteExam` **sengaja tidak di-gate** — klien memanggilnya tepat setelah submit di batas waktu untuk membersihkan heartbeat. `end_time` kini dikembalikan di payload `ExamByToken`.
+- **Test:** `TestExamScheduleEnded` (unit, 5 kasus), `TestExamByTokenRejectsPastEndTime`, `TestExamByTokenAllowsInsideWindow`.
+
+### C. Dedup submission per `mac_address` + placeholder per-MAC dihitung in-progress selamanya (MENENGAH)
+- **Masalah lama:** dedup murni per MAC → perangkat yang dipakai bergantian 2 siswa disatukan jadi satu baris; baris kosong per MAC dihitung in-progress selamanya; device yang diinstal ulang/ganti → terhitung 2×.
+- **Fix:** dedup kini di-**scope** dengan `exam_number` saat tidak kosong — di `upsertSubmissionRow` (`internal/queue/submission_queue.go`) dan `CreateSubmission` (`internal/models/submission.go`), sehingga satu perangkat mempertahankan **dua baris terpisah** untuk dua siswa. Identitas device tetap `mac_address` dari `resolveDeviceId()` (`DEVICE:<AndroidId>`, stabil walau di-uninstall/reinstall). Nomor ujian kosong → perilaku lama (satu baris per perangkat) dipertahankan.
+- **Test:** `TestUpsertSubmissionRowTwoStudentsShareDevice` di `internal/queue/submission_queue_test.go`.
+
+---
 
 ### 1. Stored XSS lewat MAC address di antrean approval pengawas
 - **Lokasi:** `templates/admin/pengawas_detail.html:1174,1177` (render) + `internal/handlers/api/exams.go:339` (`RequestApproval`, insert tanpa sanitasi) + route publik `cmd/server/main.go:473`.

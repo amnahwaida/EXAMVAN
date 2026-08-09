@@ -402,9 +402,18 @@ func CreateSubmission(ctx context.Context, pool *pgxpool.Pool, s *Submission) (*
 		}
 	}
 
-	// Try to update an existing un-submitted row first
+	// Try to update an existing un-submitted row first — an open (placeholder)
+	// row for this student on this device. When the student has an exam number,
+	// the match is scoped to a row carrying that same number (heartbeat
+	// placeholders store it), so two students who share one device no longer get
+	// merged into a single row. When the student has no exam number, any open row
+	// on the device is targeted, preserving the one-device-one-row behaviour for
+	// exams that don't assign numbers.
 	var existingID int
-	err := pool.QueryRow(ctx, "SELECT id FROM submissions WHERE exam_id = $1 AND mac_address = $2 AND (answers_json IS NULL OR answers_json = '') ORDER BY created_at DESC LIMIT 1", s.ExamID, s.MACAddress).Scan(&existingID)
+	err := pool.QueryRow(ctx, `SELECT id FROM submissions
+		WHERE exam_id = $1 AND mac_address = $2 AND (answers_json IS NULL OR answers_json = '')
+		  AND ($3 = '' OR exam_number = $3)
+		ORDER BY created_at DESC LIMIT 1`, s.ExamID, s.MACAddress, s.ExamNumber).Scan(&existingID)
 	
 	var sql string
 	var created Submission
@@ -442,6 +451,28 @@ func CreateSubmission(ctx context.Context, pool *pgxpool.Pool, s *Submission) (*
 func GetSubmissionByID(ctx context.Context, pool *pgxpool.Pool, id int) (Submission, error) {
 	sql := `SELECT ` + defaultSubmissionColumns + ` FROM submissions WHERE id = $1`
 	return scanSubmission(pool.QueryRow(ctx, sql, id))
+}
+
+// GetLatestSubmissionByIdentity returns the most recent submission for a
+// student in an exam, matched by their device identifier and, when present,
+// their identity payload. It is the DB-side fallback for an async submission
+// job whose Redis result key has already expired (TTL): the submit call wrote
+// mac_address + identity_data, so an arriving student can poll the result by
+// supplying those same values. The identity_data match is deliberately exact
+// JSON-equality on the serialised bytes — the client reproduces the same map,
+// and the queue worker stored it verbatim, so the round trip is stable.
+//
+// Returns pgx.ErrNoRows when no submission matches.
+func GetLatestSubmissionByIdentity(ctx context.Context, pool *pgxpool.Pool, examID int, macAddress, identityData string) (Submission, error) {
+	sql := `SELECT ` + defaultSubmissionColumns + ` FROM submissions
+	WHERE exam_id = $1 AND mac_address = $2
+	  AND ($3 = '' OR identity_data = $3)
+	ORDER BY created_at DESC LIMIT 1`
+	sub, err := scanSubmission(pool.QueryRow(ctx, sql, examID, macAddress, identityData))
+	if err != nil {
+		return Submission{}, err
+	}
+	return sub, nil
 }
 
 // GetSubmissionDetail retrieves a submission joined with exam data.

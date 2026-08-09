@@ -472,10 +472,11 @@ func upsertSubmissionRow(ctx context.Context, q pgx.Tx, job *SubmissionJob, scor
 		WHERE id = (
 			SELECT id FROM submissions
 			WHERE exam_id = $8 AND mac_address = $9 AND (answers_json IS NULL OR answers_json = '')
+			  AND ($10 = '' OR exam_number = $10)
 			ORDER BY created_at DESC LIMIT 1
 		)
 		RETURNING id
-	`, answersPtr, score, job.StartTime, job.StudentName, job.ExamNumber, job.StudentClass, identityPtr, job.ExamID, job.MACAddress).Scan(&submissionID)
+	`, answersPtr, score, job.StartTime, job.StudentName, job.ExamNumber, job.StudentClass, identityPtr, job.ExamID, job.MACAddress, job.ExamNumber).Scan(&submissionID)
 
 	if err == pgx.ErrNoRows {
 		err = q.QueryRow(ctx, `INSERT INTO submissions

@@ -509,6 +509,10 @@ func registerRoutes(r *gin.Engine, cfg *config.Config, pool *pgxpool.Pool) {
 		// Per-IP limit stays high because an entire classroom often submits from
 		// a single NAT'd school IP near the deadline.
 		apiGroup.POST("/exams/:exam_id/submit", middleware.LimitBodySize(5*1024*1024), middleware.RateLimitIP(120, time.Minute), middleware.AndroidVersionCheck(), api.SubmitExam())
+		// Poll the outcome of an async submission (job_id from submit, or the
+		// device identity used on submit). IP-rate-limited like the other
+		// student endpoints; polling is cheap (single Redis GET / DB lookup).
+		apiGroup.GET("/exams/:exam_id/result", middleware.RateLimitIP(60, time.Minute), middleware.AndroidVersionCheck(), api.ExamResult())
 		apiGroup.POST("/exams/:exam_id/access-log", middleware.LimitBodySize(256*1024), middleware.RateLimitIP(30, time.Minute), middleware.AndroidVersionCheck(), api.AccessLog())
 		apiGroup.POST("/exams/:exam_id/complete", middleware.LimitBodySize(256*1024), middleware.RateLimitIP(30, time.Minute), middleware.AndroidVersionCheck(), api.CompleteExam())
 
