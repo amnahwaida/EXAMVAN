@@ -185,6 +185,26 @@ func SerializeRoles(roles []string) string {
 	return string(b)
 }
 
+// NormalizeSessionRole maps a persisted role string to the canonical session
+// value used by the admin UI's template guards: superadmin → "superadmin",
+// operator (whether exactly "operator" or part of a multi-role JSON array like
+// '["guru","operator"]') → "operator", and everyone else keeps the raw role
+// string. Mirrors the login handler's normalization (cmd/server/main.go) so
+// every path that refreshes the session role — login AND voucher redeem/
+// activate — stores the same canonical value. The UI guards use hasRole-based
+// membership checks that tolerate either format, but keeping the session value
+// canonical means a fresh voucher redeem never regresses an operator to a raw
+// role JSON that the templates would otherwise need to re-parse.
+func NormalizeSessionRole(roleStr string) string {
+	if HasRole(roleStr, RoleSuperAdmin) {
+		return RoleSuperAdmin
+	}
+	if HasRole(roleStr, RoleOperator) {
+		return RoleOperator
+	}
+	return roleStr
+}
+
 // DisplayRoles returns human-readable role labels from a role string.
 func DisplayRoles(roleStr string) string {
 	roleMap := map[string]string{

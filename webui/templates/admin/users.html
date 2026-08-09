@@ -496,14 +496,14 @@
   <label class="role-chip">
   <input type="checkbox" id="rolePengawas" value="pengawas"> <span title="Pengawas">P</span>
   </label>
-  {{if ne .admin_role "operator"}}
+  {{if not (hasRole .admin_role "operator")}}
   <label class="role-chip">
   <input type="checkbox" id="roleOperator" value="operator"> <span title="Operator">O</span>
   </label>
   {{end}}
   </div>
    </div>
-   {{if ne .admin_role "operator"}}
+   {{if not (hasRole .admin_role "operator")}}
    <div class="form-group space-y-1" style="margin-bottom: 8px;">
      <label for="packageSelect">Paket Langganan (Preset)</label>
      <select id="packageSelect" onchange="applyPackagePreset('new')" style="width:100%;padding:8px 12px;background:rgba(255,255,255,0.05);border:1px solid var(--color-glass-border);border-radius:10px;color:var(--color-text);outline:none;font-size:13px;cursor:pointer;">
@@ -544,7 +544,7 @@
   <input type="number" id="storageSizeInput" required value="0" min="0" class="q-field-input" {{if .storage_free_mb}}max="{{.storage_free_mb}}"{{end}} title="Batas total kapasitas storage (MB). 0 = tidak terbatas. Tidak boleh melebihi sisa disk server.">
  </div>
  </div>
- {{if and (eq .admin_role "operator") .operator_expires_at}}
+ {{if and (hasRole .admin_role "operator") .operator_expires_at}}
  {{$exp := .operator_expires_at}}
  <div class="expiry-group">
  <label>Masa Aktif Akun <span class="form-hint-inline">ikuti operator</span></label>
@@ -689,7 +689,7 @@ document.addEventListener('DOMContentLoaded', function() {
     ? 'Sisa disk server: ' + fmtStorageSize(window.__storageFreeMb)
     : 'Sisa disk server tidak dapat ditentukan';
   }
- if (window.__adminRole === 'operator') {
+ if (__adminHasRole('operator')) {
   var inp = document.getElementById('instansiInput');
   if (inp) {
    inp.value = window.__adminInstansi;

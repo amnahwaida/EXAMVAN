@@ -1,5 +1,20 @@
 /* EXAMVAN Admin Panel - JavaScript */
 
+// __adminHasRole returns true when the current admin's session role string
+// contains the given role. The session role is usually normalized at login
+// ("operator", "superadmin") but can also hold the raw role JSON (e.g.
+// '["guru","operator"]') when it was refreshed by a voucher redeem/activate
+// without re-login — so compare by role membership, not by exact string.
+function __adminHasRole(target) {
+    var roleStr = window.__adminRole || '';
+    if (roleStr === target) return true;
+    try {
+        var arr = JSON.parse(roleStr);
+        if (Array.isArray(arr)) return arr.indexOf(target) !== -1;
+    } catch (e) { /* not JSON — fall through to substring check */ }
+    return (',' + roleStr.replace(/["\[\]]/g, '') + ',').indexOf(',' + target + ',') !== -1;
+}
+
 // CSRF Token Helper
 
 // Toast notification
@@ -1820,7 +1835,7 @@ function submitEditUser(e) {
     // Sub-account package policy: operator tidak boleh memilih/mengubah paket
     // langganan akun di bawahnya — field package tidak dikirim (server juga
     // mengabaikannya). Hanya Super Admin yang dapat menetapkan paket.
-    if (window.__adminRole !== 'operator') {
+    if (!__adminHasRole('operator')) {
         data.package = document.getElementById('editUserPackage').value;
     }
     // Hanya kirim instansi jika fieldnya visible (tidak disembunyikan untuk operator)
@@ -1998,7 +2013,7 @@ function createEditUserModal() {
     document.body.appendChild(modal);
 
     // Hide operator checkbox in edit modal if current user is operator
-    if (window.__adminRole === 'operator') {
+    if (__adminHasRole('operator')) {
         var opGroup = document.getElementById('editRoleOperatorGroup');
         if (opGroup) opGroup.style.display = 'none';
         // Sembunyikan field instansi untuk operator

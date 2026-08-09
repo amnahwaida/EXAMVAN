@@ -297,6 +297,38 @@ func TestComputeFrozenExpiry(t *testing.T) {
 // callers (AuthenticateUser / middleware.AuthRequired) route suspended
 // accounts through the suspension branch first, so IsFeatureLocked only ever
 // decides between "valid, use normally" and "expired, billing-only".
+func TestNormalizeSessionRole(t *testing.T) {
+	cases := []struct {
+		name string
+		in   string
+		want string
+	}{
+		{"bare superadmin", RoleSuperAdmin, "superadmin"},
+		{"JSON superadmin", SerializeRoles([]string{RoleSuperAdmin}), "superadmin"},
+		{"bare operator", RoleOperator, "operator"},
+		{"JSON single operator", SerializeRoles([]string{RoleOperator}), "operator"},
+		// The multi-role JSON a school voucher redeem writes (guru base ∪
+		// operator grant) must normalize to the same canonical "operator" the
+		// login handler stores — the voucher redeem/activate session refresh
+		// uses this helper so no re-login is needed.
+		{"multi-role guru+operator", SerializeRoles([]string{RoleGuru, RoleOperator}), "operator"},
+		{"multi-role pengawas+operator", SerializeRoles([]string{RolePengawas, RoleOperator}), "operator"},
+		{"bare guru stays raw", RoleGuru, "guru"},
+		{"JSON guru stays raw", SerializeRoles([]string{RoleGuru}), SerializeRoles([]string{RoleGuru})},
+		{"multi-role no operator stays raw", SerializeRoles([]string{RoleGuru, RolePengawas}), SerializeRoles([]string{RoleGuru, RolePengawas})},
+		{"empty stays empty", "", ""},
+		// SuperAdmin must win even when combined with the operator role (the
+		// redeem/activate guards exclude superadmins, but the helper must be
+		// total for the login path which uses it directly).
+		{"superadmin+operator", SerializeRoles([]string{RoleSuperAdmin, RoleOperator}), "superadmin"},
+	}
+	for _, c := range cases {
+		if got := NormalizeSessionRole(c.in); got != c.want {
+			t.Errorf("%s: NormalizeSessionRole(%q) = %q, want %q", c.name, c.in, got, c.want)
+		}
+	}
+}
+
 func TestIsFeatureLocked(t *testing.T) {
 	now := time.Now().UTC()
 	past := now.Add(-time.Hour)

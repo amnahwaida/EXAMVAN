@@ -79,6 +79,7 @@ func loadDashboardTemplatesForTest(t *testing.T, r *gin.Engine) {
 		},
 		"displayRole": models.DisplayRoles,
 		"contains":    strings.Contains,
+		"hasRole":     models.HasRole,
 		"sub":         func(a, b int) int { return a - b },
 		"add":         func(a, b int) int { return a + b },
 		"seq": func(n int) []int {
@@ -120,35 +121,52 @@ func newDashboardPageTestRouter(t *testing.T, pool *pgxpool.Pool, storagePath st
 		c.Set("cfg", &config.Config{StoragePath: storagePath})
 	})
 
-	r.POST("/test/login/:id", func(c *gin.Context) {
-		id, _ := strconv.Atoi(c.Param("id"))
-		u, err := models.GetUserByID(c.Request.Context(), pool, id)
-		if err != nil {
-			c.JSON(http.StatusNotFound, gin.H{"success": false})
-			return
+	// loginSeam is a helper that writes the session for a user. When rawRole is
+	// true the session role is stored VERBATIM from the DB (u.Role) — the exact
+	// state vouchers.go writes after a redeem/activate without re-login — which
+	// is how the role JSON can be '["guru","operator"]' instead of the
+	// normalized "operator". The template guards must handle both formats (they
+	// compare by role membership via hasRole, not exact equality).
+	loginSeam := func(rawRole bool) gin.HandlerFunc {
+		return func(c *gin.Context) {
+			id, _ := strconv.Atoi(c.Param("id"))
+			u, err := models.GetUserByID(c.Request.Context(), pool, id)
+			if err != nil {
+				c.JSON(http.StatusNotFound, gin.H{"success": false})
+				return
+			}
+			s := sessions.Default(c)
+			s.Set(middleware.SessionKeyAdminID, u.ID)
+			s.Set(middleware.SessionKeyUsername, u.Username)
+			s.Set(middleware.SessionKeyName, u.Name)
+			var adminRole string
+			if rawRole {
+				// Raw role JSON — reproduces the session after a voucher
+				// redeem/activate (vouchers.go writes COALESCE(role,'')).
+				adminRole = u.Role
+			} else {
+				// Mirror the production login handler's session-role
+				// normalization (cmd/server/main.go loginHandler): superadmin →
+				// "superadmin", operator → "operator", everyone else keeps the
+				// raw role JSON. The template role guards compare against these
+				// exact values, so the seam must reproduce them for the
+				// rendered pages to be asserted faithfully.
+				adminRole = u.Role
+				if u.IsSuperAdmin() {
+					adminRole = "superadmin"
+				} else if models.HasRole(u.Role, models.RoleOperator) {
+					adminRole = "operator"
+				}
+			}
+			s.Set(middleware.SessionKeyRole, adminRole)
+			s.Set(middleware.SessionKeyIsSuper, u.IsSuperAdmin())
+			s.Set(middleware.SessionKeyInstansi, u.Instansi)
+			_ = s.Save()
+			c.JSON(http.StatusOK, gin.H{"success": true})
 		}
-		s := sessions.Default(c)
-		s.Set(middleware.SessionKeyAdminID, u.ID)
-		s.Set(middleware.SessionKeyUsername, u.Username)
-		s.Set(middleware.SessionKeyName, u.Name)
-		// Mirror the production login handler's session-role normalization
-		// (cmd/server/main.go loginHandler): superadmin → "superadmin",
-		// operator → "operator", everyone else keeps the raw role JSON. The
-		// template role guards (e.g. if eq .admin_role "operator") compare
-		// against these exact values, so the seam must reproduce them for the
-		// rendered pages to be asserted faithfully.
-		adminRole := u.Role
-		if u.IsSuperAdmin() {
-			adminRole = "superadmin"
-		} else if models.HasRole(u.Role, models.RoleOperator) {
-			adminRole = "operator"
-		}
-		s.Set(middleware.SessionKeyRole, adminRole)
-		s.Set(middleware.SessionKeyIsSuper, u.IsSuperAdmin())
-		s.Set(middleware.SessionKeyInstansi, u.Instansi)
-		_ = s.Save()
-		c.JSON(http.StatusOK, gin.H{"success": true})
-	})
+	}
+	r.POST("/test/login/:id", loginSeam(false))
+	r.POST("/test/login-raw/:id", loginSeam(true))
 
 	// Real dashboard behind AuthRequired → FeatureLockRequired, exactly like
 	// production (cmd/server/main.go: lockedPages.GET("/dashboard", ...)).
@@ -403,12 +421,14 @@ func TestDashboardHidesServerDiskForNonSuper(t *testing.T) {
 // are rendered through the REAL Dashboard handler + REAL nav partial.
 // ---------------------------------------------------------------------------
 
-// fetchInstansiUIPage logs in as the given user and fetches /admin/dashboard,
-// returning the HTTP status and the rendered HTML (plus the redirect Location
-// when the response is a redirect — a pengawas-only account is sent away from
-// the dashboard by Dashboard()'s guru-only gate, so the caller asserts on the
-// redirect rather than a 200 render).
-func fetchInstansiUIPage(t *testing.T, pool *pgxpool.Pool, srv *httptest.Server, userID int) (int, string, string) {
+// fetchInstansiUIPage logs in as the given user (via the normalized seam when
+// rawRole is false, or the RAW-role seam — u.Role verbatim, the session state
+// vouchers.go writes after a redeem/activate without re-login — when true) and
+// fetches /admin/dashboard. Returns the HTTP status and the rendered HTML (plus
+// the redirect Location when the response is a redirect — a pengawas-only
+// account is sent away from the dashboard by Dashboard()'s guru-only gate, so
+// the caller asserts on the redirect rather than a 200 render).
+func fetchInstansiUIPage(t *testing.T, pool *pgxpool.Pool, srv *httptest.Server, userID int, rawRole bool) (int, string, string) {
 	t.Helper()
 	jar, _ := cookiejar.New(nil)
 	client := &http.Client{
@@ -419,7 +439,11 @@ func fetchInstansiUIPage(t *testing.T, pool *pgxpool.Pool, srv *httptest.Server,
 			return http.ErrUseLastResponse
 		},
 	}
-	if resp, err := client.Post(srv.URL+"/test/login/"+strconv.Itoa(userID), "application/json", nil); err != nil || resp.StatusCode != http.StatusOK {
+	loginPath := "/test/login/" + strconv.Itoa(userID)
+	if rawRole {
+		loginPath = "/test/login-raw/" + strconv.Itoa(userID)
+	}
+	if resp, err := client.Post(srv.URL+loginPath, "application/json", nil); err != nil || resp.StatusCode != http.StatusOK {
 		t.Fatalf("test login: status=%v err=%v", resp, err)
 	}
 	resp, err := client.Get(srv.URL + "/admin/dashboard")
@@ -507,7 +531,7 @@ func TestDashboardInstansiCardOnlyForManagementRoles(t *testing.T) {
 		{"pengawas", pw.ID, false, true},
 	}
 	for _, tc := range cases {
-		status, body, location := fetchInstansiUIPage(t, pool, srv, tc.userID)
+		status, body, location := fetchInstansiUIPage(t, pool, srv, tc.userID, false)
 		// A pengawas-only account is sent to /admin/pengawas by Dashboard()'s
 		// guru-only gate — it never renders the dashboard, so it cannot see
 		// the card either (and its 302 is itself the assertion that the card
@@ -533,6 +557,106 @@ func TestDashboardInstansiCardOnlyForManagementRoles(t *testing.T) {
 		if !strings.Contains(body, `class="stat-card stat-storage"`) {
 			t.Errorf("%s: storage card missing — page did not render fully", tc.name)
 		}
+	}
+}
+
+// TestDashboardOperatorFeaturesForRawRoleJSON locks in the dashboard half of the
+// role-membership fix: a multi-role operator (guru + operator) whose session
+// role is the RAW role JSON — exactly what a voucher redeem/activate writes
+// without re-login — must still see every operator feature on the dashboard:
+// the instansi card, the exam-table Pembuat/Guru columns, the Delegasi Ujian
+// action, the Pengawas Config section, and IS_PRIVILEGED=true. Previously the
+// template compared .admin_role against the exact string "operator", so a raw
+// JSON session hid these features until the operator re-logged-in.
+func TestDashboardOperatorFeaturesForRawRoleJSON(t *testing.T) {
+	pool := database.NewPackageTestPool(t, "admin")
+	ctx := context.Background()
+
+	// Multi-role operator with the raw role JSON format applyRedemptionEntitlement
+	// writes after a school voucher redeem.
+	op, err := models.CreateUser(ctx, pool, &models.AdminUser{
+		Username: "it_dash_rawop", Name: "IT Dash Raw Op",
+		PasswordHash: "x", Status: models.UserStatusActive,
+		Instansi:     "SMK Raw",
+		Role:         models.SerializeRoles([]string{models.RoleGuru, models.RoleOperator}),
+		Package:      "sekolah-test",
+		MaxExams:     3, MaxPDFSize: 1048576, MaxConcurrentExams: 2,
+		MaxStorageSize: 50 * 1024 * 1024,
+	})
+	if err != nil {
+		t.Fatalf("create operator: %v", err)
+	}
+	// A plain guru must NOT gain operator features from the same raw-JSON seam.
+	guru, err := models.CreateUser(ctx, pool, &models.AdminUser{
+		Username: "it_dash_rawguru", Name: "IT Dash Raw Guru",
+		PasswordHash: "x", Status: models.UserStatusActive,
+		Instansi:     "SMK Raw",
+		Role:         models.SerializeRoles([]string{models.RoleGuru}),
+		MaxExams:     3, MaxPDFSize: 1048576, MaxConcurrentExams: 2,
+		MaxStorageSize: 50 * 1024 * 1024, Package: "free",
+	})
+	if err != nil {
+		t.Fatalf("create guru: %v", err)
+	}
+	// One exam so the table + operator-only columns render with real data.
+	if _, err := pool.Exec(ctx, `INSERT INTO exams (name, file_path, size_bytes, token, active_token, status, created_by)
+		VALUES ('IT Raw Op Exam', '/tmp/it-raw-op.pdf', 3*1024*1024, 'ITRAWOP1', 'ITRAWOP1', 'active', $1)`, op.ID); err != nil {
+		t.Fatalf("seed exam: %v", err)
+	}
+
+	storageDir, err := os.MkdirTemp("", "examvan-dash-rawop")
+	if err != nil {
+		t.Fatalf("make temp storage dir: %v", err)
+	}
+	defer os.RemoveAll(storageDir)
+
+	srv := httptest.NewServer(newDashboardPageTestRouter(t, pool, storageDir))
+	defer srv.Close()
+
+	// Operator with raw JSON session role: all operator features present.
+	status, body, _ := fetchInstansiUIPage(t, pool, srv, op.ID, true)
+	if status != http.StatusOK {
+		t.Fatalf("dashboard (raw operator): status=%d, want 200", status)
+	}
+	if !strings.Contains(body, `class="stat-card stat-instansi"`) {
+		t.Error("raw-JSON operator dashboard must render the instansi card")
+	}
+	// The delegation BUTTON (inside the exam-action dropdown) is guarded; the
+	// modal itself is always rendered (hidden) so it cannot serve as the marker.
+	if !strings.Contains(body, "openDelegateExamModal(") {
+		t.Error("raw-JSON operator dashboard must render the Delegasi Ujian action button")
+	}
+	if !strings.Contains(body, "Pengawas Ujian") {
+		t.Error("raw-JSON operator dashboard must render the Pengawas Config section")
+	}
+	if !strings.Contains(body, "IS_PRIVILEGED = true") {
+		t.Error("raw-JSON operator dashboard must set IS_PRIVILEGED = true")
+	}
+	// Pembuat/Guru table columns are rendered per-row; the header guard is the
+	// same hasRole condition, so assert the table header cell.
+	if !strings.Contains(body, "<th scope=\"col\">Pembuat</th>") {
+		t.Error("raw-JSON operator dashboard must render the Pembuat column header")
+	}
+	if !strings.Contains(body, `class="stat-card stat-storage"`) {
+		t.Error("raw-JSON operator dashboard storage card missing — page did not render fully")
+	}
+
+	// Plain guru with the same raw-JSON seam: no operator features.
+	status, body, _ = fetchInstansiUIPage(t, pool, srv, guru.ID, true)
+	if status != http.StatusOK {
+		t.Fatalf("dashboard (raw guru): status=%d, want 200", status)
+	}
+	if strings.Contains(body, `class="stat-card stat-instansi"`) {
+		t.Error("guru dashboard must NOT render the instansi card (management-only)")
+	}
+	if strings.Contains(body, "openDelegateExamModal(") {
+		t.Error("guru dashboard must NOT render the Delegasi Ujian action button")
+	}
+	if strings.Contains(body, "<th scope=\"col\">Pembuat</th>") {
+		t.Error("guru dashboard must NOT render the Pembuat column header (management-only)")
+	}
+	if strings.Contains(body, "IS_PRIVILEGED = true") {
+		t.Error("guru dashboard must set IS_PRIVILEGED = false")
 	}
 }
 
@@ -616,7 +740,7 @@ func TestMandatoryInstansiModalOnlyForUnclaimedSchoolOperator(t *testing.T) {
 		{"plain guru", guru.ID, false},
 	}
 	for _, tc := range cases {
-		status, body, _ := fetchInstansiUIPage(t, pool, srv, tc.userID)
+		status, body, _ := fetchInstansiUIPage(t, pool, srv, tc.userID, false)
 		if status != http.StatusOK {
 			t.Fatalf("%s: dashboard status=%d, want 200", tc.name, status)
 		}

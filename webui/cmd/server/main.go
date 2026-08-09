@@ -861,14 +861,15 @@ func loginHandler(cfg *config.Config) gin.HandlerFunc {
 		session.Set(middleware.SessionKeyUsername, user.Username)
 		session.Set(middleware.SessionKeyName, user.Name)
 		isSuper := user.Username == cfg.AdminUser || models.HasRole(user.Role, models.RoleSuperAdmin)
-		isOperator := models.HasRole(user.Role, models.RoleOperator)
-		var adminRole string
+		// NormalizeSessionRole maps the persisted role to the canonical session
+		// value (superadmin → "superadmin", any operator-holding role →
+		// "operator", otherwise the raw role). The voucher redeem/activate
+		// handlers use the same helper, so the session role format is identical
+		// no matter which path set it — the admin UI guards never have to handle
+		// two formats.
+		adminRole := models.NormalizeSessionRole(user.Role)
 		if isSuper {
 			adminRole = "superadmin"
-		} else if isOperator {
-			adminRole = "operator"
-		} else {
-			adminRole = user.Role
 		}
 		session.Set(middleware.SessionKeyRole, adminRole)
 		session.Set(middleware.SessionKeyIsSuper, isSuper)

@@ -645,11 +645,16 @@ func RedeemVoucherHandler() gin.HandlerFunc {
 		// Refresh the session role to match the persisted role: a package switch
 		// can both grant AND remove roles (e.g. leaving a sekolah package drops
 		// the operator role), so always sync. Never demote a SuperAdmin.
+		// NormalizeSessionRole keeps the stored session value canonical
+		// ("operator" for any operator-holding role — multi-role JSON included)
+		// exactly like the login handler, so a redeem without re-login never
+		// leaves the session with a raw '["guru","operator"]' JSON that the
+		// admin UI guards would have to re-parse.
 		var updatedRole string
 		if err := pool.QueryRow(ctx, `SELECT COALESCE(role, '') FROM admin_users WHERE id = $1`, userID).Scan(&updatedRole); err == nil &&
 			updatedRole != "" && !models.HasRole(updatedRole, models.RoleSuperAdmin) {
 			session := sessions.Default(c)
-			session.Set(middleware.SessionKeyRole, updatedRole)
+			session.Set(middleware.SessionKeyRole, models.NormalizeSessionRole(updatedRole))
 			_ = session.Save()
 		}
 
@@ -880,11 +885,15 @@ func ActivateVoucherHandler() gin.HandlerFunc {
 		// Refresh the session role to match the persisted role: a package switch
 		// can both grant AND remove roles (e.g. leaving a sekolah package drops
 		// the operator role), so always sync. Never demote a SuperAdmin.
+		// NormalizeSessionRole keeps the stored session value canonical
+		// ("operator" for any operator-holding role — multi-role JSON included)
+		// exactly like the login handler, so an activate without re-login never
+		// leaves the session with a raw '["guru","operator"]' JSON.
 		var updatedRole string
 		if err := pool.QueryRow(ctx, `SELECT COALESCE(role, '') FROM admin_users WHERE id = $1`, userID).Scan(&updatedRole); err == nil &&
 			updatedRole != "" && !models.HasRole(updatedRole, models.RoleSuperAdmin) {
 			session := sessions.Default(c)
-			session.Set(middleware.SessionKeyRole, updatedRole)
+			session.Set(middleware.SessionKeyRole, models.NormalizeSessionRole(updatedRole))
 			_ = session.Save()
 		}
 
