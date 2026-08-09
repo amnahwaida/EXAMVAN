@@ -319,6 +319,7 @@ Jalankan dengan:
 ```bash
 TEST_DATABASE_URL=postgresql://user:pass@localhost:5432/examvan_test \
   go test ./internal/handlers/admin/ -run 'TestSubAccount|TestDirectCreatedAccounts|TestBillingPage|TestUsersListAPIReportsOperatorCreated' -v
+```
 
 Test kontrak rute (tanpa database):
 
@@ -342,6 +343,78 @@ UPDATE saas_settings SET value = '14' WHERE key = 'default_active_days';
 ```
 
 Ganti `14` dengan jumlah hari yang diinginkan. Lokasi default di kode: `webui/internal/models/settings.go` → `DefaultSettings` (dipakai hanya jika baris setting belum ada di database).
+
+---
+
+## Konfigurasi Default Paket Pendaftaran — Kuota Storage (Kapasitas Disk)
+
+Setiap akun **baru** yang mendaftar via `/register` juga menerima **kuota storage default 50 MB** — dikontrol oleh pengaturan SaaS **`default_max_storage_size`** (disimpan dalam **byte**; 50 MB = `52428800`). Kuota ini membatasi total ukuran file soal (PDF) yang boleh di-upload akun tersebut; saat tercapai, upload ditolak dengan pesan *"Batas kapasitas storage tercapai"*.
+
+Field **"Maks Storage (MB)"** ada di panel **Default Paket Pendaftaran** (halaman **Users** → panel **"SaaS & SMTP Email Settings"**), bersama Maks Total Ujian, Ujian Serentak, Maks Upload (MB), dan Masa Aktif.
+
+**Semantik nilai:**
+- `0` = **tidak terbatas** (enforcement kuota storage dimatikan untuk akun baru);
+- nilai positif = batas kuota dalam MB.
+
+**Validasi terhadap kapasitas disk server:**
+- Nilai **tidak boleh melebihi sisa kapasitas disk** pada partisi penyimpanan (`STORAGE_PATH`, default `/app/storage`) — diukur via `syscall.Statfs` (`getFreeDiskSpace`, `webui/internal/handlers/admin/helpers.go`).
+- Bila sisa disk **tidak dapat ditentukan** (mis. path belum tersedia → 0), validasi dilewati (fail-open) agar penyimpanan setelan lain tidak ikut terblokir.
+- Validasi dijalankan **sebelum setelan lain ditulis** — penolakan tidak menyisakan perubahan setengah tersimpan (pola yang sama dengan validasi Turnstile).
+- Di UI, input diberi batas `max` sesuai sisa disk + hint dinamis *"Sisa disk server: X GB"* — `GET /admin/api/saas-settings` mengembalikan `storage_free_mb` untuk itu.
+- **Validasi yang sama berlaku di form "Tambah User" dan modal "Atur Limit" per-user** (`CreateUser`/`EditUser`, `webui/internal/handlers/admin/users.go`): nilai negatif ditolak, dan nilai positif yang melebihi sisa disk ditolak (HTTP 400) **sebelum akun dibuat / sebelum field lain diubah**. Halaman Users mengirim `storage_free_mb` ke template (`window.__storageFreeMb`) untuk membatasi `max` input kedua form + pre-check klien di `static/js/admin.js` (`createUser`/`submitEditUser`) — server tetap memvalidasi sebagai lapisan final.
+- **Alur voucher & paket** menerapkan batas disk yang sama pada **kedua editor kuota**-nya — lihat [Cap Disk di Alur Voucher dan Paket](#cap-disk-di-alur-voucher-dan-paket).
+- Dashboard admin menampilkan sisa disk fisik pada **kartu statistik atas → "Sisa Disk Server"** (`admin/dashboard`); `GET /admin/api/stats` juga menyertakan `server_disk_free_mb`.
+- **Test stats API & halaman Dashboard** (`webui/internal/handlers/admin/saas_settings_test.go` + `dashboard_page_test.go`): `TestStatsServerDiskFree` memverifikasi `GET /admin/api/stats` — auth-gate 401 tanpa sesi, `server_disk_free_mb > 0` dan konsisten dengan `getFreeDiskSpace` (±1 MB), serta aggregate benar; `TestStatsScopeByRole` memverifikasi scoping per-role — superadmin melihat semua exam, operator hanya exam se-`instansi`, guru hanya `created_by`/`delegated_to` miliknya, pengawas hanya exam yang ditugaskan lewat `exam_pengawas` (dan gabungan guru+pengawas = union), dengan `server_disk_free_mb` dilaporkan untuk semua role. `TestDashboardRendersServerDiskFree` merender **halaman HTML nyata** `/admin/dashboard` dan memastikan kartu **"Sisa Disk Server"** menampilkan nilai sisa disk yang riil (bukan fallback "—", format `X.XX GB`/`X.X MB`), konsisten dengan `getFreeDiskSpace` pada partisi yang sama (bounding snapshot sebelum/sesudah request ± 8 MB — lebih tahan flake daripada toleransi tetap karena tampilan GB membulatkan ke 0.01 GB), serta redirect 302 ke login tanpa sesi.
+
+> ⚠️ **Catatan:** seperti `default_active_days`, pengaturan ini hanya memengaruhi **akun yang dibuat setelah perubahan** — akun yang sudah ada tidak diubah; kuota storage per-akun diubah lewat tombol **"Atur limit"** di daftar user (nilai `0` di editor itu juga berarti tidak terbatas). Form **Tambah User** dan **Atur Limit** ikut menerapkan batas disk yang sama (lihat di atas).
+
+### Cara Mengubah
+
+**Opsi A — Lewat UI Admin (disarankan):**
+1. Login sebagai SuperAdmin.
+2. Buka halaman **Users** (`/admin/users`) → panel **"SaaS & SMTP Email Settings"** → bagian **Default Paket Pendaftaran**.
+3. Ubah field **"Maks Storage (MB)"** (`0` = tidak terbatas; tidak boleh melebihi sisa disk server), lalu klik **Simpan Setelan SaaS**.
+4. Berlaku langsung untuk pendaftaran berikutnya tanpa perlu deploy ulang.
+
+**Opsi B — Langsung di database (mis. untuk sinkronisasi batch/instalasi baru):**
+
+```sql
+UPDATE saas_settings SET value = '262144000' WHERE key = 'default_max_storage_size';
+```
+
+Ganti `262144000` dengan batas dalam **byte** (contoh: 250 MB = `250 * 1024 * 1024`). Nilai `0` = tidak terbatas. Lokasi default di kode: `webui/internal/models/settings.go` → `DefaultSettings` (dipakai hanya jika baris setting belum ada di database).
+
+---
+
+## Cap Disk di Alur Voucher dan Paket
+
+> Mencakup **dua kuota**: Maks Storage dan Maks Ukuran PDF.
+
+Validasi kapasitas disk yang sama dengan editor storage lainnya juga diterapkan pada **kedua editor kuota di alur voucher dan paket** — sehingga batas yang dijanjikan ke akun tidak pernah melebihi kapasitas fisik partisi penyimpanan server (`STORAGE_PATH`).
+
+**Di mana editor-nya:**
+
+- **Voucher kustom** — halaman **Vouchers** (`/admin/vouchers`) → paket **Custom** pada form *Tambah Voucher* (single) dan *Buat Batch*: field **"Maks Storage (MB)"** (`custom_max_storage_size_mb`) dan **"Maks Upload (MB)"** (`custom_max_pdf_size_mb`). Divalidasi di `parseCustomVoucherInto` (`webui/internal/handlers/admin/vouchers.go`) — jalur **single maupun batch**.
+- **Pengaturan paket** — halaman **Paket** (`/admin/packages`): kolom **Storage (MB)** (`max_storage_mb`) dan **Maks. PDF (MB)** (`max_pdf_size_mb`) per paket. Divalidasi di `SavePackageSettingsHandler` (`webui/internal/handlers/admin/packages.go`).
+- **Panel SaaS & form user** — "Maks Upload (MB)" (`default_max_pdf_size_mb`) di panel **Default Paket Pendaftaran** (halaman Users), input "Maks Upload (MB)" di form **Tambah User** (`max_pdf_size_mb`), dan modal **Atur Limit** per-user — semuanya tunduk pada cap disk yang sama (`handleSaasSettingsPost` di `settings.go`, `CreateUser`/`EditUser` di `users.go`).
+
+**Aturan (identik di kedua alur):**
+
+| Nilai | Perilaku |
+|---|---|
+| Negatif | Ditolak HTTP 400 — *"Maks Storage / Maks Ukuran PDF tidak boleh bernilai negatif."* |
+| `0` | Voucher: **tidak terbatas** (enforcement `MaxStorageSize`/`MaxPDFSize` dimatikan). Paket: dibulatkan ke minimum 1 MB (paket wajib punya kuota minimal). |
+| Positif `> sisa disk` | Ditolak HTTP 400 — *"…melebihi sisa kapasitas disk server (X GB)."* |
+| Sisa disk tak dapat ditentukan | Fail-open (validasi dilewati), mengikuti pola editor lain |
+
+**Detail implementasi:**
+
+- **Penolakan sebelum menulis:** voucher tidak pernah dibuat (penolakan di `parseCustomVoucherInto`); paket divalidasi **di dalam transaksi sebelum commit** — seluruh payload dicek terhadap **satu snapshot `freeBytes`** (satu panggilan `statfs` per request, konsisten antar-paket), dan jika salah satu paket invalid seluruh transaksi di-`rollback` (tanpa partial-save).
+- **Helper bersama:** `validateMBQuota(label, freeBytes, mb)` (`webui/internal/handlers/admin/users.go`) sebagai inti; dipanggil dengan label "Maks Storage" (storage) dan "Maks Ukuran PDF" (PDF).
+- **UI:** halaman Vouchers & Paket menerima `storage_free_mb` → input diberi `max` + `title` sisa disk dan pre-check klien (`window.__storageFreeMb`); server tetap lapisan validasi final.
+- **Batas upload global 100 MB:** upload PDF dibatasi keras **100 MB** (`maxFileSize`, `webui/internal/handlers/admin/exams.go`) — kuota PDF > 100 MB tidak akan pernah bisa dieksekusi, jadi di UI `max` input PDF dibatasi `min(sisa disk, 100 MB)` dan pre-check paket menolak `> 100 MB` dengan pesan khusus. Validasi server tetap disk-cap murni.
+
+**Cara mengubah:** nilai diubah dari halaman **Vouchers** (form Custom / batch) dan **Paket** (tabel pengaturan paket) — kedua halaman hanya untuk Super Admin (`SuperAdminRequired`).
 
 ---
 

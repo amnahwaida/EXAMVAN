@@ -27,6 +27,8 @@ func PackagesPage() gin.HandlerFunc {
 			"active_page": "packages",
 			"admin_user":  getCurrentUsername(c),
 			"admin_role":  role,
+			// Sisa kapasitas disk (MB) agar kolom Storage di tabel paket bisa dibatasi.
+			"storage_free_mb": roundTo(getFreeDiskSpace(getStoragePath(c))/(1024*1024), 2),
 		}
 
 		renderAdminPage(c, "admin/packages.html", data)
@@ -115,6 +117,10 @@ func SavePackageSettingsHandler() gin.HandlerFunc {
 			_ = dbTx.Rollback(ctx)
 		}()
 
+		// Snapshot sisa disk sekali untuk seluruh payload: konsisten antar-paket
+		// dan tanpa satu panggilan statfs per paket.
+		freeBytes := getFreeDiskSpace(getStoragePath(c))
+
 		for _, p := range payload.Packages {
 			key := strings.TrimSpace(p.Key)
 			if !isPackageKey(key) {
@@ -137,11 +143,36 @@ func SavePackageSettingsHandler() gin.HandlerFunc {
 			if concurrent > p.MaxExams {
 				concurrent = p.MaxExams
 			}
+			// Maks ukuran PDF paket tunduk pada batas kapasitas disk yang sama:
+			// negatif ditolak eksplisit, clamp minimum 1 MB, lalu dicek terhadap
+			// sisa disk (snapshot freeBytes, ditolak sebelum transaksi menulis).
+			if p.MaxPDFMB < 0 {
+				errorResponse(c, http.StatusBadRequest, "Paket "+key+": Maks Ukuran PDF tidak boleh bernilai negatif.")
+				return
+			}
 			if p.MaxPDFMB < 1 {
 				p.MaxPDFMB = 1
 			}
+			if msg := validatePDFQuotaFree(freeBytes, p.MaxPDFMB); msg != "" {
+				errorResponse(c, http.StatusBadRequest, "Paket "+key+": "+msg)
+				return
+			}
+			// Tolak negatif eksplisit (semantik sama dengan editor storage lain),
+			// sebelum clamp minimum 1 MB — paket wajib punya kuota minimal, tapi
+			// nilai negatif tidak boleh diam-diam menjadi 1 MB.
+			if p.MaxStorageMB < 0 {
+				errorResponse(c, http.StatusBadRequest, "Paket "+key+": Maks Storage tidak boleh bernilai negatif.")
+				return
+			}
 			if p.MaxStorageMB < 1 {
 				p.MaxStorageMB = 1
+			}
+			// Storage paket tunduk pada batas kapasitas disk server yang sama
+			// dengan editor storage lainnya; ditolak sebelum transaksi menulis
+			// (rollback via deferred Rollback, tanpa partial-save).
+			if msg := validateStorageQuotaFree(freeBytes, p.MaxStorageMB); msg != "" {
+				errorResponse(c, http.StatusBadRequest, "Paket "+key+": "+msg)
+				return
 			}
 			if p.MaxUsers < 0 {
 				p.MaxUsers = 0

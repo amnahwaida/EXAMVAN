@@ -391,6 +391,19 @@ func Dashboard() gin.HandlerFunc {
 		}
 		serverURL := fmt.Sprintf("%s://%s", scheme, c.Request.Host)
 
+		// Sisa kapasitas disk fisik pada partisi penyimpanan server (dipakai
+		// sebagai indikator "Sisa Disk Server" di dashboard; "—" bila tidak
+		// dapat ditentukan).
+		serverDiskFree := "—"
+		if freeBytes := getFreeDiskSpace(getStoragePath(c)); freeBytes > 0 {
+			freeMB := roundTo(freeBytes/(1024*1024), 2)
+			if freeMB >= 1024 {
+				serverDiskFree = fmt.Sprintf("%.2f GB", freeMB/1024)
+			} else {
+				serverDiskFree = fmt.Sprintf("%.1f MB", freeMB)
+			}
+		}
+
 		renderAdminPage(c, "admin/dashboard.html", gin.H{
 			"exams":             examItems,
 			"exam_pengawas_map": examPengawasMap,
@@ -411,6 +424,7 @@ func Dashboard() gin.HandlerFunc {
 			"is_super":          isSuper,
 			"account_expires":   accountExpires,
 			"remaining_storage": remainingStorage,
+			"server_disk_free":  serverDiskFree,
 			"server_url":        serverURL,
 			"active_page":       "dashboard",
 			"page":              page,
@@ -487,10 +501,11 @@ func Stats() gin.HandlerFunc {
 		pool.QueryRow(ctx, `SELECT COUNT(*)`+fromClause+activeWhere, statsArgs...).Scan(&active)
 
 		successData(c, gin.H{
-			"total":      total,
-			"active":     active,
-			"inactive":   total - active,
-			"storage_mb": roundTo(float64(storageBytes)/(1024*1024), 2),
+			"total":               total,
+			"active":              active,
+			"inactive":            total - active,
+			"storage_mb":          roundTo(float64(storageBytes)/(1024*1024), 2),
+			"server_disk_free_mb": roundTo(getFreeDiskSpace(getStoragePath(c))/(1024*1024), 2),
 		})
 	}
 }

@@ -90,6 +90,9 @@
 
 <script src="/static/js/admin-core.js?v={{.version}}"></script>
 <script>
+window.__storageFreeMb = {{if .storage_free_mb}}{{.storage_free_mb}}{{else}}0{{end}};
+</script>
+<script>
 (function() {
  var PACKAGES = [];
  var ROLE_NAMES = { 'guru': 'Guru', 'pengawas': 'Pengawas', 'operator': 'Operator' };
@@ -122,8 +125,9 @@
     '<span class="pkg-key-badge">' + escapeHtml(p.key) + '</span></td>' +
     '<td data-label="Total Ujian" style="padding:14px 20px;"><input type="number" min="1" step="1" data-field="max_exams" value="' + p.max_exams + '" /></td>' +
     '<td data-label="Ujian Serentak" style="padding:14px 20px;"><input type="number" min="1" step="1" data-field="concurrent" value="' + p.concurrent + '" /></td>' +
-    '<td data-label="Maks. PDF (MB)" style="padding:14px 20px;"><input type="number" min="1" step="0.5" data-field="pdf_mb" value="' + p.pdf_mb + '" /></td>' +
-    '<td data-label="Storage (MB)" style="padding:14px 20px;"><input type="number" min="1" step="0.5" data-field="storage_mb" value="' + p.storage_mb + '" /></td>' +
+    var pdfMaxMb = window.__storageFreeMb > 0 ? Math.min(Math.floor(window.__storageFreeMb), 100) : 0; /* 100 MB = batas upload global maxFileSize (exams.go) */
+    html += '<td data-label="Maks. PDF (MB)" style="padding:14px 20px;"><input type="number" min="1" step="0.5" data-field="pdf_mb" value="' + p.pdf_mb + '"' + (pdfMaxMb > 0 ? ' max="' + pdfMaxMb + '"' : '') + ' title="Maks ukuran PDF paket (MB). Tidak boleh melebihi sisa disk server (upload global dibatasi 100 MB)." /></td>' +
+    '<td data-label="Storage (MB)" style="padding:14px 20px;"><input type="number" min="1" step="0.5" data-field="storage_mb" value="' + p.storage_mb + '"' + (window.__storageFreeMb > 0 ? ' max="' + Math.floor(window.__storageFreeMb) + '"' : '') + ' title="Batas storage paket (MB). Tidak boleh melebihi sisa disk server." /></td>' +
     '<td data-label="Maks. Akun Guru" style="padding:14px 20px;"><input type="number" min="0" step="1" data-field="max_users" value="' + p.max_users + '" title="Batas jumlah akun yang boleh dibuat operator di instansi ini (0 = tanpa batas)" /></td>' +
     '<td data-label="Role" style="padding:14px 20px;"><select data-field="role">' + roleOpts + '</select></td>' +
     '</tr>';
@@ -178,6 +182,24 @@
    });
   });
   if (invalid) { showToast(invalid, 'error'); return; }
+
+  // Pre-check kuota paket terhadap sisa kapasitas disk server (server juga memvalidasi).
+  if (window.__storageFreeMb > 0) {
+   for (var i = 0; i < packages.length; i++) {
+    if (packages[i].max_storage_mb > window.__storageFreeMb) {
+     showToast('Paket ' + packages[i].label + ': Maks Storage melebihi sisa kapasitas disk server (' + Math.floor(window.__storageFreeMb) + ' MB)', 'error');
+     return;
+    }
+    if (packages[i].max_pdf_size_mb > window.__storageFreeMb) {
+     showToast('Paket ' + packages[i].label + ': Maks Ukuran PDF melebihi sisa kapasitas disk server (' + Math.floor(window.__storageFreeMb) + ' MB)', 'error');
+     return;
+    }
+    if (packages[i].max_pdf_size_mb > 100) { /* 100 MB = batas upload global maxFileSize (exams.go) */
+     showToast('Paket ' + packages[i].label + ': Maks Ukuran PDF melebihi batas upload global (100 MB)', 'error');
+     return;
+    }
+   }
+  }
 
   var btn = document.getElementById('btnSavePackages');
   var orig = btn.textContent;

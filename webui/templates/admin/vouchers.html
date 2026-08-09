@@ -176,11 +176,12 @@
       </div>
       <div>
        <label title="Maksimal ukuran file PDF dalam sekali upload" style="display:block;font-size:12px;color:var(--color-text-secondary);margin-bottom:4px;">Maks Upload (MB)</label>
-       <input type="number" id="singleCustomPdfMb" value="10" min="0" step="0.1" style="width:100%;padding:8px;background:rgba(0,0,0,0.3);border:1px solid var(--color-glass-border);border-radius:8px;color:#fff;outline:none;" />
+       <!-- max = min(sisa disk, 100 MB): batas upload global maxFileSize (exams.go) -->
+       <input type="number" id="singleCustomPdfMb" value="10" min="0" step="0.1" {{if .storage_free_mb}}max="{{if le .storage_free_mb 100.0}}{{.storage_free_mb}}{{else}}100{{end}}"{{end}} title="Maks Upload PDF (MB). 0 = tidak terbatas. Tidak boleh melebihi sisa disk server (upload global dibatasi 100 MB)." style="width:100%;padding:8px;background:rgba(0,0,0,0.3);border:1px solid var(--color-glass-border);border-radius:8px;color:#fff;outline:none;" />
       </div>
       <div>
        <label style="display:block;font-size:12px;color:var(--color-text-secondary);margin-bottom:4px;">Maks Storage (MB)</label>
-       <input type="number" id="singleCustomStorageMb" value="100" min="0" step="0.1" style="width:100%;padding:8px;background:rgba(0,0,0,0.3);border:1px solid var(--color-glass-border);border-radius:8px;color:#fff;outline:none;" />
+       <input type="number" id="singleCustomStorageMb" value="100" min="0" step="0.1" {{if .storage_free_mb}}max="{{.storage_free_mb}}"{{end}} title="Maks Storage (MB). 0 = tidak terbatas. Tidak boleh melebihi sisa disk server." style="width:100%;padding:8px;background:rgba(0,0,0,0.3);border:1px solid var(--color-glass-border);border-radius:8px;color:#fff;outline:none;" />
       </div>
       <div>
        <label title="Batas jumlah akun yang boleh dibuat operator di instansi (0 = tanpa batas)" style="display:block;font-size:12px;color:var(--color-text-secondary);margin-bottom:4px;">Maks Akun Guru (0 = tanpa batas)</label>
@@ -290,11 +291,12 @@
       </div>
       <div>
        <label title="Maksimal ukuran file PDF dalam sekali upload" style="display:block;font-size:12px;color:var(--color-text-secondary);margin-bottom:4px;">Maks Upload (MB)</label>
-       <input type="number" id="batchCustomPdfMb" value="10" min="0" step="0.1" style="width:100%;padding:8px;background:rgba(0,0,0,0.3);border:1px solid var(--color-glass-border);border-radius:8px;color:#fff;outline:none;" />
+       <!-- max = min(sisa disk, 100 MB): batas upload global maxFileSize (exams.go) -->
+       <input type="number" id="batchCustomPdfMb" value="10" min="0" step="0.1" {{if .storage_free_mb}}max="{{if le .storage_free_mb 100.0}}{{.storage_free_mb}}{{else}}100{{end}}"{{end}} title="Maks Upload PDF (MB). 0 = tidak terbatas. Tidak boleh melebihi sisa disk server (upload global dibatasi 100 MB)." style="width:100%;padding:8px;background:rgba(0,0,0,0.3);border:1px solid var(--color-glass-border);border-radius:8px;color:#fff;outline:none;" />
       </div>
       <div>
        <label style="display:block;font-size:12px;color:var(--color-text-secondary);margin-bottom:4px;">Maks Storage (MB)</label>
-       <input type="number" id="batchCustomStorageMb" value="100" min="0" step="0.1" style="width:100%;padding:8px;background:rgba(0,0,0,0.3);border:1px solid var(--color-glass-border);border-radius:8px;color:#fff;outline:none;" />
+       <input type="number" id="batchCustomStorageMb" value="100" min="0" step="0.1" {{if .storage_free_mb}}max="{{.storage_free_mb}}"{{end}} title="Maks Storage (MB). 0 = tidak terbatas. Tidak boleh melebihi sisa disk server." style="width:100%;padding:8px;background:rgba(0,0,0,0.3);border:1px solid var(--color-glass-border);border-radius:8px;color:#fff;outline:none;" />
       </div>
       <div>
        <label title="Batas jumlah akun yang boleh dibuat operator di instansi (0 = tanpa batas)" style="display:block;font-size:12px;color:var(--color-text-secondary);margin-bottom:4px;">Maks Akun Guru (0 = tanpa batas)</label>

@@ -1639,6 +1639,19 @@ function openEditUserModal(userId) {
             document.getElementById('editUserConcurrent').value = user.max_concurrent_exams ?? 2;
             document.getElementById('editUserPdfSize').value = user.max_pdf_size ? (user.max_pdf_size / (1024*1024)).toFixed(1) : '1';
             document.getElementById('editUserStorageSize').value = user.max_storage_size ? (user.max_storage_size / (1024*1024)).toFixed(1) : '0';
+            // Cap Maks Storage di modal Atur Limit pada sisa kapasitas disk server.
+            var _est = document.getElementById('editUserStorageSize');
+            if (_est && window.__storageFreeMb > 0) {
+                _est.max = Math.floor(window.__storageFreeMb);
+                _est.title = 'Batas total kapasitas storage (MB). 0 = tidak terbatas. Sisa disk server: ' + fmtStorageSize(window.__storageFreeMb) + '.';
+            }
+            // Cap Maks Upload PDF pada min(sisa disk, 100 MB) — 100 MB adalah
+            // batas upload global (maxFileSize, exams.go).
+            var _ept = document.getElementById('editUserPdfSize');
+            if (_ept && window.__storageFreeMb > 0) {
+                _ept.max = Math.min(Math.floor(window.__storageFreeMb), 100);
+                _ept.title = 'Limit ukuran file PDF (MB). Tidak boleh melebihi sisa disk server (maks 100 MB global). Sisa disk server: ' + fmtStorageSize(window.__storageFreeMb) + '.';
+            }
             document.getElementById('editUserEmail').value = user.email || '';
             document.getElementById('editUserInstansi').value = user.instansi || '';
             document.getElementById('editUserPackage').value = user.package || 'free';
@@ -1840,6 +1853,21 @@ function submitEditUser(e) {
         }
     } else {
         data.expires_at = '';
+    }
+
+    // Pre-check Maks Storage terhadap sisa kapasitas disk server (server juga memvalidasi).
+    if (window.__storageFreeMb > 0 && data.max_storage_size_mb > window.__storageFreeMb) {
+        showToast('Maks Storage melebihi sisa kapasitas disk server (' + fmtStorageSize(window.__storageFreeMb) + ')', 'error');
+        return;
+    }
+    // Pre-check Maks Upload PDF (server juga memvalidasi). 100 MB = batas upload global (maxFileSize, exams.go).
+    if (window.__storageFreeMb > 0 && data.max_pdf_size_mb > window.__storageFreeMb) {
+        showToast('Maks Upload PDF melebihi sisa kapasitas disk server (' + fmtStorageSize(window.__storageFreeMb) + ')', 'error');
+        return;
+    }
+    if (data.max_pdf_size_mb > 100) {
+        showToast('Maks Upload PDF melebihi batas upload global (100 MB)', 'error');
+        return;
     }
 
     var btn = e.target.querySelector('button[type="submit"]');
@@ -2880,6 +2908,7 @@ function saveSaasSettings(e) {
     const default_max_exams = parseInt(document.getElementById('defaultExamsInput').value);
     const default_max_concurrent_exams = parseInt(document.getElementById('defaultConcurrentInput').value);
     const default_max_pdf_size_mb = parseFloat(document.getElementById('defaultPdfInput').value);
+    const default_max_storage_size_mb = parseFloat(document.getElementById('defaultStorageInput').value);
     const default_active_days = parseInt(document.getElementById('defaultActiveDaysInput').value);
     const android_version = document.getElementById('androidVersionInput').value.trim();
     const webapp_version = document.getElementById('webappVersionInput').value.trim();
@@ -2904,7 +2933,7 @@ function saveSaasSettings(e) {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
             email_verification_enabled, email_domain_whitelist, smtp_host, smtp_port, smtp_user, smtp_password, smtp_sender_name,
-            default_max_exams, default_max_concurrent_exams, default_max_pdf_size_mb,
+            default_max_exams, default_max_concurrent_exams, default_max_pdf_size_mb, default_max_storage_size_mb,
             default_active_days, android_version, webapp_version,
             seo_title, seo_description, seo_keywords, seo_index,
             footer_text, footer_tagline,
@@ -2929,6 +2958,13 @@ function saveSaasSettings(e) {
             saveButton.innerHTML = originalButtonHTML;
         }
     });
+}
+
+// Format ukuran storage untuk hint sisa disk (MB → MB/GB).
+function fmtStorageSize(mb) {
+    if (mb === undefined || mb === null || isNaN(mb)) return '—';
+    if (mb >= 1024) return (mb / 1024).toFixed(2) + ' GB';
+    return mb.toFixed(0) + ' MB';
 }
 
 function testSmtpConnection() {
@@ -3023,6 +3059,20 @@ function createUser(e) {
     const max_concurrent_exams = parseInt(document.getElementById('concurrentInput').value);
     const max_pdf_size_mb = parseFloat(document.getElementById('pdfSizeInput').value);
     const max_storage_size_mb = parseFloat(document.getElementById('storageSizeInput').value);
+    // Pre-check Maks Storage terhadap sisa kapasitas disk server (server juga memvalidasi).
+    if (window.__storageFreeMb > 0 && max_storage_size_mb > window.__storageFreeMb) {
+        showToast('Maks Storage melebihi sisa kapasitas disk server (' + fmtStorageSize(window.__storageFreeMb) + ')', 'error');
+        return;
+    }
+    // Pre-check Maks Upload PDF (server juga memvalidasi). 100 MB = batas upload global (maxFileSize, exams.go).
+    if (window.__storageFreeMb > 0 && max_pdf_size_mb > window.__storageFreeMb) {
+        showToast('Maks Upload PDF melebihi sisa kapasitas disk server (' + fmtStorageSize(window.__storageFreeMb) + ')', 'error');
+        return;
+    }
+    if (max_pdf_size_mb > 100) {
+        showToast('Maks Upload PDF melebihi batas upload global (100 MB)', 'error');
+        return;
+    }
     const opExpiryEl = document.getElementById('operatorExpiresAt');
     let expires_at = '';
     if (opExpiryEl && opExpiryEl.value) {
@@ -3076,6 +3126,32 @@ function loadSaasSettings() {
                 document.getElementById('defaultExamsInput').value = s.default_max_exams || 3;
                 document.getElementById('defaultConcurrentInput').value = s.default_max_concurrent_exams || 2;
                 document.getElementById('defaultPdfInput').value = s.default_max_pdf_size_mb || 1;
+                // 0 = tidak terbatas, jadi hanya pakai fallback saat field belum ada
+                var _dsmb = s.default_max_storage_size_mb;
+                var _dsInp = document.getElementById('defaultStorageInput');
+                _dsInp.value = (_dsmb === undefined || _dsmb === null) ? 50 : _dsmb;
+                // Cap input pada sisa kapasitas disk server (dikirim GET sebagai
+                // storage_free_mb; 0 berarti tidak dapat ditentukan).
+                var _freeMb = typeof s.storage_free_mb === 'number' ? s.storage_free_mb : 0;
+                var _dsHint = document.getElementById('defaultStorageHint');
+                if (_freeMb > 0) {
+                    _dsInp.max = Math.floor(_freeMb);
+                    if (_dsHint) _dsHint.textContent = 'Sisa disk server: ' + fmtStorageSize(_freeMb) + ' — 0 = tidak terbatas. Nilai tidak boleh melebihi sisa disk.';
+                } else {
+                    _dsInp.removeAttribute('max');
+                    if (_dsHint) _dsHint.textContent = 'Sisa disk server tidak dapat ditentukan saat ini. 0 = tidak terbatas.';
+                }
+                // Cap PDF upload default pada min(sisa disk, 100 MB) — 100 MB
+                // adalah batas upload global (maxFileSize, exams.go).
+                var _dpInp = document.getElementById('defaultPdfInput');
+                var _dpHint = document.getElementById('defaultPdfHint');
+                if (_freeMb > 0) {
+                    _dpInp.max = Math.min(Math.floor(_freeMb), 100);
+                    if (_dpHint) _dpHint.textContent = 'Sisa disk server: ' + fmtStorageSize(_freeMb) + ' — maks 100 MB (batas upload global).';
+                } else {
+                    _dpInp.removeAttribute('max');
+                    if (_dpHint) _dpHint.textContent = 'Sisa disk server tidak dapat ditentukan saat ini. Maks 100 MB (batas upload global).';
+                }
                 document.getElementById('defaultActiveDaysInput').value = s.default_active_days || 14;
                 document.getElementById('androidVersionInput').value = s.android_version || '2.1.9';
                 document.getElementById('webappVersionInput').value = s.webapp_version || '2.1.9';

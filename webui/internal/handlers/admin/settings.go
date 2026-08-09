@@ -2,6 +2,7 @@ package admin
 
 import (
 	"context"
+	"fmt"
 	"log"
 	"math"
 	"net/http"
@@ -56,21 +57,27 @@ func handleSaasSettingsGet(c *gin.Context, pool *pgxpool.Pool, ctx context.Conte
 
 	defaultMaxExams := parseIntSetting(settings[models.SettingDefaultMaxExams], 3)
 	defaultMaxPDFSize := parseIntSetting(settings[models.SettingDefaultMaxPDFSize], 1048576)
+	defaultMaxStorageSize := parseIntSetting(settings[models.SettingDefaultMaxStorageSize], 52428800)
 	defaultMaxConcurrentExams := parseIntSetting(settings[models.SettingDefaultMaxConcurrentExams], 2)
 	defaultActiveDays := parseIntSetting(settings[models.SettingDefaultActiveDays], 14)
 
 	c.JSON(http.StatusOK, gin.H{
 		"success": true,
 		"settings": gin.H{
-			"email_verification_enabled":   emailEnabled,
-			"email_domain_whitelist":       settings[models.SettingEmailDomainWhitelist],
-			"smtp_host":                    settings[models.SettingSMTPHost],
-			"smtp_port":                    settings[models.SettingSMTPPort],
-			"smtp_user":                    settings[models.SettingSMTPUser],
-			"smtp_password":                smtpPassword,
-			"smtp_sender_name":             settings[models.SettingSMTPSenderName],
-			"default_max_exams":            defaultMaxExams,
-			"default_max_pdf_size_mb":      roundTo(float64(defaultMaxPDFSize)/(1024*1024), 2),
+			"email_verification_enabled":  emailEnabled,
+			"email_domain_whitelist":      settings[models.SettingEmailDomainWhitelist],
+			"smtp_host":                   settings[models.SettingSMTPHost],
+			"smtp_port":                   settings[models.SettingSMTPPort],
+			"smtp_user":                   settings[models.SettingSMTPUser],
+			"smtp_password":               smtpPassword,
+			"smtp_sender_name":            settings[models.SettingSMTPSenderName],
+			"default_max_exams":           defaultMaxExams,
+			"default_max_pdf_size_mb":     roundTo(float64(defaultMaxPDFSize)/(1024*1024), 2),
+			"default_max_storage_size_mb": roundTo(float64(defaultMaxStorageSize)/(1024*1024), 2),
+			// Free space on the storage partition, so the Kelola User panel can
+			// cap the Maks Storage input at what the server disk can actually
+			// hold (0 = tidak dapat ditentukan, e.g. path tidak tersedia).
+			"storage_free_mb":              roundTo(getFreeDiskSpace(getStoragePath(c))/(1024*1024), 2),
 			"default_max_concurrent_exams": defaultMaxConcurrentExams,
 			"default_active_days":          defaultActiveDays,
 			"android_version":              settings[models.SettingAndroidVersion],
@@ -129,36 +136,69 @@ func boolFlag(b bool) string {
 
 func handleSaasSettingsPost(c *gin.Context, pool *pgxpool.Pool, ctx context.Context) {
 	var body struct {
-		EmailVerificationEnabled  bool    `json:"email_verification_enabled"`
-		EmailDomainWhitelist      string  `json:"email_domain_whitelist"`
-		SMTPHost                  string  `json:"smtp_host"`
-		SMTPPort                  string  `json:"smtp_port"`
-		SMTPUser                  string  `json:"smtp_user"`
-		SMTPPassword              string  `json:"smtp_password"`
-		SMTPSenderName            string  `json:"smtp_sender_name"`
-		DefaultMaxExams           int     `json:"default_max_exams"`
-		DefaultMaxPDFSizeMB       float64 `json:"default_max_pdf_size_mb"`
-		DefaultMaxConcurrentExams int     `json:"default_max_concurrent_exams"`
-		DefaultActiveDays         int     `json:"default_active_days"`
-		AndroidVersion            string  `json:"android_version"`
-		WebappVersion             string  `json:"webapp_version"`
-		CertificateFingerprint    string  `json:"certificate_fingerprint"`
-		SEOTitle                  string  `json:"seo_title"`
-		SEODescription            string  `json:"seo_description"`
-		SEOKeywords               string  `json:"seo_keywords"`
-		SEOIndex                  bool    `json:"seo_index"`
-		FooterText                string  `json:"footer_text"`
-		FooterTagline             string  `json:"footer_tagline"`
-		VoucherRedeemEnabled      bool    `json:"voucher_redeem_enabled"`
-		TurnstileEnabled          bool    `json:"turnstile_enabled"`
-		TurnstileSiteKey          string  `json:"turnstile_site_key"`
-		TurnstileSecretKey        string  `json:"turnstile_secret_key"`
-		MaxAccountsPerIP          int     `json:"max_accounts_per_ip"`
+		EmailVerificationEnabled  bool     `json:"email_verification_enabled"`
+		EmailDomainWhitelist      string   `json:"email_domain_whitelist"`
+		SMTPHost                  string   `json:"smtp_host"`
+		SMTPPort                  string   `json:"smtp_port"`
+		SMTPUser                  string   `json:"smtp_user"`
+		SMTPPassword              string   `json:"smtp_password"`
+		SMTPSenderName            string   `json:"smtp_sender_name"`
+		DefaultMaxExams           int      `json:"default_max_exams"`
+		DefaultMaxPDFSizeMB       *float64 `json:"default_max_pdf_size_mb"`
+		DefaultMaxStorageSizeMB   *float64 `json:"default_max_storage_size_mb"`
+		DefaultMaxConcurrentExams int      `json:"default_max_concurrent_exams"`
+		DefaultActiveDays         int      `json:"default_active_days"`
+		AndroidVersion            string   `json:"android_version"`
+		WebappVersion             string   `json:"webapp_version"`
+		CertificateFingerprint    string   `json:"certificate_fingerprint"`
+		SEOTitle                  string   `json:"seo_title"`
+		SEODescription            string   `json:"seo_description"`
+		SEOKeywords               string   `json:"seo_keywords"`
+		SEOIndex                  bool     `json:"seo_index"`
+		FooterText                string   `json:"footer_text"`
+		FooterTagline             string   `json:"footer_tagline"`
+		VoucherRedeemEnabled      bool     `json:"voucher_redeem_enabled"`
+		TurnstileEnabled          bool     `json:"turnstile_enabled"`
+		TurnstileSiteKey          string   `json:"turnstile_site_key"`
+		TurnstileSecretKey        string   `json:"turnstile_secret_key"`
+		MaxAccountsPerIP          int      `json:"max_accounts_per_ip"`
 	}
 
 	if err := c.ShouldBindJSON(&body); err != nil {
 		errorResponse(c, http.StatusBadRequest, "Data tidak valid")
 		return
+	}
+
+	// Default storage quota must be validated BEFORE any setting is written:
+	// a rejected value must not leave earlier writes half-saved (same rule as
+	// the Turnstile check below). 0 = tidak terbatas (no cap enforcement, so it
+	// is always accepted); only a positive value is bounded by the server disk.
+	if body.DefaultMaxStorageSizeMB != nil && *body.DefaultMaxStorageSizeMB < 0 {
+		errorResponse(c, http.StatusBadRequest, "Maks Storage tidak boleh bernilai negatif.")
+		return
+	}
+	if body.DefaultMaxStorageSizeMB != nil && *body.DefaultMaxStorageSizeMB > 0 {
+		freeBytes := getFreeDiskSpace(getStoragePath(c))
+		if freeBytes > 0 && *body.DefaultMaxStorageSizeMB*1024*1024 > freeBytes {
+			freeGB := freeBytes / (1024 * 1024 * 1024)
+			errorResponse(c, http.StatusBadRequest,
+				fmt.Sprintf("Maks Storage (%.2f MB) melebihi sisa kapasitas disk server (%.2f GB).", *body.DefaultMaxStorageSizeMB, freeGB))
+			return
+		}
+	}
+
+	// Default PDF upload size follows the same disk cap as the other storage
+	// editors (validatePDFQuota): negative rejected, and a positive value may
+	// not exceed the free disk. The UI caps the input at min(free disk,
+	// 100 MB) — the global maxFileSize — but the server keeps the pure disk
+	// cap. Only validated when provided (pointer): a partial payload that
+	// omits the field must not silently reset the limit. Rejected BEFORE any
+	// setting is written (no partial-save).
+	if body.DefaultMaxPDFSizeMB != nil {
+		if msg := validatePDFQuota(c, *body.DefaultMaxPDFSizeMB); msg != "" {
+			errorResponse(c, http.StatusBadRequest, msg)
+			return
+		}
 	}
 
 	reqCtx := c.Request.Context()
@@ -219,11 +259,23 @@ func handleSaasSettingsPost(c *gin.Context, pool *pgxpool.Pool, ctx context.Cont
 	}
 	models.SetSaasSetting(reqCtx, pool, models.SettingDefaultMaxExams, strconv.Itoa(defaultMaxExams))
 
-	defaultPDFSize := int(math.Max(0, body.DefaultMaxPDFSizeMB*1024*1024))
-	if defaultPDFSize <= 0 {
-		defaultPDFSize = 1048576
+	if body.DefaultMaxPDFSizeMB != nil {
+		defaultPDFSize := int(math.Max(0, *body.DefaultMaxPDFSizeMB*1024*1024))
+		if defaultPDFSize <= 0 {
+			defaultPDFSize = 1048576 // minimum 1 MB; 0 tidak pernah tersimpan sebagai unlimited
+		}
+		models.SetSaasSetting(reqCtx, pool, models.SettingDefaultMaxPDFSize, strconv.Itoa(defaultPDFSize))
 	}
-	models.SetSaasSetting(reqCtx, pool, models.SettingDefaultMaxPDFSize, strconv.Itoa(defaultPDFSize))
+
+	// Default storage quota (MB) for new registrations. 0 = tidak terbatas,
+	// mirroring the per-user quota editor; nilai negatif di-clamp ke 0. This is
+	// the ONLY numeric default saved conditionally (pointer): 0 is a meaningful
+	// value (unlimited), so an absent field — e.g. an older cached UI during a
+	// rollout — must NOT silently flip a configured quota to unlimited.
+	if body.DefaultMaxStorageSizeMB != nil {
+		defaultStorageSize := int64(math.Max(0, *body.DefaultMaxStorageSizeMB*1024*1024))
+		models.SetSaasSetting(reqCtx, pool, models.SettingDefaultMaxStorageSize, strconv.FormatInt(defaultStorageSize, 10))
+	}
 
 	defaultConcurrent := body.DefaultMaxConcurrentExams
 	if defaultConcurrent <= 0 {

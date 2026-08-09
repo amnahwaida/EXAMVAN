@@ -526,6 +526,10 @@ select[multiple] option:checked {
 .stat-storage .stat-value { color: #22d3ee; }
 .stat-storage .stat-icon { background: rgba(34, 211, 238, 0.1); }
 .stat-storage .stat-icon svg { color: #22d3ee; }
+.stat-disk { --card-accent: #f59e0b; }
+.stat-disk .stat-value { color: #f59e0b; }
+.stat-disk .stat-icon { background: rgba(245, 158, 11, 0.1); }
+.stat-disk .stat-icon svg { color: #f59e0b; }
 .stat-value-sm { font-size: 1rem !important; }
 
 /* === Forms === */

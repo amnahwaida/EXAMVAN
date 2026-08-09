@@ -68,6 +68,8 @@ func VouchersPage() gin.HandlerFunc {
 			"active_page": "vouchers",
 			"admin_user":  getCurrentUsername(c),
 			"admin_role":  role,
+			// Sisa kapasitas disk (MB) agar input Maks Storage kustom bisa dibatasi.
+			"storage_free_mb": roundTo(getFreeDiskSpace(getStoragePath(c))/(1024*1024), 2),
 		}
 
 		renderAdminPage(c, "admin/vouchers.html", data)
@@ -116,15 +118,6 @@ func voucherAtoiDefault(s string, def int) int {
 	return def
 }
 
-// voucherMBToBytes parses a megabyte float form value into bytes, or def (MB).
-func voucherMBToBytes(s string, defMB float64) int64 {
-	mb, err := strconv.ParseFloat(strings.TrimSpace(s), 64)
-	if err != nil || mb < 0 {
-		mb = defMB
-	}
-	return int64(mb * 1024 * 1024)
-}
-
 // parseCustomVoucherInto reads the custom-* form fields into v (used when the
 // selected package is "custom"). Returns a non-empty error message on invalid
 // input, otherwise "".
@@ -147,8 +140,38 @@ func parseCustomVoucherInto(c *gin.Context, v *models.Voucher) string {
 	v.Package = label // shown in listings / recorded in history
 	v.CustomMaxExams = voucherAtoiDefault(c.PostForm("custom_max_exams"), 1)
 	v.CustomMaxConcurrentExams = voucherAtoiDefault(c.PostForm("custom_max_concurrent_exams"), 1)
-	v.CustomMaxPDFSize = voucherMBToBytes(c.PostForm("custom_max_pdf_size_mb"), 1)
-	v.CustomMaxStorageSize = voucherMBToBytes(c.PostForm("custom_max_storage_size_mb"), 100)
+
+	// Maks ukuran PDF kustom tunduk pada batas kapasitas disk server yang sama
+	// dengan editor storage lainnya (validatePDFQuota): nilai negatif ditolak
+	// eksplisit, input tidak valid jatuh ke default 1 MB, lalu dicek terhadap
+	// sisa disk. 0 = tidak terbatas.
+	pdfMB := 1.0
+	if s, err := strconv.ParseFloat(strings.TrimSpace(c.PostForm("custom_max_pdf_size_mb")), 64); err == nil {
+		if s < 0 {
+			return "Maks Ukuran PDF tidak boleh bernilai negatif."
+		}
+		pdfMB = s
+	}
+	if msg := validatePDFQuota(c, pdfMB); msg != "" {
+		return msg
+	}
+	v.CustomMaxPDFSize = int64(pdfMB * 1024 * 1024)
+
+	// Storage quota kustom tunduk pada batas kapasitas disk server yang sama
+	// dengan editor storage lainnya (validateStorageQuota): nilai negatif
+	// ditolak eksplisit, input tidak valid jatuh ke default 100 MB, lalu dicek
+	// terhadap sisa disk. 0 = tidak terbatas.
+	storageMB := 100.0
+	if s, err := strconv.ParseFloat(strings.TrimSpace(c.PostForm("custom_max_storage_size_mb")), 64); err == nil {
+		if s < 0 {
+			return "Maks Storage tidak boleh bernilai negatif."
+		}
+		storageMB = s
+	}
+	if msg := validateStorageQuota(c, storageMB); msg != "" {
+		return msg
+	}
+	v.CustomMaxStorageSize = int64(storageMB * 1024 * 1024)
 	v.CustomMaxUsers = int64(voucherAtoiDefault(c.PostForm("custom_max_users"), 0))
 	v.CustomRole = role
 	return ""

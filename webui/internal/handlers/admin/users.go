@@ -125,6 +125,10 @@ func UsersPage() gin.HandlerFunc {
 			"active_page":         "users",
 			"admin_instansi":      adminInstansi,
 			"operator_expires_at": operatorExpiresAt,
+			// Free space on the storage partition (MB), so the Tambah User &
+			// Atur Limit forms can cap Maks Storage at what the server disk can
+			// actually hold (0 = tidak dapat ditentukan).
+			"storage_free_mb": roundTo(getFreeDiskSpace(getStoragePath(c))/(1024*1024), 2),
 		})
 	}
 }
@@ -249,6 +253,55 @@ func ListUsers() gin.HandlerFunc {
 // 3. POST /admin/api/users — Create new user
 // ---------------------------------------------------------------------------
 
+// validateStorageQuota returns an error message when the given per-user storage
+// quota (MB) exceeds the free space of the server storage partition, or is
+// negative. 0 = tidak terbatas (unlimited) is always allowed; an empty string
+// means the value is acceptable. Mirrors the cap enforced on the SaaS "Maks
+// Storage" default setting (settings.go). When free space cannot be determined
+// (getFreeDiskSpace returns 0), the check is skipped (fail-open).
+func validateStorageQuota(c *gin.Context, mb float64) string {
+	return validateStorageQuotaFree(getFreeDiskSpace(getStoragePath(c)), mb)
+}
+
+// validateStorageQuotaFree is validateStorageQuota against a pre-computed
+// freeBytes snapshot, so callers validating many values in one request (e.g.
+// a package payload with several packages) reuse a single disk check instead
+// of one statfs call per value.
+func validateStorageQuotaFree(freeBytes float64, mb float64) string {
+	return validateMBQuota("Maks Storage", freeBytes, mb)
+}
+
+// validatePDFQuota validates a max-PDF-size quota (MB) against the free disk
+// space on the STORAGE_PATH partition, mirroring the storage rules: negative
+// rejected, 0 = unlimited, fail-open when the free disk cannot be determined.
+func validatePDFQuota(c *gin.Context, mb float64) string {
+	return validatePDFQuotaFree(getFreeDiskSpace(getStoragePath(c)), mb)
+}
+
+// validatePDFQuotaFree is validatePDFQuota against a pre-computed freeBytes
+// snapshot (single disk check for multi-value payloads).
+func validatePDFQuotaFree(freeBytes float64, mb float64) string {
+	return validateMBQuota("Maks Ukuran PDF", freeBytes, mb)
+}
+
+// validateMBQuota is the shared core for MB-based quota caps against the free
+// disk space: 0 = unlimited (always accepted), negative rejected, and positive
+// values above the free disk rejected (fail-open when freeBytes <= 0, i.e. the
+// free disk cannot be determined).
+func validateMBQuota(label string, freeBytes float64, mb float64) string {
+	if mb < 0 {
+		return fmt.Sprintf("%s tidak boleh bernilai negatif.", label)
+	}
+	if mb == 0 {
+		return ""
+	}
+	if freeBytes > 0 && mb*1024*1024 > freeBytes {
+		freeGB := freeBytes / (1024 * 1024 * 1024)
+		return fmt.Sprintf("%s (%.2f MB) melebihi sisa kapasitas disk server (%.2f GB).", label, mb, freeGB)
+	}
+	return ""
+}
+
 func CreateUser() gin.HandlerFunc {
 	return func(c *gin.Context) {
 		var body struct {
@@ -269,6 +322,22 @@ func CreateUser() gin.HandlerFunc {
 		}
 		if err := c.ShouldBindJSON(&body); err != nil {
 			errorResponse(c, http.StatusBadRequest, "Data tidak valid")
+			return
+		}
+
+		// Storage quota must be validated before the account is created (a
+		// rejected quota must not leave a half-created user). Same cap as the
+		// SaaS "Maks Storage" default.
+		if msg := validateStorageQuota(c, body.MaxStorageSizeMB); msg != "" {
+			errorResponse(c, http.StatusBadRequest, msg)
+			return
+		}
+
+		// PDF upload quota follows the same disk cap (validatePDFQuota):
+		// negative rejected, 0 = tidak terbatas, positive value bounded by the
+		// free disk.
+		if msg := validatePDFQuota(c, body.MaxPDFSizeMB); msg != "" {
+			errorResponse(c, http.StatusBadRequest, msg)
 			return
 		}
 
@@ -500,6 +569,24 @@ func EditUser() gin.HandlerFunc {
 		if err := c.ShouldBindJSON(&body); err != nil {
 			errorResponse(c, http.StatusBadRequest, "Data tidak valid")
 			return
+		}
+
+		// Storage quota must be validated before any update is applied (a
+		// rejected quota must not leave other fields half-edited). Same cap as
+		// the SaaS "Maks Storage" default.
+		if body.MaxStorageSizeMB != nil {
+			if msg := validateStorageQuota(c, *body.MaxStorageSizeMB); msg != "" {
+				errorResponse(c, http.StatusBadRequest, msg)
+				return
+			}
+		}
+
+		// PDF upload quota follows the same disk cap (only when provided).
+		if body.MaxPDFSizeMB != nil {
+			if msg := validatePDFQuota(c, *body.MaxPDFSizeMB); msg != "" {
+				errorResponse(c, http.StatusBadRequest, msg)
+				return
+			}
 		}
 
 		pool := getPool(c)
@@ -902,7 +989,8 @@ func ToggleUserStatus() gin.HandlerFunc {
 					// left on their own clocks.
 					var opExpiresAt *time.Time
 					_ = pool.QueryRow(ctx, `SELECT expires_at FROM admin_users WHERE id = $1`, targetID).Scan(&opExpiresAt)
-					if opExpiresAt != nil && opExpiresAt.After(time.Now().UTC()) {						tag, err := pool.Exec(ctx, `
+					if opExpiresAt != nil && opExpiresAt.After(time.Now().UTC()) {
+						tag, err := pool.Exec(ctx, `
 							UPDATE admin_users u
 							SET expires_at = GREATEST(COALESCE(u.expires_at, $2::timestamptz), $2::timestamptz)
 							WHERE u.instansi = $1 AND u.id <> $3
