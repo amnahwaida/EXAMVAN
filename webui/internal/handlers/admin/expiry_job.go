@@ -15,6 +15,14 @@ import (
 // runs. Mirrors the heartbeat flusher cadence.
 const packageExpiryJobInterval = 30 * time.Second
 
+// expiredRunningExamGrace is how long a running exam of an expired account is
+// allowed to continue before tombstoneExpiredUsersExamsPass cuts it off.
+// Unstarted active exams are tombstoned immediately on expiry; running exams
+// get this window so students mid-exam are not disconnected at the exact
+// expiry instant, giving the operator time to renew or the session time to
+// wrap up.
+const expiredRunningExamGrace = 24 * time.Hour
+
 // StartPackageExpiryJob runs a background loop that reconciles claimed voucher
 // packages whose lifetime has run out. A user can hold several claimed
 // vouchers, but only one ACTIVE package consumes lifetime; when that active
@@ -24,7 +32,11 @@ const packageExpiryJobInterval = 30 * time.Second
 //  2. if the user still holds ANOTHER claimed voucher with remaining lifetime,
 //     that package is activated automatically (auto-fallback) and its
 //     entitlement snapshot is applied, extending the account expiry — the user
-//     is never locked out while a usable package is on hand;
+//     is never locked out while a usable package is on hand. An account whose
+//     expires_at is NULL (unlimited — e.g. an admin cleared it in the edit
+//     form) is the one exception: its exhausted package is paused WITHOUT a
+//     fallback, so the admin's "unlimited" intent is never silently undone
+//     by a package clock;
 //  3. if no usable fallback exists, the account keeps its past expires_at and
 //     login stays blocked;
 //  4. accounts whose expiry still reads in the past after the reconciliation
@@ -66,13 +78,16 @@ func StartPackageExpiryJob(ctx context.Context, pool *pgxpool.Pool) {
 // their active exams inactive with the tombstone marker — the same "unpublished
 // exams go dormant" semantics as the school tombstone
 // (tombstoneUnstartedInstansiExams), now applied to trial/personal and any
-// other account that ran out of active time. Unlike the school path, ALL exams
-// are covered — including ones already running: an expired account owns no
-// active time, so its students are cut off immediately (their exam_started_at
-// and active token are cleared so the Android app can no longer continue the
-// exam). The tombstone is never auto-reversed: the owner (after a renewal) or
-// a superadmin re-activates manually, so an admin's explicit inactivation is
-// never clobbered.
+// other account that ran out of active time. The tombstone is never
+// auto-reversed: the owner (after a renewal) or a superadmin re-activates
+// manually, so an admin's explicit inactivation is never clobbered.
+//
+// A running exam (exam_started_at set) is NOT cut off the moment the account
+// expires: it gets expiredRunningExamGrace (24h) to finish, so students
+// mid-exam are not disconnected at the exact expiry instant. Only after the
+// grace elapses is the running exam tombstoned (exam_started_at cleared so the
+// Android app can no longer continue it). Unstarted active exams are
+// tombstoned immediately.
 //
 // The pass must run AFTER runPackageExpiryPass: a user whose active voucher
 // package expired but who still holds a usable claimed voucher is re-opened
@@ -98,6 +113,11 @@ func tombstoneExpiredUsersExamsPass(ctx context.Context, pool *pgxpool.Pool) {
 	// cut-off running exam does not keep its "running" state (and its token is
 	// no longer usable for a fresh start). The status='active' filter makes the
 	// pass idempotent — a tombstoned exam is inactive and is never re-selected.
+	//
+	// Running exams get a grace window (exam_started_at IS NOT NULL but the
+	// account expired within the grace) so students already taking the exam are
+	// not disconnected mid-test; only unstarted exams — or running exams past
+	// the grace — are tombstoned.
 	_, err := pool.Exec(ctx, `
 		UPDATE exams e
 		SET status = 'inactive', tombstoned_at = now(), exam_started_at = NULL
@@ -108,7 +128,12 @@ func tombstoneExpiredUsersExamsPass(ctx context.Context, pool *pgxpool.Pool) {
 		  AND u.status = 'active' -- suspended accounts: clock is frozen
 		  AND u.expires_at IS NOT NULL
 		  AND u.expires_at < now()
-		  AND NOT (u.role = 'superadmin' OR u.role ILIKE '%"superadmin"%')`)
+		  AND (
+		      e.exam_started_at IS NULL
+		      OR u.expires_at < now() - ($1 * interval '1 hour')
+		  )
+		  AND NOT (u.role = 'superadmin' OR u.role ILIKE '%"superadmin"%')`,
+		int(expiredRunningExamGrace.Hours()))
 	if err != nil {
 		log.Printf("package-expiry job: tombstone expired users' exams: %v", err)
 	}
@@ -158,6 +183,11 @@ func runPackageExpiryPass(ctx context.Context, pool *pgxpool.Pool) {
 // usable alternative exists, activates it (auto-fallback) and applies its
 // entitlement snapshot to the account. Runs inside a transaction that locks
 // the user row so concurrent redeem/activate requests serialize cleanly.
+//
+// An account whose expires_at is NULL (unlimited) is spared the fallback: the
+// exhausted package is paused and that is all — activating a fallback would
+// rewrite expires_at to a concrete value (applyRedemptionEntitlement sets it
+// unconditionally), silently re-limiting an account an admin made unlimited.
 func handleExpiredPackage(ctx context.Context, pool *pgxpool.Pool, userID int) {
 	tx, err := pool.Begin(ctx)
 	if err != nil {
@@ -169,8 +199,13 @@ func handleExpiredPackage(ctx context.Context, pool *pgxpool.Pool, userID int) {
 	// Lock the user row so a concurrent redeem/activate cannot interleave.
 	// Skip suspended accounts: their package clock is frozen, so their
 	// packages must not be expired/auto-fallback-processed mid-suspension.
+	// expires_at is read under the same lock so the unlimited-account guard
+	// below sees a value no concurrent writer can change.
 	var locked int
-	if err := tx.QueryRow(ctx, `SELECT id FROM admin_users WHERE id = $1 AND status <> 'suspended' FOR UPDATE`, userID).Scan(&locked); err != nil {
+	var expiresAt *time.Time
+	if err := tx.QueryRow(ctx,
+		`SELECT id, expires_at FROM admin_users WHERE id = $1 AND status <> 'suspended' FOR UPDATE`,
+		userID).Scan(&locked, &expiresAt); err != nil {
 		if err != pgx.ErrNoRows {
 			log.Printf("package-expiry job: lock user %d: %v", userID, err)
 		}
@@ -200,6 +235,20 @@ func handleExpiredPackage(ctx context.Context, pool *pgxpool.Pool, userID int) {
 		SET remaining_seconds = 0, activated_at = NULL, is_active = false
 		WHERE id = $1`, activeID); err != nil {
 		log.Printf("package-expiry job: pause expired (user %d): %v", userID, err)
+		return
+	}
+
+	// An account without an expiry (NULL = unlimited, e.g. an admin cleared it
+	// in the edit form) must not be re-limited by an auto-fallback: with no
+	// expiry there is nothing for the package clock to align to, so the
+	// exhausted package is paused and that is all — the account stays
+	// unlimited and any claimed-but-paused fallback stays paused. Committing
+	// here persists the pause (a bare return would roll it back and re-select
+	// this user every pass).
+	if expiresAt == nil {
+		if cerr := tx.Commit(ctx); cerr != nil {
+			log.Printf("package-expiry job: commit pause (unlimited user %d): %v", userID, cerr)
+		}
 		return
 	}
 

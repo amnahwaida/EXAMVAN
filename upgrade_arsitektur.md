@@ -2,7 +2,7 @@
 
 > **Dokumen ini fokus 100% ke koneksi Cloudflare R2, karena ini adalah satu-satunya upgrade yang dampaknya paling besar: PDF pindah ke Cloudflare, server beban file hilang, bandwidth 100mbps cukup untuk 50.000 siswa.**
 
-> **Status saat ini (Agustus 2026):** R2 kini bersifat **opsional** — server berjalan normal tanpa R2 dengan fallback penyimpanan lokal (PDF di-serve dari disk/volume `webui_storage`). Jika keempat variabel `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY`, `R2_BUCKET`, dan `R2_ENDPOINT` di `.env` terisi lengkap, PDF otomatis di-upload ke R2 dan di-serve via signed URL. Panduan setup di bawah ini tetap berlaku sebagai langkah mengaktifkan mode R2.
+> **Status saat ini (Agustus 2026):** R2 kini bersifat **wajib** — server menolak start (fail-fast) tanpa keempat variabel `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY`, `R2_BUCKET`, dan `R2_ENDPOINT` di `.env`. Semua PDF & APK di-upload ke R2 dan di-serve via signed URL; **tidak ada lagi fallback penyimpanan lokal**. Panduan setup di bawah ini tetap berlaku untuk menyiapkan bucket & kredensial R2.
 >
 > Upgrade lain (RAM, CPU, scaling) sifatnya opsional — nanti kalau sudah mentok.
 
@@ -21,9 +21,10 @@
 9. [Step 6 — Init R2 Client di main.go](#9-step-6--init-r2-client-di-maingo)
 10. [Step 7 — Upload PDF ke R2 (Admin Upload)](#10-step-7--upload-pdf-ke-r2-admin-upload)
 11. [Step 8 — Serve PDF via R2 Signed URL (Download)](#11-step-8--serve-pdf-via-r2-signed-url-download)
-12. [Step 9 — Fallback: Nginx X-Accel (kalo R2 mati)](#12-step-9--fallback-nginx-x-accel-kalo-r2-mati)
+12. [Step 9 — Fallback Nginx X-Accel (arsip: sudah dihapus — R2 wajib)](#12-step-9--fallback-nginx-x-accel-kalo-r2-mati)
 13. [Step 10 — Testing R2](#13-step-10--testing-r2)
 14. [Capacity Planner Lengkap](#14-capacity-planner-lengkap)
+16. [Lampiran — Pola Test Database (NewPackageTestPool)](#lampiran--pola-test-database-newpackagetestpool)
 
 ---
 
@@ -80,7 +81,7 @@ Android ──► VPS (validasi token) ──► HTTP 302 (redirect)
 |-----------|------------|
 | **Akun Cloudflare** | Gratis. Daftar di https://dash.cloudflare.com/sign-up |
 | **Go project** | Udah punya `go.mod` di `webui/` |
-| **Nginx** | Untuk fallback (kalo R2 mati) |
+| **Nginx** | Reverse proxy utama (fallback X-Accel untuk PDF sudah dihapus — R2 wajib) |
 
 ---
 
@@ -246,8 +247,8 @@ type Client struct {
 // NewClient creates R2 client. Returns nil if credentials missing.
 func NewClient(accessKey, secretKey, endpoint, bucket string) *Client {
 	if accessKey == "" || secretKey == "" || endpoint == "" {
-		log.Println("r2: credentials missing — R2 disabled, PDF will be served locally")
-		return nil
+		log.Println("r2: credentials missing — R2 disabled")
+		return nil // NOTE: sejak R2 wajib, main.go menolak start (fail-fast) bila NewClient mengembalikan nil
 	}
 
 	cfg, err := config.LoadDefaultConfig(context.Background(),
@@ -361,7 +362,7 @@ func main() {
 			log.Println("R2: Cloudflare R2 ready — PDF upload/download via R2")
 		}
 	} else {
-		log.Println("R2: not configured — PDF will be served from local storage")
+		log.Fatalf("R2: not configured — server menolak start (R2 wajib, tanpa fallback lokal)")
 	}
 	// ================================
 
@@ -519,9 +520,9 @@ func ExamPDF() gin.HandlerFunc {
 
 ---
 
-## 12. Step 9 — Fallback: Nginx X-Accel (kalo R2 mati)
+## 12. Step 9 — Fallback: Nginx X-Accel (ARSIP — fallback lokal sudah dihapus)
 
-Ini penting buat jaga-jaga kalau Cloudflare R2 down atau maintenance.
+> ⚠️ **Arsip:** Bagian ini **tidak berlaku lagi**. Sejak R2 diwajibkan, handler upload/PDF tidak lagi punya fallback penyimpanan lokal — `config.Load()` langsung gagal (fail-fast) bila kredensial R2 tidak lengkap, jadi skenario "R2 mati tapi server tetap jalan dari disk" sudah tidak mungkin. Konfigurasi nginx `location /internal/pdf/` di bawah boleh diabaikan/dihapus.
 
 **File: `webui/nginx/nginx.conf`**
 
@@ -654,16 +655,9 @@ curl -v https://<domain>/api/exams/1/pdf \
 # Location: https://examvan-pdfs.r2.cloudflarestorage.com/...
 ```
 
-### Test fallback — matiin akses R2
+### Test tanpa R2 (dulu: "fallback lokal")
 
-Simulasi R2 mati dengan set env kosong:
-
-```bash
-# Set R2_SECRET_ACCESS_KEY kosong — server akan fallback ke local
-R2_SECRET_ACCESS_KEY="" ./examvan-server
-
-# Atau restart dengan env kosong
-```
+> ⚠️ **Tidak berlaku lagi:** Simulasi "R2 mati" dengan mengosongkan env kini membuat server **menolak start** (fail-fast) — bukan fallback ke penyimpanan lokal, karena handler tidak punya fallback lagi. Test yang relevan sekarang hanyalah memverifikasi 302 signed URL saat R2 aktif.
 
 ### Monitoring R2 di Cloudflare Dashboard
 
@@ -1364,6 +1358,71 @@ Dari 10 item:
 ### Prioritas berikutnya (hanya 1)
 
 1. **Load test pakai k6** — untuk tau batas real server. **(~30 menit)**
+
+---
+
+## Lampiran — Pola Test Database (NewPackageTestPool)
+
+> **Status (Agustus 2026):** Semua tes integrasi yang butuh PostgreSQL memakai satu pola: `database.NewPackageTestPool(t, "<nama_paket>")` — **bukan konstanta skema yang didaftarkan manual**.
+
+### Masalah
+
+Sebelum pola ini, tiap paket yang butuh tes DB menyambung langsung ke `TEST_DATABASE_URL` dan me-TRUNCATE tabel di skema `public` yang sama. Karena `go test ./...` menjalankan paket-paket **secara paralel**, TRUNCATE bersamaan itu saling mengunci (AccessExclusiveLock) → deadlock.
+
+### Pola
+
+Fungsi `database.NewPackageTestPool` (di `webui/internal/database/testdb.go`) menurunkan skema isolasi **dari nama paket** (`it_<nama_paket>`, mis. `it_admin`, `it_models`) — tidak perlu registry/konstanta skema manual, karena nama paket di `internal/` unik:
+
+```go
+pool := database.NewPackageTestPool(t, "admin")
+```
+
+Yang dilakukan fungsi ini:
+
+| Langkah | Detail |
+|---------|--------|
+| **Sambung ke `TEST_DATABASE_URL` via `TestSchemaPool`** | `search_path` diarahkan ke skema paket; skema dibuat otomatis (`CREATE SCHEMA IF NOT EXISTS`) kalau belum ada. |
+| **Terapkan `schema.sql`** | Idempotent, hanya menyentuh skema paket itu sendiri. |
+| **Truncate tabel data** | Tabel data di-bersihkan; baris `package_settings`/`saas_settings` yang di-seed sengaja dipertahankan. |
+| **Cleanup otomatis** | `pool.Close()` didaftarkan via `t.Cleanup`. |
+| **Skip bila tanpa DB** | `TEST_DATABASE_URL` kosong → test **di-skip** (bukan gagal), jadi `go test ./...` polos tetap hijau. |
+
+Karena tiap paket hanya menyentuh skemanya sendiri, paket-paket bisa berjalan paralel tanpa deadlock TRUNCATE.
+
+### Fresh-start: `TEST_DATABASE_RESET=1`
+
+Saat `schema.sql` berubah bentuk (mis. rename kolom), objek lama di skema bisa lolos dari `CREATE IF NOT EXISTS` yang idempotent. Set `TEST_DATABASE_RESET=1` untuk **men-drop (CASCADE) dan membuat ulang skema sekali per proses `go test`** (dijaga `sync.Once` per skema):
+
+```bash
+TEST_DATABASE_URL=postgresql://examvan:examvan@localhost:5432/examvan_test \
+  TEST_DATABASE_RESET=1 go test ./internal/models/ -run TestAuthenticateUser -v
+```
+
+### Pemakaian nyata
+
+| File | Setup | Skema |
+|------|-------|-------|
+| `webui/internal/handlers/admin/voucher_lifecycle_integration_test.go` | `setupVoucherITDB` | `it_admin` |
+| `webui/internal/models/authenticate_test.go` | `setupAuthTestDB` | `it_models` |
+| `webui/internal/database/testdb_test.go` | `TestTestSchemaPoolIsolatesSchemas` | membuktikan isolasi antar-skema (query lintas skema gagal 42P01) |
+
+> **Paket baru yang butuh tes DB:** panggil `database.NewPackageTestPool(t, "<nama_paket>")` di setup test-nya. Jangan sambung `TEST_DATABASE_URL` dengan `pgxpool` polos lalu TRUNCATE skema `public` — itu yang bikin deadlock.
+
+### Menjalankan
+
+```bash
+# PostgreSQL 16 sekali pakai via Docker
+docker run -d --name examvan-test-pg \
+  -e POSTGRES_USER=examvan -e POSTGRES_PASSWORD=examvan \
+  -e POSTGRES_DB=examvan_test -p 5432:5432 postgres:16-alpine
+
+# Seluruh suite (tes integrasi ikut jalan, bukan di-skip)
+cd webui
+TEST_DATABASE_URL=postgresql://examvan:examvan@localhost:5432/examvan_test \
+  go test ./...
+```
+
+Dokumentasi penggunaannya juga ada di **README → Pengujian (Tes Otomatis)**.
 
 ---
 

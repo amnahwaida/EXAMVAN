@@ -4,6 +4,7 @@ import (
 	"context"
 	cryptoRand "crypto/rand"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"log"
 	"net/http"
@@ -684,14 +685,10 @@ func EditUser() gin.HandlerFunc {
 					expVal, targetUser.Instansi, targetID); err != nil {
 					log.Printf("cascade expiry for instansi %s error: %v", targetUser.Instansi, err)
 				}
-				// Align the instansi users' active packages with the new expiry too.
-				if _, err := pool.Exec(ctx, `
-					UPDATE voucher_redemptions r
-					SET remaining_seconds = GREATEST(EXTRACT(EPOCH FROM ($1::timestamp - now()))::bigint, 0),
-					    activated_at = now()
-					FROM admin_users u
-					WHERE r.user_id = u.id AND r.is_active AND u.instansi = $2 AND u.id != $3`,
-					expVal, targetUser.Instansi, targetID); err != nil {
+				// Align the instansi users' active packages with the new expiry too
+				// (their expires_at was just rewritten above, so the shared helper
+				// reads the authoritative per-account expiry).
+				if err := models.SyncInstansiActiveRedemptionsToExpiry(ctx, pool, targetUser.Instansi, targetID); err != nil {
 					log.Printf("cascade sync redemption expiry for instansi %s error: %v", targetUser.Instansi, err)
 				}
 			}
@@ -726,13 +723,25 @@ func EditUser() gin.HandlerFunc {
 		// expiry by the suspension duration) so the package clock did not burn
 		// while the account was suspended. When a fresh expiry is explicitly set
 		// in the same request, that grant supersedes the freeze.
+		var freezeMsg string
 		if body.Status != nil && *body.Status == models.UserStatusActive && !isSuperAdminTarget && body.ExpiresAt == nil {
-			if _, err := models.ResumeSuspendedAccountClock(ctx, pool, targetID); err != nil {
+			if extendedExpiry, err := models.ResumeSuspendedAccountClock(ctx, pool, targetID); err != nil {
 				log.Printf("edit user: resume suspended account clock error: %v", err)
+			} else if extendedExpiry != nil {
+				// The suspension clock was frozen: expires_at was extended by the
+				// suspension duration — which may even resurrect an account whose
+				// expiry had already passed. Surface the new expiry so the admin
+				// is not surprised by the extended lifetime.
+				freezeMsg = fmt.Sprintf(" Masa aktif diperpanjang sampai %s (jam dijeda selama suspend)",
+					extendedExpiry.Format("2006-01-02 15:04:05"))
 			}
 		}
 
-		successMessage(c, fmt.Sprintf("Pengaturan user %s berhasil diperbarui", targetUser.Username))
+		msg := fmt.Sprintf("Pengaturan user %s berhasil diperbarui.", targetUser.Username)
+		if freezeMsg != "" {
+			msg += freezeMsg
+		}
+		successMessage(c, msg)
 	}
 }
 
@@ -782,6 +791,13 @@ func ToggleUserStatus() gin.HandlerFunc {
 		newStatus, msg, err := models.ToggleUserStatus(ctx, pool, targetID)
 		if err != nil {
 			log.Printf("toggle user status error: %v", err)
+			// A pending_otp account cannot be toggled — surface the specific
+			// reason (it must be verified via OTP or the manual Verify action)
+			// instead of a generic failure message.
+			if errors.Is(err, models.ErrPendingOTPToggleBlocked) {
+				errorResponse(c, http.StatusBadRequest, err.Error())
+				return
+			}
 			errorResponse(c, http.StatusInternalServerError, "Gagal mengubah status user")
 			return
 		}
@@ -798,32 +814,14 @@ func ToggleUserStatus() gin.HandlerFunc {
 						opInstansi, targetID).Scan(&count)
 					if count > 0 {
 						// Freeze the restored accounts' clocks for the suspension
-						// period: expires_at is extended by (now - suspended_at), then
-						// the active packages are realigned to the frozen expiry.
-						if _, err := pool.Exec(ctx, `
-						UPDATE admin_users u
-						SET status = 'active',
-						    suspended_by_cascade = FALSE,
-						    suspended_at = NULL,
-						    expires_at = CASE
-						        WHEN u.suspended_at IS NOT NULL AND u.expires_at IS NOT NULL AND u.suspended_at < now()
-						            THEN u.expires_at + (now() - u.suspended_at)
-						        ELSE u.expires_at
-						    END
-						WHERE u.instansi = $1 AND u.suspended_by_cascade = TRUE AND u.id != $2`,
-							opInstansi, targetID); err != nil {
+						// period (expires_at extended by the suspension duration) and
+						// realign their active packages with the frozen expiry. The
+						// helper fails as a unit, so a partial failure (restore done
+						// but the redemption sync failed) suppresses the confirmation
+						// message below — the log records the failure.
+						if err := models.RestoreCascadeSuspendedInstansi(ctx, pool, opInstansi, targetID); err != nil {
 							log.Printf("cascade restore for instansi %s error: %v", opInstansi, err)
 						} else {
-							if _, err := pool.Exec(ctx, `
-							UPDATE voucher_redemptions r
-							SET remaining_seconds = GREATEST(EXTRACT(EPOCH FROM (u.expires_at - now()))::bigint, 0),
-							    activated_at = now()
-							FROM admin_users u
-							WHERE r.user_id = u.id AND r.is_active AND u.expires_at IS NOT NULL
-							  AND u.instansi = $1 AND u.id != $2`,
-								opInstansi, targetID); err != nil {
-								log.Printf("cascade sync redemption expiry for instansi %s error: %v", opInstansi, err)
-							}
 							msg += fmt.Sprintf(". %d user di instansi %s juga diaktifkan kembali.", count, opInstansi)
 						}
 					}

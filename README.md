@@ -8,7 +8,7 @@
 
 EXAMVAN diciptakan khusus untuk memenuhi kebutuhan instansi pendidikan dengan arsitektur *hybrid* yang sangat efisien untuk perangkat server minim resource (seperti STB).
 
-- **Penyimpanan PDF Fleksibel (Cloudflare R2 opsional):** File soal (PDF) dapat di-offload ke Cloudflare R2 (Edge CDN), sehingga server lokal/STB tidak menyimpan file berat dan bandwidth egress terselamatkan — ideal untuk skala ribuan siswa secara simultan. R2 bersifat **opsional**: jika `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY`, dan `R2_ENDPOINT` terisi lengkap, PDF di-upload ke R2 dan di-serve via signed URL; jika tidak, server otomatis menyimpan & menyajikan PDF dari penyimpanan lokal (volume `webui_storage`). Mode R2 memerlukan koneksi internet.
+- **Penyimpanan PDF Terpusat (Cloudflare R2 wajib):** File soal (PDF) dan APK di-upload ke Cloudflare R2 (Edge CDN) dan di-serve via signed URL, sehingga server lokal/STB tidak menyimpan file berat dan bandwidth egress terselamatkan — ideal untuk skala ribuan siswa secara simultan. Kredensial R2 (`R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY`, `R2_BUCKET`, `R2_ENDPOINT`) **wajib** diisi — server tidak akan berjalan tanpanya. Tidak ada fallback penyimpanan lokal. Mode R2 memerlukan koneksi internet.
 - **Keamanan Tingkat Tinggi (Anti-Cheat):** Mengamankan berkas soal PDF dari penyebaran liar dan membatasi gerak-gerik siswa agar tidak dapat mencari jawaban di aplikasi lain.
 - **Kemudahan Pengelolaan:** Memungkinkan guru untuk mengelola soal mereka sendiri secara terpisah, sementara Administrator memegang kontrol pengawasan penuh.
 
@@ -173,13 +173,13 @@ Buka file `.env` dan atur variabel berikut:
 | `EXAMVAN_ADMIN_PASS` | Password super admin (kosongkan untuk generate otomatis) | Tidak |
 | `APP_ENV` | `production` atau `development` | Tidak |
 | `TUNNEL_TOKEN` | Token Cloudflare Tunnel untuk akses internet | Ya |
-| `R2_ACCESS_KEY_ID` | Access Key ID Cloudflare R2 | Tidak |
-| `R2_SECRET_ACCESS_KEY` | Secret Access Key Cloudflare R2 | Tidak |
-| `R2_BUCKET` | Nama bucket R2 (contoh: examvan-pdfs) | Tidak |
-| `R2_ENDPOINT` | Endpoint R2 Cloudflare Anda | Tidak |
+| `R2_ACCESS_KEY_ID` | Access Key ID Cloudflare R2 | Ya |
+| `R2_SECRET_ACCESS_KEY` | Secret Access Key Cloudflare R2 | Ya |
+| `R2_BUCKET` | Nama bucket R2 (contoh: examvan-pdfs) | Ya |
+| `R2_ENDPOINT` | Endpoint R2 Cloudflare Anda | Ya |
 | `EXAMVAN_CORS_ORIGINS` | Origin yang diizinkan (kosongkan untuk allow all) | Tidak |
 
-> **Catatan R2:** Keempat variabel `R2_*` harus diisi **sekaligus** untuk mengaktifkan mode R2 (PDF via Cloudflare edge). Jika semuanya dikosongkan, PDF disimpan di penyimpanan lokal server.
+> **Catatan R2:** Keempat variabel `R2_*` **wajib** diisi — server gagal start (fail-fast) tanpa kredensial R2 lengkap. Semua PDF dan APK disimpan & di-serve via Cloudflare R2; tidak ada penyimpanan lokal.
 
 #### 3. Jalankan Layanan
 ```bash
@@ -199,7 +199,7 @@ Layanan yang berjalan:
 
 #### 4. Persistensi Data
 - **Database:** Volume Docker `postgres_data` untuk PostgreSQL.
-- **File PDF:** Volume Docker `webui_storage` untuk file ujian (saat mode lokal). Jika R2 aktif, PDF tersimpan di bucket Cloudflare R2.
+- **File PDF & APK:** Tersimpan di bucket Cloudflare R2 (tidak ada penyimpanan lokal / volume `webui_storage`).
 
 #### 5. Monitoring
 ```bash
@@ -264,18 +264,31 @@ cd webui
 go test ./...
 ```
 
-> Tes integrasi voucher (`internal/handlers/admin/voucher_lifecycle_integration_test.go`) otomatis **di-skip** bila `TEST_DATABASE_URL` tidak diatur — jadi perintah di atas selalu hijau walau tanpa database.
+> Semua tes integrasi yang memakai `database.NewPackageTestPool` (mis. `internal/handlers/admin/voucher_lifecycle_integration_test.go`) otomatis **di-skip** bila `TEST_DATABASE_URL` tidak diatur — jadi perintah di atas selalu hijau walau tanpa database.
 
 ### 2. Tes Integrasi (membutuhkan PostgreSQL)
 
-Tes integrasi voucher menguji alur lengkap sistem paket/voucher terhadap database nyata:
+Tes integrasi berjalan di atas database nyata. Setiap paket yang butuh akses database memakai **satu pola yang sama**: `database.NewPackageTestPool(t, "<nama_paket>")` (di `webui/internal/database/testdb.go`) — **bukan konstanta skema yang didaftarkan manual**. Fungsi ini:
+
+- **Menurunkan skema isolasi dari nama paket** (`it_<nama_paket>` — mis. `it_admin`, `it_models`), jadi tidak ada daftar konstanta skema yang harus dirawat;
+- **Menerapkan `schema.sql`** dan **me-truncate tabel data** otomatis di skema milik paket tersebut — setiap paket hanya menyentuh skemanya sendiri, sehingga `go test ./...` dapat menjalankan paket-paket secara paralel tanpa saling mengunci (deadlock TRUNCATE) di skema `public` bersama;
+- **Skip (bukan gagal)** bila `TEST_DATABASE_URL` tidak diatur, jadi `go test ./...` polos (tanpa PostgreSQL) tetap hijau;
+- Mendukung `TEST_DATABASE_RESET=1` untuk men-drop dan membuat ulang skema **sekali per proses `go test`** — dipakai saat `schema.sql` berubah bentuk (mis. rename kolom) agar artefak skema lama tidak tersisa.
+
+Contoh di setup test sebuah paket:
+
+```go
+pool := database.NewPackageTestPool(t, "admin")
+```
+
+Pemakaian nyata ada di `internal/handlers/admin/voucher_lifecycle_integration_test.go` (`setupVoucherITDB`) dan `internal/models/authenticate_test.go` (`setupAuthTestDB`). Salah satunya, tes integrasi voucher, menguji alur lengkap sistem paket/voucher terhadap database nyata:
 
 - operator membuat akun → pindah ke voucher guru → akun di-suspend → kembali ke sekolah → akun pulih (dengan clock-freeze);
 - auto-fallback expiry job: paket sekolah habis masa → akun sub di-suspend → auto-aktif ke voucher guru;
 - tanpa voucher cadangan → akun tetap expired dan login tetap terblokir;
 - akun sub yang membeli voucher sendiri tetap ikut ter-suspend saat operator keluar dari paket sekolah, dan paket miliknya sendiri tidak ikut di-pause.
 
-**Cara termudah** — jalankan PostgreSQL 16 sekali pakai via Docker, lalu arahkan `TEST_DATABASE_URL` ke database tersebut (tidak perlu diisi apa pun; tes akan menerapkan skema dan membersihkan tabel data sendiri):
+**Cara termudah** — jalankan PostgreSQL 16 sekali pakai via Docker, lalu arahkan `TEST_DATABASE_URL` ke database tersebut (tidak perlu diisi apa pun; `NewPackageTestPool` yang menerapkan skema dan membersihkan tabel data):
 
 ```bash
 # 1) Jalankan PostgreSQL 16 sekali pakai
@@ -301,6 +314,30 @@ TEST_DATABASE_URL=postgresql://examvan:examvan@localhost:5432/examvan_test \
 ```
 
 > ⚠️ **Penting:** `TEST_DATABASE_URL` harus mengarah ke database **sekali pakai** — saat setup, tes menerapkan `schema.sql` dan me-truncate tabel data. Jangan pernah mengarahkannya ke database produksi.
+
+#### Referensi Variabel Environment Tes
+
+| Variabel | Status | Nilai | Perilaku |
+|----------|--------|-------|----------|
+| `TEST_DATABASE_URL` | Diperlukan untuk tes integrasi | URL koneksi PostgreSQL, mis. `postgresql://examvan:examvan@localhost:5432/examvan_test` | Database tempat `NewPackageTestPool` membuat skema isolasi `it_<paket>`, menerapkan `schema.sql`, dan me-truncate tabel data. **Bila kosong/tidak diatur, semua tes integrasi di-skip** (bukan gagal) — `go test ./...` polos tetap hijau tanpa PostgreSQL. Diatur via environment (bukan `.env`). |
+| `TEST_DATABASE_RESET` | Opsional | `1` atau `true` (case-insensitive) | Mode fresh-start: **men-drop (CASCADE) dan membuat ulang skema `it_<paket>` sekali per proses `go test`** (dijaga `sync.Once` per skema — hanya setup test pertama yang mendapat slate bersih; setup berikutnya tetap TRUNCATE biasa). Dipakai setelah `schema.sql` berubah bentuk (mis. rename kolom) agar objek skema lama tidak tersisa. Tanpa variabel ini, skema dipertahankan antar-run — aman, karena `schema.sql` idempotent dan tiap test me-truncate tabel datanya sendiri. |
+
+Contoh — reset skema (sekali) lalu jalankan seluruh suite termasuk integrasi:
+
+```bash
+cd webui
+TEST_DATABASE_URL=postgresql://examvan:examvan@localhost:5432/examvan_test \
+TEST_DATABASE_RESET=1 \
+  go test ./...
+```
+
+Verifikasi bahwa tes integrasi benar-benar jalan (bukan di-skip) — output verbose akan menampilkan `=== RUN` (bukan `SKIP`):
+
+```bash
+cd webui
+TEST_DATABASE_URL=postgresql://examvan:examvan@localhost:5432/examvan_test \
+  go test ./internal/models/ -run TestAuthenticateUser -v
+```
 
 ### 3. CI (GitHub Actions)
 

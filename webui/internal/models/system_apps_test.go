@@ -56,3 +56,79 @@ func TestBestAndroidAppVersion(t *testing.T) {
 		t.Errorf("padding equality broken: CompareVersions(2.4, 2.4.0) = %d, want 0", got)
 	}
 }
+
+func TestEffectiveAndroidRequiredVersionFrom(t *testing.T) {
+	cases := []struct {
+		name       string
+		configured string
+		apps       []SystemApp
+		want       string
+	}{
+		// Nothing published → nothing to enforce (no deadlock: an outdated
+		// client would be blocked with 426 but have no APK to download).
+		{"no apps", "2.2.0", nil, ""},
+		{"empty apps list", "2.2.0", []SystemApp{}, ""},
+		{"only non-android apps", "2.2.0", []SystemApp{
+			{Platform: "windows", Version: "9.9.9"},
+			{Platform: "linux", Version: "1.0.0"},
+		}, ""},
+
+		// Configured is empty → the available APK becomes the requirement.
+		{"configured empty falls back to available", "", []SystemApp{
+			{Platform: "android", Version: "2.4.0"},
+		}, "2.4.0"},
+
+		// Configured higher than available → clamped to available (an admin who
+		// raises android_version before uploading the APK must not lock clients
+		// out beyond what is downloadable).
+		{"configured above available clamps down", "2.5.0", []SystemApp{
+			{Platform: "android", Version: "2.4.0"},
+		}, "2.4.0"},
+		{"configured far above available clamps down", "10.0.0", []SystemApp{
+			{Platform: "android", Version: "2.4.0"},
+		}, "2.4.0"},
+
+		// Configured lower than available → the (stricter) configured minimum
+		// wins; clients between configured and available still pass.
+		{"configured below available is kept", "2.2.0", []SystemApp{
+			{Platform: "android", Version: "2.4.0"},
+		}, "2.2.0"},
+
+		// Configured equal to the highest available → kept as-is.
+		{"configured equals available", "2.4.0", []SystemApp{
+			{Platform: "android", Version: "2.4.0"},
+		}, "2.4.0"},
+
+		// Highest-version Android entry wins the clamp target; non-android
+		// entries and lower Android versions are ignored.
+		{"highest available wins when configured above all", "2.10.0", []SystemApp{
+			{Platform: "android", Version: "2.4.0"},
+			{Platform: "android", Version: "2.10.0"},
+			{Platform: "windows", Version: "9.9.9"},
+		}, "2.10.0"},
+		{"highest available wins when configured empty", "", []SystemApp{
+			{Platform: "android", Version: "2.4.0"},
+			{Platform: "android", Version: "2.4.5"},
+		}, "2.4.5"},
+
+		// Version padding: "2.4" == "2.4.0", so a configured "2.4" is NOT
+		// above the available "2.4.0" and is kept (not clamped).
+		{"configured partial equals available", "2.4", []SystemApp{
+			{Platform: "android", Version: "2.4.0"},
+		}, "2.4"},
+
+		// Non-numeric configured segment parses as 0, so it is never above the
+		// available version and is kept as the requirement.
+		{"configured x segment is not clamped", "2.x", []SystemApp{
+			{Platform: "android", Version: "2.4.0"},
+		}, "2.x"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := EffectiveAndroidRequiredVersionFrom(tc.configured, tc.apps); got != tc.want {
+				t.Errorf("EffectiveAndroidRequiredVersionFrom(%q, %+v) = %q, want %q",
+					tc.configured, tc.apps, got, tc.want)
+			}
+		})
+	}
+}

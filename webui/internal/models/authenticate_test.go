@@ -3,8 +3,6 @@ package models
 import (
 	"context"
 	"fmt"
-	"os"
-	"strings"
 	"testing"
 	"time"
 
@@ -21,39 +19,15 @@ import (
 // the FeatureLockRequired middleware, not by AuthenticateUser.
 // ---------------------------------------------------------------------------
 
-// setupAuthTestDB connects to the dedicated test database named by
-// TEST_DATABASE_URL, applies the schema, and wipes the data tables so the
-// tests are repeatable. Skips (not fails) when TEST_DATABASE_URL is unset.
+// setupAuthTestDB returns a pool for this package's DB-backed tests, scoped to
+// the package's own PostgreSQL schema ("it_models" — derived from the package
+// name by database.NewPackageTestPool), so `go test ./...` can run this
+// package and internal/handlers/admin in parallel: each package TRUNCATEs
+// only the tables in its own schema, so no AccessExclusiveLock is ever
+// shared. Skips (not fails) when TEST_DATABASE_URL is unset.
 func setupAuthTestDB(t *testing.T) *pgxpool.Pool {
 	t.Helper()
-	dbURL := strings.TrimSpace(os.Getenv("TEST_DATABASE_URL"))
-	if dbURL == "" {
-		t.Skip("TEST_DATABASE_URL is not set; skipping integration test. " +
-			"Run: TEST_DATABASE_URL=postgresql://user:pass@localhost:5432/examvan_test " +
-			"go test ./internal/models/ -run TestAuthenticateUser -v")
-	}
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-	defer cancel()
-
-	pool, err := pgxpool.New(ctx, dbURL)
-	if err != nil {
-		t.Fatalf("connect test database: %v", err)
-	}
-	t.Cleanup(pool.Close)
-	if err := pool.Ping(ctx); err != nil {
-		t.Fatalf("ping test database: %v", err)
-	}
-	if err := database.ApplySchema(ctx, pool); err != nil {
-		t.Fatalf("apply schema: %v", err)
-	}
-	// Wipe only the data tables. CASCADE covers referencing tables.
-	if _, err := pool.Exec(ctx, `
-		TRUNCATE instansi, admin_users, exams, exam_pengawas, submissions,
-		         student_access_logs, exam_approvals, vouchers, voucher_redemptions
-		RESTART IDENTITY CASCADE`); err != nil {
-		t.Fatalf("truncate data tables: %v", err)
-	}
-	return pool
+	return database.NewPackageTestPool(t, "models")
 }
 
 // createAuthTestUser inserts an active guru account with the given expiry

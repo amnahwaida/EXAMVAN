@@ -73,14 +73,13 @@ func Load() *Config {
 	}
 
 	// Cloudflare R2 configuration validation.
-	// R2 is optional: when fully configured, PDFs are offloaded to R2; otherwise
-	// the server serves PDFs from local storage (main.go handles both paths).
-	// A partially-configured R2 (only some vars set) fails fast, because that is
-	// always a misconfiguration.
-	r2Set := cfg.R2AccessKey != "" || cfg.R2SecretKey != "" || cfg.R2Endpoint != ""
+	// R2 is MANDATORY: PDF upload/serving and APK distribution all go through
+	// Cloudflare R2 — the handlers have no local-storage fallback. Missing or
+	// partial configuration fails fast at startup instead of surfacing 500s at
+	// runtime.
 	r2Complete := cfg.R2AccessKey != "" && cfg.R2SecretKey != "" && cfg.R2Endpoint != ""
-	if r2Set && !r2Complete {
-		log.Fatalf("Cloudflare R2 configuration is incomplete: R2_ACCESS_KEY_ID, R2_SECRET_ACCESS_KEY, and R2_ENDPOINT must all be set together, or all left empty to use local storage.")
+	if !r2Complete {
+		log.Fatalf("Cloudflare R2 configuration is required: R2_ACCESS_KEY_ID, R2_SECRET_ACCESS_KEY, and R2_ENDPOINT must all be set.")
 	}
 
 	if len(cfg.SecretKey) < 32 {

@@ -8,7 +8,6 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5"
-	"github.com/jackc/pgx/v5/pgconn"
 
 	"github.com/examvan/webui/internal/models"
 )
@@ -197,29 +196,9 @@ func syncInstansiWithOperatorRole(ctx context.Context, tx pgx.Tx, userID int, pr
 		return tombstoneUnstartedInstansiExams(ctx, tx, instansi, true)
 	default: // restore
 		// Operator role is present: restore accounts that were cascade-suspended
-		// when the operator last left the school package (clock freeze applies).
-		if _, err := tx.Exec(ctx, `
-			UPDATE admin_users u
-			SET status = 'active',
-			    suspended_by_cascade = FALSE,
-			    suspended_at = NULL,
-			    expires_at = CASE
-			        WHEN u.suspended_at IS NOT NULL AND u.expires_at IS NOT NULL AND u.suspended_at < now()
-			            THEN u.expires_at + (now() - u.suspended_at)
-			        ELSE u.expires_at
-			    END
-			WHERE u.instansi = $1 AND u.suspended_by_cascade = TRUE AND u.id <> $2`, instansi, userID); err != nil {
-			return err
-		}
-		// Realign restored accounts' active package clocks with their (frozen)
-		// expiry, mirroring the admin restore cascade in users.go.
-		if _, err := tx.Exec(ctx, `
-			UPDATE voucher_redemptions vr
-			SET remaining_seconds = GREATEST(EXTRACT(EPOCH FROM (u.expires_at - now()))::bigint, 0),
-			    activated_at = now()
-			FROM admin_users u
-			WHERE vr.user_id = u.id AND vr.is_active AND u.expires_at IS NOT NULL
-			  AND u.instansi = $1 AND u.id <> $2`, instansi, userID); err != nil {
+		// when the operator last left the school package (clock freeze applies)
+		// and realign their active package clocks with the frozen expiry.
+		if err := models.RestoreCascadeSuspendedInstansi(ctx, tx, instansi, userID); err != nil {
 			return err
 		}
 		// Sub-accounts that do not run their own active package follow the
@@ -240,14 +219,6 @@ func syncInstansiWithOperatorRole(ctx context.Context, tx pgx.Tx, userID int, pr
 	}
 }
 
-// executor abstracts a statement runner with the pgx Exec signature so
-// tombstoneUnstartedInstansiExams works both inside the redemption
-// transaction (pgx.Tx) and in the standalone toggle-status handler
-// (*pgxpool.Pool).
-type executor interface {
-	Exec(ctx context.Context, sql string, args ...any) (pgconn.CommandTag, error)
-}
-
 // tombstoneUnstartedInstansiExams (policy B) sets every exam in the instansi
 // that is active but has never been started (exam_started_at IS NULL) to
 // inactive — the school's unpublished exams go dormant when the school's
@@ -261,7 +232,7 @@ type executor interface {
 // school voucher) remain valid operators, so their exams are spared; when
 // false (a manual operator suspension freezes the whole school), every
 // account in the instansi is covered.
-func tombstoneUnstartedInstansiExams(ctx context.Context, exec executor, instansi string, spareOperatorRoleCreators bool) error {
+func tombstoneUnstartedInstansiExams(ctx context.Context, exec models.Executor, instansi string, spareOperatorRoleCreators bool) error {
 	creatorFilter := `TRUE`
 	if spareOperatorRoleCreators {
 		creatorFilter = `NOT (role ILIKE '%"operator"%')`

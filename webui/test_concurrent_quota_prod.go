@@ -1,18 +1,25 @@
 //go:build ignore
 // +build ignore
 
-// test_concurrent_quota.go — E2E test for the "ujian serentak" quota fix.
+// test_concurrent_quota_prod.go — E2E smoke test of the "ujian serentak" quota
+// fix against the PRODUCTION stack (nginx :80 → Docker webui-server, cookie
+// Secure active, Redis rate limiting active).
 //
-// Run with the native server (new code) listening on :5001:
+// The plain test (test_concurrent_quota.go) targets a local native dev server
+// on :5001 with APP_ENV=development (cookie not Secure, no Redis). Production
+// differs in two ways this copy simulates:
 //
-//	go run test_concurrent_quota.go
+//  1. nginx :80 rejects cleartext (301 → https) unless the request carries
+//     X-Forwarded-Proto: https (which Cloudflare Tunnel sets). The transport
+//     below adds that header, mimicking a request that arrived via the tunnel.
+//  2. The session cookie is Secure=true (APP_ENV=production), so Go's standard
+//     cookiejar would refuse to send it back over plain http://. The custom
+//     jar below accepts Secure cookies, mimicking a browser on https.
 //
-// Point BASE_URL elsewhere when the server runs on another host/port (e.g.
-// BASE_URL=http://localhost:8080 go run test_concurrent_quota.go).
+// Run from webui/ against the running Docker stack:
 //
-// It creates two throwaway users + exams in the local DB, drives the real
-// admin HTTP API (login + CSRF), asserts the enforcement behaviour, then
-// cleans everything up.
+//	DATABASE_URL=postgresql://examvan:examvan2026@172.18.0.2:5432/examvan \
+//	  go run test_concurrent_quota_prod.go
 
 package main
 
@@ -24,29 +31,19 @@ import (
 	"io"
 	"mime/multipart"
 	"net/http"
-	"net/http/cookiejar"
 	"net/url"
 	"os"
 	"regexp"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 	"golang.org/x/crypto/bcrypt"
 )
 
-// baseURL is overridable via the BASE_URL env var; it defaults to the native
-// dev server on :5001. Kept as a package var so login/apiPost can read it
-// without threading the value through every call.
-var baseURL = "http://localhost:5001"
-
-func init() {
-	if v := strings.TrimSpace(os.Getenv("BASE_URL")); v != "" {
-		baseURL = v
-	}
-}
-
 const (
+	baseURL         = "http://localhost:80"
 	usernameA       = "quota_test_guru"
 	usernameB       = "quota_test_upload"
 	passA           = "TestPassA123!"
@@ -275,12 +272,60 @@ func truncate(s string, n int) string {
 	return s
 }
 
-func newClient() (*http.Client, error) {
-	jar, err := cookiejar.New(nil)
-	if err != nil {
-		return nil, err
+// tunnelTransport mimics a Cloudflare Tunnel hop: nginx redirects cleartext
+// (301 → https) unless X-Forwarded-Proto: https is present, so the header is
+// added on every request exactly as cloudflared would.
+type tunnelTransport struct{}
+
+func (tunnelTransport) RoundTrip(req *http.Request) (*http.Response, error) {
+	req.Header.Set("X-Forwarded-Proto", "https")
+	req.Header.Set("X-Forwarded-Host", req.Host)
+	return http.DefaultTransport.RoundTrip(req)
+}
+
+// securePermissiveJar stores cookies including Secure ones. Go's standard
+// cookiejar drops Secure cookies over http:// URLs; a real browser on https
+// would keep them, so the jar below accepts them to mimic that.
+type securePermissiveJar struct {
+	mu      sync.Mutex
+	cookies map[string]*http.Cookie // key: host+name
+}
+
+func newSecurePermissiveJar() *securePermissiveJar {
+	return &securePermissiveJar{cookies: map[string]*http.Cookie{}}
+}
+
+func (j *securePermissiveJar) SetCookies(u *url.URL, cookies []*http.Cookie) {
+	j.mu.Lock()
+	defer j.mu.Unlock()
+	for _, c := range cookies {
+		if c.MaxAge < 0 {
+			delete(j.cookies, u.Host+c.Name)
+			continue
+		}
+		cp := *c
+		j.cookies[u.Host+cp.Name] = &cp
 	}
-	client := &http.Client{Jar: jar, Timeout: 90 * time.Second}
+}
+
+func (j *securePermissiveJar) Cookies(u *url.URL) []*http.Cookie {
+	j.mu.Lock()
+	defer j.mu.Unlock()
+	var out []*http.Cookie
+	for k, c := range j.cookies {
+		if strings.HasPrefix(k, u.Host) {
+			out = append(out, c)
+		}
+	}
+	return out
+}
+
+func newClient() (*http.Client, error) {
+	client := &http.Client{
+		Jar:       newSecurePermissiveJar(),
+		Timeout:   90 * time.Second,
+		Transport: tunnelTransport{},
+	}
 	// Do NOT follow redirects: for admin routes a 302 means "not authenticated",
 	// and following it would turn every auth failure into a 200 login page.
 	client.CheckRedirect = func(req *http.Request, via []*http.Request) error {
@@ -396,20 +441,6 @@ func apiPost(client *http.Client, csrf, path string, body io.Reader, contentType
 	b, _ := io.ReadAll(resp.Body)
 	resp.Body.Close()
 	return resp.StatusCode, string(b)
-}
-
-func uploadPDF(client *http.Client, csrf, name string) (int, string) {
-	for attempt := 1; attempt <= 3; attempt++ {
-		status, body := uploadPDFOnce(client, csrf, name)
-		// R2 occasionally throttles parallel PUTs (infra, unrelated to the quota
-		// fix); retry so the quota path — not R2 — decides the outcome.
-		if status == 500 && strings.Contains(body, "Cloudflare R2") {
-			time.Sleep(400 * time.Millisecond)
-			continue
-		}
-		return status, body
-	}
-	return 500, "R2 upload flaky after 3 attempts"
 }
 
 func uploadPDFOnce(client *http.Client, csrf, name string) (int, string) {

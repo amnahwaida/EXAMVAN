@@ -136,19 +136,14 @@ func main() {
 	}
 
 	// -----------------------------------------------------------------------
-	// 4b. Init Cloudflare R2 client (optional — for PDF offloading)
+	// 4b. Init Cloudflare R2 client (mandatory — PDF upload/download/serving
+	// all go through R2; config.Load() already required the credentials).
 	// -----------------------------------------------------------------------
-	var r2 *r2client.Client
-	if cfg.R2AccessKey != "" && cfg.R2SecretKey != "" && cfg.R2Endpoint != "" {
-		r2 = r2client.NewClient(cfg.R2AccessKey, cfg.R2SecretKey, cfg.R2Endpoint, cfg.R2Bucket)
-		if r2 != nil && r2.Enabled() {
-			log.Println("Cloudflare R2: ready — PDF upload/download via R2")
-		} else {
-			log.Println("Cloudflare R2: init failed — PDF will be served locally")
-		}
-	} else {
-		log.Println("Cloudflare R2: not configured — PDF will be served from local storage")
+	r2 := r2client.NewClient(cfg.R2AccessKey, cfg.R2SecretKey, cfg.R2Endpoint, cfg.R2Bucket)
+	if r2 == nil || !r2.Enabled() {
+		log.Fatalf("Cloudflare R2 initialization failed — R2 is mandatory for PDF upload/download/serving.")
 	}
+	log.Println("Cloudflare R2: ready — PDF upload/download via R2")
 
 	// -----------------------------------------------------------------------
 	// 4c. Package-expiry reconciliation job: pauses an exhausted active
@@ -315,10 +310,8 @@ func main() {
 	if rdb != nil {
 		r.Use(func(c *gin.Context) { c.Set("redis", rdb); c.Next() })
 	}
-	// Inject R2 client when available.
-	if r2 != nil && r2.Enabled() {
-		r.Use(func(c *gin.Context) { c.Set("r2", r2); c.Next() })
-	}
+	// Inject R2 client (always present — R2 is mandatory).
+	r.Use(func(c *gin.Context) { c.Set("r2", r2); c.Next() })
 
 	// -----------------------------------------------------------------------
 	// -----------------------------------------------------------------------

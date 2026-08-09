@@ -63,10 +63,10 @@ services:
       - STORAGE_PATH=/app/storage
       - TZ=UTC
       - APP_ENV=${APP_ENV:-production}
-      - R2_ACCESS_KEY_ID=${R2_ACCESS_KEY_ID:-}
-      - R2_SECRET_ACCESS_KEY=${R2_SECRET_ACCESS_KEY:-}
+      - R2_ACCESS_KEY_ID=${R2_ACCESS_KEY_ID:?ERR:R2_ACCESS_KEY_ID not set (R2 is mandatory)}
+      - R2_SECRET_ACCESS_KEY=${R2_SECRET_ACCESS_KEY:?ERR:R2_SECRET_ACCESS_KEY not set (R2 is mandatory)}
       - R2_BUCKET=${R2_BUCKET:-examvan-pdfs}
-      - R2_ENDPOINT=${R2_ENDPOINT:-}
+      - R2_ENDPOINT=${R2_ENDPOINT:?ERR:R2_ENDPOINT not set (R2 is mandatory)}
       - DATABASE_MAX_CONNS=${DATABASE_MAX_CONNS:-100}
       - DOKU_CLIENT_ID=${DOKU_CLIENT_ID:-}
       - DOKU_SECRET_KEY=${DOKU_SECRET_KEY:-}

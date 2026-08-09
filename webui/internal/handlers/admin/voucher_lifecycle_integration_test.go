@@ -9,7 +9,6 @@ import (
 	"net/http/cookiejar"
 	"net/http/httptest"
 	"net/url"
-	"os"
 	"strconv"
 	"strings"
 	"testing"
@@ -30,41 +29,15 @@ import (
 // database is selected: TEST_DATABASE_URL, skipped when unset).
 // ---------------------------------------------------------------------------
 
-// setupVoucherITDB connects to the dedicated test database named by
-// TEST_DATABASE_URL, applies the schema, and wipes the data tables so the test
-// is repeatable. Skips (not fails) when TEST_DATABASE_URL is unset.
+// setupVoucherITDB returns a pool for this package's DB-backed tests, scoped
+// to the package's own PostgreSQL schema ("it_admin" — derived from the
+// package name by database.NewPackageTestPool), so `go test ./...` can run
+// this package and internal/models in parallel: each package TRUNCATEs only
+// the tables in its own schema, so no AccessExclusiveLock is ever shared.
+// Skips (not fails) when TEST_DATABASE_URL is unset.
 func setupVoucherITDB(t *testing.T) *pgxpool.Pool {
 	t.Helper()
-	dbURL := strings.TrimSpace(os.Getenv("TEST_DATABASE_URL"))
-	if dbURL == "" {
-		t.Skip("TEST_DATABASE_URL is not set; skipping integration test. " +
-			"Run: TEST_DATABASE_URL=postgresql://user:pass@localhost:5432/examvan_test " +
-			"go test ./internal/handlers/admin/ -run TestVoucherLifecycle -v")
-	}
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-	defer cancel()
-
-	pool, err := pgxpool.New(ctx, dbURL)
-	if err != nil {
-		t.Fatalf("connect test database: %v", err)
-	}
-	t.Cleanup(pool.Close)
-	if err := pool.Ping(ctx); err != nil {
-		t.Fatalf("ping test database: %v", err)
-	}
-	if err := database.ApplySchema(ctx, pool); err != nil {
-		t.Fatalf("apply schema: %v", err)
-	}
-	// Wipe only the data tables. The seeded package_settings (and any
-	// saas_settings rows) must survive — the redeem flow and the quota
-	// snapshot depend on them. CASCADE covers referencing tables.
-	if _, err := pool.Exec(ctx, `
-		TRUNCATE instansi, admin_users, exams, exam_pengawas, submissions,
-		         student_access_logs, exam_approvals, vouchers, voucher_redemptions
-		RESTART IDENTITY CASCADE`); err != nil {
-		t.Fatalf("truncate data tables: %v", err)
-	}
-	return pool
+	return database.NewPackageTestPool(t, "admin")
 }
 
 // createTestVoucher helpers build the voucher rows the tests share: a sekolah
@@ -211,6 +184,10 @@ func newVoucherTestRouter(pool *pgxpool.Pool) *gin.Engine {
 	billingAPI.GET("/billing-ping", func(c *gin.Context) {
 		c.JSON(http.StatusOK, gin.H{"success": true})
 	})
+	// The real billing display endpoint: the active package's "Sisa Masa
+	// Aktif" badge is rendered from this response, so the freeze-clock
+	// display test drives it directly (not just the billing-ping probe).
+	billingAPI.GET("/vouchers/mine", ListMyRedemptionsHandler())
 
 	// Feature-gated endpoints: mirror production wiring (AuthRequired →
 	// FeatureLockRequired → AdminManagementRequired).
@@ -219,6 +196,8 @@ func newVoucherTestRouter(pool *pgxpool.Pool) *gin.Engine {
 	api.Use(middleware.FeatureLockRequired())
 	api.POST("/users", middleware.AdminManagementRequired(), CreateUser())
 	api.POST("/users/:user_id/toggle-status", middleware.AdminManagementRequired(), ToggleUserStatus())
+	api.POST("/users/:user_id/edit", middleware.AdminManagementRequired(), EditUser())
+	api.POST("/users/:user_id/verify", middleware.AdminManagementRequired(), VerifyUser())
 	// AuthRequired/FeatureLockRequired probe: a protected GET that answers 200
 	// only when a valid, non-locked session passes both middlewares — used to
 	// observe per-request status and feature-lock enforcement without depending
@@ -344,9 +323,209 @@ func subFlags(t *testing.T, pool *pgxpool.Pool, id int) (status string, cascade 
 	return status, cascade, suspendedAt
 }
 
+// pinSuspendedState deterministically suspends an account with the given clock
+// (Go clock, stored verbatim — the freeze arithmetic now.Sub(suspended_at)
+// then runs on a single clock, immune to host/container skew): status
+// 'suspended', optionally the cascade marker (a real cascade suspension sets
+// suspended_by_cascade=TRUE, which the verify tests deliberately simulate),
+// suspended_at and expires_at as passed. The expiry is preserved as-is, so a
+// caller passes a future value for a FreezeClock test or a past one for a
+// RenewExpiry test.
+func pinSuspendedState(t *testing.T, pool *pgxpool.Pool, id int, cascade bool, suspendedAt, expiresAt time.Time) {
+	t.Helper()
+	cascadeSQL := "FALSE"
+	if cascade {
+		cascadeSQL = "TRUE"
+	}
+	if _, err := pool.Exec(context.Background(), `
+		UPDATE admin_users
+		SET status = 'suspended', suspended_by_cascade = `+cascadeSQL+`,
+		    suspended_at = $2, expires_at = $3
+		WHERE id = $1`, id, suspendedAt, expiresAt); err != nil {
+		t.Fatalf("pin suspended state for user %d: %v", id, err)
+	}
+}
+
+// pinSuspendedClock pins only the suspension clock of an ALREADY-suspended
+// account (sub-account of a cascade: status and suspended_by_cascade stay as
+// the cascade left them, only the stamps are made deterministic). Same Go-clock
+// semantics as pinSuspendedState.
+func pinSuspendedClock(t *testing.T, pool *pgxpool.Pool, id int, suspendedAt, expiresAt time.Time) {
+	t.Helper()
+	if _, err := pool.Exec(context.Background(), `
+		UPDATE admin_users
+		SET suspended_at = $2,
+		    expires_at = $3
+		WHERE id = $1`, id, suspendedAt, expiresAt); err != nil {
+		t.Fatalf("pin suspension clock for user %d: %v", id, err)
+	}
+}
+
 func approxEqual(a, b time.Time, tol time.Duration) bool {
 	d := a.Sub(b)
 	return d >= -tol && d <= tol
+}
+
+// assertFrozenExpiryDelta verifies the freeze-clock expiry arithmetic shared
+// by every freeze test (with or without a redemption): expires_at must move
+// forward by ~the pinned suspension duration (2h). A symmetric tolerance
+// absorbs the sub-second gap between the deterministic pin and the
+// reactivation (both on the Go clock).
+func assertFrozenExpiryDelta(t *testing.T, label string, expiresBefore, expiresAfter time.Time) {
+	t.Helper()
+	const tol = 30 * time.Second
+	if delta := expiresAfter.Sub(expiresBefore); delta < 2*time.Hour-tol || delta > 2*time.Hour+tol {
+		t.Errorf("%s: expires_at extended by %v, want ~%v (the suspension duration)", label, delta, 2*time.Hour)
+	}
+}
+
+// assertFrozenRedemptionSync verifies the freeze-clock redemption realignment
+// shared by every reactivation path (toggle single-user, toggle cascade
+// restore, EditUser form, voucher-switch restore): the account expiry moved
+// forward by the pinned suspension duration (~2h, see assertFrozenExpiryDelta),
+// and the ACTIVE package's clock followed it — the stored remaining_seconds
+// equals (new expires_at − activated_at) written by the shared sync statement
+// (a DB-internal exact invariant: Postgres computes EXTRACT(EPOCH) as float8
+// and the float8→bigint cast rounds to nearest, so [floor, floor+1] is
+// allowed), the stored remaining gained back the suspension period, and
+// activated_at restarted.
+func assertFrozenRedemptionSync(t *testing.T, label string, expiresBefore time.Time, remainingBefore int64, activatedBefore time.Time, expiresAfter *time.Time, remainingAfter int64, activatedAfter time.Time) {
+	t.Helper()
+	if expiresAfter == nil {
+		t.Fatalf("%s: expires_at = nil after freeze reactivation", label)
+	}
+	assertFrozenExpiryDelta(t, label, expiresBefore, *expiresAfter)
+	want := int64(expiresAfter.Sub(activatedAfter) / time.Second)
+	if remainingAfter < want || remainingAfter > want+1 {
+		t.Errorf("%s: remaining_seconds after freeze = %d, want %d or %d (= new expires_at − activated_at: the frozen remaining)",
+			label, remainingAfter, want, want+1)
+	}
+	if remainingAfter <= remainingBefore {
+		t.Errorf("%s: remaining_seconds %d -> %d after freeze reactivation, want increased (suspension duration added back)",
+			label, remainingBefore, remainingAfter)
+	}
+	if !activatedAfter.After(activatedBefore) {
+		t.Errorf("%s: activated_at = %v, want reset after the pre-reactivation %v (clock restarted)",
+			label, activatedAfter, activatedBefore)
+	}
+}
+
+// billingDisplayItem is one redemption item of the /admin/api/vouchers/mine
+// payload. The billing display tests decode the response directly into this
+// type (it carries the JSON tags), so the shared display helper asserts on the
+// exact same type the tests parse.
+type billingDisplayItem struct {
+	ID               int    `json:"id"`
+	Package          string `json:"package"`
+	RemainingSeconds int64  `json:"remaining_seconds"`
+	IsActive         bool   `json:"is_active"`
+	IsExpired        bool   `json:"is_expired"`
+	IsUnlimited      bool   `json:"is_unlimited"`
+}
+
+// assertBillingDisplay locks in the shared billing-display core used by every
+// freeze/renewal display test: given the payload's ACTIVE package item, the
+// account's (authoritative) expires_at the display is derived from, the
+// realigned stored remaining_seconds, and the redemption's expected identity
+// (wantID/wantPackage — read straight from the DB by the caller), it asserts
+// the item is rendered as an active, finite package (not expired, not
+// unlimited) that IS the expected redemption (id/package match — billing.html
+// keys on id, labels on package), and that the displayed remaining_seconds (a)
+// matches expires_at − now on the Go clock (±60s — only the sub-second
+// request-to-read gap) and (b) agrees with the realigned stored clock (±120s —
+// the stored value was written by the DB's now() while the display uses the Go
+// clock, so any host/container skew shifts the cross-check by that amount).
+// The failure difference that matters — a missing freeze, a skipped sync, a
+// stale display, a wrong redemption — is far beyond both tolerances. Returns
+// the item so the caller adds its context-specific sanity bound (frozen > 30d,
+// renewed ≈ 1d) on top.
+func assertBillingDisplay(t *testing.T, label, why string, got time.Time, storedRemaining int64, wantID int, wantPackage string, item billingDisplayItem) billingDisplayItem {
+	t.Helper()
+	if item.IsExpired {
+		t.Errorf("%s: active package rendered as expired, want active (%s)", label, why)
+	}
+	if item.IsUnlimited {
+		t.Errorf("%s: active package rendered as unlimited, want finite remaining", label)
+	}
+
+	// The display must show the post-reactivation remaining (computed from the
+	// authoritative expires_at at request time): the sub-second request-to-read
+	// gap is absorbed by the tolerance — the difference that matters, a
+	// missing freeze/renewal or a stale display, is far beyond it.
+	now := time.Now().UTC()
+	want := int64(got.Sub(now) / time.Second)
+	const tolGo = 60 // both sides on the Go clock: only the request-to-read gap
+	if d := item.RemainingSeconds - want; d < -tolGo || d > tolGo {
+		t.Errorf("%s: display remaining_seconds=%d, want ≈ %d (expires_at − now); gap=%d",
+			label, item.RemainingSeconds, want, d)
+	}
+
+	// The displayed value must agree with the realigned stored clock: both
+	// derive from the same account expiry, so a display that contradicts the
+	// stored remaining_seconds (or a sync that was skipped, leaving the stored
+	// clock at the stale pre-reactivation value) fails by the whole delta. The
+	// tolerance is looser than the Go-only check because the stored value was
+	// written by the DB's now() while the display uses the Go clock (the same
+	// ±120s absorption as the sibling cascade test).
+	const tolDB = 120
+	if d := item.RemainingSeconds - storedRemaining; d < -tolDB || d > tolDB {
+		t.Errorf("%s: display remaining_seconds=%d vs realigned stored=%d, want within ±%ds (same account clock)",
+			label, item.RemainingSeconds, storedRemaining, tolDB)
+	}
+
+	// The rendered item must be the SAME redemption the display derives from:
+	// its identity fields (billing.html keys on id, labels on package) must
+	// match the expected redemption read from the DB — not just the remaining
+	// lifetime.
+	if item.ID != wantID {
+		t.Errorf("%s: display redemption id=%d, want %d (the active redemption)", label, item.ID, wantID)
+	}
+	if item.Package != wantPackage {
+		t.Errorf("%s: display package=%q, want %q (the active redemption's package key)", label, item.Package, wantPackage)
+	}
+	return item
+}
+
+// billingDisplayPayload is the decoded response of GET /admin/api/vouchers/mine
+// (the endpoint that backs billing.html's "Paket Aktif" / "Sisa Masa Aktif").
+type billingDisplayPayload struct {
+	Success     bool                 `json:"success"`
+	Redemptions []billingDisplayItem `json:"redemptions"`
+}
+
+// fetchBillingDisplay drives the real billing display endpoint as the
+// currently-logged-in user and decodes the response exactly as billing.html
+// would render it. Returns the payload and the index of the ACTIVE package
+// item (failing the test when there is none). The caller then asserts on the
+// item (e.g. via assertBillingDisplay) plus its context-specific sanity bound.
+func fetchBillingDisplay(t *testing.T, tc *voucherTestClient) (billingDisplayPayload, int) {
+	t.Helper()
+	resp, err := tc.client.Get(tc.srv.URL + "/api/vouchers/mine")
+	if err != nil {
+		t.Fatalf("GET /api/vouchers/mine: %v", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("GET /api/vouchers/mine: status=%d", resp.StatusCode)
+	}
+	var payload billingDisplayPayload
+	if err := json.NewDecoder(resp.Body).Decode(&payload); err != nil {
+		t.Fatalf("decode /api/vouchers/mine: %v", err)
+	}
+	if !payload.Success {
+		t.Fatal("payload success=false")
+	}
+	activeIdx := -1
+	for i := range payload.Redemptions {
+		if payload.Redemptions[i].IsActive {
+			activeIdx = i
+			break
+		}
+	}
+	if activeIdx == -1 {
+		t.Fatal("no active package in the billing display")
+	}
+	return payload, activeIdx
 }
 
 // ---------------------------------------------------------------------------
@@ -729,6 +908,137 @@ func TestVoucherExpiryNoFallbackStaysExpired(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
+// Test 3b: unlimited account (admin cleared expiry) with an active package
+// ---------------------------------------------------------------------------
+
+// TestUnlimitedAccountExpiredPackageDoesNotRelimit covers the admin clearing a
+// user's expiry via the edit form (expires_at = "" → NULL = unlimited) while
+// an ACTIVE package is still running. There is nothing to realign the package
+// clock to (no expiry), so the clock simply must not re-limit the account
+// later: when the active package's lifetime runs out, the expiry job pauses it
+// WITHOUT the auto-fallback — otherwise applyRedemptionEntitlement would
+// rewrite expires_at to a concrete value (silently undoing the admin's
+// "unlimited" intent) and, since a guru fallback grants no operator role,
+// cascade-suspend the school's sub-accounts.
+func TestUnlimitedAccountExpiredPackageDoesNotRelimit(t *testing.T) {
+	pool := setupVoucherITDB(t)
+	ctx := context.Background()
+
+	createSchoolVoucher(t, pool)
+	createGuruVoucher(t, pool) // the claimed-but-paused fallback that must NOT auto-activate
+	op := createOperatorUser(t, pool, "op-unl", "SMK Unlimited", "pass-op-unl")
+
+	tc := newVoucherTestClient(t, pool)
+	tc.login(t, op.ID)
+	tc.redeem(t, "IT-GURU")    // claimed first → becomes the paused fallback
+	tc.redeem(t, "IT-SEKOLAH") // active, grants the operator role
+	op = mustGetUser(t, pool, "op-unl")
+	if !models.HasRole(op.Role, models.RoleOperator) {
+		t.Fatalf("op must hold the operator role after redeeming the school voucher")
+	}
+	// One sub-account: if the fallback were auto-activated (guru grants no
+	// operator role), syncInstansiWithOperatorRole would cascade-suspend it.
+	if status, resp := tc.createUser(t, "guru1"); status != http.StatusOK || !resp.Success {
+		t.Fatalf("create guru1: status=%d resp=%+v", status, resp)
+	}
+
+	// A superadmin clears the operator's expiry via the edit form — the exact
+	// EditUser path under investigation (expires_at = "" → NULL).
+	root, err := models.CreateUser(ctx, pool, &models.AdminUser{
+		Username: "rootadmin-unl", Name: "Root Unl",
+		PasswordHash: "pass-root-unl", Status: models.UserStatusActive,
+		Role: models.SerializeRoles([]string{models.RoleSuperAdmin}),
+	})
+	if err != nil {
+		t.Fatalf("create superadmin: %v", err)
+	}
+	tc.login(t, root.ID)
+	if status, resp := postJSON(t, tc.client, tc.srv, "/api/users/"+strconv.Itoa(op.ID)+"/edit",
+		map[string]interface{}{"expires_at": ""}); status != http.StatusOK || !resp.Success {
+		t.Fatalf("clear op expiry: status=%d resp=%+v", status, resp)
+	}
+	op = mustGetUser(t, pool, "op-unl")
+	if op.ExpiresAt != nil {
+		t.Fatalf("fixture: op expires_at = %v, want NULL (unlimited)", op.ExpiresAt)
+	}
+	// The clear must NOT have realigned the active redemption (there is
+	// nothing to align to) — its stored clock is untouched.
+	var sekolahRemaining int64
+	if err := pool.QueryRow(ctx,
+		`SELECT remaining_seconds FROM voucher_redemptions WHERE user_id=$1 AND is_active`, op.ID).Scan(&sekolahRemaining); err != nil {
+		t.Fatalf("load active sekolah redemption: %v", err)
+	}
+	if sekolahRemaining < 20*86400 {
+		t.Fatalf("sekolah redemption remaining=%d after clear, want ~30 days untouched (no realign on NULL)", sekolahRemaining)
+	}
+
+	// The active package's lifetime runs out (only the redemption clock is
+	// zeroed; the account expiry stays NULL — the job selects on the package
+	// clock, not on expires_at).
+	if _, err := pool.Exec(ctx,
+		`UPDATE voucher_redemptions SET remaining_seconds = 0, activated_at = now() - interval '2 seconds'
+		 WHERE user_id = $1 AND is_active`, op.ID); err != nil {
+		t.Fatalf("exhaust sekolah redemption: %v", err)
+	}
+	runPackageExpiryPass(ctx, pool)
+
+	// The exhausted package is paused and zeroed...
+	var sekolahActive bool
+	var sekolahRemainingAfter int64
+	if err := pool.QueryRow(ctx,
+		`SELECT is_active, remaining_seconds FROM voucher_redemptions WHERE user_id=$1 AND package='sekolah-test'`,
+		op.ID).Scan(&sekolahActive, &sekolahRemainingAfter); err != nil {
+		t.Fatalf("load sekolah redemption after pass: %v", err)
+	}
+	if sekolahActive || sekolahRemainingAfter != 0 {
+		t.Errorf("sekolah redemption after pass: is_active=%v remaining=%d, want paused (false, 0)", sekolahActive, sekolahRemainingAfter)
+	}
+	// ...but the fallback is NOT auto-activated and the account stays
+	// unlimited.
+	var guruActive bool
+	if err := pool.QueryRow(ctx,
+		`SELECT is_active FROM voucher_redemptions WHERE user_id=$1 AND package='guru'`,
+		op.ID).Scan(&guruActive); err != nil {
+		t.Fatalf("load guru redemption after pass: %v", err)
+	}
+	if guruActive {
+		t.Error("guru fallback must NOT be auto-activated for an unlimited account")
+	}
+	op = mustGetUser(t, pool, "op-unl")
+	if op.ExpiresAt != nil {
+		t.Errorf("op expires_at = %v after pass, want still NULL (unlimited must not be re-limited)", op.ExpiresAt)
+	}
+	if op.IsFeatureLocked() {
+		t.Error("op must not be feature-locked (NULL expiry = unlimited)")
+	}
+	// The operator role survives (no fallback entitlement was applied) and the
+	// school's sub-account is not cascade-suspended.
+	if !models.HasRole(op.Role, models.RoleOperator) {
+		t.Errorf("op role = %s after pass, want operator retained (no fallback entitlement applied)", op.Role)
+	}
+	guru1 := mustGetUser(t, pool, "guru1")
+	if status, cascade, _ := subFlags(t, pool, guru1.ID); status != models.UserStatusActive || cascade {
+		t.Errorf("guru1 after pass: status=%s cascade=%v, want active without cascade (no fallback applied)", status, cascade)
+	}
+
+	// Idempotent: a second pass leaves the state untouched (nothing is active
+	// anymore).
+	runPackageExpiryPass(ctx, pool)
+	op = mustGetUser(t, pool, "op-unl")
+	if op.ExpiresAt != nil {
+		t.Errorf("op expires_at = %v after second pass, want still NULL", op.ExpiresAt)
+	}
+	if err := pool.QueryRow(ctx,
+		`SELECT is_active FROM voucher_redemptions WHERE user_id=$1 AND package='guru'`,
+		op.ID).Scan(&guruActive); err != nil {
+		t.Fatalf("load guru redemption after second pass: %v", err)
+	}
+	if guruActive {
+		t.Error("guru fallback activated on the second pass")
+	}
+}
+
+// ---------------------------------------------------------------------------
 // Test 4: sub-account that bought its own voucher
 // ---------------------------------------------------------------------------
 
@@ -865,6 +1175,102 @@ func TestVoucherOperatorExitSuspendsSubAccountWithOwnVoucher(t *testing.T) {
 	if guru1.ExpiresAt == nil || !approxEqual(*guru1.ExpiresAt, *opRestored.ExpiresAt, time.Minute) {
 		t.Errorf("guru1 expiry=%v, want ≈ operator's %v", guru1.ExpiresAt, opRestored.ExpiresAt)
 	}
+}
+
+// ---------------------------------------------------------------------------
+// Test 4b: transactional restore — sub redemption realigned on voucher switch
+// ---------------------------------------------------------------------------
+
+// TestVoucherSwitchRestoreFreezeClockSyncsSubRedemption locks in the OTHER
+// call site of RestoreCascadeSuspendedInstansi — the TRANSACTIONAL one inside
+// syncInstansiWithOperatorRole (entitlement.go), reached when the operator
+// returns to the school package via a voucher switch. A sub that runs its OWN
+// active package must have its remaining_seconds realigned to the frozen
+// account expiry, exactly like the toggle-status cascade restore
+// (TestToggleOperatorRestoreFreezeClockSyncsSubRedemption) — the same exact
+// DB-internal invariant, now inside a pgx.Tx.
+func TestVoucherSwitchRestoreFreezeClockSyncsSubRedemption(t *testing.T) {
+	pool := setupVoucherITDB(t)
+	ctx := context.Background()
+
+	createSchoolVoucher(t, pool)
+	createGuruVoucher(t, pool)                    // the operator's switch target
+	createGuruVoucherCode(t, pool, "IT-GURU-SUB") // the sub's own active package
+	op := createOperatorUser(t, pool, "op-vsr", "SMK Voucher Sync", "pass-op-vsr")
+
+	tc := newVoucherTestClient(t, pool)
+	tc.login(t, op.ID)
+	tc.redeem(t, "IT-SEKOLAH")
+	op = mustGetUser(t, pool, "op-vsr")
+	if !models.HasRole(op.Role, models.RoleOperator) {
+		t.Fatalf("op must hold the operator role after redeeming the school voucher")
+	}
+	if status, resp := tc.createUser(t, "guru2"); status != http.StatusOK || !resp.Success {
+		t.Fatalf("create guru2: status=%d resp=%+v", status, resp)
+	}
+	guru2 := mustGetUser(t, pool, "guru2")
+	tc.login(t, guru2.ID)
+	tc.redeem(t, "IT-GURU-SUB")
+
+	// Operator leaves the school package → the sub is cascade-suspended.
+	tc.login(t, op.ID)
+	tc.redeem(t, "IT-GURU")
+	guru2 = mustGetUser(t, pool, "guru2")
+	if status, cascade, _ := subFlags(t, pool, guru2.ID); status != models.UserStatusSuspended || !cascade {
+		t.Fatalf("guru2 must be cascade-suspended, got status=%s cascade=%v", status, cascade)
+	}
+
+	// Pin the sub's clock deterministically (Go clock, verbatim): suspended 2
+	// hours ago with a future expiry at now + 30d. The cascade marker stays
+	// set, so the restore branch genuinely matches.
+	goNow := time.Now().UTC()
+	pinSuspendedClock(t, pool, guru2.ID, goNow.Add(-2*time.Hour), goNow.Add(30*24*time.Hour))
+	var expiresBefore time.Time
+	if err := pool.QueryRow(ctx,
+		`SELECT expires_at FROM admin_users WHERE id = $1`, guru2.ID).Scan(&expiresBefore); err != nil {
+		t.Fatalf("read sub expires_at: %v", err)
+	}
+	var redemptionID int
+	var remainingBefore int64
+	var activatedBefore time.Time
+	if err := pool.QueryRow(ctx,
+		`SELECT id, remaining_seconds, activated_at FROM voucher_redemptions WHERE user_id=$1 AND is_active`,
+		guru2.ID).Scan(&redemptionID, &remainingBefore, &activatedBefore); err != nil {
+		t.Fatalf("load sub redemption: %v", err)
+	}
+
+	// Operator returns to the school package → the activation transaction runs
+	// syncInstansiWithOperatorRole → RestoreCascadeSuspendedInstansi (pgx.Tx).
+	var schoolRedemptionID int
+	if err := pool.QueryRow(ctx,
+		`SELECT id FROM voucher_redemptions WHERE user_id=$1 AND package='sekolah-test' ORDER BY id DESC LIMIT 1`,
+		op.ID).Scan(&schoolRedemptionID); err != nil {
+		t.Fatalf("find school redemption: %v", err)
+	}
+	tc.activate(t, schoolRedemptionID)
+
+	got := mustGetUser(t, pool, "guru2")
+	status, cascade, suspendedAt := subFlags(t, pool, guru2.ID)
+	if status != models.UserStatusActive {
+		t.Errorf("guru2 after restore: status=%s, want active", status)
+	}
+	if cascade {
+		t.Errorf("guru2 after restore: suspended_by_cascade=true, want false")
+	}
+	if suspendedAt != nil {
+		t.Errorf("guru2 after restore: suspended_at=%v, want NULL", suspendedAt)
+	}
+	if _, msg := models.AuthenticateUser(ctx, pool, "guru2", "pass-guru2"); msg != "" {
+		t.Errorf("login guru2 after restore: msg=%q, want success", msg)
+	}
+	var remainingAfter int64
+	var activatedAfter time.Time
+	if err := pool.QueryRow(ctx,
+		`SELECT remaining_seconds, activated_at FROM voucher_redemptions WHERE id=$1`,
+		redemptionID).Scan(&remainingAfter, &activatedAfter); err != nil {
+		t.Fatalf("load sub redemption after restore: %v", err)
+	}
+	assertFrozenRedemptionSync(t, "guru2 after voucher-switch restore", expiresBefore, remainingBefore, activatedBefore, got.ExpiresAt, remainingAfter, activatedAfter)
 }
 
 // ---------------------------------------------------------------------------

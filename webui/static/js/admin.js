@@ -1344,7 +1344,11 @@ function loadUsersList(page) {
                 res.users.forEach(user => {
                     const tr = document.createElement('tr');
                     const isAdmin = user.username === 'superadmin';
-                    var statusClick = isAdmin ? '' : ' onclick="toggleUserStatus(' + user.id + ')"';
+                    // pending_otp accounts are activated only via the explicit
+                    // "Verifikasi" action — the generic status toggle would
+                    // silently bypass the email/OTP gate, so its badge is not
+                    // clickable.
+                    var statusClick = (isAdmin || user.status === 'pending_otp') ? '' : ' onclick="toggleUserStatus(' + user.id + ')"';
                     var statusBadge = user.status === 'active'
                          ? '<span class="status-badge status-active"' + statusClick + '>Aktif</span>'
                          : user.status === 'suspended'

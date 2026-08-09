@@ -24,23 +24,19 @@ func Health() gin.HandlerFunc {
 		}
 
 		fingerprint := ""
-		requiredAppVersion := models.DefaultSettings[models.SettingAndroidVersion]
+		requiredAppVersion := ""
 		if poolVal, exists := c.Get("db"); exists {
 			if pool, ok := poolVal.(*pgxpool.Pool); ok && pool != nil {
 				ctx := c.Request.Context()
 				fingerprint = models.GetSaasSettingWithDefault(ctx, pool,
 					models.SettingCertificateFingerprint, "")
 
-				// Required app version: prefer the highest-version Android
-				// system_app (the official APK release in R2); fall back to
-				// the manually-configured saas_setting android_version.
-				requiredAppVersion = models.GetSaasSettingWithDefault(ctx, pool,
-					models.SettingAndroidVersion, requiredAppVersion)
-				if apps, err := models.GetAllSystemApps(ctx, pool); err == nil {
-					if best := models.BestAndroidAppVersion(apps); best != "" {
-						requiredAppVersion = best
-					}
-				}
+				// Required app version: the effective version derived from what
+				// is actually publishable (system_apps/R2), clamped to the
+				// configured android_version. Empty when nothing is available to
+				// download — the app must not prompt an update it cannot fetch
+				// (matches AndroidVersionCheck, which also skips enforcement).
+				requiredAppVersion = models.EffectiveAndroidRequiredVersion(ctx, pool)
 			}
 		}
 

@@ -7,6 +7,7 @@ import (
 	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log"
 	"math"
@@ -735,6 +736,75 @@ func UpdateUser(ctx context.Context, pool *pgxpool.Pool, userID int, updates map
 	return nil
 }
 
+// ToggleUserStatusOutcome is the pure decision produced by
+// planToggleUserStatus and executed by ToggleUserStatus.
+type ToggleUserStatusOutcome struct {
+	NewStatus string
+	Message   string
+	// RenewExpiry is set only when the account's expiry is already in the
+	// past: the admin explicitly grants a fresh +1-day period.
+	RenewExpiry *time.Time
+	// ReactivateLegacyNull marks the legacy account whose expires_at is NULL
+	// (unlimited): reactivate WITHOUT touching expires_at and WITHOUT
+	// realigning voucher redemptions.
+	ReactivateLegacyNull bool
+	// FreezeClock marks an account with a still-valid future expiry: reactivate
+	// and extend expires_at by the suspension duration.
+	FreezeClock bool
+	// PendingOTPBlocked marks an account still awaiting email verification
+	// (pending_otp): the toggle must not activate it — activation goes through
+	// the OTP confirmation flow or the admin's manual Verify action only. See
+	// ErrPendingOTPToggleBlocked.
+	PendingOTPBlocked bool
+}
+
+// ErrPendingOTPToggleBlocked is returned by ToggleUserStatus when the target
+// account is still awaiting email verification (pending_otp). The generic
+// suspend/activate toggle must not touch such an account: it would silently
+// activate it, bypassing the email/OTP gate and leaving otp_code/otp_expiry
+// dangling in the database. Activation happens only via the OTP confirmation
+// flow or the admin's manual Verify action (VerifyUserManual).
+var ErrPendingOTPToggleBlocked = errors.New("User masih menunggu verifikasi email. Gunakan tombol Verifikasi untuk mengaktifkan secara manual")
+
+// planToggleUserStatus decides what ToggleUserStatus must do for a user,
+// given the account state and the current time. Pure (no DB) so the branch
+// logic — especially the legacy NULL-expiry case — is unit-testable.
+func planToggleUserStatus(user AdminUser, now time.Time) ToggleUserStatusOutcome {
+	if user.Status == UserStatusPendingOTP {
+		// The toggle is refused outright (ErrPendingOTPToggleBlocked carries the
+		// user-facing message): no status change, no activation flags.
+		return ToggleUserStatusOutcome{
+			PendingOTPBlocked: true,
+		}
+	}
+	if user.Status == UserStatusActive {
+		return ToggleUserStatusOutcome{
+			NewStatus: UserStatusSuspended,
+			Message:   fmt.Sprintf("User \"%s\" dinonaktifkan", user.Username),
+		}
+	}
+	if user.ExpiresAt == nil {
+		return ToggleUserStatusOutcome{
+			NewStatus:            UserStatusActive,
+			ReactivateLegacyNull: true,
+			Message:              fmt.Sprintf("User \"%s\" diaktifkan (masa aktif dipertahankan, tanpa batas)", user.Username),
+		}
+	}
+	if user.ExpiresAt.Before(now) {
+		newExp := now.Add(24 * time.Hour)
+		return ToggleUserStatusOutcome{
+			NewStatus:   UserStatusActive,
+			RenewExpiry: &newExp,
+			Message:     fmt.Sprintf("User \"%s\" diaktifkan. Masa aktif: +1 hari (expired)", user.Username),
+		}
+	}
+	return ToggleUserStatusOutcome{
+		NewStatus:   UserStatusActive,
+		FreezeClock: true,
+		Message:     fmt.Sprintf("User \"%s\" diaktifkan (masa aktif dipertahankan)", user.Username),
+	}
+}
+
 // ToggleUserStatus switches the user status between 'active' and 'suspended'.
 // When activating an expired user, a new expiry date of +1 day is set.
 // Returns the new status and an optional message.
@@ -744,52 +814,64 @@ func ToggleUserStatus(ctx context.Context, pool *pgxpool.Pool, userID int) (stri
 		return "", "", fmt.Errorf("toggle user status: get user: %w", err)
 	}
 
-	var newStatus string
-	var msg string
+	out := planToggleUserStatus(user, time.Now().UTC())
 
-	if user.Status == UserStatusActive {
-		newStatus = UserStatusSuspended
-		msg = fmt.Sprintf("User \"%s\" dinonaktifkan", user.Username)
-	} else {
-		newStatus = UserStatusActive
-		if user.ExpiresAt == nil {
-			// No expiry set: add +1 day from now. This explicit renewal grant
-			// supersedes the suspension freeze (no frozen remaining exists).
-			newExp := time.Now().UTC().Add(24 * time.Hour)
-			_, execErr := pool.Exec(ctx,
-				`UPDATE admin_users SET status = $1, expires_at = $2, suspended_at = NULL WHERE id = $3`,
-				newStatus, newExp, userID)
-			if execErr != nil {
-				return "", "", fmt.Errorf("toggle user status update with default expiry: %w", execErr)
-			}
-			// Keep the active package's clock aligned with the renewed expiry so
-			// the billing display and future pause computations stay accurate.
-			if err := SyncActiveRedemptionToExpiry(ctx, pool, userID, newExp); err != nil {
-				log.Printf("toggle user status: sync redemption expiry error: %v", err)
-			}
-			msg = fmt.Sprintf("User \"%s\" diaktifkan. Masa aktif: +1 hari", user.Username)
-			return newStatus, msg, nil
-		}
-		if user.ExpiresAt.Before(time.Now().UTC()) {
-			// Expired: renew with +1 day. This explicit renewal grant supersedes
-			// the suspension freeze — the admin deliberately grants a fresh
-			// period instead of restoring the remaining-at-suspension time.
-			newExp := time.Now().UTC().Add(24 * time.Hour)
-			_, execErr := pool.Exec(ctx,
-				`UPDATE admin_users SET status = $1, expires_at = $2, suspended_at = NULL WHERE id = $3`,
-				newStatus, newExp, userID)
-			if execErr != nil {
-				return "", "", fmt.Errorf("toggle user status update with expiry: %w", execErr)
-			}
-			// Keep the active package's clock aligned with the renewed expiry so
-			// the billing display and future pause computations stay accurate.
-			if err := SyncActiveRedemptionToExpiry(ctx, pool, userID, newExp); err != nil {
-				log.Printf("toggle user status: sync redemption expiry error: %v", err)
-			}
-			msg = fmt.Sprintf("User \"%s\" diaktifkan. Masa aktif: +1 hari (expired)", user.Username)
-			return newStatus, msg, nil
-		}
+	// An account still awaiting email verification (pending_otp) must not be
+	// activated through the generic suspend/activate toggle: that would bypass
+	// the email/OTP gate and leave otp_code/otp_expiry dangling. Activation
+	// happens only via the OTP confirmation flow or the admin's manual Verify
+	// action (VerifyUserManual).
+	if out.PendingOTPBlocked {
+		return "", "", ErrPendingOTPToggleBlocked
+	}
 
+	// Suspending: record when it started so reactivation can freeze the
+	// account clock for the suspension period.
+	if out.NewStatus == UserStatusSuspended {
+		if _, err := pool.Exec(ctx,
+			`UPDATE admin_users SET status = $1, suspended_at = now() WHERE id = $2`,
+			out.NewStatus, userID); err != nil {
+			return "", "", fmt.Errorf("toggle user status update: %w", err)
+		}
+		return out.NewStatus, out.Message, nil
+	}
+
+	switch {
+	case out.ReactivateLegacyNull:
+		// Legacy account with no expiry ever set (NULL = unlimited): merely
+		// re-activate it. We deliberately do NOT grant a +1-day expiry here —
+		// that would convert a previously-unlimited account into an expiring
+		// one and silently tombstone its exams a day later. NULL stays NULL
+		// (unlimited), matching the account's original state. An admin who
+		// wants a real renewal period uses the explicit expiry field or a
+		// voucher instead.
+		//
+		// Note: SyncActiveRedemptionToExpiry is intentionally NOT called here
+		// (there is no new expiry to align with). An active redemption always
+		// sets expires_at on activation, so NULL-expiry + active-redemption is
+		// a contradictory legacy state that predates this code.
+		if _, execErr := pool.Exec(ctx,
+			`UPDATE admin_users SET status = $1, suspended_at = NULL, suspended_by_cascade = FALSE WHERE id = $2`,
+			out.NewStatus, userID); execErr != nil {
+			return "", "", fmt.Errorf("toggle user status reactivate legacy: %w", execErr)
+		}
+		return out.NewStatus, out.Message, nil
+	case out.RenewExpiry != nil:
+		// Expired: renew with +1 day. This explicit renewal grant supersedes
+		// the suspension freeze — the admin deliberately grants a fresh
+		// period instead of restoring the remaining-at-suspension time.
+		if _, execErr := pool.Exec(ctx,
+			`UPDATE admin_users SET status = $1, expires_at = $2, suspended_at = NULL WHERE id = $3`,
+			out.NewStatus, *out.RenewExpiry, userID); execErr != nil {
+			return "", "", fmt.Errorf("toggle user status update with expiry: %w", execErr)
+		}
+		// Keep the active package's clock aligned with the renewed expiry so
+		// the billing display and future pause computations stay accurate.
+		if err := SyncActiveRedemptionToExpiry(ctx, pool, userID, *out.RenewExpiry); err != nil {
+			log.Printf("toggle user status: sync redemption expiry error: %v", err)
+		}
+		return out.NewStatus, out.Message, nil
+	case out.FreezeClock:
 		// Active with valid future expiry: activate without changing expiry,
 		// but freeze the account clock for the suspension period so the
 		// package lifetime did not burn while the user was locked out.
@@ -797,21 +879,31 @@ func ToggleUserStatus(ctx context.Context, pool *pgxpool.Pool, userID int) (stri
 		if err != nil {
 			return "", "", fmt.Errorf("toggle user status reactivate: %w", err)
 		}
-		msg = fmt.Sprintf("User \"%s\" diaktifkan (masa aktif dipertahankan)", user.Username)
+		msg := out.Message
 		if extendedExpiry != nil {
 			msg = fmt.Sprintf("User \"%s\" diaktifkan. Masa aktif diperpanjang sampai %s (jam dijeda selama suspend)",
 				user.Username, extendedExpiry.Format("2006-01-02 15:04:05"))
 		}
-		return newStatus, msg, nil
+		return out.NewStatus, msg, nil
+	default:
+		// Safety net: planToggleUserStatus always sets exactly one of the three
+		// reactivation flags, so this branch is unreachable in practice.
+		return "", "", fmt.Errorf("toggle user status: unexpected outcome %+v", out)
 	}
+}
 
-	// Suspending: record when it started so reactivation can freeze the
-	// account clock for the suspension period.
-	_, err = pool.Exec(ctx, `UPDATE admin_users SET status = $1, suspended_at = now() WHERE id = $2`, newStatus, userID)
-	if err != nil {
-		return "", "", fmt.Errorf("toggle user status update: %w", err)
+// computeFrozenExpiry decides whether the suspension clock must be frozen and
+// what the resulting expires_at should be. Returns the extended expiry, or nil
+// when there is nothing to freeze: the account was never suspended, has no
+// expiry (NULL = unlimited, nothing to extend), or suspended_at is not in the
+// past (clock skew). Pure (no DB, injectable now) so the freeze arithmetic is
+// unit-testable; ResumeSuspendedAccountClock executes the result.
+func computeFrozenExpiry(suspendedAt, expiresAt *time.Time, now time.Time) *time.Time {
+	if suspendedAt == nil || expiresAt == nil || !suspendedAt.Before(now) {
+		return nil
 	}
-	return newStatus, msg, nil
+	extended := expiresAt.Add(now.Sub(*suspendedAt))
+	return &extended
 }
 
 // ResumeSuspendedAccountClock reactivates the account clock after a
@@ -830,7 +922,9 @@ func ResumeSuspendedAccountClock(ctx context.Context, pool *pgxpool.Pool, userID
 		return nil, err
 	}
 
-	if suspendedAt == nil || expiresAt == nil || !suspendedAt.Before(time.Now().UTC()) {
+	newExpiry := computeFrozenExpiry(suspendedAt, expiresAt, time.Now().UTC())
+
+	if newExpiry == nil {
 		// Nothing to freeze (never suspended, no expiry, or clock skew): just
 		// make sure the account is active and the markers are gone.
 		if _, err := pool.Exec(ctx,
@@ -841,18 +935,17 @@ func ResumeSuspendedAccountClock(ctx context.Context, pool *pgxpool.Pool, userID
 		return nil, nil
 	}
 
-	newExpiry := expiresAt.Add(time.Since(*suspendedAt))
 	if _, err := pool.Exec(ctx,
 		`UPDATE admin_users SET status = $1, expires_at = $2, suspended_at = NULL, suspended_by_cascade = FALSE WHERE id = $3`,
-		UserStatusActive, newExpiry, userID); err != nil {
+		UserStatusActive, *newExpiry, userID); err != nil {
 		return nil, err
 	}
 	// Realign the active package's clock so future pause computations and the
 	// billing display match the (frozen) account expiry.
-	if err := SyncActiveRedemptionToExpiry(ctx, pool, userID, newExpiry); err != nil {
+	if err := SyncActiveRedemptionToExpiry(ctx, pool, userID, *newExpiry); err != nil {
 		return nil, err
 	}
-	return &newExpiry, nil
+	return newExpiry, nil
 }
 
 // DeleteUser deletes a user and returns their ID and the file paths of their exams
@@ -1053,10 +1146,19 @@ func AuthenticateUser(ctx context.Context, pool *pgxpool.Pool, username, passwor
 	return &user, ""
 }
 
-// VerifyUserManual activates a pending user and clears OTP fields.
+// VerifyUserManual activates a pending user and clears OTP fields. It also
+// clears any suspension markers (suspended_at, suspended_by_cascade): the
+// verify endpoint accepts any target status (an admin may verify a
+// cascade-suspended account as an escape hatch), so leaving the markers
+// dangling would make a later reactivation freeze the clock a second time
+// (double-freeze) — or make a later cascade restore re-suspend the account.
+// Clearing them keeps VerifyUserManual consistent with every other
+// activation path (ResumeSuspendedAccountClock, ToggleUserStatus, EditUser).
 func VerifyUserManual(ctx context.Context, pool *pgxpool.Pool, userID int) error {
 	_, err := pool.Exec(ctx,
-		`UPDATE admin_users SET status = 'active', otp_code = NULL, otp_expiry = NULL WHERE id = $1`,
+		`UPDATE admin_users SET status = 'active', otp_code = NULL, otp_expiry = NULL,
+		        suspended_at = NULL, suspended_by_cascade = FALSE
+		WHERE id = $1`,
 		userID)
 	if err != nil {
 		return fmt.Errorf("verify user: %w", err)

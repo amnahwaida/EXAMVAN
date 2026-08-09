@@ -112,6 +112,184 @@ func TestRegistrationAllowedByPerIPLimit(t *testing.T) {
 	}
 }
 
+// TestPlanToggleUserStatus covers the pure decision behind ToggleUserStatus.
+// The regression focus: a legacy account whose expires_at is NULL (unlimited)
+// that was suspended and is now being re-activated must come back WITHOUT a
+// +1-day renewal — NULL stays NULL. Previously every non-active user was
+// renewed with +1 day on activation, silently converting unlimited legacy
+// accounts into expiring ones (and tombstoning their exams a day later).
+func TestPlanToggleUserStatus(t *testing.T) {
+	now := time.Now().UTC()
+	past := now.Add(-24 * time.Hour)
+	future := now.Add(48 * time.Hour)
+
+	t.Run("pending_otp account is blocked from toggling", func(t *testing.T) {
+		u := AdminUser{Username: "pending_guru", Status: UserStatusPendingOTP, ExpiresAt: nil}
+		out := planToggleUserStatus(u, now)
+		if !out.PendingOTPBlocked {
+			t.Error("PendingOTPBlocked = false, want true (email verification incomplete)")
+		}
+		if out.NewStatus != "" {
+			t.Errorf("NewStatus = %q, want \"\" (no status change — toggle refused)", out.NewStatus)
+		}
+		if out.RenewExpiry != nil || out.ReactivateLegacyNull || out.FreezeClock {
+			t.Errorf("pending_otp must not carry activation flags: %+v", out)
+		}
+	})
+
+	t.Run("suspending an active user has no renewal side effects", func(t *testing.T) {
+		u := AdminUser{Username: "guru1", Status: UserStatusActive, ExpiresAt: &future}
+		out := planToggleUserStatus(u, now)
+		if out.NewStatus != UserStatusSuspended {
+			t.Errorf("NewStatus = %q, want %q", out.NewStatus, UserStatusSuspended)
+		}
+		if out.ReactivateLegacyNull || out.FreezeClock || out.RenewExpiry != nil {
+			t.Errorf("suspension must not carry reactivation side effects: %+v", out)
+		}
+		if !strings.Contains(out.Message, "dinonaktifkan") {
+			t.Errorf("Message = %q, want suspension message", out.Message)
+		}
+	})
+
+	t.Run("reactivating legacy NULL-expiry keeps NULL (no +1 day)", func(t *testing.T) {
+		u := AdminUser{Username: "legacy_guru", Status: UserStatusSuspended, ExpiresAt: nil}
+		out := planToggleUserStatus(u, now)
+		if out.NewStatus != UserStatusActive {
+			t.Errorf("NewStatus = %q, want %q", out.NewStatus, UserStatusActive)
+		}
+		if !out.ReactivateLegacyNull {
+			t.Error("ReactivateLegacyNull = false, want true (NULL-expiry legacy account)")
+		}
+		if out.RenewExpiry != nil {
+			t.Errorf("RenewExpiry = %v, want nil — legacy NULL expiry must NOT be granted +1 day", out.RenewExpiry)
+		}
+		if out.FreezeClock {
+			t.Error("FreezeClock = true, want false — no expiry to freeze")
+		}
+		if !strings.Contains(out.Message, "tanpa batas") {
+			t.Errorf("Message = %q, want 'tanpa batas' indicator", out.Message)
+		}
+	})
+
+	t.Run("reactivating expired account grants exactly +1 day", func(t *testing.T) {
+		u := AdminUser{Username: "expired_guru", Status: UserStatusSuspended, ExpiresAt: &past}
+		out := planToggleUserStatus(u, now)
+		if out.NewStatus != UserStatusActive {
+			t.Errorf("NewStatus = %q, want %q", out.NewStatus, UserStatusActive)
+		}
+		if out.RenewExpiry == nil {
+			t.Fatal("RenewExpiry = nil, want +1 day renewal for an expired account")
+		}
+		want := now.Add(24 * time.Hour)
+		if !out.RenewExpiry.Equal(want) {
+			t.Errorf("RenewExpiry = %v, want %v", out.RenewExpiry, want)
+		}
+		if out.ReactivateLegacyNull {
+			t.Error("ReactivateLegacyNull = true, want false")
+		}
+		if !strings.Contains(out.Message, "+1 hari") {
+			t.Errorf("Message = %q, want '+1 hari' indicator", out.Message)
+		}
+	})
+
+	t.Run("reactivating account with valid future expiry freezes clock", func(t *testing.T) {
+		u := AdminUser{Username: "future_guru", Status: UserStatusSuspended, ExpiresAt: &future}
+		out := planToggleUserStatus(u, now)
+		if out.NewStatus != UserStatusActive {
+			t.Errorf("NewStatus = %q, want %q", out.NewStatus, UserStatusActive)
+		}
+		if !out.FreezeClock {
+			t.Error("FreezeClock = false, want true (suspension clock must be frozen)")
+		}
+		if out.RenewExpiry != nil {
+			t.Errorf("RenewExpiry = %v, want nil for a still-valid expiry", out.RenewExpiry)
+		}
+		if out.ReactivateLegacyNull {
+			t.Error("ReactivateLegacyNull = true, want false")
+		}
+	})
+}
+
+// TestComputeFrozenExpiry covers the pure freeze-clock arithmetic behind
+// ResumeSuspendedAccountClock: after a suspension, expires_at is extended by
+// exactly the suspension duration so the package lifetime did not burn while
+// the account was locked out. Nothing to freeze — never suspended, no expiry
+// (NULL = unlimited), or suspended_at in the future/now (clock skew) — yields
+// nil.
+func TestComputeFrozenExpiry(t *testing.T) {
+	now := time.Now().UTC()
+	past := func(d time.Duration) *time.Time { t := now.Add(-d); return &t }
+	future := func(d time.Duration) *time.Time { t := now.Add(d); return &t }
+
+	cases := []struct {
+		name        string
+		suspendedAt *time.Time
+		expiresAt   *time.Time
+		want        *time.Time
+	}{
+		{
+			name:        "extends expiry by exactly the suspension duration",
+			suspendedAt: past(2 * time.Hour),
+			expiresAt:   future(24 * time.Hour),
+			want:        future(26 * time.Hour),
+		},
+		{
+			name:        "long suspension extends proportionally",
+			suspendedAt: past(48 * time.Hour),
+			expiresAt:   future(12 * time.Hour),
+			want:        future(60 * time.Hour),
+		},
+		{
+			name:        "already-expired expiry is pushed past the suspension",
+			suspendedAt: past(72 * time.Hour),
+			expiresAt:   past(24 * time.Hour),
+			want:        future(48 * time.Hour),
+		},
+		{
+			name:        "never suspended yields no freeze",
+			suspendedAt: nil,
+			expiresAt:   future(24 * time.Hour),
+			want:        nil,
+		},
+		{
+			name:        "no expiry (NULL = unlimited) yields no freeze",
+			suspendedAt: past(2 * time.Hour),
+			expiresAt:   nil,
+			want:        nil,
+		},
+		{
+			name:        "clock skew (suspended_at in the future) yields no freeze",
+			suspendedAt: future(time.Hour),
+			expiresAt:   future(24 * time.Hour),
+			want:        nil,
+		},
+		{
+			name:        "suspended_at exactly at now is treated as no freeze",
+			suspendedAt: &now,
+			expiresAt:   future(24 * time.Hour),
+			want:        nil,
+		},
+	}
+
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			got := computeFrozenExpiry(c.suspendedAt, c.expiresAt, now)
+			if c.want == nil {
+				if got != nil {
+					t.Errorf("computeFrozenExpiry() = %v, want nil", got)
+				}
+				return
+			}
+			if got == nil {
+				t.Fatal("computeFrozenExpiry() = nil, want non-nil frozen expiry")
+			}
+			if !got.Equal(*c.want) {
+				t.Errorf("computeFrozenExpiry() = %v, want %v", got, c.want)
+			}
+		})
+	}
+}
+
 // TestIsFeatureLocked covers the pure helper behind the feature-lock: an
 // account whose active period has run out (expires_at in the past) is locked —
 // except SuperAdmin, whose expiry may be absent or stale and must never gate

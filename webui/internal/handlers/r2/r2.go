@@ -21,10 +21,12 @@ type Client struct {
 	enabled bool
 }
 
-// NewClient creates an R2 client. Returns nil if credentials are missing.
+// NewClient creates an R2 client. Returns nil if credentials are missing or
+// the AWS config cannot be loaded. R2 is mandatory (config.Load() fails fast
+// without credentials), so callers must treat a nil return as fatal.
 func NewClient(accessKey, secretKey, endpoint, bucket string) *Client {
 	if accessKey == "" || secretKey == "" || endpoint == "" {
-		log.Println("r2: credentials missing — R2 disabled, PDF will be served locally")
+		log.Println("r2: credentials missing — R2 disabled (mandatory)")
 		return nil
 	}
 

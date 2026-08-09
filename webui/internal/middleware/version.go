@@ -14,14 +14,13 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/jackc/pgx/v5/pgxpool"
+
+	"github.com/examvan/webui/internal/models"
 )
 
 const (
 	// HeaderAppVersion is the HTTP header key for the Android app version.
 	HeaderAppVersion = "X-App-Version"
-
-	// RequiredAndroidVersion is the fallback required version when DB setting is empty.
-	RequiredAndroidVersion = "2.2.0"
 )
 
 // AndroidVersionCheck returns middleware that validates the X-App-Version
@@ -46,15 +45,20 @@ func AndroidVersionCheck() gin.HandlerFunc {
 		dbPool := pool.(*pgxpool.Pool)
 		ctx := c.Request.Context()
 
-		requiredVer := getRequiredVersion(ctx, dbPool)
-		if requiredVer == "" {
+		// No version header — skip check (allow request for web clients). Read
+		// the header BEFORE resolving the required version so the (two) DB
+		// queries behind it only run for actual Android clients, not for every
+		// request that passes through this middleware.
+		clientVer := strings.TrimSpace(c.GetHeader(HeaderAppVersion))
+		if clientVer == "" {
 			c.Next()
 			return
 		}
 
-		clientVer := strings.TrimSpace(c.GetHeader(HeaderAppVersion))
-		if clientVer == "" {
-			// No version header — skip check (allow request for web clients).
+		requiredVer := getRequiredVersion(ctx, dbPool)
+		if requiredVer == "" {
+			// Nothing is available to download — skip enforcement (see
+			// models.EffectiveAndroidRequiredVersion).
 			c.Next()
 			return
 		}
@@ -82,20 +86,14 @@ func AndroidVersionCheck() gin.HandlerFunc {
 	}
 }
 
-// getRequiredVersion retrieves the required android_version from SaaS settings.
-// Falls back to RequiredAndroidVersion when the setting is empty.
+// getRequiredVersion retrieves the effective required Android version from the
+// publishable releases (system_apps/R2), clamped to the configured
+// android_version saas_setting. Returns "" when nothing is available to
+// download — AndroidVersionCheck then lets the request through, because
+// blocking an outdated client with no newer APK to download would deadlock it
+// (426 on every route, yet /download/apk has nothing to offer).
 func getRequiredVersion(ctx context.Context, pool *pgxpool.Pool) string {
-	if pool == nil {
-		return ""
-	}
-
-	var version string
-	err := pool.QueryRow(ctx,
-		`SELECT value FROM saas_settings WHERE key = 'android_version'`).Scan(&version)
-	if err != nil || version == "" {
-		return RequiredAndroidVersion
-	}
-	return version
+	return models.EffectiveAndroidRequiredVersion(ctx, pool)
 }
 
 // isVersionCompatible compares two version strings using simple semantic

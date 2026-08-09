@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
@@ -327,6 +328,15 @@ func ListVoucherRedemptions(ctx context.Context, pool *pgxpool.Pool, voucherID i
 	return redemptions, nil
 }
 
+// Executor abstracts a statement runner with the pgx Exec signature so the
+// redemption-clock helpers below (and tombstoneUnstartedInstansiExams in the
+// admin package) work both inside a redemption transaction (pgx.Tx) and
+// against the pool (*pgxpool.Pool) — one SQL stays the source of truth for
+// every call site.
+type Executor interface {
+	Exec(ctx context.Context, sql string, args ...any) (pgconn.CommandTag, error)
+}
+
 // SyncActiveRedemptionToExpiry realigns the user's currently-active
 // redemption clock with the account's expires_at (the authoritative expiry
 // used to gate login): the active package's remaining lifetime is rewritten to
@@ -334,14 +344,64 @@ func ListVoucherRedemptions(ctx context.Context, pool *pgxpool.Pool, voucherID i
 // manually changes an account's expiry (renewal, user edit, instansi-wide
 // cascade) so the billing display and later pause computations never disagree
 // with the account state. No-op when the user has no active redemption.
-func SyncActiveRedemptionToExpiry(ctx context.Context, pool *pgxpool.Pool, userID int, newExpiry time.Time) error {
-	_, err := pool.Exec(ctx, `
+func SyncActiveRedemptionToExpiry(ctx context.Context, exec Executor, userID int, newExpiry time.Time) error {
+	_, err := exec.Exec(ctx, `
 		UPDATE voucher_redemptions
 		SET remaining_seconds = GREATEST(EXTRACT(EPOCH FROM ($1 - now()))::bigint, 0),
 		    activated_at = now()
 		WHERE user_id = $2 AND is_active`, newExpiry, userID)
 	if err != nil {
 		return fmt.Errorf("sync active redemption expiry: %w", err)
+	}
+	return nil
+}
+
+// RestoreCascadeSuspendedInstansi reactivates every cascade-suspended account
+// in a school instansi after the operator's school package is restored
+// (voucher switch) or the operator is manually reactivated (toggle-status):
+// the suspended_by_cascade marker and the suspension clock are cleared, and
+// the account clock is frozen — expires_at is extended by the suspension
+// duration (expires_at + (now() - suspended_at)) so the package lifetime did
+// not burn while the account was locked out. Accounts that were never
+// suspended or have no expiry (NULL = unlimited) keep their expires_at
+// unchanged. The active package clocks of the restored accounts are then
+// realigned to their (frozen) expiry so the billing display and future pause
+// computations never disagree with the account state. No-op when no account
+// in the instansi is cascade-suspended.
+func RestoreCascadeSuspendedInstansi(ctx context.Context, exec Executor, instansi string, excludeID int) error {
+	if _, err := exec.Exec(ctx, `
+		UPDATE admin_users u
+		SET status = 'active',
+		    suspended_by_cascade = FALSE,
+		    suspended_at = NULL,
+		    expires_at = CASE
+		        WHEN u.suspended_at IS NOT NULL AND u.expires_at IS NOT NULL AND u.suspended_at < now()
+		            THEN u.expires_at + (now() - u.suspended_at)
+		        ELSE u.expires_at
+		    END
+		WHERE u.instansi = $1 AND u.suspended_by_cascade = TRUE AND u.id <> $2`, instansi, excludeID); err != nil {
+		return fmt.Errorf("restore cascade-suspended accounts: %w", err)
+	}
+	return SyncInstansiActiveRedemptionsToExpiry(ctx, exec, instansi, excludeID)
+}
+
+// SyncInstansiActiveRedemptionsToExpiry realigns the active package clocks of
+// every account in a school instansi (except excludeID) with its own account
+// expires_at — the instansi-wide variant of SyncActiveRedemptionToExpiry used
+// by the restore paths and the operator expiry cascade (where the account
+// rows were just rewritten, so the per-account expiry is authoritative).
+// No-op when no account in the instansi has an active redemption, or when the
+// expiry is NULL (unlimited — nothing to align to).
+func SyncInstansiActiveRedemptionsToExpiry(ctx context.Context, exec Executor, instansi string, excludeID int) error {
+	_, err := exec.Exec(ctx, `
+		UPDATE voucher_redemptions r
+		SET remaining_seconds = GREATEST(EXTRACT(EPOCH FROM (u.expires_at - now()))::bigint, 0),
+		    activated_at = now()
+		FROM admin_users u
+		WHERE r.user_id = u.id AND r.is_active AND u.expires_at IS NOT NULL
+		  AND u.instansi = $1 AND u.id <> $2`, instansi, excludeID)
+	if err != nil {
+		return fmt.Errorf("sync instansi active redemptions expiry: %w", err)
 	}
 	return nil
 }
