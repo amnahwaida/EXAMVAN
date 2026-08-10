@@ -19,6 +19,7 @@
  {{ template "public_fonts" . }}
  <title>EXAMVAN - Hasil Ujian {{.exam_name}}</title>
  <meta name="description" content="Lihat hasil ujian {{.exam_name}} - EXAMVAN">
+ <meta name="robots" content="noindex, nofollow">
  <link rel="stylesheet" href="/static/css/theme.css?v={{.version}}">
  <link rel="stylesheet" href="/static/css/tailwind/output.css?v={{.version}}">
  <link rel="stylesheet" href="/static/css/hasil.css?v={{.version}}-2">
@@ -240,10 +241,13 @@
  let showCorrectAnswers = showAnswersFromServer;
  let currentTab = 'scores';
 
- // Pagination state
+ // Server-side pagination + search state
  let currentPage = 1;
  const PER_PAGE = 20;
  let searchQuery = '';
+ let pagination = { page: 1, total: 0, total_pages: 1 };
+ let statsData = null;
+ let searchTimer = null;
 
  // ===== Init =====
  document.addEventListener('DOMContentLoaded', () => {
@@ -252,117 +256,112 @@
  }
  });
 
- // ===== API: Load Results =====
+ // ===== API: Load Results (server-side pagination + search) =====
  async function loadResults() {
  try {
- const resp = await apiFetch('/api/hasil/' + EXAM_TOKEN + '?per_page=500', { suppressApiErrorToast: true });
- if (!resp.ok) {
-  const errData = await resp.json(); // dinormalisasi apiFetch: {success:false, error_code, message}
-  showApiErrorToast(errData, 'Gagal memuat data hasil');
-  document.getElementById('loadingIndicator').innerHTML =
-  '<div class="empty-state"><div class="empty-icon" aria-hidden="true"><svg class="icon-svg" style="width:40px;height:40px;margin-bottom:16px;opacity:0.4;"><use href="#hi-exclamation"/></svg></div><p>' + escapeHtml(errData.message || ('Gagal memuat data (HTTP ' + resp.status + '). Coba lagi nanti.')) + '</p>' +
-  '<button class="back-nav" onclick="location.reload()" style="margin-top:16px;display:inline-flex;"><svg width="14" height="14" aria-hidden="true"><use href="#hi-arrow-path"/></svg> Coba Lagi</button></div>';
-  return;
- }
- const data = await resp.json();
+  const params = new URLSearchParams();
+  params.set('per_page', String(PER_PAGE));
+  params.set('page', String(currentPage));
+  if (searchQuery) params.set('search', searchQuery);
 
- if (!data.success) {
- showApiErrorToast(data, 'Gagal memuat data hasil');
- document.getElementById('loadingIndicator').innerHTML =
- `<div class="empty-state"><div class="empty-icon" aria-hidden="true"><svg class="icon-svg" style="width:40px;height:40px;margin-bottom:16px;opacity:0.4;"><use href="#hi-x"/></svg></div><p>${escapeHtml(data.message || 'Gagal memuat data')}</p></div>`;
- return;
- }
-
- submissionsData = data.submissions || [];
- questionsData = data.questions || [];
- identityFieldsData = data.identity_fields || [];
-
- // Fetch remaining pages if there are more
- const pagination = data.pagination || {};
- const totalPages = pagination.total_pages || 1;
- if (totalPages > 1) {
-  const fetches = [];
-  for (let p = 2; p <= totalPages; p++) {
-  fetches.push(apiFetch('/api/hasil/' + EXAM_TOKEN + '?per_page=500&page=' + p, { suppressApiErrorToast: true }).then(r => r.json()));
+  const resp = await apiFetch('/api/hasil/' + EXAM_TOKEN + '?' + params.toString(), { suppressApiErrorToast: true });
+  if (!resp.ok) {
+   const errData = await resp.json(); // dinormalisasi apiFetch: {success:false, error_code, message}
+   showApiErrorToast(errData, 'Gagal memuat data hasil');
+   document.getElementById('loadingIndicator').innerHTML =
+   '<div class="empty-state"><div class="empty-icon" aria-hidden="true"><svg class="icon-svg" style="width:40px;height:40px;margin-bottom:16px;opacity:0.4;"><use href="#hi-exclamation"/></svg></div><p>' + escapeHtml(errData.message || ('Gagal memuat data (HTTP ' + resp.status + '). Coba lagi nanti.')) + '</p>' +
+   '<button class="back-nav" onclick="location.reload()" style="margin-top:16px;display:inline-flex;"><svg width="14" height="14" aria-hidden="true"><use href="#hi-arrow-path"/></svg> Coba Lagi</button></div>';
+   return;
   }
-  const results = await Promise.all(fetches);
-  for (const res of results) {
-  if (res.success && res.submissions) {
-   submissionsData = submissionsData.concat(res.submissions);
+  const data = await resp.json();
+
+  if (!data.success) {
+   showApiErrorToast(data, 'Gagal memuat data hasil');
+   document.getElementById('loadingIndicator').innerHTML =
+   `<div class="empty-state"><div class="empty-icon" aria-hidden="true"><svg class="icon-svg" style="width:40px;height:40px;margin-bottom:16px;opacity:0.4;"><use href="#hi-x"/></svg></div><p>${escapeHtml(data.message || 'Gagal memuat data')}</p></div>`;
+   return;
   }
+
+  submissionsData = data.submissions || [];
+  questionsData = data.questions || [];
+  identityFieldsData = data.identity_fields || [];
+  statsData = data.stats || null;
+  pagination = data.pagination || { page: currentPage, total: submissionsData.length, total_pages: 1 };
+  currentPage = pagination.page || 1;
+
+  document.getElementById('loadingIndicator').style.display = 'none';
+
+  if (pagination.total === 0) {
+   document.getElementById('emptyState').style.display = searchQuery ? 'none' : 'block';
+   document.getElementById('noSearchResults').style.display = searchQuery ? 'block' : 'none';
+   return;
   }
- }
 
- document.getElementById('loadingIndicator').style.display = 'none';
+  renderStats();
 
- if (submissionsData.length === 0) {
- document.getElementById('emptyState').style.display = 'block';
- return;
- }
+  document.getElementById('totalStudents').textContent = statsData && statsData.count != null ? statsData.count : pagination.total;
 
- // Calculate stats
- const scores = submissionsData.filter(s => s.score !== null && s.score !== undefined);
- if (scores.length > 0) {
- const avg = scores.reduce((a, b) => a + b.score, 0) / scores.length;
- const max = Math.max(...scores.map(s => s.score));
- const min = Math.min(...scores.map(s => s.score));
+  renderScoresTable();
+  renderKeysGrid();
 
- document.getElementById('avgScore').textContent = avg.toFixed(1);
- document.getElementById('maxScore').textContent = max.toFixed(1);
- document.getElementById('avgScoreItem').style.display = 'flex';
- document.getElementById('maxScoreItem').style.display = 'flex';
+  document.getElementById('scoresContent').style.display = 'block';
 
- // Stats row
- const statsRow = document.getElementById('statsRow');
- statsRow.style.display = 'grid';
- statsRow.innerHTML = `
- <div class="stat-mini">
- <span class="stat-mini-value" style="color: var(--color-success);">${avg.toFixed(1)}</span>
- <span class="stat-mini-label">Rata-rata</span>
- </div>
- <div class="stat-mini">
- <span class="stat-mini-value" style="color: var(--color-warning);">${max.toFixed(1)}</span>
- <span class="stat-mini-label">Tertinggi</span>
- </div>
- <div class="stat-mini">
- <span class="stat-mini-value" style="color: var(--color-danger);">${min.toFixed(1)}</span>
- <span class="stat-mini-label">Terendah</span>
- </div>
- <div class="stat-mini">
- <span class="stat-mini-value" style="color: var(--color-accent-light);">${submissionsData.length}</span>
- <span class="stat-mini-label">Total Peserta</span>
- </div>
- `;
- }
-
- // Sort by score descending once
- submissionsData.sort((a, b) => {
- if (a.score === null && b.score === null) return 0;
- if (a.score === null) return 1;
- if (b.score === null) return -1;
- return b.score - a.score;
- });
-
- document.getElementById('totalStudents').textContent = submissionsData.length;
-
- renderScoresTable();
- renderKeysGrid();
-
- document.getElementById('scoresContent').style.display = 'block';
-
- // Show tabNav and tabKeys strictly if server says show_answers is enabled
- if (questionsData.length > 0 && showAnswersFromServer) {
- document.getElementById('tabNav').style.display = 'flex';
- document.getElementById('tabKeys').style.display = 'flex';
- }
+  // Show tabNav and tabKeys strictly if server says show_answers is enabled
+  if (questionsData.length > 0 && showAnswersFromServer) {
+   document.getElementById('tabNav').style.display = 'flex';
+   document.getElementById('tabKeys').style.display = 'flex';
+  }
 
  } catch (err) {
- console.error('Error loading results:', err);
- showApiErrorToast(null, 'Gagal memuat data hasil ujian');
- document.getElementById('loadingIndicator').innerHTML =
- '<div class="empty-state"><div class="empty-icon" aria-hidden="true"><svg class="icon-svg" style="width:40px;height:40px;margin-bottom:16px;opacity:0.4;"><use href="#hi-exclamation"/></svg></div><p>Gagal memuat data hasil ujian. Periksa koneksi atau coba lagi nanti.</p>' +
- '<button class="back-nav" onclick="location.reload()" style="margin-top:16px;display:inline-flex;"><svg width="14" height="14" aria-hidden="true"><use href="#hi-arrow-path"/></svg> Coba Lagi</button></div>';
+  console.error('Error loading results:', err);
+  showApiErrorToast(null, 'Gagal memuat data hasil ujian');
+  document.getElementById('loadingIndicator').innerHTML =
+  '<div class="empty-state"><div class="empty-icon" aria-hidden="true"><svg class="icon-svg" style="width:40px;height:40px;margin-bottom:16px;opacity:0.4;"><use href="#hi-exclamation"/></svg></div><p>Gagal memuat data hasil ujian. Periksa koneksi atau coba lagi nanti.</p>' +
+  '<button class="back-nav" onclick="location.reload()" style="margin-top:16px;display:inline-flex;"><svg width="14" height="14" aria-hidden="true"><use href="#hi-arrow-path"/></svg> Coba Lagi</button></div>';
  }
+ }
+
+ // ===== Render Header Stats (server aggregate) =====
+ function renderStats() {
+  const avgEl = document.getElementById('avgScore');
+  const maxEl = document.getElementById('maxScore');
+  const statsRow = document.getElementById('statsRow');
+
+  if (!statsData || !statsData.count) {
+   document.getElementById('avgScoreItem').style.display = 'none';
+   document.getElementById('maxScoreItem').style.display = 'none';
+   statsRow.style.display = 'none';
+   return;
+  }
+
+  const avg = Number(statsData.average || 0);
+  const max = Number(statsData.max || 0);
+  const min = Number(statsData.min || 0);
+
+  avgEl.textContent = avg.toFixed(1);
+  maxEl.textContent = max.toFixed(1);
+  document.getElementById('avgScoreItem').style.display = 'flex';
+  document.getElementById('maxScoreItem').style.display = 'flex';
+
+  statsRow.style.display = 'grid';
+  statsRow.innerHTML = `
+  <div class="stat-mini">
+  <span class="stat-mini-value" style="color: var(--color-success);">${avg.toFixed(1)}</span>
+  <span class="stat-mini-label">Rata-rata</span>
+  </div>
+  <div class="stat-mini">
+  <span class="stat-mini-value" style="color: var(--color-warning);">${max.toFixed(1)}</span>
+  <span class="stat-mini-label">Tertinggi</span>
+  </div>
+  <div class="stat-mini">
+  <span class="stat-mini-value" style="color: var(--color-danger);">${min.toFixed(1)}</span>
+  <span class="stat-mini-label">Terendah</span>
+  </div>
+  <div class="stat-mini">
+  <span class="stat-mini-value" style="color: var(--color-accent-light);">${statsData.count}</span>
+  <span class="stat-mini-label">Total Peserta</span>
+  </div>
+  `;
  }
 
  // ===== Get Duration String =====
@@ -388,29 +387,9 @@
  }
  }
 
- // ===== Get Display Data (filtered + paginated) =====
- function getDisplayData() {
- const query = searchQuery.toLowerCase().trim();
- let filtered = submissionsData;
- if (query) {
- filtered = submissionsData.filter(s => {
- const name = (s.student_name || '').toLowerCase();
- return name.includes(query);
- });
- }
- const total = filtered.length;
- const totalPages = Math.max(1, Math.ceil(total / PER_PAGE));
- // Clamp current page
- if (currentPage > totalPages) currentPage = totalPages;
- if (currentPage < 1) currentPage = 1;
- const start = (currentPage - 1) * PER_PAGE;
- const pageData = filtered.slice(start, start + PER_PAGE);
- return { data: pageData, total, totalPages, start };
- }
-
- // ===== Render Scores Table (paginated) =====
+ // ===== Render Scores Table (server-provided page, no client slicing) =====
  function renderScoresTable() {
- const { data: pageItems, total, totalPages, start } = getDisplayData();
+ const pageItems = submissionsData;
  const tbody = document.getElementById('scoresBody');
  tbody.innerHTML = '';
 
@@ -425,7 +404,7 @@
  noResults.style.display = 'none';
 
  pageItems.forEach((sub, idx) => {
- const globalRank = start + idx + 1;
+ const globalRank = (currentPage - 1) * PER_PAGE + idx + 1;
  const tr = document.createElement('tr');
  tr.setAttribute('data-name', sub.student_name.toLowerCase());
  tr.id = 'scores-row-' + sub.id;
@@ -474,7 +453,7 @@
  tbody.appendChild(detailTr);
  });
 
- renderPagination(total, totalPages);
+ renderPagination(pagination.total, pagination.total_pages || 1);
  }
 
  // ===== Toggle Detail Scores =====
@@ -505,12 +484,12 @@
  function buildDetailContent(sub) {
  if (questionsData.length === 0) {
  return '<div style="color: var(--color-text-muted); text-align: center; padding: 16px;">Tidak ada konfigurasi soal untuk ujian ini.</div>';
- }
-
- const shouldHideStudentAnswers = !isLoggedIn && !showCorrectAnswers;
+ } const shouldHideStudentAnswers = !isLoggedIn && !showCorrectAnswers;
  const answers = sub.answers || {};
  let totalEarned = 0;
- let totalMax = 0;
+ // Server-computed max (sum of effective question weights) — authoritative
+ // and immune to the weight-0 / `|| 1.0` client-side mismatch.
+ const totalMax = (sub.max_score !== null && sub.max_score !== undefined) ? Number(sub.max_score) : 0;
  let correctCount = 0;
  let incorrectCount = 0;
  let partialCount = 0;
@@ -520,8 +499,6 @@
  questionsData.forEach(q => {
  const qNum = String(q.number);
  const studentAns = answers[qNum];
- const weight = parseFloat(q.weight || 1.0);
- totalMax += weight;
 
  let earned = 0;
  let statusText = 'Belum Dijawab';
@@ -533,11 +510,11 @@
  statusText = evalAns.statusText;
  earned = evalAns.earned || 0;
 
- if (studentAns !== undefined && studentAns !== null) {
+ // Count from the server evaluation status (works even when the raw
+ // student answers are masked for non-entitled visitors).
  if (statusClass === 'correct') correctCount++;
  else if (statusClass === 'partial') partialCount++;
  else if (statusClass === 'incorrect') incorrectCount++;
- }
  }
 
  totalEarned += earned;
@@ -706,12 +683,12 @@
  return span;
  }
 
- // ===== Go To Page =====
+ // ===== Go To Page (server fetch) =====
  function goToPage(page) {
- const { totalPages } = getDisplayData();
+ const totalPages = pagination.total_pages || 1;
  if (page < 1 || page > totalPages) return;
  currentPage = page;
- renderScoresTable();
+ loadResults();
  // Scroll to top of table
  const scoresSection = document.getElementById('scoresContent');
  if (scoresSection) {
@@ -728,8 +705,10 @@
  document.getElementById('scoresContent').style.display = tab === 'scores' ? 'block' : 'none';
  document.getElementById('keysContent').style.display = tab === 'keys' ? 'block' : 'none';
 
- // Search field visibility
- document.getElementById('searchInput').style.display = tab === 'keys' ? 'none' : 'block';
+ // Toggle the whole search section (not the input's display) so the flex
+ // layout of .search-input-wrapper stays intact on mobile.
+ const searchSection = document.querySelector('.search-section');
+ if (searchSection) searchSection.style.display = tab === 'keys' ? 'none' : 'block';
  }
 
  // ===== Render Official Keys Grid =====
@@ -742,10 +721,6 @@
  return;
  }
 
- questionsData.forEach(q => {
- const item = document.createElement('div');
- item.className = 'key-card';
-
  const typeLabels = {
  'single_choice': 'Pilihan Ganda',
  'multiple_choice': 'Pilihan Ganda Kompleks',
@@ -754,15 +729,23 @@
  'short_answer': 'Isian Singkat'
  };
 
- const typeLabel = typeLabels[q.type] || q.type;
+ questionsData.forEach(q => {
+ const item = document.createElement('div');
+ item.className = 'key-card';
+
+ // Escape every field interpolated into innerHTML (q.type/q.number come from
+ // admin-controlled JSON, but defense-in-depth costs nothing). Weight 0 must
+ // be rendered as 0, not silently promoted to 1.0 by `|| 1.0`.
+ const typeLabel = typeLabels[q.type] || escapeHtml(String(q.type || ''));
+ const weight = (q.weight !== undefined && q.weight !== null && q.weight !== '') ? q.weight : 1.0;
  const correctDisplay = formatAnswer(q.key);
 
  item.innerHTML = `
  <div class="key-card-header">
- <span class="key-card-number">Soal ${q.number}</span>
- <span class="key-card-weight">Bobot: ${q.weight || 1.0}</span>
+ <span class="key-card-number">Soal ${escapeHtml(String(q.number))}</span>
+ <span class="key-card-weight">Bobot: ${escapeHtml(String(weight))}</span>
  </div>
- <div style="font-size: 0.72rem; color: var(--color-text-muted); font-weight: 500;">${typeLabel}</div>
+ <div style="font-size: 0.72rem; color: var(--color-text-muted); font-weight: 500;">${escapeHtml(String(typeLabel))}</div>
  <div style="margin-top: 4px;">
  <div style="font-size: 0.72rem; color: var(--color-text-muted); text-transform: uppercase; letter-spacing: 0.5px; font-weight: 700;">Kunci Jawaban:</div>
  <div style="font-size: 0.95rem; font-weight: 700; color: var(--color-success); margin-top: 4px; word-break: break-all;">${correctDisplay}</div>
@@ -772,12 +755,15 @@
  });
  }
 
- // ===== Filter Results =====
+ // ===== Filter Results (server-side search, debounced) =====
  function filterResults() {
- const input = document.getElementById('searchInput');
- searchQuery = input.value;
- currentPage = 1;
- renderScoresTable();
+ clearTimeout(searchTimer);
+ searchTimer = setTimeout(() => {
+  const input = document.getElementById('searchInput');
+  searchQuery = input.value.trim();
+  currentPage = 1;
+  loadResults();
+ }, 350);
  }
 
  // ===== Helpers =====
@@ -796,13 +782,7 @@
  return escapeHtml(String(val));
  }
 
- function escapeHtml(str) {
- const div = document.createElement('div');
- div.textContent = str;
- return div.innerHTML;
- }
-
- /* localizeUTC provided by admin-core.js (loaded via defer in head) */
+ /* escapeHtml + localizeUTC provided by admin-core.js (loaded via defer in head) */
  </script>
 </body>
 </html>

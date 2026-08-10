@@ -84,6 +84,12 @@ func HasilPage() gin.HandlerFunc {
 	return func(c *gin.Context) {
 		token := strings.ToUpper(strings.TrimSpace(c.Param("token")))
 
+		// Results change as students submit and contain student names + scores:
+		// never cache the page and block search-engine indexing (X-Robots-Tag is
+		// the strongest signal; the template also carries a <meta name=robots>).
+		c.Header("X-Robots-Tag", "noindex, nofollow")
+		c.Header("Cache-Control", "no-store, no-cache, must-revalidate, max-age=0")
+
 		pool := getPool(c)
 		if pool == nil {
 			c.HTML(http.StatusInternalServerError, "public/hasil.html", middleware.MergeTemplateData(c, gin.H{
@@ -127,9 +133,11 @@ func HasilPage() gin.HandlerFunc {
 			return
 		}
 
+		// Count only students who actually submitted (heartbeat rows with empty
+		// answers_json are excluded — matching the admin submissions view).
 		var total int
 		if err := pool.QueryRow(ctx,
-			`SELECT COUNT(*) FROM submissions WHERE exam_id = $1`, exam.ID).Scan(&total); err != nil {
+			`SELECT COUNT(*) FROM submissions WHERE exam_id = $1 AND answers_json IS NOT NULL AND answers_json != ''`, exam.ID).Scan(&total); err != nil {
 			log.Printf("hasil page count error: %v", err)
 			total = 0
 		}
@@ -162,6 +170,9 @@ func HasilPage() gin.HandlerFunc {
 func HasilAPI() gin.HandlerFunc {
 	return func(c *gin.Context) {
 		token := strings.ToUpper(strings.TrimSpace(c.Param("token")))
+
+		// Results change as students submit: never let proxies/browsers cache.
+		c.Header("Cache-Control", "no-store, no-cache, must-revalidate, max-age=0")
 
 		pool := getPool(c)
 		if pool == nil {
@@ -212,10 +223,36 @@ func HasilAPI() gin.HandlerFunc {
 		}
 		offset := (page - 1) * perPage
 
-		// ---- Total count ----
-		var total int
+		// ---- Search (server-side, on student name) ----
+		search := strings.TrimSpace(c.DefaultQuery("search", ""))
+
+		// ---- Stats (aggregated over the FULL submitted set, independent of
+		// search/pagination, so the header stays stable while browsing) ----
+		var statCount int
+		var statAvg, statMax, statMin float64
 		if err := pool.QueryRow(ctx,
-			`SELECT COUNT(*) FROM submissions WHERE exam_id = $1`, exam.ID).Scan(&total); err != nil {
+			`SELECT COUNT(*),
+			        COALESCE(AVG(score), 0), COALESCE(MAX(score), 0), COALESCE(MIN(score), 0)
+			 FROM submissions
+			 WHERE exam_id = $1 AND answers_json IS NOT NULL AND answers_json != ''`,
+			exam.ID).Scan(&statCount, &statAvg, &statMax, &statMin); err != nil {
+			log.Printf("hasil api stats error: %v", err)
+			c.JSON(http.StatusInternalServerError, gin.H{
+				"success": false,
+				"message": "Gagal memuat data hasil",
+			})
+			return
+		}
+
+		// ---- Total count (search-filtered, for pagination) ----
+		var total int
+		countSQL := `SELECT COUNT(*) FROM submissions WHERE exam_id = $1 AND answers_json IS NOT NULL AND answers_json != ''`
+		countArgs := []interface{}{exam.ID}
+		if search != "" {
+			countSQL += ` AND student_name ILIKE '%' || $2 || '%'`
+			countArgs = append(countArgs, search)
+		}
+		if err := pool.QueryRow(ctx, countSQL, countArgs...).Scan(&total); err != nil {
 			log.Printf("hasil api count error: %v", err)
 			c.JSON(http.StatusInternalServerError, gin.H{
 				"success": false,
@@ -224,15 +261,21 @@ func HasilAPI() gin.HandlerFunc {
 			return
 		}
 
-		// ---- Fetch submissions ----
-		rows, err := pool.Query(ctx,
-			`SELECT id, student_name, exam_number, student_class,
+		// ---- Fetch submissions (only rows that actually submitted) ----
+		querySQL := `SELECT id, student_name, exam_number, student_class,
 			        answers_json, score, start_time, created_at, identity_data
 			 FROM submissions
-			 WHERE exam_id = $1
-			 ORDER BY score DESC NULLS LAST
-			 LIMIT $2 OFFSET $3`,
-			exam.ID, perPage, offset)
+			 WHERE exam_id = $1 AND answers_json IS NOT NULL AND answers_json != ''`
+		queryArgs := []interface{}{exam.ID}
+		if search != "" {
+			querySQL += ` AND student_name ILIKE '%' || $2 || '%'`
+			queryArgs = append(queryArgs, search)
+		}
+		querySQL += ` ORDER BY score DESC NULLS LAST
+			 LIMIT $` + strconv.Itoa(len(queryArgs)+1) + ` OFFSET $` + strconv.Itoa(len(queryArgs)+2)
+		queryArgs = append(queryArgs, perPage, offset)
+
+		rows, err := pool.Query(ctx, querySQL, queryArgs...)
 		if err != nil {
 			log.Printf("hasil api submissions query error: %v", err)
 			c.JSON(http.StatusInternalServerError, gin.H{
@@ -246,38 +289,40 @@ func HasilAPI() gin.HandlerFunc {
 		// ---- Parse questions & compute max_score ----
 		questions := make([]map[string]interface{}, 0)
 		maxScore := 0.0
+		var typedQuestions []models.Question
 		if exam.QuestionsJSON != nil && *exam.QuestionsJSON != "" {
 			var parsed []map[string]interface{}
 			if err := json.Unmarshal([]byte(*exam.QuestionsJSON), &parsed); err != nil {
 				log.Printf("hasil api parse questions error: %v", err)
 			} else {
 				questions = parsed
-				for _, q := range questions {
-					weight := 1.0
-					if w, ok := q["weight"].(float64); ok {
-						weight = w
-					} else if s, ok := q["score"].(float64); ok {
-						weight = s
-					}
-					maxScore += weight
-				}
 			}
+			// Typed questions drive BOTH the per-question evaluation engine and
+			// max_score. ComputeMaxScore uses the same GetWeight() semantics as
+			// EvaluateAnswersDetailed (weight <= 0 falls back to score, then to
+			// 1.0), so the detail-modal total (earned / max_score) can never
+			// show earned > max for a weight-0 question.
+			typedQuestions, _ = models.ParseQuestionsJSON(exam.QuestionsJSON)
+			maxScore = models.ComputeMaxScore(typedQuestions)
 		}
 
 		// ---- Build submission list ----
 		type submissionItem struct {
-			ID           int                    `json:"id"`
-			StudentName  string                 `json:"student_name"`
-			ExamNumber   string                 `json:"exam_number"`
-			StudentClass string                 `json:"student_class"`
-			IdentityData map[string]interface{} `json:"identity_data"`
-			Score        *float64               `json:"score"`
-			MaxScore     *float64               `json:"max_score"`
-			StartTime    interface{}            `json:"start_time"`
-			CreatedAt    string                 `json:"created_at"`
+			ID               int                             `json:"id"`
+			StudentName      string                          `json:"student_name"`
+			ExamNumber       string                          `json:"exam_number"`
+			StudentClass     string                          `json:"student_class"`
+			IdentityData     map[string]interface{}          `json:"identity_data"`
+			Score            *float64                        `json:"score"`
+			MaxScore         *float64                        `json:"max_score"`
+			StartTime        interface{}                     `json:"start_time"`
+			CreatedAt        string                          `json:"created_at"`
+			Answers          map[string]interface{}          `json:"answers,omitempty"`
+			EvaluatedAnswers map[string]models.EvaluationDetail `json:"evaluated_answers"`
 		}
 
 		subsData := make([]submissionItem, 0, perPage)
+		showAnswersEnabled := exam.AreAnswersShown()
 
 		for rows.Next() {
 			var (
@@ -314,20 +359,38 @@ func HasilAPI() gin.HandlerFunc {
 				maxScorePtr = &maxScore
 			}
 
-			subsData = append(subsData, submissionItem{
-				ID:           id,
-				StudentName:  studentName,
-				ExamNumber:   examNumber,
-				StudentClass: studentClass,
-				IdentityData: idData,
-				Score:        score,
-				MaxScore:     maxScorePtr,
-				StartTime:    formatISOUTCString(ptrString(startTime)),
-				CreatedAt:    formatISOUTC(createdAt),
-			})
-		}
+			// Parse answers JSON for the per-question detail modal
+			answers := make(map[string]interface{})
+			if answersJSON != nil && *answersJSON != "" {
+				if err := json.Unmarshal([]byte(*answersJSON), &answers); err != nil {
+					answers = make(map[string]interface{})
+				}
+			}
+			evaluated := models.EvaluateAnswersDetailed(answers, typedQuestions)
+			if evaluated == nil {
+				evaluated = map[string]models.EvaluationDetail{}
+			}
 
-		showAnswersEnabled := exam.AreAnswersShown()
+			item := submissionItem{
+				ID:               id,
+				StudentName:      studentName,
+				ExamNumber:       examNumber,
+				StudentClass:     studentClass,
+				IdentityData:     idData,
+				Score:            score,
+				MaxScore:         maxScorePtr,
+				StartTime:        formatISOUTCString(ptrString(startTime)),
+				CreatedAt:        formatISOUTC(createdAt),
+				EvaluatedAnswers: evaluated,
+			}
+			// Raw student answers are sent only when the visitor is entitled
+			// (logged in or the teacher enabled show_answers); otherwise the
+			// frontend masks them while still showing per-question status.
+			if showAnswersEnabled || isLoggedIn {
+				item.Answers = answers
+			}
+			subsData = append(subsData, item)
+		}
 
 		// Strip answer keys when the user is not logged in and show_answers is disabled
 		if !isLoggedIn && !showAnswersEnabled {
@@ -362,6 +425,12 @@ func HasilAPI() gin.HandlerFunc {
 			"identity_fields": identityFields,
 			"max_score":       maxScoreResponse,
 			"submissions":     subsData,
+			"stats": gin.H{
+				"count":   statCount,
+				"average": statAvg,
+				"max":     statMax,
+				"min":     statMin,
+			},
 			"pagination": gin.H{
 				"page":        page,
 				"per_page":    perPage,

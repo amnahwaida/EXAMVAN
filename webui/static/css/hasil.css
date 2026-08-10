@@ -596,13 +596,6 @@ color: var(--color-primary-light);
 .td-center { text-align: center; }
 .td-center-secondary { text-align: center; font-size: 0.82rem; color: var(--color-text-secondary); }
 .student-name { font-weight: 600; color: var(--color-text); }
-.student-number {
-font-family: var(--font-mono); font-size: 0.78rem;
-color: var(--color-accent-light);
-background: rgba(34, 211, 238, 0.08);
-padding: 2px 8px; border-radius: 6px;
-border: 1px solid rgba(34, 211, 238, 0.15);
-}
 .rank-num { font-weight: 800; font-size: 0.82rem; color: var(--color-text-muted); }
 .rank-num.rank-1 { color: var(--color-warning); }
 .rank-num.rank-2 { color: #e2e8f0; }
