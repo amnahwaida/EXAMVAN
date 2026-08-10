@@ -43,9 +43,9 @@ func newRequestApprovalRouter(pool *pgxpool.Pool) *gin.Engine {
 }
 
 // createRequestApprovalFixture creates an owner account plus one exam and
-// returns the exam ID. active/started control whether the exam is joinable;
-// autoApprove sets the server-side flag under test.
-func createRequestApprovalFixture(t *testing.T, pool *pgxpool.Pool, active, started, autoApprove bool) int {
+// returns the exam ID and its token. active/started control whether the exam
+// is joinable; autoApprove sets the server-side flag under test.
+func createRequestApprovalFixture(t *testing.T, pool *pgxpool.Pool, active, started, autoApprove bool) (int, string) {
 	t.Helper()
 	ctx := context.Background()
 
@@ -67,22 +67,27 @@ func createRequestApprovalFixture(t *testing.T, pool *pgxpool.Pool, active, star
 		startedSQL = "CURRENT_TIMESTAMP"
 	}
 
+	token := fmt.Sprintf("T%07d", time.Now().UnixNano()%10000000)
+
 	var id int
 	insertSQL := fmt.Sprintf(`
 		INSERT INTO exams (name, file_path, size_bytes, token, active_token, status, security_level, created_by, exam_started_at, auto_approve)
 		VALUES ('Ujian AutoApprove', 'ujian.pdf', 2048, $1, $1, $2, 'medium', $3, %s, $4)
 		RETURNING id`, startedSQL)
 	if err := pool.QueryRow(ctx, insertSQL,
-		fmt.Sprintf("T%07d", time.Now().UnixNano()%10000000), status, owner.ID, autoApprove).Scan(&id); err != nil {
+		token, status, owner.ID, autoApprove).Scan(&id); err != nil {
 		t.Fatalf("insert exam: %v", err)
 	}
-	return id
+	return id, token
 }
 
 // postRequestApproval posts a request-approval payload and decodes the JSON
-// response, returning the HTTP status and body.
-func postRequestApproval(t *testing.T, srv *httptest.Server, payload map[string]interface{}) (int, map[string]interface{}) {
+// response, returning the HTTP status and body. The exam token is injected
+// into the payload (the server requires it — anti-spam); pass an empty or
+// wrong value to exercise the rejection paths.
+func postRequestApproval(t *testing.T, srv *httptest.Server, payload map[string]interface{}, token string) (int, map[string]interface{}) {
 	t.Helper()
+	payload["token"] = token
 	body, err := json.Marshal(payload)
 	if err != nil {
 		t.Fatalf("marshal payload: %v", err)
@@ -114,7 +119,7 @@ func countSubmissions(t *testing.T, pool *pgxpool.Pool, examID int, macAddress s
 // may be created — that is the pengawas' manual decision.
 func TestRequestApprovalAutoApproveDisabled(t *testing.T) {
 	pool := database.NewPackageTestPool(t, "api")
-	examID := createRequestApprovalFixture(t, pool, true, true, false)
+	examID, examToken := createRequestApprovalFixture(t, pool, true, true, false)
 	srv := httptest.NewServer(newRequestApprovalRouter(pool))
 	defer srv.Close()
 
@@ -122,7 +127,7 @@ func TestRequestApprovalAutoApproveDisabled(t *testing.T) {
 		"exam_id": examID, "mac_address": "AA:BB:CC:DD:EE:01",
 		"student_name": "Budi", "exam_number": "01", "student_class": "XII A",
 		"identity_data": map[string]interface{}{"student_name": "Budi"}, "reset": true,
-	})
+	}, examToken)
 	if code != http.StatusOK || out["status"] != "pending" {
 		t.Fatalf("status=%d out=%v, want 200 + pending", code, out)
 	}
@@ -136,7 +141,7 @@ func TestRequestApprovalAutoApproveDisabled(t *testing.T) {
 // pengawas (or the auto-approve flag) may move the row out of pending.
 func TestRequestApprovalPollKeepsPendingWhenFlagOff(t *testing.T) {
 	pool := database.NewPackageTestPool(t, "api")
-	examID := createRequestApprovalFixture(t, pool, true, true, false)
+	examID, examToken := createRequestApprovalFixture(t, pool, true, true, false)
 	srv := httptest.NewServer(newRequestApprovalRouter(pool))
 	defer srv.Close()
 
@@ -147,7 +152,7 @@ func TestRequestApprovalPollKeepsPendingWhenFlagOff(t *testing.T) {
 	}
 
 	// Initial request queues the device.
-	code, out := postRequestApproval(t, srv, payload)
+	code, out := postRequestApproval(t, srv, payload, examToken)
 	if code != http.StatusOK || out["status"] != "pending" {
 		t.Fatalf("initial status=%d out=%v, want 200 + pending", code, out)
 	}
@@ -155,7 +160,7 @@ func TestRequestApprovalPollKeepsPendingWhenFlagOff(t *testing.T) {
 	// Repeated polls must neither approve nor reject — the row stays pending.
 	for i := 0; i < 2; i++ {
 		payload["reset"] = false
-		code, out := postRequestApproval(t, srv, payload)
+		code, out := postRequestApproval(t, srv, payload, examToken)
 		if code != http.StatusOK || out["status"] != "pending" {
 			t.Fatalf("poll %d status=%d out=%v, want 200 + pending preserved", i, code, out)
 		}
@@ -169,7 +174,7 @@ func TestRequestApprovalPollKeepsPendingWhenFlagOff(t *testing.T) {
 // the monitoring table via its fresh submission row.
 func TestRequestApprovalAutoApproveEnabled(t *testing.T) {
 	pool := database.NewPackageTestPool(t, "api")
-	examID := createRequestApprovalFixture(t, pool, true, true, true)
+	examID, examToken := createRequestApprovalFixture(t, pool, true, true, true)
 	srv := httptest.NewServer(newRequestApprovalRouter(pool))
 	defer srv.Close()
 
@@ -177,7 +182,7 @@ func TestRequestApprovalAutoApproveEnabled(t *testing.T) {
 		"exam_id": examID, "mac_address": "AA:BB:CC:DD:EE:02",
 		"student_name": "Siti", "exam_number": "02", "student_class": "XI B",
 		"identity_data": map[string]interface{}{"student_name": "Siti"}, "reset": true,
-	})
+	}, examToken)
 	if code != http.StatusOK || out["status"] != "approved" {
 		t.Fatalf("status=%d out=%v, want 200 + approved", code, out)
 	}
@@ -191,7 +196,7 @@ func TestRequestApprovalAutoApproveEnabled(t *testing.T) {
 // is idempotent).
 func TestRequestApprovalAutoApprovePollIdempotent(t *testing.T) {
 	pool := database.NewPackageTestPool(t, "api")
-	examID := createRequestApprovalFixture(t, pool, true, true, true)
+	examID, examToken := createRequestApprovalFixture(t, pool, true, true, true)
 	srv := httptest.NewServer(newRequestApprovalRouter(pool))
 	defer srv.Close()
 
@@ -201,7 +206,7 @@ func TestRequestApprovalAutoApprovePollIdempotent(t *testing.T) {
 		"identity_data": map[string]interface{}{"student_name": "Andi"}, "reset": true,
 	}
 	for i := 0; i < 3; i++ {
-		code, out := postRequestApproval(t, srv, payload)
+		code, out := postRequestApproval(t, srv, payload, examToken)
 		if code != http.StatusOK || out["status"] != "approved" {
 			t.Fatalf("poll %d: status=%d out=%v, want 200 + approved", i, code, out)
 		}
@@ -216,7 +221,7 @@ func TestRequestApprovalAutoApprovePollIdempotent(t *testing.T) {
 // dormant (inactive) exam stays in the pending queue.
 func TestRequestApprovalAutoApproveInactiveExam(t *testing.T) {
 	pool := database.NewPackageTestPool(t, "api")
-	examID := createRequestApprovalFixture(t, pool, false, false, true)
+	examID, examToken := createRequestApprovalFixture(t, pool, false, false, true)
 	srv := httptest.NewServer(newRequestApprovalRouter(pool))
 	defer srv.Close()
 
@@ -224,7 +229,7 @@ func TestRequestApprovalAutoApproveInactiveExam(t *testing.T) {
 		"exam_id": examID, "mac_address": "AA:BB:CC:DD:EE:04",
 		"student_name": "Dewi", "exam_number": "04", "student_class": "XII C",
 		"identity_data": map[string]interface{}{}, "reset": true,
-	})
+	}, examToken)
 	if code != http.StatusOK || out["status"] != "pending" {
 		t.Fatalf("status=%d out=%v, want 200 + pending for inactive exam", code, out)
 	}
@@ -238,7 +243,7 @@ func TestRequestApprovalAutoApproveInactiveExam(t *testing.T) {
 // by actively retrying (reset=true — the client's "Minta Izin Lagi").
 func TestRequestApprovalAutoApproveRespectsRejection(t *testing.T) {
 	pool := database.NewPackageTestPool(t, "api")
-	examID := createRequestApprovalFixture(t, pool, true, true, true)
+	examID, examToken := createRequestApprovalFixture(t, pool, true, true, true)
 	srv := httptest.NewServer(newRequestApprovalRouter(pool))
 	defer srv.Close()
 
@@ -251,7 +256,7 @@ func TestRequestApprovalAutoApproveRespectsRejection(t *testing.T) {
 	}
 
 	// Initial request is auto-approved.
-	code, out := postRequestApproval(t, srv, payload(true))
+	code, out := postRequestApproval(t, srv, payload(true), examToken)
 	if code != http.StatusOK || out["status"] != "approved" {
 		t.Fatalf("initial request status=%d out=%v, want approved", code, out)
 	}
@@ -265,14 +270,14 @@ func TestRequestApprovalAutoApproveRespectsRejection(t *testing.T) {
 
 	// Polls must NOT flip the rejection back to approved.
 	for i := 0; i < 2; i++ {
-		code, out := postRequestApproval(t, srv, payload(false))
+		code, out := postRequestApproval(t, srv, payload(false), examToken)
 		if code != http.StatusOK || out["status"] != "rejected" {
 			t.Fatalf("poll %d status=%d out=%v, want rejected preserved", i, code, out)
 		}
 	}
 
 	// An active retry (reset=true) is auto-approved again.
-	code, out = postRequestApproval(t, srv, payload(true))
+	code, out = postRequestApproval(t, srv, payload(true), examToken)
 	if code != http.StatusOK || out["status"] != "approved" {
 		t.Fatalf("retry status=%d out=%v, want approved", code, out)
 	}
@@ -284,7 +289,7 @@ func TestRequestApprovalAutoApproveRespectsRejection(t *testing.T) {
 // (unlike an explicit rejection).
 func TestRequestApprovalAutoApproveUnsticksLeftoverPending(t *testing.T) {
 	pool := database.NewPackageTestPool(t, "api")
-	examID := createRequestApprovalFixture(t, pool, true, true, false) // flag off initially
+	examID, examToken := createRequestApprovalFixture(t, pool, true, true, false) // flag off initially
 	srv := httptest.NewServer(newRequestApprovalRouter(pool))
 	defer srv.Close()
 
@@ -295,7 +300,7 @@ func TestRequestApprovalAutoApproveUnsticksLeftoverPending(t *testing.T) {
 	}
 
 	// First request while the flag is OFF → lands in the pending queue.
-	code, out := postRequestApproval(t, srv, payload)
+	code, out := postRequestApproval(t, srv, payload, examToken)
 	if code != http.StatusOK || out["status"] != "pending" {
 		t.Fatalf("initial status=%d out=%v, want pending (flag off)", code, out)
 	}
@@ -311,7 +316,7 @@ func TestRequestApprovalAutoApproveUnsticksLeftoverPending(t *testing.T) {
 
 	// A plain poll (reset=false) must now approve the leftover pending row.
 	payload["reset"] = false
-	code, out = postRequestApproval(t, srv, payload)
+	code, out = postRequestApproval(t, srv, payload, examToken)
 	if code != http.StatusOK || out["status"] != "approved" {
 		t.Fatalf("poll status=%d out=%v, want approved after flag enabled", code, out)
 	}
@@ -324,7 +329,7 @@ func TestRequestApprovalAutoApproveUnsticksLeftoverPending(t *testing.T) {
 // the schedule guard applies even when the flag is on.
 func TestRequestApprovalAutoApproveExamEnded(t *testing.T) {
 	pool := database.NewPackageTestPool(t, "api")
-	examID := createRequestApprovalFixture(t, pool, true, true, true)
+	examID, examToken := createRequestApprovalFixture(t, pool, true, true, true)
 	// Force the schedule into the past.
 	if _, err := pool.Exec(context.Background(),
 		`UPDATE exams SET end_time = $1 WHERE id = $2`,
@@ -338,7 +343,7 @@ func TestRequestApprovalAutoApproveExamEnded(t *testing.T) {
 		"exam_id": examID, "mac_address": "AA:BB:CC:DD:EE:08",
 		"student_name": "Fajar", "exam_number": "08", "student_class": "X D",
 		"identity_data": map[string]interface{}{}, "reset": true,
-	})
+	}, examToken)
 	if code != http.StatusOK || out["status"] != "pending" {
 		t.Fatalf("status=%d out=%v, want pending for ended exam", code, out)
 	}
@@ -352,7 +357,7 @@ func TestRequestApprovalAutoApproveExamEnded(t *testing.T) {
 // row survives even when many requests land at the same instant.
 func TestRequestApprovalAutoApproveConcurrentNoDuplicate(t *testing.T) {
 	pool := database.NewPackageTestPool(t, "api")
-	examID := createRequestApprovalFixture(t, pool, true, true, true)
+	examID, examToken := createRequestApprovalFixture(t, pool, true, true, true)
 	srv := httptest.NewServer(newRequestApprovalRouter(pool))
 	defer srv.Close()
 
@@ -361,6 +366,7 @@ func TestRequestApprovalAutoApproveConcurrentNoDuplicate(t *testing.T) {
 		"exam_id": examID, "mac_address": mac,
 		"student_name": "Gita", "exam_number": "09", "student_class": "X E",
 		"identity_data": map[string]interface{}{}, "reset": true,
+		"token":     examToken,
 	}
 
 	const workers = 8
@@ -414,8 +420,135 @@ func TestRequestApprovalUnknownExam(t *testing.T) {
 		"exam_id": 999999, "mac_address": "AA:BB:CC:DD:EE:05",
 		"student_name": "X", "exam_number": "05", "student_class": "X A",
 		"identity_data": map[string]interface{}{}, "reset": true,
-	})
+	}, "")
 	if code != http.StatusNotFound {
 		t.Fatalf("status = %d, want 404 for unknown exam", code)
+	}
+}
+
+// Anti-spam: request-approval is the gate that (with auto-approve on) grants
+// submit access, so it must require the exam token. A caller without it must
+// be able to neither queue nor self-approve.
+func TestRequestApprovalRequiresToken(t *testing.T) {
+	pool := database.NewPackageTestPool(t, "api")
+	examID, _ := createRequestApprovalFixture(t, pool, true, true, true)
+	srv := httptest.NewServer(newRequestApprovalRouter(pool))
+	defer srv.Close()
+
+	code, out := postRequestApproval(t, srv, map[string]interface{}{
+		"exam_id": examID, "mac_address": "AA:BB:CC:DD:EE:F1",
+		"student_name": "Tanpa Token", "exam_number": "F1", "student_class": "X F",
+		"identity_data": map[string]interface{}{}, "reset": true,
+	}, "")
+	if code != http.StatusUnauthorized {
+		t.Fatalf("status=%d out=%v, want 401 without token", code, out)
+	}
+	if got := countSubmissions(t, pool, examID, "AA:BB:CC:DD:EE:F1"); got != 0 {
+		t.Errorf("submissions = %d, want 0 — no row may be created without a token", got)
+	}
+	var rows int
+	if err := pool.QueryRow(context.Background(),
+		`SELECT COUNT(*) FROM exam_approvals WHERE exam_id = $1 AND mac_address = $2`,
+		examID, "AA:BB:CC:DD:EE:F1").Scan(&rows); err != nil {
+		t.Fatalf("count approvals: %v", err)
+	}
+	if rows != 0 {
+		t.Errorf("approvals = %d, want 0 — no approval row may be created without a token", rows)
+	}
+}
+
+// A wrong token is rejected the same way as a missing one.
+func TestRequestApprovalRejectsWrongToken(t *testing.T) {
+	pool := database.NewPackageTestPool(t, "api")
+	examID, examToken := createRequestApprovalFixture(t, pool, true, true, true)
+	srv := httptest.NewServer(newRequestApprovalRouter(pool))
+	defer srv.Close()
+
+	code, out := postRequestApproval(t, srv, map[string]interface{}{
+		"exam_id": examID, "mac_address": "AA:BB:CC:DD:EE:F2",
+		"student_name": "Token Salah", "exam_number": "F2", "student_class": "X F",
+		"identity_data": map[string]interface{}{}, "reset": true,
+	}, "WRONG"+examToken)
+	if code != http.StatusUnauthorized {
+		t.Fatalf("status=%d out=%v, want 401 for wrong token", code, out)
+	}
+}
+
+// Cap: when max_approvals_per_exam is reached, further devices fall back to
+// the pending queue instead of being auto-approved; already-approved devices
+// are never demoted by the cap.
+func TestRequestApprovalCapLimitsAutoApprovedDevices(t *testing.T) {
+	pool := database.NewPackageTestPool(t, "api")
+	examID, examToken := createRequestApprovalFixture(t, pool, true, true, true)
+	if err := models.SetSaasSetting(context.Background(), pool, models.SettingMaxApprovalsPerExam, "2"); err != nil {
+		t.Fatalf("set cap: %v", err)
+	}
+	srv := httptest.NewServer(newRequestApprovalRouter(pool))
+	defer srv.Close()
+
+	// Two devices fit under the cap.
+	for _, mac := range []string{"AA:BB:CC:DD:EE:F3", "AA:BB:CC:DD:EE:F4"} {
+		code, out := postRequestApproval(t, srv, map[string]interface{}{
+			"exam_id": examID, "mac_address": mac,
+			"student_name": "Siswa Cap", "exam_number": "F3", "student_class": "X F",
+			"identity_data": map[string]interface{}{}, "reset": true,
+		}, examToken)
+		if code != http.StatusOK || out["status"] != "approved" {
+			t.Fatalf("device %s: status=%d out=%v, want approved", mac, code, out)
+		}
+	}
+
+	// The third device must land in the pending queue, not be auto-approved.
+	code, out := postRequestApproval(t, srv, map[string]interface{}{
+		"exam_id": examID, "mac_address": "AA:BB:CC:DD:EE:F5",
+		"student_name": "Siswa Cap", "exam_number": "F3", "student_class": "X F",
+		"identity_data": map[string]interface{}{}, "reset": true,
+	}, examToken)
+	if code != http.StatusOK || out["status"] != "pending" {
+		t.Fatalf("over-cap status=%d out=%v, want pending", code, out)
+	}
+	if got := countSubmissions(t, pool, examID, "AA:BB:CC:DD:EE:F5"); got != 0 {
+		t.Errorf("submissions = %d, want 0 for over-cap pending device", got)
+	}
+
+	// An already-approved device retrying (reset=true) is NOT demoted by the cap.
+	code, out = postRequestApproval(t, srv, map[string]interface{}{
+		"exam_id": examID, "mac_address": "AA:BB:CC:DD:EE:F3",
+		"student_name": "Siswa Cap", "exam_number": "F3", "student_class": "X F",
+		"identity_data": map[string]interface{}{}, "reset": true,
+	}, examToken)
+	if code != http.StatusOK || out["status"] != "approved" {
+		t.Fatalf("already-approved retry status=%d out=%v, want approved preserved", code, out)
+	}
+}
+
+// Stale-token tolerance: a device that already has an approval row may keep
+// polling with an outdated token (dynamic-token rotation mid-wait) — the same
+// tolerance SubmitExam/AccessLog apply to known devices.
+func TestRequestApprovalKnownDeviceToleratesStaleToken(t *testing.T) {
+	pool := database.NewPackageTestPool(t, "api")
+	examID, examToken := createRequestApprovalFixture(t, pool, true, true, true)
+	srv := httptest.NewServer(newRequestApprovalRouter(pool))
+	defer srv.Close()
+
+	// Device joins with the current token → auto-approved.
+	code, out := postRequestApproval(t, srv, map[string]interface{}{
+		"exam_id": examID, "mac_address": "AA:BB:CC:DD:EE:F6",
+		"student_name": "Stale", "exam_number": "F6", "student_class": "X F",
+		"identity_data": map[string]interface{}{}, "reset": true,
+	}, examToken)
+	if code != http.StatusOK || out["status"] != "approved" {
+		t.Fatalf("join status=%d out=%v, want approved", code, out)
+	}
+
+	// The token rotates; the device's next poll carries the OLD token and must
+	// still be tolerated (the row exists, so it is a known device).
+	code, out = postRequestApproval(t, srv, map[string]interface{}{
+		"exam_id": examID, "mac_address": "AA:BB:CC:DD:EE:F6",
+		"student_name": "Stale", "exam_number": "F6", "student_class": "X F",
+		"identity_data": map[string]interface{}{}, "reset": false,
+	}, "OLD"+examToken)
+	if code != http.StatusOK || out["status"] != "approved" {
+		t.Fatalf("stale-token poll status=%d out=%v, want approved preserved", code, out)
 	}
 }

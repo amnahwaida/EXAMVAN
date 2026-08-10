@@ -2,7 +2,7 @@
 
 > Platform distribusi & pelaksanaan ujian digital aman berbasis cloud (HTTPS) untuk sekolah dan kampus dengan perlindungan anti-cheat berlapis di sisi Android.
 >
-> 🏷️ **Rilis terbaru:** tag **`v2.4.1`** (9 Agustus 2026) — changelog lengkap di [GitHub Releases](https://github.com/amnahwaida/EXAMVAN/releases).
+> 🏷️ **Rilis terbaru:** tag **`v2.5.0`** (10 Agustus 2026) — changelog lengkap di [GitHub Releases](https://github.com/amnahwaida/EXAMVAN/releases).
 
 ---
 
@@ -657,6 +657,7 @@ Audit menyeluruh kolom **FOREIGN KEY** di `webui/internal/database/schema.sql`: 
 | `student_access_logs` | `exam_id` | `exams(id)` | `idx_student_access_logs_exam_id` + `idx_access_logs_exam_time` | Log kehadiran per exam, riwayat perangkat |
 | `student_access_logs` | `submission_id` | `submissions(id)` | — (sengaja tanpa index) | Kolom **hanya ditulis** (`ON DELETE SET NULL`); tidak pernah dipakai sebagai filter/join |
 | `exam_approvals` | `exam_id` | `exams(id)` | `UNIQUE(exam_id, mac_address)` (kolom pertama) | Status persetujuan perangkat per exam |
+| `exams` (bukan FK) | `end_time` | — | parsial `idx_exams_end_time ON exams(end_time) WHERE end_time IS NOT NULL` | DELETE cleanup approval basi (`PurgeStaleExamApprovals`) — scan ujian berakhir tetap terindeks saat data membesar |
 | `vouchers` | `created_by` | `admin_users(id)` | `idx_vouchers_created_by` | JOIN daftar voucher → username pembuat |
 | `voucher_redemptions` | `voucher_id` | `vouchers(id)` | `idx_voucher_redemptions_voucher_id` | Cek `used_count` saat redeem, riwayat pemakaian per voucher, backfill legacy |
 | `voucher_redemptions` | `user_id` | `admin_users(id)` | `idx_voucher_redemptions_user_id` (+ parsial unik `idx_voucher_redemptions_one_active WHERE is_active`) | Daftar paket per akun, guard entitlement, job expiry/cascade |
@@ -760,6 +761,60 @@ Tes: `TestExamScheduleEnded` (unit — end tak diset, future, dalam grace 60s, l
 **Solusi:** dedup kini di-scope dengan `exam_number` saat tidak kosong — di `upsertSubmissionRow` (`webui/internal/queue/submission_queue.go:475`) dan `CreateSubmission` (`webui/internal/models/submission.go:405`). Perangkat bersama + 2 nomor ujian → **dua baris terpisah**; nomor ujian kosong → perilaku lama (satu baris per perangkat) dipertahankan.
 
 Tes: `TestUpsertSubmissionRowTwoStudentsShareDevice` (`webui/internal/queue/submission_queue_test.go`).
+
+---
+
+## Hardening Anti-Spam Auto-Approve & Antrean Persetujuan (10 Agustus 2026)
+
+Audit keamanan `POST /api/exams/request-approval` (gerbang persetujuan perangkat) menemukan endpoint publik **tanpa token** yang bisa di-spam: siapa pun yang menebak `exam_id` dapat mengisi antrean `exam_approvals` (pending) dan — saat auto-approve aktif — menyetujui perangkat sendiri **tanpa batas** (plus satu baris `submissions` per perangkat), membengkakkan database dan halaman pengawasan. Empat lapis mitigasi diterapkan:
+
+1. **Token wajib** — `request-approval` kini menolak **401** tanpa token exam yang valid (`examtoken.Matches`, `webui/internal/handlers/api/exams.go`). Perangkat yang *sudah punya* baris approval tetap ditoleransi dengan token basi (toleransi rotasi token dinamis — sama seperti `submit`/`access-log`), sehingga token yang berputar di tengah menunggu tidak membuat siswa macet. Klien Android (`ApiClient.kt`, v2.5.0) dan desktop (`api.py`) mengirim `token` pada setiap poll.
+2. **Cap perangkat per exam** — saat auto-approve aktif dan jumlah perangkat berstatus `approved` mencapai batas, request berikutnya jatuh ke antrean `pending` (bukan di-approve otomatis). Batas diatur lewat setting SaaS **`max_approvals_per_exam`** (default `500`; `0` = tak terbatas; `webui/internal/models/settings.go`) — **dapat diubah dari UI** oleh SuperAdmin di **Users → panel "SaaS & SMTP Email Settings" → bagian Cloudflare Turnstile (Anti-Bot) → "Maks Perangkat Disetujui per Ujian"** (GET/POST `/admin/api/saas-settings`; nilai negatif di-clamp ke 0 = tak terbatas). Perangkat yang sudah approved **tidak pernah** diturunkan oleh cap.
+3. **Rate limit per-exam global (Redis)** — bucket `ratelimit:reqapp-exam:<exam_id>` (6000/menit) di atas limiter per-IP middleware, menahan banjir terdistribusi yang memutar IP terhadap satu ujian.
+4. **Pagination antrean persetujuan** — `GET /admin/api/pengawas/exams/:exam_id/approvals` menerima `page`/`limit` (default 100, maks 500) dan mengembalikan `total`; UI detail pengawasan (`pengawas_detail.html`) memuat 200 perangkat terlama dan menampilkan catatan saat antrean lebih besar dari yang ditampilkan.
+
+Versi minimum klien dinaikkan ke **2.5.0** (`requiredAndroidVersion` + `SettingAndroidVersion` server, APK `versionCode 34`, desktop `APP_VERSION`) — rilis APK baru **wajib** agar halaman menunggu persetujuan tetap berfungsi (klien lama tidak mengirim `token` dan akan ditolak 401). **Pada instalasi lama**, naikkan juga `android_version` di **SaaS Settings → Android Version** (langkah rilis yang sama seperti biasa) agar klien usang mendapat 426 force-update yang jelas, bukan 401 di layar menunggu.
+
+Tes: `TestRequestApprovalRequiresToken`, `TestRequestApprovalRejectsWrongToken`, `TestRequestApprovalCapLimitsAutoApprovedDevices`, `TestRequestApprovalKnownDeviceToleratesStaleToken` (`webui/internal/handlers/api/request_approval_test.go`); suite spam `TestRequestApprovalSpamMassDevicesBeyondCap`, `TestRequestApprovalSpamResetDoesNotBypassCap`, `TestRequestApprovalCapZeroDisablesBrake`, `TestRequestApprovalRejectedDeviceFreesCapSlot`, `TestRequestApprovalSpamWithoutTokenCreatesNoRows`, plus unit test Redis `TestCheckRateLimitFloodBrake` (miniredis) & wiring `TestRequestApprovalWorksWithRedisPresent` (`webui/internal/handlers/api/request_approval_spam_test.go`); `TestGetPendingApprovalsPaginated` (`webui/internal/handlers/admin/auto_approve_test.go`).
+
+### Jejak Audit Toggle Auto-Approve (siapa menyalakan/mematikan kapan)
+
+Toggle **auto-approve** (server-side) kini meninggalkan jejak audit append-only di tabel **`admin_audit_logs`** — jawaban atas pertanyaan akuntabilitas *"siapa yang menyalakan auto-approve, dan kapan?"*:
+
+- **Setiap toggle berhasil** (`POST /admin/api/pengawas/exams/:exam_id/auto-approve` yang lolos otorisasi exam-scoped) menulis **satu baris**: `user_id` + snapshot `username` (denormalisasi), `action` (`auto_approve_enable` / `auto_approve_disable`), `exam_id`, `detail`, dan `created_at` (`models.CreateAdminAuditLog`, dipanggil dari `SetAutoApprove` di `webui/internal/handlers/admin/pengawas.go`). Caller yang ditolak **403 tidak pernah** menulis baris — percobaan terlarang tidak bisa memalsukan jejak.
+- **Keputusan per perangkat ikut diaudit:** `POST /admin/api/pengawas/exams/:exam_id/approvals/:mac_address` (`SetApprovalStatus` — Izinkan/Tolak) kini juga menulis baris dengan `action` `approval_approved` / `approval_rejected` dan `detail` berisi snapshot identitas perangkat (`MAC (nama siswa)`). Baris hanya ditulis saat `UPDATE` benar-benar mengubah baris (`RowsAffected > 0`) — keputusan ke perangkat yang tidak dikenal **tidak** memalsukan jejak — dan tetap best-effort: kegagalan menulis audit tidak membatalkan keputusan.
+- **Append-only:** baris tidak pernah di-update/dihapus oleh kode aplikasi. `user_id`/`exam_id` memakai `ON DELETE SET NULL` (jejak tetap terbaca walau aktor/ujian dihapus), sementara snapshot `username`/`detail` menjaga keterbacaan setelah rename akun. Index `(exam_id, created_at DESC)` mendukung query "toggle terakhir per ujian".
+- **Hint di UI pengawasan:** `GET /admin/api/pengawas/exams/:exam_id/auto-approve` kini mengembalikan `last_changed_by`, `last_changed_at` (RFC3339), dan `last_action` dari baris audit terakhir — halaman detail pengawasan (`pengawas_detail.html`) menampilkannya sebagai chip **"Diaktifkan/Dimatikan oleh <user> · <waktu>"** di samping toggle (`loadAAStatus`/`updateAAHint`, di-refresh otomatis setelah setiap toggle).
+- **Panel riwayat lengkap per ujian:** tombol **"Riwayat Audit"** di toolbar antrean persetujuan membuka modal berisi **seluruh** jejak `admin_audit_logs` ujian (terbaru di atas) — `GET /admin/api/pengawas/exams/:exam_id/audit-logs?limit=` (default 100, maks 500, `admin.GetExamAuditLogs` + `models.ListExamAuditLogs`, otorisasi exam-scoped sama dengan endpoint lain, payload dibatasi anti-DoS). Setiap baris menampilkan aksi (dengan warna: hijau = diaktifkan, merah = dimatikan), aktor, dan waktu (`showAuditLog` di `pengawas_detail.html`).
+
+Tes: `TestAutoApproveToggleWritesAuditLog` (2 baris berurutan: enable lalu disable, atribusi username benar), `TestAutoApproveGetReturnsLastChanged` (field `last_changed_*` muncul setelah toggle, dihilangkan bila belum ada jejak), `TestAutoApproveUnauthorizedWritesNoAuditLog` (403 → 0 baris), `TestExamAuditLogsFullHistory` (history lengkap terbaru-di-atas dengan 2 aktor berbeda), `TestExamAuditLogsEmptyTrail` (tanpa jejak → array kosong, bukan error), `TestExamAuditLogsUnauthorized` (pengawas tak bertugas → 403), `TestApprovalDecisionWritesAuditLog` (Izinkan lalu Tolak → 2 baris berurutan + snapshot MAC/siswa), `TestApprovalDecisionUnknownDeviceWritesNoAuditLog` (perangkat tak dikenal → 0 baris), `TestApprovalDecisionUnauthorizedWritesNoAuditLog` (403 → 0 baris), + guard markup UI (`templates_autoapprove_test.go`) dan guard rute (`routes_pengawas_autoapprove_test.go`) — semuanya di `webui/internal/handlers/admin/` & `webui/cmd/server/`.
+
+### Pembersihan Orphan `exam_approvals` Saat Ujian Dihapus
+
+Baris `exam_approvals` adalah data anak dari ujian (gerbang izin per perangkat) — menghapus ujian harus menghapus baris persetujuannya, apa pun statusnya (`pending`/`approved`/`rejected` — keputusan itu mati bersama ujiannya). Tiga jalur penghapusan kini membersihkannya secara **eksplisit** (di samping `ON DELETE CASCADE` di schema, sebagai defense-in-depth untuk database hasil migrasi pra-FK): `DeleteExam` (transaksi), `BulkDeleteExams` (`DELETE ... WHERE exam_id = ANY($1)` + `exam_pengawas`), dan `DeleteUser` (untuk semua ujian milik user yang dihapus, termasuk cascade operator). Tes: `TestDeleteExamRemovesApprovals`, `TestBulkDeleteExamsRemovesApprovals`, `TestDeleteUserRemovesExamApprovals` (`webui/internal/models/exam_delete_test.go`).
+
+### Job Pembersih Baris Approval Basi (Pending/Approved)
+
+Antrean `exam_approvals` kini dibersihkan otomatis oleh **`StartApprovalCleanupJob`** (`webui/internal/handlers/admin/approval_cleanup_job.go`, dijalankan dari `main.go` bersama job expiry; satu pass saat start lalu setiap interval terkonfigurasi). Tujuannya: membatasi antrean yang bisa dibanjiri spam, dan membebaskan slot cap perangkat (`max_approvals_per_exam` menghitung `status = 'approved'`) yang tersisa setelah ujian selesai — sehingga ujian yang dipakai ulang mulai dari papan bersih.
+
+**Interval & TTL dapat dikonfigurasi SuperAdmin dari panel SaaS Settings** (Users → SaaS & SMTP Email Settings → bagian *Pembersihan Otomatis Antrean Persetujuan*; berlaku tanpa restart server — job membaca ulang nilainya setiap siklus):
+
+| Setting (key `saas_settings`) | Default | Arti |
+|---|---|---|
+| `approval_cleanup_interval_minutes` | `15` | Seberapa sering pass pembersihan berjalan (minimum 1 menit; 0/negatif di-clamp) |
+| `approval_cleanup_ended_grace_hours` | `1` | Toleransi setelah `end_time` ujian lewat sebelum barisnya dibersihkan (`0` = segera) |
+| `approval_cleanup_inactive_ttl_hours` | `24` | Umur baris pending/approved pada ujian nonaktif sebelum dihapus (`0` = hapus semua) |
+
+Field disimpan sebagai pointer (payload UI lama tanpa field tidak mereset nilai terkonfigurasi), dan `0` untuk grace/TTL dipertahankan sebagai pilihan disengaja — hanya interval yang di-clamp ke minimum 1.
+
+`models.PurgeStaleExamApprovals` (`webui/internal/models/approval_cleanup.go`) menerapkan **dua aturan konservatif** — keduanya **tidak pernah** menyentuh baris `rejected` (keputusan eksplisit pengawas) dan **tidak pernah** menyentuh `submissions`/access logs (rekam siswa yang tahan lama di balik halaman monitoring & hasil):
+
+| Aturan | Dihapus | Dijaga |
+|---|---|---|
+| **Ujian sudah berakhir** — `end_time` lewat > 1 jam (grace `approvalEndedGrace`; setelah jadwal berakhir tidak ada perangkat yang bisa join/poll/submit lagi) | `pending` (permintaan mati yang tak akan diputus) + `approved` (disetujui tapi tak pernah mengumpulkan — pegang slot cap) | Semua baris pada ujian yang masih **live** (aktif + dimulai + `end_time` belum lewat) — perangkat yang menunggu/berjalan tidak boleh terdampar |
+| **Ujian nonaktif** (`status = 'inactive'`, dihentikan/di-tombstone) dan baris berusia > 24 jam (TTL `approvalInactiveTTL` — memberi guru waktu sehari untuk restart) | `pending` + `approved` tua | Baris yang lebih muda dari TTL (guru masih mungkin restart) + `rejected` segala usia |
+
+Log job mencatat jumlah yang dibersihkan per kategori (`approval-cleanup job: purged N ...`). Tes: `TestApprovalCleanupEndedExam`, `TestApprovalCleanupKeepsLiveExamRows`, `TestApprovalCleanupInactiveExamTTL`, `TestApprovalCleanupPreservesSubmissions` (`webui/internal/handlers/admin/approval_cleanup_test.go`).
 
 ---
 

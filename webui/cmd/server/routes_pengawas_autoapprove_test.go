@@ -38,6 +38,8 @@ func TestPengawasAutoApproveRoutesRegistered(t *testing.T) {
 		// Approval queue + per-device decision ("cabut izin" too).
 		"GET /admin/api/pengawas/exams/:exam_id/approvals",
 		"POST /admin/api/pengawas/exams/:exam_id/approvals/:mac_address",
+		// Full audit trail behind the auto-approve toggle (read-only).
+		"GET /admin/api/pengawas/exams/:exam_id/audit-logs",
 	} {
 		if !registered[key] {
 			t.Errorf("pengawas endpoint not registered under /admin/api: %s", key)

@@ -10,6 +10,7 @@ import (
 	"net/http/cookiejar"
 	"net/http/httptest"
 	"strconv"
+	"strings"
 	"testing"
 	"time"
 
@@ -67,7 +68,9 @@ func newAutoApproveTestRouter(pool *pgxpool.Pool) *gin.Engine {
 	adminAPI.GET("/pengawas/exams", PengawasExams())
 	adminAPI.GET("/pengawas/exams/:exam_id/auto-approve", GetAutoApprove())
 	adminAPI.POST("/pengawas/exams/:exam_id/auto-approve", SetAutoApprove())
+	adminAPI.GET("/pengawas/exams/:exam_id/approvals", GetPendingApprovals())
 	adminAPI.POST("/pengawas/exams/:exam_id/approvals/:mac_address", SetApprovalStatus())
+	adminAPI.GET("/pengawas/exams/:exam_id/audit-logs", GetExamAuditLogs())
 
 	// The public request-approval endpoint, so a test can verify that a
 	// revoke done through the admin endpoint survives the device's next poll.
@@ -77,12 +80,14 @@ func newAutoApproveTestRouter(pool *pgxpool.Pool) *gin.Engine {
 
 // autoApproveFixture holds the users/exam for the authorization matrix:
 // GuruID owns the exam, PwID is an assigned pengawas (may access), OtherID is
-// a pengawas from another instansi with no assignment (must 403).
+// a pengawas from another instansi with no assignment (must 403). Token is the
+// exam's token, needed by the public request-approval endpoint (anti-spam).
 type autoApproveFixture struct {
 	ExamID  int
 	GuruID  int
 	PwID    int
 	OtherID int
+	Token   string
 }
 
 func createAutoApproveFixture(t *testing.T, pool *pgxpool.Pool) autoApproveFixture {
@@ -106,18 +111,19 @@ func createAutoApproveFixture(t *testing.T, pool *pgxpool.Pool) autoApproveFixtu
 	pwID := mk("aa-pengawas", "Pengawas AA", "SMA Alpha", models.RolePengawas)
 	otherID := mk("aa-other", "Pengawas Lain", "SMK Beta", models.RolePengawas)
 
+	token := fmt.Sprintf("AA%06d", time.Now().UnixNano()%1000000)
 	var examID int
 	if err := pool.QueryRow(ctx, `
 		INSERT INTO exams (name, file_path, size_bytes, token, active_token, status, security_level, created_by)
 		VALUES ('Ujian AA', 'aa.pdf', 1024, $1, $1, 'active', 'medium', $2)
-		RETURNING id`, fmt.Sprintf("AA%06d", time.Now().UnixNano()%1000000), guruID).Scan(&examID); err != nil {
+		RETURNING id`, token, guruID).Scan(&examID); err != nil {
 		t.Fatalf("insert exam: %v", err)
 	}
 	if _, err := pool.Exec(ctx, `INSERT INTO exam_pengawas (exam_id, user_id) VALUES ($1, $2)`, examID, pwID); err != nil {
 		t.Fatalf("assign pengawas: %v", err)
 	}
 
-	return autoApproveFixture{ExamID: examID, GuruID: guruID, PwID: pwID, OtherID: otherID}
+	return autoApproveFixture{ExamID: examID, GuruID: guruID, PwID: pwID, OtherID: otherID, Token: token}
 }
 
 // autoApproveClient keeps the session cookie across login and API calls.
@@ -294,7 +300,7 @@ func TestAutoApproveRevokeApprovedDevicePersistsOnPoll(t *testing.T) {
 	code, out = client.do(http.MethodPost, "/api/exams/request-approval", map[string]interface{}{
 		"exam_id": fx.ExamID, "mac_address": mac,
 		"student_name": "Siswa Revoke", "exam_number": "01", "student_class": "XII A",
-		"identity_data": map[string]interface{}{}, "reset": false,
+		"identity_data": map[string]interface{}{}, "reset": false, "token": fx.Token,
 	})
 	if code != http.StatusOK || out["status"] != "rejected" {
 		t.Fatalf("poll status=%d out=%v, want rejected preserved after revoke", code, out)
@@ -369,6 +375,189 @@ func TestPengawasExamsListSurfacesAutoApprove(t *testing.T) {
 	}
 }
 
+// The pending-approvals list is paginated so a spam-flooded queue cannot dump
+// unbounded rows onto the monitoring page.
+func TestGetPendingApprovalsPaginated(t *testing.T) {
+	pool := database.NewPackageTestPool(t, "admin")
+	fx := createAutoApproveFixture(t, pool)
+
+	for i := 0; i < 5; i++ {
+		if _, err := pool.Exec(context.Background(), `
+			INSERT INTO exam_approvals (exam_id, mac_address, student_name, exam_number, student_class, status)
+			VALUES ($1, $2, 'Siswa Pending', $3, 'XII A', 'pending')`,
+			fx.ExamID, fmt.Sprintf("EE:00:00:00:00:0%d", i), fmt.Sprintf("%02d", i)); err != nil {
+			t.Fatalf("insert pending %d: %v", i, err)
+		}
+	}
+
+	srv := httptest.NewServer(newAutoApproveTestRouter(pool))
+	defer srv.Close()
+	client := newAutoApproveClient(t, srv)
+	client.login(fx.PwID)
+
+	path := fmt.Sprintf("/admin/api/pengawas/exams/%d/approvals?limit=2&page=1", fx.ExamID)
+	code, out := client.do(http.MethodGet, path, nil)
+	if code != http.StatusOK || out["success"] != true {
+		t.Fatalf("page 1 status=%d out=%v, want 200 success", code, out)
+	}
+	data, _ := out["data"].([]interface{})
+	if len(data) != 2 {
+		t.Fatalf("page 1 returned %d rows, want 2", len(data))
+	}
+	if out["total"] != float64(5) {
+		t.Fatalf("total = %v, want 5", out["total"])
+	}
+	if out["limit"] != float64(2) || out["page"] != float64(1) {
+		t.Fatalf("pagination meta = page %v limit %v, want 1/2", out["page"], out["limit"])
+	}
+
+	// Last page returns the remainder.
+	path = fmt.Sprintf("/admin/api/pengawas/exams/%d/approvals?limit=2&page=3", fx.ExamID)
+	code, out = client.do(http.MethodGet, path, nil)
+	if code != http.StatusOK {
+		t.Fatalf("page 3 status=%d, want 200", code)
+	}
+	data, _ = out["data"].([]interface{})
+	if len(data) != 1 {
+		t.Fatalf("page 3 returned %d rows, want 1 (remainder)", len(data))
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Audit trail: who toggled auto-approve, and when
+// ---------------------------------------------------------------------------
+
+// Toggling the flag must leave an append-only audit trail — one row per
+// change, in order, attributed to the acting user (username snapshot).
+func TestAutoApproveToggleWritesAuditLog(t *testing.T) {
+	pool := database.NewPackageTestPool(t, "admin")
+	fx := createAutoApproveFixture(t, pool)
+	srv := httptest.NewServer(newAutoApproveTestRouter(pool))
+	defer srv.Close()
+
+	client := newAutoApproveClient(t, srv)
+	client.login(fx.PwID) // username "aa-pengawas"
+
+	path := fmt.Sprintf("/admin/api/pengawas/exams/%d/auto-approve", fx.ExamID)
+
+	// Enable, then disable — two separate actions, both attributable.
+	if code, out := client.do(http.MethodPost, path, map[string]interface{}{"enabled": true}); code != http.StatusOK || out["enabled"] != true {
+		t.Fatalf("POST enable status=%d out=%v, want 200 + enabled=true", code, out)
+	}
+	if code, out := client.do(http.MethodPost, path, map[string]interface{}{"enabled": false}); code != http.StatusOK || out["enabled"] != false {
+		t.Fatalf("POST disable status=%d out=%v, want 200 + enabled=false", code, out)
+	}
+
+	rows, err := pool.Query(context.Background(),
+		`SELECT username, action, exam_id, detail FROM admin_audit_logs WHERE exam_id = $1 ORDER BY id`, fx.ExamID)
+	if err != nil {
+		t.Fatalf("query audit logs: %v", err)
+	}
+	defer rows.Close()
+
+	type auditRow struct {
+		username string
+		action   string
+		examID   int
+		detail   string
+	}
+	var got []auditRow
+	for rows.Next() {
+		var r auditRow
+		if err := rows.Scan(&r.username, &r.action, &r.examID, &r.detail); err != nil {
+			t.Fatalf("scan audit row: %v", err)
+		}
+		got = append(got, r)
+	}
+
+	if len(got) != 2 {
+		t.Fatalf("audit rows = %d, want 2 (enable + disable): %+v", len(got), got)
+	}
+	if got[0].username != "aa-pengawas" || got[0].action != models.ActionAutoApproveEnable {
+		t.Errorf("first audit row = %+v, want username aa-pengawas + action %s", got[0], models.ActionAutoApproveEnable)
+	}
+	if got[1].username != "aa-pengawas" || got[1].action != models.ActionAutoApproveDisable {
+		t.Errorf("second audit row = %+v, want username aa-pengawas + action %s", got[1], models.ActionAutoApproveDisable)
+	}
+	for _, r := range got {
+		if r.examID != fx.ExamID {
+			t.Errorf("audit row exam_id = %d, want %d", r.examID, fx.ExamID)
+		}
+		if r.detail == "" {
+			t.Errorf("audit row %s has empty detail — UI hint relies on the snapshot", r.action)
+		}
+	}
+}
+
+// The GET endpoint must surface the audit hint (who/when/action) so the
+// monitoring page can show "Diaktifkan oleh <user> pada <time>" next to the
+// toggle — and omit the fields when the exam has no trail yet.
+func TestAutoApproveGetReturnsLastChanged(t *testing.T) {
+	pool := database.NewPackageTestPool(t, "admin")
+	fx := createAutoApproveFixture(t, pool)
+	srv := httptest.NewServer(newAutoApproveTestRouter(pool))
+	defer srv.Close()
+
+	client := newAutoApproveClient(t, srv)
+	client.login(fx.PwID)
+
+	path := fmt.Sprintf("/admin/api/pengawas/exams/%d/auto-approve", fx.ExamID)
+
+	// No trail yet → no last_changed fields.
+	code, out := client.do(http.MethodGet, path, nil)
+	if code != http.StatusOK {
+		t.Fatalf("GET status=%d, want 200", code)
+	}
+	if _, ok := out["last_changed_by"]; ok {
+		t.Errorf("GET before any toggle returned last_changed_by=%v, want omitted", out["last_changed_by"])
+	}
+
+	// Enable → the hint points at the acting pengawas with the right action.
+	if code, _ := client.do(http.MethodPost, path, map[string]interface{}{"enabled": true}); code != http.StatusOK {
+		t.Fatalf("POST enable status=%d, want 200", code)
+	}
+	code, out = client.do(http.MethodGet, path, nil)
+	if code != http.StatusOK {
+		t.Fatalf("GET status=%d, want 200", code)
+	}
+	if got, want := out["last_changed_by"], "aa-pengawas"; got != want {
+		t.Errorf("last_changed_by = %v, want %s", got, want)
+	}
+	if got, want := out["last_action"], models.ActionAutoApproveEnable; got != want {
+		t.Errorf("last_action = %v, want %s", got, want)
+	}
+	if at, ok := out["last_changed_at"].(string); !ok || at == "" {
+		t.Errorf("last_changed_at = %v, want non-empty RFC3339 string", out["last_changed_at"])
+	} else if _, err := time.Parse(time.RFC3339, at); err != nil {
+		t.Errorf("last_changed_at %v is not RFC3339: %v", at, err)
+	}
+}
+
+// A 403 must leave NO audit trail: denied callers must not be able to forge
+// an "enabled" entry, and their denied attempt is not an admin action.
+func TestAutoApproveUnauthorizedWritesNoAuditLog(t *testing.T) {
+	pool := database.NewPackageTestPool(t, "admin")
+	fx := createAutoApproveFixture(t, pool)
+	srv := httptest.NewServer(newAutoApproveTestRouter(pool))
+	defer srv.Close()
+
+	client := newAutoApproveClient(t, srv)
+	client.login(fx.OtherID) // unassigned pengawas from another instansi
+
+	path := fmt.Sprintf("/admin/api/pengawas/exams/%d/auto-approve", fx.ExamID)
+	if code, _ := client.do(http.MethodPost, path, map[string]interface{}{"enabled": true}); code != http.StatusForbidden {
+		t.Fatalf("POST status=%d, want 403 for unassigned pengawas", code)
+	}
+
+	var n int
+	if err := pool.QueryRow(context.Background(), `SELECT COUNT(*) FROM admin_audit_logs`).Scan(&n); err != nil {
+		t.Fatalf("count audit logs: %v", err)
+	}
+	if n != 0 {
+		t.Errorf("audit rows = %d after denied toggle, want 0 — 403 must not write the trail", n)
+	}
+}
+
 // Unknown exams 404 instead of toggling something the caller cannot see.
 func TestAutoApproveUnknownExam404(t *testing.T) {
 	pool := database.NewPackageTestPool(t, "admin")
@@ -385,5 +574,264 @@ func TestAutoApproveUnknownExam404(t *testing.T) {
 	}
 	if code, _ := client.do(http.MethodPost, path, map[string]interface{}{"enabled": true}); code != http.StatusNotFound {
 		t.Fatalf("POST status=%d, want 404 for unknown exam", code)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Audit history panel: full admin_audit_logs trail per exam
+// ---------------------------------------------------------------------------
+
+// The audit-logs endpoint returns the complete history (not just the last
+// toggle), newest first, each row attributed to its actor — the payload the
+// monitoring page's "Riwayat Audit" panel renders.
+func TestExamAuditLogsFullHistory(t *testing.T) {
+	pool := database.NewPackageTestPool(t, "admin")
+	fx := createAutoApproveFixture(t, pool)
+	srv := httptest.NewServer(newAutoApproveTestRouter(pool))
+	defer srv.Close()
+
+	path := fmt.Sprintf("/admin/api/pengawas/exams/%d/auto-approve", fx.ExamID)
+
+	// Two different actors, so the trail must preserve per-row attribution.
+	pw := newAutoApproveClient(t, srv)
+	pw.login(fx.PwID)
+	if code, out := pw.do(http.MethodPost, path, map[string]interface{}{"enabled": true}); code != http.StatusOK || out["enabled"] != true {
+		t.Fatalf("enable by pengawas status=%d out=%v, want 200", code, out)
+	}
+
+	guru := newAutoApproveClient(t, srv)
+	guru.login(fx.GuruID)
+	if code, out := guru.do(http.MethodPost, path, map[string]interface{}{"enabled": false}); code != http.StatusOK || out["enabled"] != false {
+		t.Fatalf("disable by guru status=%d out=%v, want 200", code, out)
+	}
+
+	// Both rows must surface, newest first (the guru's disable).
+	logsPath := fmt.Sprintf("/admin/api/pengawas/exams/%d/audit-logs", fx.ExamID)
+	code, out := guru.do(http.MethodGet, logsPath, nil)
+	if code != http.StatusOK || out["success"] != true {
+		t.Fatalf("GET audit-logs status=%d out=%v, want 200 success", code, out)
+	}
+	logs, ok := out["logs"].([]interface{})
+	if !ok {
+		t.Fatalf("logs is not an array: %T", out["logs"])
+	}
+	if len(logs) != 2 {
+		t.Fatalf("audit logs = %d, want 2 (enable + disable)", len(logs))
+	}
+
+	first := logs[0].(map[string]interface{})
+	if first["username"] != "aa-guru" || first["action"] != models.ActionAutoApproveDisable {
+		t.Errorf("newest log = %v, want aa-guru + %s", first, models.ActionAutoApproveDisable)
+	}
+	second := logs[1].(map[string]interface{})
+	if second["username"] != "aa-pengawas" || second["action"] != models.ActionAutoApproveEnable {
+		t.Errorf("older log = %v, want aa-pengawas + %s", second, models.ActionAutoApproveEnable)
+	}
+	for i, raw := range logs {
+		m := raw.(map[string]interface{})
+		if at, ok := m["created_at"].(string); !ok || at == "" {
+			t.Errorf("log %d created_at = %v, want non-empty RFC3339", i, m["created_at"])
+		} else if _, err := time.Parse(time.RFC3339, at); err != nil {
+			t.Errorf("log %d created_at %v is not RFC3339: %v", i, at, err)
+		}
+		if d, _ := m["detail"].(string); d == "" {
+			t.Errorf("log %d has empty detail snapshot — UI panel relies on it", i)
+		}
+	}
+}
+
+// An exam with no trail yet returns an empty list (not an error), so the
+// panel renders the empty state instead of a broken modal.
+func TestExamAuditLogsEmptyTrail(t *testing.T) {
+	pool := database.NewPackageTestPool(t, "admin")
+	fx := createAutoApproveFixture(t, pool)
+	srv := httptest.NewServer(newAutoApproveTestRouter(pool))
+	defer srv.Close()
+
+	client := newAutoApproveClient(t, srv)
+	client.login(fx.PwID)
+
+	code, out := client.do(http.MethodGet, fmt.Sprintf("/admin/api/pengawas/exams/%d/audit-logs", fx.ExamID), nil)
+	if code != http.StatusOK || out["success"] != true {
+		t.Fatalf("GET status=%d out=%v, want 200 success", code, out)
+	}
+	logs, ok := out["logs"].([]interface{})
+	if !ok || len(logs) != 0 {
+		t.Fatalf("logs = %v, want empty array", out["logs"])
+	}
+}
+
+// An unassigned pengawas must not read another exam's audit trail (403) —
+// the trail is exam-scoped like the approvals themselves.
+func TestExamAuditLogsUnauthorized(t *testing.T) {
+	pool := database.NewPackageTestPool(t, "admin")
+	fx := createAutoApproveFixture(t, pool)
+	srv := httptest.NewServer(newAutoApproveTestRouter(pool))
+	defer srv.Close()
+
+	client := newAutoApproveClient(t, srv)
+	client.login(fx.OtherID) // unassigned pengawas from another instansi
+
+	code, _ := client.do(http.MethodGet, fmt.Sprintf("/admin/api/pengawas/exams/%d/audit-logs", fx.ExamID), nil)
+	if code != http.StatusForbidden {
+		t.Fatalf("GET status=%d, want 403 for unassigned pengawas", code)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Audit trail for per-device approval decisions (SetApprovalStatus)
+// ---------------------------------------------------------------------------
+
+// Approving then rejecting a device must leave two attributable audit rows
+// (who decided, which device, when) — the same append-only trail the
+// auto-approve toggle uses, so the "Riwayat Audit" panel shows every action.
+func TestApprovalDecisionWritesAuditLog(t *testing.T) {
+	pool := database.NewPackageTestPool(t, "admin")
+	fx := createAutoApproveFixture(t, pool)
+	mac := "AA:BB:CC:DD:EE:0F"
+	if _, err := pool.Exec(context.Background(), `
+		INSERT INTO exam_approvals (exam_id, mac_address, student_name, exam_number, student_class, status)
+		VALUES ($1, $2, 'Siswa Audit Dec', '09', 'XII A', 'pending')`,
+		fx.ExamID, mac); err != nil {
+		t.Fatalf("insert device: %v", err)
+	}
+
+	srv := httptest.NewServer(newAutoApproveTestRouter(pool))
+	defer srv.Close()
+	client := newAutoApproveClient(t, srv)
+	client.login(fx.PwID)
+
+	path := fmt.Sprintf("/admin/api/pengawas/exams/%d/approvals/%s", fx.ExamID, mac)
+	if code, out := client.do(http.MethodPost, path, map[string]interface{}{"status": "approved"}); code != http.StatusOK || out["success"] != true {
+		t.Fatalf("approve status=%d out=%v, want 200 success", code, out)
+	}
+	if code, out := client.do(http.MethodPost, path, map[string]interface{}{"status": "rejected"}); code != http.StatusOK || out["success"] != true {
+		t.Fatalf("reject status=%d out=%v, want 200 success", code, out)
+	}
+
+	// The audit-logs panel must surface both decisions, newest first.
+	code, out := client.do(http.MethodGet, fmt.Sprintf("/admin/api/pengawas/exams/%d/audit-logs", fx.ExamID), nil)
+	if code != http.StatusOK || out["success"] != true {
+		t.Fatalf("GET audit-logs status=%d out=%v, want 200 success", code, out)
+	}
+	logs, _ := out["logs"].([]interface{})
+	if len(logs) != 2 {
+		t.Fatalf("audit logs = %d, want 2 (approve + reject)", len(logs))
+	}
+
+	first := logs[0].(map[string]interface{}) // newest = the rejection
+	if first["username"] != "aa-pengawas" || first["action"] != models.ActionApprovalRejected {
+		t.Errorf("newest log = %v, want aa-pengawas + %s", first, models.ActionApprovalRejected)
+	}
+	second := logs[1].(map[string]interface{})
+	if second["username"] != "aa-pengawas" || second["action"] != models.ActionApprovalApproved {
+		t.Errorf("older log = %v, want aa-pengawas + %s", second, models.ActionApprovalApproved)
+	}
+	// detail must carry the device identity (MAC + student snapshot).
+	for i, raw := range logs {
+		m := raw.(map[string]interface{})
+		d, _ := m["detail"].(string)
+		if d == "" || !strings.Contains(d, mac) || !strings.Contains(d, "Siswa Audit Dec") {
+			t.Errorf("log %d detail = %q, want MAC %s + student snapshot", i, d, mac)
+		}
+	}
+}
+
+// A decision on an unknown device must NOT write an audit row: the UPDATE
+// matched nothing, so there is no real action to attribute (and a forged row
+// would corrupt the trail's trustworthiness).
+func TestApprovalDecisionUnknownDeviceWritesNoAuditLog(t *testing.T) {
+	pool := database.NewPackageTestPool(t, "admin")
+	fx := createAutoApproveFixture(t, pool)
+	srv := httptest.NewServer(newAutoApproveTestRouter(pool))
+	defer srv.Close()
+
+	client := newAutoApproveClient(t, srv)
+	client.login(fx.PwID)
+
+	code, out := client.do(http.MethodPost,
+		fmt.Sprintf("/admin/api/pengawas/exams/%d/approvals/FF:FF:FF:FF:FF:FF", fx.ExamID),
+		map[string]interface{}{"status": "approved"})
+	if code != http.StatusOK || out["success"] != true {
+		t.Fatalf("status=%d out=%v, want 200 (historical contract keeps 200)", code, out)
+	}
+
+	var n int
+	if err := pool.QueryRow(context.Background(), `SELECT COUNT(*) FROM admin_audit_logs`).Scan(&n); err != nil {
+		t.Fatalf("count audit logs: %v", err)
+	}
+	if n != 0 {
+		t.Errorf("audit rows = %d after no-op decision, want 0", n)
+	}
+}
+
+// Pins PostgreSQL's matched-row semantics: re-deciding an already-decided
+// device (e.g. approving a device that is already approved) still matches a
+// row, so an audit row IS written — an explicit decision is an action. This
+// guards against a future DB/trigger change silently dropping the trail.
+func TestApprovalDecisionRepeatOnKnownDeviceStillAudited(t *testing.T) {
+	pool := database.NewPackageTestPool(t, "admin")
+	fx := createAutoApproveFixture(t, pool)
+	mac := "AA:BB:CC:DD:EE:11"
+	if _, err := pool.Exec(context.Background(), `
+		INSERT INTO exam_approvals (exam_id, mac_address, student_name, exam_number, student_class, status)
+		VALUES ($1, $2, 'Siswa Repeat', '11', 'XII A', 'approved')`,
+		fx.ExamID, mac); err != nil {
+		t.Fatalf("insert device: %v", err)
+	}
+
+	srv := httptest.NewServer(newAutoApproveTestRouter(pool))
+	defer srv.Close()
+	client := newAutoApproveClient(t, srv)
+	client.login(fx.PwID)
+
+	code, out := client.do(http.MethodPost,
+		fmt.Sprintf("/admin/api/pengawas/exams/%d/approvals/%s", fx.ExamID, mac),
+		map[string]interface{}{"status": "approved"})
+	if code != http.StatusOK || out["success"] != true {
+		t.Fatalf("re-approve status=%d out=%v, want 200 success", code, out)
+	}
+
+	var n int
+	if err := pool.QueryRow(context.Background(),
+		`SELECT COUNT(*) FROM admin_audit_logs WHERE exam_id = $1 AND action = $2`,
+		fx.ExamID, models.ActionApprovalApproved).Scan(&n); err != nil {
+		t.Fatalf("count audit logs: %v", err)
+	}
+	if n != 1 {
+		t.Errorf("audit rows = %d for repeated approve, want 1 (matched-row semantics)", n)
+	}
+}
+
+// A denied pengawas must not be able to leave approval-decision rows either:
+// the 403 gate fires before any update or audit write.
+func TestApprovalDecisionUnauthorizedWritesNoAuditLog(t *testing.T) {
+	pool := database.NewPackageTestPool(t, "admin")
+	fx := createAutoApproveFixture(t, pool)
+	mac := "AA:BB:CC:DD:EE:10"
+	if _, err := pool.Exec(context.Background(), `
+		INSERT INTO exam_approvals (exam_id, mac_address, student_name, status)
+		VALUES ($1, $2, 'Siswa Denied', 'pending')`, fx.ExamID, mac); err != nil {
+		t.Fatalf("insert device: %v", err)
+	}
+
+	srv := httptest.NewServer(newAutoApproveTestRouter(pool))
+	defer srv.Close()
+	client := newAutoApproveClient(t, srv)
+	client.login(fx.OtherID) // unassigned pengawas from another instansi
+
+	code, _ := client.do(http.MethodPost,
+		fmt.Sprintf("/admin/api/pengawas/exams/%d/approvals/%s", fx.ExamID, mac),
+		map[string]interface{}{"status": "approved"})
+	if code != http.StatusForbidden {
+		t.Fatalf("POST status=%d, want 403 for unassigned pengawas", code)
+	}
+
+	var n int
+	if err := pool.QueryRow(context.Background(), `SELECT COUNT(*) FROM admin_audit_logs`).Scan(&n); err != nil {
+		t.Fatalf("count audit logs: %v", err)
+	}
+	if n != 0 {
+		t.Errorf("audit rows = %d after denied decision, want 0", n)
 	}
 }

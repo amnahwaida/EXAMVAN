@@ -555,8 +555,14 @@ func DeleteExam(ctx context.Context, pool *pgxpool.Pool, id int) (*Exam, error) 
 	}
 	defer tx.Rollback(ctx)
 
+	// Children are cleaned explicitly (not just via the schema's ON DELETE
+	// CASCADE) — the same defense-in-depth as every other table here, and the
+	// only thing that keeps a pre-FK-migration database free of orphans.
 	if _, err := tx.Exec(ctx, `DELETE FROM exam_pengawas WHERE exam_id = $1`, id); err != nil {
 		return nil, fmt.Errorf("delete exam: delete pengawas: %w", err)
+	}
+	if _, err := tx.Exec(ctx, `DELETE FROM exam_approvals WHERE exam_id = $1`, id); err != nil {
+		return nil, fmt.Errorf("delete exam: delete approvals: %w", err)
 	}
 	if _, err := tx.Exec(ctx, `DELETE FROM student_access_logs WHERE exam_id = $1`, id); err != nil {
 		return nil, fmt.Errorf("delete exam: delete access logs: %w", err)
@@ -597,9 +603,33 @@ func BulkDeleteExams(ctx context.Context, pool *pgxpool.Pool, ids []int) ([]stri
 		log.Printf("rows iteration error: %v", err)
 	}
 
-	_, err = pool.Exec(ctx, `DELETE FROM exams WHERE id = ANY($1)`, ids)
+	// Delete all child rows explicitly inside one transaction, then the exams
+	// themselves. The schema's ON DELETE CASCADE covers every child table too,
+	// but explicit deletes keep the bulk path working on a pre-FK database and
+	// mirror DeleteExam's cleanup — and the transaction means a mid-way failure
+	// cannot leave exams without their approval/pengawas rows.
+	tx, err := pool.Begin(ctx)
 	if err != nil {
+		return nil, fmt.Errorf("bulk delete: begin tx: %w", err)
+	}
+	defer tx.Rollback(ctx)
+
+	for _, q := range []string{
+		`DELETE FROM exam_approvals WHERE exam_id = ANY($1)`,
+		`DELETE FROM exam_pengawas WHERE exam_id = ANY($1)`,
+		`DELETE FROM student_access_logs WHERE exam_id = ANY($1)`,
+		`DELETE FROM submissions WHERE exam_id = ANY($1)`,
+	} {
+		if _, err := tx.Exec(ctx, q, ids); err != nil {
+			return nil, fmt.Errorf("bulk delete: %w", err)
+		}
+	}
+
+	if _, err := tx.Exec(ctx, `DELETE FROM exams WHERE id = ANY($1)`, ids); err != nil {
 		return nil, fmt.Errorf("bulk delete: exec: %w", err)
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return nil, fmt.Errorf("bulk delete: commit: %w", err)
 	}
 	return paths, nil
 }

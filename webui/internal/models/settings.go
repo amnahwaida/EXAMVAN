@@ -99,6 +99,24 @@ const (
 	// single IP within 24 hours ("0" = unlimited). Defense-in-depth layered on
 	// top of Turnstile against mass-registration.
 	SettingMaxAccountsPerIP = "max_accounts_per_ip"
+
+	// SettingMaxApprovalsPerExam caps how many devices may hold an APPROVED
+	// approval row for one exam ("0" = unlimited). When the server-side
+	// auto-approve flag is on and the cap is reached, further request-approval
+	// calls fall back to the pending queue instead of approving — an
+	// anti-spam brake so a leaked/stolen token cannot mint unlimited approved
+	// devices (and their submissions rows) for a single exam.
+	SettingMaxApprovalsPerExam = "max_approvals_per_exam"
+
+	// Approval-cleanup job tuning (see admin.StartApprovalCleanupJob): how
+	// often the stale-approvals purge pass runs, how long after an exam's
+	// end_time its rows are left alone (grace), and how old a pending/approved
+	// row on an INACTIVE exam must be before it is purged. Units: minutes for
+	// the interval, hours for the two staleness windows. SuperAdmin-tunable so
+	// an unusually spam-heavy school can tighten the purge without a redeploy.
+	SettingApprovalCleanupIntervalMinutes = "approval_cleanup_interval_minutes"
+	SettingApprovalCleanupEndedGraceHours = "approval_cleanup_ended_grace_hours"
+	SettingApprovalCleanupInactiveTTLHours = "approval_cleanup_inactive_ttl_hours"
 )
 
 // Default settings values as defined in the Python app.py.
@@ -118,7 +136,7 @@ var DefaultSettings = map[string]string{
 	SettingDefaultActiveDays:         "14",
 	SettingDefaultMaxConcurrentExams: "2",
 	SettingDefaultMaxStorageSize:     "52428800",
-	SettingAndroidVersion:            "2.2.0",
+	SettingAndroidVersion:            "2.5.0",
 	SettingWebappVersion:             "2.2.0",
 	SettingCertificateFingerprint:    "",
 	SettingSEOTitle:                  "EXAMVAN - Aplikasi Ujian Online Aman & Tertib",
@@ -142,6 +160,17 @@ var DefaultSettings = map[string]string{
 	// Default per-IP cap: 3 accounts per 24h. Schools behind a shared NAT can
 	// raise this in SaaS settings if several teachers register from one IP.
 	SettingMaxAccountsPerIP: "3",
+
+	// Default per-exam auto-approve device cap (see SettingMaxApprovalsPerExam).
+	// 500 covers even large exam rooms; schools beyond that can raise it.
+	SettingMaxApprovalsPerExam: "500",
+
+	// Approval-cleanup job defaults mirror the original code constants: one
+	// pass every 15 minutes, 1h grace after an exam ends, 24h TTL on inactive
+	// exams (see admin/approval_cleanup_job.go).
+	SettingApprovalCleanupIntervalMinutes: "15",
+	SettingApprovalCleanupEndedGraceHours: "1",
+	SettingApprovalCleanupInactiveTTLHours: "24",
 }
 
 // GetSaasSetting retrieves a setting value by key.

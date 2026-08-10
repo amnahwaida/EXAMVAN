@@ -31,7 +31,7 @@ import (
 // ---------------------------------------------------------------------------
 
 const (
-	requiredAndroidVersion = "2.2.0"
+	requiredAndroidVersion = "2.5.0"
 
 	// cacheTTL is how long the active exam list lives in Redis (seconds).
 	cacheTTL = 30 * time.Second
@@ -40,6 +40,20 @@ const (
 	submitRateLimitMax    = 10
 	submitRateLimitWindow = 60 * time.Second
 
+	// Anti-spam flood brake for POST /api/exams/request-approval, enforced as
+	// a GLOBAL per-exam bucket in Redis on top of the per-IP middleware limit.
+	// Sized with 2× headroom over a full room: defaultMaxApprovalsPerExam
+	// devices polling every 5s ≈ 500 × 12 = 6000 req/min sustained, so bursts
+	// (a join wave, retries) and the tail of the queue stay under the cap. A
+	// distributed attacker that rotates IPs still hits this shared bucket and
+	// cannot flood one exam.
+	approvalExamRateLimitMax    = 12000
+	approvalExamRateLimitWindow = 60 * time.Second
+
+	// defaultMaxApprovalsPerExam caps how many devices may hold an APPROVED
+	// approval row per exam when auto-approve is on (tunable via the
+	// max_approvals_per_exam saas setting; 0 = unlimited).
+	defaultMaxApprovalsPerExam = 500
 	// Redis key prefixes.
 	cacheKeyPrefix = "api:exams:list:" // + page:per_page
 
@@ -344,6 +358,7 @@ func RequestApproval() gin.HandlerFunc {
 			StudentClass string                 `json:"student_class"`
 			IdentityData map[string]interface{} `json:"identity_data"`
 			Reset        bool                   `json:"reset"`
+			Token        string                 `json:"token"`
 		}
 		if err := c.ShouldBindJSON(&req); err != nil {
 			errorResponse(c, http.StatusBadRequest, "Payload tidak valid")
@@ -399,8 +414,63 @@ func RequestApproval() gin.HandlerFunc {
 			errorResponse(c, http.StatusInternalServerError, "Gagal memproses persetujuan")
 			return
 		}
+
+		// --- Per-exam rate limit (anti-spam) ---
+		// A global per-exam bucket in Redis catches distributed floods that
+		// defeat the per-IP middleware limit. Placed BEFORE the token check so
+		// a wrong-token brute-force flood also consumes this shared bucket
+		// (not just the per-IP middleware limit). Skipped when Redis is absent
+		// (the per-IP memory limiter still applies).
+		if rdb := getRedis(c); rdb != nil {
+			if !checkRateLimit(rdb, fmt.Sprintf("ratelimit:reqapp-exam:%d", req.ExamID),
+				approvalExamRateLimitMax, approvalExamRateLimitWindow) {
+				errorResponse(c, http.StatusTooManyRequests,
+					"Terlalu banyak permintaan izin untuk ujian ini. Silakan coba lagi nanti.")
+				return
+			}
+		}
+
+		// --- Token check (anti-spam) ---
+		// Request-approval is the gate that (with auto-approve on) grants a
+		// device submit access, so it must be as hard to call as the exam
+		// itself: the device already holds the exam token (it fetched the exam
+		// by token first), and a caller without it must be able to neither
+		// spam the pending queue nor self-approve.
+		//
+		// A device that ALREADY has an approval row is tolerated with a stale
+		// token — the same tolerance SubmitExam/AccessLog apply to known
+		// devices — so a dynamic-token rotation mid-wait cannot strand a
+		// device that is already queued (it only needs the token once, at
+		// join time).
+		if !examtoken.Matches(exam, req.Token) {
+			var known bool
+			if err := pool.QueryRow(ctx,
+				`SELECT EXISTS(SELECT 1 FROM exam_approvals WHERE exam_id = $1 AND mac_address = $2)`,
+				req.ExamID, macAddress).Scan(&known); err != nil || !known {
+				errorResponse(c, http.StatusUnauthorized, "Token tidak valid")
+				return
+			}
+		}
+
+		// --- Auto-approve decision ---
+		// The server-side auto-approve flag approves the device immediately
+		// while the exam is live, UNLESS the per-exam approved-device cap is
+		// already reached — then the request falls back to the pending queue
+		// so a leaked token cannot mint unlimited approved devices.
 		autoApprove := exam.AutoApprove && exam.IsActive() &&
 			exam.ExamStartedAt != nil && !examScheduleEnded(&exam, time.Now().UTC())
+		if autoApprove {
+			approvalCap := models.GetSaasSettingInt(ctx, pool,
+				models.SettingMaxApprovalsPerExam, defaultMaxApprovalsPerExam)
+			if approvalCap > 0 {
+				var approvedCount int
+				if err := pool.QueryRow(ctx,
+					`SELECT COUNT(*) FROM exam_approvals WHERE exam_id = $1 AND status = 'approved'`,
+					req.ExamID).Scan(&approvedCount); err == nil && approvedCount >= approvalCap {
+					autoApprove = false
+				}
+			}
+		}
 
 		var status string
 		err := pool.QueryRow(ctx,
@@ -412,15 +482,19 @@ func RequestApproval() gin.HandlerFunc {
 			     exam_number = EXCLUDED.exam_number,
 			     student_class = EXCLUDED.student_class,
 			     identity_data = EXCLUDED.identity_data,
-			     status = CASE
-			         -- Explicit retry ("Minta Izin Lagi"): fresh decision.
-			         WHEN $7::boolean THEN CASE WHEN $8::boolean THEN 'approved' ELSE 'pending' END
-			         -- Poll (reset=false): auto-approve flips a leftover pending
-			         -- row to approved (it was never decided manually), but
-			         -- never overrides an explicit rejection.
-			         WHEN $8::boolean AND exam_approvals.status = 'pending' THEN 'approved'
-			         ELSE exam_approvals.status
-			     END,
+		     status = CASE
+		         -- Explicit retry ("Minta Izin Lagi"): fresh decision. An
+		         -- already-approved device is never demoted, even when the
+		         -- per-exam cap blocks further auto-approvals.
+		         WHEN $7::boolean THEN CASE WHEN $8::boolean THEN 'approved'
+		                                  WHEN exam_approvals.status = 'approved' THEN 'approved'
+		                                  ELSE 'pending' END
+		         -- Poll (reset=false): auto-approve flips a leftover pending
+		         -- row to approved (it was never decided manually), but
+		         -- never overrides an explicit rejection.
+		         WHEN $8::boolean AND exam_approvals.status = 'pending' THEN 'approved'
+		         ELSE exam_approvals.status
+		     END,
 			     updated_at = CURRENT_TIMESTAMP
 			 RETURNING status`,
 			req.ExamID, macAddress, studentName, examNumber, studentClass, string(idDataStr), req.Reset, autoApprove).Scan(&status)

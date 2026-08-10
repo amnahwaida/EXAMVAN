@@ -235,6 +235,7 @@ class WaitingApprovalActivity : BaseSecureActivity() {
                 studentClass = studentClass,
                 identityDataStr = identityDataStr,
                 reset = false,
+                token = token,
                 onSuccess = { status ->
                     runOnUiThread {
                         if (!isWaiting) return@runOnUiThread
@@ -317,6 +318,7 @@ class WaitingApprovalActivity : BaseSecureActivity() {
             studentClass = studentClass,
             identityDataStr = identityDataStr,
             reset = true,
+            token = token,
             onSuccess = { _ ->
                 runOnUiThread {
                     // Reset UI back to waiting state

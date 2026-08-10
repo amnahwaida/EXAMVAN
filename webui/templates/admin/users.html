@@ -329,6 +329,33 @@
   <input type="number" id="maxAccountsPerIpInput" min="0" placeholder="3">
   <span class="form-hint saas-domain-hint">Lapisan kedua di atas Turnstile. Sekolah dengan satu IP bersama (NAT) bisa menaikkan angka ini. 0 = tanpa batas.</span>
   </div>
+  <div class="form-group space-y-1">
+  <label for="maxApprovalsPerExamInput" title="Maksimal perangkat yang boleh berstatus &quot;disetujui&quot; dalam satu ujian saat auto-approve server aktif (0 = tanpa batas)">Maks Perangkat Disetujui per Ujian</label>
+  <input type="number" id="maxApprovalsPerExamInput" min="0" placeholder="500">
+  <span class="form-hint saas-domain-hint">Batas perangkat berstatus &quot;disetujui&quot; per ujian saat auto-approve server aktif (anti-spam token bocor — request berikutnya jatuh ke antrean persetujuan). 0 = tanpa batas.</span>
+  </div>
+  </div>
+
+  <div style="border-top:1px solid var(--color-glass-border);margin-top:16px;padding-top:16px;margin-bottom:6px;">
+  <h4 style="margin:0;font-size:0.85rem;font-weight:600;text-transform:uppercase;letter-spacing:0.5px;color:var(--color-accent-light);display:flex;align-items:center;gap:6px;">
+  <svg class="icon-svg" style="width:16px;height:16px;"><use href="#hi-refresh"/></svg> Pembersihan Otomatis Antrean Persetujuan
+  </h4>
+  <p style="font-size:12px;color:var(--color-text-secondary);margin:4px 0 8px 0;">Atur seberapa agresif job latar membersihkan baris persetujuan basi (pending yang ujiannya sudah berakhir &amp; pending/approved pada ujian nonaktif). Berlaku tanpa restart server — job membaca nilai ini setiap siklus.</p>
+  <div class="form-group space-y-1">
+  <label for="approvalCleanupIntervalMinutesInput" title="Seberapa sering job pembersih berjalan (menit)">Interval Pembersihan (menit)</label>
+  <input type="number" id="approvalCleanupIntervalMinutesInput" min="1" placeholder="15">
+  <span class="form-hint saas-domain-hint">Frekuensi job membersihkan baris approval basi. Minimum 1 menit. Nilai lebih kecil = antrean lebih ramping tapi beban DB lebih tinggi.</span>
+  </div>
+  <div class="form-group space-y-1">
+  <label for="approvalCleanupEndedGraceHoursInput" title="Toleransi (jam) setelah end_time ujian lewat sebelum barisnya dibersihkan">Toleransi Setelah Ujian Berakhir (jam)</label>
+  <input type="number" id="approvalCleanupEndedGraceHoursInput" min="0" placeholder="1">
+  <span class="form-hint saas-domain-hint">Buffer terhadap selisih jam perangkat &amp; perpanjangan jadwal oleh guru. 0 = bersihkan segera setelah jadwal berakhir.</span>
+  </div>
+  <div class="form-group space-y-1">
+  <label for="approvalCleanupInactiveTTLHoursInput" title="Umur baris pending/approved pada ujian nonaktif sebelum dihapus (jam)">TTL Baris pada Ujian Nonaktif (jam)</label>
+  <input type="number" id="approvalCleanupInactiveTTLHoursInput" min="0" placeholder="24">
+  <span class="form-hint saas-domain-hint">Baris pending/approved pada ujian nonaktif yang lebih tua dari ini dihapus. 0 = hapus semua. Keputusan &quot;ditolak&quot; dan data pengumpulan siswa tidak pernah disentuh.</span>
+  </div>
   </div>
 
   <div style="border-top:1px solid var(--color-glass-border);margin-top:16px;padding-top:16px;margin-bottom:6px;">

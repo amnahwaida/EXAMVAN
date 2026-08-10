@@ -162,6 +162,27 @@ CREATE TABLE IF NOT EXISTS exam_approvals (
 );
 
 -- ============================================================
+-- admin_audit_logs (jejak aksi admin yang sensitif — siapa, apa, kapan)
+-- ============================================================
+-- Rows are immutable append-only records. user_id/exam_id use ON DELETE SET
+-- NULL (an audit trail must survive the deletion of the actor or the exam);
+-- username and detail keep a denormalized snapshot for display after that.
+CREATE TABLE IF NOT EXISTS admin_audit_logs (
+    id          SERIAL PRIMARY KEY,
+    user_id     INTEGER REFERENCES admin_users(id) ON DELETE SET NULL,
+    username    TEXT NOT NULL DEFAULT '',
+    action      TEXT NOT NULL,
+    exam_id     INTEGER REFERENCES exams(id) ON DELETE SET NULL,
+    detail      TEXT NOT NULL DEFAULT '',
+    created_at  TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+-- Most recent action per exam (e.g. "last auto-approve toggle" hint) + FK
+-- lookups by actor.
+CREATE INDEX IF NOT EXISTS idx_admin_audit_logs_exam_time ON admin_audit_logs(exam_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_admin_audit_logs_user_id ON admin_audit_logs(user_id);
+
+-- ============================================================
 -- Indexes for frequently queried foreign key columns
 -- ============================================================
 CREATE INDEX IF NOT EXISTS idx_exams_created_by ON exams(created_by);
@@ -258,6 +279,11 @@ ALTER TABLE admin_users ADD COLUMN IF NOT EXISTS name TEXT DEFAULT '';
 CREATE INDEX IF NOT EXISTS idx_access_logs_exam_time ON student_access_logs(exam_id, created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_submissions_exam_mac ON submissions(exam_id, mac_address);
 CREATE INDEX IF NOT EXISTS idx_exams_active ON exams(id) WHERE status = 'active';
+-- Partial index supporting the stale-approval purge (PurgeStaleExamApprovals):
+-- the ended-exam rules scan exams by end_time < now() - grace, so indexing
+-- only the rows that can ever match (end_time set) keeps that scan bounded as
+-- exams accumulate. Same idempotent IF NOT EXISTS style as its neighbours.
+CREATE INDEX IF NOT EXISTS idx_exams_end_time ON exams(end_time) WHERE end_time IS NOT NULL;
 
 ALTER TABLE submissions SET (autovacuum_vacuum_scale_factor = 0.01);
 ALTER TABLE student_access_logs SET (autovacuum_vacuum_scale_factor = 0.01);

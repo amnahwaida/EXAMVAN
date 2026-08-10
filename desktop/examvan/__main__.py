@@ -76,7 +76,11 @@ def main() -> None:
         from .ui.waiting_approval import WaitingApprovalDialog
         from PyQt5.QtWidgets import QDialog
         
-        waiting_dlg = WaitingApprovalDialog(exam, server_url, identity_data, parent=dialog)
+        waiting_dlg = WaitingApprovalDialog(
+            exam, server_url, identity_data,
+            token=dialog.input_token.text().strip().upper(),
+            parent=dialog,
+        )
         _maximize_window(waiting_dlg)
         
         if waiting_dlg.exec_() != QDialog.Accepted:

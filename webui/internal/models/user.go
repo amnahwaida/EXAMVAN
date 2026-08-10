@@ -1068,8 +1068,15 @@ func DeleteUser(ctx context.Context, pool *pgxpool.Pool, userID int) ([]string, 
 		}
 	}
 
-	// Delete exams created by all users being deleted.
+	// Delete exams created by all users being deleted — and their approval
+	// rows first. The schema's ON DELETE CASCADE covers exam_approvals too,
+	// but explicit cleanup keeps a pre-FK database free of orphans and mirrors
+	// DeleteExam's defense-in-depth.
 	for _, uid := range allIDs {
+		if _, err := tx.Exec(ctx,
+			`DELETE FROM exam_approvals WHERE exam_id IN (SELECT id FROM exams WHERE created_by = $1)`, uid); err != nil {
+			return nil, fmt.Errorf("delete user: delete exam approvals: %w", err)
+		}
 		if _, err := tx.Exec(ctx, `DELETE FROM exams WHERE created_by = $1`, uid); err != nil {
 			return nil, fmt.Errorf("delete user: delete exams: %w", err)
 		}

@@ -2952,6 +2952,19 @@ function saveSaasSettings(e) {
     const turnstile_site_key = (document.getElementById('turnstileSiteKeyInput') || {}).value || '';
     const turnstile_secret_key = (document.getElementById('turnstileSecretKeyInput') || {}).value || '';
     const max_accounts_per_ip = parseInt((document.getElementById('maxAccountsPerIpInput') || {}).value) || 0;
+    const max_approvals_per_exam = parseInt((document.getElementById('maxApprovalsPerExamInput') || {}).value) || 0;
+    // Numeric tuning fields: 0 is a MEANINGFUL value ("purge immediately") for
+    // grace/TTL, so a bare || fallback must not coerce it away — empty/NaN
+    // falls back to the default, a typed 0 is preserved as 0.
+    const cleanupNum = function(id, fallback) {
+        const el = document.getElementById(id);
+        if (!el || el.value === '') return fallback;
+        const n = parseInt(el.value, 10);
+        return isNaN(n) ? fallback : n;
+    };
+    const approval_cleanup_interval_minutes = cleanupNum('approvalCleanupIntervalMinutesInput', 15);
+    const approval_cleanup_ended_grace_hours = cleanupNum('approvalCleanupEndedGraceHoursInput', 1);
+    const approval_cleanup_inactive_ttl_hours = cleanupNum('approvalCleanupInactiveTTLHoursInput', 24);
 
     apiFetch('/admin/api/saas-settings', {
         method: 'POST',
@@ -2964,7 +2977,8 @@ function saveSaasSettings(e) {
             footer_text, footer_tagline,
             voucher_redeem_enabled,
             turnstile_enabled, turnstile_site_key, turnstile_secret_key,
-            max_accounts_per_ip
+            max_accounts_per_ip, max_approvals_per_exam,
+            approval_cleanup_interval_minutes, approval_cleanup_ended_grace_hours, approval_cleanup_inactive_ttl_hours
         })
     })
     .then(r => r.json())
@@ -3210,6 +3224,18 @@ function loadSaasSettings() {
                 // Per-IP registration cap
                 var _map = document.getElementById('maxAccountsPerIpInput');
                 if (_map) _map.value = (typeof s.max_accounts_per_ip === 'number') ? s.max_accounts_per_ip : 3;
+
+                // Per-exam approved-device cap for auto-approve
+                var _mape = document.getElementById('maxApprovalsPerExamInput');
+                if (_mape) _mape.value = (typeof s.max_approvals_per_exam === 'number') ? s.max_approvals_per_exam : 500;
+
+                // Approval-cleanup job tuning (interval/grace/TTL)
+                var _aci = document.getElementById('approvalCleanupIntervalMinutesInput');
+                if (_aci) _aci.value = (typeof s.approval_cleanup_interval_minutes === 'number') ? s.approval_cleanup_interval_minutes : 15;
+                var _acg = document.getElementById('approvalCleanupEndedGraceHoursInput');
+                if (_acg) _acg.value = (typeof s.approval_cleanup_ended_grace_hours === 'number') ? s.approval_cleanup_ended_grace_hours : 1;
+                var _act = document.getElementById('approvalCleanupInactiveTTLHoursInput');
+                if (_act) _act.value = (typeof s.approval_cleanup_inactive_ttl_hours === 'number') ? s.approval_cleanup_inactive_ttl_hours : 24;
 
                 toggleEmailFields();
                 toggleTurnstileFields();

@@ -252,6 +252,7 @@ object ApiClient {
         studentClass: String,
         identityDataStr: String,
         reset: Boolean = false,
+        token: String = "",
         onSuccess: (String) -> Unit, // returns status (pending, approved, rejected)
         onError: (statusCode: Int, message: String) -> Unit
     ) {
@@ -262,6 +263,9 @@ object ApiClient {
             put("exam_number", examNumber)
             put("student_class", studentClass)
             put("reset", reset)
+            // Anti-spam: the server rejects request-approval without a valid
+            // exam token. The device holds it (fetched the exam by token).
+            put("token", token)
             try {
                 put("identity_data", org.json.JSONObject(identityDataStr))
             } catch (e: Exception) {

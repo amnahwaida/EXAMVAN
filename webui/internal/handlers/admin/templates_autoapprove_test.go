@@ -63,4 +63,43 @@ func TestAutoApproveUIMarkupPresent(t *testing.T) {
 			t.Errorf("pengawas_detail.html must contain %q (revoke action markup)", frag)
 		}
 	}
+
+	// Pengawas detail: the audit hint (who last toggled auto-approve, when) —
+	// the span next to the toggle plus the JS that fills it from the API's
+	// last_changed_* fields. Pin them so a later edit cannot silently drop the
+	// accountability indicator.
+	detail2 := read("admin/pengawas_detail.html")
+	for _, frag := range []string{
+		`id="aaLastChanged"`,
+		"updateAAHint",
+		"loadAAStatus",
+		"last_changed_by",
+	} {
+		if !strings.Contains(detail2, frag) {
+			t.Errorf("pengawas_detail.html must contain %q (auto-approve audit hint markup)", frag)
+		}
+	}
+
+	// Pengawas detail: the full audit-history panel — the "Riwayat Audit"
+	// button, the modal, and the JS fetching the complete admin_audit_logs
+	// trail (not just the single last hint).
+	detail3 := read("admin/pengawas_detail.html")
+	for _, frag := range []string{
+		"Riwayat Audit",
+		`id="auditLogModal"`,
+		`id="auditLogBody"`,
+		"showAuditLog",
+		"closeAuditLogModal",
+		"/audit-logs",
+		// Per-device decision labels: the panel must keep rendering them so a
+		// later edit cannot silently drop approval decisions from the trail.
+		"approval_approved",
+		"approval_rejected",
+		"Perangkat diizinkan",
+		"Perangkat ditolak",
+	} {
+		if !strings.Contains(detail3, frag) {
+			t.Errorf("pengawas_detail.html must contain %q (audit history panel markup)", frag)
+		}
+	}
 }

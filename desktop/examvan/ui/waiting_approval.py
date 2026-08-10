@@ -26,11 +26,12 @@ class WaitingApprovalDialog(QDialog):
 
     _sig_status = pyqtSignal(str, str, str)  # status_type (approved, rejected, pending, error), title, message
 
-    def __init__(self, exam: Exam, server_url: str, identity_data: dict, parent=None):
+    def __init__(self, exam: Exam, server_url: str, identity_data: dict, token: str = "", parent=None):
         super().__init__(parent)
         self.exam = exam
         self.server_url = server_url
         self.identity_data = identity_data
+        self._token = token  # exam token — required by the server (anti-spam)
         
         # Extract basic info
         self.student_name = self._extract_field("nama", "name", "student_name")
@@ -118,7 +119,8 @@ class WaitingApprovalDialog(QDialog):
                 self.student_class,
                 self.identity_data,
                 self.mac_address,
-                reset=first_check
+                reset=first_check,
+                token=self._token
             )
             first_check = False
 

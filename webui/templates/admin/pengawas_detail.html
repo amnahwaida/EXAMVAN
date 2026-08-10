@@ -47,6 +47,19 @@
   </div>
  </div>
 
+ <!-- Audit Log Modal -->
+ <div id="auditLogModal" class="modal-overlay" style="display:none;" onclick="closeAuditLogModal(event)">
+  <div class="modal-card" style="max-width: 640px;" onclick="event.stopPropagation()">
+   <div class="modal-header">
+    <h3 style="font-size:1.1rem;color:var(--color-primary-light);display:flex;align-items:center;gap:8px;"><svg class="icon-svg"><use href="#hi-clipboard"/></svg> Riwayat Audit Pengaturan</h3>
+    <button class="modal-close" onclick="closeAuditLogModal()" aria-label="Tutup"><svg class="icon-svg" style="width:18px;height:18px;"><use href="#hi-x"/></svg></button>
+   </div>
+   <div class="modal-body" id="auditLogBody" style="padding: 0 24px 24px; max-height: 75vh; overflow-y: auto;">
+    <div style="text-align:center;padding:40px;color:var(--color-text-secondary);">Memuat...</div>
+   </div>
+  </div>
+ </div>
+
  <!-- ========== EXAM HEADER CARD ========== -->
  <section class="pd-header-card">
   <div class="pd-header-top">
@@ -203,12 +216,16 @@
      <input type="checkbox" id="autoAcceptToggle" aria-label="Terima otomatis semua peserta yang meminta izin masuk">
      <span class="pd-toggle-slider"></span>
     </label>
+    <span id="aaLastChanged" class="aa-audit-hint" style="display:none;"></span>
+    <button class="pd-toolbar-btn" onclick="showAuditLog()" title="Riwayat Audit — semua perubahan pengaturan auto-approve (siapa, kapan)" aria-label="Lihat riwayat audit pengaturan" style="width:auto;padding:0 12px;gap:6px;color:#fbbf24;background:rgba(245, 158, 11, 0.1);margin-right:10px;font-size:0.72rem;font-weight:700;">
+     <svg class="icon-svg" style="width:15px;height:15px;"><use href="#hi-clipboard"/></svg>
+     <span>Riwayat Audit</span>
+    </button>
     <button class="pd-toolbar-btn" onclick="loadApprovals()" title="Refresh Antrean" aria-label="Muat ulang antrean persetujuan" style="color:#fbbf24; background:rgba(245, 158, 11, 0.1);">
      <svg class="icon-svg"><use href="#hi-refresh"/></svg>
     </button>
    </div>
-  </div>
-  <div class="pd-table-responsive">
+  </div>   <div class="pd-table-responsive">
    <table class="pd-table" id="approvalTable">
     <thead>
      <tr>
@@ -224,6 +241,7 @@
     </tbody>
    </table>
   </div>
+  <div id="approvalOverflowNote" style="display:none;margin-top:12px;padding:10px 14px;border-radius:8px;background:rgba(245,158,11,0.08);border:1px solid rgba(245,158,11,0.25);color:#fbbf24;font-size:0.78rem;line-height:1.5;"></div>
  </section>
 
  <!-- ========== STUDENT TABLE ========== -->
@@ -937,6 +955,12 @@
 .log-identity span { color:var(--color-text-secondary);white-space:nowrap; }
 .log-identity strong { color:var(--color-text); }
 .no-logs { text-align:center;padding:32px;color:var(--color-text-muted);font-size:0.85rem; }
+.audit-log-timeline { position:relative;padding-left:28px;margin-top:8px; }
+.audit-log-timeline::before { content:'';position:absolute;left:10px;top:8px;bottom:8px;width:2px;background:var(--color-glass-border); }
+.audit-log-entry.enable::before { background:#34d399;border-color:#34d399; }
+.audit-log-entry.disable::before { background:#f87171;border-color:#f87171; }
+.audit-log-entry .log-actor { display:flex;align-items:center;gap:6px;margin-top:2px;font-size:0.72rem;color:var(--color-text-muted); }
+.audit-log-entry .log-actor strong { color:var(--color-text); }
 
 /* --- Responsive --- */
 @media (max-width: 1024px) {
@@ -1066,6 +1090,31 @@
 .pd-toggle-switch input:checked + .pd-toggle-slider:before {
   transform: translateX(20px);
 }
+/* --- Auto-approve audit hint (who last toggled the flag, when) --- */
+.aa-audit-hint {
+  font-size: 0.7rem;
+  color: var(--color-text-muted);
+  margin-right: 8px;
+  white-space: nowrap;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 4px 10px;
+  border-radius: 20px;
+  background: var(--color-bg-secondary);
+  border: 1px solid var(--color-glass-border);
+}
+.aa-audit-hint::before {
+  content: "";
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--color-primary);
+  flex-shrink: 0;
+}
+@media (max-width: 768px) {
+  .aa-audit-hint { white-space: normal; }
+}
 </style>
 
 <script src="/static/js/admin-core.js?v={{.version}}"></script>
@@ -1137,9 +1186,20 @@ function loadApprovals() {
     var section = document.getElementById('approvalSection');
     if (!tbody || !section) return;
 
-    fetch('/admin/api/pengawas/exams/' + EXAM_ID + '/approvals', { credentials: 'same-origin', headers: { 'Accept': 'application/json' } })
+    // Paginated: the server returns at most `limit` oldest pending rows; a
+    // spam-flooded queue stays responsive instead of dumping every row here.
+    fetch('/admin/api/pengawas/exams/' + EXAM_ID + '/approvals?limit=200', { credentials: 'same-origin', headers: { 'Accept': 'application/json' } })
         .then(function(r) { return r.json(); })
         .then(function(res) {
+            var note = document.getElementById('approvalOverflowNote');
+            if (note) {
+                if (res && res.success && res.total > (res.data ? res.data.length : 0)) {
+                    note.style.display = 'block';
+                    note.textContent = 'Antrean berisi ' + res.total + ' perangkat. Menampilkan ' + res.data.length + ' terlama — selesaikan yang tampil untuk memuat sisanya.';
+                } else {
+                    note.style.display = 'none';
+                }
+            }
             if (!res || !res.success || !res.data || res.data.length === 0) {
                 if (document.getElementById('autoAcceptToggle') && document.getElementById('autoAcceptToggle').checked) {
                     tbody.innerHTML = '<tr><td colspan="5" class="pd-table-empty" style="color:var(--color-text-muted);"><div class="pd-pulse" style="display:inline-block;margin-right:8px;background:#34d399;"></div> Auto-approve aktif — peserta disetujui otomatis di server...</td></tr>';
@@ -1477,6 +1537,59 @@ function closeAccessLogModal(event) {
     if (m) m.style.display = 'none';
 }
 
+// Full admin audit trail for this exam: every auto-approve toggle (who, when,
+// action, detail), newest first — the complete history behind the single
+// "last changed" hint next to the toggle.
+function showAuditLog() {
+    var modal = document.getElementById('auditLogModal');
+    var body = document.getElementById('auditLogBody');
+    if (!modal || !body) return;
+    body.innerHTML = '<div style="text-align:center;padding:40px;color:var(--color-text-secondary);">Memuat...</div>';
+    modal.style.display = 'flex';
+
+    fetch('/admin/api/pengawas/exams/' + EXAM_ID + '/audit-logs', { credentials: 'same-origin', headers: { 'Accept': 'application/json' } })
+        .then(function(r) { return r.json(); })
+        .then(function(res) {
+            var logs = (res && res.success && res.logs) || [];
+            if (!logs.length) {
+                body.innerHTML = '<div class="no-logs">Belum ada riwayat audit untuk ujian ini.</div>';
+                return;
+            }
+            var h = '<div class="audit-log-timeline">';
+            for (var i = 0; i < logs.length; i++) {
+                var l = logs[i];
+                var isEnable = l.action === 'auto_approve_enable';
+                var isDisable = l.action === 'auto_approve_disable';
+                var isApprove = l.action === 'approval_approved';
+                var isReject = l.action === 'approval_rejected';
+                var label = isEnable ? 'Auto-approve diaktifkan'
+                         : isDisable ? 'Auto-approve dimatikan'
+                         : isApprove ? 'Perangkat diizinkan'
+                         : isReject ? 'Perangkat ditolak'
+                         : esc(l.detail || l.action);
+                var cls = isEnable || isApprove ? 'enable' : (isDisable || isReject ? 'disable' : 'heartbeat');
+                h += '<div class="log-entry audit-log-entry ' + cls + '">' +
+                        '<div class="log-event">' + label + '</div>' +
+                        '<div class="log-time">' + localizeUTC(l.created_at) + '</div>' +
+                        '<div class="log-actor">oleh <strong>' + esc(l.username || '—') + '</strong>' +
+                            (l.detail && l.detail !== label ? '<span>· ' + esc(l.detail) + '</span>' : '') +
+                        '</div>' +
+                    '</div>';
+            }
+            h += '</div>';
+            body.innerHTML = h;
+        })
+        .catch(function() {
+            body.innerHTML = '<div style="text-align:center;padding:32px;color:#fca5a5;">Gagal memuat riwayat audit. Coba lagi.</div>';
+        });
+}
+
+function closeAuditLogModal(event) {
+    if (event && event.target !== document.getElementById('auditLogModal')) return;
+    var m = document.getElementById('auditLogModal');
+    if (m) m.style.display = 'none';
+}
+
 function showConfirmApprovalModal(macAddress, status) {
     var modal = document.getElementById('confirmApprovalModal');
     var title = document.getElementById('confirmApprovalTitle');
@@ -1622,29 +1735,58 @@ function updateCountdown() {
     }
 }
 
+// Audit hint for the auto-approve toggle: who last flipped the flag and when
+// (server returns last_changed_by / last_changed_at / last_action from the
+// admin_audit_logs trail). Hidden when the exam has no trail yet.
+function updateAAHint(res) {
+    var hint = document.getElementById('aaLastChanged');
+    if (!hint) return;
+    if (!res || !res.success || !res.last_changed_by) {
+        hint.style.display = 'none';
+        return;
+    }
+    var verb = res.last_action === 'auto_approve_enable' ? 'Diaktifkan'
+             : res.last_action === 'auto_approve_disable' ? 'Dimatikan'
+             : 'Diubah';
+    var t = res.last_changed_at ? localizeUTC(res.last_changed_at) : '';
+    hint.textContent = verb + ' oleh ' + res.last_changed_by + (t ? ' · ' + t : '');
+    hint.style.display = 'inline-flex';
+}
+
+// Server is the source of truth for auto-approve (exam.auto_approve), so it
+// keeps working even when this page is closed; localStorage only mirrors it
+// as an offline fallback. Also refreshes the "who/when" audit hint.
+function loadAAStatus() {
+    var aaToggle = document.getElementById('autoAcceptToggle');
+    if (!aaToggle) return;
+    var aaKey = 'examvan_auto_accept_' + EXAM_ID;
+    fetch('/admin/api/pengawas/exams/' + EXAM_ID + '/auto-approve', { credentials: 'same-origin', headers: { 'Accept': 'application/json' } })
+        .then(function(r) { return r.json(); })
+        .then(function(res) {
+            if (res && res.success) {
+                aaToggle.checked = !!res.enabled;
+            } else {
+                aaToggle.checked = localStorage.getItem(aaKey) === 'true';
+            }
+            localStorage.setItem(aaKey, aaToggle.checked ? 'true' : 'false');
+            updateAAHint(res);
+            loadApprovals(); // refresh the queue empty-state message
+        })
+        .catch(function() {
+            aaToggle.checked = localStorage.getItem(aaKey) === 'true';
+            // Queue still loads if the status fetch fails.
+            loadApprovals();
+        });
+}
+
+loadAAStatus();
+
 (function() {
     var aaToggle = document.getElementById('autoAcceptToggle');
-    if (aaToggle) {
-        var aaKey = 'examvan_auto_accept_' + EXAM_ID;
-        // Auto-approve now lives on the server (exam.auto_approve), so it keeps
-        // working even when this page is closed. The server is the source of
-        // truth; localStorage only mirrors it as an offline fallback.
-        fetch('/admin/api/pengawas/exams/' + EXAM_ID + '/auto-approve', { credentials: 'same-origin', headers: { 'Accept': 'application/json' } })
-            .then(function(r) { return r.json(); })
-            .then(function(res) {
-                if (res && res.success) {
-                    aaToggle.checked = !!res.enabled;
-                } else {
-                    aaToggle.checked = localStorage.getItem(aaKey) === 'true';
-                }
-                localStorage.setItem(aaKey, aaToggle.checked ? 'true' : 'false');
-                loadApprovals(); // refresh the queue empty-state message
-            })
-            .catch(function() {
-                aaToggle.checked = localStorage.getItem(aaKey) === 'true';
-            });
+    if (!aaToggle) return;
+    var aaKey = 'examvan_auto_accept_' + EXAM_ID;
 
-        aaToggle.addEventListener('change', function() {
+    aaToggle.addEventListener('change', function() {
             var enabled = this.checked;
             fetch('/admin/api/pengawas/exams/' + EXAM_ID + '/auto-approve', {
                 method: 'POST',
@@ -1655,7 +1797,9 @@ function updateCountdown() {
             .then(function(res) {
                 if (res && res.success) {
                     localStorage.setItem(aaKey, res.enabled ? 'true' : 'false');
-                    loadApprovals(); // update the queue empty-state message
+                    // Refetch status + audit hint so the page shows who changed
+                    // the flag (and when) right away.
+                    loadAAStatus();
                     showToast(res.enabled ? 'Auto-approve aktif — berlaku di server walau halaman ditutup' : 'Auto-approve nonaktif', 'success');
                 } else {
                     aaToggle.checked = !enabled;
@@ -1672,7 +1816,8 @@ function updateCountdown() {
     }
 
     loadDetail();
-    loadApprovals();
+    // Queue load is triggered by loadAAStatus() above (and by its fetch's
+    // catch path), so no duplicate fetch here.
     setInterval(loadApprovals, 5000);
     // Keep the "live" monitoring stats + student table actually live (silent
     // refresh preserves the current page/filter and avoids a loading flash).

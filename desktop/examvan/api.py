@@ -266,8 +266,13 @@ def request_approval(
     identity_data: Dict[str, Any],
     mac_address: str,
     reset: bool = False,
+    token: str = "",
 ):
-    """POST /api/exams/request-approval."""
+    """POST /api/exams/request-approval.
+
+    token is the exam token the device joined with — the server rejects
+    request-approval without a valid one (anti-spam).
+    """
     from .models import RequestApprovalResponse
     body = {
         "exam_id": exam_id,
@@ -277,6 +282,7 @@ def request_approval(
         "student_class": student_class,
         "identity_data": identity_data,
         "reset": reset,
+        "token": token,
     }
     try:
         data = _make_request(

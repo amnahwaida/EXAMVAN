@@ -156,6 +156,16 @@ func main() {
 	}
 
 	// -----------------------------------------------------------------------
+	// 4d. Stale-approval cleanup job: periodically purges pending/approved
+	// exam_approvals rows that can no longer be resolved (their exam ended) or
+	// that sit on exams inactive for a long time — bounds a spam-flooded
+	// queue and frees per-exam approved-device cap slots for reused exams.
+	// -----------------------------------------------------------------------
+	if pool != nil {
+		admin.StartApprovalCleanupJob(jobCtx, pool)
+	}
+
+	// -----------------------------------------------------------------------
 	// 5. Create Gin engine
 	// -----------------------------------------------------------------------
 	if cfg.IsDevelopment() {
@@ -653,6 +663,7 @@ func registerRoutes(r *gin.Engine, cfg *config.Config, pool *pgxpool.Pool) {
 			lockedAPI.GET("/pengawas/exams/:exam_id/submissions", admin.PengawasExamSubmissions())
 			lockedAPI.GET("/pengawas/exams/:exam_id/approvals", admin.GetPendingApprovals())
 			lockedAPI.GET("/pengawas/exams/:exam_id/auto-approve", admin.GetAutoApprove())
+			lockedAPI.GET("/pengawas/exams/:exam_id/audit-logs", admin.GetExamAuditLogs())
 			lockedAPI.GET("/saas-settings", middleware.SuperAdminRequired(), admin.SaasSettings())
 			lockedAPI.GET("/packages", middleware.SuperAdminRequired(), admin.ListPackagesSettingsHandler())
 			lockedAPI.GET("/vouchers", middleware.SuperAdminRequired(), admin.ListVouchers())

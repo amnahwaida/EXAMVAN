@@ -3,6 +3,7 @@ package admin
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log"
 	"net/http"
@@ -11,6 +12,7 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 	redis "github.com/redis/go-redis/v9"
 
@@ -632,11 +634,35 @@ func GetPendingApprovals() gin.HandlerFunc {
 			return
 		}
 
+		// Pagination (anti-DoS): a spam-flooded pending queue must not dump
+		// unbounded rows onto the page. Oldest first — those are the requests
+		// the pengawas cares about first.
+		page, _ := strconv.Atoi(c.DefaultQuery("page", "1"))
+		if page < 1 {
+			page = 1
+		}
+		limit, _ := strconv.Atoi(c.DefaultQuery("limit", "100"))
+		if limit < 1 {
+			limit = 1
+		} else if limit > 500 {
+			limit = 500
+		}
+		offset := (page - 1) * limit
+
+		var total int
+		if err := pool.QueryRow(ctx,
+			`SELECT COUNT(*) FROM exam_approvals WHERE exam_id = $1 AND status = 'pending'`,
+			examID).Scan(&total); err != nil {
+			errorResponse(c, http.StatusInternalServerError, "Gagal memuat persetujuan")
+			return
+		}
+
 		rows, err := pool.Query(ctx,
 			`SELECT mac_address, student_name, exam_number, student_class, identity_data, created_at, status
 			 FROM exam_approvals
 			 WHERE exam_id = $1 AND status = 'pending'
-			 ORDER BY created_at ASC`, examID)
+			 ORDER BY created_at ASC
+			 LIMIT $2 OFFSET $3`, examID, limit, offset)
 		
 		if err != nil {
 			errorResponse(c, http.StatusInternalServerError, "Gagal memuat persetujuan")
@@ -672,6 +698,9 @@ func GetPendingApprovals() gin.HandlerFunc {
 		c.JSON(http.StatusOK, gin.H{
 			"success": true,
 			"data":    items,
+			"total":   total,
+			"page":    page,
+			"limit":   limit,
 		})
 	}
 }
@@ -710,13 +739,45 @@ func SetApprovalStatus() gin.HandlerFunc {
 			return
 		}
 
-		_, err := pool.Exec(ctx,
-			`UPDATE exam_approvals SET status = $1, updated_at = CURRENT_TIMESTAMP WHERE exam_id = $2 AND mac_address = $3`,
-			req.Status, examID, macAddress)
-		
+		// Update atomically and snapshot the student identity in one statement
+		// (RETURNING): no separate read, and the "did anything match" signal
+		// comes from the same round trip, so a row deleted in between cannot
+		// produce a stale detail or a forged trail.
+		var studentName string
+		err := pool.QueryRow(ctx,
+			`UPDATE exam_approvals SET status = $1, updated_at = CURRENT_TIMESTAMP
+			 WHERE exam_id = $2 AND mac_address = $3
+			 RETURNING student_name`,
+			req.Status, examID, macAddress).Scan(&studentName)
 		if err != nil {
+			if errors.Is(err, pgx.ErrNoRows) {
+				// The device matched nothing — no decision was made, so nothing
+				// is audited. Keep the historical 200 contract for unknown
+				// devices (the queue UI tolerates a no-op); only the trail stays
+				// silent so it cannot be forged with rows the pengawas never made.
+				c.JSON(http.StatusOK, gin.H{"success": true})
+				return
+			}
 			errorResponse(c, http.StatusInternalServerError, "Gagal mengubah status persetujuan")
 			return
+		}
+
+		// Append-only audit trail for per-device decisions (who allowed or
+		// rejected which device, and when). Note PostgreSQL counts matched rows
+		// in an UPDATE, so re-deciding an already-approved device still leaves
+		// a row — an explicit decision is an action, same as the auto-approve
+		// toggle. Best-effort: a failed audit row never rolls back the decision.
+		action := models.ActionApprovalRejected
+		detail := fmt.Sprintf("Perangkat ditolak: %s", macAddress)
+		if req.Status == "approved" {
+			action = models.ActionApprovalApproved
+			detail = fmt.Sprintf("Perangkat diizinkan: %s", macAddress)
+		}
+		if studentName != "" {
+			detail = fmt.Sprintf("%s (%s)", detail, studentName)
+		}
+		if err := models.CreateAdminAuditLog(ctx, pool, userID, getCurrentUsername(c), action, examID, detail); err != nil {
+			log.Printf("audit approval decision: %v", err)
 		}
 
 		if req.Status == "approved" {
@@ -767,10 +828,21 @@ func GetAutoApprove() gin.HandlerFunc {
 			return
 		}
 
-		c.JSON(http.StatusOK, gin.H{
+		resp := gin.H{
 			"success": true,
 			"enabled": enabled,
-		})
+		}
+
+		// Accountability hint for the monitoring page: who last toggled
+		// auto-approve (and when). Best effort — an absent trail just omits
+		// the fields, the toggle still works.
+		if last, err := models.LatestExamAuditLog(ctx, pool, examID); err == nil && last != nil {
+			resp["last_changed_by"] = last.Username
+			resp["last_changed_at"] = last.CreatedAt.Format(time.RFC3339)
+			resp["last_action"] = last.Action
+		}
+
+		c.JSON(http.StatusOK, resp)
 	}
 }
 
@@ -814,9 +886,91 @@ func SetAutoApprove() gin.HandlerFunc {
 			return
 		}
 
+		// Append-only audit trail: who toggled server-side auto-approve, and
+		// when. Logged only after a successful write and only for authorized
+		// callers (the auth gate above already rejected 403s). Best effort — a
+		// failed audit row must not roll back the toggle itself.
+		action := models.ActionAutoApproveDisable
+		detail := "Auto-approve dimatikan"
+		if req.Enabled {
+			action = models.ActionAutoApproveEnable
+			detail = "Auto-approve diaktifkan"
+		}
+		if err := models.CreateAdminAuditLog(ctx, pool, userID, getCurrentUsername(c), action, examID, detail); err != nil {
+			log.Printf("audit auto-approve toggle: %v", err)
+		}
+
 		c.JSON(http.StatusOK, gin.H{
 			"success": true,
 			"enabled": req.Enabled,
+		})
+	}
+}
+
+// GetExamAuditLogs returns the full append-only admin audit trail for an exam
+// — every auto-approve toggle (who, when, action, detail), newest first — so
+// the monitoring page can render the complete history behind the single
+// "last changed" hint.
+// GET /admin/api/pengawas/exams/:exam_id/audit-logs?limit=100
+func GetExamAuditLogs() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		examID, err := strconv.Atoi(c.Param("exam_id"))
+		if err != nil {
+			errorResponse(c, http.StatusBadRequest, "ID ujian tidak valid")
+			return
+		}
+
+		pool := getPool(c)
+		ctx := c.Request.Context()
+
+		// Exam-scoped authorization, same as the approvals/auto-approve
+		// endpoints: an unassigned pengawas must not read the trail either.
+		userID := getCurrentUserID(c)
+		if _, err := models.GetExamByID(ctx, pool, examID); err != nil {
+			errorResponse(c, http.StatusNotFound, "Ujian tidak ditemukan")
+			return
+		}
+		if !models.UserCanAccessExam(ctx, pool, userID, isSuperAdmin(c), examID) {
+			errorResponse(c, http.StatusForbidden, "Akses ditolak: Anda tidak memiliki wewenang untuk mengawasi ujian ini")
+			return
+		}
+
+		// Bounded payload (anti-DoS): the panel renders a capped window.
+		limit, _ := strconv.Atoi(c.DefaultQuery("limit", "100"))
+		if limit < 1 {
+			limit = 1
+		} else if limit > 500 {
+			limit = 500
+		}
+
+		logs, err := models.ListExamAuditLogs(ctx, pool, examID, limit)
+		if err != nil {
+			log.Printf("exam audit logs error: %v", err)
+			errorResponse(c, http.StatusInternalServerError, "Gagal memuat riwayat audit")
+			return
+		}
+
+		type auditItem struct {
+			ID        int    `json:"id"`
+			Username  string `json:"username"`
+			Action    string `json:"action"`
+			Detail    string `json:"detail"`
+			CreatedAt string `json:"created_at"`
+		}
+		items := make([]auditItem, 0, len(logs))
+		for _, l := range logs {
+			items = append(items, auditItem{
+				ID:        l.ID,
+				Username:  l.Username,
+				Action:    l.Action,
+				Detail:    l.Detail,
+				CreatedAt: l.CreatedAt.Format(time.RFC3339),
+			})
+		}
+
+		c.JSON(http.StatusOK, gin.H{
+			"success": true,
+			"logs":    items,
 		})
 	}
 }

@@ -9,6 +9,7 @@ import (
 	"net/http/httptest"
 	"net/url"
 	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"testing"
@@ -324,6 +325,382 @@ func TestSaasSettingsDefaultMaxStorageSizeRoundtrip(t *testing.T) {
 	}
 	if pdfStored != 10*1024*1024 {
 		t.Fatalf("stored pdf bytes = %d, want %d", pdfStored, 10*1024*1024)
+	}
+}
+
+// max_approvals_per_exam — the per-exam approved-device cap behind server-side
+// auto-approve (anti-spam) — must roundtrip through the SaaS settings API with
+// the right semantics: default 500 when unset, 0 = unlimited preserved (a
+// meaningful value, unlike an absent field), negatives clamped to 0.
+func TestSaasSettingsMaxApprovalsPerExamRoundtrip(t *testing.T) {
+	pool := database.NewPackageTestPool(t, "admin")
+	ctx := context.Background()
+
+	su, err := models.CreateUser(ctx, pool, &models.AdminUser{
+		Username: "it_mape_super", Name: "IT Mape Super",
+		PasswordHash: "x", Status: models.UserStatusActive,
+		Role:               models.SerializeRoles([]string{models.RoleSuperAdmin}),
+		MaxExams:           3,
+		MaxPDFSize:         1048576,
+		MaxConcurrentExams: 2,
+		MaxStorageSize:     50 * 1024 * 1024,
+		Package:            "free",
+	})
+	if err != nil {
+		t.Fatalf("create superadmin: %v", err)
+	}
+
+	storageDir, err := os.MkdirTemp("", "examvan-mape-it")
+	if err != nil {
+		t.Fatalf("make temp storage dir: %v", err)
+	}
+	defer os.RemoveAll(storageDir)
+
+	jar, _ := cookiejar.New(nil)
+	srv := httptest.NewServer(newSaasSettingsTestRouter(pool, storageDir))
+	defer srv.Close()
+	client := &http.Client{Jar: jar}
+	if resp, err := client.Post(srv.URL+"/test/login/"+strconv.Itoa(su.ID), "application/json", nil); err != nil || resp.StatusCode != http.StatusOK {
+		t.Fatalf("test login: status=%v err=%v", resp, err)
+	}
+
+	getCap := func() float64 {
+		t.Helper()
+		resp, err := client.Get(srv.URL + "/api/saas-settings")
+		if err != nil {
+			t.Fatalf("GET saas-settings: %v", err)
+		}
+		defer resp.Body.Close()
+		var out struct {
+			Success  bool                   `json:"success"`
+			Settings map[string]interface{} `json:"settings"`
+		}
+		if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
+			t.Fatalf("decode GET response: %v", err)
+		}
+		if !out.Success {
+			t.Fatalf("GET saas-settings not success")
+		}
+		v, ok := out.Settings["max_approvals_per_exam"].(float64)
+		if !ok {
+			t.Fatalf("max_approvals_per_exam missing or not a number: %#v", out.Settings["max_approvals_per_exam"])
+		}
+		return v
+	}
+
+	postCap := func(cap float64) {
+		t.Helper()
+		// Snapshot + re-POST the full settings object (the handler writes every
+		// field) with only max_approvals_per_exam changed — same pattern as the
+		// storage roundtrip test, so no sibling setting is disturbed.
+		resp, err := client.Get(srv.URL + "/api/saas-settings")
+		if err != nil {
+			t.Fatalf("GET saas-settings (snapshot): %v", err)
+		}
+		var snap struct {
+			Settings map[string]interface{} `json:"settings"`
+		}
+		if err := json.NewDecoder(resp.Body).Decode(&snap); err != nil {
+			t.Fatalf("decode snapshot: %v", err)
+		}
+		resp.Body.Close()
+		snap.Settings["max_approvals_per_exam"] = cap
+		body, err := json.Marshal(snap.Settings)
+		if err != nil {
+			t.Fatalf("marshal POST body: %v", err)
+		}
+		presp, err := client.Post(srv.URL+"/api/saas-settings", "application/json", bytes.NewReader(body))
+		if err != nil {
+			t.Fatalf("POST saas-settings: %v", err)
+		}
+		defer presp.Body.Close()
+		var out struct {
+			Success bool   `json:"success"`
+			Message string `json:"message"`
+		}
+		if err := json.NewDecoder(presp.Body).Decode(&out); err != nil {
+			t.Fatalf("decode POST response: %v", err)
+		}
+		if !out.Success {
+			t.Fatalf("POST max_approvals_per_exam=%v failed: %s", cap, out.Message)
+		}
+	}
+
+	stored := func() string {
+		t.Helper()
+		var v string
+		if err := pool.QueryRow(ctx, `SELECT value FROM saas_settings WHERE key = $1`, models.SettingMaxApprovalsPerExam).Scan(&v); err != nil {
+			t.Fatalf("read stored max_approvals_per_exam: %v", err)
+		}
+		return v
+	}
+
+	// 1) Key missing → GET falls back to the 500 default (same default the
+	// RequestApproval cap check uses when the row is absent).
+	if _, err := pool.Exec(ctx, `DELETE FROM saas_settings WHERE key = $1`, models.SettingMaxApprovalsPerExam); err != nil {
+		t.Fatalf("delete key: %v", err)
+	}
+	if got := getCap(); got != 500 {
+		t.Fatalf("default max_approvals_per_exam = %v, want 500", got)
+	}
+
+	// 2) POST 250 → GET reflects it and the DB stores "250".
+	postCap(250)
+	if got := getCap(); got != 250 {
+		t.Fatalf("cap after POST 250 = %v, want 250", got)
+	}
+	if s := stored(); s != "250" {
+		t.Fatalf("stored cap = %q, want \"250\"", s)
+	}
+
+	// 3) 0 = tak terbatas (unlimited) — a meaningful value, roundtrips as 0.
+	postCap(0)
+	if got := getCap(); got != 0 {
+		t.Fatalf("cap after POST 0 = %v, want 0 (unlimited)", got)
+	}
+	if s := stored(); s != "0" {
+		t.Fatalf("stored cap (0) = %q, want \"0\"", s)
+	}
+
+	// 4) Negative → clamped to 0 (unlimited), not stored raw.
+	postCap(-5)
+	if got := getCap(); got != 0 {
+		t.Fatalf("cap after POST -5 = %v, want 0 (clamped)", got)
+	}
+	if s := stored(); s != "0" {
+		t.Fatalf("stored cap (-5) = %q, want \"0\" (clamped)", s)
+	}
+}
+
+// approval-cleanup job tuning (interval minutes, ended-grace hours, inactive
+// TTL hours) must roundtrip through the SaaS settings API: defaults 15/1/24
+// when unset, custom values stored as-is, interval clamped to >= 1 (a 0 would
+// make the background loop spin), and grace/TTL negatives clamped to 0 while a
+// deliberate 0 (purge immediately) is preserved.
+func TestSaasSettingsApprovalCleanupTuningRoundtrip(t *testing.T) {
+	pool := database.NewPackageTestPool(t, "admin")
+	ctx := context.Background()
+
+	su, err := models.CreateUser(ctx, pool, &models.AdminUser{
+		Username: "it_cleanup_super", Name: "IT Cleanup Super",
+		PasswordHash: "x", Status: models.UserStatusActive,
+		Role:               models.SerializeRoles([]string{models.RoleSuperAdmin}),
+		MaxExams:           3,
+		MaxPDFSize:         1048576,
+		MaxConcurrentExams: 2,
+		MaxStorageSize:     50 * 1024 * 1024,
+		Package:            "free",
+	})
+	if err != nil {
+		t.Fatalf("create superadmin: %v", err)
+	}
+
+	storageDir, err := os.MkdirTemp("", "examvan-cleanup-it")
+	if err != nil {
+		t.Fatalf("make temp storage dir: %v", err)
+	}
+	defer os.RemoveAll(storageDir)
+
+	jar, _ := cookiejar.New(nil)
+	srv := httptest.NewServer(newSaasSettingsTestRouter(pool, storageDir))
+	defer srv.Close()
+	client := &http.Client{Jar: jar}
+	if resp, err := client.Post(srv.URL+"/test/login/"+strconv.Itoa(su.ID), "application/json", nil); err != nil || resp.StatusCode != http.StatusOK {
+		t.Fatalf("test login: status=%v err=%v", resp, err)
+	}
+
+	cleanupKeys := []string{
+		models.SettingApprovalCleanupIntervalMinutes,
+		models.SettingApprovalCleanupEndedGraceHours,
+		models.SettingApprovalCleanupInactiveTTLHours,
+	}
+	// saas_settings survives TRUNCATE (deliberately, see testdb.go), so this
+	// test cleans up after itself — the purge job's defaults must not be left
+	// changed for sibling tests (e.g. approval cleanup integration tests).
+	t.Cleanup(func() {
+		for _, k := range cleanupKeys {
+			_, _ = pool.Exec(context.Background(), `DELETE FROM saas_settings WHERE key = $1`, k)
+		}
+	})
+	for _, k := range cleanupKeys {
+		if _, err := pool.Exec(ctx, `DELETE FROM saas_settings WHERE key = $1`, k); err != nil {
+			t.Fatalf("reset key %s: %v", k, err)
+		}
+	}
+
+	getTuning := func() (interval, grace, ttl float64) {
+		t.Helper()
+		resp, err := client.Get(srv.URL + "/api/saas-settings")
+		if err != nil {
+			t.Fatalf("GET saas-settings: %v", err)
+		}
+		defer resp.Body.Close()
+		var out struct {
+			Settings map[string]interface{} `json:"settings"`
+		}
+		if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
+			t.Fatalf("decode GET response: %v", err)
+		}
+		num := func(k string) float64 {
+			v, ok := out.Settings[k].(float64)
+			if !ok {
+				t.Fatalf("%s missing or not a number: %#v", k, out.Settings[k])
+			}
+			return v
+		}
+		return num("approval_cleanup_interval_minutes"),
+			num("approval_cleanup_ended_grace_hours"),
+			num("approval_cleanup_inactive_ttl_hours")
+	}
+
+	postTuning := func(interval, grace, ttl float64) {
+		t.Helper()
+		resp, err := client.Get(srv.URL + "/api/saas-settings")
+		if err != nil {
+			t.Fatalf("GET snapshot: %v", err)
+		}
+		var snap struct {
+			Settings map[string]interface{} `json:"settings"`
+		}
+		if err := json.NewDecoder(resp.Body).Decode(&snap); err != nil {
+			t.Fatalf("decode snapshot: %v", err)
+		}
+		resp.Body.Close()
+		snap.Settings["approval_cleanup_interval_minutes"] = interval
+		snap.Settings["approval_cleanup_ended_grace_hours"] = grace
+		snap.Settings["approval_cleanup_inactive_ttl_hours"] = ttl
+		body, err := json.Marshal(snap.Settings)
+		if err != nil {
+			t.Fatalf("marshal POST body: %v", err)
+		}
+		presp, err := client.Post(srv.URL+"/api/saas-settings", "application/json", bytes.NewReader(body))
+		if err != nil {
+			t.Fatalf("POST saas-settings: %v", err)
+		}
+		defer presp.Body.Close()
+		var out struct {
+			Success bool   `json:"success"`
+			Message string `json:"message"`
+		}
+		if err := json.NewDecoder(presp.Body).Decode(&out); err != nil {
+			t.Fatalf("decode POST response: %v", err)
+		}
+		if !out.Success {
+			t.Fatalf("POST cleanup tuning failed: %s", out.Message)
+		}
+	}
+
+	stored := func(key string) string {
+		t.Helper()
+		var v string
+		if err := pool.QueryRow(ctx, `SELECT value FROM saas_settings WHERE key = $1`, key).Scan(&v); err != nil {
+			t.Fatalf("read stored %s: %v", key, err)
+		}
+		return v
+	}
+
+	// 1) Keys missing → defaults 15 / 1 / 24 (same defaults the purge job
+	// applies when the settings rows are absent).
+	iv, gr, ttl := getTuning()
+	if iv != 15 || gr != 1 || ttl != 24 {
+		t.Fatalf("defaults = %v/%v/%v, want 15/1/24", iv, gr, ttl)
+	}
+
+	// 2) POST custom values → GET reflects and DB stores them verbatim.
+	postTuning(30, 2, 48)
+	iv, gr, ttl = getTuning()
+	if iv != 30 || gr != 2 || ttl != 48 {
+		t.Fatalf("after POST 30/2/48 = %v/%v/%v", iv, gr, ttl)
+	}
+	if s := stored(models.SettingApprovalCleanupIntervalMinutes); s != "30" {
+		t.Fatalf("stored interval = %q, want \"30\"", s)
+	}
+	if s := stored(models.SettingApprovalCleanupEndedGraceHours); s != "2" {
+		t.Fatalf("stored grace = %q, want \"2\"", s)
+	}
+	if s := stored(models.SettingApprovalCleanupInactiveTTLHours); s != "48" {
+		t.Fatalf("stored ttl = %q, want \"48\"", s)
+	}
+
+	// 3) Interval 0 → clamped to 1 (a 0-minute cadence would busy-loop the
+	// background job); grace/TTL 0 preserved as-is (deliberate "purge
+	// immediately" choice).
+	postTuning(0, 0, 0)
+	iv, gr, ttl = getTuning()
+	if iv != 1 {
+		t.Fatalf("interval after POST 0 = %v, want 1 (clamped minimum)", iv)
+	}
+	if gr != 0 || ttl != 0 {
+		t.Fatalf("grace/ttl after POST 0 = %v/%v, want 0/0 (preserved)", gr, ttl)
+	}
+	if s := stored(models.SettingApprovalCleanupIntervalMinutes); s != "1" {
+		t.Fatalf("stored interval (0) = %q, want \"1\"", s)
+	}
+
+	// 4) Negatives → clamped: interval to 1, grace/TTL to 0 (never stored raw).
+	postTuning(-10, -2, -3)
+	iv, gr, ttl = getTuning()
+	if iv != 1 || gr != 0 || ttl != 0 {
+		t.Fatalf("after POST negatives = %v/%v/%v, want 1/0/0 (clamped)", iv, gr, ttl)
+	}
+	if s := stored(models.SettingApprovalCleanupInactiveTTLHours); s != "0" {
+		t.Fatalf("stored ttl (-3) = %q, want \"0\" (clamped)", s)
+	}
+}
+
+// TestSaasSettingsMaxApprovalsPerExamUIMarkup pins the SaaS-panel field in
+// users.html and its admin.js wiring (save reads the input, load fills it), so
+// the SuperAdmin-editable cap cannot silently vanish from the UI.
+func TestSaasSettingsMaxApprovalsPerExamUIMarkup(t *testing.T) {
+	templatesDir := "templates"
+	if _, err := os.Stat(templatesDir); err != nil {
+		templatesDir = filepath.Join("..", "..", "..", "templates")
+	}
+	read := func(name string) string {
+		t.Helper()
+		data, err := os.ReadFile(filepath.Join(templatesDir, name))
+		if err != nil {
+			t.Fatalf("read %s: %v", name, err)
+		}
+		return string(data)
+	}
+
+	users := read("admin/users.html")
+	for _, frag := range []string{
+		`id="maxApprovalsPerExamInput"`,
+		"Maks Perangkat Disetujui per Ujian",
+		// Approval-cleanup job tuning fields (SuperAdmin-tunable purge cadence).
+		`id="approvalCleanupIntervalMinutesInput"`,
+		`id="approvalCleanupEndedGraceHoursInput"`,
+		`id="approvalCleanupInactiveTTLHoursInput"`,
+		"Pembersihan Otomatis Antrean Persetujuan",
+	} {
+		if !strings.Contains(users, frag) {
+			t.Errorf("users.html must contain %q (approval-cap/cleanup field markup)", frag)
+		}
+	}
+
+	js, err := os.ReadFile("static/js/admin.js")
+	if err != nil {
+		js, err = os.ReadFile(filepath.Join("..", "..", "..", "static/js/admin.js"))
+	}
+	if err != nil {
+		t.Fatalf("read admin.js: %v", err)
+	}
+	jsStr := string(js)
+	for _, frag := range []string{
+		"maxApprovalsPerExamInput",
+		"max_approvals_per_exam",
+		"approvalCleanupIntervalMinutesInput",
+		"approval_cleanup_interval_minutes",
+		"approvalCleanupEndedGraceHoursInput",
+		"approval_cleanup_ended_grace_hours",
+		"approvalCleanupInactiveTTLHoursInput",
+		"approval_cleanup_inactive_ttl_hours",
+	} {
+		if !strings.Contains(jsStr, frag) {
+			t.Errorf("admin.js must contain %q (approval-cap/cleanup wiring)", frag)
+		}
 	}
 }
 

@@ -72,9 +72,10 @@ func dropTestSchemaOnce(ctx context.Context, pool *pgxpool.Pool, schema, quotedS
 // covers referencing tables.
 func TruncateDataTables(ctx context.Context, pool *pgxpool.Pool) error {
 	_, err := pool.Exec(ctx, `
-		TRUNCATE instansi, admin_users, exams, exam_pengawas, submissions,
-		         student_access_logs, exam_approvals, vouchers, voucher_redemptions
-		RESTART IDENTITY CASCADE`)
+	TRUNCATE instansi, admin_users, exams, exam_pengawas, submissions,
+	         student_access_logs, exam_approvals, vouchers, voucher_redemptions,
+	         admin_audit_logs
+	RESTART IDENTITY CASCADE`)
 	return err
 }
 

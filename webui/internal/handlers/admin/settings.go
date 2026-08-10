@@ -104,6 +104,18 @@ func handleSaasSettingsGet(c *gin.Context, pool *pgxpool.Pool, ctx context.Conte
 			// Per-IP registration cap (0 = unlimited), defense-in-depth on top
 			// of Turnstile against mass-registration.
 			"max_accounts_per_ip": parseIntSetting(settings[models.SettingMaxAccountsPerIP], 3),
+
+			// Per-exam approved-device cap for server-side auto-approve
+			// (0 = unlimited): when reached, further request-approval calls fall
+			// back to the pending queue instead of auto-approving.
+			"max_approvals_per_exam": parseIntSetting(settings[models.SettingMaxApprovalsPerExam], 500),
+
+			// Approval-cleanup job tuning (see StartApprovalCleanupJob): purge
+			// cadence in minutes, grace hours after an exam ends, and the TTL
+			// hours for rows on inactive exams.
+			"approval_cleanup_interval_minutes":   parseIntSetting(settings[models.SettingApprovalCleanupIntervalMinutes], 15),
+			"approval_cleanup_ended_grace_hours":  parseIntSetting(settings[models.SettingApprovalCleanupEndedGraceHours], 1),
+			"approval_cleanup_inactive_ttl_hours": parseIntSetting(settings[models.SettingApprovalCleanupInactiveTTLHours], 24),
 		},
 	})
 }
@@ -162,6 +174,17 @@ func handleSaasSettingsPost(c *gin.Context, pool *pgxpool.Pool, ctx context.Cont
 		TurnstileSiteKey          string   `json:"turnstile_site_key"`
 		TurnstileSecretKey        string   `json:"turnstile_secret_key"`
 		MaxAccountsPerIP          int      `json:"max_accounts_per_ip"`
+		// Pointer: 0 is a MEANINGFUL value (unlimited), so an absent field — an
+		// older cached UI saving without this control — must NOT silently reset
+		// a configured cap to unlimited. Same guard as the storage quotas.
+		MaxApprovalsPerExam       *int     `json:"max_approvals_per_exam"`
+
+		// Approval-cleanup job tuning. All pointers for the same reason as
+		// MaxApprovalsPerExam: an older cached UI that predates these controls
+		// must not silently reset tuned purge cadence/windows to defaults.
+		ApprovalCleanupIntervalMinutes  *int `json:"approval_cleanup_interval_minutes"`
+		ApprovalCleanupEndedGraceHours  *int `json:"approval_cleanup_ended_grace_hours"`
+		ApprovalCleanupInactiveTTLHours *int `json:"approval_cleanup_inactive_ttl_hours"`
 	}
 
 	if err := c.ShouldBindJSON(&body); err != nil {
@@ -344,6 +367,44 @@ func handleSaasSettingsPost(c *gin.Context, pool *pgxpool.Pool, ctx context.Cont
 		maxPerIP = 0
 	}
 	models.SetSaasSetting(reqCtx, pool, models.SettingMaxAccountsPerIP, strconv.Itoa(maxPerIP))
+
+	// Per-exam approved-device cap for auto-approve. 0 = unlimited (a
+	// meaningful value, preserved as-is); negatives are clamped to 0. Written
+	// only when the field is present (pointer): an older cached UI that omits
+	// it must not silently reset a configured cap to unlimited.
+	if body.MaxApprovalsPerExam != nil {
+		maxApprovals := *body.MaxApprovalsPerExam
+		if maxApprovals < 0 {
+			maxApprovals = 0
+		}
+		models.SetSaasSetting(reqCtx, pool, models.SettingMaxApprovalsPerExam, strconv.Itoa(maxApprovals))
+	}
+
+	// Approval-cleanup job tuning. Interval must stay >= 1 minute (a 0 would
+	// make the background loop spin); grace/TTL clamp negatives to 0 (0 = no
+	// grace / purge immediately, a deliberate choice). Written only when the
+	// fields are present (pointers) so an older cached UI cannot reset them.
+	if body.ApprovalCleanupIntervalMinutes != nil {
+		interval := *body.ApprovalCleanupIntervalMinutes
+		if interval < 1 {
+			interval = 1
+		}
+		models.SetSaasSetting(reqCtx, pool, models.SettingApprovalCleanupIntervalMinutes, strconv.Itoa(interval))
+	}
+	if body.ApprovalCleanupEndedGraceHours != nil {
+		grace := *body.ApprovalCleanupEndedGraceHours
+		if grace < 0 {
+			grace = 0
+		}
+		models.SetSaasSetting(reqCtx, pool, models.SettingApprovalCleanupEndedGraceHours, strconv.Itoa(grace))
+	}
+	if body.ApprovalCleanupInactiveTTLHours != nil {
+		ttl := *body.ApprovalCleanupInactiveTTLHours
+		if ttl < 0 {
+			ttl = 0
+		}
+		models.SetSaasSetting(reqCtx, pool, models.SettingApprovalCleanupInactiveTTLHours, strconv.Itoa(ttl))
+	}
 
 	successMessage(c, "Pengaturan SaaS berhasil diperbarui")
 }
