@@ -14,6 +14,12 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/s3"
 )
 
+// ErrMsgNotConfigured is the canonical user-facing message every handler
+// returns when the R2 backend is missing or disabled. Handlers must use this
+// constant (not a local literal) so the wording stays identical across
+// admin/api/public surfaces.
+const ErrMsgNotConfigured = "Cloudflare R2 tidak dikonfigurasi."
+
 // Client is the object-storage abstraction the handlers depend on. The
 // concrete Cloudflare R2 implementation is S3Client; tests can substitute a
 // stub (e.g. recording the keys passed to Delete) without a network call.

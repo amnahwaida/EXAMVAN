@@ -46,7 +46,7 @@ func UploadSystemApp() gin.HandlerFunc {
 		r2Val, exists := c.Get("r2")
 		r2 := r2client.FromContext(r2Val)
 		if !exists || r2 == nil || !r2.Enabled() {
-			c.JSON(http.StatusInternalServerError, gin.H{"success": false, "message": "Cloudflare R2 tidak dikonfigurasi."})
+			c.JSON(http.StatusInternalServerError, gin.H{"success": false, "message": r2client.ErrMsgNotConfigured})
 			return
 		}
 

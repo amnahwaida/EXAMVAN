@@ -237,7 +237,7 @@ func UploadExam() gin.HandlerFunc {
 		if r2c, exists := c.Get("r2"); exists {
 			client := r2client.FromContext(r2c)
 			if client == nil || !client.Enabled() {
-				errorResponse(c, http.StatusInternalServerError, "Cloudflare R2 client tidak ditemukan")
+				errorResponse(c, http.StatusInternalServerError, r2client.ErrMsgNotConfigured)
 				return
 			}
 			r2Key := fmt.Sprintf("pdfs/%s", filename)
@@ -248,7 +248,7 @@ func UploadExam() gin.HandlerFunc {
 			}
 			log.Printf("admin: PDF uploaded to R2: %s", r2Key)
 		} else {
-			errorResponse(c, http.StatusInternalServerError, "Cloudflare R2 client tidak ditemukan")
+			errorResponse(c, http.StatusInternalServerError, r2client.ErrMsgNotConfigured)
 			return
 		}
 
@@ -583,7 +583,7 @@ func EditExam() gin.HandlerFunc {
 				// Reject a missing OR disabled backend with a clear message
 				// (mirrors UploadSystemApp / UploadExam).
 				if client == nil || !client.Enabled() {
-					errorResponse(c, http.StatusInternalServerError, "Cloudflare R2 client tidak ditemukan")
+					errorResponse(c, http.StatusInternalServerError, r2client.ErrMsgNotConfigured)
 					return
 				}
 				r2Key := fmt.Sprintf("pdfs/%s", filename)
@@ -594,7 +594,7 @@ func EditExam() gin.HandlerFunc {
 				}
 				log.Printf("admin: PDF uploaded to R2: %s", r2Key)
 			} else {
-				errorResponse(c, http.StatusInternalServerError, "Cloudflare R2 client tidak ditemukan")
+				errorResponse(c, http.StatusInternalServerError, r2client.ErrMsgNotConfigured)
 				return
 			}
 
@@ -704,7 +704,7 @@ func ExamPDF() gin.HandlerFunc {
 			}
 		}
 
-		c.AbortWithStatus(http.StatusInternalServerError)
+		errorResponse(c, http.StatusInternalServerError, r2client.ErrMsgNotConfigured)
 	}
 }
 

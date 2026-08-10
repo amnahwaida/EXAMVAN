@@ -98,8 +98,8 @@ func TestAPIExamPDFDisabledR2Rejected(t *testing.T) {
 	if rec.Code != http.StatusInternalServerError {
 		t.Fatalf("disabled R2: status=%d, want 500", rec.Code)
 	}
-	if body := rec.Body.String(); !strings.Contains(body, "Cloudflare R2") {
-		t.Fatalf("disabled R2: body=%q, want clear 'Cloudflare R2' message", body)
+	if body := rec.Body.String(); !strings.Contains(body, r2client.ErrMsgNotConfigured) {
+		t.Fatalf("disabled R2: body=%q, want canonical message %q", body, r2client.ErrMsgNotConfigured)
 	}
 	if len(stub.signed) != 0 {
 		t.Fatalf("disabled R2: SignedURL called %d times, want 0", len(stub.signed))
@@ -118,8 +118,8 @@ func TestAPIExamPDFNilR2KeyDoesNotPanic(t *testing.T) {
 	if rec.Code != http.StatusInternalServerError {
 		t.Fatalf("nil r2 key: status=%d, want 500", rec.Code)
 	}
-	if body := rec.Body.String(); !strings.Contains(body, "Cloudflare R2") {
-		t.Fatalf("nil r2 key: body=%q, want clear 'Cloudflare R2' message", body)
+	if body := rec.Body.String(); !strings.Contains(body, r2client.ErrMsgNotConfigured) {
+		t.Fatalf("nil r2 key: body=%q, want canonical message %q", body, r2client.ErrMsgNotConfigured)
 	}
 }
 

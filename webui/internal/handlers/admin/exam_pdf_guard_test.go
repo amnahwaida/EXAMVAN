@@ -2,10 +2,12 @@ package admin
 
 import (
 	"context"
+	"io"
 	"net/http"
 	"net/http/cookiejar"
 	"net/http/httptest"
 	"strconv"
+	"strings"
 	"testing"
 
 	"github.com/gin-contrib/sessions"
@@ -15,6 +17,7 @@ import (
 
 	"github.com/examvan/webui/internal/config"
 	"github.com/examvan/webui/internal/database"
+	r2client "github.com/examvan/webui/internal/handlers/r2"
 	"github.com/examvan/webui/internal/middleware"
 	"github.com/examvan/webui/internal/models"
 )
@@ -122,6 +125,9 @@ func TestAdminExamPDFDisabledR2Rejected(t *testing.T) {
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusInternalServerError {
 		t.Fatalf("disabled R2: status=%d, want 500", resp.StatusCode)
+	}
+	if body, _ := io.ReadAll(resp.Body); !strings.Contains(string(body), r2client.ErrMsgNotConfigured) {
+		t.Fatalf("disabled R2: body=%q, want canonical message %q", body, r2client.ErrMsgNotConfigured)
 	}
 	if len(stub.signed) != 0 {
 		t.Fatalf("disabled R2: SignedURL called %d times (%v), want 0", len(stub.signed), stub.signed)

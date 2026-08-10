@@ -288,7 +288,7 @@ func TestEditExamFailureKeepsOldStorageFile(t *testing.T) {
 	superID, examID, rel := createExamEditFixture(t, pool, storageDir, "edit_fail_super", "EditFailExam")
 
 	// Router WITHOUT an R2 client: EditExam's upload step fails with
-	// "Cloudflare R2 client tidak ditemukan" before any old-file deletion.
+	// r2client.ErrMsgNotConfigured before any old-file deletion.
 	srv := httptest.NewServer(newExamEditCleanupTestRouter(pool, storageDir, nil))
 	defer srv.Close()
 	jar, _ := cookiejar.New(nil)

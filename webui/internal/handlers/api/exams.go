@@ -678,7 +678,7 @@ func ExamPDF() gin.HandlerFunc {
 			}
 		}
 
-		errorResponse(c, http.StatusInternalServerError, "Cloudflare R2 client tidak dikonfigurasi")
+		errorResponse(c, http.StatusInternalServerError, r2client.ErrMsgNotConfigured)
 	}
 }
 

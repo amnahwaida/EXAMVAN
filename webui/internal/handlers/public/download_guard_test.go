@@ -125,8 +125,8 @@ func TestDownloadAPKDisabledR2Rejected(t *testing.T) {
 	if code != http.StatusInternalServerError {
 		t.Fatalf("GET /download/apk status=%d, want 500 (disabled backend must be rejected)", code)
 	}
-	if !strings.Contains(body, "Cloudflare R2") {
-		t.Errorf("rejection body = %q, want a clear Cloudflare R2 message", body)
+	if !strings.Contains(body, r2client.ErrMsgNotConfigured) {
+		t.Errorf("rejection body = %q, want canonical message %q", body, r2client.ErrMsgNotConfigured)
 	}
 	// The guard must reject BEFORE signing — a disabled backend must never
 	// serve a signed URL.
@@ -146,8 +146,8 @@ func TestDownloadAPKNilR2KeyDoesNotPanic(t *testing.T) {
 	if code != http.StatusInternalServerError {
 		t.Fatalf("GET /download/apk status=%d, want 500 (nil r2 key must not panic)", code)
 	}
-	if !strings.Contains(body, "Cloudflare R2") {
-		t.Errorf("rejection body = %q, want a clear Cloudflare R2 message", body)
+	if !strings.Contains(body, r2client.ErrMsgNotConfigured) {
+		t.Errorf("rejection body = %q, want canonical message %q", body, r2client.ErrMsgNotConfigured)
 	}
 }
 
@@ -185,8 +185,8 @@ func TestDownloadSystemAppDisabledR2Rejected(t *testing.T) {
 	if code != http.StatusInternalServerError {
 		t.Fatalf("GET /download/app/%d status=%d, want 500 (disabled backend must be rejected)", id, code)
 	}
-	if !strings.Contains(body, "Cloudflare R2") {
-		t.Errorf("rejection body = %q, want a clear Cloudflare R2 message", body)
+	if !strings.Contains(body, r2client.ErrMsgNotConfigured) {
+		t.Errorf("rejection body = %q, want canonical message %q", body, r2client.ErrMsgNotConfigured)
 	}
 	// The guard must reject BEFORE signing — a disabled backend must never
 	// serve a signed URL.
@@ -206,8 +206,8 @@ func TestDownloadSystemAppNilR2KeyDoesNotPanic(t *testing.T) {
 	if code != http.StatusInternalServerError {
 		t.Fatalf("GET /download/app/%d status=%d, want 500 (nil r2 key must not panic)", id, code)
 	}
-	if !strings.Contains(body, "Cloudflare R2") {
-		t.Errorf("rejection body = %q, want a clear Cloudflare R2 message", body)
+	if !strings.Contains(body, r2client.ErrMsgNotConfigured) {
+		t.Errorf("rejection body = %q, want canonical message %q", body, r2client.ErrMsgNotConfigured)
 	}
 }
 
