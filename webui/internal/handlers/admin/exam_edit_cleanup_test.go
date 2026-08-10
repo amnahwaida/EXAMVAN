@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"fmt"
+	"io"
 	"mime/multipart"
 	"net/http"
 	"net/http/cookiejar"
@@ -42,6 +43,27 @@ import (
 // files there. When r2c is non-nil it is registered in the context, matching
 // a server with R2 configured (EditExam requires R2 for the new upload).
 func newExamEditCleanupTestRouter(pool *pgxpool.Pool, storageDir string, r2c r2client.Client) *gin.Engine {
+	return newExamEditCleanupTestRouterWithR2(pool, storageDir, func(c *gin.Context) {
+		if r2c != nil {
+			c.Set("r2", r2c)
+		}
+	})
+}
+
+// newExamEditCleanupTestRouterR2Nil is the same router, but the "r2" key is
+// ALWAYS present holding a value that is NOT an r2.Client (a nil interface) —
+// the handler must reject the replacement with a clear message instead of
+// panicking.
+func newExamEditCleanupTestRouterR2Nil(pool *pgxpool.Pool, storageDir string) *gin.Engine {
+	return newExamEditCleanupTestRouterWithR2(pool, storageDir, func(c *gin.Context) {
+		c.Set("r2", nil)
+	})
+}
+
+// newExamEditCleanupTestRouterWithR2 builds the edit-cleanup test router,
+// delegating the "r2" key injection to setR2 so callers can simulate an
+// enabled backend, a disabled one, or a malformed (nil) key.
+func newExamEditCleanupTestRouterWithR2(pool *pgxpool.Pool, storageDir string, setR2 func(*gin.Context)) *gin.Engine {
 	gin.SetMode(gin.TestMode)
 	r := gin.New()
 	store := cookie.NewStore([]byte("examvan-it-secret-0123456789abcdef0123456789abcdef"))
@@ -50,9 +72,7 @@ func newExamEditCleanupTestRouter(pool *pgxpool.Pool, storageDir string, r2c r2c
 	r.Use(func(c *gin.Context) {
 		c.Set("db", pool)
 		c.Set("cfg", &config.Config{StoragePath: storageDir})
-		if r2c != nil {
-			c.Set("r2", r2c)
-		}
+		setR2(c)
 	})
 
 	r.POST("/test/login/:id", func(c *gin.Context) {
@@ -100,6 +120,29 @@ func editExamMultipart(t *testing.T, newName string, pdf []byte, pdfName string)
 	return &buf, mw.FormDataContentType()
 }
 
+// editExamDoFull posts an EditExam request (multipart: name + new PDF) and
+// returns the status code + response body so tests can assert the rejection
+// message wording.
+func editExamDoFull(t *testing.T, client *http.Client, base string, examID int, newName string, pdf []byte, pdfName string) (int, string) {
+	t.Helper()
+	body, contentType := editExamMultipart(t, newName, pdf, pdfName)
+	req, err := http.NewRequest(http.MethodPost, fmt.Sprintf("%s/admin/api/exams/%d/edit", base, examID), body)
+	if err != nil {
+		t.Fatalf("new request: %v", err)
+	}
+	req.Header.Set("Content-Type", contentType)
+	resp, err := client.Do(req)
+	if err != nil {
+		t.Fatalf("edit request: %v", err)
+	}
+	defer resp.Body.Close()
+	b, err := io.ReadAll(resp.Body)
+	if err != nil {
+		t.Fatalf("read response body: %v", err)
+	}
+	return resp.StatusCode, string(b)
+}
+
 // createExamEditFixture creates a superadmin plus an exam whose PDF file
 // physically exists under storageDir (a legacy pre-R2 file that must be
 // cleaned up when the PDF is replaced), and returns the superadmin id, exam
@@ -133,7 +176,6 @@ func createExamEditFixture(t *testing.T, pool *pgxpool.Pool, storageDir, usernam
 	}
 	return su.ID, examID, examName + ".pdf"
 }
-
 
 // EditExam must remove the OLD local PDF when the PDF is replaced: the new
 // PDF is uploaded (R2), then the old local file is deleted so FreeDiskSpace
@@ -297,5 +339,110 @@ func TestEditExamFailureKeepsOldStorageFile(t *testing.T) {
 	}
 	if auditCount != 0 {
 		t.Errorf("audit rows after FAILED edit = %d, want 0", auditCount)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// R2 guard consistency on EditExam (mirrors the UploadExam guard tests): a
+// missing OR DISABLED backend must reject a PDF replacement with a clear
+// message BEFORE any upload — the exam row, the old R2 object and the old
+// local file all stay untouched, and no audit row is forged. A nil-interface
+// "r2" key must not panic either.
+// ---------------------------------------------------------------------------
+
+// A disabled backend (Enabled() == false) must reject the replacement with a
+// clear message and leave everything untouched.
+func TestEditExamR2DisabledRejected(t *testing.T) {
+	pool := database.NewPackageTestPool(t, "admin")
+	storageDir, err := os.MkdirTemp("", "examvan-edit-disr2")
+	if err != nil {
+		t.Fatalf("make temp storage dir: %v", err)
+	}
+	defer os.RemoveAll(storageDir)
+
+	superID, examID, rel := createExamEditFixture(t, pool, storageDir, "edit_disr2_super", "EditDisR2Exam")
+	r2c := &stubR2{enabled: false}
+
+	srv := httptest.NewServer(newExamEditCleanupTestRouter(pool, storageDir, r2c))
+	defer srv.Close()
+	jar, _ := cookiejar.New(nil)
+	client := &http.Client{Jar: jar}
+	if resp, err := client.Post(srv.URL+"/test/login/"+strconv.Itoa(superID), "application/json", nil); err != nil || resp.StatusCode != http.StatusOK {
+		t.Fatalf("test login: status=%v err=%v", resp, err)
+	}
+
+	code, body := editExamDoFull(t, client, srv.URL, examID, "Should Not Apply",
+		[]byte("%PDF-1.4 new content\n%%EOF\n"), "newfile.pdf")
+	if code != http.StatusInternalServerError {
+		t.Fatalf("edit status=%d, want 500 (disabled backend must be rejected)", code)
+	}
+	if !strings.Contains(body, "Cloudflare R2") {
+		t.Errorf("rejection body = %q, want a clear Cloudflare R2 message", body)
+	}
+	if len(r2c.uploads) != 0 {
+		t.Errorf("R2 uploads = %v, want none (disabled backend never touched)", r2c.uploads)
+	}
+
+	// The exam row, the old local file and the audit trail are all untouched.
+	var name, path string
+	if err := pool.QueryRow(context.Background(),
+		`SELECT name, file_path FROM exams WHERE id = $1`, examID).Scan(&name, &path); err != nil {
+		t.Fatalf("load exam after rejected edit: %v", err)
+	}
+	if name != "EditDisR2Exam" || path != rel {
+		t.Errorf("exam after rejected edit = name:%q path:%q, want name:%q path:%q", name, path, "EditDisR2Exam", rel)
+	}
+	if !fileExists(t, storageDir, rel) {
+		t.Errorf("old exam pdf removed on REJECTED edit — exam still points at it")
+	}
+	var auditCount int
+	if err := pool.QueryRow(context.Background(),
+		`SELECT COUNT(*) FROM admin_audit_logs WHERE exam_id = $1`, examID).Scan(&auditCount); err != nil {
+		t.Fatalf("count audit logs: %v", err)
+	}
+	if auditCount != 0 {
+		t.Errorf("audit rows after rejected edit = %d, want 0", auditCount)
+	}
+}
+
+// An "r2" key present but holding a non-Client value (nil interface) must not
+// panic — the replacement is rejected cleanly and the exam stays untouched.
+func TestEditExamR2NilKeyDoesNotPanic(t *testing.T) {
+	pool := database.NewPackageTestPool(t, "admin")
+	storageDir, err := os.MkdirTemp("", "examvan-edit-nilr2")
+	if err != nil {
+		t.Fatalf("make temp storage dir: %v", err)
+	}
+	defer os.RemoveAll(storageDir)
+
+	superID, examID, rel := createExamEditFixture(t, pool, storageDir, "edit_nilr2_super", "EditNilR2Exam")
+
+	srv := httptest.NewServer(newExamEditCleanupTestRouterR2Nil(pool, storageDir))
+	defer srv.Close()
+	jar, _ := cookiejar.New(nil)
+	client := &http.Client{Jar: jar}
+	if resp, err := client.Post(srv.URL+"/test/login/"+strconv.Itoa(superID), "application/json", nil); err != nil || resp.StatusCode != http.StatusOK {
+		t.Fatalf("test login: status=%v err=%v", resp, err)
+	}
+
+	code, body := editExamDoFull(t, client, srv.URL, examID, "Should Not Apply",
+		[]byte("%PDF-1.4 new content\n%%EOF\n"), "newfile.pdf")
+	if code != http.StatusInternalServerError {
+		t.Fatalf("edit status=%d, want 500 (nil r2 key must not panic)", code)
+	}
+	if !strings.Contains(body, "Cloudflare R2") {
+		t.Errorf("rejection body = %q, want a clear Cloudflare R2 message", body)
+	}
+
+	var name, path string
+	if err := pool.QueryRow(context.Background(),
+		`SELECT name, file_path FROM exams WHERE id = $1`, examID).Scan(&name, &path); err != nil {
+		t.Fatalf("load exam after rejected edit: %v", err)
+	}
+	if name != "EditNilR2Exam" || path != rel {
+		t.Errorf("exam after rejected edit = name:%q path:%q, want unchanged", name, path)
+	}
+	if !fileExists(t, storageDir, rel) {
+		t.Errorf("old exam pdf removed on REJECTED edit — exam still points at it")
 	}
 }

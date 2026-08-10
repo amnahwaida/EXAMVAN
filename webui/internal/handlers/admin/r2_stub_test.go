@@ -13,10 +13,11 @@ import (
 // touched) and can be switched to a failing backend. No network involved —
 // this is exactly why r2.Client is an interface.
 type stubR2 struct {
-	enabled  bool
-	uploads  []string
-	deletes  []string
-	failWith error
+	enabled        bool
+	uploads        []string
+	deletes        []string
+	failWith       error
+	deleteFailWith error // fails Delete only, leaving Upload working (orphan-cleanup path)
 }
 
 var _ r2client.Client = (*stubR2)(nil)
@@ -50,6 +51,9 @@ func (s *stubR2) SignedURL(ctx context.Context, key string, ttl time.Duration) (
 
 func (s *stubR2) Delete(ctx context.Context, key string) error {
 	s.deletes = append(s.deletes, key)
+	if s.deleteFailWith != nil {
+		return s.deleteFailWith
+	}
 	return s.failWith
 }
 

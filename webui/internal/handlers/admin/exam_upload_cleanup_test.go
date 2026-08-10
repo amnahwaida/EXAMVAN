@@ -3,6 +3,7 @@ package admin
 import (
 	"context"
 	"fmt"
+	"io"
 	"net/http"
 	"net/http/cookiejar"
 	"net/http/httptest"
@@ -36,6 +37,25 @@ import (
 // endpoint: sessions, AuthRequired, a /test/login/:id session seam, and an R2
 // client stub (UploadExam requires R2 — the else branch rejects without it).
 func newExamUploadCleanupTestRouter(pool *pgxpool.Pool, r2c r2client.Client) *gin.Engine {
+	return newExamUploadCleanupTestRouterWithR2(pool, func(c *gin.Context) {
+		c.Set("r2", r2c)
+	})
+}
+
+// newExamUploadCleanupTestRouterR2Nil is the same router, but the "r2" key is
+// ALWAYS present holding a value that is NOT an r2.Client (a nil interface) —
+// r2client.FromContext yields a nil interface, which the handler must reject
+// with a clear message instead of panicking.
+func newExamUploadCleanupTestRouterR2Nil(pool *pgxpool.Pool) *gin.Engine {
+	return newExamUploadCleanupTestRouterWithR2(pool, func(c *gin.Context) {
+		c.Set("r2", nil)
+	})
+}
+
+// newExamUploadCleanupTestRouterWithR2 builds the upload-cleanup test router,
+// delegating the "r2" key injection to setR2 so callers can simulate an
+// enabled backend, a disabled one, or a malformed (nil) key.
+func newExamUploadCleanupTestRouterWithR2(pool *pgxpool.Pool, setR2 func(*gin.Context)) *gin.Engine {
 	gin.SetMode(gin.TestMode)
 	r := gin.New()
 	store := cookie.NewStore([]byte("examvan-it-secret-0123456789abcdef0123456789abcdef"))
@@ -44,7 +64,7 @@ func newExamUploadCleanupTestRouter(pool *pgxpool.Pool, r2c r2client.Client) *gi
 	r.Use(func(c *gin.Context) {
 		c.Set("db", pool)
 		c.Set("cfg", &config.Config{StoragePath: ""})
-		c.Set("r2", r2c)
+		setR2(c)
 	})
 
 	r.POST("/test/login/:id", func(c *gin.Context) {
@@ -100,6 +120,14 @@ func createUploadCleanupUser(t *testing.T, pool *pgxpool.Pool, username, examNam
 // uploadExamDo performs a multipart upload request and returns the status code.
 func uploadExamDo(t *testing.T, client *http.Client, base string, name, pdfName string) int {
 	t.Helper()
+	code, _ := uploadExamDoFull(t, client, base, name, pdfName)
+	return code
+}
+
+// uploadExamDoFull is uploadExamDo plus the response body, so tests can assert
+// the rejection message wording.
+func uploadExamDoFull(t *testing.T, client *http.Client, base, name, pdfName string) (int, string) {
+	t.Helper()
 	body, contentType := editExamMultipart(t, name, []byte("%PDF-1.4 upload test\n%%EOF\n"), pdfName)
 	req, err := http.NewRequest(http.MethodPost, base+"/admin/api/upload", body)
 	if err != nil {
@@ -111,7 +139,11 @@ func uploadExamDo(t *testing.T, client *http.Client, base string, name, pdfName 
 		t.Fatalf("upload request: %v", err)
 	}
 	defer resp.Body.Close()
-	return resp.StatusCode
+	b, err := io.ReadAll(resp.Body)
+	if err != nil {
+		t.Fatalf("read response body: %v", err)
+	}
+	return resp.StatusCode, string(b)
 }
 
 func countExamsForUser(t *testing.T, pool *pgxpool.Pool, userID int) int {
@@ -305,5 +337,168 @@ func TestUploadExamSuccessNoOrphanCleanup(t *testing.T) {
 	}
 	if !strings.Contains(auditDetail, "OkUploadExam") {
 		t.Errorf("audit detail = %q, want it to mention the created exam name", auditDetail)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// R2 guard consistency on UploadExam (mirrors the system_apps guard tests):
+//   - a missing OR DISABLED backend must be rejected with a clear message,
+//     before any upload attempt or row creation;
+//   - an "r2" key holding a non-Client value (nil interface) must not panic;
+//   - a FAILING backend (UploadBytes error) must not create a row — nothing
+//     landed in the bucket, so there is nothing to clean;
+//   - a failing DELETE during cleanupR2Orphan must still attempt the orphan
+//     delete with the exact uploaded key (best-effort, error logged).
+// ---------------------------------------------------------------------------
+
+// A disabled backend (Enabled() == false) must be rejected with a clear
+// message BEFORE any upload attempt — no object uploaded, no row created.
+func TestUploadExamR2DisabledRejected(t *testing.T) {
+	pool := database.NewPackageTestPool(t, "admin")
+	userID := createUploadCleanupUser(t, pool, "upload_disr2_user", "", 3)
+	r2c := &stubR2{enabled: false}
+
+	srv := httptest.NewServer(newExamUploadCleanupTestRouter(pool, r2c))
+	defer srv.Close()
+	jar, _ := cookiejar.New(nil)
+	client := &http.Client{Jar: jar}
+	if resp, err := client.Post(srv.URL+"/test/login/"+strconv.Itoa(userID), "application/json", nil); err != nil || resp.StatusCode != http.StatusOK {
+		t.Fatalf("test login: status=%v err=%v", resp, err)
+	}
+
+	code, body := uploadExamDoFull(t, client, srv.URL, "DisR2Exam", "dis.pdf")
+	if code != http.StatusInternalServerError {
+		t.Fatalf("upload status=%d, want 500 (disabled backend must be rejected)", code)
+	}
+	if !strings.Contains(body, "Cloudflare R2") {
+		t.Errorf("rejection body = %q, want a clear Cloudflare R2 message", body)
+	}
+	if len(r2c.uploads) != 0 {
+		t.Errorf("R2 uploads = %v, want none (disabled backend never touched)", r2c.uploads)
+	}
+	if cnt := countExamsForUser(t, pool, userID); cnt != 0 {
+		t.Errorf("exams after disabled-backend upload = %d, want 0", cnt)
+	}
+}
+
+// An "r2" key present but holding a non-Client value (nil interface) must not
+// panic — FromContext yields a nil interface and the handler rejects it.
+func TestUploadExamR2NilKeyDoesNotPanic(t *testing.T) {
+	pool := database.NewPackageTestPool(t, "admin")
+	userID := createUploadCleanupUser(t, pool, "upload_nilr2_user", "", 3)
+
+	srv := httptest.NewServer(newExamUploadCleanupTestRouterR2Nil(pool))
+	defer srv.Close()
+	jar, _ := cookiejar.New(nil)
+	client := &http.Client{Jar: jar}
+	if resp, err := client.Post(srv.URL+"/test/login/"+strconv.Itoa(userID), "application/json", nil); err != nil || resp.StatusCode != http.StatusOK {
+		t.Fatalf("test login: status=%v err=%v", resp, err)
+	}
+
+	code, body := uploadExamDoFull(t, client, srv.URL, "NilR2Exam", "nil.pdf")
+	if code != http.StatusInternalServerError {
+		t.Fatalf("upload status=%d, want 500 (nil r2 key must not panic)", code)
+	}
+	if !strings.Contains(body, "Cloudflare R2") {
+		t.Errorf("rejection body = %q, want a clear Cloudflare R2 message", body)
+	}
+	if cnt := countExamsForUser(t, pool, userID); cnt != 0 {
+		t.Errorf("exams after nil-r2 upload = %d, want 0", cnt)
+	}
+}
+
+// An upload that fails at the R2 step (stub failWith) must NOT create a row
+// and must NOT attempt any cleanup delete — the object never landed in the
+// bucket, so there is nothing to leak and nothing to clean.
+func TestUploadExamR2UploadFailureNoOrphanLeak(t *testing.T) {
+	pool := database.NewPackageTestPool(t, "admin")
+	userID := createUploadCleanupUser(t, pool, "upload_upfail_user", "", 3)
+	r2c := newStubR2()
+	r2c.failWith = fmt.Errorf("r2 upload failed")
+
+	srv := httptest.NewServer(newExamUploadCleanupTestRouter(pool, r2c))
+	defer srv.Close()
+	jar, _ := cookiejar.New(nil)
+	client := &http.Client{Jar: jar}
+	if resp, err := client.Post(srv.URL+"/test/login/"+strconv.Itoa(userID), "application/json", nil); err != nil || resp.StatusCode != http.StatusOK {
+		t.Fatalf("test login: status=%v err=%v", resp, err)
+	}
+
+	code, body := uploadExamDoFull(t, client, srv.URL, "UpFailExam", "upfail.pdf")
+	if code != http.StatusInternalServerError {
+		t.Fatalf("upload status=%d, want 500 (r2 upload failed)", code)
+	}
+	if !strings.Contains(body, "Gagal mengupload") {
+		t.Errorf("rejection body = %q, want the R2 upload error message", body)
+	}
+	if len(r2c.uploads) != 1 {
+		t.Fatalf("R2 uploads = %d, want 1 (the failed attempt is recorded)", len(r2c.uploads))
+	}
+	if len(r2c.deletes) != 0 {
+		t.Errorf("R2 deletes = %v, want none (nothing reached the bucket to clean)", r2c.deletes)
+	}
+	if cnt := countExamsForUser(t, pool, userID); cnt != 0 {
+		t.Errorf("exams after failed upload = %d, want 0", cnt)
+	}
+}
+
+// A post-upload failure (insert rejected by guard trigger) with a DELETE that
+// also fails must still ATTEMPT cleanupR2Orphan with the exact uploaded key
+// (best-effort; the failure is logged, never silently skipped).
+func TestUploadExamOrphanCleanupAttemptedDespiteDeleteError(t *testing.T) {
+	pool := database.NewPackageTestPool(t, "admin")
+	ctx := context.Background()
+
+	if _, err := pool.Exec(ctx, `DROP FUNCTION IF EXISTS fn_block_upload_insert_cleanup_test() CASCADE`); err != nil {
+		t.Fatalf("drop stale function: %v", err)
+	}
+	if _, err := pool.Exec(ctx, `
+		CREATE FUNCTION fn_block_upload_insert_cleanup_test() RETURNS trigger AS $$
+		BEGIN
+			IF NEW.name = 'BlockedUploadExam' THEN
+				RAISE EXCEPTION 'blocked by test trigger';
+			END IF;
+			RETURN NEW;
+		END; $$ LANGUAGE plpgsql`); err != nil {
+		t.Fatalf("create trigger function: %v", err)
+	}
+	if _, err := pool.Exec(ctx, `
+		CREATE TRIGGER trg_block_upload_insert_cleanup_test
+		BEFORE INSERT ON exams FOR EACH ROW
+		EXECUTE FUNCTION fn_block_upload_insert_cleanup_test()`); err != nil {
+		t.Fatalf("create trigger: %v", err)
+	}
+	t.Cleanup(func() {
+		_, _ = pool.Exec(ctx, `DROP TRIGGER IF EXISTS trg_block_upload_insert_cleanup_test ON exams`)
+		_, _ = pool.Exec(ctx, `DROP FUNCTION IF EXISTS fn_block_upload_insert_cleanup_test() CASCADE`)
+	})
+
+	userID := createUploadCleanupUser(t, pool, "upload_delfail_user", "", 3)
+	r2c := newStubR2()
+	r2c.deleteFailWith = fmt.Errorf("r2 delete failed")
+
+	srv := httptest.NewServer(newExamUploadCleanupTestRouter(pool, r2c))
+	defer srv.Close()
+	jar, _ := cookiejar.New(nil)
+	client := &http.Client{Jar: jar}
+	if resp, err := client.Post(srv.URL+"/test/login/"+strconv.Itoa(userID), "application/json", nil); err != nil || resp.StatusCode != http.StatusOK {
+		t.Fatalf("test login: status=%v err=%v", resp, err)
+	}
+
+	if code, _ := uploadExamDoFull(t, client, srv.URL, "BlockedUploadExam", "blocked.pdf"); code != http.StatusInternalServerError {
+		t.Fatalf("upload status=%d, want 500 (insert failed)", code)
+	}
+
+	if len(r2c.uploads) != 1 {
+		t.Fatalf("R2 uploads = %d, want 1", len(r2c.uploads))
+	}
+	if len(r2c.deletes) != 1 {
+		t.Fatalf("R2 deletes = %d (%v), want 1 — cleanupR2Orphan must still attempt the delete even when the backend fails", len(r2c.deletes), r2c.deletes)
+	}
+	if r2c.uploads[0] != r2c.deletes[0] {
+		t.Errorf("orphan delete key %q != uploaded key %q", r2c.deletes[0], r2c.uploads[0])
+	}
+	if cnt := countExamsForUser(t, pool, userID); cnt != 0 {
+		t.Errorf("exams after failed insert = %d, want 0", cnt)
 	}
 }

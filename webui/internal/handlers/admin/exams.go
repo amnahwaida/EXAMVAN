@@ -231,10 +231,12 @@ func UploadExam() gin.HandlerFunc {
 		safeName := cleanUploadedFilename(header.Filename)
 		filename := fmt.Sprintf("%s_%s", timestamp, safeName)
 
-		// Upload to R2 (Mandatory)
+		// Upload to R2 (Mandatory): reject a missing OR disabled backend with a
+		// clear message (mirrors UploadSystemApp) instead of attempting an
+		// upload against a backend that is not ready.
 		if r2c, exists := c.Get("r2"); exists {
 			client := r2client.FromContext(r2c)
-			if client == nil {
+			if client == nil || !client.Enabled() {
 				errorResponse(c, http.StatusInternalServerError, "Cloudflare R2 client tidak ditemukan")
 				return
 			}
@@ -490,10 +492,11 @@ func DeleteExam() gin.HandlerFunc {
 			return
 		}
 
-		// Delete from R2 (Mandatory)
+		// Delete from R2 (Mandatory, best-effort): only touch an enabled backend
+		// (mirrors BulkDelete/DeleteUser).
 		if r2c, exists := c.Get("r2"); exists {
 			client := r2client.FromContext(r2c)
-			if client != nil {
+			if client != nil && client.Enabled() {
 				r2Key := fmt.Sprintf("pdfs/%s", exam.FilePath)
 				if err := client.Delete(ctx, r2Key); err != nil {
 					log.Printf("admin: R2 delete error: %v", err)
@@ -577,7 +580,9 @@ func EditExam() gin.HandlerFunc {
 
 			if r2c, exists := c.Get("r2"); exists {
 				client := r2client.FromContext(r2c)
-				if client == nil {
+				// Reject a missing OR disabled backend with a clear message
+				// (mirrors UploadSystemApp / UploadExam).
+				if client == nil || !client.Enabled() {
 					errorResponse(c, http.StatusInternalServerError, "Cloudflare R2 client tidak ditemukan")
 					return
 				}
@@ -611,10 +616,11 @@ func EditExam() gin.HandlerFunc {
 		// UpdateExam would leave the row referencing files that a failed DB
 		// update had already destroyed.
 		if fileErr == nil && header != nil {
-			// Delete old file from R2 (Mandatory, best-effort)
+			// Delete old file from R2 (Mandatory, best-effort): only touch an
+			// enabled backend (mirrors BulkDelete/DeleteUser/DeleteExam).
 			if r2c, exists := c.Get("r2"); exists {
 				client := r2client.FromContext(r2c)
-				if client != nil {
+				if client != nil && client.Enabled() {
 					oldR2Key := fmt.Sprintf("pdfs/%s", oldFilePath)
 					if err := client.Delete(ctx, oldR2Key); err != nil {
 						log.Printf("admin: R2 delete old file error: %v", err)
