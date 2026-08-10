@@ -689,10 +689,11 @@ func ExamPDF() gin.HandlerFunc {
 			return
 		}
 
-		// Serve PDF via Cloudflare R2 signed URL (Mandatory)
+		// Serve PDF via Cloudflare R2 signed URL (Mandatory): only an ENABLED
+		// backend may sign (mirrors BulkDelete/DeleteUser/download guards).
 		if r2c, exists := c.Get("r2"); exists {
 			client := r2client.FromContext(r2c)
-			if client != nil {
+			if client != nil && client.Enabled() {
 				r2Key := fmt.Sprintf("pdfs/%s", exam.FilePath)
 				signedURL, err := client.SignedURL(ctx, r2Key, 1*time.Hour)
 				if err == nil {

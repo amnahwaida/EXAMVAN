@@ -15,6 +15,7 @@ import (
 type stubR2 struct {
 	enabled        bool
 	uploads        []string
+	signed         []string
 	deletes        []string
 	failWith       error
 	deleteFailWith error // fails Delete only, leaving Upload working (orphan-cleanup path)
@@ -43,6 +44,7 @@ func (s *stubR2) UploadBytes(ctx context.Context, key string, data []byte) error
 }
 
 func (s *stubR2) SignedURL(ctx context.Context, key string, ttl time.Duration) (string, error) {
+	s.signed = append(s.signed, key)
 	if s.failWith != nil {
 		return "", s.failWith
 	}
