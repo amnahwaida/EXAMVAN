@@ -162,13 +162,14 @@ function deleteExam(examId, examName) {
     showConfirm(`Hapus ujian "${examName}"?`, 'File PDF juga akan dihapus permanen.').then(ok => {
         if (!ok) return;
 
-        // CATATAN: jika DeleteExam suatu saat mulai mengembalikan error_code R2
-        // (meniru pola Upload/Edit), tambahkan {suppressApiErrorToast: true} di
-        // sini dan ganti showToast di bawah dengan showApiErrorToast — kalau
-        // tidak, toast akan dobel dengan listener global 'api:error'.
+        // DeleteExam kini mengembalikan error_code R2 (R2_NOT_CONFIGURED) saat
+        // backend R2 hilang/nonaktif — pakai showApiErrorToast untuk pesan ramah
+        // + style warning; suppressApiErrorToast mencegah toast dobel dengan
+        // listener global 'api:error'.
         apiFetch(`/admin/api/exams/${examId}/delete`, {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json' }
+            headers: { 'Content-Type': 'application/json' },
+            suppressApiErrorToast: true
         })
             .then(r => r.json())
             .then(res => {
@@ -185,7 +186,7 @@ function deleteExam(examId, examName) {
                         }, 300);
                     }
                 } else {
-                    showToast(res.message || 'Gagal menghapus ujian', 'error');
+                    showApiErrorToast(res, 'Gagal menghapus ujian');
                 }
             })
             .catch(() => showToast('Koneksi gagal', 'error'));

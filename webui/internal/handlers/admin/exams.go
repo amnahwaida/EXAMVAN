@@ -461,6 +461,25 @@ func DeleteExam() gin.HandlerFunc {
 			return
 		}
 
+		// Load the exam once: it is needed for the audit detail AND to decide
+		// whether R2 cleanup is mandatory (an exam with a stored PDF must have
+		// a working R2 backend before its row is removed).
+		auditExam, auditErr := models.GetExamByID(ctx, pool, examID)
+
+		// R2 pre-check (Mandatory, mirrors UploadExam/EditExam): refuse BEFORE
+		// the DB row is removed when the backend is missing/disabled —
+		// otherwise every delete of an R2-backed exam would silently orphan
+		// its pdfs/<file_path> object. The error_code lets the frontend show
+		// the R2_NOT_CONFIGURED setup warning instead of a generic failure.
+		if auditErr == nil && auditExam.FilePath != "" {
+			r2c, exists := c.Get("r2")
+			client := r2client.FromContext(r2c)
+			if !exists || client == nil || !client.Enabled() {
+				errorResponseWithCode(c, http.StatusInternalServerError, r2client.ErrCodeNotConfigured, r2client.ErrMsgNotConfigured)
+				return
+			}
+		}
+
 		// Append-only audit trail: who deleted the exam and when. Written
 		// BEFORE the row is removed because exam_id is ON DELETE SET NULL —
 		// the row survives the deletion (exam_id → NULL) with the name
@@ -470,7 +489,7 @@ func DeleteExam() gin.HandlerFunc {
 		// deletion by an authorized actor — acceptable for the append-only
 		// trail. Do NOT move the write after the delete: exam_id would
 		// reference a now-missing row and violate the FK.
-		if auditExam, err := models.GetExamByID(ctx, pool, examID); err == nil {
+		if auditErr == nil {
 			detail := fmt.Sprintf("Ujian dihapus: %s", auditExam.Name)
 			if err := models.CreateAdminAuditLog(ctx, pool, getCurrentUserID(c), getCurrentUsername(c),
 				models.ActionExamDeleted, examID, detail); err != nil {
@@ -492,8 +511,10 @@ func DeleteExam() gin.HandlerFunc {
 			return
 		}
 
-		// Delete from R2 (Mandatory, best-effort): only touch an enabled backend
-		// (mirrors BulkDelete/DeleteUser).
+		// Delete from R2 (guaranteed enabled by the pre-check above): the
+		// backend may still fail transiently, which is logged and swept by the
+		// admin cleanup job — the row is already gone, so the delete must not
+		// be reported as failed afterwards (mirrors BulkDelete/DeleteUser).
 		if r2c, exists := c.Get("r2"); exists {
 			client := r2client.FromContext(r2c)
 			if client != nil && client.Enabled() {

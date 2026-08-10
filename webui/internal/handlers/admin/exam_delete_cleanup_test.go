@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -34,10 +35,11 @@ import (
 // directory — on the single-delete path (DeleteExam), the bulk path
 // (BulkDelete), and when deleting a user who owns exams (DeleteUser) — so the
 // FreeDiskSpace indicator and the storage quota checks see the space returned
-// and no orphan PDF lingers. (R2 cleanup is covered by the same paths; the
-// test router simply does not register an R2 client, which the handlers
-// tolerate — DeleteExam deletes from R2 only when configured, and
-// DeleteUser/BulkDelete gate on client.Enabled().)
+// and no orphan PDF lingers. R2 cleanup is covered by the same paths.
+// DeleteExam treats R2 as MANDATORY for exams with a stored file (it refuses
+// with R2_NOT_CONFIGURED when the backend is missing/disabled, so tests on
+// the delete path register an enabled stub); BulkDelete/DeleteUser stay
+// tolerant and gate R2 cleanup on client != nil && client.Enabled().
 // ---------------------------------------------------------------------------
 
 // newExamDeleteCleanupTestRouter mirrors production wiring for the exam/user
@@ -198,7 +200,11 @@ func TestDeleteExamRemovesStorageFile(t *testing.T) {
 		t.Fatalf("fixture pdf missing before delete")
 	}
 
-	srv := httptest.NewServer(newExamDeleteCleanupTestRouter(pool, storageDir, nil))
+	// DeleteExam treats R2 as mandatory for exams with a stored PDF: the
+	// delete must proceed, so register an enabled backend (the
+	// R2_NOT_CONFIGURED refusal is covered by TestDeleteExamR2NotConfiguredRefused).
+	r2c := newStubR2()
+	srv := httptest.NewServer(newExamDeleteCleanupTestRouter(pool, storageDir, r2c))
 	defer srv.Close()
 	jar, _ := cookiejar.New(nil)
 	client := &http.Client{Jar: jar}
@@ -234,6 +240,158 @@ func TestDeleteExamRemovesStorageFile(t *testing.T) {
 	}
 	if !strings.Contains(auditDetail, "DelFileExam") {
 		t.Errorf("audit detail = %q, want it to mention the deleted exam name", auditDetail)
+	}
+}
+
+// DeleteExam refuses to delete an exam with a stored PDF when the R2 backend
+// is missing/disabled: it must return 500 with the R2_NOT_CONFIGURED
+// error_code (so the frontend shows the setup warning instead of a generic
+// failure), keep the DB row and the storage file intact, and record no R2
+// delete — a proceeding delete would silently orphan the pdfs/<file_path>
+// object. Absent key, nil key and disabled backend all refuse identically.
+func TestDeleteExamR2NotConfiguredRefused(t *testing.T) {
+	pool := database.NewPackageTestPool(t, "admin")
+	storageDir, err := os.MkdirTemp("", "examvan-r2cfg-del")
+	if err != nil {
+		t.Fatalf("make temp storage dir: %v", err)
+	}
+	defer os.RemoveAll(storageDir)
+
+	superID, examID, rel := createExamDeleteCleanupFixture(t, pool, storageDir, "r2cfg_super", "R2CfgDelExam")
+
+	disR2 := &stubR2{enabled: false}
+	cases := []struct {
+		name   string
+		router *gin.Engine
+		r2     *stubR2 // the backend the router registered, when there is one
+	}{
+		{"absent key", newExamDeleteCleanupTestRouter(pool, storageDir, nil), nil},
+		{"nil key", newExamDeleteCleanupTestRouterR2KeyAlways(pool, storageDir), nil},
+		{"disabled backend", newExamDeleteCleanupTestRouter(pool, storageDir, disR2), disR2},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			srv := httptest.NewServer(tc.router)
+			defer srv.Close()
+			jar, _ := cookiejar.New(nil)
+			client := &http.Client{Jar: jar}
+			if resp, err := client.Post(srv.URL+"/test/login/"+strconv.Itoa(superID), "application/json", nil); err != nil || resp.StatusCode != http.StatusOK {
+				t.Fatalf("test login: status=%v err=%v", resp, err)
+			}
+
+			resp, err := client.Post(srv.URL+fmt.Sprintf("/admin/api/exams/%d/delete", examID), "application/json", nil)
+			if err != nil {
+				t.Fatalf("delete exam: %v", err)
+			}
+			defer resp.Body.Close()
+			if resp.StatusCode != http.StatusInternalServerError {
+				t.Fatalf("delete exam status=%d, want 500", resp.StatusCode)
+			}
+			body, _ := io.ReadAll(resp.Body)
+			if !strings.Contains(string(body), r2client.ErrMsgNotConfigured) {
+				t.Errorf("body=%q, want canonical message %q", body, r2client.ErrMsgNotConfigured)
+			}
+			if !strings.Contains(string(body), r2client.ErrCodeNotConfigured) {
+				t.Errorf("body=%q, want error_code %q", body, r2client.ErrCodeNotConfigured)
+			}
+
+			// The row and its file must survive the refusal — the delete was
+			// rejected BEFORE the DB commit, so there is no partial state.
+			var cnt int
+			if err := pool.QueryRow(context.Background(), `SELECT COUNT(*) FROM exams WHERE id = $1`, examID).Scan(&cnt); err != nil {
+				t.Fatalf("count exam rows: %v", err)
+			}
+			if cnt != 1 {
+				t.Errorf("exam rows after refused delete = %d, want 1", cnt)
+			}
+			if !fileExists(t, storageDir, rel) {
+				t.Errorf("exam pdf was removed despite the refusal")
+			}
+
+			// A refused delete must never reach the backend's Delete.
+			if tc.r2 != nil && len(tc.r2.deletes) != 0 {
+				t.Errorf("R2 deletes = %v, want none (refused before any Delete call)", tc.r2.deletes)
+			}
+		})
+	}
+}
+
+// A legacy exam row without a stored file_path has no R2 artifact to clean,
+// so DeleteExam must succeed even when the R2 backend is absent — the
+// mandatory pre-check only applies to exams that could orphan an object.
+func TestDeleteExamLegacyNoFilePathSucceedsWithoutR2(t *testing.T) {
+	pool := database.NewPackageTestPool(t, "admin")
+	storageDir, err := os.MkdirTemp("", "examvan-legacy-del")
+	if err != nil {
+		t.Fatalf("make temp storage dir: %v", err)
+	}
+	defer os.RemoveAll(storageDir)
+
+	superID, _, _ := createExamDeleteCleanupFixture(t, pool, storageDir, "legacy_super", "LegacyCfg")
+	var examID int
+	if err := pool.QueryRow(context.Background(), `
+		INSERT INTO exams (name, file_path, size_bytes, token, active_token, status, security_level, created_by)
+		VALUES ('LegacyNoPath', '', 0, $1, $1, 'active', 'medium', $2)
+		RETURNING id`, "LGCY00001", superID).Scan(&examID); err != nil {
+		t.Fatalf("insert legacy exam: %v", err)
+	}
+
+	srv := httptest.NewServer(newExamDeleteCleanupTestRouter(pool, storageDir, nil)) // no R2 at all
+	defer srv.Close()
+	jar, _ := cookiejar.New(nil)
+	client := &http.Client{Jar: jar}
+	if resp, err := client.Post(srv.URL+"/test/login/"+strconv.Itoa(superID), "application/json", nil); err != nil || resp.StatusCode != http.StatusOK {
+		t.Fatalf("test login: status=%v err=%v", resp, err)
+	}
+
+	if code := deleteCleanupDo(t, client, srv.URL, http.MethodPost,
+		fmt.Sprintf("/admin/api/exams/%d/delete", examID), nil); code != http.StatusOK {
+		t.Fatalf("delete legacy exam status=%d, want 200", code)
+	}
+	var cnt int
+	if err := pool.QueryRow(context.Background(), `SELECT COUNT(*) FROM exams WHERE id = $1`, examID).Scan(&cnt); err != nil {
+		t.Fatalf("count exam rows: %v", err)
+	}
+	if cnt != 0 {
+		t.Errorf("legacy exam rows after delete = %d, want 0", cnt)
+	}
+}
+
+// An ENABLED backend whose Delete call fails must not fail the delete itself:
+// the row is already gone at that point, so reporting an error would be
+// misleading (a retry would 404) and the orphaned object is swept by the
+// admin cleanup job. This locks in the contract that DeleteExam only reports
+// R2 problems via the pre-check (R2_NOT_CONFIGURED), never after the DB
+// commit.
+func TestDeleteExamR2DeleteFailureStillSucceeds(t *testing.T) {
+	pool := database.NewPackageTestPool(t, "admin")
+	storageDir, err := os.MkdirTemp("", "examvan-r2fail-del")
+	if err != nil {
+		t.Fatalf("make temp storage dir: %v", err)
+	}
+	defer os.RemoveAll(storageDir)
+
+	superID, examID, rel := createExamDeleteCleanupFixture(t, pool, storageDir, "r2fail_super", "R2FailDelExam")
+	r2c := &stubR2{enabled: true, deleteFailWith: errors.New("s3 boom")}
+
+	srv := httptest.NewServer(newExamDeleteCleanupTestRouter(pool, storageDir, r2c))
+	defer srv.Close()
+	jar, _ := cookiejar.New(nil)
+	client := &http.Client{Jar: jar}
+	if resp, err := client.Post(srv.URL+"/test/login/"+strconv.Itoa(superID), "application/json", nil); err != nil || resp.StatusCode != http.StatusOK {
+		t.Fatalf("test login: status=%v err=%v", resp, err)
+	}
+
+	if code := deleteCleanupDo(t, client, srv.URL, http.MethodPost,
+		fmt.Sprintf("/admin/api/exams/%d/delete", examID), nil); code != http.StatusOK {
+		t.Fatalf("delete exam status=%d, want 200 (R2 delete failure is best-effort)", code)
+	}
+	// The attempt DID reach the enabled backend.
+	if len(r2c.deletes) != 1 {
+		t.Fatalf("R2 deletes = %d, want 1 (the attempt reached the enabled backend)", len(r2c.deletes))
+	}
+	if fileExists(t, storageDir, rel) {
+		t.Errorf("exam pdf still on disk after delete")
 	}
 }
 
