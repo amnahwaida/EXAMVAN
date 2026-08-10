@@ -28,6 +28,7 @@
  <link rel="stylesheet" href="/static/css/public-desktop.css?v={{.version}}-3">
 </head>
 <body>
+ <div class="toast-container" id="toastContainer" aria-live="polite" aria-atomic="true"></div>
  <a href="#main-content" class="skip-link" style="position:absolute;left:-9999px;z-index:9999;padding:12px 20px;background:var(--color-primary,#6366f1);color:white;border-radius:8px;font-weight:600;text-decoration:none;">Langsung ke konten</a>
  <!-- Heroicons Sprite -->
  <svg xmlns="http://www.w3.org/2000/svg" style="display:none;" aria-hidden="true">
@@ -254,18 +255,21 @@
  // ===== API: Load Results =====
  async function loadResults() {
  try {
- const resp = await fetch('/api/hasil/' + EXAM_TOKEN + '?per_page=500');
+ const resp = await apiFetch('/api/hasil/' + EXAM_TOKEN + '?per_page=500', { suppressApiErrorToast: true });
  if (!resp.ok) {
+  const errData = await resp.json(); // dinormalisasi apiFetch: {success:false, error_code, message}
+  showApiErrorToast(errData, 'Gagal memuat data hasil');
   document.getElementById('loadingIndicator').innerHTML =
-  '<div class="empty-state"><div class="empty-icon" aria-hidden="true"><svg class="icon-svg" style="width:40px;height:40px;margin-bottom:16px;opacity:0.4;"><use href="#hi-exclamation"/></svg></div><p>Gagal memuat data (HTTP ' + resp.status + '). Coba lagi nanti.</p>' +
+  '<div class="empty-state"><div class="empty-icon" aria-hidden="true"><svg class="icon-svg" style="width:40px;height:40px;margin-bottom:16px;opacity:0.4;"><use href="#hi-exclamation"/></svg></div><p>' + escapeHtml(errData.message || ('Gagal memuat data (HTTP ' + resp.status + '). Coba lagi nanti.')) + '</p>' +
   '<button class="back-nav" onclick="location.reload()" style="margin-top:16px;display:inline-flex;"><svg width="14" height="14" aria-hidden="true"><use href="#hi-arrow-path"/></svg> Coba Lagi</button></div>';
   return;
  }
  const data = await resp.json();
 
  if (!data.success) {
+ showApiErrorToast(data, 'Gagal memuat data hasil');
  document.getElementById('loadingIndicator').innerHTML =
- `<div class="empty-state"><div class="empty-icon" aria-hidden="true"><svg class="icon-svg" style="width:40px;height:40px;margin-bottom:16px;opacity:0.4;"><use href="#hi-x"/></svg></div><p>${data.message || 'Gagal memuat data'}</p></div>`;
+ `<div class="empty-state"><div class="empty-icon" aria-hidden="true"><svg class="icon-svg" style="width:40px;height:40px;margin-bottom:16px;opacity:0.4;"><use href="#hi-x"/></svg></div><p>${escapeHtml(data.message || 'Gagal memuat data')}</p></div>`;
  return;
  }
 
@@ -279,7 +283,7 @@
  if (totalPages > 1) {
   const fetches = [];
   for (let p = 2; p <= totalPages; p++) {
-  fetches.push(fetch('/api/hasil/' + EXAM_TOKEN + '?per_page=500&page=' + p).then(r => r.json()));
+  fetches.push(apiFetch('/api/hasil/' + EXAM_TOKEN + '?per_page=500&page=' + p, { suppressApiErrorToast: true }).then(r => r.json()));
   }
   const results = await Promise.all(fetches);
   for (const res of results) {
@@ -354,6 +358,7 @@
 
  } catch (err) {
  console.error('Error loading results:', err);
+ showApiErrorToast(null, 'Gagal memuat data hasil ujian');
  document.getElementById('loadingIndicator').innerHTML =
  '<div class="empty-state"><div class="empty-icon" aria-hidden="true"><svg class="icon-svg" style="width:40px;height:40px;margin-bottom:16px;opacity:0.4;"><use href="#hi-exclamation"/></svg></div><p>Gagal memuat data hasil ujian. Periksa koneksi atau coba lagi nanti.</p>' +
  '<button class="back-nav" onclick="location.reload()" style="margin-top:16px;display:inline-flex;"><svg width="14" height="14" aria-hidden="true"><use href="#hi-arrow-path"/></svg> Coba Lagi</button></div>';

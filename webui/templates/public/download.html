@@ -1,4 +1,6 @@
 {{ template "public_head" . }}
+<script src="/static/js/admin-core.js?v={{.version}}" defer></script>
+<div class="toast-container" id="toastContainer" aria-live="polite" aria-atomic="true"></div>
 <style>
   main {
     flex: 1;
@@ -357,6 +359,93 @@
     .download-card, .instruction-card { padding: 24px 18px; }
   }
 </style>
+<style>
+  /* ===== Toast — dipakai showApiErrorToast (admin-core.js) untuk error R2
+     yang konsisten dengan halaman admin. Style direplikasi dari
+     tailwind/output.css karena halaman unduhan tidak memuat output.css. ===== */
+  .toast-container {
+    position: fixed;
+    bottom: calc(24px + env(safe-area-inset-bottom, 0px));
+    right: 24px;
+    z-index: 9999;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    max-width: calc(100vw - 48px);
+    pointer-events: none;
+  }
+  .toast {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 12px 16px;
+    border-radius: 12px;
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    font-size: 0.85rem;
+    font-weight: 500;
+    font-family: 'Plus Jakarta Sans', sans-serif;
+    color: #fff;
+    background: var(--glass-bg);
+    backdrop-filter: blur(16px);
+    -webkit-backdrop-filter: blur(16px);
+    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3);
+    animation: toastIn 0.3s ease;
+    cursor: pointer;
+    pointer-events: auto;
+    transition: box-shadow 0.2s;
+    min-width: 280px;
+    max-width: 420px;
+  }
+  .toast:hover { box-shadow: 0 12px 40px rgba(0, 0, 0, 0.4); }
+  .toast-body { display: flex; align-items: center; gap: 10px; flex: 1; min-width: 0; }
+  .toast-icon { width: 20px; height: 20px; flex-shrink: 0; display: block; }
+  .toast-msg { flex: 1; line-height: 1.4; word-break: break-word; }
+  .toast-close {
+    flex-shrink: 0;
+    width: 24px;
+    height: 24px;
+    border-radius: 6px;
+    border: none;
+    background: rgba(255, 255, 255, 0.08);
+    color: rgba(255, 255, 255, 0.7);
+    font-size: 12px;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    opacity: 0;
+    transition: all 0.2s;
+  }
+  .toast:hover .toast-close { opacity: 1; }
+  .toast-close:hover { background: rgba(255, 255, 255, 0.15); color: #fff; }
+  .toast-success { background: rgba(16, 185, 129, 0.2); border-color: rgba(16, 185, 129, 0.3); }
+  .toast-error { background: rgba(239, 68, 68, 0.2); border-color: rgba(239, 68, 68, 0.3); }
+  .toast-warning { background: rgba(245, 158, 11, 0.2); border-color: rgba(245, 158, 11, 0.3); }
+  .toast-info { background: rgba(99, 102, 241, 0.2); border-color: rgba(99, 102, 241, 0.3); }
+  .toast-success .toast-icon { color: #34d399; }
+  .toast-error .toast-icon { color: #f87171; }
+  .toast-warning .toast-icon { color: #fbbf24; }
+  .toast-info .toast-icon { color: #a5b4fc; }
+  .toast-r2-config {
+    background: linear-gradient(135deg, rgba(245, 158, 11, 0.3), rgba(234, 88, 12, 0.16));
+    border-color: rgba(245, 158, 11, 0.6);
+    box-shadow: 0 8px 32px rgba(245, 158, 11, 0.25);
+  }
+  .toast-r2-config .toast-icon { color: #fbbf24; }
+  .toast-exit { animation: toastOut 0.3s ease forwards; }
+  @keyframes toastIn {
+    from { opacity: 0; transform: translateY(16px); }
+    to { opacity: 1; transform: translateY(0); }
+  }
+  @keyframes toastOut {
+    from { opacity: 1; transform: translateX(0); }
+    to { opacity: 0; transform: translateX(40px); }
+  }
+  @media (max-width: 768px) {
+    .toast { min-width: 0; max-width: 100%; padding: 12px 14px; font-size: 0.82rem; }
+    .toast-close { opacity: 1; }
+  }
+</style>
 <link rel="stylesheet" href="/static/css/public-mobile.css?v={{.version}}-5">
 <link rel="stylesheet" href="/static/css/public-desktop.css?v={{.version}}-3">
 <noscript><style>.reveal { opacity: 1 !important; transform: none !important; }</style></noscript>
@@ -412,7 +501,7 @@
                 Rilis Resmi • Versi: <span class="meta-val">v{{ .android_app.Version }}</span> • Ukuran: <span class="meta-val"><script>document.write( ({{ .android_app.SizeBytes }} / 1048576.0).toFixed(2) );</script> MB</span>
               </p>
             </div>
-            <a href="/download/app/{{ .android_app.ID }}" class="btn-download-big" style="background: linear-gradient(135deg, #8b5cf6, #7c3aed);">
+            <a href="/download/app/{{ .android_app.ID }}" class="btn-download-big" style="background: linear-gradient(135deg, #8b5cf6, #7c3aed);" onclick="event.preventDefault(); downloadApp({{ .android_app.ID }});">
               <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg>
               Unduh APK
             </a>
@@ -430,7 +519,7 @@
                       Rilis Resmi • Versi: <span class="meta-val">v{{ .Version }}</span> • Ukuran: <span class="meta-val"><script>document.write( ({{ .SizeBytes }} / 1048576.0).toFixed(2) );</script> MB</span>
                     </p>
                   </div>
-                  <a href="/download/app/{{ .ID }}" class="btn-download-big">
+                  <a href="/download/app/{{ .ID }}" class="btn-download-big" onclick="event.preventDefault(); downloadApp({{ .ID }});">
                     <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg>
                     Unduh Aplikasi Klien
                   </a>
@@ -540,7 +629,7 @@
                       Rilis Resmi • Versi: <span class="meta-val">v{{.Version}}</span> • Ukuran: <span class="meta-val"><script>document.write( ({{ .SizeBytes }} / 1048576.0).toFixed(2) );</script> MB</span>
                     </p>
                   </div>
-                  <a href="/download/app/{{.ID}}" class="btn-download-big" style="background: linear-gradient(135deg, #3b82f6, #2563eb);">
+                  <a href="/download/app/{{.ID}}" class="btn-download-big" style="background: linear-gradient(135deg, #3b82f6, #2563eb);" onclick="event.preventDefault(); downloadApp({{.ID}});">
                     <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg>
                     Unduh Windows Client (.exe)
                   </a>
@@ -619,7 +708,7 @@
                       Rilis Resmi • Versi: <span class="meta-val">v{{.Version}}</span> • Ukuran: <span class="meta-val"><script>document.write( ({{ .SizeBytes }} / 1048576.0).toFixed(2) );</script> MB</span>
                     </p>
                   </div>
-                  <a href="/download/app/{{.ID}}" class="btn-download-big" style="background: linear-gradient(135deg, #8b5cf6, #7c3aed);">
+                  <a href="/download/app/{{.ID}}" class="btn-download-big" style="background: linear-gradient(135deg, #8b5cf6, #7c3aed);" onclick="event.preventDefault(); downloadApp({{.ID}});">
                     <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg>
                     Unduh Linux AppImage (.AppImage)
                   </a>
@@ -702,5 +791,40 @@
 
       document.querySelectorAll('.reveal').forEach(el => obs.observe(el));
     });
+
+    // Unduhan via "probe" (redirect:manual) — cek status HTTP dulu supaya error
+    // JSON dari server (mis. R2_NOT_CONFIGURED / SIGNED_URL_FAILED) ditampilkan
+    // lewat showApiErrorToast alih-alih halaman JSON mentah. Redirect (302 /
+    // opaqueredirect) = sukses → navigasi ulang untuk unduhan native (browser
+    // menangani Content-Disposition). Dipakai sengaja fetch mentah (bukan
+    // apiFetch): apiFetch menganggap respons redirect non-2xx sebagai error.
+    function downloadApp(appId) {
+        var url = '/download/app/' + appId;
+        // Fallback defensif: jika admin-core.js gagal dimuat (cache/CSP),
+        // lanjutkan navigasi polos seperti anchor biasa — jangan blokir unduhan.
+        if (typeof showApiErrorToast !== 'function') {
+            window.location = url;
+            return;
+        }
+        fetch(url, { redirect: 'manual' })
+            .then(function(resp) {
+                // Sukses: redirect ke signed URL (302 / opaqueredirect 0), atau —
+                // pada browser yang mengabaikan redirect:'manual' (Safari lama) —
+                // file sudah ter-follow dengan 200. Server tidak pernah
+                // mengembalikan 2xx untuk error (4xx/5xx JSON), jadi resp.ok aman.
+                if (resp.ok || resp.status === 302 || resp.status === 0 || resp.type === 'opaqueredirect') {
+                    window.location = url;
+                    return;
+                }
+                return resp.json().then(function(res) {
+                    showApiErrorToast(res, 'Gagal memulai unduhan');
+                }, function() {
+                    showApiErrorToast(null, 'Gagal memulai unduhan');
+                });
+            })
+            .catch(function() {
+                showApiErrorToast(null, 'Gagal memulai unduhan');
+            });
+    }
   </script>
 {{ template "public_foot" . }}
