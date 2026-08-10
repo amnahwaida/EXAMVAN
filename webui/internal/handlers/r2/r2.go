@@ -20,6 +20,11 @@ import (
 // admin/api/public surfaces.
 const ErrMsgNotConfigured = "Cloudflare R2 tidak dikonfigurasi."
 
+// ErrMsgUploadFailed is the canonical user-facing message when an upload to
+// the R2 backend fails. Handlers must use this constant so the wording stays
+// identical across admin/api/public surfaces.
+const ErrMsgUploadFailed = "Gagal mengupload file ke Cloudflare R2"
+
 // Client is the object-storage abstraction the handlers depend on. The
 // concrete Cloudflare R2 implementation is S3Client; tests can substitute a
 // stub (e.g. recording the keys passed to Delete) without a network call.

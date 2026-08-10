@@ -243,7 +243,7 @@ func UploadExam() gin.HandlerFunc {
 			r2Key := fmt.Sprintf("pdfs/%s", filename)
 			if err := client.UploadBytes(ctx, r2Key, fileData); err != nil {
 				log.Printf("admin: R2 upload error: %v", err)
-				errorResponse(c, http.StatusInternalServerError, "Gagal mengupload file ke Cloudflare R2")
+				errorResponse(c, http.StatusInternalServerError, r2client.ErrMsgUploadFailed)
 				return
 			}
 			log.Printf("admin: PDF uploaded to R2: %s", r2Key)
@@ -589,7 +589,7 @@ func EditExam() gin.HandlerFunc {
 				r2Key := fmt.Sprintf("pdfs/%s", filename)
 				if err := client.UploadBytes(ctx, r2Key, fileData); err != nil {
 					log.Printf("admin: R2 upload error: %v", err)
-					errorResponse(c, http.StatusInternalServerError, "Gagal mengupload file ke Cloudflare R2")
+					errorResponse(c, http.StatusInternalServerError, r2client.ErrMsgUploadFailed)
 					return
 				}
 				log.Printf("admin: PDF uploaded to R2: %s", r2Key)

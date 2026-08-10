@@ -428,8 +428,8 @@ func TestUploadExamR2UploadFailureNoOrphanLeak(t *testing.T) {
 	if code != http.StatusInternalServerError {
 		t.Fatalf("upload status=%d, want 500 (r2 upload failed)", code)
 	}
-	if !strings.Contains(body, "Gagal mengupload") {
-		t.Errorf("rejection body = %q, want the R2 upload error message", body)
+	if !strings.Contains(body, r2client.ErrMsgUploadFailed) {
+		t.Errorf("rejection body = %q, want canonical message %q", body, r2client.ErrMsgUploadFailed)
 	}
 	if len(r2c.uploads) != 1 {
 		t.Fatalf("R2 uploads = %d, want 1 (the failed attempt is recorded)", len(r2c.uploads))

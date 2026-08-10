@@ -130,7 +130,7 @@ func UploadSystemApp() gin.HandlerFunc {
 
 		// Upload to R2
 		if err := r2.UploadWithContentType(ctx, r2Key, f, contentType); err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"success": false, "message": "Gagal mengunggah file ke R2."})
+			c.JSON(http.StatusInternalServerError, gin.H{"success": false, "message": r2client.ErrMsgUploadFailed})
 			return
 		}
 
