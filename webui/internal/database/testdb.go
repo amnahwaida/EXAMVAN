@@ -74,7 +74,7 @@ func TruncateDataTables(ctx context.Context, pool *pgxpool.Pool) error {
 	_, err := pool.Exec(ctx, `
 	TRUNCATE instansi, admin_users, exams, exam_pengawas, submissions,
 	         student_access_logs, exam_approvals, vouchers, voucher_redemptions,
-	         admin_audit_logs
+	         admin_audit_logs, system_apps
 	RESTART IDENTITY CASCADE`)
 	return err
 }

@@ -2,15 +2,16 @@ package admin
 
 import (
 	"fmt"
+	"log"
 	"net/http"
 	"strconv"
 	"time"
 
 	"github.com/gin-gonic/gin"
 
+	r2client "github.com/examvan/webui/internal/handlers/r2"
 	"github.com/examvan/webui/internal/middleware"
 	"github.com/examvan/webui/internal/models"
-	r2client "github.com/examvan/webui/internal/handlers/r2"
 )
 
 // SystemAppsPage renders the page for superadmin to upload and manage system apps.
@@ -26,7 +27,7 @@ func SystemAppsPage() gin.HandlerFunc {
 		} else {
 			data["apps"] = apps
 		}
-		
+
 		r2Val, exists := c.Get("r2")
 		r2 := r2client.FromContext(r2Val)
 		r2Enabled := exists && r2 != nil && r2.Enabled()
@@ -108,13 +109,13 @@ func UploadSystemApp() gin.HandlerFunc {
 			c.JSON(http.StatusBadRequest, gin.H{"success": false, "message": "File terlalu kecil atau kosong."})
 			return
 		}
-		
+
 		// Reset file pointer back to start
 		f.Seek(0, 0)
 
 		// Generate R2 Key (using UnixNano to avoid collisions)
 		r2Key := fmt.Sprintf("apps/%s/%s/%s-%d", platform, version, file.Filename, time.Now().UnixNano())
-		
+
 		var contentType string
 		switch platform {
 		case "android":
@@ -141,10 +142,14 @@ func UploadSystemApp() gin.HandlerFunc {
 			FilePath:  r2Key,
 			SizeBytes: file.Size,
 		}
-		
+
 		if err := models.CreateSystemApp(ctx, pool, app); err != nil {
-			// Try to cleanup R2
-			_ = r2.Delete(ctx, r2Key)
+			// Cleanup the orphan R2 object (best-effort, same contract as
+			// UploadExam's cleanupR2Orphan): the row never materialized, so the
+			// just-uploaded object must not leak in the bucket.
+			if err := r2.Delete(ctx, r2Key); err != nil {
+				log.Printf("admin: cleanup orphan R2 object %s failed: %v", r2Key, err)
+			}
 			c.JSON(http.StatusInternalServerError, gin.H{"success": false, "message": "Gagal menyimpan metadata aplikasi."})
 			return
 		}
@@ -172,15 +177,24 @@ func DeleteSystemApp() gin.HandlerFunc {
 			return
 		}
 
-		r2Val, exists := c.Get("r2")
-		r2 := r2client.FromContext(r2Val)
-		if exists && r2 != nil && r2.Enabled() {
-			_ = r2.Delete(ctx, app.FilePath)
-		}
-
+		// Delete the DB row FIRST — never destroy the object-storage artifact
+		// before the row removal commits (same contract as DeleteExam /
+		// BulkDelete / DeleteUser). If the DB delete fails, the R2 object stays
+		// intact and the still-listed app keeps its downloadable file; deleting
+		// R2 first would leave a dead download link for a row that survived.
 		if err := models.DeleteSystemApp(ctx, pool, id); err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"success": false, "message": "Gagal menghapus aplikasi dari database."})
 			return
+		}
+
+		// Best-effort R2 cleanup only after the row is gone (mirrors the exam
+		// delete paths).
+		r2Val, exists := c.Get("r2")
+		r2 := r2client.FromContext(r2Val)
+		if exists && r2 != nil && r2.Enabled() {
+			if err := r2.Delete(ctx, app.FilePath); err != nil {
+				log.Printf("admin: R2 delete system app error: %v", err)
+			}
 		}
 
 		c.JSON(http.StatusOK, gin.H{"success": true, "message": "Aplikasi berhasil dihapus."})
