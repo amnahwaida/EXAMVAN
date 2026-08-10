@@ -46,6 +46,29 @@ import (
 // a writable temp dir so SafeStoragePath resolves files there. When r2c is
 // non-nil it is registered in the context (an R2-configured server).
 func newExamDeleteCleanupTestRouter(pool *pgxpool.Pool, storageDir string, r2c r2client.Client) *gin.Engine {
+	return newExamDeleteCleanupTestRouterWithR2(pool, storageDir, func(c *gin.Context) {
+		if r2c != nil {
+			c.Set("r2", r2c)
+		}
+	})
+}
+
+// newExamDeleteCleanupTestRouterR2KeyAlways is the same router, but the "r2"
+// key is ALWAYS present in the context holding a value that is NOT an
+// r2.Client (a nil interface). This reproduces the regression scenario for
+// the `client != nil && client.Enabled()` guard in BulkDelete/DeleteUser:
+// r2client.FromContext returns a nil interface for such a value, and calling
+// .Enabled() on a nil interface panics.
+func newExamDeleteCleanupTestRouterR2KeyAlways(pool *pgxpool.Pool, storageDir string) *gin.Engine {
+	return newExamDeleteCleanupTestRouterWithR2(pool, storageDir, func(c *gin.Context) {
+		c.Set("r2", nil)
+	})
+}
+
+// newExamDeleteCleanupTestRouterWithR2 builds the delete-cleanup test router,
+// delegating the "r2" key injection to setR2 so callers can simulate an
+// R2-configured backend, an absent backend, or a malformed/disabled one.
+func newExamDeleteCleanupTestRouterWithR2(pool *pgxpool.Pool, storageDir string, setR2 func(*gin.Context)) *gin.Engine {
 	gin.SetMode(gin.TestMode)
 	r := gin.New()
 	store := cookie.NewStore([]byte("examvan-it-secret-0123456789abcdef0123456789abcdef"))
@@ -54,9 +77,7 @@ func newExamDeleteCleanupTestRouter(pool *pgxpool.Pool, storageDir string, r2c r
 	r.Use(func(c *gin.Context) {
 		c.Set("db", pool)
 		c.Set("cfg", &config.Config{StoragePath: storageDir})
-		if r2c != nil {
-			c.Set("r2", r2c)
-		}
+		setR2(c)
 	})
 
 	r.POST("/test/login/:id", func(c *gin.Context) {
@@ -537,7 +558,7 @@ func TestDeleteUserCascadeAuditsEveryDeletedExam(t *testing.T) {
 		u, err := models.CreateUser(ctx, pool, &models.AdminUser{
 			Username: username, Name: "Cascade Audit", Instansi: instansi,
 			PasswordHash: "x", Status: models.UserStatusActive,
-			Role: models.SerializeRoles([]string{role}),
+			Role:     models.SerializeRoles([]string{role}),
 			MaxExams: 5, MaxPDFSize: 1048576, MaxConcurrentExams: 2,
 			MaxStorageSize: 50 * 1024 * 1024, Package: "free",
 		})
@@ -626,5 +647,145 @@ func TestDeleteUserCascadeAuditsEveryDeletedExam(t *testing.T) {
 	}
 	if cnt != 0 {
 		t.Errorf("exams after operator cascade = %d, want 0", cnt)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Nil / disabled R2 guard: BulkDelete & DeleteUser gate R2 cleanup on
+// `client != nil && client.Enabled()`. A context whose "r2" key holds a
+// value that is NOT an r2.Client (a nil interface) makes r2client.FromContext
+// return a nil interface — calling .Enabled() on that panics. These tests
+// lock in the guard so a regression cannot reintroduce the panic.
+// ---------------------------------------------------------------------------
+
+// BulkDelete with an "r2" key present but holding a non-Client value (nil
+// interface) must NOT panic, must still delete the rows + local files, and
+// must leave the kept exam's file alone.
+func TestBulkDeleteNilR2KeyDoesNotPanic(t *testing.T) {
+	pool := database.NewPackageTestPool(t, "admin")
+	storageDir, err := os.MkdirTemp("", "examvan-nilr2-bulk")
+	if err != nil {
+		t.Fatalf("make temp storage dir: %v", err)
+	}
+	defer os.RemoveAll(storageDir)
+
+	superID, del1, rel1 := createExamDeleteCleanupFixture(t, pool, storageDir, "nilr2_bulk_super", "NilR2BulkDel")
+	_, _, rel2 := createExamDeleteCleanupFixture(t, pool, storageDir, "nilr2_bulk_super2", "NilR2BulkKeep")
+
+	srv := httptest.NewServer(newExamDeleteCleanupTestRouterR2KeyAlways(pool, storageDir))
+	defer srv.Close()
+	jar, _ := cookiejar.New(nil)
+	client := &http.Client{Jar: jar}
+	if resp, err := client.Post(srv.URL+"/test/login/"+strconv.Itoa(superID), "application/json", nil); err != nil || resp.StatusCode != http.StatusOK {
+		t.Fatalf("test login: status=%v err=%v", resp, err)
+	}
+
+	// The handler reads the r2 key, FromContext yields a nil interface, and
+	// the guard skips R2 cleanup instead of calling .Enabled() on it.
+	code := deleteCleanupDo(t, client, srv.URL, http.MethodPost, "/admin/api/exams/bulk-delete",
+		map[string]interface{}{"ids": []int{del1}})
+	if code != http.StatusOK {
+		t.Fatalf("bulk delete status=%d, want 200 (nil r2 key must not panic)", code)
+	}
+	if fileExists(t, storageDir, rel1) {
+		t.Errorf("bulk-deleted exam pdf still on disk with nil r2 key")
+	}
+	if !fileExists(t, storageDir, rel2) {
+		t.Errorf("kept exam pdf was removed with nil r2 key")
+	}
+}
+
+// BulkDelete with a typed-but-disabled stub (Enabled() == false) must skip R2
+// cleanup entirely — no Delete call recorded — while still deleting rows +
+// local files.
+func TestBulkDeleteDisabledR2SkipsDelete(t *testing.T) {
+	pool := database.NewPackageTestPool(t, "admin")
+	storageDir, err := os.MkdirTemp("", "examvan-disr2-bulk")
+	if err != nil {
+		t.Fatalf("make temp storage dir: %v", err)
+	}
+	defer os.RemoveAll(storageDir)
+
+	superID, del1, rel1 := createExamDeleteCleanupFixture(t, pool, storageDir, "disr2_bulk_super", "DisR2BulkDel")
+	r2c := &stubR2{enabled: false} // configured backend but disabled
+
+	srv := httptest.NewServer(newExamDeleteCleanupTestRouter(pool, storageDir, r2c))
+	defer srv.Close()
+	jar, _ := cookiejar.New(nil)
+	client := &http.Client{Jar: jar}
+	if resp, err := client.Post(srv.URL+"/test/login/"+strconv.Itoa(superID), "application/json", nil); err != nil || resp.StatusCode != http.StatusOK {
+		t.Fatalf("test login: status=%v err=%v", resp, err)
+	}
+
+	code := deleteCleanupDo(t, client, srv.URL, http.MethodPost, "/admin/api/exams/bulk-delete",
+		map[string]interface{}{"ids": []int{del1}})
+	if code != http.StatusOK {
+		t.Fatalf("bulk delete status=%d, want 200", code)
+	}
+	if len(r2c.deletes) != 0 {
+		t.Errorf("R2 deletes = %v, want none (disabled backend)", r2c.deletes)
+	}
+	if fileExists(t, storageDir, rel1) {
+		t.Errorf("bulk-deleted exam pdf still on disk")
+	}
+}
+
+// DeleteUser with an "r2" key present but holding a non-Client value (nil
+// interface) must NOT panic and must still remove the deleted user's exam
+// PDFs from disk.
+func TestDeleteUserNilR2KeyDoesNotPanic(t *testing.T) {
+	pool := database.NewPackageTestPool(t, "admin")
+	storageDir, err := os.MkdirTemp("", "examvan-nilr2-user")
+	if err != nil {
+		t.Fatalf("make temp storage dir: %v", err)
+	}
+	defer os.RemoveAll(storageDir)
+
+	guru, err := models.CreateUser(context.Background(), pool, &models.AdminUser{
+		Username: "nilr2_user_guru", Name: "NilR2 Guru", PasswordHash: "x",
+		Status: models.UserStatusActive, Role: models.SerializeRoles([]string{models.RoleGuru}),
+		MaxExams: 3, MaxPDFSize: 1048576, MaxConcurrentExams: 1,
+		MaxStorageSize: 50 * 1024 * 1024, Package: "free",
+	})
+	if err != nil {
+		t.Fatalf("create guru: %v", err)
+	}
+	su, err := models.CreateUser(context.Background(), pool, &models.AdminUser{
+		Username: "nilr2_user_super", Name: "NilR2 Super", PasswordHash: "x",
+		Status: models.UserStatusActive, Role: models.SerializeRoles([]string{models.RoleSuperAdmin}),
+		MaxExams: 3, MaxPDFSize: 1048576, MaxConcurrentExams: 1,
+		MaxStorageSize: 50 * 1024 * 1024, Package: "free",
+	})
+	if err != nil {
+		t.Fatalf("create superadmin: %v", err)
+	}
+
+	token := fmt.Sprintf("CLN%05d", time.Now().UnixNano()%100000)
+	var examID int
+	if err := pool.QueryRow(context.Background(), `
+		INSERT INTO exams (name, file_path, size_bytes, token, active_token, status, security_level, created_by)
+		VALUES ('NilR2UserExam', $1, 1024, $2, $2, 'active', 'medium', $3)
+		RETURNING id`, "NilR2UserExam.pdf", token, guru.ID).Scan(&examID); err != nil {
+		t.Fatalf("insert exam: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(storageDir, "NilR2UserExam.pdf"), []byte("%PDF-1.4 test"), 0644); err != nil {
+		t.Fatalf("write fake pdf: %v", err)
+	}
+
+	srv := httptest.NewServer(newExamDeleteCleanupTestRouterR2KeyAlways(pool, storageDir))
+	defer srv.Close()
+	jar, _ := cookiejar.New(nil)
+	client := &http.Client{Jar: jar}
+	if resp, err := client.Post(srv.URL+"/test/login/"+strconv.Itoa(su.ID), "application/json", nil); err != nil || resp.StatusCode != http.StatusOK {
+		t.Fatalf("test login: status=%v err=%v", resp, err)
+	}
+
+	code := deleteCleanupDo(t, client, srv.URL, http.MethodPost,
+		fmt.Sprintf("/admin/api/users/%d/delete", guru.ID), nil)
+	if code != http.StatusOK {
+		t.Fatalf("delete user status=%d, want 200 (nil r2 key must not panic)", code)
+	}
+	if fileExists(t, storageDir, "NilR2UserExam.pdf") {
+		t.Errorf("deleted user's exam pdf still on disk with nil r2 key")
 	}
 }
