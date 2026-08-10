@@ -96,11 +96,11 @@ func DownloadAPK() gin.HandlerFunc {
 		}
 
 		r2Val, exists := c.Get("r2")
-		if !exists || r2Val.(*r2client.Client) == nil || !r2Val.(*r2client.Client).Enabled() {
+		r2 := r2client.FromContext(r2Val)
+		if !exists || r2 == nil || !r2.Enabled() {
 			c.JSON(http.StatusInternalServerError, gin.H{"success": false, "message": "Cloudflare R2 tidak dikonfigurasi."})
 			return
 		}
-		r2 := r2Val.(*r2client.Client)
 
 		// Generate presigned URL for download valid for 5 minutes.
 		url, err := r2.SignedURL(ctx, app.FilePath, 5*time.Minute)
@@ -141,11 +141,11 @@ func DownloadSystemApp() gin.HandlerFunc {
 		}
 
 		r2Val, exists := c.Get("r2")
-		if !exists || r2Val.(*r2client.Client) == nil || !r2Val.(*r2client.Client).Enabled() {
+		r2 := r2client.FromContext(r2Val)
+		if !exists || r2 == nil || !r2.Enabled() {
 			c.JSON(http.StatusInternalServerError, gin.H{"success": false, "message": "Cloudflare R2 tidak dikonfigurasi."})
 			return
 		}
-		r2 := r2Val.(*r2client.Client)
 
 		// Generate presigned URL for download valid for 5 minutes
 		url, err := r2.SignedURL(ctx, app.FilePath, 5*time.Minute)

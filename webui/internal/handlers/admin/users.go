@@ -18,6 +18,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/examvan/webui/internal/helpers"
+	r2client "github.com/examvan/webui/internal/handlers/r2"
 	"github.com/examvan/webui/internal/middleware"
 	"github.com/examvan/webui/internal/models"
 )
@@ -1201,6 +1202,41 @@ func DeleteUser() gin.HandlerFunc {
 			return
 		}
 
+		// Append-only audit trail: every exam removed by this cascade gets an
+		// exam_deleted row — the target's own exams plus, when the target is an
+		// operator with a real instansi, the exams of its instansi
+		// sub-accounts (the exact set models.DeleteUser removes). Written
+		// BEFORE the rows are deleted so exam_id survives via ON DELETE
+		// SET NULL with the name snapshotted in detail; attributed to the
+		// ACTING admin. Best-effort: a failed audit row never blocks the
+		// delete.
+		auditQuery := `SELECT id, name FROM exams WHERE created_by = $1`
+		auditArgs := []interface{}{targetID}
+		if targetUser.HasRole(models.RoleOperator) && targetUser.Instansi != "" {
+			auditQuery = `SELECT id, name FROM exams
+			              WHERE created_by = $1 OR created_by IN (SELECT id FROM admin_users WHERE instansi = $2 AND id != $1)`
+			auditArgs = append(auditArgs, targetUser.Instansi)
+		}
+		if auditRows, err := pool.Query(ctx, auditQuery, auditArgs...); err == nil {
+			for auditRows.Next() {
+				var eid int
+				var ename string
+				if err := auditRows.Scan(&eid, &ename); err == nil {
+					detail := fmt.Sprintf("Ujian dihapus: %s", ename)
+					if err := models.CreateAdminAuditLog(ctx, pool, userID, getCurrentUsername(c),
+						models.ActionExamDeleted, eid, detail); err != nil {
+						log.Printf("audit exam deleted (user cascade): %v", err)
+					}
+				}
+			}
+			if err := auditRows.Err(); err != nil {
+				log.Printf("delete user audit names iteration error: %v", err)
+			}
+			auditRows.Close()
+		} else {
+			log.Printf("delete user audit names query error: %v", err)
+		}
+
 		paths, err := models.DeleteUser(ctx, pool, targetID)
 		if err != nil {
 			log.Printf("delete user error: %v", err)
@@ -1208,11 +1244,27 @@ func DeleteUser() gin.HandlerFunc {
 			return
 		}
 
-		// Clean up associated files
+		// Clean up associated files (the exams owned by the deleted user(s) are
+		// gone, so their PDFs must not linger on disk — same contract as the
+		// exam delete paths).
 		storageDir := getStoragePath(c)
 		for _, p := range paths {
 			if fp, err := helpers.SafeStoragePath(storageDir, p); err == nil {
 				os.Remove(fp)
+			}
+		}
+
+		// Delete from R2 if configured — mirrors DeleteExam/BulkDelete so a
+		// deleted user's exam PDFs do not linger in object storage either.
+		if r2c, exists := c.Get("r2"); exists {
+			client := r2client.FromContext(r2c)
+			if client.Enabled() {
+				for _, p := range paths {
+					r2Key := fmt.Sprintf("pdfs/%s", p)
+					if err := client.Delete(ctx, r2Key); err != nil {
+						log.Printf("admin: R2 delete error for %s: %v", r2Key, err)
+					}
+				}
 			}
 		}
 

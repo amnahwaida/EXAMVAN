@@ -233,7 +233,11 @@ func UploadExam() gin.HandlerFunc {
 
 		// Upload to R2 (Mandatory)
 		if r2c, exists := c.Get("r2"); exists {
-			client := r2c.(*r2client.Client)
+			client := r2client.FromContext(r2c)
+			if client == nil {
+				errorResponse(c, http.StatusInternalServerError, "Cloudflare R2 client tidak ditemukan")
+				return
+			}
 			r2Key := fmt.Sprintf("pdfs/%s", filename)
 			if err := client.UploadBytes(ctx, r2Key, fileData); err != nil {
 				log.Printf("admin: R2 upload error: %v", err)
@@ -288,6 +292,9 @@ func UploadExam() gin.HandlerFunc {
 			if err := tx.QueryRow(ctx,
 				`SELECT max_exams FROM admin_users WHERE id = $1 FOR UPDATE`, userID).Scan(&lockedMaxExams); err != nil {
 				log.Printf("upload lock user error: %v", err)
+				// The PDF is already in R2 but no DB row exists: remove the
+				// orphan object so a failed create does not leak storage.
+				cleanupR2Orphan(c, ctx, filename)
 				errorResponse(c, http.StatusInternalServerError, "Gagal menyimpan ujian")
 				return
 			}
@@ -296,19 +303,14 @@ func UploadExam() gin.HandlerFunc {
 			if err := tx.QueryRow(ctx,
 				`SELECT COUNT(*) FROM exams WHERE created_by = $1`, userID).Scan(&cnt); err != nil {
 				log.Printf("upload count exams error: %v", err)
+				cleanupR2Orphan(c, ctx, filename)
 				errorResponse(c, http.StatusInternalServerError, "Gagal menyimpan ujian")
 				return
 			}
 			if lockedMaxExams > 0 && cnt >= lockedMaxExams {
 				_ = tx.Rollback(ctx)
 				// Remove the just-uploaded R2 object so we do not leak an orphan.
-				if r2c, ok := c.Get("r2"); ok {
-					if client, ok2 := r2c.(*r2client.Client); ok2 {
-						if delErr := client.Delete(ctx, fmt.Sprintf("pdfs/%s", filename)); delErr != nil {
-							log.Printf("admin: cleanup orphan R2 object after quota rejection: %v", delErr)
-						}
-					}
-				}
+				cleanupR2Orphan(c, ctx, filename)
 				errorResponse(c, http.StatusForbidden,
 					fmt.Sprintf("Batas pembuatan ujian tercapai. Batas akun Anda adalah %d ujian.", lockedMaxExams))
 				return
@@ -317,11 +319,17 @@ func UploadExam() gin.HandlerFunc {
 			created, err = models.CreateExamTx(ctx, tx, exam)
 			if err != nil {
 				log.Printf("upload create exam error: %v", err)
+				cleanupR2Orphan(c, ctx, filename)
 				errorResponse(c, http.StatusInternalServerError, "Gagal menyimpan ujian")
 				return
 			}
 			if err := tx.Commit(ctx); err != nil {
 				log.Printf("upload commit error: %v", err)
+				// NOTE: no orphan cleanup here — a commit error is ambiguous: the
+				// row may actually have been committed, and deleting the R2 object
+				// would then break a live exam's PDF. An orphan object is the
+				// lesser evil (best-effort swept by admin cleanup) vs. destroying
+				// a possibly-committed exam.
 				errorResponse(c, http.StatusInternalServerError, "Gagal menyimpan ujian")
 				return
 			}
@@ -329,9 +337,20 @@ func UploadExam() gin.HandlerFunc {
 			created, err = models.CreateExam(ctx, pool, exam)
 			if err != nil {
 				log.Printf("upload create exam error: %v", err)
+				cleanupR2Orphan(c, ctx, filename)
 				errorResponse(c, http.StatusInternalServerError, "Gagal menyimpan ujian")
 				return
 			}
+		}
+
+		// Append-only audit trail: the exam lifecycle starts here (created →
+		// pdf_replaced → deleted). Written only after the row committed, with
+		// the exam_id FK targeting the new row; best-effort — a failed audit
+		// row never fails the creation itself.
+		detail := fmt.Sprintf("Ujian dibuat: %s", name)
+		if err := models.CreateAdminAuditLog(ctx, pool, userID, getCurrentUsername(c),
+			models.ActionExamCreated, created.ID, detail); err != nil {
+			log.Printf("audit exam created: %v", err)
 		}
 
 		// Auto-assign creator as pengawas for this exam
@@ -345,6 +364,24 @@ func UploadExam() gin.HandlerFunc {
 			"token":   token,
 			"id":      created.ID,
 		})
+	}
+}
+
+// cleanupR2Orphan best-effort deletes the R2 object that was just uploaded
+// when the exam row never materialized (quota reject, create/commit failure
+// after the upload). Without it every rejected upload would leak an orphan
+// object in the bucket that no exam references — the same class of storage
+// leak as the ghost files on the delete path.
+func cleanupR2Orphan(c *gin.Context, ctx context.Context, filename string) {
+	if r2c, ok := c.Get("r2"); ok {
+		if client := r2client.FromContext(r2c); client != nil {
+			key := fmt.Sprintf("pdfs/%s", filename)
+			if err := client.Delete(ctx, key); err != nil {
+				log.Printf("admin: cleanup orphan R2 object %s failed: %v", key, err)
+			} else {
+				log.Printf("admin: cleaned up orphan R2 object %s", key)
+			}
+		}
 	}
 }
 
@@ -422,6 +459,23 @@ func DeleteExam() gin.HandlerFunc {
 			return
 		}
 
+		// Append-only audit trail: who deleted the exam and when. Written
+		// BEFORE the row is removed because exam_id is ON DELETE SET NULL —
+		// the row survives the deletion (exam_id → NULL) with the name
+		// snapshotted in detail, exactly the survival path the schema
+		// describes. Best-effort: a failed audit row never blocks the delete.
+		// If the delete itself then fails, the row documents an attempted
+		// deletion by an authorized actor — acceptable for the append-only
+		// trail. Do NOT move the write after the delete: exam_id would
+		// reference a now-missing row and violate the FK.
+		if auditExam, err := models.GetExamByID(ctx, pool, examID); err == nil {
+			detail := fmt.Sprintf("Ujian dihapus: %s", auditExam.Name)
+			if err := models.CreateAdminAuditLog(ctx, pool, getCurrentUserID(c), getCurrentUsername(c),
+				models.ActionExamDeleted, examID, detail); err != nil {
+				log.Printf("audit exam deleted: %v", err)
+			}
+		}
+
 		exam, err := models.DeleteExam(ctx, pool, examID)
 		if err != nil {
 			log.Printf("delete exam error: %v", err)
@@ -429,12 +483,33 @@ func DeleteExam() gin.HandlerFunc {
 			return
 		}
 
+		// Skip file cleanup on legacy rows without a stored file_path: an empty
+		// path would resolve SafeStoragePath to the storage dir itself.
+		if exam.FilePath == "" {
+			successMessage(c, "Ujian berhasil dihapus")
+			return
+		}
+
 		// Delete from R2 (Mandatory)
 		if r2c, exists := c.Get("r2"); exists {
-			client := r2c.(*r2client.Client)
-			r2Key := fmt.Sprintf("pdfs/%s", exam.FilePath)
-			if err := client.Delete(ctx, r2Key); err != nil {
-				log.Printf("admin: R2 delete error: %v", err)
+			client := r2client.FromContext(r2c)
+			if client != nil {
+				r2Key := fmt.Sprintf("pdfs/%s", exam.FilePath)
+				if err := client.Delete(ctx, r2Key); err != nil {
+					log.Printf("admin: R2 delete error: %v", err)
+				}
+			}
+		}
+
+		// Clean up the local storage file (best-effort, same guard as the bulk
+		// path): a deleted exam must not leave its PDF occupying disk forever —
+		// otherwise FreeDiskSpace never recovers and the storage quota checks
+		// keep counting the ghost file. Path traversal is rejected by
+		// SafeStoragePath.
+		storageDir := getStoragePath(c)
+		if fp, err := helpers.SafeStoragePath(storageDir, exam.FilePath); err == nil {
+			if err := os.Remove(fp); err != nil && !os.IsNotExist(err) {
+				log.Printf("admin: delete exam file error: %v", err)
 			}
 		}
 
@@ -475,6 +550,8 @@ func EditExam() gin.HandlerFunc {
 		}
 
 		file, header, fileErr := c.Request.FormFile("pdf_file")
+		oldFilePath := "" // set when a replacement PDF is uploaded (cleanup target)
+		filename := ""   // set when a replacement PDF is uploaded (audit detail)
 
 		if fileErr == nil && header != nil {
 			defer file.Close()
@@ -490,22 +567,20 @@ func EditExam() gin.HandlerFunc {
 				return
 			}
 
-			// Delete old file from R2 (Mandatory)
-			if r2c, exists := c.Get("r2"); exists {
-				client := r2c.(*r2client.Client)
-				oldR2Key := fmt.Sprintf("pdfs/%s", exam.FilePath)
-				if err := client.Delete(ctx, oldR2Key); err != nil {
-					log.Printf("admin: R2 delete old file error: %v", err)
-				}
-			}
-
-			// Save new file to R2 (Mandatory)
+			// Save new file to R2 (Mandatory) FIRST, so a failed replacement
+			// never destroys the still-referenced old file: the old R2 object is
+			// deleted only after the new one is confirmed uploaded.
+			oldFilePath = exam.FilePath
 			timestamp := time.Now().UTC().Format("20060102_150405")
 			safeName := cleanUploadedFilename(header.Filename)
-			filename := fmt.Sprintf("%s_%s", timestamp, safeName)
+			filename = fmt.Sprintf("%s_%s", timestamp, safeName)
 
 			if r2c, exists := c.Get("r2"); exists {
-				client := r2c.(*r2client.Client)
+				client := r2client.FromContext(r2c)
+				if client == nil {
+					errorResponse(c, http.StatusInternalServerError, "Cloudflare R2 client tidak ditemukan")
+					return
+				}
 				r2Key := fmt.Sprintf("pdfs/%s", filename)
 				if err := client.UploadBytes(ctx, r2Key, fileData); err != nil {
 					log.Printf("admin: R2 upload error: %v", err)
@@ -529,6 +604,53 @@ func EditExam() gin.HandlerFunc {
 			log.Printf("edit exam error: %v", err)
 			errorResponse(c, http.StatusInternalServerError, "Gagal memperbarui ujian")
 			return
+		}
+
+		// The update committed — the exam now points at the new file. Only now
+		// are the OLD artifacts cleaned up (best-effort): deleting them before
+		// UpdateExam would leave the row referencing files that a failed DB
+		// update had already destroyed.
+		if fileErr == nil && header != nil {
+			// Delete old file from R2 (Mandatory, best-effort)
+			if r2c, exists := c.Get("r2"); exists {
+				client := r2client.FromContext(r2c)
+				if client != nil {
+					oldR2Key := fmt.Sprintf("pdfs/%s", oldFilePath)
+					if err := client.Delete(ctx, oldR2Key); err != nil {
+						log.Printf("admin: R2 delete old file error: %v", err)
+					}
+				}
+			}
+
+			// Clean up the old local storage file (same guard as the delete
+			// paths): replacing the PDF must not leave its old file occupying
+			// disk forever — otherwise FreeDiskSpace never recovers and the
+			// storage quota checks keep counting the ghost file. Path traversal
+			// is rejected by SafeStoragePath. Skipped on legacy rows without a
+			// stored file_path (an empty path would resolve SafeStoragePath to
+			// the storage dir itself).
+			if oldFilePath != "" {
+				storageDir := getStoragePath(c)
+				if fp, err := helpers.SafeStoragePath(storageDir, oldFilePath); err == nil {
+					if err := os.Remove(fp); err != nil && !os.IsNotExist(err) {
+						log.Printf("admin: delete old exam file error: %v", err)
+					}
+				}
+			}
+
+			// Append-only audit trail: who replaced the PDF and when (with the
+			// old → new file names), so the "Riwayat Audit" panel shows the
+			// change. Written only after the update committed and the old
+			// artifacts were cleaned up; best-effort — a failed audit row must
+			// not fail the edit itself.
+			detail := fmt.Sprintf("PDF baru diunggah: %s", filename)
+			if oldFilePath != "" {
+				detail = fmt.Sprintf("PDF diganti: %s -> %s", oldFilePath, filename)
+			}
+			if err := models.CreateAdminAuditLog(ctx, pool, getCurrentUserID(c), getCurrentUsername(c),
+				models.ActionExamPDFReplaced, examID, detail); err != nil {
+				log.Printf("audit exam pdf replaced: %v", err)
+			}
 		}
 
 		successMessage(c, fmt.Sprintf(`Ujian "%s" berhasil diperbarui`, name))
@@ -563,14 +685,16 @@ func ExamPDF() gin.HandlerFunc {
 
 		// Serve PDF via Cloudflare R2 signed URL (Mandatory)
 		if r2c, exists := c.Get("r2"); exists {
-			client := r2c.(*r2client.Client)
-			r2Key := fmt.Sprintf("pdfs/%s", exam.FilePath)
-			signedURL, err := client.SignedURL(ctx, r2Key, 1*time.Hour)
-			if err == nil {
-				c.Redirect(http.StatusFound, signedURL)
-				return
+			client := r2client.FromContext(r2c)
+			if client != nil {
+				r2Key := fmt.Sprintf("pdfs/%s", exam.FilePath)
+				signedURL, err := client.SignedURL(ctx, r2Key, 1*time.Hour)
+				if err == nil {
+					c.Redirect(http.StatusFound, signedURL)
+					return
+				}
+				log.Printf("admin: R2 signed URL error: %v", err)
 			}
-			log.Printf("admin: R2 signed URL error: %v", err)
 		}
 
 		c.AbortWithStatus(http.StatusInternalServerError)
@@ -1217,6 +1341,30 @@ func BulkDelete() gin.HandlerFunc {
 			}
 		}
 
+		// Append-only audit trail: one row per deleted exam, written BEFORE the
+		// rows are removed (exam_id becomes NULL via ON DELETE SET NULL; detail
+		// keeps each exam's name). Best-effort: failed audit rows never block
+		// the bulk delete.
+		if nameRows, err := pool.Query(ctx, `SELECT id, name FROM exams WHERE id = ANY($1)`, examIDs); err == nil {
+			for nameRows.Next() {
+				var eid int
+				var ename string
+				if err := nameRows.Scan(&eid, &ename); err == nil {
+					detail := fmt.Sprintf("Ujian dihapus: %s", ename)
+					if err := models.CreateAdminAuditLog(ctx, pool, userID, getCurrentUsername(c),
+						models.ActionExamDeleted, eid, detail); err != nil {
+						log.Printf("audit bulk exam deleted: %v", err)
+					}
+				}
+			}
+			if err := nameRows.Err(); err != nil {
+				log.Printf("bulk delete audit names iteration error: %v", err)
+			}
+			nameRows.Close()
+		} else {
+			log.Printf("bulk delete audit names query error: %v", err)
+		}
+
 		// Collect file paths for cleanup
 		paths, err := models.BulkDeleteExams(ctx, pool, examIDs)
 		if err != nil {
@@ -1235,7 +1383,7 @@ func BulkDelete() gin.HandlerFunc {
 
 		// Delete from R2 if configured
 		if r2c, exists := c.Get("r2"); exists {
-			client := r2c.(*r2client.Client)
+			client := r2client.FromContext(r2c)
 			if client.Enabled() {
 				for _, p := range paths {
 					r2Key := fmt.Sprintf("pdfs/%s", p)

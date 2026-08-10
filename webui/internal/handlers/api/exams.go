@@ -673,16 +673,18 @@ func ExamPDF() gin.HandlerFunc {
 
 		// Serve PDF via Cloudflare R2 signed URL (Mandatory)
 		if r2c, exists := c.Get("r2"); exists {
-			client := r2c.(*r2client.Client)
-			r2Key := fmt.Sprintf("pdfs/%s", exam.FilePath)
-			signedURL, err := client.SignedURL(ctx, r2Key, 1*time.Hour)
-			if err == nil {
-				c.Redirect(http.StatusFound, signedURL)
+			client := r2client.FromContext(r2c)
+			if client != nil {
+				r2Key := fmt.Sprintf("pdfs/%s", exam.FilePath)
+				signedURL, err := client.SignedURL(ctx, r2Key, 1*time.Hour)
+				if err == nil {
+					c.Redirect(http.StatusFound, signedURL)
+					return
+				}
+				log.Printf("api: R2 signed URL error: %v", err)
+				errorResponse(c, http.StatusInternalServerError, "Gagal men-generate URL soal dari Cloudflare R2")
 				return
 			}
-			log.Printf("api: R2 signed URL error: %v", err)
-			errorResponse(c, http.StatusInternalServerError, "Gagal men-generate URL soal dari Cloudflare R2")
-			return
 		}
 
 		errorResponse(c, http.StatusInternalServerError, "Cloudflare R2 client tidak dikonfigurasi")

@@ -74,6 +74,14 @@ func TestAutoApproveUIMarkupPresent(t *testing.T) {
 		"updateAAHint",
 		"loadAAStatus",
 		"last_changed_by",
+		// The hint's verb must stay specific per last_action (res.last_action —
+		// distinct from the panel's l.action), not fall back to generic
+		// "Diubah" for lifecycle/approval actions.
+		`res.last_action === 'exam_created'`,
+		`res.last_action === 'exam_pdf_replaced'`,
+		`res.last_action === 'exam_deleted'`,
+		`res.last_action === 'approval_approved'`,
+		`res.last_action === 'approval_rejected'`,
 	} {
 		if !strings.Contains(detail2, frag) {
 			t.Errorf("pengawas_detail.html must contain %q (auto-approve audit hint markup)", frag)
@@ -97,6 +105,15 @@ func TestAutoApproveUIMarkupPresent(t *testing.T) {
 		"approval_rejected",
 		"Perangkat diizinkan",
 		"Perangkat ditolak",
+		// Lifecycle action labels (created / PDF replaced / exam deleted) so
+		// the panel renders proper phrases instead of falling back to the raw
+		// detail.
+		"exam_created",
+		"exam_pdf_replaced",
+		"exam_deleted",
+		"Ujian dibuat",
+		"PDF diganti",
+		"Ujian dihapus",
 	} {
 		if !strings.Contains(detail3, frag) {
 			t.Errorf("pengawas_detail.html must contain %q (audit history panel markup)", frag)

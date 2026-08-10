@@ -37,6 +37,20 @@ const (
 	// (MAC + student) so the history panel stays readable without a join.
 	ActionApprovalApproved = "approval_approved"
 	ActionApprovalRejected = "approval_rejected"
+	// An exam's PDF was replaced through EditExam (a new file uploaded, the
+	// old one removed). detail carries "old -> new" file names so the trail
+	// stays readable without a join.
+	ActionExamPDFReplaced = "exam_pdf_replaced"
+	// An exam was deleted (DeleteExam / BulkDelete). The row is written BEFORE
+	// the exam row is removed: exam_id then becomes NULL via the FK's
+	// ON DELETE SET NULL, and detail keeps the exam's name snapshot — exactly
+	// the survival path the schema comment describes, so the trail documents
+	// the deletion even after the exam is gone.
+	ActionExamDeleted = "exam_deleted"
+	// An exam was created (UploadExam). Written AFTER the row committed (the
+	// exam_id FK targets the new row), opening the lifecycle trail: created →
+	// pdf_replaced → deleted.
+	ActionExamCreated = "exam_created"
 )
 
 // CreateAdminAuditLog appends one audit row. username/detail are snapshotted

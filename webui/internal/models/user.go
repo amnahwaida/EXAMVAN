@@ -1068,28 +1068,58 @@ func DeleteUser(ctx context.Context, pool *pgxpool.Pool, userID int) ([]string, 
 		}
 	}
 
-	// Delete exams created by all users being deleted — and their approval
-	// rows first. The schema's ON DELETE CASCADE covers exam_approvals too,
-	// but explicit cleanup keeps a pre-FK database free of orphans and mirrors
+	// Delete exams created by all users being deleted — and their child rows
+	// first (exam_approvals, exam_pengawas, student_access_logs, submissions).
+	// The schema's ON DELETE CASCADE covers all of them too, but explicit
+	// cleanup keeps a pre-FK database free of orphans and mirrors
 	// DeleteExam's defense-in-depth.
 	for _, uid := range allIDs {
 		if _, err := tx.Exec(ctx,
+			`DELETE FROM exam_pengawas WHERE exam_id IN (SELECT id FROM exams WHERE created_by = $1)`, uid); err != nil {
+			return nil, fmt.Errorf("delete user: delete exam pengawas: %w", err)
+		}
+		if _, err := tx.Exec(ctx,
 			`DELETE FROM exam_approvals WHERE exam_id IN (SELECT id FROM exams WHERE created_by = $1)`, uid); err != nil {
 			return nil, fmt.Errorf("delete user: delete exam approvals: %w", err)
+		}
+		if _, err := tx.Exec(ctx,
+			`DELETE FROM student_access_logs WHERE exam_id IN (SELECT id FROM exams WHERE created_by = $1)`, uid); err != nil {
+			return nil, fmt.Errorf("delete user: delete access logs: %w", err)
+		}
+		if _, err := tx.Exec(ctx,
+			`DELETE FROM submissions WHERE exam_id IN (SELECT id FROM exams WHERE created_by = $1)`, uid); err != nil {
+			return nil, fmt.Errorf("delete user: delete submissions: %w", err)
 		}
 		if _, err := tx.Exec(ctx, `DELETE FROM exams WHERE created_by = $1`, uid); err != nil {
 			return nil, fmt.Errorf("delete user: delete exams: %w", err)
 		}
 	}
 
-	// Delete cascaded users first (exam_pengawas cascades via DB).
+	// Delete cascaded users first, clearing their child rows explicitly too
+	// (exam_pengawas assignments and voucher_redemptions — both CASCADE in the
+	// schema, but explicit cleanup keeps a pre-FK database free of orphans).
+	// admin_audit_logs is deliberately NOT touched: its user_id FK is
+	// ON DELETE SET NULL by design — the audit trail must survive the actor's
+	// deletion (denormalized username/detail keep it displayable).
 	for _, cid := range cascadedIDs {
+		if _, err := tx.Exec(ctx, `DELETE FROM exam_pengawas WHERE user_id = $1`, cid); err != nil {
+			return nil, fmt.Errorf("delete cascaded user %d pengawas error: %w", cid, err)
+		}
+		if _, err := tx.Exec(ctx, `DELETE FROM voucher_redemptions WHERE user_id = $1`, cid); err != nil {
+			return nil, fmt.Errorf("delete cascaded user %d redemptions error: %w", cid, err)
+		}
 		if _, err := tx.Exec(ctx, `DELETE FROM admin_users WHERE id = $1`, cid); err != nil {
 			return nil, fmt.Errorf("delete cascaded user %d error: %w", cid, err)
 		}
 	}
 
-	// Finally delete the target user.
+	// Finally delete the target user (same explicit child cleanup).
+	if _, err := tx.Exec(ctx, `DELETE FROM exam_pengawas WHERE user_id = $1`, userID); err != nil {
+		return nil, fmt.Errorf("delete user: delete pengawas: %w", err)
+	}
+	if _, err := tx.Exec(ctx, `DELETE FROM voucher_redemptions WHERE user_id = $1`, userID); err != nil {
+		return nil, fmt.Errorf("delete user: delete redemptions: %w", err)
+	}
 	_, err = tx.Exec(ctx, `DELETE FROM admin_users WHERE id = $1`, userID)
 	if err != nil {
 		return nil, fmt.Errorf("delete user: exec: %w", err)

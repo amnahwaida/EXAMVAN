@@ -28,7 +28,8 @@ func SystemAppsPage() gin.HandlerFunc {
 		}
 		
 		r2Val, exists := c.Get("r2")
-		r2Enabled := exists && r2Val.(*r2client.Client) != nil && r2Val.(*r2client.Client).Enabled()
+		r2 := r2client.FromContext(r2Val)
+		r2Enabled := exists && r2 != nil && r2.Enabled()
 		data["r2_enabled"] = r2Enabled
 
 		renderAdminPage(c, "admin/system_apps.html", data)
@@ -42,11 +43,11 @@ func UploadSystemApp() gin.HandlerFunc {
 		ctx := c.Request.Context()
 
 		r2Val, exists := c.Get("r2")
-		if !exists || r2Val.(*r2client.Client) == nil || !r2Val.(*r2client.Client).Enabled() {
+		r2 := r2client.FromContext(r2Val)
+		if !exists || r2 == nil || !r2.Enabled() {
 			c.JSON(http.StatusInternalServerError, gin.H{"success": false, "message": "Cloudflare R2 tidak dikonfigurasi."})
 			return
 		}
-		r2 := r2Val.(*r2client.Client)
 
 		appName := c.PostForm("name")
 		platform := c.PostForm("platform")
@@ -172,8 +173,8 @@ func DeleteSystemApp() gin.HandlerFunc {
 		}
 
 		r2Val, exists := c.Get("r2")
-		if exists && r2Val.(*r2client.Client) != nil && r2Val.(*r2client.Client).Enabled() {
-			r2 := r2Val.(*r2client.Client)
+		r2 := r2client.FromContext(r2Val)
+		if exists && r2 != nil && r2.Enabled() {
 			_ = r2.Delete(ctx, app.FilePath)
 		}
 

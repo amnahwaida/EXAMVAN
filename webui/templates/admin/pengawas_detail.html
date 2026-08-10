@@ -1562,12 +1562,21 @@ function showAuditLog() {
                 var isDisable = l.action === 'auto_approve_disable';
                 var isApprove = l.action === 'approval_approved';
                 var isReject = l.action === 'approval_rejected';
+                var isPdfReplaced = l.action === 'exam_pdf_replaced';
+                var isDeleted = l.action === 'exam_deleted';
+                var isCreated = l.action === 'exam_created';
                 var label = isEnable ? 'Auto-approve diaktifkan'
                          : isDisable ? 'Auto-approve dimatikan'
                          : isApprove ? 'Perangkat diizinkan'
                          : isReject ? 'Perangkat ditolak'
+                         : isCreated ? 'Ujian dibuat'
+                         : isPdfReplaced ? 'PDF diganti'
+                         : isDeleted ? 'Ujian dihapus'
                          : esc(l.detail || l.action);
-                var cls = isEnable || isApprove ? 'enable' : (isDisable || isReject ? 'disable' : 'heartbeat');
+                // Creation is positive (green); PDF replacement is a neutral
+                // maintenance action (blue); a deleted exam is destructive
+				// (red, like the disable/reject dots).
+				var cls = isEnable || isApprove || isCreated ? 'enable' : (isDisable || isReject || isDeleted ? 'disable' : 'heartbeat');
                 h += '<div class="log-entry audit-log-entry ' + cls + '">' +
                         '<div class="log-event">' + label + '</div>' +
                         '<div class="log-time">' + localizeUTC(l.created_at) + '</div>' +
@@ -1747,6 +1756,11 @@ function updateAAHint(res) {
     }
     var verb = res.last_action === 'auto_approve_enable' ? 'Diaktifkan'
              : res.last_action === 'auto_approve_disable' ? 'Dimatikan'
+             : res.last_action === 'approval_approved' ? 'Diizinkan'
+             : res.last_action === 'approval_rejected' ? 'Ditolak'
+             : res.last_action === 'exam_created' ? 'Dibuat'
+             : res.last_action === 'exam_pdf_replaced' ? 'PDF diganti'
+             : res.last_action === 'exam_deleted' ? 'Ujian dihapus'
              : 'Diubah';
     var t = res.last_changed_at ? localizeUTC(res.last_changed_at) : '';
     hint.textContent = verb + ' oleh ' + res.last_changed_by + (t ? ' · ' + t : '');
@@ -1813,7 +1827,6 @@ loadAAStatus();
                 showToast('Gagal menghubungi server', 'error');
             });
         });
-    }
 
     loadDetail();
     // Queue load is triggered by loadAAStatus() above (and by its fetch's
