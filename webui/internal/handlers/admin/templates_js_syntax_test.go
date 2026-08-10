@@ -1,7 +1,7 @@
 package admin
 
-// TestAdminTemplatesInlineScriptsParse is a static guard over the inline
-// <script> blocks in the admin templates. It exists because two real
+// TestTemplatesInlineScriptsParse is a static guard over the inline <script>
+// blocks in the web templates (admin and public). It exists because two real
 // production bugs were found only by accident during a manual browser
 // session:
 //
@@ -24,6 +24,12 @@ package admin
 //     `node --check`. Blocks containing Go control-flow tags ({{if}}/{{range}}
 //     /...) are skipped for this pass because those templates are not valid
 //     JavaScript until rendered; the balance pass still covers them.
+//
+// Known limitations (crude static analysis, not a JS parser): regex literals
+// containing delimiters (e.g. /\{/) or a literal "</script>" inside a JS
+// string can produce false positives; no current template hits these. And the
+// packages.html bug class (a statement in the middle of an expression) is only
+// caught by the node pass, not the always-on balance pass.
 
 import (
 	"os"
@@ -98,15 +104,10 @@ func stripJSStringsAndComments(js string) string {
 	return b.String()
 }
 
-func TestAdminTemplatesInlineScriptsParse(t *testing.T) {
+func TestTemplatesInlineScriptsParse(t *testing.T) {
 	templatesDir := "templates"
 	if _, err := os.Stat(templatesDir); err != nil {
 		templatesDir = filepath.Join("..", "..", "..", "templates")
-	}
-	adminDir := filepath.Join(templatesDir, "admin")
-	entries, err := os.ReadDir(adminDir)
-	if err != nil {
-		t.Fatalf("read admin templates dir: %v", err)
 	}
 
 	nodeOK := false
@@ -114,59 +115,79 @@ func TestAdminTemplatesInlineScriptsParse(t *testing.T) {
 		nodeOK = true
 	}
 
-	for _, ent := range entries {
-		if ent.IsDir() || !strings.HasSuffix(ent.Name(), ".html") {
-			continue
+	// Cover every template area recursively (admin incl. partials, public,
+	// and any future area under templates/) so no page script escapes the
+	// guard.
+	err := filepath.WalkDir(templatesDir, func(path string, d os.DirEntry, walkErr error) error {
+		if walkErr != nil {
+			return walkErr
 		}
-		path := filepath.Join(adminDir, ent.Name())
+		if d.IsDir() || !strings.HasSuffix(d.Name(), ".html") {
+			return nil
+		}
+		rel, err := filepath.Rel(templatesDir, path)
+		if err != nil {
+			return err
+		}
 		data, err := os.ReadFile(path)
 		if err != nil {
 			t.Fatalf("read %s: %v", path, err)
 		}
-		blocks := reScriptBlock.FindAllStringSubmatch(string(data), -1)
-		for i, m := range blocks {
-			if strings.Contains(m[1], "src=") {
-				continue // external script, not inline JS
-			}
-			body := m[2]
-			if strings.TrimSpace(body) == "" {
-				continue
-			}
-			name := ent.Name() + " block " + itoa(i)
+		checkInlineScripts(t, rel, string(data), nodeOK)
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("walk %s: %v", templatesDir, err)
+	}
+}
 
-			// Balance pass (always): replace Go template tags with a neutral
-			// expression first — they may legally contain parens (e.g. .Format
-			// "2006...") and removing them entirely would leave artifacts like
-			// "( / (1024*1024))" that skew both balance and node --check.
-			noGo := reGoTag.ReplaceAllString(body, "0")
-			clean := stripJSStringsAndComments(noGo)
-			for _, open := range []byte{'(', '{', '['} {
-				close := map[byte]byte{'(': ')', '{': '}', '[': ']'}[open]
-				oc, cc := 0, 0
-				for j := 0; j < len(clean); j++ {
-					if clean[j] == open {
-						oc++
-					}
-					if clean[j] == close {
-						cc++
-					}
+// checkInlineScripts runs both guard passes over every inline <script> block
+// in one rendered-HTML file. name is the path used in error messages.
+func checkInlineScripts(t *testing.T, name, html string, nodeOK bool) {
+	t.Helper()
+	blocks := reScriptBlock.FindAllStringSubmatch(html, -1)
+	for i, m := range blocks {
+		if strings.Contains(m[1], "src=") {
+			continue // external script, not inline JS
+		}
+		body := m[2]
+		if strings.TrimSpace(body) == "" {
+			continue
+		}
+		block := name + " block " + itoa(i)
+
+		// Balance pass (always): replace Go template tags with a neutral
+		// expression first — they may legally contain parens (e.g. .Format
+		// "2006...") and removing them entirely would leave artifacts like
+		// "( / (1024*1024))" that skew both balance and node --check.
+		noGo := reGoTag.ReplaceAllString(body, "0")
+		clean := stripJSStringsAndComments(noGo)
+		for _, open := range []byte{'(', '{', '['} {
+			close := map[byte]byte{'(': ')', '{': '}', '[': ']'}[open]
+			oc, cc := 0, 0
+			for j := 0; j < len(clean); j++ {
+				if clean[j] == open {
+					oc++
 				}
-				if oc != cc {
-					t.Errorf("%s: unbalanced %q (open=%d close=%d) after stripping strings/comments/Go tags — a stray brace/paren here breaks the whole page script", name, string(open), oc, cc)
+				if clean[j] == close {
+					cc++
 				}
 			}
+			if oc != cc {
+				t.Errorf("%s: unbalanced %q (open=%d close=%d) after stripping strings/comments/Go tags — a stray brace/paren here breaks the whole page script", block, string(open), oc, cc)
+			}
+		}
 
-			// node --check pass (only when node exists and block has no Go
-			// control flow, which would be invalid JS until rendered).
-			if nodeOK && !reGoControl.MatchString(body) {
-				tmp := filepath.Join(t.TempDir(), "inline.js")
-				if err := os.WriteFile(tmp, []byte(noGo), 0o600); err != nil {
-					t.Fatalf("write temp js: %v", err)
-				}
-				out, err := exec.Command("node", "--check", tmp).CombinedOutput()
-				if err != nil {
-					t.Errorf("%s: node --check failed: %v\n%s", name, err, firstLine(string(out)))
-				}
+		// node --check pass (only when node exists and block has no Go
+		// control flow, which would be invalid JS until rendered).
+		if nodeOK && !reGoControl.MatchString(body) {
+			tmp := filepath.Join(t.TempDir(), "inline.js")
+			if err := os.WriteFile(tmp, []byte(noGo), 0o600); err != nil {
+				t.Fatalf("write temp js: %v", err)
+			}
+			out, err := exec.Command("node", "--check", tmp).CombinedOutput()
+			if err != nil {
+				t.Errorf("%s: node --check failed: %v\n%s", block, err, firstLine(string(out)))
 			}
 		}
 	}
