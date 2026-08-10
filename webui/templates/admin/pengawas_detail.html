@@ -1200,7 +1200,13 @@ function loadApprovals() {
                     note.style.display = 'none';
                 }
             }
-            if (!res || !res.success || !res.data || res.data.length === 0) {
+            if (!res || !res.success) {
+                // Gagal memuat antrean — jangan samarkan sebagai antrean kosong.
+                showToast((res && res.message) || 'Gagal memuat antrean izin perangkat', 'error');
+                tbody.innerHTML = '<tr><td colspan="5" class="pd-table-empty" style="color:#fca5a5;">Gagal memuat antrean. Coba lagi.</td></tr>';
+                return;
+            }
+            if (!res.data || res.data.length === 0) {
                 if (document.getElementById('autoAcceptToggle') && document.getElementById('autoAcceptToggle').checked) {
                     tbody.innerHTML = '<tr><td colspan="5" class="pd-table-empty" style="color:var(--color-text-muted);"><div class="pd-pulse" style="display:inline-block;margin-right:8px;background:#34d399;"></div> Auto-approve aktif — peserta disetujui otomatis di server...</td></tr>';
                 } else {
@@ -1310,6 +1316,9 @@ function loadDetail(page, silent) {
         .then(function(r) { return r.json(); })
         .then(function(res) {
             if (!res || !res.success) {
+                // Auto-refresh senyap (12 dtk) cukup menampilkan baris error di
+                // tabel tanpa toast agar tidak spam; aksi user langsung di-toast.
+                if (!silent) showToast((res && res.message) || 'Gagal memuat data pengawasan', 'error');
                 tbody.innerHTML = '<tr><td colspan="6" class="pd-table-empty" style="color:#fca5a5;">Gagal memuat data</td></tr>';
                 return;
             }
@@ -1550,7 +1559,12 @@ function showAuditLog() {
     apiFetch('/admin/api/pengawas/exams/' + EXAM_ID + '/audit-logs', { headers: { 'Accept': 'application/json' } })
         .then(function(r) { return r.json(); })
         .then(function(res) {
-            var logs = (res && res.success && res.logs) || [];
+            if (!res || !res.success) {
+                showToast((res && res.message) || 'Gagal memuat riwayat audit', 'error');
+                body.innerHTML = '<div style="text-align:center;padding:32px;color:#fca5a5;">Gagal memuat riwayat audit. Coba lagi.</div>';
+                return;
+            }
+            var logs = res.logs || [];
             if (!logs.length) {
                 body.innerHTML = '<div class="no-logs">Belum ada riwayat audit untuk ujian ini.</div>';
                 return;
