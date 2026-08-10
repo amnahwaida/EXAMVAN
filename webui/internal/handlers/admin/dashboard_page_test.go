@@ -804,3 +804,71 @@ func TestAllNavIncludesForwardNeedsInstansi(t *testing.T) {
 	}
 	t.Logf("verified needs_instansi forwarding in %d admin templates", checked)
 }
+
+// TestDashboardShowsAutoApproveIndicator locks in the UI half of the
+// auto-approve visibility fix: the exam table's status cell must render an
+// "Auto-approve" badge ONLY for exams whose server-side flag is on. This lets
+// a guru see the flag is still active before reusing an exam for the next
+// session (previously it was only visible on the pengawas detail page's
+// toggle). The page is rendered through the REAL Dashboard handler with the
+// REAL templates, so the test breaks the moment the handler or template stops
+// forwarding the flag.
+func TestDashboardShowsAutoApproveIndicator(t *testing.T) {
+	pool := database.NewPackageTestPool(t, "admin")
+	ctx := context.Background()
+
+	guru, err := models.CreateUser(ctx, pool, &models.AdminUser{
+		Username: "it_dash_aa", Name: "IT Dash AutoApprove",
+		PasswordHash: "x", Status: models.UserStatusActive,
+		Role:         models.SerializeRoles([]string{models.RoleGuru}),
+		MaxExams:     3, MaxPDFSize: 1048576, MaxConcurrentExams: 2,
+		MaxStorageSize: 50 * 1024 * 1024, Package: "free",
+	})
+	if err != nil {
+		t.Fatalf("create guru: %v", err)
+	}
+
+	// One exam with the flag ON, one with it OFF — the badge must follow the
+	// flag, not appear on every row.
+	var onID, offID int
+	if err := pool.QueryRow(ctx, `INSERT INTO exams (name, file_path, size_bytes, token, active_token, status, created_by, auto_approve)
+		VALUES ('IT AA On', '/tmp/it-aa-on.pdf', 1024, 'ITAAON01', 'ITAAON01', 'active', $1, TRUE) RETURNING id`, guru.ID).Scan(&onID); err != nil {
+		t.Fatalf("seed on exam: %v", err)
+	}
+	if err := pool.QueryRow(ctx, `INSERT INTO exams (name, file_path, size_bytes, token, active_token, status, created_by, auto_approve)
+		VALUES ('IT AA Off', '/tmp/it-aa-off.pdf', 1024, 'ITAAOFF1', 'ITAAOFF1', 'active', $1, FALSE) RETURNING id`, guru.ID).Scan(&offID); err != nil {
+		t.Fatalf("seed off exam: %v", err)
+	}
+
+	storageDir, err := os.MkdirTemp("", "examvan-dash-aa")
+	if err != nil {
+		t.Fatalf("make temp storage dir: %v", err)
+	}
+	defer os.RemoveAll(storageDir)
+
+	srv := httptest.NewServer(newDashboardPageTestRouter(t, pool, storageDir))
+	defer srv.Close()
+
+	jar, _ := cookiejar.New(nil)
+	client := &http.Client{Jar: jar}
+	if resp, err := client.Post(srv.URL+"/test/login/"+strconv.Itoa(guru.ID), "application/json", nil); err != nil || resp.StatusCode != http.StatusOK {
+		t.Fatalf("test login: status=%v err=%v", resp, err)
+	}
+
+	status, body := getDashboardPage(t, client, srv)
+	if status != http.StatusOK {
+		t.Fatalf("dashboard page: status=%d, want 200", status)
+	}
+
+	if !strings.Contains(body, fmt.Sprintf("id=\"auto-approve-%d\"", onID)) {
+		t.Errorf("dashboard must render the auto-approve badge for exam %d (flag on)", onID)
+	}
+	if strings.Contains(body, fmt.Sprintf("id=\"auto-approve-%d\"", offID)) {
+		t.Errorf("dashboard must NOT render the auto-approve badge for exam %d (flag off)", offID)
+	}
+	// Sanity: the page rendered fully — otherwise the assertions above pass
+	// vacuously on a broken/empty page.
+	if !strings.Contains(body, `class="stat-card stat-storage"`) {
+		t.Error("storage card missing — page did not render fully")
+	}
+}

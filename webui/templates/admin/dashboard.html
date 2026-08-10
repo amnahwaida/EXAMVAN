@@ -502,6 +502,9 @@
 <span class="status-badge status-inactive" style="cursor:default;">Nonaktif</span>
 {{end}}
 {{end}}
+{{if $exam.AutoApprove}}
+<span id="auto-approve-{{$exam.ID}}" style="display:inline-flex;align-items:center;gap:4px;margin-left:6px;font-size:0.65rem;color:#34d399;font-weight:700;padding:2px 8px;border-radius:10px;background:rgba(16,185,129,0.12);border:1px solid rgba(16,185,129,0.3);vertical-align:middle;white-space:nowrap;" title="Auto-approve aktif — semua perangkat disetujui otomatis di server (tetap berlaku walau halaman pengawasan ditutup)"><svg class="icon-svg" style="width:10px;height:10px;"><use href="#hi-check"/></svg> Auto-approve</span>
+{{end}}
 </td>
 <td data-label="Pengawas" class="pengawas-cell">
 {{$pw := index $.exam_pengawas_map $exam.ID}}

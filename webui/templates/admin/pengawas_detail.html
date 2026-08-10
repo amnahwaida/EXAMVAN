@@ -199,7 +199,7 @@
     <svg class="icon-svg"><use href="#hi-users"/></svg> Antrean Peserta (Menunggu Persetujuan)
    </h3>
    <div class="pd-table-toolbar">
-    <label class="pd-toggle-switch" title="Terima Otomatis (Otomatis menyetujui siswa yang meminta izin masuk ke ujian)" style="margin-right:12px;">
+    <label class="pd-toggle-switch" title="Terima Otomatis — menyetujui siswa di server secara otomatis; tetap aktif walau halaman ini ditutup" style="margin-right:12px;">
      <input type="checkbox" id="autoAcceptToggle" aria-label="Terima otomatis semua peserta yang meminta izin masuk">
      <span class="pd-toggle-slider"></span>
     </label>
@@ -1141,17 +1141,16 @@ function loadApprovals() {
         .then(function(r) { return r.json(); })
         .then(function(res) {
             if (!res || !res.success || !res.data || res.data.length === 0) {
-                tbody.innerHTML = '<tr><td colspan="5" class="pd-table-empty" style="color:var(--color-text-muted);">Belum ada antrean peserta saat ini.</td></tr>';
+                if (document.getElementById('autoAcceptToggle') && document.getElementById('autoAcceptToggle').checked) {
+                    tbody.innerHTML = '<tr><td colspan="5" class="pd-table-empty" style="color:var(--color-text-muted);"><div class="pd-pulse" style="display:inline-block;margin-right:8px;background:#34d399;"></div> Auto-approve aktif — peserta disetujui otomatis di server...</td></tr>';
+                } else {
+                    tbody.innerHTML = '<tr><td colspan="5" class="pd-table-empty" style="color:var(--color-text-muted);">Belum ada antrean peserta saat ini.</td></tr>';
+                }
                 return;
             }
-            var isAutoAccept = document.getElementById('autoAcceptToggle') && document.getElementById('autoAcceptToggle').checked;
             var html = '';
             for (var i = 0; i < res.data.length; i++) {
                 var a = res.data[i];
-                if (isAutoAccept) {
-                    setApproval(a.mac_address, 'approved', true, true);
-                    continue;
-                }
                 var t = a.created_at ? localizeUTC(a.created_at) : '—';
                 var studentInfo = esc(a.student_name);
                 if (!studentInfo || studentInfo === '—') studentInfo = '<em style="color:var(--color-text-muted);">Tidak diketahui (Anonim)</em>';
@@ -1182,9 +1181,6 @@ function loadApprovals() {
                     '</td>' +
                 '</tr>';
             }
-            if (html === '' && isAutoAccept) {
-                html = '<tr><td colspan="5" class="pd-table-empty" style="color:var(--color-text-muted);"><div class="pd-pulse" style="display:inline-block;margin-right:8px;background:#34d399;"></div> Menerima antrean peserta secara otomatis...</td></tr>';
-            }
             tbody.innerHTML = html;
         })
         .catch(function(err) {
@@ -1197,7 +1193,7 @@ function loadApprovals() {
         });
 }
 
-function setApproval(macAddress, status, skipConfirm, auto) {
+function setApproval(macAddress, status, skipConfirm) {
     if (!skipConfirm) {
         showConfirmApprovalModal(macAddress, status);
         return;
@@ -1212,20 +1208,18 @@ function setApproval(macAddress, status, skipConfirm, auto) {
     })
     .then(function(r) { return r.json(); })
     .then(function(res) {
-        // Manual (confirmed) actions give explicit feedback + refresh the queue.
-        // Auto-accept stays silent (the 5s interval refreshes) to avoid a burst
-        // of toasts and duplicate re-fetches when many devices are approved.
         if (res.success) {
-            if (!auto) {
-                showToast(status === 'approved' ? 'Perangkat diizinkan' : 'Perangkat ditolak', status === 'approved' ? 'success' : 'error');
-                loadApprovals();
-            }
-        } else if (!auto) {
+            showToast(status === 'approved' ? 'Perangkat diizinkan' : 'Perangkat ditolak', status === 'approved' ? 'success' : 'error');
+            loadApprovals();
+            // Also refresh the device monitoring table so a revoke ("Tolak")
+            // from that table gives immediate feedback.
+            loadDetail(undefined, true);
+        } else {
             showToast(res.message || 'Gagal menyimpan persetujuan', 'error');
         }
     })
     .catch(function(err) {
-        if (!auto) showToast('Terjadi kesalahan jaringan', 'error');
+        showToast('Terjadi kesalahan jaringan', 'error');
     });
 }
 
@@ -1290,7 +1284,10 @@ function loadDetail(page, silent) {
                     '<td data-label="Status"><span class="status-badge-sm" style="background:' + color + '15;color:' + color + ';border:1px solid ' + color + '30;">' + sl + '</span></td>' +
                     '<td data-label="Mulai" style="font-size:0.75rem;color:var(--color-text-muted);font-family:var(--font-mono);">' + startTime + '</td>' +
                     '<td data-label="Upaya" style="text-align:center;">' + attCount + '</td>' +
-                    '<td data-label="Aksi"><a class="action-link" onclick="showAccessLog(' + s.id + ')"><svg class="icon-svg" style="width:12px;height:12px;"><use href="#hi-eye"/></svg> Detail</a></td>' +
+                    '<td data-label="Aksi"><div style="display:flex;justify-content:flex-end;gap:8px;align-items:center;">' +
+                        '<a class="action-link" onclick="showAccessLog(' + s.id + ')"><svg class="icon-svg" style="width:12px;height:12px;"><use href="#hi-eye"/></svg> Detail</a>' +
+                        (s.submitted ? '' : '<button class="pd-action-btn pd-action-danger" title="Cabut izin perangkat — sesi berikutnya harus minta izin lagi" onclick="setApproval(\'' + escapeHtml(jsEscape(s.mac_address)) + '\', \'rejected\')" style="padding:5px 10px;border-radius:6px;font-weight:600;font-size:0.7rem;"><svg class="icon-svg" style="width:12px;height:12px;"><use href="#hi-x"/></svg> Tolak</button>') +
+                    '</div></td>' +
                     '</tr>';
             }
             tbody.innerHTML = html;
@@ -1629,9 +1626,48 @@ function updateCountdown() {
     var aaToggle = document.getElementById('autoAcceptToggle');
     if (aaToggle) {
         var aaKey = 'examvan_auto_accept_' + EXAM_ID;
-        aaToggle.checked = localStorage.getItem(aaKey) === 'true';
+        // Auto-approve now lives on the server (exam.auto_approve), so it keeps
+        // working even when this page is closed. The server is the source of
+        // truth; localStorage only mirrors it as an offline fallback.
+        fetch('/admin/api/pengawas/exams/' + EXAM_ID + '/auto-approve', { credentials: 'same-origin', headers: { 'Accept': 'application/json' } })
+            .then(function(r) { return r.json(); })
+            .then(function(res) {
+                if (res && res.success) {
+                    aaToggle.checked = !!res.enabled;
+                } else {
+                    aaToggle.checked = localStorage.getItem(aaKey) === 'true';
+                }
+                localStorage.setItem(aaKey, aaToggle.checked ? 'true' : 'false');
+                loadApprovals(); // refresh the queue empty-state message
+            })
+            .catch(function() {
+                aaToggle.checked = localStorage.getItem(aaKey) === 'true';
+            });
+
         aaToggle.addEventListener('change', function() {
-            localStorage.setItem(aaKey, this.checked ? 'true' : 'false');
+            var enabled = this.checked;
+            fetch('/admin/api/pengawas/exams/' + EXAM_ID + '/auto-approve', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': getCsrfToken() },
+                body: JSON.stringify({ enabled: enabled })
+            })
+            .then(function(r) { return r.json(); })
+            .then(function(res) {
+                if (res && res.success) {
+                    localStorage.setItem(aaKey, res.enabled ? 'true' : 'false');
+                    loadApprovals(); // update the queue empty-state message
+                    showToast(res.enabled ? 'Auto-approve aktif — berlaku di server walau halaman ditutup' : 'Auto-approve nonaktif', 'success');
+                } else {
+                    aaToggle.checked = !enabled;
+                    localStorage.setItem(aaKey, aaToggle.checked ? 'true' : 'false');
+                    showToast((res && res.message) || 'Gagal menyimpan pengaturan auto-approve', 'error');
+                }
+            })
+            .catch(function() {
+                aaToggle.checked = !enabled;
+                localStorage.setItem(aaKey, aaToggle.checked ? 'true' : 'false');
+                showToast('Gagal menghubungi server', 'error');
+            });
         });
     }
 

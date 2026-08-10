@@ -591,6 +591,7 @@ func registerRoutes(r *gin.Engine, cfg *config.Config, pool *pgxpool.Pool) {
 				csrfAPI.POST("/exams/:exam_id/toggle-show-answers", middleware.LimitBodySize(256*1024), admin.ToggleShowAnswers())
 				csrfAPI.POST("/exams/:exam_id/delegate", middleware.LimitBodySize(256*1024), admin.PostDelegateExam())
 				csrfAPI.POST("/pengawas/exams/:exam_id/approvals/:mac_address", middleware.LimitBodySize(256*1024), admin.SetApprovalStatus())
+				csrfAPI.POST("/pengawas/exams/:exam_id/auto-approve", middleware.LimitBodySize(256*1024), admin.SetAutoApprove())
 
 				// Submissions.
 				csrfAPI.POST("/submissions/:id/delete", middleware.LimitBodySize(256*1024), admin.DeleteSubmission())
@@ -651,6 +652,7 @@ func registerRoutes(r *gin.Engine, cfg *config.Config, pool *pgxpool.Pool) {
 			lockedAPI.GET("/pengawas/exams", admin.PengawasExams())
 			lockedAPI.GET("/pengawas/exams/:exam_id/submissions", admin.PengawasExamSubmissions())
 			lockedAPI.GET("/pengawas/exams/:exam_id/approvals", admin.GetPendingApprovals())
+			lockedAPI.GET("/pengawas/exams/:exam_id/auto-approve", admin.GetAutoApprove())
 			lockedAPI.GET("/saas-settings", middleware.SuperAdminRequired(), admin.SaasSettings())
 			lockedAPI.GET("/packages", middleware.SuperAdminRequired(), admin.ListPackagesSettingsHandler())
 			lockedAPI.GET("/vouchers", middleware.SuperAdminRequired(), admin.ListVouchers())

@@ -11,7 +11,6 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
-	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 	redis "github.com/redis/go-redis/v9"
 
@@ -202,6 +201,10 @@ func PengawasExams() gin.HandlerFunc {
 			// Nonaktif exam is dormant instead of leaving the operator puzzled.
 			Tombstoned   bool   `json:"tombstoned"`
 			TombstonedAt string `json:"tombstoned_at"`
+			// AutoApprove: the exam's server-side auto-approve flag, surfaced so
+			// the pengawas list can badge exams whose auto-approve is still on
+			// (visible before the exam is reused for the next session).
+			AutoApprove bool `json:"auto_approve"`
 		}
 
 		// Build username map
@@ -260,6 +263,7 @@ func PengawasExams() gin.HandlerFunc {
 				CreatorName:    usernameMap[e.CreatedBy],
 				Tombstoned:     e.TombstonedAt != nil,
 				TombstonedAt:   tombstonedAt,
+				AutoApprove:    e.AutoApprove,
 			}
 			examList = append(examList, item)
 		}
@@ -716,27 +720,103 @@ func SetApprovalStatus() gin.HandlerFunc {
 		}
 
 		if req.Status == "approved" {
-			var sName, eNum, sClass, iData string
-			if err := pool.QueryRow(ctx, "SELECT student_name, exam_number, student_class, COALESCE(identity_data, '{}') FROM exam_approvals WHERE exam_id=$1 AND mac_address=$2", examID, macAddress).Scan(&sName, &eNum, &sClass, &iData); err == nil {
-				// Check if the latest submission is already submitted
-				var latestAnswers *string
-				errLookup := pool.QueryRow(ctx, "SELECT answers_json FROM submissions WHERE exam_id=$1 AND mac_address=$2 ORDER BY created_at DESC LIMIT 1", examID, macAddress).Scan(&latestAnswers)
-				
-				// Create new row if no submissions exist, or if the latest one is already submitted
-				if errLookup == pgx.ErrNoRows || (errLookup == nil && latestAnswers != nil && *latestAnswers != "") {
-					_, err = pool.Exec(ctx, `
-						INSERT INTO submissions (exam_id, mac_address, student_name, exam_number, student_class, identity_data, start_time, created_at)
-						VALUES ($1, $2, $3, $4, $5, $6, $7, CURRENT_TIMESTAMP)
-					`, examID, macAddress, sName, eNum, sClass, iData, time.Now().UTC().Format(time.RFC3339))
-					if err != nil {
-						log.Printf("failed to insert submission on approval: %v", err)
-					}
-				}
+			// Entry bookkeeping shared with server-side auto-approve (see
+			// models.EnsureFreshSubmissionOnApproval).
+			if err := models.EnsureFreshSubmissionOnApproval(ctx, pool, examID, macAddress); err != nil {
+				log.Printf("failed to insert submission on approval: %v", err)
 			}
 		}
 
 		c.JSON(http.StatusOK, gin.H{
 			"success": true,
+		})
+	}
+}
+
+// ---------------------------------------------------------------------------
+// 7. Auto-approve flag (server-side)
+// ---------------------------------------------------------------------------
+
+// GetAutoApprove returns the exam's server-side auto-approve flag.
+// GET /admin/api/pengawas/exams/:exam_id/auto-approve
+func GetAutoApprove() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		examID, err := strconv.Atoi(c.Param("exam_id"))
+		if err != nil {
+			errorResponse(c, http.StatusBadRequest, "ID ujian tidak valid")
+			return
+		}
+
+		pool := getPool(c)
+		ctx := c.Request.Context()
+
+		// Exam-scoped authorization, same as the approvals endpoints.
+		userID := getCurrentUserID(c)
+		if _, err := models.GetExamByID(ctx, pool, examID); err != nil {
+			errorResponse(c, http.StatusNotFound, "Ujian tidak ditemukan")
+			return
+		}
+		if !models.UserCanAccessExam(ctx, pool, userID, isSuperAdmin(c), examID) {
+			errorResponse(c, http.StatusForbidden, "Akses ditolak: Anda tidak memiliki wewenang untuk mengawasi ujian ini")
+			return
+		}
+
+		var enabled bool
+		if err := pool.QueryRow(ctx, `SELECT auto_approve FROM exams WHERE id = $1`, examID).Scan(&enabled); err != nil {
+			errorResponse(c, http.StatusInternalServerError, "Gagal memuat pengaturan auto-approve")
+			return
+		}
+
+		c.JSON(http.StatusOK, gin.H{
+			"success": true,
+			"enabled": enabled,
+		})
+	}
+}
+
+// SetAutoApprove toggles the exam's server-side auto-approve flag. The flag is
+// stored on the exam row so auto-approve keeps running even when no pengawas
+// monitoring page is open.
+// POST /admin/api/pengawas/exams/:exam_id/auto-approve {enabled: bool}
+func SetAutoApprove() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		examID, err := strconv.Atoi(c.Param("exam_id"))
+		if err != nil {
+			errorResponse(c, http.StatusBadRequest, "ID ujian tidak valid")
+			return
+		}
+
+		var req struct {
+			Enabled bool `json:"enabled"`
+		}
+		if err := c.ShouldBindJSON(&req); err != nil {
+			errorResponse(c, http.StatusBadRequest, "Payload tidak valid")
+			return
+		}
+
+		pool := getPool(c)
+		ctx := c.Request.Context()
+
+		// Exam-scoped authorization, same as the approvals endpoints.
+		userID := getCurrentUserID(c)
+		if _, err := models.GetExamByID(ctx, pool, examID); err != nil {
+			errorResponse(c, http.StatusNotFound, "Ujian tidak ditemukan")
+			return
+		}
+		if !models.UserCanAccessExam(ctx, pool, userID, isSuperAdmin(c), examID) {
+			errorResponse(c, http.StatusForbidden, "Akses ditolak: Anda tidak memiliki wewenang untuk mengawasi ujian ini")
+			return
+		}
+
+		if err := models.SetExamAutoApprove(ctx, pool, examID, req.Enabled); err != nil {
+			log.Printf("set auto-approve error: %v", err)
+			errorResponse(c, http.StatusInternalServerError, "Gagal menyimpan pengaturan auto-approve")
+			return
+		}
+
+		c.JSON(http.StatusOK, gin.H{
+			"success": true,
+			"enabled": req.Enabled,
 		})
 	}
 }

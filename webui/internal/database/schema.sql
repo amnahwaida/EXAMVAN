@@ -87,7 +87,8 @@ CREATE TABLE IF NOT EXISTS exams (
     token_last_reset_at  TIMESTAMPTZ,
     active_token        TEXT NOT NULL DEFAULT '',
     exam_started_at     TIMESTAMPTZ,
-    congrats_message    TEXT
+    congrats_message    TEXT,
+    auto_approve        BOOLEAN NOT NULL DEFAULT FALSE
 );
 
 -- ============================================================
@@ -206,6 +207,9 @@ ALTER TABLE exams ADD COLUMN IF NOT EXISTS exam_started_at TIMESTAMPTZ;
 -- submits (configurable from the "Atur Soal & Kunci Jawaban" modal). Free
 -- text, rendered plain on the client. Safe to re-run on every boot.
 ALTER TABLE exams ADD COLUMN IF NOT EXISTS congrats_message TEXT;
+-- Server-side auto-approve: when TRUE, RequestApproval approves every device
+-- immediately (works even when no pengawas monitoring page is open).
+ALTER TABLE exams ADD COLUMN IF NOT EXISTS auto_approve BOOLEAN NOT NULL DEFAULT FALSE;
 ALTER TABLE admin_users ADD COLUMN IF NOT EXISTS email TEXT DEFAULT '';
 ALTER TABLE admin_users ADD COLUMN IF NOT EXISTS max_storage_size BIGINT DEFAULT 52428800;
 ALTER TABLE admin_users ADD COLUMN IF NOT EXISTS otp_attempts INT NOT NULL DEFAULT 0;

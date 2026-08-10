@@ -384,6 +384,65 @@ func scanSubmission(row pgx.Row) (Submission, error) {
 	return s, err
 }
 
+// EnsureFreshSubmissionOnApproval grants an approved device its entry
+// bookkeeping row: it creates a fresh submissions row when none exists for
+// (exam, device) or when the latest one is already completed (answered). This
+// is shared by the manual approval endpoint and the server-side auto-approve
+// so an approved device shows up in the pengawas monitoring table. It is
+// idempotent — an in-progress open row is left untouched, and repeated calls
+// (e.g. the client's 5s approval poll) never create duplicates.
+//
+// A per-device advisory lock serialises concurrent calls, so two racing
+// requests (e.g. an overlapping poll and retry) cannot both observe "no open
+// row yet" and insert duplicate rows.
+func EnsureFreshSubmissionOnApproval(ctx context.Context, pool *pgxpool.Pool, examID int, macAddress string) error {
+	tx, err := pool.Begin(ctx)
+	if err != nil {
+		return fmt.Errorf("begin tx: %w", err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+
+	// Serialise by (exam, device): all approval bookkeeping for the same
+	// device runs one at a time, so the check-then-insert below is race-free.
+	// The lock is released automatically when the transaction ends.
+	if _, err := tx.Exec(ctx,
+		`SELECT pg_advisory_xact_lock(hashtext($1)::bigint)`,
+		fmt.Sprintf("approval:%d:%s", examID, macAddress)); err != nil {
+		return fmt.Errorf("advisory lock: %w", err)
+	}
+
+	var latestAnswers *string
+	err = tx.QueryRow(ctx,
+		`SELECT answers_json FROM submissions
+		 WHERE exam_id = $1 AND mac_address = $2
+		 ORDER BY created_at DESC LIMIT 1`, examID, macAddress).Scan(&latestAnswers)
+
+	switch {
+	case err == pgx.ErrNoRows:
+		// No row yet — create the fresh entry.
+	case err == nil && latestAnswers != nil && *latestAnswers != "":
+		// Latest attempt is completed — a new entry starts a new attempt row.
+	default:
+		if err != nil {
+			return fmt.Errorf("lookup latest submission: %w", err)
+		}
+		// An open (in-progress) row already exists — nothing to do.
+		return tx.Commit(ctx)
+	}
+
+	// Copy identity fields from the approval row so the monitoring table shows
+	// the same student data the device supplied.
+	_, err = tx.Exec(ctx, `
+		INSERT INTO submissions (exam_id, mac_address, student_name, exam_number, student_class, identity_data, start_time, created_at)
+		SELECT exam_id, mac_address, student_name, exam_number, student_class, identity_data, $3, CURRENT_TIMESTAMP
+		FROM exam_approvals WHERE exam_id = $1 AND mac_address = $2`,
+		examID, macAddress, time.Now().UTC().Format(time.RFC3339))
+	if err != nil {
+		return fmt.Errorf("insert submission on approval: %w", err)
+	}
+	return tx.Commit(ctx)
+}
+
 // CreateSubmission inserts a new submission. If the exam has questions_json,
 // auto-scoring is performed and the score is saved.
 func CreateSubmission(ctx context.Context, pool *pgxpool.Pool, s *Submission) (*Submission, error) {

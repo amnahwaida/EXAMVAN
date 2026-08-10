@@ -285,6 +285,10 @@ func Dashboard() gin.HandlerFunc {
 			// not manually. Lets the dashboard badge explain itself.
 			Tombstoned   bool   `json:"tombstoned"`
 			TombstonedAt string `json:"tombstoned_at"`
+			// AutoApprove: the exam's server-side auto-approve flag, surfaced so
+			// the dashboard can badge exams whose auto-approve is still on
+			// (visible before the exam is reused for the next session).
+			AutoApprove bool `json:"auto_approve"`
 		}
 
 		// Batch lookup usernames for creators and delegated users
@@ -375,6 +379,7 @@ func Dashboard() gin.HandlerFunc {
 				ExamStartedAt:      e.ExamStartedAt,
 				Tombstoned:         e.TombstonedAt != nil,
 				TombstonedAt:       tombstonedAt,
+				AutoApprove:        e.AutoApprove,
 			})
 		}
 

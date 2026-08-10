@@ -370,24 +370,73 @@ func RequestApproval() gin.HandlerFunc {
 			idDataStr = []byte("{}")
 		}
 
+		// Server-side auto-approve: when the exam's auto_approve flag is on AND
+		// the exam is live (active, started, schedule not ended), request-
+		// approval approves the device immediately instead of queueing it for a
+		// pengawas. The flag lives in the DB, so this keeps working even when
+		// no pengawas monitoring page is open.
+		//
+		// Status transitions while the flag is ON:
+		//   - first request (row INSERT) → approved, regardless of the reset
+		//     flag (the Android client sends reset=false on its first poll)
+		//   - explicit retry (reset=true) → approved ("Minta Izin Lagi")
+		//   - poll (reset=false), row pending → approved — unsticks devices
+		//     that queued before the flag was turned on or while the exam was
+		//     dormant; pending is not a manual decision, so flipping it is safe
+		//   - poll (reset=false), row rejected → stays rejected — auto-approve
+		//     never silently overrides an explicit pengawas decision; the
+		//     student must actively retry (reset=true)
+		//
+		// Only effective while the exam is live — a request against a dormant
+		// exam still lands in the pending queue.
+		exam, examErr := models.GetExamByID(ctx, pool, req.ExamID)
+		if examErr != nil {
+			if examErr == pgx.ErrNoRows {
+				errorResponse(c, http.StatusNotFound, "Ujian tidak ditemukan")
+				return
+			}
+			log.Printf("request approval exam lookup error: %v", examErr)
+			errorResponse(c, http.StatusInternalServerError, "Gagal memproses persetujuan")
+			return
+		}
+		autoApprove := exam.AutoApprove && exam.IsActive() &&
+			exam.ExamStartedAt != nil && !examScheduleEnded(&exam, time.Now().UTC())
+
 		var status string
 		err := pool.QueryRow(ctx,
-			`INSERT INTO exam_approvals (exam_id, mac_address, student_name, exam_number, student_class, identity_data)
-			 VALUES ($1, $2, $3, $4, $5, $6)
+			`INSERT INTO exam_approvals (exam_id, mac_address, student_name, exam_number, student_class, identity_data, status)
+			 VALUES ($1, $2, $3, $4, $5, $6,
+			         CASE WHEN $8::boolean THEN 'approved' ELSE 'pending' END)
 			 ON CONFLICT (exam_id, mac_address) DO UPDATE
 			 SET student_name = EXCLUDED.student_name,
 			     exam_number = EXCLUDED.exam_number,
 			     student_class = EXCLUDED.student_class,
 			     identity_data = EXCLUDED.identity_data,
-			     status = CASE WHEN $7::boolean THEN 'pending' ELSE exam_approvals.status END,
+			     status = CASE
+			         -- Explicit retry ("Minta Izin Lagi"): fresh decision.
+			         WHEN $7::boolean THEN CASE WHEN $8::boolean THEN 'approved' ELSE 'pending' END
+			         -- Poll (reset=false): auto-approve flips a leftover pending
+			         -- row to approved (it was never decided manually), but
+			         -- never overrides an explicit rejection.
+			         WHEN $8::boolean AND exam_approvals.status = 'pending' THEN 'approved'
+			         ELSE exam_approvals.status
+			     END,
 			     updated_at = CURRENT_TIMESTAMP
 			 RETURNING status`,
-			req.ExamID, macAddress, studentName, examNumber, studentClass, string(idDataStr), req.Reset).Scan(&status)
+			req.ExamID, macAddress, studentName, examNumber, studentClass, string(idDataStr), req.Reset, autoApprove).Scan(&status)
 
 		if err != nil {
 			log.Printf("request approval error: %v", err)
 			errorResponse(c, http.StatusInternalServerError, "Gagal memproses persetujuan")
 			return
+		}
+
+		// An approved device needs its monitoring-row bookkeeping (same as the
+		// manual approval endpoint). Idempotent — safe to call on every poll.
+		if status == "approved" {
+			if err := models.EnsureFreshSubmissionOnApproval(ctx, pool, req.ExamID, macAddress); err != nil {
+				log.Printf("request approval: ensure submission: %v", err)
+			}
 		}
 
 		c.JSON(http.StatusOK, gin.H{

@@ -44,6 +44,11 @@ type Exam struct {
 	TokenResetInterval *int       `json:"token_reset_interval,omitempty"`
 	TokenLastResetAt   *time.Time `json:"token_last_reset_at,omitempty"`
 	ExamStartedAt      *time.Time `json:"exam_started_at,omitempty"`
+	// AutoApprove is the per-exam server-side auto-approve flag: when true,
+	// RequestApproval approves every requesting device immediately instead of
+	// queueing it for a pengawas. Stored in the DB so it keeps working even
+	// when no pengawas monitoring page is open.
+	AutoApprove bool `json:"auto_approve"`
 	// TombstonedAt is set when this active-but-unstarted exam is
 	// auto-inactivated (policy B): the school's operator is cut off (voucher
 	// switch or manual suspension) or the creating account's active period
@@ -77,13 +82,13 @@ func (e Exam) GetTokenMode() string {
 const DefaultExamColumns = `id, name, file_path, size_bytes, token, active_token, questions_json,
 status, security_level, strict_mode, public_results, show_answers,
 created_by, created_at, identity_fields, panel_color,
-start_time, end_time, delegated_to, token_mode, token_reset_interval, token_last_reset_at, exam_started_at, tombstoned_at, congrats_message`
+start_time, end_time, delegated_to, token_mode, token_reset_interval, token_last_reset_at, exam_started_at, tombstoned_at, congrats_message, auto_approve`
 
 // DefaultExamColumnsWithAlias for JOIN queries with e. prefix.
 const DefaultExamColumnsWithAlias = `e.id, e.name, e.file_path, e.size_bytes, e.token, e.active_token, e.questions_json,
 e.status, e.security_level, e.strict_mode, e.public_results, e.show_answers,
 e.created_by, e.created_at, e.identity_fields, e.panel_color,
-e.start_time, e.end_time, e.delegated_to, e.token_mode, e.token_reset_interval, e.token_last_reset_at, e.exam_started_at, e.tombstoned_at, e.congrats_message`
+e.start_time, e.end_time, e.delegated_to, e.token_mode, e.token_reset_interval, e.token_last_reset_at, e.exam_started_at, e.tombstoned_at, e.congrats_message, e.auto_approve`
 
 // scanExam scans a row into an Exam struct. The columns must match DefaultExamColumns order.
 func scanExam(row pgx.Row) (Exam, error) {
@@ -94,7 +99,7 @@ func scanExam(row pgx.Row) (Exam, error) {
 		&e.CreatedBy, &e.CreatedAt, &e.IdentityFields, &e.PanelColor,
 		&e.StartTime, &e.EndTime, &e.DelegatedTo,
 		&e.TokenMode, &e.TokenResetInterval, &e.TokenLastResetAt, &e.ExamStartedAt,
-		&e.TombstonedAt, &e.CongratsMessage,
+		&e.TombstonedAt, &e.CongratsMessage, &e.AutoApprove,
 	)
 	return e, err
 }
@@ -108,6 +113,15 @@ func scanExamFromRows(rows pgx.Rows) (Exam, error) {
 func GetExamByID(ctx context.Context, pool *pgxpool.Pool, id int) (Exam, error) {
 	sql := `SELECT ` + DefaultExamColumns + ` FROM exams e WHERE e.id = $1`
 	return scanExam(pool.QueryRow(ctx, sql, id))
+}
+
+// SetExamAutoApprove toggles the per-exam server-side auto-approve flag.
+// When enabled, RequestApproval approves every requesting device immediately.
+func SetExamAutoApprove(ctx context.Context, pool *pgxpool.Pool, examID int, enabled bool) error {
+	if _, err := pool.Exec(ctx, `UPDATE exams SET auto_approve = $1 WHERE id = $2`, enabled, examID); err != nil {
+		return fmt.Errorf("set exam auto approve: %w", err)
+	}
+	return nil
 }
 
 // GetExamByToken retrieves an exam by its unique 8-character token.

@@ -295,6 +295,12 @@ function loadPengawasExams(page) {
                 var modeBadge = ex.token_mode === 'static'
                     ? '<span style="font-size:0.7rem;color:#60a5fa;font-weight:600;background:rgba(59,130,246,0.1);padding:1px 4px;border-radius:4px;border:1px solid rgba(59,130,246,0.2);">Statis</span>'
                     : '<span style="font-size:0.7rem;color:#c084fc;font-weight:600;background:rgba(168,85,247,0.1);padding:1px 4px;border-radius:4px;border:1px solid rgba(168,85,247,0.2);">Dinamis</span>';
+                // Server-side auto-approve badge: makes the flag visible from
+                // the list so a teacher notices it is still on before reusing
+                // the exam for the next session.
+                var autoBadge = ex.auto_approve
+                    ? '<span style="display:inline-flex;align-items:center;gap:4px;font-size:0.65rem;color:#34d399;font-weight:700;padding:2px 8px;border-radius:10px;background:rgba(16,185,129,0.12);border:1px solid rgba(16,185,129,0.3);white-space:nowrap;" title="Auto-approve aktif — semua perangkat disetujui otomatis di server (tetap berlaku walau halaman pengawasan ditutup)"><svg class="icon-svg" style="width:10px;height:10px;"><use href="#hi-check"/></svg> Auto-approve</span>'
+                    : '';
                 html += '<div class="exam-monitor-card" id="exam-card-' + ex.id + '" style="cursor:pointer;" onclick="window.location=\'/admin/pengawas/' + ex.id + '\'">' +
                     '<div class="exam-monitor-header">' +
                         '<div>' +
@@ -306,6 +312,7 @@ function loadPengawasExams(page) {
                             '</div>' +
                         '</div>' +
                         '<div style="display:flex;align-items:center;gap:8px;">' +
+                            autoBadge +
                             statusHtml +
                             '<svg class="icon-svg" style="width:16px;height:16px;color:#4f46e5;"><use href="#hi-chevron-right"/></svg>' +
                         '</div>' +
