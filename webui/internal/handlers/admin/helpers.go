@@ -3,10 +3,12 @@
 package admin
 
 import (
+	"errors"
 	"fmt"
 	"math"
 	"net/http"
 	"os"
+	"path/filepath"
 	"strings"
 	"syscall"
 	"time"
@@ -39,21 +41,47 @@ func getStoragePath(c *gin.Context) string {
 }
 
 // getFreeDiskSpace returns the free space of the storage partition in bytes.
+// When the exact storage path does not exist and cannot be created (e.g. the
+// default /app/storage is a Docker-only path and a bare dev machine cannot
+// mkdir /app as non-root), it falls back to the nearest existing ancestor:
+// statfs reports the same partition free space for any path on it, which is
+// the realistic development value instead of 0. Production is unaffected —
+// the configured storage dir exists there, so statfs hits the exact path. The
+// fallback is triggered ONLY by ENOENT (path missing): any other statfs error
+// still returns 0 so the caller's fail-open handling (quota checks skipped)
+// stays intact instead of borrowing another partition's free space.
 func getFreeDiskSpace(path string) float64 {
-	var stat syscall.Statfs_t
-	// Only attempt directory creation if it doesn't already exist
+	// Best effort: ensure the storage dir exists (prod can create it). A
+	// failure here is not fatal — the ENOENT fallback below covers it.
 	if _, err := os.Stat(path); os.IsNotExist(err) {
-		if err := os.MkdirAll(path, 0755); err != nil {
-			return 0
-		}
+		_ = os.MkdirAll(path, 0755)
 	}
+
+	var stat syscall.Statfs_t
 	err := syscall.Statfs(path, &stat)
-	if err != nil {
+	if err == nil {
+		// Available blocks * size per block
+		return float64(stat.Bavail * uint64(stat.Bsize))
+	}
+	if !errors.Is(err, syscall.ENOENT) {
+		// Real statfs error (EACCES on a mount, I/O error, ...) — do not
+		// report an ancestor partition's free space as if it were the
+		// storage partition's. Return 0; callers fail open.
 		return 0
 	}
-	// Available blocks * size per block
-	freeBytes := stat.Bavail * uint64(stat.Bsize)
-	return float64(freeBytes)
+
+	// ENOENT: storage path missing and uncreatable — walk up to the nearest
+	// ancestor statfs accepts (always terminates at the filesystem root).
+	// Same-partition free space, so the dev value is realistic.
+	for p := filepath.Dir(path); ; p = filepath.Dir(p) {
+		if err := syscall.Statfs(p, &stat); err == nil {
+			return float64(stat.Bavail * uint64(stat.Bsize))
+		}
+		next := filepath.Dir(p)
+		if next == p {
+			return 0 // no readable ancestor — genuinely undeterminable
+		}
+	}
 }
 
 // getCurrentUserID returns the authenticated user's ID from the gin context.
