@@ -431,6 +431,9 @@ func TestUploadExamR2UploadFailureNoOrphanLeak(t *testing.T) {
 	if !strings.Contains(body, r2client.ErrMsgUploadFailed) {
 		t.Errorf("rejection body = %q, want canonical message %q", body, r2client.ErrMsgUploadFailed)
 	}
+	if !strings.Contains(body, r2client.ErrCodeUploadFailed) {
+		t.Errorf("rejection body = %q, want error_code %q", body, r2client.ErrCodeUploadFailed)
+	}
 	if len(r2c.uploads) != 1 {
 		t.Fatalf("R2 uploads = %d, want 1 (the failed attempt is recorded)", len(r2c.uploads))
 	}

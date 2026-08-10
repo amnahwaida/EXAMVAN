@@ -2,6 +2,7 @@ package admin
 
 import (
 	"context"
+	"errors"
 	"io"
 	"net/http"
 	"net/http/cookiejar"
@@ -126,8 +127,12 @@ func TestAdminExamPDFDisabledR2Rejected(t *testing.T) {
 	if resp.StatusCode != http.StatusInternalServerError {
 		t.Fatalf("disabled R2: status=%d, want 500", resp.StatusCode)
 	}
-	if body, _ := io.ReadAll(resp.Body); !strings.Contains(string(body), r2client.ErrMsgNotConfigured) {
+	body, _ := io.ReadAll(resp.Body)
+	if !strings.Contains(string(body), r2client.ErrMsgNotConfigured) {
 		t.Fatalf("disabled R2: body=%q, want canonical message %q", body, r2client.ErrMsgNotConfigured)
+	}
+	if !strings.Contains(string(body), r2client.ErrCodeNotConfigured) {
+		t.Fatalf("disabled R2: body=%q, want error_code %q", body, r2client.ErrCodeNotConfigured)
 	}
 	if len(stub.signed) != 0 {
 		t.Fatalf("disabled R2: SignedURL called %d times (%v), want 0", len(stub.signed), stub.signed)
@@ -146,6 +151,42 @@ func TestAdminExamPDFNilR2KeyDoesNotPanic(t *testing.T) {
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusInternalServerError {
 		t.Fatalf("nil r2 key: status=%d, want 500", resp.StatusCode)
+	}
+	body, _ := io.ReadAll(resp.Body)
+	if !strings.Contains(string(body), r2client.ErrMsgNotConfigured) {
+		t.Fatalf("nil r2 key: body=%q, want canonical message %q", body, r2client.ErrMsgNotConfigured)
+	}
+	if !strings.Contains(string(body), r2client.ErrCodeNotConfigured) {
+		t.Fatalf("nil r2 key: body=%q, want error_code %q", body, r2client.ErrCodeNotConfigured)
+	}
+}
+
+// TestAdminExamPDFSignedURLFailureHasCode locks in that a signed-URL generation
+// failure on an ENABLED backend returns 500 with the SIGNED_URL_FAILED code
+// (not the not-configured code) so clients can branch on the exact cause —
+// mirrors the api ExamPDF path.
+func TestAdminExamPDFSignedURLFailureHasCode(t *testing.T) {
+	pool := database.NewPackageTestPool(t, "admin")
+	userID, examID := createExamPDFFixture(t, pool, "pdfguard-signfail")
+
+	stub := &stubR2{enabled: true, failWith: errors.New("presign boom")}
+	router := newExamPDFTestRouter(pool, func(c *gin.Context) { c.Set("r2", stub) })
+
+	resp := getAdminPDF(t, router, userID, examID)
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusInternalServerError {
+		t.Fatalf("signed-URL failure: status=%d, want 500", resp.StatusCode)
+	}
+	body, _ := io.ReadAll(resp.Body)
+	if !strings.Contains(string(body), r2client.ErrMsgSignURLFailed) {
+		t.Fatalf("signed-URL failure: body=%q, want canonical message %q", body, r2client.ErrMsgSignURLFailed)
+	}
+	if !strings.Contains(string(body), r2client.ErrCodeSignURLFailed) {
+		t.Fatalf("signed-URL failure: body=%q, want error_code %q", body, r2client.ErrCodeSignURLFailed)
+	}
+	// The sign attempt DID reach the enabled backend.
+	if len(stub.signed) != 1 || stub.signed[0] != "pdfs/ujian-pdf-guard.pdf" {
+		t.Fatalf("SignedURL keys=%v, want [pdfs/ujian-pdf-guard.pdf]", stub.signed)
 	}
 }
 

@@ -46,7 +46,7 @@ func UploadSystemApp() gin.HandlerFunc {
 		r2Val, exists := c.Get("r2")
 		r2 := r2client.FromContext(r2Val)
 		if !exists || r2 == nil || !r2.Enabled() {
-			c.JSON(http.StatusInternalServerError, gin.H{"success": false, "message": r2client.ErrMsgNotConfigured})
+			c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error_code": r2client.ErrCodeNotConfigured, "message": r2client.ErrMsgNotConfigured})
 			return
 		}
 
@@ -130,7 +130,7 @@ func UploadSystemApp() gin.HandlerFunc {
 
 		// Upload to R2
 		if err := r2.UploadWithContentType(ctx, r2Key, f, contentType); err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"success": false, "message": r2client.ErrMsgUploadFailed})
+			c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error_code": r2client.ErrCodeUploadFailed, "message": r2client.ErrMsgUploadFailed})
 			return
 		}
 

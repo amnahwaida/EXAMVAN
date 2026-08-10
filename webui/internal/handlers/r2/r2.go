@@ -25,6 +25,24 @@ const ErrMsgNotConfigured = "Cloudflare R2 tidak dikonfigurasi."
 // identical across admin/api/public surfaces.
 const ErrMsgUploadFailed = "Gagal mengupload file ke Cloudflare R2"
 
+// ErrCodeNotConfigured is the machine-readable code paired with
+// ErrMsgNotConfigured. Clients must branch on this code (never on the message
+// text) so a wording change can never break their logic.
+const ErrCodeNotConfigured = "R2_NOT_CONFIGURED"
+
+// ErrCodeUploadFailed is the machine-readable code paired with
+// ErrMsgUploadFailed.
+const ErrCodeUploadFailed = "UPLOAD_FAILED"
+
+// ErrMsgSignURLFailed is the canonical user-facing message when generating a
+// signed download URL from an ENABLED backend fails. Handlers must use this
+// constant so the wording stays identical across admin/api/public surfaces.
+const ErrMsgSignURLFailed = "Gagal menghasilkan URL unduhan."
+
+// ErrCodeSignURLFailed is the machine-readable code paired with
+// ErrMsgSignURLFailed.
+const ErrCodeSignURLFailed = "SIGNED_URL_FAILED"
+
 // Client is the object-storage abstraction the handlers depend on. The
 // concrete Cloudflare R2 implementation is S3Client; tests can substitute a
 // stub (e.g. recording the keys passed to Delete) without a network call.

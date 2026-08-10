@@ -6,14 +6,64 @@ function getCsrfToken() {
     return meta ? meta.getAttribute('content') : '';
 }
 
-// Wrapper for fetch with CSRF headers
+// Wrapper for fetch with CSRF headers + a global API-error interceptor.
+//
+// Every NON-2xx admin API response (the server's error JSON:
+// {success:false, error_code, message}) is parsed here ONCE so that:
+//   - res.json() on the returned object resolves to the normalized error body
+//     ({success:false, error_code, message}) — callers keep their existing
+//     .then(r => r.json()) pattern and gain error_code for free;
+//   - a document-level 'api:error' CustomEvent is dispatched with
+//     {url, method, status, error_code, message, suppressed} for central
+//     handling (see the global listener near showApiErrorToast);
+//   - a non-JSON/empty error body resolves to {success:false} instead of
+//     making r.json() reject — callers that previously hit .catch on a
+//     plain-text/HTML 500 now take their res.message || fallback branch.
+// No toast is shown here: the global 'api:error' listener auto-toasts mapped
+// R2 error codes, and a call site that ALREADY renders its own error toast
+// opts out by passing {suppressApiErrorToast: true} (see deleteApp in
+// system_apps.html) so the two never double-toast.
 function apiFetch(url, options = {}) {
     const method = (options.method || 'GET').toUpperCase();
     if (['POST', 'PUT', 'DELETE', 'PATCH'].includes(method)) {
         options.headers = options.headers || {};
         options.headers['X-CSRF-Token'] = getCsrfToken();
     }
-    return window.fetch.call(window, url, options);
+    const suppressToast = Boolean(options.suppressApiErrorToast);
+    return window.fetch.call(window, url, options).then(function(resp) {
+        if (resp.ok) return resp; // 2xx passes through untouched
+        // Non-2xx: read the error body once and normalize it so every caller
+        // sees {success:false, error_code, message} via res.json().
+        return resp.text().then(function(text) {
+            var data = null;
+            try { data = text ? JSON.parse(text) : null; } catch (e) { data = null; }
+            var normalized = data && typeof data === 'object' ? data : {};
+            if (typeof normalized.success === 'undefined') normalized.success = false;
+            if (typeof window.CustomEvent === 'function') {
+                // Listener exceptions are caught by the browser and reported to
+                // window.onerror — they never propagate back to dispatchEvent.
+                document.dispatchEvent(new CustomEvent('api:error', {
+                    detail: {
+                        url: resp.url,
+                        method: method,
+                        status: resp.status,
+                        error_code: normalized.error_code || null,
+                        message: normalized.message || null,
+                        suppressed: suppressToast
+                    }
+                }));
+            }
+            return {
+                ok: false,
+                status: resp.status,
+                statusText: resp.statusText,
+                headers: resp.headers,
+                url: resp.url,
+                json: function() { return Promise.resolve(normalized); },
+                text: function() { return Promise.resolve(text); }
+            };
+        });
+    });
 }
 
 // Toast notification — improved: icons, close, duration per type, a11y
@@ -26,20 +76,26 @@ const TOAST_ICONS = {
 const TOAST_DURATION = { success: 3000, error: 5000, warning: 4000, info: 3500 };
 const MAX_TOASTS = 5;
 
-function showToast(message, type = 'success') {
+function showToast(message, type = 'success', duration, extraClass) {
     const container = document.getElementById('toastContainer');
     if (!container) return;
 
+    const dur = duration || TOAST_DURATION[type] || 3500;
+
     // De-duplicate: an identical visible toast gets its lifetime extended
     // instead of stacking (rapid repeated actions previously piled up to 5
-    // copies of the same message).
+    // copies of the same message). The extraClass (e.g. toast-r2-config) is
+    // part of the identity so a special-style toast never absorbs a plain one.
     for (const existing of container.children) {
         const msgEl = existing.querySelector('.toast-msg');
-        if (msgEl && msgEl.textContent === message && existing.classList.contains('toast-' + type)) {
+        const sameStyle = extraClass
+            ? existing.classList.contains(extraClass)
+            : !existing.classList.contains('toast-r2-config');
+        if (msgEl && msgEl.textContent === message && existing.classList.contains('toast-' + type) && sameStyle) {
             if (existing.__dismissTimer) clearTimeout(existing.__dismissTimer);
             existing.__dismissTimer = setTimeout(() => {
                 if (existing.isConnected) dismissToast(existing);
-            }, TOAST_DURATION[type] || 3500);
+            }, dur);
             return;
         }
     }
@@ -51,7 +107,7 @@ function showToast(message, type = 'success') {
     }
 
     const toast = document.createElement('div');
-    toast.className = `toast toast-${type}`;
+    toast.className = `toast toast-${type}` + (extraClass ? ' ' + extraClass : '');
     toast.setAttribute('role', 'alert');
     toast.innerHTML = `
         <span class="toast-body">
@@ -70,10 +126,9 @@ function showToast(message, type = 'success') {
 
     container.appendChild(toast);
 
-    const duration = TOAST_DURATION[type] || 3500;
     toast.__dismissTimer = setTimeout(() => {
         if (toast.isConnected) dismissToast(toast);
-    }, duration);
+    }, dur);
 }
 
 function dismissToast(toast) {
@@ -83,6 +138,74 @@ function dismissToast(toast) {
         if (toast.isConnected) toast.remove();
     }, 300);
 }
+
+// API error message resolution — parses the machine-readable error_code the
+// server sends (see r2client.ErrCode* in Go: R2_NOT_CONFIGURED /
+// UPLOAD_FAILED / SIGNED_URL_FAILED). Clients branch on the code, never on
+// the human message text, so a server-side wording change can't break them.
+const API_ERROR_MESSAGES = {
+    R2_NOT_CONFIGURED: 'Cloudflare R2 belum dikonfigurasi di server. Hubungi administrator untuk mengisi kredensial R2.',
+    UPLOAD_FAILED: 'Gagal mengunggah file ke Cloudflare R2. Periksa koneksi internet atau coba lagi beberapa saat.',
+    SIGNED_URL_FAILED: 'Gagal membuat tautan unduhan dari Cloudflare R2. Coba lagi beberapa saat.'
+};
+
+// apiErrorMessage returns the user-facing text for a failed API response
+// (parsed JSON with optional error_code/message). It prefers a known
+// error_code mapping, then the server message, then the caller fallback.
+function apiErrorMessage(res, fallback) {
+    // hasOwnProperty guard: a raw map lookup would resolve 'error_code' values
+    // like "__proto__" to the inherited Object.prototype (truthy) and leak past
+    // the mapped-code filter.
+    if (res && res.error_code && Object.prototype.hasOwnProperty.call(API_ERROR_MESSAGES, res.error_code)) {
+        return API_ERROR_MESSAGES[res.error_code];
+    }
+    return (res && res.message) || fallback || 'Terjadi kesalahan';
+}
+
+// apiErrorType returns the toast variant for an API error response:
+// configuration problems (R2_NOT_CONFIGURED) surface as a warning so admins
+// notice the setup step; everything else stays a plain error.
+function apiErrorType(res) {
+    return res && res.error_code === 'R2_NOT_CONFIGURED' ? 'warning' : 'error';
+}
+
+// Extended display duration for API-error toasts whose message needs careful
+// reading (e.g. configuration guidance), in milliseconds.
+const API_ERROR_TOAST_DURATION = {
+    R2_NOT_CONFIGURED: 12000
+};
+
+// showApiErrorToast renders a toast for a failed API response using the
+// error_code mapping: friendly message, toast variant, an extended duration
+// and a distinct .toast-r2-config class when the code is R2_NOT_CONFIGURED so
+// admins don't miss the setup step.
+function showApiErrorToast(res, fallback) {
+    const isConfig = res && res.error_code === 'R2_NOT_CONFIGURED';
+    showToast(
+        apiErrorMessage(res, fallback),
+        apiErrorType(res),
+        (res && API_ERROR_TOAST_DURATION[res.error_code]) || undefined,
+        isConfig ? 'toast-r2-config' : undefined
+    );
+}
+
+// Global 'api:error' listener: automatically surfaces the friendly R2 error
+// toast for any admin API error that a call site did NOT handle explicitly.
+//   - Call sites that already render their own error toast opt out via
+//     {suppressApiErrorToast: true} on apiFetch (event detail.suppressed).
+//   - Only mapped R2 codes (API_ERROR_MESSAGES keys) are auto-toasted; other
+//     errors stay with the caller's own handling.
+//   - XHR-based flows (exam upload/edit, system-apps upload) dispatch no event
+//     and keep their explicit showApiErrorToast() calls.
+// This upgrades unhandled R2 errors (previously a plain res.message toast) to
+// the mapped message, warning variant, extended duration and .toast-r2-config
+// style.
+document.addEventListener('api:error', function(e) {
+    const d = e.detail || {};
+    if (d.suppressed) return;
+    if (!d.error_code || !Object.prototype.hasOwnProperty.call(API_ERROR_MESSAGES, d.error_code)) return;
+    showApiErrorToast({ error_code: d.error_code, message: d.message || null }, 'Terjadi kesalahan');
+});
 
 // Generic click-to-copy helper with toast feedback. Pages that need custom
 // behaviour (e.g. the vouchers badge animation) may define their own copyCode

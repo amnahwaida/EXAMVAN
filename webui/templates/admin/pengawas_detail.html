@@ -1188,7 +1188,7 @@ function loadApprovals() {
 
     // Paginated: the server returns at most `limit` oldest pending rows; a
     // spam-flooded queue stays responsive instead of dumping every row here.
-    fetch('/admin/api/pengawas/exams/' + EXAM_ID + '/approvals?limit=200', { credentials: 'same-origin', headers: { 'Accept': 'application/json' } })
+    apiFetch('/admin/api/pengawas/exams/' + EXAM_ID + '/approvals?limit=200', { headers: { 'Accept': 'application/json' } })
         .then(function(r) { return r.json(); })
         .then(function(res) {
             var note = document.getElementById('approvalOverflowNote');
@@ -1258,11 +1258,11 @@ function setApproval(macAddress, status, skipConfirm) {
         showConfirmApprovalModal(macAddress, status);
         return;
     }
-    fetch('/admin/api/pengawas/exams/' + EXAM_ID + '/approvals/' + encodeURIComponent(macAddress), {
+    // apiFetch menyuntik X-CSRF-Token otomatis untuk method POST.
+    apiFetch('/admin/api/pengawas/exams/' + EXAM_ID + '/approvals/' + encodeURIComponent(macAddress), {
         method: 'POST',
         headers: {
-            'Content-Type': 'application/json',
-            'X-CSRF-Token': getCsrfToken()
+            'Content-Type': 'application/json'
         },
         body: JSON.stringify({ status: status })
     })
@@ -1306,7 +1306,7 @@ function loadDetail(page, silent) {
     if (search) url += '&search=' + encodeURIComponent(search);
     if (status) url += '&status=' + encodeURIComponent(status);
 
-    fetch(url, { credentials: 'same-origin', headers: { 'Accept': 'application/json' } })
+    apiFetch(url, { headers: { 'Accept': 'application/json' } })
         .then(function(r) { return r.json(); })
         .then(function(res) {
             if (!res || !res.success) {
@@ -1547,7 +1547,7 @@ function showAuditLog() {
     body.innerHTML = '<div style="text-align:center;padding:40px;color:var(--color-text-secondary);">Memuat...</div>';
     modal.style.display = 'flex';
 
-    fetch('/admin/api/pengawas/exams/' + EXAM_ID + '/audit-logs', { credentials: 'same-origin', headers: { 'Accept': 'application/json' } })
+    apiFetch('/admin/api/pengawas/exams/' + EXAM_ID + '/audit-logs', { headers: { 'Accept': 'application/json' } })
         .then(function(r) { return r.json(); })
         .then(function(res) {
             var logs = (res && res.success && res.logs) || [];
@@ -1688,8 +1688,7 @@ function updateTokenDisplay(newToken) {
 }
 
 function refreshActiveToken() {
-    fetch('/admin/api/pengawas/exams/' + EXAM_ID + '/submissions?page=1&per_page=1', {
-        credentials: 'same-origin',
+    apiFetch('/admin/api/pengawas/exams/' + EXAM_ID + '/submissions?page=1&per_page=1', {
         headers: { 'Accept': 'application/json' }
     })
     .then(function(r) { return r.json(); })
@@ -1774,7 +1773,7 @@ function loadAAStatus() {
     var aaToggle = document.getElementById('autoAcceptToggle');
     if (!aaToggle) return;
     var aaKey = 'examvan_auto_accept_' + EXAM_ID;
-    fetch('/admin/api/pengawas/exams/' + EXAM_ID + '/auto-approve', { credentials: 'same-origin', headers: { 'Accept': 'application/json' } })
+    apiFetch('/admin/api/pengawas/exams/' + EXAM_ID + '/auto-approve', { headers: { 'Accept': 'application/json' } })
         .then(function(r) { return r.json(); })
         .then(function(res) {
             if (res && res.success) {
@@ -1802,9 +1801,9 @@ loadAAStatus();
 
     aaToggle.addEventListener('change', function() {
             var enabled = this.checked;
-            fetch('/admin/api/pengawas/exams/' + EXAM_ID + '/auto-approve', {
+            apiFetch('/admin/api/pengawas/exams/' + EXAM_ID + '/auto-approve', {
                 method: 'POST',
-                headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': getCsrfToken() },
+                headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ enabled: enabled })
             })
             .then(function(r) { return r.json(); })

@@ -174,6 +174,14 @@ func errorResponse(c *gin.Context, status int, message string) {
 	_ = c.AbortWithError(status, fmt.Errorf("%s", message))
 }
 
+// errorResponseWithCode is like errorResponse but also exposes a stable
+// machine-readable error_code (e.g. r2client.ErrCodeNotConfigured) so clients
+// can branch on the code instead of matching the human-readable message text.
+func errorResponseWithCode(c *gin.Context, status int, code, message string) {
+	c.JSON(status, gin.H{"success": false, "error_code": code, "message": message})
+	_ = c.AbortWithError(status, fmt.Errorf("%s [%s]", message, code))
+}
+
 func successData(c *gin.Context, data gin.H) {
 	c.JSON(http.StatusOK, gin.H{"success": true, "data": data})
 }

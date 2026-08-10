@@ -2,6 +2,7 @@ package public
 
 import (
 	"context"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -128,6 +129,9 @@ func TestDownloadAPKDisabledR2Rejected(t *testing.T) {
 	if !strings.Contains(body, r2client.ErrMsgNotConfigured) {
 		t.Errorf("rejection body = %q, want canonical message %q", body, r2client.ErrMsgNotConfigured)
 	}
+	if !strings.Contains(body, r2client.ErrCodeNotConfigured) {
+		t.Errorf("rejection body = %q, want error_code %q", body, r2client.ErrCodeNotConfigured)
+	}
 	// The guard must reject BEFORE signing — a disabled backend must never
 	// serve a signed URL.
 	if len(stub.signed) != 0 {
@@ -148,6 +152,9 @@ func TestDownloadAPKNilR2KeyDoesNotPanic(t *testing.T) {
 	}
 	if !strings.Contains(body, r2client.ErrMsgNotConfigured) {
 		t.Errorf("rejection body = %q, want canonical message %q", body, r2client.ErrMsgNotConfigured)
+	}
+	if !strings.Contains(body, r2client.ErrCodeNotConfigured) {
+		t.Errorf("rejection body = %q, want error_code %q", body, r2client.ErrCodeNotConfigured)
 	}
 }
 
@@ -171,6 +178,33 @@ func TestDownloadAPKEnabledSignedURLRedirect(t *testing.T) {
 	}
 }
 
+// TestDownloadAPKSignURLFailureHasCode locks in that a signed-URL generation
+// failure on an ENABLED backend returns 500 with the SIGNED_URL_FAILED code
+// (not the not-configured code).
+func TestDownloadAPKSignURLFailureHasCode(t *testing.T) {
+	pool := database.NewPackageTestPool(t, "public")
+	insertDownloadSystemApp(t, pool, "EXAMVAN", "android", "9.9", "apps/android/9.9/app.apk-1")
+	stub := &stubR2{enabled: true, failWith: fmt.Errorf("presign boom")}
+
+	srv := httptest.NewServer(newDownloadGuardTestRouter(pool, stub))
+	defer srv.Close()
+
+	code, body, _ := downloadGet(t, srv.URL, "/download/apk")
+	if code != http.StatusInternalServerError {
+		t.Fatalf("GET /download/apk status=%d, want 500 (signed-URL failure)", code)
+	}
+	if !strings.Contains(body, r2client.ErrMsgSignURLFailed) {
+		t.Errorf("failure body = %q, want canonical message %q", body, r2client.ErrMsgSignURLFailed)
+	}
+	if !strings.Contains(body, r2client.ErrCodeSignURLFailed) {
+		t.Errorf("failure body = %q, want error_code %q", body, r2client.ErrCodeSignURLFailed)
+	}
+	// The sign attempt DID reach the enabled backend.
+	if len(stub.signed) != 1 || stub.signed[0] != "apps/android/9.9/app.apk-1" {
+		t.Errorf("SignedURL called with %v, want exactly [apps/android/9.9/app.apk-1]", stub.signed)
+	}
+}
+
 // --- DownloadSystemApp ------------------------------------------------------
 
 func TestDownloadSystemAppDisabledR2Rejected(t *testing.T) {
@@ -187,6 +221,9 @@ func TestDownloadSystemAppDisabledR2Rejected(t *testing.T) {
 	}
 	if !strings.Contains(body, r2client.ErrMsgNotConfigured) {
 		t.Errorf("rejection body = %q, want canonical message %q", body, r2client.ErrMsgNotConfigured)
+	}
+	if !strings.Contains(body, r2client.ErrCodeNotConfigured) {
+		t.Errorf("rejection body = %q, want error_code %q", body, r2client.ErrCodeNotConfigured)
 	}
 	// The guard must reject BEFORE signing — a disabled backend must never
 	// serve a signed URL.
@@ -208,6 +245,9 @@ func TestDownloadSystemAppNilR2KeyDoesNotPanic(t *testing.T) {
 	}
 	if !strings.Contains(body, r2client.ErrMsgNotConfigured) {
 		t.Errorf("rejection body = %q, want canonical message %q", body, r2client.ErrMsgNotConfigured)
+	}
+	if !strings.Contains(body, r2client.ErrCodeNotConfigured) {
+		t.Errorf("rejection body = %q, want error_code %q", body, r2client.ErrCodeNotConfigured)
 	}
 }
 

@@ -237,18 +237,18 @@ func UploadExam() gin.HandlerFunc {
 		if r2c, exists := c.Get("r2"); exists {
 			client := r2client.FromContext(r2c)
 			if client == nil || !client.Enabled() {
-				errorResponse(c, http.StatusInternalServerError, r2client.ErrMsgNotConfigured)
+				errorResponseWithCode(c, http.StatusInternalServerError, r2client.ErrCodeNotConfigured, r2client.ErrMsgNotConfigured)
 				return
 			}
 			r2Key := fmt.Sprintf("pdfs/%s", filename)
 			if err := client.UploadBytes(ctx, r2Key, fileData); err != nil {
 				log.Printf("admin: R2 upload error: %v", err)
-				errorResponse(c, http.StatusInternalServerError, r2client.ErrMsgUploadFailed)
+				errorResponseWithCode(c, http.StatusInternalServerError, r2client.ErrCodeUploadFailed, r2client.ErrMsgUploadFailed)
 				return
 			}
 			log.Printf("admin: PDF uploaded to R2: %s", r2Key)
 		} else {
-			errorResponse(c, http.StatusInternalServerError, r2client.ErrMsgNotConfigured)
+			errorResponseWithCode(c, http.StatusInternalServerError, r2client.ErrCodeNotConfigured, r2client.ErrMsgNotConfigured)
 			return
 		}
 
@@ -583,18 +583,18 @@ func EditExam() gin.HandlerFunc {
 				// Reject a missing OR disabled backend with a clear message
 				// (mirrors UploadSystemApp / UploadExam).
 				if client == nil || !client.Enabled() {
-					errorResponse(c, http.StatusInternalServerError, r2client.ErrMsgNotConfigured)
+					errorResponseWithCode(c, http.StatusInternalServerError, r2client.ErrCodeNotConfigured, r2client.ErrMsgNotConfigured)
 					return
 				}
 				r2Key := fmt.Sprintf("pdfs/%s", filename)
 				if err := client.UploadBytes(ctx, r2Key, fileData); err != nil {
 					log.Printf("admin: R2 upload error: %v", err)
-					errorResponse(c, http.StatusInternalServerError, r2client.ErrMsgUploadFailed)
+					errorResponseWithCode(c, http.StatusInternalServerError, r2client.ErrCodeUploadFailed, r2client.ErrMsgUploadFailed)
 					return
 				}
 				log.Printf("admin: PDF uploaded to R2: %s", r2Key)
 			} else {
-				errorResponse(c, http.StatusInternalServerError, r2client.ErrMsgNotConfigured)
+				errorResponseWithCode(c, http.StatusInternalServerError, r2client.ErrCodeNotConfigured, r2client.ErrMsgNotConfigured)
 				return
 			}
 
@@ -701,10 +701,15 @@ func ExamPDF() gin.HandlerFunc {
 					return
 				}
 				log.Printf("admin: R2 signed URL error: %v", err)
+				// Backend IS enabled but signing failed: report the distinct
+				// SIGNED_URL_FAILED cause (not NOT_CONFIGURED) so clients can
+				// branch on the exact failure — mirrors the api ExamPDF path.
+				errorResponseWithCode(c, http.StatusInternalServerError, r2client.ErrCodeSignURLFailed, r2client.ErrMsgSignURLFailed)
+				return
 			}
 		}
 
-		errorResponse(c, http.StatusInternalServerError, r2client.ErrMsgNotConfigured)
+		errorResponseWithCode(c, http.StatusInternalServerError, r2client.ErrCodeNotConfigured, r2client.ErrMsgNotConfigured)
 	}
 }
 

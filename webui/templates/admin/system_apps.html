@@ -499,13 +499,13 @@ function submitUpload(event) {
             if (data.success) {
                 window.location.reload();
             } else {
-                showError(data.message);
+                showError(apiErrorMessage(data, 'Gagal mengunggah aplikasi'));
             }
         } else {
             let msg = 'Gagal mengunggah file (Status ' + xhr.status + ')';
             try {
                 const data = JSON.parse(xhr.responseText);
-                if (data.message) msg = data.message;
+                msg = apiErrorMessage(data, msg);
             } catch(e) {}
             showError(msg);
         }
@@ -537,16 +537,15 @@ async function deleteApp(id, name) {
     if (!confirmed) return;
 
     try {
-        const res = await fetch('/admin/api/system-apps/' + id + '/delete', {
-            method: 'POST',
-            headers: { 'X-CSRF-Token': '{{ .csrf_token }}' }
-        });
+        // Error toast ditangani eksplisit di bawah (showApiErrorToast) —
+        // opt-out dari listener global 'api:error' agar tidak dobel.
+        const res = await apiFetch('/admin/api/system-apps/' + id + '/delete', { method: 'POST', suppressApiErrorToast: true });
         const data = await res.json();
         if (data.success) {
             showToast('Aplikasi berhasil dihapus', 'success');
             window.location.reload();
         } else {
-            showToast('Error: ' + data.message, 'error');
+            showApiErrorToast(data, 'Gagal menghapus aplikasi');
         }
     } catch (e) {
         showToast('Gagal menghapus: ' + e.message, 'error');

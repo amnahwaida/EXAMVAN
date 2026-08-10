@@ -56,3 +56,20 @@ jobs:
         run: go vet ./...
       - name: Build server
         run: go build ./cmd/server
+
+  # Node unit tests for the admin frontend utilities (apiFetch interceptor,
+  # global api:error listener). Runs against the real admin-core.js source.
+  js:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: webui
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - name: Syntax check admin scripts
+        run: node --check static/js/admin-core.js && node --check static/js/admin.js
+      - name: Run admin-core unit tests
+        run: node --test static/js/admin-core.test.mjs

@@ -240,7 +240,7 @@ function loadPengawasExams(page) {
     var url = '/admin/api/pengawas/exams?page=' + PENG_CURRENT_PAGE + '&per_page=10';
     if (search) url += '&search=' + encodeURIComponent(search);
 
-    fetch(url, { credentials: 'same-origin', headers: { 'Accept': 'application/json' } })
+    apiFetch(url, { headers: { 'Accept': 'application/json' } })
         .then(function(r) { return r.json(); })
         .then(function(res) {
             if (!res || !res.success) {

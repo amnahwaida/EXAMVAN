@@ -710,6 +710,16 @@ button:disabled, .btn-sm:disabled, .btn-upload:disabled, .btn-login:disabled {
 .toast-warning .toast-icon { color: #fbbf24; }
 .toast-info .toast-icon { color: #a5b4fc; }
 
+/* R2 config-missing toast (error_code R2_NOT_CONFIGURED): distinct amber
+   treatment so admins notice the missing storage configuration step. The
+   longer display duration is handled in JS (API_ERROR_TOAST_DURATION). */
+.toast-r2-config {
+    background: linear-gradient(135deg, rgba(245, 158, 11, 0.3), rgba(234, 88, 12, 0.16));
+    border-color: rgba(245, 158, 11, 0.6);
+    box-shadow: 0 8px 32px rgba(245, 158, 11, 0.25);
+}
+.toast-r2-config .toast-icon { color: #fbbf24; }
+
 /* Exit animation */
 .toast-exit {
     animation: toastOut 0.3s ease forwards;

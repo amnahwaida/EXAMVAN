@@ -99,7 +99,7 @@ if (uploadForm) {
 					showToast(res.message + ' Aktifkan & mulai ujian sebelum token dibagikan ke siswa.', 'success');
 					setTimeout(() => location.reload(), 2000);
 				} else {
-                    showToast(res.message || 'Upload gagal', 'error');
+                    showApiErrorToast(res, 'Upload gagal');
                     progressDiv.style.display = 'none';
                     progressFill.style.width = '0';
                 }
@@ -162,6 +162,10 @@ function deleteExam(examId, examName) {
     showConfirm(`Hapus ujian "${examName}"?`, 'File PDF juga akan dihapus permanen.').then(ok => {
         if (!ok) return;
 
+        // CATATAN: jika DeleteExam suatu saat mulai mengembalikan error_code R2
+        // (meniru pola Upload/Edit), tambahkan {suppressApiErrorToast: true} di
+        // sini dan ganti showToast di bawah dengan showApiErrorToast — kalau
+        // tidak, toast akan dobel dengan listener global 'api:error'.
         apiFetch(`/admin/api/exams/${examId}/delete`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' }
@@ -2451,7 +2455,7 @@ function openDelegateExamModal(examId) {
     document.getElementById('delegateCurrentOwner').textContent = '';
     document.getElementById('delegatePengawasList').innerHTML = '<div style="color:var(--color-text-muted);font-size:0.82rem;padding:8px 0;">Memuat data pengawas...</div>';
 
-    fetch('/admin/api/exams/' + examId + '/delegate-data')
+    apiFetch('/admin/api/exams/' + examId + '/delegate-data')
         .then(function(r) { return r.json(); })
         .then(function(res) {
             guruSelect.innerHTML = '<option value="">-- Tidak ada Guru --</option>';
@@ -2551,11 +2555,11 @@ function confirmDelegateExam() {
     btn.disabled = true;
     btn.textContent = 'Menyimpan...';
 
-    fetch('/admin/api/exams/' + examId + '/delegate', {
+    // apiFetch menyuntik X-CSRF-Token otomatis untuk method POST.
+    apiFetch('/admin/api/exams/' + examId + '/delegate', {
         method: 'POST',
         headers: {
-            'Content-Type': 'application/json',
-            'X-CSRF-Token': getCsrfToken()
+            'Content-Type': 'application/json'
         },
         body: JSON.stringify(body)
     })
@@ -2643,7 +2647,7 @@ function submitEditExam(event) {
                 showToast(res.message, 'success');
                 setTimeout(() => location.reload(), 1000);
             } else {
-                showToast(res.message || 'Gagal menyimpan perubahan', 'error');
+                showApiErrorToast(res, 'Gagal menyimpan perubahan');
                 progressDiv.style.display = 'none';
                 progressFill.style.width = '0';
             }
