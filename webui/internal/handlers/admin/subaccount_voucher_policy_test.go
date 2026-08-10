@@ -1034,3 +1034,128 @@ func TestCreatedByDeleteSetsNull(t *testing.T) {
 		t.Errorf("quota for non-operator after sub orphan = (%d,%d), want (0,0) — not applicable", gotMax, gotUsed)
 	}
 }
+
+// TestOperatorWithEmailCanCreateSubAccounts locks in the fix for the
+// operator-created-account failure: CreateUser used to copy the operator's
+// email onto every sub-account, but the unique index uq_admin_users_email
+// (LOWER(email) WHERE email <> '') already holds the operator's own row — so
+// the INSERT always failed with a unique violation and an operator with an
+// email could NEVER create an account ("Gagal membuat user", 500). Production
+// operators always carry an email (the register form requires it). Now the
+// sub-account keeps its own form-provided email, and a duplicate email gets a
+// friendly 400 instead of a raw 500.
+func TestOperatorWithEmailCanCreateSubAccounts(t *testing.T) {
+	pool := setupVoucherITDB(t)
+	ctx := context.Background()
+
+	createSchoolVoucher(t, pool)
+
+	op := createOperatorUser(t, pool, "op-email", "personal", "pass-op-email")
+	// Give the operator an email — the exact shape of a production operator
+	// who registered via /register. Before the fix this alone broke every
+	// subsequent account creation.
+	if _, err := pool.Exec(ctx,
+		`UPDATE admin_users SET email = 'op-email@sekolah.sch.id' WHERE id = $1`, op.ID); err != nil {
+		t.Fatalf("set operator email: %v", err)
+	}
+
+	tc := newVoucherTestClient(t, pool)
+	tc.login(t, op.ID)
+	tc.redeem(t, "IT-SEKOLAH")
+
+	// A sub-account with its own email must be created successfully — before
+	// the fix the handler forced the operator's email onto it and the unique
+	// index rejected the insert (500 "Gagal membuat user").
+	if status, resp := postJSON(t, tc.client, tc.srv, "/api/users", map[string]interface{}{
+		"username": "sub-email",
+		"password": "pass-sub-email",
+		"name":     "sub-email",
+		"roles":    []string{models.RoleGuru},
+		"email":    "sub-email@sekolah.sch.id",
+	}); status != http.StatusOK || !resp.Success {
+		t.Fatalf("create sub-account with own email: status=%d resp=%+v", status, resp)
+	}
+	if sub := mustGetUser(t, pool, "sub-email"); sub.Email != "sub-email@sekolah.sch.id" {
+		t.Errorf("sub-account email=%q, want the form-provided email (not the operator's)", sub.Email)
+	}
+
+	// A sub-account whose form email duplicates an existing account gets a
+	// friendly 400, not a raw 500.
+	if status, resp := postJSON(t, tc.client, tc.srv, "/api/users", map[string]interface{}{
+		"username": "sub-dupe",
+		"password": "pass-sub-dupe",
+		"name":     "sub-dupe",
+		"roles":    []string{models.RoleGuru},
+		"email":    "op-email@sekolah.sch.id",
+	}); status != http.StatusBadRequest || !strings.Contains(resp.Message, "Email sudah terdaftar") {
+		t.Errorf("duplicate-email sub-account: status=%d resp=%+v, want 400 friendly message", status, resp)
+	}
+	if _, err := models.GetUserByUsername(ctx, pool, "sub-dupe"); err == nil {
+		t.Error("sub-dupe was created despite the duplicate email")
+	}
+}
+
+// TestCreateUserEmailDuplicateFriendlyErrors locks in the API-level email
+// contract for the CreateUser handler (the layer that surfaced the operator
+// bug as a raw 500): a duplicate non-empty email — exact, case-variant, or
+// whitespace-padded — must be rejected with a friendly 400 "Email sudah
+// terdaftar" BEFORE the INSERT (whose uq_admin_users_email index would
+// otherwise turn it into a raw 500 "Gagal membuat user"), while empty emails
+// (the common shape of a sub-account with no form email) never collide.
+// Mirrors the self-registration contract on /register (main.go).
+func TestCreateUserEmailDuplicateFriendlyErrors(t *testing.T) {
+	pool := setupVoucherITDB(t)
+	ctx := context.Background()
+
+	root, err := models.CreateUser(ctx, pool, &models.AdminUser{
+		Username: "root-email-matrix", Name: "Root Email Matrix",
+		PasswordHash: "pass-root-email-matrix", Status: models.UserStatusActive,
+		Role: models.SerializeRoles([]string{models.RoleSuperAdmin}),
+	})
+	if err != nil {
+		t.Fatalf("create superadmin: %v", err)
+	}
+	tc := newVoucherTestClient(t, pool)
+	tc.login(t, root.ID)
+
+	create := func(username, email string) (int, apiResp) {
+		return postJSON(t, tc.client, tc.srv, "/api/users", map[string]interface{}{
+			"username": username,
+			"password": "pass-" + username,
+			"name":     username,
+			"roles":    []string{models.RoleGuru},
+			"email":    email,
+		})
+	}
+
+	// Unique email: accepted.
+	if status, resp := create("matrix-ok", "matrix-ok@sekolah.sch.id"); status != http.StatusOK || !resp.Success {
+		t.Fatalf("create with unique email: status=%d resp=%+v", status, resp)
+	}
+
+	// Exact duplicate: friendly 400, no row created.
+	if status, resp := create("matrix-dupe", "matrix-ok@sekolah.sch.id"); status != http.StatusBadRequest || !strings.Contains(resp.Message, "Email sudah terdaftar") {
+		t.Errorf("exact duplicate email: status=%d resp=%+v, want 400 friendly message", status, resp)
+	}
+	if _, err := models.GetUserByUsername(ctx, pool, "matrix-dupe"); err == nil {
+		t.Error("matrix-dupe was created despite the exact duplicate email")
+	}
+
+	// Case-variant duplicate (index is on LOWER(email)): friendly 400 too.
+	if status, resp := create("matrix-case", "MATRIX-OK@Sekolah.Sch.ID"); status != http.StatusBadRequest || !strings.Contains(resp.Message, "Email sudah terdaftar") {
+		t.Errorf("case-variant duplicate email: status=%d resp=%+v, want 400 friendly message", status, resp)
+	}
+
+	// Whitespace-padded duplicate (handler trims): friendly 400 too.
+	if status, resp := create("matrix-space", "  matrix-ok@sekolah.sch.id  "); status != http.StatusBadRequest || !strings.Contains(resp.Message, "Email sudah terdaftar") {
+		t.Errorf("whitespace-padded duplicate email: status=%d resp=%+v, want 400 friendly message", status, resp)
+	}
+
+	// Empty emails never collide (partial unique index WHERE email <> ''):
+	// the common shape of sub-accounts without a form email.
+	for _, u := range []string{"matrix-empty-1", "matrix-empty-2"} {
+		if status, resp := create(u, ""); status != http.StatusOK || !resp.Success {
+			t.Fatalf("create %s with empty email: status=%d resp=%+v", u, status, resp)
+		}
+	}
+}

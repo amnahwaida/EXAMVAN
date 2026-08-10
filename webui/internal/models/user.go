@@ -417,7 +417,7 @@ func checkWerkzeugPbkdf2(password, hash string) bool {
 // DefaultAdminUserColumns is the column list for admin_users SELECT queries.
 const DefaultAdminUserColumns = `id, username, name, password_hash, created_at, status,
 instansi, role, max_exams, max_pdf_size, max_concurrent_exams,
-max_storage_size, whatsapp_number, email, expires_at, otp_code, otp_expiry, package,
+max_storage_size, whatsapp_number, email, registered_ip, expires_at, otp_code, otp_expiry, package,
 base_role, package_role, operator_created, created_by`
 
 // scanAdminUser scans a row into an AdminUser struct.
@@ -426,7 +426,7 @@ func scanAdminUser(row pgx.Row) (AdminUser, error) {
 	err := row.Scan(
 		&u.ID, &u.Username, &u.Name, &u.PasswordHash, &u.CreatedAt, &u.Status,
 		&u.Instansi, &u.Role, &u.MaxExams, &u.MaxPDFSize, &u.MaxConcurrentExams,
-		&u.MaxStorageSize, &u.WhatsappNumber, &u.Email, &u.ExpiresAt, &u.OTPCode, &u.OTPExpiry,
+		&u.MaxStorageSize, &u.WhatsappNumber, &u.Email, &u.RegisteredIP, &u.ExpiresAt, &u.OTPCode, &u.OTPExpiry,
 		&u.Package, &u.BaseRole, &u.PackageRole, &u.OperatorCreated, &u.CreatedBy,
 	)
 	return u, err

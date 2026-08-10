@@ -460,10 +460,12 @@ func CreateUser() gin.HandlerFunc {
 				opInstansiID = opUser.InstansiID
 				_ = pool.QueryRow(ctx, `SELECT COALESCE(instansi_code, '') FROM admin_users WHERE id = $1`, userID).Scan(&opInstansiCode)
 
-				// Force email from operator's account
-				if opUser.Email != "" {
-					body.Email = opUser.Email
-				}
+				// NOTE: the operator's email is deliberately NOT copied onto the
+				// sub-account. The unique index uq_admin_users_email (email <>
+				// '') forbids two accounts sharing a non-empty email, and the
+				// operator's own row already holds it — forcing it here made
+				// EVERY operator-created account fail with a unique violation.
+				// The sub-account keeps the email typed in the form (or none).
 				// Force expiry: user expiry = operator's expiry (termasuk status
 				// unlimited — operator dengan expires_at NULL membuat akun sub
 				// yang unlimited juga, bukan trial default).
@@ -478,6 +480,18 @@ func CreateUser() gin.HandlerFunc {
 
 		if instansi == "" {
 			instansi = "personal"
+		}
+
+		// Email must be unique across accounts (partial unique index
+		// uq_admin_users_email, email <> ''). Checked here so a duplicate form
+		// email gets a friendly 400 instead of a raw DB constraint error —
+		// mirrors the self-registration path in main.go.
+		if em := strings.TrimSpace(body.Email); em != "" {
+			existingByEmail, err := models.GetUserByEmail(ctx, pool, em)
+			if err == nil && existingByEmail.Email != "" {
+				errorResponse(c, http.StatusBadRequest, "Email sudah terdaftar. Gunakan email lain atau biarkan kosong.")
+				return
+			}
 		}
 
 		// School sub-account quota (max_users): an operator may only create
