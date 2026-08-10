@@ -18,7 +18,6 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/redis/go-redis/v9"
 
-	"github.com/examvan/webui/internal/config"
 	r2client "github.com/examvan/webui/internal/handlers/r2"
 	"github.com/examvan/webui/internal/helpers"
 	"github.com/examvan/webui/internal/models"
@@ -91,15 +90,6 @@ func getRedis(c *gin.Context) *redis.Client {
 		}
 	}
 	return nil
-}
-
-// getStoragePath returns the configured storage directory, falling back to
-// the compiled-in default when no config is available in context.
-func getStoragePath(c *gin.Context) string {
-	if cfg, exists := c.Get("cfg"); exists {
-		return cfg.(*config.Config).StoragePath
-	}
-	return config.DefaultStoragePath
 }
 
 // ---------------------------------------------------------------------------
@@ -917,11 +907,11 @@ func SubmitExam() gin.HandlerFunc {
 				_, _ = pool.Exec(ctx, "DELETE FROM exam_approvals WHERE exam_id = $1 AND mac_address = $2", examID, macAddress)
 
 				c.JSON(http.StatusOK, gin.H{
-					"success":         true,
-					"message":         "Jawaban berhasil dikirim",
-					"status":          "queued",
-					"job_id":          jobID,
-					"score":           nil,
+					"success":          true,
+					"message":          "Jawaban berhasil dikirim",
+					"status":           "queued",
+					"job_id":           jobID,
+					"score":            nil,
 					"congrats_message": exam.CongratsMessage,
 				})
 				return

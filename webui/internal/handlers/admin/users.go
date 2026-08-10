@@ -17,8 +17,8 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/jackc/pgx/v5/pgxpool"
 
-	"github.com/examvan/webui/internal/helpers"
 	r2client "github.com/examvan/webui/internal/handlers/r2"
+	"github.com/examvan/webui/internal/helpers"
 	"github.com/examvan/webui/internal/middleware"
 	"github.com/examvan/webui/internal/models"
 )
@@ -168,9 +168,9 @@ func UsersPage() gin.HandlerFunc {
 		}
 
 		renderAdminPage(c, "admin/users.html", gin.H{
-			"active_page":          "users",
-			"admin_instansi":       adminInstansi,
-			"operator_expires_at":  operatorExpiresAt,
+			"active_page":         "users",
+			"admin_instansi":      adminInstansi,
+			"operator_expires_at": operatorExpiresAt,
 			// Free space on the storage partition (MB), so the Tambah User &
 			// Atur Limit forms can cap Maks Storage at what the server disk can
 			// actually hold (0 = tidak dapat ditentukan).
@@ -1256,9 +1256,10 @@ func DeleteUser() gin.HandlerFunc {
 
 		// Delete from R2 if configured — mirrors DeleteExam/BulkDelete so a
 		// deleted user's exam PDFs do not linger in object storage either.
+		// Guard nil interface (key present but not a Client) before Enabled().
 		if r2c, exists := c.Get("r2"); exists {
 			client := r2client.FromContext(r2c)
-			if client.Enabled() {
+			if client != nil && client.Enabled() {
 				for _, p := range paths {
 					r2Key := fmt.Sprintf("pdfs/%s", p)
 					if err := client.Delete(ctx, r2Key); err != nil {

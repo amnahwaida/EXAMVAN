@@ -551,7 +551,7 @@ func EditExam() gin.HandlerFunc {
 
 		file, header, fileErr := c.Request.FormFile("pdf_file")
 		oldFilePath := "" // set when a replacement PDF is uploaded (cleanup target)
-		filename := ""   // set when a replacement PDF is uploaded (audit detail)
+		filename := ""    // set when a replacement PDF is uploaded (audit detail)
 
 		if fileErr == nil && header != nil {
 			defer file.Close()
@@ -903,18 +903,18 @@ func GetQuestions() gin.HandlerFunc {
 			})
 		} else {
 			c.JSON(http.StatusOK, gin.H{
-				"success":         true,
-				"questions":       questions,
-				"security_level":  securityLevel,
-				"strict_mode":     exam.StrictMode != 0,
-				"identity_fields": identityFields,
-				"panel_color":     panelColor,
-				"start_time":      startTime,
-				"end_time":        endTime,
+				"success":          true,
+				"questions":        questions,
+				"security_level":   securityLevel,
+				"strict_mode":      exam.StrictMode != 0,
+				"identity_fields":  identityFields,
+				"panel_color":      panelColor,
+				"start_time":       startTime,
+				"end_time":         endTime,
 				"congrats_message": exam.CongratsMessage,
-				"token":           exam.Token,
-				"public_results":  exam.PublicResults,
-				"show_answers":    exam.ShowAnswers,
+				"token":            exam.Token,
+				"public_results":   exam.PublicResults,
+				"show_answers":     exam.ShowAnswers,
 			})
 		}
 	}
@@ -1381,10 +1381,12 @@ func BulkDelete() gin.HandlerFunc {
 			}
 		}
 
-		// Delete from R2 if configured
+		// Delete from R2 if configured. FromContext can return a nil interface
+		// (key present but not a Client, e.g. a disabled backend) — Enabled()
+		// only guards a typed-nil receiver, so check client != nil first.
 		if r2c, exists := c.Get("r2"); exists {
 			client := r2client.FromContext(r2c)
-			if client.Enabled() {
+			if client != nil && client.Enabled() {
 				for _, p := range paths {
 					r2Key := fmt.Sprintf("pdfs/%s", p)
 					if err := client.Delete(ctx, r2Key); err != nil {
