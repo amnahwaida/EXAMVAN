@@ -364,6 +364,49 @@ func CountRunningExams(ctx context.Context, pool *pgxpool.Pool, createdBy, exclu
 	return n, nil
 }
 
+// CountExamsByInstansi returns the number of exams created by ANY account in
+// the instansi — the shared "school pool" usage that counts against the school
+// package quota (the operator's own uploads included).
+func CountExamsByInstansi(ctx context.Context, pool *pgxpool.Pool, instansi string) (int64, error) {
+	var n int64
+	err := pool.QueryRow(ctx, `SELECT COUNT(*) FROM exams e
+		JOIN admin_users u ON e.created_by = u.id
+		WHERE u.instansi = $1`, instansi).Scan(&n)
+	if err != nil {
+		return 0, fmt.Errorf("count exams by instansi: %w", err)
+	}
+	return n, nil
+}
+
+// SumStorageByInstansi returns the total PDF bytes of exams created by ANY
+// account in the instansi — the shared "school pool" storage usage.
+func SumStorageByInstansi(ctx context.Context, pool *pgxpool.Pool, instansi string) (int64, error) {
+	var n int64
+	err := pool.QueryRow(ctx, `SELECT COALESCE(SUM(e.size_bytes), 0) FROM exams e
+		JOIN admin_users u ON e.created_by = u.id
+		WHERE u.instansi = $1`, instansi).Scan(&n)
+	if err != nil {
+		return 0, fmt.Errorf("sum storage by instansi: %w", err)
+	}
+	return n, nil
+}
+
+// CountRunningExamsByInstansi returns the number of exams currently RUNNING
+// (status='active' AND exam_started_at IS NOT NULL) created by ANY account in
+// the instansi — the shared "school pool" concurrent usage. excludeID is not
+// counted (used when the caller is about to start/activate that exam itself).
+func CountRunningExamsByInstansi(ctx context.Context, pool *pgxpool.Pool, instansi string, excludeID int) (int, error) {
+	var n int
+	err := pool.QueryRow(ctx, `SELECT COUNT(*) FROM exams e
+		JOIN admin_users u ON e.created_by = u.id
+		WHERE u.instansi = $1 AND e.status = 'active' AND e.exam_started_at IS NOT NULL AND e.id <> $2`,
+		instansi, excludeID).Scan(&n)
+	if err != nil {
+		return 0, fmt.Errorf("count running exams by instansi: %w", err)
+	}
+	return n, nil
+}
+
 // RunningExamCountsAfterActivation returns, per distinct created_by owner of
 // the given exam ids, the number of running exams that owner would have if
 // every selected exam were activated. Only exams with exam_started_at already

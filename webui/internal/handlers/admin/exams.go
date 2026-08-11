@@ -171,10 +171,42 @@ func UploadExam() gin.HandlerFunc {
 			return
 		}
 
-		// Per-user limits (unless super admin / operator). maxExams tracks the
-		// quota for the (atomic) check+insert below; -1 means "no limit"
-		// (super/operator accounts bypass, matching previous behaviour).
+		// Quota layers: the account's OWN limits (unless super admin /
+		// operator) AND the shared school pool when the instansi runs a school
+		// package. The pool is a single bucket for EVERY account in the
+		// instansi — the operator included — so the school's total
+		// exams/storage/PDF can never exceed the package (5 sub-accounts × 3
+		// exams can no longer overspend a 3-exam school package). maxExams
+		// tracks the per-account quota for the (atomic) check+insert below;
+		// -1 means "no per-account limit" (super/operator accounts bypass
+		// their own limits, matching previous behaviour).
 		maxExams := -1
+		var poolMaxExams, poolMaxPDF, poolMaxStorage int64
+		var poolInstansi string
+		poolActive := false
+		if !isSuper {
+			poolMaxExams, poolMaxPDF, _, poolMaxStorage, poolInstansi, poolActive =
+				schoolPoolQuota(ctx, pool, userID)
+			// Pool PDF-size limit: applies to the operator too (their uploads
+			// spend the school package).
+			if poolActive && poolMaxPDF > 0 && int64(len(fileData)) > poolMaxPDF {
+				limitMB := roundTo(float64(poolMaxPDF)/(1024*1024), 2)
+				errorResponse(c, http.StatusForbidden,
+					fmt.Sprintf("Ukuran file melebihi batas paket sekolah (%.2fMB). Silakan hubungi Super Admin.", limitMB))
+				return
+			}
+			// Pool storage pre-check (friendly early rejection; the atomic
+			// check inside the transaction below is the hard gate).
+			if poolActive && poolMaxStorage > 0 {
+				current, err := models.SumStorageByInstansi(ctx, pool, poolInstansi)
+				if err == nil && current+int64(len(fileData)) > poolMaxStorage {
+					limitMB := roundTo(float64(poolMaxStorage)/(1024*1024), 1)
+					errorResponse(c, http.StatusForbidden,
+						fmt.Sprintf("Batas kapasitas storage sekolah tercapai. Batas paket sekolah adalah %.1f MB.", limitMB))
+					return
+				}
+			}
+		}
 		if !isSuper && !isOp {
 			user, err := models.GetUserByID(ctx, pool, userID)
 			if err != nil {
@@ -276,12 +308,14 @@ func UploadExam() gin.HandlerFunc {
 			TokenResetInterval: &defaultInterval,
 		}
 
-		// Atomic quota check + insert: lock the user row FOR UPDATE so two
-		// concurrent uploads for the same account are serialized (this closes
-		// the check-then-insert race window), then count + insert in one
-		// transaction. Only enforced when maxExams > 0 (0 = unlimited).
+		// Atomic quota check + insert: lock the user row (and, when a school
+		// pool applies, every account row of the instansi) FOR UPDATE so two
+		// concurrent uploads for the same account / school are serialized (this
+		// closes the check-then-insert race window), then count + insert in one
+		// transaction. Only enforced when a per-account quota applies
+		// (maxExams >= 0; 0 = unlimited) or a school pool is active.
 		var created *models.Exam
-		if maxExams >= 0 {
+		if maxExams >= 0 || poolActive {
 			tx, err := pool.Begin(ctx)
 			if err != nil {
 				log.Printf("upload begin tx error: %v", err)
@@ -289,6 +323,55 @@ func UploadExam() gin.HandlerFunc {
 				return
 			}
 			defer func() { _ = tx.Rollback(ctx) }()
+
+			if poolActive {
+				// Lock the whole instansi's account rows: concurrent uploads by
+				// ANY account in the school serialize on the shared pool (the
+				// row-lock pattern of the per-user check, widened to the pool).
+				if _, err := tx.Exec(ctx, `SELECT id FROM admin_users WHERE instansi = $1 FOR UPDATE`, poolInstansi); err != nil {
+					log.Printf("upload lock school pool error: %v", err)
+					// The PDF is already in R2 but no DB row exists: remove the
+					// orphan object so a failed create does not leak storage.
+					cleanupR2Orphan(c, ctx, filename)
+					errorResponse(c, http.StatusInternalServerError, "Gagal menyimpan ujian")
+					return
+				}
+				var poolCnt int64
+				if err := tx.QueryRow(ctx, `SELECT COUNT(*) FROM exams e JOIN admin_users u ON e.created_by = u.id WHERE u.instansi = $1`, poolInstansi).Scan(&poolCnt); err != nil {
+					log.Printf("upload count school exams error: %v", err)
+					cleanupR2Orphan(c, ctx, filename)
+					errorResponse(c, http.StatusInternalServerError, "Gagal menyimpan ujian")
+					return
+				}
+				if poolMaxExams > 0 && poolCnt >= poolMaxExams {
+					_ = tx.Rollback(ctx)
+					// Remove the just-uploaded R2 object so we do not leak an orphan.
+					cleanupR2Orphan(c, ctx, filename)
+					errorResponse(c, http.StatusForbidden,
+						fmt.Sprintf("Batas pembuatan ujian sekolah tercapai. Paket sekolah Anda adalah %d ujian.", poolMaxExams))
+					return
+				}
+				// Atomic pool storage gate (same transaction, same lock): the
+				// pre-check above is a friendly early rejection, this is the
+				// hard cap that cannot be raced past.
+				if poolMaxStorage > 0 {
+					var poolUsed int64
+					if err := tx.QueryRow(ctx, `SELECT COALESCE(SUM(e.size_bytes), 0) FROM exams e JOIN admin_users u ON e.created_by = u.id WHERE u.instansi = $1`, poolInstansi).Scan(&poolUsed); err != nil {
+						log.Printf("upload sum school storage error: %v", err)
+						cleanupR2Orphan(c, ctx, filename)
+						errorResponse(c, http.StatusInternalServerError, "Gagal menyimpan ujian")
+						return
+					}
+					if poolUsed+int64(len(fileData)) > poolMaxStorage {
+						_ = tx.Rollback(ctx)
+						cleanupR2Orphan(c, ctx, filename)
+						limitMB := roundTo(float64(poolMaxStorage)/(1024*1024), 1)
+						errorResponse(c, http.StatusForbidden,
+							fmt.Sprintf("Batas kapasitas storage sekolah tercapai. Batas paket sekolah adalah %.1f MB.", limitMB))
+						return
+					}
+				}
+			}
 
 			var lockedMaxExams int
 			if err := tx.QueryRow(ctx,
@@ -410,17 +493,30 @@ func ToggleExam() gin.HandlerFunc {
 		// Enforce the concurrent-exam quota (max_concurrent_exams) when
 		// re-activating an exam that has ALREADY been started: such an exam
 		// becomes "running" again on activation even without going through
-		// StartExam (ToggleExamStatus does not clear exam_started_at).
-		if !isSuperAdmin(c) && !isOperator(c) {
+		// StartExam (ToggleExamStatus does not clear exam_started_at). Same two
+		// layers as StartExam: the account's own quota (sub-accounts) and the
+		// shared school pool (every account in the instansi, operator included).
+		if !isSuperAdmin(c) {
 			exam, err := models.GetExamByID(ctx, pool, examID)
 			if err == nil && exam.Status == "inactive" && exam.ExamStartedAt != nil {
 				owner, err := models.GetUserByID(ctx, pool, exam.CreatedBy)
-				if err == nil && owner.MaxConcurrentExams > 0 {
-					running, err := models.CountRunningExams(ctx, pool, exam.CreatedBy, examID)
-					if err == nil && running >= owner.MaxConcurrentExams {
-						errorResponse(c, http.StatusForbidden,
-							fmt.Sprintf("Batas ujian serentak tercapai. Maksimal %d ujian dapat berjalan bersamaan.", owner.MaxConcurrentExams))
-						return
+				if err == nil {
+					if !isOperator(c) && owner.MaxConcurrentExams > 0 {
+						running, err := models.CountRunningExams(ctx, pool, exam.CreatedBy, examID)
+						if err == nil && running >= owner.MaxConcurrentExams {
+							errorResponse(c, http.StatusForbidden,
+								fmt.Sprintf("Batas ujian serentak tercapai. Maksimal %d ujian dapat berjalan bersamaan.", owner.MaxConcurrentExams))
+							return
+						}
+					}
+					_, _, poolMaxConcurrent, _, poolInstansi, poolActive := schoolPoolQuota(ctx, pool, exam.CreatedBy)
+					if poolActive && poolMaxConcurrent > 0 {
+						running, err := models.CountRunningExamsByInstansi(ctx, pool, poolInstansi, examID)
+						if err == nil && running >= int(poolMaxConcurrent) {
+							errorResponse(c, http.StatusForbidden,
+								fmt.Sprintf("Batas ujian serentak sekolah tercapai. Maksimal %d ujian sekolah dapat berjalan bersamaan.", poolMaxConcurrent))
+							return
+						}
 					}
 				}
 			}
@@ -1268,18 +1364,32 @@ func StartExam() gin.HandlerFunc {
 			return
 		}
 
-		// Enforce the concurrent-exam quota (max_concurrent_exams): starting an
-		// exam is what makes it "running" for students, so this is the primary
-		// enforcement point. Super admins and operators bypass (operators
-		// manage exams on behalf of their school, mirroring the upload bypass).
-		if !isSuperAdmin(c) && !isOperator(c) {
+		// Enforce the concurrent-exam quota: starting an exam is what makes it
+		// "running" for students, so this is the primary enforcement point. Two
+		// layers: the account's own max_concurrent_exams (sub-accounts only;
+		// the operator's own account bypasses its own limits, mirroring the
+		// upload bypass) and — when the school runs a package — the shared
+		// school pool, which counts EVERY running exam in the instansi, the
+		// operator's included.
+		if !isSuperAdmin(c) {
 			owner, err := models.GetUserByID(ctx, pool, exam.CreatedBy)
-			if err == nil && owner.MaxConcurrentExams > 0 {
-				running, err := models.CountRunningExams(ctx, pool, exam.CreatedBy, examID)
-				if err == nil && running >= owner.MaxConcurrentExams {
-					errorResponse(c, http.StatusForbidden,
-						fmt.Sprintf("Batas ujian serentak tercapai. Maksimal %d ujian dapat berjalan bersamaan.", owner.MaxConcurrentExams))
-					return
+			if err == nil {
+				if !isOperator(c) && owner.MaxConcurrentExams > 0 {
+					running, err := models.CountRunningExams(ctx, pool, exam.CreatedBy, examID)
+					if err == nil && running >= owner.MaxConcurrentExams {
+						errorResponse(c, http.StatusForbidden,
+							fmt.Sprintf("Batas ujian serentak tercapai. Maksimal %d ujian dapat berjalan bersamaan.", owner.MaxConcurrentExams))
+						return
+					}
+				}
+				_, _, poolMaxConcurrent, _, poolInstansi, poolActive := schoolPoolQuota(ctx, pool, exam.CreatedBy)
+				if poolActive && poolMaxConcurrent > 0 {
+					running, err := models.CountRunningExamsByInstansi(ctx, pool, poolInstansi, examID)
+					if err == nil && running >= int(poolMaxConcurrent) {
+						errorResponse(c, http.StatusForbidden,
+							fmt.Sprintf("Batas ujian serentak sekolah tercapai. Maksimal %d ujian sekolah dapat berjalan bersamaan.", poolMaxConcurrent))
+						return
+					}
 				}
 			}
 		}

@@ -3,11 +3,13 @@ package admin
 import (
 	"context"
 	"fmt"
+	"log"
 	"strconv"
 	"strings"
 	"time"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/examvan/webui/internal/models"
 )
@@ -36,6 +38,58 @@ func packageEntitlement(pkg string) (exams, pdf, concurrent, storage, maxUsers i
 	default:
 		return 1, 1 * 1024 * 1024, 1, 50 * 1024 * 1024, 0, ""
 	}
+}
+
+// schoolPoolQuota returns the shared "school pool" quota for the instansi the
+// given user belongs to, sourced from the ACTIVE redemption(s) of the
+// instansi's operator(s) — the same snapshot applyRedemptionEntitlement wrote
+// to the operator's account at redeem time. In a school instansi EVERY
+// account draws its exam/storage/PDF/concurrent quota from this single pool,
+// the operator included: the school's total usage can never exceed the
+// package, so five sub-accounts can no longer each spend a full package
+// (5 × 3 exams ≫ a 3-exam school package).
+//
+// ok=false when no school pool applies: the user has no instansi (empty),
+// sits in the shared "personal" bucket, or no operator in the instansi holds
+// an active redemption (a legacy school without a package keeps the per-account
+// quotas and the operator's historical bypass). A school has exactly one
+// operator in practice; MAX() over the theoretical multiple is a safe,
+// never-surprising fallback. max_concurrent follows the same 0 → max_exams →
+// 1 defaulting as applyRedemptionEntitlement so the two can never disagree.
+func schoolPoolQuota(ctx context.Context, pool *pgxpool.Pool, userID int) (maxExams, maxPDF, maxConcurrent, maxStorage int64, instansi string, ok bool) {
+	var inst string
+	if err := pool.QueryRow(ctx, `SELECT COALESCE(instansi, '') FROM admin_users WHERE id = $1`, userID).Scan(&inst); err != nil {
+		return 0, 0, 0, 0, "", false
+	}
+	inst = strings.TrimSpace(inst)
+	if inst == "" || strings.EqualFold(inst, "personal") {
+		return 0, 0, 0, 0, "", false
+	}
+	var n int
+	err := pool.QueryRow(ctx, `
+		SELECT COUNT(*),
+		       COALESCE(MAX(vr.max_exams), 0),
+		       COALESCE(MAX(vr.max_pdf_size), 0),
+		       COALESCE(MAX(vr.max_concurrent_exams), 0),
+		       COALESCE(MAX(vr.max_storage_size), 0)
+		FROM voucher_redemptions vr
+		JOIN admin_users u ON u.id = vr.user_id
+		WHERE vr.is_active AND u.instansi = $1 AND u.role ILIKE '%"operator"%'`, inst).
+		Scan(&n, &maxExams, &maxPDF, &maxConcurrent, &maxStorage)
+	if err != nil {
+		log.Printf("load school pool quota failed: %v; treating as no school pool", err)
+		return 0, 0, 0, 0, "", false
+	}
+	if n == 0 {
+		return 0, 0, 0, 0, "", false
+	}
+	if maxConcurrent <= 0 {
+		maxConcurrent = maxExams
+	}
+	if maxConcurrent <= 0 {
+		maxConcurrent = 1
+	}
+	return maxExams, maxPDF, maxConcurrent, maxStorage, inst, true
 }
 
 // durationDays maps a voucher duration type ("bulanan", "semester", "tahunan",
