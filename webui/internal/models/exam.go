@@ -352,10 +352,11 @@ func CreateExamTx(ctx context.Context, tx pgx.Tx, e *Exam) (*Exam, error) {
 // CountRunningExams returns the number of exams created by createdBy that are
 // currently RUNNING (status='active' AND exam_started_at IS NOT NULL), i.e.
 // exams students can actually work on right now. excludeID is not counted
-// (used when the caller is about to start/activate that exam itself).
-func CountRunningExams(ctx context.Context, pool *pgxpool.Pool, createdBy, excludeID int) (int, error) {
+// (used when the caller is about to start/activate that exam itself). Accepts
+// a pool or a transaction so the count can run inside the quota lock.
+func CountRunningExams(ctx context.Context, q queryRower, createdBy, excludeID int) (int, error) {
 	var n int
-	err := pool.QueryRow(ctx, `SELECT COUNT(*) FROM exams
+	err := q.QueryRow(ctx, `SELECT COUNT(*) FROM exams
 		WHERE created_by = $1 AND status = 'active' AND exam_started_at IS NOT NULL AND id <> $2`,
 		createdBy, excludeID).Scan(&n)
 	if err != nil {
@@ -367,9 +368,9 @@ func CountRunningExams(ctx context.Context, pool *pgxpool.Pool, createdBy, exclu
 // CountExamsByInstansi returns the number of exams created by ANY account in
 // the instansi — the shared "school pool" usage that counts against the school
 // package quota (the operator's own uploads included).
-func CountExamsByInstansi(ctx context.Context, pool *pgxpool.Pool, instansi string) (int64, error) {
+func CountExamsByInstansi(ctx context.Context, q queryRower, instansi string) (int64, error) {
 	var n int64
-	err := pool.QueryRow(ctx, `SELECT COUNT(*) FROM exams e
+	err := q.QueryRow(ctx, `SELECT COUNT(*) FROM exams e
 		JOIN admin_users u ON e.created_by = u.id
 		WHERE u.instansi = $1`, instansi).Scan(&n)
 	if err != nil {
@@ -380,9 +381,9 @@ func CountExamsByInstansi(ctx context.Context, pool *pgxpool.Pool, instansi stri
 
 // SumStorageByInstansi returns the total PDF bytes of exams created by ANY
 // account in the instansi — the shared "school pool" storage usage.
-func SumStorageByInstansi(ctx context.Context, pool *pgxpool.Pool, instansi string) (int64, error) {
+func SumStorageByInstansi(ctx context.Context, q queryRower, instansi string) (int64, error) {
 	var n int64
-	err := pool.QueryRow(ctx, `SELECT COALESCE(SUM(e.size_bytes), 0) FROM exams e
+	err := q.QueryRow(ctx, `SELECT COALESCE(SUM(e.size_bytes), 0) FROM exams e
 		JOIN admin_users u ON e.created_by = u.id
 		WHERE u.instansi = $1`, instansi).Scan(&n)
 	if err != nil {
@@ -395,9 +396,10 @@ func SumStorageByInstansi(ctx context.Context, pool *pgxpool.Pool, instansi stri
 // (status='active' AND exam_started_at IS NOT NULL) created by ANY account in
 // the instansi — the shared "school pool" concurrent usage. excludeID is not
 // counted (used when the caller is about to start/activate that exam itself).
-func CountRunningExamsByInstansi(ctx context.Context, pool *pgxpool.Pool, instansi string, excludeID int) (int, error) {
+// Accepts a pool or a transaction so the count can run inside the quota lock.
+func CountRunningExamsByInstansi(ctx context.Context, q queryRower, instansi string, excludeID int) (int, error) {
 	var n int
-	err := pool.QueryRow(ctx, `SELECT COUNT(*) FROM exams e
+	err := q.QueryRow(ctx, `SELECT COUNT(*) FROM exams e
 		JOIN admin_users u ON e.created_by = u.id
 		WHERE u.instansi = $1 AND e.status = 'active' AND e.exam_started_at IS NOT NULL AND e.id <> $2`,
 		instansi, excludeID).Scan(&n)
@@ -405,6 +407,46 @@ func CountRunningExamsByInstansi(ctx context.Context, pool *pgxpool.Pool, instan
 		return 0, fmt.Errorf("count running exams by instansi: %w", err)
 	}
 	return n, nil
+}
+
+// RunningExamCountsAfterActivationByInstansi returns, per distinct instansi of
+// the given exam ids' creators, the number of running exams the instansi would
+// have if every selected exam were activated (school-pool semantics: running
+// exams of EVERY account in the instansi — the operator's included — count).
+// Only exams with exam_started_at already set become "running" on activation.
+// Used to enforce the shared school-pool concurrent quota on bulk activation.
+func RunningExamCountsAfterActivationByInstansi(ctx context.Context, pool *pgxpool.Pool, ids []int) (map[string]int, error) {
+	out := make(map[string]int)
+	if len(ids) == 0 {
+		return out, nil
+	}
+	rows, err := pool.Query(ctx, `
+		SELECT u.instansi,
+		       (SELECT COUNT(*) FROM exams x
+		         JOIN admin_users xu ON x.created_by = xu.id
+		         WHERE xu.instansi = u.instansi
+		           AND x.status = 'active' AND x.exam_started_at IS NOT NULL)
+		       + COUNT(*) FILTER (WHERE e.status <> 'active' AND e.exam_started_at IS NOT NULL) AS running_after
+		FROM exams e
+		JOIN admin_users u ON e.created_by = u.id
+		WHERE e.id = ANY($1) AND e.exam_started_at IS NOT NULL
+		GROUP BY u.instansi`, ids)
+	if err != nil {
+		return nil, fmt.Errorf("running exam counts after activation by instansi: %w", err)
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var instansi string
+		var after int
+		if err := rows.Scan(&instansi, &after); err != nil {
+			return nil, fmt.Errorf("scan running exam count by instansi: %w", err)
+		}
+		out[instansi] = after
+	}
+	if err := rows.Err(); err != nil {
+		log.Printf("rows iteration error: %v", err)
+	}
+	return out, nil
 }
 
 // RunningExamCountsAfterActivation returns, per distinct created_by owner of
@@ -501,12 +543,32 @@ func UpdateExamActiveToken(ctx context.Context, pool *pgxpool.Pool, id int, acti
 	return nil
 }
 
+// UpdateExamActiveTokenTx is UpdateExamActiveToken inside an existing
+// transaction, so the start flow can keep its quota lock + update atomic.
+func UpdateExamActiveTokenTx(ctx context.Context, tx pgx.Tx, id int, activeToken string) error {
+	_, err := tx.Exec(ctx, `UPDATE exams SET active_token = $1, token_last_reset_at = CURRENT_TIMESTAMP WHERE id = $2`, activeToken, id)
+	if err != nil {
+		return fmt.Errorf("update exam active token tx: %w", err)
+	}
+	return nil
+}
+
 // StartExam marks an exam as started (sets exam_started_at) and optionally resets the active_token.
 // Starting is an activation, so any tombstone marker is cleared.
 func StartExam(ctx context.Context, pool *pgxpool.Pool, id int) error {
 	_, err := pool.Exec(ctx, `UPDATE exams SET status = 'active', exam_started_at = CURRENT_TIMESTAMP, token_last_reset_at = CURRENT_TIMESTAMP, tombstoned_at = NULL WHERE id = $1`, id)
 	if err != nil {
 		return fmt.Errorf("start exam: %w", err)
+	}
+	return nil
+}
+
+// StartExamTx is StartExam inside an existing transaction, so the concurrent
+// quota check and the start stay atomic (no check-then-update race).
+func StartExamTx(ctx context.Context, tx pgx.Tx, id int) error {
+	_, err := tx.Exec(ctx, `UPDATE exams SET status = 'active', exam_started_at = CURRENT_TIMESTAMP, token_last_reset_at = CURRENT_TIMESTAMP, tombstoned_at = NULL WHERE id = $1`, id)
+	if err != nil {
+		return fmt.Errorf("start exam tx: %w", err)
 	}
 	return nil
 }
@@ -579,6 +641,26 @@ func ToggleExamStatus(ctx context.Context, pool *pgxpool.Pool, id int) (string, 
 		WHERE id = $2`, newStatus, id)
 	if err != nil {
 		return "", fmt.Errorf("toggle status: %w", err)
+	}
+	return newStatus, nil
+}
+
+// ToggleExamStatusTx is ToggleExamStatus inside an existing transaction, so
+// the concurrent quota check and the toggle stay atomic.
+func ToggleExamStatusTx(ctx context.Context, tx pgx.Tx, id int) (string, error) {
+	var status string
+	if err := tx.QueryRow(ctx, `SELECT status FROM exams WHERE id = $1`, id).Scan(&status); err != nil {
+		return "", fmt.Errorf("toggle status tx: get exam: %w", err)
+	}
+	newStatus := "inactive"
+	if status == "inactive" {
+		newStatus = "active"
+	}
+	_, err := tx.Exec(ctx, `UPDATE exams SET status = $1,
+		tombstoned_at = CASE WHEN $1 = 'active' THEN NULL ELSE tombstoned_at END
+		WHERE id = $2`, newStatus, id)
+	if err != nil {
+		return "", fmt.Errorf("toggle status tx: %w", err)
 	}
 	return newStatus, nil
 }

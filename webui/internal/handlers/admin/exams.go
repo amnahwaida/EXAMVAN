@@ -496,30 +496,83 @@ func ToggleExam() gin.HandlerFunc {
 		// StartExam (ToggleExamStatus does not clear exam_started_at). Same two
 		// layers as StartExam: the account's own quota (sub-accounts) and the
 		// shared school pool (every account in the instansi, operator included).
+		//
+		// Atomic when any limit applies: the count + toggle run inside one
+		// transaction with the school pool's (or the owner's) rows locked
+		// FOR UPDATE, so two concurrent re-activations can never both count
+		// the same free slot. Super admins bypass everything.
+		toggled := false
 		if !isSuperAdmin(c) {
 			exam, err := models.GetExamByID(ctx, pool, examID)
 			if err == nil && exam.Status == "inactive" && exam.ExamStartedAt != nil {
 				owner, err := models.GetUserByID(ctx, pool, exam.CreatedBy)
 				if err == nil {
-					if !isOperator(c) && owner.MaxConcurrentExams > 0 {
-						running, err := models.CountRunningExams(ctx, pool, exam.CreatedBy, examID)
-						if err == nil && running >= owner.MaxConcurrentExams {
-							errorResponse(c, http.StatusForbidden,
-								fmt.Sprintf("Batas ujian serentak tercapai. Maksimal %d ujian dapat berjalan bersamaan.", owner.MaxConcurrentExams))
-							return
-						}
-					}
+					perUserLimit := !isOperator(c) && owner.MaxConcurrentExams > 0
 					_, _, poolMaxConcurrent, _, poolInstansi, poolActive := schoolPoolQuota(ctx, pool, exam.CreatedBy)
-					if poolActive && poolMaxConcurrent > 0 {
-						running, err := models.CountRunningExamsByInstansi(ctx, pool, poolInstansi, examID)
-						if err == nil && running >= int(poolMaxConcurrent) {
-							errorResponse(c, http.StatusForbidden,
-								fmt.Sprintf("Batas ujian serentak sekolah tercapai. Maksimal %d ujian sekolah dapat berjalan bersamaan.", poolMaxConcurrent))
+					poolConcActive := poolActive && poolMaxConcurrent > 0
+
+					if perUserLimit || poolConcActive {
+						tx, err := pool.Begin(ctx)
+						if err != nil {
+							log.Printf("toggle begin tx error: %v", err)
+							errorResponse(c, http.StatusInternalServerError, "Gagal mengubah status ujian")
 							return
 						}
+						defer func() { _ = tx.Rollback(ctx) }()
+
+						if poolConcActive {
+							if _, err := tx.Exec(ctx, `SELECT id FROM admin_users WHERE instansi = $1 FOR UPDATE`, poolInstansi); err != nil {
+								log.Printf("toggle lock school pool error: %v", err)
+								errorResponse(c, http.StatusInternalServerError, "Gagal mengubah status ujian")
+								return
+							}
+							running, err := models.CountRunningExamsByInstansi(ctx, tx, poolInstansi, examID)
+							if err == nil && running >= int(poolMaxConcurrent) {
+								_ = tx.Rollback(ctx)
+								errorResponse(c, http.StatusForbidden,
+									fmt.Sprintf("Batas ujian serentak sekolah tercapai. Maksimal %d ujian sekolah dapat berjalan bersamaan.", poolMaxConcurrent))
+								return
+							}
+						}
+						if perUserLimit {
+							var locked int
+							if err := tx.QueryRow(ctx, `SELECT max_concurrent_exams FROM admin_users WHERE id = $1 FOR UPDATE`, exam.CreatedBy).Scan(&locked); err != nil {
+								log.Printf("toggle lock owner error: %v", err)
+								errorResponse(c, http.StatusInternalServerError, "Gagal mengubah status ujian")
+								return
+							}
+							running, err := models.CountRunningExams(ctx, tx, exam.CreatedBy, examID)
+							if err == nil && running >= locked {
+								_ = tx.Rollback(ctx)
+								errorResponse(c, http.StatusForbidden,
+									fmt.Sprintf("Batas ujian serentak tercapai. Maksimal %d ujian dapat berjalan bersamaan.", locked))
+								return
+							}
+						}
+
+						if _, err := models.ToggleExamStatusTx(ctx, tx, examID); err != nil {
+							log.Printf("toggle exam tx error: %v", err)
+							errorResponse(c, http.StatusInternalServerError, "Gagal mengubah status ujian")
+							return
+						}
+						if err := tx.Commit(ctx); err != nil {
+							log.Printf("toggle commit error: %v", err)
+							errorResponse(c, http.StatusInternalServerError, "Gagal mengubah status ujian")
+							return
+						}
+						toggled = true
 					}
 				}
 			}
+		}
+
+		if toggled {
+			c.JSON(http.StatusOK, gin.H{
+				"success":    true,
+				"message":    "Status ujian diubah ke active",
+				"new_status": "active",
+			})
+			return
 		}
 
 		newStatus, err := models.ToggleExamStatus(ctx, pool, examID)
@@ -685,6 +738,54 @@ func EditExam() gin.HandlerFunc {
 			if !isValid {
 				errorResponse(c, http.StatusBadRequest, msg)
 				return
+			}
+
+			// Quota gates for a PDF replacement, mirroring UploadExam: the
+			// shared school pool (every non-super account in a school
+			// instansi, the operator included) and the owner's own per-account
+			// limits (sub-accounts only). Both run BEFORE the new PDF reaches
+			// R2, so a rejected replacement never uploads an object in the
+			// first place. Storage is a DELTA check: the old PDF's bytes leave
+			// the pool when the row is updated, so only the growth counts.
+			if !isSuperAdmin(c) {
+				_, poolMaxPDF, _, poolMaxStorage, poolInstansi, poolActive := schoolPoolQuota(ctx, pool, exam.CreatedBy)
+				if poolActive && poolMaxPDF > 0 && int64(len(fileData)) > poolMaxPDF {
+					limitMB := roundTo(float64(poolMaxPDF)/(1024*1024), 2)
+					errorResponse(c, http.StatusForbidden,
+						fmt.Sprintf("Ukuran file melebihi batas paket sekolah (%.2fMB). Silakan hubungi Super Admin.", limitMB))
+					return
+				}
+				if poolActive && poolMaxStorage > 0 {
+					poolUsed, err := models.SumStorageByInstansi(ctx, pool, poolInstansi)
+					if err == nil && poolUsed-int64(exam.SizeBytes)+int64(len(fileData)) > poolMaxStorage {
+						limitMB := roundTo(float64(poolMaxStorage)/(1024*1024), 1)
+						errorResponse(c, http.StatusForbidden,
+							fmt.Sprintf("Batas kapasitas storage sekolah tercapai. Batas paket sekolah adalah %.1f MB.", limitMB))
+						return
+					}
+				}
+				if !isOperator(c) {
+					owner, err := models.GetUserByID(ctx, pool, exam.CreatedBy)
+					if err == nil {
+						if owner.MaxPDFSize > 0 && len(fileData) > owner.MaxPDFSize {
+							limitMB := roundTo(float64(owner.MaxPDFSize)/(1024*1024), 2)
+							errorResponse(c, http.StatusForbidden,
+								fmt.Sprintf("Ukuran file melebihi batas akun Anda (%.2fMB). Silakan hubungi Super Admin.", limitMB))
+							return
+						}
+						if owner.MaxStorageSize > 0 {
+							var used int64
+							err := pool.QueryRow(ctx,
+								`SELECT COALESCE(SUM(size_bytes), 0) FROM exams WHERE created_by = $1`, exam.CreatedBy).Scan(&used)
+							if err == nil && used-int64(exam.SizeBytes)+int64(len(fileData)) > owner.MaxStorageSize {
+								limitMB := roundTo(float64(owner.MaxStorageSize)/(1024*1024), 1)
+								errorResponse(c, http.StatusForbidden,
+									fmt.Sprintf("Batas kapasitas storage tercapai. Batas akun Anda adalah %.1f MB.", limitMB))
+								return
+							}
+						}
+					}
+				}
 			}
 
 			// Save new file to R2 (Mandatory) FIRST, so a failed replacement
@@ -1371,39 +1472,93 @@ func StartExam() gin.HandlerFunc {
 		// upload bypass) and — when the school runs a package — the shared
 		// school pool, which counts EVERY running exam in the instansi, the
 		// operator's included.
+		//
+		// Atomic when any limit applies: the count + start run inside one
+		// transaction with the school pool's (or the owner's) rows locked
+		// FOR UPDATE, so two concurrent starts can never both count the same
+		// free slot (check-then-update race). Super admins bypass everything.
+		started := false
 		if !isSuperAdmin(c) {
 			owner, err := models.GetUserByID(ctx, pool, exam.CreatedBy)
 			if err == nil {
-				if !isOperator(c) && owner.MaxConcurrentExams > 0 {
-					running, err := models.CountRunningExams(ctx, pool, exam.CreatedBy, examID)
-					if err == nil && running >= owner.MaxConcurrentExams {
-						errorResponse(c, http.StatusForbidden,
-							fmt.Sprintf("Batas ujian serentak tercapai. Maksimal %d ujian dapat berjalan bersamaan.", owner.MaxConcurrentExams))
-						return
-					}
-				}
+				perUserLimit := !isOperator(c) && owner.MaxConcurrentExams > 0
 				_, _, poolMaxConcurrent, _, poolInstansi, poolActive := schoolPoolQuota(ctx, pool, exam.CreatedBy)
-				if poolActive && poolMaxConcurrent > 0 {
-					running, err := models.CountRunningExamsByInstansi(ctx, pool, poolInstansi, examID)
-					if err == nil && running >= int(poolMaxConcurrent) {
-						errorResponse(c, http.StatusForbidden,
-							fmt.Sprintf("Batas ujian serentak sekolah tercapai. Maksimal %d ujian sekolah dapat berjalan bersamaan.", poolMaxConcurrent))
+				poolConcActive := poolActive && poolMaxConcurrent > 0
+
+				if perUserLimit || poolConcActive {
+					tx, err := pool.Begin(ctx)
+					if err != nil {
+						log.Printf("start begin tx error: %v", err)
+						errorResponse(c, http.StatusInternalServerError, "Gagal memulai ujian")
 						return
 					}
+					defer func() { _ = tx.Rollback(ctx) }()
+
+					if poolConcActive {
+						// Lock the whole instansi's account rows: concurrent
+						// starts by ANY account in the school serialize on the
+						// shared pool.
+						if _, err := tx.Exec(ctx, `SELECT id FROM admin_users WHERE instansi = $1 FOR UPDATE`, poolInstansi); err != nil {
+							log.Printf("start lock school pool error: %v", err)
+							errorResponse(c, http.StatusInternalServerError, "Gagal memulai ujian")
+							return
+						}
+						running, err := models.CountRunningExamsByInstansi(ctx, tx, poolInstansi, examID)
+						if err == nil && running >= int(poolMaxConcurrent) {
+							_ = tx.Rollback(ctx)
+							errorResponse(c, http.StatusForbidden,
+								fmt.Sprintf("Batas ujian serentak sekolah tercapai. Maksimal %d ujian sekolah dapat berjalan bersamaan.", poolMaxConcurrent))
+							return
+						}
+					}
+					if perUserLimit {
+						var locked int
+						if err := tx.QueryRow(ctx, `SELECT max_concurrent_exams FROM admin_users WHERE id = $1 FOR UPDATE`, exam.CreatedBy).Scan(&locked); err != nil {
+							log.Printf("start lock owner error: %v", err)
+							errorResponse(c, http.StatusInternalServerError, "Gagal memulai ujian")
+							return
+						}
+						running, err := models.CountRunningExams(ctx, tx, exam.CreatedBy, examID)
+						if err == nil && running >= locked {
+							_ = tx.Rollback(ctx)
+							errorResponse(c, http.StatusForbidden,
+								fmt.Sprintf("Batas ujian serentak tercapai. Maksimal %d ujian dapat berjalan bersamaan.", locked))
+							return
+						}
+					}
+
+					if err := models.StartExamTx(ctx, tx, examID); err != nil {
+						log.Printf("start exam tx error: %v", err)
+						errorResponse(c, http.StatusInternalServerError, "Gagal memulai ujian")
+						return
+					}
+					// Saat mulai ujian, gunakan token permanen sebagai active_token awal.
+					// Untuk mode dynamic, token ini baru akan di-rotate/regenerasi setelah interval waktu terlewati.
+					if err := models.UpdateExamActiveTokenTx(ctx, tx, examID, exam.Token); err != nil {
+						log.Printf("start exam: set active token to permanent error: %v", err)
+					}
+					if err := tx.Commit(ctx); err != nil {
+						log.Printf("start commit error: %v", err)
+						errorResponse(c, http.StatusInternalServerError, "Gagal memulai ujian")
+						return
+					}
+					started = true
 				}
 			}
 		}
 
-		if err := models.StartExam(ctx, pool, examID); err != nil {
-			log.Printf("start exam error: %v", err)
-			errorResponse(c, http.StatusInternalServerError, "Gagal memulai ujian")
-			return
-		}
+		if !started {
+			if err := models.StartExam(ctx, pool, examID); err != nil {
+				log.Printf("start exam error: %v", err)
+				errorResponse(c, http.StatusInternalServerError, "Gagal memulai ujian")
+				return
+			}
 
-		// Saat mulai ujian, gunakan token permanen sebagai active_token awal.
-		// Untuk mode dynamic, token ini baru akan di-rotate/regenerasi setelah interval waktu terlewati.
-		if err := models.UpdateExamActiveToken(ctx, pool, examID, exam.Token); err != nil {
-			log.Printf("start exam: set active token to permanent error: %v", err)
+			// Saat mulai ujian, gunakan token permanen sebagai active_token awal.
+			// Untuk mode dynamic, token ini baru akan di-rotate/regenerasi setelah interval waktu terlewati.
+			if err := models.UpdateExamActiveToken(ctx, pool, examID, exam.Token); err != nil {
+				log.Printf("start exam: set active token to permanent error: %v", err)
+			}
 		}
 
 		successMessage(c, "Ujian berhasil dimulai")
@@ -1871,21 +2026,41 @@ func BulkToggle() gin.HandlerFunc {
 
 		// Enforce the concurrent-exam quota for bulk activation: selected exams
 		// that have already been started (exam_started_at set) would become
-		// running once activated, so they count against the owner's quota.
-		if body.Status == "active" && !isSuper && !isOp && len(examIDs) > 0 {
-			counts, err := models.RunningExamCountsAfterActivation(ctx, pool, examIDs)
+		// running once activated, so they count against the owner's quota and —
+		// when the school runs a package — the shared school pool (which
+		// counts EVERY running exam in the instansi, the operator's included).
+		if body.Status == "active" && !isSuper && len(examIDs) > 0 {
+			if !isOp {
+				counts, err := models.RunningExamCountsAfterActivation(ctx, pool, examIDs)
+				if err == nil {
+					for ownerID, after := range counts {
+						owner, err := models.GetUserByID(ctx, pool, ownerID)
+						if err != nil || owner.MaxConcurrentExams <= 0 {
+							continue
+						}
+						// `after > max` (not >=) matches the single-exam ToggleExam
+						// semantics: reaching the limit is allowed, only exceeding it is
+						// rejected.
+						if after > owner.MaxConcurrentExams {
+							errorResponse(c, http.StatusForbidden,
+								fmt.Sprintf("Batas ujian serentak tercapai. Maksimal %d ujian dapat berjalan bersamaan.", owner.MaxConcurrentExams))
+							return
+						}
+					}
+				}
+			}
+			// School pool: applies to EVERY non-super user, the operator
+			// included.
+			countsByInst, err := models.RunningExamCountsAfterActivationByInstansi(ctx, pool, examIDs)
 			if err == nil {
-				for ownerID, after := range counts {
-					owner, err := models.GetUserByID(ctx, pool, ownerID)
-					if err != nil || owner.MaxConcurrentExams <= 0 {
+				for instansi, after := range countsByInst {
+					_, _, poolMaxConcurrent, _, poolActive := schoolPoolQuotaForInstansi(ctx, pool, instansi)
+					if !poolActive || poolMaxConcurrent <= 0 {
 						continue
 					}
-					// `after > max` (not >=) matches the single-exam ToggleExam
-					// semantics: reaching the limit is allowed, only exceeding it is
-					// rejected.
-					if after > owner.MaxConcurrentExams {
+					if after > int(poolMaxConcurrent) {
 						errorResponse(c, http.StatusForbidden,
-							fmt.Sprintf("Batas ujian serentak tercapai. Maksimal %d ujian dapat berjalan bersamaan.", owner.MaxConcurrentExams))
+							fmt.Sprintf("Batas ujian serentak sekolah tercapai. Maksimal %d ujian sekolah dapat berjalan bersamaan.", poolMaxConcurrent))
 						return
 					}
 				}

@@ -2,6 +2,7 @@ package admin
 
 import (
 	"context"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/cookiejar"
@@ -68,6 +69,8 @@ func newSchoolQuotaTestRouter(pool *pgxpool.Pool) (*gin.Engine, *stubR2) {
 	api.POST("/upload", UploadExam())
 	api.POST("/exams/:exam_id/start", StartExam())
 	api.POST("/exams/:exam_id/toggle", ToggleExam())
+	api.POST("/exams/:exam_id/edit", EditExam())
+	api.POST("/exams/bulk-toggle", BulkToggle())
 	return r, stub
 }
 
@@ -126,6 +129,32 @@ func (tc *quotaTestClient) start(t *testing.T, examID int) (int, apiResp) {
 func (tc *quotaTestClient) toggle(t *testing.T, examID int) (int, apiResp) {
 	t.Helper()
 	return postForm(t, tc.client, tc.srv, "/admin/api/exams/"+strconv.Itoa(examID)+"/toggle", nil)
+}
+
+// edit posts an EditExam request (name + replacement PDF) as the
+// currently-logged-in user and returns the HTTP status and raw body.
+func (tc *quotaTestClient) edit(t *testing.T, examID int, newName string, pdf []byte) (int, string) {
+	t.Helper()
+	body, contentType := editExamMultipart(t, newName, pdf, newName+".pdf")
+	req, err := http.NewRequest(http.MethodPost,
+		fmt.Sprintf("%s/admin/api/exams/%d/edit", tc.srv.URL, examID), body)
+	if err != nil {
+		t.Fatalf("new edit request: %v", err)
+	}
+	req.Header.Set("Content-Type", contentType)
+	resp, err := tc.client.Do(req)
+	if err != nil {
+		t.Fatalf("edit request: %v", err)
+	}
+	defer resp.Body.Close()
+	return resp.StatusCode, readAllString(t, resp)
+}
+
+// bulkToggle posts a bulk-toggle request as the currently-logged-in user.
+func (tc *quotaTestClient) bulkToggle(t *testing.T, ids []int, status string) (int, apiResp) {
+	t.Helper()
+	return postJSON(t, tc.client, tc.srv, "/admin/api/exams/bulk-toggle",
+		map[string]interface{}{"ids": ids, "status": status})
 }
 
 func readAllString(t *testing.T, resp *http.Response) string {
@@ -498,5 +527,327 @@ func TestSchoolPoolNotAppliedInPersonalBucket(t *testing.T) {
 	status, body := tc.upload(t, "sub-personal-exam-4", pdf)
 	if status != http.StatusForbidden || !strings.Contains(body, "Batas akun Anda adalah 3 ujian") {
 		t.Fatalf("sub personal 4th upload: status=%d body=%s", status, body)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Bulk activation pool
+// ---------------------------------------------------------------------------
+
+func TestSchoolPoolConcurrentBulkToggleCapped(t *testing.T) {
+	pool := setupVoucherITDB(t)
+
+	op := createSchoolQuotaUser(t, pool, "op-pool-bulk", "SMK Pool Bulk", []string{models.RoleGuru, models.RoleOperator}, 10)
+	sub1 := createSchoolQuotaUser(t, pool, "sub-pool-bulk-1", "SMK Pool Bulk", []string{models.RoleGuru}, 10)
+	sub2 := createSchoolQuotaUser(t, pool, "sub-pool-bulk-2", "SMK Pool Bulk", []string{models.RoleGuru}, 10)
+	// School package: only 1 exam may run at a time across the WHOLE school.
+	plantSchoolRedemption(t, pool, op, 10, 50*1024*1024, 1, 500*1024*1024)
+
+	tc, _ := newQuotaTestClient(t, pool)
+	pdf := schoolTestPDF(64)
+
+	uploadAndGet := func(userID int, name string) int {
+		tc.login(t, userID)
+		status, body := tc.upload(t, name, pdf)
+		if status != http.StatusOK {
+			t.Fatalf("upload %s: status=%d body=%s", name, status, body)
+		}
+		var examID int
+		if err := pool.QueryRow(context.Background(),
+			`SELECT id FROM exams WHERE name = $1 ORDER BY id DESC LIMIT 1`, name).Scan(&examID); err != nil {
+			t.Fatalf("find exam %s: %v", name, err)
+		}
+		return examID
+	}
+	startOrFail := func(userID int, examID int, wantOK bool) {
+		tc.login(t, userID)
+		status, resp := tc.start(t, examID)
+		if wantOK && status != http.StatusOK {
+			t.Fatalf("start exam %d: status=%d resp=%+v", examID, status, resp)
+		}
+		if !wantOK && (status != http.StatusForbidden || !strings.Contains(resp.Body, "Batas ujian serentak sekolah")) {
+			t.Fatalf("start exam %d: status=%d resp=%+v", examID, status, resp)
+		}
+	}
+
+	// A running (1/1 pool), so B cannot start — B stays never-started.
+	examA := uploadAndGet(op, "bulk-a")
+	startOrFail(op, examA, true)
+	examB := uploadAndGet(sub1, "bulk-b")
+	startOrFail(sub1, examB, false)
+
+	// A stopped → C starts (1/1 pool again).
+	tc.login(t, op)
+	if status, resp := tc.toggle(t, examA); status != http.StatusOK {
+		t.Fatalf("toggle A: status=%d resp=%+v", status, resp)
+	}
+	examC := uploadAndGet(sub2, "bulk-c")
+	startOrFail(sub2, examC, true)
+
+	// Bulk-activating A (started-but-inactive) on top of running C would give
+	// the school 2 running exams > 1 → 403. B was never started, so it does
+	// not contribute.
+	tc.login(t, op)
+	status, resp := tc.bulkToggle(t, []int{examA, examB}, "active")
+	if status != http.StatusForbidden || !strings.Contains(resp.Body, "Batas ujian serentak sekolah") {
+		t.Fatalf("bulk activate A+B: status=%d resp=%+v", status, resp)
+	}
+
+	// Stopping C frees the slot: bulk-activating A alone is now allowed
+	// (reaching the limit is allowed, only exceeding it is rejected).
+	tc.login(t, sub2)
+	if status, resp := tc.toggle(t, examC); status != http.StatusOK {
+		t.Fatalf("toggle C: status=%d resp=%+v", status, resp)
+	}
+	tc.login(t, op)
+	status, resp = tc.bulkToggle(t, []int{examA}, "active")
+	if status != http.StatusOK {
+		t.Fatalf("bulk activate A after stop: status=%d resp=%+v", status, resp)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// EditExam (PDF replacement) pool
+// ---------------------------------------------------------------------------
+
+func TestSchoolPoolEditReplacementCapped(t *testing.T) {
+	pool := setupVoucherITDB(t)
+
+	op := createSchoolQuotaUser(t, pool, "op-pool-edit", "SMK Pool Edit", []string{models.RoleGuru, models.RoleOperator}, 10)
+	// 100-byte school PDF limit; applies to the operator too.
+	plantSchoolRedemption(t, pool, op, 10, 100, 10, 500*1024*1024)
+
+	tc, stub := newQuotaTestClient(t, pool)
+
+	tc.login(t, op)
+	if status, _ := tc.upload(t, "edit-exam", schoolTestPDF(64)); status != http.StatusOK {
+		t.Fatalf("initial upload: status=%d", status)
+	}
+	var examID int
+	if err := pool.QueryRow(context.Background(),
+		`SELECT id FROM exams WHERE name = 'edit-exam'`).Scan(&examID); err != nil {
+		t.Fatalf("find exam: %v", err)
+	}
+
+	// Replacement PDF above the school PDF limit → 403 BEFORE any R2 object
+	// is uploaded (the old PDF must stay untouched).
+	uploadsBefore := len(stub.uploads)
+	status, body := tc.edit(t, examID, "edit-exam", schoolTestPDF(200))
+	if status != http.StatusForbidden || !strings.Contains(body, "Ukuran file melebihi batas paket sekolah") {
+		t.Fatalf("edit oversize PDF: status=%d body=%s", status, body)
+	}
+	if len(stub.uploads) != uploadsBefore || len(stub.deletes) != 0 {
+		t.Fatalf("rejected edit must not touch R2: uploads=%v deletes=%v", stub.uploads, stub.deletes)
+	}
+
+	// In-limit replacement works and swaps the R2 object (old deleted after
+	// the new one is committed).
+	if status, body := tc.edit(t, examID, "edit-exam", schoolTestPDF(64)); status != http.StatusOK {
+		t.Fatalf("edit in-limit PDF: status=%d body=%s", status, body)
+	}
+	if len(stub.uploads) != uploadsBefore+1 || len(stub.deletes) != 1 {
+		t.Fatalf("in-limit edit must upload the new object and delete the old: uploads=%v deletes=%v", stub.uploads, stub.deletes)
+	}
+}
+
+// Storage is a DELTA check on replacement: only the growth over the old PDF's
+// bytes counts against the school storage pool.
+func TestSchoolPoolEditStorageDeltaCapped(t *testing.T) {
+	pool := setupVoucherITDB(t)
+
+	op := createSchoolQuotaUser(t, pool, "op-pool-edit-storage", "SMK Pool EditSto", []string{models.RoleGuru, models.RoleOperator}, 10)
+	// 300-byte school storage pool (tiny on purpose); PDF limit generous so
+	// only the storage dimension binds.
+	plantSchoolRedemption(t, pool, op, 10, 1024*1024, 10, 300)
+
+	tc, stub := newQuotaTestClient(t, pool)
+
+	tc.login(t, op)
+	if status, _ := tc.upload(t, "edit-sto-exam", schoolTestPDF(200)); status != http.StatusOK {
+		t.Fatalf("initial upload: status=%d", status)
+	}
+	var examID int
+	if err := pool.QueryRow(context.Background(),
+		`SELECT id FROM exams WHERE name = 'edit-sto-exam'`).Scan(&examID); err != nil {
+		t.Fatalf("find exam: %v", err)
+	}
+
+	// Shrinking is always fine (200 → 150 frees 50 bytes).
+	if status, body := tc.edit(t, examID, "edit-sto-exam", schoolTestPDF(150)); status != http.StatusOK {
+		t.Fatalf("edit smaller: status=%d body=%s", status, body)
+	}
+	// Growing up to the cap exactly is allowed (150 → 300 fills the pool).
+	if status, body := tc.edit(t, examID, "edit-sto-exam", schoolTestPDF(300)); status != http.StatusOK {
+		t.Fatalf("edit to pool cap: status=%d body=%s", status, body)
+	}
+	// Growing past it → 403 school storage, R2 objects untouched.
+	uploadsBefore, deletesBefore := len(stub.uploads), len(stub.deletes)
+	status, body := tc.edit(t, examID, "edit-sto-exam", schoolTestPDF(301))
+	if status != http.StatusForbidden || !strings.Contains(body, "Batas kapasitas storage sekolah") {
+		t.Fatalf("edit storage overflow: status=%d body=%s", status, body)
+	}
+	if len(stub.uploads) != uploadsBefore || len(stub.deletes) != deletesBefore {
+		t.Fatalf("storage rejection must not touch R2: uploads=%v deletes=%v", stub.uploads, stub.deletes)
+	}
+}
+
+// The account's own limits still bind on replacement when no school pool
+// constrains that dimension harder.
+func TestSchoolPoolEditPerAccountPDFLimitStillApplies(t *testing.T) {
+	pool := setupVoucherITDB(t)
+	ctx := context.Background()
+
+	op := createSchoolQuotaUser(t, pool, "op-pool-edit2", "SMK Pool Edit2", []string{models.RoleGuru, models.RoleOperator}, 10)
+	plantSchoolRedemption(t, pool, op, 10, 1024*1024, 10, 50*1024*1024)
+
+	// Sub-account with a tiny own PDF limit (100 bytes).
+	sub, err := models.CreateUser(ctx, pool, &models.AdminUser{
+		Username: "sub-pool-edit2", Name: "sub-pool-edit2", PasswordHash: "x",
+		Status: models.UserStatusActive, Instansi: "SMK Pool Edit2",
+		Role: models.SerializeRoles([]string{models.RoleGuru}),
+		MaxExams: 10, MaxPDFSize: 100, MaxConcurrentExams: 2,
+		MaxStorageSize: 50 * 1024 * 1024, Package: "free",
+	})
+	if err != nil {
+		t.Fatalf("create sub: %v", err)
+	}
+
+	tc, _ := newQuotaTestClient(t, pool)
+
+	tc.login(t, sub.ID)
+	if status, _ := tc.upload(t, "edit2-exam", schoolTestPDF(64)); status != http.StatusOK {
+		t.Fatalf("initial upload: status=%d", status)
+	}
+	var examID int
+	if err := pool.QueryRow(ctx, `SELECT id FROM exams WHERE name = 'edit2-exam'`).Scan(&examID); err != nil {
+		t.Fatalf("find exam: %v", err)
+	}
+
+	// The school pool allows the size, the account's own PDF limit rejects it.
+	status, body := tc.edit(t, examID, "edit2-exam", schoolTestPDF(150))
+	if status != http.StatusForbidden || !strings.Contains(body, "Ukuran file melebihi batas akun Anda") {
+		t.Fatalf("edit above own PDF limit: status=%d body=%s", status, body)
+	}
+}
+
+// The account's own storage limit still binds on replacement (delta check).
+func TestSchoolPoolEditPerAccountStorageLimitStillApplies(t *testing.T) {
+	pool := setupVoucherITDB(t)
+	ctx := context.Background()
+
+	op := createSchoolQuotaUser(t, pool, "op-pool-edit3", "SMK Pool Edit3", []string{models.RoleGuru, models.RoleOperator}, 10)
+	plantSchoolRedemption(t, pool, op, 10, 1024*1024, 10, 50*1024*1024)
+
+	// Sub-account with a tiny own storage limit (300 bytes).
+	sub, err := models.CreateUser(ctx, pool, &models.AdminUser{
+		Username: "sub-pool-edit3", Name: "sub-pool-edit3", PasswordHash: "x",
+		Status: models.UserStatusActive, Instansi: "SMK Pool Edit3",
+		Role: models.SerializeRoles([]string{models.RoleGuru}),
+		MaxExams: 10, MaxPDFSize: 1024 * 1024, MaxConcurrentExams: 2,
+		MaxStorageSize: 300, Package: "free",
+	})
+	if err != nil {
+		t.Fatalf("create sub: %v", err)
+	}
+
+	tc, _ := newQuotaTestClient(t, pool)
+
+	tc.login(t, sub.ID)
+	if status, _ := tc.upload(t, "edit3-exam", schoolTestPDF(200)); status != http.StatusOK {
+		t.Fatalf("initial upload: status=%d", status)
+	}
+	var examID int
+	if err := pool.QueryRow(ctx, `SELECT id FROM exams WHERE name = 'edit3-exam'`).Scan(&examID); err != nil {
+		t.Fatalf("find exam: %v", err)
+	}
+
+	// 200 → 301 grows past the own 300-byte cap → 403 account storage.
+	status, body := tc.edit(t, examID, "edit3-exam", schoolTestPDF(301))
+	if status != http.StatusForbidden || !strings.Contains(body, "Batas kapasitas storage tercapai. Batas akun Anda adalah 0.0 MB") {
+		t.Fatalf("edit above own storage limit: status=%d body=%s", status, body)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Atomic concurrent enforcement
+// ---------------------------------------------------------------------------
+
+// TestSchoolPoolConcurrentStartRace fires 4 simultaneous starts at a
+// 1-concurrent-slot school pool. The FOR UPDATE pool lock serializes them, so
+// EXACTLY one start may win; without the atomic path two concurrent starts
+// could both count the same free slot and both succeed.
+func TestSchoolPoolConcurrentStartRace(t *testing.T) {
+	pool := setupVoucherITDB(t)
+	ctx := context.Background()
+
+	op := createSchoolQuotaUser(t, pool, "op-pool-race", "SMK Pool Race", []string{models.RoleGuru, models.RoleOperator}, 10)
+	plantSchoolRedemption(t, pool, op, 10, 50*1024*1024, 1, 500*1024*1024)
+
+	subIDs := make([]int, 4)
+	for i := range subIDs {
+		subIDs[i] = createSchoolQuotaUser(t, pool, fmt.Sprintf("sub-pool-race-%d", i), "SMK Pool Race", []string{models.RoleGuru}, 10)
+	}
+
+	pdf := schoolTestPDF(64)
+	type runner struct {
+		tc     *quotaTestClient
+		examID int
+		req    *http.Request
+	}
+	runners := make([]runner, 4)
+	for i := 0; i < 4; i++ {
+		tc, _ := newQuotaTestClient(t, pool)
+		tc.login(t, subIDs[i])
+		status, body := tc.upload(t, fmt.Sprintf("race-%d", i), pdf)
+		if status != http.StatusOK {
+			t.Fatalf("race upload %d: status=%d body=%s", i, status, body)
+		}
+		var examID int
+		if err := pool.QueryRow(ctx,
+			`SELECT id FROM exams WHERE name = $1`, fmt.Sprintf("race-%d", i)).Scan(&examID); err != nil {
+			t.Fatalf("find race exam %d: %v", i, err)
+		}
+		req, err := http.NewRequest(http.MethodPost,
+			tc.srv.URL+"/admin/api/exams/"+strconv.Itoa(examID)+"/start", nil)
+		if err != nil {
+			t.Fatalf("new start request %d: %v", i, err)
+		}
+		runners[i] = runner{tc: tc, examID: examID, req: req}
+	}
+
+	start := make(chan struct{})
+	results := make(chan int, len(runners))
+	for i := range runners {
+		go func(r *runner) {
+			<-start
+			resp, err := r.tc.client.Do(r.req)
+			if err != nil {
+				results <- -1
+				return
+			}
+			resp.Body.Close()
+			results <- resp.StatusCode
+		}(&runners[i])
+	}
+	close(start)
+
+	ok, rejected := 0, 0
+	for range runners {
+		switch code := <-results; code {
+		case http.StatusOK:
+			ok++
+		case http.StatusForbidden:
+			rejected++
+		default:
+			t.Fatalf("unexpected start status %d", code)
+		}
+	}
+	if ok != 1 || rejected != 3 {
+		t.Fatalf("concurrent starts: want exactly 1 success + 3 rejects, got %d + %d", ok, rejected)
+	}
+
+	// The DB agrees: exactly one exam in the school is running.
+	if n, err := models.CountRunningExamsByInstansi(ctx, pool, "SMK Pool Race", 0); err != nil || n != 1 {
+		t.Fatalf("running exams after race: got %d err=%v, want 1", n, err)
 	}
 }
