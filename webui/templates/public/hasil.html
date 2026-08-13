@@ -248,6 +248,14 @@
  let pagination = { page: 1, total: 0, total_pages: 1 };
  let statsData = null;
  let searchTimer = null;
+ // Anti-overlap guard: never start a second results fetch while one is still
+ // in flight — a slow request plus a new search/pagination action would
+ // otherwise race and let an older response overwrite a newer one. A call
+ // that arrives mid-flight is remembered once and re-run after the current
+ // one settles, so the user's latest action (search, page click) always
+ // lands; currentPage/searchQuery are read fresh at re-run time.
+ let resultsLoading = false;
+ let resultsRerunPending = false;
 
  // ===== Init =====
  document.addEventListener('DOMContentLoaded', () => {
@@ -258,7 +266,9 @@
 
  // ===== API: Load Results (server-side pagination + search) =====
  async function loadResults() {
- try {
+  if (resultsLoading) { resultsRerunPending = true; return; }
+  resultsLoading = true;
+  try {
   const params = new URLSearchParams();
   params.set('per_page', String(PER_PAGE));
   params.set('page', String(currentPage));
@@ -287,7 +297,12 @@
   identityFieldsData = data.identity_fields || [];
   statsData = data.stats || null;
   pagination = data.pagination || { page: currentPage, total: submissionsData.length, total_pages: 1 };
-  currentPage = pagination.page || 1;
+  // A newer action may have queued a re-run while this (older) response was
+  // still in flight — don't let it overwrite the user's latest page choice;
+  // the re-run fetches with the fresh currentPage/searchQuery instead.
+  if (!resultsRerunPending) {
+   currentPage = pagination.page || 1;
+  }
 
   document.getElementById('loadingIndicator').style.display = 'none';
 
@@ -310,15 +325,21 @@
   if (questionsData.length > 0 && showAnswersFromServer) {
    document.getElementById('tabNav').style.display = 'flex';
    document.getElementById('tabKeys').style.display = 'flex';
-  }
-
- } catch (err) {
+  }  } catch (err) {
   console.error('Error loading results:', err);
   showApiErrorToast(null, 'Gagal memuat data hasil ujian');
   document.getElementById('loadingIndicator').innerHTML =
   '<div class="empty-state"><div class="empty-icon" aria-hidden="true"><svg class="icon-svg" style="width:40px;height:40px;margin-bottom:16px;opacity:0.4;"><use href="#hi-exclamation"/></svg></div><p>Gagal memuat data hasil ujian. Periksa koneksi atau coba lagi nanti.</p>' +
   '<button class="back-nav" onclick="location.reload()" style="margin-top:16px;display:inline-flex;"><svg width="14" height="14" aria-hidden="true"><use href="#hi-arrow-path"/></svg> Coba Lagi</button></div>';
- }
+  } finally {
+  resultsLoading = false;
+  if (resultsRerunPending) {
+   resultsRerunPending = false;
+   // Re-run with the CURRENT (latest) currentPage/searchQuery — the user's
+   // newest action wins, even if this older response already rendered.
+   loadResults();
+  }
+  }
  }
 
  // ===== Render Header Stats (server aggregate) =====

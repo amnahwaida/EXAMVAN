@@ -432,6 +432,51 @@ func PengawasExamSubmissions() gin.HandlerFunc {
 			rows.Close()
 		}
 
+		// Batch-fetch per-device access logs and submission history in two
+		// queries instead of one per submission row (N+1). Both are grouped by
+		// MAC address in Go; each group stays chronologically ordered because
+		// the SQL orders by created_at ASC globally, which preserves per-group
+		// order. Empty MACs are skipped (they have no logs/history), and
+		// duplicates are deduped to keep the IN-list small.
+		macs := make([]string, 0, len(result.Submissions))
+		seenMAC := make(map[string]bool)
+		for _, sub := range result.Submissions {
+			if sub.MACAddress == "" || seenMAC[sub.MACAddress] {
+				continue
+			}
+			seenMAC[sub.MACAddress] = true
+			macs = append(macs, sub.MACAddress)
+		}
+		accessLogsByMAC := fetchStudentAccessLogsBatch(ctx, pool, examID, macs)
+		historyByMAC := fetchSubmissionHistoryBatch(ctx, pool, examID, macs)
+
+		// Batch-fetch Redis heartbeat presence (is_online) for every device in
+		// one pipeline round-trip instead of one Exists call per row — the last
+		// N+1 in this handler. A device whose key is missing/expired (or a
+		// failed lookup) simply reads as offline, matching the old per-row
+		// behaviour; with no Redis configured every device stays offline.
+		onlineByMAC := make(map[string]bool)
+		if rdb, exists := c.Get("redis"); exists && rdb != nil {
+			if redisClient, ok := rdb.(*redis.Client); ok && len(macs) > 0 {
+				pipe := redisClient.Pipeline()
+				cmds := make([]*redis.IntCmd, len(macs))
+				for i, mac := range macs {
+					cmds[i] = pipe.Exists(ctx, fmt.Sprintf("heartbeat:%d:%s", examID, mac))
+				}
+				if _, err := pipe.Exec(ctx); err != nil {
+					// Per-command errors are still readable below; a broken
+					// pipeline just means everyone shows offline for this
+					// refresh (same as the old per-key check failing).
+					log.Printf("batch heartbeat exists error: %v", err)
+				}
+				for i, mac := range macs {
+					if cmds[i].Err() == nil && cmds[i].Val() > 0 {
+						onlineByMAC[mac] = true
+					}
+				}
+			}
+		}
+
 		subsData := make([]subItem, 0, len(result.Submissions))
 		for _, sub := range result.Submissions {
 			identityData := make(map[string]interface{})
@@ -439,8 +484,7 @@ func PengawasExamSubmissions() gin.HandlerFunc {
 				json.Unmarshal([]byte(*sub.IdentityData), &identityData)
 			}
 
-			var accessLogs []accessLogEntry
-			accessLogs = fetchStudentAccessLogs(ctx, pool, examID, sub.MACAddress)
+			accessLogs := accessLogsByMAC[sub.MACAddress]
 
 			firstAccess := ""
 			lastAccess := sub.CreatedAt.Format("2006-01-02T15:04:05Z")
@@ -459,14 +503,7 @@ func PengawasExamSubmissions() gin.HandlerFunc {
 
 			submitted := sub.AnswersJSON != nil && *sub.AnswersJSON != ""
 
-			isOnline := false
-			if rdb, exists := c.Get("redis"); exists && rdb != nil {
-				if redisClient, ok := rdb.(*redis.Client); ok {
-					key := fmt.Sprintf("heartbeat:%d:%s", examID, sub.MACAddress)
-					existsVal, err := redisClient.Exists(ctx, key).Result()
-					isOnline = (err == nil && existsVal > 0)
-				}
-			}
+			isOnline := onlineByMAC[sub.MACAddress]
 
 			attKey := sub.MACAddress
 			if attKey == "" {
@@ -477,21 +514,8 @@ func PengawasExamSubmissions() gin.HandlerFunc {
 				attCount = 1
 			}
 
-			// Fetch submission history for this MAC Address
-			var subHistory []models.Submission
-			histRows, histErr := pool.Query(ctx, 
-				"SELECT id, start_time, created_at, answers_json, score FROM submissions WHERE exam_id = $1 AND mac_address = $2 ORDER BY created_at ASC", 
-				examID, sub.MACAddress)
-			if histErr == nil {
-				for histRows.Next() {
-					var h models.Submission
-					var created time.Time
-					histRows.Scan(&h.ID, &h.StartTime, &created, &h.AnswersJSON, &h.Score)
-					h.CreatedAt = created
-					subHistory = append(subHistory, h)
-				}
-				histRows.Close()
-			}
+			// Submission history for this MAC Address (batch-fetched above).
+			subHistory := historyByMAC[sub.MACAddress]
 
 			subsData = append(subsData, subItem{
 				ID:                sub.ID,
@@ -527,30 +551,36 @@ func PengawasExamSubmissions() gin.HandlerFunc {
 	}
 }
 
-func fetchStudentAccessLogs(ctx context.Context, pool *pgxpool.Pool, examID int, macAddress string) []accessLogEntry {
-	if macAddress == "" {
-		return nil
+// fetchStudentAccessLogsBatch loads the access logs for many devices in a
+// single query and groups them by student_identifier (MAC). Rows are ordered
+// by created_at ASC in SQL, so each per-device group keeps its chronological
+// order. Replaces the previous per-row query (N+1) in the submissions list.
+func fetchStudentAccessLogsBatch(ctx context.Context, pool *pgxpool.Pool, examID int, macs []string) map[string][]accessLogEntry {
+	out := make(map[string][]accessLogEntry)
+	if len(macs) == 0 {
+		return out
 	}
 
 	rows, err := pool.Query(ctx,
-		`SELECT event, ip_address, device_info, created_at,
+		`SELECT student_identifier, event, ip_address, device_info, created_at,
 		 student_name, exam_number, student_class, identity_data
 		 FROM student_access_logs
-		 WHERE exam_id = $1 AND student_identifier = $2
-		 ORDER BY created_at ASC`, examID, macAddress)
+		 WHERE exam_id = $1 AND student_identifier = ANY($2)
+		 ORDER BY created_at ASC`, examID, macs)
 	if err != nil {
-		return nil
+		log.Printf("batch access logs query error: %v", err)
+		return out
 	}
 	defer rows.Close()
 
-	var logs []accessLogEntry
 	for rows.Next() {
 		var entry accessLogEntry
+		var mac string
 		var createdAt time.Time
 		var identityDataStr *string
-		if err := rows.Scan(&entry.Event, &entry.IPAddress, &entry.DeviceInfo,
+		if err := rows.Scan(&mac, &entry.Event, &entry.IPAddress, &entry.DeviceInfo,
 			&createdAt, &entry.StudentName, &entry.ExamNumber, &entry.StudentClass, &identityDataStr); err != nil {
-			log.Printf("scan error: %v", err)
+			log.Printf("access logs scan error: %v", err)
 			continue
 		}
 		entry.CreatedAt = createdAt.Format(time.RFC3339)
@@ -560,14 +590,52 @@ func fetchStudentAccessLogs(ctx context.Context, pool *pgxpool.Pool, examID int,
 				entry.IdentityData = idData
 			}
 		}
-		logs = append(logs, entry)
+		out[mac] = append(out[mac], entry)
 	}
-	rows.Close()
 	if err := rows.Err(); err != nil {
-		log.Printf("rows iteration error: %v", err)
+		log.Printf("access logs rows iteration error: %v", err)
 	}
 
-	return logs
+	return out
+}
+
+// fetchSubmissionHistoryBatch loads the full submission history (every attempt
+// — open rows and completed submissions) for many devices in a single query,
+// grouped by mac_address in chronological order. Replaces the previous per-row
+// query (N+1) in the submissions list.
+func fetchSubmissionHistoryBatch(ctx context.Context, pool *pgxpool.Pool, examID int, macs []string) map[string][]models.Submission {
+	out := make(map[string][]models.Submission)
+	if len(macs) == 0 {
+		return out
+	}
+
+	rows, err := pool.Query(ctx,
+		`SELECT mac_address, id, start_time, created_at, answers_json, score
+		 FROM submissions
+		 WHERE exam_id = $1 AND mac_address = ANY($2)
+		 ORDER BY created_at ASC`, examID, macs)
+	if err != nil {
+		log.Printf("batch submission history query error: %v", err)
+		return out
+	}
+	defer rows.Close()
+
+	for rows.Next() {
+		var h models.Submission
+		var mac string
+		var created time.Time
+		if err := rows.Scan(&mac, &h.ID, &h.StartTime, &created, &h.AnswersJSON, &h.Score); err != nil {
+			log.Printf("submission history scan error: %v", err)
+			continue
+		}
+		h.CreatedAt = created
+		out[mac] = append(out[mac], h)
+	}
+	if err := rows.Err(); err != nil {
+		log.Printf("submission history rows iteration error: %v", err)
+	}
+
+	return out
 }
 
 func fetchStudentAccessLogsByExamNumber(ctx context.Context, pool *pgxpool.Pool, examID int, examNumber string) []accessLogEntry {
@@ -625,12 +693,24 @@ func GetPendingApprovals() gin.HandlerFunc {
 
 		// Exam-scoped authorization (operators limited to their instansi).
 		userID := getCurrentUserID(c)
-		if _, err := models.GetExamByID(ctx, pool, examID); err != nil {
+		exam, examErr := models.GetExamByID(ctx, pool, examID)
+		if examErr != nil {
 			errorResponse(c, http.StatusNotFound, "Ujian tidak ditemukan")
 			return
 		}
 		if !models.UserCanAccessExam(ctx, pool, userID, isSuperAdmin(c), examID) {
 			errorResponse(c, http.StatusForbidden, "Akses ditolak: Anda tidak memiliki wewenang untuk mengawasi ujian ini")
+			return
+		}
+		// A queue only makes sense while the exam is live: RequestApproval no
+		// longer adds rows to a stopped/ended exam, so a read here would only
+		// serve dead rows. Same gates as the write endpoints for consistency.
+		if !exam.IsActive() {
+			errorResponse(c, http.StatusBadRequest, "Ujian tidak aktif")
+			return
+		}
+		if models.ExamScheduleEnded(&exam, time.Now().UTC()) {
+			errorResponse(c, http.StatusBadRequest, "Waktu ujian telah berakhir")
 			return
 		}
 
@@ -730,12 +810,28 @@ func SetApprovalStatus() gin.HandlerFunc {
 		// Approving/rejecting devices is part of the pengawas role, so a valid
 		// pengawas/owner/delegate/in-instansi-operator/super may act.
 		userID := getCurrentUserID(c)
-		if _, err := models.GetExamByID(ctx, pool, examID); err != nil {
+		exam, examErr := models.GetExamByID(ctx, pool, examID)
+		if examErr != nil {
 			errorResponse(c, http.StatusNotFound, "Ujian tidak ditemukan")
 			return
 		}
 		if !models.UserCanAccessExam(ctx, pool, userID, isSuperAdmin(c), examID) {
 			errorResponse(c, http.StatusForbidden, "Akses ditolak: Anda tidak memiliki wewenang untuk mengawasi ujian ini")
+			return
+		}
+		// Decisions only make sense while the exam is running: approving or
+		// revoking a device for a stopped exam would write an audit row (and
+		// possibly a monitoring row) that nobody can act on.
+		if !exam.IsActive() {
+			errorResponse(c, http.StatusBadRequest, "Ujian tidak aktif — keputusan perangkat tidak dapat diubah")
+			return
+		}
+		// Same for an exam whose schedule has ended (end_time + grace) — the
+		// public gates already refuse new joins/submits, so a decision here
+		// would only write a trail nobody can act on. Same cutoff as the
+		// public join/submit gates (models.ExamScheduleEnded).
+		if models.ExamScheduleEnded(&exam, time.Now().UTC()) {
+			errorResponse(c, http.StatusBadRequest, "Waktu ujian telah berakhir — keputusan perangkat tidak dapat diubah")
 			return
 		}
 
@@ -871,12 +967,26 @@ func SetAutoApprove() gin.HandlerFunc {
 
 		// Exam-scoped authorization, same as the approvals endpoints.
 		userID := getCurrentUserID(c)
-		if _, err := models.GetExamByID(ctx, pool, examID); err != nil {
+		exam, examErr := models.GetExamByID(ctx, pool, examID)
+		if examErr != nil {
 			errorResponse(c, http.StatusNotFound, "Ujian tidak ditemukan")
 			return
 		}
 		if !models.UserCanAccessExam(ctx, pool, userID, isSuperAdmin(c), examID) {
 			errorResponse(c, http.StatusForbidden, "Akses ditolak: Anda tidak memiliki wewenang untuk mengawasi ujian ini")
+			return
+		}
+		// Toggling auto-approve only matters while the exam is live: the flag
+		// does nothing on a stopped/ended exam (RequestApproval refuses to
+		// apply it there), so reject the toggle instead of writing a flag and
+		// an audit row nobody can act on. Same gates as the other approval
+		// endpoints.
+		if !exam.IsActive() {
+			errorResponse(c, http.StatusBadRequest, "Ujian tidak aktif")
+			return
+		}
+		if models.ExamScheduleEnded(&exam, time.Now().UTC()) {
+			errorResponse(c, http.StatusBadRequest, "Waktu ujian telah berakhir")
 			return
 		}
 

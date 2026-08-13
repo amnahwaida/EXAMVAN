@@ -1181,10 +1181,22 @@ function stopExamPengawasDetail(examId) {
     });
 }
 
+// Anti-overlap guard: never start a new approvals fetch while one is still in
+// flight — on a slow link the 5s interval (or a manual refresh) would otherwise
+// stack requests and let an older response overwrite a newer one. A call that
+// arrives mid-flight is remembered once and re-run after the current one
+// settles, so user actions (manual refresh, post-decision reload) are never
+// silently dropped.
+var approvalLoading = false;
+var approvalRerunPending = false;
+
 function loadApprovals() {
     var tbody = document.getElementById('approvalBody');
     var section = document.getElementById('approvalSection');
     if (!tbody || !section) return;
+
+    if (approvalLoading) { approvalRerunPending = true; return; }
+    approvalLoading = true;
 
     // Paginated: the server returns at most `limit` oldest pending rows; a
     // spam-flooded queue stays responsive instead of dumping every row here.
@@ -1201,6 +1213,14 @@ function loadApprovals() {
                 }
             }
             if (!res || !res.success) {
+                // An exam that is no longer live (stopped/ended) rejects the
+                // queue read — show a calm "closed" state instead of spamming
+                // an error toast from the 5s poll.
+                var gateMsg = (res && res.message) || '';
+                if (gateMsg.indexOf('Ujian tidak aktif') === 0 || gateMsg.indexOf('Waktu ujian telah berakhir') === 0) {
+                    tbody.innerHTML = '<tr><td colspan="5" class="pd-table-empty" style="color:var(--color-text-muted);">Antrean izin ditutup — ujian tidak aktif atau telah berakhir.</td></tr>';
+                    return;
+                }
                 // Gagal memuat antrean — jangan samarkan sebagai antrean kosong.
                 showToast((res && res.message) || 'Gagal memuat antrean izin perangkat', 'error');
                 tbody.innerHTML = '<tr><td colspan="5" class="pd-table-empty" style="color:#fca5a5;">Gagal memuat antrean. Coba lagi.</td></tr>';
@@ -1256,6 +1276,13 @@ function loadApprovals() {
             if (tbody && /Belum ada antrean|Memuat/.test(tbody.textContent)) {
                 tbody.innerHTML = '<tr><td colspan="5" class="pd-table-empty" style="color:#fca5a5;">Gagal memuat antrean — mencoba lagi otomatis...</td></tr>';
             }
+        })
+        .finally(function() {
+            approvalLoading = false;
+            if (approvalRerunPending) {
+                approvalRerunPending = false;
+                loadApprovals();
+            }
         });
 }
 
@@ -1299,10 +1326,23 @@ function markUpdated() {
     el.textContent = 'Diperbarui ' + pad(d.getHours()) + ':' + pad(d.getMinutes()) + ':' + pad(d.getSeconds());
 }
 
+// Anti-overlap guard for loadDetail: same rationale as loadApprovals — the
+// 12s silent refresh must not pile up requests (and out-of-order responses)
+// when the network is slow. SUB_PAGE is updated before the guard so a
+// pagination click that arrives mid-flight is honored by the re-run, and the
+// table is only cleared for a call that actually starts a fetch (a queued call
+// never wipes the current rows).
+var detailLoading = false;
+var detailRerunPending = false;
+
 function loadDetail(page, silent) {
     var tbody = document.getElementById('submissionBody');
     if (!tbody) return;
     if (page !== undefined) SUB_PAGE = page;
+
+    if (detailLoading) { detailRerunPending = true; return; }
+    detailLoading = true;
+
     // On silent auto-refresh, keep the current rows in place (no loading flash).
     if (!silent) tbody.innerHTML = '<tr><td colspan="8" class="pd-table-empty">Memuat data...</td></tr>';
 
@@ -1367,6 +1407,16 @@ function loadDetail(page, silent) {
         })
         .catch(function() {
             tbody.innerHTML = '<tr><td colspan="8" class="pd-table-empty" style="color:#fca5a5;">Gagal menghubungi server</td></tr>';
+        })
+        .finally(function() {
+            detailLoading = false;
+            if (detailRerunPending) {
+                detailRerunPending = false;
+                // Re-run silently: DOM params (page/filter/search) are read
+                // fresh at call time, and skipping the loading flash avoids
+                // flicker during back-to-back refreshes on a slow link.
+                loadDetail(SUB_PAGE, true);
+            }
         });
 }
 

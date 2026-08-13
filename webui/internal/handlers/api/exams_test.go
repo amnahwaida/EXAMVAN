@@ -273,7 +273,7 @@ func TestExamByTokenNotStarted(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
-// Unit tests: examScheduleEnded (Fix #3 — end_time enforcement)
+// Unit tests: models.ExamScheduleEnded (Fix #3 — end_time enforcement)
 // ---------------------------------------------------------------------------
 
 // TestExamScheduleEnded covers the end_time window logic: a nil end_time means
@@ -324,8 +324,8 @@ func TestExamScheduleEnded(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			exam := &models.Exam{EndTime: tc.end}
-			if got := examScheduleEnded(exam, tc.now); got != tc.wantEnd {
-				t.Errorf("examScheduleEnded(end=%v) = %v, want %v", tc.end, got, tc.wantEnd)
+			if got := models.ExamScheduleEnded(exam, tc.now); got != tc.wantEnd {
+				t.Errorf("ExamScheduleEnded(end=%v) = %v, want %v", tc.end, got, tc.wantEnd)
 			}
 		})
 	}

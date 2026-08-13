@@ -486,12 +486,25 @@ function initKeyboardShortcuts() {
 // ===== Auto-refresh Dashboard (AJAX-based, no full page reload) =====
 let autoRefreshInterval = null;
 let lastUserActivity = Date.now();
+// In-flight guard: never start a second stats fetch while one is still
+// running — the 30s interval (or the page-init call) would otherwise stack
+// requests on a slow link and let an older response overwrite a newer one.
+// A skipped tick is simply picked up by the next interval: a stats refresh is
+// background work with no user action to preserve, so no requeue is needed.
+let statsRefreshInFlight = false;
 
 function onUserActivity() {
     lastUserActivity = Date.now();
 }
 
 async function refreshDashboardStats() {
+    if (statsRefreshInFlight) return;
+    // Guard defensif: hanya halaman dengan #statsGrid yang punya kartu statistik.
+    // Tanpa ini, interval startAutoRefresh (30s) di halaman admin lain akan
+    // fetch /admin/api/stats secara sia-sia (dan berpotensi menimpa angka kartu
+    // yang sumber datanya berbeda, seperti "Ujian Diawasi" di pengawas.html).
+    if (!document.getElementById('statsGrid')) return;
+    statsRefreshInFlight = true;
     try {
         const resp = await apiFetch('/admin/api/stats');
         const data = await resp.json();
@@ -500,12 +513,14 @@ async function refreshDashboardStats() {
         }
     } catch (e) {
         // Silent fail — don't disrupt the user
-        console.debug('Dashboard auto-refresh failed (expected on non-dashboard pages)');
+        console.debug('Dashboard auto-refresh failed');
         // Fallback: jika skeleton masih terlihat, reload untuk tampilkan data dari server
         const skeleton = document.querySelector('.skeleton-card');
         if (skeleton && document.getElementById('statsGrid')) {
             setTimeout(() => location.reload(), 3000);
         }
+    } finally {
+        statsRefreshInFlight = false;
     }
 }
 

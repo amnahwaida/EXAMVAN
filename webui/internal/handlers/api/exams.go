@@ -402,18 +402,35 @@ func RequestApproval() gin.HandlerFunc {
 		//
 		// Only effective while the exam is live — a request against a dormant
 		// exam still lands in the pending queue.
-		exam, examErr := models.GetExamByID(ctx, pool, req.ExamID)
-		if examErr != nil {
-			if examErr == pgx.ErrNoRows {
-				errorResponse(c, http.StatusNotFound, "Ujian tidak ditemukan")
-				return
-			}
-			log.Printf("request approval exam lookup error: %v", examErr)
-			errorResponse(c, http.StatusInternalServerError, "Gagal memproses persetujuan")
+	exam, examErr := models.GetExamByID(ctx, pool, req.ExamID)
+	if examErr != nil {
+		if examErr == pgx.ErrNoRows {
+			errorResponse(c, http.StatusNotFound, "Ujian tidak ditemukan")
 			return
 		}
+		log.Printf("request approval exam lookup error: %v", examErr)
+		errorResponse(c, http.StatusInternalServerError, "Gagal memproses persetujuan")
+		return
+	}
 
-		// --- Per-exam rate limit (anti-spam) ---
+	// Only live exams accept approval requests. A request against an inactive
+	// exam would otherwise sit in the pending queue forever (auto-approve
+	// already requires the exam to be live), bloating the queue and the
+	// monitoring page with rows nobody can act on — the exam was stopped, so
+	// reject it outright. Mirrors the join gate in ExamByToken.
+	if !exam.IsActive() {
+		errorResponse(c, http.StatusForbidden, "Ujian tidak aktif")
+		return
+	}
+	// Same for an exam whose schedule has ended: a queued request would just
+	// sit forever (auto-approve already refuses to fire past end_time+grace).
+	// Mirrors the join/submit gate in ExamByToken/SubmitExam.
+	if models.ExamScheduleEnded(&exam, time.Now().UTC()) {
+		errorResponse(c, http.StatusForbidden, "Waktu ujian telah berakhir")
+		return
+	}
+
+	// --- Per-exam rate limit (anti-spam) ---
 		// A global per-exam bucket in Redis catches distributed floods that
 		// defeat the per-IP middleware limit. Placed BEFORE the token check so
 		// a wrong-token brute-force flood also consumes this shared bucket
@@ -456,7 +473,7 @@ func RequestApproval() gin.HandlerFunc {
 		// already reached — then the request falls back to the pending queue
 		// so a leaked token cannot mint unlimited approved devices.
 		autoApprove := exam.AutoApprove && exam.IsActive() &&
-			exam.ExamStartedAt != nil && !examScheduleEnded(&exam, time.Now().UTC())
+			exam.ExamStartedAt != nil && !models.ExamScheduleEnded(&exam, time.Now().UTC())
 		if autoApprove {
 			approvalCap := models.GetSaasSettingInt(ctx, pool,
 				models.SettingMaxApprovalsPerExam, defaultMaxApprovalsPerExam)
@@ -565,7 +582,7 @@ func ExamByToken() gin.HandlerFunc {
 			errorResponse(c, http.StatusForbidden, "Ujian belum dimulai oleh pengawas")
 			return
 		}
-		if examScheduleEnded(&exam, time.Now().UTC()) {
+		if models.ExamScheduleEnded(&exam, time.Now().UTC()) {
 			errorResponse(c, http.StatusForbidden, "Waktu ujian telah berakhir")
 			return
 		}
@@ -664,7 +681,7 @@ func ExamPDF() gin.HandlerFunc {
 			errorResponse(c, http.StatusNotFound, "Ujian tidak ditemukan")
 			return
 		}
-		if examScheduleEnded(&exam, time.Now().UTC()) {
+		if models.ExamScheduleEnded(&exam, time.Now().UTC()) {
 			errorResponse(c, http.StatusForbidden, "Waktu ujian telah berakhir")
 			return
 		}
@@ -818,7 +835,7 @@ func SubmitExam() gin.HandlerFunc {
 			errorResponse(c, http.StatusNotFound, "Ujian tidak ditemukan")
 			return
 		}
-		if examScheduleEnded(&exam, time.Now().UTC()) {
+		if models.ExamScheduleEnded(&exam, time.Now().UTC()) {
 			errorResponse(c, http.StatusForbidden, "Waktu ujian telah berakhir")
 			return
 		}
@@ -1009,25 +1026,6 @@ func sanitizeMAC(raw string) string {
 		return "unknown"
 	}
 	return s
-}
-
-// scheduleGraceEnd is how long after end_time a submission is still accepted.
-// The Android app auto-submits right at the deadline, and a borderline request
-// may arrive a few seconds late over a slow link — a small grace window keeps
-// that legitimate submit from being dropped while still enforcing the hard
-// cutoff for anyone who tries to keep working well past the deadline.
-const scheduleGraceEnd = 60 * time.Second
-
-// examScheduleEnded reports whether the exam's scheduled end_time has passed
-// (plus the submission grace window). A nil end_time means no schedule limit is
-// set — the exam is governed purely by manual start/stop — so this returns
-// false. When end_time IS set, joining/working/submitting after it is rejected
-// so the server-side deadline matches the countdown the Android app displays.
-func examScheduleEnded(exam *models.Exam, now time.Time) bool {
-	if exam == nil || exam.EndTime == nil {
-		return false
-	}
-	return now.UTC().After(exam.EndTime.UTC().Add(scheduleGraceEnd))
 }
 
 // sanitizeStartTime normalises a start-time string by replacing 'T' with a
@@ -1229,7 +1227,7 @@ func AccessLog() gin.HandlerFunc {
 			errorResponse(c, http.StatusNotFound, "Ujian tidak ditemukan")
 			return
 		}
-		if examScheduleEnded(&exam, time.Now().UTC()) {
+		if models.ExamScheduleEnded(&exam, time.Now().UTC()) {
 			errorResponse(c, http.StatusForbidden, "Waktu ujian telah berakhir")
 			return
 		}

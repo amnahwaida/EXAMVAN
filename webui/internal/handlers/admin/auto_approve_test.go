@@ -835,3 +835,241 @@ func TestApprovalDecisionUnauthorizedWritesNoAuditLog(t *testing.T) {
 		t.Errorf("audit rows = %d after denied decision, want 0", n)
 	}
 }
+
+// A decision against a stopped (inactive) exam must be rejected outright:
+// approving or revoking a device there would write an audit row (and possibly
+// a monitoring row) that nobody can act on. The gate fires before any update
+// or audit write, so the device row stays untouched and the trail stays clean.
+func TestApprovalDecisionInactiveExamRejected(t *testing.T) {
+	pool := database.NewPackageTestPool(t, "admin")
+	fx := createAutoApproveFixture(t, pool)
+	mac := "AA:BB:CC:DD:EE:12"
+	if _, err := pool.Exec(context.Background(), `
+		INSERT INTO exam_approvals (exam_id, mac_address, student_name, exam_number, student_class, status)
+		VALUES ($1, $2, 'Siswa Inactive', '12', 'XII A', 'pending')`, fx.ExamID, mac); err != nil {
+		t.Fatalf("insert device: %v", err)
+	}
+	// Stop the exam: its approval queue is dead, so decisions must fail.
+	if _, err := pool.Exec(context.Background(),
+		`UPDATE exams SET status = 'inactive', exam_started_at = NULL WHERE id = $1`, fx.ExamID); err != nil {
+		t.Fatalf("stop exam: %v", err)
+	}
+
+	srv := httptest.NewServer(newAutoApproveTestRouter(pool))
+	defer srv.Close()
+	client := newAutoApproveClient(t, srv)
+	client.login(fx.PwID)
+
+	code, out := client.do(http.MethodPost,
+		fmt.Sprintf("/admin/api/pengawas/exams/%d/approvals/%s", fx.ExamID, mac),
+		map[string]interface{}{"status": "approved"})
+	if code != http.StatusBadRequest {
+		t.Fatalf("POST status=%d out=%v, want 400 for inactive exam", code, out)
+	}
+
+	// The device row must be untouched and no audit row written.
+	var st string
+	if err := pool.QueryRow(context.Background(),
+		`SELECT status FROM exam_approvals WHERE exam_id = $1 AND mac_address = $2`,
+		fx.ExamID, mac).Scan(&st); err != nil {
+		t.Fatalf("read approval row: %v", err)
+	}
+	if st != "pending" {
+		t.Errorf("approval status = %q, want pending (untouched)", st)
+	}
+	var n int
+	if err := pool.QueryRow(context.Background(), `SELECT COUNT(*) FROM admin_audit_logs`).Scan(&n); err != nil {
+		t.Fatalf("count audit logs: %v", err)
+	}
+	if n != 0 {
+		t.Errorf("audit rows = %d after rejected decision on inactive exam, want 0", n)
+	}
+}
+
+// A decision against an exam whose schedule has ended is rejected like an
+// inactive one: the public gates already refuse new joins/submits past
+// end_time+grace, so a decision here would only write a trail nobody can act
+// on. The 400 gate fires before any update or audit write.
+func TestApprovalDecisionEndedExamRejected(t *testing.T) {
+	pool := database.NewPackageTestPool(t, "admin")
+	fx := createAutoApproveFixture(t, pool)
+	mac := "AA:BB:CC:DD:EE:13"
+	if _, err := pool.Exec(context.Background(), `
+		INSERT INTO exam_approvals (exam_id, mac_address, student_name, exam_number, student_class, status)
+		VALUES ($1, $2, 'Siswa Ended', '13', 'XII A', 'pending')`, fx.ExamID, mac); err != nil {
+		t.Fatalf("insert device: %v", err)
+	}
+	// Push end_time into the past (beyond the grace window) while the exam
+	// stays active — the schedule cutoff must block the decision.
+	if _, err := pool.Exec(context.Background(),
+		`UPDATE exams SET end_time = $1 WHERE id = $2`,
+		time.Now().UTC().Add(-2*time.Hour), fx.ExamID); err != nil {
+		t.Fatalf("set end_time: %v", err)
+	}
+
+	srv := httptest.NewServer(newAutoApproveTestRouter(pool))
+	defer srv.Close()
+	client := newAutoApproveClient(t, srv)
+	client.login(fx.PwID)
+
+	code, out := client.do(http.MethodPost,
+		fmt.Sprintf("/admin/api/pengawas/exams/%d/approvals/%s", fx.ExamID, mac),
+		map[string]interface{}{"status": "approved"})
+	if code != http.StatusBadRequest {
+		t.Fatalf("POST status=%d out=%v, want 400 for ended exam", code, out)
+	}
+
+	// The device row must be untouched and no audit row written.
+	var st string
+	if err := pool.QueryRow(context.Background(),
+		`SELECT status FROM exam_approvals WHERE exam_id = $1 AND mac_address = $2`,
+		fx.ExamID, mac).Scan(&st); err != nil {
+		t.Fatalf("read approval row: %v", err)
+	}
+	if st != "pending" {
+		t.Errorf("approval status = %q, want pending (untouched)", st)
+	}
+	var n int
+	if err := pool.QueryRow(context.Background(), `SELECT COUNT(*) FROM admin_audit_logs`).Scan(&n); err != nil {
+		t.Fatalf("count audit logs: %v", err)
+	}
+	if n != 0 {
+		t.Errorf("audit rows = %d after rejected decision on ended exam, want 0", n)
+	}
+}
+
+// Toggling server-side auto-approve on a stopped exam is rejected: the flag
+// does nothing there (RequestApproval refuses to apply it), so writing it —
+// and an audit row — would just be dead weight. The 400 fires before any
+// change, so the flag stays off and the trail stays clean.
+func TestSetAutoApproveInactiveExamRejected(t *testing.T) {
+	pool := database.NewPackageTestPool(t, "admin")
+	fx := createAutoApproveFixture(t, pool)
+	if _, err := pool.Exec(context.Background(),
+		`UPDATE exams SET status = 'inactive', exam_started_at = NULL WHERE id = $1`, fx.ExamID); err != nil {
+		t.Fatalf("stop exam: %v", err)
+	}
+
+	srv := httptest.NewServer(newAutoApproveTestRouter(pool))
+	defer srv.Close()
+	client := newAutoApproveClient(t, srv)
+	client.login(fx.PwID)
+
+	code, out := client.do(http.MethodPost,
+		fmt.Sprintf("/admin/api/pengawas/exams/%d/auto-approve", fx.ExamID),
+		map[string]interface{}{"enabled": true})
+	if code != http.StatusBadRequest {
+		t.Fatalf("POST status=%d out=%v, want 400 for inactive exam", code, out)
+	}
+	if examAutoApprove(t, pool, fx.ExamID) {
+		t.Error("auto_approve changed to true despite 400 — handler must not run")
+	}
+	var n int
+	if err := pool.QueryRow(context.Background(), `SELECT COUNT(*) FROM admin_audit_logs`).Scan(&n); err != nil {
+		t.Fatalf("count audit logs: %v", err)
+	}
+	if n != 0 {
+		t.Errorf("audit rows = %d after rejected toggle on inactive exam, want 0", n)
+	}
+}
+
+// Same for an exam whose schedule has ended (end_time + grace): the toggle is
+// rejected without touching the flag or writing an audit row.
+func TestSetAutoApproveEndedExamRejected(t *testing.T) {
+	pool := database.NewPackageTestPool(t, "admin")
+	fx := createAutoApproveFixture(t, pool)
+	if _, err := pool.Exec(context.Background(),
+		`UPDATE exams SET end_time = $1 WHERE id = $2`,
+		time.Now().UTC().Add(-2*time.Hour), fx.ExamID); err != nil {
+		t.Fatalf("set end_time: %v", err)
+	}
+
+	srv := httptest.NewServer(newAutoApproveTestRouter(pool))
+	defer srv.Close()
+	client := newAutoApproveClient(t, srv)
+	client.login(fx.PwID)
+
+	code, out := client.do(http.MethodPost,
+		fmt.Sprintf("/admin/api/pengawas/exams/%d/auto-approve", fx.ExamID),
+		map[string]interface{}{"enabled": true})
+	if code != http.StatusBadRequest {
+		t.Fatalf("POST status=%d out=%v, want 400 for ended exam", code, out)
+	}
+	if examAutoApprove(t, pool, fx.ExamID) {
+		t.Error("auto_approve changed to true despite 400 — handler must not run")
+	}
+	var n int
+	if err := pool.QueryRow(context.Background(), `SELECT COUNT(*) FROM admin_audit_logs`).Scan(&n); err != nil {
+		t.Fatalf("count audit logs: %v", err)
+	}
+	if n != 0 {
+		t.Errorf("audit rows = %d after rejected toggle on ended exam, want 0", n)
+	}
+}
+
+// The pending-queue read is gated the same way: an inactive exam has no live
+// queue (RequestApproval no longer adds rows there), so serving a stale list
+// would just mislead the pengawas.
+func TestGetPendingApprovalsInactiveExamRejected(t *testing.T) {
+	pool := database.NewPackageTestPool(t, "admin")
+	fx := createAutoApproveFixture(t, pool)
+	if _, err := pool.Exec(context.Background(),
+		`UPDATE exams SET status = 'inactive', exam_started_at = NULL WHERE id = $1`, fx.ExamID); err != nil {
+		t.Fatalf("stop exam: %v", err)
+	}
+
+	srv := httptest.NewServer(newAutoApproveTestRouter(pool))
+	defer srv.Close()
+	client := newAutoApproveClient(t, srv)
+	client.login(fx.PwID)
+
+	code, out := client.do(http.MethodGet,
+		fmt.Sprintf("/admin/api/pengawas/exams/%d/approvals", fx.ExamID), nil)
+	if code != http.StatusBadRequest {
+		t.Fatalf("GET status=%d out=%v, want 400 for inactive exam", code, out)
+	}
+}
+
+// And for an exam whose schedule has ended.
+func TestGetPendingApprovalsEndedExamRejected(t *testing.T) {
+	pool := database.NewPackageTestPool(t, "admin")
+	fx := createAutoApproveFixture(t, pool)
+	if _, err := pool.Exec(context.Background(),
+		`UPDATE exams SET end_time = $1 WHERE id = $2`,
+		time.Now().UTC().Add(-2*time.Hour), fx.ExamID); err != nil {
+		t.Fatalf("set end_time: %v", err)
+	}
+
+	srv := httptest.NewServer(newAutoApproveTestRouter(pool))
+	defer srv.Close()
+	client := newAutoApproveClient(t, srv)
+	client.login(fx.PwID)
+
+	code, out := client.do(http.MethodGet,
+		fmt.Sprintf("/admin/api/pengawas/exams/%d/approvals", fx.ExamID), nil)
+	if code != http.StatusBadRequest {
+		t.Fatalf("GET status=%d out=%v, want 400 for ended exam", code, out)
+	}
+}
+
+// Reads stay available for review: the auto-approve flag (and its audit hint)
+// can still be fetched after the exam stops — only writes/decisions are gated.
+func TestGetAutoApproveReadableOnInactiveExam(t *testing.T) {
+	pool := database.NewPackageTestPool(t, "admin")
+	fx := createAutoApproveFixture(t, pool)
+	if _, err := pool.Exec(context.Background(),
+		`UPDATE exams SET status = 'inactive', exam_started_at = NULL WHERE id = $1`, fx.ExamID); err != nil {
+		t.Fatalf("stop exam: %v", err)
+	}
+
+	srv := httptest.NewServer(newAutoApproveTestRouter(pool))
+	defer srv.Close()
+	client := newAutoApproveClient(t, srv)
+	client.login(fx.PwID)
+
+	code, out := client.do(http.MethodGet,
+		fmt.Sprintf("/admin/api/pengawas/exams/%d/auto-approve", fx.ExamID), nil)
+	if code != http.StatusOK || out["success"] != true {
+		t.Fatalf("GET status=%d out=%v, want 200 — flag read stays available on inactive exam", code, out)
+	}
+}

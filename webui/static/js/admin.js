@@ -3537,7 +3537,12 @@ document.addEventListener('DOMContentLoaded', function() {
     // Keyboard shortcuts (admin pages with dashboard)
     if (document.querySelector('.dashboard')) {
         initKeyboardShortcuts();
-        if (!window.location.pathname.includes('submissions')) {
+        // Auto-refresh hanya untuk halaman yang benar-benar punya stats grid
+        // (#statsGrid hanya ada di dashboard.html). Halaman admin lain
+        // (pengawas, users, vouchers, ...) tidak perlu fetch /admin/api/stats
+        // tiap 30 detik — dan di pengawas.html malah bisa menimpa angka kartu
+        // "Ujian Diawasi" (scope Stats() ≠ scope ListPengawasExams).
+        if (document.getElementById('statsGrid') && !window.location.pathname.includes('submissions')) {
             startAutoRefresh(30);
         }
     }

@@ -217,9 +217,11 @@ func TestRequestApprovalAutoApprovePollIdempotent(t *testing.T) {
 	}
 }
 
-// Auto-approve must only apply while the exam is live. A request against a
-// dormant (inactive) exam stays in the pending queue.
-func TestRequestApprovalAutoApproveInactiveExam(t *testing.T) {
+// Only live exams accept approval requests: a device requesting access to an
+// inactive (stopped) exam is rejected outright — the old behaviour of dropping
+// the request into the pending queue just left dead rows nobody could act on.
+// Auto-approve would never fire either (it requires the exam to be live).
+func TestRequestApprovalRejectsInactiveExam(t *testing.T) {
 	pool := database.NewPackageTestPool(t, "api")
 	examID, examToken := createRequestApprovalFixture(t, pool, false, false, true)
 	srv := httptest.NewServer(newRequestApprovalRouter(pool))
@@ -230,11 +232,24 @@ func TestRequestApprovalAutoApproveInactiveExam(t *testing.T) {
 		"student_name": "Dewi", "exam_number": "04", "student_class": "XII C",
 		"identity_data": map[string]interface{}{}, "reset": true,
 	}, examToken)
-	if code != http.StatusOK || out["status"] != "pending" {
-		t.Fatalf("status=%d out=%v, want 200 + pending for inactive exam", code, out)
+	if code != http.StatusForbidden {
+		t.Fatalf("status=%d out=%v, want 403 for inactive exam", code, out)
+	}
+	if msg, _ := out["message"].(string); msg == "" {
+		t.Errorf("message = %q, want a non-empty explanation", msg)
+	}
+	// No approval row may be created for an inactive exam.
+	var rows int
+	if err := pool.QueryRow(context.Background(),
+		`SELECT COUNT(*) FROM exam_approvals WHERE exam_id = $1 AND mac_address = $2`,
+		examID, "AA:BB:CC:DD:EE:04").Scan(&rows); err != nil {
+		t.Fatalf("count approvals: %v", err)
+	}
+	if rows != 0 {
+		t.Errorf("approvals = %d, want 0 — no row may be created for an inactive exam", rows)
 	}
 	if got := countSubmissions(t, pool, examID, "AA:BB:CC:DD:EE:04"); got != 0 {
-		t.Errorf("submissions = %d, want 0 for dormant exam", got)
+		t.Errorf("submissions = %d, want 0 for inactive exam", got)
 	}
 }
 
@@ -325,12 +340,13 @@ func TestRequestApprovalAutoApproveUnsticksLeftoverPending(t *testing.T) {
 	}
 }
 
-// Auto-approve must not grant access once the exam's end_time has passed —
-// the schedule guard applies even when the flag is on.
-func TestRequestApprovalAutoApproveExamEnded(t *testing.T) {
+// An exam whose schedule has ended (end_time + 60s grace) is rejected like an
+// inactive one: a device requesting access after the deadline must not land in
+// the pending queue — nobody can act on it, and auto-approve would never fire.
+func TestRequestApprovalRejectsEndedExam(t *testing.T) {
 	pool := database.NewPackageTestPool(t, "api")
 	examID, examToken := createRequestApprovalFixture(t, pool, true, true, true)
-	// Force the schedule into the past.
+	// Force the schedule into the past (beyond the grace window).
 	if _, err := pool.Exec(context.Background(),
 		`UPDATE exams SET end_time = $1 WHERE id = $2`,
 		time.Now().UTC().Add(-2*time.Hour), examID); err != nil {
@@ -344,11 +360,45 @@ func TestRequestApprovalAutoApproveExamEnded(t *testing.T) {
 		"student_name": "Fajar", "exam_number": "08", "student_class": "X D",
 		"identity_data": map[string]interface{}{}, "reset": true,
 	}, examToken)
-	if code != http.StatusOK || out["status"] != "pending" {
-		t.Fatalf("status=%d out=%v, want pending for ended exam", code, out)
+	if code != http.StatusForbidden {
+		t.Fatalf("status=%d out=%v, want 403 for ended exam", code, out)
+	}
+	var rows int
+	if err := pool.QueryRow(context.Background(),
+		`SELECT COUNT(*) FROM exam_approvals WHERE exam_id = $1 AND mac_address = $2`,
+		examID, "AA:BB:CC:DD:EE:08").Scan(&rows); err != nil {
+		t.Fatalf("count approvals: %v", err)
+	}
+	if rows != 0 {
+		t.Errorf("approvals = %d, want 0 — no row may be created for an ended exam", rows)
 	}
 	if got := countSubmissions(t, pool, examID, "AA:BB:CC:DD:EE:08"); got != 0 {
 		t.Errorf("submissions = %d, want 0 for ended exam", got)
+	}
+}
+
+// The grace window still applies: a request within 60s after end_time is a
+// legitimate borderline join (same tolerance as SubmitExam), so it is accepted
+// into the pending queue instead of being rejected.
+func TestRequestApprovalGraceWindowStillAccepted(t *testing.T) {
+	pool := database.NewPackageTestPool(t, "api")
+	examID, examToken := createRequestApprovalFixture(t, pool, true, true, false)
+	// end_time 30s in the past — inside the 60s grace window.
+	if _, err := pool.Exec(context.Background(),
+		`UPDATE exams SET end_time = $1 WHERE id = $2`,
+		time.Now().UTC().Add(-30*time.Second), examID); err != nil {
+		t.Fatalf("set end_time: %v", err)
+	}
+	srv := httptest.NewServer(newRequestApprovalRouter(pool))
+	defer srv.Close()
+
+	code, out := postRequestApproval(t, srv, map[string]interface{}{
+		"exam_id": examID, "mac_address": "AA:BB:CC:DD:EE:09",
+		"student_name": "Grace", "exam_number": "09", "student_class": "X E",
+		"identity_data": map[string]interface{}{}, "reset": true,
+	}, examToken)
+	if code != http.StatusOK || out["status"] != "pending" {
+		t.Fatalf("status=%d out=%v, want 200 + pending within grace window", code, out)
 	}
 }
 
