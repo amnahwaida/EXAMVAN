@@ -62,8 +62,14 @@ func newExamEditCleanupTestRouterR2Nil(pool *pgxpool.Pool, storageDir string) *g
 
 // newExamEditCleanupTestRouterWithR2 builds the edit-cleanup test router,
 // delegating the "r2" key injection to setR2 so callers can simulate an
-// enabled backend, a disabled one, or a malformed (nil) key.
+// enabled backend, a disabled one, or a malformed (nil) key. An optional
+// bodyLimit > 0 adds the production LimitBodySize middleware so tests can
+// drive the oversized-body path (MaxBytesReader) exactly like the real server.
 func newExamEditCleanupTestRouterWithR2(pool *pgxpool.Pool, storageDir string, setR2 func(*gin.Context)) *gin.Engine {
+	return newExamEditCleanupTestRouterWithR2AndLimit(pool, storageDir, setR2, 0)
+}
+
+func newExamEditCleanupTestRouterWithR2AndLimit(pool *pgxpool.Pool, storageDir string, setR2 func(*gin.Context), bodyLimit int64) *gin.Engine {
 	gin.SetMode(gin.TestMode)
 	r := gin.New()
 	store := cookie.NewStore([]byte("examvan-it-secret-0123456789abcdef0123456789abcdef"))
@@ -94,8 +100,23 @@ func newExamEditCleanupTestRouterWithR2(pool *pgxpool.Pool, storageDir string, s
 	})
 
 	api := r.Group("/admin/api", middleware.AuthRequired())
-	api.POST("/exams/:exam_id/edit", EditExam())
+	if bodyLimit > 0 {
+		api.POST("/exams/:exam_id/edit", middleware.LimitBodySize(bodyLimit), EditExam())
+	} else {
+		api.POST("/exams/:exam_id/edit", EditExam())
+	}
 	return r
+}
+
+// newExamEditCleanupTestRouterWithBodyLimit is the edit router with the
+// production LimitBodySize middleware, mirroring main.go so an oversized
+// multipart body trips MaxBytesReader during the parse.
+func newExamEditCleanupTestRouterWithBodyLimit(pool *pgxpool.Pool, storageDir string, r2c r2client.Client, limit int64) *gin.Engine {
+	return newExamEditCleanupTestRouterWithR2AndLimit(pool, storageDir, func(c *gin.Context) {
+		if r2c != nil {
+			c.Set("r2", r2c)
+		}
+	}, limit)
 }
 
 // editExamMultipart builds a multipart form body for EditExam (name + a PDF
@@ -444,5 +465,73 @@ func TestEditExamR2NilKeyDoesNotPanic(t *testing.T) {
 	}
 	if !fileExists(t, storageDir, rel) {
 		t.Errorf("old exam pdf removed on REJECTED edit — exam still points at it")
+	}
+}
+
+// ---------------------------------------------------------------------------
+// A body larger than LimitBodySize used to SILENTLY fall into the rename-only
+// branch of EditExam: the multipart parse failed (MaxBytesReader), the handler
+// read it as "no file selected", renamed the exam and replied success — the
+// teacher believed the PDF had been replaced when it had not. The handler now
+// treats a parse failure as a hard error: 400, nothing applied, no audit row.
+// ---------------------------------------------------------------------------
+func TestEditExamOversizedPDFBodyRejected(t *testing.T) {
+	pool := database.NewPackageTestPool(t, "admin")
+	storageDir, err := os.MkdirTemp("", "examvan-edit-oversize")
+	if err != nil {
+		t.Fatalf("make temp storage dir: %v", err)
+	}
+	defer os.RemoveAll(storageDir)
+
+	superID, examID, rel := createExamEditFixture(t, pool, storageDir, "edit_oversize_super", "EditOversizeExam")
+	r2c := newStubR2()
+
+	// 64KB body limit mirrors production routing: a >64KB PDF trips
+	// MaxBytesReader during the multipart parse — the exact failure that used
+	// to be silently swallowed as a rename.
+	srv := httptest.NewServer(newExamEditCleanupTestRouterWithBodyLimit(pool, storageDir, r2c, 64*1024))
+	defer srv.Close()
+	jar, _ := cookiejar.New(nil)
+	client := &http.Client{Jar: jar}
+	if resp, err := client.Post(srv.URL+"/test/login/"+strconv.Itoa(superID), "application/json", nil); err != nil || resp.StatusCode != http.StatusOK {
+		t.Fatalf("test login: status=%v err=%v", resp, err)
+	}
+
+	// 128KB body (not even a valid PDF): the body limit must trip BEFORE any
+	// rename/upload/audit happens. Note: when the multipart parse fails the
+	// name field is also unreadable, so the handler may reject at the name
+	// check ("Nama ujian wajib diisi") or at the file read ("Gagal membaca
+	// file PDF") — what matters is a hard 4xx with NOTHING applied.
+	code, body := editExamDoFull(t, client, srv.URL, examID, "Should Not Apply",
+		bytes.Repeat([]byte("x"), 128*1024), "big.pdf")
+	if code != http.StatusBadRequest {
+		t.Fatalf("edit status=%d, want 400 (oversized body must be a hard error, not a silent rename)", code)
+	}
+	if !strings.Contains(body, "success\":false") {
+		t.Errorf("rejection body = %q, want an error JSON response", body)
+	}
+
+	// Nothing applied: no R2 upload, no rename, no audit row.
+	if len(r2c.uploads) != 0 {
+		t.Errorf("R2 uploads = %v, want none (rejected body never reaches R2)", r2c.uploads)
+	}
+	var name, path string
+	if err := pool.QueryRow(context.Background(),
+		`SELECT name, file_path FROM exams WHERE id = $1`, examID).Scan(&name, &path); err != nil {
+		t.Fatalf("load exam after rejected edit: %v", err)
+	}
+	if name != "EditOversizeExam" || path != rel {
+		t.Errorf("exam after rejected edit = name:%q path:%q, want unchanged", name, path)
+	}
+	if !fileExists(t, storageDir, rel) {
+		t.Errorf("old exam pdf removed on REJECTED edit — exam still points at it")
+	}
+	var auditCount int
+	if err := pool.QueryRow(context.Background(),
+		`SELECT COUNT(*) FROM admin_audit_logs WHERE exam_id = $1`, examID).Scan(&auditCount); err != nil {
+		t.Fatalf("count audit logs: %v", err)
+	}
+	if auditCount != 0 {
+		t.Errorf("audit rows after rejected edit = %d, want 0", auditCount)
 	}
 }

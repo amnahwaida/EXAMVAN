@@ -374,7 +374,7 @@
 <div class="form-group flex-1">
 <label class="required" for="pdfFile">File PDF</label>
 <div class="file-input-wrapper">
-<input type="file" id="pdfFile" name="pdf_file" accept="application/pdf" required title="Pilih file PDF ujian yang akan diupload, maksimal {{.max_size_mb}}MB">
+<input type="file" id="pdfFile" name="pdf_file" accept="application/pdf" data-max-mb="{{.max_size_mb}}" required title="Pilih file PDF ujian yang akan diupload, maksimal {{.max_size_mb}}MB">
 <div class="file-input-display" id="fileDisplay">
 <svg class="icon-svg" style="width:20px;height:20px;"><use href="#hi-file"/></svg>
 <span class="file-text">Pilih file PDF...</span>
@@ -636,7 +636,7 @@
 <div class="form-group" style="margin-bottom: 20px;">
 <label for="editPdfFile">File PDF Baru <span style="font-size: 11px; opacity: 0.7;">(Opsional)</span></label>
 <div class="file-input-wrapper">
-<input type="file" id="editPdfFile" accept="application/pdf" onchange="handleEditFileChange(this)">
+<input type="file" id="editPdfFile" accept="application/pdf" data-max-mb="{{.max_size_mb}}" onchange="handleEditFileChange(this)">
 <div class="file-input-display" id="editFileDisplay">
 <svg class="icon-svg" style="width:20px;height:20px;flex-shrink:0;"><use href="#hi-file"/></svg>
 <span class="file-text" id="editFileDisplayText">Pilih file PDF baru jika ingin merubah...</span>

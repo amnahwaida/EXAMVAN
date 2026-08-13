@@ -22,6 +22,7 @@ function __adminHasRole(target) {
 // File input display
 const pdfInput = document.getElementById('pdfFile');
 if (pdfInput) {
+    const pdfMaxMB = parseFloat(pdfInput.getAttribute('data-max-mb')) || 0;
     pdfInput.addEventListener('change', function() {
         const display = document.getElementById('fileDisplay');
         const textEl = display.querySelector('.file-text');
@@ -29,7 +30,12 @@ if (pdfInput) {
             const file = this.files[0];
             const sizeMB = (file.size / 1048576).toFixed(2);
             textEl.textContent = `${file.name} (${sizeMB} MB)`;
-            display.style.borderColor = 'var(--color-success)';
+            if (pdfMaxMB > 0 && file.size > pdfMaxMB * 1048576) {
+                textEl.textContent += ` — melebihi batas ${pdfMaxMB} MB`;
+                display.style.borderColor = 'var(--color-warning)';
+            } else {
+                display.style.borderColor = 'var(--color-success)';
+            }
         } else {
             textEl.textContent = 'Pilih file PDF...';
             display.style.borderColor = '';
@@ -58,6 +64,11 @@ if (uploadForm) {
         }
         if (!fileInput.files.length) {
             showToast('Pilih file PDF terlebih dahulu', 'error');
+            return;
+        }
+        const maxUploadMB = parseFloat(fileInput.getAttribute('data-max-mb')) || 0;
+        if (maxUploadMB > 0 && fileInput.files[0].size > maxUploadMB * 1048576) {
+            showToast('Ukuran file melebihi batas ' + maxUploadMB + ' MB', 'error');
             return;
         }
 
@@ -2591,8 +2602,14 @@ function handleEditFileChange(input) {
     if (input.files.length > 0) {
         const file = input.files[0];
         const sizeMB = (file.size / 1048576).toFixed(2);
+        const maxMB = parseFloat(input.getAttribute('data-max-mb')) || 0;
         textEl.textContent = `${file.name} (${sizeMB} MB)`;
-        display.style.borderColor = 'var(--color-warning)';
+        if (maxMB > 0 && file.size > maxMB * 1048576) {
+            textEl.textContent += ` — melebihi batas ${maxMB} MB`;
+            display.style.borderColor = 'var(--color-warning)';
+        } else {
+            display.style.borderColor = 'var(--color-success)';
+        }
     } else {
         textEl.textContent = 'Pilih file PDF baru jika ingin merubah...';
         display.style.borderColor = '';
@@ -2618,6 +2635,11 @@ function submitEditExam(event) {
     const formData = new FormData();
     formData.append('name', nameInput.value.trim());
     if (fileInput.files.length > 0) {
+        const maxEditMB = parseFloat(fileInput.getAttribute('data-max-mb')) || 0;
+        if (maxEditMB > 0 && fileInput.files[0].size > maxEditMB * 1048576) {
+            showToast('Ukuran file melebihi batas ' + maxEditMB + ' MB', 'error');
+            return;
+        }
         formData.append('pdf_file', fileInput.files[0]);
     }
     

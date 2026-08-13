@@ -2,6 +2,7 @@ package admin
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -15,6 +16,7 @@ import (
 	"github.com/gin-contrib/sessions"
 	"github.com/gin-contrib/sessions/cookie"
 	"github.com/gin-gonic/gin"
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/examvan/webui/internal/config"
@@ -24,6 +26,34 @@ import (
 
 	r2client "github.com/examvan/webui/internal/handlers/r2"
 )
+
+// Unit test: isTokenUniqueViolation maps a Postgres unique violation
+// (SQLSTATE 23505) on the exams.token constraint to a token collision — the
+// hard UNIQUE gate catching a concurrent upload that raced past the
+// pre-insert uniqueness check. Non-token violations must NOT match.
+func TestIsTokenUniqueViolation(t *testing.T) {
+	pgErr := func(code, constraint string) *pgconn.PgError {
+		return &pgconn.PgError{Code: code, ConstraintName: constraint}
+	}
+	cases := []struct {
+		name string
+		err  error
+		want bool
+	}{
+		{"unique violation on exams.token", fmt.Errorf("insert: %w", pgErr("23505", "exams_token_key")), true},
+		{"unique violation on another constraint", pgErr("23505", "exams_other_key"), false},
+		{"non-unique sqlstate", pgErr("23502", "exams_token_key"), false},
+		{"non-pg error", errors.New("boom"), false},
+		{"nil error", nil, false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := isTokenUniqueViolation(tc.err); got != tc.want {
+				t.Errorf("isTokenUniqueViolation(%v) = %v, want %v", tc.err, got, tc.want)
+			}
+		})
+	}
+}
 
 // ---------------------------------------------------------------------------
 // Handler tests: UploadExam uploads the PDF to R2 BEFORE the exam row is

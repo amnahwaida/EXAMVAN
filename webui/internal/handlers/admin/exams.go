@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log"
@@ -15,6 +16,8 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
+	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/examvan/webui/internal/config"
@@ -153,11 +156,28 @@ func UploadExam() gin.HandlerFunc {
 		}
 
 		file, header, err := c.Request.FormFile("pdf_file")
-		if err != nil {
+		if errors.Is(err, http.ErrMissingFile) {
 			errorResponse(c, http.StatusBadRequest, "File PDF wajib dipilih")
 			return
 		}
+		if err != nil {
+			// Multipart gagal di-parse — mis. body melebihi LimitBodySize
+			// (MaxBytesError) atau form rusak. Balas error keras, bukan
+			// "file tidak dipilih".
+			errorResponse(c, http.StatusBadRequest, "Gagal membaca file PDF — periksa ukuran dan format file")
+			return
+		}
 		defer file.Close()
+
+		// Tolak file terlalu besar SEBELUM membuffernya ke RAM: header.Size
+		// sudah diketahui dari parse multipart tanpa membaca isi part.
+		// validatePDF di bawah tetap mengecek ulang setelah read sebagai
+		// lapis kedua (dan menolak PDF rusak/polyglot).
+		if header.Size > maxFileSize {
+			maxMB := maxFileSize / (1024 * 1024)
+			errorResponse(c, http.StatusBadRequest, fmt.Sprintf("Ukuran file melebihi batas %dMB", maxMB))
+			return
+		}
 
 		fileData, err := io.ReadAll(file)
 		if err != nil {
@@ -250,11 +270,19 @@ func UploadExam() gin.HandlerFunc {
 			token = customToken
 		} else {
 			// Retry loop for auto-generated token to handle race conditions.
+			// Token bebas dilaporkan GetExamByToken sebagai pgx.ErrNoRows
+			// (lookup tak menemukan baris) — itu kasus normal, langsung pakai.
+			// Error DB nyata atau token yang memang sudah dipakai → lanjut coba
+			// token berikutnya. Jika setelah 5 percobaan masih bentrok, INSERT
+			// kena unique violation yang dipetakan ke 400 di bawah.
 			for i := 0; i < 5; i++ {
 				token = helpers.GenerateExamToken()
 				existing, err := models.GetExamByToken(ctx, pool, token)
-				if err != nil || existing.ID == 0 {
+				if errors.Is(err, pgx.ErrNoRows) || (err == nil && existing.ID == 0) {
 					break
+				}
+				if err != nil {
+					log.Printf("upload: cek token gagal (percobaan %d): %v", i+1, err)
 				}
 			}
 		}
@@ -405,6 +433,14 @@ func UploadExam() gin.HandlerFunc {
 			if err != nil {
 				log.Printf("upload create exam error: %v", err)
 				cleanupR2Orphan(c, ctx, filename)
+				// Race token: dua upload konkuren memakai token yang sama
+				// sama-sama lolos pre-check unik → INSERT kena unique violation
+				// (satu-satunya constraint unik di exams adalah token).
+				// Integritas tetap aman; ubah 500 yang menyesatkan jadi 400.
+				if isTokenUniqueViolation(err) {
+					errorResponse(c, http.StatusBadRequest, "Token sudah digunakan oleh ujian lain")
+					return
+				}
 				errorResponse(c, http.StatusInternalServerError, "Gagal menyimpan ujian")
 				return
 			}
@@ -423,6 +459,10 @@ func UploadExam() gin.HandlerFunc {
 			if err != nil {
 				log.Printf("upload create exam error: %v", err)
 				cleanupR2Orphan(c, ctx, filename)
+				if isTokenUniqueViolation(err) {
+					errorResponse(c, http.StatusBadRequest, "Token sudah digunakan oleh ujian lain")
+					return
+				}
 				errorResponse(c, http.StatusInternalServerError, "Gagal menyimpan ujian")
 				return
 			}
@@ -468,6 +508,19 @@ func cleanupR2Orphan(c *gin.Context, ctx context.Context, filename string) {
 			}
 		}
 	}
+}
+
+// isTokenUniqueViolation reports whether err is a Postgres unique-violation
+// (SQLSTATE 23505) on the exams.token constraint. exams.token is the only
+// unique constraint on the table, so a 23505 from the INSERT inside
+// UploadExam can only mean a token collision (e.g. two concurrent uploads
+// raced past the pre-insert uniqueness check).
+func isTokenUniqueViolation(err error) bool {
+	var pgErr *pgconn.PgError
+	if !errors.As(err, &pgErr) {
+		return false
+	}
+	return pgErr.Code == "23505" && strings.Contains(pgErr.ConstraintName, "token")
 }
 
 // ---------------------------------------------------------------------------
@@ -726,8 +779,27 @@ func EditExam() gin.HandlerFunc {
 		oldFilePath := "" // set when a replacement PDF is uploaded (cleanup target)
 		filename := ""    // set when a replacement PDF is uploaded (audit detail)
 
+		// Beda-beda: "tidak ada file" (rename-only) vs "multipart gagal
+		// dibaca" (mis. body melebihi LimitBodySize). Sebelumnya error parse
+		// dianggap "tidak ada file", sehingga ganti PDF yang gagal diam-diam
+		// hanya mengganti nama dan membalas sukses — sekarang jadi error keras.
+		if fileErr != nil && !errors.Is(fileErr, http.ErrMissingFile) {
+			errorResponse(c, http.StatusBadRequest, "Gagal membaca file PDF — periksa ukuran dan format file")
+			return
+		}
+
 		if fileErr == nil && header != nil {
 			defer file.Close()
+
+			// Tolak file terlalu besar sebelum buffering ke RAM (header.Size
+			// diketahui tanpa membaca isi part); validatePDF mengecek ulang
+			// setelah read sebagai lapis kedua.
+			if header.Size > maxFileSize {
+				maxMB := maxFileSize / (1024 * 1024)
+				errorResponse(c, http.StatusBadRequest, fmt.Sprintf("Ukuran file melebihi batas %dMB", maxMB))
+				return
+			}
+
 			fileData, readErr := io.ReadAll(file)
 			if readErr != nil {
 				errorResponse(c, http.StatusInternalServerError, "Gagal membaca file")
@@ -825,6 +897,13 @@ func EditExam() gin.HandlerFunc {
 
 		if err := models.UpdateExam(ctx, pool, examID, &exam); err != nil {
 			log.Printf("edit exam error: %v", err)
+			// PDF pengganti sudah ter-upload ke R2 tapi tidak ada baris yang
+			// mereferensikannya: hapus object orphan agar edit yang gagal tidak
+			// membocorkan storage (meniru cleanupR2Orphan di jalur UploadExam
+			// untuk kegagalan pasca-upload).
+			if filename != "" {
+				cleanupR2Orphan(c, ctx, filename)
+			}
 			errorResponse(c, http.StatusInternalServerError, "Gagal memperbarui ujian")
 			return
 		}
@@ -1224,16 +1303,24 @@ func SaveQuestions() gin.HandlerFunc {
 		var startTimePtr *string
 		var endTimePtr *string
 		if startTime != "" {
-			if t, err := time.ParseInLocation("2006-01-02 15:04", startTime, jakartaLoc); err == nil {
-				utc := t.UTC().Format("2006-01-02T15:04:05Z")
-				startTimePtr = &utc
+			t, err := time.ParseInLocation("2006-01-02 15:04", startTime, jakartaLoc)
+			if err != nil {
+				// Jangan telan input tak valid diam-diam — guru harus tahu
+				// jadwalnya tidak tersimpan.
+				errorResponse(c, http.StatusBadRequest, "Format jadwal mulai tidak valid — gunakan format: YYYY-MM-DD HH:MM")
+				return
 			}
+			utc := t.UTC().Format("2006-01-02T15:04:05Z")
+			startTimePtr = &utc
 		}
 		if endTime != "" {
-			if t, err := time.ParseInLocation("2006-01-02 15:04", endTime, jakartaLoc); err == nil {
-				utc := t.UTC().Format("2006-01-02T15:04:05Z")
-				endTimePtr = &utc
+			t, err := time.ParseInLocation("2006-01-02 15:04", endTime, jakartaLoc)
+			if err != nil {
+				errorResponse(c, http.StatusBadRequest, "Format jadwal selesai tidak valid — gunakan format: YYYY-MM-DD HH:MM")
+				return
 			}
+			utc := t.UTC().Format("2006-01-02T15:04:05Z")
+			endTimePtr = &utc
 		}
 
 		// Custom congratulations message: free text (not HTML), trimmed; an

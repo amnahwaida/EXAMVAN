@@ -1751,7 +1751,18 @@ function updateTokenDisplay(newToken) {
     setTimeout(function() { el.classList.remove('pd-token-flash'); }, 2000);
 }
 
+// Guard anti-tumpang-tindih: refreshActiveToken dipanggil tiap 30s DAN tiap
+// detik oleh updateCountdown saat countdown rotasi sudah habis — pada jaringan
+// lambat panggilan bisa menumpuk, dan memakai endpoint yang sama dengan
+// loadDetail (submissions) sehingga berisiko tumpang-tindih. Refresh ini murni
+// latar belakang tanpa aksi pengguna yang harus dipertahankan, jadi skip-saja
+// sudah cukup: tick berikutnya (30s, atau 1s dari countdown yang masih expired)
+// yang mengambil alih.
+var activeTokenLoading = false;
+
 function refreshActiveToken() {
+    if (activeTokenLoading) return;
+    activeTokenLoading = true;
     apiFetch('/admin/api/pengawas/exams/' + EXAM_ID + '/submissions?page=1&per_page=1', {
         headers: { 'Accept': 'application/json' }
     })
@@ -1765,7 +1776,8 @@ function refreshActiveToken() {
             }
         }
     })
-    .catch(function() {});
+    .catch(function() {})
+    .finally(function() { activeTokenLoading = false; });
 }
 
 function updateCountdown() {

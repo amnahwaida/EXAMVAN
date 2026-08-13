@@ -50,6 +50,14 @@ import (
 	redis "github.com/redis/go-redis/v9"
 )
 
+// maxExamUploadBody bounds the multipart body of the exam upload/edit routes.
+// The PDF file itself is capped at 100MB (admin.maxFileSize) with the limit
+// enforced in the handler before the file is buffered; the 2MB slack covers
+// the multipart framing (boundaries + name field + headers) so a legitimate
+// 100MB file stays admissible while a multi-GB body is hard-stopped instead
+// of being read into memory by io.ReadAll.
+const maxExamUploadBody = 102 * 1024 * 1024
+
 // version is set at build time via -ldflags. Defaults to config.DefaultVersion.
 var version = ""
 
@@ -584,13 +592,16 @@ func registerRoutes(r *gin.Engine, cfg *config.Config, pool *pgxpool.Pool) {
 			csrfAPI.Use(middleware.RateLimit(120, time.Minute))
 			{
 
-				// Exams.
-				csrfAPI.POST("/upload", middleware.RateLimit(10, time.Minute), admin.UploadExam())
+				// Exams. Upload & edit carry a PDF up to admin.maxFileSize (100MB), so
+				// their multipart bodies are bounded by maxExamUploadBody instead of
+				// the small JSON limits below — a multi-GB body would otherwise be
+				// buffered by io.ReadAll in the handler before the size check runs.
+				csrfAPI.POST("/upload", middleware.LimitBodySize(maxExamUploadBody), middleware.RateLimit(10, time.Minute), admin.UploadExam())
 				csrfAPI.POST("/exams/bulk-delete", middleware.LimitBodySize(1024*1024), admin.BulkDelete())
 				csrfAPI.POST("/exams/bulk-toggle", middleware.LimitBodySize(1024*1024), admin.BulkToggle())
 				csrfAPI.POST("/exams/:exam_id/toggle", middleware.LimitBodySize(256*1024), admin.ToggleExam())
 				csrfAPI.POST("/exams/:exam_id/delete", middleware.LimitBodySize(256*1024), admin.DeleteExam())
-				csrfAPI.POST("/exams/:exam_id/edit", middleware.LimitBodySize(2*1024*1024), admin.EditExam())
+				csrfAPI.POST("/exams/:exam_id/edit", middleware.LimitBodySize(maxExamUploadBody), admin.EditExam())
 				csrfAPI.POST("/exams/:exam_id/questions", middleware.LimitBodySize(5*1024*1024), admin.SaveQuestions())
 				csrfAPI.POST("/exams/:exam_id/regenerate-token", middleware.LimitBodySize(256*1024), admin.RegenerateToken())
 				csrfAPI.POST("/exams/:exam_id/edit-token", middleware.LimitBodySize(256*1024), admin.EditToken())
