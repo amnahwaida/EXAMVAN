@@ -9,12 +9,14 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
 
 	"github.com/gin-contrib/sessions"
 	"github.com/gin-gonic/gin"
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	r2client "github.com/examvan/webui/internal/handlers/r2"
@@ -60,6 +62,14 @@ func getInstansiForOperator(ctx context.Context, pool *pgxpool.Pool, userID int)
 	return instansi
 }
 
+// quotaQuerier abstracts a single-query source so loadOperatorAccountQuota
+// can run over a pool (billing page display, tests) or over the CREATE
+// transaction (CreateUser quota enforcement) with the same definition the two
+// can never disagree on the counting rule.
+type quotaQuerier interface {
+	QueryRow(ctx context.Context, sql string, args ...any) pgx.Row
+}
+
 // loadOperatorAccountQuota returns the school package's sub-account quota
 // (maxUsers, 0 = unlimited) and the current number of accounts the operator
 // may count against it (used, excluding the operator themself). The quota
@@ -80,18 +90,18 @@ func getInstansiForOperator(ctx context.Context, pool *pgxpool.Pool, userID int)
 // Self-registered personal accounts are not sub-accounts and never consume a
 // school quota. Shared by the CreateUser enforcement and the billing page
 // display so the two can never disagree. (0, 0) when not applicable.
-func loadOperatorAccountQuota(ctx context.Context, pool *pgxpool.Pool, userID int, isOperator bool, instansi string) (maxUsers, used int64) {
+func loadOperatorAccountQuota(ctx context.Context, q quotaQuerier, userID int, isOperator bool, instansi string) (maxUsers, used int64) {
 	instansi = strings.TrimSpace(instansi)
 	if !isOperator || instansi == "" {
 		return 0, 0
 	}
-	err := pool.QueryRow(ctx, `
+	err := q.QueryRow(ctx, `
 		SELECT COALESCE(max_users, 0) FROM voucher_redemptions
 		WHERE user_id = $1 AND is_active`, userID).Scan(&maxUsers)
 	if err != nil {
 		// Only an error (no active redemption) triggers the fallback, so an
 		// active snapshot of 0 (intentional unlimited) is never overridden.
-		if ferr := pool.QueryRow(ctx, `
+		if ferr := q.QueryRow(ctx, `
 			SELECT COALESCE(ps.max_users, 0)
 			FROM package_settings ps
 			JOIN admin_users u ON u.package = ps.pkg_key
@@ -118,14 +128,14 @@ func loadOperatorAccountQuota(ctx context.Context, pool *pgxpool.Pool, userID in
 		// personal accounts (operator_created = false) are NOT sub-accounts
 		// and must not consume the school quota — counting them would let
 		// anyone starve a school's quota by registering personal accounts.
-		_ = pool.QueryRow(ctx,
+		_ = q.QueryRow(ctx,
 			`SELECT COUNT(*) FROM admin_users
 			 WHERE instansi = $1 AND id <> $2
 			   AND (created_by = $2 OR (created_by IS NULL AND operator_created))`,
 			instansi, userID).Scan(&used)
 		return maxUsers, used
 	}
-	_ = pool.QueryRow(ctx,
+	_ = q.QueryRow(ctx,
 		`SELECT COUNT(*) FROM admin_users WHERE instansi = $1 AND id <> $2`,
 		instansi, userID).Scan(&used)
 	return maxUsers, used
@@ -401,6 +411,14 @@ func CreateUser() gin.HandlerFunc {
 			return
 		}
 
+		// Same minimum the UI enforces (minlength=8 on both create/edit forms,
+		// users.html): the server must not accept weaker passwords from a
+		// hand-crafted request.
+		if len(password) < 8 {
+			errorResponse(c, http.StatusBadRequest, "Password minimal 8 karakter")
+			return
+		}
+
 		if !models.IsValidUsername(username) {
 			errorResponse(c, http.StatusBadRequest, "Username hanya boleh berisi huruf kecil, angka, titik, garis bawah, dan strip (3-32 karakter)")
 			return
@@ -428,6 +446,32 @@ func CreateUser() gin.HandlerFunc {
 			roles = []string{models.RoleGuru}
 		}
 
+		// All application defaults are read BEFORE any transaction starts:
+		// the operator create path holds ONE tx connection (FOR UPDATE on the
+		// operator row), so a pool call inside the open tx would need a
+		// SECOND connection — once concurrent creates saturate the pool (each
+		// holding its tx conn, queued on the row lock) that request would
+		// wait forever while the lock holder itself waits for a free conn:
+		// a classic pool deadlock observed in production-scale test runs.
+		defaultDays := models.GetSaasSettingInt(ctx, pool, models.SettingDefaultActiveDays, 14)
+		defaultMaxExams := models.GetSaasSettingInt(ctx, pool, models.SettingDefaultMaxExams, 3)
+		defaultMaxPDFSize := models.GetSaasSettingInt(ctx, pool, models.SettingDefaultMaxPDFSize, 1048576)
+		defaultMaxConcurrentExams := models.GetSaasSettingInt(ctx, pool, models.SettingDefaultMaxConcurrentExams, 2)
+
+		// Email must be unique across accounts (partial unique index
+		// uq_admin_users_email, email <> ''). Checked here so a duplicate form
+		// email gets a friendly 400 instead of a raw DB constraint error —
+		// mirrors the self-registration path in main.go. Runs before the tx
+		// (a pool call inside the open tx would risk the connection
+		// deadlock above).
+		if em := strings.TrimSpace(body.Email); em != "" {
+			existingByEmail, err := models.GetUserByEmail(ctx, pool, em)
+			if err == nil && existingByEmail.Email != "" {
+				errorResponse(c, http.StatusBadRequest, "Email sudah terdaftar. Gunakan email lain atau biarkan kosong.")
+				return
+			}
+		}
+
 		// Operator restrictions
 		var expiresAtPtr *time.Time
 		// inheritUnlimited marks an operator whose own expiry is NULL
@@ -438,8 +482,18 @@ func CreateUser() gin.HandlerFunc {
 		inheritUnlimited := false
 		instansi := strings.TrimSpace(body.Instansi)
 		var opInstansiID *int
-		var opInstansiCode string
+		var opInstansiCode *string
 
+		// tx is non-nil ONLY on the operator path: the sub-account quota
+		// check (count) and the INSERT must be atomic, and both must see the
+		// operator's authoritative instansi/expiry. The operator's own row is
+		// locked FOR UPDATE so two concurrent creates serialize on it and can
+		// never both pass a full max_users quota (the race the separate
+		// count-then-insert used to have). If the lock read fails, the create
+		// ABORTS — the body's instansi must never be used as a fallback (a
+		// hand-crafted request must not label an account with an instansi the
+		// operator does not own).
+		var tx pgx.Tx
 		if isOp {
 			// Operator cannot create operator accounts. Trim + case-insensitive
 			// compare so a hand-crafted " operator" / "OPERATOR" / " Operator "
@@ -454,27 +508,45 @@ func CreateUser() gin.HandlerFunc {
 					return
 				}
 			}
-			opUser, opErr := models.GetUserByID(ctx, pool, userID)
-			if opErr == nil {
-				instansi = opUser.Instansi
-				opInstansiID = opUser.InstansiID
-				_ = pool.QueryRow(ctx, `SELECT COALESCE(instansi_code, '') FROM admin_users WHERE id = $1`, userID).Scan(&opInstansiCode)
 
-				// NOTE: the operator's email is deliberately NOT copied onto the
-				// sub-account. The unique index uq_admin_users_email (email <>
-				// '') forbids two accounts sharing a non-empty email, and the
-				// operator's own row already holds it — forcing it here made
-				// EVERY operator-created account fail with a unique violation.
-				// The sub-account keeps the email typed in the form (or none).
-				// Force expiry: user expiry = operator's expiry (termasuk status
-				// unlimited — operator dengan expires_at NULL membuat akun sub
-				// yang unlimited juga, bukan trial default).
-				if opUser.ExpiresAt != nil {
-					expiresAt := *opUser.ExpiresAt
-					expiresAtPtr = &expiresAt
-				} else {
-					inheritUnlimited = true
-				}
+			var bErr error
+			tx, bErr = pool.Begin(ctx)
+			if bErr != nil {
+				log.Printf("begin operator create tx error: %v", bErr)
+				errorResponse(c, http.StatusInternalServerError, "Gagal membuat user")
+				return
+			}
+			defer func() { _ = tx.Rollback(ctx) }() // no-op after a successful Commit
+
+			var opExpiresAt *time.Time
+			// instansi_code is read RAW (no COALESCE): a NULL operator code
+			// must be inherited as NULL — writing '' would drift from the
+			// school's canonical NULL and break "instansi_code IS NULL"
+			// comparisons that treat '' as unset (schema.sql migration 511-522).
+			err = tx.QueryRow(ctx,
+				`SELECT instansi, instansi_id, instansi_code, expires_at
+				   FROM admin_users WHERE id = $1 FOR UPDATE`, userID,
+			).Scan(&instansi, &opInstansiID, &opInstansiCode, &opExpiresAt)
+			if err != nil {
+				log.Printf("lock operator row for create error: %v", err)
+				errorResponse(c, http.StatusInternalServerError, "Gagal membuat user")
+				return
+			}
+
+			// NOTE: the operator's email is deliberately NOT copied onto the
+			// sub-account. The unique index uq_admin_users_email (email <>
+			// '') forbids two accounts sharing a non-empty email, and the
+			// operator's own row already holds it — forcing it here made
+			// EVERY operator-created account fail with a unique violation.
+			// The sub-account keeps the email typed in the form (or none).
+			// Force expiry: user expiry = operator's expiry (termasuk status
+			// unlimited — operator dengan expires_at NULL membuat akun sub
+			// yang unlimited juga, bukan trial default).
+			if opExpiresAt != nil {
+				expiresAt := *opExpiresAt
+				expiresAtPtr = &expiresAt
+			} else {
+				inheritUnlimited = true
 			}
 		}
 
@@ -482,24 +554,14 @@ func CreateUser() gin.HandlerFunc {
 			instansi = "personal"
 		}
 
-		// Email must be unique across accounts (partial unique index
-		// uq_admin_users_email, email <> ''). Checked here so a duplicate form
-		// email gets a friendly 400 instead of a raw DB constraint error —
-		// mirrors the self-registration path in main.go.
-		if em := strings.TrimSpace(body.Email); em != "" {
-			existingByEmail, err := models.GetUserByEmail(ctx, pool, em)
-			if err == nil && existingByEmail.Email != "" {
-				errorResponse(c, http.StatusBadRequest, "Email sudah terdaftar. Gunakan email lain atau biarkan kosong.")
-				return
-			}
-		}
-
 		// School sub-account quota (max_users): an operator may only create
 		// accounts while the ACTIVE package still has room (see
 		// loadOperatorAccountQuota). 0 = unlimited; the count is all accounts in
-		// the operator's instansi except the operator themself.
+		// the operator's instansi except the operator themself. Runs inside the
+		// operator's locked transaction (see above), so the count and the
+		// INSERT below share one snapshot and one lock — no over-quota race.
 		if isOp {
-			maxUsers, used := loadOperatorAccountQuota(ctx, pool, userID, true, instansi)
+			maxUsers, used := loadOperatorAccountQuota(ctx, tx, userID, true, instansi)
 			if maxUsers > 0 && used >= maxUsers {
 				errorResponse(c, http.StatusBadRequest,
 					fmt.Sprintf("Kuota akun di instansi Anda telah mencapai batas paket (%d akun). Silakan hubungi administrator untuk menambah kuota.", maxUsers))
@@ -523,8 +585,6 @@ func CreateUser() gin.HandlerFunc {
 		// Default expiry — only apply form value when operator didn't already set it.
 		// Operator unlimited (inheritUnlimited) skips both the form value and the
 		// default_active_days fallback so the sub-account stays unlimited.
-		defaultDays := models.GetSaasSettingInt(ctx, pool,
-			models.SettingDefaultActiveDays, 14)
 		if expiresAtPtr == nil && !inheritUnlimited {
 			expiresAtStr := strings.TrimSpace(body.ExpiresAt)
 			if expiresAtStr != "" {
@@ -541,20 +601,17 @@ func CreateUser() gin.HandlerFunc {
 
 		maxExams := body.MaxExams
 		if maxExams <= 0 {
-			maxExams = models.GetSaasSettingInt(ctx, pool,
-				models.SettingDefaultMaxExams, 3)
+			maxExams = defaultMaxExams
 		}
 
 		maxPDFSize := int(body.MaxPDFSizeMB * 1024 * 1024)
 		if maxPDFSize <= 0 {
-			maxPDFSize = models.GetSaasSettingInt(ctx, pool,
-				models.SettingDefaultMaxPDFSize, 1048576)
+			maxPDFSize = defaultMaxPDFSize
 		}
 
 		maxConcurrentExams := body.MaxConcurrentExams
 		if maxConcurrentExams <= 0 {
-			maxConcurrentExams = models.GetSaasSettingInt(ctx, pool,
-				models.SettingDefaultMaxConcurrentExams, 2)
+			maxConcurrentExams = defaultMaxConcurrentExams
 		}
 
 		maxStorageSize := int64(body.MaxStorageSizeMB * 1024 * 1024)
@@ -597,18 +654,46 @@ func CreateUser() gin.HandlerFunc {
 		if isOp {
 			createdByID := userID
 			user.CreatedBy = &createdByID
+			// The school identity is inherited (instansi_id + instansi_code)
+			// INSIDE the same INSERT that creates the account — not a second
+			// UPDATE afterwards, whose failure used to be silently swallowed
+			// and left the account without a school identity. A NULL operator
+			// code is inherited as NULL (see the locked read above).
+			user.InstansiID = opInstansiID
+			user.InstansiCode = opInstansiCode
 		}
 
-		created, err := models.CreateUser(ctx, pool, user)
+		var created *models.AdminUser
+		if tx != nil {
+			created, err = models.CreateUserTx(ctx, tx, user)
+		} else {
+			created, err = models.CreateUser(ctx, pool, user)
+		}
 		if err != nil {
 			log.Printf("create user error: %v", err)
 			errorResponse(c, http.StatusInternalServerError, "Gagal membuat user")
 			return
 		}
 
-		// Ensure created user explicitly inherits operator's instansi_id and instansi_code
-		if isOp && created != nil {
-			_, _ = pool.Exec(ctx, `UPDATE admin_users SET instansi_id = $1, instansi_code = $2 WHERE id = $3`, opInstansiID, opInstansiCode, created.ID)
+		// The operator path commits ONLY after the insert succeeded — the
+		// FOR UPDATE lock is released at commit, so the next concurrent
+		// create sees the new row in its quota count.
+		if tx != nil {
+			if cErr := tx.Commit(ctx); cErr != nil {
+				log.Printf("commit operator create tx error: %v", cErr)
+				errorResponse(c, http.StatusInternalServerError, "Gagal membuat user")
+				return
+			}
+		}
+
+		// Append-only audit trail for management actions (mirrors the exam
+		// lifecycle audit): WHO created WHICH account, with the new account's
+		// identity snapshotted in detail. Written after commit; best-effort.
+		// examID = 0 → NULL (this is not an exam action).
+		if aErr := models.CreateAdminAuditLog(ctx, pool, userID, getCurrentUsername(c),
+			models.ActionUserCreated, 0,
+			fmt.Sprintf("Akun dibuat: %s (%s), role %s", created.Username, created.Name, created.Role)); aErr != nil {
+			log.Printf("audit user created: %v", aErr)
 		}
 
 		c.JSON(http.StatusOK, gin.H{
@@ -707,6 +792,52 @@ func EditUser() gin.HandlerFunc {
 				if strings.EqualFold(strings.TrimSpace(r), models.RoleOperator) {
 					errorResponse(c, http.StatusBadRequest, "Operator tidak dapat memberikan role Operator")
 					return
+				}
+			}
+		}
+
+		// Same minimum the UI enforces (minlength=8): a hand-crafted request
+		// must not reset a password to something weaker than the panel does.
+		if body.Password != nil && *body.Password != "" && len(*body.Password) < 8 {
+			errorResponse(c, http.StatusBadRequest, "Password minimal 8 karakter")
+			return
+		}
+
+		// Sub-account expiry policy (mirror of CreateUser's force-expiry rule):
+		// a sub-account's lifetime ALWAYS follows the operator — the operator
+		// can hand its own expiry to the accounts below it, but it must never
+		// be able to grant a longer lifetime or an unlimited one (the school
+		// package's expiry is the ceiling, and the expiry-cascade guards rely
+		// on that invariant). Whatever the operator submits for expires_at is
+		// replaced with the operator's CURRENT expiry (including NULL →
+		// unlimited when the operator itself is unlimited). A SuperAdmin edit
+		// is unaffected.
+		expiryForcedMsg := ""
+		if isOp && body.ExpiresAt != nil {
+			submitted := strings.TrimSpace(*body.ExpiresAt)
+			var opExpiresAt *time.Time
+			if err := pool.QueryRow(ctx, `SELECT expires_at FROM admin_users WHERE id = $1`, userID).Scan(&opExpiresAt); err != nil {
+				log.Printf("fetch operator expiry for edit error: %v", err)
+				errorResponse(c, http.StatusInternalServerError, "Gagal memperbarui user")
+				return
+			}
+			if opExpiresAt != nil {
+				// The forced value must round-trip through the DB as the
+				// SAME instant: format the clock in UTC so the literal a
+				// hand-crafted request could substitute never matters (the
+				// string update is interpreted in the session timezone).
+				forced := opExpiresAt.UTC().Format("2006-01-02 15:04:05")
+				body.ExpiresAt = &forced
+				if submitted != forced {
+					expiryForcedMsg = fmt.Sprintf(" Masa aktif akun dipaksa mengikuti operator (%s) — nilai yang dikirim diabaikan.", forced)
+				}
+			} else {
+				// Operator unlimited: the sub-account follows into unlimited,
+				// exactly like CreateUser's inheritUnlimited ("" → NULL below).
+				s := ""
+				body.ExpiresAt = &s
+				if submitted != "" {
+					expiryForcedMsg = " Masa aktif akun dipaksa unlimited (mengikuti operator yang unlimited) — nilai yang dikirim diabaikan."
 				}
 			}
 		}
@@ -973,9 +1104,29 @@ func EditUser() gin.HandlerFunc {
 		if cascadeMsg != "" {
 			msg += cascadeMsg
 		}
+		if expiryForcedMsg != "" {
+			msg += expiryForcedMsg
+		}
 		if freezeMsg != "" {
 			msg += freezeMsg
 		}
+
+		// Append-only audit trail for management actions: WHO edited WHICH
+		// account and WHICH fields changed. Written after the update committed;
+		// only when something actually changed. Best-effort. examID = 0 → NULL.
+		if len(updates) > 0 {
+			cols := make([]string, 0, len(updates))
+			for col := range updates {
+				cols = append(cols, col)
+			}
+			sort.Strings(cols)
+			if aErr := models.CreateAdminAuditLog(ctx, pool, userID, getCurrentUsername(c),
+				models.ActionUserEdited, 0,
+				fmt.Sprintf("Akun diubah: %s (%s) — field: %s", targetUser.Username, targetUser.Name, strings.Join(cols, ", "))); aErr != nil {
+				log.Printf("audit user edited: %v", aErr)
+			}
+		}
+
 		successMessage(c, msg)
 	}
 }
@@ -1163,6 +1314,14 @@ func VerifyUser() gin.HandlerFunc {
 			opInstansi := getInstansiForOperator(ctx, pool, userID)
 			if targetUser.Instansi != opInstansi {
 				errorResponse(c, http.StatusBadRequest, "Anda hanya dapat mengelola user dalam satu instansi yang sama")
+				return
+			}
+			// An operator must not verify another operator (mirrors EditUser &
+			// ToggleUserStatus): the verify action activates a pending account,
+			// and peer operators in the same instansi must stay out of each
+			// other's account lifecycle.
+			if targetUser.IsOperator() {
+				errorResponse(c, http.StatusBadRequest, "Operator tidak dapat mengelola akun dengan role Operator")
 				return
 			}
 		}

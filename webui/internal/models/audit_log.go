@@ -51,16 +51,29 @@ const (
 	// exam_id FK targets the new row), opening the lifecycle trail: created →
 	// pdf_replaced → deleted.
 	ActionExamCreated = "exam_created"
+	// An admin/operator account was created through the management panel
+	// (CreateUser — the Tambah User form; self-registration /register does NOT
+	// go through this handler and is not audited here). Written after the row
+	// committed; detail snapshots username/name/role of the NEW account, and
+	// the audit's exam_id is NULL (no exam involved).
+	ActionUserCreated = "user_created"
+	// An existing account was edited through the management panel (EditUser —
+	// the Atur Limit modal). Written after the update committed; detail lists
+	// which fields were changed. exam_id is NULL.
+	ActionUserEdited = "user_edited"
 )
 
 // CreateAdminAuditLog appends one audit row. username/detail are snapshotted
 // at write time, so the row survives later account renames or deletion.
+// examID is the target exam when the action is exam-scoped; pass 0 for
+// actions without an exam (e.g. user_created/user_edited) — the row stores
+// NULL in exam_id via NULLIF, so a 0 never collides with the FK.
 // Failures are non-fatal to the caller's main flow (the handler logs them),
 // which is why this returns only an error and no context of its own.
 func CreateAdminAuditLog(ctx context.Context, pool *pgxpool.Pool, userID int, username, action string, examID int, detail string) error {
 	if _, err := pool.Exec(ctx, `
 		INSERT INTO admin_audit_logs (user_id, username, action, exam_id, detail)
-		VALUES ($1, $2, $3, $4, $5)`,
+		VALUES ($1, $2, $3, NULLIF($4::int, 0), $5)`,
 		userID, username, action, examID, detail); err != nil {
 		return fmt.Errorf("create admin audit log: %w", err)
 	}

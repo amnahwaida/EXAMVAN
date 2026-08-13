@@ -281,6 +281,21 @@ Saat operator diperpanjang, perilaku akun sub bergantung pada jalur perpanjangan
 
 Sub-account yang **memiliki voucher/paket aktif sendiri** atau **ber-role operator** tidak disentuh oleh perpanjangan/cascade di atas — mereka memakai jam mandirinya masing-masing. Sub yang sudah **unlimited** (`expires_at` NULL) tetap unlimited (cascade tidak pernah menimpa status unlimited yang sudah ada).
 
+### Penghapusan Akun Operator: Seluruh Akun di Instansinya Ikut Terhapus (By Design)
+
+> ⚠️ **Ini adalah desain yang disengaja**, bukan bug: ketika akun **operator** dihapus dari halaman **Kelola Users** (`/admin/users`), **semua akun di instansi yang sama ikut dihapus** beserta data ujiannya.
+
+**Alasan:** instansi adalah unit domain sekolah — paket, kuota, dan masa aktif seluruh akun di dalamnya dikelola oleh operator melalui paket sekolah. Menghapus operator sama artinya dengan membubarkan penyewa (tenant) sekolah tersebut; membiarkan akun-akunnya hidup tanpa operator akan meninggalkan akun yatim yang tidak bisa dikelola siapa pun (tidak ada operator lain yang boleh menyentuh instansi milik operator yang sudah dihapus).
+
+**Cakupan penghapusan** (`models.DeleteUser`, `webui/internal/models/user.go`):
+
+- **Semua akun** dengan `instansi` yang sama dengan operator yang dihapus (termasuk operator lain yang kebetulan satu instansi), beserta **ujian** yang dibuat siapapun di antara mereka dan **data submission** terkait — dihapus dalam **satu transaksi** (FK `ON DELETE CASCADE`), plus **file PDF ujian** yang ter-orphan di storage ikut dibersihkan;
+- Hanya operator dengan **instansi nyata** (bukan kosong/`"personal"`) yang memicu cascade ini — operator pada bucket `"personal"` hanya menghapus dirinya sendiri;
+- Sebelum baris dihapus, setiap ujian yang ikut terhapus dicatat **audit `exam_deleted`** (dikaitkan pada admin yang melakukan aksi) agar jejak ujian tetap bisa ditelusuri setelah aturan FK `ON DELETE SET NULL` memutus relasi;
+- Akun biasa (guru/pengawas) yang dihapus tidak pernah memicu cascade instansi.
+
+**Imbauan operasional:** pastikan seluruh data sekolah yang masih diperlukan sudah di-backup sebelum menghapus akun operator — aksi ini permanen dan tidak dapat dibatalkan.
+
 ### Kebijakan Klaim Voucher Akun Sub (Dibuat Operator)
 
 Sejak kebijakan ini diberlakukan, **akun yang dibuat oleh operator** (akun sub dalam satu `instansi` sekolah) **tidak dapat menukar (klaim) kode voucher apa pun** — baik lewat halaman Paket & Voucher, lewat API, maupun lewat klien Android/desktop (semuanya memanggil API yang sama) — dan **tidak dapat mengaktifkan** paket voucher yang mungkin tertinggal di akunnya (mis. klaim sebelum kebijakan berlaku).
@@ -337,6 +352,30 @@ Test kontrak rute (tanpa database):
 ```bash
 cd webui
 go test ./cmd/server/ -run TestNoPublicVoucherRoutes -v
+```
+
+### Kebijakan Pembuatan & Pengelolaan Akun oleh Operator (Hardening)
+
+Seluruh alur pembuatan dan pengelolaan akun oleh operator dikunci oleh seperangkat jaminan berikut (semuanya di-enforce di **server**, bukan hanya di UI — request tamper sekalipun tidak bisa menembus). Implementasi: `webui/internal/handlers/admin/users.go`, `webui/internal/models/user.go`; dikunci oleh test integrasi `webui/internal/handlers/admin/operator_user_flow_test.go`.
+
+1. **Masa aktif akun sub SELALU mengikuti operator** — pada **pembuatan** (`CreateUser`, warisan dari baris operator di database) maupun **pengeditan** (`EditUser`): expired-at yang dikirim operator untuk akun sub **dipaksa diganti** dengan masa aktif operator saat itu — tidak bisa memberikannya masa aktif lebih lama, lebih pendek, apalagi **unlimited** (`expires_at` kosong → NULL) selama operatornya sendiri masih berbatas. Operator yang **unlimited** justru membuat/ menyisakan akun sub unlimited. Hanya **SuperAdmin** yang bisa memberi expiry berbeda. Pesan konfirmasi edit menyebutkan nilai penggantian ("dipaksa mengikuti operator"/"dipaksa unlimited"). Test: `TestOperatorCannotSetSubAccountExpiry`.
+
+2. **Kuota akun sub (`max_users`) atomik** — proses create operator berjalan dalam **satu transaksi** yang mengunci baris operator (`SELECT ... FOR UPDATE`): berapa pun permintaan create paralel, hanya **persis `max_users`** akun yang berhasil — sisanya ditolak 400 "Kuota akun di instansi Anda telah mencapai batas paket". (Sebelum fix: cek kuota dan INSERT berjalan tanpa kunci → 2 create paralel bisa sama-sama lolos.) Kehati-hatian implementasi: semua pembacaan default (masa aktif, limit ujian, dll.) dan cek email unik dilakukan **sebelum** transaksi dibuka, sehingga transaksi hanya memakai satu koneksi database — mencegah deadlock koneksi saat banyak create paralel memenuhi pool. Test: `TestCreateUserQuotaAtomicUnderConcurrency`.
+
+3. **Instansi akun sub selalu dari database operator, bukan dari body request** — request dengan `instansi` tamper ("sekolah lain") diabaikan; akun baru selalu masuk instansi operator (termasuk bucket `"personal"`). `instansi_id` dan `instansi_code` sekolah diwariskan **di dalam INSERT yang sama** dengan pembuatan akun (sebelumnya lewat UPDATE kedua yang gagalnya diam-diam diabaikan — akun bisa lahir tanpa identitas sekolah); kode `NULL` operator diwariskan sebagai `NULL` mentah (bukan `''`, agar konsisten dengan representasi "belum ditetapkan" di migrasi skema). Test: `TestCreateUserForcesOperatorInstansiOverBody`, `TestCreateUserInheritsInstansiIdentity`.
+
+4. **Password minimal 8 karakter di-enforce di server** — untuk pembuatan (`CreateUser`) maupun pengeditan (`EditUser`); aturan `minlength=8` di UI saja bisa di-bypass dengan request buatan tangan. Test: `TestCreateUserPasswordMinLengthServer`.
+
+5. **`VerifyUser` tidak bisa menargetkan akun operator** — guard "role Operator" yang sudah berlaku di Edit/Toggle kini berlaku juga di verifikasi akun pending (400, status target tidak berubah). Test: `TestVerifyUserCannotActOnOperatorPeer`.
+
+6. **Jejak audit pengelolaan akun** — setiap create menulis baris `admin_audit_logs` ber-action `user_created` dan setiap edit menulis `user_edited` (aktor = username admin/operator yang bertindak, detail = akun + role yang dibuat / daftar kolom yang diubah, `exam_id` selalu `NULL`). Ditulis setelah transaksi berhasil (best-effort, tidak pernah memblokir aksi utama). Test: `TestUserCreateEditAudited`.
+
+Jalankan dengan:
+
+```bash
+cd webui
+TEST_DATABASE_URL=postgresql://user:pass@localhost:5432/examvan_test \
+  go test ./internal/handlers/admin/ -run 'TestOperatorCannotSetSubAccountExpiry|TestCreateUserQuotaAtomicUnderConcurrency|TestCreateUserForcesOperatorInstansiOverBody|TestVerifyUserCannotActOnOperatorPeer|TestCreateUserInheritsInstansiIdentity|TestCreateUserPasswordMinLengthServer|TestUserCreateEditAudited' -v
 ```
 
 ### Cara Mengubah

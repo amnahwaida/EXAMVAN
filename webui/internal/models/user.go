@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"golang.org/x/crypto/bcrypt"
 	"golang.org/x/crypto/pbkdf2"
@@ -58,6 +59,12 @@ type AdminUser struct {
 	Status             string     `json:"status"`
 	Instansi           string     `json:"instansi"`
 	InstansiID         *int       `json:"instansi_id,omitempty"`
+	// InstansiCode is the school's unique code. NULL for accounts that never
+	// inherited one (superadmin-created / self-registered before a school
+	// instansi existed); an operator-created sub-account copies the operator's
+	// code verbatim (including NULL — never the '' interpolation) inside the
+	// same INSERT that creates the account, so the two can never diverge.
+	InstansiCode *string `json:"instansi_code,omitempty"`
 	Role               string     `json:"role"`         // JSON array string e.g. '["guru"]', or 'superadmin'
 	BaseRole           string     `json:"base_role"`    // roles held independently of packages (JSON array string)
 	PackageRole        string     `json:"package_role"` // roles granted by the currently-ACTIVE package (JSON array string)
@@ -650,9 +657,35 @@ func RegistrationAllowedByPerIPLimit(recentRegistrations, maxPerIP int) bool {
 	return recentRegistrations < maxPerIP
 }
 
+// userWriter abstracts the INSERT execution over a connection pool or an
+// already-open transaction, so CreateUser can run standalone (self-registration,
+// tests) while the CreateUser handler runs it inside the operator's quota
+// transaction (CreateUserTx) — the atomic "lock operator row + count + insert"
+// that makes the sub-account quota race-free.
+type userWriter interface {
+	Exec(ctx context.Context, sql string, args ...any) (pgconn.CommandTag, error)
+	QueryRow(ctx context.Context, sql string, args ...any) pgx.Row
+}
+
 // CreateUser inserts a new admin_users row. The password is hashed with bcrypt.
 // Returns the created AdminUser with its generated ID.
 func CreateUser(ctx context.Context, pool *pgxpool.Pool, u *AdminUser) (*AdminUser, error) {
+	return createUser(ctx, pool, u)
+}
+
+// CreateUserTx inserts a new admin_users row inside an existing transaction
+// (the pgx.Tx's command tag / row interface satisfy userWriter). Used by the
+// CreateUser handler on the operator path, where the INSERT must be atomic
+// with the FOR UPDATE quota lock on the operator's own row. Everything else
+// (hashing, defaults, column contract) is identical to CreateUser.
+func CreateUserTx(ctx context.Context, tx pgx.Tx, u *AdminUser) (*AdminUser, error) {
+	return createUser(ctx, tx, u)
+}
+
+// createUser is the shared INSERT core, parameterized only via the interface
+// so the caller decides whether the write lands on the pool (CreateUser) or on
+// a transaction (CreateUserTx).
+func createUser(ctx context.Context, q userWriter, u *AdminUser) (*AdminUser, error) {
 	hash, err := HashPassword(u.PasswordHash)
 	if err != nil {
 		return nil, err
@@ -663,13 +696,14 @@ func CreateUser(ctx context.Context, pool *pgxpool.Pool, u *AdminUser) (*AdminUs
 	}
 
 	sql := `INSERT INTO admin_users
-	(username, name, password_hash, status, instansi, role, max_exams, max_pdf_size,
+	(username, name, password_hash, status, instansi, instansi_id, instansi_code, role, max_exams, max_pdf_size,
 	 max_concurrent_exams, max_storage_size, whatsapp_number, email, expires_at, otp_code, otp_expiry, package, registered_ip, operator_created, created_by)
-	VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19)
+	VALUES ($1,$2,$3,$4,$5,$6,NULLIF($7::text,''),$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21)
 	RETURNING ` + DefaultAdminUserColumns
 
-	created, err := scanAdminUser(pool.QueryRow(ctx, sql,
-		u.Username, u.Name, hash, u.Status, u.Instansi, u.Role,
+	created, err := scanAdminUser(q.QueryRow(ctx, sql,
+		u.Username, u.Name, hash, u.Status, u.Instansi, u.InstansiID, u.InstansiCode,
+		u.Role,
 		u.MaxExams, u.MaxPDFSize, u.MaxConcurrentExams, u.MaxStorageSize,
 		u.WhatsappNumber, u.Email, u.ExpiresAt, u.OTPCode, u.OTPExpiry,
 		u.Package, u.RegisteredIP, u.OperatorCreated, u.CreatedBy,
