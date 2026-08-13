@@ -52,14 +52,17 @@ func effectiveBaseRoles(u models.AdminUser) []string {
 }
 
 // getInstansiForOperator retrieves the instansi of the current operator user.
-func getInstansiForOperator(ctx context.Context, pool *pgxpool.Pool, userID int) string {
+// The error is propagated so data-exposing callers can fail CLOSED: an
+// operator whose instansi cannot be resolved must never silently fall back to
+// an empty scope (which would widen a query to every tenant).
+func getInstansiForOperator(ctx context.Context, pool *pgxpool.Pool, userID int) (string, error) {
 	var instansi string
 	err := pool.QueryRow(ctx,
 		`SELECT instansi FROM admin_users WHERE id = $1`, userID).Scan(&instansi)
 	if err != nil {
-		return ""
+		return "", err
 	}
-	return instansi
+	return instansi, nil
 }
 
 // quotaQuerier abstracts a single-query source so loadOperatorAccountQuota
@@ -154,7 +157,10 @@ func UsersPage() gin.HandlerFunc {
 		var operatorExpiresAt *string
 
 		if isOperator(c) {
-			instansi := getInstansiForOperator(c.Request.Context(), pool, userID)
+			instansi, err := getInstansiForOperator(c.Request.Context(), pool, userID)
+			if err != nil {
+				log.Printf("users page: operator instansi lookup error: %v", err)
+			}
 			adminInstansi = instansi
 
 			user, err := models.GetUserByID(c.Request.Context(), pool, userID)
@@ -224,7 +230,17 @@ func ListUsers() gin.HandlerFunc {
 		}
 
 		if isOp {
-			instansi := getInstansiForOperator(ctx, pool, userID)
+			// Fail CLOSED: an operator whose instansi cannot be resolved (DB
+			// error) or an anomalous empty-instansi row must not silently drop
+			// the scope filter — that would hand the user every tenant's
+			// accounts. A healthy operator always has an instansi, so an
+			// unresolvable one is a defect, not a data state.
+			instansi, err := getInstansiForOperator(ctx, pool, userID)
+			if err != nil || instansi == "" {
+				log.Printf("list users: operator instansi unresolved (user %d, instansi=%q, err=%v)", userID, instansi, err)
+				errorResponse(c, http.StatusInternalServerError, "Gagal memuat daftar user")
+				return
+			}
 			opts.Instansi = instansi
 		}
 
@@ -771,7 +787,12 @@ func EditUser() gin.HandlerFunc {
 
 		// Operator restrictions
 		if isOp {
-			opInstansi := getInstansiForOperator(ctx, pool, userID)
+			opInstansi, err := getInstansiForOperator(ctx, pool, userID)
+			if err != nil || opInstansi == "" {
+				log.Printf("edit user: operator instansi unresolved (user %d, err=%v)", userID, err)
+				errorResponse(c, http.StatusInternalServerError, "Gagal memperbarui user")
+				return
+			}
 			if targetUser.Instansi != opInstansi {
 				errorResponse(c, http.StatusBadRequest, "Anda hanya dapat mengelola user dalam satu instansi yang sama")
 				return
@@ -879,7 +900,12 @@ func EditUser() gin.HandlerFunc {
 
 			// Operator tidak boleh mengubah instansi user
 			if isOp {
-				opInstansi := getInstansiForOperator(ctx, pool, userID)
+				opInstansi, err := getInstansiForOperator(ctx, pool, userID)
+				if err != nil || opInstansi == "" {
+					log.Printf("edit user: operator instansi unresolved (user %d, err=%v)", userID, err)
+					errorResponse(c, http.StatusInternalServerError, "Gagal memperbarui user")
+					return
+				}
 				if instansi != "" && instansi != opInstansi {
 					errorResponse(c, http.StatusBadRequest, "Operator tidak dapat mengubah instansi user")
 					return
@@ -1085,18 +1111,33 @@ func EditUser() gin.HandlerFunc {
 		// Reactivating via the edit form: apply the suspension freeze (extend
 		// expiry by the suspension duration) so the package clock did not burn
 		// while the account was suspended. When a fresh expiry is explicitly set
-		// in the same request, that grant supersedes the freeze.
+		// in the same request, that grant supersedes the freeze — but the
+		// suspension markers STILL must go: leaving suspended_at dangling would
+		// let a later reactivation freeze the clock a second time
+		// (double-freeze), and leaving suspended_by_cascade dangling would let
+		// a later cascade restore re-suspend an account an admin explicitly
+		// revived. (The no-explicit-expiry branch below relies on
+		// ResumeSuspendedAccountClock, which clears the markers itself; the
+		// explicit-expiry branch clears them here and now.)
 		var freezeMsg string
-		if body.Status != nil && *body.Status == models.UserStatusActive && !isSuperAdminTarget && body.ExpiresAt == nil {
-			if extendedExpiry, err := models.ResumeSuspendedAccountClock(ctx, pool, targetID); err != nil {
-				log.Printf("edit user: resume suspended account clock error: %v", err)
-			} else if extendedExpiry != nil {
-				// The suspension clock was frozen: expires_at was extended by the
-				// suspension duration — which may even resurrect an account whose
-				// expiry had already passed. Surface the new expiry so the admin
-				// is not surprised by the extended lifetime.
-				freezeMsg = fmt.Sprintf(" Masa aktif diperpanjang sampai %s (jam dijeda selama suspend)",
-					extendedExpiry.Format("2006-01-02 15:04:05"))
+		if body.Status != nil && *body.Status == models.UserStatusActive && !isSuperAdminTarget {
+			if body.ExpiresAt == nil {
+				if extendedExpiry, err := models.ResumeSuspendedAccountClock(ctx, pool, targetID); err != nil {
+					log.Printf("edit user: resume suspended account clock error: %v", err)
+				} else if extendedExpiry != nil {
+					// The suspension clock was frozen: expires_at was extended by the
+					// suspension duration — which may even resurrect an account whose
+					// expiry had already passed. Surface the new expiry so the admin
+					// is not surprised by the extended lifetime.
+					freezeMsg = fmt.Sprintf(" Masa aktif diperpanjang sampai %s (jam dijeda selama suspend)",
+						extendedExpiry.Format("2006-01-02 15:04:05"))
+				}
+			} else {
+				if _, cerr := pool.Exec(ctx,
+					`UPDATE admin_users SET suspended_at = NULL, suspended_by_cascade = FALSE WHERE id = $1`,
+					targetID); cerr != nil {
+					log.Printf("edit user: clear suspension markers error: %v", cerr)
+				}
 			}
 		}
 
@@ -1160,7 +1201,12 @@ func ToggleUserStatus() gin.HandlerFunc {
 		}
 
 		if isOp {
-			opInstansi := getInstansiForOperator(ctx, pool, userID)
+			opInstansi, err := getInstansiForOperator(ctx, pool, userID)
+			if err != nil || opInstansi == "" {
+				log.Printf("toggle user status: operator instansi unresolved (user %d, err=%v)", userID, err)
+				errorResponse(c, http.StatusInternalServerError, "Gagal mengubah status user")
+				return
+			}
 			if targetUser.Instansi != opInstansi {
 				errorResponse(c, http.StatusBadRequest, "Anda hanya dapat mengelola user dalam satu instansi yang sama")
 				return
@@ -1311,7 +1357,12 @@ func VerifyUser() gin.HandlerFunc {
 		}
 
 		if isOp {
-			opInstansi := getInstansiForOperator(ctx, pool, userID)
+			opInstansi, err := getInstansiForOperator(ctx, pool, userID)
+			if err != nil || opInstansi == "" {
+				log.Printf("verify user: operator instansi unresolved (user %d, err=%v)", userID, err)
+				errorResponse(c, http.StatusInternalServerError, "Gagal memverifikasi user")
+				return
+			}
 			if targetUser.Instansi != opInstansi {
 				errorResponse(c, http.StatusBadRequest, "Anda hanya dapat mengelola user dalam satu instansi yang sama")
 				return
@@ -1365,9 +1416,25 @@ func DeleteUser() gin.HandlerFunc {
 		if isSuper {
 			// super admin can delete anyone
 		} else if isOp {
-			opInstansi := getInstansiForOperator(ctx, pool, userID)
+			opInstansi, err := getInstansiForOperator(ctx, pool, userID)
+			if err != nil || opInstansi == "" {
+				log.Printf("delete user: operator instansi unresolved (user %d, err=%v)", userID, err)
+				errorResponse(c, http.StatusInternalServerError, "Gagal menghapus user")
+				return
+			}
 			if targetUser.Instansi != opInstansi {
 				errorResponse(c, http.StatusBadRequest, "Anda hanya dapat mengelola user dalam satu instansi yang sama")
+				return
+			}
+			// An operator must not delete a PEER operator of the same
+			// instansi (mirrors EditUser / ToggleUserStatus / VerifyUser):
+			// deleting an operator account cascades over its whole instansi —
+			// every sub-account, every exam, and every account sharing the
+			// instansi label goes with it (the "pelanggan hilang" contract in
+			// the README applies to the SUPERADMIN). A peer deletion would
+			// wipe the entire school, including the acting operator themself.
+			if targetUser.IsOperator() {
+				errorResponse(c, http.StatusBadRequest, "Operator tidak dapat mengelola akun dengan role Operator")
 				return
 			}
 		} else {

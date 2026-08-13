@@ -199,6 +199,11 @@ func newVoucherTestRouter(pool *pgxpool.Pool) *gin.Engine {
 	api.POST("/users/:user_id/edit", middleware.AdminManagementRequired(), EditUser())
 	api.POST("/users/:user_id/verify", middleware.AdminManagementRequired(), VerifyUser())
 	api.POST("/users/:user_id/delete", middleware.AdminManagementRequired(), DeleteUser())
+	// Voucher management (SuperAdmin only — mirrors production wiring): the
+	// creation endpoints under test (custom duration bounds, custom quota
+	// caps).
+	api.POST("/vouchers", middleware.SuperAdminRequired(), CreateVoucherHandler())
+	api.POST("/vouchers/batch", middleware.SuperAdminRequired(), CreateBatchVouchersHandler())
 	// POST /instansi/update mirrors production (AuthRequired →
 	// FeatureLockRequired → AdminManagementRequired): renaming a school
 	// instansi applies to every account sharing the instansi_id, so it must

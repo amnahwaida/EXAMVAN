@@ -152,8 +152,15 @@ func parseCustomVoucherInto(c *gin.Context, v *models.Voucher) string {
 		}
 		pdfMB = s
 	}
+	// Disk check FIRST (its message wins when the disk is determinable), then
+	// the hard ceiling as the final overflow guard for the fail-open case
+	// (disk unknown → quota check skipped): a huge float64 flowing into
+	// int64(mb*1024*1024) would silently overflow into a NEGATIVE quota.
 	if msg := validatePDFQuota(c, pdfMB); msg != "" {
 		return msg
+	}
+	if pdfMB > maxQuotaMB {
+		return fmt.Sprintf("Maks Ukuran PDF terlalu besar (maksimal %.0f MB / 10 TB).", maxQuotaMB)
 	}
 	v.CustomMaxPDFSize = int64(pdfMB * 1024 * 1024)
 
@@ -168,13 +175,49 @@ func parseCustomVoucherInto(c *gin.Context, v *models.Voucher) string {
 		}
 		storageMB = s
 	}
+	// Disk check FIRST (its message wins when the disk is determinable), then
+	// the hard ceiling as the final overflow guard for the fail-open case.
 	if msg := validateStorageQuota(c, storageMB); msg != "" {
 		return msg
+	}
+	if storageMB > maxQuotaMB {
+		return fmt.Sprintf("Maks Storage terlalu besar (maksimal %.0f MB / 10 TB).", maxQuotaMB)
 	}
 	v.CustomMaxStorageSize = int64(storageMB * 1024 * 1024)
 	v.CustomMaxUsers = int64(voucherAtoiDefault(c.PostForm("custom_max_users"), 0))
 	v.CustomRole = role
 	return ""
+}
+
+// maxVoucherDurationDays caps the custom voucher duration (hari): the day
+// count is multiplied into seconds at redemption (durationDays × 86400) and
+// later converted into a time.Duration in the entitlement math — values
+// beyond the duration range would wrap the expiry computation and poison
+// every redeemed account. 3650 hari = 10 tahun is far beyond any legitimate
+// package lifetime while staying far inside the duration range.
+const maxVoucherDurationDays = 3650
+
+// maxQuotaMB caps the MB quota inputs of a custom voucher (PDF size and
+// storage): a huge float64 flowing into int64(mb*1024*1024) would silently
+// overflow into a NEGATIVE quota (MinInt64) that poisons every redeemed
+// account. The ceiling applies independently of the free-disk check, which
+// FAILS OPEN when the disk cannot be determined — so the hard cap is the
+// overflow guard, the disk check is the capacity guard.
+// 10 TB in MB = 10.000.000.
+const maxQuotaMB = 10000000.0
+
+// parseCustomDurationDays validates the form's custom_days: a positive day
+// count within maxVoucherDurationDays becomes the numeric duration type,
+// anything else yields a user-facing rejection.
+func parseCustomDurationDays(customDaysStr string) (string, string) {
+	d, err := strconv.Atoi(strings.TrimSpace(customDaysStr))
+	if err != nil || d <= 0 {
+		return "", "Jumlah hari durasi kustom harus berupa angka positif"
+	}
+	if d > maxVoucherDurationDays {
+		return "", fmt.Sprintf("Jumlah hari durasi kustom maksimal %d hari (10 tahun)", maxVoucherDurationDays)
+	}
+	return strconv.Itoa(d), ""
 }
 
 // CreateVoucherHandler handles POST /admin/api/vouchers (SuperAdmin only).
@@ -198,12 +241,12 @@ func CreateVoucherHandler() gin.HandlerFunc {
 
 		if durationType == "custom" {
 			customDaysStr := strings.TrimSpace(c.PostForm("custom_days"))
-			if d, err := strconv.Atoi(customDaysStr); err == nil && d > 0 {
-				durationType = strconv.Itoa(d)
-			} else {
-				errorResponse(c, http.StatusBadRequest, "Jumlah hari durasi kustom harus berupa angka positif")
+			parsed, msg := parseCustomDurationDays(customDaysStr)
+			if msg != "" {
+				errorResponse(c, http.StatusBadRequest, msg)
 				return
 			}
+			durationType = parsed
 		}
 
 		maxUsage := 1
@@ -282,12 +325,12 @@ func CreateBatchVouchersHandler() gin.HandlerFunc {
 
 		if durationType == "custom" {
 			customDaysStr := strings.TrimSpace(c.PostForm("custom_days"))
-			if d, err := strconv.Atoi(customDaysStr); err == nil && d > 0 {
-				durationType = strconv.Itoa(d)
-			} else {
-				errorResponse(c, http.StatusBadRequest, "Jumlah hari durasi kustom harus berupa angka positif")
+			parsed, msg := parseCustomDurationDays(customDaysStr)
+			if msg != "" {
+				errorResponse(c, http.StatusBadRequest, msg)
 				return
 			}
+			durationType = parsed
 		}
 
 		count := 5
@@ -332,8 +375,11 @@ func CreateBatchVouchersHandler() gin.HandlerFunc {
 
 		createdList, err := models.CreateBatchVouchers(ctx, pool, prefix, count, tmpl)
 		if err != nil {
+			// A partial batch is surfaced, not hidden: the admin asked for N
+			// codes and must know exactly how many exist — a silent shortfall
+			// would leave printed codes that fail at the redeem point.
 			log.Printf("batch create vouchers error: %v", err)
-			errorResponse(c, http.StatusInternalServerError, "Gagal membuat batch voucher")
+			errorResponse(c, http.StatusInternalServerError, err.Error())
 			return
 		}
 

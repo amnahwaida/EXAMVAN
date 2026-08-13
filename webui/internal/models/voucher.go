@@ -118,6 +118,12 @@ func CreateVoucher(ctx context.Context, pool *pgxpool.Pool, v *Voucher) (*Vouche
 // CreateBatchVouchers generates multiple unique vouchers at once, all sharing
 // the given template's package/duration/usage/expiry/notes and (if set) custom
 // entitlement. Only the code is randomized per voucher.
+// CreateBatchVouchers creates count vouchers sharing the template, each with
+// a random code. Codes that collide with an existing voucher after the retry
+// are skipped silently — the collision is a benign random event, but the
+// caller MUST be told the batch came back short: an admin who asked for 20
+// codes and got 18 must not believe they hold 20. The error carries the
+// partial result so the handler can report exactly how many were created.
 func CreateBatchVouchers(ctx context.Context, pool *pgxpool.Pool, prefix string, count int, tmpl Voucher) ([]Voucher, error) {
 	if count <= 0 {
 		count = 1
@@ -127,6 +133,7 @@ func CreateBatchVouchers(ctx context.Context, pool *pgxpool.Pool, prefix string,
 	}
 
 	var created []Voucher
+	var failed int
 	for i := 0; i < count; i++ {
 		v := tmpl // copy template
 		v.Code = GenerateRandomVoucherCode(prefix)
@@ -138,12 +145,17 @@ func CreateBatchVouchers(ctx context.Context, pool *pgxpool.Pool, prefix string,
 			v.Code = GenerateRandomVoucherCode(prefix)
 			res, err = CreateVoucher(ctx, pool, &v)
 			if err != nil {
+				failed++
 				continue
 			}
 		}
 		created = append(created, *res)
 	}
 
+	if failed > 0 {
+		return created, fmt.Errorf("hanya %d dari %d voucher berhasil dibuat (%d kode bentrok — coba ulang; voucher yang sudah dibuat tidak diduplikasi)",
+			len(created), count, failed)
+	}
 	return created, nil
 }
 

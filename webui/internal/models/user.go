@@ -51,20 +51,20 @@ func IsValidUsername(s string) bool {
 }
 
 type AdminUser struct {
-	ID                 int        `json:"id"`
-	Username           string     `json:"username"`
-	Name               string     `json:"name"`
-	PasswordHash       string     `json:"-"` // never serialized
-	CreatedAt          time.Time  `json:"created_at"`
-	Status             string     `json:"status"`
-	Instansi           string     `json:"instansi"`
-	InstansiID         *int       `json:"instansi_id,omitempty"`
+	ID           int       `json:"id"`
+	Username     string    `json:"username"`
+	Name         string    `json:"name"`
+	PasswordHash string    `json:"-"` // never serialized
+	CreatedAt    time.Time `json:"created_at"`
+	Status       string    `json:"status"`
+	Instansi     string    `json:"instansi"`
+	InstansiID   *int      `json:"instansi_id,omitempty"`
 	// InstansiCode is the school's unique code. NULL for accounts that never
 	// inherited one (superadmin-created / self-registered before a school
 	// instansi existed); an operator-created sub-account copies the operator's
 	// code verbatim (including NULL — never the '' interpolation) inside the
 	// same INSERT that creates the account, so the two can never diverge.
-	InstansiCode *string `json:"instansi_code,omitempty"`
+	InstansiCode       *string    `json:"instansi_code,omitempty"`
 	Role               string     `json:"role"`         // JSON array string e.g. '["guru"]', or 'superadmin'
 	BaseRole           string     `json:"base_role"`    // roles held independently of packages (JSON array string)
 	PackageRole        string     `json:"package_role"` // roles granted by the currently-ACTIVE package (JSON array string)
@@ -732,6 +732,7 @@ var allowedUserColumns = map[string]bool{
 	"email":                true,
 	"expires_at":           true,
 	"suspended_at":         true,
+	"suspended_by_cascade": true,
 	"otp_code":             true,
 	"otp_expiry":           true,
 	"package":              true,
@@ -884,14 +885,40 @@ func planToggleUserStatus(user AdminUser, now time.Time, renewDays int) ToggleUs
 // When activating an expired user, a new expiry date of default_active_days
 // days is set.
 // Returns the new status and an optional message.
+//
+// The whole decision-and-apply runs inside ONE transaction that locks the
+// account row FOR UPDATE, so concurrent toggles (double-clicks, parallel
+// sessions) SERIALIZE on the latest committed state instead of deciding from
+// a stale read. The hazard this closes: two concurrent reactivations of the
+// same suspended account both read the same suspended_at and both applied
+// the suspension freeze — extending expires_at twice (double freeze). Under
+// the lock the second toggle re-reads the committed row and reacts to the
+// post-first-toggle state.
 func ToggleUserStatus(ctx context.Context, pool *pgxpool.Pool, userID int) (string, string, error) {
-	user, err := GetUserByID(ctx, pool, userID)
+	// Hoisted BEFORE the transaction so the settings read never needs a
+	// second connection while the tx holds one (the CreateUser deadlock
+	// lesson).
+	renewDays := GetSaasSettingInt(ctx, pool, SettingDefaultActiveDays, 14)
+	now := time.Now().UTC()
+
+	tx, err := pool.Begin(ctx)
 	if err != nil {
-		return "", "", fmt.Errorf("toggle user status: get user: %w", err)
+		return "", "", fmt.Errorf("toggle user status: begin tx: %w", err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+
+	// Lock the account row: the plan below is decided from the LATEST
+	// committed state (waiting toggles see the previous toggle's outcome).
+	var id int
+	var username, status string
+	var expiresAt, suspendedAt *time.Time
+	if err := tx.QueryRow(ctx,
+		`SELECT id, username, status, expires_at, suspended_at FROM admin_users WHERE id = $1 FOR UPDATE`,
+		userID).Scan(&id, &username, &status, &expiresAt, &suspendedAt); err != nil {
+		return "", "", fmt.Errorf("toggle user status: lock user: %w", err)
 	}
 
-	renewDays := GetSaasSettingInt(ctx, pool, SettingDefaultActiveDays, 14)
-	out := planToggleUserStatus(user, time.Now().UTC(), renewDays)
+	out := planToggleUserStatus(AdminUser{ID: id, Username: username, Status: status, ExpiresAt: expiresAt}, now, renewDays)
 
 	// An account still awaiting email verification (pending_otp) must not be
 	// activated through the generic suspend/activate toggle: that would bypass
@@ -902,13 +929,20 @@ func ToggleUserStatus(ctx context.Context, pool *pgxpool.Pool, userID int) (stri
 		return "", "", ErrPendingOTPToggleBlocked
 	}
 
+	// Extended expiry when the suspension clock is frozen; reported in the
+	// success message and used to realign the active package AFTER commit.
+	var extendedExpiry *time.Time
+
 	// Suspending: record when it started so reactivation can freeze the
 	// account clock for the suspension period.
 	if out.NewStatus == UserStatusSuspended {
-		if _, err := pool.Exec(ctx,
+		if _, err := tx.Exec(ctx,
 			`UPDATE admin_users SET status = $1, suspended_at = now() WHERE id = $2`,
 			out.NewStatus, userID); err != nil {
 			return "", "", fmt.Errorf("toggle user status update: %w", err)
+		}
+		if err := tx.Commit(ctx); err != nil {
+			return "", "", fmt.Errorf("toggle user status commit: %w", err)
 		}
 		return out.NewStatus, out.Message, nil
 	}
@@ -927,47 +961,78 @@ func ToggleUserStatus(ctx context.Context, pool *pgxpool.Pool, userID int) (stri
 		// (there is no new expiry to align with). An active redemption always
 		// sets expires_at on activation, so NULL-expiry + active-redemption is
 		// a contradictory legacy state that predates this code.
-		if _, execErr := pool.Exec(ctx,
+		if _, execErr := tx.Exec(ctx,
 			`UPDATE admin_users SET status = $1, suspended_at = NULL, suspended_by_cascade = FALSE WHERE id = $2`,
 			out.NewStatus, userID); execErr != nil {
 			return "", "", fmt.Errorf("toggle user status reactivate legacy: %w", execErr)
 		}
-		return out.NewStatus, out.Message, nil
 	case out.RenewExpiry != nil:
 		// Expired: renew with the default_active_days renewal period. This
 		// explicit renewal grant supersedes
 		// the suspension freeze — the admin deliberately grants a fresh
-		// period instead of restoring the remaining-at-suspension time.
-		if _, execErr := pool.Exec(ctx,
-			`UPDATE admin_users SET status = $1, expires_at = $2, suspended_at = NULL WHERE id = $3`,
+		// period instead of restoring the remaining-at-suspension time. The
+		// cascade marker is cleared too: a manually revived account must
+		// never be re-suspended by a stale marker on the next school restore.
+		if _, execErr := tx.Exec(ctx,
+			`UPDATE admin_users SET status = $1, expires_at = $2, suspended_at = NULL, suspended_by_cascade = FALSE WHERE id = $3`,
 			out.NewStatus, *out.RenewExpiry, userID); execErr != nil {
 			return "", "", fmt.Errorf("toggle user status update with expiry: %w", execErr)
 		}
-		// Keep the active package's clock aligned with the renewed expiry so
-		// the billing display and future pause computations stay accurate.
-		if err := SyncActiveRedemptionToExpiry(ctx, pool, userID, *out.RenewExpiry); err != nil {
-			log.Printf("toggle user status: sync redemption expiry error: %v", err)
-		}
-		return out.NewStatus, out.Message, nil
 	case out.FreezeClock:
 		// Active with valid future expiry: activate without changing expiry,
 		// but freeze the account clock for the suspension period so the
-		// package lifetime did not burn while the user was locked out.
-		extendedExpiry, err := ResumeSuspendedAccountClock(ctx, pool, userID)
-		if err != nil {
-			return "", "", fmt.Errorf("toggle user status reactivate: %w", err)
+		// package lifetime did not burn while the user was locked out. The
+		// freeze arithmetic runs on the LOCKED row (suspended_at read under
+		// FOR UPDATE), so it can never be applied twice with the same
+		// suspended_at by concurrent toggles.
+		extended := computeFrozenExpiry(suspendedAt, expiresAt, now)
+		if extended == nil {
+			// Nothing to freeze (never suspended, no expiry, or clock skew):
+			// just make sure the account is active and the markers are gone.
+			if _, execErr := tx.Exec(ctx,
+				`UPDATE admin_users SET status = $1, suspended_at = NULL, suspended_by_cascade = FALSE WHERE id = $2`,
+				UserStatusActive, userID); execErr != nil {
+				return "", "", fmt.Errorf("toggle user status reactivate: %w", execErr)
+			}
+		} else {
+			if _, execErr := tx.Exec(ctx,
+				`UPDATE admin_users SET status = $1, expires_at = $2, suspended_at = NULL, suspended_by_cascade = FALSE WHERE id = $3`,
+				UserStatusActive, *extended, userID); execErr != nil {
+				return "", "", fmt.Errorf("toggle user status reactivate with freeze: %w", execErr)
+			}
+			extendedExpiry = extended
 		}
-		msg := out.Message
-		if extendedExpiry != nil {
-			msg = fmt.Sprintf("User \"%s\" diaktifkan. Masa aktif diperpanjang sampai %s (jam dijeda selama suspend)",
-				user.Username, extendedExpiry.Format("2006-01-02 15:04:05"))
-		}
-		return out.NewStatus, msg, nil
 	default:
-		// Safety net: planToggleUserStatus always sets exactly one of the three
-		// reactivation flags, so this branch is unreachable in practice.
+		// Safety net: planToggleUserStatus always sets exactly one of the
+		// three reactivation flags, so this branch is unreachable in practice.
 		return "", "", fmt.Errorf("toggle user status: unexpected outcome %+v", out)
 	}
+
+	if err := tx.Commit(ctx); err != nil {
+		return "", "", fmt.Errorf("toggle user status commit: %w", err)
+	}
+
+	// Post-commit syncs on the POOL (never inside the tx — a second
+	// connection would be needed and could deadlock under concurrency). The
+	// package clocks are realigned with the account's new expiry so the
+	// billing display and future pause computations stay accurate.
+	switch {
+	case out.RenewExpiry != nil:
+		if err := SyncActiveRedemptionToExpiry(ctx, pool, userID, *out.RenewExpiry); err != nil {
+			log.Printf("toggle user status: sync redemption expiry error: %v", err)
+		}
+	case extendedExpiry != nil:
+		if err := SyncActiveRedemptionToExpiry(ctx, pool, userID, *extendedExpiry); err != nil {
+			log.Printf("toggle user status: sync redemption expiry error: %v", err)
+		}
+	}
+
+	msg := out.Message
+	if extendedExpiry != nil {
+		msg = fmt.Sprintf("User \"%s\" diaktifkan. Masa aktif diperpanjang sampai %s (jam dijeda selama suspend)",
+			username, extendedExpiry.Format("2006-01-02 15:04:05"))
+	}
+	return out.NewStatus, msg, nil
 }
 
 // computeFrozenExpiry decides whether the suspension clock must be frozen and
@@ -1228,12 +1293,35 @@ func ListUsersForInstansi(ctx context.Context, pool *pgxpool.Pool, opts ListForI
 	return users, nil
 }
 
+// dummyComparePassword / dummyCompareHash defeat the timing side-channel of
+// username enumeration: a bcrypt compare costs ~100ms, so an attacker probing
+// login could tell "this username exists" (slow: compare runs) from "unknown
+// username" (fast: no compare) by measuring response time. The fallback
+// compare in AuthenticateUser runs the submitted password against this dummy
+// hash, keeping the cost identical for both outcomes. Precomputed once at
+// package init (one-time ~100ms cost at startup).
+const dummyComparePassword = "examvan-dummy-compare-password"
+
+var dummyCompareHash = func() string {
+	h, err := HashPassword(dummyComparePassword)
+	if err != nil {
+		// Unreachable: bcrypt hashing of a fixed string cannot fail.
+		return ""
+	}
+	return h
+}()
+
 // AuthenticateUser verifies credentials and returns the user if valid.
 // Returns nil user and an error message if authentication fails.
 func AuthenticateUser(ctx context.Context, pool *pgxpool.Pool, username, password string) (*AdminUser, string) {
 	user, err := GetUserByUsername(ctx, pool, username)
 	if err != nil {
 		if err == pgx.ErrNoRows {
+			// Run a dummy bcrypt compare so the response time matches the
+			// wrong-password path (see dummyCompareHash) — otherwise the
+			// timing gap between the two error paths reveals which usernames
+			// exist.
+			_ = CheckPassword(password, dummyCompareHash)
 			return nil, "Username atau password salah"
 		}
 		return nil, "Terjadi kesalahan. Silakan coba lagi."

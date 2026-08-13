@@ -54,6 +54,15 @@ func SafeRedirectPath(raw string) string {
 		return ""
 	}
 
+	// Backslashes are never legitimate inside an in-app path, but browsers
+	// normalize them to forward slashes when resolving the Location header —
+	// so "/\evil.com" would be read as "//evil.com" and leave the site as an
+	// open redirect. The URL-encoded form (%5C) is rejected for the same
+	// reason (it decodes to a backslash).
+	if strings.Contains(raw, "\\") || strings.Contains(strings.ToUpper(raw), `%5C`) {
+		return ""
+	}
+
 	u, err := url.Parse(raw)
 	if err != nil {
 		return ""
@@ -111,22 +120,38 @@ func AuthRequired() gin.HandlerFunc {
 			return
 		}
 
-		// isSuper is read from the session early so the expiry block below can
-		// exempt SuperAdmin from the feature lock (its expiry may be absent or
-		// stale and must not gate the platform owner).
+		// Identity values start from the session — the fast path — and are
+		// then REVALIDATED against the admin_users row when a DB pool is
+		// available (production always provides one; the pure-HTTP unit tests
+		// exercise the session-only fallback).
+		username, _ := session.Get(SessionKeyUsername).(string)
+		nameVal := session.Get(SessionKeyName)
+		name, _ := nameVal.(string)
+		role, _ := session.Get(SessionKeyRole).(string)
 		isSuper, _ := session.Get(SessionKeyIsSuper).(bool)
+		instansi, _ := session.Get(SessionKeyInstansi).(string)
 
-		// Per-request status enforcement: a suspended (or unverified) account
-		// must lose access immediately — the cookie may still be valid, but the
-		// account's status revokes its authority. Without this, an admin
-		// suspension would only take effect after the 1-day session expired
-		// (or could even be reversed by the user via voucher redeem/activate).
+		// Per-request status AND authority enforcement: a suspended (or
+		// unverified) account must lose access immediately — the cookie may
+		// still be valid, but the account's status revokes its authority.
+		// Without this, an admin suspension would only take effect after the
+		// 1-day session expired (or could even be reversed by the user via
+		// voucher redeem/activate). The same query revalidates role /
+		// superadmin / instansi from the DB row, so a DEMOTED or reassigned
+		// account loses its old powers on the very next request — a stale
+		// cookie alone must never keep operator powers after the account was
+		// downgraded in the DB. When the DB values differ from the session's
+		// copy, the session is self-healed (role normalized exactly like the
+		// login handler, so the template guards and downstream middlewares
+		// always see the canonical value).
 		if pool, exists := c.Get("db"); exists && pool != nil {
 			dbPool := pool.(*pgxpool.Pool)
 			var dbStatus string
 			var dbExpiresAt *time.Time
+			var dbRole, dbInstansi, dbUsername, dbName string
 			if err := dbPool.QueryRow(c.Request.Context(),
-				`SELECT status, expires_at FROM admin_users WHERE id = $1`, id).Scan(&dbStatus, &dbExpiresAt); err != nil {
+				`SELECT status, expires_at, COALESCE(role, ''), COALESCE(instansi, ''), COALESCE(username, ''), COALESCE(name, '')
+				 FROM admin_users WHERE id = $1`, id).Scan(&dbStatus, &dbExpiresAt, &dbRole, &dbInstansi, &dbUsername, &dbName); err != nil {
 				// Account no longer exists — drop the stale session.
 				session.Clear()
 				_ = session.Save()
@@ -156,6 +181,42 @@ func AuthRequired() gin.HandlerFunc {
 				c.Abort()
 				return
 			}
+
+			// Authority revalidation: the DB row is authoritative. isSuper is
+			// derived from the role exactly like the login handler, and the
+			// session role is normalized the same way so the two never
+			// disagree on the format.
+			dbIsSuper := models.HasRole(dbRole, models.RoleSuperAdmin)
+			dbRoleNorm := models.NormalizeSessionRole(dbRole)
+			if dbIsSuper {
+				dbRoleNorm = models.RoleSuperAdmin
+			}
+			heal := false
+			if cur, _ := session.Get(SessionKeyRole).(string); cur != dbRoleNorm {
+				session.Set(SessionKeyRole, dbRoleNorm)
+				heal = true
+			}
+			if cur, _ := session.Get(SessionKeyIsSuper).(bool); cur != dbIsSuper {
+				session.Set(SessionKeyIsSuper, dbIsSuper)
+				heal = true
+			}
+			if cur, _ := session.Get(SessionKeyInstansi).(string); cur != dbInstansi {
+				session.Set(SessionKeyInstansi, dbInstansi)
+				heal = true
+			}
+			if cur, _ := session.Get(SessionKeyUsername).(string); cur != dbUsername {
+				session.Set(SessionKeyUsername, dbUsername)
+				heal = true
+			}
+			if cur, _ := session.Get(SessionKeyName).(string); cur != dbName {
+				session.Set(SessionKeyName, dbName)
+				heal = true
+			}
+			if heal {
+				_ = session.Save()
+			}
+			username, role, isSuper, instansi, name = dbUsername, dbRoleNorm, dbIsSuper, dbInstansi, dbName
+
 			// Per-request expiry enforcement: an account whose active period has
 			// passed keeps its session (so the owner can renew on the billing
 			// page) but is marked feature-locked. The FeatureLockRequired
@@ -170,28 +231,7 @@ func AuthRequired() gin.HandlerFunc {
 			}
 		}
 
-		username, _ := session.Get(SessionKeyUsername).(string)
-		nameVal := session.Get(SessionKeyName)
-		var name string
-		if nameVal == nil {
-			// Query the database for the name to populate existing sessions
-			pool, exists := c.Get("db")
-			if exists && pool != nil {
-				dbPool := pool.(*pgxpool.Pool)
-				var dbName string
-				err := dbPool.QueryRow(c.Request.Context(), `SELECT name FROM admin_users WHERE id = $1`, id).Scan(&dbName)
-				if err == nil {
-					name = dbName
-					session.Set(SessionKeyName, name)
-					_ = session.Save()
-				}
-			}
-		} else {
-			name, _ = nameVal.(string)
-		}
-		role, _ := session.Get(SessionKeyRole).(string)
 		isOperator := models.HasRole(role, models.RoleOperator)
-		instansi, _ := session.Get(SessionKeyInstansi).(string)
 
 		c.Set(ContextKeyUserID, id)
 		c.Set(ContextKeyUsername, username)

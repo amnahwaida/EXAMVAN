@@ -15,6 +15,13 @@ import (
 // runs. Mirrors the heartbeat flusher cadence.
 const packageExpiryJobInterval = 30 * time.Second
 
+// expiryJobAdvisoryLockKey is the PostgreSQL advisory lock that serializes
+// the expiry reconciliation pass across the whole cluster: only ONE
+// instance/replica runs a pass at a time. Two concurrent passes would each
+// select the same exhausted packages and fight over the redemption rows
+// (pause vs. recheck), so a second pass must SKIP instead of racing.
+const expiryJobAdvisoryLockKey = 0x45585031 // "EXP1" as an int64 key
+
 // expiredRunningExamGrace is how long a running exam of an expired account is
 // allowed to continue before tombstoneExpiredUsersExamsPass cuts it off.
 // Unstarted active exams are tombstoned immediately on expiry; running exams
@@ -141,8 +148,43 @@ func tombstoneExpiredUsersExamsPass(ctx context.Context, pool *pgxpool.Pool) {
 
 // runPackageExpiryPass finds every user with an exhausted active package and
 // reconciles it (see StartPackageExpiryJob). Each user is handled in its own
-// transaction.
-func runPackageExpiryPass(ctx context.Context, pool *pgxpool.Pool) {
+// transaction. The pass runs under a cluster-wide advisory lock
+// (expiryJobAdvisoryLockKey): a second replica/loop instance calling the pass
+// while the lock is held SKIPS immediately (returns false) instead of racing
+// over the same redemption rows. Returns true when this call actually ran the
+// reconciliation.
+func runPackageExpiryPass(ctx context.Context, pool *pgxpool.Pool) bool {
+	// Take the advisory lock on a DEDICATED pool connection: advisory locks
+	// are per-backend-session, and a pooled QueryRow may land on ANY backend —
+	// acquiring on one pooled connection and releasing on another would leak
+	// the lock (the holder backend would keep it until it closes, silently
+	// skipping every later pass). The dedicated connection pins lock-take,
+	// lock-hold, and lock-release to the SAME backend, and it is returned to
+	// the pool on exit (the connection release also drops the lock).
+	lockConn, err := pool.Acquire(ctx)
+	if err != nil {
+		log.Printf("package-expiry job: acquire lock connection failed: %v", err)
+		return false
+	}
+	defer lockConn.Release()
+
+	var acquired bool
+	if err := lockConn.QueryRow(ctx, `SELECT pg_try_advisory_lock($1)`, expiryJobAdvisoryLockKey).Scan(&acquired); err != nil {
+		log.Printf("package-expiry job: advisory lock check failed: %v", err)
+		return false
+	}
+	if !acquired {
+		log.Printf("package-expiry job: another pass holds the advisory lock — skipping this tick")
+		return false
+	}
+	defer func() {
+		// Best-effort release on the SAME backend that holds the lock.
+		var released bool
+		if err := lockConn.QueryRow(ctx, `SELECT pg_advisory_unlock($1)`, expiryJobAdvisoryLockKey).Scan(&released); err != nil {
+			log.Printf("package-expiry job: advisory lock release failed: %v", err)
+		}
+	}()
+
 	// Only the active package consumes lifetime, so an active redemption whose
 	// remaining_seconds has been fully elapsed by activated_at is exhausted.
 	rows, err := pool.Query(ctx, `
@@ -155,7 +197,7 @@ func runPackageExpiryPass(ctx context.Context, pool *pgxpool.Pool) {
 		  AND r.remaining_seconds - COALESCE(EXTRACT(EPOCH FROM (now() - r.activated_at))::bigint, 0) <= 0`)
 	if err != nil {
 		log.Printf("package-expiry job: query expired packages: %v", err)
-		return
+		return true
 	}
 	defer rows.Close()
 
@@ -164,19 +206,20 @@ func runPackageExpiryPass(ctx context.Context, pool *pgxpool.Pool) {
 		var uid int
 		if err := rows.Scan(&uid); err != nil {
 			log.Printf("package-expiry job: scan user: %v", err)
-			return
+			return true
 		}
 		userIDs = append(userIDs, uid)
 	}
 	rows.Close()
 	if err := rows.Err(); err != nil {
 		log.Printf("package-expiry job: iterate users: %v", err)
-		return
+		return true
 	}
 
 	for _, uid := range userIDs {
 		handleExpiredPackage(ctx, pool, uid)
 	}
+	return true
 }
 
 // handleExpiredPackage pauses the user's exhausted active package and, when a

@@ -964,6 +964,103 @@ Tes: `TestSubmitExamRateLimitKeyedByIPWhenMacUnknown`.
 
 ---
 
+## Hardening Round 2 — Sesi, Otorisasi Operator, Atomisitas Toggle, & Batas Input (14 Agustus 2026)
+
+Hasil babak review kedua atas middleware sesi, otorisasi operator, toggle status, voucher, jobs, dan upload PDF. **TDD**: 11 test baru + 2 test tambahan ditulis lebih dulu (semua gagal terhadap kode lama kecuali yang menuntut fungsi baru, yang tidak ter-compile), perbaikan menyusul, lalu seluruh suite hijau (`go build`, `go vet ./...`, `TEST_DATABASE_URL=... go test ./internal/...`).
+
+### 1. Sesi tidak lagi dipercaya — role, superadmin, & instansi di-revalidasi per-request
+
+**Masalah:** `AuthRequired` hanya memeriksa `status` + `expires_at` dari DB; **role / is_super_admin / instansi diambil dari cookie** dan bertahan sampai sesi kedaluwarsa (1 hari). Operator yang di-demote di DB (atau superadmin yang diturunkan + di-expire) tetap punya semua kuasa lama selama cookie masih berlaku — sesi basi sendiri bisa memberi akses lintas-tenant dan menembus `AdminManagementRequired` / `SuperAdminRequired` / pengecualian feature-lock.
+
+**Solusi:** satu query per-request yang sama kini mengambil `status, expires_at, role, instansi, username, name`. Role / superadmin / instansi **selalu diambil dari baris DB** (authoritative); jika berbeda dari salinan di sesi, sesi **di-self-heal** dengan nilai kanonik (`NormalizeSessionRole` — sama persis dengan format yang ditulis login handler), sehingga template dan middleware downstream tidak pernah melihat dua format. Akun yang di-demote kehilangan kuasa di request berikutnya.
+
+Tes: `TestAuthRevalidatesOperatorRole` (operator di-demote → `/admin/api/users` jadi 403), `TestAuthRevalidatesSuperadminLock` (superadmin di-demote + di-expire → feature-lock berlaku di request berikutnya).
+
+### 2. Daftar user operator fail-CLOSED — instansi yang tak terselesaikan tidak boleh membocorkan seluruh tenant
+
+**Masalah:** `getInstansiForOperator` mengembalikan `""` (fail-open) saat query gagal; `ListUsers` lalu melewatkan filter instansi → operator dengan baris instansi kosong/anomali (atau DB error sementara) mendadak membaca **daftar user seluruh platform**.
+
+**Solusi:** `getInstansiForOperator` kini mengembalikan error; `ListUsers` (dan semua guard operator: Edit/Toggle/Verify/Delete/PengawasList) **fail-closed**: instansi kosong atau error → **500 + log**, tidak pernah fallback ke cakupan kosong. Halaman render (bukan data) tetap toleran.
+
+Tes: `TestListUsersOperatorFailsClosedOnUnknownInstansi`.
+
+### 3. DeleteUser: operator tidak bisa menghapus operator sesama instansi
+
+**Masalah:** Edit/Toggle/Verify sudah menolak target operator; `DeleteUser` belum. Menghapus akun operator = **cascade menghapus seluruh instansi** (kontrak "pelanggan hilang" di README untuk SuperAdmin). Operator yang menghapus operator sesama instansi memusnahkan sekolahnya sendiri — termasuk dirinya.
+
+**Solusi:** guard `targetUser.IsOperator()` di cabang operator (`400`), sama dengan handler sejenis. SuperAdmin tetap bisa menghapus operator apa pun (by design).
+
+Tes: `TestDeleteUserRejectsOperatorPeer` (penolakan 400 + seluruh instansi utuh; delete sub-akun biasa tetap 200).
+
+### 4. ToggleUserStatus atomik — freeze tidak bisa diterapkan dua kali
+
+**Masalah:** `ToggleUserStatus` membaca user tanpa lock lalu menulis UPDATE berdasarkan hasil baca tersebut. Dua toggle paralel (double-click) atas akun yang sama: dua-duanya membaca `suspended_at` yang sama → dua-duanya menerapkan freeze → **expires_at diperpanjang dua kali** dengan durasi suspend yang sama (double-freeze), atau status akhir yang tidak konsisten.
+
+**Solusi:** keputusan + eksekusi dalam **satu transaksi dengan `SELECT ... FOR UPDATE`** pada baris user; plan ditentukan dari state ter-commit terbaru. Toggle kedua menunggu lock lalu bereaksi pada hasil toggle pertama (2 klik = aktif → suspend lagi: deterministik). `GetSaasSettingInt` di-hoist sebelum tx (pola anti-deadlock round 1). Sinkronisasi redemption dipindah **setelah commit** (tetap di pool).
+
+Tes: `TestToggleStatusSerializesConcurrentToggles` (2 toggle paralel → final suspended, freeze tepat sekali, marker bersih).
+
+### 5. Marker cascade dibersihkan di semua jalur reaktivasi
+
+**Masalah:** cabang **Renewal** (toggle untuk akun expired) dan **EditUser dengan expiry eksplisit** tidak membersihkan `suspended_by_cascade`/`suspended_at` — jalur lain sudah. Marker yang menggantung membuat restore cascade berikutnya **men-suspend ulang** akun yang sudah dihidupkan manual, dan `suspended_at` mengambang bisa memicu double-freeze.
+
+**Solusi:** cabang Renewal kini menulis `suspended_by_cascade = FALSE`; EditUser men-trigger aktivasi eksplisit (expiry ikut dikirim) → marker dibersihkan langsung setelah update (jalur freeze yang tidak menyertakan expiry sudah benar dan — lewat `ResumeSuspendedAccountClock` — juga membersihkan marker). Kolom `suspended_by_cascade` ditambahkan ke whitelist `allowedUserColumns`.
+
+Tes: `TestToggleRenewalClearsCascadeMarker`, `TestEditUserActivationClearsSuspendMarkers`.
+
+### 6. Nama objek PDF di R2 dijamin unik
+
+**Masalah:** nama objek = `timestamp(1 detik)_nama.pdf` → dua upload PDF dengan nama file sama pada detik yang sama **menimpa objek pertama** di R2 (link ujian pertama rusak).
+
+**Solusi:** nama kini `timestamp_suffix-acak-8-hex_nama.pdf` (`newExamObjectName` / `examObjectNameAt`); format lama tetap kompatibel (prefix timestamp tetap ada).
+
+Tes: `TestExamObjectNameUnique`.
+
+### 7. Batas atas input voucher — custom_days & kuota MB
+
+**Masalah:** `custom_days` (angka valid tetapi absurd, mis. 999.999.999 hari) mengalir ke `durationDays × 86400` lalu ke `time.Duration` → **wrap aritmetika expiry** pada akun penebus. Kuota MB custom (`custom_max_pdf_size_mb` / `custom_max_storage_size_mb`) yang sangat besar (mis. `1e15`) saat cek disk fail-open → konversi `int64(mb*1024*1024)` meluap menjadi **quota negatif** (poison voucher).
+
+**Solusi:** `custom_days` dibatasi maks. **3650 hari (10 tahun)**; kuota MB dibatasi maks. **10 TB (10.000.000 MB)** sebagai jaring pengaman terakhir — cek kapasitas disk tetap berjalan **lebih dulu** (pesannya menang saat disk bisa ditentukan), cap hanya aktif untuk kasus fail-open. Berlaku untuk alur single dan batch (helper `parseCustomDurationDays`).
+
+Tes: `TestVoucherCustomDaysBoundRejected`, `TestVoucherCustomQuotaOverflowRejected`.
+
+### 8. Pass expiry job punya advisory lock (satu pass per cluster)
+
+**Masalah:** `runPackageExpiryPass` tanpa lock — dua replica / instance yang menjalankan job memilih set paket expired yang sama dan bertabrakan pada baris redemption yang sama.
+
+**Solusi:** pass mengambil `pg_try_advisory_lock` pada **satu koneksi khusus dari pool** (advisory lock bersifat per-backend; acquire di satu koneksi dan release di koneksi lain dari pool akan bocor) — pass kedua **skip** sampai lock dilepas. `runPackageExpiryPass` mengembalikan bool (apakah pass benar-benar berjalan) untuk test.
+
+Tes: `TestExpiryJobPassSkipsWhenLocked`.
+
+### 9. Anti-enumerasi username via dummy bcrypt compare
+
+**Masalah:** username tak dikenal di-return cepat (~ms, tanpa bcrypt) vs password salah yang menjalankan bcrypt (~100ms) → gap timing mengungkap username mana yang terdaftar.
+
+**Solusi:** saat `GetUserByUsername` menghasilkan `ErrNoRows`, `AuthenticateUser` menjalankan compare terhadap **dummy bcrypt hash** (dihitung sekali saat init) sehingga biaya kriptografi kedua jalur identik; pesan error tetap sama.
+
+Tes: `TestAuthenticateUserUnknownUsernameSameMessage`, `TestDummyCompareHashValid`.
+
+### 10. Batch voucher tidak lagi diam-diam kurang
+
+**Masalah:** `CreateBatchVouchers` membuang kode yang kode-nya bentrok setelah retry tanpa kabar — admin yang minta 20 kode menerima 18 dan mencetaknya.
+
+**Solusi:** batch parsial kini mengembalikan error yang memuat jumlah sukses (mis. "hanya 18 dari 20 berhasil dibuat — coba ulang; voucher yang sudah dibuat tidak diduplikasi") dan handler meneruskannya sebagai respons — tidak ada drop senyap.
+
+### 11. Open redirect lewat backslash ditutup
+
+**Masalah:** `SafeRedirectPath` menerima `/\\evil.com` — browser menormalkan `\` menjadi `/` saat me-resolve header `Location`, sehingga "relatif" itu berubah menjadi `//evil.com` (open redirect). Bentuk ter-encode `%5C` juga lolos.
+
+**Solusi:** backslash mentah maupun `%5C` (case-insensitive) ditolak di `SafeRedirectPath`.
+
+Tes: `TestSafeRedirectPathRejectsBackslash` (file `internal/middleware/auth_test.go`).
+
+### Batasan yang sengaja diterima
+
+- **Sesi tidak di-revoke saat ganti password** — penyimpanan sesi adalah cookie terenkripsi tanpa store server; revoke penuh butuh kolom versi (schema change) dan tetap tidak menutup sesi yang sudah ditandatangani oleh kunci lama. Kompensasi: TTL sesi 1 hari + revalidasi per-request (#1) mempersempit jendela.
+- **Index fungsional** (`LOWER(username)`, `UPPER(TRIM(code))`) dan **TOCTOU OTP counter** tidak diubah — dampak rendah, prioritas rendah.
+
+---
+
 ## License
 
 ISC

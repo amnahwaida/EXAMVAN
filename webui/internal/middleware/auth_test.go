@@ -82,6 +82,34 @@ func call(r *gin.Engine, method, path string, followRedirects bool) (int, string
 	return rec.Code, rec.Body.String(), rec.Header().Get("Location")
 }
 
+// TestSafeRedirectPathRejectsBackslash locks in the backslash guard: browsers
+// normalize "\" to "/" when resolving a Location header, so a raw or
+// URL-encoded backslash in the "next" target must never be accepted — it
+// would turn a relative path into an open redirect off-site ("/\evil.com"
+// resolves as "//evil.com"). Legitimate in-app paths never contain one.
+func TestSafeRedirectPathRejectsBackslash(t *testing.T) {
+	cases := []string{
+		`/\evil.com`,
+		`/\\evil.com`,
+		`\\evil.com`,
+		`/%5Cevil.com`,
+		`/next%5cstep`,
+	}
+	for _, raw := range cases {
+		if got := SafeRedirectPath(raw); got != "" {
+			t.Errorf("SafeRedirectPath(%q) = %q, want empty (backslash must terminate the redirect)", raw, got)
+		}
+	}
+
+	// Plain relative paths are untouched by the guard.
+	if got := SafeRedirectPath("/admin/users"); got != "/admin/users" {
+		t.Errorf("SafeRedirectPath(/admin/users) = %q, want unchanged", got)
+	}
+	if got := SafeRedirectPath("/admin/users?page=2"); got != "/admin/users?page=2" {
+		t.Errorf("SafeRedirectPath(/admin/users?page=2) = %q, want unchanged", got)
+	}
+}
+
 // TestFeatureLockRequiredAPIBranch asserts the API/AJAX path: a feature-locked
 // account gets a 403 JSON with the lock message — never a redirect — so the
 // admin frontend's AJAX calls surface a clean error.

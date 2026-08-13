@@ -168,3 +168,47 @@ func TestAuthenticateUserValidAccountBaseline(t *testing.T) {
 		t.Errorf("login valid account: got user=%+v, want user %d", got, user.ID)
 	}
 }
+
+// TestAuthenticateUserUnknownUsernameSameMessage locks in the anti-enumeration
+// behavior: an UNKNOWN username and a WRONG password must produce the same
+// user-facing message (nothing distinguishes "exists" from "missing"), and —
+// via the dummy compare hash — the same bcrypt cost profile.
+func TestAuthenticateUserUnknownUsernameSameMessage(t *testing.T) {
+	pool := setupAuthTestDB(t)
+	ctx := context.Background()
+
+	createAuthTestUser(t, pool, "enum-target", time.Now().UTC().Add(7*24*time.Hour))
+
+	got, msg := AuthenticateUser(ctx, pool, "no-such-username-here", "pass-enum-target")
+	if got != nil {
+		t.Errorf("unknown username: got user %+v, want nil", got)
+	}
+	if msg != "Username atau password salah" {
+		t.Errorf("unknown username: msg=%q, want the generic rejection", msg)
+	}
+
+	// The known account with a wrong password must be indistinguishable.
+	got2, msg2 := AuthenticateUser(ctx, pool, "enum-target", "wrong-password")
+	if got2 != nil {
+		t.Errorf("wrong password: got user %+v, want nil", got2)
+	}
+	if msg2 != msg {
+		t.Errorf("wrong password: msg=%q, want identical to unknown-username msg %q", msg2, msg)
+	}
+}
+
+// TestDummyCompareHashValid guards the timing equalizer itself: the
+// precomputed dummy hash must be a usable bcrypt hash of the known dummy
+// password, and must never authenticate a real user by accident (it only ever
+// runs an unread compare, whose result is discarded).
+func TestDummyCompareHashValid(t *testing.T) {
+	if dummyCompareHash == "" {
+		t.Fatal("dummyCompareHash is empty — bcrypt precompute failed")
+	}
+	if !CheckPassword(dummyComparePassword, dummyCompareHash) {
+		t.Error("dummy hash does not verify the dummy password — the timing equalizer is broken")
+	}
+	if CheckPassword("any-other-password", dummyCompareHash) {
+		t.Error("dummy hash accepted an arbitrary password")
+	}
+}

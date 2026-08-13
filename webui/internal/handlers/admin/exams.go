@@ -3,6 +3,8 @@ package admin
 import (
 	"bytes"
 	"context"
+	cryptoRand "crypto/rand"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -105,6 +107,32 @@ func cleanUploadedFilename(filename string) string {
 		safe = safe + ".pdf"
 	}
 	return safe
+}
+
+// newExamObjectName builds the R2 object name (without the "pdfs/" prefix)
+// for an uploaded PDF: timestamp + random suffix + sanitized filename. The
+// random suffix guarantees uniqueness even when two files with the SAME
+// original name are uploaded within the SAME second — before it existed the
+// name was timestamp + filename, so the second upload silently overwrote the
+// first object in R2.
+func newExamObjectName(originalName string) string {
+	return examObjectNameAt(time.Now().UTC(), cleanUploadedFilename(originalName))
+}
+
+// examObjectNameAt is newExamObjectName against an explicit clock (pure, so
+// the uniqueness property is unit-testable).
+func examObjectNameAt(ts time.Time, safeName string) string {
+	return fmt.Sprintf("%s_%s_%s", ts.Format("20060102_150405"), randomObjectSuffix(), safeName)
+}
+
+// randomObjectSuffix returns a short random hex string for R2 object-name
+// disambiguation.
+func randomObjectSuffix() string {
+	b := make([]byte, 4)
+	if _, err := cryptoRand.Read(b); err != nil {
+		return "00000000"
+	}
+	return hex.EncodeToString(b)
 }
 
 // sanitizeFilename removes characters from a filename that could break HTTP
@@ -287,9 +315,7 @@ func UploadExam() gin.HandlerFunc {
 			}
 		}
 
-		timestamp := time.Now().UTC().Format("20060102_150405")
-		safeName := cleanUploadedFilename(header.Filename)
-		filename := fmt.Sprintf("%s_%s", timestamp, safeName)
+		filename := newExamObjectName(header.Filename)
 
 		// Upload to R2 (Mandatory): reject a missing OR disabled backend with a
 		// clear message (mirrors UploadSystemApp) instead of attempting an
@@ -864,9 +890,7 @@ func EditExam() gin.HandlerFunc {
 			// never destroys the still-referenced old file: the old R2 object is
 			// deleted only after the new one is confirmed uploaded.
 			oldFilePath = exam.FilePath
-			timestamp := time.Now().UTC().Format("20060102_150405")
-			safeName := cleanUploadedFilename(header.Filename)
-			filename = fmt.Sprintf("%s_%s", timestamp, safeName)
+			filename = newExamObjectName(header.Filename)
 
 			if r2c, exists := c.Get("r2"); exists {
 				client := r2client.FromContext(r2c)
