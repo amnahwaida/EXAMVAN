@@ -686,6 +686,35 @@ func ExamPDF() gin.HandlerFunc {
 			return
 		}
 
+		// --- Server-side approval gate (manual & auto mode) ---
+		// The exam content must not be downloadable on the strength of the
+		// token alone: in static-token mode the token is shared by the whole
+		// class, and the client-side waiting screen was previously the ONLY
+		// enforcement of the pengawas' approval — a crafted client (or curl +
+		// signed URL) could fetch the PDF without ever being approved. Both
+		// first-party clients request approval before opening the viewer
+		// (Android WaitingApprovalActivity / desktop WaitingApprovalDialog;
+		// auto-approve makes that instant), so every legitimate device holds an
+		// 'approved' row here in both modes.
+		//
+		// The device identity travels in the X-Device-Id header (Android sends
+		// "DEVICE:<AndroidId>", desktop sends its MAC — the SAME value it used
+		// at request-approval time), with a mac_address query param accepted as
+		// a fallback. A device with no match in exam_approvals — including a
+		// legitimate student who has never passed the approval gate — is denied.
+		deviceID := sanitizeMAC(c.GetHeader("X-Device-Id"))
+		if deviceID == "" || deviceID == "unknown" {
+			deviceID = sanitizeMAC(c.Query("mac_address"))
+		}
+		var approvalStatus string
+		err = pool.QueryRow(ctx,
+			`SELECT status FROM exam_approvals WHERE exam_id = $1 AND mac_address = $2`,
+			examID, deviceID).Scan(&approvalStatus)
+		if err != nil || approvalStatus != "approved" {
+			errorResponse(c, http.StatusForbidden, "Perangkat belum disetujui pengawas")
+			return
+		}
+
 		// Serve PDF via Cloudflare R2 signed URL (Mandatory): only an ENABLED
 		// backend may sign (mirrors admin ExamPDF / download guards).
 		if r2c, exists := c.Get("r2"); exists {
@@ -801,8 +830,19 @@ func SubmitExam() gin.HandlerFunc {
 		// Keyed by exam AND MAC so that a single device cannot spam submissions,
 		// while many distinct students in the same exam are NOT throttled by a
 		// shared per-exam bucket (which previously 429'd legitimate classmates).
-		if !checkRateLimit(rdb, fmt.Sprintf("%s%d:%s", rateLimitKeyPrefix, examID, macAddress),
-			submitRateLimitMax, submitRateLimitWindow) {
+		//
+		// Devices without a resolvable identifier (sanitizeMAC → "unknown",
+		// e.g. fresh installs or emulated devices) all fall into one "unknown"
+		// value — keying them together would let one classroom of MAC-less
+		// devices drain a single shared bucket and mutually block each other.
+		// For those, the bucket is keyed per client IP instead, so each device
+		// still gets its own budget while a rotating-IP attacker remains bound
+		// by the per-IP middleware limit on the route.
+		rateKey := fmt.Sprintf("%s%d:%s", rateLimitKeyPrefix, examID, macAddress)
+		if macAddress == "" || macAddress == "unknown" {
+			rateKey = fmt.Sprintf("%s%d:ip:%s", rateLimitKeyPrefix, examID, c.ClientIP())
+		}
+		if !checkRateLimit(rdb, rateKey, submitRateLimitMax, submitRateLimitWindow) {
 			errorResponse(c, http.StatusTooManyRequests,
 				"Terlalu banyak percobaan submit. Silakan coba lagi nanti.")
 			return
@@ -929,10 +969,15 @@ func SubmitExam() gin.HandlerFunc {
 					"event":         "login",
 					"last_seen":     time.Now().UTC().Format(time.RFC3339),
 				})
-				// Cabut izin agar sesi berikutnya butuh persetujuan lagi
-				_, _ = pool.Exec(ctx, "DELETE FROM exam_approvals WHERE exam_id = $1 AND mac_address = $2", examID, macAddress)
-
-				c.JSON(http.StatusOK, gin.H{
+				// NOTE: the device's approval row is deliberately NOT revoked
+				// here. Revocation now happens in the queue worker, AFTER the
+				// submission batch commits to PostgreSQL (see
+				// queue.flushBatch). Revoking at enqueue time meant a job that
+				// failed permanently (worker down / DB outage past retries)
+				// left the student with a reported success, a cleared answer
+				// sheet, and no way back in — the approval row is the re-entry
+				// entitlement that lets the device retry the submit.
+				c.JSON(http.StatusAccepted, gin.H{
 					"success":          true,
 					"message":          "Jawaban berhasil dikirim",
 					"status":           "queued",
@@ -1075,6 +1120,40 @@ func ExamResult() gin.HandlerFunc {
 		jobID := strings.TrimSpace(c.Query("job_id"))
 		macAddress := sanitizeMAC(c.Query("mac_address"))
 		identityData := strings.TrimSpace(c.Query("identity_data"))
+
+		// --- Access gate (mirrors AccessLog / SubmitExam tolerance) ---
+		// The result endpoint must NOT be public: without a credential it leaks
+		// a student's score (and their identity linkage) to anyone who knows a
+		// device id + identity payload, before the teacher publishes results.
+		// The poller is admitted when it holds the exam's current token or when
+		// its device still carries an approved approval row (covers a poll that
+		// lands between submit and the worker's post-commit revocation, and
+		// token rotation in dynamic-token mode).
+		token := strings.TrimSpace(c.GetHeader("X-Exam-Token"))
+		if token == "" {
+			token = strings.TrimSpace(c.Query("token"))
+		}
+		exam, err := models.GetExamByID(ctx, pool, examID)
+		if err != nil {
+			errorResponse(c, http.StatusNotFound, "Ujian tidak ditemukan")
+			return
+		}
+		resultAccessOK := false
+		if token != "" && examtoken.Matches(exam, token) {
+			resultAccessOK = true
+		} else if macAddress != "" && macAddress != "unknown" {
+			var approvalStatus string
+			e := pool.QueryRow(ctx,
+				"SELECT status FROM exam_approvals WHERE exam_id = $1 AND mac_address = $2",
+				examID, macAddress).Scan(&approvalStatus)
+			if e == nil && approvalStatus == "approved" {
+				resultAccessOK = true
+			}
+		}
+		if !resultAccessOK {
+			errorResponse(c, http.StatusUnauthorized, "Akses ditolak")
+			return
+		}
 
 		// Redis result first — the authoritative worker outcome.
 		if jobID != "" && rdb != nil {

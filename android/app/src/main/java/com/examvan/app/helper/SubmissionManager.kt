@@ -22,6 +22,7 @@ import com.examvan.app.CongratulationsActivity
 import com.examvan.app.R
 import com.examvan.app.api.ApiClient
 import com.examvan.app.databinding.ActivityExamViewerBinding
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.GlobalScope
 import kotlinx.coroutines.NonCancellable
@@ -90,6 +91,11 @@ class SubmissionManager(
         private const val TAG = "SubmissionManager"
         private const val CHANNEL_ID = "examvan_auto_submit_v2"
         private const val REQUEST_NOTIFICATION_PERMISSION = 1001
+
+        /** Polling cadence/limits after a queued (202) submit (14 Agustus 2026). */
+        private const val QUEUED_POLL_INTERVAL_MS = 2500L
+        private const val QUEUED_POLL_MAX_ATTEMPTS = 30
+        private const val QUEUED_POLL_DEADLINE_MS = 75_000L
     }
 
     fun initNotificationChannel() {
@@ -231,7 +237,6 @@ class SubmissionManager(
                     isSubmitting = false
                     lastSubmitSuccess = true
                     submittedOrExited = true
-                    clearSavedAnswers()
                     onSubmitSuccess?.invoke()
                     AuditLog.i(AuditLog.Events.SUBMIT_SUCCESS, "examId=$examId")
                     deactivateLockTask?.invoke()
@@ -247,37 +252,22 @@ class SubmissionManager(
                     binding.btnSubmitAnswers.isEnabled = false
                     binding.btnSubmitAnswers.text = context.getString(R.string.submitted_label)
 
-                    // Dedicated congratulations screen with the teacher's custom
-                    // message (server congrats_message) and a copy/open button
-                    // for the student results page.
-                    setShowingAppDialog(true)
-                    try {
-                        val intent = Intent(context, CongratulationsActivity::class.java).apply {
-                            putExtra("server_url", serverUrl)
-                            putExtra("exam_token", token)
-                            putExtra("exam_name", examName)
-                            putExtra("student_name", studentName)
-                            putExtra("student_number", studentNumber)
-                            putExtra("student_class", studentClass)
-                            putExtra("congrats_message", result.congratsMessage)
-                            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                    if (result.status == ApiClient.SUBMIT_STATUS_QUEUED) {
+                        // Async path (202): the server only QUEUED the answers —
+                        // they are not durable yet. Keep the local copy until the
+                        // worker confirms (poll /result); only then clear the saved
+                        // sheet. Clearing early would lose the answers permanently
+                        // if the queued job failed (revocation of the approval row
+                        // also only happens AFTER the worker's commit).
+                        waitForQueuedResult(result.jobId) { confirmed ->
+                            if (confirmed) clearSavedAnswers()
+                            showCongrats(result)
                         }
-                        context.startActivity(intent)
-                    } catch (_: Exception) {
-                        // Fallback if launching fails: plain dialog as before.
-                        AlertDialog.Builder(context)
-                            .setTitle(context.getString(R.string.submit_success_title))
-                            .setMessage(context.getString(R.string.submit_success_message, result.message))
-                            .setCancelable(false)
-                            .setPositiveButton(context.getString(R.string.submit_success_done)) { _, _ ->
-                                setShowingAppDialog(false)
-                                onFinish?.invoke()
-                            }
-                            .show()
                         return@post
                     }
-                    setShowingAppDialog(false)
-                    onFinish?.invoke()
+
+                    clearSavedAnswers()
+                    showCongrats(result)
                 }
             },
             onError = { errorMsg ->
@@ -314,6 +304,87 @@ class SubmissionManager(
         )
     }
 
+    // ---- Post-submit confirmation (async 202 path) ----
+
+    /**
+     * Poll GET /result after a queued submit until the worker confirms the
+     * answers are durable ("done"). Returns true only on "done" — the caller
+     * keeps the local answer copy otherwise, so a failed queued job can still
+     * be recovered via re-entry and an idempotent resubmit.
+     */
+    private fun waitForQueuedResult(
+        jobId: String?,
+        onComplete: (confirmed: Boolean) -> Unit
+    ) {
+        GlobalScope.launch(NonCancellable + Dispatchers.IO) {
+            var status: String? = null
+            var attempts = 0
+            val maxAttempts = QUEUED_POLL_MAX_ATTEMPTS
+            while (attempts < maxAttempts) {
+                attempts++
+                val pollDone = CompletableDeferred<Boolean>()
+                ApiClient.getExamResult(
+                    examId = examId,
+                    token = token,
+                    macAddress = macAddress,
+                    identityData = identityData,
+                    jobId = jobId,
+                    onSuccess = { poll ->
+                        status = poll.status
+                        pollDone.complete(true)
+                    },
+                    onError = { _ ->
+                        pollDone.complete(true)
+                    }
+                )
+                pollDone.await()
+                if (status == ApiClient.RESULT_STATUS_DONE || status == ApiClient.RESULT_STATUS_FAILED) {
+                    break
+                }
+                delay(QUEUED_POLL_INTERVAL_MS)
+            }
+            android.os.Handler(android.os.Looper.getMainLooper()).post {
+                onComplete(status == ApiClient.RESULT_STATUS_DONE)
+            }
+        }
+    }
+
+    /**
+     * Show the congratulations screen (or fallback dialog) after a successful
+     * submit. Extracted so both the sync path and the post-poll async path use
+     * the same UI.
+     */
+    private fun showCongrats(result: ApiClient.SubmitResult) {
+        setShowingAppDialog(true)
+        try {
+            val intent = Intent(context, CongratulationsActivity::class.java).apply {
+                putExtra("server_url", serverUrl)
+                putExtra("exam_token", token)
+                putExtra("exam_name", examName)
+                putExtra("student_name", studentName)
+                putExtra("student_number", studentNumber)
+                putExtra("student_class", studentClass)
+                putExtra("congrats_message", result.congratsMessage)
+                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            }
+            context.startActivity(intent)
+        } catch (_: Exception) {
+            // Fallback if launching fails: plain dialog as before.
+            AlertDialog.Builder(context)
+                .setTitle(context.getString(R.string.submit_success_title))
+                .setMessage(context.getString(R.string.submit_success_message, result.message))
+                .setCancelable(false)
+                .setPositiveButton(context.getString(R.string.submit_success_done)) { _, _ ->
+                    setShowingAppDialog(false)
+                    onFinish?.invoke()
+                }
+                .show()
+            return
+        }
+        setShowingAppDialog(false)
+        onFinish?.invoke()
+    }
+
     // ---- Auto-submit ----
 
     suspend fun submitWithRetry(): Pair<Boolean, String> {
@@ -334,7 +405,16 @@ class SubmissionManager(
                         identityData = identityData
                     )
                 }
-                if (result.success) return Pair(result.success, result.message)
+                if (result.success) {
+                    if (result.status != ApiClient.SUBMIT_STATUS_QUEUED) {
+                        return Pair(true, result.message)
+                    }
+                    // Async path: the server only queued the answers. Wait for
+                    // the worker to make them durable before clearing the local
+                    // copy (clearSavedAnswers runs in autoSubmitAndExit only
+                    // when this returns true).
+                    return Pair(awaitQueuedResultDurable(), result.message)
+                }
                 if (attempt < 3) delay(delays[attempt])
             } catch (e: Exception) {
                 if (attempt < 3) {
@@ -345,6 +425,32 @@ class SubmissionManager(
             }
         }
         return Pair(false, context.getString(R.string.answer_submit_error))
+    }
+
+    /** Poll /result up to [maxPollMs]; true only when the worker reports "done". */
+    private suspend fun awaitQueuedResultDurable(maxPollMs: Long = QUEUED_POLL_DEADLINE_MS): Boolean {
+        val deadline = System.currentTimeMillis() + maxPollMs
+        while (System.currentTimeMillis() < deadline) {
+            val pollDone = CompletableDeferred<String>()
+            ApiClient.getExamResult(
+                examId = examId,
+                token = token,
+                macAddress = macAddress,
+                identityData = identityData,
+                jobId = null,
+                onSuccess = { poll ->
+                    pollDone.complete(poll.status)
+                },
+                onError = { _ ->
+                    pollDone.complete("unknown")
+                }
+            )
+            val status = pollDone.await()
+            if (status == ApiClient.RESULT_STATUS_DONE) return true
+            if (status == ApiClient.RESULT_STATUS_FAILED) return false
+            delay(QUEUED_POLL_INTERVAL_MS)
+        }
+        return false
     }
 
     fun autoSubmitAndExit() {

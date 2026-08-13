@@ -461,16 +461,24 @@ func CreateSubmission(ctx context.Context, pool *pgxpool.Pool, s *Submission) (*
 		}
 	}
 
-	// Try to update an existing un-submitted row first — an open (placeholder)
-	// row for this student on this device. When the student has an exam number,
-	// the match is scoped to a row carrying that same number (heartbeat
-	// placeholders store it), so two students who share one device no longer get
-	// merged into a single row. When the student has no exam number, any open row
-	// on the device is targeted, preserving the one-device-one-row behaviour for
+	// Try to update the student's LATEST row for this device — the open
+	// (placeholder) row when a fresh attempt is in progress, or the already-
+	// submitted row when this call is a RETRY of a submission whose first
+	// attempt was persisted but whose response never reached the client.
+	//
+	// Idempotency contract: the match is scoped to (exam, device, exam_number)
+	// WITHOUT an answers_json filter. The old code only matched the open row,
+	// so a retry of an already-persisted submit found nothing and INSERTed a
+	// second completed row — the same student showed up twice in the admin
+	// monitoring table with duplicate scores. When the student has an exam
+	// number, the match is scoped to a row carrying that same number
+	// (placeholders store it), so two students who share one device still get
+	// two separate rows. When the student has no exam number, any latest row on
+	// the device is targeted, preserving the one-device-one-row behaviour for
 	// exams that don't assign numbers.
 	var existingID int
 	err := pool.QueryRow(ctx, `SELECT id FROM submissions
-		WHERE exam_id = $1 AND mac_address = $2 AND (answers_json IS NULL OR answers_json = '')
+		WHERE exam_id = $1 AND mac_address = $2
 		  AND ($3 = '' OR exam_number = $3)
 		ORDER BY created_at DESC LIMIT 1`, s.ExamID, s.MACAddress, s.ExamNumber).Scan(&existingID)
 	

@@ -132,3 +132,192 @@ func TestUpsertSubmissionRowTwoStudentsShareDevice(t *testing.T) {
 		t.Errorf("student B must keep an empty (open) row, got answers %q", *bAnswers)
 	}
 }
+
+// TestUpsertSubmissionRowRetryIsIdempotent locks in the retry/dedup guarantee:
+// when the same job (same exam + device + exam_number) is upserted a second
+// time — e.g. the client retried because it never saw the first response, or
+// the queue worker re-processed a re-enqueued job — the EXISTING submitted row
+// is updated in place instead of inserting a duplicate row. The old
+// implementation only matched the open (un-submitted) placeholder row, so a
+// retry after a persisted submit silently created a second submission row that
+// showed the same student twice in the admin monitoring table with duplicate
+// scores.
+func TestUpsertSubmissionRowRetryIsIdempotent(t *testing.T) {
+	pool := setupQueueTestPool(t)
+	ctx := context.Background()
+	ownerID := insertQueueOwner(t, pool, "q-retry-guru")
+	examID := insertQueueTestExam(t, pool, ownerID)
+
+	job := &SubmissionJob{
+		StudentName: "Siswa Retry", ExamNumber: "R1", ExamID: examID,
+		MACAddress: "DEVICE:retry1", StartTime: "2026-08-09 07:00:00",
+		Answers: map[string]interface{}{"1": "a", "2": "b"},
+	}
+	score := 85.0
+
+	sp1, err := pool.Begin(ctx)
+	if err != nil {
+		t.Fatalf("begin tx1: %v", err)
+	}
+	firstID, err := upsertSubmissionRow(ctx, sp1, job, &score)
+	if err != nil {
+		t.Fatalf("first upsert: %v", err)
+	}
+	_ = sp1.Commit(ctx)
+
+	// Simulate the client retrying because the response was lost: same job,
+	// same device + exam_number, arguably different (latest) answers.
+	job.Answers = map[string]interface{}{"1": "a", "2": "c"}
+	newScore := 90.0
+	sp2, err := pool.Begin(ctx)
+	if err != nil {
+		t.Fatalf("begin tx2: %v", err)
+	}
+	secondID, err := upsertSubmissionRow(ctx, sp2, job, &newScore)
+	if err != nil {
+		t.Fatalf("retry upsert: %v", err)
+	}
+	_ = sp2.Commit(ctx)
+
+	if secondID != firstID {
+		t.Errorf("retry upsert returned id %d, want same row %d (retry must not insert)", secondID, firstID)
+	}
+
+	var total int
+	if err := pool.QueryRow(ctx,
+		`SELECT COUNT(*) FROM submissions WHERE exam_id=$1 AND mac_address='DEVICE:retry1'`,
+		examID).Scan(&total); err != nil {
+		t.Fatalf("count rows: %v", err)
+	}
+	if total != 1 {
+		t.Errorf("rows for device = %d, want 1 (retry must not create a duplicate)", total)
+	}
+
+	// The retried job's answers and score must be the ones persisted.
+	var gotAnswers *string
+	var gotScore *float64
+	if err := pool.QueryRow(ctx,
+		`SELECT answers_json, score FROM submissions WHERE id=$1`, firstID).Scan(&gotAnswers, &gotScore); err != nil {
+		t.Fatalf("read persisted row: %v", err)
+	}
+	if gotAnswers == nil || *gotAnswers != `{"1":"a","2":"c"}` {
+		t.Errorf("answers = %v, want retried answers", gotAnswers)
+	}
+	if gotScore == nil || *gotScore != newScore {
+		t.Errorf("score = %v, want %v", gotScore, newScore)
+	}
+}
+
+// TestFlushBatchRevokesApprovalOnlyAfterCommit locks in the durable-first
+// approval lifecycle of the async path: the approval row of a submitting device
+// must NOT be revoked until the submission batch has actually committed to
+// PostgreSQL. If the worker process dies before commit (or the commit fails and
+// the job is re-enqueued), the approval survives so the device can retry its
+// submit — otherwise a student whose job never persisted would be stranded with
+// a cancelled approval, a cleared answer sheet, and no way back in.
+func TestFlushBatchRevokesApprovalAfterCommit(t *testing.T) {
+	pool := setupQueueTestPool(t)
+	ctx := context.Background()
+	ownerID := insertQueueOwner(t, pool, "q-revoke-guru")
+	examID := insertQueueTestExam(t, pool, ownerID)
+
+	// Approved device sitting in the join queue.
+	if _, err := pool.Exec(ctx, `
+		INSERT INTO exam_approvals (exam_id, mac_address, student_name, exam_number, status)
+		VALUES ($1, 'DEVICE:revoke1', 'Siswa Revoke', 'V1', 'approved')`, examID); err != nil {
+		t.Fatalf("insert approval: %v", err)
+	}
+	var approvalsBefore int
+	if err := pool.QueryRow(ctx,
+		`SELECT COUNT(*) FROM exam_approvals WHERE exam_id=$1 AND mac_address='DEVICE:revoke1'`,
+		examID).Scan(&approvalsBefore); err != nil {
+		t.Fatalf("count approvals before: %v", err)
+	}
+	if approvalsBefore != 1 {
+		t.Fatalf("approvals before = %d, want 1 (fixture mis-set)", approvalsBefore)
+	}
+
+	score := 75.0
+	w := &Worker{rdb: nil, pool: pool}
+	w.flushBatch(ctx, []SubmissionResult{{
+		Job: SubmissionJob{
+			StudentName: "Siswa Revoke", ExamNumber: "V1", ExamID: examID,
+			MACAddress: "DEVICE:revoke1", StartTime: "2026-08-09 07:00:00",
+			Answers: map[string]interface{}{"1": "a"},
+		},
+		Score: &score,
+	}})
+
+	var approvalsAfter int
+	if err := pool.QueryRow(ctx,
+		`SELECT COUNT(*) FROM exam_approvals WHERE exam_id=$1 AND mac_address='DEVICE:revoke1'`,
+		examID).Scan(&approvalsAfter); err != nil {
+		t.Fatalf("count approvals after: %v", err)
+	}
+	if approvalsAfter != 0 {
+		t.Errorf("approvals after flush = %d, want 0 (revoked only after durable commit)", approvalsAfter)
+	}
+
+	// And the submission itself must be durable.
+	var total int
+	if err := pool.QueryRow(ctx,
+		`SELECT COUNT(*) FROM submissions WHERE exam_id=$1 AND mac_address='DEVICE:revoke1'`,
+		examID).Scan(&total); err != nil {
+		t.Fatalf("count submissions: %v", err)
+	}
+	if total != 1 {
+		t.Errorf("submission rows = %d, want 1 (flush must persist the job)", total)
+	}
+}
+
+// TestFlushBatchKeepsApprovalWhenRowFails locks in the failure side of the
+// same contract: when a job's row cannot be persisted (here: a job whose exam
+// id does not exist violates the submissions FK), the failed job is re-enqueued
+// for retry and its approval row is left untouched. Approval is only revoked on
+// the success path after the batch commit — so a transient DB failure never
+// cancels a device's re-entry entitlement.
+func TestFlushBatchKeepsApprovalWhenRowFails(t *testing.T) {
+	pool := setupQueueTestPool(t)
+	ctx := context.Background()
+	ownerID := insertQueueOwner(t, pool, "q-keep-guru")
+	examID := insertQueueTestExam(t, pool, ownerID)
+
+	if _, err := pool.Exec(ctx, `
+		INSERT INTO exam_approvals (exam_id, mac_address, student_name, exam_number, status)
+		VALUES ($1, 'DEVICE:keep1', 'Siswa Keep', 'K1', 'approved')`, examID); err != nil {
+		t.Fatalf("insert approval: %v", err)
+	}
+
+	// The job references a non-existent exam → the per-row savepoint fails, the
+	// row is re-enqueued for retry (rdb nil ⇒ re-enqueue is a no-op), and the
+	// approval must survive.
+	w := &Worker{rdb: nil, pool: pool}
+	w.flushBatch(ctx, []SubmissionResult{{
+		Job: SubmissionJob{
+			StudentName: "Siswa Keep", ExamNumber: "K1", ExamID: 999999,
+			MACAddress: "DEVICE:keep1", StartTime: "2026-08-09 07:00:00",
+			Answers: map[string]interface{}{"1": "a"},
+		},
+		Score: nil,
+	}})
+
+	var approvals int
+	if err := pool.QueryRow(ctx,
+		`SELECT COUNT(*) FROM exam_approvals WHERE exam_id=$1 AND mac_address='DEVICE:keep1'`,
+		examID).Scan(&approvals); err != nil {
+		t.Fatalf("count approvals: %v", err)
+	}
+	if approvals != 1 {
+		t.Errorf("approvals after failed row = %d, want 1 (never revoked before durable commit)", approvals)
+	}
+
+	var total int
+	if err := pool.QueryRow(ctx,
+		`SELECT COUNT(*) FROM submissions WHERE exam_id=$1 AND mac_address='DEVICE:keep1'`,
+		examID).Scan(&total); err != nil {
+		t.Fatalf("count submissions: %v", err)
+	}
+	if total != 0 {
+		t.Errorf("submission rows = %d, want 0 (failing job must not persist)", total)
+	}
+}

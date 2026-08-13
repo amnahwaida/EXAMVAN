@@ -267,6 +267,41 @@ Audit lengkap index untuk seluruh kolom FK (termasuk 4 index baru: `idx_admin_us
 - **Reversal tak claw-back waktu/role** — `transactions.go:399`: relevan bila gate #12 diperbaiki.
 - **`transactions.notes` NULL-scan** — `internal/models/transaction.go:77`: `notes` nullable di-scan ke `string`; belum ada jalur Go yang menghasilkan NULL, tapi rapuh untuk data legacy. Pakai `*string`/`COALESCE`.
 
+## ✅ PERBAIKAN TAMBAHAN — ALUR UJIAN (14 Agustus 2026)
+
+Review kelima temuan di alur ujian siswa (submit → approval → PDF → hasil). **Semua sudah diperbaiki + ditest** TDD: 9 test baru ditulis sebagai bukti kegagalan (RED) lebih dulu, lalu fix, lalu seluruh suite hijau (`go build`, `go vet`, `go test ./...` lolos; status 14 Agustus 2026). Catatan lengkap di [README.md → Perbaikan Alur Ujian (14 Agustus 2026)](../README.md#perbaikan-alur-ujian-14-agustus-2026).
+
+### A. Retry submit menghasilkan baris duplikat (Tinggi) — dedup ikut status submit
+- **Masalah lama:** `upsertSubmissionRow` (`internal/queue/submission_queue.go`) dan `CreateSubmission` (`internal/models/submission.go`) hanya menargetkan baris "latest" bila baris itu **belum disubmit** (`answers_json IS NULL OR ''`). Saat siswa menekan submit ulang (mis. koneksi putus lalu retry async), baris yang sudah berisi jawaban dianggap "bukan milik perangkat" → dibuat **baris baru duplikat** dengan skor sama tapi identitas terbelah.
+- **Fix:** filter "belum disubmit" dihapus dari lookup — retry kini memperbarui baris latest per `exam_id + mac_address (+ exam_number)`, apa pun statusnya. Dedup tetap mempertahankan pemisahan dua siswa berbagi perangkat.
+- **Test:** `TestUpsertSubmissionRowRetryIsIdempotent` (queue), `TestCreateSubmissionRetryIsIdempotent` (models), `TestSubmitExamRetryDoesNotDuplicateRow` (HTTP).
+
+### B. Pencabutan approval prematur di jalur async (Tinggi) — revoke pindah ke worker
+- **Masalah lama:** `SubmitExam` menghapus baris `exam_approvals` **saat enqueue**. Bila job gagal permanen (worker mati/DB outage), siswa yang sudah dianggap "sukses" kehilangan baris approval → tidak bisa masuk ulang untuk memperbaiki, sementara jawaban lokalnya sudah dibersihkan klien → **kehilangan jawaban permanen**.
+- **Fix:** `DELETE FROM exam_approvals` di hapus dari handler; `flushBatch` (`internal/queue/submission_queue.go`) kini mencabut approval **hanya setelah `tx.Commit` batch sukses** per baris yang berhasil. Baris gagal → re-enqueue + approval dipertahankan. Path sinkron tetap mencabut langsung setelah insert (data sudah durable). Response async dinaikkan ke HTTP **202** (`status:"queued"`) agar klien tahu jawaban belum durable.
+- **Test:** `TestFlushBatchRevokesApprovalAfterCommit`, `TestFlushBatchKeepsApprovalWhenRowFails`, `TestSubmitExamAsyncKeepsApprovalUntilPersisted`.
+
+### C. `GET /api/exams/:exam_id/result` publik (Tinggi) — kini kredensial-gated
+- **Masalah lama:** endpoint hasil (dibuat 9 Agustus) bisa dipanggil tanpa kredensial apa pun — siapa pun yang menebak `mac_address` + `identity_data` membocorkan skor siswa (dan tautan identitas) sebelum guru mengumumkan hasil.
+- **Fix:** gate akses diterima bila (1) `X-Exam-Token` valid untuk ujian tsb (header atau `token` query), atau (2) perangkat masih punya baris `exam_approvals` `approved` (menutup polling antara submit dan revoke worker di mode token dinamis). Tanpa kredensial → **401**; ujian tak ditemukan → 404. Row submission historis **tidak** lagi dianggap kredensial (itu celah akses pertama).
+- **Test:** `TestExamResultRequiresTokenOrApproval`; test lama `TestExamResultReturnsScoreFromDB`/`TestExamResultPending` diperbarui mengirim token.
+
+### D. PDF bisa diunduh tanpa persetujuan pengawas (Tinggi) — gate approval server-side
+- **Masalah lama:** `GET /api/exams/:exam_id/pdf` hanya cek token aktif. Di mode statis token dibagi sekelas, dan layar menunggu (WaitingApprovalActivity/Dialog) hanya **klien-side** — klien buatan (curl + URL) mengambil PDF tanpa pernah disetujui.
+- **Fix:** gate server-side di `ExamPDF` (`internal/handlers/api/exams.go`): perangkat harus punya baris `exam_approvals` `approved` untuk ujian tsb. Identitas device lewat header **`X-Device-Id`** (Android `<DEVICE:AndroidId>`, desktop MAC — nilai yang SAMA dipakai saat request-approval), fallback `mac_address` query untuk backend lama. Diberlakukan di mode manual **dan** auto-approve (klien resmi selalu lewat request-approval, jadi baris selalu ada). Android `ExamListActivity` tidak lagi membuka viewer langsung — melewati `WaitingApprovalActivity` (menutup bypass). Deskstop sudah selalu lewat dialog persetujuan.
+- **Test:** `TestExamPDFRequiresApprovedDevice`, `TestExamPDFRequiresApprovedDeviceEvenWithAutoApprove`; test R2 lama (`exam_pdf_guard_test.go`) disesuaikan dengan device yang disetujui.
+
+### E. Rate-limit submit key `unknown` global (Sedang) — bucket per-IP saat MAC tak dikenal
+- **Masalah lama:** perangkat tanpa MAC ter-resolve (`sanitizeMAC` → `"unknown"`; install baru/emulator) semua memakai **satu bucket rate-limit global**, sehingga sekelas perangkat yang MAC-nya hilang saling memblokir setelah total cap tercapai.
+- **Fix:** saat `mac_address` kosong/`"unknown"`, key rate-limit menjadi `exam:<id>:ip:<ClientIP>` — tiap perangkat mendapat bucket sendiri; perangkat dengan MAC tetap pakai bucket per-MAC.
+- **Test:** `TestSubmitExamRateLimitKeyedByIPWhenMacUnknown` — IP A habiskan 10 izin → ke-11 = 429; IP B dengan MAC `unknown` sama tidak diblokir.
+
+### F. Perubahan terkait di klien
+- **Android** (`ApiClient.kt`, `PdfRendererHelper.kt`, `SubmissionManager.kt`, `ExamListActivity.kt`): `downloadPdf` kirim `X-Device-Id`; `SubmitResult.status`/`jobId` + endpoint `getExamResult`; setelah submit 202 `queued`, jawaban lokal **tidak dibersihkan** sampai `/result` melaporkan `done` (polling ~75 dtk), termasuk jalur auto-submit background; daftar ujian dibuka lewat `WaitingApprovalActivity`.
+- **Desktop** (`examvan/api.py`, `ui/exam_viewer.py`): `download_pdf` kirim `X-Device-Id` = MAC (sama dengan saat persetujuan).
+
+---
+
 ## ✅ Ditolak setelah verifikasi (bukan bug)
 - CSRF `!=` non-constant-time — token adalah milik sesi caller sendiri, tak ada oracle. (`csrf.go:81`)
 - "Race duplikat pending DOKU" — sudah ada unique index parsial `idx_transactions_pending_doku_unique`. (`schema.sql:261`)

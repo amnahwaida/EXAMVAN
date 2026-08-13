@@ -379,9 +379,16 @@ func TestExamResultReturnsScoreFromDB(t *testing.T) {
 	defer srv.Close()
 
 	// Poll with the same device + identity (non-expired Redis result not needed —
-	// this exercises the durable fallback).
-	resp, err := http.Get(fmt.Sprintf("%s/api/exams/%d/result?mac_address=%s&identity_data=%s",
-		srv.URL, examID, "DEVICE:result1", url.QueryEscape(identity)))
+	// this exercises the durable fallback). The exam token is required since the
+	// result endpoint became credential-gated (14 Agustus 2026).
+	req, err := http.NewRequest(http.MethodGet, fmt.Sprintf("%s/api/exams/%d/result?mac_address=%s&identity_data=%s",
+		srv.URL, examID, "DEVICE:result1", url.QueryEscape(identity)), nil)
+	if err != nil {
+		t.Fatalf("build request: %v", err)
+	}
+	req.Header.Set("X-Exam-Token", token)
+	req.Header.Set("X-App-Version", "2.5.0")
+	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
 		t.Fatalf("GET result: %v", err)
 	}
@@ -433,9 +440,16 @@ func TestExamResultPending(t *testing.T) {
 	srv := httptest.NewServer(newExamByTokenRouter(pool))
 	defer srv.Close()
 
-	// Unknown job_id, no matching DB row → "pending".
-	resp, err := http.Get(fmt.Sprintf("%s/api/exams/%d/result?job_id=nonexistent&mac_address=DEVICE:xyz",
-		srv.URL, examID))
+	// Unknown job_id, no matching DB row → "pending". The token is required
+	// since the result endpoint became credential-gated (14 Agustus 2026).
+	req, err := http.NewRequest(http.MethodGet, fmt.Sprintf("%s/api/exams/%d/result?job_id=nonexistent&mac_address=DEVICE:xyz",
+		srv.URL, examID), nil)
+	if err != nil {
+		t.Fatalf("build request: %v", err)
+	}
+	req.Header.Set("X-Exam-Token", token)
+	req.Header.Set("X-App-Version", "2.5.0")
+	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
 		t.Fatalf("GET result: %v", err)
 	}

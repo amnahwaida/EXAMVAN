@@ -107,20 +107,29 @@ def download_pdf(
     token: str,
     dest_path: str,
     progress_cb: Optional[Callable[[int, int], None]] = None,
+    device_id: str = "",
 ) -> str:
     """GET /api/exams/{exam_id}/pdf → save to dest_path. Returns path on success.
+
+    The server's approval gate (14 Agustus 2026) serves the PDF only to
+    devices holding an approved exam_approvals row; `device_id` must be the
+    SAME value used at request-approval time (the device MAC). Passed in the
+    X-Device-Id header.
 
     Args:
         progress_cb: Called with (bytes_read, total_bytes) during download.
                      total_bytes is -1 if Content-Length unknown.
     """
+    headers = {
+        "X-Exam-Token": token,
+        "User-Agent": f"EXAMVAN-{_PLATFORM}/{APP_VERSION}",
+    }
+    if device_id:
+        headers["X-Device-Id"] = device_id
     url = _url_join(base_url, f"/api/exams/{exam_id}/pdf")
     req = urllib.request.Request(
         url,
-        headers={
-            "X-Exam-Token": token,
-            "User-Agent": f"EXAMVAN-{_PLATFORM}/{APP_VERSION}",
-        },
+        headers=headers,
     )
 
     tmp_path = dest_path + ".tmp"

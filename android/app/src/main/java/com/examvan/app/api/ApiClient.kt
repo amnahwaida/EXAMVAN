@@ -34,6 +34,13 @@ object ApiClient {
      */
     const val HTTP_UPGRADE_REQUIRED = 426
 
+    /** Submit-response status of the async path (202): answers are QUEUED, not durable yet. */
+    const val SUBMIT_STATUS_QUEUED = "queued"
+
+    /** /result statuses reported by the worker/exam result endpoint. */
+    const val RESULT_STATUS_DONE = "done"
+    const val RESULT_STATUS_FAILED = "failed"
+
     /**
      * Set this to a known sha256/... certificate fingerprint to enable
      * static certificate pinning. When non-null, the fingerprint from
@@ -360,10 +367,16 @@ object ApiClient {
      * Download exam PDF with progress callback.
      * Uses atomic save pattern: downloads to temp file first,
      * then renames to final path only if 100% complete.
+     *
+     * @param deviceId device identity sent in X-Device-Id — the SAME value used
+     *                  at request-approval time (DEVICE:<AndroidId>). The server
+     *                  refuses to serve the PDF to a device without an approved
+     *                  exam_approvals row (14 Agustus 2026).
      */
     fun downloadPdf(
         examId: Int,
         token: String,
+        deviceId: String,
         cacheDir: File,
         onProgress: (Int) -> Unit,
         onSuccess: (File) -> Unit,
@@ -374,6 +387,7 @@ object ApiClient {
         val request = Request.Builder()
             .url("$baseUrl/api/exams/$examId/pdf")
             .header("X-Exam-Token", token)
+            .header("X-Device-Id", deviceId)
             .get()
             .build()
 
@@ -505,11 +519,19 @@ object ApiClient {
      * and the optional custom congratulations message to show on the success
      * screen (null when the teacher left it unset — the app falls back to its
      * default wording).
+     *
+     * @param status submission state reported by the server: "queued" for the
+     *               async path (202 — the answers are not durable yet, the
+     *               client must poll [getExamResult] before discarding its
+     *               local copy), "done" for the sync path.
+     * @param jobId queue job id assigned by the server on the async path.
      */
     data class SubmitResult(
         val success: Boolean,
         val message: String,
-        val congratsMessage: String?
+        val congratsMessage: String?,
+        val status: String? = null,
+        val jobId: String? = null
     )
 
     /** Parse submit response, shared by async and sync submit methods. */
@@ -521,7 +543,9 @@ object ApiClient {
                 SubmitResult(
                     success = true,
                     message = json.optString("message", "Ujian berhasil dikumpulkan"),
-                    congratsMessage = json.optString("congrats_message", "").ifBlank { null }
+                    congratsMessage = json.optString("congrats_message", "").ifBlank { null },
+                    status = json.optString("status", "").ifBlank { null },
+                    jobId = json.optString("job_id", "").ifBlank { null }
                 )
             } else {
                 SubmitResult(
@@ -533,6 +557,75 @@ object ApiClient {
         } catch (e: Exception) {
             SubmitResult(false, "Gagal memproses respon server", null)
         }
+    }
+
+    /**
+     * Result of a result-poll: completion status ("unknown"/"pending"/"done")
+     * plus the optional score when the worker has finished grading.
+     */
+    data class ExamResultPoll(
+        val status: String,
+        val score: Int? = null,
+        val message: String? = null
+    )
+
+    /**
+     * Poll GET /api/exams/{exam_id}/result for the status of a queued
+     * submission (async 202 path). The endpoint is credential-gated: it needs
+     * the exam token (X-Exam-Token) or a still-approved device + its own
+     * submission; the token is sent so the poll survives the post-commit
+     * approval revocation (14 Agustus 2026).
+     */
+    fun getExamResult(
+        examId: Int,
+        token: String,
+        macAddress: String,
+        identityData: String?,
+        jobId: String?,
+        onSuccess: (ExamResultPoll) -> Unit,
+        onError: (String) -> Unit
+    ) {
+        val urlBuilder = StringBuilder("$baseUrl/api/exams/$examId/result")
+            .append("?mac_address=").append(java.net.URLEncoder.encode(macAddress, "UTF-8"))
+        if (!identityData.isNullOrEmpty()) {
+            urlBuilder.append("&identity_data=").append(java.net.URLEncoder.encode(identityData, "UTF-8"))
+        }
+        if (!jobId.isNullOrEmpty()) {
+            urlBuilder.append("&job_id=").append(java.net.URLEncoder.encode(jobId, "UTF-8"))
+        }
+
+        val request = Request.Builder()
+            .url(urlBuilder.toString())
+            .header("X-Exam-Token", token)
+            .get()
+            .build()
+
+        client.newCall(request).enqueue(object : Callback {
+            override fun onFailure(call: Call, e: IOException) {
+                onError(e.message ?: "Koneksi gagal")
+            }
+
+            override fun onResponse(call: Call, response: Response) {
+                response.use {
+                    if (!it.isSuccessful) {
+                        onError(parseErrorBody(it))
+                        return
+                    }
+                    try {
+                        val json = org.json.JSONObject(it.body?.string() ?: "")
+                        onSuccess(
+                            ExamResultPoll(
+                                status = json.optString("status", "pending"),
+                                score = if (json.has("score") && !json.isNull("score")) json.optInt("score") else null,
+                                message = json.optString("message", "").ifBlank { null }
+                            )
+                        )
+                    } catch (e: Exception) {
+                        onError("Response tidak valid")
+                    }
+                }
+            }
+        })
     }
 
     /**

@@ -67,7 +67,15 @@ class ExamListActivity : BaseSecureActivity() {
             val number = identityJson.optString("exam_number", "")
             val sClass = identityJson.optString("student_class", "")
 
-            val intent = Intent(this, ExamViewerActivity::class.java).apply {
+            // The exam is only opened via the approval gate (WaitingApprovalActivity
+            // requests a fresh exam_approvals row and awaits it). Opening
+            // ExamViewerActivity directly would bypass the pengawas' approval —
+            // the server now rejects unapproved devices at the PDF endpoint
+            // (14 Agustus 2026), so the waiting screen is no longer optional.
+            val securityLevel = configPrefs.getString(AppPrefs.KEY_SECURITY_LEVEL, "medium") ?: "medium"
+            val strictMode = AppPrefs.getExamPrefsSafe(this).getBoolean(AppPrefs.KEY_STRICT_MODE, false)
+
+            val intent = Intent(this, WaitingApprovalActivity::class.java).apply {
                 putExtra("exam_id", exam.id)
                 putExtra("exam_token", resolvedToken)
                 putExtra("exam_name", exam.name)
@@ -77,6 +85,8 @@ class ExamListActivity : BaseSecureActivity() {
                 putExtra("student_class", sClass)
                 putExtra("identity_data", identityJsonStr)
                 putExtra("end_time", exam.end_time)
+                putExtra("security_level", securityLevel)
+                putExtra("strict_mode", strictMode)
             }
             startActivity(intent)
         }

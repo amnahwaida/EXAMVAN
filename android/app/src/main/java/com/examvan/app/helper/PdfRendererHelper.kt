@@ -93,6 +93,10 @@ class PdfRendererHelper(
         downloadCall = ApiClient.downloadPdf(
             examId = examId,
             token = token,
+            // The server-side approval gate (14 Agustus 2026) serves the PDF
+            // only to devices holding an approved exam_approvals row — the
+            // device id must be the SAME value used at request-approval time.
+            deviceId = com.examvan.app.DeviceIdResolver.resolveDeviceId(context),
             cacheDir = context.cacheDir,
             onProgress = { percent ->
                 mainHandler.post {

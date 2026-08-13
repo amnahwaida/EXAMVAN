@@ -874,6 +874,57 @@ Log job mencatat jumlah yang dibersihkan per kategori (`approval-cleanup job: pu
 
 ---
 
+## Perbaikan Alur Ujian — Retry, Approval, Hasil, & PDF (14 Agustus 2026)
+
+Lima temuan dari pemeriksaan alur ujian siswa (submit → approval → PDF → hasil). **TDD**: 9 test baru ditulis sebagai bukti kegagalan (RED) lebih dulu, lalu diperbaiki, lalu seluruh suite hijau (`go build`, `go vet`, `go test ./...`). Ringkasan temuan & lokasi: [webui/BUG_REVIEW.md](webui/BUG_REVIEW.md) (bagian "Perbaikan tambahan — alur ujian (14 Agustus 2026)").
+
+### 1. Retry submit tidak lagi menduplikasi baris (idempoten apa pun statusnya)
+
+**Masalah:** dedup di `upsertSubmissionRow` (`webui/internal/queue/submission_queue.go`) dan `CreateSubmission` (`webui/internal/models/submission.go`) hanya menargetkan baris latest yang **belum disubmit** (`answers_json IS NULL OR ''`). Submit ulang (retry koneksi putus, auto-submit background) membuat **baris duplikat** baru.
+
+**Solusi:** filter "belum disubmit" dihapus dari lookup — retry memperbarui baris latest per `exam_id + mac_address (+ exam_number)`, apa pun statusnya. Pemisahan dua siswa berbagi perangkat (Fix 9 Agustus) tetap berlaku.
+
+Tes: `TestUpsertSubmissionRowRetryIsIdempotent`, `TestCreateSubmissionRetryIsIdempotent`, `TestSubmitExamRetryDoesNotDuplicateRow`.
+
+### 2. Pencabutan approval hanya setelah jawaban benar-benar tersimpan
+
+**Masalah:** di jalur async, `SubmitExam` menghapus baris `exam_approvals` saat enqueue. Job yang gagal permanen (worker mati / DB outage) meninggalkan siswa dengan laporan sukses, lembar jawaban yang sudah dibersihkan klien, dan tanpa hak masuk ulang → kehilangan jawaban permanen.
+
+**Solusi:** handler tidak lagi mencabut saat enqueue; worker `flushBatch` mencabut **setelah `tx.Commit` sukses** per baris yang berhasil (baris gagal → re-enqueue + approval dipertahankan). Path sinkron tetap mencabut langsung setelah insert (data sudah durable). Response async kini **202** `status:"queued"` — sinyal eksplisit bahwa jawaban belum durable.
+
+Tes: `TestFlushBatchRevokesApprovalAfterCommit`, `TestFlushBatchKeepsApprovalWhenRowFails`, `TestSubmitExamAsyncKeepsApprovalUntilPersisted`.
+
+### 3. Endpoint hasil tidak lagi publik
+
+**Masalah:** `GET /api/exams/:exam_id/result` (dibuat 9 Agustus) tanpa kredensial — siapa pun yang menebak `mac_address` + `identity_data` membocorkan skor siswa dan tautan identitasnya sebelum guru mengumumkan.
+
+**Solusi:** gate akses — diterima bila `X-Exam-Token` valid untuk ujian tsb (header atau `token` query), **atau** perangkat masih punya baris `exam_approvals` `approved` (menutup polling antara submit dan revoke worker di mode token dinamis). Tanpa keduanya → **401**; ujian tak dikenal → 404.
+
+Tes: `TestExamResultRequiresTokenOrApproval`; `TestExamResultReturnsScoreFromDB`/`TestExamResultPending` diperbarui mengirim token.
+
+### 4. PDF ujian hanya untuk perangkat yang disetujui pengawas
+
+**Masalah:** `GET /api/exams/:exam_id/pdf` hanya butuh token aktif. Di mode statis token dibagi sekelas dan layar menunggu approval hanya kosmetik klien-side — klien buatan (curl + URL bertanda) mengunduh PDF tanpa persetujuan apa pun.
+
+**Solusi:** gate server-side di `ExamPDF` (`webui/internal/handlers/api/exams.go`): wajib baris `exam_approvals` `approved` untuk perangkat tsb. Identitas device lewat header **`X-Device-Id`** — nilai yang SAMA dipakai saat request-approval (Android `DEVICE:<AndroidId>`, desktop MAC) — dengan fallback `mac_address` query. Berlaku di mode manual **dan** auto-approve. Untuk memastikan perangkat di kelas selalu punya baris approval, **Android `ExamListActivity` tidak lagi membuka viewer langsung** — rute lewat `WaitingApprovalActivity` (desktop sudah selalu lewat dialog persetujuan).
+
+Tes: `TestExamPDFRequiresApprovedDevice`, `TestExamPDFRequiresApprovedDeviceEvenWithAutoApprove`; suite R2 lama (`exam_pdf_guard_test.go`) disesuaikan.
+
+### 5. Rate-limit submit per-IP saat identitas device tak dikenal
+
+**Masalah:** perangkat tanpa MAC ter-resolve (`sanitizeMAC` → `"unknown"`; install baru/emulator) berbagi **satu bucket global** → sekelas perangkat saling memblokir setelah cap.
+
+**Solusi:** saat `mac_address` kosong/`"unknown"`, key rate-limit `exam:<id>:ip:<ClientIP>` (bucket per-IP); perangkat dengan MAC tetap pakai bucket per-MAC.
+
+Tes: `TestSubmitExamRateLimitKeyedByIPWhenMacUnknown`.
+
+### Perubahan klien menyertainya
+
+- **Android** (`ApiClient.kt`, `PdfRendererHelper.kt`, `SubmissionManager.kt`, `ExamListActivity.kt`): `downloadPdf` kirim `X-Device-Id`; `SubmitResult` membawa `status`/`jobId`; metode baru `getExamResult`; setelah submit 202 `queued`, jawaban lokal **tidak dibersihkan sampai `/result` melaporkan `done`** (polling ~75 dtk, termasuk jalur auto-submit background); daftar ujian dibuka lewat `WaitingApprovalActivity`.
+- **Desktop** (`examvan/api.py`, `ui/exam_viewer.py`): `download_pdf` kirim `X-Device-Id` = MAC (identitas yang sama dengan saat persetujuan).
+
+---
+
 ## License
 
 ISC

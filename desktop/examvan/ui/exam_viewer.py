@@ -29,7 +29,7 @@ from PyQt5.QtWidgets import (
 from .. import api, config
 from ..models import Exam
 from ..security.enforcer import SecurityEnforcer
-from ..utils import clear_clipboard, get_device_label, map_identity_to_standard
+from ..utils import clear_clipboard, get_device_label, get_mac_address, map_identity_to_standard
 from .answer_sheet import AnswerSheetWidget
 from .pdf_viewer import PdfWidget
 from .timer import ElapsedTimerWidget
@@ -233,6 +233,10 @@ class ExamViewerWindow(QMainWindow):
                 self._token,
                 dest,
                 progress_cb=self._on_download_progress,
+                # Same device identity used at request-approval time — the
+                # server approval gate requires an approved exam_approvals row
+                # for this device (14 Agustus 2026).
+                device_id=get_mac_address(),
             )
             self._sig_pdf_ready.emit()
         except Exception as e:

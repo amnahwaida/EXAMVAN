@@ -79,12 +79,16 @@ func newExamPDFGuardRouter(pool *pgxpool.Pool, setR2 func(*gin.Context)) *gin.En
 	return r
 }
 
-// getStudentPDF requests the student PDF endpoint with the exam token header.
+// getStudentPDF requests the student PDF endpoint with the exam token + the
+// device id used for the server-side approval gate (14 Agustus 2026: without
+// an approval row for this device the PDF is denied with 403 before R2 is
+// ever consulted).
 func getStudentPDF(t *testing.T, router *gin.Engine, examID int, token string) *httptest.ResponseRecorder {
 	t.Helper()
 	rec := httptest.NewRecorder()
 	req := httptest.NewRequest("GET", fmt.Sprintf("/api/exams/%d/pdf", examID), nil)
 	req.Header.Set("X-Exam-Token", token)
+	req.Header.Set("X-Device-Id", "DEVICE:pdf-guard")
 	router.ServeHTTP(rec, req)
 	return rec
 }
@@ -94,6 +98,7 @@ func getStudentPDF(t *testing.T, router *gin.Engine, examID int, token string) *
 func TestAPIExamPDFDisabledR2Rejected(t *testing.T) {
 	pool := database.NewPackageTestPool(t, "api")
 	examID, token := createRequestApprovalFixture(t, pool, true, true, false)
+	insertApprovalRow(t, pool, examID, "DEVICE:pdf-guard")
 
 	stub := &stubR2{enabled: false}
 	router := newExamPDFGuardRouter(pool, func(c *gin.Context) { c.Set("r2", stub) })
@@ -119,6 +124,7 @@ func TestAPIExamPDFDisabledR2Rejected(t *testing.T) {
 func TestAPIExamPDFNilR2KeyDoesNotPanic(t *testing.T) {
 	pool := database.NewPackageTestPool(t, "api")
 	examID, token := createRequestApprovalFixture(t, pool, true, true, false)
+	insertApprovalRow(t, pool, examID, "DEVICE:pdf-guard")
 
 	router := newExamPDFGuardRouter(pool, func(c *gin.Context) { c.Set("r2", nil) })
 
@@ -140,6 +146,7 @@ func TestAPIExamPDFNilR2KeyDoesNotPanic(t *testing.T) {
 func TestAPIExamPDFEnabledSignedURLRedirect(t *testing.T) {
 	pool := database.NewPackageTestPool(t, "api")
 	examID, token := createRequestApprovalFixture(t, pool, true, true, false)
+	insertApprovalRow(t, pool, examID, "DEVICE:pdf-guard")
 
 	stub := &stubR2{enabled: true}
 	router := newExamPDFGuardRouter(pool, func(c *gin.Context) { c.Set("r2", stub) })
@@ -163,6 +170,7 @@ func TestAPIExamPDFEnabledSignedURLRedirect(t *testing.T) {
 func TestAPIExamPDFSignedURLFailureHasCode(t *testing.T) {
 	pool := database.NewPackageTestPool(t, "api")
 	examID, token := createRequestApprovalFixture(t, pool, true, true, false)
+	insertApprovalRow(t, pool, examID, "DEVICE:pdf-guard")
 
 	stub := &stubR2{enabled: true, signFailWith: fmt.Errorf("presign boom")}
 	router := newExamPDFGuardRouter(pool, func(c *gin.Context) { c.Set("r2", stub) })

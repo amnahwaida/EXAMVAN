@@ -439,6 +439,20 @@ func (w *Worker) flushBatch(ctx context.Context, results []SubmissionResult) {
 	for i := range succeeded {
 		w.storeResult(ctx, succeeded[i].job.JobID, true, succeeded[i].score,
 			fmt.Sprintf("submission %d created", succeeded[i].submissionID))
+
+		// Revoke the device's approval ONLY now that its submission is durable
+		// — "sesi berikutnya butuh persetujuan lagi". The handler deliberately
+		// no longer revokes at enqueue time: if this batch had failed (and the
+		// job were re-enqueued for retry), a student whose answers were not yet
+		// saved would otherwise lose the re-entry entitlement AND their
+		// client-side copy (the app clears its saved answers on submit
+		// success) — a permanent, silent answer loss. Best-effort: a leak here
+		// only weakens "re-approval for a second attempt", never data.
+		if _, err := w.pool.Exec(ctx,
+			`DELETE FROM exam_approvals WHERE exam_id = $1 AND mac_address = $2`,
+			succeeded[i].job.ExamID, succeeded[i].job.MACAddress); err != nil {
+			log.Printf("queue batch: revoke approval for job %s: %v", succeeded[i].job.JobID, err)
+		}
 	}
 	for _, r := range failed {
 		w.retryOrFail(r, fmt.Sprintf("submission error: %v", r.Error))
@@ -449,8 +463,21 @@ func (w *Worker) flushBatch(ctx context.Context, results []SubmissionResult) {
 		len(results), elapsed, len(succeeded), len(failed))
 }
 
-// upsertSubmissionRow updates the student's un-submitted placeholder row (if any)
-// or inserts a new submission, returning the row id.
+// upsertSubmissionRow updates the student's latest row for this device (the
+// un-submitted placeholder row if there is one, or — crucially — the already-
+// submitted row when this job is a RETRY of a submission whose first attempt
+// was persisted but whose response never reached the client) or inserts a new
+// submission, returning the row id.
+//
+// Idempotency contract: the match is "latest row for (exam, device,
+// exam_number)" REGARDLESS of whether answers are present. Previously the
+// match only targeted the open (answers_json IS NULL) placeholder, so a retry
+// of an already-persisted submit found no placeholder and INSERTed a second
+// row — the same student appeared twice in the admin monitoring table with
+// duplicate scores. Retrying now overwrites the same row (the retried answers
+// win), and a genuinely new attempt is still a fresh row because re-approval
+// creates a new placeholder via EnsureFreshSubmissionOnApproval, which becomes
+// the "latest row" the next submit targets.
 func upsertSubmissionRow(ctx context.Context, q pgx.Tx, job *SubmissionJob, score *float64) (int, error) {
 	answersJSON, _ := json.Marshal(job.Answers)
 	identityJSON, _ := json.Marshal(job.IdentityData)
@@ -471,7 +498,7 @@ func upsertSubmissionRow(ctx context.Context, q pgx.Tx, job *SubmissionJob, scor
 		SET answers_json = $1, score = $2, start_time = COALESCE(start_time, NULLIF($3, '')), student_name = $4, exam_number = $5, student_class = $6, identity_data = $7
 		WHERE id = (
 			SELECT id FROM submissions
-			WHERE exam_id = $8 AND mac_address = $9 AND (answers_json IS NULL OR answers_json = '')
+			WHERE exam_id = $8 AND mac_address = $9
 			  AND ($10 = '' OR exam_number = $10)
 			ORDER BY created_at DESC LIMIT 1
 		)
