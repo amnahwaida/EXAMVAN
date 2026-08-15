@@ -828,6 +828,15 @@ func EditExam() gin.HandlerFunc {
 		oldFilePath := "" // set when a replacement PDF is uploaded (cleanup target)
 		filename := ""    // set when a replacement PDF is uploaded (audit detail)
 
+		// Quota state computed during the PDF pre-checks below and consumed by
+		// the atomic storage-delta gate after the R2 upload (handler scope so
+		// both blocks share it).
+		var poolMaxPDF, poolMaxStorage int64
+		var poolInstansi string
+		poolActive := false
+		perAccountStorageApplies := false
+		accountMaxStorage := int64(0)
+
 		// Beda-beda: "tidak ada file" (rename-only) vs "multipart gagal
 		// dibaca" (mis. body melebihi LimitBodySize). Sebelumnya error parse
 		// dianggap "tidak ada file", sehingga ganti PDF yang gagal diam-diam
@@ -868,8 +877,13 @@ func EditExam() gin.HandlerFunc {
 			// R2, so a rejected replacement never uploads an object in the
 			// first place. Storage is a DELTA check: the old PDF's bytes leave
 			// the pool when the row is updated, so only the growth counts.
+			//
+			// These pre-checks are friendly early rejections; the same storage
+			// deltas are re-checked ATOMICALLY (locks + UPDATE in one
+			// transaction) after the R2 upload below — the hard gate that
+			// cannot be raced past by concurrent replacements.
 			if !isSuperAdmin(c) {
-				_, poolMaxPDF, _, poolMaxStorage, poolInstansi, poolActive := schoolPoolQuota(ctx, pool, exam.CreatedBy)
+				_, poolMaxPDF, _, poolMaxStorage, poolInstansi, poolActive = schoolPoolQuota(ctx, pool, exam.CreatedBy)
 				if poolActive && poolMaxPDF > 0 && int64(len(fileData)) > poolMaxPDF {
 					limitMB := roundTo(float64(poolMaxPDF)/(1024*1024), 2)
 					errorResponse(c, http.StatusForbidden,
@@ -903,12 +917,14 @@ func EditExam() gin.HandlerFunc {
 							fmt.Sprintf("Ukuran file melebihi batas akun Anda (%.2fMB). Silakan hubungi Super Admin.", limitMB))
 						return
 					}
-					if owner.MaxStorageSize > 0 {
+					perAccountStorageApplies = owner.MaxStorageSize > 0
+					accountMaxStorage = owner.MaxStorageSize
+					if perAccountStorageApplies {
 						var used int64
 						err := pool.QueryRow(ctx,
 							`SELECT COALESCE(SUM(size_bytes), 0) FROM exams WHERE created_by = $1`, exam.CreatedBy).Scan(&used)
-						if err == nil && used-int64(exam.SizeBytes)+int64(len(fileData)) > owner.MaxStorageSize {
-							limitMB := roundTo(float64(owner.MaxStorageSize)/(1024*1024), 1)
+						if err == nil && used-int64(exam.SizeBytes)+int64(len(fileData)) > accountMaxStorage {
+							limitMB := roundTo(float64(accountMaxStorage)/(1024*1024), 1)
 							errorResponse(c, http.StatusForbidden,
 								fmt.Sprintf("Batas kapasitas storage tercapai. Batas akun Anda adalah %.1f MB.", limitMB))
 							return
@@ -950,17 +966,114 @@ func EditExam() gin.HandlerFunc {
 			exam.Name = name
 		}
 
-		if err := models.UpdateExam(ctx, pool, examID, &exam); err != nil {
-			log.Printf("edit exam error: %v", err)
-			// PDF pengganti sudah ter-upload ke R2 tapi tidak ada baris yang
-			// mereferensikannya: hapus object orphan agar edit yang gagal tidak
-			// membocorkan storage (meniru cleanupR2Orphan di jalur UploadExam
-			// untuk kegagalan pasca-upload).
-			if filename != "" {
+		// Atomic storage-delta gate + update: when a CUMULATIVE storage limit
+		// applies (the school pool and/or the owner's own column), the delta
+		// re-check and the UPDATE run in ONE transaction with the affected rows
+		// locked FOR UPDATE — the same pattern as UploadExam's atomic quota
+		// gate. Without it, two concurrent PDF replacements in the same school
+		// (or by the same owner) could BOTH pass the pre-check against the
+		// stale snapshot and overshoot the storage cap by the combined delta.
+		// The new PDF is already in R2 at this point, so every rejection path
+		// cleans up that orphan; a commit error is ambiguous (the row may have
+		// committed) and leaves it, mirroring UploadExam.
+		cumulativeLimitApplies := header != nil && fileErr == nil && !isSuperAdmin(c) &&
+			((poolActive && poolMaxStorage > 0) || perAccountStorageApplies)
+		if cumulativeLimitApplies {
+			tx, err := pool.Begin(ctx)
+			if err != nil {
+				log.Printf("edit exam begin tx error: %v", err)
 				cleanupR2Orphan(c, ctx, filename)
+				errorResponse(c, http.StatusInternalServerError, "Gagal memperbarui ujian")
+				return
 			}
-			errorResponse(c, http.StatusInternalServerError, "Gagal memperbarui ujian")
-			return
+			defer func() { _ = tx.Rollback(ctx) }() // no-op after a successful Commit
+
+			if poolActive && poolMaxStorage > 0 {
+				// Lock the whole instansi's account rows: concurrent
+				// replacements by ANY account in the school serialize on the
+				// shared pool (same lock granularity as UploadExam/StartExam/
+				// BulkToggle, taken first so the ordering never deadlocks).
+				if _, err := tx.Exec(ctx, `SELECT id FROM admin_users WHERE instansi = $1 FOR UPDATE`, poolInstansi); err != nil {
+					log.Printf("edit exam lock school pool error: %v", err)
+					cleanupR2Orphan(c, ctx, filename)
+					errorResponse(c, http.StatusInternalServerError, "Gagal memperbarui ujian")
+					return
+				}
+			}
+
+			// Lock the exam row and re-read its CURRENT size: with two
+			// concurrent replacements of the SAME exam, the delta must be
+			// computed against the already-committed size, not the stale
+			// snapshot read before the R2 upload.
+			var currentSize int64
+			if err := tx.QueryRow(ctx, `SELECT size_bytes FROM exams WHERE id = $1 FOR UPDATE`, examID).Scan(&currentSize); err != nil {
+				log.Printf("edit exam lock row error: %v", err)
+				cleanupR2Orphan(c, ctx, filename)
+				errorResponse(c, http.StatusInternalServerError, "Gagal memperbarui ujian")
+				return
+			}
+
+			if perAccountStorageApplies {
+				if err := tx.QueryRow(ctx,
+					`SELECT max_storage_size FROM admin_users WHERE id = $1 FOR UPDATE`, exam.CreatedBy).Scan(&accountMaxStorage); err != nil {
+					log.Printf("edit exam lock owner error: %v", err)
+					cleanupR2Orphan(c, ctx, filename)
+					errorResponse(c, http.StatusInternalServerError, "Gagal memperbarui ujian")
+					return
+				}
+				if accountMaxStorage > 0 {
+					var used int64
+					if err := tx.QueryRow(ctx,
+						`SELECT COALESCE(SUM(size_bytes), 0) FROM exams WHERE created_by = $1`, exam.CreatedBy).Scan(&used); err == nil &&
+						used-currentSize+exam.SizeBytes > accountMaxStorage {
+						_ = tx.Rollback(ctx)
+						cleanupR2Orphan(c, ctx, filename)
+						limitMB := roundTo(float64(accountMaxStorage)/(1024*1024), 1)
+						errorResponse(c, http.StatusForbidden,
+							fmt.Sprintf("Batas kapasitas storage tercapai. Batas akun Anda adalah %.1f MB.", limitMB))
+						return
+					}
+				}
+			}
+
+			if poolActive && poolMaxStorage > 0 {
+				var poolUsed int64
+				if err := tx.QueryRow(ctx,
+					`SELECT COALESCE(SUM(e.size_bytes), 0) FROM exams e JOIN admin_users u ON e.created_by = u.id WHERE u.instansi = $1`,
+					poolInstansi).Scan(&poolUsed); err == nil && poolUsed-currentSize+exam.SizeBytes > poolMaxStorage {
+					_ = tx.Rollback(ctx)
+					cleanupR2Orphan(c, ctx, filename)
+					limitMB := roundTo(float64(poolMaxStorage)/(1024*1024), 1)
+					errorResponse(c, http.StatusForbidden,
+						fmt.Sprintf("Batas kapasitas storage sekolah tercapai. Batas paket sekolah adalah %.1f MB.", limitMB))
+					return
+				}
+			}
+
+			if err := models.UpdateExamTx(ctx, tx, examID, &exam); err != nil {
+				log.Printf("edit exam tx error: %v", err)
+				cleanupR2Orphan(c, ctx, filename)
+				errorResponse(c, http.StatusInternalServerError, "Gagal memperbarui ujian")
+				return
+			}
+			if err := tx.Commit(ctx); err != nil {
+				log.Printf("edit exam commit error: %v", err)
+				errorResponse(c, http.StatusInternalServerError, "Gagal memperbarui ujian")
+				return
+			}
+		} else {
+			if err := models.UpdateExam(ctx, pool, examID, &exam); err != nil {
+				log.Printf("edit exam error: %v", err)
+				// PDF pengganti sudah ter-upload ke R2 tapi tidak ada baris yang
+				// mereferensikannya: hapus object orphan agar edit yang gagal tidak
+				// membocorkan storage (meniru cleanupR2Orphan di jalur UploadExam
+				// untuk kegagalan pasca-upload).
+				if filename != "" {
+					cleanupR2Orphan(c, ctx, filename)
+				}
+				errorResponse(c, http.StatusInternalServerError, "Gagal memperbarui ujian")
+				return
+			}
 		}
 
 		// The update committed — the exam now points at the new file. Only now

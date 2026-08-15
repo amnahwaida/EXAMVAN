@@ -19,6 +19,7 @@ type stubR2 struct {
 	deletes        []string
 	failWith       error
 	deleteFailWith error // fails Delete only, leaving Upload working (orphan-cleanup path)
+	uploadDelay    time.Duration
 }
 
 var _ r2client.Client = (*stubR2)(nil)
@@ -34,11 +35,25 @@ func (s *stubR2) Upload(ctx context.Context, key string, reader io.Reader) error
 }
 
 func (s *stubR2) UploadWithContentType(ctx context.Context, key string, reader io.Reader, contentType string) error {
+	if s.uploadDelay > 0 {
+		select {
+		case <-time.After(s.uploadDelay):
+		case <-ctx.Done():
+			return ctx.Err()
+		}
+	}
 	s.uploads = append(s.uploads, key)
 	return s.failWith
 }
 
 func (s *stubR2) UploadBytes(ctx context.Context, key string, data []byte) error {
+	if s.uploadDelay > 0 {
+		select {
+		case <-time.After(s.uploadDelay):
+		case <-ctx.Done():
+			return ctx.Err()
+		}
+	}
 	s.uploads = append(s.uploads, key)
 	return s.failWith
 }

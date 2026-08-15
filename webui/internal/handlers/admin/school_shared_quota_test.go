@@ -10,6 +10,7 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/gin-contrib/sessions"
 	"github.com/gin-contrib/sessions/cookie"
@@ -1014,6 +1015,225 @@ func TestSchoolPoolConcurrentBulkToggleRace(t *testing.T) {
 	// The DB agrees: exactly one exam in the school is running.
 	if n, err := models.CountRunningExamsByInstansi(ctx, pool, "SMK Pool Bulk", 0); err != nil || n != 1 {
 		t.Fatalf("running exams after bulk race: got %d err=%v, want 1", n, err)
+	}
+}
+
+// TestSchoolPoolConcurrentEditStorageRace fires 4 simultaneous PDF replacements
+// of DIFFERENT exams in a 400-byte school storage pool. Each replacement grows
+// its exam by 200 bytes and each request individually passes the pre-check
+// (200 used - 50 old + 250 new = 400 ≤ 400), but all four committing would end
+// the school at 1000 bytes. The atomic storage-delta gate (instansi rows
+// FOR UPDATE + re-check + UPDATE in one tx, mirroring UploadExam) serializes
+// the replacements so EXACTLY one wins and the school never exceeds the pool.
+func TestSchoolPoolConcurrentEditStorageRace(t *testing.T) {
+	pool := setupVoucherITDB(t)
+	ctx := context.Background()
+
+	op := createSchoolQuotaUser(t, pool, "op-pool-editrace", "SMK Pool EditRace", []string{models.RoleGuru, models.RoleOperator}, 10)
+	plantSchoolRedemption(t, pool, op, 10, 1024*1024, 10, 400)
+
+	subIDs := make([]int, 4)
+	for i := range subIDs {
+		subIDs[i] = createSchoolQuotaUser(t, pool, fmt.Sprintf("sub-pool-editrace-%d", i), "SMK Pool EditRace", []string{models.RoleGuru}, 10)
+	}
+
+	// One shared router + stub so the R2 upload delay applies to every runner:
+	// the delay widens the pre-check→commit window so ALL four pre-checks read
+	// the stale 200-byte snapshot before any replacement commits — without it
+	// the race window is too small for the mutation to fail reliably.
+	r, stub := newSchoolQuotaTestRouter(pool)
+	stub.uploadDelay = 150 * time.Millisecond
+	srv := httptest.NewServer(r)
+	t.Cleanup(srv.Close)
+
+	// Each sub-account uploads a 50-byte exam (pool at 200/400), then we stage
+	// its 50 → 250 byte replacement (delta +200; each alone fits the pre-check
+	// 200-50+250 = 400 ≤ 400, all four together would blow the pool to 1000).
+	runners := make([]struct {
+		tc  *quotaTestClient
+		req *http.Request
+	}, 4)
+	for i := 0; i < 4; i++ {
+		jar, err := cookiejar.New(nil)
+		if err != nil {
+			t.Fatalf("cookie jar %d: %v", i, err)
+		}
+		tc := &quotaTestClient{srv: srv, client: &http.Client{Jar: jar}}
+		tc.login(t, subIDs[i])
+		if status, body := tc.upload(t, fmt.Sprintf("editrace-%d", i), schoolTestPDF(50)); status != http.StatusOK {
+			t.Fatalf("editrace upload %d: status=%d body=%s", i, status, body)
+		}
+		var examID int
+		if err := pool.QueryRow(ctx,
+			`SELECT id FROM exams WHERE name = $1`, fmt.Sprintf("editrace-%d", i)).Scan(&examID); err != nil {
+			t.Fatalf("find editrace exam %d: %v", i, err)
+		}
+		body, contentType := editExamMultipart(t, fmt.Sprintf("editrace-%d", i), schoolTestPDF(250), fmt.Sprintf("editrace-%d.pdf", i))
+		req, err := http.NewRequest(http.MethodPost,
+			tc.srv.URL+"/admin/api/exams/"+strconv.Itoa(examID)+"/edit", body)
+		if err != nil {
+			t.Fatalf("new edit request %d: %v", i, err)
+		}
+		req.Header.Set("Content-Type", contentType)
+		runners[i] = struct {
+			tc  *quotaTestClient
+			req *http.Request
+		}{tc: tc, req: req}
+	}
+
+	start := make(chan struct{})
+	results := make(chan int, len(runners))
+	for i := range runners {
+		go func(r *struct {
+			tc  *quotaTestClient
+			req *http.Request
+		}) {
+			<-start
+			resp, err := r.tc.client.Do(r.req)
+			if err != nil {
+				results <- -1
+				return
+			}
+			resp.Body.Close()
+			results <- resp.StatusCode
+		}(&runners[i])
+	}
+	close(start)
+
+	ok, rejected, other := 0, 0, 0
+	for range runners {
+		switch code := <-results; code {
+		case http.StatusOK:
+			ok++
+		case http.StatusForbidden:
+			rejected++
+		default:
+			other++
+		}
+	}
+	if other > 0 {
+		t.Fatalf("concurrent edits: %d unexpected responses", other)
+	}
+	if ok != 1 || rejected != 3 {
+		t.Fatalf("concurrent edits: want exactly 1 success + 3 rejects, got %d + %d", ok, rejected)
+	}
+
+	// The DB agrees: the school's total storage never exceeds the 400-byte pool
+	// (one 250-byte replacement + three 50-byte originals = exactly 400).
+	var poolUsed int64
+	if err := pool.QueryRow(ctx,
+		`SELECT COALESCE(SUM(e.size_bytes), 0) FROM exams e JOIN admin_users u ON e.created_by = u.id WHERE u.instansi = $1`,
+		"SMK Pool EditRace").Scan(&poolUsed); err != nil {
+		t.Fatalf("sum school storage after edit race: %v", err)
+	}
+	if poolUsed != 400 {
+		t.Fatalf("school storage after edit race: got %d, want 400 (pool cap)", poolUsed)
+	}
+}
+
+// TestSchoolPoolConcurrentUploadRace fires 2 simultaneous uploads competing
+// for the LAST free slot of a 2-exam school pool (the operator pre-planted the
+// first exam). The atomic pool gate (instansi rows FOR UPDATE + count + INSERT
+// in one tx) serializes them so EXACTLY one fills the slot and the other is
+// rejected with the school-pool message; without it both count the same free
+// slot and the school ends up with 3 exams in a 2-exam package.
+func TestSchoolPoolConcurrentUploadRace(t *testing.T) {
+	pool := setupVoucherITDB(t)
+	ctx := context.Background()
+
+	op := createSchoolQuotaUser(t, pool, "op-pool-uploadrace", "SMK Pool UploadRace", []string{models.RoleGuru, models.RoleOperator}, 10)
+	plantSchoolRedemption(t, pool, op, 2, 50*1024*1024, 10, 500*1024*1024)
+
+	// Shared router + stub: the R2 upload delay widens the pre-commit window so
+	// both requests reach the quota count with the same pre-commit snapshot
+	// when the atomic gate is removed (the count check runs AFTER the R2
+	// upload, so the delay makes the race deterministic instead of timing luck).
+	r, stub := newSchoolQuotaTestRouter(pool)
+	stub.uploadDelay = 150 * time.Millisecond
+	srv := httptest.NewServer(r)
+	t.Cleanup(srv.Close)
+
+	mkClient := func(userID int) *quotaTestClient {
+		t.Helper()
+		jar, err := cookiejar.New(nil)
+		if err != nil {
+			t.Fatalf("cookie jar: %v", err)
+		}
+		tc := &quotaTestClient{srv: srv, client: &http.Client{Jar: jar}}
+		tc.login(t, userID)
+		return tc
+	}
+
+	// The operator plants the first exam (pool at 1/2). The operator's own
+	// upload bypasses the per-account column (pool active) but spends the pool.
+	if status, body := mkClient(op).upload(t, "uploadrace-0", schoolTestPDF(64)); status != http.StatusOK {
+		t.Fatalf("operator upload: status=%d body=%s", status, body)
+	}
+
+	// Two sub-accounts race for the last slot. Their own max_exams (10) never
+	// binds below the pool, so the 2-exam school pool is the only gate.
+	subIDs := []int{
+		createSchoolQuotaUser(t, pool, "sub-pool-uploadrace-0", "SMK Pool UploadRace", []string{models.RoleGuru}, 10),
+		createSchoolQuotaUser(t, pool, "sub-pool-uploadrace-1", "SMK Pool UploadRace", []string{models.RoleGuru}, 10),
+	}
+	runners := make([]struct {
+		tc  *quotaTestClient
+		req *http.Request
+	}, 2)
+	for i := range subIDs {
+		tc := mkClient(subIDs[i])
+		body, contentType := editExamMultipart(t, fmt.Sprintf("uploadrace-%d", i+1), schoolTestPDF(64), fmt.Sprintf("uploadrace-%d.pdf", i+1))
+		req, err := http.NewRequest(http.MethodPost, tc.srv.URL+"/admin/api/upload", body)
+		if err != nil {
+			t.Fatalf("new upload request %d: %v", i, err)
+		}
+		req.Header.Set("Content-Type", contentType)
+		runners[i] = struct {
+			tc  *quotaTestClient
+			req *http.Request
+		}{tc: tc, req: req}
+	}
+
+	start := make(chan struct{})
+	results := make(chan int, len(runners))
+	for i := range runners {
+		go func(r *struct {
+			tc  *quotaTestClient
+			req *http.Request
+		}) {
+			<-start
+			resp, err := r.tc.client.Do(r.req)
+			if err != nil {
+				results <- -1
+				return
+			}
+			resp.Body.Close()
+			results <- resp.StatusCode
+		}(&runners[i])
+	}
+	close(start)
+
+	ok, rejected, other := 0, 0, 0
+	for range runners {
+		switch code := <-results; code {
+		case http.StatusOK:
+			ok++
+		case http.StatusForbidden:
+			rejected++
+		default:
+			other++
+		}
+	}
+	if other > 0 {
+		t.Fatalf("concurrent uploads: %d unexpected responses", other)
+	}
+	if ok != 1 || rejected != 1 {
+		t.Fatalf("concurrent uploads: want exactly 1 success + 1 reject, got %d + %d", ok, rejected)
+	}
+
+	// The DB agrees: the school ends at exactly the 2-exam pool cap.
+	if n, err := models.CountExamsByInstansi(ctx, pool, "SMK Pool UploadRace"); err != nil || n != 2 {
+		t.Fatalf("school exams after upload race: got %d err=%v, want 2", n, err)
 	}
 }
 

@@ -521,10 +521,23 @@ func RunningExamCountsAfterActivation(ctx context.Context, q rowsQuerier, ids []
 // Only non-zero/non-nil fields passed via the struct are written.
 // A nil pointer in Exam for optional fields means "leave as-is".
 func UpdateExam(ctx context.Context, pool *pgxpool.Pool, id int, e *Exam) error {
-	sql := `UPDATE exams SET
+	return updateExam(ctx, pool, id, e)
+}
+
+// UpdateExamTx applies the same exam name/file update as UpdateExam inside an
+// already-open transaction. Used by EditExam's atomic storage-delta gate, where
+// the quota re-check and the UPDATE must share one transaction with the
+// FOR UPDATE locks so two concurrent PDF replacements can never both pass a
+// stale delta pre-check and overshoot the storage cap.
+func UpdateExamTx(ctx context.Context, tx pgx.Tx, id int, e *Exam) error {
+	return updateExam(ctx, tx, id, e)
+}
+
+// updateExam is the shared UPDATE core (see UpdateExam/UpdateExamTx).
+func updateExam(ctx context.Context, q execQuerier, id int, e *Exam) error {
+	_, err := q.Exec(ctx, `UPDATE exams SET
 name = $1, file_path = $2, size_bytes = $3
-WHERE id = $4`
-	_, err := pool.Exec(ctx, sql, e.Name, e.FilePath, e.SizeBytes, id)
+WHERE id = $4`, e.Name, e.FilePath, e.SizeBytes, id)
 	if err != nil {
 		return fmt.Errorf("update exam: %w", err)
 	}
