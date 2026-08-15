@@ -1402,8 +1402,19 @@ function loadUsersList(page) {
                             ? '<button class="btn-sm" onclick="verifyUser(' + user.id + ', \'' + escapeHtml(jsEscape(user.username)) + '\')" title="Verifikasi manual" style="font-size:11px;padding:2px 8px;background:rgba(99,102,241,0.15);border:1px solid rgba(99,102,241,0.3);color:#a5b4fc;"><svg class="icon-svg" style="width:14px;height:14px;"><use href="#hi-check"/></svg></button> '
                             : '';
 
+                        // "Nonaktifkan Paket" — SuperAdmin only, and only when the
+                        // account actually runs an active package (server-flagged
+                        // has_active_package, so the button never renders when
+                        // there is nothing to deactivate). Deactivation burns the
+                        // active package: the account falls back to the best
+                        // remaining claimed voucher or reverts to the free trial.
+                        var deactivateBtn = (window.__adminRole === 'superadmin' && user.has_active_package)
+                            ? '<button class="btn-sm" onclick="deactivatePackage(' + user.id + ', \'' + escapeHtml(jsEscape(user.username)) + '\')" title="Nonaktifkan paket aktif akun ini — akun kembali ke paket free atau voucher lain yang masih tersisa" style="font-size:11px;padding:2px 8px;background:rgba(248,113,113,0.12);border:1px solid rgba(248,113,113,0.3);color:#fca5a5;"><svg class="icon-svg" style="width:14px;height:14px;"><use href="#hi-exclamation"/></svg></button> '
+                            : '';
+
                         actionsHtml = '<div style="display:flex;gap:4px;flex-wrap:wrap;justify-content:flex-end;">'
                             + verifyBtn
+                            + deactivateBtn
                             + '<button class="btn-sm" onclick="openEditUserModal(' + user.id + ')" title="Atur limit & reset password" style="font-size:11px;padding:2px 8px;background:rgba(99,102,241,0.1);border:1px solid rgba(99,102,241,0.2);color:#a5b4fc;"><svg class="icon-svg" style="width:14px;height:14px;"><use href="#hi-edit"/></svg></button> '
                             + '<button class="btn-sm btn-delete" onclick="deleteUser(' + user.id + ', \'' + escapeHtml(jsEscape(user.username)) + '\')" style="font-size:11px;padding:2px 8px;"><svg class="icon-svg" style="width:14px;height:14px;"><use href="#hi-trash"/></svg></button>'
                             + '</div>';
@@ -1589,6 +1600,29 @@ function deleteUser(userId, username) {
                 }
             })
             .catch(() => showToast('Gagal menghapus user', 'error'));
+    });
+}
+
+function deactivatePackage(userId, username) {
+    showConfirm(
+        `Nonaktifkan paket akun "${username}"?`,
+        'Paket aktif akan dinonaktifkan permanen. Akun kembali ke paket free (masa aktif gratis baru) atau ke voucher lain yang masih tersisa di akun. Tindakan ini tidak dapat dibatalkan dari halaman billing akun.',
+        'Ya, Nonaktifkan', 'Batal'
+    ).then(ok => {
+        if (!ok) return;
+        apiFetch(`/admin/api/users/${userId}/deactivate-package`, {
+            method: 'POST'
+        })
+            .then(r => r.json())
+            .then(res => {
+                if (res.success) {
+                    showToast(res.message, 'success');
+                    loadUsersList(getCurrentUsersPage());
+                } else {
+                    showToast(res.message || 'Gagal menonaktifkan paket', 'error');
+                }
+            })
+            .catch(() => showToast('Gagal menonaktifkan paket', 'error'));
     });
 }
 

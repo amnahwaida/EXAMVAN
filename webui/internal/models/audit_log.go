@@ -81,6 +81,14 @@ const (
 	// Written after the activation committed; detail snapshots the package
 	// and the new account expiry. exam_id is NULL.
 	ActionVoucherActivated = "voucher_activated"
+	// An admin manually deactivated the account's ACTIVE package
+	// (DeactivateUserPackage — the "Nonaktifkan Paket" action on the Kelola
+	// User page, SuperAdmin only). The active redemption is burned and the
+	// account either falls back to the best remaining claimed package or
+	// reverts to the free trial. Written after the deactivation committed;
+	// detail snapshots the deactivated package and the resulting state.
+	// exam_id is NULL.
+	ActionVoucherDeactivated = "voucher_deactivated"
 )
 
 // CreateAdminAuditLog appends one audit row. username/detail are snapshotted
@@ -196,7 +204,7 @@ func ListVoucherAuditLogs(ctx context.Context, pool *pgxpool.Pool, opts ListVouc
 	}
 	offset := (opts.Page - 1) * opts.PerPage
 
-	whereClause := ` WHERE action IN ('voucher_redeemed', 'voucher_activated')`
+	whereClause := ` WHERE action IN ('voucher_redeemed', 'voucher_activated', 'voucher_deactivated')`
 	var args []interface{}
 	argIdx := 1
 

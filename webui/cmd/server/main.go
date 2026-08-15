@@ -642,6 +642,11 @@ func registerRoutes(r *gin.Engine, cfg *config.Config, pool *pgxpool.Pool) {
 					adminUsers.POST("/users/:user_id/toggle-status", middleware.LimitBodySize(256*1024), admin.ToggleUserStatus())
 					adminUsers.POST("/users/:user_id/verify", middleware.LimitBodySize(256*1024), admin.VerifyUser())
 					adminUsers.POST("/users/:user_id/delete", middleware.LimitBodySize(256*1024), admin.DeleteUser())
+					// Deactivating an account's package changes its subscription
+					// (strictly more powerful than assigning one, which is already
+					// SuperAdmin-only) — inline SuperAdminRequired on top of the
+					// management group.
+					adminUsers.POST("/users/:user_id/deactivate-package", middleware.SuperAdminRequired(), middleware.LimitBodySize(256*1024), admin.DeactivateUserPackage())
 				}
 
 				// SaaS settings (super admin only).

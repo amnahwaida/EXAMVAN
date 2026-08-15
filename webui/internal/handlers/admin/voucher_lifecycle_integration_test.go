@@ -206,6 +206,12 @@ func newVoucherTestRouter(pool *pgxpool.Pool) *gin.Engine {
 	api.POST("/users/:user_id/edit", middleware.AdminManagementRequired(), EditUser())
 	api.POST("/users/:user_id/verify", middleware.AdminManagementRequired(), VerifyUser())
 	api.POST("/users/:user_id/delete", middleware.AdminManagementRequired(), DeleteUser())
+	// POST /users/:user_id/deactivate-package mirrors production (AuthRequired
+	// → FeatureLockRequired → AdminManagementRequired + inline
+	// SuperAdminRequired): manual package deactivation is strictly more
+	// powerful than package assignment (which is already SuperAdmin-only), so
+	// operators must be rejected with 403.
+	api.POST("/users/:user_id/deactivate-package", middleware.SuperAdminRequired(), DeactivateUserPackage())
 	// Voucher management (SuperAdmin only — mirrors production wiring): the
 	// creation endpoints under test (custom duration bounds, custom quota
 	// caps).

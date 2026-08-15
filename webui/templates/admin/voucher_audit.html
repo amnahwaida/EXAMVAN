@@ -24,6 +24,11 @@
     border: 1px solid rgba(168, 85, 247, 0.35);
     color: #c084fc;
   }
+  .audit-action-badge.deactivated {
+    background: rgba(248, 113, 113, 0.12);
+    border: 1px solid rgba(248, 113, 113, 0.35);
+    color: #f87171;
+  }
  </style>
 </head>
 <body class="dashboard-page">
@@ -40,7 +45,7 @@
     <svg class="icon-svg" style="width:26px;height:26px;color:#34d399;"><use href="#hi-clock"/></svg>
     Riwayat Klaim &amp; Aktivasi Voucher
    </h2>
-   <p style="color:var(--color-text-secondary);font-size:0.875rem;margin:2px 0 0 0;">Jejak append-only siapa yang mengklaim atau mengaktifkan paket voucher, kapan, dan detailnya.</p>
+   <p style="color:var(--color-text-secondary);font-size:0.875rem;margin:2px 0 0 0;">Jejak append-only siapa yang mengklaim, mengaktifkan, atau menonaktifkan paket voucher, kapan, dan detailnya.</p>
   </div>
   <div style="display:flex;gap:10px;">
    <button onclick="loadAuditLogs(1)" class="btn-secondary" style="display:inline-flex;align-items:center;gap:8px;padding:10px 18px;border-radius:10px;font-weight:600;font-size:0.875rem;cursor:pointer;background:rgba(255,255,255,0.06);border:1px solid var(--color-glass-border);color:#fff;">
@@ -123,11 +128,14 @@ function renderAuditLogsTable(logs) {
     for (const l of logs) {
         const isRedeemed = l.action === 'voucher_redeemed';
         const isActivated = l.action === 'voucher_activated';
+        const isDeactivated = l.action === 'voucher_deactivated';
         const badge = isRedeemed
             ? '<span class="audit-action-badge redeemed">Diklaim</span>'
             : isActivated
                 ? '<span class="audit-action-badge activated">Diaktifkan</span>'
-                : '<span class="audit-action-badge activated">' + escapeHtml(l.action || 'Aksi') + '</span>';
+                : isDeactivated
+                    ? '<span class="audit-action-badge deactivated">Dinonaktifkan</span>'
+                    : '<span class="audit-action-badge activated">' + escapeHtml(l.action || 'Aksi') + '</span>';
         html += `
         <tr style="border-bottom:1px solid rgba(255,255,255,0.04);">
             <td data-label="Waktu" style="padding:14px 20px;font-size:12px;color:var(--color-text-secondary);white-space:nowrap;">${localizeUTC(l.created_at)}</td>

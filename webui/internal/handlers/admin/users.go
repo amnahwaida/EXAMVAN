@@ -401,6 +401,10 @@ func ListUsers() gin.HandlerFunc {
 			// OperatorCreated exposes the origin flag to the Kelola Users page so
 			// it can render the "Dibuat oleh Operator" badge on sub-accounts.
 			OperatorCreated bool `json:"operator_created"`
+			// HasActivePackage tells the Kelola User page whether the account
+			// currently runs an active package — the "Nonaktifkan Paket" action
+			// only renders when there is something to deactivate.
+			HasActivePackage bool `json:"has_active_package"`
 		}
 
 		users := make([]userItem, 0, len(result.Users))
@@ -431,6 +435,7 @@ func ListUsers() gin.HandlerFunc {
 				CreatedAt:          formatISOUTC(u.CreatedAt),
 				Package:            u.Package,
 				OperatorCreated:    u.OperatorCreated,
+				HasActivePackage:   u.HasActivePackage,
 			})
 		}
 
@@ -1773,6 +1778,207 @@ func VerifyUser() gin.HandlerFunc {
 		}
 
 		successMessage(c, fmt.Sprintf("User %s berhasil diaktifkan secara manual", targetUser.Username))
+	}
+}
+
+// DeactivateUserPackage manually ends the TARGET account's ACTIVE package
+// (SuperAdmin only — mirroring the package-assignment policy: operators may
+// never change the subscription package of the accounts below them, and
+// removing a package is strictly more powerful than assigning one). The
+// active redemption is BURNED (remaining_seconds = 0, is_active = false) so
+// the user cannot re-activate it from the billing page — same terminal state
+// the package-expiry job produces.
+//
+// After the burn, in ONE transaction:
+//   - if the account holds another claimed-but-paused voucher with remaining
+//     lifetime, that one is activated and its snapshot applied (quota, role,
+//     expiry) — the account keeps access via the fallback, exactly like the
+//     expiry job's fallback path;
+//   - otherwise the account REVERTS TO THE FREE TRIAL: per-account quotas are
+//     reset to the free defaults, the package label to "free", package-granted
+//     roles are clawed back (role = base ∪ ∅, so an operator from a school
+//     package loses the role), and expires_at = now + default_active_days —
+//     the same state a fresh self-registered account starts in.
+//
+// The role clawback runs through syncInstansiWithOperatorRole, so deactivating
+// the last school package of an instansi cascade-suspends its sub-accounts and
+// tombstones its unstarted exams, exactly as a natural package loss does (an
+// account that is itself suspended is rejected up front: a suspended account
+// must not silently receive a fresh trial).
+func DeactivateUserPackage() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		targetID, err := strconv.Atoi(c.Param("user_id"))
+		if err != nil {
+			errorResponse(c, http.StatusBadRequest, "ID user tidak valid")
+			return
+		}
+
+		pool := getPool(c)
+		actorID := getCurrentUserID(c)
+		ctx := c.Request.Context()
+
+		// Hoist the trial length BEFORE the transaction (anti-deadlock
+		// pattern: no DB read inside the tx after the user row lock).
+		trialDays := models.GetSaasSettingInt(ctx, pool, models.SettingDefaultActiveDays, 14)
+		if trialDays < 1 {
+			trialDays = 14
+		}
+
+		tx, err := pool.Begin(ctx)
+		if err != nil {
+			log.Printf("deactivate package: begin tx: %v", err)
+			errorResponse(c, http.StatusInternalServerError, "Gagal menonaktifkan paket")
+			return
+		}
+		defer func() { _ = tx.Rollback(ctx) }() // no-op after a successful Commit
+
+		// Lock the target user row so a concurrent redeem/activate/expiry job
+		// cannot interleave with the deactivation.
+		var target models.AdminUser
+		var targetStatus string
+		err = tx.QueryRow(ctx, `SELECT id, username, status, role,
+			COALESCE(package_role, ''), COALESCE(base_role, '')
+			FROM admin_users WHERE id = $1 FOR UPDATE`, targetID).
+			Scan(&target.ID, &target.Username, &targetStatus, &target.Role,
+				&target.PackageRole, &target.BaseRole)
+		if err != nil {
+			if errors.Is(err, pgx.ErrNoRows) {
+				errorResponse(c, http.StatusNotFound, "User tidak ditemukan")
+				return
+			}
+			log.Printf("deactivate package: lock target user %d: %v", targetID, err)
+			errorResponse(c, http.StatusInternalServerError, "Gagal menonaktifkan paket")
+			return
+		}
+
+		if targetStatus == models.UserStatusSuspended {
+			// A suspended account's clock is frozen by design; granting it a
+			// fresh free trial would silently re-open a disabled account.
+			errorResponse(c, http.StatusBadRequest,
+				"Akun dalam status dinonaktifkan (suspended). Aktifkan akun terlebih dahulu sebelum menonaktifkan paketnya.")
+			return
+		}
+
+		// Lock the active redemption (the row being burned).
+		var active models.VoucherRedemption
+		var activePkg string
+		err = tx.QueryRow(ctx, `SELECT id, COALESCE(package, '')
+			FROM voucher_redemptions WHERE user_id = $1 AND is_active FOR UPDATE`, targetID).
+			Scan(&active.ID, &activePkg)
+		if err != nil {
+			if errors.Is(err, pgx.ErrNoRows) {
+				errorResponse(c, http.StatusBadRequest, "Akun ini tidak memiliki paket aktif untuk dinonaktifkan.")
+				return
+		}
+			log.Printf("deactivate package: lock active redemption (user %d): %v", targetID, err)
+			errorResponse(c, http.StatusInternalServerError, "Gagal menonaktifkan paket")
+			return
+		}
+
+		// 1. Burn the active package — terminal state, cannot be re-activated
+		//    from the billing page (it has no remaining lifetime left).
+		if _, err := tx.Exec(ctx, `
+			UPDATE voucher_redemptions
+			SET remaining_seconds = 0, activated_at = NULL, is_active = false
+			WHERE id = $1`, active.ID); err != nil {
+			log.Printf("deactivate package: burn active redemption (user %d): %v", targetID, err)
+			errorResponse(c, http.StatusInternalServerError, "Gagal menonaktifkan paket")
+			return
+		}
+
+		prevRole := target.Role
+		now := time.Now().UTC()
+
+		// 2. Try the best paused claimed voucher as fallback (same selection
+		//    rule as the package-expiry job).
+		var fb models.VoucherRedemption
+		err = tx.QueryRow(ctx, `
+			SELECT id, voucher_id, user_id, redeemed_at, remaining_seconds, activated_at, is_active,
+			       COALESCE(package, ''), COALESCE(max_exams, 0),
+			       COALESCE(max_pdf_size, 0), COALESCE(max_concurrent_exams, 0),
+			       COALESCE(max_storage_size, 0), COALESCE(role, '')
+			FROM voucher_redemptions
+			WHERE user_id = $1 AND NOT is_active AND remaining_seconds > 0
+			ORDER BY remaining_seconds DESC, redeemed_at ASC, id ASC
+			LIMIT 1
+			FOR UPDATE`, targetID).Scan(
+			&fb.ID, &fb.VoucherID, &fb.UserID, &fb.RedeemedAt, &fb.RemainingSeconds, &fb.ActivatedAt, &fb.IsActive,
+			&fb.Package, &fb.MaxExams, &fb.MaxPDFSize, &fb.MaxConcurrentExams,
+			&fb.MaxStorageSize, &fb.Role,
+		)
+		if err != nil && !errors.Is(err, pgx.ErrNoRows) {
+			log.Printf("deactivate package: find fallback (user %d): %v", targetID, err)
+			errorResponse(c, http.StatusInternalServerError, "Gagal menonaktifkan paket")
+			return
+		}
+
+		var newPkg string
+		var newExpiryStr string
+		if err == nil {
+			// Fallback found: activate it and apply its snapshot (quota, merged
+			// role, expiry, and the school cascade).
+			fb.ActivatedAt = &now
+			if _, err := tx.Exec(ctx, `
+				UPDATE voucher_redemptions SET is_active = true, activated_at = $2
+				WHERE id = $1`, fb.ID, now); err != nil {
+				log.Printf("deactivate package: activate fallback (user %d): %v", targetID, err)
+				errorResponse(c, http.StatusInternalServerError, "Gagal menonaktifkan paket")
+				return
+			}
+			if err := applyRedemptionEntitlement(ctx, tx, targetID, &fb); err != nil {
+				log.Printf("deactivate package: apply fallback entitlement (user %d): %v", targetID, err)
+				errorResponse(c, http.StatusInternalServerError, "Gagal menonaktifkan paket")
+				return
+			}
+			newPkg = fb.Package
+			newExpiryStr = now.Add(time.Duration(fb.RemainingSeconds) * time.Second).Format("2006-01-02 15:04:05")
+		} else {
+			// No fallback: revert to the free trial. The role clawback goes
+			// through nextRolesState with an empty package grant (role = base
+			// ∪ ∅; a SuperAdmin's role is never touched), then
+			// syncInstansiWithOperatorRole handles the school cascade when the
+			// deactivated package was the instansi's only operator grant.
+			trialExpiry := now.AddDate(0, 0, trialDays)
+			roleJSON, nextPkgRole, nextBaseRole := nextRolesState(prevRole, target.PackageRole, target.BaseRole, "")
+			if _, err := tx.Exec(ctx, `UPDATE admin_users SET
+				package = 'free', max_exams = $2, max_pdf_size = $3,
+				max_concurrent_exams = $4, max_storage_size = $5,
+				expires_at = $6, role = $7, package_role = $8, base_role = $9
+				WHERE id = $1`,
+				targetID, subAccountFreeMaxExams, subAccountFreeMaxPDFSize,
+				subAccountFreeMaxConcurrentExams, subAccountFreeMaxStorageSize,
+				trialExpiry, roleJSON, nextPkgRole, nextBaseRole); err != nil {
+				log.Printf("deactivate package: revert to free trial (user %d): %v", targetID, err)
+				errorResponse(c, http.StatusInternalServerError, "Gagal menonaktifkan paket")
+				return
+			}
+			if err := syncInstansiWithOperatorRole(ctx, tx, targetID, prevRole, roleJSON, trialExpiry); err != nil {
+				log.Printf("deactivate package: sync instansi (user %d): %v", targetID, err)
+				errorResponse(c, http.StatusInternalServerError, "Gagal menonaktifkan paket")
+				return
+			}
+			newPkg = "free"
+			newExpiryStr = trialExpiry.Format("2006-01-02 15:04:05")
+		}
+
+		if err := tx.Commit(ctx); err != nil {
+			log.Printf("deactivate package: commit (user %d): %v", targetID, err)
+			errorResponse(c, http.StatusInternalServerError, "Gagal menonaktifkan paket")
+			return
+		}
+
+		// Append-only audit trail (written after commit, best-effort): who
+		// deactivated WHICH package, and what the account fell back to.
+		if aErr := models.CreateAdminAuditLog(ctx, pool, actorID, getCurrentUsername(c),
+			models.ActionVoucherDeactivated, 0,
+			fmt.Sprintf("Paket %s dinonaktifkan oleh admin — akun %s kembali ke %s (masa aktif sampai %s)",
+				strings.ToUpper(activePkg), target.Username, strings.ToUpper(newPkg), newExpiryStr)); aErr != nil {
+			log.Printf("audit voucher deactivated: %v", aErr)
+		}
+
+		successMessage(c, fmt.Sprintf(
+			"Paket %s pada akun %s dinonaktifkan. Akun kini menggunakan %s (masa aktif sampai %s).",
+			strings.ToUpper(activePkg), target.Username, strings.ToUpper(newPkg), newExpiryStr))
 	}
 }
 

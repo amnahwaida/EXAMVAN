@@ -482,10 +482,15 @@ type ListUsersOpts struct {
 	ExcludeOperator   bool
 }
 
-// UserWithExamCount extends AdminUser with the count of exams they created.
+// UserWithExamCount extends AdminUser with the count of exams they created
+// and whether the account currently holds an ACTIVE package (a live
+// voucher_redemptions row). HasActivePackage backs the Kelola User page's
+// "Nonaktifkan Paket" action — the button only renders when there is
+// something to deactivate.
 type UserWithExamCount struct {
 	AdminUser
-	ExamCount int `json:"exam_count"`
+	ExamCount        int  `json:"exam_count"`
+	HasActivePackage bool `json:"has_active_package"`
 }
 
 // ListUsersResult holds the paginated user list and total count.
@@ -571,7 +576,8 @@ func ListUsers(ctx context.Context, pool *pgxpool.Pool, opts ListUsersOpts) (Lis
 	u.max_storage_size, u.whatsapp_number, u.email, u.expires_at, u.otp_code, u.otp_expiry,
 	u.base_role, u.package_role, u.operator_created, u.created_by,
 	COALESCE(u.package, 'free'),
-	COALESCE(COUNT(e.id), 0) as exam_count
+	COALESCE(COUNT(e.id), 0) as exam_count,
+	EXISTS (SELECT 1 FROM voucher_redemptions vr WHERE vr.user_id = u.id AND vr.is_active) as has_active_package
 	FROM admin_users u
 	LEFT JOIN exams e ON e.created_by = u.id` + whereClause +
 		` GROUP BY u.id ORDER BY 
@@ -595,6 +601,7 @@ func ListUsers(ctx context.Context, pool *pgxpool.Pool, opts ListUsersOpts) (Lis
 	for rows.Next() {
 		var u AdminUser
 		var examCount int
+		var hasActivePackage bool
 		err := rows.Scan(
 			&u.ID, &u.Username, &u.Name, &u.PasswordHash, &u.CreatedAt, &u.Status,
 			&u.Instansi, &u.Role, &u.MaxExams, &u.MaxPDFSize, &u.MaxConcurrentExams,
@@ -602,11 +609,12 @@ func ListUsers(ctx context.Context, pool *pgxpool.Pool, opts ListUsersOpts) (Lis
 			&u.BaseRole, &u.PackageRole, &u.OperatorCreated, &u.CreatedBy,
 			&u.Package,
 			&examCount,
+			&hasActivePackage,
 		)
 		if err != nil {
 			return ListUsersResult{}, fmt.Errorf("scan user row: %w", err)
 		}
-		users = append(users, UserWithExamCount{AdminUser: u, ExamCount: examCount})
+		users = append(users, UserWithExamCount{AdminUser: u, ExamCount: examCount, HasActivePackage: hasActivePackage})
 	}
 	rows.Close()
 	if err := rows.Err(); err != nil {
