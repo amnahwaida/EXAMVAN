@@ -120,16 +120,16 @@ func schoolAlreadyHasOperator(ctx context.Context, q quotaQuerier, instansi stri
 // given user belongs to (see schoolPoolQuotaForInstansi). ok=false when the
 // user has no instansi, sits in the shared "personal" bucket, or no operator
 // in the instansi holds an active redemption.
-func schoolPoolQuota(ctx context.Context, pool *pgxpool.Pool, userID int) (maxExams, maxPDF, maxConcurrent, maxStorage int64, instansi string, ok bool) {
+func schoolPoolQuota(ctx context.Context, q quotaQuerier, userID int) (maxExams, maxPDF, maxConcurrent, maxStorage int64, instansi string, ok bool) {
 	var inst string
-	if err := pool.QueryRow(ctx, `SELECT COALESCE(instansi, '') FROM admin_users WHERE id = $1`, userID).Scan(&inst); err != nil {
+	if err := q.QueryRow(ctx, `SELECT COALESCE(instansi, '') FROM admin_users WHERE id = $1`, userID).Scan(&inst); err != nil {
 		return 0, 0, 0, 0, "", false
 	}
 	inst = strings.TrimSpace(inst)
 	if inst == "" {
 		return 0, 0, 0, 0, "", false
 	}
-	maxExams, maxPDF, maxConcurrent, maxStorage, ok = schoolPoolQuotaForInstansi(ctx, pool, inst)
+	maxExams, maxPDF, maxConcurrent, maxStorage, ok = schoolPoolQuotaForInstansi(ctx, q, inst)
 	return maxExams, maxPDF, maxConcurrent, maxStorage, inst, ok
 }
 
@@ -151,13 +151,13 @@ func schoolPoolQuota(ctx context.Context, pool *pgxpool.Pool, userID int) (maxEx
 // states and stays never-surprising (the larger package wins). max_concurrent
 // follows the same 0 → max_exams → 1 defaulting as
 // applyRedemptionEntitlement so the two can never disagree.
-func schoolPoolQuotaForInstansi(ctx context.Context, pool *pgxpool.Pool, instansi string) (maxExams, maxPDF, maxConcurrent, maxStorage int64, ok bool) {
+func schoolPoolQuotaForInstansi(ctx context.Context, q quotaQuerier, instansi string) (maxExams, maxPDF, maxConcurrent, maxStorage int64, ok bool) {
 	instansi = strings.TrimSpace(instansi)
 	if instansi == "" || strings.EqualFold(instansi, "personal") {
 		return 0, 0, 0, 0, false
 	}
 	var n int
-	err := pool.QueryRow(ctx, `
+	err := q.QueryRow(ctx, `
 		SELECT COUNT(*),
 		       COALESCE(MAX(vr.max_exams), 0),
 		       COALESCE(MAX(vr.max_pdf_size), 0),

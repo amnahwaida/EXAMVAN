@@ -14,6 +14,7 @@ import (
 	"github.com/examvan/webui/internal/models"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
+	"github.com/jackc/pgx/v5/pgxpool"
 )
 
 // ---------------------------------------------------------------------------
@@ -1721,6 +1722,191 @@ func TestConcurrentSchoolClaimSerialized(t *testing.T) {
 	}
 }
 
+// TestSuperAdminConcurrentOperatorMoveSerialized locks in the
+// one-operator-per-school serialization on the SuperAdmin EDIT move-operator
+// path: two concurrent edits moving two operators (each from its own school)
+// into the SAME empty destination school serialize on the school-claim
+// advisory lock (the check and the UPDATE share one transaction), so exactly
+// ONE lands as the destination's operator and the other gets the policy 400
+// while staying in its own school. Before the fix the check ran outside any
+// lock, so both concurrent moves read the pre-move snapshot and the
+// destination ended up with two operators.
+func TestSuperAdminConcurrentOperatorMoveSerialized(t *testing.T) {
+	pool := setupVoucherITDB(t)
+	ctx := context.Background()
+
+	ops := make([]models.AdminUser, 2)
+	for i := range ops {
+		op, err := models.CreateUser(ctx, pool, &models.AdminUser{
+			Username: fmt.Sprintf("op-move-race-%d", i), Name: fmt.Sprintf("Op Move Race %d", i),
+			PasswordHash: fmt.Sprintf("pass-op-move-race-%d", i), Status: models.UserStatusActive,
+			Instansi: fmt.Sprintf("SMK Origin %d", i),
+			Role:     models.SerializeRoles([]string{models.RoleOperator}),
+			MaxExams: 3, MaxPDFSize: 1048576, MaxConcurrentExams: 2,
+			MaxStorageSize: 50 * 1024 * 1024, Package: "free",
+		})
+		if err != nil {
+			t.Fatalf("create operator %d: %v", i, err)
+		}
+		ops[i] = *op
+	}
+
+	root, err := models.CreateUser(ctx, pool, &models.AdminUser{
+		Username: "root-move-race", Name: "Root Move Race",
+		PasswordHash: "pass-root-move-race", Status: models.UserStatusActive,
+		Role: models.SerializeRoles([]string{models.RoleSuperAdmin}),
+	})
+	if err != nil {
+		t.Fatalf("create superadmin: %v", err)
+	}
+	rt := newVoucherTestClient(t, pool)
+	rt.login(t, root.ID)
+
+	const dest = "SMK Move Dest"
+	statuses := make([]int, len(ops))
+	messages := make([]string, len(ops))
+	var wg sync.WaitGroup
+	for i, op := range ops {
+		wg.Add(1)
+		go func(i int, op models.AdminUser) {
+			defer wg.Done()
+			status, resp := postJSON(t, rt.client, rt.srv, "/api/users/"+strconv.Itoa(op.ID)+"/edit",
+				map[string]interface{}{"instansi": dest})
+			statuses[i] = status
+			messages[i] = resp.Message
+		}(i, op)
+	}
+	wg.Wait()
+
+	successes, rejections, other := 0, 0, 0
+	for i := range statuses {
+		switch {
+		case statuses[i] == http.StatusOK:
+			successes++
+		case statuses[i] == http.StatusBadRequest && strings.Contains(messages[i], "satu operator"):
+			rejections++
+		default:
+			other++
+		}
+	}
+	if other > 0 {
+		t.Fatalf("concurrent operator moves: %d unexpected responses (statuses=%v messages=%v)", other, statuses, messages)
+	}
+	if successes != 1 {
+		t.Errorf("concurrent operator moves: %d succeeded, want exactly 1 — the check raced and two operators landed", successes)
+	}
+	if rejections != 1 {
+		t.Errorf("concurrent operator moves: %d rejected by the policy, want exactly 1", rejections)
+	}
+
+	// The destination school ends up with exactly one operator.
+	var opsInDest int
+	if err := pool.QueryRow(ctx,
+		`SELECT COUNT(*) FROM admin_users
+		 WHERE LOWER(instansi) = LOWER($1) AND role ILIKE '%"operator"%' AND NOT operator_created`,
+		dest).Scan(&opsInDest); err != nil {
+		t.Fatalf("count destination operators: %v", err)
+	}
+	if opsInDest != 1 {
+		t.Errorf("destination %q has %d operators, want exactly 1", dest, opsInDest)
+	}
+}
+
+// TestConcurrentActivateDifferentPackagesSerialized locks in the
+// one-operator-per-school serialization on the ACTIVATE path for DIFFERENT
+// packages: several gurus of the SAME school, each holding a claimed-but-
+// inactive school-package redemption, activating those redemptions
+// concurrently serialize on the school-claim advisory lock (the redemption
+// row lock alone only serializes same-row operations — every guru has its OWN
+// row), so exactly ONE becomes the school's operator and every other
+// activation gets the policy 400. Before the fix the guard ran inside each tx
+// against the pre-commit snapshot, so the concurrent activations all passed
+// and the school ended up with multiple operators. Four actors make the
+// pre-fix race reliably observable (with two, natural timing can serialize
+// them and mask the bug).
+func TestConcurrentActivateDifferentPackagesSerialized(t *testing.T) {
+	pool := setupVoucherITDB(t)
+	ctx := context.Background()
+
+	createSchoolVoucherCode(t, pool, "IT-ACT-1")
+	createSchoolVoucherCode(t, pool, "IT-ACT-2")
+	createSchoolVoucherCode(t, pool, "IT-ACT-3")
+	createSchoolVoucherCode(t, pool, "IT-ACT-4")
+
+	const school = "SMK Race Activate"
+	const actors = 4
+	gurus := make([]models.AdminUser, actors)
+	redemptionIDs := make([]int, actors)
+	for i := range gurus {
+		g, err := models.CreateUser(ctx, pool, &models.AdminUser{
+			Username: fmt.Sprintf("guru-act-%d", i), Name: fmt.Sprintf("Guru Act %d", i),
+			PasswordHash: fmt.Sprintf("pass-guru-act-%d", i), Status: models.UserStatusActive,
+			Instansi: school, Role: models.SerializeRoles([]string{models.RoleGuru}),
+			MaxExams: 3, MaxPDFSize: 1048576, MaxConcurrentExams: 2,
+			MaxStorageSize: 50 * 1024 * 1024, Package: "free",
+		})
+		if err != nil {
+			t.Fatalf("create guru %d: %v", i, err)
+		}
+		gurus[i] = *g
+		redemptionIDs[i] = plantInactiveSchoolRedemption(t, pool, g.ID, fmt.Sprintf("IT-ACT-%d", i+1))
+	}
+
+	clients := make([]*voucherTestClient, actors)
+	for i := range clients {
+		clients[i] = newVoucherTestClient(t, pool)
+		clients[i].login(t, gurus[i].ID)
+	}
+
+	statuses := make([]int, actors)
+	messages := make([]string, actors)
+	var wg sync.WaitGroup
+	for i := range clients {
+		wg.Add(1)
+		go func(i int) {
+			defer wg.Done()
+			status, resp := postForm(t, clients[i].client, clients[i].srv, "/api/vouchers/activate",
+				url.Values{"redemption_id": {strconv.Itoa(redemptionIDs[i])}})
+			statuses[i] = status
+			messages[i] = resp.Message
+		}(i)
+	}
+	wg.Wait()
+
+	successes, rejections, other := 0, 0, 0
+	for i := range statuses {
+		switch {
+		case statuses[i] == http.StatusOK:
+			successes++
+		case statuses[i] == http.StatusBadRequest && strings.Contains(messages[i], "satu operator"):
+			rejections++
+		default:
+			other++
+		}
+	}
+	if other > 0 {
+		t.Fatalf("concurrent activations: %d unexpected responses (statuses=%v messages=%v)", other, statuses, messages)
+	}
+	if successes != 1 {
+		t.Errorf("concurrent activations: %d succeeded, want exactly 1 — the guard raced and multiple operators landed", successes)
+	}
+	if rejections != actors-1 {
+		t.Errorf("concurrent activations: %d rejected by the policy, want %d", rejections, actors-1)
+	}
+
+	// The school ends up with exactly one operator.
+	var ops int
+	if err := pool.QueryRow(ctx,
+		`SELECT COUNT(*) FROM admin_users
+		 WHERE LOWER(instansi) = LOWER($1) AND role ILIKE '%"operator"%' AND NOT operator_created`,
+		school).Scan(&ops); err != nil {
+		t.Fatalf("count school operators: %v", err)
+	}
+	if ops != 1 {
+		t.Errorf("school %q has %d operators, want exactly 1", school, ops)
+	}
+}
+
 // TestSuperAdminConcurrentOperatorCreateSerialized locks in the
 // one-operator-per-school serialization on the SuperAdmin CREATE path: two
 // concurrent creates of operator accounts in the SAME empty school serialize
@@ -1882,6 +2068,31 @@ func TestSuperAdminConcurrentOperatorRoleGrantSerialized(t *testing.T) {
 	if ops != 1 {
 		t.Errorf("school %q has %d operators, want exactly 1", school, ops)
 	}
+}
+
+// plantInactiveSchoolRedemption inserts a claimed-but-inactive school-package
+// redemption (operator-role snapshot) on a user, mirroring the state a real
+// redeem-then-pause produces (see claimPausedVoucher in auth_expiry_test.go).
+// The voucher row must already exist under the given code. Returns the new
+// redemption ID (the one the activate endpoint expects).
+func plantInactiveSchoolRedemption(t *testing.T, pool *pgxpool.Pool, userID int, code string) int {
+	t.Helper()
+	ctx := context.Background()
+	var vid int
+	if err := pool.QueryRow(ctx, `SELECT id FROM vouchers WHERE code = $1`, code).Scan(&vid); err != nil {
+		t.Fatalf("plantInactiveSchoolRedemption: find voucher %s: %v", code, err)
+	}
+	var rid int
+	if err := pool.QueryRow(ctx, `
+		INSERT INTO voucher_redemptions
+			(voucher_id, user_id, remaining_seconds, is_active, package,
+			 max_exams, max_pdf_size, max_concurrent_exams, max_storage_size, max_users, role)
+		VALUES ($1, $2, $3, false, 'sekolah-test', 3, 52428800, 3, 524288000, 2, $4)
+		RETURNING id`,
+		vid, userID, 30*86400, models.SerializeRoles([]string{models.RoleOperator})).Scan(&rid); err != nil {
+		t.Fatalf("plantInactiveSchoolRedemption: insert redemption for user %d: %v", userID, err)
+	}
+	return rid
 }
 
 // TestConcurrentRedeemDifferentCodesSerialized locks in the one-operator-per-

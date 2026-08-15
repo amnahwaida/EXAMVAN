@@ -334,6 +334,16 @@ type queryRower interface {
 	QueryRow(ctx context.Context, sql string, args ...any) pgx.Row
 }
 
+// rowsQuerier abstracts the query interface shared by *pgxpool.Pool and pgx.Tx
+// (Query + QueryRow) so the count-after-activation helpers can run over the
+// pool (BulkToggle pre-checks) or inside the quota transaction (BulkToggle's
+// atomic count + update) with the same definition — the two can never disagree
+// on the counting rule.
+type rowsQuerier interface {
+	Query(ctx context.Context, sql string, args ...any) (pgx.Rows, error)
+	QueryRow(ctx context.Context, sql string, args ...any) pgx.Row
+}
+
 // createExam inserts a new exam row using the given queryer (pool or tx) and
 // returns the created Exam with its generated ID.
 func createExam(ctx context.Context, q queryRower, e *Exam) (*Exam, error) {
@@ -436,12 +446,12 @@ func CountRunningExamsByInstansi(ctx context.Context, q queryRower, instansi str
 // exams of EVERY account in the instansi — the operator's included — count).
 // Only exams with exam_started_at already set become "running" on activation.
 // Used to enforce the shared school-pool concurrent quota on bulk activation.
-func RunningExamCountsAfterActivationByInstansi(ctx context.Context, pool *pgxpool.Pool, ids []int) (map[string]int, error) {
+func RunningExamCountsAfterActivationByInstansi(ctx context.Context, q rowsQuerier, ids []int) (map[string]int, error) {
 	out := make(map[string]int)
 	if len(ids) == 0 {
 		return out, nil
 	}
-	rows, err := pool.Query(ctx, `
+	rows, err := q.Query(ctx, `
 		SELECT u.instansi,
 		       (SELECT COUNT(*) FROM exams x
 		         JOIN admin_users xu ON x.created_by = xu.id
@@ -476,12 +486,12 @@ func RunningExamCountsAfterActivationByInstansi(ctx context.Context, pool *pgxpo
 // set become "running" on activation (activating a never-started exam is not
 // enough for students to join it). Used to enforce the concurrent-exam quota
 // on bulk activation.
-func RunningExamCountsAfterActivation(ctx context.Context, pool *pgxpool.Pool, ids []int) (map[int]int, error) {
+func RunningExamCountsAfterActivation(ctx context.Context, q rowsQuerier, ids []int) (map[int]int, error) {
 	out := make(map[int]int)
 	if len(ids) == 0 {
 		return out, nil
 	}
-	rows, err := pool.Query(ctx, `
+	rows, err := q.Query(ctx, `
 		SELECT e.created_by,
 		       (SELECT COUNT(*) FROM exams x
 		         WHERE x.created_by = e.created_by
@@ -852,16 +862,64 @@ func ListActiveExamsByInstansi(ctx context.Context, pool *pgxpool.Pool, code str
 // BulkToggleExamStatus changes the status of multiple exams at once.
 // Bulk activation clears any tombstone markers (policy B).
 func BulkToggleExamStatus(ctx context.Context, pool *pgxpool.Pool, ids []int, status string) error {
+	return bulkToggleExamStatus(ctx, pool, ids, status)
+}
+
+// BulkToggleExamStatusTx applies the same bulk status update as
+// BulkToggleExamStatus inside an already-open transaction. Used by the
+// BulkToggle handler on the concurrent-quota path, where the running-count
+// checks and the UPDATE must share one transaction and the instansi-wide
+// FOR UPDATE lock so two concurrent bulk activations can never both count the
+// same free slot.
+func BulkToggleExamStatusTx(ctx context.Context, tx pgx.Tx, ids []int, status string) error {
+	return bulkToggleExamStatus(ctx, tx, ids, status)
+}
+
+// bulkToggleExamStatus is the shared bulk UPDATE core (see BulkToggleExamStatus).
+func bulkToggleExamStatus(ctx context.Context, q execQuerier, ids []int, status string) error {
 	if len(ids) == 0 {
 		return nil
 	}
-	_, err := pool.Exec(ctx, `UPDATE exams SET status = $1,
+	_, err := q.Exec(ctx, `UPDATE exams SET status = $1,
 		tombstoned_at = CASE WHEN $1 = 'active' THEN NULL ELSE tombstoned_at END
 		WHERE id = ANY($2)`, status, ids)
 	if err != nil {
 		return fmt.Errorf("bulk toggle: %w", err)
 	}
 	return nil
+}
+
+// InstansiOfExamIDs returns the DISTINCT instansi of the given exams'
+// creators. BulkToggle uses it to lock the affected schools' account rows
+// FOR UPDATE (the same granularity as StartExam/ToggleExam), so the atomic
+// bulk-activation count serializes against concurrent single-exam starts and
+// toggles of the same school. Empty instansi (creator deleted) are included so
+// locking them is harmless.
+func InstansiOfExamIDs(ctx context.Context, q rowsQuerier, ids []int) ([]string, error) {
+	if len(ids) == 0 {
+		return nil, nil
+	}
+	rows, err := q.Query(ctx, `
+		SELECT DISTINCT COALESCE(u.instansi, '')
+		FROM exams e
+		JOIN admin_users u ON e.created_by = u.id
+		WHERE e.id = ANY($1)`, ids)
+	if err != nil {
+		return nil, fmt.Errorf("instansi of exam ids: %w", err)
+	}
+	defer rows.Close()
+	var out []string
+	for rows.Next() {
+		var inst string
+		if err := rows.Scan(&inst); err != nil {
+			return nil, fmt.Errorf("scan instansi of exam ids: %w", err)
+		}
+		out = append(out, inst)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iter instansi of exam ids: %w", err)
+	}
+	return out, nil
 }
 
 // UserCanAccessExam reports whether a user may monitor an exam (e.g. join its

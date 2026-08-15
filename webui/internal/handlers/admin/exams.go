@@ -255,7 +255,15 @@ func UploadExam() gin.HandlerFunc {
 				}
 			}
 		}
-		if !isSuper && !isOp {
+		// Per-account limits apply to every non-super account UNLESS the school
+		// pool is the account's quota. Operators skip their own per-account
+		// columns only when a school pool is ACTIVE (the pool is the gate then);
+		// with no pool — the shared "personal" bucket or a legacy school
+		// without an active redemption — an operator's own columns bind (they
+		// carry the redeemed package snapshot, or the free defaults), so an
+		// operator who has not claimed a school yet cannot create unbounded
+		// exams/storage outside the package quota.
+		if !isSuper && (!isOp || !poolActive) {
 			user, err := models.GetUserByID(ctx, pool, userID)
 			if err != nil {
 				errorResponse(c, http.StatusInternalServerError, "Gagal memuat data user")
@@ -599,7 +607,10 @@ func ToggleExam() gin.HandlerFunc {
 					// School-pool sub-accounts: when the pool is active it is the
 					// account's ONLY concurrent quota (schoolPoolCovers), so the
 					// per-account max_concurrent_exams must not gate below it.
-					perUserLimit := !isOperator(c) && !(owner.OperatorCreated && poolActive) && owner.MaxConcurrentExams > 0
+					// Operators skip their own column only while the pool is
+					// ACTIVE; with no pool (personal bucket, legacy school) the
+					// operator's own column binds too.
+					perUserLimit := (!isOperator(c) || !poolActive) && !(owner.OperatorCreated && poolActive) && owner.MaxConcurrentExams > 0
 					poolConcActive := poolActive && poolMaxConcurrent > 0
 
 					if perUserLimit || poolConcActive {
@@ -875,7 +886,14 @@ func EditExam() gin.HandlerFunc {
 					}
 				}
 				owner, err := models.GetUserByID(ctx, pool, exam.CreatedBy)
-				if err == nil && !isOperator(c) && !(owner.OperatorCreated && poolActive) {
+				// The owner's per-account PDF/storage columns bind unless the
+				// school pool is the owner's quota (schoolPoolCovers) or the
+				// caller is an operator whose school pool IS active. With no
+				// active pool — the shared "personal" bucket, a legacy school
+				// without a redemption — the operator's own columns bind too,
+				// closing the fail-open gap where an unclaimed-school operator
+				// could replace PDFs beyond any quota.
+				if err == nil && (!isOperator(c) || !poolActive) && !(owner.OperatorCreated && poolActive) {
 					// School-pool sub-accounts: when the pool is active it is the
 					// account's quota (schoolPoolCovers) — the per-account PDF/
 					// storage columns must not gate below it.
@@ -1384,6 +1402,46 @@ func SaveQuestions() gin.HandlerFunc {
 			// modal, which sends pengawas_ids. Only replace the roster when the
 			// field is actually present.
 			if body.PengawasIDs != nil {
+				// Validate the roster exactly like PostDelegateExam does: each
+				// pengawas must exist, be active, hold the pengawas role, and
+				// belong to the exam creator's instansi. Without this check a
+				// hand-crafted request could assign a user from ANOTHER school
+				// as pengawas, granting that user supervision access (approvals,
+				// submissions) to an exam outside their tenant.
+				var creatorInstansi string
+				if err := pool.QueryRow(ctx,
+					`SELECT COALESCE(u.instansi, '') FROM exams e JOIN admin_users u ON e.created_by = u.id WHERE e.id = $1`,
+					examID).Scan(&creatorInstansi); err != nil {
+					log.Printf("save pengawas: exam creator lookup error: %v", err)
+					errorResponse(c, http.StatusInternalServerError, "Gagal menyimpan konfigurasi soal")
+					return
+				}
+				if creatorInstansi == "" || strings.EqualFold(creatorInstansi, "personal") {
+					errorResponse(c, http.StatusBadRequest, "Pengawas hanya dapat ditugaskan untuk ujian di instansi sekolah")
+					return
+				}
+				for _, pid := range body.PengawasIDs {
+					var ti, tr, ts string
+					err := pool.QueryRow(ctx,
+						`SELECT COALESCE(instansi, ''), role, status FROM admin_users WHERE id = $1`,
+						pid).Scan(&ti, &tr, &ts)
+					if err != nil {
+						errorResponse(c, http.StatusBadRequest, fmt.Sprintf("Pengawas dengan ID %d tidak ditemukan", pid))
+						return
+					}
+					if ti != creatorInstansi {
+						errorResponse(c, http.StatusBadRequest, fmt.Sprintf("Pengawas %d tidak berada dalam instansi yang sama", pid))
+						return
+					}
+					if ts != models.UserStatusActive {
+						errorResponse(c, http.StatusBadRequest, fmt.Sprintf("Pengawas %d tidak aktif", pid))
+						return
+					}
+					if !strings.Contains(tr, "pengawas") {
+						errorResponse(c, http.StatusBadRequest, fmt.Sprintf("User %d tidak memiliki role Pengawas", pid))
+						return
+					}
+				}
 				if err := models.SetPengawasForExam(ctx, pool, examID, body.PengawasIDs); err != nil {
 					log.Printf("save pengawas error: %v", err)
 				}
@@ -1607,12 +1665,15 @@ func StartExam() gin.HandlerFunc {
 			if err == nil {
 				_, _, poolMaxConcurrent, _, poolInstansi, poolActive := schoolPoolQuota(ctx, pool, exam.CreatedBy)
 				// School-pool sub-accounts: when the pool is active it is the
-				// account's ONLY concurrent quota (schoolPoolCovers), so the
-				// per-account max_concurrent_exams must not gate below it.
-				perUserLimit := !isOperator(c) && !(owner.OperatorCreated && poolActive) && owner.MaxConcurrentExams > 0
-				poolConcActive := poolActive && poolMaxConcurrent > 0
+					// account's ONLY concurrent quota (schoolPoolCovers), so the
+					// per-account max_concurrent_exams must not gate below it.
+					// Operators skip their own column only while the pool is
+					// ACTIVE; with no pool (personal bucket, legacy school) the
+					// operator's own column binds too.
+					perUserLimit := (!isOperator(c) || !poolActive) && !(owner.OperatorCreated && poolActive) && owner.MaxConcurrentExams > 0
+					poolConcActive := poolActive && poolMaxConcurrent > 0
 
-				if perUserLimit || poolConcActive {
+					if perUserLimit || poolConcActive {
 					tx, err := pool.Begin(ctx)
 					if err != nil {
 						log.Printf("start begin tx error: %v", err)
@@ -2132,7 +2193,6 @@ func BulkToggle() gin.HandlerFunc {
 		ctx := c.Request.Context()
 		userID := getCurrentUserID(c)
 		isSuper := isSuperAdmin(c)
-		isOp := isOperator(c)
 
 		// For non-super users, filter to only exams they may manage. Operators
 		// previously bypassed this and could toggle any tenant's exams;
@@ -2156,34 +2216,70 @@ func BulkToggle() gin.HandlerFunc {
 		// running once activated, so they count against the owner's quota and —
 		// when the school runs a package — the shared school pool (which
 		// counts EVERY running exam in the instansi, the operator's included).
+		//
+		// ATOMIC for non-super callers: the counts and the status update run in
+		// ONE transaction with the affected instansi's account rows locked
+		// FOR UPDATE — the same count-then-update race StartExam/ToggleExam
+		// already close. Two concurrent bulk activations of started exams in the
+		// same school would otherwise both count the same free slot and
+		// overshoot max_concurrent. The lock granularity matches the single-exam
+		// paths, so bulk activation serializes against concurrent starts/
+		// toggles of the same school too.
 		if body.Status == "active" && !isSuper && len(examIDs) > 0 {
-			if !isOp {
-				counts, err := models.RunningExamCountsAfterActivation(ctx, pool, examIDs)
-				if err == nil {
-					for ownerID, after := range counts {
-						owner, err := models.GetUserByID(ctx, pool, ownerID)
-						// School-pool sub-accounts are gated by the shared pool check
-						// below, never by their own (forced free) concurrent column.
-						if err != nil || owner.MaxConcurrentExams <= 0 || schoolPoolCovers(ctx, pool, owner) {
-							continue
-						}
-						// `after > max` (not >=) matches the single-exam ToggleExam
-						// semantics: reaching the limit is allowed, only exceeding it is
-						// rejected.
-						if after > owner.MaxConcurrentExams {
-							errorResponse(c, http.StatusForbidden,
-								fmt.Sprintf("Batas ujian serentak tercapai. Maksimal %d ujian dapat berjalan bersamaan.", owner.MaxConcurrentExams))
-							return
-						}
+			instansiList, iErr := models.InstansiOfExamIDs(ctx, pool, examIDs)
+			if iErr != nil {
+				log.Printf("bulk toggle instansi lookup error: %v", iErr)
+				errorResponse(c, http.StatusInternalServerError, "Gagal memperbarui status ujian")
+				return
+			}
+			tx, bErr := pool.Begin(ctx)
+			if bErr != nil {
+				log.Printf("bulk toggle begin tx error: %v", bErr)
+				errorResponse(c, http.StatusInternalServerError, "Gagal memperbarui status ujian")
+				return
+			}
+			defer func() { _ = tx.Rollback(ctx) }() // no-op after a successful Commit
+
+			if _, lErr := tx.Exec(ctx,
+				`SELECT id FROM admin_users WHERE instansi = ANY($1) FOR UPDATE`, instansiList); lErr != nil {
+				log.Printf("bulk toggle lock school rows error: %v", lErr)
+				errorResponse(c, http.StatusInternalServerError, "Gagal memperbarui status ujian")
+				return
+			}
+
+			// Per-owner quota: applies to every non-super caller, operators
+			// included — an owner whose school pool is ACTIVE is gated by the
+			// shared pool check below instead of its own column (the column may
+			// sit below the school MAX), so with no pool (personal bucket,
+			// legacy school) the owner's own max_concurrent_exams binds.
+			counts, cErr := models.RunningExamCountsAfterActivation(ctx, tx, examIDs)
+			if cErr == nil {
+				for ownerID, after := range counts {
+					var maxConc int
+					if err := tx.QueryRow(ctx,
+						`SELECT max_concurrent_exams FROM admin_users WHERE id = $1`, ownerID).Scan(&maxConc); err != nil || maxConc <= 0 {
+						continue
+					}
+					if _, _, _, _, _, poolActive := schoolPoolQuota(ctx, tx, ownerID); poolActive {
+						continue
+					}
+					// `after > max` (not >=) matches the single-exam ToggleExam
+					// semantics: reaching the limit is allowed, only exceeding it is
+					// rejected.
+					if after > maxConc {
+						errorResponse(c, http.StatusForbidden,
+							fmt.Sprintf("Batas ujian serentak tercapai. Maksimal %d ujian dapat berjalan bersamaan.", maxConc))
+						return
 					}
 				}
 			}
+
 			// School pool: applies to EVERY non-super user, the operator
 			// included.
-			countsByInst, err := models.RunningExamCountsAfterActivationByInstansi(ctx, pool, examIDs)
-			if err == nil {
+			countsByInst, cErr2 := models.RunningExamCountsAfterActivationByInstansi(ctx, tx, examIDs)
+			if cErr2 == nil {
 				for instansi, after := range countsByInst {
-					_, _, poolMaxConcurrent, _, poolActive := schoolPoolQuotaForInstansi(ctx, pool, instansi)
+					_, _, poolMaxConcurrent, _, poolActive := schoolPoolQuotaForInstansi(ctx, tx, instansi)
 					if !poolActive || poolMaxConcurrent <= 0 {
 						continue
 					}
@@ -2194,8 +2290,24 @@ func BulkToggle() gin.HandlerFunc {
 					}
 				}
 			}
+
+			if err := models.BulkToggleExamStatusTx(ctx, tx, examIDs, body.Status); err != nil {
+				log.Printf("bulk toggle tx error: %v", err)
+				errorResponse(c, http.StatusInternalServerError, "Gagal memperbarui status ujian")
+				return
+			}
+			if err := tx.Commit(ctx); err != nil {
+				log.Printf("bulk toggle commit error: %v", err)
+				errorResponse(c, http.StatusInternalServerError, "Gagal memperbarui status ujian")
+				return
+			}
+
+			successMessage(c, fmt.Sprintf("Status %d ujian berhasil diperbarui ke %s", len(examIDs), body.Status))
+			return
 		}
 
+		// Super admin, or a non-active (inactive) bulk toggle — no concurrent
+		// quota applies.
 		if err := models.BulkToggleExamStatus(ctx, pool, examIDs, body.Status); err != nil {
 			log.Printf("bulk toggle error: %v", err)
 			errorResponse(c, http.StatusInternalServerError, "Gagal memperbarui status ujian")

@@ -71,6 +71,7 @@ func newSchoolQuotaTestRouter(pool *pgxpool.Pool) (*gin.Engine, *stubR2) {
 	api.POST("/exams/:exam_id/toggle", ToggleExam())
 	api.POST("/exams/:exam_id/edit", EditExam())
 	api.POST("/exams/bulk-toggle", BulkToggle())
+	api.POST("/exams/:exam_id/questions", SaveQuestions())
 	return r, stub
 }
 
@@ -849,5 +850,226 @@ func TestSchoolPoolConcurrentStartRace(t *testing.T) {
 	// The DB agrees: exactly one exam in the school is running.
 	if n, err := models.CountRunningExamsByInstansi(ctx, pool, "SMK Pool Race", 0); err != nil || n != 1 {
 		t.Fatalf("running exams after race: got %d err=%v, want 1", n, err)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Operator without a school pool (personal bucket) — per-account quota binds
+// ---------------------------------------------------------------------------
+
+// TestOperatorPersonalBucketQuotaBinds locks in the fail-open fix: an operator
+// who redeemed a school package but has NOT yet claimed a school name sits in
+// the shared "personal" bucket, where schoolPoolQuota returns ok=false (no
+// school pool). Before the fix UploadExam/StartExam/ToggleExam bypassed the
+// operator's per-account columns UNCONDITIONALLY on the assumption the school
+// pool would be the gate — so this transient state had NO quota at all:
+// unbounded exam/PDF/storage creation and unbounded concurrent exams. The
+// operator's own columns carry the redeemed package snapshot (or the free
+// defaults), so when no pool applies they must bind exactly like a legacy
+// no-package school.
+func TestOperatorPersonalBucketQuotaBinds(t *testing.T) {
+	pool := setupVoucherITDB(t)
+	ctx := context.Background()
+
+	op, err := models.CreateUser(ctx, pool, &models.AdminUser{
+		Username: "op-personal-quota", Name: "op-personal-quota", PasswordHash: "x",
+		Status: models.UserStatusActive, Instansi: "personal",
+		Role: models.SerializeRoles([]string{models.RoleGuru, models.RoleOperator}),
+		MaxExams: 2, MaxPDFSize: 1024 * 1024, MaxConcurrentExams: 1,
+		MaxStorageSize: 300, Package: "sekolah-test",
+	})
+	if err != nil {
+		t.Fatalf("create personal-bucket operator: %v", err)
+	}
+
+	tc, _ := newQuotaTestClient(t, pool)
+	tc.login(t, op.ID)
+
+	// Two uploads fit the per-account 2-exam cap (storage: 200 + 50 ≤ 300).
+	if status, body := tc.upload(t, "personal-1", schoolTestPDF(200)); status != http.StatusOK {
+		t.Fatalf("personal upload 1: status=%d body=%s", status, body)
+	}
+	if status, body := tc.upload(t, "personal-2", schoolTestPDF(50)); status != http.StatusOK {
+		t.Fatalf("personal upload 2: status=%d body=%s", status, body)
+	}
+
+	// Third upload → the account exam cap binds (was unlimited pre-fix).
+	status, body := tc.upload(t, "personal-3", schoolTestPDF(50))
+	if status != http.StatusForbidden || !strings.Contains(body, "Batas pembuatan ujian tercapai. Batas akun Anda adalah 2 ujian.") {
+		t.Fatalf("personal 3rd upload: status=%d body=%s, want the per-account exam cap", status, body)
+	}
+
+	// Concurrent cap binds too: starting a second exam while one runs → 403.
+	var id1, id2 int
+	if err := pool.QueryRow(ctx, `SELECT id FROM exams WHERE name = 'personal-1'`).Scan(&id1); err != nil {
+		t.Fatalf("find personal-1: %v", err)
+	}
+	if err := pool.QueryRow(ctx, `SELECT id FROM exams WHERE name = 'personal-2'`).Scan(&id2); err != nil {
+		t.Fatalf("find personal-2: %v", err)
+	}
+	if s, r := tc.start(t, id1); s != http.StatusOK {
+		t.Fatalf("start personal-1: status=%d resp=%+v", s, r)
+	}
+	s, r := tc.start(t, id2)
+	if s != http.StatusForbidden || !strings.Contains(r.Message, "Batas ujian serentak tercapai. Maksimal 1 ujian dapat berjalan bersamaan.") {
+		t.Fatalf("start personal-2 while one runs: status=%d resp=%+v, want the per-account concurrent cap", s, r)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Atomic bulk activation (BulkToggle)
+// ---------------------------------------------------------------------------
+
+// TestSchoolPoolConcurrentBulkToggleRace fires 4 simultaneous bulk activations
+// of DIFFERENT started exams in a 1-concurrent-slot school pool. The pool lock
+// (instansi rows FOR UPDATE) serializes them, so exactly ONE activation wins;
+// without the atomic path each request counts the same free slot and the school
+// ends up with 4 running exams in a 1-slot pool.
+func TestSchoolPoolConcurrentBulkToggleRace(t *testing.T) {
+	pool := setupVoucherITDB(t)
+	ctx := context.Background()
+
+	op := createSchoolQuotaUser(t, pool, "op-pool-bulk", "SMK Pool Bulk", []string{models.RoleGuru, models.RoleOperator}, 10)
+	plantSchoolRedemption(t, pool, op, 10, 50*1024*1024, 1, 500*1024*1024)
+
+	subIDs := make([]int, 4)
+	for i := range subIDs {
+		subIDs[i] = createSchoolQuotaUser(t, pool, fmt.Sprintf("sub-pool-bulk-%d", i), "SMK Pool Bulk", []string{models.RoleGuru}, 10)
+	}
+
+	// Each sub-account uploads one exam; we then plant started-but-INACTIVE
+	// state directly (activating such an exam is what makes it running). The
+	// API start path cannot be used here: starting an exam makes it running
+	// immediately, which the 1-slot pool would reject.
+	runners := make([]struct {
+		tc  *quotaTestClient
+		req *http.Request
+	}, 4)
+	for i := 0; i < 4; i++ {
+		tc, _ := newQuotaTestClient(t, pool)
+		tc.login(t, subIDs[i])
+		status, body := tc.upload(t, fmt.Sprintf("bulk-%d", i), schoolTestPDF(64))
+		if status != http.StatusOK {
+			t.Fatalf("bulk upload %d: status=%d body=%s", i, status, body)
+		}
+		var examID int
+		if err := pool.QueryRow(ctx,
+			`SELECT id FROM exams WHERE name = $1`, fmt.Sprintf("bulk-%d", i)).Scan(&examID); err != nil {
+			t.Fatalf("find bulk exam %d: %v", i, err)
+		}
+		if _, err := pool.Exec(ctx,
+			`UPDATE exams SET exam_started_at = now() WHERE id = $1`, examID); err != nil {
+			t.Fatalf("plant started-but-inactive state %d: %v", i, err)
+		}
+		req, err := http.NewRequest(http.MethodPost,
+			tc.srv.URL+"/admin/api/exams/bulk-toggle",
+			strings.NewReader(fmt.Sprintf(`{"ids":[%d],"status":"active"}`, examID)))
+		if err != nil {
+			t.Fatalf("new bulk-toggle request %d: %v", i, err)
+		}
+		req.Header.Set("Content-Type", "application/json")
+		runners[i] = struct {
+			tc  *quotaTestClient
+			req *http.Request
+		}{tc: tc, req: req}
+	}
+
+	start := make(chan struct{})
+	results := make(chan int, len(runners))
+	for i := range runners {
+		go func(r *struct {
+			tc  *quotaTestClient
+			req *http.Request
+		}) {
+			<-start
+			resp, err := r.tc.client.Do(r.req)
+			if err != nil {
+				results <- -1
+				return
+			}
+			resp.Body.Close()
+			results <- resp.StatusCode
+		}(&runners[i])
+	}
+	close(start)
+
+	ok, rejected, other := 0, 0, 0
+	for range runners {
+		switch code := <-results; code {
+		case http.StatusOK:
+			ok++
+		case http.StatusForbidden:
+			rejected++
+		default:
+			other++
+		}
+	}
+	if other > 0 {
+		t.Fatalf("concurrent bulk toggles: %d unexpected responses", other)
+	}
+	if ok != 1 || rejected != 3 {
+		t.Fatalf("concurrent bulk toggles: want exactly 1 success + 3 rejects, got %d + %d", ok, rejected)
+	}
+
+	// The DB agrees: exactly one exam in the school is running.
+	if n, err := models.CountRunningExamsByInstansi(ctx, pool, "SMK Pool Bulk", 0); err != nil || n != 1 {
+		t.Fatalf("running exams after bulk race: got %d err=%v, want 1", n, err)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// SaveQuestions pengawas roster scoping
+// ---------------------------------------------------------------------------
+
+// TestSaveQuestionsPengawasCrossTenantRejected locks in the SaveQuestions
+// pengawas-validation fix: an operator (or SuperAdmin) could previously assign
+// ANY user id as pengawas via SaveQuestions — including a user from ANOTHER
+// school — granting that outsider supervision access (approvals, submissions)
+// to an exam outside their tenant. PostDelegateExam already validated the
+// roster; SaveQuestions now runs the same checks: each pengawas must exist, be
+// active, hold the pengawas role, and belong to the exam creator's instansi.
+func TestSaveQuestionsPengawasCrossTenantRejected(t *testing.T) {
+	pool := setupVoucherITDB(t)
+	ctx := context.Background()
+
+	op := createSchoolQuotaUser(t, pool, "op-pengawas-a", "SMK Pengawas A", []string{models.RoleGuru, models.RoleOperator}, 10)
+	ownPengawas := createSchoolQuotaUser(t, pool, "pengawas-a-1", "SMK Pengawas A", []string{models.RolePengawas}, 10)
+	foreignPengawas := createSchoolQuotaUser(t, pool, "pengawas-b-1", "SMK Pengawas B", []string{models.RolePengawas}, 10)
+
+	tc, _ := newQuotaTestClient(t, pool)
+	tc.login(t, op)
+	if status, body := tc.upload(t, "pengawas-exam", schoolTestPDF(64)); status != http.StatusOK {
+		t.Fatalf("operator upload: status=%d body=%s", status, body)
+	}
+	var examID int
+	if err := pool.QueryRow(ctx, `SELECT id FROM exams WHERE name = 'pengawas-exam'`).Scan(&examID); err != nil {
+		t.Fatalf("find exam: %v", err)
+	}
+
+	save := func(pids []int) (int, apiResp) {
+		t.Helper()
+		return postJSON(t, tc.client, tc.srv, "/admin/api/exams/"+strconv.Itoa(examID)+"/questions",
+			map[string]interface{}{"pengawas_ids": pids})
+	}
+
+	// Cross-tenant pengawas → 400, roster untouched (only the auto-assigned
+	// creator remains — the rejected save never reached SetPengawasForExam).
+	status, resp := save([]int{foreignPengawas})
+	if status != http.StatusBadRequest || !strings.Contains(resp.Message, "tidak berada dalam instansi yang sama") {
+		t.Fatalf("save foreign pengawas: status=%d resp=%+v, want the cross-instansi 400", status, resp)
+	}
+	if ids, _ := models.GetPengawasIDs(ctx, pool, examID); len(ids) != 1 || ids[0] != op {
+		t.Fatalf("foreign pengawas must not be assigned; roster must stay [creator], got %v", ids)
+	}
+
+	// Same-school pengawas → 200 and assigned (SetPengawasForExam replaces
+	// the roster with exactly the submitted ids).
+	status, resp = save([]int{ownPengawas})
+	if status != http.StatusOK || !resp.Success {
+		t.Fatalf("save own-school pengawas: status=%d resp=%+v", status, resp)
+	}
+	ids, err := models.GetPengawasIDs(ctx, pool, examID)
+	if err != nil || len(ids) != 1 || ids[0] != ownPengawas {
+		t.Fatalf("own-school pengawas must be the sole assigned pengawas, got ids=%v err=%v", ids, err)
 	}
 }
