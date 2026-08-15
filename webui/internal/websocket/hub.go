@@ -16,6 +16,7 @@ import (
 	"net/http"
 	"net/url"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
 
@@ -85,6 +86,64 @@ func ParseSocketIO(data []byte) (SocketIOMessage, bool) {
 	return SocketIOMessage{Event: event, Payload: payload}, true
 }
 
+// wsString extracts a string value from a decoded JSON payload map.
+// Returns "" when the key is missing or not a string.
+func wsString(m map[string]interface{}, key string) string {
+	v, ok := m[key]
+	if !ok {
+		return ""
+	}
+	s, ok := v.(string)
+	if !ok {
+		return ""
+	}
+	return s
+}
+
+// sanitizeWSField strips HTML/JS metacharacters and control characters from a
+// client-supplied websocket payload field and caps its length. The sanitized
+// value is persisted to Redis AND broadcast to the monitoring room, where a
+// legacy dashboard may render it into HTML — so it must never carry markup
+// (this is a security boundary, not a display preference).
+func sanitizeWSField(raw string, maxLen int) string {
+	var b strings.Builder
+	for _, r := range raw {
+		switch {
+		case r == '&' || r == '<' || r == '>' || r == '"' || r == '\'' || r == '`' || r == '=':
+			// Strip HTML/JS metacharacters.
+			continue
+		case r < 0x20 || r == 0x7f:
+			// Strip control characters.
+			continue
+		default:
+			b.WriteRune(r)
+		}
+	}
+	s := strings.TrimSpace(b.String())
+	if len(s) > maxLen {
+		s = s[:maxLen]
+	}
+	return s
+}
+
+// sanitizeWSMac restricts a MAC / device identifier to a safe character set
+// and caps its length, mirroring sanitizeMAC in the HTTP layer. Returns ""
+// when nothing usable remains so the caller can drop the event.
+func sanitizeWSMac(raw string) string {
+	var b strings.Builder
+	for _, r := range raw {
+		if (r >= 'A' && r <= 'Z') || (r >= 'a' && r <= 'z') || (r >= '0' && r <= '9') ||
+			r == ':' || r == '.' || r == '-' || r == '_' {
+			b.WriteRune(r)
+		}
+	}
+	s := strings.TrimSpace(b.String())
+	if len(s) > 100 {
+		s = s[:100]
+	}
+	return s
+}
+
 // ---------------------------------------------------------------------------
 // Client
 // ---------------------------------------------------------------------------
@@ -97,6 +156,14 @@ type Client struct {
 	hub    *Hub
 	mu     sync.Mutex
 	closed bool
+	// privileged marks a session-authenticated client (admin / pengawas /
+	// operator). Token-authenticated clients (anyone holding the exam token —
+	// SHARED by the whole class in static mode) are receive-only: they may
+	// ping and receive room broadcasts, but their heartbeat / exam_completed
+	// events are IGNORED. Without this gate any student could inject fake
+	// heartbeats (phantom students in the monitoring dashboard) and delete
+	// any device's heartbeat (making classmates appear offline).
+	privileged bool
 }
 
 // readPump reads messages from the WebSocket connection and dispatches
@@ -308,26 +375,38 @@ func (h *Hub) handleClientMessage(client *Client, msg SocketIOMessage) {
 		payload, _ := MarshalSocketIO(SocketIOMessage{Event: "pong", Payload: time.Now().UTC().Format(time.RFC3339)})
 		client.trySend(payload)
 	case "heartbeat":
+		if !client.privileged {
+			// Token-authed clients may only ping + receive: without this gate
+			// any token holder (the token is shared by the whole class in
+			// static mode) could inject fake heartbeats and phantom students
+			// into the monitoring room. Student presence is reported over HTTP
+			// (AccessLog) anyway.
+			log.Printf("websocket: ignoring heartbeat from non-privileged client in room %s", client.room)
+			return
+		}
 		payloadMap, ok := msg.Payload.(map[string]interface{})
 		if !ok || h.rdb == nil {
 			return
 		}
-		
+
 		// Enforce client.room as the only source of truth for exam ID to prevent cross-exam spoofing
 		examIDStr := client.room
 		examID, err := strconv.Atoi(examIDStr)
 		if err != nil || examID == 0 {
 			return
 		}
-		
-		macAddress, _ := payloadMap["mac_address"].(string)
+
+		// Sanitize every client-supplied field before persisting / broadcasting:
+		// the payload is attacker-controlled and is consumed by the monitoring
+		// dashboards.
+		macAddress := sanitizeWSMac(wsString(payloadMap, "mac_address"))
 		if macAddress == "" {
 			return
 		}
-		studentName, _ := payloadMap["student_name"].(string)
-		examNumber, _ := payloadMap["exam_number"].(string)
-		studentClass, _ := payloadMap["student_class"].(string)
-		deviceInfo, _ := payloadMap["device_info"].(string)
+		studentName := sanitizeWSField(wsString(payloadMap, "student_name"), 200)
+		examNumber := sanitizeWSField(wsString(payloadMap, "exam_number"), 100)
+		studentClass := sanitizeWSField(wsString(payloadMap, "student_class"), 100)
+		deviceInfo := sanitizeWSField(wsString(payloadMap, "device_info"), 200)
 
 		heartbeatData := map[string]interface{}{
 			"student_name":  studentName,
@@ -352,13 +431,28 @@ func (h *Hub) handleClientMessage(client *Client, msg SocketIOMessage) {
 			}
 		}
 
-		// Ensure exam_id is correctly set in the broadcast map
-		payloadMap["exam_id"] = examIDStr
-
-		// Broadcast heartbeat status to room so other clients/dashboards get it
-		h.BroadcastToRoom(client.room, "student_update", payloadMap)
+		// Broadcast a SANITIZED snapshot only — never the raw client payload:
+		// device_info is diagnostic and not needed by the monitoring
+		// dashboards, so it is deliberately NOT broadcast (it would leak to
+		// every token-holder in the room), and every field is trimmed/capped.
+		h.BroadcastToRoom(client.room, "student_update", map[string]interface{}{
+			"student_name":  studentName,
+			"exam_number":   examNumber,
+			"student_class": studentClass,
+			"event":         "heartbeat",
+			"last_seen":     time.Now().UTC().Format(time.RFC3339),
+			"exam_id":       examIDStr,
+			"mac_address":   macAddress,
+		})
 
 	case "exam_completed":
+		if !client.privileged {
+			// Same gate as heartbeat: a token-holder must not be able to delete
+			// another device's heartbeat (making a classmate look offline to
+			// the monitoring dashboard) or broadcast a fake completion.
+			log.Printf("websocket: ignoring exam_completed from non-privileged client in room %s", client.room)
+			return
+		}
 		payloadMap, ok := msg.Payload.(map[string]interface{})
 		if !ok || h.rdb == nil {
 			return
@@ -371,7 +465,7 @@ func (h *Hub) handleClientMessage(client *Client, msg SocketIOMessage) {
 			return
 		}
 
-		macAddress, _ := payloadMap["mac_address"].(string)
+		macAddress := sanitizeWSMac(wsString(payloadMap, "mac_address"))
 		if macAddress == "" {
 			return
 		}
@@ -380,11 +474,13 @@ func (h *Hub) handleClientMessage(client *Client, msg SocketIOMessage) {
 		key := fmt.Sprintf("heartbeat:%d:%s", examID, macAddress)
 		_ = h.rdb.Del(context.Background(), key).Err()
 
-		// Ensure exam_id is correctly set in the broadcast map
-		payloadMap["exam_id"] = examIDStr
-
-		// Broadcast completion update to room
-		h.BroadcastToRoom(client.room, "student_update", payloadMap)
+		// Broadcast a sanitized completion update (device_info and other
+		// attacker-controlled fields are never echoed back to the room).
+		h.BroadcastToRoom(client.room, "student_update", map[string]interface{}{
+			"event":       "exam_completed",
+			"exam_id":     examIDStr,
+			"mac_address": macAddress,
+		})
 	}
 }
 
@@ -394,17 +490,25 @@ func (h *Hub) handleClientMessage(client *Client, msg SocketIOMessage) {
 
 // JoinRoom registers a WebSocket connection into a room and returns a Client
 // ready to receive messages. roomID is typically the exam ID (stringified).
-func (h *Hub) JoinRoom(w http.ResponseWriter, r *http.Request, roomID string) error {
+// JoinRoom registers a WebSocket connection into a room and returns a Client
+// ready to receive messages. roomID is typically the exam ID (stringified).
+// privileged marks a session-authenticated client (admin / pengawas / operator):
+// only those may send mutating events (heartbeat / exam_completed).
+// Token-authenticated clients hold a token SHARED by the whole class in static
+// mode, so they are receive-only (ping + room broadcasts) to keep one student
+// from injecting phantom heartbeats or deleting a classmate's presence.
+func (h *Hub) JoinRoom(w http.ResponseWriter, r *http.Request, roomID string, privileged bool) error {
 	conn, err := upgrader.Upgrade(w, r, nil)
 	if err != nil {
 		return err
 	}
 
 	client := &Client{
-		conn: conn,
-		send: make(chan []byte, 256),
-		room: roomID,
-		hub:  h,
+		conn:       conn,
+		send:       make(chan []byte, 256),
+		room:       roomID,
+		hub:        h,
+		privileged: privileged,
 	}
 
 	h.register <- client

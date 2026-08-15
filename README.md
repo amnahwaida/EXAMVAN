@@ -1087,6 +1087,47 @@ Tes: `TestSafeRedirectPathRejectsBackslash` (file `internal/middleware/auth_test
 
 ---
 
+## Hardening WebSocket Hub — Isolasi Tenant, Gate Privilege, & Sanitasi Payload (15 Agustus 2026)
+
+Review atas `internal/websocket/hub.go` dan route `/ws/:room_id` (`webui/cmd/server/main.go`) untuk mencari race check-then-act dan kebocoran data antar-tenant di jalur real-time monitoring. Ringkasan temuan & lokasi: [webui/BUG_REVIEW.md](webui/BUG_REVIEW.md) (bagian "Hardening WebSocket Hub — 15 Agustus 2026").
+
+**Verdict race: bersih.** Hub memakai **satu goroutine `Run`** yang menyerialkan register/unregister/broadcast — `broadcastToRoom` dan `removeClient` (satu-satunya pemanggil `Client.Close()` yang menutup channel `send`) tidak pernah tumpang-tindih, jadi tidak ada send-on-closed-channel. `trySend` dari readPump memakai mutex (benar). Buffer penuh → klien **di-drop, bukan diblok**. Join sudah di-gate `UserCanAccessExam` (cabang sesi) / token aktif (cabang token), dan room per-exam memakai `client.room` sebagai satu-satunya sumber exam ID (anti-spoof lintas-exam).
+
+Tiga celah di jalur join berbasis token ditemukan dan ditutup, plus test hub dibuat dari nol:
+
+### 1. Pemegang token kini receive-only (event mutasi di-ignore)
+
+**Masalah:** di mode token statis, token **dibagi sekelas** — semua siswa bisa join room dan mengirim event mutasi:
+
+- `heartbeat` palsu → **phantom student** di dashboard monitoring + injeksi siaran `student_update` ke room;
+- `exam_completed` dengan MAC perangkat lain → menghapus `heartbeat:<exam>:<mac>` → siswa tampak **offline** di dashboard (`is_online` dibaca dari Redis heartbeat).
+
+**Solusi:** `Client` mendapat flag `privileged`. Di route `/ws/:room_id`, sesi admin (owner / pengawas / operator se-instansi, lolos `UserCanAccessExam`) → `privileged = true`; pemegang token → `false`. Event `heartbeat` dan `exam_completed` dari klien non-privileged **di-ignore** (log + return) — pemegang token hanya bisa ping dan menerima siaran. Presence siswa tetap dilaporkan via HTTP `AccessLog`.
+
+Tes: `TestPrivilegedGateHeartbeat`, `TestPrivilegedGateExamCompleted`, `TestJoinRoomPrivilegedPlumbing` (end-to-end via socket asli + miniredis: socket token tidak menulis Redis, socket sesi menulis).
+
+### 2. Payload disanitasi sebelum dipersist & disiarkan
+
+**Masalah:** payload heartbeat adalah **attacker-controlled** dan sebelumnya di-echo apa adanya ke Redis **dan** ke room (semua pemegang token menerimanya) — termasuk `device_info` berisi markup yang bisa dirender dashboard legacy tanpa escape.
+
+**Solusi:** helper baru `sanitizeWSField` (strip `<>"'`=`&` + kontrol chars + cap panjang), `sanitizeWSMac` (charset aman `[A-Za-z0-9:._-]`, cap 100 — pola yang sama dengan `sanitizeMAC` HTTP), dan `wsString`. Snapshot tersanitasi yang sama dipersist ke Redis dan disiarkan; **`device_info` sengaja TIDAK disiarkan** (diagnostik, bukan kebutuhan dashboard — bocor ke pemegang token).
+
+Tes: `TestHeartbeatSanitization` — payload `<script>`/`onerror`/MAC bergaya SQL-injection di-strip di Redis & broadcast, `device_info` tidak bocor.
+
+### 3. Route `/ws/:room_id` di-rate-limit
+
+**Masalah:** semua route HTTP siswa di-rate-limit, tapi ws tidak — pemegang token bisa membuka koneksi tanpa batas (resource exhaustion).
+
+**Solusi:** `middleware.RateLimitIP(20, time.Minute)` pada route ws (pola yang sama dengan route siswa lain).
+
+### 4. Test hub (sebelumnya tidak ada sama sekali)
+
+`webui/internal/websocket/hub_test.go` (baru): isolasi room (broadcast room A tidak pernah sampai ke room B — batas tenant), gate privilege heartbeat & exam_completed, sanitasi payload, ping/pong, dan plumbing `JoinRoom` (flag `privileged` sampai ke `Client`). **Verifikasi mutation testing:** gate privilege dilepas sementara → test gagal (Redis tertulis oleh socket token + broadcast bocor); sanitasi dilewati → test gagal (markup + `device_info` bocor). Dipulihkan → lulus 5/5 run; `go build ./...` + `go vet` bersih.
+
+**Catatan:** tidak ada frontend di repo ini yang memakai websocket (hanya "legacy Node frontend" eksternal); monitoring saat ini polling HTTP — perubahan ini tidak memengaruhi UI yang ada.
+
+---
+
 ## License
 
 ISC

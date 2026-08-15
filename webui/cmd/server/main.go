@@ -351,11 +351,20 @@ func main() {
 	registerRoutes(r, cfg, pool)
 
 	// WebSocket endpoint (session-based or token-based auth required).
-	r.GET("/ws/:room_id", func(c *gin.Context) {
+	// RateLimitIP caps connections per client IP: unlike HTTP routes there is
+	// no per-request body to gate, so an unbounded route would let a token
+	// holder open an unlimited number of sockets and exhaust resources.
+	r.GET("/ws/:room_id", middleware.RateLimitIP(20, time.Minute), func(c *gin.Context) {
 		session := sessions.Default(c)
 		roomID := c.Param("room_id")
 
 		authorized := false
+		// privileged marks session-authenticated clients (admin / pengawas /
+		// operator) who may send mutating events (heartbeat / exam_completed).
+		// Token-authenticated clients hold a token SHARED by the whole class in
+		// static mode, so they are receive-only: any student could otherwise
+		// inject phantom heartbeats or delete a classmate's presence.
+		privileged := false
 		if adminID := session.Get(middleware.SessionKeyAdminID); adminID != nil {
 			// Logged-in admin: only authorize for exams they may monitor.
 			// Without this, any authenticated tenant could join any exam room
@@ -373,6 +382,7 @@ func main() {
 				isSuper, _ := session.Get(middleware.SessionKeyIsSuper).(bool)
 				if uid > 0 && models.UserCanAccessExam(c.Request.Context(), pool, uid, isSuper, examID) {
 					authorized = true
+					privileged = true
 				}
 			}
 		} else {
@@ -400,7 +410,7 @@ func main() {
 			return
 		}
 
-		if err := hub.JoinRoom(c.Writer, c.Request, roomID); err != nil {
+		if err := hub.JoinRoom(c.Writer, c.Request, roomID, privileged); err != nil {
 			log.Printf("websocket: join room %s error: %v", roomID, err)
 		}
 	})

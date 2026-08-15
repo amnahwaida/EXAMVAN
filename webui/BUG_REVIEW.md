@@ -317,6 +317,28 @@ Audit alur redeem/aktivasi voucher operator: apakah satu sekolah bisa punya bany
 
 ---
 
+## ✅ HARDENING WEBSOCKET HUB — ISOLASI TENANT, GATE PRIVILEGE, & SANITASI PAYLOAD (15 Agustus 2026)
+
+Review `internal/websocket/hub.go` + route `/ws/:room_id` (`cmd/server/main.go`) untuk race check-then-act dan kebocoran data antar-tenant di jalur real-time. **Verdict race: bersih** — satu goroutine `Run` menyerialkan register/unregister/broadcast (tidak ada send-on-closed-channel), `trySend` mutex-guarded, buffer penuh → drop bukan blok, join di-gate `UserCanAccessExam`/token, room per-exam anti-spoof. Tiga celah di jalur join berbasis token ditutup + test hub dibuat dari nol. Catatan lengkap: [README.md → Hardening WebSocket Hub](../README.md#hardening-websocket-hub--isolasi-tenant-gate-privilege--sanitasi-payload-15-agustus-2026).
+
+### A. Pemegang token kini receive-only (F1a)
+- **Masalah:** token statis dibagi sekelas → semua siswa bisa join room dan mengirim `heartbeat` palsu (phantom student + injeksi siaran `student_update`) atau `exam_completed` dengan MAC perangkat lain (hapus presence → siswa tampak offline di dashboard monitoring, `is_online` dibaca dari Redis heartbeat).
+- **Fix:** flag `privileged` di `Client`; route `/ws/:room_id` menandai sesi admin (lolos `UserCanAccessExam`) sebagai privileged, pemegang token sebagai non-privileged. `heartbeat`/`exam_completed` dari klien non-privileged di-ignore (log + return).
+- **Test:** `TestPrivilegedGateHeartbeat`, `TestPrivilegedGateExamCompleted`, `TestJoinRoomPrivilegedPlumbing` (end-to-end socket asli + miniredis).
+
+### B. Sanitasi payload (F1b)
+- **Masalah:** payload heartbeat di-echo mentah ke Redis + room (semua pemegang token), termasuk `device_info` berisi markup untuk dashboard legacy.
+- **Fix:** helper `sanitizeWSField`/`sanitizeWSMac`/`wsString`; snapshot tersanitasi dipersist & disiarkan; `device_info` sengaja tidak disiarkan.
+- **Test:** `TestHeartbeatSanitization`.
+
+### C. Rate limit route ws (F2)
+- `/ws/:room_id` kini `middleware.RateLimitIP(20, time.Minute)` — pemegang token tidak bisa membuka koneksi tanpa batas.
+
+### D. Test hub (F3)
+- `hub_test.go` (baru): isolasi room (batas tenant), gate privilege heartbeat & exam_completed, sanitasi, ping/pong, plumbing `JoinRoom`. Verifikasi mutation: gate dilepas & sanitasi dilewati → test gagal; dipulihkan → 5/5 stabil; `go build ./...` + `go vet` bersih.
+
+---
+
 ## ✅ Ditolak setelah verifikasi (bukan bug)
 - CSRF `!=` non-constant-time — token adalah milik sesi caller sendiri, tak ada oracle. (`csrf.go:81`)
 - "Race duplikat pending DOKU" — sudah ada unique index parsial `idx_transactions_pending_doku_unique`. (`schema.sql:261`)
