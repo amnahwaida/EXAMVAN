@@ -380,8 +380,11 @@ func TestExamResultReturnsScoreFromDB(t *testing.T) {
 
 	// Poll with the same device + identity (non-expired Redis result not needed —
 	// this exercises the durable fallback). The exam token is required since the
-	// result endpoint became credential-gated (14 Agustus 2026).
-	req, err := http.NewRequest(http.MethodGet, fmt.Sprintf("%s/api/exams/%d/result?mac_address=%s&identity_data=%s",
+	// result endpoint became credential-gated (14 Agustus 2026), and the
+	// per-submission job_id is required for the identity fallback (only the
+	// submitting device received its job_id, so a shared static token cannot
+	// unlock another device's score before publication).
+	req, err := http.NewRequest(http.MethodGet, fmt.Sprintf("%s/api/exams/%d/result?job_id=job123&mac_address=%s&identity_data=%s",
 		srv.URL, examID, "DEVICE:result1", url.QueryEscape(identity)), nil)
 	if err != nil {
 		t.Fatalf("build request: %v", err)

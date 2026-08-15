@@ -472,24 +472,20 @@ func RequestApproval() gin.HandlerFunc {
 		// while the exam is live, UNLESS the per-exam approved-device cap is
 		// already reached — then the request falls back to the pending queue
 		// so a leaked token cannot mint unlimited approved devices.
-		autoApprove := exam.AutoApprove && exam.IsActive() &&
+		//
+		// ATOMIC when auto-approve is live: the approved-count check and the
+		// INSERT run under one per-exam advisory lock (approval-cap:<exam_id>),
+		// so two devices auto-approving CONCURRENTLY can never BOTH count the
+		// same free slot and overshoot the cap — the same count-then-insert
+		// race the quota gates close elsewhere. Without the lock every racing
+		// request reads the pre-commit snapshot and the cap is exceeded by
+		// however many requests raced. Pending-queue INSERTs (flag off) need
+		// no lock: the cap is not in play.
+		autoApproveLive := exam.AutoApprove && exam.IsActive() &&
 			exam.ExamStartedAt != nil && !models.ExamScheduleEnded(&exam, time.Now().UTC())
-		if autoApprove {
-			approvalCap := models.GetSaasSettingInt(ctx, pool,
-				models.SettingMaxApprovalsPerExam, defaultMaxApprovalsPerExam)
-			if approvalCap > 0 {
-				var approvedCount int
-				if err := pool.QueryRow(ctx,
-					`SELECT COUNT(*) FROM exam_approvals WHERE exam_id = $1 AND status = 'approved'`,
-					req.ExamID).Scan(&approvedCount); err == nil && approvedCount >= approvalCap {
-					autoApprove = false
-				}
-			}
-		}
 
-		var status string
-		err := pool.QueryRow(ctx,
-			`INSERT INTO exam_approvals (exam_id, mac_address, student_name, exam_number, student_class, identity_data, status)
+		// Single INSERT core shared by both paths (see the status CASE below).
+		insertApprovalSQL := `INSERT INTO exam_approvals (exam_id, mac_address, student_name, exam_number, student_class, identity_data, status)
 			 VALUES ($1, $2, $3, $4, $5, $6,
 			         CASE WHEN $8::boolean THEN 'approved' ELSE 'pending' END)
 			 ON CONFLICT (exam_id, mac_address) DO UPDATE
@@ -511,13 +507,61 @@ func RequestApproval() gin.HandlerFunc {
 		         ELSE exam_approvals.status
 		     END,
 			     updated_at = CURRENT_TIMESTAMP
-			 RETURNING status`,
-			req.ExamID, macAddress, studentName, examNumber, studentClass, string(idDataStr), req.Reset, autoApprove).Scan(&status)
+			 RETURNING status`
 
-		if err != nil {
-			log.Printf("request approval error: %v", err)
-			errorResponse(c, http.StatusInternalServerError, "Gagal memproses persetujuan")
-			return
+		var status string
+		if autoApproveLive {
+			tx, bErr := pool.Begin(ctx)
+			if bErr != nil {
+				log.Printf("request approval begin tx error: %v", bErr)
+				errorResponse(c, http.StatusInternalServerError, "Gagal memproses persetujuan")
+				return
+			}
+			defer func() { _ = tx.Rollback(ctx) }() // no-op after a successful Commit
+
+			if _, aErr := tx.Exec(ctx,
+				`SELECT pg_advisory_xact_lock(hashtext($1)::bigint)`,
+				fmt.Sprintf("approval-cap:%d", req.ExamID)); aErr != nil {
+				log.Printf("request approval: lock approval cap (%d): %v", req.ExamID, aErr)
+				errorResponse(c, http.StatusInternalServerError, "Gagal memproses persetujuan")
+				return
+			}
+
+			// Re-count the approved devices UNDER the lock — the count is what
+			// the cap decision is based on, so it must observe every committed
+			// approval before this one (a concurrent approver's commit is
+			// visible once we hold the lock and it has released it).
+			approvalCap := models.GetSaasSettingInt(ctx, pool,
+				models.SettingMaxApprovalsPerExam, defaultMaxApprovalsPerExam)
+			autoApprove := true
+			if approvalCap > 0 {
+				var approvedCount int
+				if err := tx.QueryRow(ctx,
+					`SELECT COUNT(*) FROM exam_approvals WHERE exam_id = $1 AND status = 'approved'`,
+					req.ExamID).Scan(&approvedCount); err == nil && approvedCount >= approvalCap {
+					autoApprove = false
+				}
+			}
+
+			if err := tx.QueryRow(ctx, insertApprovalSQL,
+				req.ExamID, macAddress, studentName, examNumber, studentClass, string(idDataStr), req.Reset, autoApprove).Scan(&status); err != nil {
+				log.Printf("request approval error: %v", err)
+				errorResponse(c, http.StatusInternalServerError, "Gagal memproses persetujuan")
+				return
+			}
+			if err := tx.Commit(ctx); err != nil {
+				log.Printf("request approval commit error: %v", err)
+				errorResponse(c, http.StatusInternalServerError, "Gagal memproses persetujuan")
+				return
+			}
+		} else {
+			autoApprove := false
+			if err := pool.QueryRow(ctx, insertApprovalSQL,
+				req.ExamID, macAddress, studentName, examNumber, studentClass, string(idDataStr), req.Reset, autoApprove).Scan(&status); err != nil {
+				log.Printf("request approval error: %v", err)
+				errorResponse(c, http.StatusInternalServerError, "Gagal memproses persetujuan")
+				return
+			}
 		}
 
 		// An approved device needs its monitoring-row bookkeeping (same as the
@@ -1181,8 +1225,13 @@ func ExamResult() gin.HandlerFunc {
 
 		// Fallback: query the DB for the submission the async job would have
 		// written, matching by exam + device identity (Redis result may have
-		// expired). Only applies when the poller can identify the submission.
-		if macAddress != "" {
+		// expired). Requires the per-submission job_id secret: the identity
+		// match alone is guessable — in static-token mode the exam token is
+		// SHARED by the whole class, so a token alone must not unlock another
+		// device's score before the teacher publishes results. Only the
+		// submitting device ever received its job_id (the submit response),
+		// which is also what the Redis lookup above already requires.
+		if jobID != "" && macAddress != "" {
 			sub, err := models.GetLatestSubmissionByIdentity(ctx, pool, examID, macAddress, identityData)
 			if err == nil && sub.AnswersJSON != nil && *sub.AnswersJSON != "" {
 				c.JSON(http.StatusOK, gin.H{

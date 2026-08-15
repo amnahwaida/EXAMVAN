@@ -111,8 +111,15 @@ func GetRegisterStatus() gin.HandlerFunc {
 
 		var status string
 		err := pool.QueryRow(ctx, `SELECT status FROM admin_users WHERE LOWER(username) = LOWER($1)`, username).Scan(&status)
-		if err != nil {
-			c.JSON(http.StatusNotFound, gin.H{"success": false, "message": "User tidak ditemukan"})
+		if err != nil || status != models.UserStatusActive {
+			// NOT FOUND and every non-active state (pending_otp, inactive,
+			// suspended) collapse into ONE generic answer: the public endpoint
+			// only ever reveals whether registration COMPLETED, never whether a
+			// username exists nor its exact state — an unauthenticated caller
+			// must not be able to enumerate accounts or tell pending_otp from
+			// suspended via this endpoint. The polling client only needs to
+			// know when 'active' arrives.
+			c.JSON(http.StatusOK, gin.H{"success": true, "status": "inactive"})
 			return
 		}
 

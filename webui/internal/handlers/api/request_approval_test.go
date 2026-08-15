@@ -572,6 +572,91 @@ func TestRequestApprovalCapLimitsAutoApprovedDevices(t *testing.T) {
 	}
 }
 
+// TestRequestApprovalCapRaceSerialized locks in the per-exam advisory lock
+// around the auto-approve cap decision: with a cap of 2, FOUR devices
+// requesting approval at once must end with EXACTLY two approved and two in
+// the pending queue. Before the fix the approved-count check and the INSERT
+// ran without a lock, so every racing request read the same pre-commit
+// snapshot and the cap was overshot by however many requests raced (4/4
+// approved here).
+func TestRequestApprovalCapRaceSerialized(t *testing.T) {
+	pool := database.NewPackageTestPool(t, "api")
+	examID, examToken := createRequestApprovalFixture(t, pool, true, true, true)
+	if err := models.SetSaasSetting(context.Background(), pool, models.SettingMaxApprovalsPerExam, "2"); err != nil {
+		t.Fatalf("set cap: %v", err)
+	}
+	srv := httptest.NewServer(newRequestApprovalRouter(pool))
+	defer srv.Close()
+
+	// post is goroutine-safe (no t.Fatalf inside): posts a request-approval
+	// payload with the exam token and returns the HTTP status + status field.
+	post := func(payload map[string]interface{}) (int, string) {
+		payload["token"] = examToken
+		raw, err := json.Marshal(payload)
+		if err != nil {
+			return 0, ""
+		}
+		resp, err := http.Post(srv.URL+"/api/exams/request-approval", "application/json", bytes.NewReader(raw))
+		if err != nil {
+			return 0, ""
+		}
+		defer resp.Body.Close()
+		var out map[string]interface{}
+		if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
+			return resp.StatusCode, ""
+		}
+		s, _ := out["status"].(string)
+		return resp.StatusCode, s
+	}
+
+	const n = 4
+	codes := make([]int, n)
+	statuses := make([]string, n)
+	var wg sync.WaitGroup
+	for i := 0; i < n; i++ {
+		wg.Add(1)
+		go func(i int) {
+			defer wg.Done()
+			mac := fmt.Sprintf("AA:BB:CC:DD:EE:%02X", i+1)
+			codes[i], statuses[i] = post(map[string]interface{}{
+				"exam_id": examID, "mac_address": mac,
+				"student_name": "Siswa Cap Race", "exam_number": fmt.Sprintf("R%d", i+1),
+				"student_class": "X R", "identity_data": map[string]interface{}{}, "reset": true,
+			})
+		}(i)
+	}
+	wg.Wait()
+
+	for i := 0; i < n; i++ {
+		if codes[i] != http.StatusOK {
+			t.Fatalf("device %d: status=%d, want 200", i, codes[i])
+		}
+	}
+	approved, pending := 0, 0
+	for _, s := range statuses {
+		switch s {
+		case "approved":
+			approved++
+		case "pending":
+			pending++
+		}
+	}
+	if approved != 2 || pending != 2 {
+		t.Fatalf("concurrent cap race: got %d approved + %d pending, want exactly 2 + 2 (statuses=%v)", approved, pending, statuses)
+	}
+
+	// The DB agrees: exactly 2 approved rows (the cap) and 2 pending.
+	var approvedCnt, pendingCnt int
+	if err := pool.QueryRow(context.Background(),
+		`SELECT COUNT(*) FROM exam_approvals WHERE exam_id = $1 AND status = 'approved'`, examID).Scan(&approvedCnt); err != nil || approvedCnt != 2 {
+		t.Fatalf("approved rows after race: got %d err=%v, want 2", approvedCnt, err)
+	}
+	if err := pool.QueryRow(context.Background(),
+		`SELECT COUNT(*) FROM exam_approvals WHERE exam_id = $1 AND status = 'pending'`, examID).Scan(&pendingCnt); err != nil || pendingCnt != 2 {
+		t.Fatalf("pending rows after race: got %d err=%v, want 2", pendingCnt, err)
+	}
+}
+
 // Stale-token tolerance: a device that already has an approval row may keep
 // polling with an outdated token (dynamic-token rotation mid-wait) — the same
 // tolerance SubmitExam/AccessLog apply to known devices.

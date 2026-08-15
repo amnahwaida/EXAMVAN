@@ -222,7 +222,10 @@ func TestExamResultRequiresTokenOrApproval(t *testing.T) {
 	}
 
 	router := newExamFixesRouter(pool, nil)
-	path := fmt.Sprintf("/api/exams/%d/result?mac_address=%s&identity_data=%s",
+	// The identity fallback additionally requires the per-submission job_id
+	// secret (only the submitting device received it); the positive case
+	// carries its own job_id.
+	path := fmt.Sprintf("/api/exams/%d/result?job_id=jobsecret&mac_address=%s&identity_data=%s",
 		examID, "DEVICE:result-auth", url.QueryEscape(identity))
 
 	// No credential at all → rejected.
@@ -231,7 +234,7 @@ func TestExamResultRequiresTokenOrApproval(t *testing.T) {
 		t.Fatalf("unauthenticated status = %d, want 401/404 (%s)", rec.Code, rec.Body.String())
 	}
 
-	// Valid exam token → allowed, score readable.
+	// Valid exam token + the device's own job_id → allowed, score readable.
 	rec = doJSONRequest(router, http.MethodGet, path, "",
 		map[string]string{"X-Exam-Token": token, "X-App-Version": "2.5.0"}, nil)
 	if rec.Code != http.StatusOK {
@@ -367,4 +370,75 @@ func insertResultFixOwner(t *testing.T, pool *pgxpool.Pool) int {
 		t.Fatalf("insert owner: %v", err)
 	}
 	return id
+}
+
+// TestExamResultIdentityFallbackRequiresJobID locks in the job_id requirement
+// for the DB identity fallback: in static-token mode the exam token is SHARED
+// by the whole class, so a token alone must NOT unlock another device's score
+// before the teacher publishes results. Only a poll that carries the
+// per-submission job_id — the secret the submitting device alone received —
+// may recover the persisted submission by mac + identity. Without the fix a
+// classmate holding the shared token could read any device's score by
+// guessing its mac + identity payload.
+func TestExamResultIdentityFallbackRequiresJobID(t *testing.T) {
+	pool := database.NewPackageTestPool(t, "api")
+	ctx := context.Background()
+
+	ownerID := insertResultFixOwner(t, pool)
+	token := fmt.Sprintf("Z%07d", time.Now().UnixNano()%10000000)
+	var examID int
+	if err := pool.QueryRow(ctx, `
+		INSERT INTO exams (name, file_path, size_bytes, token, active_token, status,
+		                   security_level, created_by, exam_started_at, questions_json)
+		VALUES ('Ujian Hasil JobID', 'jobid.pdf', 1024, $1, $1, 'active', 'medium', $2, CURRENT_TIMESTAMP, $3)
+		RETURNING id`, token, ownerID, `[{"number":1,"type":"multiple_choice","label":"S","weight":1,"key":"jakarta"}]`).Scan(&examID); err != nil {
+		t.Fatalf("insert exam: %v", err)
+	}
+
+	identity := `{"student_name":"Siti","exam_number":"E1","student_class":"XII-A"}`
+	if _, err := pool.Exec(ctx, `
+		INSERT INTO submissions (exam_id, student_name, exam_number, student_class,
+		                         answers_json, score, start_time, mac_address, identity_data)
+		VALUES ($1,'Siti','E1','XII-A','{"1":"jakarta"}',100,'2026-08-09 08:00:00','DEVICE:jobid',$2)`,
+		examID, identity); err != nil {
+		t.Fatalf("insert submission: %v", err)
+	}
+
+	router := newExamFixesRouter(pool, nil)
+	headers := map[string]string{"X-Exam-Token": token, "X-App-Version": "2.5.0"}
+
+	// Token + mac + identity but NO job_id → the fallback is not served; the
+	// poll reports pending, never the score.
+	rec := doJSONRequest(router, http.MethodGet,
+		fmt.Sprintf("/api/exams/%d/result?mac_address=%s&identity_data=%s",
+			examID, "DEVICE:jobid", url.QueryEscape(identity)), "", headers, nil)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("no-job_id status = %d (%s)", rec.Code, rec.Body.String())
+	}
+	var body struct {
+		Success bool     `json:"success"`
+		Status  string   `json:"status"`
+		Score   *float64 `json:"score"`
+	}
+	if err := json.NewDecoder(rec.Body).Decode(&body); err != nil {
+		t.Fatalf("decode no-job_id: %v", err)
+	}
+	if body.Status != "pending" || body.Score != nil {
+		t.Fatalf("no-job_id poll: got status=%q score=%v, want pending/nil", body.Status, body.Score)
+	}
+
+	// Same poll WITH the device's own job_id → the durable fallback serves the
+	// score (Redis result expired / absent).
+	rec = doJSONRequest(router, http.MethodGet,
+		fmt.Sprintf("/api/exams/%d/result?job_id=jobsecret123&mac_address=%s&identity_data=%s",
+			examID, "DEVICE:jobid", url.QueryEscape(identity)), "", headers, nil)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("with-job_id status = %d (%s)", rec.Code, rec.Body.String())
+	}
+	if err := json.NewDecoder(rec.Body).Decode(&body); err != nil {
+		t.Fatalf("decode with-job_id: %v", err)
+	}
+	if !body.Success || body.Status != "done" || body.Score == nil || *body.Score != 100 {
+		t.Fatalf("with-job_id poll: got success=%v status=%q score=%v, want true/done/100", body.Success, body.Status, body.Score)
+	}
 }
