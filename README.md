@@ -378,6 +378,30 @@ TEST_DATABASE_URL=postgresql://user:pass@localhost:5432/examvan_test \
   go test ./internal/handlers/admin/ -run 'TestOperatorCannotSetSubAccountExpiry|TestCreateUserQuotaAtomicUnderConcurrency|TestCreateUserForcesOperatorInstansiOverBody|TestVerifyUserCannotActOnOperatorPeer|TestCreateUserInheritsInstansiIdentity|TestCreateUserPasswordMinLengthServer|TestUserCreateEditAudited' -v
 ```
 
+### Kebijakan Satu Operator per Sekolah
+
+> ⚠️ **Kebijakan ini sengaja di-enforce mulai 15 Agustus 2026:** setiap **instansi sekolah nyata** hanya boleh memiliki **satu operator**. Semua jalur yang bisa melahirkan operator kedua ditolak dengan HTTP **400** (pesan: "Instansi ini sudah memiliki operator. Satu sekolah hanya dapat memiliki satu operator.").
+
+**Alasan:** paket sekolah adalah satu paket untuk seluruh sekolah — kuota `max_users` (jumlah akun sub), kuota ujian/PDF/storage/serentak (school pool), masa aktif, dan cascade suspend semua diasumsikan dikelola oleh **satu** operator per sekolah. Dengan beberapa operator, snapshot redemption siapa yang berlaku untuk pool menjadi ambigu (pool memakai `MAX` atas operator se-instansi), kuota `max_users` terbagi, dan cascade suspend saat salah satu turun paket berisiko membekukan sekolah yang sebenarnya masih aktif.
+
+**Apa yang didefinisikan sebagai "operator sekolah" (dan ikut diblokir/diizinkan):**
+- **Yang dianggap operator sekolah:** akun **bukan** hasil buatan operator (`operator_created = false`) yang memegang role Operator dan berada di instansi sekolah nyata (bukan kosong / bucket `"personal"`).
+- **Yang TIDAK dianggap operator sekolah:** akun sub (dibuat operator) yang kebetulan memegang role Operator sendiri — warisan paket legacy pra-kebijakan. Akun seperti ini tidak memblokir operator baru, dan tidak ikut dihitung sebagai penutup sekolah saat cascade suspend (konsisten dengan definisi school pool).
+- **Operator yang sama memperbarui (renew) paket sekolahnya sendiri** tidak pernah diblokir (aktor yang bertindak dikecualikan).
+- **Bucket `"personal"` bukan sekolah:** beberapa operator di bucket personal boleh masing-masing memegang paket sekolahnya sendiri sampai salah satunya menetapkan instansi sekolah.
+
+**Jalur yang dijaga (semua memanggil helper yang sama, `schoolAlreadyHasOperator` di `webui/internal/handlers/admin/entitlement.go`):**
+
+1. **Redeem voucher paket sekolah** (`RedeemVoucherHandler`) — guru kedua di instansi yang sama ditolak 400 (cek berjalan di dalam transaksi, di bawah row lock yang sama dengan snapshot; sekolah yang sudah punya operator tidak bisa menerima operator kedua lewat kode voucher).
+2. **Aktivasi voucher** (`ActivateVoucherHandler`) — jalur mengaktifkan paket yang tertunda aktivasi; guard yang sama sebelum paket diberlakukan.
+3. **CreateUser oleh SuperAdmin** — membuat akun ber-role Operator di instansi yang sudah punya operator ditolak 400.
+4. **EditUser** — menaikkan role akun lain menjadi Operator di instansi yang sudah punya operator ditolak 400.
+5. **UpdateInstansi (klaim sekolah)** — operator bucket `"personal"` yang menetapkan instansi sekolah yang sudah punya operator ditolak 400.
+
+**Catatan kuantitatif (dampak pada kuota saat beberapa operator memang sudah ada — state legacy pra-kebijakan):** pool sekolah memakai `MAX()` atas snapshot redemption aktif operator se-instansi (paket terbesar menaikkan pool seluruh sekolah — by design), kuota `max_users` dihitung school-wide (`MAX` atas redemption aktif operator se-instansi; konvensi `0 = unlimited` tidak ikut di-`MAX` — sekolah dengan campuran paket berkuota dan tanpa kuota tetap dibatasi nilai terbesar yang terdefinisi), dan operator lain ikut menghabiskan slot `max_users`. Semua efek ini hanya relevan untuk sekolah legacy yang sudah terlanjur punya lebih dari satu operator.
+
+Test: `TestOneOperatorPerSchoolPolicy` (`webui/internal/handlers/admin/operator_user_flow_test.go`) — 9 sub-tes mengunci kelima jalur di atas (ditolak 400 + pesan) sekaligus kasus-kasus yang harus tetap lolos (renew operator sendiri, operator baru untuk sekolah tanpa operator, bucket personal, akun sub ber-role operator tidak memblokir).
+
 ### Cara Mengubah
 
 **Opsi A — Lewat UI Admin (disarankan):**

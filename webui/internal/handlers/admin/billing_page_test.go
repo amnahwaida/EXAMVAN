@@ -245,3 +245,86 @@ func TestBillingPageHidesRedeemFormForSubAccount(t *testing.T) {
 		t.Error("direct billing page must NOT show the sub-account notice card")
 	}
 }
+
+// TestBillingPageShowsSchoolPoolQuotaForSubAccount locks in the quota-display
+// half of the sub-account policy: an operator-created account's REAL limits
+// come from the school pool (the instansi's operator's active redemption
+// snapshot — the same source that gates exam/PDF/storage/concurrent at upload
+// time), NOT from its own admin_users columns, which only hold the forced
+// 'free' defaults (CreateUser forces package='free' and default quotas). The
+// rendered /admin/billing page must therefore show the school package values
+// (PDF 50 MB, storage 500 MB, concurrent 3 from the IT-SEKOLAH voucher) and
+// the school package label instead of "free" / 1 MB / 2 / 50 MB. Rendered
+// through the REAL BillingPage handler with the REAL templates, so the test
+// breaks the moment the display override regresses.
+func TestBillingPageShowsSchoolPoolQuotaForSubAccount(t *testing.T) {
+	pool := setupVoucherITDB(t)
+
+	createSchoolVoucher(t, pool) // sekolah-test: 3 exams, 50MB PDF, 3 concurrent, 500MB storage
+	op := createOperatorUser(t, pool, "op-bill-quota", "SMK Quota Test", "pass-op-bill-quota")
+	tc := newVoucherTestClient(t, pool)
+	tc.login(t, op.ID)
+	tc.redeem(t, "IT-SEKOLAH")
+	if !models.HasRole(mustGetUser(t, pool, "op-bill-quota").Role, models.RoleOperator) {
+		t.Fatalf("op must hold the operator role after redeeming the school voucher")
+	}
+
+	// Sub-account created by the operator through the real CreateUser handler:
+	// its row carries the forced 'free' package and default quotas.
+	if status, resp := tc.createUser(t, "sub-quota"); status != http.StatusOK || !resp.Success {
+		t.Fatalf("create sub-quota: status=%d resp=%+v", status, resp)
+	}
+	sub := mustGetUser(t, pool, "sub-quota")
+	if !sub.OperatorCreated {
+		t.Fatalf("fixture: sub-quota must be operator_created")
+	}
+	if sub.Package != "free" || sub.MaxPDFSize != 1048576 || sub.MaxStorageSize != 50*1024*1024 || sub.MaxConcurrentExams != 2 {
+		t.Fatalf("fixture: sub-quota row must hold the forced free defaults, got package=%q pdf=%d storage=%d concurrent=%d",
+			sub.Package, sub.MaxPDFSize, sub.MaxStorageSize, sub.MaxConcurrentExams)
+	}
+
+	br := newBillingPageTestRouter(t, pool)
+	srv := httptest.NewServer(br)
+	t.Cleanup(srv.Close)
+
+	subJar, err := cookiejar.New(nil)
+	if err != nil {
+		t.Fatalf("cookie jar: %v", err)
+	}
+	subClient := &http.Client{Jar: subJar}
+	if _, resp := postForm(t, subClient, srv, "/test/login/"+strconv.Itoa(sub.ID), nil); !resp.Success {
+		t.Fatalf("login as sub-quota: %+v", resp)
+	}
+	status, body := getBillingPage(t, subClient, srv)
+	if status != http.StatusOK {
+		t.Fatalf("sub billing page: status=%d, want 200", status)
+	}
+
+	// The quota cards show the SCHOOL POOL values (from the operator's active
+	// redemption), not the sub-account's forced free defaults: PDF 50 MB (not
+	// 1 MB), storage 500 MB (not 50 MB), concurrent 3 (not 2).
+	for _, marker := range []string{">50 MB<", ">500 MB<", ">3<"} {
+		if !strings.Contains(body, marker) {
+			t.Errorf("sub billing page must render the school pool quota %q, but it is missing", marker)
+		}
+	}
+	for _, marker := range []string{">1 MB<"} {
+		if strings.Contains(body, marker) {
+			t.Errorf("sub billing page must NOT render the per-account default quota %q, but it was found", marker)
+		}
+	}
+
+	// "Paket Saat Ini" shows the school package label (sekolah-test →
+	// "Sekolah-Test" via packageDisplayName), never the forced 'free' row.
+	if !strings.Contains(body, "id=\"currentPkgName\">Sekolah-Test<") {
+		t.Errorf("sub billing page must render the school package label in currentPkgName, got:\n%s", body)
+	}
+	if strings.Contains(body, "id=\"currentPkgName\">free<") {
+		t.Error("sub billing page must NOT render the forced 'free' package label")
+	}
+
+	// The sub-account notice card is still present (claim UI stays hidden).
+	if !strings.Contains(body, "Akun Sub (Dibuat Operator)") {
+		t.Error("sub billing page must keep the sub-account notice card")
+	}
+}

@@ -1085,16 +1085,19 @@ func TestEditUserClearOperatorExpiryCascadesUnlimitedToSubs(t *testing.T) {
 	// The superadmin also created an operator-role sub-account that runs NO
 	// package of its own (guru3): the operator-role guard must spare it from
 	// the unlimited cascade — only plain sub-accounts without their own
-	// package follow the operator into the unlimited state.
-	if status, resp := postJSON(t, tc.client, tc.srv, "/api/users", map[string]interface{}{
-		"username":   "guru3",
-		"password":   "pass-guru3",
-		"name":       "guru3",
-		"roles":      []string{models.RoleOperator},
-		"instansi":   op.Instansi,
-		"expires_at": "2030-06-15 12:00:00",
-	}); status != http.StatusOK || !resp.Success {
-		t.Fatalf("superadmin create guru3: status=%d resp=%+v", status, resp)
+	// package follow the operator into the unlimited state. Planted directly
+	// (not via the CreateUser API): the one-operator-per-school policy blocks
+	// creating a second operator in an occupied school through the handler.
+	if _, err := models.CreateUser(ctx, pool, &models.AdminUser{
+		Username: "guru3", Name: "guru3",
+		PasswordHash: "pass-guru3", Status: models.UserStatusActive,
+		Instansi: op.Instansi,
+		Role:     models.SerializeRoles([]string{models.RoleOperator}),
+		MaxExams: 3, MaxPDFSize: 1048576, MaxConcurrentExams: 2,
+		MaxStorageSize: 50 * 1024 * 1024, Package: "free",
+		ExpiresAt: func() *time.Time { t := time.Date(2030, 6, 15, 12, 0, 0, 0, time.UTC); return &t }(),
+	}); err != nil {
+		t.Fatalf("create guru3: %v", err)
 	}
 	guru3 := mustGetUser(t, pool, "guru3")
 	if guru3.ExpiresAt == nil {
@@ -1558,15 +1561,19 @@ func TestEditUserOperatorExpiryCascadeSyncsInstansiRedemptions(t *testing.T) {
 		map[string]interface{}{"expires_at": ""}); status != http.StatusOK || !resp.Success {
 		t.Fatalf("superadmin clear guru3 expiry: status=%d resp=%+v", status, resp)
 	}
-	if status, resp := postJSON(t, tc.client, tc.srv, "/api/users", map[string]interface{}{
-		"username":   "guru4",
-		"password":   "pass-guru4",
-		"name":       "guru4",
-		"roles":      []string{models.RoleOperator},
-		"instansi":   op.Instansi,
-		"expires_at": "2030-06-15 12:00:00",
-	}); status != http.StatusOK || !resp.Success {
-		t.Fatalf("superadmin create guru4: status=%d resp=%+v", status, resp)
+	// guru4 (operator-role sub-account, no package of its own) is planted
+	// directly — the one-operator-per-school policy blocks creating a second
+	// operator in an occupied school through the CreateUser API.
+	if _, err := models.CreateUser(ctx, pool, &models.AdminUser{
+		Username: "guru4", Name: "guru4",
+		PasswordHash: "pass-guru4", Status: models.UserStatusActive,
+		Instansi: op.Instansi,
+		Role:     models.SerializeRoles([]string{models.RoleOperator}),
+		MaxExams: 3, MaxPDFSize: 1048576, MaxConcurrentExams: 2,
+		MaxStorageSize: 50 * 1024 * 1024, Package: "free",
+		ExpiresAt: func() *time.Time { t := time.Date(2030, 6, 15, 12, 0, 0, 0, time.UTC); return &t }(),
+	}); err != nil {
+		t.Fatalf("create guru4: %v", err)
 	}
 	guru3 := mustGetUser(t, pool, "guru3")
 	if guru3.ExpiresAt != nil {

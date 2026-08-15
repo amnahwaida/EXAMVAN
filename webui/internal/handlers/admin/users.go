@@ -17,6 +17,7 @@ import (
 	"github.com/gin-contrib/sessions"
 	"github.com/gin-gonic/gin"
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	r2client "github.com/examvan/webui/internal/handlers/r2"
@@ -65,6 +66,57 @@ func getInstansiForOperator(ctx context.Context, pool *pgxpool.Pool, userID int)
 	return instansi, nil
 }
 
+// Sub-account free defaults: an operator-created account's OWN per-account
+// quota columns are forced to the 'free' package defaults — the same values
+// admin_users carries for a fresh self-registered account (schema.sql column
+// defaults: 3 exams, 1 MB PDF, 2 concurrent, 50 MB storage) — regardless of
+// the quota values in the create request. A sub-account's REAL limits come
+// from the school pool while the operator's package is active (the pool gates
+// exam/PDF/storage/concurrent at upload time), so these columns are only a
+// fallback for the no-pool state (shared "personal" bucket, legacy school
+// without an active redemption) — and in that state they must stay at free
+// tier: a tampered request must never be able to grant a sub-account a bigger
+// per-account quota than the free defaults (e.g. storage 0 = unlimited, or
+// PDF/limits above the free row).
+const (
+	subAccountFreeMaxExams           = 3
+	subAccountFreeMaxPDFSize         = 1048576 // 1 MB
+	subAccountFreeMaxConcurrentExams = 2
+	subAccountFreeMaxStorageSize     = 52428800 // 50 MB
+)
+
+// pgUniqueViolation is the PostgreSQL SQLSTATE for a unique-constraint
+// violation (duplicate key), surfaced by pgx as *pgconn.PgError with Code ==
+// this value.
+const pgUniqueViolation = "23505"
+
+// uniqueViolationMessage returns the friendly user-facing message for a
+// duplicate-key (Postgres SQLSTATE 23505) violation raised by the admin_users
+// INSERT in CreateUser, or "" when the error is not a unique violation on the
+// account's username/email. The pre-tx uniqueness checks (GetUserByUsername /
+// GetUserByEmail) run BEFORE the transaction, so two concurrent requests for
+// the same username/email can both pass them and the loser surfaces here as a
+// constraint violation instead. Mapping it back to the exact same 400 message
+// keeps the concurrent loser indistinguishable from a sequential duplicate.
+// Constraint names are stable schema facts: admin_users.username is declared
+// UNIQUE (Postgres names the constraint admin_users_username_key) and email
+// uniqueness lives in the partial unique index uq_admin_users_email.
+func uniqueViolationMessage(err error) string {
+	var pgErr *pgconn.PgError
+	if !errors.As(err, &pgErr) || pgErr.Code != pgUniqueViolation {
+		return ""
+	}
+	switch pgErr.ConstraintName {
+	case "admin_users_username_key":
+		return "Username sudah digunakan"
+	case "uq_admin_users_email":
+		return "Email sudah terdaftar. Gunakan email lain atau biarkan kosong."
+	}
+	// An unexpected unique constraint on the account INSERT: fail loud (the
+	// caller logs and returns 500) rather than guessing a friendly message.
+	return ""
+}
+
 // quotaQuerier abstracts a single-query source so loadOperatorAccountQuota
 // can run over a pool (billing page display, tests) or over the CREATE
 // transaction (CreateUser quota enforcement) with the same definition the two
@@ -75,73 +127,142 @@ type quotaQuerier interface {
 
 // loadOperatorAccountQuota returns the school package's sub-account quota
 // (maxUsers, 0 = unlimited) and the current number of accounts the operator
-// may count against it (used, excluding the operator themself). The quota
-// comes from the ACTIVE REDEMPTION's snapshot (captured at redeem time from
-// package_settings or the custom voucher field) — NOT from the instansi label:
-// a guru who redeemed a school voucher without yet setting a school instansi
-// (instansi still the shared "personal" default) is still bound by the school
-// package's max_users. Operators without an active redemption
-// (legacy/imported) fall back to the package_settings row for their package
-// label. For a real school instansi the used count is every account in that
-// instansi; for the shared "personal" bucket only the operator's OWN
-// sub-accounts count: scoped by created_by (the operator id recorded at
-// creation), so several personal-bucket operators no longer count each
-// other's sub-accounts. Legacy operator-created rows predating the created_by
-// column (created_by IS NULL) cannot be attributed to any specific operator,
-// so they keep the conservative shared-bucket fallback (counted against every
-// personal operator) — strictly safer than silently ignoring them.
-// Self-registered personal accounts are not sub-accounts and never consume a
-// school quota. Shared by the CreateUser enforcement and the billing page
-// display so the two can never disagree. (0, 0) when not applicable.
-func loadOperatorAccountQuota(ctx context.Context, q quotaQuerier, userID int, isOperator bool, instansi string) (maxUsers, used int64) {
+// may count against it (used, excluding the operator themself).
+//
+// For a REAL school instansi the quota is the SCHOOL's: the MAX over the
+// instansi's operator(s) active redemption snapshots (mirror of
+// schoolPoolQuotaForInstansi), so a second operator without a redemption — or
+// with a smaller package — can neither widen nor shrink the school's cap, and
+// the enforcement can never disagree with the pool that gates exam usage.
+// Used counts every account in that instansi except the acting operator.
+//
+// For the shared "personal" bucket the acting operator's OWN active
+// redemption snapshot is the source (a guru who redeemed a school voucher
+// without yet setting a real school instansi is still bound by the school
+// package they hold) and only the operator's OWN sub-accounts count: scoped
+// by created_by (the operator id recorded at creation), so several
+// personal-bucket operators no longer count each other's sub-accounts.
+// Legacy operator-created rows predating the created_by column (created_by IS
+// NULL) cannot be attributed to any specific operator, so they keep the
+// conservative shared-bucket fallback (counted against every personal
+// operator) — strictly safer than silently ignoring them.
+//
+// Operators without an active redemption (legacy/imported) fall back to the
+// package_settings row for their package label. Self-registered personal
+// accounts are not sub-accounts and never consume a school quota. Shared by
+// the CreateUser enforcement and the billing page display so the two can
+// never disagree. (0, 0, nil) when not applicable.
+//
+// FAIL-CLOSED on a real database error: only the legitimate "no active
+// redemption" outcome (pgx.ErrNoRows) triggers the package_settings
+// fallback, so an active snapshot of 0 (intentional unlimited) is never
+// overridden — but a transient DB error (connection drop, pool exhaustion)
+// returns an error instead of silently treating the quota as unlimited. A
+// sub-account quota that quietly becomes 0 on a glitch would let the operator
+// create unlimited accounts; the enforcement caller (CreateUser) rejects the
+// request with 500 and the billing display simply omits the quota card.
+func loadOperatorAccountQuota(ctx context.Context, q quotaQuerier, userID int, isOperator bool, instansi string) (maxUsers, used int64, err error) {
 	instansi = strings.TrimSpace(instansi)
 	if !isOperator || instansi == "" {
-		return 0, 0
+		return 0, 0, nil
 	}
-	err := q.QueryRow(ctx, `
-		SELECT COALESCE(max_users, 0) FROM voucher_redemptions
-		WHERE user_id = $1 AND is_active`, userID).Scan(&maxUsers)
-	if err != nil {
-		// Only an error (no active redemption) triggers the fallback, so an
-		// active snapshot of 0 (intentional unlimited) is never overridden.
-		if ferr := q.QueryRow(ctx, `
-			SELECT COALESCE(ps.max_users, 0)
-			FROM package_settings ps
-			JOIN admin_users u ON u.package = ps.pkg_key
-			WHERE u.id = $1`, userID).Scan(&maxUsers); ferr != nil {
-			// Fail open (0 = unlimited) but make the glitch visible: a
-			// transient DB error must not silently bypass the quota.
-			log.Printf("load operator account quota failed (redemption: %v, package: %v); treating as unlimited", err, ferr)
-			maxUsers = 0
-		}
-	}
-	if maxUsers <= 0 {
-		return 0, 0
-	}
+	// Shared "personal" bucket: the acting operator's OWN redemption snapshot
+	// is the quota source — there is no school pool to key on, and a guru who
+	// redeemed a school voucher without yet setting a real school instansi is
+	// still bound by the school package they hold. No active redemption
+	// (legacy/imported) falls back to the package_settings row for the
+	// operator's package label. The used count is scoped per-operator (only
+	// the CURRENT operator's own sub-accounts, created_by = userID), so
+	// multiple personal-bucket operators never share each other's
+	// sub-accounts. Legacy operator-created rows predating the created_by
+	// column (operator_created = true, created_by IS NULL) cannot be
+	// attributed to any specific operator, so they keep the conservative
+	// shared-bucket fallback: counted against every personal operator, never
+	// ignored. Self-registered personal accounts (operator_created = false)
+	// are NOT sub-accounts and never consume a school quota.
 	if strings.EqualFold(instansi, "personal") {
-		// Shared "personal" bucket (operator redeemed a school voucher but has
-		// not set a real school instansi yet): only sub-accounts the CURRENT
-		// operator created (created_by = userID) are counted — the precise
-		// per-operator attribution, so multiple personal-bucket operators no
-		// longer share each other's sub-accounts. Legacy operator-created
-		// rows predating the created_by column (operator_created = true,
-		// created_by IS NULL) cannot be attributed to any specific operator,
-		// so they keep the conservative shared-bucket fallback: counted
-		// against every personal operator, never ignored. Self-registered
-		// personal accounts (operator_created = false) are NOT sub-accounts
-		// and must not consume the school quota — counting them would let
-		// anyone starve a school's quota by registering personal accounts.
+		err = q.QueryRow(ctx, `
+			SELECT COALESCE(max_users, 0) FROM voucher_redemptions
+			WHERE user_id = $1 AND is_active`, userID).Scan(&maxUsers)
+		if err != nil {
+			if !errors.Is(err, pgx.ErrNoRows) {
+				// A REAL database error — fail closed, never unlimited.
+				return 0, 0, fmt.Errorf("load operator account quota (redemption): %w", err)
+			}
+			if ferr := loadOperatorPackageFallback(ctx, q, userID, &maxUsers); ferr != nil {
+				return 0, 0, ferr
+			}
+		}
+		if maxUsers <= 0 {
+			return 0, 0, nil
+		}
 		_ = q.QueryRow(ctx,
 			`SELECT COUNT(*) FROM admin_users
 			 WHERE instansi = $1 AND id <> $2
 			   AND (created_by = $2 OR (created_by IS NULL AND operator_created))`,
 			instansi, userID).Scan(&used)
-		return maxUsers, used
+		return maxUsers, used, nil
+	}
+
+	// Real school instansi: the sub-account quota is the SCHOOL's, not the
+	// acting operator's own — every operator of the instansi draws from one
+	// shared cap (mirror of schoolPoolQuotaForInstansi, which MAXes the
+	// operators' active redemptions for exam/storage/PDF/concurrent). Reading
+	// only the acting operator's own active redemption left two gaps: a
+	// SECOND operator of the school without an active redemption fell back to
+	// its own package label (free → 0 = unlimited) and could create unlimited
+	// accounts in the school, and two concurrent operators could each pass
+	// the count on their own snapshots. The school-wide MAX over the
+	// instansi's ACTIVE operator redemptions makes the enforcement agree with
+	// the pool, for every operator. When no operator of the school holds an
+	// active redemption (legacy school / imported operators) the acting
+	// operator's package_settings row is the fallback, as before.
+	var activeOps int64
+	err = q.QueryRow(ctx, `
+		SELECT COALESCE(MAX(vr.max_users) FILTER (WHERE vr.is_active), 0),
+		       COUNT(*) FILTER (WHERE vr.is_active)
+		FROM voucher_redemptions vr
+		JOIN admin_users u ON u.id = vr.user_id
+		WHERE u.instansi = $1 AND u.role ILIKE '%"operator"%'`, instansi).
+		Scan(&maxUsers, &activeOps)
+	if err != nil {
+		if !errors.Is(err, pgx.ErrNoRows) {
+			// A REAL database error — fail closed, never unlimited.
+			return 0, 0, fmt.Errorf("load operator account quota (school): %w", err)
+		}
+		maxUsers, activeOps = 0, 0
+	}
+	if activeOps == 0 {
+		if ferr := loadOperatorPackageFallback(ctx, q, userID, &maxUsers); ferr != nil {
+			return 0, 0, ferr
+		}
+	}
+	if maxUsers <= 0 {
+		return 0, 0, nil
 	}
 	_ = q.QueryRow(ctx,
 		`SELECT COUNT(*) FROM admin_users WHERE instansi = $1 AND id <> $2`,
 		instansi, userID).Scan(&used)
-	return maxUsers, used
+	return maxUsers, used, nil
+}
+
+// loadOperatorPackageFallback resolves max_users from the acting operator's
+// package_settings row (its package label) when the operator holds no active
+// redemption. FAIL-CLOSED on a real database error; the "no package_settings
+// row for this label" outcome (ErrNoRows, anomalous data) stays 0 = unlimited
+// exactly like the legacy behavior it replaces.
+func loadOperatorPackageFallback(ctx context.Context, q quotaQuerier, userID int, maxUsers *int64) error {
+	if ferr := q.QueryRow(ctx, `
+		SELECT COALESCE(ps.max_users, 0)
+		FROM package_settings ps
+		JOIN admin_users u ON u.package = ps.pkg_key
+		WHERE u.id = $1`, userID).Scan(maxUsers); ferr != nil {
+		if !errors.Is(ferr, pgx.ErrNoRows) {
+			return fmt.Errorf("load operator account quota (package fallback): %w", ferr)
+		}
+		*maxUsers = 0
+	}
+	return nil
 }
 
 // ---------------------------------------------------------------------------
@@ -548,6 +669,37 @@ func CreateUser() gin.HandlerFunc {
 				errorResponse(c, http.StatusInternalServerError, "Gagal membuat user")
 				return
 			}
+			// Fail CLOSED on an anomalous empty instansi: a healthy operator
+			// always has one (self-registration defaults to "personal", the
+			// needs_instansi onboarding forces a real school, and EditUser
+			// forces it on the row). If the locked read came back empty, the
+			// quota check below would be skipped (loadOperatorAccountQuota
+			// returns 0,0 for instansi == "") and the account would silently
+			// land in the shared "personal" bucket outside the school quota —
+			// the same fail-closed rule ListUsers/EditUser/ToggleUserStatus
+			// apply to an unresolvable operator instansi. The body's instansi
+			// must never be used as a fallback here.
+			if instansi == "" {
+				log.Printf("create user: operator instansi unresolved (user %d, empty row)", userID)
+				errorResponse(c, http.StatusInternalServerError, "Gagal membuat user")
+				return
+			}
+
+			// School-wide serialization on top of the operator's own row lock:
+			// the sub-account quota is the SCHOOL's (loadOperatorAccountQuota
+			// reads the instansi-wide MAX), so concurrent creates by DIFFERENT
+			// operators of the same school must serialize too — each operator's
+			// FOR UPDATE row lock alone only serializes same-operator creates,
+			// and two operators could otherwise both pass the shared count.
+			// The advisory lock is transaction-scoped (released at commit /
+			// rollback, never leaked) and keyed on the authoritative instansi
+			// from the locked read — never the request body.
+			if _, aErr := tx.Exec(ctx,
+				`SELECT pg_advisory_xact_lock(hashtext('sub-account-quota:' || $1)::bigint)`, instansi); aErr != nil {
+				log.Printf("create user: lock school quota (instansi %q): %v", instansi, aErr)
+				errorResponse(c, http.StatusInternalServerError, "Gagal membuat user")
+				return
+			}
 
 			// NOTE: the operator's email is deliberately NOT copied onto the
 			// sub-account. The unique index uq_admin_users_email (email <>
@@ -577,7 +729,16 @@ func CreateUser() gin.HandlerFunc {
 		// operator's locked transaction (see above), so the count and the
 		// INSERT below share one snapshot and one lock — no over-quota race.
 		if isOp {
-			maxUsers, used := loadOperatorAccountQuota(ctx, tx, userID, true, instansi)
+			maxUsers, used, qErr := loadOperatorAccountQuota(ctx, tx, userID, true, instansi)
+			if qErr != nil {
+				// Fail CLOSED: a transient DB error must not become an
+				// unlimited quota (loadOperatorAccountQuota returns an error
+				// for real failures). The create ABORTS — a quota that cannot
+				// be read must never be assumed to have room.
+				log.Printf("create user: operator account quota unresolved (user %d, err=%v)", userID, qErr)
+				errorResponse(c, http.StatusInternalServerError, "Gagal membuat user")
+				return
+			}
 			if maxUsers > 0 && used >= maxUsers {
 				errorResponse(c, http.StatusBadRequest,
 					fmt.Sprintf("Kuota akun di instansi Anda telah mencapai batas paket (%d akun). Silakan hubungi administrator untuk menambah kuota.", maxUsers))
@@ -594,6 +755,25 @@ func CreateUser() gin.HandlerFunc {
 		}
 		if len(filteredRoles) == 0 {
 			filteredRoles = []string{models.RoleGuru}
+		}
+
+		// One-operator-per-school policy: a SuperAdmin creating an account
+		// with the operator role in a school that already has an operator
+		// would create a second. Rejected before the INSERT. (The operator
+		// create path can never reach here — operators are barred from
+		// granting the operator role above.)
+		if !isOp && containsRole(filteredRoles, models.RoleOperator) {
+			hasOp, opErr := schoolAlreadyHasOperator(ctx, pool, instansi, userID)
+			if opErr != nil {
+				log.Printf("create user: one-operator-per-school check error: %v", opErr)
+				errorResponse(c, http.StatusInternalServerError, "Gagal membuat user")
+				return
+			}
+			if hasOp {
+				errorResponse(c, http.StatusBadRequest,
+					"Instansi ini sudah memiliki operator. Satu sekolah hanya dapat memiliki satu operator.")
+				return
+			}
 		}
 
 		roleStr := models.SerializeRoles(filteredRoles)
@@ -616,21 +796,34 @@ func CreateUser() gin.HandlerFunc {
 		}
 
 		maxExams := body.MaxExams
-		if maxExams <= 0 {
-			maxExams = defaultMaxExams
-		}
-
 		maxPDFSize := int(body.MaxPDFSizeMB * 1024 * 1024)
-		if maxPDFSize <= 0 {
-			maxPDFSize = defaultMaxPDFSize
-		}
-
 		maxConcurrentExams := body.MaxConcurrentExams
-		if maxConcurrentExams <= 0 {
-			maxConcurrentExams = defaultMaxConcurrentExams
-		}
-
 		maxStorageSize := int64(body.MaxStorageSizeMB * 1024 * 1024)
+		if isOp {
+			// Sub-account quota policy: the per-account quota columns of an
+			// operator-created account are FORCED to the free defaults (see
+			// subAccountFree* constants), regardless of the request body. The
+			// sub-account's real limits come from the school pool while the
+			// operator's package is active; these columns are only a fallback
+			// for the no-pool state (shared "personal" bucket, legacy school),
+			// and there they must stay at free tier — a tampered request must
+			// never grant a sub-account a bigger per-account quota than the
+			// free defaults (e.g. storage 0 = unlimited, or limits above the
+			// free row). Mirrors the forced package='free' below.
+			maxExams, maxPDFSize, maxConcurrentExams, maxStorageSize =
+				subAccountFreeMaxExams, subAccountFreeMaxPDFSize,
+				subAccountFreeMaxConcurrentExams, subAccountFreeMaxStorageSize
+		} else {
+			if maxExams <= 0 {
+				maxExams = defaultMaxExams
+			}
+			if maxPDFSize <= 0 {
+				maxPDFSize = defaultMaxPDFSize
+			}
+			if maxConcurrentExams <= 0 {
+				maxConcurrentExams = defaultMaxConcurrentExams
+			}
+		}
 
 		// Sub-account package policy: an operator may never choose the
 		// subscription package of the accounts it creates. Accounts created by
@@ -686,6 +879,15 @@ func CreateUser() gin.HandlerFunc {
 			created, err = models.CreateUser(ctx, pool, user)
 		}
 		if err != nil {
+			// A racing duplicate (concurrent same-username/email request that
+			// passed the pre-tx checks) lands here as a constraint violation;
+			// answer with the same friendly 400 as the sequential duplicate
+			// instead of a raw 500. On the operator path the deferred rollback
+			// releases the advisory/row locks, so the next create proceeds.
+			if msg := uniqueViolationMessage(err); msg != "" {
+				errorResponse(c, http.StatusBadRequest, msg)
+				return
+			}
 			log.Printf("create user error: %v", err)
 			errorResponse(c, http.StatusInternalServerError, "Gagal membuat user")
 			return
@@ -706,9 +908,16 @@ func CreateUser() gin.HandlerFunc {
 		// lifecycle audit): WHO created WHICH account, with the new account's
 		// identity snapshotted in detail. Written after commit; best-effort.
 		// examID = 0 → NULL (this is not an exam action).
+		// The detail marks accounts created BY an operator as sub-accounts, so
+		// the trail distinguishes them from SuperAdmin-created / self-
+		// registered accounts at a glance (the actor username alone would
+		// require knowing who is an operator).
+		createdDetail := fmt.Sprintf("Akun dibuat: %s (%s), role %s", created.Username, created.Name, created.Role)
+		if isOp {
+			createdDetail += " (sub-akun, dibuat operator)"
+		}
 		if aErr := models.CreateAdminAuditLog(ctx, pool, userID, getCurrentUsername(c),
-			models.ActionUserCreated, 0,
-			fmt.Sprintf("Akun dibuat: %s (%s), role %s", created.Username, created.Name, created.Role)); aErr != nil {
+			models.ActionUserCreated, 0, createdDetail); aErr != nil {
 			log.Printf("audit user created: %v", aErr)
 		}
 
@@ -965,6 +1174,24 @@ func EditUser() gin.HandlerFunc {
 				}
 			}
 			if len(filtered) > 0 {
+				// One-operator-per-school policy: granting the operator role to a
+				// target who does not hold it yet, in a school that already has
+				// an operator, would create a second. Rejected before the UPDATE;
+				// the target's own current role (already an operator) and the
+				// shared "personal" bucket are never blocked.
+				if containsRole(filtered, models.RoleOperator) && !models.HasRole(targetUser.Role, models.RoleOperator) {
+					hasOp, opErr := schoolAlreadyHasOperator(ctx, pool, targetUser.Instansi, targetID)
+					if opErr != nil {
+						log.Printf("edit user: one-operator-per-school check error: %v", opErr)
+						errorResponse(c, http.StatusInternalServerError, "Gagal memperbarui user")
+						return
+					}
+					if hasOp {
+						errorResponse(c, http.StatusBadRequest,
+							"Instansi ini sudah memiliki operator. Satu sekolah hanya dapat memiliki satu operator.")
+						return
+					}
+				}
 				updates["role"] = models.SerializeRoles(filtered)
 				// Keep base_role in sync so admin-granted roles survive package
 				// switches: base = (new roles minus whatever the current package
@@ -1477,6 +1704,47 @@ func DeleteUser() gin.HandlerFunc {
 			log.Printf("delete user audit names query error: %v", err)
 		}
 
+		// Append-only audit trail for the ACCOUNT deletion itself: one
+		// user_deleted row per account the delete removes — the target plus,
+		// when the target is an operator with a real instansi, every
+		// sub-account sharing that instansi (the exact set models.DeleteUser
+		// cascades). Written BEFORE the rows are deleted so user_id survives
+		// via ON DELETE SET NULL with the identity snapshotted in detail;
+		// attributed to the ACTING admin. Best-effort: a failed audit row
+		// never blocks the delete.
+		userAuditQuery := `SELECT id, username, COALESCE(role, ''), COALESCE(name, '') FROM admin_users WHERE id = $1`
+		userAuditArgs := []interface{}{targetID}
+		cascadeAudit := false
+		if targetUser.HasRole(models.RoleOperator) && targetUser.Instansi != "" {
+			userAuditQuery = `SELECT id, username, COALESCE(role, ''), COALESCE(name, '')
+			                  FROM admin_users
+			                  WHERE id = $1 OR (instansi = $2 AND id != $1)`
+			userAuditArgs = append(userAuditArgs, targetUser.Instansi)
+			cascadeAudit = true
+		}
+		if auditUsers, err := pool.Query(ctx, userAuditQuery, userAuditArgs...); err == nil {
+			for auditUsers.Next() {
+				var uid int
+				var uname, urole, uname2 string
+				if err := auditUsers.Scan(&uid, &uname, &urole, &uname2); err == nil {
+					detail := fmt.Sprintf("Akun dihapus: %s (%s), role %s", uname, uname2, urole)
+					if cascadeAudit && uid != targetID {
+						detail += fmt.Sprintf(" — ikut terhapus dengan operator (instansi %s)", targetUser.Instansi)
+					}
+					if err := models.CreateAdminAuditLog(ctx, pool, userID, getCurrentUsername(c),
+						models.ActionUserDeleted, 0, detail); err != nil {
+						log.Printf("audit user deleted: %v", err)
+					}
+				}
+			}
+			if err := auditUsers.Err(); err != nil {
+				log.Printf("delete user audit identities iteration error: %v", err)
+			}
+			auditUsers.Close()
+		} else {
+			log.Printf("delete user audit identities query error: %v", err)
+		}
+
 		paths, err := models.DeleteUser(ctx, pool, targetID)
 		if err != nil {
 			log.Printf("delete user error: %v", err)
@@ -1556,6 +1824,24 @@ func UpdateInstansi() gin.HandlerFunc {
 		if err != nil {
 			errorResponse(c, http.StatusNotFound, "Pengguna tidak ditemukan")
 			return
+		}
+
+		// One-operator-per-school policy: an operator claiming a school that
+		// already has ANOTHER operator would create a second operator in that
+		// school. Rejected before the claim (the user's own school rename is
+		// excluded via userID, and gurus joining a school are never affected).
+		if user.IsOperator() {
+			hasOp, opErr := schoolAlreadyHasOperator(ctx, pool, newInstansi, userID)
+			if opErr != nil {
+				log.Printf("update instansi: one-operator-per-school check error: %v", opErr)
+				errorResponse(c, http.StatusInternalServerError, "Gagal memperbarui instansi")
+				return
+			}
+			if hasOp {
+				errorResponse(c, http.StatusBadRequest,
+					"Instansi ini sudah memiliki operator. Satu sekolah hanya dapat memiliki satu operator.")
+				return
+			}
 		}
 
 		// If user already has instansi_id, update name across all linked users

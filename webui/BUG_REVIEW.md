@@ -302,6 +302,21 @@ Review kelima temuan di alur ujian siswa (submit → approval → PDF → hasil)
 
 ---
 
+## ✅ KEBIJAKAN SATU OPERATOR PER SEKOLAH (15 Agustus 2026)
+
+Audit alur redeem/aktivasi voucher operator: apakah satu sekolah bisa punya banyak operator dan apa dampaknya ke kuota. **Keputusan kebijakan: satu sekolah = satu operator**, kini di-enforce di seluruh jalur pemberian role Operator (`go build`, `go vet`, `go test ./...` seluruh repo lolos dengan `TEST_DATABASE_URL`). Catatan lengkap di [README.md → Kebijakan Satu Operator per Sekolah](../README.md#kebijakan-satu-operator-per-sekolah).
+
+### A. Temuan audit (sebelum kebijakan)
+- **Satu sekolah bisa punya banyak operator** lewat 3 jalur yang tidak dijaga: (1) guru kedua menukar kode voucher sekolah yang sama (cek `existingCount` hanya per `(voucher_id, user_id)`), (2) SuperAdmin membuat operator kedua via CreateUser/EditUser, (3) guru ber-paket sekolah tanpa role menukar voucher sekolah.
+- **Dampak kuota:** (a) school pool memakai `MAX()` atas redemption aktif operator se-instansi → satu operator ber-paket besar menaikkan pool seluruh sekolah (by design, "never-surprising fallback"); (b) kuota `max_users` school-wide ikut terbagi — operator lain menghabiskan slot sub-akun; (c) 🔴 **BUG nyata: cascade suspend tidak sadar multi-operator** — `syncInstansiWithOperatorRole` (dipicu tiap redeem/aktivasi/fallback expiry saat role Operator hilang) menyuspend **seluruh** akun non-operator di instansi, sehingga salah satu dari dua operator yang turun paket membekukan seluruh sub-akun sekolah padahal operator lain masih menjalankan paket aktif. (Bug cascade ini sudah diperbaiki: cascade dilewati selama masih ada operator riil lain — `NOT operator_created` + role Operator + redemption aktif — yang menutupi sekolah.)
+
+### B. Kebijakan dan guard
+- Helper bersama `schoolAlreadyHasOperator` (`internal/handlers/admin/entitlement.go`): sebuah instansi sekolah nyata dianggap "sudah punya operator" bila ada akun **bukan** hasil buatan operator (`operator_created = false`) ber-role Operator di instansi tersebut (aktor yang bertindak dikecualikan agar renew operator sendiri tetap bisa; bucket `"personal"` bukan sekolah; akun sub legacy ber-role Operator sendiri **tidak** memblokir).
+- Kelima jalur memanggil helper yang sama dan menolak **400** "Instansi ini sudah memiliki operator. Satu sekolah hanya dapat memiliki satu operator.": `RedeemVoucherHandler` (di dalam transaksi, di bawah row lock yang sama dengan snapshot), `ActivateVoucherHandler`, `CreateUser` oleh SuperAdmin, `EditUser`, dan `UpdateInstansi` (klaim sekolah dari bucket personal).
+- Test: `TestOneOperatorPerSchoolPolicy` (`operator_user_flow_test.go`, 9 sub-tes) mengunci kelima jalur ditolak + kasus yang tetap lolos (renew operator sendiri, sekolah tanpa operator, bucket personal, akun sub ber-role operator tidak memblokir). Test legacy yang membuat operator kedua lewat API diubah menjadi menanam state langsung ke DB (state pra-kebijakan).
+
+---
+
 ## ✅ Ditolak setelah verifikasi (bukan bug)
 - CSRF `!=` non-constant-time — token adalah milik sesi caller sendiri, tak ada oracle. (`csrf.go:81`)
 - "Race duplikat pending DOKU" — sudah ada unique index parsial `idx_transactions_pending_doku_unique`. (`schema.sql:261`)

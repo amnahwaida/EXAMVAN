@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"net/http"
+	"net/url"
 	"strconv"
 	"strings"
 	"sync"
@@ -11,6 +12,8 @@ import (
 	"time"
 
 	"github.com/examvan/webui/internal/models"
+	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 )
 
 // ---------------------------------------------------------------------------
@@ -184,7 +187,7 @@ func TestCreateUserQuotaAtomicUnderConcurrency(t *testing.T) {
 	tc := newVoucherTestClient(t, pool)
 	tc.login(t, op.ID)
 	tc.redeem(t, "IT-SEKOLAH")
-	if gotMax, gotUsed := loadOperatorAccountQuota(ctx, pool, op.ID, true, op.Instansi); gotMax != 2 || gotUsed != 0 {
+	if gotMax, gotUsed, _ := loadOperatorAccountQuota(ctx, pool, op.ID, true, op.Instansi); gotMax != 2 || gotUsed != 0 {
 		t.Fatalf("fixture: quota after redeem = (%d,%d), want (2,0)", gotMax, gotUsed)
 	}
 
@@ -299,8 +302,17 @@ func TestVerifyUserCannotActOnOperatorPeer(t *testing.T) {
 	// opA needs the operator role to act; the school voucher grants it.
 	createSchoolVoucher(t, pool)
 
-	// Two operators in the SAME instansi: one acts, one is the pending target.
+	// opA becomes the school's FIRST (and only) operator via the real redeem
+	// path — the one-operator-per-school policy requires the redeem to happen
+	// before any peer operator exists.
 	opA := createOperatorUser(t, pool, "op-verify-a", "SMK Verify", "pass-op-verify-a")
+	tc := newVoucherTestClient(t, pool)
+	tc.login(t, opA.ID)
+	tc.redeem(t, "IT-SEKOLAH")
+
+	// Two more accounts in the SAME instansi: a peer operator (planted
+	// directly — a second operator can no longer be created via the app) and
+	// a pending guru. Both start pending_otp so the verify flow is exercised.
 	opB, err := models.CreateUser(ctx, pool, &models.AdminUser{
 		Username: "op-verify-b", Name: "Op Verify B",
 		PasswordHash: "pass-op-verify-b", Status: models.UserStatusPendingOTP,
@@ -323,13 +335,6 @@ func TestVerifyUserCannotActOnOperatorPeer(t *testing.T) {
 	if err != nil {
 		t.Fatalf("create pending guru: %v", err)
 	}
-
-	tc := newVoucherTestClient(t, pool)
-	tc.login(t, opA.ID)
-	// opA gains the operator role by redeeming the school voucher (the same
-	// grant real operators hold) — without it the actor is a plain guru and
-	// the peer-target guard would not apply.
-	tc.redeem(t, "IT-SEKOLAH")
 
 	// Peer operator target → 400, status untouched.
 	status2, resp2 := postJSON(t, tc.client, tc.srv, "/api/users/"+strconv.Itoa(opB.ID)+"/verify", map[string]interface{}{})
@@ -355,7 +360,7 @@ func TestVerifyUserCannotActOnOperatorPeer(t *testing.T) {
 // TestCreateUserInheritsInstansiIdentity locks in the school-identity
 // inheritance of operator-created sub-accounts: instansi_id and instansi_code
 // are copied from the operator INSIDE the same INSERT that creates the
-// account. A NULL operator code is inherited as raw NULL — never the ''
+// account. A NULL operator code is inherited as raw NULL — never the ”
 // interpolation that used to drift from the school's canonical "unset"
 // representation.
 func TestCreateUserInheritsInstansiIdentity(t *testing.T) {
@@ -512,12 +517,12 @@ func TestUserCreateEditAudited(t *testing.T) {
 	// UNLIMITED (fail-open), so pin a real quota: one existing account in the
 	// instansi + max_users = 1 → used(1) >= max(1) → rejection.
 	if _, err := models.CreateUser(ctx, pool, &models.AdminUser{
-		Username: "filler-audit",
+		Username:     "filler-audit",
 		PasswordHash: "pass-filler-audit",
-		Status:   models.UserStatusActive,
-		Instansi: "SMK Audit",
-		Role:     models.SerializeRoles([]string{models.RoleGuru}),
-		MaxExams: 3, MaxPDFSize: 1048576, MaxConcurrentExams: 2,
+		Status:       models.UserStatusActive,
+		Instansi:     "SMK Audit",
+		Role:         models.SerializeRoles([]string{models.RoleGuru}),
+		MaxExams:     3, MaxPDFSize: 1048576, MaxConcurrentExams: 2,
 		MaxStorageSize: 50 * 1024 * 1024, Package: "free",
 	}); err != nil {
 		t.Fatalf("create filler-audit: %v", err)
@@ -557,6 +562,12 @@ func TestUserCreateEditAudited(t *testing.T) {
 	if !strings.Contains(detail, "sub-audit-ok") || !strings.Contains(detail, "guru") {
 		t.Errorf("user_created audit detail = %q, want the new account's username and role", detail)
 	}
+	// An operator-created account is marked as a sub-account in the detail,
+	// so the trail distinguishes it from SuperAdmin-created / self-registered
+	// accounts at a glance.
+	if !strings.Contains(detail, "sub-akun, dibuat operator") {
+		t.Errorf("user_created audit detail = %q, want the sub-account marker", detail)
+	}
 	if examID != nil {
 		t.Errorf("user_created audit exam_id = %v, want NULL (no exam involved)", examID)
 	}
@@ -574,4 +585,853 @@ func TestUserCreateEditAudited(t *testing.T) {
 	if !strings.Contains(detail, "name") {
 		t.Errorf("user_edited audit detail = %q, want the changed field listed", detail)
 	}
+}
+
+// TestUserDeleteAudited locks in the user_deleted audit trail: every
+// successful account DELETE by an admin/operator appends an immutable
+// admin_audit_logs row per removed account (exam_id NULL), with the acting
+// username snapshotted. When the target is an operator with a real instansi,
+// ONE row is written for the operator AND every sub-account the cascade
+// removes, so the school-wide wipe leaves a complete trail. A rejected delete
+// (target in another instansi) must NOT leak an audit row.
+func TestUserDeleteAudited(t *testing.T) {
+	pool := setupVoucherITDB(t)
+	ctx := context.Background()
+
+	createSchoolVoucher(t, pool)
+	op := createOperatorUser(t, pool, "op-del-audit", "SMK Del Audit", "pass-op-del-audit")
+	tc := newVoucherTestClient(t, pool)
+	tc.login(t, op.ID)
+	tc.redeem(t, "IT-SEKOLAH")
+
+	countAudit := func(action string) int {
+		var n int
+		if err := pool.QueryRow(ctx,
+			`SELECT COUNT(*) FROM admin_audit_logs WHERE action = $1`, action).Scan(&n); err != nil {
+			t.Fatalf("count audit %s: %v", action, err)
+		}
+		return n
+	}
+
+	// Operator creates two sub-accounts (user_created rows, quota 2).
+	if status, resp := tc.createUser(t, "sub-del-1"); status != http.StatusOK || !resp.Success {
+		t.Fatalf("create sub-del-1: status=%d resp=%+v", status, resp)
+	}
+	if status, resp := tc.createUser(t, "sub-del-2"); status != http.StatusOK || !resp.Success {
+		t.Fatalf("create sub-del-2: status=%d resp=%+v", status, resp)
+	}
+	sub1 := mustGetUser(t, pool, "sub-del-1")
+	sub2 := mustGetUser(t, pool, "sub-del-2")
+
+	// (a) Operator deletes its OWN sub-account → one user_deleted row, actor
+	//     = operator, detail snapshots username + role, exam_id NULL.
+	if status, resp := postJSON(t, tc.client, tc.srv, "/api/users/"+strconv.Itoa(sub1.ID)+"/delete", nil); status != http.StatusOK || !resp.Success {
+		t.Fatalf("operator delete sub-del-1: status=%d resp=%+v", status, resp)
+	}
+	if n := countAudit(models.ActionUserDeleted); n != 1 {
+		t.Fatalf("user_deleted rows after operator delete = %d, want 1", n)
+	}
+	var actor, detail string
+	var examID *int
+	if err := pool.QueryRow(ctx,
+		`SELECT username, detail, exam_id FROM admin_audit_logs WHERE action = $1 ORDER BY id DESC LIMIT 1`,
+		models.ActionUserDeleted).Scan(&actor, &detail, &examID); err != nil {
+		t.Fatalf("read user_deleted audit row: %v", err)
+	}
+	if actor != "op-del-audit" {
+		t.Errorf("user_deleted audit actor = %q, want the operator's username", actor)
+	}
+	if !strings.Contains(detail, "sub-del-1") || !strings.Contains(detail, "guru") {
+		t.Errorf("user_deleted audit detail = %q, want the deleted account's username and role", detail)
+	}
+	if strings.Contains(detail, "ikut terhapus") {
+		t.Errorf("user_deleted audit detail = %q, must NOT carry the cascade marker for a plain sub delete", detail)
+	}
+	if examID != nil {
+		t.Errorf("user_deleted audit exam_id = %v, want NULL (no exam involved)", examID)
+	}
+
+	// (b) SuperAdmin deletes the OPERATOR → one user_deleted row per account
+	//     the cascade removes: the operator + sub-del-2 (sub-del-1 is already
+	//     gone). Cascade rows carry the marker.
+	root, err := models.CreateUser(ctx, pool, &models.AdminUser{
+		Username: "root-del-audit", Name: "Root Del Audit",
+		PasswordHash: "pass-root-del-audit", Status: models.UserStatusActive,
+		Role: models.SerializeRoles([]string{models.RoleSuperAdmin}),
+	})
+	if err != nil {
+		t.Fatalf("create superadmin: %v", err)
+	}
+	rt := newVoucherTestClient(t, pool)
+	rt.login(t, root.ID)
+	if status, resp := postJSON(t, rt.client, rt.srv, "/api/users/"+strconv.Itoa(op.ID)+"/delete", nil); status != http.StatusOK || !resp.Success {
+		t.Fatalf("superadmin delete operator: status=%d resp=%+v", status, resp)
+	}
+	if n := countAudit(models.ActionUserDeleted); n != 3 { // sub-del-1 + operator + sub-del-2
+		t.Fatalf("user_deleted rows after cascade = %d, want 3 (1 direct + 2 cascade)", n)
+	}
+	var opDetail, subDetail string
+	if err := pool.QueryRow(ctx,
+		`SELECT detail FROM admin_audit_logs WHERE action = $1 AND detail LIKE '%op-del-audit%' ORDER BY id DESC LIMIT 1`,
+		models.ActionUserDeleted).Scan(&opDetail); err != nil {
+		t.Fatalf("read operator user_deleted row: %v", err)
+	}
+	if strings.Contains(opDetail, "ikut terhapus") {
+		t.Errorf("operator's own user_deleted detail = %q, must NOT carry the cascade marker", opDetail)
+	}
+	if err := pool.QueryRow(ctx,
+		`SELECT detail FROM admin_audit_logs WHERE action = $1 AND detail LIKE '%sub-del-2%' ORDER BY id DESC LIMIT 1`,
+		models.ActionUserDeleted).Scan(&subDetail); err != nil {
+		t.Fatalf("read cascade sub user_deleted row: %v", err)
+	}
+	if !strings.Contains(subDetail, "sub-del-2") || !strings.Contains(subDetail, "ikut terhapus dengan operator") {
+		t.Errorf("cascade sub user_deleted detail = %q, want username + cascade marker", subDetail)
+	}
+	if _, err := models.GetUserByID(ctx, pool, sub2.ID); err == nil {
+		t.Error("sub-del-2 must be gone after the operator cascade delete")
+	}
+
+	// (c) A rejected delete (operator targets an account in ANOTHER instansi)
+	//     writes NO user_deleted row. Create a third operator (own school
+	//     voucher, so it holds the operator role) and a sub-account in a
+	//     different school, then try the cross-instansi delete.
+	createSchoolVoucherCode(t, pool, "IT-SEKOLAH-3")
+	opThird := createOperatorUser(t, pool, "op-third-school", "SMK Ketiga", "pass-op-third")
+	thirdTc := newVoucherTestClient(t, pool)
+	thirdTc.login(t, opThird.ID)
+	thirdTc.redeem(t, "IT-SEKOLAH-3")
+	if _, err := models.CreateUser(ctx, pool, &models.AdminUser{
+		Username: "sub-other", Name: "Sub Other",
+		PasswordHash: "pass-sub-other", Status: models.UserStatusActive,
+		Instansi: "SMK Lain",
+		Role:     models.SerializeRoles([]string{models.RoleGuru}),
+		MaxExams: 3, MaxPDFSize: 1048576, MaxConcurrentExams: 2,
+		MaxStorageSize: 50 * 1024 * 1024, Package: "free",
+		OperatorCreated: true, CreatedBy: &opThird.ID,
+	}); err != nil {
+		t.Fatalf("create sub-other: %v", err)
+	}
+	otherSub := mustGetUser(t, pool, "sub-other")
+	before := countAudit(models.ActionUserDeleted)
+	if status, resp := postJSON(t, thirdTc.client, thirdTc.srv, "/api/users/"+strconv.Itoa(otherSub.ID)+"/delete", nil); status != http.StatusBadRequest {
+		t.Fatalf("cross-instansi delete: status=%d resp=%+v, want 400", status, resp)
+	}
+	if after := countAudit(models.ActionUserDeleted); after != before {
+		t.Errorf("user_deleted rows after rejected delete = %d, want %d (no audit leak)", after, before)
+	}
+}
+
+// TestOperatorAccountQuotaFailClosed locks in the fail-closed rule: a REAL
+// database error while reading the sub-account quota must surface as an error
+// (never as a silent unlimited 0), so the CreateUser enforcement rejects the
+// request instead of letting the operator create unlimited accounts on a
+// transient glitch. The legitimate "no active redemption" outcome (ErrNoRows)
+// still falls back to package_settings.
+func TestOperatorAccountQuotaFailClosed(t *testing.T) {
+	ctx := context.Background()
+
+	// (a) A real DB error on the redemption query → error returned, never 0.
+	if _, _, err := loadOperatorAccountQuota(ctx, &stagedQuerier{err: fmt.Errorf("simulated connection drop")}, 1, true, "SMK X"); err == nil {
+		t.Error("loadOperatorAccountQuota(real DB error) = nil, want a fail-closed error")
+	}
+
+	// (b) A real DB error on the package_settings fallback (after the
+	// redemption read returns ErrNoRows) → error returned, never 0.
+	errQuerier := &stagedQuerier{firstErr: pgx.ErrNoRows, err: fmt.Errorf("simulated connection drop")}
+	if _, _, err := loadOperatorAccountQuota(ctx, errQuerier, 1, true, "SMK X"); err == nil {
+		t.Error("loadOperatorAccountQuota(fallback DB error) = nil, want a fail-closed error")
+	}
+
+	// (c) The legitimate "no active redemption" outcome (ErrNoRows on the
+	// redemption query) falls back to package_settings WITHOUT an error — the
+	// fail-closed rule must not break the legacy fallback path. The staged
+	// querier returns ErrNoRows on both queries, so the fallback itself
+	// yields the ErrNoRows → 0 (unlimited) anomaly handling, not an error.
+	noRowsQuerier := &stagedQuerier{err: pgx.ErrNoRows}
+	maxUsers, used, err := loadOperatorAccountQuota(ctx, noRowsQuerier, 1, true, "SMK X")
+	if err != nil {
+		t.Errorf("loadOperatorAccountQuota(ErrNoRows) = err %v, want nil (legacy fallback still works)", err)
+	}
+	if maxUsers != 0 || used != 0 {
+		t.Errorf("loadOperatorAccountQuota(ErrNoRows) = (%d,%d), want (0,0) — no package row → unlimited", maxUsers, used)
+	}
+}
+
+// stagedQuerier returns a programmable error for the FIRST QueryRow and
+// pgx.ErrNoRows for later ones (or vice versa via err), so tests can exercise
+// the redemption-query vs package-fallback branches of
+// loadOperatorAccountQuota deterministically.
+type stagedQuerier struct {
+	firstErr error
+	err      error
+	calls    int
+}
+
+func (q *stagedQuerier) QueryRow(context.Context, string, ...any) pgx.Row {
+	q.calls++
+	if q.calls == 1 && q.firstErr != nil {
+		return errRow{err: q.firstErr}
+	}
+	return errRow{err: q.err}
+}
+
+type errRow struct{ err error }
+
+func (r errRow) Scan(dest ...any) error {
+	if r.err != nil {
+		return r.err
+	}
+	return fmt.Errorf("simulated connection drop")
+}
+
+// TestOperatorCreateEmptyInstansiFailClosed locks in the empty-instansi guard:
+// an operator whose DB row has an EMPTY instansi (anomalous data — a healthy
+// operator always has "personal" or a real school) must NOT be able to create
+// accounts. Without the guard, the quota check was skipped (instansi == ""
+// short-circuits loadOperatorAccountQuota to 0,0 = unlimited) and the account
+// silently landed in the shared "personal" bucket outside the school quota.
+func TestOperatorCreateEmptyInstansiFailClosed(t *testing.T) {
+	pool := setupVoucherITDB(t)
+	ctx := context.Background()
+
+	op, err := models.CreateUser(ctx, pool, &models.AdminUser{
+		Username: "op-empty-inst", Name: "Op Empty Inst",
+		PasswordHash: "pass-op-empty", Status: models.UserStatusActive,
+		Instansi: "", // anomalous — no instansi at all
+		Role:     models.SerializeRoles([]string{models.RoleGuru}),
+		MaxExams: 3, MaxPDFSize: 1048576, MaxConcurrentExams: 2,
+		MaxStorageSize: 50 * 1024 * 1024, Package: "free",
+	})
+	if err != nil {
+		t.Fatalf("create empty-instansi operator: %v", err)
+	}
+
+	// Promote to operator role so the create path treats it as an operator.
+	if _, err := pool.Exec(ctx,
+		`UPDATE admin_users SET role = $1 WHERE id = $2`,
+		models.SerializeRoles([]string{models.RoleGuru, models.RoleOperator}), op.ID); err != nil {
+		t.Fatalf("promote to operator: %v", err)
+	}
+
+	tc := newVoucherTestClient(t, pool)
+	tc.login(t, op.ID)
+
+	// The handler must fail CLOSED (500), never create into "personal".
+	status, resp := tc.createUser(t, "sub-empty-inst")
+	if status != http.StatusInternalServerError {
+		t.Fatalf("create as empty-instansi operator: status=%d resp=%+v, want 500 fail-closed", status, resp)
+	}
+	if _, err := models.GetUserByUsername(ctx, pool, "sub-empty-inst"); err == nil {
+		t.Error("sub-empty-inst must NOT exist — the create must have aborted")
+	}
+}
+
+// TestSubAccountQuotaForcedFreeDefaults locks in the sub-account quota
+// policy: the per-account quota columns of an operator-created account are
+// FORCED to the free defaults (3 exams / 1 MB PDF / 2 concurrent / 50 MB
+// storage — the same values a fresh self-registered account carries) no
+// matter what the create request sends. A hand-crafted request posting huge
+// values (99 concurrent, 20 MB PDF, 200 MB storage) must not be able to grant
+// a sub-account a bigger per-account quota than the free tier: those columns
+// are the ONLY gate when the school pool is inactive (shared "personal"
+// bucket, legacy school without an active redemption), and there they must
+// stay at the free defaults. The billing page relies on the same contract
+// (it shows the school pool for pool-active sub-accounts and the free
+// defaults otherwise).
+func TestSubAccountQuotaForcedFreeDefaults(t *testing.T) {
+	pool := setupVoucherITDB(t)
+
+	createSchoolVoucher(t, pool)
+	op := createOperatorUser(t, pool, "op-forced-quota", "SMK Forced Quota", "pass-op-forced")
+	tc := newVoucherTestClient(t, pool)
+	tc.login(t, op.ID)
+	tc.redeem(t, "IT-SEKOLAH")
+
+	// Tampered create: per-account values far above the free defaults (kept
+	// below the global upload cap and any plausible free-disk cap so the
+	// request passes the pre-tx validators and reaches the operator path).
+	status, resp := postJSON(t, tc.client, tc.srv, "/api/users", map[string]interface{}{
+		"username":             "sub-tampered",
+		"password":             "pass-sub-tampered",
+		"name":                 "Sub Tampered",
+		"roles":                []string{models.RoleGuru},
+		"max_exams":            99,
+		"max_concurrent_exams": 99,
+		"max_pdf_size_mb":      20.0,
+		"max_storage_size_mb":  200.0,
+	})
+	if status != http.StatusOK || !resp.Success {
+		t.Fatalf("create sub-tampered: status=%d resp=%+v", status, resp)
+	}
+	sub := mustGetUser(t, pool, "sub-tampered")
+	if sub.Package != "free" || sub.MaxExams != 3 || sub.MaxPDFSize != 1048576 ||
+		sub.MaxConcurrentExams != 2 || sub.MaxStorageSize != 50*1024*1024 {
+		t.Fatalf("sub-tampered row must hold the forced free defaults, got package=%q exams=%d pdf=%d concurrent=%d storage=%d",
+			sub.Package, sub.MaxExams, sub.MaxPDFSize, sub.MaxConcurrentExams, sub.MaxStorageSize)
+	}
+}
+
+// TestSecondOperatorSchoolQuotaShared locks in the school-wide quota for a
+// real school instansi: the sub-account cap comes from the SCHOOL's operators
+// (the active redemption(s) of the instansi, MAXed like schoolPoolQuota
+// ForInstansi), NOT from the acting operator's own redemption. Before this
+// rule, a SECOND operator of the same school WITHOUT an active redemption
+// fell back to its own package label (free → 0 = unlimited) and could create
+// accounts past the school's max_users. Here opA holds the active school
+// package (2 accounts) and opB is a redemption-less co-operator: opB must be
+// capped by the same school quota — it may not create once the school is at
+// its cap.
+func TestSecondOperatorSchoolQuotaShared(t *testing.T) {
+	pool := setupVoucherITDB(t)
+	ctx := context.Background()
+
+	createSchoolVoucher(t, pool) // max_users = 2
+	opA := createOperatorUser(t, pool, "op-quota-a", "SMK Shared Quota", "pass-op-quota-a")
+	tcA := newVoucherTestClient(t, pool)
+	tcA.login(t, opA.ID)
+	// opA must redeem FIRST — the one-operator-per-school policy blocks a
+	// redeem while a peer operator already exists in the school.
+	tcA.redeem(t, "IT-SEKOLAH")
+
+	// opB: a second operator of the same school, planted directly (a
+	// pre-policy state — the app now blocks creating one). No active
+	// redemption, free package label.
+	opB, err := models.CreateUser(ctx, pool, &models.AdminUser{
+		Username: "op-quota-b", Name: "Op Quota B",
+		PasswordHash: "pass-op-quota-b", Status: models.UserStatusActive,
+		Instansi: "SMK Shared Quota", // same school as opA
+		Role:     models.SerializeRoles([]string{models.RoleGuru, models.RoleOperator}),
+		MaxExams: 3, MaxPDFSize: 1048576, MaxConcurrentExams: 2,
+		MaxStorageSize: 50 * 1024 * 1024, Package: "free", // no redemption, free label
+	})
+	if err != nil {
+		t.Fatalf("create co-operator op-quota-b: %v", err)
+	}
+
+	// opB occupies one slot of the school's 2-account quota (the count is
+	// every account in the instansi except the acting operator), so opA can
+	// create exactly one sub-account before the school is at its cap.
+	if status, resp := tcA.createUser(t, "sub-shared-1"); status != http.StatusOK || !resp.Success {
+		t.Fatalf("opA create sub-shared-1: status=%d resp=%+v", status, resp)
+	}
+
+	// opB (no active redemption) must be bound by the SAME school cap: with
+	// the school at max_users, its create is rejected. Before the school-wide
+	// rule it fell back to its free package label (0 = unlimited) and sailed
+	// through.
+	tcB := newVoucherTestClient(t, pool)
+	tcB.login(t, opB.ID)
+	if status, resp := tcB.createUser(t, "sub-shared-2"); status != http.StatusBadRequest || !strings.Contains(resp.Message, "Kuota akun") {
+		t.Fatalf("opB create at school cap: status=%d resp=%+v, want 400 quota rejection", status, resp)
+	}
+	if _, err := models.GetUserByUsername(ctx, pool, "sub-shared-2"); err == nil {
+		t.Error("sub-shared-2 must NOT exist — the second operator bypassed the school quota")
+	}
+
+	// And opA itself is equally capped now: a third create is rejected too.
+	if status, resp := tcA.createUser(t, "sub-shared-3"); status != http.StatusBadRequest || !strings.Contains(resp.Message, "Kuota akun") {
+		t.Fatalf("opA create at school cap: status=%d resp=%+v, want 400 quota rejection", status, resp)
+	}
+}
+
+// TestConcurrentCreateAcrossOperatorsSameSchool locks in the cross-operator
+// serialization of the sub-account quota: concurrent creates by DIFFERENT
+// operators of the same school must never overshoot the shared max_users.
+// Each operator's FOR UPDATE row lock alone only serializes same-operator
+// creates — two operators could both count the school's free slots and both
+// insert. The create transaction therefore also takes a transaction-scoped
+// advisory lock keyed on the instansi, so ALL of the school's creates
+// serialize on one counter. 8 concurrent creates (4 via opA, 4 via opB)
+// against a 2-account school (with opB occupying one slot) must yield exactly
+// one new account.
+func TestConcurrentCreateAcrossOperatorsSameSchool(t *testing.T) {
+	pool := setupVoucherITDB(t)
+
+	createSchoolVoucher(t, pool) // max_users = 2
+	opA := createOperatorUser(t, pool, "op-race-a", "SMK Cross Race", "pass-op-race-a")
+	tcA := newVoucherTestClient(t, pool)
+	tcA.login(t, opA.ID)
+	// opA must redeem FIRST — the one-operator-per-school policy blocks a
+	// redeem while a peer operator already exists in the school.
+	tcA.redeem(t, "IT-SEKOLAH")
+
+	// opB: a second operator of the same school, planted directly (pre-
+	// policy state — the app now blocks creating one).
+	opB, err := models.CreateUser(context.Background(), pool, &models.AdminUser{
+		Username: "op-race-b", Name: "Op Race B",
+		PasswordHash: "pass-op-race-b", Status: models.UserStatusActive,
+		Instansi: "SMK Cross Race",
+		Role:     models.SerializeRoles([]string{models.RoleGuru, models.RoleOperator}),
+		MaxExams: 3, MaxPDFSize: 1048576, MaxConcurrentExams: 2,
+		MaxStorageSize: 50 * 1024 * 1024, Package: "free",
+	})
+	if err != nil {
+		t.Fatalf("create co-operator op-race-b: %v", err)
+	}
+	tcB := newVoucherTestClient(t, pool)
+	tcB.login(t, opB.ID)
+
+	const attempts = 8 // 4 per operator, far above the 1 free slot (2 - opB)
+	var wg sync.WaitGroup
+	created := 0
+	var mu sync.Mutex
+	for i := 0; i < attempts; i++ {
+		wg.Add(1)
+		go func(i int) {
+			defer wg.Done()
+			tc := tcA
+			if i%2 == 1 {
+				tc = tcB
+			}
+			status, resp := tc.createUser(t, fmt.Sprintf("xrace%d", i))
+			if status == http.StatusOK && resp.Success {
+				mu.Lock()
+				created++
+				mu.Unlock()
+				return
+			}
+			if status != http.StatusBadRequest || !strings.Contains(resp.Message, "Kuota akun") {
+				t.Errorf("create %d: status=%d resp=%+v, want 200 or the quota 400", i, status, resp)
+			}
+		}(i)
+	}
+	wg.Wait()
+
+	if created != 1 {
+		t.Errorf("cross-operator concurrent creates: %d succeeded, want exactly 1 (school at 2/2 with opB counted) — the shared quota raced", created)
+	}
+	var total int64
+	if err := pool.QueryRow(context.Background(), `SELECT COUNT(*) FROM admin_users WHERE username LIKE 'xrace%'`).Scan(&total); err != nil {
+		t.Fatalf("count cross-race accounts: %v", err)
+	}
+	if total != 1 {
+		t.Errorf("DB has %d xrace* accounts, want exactly 1 (no overshoot across operators)", total)
+	}
+}
+
+// TestUniqueViolationMessage locks in the duplicate-key → friendly-400 mapping
+// used when the admin_users INSERT in CreateUser hits a unique constraint the
+// pre-tx checks raced past (two concurrent requests for the same username /
+// email both pass GetUserByUsername / GetUserByEmail, the loser lands here).
+func TestUniqueViolationMessage(t *testing.T) {
+	cases := []struct {
+		name string
+		err  error
+		want string
+	}{
+		{
+			name: "username duplicate (concurrent create loser)",
+			err:  fmt.Errorf("create user: %w", &pgconn.PgError{Code: "23505", ConstraintName: "admin_users_username_key"}),
+			want: "Username sudah digunakan",
+		},
+		{
+			name: "email duplicate (concurrent create loser)",
+			err:  fmt.Errorf("create user: %w", &pgconn.PgError{Code: "23505", ConstraintName: "uq_admin_users_email"}),
+			want: "Email sudah terdaftar. Gunakan email lain atau biarkan kosong.",
+		},
+		{
+			name: "real DB error is NOT a duplicate",
+			err:  fmt.Errorf("create user: %w", &pgconn.PgError{Code: "08006"}), // connection failure
+			want: "",
+		},
+		{
+			name: "non-PgError is NOT a duplicate",
+			err:  fmt.Errorf("create user: boom"),
+			want: "",
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := uniqueViolationMessage(tc.err); got != tc.want {
+				t.Errorf("uniqueViolationMessage(%v) = %q, want %q", tc.err, got, tc.want)
+			}
+		})
+	}
+}
+
+// TestConcurrentDuplicateCreateFriendly400 locks in the concurrent-duplicate
+// outcome of CreateUser: when two requests race for the same username (or the
+// same email) and both pass the pre-tx uniqueness checks, the loser must get
+// the SAME friendly 400 as a sequential duplicate — never a raw 500 unique-
+// violation. Two operators in DIFFERENT schools keep the per-instansi
+// advisory lock from serializing them, so the race genuinely reaches the DB
+// constraint (the same username is unique across the whole table).
+func TestConcurrentDuplicateCreateFriendly400(t *testing.T) {
+	pool := setupVoucherITDB(t)
+	ctx := context.Background()
+
+	// School vouchers with UNLIMITED sub-account quota (CustomMaxUsers = 0),
+	// so the ONLY failure mode of the race is the duplicate key — the school
+	// cap must not interfere with counting winners/losers.
+	for _, code := range []string{"IT-SEKOLAH-U1", "IT-SEKOLAH-U2"} {
+		if _, err := models.CreateVoucher(ctx, pool, &models.Voucher{
+			Code: code, Package: "sekolah-test", DurationType: "bulanan",
+			MaxUsage: 1, IsActive: true,
+			IsCustom: true, CustomLabel: "sekolah-test",
+			CustomMaxExams: 3, CustomMaxPDFSize: 50 * 1024 * 1024,
+			CustomMaxConcurrentExams: 3, CustomMaxStorageSize: 500 * 1024 * 1024,
+			CustomMaxUsers: 0, CustomRole: models.SerializeRoles([]string{models.RoleOperator}),
+		}); err != nil {
+			t.Fatalf("create unlimited school voucher %s: %v", code, err)
+		}
+	}
+	opA := createOperatorUser(t, pool, "op-dup-a", "SMK Dup A", "pass-op-dup-a")
+	opB := createOperatorUser(t, pool, "op-dup-b", "SMK Dup B", "pass-op-dup-b")
+	tcA := newVoucherTestClient(t, pool)
+	tcA.login(t, opA.ID)
+	tcA.redeem(t, "IT-SEKOLAH-U1")
+	tcB := newVoucherTestClient(t, pool)
+	tcB.login(t, opB.ID)
+	tcB.redeem(t, "IT-SEKOLAH-U2")
+
+	// (a) Same username, different schools: exactly one may win; every loser
+	//     must see the friendly 400 (pre-check OR constraint path — the same
+	//     message either way).
+	run := func(makePayload func(i int) map[string]interface{}, wantMsg string) (ok, friendly, unexpected int) {
+		t.Helper()
+		const attempts = 8
+		var wg sync.WaitGroup
+		var mu sync.Mutex
+		for i := 0; i < attempts; i++ {
+			wg.Add(1)
+			go func(i int) {
+				defer wg.Done()
+				tc := tcA
+				if i%2 == 1 {
+					tc = tcB
+				}
+				status, resp := postJSON(t, tc.client, tc.srv, "/api/users", makePayload(i))
+				mu.Lock()
+				defer mu.Unlock()
+				switch {
+				case status == http.StatusOK && resp.Success:
+					ok++
+				case status == http.StatusBadRequest && strings.Contains(resp.Message, wantMsg):
+					friendly++
+				default:
+					unexpected++
+					t.Errorf("create attempt %d: status=%d resp=%+v, want 200 or 400 %q", i, status, resp, wantMsg)
+				}
+			}(i)
+		}
+		wg.Wait()
+		return
+	}
+
+	// (a) Same username, different schools: exactly one may win; every loser
+	//     must see the friendly 400 (pre-check OR constraint path — the same
+	//     message either way).
+	ok, friendly, unexpected := run(func(i int) map[string]interface{} {
+		return map[string]interface{}{
+			"username": "dup-user",
+			"password": "pass-dup-user",
+			"name":     "Dup User",
+			"roles":    []string{models.RoleGuru},
+		}
+	}, "Username sudah digunakan")
+	if ok != 1 || friendly != 7 || unexpected != 0 {
+		t.Errorf("same-username race: ok=%d friendly400=%d unexpected=%d, want 1/7/0", ok, friendly, unexpected)
+	}
+
+	// (b) Same email, different (unique) usernames: the unique partial index
+	//     uq_admin_users_email is the only collision — same contract.
+	ok, friendly, unexpected = run(func(i int) map[string]interface{} {
+		return map[string]interface{}{
+			"username": fmt.Sprintf("dup-email-%d", i),
+			"password": "pass-dup-email",
+			"name":     "Dup Email",
+			"roles":    []string{models.RoleGuru},
+			"email":    "dup-race@example.com",
+		}
+	}, "Email sudah terdaftar")
+	if ok != 1 || friendly != 7 || unexpected != 0 {
+		t.Errorf("same-email race: ok=%d friendly400=%d unexpected=%d, want 1/7/0", ok, friendly, unexpected)
+	}
+}
+
+// TestMultiOperatorDowngradeKeepsSchoolAlive locks in the multi-operator
+// behavior of the redeem/activate cascade. The one-operator-per-school policy
+// now blocks the REAL redeem path for a second operator, but a multi-operator
+// school can still exist from legacy/pre-policy rows (planted here directly,
+// mirroring the pre-policy claims), and the school pool deliberately MAXes
+// the operators' active redemptions (schoolPoolQuotaForInstansi). When ONE of
+// them downgrades to a non-school package (redeeming a guru voucher drops the
+// operator role), the school must NOT be torn down while ANOTHER operator
+// still runs an active school package — the sub-accounts must keep working
+// and the school pool must stay live. Before the fix the suspend branch of
+// syncInstansiWithOperatorRole suspended every non-operator account of the
+// instansi whenever the acting operator lost the role, even though opA still
+// covered the school.
+func TestMultiOperatorDowngradeKeepsSchoolAlive(t *testing.T) {
+	pool := setupVoucherITDB(t)
+	ctx := context.Background()
+
+	createSchoolVoucherCode(t, pool, "IT-SEKOLAH-1")   // opA's school voucher (max_users = 2)
+	createSchoolVoucherCode(t, pool, "IT-SEKOLAH-SUB") // opB's planted state
+	createGuruVoucherCode(t, pool, "IT-GURU-MULTI")    // opB's downgrade target
+	opA := createOperatorUser(t, pool, "op-multi-a", "SMK Multi Op", "pass-op-multi-a")
+	opB := createOperatorUser(t, pool, "op-multi-b", "SMK Multi Op", "pass-op-multi-b")
+	tcA := newVoucherTestClient(t, pool)
+	tcA.login(t, opA.ID)
+	tcA.redeem(t, "IT-SEKOLAH-1")
+	// opB is a SECOND operator planted directly (pre-policy state): the
+	// one-operator-per-school policy now blocks the real redeem path, so a
+	// multi-operator school can only arise from legacy/pre-policy rows. The
+	// downgrade cascade must still tolerate that state — opA covers the
+	// school after opB's downgrade.
+	claimSubOwnSchoolVoucher(t, pool, opB.ID)
+	if !models.HasRole(mustGetUser(t, pool, "op-multi-b").Role, models.RoleOperator) {
+		t.Fatal("fixture: opB must hold the operator role (planted pre-policy state)")
+	}
+	tcB := newVoucherTestClient(t, pool)
+	tcB.login(t, opB.ID)
+
+	// opA creates one sub-account (opB occupies one of the 2 quota slots, so
+	// the school has exactly one slot left).
+	if status, resp := tcA.createUser(t, "sub-multi"); status != http.StatusOK || !resp.Success {
+		t.Fatalf("opA create sub-multi: status=%d resp=%+v", status, resp)
+	}
+	sub := mustGetUser(t, pool, "sub-multi")
+	if status, cascade, _ := subFlags(t, pool, sub.ID); status != models.UserStatusActive || cascade {
+		t.Fatalf("fixture: sub-multi must be active and not cascade-suspended, got status=%s cascade=%v", status, cascade)
+	}
+
+	// opB downgrades to a guru package → its operator role is lost.
+	tcB.redeem(t, "IT-GURU-MULTI")
+	if models.HasRole(mustGetUser(t, pool, "op-multi-b").Role, models.RoleOperator) {
+		t.Fatal("opB must have lost the operator role after switching to the guru package")
+	}
+	if !models.HasRole(mustGetUser(t, pool, "op-multi-a").Role, models.RoleOperator) {
+		t.Fatal("opA must KEEP the operator role — it still runs the school package")
+	}
+
+	// The school pool must stay live via opA's active redemption.
+	if _, _, _, _, _, ok := schoolPoolQuota(ctx, pool, opA.ID); !ok {
+		t.Error("school pool must stay active via opA — the school package did not expire")
+	}
+
+	// And the sub-account must NOT have been cascade-suspended: opA still
+	// covers the school, so opB's downgrade must not tear the school down.
+	if status, cascade, _ := subFlags(t, pool, sub.ID); status != models.UserStatusActive || cascade {
+		t.Errorf("sub-multi must stay active after opB's downgrade (opA still runs the school), got status=%s cascade=%v", status, cascade)
+	}
+	// The school's unstarted exam must not be tombstoned either — same reason.
+	var tombstoned int
+	if err := pool.QueryRow(ctx,
+		`SELECT COUNT(*) FROM exams e JOIN admin_users u ON e.created_by = u.id
+		  WHERE u.instansi = $1 AND e.tombstoned_at IS NOT NULL`, "SMK Multi Op").Scan(&tombstoned); err != nil {
+		t.Fatalf("count tombstoned exams: %v", err)
+	}
+	if tombstoned != 0 {
+		t.Errorf("no school exam must be tombstoned by opB's downgrade while opA covers the school, got %d", tombstoned)
+	}
+}
+
+// oneOperatorPolicyMsg is the user-facing rejection message of the
+// one-operator-per-school policy, asserted by TestOneOperatorPerSchoolPolicy.
+const oneOperatorPolicyMsg = "Satu sekolah hanya dapat memiliki satu operator"
+
+// TestOneOperatorPerSchoolPolicy locks in the ONE-OPERATOR-PER-SCHOOL policy:
+// every path that would add a second operator to a school is rejected with a
+// clear 400 — redeeming/activating a school package in a school that already
+// has an operator, a SuperAdmin create/edit granting the operator role, and a
+// personal-bucket operator claiming a school that already has one. The
+// school's OWN operator renewing with a new code, a school WITHOUT an
+// operator, the shared "personal" bucket, and legacy operator-created
+// sub-accounts holding their own operator role are all never blocked.
+func TestOneOperatorPerSchoolPolicy(t *testing.T) {
+	pool := setupVoucherITDB(t)
+	ctx := context.Background()
+
+	const school = "SMK Satu Operator"
+	createSchoolVoucherCode(t, pool, "IT-SEKOLAH-A")   // opA's first code
+	createSchoolVoucherCode(t, pool, "IT-SEKOLAH-B")   // renewal + guru-B's blocked claim
+	createSchoolVoucherCode(t, pool, "IT-SEKOLAH-C")   // personal opC's code
+	createSchoolVoucherCode(t, pool, "IT-SEKOLAH-G")   // legacy-sub school guru
+	createSchoolVoucherCode(t, pool, "IT-SEKOLAH-SUB") // claimSubOwnSchoolVoucher
+	createGuruVoucherCode(t, pool, "IT-GURU-MULTI")
+
+	// opA: the school's first (and only) operator.
+	opA := createOperatorUser(t, pool, "op-satu-a", school, "pass-op-satu-a")
+	tcA := newVoucherTestClient(t, pool)
+	tcA.login(t, opA.ID)
+	tcA.redeem(t, "IT-SEKOLAH-A")
+
+	// guruB: a plain guru in the same school.
+	guruB, err := models.CreateUser(ctx, pool, &models.AdminUser{
+		Username: "guru-satu-b", Name: "Guru Satu B",
+		PasswordHash: "pass-guru-satu-b", Status: models.UserStatusActive,
+		Instansi: school, Role: models.SerializeRoles([]string{models.RoleGuru}),
+		MaxExams: 3, MaxPDFSize: 1048576, MaxConcurrentExams: 2,
+		MaxStorageSize: 50 * 1024 * 1024, Package: "free",
+	})
+	if err != nil {
+		t.Fatalf("create guruB: %v", err)
+	}
+	tcB := newVoucherTestClient(t, pool)
+	tcB.login(t, guruB.ID)
+
+	root, err := models.CreateUser(ctx, pool, &models.AdminUser{
+		Username: "root-satu", Name: "Root Satu",
+		PasswordHash: "pass-root-satu", Status: models.UserStatusActive,
+		Role: models.SerializeRoles([]string{models.RoleSuperAdmin}),
+	})
+	if err != nil {
+		t.Fatalf("create superadmin: %v", err)
+	}
+	tcRoot := newVoucherTestClient(t, pool)
+	tcRoot.login(t, root.ID)
+
+	t.Run("redeem second operator rejected", func(t *testing.T) {
+		status, resp := postForm(t, tcB.client, tcB.srv, "/api/vouchers/redeem", url.Values{"code": {"IT-SEKOLAH-B"}})
+		if status != http.StatusBadRequest || !strings.Contains(resp.Message, oneOperatorPolicyMsg) {
+			t.Fatalf("guruB redeem school in school-with-operator: status=%d resp=%+v, want 400 policy message", status, resp)
+		}
+		bAfter := mustGetUser(t, pool, "guru-satu-b")
+		if models.HasRole(bAfter.Role, models.RoleOperator) {
+			t.Error("guruB must NOT have gained the operator role")
+		}
+		var redemptions int
+		if err := pool.QueryRow(ctx, `SELECT COUNT(*) FROM voucher_redemptions WHERE user_id = $1`, guruB.ID).Scan(&redemptions); err != nil {
+			t.Fatalf("count guruB redemptions: %v", err)
+		}
+		if redemptions != 0 {
+			t.Errorf("guruB must have no redemption row after the rejected claim, got %d", redemptions)
+		}
+	})
+
+	t.Run("school's own operator renewal allowed", func(t *testing.T) {
+		// opA redeeming a NEW school code is the school's operator renewing —
+		// excluded from the check, never blocked.
+		tcA.redeem(t, "IT-SEKOLAH-B")
+		if !models.HasRole(mustGetUser(t, pool, "op-satu-a").Role, models.RoleOperator) {
+			t.Fatal("opA must keep the operator role after renewing")
+		}
+	})
+
+	t.Run("activate second operator rejected", func(t *testing.T) {
+		// Plant a PAUSED school-package redemption for guruB (pre-policy claim
+		// state) and try to activate it: activation would grant the operator
+		// role in a school that already has one → rejected.
+		var vid int
+		if err := pool.QueryRow(ctx, `SELECT id FROM vouchers WHERE code = 'IT-SEKOLAH-B'`).Scan(&vid); err != nil {
+			t.Fatalf("find IT-SEKOLAH-B voucher: %v", err)
+		}
+		var rid int
+		if err := pool.QueryRow(ctx, `
+			INSERT INTO voucher_redemptions
+				(voucher_id, user_id, remaining_seconds, activated_at, is_active, package,
+				 max_exams, max_pdf_size, max_concurrent_exams, max_storage_size, max_users, role)
+			VALUES ($1, $2, $3, now(), false, 'sekolah-test', 3, 52428800, 3, 524288000, 2, $4)
+			RETURNING id`,
+			vid, guruB.ID, 30*86400, models.SerializeRoles([]string{models.RoleOperator})).Scan(&rid); err != nil {
+			t.Fatalf("plant paused school redemption for guruB: %v", err)
+		}
+		status, resp := postForm(t, tcB.client, tcB.srv, "/api/vouchers/activate",
+			url.Values{"redemption_id": {strconv.Itoa(rid)}})
+		if status != http.StatusBadRequest || !strings.Contains(resp.Message, oneOperatorPolicyMsg) {
+			t.Fatalf("guruB activate school package in school-with-operator: status=%d resp=%+v, want 400 policy message", status, resp)
+		}
+	})
+
+	t.Run("superadmin create second operator rejected", func(t *testing.T) {
+		status, resp := postJSON(t, tcRoot.client, tcRoot.srv, "/api/users", map[string]interface{}{
+			"username": "op-satu-x", "password": "pass-op-satu-x",
+			"name": "Op Satu X", "instansi": school,
+			"roles": []string{models.RoleOperator},
+		})
+		if status != http.StatusBadRequest || !strings.Contains(resp.Message, oneOperatorPolicyMsg) {
+			t.Fatalf("superadmin create operator in school-with-operator: status=%d resp=%+v, want 400 policy message", status, resp)
+		}
+		if _, err := models.GetUserByUsername(ctx, pool, "op-satu-x"); err == nil {
+			t.Error("op-satu-x must NOT exist")
+		}
+	})
+
+	t.Run("superadmin create operator in empty school allowed", func(t *testing.T) {
+		status, resp := postJSON(t, tcRoot.client, tcRoot.srv, "/api/users", map[string]interface{}{
+			"username": "op-satu-new", "password": "pass-op-satu-new",
+			"name": "Op Satu New", "instansi": "SMK Baru",
+			"roles": []string{models.RoleOperator},
+		})
+		if status != http.StatusOK || !resp.Success {
+			t.Fatalf("superadmin create operator in new school: status=%d resp=%+v", status, resp)
+		}
+	})
+
+	t.Run("superadmin edit grant operator rejected", func(t *testing.T) {
+		status, resp := postJSON(t, tcRoot.client, tcRoot.srv, "/api/users/"+strconv.Itoa(guruB.ID)+"/edit", map[string]interface{}{
+			"roles": []string{models.RoleGuru, models.RoleOperator},
+		})
+		if status != http.StatusBadRequest || !strings.Contains(resp.Message, oneOperatorPolicyMsg) {
+			t.Fatalf("superadmin grant operator to guru in school-with-operator: status=%d resp=%+v, want 400 policy message", status, resp)
+		}
+		if models.HasRole(mustGetUser(t, pool, "guru-satu-b").Role, models.RoleOperator) {
+			t.Error("guruB must NOT have gained the operator role")
+		}
+	})
+
+	t.Run("superadmin edit grant pengawas allowed", func(t *testing.T) {
+		status, resp := postJSON(t, tcRoot.client, tcRoot.srv, "/api/users/"+strconv.Itoa(guruB.ID)+"/edit", map[string]interface{}{
+			"roles": []string{models.RoleGuru, models.RolePengawas},
+		})
+		if status != http.StatusOK || !resp.Success {
+			t.Fatalf("superadmin grant pengawas: status=%d resp=%+v", status, resp)
+		}
+	})
+
+	t.Run("personal operator claiming occupied school rejected", func(t *testing.T) {
+		// opC: a personal-bucket operator (redeemed a school voucher but has
+		// not claimed a school yet). Claiming a school that already has an
+		// operator would make it operator #2 → rejected.
+		opC := createOperatorUser(t, pool, "op-satu-c", "personal", "pass-op-satu-c")
+		tcC := newVoucherTestClient(t, pool)
+		tcC.login(t, opC.ID)
+		tcC.redeem(t, "IT-SEKOLAH-C")
+		if !models.HasRole(mustGetUser(t, pool, "op-satu-c").Role, models.RoleOperator) {
+			t.Fatal("fixture: opC must hold the operator role in the personal bucket")
+		}
+		status, resp := postJSON(t, tcC.client, tcC.srv, "/api/instansi/update", map[string]interface{}{
+			"instansi": school,
+		})
+		if status != http.StatusBadRequest || !strings.Contains(resp.Message, oneOperatorPolicyMsg) {
+			t.Fatalf("personal operator claims occupied school: status=%d resp=%+v, want 400 policy message", status, resp)
+		}
+	})
+
+	t.Run("legacy operator-created sub does not block a new operator", func(t *testing.T) {
+		// A legacy operator-created sub holding its own operator role (pre-
+		// policy claim, planted directly) is NOT the school's operator: it
+		// spares itself from cascades but must not block a real operator from
+		// taking over the school.
+		const legacySchool = "SMK Legacy Sub"
+		legacySub, err := models.CreateUser(ctx, pool, &models.AdminUser{
+			Username: "legacy-sub", Name: "Legacy Sub",
+			PasswordHash: "pass-legacy-sub", Status: models.UserStatusActive,
+			Instansi: legacySchool, Role: models.SerializeRoles([]string{models.RoleGuru}),
+			MaxExams: 3, MaxPDFSize: 1048576, MaxConcurrentExams: 2,
+			MaxStorageSize: 50 * 1024 * 1024, Package: "free",
+			OperatorCreated: true,
+		})
+		if err != nil {
+			t.Fatalf("create legacy sub: %v", err)
+		}
+		claimSubOwnSchoolVoucher(t, pool, legacySub.ID) // own operator role + active redemption
+		guruD, err := models.CreateUser(ctx, pool, &models.AdminUser{
+			Username: "guru-satu-d", Name: "Guru Satu D",
+			PasswordHash: "pass-guru-satu-d", Status: models.UserStatusActive,
+			Instansi: legacySchool, Role: models.SerializeRoles([]string{models.RoleGuru}),
+			MaxExams: 3, MaxPDFSize: 1048576, MaxConcurrentExams: 2,
+			MaxStorageSize: 50 * 1024 * 1024, Package: "free",
+		})
+		if err != nil {
+			t.Fatalf("create guruD: %v", err)
+		}
+		tcD := newVoucherTestClient(t, pool)
+		tcD.login(t, guruD.ID)
+		status, resp := postForm(t, tcD.client, tcD.srv, "/api/vouchers/redeem", url.Values{"code": {"IT-SEKOLAH-G"}})
+		if status != http.StatusOK || !resp.Success {
+			t.Fatalf("guruD redeem school in legacy-sub school: status=%d resp=%+v, want allowed", status, resp)
+		}
+	})
 }

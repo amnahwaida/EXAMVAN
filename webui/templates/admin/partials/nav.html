@@ -22,7 +22,7 @@
    {{ end }}
    {{ if or $isSuper $isOp }}
     <div class="topbar-menu-dropdown" style="display:inline-block;position:relative;">
-     <button class="nav-link {{if or (eq $activePage "users") (eq $activePage "billing") (eq $activePage "system-apps")}}active{{end}}" onclick="event.stopPropagation();document.getElementById('pengaturanDropdown').classList.toggle('show');" style="background:none;border:none;cursor:pointer;font-family:inherit;font-size:inherit;display:inline-flex;align-items:center;padding:0 16px;">
+     <button class="nav-link {{if or (eq $activePage "users") (eq $activePage "billing") (eq $activePage "vouchers") (eq $activePage "voucher-audit") (eq $activePage "packages") (eq $activePage "system-apps")}}active{{end}}" onclick="event.stopPropagation();document.getElementById('pengaturanDropdown').classList.toggle('show');" style="background:none;border:none;cursor:pointer;font-family:inherit;font-size:inherit;display:inline-flex;align-items:center;padding:0 16px;">
       <svg class="icon-svg" aria-hidden="true"><use href="#hi-settings"/></svg> Pengaturan <svg class="icon-svg" style="width:12px;height:12px;margin-left:4px;"><use href="#hi-chevron-down"/></svg>
      </button>
      <div class="topbar-dropdown-content" id="pengaturanDropdown" style="left:0;right:auto;top:100%;margin-top:8px;min-width:200px;">
@@ -30,6 +30,7 @@
       <a href="/admin/billing" class="dropdown-item {{if eq $activePage "billing"}}active{{end}}"><svg class="icon-svg"><use href="#hi-clipboard"/></svg> Paket & Voucher</a>
       {{ if $isSuper }}
        <a href="/admin/vouchers" class="dropdown-item {{if eq $activePage "vouchers"}}active{{end}}"><svg class="icon-svg"><use href="#hi-ticket"/></svg> Kelola Voucher</a>
+       <a href="/admin/vouchers/audit" class="dropdown-item {{if eq $activePage "voucher-audit"}}active{{end}}"><svg class="icon-svg"><use href="#hi-clock"/></svg> Riwayat Klaim Voucher</a>
        <a href="/admin/packages" class="dropdown-item {{if eq $activePage "packages"}}active{{end}}"><svg class="icon-svg"><use href="#hi-settings"/></svg> Pengaturan Paket</a>
        <a href="/admin/system-apps" class="dropdown-item {{if eq $activePage "system-apps"}}active{{end}}"><svg class="icon-svg"><use href="#hi-download"/></svg> Aplikasi Sistem</a>
       {{ end }}
@@ -69,6 +70,7 @@
       <a href="/admin/billing" class="dropdown-item {{if eq $activePage "billing"}}active{{end}}"><svg class="icon-svg"><use href="#hi-clipboard"/></svg> Paket & Voucher</a>
       {{ if $isSuper }}
        <a href="/admin/vouchers" class="dropdown-item {{if eq $activePage "vouchers"}}active{{end}}"><svg class="icon-svg"><use href="#hi-ticket"/></svg> Kelola Voucher</a>
+       <a href="/admin/vouchers/audit" class="dropdown-item {{if eq $activePage "voucher-audit"}}active{{end}}"><svg class="icon-svg"><use href="#hi-clock"/></svg> Riwayat Klaim Voucher</a>
        <a href="/admin/packages" class="dropdown-item {{if eq $activePage "packages"}}active{{end}}"><svg class="icon-svg"><use href="#hi-settings"/></svg> Pengaturan Paket</a>
        <a href="/admin/system-apps" class="dropdown-item {{if eq $activePage "system-apps"}}active{{end}}"><svg class="icon-svg"><use href="#hi-download"/></svg> Aplikasi Sistem</a>
       {{ end }}

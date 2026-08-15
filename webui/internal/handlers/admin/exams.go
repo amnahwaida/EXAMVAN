@@ -261,22 +261,31 @@ func UploadExam() gin.HandlerFunc {
 				errorResponse(c, http.StatusInternalServerError, "Gagal memuat data user")
 				return
 			}
-			maxExams = user.MaxExams
-			if user.MaxPDFSize > 0 && len(fileData) > user.MaxPDFSize {
-				limitMB := roundTo(float64(user.MaxPDFSize)/(1024*1024), 2)
-				errMsg := fmt.Sprintf("Ukuran file melebihi batas akun Anda (%.2fMB). Silakan hubungi Super Admin.", limitMB)
-				errorResponse(c, http.StatusForbidden, errMsg)
-				return
-			}
-			// Check storage limit (only enforce when MaxStorageSize > 0)
-			if user.MaxStorageSize > 0 {
-				var currentStorageBytes int64
-				err := pool.QueryRow(ctx, `SELECT COALESCE(SUM(size_bytes), 0) FROM exams WHERE created_by = $1`, userID).Scan(&currentStorageBytes)
-				if err == nil && currentStorageBytes+int64(len(fileData)) > user.MaxStorageSize {
-					limitMB := roundTo(float64(user.MaxStorageSize)/(1024*1024), 1)
-					errorResponse(c, http.StatusForbidden,
-						fmt.Sprintf("Batas kapasitas storage tercapai. Batas akun Anda adalah %.1f MB.", limitMB))
+			// School-pool sub-accounts: when the school pool is active it IS
+			// the account's quota (see schoolPoolCovers) — the per-account
+			// columns (forced free defaults) must not gate below it, so they
+			// are skipped: maxExams stays -1 (no per-account limit) and the
+			// pool's atomic exam/PDF/storage gates below are the only caps.
+			if user.OperatorCreated && poolActive {
+				// pool-covered — the checks above and the atomic pool gate below apply
+			} else {
+				maxExams = user.MaxExams
+				if user.MaxPDFSize > 0 && len(fileData) > user.MaxPDFSize {
+					limitMB := roundTo(float64(user.MaxPDFSize)/(1024*1024), 2)
+					errMsg := fmt.Sprintf("Ukuran file melebihi batas akun Anda (%.2fMB). Silakan hubungi Super Admin.", limitMB)
+					errorResponse(c, http.StatusForbidden, errMsg)
 					return
+				}
+				// Check storage limit (only enforce when MaxStorageSize > 0)
+				if user.MaxStorageSize > 0 {
+					var currentStorageBytes int64
+					err := pool.QueryRow(ctx, `SELECT COALESCE(SUM(size_bytes), 0) FROM exams WHERE created_by = $1`, userID).Scan(&currentStorageBytes)
+					if err == nil && currentStorageBytes+int64(len(fileData)) > user.MaxStorageSize {
+						limitMB := roundTo(float64(user.MaxStorageSize)/(1024*1024), 1)
+						errorResponse(c, http.StatusForbidden,
+							fmt.Sprintf("Batas kapasitas storage tercapai. Batas akun Anda adalah %.1f MB.", limitMB))
+						return
+					}
 				}
 			}
 		}
@@ -586,8 +595,11 @@ func ToggleExam() gin.HandlerFunc {
 			if err == nil && exam.Status == "inactive" && exam.ExamStartedAt != nil {
 				owner, err := models.GetUserByID(ctx, pool, exam.CreatedBy)
 				if err == nil {
-					perUserLimit := !isOperator(c) && owner.MaxConcurrentExams > 0
 					_, _, poolMaxConcurrent, _, poolInstansi, poolActive := schoolPoolQuota(ctx, pool, exam.CreatedBy)
+					// School-pool sub-accounts: when the pool is active it is the
+					// account's ONLY concurrent quota (schoolPoolCovers), so the
+					// per-account max_concurrent_exams must not gate below it.
+					perUserLimit := !isOperator(c) && !(owner.OperatorCreated && poolActive) && owner.MaxConcurrentExams > 0
 					poolConcActive := poolActive && poolMaxConcurrent > 0
 
 					if perUserLimit || poolConcActive {
@@ -862,25 +874,26 @@ func EditExam() gin.HandlerFunc {
 						return
 					}
 				}
-				if !isOperator(c) {
-					owner, err := models.GetUserByID(ctx, pool, exam.CreatedBy)
-					if err == nil {
-						if owner.MaxPDFSize > 0 && len(fileData) > owner.MaxPDFSize {
-							limitMB := roundTo(float64(owner.MaxPDFSize)/(1024*1024), 2)
+				owner, err := models.GetUserByID(ctx, pool, exam.CreatedBy)
+				if err == nil && !isOperator(c) && !(owner.OperatorCreated && poolActive) {
+					// School-pool sub-accounts: when the pool is active it is the
+					// account's quota (schoolPoolCovers) — the per-account PDF/
+					// storage columns must not gate below it.
+					if owner.MaxPDFSize > 0 && len(fileData) > owner.MaxPDFSize {
+						limitMB := roundTo(float64(owner.MaxPDFSize)/(1024*1024), 2)
+						errorResponse(c, http.StatusForbidden,
+							fmt.Sprintf("Ukuran file melebihi batas akun Anda (%.2fMB). Silakan hubungi Super Admin.", limitMB))
+						return
+					}
+					if owner.MaxStorageSize > 0 {
+						var used int64
+						err := pool.QueryRow(ctx,
+							`SELECT COALESCE(SUM(size_bytes), 0) FROM exams WHERE created_by = $1`, exam.CreatedBy).Scan(&used)
+						if err == nil && used-int64(exam.SizeBytes)+int64(len(fileData)) > owner.MaxStorageSize {
+							limitMB := roundTo(float64(owner.MaxStorageSize)/(1024*1024), 1)
 							errorResponse(c, http.StatusForbidden,
-								fmt.Sprintf("Ukuran file melebihi batas akun Anda (%.2fMB). Silakan hubungi Super Admin.", limitMB))
+								fmt.Sprintf("Batas kapasitas storage tercapai. Batas akun Anda adalah %.1f MB.", limitMB))
 							return
-						}
-						if owner.MaxStorageSize > 0 {
-							var used int64
-							err := pool.QueryRow(ctx,
-								`SELECT COALESCE(SUM(size_bytes), 0) FROM exams WHERE created_by = $1`, exam.CreatedBy).Scan(&used)
-							if err == nil && used-int64(exam.SizeBytes)+int64(len(fileData)) > owner.MaxStorageSize {
-								limitMB := roundTo(float64(owner.MaxStorageSize)/(1024*1024), 1)
-								errorResponse(c, http.StatusForbidden,
-									fmt.Sprintf("Batas kapasitas storage tercapai. Batas akun Anda adalah %.1f MB.", limitMB))
-								return
-							}
 						}
 					}
 				}
@@ -1592,8 +1605,11 @@ func StartExam() gin.HandlerFunc {
 		if !isSuperAdmin(c) {
 			owner, err := models.GetUserByID(ctx, pool, exam.CreatedBy)
 			if err == nil {
-				perUserLimit := !isOperator(c) && owner.MaxConcurrentExams > 0
 				_, _, poolMaxConcurrent, _, poolInstansi, poolActive := schoolPoolQuota(ctx, pool, exam.CreatedBy)
+				// School-pool sub-accounts: when the pool is active it is the
+				// account's ONLY concurrent quota (schoolPoolCovers), so the
+				// per-account max_concurrent_exams must not gate below it.
+				perUserLimit := !isOperator(c) && !(owner.OperatorCreated && poolActive) && owner.MaxConcurrentExams > 0
 				poolConcActive := poolActive && poolMaxConcurrent > 0
 
 				if perUserLimit || poolConcActive {
@@ -2146,7 +2162,9 @@ func BulkToggle() gin.HandlerFunc {
 				if err == nil {
 					for ownerID, after := range counts {
 						owner, err := models.GetUserByID(ctx, pool, ownerID)
-						if err != nil || owner.MaxConcurrentExams <= 0 {
+						// School-pool sub-accounts are gated by the shared pool check
+						// below, never by their own (forced free) concurrent column.
+						if err != nil || owner.MaxConcurrentExams <= 0 || schoolPoolCovers(ctx, pool, owner) {
 							continue
 						}
 						// `after > max` (not >=) matches the single-exam ToggleExam

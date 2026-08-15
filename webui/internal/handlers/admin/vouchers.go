@@ -23,6 +23,14 @@ import (
 // attacker distinguish a valid-but-exhausted code from a bogus one.
 const voucherInvalidMsg = "Kode voucher tidak valid atau sudah tidak dapat digunakan."
 
+// maxVoucherCodeLen caps the redeem code input. Generated codes are 12-15
+// characters (EV-XXXX-XXXX or prefix-XXXX-XXXX), so the cap only rejects
+// nonsense-sized input before it reaches the SQL UPPER/TRIM (harmless but
+// wasteful). A length failure is input validation, NOT a code lookup, so a
+// distinct message is safe — unlike the code-level failures that must stay
+// generic (the voucherInvalidMsg oracle rule).
+const maxVoucherCodeLen = 64
+
 // subAccountRedeemBlockedMsg is returned whenever an account CREATED BY AN
 // OPERATOR (admin_users.operator_created = true, a school sub-account) tries
 // to claim or activate a voucher. Such accounts get their package, quota and
@@ -477,7 +485,12 @@ func ListVoucherRedemptionsHandler() gin.HandlerFunc {
 // RedeemVoucherHandler handles POST /admin/api/vouchers/redeem (Available to any logged-in user).
 func RedeemVoucherHandler() gin.HandlerFunc {
 	return func(c *gin.Context) {
-		// Voucher/promo redemption can be disabled by SuperAdmin.
+		// Voucher/promo redemption can be disabled by SuperAdmin. Scoped to NEW
+		// code redemption only: ActivateVoucherHandler (resuming an
+		// already-claimed package) is deliberately NOT gated by this setting — it
+		// consumes no code and must stay consistent with the expiry-job
+		// auto-fallback, which re-activates usable claimed packages so a user is
+		// never locked out while one is on hand.
 		if !models.GetSaasSettingBool(c.Request.Context(), getPool(c), models.SettingVoucherRedeemEnabled, true) {
 			errorResponse(c, http.StatusForbidden, "Penukaran kode promo sedang tidak tersedia untuk saat ini.")
 			return
@@ -497,6 +510,13 @@ func RedeemVoucherHandler() gin.HandlerFunc {
 
 		if code == "" {
 			errorResponse(c, http.StatusBadRequest, "Silakan masukkan kode voucher")
+			return
+		}
+		// Input-size cap: generated codes are far below this bound, so a
+		// longer input can only be junk. Checked before the tx/voucher lookup
+		// (it is input validation, not a code probe).
+		if len(code) > maxVoucherCodeLen {
+			errorResponse(c, http.StatusBadRequest, fmt.Sprintf("Kode voucher terlalu panjang (maksimal %d karakter)", maxVoucherCodeLen))
 			return
 		}
 
@@ -589,7 +609,8 @@ func RedeemVoucherHandler() gin.HandlerFunc {
 		// redeem here would only change quota/role/expiry on a frozen account.
 		var lockedUserID int
 		var lockedStatus string
-		err = dbTx.QueryRow(ctx, `SELECT id, status FROM admin_users WHERE id = $1 FOR UPDATE`, userID).Scan(&lockedUserID, &lockedStatus)
+		var lockedInstansi string
+		err = dbTx.QueryRow(ctx, `SELECT id, status, COALESCE(instansi, '') FROM admin_users WHERE id = $1 FOR UPDATE`, userID).Scan(&lockedUserID, &lockedStatus, &lockedInstansi)
 		if err != nil {
 			log.Printf("redeem fetch user error: %v", err)
 			errorResponse(c, http.StatusInternalServerError, "User tidak ditemukan")
@@ -637,6 +658,26 @@ func RedeemVoucherHandler() gin.HandlerFunc {
 		now = time.Now().UTC()
 		snapshot.RemainingSeconds = int64(durationDays(v.DurationType)) * 86400
 		snapshot.ActivatedAt = &now
+
+		// One-operator-per-school policy: a school package grants the operator
+		// role, so redeeming one while the user already sits in a school that
+		// has ANOTHER operator would create a second. Rejected before anything
+		// is paused/applied (the tx rolls back). The school's own operator
+		// renewing with a new code is excluded (lockedInstansi read under the
+		// same row lock); the shared "personal" bucket is never a school.
+		if containsRole(models.ParseRoles(snapshot.Role), models.RoleOperator) {
+			hasOp, opErr := schoolAlreadyHasOperator(ctx, dbTx, lockedInstansi, userID)
+			if opErr != nil {
+				log.Printf("redeem one-operator-per-school check error: %v", opErr)
+				errorResponse(c, http.StatusInternalServerError, "Gagal memproses klaim voucher")
+				return
+			}
+			if hasOp {
+				errorResponse(c, http.StatusBadRequest,
+					"Instansi ini sudah memiliki operator. Satu sekolah hanya dapat memiliki satu operator.")
+				return
+			}
+		}
 
 		// 6. Pause the user's current active package (freeze its remaining
 		// lifetime), then apply the new package's snapshot (overwrites quotas,
@@ -705,6 +746,18 @@ func RedeemVoucherHandler() gin.HandlerFunc {
 		}
 
 		expiryStr := now.Add(time.Duration(snapshot.RemainingSeconds) * time.Second).Format("2006-01-02 15:04:05")
+
+		// Append-only audit trail: WHO claimed WHICH voucher, with the
+		// resulting package and expiry snapshotted (the same denormalized
+		// style as the other audit rows, so the trail stays readable without
+		// a join). Written after commit; best-effort. examID = 0 → NULL (no
+		// exam involved).
+		if aErr := models.CreateAdminAuditLog(ctx, pool, userID, getCurrentUsername(c),
+			models.ActionVoucherRedeemed, 0,
+			fmt.Sprintf("Voucher %s diklaim — paket %s aktif sampai %s", v.Code, strings.ToUpper(snapshot.Package), expiryStr)); aErr != nil {
+			log.Printf("audit voucher redeemed: %v", aErr)
+		}
+
 		c.JSON(http.StatusOK, gin.H{
 			"success":    true,
 			"message":    fmt.Sprintf("Selamat! Voucher %s berhasil diklaim. Paket %s kini aktif sampai %s; paket lain otomatis dijeda.", v.Code, strings.ToUpper(snapshot.Package), expiryStr),
@@ -727,6 +780,13 @@ func ListMyRedemptionsHandler() gin.HandlerFunc {
 		}
 		if getCurrentUserRole(c) == models.RoleSuperAdmin {
 			errorResponse(c, http.StatusForbidden, "Akun SuperAdmin tidak memiliki paket voucher")
+			return
+		}
+		// Sub-account voucher policy: an operator-created account can never
+		// hold an own voucher package, so listing claimed packages is blocked
+		// for it too — the same origin-based 403 as redeem/activate (also
+		// hides any legacy pre-policy redemption still lingering on its row).
+		if rejectOperatorCreatedAccount(c, pool, userID, "Gagal memuat paket yang diklaim") {
 			return
 		}
 
@@ -809,6 +869,13 @@ func ListMyRedemptionsHandler() gin.HandlerFunc {
 // to the account. The previously active package is automatically paused: its
 // remaining lifetime freezes. This is the automatic resume — there is no
 // user-facing pause/resume control.
+//
+// Deliberately NOT gated by SettingVoucherRedeemEnabled: activation consumes
+// no code (the package was already claimed), so the redeem toggle only stops
+// NEW claims. It must also agree with the expiry-job auto-fallback, which
+// re-activates usable claimed packages on its own — a user-facing block while
+// the background job still activates would contradict the "never locked out
+// while a usable package is on hand" invariant.
 func ActivateVoucherHandler() gin.HandlerFunc {
 	return func(c *gin.Context) {
 		pool := getPool(c)
@@ -852,7 +919,8 @@ func ActivateVoucherHandler() gin.HandlerFunc {
 		// touches status.
 		var lockedUserID int
 		var lockedStatus string
-		if err := dbTx.QueryRow(ctx, `SELECT id, status FROM admin_users WHERE id = $1 FOR UPDATE`, userID).Scan(&lockedUserID, &lockedStatus); err != nil {
+		var lockedInstansi string
+		if err := dbTx.QueryRow(ctx, `SELECT id, status, COALESCE(instansi, '') FROM admin_users WHERE id = $1 FOR UPDATE`, userID).Scan(&lockedUserID, &lockedStatus, &lockedInstansi); err != nil {
 			log.Printf("activate lock user error: %v", err)
 			errorResponse(c, http.StatusInternalServerError, "User tidak ditemukan")
 			return
@@ -894,6 +962,24 @@ func ActivateVoucherHandler() gin.HandlerFunc {
 		if r.RemainingSeconds <= 0 {
 			errorResponse(c, http.StatusBadRequest, "Masa aktif paket ini sudah berakhir, tidak dapat diaktifkan")
 			return
+		}
+
+		// One-operator-per-school policy (mirror of the redeem guard):
+		// activating a claimed school package in a school that already has
+		// ANOTHER operator would create a second operator, so it is rejected
+		// before anything is paused/applied.
+		if containsRole(models.ParseRoles(r.Role), models.RoleOperator) {
+			hasOp, opErr := schoolAlreadyHasOperator(ctx, dbTx, lockedInstansi, userID)
+			if opErr != nil {
+				log.Printf("activate one-operator-per-school check error: %v", opErr)
+				errorResponse(c, http.StatusInternalServerError, "Gagal memproses aktivasi paket")
+				return
+			}
+			if hasOp {
+				errorResponse(c, http.StatusBadRequest,
+					"Instansi ini sudah memiliki operator. Satu sekolah hanya dapat memiliki satu operator.")
+				return
+			}
 		}
 
 		now := time.Now().UTC()
@@ -943,12 +1029,111 @@ func ActivateVoucherHandler() gin.HandlerFunc {
 			_ = session.Save()
 		}
 
+		pkgLabel := strings.TrimSpace(r.Package)
+		if pkgLabel == "" {
+			pkgLabel = "custom"
+		}
 		expiryStr := now.Add(time.Duration(r.RemainingSeconds) * time.Second).Format("2006-01-02 15:04:05")
+
+		// Append-only audit trail: WHO activated WHICH package, with the new
+		// account expiry snapshotted. Written after commit; best-effort.
+		// examID = 0 → NULL (no exam involved).
+		if aErr := models.CreateAdminAuditLog(ctx, pool, userID, getCurrentUsername(c),
+			models.ActionVoucherActivated, 0,
+			fmt.Sprintf("Paket %s diaktifkan — masa aktif sampai %s", strings.ToUpper(pkgLabel), expiryStr)); aErr != nil {
+			log.Printf("audit voucher activated: %v", aErr)
+		}
+
 		c.JSON(http.StatusOK, gin.H{
 			"success":    true,
 			"message":    fmt.Sprintf("Paket %s kini aktif dan melanjutkan sisa masanya sampai %s; paket lain otomatis dijeda.", strings.ToUpper(r.Package), expiryStr),
 			"package":    r.Package,
 			"expires_at": expiryStr,
+		})
+	}
+}
+
+// VoucherAuditPage renders the GET /admin/vouchers/audit page for SuperAdmin:
+// the global append-only trail of voucher claims and activations
+// (voucher_redeemed / voucher_activated) across all accounts — who claimed or
+// activated which package and when, with the detail snapshot per row.
+func VoucherAuditPage() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		role := getCurrentUserRole(c)
+		if role != models.RoleSuperAdmin {
+			c.Redirect(http.StatusFound, "/admin/dashboard")
+			return
+		}
+
+		data := gin.H{
+			"title":       "Riwayat Klaim Voucher",
+			"active_page": "voucher-audit",
+			"admin_user":  getCurrentUsername(c),
+			"admin_role":  role,
+		}
+
+		renderAdminPage(c, "admin/voucher_audit.html", data)
+	}
+}
+
+// ListVoucherAuditLogs handles GET /admin/api/vouchers/audit-logs (SuperAdmin
+// only): paginated, searchable voucher claim/activation audit trail, newest
+// first. Search matches the actor username or the detail snapshot (e.g. a
+// voucher code). Bounded per-page so the payload stays small regardless of
+// trail size.
+func ListVoucherAuditLogs() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		pool := getPool(c)
+		ctx := c.Request.Context()
+
+		page, _ := strconv.Atoi(c.DefaultQuery("page", "1"))
+		perPage, _ := strconv.Atoi(c.DefaultQuery("per_page", "20"))
+		search := c.Query("search")
+
+		if perPage < 1 {
+			perPage = 20
+		} else if perPage > 200 {
+			perPage = 200
+		}
+
+		result, err := models.ListVoucherAuditLogs(ctx, pool, models.ListVoucherAuditLogsOpts{
+			Page:    page,
+			PerPage: perPage,
+			Search:  search,
+		})
+		if err != nil {
+			log.Printf("list voucher audit logs error: %v", err)
+			errorResponse(c, http.StatusInternalServerError, "Gagal memuat riwayat audit voucher")
+			return
+		}
+
+		type auditItem struct {
+			ID        int    `json:"id"`
+			Username  string `json:"username"`
+			Action    string `json:"action"`
+			Detail    string `json:"detail"`
+			CreatedAt string `json:"created_at"`
+		}
+		items := make([]auditItem, 0, len(result.Logs))
+		for _, l := range result.Logs {
+			items = append(items, auditItem{
+				ID:        l.ID,
+				Username:  l.Username,
+				Action:    l.Action,
+				Detail:    l.Detail,
+				CreatedAt: l.CreatedAt.Format(time.RFC3339),
+			})
+		}
+
+		c.JSON(http.StatusOK, gin.H{
+			"success": true,
+			"logs":    items,
+			"pagination": gin.H{
+				"page":        result.Page,
+				"per_page":    result.PerPage,
+				"total":       result.Total,
+				"total_pages": result.TotalPages,
+			},
 		})
 	}
 }

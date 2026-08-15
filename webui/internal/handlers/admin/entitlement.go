@@ -40,6 +40,56 @@ func packageEntitlement(pkg string) (exams, pdf, concurrent, storage, maxUsers i
 	}
 }
 
+// schoolPoolCovers reports whether an operator-created sub-account currently
+// draws its quotas from the school pool (its instansi has an active school
+// package). When true the pool is the account's ONLY quota gate: its
+// per-account columns — the forced free defaults, see subAccountFree* in
+// users.go — are a display/fallback layer and must not cap exam usage below
+// the school package (a sub-account in a 50MB-PDF school uploads up to 50MB,
+// not the 1MB free default its row carries). Without a pool (shared
+// "personal" bucket, legacy school without an active redemption) the
+// per-account columns fall back into effect, which is exactly the state they
+// are meant to cover.
+func schoolPoolCovers(ctx context.Context, pool *pgxpool.Pool, user models.AdminUser) bool {
+	if !user.OperatorCreated {
+		return false
+	}
+	_, _, _, _, _, ok := schoolPoolQuota(ctx, pool, user.ID)
+	return ok
+}
+
+// schoolAlreadyHasOperator reports whether a real school instansi already has
+// ANOTHER real operator: an account NOT created by an operator (operator_created
+// is the sub-account marker) holding the operator role. The ONE-OPERATOR-PER-
+// SCHOOL policy rejects every path that would add a second operator to a
+// school — redeeming/activating a school package, a SuperAdmin create/edit
+// granting the role, and a personal-bucket operator claiming a school that
+// already has one. The shared "personal" bucket is never a school: several
+// personal-bucket operators may each hold their own school package until they
+// claim a school. Legacy operator-created accounts holding their own operator
+// role (pre-policy claims) are NOT the school's operator — they spare
+// themselves from the suspend cascade but never block a new operator. The
+// acting user (excludeID) is excluded, so the school's own operator renewing
+// a school package is never blocked.
+func schoolAlreadyHasOperator(ctx context.Context, q quotaQuerier, instansi string, excludeID int) (bool, error) {
+	instansi = strings.TrimSpace(instansi)
+	if instansi == "" || strings.EqualFold(instansi, "personal") {
+		return false, nil
+	}
+	var has bool
+	err := q.QueryRow(ctx, `
+		SELECT EXISTS (
+		    SELECT 1 FROM admin_users
+		    WHERE LOWER(instansi) = LOWER($1) AND id <> $2
+		      AND NOT operator_created
+		      AND role ILIKE '%"operator"%'
+		)`, instansi, excludeID).Scan(&has)
+	if err != nil {
+		return false, err
+	}
+	return has, nil
+}
+
 // schoolPoolQuota returns the shared "school pool" quota for the instansi the
 // given user belongs to (see schoolPoolQuotaForInstansi). ok=false when the
 // user has no instansi, sits in the shared "personal" bucket, or no operator
@@ -69,9 +119,11 @@ func schoolPoolQuota(ctx context.Context, pool *pgxpool.Pool, userID int) (maxEx
 // ok=false when no school pool applies: the instansi is empty or the shared
 // "personal" bucket, or no operator in the instansi holds an active redemption
 // (a legacy school without a package keeps the per-account quotas and the
-// operator's historical bypass). A school has exactly one operator in
-// practice; MAX() over the theoretical multiple is a safe, never-surprising
-// fallback. max_concurrent follows the same 0 → max_exams → 1 defaulting as
+// operator's historical bypass). Since the ONE-OPERATOR-PER-SCHOOL policy
+// (schoolAlreadyHasOperator) a school has at most one operator; the MAX() over
+// the theoretical multiple is a defensive fallback for legacy pre-policy
+// states and stays never-surprising (the larger package wins). max_concurrent
+// follows the same 0 → max_exams → 1 defaulting as
 // applyRedemptionEntitlement so the two can never disagree.
 func schoolPoolQuotaForInstansi(ctx context.Context, pool *pgxpool.Pool, instansi string) (maxExams, maxPDF, maxConcurrent, maxStorage int64, ok bool) {
 	instansi = strings.TrimSpace(instansi)
@@ -244,10 +296,40 @@ func syncInstansiWithOperatorRole(ctx context.Context, tx pgx.Tx, userID int, pr
 	case "none":
 		return nil // e.g. guru → guru: nothing to reconcile.
 	case "suspend":
-		// The operator role is gone: suspend every active non-operator account
-		// in the instansi so accounts created under the school package stop
-		// working. suspended_by_cascade lets them come back (with a clock
-		// freeze) when the operator returns to a school package.
+		// A school can legitimately have MORE than one operator (several gurus
+		// can each redeem a school voucher, SuperAdmin can create co-operators)
+		// and the school pool deliberately MAXes their active redemptions
+		// (schoolPoolQuotaForInstansi). So the operator role being gone from
+		// the ACTING user does not mean the school lost its coverage: when
+		// ANOTHER REAL operator of the instansi still holds an active
+		// redemption, the school package is still live and its sub-accounts
+		// must keep working — the suspend/tombstone cascade is skipped
+		// entirely. Only when no other operator covers the school does the
+		// school genuinely lose its package, and the cascade fires as
+		// documented. Coverage counts REAL operators only (NOT operator_created
+		// — a sub-account holding its own operator role is an exception that
+		// spares ITSELF from the cascade, but it does not run the school:
+		// the documented sub-account semantics keep the plain subs suspended
+		// when the actual operator leaves).
+		var covered bool
+		if err := tx.QueryRow(ctx, `
+			SELECT EXISTS (
+			    SELECT 1 FROM admin_users u
+			    JOIN voucher_redemptions vr ON vr.user_id = u.id
+			    WHERE u.instansi = $1 AND u.id <> $2
+			      AND u.role ILIKE '%"operator"%' AND vr.is_active
+			      AND NOT u.operator_created
+			)`, instansi, userID).Scan(&covered); err != nil {
+			return err
+		}
+		if covered {
+			return nil // another operator still runs the school — nothing to reconcile
+		}
+		// The operator role is gone and no other operator covers the school:
+		// suspend every active non-operator account in the instansi so
+		// accounts created under the school package stop working.
+		// suspended_by_cascade lets them come back (with a clock freeze) when
+		// an operator returns to a school package.
 		if _, err := tx.Exec(ctx, `
 			UPDATE admin_users
 			SET status = 'suspended', suspended_by_cascade = TRUE, suspended_at = now()

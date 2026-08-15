@@ -61,6 +61,26 @@ const (
 	// the Atur Limit modal). Written after the update committed; detail lists
 	// which fields were changed. exam_id is NULL.
 	ActionUserEdited = "user_edited"
+	// An account was deleted (DeleteUser — the Hapus action on the Kelola
+	// Users page). Written BEFORE the rows are removed so user_id survives via
+	// the FK's ON DELETE SET NULL with the username/role snapshotted in
+	// detail; when the target is an operator with a real instansi, one row is
+	// written for EVERY account the cascade removes (the sub-accounts sharing
+	// the instansi) so the school-wide wipe leaves a complete trail. exam_id
+	// is NULL (no exam involved).
+	ActionUserDeleted = "user_deleted"
+	// A voucher code was claimed (RedeemVoucherHandler — the billing page's
+	// "Klaim" action). Written after the redemption committed; detail
+	// snapshots the code, the resulting package and the account expiry, so
+	// "who claimed which voucher and when" is answerable from the same
+	// append-only trail as the exam/user actions. exam_id is NULL (no exam
+	// involved).
+	ActionVoucherRedeemed = "voucher_redeemed"
+	// A previously-claimed package was made the active one
+	// (ActivateVoucherHandler — the "Aktifkan" button on the claimed list).
+	// Written after the activation committed; detail snapshots the package
+	// and the new account expiry. exam_id is NULL.
+	ActionVoucherActivated = "voucher_activated"
 )
 
 // CreateAdminAuditLog appends one audit row. username/detail are snapshotted
@@ -136,4 +156,102 @@ func ListExamAuditLogs(ctx context.Context, pool *pgxpool.Pool, examID, limit in
 		return nil, fmt.Errorf("iterate exam audit logs: %w", err)
 	}
 	return logs, nil
+}
+
+// ListVoucherAuditLogsOpts carries the pagination/search window for the
+// SuperAdmin voucher-claim audit trail (ListVoucherAuditLogs). Search matches
+// the actor username or the detail snapshot (e.g. a voucher code).
+type ListVoucherAuditLogsOpts struct {
+	Page    int
+	PerPage int
+	Search  string
+}
+
+// ListVoucherAuditLogsResult is the paginated result of the voucher-claim
+// audit trail query, mirroring the ListVouchers result shape so the admin API
+// and the page can reuse the same rendering conventions.
+type ListVoucherAuditLogsResult struct {
+	Logs       []AdminAuditLog
+	Total      int
+	Page       int
+	PerPage    int
+	TotalPages int
+}
+
+// ListVoucherAuditLogs returns the global append-only trail of voucher
+// claims and activations (actions voucher_redeemed / voucher_activated),
+// newest first — the SuperAdmin accountability view for "who claimed which
+// voucher and when" across all accounts. Unlike ListExamAuditLogs this is a
+// global, paginated, searchable query (the SuperAdmin page shows a bounded
+// window with paging rather than one capped dump). Rows with exam_id are
+// excluded by construction: voucher actions are never exam-scoped. Ties are
+// broken by row id so two writes in the same microsecond resolve to a stable
+// order. An empty trail yields an empty, non-nil Logs slice.
+func ListVoucherAuditLogs(ctx context.Context, pool *pgxpool.Pool, opts ListVoucherAuditLogsOpts) (*ListVoucherAuditLogsResult, error) {
+	if opts.Page < 1 {
+		opts.Page = 1
+	}
+	if opts.PerPage < 1 {
+		opts.PerPage = 20
+	}
+	offset := (opts.Page - 1) * opts.PerPage
+
+	whereClause := ` WHERE action IN ('voucher_redeemed', 'voucher_activated')`
+	var args []interface{}
+	argIdx := 1
+
+	if opts.Search != "" {
+		whereClause += fmt.Sprintf(" AND (username ILIKE $%d OR detail ILIKE $%d)", argIdx, argIdx)
+		args = append(args, "%"+opts.Search+"%")
+		argIdx++
+	}
+
+	countSQL := `SELECT COUNT(*) FROM admin_audit_logs` + whereClause
+	var total int
+	if err := pool.QueryRow(ctx, countSQL, args...).Scan(&total); err != nil {
+		return nil, fmt.Errorf("count voucher audit logs: %w", err)
+	}
+
+	totalPages := (total + opts.PerPage - 1) / opts.PerPage
+	if totalPages == 0 {
+		totalPages = 1
+	}
+
+	querySQL := fmt.Sprintf(`
+		SELECT id, user_id, username, action, exam_id, detail, created_at
+		FROM admin_audit_logs
+		%s
+		ORDER BY created_at DESC, id DESC
+		LIMIT $%d OFFSET $%d`, whereClause, argIdx, argIdx+1)
+
+	args = append(args, opts.PerPage, offset)
+
+	rows, err := pool.Query(ctx, querySQL, args...)
+	if err != nil {
+		return nil, fmt.Errorf("query voucher audit logs: %w", err)
+	}
+	defer rows.Close()
+
+	logs := make([]AdminAuditLog, 0, 16)
+	for rows.Next() {
+		var l AdminAuditLog
+		if err := rows.Scan(&l.ID, &l.UserID, &l.Username, &l.Action, &l.ExamID, &l.Detail, &l.CreatedAt); err != nil {
+			return nil, fmt.Errorf("scan voucher audit log: %w", err)
+		}
+		logs = append(logs, l)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate voucher audit logs: %w", err)
+	}
+	if logs == nil {
+		logs = []AdminAuditLog{}
+	}
+
+	return &ListVoucherAuditLogsResult{
+		Logs:       logs,
+		Total:      total,
+		Page:       opts.Page,
+		PerPage:    opts.PerPage,
+		TotalPages: totalPages,
+	}, nil
 }

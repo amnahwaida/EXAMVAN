@@ -244,19 +244,14 @@ func TestSubAccountBlockIsOriginBased(t *testing.T) {
 		t.Fatalf("fixture: sub1 must be operator_created")
 	}
 
-	// A superadmin promotes the sub-account to the operator role.
-	root, err := models.CreateUser(ctx, pool, &models.AdminUser{
-		Username: "root-promo", Name: "Root Promo",
-		PasswordHash: "pass-root-promo", Status: models.UserStatusActive,
-		Role: models.SerializeRoles([]string{models.RoleSuperAdmin}),
-	})
-	if err != nil {
-		t.Fatalf("create superadmin: %v", err)
-	}
-	tc.login(t, root.ID)
-	if status, resp := postJSON(t, tc.client, tc.srv, "/api/users/"+strconv.Itoa(sub.ID)+"/edit",
-		map[string]interface{}{"roles": []string{models.RoleGuru, models.RoleOperator}}); status != http.StatusOK || !resp.Success {
-		t.Fatalf("promote sub1: status=%d resp=%+v", status, resp)
+	// The sub-account is promoted to the operator role. Planted directly (not
+	// via EditUser): the one-operator-per-school policy blocks granting the
+	// operator role to a second operator through the handler, so the promotion
+	// here simulates a pre-policy/legacy state — exactly the state the
+	// origin-based flag must still reject.
+	if _, err := pool.Exec(ctx, `UPDATE admin_users SET role = $1 WHERE id = $2`,
+		models.SerializeRoles([]string{models.RoleGuru, models.RoleOperator}), sub.ID); err != nil {
+		t.Fatalf("promote sub1: %v", err)
 	}
 	sub = mustGetUser(t, pool, "sub1")
 	if !models.HasRole(sub.Role, models.RoleOperator) {
@@ -447,7 +442,7 @@ func TestOperatorCannotCreateOperatorAccount(t *testing.T) {
 	// and silently degrade the account to guru.
 	for i, roles := range []interface{}{
 		[]string{models.RoleGuru, models.RoleOperator},
-		models.RoleOperator, // sent as the singular `role` field
+		models.RoleOperator,                    // sent as the singular `role` field
 		[]string{models.RoleGuru, " operator"}, // leading space in the plural array
 		" operator, guru",                      // padding around the comma in the singular fallback
 		[]string{models.RoleGuru, "OPERATOR"},  // uppercase variant
@@ -591,7 +586,7 @@ func TestOperatorQuotaEnforcedForPersonalInstansi(t *testing.T) {
 		Instansi:     "personal",
 		RegisteredIP: "203.0.113.77",
 		Role:         models.SerializeRoles([]string{models.RoleGuru}),
-		MaxExams: 3, MaxPDFSize: 1048576, MaxConcurrentExams: 2,
+		MaxExams:     3, MaxPDFSize: 1048576, MaxConcurrentExams: 2,
 		MaxStorageSize: 50 * 1024 * 1024, Package: "free",
 	}); err != nil {
 		t.Fatalf("create self-registered personal account: %v", err)
@@ -599,7 +594,7 @@ func TestOperatorQuotaEnforcedForPersonalInstansi(t *testing.T) {
 
 	// The quota comes from the active redemption, not the instansi label: a
 	// personal-bucket operator still reports the school package's 2 accounts.
-	if gotMax, gotUsed := loadOperatorAccountQuota(ctx, pool, opAfter.ID, true, opAfter.Instansi); gotMax != 2 || gotUsed != 0 {
+	if gotMax, gotUsed, _ := loadOperatorAccountQuota(ctx, pool, opAfter.ID, true, opAfter.Instansi); gotMax != 2 || gotUsed != 0 {
 		t.Fatalf("loadOperatorAccountQuota after redeem = (%d,%d), want (2,0) — school quota applies to the personal bucket", gotMax, gotUsed)
 	}
 
@@ -609,7 +604,7 @@ func TestOperatorQuotaEnforcedForPersonalInstansi(t *testing.T) {
 			t.Fatalf("create %s: status=%d resp=%+v", name, status, resp)
 		}
 	}
-	if gotMax, gotUsed := loadOperatorAccountQuota(ctx, pool, opAfter.ID, true, opAfter.Instansi); gotMax != 2 || gotUsed != 2 {
+	if gotMax, gotUsed, _ := loadOperatorAccountQuota(ctx, pool, opAfter.ID, true, opAfter.Instansi); gotMax != 2 || gotUsed != 2 {
 		t.Errorf("loadOperatorAccountQuota after 2 subs = (%d,%d), want (2,2)", gotMax, gotUsed)
 	}
 
@@ -776,7 +771,7 @@ func TestUpdateInstansiMigratesPersonalBucketSubAccounts(t *testing.T) {
 		Instansi:     "personal",
 		RegisteredIP: "203.0.113.99",
 		Role:         models.SerializeRoles([]string{models.RoleGuru}),
-		MaxExams: 3, MaxPDFSize: 1048576, MaxConcurrentExams: 2,
+		MaxExams:     3, MaxPDFSize: 1048576, MaxConcurrentExams: 2,
 		MaxStorageSize: 50 * 1024 * 1024, Package: "free",
 	}); err != nil {
 		t.Fatalf("create self-registered personal account: %v", err)
@@ -841,7 +836,7 @@ func TestUpdateInstansiMigratesPersonalBucketSubAccounts(t *testing.T) {
 
 	// Quota stays accurate: the migrated subs now count in the school bucket,
 	// so a third account is still blocked.
-	if gotMax, gotUsed := loadOperatorAccountQuota(ctx, pool, opAfter.ID, true, opAfter.Instansi); gotMax != 2 || gotUsed != 2 {
+	if gotMax, gotUsed, _ := loadOperatorAccountQuota(ctx, pool, opAfter.ID, true, opAfter.Instansi); gotMax != 2 || gotUsed != 2 {
 		t.Errorf("loadOperatorAccountQuota after migration = (%d,%d), want (2,2) — subs followed the operator", gotMax, gotUsed)
 	}
 	if status, resp := tc.createUser(t, "sub3"); status != http.StatusBadRequest || !strings.Contains(resp.Message, "Kuota akun") {
@@ -926,10 +921,10 @@ func TestPersonalBucketQuotaAndMigrationScopedPerOperator(t *testing.T) {
 
 	// Quota per operator counts only its OWN subs — the shared bucket no
 	// longer mixes operators' sub-accounts.
-	if gotMax, gotUsed := loadOperatorAccountQuota(ctx, pool, opA.ID, true, "personal"); gotMax != 2 || gotUsed != 2 {
+	if gotMax, gotUsed, _ := loadOperatorAccountQuota(ctx, pool, opA.ID, true, "personal"); gotMax != 2 || gotUsed != 2 {
 		t.Errorf("quota(op-scope-a) = (%d,%d), want (2,2) — only its own subs count", gotMax, gotUsed)
 	}
-	if gotMax, gotUsed := loadOperatorAccountQuota(ctx, pool, opB.ID, true, "personal"); gotMax != 2 || gotUsed != 1 {
+	if gotMax, gotUsed, _ := loadOperatorAccountQuota(ctx, pool, opB.ID, true, "personal"); gotMax != 2 || gotUsed != 1 {
 		t.Errorf("quota(op-scope-b) = (%d,%d), want (2,1) — subA* must NOT count against B", gotMax, gotUsed)
 	}
 
@@ -966,7 +961,7 @@ func TestPersonalBucketQuotaAndMigrationScopedPerOperator(t *testing.T) {
 
 	// B's quota still counts its own subs in the personal bucket (subB1,
 	// subB2 = 2/2) — A's migration must not have stolen them.
-	if gotMax, gotUsed := loadOperatorAccountQuota(ctx, pool, opB.ID, true, "personal"); gotMax != 2 || gotUsed != 2 {
+	if gotMax, gotUsed, _ := loadOperatorAccountQuota(ctx, pool, opB.ID, true, "personal"); gotMax != 2 || gotUsed != 2 {
 		t.Errorf("quota(op-scope-b) after A's migration = (%d,%d), want (2,2) — B's subs stayed in personal", gotMax, gotUsed)
 	}
 }
@@ -1030,7 +1025,7 @@ func TestCreatedByDeleteSetsNull(t *testing.T) {
 	}
 	// The orphan still counts toward the shared legacy bucket of any personal
 	// operator via the (created_by IS NULL AND operator_created) fallback.
-	if gotMax, gotUsed := loadOperatorAccountQuota(ctx, pool, root.ID, false, "personal"); gotMax != 0 || gotUsed != 0 {
+	if gotMax, gotUsed, _ := loadOperatorAccountQuota(ctx, pool, root.ID, false, "personal"); gotMax != 0 || gotUsed != 0 {
 		t.Errorf("quota for non-operator after sub orphan = (%d,%d), want (0,0) — not applicable", gotMax, gotUsed)
 	}
 }
@@ -1038,7 +1033,7 @@ func TestCreatedByDeleteSetsNull(t *testing.T) {
 // TestOperatorWithEmailCanCreateSubAccounts locks in the fix for the
 // operator-created-account failure: CreateUser used to copy the operator's
 // email onto every sub-account, but the unique index uq_admin_users_email
-// (LOWER(email) WHERE email <> '') already holds the operator's own row — so
+// (LOWER(email) WHERE email <> ”) already holds the operator's own row — so
 // the INSERT always failed with a unique violation and an operator with an
 // email could NEVER create an account ("Gagal membuat user", 500). Production
 // operators always carry an email (the register form requires it). Now the
@@ -1157,5 +1152,79 @@ func TestCreateUserEmailDuplicateFriendlyErrors(t *testing.T) {
 		if status, resp := create(u, ""); status != http.StatusOK || !resp.Success {
 			t.Fatalf("create %s with empty email: status=%d resp=%+v", u, status, resp)
 		}
+	}
+}
+
+// TestSubAccountCannotListRedemptions locks in the third leg of the
+// sub-account voucher policy: GET /admin/api/vouchers/mine (the endpoint that
+// backs the "Paket yang Sudah Anda Klaim" list on billing.html) must answer
+// 403 for an operator-created account — the same origin-based block as
+// redeem/activate — so a sub-account can never read a redemption list, even
+// one left over from before the policy (a pre-policy claim planted on its
+// row). The operator themself (operator_created=false) keeps full access.
+func TestSubAccountCannotListRedemptions(t *testing.T) {
+	pool := setupVoucherITDB(t)
+	ctx := context.Background()
+
+	createSchoolVoucher(t, pool)
+	createGuruVoucherCode(t, pool, "IT-GURU-SUB")
+	op := createOperatorUser(t, pool, "op-sub-mine", "SMK Sub Mine", "pass-op-sub-mine")
+	tc := newVoucherTestClient(t, pool)
+	tc.login(t, op.ID)
+	tc.redeem(t, "IT-SEKOLAH")
+	if !models.HasRole(mustGetUser(t, pool, "op-sub-mine").Role, models.RoleOperator) {
+		t.Fatalf("op must hold the operator role after redeeming the school voucher")
+	}
+
+	// Sub-account created by the operator (operator_created=true) with a
+	// PRE-POLICY claim planted on its row — the data the endpoint must never
+	// leak to it.
+	if status, resp := tc.createUser(t, "sub-mine"); status != http.StatusOK || !resp.Success {
+		t.Fatalf("create sub-mine: status=%d resp=%+v", status, resp)
+	}
+	sub := mustGetUser(t, pool, "sub-mine")
+	if !sub.OperatorCreated {
+		t.Fatalf("fixture: sub-mine must be operator_created")
+	}
+	claimSubOwnVoucher(t, pool, sub.ID)
+
+	// The operator itself (operator_created=false) can still list its own
+	// claimed packages.
+	tc.login(t, op.ID)
+	opResp, opErr := tc.client.Get(tc.srv.URL + "/api/vouchers/mine")
+	if opErr != nil {
+		t.Fatalf("operator GET /api/vouchers/mine: %v", opErr)
+	}
+	opResp.Body.Close()
+	if opResp.StatusCode != http.StatusOK {
+		t.Errorf("operator GET /vouchers/mine: status=%d, want 200", opResp.StatusCode)
+	}
+
+	// The sub-account gets the same 403 sub-account message as redeem/activate
+	// — before any redemption lookup, so even the pre-policy row is invisible.
+	sc := newVoucherTestClient(t, pool)
+	sc.login(t, sub.ID)
+	resp, err := sc.client.Get(sc.srv.URL + "/api/vouchers/mine")
+	if err != nil {
+		t.Fatalf("sub GET /api/vouchers/mine: %v", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusForbidden {
+		t.Fatalf("sub GET /api/vouchers/mine: status=%d, want 403", resp.StatusCode)
+	}
+	body, _ := io.ReadAll(resp.Body)
+	if !strings.Contains(string(body), "dibuat oleh Operator") {
+		t.Errorf("sub GET /api/vouchers/mine body=%s, want the sub-account 403 message", string(body))
+	}
+
+	// Nothing was exposed or mutated: the pre-policy redemption row is still
+	// there, untouched.
+	var redemptionCount int
+	if err := pool.QueryRow(ctx,
+		`SELECT COUNT(*) FROM voucher_redemptions WHERE user_id = $1`, sub.ID).Scan(&redemptionCount); err != nil {
+		t.Fatalf("count sub redemptions: %v", err)
+	}
+	if redemptionCount != 1 {
+		t.Errorf("sub redemptions=%d after blocked mine, want 1 (pre-policy row untouched)", redemptionCount)
 	}
 }

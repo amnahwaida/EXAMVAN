@@ -37,7 +37,14 @@ import (
 // Skips (not fails) when TEST_DATABASE_URL is unset.
 func setupVoucherITDB(t *testing.T) *pgxpool.Pool {
 	t.Helper()
-	return database.NewPackageTestPool(t, "admin")
+	pool := database.NewPackageTestPool(t, "admin")
+	// The seeded saas_settings survive NewPackageTestPool's truncation, so a
+	// previous run that toggled voucher_redeem_enabled off (see
+	// TestRedeemDisabledBlocksNewClaimsButNotActivation) would otherwise leak
+	// into every redeem-dependent test here. Redeem defaults to enabled for
+	// the whole voucher-flow family.
+	_ = models.SetSaasSetting(context.Background(), pool, models.SettingVoucherRedeemEnabled, "1")
+	return pool
 }
 
 // createTestVoucher helpers build the voucher rows the tests share: a sekolah
@@ -204,6 +211,11 @@ func newVoucherTestRouter(pool *pgxpool.Pool) *gin.Engine {
 	// caps).
 	api.POST("/vouchers", middleware.SuperAdminRequired(), CreateVoucherHandler())
 	api.POST("/vouchers/batch", middleware.SuperAdminRequired(), CreateBatchVouchersHandler())
+	// GET /vouchers/audit-logs mirror of production GET
+	// /admin/api/vouchers/audit-logs (AuthRequired → FeatureLockRequired →
+	// SuperAdminRequired): the global voucher claim/activation audit trail
+	// page endpoint.
+	api.GET("/vouchers/audit-logs", middleware.SuperAdminRequired(), ListVoucherAuditLogs())
 	// POST /instansi/update mirrors production (AuthRequired →
 	// FeatureLockRequired → AdminManagementRequired): renaming a school
 	// instansi applies to every account sharing the instansi_id, so it must
@@ -610,7 +622,7 @@ func TestVoucherLifecycleOperatorAccountsSuspendRestore(t *testing.T) {
 	if maxUsers != 2 {
 		t.Errorf("school redemption max_users=%d, want 2", maxUsers)
 	}
-	if gotMax, gotUsed := loadOperatorAccountQuota(ctx, pool, opAfter.ID, true, opAfter.Instansi); gotMax != 2 || gotUsed != 0 {
+	if gotMax, gotUsed, _ := loadOperatorAccountQuota(ctx, pool, opAfter.ID, true, opAfter.Instansi); gotMax != 2 || gotUsed != 0 {
 		t.Errorf("loadOperatorAccountQuota after redeem = (%d,%d), want (2,0)", gotMax, gotUsed)
 	}
 
@@ -634,7 +646,7 @@ func TestVoucherLifecycleOperatorAccountsSuspendRestore(t *testing.T) {
 		}
 	}
 	// Quota display (billing page) now reports 2/2.
-	if gotMax, gotUsed := loadOperatorAccountQuota(ctx, pool, opAfter.ID, true, opAfter.Instansi); gotMax != 2 || gotUsed != 2 {
+	if gotMax, gotUsed, _ := loadOperatorAccountQuota(ctx, pool, opAfter.ID, true, opAfter.Instansi); gotMax != 2 || gotUsed != 2 {
 		t.Errorf("loadOperatorAccountQuota after 2 accounts = (%d,%d), want (2,2)", gotMax, gotUsed)
 	}
 	// A third account is blocked by the max_users quota.
@@ -1768,4 +1780,331 @@ func TestToggleOperatorStatusTombstonesUnstartedExams(t *testing.T) {
 	if got := mustGetExam(t, pool, opUnstarted).TombstonedAt; got == nil {
 		t.Errorf("op-unstarted after operator reactivate: tombstoned_at must still be set (no auto-restore)")
 	}
+}
+
+// TestRedeemRejectsOversizedCode locks in the redeem input-size cap: a code
+// longer than maxVoucherCodeLen (64) is rejected with a clear 400 BEFORE any
+// voucher lookup or transaction — it is input validation, not a code probe,
+// so a distinct message is safe (unlike the code-level voucherInvalidMsg
+// failures). No redemption row is created and the voucher quota is untouched.
+// A legitimate-length but bogus code still gets the generic invalid message,
+// so the cap never becomes a code-validity oracle.
+func TestRedeemRejectsOversizedCode(t *testing.T) {
+	pool := setupVoucherITDB(t)
+	ctx := context.Background()
+
+	createGuruVoucherCode(t, pool, "IT-GURU-LEN")
+	u := createOperatorUser(t, pool, "len-user", "personal", "pass-len-user")
+	tc := newVoucherTestClient(t, pool)
+	tc.login(t, u.ID)
+
+	// Oversized input → 400 with the length message, nothing recorded.
+	status, resp := postForm(t, tc.client, tc.srv, "/api/vouchers/redeem",
+		url.Values{"code": {strings.Repeat("A", maxVoucherCodeLen+1)}})
+	if status != http.StatusBadRequest || !strings.Contains(resp.Message, "terlalu panjang") {
+		t.Errorf("oversized redeem: status=%d resp=%+v, want 400 length message", status, resp)
+	}
+	var redemptionCount int
+	if err := pool.QueryRow(ctx,
+		`SELECT COUNT(*) FROM voucher_redemptions WHERE user_id = $1`, u.ID).Scan(&redemptionCount); err != nil {
+		t.Fatalf("count redemptions: %v", err)
+	}
+	if redemptionCount != 0 {
+		t.Errorf("redemptions=%d after oversized redeem, want 0", redemptionCount)
+	}
+	var used int
+	if err := pool.QueryRow(ctx,
+		`SELECT used_count FROM vouchers WHERE code = 'IT-GURU-LEN'`).Scan(&used); err != nil {
+		t.Fatalf("load IT-GURU-LEN used_count: %v", err)
+	}
+	if used != 0 {
+		t.Errorf("IT-GURU-LEN used_count=%d after oversized redeem, want 0", used)
+	}
+
+	// A legitimate-length but bogus code keeps the generic invalid message.
+	status, resp = postForm(t, tc.client, tc.srv, "/api/vouchers/redeem",
+		url.Values{"code": {"BOGUS-BUT-REASONABLE-LENGTH-CODE"}})
+	if status != http.StatusBadRequest || resp.Message != voucherInvalidMsg {
+		t.Errorf("bogus redeem: status=%d resp=%+v, want 400 generic invalid message", status, resp)
+	}
+}
+
+// TestRedeemDisabledBlocksNewClaimsButNotActivation locks in the SCOPE of the
+// voucher_redeem_enabled setting: it gates NEW code redemption only. With the
+// setting off, POST /vouchers/redeem answers 403 ("sedang tidak tersedia"),
+// but activating a package the user already claimed (POST /vouchers/activate)
+// still succeeds — activation consumes no code, and it must stay consistent
+// with the expiry-job auto-fallback, which re-activates usable claimed
+// packages so a user with one on hand is never locked out.
+func TestRedeemDisabledBlocksNewClaimsButNotActivation(t *testing.T) {
+	pool := setupVoucherITDB(t)
+	ctx := context.Background()
+
+	createGuruVoucher(t, pool)
+	createGuruVoucherCode(t, pool, "IT-GURU-2")
+	if err := models.SetSaasSetting(ctx, pool, models.SettingVoucherRedeemEnabled, "1"); err != nil {
+		t.Fatalf("enable redeem setting: %v", err)
+	}
+
+	u := createOperatorUser(t, pool, "redeem-off", "personal", "pass-redeem-off")
+	tc := newVoucherTestClient(t, pool)
+	tc.login(t, u.ID)
+
+	// Claim two packages while redeem is still enabled (the second claim
+	// pauses the first, leaving it as a resumable package).
+	tc.redeem(t, "IT-GURU")
+	tc.redeem(t, "IT-GURU-2")
+
+	// Disable redeem: new claims are blocked from now on.
+	if err := models.SetSaasSetting(ctx, pool, models.SettingVoucherRedeemEnabled, "0"); err != nil {
+		t.Fatalf("disable redeem setting: %v", err)
+	}
+	// Restore the setting for tests that run after this one in the same
+	// package (Go runs tests in definition order within a file, and the
+	// schema is shared across the package's run): a later redeem test must
+	// not inherit the disabled state.
+	t.Cleanup(func() {
+		_ = models.SetSaasSetting(context.Background(), pool, models.SettingVoucherRedeemEnabled, "1")
+	})
+	status, resp := postForm(t, tc.client, tc.srv, "/api/vouchers/redeem",
+		url.Values{"code": {"ANY-CODE"}})
+	if status != http.StatusForbidden || !strings.Contains(resp.Message, "sedang tidak tersedia") {
+		t.Errorf("redeem while disabled: status=%d resp=%+v, want 403 disabled message", status, resp)
+	}
+
+	// Activation of the already-claimed (paused) package still works.
+	redemptions, err := models.ListMyRedemptions(ctx, pool, u.ID)
+	if err != nil {
+		t.Fatalf("list my redemptions: %v", err)
+	}
+	var target int
+	for _, r := range redemptions {
+		if r.Code == "IT-GURU" && !r.IsActive && r.RemainingSeconds > 0 {
+			target = r.ID
+			break
+		}
+	}
+	if target == 0 {
+		t.Fatal("fixture: no paused IT-GURU redemption to activate")
+	}
+	tc.activate(t, target) // fails the test on anything but 200 success
+}
+
+// TestVoucherClaimAuditTrail locks in the audit side of the voucher claim
+// flow: every successful redeem and activate appends an immutable
+// admin_audit_logs row (action voucher_redeemed / voucher_activated, actor
+// username, exam_id NULL, and the code/package/expiry snapshotted in detail)
+// — the same append-only trail as the exam and user-management actions, so
+// "who claimed/activated which package and when" is answerable from one
+// source of truth.
+func TestVoucherClaimAuditTrail(t *testing.T) {
+	pool := setupVoucherITDB(t)
+	ctx := context.Background()
+
+	createGuruVoucher(t, pool)
+	createGuruVoucherCode(t, pool, "IT-GURU-AUDIT")
+	u := createOperatorUser(t, pool, "audit-user", "personal", "pass-audit-user")
+	tc := newVoucherTestClient(t, pool)
+	tc.login(t, u.ID)
+
+	// Redeem the first voucher: exactly one voucher_redeemed audit row for
+	// this actor, with the code and resulting package snapshotted, and a NULL
+	// exam_id (no exam involved).
+	tc.redeem(t, "IT-GURU-AUDIT")
+	var n int
+	if err := pool.QueryRow(ctx,
+		`SELECT COUNT(*) FROM admin_audit_logs WHERE action = $1 AND username = $2`,
+		models.ActionVoucherRedeemed, "audit-user").Scan(&n); err != nil {
+		t.Fatalf("count redeem audit rows: %v", err)
+	}
+	if n != 1 {
+		t.Errorf("redeem audit rows=%d, want 1", n)
+	}
+	var detail string
+	var examID *int
+	if err := pool.QueryRow(ctx,
+		`SELECT detail, exam_id FROM admin_audit_logs WHERE action = $1 ORDER BY id DESC LIMIT 1`,
+		models.ActionVoucherRedeemed).Scan(&detail, &examID); err != nil {
+		t.Fatalf("load redeem audit row: %v", err)
+	}
+	if !strings.Contains(detail, "IT-GURU-AUDIT") || !strings.Contains(detail, "GURU") {
+		t.Errorf("redeem audit detail=%q, want the code and package snapshotted", detail)
+	}
+	if examID != nil {
+		t.Errorf("redeem audit exam_id=%v, want NULL (no exam involved)", *examID)
+	}
+
+	// Claim a second voucher (pauses the first), then activate the first:
+	// exactly one voucher_activated audit row, with the package snapshotted.
+	createGuruVoucherCode(t, pool, "IT-GURU-AUDIT-2")
+	tc.redeem(t, "IT-GURU-AUDIT-2")
+	redemptions, err := models.ListMyRedemptions(ctx, pool, u.ID)
+	if err != nil {
+		t.Fatalf("list my redemptions: %v", err)
+	}
+	var target int
+	for _, r := range redemptions {
+		if r.Code == "IT-GURU-AUDIT" && !r.IsActive && r.RemainingSeconds > 0 {
+			target = r.ID
+			break
+		}
+	}
+	if target == 0 {
+		t.Fatal("fixture: no paused IT-GURU-AUDIT redemption to activate")
+	}
+	tc.activate(t, target)
+	if err := pool.QueryRow(ctx,
+		`SELECT COUNT(*) FROM admin_audit_logs WHERE action = $1 AND username = $2`,
+		models.ActionVoucherActivated, "audit-user").Scan(&n); err != nil {
+		t.Fatalf("count activate audit rows: %v", err)
+	}
+	if n != 1 {
+		t.Errorf("activate audit rows=%d, want 1", n)
+	}
+	if err := pool.QueryRow(ctx,
+		`SELECT detail FROM admin_audit_logs WHERE action = $1 ORDER BY id DESC LIMIT 1`,
+		models.ActionVoucherActivated).Scan(&detail); err != nil {
+		t.Fatalf("load activate audit row: %v", err)
+	}
+	if !strings.Contains(detail, "GURU") {
+		t.Errorf("activate audit detail=%q, want the package snapshotted", detail)
+	}
+}
+
+// TestVoucherAuditLogsEndpoint locks in the SuperAdmin global audit view for
+// voucher claims/activations: GET /vouchers/audit-logs returns the append-only
+// voucher_redeemed / voucher_activated trail (newest first, paginated,
+// searchable by actor or detail) and is gated to SuperAdmin — a non-super
+// caller gets 403, and non-voucher audit rows (e.g. user_created) never leak
+// into the view.
+func TestVoucherAuditLogsEndpoint(t *testing.T) {
+	pool := setupVoucherITDB(t)
+	ctx := context.Background()
+
+	createGuruVoucherCode(t, pool, "IT-AUDIT-LIST")
+	createGuruVoucherCode(t, pool, "IT-AUDIT-LIST-2")
+
+	// Actor: a normal guru who redeems both vouchers, leaving two
+	// voucher_redeemed rows.
+	u := createOperatorUser(t, pool, "audit-list-user", "personal", "pass-audit-list-user")
+	tc := newVoucherTestClient(t, pool)
+	tc.login(t, u.ID)
+	tc.redeem(t, "IT-AUDIT-LIST")
+	tc.redeem(t, "IT-AUDIT-LIST-2")
+
+	// A user-management action (not voucher-scoped) must NOT appear in the
+	// voucher audit view.
+	root, err := models.CreateUser(ctx, pool, &models.AdminUser{
+		Username: "audit-list-super", Name: "Audit List Super",
+		PasswordHash: "pass-audit-list-super", Status: models.UserStatusActive,
+		Role: models.SerializeRoles([]string{models.RoleSuperAdmin}),
+	})
+	if err != nil {
+		t.Fatalf("create superadmin: %v", err)
+	}
+	tc.login(t, root.ID)
+	if status, resp := tc.createUser(t, "audit-list-sub"); status != http.StatusOK || !resp.Success {
+		t.Fatalf("create sub (to leave a user_created row): status=%d resp=%+v", status, resp)
+	}
+
+	// Sanity: the trail rows exist.
+	var redeemRows int
+	if err := pool.QueryRow(ctx,
+		`SELECT COUNT(*) FROM admin_audit_logs WHERE action = $1 AND username = $2`,
+		models.ActionVoucherRedeemed, "audit-list-user").Scan(&redeemRows); err != nil {
+		t.Fatalf("count redeem rows: %v", err)
+	}
+	if redeemRows != 2 {
+		t.Fatalf("fixture: redeem rows=%d, want 2", redeemRows)
+	}
+
+	// 1. SuperAdmin sees exactly the two voucher rows, newest first.
+	status, body := getJSON(t, tc.client, tc.srv, "/api/vouchers/audit-logs")
+	if status != http.StatusOK {
+		t.Fatalf("GET audit-logs as superadmin: status=%d body=%s", status, body)
+	}
+	var out struct {
+		Success bool `json:"success"`
+		Logs    []struct {
+			ID        int    `json:"id"`
+			Username  string `json:"username"`
+			Action    string `json:"action"`
+			Detail    string `json:"detail"`
+			CreatedAt string `json:"created_at"`
+		} `json:"logs"`
+		Pagination struct {
+			Total      int `json:"total"`
+			TotalPages int `json:"total_pages"`
+		} `json:"pagination"`
+	}
+	if err := json.Unmarshal([]byte(body), &out); err != nil {
+		t.Fatalf("decode audit-logs: %v body=%s", err, body)
+	}
+	if !out.Success {
+		t.Fatalf("audit-logs success=false body=%s", body)
+	}
+	if out.Pagination.Total != 2 {
+		t.Errorf("audit-logs total=%d, want 2 (only voucher actions)", out.Pagination.Total)
+	}
+	if len(out.Logs) != 2 {
+		t.Fatalf("audit-logs rows=%d, want 2", len(out.Logs))
+	}
+	for i, l := range out.Logs {
+		if l.Username != "audit-list-user" {
+			t.Errorf("row %d username=%q, want audit-list-user", i, l.Username)
+		}
+		if l.Action != models.ActionVoucherRedeemed {
+			t.Errorf("row %d action=%q, want %s", i, l.Action, models.ActionVoucherRedeemed)
+		}
+		if !strings.Contains(l.Detail, "Voucher") || !strings.Contains(l.Detail, "GURU") {
+			t.Errorf("row %d detail=%q, want the voucher/package snapshot", i, l.Detail)
+		}
+	}
+	// Newest first: the second redeem (IT-AUDIT-LIST-2) must be the first row.
+	if !strings.Contains(out.Logs[0].Detail, "IT-AUDIT-LIST-2") {
+		t.Errorf("row 0 detail=%q, want the newest redeem (IT-AUDIT-LIST-2) first", out.Logs[0].Detail)
+	}
+
+	// 2. Search by actor narrows to the same rows; search by code also hits.
+	_, body = getJSON(t, tc.client, tc.srv, "/api/vouchers/audit-logs?search=audit-list-user")
+	if !strings.Contains(body, `"total":2`) {
+		t.Errorf("search by username body=%s, want total 2", body)
+	}
+	_, body = getJSON(t, tc.client, tc.srv, "/api/vouchers/audit-logs?search=IT-AUDIT-LIST-2")
+	if !strings.Contains(body, `"total":1`) {
+		t.Errorf("search by code body=%s, want total 1", body)
+	}
+	// A bogus search yields an empty list, not an error.
+	_, body = getJSON(t, tc.client, tc.srv, "/api/vouchers/audit-logs?search=zzz-nothing")
+	if !strings.Contains(body, `"total":0`) {
+		t.Errorf("bogus search body=%s, want total 0", body)
+	}
+
+	// 3. Non-super callers are rejected with 403.
+	guru, err := models.CreateUser(ctx, pool, &models.AdminUser{
+		Username: "audit-list-guru", Name: "Audit List Guru",
+		PasswordHash: "pass-audit-list-guru", Status: models.UserStatusActive,
+		Role: models.SerializeRoles([]string{models.RoleGuru}),
+	})
+	if err != nil {
+		t.Fatalf("create guru: %v", err)
+	}
+	gc := newVoucherTestClient(t, pool)
+	gc.login(t, guru.ID)
+	status, body = getJSON(t, gc.client, gc.srv, "/api/vouchers/audit-logs")
+	if status != http.StatusForbidden {
+		t.Errorf("guru GET audit-logs: status=%d body=%s, want 403", status, body)
+	}
+}
+
+// getJSON performs a GET and returns the status plus the raw body.
+func getJSON(t *testing.T, client *http.Client, srv *httptest.Server, path string) (int, string) {
+	t.Helper()
+	resp, err := client.Get(srv.URL + path)
+	if err != nil {
+		t.Fatalf("GET %s: %v", path, err)
+	}
+	defer resp.Body.Close()
+	body, _ := io.ReadAll(resp.Body)
+	return resp.StatusCode, string(body)
 }

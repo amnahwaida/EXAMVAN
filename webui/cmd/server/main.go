@@ -558,6 +558,7 @@ func registerRoutes(r *gin.Engine, cfg *config.Config, pool *pgxpool.Pool) {
 
 			lockedPages.GET("/users", middleware.AdminManagementRequired(), admin.UsersPage())
 			lockedPages.GET("/vouchers", middleware.SuperAdminRequired(), admin.VouchersPage())
+			lockedPages.GET("/vouchers/audit", middleware.SuperAdminRequired(), admin.VoucherAuditPage())
 			lockedPages.GET("/packages", middleware.SuperAdminRequired(), admin.PackagesPage())
 
 			lockedPages.GET("/pengawas", admin.PengawasPage())
@@ -679,6 +680,7 @@ func registerRoutes(r *gin.Engine, cfg *config.Config, pool *pgxpool.Pool) {
 			lockedAPI.GET("/packages", middleware.SuperAdminRequired(), admin.ListPackagesSettingsHandler())
 			lockedAPI.GET("/vouchers", middleware.SuperAdminRequired(), admin.ListVouchers())
 			lockedAPI.GET("/vouchers/:id/redemptions", middleware.SuperAdminRequired(), admin.ListVoucherRedemptionsHandler())
+			lockedAPI.GET("/vouchers/audit-logs", middleware.SuperAdminRequired(), admin.ListVoucherAuditLogs())
 		}
 	}
 
