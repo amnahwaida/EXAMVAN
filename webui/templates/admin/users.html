@@ -508,12 +508,22 @@
   <input type="password" id="passwordInput" required placeholder="Password awal" minlength="8">
   </div>
   </div>
+  {{if hasRole .admin_role "operator"}}
+  <div class="form-group space-y-1" style="margin-bottom: 8px;">
+    <label>Instansi</label>
+    <div class="sub-pkg-note" title="Akun sub selalu dibuat di instansi sekolah Anda — server memaksa nilai ini, kolom tidak dapat diubah.">
+      <svg class="icon-svg" style="width:14px;height:14px;flex-shrink:0;margin-top:1px;"><use href="#hi-lock"/></svg>
+      <span>Akun sub selalu dibuat di instansi Anda{{if .admin_instansi}} ({{.admin_instansi}}){{end}} — nilai tidak dapat diubah.</span>
+    </div>
+  </div>
+  {{else}}
   <div class="form-row-2col grid grid-cols-1 sm:grid-cols-2 gap-4">
   <div class="form-group space-y-1">
     <label for="instansiInput">Instansi</label>
     <input type="text" id="instansiInput" placeholder="Nama instansi">
   </div>
   </div>
+  {{end}}
   <div class="form-group space-y-1">
   <label>Role <span class="multirole-hint">multirole</span></label>
   <div class="role-chips">

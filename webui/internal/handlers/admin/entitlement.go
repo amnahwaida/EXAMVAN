@@ -58,6 +58,32 @@ func schoolPoolCovers(ctx context.Context, pool *pgxpool.Pool, user models.Admin
 	return ok
 }
 
+// lockSchoolClaim takes the transaction-scoped school-claim advisory lock for
+// the acting user's school, when that school is real (not empty / not the
+// shared "personal" bucket). Every operator-granting path
+// (redeem/activate/create/edit/claim) acquires this same lock keyed on the
+// destination school, so the one-operator-per-school guard runs serially per
+// school and can never race against a concurrent grant on the pre-commit
+// snapshot. The user's instansi is read WITHOUT a lock — callers must re-read
+// it authoritatively (FOR UPDATE) before the guard itself runs. The lock is
+// transaction-scoped (released at commit/rollback, never leaked). Returns nil
+// when there is no real school to lock (nothing to serialize).
+func lockSchoolClaim(ctx context.Context, tx pgx.Tx, userID int) error {
+	var inst string
+	if err := tx.QueryRow(ctx, `SELECT COALESCE(instansi, '') FROM admin_users WHERE id = $1`, userID).Scan(&inst); err != nil {
+		return err
+	}
+	inst = strings.TrimSpace(inst)
+	if inst == "" || strings.EqualFold(inst, "personal") {
+		return nil
+	}
+	if _, err := tx.Exec(ctx,
+		`SELECT pg_advisory_xact_lock(hashtext('school-claim:' || lower($1))::bigint)`, inst); err != nil {
+		return err
+	}
+	return nil
+}
+
 // schoolAlreadyHasOperator reports whether a real school instansi already has
 // ANOTHER real operator: an account NOT created by an operator (operator_created
 // is the sub-account marker) holding the operator role. The ONE-OPERATOR-PER-

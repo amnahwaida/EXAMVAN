@@ -765,6 +765,28 @@ func UpdateUserField(ctx context.Context, pool *pgxpool.Pool, userID int, column
 // UpdateUser updates multiple fields of an admin_users record.
 // Fields are only updated when the pointer is non-nil or value is non-zero for simple types.
 func UpdateUser(ctx context.Context, pool *pgxpool.Pool, userID int, updates map[string]interface{}) error {
+	return updateUser(ctx, pool, userID, updates)
+}
+
+// UpdateUserTx applies the same multi-column update as UpdateUser inside an
+// already-open transaction (pgx.Tx's Exec satisfies execQuerier). Used by the
+// EditUser one-operator-per-school path, where the role-grant check and the
+// UPDATE must share one transaction and one school-claim advisory lock so two
+// concurrent grants can never both pass the check.
+func UpdateUserTx(ctx context.Context, tx pgx.Tx, userID int, updates map[string]interface{}) error {
+	return updateUser(ctx, tx, userID, updates)
+}
+
+// execQuerier abstracts the Exec used by the multi-column UPDATE (pgxpool.Pool
+// and pgx.Tx both satisfy it) so updateUser has a single definition for the
+// pool and transaction callers — the SET-clause construction can never
+// disagree between the two paths.
+type execQuerier interface {
+	Exec(ctx context.Context, sql string, args ...any) (pgconn.CommandTag, error)
+}
+
+// updateUser is the shared multi-column UPDATE core (see UpdateUser).
+func updateUser(ctx context.Context, q execQuerier, userID int, updates map[string]interface{}) error {
 	if len(updates) == 0 {
 		return nil
 	}
@@ -799,7 +821,7 @@ func UpdateUser(ctx context.Context, pool *pgxpool.Pool, userID int, updates map
 	sql := fmt.Sprintf(`UPDATE admin_users SET %s WHERE id = $%d`, setClause, idx)
 	args = append(args, userID)
 
-	_, err := pool.Exec(ctx, sql, args...)
+	_, err := q.Exec(ctx, sql, args...)
 	if err != nil {
 		return fmt.Errorf("update user: %w", err)
 	}

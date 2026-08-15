@@ -1435,3 +1435,536 @@ func TestOneOperatorPerSchoolPolicy(t *testing.T) {
 		}
 	})
 }
+
+// TestOperatorEditSubAccountQuotaNotForcedFree probes the EDIT side of the
+// sub-account quota policy. CreateUser forces the per-account quota columns of
+// an operator-created account to the free defaults (see
+// TestSubAccountQuotaForcedFreeDefaults), but EditUser historically applied
+// whatever quota values the request sent — so an operator could EDIT a
+// sub-account it created and hand it max_storage_size_mb: 0 (= unlimited), 99
+// concurrent, etc. Those columns are the ONLY gate when the school pool is
+// inactive (shared "personal" bucket, legacy school without an active
+// redemption), which makes the edit-time hole exactly as exploitable as the
+// create-time one that was already fixed. The fix: on the operator edit path
+// the four quota fields are IGNORED — the columns stay EXACTLY as they are
+// (never forced to the free defaults, because forcing would silently destroy a
+// quota a SuperAdmin deliberately raised). For a fresh sub the columns are the
+// create-time free defaults, so the tamper is neutralized either way; a
+// SuperAdmin grant must survive an unrelated operator edit.
+func TestOperatorEditSubAccountQuotaNotForcedFree(t *testing.T) {
+	pool := setupVoucherITDB(t)
+	ctx := context.Background()
+
+	createSchoolVoucher(t, pool)
+	op := createOperatorUser(t, pool, "op-edit-quota", "SMK Edit Quota", "pass-op-edit-quota")
+	tc := newVoucherTestClient(t, pool)
+	tc.login(t, op.ID)
+	tc.redeem(t, "IT-SEKOLAH")
+	if status, resp := tc.createUser(t, "sub-edit-quota"); status != http.StatusOK || !resp.Success {
+		t.Fatalf("create sub-edit-quota: status=%d resp=%+v", status, resp)
+	}
+	sub := mustGetUser(t, pool, "sub-edit-quota")
+	if sub.MaxStorageSize != 50*1024*1024 || sub.MaxExams != 3 {
+		t.Fatalf("fixture: sub-edit-quota must start at free defaults, got storage=%d exams=%d", sub.MaxStorageSize, sub.MaxExams)
+	}
+
+	// (a) Tampered edit: storage 0 = unlimited, 99 exams, 20 MB PDF, 99
+	//     concurrent. The fields are ignored → columns stay free defaults.
+	status, resp := postJSON(t, tc.client, tc.srv, "/api/users/"+strconv.Itoa(sub.ID)+"/edit", map[string]interface{}{
+		"max_exams":            99,
+		"max_concurrent_exams": 99,
+		"max_pdf_size_mb":      20.0,
+		"max_storage_size_mb":  0.0, // 0 = tidak terbatas
+	})
+	if status != http.StatusOK || !resp.Success {
+		t.Fatalf("operator edit sub-edit-quota quota: status=%d resp=%+v", status, resp)
+	}
+	if !strings.Contains(resp.Message, "tidak dapat diubah oleh operator") {
+		t.Errorf("operator quota-block edit message = %q, want the blocked-quota note", resp.Message)
+	}
+	subAfter := mustGetUser(t, pool, "sub-edit-quota")
+	if subAfter.MaxExams != 3 || subAfter.MaxPDFSize != 1048576 ||
+		subAfter.MaxConcurrentExams != 2 || subAfter.MaxStorageSize != 50*1024*1024 {
+		t.Fatalf("operator edit must leave the free defaults intact, got exams=%d pdf=%d concurrent=%d storage=%d",
+			subAfter.MaxExams, subAfter.MaxPDFSize, subAfter.MaxConcurrentExams, subAfter.MaxStorageSize)
+	}
+
+	// (b) A SuperAdmin-raised quota must SURVIVE an unrelated operator edit:
+	//     the edit modal always sends the quota fields, so a name-only edit by
+	//     the operator would otherwise silently clobber the grant. The
+	//     operator's request carries storage=200MB (what the modal would read
+	//     from the row) and the grant must stay put.
+	root, err := models.CreateUser(ctx, pool, &models.AdminUser{
+		Username: "root-edit-quota", Name: "Root Edit Quota",
+		PasswordHash: "pass-root-edit-quota", Status: models.UserStatusActive,
+		Role: models.SerializeRoles([]string{models.RoleSuperAdmin}),
+	})
+	if err != nil {
+		t.Fatalf("create superadmin: %v", err)
+	}
+	rt := newVoucherTestClient(t, pool)
+	rt.login(t, root.ID)
+	if status, resp := postJSON(t, rt.client, rt.srv, "/api/users/"+strconv.Itoa(sub.ID)+"/edit", map[string]interface{}{
+		"max_storage_size_mb": 200.0,
+	}); status != http.StatusOK || !resp.Success {
+		t.Fatalf("superadmin raise sub storage: status=%d resp=%+v", status, resp)
+	}
+	if mustGetUser(t, pool, "sub-edit-quota").MaxStorageSize != 200*1024*1024 {
+		t.Fatalf("fixture: superadmin grant of 200MB must land, got %d", mustGetUser(t, pool, "sub-edit-quota").MaxStorageSize)
+	}
+
+	// Operator edits the NAME only; the modal also sends the quota fields
+	// (pre-filled with the row's 200MB). The columns must stay 200MB — the
+	// grant survives, only the name changes.
+	status, resp = postJSON(t, tc.client, tc.srv, "/api/users/"+strconv.Itoa(sub.ID)+"/edit", map[string]interface{}{
+		"name":                 "Sub Edit Quota Renamed",
+		"max_exams":            3,
+		"max_concurrent_exams": 2,
+		"max_pdf_size_mb":      1.0,
+		"max_storage_size_mb":  200.0,
+	})
+	if status != http.StatusOK || !resp.Success {
+		t.Fatalf("operator name edit with modal quota fields: status=%d resp=%+v", status, resp)
+	}
+	subRenamed := mustGetUser(t, pool, "sub-edit-quota")
+	if subRenamed.Name != "Sub Edit Quota Renamed" {
+		t.Errorf("name must change, got %q", subRenamed.Name)
+	}
+	if subRenamed.MaxStorageSize != 200*1024*1024 {
+		t.Errorf("superadmin-raised storage must survive the operator edit, got %d (was 200MB)", subRenamed.MaxStorageSize)
+	}
+	if subRenamed.MaxExams != 3 || subRenamed.MaxPDFSize != 1048576 || subRenamed.MaxConcurrentExams != 2 {
+		t.Errorf("other quota columns must stay at their values, got exams=%d pdf=%d concurrent=%d",
+			subRenamed.MaxExams, subRenamed.MaxPDFSize, subRenamed.MaxConcurrentExams)
+	}
+}
+
+// TestSuperAdminMoveOperatorIntoOccupiedSchool probes the one-operator-per-
+// school policy on the EDIT-INSTANSI path. A SuperAdmin editing an existing
+// operator and changing its instansi to a school that ALREADY has an operator
+// moves a second operator in — the same policy violation the redeem/activate/
+// create/edit-role/claim paths already reject. The fix must apply
+// schoolAlreadyHasOperator against the DESTINATION school before the move
+// (with the acting target excluded, so a school rename of the school's own
+// operator stays allowed).
+func TestSuperAdminMoveOperatorIntoOccupiedSchool(t *testing.T) {
+	pool := setupVoucherITDB(t)
+	ctx := context.Background()
+
+	createSchoolVoucherCode(t, pool, "IT-A")
+	createSchoolVoucherCode(t, pool, "IT-B")
+	opA := createOperatorUser(t, pool, "op-move-a", "Sekolah A", "pass-op-move-a")
+	opB := createOperatorUser(t, pool, "op-move-b", "Sekolah B", "pass-op-move-b")
+	tcA := newVoucherTestClient(t, pool)
+	tcA.login(t, opA.ID)
+	tcA.redeem(t, "IT-A") // opA becomes the operator of Sekolah A
+	tcB := newVoucherTestClient(t, pool)
+	tcB.login(t, opB.ID)
+	tcB.redeem(t, "IT-B") // opB becomes the operator of Sekolah B
+
+	root, err := models.CreateUser(ctx, pool, &models.AdminUser{
+		Username: "root-move", Name: "Root Move",
+		PasswordHash: "pass-root-move", Status: models.UserStatusActive,
+		Role: models.SerializeRoles([]string{models.RoleSuperAdmin}),
+	})
+	if err != nil {
+		t.Fatalf("create superadmin: %v", err)
+	}
+	rt := newVoucherTestClient(t, pool)
+	rt.login(t, root.ID)
+
+	// SuperAdmin moves opA into Sekolah B, which already has operator opB.
+	status, resp := postJSON(t, rt.client, rt.srv, "/api/users/"+strconv.Itoa(opA.ID)+"/edit", map[string]interface{}{
+		"instansi": "Sekolah B",
+	})
+	if status != http.StatusBadRequest {
+		t.Fatalf("move opA into occupied Sekolah B: status=%d resp=%+v, want 400 (one-operator-per-school)", status, resp)
+	}
+	if !strings.Contains(resp.Message, "satu operator") {
+		t.Errorf("move opA into occupied Sekolah B: message=%q, want the one-operator-per-school message", resp.Message)
+	}
+	opAAfter := mustGetUser(t, pool, "op-move-a")
+	if opAAfter.Instansi != "Sekolah A" {
+		t.Errorf("opA must stay in Sekolah A after the rejected move, got %q", opAAfter.Instansi)
+	}
+}
+
+// TestEditRoleAndInstansiCombinedBypassesPolicy probes a second gap in the
+// EditUser one-operator-per-school guard: the role-grant check runs against
+// the target's CURRENT instansi, so a single request that BOTH moves a guru
+// into a school that already has an operator AND grants the operator role
+// checks the OLD school (no operator → passes) and lands the guru as a second
+// operator of the destination. The fix must resolve the instansi BEFORE the
+// role check: when the request also changes instansi, the check runs against
+// the destination.
+func TestEditRoleAndInstansiCombinedBypassesPolicy(t *testing.T) {
+	pool := setupVoucherITDB(t)
+	ctx := context.Background()
+
+	createSchoolVoucherCode(t, pool, "IT-C")
+	createSchoolVoucherCode(t, pool, "IT-D")
+	opB := createOperatorUser(t, pool, "op-comb-b", "Sekolah D", "pass-op-comb-b")
+	tcB := newVoucherTestClient(t, pool)
+	tcB.login(t, opB.ID)
+	tcB.redeem(t, "IT-D") // opB becomes the operator of Sekolah D
+
+	// A guru in Sekolah C (no operator there).
+	guru, err := models.CreateUser(ctx, pool, &models.AdminUser{
+		Username: "guru-comb-c", Name: "Guru Comb C",
+		PasswordHash: "pass-guru-comb-c", Status: models.UserStatusActive,
+		Instansi: "Sekolah C", Role: models.SerializeRoles([]string{models.RoleGuru}),
+		MaxExams: 3, MaxPDFSize: 1048576, MaxConcurrentExams: 2,
+		MaxStorageSize: 50 * 1024 * 1024, Package: "free",
+	})
+	if err != nil {
+		t.Fatalf("create guru-comb-c: %v", err)
+	}
+
+	root, err := models.CreateUser(ctx, pool, &models.AdminUser{
+		Username: "root-comb", Name: "Root Comb",
+		PasswordHash: "pass-root-comb", Status: models.UserStatusActive,
+		Role: models.SerializeRoles([]string{models.RoleSuperAdmin}),
+	})
+	if err != nil {
+		t.Fatalf("create superadmin: %v", err)
+	}
+	rt := newVoucherTestClient(t, pool)
+	rt.login(t, root.ID)
+
+	// One request: move the guru into occupied Sekolah D AND grant operator.
+	status, resp := postJSON(t, rt.client, rt.srv, "/api/users/"+strconv.Itoa(guru.ID)+"/edit", map[string]interface{}{
+		"instansi": "Sekolah D",
+		"roles":    []string{models.RoleOperator},
+	})
+	if status != http.StatusBadRequest {
+		t.Fatalf("guru into occupied Sekolah D + operator role: status=%d resp=%+v, want 400 (one-operator-per-school)", status, resp)
+	}
+	if !strings.Contains(resp.Message, "satu operator") {
+		t.Errorf("combined edit: message=%q, want the one-operator-per-school message", resp.Message)
+	}
+	guruAfter := mustGetUser(t, pool, "guru-comb-c")
+	if guruAfter.Instansi != "Sekolah C" || models.HasRole(guruAfter.Role, models.RoleOperator) {
+		t.Errorf("guru must stay a non-operator in Sekolah C after the rejected edit, got instansi=%q role=%q", guruAfter.Instansi, guruAfter.Role)
+	}
+}
+
+// TestConcurrentSchoolClaimSerialized locks in the UpdateInstansi race fix:
+// two personal-bucket operators claiming the SAME school name concurrently
+// serialize on the school-claim advisory lock, so exactly ONE becomes the
+// school's operator and the other is rejected with the one-operator-per-school
+// 400. Before the fix the guard ran outside any lock/transaction, so both
+// concurrent requests read the pre-claim snapshot and BOTH became operators of
+// one school — a second operator with a full school package, exactly what the
+// policy forbids.
+func TestConcurrentSchoolClaimSerialized(t *testing.T) {
+	pool := setupVoucherITDB(t)
+	ctx := context.Background()
+
+	createSchoolVoucherCode(t, pool, "IT-CLAIM-A")
+	createSchoolVoucherCode(t, pool, "IT-CLAIM-B")
+	opA := createOperatorUser(t, pool, "op-claim-a", "personal", "pass-op-claim-a")
+	opB := createOperatorUser(t, pool, "op-claim-b", "personal", "pass-op-claim-b")
+	tcA := newVoucherTestClient(t, pool)
+	tcA.login(t, opA.ID)
+	tcA.redeem(t, "IT-CLAIM-A") // opA becomes an operator (still in the personal bucket)
+	tcB := newVoucherTestClient(t, pool)
+	tcB.login(t, opB.ID)
+	tcB.redeem(t, "IT-CLAIM-B") // opB becomes an operator (still in the personal bucket)
+
+	const school = "SMK Race Claim"
+	statuses := make([]int, 2)
+	messages := make([]string, 2)
+	var wg sync.WaitGroup
+	for i, tc := range []*voucherTestClient{tcA, tcB} {
+		wg.Add(1)
+		go func(i int, tc *voucherTestClient) {
+			defer wg.Done()
+			status, resp := postJSON(t, tc.client, tc.srv, "/api/instansi/update", map[string]interface{}{"instansi": school})
+			statuses[i] = status
+			messages[i] = resp.Message
+		}(i, tc)
+	}
+	wg.Wait()
+
+	// Exactly one claim succeeds; the loser gets the policy 400.
+	successes, rejections, other := 0, 0, 0
+	for i := range statuses {
+		switch {
+		case statuses[i] == http.StatusOK:
+			successes++
+		case statuses[i] == http.StatusBadRequest && strings.Contains(messages[i], "satu operator"):
+			rejections++
+		default:
+			other++
+		}
+	}
+	if other > 0 {
+		t.Fatalf("concurrent claims: %d unexpected responses (statuses=%v messages=%v)", other, statuses, messages)
+	}
+	if successes != 1 {
+		t.Errorf("concurrent claims: %d succeeded, want exactly 1 — the claim raced and both became operators", successes)
+	}
+	if rejections != 1 {
+		t.Errorf("concurrent claims: %d rejected by the policy, want exactly 1", rejections)
+	}
+
+	// The school ends up with exactly one operator.
+	var ops int
+	if err := pool.QueryRow(ctx,
+		`SELECT COUNT(*) FROM admin_users
+		 WHERE LOWER(instansi) = LOWER($1) AND role ILIKE '%"operator"%' AND NOT operator_created`,
+		school).Scan(&ops); err != nil {
+		t.Fatalf("count school operators: %v", err)
+	}
+	if ops != 1 {
+		t.Errorf("school %q has %d operators, want exactly 1", school, ops)
+	}
+}
+
+// TestSuperAdminConcurrentOperatorCreateSerialized locks in the
+// one-operator-per-school serialization on the SuperAdmin CREATE path: two
+// concurrent creates of operator accounts in the SAME empty school serialize
+// on the school-claim advisory lock, so exactly ONE becomes the school's
+// operator and the rest get the policy 400. Before the fix the check ran
+// outside any lock/transaction, so concurrent requests all read the pre-insert
+// snapshot and MULTIPLE operators landed in one school — the exact state the
+// policy forbids.
+func TestSuperAdminConcurrentOperatorCreateSerialized(t *testing.T) {
+	pool := setupVoucherITDB(t)
+	ctx := context.Background()
+
+	root, err := models.CreateUser(ctx, pool, &models.AdminUser{
+		Username: "root-race-op", Name: "Root Race Op",
+		PasswordHash: "pass-root-race-op", Status: models.UserStatusActive,
+		Role: models.SerializeRoles([]string{models.RoleSuperAdmin}),
+	})
+	if err != nil {
+		t.Fatalf("create superadmin: %v", err)
+	}
+	rt := newVoucherTestClient(t, pool)
+	rt.login(t, root.ID)
+
+	const school = "SMK Race Op"
+	const attempts = 4
+	statuses := make([]int, attempts)
+	messages := make([]string, attempts)
+	var wg sync.WaitGroup
+	for i := range statuses {
+		wg.Add(1)
+		go func(i int) {
+			defer wg.Done()
+			status, resp := postJSON(t, rt.client, rt.srv, "/api/users", map[string]interface{}{
+				"username": fmt.Sprintf("op-race-%d", i),
+				"password": fmt.Sprintf("pass-op-race-%d", i),
+				"name":     fmt.Sprintf("Op Race %d", i),
+				"roles":    []string{models.RoleOperator},
+				"instansi": school,
+			})
+			statuses[i] = status
+			messages[i] = resp.Message
+		}(i)
+	}
+	wg.Wait()
+
+	successes, rejections, other := 0, 0, 0
+	for i := range statuses {
+		switch {
+		case statuses[i] == http.StatusOK:
+			successes++
+		case statuses[i] == http.StatusBadRequest && strings.Contains(messages[i], "satu operator"):
+			rejections++
+		default:
+			other++
+		}
+	}
+	if other > 0 {
+		t.Fatalf("concurrent operator creates: %d unexpected responses (statuses=%v messages=%v)", other, statuses, messages)
+	}
+	if successes != 1 {
+		t.Errorf("concurrent operator creates: %d succeeded, want exactly 1 — the check raced and multiple operators landed", successes)
+	}
+	if rejections != attempts-1 {
+		t.Errorf("concurrent operator creates: %d rejected by the policy, want %d", rejections, attempts-1)
+	}
+
+	var ops int
+	if err := pool.QueryRow(ctx,
+		`SELECT COUNT(*) FROM admin_users
+		 WHERE LOWER(instansi) = LOWER($1) AND role ILIKE '%"operator"%' AND NOT operator_created`,
+		school).Scan(&ops); err != nil {
+		t.Fatalf("count school operators: %v", err)
+	}
+	if ops != 1 {
+		t.Errorf("school %q has %d operators, want exactly 1", school, ops)
+	}
+}
+
+// TestSuperAdminConcurrentOperatorRoleGrantSerialized locks in the
+// one-operator-per-school serialization on the SuperAdmin EDIT role-grant
+// path: two concurrent grants of the operator role to two gurus in the SAME
+// empty school serialize on the school-claim advisory lock (the check and the
+// UPDATE share one transaction), so exactly ONE becomes the school's operator
+// and the other gets the policy 400.
+func TestSuperAdminConcurrentOperatorRoleGrantSerialized(t *testing.T) {
+	pool := setupVoucherITDB(t)
+	ctx := context.Background()
+
+	const school = "SMK Race Edit"
+	gurus := make([]models.AdminUser, 2)
+	for i := range gurus {
+		g, err := models.CreateUser(ctx, pool, &models.AdminUser{
+			Username: fmt.Sprintf("guru-race-%d", i), Name: fmt.Sprintf("Guru Race %d", i),
+			PasswordHash: fmt.Sprintf("pass-guru-race-%d", i), Status: models.UserStatusActive,
+			Instansi: school, Role: models.SerializeRoles([]string{models.RoleGuru}),
+			MaxExams: 3, MaxPDFSize: 1048576, MaxConcurrentExams: 2,
+			MaxStorageSize: 50 * 1024 * 1024, Package: "free",
+		})
+		if err != nil {
+			t.Fatalf("create guru %d: %v", i, err)
+		}
+		gurus[i] = *g
+	}
+
+	root, err := models.CreateUser(ctx, pool, &models.AdminUser{
+		Username: "root-race-edit", Name: "Root Race Edit",
+		PasswordHash: "pass-root-race-edit", Status: models.UserStatusActive,
+		Role: models.SerializeRoles([]string{models.RoleSuperAdmin}),
+	})
+	if err != nil {
+		t.Fatalf("create superadmin: %v", err)
+	}
+	rt := newVoucherTestClient(t, pool)
+	rt.login(t, root.ID)
+
+	statuses := make([]int, len(gurus))
+	messages := make([]string, len(gurus))
+	var wg sync.WaitGroup
+	for i, g := range gurus {
+		wg.Add(1)
+		go func(i int, g models.AdminUser) {
+			defer wg.Done()
+			status, resp := postJSON(t, rt.client, rt.srv, "/api/users/"+strconv.Itoa(g.ID)+"/edit",
+				map[string]interface{}{"roles": []string{models.RoleOperator}})
+			statuses[i] = status
+			messages[i] = resp.Message
+		}(i, g)
+	}
+	wg.Wait()
+
+	successes, rejections, other := 0, 0, 0
+	for i := range statuses {
+		switch {
+		case statuses[i] == http.StatusOK:
+			successes++
+		case statuses[i] == http.StatusBadRequest && strings.Contains(messages[i], "satu operator"):
+			rejections++
+		default:
+			other++
+		}
+	}
+	if other > 0 {
+		t.Fatalf("concurrent role grants: %d unexpected responses (statuses=%v messages=%v)", other, statuses, messages)
+	}
+	if successes != 1 {
+		t.Errorf("concurrent role grants: %d succeeded, want exactly 1 — the check raced and two operators landed", successes)
+	}
+	if rejections != 1 {
+		t.Errorf("concurrent role grants: %d rejected by the policy, want exactly 1", rejections)
+	}
+
+	var ops int
+	if err := pool.QueryRow(ctx,
+		`SELECT COUNT(*) FROM admin_users
+		 WHERE LOWER(instansi) = LOWER($1) AND role ILIKE '%"operator"%' AND NOT operator_created`,
+		school).Scan(&ops); err != nil {
+		t.Fatalf("count school operators: %v", err)
+	}
+	if ops != 1 {
+		t.Errorf("school %q has %d operators, want exactly 1", school, ops)
+	}
+}
+
+// TestConcurrentRedeemDifferentCodesSerialized locks in the one-operator-per-
+// school serialization on the REDEEM path for DIFFERENT codes: two gurus of
+// the SAME school redeeming two different school-package codes concurrently
+// serialize on the school-claim advisory lock (the voucher row lock alone
+// only serializes SAME-code redeems), so exactly ONE becomes the school's
+// operator and the other gets the policy 400.
+func TestConcurrentRedeemDifferentCodesSerialized(t *testing.T) {
+	pool := setupVoucherITDB(t)
+	ctx := context.Background()
+
+	createSchoolVoucherCode(t, pool, "IT-RACE-1")
+	createSchoolVoucherCode(t, pool, "IT-RACE-2")
+
+	const school = "SMK Race Redeem"
+	gurus := make([]models.AdminUser, 2)
+	for i := range gurus {
+		g, err := models.CreateUser(ctx, pool, &models.AdminUser{
+			Username: fmt.Sprintf("guru-red-%d", i), Name: fmt.Sprintf("Guru Red %d", i),
+			PasswordHash: fmt.Sprintf("pass-guru-red-%d", i), Status: models.UserStatusActive,
+			Instansi: school, Role: models.SerializeRoles([]string{models.RoleGuru}),
+			MaxExams: 3, MaxPDFSize: 1048576, MaxConcurrentExams: 2,
+			MaxStorageSize: 50 * 1024 * 1024, Package: "free",
+		})
+		if err != nil {
+			t.Fatalf("create guru %d: %v", i, err)
+		}
+		gurus[i] = *g
+	}
+
+	clients := []*voucherTestClient{
+		newVoucherTestClient(t, pool),
+		newVoucherTestClient(t, pool),
+	}
+	clients[0].login(t, gurus[0].ID)
+	clients[1].login(t, gurus[1].ID)
+
+	codes := []string{"IT-RACE-1", "IT-RACE-2"}
+	statuses := make([]int, len(clients))
+	messages := make([]string, len(clients))
+	var wg sync.WaitGroup
+	for i := range clients {
+		wg.Add(1)
+		go func(i int) {
+			defer wg.Done()
+			status, resp := postForm(t, clients[i].client, clients[i].srv, "/api/vouchers/redeem",
+				url.Values{"code": {codes[i]}})
+			statuses[i] = status
+			messages[i] = resp.Message
+		}(i)
+	}
+	wg.Wait()
+
+	successes, rejections, other := 0, 0, 0
+	for i := range statuses {
+		switch {
+		case statuses[i] == http.StatusOK:
+			successes++
+		case statuses[i] == http.StatusBadRequest && strings.Contains(messages[i], "satu operator"):
+			rejections++
+		default:
+			other++
+		}
+	}
+	if other > 0 {
+		t.Fatalf("concurrent redeems: %d unexpected responses (statuses=%v messages=%v)", other, statuses, messages)
+	}
+	if successes != 1 {
+		t.Errorf("concurrent redeems: %d succeeded, want exactly 1 — the guard raced and two operators landed", successes)
+	}
+	if rejections != 1 {
+		t.Errorf("concurrent redeems: %d rejected by the policy, want exactly 1", rejections)
+	}
+
+	var ops int
+	if err := pool.QueryRow(ctx,
+		`SELECT COUNT(*) FROM admin_users
+		 WHERE LOWER(instansi) = LOWER($1) AND role ILIKE '%"operator"%' AND NOT operator_created`,
+		school).Scan(&ops); err != nil {
+		t.Fatalf("count school operators: %v", err)
+	}
+	if ops != 1 {
+		t.Errorf("school %q has %d operators, want exactly 1", school, ops)
+	}
+}

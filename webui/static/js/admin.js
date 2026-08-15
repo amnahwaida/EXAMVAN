@@ -1966,7 +1966,7 @@ function createEditUserModal() {
                             <option value="sekolah_unggulan">Paket Sekolah Unggulan</option>
                         </select>
                     </div>
-                    <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;">
+                    <div id="editUserQuotaGrid" style="display:grid;grid-template-columns:1fr 1fr;gap:12px;">
                         <div class="form-group" style="margin-bottom:8px;">
                             <label for="editUserExams">Maks Total Ujian</label>
                             <input type="number" id="editUserExams" required min="0" style="width:100%;">
@@ -2040,6 +2040,11 @@ function createEditUserModal() {
         // paket sekolah Operator/Super Admin).
         var pkgGroup = document.getElementById('editUserPackageGroup');
         if (pkgGroup) pkgGroup.style.display = 'none';
+        // Kuota per-akun akun sub juga tidak bisa diubah operator (server
+        // mengabaikan field ini untuk caller operator) — sembunyikan agar tidak
+        // ada kontrol yang hasilnya senyap diabaikan.
+        var quotaGrid = document.getElementById('editUserQuotaGrid');
+        if (quotaGrid) quotaGrid.style.display = 'none';
     }
 
     // Close on overlay click
@@ -3114,7 +3119,10 @@ function createUser(e) {
     const password = document.getElementById('passwordInput').value;
     const emailEl = document.getElementById('emailInput');
     const email = emailEl ? emailEl.value.trim() : '';
-    const instansi = document.getElementById('instansiInput').value.trim() || 'personal';
+    // Instansi input hanya dirender untuk Super Admin (operator selalu masuk
+    // instansi sekolahnya — server mengabaikan nilai ini), jadi guard null.
+    const instansiEl = document.getElementById('instansiInput');
+    const instansi = instansiEl ? (instansiEl.value.trim() || 'personal') : 'personal';
     var roles = [];
     if (document.getElementById('roleGuru').checked) roles.push('guru');
     if (document.getElementById('rolePengawas').checked) roles.push('pengawas');

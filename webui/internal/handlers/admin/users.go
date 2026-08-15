@@ -181,8 +181,12 @@ func loadOperatorAccountQuota(ctx context.Context, q quotaQuerier, userID int, i
 	// ignored. Self-registered personal accounts (operator_created = false)
 	// are NOT sub-accounts and never consume a school quota.
 	if strings.EqualFold(instansi, "personal") {
+		// MAX() over the operator's active redemptions: an operator with
+		// several active packages (e.g. a guru who redeemed multiple vouchers)
+		// must get a deterministic cap — a plain first-row read would return
+		// an arbitrary one. Mirrors the school path, which also MAXes.
 		err = q.QueryRow(ctx, `
-			SELECT COALESCE(max_users, 0) FROM voucher_redemptions
+			SELECT COALESCE(MAX(max_users), 0) FROM voucher_redemptions
 			WHERE user_id = $1 AND is_active`, userID).Scan(&maxUsers)
 		if err != nil {
 			if !errors.Is(err, pgx.ErrNoRows) {
@@ -669,6 +673,14 @@ func CreateUser() gin.HandlerFunc {
 				errorResponse(c, http.StatusInternalServerError, "Gagal membuat user")
 				return
 			}
+			// Trim the authoritative instansi before ANY use: the quota count
+			// and the school pool both compare on the trimmed value, so the
+			// INSERT must store the same canonical form. A padded DB value
+			// (only possible via direct DB/import — every app path trims)
+			// would otherwise label the new account with "SMK X " while the
+			// quota/pool count "SMK X": the account would silently escape
+			// both the max_users count and the school pool.
+			instansi = strings.TrimSpace(instansi)
 			// Fail CLOSED on an anomalous empty instansi: a healthy operator
 			// always has one (self-registration defaults to "personal", the
 			// needs_instansi onboarding forces a real school, and EditUser
@@ -693,9 +705,17 @@ func CreateUser() gin.HandlerFunc {
 			// and two operators could otherwise both pass the shared count.
 			// The advisory lock is transaction-scoped (released at commit /
 			// rollback, never leaked) and keyed on the authoritative instansi
-			// from the locked read — never the request body.
+			// from the locked read — never the request body. In the shared
+			// "personal" bucket the key is scoped PER OPERATOR: the FOR UPDATE
+			// row lock already serializes same-operator creates there, so a
+			// single global "personal" key would needlessly serialize ALL
+			// personal-bucket operators on one lock.
+			lockKey := instansi
+			if strings.EqualFold(lockKey, "personal") {
+				lockKey = fmt.Sprintf("personal:%d", userID)
+			}
 			if _, aErr := tx.Exec(ctx,
-				`SELECT pg_advisory_xact_lock(hashtext('sub-account-quota:' || $1)::bigint)`, instansi); aErr != nil {
+				`SELECT pg_advisory_xact_lock(hashtext('sub-account-quota:' || $1)::bigint)`, lockKey); aErr != nil {
 				log.Printf("create user: lock school quota (instansi %q): %v", instansi, aErr)
 				errorResponse(c, http.StatusInternalServerError, "Gagal membuat user")
 				return
@@ -759,11 +779,33 @@ func CreateUser() gin.HandlerFunc {
 
 		// One-operator-per-school policy: a SuperAdmin creating an account
 		// with the operator role in a school that already has an operator
-		// would create a second. Rejected before the INSERT. (The operator
-		// create path can never reach here — operators are barred from
-		// granting the operator role above.)
-		if !isOp && containsRole(filteredRoles, models.RoleOperator) {
-			hasOp, opErr := schoolAlreadyHasOperator(ctx, pool, instansi, userID)
+		// would create a second. The check and the INSERT run in ONE
+		// transaction serialized per destination school via the same
+		// school-claim advisory lock the claim/redeem/activate paths use —
+		// without it, two concurrent SuperAdmin creates into the same empty
+		// school would BOTH read the pre-insert snapshot and land two
+		// operators. (The operator create path can never reach here —
+		// operators are barred from granting the operator role above.) The
+		// shared "personal" bucket is never a school: nothing to check, and
+		// no serialization needed.
+		if !isOp && containsRole(filteredRoles, models.RoleOperator) &&
+			instansi != "" && !strings.EqualFold(instansi, "personal") {
+			var bErr error
+			tx, bErr = pool.Begin(ctx)
+			if bErr != nil {
+				log.Printf("begin operator-role create tx error: %v", bErr)
+				errorResponse(c, http.StatusInternalServerError, "Gagal membuat user")
+				return
+			}
+			defer func() { _ = tx.Rollback(ctx) }() // no-op after a successful Commit
+
+			if _, aErr := tx.Exec(ctx,
+				`SELECT pg_advisory_xact_lock(hashtext('school-claim:' || lower($1))::bigint)`, instansi); aErr != nil {
+				log.Printf("create user: lock school-claim (instansi %q): %v", instansi, aErr)
+				errorResponse(c, http.StatusInternalServerError, "Gagal membuat user")
+				return
+			}
+			hasOp, opErr := schoolAlreadyHasOperator(ctx, tx, instansi, userID)
 			if opErr != nil {
 				log.Printf("create user: one-operator-per-school check error: %v", opErr)
 				errorResponse(c, http.StatusInternalServerError, "Gagal membuat user")
@@ -985,6 +1027,14 @@ func EditUser() gin.HandlerFunc {
 		isOp := isOperator(c)
 		ctx := c.Request.Context()
 
+		// opRoleTx serializes the one-operator-per-school role-grant against
+		// every other operator-granting path. Opened lazily in the role
+		// section below when the request grants the operator role to a target
+		// that does not hold it yet; the final UPDATE runs inside it (via
+		// UpdateUserTx) and commits, so the check and the write share one
+		// transaction and one school-claim advisory lock.
+		var opRoleTx pgx.Tx
+
 		// Fetch target user
 		targetUser, err := models.GetUserByID(ctx, pool, targetID)
 		if err != nil {
@@ -1078,22 +1128,36 @@ func EditUser() gin.HandlerFunc {
 			updates["name"] = strings.TrimSpace(*body.Name)
 		}
 
-		if body.MaxExams != nil {
-			updates["max_exams"] = *body.MaxExams
+		// Sub-account quota policy (mirror of CreateUser): an operator may
+		// never change the per-account quota columns of the accounts below it,
+		// so the four quota fields are IGNORED on the operator path — the
+		// columns are left EXACTLY as they are, not forced to the free
+		// defaults. Forcing would destroy a quota a SuperAdmin deliberately
+		// raised (e.g. a legacy no-pool school where the SuperAdmin grants a
+		// specific sub more storage): the only other writer of these columns
+		// is a SuperAdmin (operators are barred here), so the existing value
+		// is always trusted. Ignoring the submitted fields neutralizes the
+		// tamper exactly like forcing did — a hand-crafted request can never
+		// raise the columns — without the clobbering side effect.
+		quotaBlockedMsg := ""
+		if isOp && (body.MaxExams != nil || body.MaxPDFSizeMB != nil || body.MaxConcurrentExams != nil || body.MaxStorageSizeMB != nil) {
+			quotaBlockedMsg = " Kuota akun sub tidak dapat diubah oleh operator — nilai yang dikirim diabaikan."
 		}
-
-		if body.MaxPDFSizeMB != nil {
-			pdfSize := int(*body.MaxPDFSizeMB * 1024 * 1024)
-			updates["max_pdf_size"] = pdfSize
-		}
-
-		if body.MaxConcurrentExams != nil {
-			updates["max_concurrent_exams"] = *body.MaxConcurrentExams
-		}
-
-		if body.MaxStorageSizeMB != nil {
-			storageSize := int64(*body.MaxStorageSizeMB * 1024 * 1024)
-			updates["max_storage_size"] = storageSize
+		if !isOp {
+			if body.MaxExams != nil {
+				updates["max_exams"] = *body.MaxExams
+			}
+			if body.MaxPDFSizeMB != nil {
+				pdfSize := int(*body.MaxPDFSizeMB * 1024 * 1024)
+				updates["max_pdf_size"] = pdfSize
+			}
+			if body.MaxConcurrentExams != nil {
+				updates["max_concurrent_exams"] = *body.MaxConcurrentExams
+			}
+			if body.MaxStorageSizeMB != nil {
+				storageSize := int64(*body.MaxStorageSizeMB * 1024 * 1024)
+				updates["max_storage_size"] = storageSize
+			}
 		}
 
 		if body.WhatsappNumber != nil {
@@ -1134,6 +1198,50 @@ func EditUser() gin.HandlerFunc {
 				// Cascade instansi: if the target is an operator and their
 				// instansi changed, update all users in the same instansi too.
 				if targetUser.IsOperator() && targetUser.Instansi != instansi {
+					// One-operator-per-school policy: moving an operator into a
+					// school that ALREADY has an operator would create a second
+					// operator — the same violation the redeem/activate/create/
+					// edit-role/claim paths reject. The check runs against the
+					// DESTINATION instansi with the acting target excluded, so a
+					// school rename (destination is fresh/empty) stays allowed.
+					// Serialized per destination school via the school-claim
+					// advisory lock (the check and the UPDATE below share one
+					// transaction via opRoleTx) — without it, two concurrent
+					// moves into the same empty school would both read the
+					// pre-move snapshot and land two operators. Mutually
+					// exclusive with the role-grant serialization below (this
+					// branch requires the target to ALREADY hold the operator
+					// role), so opRoleTx is opened at most once per request. The
+					// shared "personal" bucket is never a school: nothing to
+					// check, and no serialization needed.
+					if instansi != "" && !strings.EqualFold(instansi, "personal") {
+						var bErr error
+						opRoleTx, bErr = pool.Begin(ctx)
+						if bErr != nil {
+							log.Printf("begin operator-move tx error: %v", bErr)
+							errorResponse(c, http.StatusInternalServerError, "Gagal memperbarui user")
+							return
+						}
+						defer func() { _ = opRoleTx.Rollback(ctx) }() // no-op after a successful Commit
+
+						if _, aErr := opRoleTx.Exec(ctx,
+							`SELECT pg_advisory_xact_lock(hashtext('school-claim:' || lower($1))::bigint)`, instansi); aErr != nil {
+							log.Printf("edit user: lock school-claim for move (%q): %v", instansi, aErr)
+							errorResponse(c, http.StatusInternalServerError, "Gagal memperbarui user")
+							return
+						}
+						hasOp, opErr := schoolAlreadyHasOperator(ctx, opRoleTx, instansi, targetID)
+						if opErr != nil {
+							log.Printf("edit user: move operator one-operator-per-school check error: %v", opErr)
+							errorResponse(c, http.StatusInternalServerError, "Gagal memperbarui user")
+							return
+						}
+						if hasOp {
+							errorResponse(c, http.StatusBadRequest,
+								"Instansi ini sudah memiliki operator. Satu sekolah hanya dapat memiliki satu operator.")
+							return
+						}
+					}
 					oldInstansi := targetUser.Instansi
 					_, err := pool.Exec(ctx,
 						`UPDATE admin_users SET instansi = $1 WHERE instansi = $2 AND id != $3`,
@@ -1176,20 +1284,54 @@ func EditUser() gin.HandlerFunc {
 			if len(filtered) > 0 {
 				// One-operator-per-school policy: granting the operator role to a
 				// target who does not hold it yet, in a school that already has
-				// an operator, would create a second. Rejected before the UPDATE;
-				// the target's own current role (already an operator) and the
+				// an operator, would create a second. The check and the UPDATE
+				// run in ONE transaction serialized per destination school via
+				// the school-claim advisory lock (see opRoleTx) — without it,
+				// two concurrent grants into the same empty school would BOTH
+				// read the pre-update snapshot and land two operators. The
+				// target's own current role (already an operator) and the
 				// shared "personal" bucket are never blocked.
 				if containsRole(filtered, models.RoleOperator) && !models.HasRole(targetUser.Role, models.RoleOperator) {
-					hasOp, opErr := schoolAlreadyHasOperator(ctx, pool, targetUser.Instansi, targetID)
-					if opErr != nil {
-						log.Printf("edit user: one-operator-per-school check error: %v", opErr)
-						errorResponse(c, http.StatusInternalServerError, "Gagal memperbarui user")
-						return
+					// The check runs against the school the target will END UP in:
+					// when the request also changes instansi, the destination is
+					// the new value — checking only the CURRENT instansi would let
+					// a single request move a guru into an occupied school AND
+					// grant the operator role past the policy.
+					checkInstansi := targetUser.Instansi
+					if !isOp && body.Instansi != nil {
+						if ni := strings.TrimSpace(*body.Instansi); ni != "" {
+							checkInstansi = ni
+						}
 					}
-					if hasOp {
-						errorResponse(c, http.StatusBadRequest,
-							"Instansi ini sudah memiliki operator. Satu sekolah hanya dapat memiliki satu operator.")
-						return
+					// The shared "personal" bucket is never a school: nothing to
+					// check, and no serialization needed.
+					if checkInstansi != "" && !strings.EqualFold(checkInstansi, "personal") {
+						var bErr error
+						opRoleTx, bErr = pool.Begin(ctx)
+						if bErr != nil {
+							log.Printf("begin operator-role grant tx error: %v", bErr)
+							errorResponse(c, http.StatusInternalServerError, "Gagal memperbarui user")
+							return
+						}
+						defer func() { _ = opRoleTx.Rollback(ctx) }() // no-op after a successful Commit
+
+						if _, aErr := opRoleTx.Exec(ctx,
+							`SELECT pg_advisory_xact_lock(hashtext('school-claim:' || lower($1))::bigint)`, checkInstansi); aErr != nil {
+							log.Printf("edit user: lock school-claim (%q): %v", checkInstansi, aErr)
+							errorResponse(c, http.StatusInternalServerError, "Gagal memperbarui user")
+							return
+						}
+						hasOp, opErr := schoolAlreadyHasOperator(ctx, opRoleTx, checkInstansi, targetID)
+						if opErr != nil {
+							log.Printf("edit user: one-operator-per-school check error: %v", opErr)
+							errorResponse(c, http.StatusInternalServerError, "Gagal memperbarui user")
+							return
+						}
+						if hasOp {
+							errorResponse(c, http.StatusBadRequest,
+								"Instansi ini sudah memiliki operator. Satu sekolah hanya dapat memiliki satu operator.")
+							return
+						}
 					}
 				}
 				updates["role"] = models.SerializeRoles(filtered)
@@ -1311,8 +1453,25 @@ func EditUser() gin.HandlerFunc {
 		}
 
 		if len(updates) > 0 {
-			if err := models.UpdateUser(ctx, pool, targetID, updates); err != nil {
-				log.Printf("edit user error: %v", err)
+			var uErr error
+			if opRoleTx != nil {
+				// The operator-role grant UPDATE runs inside the transaction
+				// holding the school-claim advisory lock, so a concurrent
+				// grant to the same school can never observe the pre-update
+				// snapshot.
+				uErr = models.UpdateUserTx(ctx, opRoleTx, targetID, updates)
+				if uErr == nil {
+					if cErr := opRoleTx.Commit(ctx); cErr != nil {
+						log.Printf("commit operator-role grant tx error: %v", cErr)
+						errorResponse(c, http.StatusInternalServerError, "Gagal memperbarui user")
+						return
+					}
+				}
+			} else {
+				uErr = models.UpdateUser(ctx, pool, targetID, updates)
+			}
+			if uErr != nil {
+				log.Printf("edit user error: %v", uErr)
 				errorResponse(c, http.StatusInternalServerError, "Gagal memperbarui user")
 				return
 			}
@@ -1374,6 +1533,9 @@ func EditUser() gin.HandlerFunc {
 		}
 		if expiryForcedMsg != "" {
 			msg += expiryForcedMsg
+		}
+		if quotaBlockedMsg != "" {
+			msg += quotaBlockedMsg
 		}
 		if freezeMsg != "" {
 			msg += freezeMsg
@@ -1826,12 +1988,37 @@ func UpdateInstansi() gin.HandlerFunc {
 			return
 		}
 
+		// The claim/rename runs in ONE transaction so the one-operator-per-
+		// school guard and the instansi writes are atomic — and the whole
+		// school-claim operation is serialized per destination name via an
+		// advisory lock. Without it, two personal-bucket operators claiming
+		// the SAME school name concurrently would BOTH pass the guard (each
+		// reads the pre-claim snapshot) and both become operators of one
+		// school. The lock key lowercases the name so case-variant claims of
+		// the same school serialize too (the guard compares case-insensitively).
+		tx, bErr := pool.Begin(ctx)
+		if bErr != nil {
+			log.Printf("begin instansi update tx error: %v", bErr)
+			errorResponse(c, http.StatusInternalServerError, "Gagal memperbarui instansi")
+			return
+		}
+		defer func() { _ = tx.Rollback(ctx) }() // no-op after a successful Commit
+
+		if _, aErr := tx.Exec(ctx,
+			`SELECT pg_advisory_xact_lock(hashtext('school-claim:' || lower($1))::bigint)`, newInstansi); aErr != nil {
+			log.Printf("update instansi: lock school claim (%q): %v", newInstansi, aErr)
+			errorResponse(c, http.StatusInternalServerError, "Gagal memperbarui instansi")
+			return
+		}
+
 		// One-operator-per-school policy: an operator claiming a school that
 		// already has ANOTHER operator would create a second operator in that
-		// school. Rejected before the claim (the user's own school rename is
-		// excluded via userID, and gurus joining a school are never affected).
+		// school. Checked INSIDE the transaction (after the advisory lock, so
+		// a concurrent claimer sees the winner's committed state) — the
+		// user's own school rename is excluded via userID, and gurus joining
+		// a school are never affected.
 		if user.IsOperator() {
-			hasOp, opErr := schoolAlreadyHasOperator(ctx, pool, newInstansi, userID)
+			hasOp, opErr := schoolAlreadyHasOperator(ctx, tx, newInstansi, userID)
 			if opErr != nil {
 				log.Printf("update instansi: one-operator-per-school check error: %v", opErr)
 				errorResponse(c, http.StatusInternalServerError, "Gagal memperbarui instansi")
@@ -1850,34 +2037,39 @@ func UpdateInstansi() gin.HandlerFunc {
 
 		if user.InstansiID != nil && *user.InstansiID > 0 {
 			instansiID = *user.InstansiID
-			_ = pool.QueryRow(ctx, `SELECT COALESCE(code, '') FROM instansi WHERE id = $1`, instansiID).Scan(&instansiCode)
+			_ = tx.QueryRow(ctx, `SELECT COALESCE(code, '') FROM instansi WHERE id = $1`, instansiID).Scan(&instansiCode)
 			if instansiCode == "" {
 				instansiCode = generateInstansiCode()
-				_, _ = pool.Exec(ctx, `UPDATE instansi SET code = $1 WHERE id = $2`, instansiCode, instansiID)
+				_, _ = tx.Exec(ctx, `UPDATE instansi SET code = $1 WHERE id = $2`, instansiCode, instansiID)
 			}
-			_, _ = pool.Exec(ctx, `UPDATE instansi SET name = $1 WHERE id = $2`, newInstansi, instansiID)
-			_, err = pool.Exec(ctx, `UPDATE admin_users SET instansi = $1, instansi_code = $2 WHERE instansi_id = $3`, newInstansi, instansiCode, instansiID)
+			_, _ = tx.Exec(ctx, `UPDATE instansi SET name = $1 WHERE id = $2`, newInstansi, instansiID)
+			_, err = tx.Exec(ctx, `UPDATE admin_users SET instansi = $1, instansi_code = $2 WHERE instansi_id = $3`, newInstansi, instansiCode, instansiID)
 		} else {
 			codeCandidate := generateInstansiCode()
-			err = pool.QueryRow(ctx, `
+			err = tx.QueryRow(ctx, `
 				INSERT INTO instansi (name, code)
 				VALUES ($1, $2)
 				RETURNING id, code`, newInstansi, codeCandidate).Scan(&instansiID, &instansiCode)
 			if err != nil {
 				codeCandidate = generateInstansiCode()
-				_ = pool.QueryRow(ctx, `
+				_ = tx.QueryRow(ctx, `
 					INSERT INTO instansi (name, code)
 					VALUES ($1, $2)
 					RETURNING id, code`, newInstansi, codeCandidate).Scan(&instansiID, &instansiCode)
 			}
 
-			_, err = pool.Exec(ctx, `
+			_, err = tx.Exec(ctx, `
 				UPDATE admin_users 
 				SET instansi = $1, instansi_id = $2, instansi_code = $3 
 				WHERE id = $4`, newInstansi, instansiID, instansiCode, userID)
 		}
 		if err != nil {
 			log.Printf("failed to update instansi for user %d: %v", userID, err)
+			errorResponse(c, http.StatusInternalServerError, "Gagal memperbarui instansi")
+			return
+		}
+		if cErr := tx.Commit(ctx); cErr != nil {
+			log.Printf("commit instansi update tx error: %v", cErr)
 			errorResponse(c, http.StatusInternalServerError, "Gagal memperbarui instansi")
 			return
 		}

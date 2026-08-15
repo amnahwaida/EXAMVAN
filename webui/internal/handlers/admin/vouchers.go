@@ -602,6 +602,37 @@ func RedeemVoucherHandler() gin.HandlerFunc {
 			return
 		}
 
+		// One-operator-per-school serialization: two users of the SAME school
+		// redeeming DIFFERENT school-package codes concurrently would each
+		// pass the guard below (each reads the pre-commit snapshot — the
+		// voucher row lock only serializes SAME-code redeems), so the claim
+		// serializes per destination school via the same school-claim advisory
+		// lock the claim/edit/create paths use. Taken BEFORE the user row lock
+		// below — both this path and UpdateInstansi acquire advisory-then-row,
+		// so they can never deadlock — and only for operator-granting
+		// packages: a guru-package redeem cannot create a second operator. The
+		// shared "personal" bucket is never a school and never serializes.
+		// The acting user's instansi is read WITHOUT a lock (the authoritative
+		// FOR UPDATE read follows below); the advisory key just needs the
+		// school name, and the guard itself re-reads instansi under the lock.
+		if v.IsCustom {
+			if containsRole(models.ParseRoles(strings.TrimSpace(v.CustomRole)), models.RoleOperator) {
+				if aErr := lockSchoolClaim(ctx, dbTx, userID); aErr != nil {
+					log.Printf("redeem: lock school claim: %v", aErr)
+					errorResponse(c, http.StatusInternalServerError, "Gagal memproses klaim voucher")
+					return
+				}
+			}
+		} else {
+			if _, _, _, _, _, pkgRole := getPackageEntitlement(ctx, dbTx, v.Package); containsRole(models.ParseRoles(pkgRole), models.RoleOperator) {
+				if aErr := lockSchoolClaim(ctx, dbTx, userID); aErr != nil {
+					log.Printf("redeem: lock school claim: %v", aErr)
+					errorResponse(c, http.StatusInternalServerError, "Gagal memproses klaim voucher")
+					return
+				}
+			}
+		}
+
 		// 4. Lock the user row so concurrent claims by the same user serialize
 		// (only one can be the "active package" at a time). A suspended account
 		// must not be able to redeem: besides being against the admin's
@@ -911,6 +942,28 @@ func ActivateVoucherHandler() gin.HandlerFunc {
 		defer func() {
 			_ = dbTx.Rollback(ctx)
 		}()
+
+		// One-operator-per-school serialization (mirror of the redeem guard):
+		// activating a school package grants the operator role, so activations
+		// of DIFFERENT packages in the SAME school serialize via the school-
+		// claim advisory lock — two concurrent activations would otherwise
+		// each pass the guard below against the pre-commit snapshot. Taken
+		// BEFORE the user row lock below (advisory-then-row, the same order as
+		// UpdateInstansi, so the two can never deadlock) and only for
+		// operator-granting packages. The snapshot role and the user's
+		// instansi are read WITHOUT a lock — the authoritative row/redemption
+		// FOR UPDATE reads follow below.
+		var snapRole string
+		_ = dbTx.QueryRow(ctx,
+			`SELECT COALESCE(role, '') FROM voucher_redemptions WHERE id = $1 AND user_id = $2`,
+			redemptionID, userID).Scan(&snapRole)
+		if containsRole(models.ParseRoles(snapRole), models.RoleOperator) {
+			if aErr := lockSchoolClaim(ctx, dbTx, userID); aErr != nil {
+				log.Printf("activate: lock school claim: %v", aErr)
+				errorResponse(c, http.StatusInternalServerError, "Gagal memproses aktivasi paket")
+				return
+			}
+		}
 
 		// Lock the user row so concurrent activates/redeems by the same user
 		// serialize (only one package may be active at a time). A suspended

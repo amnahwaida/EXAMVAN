@@ -355,7 +355,10 @@ CREATE TABLE IF NOT EXISTS voucher_redemptions (
 -- package consumes lifetime: remaining_seconds decreases while a package is
 -- active, inactive packages are paused automatically and resume automatically
 -- when activated (there is no user-facing pause/resume). Safe to re-run.
-ALTER TABLE voucher_redemptions ADD COLUMN IF NOT EXISTS expires_at TIMESTAMPTZ; -- legacy, converted & dropped below
+-- NOTE: the legacy expires_at column is NOT added here — it is created and
+-- dropped exactly once by the guarded conversion block below (see
+-- schema_migrations), because an add→drop cycle per apply would leak a dropped
+-- attribute slot on every boot until the 1600-column limit.
 ALTER TABLE voucher_redemptions ADD COLUMN IF NOT EXISTS is_active BOOLEAN NOT NULL DEFAULT false;
 ALTER TABLE voucher_redemptions ADD COLUMN IF NOT EXISTS package TEXT NOT NULL DEFAULT '';
 ALTER TABLE voucher_redemptions ADD COLUMN IF NOT EXISTS max_exams BIGINT NOT NULL DEFAULT 0;
@@ -388,14 +391,30 @@ CREATE INDEX IF NOT EXISTS idx_voucher_redemptions_user_id ON voucher_redemption
 -- old model a row's lifetime started when it was claimed and never paused, so:
 --   * the (single) active row still holds what is left of expires_at now;
 --   * every paused row still holds its full duration (it never consumed time).
--- Guarded by rows still carrying expires_at; the legacy column is dropped
--- afterwards, so this block runs exactly once per install.
+-- Guarded by a schema_migrations MARKER (not by the data): the block itself is
+-- destructive to the schema — it ADDs expires_at and DROPs it again, and
+-- PostgreSQL never reclaims a dropped attribute slot without a table rewrite
+-- (VACUUM FULL). An add→drop cycle on every boot leaked one dropped slot per
+-- run until voucher_redemptions hit the 1600-column limit (SQLSTATE 54011) and
+-- every subsequent schema apply failed. The marker makes the cycle run at most
+-- once per schema lifetime.
+CREATE TABLE IF NOT EXISTS schema_migrations (
+    name       TEXT PRIMARY KEY,
+    applied_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
 DO $$
 DECLARE
     any_legacy BOOLEAN;
 BEGIN
-    SELECT EXISTS (SELECT 1 FROM voucher_redemptions WHERE expires_at IS NOT NULL) INTO any_legacy;
-    IF any_legacy THEN
+    IF NOT EXISTS (SELECT 1 FROM schema_migrations
+                   WHERE name = 'voucher_redemptions_expires_at') THEN
+        -- Legacy installs still carry expires_at; fresh installs materialize it
+        -- for the conversion statements only, then drop it again.
+        EXECUTE 'ALTER TABLE voucher_redemptions ADD COLUMN IF NOT EXISTS expires_at TIMESTAMPTZ';
+
+        SELECT EXISTS (SELECT 1 FROM voucher_redemptions WHERE expires_at IS NOT NULL) INTO any_legacy;
+        IF any_legacy THEN
         -- Rebuild the quota/package/role snapshot for rows created before the
         -- snapshot columns existed (they carry an empty package label).
         UPDATE voucher_redemptions r
@@ -464,12 +483,15 @@ max_pdf_size = CASE
         ) t
         WHERE r.id = t.id;
 
-        -- The legacy column is fully converted; drop it.
-    END IF;
+            -- The legacy column is fully converted; drop it.
+        END IF;
 
-    -- Fresh installs created the legacy column a few lines up but have no rows
-    -- to convert; drop it unconditionally so it never lingers.
-    EXECUTE 'ALTER TABLE voucher_redemptions DROP COLUMN IF EXISTS expires_at';
+        -- Fresh installs materialized the legacy column a few statements up but
+        -- have no rows to convert; drop it so it never lingers, then mark the
+        -- conversion done so no later apply ever repeats the add→drop cycle.
+        EXECUTE 'ALTER TABLE voucher_redemptions DROP COLUMN IF EXISTS expires_at';
+        INSERT INTO schema_migrations (name) VALUES ('voucher_redemptions_expires_at');
+    END IF;
 END $$;
 
 -- Custom voucher entitlement (SuperAdmin-defined limits/role, independent of
