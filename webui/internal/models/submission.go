@@ -461,6 +461,26 @@ func CreateSubmission(ctx context.Context, pool *pgxpool.Pool, s *Submission) (*
 		}
 	}
 
+	// The select-latest-then-update/insert below is a CHECK-THEN-ACT: two
+	// concurrent submits from the same device (a double-tap, or a retry racing
+	// the first attempt) could BOTH find no latest row and both INSERT,
+	// duplicating the student in the admin monitoring table and the hasil
+	// page. Serialize per (exam, device) with the SAME advisory lock the
+	// approval bookkeeping uses (EnsureFreshSubmissionOnApproval) — this also
+	// closes the cross-path race where an approval's placeholder INSERT and a
+	// submit's INSERT/UPDATE for the same device overlap.
+	tx, err := pool.Begin(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("create/update submission: begin tx: %w", err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }() // no-op after a successful Commit
+
+	if _, err := tx.Exec(ctx,
+		`SELECT pg_advisory_xact_lock(hashtext($1)::bigint)`,
+		fmt.Sprintf("approval:%d:%s", s.ExamID, s.MACAddress)); err != nil {
+		return nil, fmt.Errorf("create/update submission: advisory lock: %w", err)
+	}
+
 	// Try to update the student's LATEST row for this device — the open
 	// (placeholder) row when a fresh attempt is in progress, or the already-
 	// submitted row when this call is a RETRY of a submission whose first
@@ -477,39 +497,36 @@ func CreateSubmission(ctx context.Context, pool *pgxpool.Pool, s *Submission) (*
 	// the device is targeted, preserving the one-device-one-row behaviour for
 	// exams that don't assign numbers.
 	var existingID int
-	err := pool.QueryRow(ctx, `SELECT id FROM submissions
+	err = tx.QueryRow(ctx, `SELECT id FROM submissions
 		WHERE exam_id = $1 AND mac_address = $2
 		  AND ($3 = '' OR exam_number = $3)
 		ORDER BY created_at DESC LIMIT 1`, s.ExamID, s.MACAddress, s.ExamNumber).Scan(&existingID)
-	
-	var sql string
+
 	var created Submission
 	if err == nil {
 		// Update existing row
-		sql = `UPDATE submissions
+		created, err = scanSubmission(tx.QueryRow(ctx, `UPDATE submissions
 		SET answers_json = $1, score = $2, start_time = COALESCE(start_time, $3), student_name = $4, exam_number = $5, student_class = $6, identity_data = $7
 		WHERE id = $8
-		RETURNING ` + defaultSubmissionColumns
-		
-		created, err = scanSubmission(pool.QueryRow(ctx, sql,
+		RETURNING `+defaultSubmissionColumns,
 			s.AnswersJSON, s.Score, s.StartTime, s.StudentName, s.ExamNumber, s.StudentClass, s.IdentityData,
 			existingID,
 		))
 	} else {
 		// Insert new row
-		sql = `INSERT INTO submissions
+		created, err = scanSubmission(tx.QueryRow(ctx, `INSERT INTO submissions
 		(exam_id, student_name, exam_number, student_class, answers_json, score, start_time, mac_address, identity_data)
 		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)
-		RETURNING ` + defaultSubmissionColumns
-		
-		created, err = scanSubmission(pool.QueryRow(ctx, sql,
+		RETURNING `+defaultSubmissionColumns,
 			s.ExamID, s.StudentName, s.ExamNumber, s.StudentClass,
 			s.AnswersJSON, s.Score, s.StartTime, s.MACAddress, s.IdentityData,
 		))
 	}
-
 	if err != nil {
 		return nil, fmt.Errorf("create/update submission: %w", err)
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return nil, fmt.Errorf("create/update submission: commit: %w", err)
 	}
 	return &created, nil
 }

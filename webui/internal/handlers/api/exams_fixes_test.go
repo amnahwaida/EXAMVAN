@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"sync"
 	"testing"
 	"time"
 
@@ -440,5 +441,74 @@ func TestExamResultIdentityFallbackRequiresJobID(t *testing.T) {
 	}
 	if !body.Success || body.Status != "done" || body.Score == nil || *body.Score != 100 {
 		t.Fatalf("with-job_id poll: got success=%v status=%q score=%v, want true/done/100", body.Success, body.Status, body.Score)
+	}
+}
+
+// TestSubmitSyncConcurrentSameDeviceNoDuplicates locks in the per-device
+// advisory lock in models.CreateSubmission (the sync submit path): N
+// concurrent submits from the SAME device (a double-tap / a retry racing the
+// first attempt) must end with exactly ONE durable submission row. The
+// select-latest-then-update/insert is a check-then-act — without the lock two
+// requests that BOTH find no latest row both INSERT, and the student appears
+// twice in the monitoring table / hasil page (the duplicate-submission bug
+// already fixed for the async queue path, now closed on the sync path too).
+func TestSubmitSyncConcurrentSameDeviceNoDuplicates(t *testing.T) {
+	pool := database.NewPackageTestPool(t, "api")
+	ctx := context.Background()
+
+	ownerID := insertResultFixOwner(t, pool)
+	token := fmt.Sprintf("Z%07d", time.Now().UnixNano()%10000000)
+	var examID int
+	if err := pool.QueryRow(ctx, `
+		INSERT INTO exams (name, file_path, size_bytes, token, active_token, status,
+		                   security_level, created_by, exam_started_at, questions_json)
+		VALUES ('Ujian Submit Sync', 'sync.pdf', 1024, $1, $1, 'active', 'medium', $2, CURRENT_TIMESTAMP, $3)
+		RETURNING id`, token, ownerID, `[{"number":1,"type":"multiple_choice","label":"S","weight":1,"key":"jakarta"}]`).Scan(&examID); err != nil {
+		t.Fatalf("insert exam: %v", err)
+	}
+
+	router := newExamFixesRouter(pool, nil) // no Redis → the sync submit path
+	headers := map[string]string{"X-Exam-Token": token, "X-App-Version": "2.5.0"}
+
+	const n = 12
+	codes := make([]int, n)
+	start := make(chan struct{})
+	var wg sync.WaitGroup
+	for i := 0; i < n; i++ {
+		wg.Add(1)
+		go func(i int) {
+			defer wg.Done()
+			<-start // barrier: all requests leave together so the first-attempt
+			// SELECTs overlap instead of finishing before later requests start
+			rec := doJSONRequest(router, http.MethodPost,
+				fmt.Sprintf("/api/exams/%d/submit", examID), "", headers,
+				map[string]interface{}{
+					"student_name": "Siti", "exam_number": "E1", "student_class": "XII-A",
+					"mac_address": "DEVICE:sync-dedup",
+					"identity_data": map[string]interface{}{
+						"student_name": "Siti", "exam_number": "E1", "student_class": "XII-A",
+					},
+					"answers":    map[string]interface{}{"1": "jakarta"},
+					"start_time": "2026-08-15 08:00:00",
+				})
+			codes[i] = rec.Code
+		}(i)
+	}
+	close(start)
+	wg.Wait()
+
+	for i := range codes {
+		if codes[i] != http.StatusOK {
+			t.Fatalf("submit %d: status=%d, want 200", i, codes[i])
+		}
+	}
+
+	// Exactly one durable row for the device — duplicates would show the
+	// student twice in the monitoring table / hasil page.
+	var cnt int
+	if err := pool.QueryRow(ctx,
+		`SELECT COUNT(*) FROM submissions WHERE exam_id = $1 AND mac_address = $2`,
+		examID, "DEVICE:sync-dedup").Scan(&cnt); err != nil || cnt != 1 {
+		t.Fatalf("submission rows after concurrent same-device submits: got %d err=%v, want 1", cnt, err)
 	}
 }

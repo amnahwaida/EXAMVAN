@@ -257,7 +257,17 @@ func (w *Worker) runWorker(id int) {
 			select {
 			case w.batchChan <- SubmissionResult{Job: job, Score: score, Error: err}:
 			case <-w.quit:
-				log.Printf("queue: worker %d shutdown, dropping job %s", id, job.JobID)
+				// The batch inserter only drains what already reached the channel,
+				// so an in-flight job held HERE would otherwise be LOST on
+				// shutdown — the student already received a 202. Re-push it to
+				// the queue (best-effort) so a fresh worker on the next boot
+				// finishes it; only an unavailable Redis (which already failed
+				// every enqueue) can still drop it.
+				if reqErr := EnqueueSubmissionWithJob(w.rdb, &job); reqErr != nil {
+					log.Printf("queue: worker %d shutdown, requeue in-flight job %s failed: %v", id, job.JobID, reqErr)
+				} else {
+					log.Printf("queue: worker %d shutdown, requeued in-flight job %s", id, job.JobID)
+				}
 				return
 			}
 		}
