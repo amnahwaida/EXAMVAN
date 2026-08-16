@@ -896,7 +896,12 @@ class ExamViewerActivity : BaseSecureActivity() {
             studentNumber = this@ExamViewerActivity.studentNumber
             studentClass = this@ExamViewerActivity.studentClass
             identityData = this@ExamViewerActivity.identityData
-            macAddress = this@ExamViewerActivity.macAddress
+            // PENTING: field `macAddress` activity BELUM di-set di jalur ini
+            // (DeviceIdResolver.resolveDeviceId dipanggil SETELAH early-return
+            // submitted-check). Membaca field → macAddress kosong → server
+            // meng-upsert baris dengan MAC "unknown", bukan perangkat — baris
+            // jawaban asli tidak ter-update. Resolve langsung di sini.
+            macAddress = DeviceIdResolver.resolveDeviceId(this@ExamViewerActivity)
             token = this@ExamViewerActivity.examToken
             serverUrl = this@ExamViewerActivity.serverUrl
             startTime = AppPrefs.getExamPrefsSafe(this@ExamViewerActivity)
