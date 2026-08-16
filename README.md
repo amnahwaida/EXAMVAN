@@ -529,6 +529,56 @@ Validasi kapasitas disk yang sama dengan editor storage lainnya juga diterapkan 
 
 ---
 
+## Nonaktifkan Paket Akun — Dari Halaman Kelola User (15 Agustus 2026)
+
+Fitur SuperAdmin untuk **menonaktifkan paket aktif milik akun tertentu secara manual** — tombol ⚠ **"Nonaktifkan Paket"** di baris akun pada halaman **Users** (`/admin/users`). Sebelum fitur ini, paket hanya bisa berakhir lewat dua jalur otomatis: **expiry job** (masa aktif habis) atau **pause** saat akun mengklaim/aktivasi voucher lain — tidak ada kontrol admin untuk mematikan paket akun yang bermasalah.
+
+> ⚠️ **SuperAdmin only.** Operator (bahkan yang punya paket sekolah sendiri) mendapat **403** — konsisten dengan kebijakan package-assignment: operator tidak boleh mengubah paket akun sub, dan menonaktifkan paket adalah aksi yang lebih kuat daripada memberikannya.
+
+### Perilaku (satu transaksi ber-lock, atomik)
+
+1. **Paket aktif di-burn** — baris `voucher_redemptions` aktif di-set `remaining_seconds = 0, activated_at = NULL, is_active = false`: state terminal yang SAMA dengan expiry job. Akun **tidak bisa meng-reaktivasi** paket itu lagi dari halaman Billing (tidak ada sisa masa aktif).
+2. **Fallback voucher** — jika akun masih memegang voucher terklaim lain yang **belum habis** (ter-pause), voucher dengan sisa masa terbesar **otomatis diaktifkan** dan snapshotnya diterapkan (kuota, role, expiry) — pola yang sama dengan expiry job. Akun tetap bisa login lewat fallback.
+3. **Tanpa fallback → kembali ke free trial** — akun dikembalikan ke state akun gratis baru:
+   - kuota per-akun di-reset ke **free defaults** (3 ujian, 1 MB PDF, 2 serentak, 50 MB storage);
+   - `package = 'free'`;
+   - **role yang diberikan paket di-clawback** (mis. operator dari paket sekolah hilang; role dasar / admin yang diberikan langsung tetap dipertahankan);
+   - `expires_at = sekarang + default_active_days` (trial gratis baru, default 14 hari).
+
+### Cascade sekolah
+
+Clawback role berjalan lewat `syncInstansiWithOperatorRole` — menonaktifkan paket sekolah **terakhir** di sebuah instansi memicu perilaku yang sama seperti kehilangan paket alami: **sub-akun di instansi di-suspend** (marker `suspended_by_cascade`) dan **ujian yang belum dimulai di-tombstone**. Jika masih ada operator riil lain yang menutupi sekolah, cascade dilewati (sekolah tetap hidup).
+
+### Guard
+
+- Akun **tanpa paket aktif** → HTTP 400 *"Akun ini tidak memiliki paket aktif untuk dinonaktifkan."*
+- Akun **suspended** → HTTP 400 (akun nonaktif tidak boleh diam-diam menerima trial baru; aktifkan dulu jika memang ingin revert ke free).
+- Akun tidak ditemukan → 404.
+- Caller **bukan SuperAdmin** → 403.
+
+### Jejak audit
+
+Aksi dicatat ke jejak append-only `admin_audit_logs` dengan action **`voucher_deactivated`** (siapa yang menonaktifkan, paket mana, hasil akhir akun). Halaman **Riwayat Klaim Voucher** (`/admin/vouchers/audit`) kini menampilkan aksi ini dengan badge merah **"Dinonaktifkan"**, dan pencarian per username tetap berfungsi — riwayat lengkap sebuah akun (klaim → aktivasi → penonaktifan) bisa dilihat di satu tempat.
+
+### Endpoint
+
+```
+POST /admin/api/users/:user_id/deactivate-package   (SuperAdmin only, CSRF-protected)
+```
+
+Handler: `DeactivateUserPackage` (`webui/internal/handlers/admin/users.go`). Daftar user di halaman Kelola User kini mengembalikan `has_active_package` per akun (dari `ListUsers`) — tombol hanya dirender saat akun benar-benar menjalankan paket aktif.
+
+### Test
+
+`TestDeactivatePackageRevertsToFreeTrial`, `TestDeactivatePackageActivatesFallback`, `TestDeactivatePackageGuards`, `TestDeactivatePackageSuperAdminOnly`, `TestDeactivatePackageCascadesToSubAccounts` (`webui/internal/handlers/admin/deactivate_package_test.go`). Verifikasi mutation testing: cabang revert-to-free-trial dinonaktifkan sementara membuat test gagal secara semantik; dipulihkan stabil 3×.
+
+### Batasan yang disengaja
+
+- **Tidak ada "pause" sementara** — aksi ini permanen (burn). Jika yang diinginkan hanya menghentikan pemakaian sementara, gunakan **Suspend akun** (toggle status — clock paket dibekukan dan dilanjutkan saat diaktifkan kembali), bukan nonaktifkan paket.
+- Menonaktifkan paket akun **tidak** menonaktifkan kode voucher itu sendiri — kode tetap bisa diklaim akun lain selama `Maks Pemakaian` tersisa. Untuk memblokir klaim baru, nonaktifkan kodenya di halaman **Vouchers** (toggle aktif/nonaktif kode).
+
+---
+
 ## Pengujian (Tes Otomatis)
 
 ### 1. Tes Unit (tanpa database)
