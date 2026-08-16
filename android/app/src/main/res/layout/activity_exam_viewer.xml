@@ -153,13 +153,6 @@
         app:layout_constraintEnd_toEndOf="parent">
 
         <TextView
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:text="⚠️"
-            android:textSize="48sp"
-            android:layout_marginBottom="12dp" />
-
-        <TextView
             android:id="@+id/tvErrorMsg"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
@@ -208,7 +201,7 @@
             android:id="@+id/btnToggleAnswerSheet"
             android:layout_width="match_parent"
             android:layout_height="match_parent"
-            android:text="📝 Buka Lembar Jawaban"
+            android:text="@string/answer_sheet_open"
             android:textSize="14sp"
             android:textStyle="bold"
             android:backgroundTint="@color/primary_dark"
@@ -249,7 +242,7 @@
             android:id="@+id/btnSubmitAnswers"
             android:layout_width="match_parent"
             android:layout_height="48dp"
-            android:text="📤 Kumpulkan Jawaban"
+            android:text="@string/submit_answers_title"
             android:textSize="14sp"
             android:textStyle="bold"
             android:backgroundTint="@color/success"

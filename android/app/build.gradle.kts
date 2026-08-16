@@ -110,4 +110,8 @@ dependencies {
 
     // Core library desugaring — enables java.time.* on API < 26 (minSdk = 24)
     coreLibraryDesugaring("com.android.tools:desugar_jdk_libs:2.0.4")
+
+    // JVM unit tests (test source set: src/test) — scans resources/sources
+    // for policy violations (e.g. no-emoji UI policy). Pure JVM, no emulator.
+    testImplementation("junit:junit:4.13.2")
 }

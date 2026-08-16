@@ -65,6 +65,8 @@ EXAMVAN terdiri dari dua komponen utama:
 * **Anti-Screenshot & Recording:** Layar aplikasi otomatis menjadi hitam jika siswa mencoba menangkap layar atau merekam layar.
 * **Anti-Copy Text:** PDF dirender sebagai gambar raster dinamis tanpa lapisan teks, sehingga teks soal tidak dapat disalin.
 * **Clipboard Cleanser:** Clipboard/papan klip otomatis dikosongkan saat memasuki ruang ujian.
+* **Token ujian tidak pernah disimpan di fallback plaintext:** saat keystore corrupt (aksesor Safe jatuh ke file `*_fallback` plaintext agar app tetap jalan), token ujian — kredensial sesi untuk unduh PDF, presence, dan submit — **tetap hanya di memory proses** (`AppPrefs.getExamToken`/`setExamToken`/`removeExamToken`). Setelah process death di perangkat rusak, siswa memasukkan ulang token. Token tidak pernah **dibaca dari** maupun **ditulis ke** file fallback.
+* **Deteksi root diperkuat:** selain 9 path `su` klasik, `SecurityEnforcer.isDeviceRooted()` kini juga mendeteksi marker mount root modern (`/data/adb/magisk` — Magisk v20+, `/data/adb/ksu` — KernelSU, `/data/adb/apd` — APatch, `/sbin/.magisk`), `su` yang ter-resolve dari PATH (proses terpisah `which su` — tidak bisa crash alur ujian), dan build bertanda `test-keys`.
 
 ---
 
@@ -97,7 +99,7 @@ Kompilasi dapat dilakukan di sistem operasi **Windows, macOS, maupun Linux**.
 
 ### Persyaratan Sistem
 - **JDK 17 (Java Development Kit):** Pastikan variabel lingkungan `JAVA_HOME` mengarah ke JDK 17.
-- **Android SDK:** Terpasang versi SDK 34 (Android 14) untuk target kompilasi.
+- **Android SDK:** Terpasang versi SDK 35 (Android 15) — `compileSdk`/`targetSdk` 35 dengan edge-to-edge (Android 15+).
 - **Android Gradle Plugin (AGP):** Versi 8.x ke atas.
 
 ### Build dengan Command Line (CLI)
@@ -146,6 +148,27 @@ Langkah rilis:
 2. Pilih **Open an Existing Project** dan arahkan ke folder `./android`.
 3. Tunggu proses sinkronisasi Gradle selesai.
 4. Klik menu **Build > Build Bundle(s) / APK(s) > Build APK(s)**.
+
+---
+
+## Kebijakan UI Android — Tanpa Emoji
+
+Aplikasi Android **tidak boleh memakai emoji** di resource maupun kode sumber (keputusan audit, 16 Agustus 2026): emoji berwarna terkesan kurang profesional dan dirender tidak konsisten antar perangkat/OEM.
+
+Pengganti yang dipakai:
+
+| Konteks | Contoh pengganti |
+|---|---|
+| Teks tombol/judul/pesan | Teks polos (mis. "Kumpulkan Jawaban", "Mode Strict Aktif") |
+| State sukses | Glyph tipografis monokrom `✓` (U+2713) |
+| State ditolak/gagal | Glyph tipografis monokrom `✕` (U+2715) |
+| Pemisah kolom menjodohkan | Glyph tipografis `➔` (U+2794) |
+| Ikon tombol (Ganti Server) | Vector drawable Material Design `ic_settings.xml` |
+| Ikon item ujian | Vector drawable Material Design `ic_document.xml` |
+
+Glyph `✓`/`✕`/`➔` diizinkan karena dirender **monokrom sebagai teks** (bukan emoji berwarna) — tipografi standar UI profesional. Menambah glyph baru ke allowlist wajib disertai alasan.
+
+Perilaku ini **dikunci oleh test** `NoEmojiInAppTest` (`android/app/src/test/java/com/examvan/app/`) yang memindai seluruh `src/main/res`, `src/main/java`, dan manifest flavor untuk rentang Unicode emoji — lihat [Tes Unit Android](#3-tes-unit-android-app-android).
 
 ---
 
@@ -677,6 +700,18 @@ cd webui
 TEST_DATABASE_URL=postgresql://examvan:examvan@localhost:5432/examvan_test \
   go test ./internal/handlers/admin/ -run 'TestVoucher' -v
 ```
+
+### 3. Tes Unit Android (app Android)
+
+Tes JVM murni (tanpa emulator) di `android/app/src/test/`:
+
+```bash
+cd android
+./gradlew :app:testStudentDebugUnitTest   # flavor student
+./gradlew :app:testKioskDebugUnitTest     # flavor kiosk
+```
+
+Saat ini ada satu test yang **mengunci kebijakan tanpa-emoji** UI (`NoEmojiInAppTest`): memindai seluruh `src/main/res` (strings, layout, drawable), `src/main/java`, dan manifest flavor, lalu gagal bila ditemukan karakter emoji (dengan allowlist glyph tipografis monokrom `✓`/`✕`/`➔`). Ini menjaga tampilan UI tetap profesional dan konsisten di semua perangkat.
 
 > ⚠️ **Penting:** `TEST_DATABASE_URL` harus mengarah ke database **sekali pakai** — saat setup, tes menerapkan `schema.sql` dan me-truncate tabel data. Jangan pernah mengarahkannya ke database produksi.
 

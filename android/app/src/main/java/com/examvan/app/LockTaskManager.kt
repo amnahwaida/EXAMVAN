@@ -146,7 +146,7 @@ object LockTaskManager {
                 return@Runnable
             }
             if (!isLockTaskActive(activity)) {
-                Log.w(TAG, "⚠️ HealthCheck: Lock task lost! Re-activating...")
+                Log.w(TAG, "HealthCheck: Lock task lost! Re-activating...")
                 AuditLog.w(AuditLog.Events.LOCKTASK_LOST, "health_check")
                 // Coba DPM dulu, baru fallback
                 if (!tryDpmLockTask(activity)) {
@@ -219,7 +219,7 @@ object LockTaskManager {
 
             // Verifikasi cepat
             if (isLockTaskActive(activity)) {
-                Log.i(TAG, "✅ DPM lock task aktif dan terverifikasi")
+                Log.i(TAG, "DPM lock task aktif dan terverifikasi")
             } else {
                 Log.w(TAG, "DPM lock task dipanggil tapi belum aktif " +
                         "(mungkin butuh waktu)")
@@ -321,7 +321,7 @@ object LockTaskManager {
 
                 if (pollCount >= maxPolls) {
                     // Semua poll gagal — user menolak dialog atau timeout
-                    Log.w(TAG, "⚠️ startLockTask REGULAR ditolak user (${maxPolls}x polls failed)")
+                    Log.w(TAG, "startLockTask REGULAR ditolak user (${maxPolls}x polls failed)")
                     AuditLog.w(AuditLog.Events.LOCKTASK_REJECTED, "user_cancelled_dialog")
                     onResult(false)
                     return // stop polling — ditolak

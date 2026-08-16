@@ -52,13 +52,13 @@
                         android:layout_height="match_parent"
                         android:background="@drawable/bg_approval_circle" />
 
-                    <!-- Pulsing icon -->
+                    <!-- Status icon: kosong saat menunggu (progress bar yang
+                         berputar di bawah sudah cukup memberi sinyal aktivitas) -->
                     <TextView
                         android:id="@+id/tvWaitingIcon"
                         android:layout_width="match_parent"
                         android:layout_height="match_parent"
                         android:gravity="center"
-                        android:text="⏳"
                         android:textSize="48sp" />
 
                     <!-- Circular progress indicator overlay -->
@@ -208,13 +208,6 @@
                 android:visibility="gone">
 
                 <TextView
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:text="⚠️"
-                    android:textSize="18sp"
-                    android:layout_marginEnd="10dp" />
-
-                <TextView
                     android:id="@+id/tvWarningMessage"
                     android:layout_width="0dp"
                     android:layout_height="wrap_content"
@@ -240,8 +233,9 @@
                 <TextView
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
-                    android:text="❌"
+                    android:text="✕"
                     android:textSize="36sp"
+                    android:textColor="@color/danger"
                     android:layout_marginBottom="12dp" />
 
                 <TextView

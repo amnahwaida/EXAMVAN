@@ -41,12 +41,12 @@ object AuditLog {
 
     fun w(event: String, detail: String) {
         increment(event)
-        Log.w(TAG, "⚠️ $event$SEP$detail")
+        Log.w(TAG, "$event$SEP$detail")
     }
 
     fun e(event: String, detail: String) {
         increment(event)
-        Log.e(TAG, "❌ $event$SEP$detail")
+        Log.e(TAG, "$event$SEP$detail")
     }
 
     /**

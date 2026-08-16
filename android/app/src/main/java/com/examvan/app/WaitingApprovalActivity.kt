@@ -271,8 +271,8 @@ class WaitingApprovalActivity : BaseSecureActivity() {
         isWaiting = false
         stopAnimations()
 
-        // Brief approved animation before proceeding
-        binding.tvWaitingIcon.text = "✅"
+        // Brief approved animation before proceeding (typographic checkmark)
+        binding.tvWaitingIcon.text = "✓"
         binding.tvWaitingTitle.text = getString(R.string.approval_approved_title)
         binding.tvWaitingSubtitle.text = getString(R.string.approval_approved_message)
         binding.progressCircular.visibility = View.GONE
@@ -287,8 +287,8 @@ class WaitingApprovalActivity : BaseSecureActivity() {
         isWaiting = false
         stopAnimations()
 
-        // Update waiting card to rejected state
-        binding.tvWaitingIcon.text = "🚫"
+        // Update waiting card to rejected state (typographic cross)
+        binding.tvWaitingIcon.text = "✕"
         binding.tvWaitingTitle.text = getString(R.string.approval_rejected_title)
         binding.tvWaitingSubtitle.text = getString(R.string.approval_rejected_subtitle)
         binding.progressCircular.visibility = View.GONE
@@ -321,8 +321,9 @@ class WaitingApprovalActivity : BaseSecureActivity() {
             token = token,
             onSuccess = { _ ->
                 runOnUiThread {
-                    // Reset UI back to waiting state
-                    binding.tvWaitingIcon.text = "⏳"
+                    // Reset UI back to waiting state — icon kosong, progress
+                    // bar yang berputar menandakan aktivitas
+                    binding.tvWaitingIcon.text = ""
                     binding.tvWaitingTitle.text = getString(R.string.approval_waiting_title)
                     binding.tvWaitingSubtitle.text = getString(R.string.approval_waiting_subtitle)
                     binding.progressCircular.visibility = View.VISIBLE

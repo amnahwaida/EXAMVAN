@@ -40,12 +40,13 @@
                 android:padding="32dp"
                 android:elevation="4dp">
 
-                <!-- Success icon -->
+                <!-- Success icon (typographic checkmark, bukan emoji) -->
                 <TextView
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
-                    android:text="🎉"
+                    android:text="✓"
                     android:textSize="64sp"
+                    android:textColor="@color/success"
                     android:layout_marginBottom="16dp" />
 
                 <!-- Title -->

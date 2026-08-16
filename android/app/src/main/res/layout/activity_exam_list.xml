@@ -35,13 +35,12 @@
             android:textSize="12sp"
             android:textColor="@color/text_muted" />
 
-        <TextView
+        <ImageButton
             android:id="@+id/btnChangeServer"
             android:layout_width="40dp"
             android:layout_height="40dp"
-            android:text="⚙"
-            android:textSize="20sp"
-            android:gravity="center"
+            android:src="@drawable/ic_settings"
+            android:scaleType="centerInside"
             android:background="?attr/selectableItemBackgroundBorderless"
             android:contentDescription="Ganti Server"
             android:layout_marginStart="8dp" />
@@ -86,13 +85,6 @@
                 android:gravity="center"
                 android:padding="32dp"
                 android:visibility="gone">
-
-                <TextView
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:text="📭"
-                    android:textSize="48sp"
-                    android:layout_marginBottom="12dp" />
 
                 <TextView
                     android:id="@+id/tvEmptyMessage"

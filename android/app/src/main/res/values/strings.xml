@@ -32,8 +32,8 @@
     <string name="autosubmit_status_inactive">Kumpul Otomatis: NONAKTIF</string>
     <string name="strict_mode_active">MODE STRICT: DILARANG KELUAR! Submit untuk membuka kunci.</string>
     <string name="strict_mode_cannot_exit">Mode Strict: Anda tidak bisa keluar sebelum mengumpulkan jawaban!</string>
-    <string name="strict_mode_cannot_exit_title">🔒 Mode Strict Aktif</string>
-    <string name="strict_mode_cannot_exit_msg">Mode Strict sedang aktif. Anda TIDAK BISA keluar dari aplikasi sebelum berhasil mengumpulkan jawaban ujian.\n\nSilakan tekan tombol "📤 Kumpulkan Jawaban" setelah selesai mengerjakan.</string>
+    <string name="strict_mode_cannot_exit_title">Mode Strict Aktif</string>
+    <string name="strict_mode_cannot_exit_msg">Mode Strict sedang aktif. Anda TIDAK BISA keluar dari aplikasi sebelum berhasil mengumpulkan jawaban ujian.\n\nSilakan tekan tombol "Kumpulkan Jawaban" setelah selesai mengerjakan.</string>
 
     <!-- Identity dialog -->
     <string name="identity_dialog_title">Identitas Siswa</string>
@@ -73,7 +73,7 @@
     <!-- Congratulations screen (shown after a successful submit) -->
     <string name="congrats_title">Ujian Selesai!</string>
     <string name="congrats_default_message">Selamat! Jawaban Anda telah dikumpulkan.</string>
-    <string name="congrats_copy_link">📋 Salin Link Hasil</string>
+    <string name="congrats_copy_link">Salin Link Hasil</string>
     <string name="congrats_open_result">Buka Halaman Hasil</string>
     <string name="congrats_result_url_hint">Bagikan link ini untuk melihat hasil ujian Anda</string>
     <string name="congrats_link_copied">Link hasil disalin</string>
@@ -83,7 +83,7 @@
     <string name="submit_failed_title">Gagal</string>
     <string name="submit_failed_title_strict">Gagal — Wajib Coba Lagi</string>
     <string name="submit_failed_message">%1$s</string>
-    <string name="submit_failed_message_strict">%1$s\n\n⚠️ Mode Strict aktif: Anda harus berhasil mengirim sebelum dapat keluar.</string>
+    <string name="submit_failed_message_strict">%1$s\n\nMode Strict aktif: Anda harus berhasil mengirim sebelum dapat keluar.</string>
     <string name="dialog_ok">OK</string>
     <string name="download_failed_format">Gagal memulai unduhan: %1$s</string>
     <string name="page_indicator_format">%1$d / %2$d</string>
@@ -136,5 +136,5 @@
     <string name="update_required_url_missing">Alamat server belum tersimpan. Hubungi pengawas untuk memperbarui aplikasi.</string>
 
     <!-- Secure storage fallback warning (keystore corrupt) -->
-    <string name="storage_fallback_warning">⚠️ Penyimpanan aman (keystore) tidak tersedia di perangkat ini. URL, token, dan data identitas akan disimpan TANPA enkripsi. Hubungi pengawas sebelum melanjutkan.</string>
+    <string name="storage_fallback_warning">Penyimpanan aman (keystore) tidak tersedia di perangkat ini. URL, token, dan data identitas akan disimpan TANPA enkripsi. Hubungi pengawas sebelum melanjutkan.</string>
 </resources>
