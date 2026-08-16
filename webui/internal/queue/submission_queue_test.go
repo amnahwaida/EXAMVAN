@@ -3,6 +3,7 @@ package queue
 import (
 	"context"
 	"fmt"
+	"sync"
 	"testing"
 	"time"
 
@@ -205,6 +206,63 @@ func TestUpsertSubmissionRowRetryIsIdempotent(t *testing.T) {
 	}
 	if gotScore == nil || *gotScore != newScore {
 		t.Errorf("score = %v, want %v", gotScore, newScore)
+	}
+}
+
+// TestUpsertSubmissionRowConcurrentSameDeviceNoDuplicates locks in the
+// cross-path idempotency guarantee: N CONCURRENT upserts of the SAME
+// (exam, device, exam_number) with no pre-existing row — e.g. the queue
+// worker's async job racing a sync-path recovery resubmit, or two worker
+// instances — must end with exactly ONE row. The per-(exam, device) advisory
+// lock serialises the UPDATE-then-INSERT check-then-act; without it both
+// writers could observe "no row yet" and both INSERT, duplicating the student
+// in the monitoring table / hasil page (the sync-path analogue is covered by
+// TestSubmitSyncConcurrentSameDeviceNoDuplicates).
+func TestUpsertSubmissionRowConcurrentSameDeviceNoDuplicates(t *testing.T) {
+	pool := setupQueueTestPool(t)
+	ctx := context.Background()
+	ownerID := insertQueueOwner(t, pool, "q-dup-guru")
+	examID := insertQueueTestExam(t, pool, ownerID)
+
+	const n = 12
+	start := make(chan struct{})
+	var wg sync.WaitGroup
+	for i := 0; i < n; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			<-start // barrier: all upserts leave together so the first-attempt
+			// UPDATEs overlap instead of finishing before later ones start
+			tx, err := pool.Begin(ctx)
+			if err != nil {
+				t.Errorf("begin: %v", err)
+				return
+			}
+			if _, err := upsertSubmissionRow(ctx, tx, &SubmissionJob{
+				StudentName: "Siswa Dup", ExamNumber: "D1", ExamID: examID,
+				MACAddress: "DEVICE:dup1", StartTime: "2026-08-09 07:00:00",
+				Answers: map[string]interface{}{"1": "a"},
+			}, nil); err != nil {
+				_ = tx.Rollback(ctx)
+				t.Errorf("upsert: %v", err)
+				return
+			}
+			if err := tx.Commit(ctx); err != nil {
+				t.Errorf("commit: %v", err)
+			}
+		}()
+	}
+	close(start)
+	wg.Wait()
+
+	var total int
+	if err := pool.QueryRow(ctx,
+		`SELECT COUNT(*) FROM submissions WHERE exam_id=$1 AND mac_address='DEVICE:dup1'`,
+		examID).Scan(&total); err != nil {
+		t.Fatalf("count rows: %v", err)
+	}
+	if total != 1 {
+		t.Errorf("rows after concurrent upserts = %d, want 1 (must not duplicate)", total)
 	}
 }
 

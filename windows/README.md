@@ -182,9 +182,12 @@ dihapus pada 202 mentah.
    marker sticky, kunci dilepas dan window ditutup langsung (tidak menunggu
    jaringan, tidak ada lagi siswa terjebak di layar terkunci saat jaringan
    mati). Submit berjalan di background; hasil dilaporkan via notifikasi
-   (Linux `notify-send`; Windows fallback ke recovery re-entry). **Sukses** →
-   jawaban lokal dihapus + `complete` presence; **gagal** → jawaban tetap di
-   disk dan re-entry menawarkan **"Kirim Lagi"** (server idempoten).
+   (Linux `notify-send`; Windows balloon tip via PowerShell `NotifyIcon` —
+   bawaan .NET Framework, tanpa dependency baru). **Sukses** → jawaban lokal
+   dihapus + `complete` presence; **gagal** → jawaban tetap di disk dan
+   re-entry menawarkan **"Kirim Lagi"** (server idempoten). Bila notifikasi
+   gagal dipicu (PowerShell diblokir policy, helper tidak ada) → fallback
+   aman ke recovery re-entry: jawaban tetap tersimpan, tidak ada jalan buntu.
 10. **`congrats_message` custom guru** ditampilkan saat sukses (submit manual
     maupun auto) — bukan hanya pesan bawaan server.
 11. **Countdown akurat setelah suspend** — deadline dihitung ulang dari

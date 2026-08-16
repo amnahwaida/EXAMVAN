@@ -339,6 +339,27 @@ Review `internal/websocket/hub.go` + route `/ws/:room_id` (`cmd/server/main.go`)
 
 ---
 
+## ✅ AUDIT IDEMPOTENSI RESUBMIT RECOVERY — SERVER (16 Agustus 2026)
+
+Audit menyusul fitur desktop/Android auto-submit-and-exit: submit auto berjalan di background setelah window ditutup segera, dan bila gagal, re-entry menawarkan "Kirim Lagi" (resubmit dari jawaban yang tetap di disk). Pertanyaan audit: **apakah server benar-benar idempoten untuk resubmit recovery** (tidak menduplikasi baris)? Verdict: **sudah idempoten untuk kasus sequential, satu celah race cross-path ditutup, dan satu gate jadwal dilonggarkan khusus recovery.** Catatan lengkap: [README.md → Idempotensi Resubmit Recovery (16 Agustus 2026)](../README.md#idempotensi-resubmit-recovery-server-16-agustus-2026).
+
+### A. Sudah idempoten (diverifikasi, ada test)
+- **Sync path** (`models.CreateSubmission`): ambil advisory lock `approval:<exam>:<mac>`, lalu UPDATE baris latest (match exam+device+exam_number, tanpa filter answers) — retry meng-update baris yang sama, bukan INSERT baru. `TestSubmitExamRetryDoesNotDuplicateRow` + `TestSubmitSyncConcurrentSameDeviceNoDuplicates`.
+- **Async path** (`queue.upsertSubmissionRow`): pola sama — UPDATE latest row, INSERT hanya bila tidak ada. `TestUpsertSubmissionRowRetryIsIdempotent`, `TestUpsertSubmissionRowTwoStudentsShareDevice` (dua siswa berbagi device tetap dua baris).
+- **Approval bookkeeping** (`EnsureFreshSubmissionOnApproval`): idempoten, dipanggil tiap poll approval.
+
+### B. Celah race cross-path DITUTUP (baru, 16 Agustus 2026)
+- **Masalah:** `upsertSubmissionRow` (jalur async queue) TIDAK mengambil advisory lock yang sama dengan `CreateSubmission` (sync) dan `EnsureFreshSubmissionOnApproval`. Job async (submit asli yang gagal terkonfirmasi) dan resubmit sync (recovery re-entry saat Redis enqueue gagal → fallback sync) bisa **berjalan bersamaan**: keduanya melihat "tidak ada row" → keduanya INSERT → siswa muncul 2× di monitoring table / hasil page dengan skor duplikat.
+- **Fix:** `upsertSubmissionRow` kini mengambil `pg_advisory_xact_lock(hashtext('approval:<exam>:<mac>'))` yang sama sebelum UPDATE-then-INSERT — serialisasi lintas jalur sync/async/approval bookkeeping (dan lintas instance worker).
+- **Test:** `TestUpsertSubmissionRowConcurrentSameDeviceNoDuplicates` (12 goroutine upsert bersamaan → tepat 1 baris).
+
+### C. Gate jadwal dilonggarkan khusus RECOVERY (baru, 16 Agustus 2026)
+- **Masalah:** `SubmitExam` menolak SEMUA submit setelah `end_time + 60s` (grace). Recovery "Kirim Lagi" untuk skenario yang justru dibuat fitur ini (jaringan mati di deadline, siswa re-entry menit/jam kemudian) ditolak 403 → jawaban yang sudah dikerjakan hilang permanen.
+- **Fix:** lewat deadline, submit tetap diterima bila device **masih punya approval row `approved`** (approval hanya dicabut setelah submit DURABLE — sync path / worker pasca-commit, jadi approval tersisa = submit sebelumnya gagal). Device tanpa approval (belum pernah di-approve / sudah selesai) tetap 403 — cutoff keras untuk kerja lewat deadline dipertahankan, dan resubmit tetap idempoten (satu baris).
+- **Test:** `TestSubmitExamRecoveryAfterDeadlineAllowed` (approved + lewat deadline → 200, 1 baris), `TestSubmitExamAfterDeadlineStillRejectsUnapproved` (tanpa approval → 403, 0 baris), `TestSubmitExamWithinGraceStillAllowed` (grace 60s tetap berlaku untuk semua).
+
+---
+
 ## ✅ Ditolak setelah verifikasi (bukan bug)
 - CSRF `!=` non-constant-time — token adalah milik sesi caller sendiri, tak ada oracle. (`csrf.go:81`)
 - "Race duplikat pending DOKU" — sudah ada unique index parsial `idx_transactions_pending_doku_unique`. (`schema.sql:261`)

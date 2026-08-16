@@ -170,7 +170,7 @@ Cara pakai: tekan `Ctrl+Shift+Alt+Q` tiga kali di strict mode, masukkan password
 │   ├── api.py                ← HTTP client (urllib)
 │   ├── config.py             ← konfigurasi + answer cache (XOR obfuscated)
 │   ├── models.py             ← data models
-│   ├── notify.py             ← notifikasi hasil auto-submit background
+│   ├── notify.py             ← notifikasi hasil auto-submit (Linux notify-send / Windows balloon)
 │   ├── utils.py              ← MAC, clipboard, device identity
 │   ├── ws.py                 ← WebSocket real-time (exam_terminated)
 │   ├── security/
@@ -304,10 +304,17 @@ keluar. Kini mirror Android `autoSubmitAndExit`:
 4. **Submit + polling `/result` di background** (thread murni, tanpa sentuh
    Qt);
 5. **Sukses** → clear jawaban lokal + `complete` presence + notifikasi sistem
-   (`notify-send` di Linux; termasuk `congrats_message` custom guru);
-   **Gagal** → jawaban TETAP di disk + notifikasi — re-entry menampilkan
-   layar recovery **"Kirim Lagi"** (`is_submitted` + jawaban pending →
-   tawarkan resubmit; server idempoten).
+   (Linux `notify-send`; Windows balloon tip via PowerShell `NotifyIcon` —
+   best-effort, tanpa dependency baru; termasuk `congrats_message` custom
+   guru); **Gagal** → jawaban TETAP di disk + notifikasi — re-entry
+   menampilkan layar recovery **"Kirim Lagi"** (`is_submitted` + jawaban
+   pending → tawarkan resubmit; server idempoten).
+
+Di Windows notifikasi dikirim via PowerShell + `System.Windows.Forms.
+NotifyIcon` (bawaan .NET Framework di Windows 10/11) sehingga hasil
+auto-submit tidak "hilang" setelah window ditutup; bila notifikasi gagal
+(best-effort), hasil tetap aman di disk dan re-entry tetap menawarkan
+recovery.
 
 Pola sama persis dengan Android: submit manual tetap interaktif (window
 tetap terbuka, error → dialog retry), hanya jalur AUTO yang menutup segera.

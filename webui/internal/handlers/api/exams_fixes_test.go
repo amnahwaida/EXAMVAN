@@ -648,6 +648,128 @@ func TestExamPDFRateLimitKeyedByExamAndMac(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
+// Recovery resubmit after the schedule ended (desktop "Kirim Lagi")
+// ---------------------------------------------------------------------------
+
+// TestSubmitExamRecoveryAfterDeadlineAllowed locks in the recovery gate
+// relaxation (16 Agustus 2026): a device whose auto-submit FAILED before the
+// deadline (approval row still present — approval is only revoked after a
+// durable submit) may resubmit its answers even past end_time + grace. The
+// desktop/Android recovery screen offers "Kirim Lagi" exactly for this case
+// (network died at the deadline, student re-enters later); without the
+// exception the resubmit would be rejected 403 and the already-done answers
+// would be lost forever.
+func TestSubmitExamRecoveryAfterDeadlineAllowed(t *testing.T) {
+	pool := database.NewPackageTestPool(t, "api")
+	examID, token := createRequestApprovalFixture(t, pool, true, true, true)
+	if _, err := pool.Exec(context.Background(),
+		`UPDATE exams SET end_time = $1 WHERE id = $2`,
+		time.Now().UTC().Add(-2*time.Hour), examID); err != nil {
+		t.Fatalf("set end_time: %v", err)
+	}
+	// The device went through the join gate (approved) but its submit FAILED —
+	// approval survives until a durable submit revokes it.
+	insertApprovalRow(t, pool, examID, "DEVICE:recovery-late")
+
+	router := newExamFixesRouter(pool, nil) // sync path, no Redis
+	headers := map[string]string{"X-Exam-Token": token, "X-App-Version": "2.5.0"}
+	rec := doJSONRequest(router, http.MethodPost,
+		fmt.Sprintf("/api/exams/%d/submit", examID), "", headers,
+		map[string]interface{}{
+			"student_name":  "Siswa Recovery",
+			"exam_number":   "RC1",
+			"student_class": "XII-A",
+			"answers":       map[string]interface{}{"1": "jakarta"},
+			"mac_address":   "DEVICE:recovery-late",
+		})
+	if rec.Code != http.StatusOK {
+		t.Fatalf("recovery resubmit status = %d, want 200 (%s)", rec.Code, rec.Body.String())
+	}
+
+	// Exactly one durable row — the resubmit is idempotent, no duplicate.
+	var total int
+	if err := pool.QueryRow(context.Background(),
+		`SELECT COUNT(*) FROM submissions WHERE exam_id=$1 AND mac_address='DEVICE:recovery-late'`,
+		examID).Scan(&total); err != nil {
+		t.Fatalf("count rows: %v", err)
+	}
+	if total != 1 {
+		t.Errorf("rows = %d, want 1 (recovery resubmit must not duplicate)", total)
+	}
+}
+
+// TestSubmitExamAfterDeadlineStillRejectsUnapproved locks in that the recovery
+// relaxation does NOT open a backdoor for working past the deadline: a device
+// that never passed the join gate (no approval row) is still rejected after
+// end_time + grace — the hard cutoff for anyone who tries to keep working well
+// past the deadline is preserved.
+func TestSubmitExamAfterDeadlineStillRejectsUnapproved(t *testing.T) {
+	pool := database.NewPackageTestPool(t, "api")
+	examID, token := createRequestApprovalFixture(t, pool, true, true, true)
+	if _, err := pool.Exec(context.Background(),
+		`UPDATE exams SET end_time = $1 WHERE id = $2`,
+		time.Now().UTC().Add(-2*time.Hour), examID); err != nil {
+		t.Fatalf("set end_time: %v", err)
+	}
+	// No approval row for this device.
+
+	router := newExamFixesRouter(pool, nil)
+	headers := map[string]string{"X-Exam-Token": token, "X-App-Version": "2.5.0"}
+	rec := doJSONRequest(router, http.MethodPost,
+		fmt.Sprintf("/api/exams/%d/submit", examID), "", headers,
+		map[string]interface{}{
+			"student_name":  "Siswa Telat",
+			"exam_number":   "LT1",
+			"student_class": "XII-A",
+			"answers":       map[string]interface{}{"1": "bogor"},
+			"mac_address":   "DEVICE:late-no-approval",
+		})
+	if rec.Code != http.StatusForbidden {
+		t.Fatalf("late unapproved submit status = %d, want 403 (%s)", rec.Code, rec.Body.String())
+	}
+
+	// Nothing may be persisted.
+	var total int
+	if err := pool.QueryRow(context.Background(),
+		`SELECT COUNT(*) FROM submissions WHERE exam_id=$1 AND mac_address='DEVICE:late-no-approval'`,
+		examID).Scan(&total); err != nil {
+		t.Fatalf("count rows: %v", err)
+	}
+	if total != 0 {
+		t.Errorf("rows = %d, want 0 (unapproved late submit must not persist)", total)
+	}
+}
+
+// TestSubmitExamWithinGraceStillAllowed keeps the existing 60s grace behaviour
+// intact for a borderline submit right at the deadline: a device submitting a
+// few seconds late (still inside the grace window) is accepted even without an
+// approval row — the pre-existing tolerance for the hard cutoff.
+func TestSubmitExamWithinGraceStillAllowed(t *testing.T) {
+	pool := database.NewPackageTestPool(t, "api")
+	examID, token := createRequestApprovalFixture(t, pool, true, true, true)
+	if _, err := pool.Exec(context.Background(),
+		`UPDATE exams SET end_time = $1 WHERE id = $2`,
+		time.Now().UTC().Add(-30*time.Second), examID); err != nil {
+		t.Fatalf("set end_time: %v", err)
+	}
+
+	router := newExamFixesRouter(pool, nil)
+	headers := map[string]string{"X-Exam-Token": token, "X-App-Version": "2.5.0"}
+	rec := doJSONRequest(router, http.MethodPost,
+		fmt.Sprintf("/api/exams/%d/submit", examID), "", headers,
+		map[string]interface{}{
+			"student_name":  "Siswa Grace",
+			"exam_number":   "GR1",
+			"student_class": "XII-A",
+			"answers":       map[string]interface{}{"1": "jakarta"},
+			"mac_address":   "DEVICE:grace-ok",
+		})
+	if rec.Code != http.StatusOK {
+		t.Fatalf("grace-window submit status = %d, want 200 (%s)", rec.Code, rec.Body.String())
+	}
+}
+
+// ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
 

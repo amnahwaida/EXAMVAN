@@ -489,6 +489,21 @@ func (w *Worker) flushBatch(ctx context.Context, results []SubmissionResult) {
 // creates a new placeholder via EnsureFreshSubmissionOnApproval, which becomes
 // the "latest row" the next submit targets.
 func upsertSubmissionRow(ctx context.Context, q pgx.Tx, job *SubmissionJob, score *float64) (int, error) {
+	// Serialise per (exam, device) with the SAME advisory lock the sync path
+	// (models.CreateSubmission) and approval bookkeeping
+	// (EnsureFreshSubmissionOnApproval) take. The queue's own jobs are already
+	// serialised by the single batch-inserter goroutine, but a CONCURRENT
+	// sync-path resubmit (recovery re-entry "Kirim Lagi" when Redis enqueue
+	// fails and the handler falls through to sync) or a second worker instance
+	// would otherwise race this UPDATE-then-INSERT check-then-act: both could
+	// observe "no row yet" and both INSERT, duplicating the student in the
+	// monitoring table / hasil page.
+	if _, err := q.Exec(ctx,
+		`SELECT pg_advisory_xact_lock(hashtext($1)::bigint)`,
+		fmt.Sprintf("approval:%d:%s", job.ExamID, job.MACAddress)); err != nil {
+		return 0, fmt.Errorf("upsert submission row: advisory lock: %w", err)
+	}
+
 	answersJSON, _ := json.Marshal(job.Answers)
 	identityJSON, _ := json.Marshal(job.IdentityData)
 

@@ -128,11 +128,15 @@ class RecoverySubmitTest(RecoveryGateTestCase):
             congrats_message="Selamat, Budi!",
         )
         with mock.patch.object(api, "submit_with_retry", return_value=resp) as sub, \
+                mock.patch.object(api, "complete_exam", return_value=True) as cm, \
                 mock.patch.object(QMessageBox, "information"):
             dlg._recovery_submit_thread(_exam())
         # Jawaban lokal dihapus HANYA setelah durable + congrats dikirim.
         self.assertEqual(done, ["Selamat, Budi!"])
         self.assertIsNone(config.load_answers(7))
+        # complete_exam dipanggil (presence OFFLINE) — di-mock, bukan network
+        # call nyata ke server uji.
+        cm.assert_called_once()
         # Submit memakai jawaban disk + identitas konsisten + start_time asli.
         args = sub.call_args.args
         self.assertEqual(args[5], {"1": "A", "2": "B"})

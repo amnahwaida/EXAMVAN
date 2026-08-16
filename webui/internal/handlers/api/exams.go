@@ -1009,8 +1009,25 @@ func SubmitExam() gin.HandlerFunc {
 			return
 		}
 		if models.ExamScheduleEnded(&exam, time.Now().UTC()) {
-			errorResponse(c, http.StatusForbidden, "Waktu ujian telah berakhir")
-			return
+			// Longgarkan untuk RECOVERY resubmit (desktop/Android "Kirim Lagi"):
+			// device yang MASIH memegang approval row 'approved' boleh mengirim
+			// ulang jawaban lewat deadline. Approval hanya dicabut SETELAH
+			// submit durable (sync path / worker pasca-commit), jadi approval
+			// yang tersisa berarti submit sebelumnya GAGAL — persis skenario
+			// yang dibuat fitur recovery (jaringan mati di deadline, siswa
+			// re-entry nanti). Tanpa pengecualian ini, resubmit ditolak 403
+			// setelah end_time+60s → jawaban siswa yang sudah dikerjakan hilang
+			// permanen. Device TANPA approval (belum pernah di-approve / sudah
+			// selesai) tetap ditolak — mencegah siswa kerja lewat deadline lalu
+			// submit.
+			var approvalStatus string
+			apErr := pool.QueryRow(ctx,
+				"SELECT status FROM exam_approvals WHERE exam_id = $1 AND mac_address = $2",
+				examID, macAddress).Scan(&approvalStatus)
+			if apErr != nil || approvalStatus != "approved" {
+				errorResponse(c, http.StatusForbidden, "Waktu ujian telah berakhir")
+				return
+			}
 		}
 
 		if !examtoken.Matches(exam, token) {

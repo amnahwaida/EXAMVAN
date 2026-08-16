@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import shutil
 import tempfile
+import threading
 import time
 import unittest
 from pathlib import Path
@@ -124,8 +125,18 @@ class AutoSubmitSuccessTest(AutoSubmitTestCase):
             status="done",
             congrats_message="Selamat, Budi! Skor kamu 88.",
         )
+        # Gate: tahan thread background di dalam submit_with_retry sampai
+        # assertion flush selesai. Tanpa gate, mock submit instan → thread
+        # bisa clear_answers SEBELUM `load_answers` di-assert (race internal
+        # test — flaky di full suite).
+        release = threading.Event()
+
+        def _gated_submit(*args, **kwargs):
+            release.wait(timeout=5)
+            return resp
+
         sub_patch = mock.patch.object(
-            api, "submit_with_retry", return_value=resp
+            api, "submit_with_retry", side_effect=_gated_submit
         )
         sub_patch.start()
         try:
@@ -135,13 +146,14 @@ class AutoSubmitSuccessTest(AutoSubmitTestCase):
             # Window ditutup SEGERA, sebelum hasil jaringan tiba.
             self.assertFalse(win.isVisible())
             self.assertTrue(win._submitted)
-            # Sticky marker + jawaban ter-flush ke disk.
+            # Sticky marker + jawaban ter-flush ke disk (thread masih diblokir).
             self.assertTrue(config.is_submitted(7))
             self.assertEqual(config.load_answers(7), {"1": "A", "2": "B"})
             # Lock task dilepas (security.deactivate dipanggil).
             self._sec.return_value.deactivate.assert_called()
 
-            # Background thread: sukses → clear + complete presence + notif.
+            # Lepas thread → sukses → clear + complete presence + notif.
+            release.set()
             self.assertTrue(self._wait_notify("Selamat, Budi!"))
             self.assertIsNone(config.load_answers(7))
             api.complete_exam.assert_called()
@@ -152,6 +164,7 @@ class AutoSubmitSuccessTest(AutoSubmitTestCase):
             )
             self.assertIn("Ujian Terkumpul", call.args[0])
         finally:
+            release.set()
             sub_patch.stop()
 
     def test_success_without_congrats_falls_back_to_message(self):
