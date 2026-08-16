@@ -172,6 +172,80 @@ Perilaku ini **dikunci oleh test** `NoEmojiInAppTest` (`android/app/src/test/jav
 
 ---
 
+## Rilis ke Google Play Store (Closed Test → Production)
+
+Persiapan publish ke Play Store. Kebijakan Google saat ini mewajibkan **closed testing** sebelum akses rilis Production untuk akun developer baru.
+
+### Prasyarat
+
+- Akun **Google Play Console** (biaya pendaftaran sekali, ±US$25).
+- **AAB (App Bundle)** — wajib untuk aplikasi baru sejak Agustus 2021 (bukan APK).
+- **Play App Signing** — daftarkan **upload key**; Google Play yang mengelola signing key distribusi.
+
+### Build AAB (ditandatangani)
+
+```bash
+cd android
+# Muat kredensial upload key dari file lokal (gitignored, lihat bawah)
+export $(grep -v '^#' keystore-credentials.txt | xargs)
+./gradlew bundleRelease
+```
+
+Output:
+
+- `android/app/build/outputs/bundle/studentRelease/app-student-release.aab` (flavor siswa)
+- `android/app/build/outputs/bundle/kioskRelease/app-kiosk-release.aab` (flavor kiosk)
+
+### Upload key & Play App Signing
+
+- **Keystore upload key:** `android/app/release.keystore` (sudah dibuat, **gitignored** — JANGAN pernah commit).
+- **Kredensial:** `android/keystore-credentials.txt` (gitignored) — berisi `EXAMVAN_KEYSTORE_PATH`, `EXAMVAN_KEY_ALIAS`, `EXAMVAN_KEY_PASSWORD`, `EXAMVAN_STORE_PASSWORD`.
+- **Backup wajib**: salin keystore + kredensial ke tempat aman di luar repo. Kehilangan upload key berarti tidak bisa lagi meng-update aplikasi.
+- Di Play Console: **Setup → App signing** → daftarkan upload key; Play menerbitkan signing key untuk distribusi.
+
+### Alur rilis (kebijakan closed test)
+
+1. **Internal testing** — unggah AAB ke track *Internal Testing*, undang email sendiri, verifikasi instalasi cepat.
+2. **Closed testing (wajib sebelum Production)** — untuk akun developer baru:
+   - Minimal **20 tester** selama **14 hari berturut-turut**;
+   - Rekrut tester via **Google Groups** atau link opt-in;
+   - Setelah periode terpenuhi, Play Console membuka akses track **Production**;
+   - Gunakan **test suite simulasi** di bawah sebagai checklist sebelum mengajak tester.
+3. **Production** — rilis resmi ke publik.
+
+### Test suite simulasi (persiapan closed test)
+
+| Lapisan | Perintah | Apa yang disimulasikan |
+|---|---|---|
+| JVM (tanpa perangkat) | `./gradlew :app:testStudentDebugUnitTest` | Kontrak server penuh via MockWebServer: health → join token → request-approval → unduh PDF → access-log → submit (queued) → poll result (`ApiClientFlowSimulationTest`) + pengunci kebijakan tanpa-emoji (`NoEmojiInAppTest`) |
+| Instrumentasi (perangkat/emulator) | `./gradlew :app:connectedStudentDebugAndroidTest` | Alur layar nyata: join (URL+token) → dialog identitas → layar menunggu persetujuan (`ServerConfigJoinFlowTest`), layar selesai ujian (`CongratulationsSmokeTest`), state error yang recoverable (`ExamViewerErrorStateTest`) |
+
+Untuk bisa memakai MockWebServer lokal, **loopback** (`localhost`/`127.0.0.1`) dikecualikan dari aturan cloud-only https (debug build juga mengizinkan cleartext ke loopback) — release build tetap memblokir seluruh cleartext via `network_security_config`, sehingga siswa tidak pernah bisa terhubung ke server produksi lewat HTTP polos.
+
+### Kepatuhan Play Store (sudah terpenuhi)
+
+- **targetSdk 35** (Android 15) — memenuhi syarat minimum Play Store.
+- **64-bit** — tidak ada native library (100% Java/Kotlin) → otomatis mendukung arm64-v8a/x86_64.
+- **Permission minimal**: `INTERNET`, `ACCESS_NETWORK_STATE`, `POST_NOTIFICATIONS` — tanpa izin sensitif (lokasi, kontak, dll.).
+- `allowBackup=false`, cleartext diblokir di release, tanpa iklan/tracker.
+
+### Formulir Data Safety & Privacy Policy (wajib diisi)
+
+Data yang dikirim ke server (untuk dijawab di formulir *Data safety* Play Console):
+
+- **Identitas siswa** (nama, nomor ujian, kelas) — diisi pengguna, dibutuhkan untuk mengikuti ujian;
+- **ID perangkat** (Android ID) + **token ujian** — keperluan sesi & keamanan (presence, persetujuan pengawas, submit);
+- **URL server** — konfigurasi pengguna.
+
+Tidak ada: iklan, pelacakan/pelacak pihak ketiga, lokasi, kontak, media, dsb. Sertakan **Privacy Policy** (mis. di subdomain dokumen) yang menjelaskan hal di atas + kontak admin.
+
+### Catatan rilis selanjutnya
+
+- Naikkan `versionCode`/`versionName` di `android/app/build.gradle.kts` untuk setiap rilis.
+- Jalur distribusi di luar Play Store (unduhan APK via `/download`) tetap memakai mekanisme `android_version` di SaaS Settings (HTTP 426) — tidak terpengaruh rilis Play.
+
+---
+
 ## Panduan Deployment Server (WebUI)
 
 ### A. Deployment dengan Docker (Sangat Direkomendasikan)

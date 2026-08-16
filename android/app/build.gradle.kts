@@ -13,6 +13,12 @@ android {
         targetSdk = 35
         versionCode = 35
         versionName = "2.6.0"
+        testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+    }
+
+    testOptions {
+        // JVM unit tests call android.util.Log (via ApiClient) — no-op stubs.
+        unitTests.isReturnDefaultValues = true
     }
 
     signingConfigs {
@@ -111,7 +117,21 @@ dependencies {
     // Core library desugaring — enables java.time.* on API < 26 (minSdk = 24)
     coreLibraryDesugaring("com.android.tools:desugar_jdk_libs:2.0.4")
 
-    // JVM unit tests (test source set: src/test) — scans resources/sources
-    // for policy violations (e.g. no-emoji UI policy). Pure JVM, no emulator.
+    // JVM unit tests (test source set: src/test)
     testImplementation("junit:junit:4.13.2")
+    // MockWebServer — simulates the EXAMVAN server contract in JVM tests
+    // (ApiClientFlowSimulationTest). Same version as okhttp.
+    testImplementation("com.squareup.okhttp3:mockwebserver:4.12.0")
+    // Real org.json on the JVM test classpath — otherwise the android.jar
+    // stub (with isReturnDefaultValues) returns null from every method.
+    testImplementation("org.json:json:20240303")
+
+    // Instrumentation tests (androidTest source set) — run on device/emulator
+    // (Espresso). These simulate the closed-test student flow against a local
+    // MockWebServer; see android/app/src/androidTest.
+    androidTestImplementation("androidx.test:runner:1.6.2")
+    androidTestImplementation("androidx.test:rules:1.6.1")
+    androidTestImplementation("androidx.test.ext:junit:1.2.1")
+    androidTestImplementation("androidx.test.espresso:espresso-core:3.6.1")
+    androidTestImplementation("com.squareup.okhttp3:mockwebserver:4.12.0")
 }

@@ -128,7 +128,9 @@ class ServerConfigActivity : BaseSecureActivity() {
             if (!validateInputs(url, token)) return@setOnClickListener
 
             // Cloud-only: cleartext HTTP diblokir (network_security_config + validasi).
-            if (url.startsWith("http://")) {
+            // Loopback dikecualikan agar test instrumentasi (MockWebServer lokal)
+            // dan tooling lokal bisa terhubung; release tetap memblokir cleartext.
+            if (url.startsWith("http://") && !ApiClient.isLoopbackUrl(url)) {
                 showError(getString(R.string.https_required_error))
                 return@setOnClickListener
             }

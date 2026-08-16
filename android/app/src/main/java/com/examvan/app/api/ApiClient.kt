@@ -96,10 +96,29 @@ object ApiClient {
         var cleanUrl = url.trimEnd('/')
         // Cloud-only deployment: every connection uses HTTPS. Cleartext http:// is
         // blocked by the network security config, so upgrade it defensively here.
-        if (cleanUrl.startsWith("http://")) {
+        // Loopback (localhost/127.0.0.1) is exempt: it is used by local tooling
+        // and the instrumentation tests (MockWebServer). Release builds still
+        // block ALL cleartext via the network security config, so a student can
+        // never reach a production server over plain HTTP.
+        if (cleanUrl.startsWith("http://") && !isLoopbackUrl(cleanUrl)) {
             cleanUrl = cleanUrl.replace("http://", "https://")
         }
         baseUrl = cleanUrl
+    }
+
+    /**
+     * True when the URL points at the local machine (localhost / 127.0.0.1 / ::1).
+     * Used to exempt loopback from the cloud-only https enforcement so local
+     * tests and tooling can talk to a plain-HTTP MockWebServer.
+     */
+    @JvmStatic
+    fun isLoopbackUrl(url: String): Boolean {
+        return try {
+            val host = java.net.URI(url).host?.lowercase() ?: return false
+            host == "localhost" || host == "::1" || host == "127.0.0.1" || host.startsWith("127.")
+        } catch (_: Exception) {
+            false
+        }
     }
 
     fun getBaseUrl(): String = baseUrl

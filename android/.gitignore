@@ -5,6 +5,9 @@ debug.keystore
 *.jks
 *.p12
 
+# Release keystore credentials (upload key Play Store) — NEVER commit
+keystore-credentials.txt
+
 # Generated build files
 build/
 .gradle/
