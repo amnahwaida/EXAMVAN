@@ -10,6 +10,7 @@ import android.view.View
 import androidx.activity.OnBackPressedCallback
 import androidx.activity.viewModels
 import androidx.appcompat.app.AlertDialog
+import com.examvan.app.api.ApiClient
 import com.examvan.app.api.WebSocketManager
 import com.examvan.app.databinding.ActivityExamViewerBinding
 import com.examvan.app.helper.AnswerSheetBuilder
@@ -91,7 +92,10 @@ class ExamViewerActivity : BaseSecureActivity() {
 
         binding = ActivityExamViewerBinding.inflate(layoutInflater)
         setContentView(binding.root)
-        applyEdgeToEdgeInsets(binding.root)
+        // includeIme=true: lembar jawaban punya input isian singkat — di API 35
+        // keyboard tidak men-resize window, jadi inset IME ditangani manual agar
+        // input tidak tertutup keyboard.
+        applyEdgeToEdgeInsets(binding.root, includeIme = true)
         binding.btnSubmitAnswers.filterTouchesWhenObscured = true
 
         // Read intent extras
@@ -104,6 +108,11 @@ class ExamViewerActivity : BaseSecureActivity() {
         serverUrl = intent.getStringExtra("server_url") ?: ""
         examToken = intent.getStringExtra("exam_token") ?: ""
         endTime = intent.getStringExtra("end_time")
+
+        // Defensive: pastikan ApiClient menunjuk ke server ujian ini — state
+        // statis baseUrl hilang saat proses mati (process death), dan semua
+        // panggilan HTTP (PDF, presence, submit) bergantung padanya.
+        if (serverUrl.isNotEmpty()) ApiClient.setBaseUrl(serverUrl)
 
         val submittedKey = AppPrefs.getSubmittedOrExitedKey(examId)
         val wasSubmittedOrExited = AppPrefs.getExamPrefsSafe(this).getBoolean(submittedKey, false)
@@ -156,6 +165,10 @@ class ExamViewerActivity : BaseSecureActivity() {
                     }
                 }
             )
+
+            // Laporkan presence siswa via HTTP (login). Heartbeat WS di-ignore
+            // server untuk klien token, jadi presence memakai /access-log.
+            sendAccessLog("login")
         }
 
         if (examId == -1) {
@@ -381,6 +394,7 @@ class ExamViewerActivity : BaseSecureActivity() {
         binding.btnCancel.setOnClickListener {
             pdfRendererHelper.cancelDownload()
             viewModel.setSubmittedOrExited(true)
+            sendAccessLog("logout")
             finish()
         }
 
@@ -410,48 +424,37 @@ class ExamViewerActivity : BaseSecureActivity() {
             applyPanelColor()
             submissionManager.requestNotificationPermission()
 
-            if (json != null) {
+            // Parse konfigurasi soal. Jika tidak ada, kosong, atau gagal parse,
+            // lembar jawaban DISEMBUNYIKAN — tidak memalsukan 40 soal default:
+            // jawaban palsu tidak akan cocok dengan koreksi server dan membuat
+            // siswa bisa mengumpulkan asal.
+            questions = if (json != null) {
                 try {
-                    questions = Gson().fromJson(json, questionsListType)
-                    submissionManager.totalQuestions = questions.size
-                    if (questions.isEmpty()) {
-                        hideAnswerOverlay()
-                    } else {
-                        answerSheetBuilder.build(questions)
-                        // Restore saved answers (#6 fix: view tagging handles this)
-                        val savedAnswers = submissionManager.restoreAnswersFromPrefs()
-                        if (savedAnswers != null) {
-                            viewModel.setStudentAnswers(savedAnswers)
-                            answerSheetBuilder.restoreFromSaved(savedAnswers)
-                        }
-                    }
+                    Gson().fromJson(json, questionsListType) ?: emptyList()
                 } catch (e: Throwable) {
-                    generateDefaultQuestions()
+                    emptyList()
                 }
             } else {
-                generateDefaultQuestions()
+                emptyList()
+            }
+            submissionManager.totalQuestions = questions.size
+
+            if (questions.isEmpty()) {
+                hideAnswerOverlay()
+            } else {
+                answerSheetBuilder.build(questions)
+                // Restore saved answers (#6 fix: view tagging handles this)
+                val savedAnswers = submissionManager.restoreAnswersFromPrefs()
+                if (savedAnswers != null) {
+                    viewModel.setStudentAnswers(savedAnswers)
+                    answerSheetBuilder.restoreFromSaved(savedAnswers)
+                }
             }
         } catch (e: Exception) {
-            try { generateDefaultQuestions() } catch (_: Exception) { }
-        }
-    }
-
-    private fun generateDefaultQuestions() {
-        val defaultList = mutableListOf<Map<String, Any>>()
-        for (i in 1..40) {
-            defaultList.add(mapOf(
-                "number" to i.toDouble(),
-                "type" to "single_choice",
-                "choices" to listOf("A", "B", "C", "D", "E")
-            ))
-        }
-        questions = defaultList
-        submissionManager.totalQuestions = questions.size
-        answerSheetBuilder.build(questions)
-        val savedAnswers = submissionManager.restoreAnswersFromPrefs()
-        if (savedAnswers != null) {
-            viewModel.setStudentAnswers(savedAnswers)
-            answerSheetBuilder.restoreFromSaved(savedAnswers)
+            // Kegagalan membaca prefs — aman: sembunyikan lembar jawaban.
+            questions = emptyList()
+            submissionManager.totalQuestions = 0
+            hideAnswerOverlay()
         }
     }
 
@@ -549,6 +552,7 @@ class ExamViewerActivity : BaseSecureActivity() {
                 securityEnforcer.isShowingAppDialog = false
                 if (securityLevel == "low") {
                     viewModel.setSubmittedOrExited(true)
+                    sendAccessLog("logout")
                     finish()
                 } else {
                     submissionManager.autoSubmitAndExit()
@@ -563,6 +567,25 @@ class ExamViewerActivity : BaseSecureActivity() {
 
     private fun showError(message: String) {
         pdfRendererHelper.showError(message)
+    }
+
+    /**
+     * Laporkan event presence siswa (login/heartbeat/logout) ke server via
+     * HTTP POST /access-log. Fire-and-forget — kegagalan tidak memengaruhi
+     * jalannya ujian.
+     */
+    private fun sendAccessLog(event: String) {
+        if (examId <= 0 || examToken.isEmpty() || serverUrl.isEmpty()) return
+        ApiClient.sendAccessLog(
+            examId = examId,
+            token = examToken,
+            macAddress = macAddress,
+            event = event,
+            studentName = studentName,
+            examNumber = studentNumber,
+            studentClass = studentClass,
+            deviceInfo = android.os.Build.MODEL
+        )
     }
 
     // ===== Lifecycle overrides =====

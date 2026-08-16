@@ -128,6 +128,15 @@ object AppPrefs {
      */
     fun isFallbackInUse(key: String): Boolean = fallbacked.contains(key)
 
+    /** Convenience: true when the config prefs run on the plain fallback. */
+    fun isConfigFallbackInUse(): Boolean = isFallbackInUse(PREFS_CONFIG)
+
+    /** Convenience: true when the exam prefs run on the plain fallback. */
+    fun isExamFallbackInUse(): Boolean = isFallbackInUse(PREFS_EXAM)
+
+    /** Convenience: true when the device prefs run on the plain fallback. */
+    fun isDeviceFallbackInUse(): Boolean = isFallbackInUse(PREFS_DEVICE)
+
     private fun fallback(context: Context, prefsName: String, cause: Exception): SharedPreferences {
         Log.w("AppPrefs", "EncryptedSharedPreferences unavailable for $prefsName: ${cause.javaClass.simpleName} — using plain fallback")
         fallbacked.add(prefsName)
@@ -138,5 +147,35 @@ object AppPrefs {
         getConfigPrefs(context).edit()
             .remove(KEY_IDENTITY_DATA)
             .apply()
+    }
+
+    /**
+     * Wipe every saved preference — the encrypted backends AND their plain
+     * fallback copies. The fallback files are cleared unconditionally: when
+     * the keystore is corrupt the encrypted prefs throw, but the readable
+     * data actually lives in the fallback files and must not be left behind.
+     *
+     * @return true when at least one backend (encrypted or fallback) was
+     *         cleared; the fallback clear cannot realistically fail, so this
+     *         is effectively always true.
+     */
+    fun clearAllData(context: Context): Boolean {
+        var clearedAny = false
+        try {
+            getConfigPrefs(context).edit().clear().apply()
+            getExamPrefs(context).edit().clear().apply()
+            getDevicePrefs(context).edit().clear().apply()
+            clearedAny = true
+        } catch (e: GeneralSecurityException) {
+            // Keystore corrupt — fallback di bawah tetap dibersihkan.
+        } catch (e: IOException) {
+            // Keystore corrupt — fallback di bawah tetap dibersihkan.
+        }
+        listOf(PREFS_CONFIG, PREFS_EXAM, PREFS_DEVICE).forEach { name ->
+            context.getSharedPreferences(name + "_fallback", Context.MODE_PRIVATE)
+                .edit().clear().apply()
+            clearedAny = true
+        }
+        return clearedAny
     }
 }

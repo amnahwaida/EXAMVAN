@@ -134,4 +134,7 @@
     <string name="update_required_action">Buka Halaman Download</string>
     <string name="update_required_exit">Keluar</string>
     <string name="update_required_url_missing">Alamat server belum tersimpan. Hubungi pengawas untuk memperbarui aplikasi.</string>
+
+    <!-- Secure storage fallback warning (keystore corrupt) -->
+    <string name="storage_fallback_warning">⚠️ Penyimpanan aman (keystore) tidak tersedia di perangkat ini. URL, token, dan data identitas akan disimpan TANPA enkripsi. Hubungi pengawas sebelum melanjutkan.</string>
 </resources>

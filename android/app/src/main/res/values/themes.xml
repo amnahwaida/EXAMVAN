@@ -13,9 +13,13 @@
         <item name="colorError">@color/danger</item>
         <item name="colorOnError">@color/on_primary</item>
         <item name="colorOnBackground">@color/on_background</item>
+        <!-- Di API 35+ (targetSdk 35) dua warna ini diabaikan karena
+             edge-to-edge dipaksa (bar transparan) — dipertahankan untuk API < 35. -->
         <item name="android:statusBarColor">@color/background</item>
         <item name="android:navigationBarColor">@color/background</item>
-        <!-- Light mode: dark status bar icons on light background -->
+        <!-- Light mode: dark icons di atas background terang (termasuk nav bar
+             transparan di edge-to-edge API 35, agar ikon tidak tak terlihat) -->
         <item name="android:windowLightStatusBar">true</item>
+        <item name="android:windowLightNavigationBar">true</item>
     </style>
 </resources>

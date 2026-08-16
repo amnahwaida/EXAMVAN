@@ -7,7 +7,6 @@ import android.os.Build
 import android.os.Bundle
 import android.util.Log
 import android.view.View
-import android.view.ViewGroup
 import android.view.WindowManager
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.view.ViewCompat
@@ -93,38 +92,53 @@ abstract class BaseSecureActivity : AppCompatActivity() {
 
     /**
      * Pasang OnApplyWindowInsetsListener pada root view untuk menambahkan
-     * padding sebesar system bars + display cutout.
+     * padding sebesar system bars + display cutout (dan IME bila diminta)
+     * DI ATAS padding desain asli dari layout.
      *
-     * Panggil dari subclass setelah setContentView(). Pada API <35
-     * listener ini no-op (insets = 0 karena decor sudah menangani).
+     * Panggil dari subclass setelah setContentView(). Hanya berpengaruh di
+     * Android 15+ (API 35) saat edge-to-edge dipaksa aktif (targetSdk 35):
+     * di API < 35 edge-to-edge tidak dipaksa — decor sudah menangani system
+     * bars dan insets yang dikirim ke view = 0, jadi helper ini no-op.
+     *
+     * Padding desain layout (mis. 24dp di activity_server_config) dipertahankan:
+     * base padding ditangkap SEKALI, lalu insets ditambahkan di atasnya setiap
+     * dispatch. Ini menghindari double-padding (insets ditumpuk berulang) dan
+     * padding desain yang hilang (setPadding menggantikan total padding).
+     *
+     * @param includeIme tambahkan inset IME (keyboard) ke padding bawah —
+     *   wajib untuk activity dengan input teks: di Android 15 edge-to-edge,
+     *   windowSoftInputMode="adjustResize" tidak lagi men-resize window.
      */
-    protected fun applyEdgeToEdgeInsets(rootView: View) {
-        if (Build.VERSION.SDK_INT < 35) return // Hanya perlu di API 35+
+    protected fun applyEdgeToEdgeInsets(rootView: View, includeIme: Boolean = false) {
+        if (Build.VERSION.SDK_INT < 35) return // Legacy: decor sudah menangani
+
+        // Base padding desain dari layout — ditangkap SEKALI agar tidak menumpuk.
+        val baseLeft = rootView.paddingLeft
+        val baseTop = rootView.paddingTop
+        val baseRight = rootView.paddingRight
+        val baseBottom = rootView.paddingBottom
 
         ViewCompat.setOnApplyWindowInsetsListener(rootView) { v, insets ->
             val systemBars = insets.getInsets(
                 WindowInsetsCompat.Type.systemBars() or
                         WindowInsetsCompat.Type.displayCutout()
             )
-            // Apply padding agar konten tidak terpotong system bars
-            v.setPadding(systemBars.left, systemBars.top, systemBars.right, systemBars.bottom)
+            var bottom = systemBars.bottom
+            if (includeIme) {
+                val ime = insets.getInsets(WindowInsetsCompat.Type.ime())
+                if (ime.bottom > bottom) bottom = ime.bottom
+            }
+            v.setPadding(
+                baseLeft + systemBars.left,
+                baseTop + systemBars.top,
+                baseRight + systemBars.right,
+                baseBottom + bottom
+            )
             insets
         }
         // Minta sistem mengirimkan insets segera (terkadang listener
         // butuh trigger eksplisit jika view sudah ter-attach)
         rootView.requestApplyInsets()
-    }
-
-    /**
-     * Overload: cari root view otomatis dari content area.
-     * Panggil dari subclass yang pakai setContentView(layoutResID).
-     */
-    protected fun applyEdgeToEdgeInsets() {
-        if (Build.VERSION.SDK_INT < 35) return
-        val contentGroup = window.decorView.findViewById<ViewGroup>(android.R.id.content) ?: return
-        if (contentGroup.childCount > 0) {
-            applyEdgeToEdgeInsets(contentGroup.getChildAt(0))
-        }
     }
 
     /** Apply tapjacking protection to the root view of the content. */

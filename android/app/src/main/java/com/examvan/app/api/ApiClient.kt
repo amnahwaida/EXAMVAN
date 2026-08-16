@@ -13,6 +13,7 @@ import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicReference
 
 import com.examvan.app.BuildConfig
+import android.util.Log
 import kotlin.coroutines.resume
 import kotlin.coroutines.resumeWithException
 import okhttp3.CertificatePinner
@@ -25,6 +26,8 @@ import okhttp3.CertificatePinner
  * certificate fingerprint at app startup to enable static certificate pinning.
  */
 object ApiClient {
+
+    private const val TAG = "ApiClient"
 
     private val gson = Gson()
 
@@ -656,6 +659,56 @@ object ApiClient {
                     val result = parseSubmitResponse(it)
                     if (result.success) onSuccess(result) else onError(result.message)
                 }
+            }
+        })
+    }
+
+    /**
+     * POST /api/exams/:exam_id/access-log — the HTTP channel for student
+     * presence (login / heartbeat / logout).
+     *
+     * The server's WebSocket hub IGNORES heartbeat / exam_completed events from
+     * token-authenticated clients (they are receive-only, so a class-wide shared
+     * token cannot inject phantom presence), so presence MUST be reported over
+     * HTTP. Fire-and-forget: a failure is logged and never blocks the exam flow.
+     *
+     * Server contract (webui/internal/handlers/api/exams.go):
+     *   - event ∈ {"login", "heartbeat", "logout"}
+     *   - login/heartbeat refresh the Redis presence (TTL 5 menit)
+     *   - login/logout also append a row to student_access_logs
+     */
+    fun sendAccessLog(
+        examId: Int,
+        token: String,
+        macAddress: String,
+        event: String,
+        studentName: String = "",
+        examNumber: String = "",
+        studentClass: String = "",
+        deviceInfo: String = ""
+    ) {
+        val json = org.json.JSONObject().apply {
+            put("event", event)
+            put("mac_address", macAddress)
+            put("student_name", studentName)
+            put("exam_number", examNumber)
+            put("student_class", studentClass)
+            put("device_info", deviceInfo)
+        }
+        val mediaType = "application/json; charset=utf-8".toMediaTypeOrNull()
+        val request = Request.Builder()
+            .url("$baseUrl/api/exams/$examId/access-log")
+            .post(json.toString().toRequestBody(mediaType))
+            .header("X-Exam-Token", token)
+            .build()
+
+        client.newCall(request).enqueue(object : Callback {
+            override fun onFailure(call: Call, e: IOException) {
+                Log.w(TAG, "access-log ($event) gagal: ${e.message}")
+            }
+
+            override fun onResponse(call: Call, response: Response) {
+                response.close()
             }
         })
     }

@@ -5,7 +5,6 @@ import android.content.Context
 import android.content.Intent
 import android.content.SharedPreferences
 import android.os.Bundle
-import android.security.keystore.KeyPermanentlyInvalidatedException
 import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
@@ -17,15 +16,12 @@ import android.widget.TextView
 import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.content.ContextCompat
-import androidx.security.crypto.EncryptedSharedPreferences
-import androidx.security.crypto.MasterKey
 import com.examvan.app.api.ApiClient
 import com.examvan.app.databinding.ActivityServerConfigBinding
 import com.examvan.app.helper.UpdateManager
 import com.examvan.app.model.Exam
 import com.examvan.app.model.IdentityField
 import com.examvan.app.BuildConfig
-import java.security.GeneralSecurityException
 import org.json.JSONObject
 
 /**
@@ -45,16 +41,19 @@ class ServerConfigActivity : BaseSecureActivity() {
 
         binding = ActivityServerConfigBinding.inflate(layoutInflater)
         setContentView(binding.root)
-        // Edge-to-edge inset handling untuk Android 15+ (forced edge-to-edge)
-        applyEdgeToEdgeInsets(binding.root)
+        // Edge-to-edge inset handling untuk Android 15+ (forced edge-to-edge).
+        // includeIme=true: activity ini punya input teks — di API 35
+        // adjustResize tidak lagi men-resize window, keyboard harus
+        // ditangani lewat WindowInsets.
+        applyEdgeToEdgeInsets(binding.root, includeIme = true)
 
-        // Wrap first EncryptedSharedPreferences access in try-catch for keystore corruption
-        val prefs = try {
-            AppPrefs.getConfigPrefs(this)
-        } catch (e: GeneralSecurityException) {
-            showError("Gagal mengakses penyimpanan aman: ${e.message}")
-            binding.btnConnect.isEnabled = false
-            return
+        // Accessor Safe: tidak pernah crash saat keystore corrupt — AppPrefs
+        // otomatis fallback ke prefs plaintext agar app tetap berjalan (user
+        // tinggal memasukkan ulang konfigurasi). Banner peringatan ditampilkan
+        // jika fallback benar-benar aktif.
+        val prefs = AppPrefs.getConfigPrefsSafe(this)
+        if (AppPrefs.isConfigFallbackInUse() || AppPrefs.isExamFallbackInUse()) {
+            showStorageFallbackWarning()
         }
 
         // Check if URL and Token were previously saved
@@ -257,8 +256,8 @@ class ServerConfigActivity : BaseSecureActivity() {
         // Create EditText map for all fields
         val editTexts = mutableMapOf<String, EditText>()
 
-        // Restore previously saved identity data
-        val savedIdentityJson = AppPrefs.getConfigPrefs(this).getString(AppPrefs.KEY_IDENTITY_DATA, "{}") ?: "{}"
+        // Restore previously saved identity data (Safe: tahan keystore corrupt)
+        val savedIdentityJson = AppPrefs.getConfigPrefsSafe(this).getString(AppPrefs.KEY_IDENTITY_DATA, "{}") ?: "{}"
         val savedIdentity = try { JSONObject(savedIdentityJson) } catch (_: Exception) { JSONObject() }
 
         for (field in fields) {
@@ -339,18 +338,13 @@ class ServerConfigActivity : BaseSecureActivity() {
             val securityLevel = exam.security_level ?: "medium"
             val strictMode = exam.strict_mode ?: false
             val panelColor = exam.panel_color ?: ""
-            try {
-                AppPrefs.getExamPrefs(this@ServerConfigActivity).edit()
-                    .putString(AppPrefs.KEY_QUESTIONS_JSON, questionsJson)
-                    .putString(AppPrefs.KEY_SECURITY_LEVEL, securityLevel)
-                    .putBoolean(AppPrefs.KEY_STRICT_MODE, strictMode)
-                    .putString(AppPrefs.KEY_PANEL_COLOR, panelColor)
-                    .commit()
-            } catch (e: GeneralSecurityException) {
-                showError("Penyimpanan aman tidak tersedia: ${e.message}")
-            } catch (e: java.io.IOException) {
-                showError("Penyimpanan aman tidak tersedia: ${e.message}")
-            }
+            // Safe accessor: tidak crash saat keystore corrupt (fallback plaintext).
+            AppPrefs.getExamPrefsSafe(this@ServerConfigActivity).edit()
+                .putString(AppPrefs.KEY_QUESTIONS_JSON, questionsJson)
+                .putString(AppPrefs.KEY_SECURITY_LEVEL, securityLevel)
+                .putBoolean(AppPrefs.KEY_STRICT_MODE, strictMode)
+                .putString(AppPrefs.KEY_PANEL_COLOR, panelColor)
+                .commit()
 
             // Extract legacy fields for backward compat with ExamViewer with smart fallbacks for custom keys
             var name = identityJson.optString("student_name", "")
@@ -450,16 +444,10 @@ class ServerConfigActivity : BaseSecureActivity() {
      * crashing the activity.
      */
     private fun clearAllSavedData() {
-        val clearedAll = try {
-            AppPrefs.getConfigPrefs(this).edit().clear().apply()
-            AppPrefs.getExamPrefs(this).edit().clear().apply()
-            AppPrefs.getDevicePrefs(this).edit().clear().apply()
-            true
-        } catch (e: GeneralSecurityException) {
-            false
-        } catch (e: java.io.IOException) {
-            false
-        }
+        // AppPrefs.clearAllData membersihkan prefs terenkripsi DAN fallback
+        // plaintext-nya: saat keystore corrupt, data yang benar-benar terbaca
+        // ada di file fallback — tidak boleh tertinggal.
+        val clearedAll = AppPrefs.clearAllData(this)
         binding.etServerUrl.setText("")
         binding.etToken.setText("")
         if (clearedAll) {
@@ -471,20 +459,22 @@ class ServerConfigActivity : BaseSecureActivity() {
     }
 
     /**
-     * Persist a write to the config prefs without crashing when the keystore /
-     * encrypted-prefs backend is unavailable. Returns true on success.
+     * Tampilkan banner peringatan saat penyimpanan aman (keystore) tidak
+     * tersedia dan AppPrefs berjalan di fallback plaintext — user harus tahu
+     * bahwa URL/token/identitas disimpan tanpa enkripsi.
      */
-    private fun safeConfigWrite(block: SharedPreferences.Editor.() -> Unit): Boolean {
-        return try {
-            AppPrefs.getConfigPrefs(this).edit().apply(block)
-            true
-        } catch (e: GeneralSecurityException) {
-            showError("Penyimpanan aman tidak tersedia: ${e.message}")
-            false
-        } catch (e: java.io.IOException) {
-            showError("Penyimpanan aman tidak tersedia: ${e.message}")
-            false
-        }
+    private fun showStorageFallbackWarning() {
+        binding.tvStorageWarning.visibility = View.VISIBLE
+    }
+
+    /**
+     * Persist a write to the config prefs via the Safe accessor — never
+     * crashes when the keystore / encrypted-prefs backend is unavailable
+     * (the write lands in the plain fallback; the storage warning banner
+     * already tells the user that encryption is degraded).
+     */
+    private fun safeConfigWrite(block: SharedPreferences.Editor.() -> Unit) {
+        AppPrefs.getConfigPrefsSafe(this).edit().apply(block)
     }
 
     private fun setLoading(loading: Boolean) {

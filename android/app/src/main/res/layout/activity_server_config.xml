@@ -52,6 +52,19 @@
             android:textColor="@color/text_secondary"
             android:layout_marginBottom="32dp" />
 
+        <!-- Secure storage fallback warning (keystore corrupt) -->
+        <TextView
+            android:id="@+id/tvStorageWarning"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="@string/storage_fallback_warning"
+            android:textSize="12sp"
+            android:textColor="#92400E"
+            android:background="@drawable/bg_status_warning"
+            android:padding="10dp"
+            android:visibility="gone"
+            android:layout_marginBottom="16dp" />
+
         <!-- URL Input -->
         <TextView
             android:layout_width="match_parent"

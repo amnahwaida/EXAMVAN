@@ -5,12 +5,12 @@ plugins {
 
 android {
     namespace = "com.examvan.app"
-    compileSdk = 34
+    compileSdk = 35
 
     defaultConfig {
         applicationId = "com.examvan.app"
         minSdk = 24
-        targetSdk = 34
+        targetSdk = 35
         versionCode = 34
         versionName = "2.5.0"
     }

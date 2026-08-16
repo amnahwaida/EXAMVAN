@@ -112,4 +112,7 @@
     <string name="update_required_message_generic">Your EXAMVAN app is no longer supported.\n\nTo take the exam, please download and install the latest version from the Download page.</string>
     <string name="update_required_action">Open Download Page</string>
     <string name="update_required_exit">Exit</string>
+
+    <!-- Secure storage fallback warning (keystore corrupt) -->
+    <string name="storage_fallback_warning">⚠️ Secure storage (keystore) is unavailable on this device. Server URL, token, and identity data will be stored WITHOUT encryption. Contact the supervisor before continuing.</string>
 </resources>

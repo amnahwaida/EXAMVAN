@@ -16,15 +16,18 @@ import java.util.concurrent.TimeUnit
  * for real-time communication during exams.
  *
  * Features:
- * - Connects to server's /student SocketIO namespace
- * - Sends periodic heartbeats (replacing HTTP POST heartbeats)
- * - Receives real-time events (exam_terminated, config_changed)
+ * - Connects to the server's /ws/:examId endpoint
+ * - Receives real-time events (exam_terminated, notification, student_update)
+ * - Sends periodic HTTP heartbeats (POST /access-log) — the WS hub IGNORES
+ *   heartbeats from token-authenticated clients, so presence is reported over
+ *   HTTP while the socket is used purely as a receive channel
  * - Auto-reconnects with exponential backoff on disconnect
- * - Graceful shutdown on exam completion
+ * - Graceful shutdown on exam completion (HTTP POST /complete clears presence)
  *
  * Usage:
- *   WebSocketManager.connect(context, baseUrl, examId, token)
- *   WebSocketManager.sendHeartbeat(studentName, ...)
+ *   WebSocketManager.connect(baseUrl, examId, token, deviceId, ...)
+ *   WebSocketManager.sendHeartbeat()
+ *   WebSocketManager.notifyExamCompleted()
  *   WebSocketManager.disconnect()
  */
 object WebSocketManager {
@@ -32,11 +35,18 @@ object WebSocketManager {
     private const val TAG = "WebSocketManager"
     private const val RECONNECT_BASE_DELAY_MS = 1000L
     private const val RECONNECT_MAX_DELAY_MS = 30000L
-    private const val HEARTBEAT_INTERVAL_MS = 30000L
+    // 60 detik: cukup untuk presence Redis (TTL server 5 menit) dan tetap di
+    // bawah rate limit per-IP access-log server (30 req/menit) untuk ruangan
+    // ~28 siswa di belakang satu NAT sekolah.
+    private const val HEARTBEAT_INTERVAL_MS = 60000L
 
     private var webSocket: WebSocket? = null
     private var connected = false
     private var shouldReconnect = false
+    // True selama sesi ujian berjalan (connect() → disconnect()/complete).
+    // Heartbeat HTTP berjalan selama sesi, TERLEPAS dari state socket —
+    // presence siswa tidak boleh berhenti hanya karena WS mati.
+    private var sessionActive = false
     private var reconnectAttempts = 0
     private var baseUrl: String = ""
     private var examId: Int = -1
@@ -110,6 +120,11 @@ object WebSocketManager {
         this.deviceInfo = device_info
         this.shouldReconnect = true
         this.reconnectAttempts = 0
+        this.sessionActive = true
+
+        // Heartbeat dilaporkan via HTTP (access-log) dan berjalan selama sesi,
+        // bukan hanya saat socket terhubung.
+        startHeartbeat()
 
         doConnect()
     }
@@ -138,8 +153,8 @@ object WebSocketManager {
                 connected = true
                 reconnectAttempts = 0
                 Log.d(TAG, "WebSocket connected")
-                startHeartbeat()
-                // Send initial heartbeat immediately to register activity on dashboard
+                // Heartbeat pertama segera dikirim agar presence tampil cepat
+                // (timer HTTP sudah berjalan dari connect()).
                 sendHeartbeat()
             }
 
@@ -154,14 +169,14 @@ object WebSocketManager {
             override fun onClosed(webSocket: WebSocket, code: Int, reason: String) {
                 connected = false
                 Log.d(TAG, "WebSocket closed: $code $reason")
-                stopHeartbeat()
+                // Heartbeat HTTP tetap berjalan — presence tidak boleh berhenti
+                // hanya karena socket mati.
                 if (shouldReconnect) scheduleReconnect()
             }
 
             override fun onFailure(webSocket: WebSocket, t: Throwable, response: Response?) {
                 connected = false
                 Log.e(TAG, "WebSocket failure: ${t.message}")
-                stopHeartbeat()
                 if (shouldReconnect) scheduleReconnect()
             }
         })
@@ -223,22 +238,10 @@ object WebSocketManager {
     }
 
     /**
-     * Send a SocketIO event in format: 42["event",{...}]
-     */
-    private fun sendSocketIOEvent(event: String, data: Map<String, Any>) {
-        if (webSocket == null || !connected) return
-        try {
-            val wrapper = listOf(event, data)
-            val message = gson.toJson(wrapper)
-            webSocket?.send(message)
-        } catch (e: Exception) {
-            Log.e(TAG, "Failed to send event: ${e.message}")
-        }
-    }
-
-    /**
-     * Send heartbeat to server. Replaces HTTP POST heartbeats.
-     * Uses stored student info by default, or overridden params if provided.
+     * Send heartbeat to server via HTTP POST /access-log (event "heartbeat").
+     * The WS hub ignores heartbeats from token-authenticated clients, so
+     * presence must go over HTTP. Uses stored student info by default, or
+     * overridden params if provided.
      */
     fun sendHeartbeat(
         studentName: String = this.studentName,
@@ -246,44 +249,36 @@ object WebSocketManager {
         studentClass: String = this.studentClass,
         deviceInfo: String = this.deviceInfo
     ) {
-        val data = mapOf(
-            "exam_id" to examId,
-            "mac_address" to macAddress,
-            "student_name" to studentName,
-            "exam_number" to examNumber,
-            "student_class" to studentClass,
-            "device_info" to deviceInfo
+        ApiClient.sendAccessLog(
+            examId = examId,
+            token = token,
+            macAddress = macAddress,
+            event = "heartbeat",
+            studentName = studentName,
+            examNumber = examNumber,
+            studentClass = studentClass,
+            deviceInfo = deviceInfo
         )
-        sendSocketIOEvent("heartbeat", data)
     }
 
     /**
-     * Notify server that exam is completed (student submitted).
-     * Tries to send the event synchronously before closing.
-     * If WS is already disconnected, sends via HTTP as fallback.
+     * Notify server that the exam is completed (student submitted).
+     *
+     * HTTP POST /complete is the PRIMARY channel: the WS hub ignores
+     * exam_completed from token-authenticated (non-privileged) clients, so a
+     * WS send that merely reaches the socket would silently drop the
+     * completion. The HTTP endpoint deletes the Redis presence so the student
+     * shows offline immediately on the monitoring dashboard.
      */
     fun notifyExamCompleted() {
-        val data = mapOf(
-            "exam_id" to examId,
-            "mac_address" to macAddress
-        )
-        // Send synchronously — flush() ensures it goes out before close
-        if (connected && webSocket != null) {
-            val wrapper = listOf("exam_completed", data)
-            val message = gson.toJson(wrapper)
-            val sent = webSocket!!.send(message)
-            if (sent) {
-                Log.d(TAG, "exam_completed sent via WebSocket")
-            } else {
-                Log.w(TAG, "WebSocket send failed — submitting via HTTP")
-                notifyCompletedViaHttp()
-            }
-            shouldReconnect = false
-            webSocket?.close(1000, "Exam completed")
-        } else {
-            Log.w(TAG, "WebSocket not connected — submitting via HTTP")
-            notifyCompletedViaHttp()
-        }
+        notifyCompletedViaHttp()
+        shouldReconnect = false
+        sessionActive = false
+        stopHeartbeat()
+        webSocket?.close(1000, "Exam completed")
+        webSocket = null
+        connected = false
+        Log.d(TAG, "Exam completed — presence cleared via HTTP")
     }
 
     /**
@@ -318,12 +313,14 @@ object WebSocketManager {
     }
 
     /**
-     * Start periodic heartbeat timer.
+     * Start the periodic HTTP heartbeat timer. Runs for the whole exam session
+     * (not just while the socket is connected), because presence is reported
+     * over HTTP and must survive WS downtime.
      */
     private fun startHeartbeat() {
         stopHeartbeat()
         heartbeatRunnable = Runnable {
-            if (connected) {
+            if (sessionActive) {
                 sendHeartbeat()
                 mainHandler.postDelayed(heartbeatRunnable!!, HEARTBEAT_INTERVAL_MS)
             }
@@ -358,10 +355,11 @@ object WebSocketManager {
     }
 
     /**
-     * Disconnect from WebSocket server.
+     * Disconnect from WebSocket server and end the presence session.
      */
     fun disconnect() {
         shouldReconnect = false
+        sessionActive = false
         stopHeartbeat()
         reconnectRunnable?.let { mainHandler.removeCallbacks(it) }
         webSocket?.close(1000, "Client disconnect")
