@@ -39,6 +39,14 @@ const (
 	submitRateLimitMax    = 10
 	submitRateLimitWindow = 60 * time.Second
 
+	// Rate-limit parameters for the presence endpoints (access-log & complete),
+	// enforced per exam+MAC in the handler (bucket per-IP middleware saja tidak
+	// cukup: satu ruangan di belakang NAT sekolah berbagi satu IP). Satu
+	// perangkat mengirim login + ~1 heartbeat/menit + logout + complete, jadi
+	// 10/menit memberi headroom besar untuk retry.
+	presenceRateLimitMax    = 10
+	presenceRateLimitWindow = 60 * time.Second
+
 	// Anti-spam flood brake for POST /api/exams/request-approval, enforced as
 	// a GLOBAL per-exam bucket in Redis on top of the per-IP middleware limit.
 	// Sized with 2× headroom over a full room: defaultMaxApprovalsPerExam
@@ -56,9 +64,10 @@ const (
 	// Redis key prefixes.
 	cacheKeyPrefix = "api:exams:list:" // + page:per_page
 
-	rateLimitKeyPrefix = "ratelimit:submit:" // + exam_id:mac_address
-	heartbeatKeyPrefix = "heartbeat:"        // + exam_id:mac_address
-	heartbeatTTL       = 5 * time.Minute
+	rateLimitKeyPrefix    = "ratelimit:submit:"   // + exam_id:mac_address
+	presenceRateKeyPrefix = "ratelimit:presence:" // + exam_id:mac_address (access-log & complete)
+	heartbeatKeyPrefix    = "heartbeat:"          // + exam_id:mac_address
+	heartbeatTTL          = 5 * time.Minute
 )
 
 var defaultIdentityFields []map[string]interface{}
@@ -402,35 +411,35 @@ func RequestApproval() gin.HandlerFunc {
 		//
 		// Only effective while the exam is live — a request against a dormant
 		// exam still lands in the pending queue.
-	exam, examErr := models.GetExamByID(ctx, pool, req.ExamID)
-	if examErr != nil {
-		if examErr == pgx.ErrNoRows {
-			errorResponse(c, http.StatusNotFound, "Ujian tidak ditemukan")
+		exam, examErr := models.GetExamByID(ctx, pool, req.ExamID)
+		if examErr != nil {
+			if examErr == pgx.ErrNoRows {
+				errorResponse(c, http.StatusNotFound, "Ujian tidak ditemukan")
+				return
+			}
+			log.Printf("request approval exam lookup error: %v", examErr)
+			errorResponse(c, http.StatusInternalServerError, "Gagal memproses persetujuan")
 			return
 		}
-		log.Printf("request approval exam lookup error: %v", examErr)
-		errorResponse(c, http.StatusInternalServerError, "Gagal memproses persetujuan")
-		return
-	}
 
-	// Only live exams accept approval requests. A request against an inactive
-	// exam would otherwise sit in the pending queue forever (auto-approve
-	// already requires the exam to be live), bloating the queue and the
-	// monitoring page with rows nobody can act on — the exam was stopped, so
-	// reject it outright. Mirrors the join gate in ExamByToken.
-	if !exam.IsActive() {
-		errorResponse(c, http.StatusForbidden, "Ujian tidak aktif")
-		return
-	}
-	// Same for an exam whose schedule has ended: a queued request would just
-	// sit forever (auto-approve already refuses to fire past end_time+grace).
-	// Mirrors the join/submit gate in ExamByToken/SubmitExam.
-	if models.ExamScheduleEnded(&exam, time.Now().UTC()) {
-		errorResponse(c, http.StatusForbidden, "Waktu ujian telah berakhir")
-		return
-	}
+		// Only live exams accept approval requests. A request against an inactive
+		// exam would otherwise sit in the pending queue forever (auto-approve
+		// already requires the exam to be live), bloating the queue and the
+		// monitoring page with rows nobody can act on — the exam was stopped, so
+		// reject it outright. Mirrors the join gate in ExamByToken.
+		if !exam.IsActive() {
+			errorResponse(c, http.StatusForbidden, "Ujian tidak aktif")
+			return
+		}
+		// Same for an exam whose schedule has ended: a queued request would just
+		// sit forever (auto-approve already refuses to fire past end_time+grace).
+		// Mirrors the join/submit gate in ExamByToken/SubmitExam.
+		if models.ExamScheduleEnded(&exam, time.Now().UTC()) {
+			errorResponse(c, http.StatusForbidden, "Waktu ujian telah berakhir")
+			return
+		}
 
-	// --- Per-exam rate limit (anti-spam) ---
+		// --- Per-exam rate limit (anti-spam) ---
 		// A global per-exam bucket in Redis catches distributed floods that
 		// defeat the per-IP middleware limit. Placed BEFORE the token check so
 		// a wrong-token brute-force flood also consumes this shared bucket
@@ -1324,6 +1333,24 @@ func AccessLog() gin.HandlerFunc {
 		// --- MAC address ---
 		macAddress := sanitizeMAC(body.MACAddress)
 
+		// --- Rate limit (per exam + device) ---
+		// Pola yang sama dengan SubmitExam: satu ruangan di belakang NAT sekolah
+		// berbagi satu IP, dan tiap perangkat mengirim login + heartbeat tiap
+		// menit + logout. Bucket per-IP middleware (120/menit) tidak cukup untuk
+		// ruangan besar (30 perangkat = 30+/menit) — bucket per exam+MAC memberi
+		// tiap perangkat jatah sendiri. Perangkat tanpa MAC (sanitizeMAC →
+		// "unknown") jatuh ke bucket per exam+IP agar satu kelas perangkat tanpa
+		// MAC tidak menguras satu bucket bersama dan saling memblokir.
+		rateKey := fmt.Sprintf("%s%d:%s", presenceRateKeyPrefix, examID, macAddress)
+		if macAddress == "" || macAddress == "unknown" {
+			rateKey = fmt.Sprintf("%s%d:ip:%s", presenceRateKeyPrefix, examID, c.ClientIP())
+		}
+		if !checkRateLimit(rdb, rateKey, presenceRateLimitMax, presenceRateLimitWindow) {
+			errorResponse(c, http.StatusTooManyRequests,
+				"Terlalu banyak request. Silakan coba lagi nanti.")
+			return
+		}
+
 		// --- Truncate string fields ---
 		studentName := truncate(body.StudentName, 200)
 		examNumber := truncate(body.ExamNumber, 100)
@@ -1471,7 +1498,26 @@ func CompleteExam() gin.HandlerFunc {
 		}
 
 		pool := getPool(c)
+		rdb := getRedis(c)
 		ctx := c.Request.Context()
+
+		// --- Sanitise MAC ---
+		macAddress := sanitizeMAC(body.MACAddress)
+
+		// --- Rate limit (per exam + device) ---
+		// Semua perangkat menyelesaikan ujian bersamaan (deadline burst) dari
+		// satu NAT sekolah; bucket per-IP middleware tidak cukup untuk ruangan
+		// besar. Bucket per exam+MAC (pola SubmitExam) memberi tiap perangkat
+		// jatah sendiri; MAC tidak dikenal → per exam+IP.
+		rateKey := fmt.Sprintf("%s%d:%s", presenceRateKeyPrefix, examID, macAddress)
+		if macAddress == "" || macAddress == "unknown" {
+			rateKey = fmt.Sprintf("%s%d:ip:%s", presenceRateKeyPrefix, examID, c.ClientIP())
+		}
+		if !checkRateLimit(rdb, rateKey, presenceRateLimitMax, presenceRateLimitWindow) {
+			errorResponse(c, http.StatusTooManyRequests,
+				"Terlalu banyak request. Silakan coba lagi nanti.")
+			return
+		}
 
 		exam, err := models.GetExamByID(ctx, pool, examID)
 		if err != nil {
@@ -1492,11 +1538,9 @@ func CompleteExam() gin.HandlerFunc {
 		// heartbeat; blocking it there would strand the offline indicator.
 
 		// Delete heartbeat from Redis so student shows offline immediately
-		if rdb, exists := c.Get("redis"); exists && rdb != nil {
-			if redisClient, ok := rdb.(*redis.Client); ok {
-				key := fmt.Sprintf("heartbeat:%d:%s", examID, body.MACAddress)
-				_ = redisClient.Del(ctx, key).Err()
-			}
+		if rdb != nil {
+			key := fmt.Sprintf("heartbeat:%d:%s", examID, macAddress)
+			_ = rdb.Del(ctx, key).Err()
 		}
 
 		c.JSON(http.StatusOK, gin.H{

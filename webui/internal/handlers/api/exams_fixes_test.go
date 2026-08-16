@@ -53,6 +53,8 @@ func newExamFixesRouter(pool *pgxpool.Pool, rdb *goredis.Client) *gin.Engine {
 	r.GET("/api/exams/:exam_id/pdf", ExamPDF())
 	r.POST("/api/exams/:exam_id/submit", SubmitExam())
 	r.GET("/api/exams/:exam_id/result", ExamResult())
+	r.POST("/api/exams/:exam_id/access-log", AccessLog())
+	r.POST("/api/exams/:exam_id/complete", CompleteExam())
 	return r
 }
 
@@ -352,6 +354,109 @@ func TestSubmitExamRateLimitKeyedByIPWhenMacUnknown(t *testing.T) {
 		fmt.Sprintf("/api/exams/%d/submit", examID), "198.51.100.7:9999", headers, payload)
 	if rec.Code == http.StatusTooManyRequests {
 		t.Fatalf("IP B status = 429, want not rate-limited (buckets must be per-IP for unknown MAC)")
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Fix 6: rate-limit presence (access-log & complete) per exam+MAC
+// ---------------------------------------------------------------------------
+
+// TestAccessLogRateLimitKeyedByExamAndMac locks in that the presence endpoint
+// is throttled per exam+MAC, not per-IP alone: a classroom behind one shared
+// NAT (many devices × login + ~1 heartbeat/min + logout) must not 429 each
+// other, while a single device cannot spam beyond its own budget. Mirrors the
+// SubmitExam per-exam+MAC pattern — before the fix the route was limited only
+// by RateLimitIP(30/min), which a 30+ device room drained in the first minute.
+func TestAccessLogRateLimitKeyedByExamAndMac(t *testing.T) {
+	pool := database.NewPackageTestPool(t, "api")
+	examID, token := createRequestApprovalFixture(t, pool, true, true, true)
+	mr := miniredis.RunT(t)
+	rdb := goredis.NewClient(&goredis.Options{Addr: mr.Addr()})
+	t.Cleanup(func() { _ = rdb.Close() })
+	router := newExamFixesRouter(pool, rdb)
+
+	headers := map[string]string{"X-Exam-Token": token, "X-App-Version": "2.5.0"}
+	payload := map[string]interface{}{
+		"event":        "heartbeat", // heartbeat = Redis-only, tanpa insert DB
+		"mac_address":  "AA:BB:CC:DD:EE:01",
+		"student_name": "Siswa A",
+	}
+
+	// Device 1 (known MAC): drain its own bucket (10 allowed, 11th rejected).
+	for i := 0; i < presenceRateLimitMax; i++ {
+		rec := doJSONRequest(router, http.MethodPost,
+			fmt.Sprintf("/api/exams/%d/access-log", examID), "203.0.113.10:9999", headers, payload)
+		if rec.Code == http.StatusTooManyRequests {
+			t.Fatalf("device 1 request %d unexpectedly rate-limited", i+1)
+		}
+	}
+	rec := doJSONRequest(router, http.MethodPost,
+		fmt.Sprintf("/api/exams/%d/access-log", examID), "203.0.113.10:9999", headers, payload)
+	if rec.Code != http.StatusTooManyRequests {
+		t.Fatalf("device 1 over-cap status = %d, want 429", rec.Code)
+	}
+
+	// Device 2 (same NAT IP, different MAC): must NOT be blocked — the bucket
+	// is per exam+MAC, so classmates behind the same IP keep their own budget.
+	payload2 := map[string]interface{}{
+		"event":        "heartbeat",
+		"mac_address":  "AA:BB:CC:DD:EE:02",
+		"student_name": "Siswa B",
+	}
+	rec = doJSONRequest(router, http.MethodPost,
+		fmt.Sprintf("/api/exams/%d/access-log", examID), "203.0.113.10:9999", headers, payload2)
+	if rec.Code == http.StatusTooManyRequests {
+		t.Fatalf("device 2 same-IP status = 429, want not rate-limited (bucket must be per exam+MAC)")
+	}
+
+	// Device 3 (no MAC → "unknown"): bucket falls back to per exam+IP, so a
+	// different IP keeps a fresh budget while a rotating-IP attacker stays
+	// bound by the per-IP middleware limit on the route.
+	payload3 := map[string]interface{}{
+		"event":        "heartbeat",
+		"student_name": "Siswa Tanpa MAC",
+	}
+	rec = doJSONRequest(router, http.MethodPost,
+		fmt.Sprintf("/api/exams/%d/access-log", examID), "198.51.100.7:9999", headers, payload3)
+	if rec.Code == http.StatusTooManyRequests {
+		t.Fatalf("unknown-MAC device on fresh IP status = 429, want not rate-limited")
+	}
+}
+
+// TestCompleteExamRateLimitKeyedByExamAndMac locks in the same per-exam+MAC
+// bucket for the deadline-burst endpoint: every device calls /complete at exam
+// end from one shared NAT, so a per-IP-only cap would 429 the tail of a large
+// room and strand their presence as online.
+func TestCompleteExamRateLimitKeyedByExamAndMac(t *testing.T) {
+	pool := database.NewPackageTestPool(t, "api")
+	examID, token := createRequestApprovalFixture(t, pool, true, true, true)
+	mr := miniredis.RunT(t)
+	rdb := goredis.NewClient(&goredis.Options{Addr: mr.Addr()})
+	t.Cleanup(func() { _ = rdb.Close() })
+	router := newExamFixesRouter(pool, rdb)
+
+	headers := map[string]string{"X-Exam-Token": token, "X-App-Version": "2.5.0"}
+	payload := map[string]interface{}{"mac_address": "AA:BB:CC:DD:EE:01"}
+
+	for i := 0; i < presenceRateLimitMax; i++ {
+		rec := doJSONRequest(router, http.MethodPost,
+			fmt.Sprintf("/api/exams/%d/complete", examID), "203.0.113.10:9999", headers, payload)
+		if rec.Code == http.StatusTooManyRequests {
+			t.Fatalf("device 1 complete %d unexpectedly rate-limited", i+1)
+		}
+	}
+	rec := doJSONRequest(router, http.MethodPost,
+		fmt.Sprintf("/api/exams/%d/complete", examID), "203.0.113.10:9999", headers, payload)
+	if rec.Code != http.StatusTooManyRequests {
+		t.Fatalf("device 1 over-cap complete status = %d, want 429", rec.Code)
+	}
+
+	// Classmate behind the same NAT, different MAC: must stay unblocked.
+	payload2 := map[string]interface{}{"mac_address": "AA:BB:CC:DD:EE:02"}
+	rec = doJSONRequest(router, http.MethodPost,
+		fmt.Sprintf("/api/exams/%d/complete", examID), "203.0.113.10:9999", headers, payload2)
+	if rec.Code == http.StatusTooManyRequests {
+		t.Fatalf("classmate complete status = 429, want not rate-limited (bucket must be per exam+MAC)")
 	}
 }
 

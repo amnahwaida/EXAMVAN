@@ -541,8 +541,13 @@ func registerRoutes(r *gin.Engine, cfg *config.Config, pool *pgxpool.Pool) {
 		// device identity used on submit). IP-rate-limited like the other
 		// student endpoints; polling is cheap (single Redis GET / DB lookup).
 		apiGroup.GET("/exams/:exam_id/result", middleware.RateLimitIP(60, time.Minute), middleware.AndroidVersionCheck(), api.ExamResult())
-		apiGroup.POST("/exams/:exam_id/access-log", middleware.LimitBodySize(256*1024), middleware.RateLimitIP(30, time.Minute), middleware.AndroidVersionCheck(), api.AccessLog())
-		apiGroup.POST("/exams/:exam_id/complete", middleware.LimitBodySize(256*1024), middleware.RateLimitIP(30, time.Minute), middleware.AndroidVersionCheck(), api.CompleteExam())
+		// Presence (access-log & complete) memakai pola yang sama dengan submit:
+		// bucket per-IP dinaikkan agar satu ruangan di belakang NAT sekolah tidak
+		// saling memblokir (tiap perangkat login + ~1 heartbeat/menit + logout +
+		// complete, dan semua complete datang bersamaan di deadline). Throttle
+		// per perangkat di-enforce di dalam handler keyed exam+MAC.
+		apiGroup.POST("/exams/:exam_id/access-log", middleware.LimitBodySize(256*1024), middleware.RateLimitIP(120, time.Minute), middleware.AndroidVersionCheck(), api.AccessLog())
+		apiGroup.POST("/exams/:exam_id/complete", middleware.LimitBodySize(256*1024), middleware.RateLimitIP(120, time.Minute), middleware.AndroidVersionCheck(), api.CompleteExam())
 
 		apiGroup.GET("/hasil/:token", middleware.RateLimitIP(30, time.Minute), public.HasilAPI())
 	}
