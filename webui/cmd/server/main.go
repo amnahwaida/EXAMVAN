@@ -531,16 +531,23 @@ func registerRoutes(r *gin.Engine, cfg *config.Config, pool *pgxpool.Pool) {
 		// retarget this limiter under an in-progress exam. Per-device throttling
 		// is enforced inside SubmitExam keyed by exam+MAC.
 		apiGroup.GET("/exams", middleware.RateLimitIP(60, time.Minute), middleware.AndroidVersionCheck(), api.ListExams())
-		apiGroup.POST("/exams/request-approval", middleware.RateLimitIP(30, time.Minute), middleware.AndroidVersionCheck(), api.RequestApproval())
+		// Request-approval dipoll app tiap 5 dtk (≈12/menit per perangkat) dan
+		// seluruh ruangan menunggu dari satu NAT sekolah — middleware per-IP
+		// sengaja tinggi (≈20 req/dtk); throttle per perangkat (exam+MAC, 30/menit)
+		// dan aggregate per exam (12000/menit) di-enforce di dalam handler.
+		apiGroup.POST("/exams/request-approval", middleware.RateLimitIP(1200, time.Minute), middleware.AndroidVersionCheck(), api.RequestApproval())
 		apiGroup.GET("/exams/token/:token", middleware.RateLimitIP(30, time.Minute), middleware.AndroidVersionCheck(), api.ExamByToken())
 		apiGroup.GET("/exams/:exam_id/pdf", middleware.RateLimitIP(30, time.Minute), middleware.AndroidVersionCheck(), api.ExamPDF())
 		// Per-IP limit stays high because an entire classroom often submits from
 		// a single NAT'd school IP near the deadline.
 		apiGroup.POST("/exams/:exam_id/submit", middleware.LimitBodySize(5*1024*1024), middleware.RateLimitIP(120, time.Minute), middleware.AndroidVersionCheck(), api.SubmitExam())
 		// Poll the outcome of an async submission (job_id from submit, or the
-		// device identity used on submit). IP-rate-limited like the other
-		// student endpoints; polling is cheap (single Redis GET / DB lookup).
-		apiGroup.GET("/exams/:exam_id/result", middleware.RateLimitIP(60, time.Minute), middleware.AndroidVersionCheck(), api.ExamResult())
+		// device identity used on submit). Middleware per-IP sengaja tinggi
+		// (≈20 req/dtk): app mem-poll tiap 2,5 dtk dan seluruh ruangan mem-poll
+		// bersamaan di deadline dari satu NAT sekolah. Throttle sebenarnya
+		// di-enforce di dalam handler: bucket per exam+MAC (60/menit per
+		// perangkat) + aggregate per exam (12000/menit).
+		apiGroup.GET("/exams/:exam_id/result", middleware.RateLimitIP(1200, time.Minute), middleware.AndroidVersionCheck(), api.ExamResult())
 		// Presence (access-log & complete) memakai pola yang sama dengan submit:
 		// bucket per-IP dinaikkan agar satu ruangan di belakang NAT sekolah tidak
 		// saling memblokir (tiap perangkat login + ~1 heartbeat/menit + logout +

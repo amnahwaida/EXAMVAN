@@ -47,6 +47,18 @@ const (
 	presenceRateLimitMax    = 10
 	presenceRateLimitWindow = 60 * time.Second
 
+	// Rate-limit parameters for GET /result (post-submit polling). Per-device
+	// bucket (exam+MAC) 60/menit: app mem-poll tiap 2,5 dtk ≈ 24/menit saat
+	// submit ter-antri (SubmissionManager.QUEUED_POLL_INTERVAL_MS), jadi 60
+	// memberi headroom untuk retry. Aggregate per-exam 12000/menit: polling
+	// murah (Redis GET / lookup DB) dan seluruh ruangan mem-poll bersamaan di
+	// deadline — 500 perangkat × 24/menit, pola yang sama dengan bucket
+	// anti-spam request-approval.
+	resultRateLimitMax        = 60
+	resultRateLimitWindow     = 60 * time.Second
+	resultExamRateLimitMax    = 12000
+	resultExamRateLimitWindow = 60 * time.Second
+
 	// Anti-spam flood brake for POST /api/exams/request-approval, enforced as
 	// a GLOBAL per-exam bucket in Redis on top of the per-IP middleware limit.
 	// Sized with 2× headroom over a full room: defaultMaxApprovalsPerExam
@@ -57,17 +69,26 @@ const (
 	approvalExamRateLimitMax    = 12000
 	approvalExamRateLimitWindow = 60 * time.Second
 
+	// Per-device request-approval cap: app mem-poll tiap 5 dtk (≈12/menit per
+	// perangkat), jadi 30/menit memberi headroom 2,5× untuk retry. Bucket per
+	// exam+MAC membuat satu ruangan di belakang NAT sekolah tidak saling
+	// memblokir (pola yang sama dengan presence & polling hasil).
+	reqAppRateLimitMax    = 30
+	reqAppRateLimitWindow = 60 * time.Second
+
 	// defaultMaxApprovalsPerExam caps how many devices may hold an APPROVED
 	// approval row per exam when auto-approve is on (tunable via the
 	// max_approvals_per_exam saas setting; 0 = unlimited).
 	defaultMaxApprovalsPerExam = 500
 	// Redis key prefixes.
-	cacheKeyPrefix = "api:exams:list:" // + page:per_page
-
-	rateLimitKeyPrefix    = "ratelimit:submit:"   // + exam_id:mac_address
-	presenceRateKeyPrefix = "ratelimit:presence:" // + exam_id:mac_address (access-log & complete)
-	heartbeatKeyPrefix    = "heartbeat:"          // + exam_id:mac_address
-	heartbeatTTL          = 5 * time.Minute
+	cacheKeyPrefix          = "api:exams:list:"          // + page:per_page
+	rateLimitKeyPrefix      = "ratelimit:submit:"        // + exam_id:mac_address
+	presenceRateKeyPrefix   = "ratelimit:presence:"      // + exam_id:mac_address (access-log & complete)
+	resultRateKeyPrefix     = "ratelimit:result:"        // + exam_id:mac_address (polling hasil)
+	resultExamRateKeyPrefix = "ratelimit:result-exam:"   // + exam_id (aggregate polling)
+	reqAppDeviceKeyPrefix   = "ratelimit:reqapp-device:" // + exam_id:mac_address
+	heartbeatKeyPrefix      = "heartbeat:"               // + exam_id:mac_address
+	heartbeatTTL            = 5 * time.Minute
 )
 
 var defaultIdentityFields []map[string]interface{}
@@ -450,6 +471,16 @@ func RequestApproval() gin.HandlerFunc {
 				approvalExamRateLimitMax, approvalExamRateLimitWindow) {
 				errorResponse(c, http.StatusTooManyRequests,
 					"Terlalu banyak permintaan izin untuk ujian ini. Silakan coba lagi nanti.")
+				return
+			}
+			// Per-device bucket (exam+MAC): seluruh ruangan mem-poll status
+			// approval tiap 5 dtk dari satu NAT sekolah — bucket per-IP middleware
+			// tidak cukup. MAC wajib di endpoint ini (ditolak 400 bila kosong),
+			// jadi tidak ada fallback per-IP seperti endpoint lain.
+			if !checkRateLimit(rdb, fmt.Sprintf("%s%d:%s", reqAppDeviceKeyPrefix, req.ExamID, macAddress),
+				reqAppRateLimitMax, reqAppRateLimitWindow) {
+				errorResponse(c, http.StatusTooManyRequests,
+					"Terlalu banyak permintaan izin. Silakan coba lagi nanti.")
 				return
 			}
 		}
@@ -1173,6 +1204,31 @@ func ExamResult() gin.HandlerFunc {
 		jobID := strings.TrimSpace(c.Query("job_id"))
 		macAddress := sanitizeMAC(c.Query("mac_address"))
 		identityData := strings.TrimSpace(c.Query("identity_data"))
+
+		// --- Rate limit (per exam + device, lalu aggregate per exam) ---
+		// App mem-poll /result tiap 2,5 dtk saat submit ter-antri (≈24/menit per
+		// perangkat) dan seluruh ruangan mem-poll bersamaan di deadline. Bucket
+		// per-IP middleware tidak cukup: satu ruangan di belakang NAT sekolah
+		// berbagi satu IP. Bucket per exam+MAC memberi tiap perangkat jatah
+		// sendiri (NAT-independent); perangkat tanpa MAC (sanitizeMAC →
+		// "unknown") jatuh ke per exam+IP. Bucket per-exam global menahan
+		// aggregate/brute-force pada kapasitas ruangan terbesar (pola yang sama
+		// dengan request-approval).
+		rateKey := fmt.Sprintf("%s%d:%s", resultRateKeyPrefix, examID, macAddress)
+		if macAddress == "" || macAddress == "unknown" {
+			rateKey = fmt.Sprintf("%s%d:ip:%s", resultRateKeyPrefix, examID, c.ClientIP())
+		}
+		if !checkRateLimit(rdb, rateKey, resultRateLimitMax, resultRateLimitWindow) {
+			errorResponse(c, http.StatusTooManyRequests,
+				"Terlalu banyak request. Silakan coba lagi nanti.")
+			return
+		}
+		if !checkRateLimit(rdb, fmt.Sprintf("%s%d", resultExamRateKeyPrefix, examID),
+			resultExamRateLimitMax, resultExamRateLimitWindow) {
+			errorResponse(c, http.StatusTooManyRequests,
+				"Terlalu banyak request. Silakan coba lagi nanti.")
+			return
+		}
 
 		// --- Access gate (mirrors AccessLog / SubmitExam tolerance) ---
 		// The result endpoint must NOT be public: without a credential it leaks
