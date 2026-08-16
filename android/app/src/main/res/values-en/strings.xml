@@ -89,6 +89,10 @@
     <string name="page_indicator_format">%1$d / %2$d</string>
     <string name="auto_submit_success_title">Answers Submitted</string>
     <string name="auto_submit_failed_title">Failed to Submit Answers</string>
+    <string name="recovery_pending_message">Your answers were not sent!\n\nAutomatic submission failed due to a network issue. Your answers are still saved on this device. Tap \"Send Again\" to resubmit.</string>
+    <string name="recovery_retry_submit">Send Again</string>
+    <string name="recovery_sending">Sending...</string>
+    <string name="recovery_exit">Exit</string>
     <string name="notification_channel_name">Exam Answer Submission</string>
     <string name="notification_channel_desc">Notification when exam answers are submitted automatically</string>
 

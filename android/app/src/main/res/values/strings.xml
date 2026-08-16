@@ -89,6 +89,10 @@
     <string name="page_indicator_format">%1$d / %2$d</string>
     <string name="auto_submit_success_title">Jawaban Terkirim Otomatis</string>
     <string name="auto_submit_failed_title">Gagal Mengirim Jawaban Otomatis</string>
+    <string name="recovery_pending_message">Jawaban Anda belum terkirim!\n\nPengumpulan otomatis gagal karena masalah jaringan. Jawaban Anda masih tersimpan di perangkat ini. Tekan \"Kirim Lagi\" untuk mengirim ulang.</string>
+    <string name="recovery_retry_submit">Kirim Lagi</string>
+    <string name="recovery_sending">Mengirim...</string>
+    <string name="recovery_exit">Keluar</string>
     <string name="notification_channel_name">Pengiriman Jawaban Ujian</string>
     <string name="notification_channel_desc">Notifikasi saat jawaban ujian dikirim otomatis</string>
 

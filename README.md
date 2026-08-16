@@ -787,6 +787,14 @@ cd android
 
 Saat ini ada satu test yang **mengunci kebijakan tanpa-emoji** UI (`NoEmojiInAppTest`): memindai seluruh `src/main/res` (strings, layout, drawable), `src/main/java`, dan manifest flavor, lalu gagal bila ditemukan karakter emoji (dengan allowlist glyph tipografis monokrom `✓`/`✕`/`➔`). Ini menjaga tampilan UI tetap profesional dan konsisten di semua perangkat.
 
+Logika bisnis murni (tanpa Android Context/ViewBinding) dikunci oleh test JVM di `android/app/src/test/java/com/examvan/app/helper/`:
+
+- `ExamModePolicyTest` — kontrak mode ujian low/medium/strict: auto-submit saat fokus hilang hanya di medium; volume ditekan hanya di medium/strict; level tak dikenal fail-closed ke medium.
+- `ExamDeadlineTest` — sisa waktu dihitung ulang dari `end_time` absolut (ISO-8601) + server skew; `end_time` rusak/tidak ada → `null` (countdown tidak tampil, tidak crash).
+- `QuestionParsingTest` — nomor soal diterima sebagai JSON number maupun string (`"3"`); hanya nilai non-numerik yang dilewati.
+- `SubmitFlowPolicyTest` — gate tunggal submit (manual + auto) mencegah double POST `/submit` saat deadline berbarengan submit manual.
+- `QueuedResultPollingTest` — polling `/result` tegas terhadap deadline walau server menggantung.
+
 > ⚠️ **Penting:** `TEST_DATABASE_URL` harus mengarah ke database **sekali pakai** — saat setup, tes menerapkan `schema.sql` dan me-truncate tabel data. Jangan pernah mengarahkannya ke database produksi.
 
 #### Referensi Variabel Environment Tes
@@ -1323,6 +1331,42 @@ Tes: `TestHeartbeatSanitization` — payload `<script>`/`onerror`/MAC bergaya SQ
 `webui/internal/websocket/hub_test.go` (baru): isolasi room (broadcast room A tidak pernah sampai ke room B — batas tenant), gate privilege heartbeat & exam_completed, sanitasi payload, ping/pong, dan plumbing `JoinRoom` (flag `privileged` sampai ke `Client`). **Verifikasi mutation testing:** gate privilege dilepas sementara → test gagal (Redis tertulis oleh socket token + broadcast bocor); sanitasi dilewati → test gagal (markup + `device_info` bocor). Dipulihkan → lulus 5/5 run; `go build ./...` + `go vet` bersih.
 
 **Catatan:** tidak ada frontend di repo ini yang memakai websocket (hanya "legacy Node frontend" eksternal); monitoring saat ini polling HTTP — perubahan ini tidak memengaruhi UI yang ada.
+
+---
+
+## Perbaikan Alur Ujian Android — Deadline Tegas, Nomor Soal String, & Gate Submit Tunggal (16 Agustus 2026)
+
+Tiga temuan review alur ujian sisi Android ditutup dengan helper murni + test JVM (pola yang sama dengan `ExamModePolicy`/`QueuedResultPolling` sebelumnya): test ditulis lebih dulu, fix menyusul, lalu suite hijau di kedua flavor.
+
+### 1. Deadline tegas — auto-submit tepat di `end_time` walau app di-background
+
+**Masalah:** `CountDownTimer` dibatalkan di `onPause`, sehingga layar mati / app di-background tepat di deadline menunda auto-submit sampai siswa membuka app kembali.
+
+**Solusi:** helper `ExamDeadline.remainingMs` menghitung ulang sisa waktu dari `end_time` **absolut** (ISO-8601) + server skew setiap dipanggil (resume / PDF siap), lalu watchdog `Handler` (tidak dibatalkan di `onPause`) menembak tepat di deadline — idempoten via `autoSubmitAndExit`. Watchdog dijadwalkan **sejak awal, tanpa menunggu PDF siap**, sehingga deadline tetap menuntaskan alur walau PDF gagal dimuat (sebelumnya siswa bisa terjebak di layar download/error tanpa auto-submit). `end_time` rusak/tidak ada → `null`: countdown tidak ditampilkan, tidak crash.
+
+Tes: `ExamDeadlineTest` — sisa waktu positif/negatif/nol, penerapan skew, format offset `+07:00`, `end_time` malformed.
+
+### 2. Nomor soal bertipe string tidak lagi dilewati diam-diam
+
+**Masalah:** `AnswerSheetBuilder` memakai `(q["number"] as? Double)?.toInt() ?: continue` sementara server menyimpan `Question.Number` sebagai `interface{}` — soal dengan nomor string (`"3"`) di-skip diam-diam: tidak tampil di lembar jawaban, tidak bisa dijawab, dinilai kosong tanpa error.
+
+**Solusi:** helper `QuestionParsing.questionNumber` menerima Double/Int/String (trim) dan mengembalikan `null` hanya untuk nilai non-numerik. `totalQuestions` kini diisi dari jumlah soal yang **benar-benar dirender** (bukan ukuran list mentah), dan guard seleksi-awal pada `onItemSelected` spinner mencegah build menghapus jawaban yang baru dipulihkan.
+
+Tes: `QuestionParsingTest` — number/string/whitespace, tolak non-numerik, perilaku `toInt()` lama (truncate) dipertahankan; `SpinnerInitialSelectionGuardTest` — pemicu otomatis pertama di-ignore, callback `setSelection` saat restore tetap diproses, state per baris independen.
+
+### 3. Gate submit tunggal — tidak ada double POST saat deadline berbarengan submit manual
+
+**Masalah:** jalur manual (`isSubmitting`) dan auto (`submittedOrExited`) memakai flag **berbeda**, sehingga deadline yang berbarengan dengan submit manual bisa mengirim dua POST `/submit`.
+
+**Solusi:** kedua jalur berkonsultasi ke satu gate `SubmitFlowPolicy.canStartSubmission` — boleh mulai hanya bila tidak ada submit berjalan DAN belum ada submit/exit yang selesai.
+
+Tes: `SubmitFlowPolicyTest` — idle boleh mulai, in-flight diblok, setelah sukses/exit diblok, retry setelah gagal boleh.
+
+### 4. Re-entry recovery — jawaban tersimpan yang belum terkirim bisa dikirim ulang
+
+**Masalah:** `autoSubmitAndExit` mem-persist `submitted=true` **sebelum** submit jaringan — auto-submit background yang gagal (jaringan mati / proses dibunuh) membuat re-entry hanya menampilkan layar "Ujian Sudah Selesai" tanpa jalur kirim ulang, padahal jawaban masih tersimpan lokal.
+
+**Solusi:** saat re-entry dengan `submitted=true` TAPI jawaban masih tersimpan (`SubmissionManager.hasPendingAnswers` — jawaban hanya dibersihkan saat submit sukses), app menampilkan layar recovery **"Kirim Lagi"** yang mengirim ulang jawaban dari prefs (`resubmitPendingAnswers`). Server idempoten (upsert per exam+mac), jadi aman diulang; sukses → layar congrats + jawaban lokal dibersihkan, gagal → tetap di layar recovery. `submitWithRetry` di-refactor menerima override jawaban agar logika retry + polling `/result` dipakai bersama antara auto-submit dan recovery.
 
 ---
 

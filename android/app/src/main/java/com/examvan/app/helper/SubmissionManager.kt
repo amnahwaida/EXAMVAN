@@ -84,12 +84,6 @@ class SubmissionManager(
     private var autoSaveJob: kotlinx.coroutines.Job? = null
     private val gsonForSave = com.google.gson.Gson()
 
-    companion object {
-        private const val TAG = "SubmissionManager"
-        private const val CHANNEL_ID = "examvan_auto_submit_v2"
-        private const val REQUEST_NOTIFICATION_PERMISSION = 1001
-    }
-
     fun initNotificationChannel() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             val notificationManager = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
@@ -168,6 +162,27 @@ class SubmissionManager(
             .apply()
     }
 
+    companion object {
+        private const val TAG = "SubmissionManager"
+        private const val CHANNEL_ID = "examvan_auto_submit_v2"
+        private const val REQUEST_NOTIFICATION_PERMISSION = 1001
+
+        /**
+         * True bila jawaban untuk [examId] masih tersimpan di prefs — artinya
+         * submit sebelumnya TIDAK tuntas (gagal / proses mati sebelum sukses),
+         * karena clearSavedAnswers hanya berjalan saat submit sukses. Dipakai
+         * onCreate untuk memilih layar recovery vs layar "sudah selesai".
+         * Aturan kedaluwarsa sama dengan restoreAnswersFromPrefs (24 jam).
+         */
+        fun hasPendingAnswers(context: Context, examId: Int): Boolean {
+            val prefs = AppPrefs.getExamPrefsSafe(context)
+            if (prefs.getInt(AppPrefs.KEY_SAVED_ANSWERS_EXAM_ID, -1) != examId) return false
+            val timestamp = prefs.getLong(AppPrefs.KEY_SAVED_ANSWERS_TIMESTAMP, 0L)
+            if (System.currentTimeMillis() - timestamp > 24 * 60 * 60 * 1000L) return false
+            return !prefs.getString(AppPrefs.KEY_SAVED_ANSWERS, null).isNullOrEmpty()
+        }
+    }
+
     fun persistSubmittedState() {
         val submittedKey = AppPrefs.getSubmittedOrExitedKey(examId)
         AppPrefs.getExamPrefsSafe(context).edit()
@@ -203,7 +218,9 @@ class SubmissionManager(
     }
 
     private fun submitAnswers() {
-        if (isSubmitting) return
+        // Gate tunggal (manual + auto) — cegah double POST saat deadline
+        // berbarengan dengan submit manual (lihat SubmitFlowPolicy).
+        if (!SubmitFlowPolicy.canStartSubmission(isSubmitting, submittedOrExited)) return
         isSubmitting = true
         lastSubmitSuccess = false
         binding.btnSubmitAnswers.isEnabled = false
@@ -328,9 +345,9 @@ class SubmissionManager(
     /**
      * Show the congratulations screen (or fallback dialog) after a successful
      * submit. Extracted so both the sync path and the post-poll async path use
-     * the same UI.
+     * the same UI. Internal: dipakai juga oleh jalur recovery re-entry.
      */
-    private fun showCongrats(result: ApiClient.SubmitResult) {
+    internal fun showCongrats(result: ApiClient.SubmitResult) {
         setShowingAppDialog(true)
         try {
             val intent = Intent(context, CongratulationsActivity::class.java).apply {
@@ -363,11 +380,23 @@ class SubmissionManager(
 
     // ---- Auto-submit ----
 
-    suspend fun submitWithRetry(): Pair<Boolean, String> {
+    /**
+     * Submit dengan retry (1+3 percobaan, backoff 1/2/4 dtk).
+     *
+     * @param answersOverride jawaban pengganti — dipakai jalur recovery
+     *        (resubmitPendingAnswers) yang mengirim dari prefs; default
+     *        memakai jawaban dari getAnswers (alur normal / auto-submit).
+     * @return SubmitResult — sukses hanya bila server menerima (sync) ATAU
+     *         worker mengkonfirmasi durable via polling /result (async 202).
+     */
+    suspend fun submitWithRetry(answersOverride: Map<String, Any>? = null): ApiClient.SubmitResult {
         val delays = listOf(1000L, 2000L, 4000L)
+        var last = ApiClient.SubmitResult(
+            false, context.getString(R.string.answer_submit_error), null
+        )
         for (attempt in 0..3) {
             try {
-                val answers = getAnswers?.invoke() ?: emptyMap()
+                val answers = answersOverride ?: (getAnswers?.invoke() ?: emptyMap())
                 val result = withContext(Dispatchers.IO) {
                     ApiClient.submitExamSync(
                         examId = examId,
@@ -383,24 +412,28 @@ class SubmissionManager(
                 }
                 if (result.success) {
                     if (result.status != ApiClient.SUBMIT_STATUS_QUEUED) {
-                        return Pair(true, result.message)
+                        return result
                     }
                     // Async path: the server only queued the answers. Wait for
                     // the worker to make them durable before clearing the local
-                    // copy (clearSavedAnswers runs in autoSubmitAndExit only
-                    // when this returns true).
-                    return Pair(awaitQueuedResultDurable(), result.message)
+                    // copy (clearSavedAnswers runs in the caller only when
+                    // this returns success).
+                    return result.copy(success = awaitQueuedResultDurable())
                 }
+                last = result
                 if (attempt < 3) delay(delays[attempt])
             } catch (e: Exception) {
+                last = ApiClient.SubmitResult(
+                    false, e.message ?: context.getString(R.string.answer_submit_error), null
+                )
                 if (attempt < 3) {
                     delay(delays[attempt])
                 } else {
-                    return Pair(false, e.message ?: context.getString(R.string.answer_submit_error))
+                    break
                 }
             }
         }
-        return Pair(false, context.getString(R.string.answer_submit_error))
+        return last
     }
 
     /** Poll /result up to [maxPollMs]; true only when the worker reports "done". */
@@ -416,7 +449,10 @@ class SubmissionManager(
     }
 
     fun autoSubmitAndExit() {
-        if (submittedOrExited) return
+        // Gate tunggal (manual + auto) — kalau submit manual sedang berjalan
+        // (isSubmitting), jangan memulai jalur paralel; jalur manual yang
+        // menyelesaikan alur (lihat SubmitFlowPolicy).
+        if (!SubmitFlowPolicy.canStartSubmission(isSubmitting, submittedOrExited)) return
         submittedOrExited = true
 
         AuditLog.i(AuditLog.Events.AUTO_SUBMIT, "strict=$strictMode answers=${getAnswers?.invoke()?.size}")
@@ -435,25 +471,55 @@ class SubmissionManager(
 
             // Only clear saved answers if submission was successful.
             // If failed, keep answers in SharedPreferences so they can be
-            // recovered or retried later (e.g. after token issue is resolved).
-            if (result.first) {
+            // recovered or retried later (e.g. via the recovery screen on
+            // re-entry — lihat hasPendingAnswers / resubmitPendingAnswers).
+            if (result.success) {
                 clearSavedAnswers()
             } else {
-                Log.w(TAG, "Auto-submit failed after retries, keeping saved answers for recovery: ${result.second}")
+                Log.w(TAG, "Auto-submit failed after retries, keeping saved answers for recovery: ${result.message}")
             }
 
-            val notifTitle = if (result.first) {
+            val notifTitle = if (result.success) {
                 context.getString(R.string.auto_submit_success_title)
             } else {
                 context.getString(R.string.auto_submit_failed_title)
             }
-            val notifMessage = if (result.first) {
+            val notifMessage = if (result.success) {
                 context.getString(R.string.toast_auto_submit_success)
             } else {
-                context.getString(R.string.toast_auto_submit_failed, result.second)
+                context.getString(R.string.toast_auto_submit_failed, result.message)
             }
 
             showAutoSubmitNotification(notifTitle, notifMessage)
+        }
+    }
+
+    // ---- Re-entry recovery (auto-submit gagal di background) ----
+
+    /**
+     * Kirim ulang jawaban yang masih tersimpan di prefs — dipanggil layar
+     * recovery saat re-entry dengan state "submitted" tapi jawaban belum
+     * terkirim (auto-submit background gagal / proses mati di tengah jalan).
+     *
+     * Server idempoten (upsert per exam+mac — retry tidak menduplikasi baris),
+     * jadi aman diulang. Sukses → jawaban lokal dibersihkan (clearSavedAnswers
+     * juga menghapus flag submitted).
+     */
+    fun resubmitPendingAnswers(onResult: (ApiClient.SubmitResult) -> Unit) {
+        val saved = restoreAnswersFromPrefs() ?: run {
+            onResult(
+                ApiClient.SubmitResult(
+                    false, context.getString(R.string.answer_submit_error), null
+                )
+            )
+            return
+        }
+        GlobalScope.launch(NonCancellable + Dispatchers.IO) {
+            val result = submitWithRetry(saved)
+            android.os.Handler(android.os.Looper.getMainLooper()).post {
+                if (result.success) clearSavedAnswers()
+                onResult(result)
+            }
         }
     }
 

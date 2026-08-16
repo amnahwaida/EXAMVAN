@@ -14,6 +14,7 @@ import com.examvan.app.api.ApiClient
 import com.examvan.app.api.WebSocketManager
 import com.examvan.app.databinding.ActivityExamViewerBinding
 import com.examvan.app.helper.AnswerSheetBuilder
+import com.examvan.app.helper.ExamDeadline
 import com.examvan.app.helper.ExamModePolicy
 import com.examvan.app.helper.PdfRendererHelper
 import com.examvan.app.helper.SecurityEnforcer
@@ -54,6 +55,15 @@ class ExamViewerActivity : BaseSecureActivity() {
     private var startTime = ""
     private var endTime: String? = null
     private var countDownTimer: android.os.CountDownTimer? = null
+
+    // Watchdog deadline yang TIDAK dibatalkan di onPause (auto-submit tepat
+    // di deadline walau activity sedang paused) — lihat startCountdownTimer.
+    private var deadlineHandler: android.os.Handler? = null
+    private var deadlineRunnable: Runnable? = null
+
+    // Recovery re-entry (jawaban belum terkirim): cegah double-tap tombol
+    // "Kirim Lagi" saat resubmit sedang berjalan.
+    private var recoverySubmitting = false
     private var macAddress = ""
     private var serverUrl = ""
     private var examToken = ""
@@ -119,7 +129,16 @@ class ExamViewerActivity : BaseSecureActivity() {
         val wasSubmittedOrExited = AppPrefs.getExamPrefsSafe(this).getBoolean(submittedKey, false)
         if (wasSubmittedOrExited) {
             binding.tvExamTitle.text = examName
-            showExamAlreadySubmittedScreen()
+            if (SubmissionManager.hasPendingAnswers(this, examId)) {
+                // Submit sebelumnya TIDAK tuntas (auto-submit background gagal /
+                // proses mati sebelum sukses) — jawaban masih tersimpan lokal,
+                // tawarkan kirim ulang (lihat showPendingSubmitRecoveryScreen).
+                setupRecoverySubmissionManager()
+                showPendingSubmitRecoveryScreen()
+            } else {
+                // Benar-benar selesai — jawaban sudah dibersihkan saat sukses.
+                showExamAlreadySubmittedScreen()
+            }
             return
         }
 
@@ -176,6 +195,13 @@ class ExamViewerActivity : BaseSecureActivity() {
             showError(getString(R.string.exam_invalid_id))
             return
         }
+
+        // Watchdog deadline dijadwalkan SEGERA (sebelum PDF siap) — lihat
+        // scheduleDeadlineFromStart. Menutup kasus PDF tidak pernah siap:
+        // sebelumnya deadline lewat tanpa auto-submit bila siswa terjebak di
+        // layar download/error. startCountdownTimer (saat PDF siap) tetap
+        // mengganti jadwal ini dengan sisa waktu terbaru.
+        scheduleDeadlineFromStart()
 
         // Strict mode activation
         if (strictMode) {
@@ -444,12 +470,15 @@ class ExamViewerActivity : BaseSecureActivity() {
             } else {
                 emptyList()
             }
-            submissionManager.totalQuestions = questions.size
 
             if (questions.isEmpty()) {
                 hideAnswerOverlay()
+                submissionManager.totalQuestions = 0
             } else {
-                answerSheetBuilder.build(questions)
+                // totalQuestions = jumlah soal yang BENAR-BENAR dirender
+                // (nomor valid), bukan ukuran list mentah — soal dengan nomor
+                // tidak valid dilewati AnswerSheetBuilder (lihat QuestionParsing).
+                submissionManager.totalQuestions = answerSheetBuilder.build(questions)
                 // Restore saved answers (#6 fix: view tagging handles this)
                 val savedAnswers = submissionManager.restoreAnswersFromPrefs()
                 if (savedAnswers != null) {
@@ -716,6 +745,8 @@ class ExamViewerActivity : BaseSecureActivity() {
     override fun onDestroy() {
         super.onDestroy()
         countDownTimer?.cancel()
+        deadlineRunnable?.let { deadlineHandler?.removeCallbacks(it) }
+        deadlineRunnable = null
         if (::pdfRendererHelper.isInitialized) pdfRendererHelper.cleanup()
         if (::securityEnforcer.isInitialized) securityEnforcer.cleanup()
         unregisterNetworkCallback()
@@ -745,41 +776,183 @@ class ExamViewerActivity : BaseSecureActivity() {
         val end = endTime ?: return
         countDownTimer?.cancel()
 
-        try {
-            val endInstant = Instant.parse(end)
-            // Adjust current time for server time skew to make it bypass-resilient
-            val serverNowMs = System.currentTimeMillis() + com.examvan.app.api.ApiClient.serverTimeSkewMs
-            val remainingMs = endInstant.toEpochMilli() - serverNowMs
+        // Sisa waktu dihitung ulang dari DEADLINE ABSOLUT + skew server setiap
+        // dipanggil (resume / PDF siap) — lihat ExamDeadline. `null` bila
+        // end_time tidak ada/rusak → countdown tidak ditampilkan (tidak crash).
+        val remainingMs = ExamDeadline.remainingMs(
+            endTimeIso = end,
+            nowMs = System.currentTimeMillis(),
+            skewMs = com.examvan.app.api.ApiClient.serverTimeSkewMs
+        ) ?: run {
+            Log.w(TAG, "end_time tidak dapat di-parse, countdown tidak ditampilkan: $end")
+            return
+        }
 
-            if (remainingMs <= 0) {
-                runOnUiThread {
-                    Toast.makeText(this, "Waktu ujian telah berakhir!", Toast.LENGTH_LONG).show()
-                    submissionManager.autoSubmitAndExit()
-                }
-                return
+        // Deadline sudah lewat (mis. app di-background melewati deadline) →
+        // auto-submit langsung; tidak perlu menjadwalkan watchdog delay 0.
+        if (remainingMs <= 0) {
+            triggerDeadlineAutoSubmit()
+            return
+        }
+
+        // Watchdog deadline: handler utama yang TIDAK dibatalkan saat onPause.
+        // Dulu CountDownTimer dibatalkan di onPause → kalau layar mati / app
+        // di-background tepat di deadline, auto-submit tertunda sampai siswa
+        // membuka app kembali. Watchdog menembak tepat di deadline walau
+        // activity sedang paused (selama proses masih hidup).
+        scheduleDeadlineWatchdog(remainingMs)
+
+        binding.tvTimer.visibility = View.VISIBLE
+
+        countDownTimer = object : android.os.CountDownTimer(remainingMs, 1000) {
+            override fun onTick(millisUntilFinished: Long) {
+                val seconds = millisUntilFinished / 1000
+                val hours = seconds / 3600
+                val minutes = (seconds % 3600) / 60
+                val secs = seconds % 60
+                val timeStr = String.format("Sisa: %02d:%02d:%02d", hours, minutes, secs)
+                binding.tvTimer.text = timeStr
             }
 
-            binding.tvTimer.visibility = View.VISIBLE
+            override fun onFinish() {
+                triggerDeadlineAutoSubmit()
+            }
+        }.start()
+    }
 
-            countDownTimer = object : android.os.CountDownTimer(remainingMs, 1000) {
-                override fun onTick(millisUntilFinished: Long) {
-                    val seconds = millisUntilFinished / 1000
-                    val hours = seconds / 3600
-                    val minutes = (seconds % 3600) / 60
-                    val secs = seconds % 60
-                    val timeStr = String.format("Sisa: %02d:%02d:%02d", hours, minutes, secs)
-                    binding.tvTimer.text = timeStr
-                }
+    /**
+     * Jadwalkan watchdog deadline segera setelah helper siap, tanpa menunggu
+     * PDF siap. Dulu watchdog hanya dijadwalkan dari startCountdownTimer
+     * (onPdfReady / onResume) — kalau PDF tidak pernah siap (download gagal,
+     * siswa di layar error/strict-failed), deadline lewat tanpa auto-submit dan
+     * siswa terjebak. Dengan jadwal awal ini, deadline selalu menuntaskan alur:
+     * auto-submit jawaban yang ada (mungkin kosong). startCountdownTimer tetap
+     * mengganti jadwal dengan sisa waktu terbaru saat PDF akhirnya siap.
+     */
+    private fun scheduleDeadlineFromStart() {
+        val end = endTime ?: return
+        val remainingMs = ExamDeadline.remainingMs(
+            endTimeIso = end,
+            nowMs = System.currentTimeMillis(),
+            skewMs = com.examvan.app.api.ApiClient.serverTimeSkewMs
+        ) ?: run {
+            Log.w(TAG, "end_time tidak dapat di-parse, watchdog deadline tidak dijadwalkan: $end")
+            return
+        }
+        if (remainingMs <= 0) {
+            triggerDeadlineAutoSubmit()
+        } else {
+            scheduleDeadlineWatchdog(remainingMs)
+        }
+    }
 
-                override fun onFinish() {
-                    binding.tvTimer.text = "Sisa: 00:00:00"
-                    Toast.makeText(this@ExamViewerActivity, "Waktu habis! Menyerahkan jawaban...", Toast.LENGTH_LONG).show()
-                    submissionManager.autoSubmitAndExit()
-                }
-            }.start()
+    /**
+     * Jadwalkan watchdog deadline (tidak dibatalkan di onPause). Setiap
+     * pemanggilan mengganti jadwal sebelumnya dengan sisa waktu terbaru.
+     */
+    private fun scheduleDeadlineWatchdog(remainingMs: Long) {
+        val handler = deadlineHandler ?: android.os.Handler(android.os.Looper.getMainLooper())
+            .also { deadlineHandler = it }
+        deadlineRunnable?.let { handler.removeCallbacks(it) }
+        deadlineRunnable = Runnable { triggerDeadlineAutoSubmit() }
+        handler.postDelayed(deadlineRunnable!!, remainingMs.coerceAtLeast(0))
+    }
 
-        } catch (e: Exception) {
-            Log.e("ExamViewerActivity", "Failed to parse or start countdown timer", e)
+    /**
+     * Waktu ujian habis: batalkan timer & watchdog, lalu auto-submit.
+     * Dipanggil dari onFinish CountDownTimer ATAU watchdog (yang menembak
+     * bahkan saat activity paused). Idempoten via guard autoSubmitAndExit.
+     */
+    private fun triggerDeadlineAutoSubmit() {
+        deadlineRunnable?.let { deadlineHandler?.removeCallbacks(it) }
+        deadlineRunnable = null
+        countDownTimer?.cancel()
+
+        // Jalur lain sudah menuntaskan alur (submit manual sukses / auto-submit
+        // dari onUserLeaveHint / event exam_terminated) atau submit manual masih
+        // berjalan (isSubmitting) — jangan tampilkan toast deadline yang
+        // menyesatkan; jalur yang aktif itulah yang menyelesaikan alur (lihat
+        // SubmitFlowPolicy). autoSubmitAndExit sendiri sudah di-gate, guard ini
+        // mencegah toast ganda di level UI.
+        if (submissionManager.submittedOrExited || submissionManager.isSubmitting) return
+
+        binding.tvTimer.text = "Sisa: 00:00:00"
+        Toast.makeText(this@ExamViewerActivity, "Waktu habis! Menyerahkan jawaban...", Toast.LENGTH_LONG).show()
+        submissionManager.autoSubmitAndExit()
+    }
+
+    // ===== Re-entry recovery (auto-submit gagal di background) =====
+
+    /**
+     * Inisialisasi SubmissionManager minimal untuk layar recovery. Jalur ini
+     * TIDAK melalui initializeHelpers — tidak perlu PDF, answer sheet, atau
+     * security enforcer; hanya mengirim ulang jawaban dari prefs.
+     */
+    private fun setupRecoverySubmissionManager() {
+        submissionManager = SubmissionManager(this, binding, this).apply {
+            examId = this@ExamViewerActivity.examId
+            examName = this@ExamViewerActivity.examName
+            studentName = this@ExamViewerActivity.studentName
+            studentNumber = this@ExamViewerActivity.studentNumber
+            studentClass = this@ExamViewerActivity.studentClass
+            identityData = this@ExamViewerActivity.identityData
+            macAddress = this@ExamViewerActivity.macAddress
+            token = this@ExamViewerActivity.examToken
+            serverUrl = this@ExamViewerActivity.serverUrl
+            startTime = AppPrefs.getExamPrefsSafe(this@ExamViewerActivity)
+                .getString(AppPrefs.KEY_EXAM_START_TIME, "") ?: ""
+            deactivateLockTask = {}
+            getAnswers = { emptyMap() }
+            onFinish = { finish() }
+            isActivityFinishing = { isFinishing || isDestroyed }
+        }
+    }
+
+    /**
+     * Layar recovery: jawaban masih tersimpan lokal karena pengumpulan
+     * otomatis sebelumnya gagal (autoSubmitAndExit mem-persist "submitted"
+     * SEBELUM submit jaringan). Tawarkan kirim ulang — server idempoten,
+     * retry tidak menduplikasi baris.
+     */
+    private fun showPendingSubmitRecoveryScreen() {
+        binding.btnBack.visibility = View.GONE
+        binding.btnToggleAnswerSheet.visibility = View.GONE
+        binding.btnSubmitAnswers.visibility = View.GONE
+        binding.btnPrev.visibility = View.GONE
+        binding.btnNext.visibility = View.GONE
+        binding.answerSheetToggle.visibility = View.GONE
+        binding.layoutDownload.visibility = View.GONE
+        binding.ivPdfPage.visibility = View.GONE
+
+        binding.tvErrorMsg.text = getString(R.string.recovery_pending_message)
+        binding.btnRetryDownload.text = getString(R.string.recovery_retry_submit)
+        binding.btnRetryDownload.setOnClickListener { submitPendingAnswers() }
+        binding.btnOpenResult.text = getString(R.string.recovery_exit)
+        binding.btnOpenResult.visibility = View.VISIBLE
+        binding.btnOpenResult.setOnClickListener { finish() }
+
+        binding.layoutError.visibility = View.VISIBLE
+    }
+
+    private fun submitPendingAnswers() {
+        if (recoverySubmitting) return
+        recoverySubmitting = true
+        binding.btnRetryDownload.isEnabled = false
+        binding.btnRetryDownload.text = getString(R.string.recovery_sending)
+        submissionManager.resubmitPendingAnswers { result ->
+            if (isFinishing || isDestroyed) return@resubmitPendingAnswers
+            recoverySubmitting = false
+            if (result.success) {
+                submissionManager.showCongrats(result)
+            } else {
+                binding.btnRetryDownload.isEnabled = true
+                binding.btnRetryDownload.text = getString(R.string.recovery_retry_submit)
+                Toast.makeText(
+                    this,
+                    getString(R.string.toast_auto_submit_failed, result.message),
+                    Toast.LENGTH_LONG
+                ).show()
+            }
         }
     }
 

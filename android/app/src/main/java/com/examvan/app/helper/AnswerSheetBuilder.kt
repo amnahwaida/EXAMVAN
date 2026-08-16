@@ -22,6 +22,9 @@ class AnswerSheetBuilder(
 ) {
     private var questions: List<Map<String, Any>> = emptyList()
 
+    /** Jumlah soal yang dirender pada build terakhir (nomor valid). */
+    private var renderedCount: Int = 0
+
     // Dynamic coloring variables based on exam panel_color
     var panelTextColor: Int? = null
     var isPanelColorDark: Boolean = false
@@ -38,19 +41,28 @@ class AnswerSheetBuilder(
     /**
      * Build or rebuild the answer sheet from question config.
      * Clears existing views first.
+     *
+     * @return jumlah soal yang BENAR-BENAR dirender (nomor valid) — dipakai
+     *         pemanggil untuk `totalQuestions` sehingga hitungan dialog
+     *         konfirmasi tidak lebih besar dari soal yang tampil.
      */
-    fun build(questions: List<Map<String, Any>>) {
+    fun build(questions: List<Map<String, Any>>): Int {
         this.questions = questions
+        renderedCount = 0
         val container = binding.answerListContainer
         container.removeAllViews()
 
         if (questions.isEmpty()) {
             hideAnswerOverlay()
-            return
+            return 0
         }
 
         for (q in questions) {
-            val number = (q["number"] as? Double)?.toInt() ?: continue
+            // Parsing robust: nomor bisa JSON number ATAU string (server
+            // menyimpan Question.Number sebagai interface{}). Soal dengan nomor
+            // tidak valid dilewati — bukan di-skip diam-diam karena salah tipe.
+            val number = QuestionParsing.questionNumber(q["number"]) ?: continue
+            renderedCount++
             val type = q["type"] as? String ?: "single_choice"
 
             when (type) {
@@ -63,6 +75,7 @@ class AnswerSheetBuilder(
         }
 
         applyDynamicTextColors()
+        return renderedCount
     }
 
     /**
@@ -173,7 +186,8 @@ class AnswerSheetBuilder(
         binding.btnSubmitAnswers.visibility = View.GONE
     }
 
-    fun getQuestionCount(): Int = questions.size
+    /** Jumlah soal yang berhasil dirender pada build terakhir (nomor valid). */
+    fun getQuestionCount(): Int = renderedCount
 
     // ---- Question type builders with view tagging (#6 fix) ----
 
@@ -328,8 +342,17 @@ class AnswerSheetBuilder(
                 false
             }
 
+            // Callback onItemSelected terpicu SEKALI secara otomatis saat
+            // listener dipasang (posisi default 0 = "-- Pilih --"). Tanpa guard
+            // ini, build() menghapus jawaban matching yang sudah ada di memori
+            // (onAnswerRemoved) — rapuh karena bergantung pada urutan build →
+            // restore. Guard memakai callback pertama itu sebagai no-op dan
+            // tidak menyentuh jawaban/popup counter; callback berikutnya
+            // (termasuk dari setSelection saat restore) tetap diproses.
+            val initialSelectionGuard = SpinnerInitialSelectionGuard()
             spinner.onItemSelectedListener = object : AdapterView.OnItemSelectedListener {
                 override fun onItemSelected(parent: AdapterView<*>?, v: View?, position: Int, id: Long) {
+                    if (initialSelectionGuard.isInitialSelection()) return
                     onSpinnerPopupChanged?.invoke(-1)
                     if (v is TextView) {
                         v.setTextColor(panelTextColor ?: ContextCompat.getColor(context, R.color.on_surface))
