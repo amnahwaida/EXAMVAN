@@ -7,7 +7,7 @@
   After installing the kiosk APK, run this ADB command to set the app as
   Device Owner (requires rooted device or device provisioning):
 
-      adb shell dpm set-device-owner com.examvan.app.kiosk/.DeviceAdminReceiver
+      adb shell dpm set-device-owner com.examvan.app.kiosk/com.examvan.app.receiver.MyDeviceAdminReceiver
 
   On some OEMs (Samsung Knox, Huawei) the package must be pre-installed
   as a system app for Device Owner to work. Test on the target device first.

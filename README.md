@@ -76,9 +76,9 @@ Untuk komputer tablet atau handphone inventaris sekolah (bukan HP pribadi siswa)
 
 ### Cara Mengaktifkan Mode Kiosk via ADB:
 1. Hubungkan tablet/HP sekolah ke komputer menggunakan kabel USB (pastikan USB Debugging aktif).
-2. Jalankan perintah berikut di Terminal/CMD komputer Anda:
+2. Jalankan perintah berikut di Terminal/CMD komputer Anda (**wajib APK flavor KIOSK** — `com.examvan.app.kiosk`; receiver DeviceAdmin hanya terdaftar di flavor ini, APK student tidak punya komponen admin):
    ```bash
-   adb shell dpm set-device-owner com.examvan.app/com.examvan.app.receiver.MyDeviceAdminReceiver
+   adb shell dpm set-device-owner com.examvan.app.kiosk/com.examvan.app.receiver.MyDeviceAdminReceiver
    ```
 3. Begitu sukses dijalankan, aplikasi EXAMVAN akan memegang otoritas admin penuh untuk mengunci perangkat tanpa memerlukan konfirmasi dialog apa pun pada layar siswa saat ujian dimulai.
 
