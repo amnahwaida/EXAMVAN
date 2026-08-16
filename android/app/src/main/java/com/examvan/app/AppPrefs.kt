@@ -91,6 +91,72 @@ object AppPrefs {
 
     private val fallbacked = java.util.Collections.newSetFromMap(java.util.concurrent.ConcurrentHashMap<String, Boolean>())
 
+    // ── Exam token (never persisted to the plain fallback) ─────────────────
+    //
+    // The exam token is a live session credential: it authenticates PDF
+    // download, presence and submission. When the keystore is corrupt the
+    // readable storage is the PLAINTEXT fallback file, so persisting the token
+    // there would leak the credential to any process/backup that can read app
+    // data. Instead the token is kept in memory only for the process lifetime
+    // while the fallback is active — after a process death on such a device
+    // the student simply re-enters the token (same as the other lost values).
+    // The token is never READ from nor WRITTEN to the fallback file.
+
+    @Volatile
+    private var memoryExamToken: String? = null
+
+    /**
+     * Read the exam token. Memory (fallback mode) first, then the encrypted
+     * prefs. Never reads the plain fallback file, so a corrupt keystore can
+     * never serve a previously persisted plaintext token.
+     */
+    fun getExamToken(context: Context): String {
+        memoryExamToken?.let { return it }
+        return try {
+            getConfigPrefs(context).getString(KEY_EXAM_TOKEN, "") ?: ""
+        } catch (e: GeneralSecurityException) {
+            ""
+        } catch (e: IOException) {
+            ""
+        }
+    }
+
+    /**
+     * Persist the exam token. Encrypted backend when healthy; in-memory only
+     * when the keystore is corrupt (fallback active) so the token never lands
+     * in the plaintext fallback file.
+     */
+    fun setExamToken(context: Context, token: String) {
+        if (token.isEmpty()) {
+            removeExamToken(context)
+            return
+        }
+        if (isConfigFallbackInUse()) {
+            memoryExamToken = token
+            return
+        }
+        try {
+            getConfigPrefs(context).edit().putString(KEY_EXAM_TOKEN, token).apply()
+            memoryExamToken = null // encrypted prefs are the source of truth
+        } catch (e: GeneralSecurityException) {
+            memoryExamToken = token
+        } catch (e: IOException) {
+            memoryExamToken = token
+        }
+    }
+
+    /** Clear the exam token from memory and the encrypted backend (never the fallback). */
+    fun removeExamToken(context: Context) {
+        memoryExamToken = null
+        try {
+            getConfigPrefs(context).edit().remove(KEY_EXAM_TOKEN).apply()
+        } catch (e: GeneralSecurityException) {
+            // nothing persisted — nothing to remove
+        } catch (e: IOException) {
+            // nothing persisted — nothing to remove
+        }
+    }
+
     fun getConfigPrefsSafe(context: Context): SharedPreferences {
         return try {
             getConfigPrefs(context)
@@ -160,6 +226,7 @@ object AppPrefs {
      *         is effectively always true.
      */
     fun clearAllData(context: Context): Boolean {
+        memoryExamToken = null
         var clearedAny = false
         try {
             getConfigPrefs(context).edit().clear().apply()

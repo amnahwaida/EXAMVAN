@@ -60,7 +60,9 @@ class ExamListActivity : BaseSecureActivity() {
                 return@ExamAdapter
             }
 
-            val resolvedToken = configPrefs.getString(AppPrefs.KEY_EXAM_TOKEN, "") ?: ""
+            // Token via helper khusus: tidak pernah dibaca dari fallback
+            // plaintext saat keystore corrupt (lihat AppPrefs.getExamToken).
+            val resolvedToken = AppPrefs.getExamToken(this)
             val identityJsonStr = configPrefs.getString(AppPrefs.KEY_IDENTITY_DATA, "{}") ?: "{}"
             val identityJson = try { org.json.JSONObject(identityJsonStr) } catch (_: Exception) { org.json.JSONObject() }
             val name = identityJson.optString("student_name", "")

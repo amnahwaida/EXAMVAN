@@ -590,6 +590,13 @@ class SecurityEnforcer(
     }
 
     private fun isDeviceRooted(): Boolean {
+        // 1. Known root binary / mount marker paths. The mount markers catch
+        //    the modern root solutions even though their su binaries live on
+        //    tmpfs / in the adb data partition (not the classic paths):
+        //    - /data/adb/magisk  -> Magisk v20+
+        //    - /data/adb/ksu     -> KernelSU
+        //    - /data/adb/apd     -> APatch
+        //    - /sbin/.magisk     -> Magisk on legacy devices
         val paths = arrayOf(
             "/system/app/Superuser.apk",
             "/sbin/su",
@@ -599,12 +606,42 @@ class SecurityEnforcer(
             "/data/local/bin/su",
             "/system/sd/xbin/su",
             "/system/bin/failsafe/su",
-            "/data/local/su"
+            "/data/local/su",
+            "/data/adb/magisk",
+            "/data/adb/ksu",
+            "/data/adb/apd",
+            "/sbin/.magisk"
         )
         for (path in paths) {
             if (java.io.File(path).exists()) return true
         }
+
+        // 2. su resolvable from PATH (covers su installed in a non-standard
+        //    location, e.g. Magisk mounting su into a tmpfs PATH entry).
+        if (isExecutableOnPath("su")) return true
+
+        // 3. Build signed with test keys — a common trait of custom ROMs and
+        //    pre-rooted builds (stock devices ship "release-keys").
+        if (Build.TAGS != null && Build.TAGS.contains("test-keys")) return true
+
         return false
+    }
+
+    /**
+     * True when the given binary resolves to a real executable via `which`.
+     * Uses a separate process so a lookup can never crash the exam flow.
+     */
+    private fun isExecutableOnPath(binary: String): Boolean {
+        return try {
+            val process = Runtime.getRuntime().exec(arrayOf("which", binary))
+            val reader = java.io.BufferedReader(java.io.InputStreamReader(process.inputStream))
+            val result = reader.readLine()
+            process.waitFor()
+            reader.close()
+            !result.isNullOrEmpty()
+        } catch (e: Exception) {
+            false
+        }
     }
 
     private fun isUsbDebuggingEnabled(): Boolean {

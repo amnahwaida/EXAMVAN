@@ -59,7 +59,9 @@ class ServerConfigActivity : BaseSecureActivity() {
         // Check if URL and Token were previously saved
         val rememberUrl = prefs.getBoolean(AppPrefs.KEY_REMEMBER_URL, true)
         val savedUrl = prefs.getString(AppPrefs.KEY_SERVER_URL, "") ?: ""
-        val savedToken = prefs.getString(AppPrefs.KEY_EXAM_TOKEN, "") ?: ""
+        // Token via helper khusus: tidak pernah dibaca dari fallback plaintext
+        // saat keystore corrupt (lihat AppPrefs.getExamToken).
+        val savedToken = AppPrefs.getExamToken(this)
 
         binding.cbRememberUrl.isChecked = rememberUrl
         if (savedUrl.isNotEmpty()) {
@@ -187,16 +189,19 @@ class ServerConfigActivity : BaseSecureActivity() {
                                     safeConfigWrite {
                                         putString(AppPrefs.KEY_SERVER_URL, url)
                                         putInt(AppPrefs.KEY_EXAM_ID, exam.id)
-                                        putString(AppPrefs.KEY_EXAM_TOKEN, tokenToUse)
                                         putBoolean(AppPrefs.KEY_REMEMBER_URL, true)
                                     }
+                                    // Token ditangani terpisah: disimpan terenkripsi
+                                    // saat sehat, atau hanya di memory saat keystore
+                                    // corrupt — tidak pernah di fallback plaintext.
+                                    AppPrefs.setExamToken(this@ServerConfigActivity, tokenToUse)
                                 } else {
                                     safeConfigWrite {
                                         putBoolean(AppPrefs.KEY_REMEMBER_URL, false)
                                         remove(AppPrefs.KEY_SERVER_URL)
                                         remove(AppPrefs.KEY_EXAM_ID)
-                                        remove(AppPrefs.KEY_EXAM_TOKEN)
                                     }
+                                    AppPrefs.removeExamToken(this@ServerConfigActivity)
                                 }
 
                                 // Show student identity dialog
