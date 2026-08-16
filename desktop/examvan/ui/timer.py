@@ -16,6 +16,24 @@ import time as _time
 from .. import api
 
 
+def compute_remaining_seconds(
+    end_time: Optional[str], now_utc: datetime, skew_ms: int
+) -> Optional[float]:
+    """Sisa waktu (detik) sampai deadline, atau None bila end_time rusak.
+
+    Murni & bisa diuji. `now_utc` adalah waktu perangkat; `skew_ms` = jam
+    server - jam perangkat (mirror Android ExamDeadline). Negative berarti
+    deadline sudah lewat.
+    """
+    if not end_time:
+        return None
+    try:
+        end_wall = datetime.fromisoformat(end_time.replace("Z", "+00:00"))
+        return (end_wall - now_utc).total_seconds() + (skew_ms / 1000.0)
+    except Exception:
+        return None
+
+
 class ElapsedTimerWidget(QWidget):
     """Displays countdown (if end_time set) or elapsed time."""
 
@@ -25,35 +43,44 @@ class ElapsedTimerWidget(QWidget):
         super().__init__(parent)
         # Monotonic clock — immune to system clock changes
         self._start_mono = _time.monotonic()
+        self._end_time = end_time
         self._end_mono: Optional[float] = None  # monotonic deadline
         self._fired_time_up = False
 
-        if end_time:
-            try:
-                end_wall = datetime.fromisoformat(
-                    end_time.replace("Z", "+00:00")
-                )
-                # Convert wall-clock deadline to monotonic time. Koreksi
-                # server time skew (mirror Android ExamDeadline): `now` adalah
-                # waktu perangkat, `api.get_server_skew_ms()` = jam server -
-                # jam perangkat. Deadlinenya sendiri dihitung ulang dari
-                # end_time absolut + skew, bukan dari jam lokal mentah.
-                skew_s = api.get_server_skew_ms() / 1000.0
-                now = datetime.now(timezone.utc)
-                duration = (end_wall - now).total_seconds() + skew_s
-                if duration > 0:
-                    self._end_mono = _time.monotonic() + duration
-                else:
-                    # Already past deadline — fire immediately
-                    self._end_mono = _time.monotonic() - 1
-            except Exception:
-                pass
+        self._compute_deadline()
 
         self._setup_ui()
         self._timer = QTimer(self)
         self._timer.timeout.connect(self._update)
         self._timer.start(1000)
         self._update()
+
+    def _compute_deadline(self) -> None:
+        """Convert wall-clock deadline to monotonic time (dengan koreksi skew)."""
+        remaining = compute_remaining_seconds(
+            self._end_time, datetime.now(timezone.utc), api.get_server_skew_ms()
+        )
+        if remaining is None:
+            return
+        if remaining > 0:
+            self._end_mono = _time.monotonic() + remaining
+        else:
+            # Already past deadline — fire immediately
+            self._end_mono = _time.monotonic() - 1
+
+    def refresh_deadline(self) -> None:
+        """Hitung ulang deadline dari end_time ABSOLUT + skew saat ini.
+
+        Mirror Android onResume (ExamDeadline.remainingMs dihitung ulang):
+        `time.monotonic()` TIDAK termasuk waktu suspend (CLOCK_MONOTONIC),
+        jadi setelah laptop tertidur countdown akan membeku. Dengan refresh
+        ini deadline dihitung ulang dari wall clock + skew, sehingga sisa
+        waktu benar setelah resume. Tidak menembak time_up ulang (guard
+        _fired_time_up di _update).
+        """
+        if self._fired_time_up:
+            return
+        self._compute_deadline()
 
     def _setup_ui(self) -> None:
         layout = QHBoxLayout(self)

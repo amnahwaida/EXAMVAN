@@ -62,6 +62,42 @@ class SubmitExamQueuedTest(unittest.TestCase):
         self.assertEqual(resp.status, None)
         self.assertEqual(resp.score, 87.5)
 
+    def test_congrats_message_parsed(self):
+        """Fix #2: pesan selamat custom guru dibawa server → ditampilkan."""
+        body = {
+            "success": True,
+            "message": "Jawaban berhasil dikirim",
+            "status": "done",
+            "congrats_message": "Selamat! Kamu hebat!",
+        }
+        with mock.patch.object(api, "_make_request", return_value=body):
+            resp = api.submit_exam(
+                base_url="https://exam.example",
+                exam_id=7,
+                student_name="Budi",
+                exam_number="N01",
+                student_class="9A",
+                answers={"1": "A"},
+                start_time="2026-08-16T07:00:00Z",
+                mac_address="DESKTOP:abcd1234",
+            )
+        self.assertEqual(resp.congrats_message, "Selamat! Kamu hebat!")
+
+    def test_no_congrats_message_defaults_none(self):
+        body = {"success": True, "message": "ok"}
+        with mock.patch.object(api, "_make_request", return_value=body):
+            resp = api.submit_exam(
+                base_url="https://exam.example",
+                exam_id=7,
+                student_name="Budi",
+                exam_number="N01",
+                student_class="9A",
+                answers={"1": "A"},
+                start_time="2026-08-16T07:00:00Z",
+                mac_address="DESKTOP:abcd1234",
+            )
+        self.assertIsNone(resp.congrats_message)
+
 
 class ExamResultTest(unittest.TestCase):
     """GET /result response shapes (done / pending / failure)."""

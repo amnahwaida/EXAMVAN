@@ -13,7 +13,7 @@ from typing import Any, Dict, List, Optional
 # Without this, admin exit is DISABLED (no any-password fallback).
 _ADMIN_PASSWORD = os.environ.get("EXAMVAN_ADMIN_PASSWORD")
 
-from PyQt5.QtCore import Qt, QTimer, pyqtSignal, pyqtSlot
+from PyQt5.QtCore import QEvent, Qt, QTimer, pyqtSignal, pyqtSlot
 from PyQt5.QtGui import QCloseEvent, QKeyEvent
 from PyQt5.QtWidgets import (
     QApplication,
@@ -27,7 +27,7 @@ from PyQt5.QtWidgets import (
     QWidget,
 )
 
-from .. import APP_VERSION, api, config
+from .. import APP_VERSION, api, config, notify
 from ..models import Exam
 from ..security.enforcer import SecurityEnforcer
 from ..utils import clear_clipboard, get_device_label, map_identity_to_standard
@@ -88,6 +88,9 @@ class ExamViewerWindow(QMainWindow):
         self._sig_submit_result.connect(self._on_submit_result)
 
         self._setup_ui()
+        # Persist start_time sejak awal (mirror Android loadExamContent) —
+        # dipakai recovery re-entry saat mengirim ulang jawaban dari disk.
+        config.save_start_time(self._exam.id, self._timer_widget.get_start_time_iso())
         self._init_security()  # Activate security BEFORE PDF loads
         self._load_pdf_async()
 
@@ -462,14 +465,131 @@ class ExamViewerWindow(QMainWindow):
     def _auto_submit(self) -> None:
         # Guard init-race: time_up bisa menembak DI KONSTRUKTOR timer saat
         # deadline sudah lewat (window baru dibuka) — di _setup_ui, timer
-        # dibuat sebelum _answer_sheet, jadi _do_submit akan crash. Tunda
+        # dibuat sebelum _answer_sheet, jadi submit akan crash. Tunda
         # sampai _setup_ui selesai (singleShot; time_up hanya menembak sekali,
         # jadi tidak ada pengulangan tak terbatas).
         if not hasattr(self, '_answer_sheet'):
             QTimer.singleShot(100, self._auto_submit)
             return
         self._on_status("Auto-submit: jawaban dikumpulkan otomatis...")
-        self._do_submit()
+        self._auto_submit_and_exit()
+
+    def _auto_submit_and_exit(self) -> None:
+        """Mirror Android autoSubmitAndExit: tutup window SEGERA, submit di background.
+
+        Alur lama menahan window tetap terbuka (dan di strict mode tetap
+        terkunci) sampai hasil jaringan tiba — jaringan mati → siswa terjebak
+        di layar terkunci tanpa jalan keluar. Alur baru (parity Android):
+          1. gate submit tunggal (lock);
+          2. marker sticky "sudah selesai" + flush jawaban TERBARU ke disk
+             (proses mati / gagal jaringan → recovery re-entry);
+          3. lepas kunci + tutup window SEGERA (jangan menunggu jaringan);
+          4. submit + polling /result di background;
+          5. sukses → clear jawaban + complete presence + notifikasi;
+             gagal  → jawaban tetap di disk → layar recovery "Kirim Lagi"
+             saat re-entry (ServerConfigDialog).
+        """
+        with self._submit_lock:
+            if self._submitted or self._submitting:
+                return
+            self._submitted = True
+            self._submitting = True
+
+        # 1. Sticky marker + flush jawaban terkini ke disk SEBELUM window
+        #    mati. Flush memakai resolve_submit_answers (F1): memori kosong
+        #    (deadline menembak sebelum restore dari disk pada re-entry)
+        #    → JAWABAN DISK TIDAK BOLEH ditimpa {}. Kalau memori tidak kosong
+        #    → dipakai apa adanya (siswa mungkin baru mengubah jawaban
+        #    setelah auto-save terakhir).
+        config.mark_submitted(self._exam.id)
+        memory = (
+            self._answer_sheet.get_answers()
+            if hasattr(self, '_answer_sheet') else {}
+        )
+        answers = config.resolve_submit_answers(memory, self._exam.id)
+        config.save_answers(self._exam.id, answers)
+
+        # 2. Presence: logout segera (TTL Redis); `complete` saat submit sukses.
+        self._stop_presence(completed=False)
+
+        # 3. Lepas kunci & tutup window SEGERA.
+        self._timer_widget.stop()
+        self._btn_submit.setEnabled(False)
+        self._btn_submit.setText("Mengumpulkan...")
+        self._pdf_viewer.cleanup()
+        if self._pdf_path:
+            try:
+                if os.path.exists(self._pdf_path):
+                    os.remove(self._pdf_path)
+            except OSError:
+                pass
+        if self._security:
+            self._security.deactivate()
+        self.close()
+
+        # 4. Submit di background — thread MURNI: setelah window ditutup
+        #    semua nilai di-capture sebagai argumen biasa, thread TIDAK
+        #    menyentuh Qt (window bisa di-GC oleh _on_viewer_closed).
+        std = map_identity_to_standard(self._identity_data)
+        threading.Thread(
+            target=self._background_submit_thread,
+            args=(
+                self._server_url,
+                self._exam.id,
+                self._token,
+                std.get("student_name", ""),
+                std.get("exam_number", ""),
+                std.get("student_class", ""),
+                answers,
+                self._timer_widget.get_start_time_iso(),
+                get_device_label(),
+                self._identity_data,
+            ),
+            daemon=True,
+        ).start()
+
+    def _background_submit_thread(
+        self, base_url, exam_id, token, name, number, sclass,
+        answers, start_time, mac, identity,
+    ) -> None:
+        """Submit background setelah window ditutup. TIDAK menyentuh Qt.
+
+        Sukses hanya setelah durable (sync ATAU worker mengonfirmasi via
+        polling /result untuk jalur 202 queued) — baru jawaban lokal di-clear.
+        Gagal → jawaban tetap di disk; re-entry menawarkan "Kirim Lagi"
+        (server idempoten, retry tidak menduplikasi baris).
+        """
+        try:
+            resp = api.submit_with_retry(
+                base_url, exam_id, name, number, sclass,
+                answers, start_time, mac, identity,
+            )
+            if resp.status == "queued" and resp.job_id:
+                resp = api.poll_queued_result(
+                    base_url, exam_id, token, mac, resp.job_id, identity,
+                )
+            if resp.success:
+                config.clear_answers(exam_id)
+                try:
+                    api.complete_exam(base_url, exam_id, token, mac)
+                except Exception:
+                    pass
+                msg = resp.congrats_message or resp.message or "Jawaban berhasil dikumpulkan."
+                notify.send_notification("EXAMVAN — Ujian Terkumpul", msg)
+            else:
+                notify.send_notification(
+                    "EXAMVAN — Pengumpulan Gagal",
+                    "Jawaban belum terkirim: " + (resp.message or "terjadi kesalahan") +
+                    "\nBuka aplikasi dan pilih ujian ini untuk mengirim ulang.",
+                    urgency="critical",
+                )
+        except Exception as e:
+            notify.send_notification(
+                "EXAMVAN — Pengumpulan Gagal",
+                "Jawaban belum terkirim: " + str(e) +
+                "\nBuka aplikasi dan pilih ujian ini untuk mengirim ulang.",
+                urgency="critical",
+            )
 
     def _do_submit(self) -> None:
         """Thread-safe submit gate. Only one submit runs at a time."""
@@ -537,11 +657,39 @@ class ExamViewerWindow(QMainWindow):
                 identity,
             )
 
-        self._sig_submit_result.emit(resp.success, resp.message)
+        # Fix #2 (parity Android): tampilkan `congrats_message` custom guru
+        # saat sukses (bukan hanya resp.message bawaan server).
+        if resp.success:
+            message = resp.congrats_message or resp.message or "Jawaban berhasil dikumpulkan."
+        else:
+            message = resp.message
+        self._sig_submit_result.emit(resp.success, message)
 
     # -------------------------------------------------------------------
     # Window events
     # -------------------------------------------------------------------
+
+    def changeEvent(self, event) -> None:
+        """Hitung ulang deadline saat window aktif kembali (mirror onResume).
+
+        Fix #3: `time.monotonic()` (CLOCK_MONOTONIC) TIDAK termasuk waktu
+        suspend — laptop ditutup 30 menit → countdown membeku 30 menit →
+        tampilan "sisa waktu" menyesatkan setelah resume. `refresh_deadline`
+        menghitung ulang _end_mono dari end_time ABSOLUT + skew server saat
+        window di-restore / diaktifkan kembali.
+        """
+        try:
+            if event.type() == QEvent.WindowStateChange:
+                if not self.isMinimized():
+                    self._timer_widget.refresh_deadline()
+            elif event.type() == QEvent.ActivationChange:
+                if self.isActiveWindow():
+                    self._timer_widget.refresh_deadline()
+        except Exception:
+            # refresh_deadline aman gagal (deadline tetap dihitung ulang pada
+            # tick berikutnya / server tetap otoritas end_time).
+            pass
+        super().changeEvent(event)
 
     def closeEvent(self, event: QCloseEvent) -> None:
         # Already submitted — always allow close, bypass all guards

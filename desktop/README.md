@@ -170,6 +170,7 @@ Cara pakai: tekan `Ctrl+Shift+Alt+Q` tiga kali di strict mode, masukkan password
 │   ├── api.py                ← HTTP client (urllib)
 │   ├── config.py             ← konfigurasi + answer cache (XOR obfuscated)
 │   ├── models.py             ← data models
+│   ├── notify.py             ← notifikasi hasil auto-submit background
 │   ├── utils.py              ← MAC, clipboard, device identity
 │   ├── ws.py                 ← WebSocket real-time (exam_terminated)
 │   ├── security/
@@ -222,10 +223,10 @@ windows/
    ├─ Security diaktifkan SEBELUM PDF download
    ├─ PDF viewer per halaman (drag scroll, zoom)
    ├─ Lembar jawaban (5 tipe soal)
-   ├─ Timer monotonic countdown / elapsed
+   ├─ Timer monotonic countdown / elapsed (refresh saat window aktif kembali)
    ├─ Auto-save jawaban tiap perubahan (500ms debounce)
    ├─ Focus loss → auto-submit 3 detik
-   └─ Submit manual / auto-submit saat waktu habis
+   └─ Submit manual (interaktif) / auto-submit (tutup segera + background)
 ```
 
 ## Konsistensi Perilaku dengan Android (fix 16 Agustus 2026)
@@ -288,6 +289,29 @@ langsung memicu auto-submit — siswa desktop tidak lagi dibiarkan berjalan
 setelah pengawas mengakhiri ujian. Socket receive-only (presence via HTTP,
 sama seperti Android).
 
+### 9. Auto-submit menutup window SEGERA + hasil via notifikasi + recovery
+Dulu auto-submit (deadline / `exam_terminated` / fokus hilang medium / close
+medium-strict) menahan window tetap terbuka sampai hasil jaringan tiba — di
+strict mode, jaringan mati = siswa terjebak di layar terkunci tanpa jalan
+keluar. Kini mirror Android `autoSubmitAndExit`:
+
+1. **Gate submit tunggal** (lock) — deadline berbarengan submit manual tidak
+   menghasilkan double POST;
+2. **Marker sticky + flush jawaban terbaru ke disk** (memakai F1: memori
+   kosong tidak menimpa copy disk);
+3. **Lepas kunci + tutup window SEGERA** — siswa bebas, tidak menunggu
+   jaringan;
+4. **Submit + polling `/result` di background** (thread murni, tanpa sentuh
+   Qt);
+5. **Sukses** → clear jawaban lokal + `complete` presence + notifikasi sistem
+   (`notify-send` di Linux; termasuk `congrats_message` custom guru);
+   **Gagal** → jawaban TETAP di disk + notifikasi — re-entry menampilkan
+   layar recovery **"Kirim Lagi"** (`is_submitted` + jawaban pending →
+   tawarkan resubmit; server idempoten).
+
+Pola sama persis dengan Android: submit manual tetap interaktif (window
+tetap terbuka, error → dialog retry), hanya jalur AUTO yang menutup segera.
+
 ## Test
 
 Test headless (tanpa display):
@@ -297,11 +321,15 @@ cd desktop
 QT_QPA_PLATFORM=offscreen .venv/bin/python -m unittest discover -s tests
 ```
 
-47 test: parsing submit queued/sync, polling `/result` (done/pending/failure/
-timeout), persistensi & migrasi jawaban, fallback F1, marker sticky F2,
-identitas perangkat, pemetaan identitas, lembar jawaban tanpa soal dummy,
-server time skew, presence (access-log/complete), dan parsing event
-WebSocket (termasuk `exam_terminated`).
+76 test: parsing submit queued/sync (termasuk `congrats_message`), polling
+`/result` (done/pending/failure/timeout), persistensi & migrasi jawaban,
+fallback F1, marker sticky F2, identitas perangkat, pemetaan identitas,
+lembar jawaban tanpa soal dummy, server time skew, presence
+(access-log/complete), parsing event WebSocket (termasuk `exam_terminated`),
+alur auto-submit-and-exit (flush F1, clear saat sukses, simpan saat gagal,
+gate submit tunggal, queued 202 → polling), notifikasi lintas platform,
+gate recovery re-entry di ServerConfigDialog, dan refresh deadline setelah
+suspend.
 
 ## Troubleshooting
 

@@ -161,6 +161,22 @@ def resolve_submit_answers(memory_answers: Dict[str, Any], exam_id: int) -> Dict
     return saved if saved else {}
 
 
+def save_start_time(exam_id: int, iso: str) -> None:
+    """Persist start_time ujian untuk recovery re-entry (mirror Android
+    AppPrefs.KEY_EXAM_START_TIME).
+
+    Dipakai layar recovery (ServerConfigDialog) saat mengirim ulang jawaban
+    dari disk — server menghitung durasi dari start_time, jadi harus sama
+    dengan nilai yang dipakai submit asli.
+    """
+    set(f"start_time_{exam_id}", iso)
+
+
+def load_start_time(exam_id: int) -> str:
+    """Return the persisted start_time for [exam_id] ("" bila belum ada)."""
+    return str(get(f"start_time_{exam_id}", "") or "")
+
+
 def mark_submitted(exam_id: int) -> None:
     """Persist a sticky "exam already finished" marker for this device.
 

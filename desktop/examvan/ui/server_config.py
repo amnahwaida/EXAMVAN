@@ -32,6 +32,8 @@ class ServerConfigDialog(QDialog):
     _sig_status = pyqtSignal(str, bool)      # (message, is_error)
     _sig_enable_btn = pyqtSignal()
     _sig_show_identity = pyqtSignal()
+    _sig_recovery_available = pyqtSignal(object)  # Exam — jawaban belum terkirim
+    _sig_recovery_done = pyqtSignal(str)          # (message) — kirim ulang sukses
 
     def __init__(self, kiosk_mode: bool = False, parent=None):
         super().__init__(parent)
@@ -43,6 +45,8 @@ class ServerConfigDialog(QDialog):
         self._sig_status.connect(self._set_status_slot)
         self._sig_enable_btn.connect(self._enable_btn_slot)
         self._sig_show_identity.connect(self._show_identity_dialog)
+        self._sig_recovery_available.connect(self._show_recovery)
+        self._sig_recovery_done.connect(self._recovery_done_slot)
 
         self._setup_ui()
         self._load_saved()
@@ -201,12 +205,30 @@ class ServerConfigDialog(QDialog):
             self._sig_enable_btn.emit()
             return
 
+        # Save config SEBELUM gate submitted — decode jawaban di disk memakai
+        # token sebagai kunci XOR (_xor_obfuscate); token yang baru diketik
+        # harus tersimpan dulu agar recovery bisa membaca jawaban tersimpan.
+        # URL+token selalu disimpan (token juga dipakai sebagai kunci decode);
+        # `remember_url` hanya mengontrol apakah di-reload ke input berikutnya.
+        config.set("server_url", url)
+        config.set("exam_token", token)
+        config.set("remember_url", self.chk_remember.isChecked())
+
         # Step 2b: Sticky "already submitted" gate (F2, mirror Android).
         # Setelah submit SUKSES durable, re-entry ujian yang sama diblokir di
         # sini — sebelum approval/PDF — sehingga watchdog deadline tidak bisa
         # mengirim submit kosong yang MENIMPA jawaban asli dalam window grace
         # server (end_time + 60 dtk).
         if config.is_submitted(resp.exam.id):
+            # Recovery (mirror Android hasPendingAnswers): submit otomatis
+            # background sebelumnya GAGAL — jawaban masih tersimpan di disk
+            # (clear hanya saat submit durable) → tawarkan kirim ulang.
+            pending = config.load_answers(resp.exam.id)
+            if pending:
+                self._exam = resp.exam
+                self._server_url = url
+                self._sig_recovery_available.emit(resp.exam)
+                return
             self._sig_status.emit(
                 "Ujian ini sudah dikumpulkan pada perangkat ini. "
                 "Hubungi pengawas bila Anda memerlukan izin mengulang.",
@@ -214,14 +236,6 @@ class ServerConfigDialog(QDialog):
             )
             self._sig_enable_btn.emit()
             return
-
-        # Save config
-        if self.chk_remember.isChecked():
-            config.set("server_url", url)
-            config.set("exam_token", token)
-            config.set("remember_url", True)
-        else:
-            config.set("remember_url", False)
 
         self._exam = resp.exam
         self._server_url = url
@@ -240,6 +254,95 @@ class ServerConfigDialog(QDialog):
     @pyqtSlot()
     def _enable_btn_slot(self) -> None:
         self.btn_connect.setEnabled(True)
+
+    # --- Recovery re-entry (auto-submit background gagal) ---
+
+    @pyqtSlot(object)
+    def _show_recovery(self, exam) -> None:
+        """Layar recovery (mirror Android showPendingSubmitRecoveryScreen).
+
+        Jawaban masih tersimpan di disk karena auto-submit background tidak
+        pernah dikonfirmasi durable. Tawarkan kirim ulang — server idempoten
+        (upsert per exam+mac), retry tidak menduplikasi baris. Sukses →
+        jawaban lokal dihapus; gagal → tetap di disk, tombol kembali aktif.
+        """
+        reply = QMessageBox.question(
+            self,
+            "Jawaban Belum Terkirim",
+            "Pengumpulan otomatis sebelumnya tidak sampai ke server. "
+            "Jawaban masih tersimpan di perangkat ini.\n\n"
+            "Kirim ulang sekarang?",
+            QMessageBox.Yes | QMessageBox.No,
+            QMessageBox.Yes,
+        )
+        if reply != QMessageBox.Yes:
+            self.btn_connect.setEnabled(True)
+            self.lbl_status.setText("")
+            return
+
+        self.btn_connect.setEnabled(False)
+        self.lbl_status.setStyleSheet("color: #2e7d32;")
+        self.lbl_status.setText("Mengirim ulang jawaban...")
+        threading.Thread(
+            target=self._recovery_submit_thread,
+            args=(exam,),
+            daemon=True,
+        ).start()
+
+    def _recovery_submit_thread(self, exam) -> None:
+        """Kirim ulang jawaban tersimpan di background — TIDAK menyentuh Qt."""
+        from ..utils import get_device_label, map_identity_to_standard
+
+        token = self.input_token.text().strip().upper()
+        identity = config.get("identity_data", {}) or {}
+        answers = config.load_answers(exam.id) or {}
+        std = map_identity_to_standard(identity)
+        start_time = config.load_start_time(exam.id)
+        mac = get_device_label()
+        try:
+            resp = api.submit_with_retry(
+                self._server_url, exam.id,
+                std.get("student_name", ""),
+                std.get("exam_number", ""),
+                std.get("student_class", ""),
+                answers, start_time, mac, identity,
+            )
+            if resp.status == "queued" and resp.job_id:
+                resp = api.poll_queued_result(
+                    self._server_url, exam.id, token, mac, resp.job_id, identity,
+                )
+            if resp.success:
+                config.clear_answers(exam.id)
+                try:
+                    api.complete_exam(self._server_url, exam.id, token, mac)
+                except Exception:
+                    pass
+                msg = resp.congrats_message or resp.message or "Jawaban berhasil dikumpulkan."
+                self._sig_recovery_done.emit(msg)
+            else:
+                self._sig_status.emit(
+                    "Pengiriman ulang gagal: "
+                    + (resp.message or "terjadi kesalahan")
+                    + ". Jawaban tetap tersimpan — coba lagi.",
+                    True,
+                )
+                self._sig_enable_btn.emit()
+        except Exception as e:
+            self._sig_status.emit(
+                "Pengiriman ulang gagal: " + str(e)
+                + ". Jawaban tetap tersimpan — coba lagi.",
+                True,
+            )
+            self._sig_enable_btn.emit()
+
+    @pyqtSlot(str)
+    def _recovery_done_slot(self, msg: str) -> None:
+        self.btn_connect.setEnabled(True)
+        QMessageBox.information(
+            self,
+            "Berhasil",
+            f"Jawaban berhasil dikirim ulang!\n\n{msg}",
+        )
 
     @pyqtSlot()
     def _show_identity_dialog(self) -> None:

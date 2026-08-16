@@ -177,6 +177,19 @@ dihapus pada 202 mentah.
    dashboard monitoring pengawas.
 8. **WebSocket real-time** — koneksi `/ws/<exam_id>` menerima event pengawas;
    **`exam_terminated`** langsung memicu auto-submit.
+9. **Auto-submit menutup window SEGERA** — deadline / `exam_terminated` /
+   fokus hilang medium / close medium-strict: jawaban di-flush ke disk +
+   marker sticky, kunci dilepas dan window ditutup langsung (tidak menunggu
+   jaringan, tidak ada lagi siswa terjebak di layar terkunci saat jaringan
+   mati). Submit berjalan di background; hasil dilaporkan via notifikasi
+   (Linux `notify-send`; Windows fallback ke recovery re-entry). **Sukses** →
+   jawaban lokal dihapus + `complete` presence; **gagal** → jawaban tetap di
+   disk dan re-entry menawarkan **"Kirim Lagi"** (server idempoten).
+10. **`congrats_message` custom guru** ditampilkan saat sukses (submit manual
+    maupun auto) — bukan hanya pesan bawaan server.
+11. **Countdown akurat setelah suspend** — deadline dihitung ulang dari
+    `end_time` absolut + skew saat window aktif kembali (monotonic clock
+    tidak termasuk waktu tidur laptop).
 
 ## Uninstall
 

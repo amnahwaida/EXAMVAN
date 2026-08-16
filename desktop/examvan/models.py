@@ -108,6 +108,7 @@ class SubmitResponse:
     status: Optional[str] = None
     job_id: Optional[str] = None
     score: Optional[float] = None
+    congrats_message: Optional[str] = None
 
     @classmethod
     def from_json(cls, data: Dict[str, Any]) -> "SubmitResponse":
@@ -120,6 +121,7 @@ class SubmitResponse:
             status=data.get("status"),
             job_id=data.get("job_id"),
             score=score,
+            congrats_message=data.get("congrats_message"),
         )
 
 @dataclass
