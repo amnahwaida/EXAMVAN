@@ -70,14 +70,15 @@ class ApiClientFlowSimulationTest {
     fun setUp() {
         server = MockWebServer()
         server.start()
+        // State statis ApiClient dibersihkan penuh — lihat ApiClient.resetForTests.
+        ApiClient.resetForTests()
         ApiClient.setBaseUrl(server.url("/").toString().removeSuffix("/"))
-        ApiClient.EXPECTED_FINGERPRINT = null
     }
 
     @After
     fun tearDown() {
         server.shutdown()
-        ApiClient.setBaseUrl("")
+        ApiClient.resetForTests()
     }
 
     @Test

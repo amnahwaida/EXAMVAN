@@ -22,7 +22,6 @@ import com.examvan.app.CongratulationsActivity
 import com.examvan.app.R
 import com.examvan.app.api.ApiClient
 import com.examvan.app.databinding.ActivityExamViewerBinding
-import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.GlobalScope
 import kotlinx.coroutines.NonCancellable
@@ -85,17 +84,10 @@ class SubmissionManager(
     private var autoSaveJob: kotlinx.coroutines.Job? = null
     private val gsonForSave = com.google.gson.Gson()
 
-    private var notificationAvailable: Boolean = false
-
     companion object {
         private const val TAG = "SubmissionManager"
         private const val CHANNEL_ID = "examvan_auto_submit_v2"
         private const val REQUEST_NOTIFICATION_PERMISSION = 1001
-
-        /** Polling cadence/limits after a queued (202) submit (14 Agustus 2026). */
-        private const val QUEUED_POLL_INTERVAL_MS = 2500L
-        private const val QUEUED_POLL_MAX_ATTEMPTS = 30
-        private const val QUEUED_POLL_DEADLINE_MS = 75_000L
     }
 
     fun initNotificationChannel() {
@@ -112,7 +104,6 @@ class SubmissionManager(
             }
             notificationManager.createNotificationChannel(channel)
         }
-        notificationAvailable = true
     }
 
     // ---- Answer persistence ----
@@ -316,35 +307,20 @@ class SubmissionManager(
         jobId: String?,
         onComplete: (confirmed: Boolean) -> Unit
     ) {
+        // Deadline & timeout per-poll ditangani QueuedResultPolling (teguh
+        // terhadap respons /result yang menggantung) — lihat helper tsb.
         GlobalScope.launch(NonCancellable + Dispatchers.IO) {
-            var status: String? = null
-            var attempts = 0
-            val maxAttempts = QUEUED_POLL_MAX_ATTEMPTS
-            while (attempts < maxAttempts) {
-                attempts++
-                val pollDone = CompletableDeferred<Boolean>()
-                ApiClient.getExamResult(
-                    examId = examId,
-                    token = token,
-                    macAddress = macAddress,
-                    identityData = identityData,
-                    jobId = jobId,
-                    onSuccess = { poll ->
-                        status = poll.status
-                        pollDone.complete(true)
-                    },
-                    onError = { _ ->
-                        pollDone.complete(true)
-                    }
-                )
-                pollDone.await()
-                if (status == ApiClient.RESULT_STATUS_DONE || status == ApiClient.RESULT_STATUS_FAILED) {
-                    break
-                }
-                delay(QUEUED_POLL_INTERVAL_MS)
-            }
+            val confirmed = QueuedResultPolling.awaitDurable(
+                examId = examId,
+                token = token,
+                macAddress = macAddress,
+                identityData = identityData,
+                jobId = jobId,
+                deadlineMs = QueuedResultPolling.POLL_DEADLINE_MS,
+                maxAttempts = QueuedResultPolling.POLL_MAX_ATTEMPTS
+            )
             android.os.Handler(android.os.Looper.getMainLooper()).post {
-                onComplete(status == ApiClient.RESULT_STATUS_DONE)
+                onComplete(confirmed)
             }
         }
     }
@@ -428,29 +404,15 @@ class SubmissionManager(
     }
 
     /** Poll /result up to [maxPollMs]; true only when the worker reports "done". */
-    private suspend fun awaitQueuedResultDurable(maxPollMs: Long = QUEUED_POLL_DEADLINE_MS): Boolean {
-        val deadline = System.currentTimeMillis() + maxPollMs
-        while (System.currentTimeMillis() < deadline) {
-            val pollDone = CompletableDeferred<String>()
-            ApiClient.getExamResult(
-                examId = examId,
-                token = token,
-                macAddress = macAddress,
-                identityData = identityData,
-                jobId = null,
-                onSuccess = { poll ->
-                    pollDone.complete(poll.status)
-                },
-                onError = { _ ->
-                    pollDone.complete("unknown")
-                }
-            )
-            val status = pollDone.await()
-            if (status == ApiClient.RESULT_STATUS_DONE) return true
-            if (status == ApiClient.RESULT_STATUS_FAILED) return false
-            delay(QUEUED_POLL_INTERVAL_MS)
-        }
-        return false
+    private suspend fun awaitQueuedResultDurable(maxPollMs: Long = QueuedResultPolling.POLL_DEADLINE_MS): Boolean {
+        return QueuedResultPolling.awaitDurable(
+            examId = examId,
+            token = token,
+            macAddress = macAddress,
+            identityData = identityData,
+            jobId = null,
+            deadlineMs = maxPollMs
+        )
     }
 
     fun autoSubmitAndExit() {
@@ -498,7 +460,6 @@ class SubmissionManager(
     private fun showAutoSubmitNotification(title: String, message: String) {
         try {
             val notificationManager = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
-            notificationAvailable
 
             val notification = NotificationCompat.Builder(context, CHANNEL_ID)
                 .setSmallIcon(R.mipmap.ic_launcher)

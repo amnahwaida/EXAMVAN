@@ -92,6 +92,21 @@ object ApiClient {
     @JvmStatic
     var serverTimeSkewMs: Long = 0L
 
+    /**
+     * Reset seluruh state statis (baseUrl, certificate pinning, client, skew,
+     * expected fingerprint). KHUSUS untuk test — dipanggil di setUp/tearDown
+     * supaya test tidak saling mengontaminasi (state statis pada object).
+     * Tidak dipakai di kode produksi.
+     */
+    @JvmStatic
+    fun resetForTests() {
+        baseUrl = ""
+        certificateFingerprint = null
+        serverTimeSkewMs = 0L
+        EXPECTED_FINGERPRINT = null
+        clientRef.set(defaultClient())
+    }
+
     fun setBaseUrl(url: String) {
         var cleanUrl = url.trimEnd('/')
         // Cloud-only deployment: every connection uses HTTPS. Cleartext http:// is
