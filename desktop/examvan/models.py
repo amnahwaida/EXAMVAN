@@ -20,6 +20,7 @@ class HealthResponse:
     status: str = ""
     version: str = ""
     certificate_fingerprint: Optional[str] = None
+    server_time_utc: Optional[str] = None
 
     @classmethod
     def from_json(cls, data: Dict[str, Any]) -> "HealthResponse":
@@ -28,6 +29,7 @@ class HealthResponse:
             status=data.get("status", ""),
             version=data.get("version", ""),
             certificate_fingerprint=data.get("certificate_fingerprint"),
+            server_time_utc=data.get("server_time_utc"),
         )
 
 

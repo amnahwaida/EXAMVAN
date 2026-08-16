@@ -171,6 +171,7 @@ Cara pakai: tekan `Ctrl+Shift+Alt+Q` tiga kali di strict mode, masukkan password
 │   ├── config.py             ← konfigurasi + answer cache (XOR obfuscated)
 │   ├── models.py             ← data models
 │   ├── utils.py              ← MAC, clipboard, device identity
+│   ├── ws.py                 ← WebSocket real-time (exam_terminated)
 │   ├── security/
 │   │   ├── base.py           ← abstract SecurityBackend
 │   │   ├── __init__.py       ← factory: get_backend()
@@ -265,18 +266,42 @@ Re-entry ujian yang sama diblokir di gate join (`is_submitted`) — mencegah
 re-entry dalam window grace mengirim submit kosong yang MENIMPA jawaban asli
 (mirror Android: flag `submittedOrExited` sticky).
 
+### 6. Server time skew untuk countdown
+`GET /api/health` mengembalikan `server_time_utc`; klien menghitung selisih
+jam perangkat vs server (`api.get_server_skew_ms`, mirror Android
+`ApiClient.serverTimeSkewMs`) dan memakainya saat mengonversi deadline
+`end_time` ke monotonic clock. Countdown akurat walau jam perangkat meleset
+dari jam server.
+
+### 7. Presence siswa di dashboard monitoring (access-log)
+Klien kini mengirim `POST /access-log` — `login` saat ujian dibuka, `heartbeat`
+tiap 60 detik, `logout` saat keluar — dan `POST /complete` setelah submit
+sukses (mirror Android `WebSocketManager` + `ApiClient.sendAccessLog`).
+Siswa desktop tampil **online/offline** di dashboard monitoring pengawas
+(presence Redis TTL 5 menit), bukan lagi "tidak terlihat".
+
+### 8. WebSocket real-time + event pengawas `exam_terminated`
+Klien menghubungkan `wss://server/ws/<exam_id>` (token via query param,
+reconnect backoff 1→30 dtk — mirror Android `WebSocketManager`) dan menerima
+siaran pengawas. Event **`exam_terminated`** (pengawas menghentikan ujian)
+langsung memicu auto-submit — siswa desktop tidak lagi dibiarkan berjalan
+setelah pengawas mengakhiri ujian. Socket receive-only (presence via HTTP,
+sama seperti Android).
+
 ## Test
 
-Test JVM-style (headless, tanpa display):
+Test headless (tanpa display):
 
 ```bash
 cd desktop
 QT_QPA_PLATFORM=offscreen .venv/bin/python -m unittest discover -s tests
 ```
 
-32 test: parsing submit queued/sync, polling `/result` (done/pending/failure/
+47 test: parsing submit queued/sync, polling `/result` (done/pending/failure/
 timeout), persistensi & migrasi jawaban, fallback F1, marker sticky F2,
-identitas perangkat, pemetaan identitas, dan lembar jawaban tanpa soal dummy.
+identitas perangkat, pemetaan identitas, lembar jawaban tanpa soal dummy,
+server time skew, presence (access-log/complete), dan parsing event
+WebSocket (termasuk `exam_terminated`).
 
 ## Troubleshooting
 

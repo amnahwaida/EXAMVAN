@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 import os
+import sys
 import tempfile
 import threading
 from typing import Any, Dict, List, Optional
@@ -26,10 +27,11 @@ from PyQt5.QtWidgets import (
     QWidget,
 )
 
-from .. import api, config
+from .. import APP_VERSION, api, config
 from ..models import Exam
 from ..security.enforcer import SecurityEnforcer
 from ..utils import clear_clipboard, get_device_label, map_identity_to_standard
+from ..ws import ExamWebSocket
 from .answer_sheet import AnswerSheetWidget
 from .pdf_viewer import PdfWidget
 from .timer import ElapsedTimerWidget
@@ -88,6 +90,26 @@ class ExamViewerWindow(QMainWindow):
         self._setup_ui()
         self._init_security()  # Activate security BEFORE PDF loads
         self._load_pdf_async()
+
+        # Presence (login/heartbeat/logout) — mirror Android WebSocketManager.
+        # Heartbeat HTTP berjalan selama sesi (interval 60 dtk) supaya siswa
+        # tampil ONLINE di dashboard monitoring pengawas; login dikirim sekali
+        # di awal, logout/complete saat ujian selesai.
+        self._std_identity = map_identity_to_standard(identity_data)
+        self._device_label = get_device_label()
+        self._presence_active = True
+        self._send_access_log("login")
+        self._heartbeat_timer = QTimer(self)
+        self._heartbeat_timer.setInterval(60000)
+        self._heartbeat_timer.timeout.connect(lambda: self._send_access_log("heartbeat"))
+        self._heartbeat_timer.start()
+
+        # WebSocket real-time (mirror Android WebSocketManager): menerima
+        # event pengawas, terutama `exam_terminated` → auto-submit segera
+        # (ujian dihentikan pengawas). Receive-only; presence via HTTP di atas.
+        self._ws = ExamWebSocket(self)
+        self._ws.event_received.connect(self._on_ws_event)
+        self._ws.connect(self._server_url, self._exam.id, self._token)
 
         # Restore saved answers
         saved = config.load_answers(exam.id)
@@ -296,6 +318,8 @@ class ExamViewerWindow(QMainWindow):
         # (ServerConfigDialog.is_submitted) — mencegah re-entry dalam window
         # grace server mengirim submit kosong yang MENIMPA jawaban asli.
         config.mark_submitted(self._exam.id)
+        # Presence: hapus heartbeat Redis (siswa tampil OFFLINE segera).
+        self._stop_presence(completed=True)
         if self._security:
             self._security.deactivate()
 
@@ -320,6 +344,87 @@ class ExamViewerWindow(QMainWindow):
         )
         # closeEvent already handles self.closed.emit() when _submitted
         self.close()
+
+    # -------------------------------------------------------------------
+    # WebSocket events
+    # -------------------------------------------------------------------
+
+    def _on_ws_event(self, event: str, data: dict) -> None:
+        if event == "exam_terminated":
+            log.warning("exam_terminated received — auto-submitting")
+            self._sig_status.emit("Ujian dihentikan pengawas. Mengumpulkan jawaban...")
+            self._auto_submit()
+        # student_update / notification: diagnostik, tidak perlu aksi di desktop.
+
+    # -------------------------------------------------------------------
+    # Presence (access-log)
+    # -------------------------------------------------------------------
+
+    def _send_access_log(self, event: str) -> None:
+        """Kirim event presence (login/heartbeat/logout) — best-effort."""
+        if not self._presence_active:
+            return
+        try:
+            threading.Thread(
+                target=api.send_access_log,
+                args=(
+                    self._server_url,
+                    self._exam.id,
+                    self._token,
+                    self._device_label,
+                    event,
+                ),
+                kwargs={
+                    "student_name": self._std_identity.get("student_name", ""),
+                    "exam_number": self._std_identity.get("exam_number", ""),
+                    "student_class": self._std_identity.get("student_class", ""),
+                    "device_info": f"EXAMVAN-Desktop/{APP_VERSION} {sys.platform}",
+                    "identity_data": self._identity_data,
+                },
+                daemon=True,
+            ).start()
+        except Exception:
+            pass
+
+    def _stop_presence(self, completed: bool = False) -> None:
+        """Hentikan heartbeat & laporkan kepergian siswa (best-effort).
+
+        `completed=True` → POST /complete (hapus presence Redis, tampil
+        offline segera); selain itu kirim logout (presence habis via TTL).
+        """
+        self._presence_active = False
+        try:
+            self._heartbeat_timer.stop()
+        except Exception:
+            pass
+        try:
+            self._ws.disconnect()
+        except Exception:
+            pass
+        try:
+            threading.Thread(
+                target=api.complete_exam if completed else api.send_access_log,
+                args=(
+                    self._server_url,
+                    self._exam.id,
+                    self._token,
+                    self._device_label,
+                ) if completed else (
+                    self._server_url,
+                    self._exam.id,
+                    self._token,
+                    self._device_label,
+                    "logout",
+                ),
+                kwargs={
+                    "student_name": self._std_identity.get("student_name", ""),
+                    "exam_number": self._std_identity.get("exam_number", ""),
+                    "student_class": self._std_identity.get("student_class", ""),
+                } if not completed else {},
+                daemon=True,
+            ).start()
+        except Exception:
+            pass
 
     # -------------------------------------------------------------------
     # Answer persistence
@@ -480,6 +585,9 @@ class ExamViewerWindow(QMainWindow):
             QMessageBox.No,
         )
         if reply == QMessageBox.Yes:
+            # Presence: siswa keluar tanpa submit — kirim logout (presence
+            # habis via TTL Redis; tidak ada submit yang menghapusnya).
+            self._stop_presence(completed=False)
             if self._security:
                 self._security.deactivate()
             self._pdf_viewer.cleanup()

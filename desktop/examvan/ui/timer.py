@@ -13,6 +13,8 @@ from PyQt5.QtWidgets import QLabel, QWidget, QHBoxLayout
 
 import time as _time
 
+from .. import api
+
 
 class ElapsedTimerWidget(QWidget):
     """Displays countdown (if end_time set) or elapsed time."""
@@ -31,9 +33,14 @@ class ElapsedTimerWidget(QWidget):
                 end_wall = datetime.fromisoformat(
                     end_time.replace("Z", "+00:00")
                 )
-                # Convert wall-clock deadline to monotonic time
+                # Convert wall-clock deadline to monotonic time. Koreksi
+                # server time skew (mirror Android ExamDeadline): `now` adalah
+                # waktu perangkat, `api.get_server_skew_ms()` = jam server -
+                # jam perangkat. Deadlinenya sendiri dihitung ulang dari
+                # end_time absolut + skew, bukan dari jam lokal mentah.
+                skew_s = api.get_server_skew_ms() / 1000.0
                 now = datetime.now(timezone.utc)
-                duration = (end_wall - now).total_seconds()
+                duration = (end_wall - now).total_seconds() + skew_s
                 if duration > 0:
                     self._end_mono = _time.monotonic() + duration
                 else:

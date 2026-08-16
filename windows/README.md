@@ -170,6 +170,13 @@ dihapus pada 202 mentah.
 4. **Tanpa soal → lembar jawaban kosong** — tidak ada fabrikasi 40 soal dummy.
 5. **Marker sticky "ujian sudah selesai"** — re-entry ujian yang sama diblokir
    agar tidak mengirim submit kosong menimpa jawaban yang sudah terkirim.
+6. **Server time skew** — countdown memakai selisih jam perangkat vs server
+   (`server_time_utc` dari `/api/health`), akurat walau jam lokal meleset.
+7. **Presence siswa** — kirim `login`/`heartbeat`/`logout` via `/access-log`
+   dan `/complete` setelah submit, sehingga siswa tampil online/offline di
+   dashboard monitoring pengawas.
+8. **WebSocket real-time** — koneksi `/ws/<exam_id>` menerima event pengawas;
+   **`exam_terminated`** langsung memicu auto-submit.
 
 ## Uninstall
 

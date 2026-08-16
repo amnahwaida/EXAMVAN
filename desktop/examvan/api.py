@@ -18,6 +18,23 @@ from .utils import map_identity_to_standard
 # Platform label for User-Agent
 _PLATFORM = "Windows" if sys.platform == "win32" else "Linux"
 
+# Server time skew (ms) — selisih jam perangkat vs server, dihitung dari
+# `server_time_utc` pada GET /api/health (mirror ApiClient.serverTimeSkewMs
+# di Android). Dipakai countdown deadline agar akurat walau jam perangkat
+# meleset dari jam server.
+_server_skew_ms: int = 0
+
+
+def get_server_skew_ms() -> int:
+    """Return the current server time skew in milliseconds."""
+    return _server_skew_ms
+
+
+def set_server_skew_ms(skew_ms: int) -> None:
+    """Set the server time skew (ms). Terutama untuk test."""
+    global _server_skew_ms
+    _server_skew_ms = skew_ms
+
 
 def _make_request(
     url: str,
@@ -62,11 +79,36 @@ def _url_join(base: str, path: str) -> str:
 # ---------------------------------------------------------------------------
 
 
+def compute_server_skew_ms(server_time_utc: Optional[str], device_now_ms: int) -> Optional[int]:
+    """Return skew (server - device) in ms, or None when unparseable.
+
+    Murni & bisa diuji: dipakai check_health untuk mengisi module-level skew.
+    """
+    if not server_time_utc:
+        return None
+    try:
+        from datetime import datetime, timezone
+        server = datetime.fromisoformat(server_time_utc.replace("Z", "+00:00"))
+        device_now = datetime.fromtimestamp(device_now_ms / 1000.0, tz=timezone.utc)
+        return int((server - device_now).total_seconds() * 1000)
+    except Exception:
+        return None
+
+
 def check_health(base_url: str) -> HealthResponse:
-    """GET /api/health → HealthResponse."""
+    """GET /api/health → HealthResponse.
+
+    Menghitung server time skew dari `server_time_utc` (mirror Android):
+    selisih jam server vs perangkat disimpan dan dipakai countdown deadline
+    (ElapsedTimerWidget) agar akurat walau jam lokal meleset.
+    """
     try:
         data = _make_request(_url_join(base_url, "/api/health"), timeout=10)
-        return HealthResponse.from_json(data)
+        resp = HealthResponse.from_json(data)
+        skew = compute_server_skew_ms(resp.server_time_utc, int(time.time() * 1000))
+        if skew is not None:
+            set_server_skew_ms(skew)
+        return resp
     except (urllib.error.URLError, OSError, json.JSONDecodeError) as e:
         return HealthResponse(success=False, status=f"Error: {e}")
 
@@ -262,6 +304,87 @@ def submit_with_retry(
             return resp
 
     return resp
+
+# ---------------------------------------------------------------------------
+# Presence (access-log & complete)
+# ---------------------------------------------------------------------------
+
+
+def send_access_log(
+    base_url: str,
+    exam_id: int,
+    token: str,
+    mac_address: str,
+    event: str,
+    student_name: str = "",
+    exam_number: str = "",
+    student_class: str = "",
+    device_info: str = "",
+    identity_data: Optional[Dict[str, Any]] = None,
+) -> bool:
+    """POST /api/exams/{exam_id}/access-log → True on success.
+
+    Melaporkan presence siswa (login / heartbeat / logout) — mirror Android
+    WebSocketManager.sendHeartbeat + ApiClient.sendAccessLog. Heartbeat
+    menulis presence Redis (TTL 5 menit) sehingga siswa tampil ONLINE di
+    dashboard monitoring pengawas; login/logout dicatat di tabel access-log.
+    Best-effort: kegagalan tidak menggagalkan alur ujian.
+    """
+    body: Dict[str, Any] = {
+        "event": event,
+        "mac_address": mac_address,
+    }
+    if student_name:
+        body["student_name"] = student_name
+    if exam_number:
+        body["exam_number"] = exam_number
+    if student_class:
+        body["student_class"] = student_class
+    if device_info:
+        body["device_info"] = device_info
+    if identity_data:
+        body["identity_data"] = identity_data
+    try:
+        data = _make_request(
+            _url_join(base_url, f"/api/exams/{exam_id}/access-log"),
+            method="POST",
+            headers={"X-Exam-Token": token, "X-App-Version": APP_VERSION},
+            body=body,
+            timeout=10,
+        )
+        return bool(data.get("success", False))
+    except (urllib.error.URLError, OSError, json.JSONDecodeError):
+        return False
+
+
+def complete_exam(
+    base_url: str,
+    exam_id: int,
+    token: str,
+    mac_address: str,
+) -> bool:
+    """POST /api/exams/{exam_id}/complete → True on success.
+
+    Menghapus presence Redis siswa (tampil offline segera di dashboard) saat
+    ujian selesai — mirror Android WebSocketManager.notifyCompletedViaHttp.
+    Best-effort.
+    """
+    body: Dict[str, Any] = {
+        "mac_address": mac_address,
+        "token": token,
+    }
+    try:
+        data = _make_request(
+            _url_join(base_url, f"/api/exams/{exam_id}/complete"),
+            method="POST",
+            headers={"X-Exam-Token": token, "X-App-Version": APP_VERSION},
+            body=body,
+            timeout=10,
+        )
+        return bool(data.get("success", False))
+    except (urllib.error.URLError, OSError, json.JSONDecodeError):
+        return False
+
 
 # ---------------------------------------------------------------------------
 # Exam result (async submission poll)
