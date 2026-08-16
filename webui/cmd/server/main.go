@@ -350,71 +350,6 @@ func main() {
 	// -----------------------------------------------------------------------
 	registerRoutes(r, cfg, pool)
 
-	// WebSocket endpoint (session-based or token-based auth required).
-	// RateLimitIP caps connections per client IP: unlike HTTP routes there is
-	// no per-request body to gate, so an unbounded route would let a token
-	// holder open an unlimited number of sockets and exhaust resources.
-	r.GET("/ws/:room_id", middleware.RateLimitIP(20, time.Minute), func(c *gin.Context) {
-		session := sessions.Default(c)
-		roomID := c.Param("room_id")
-
-		authorized := false
-		// privileged marks session-authenticated clients (admin / pengawas /
-		// operator) who may send mutating events (heartbeat / exam_completed).
-		// Token-authenticated clients hold a token SHARED by the whole class in
-		// static mode, so they are receive-only: any student could otherwise
-		// inject phantom heartbeats or delete a classmate's presence.
-		privileged := false
-		if adminID := session.Get(middleware.SessionKeyAdminID); adminID != nil {
-			// Logged-in admin: only authorize for exams they may monitor.
-			// Without this, any authenticated tenant could join any exam room
-			// and receive another tenant's live student PII broadcasts.
-			if examID, err := strconv.Atoi(roomID); err == nil {
-				var uid int
-				switch v := adminID.(type) {
-				case int:
-					uid = v
-				case int64:
-					uid = int(v)
-				case float64:
-					uid = int(v)
-				}
-				isSuper, _ := session.Get(middleware.SessionKeyIsSuper).(bool)
-				if uid > 0 && models.UserCanAccessExam(c.Request.Context(), pool, uid, isSuper, examID) {
-					authorized = true
-					privileged = true
-				}
-			}
-		} else {
-			token := c.GetHeader("X-Exam-Token")
-			if token == "" {
-				token = c.Query("token")
-			}
-			if token != "" {
-				examID, err := strconv.Atoi(roomID)
-				if err == nil {
-					ctx := c.Request.Context()
-					exam, err := models.GetExamByID(ctx, pool, examID)
-					if err == nil && exam.IsActive() && examtoken.Matches(exam, token) {
-						authorized = true
-					}
-				}
-			}
-		}
-
-		if !authorized {
-			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{
-				"success": false,
-				"message": "Unauthorized",
-			})
-			return
-		}
-
-		if err := hub.JoinRoom(c.Writer, c.Request, roomID, privileged); err != nil {
-			log.Printf("websocket: join room %s error: %v", roomID, err)
-		}
-	})
-
 	// -----------------------------------------------------------------------
 	// 12. Start HTTP server with graceful shutdown
 	// -----------------------------------------------------------------------
@@ -478,6 +413,28 @@ func main() {
 // Routes registration
 // ---------------------------------------------------------------------------
 
+// Batas rate-limit per-IP untuk rute siswa — single source of truth yang
+// dipakai registerRoutes dan dikunci oleh TestStudentRoutesRateLimitPerIP
+// (routes_nat_ratelimit_test.go).
+//
+// Kapasitas SATU NAT/WiFi sekolah dibatasi oleh nilai TERKECIL untuk traffic
+// serentak: limit WS 60/menit (koneksi gelombang pertama) adalah yang paling
+// rendah, jadi maksimal 60 perangkat per NAT. Endpoint lain sengaja dinaikkan
+// jauh di atas itu agar tidak pernah menjadi penghambat:
+//   - 1200/menit (≈20 req/dtk): join token, unduhan PDF, poll approval, poll
+//     hasil — semua dipicu serentak oleh seluruh ruangan;
+//   - 120/menit: submit, access-log, complete — burst di deadline.
+//
+// Throttle yang sebenarnya (per perangkat / per ujian) di-enforce di dalam
+// handler keyed exam+MAC / per-token / per-exam (internal/handlers/api).
+const (
+	rateLimitExamsPerMinute = 60   // GET /api/exams — list (one-shot + pull-refresh)
+	rateLimitWavePerMinute  = 1200 // join token, unduhan PDF, request-approval, result
+	rateLimitBurstPerMinute = 120  // submit, access-log, complete (deadline burst)
+	rateLimitWSPerMinute    = 60   // GET /ws/:room_id — koneksi long-lived
+	rateLimitHasilPerMinute = 30   // GET /hasil/:token — halaman publik (anti-brute token)
+)
+
 func registerRoutes(r *gin.Engine, cfg *config.Config, pool *pgxpool.Pool) {
 	// ---- Public pages (no auth required) ----
 	r.GET("/", indexHandler(cfg))
@@ -530,39 +487,118 @@ func registerRoutes(r *gin.Engine, cfg *config.Config, pool *pgxpool.Pool) {
 		// design: a mid-exam device_id change (reinstall/clear-data) must never
 		// retarget this limiter under an in-progress exam. Per-device throttling
 		// is enforced inside SubmitExam keyed by exam+MAC.
-		apiGroup.GET("/exams", middleware.RateLimitIP(60, time.Minute), middleware.AndroidVersionCheck(), api.ListExams())
+		apiGroup.GET("/exams", middleware.RateLimitIP(rateLimitExamsPerMinute, time.Minute), middleware.AndroidVersionCheck(), api.ListExams())
 		// Request-approval dipoll app tiap 5 dtk (≈12/menit per perangkat) dan
 		// seluruh ruangan menunggu dari satu NAT sekolah — middleware per-IP
 		// sengaja tinggi (≈20 req/dtk); throttle per perangkat (exam+MAC, 30/menit)
 		// dan aggregate per exam (12000/menit) di-enforce di dalam handler.
-		apiGroup.POST("/exams/request-approval", middleware.RateLimitIP(1200, time.Minute), middleware.AndroidVersionCheck(), api.RequestApproval())
+		apiGroup.POST("/exams/request-approval", middleware.RateLimitIP(rateLimitWavePerMinute, time.Minute), middleware.AndroidVersionCheck(), api.RequestApproval())
 		// Join (token) & unduhan PDF satu kali per perangkat, tapi seluruh
 		// ruangan melakukannya bersamaan di awal ujian dari satu NAT sekolah —
 		// middleware per-IP sengaja tinggi; throttle agregat per-token
 		// (join, 600/menit) dan per exam+MAC (pdf, 10/menit) di-enforce di
 		// dalam handler.
-		apiGroup.GET("/exams/token/:token", middleware.RateLimitIP(1200, time.Minute), middleware.AndroidVersionCheck(), api.ExamByToken())
-		apiGroup.GET("/exams/:exam_id/pdf", middleware.RateLimitIP(1200, time.Minute), middleware.AndroidVersionCheck(), api.ExamPDF())
+		apiGroup.GET("/exams/token/:token", middleware.RateLimitIP(rateLimitWavePerMinute, time.Minute), middleware.AndroidVersionCheck(), api.ExamByToken())
+		apiGroup.GET("/exams/:exam_id/pdf", middleware.RateLimitIP(rateLimitWavePerMinute, time.Minute), middleware.AndroidVersionCheck(), api.ExamPDF())
 		// Per-IP limit stays high because an entire classroom often submits from
 		// a single NAT'd school IP near the deadline.
-		apiGroup.POST("/exams/:exam_id/submit", middleware.LimitBodySize(5*1024*1024), middleware.RateLimitIP(120, time.Minute), middleware.AndroidVersionCheck(), api.SubmitExam())
+		apiGroup.POST("/exams/:exam_id/submit", middleware.LimitBodySize(5*1024*1024), middleware.RateLimitIP(rateLimitBurstPerMinute, time.Minute), middleware.AndroidVersionCheck(), api.SubmitExam())
 		// Poll the outcome of an async submission (job_id from submit, or the
 		// device identity used on submit). Middleware per-IP sengaja tinggi
 		// (≈20 req/dtk): app mem-poll tiap 2,5 dtk dan seluruh ruangan mem-poll
 		// bersamaan di deadline dari satu NAT sekolah. Throttle sebenarnya
 		// di-enforce di dalam handler: bucket per exam+MAC (60/menit per
 		// perangkat) + aggregate per exam (12000/menit).
-		apiGroup.GET("/exams/:exam_id/result", middleware.RateLimitIP(1200, time.Minute), middleware.AndroidVersionCheck(), api.ExamResult())
+		apiGroup.GET("/exams/:exam_id/result", middleware.RateLimitIP(rateLimitWavePerMinute, time.Minute), middleware.AndroidVersionCheck(), api.ExamResult())
 		// Presence (access-log & complete) memakai pola yang sama dengan submit:
 		// bucket per-IP dinaikkan agar satu ruangan di belakang NAT sekolah tidak
 		// saling memblokir (tiap perangkat login + ~1 heartbeat/menit + logout +
 		// complete, dan semua complete datang bersamaan di deadline). Throttle
 		// per perangkat di-enforce di dalam handler keyed exam+MAC.
-		apiGroup.POST("/exams/:exam_id/access-log", middleware.LimitBodySize(256*1024), middleware.RateLimitIP(120, time.Minute), middleware.AndroidVersionCheck(), api.AccessLog())
-		apiGroup.POST("/exams/:exam_id/complete", middleware.LimitBodySize(256*1024), middleware.RateLimitIP(120, time.Minute), middleware.AndroidVersionCheck(), api.CompleteExam())
+		apiGroup.POST("/exams/:exam_id/access-log", middleware.LimitBodySize(256*1024), middleware.RateLimitIP(rateLimitBurstPerMinute, time.Minute), middleware.AndroidVersionCheck(), api.AccessLog())
+		apiGroup.POST("/exams/:exam_id/complete", middleware.LimitBodySize(256*1024), middleware.RateLimitIP(rateLimitBurstPerMinute, time.Minute), middleware.AndroidVersionCheck(), api.CompleteExam())
 
-		apiGroup.GET("/hasil/:token", middleware.RateLimitIP(30, time.Minute), public.HasilAPI())
+		apiGroup.GET("/hasil/:token", middleware.RateLimitIP(rateLimitHasilPerMinute, time.Minute), public.HasilAPI())
 	}
+
+	// WebSocket endpoint (session-based or token-based auth required) — hub
+	// diambil dari request context ("ws_hub", di-inject main() sebelum
+	// registerRoutes dipanggil).
+	// RateLimitIP caps connections per client IP: unlike HTTP routes there is
+	// no per-request body to gate, so an unbounded route would let a token
+	// holder open an unlimited number of sockets and exhaust resources.
+	// 60/menit: satu ruangan (hingga ~60 perangkat) terhubung di gelombang
+	// pertama dari satu NAT sekolah tanpa harus menunggu backoff reconnect;
+	// koneksi bersifat long-lived sehingga ini bukan jalur spam berkelanjutan.
+	r.GET("/ws/:room_id", middleware.RateLimitIP(rateLimitWSPerMinute, time.Minute), func(c *gin.Context) {
+		session := sessions.Default(c)
+		roomID := c.Param("room_id")
+
+		authorized := false
+		// privileged marks session-authenticated clients (admin / pengawas /
+		// operator) who may send mutating events (heartbeat / exam_completed).
+		// Token-authenticated clients hold a token SHARED by the whole class in
+		// static mode, so they are receive-only: any student could otherwise
+		// inject phantom heartbeats or delete a classmate's presence.
+		privileged := false
+		if adminID := session.Get(middleware.SessionKeyAdminID); adminID != nil {
+			// Logged-in admin: only authorize for exams they may monitor.
+			// Without this, any authenticated tenant could join any exam room
+			// and receive another tenant's live student PII broadcasts.
+			if examID, err := strconv.Atoi(roomID); err == nil {
+				var uid int
+				switch v := adminID.(type) {
+				case int:
+					uid = v
+				case int64:
+					uid = int(v)
+				case float64:
+					uid = int(v)
+				}
+				isSuper, _ := session.Get(middleware.SessionKeyIsSuper).(bool)
+				if uid > 0 && models.UserCanAccessExam(c.Request.Context(), pool, uid, isSuper, examID) {
+					authorized = true
+					privileged = true
+				}
+			}
+		} else {
+			token := c.GetHeader("X-Exam-Token")
+			if token == "" {
+				token = c.Query("token")
+			}
+			if token != "" {
+				examID, err := strconv.Atoi(roomID)
+				if err == nil {
+					ctx := c.Request.Context()
+					exam, err := models.GetExamByID(ctx, pool, examID)
+					if err == nil && exam.IsActive() && examtoken.Matches(exam, token) {
+						authorized = true
+					}
+				}
+			}
+		}
+
+		if !authorized {
+			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{
+				"success": false,
+				"message": "Unauthorized",
+			})
+			return
+		}
+
+		hubVal, _ := c.Get("ws_hub")
+		hub, ok := hubVal.(*websocket.Hub)
+		if !ok || hub == nil {
+			c.AbortWithStatusJSON(http.StatusInternalServerError, gin.H{
+				"success": false,
+				"message": "WebSocket hub tidak tersedia",
+			})
+			return
+		}
+		if err := hub.JoinRoom(c.Writer, c.Request, roomID, privileged); err != nil {
+			log.Printf("websocket: join room %s error: %v", roomID, err)
+		}
+	})
 
 	// ---- Admin pages (auth required) ----
 	adminPages := r.Group("/admin", middleware.AuthRequired())

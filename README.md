@@ -579,6 +579,45 @@ Handler: `DeactivateUserPackage` (`webui/internal/handlers/admin/users.go`). Daf
 
 ---
 
+## Kapasitas Satu NAT (WiFi Sekolah) — Maksimal 60 Perangkat
+
+Semua route siswa memakai `middleware.RateLimitIP` per **IP**, dan satu ruangan di belakang satu NAT/WiFi sekolah berbagi satu IP. Agar satu kelas tidak saling memblokir (429), kapasitas dirancang dengan pola berikut (implementasi: konstanta `rateLimit*PerMinute` + wiring di `webui/cmd/server/main.go`, throttle per-handler di `webui/internal/handlers/api/exams.go`).
+
+### Aturan: maksimal 60 perangkat per NAT
+
+Limit **`/ws/:room_id` = 60 koneksi/menit per IP** adalah nilai terkecil untuk traffic serentak (koneksi WebSocket gelombang pertama saat ujian dimulai) → **1 NAT maksimal mendukung 60 perangkat**. Ruangan yang lebih besar di satu NAT menunda koneksi WS sebagian sisanya (app auto-reconnect dengan backoff); semua endpoint lain sengaja diberi nilai di atas itu agar tidak pernah menjadi penghambat.
+
+| Route | Per-IP middleware | Throttle di handler |
+|---|---|---|
+| `GET /api/exams` | 60/menit | — (Redis cache 30 dtk) |
+| `POST /api/exams/request-approval` | 1200/menit | per exam+MAC 30/menit + per exam 12000/menit |
+| `GET /api/exams/token/:token` | 1200/menit | per token 600/menit |
+| `GET /api/exams/:exam_id/pdf` | 1200/menit | per exam+MAC 10/menit |
+| `POST /api/exams/:exam_id/submit` | 120/menit | per exam+MAC 10/menit |
+| `GET /api/exams/:exam_id/result` | 1200/menit | per exam+MAC 60/menit + per exam 12000/menit |
+| `POST /api/exams/:exam_id/access-log` | 120/menit | per exam+MAC 10/menit |
+| `POST /api/exams/:exam_id/complete` | 120/menit | per exam+MAC 10/menit |
+| `GET /ws/:room_id` | **60/menit** ← penentu kapasitas | — |
+| `GET /api/hasil/:token` | 30/menit | — (halaman publik, anti-brute token) |
+
+### Mengapa middleware tinggi tapi tetap aman
+
+Bucket per-IP middleware hanyalah brake kasar; throttle sebenarnya di-enforce di handler dengan granularitas per perangkat/ujian:
+
+- **per exam+MAC** (`ratelimit:submit:`, `ratelimit:presence:`, `ratelimit:result:`, `ratelimit:pdf:`, `ratelimit:reqapp-device:`) — tiap perangkat punya jatah sendiri, independen dari IP; perangkat tanpa identitas (`sanitizeMAC` → `"unknown"`) jatuh ke bucket per exam+IP agar satu kelas perangkat tanpa MAC tidak menguras satu bucket bersama;
+- **per token** (`ratelimit:join:`) dan **per exam** (`ratelimit:result-exam:`, `ratelimit:reqapp-exam:`) — menahan aggregate/brute-force pada kapasitas ruangan terbesar.
+
+**Alur ujian yang didukung penuh untuk 1 NAT:** join token → approval → unduh PDF → ujian (presence via access-log) → submit → polling hasil → complete.
+
+### Test yang mengunci
+
+- **Middleware (wiring rute):** `TestStudentRoutesRateLimitPerIP` (`webui/cmd/server/routes_nat_ratelimit_test.go`) — memanggil `registerRoutes` asli + miniredis, lalu meng-hammer tiap route dari satu IP: `N` request pertama lolos middleware dan request `N+1` harus **429** (N = nilai konstanta `rateLimit*PerMinute`).
+- **Per-handler:** `TestAccessLogRateLimitKeyedByExamAndMac`, `TestCompleteExamRateLimitKeyedByExamAndMac`, `TestExamResultRateLimitKeyedByExamAndMac`, `TestRequestApprovalRateLimitKeyedByExamAndMac`, `TestExamByTokenRateLimitPerToken`, `TestExamPDFRateLimitKeyedByExamAndMac`, `TestSubmitExamRateLimitKeyedByIPWhenMacUnknown` (`webui/internal/handlers/api/exams_fixes_test.go`).
+
+> ⚠️ **Jika 60 perangkat per NAT dirasa kurang** (mis. gedung ujian besar), naikkan `rateLimitWSPerMinute` di `main.go` — satu-satunya nilai yang menjadi penentu kapasitas ruangan; test mengikuti konstanta tersebut.
+
+---
+
 ## Pengujian (Tes Otomatis)
 
 ### 1. Tes Unit (tanpa database)
@@ -1168,7 +1207,7 @@ Tes: `TestHeartbeatSanitization` — payload `<script>`/`onerror`/MAC bergaya SQ
 
 **Masalah:** semua route HTTP siswa di-rate-limit, tapi ws tidak — pemegang token bisa membuka koneksi tanpa batas (resource exhaustion).
 
-**Solusi:** `middleware.RateLimitIP(20, time.Minute)` pada route ws (pola yang sama dengan route siswa lain).
+**Solusi:** `middleware.RateLimitIP(60, time.Minute)` pada route ws (pola yang sama dengan route siswa lain). Nilai ini kini menjadi **penentu kapasitas ruangan di belakang satu NAT** (lihat [Kapasitas Satu NAT](#kapasitas-satu-nat-wifi-sekolah--maksimal-60-perangkat)). Route ws sekarang didaftarkan di `registerRoutes` (hub dibaca dari context `ws_hub`), sehingga ikut dikunci oleh `TestStudentRoutesRateLimitPerIP`.
 
 ### 4. Test hub (sebelumnya tidak ada sama sekali)
 
