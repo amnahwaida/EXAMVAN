@@ -201,6 +201,20 @@ class ServerConfigDialog(QDialog):
             self._sig_enable_btn.emit()
             return
 
+        # Step 2b: Sticky "already submitted" gate (F2, mirror Android).
+        # Setelah submit SUKSES durable, re-entry ujian yang sama diblokir di
+        # sini — sebelum approval/PDF — sehingga watchdog deadline tidak bisa
+        # mengirim submit kosong yang MENIMPA jawaban asli dalam window grace
+        # server (end_time + 60 dtk).
+        if config.is_submitted(resp.exam.id):
+            self._sig_status.emit(
+                "Ujian ini sudah dikumpulkan pada perangkat ini. "
+                "Hubungi pengawas bila Anda memerlukan izin mengulang.",
+                True,
+            )
+            self._sig_enable_btn.emit()
+            return
+
         # Save config
         if self.chk_remember.isChecked():
             config.set("server_url", url)

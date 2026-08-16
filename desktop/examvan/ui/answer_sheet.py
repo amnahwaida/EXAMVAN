@@ -79,14 +79,11 @@ class AnswerSheetWidget(QWidget):
             if item.widget():
                 item.widget().deleteLater()
 
-        if not questions:
-            # Default: 40 single choice questions (A-E)
-            questions = [
-                {"number": i + 1, "type": "single_choice", "choices": ["A", "B", "C", "D", "E"]}
-                for i in range(40)
-            ]
-            self._questions = questions
-
+        # JANGAN fabrikasi soal default saat questions kosong (sebelumnya:
+        # 40 soal single-choice A-E palsu). Ujian PDF-only / tanpa konfigurasi
+        # soal TIDAK punya lembar jawaban — siswa tidak boleh bisa menjawab
+        # soal yang tidak ada (mirror Android: questions kosong → totalQuestions
+        # = 0 + overlay disembunyikan). Lembar tetap kosong, count 0/0.
         for q in questions:
             num = str(int(q.get("number", 0)))
             qtype = q.get("type", "single_choice")

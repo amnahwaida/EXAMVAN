@@ -154,6 +154,23 @@ cd windows
 
 ---
 
+## Konsistensi Perilaku dengan Android (fix 16 Agustus 2026)
+
+Klien Windows berbagi codebase dengan Linux (`desktop/examvan/`) dan telah
+diselaraskan dengan klien Android agar kontrak submit & re-entry identik:
+
+1. **Satu identitas perangkat** (`DESKTOP:<hash>`) untuk approval, unduhan PDF
+   dan submit — dulu approval/PDF memakai MAC mentah sehingga baris approval
+dan submission tidak match di server.
+2. **Submit 202 queued TIDAK dianggap sukses final** — klien mem-poll
+   `GET /result` sampai worker mengonfirmasi `done`; jawaban lokal tidak
+dihapus pada 202 mentah.
+3. **Fallback jawaban disk** saat submit kosong (deadline menembak sebelum
+   restore) — mencegah submit kosong menimpa jawaban asli di window grace.
+4. **Tanpa soal → lembar jawaban kosong** — tidak ada fabrikasi 40 soal dummy.
+5. **Marker sticky "ujian sudah selesai"** — re-entry ujian yang sama diblokir
+   agar tidak mengirim submit kosong menimpa jawaban yang sudah terkirim.
+
 ## Uninstall
 
 1. Hapus shortcut `EXAMVAN.bat` dari desktop

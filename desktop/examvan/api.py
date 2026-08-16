@@ -7,6 +7,7 @@ import json
 import sys
 import time
 import urllib.error
+import urllib.parse
 import urllib.request
 from typing import Any, Callable, Dict, Optional, Tuple
 
@@ -261,6 +262,99 @@ def submit_with_retry(
             return resp
 
     return resp
+
+# ---------------------------------------------------------------------------
+# Exam result (async submission poll)
+# ---------------------------------------------------------------------------
+
+
+def exam_result(
+    base_url: str,
+    exam_id: int,
+    token: str,
+    mac_address: str,
+    job_id: str,
+    identity_data: Optional[Dict[str, Any]] = None,
+) -> SubmitResponse:
+    """GET /api/exams/{exam_id}/result → SubmitResponse.
+
+    Polls the outcome of an async (202 queued) submission. The response
+    mirrors the sync submit shape so both paths can be treated uniformly:
+
+      {"success":true, "status":"done", "score":87.5, "message":"..."}
+      {"success":true, "status":"pending"}   // queued but not yet processed
+      {"success":false, "message":"..."}     // job failed after retries
+
+    The server gate admits the poller via the exam token (X-Exam-Token) —
+    same credential used on join — plus the device's own job_id/mac_address.
+    """
+    params = [
+        f"job_id={urllib.parse.quote(job_id)}" if job_id else None,
+        f"mac_address={urllib.parse.quote(mac_address)}" if mac_address else None,
+    ]
+    if identity_data:
+        params.append(
+            "identity_data=" + urllib.parse.quote(
+                json.dumps(identity_data, ensure_ascii=False)
+            )
+        )
+    qs = "&".join(p for p in params if p)
+    url = _url_join(base_url, f"/api/exams/{exam_id}/result")
+    if qs:
+        url += "?" + qs
+
+    try:
+        data = _make_request(
+            url,
+            headers={"X-Exam-Token": token},
+            timeout=15,
+        )
+        return SubmitResponse.from_json(data)
+    except urllib.error.HTTPError as e:
+        try:
+            body_data = json.loads(e.read().decode("utf-8"))
+            return SubmitResponse.from_json(body_data)
+        except Exception:
+            return SubmitResponse(success=False, message=f"HTTP {e.code}: {e.reason}")
+    except (urllib.error.URLError, OSError, json.JSONDecodeError) as e:
+        return SubmitResponse(success=False, message=str(e))
+
+
+def poll_queued_result(
+    base_url: str,
+    exam_id: int,
+    token: str,
+    mac_address: str,
+    job_id: str,
+    identity_data: Optional[Dict[str, Any]] = None,
+    max_attempts: int = 31,
+    interval: float = 2.5,
+) -> SubmitResponse:
+    """Poll /result until the queued submission is durable ("done").
+
+    Returns success ONLY on "done"; "pending" keeps polling; a terminal
+    failure stops immediately. Mirrors Android's QueuedResultPolling
+    contract: the client must NOT clear its local answer copy until the
+    worker confirms durability — a raw 202 means the answers are only
+    QUEUED, not yet in the database.
+
+    Defaults: 31 attempts × 2.5s ≈ 77s of polling (Android uses a 75s
+    deadline).
+    """
+    for _ in range(max_attempts):
+        resp = exam_result(
+            base_url, exam_id, token, mac_address, job_id, identity_data
+        )
+        if not resp.success or resp.status == "done":
+            return resp
+        # status == "pending" (or unknown non-terminal) → keep polling
+        time.sleep(interval)
+    return SubmitResponse(
+        success=False,
+        status="timeout",
+        message="Jawaban masih diproses server. Jawaban tetap tersimpan di perangkat ini — silakan coba kumpulkan lagi.",
+    )
+
 
 # ---------------------------------------------------------------------------
 # Request Approval

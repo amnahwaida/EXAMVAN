@@ -18,7 +18,7 @@ from PyQt5.QtWidgets import (
 
 from .. import api
 from ..models import Exam
-from ..utils import get_mac_address
+from ..utils import get_device_label
 
 
 class WaitingApprovalDialog(QDialog):
@@ -38,7 +38,15 @@ class WaitingApprovalDialog(QDialog):
         self.exam_number = self._extract_field("nomor", "no", "nis", "number", "exam_number")
         self.student_class = self._extract_field("kelas", "class", "student_class")
 
-        self.mac_address = get_mac_address()
+        # Identitas PERANGKAT tunggal (DESKTOP:<hash>) — HARUS sama persis
+        # dengan yang dipakai download PDF (X-Device-Id) dan submit
+        # (mac_address). Sebelumnya di sini dipakai get_mac_address() (MAC
+        # mentah) sedangkan submit memakai get_device_label() → baris approval
+        # (kunci gate PDF) dan baris submission (kunci upsert) tidak match →
+        # siswa tampil 2× di monitoring dan approval tidak pernah di-revoke
+        # worker. Satu identitas untuk ketiga endpoint (pola DEVICE:<AndroidId>
+        # di Android).
+        self.mac_address = get_device_label()
         self.is_waiting = True
 
         self._sig_status.connect(self._on_status_update)

@@ -29,7 +29,7 @@ from PyQt5.QtWidgets import (
 from .. import api, config
 from ..models import Exam
 from ..security.enforcer import SecurityEnforcer
-from ..utils import clear_clipboard, get_device_label, get_mac_address, map_identity_to_standard
+from ..utils import clear_clipboard, get_device_label, map_identity_to_standard
 from .answer_sheet import AnswerSheetWidget
 from .pdf_viewer import PdfWidget
 from .timer import ElapsedTimerWidget
@@ -235,8 +235,12 @@ class ExamViewerWindow(QMainWindow):
                 progress_cb=self._on_download_progress,
                 # Same device identity used at request-approval time — the
                 # server approval gate requires an approved exam_approvals row
-                # for this device (14 Agustus 2026).
-                device_id=get_mac_address(),
+                # for this device (14 Agustus 2026). Identitas HARUS sama
+                # persis dengan approval (WaitingApprovalDialog) dan submit
+                # (mac_address): DESKTOP:<hash>. Sebelumnya di sini dipakai
+                # get_mac_address() (MAC mentah) → gate PDF tidak match baris
+                # approval → unduhan ditolak.
+                device_id=get_device_label(),
             )
             self._sig_pdf_ready.emit()
         except Exception as e:
@@ -287,6 +291,11 @@ class ExamViewerWindow(QMainWindow):
     def _cleanup_after_submit(self, message: str) -> None:
         """Clean up after successful submit."""
         config.clear_answers(self._exam.id)
+        # Sticky marker (F2, mirror Android): ujian ini sudah SELESAI di
+        # perangkat ini. Re-entry berikutnya diblokir oleh gate join
+        # (ServerConfigDialog.is_submitted) — mencegah re-entry dalam window
+        # grace server mengirim submit kosong yang MENIMPA jawaban asli.
+        config.mark_submitted(self._exam.id)
         if self._security:
             self._security.deactivate()
 
@@ -346,6 +355,14 @@ class ExamViewerWindow(QMainWindow):
         self._do_submit()
 
     def _auto_submit(self) -> None:
+        # Guard init-race: time_up bisa menembak DI KONSTRUKTOR timer saat
+        # deadline sudah lewat (window baru dibuka) — di _setup_ui, timer
+        # dibuat sebelum _answer_sheet, jadi _do_submit akan crash. Tunda
+        # sampai _setup_ui selesai (singleShot; time_up hanya menembak sekali,
+        # jadi tidak ada pengulangan tak terbatas).
+        if not hasattr(self, '_answer_sheet'):
+            QTimer.singleShot(100, self._auto_submit)
+            return
         self._on_status("Auto-submit: jawaban dikumpulkan otomatis...")
         self._do_submit()
 
@@ -358,7 +375,16 @@ class ExamViewerWindow(QMainWindow):
 
         self._btn_submit.setEnabled(False)
 
-        answers = self._answer_sheet.get_answers()
+        # F1 fallback (mirror fix Android): saat deadline sudah lewat pada
+        # re-entry (proses mati), timer time_up menembak SEBELUM restore
+        # jawaban dari disk (QTimer.singleShot 500ms) → memori kosong → tanpa
+        # fallback ini submit KOSONG menimpa jawaban asli dalam window grace
+        # server (end_time + 60 dtk) dan clear_answers menghapusnya. Memori
+        # tidak kosong → dipakai apa adanya (siswa mungkin baru mengubah
+        # jawaban setelah auto-save terakhir).
+        answers = config.resolve_submit_answers(
+            self._answer_sheet.get_answers(), self._exam.id
+        )
 
         # Map dynamic identity keys to standard keys expected by Go backend
         std = map_identity_to_standard(self._identity_data)
@@ -388,6 +414,24 @@ class ExamViewerWindow(QMainWindow):
                 f"Submit gagal, percobaan {attempt}/{total}..."
             ),
         )
+
+        # Async path (202): server hanya MENGANTRI jawaban — belum durable.
+        # Poll /result sampai worker mengonfirmasi ("done") sebelum menganggap
+        # sukses; copy lokal TIDAK boleh di-clear pada 202 mentah (mirror
+        # Android: clearSavedAnswers hanya setelah konfirmasi durable). Jika
+        # worker gagal → resp.success=False → _on_submit_result menampilkan
+        # error dan TIDAK menghapus jawaban (re-entry memulihkan dari disk).
+        if resp.status == "queued" and resp.job_id:
+            self._sig_status.emit("Jawaban diterima server, menunggu konfirmasi...")
+            resp = api.poll_queued_result(
+                base_url,
+                exam_id,
+                self._token,
+                mac,
+                resp.job_id,
+                identity,
+            )
+
         self._sig_submit_result.emit(resp.success, resp.message)
 
     # -------------------------------------------------------------------

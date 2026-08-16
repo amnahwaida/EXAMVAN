@@ -143,3 +143,38 @@ def clear_answers(exam_id: int) -> None:
     legacy = path.with_suffix(".json")
     if legacy.exists():
         legacy.unlink()
+
+
+def resolve_submit_answers(memory_answers: Dict[str, Any], exam_id: int) -> Dict[str, Any]:
+    """Jawaban efektif untuk submit: utamakan memori, fallback ke disk.
+
+    Mirror fix Android F1: deadline bisa menembak SEBELUM jawaban dipulihkan
+    dari disk (re-entry setelah proses mati; timer fire saat konstruktor,
+    restore dijadwalkan 500ms kemudian). Tanpa fallback, submit kosong dalam
+    window grace server (end_time + 60 dtk) MENIMPA jawaban asli dan
+    clear_answers menghapusnya. Memori tidak kosong → dipakai apa adanya
+    (siswa mungkin baru mengubah jawaban setelah auto-save terakhir).
+    """
+    if memory_answers:
+        return memory_answers
+    saved = load_answers(exam_id)
+    return saved if saved else {}
+
+
+def mark_submitted(exam_id: int) -> None:
+    """Persist a sticky "exam already finished" marker for this device.
+
+    Mirrors Android's submittedOrExited flag (F2 fix): setelah submit SUKSES
+    (durable), re-entry ujian yang sama harus menampilkan "sudah selesai",
+    BUKAN menjalankan ulang alur ujian. Tanpa marker ini, re-entry dalam
+    window grace server (end_time + 60 dtk) → watchdog deadline → submit
+    kosong (jawaban disk sudah dihapus oleh clear_answers) → MENIMPA jawaban
+    asli yang sudah terkirim. Marker dibiarkan sticky (tidak dihapus oleh
+    clear_answers) — selesai = selesai.
+    """
+    set(f"submitted_{exam_id}", True)
+
+
+def is_submitted(exam_id: int) -> bool:
+    """True bila perangkat ini sudah mengumpulkan ujian [exam_id]."""
+    return bool(get(f"submitted_{exam_id}", False))

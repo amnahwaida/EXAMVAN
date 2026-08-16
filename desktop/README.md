@@ -208,13 +208,16 @@ windows/
 ```
 1. Server Config Dialog
    ├─ Masukkan URL server + token ujian (8 karakter)
-   └─ Health check → Token lookup → Identity dialog
+   └─ Health check → Token lookup → Gate "sudah selesai" (sticky) → Identity dialog
 
 2. Identity Dialog
    ├─ Isi identitas siswa (dinamis dari server)
    └─ Data tersimpan untuk penggunaan berikutnya
 
-3. Exam Viewer
+3. Waiting Approval
+   └─ Request-approval dengan identitas perangkat DESKTOP:<hash>
+
+4. Exam Viewer
    ├─ Security diaktifkan SEBELUM PDF download
    ├─ PDF viewer per halaman (drag scroll, zoom)
    ├─ Lembar jawaban (5 tipe soal)
@@ -223,6 +226,57 @@ windows/
    ├─ Focus loss → auto-submit 3 detik
    └─ Submit manual / auto-submit saat waktu habis
 ```
+
+## Konsistensi Perilaku dengan Android (fix 16 Agustus 2026)
+
+Kode ini diselaraskan dengan klien Android agar kontrak submit & re-entry
+identik (server idempoten: upsert per exam+perangkat):
+
+### 1. Satu identitas perangkat untuk semua endpoint
+Approval (`request-approval`), unduhan PDF (`X-Device-Id`) dan submit
+(`mac_address`) semuanya memakai **`DESKTOP:<hash>`** yang sama (dulu:
+approval/PDF pakai MAC mentah, submit pakai `DESKTOP:<hash>` → baris approval
+dan submission tidak match → siswa tampil 2× di monitoring dan approval tidak
+di-revoke). Pola yang sama dengan Android (`DEVICE:<AndroidId>`).
+
+### 2. Submit ter-antri (202) TIDAK dianggap sukses final
+Server mengembalikan `202 queued + job_id` saat Redis aktif — jawaban hanya
+DIAANTRI, belum durable. Klien kini mem-poll `GET /result` (tiap 2,5 dtk,
+±77 dtk) sampai worker mengonfirmasi `done`; **copy jawaban lokal tidak
+dihapus pada 202 mentah** (mirror Android `QueuedResultPolling`). Jika worker
+gagal / timeout, submit dilaporkan gagal dan jawaban tetap tersimpan di disk
+untuk dicoba lagi.
+
+### 3. Fallback jawaban disk saat submit kosong (F1)
+Deadline bisa menembak sebelum jawaban dipulihkan dari disk (re-entry setelah
+proses mati) → memori kosong. Submit kini memakai `resolve_submit_answers`:
+memori lebih dulu, **fallback ke copy disk** — mencegah submit kosong menimpa
+jawaban asli dalam window grace server (end_time + 60 dtk).
+
+### 4. Ujian tanpa soal → lembar jawaban KOSONG
+Tidak ada lagi fabrikasi 40 soal single-choice dummy saat exam tanpa
+konfigurasi soal (PDF-only). Lembar jawaban tetap kosong (0/0) — siswa tidak
+bisa menjawab soal yang tidak ada (mirror Android: `totalQuestions = 0` +
+overlay disembunyikan).
+
+### 5. Marker sticky "ujian sudah selesai" (F2)
+Setelah submit sukses durable, `mark_submitted` menyimpan penanda sticky.
+Re-entry ujian yang sama diblokir di gate join (`is_submitted`) — mencegah
+re-entry dalam window grace mengirim submit kosong yang MENIMPA jawaban asli
+(mirror Android: flag `submittedOrExited` sticky).
+
+## Test
+
+Test JVM-style (headless, tanpa display):
+
+```bash
+cd desktop
+QT_QPA_PLATFORM=offscreen .venv/bin/python -m unittest discover -s tests
+```
+
+32 test: parsing submit queued/sync, polling `/result` (done/pending/failure/
+timeout), persistensi & migrasi jawaban, fallback F1, marker sticky F2,
+identitas perangkat, pemetaan identitas, dan lembar jawaban tanpa soal dummy.
 
 ## Troubleshooting
 
