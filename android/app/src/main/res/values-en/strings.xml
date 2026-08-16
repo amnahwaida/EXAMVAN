@@ -93,6 +93,7 @@
     <string name="recovery_retry_submit">Send Again</string>
     <string name="recovery_sending">Sending...</string>
     <string name="recovery_exit">Exit</string>
+    <string name="notification_retry_action">Send Again</string>
     <string name="notification_channel_name">Exam Answer Submission</string>
     <string name="notification_channel_desc">Notification when exam answers are submitted automatically</string>
 

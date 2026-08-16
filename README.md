@@ -1362,11 +1362,19 @@ Tes: `QuestionParsingTest` — number/string/whitespace, tolak non-numerik, peri
 
 Tes: `SubmitFlowPolicyTest` — idle boleh mulai, in-flight diblok, setelah sukses/exit diblok, retry setelah gagal boleh.
 
-### 4. Re-entry recovery — jawaban tersimpan yang belum terkirim bisa dikirim ulang
+### 4. Re-entry setelah deadline — tidak ada auto-submit kosong yang menimpa jawaban
+
+**Masalah (F1):** watchdog "sejak awal" menembak **sebelum** jawaban dipulihkan dari prefs (restore berjalan di `loadExamContent`, setelah `scheduleDeadlineFromStart`). Re-entry terlambat (proses mati, deadline lewat) → auto-submit mengirim jawaban **kosong** → dalam window grace server (`end_time` + 60 dtk) upsert menimpa baris dan `clearSavedAnswers` menghapus jawaban asli.
+
+**Masalah (F2):** `clearSavedAnswers` menghapus flag `submittedOrExited` → setelah submit **sukses**, re-entry mengira ujian belum selesai → watchdog (deadline lewat) auto-submit kosong dalam grace → menimpa jawaban yang sudah terkirim. (`ExamListActivity` sudah memperlakukan flag ini sebagai penanda "selesai" — viewer tidak konsisten.)
+
+**Solusi:** (1) `autoSubmitAndExit` memakai jawaban dari prefs sebagai fallback saat memori kosong — submit deadline selalu mengirim jawaban sungguhan, bukan kosong; (2) `clearSavedAnswers` **tidak lagi menghapus** flag submitted — selesai = sticky, re-entry menampilkan layar "Ujian Sudah Selesai" (bukan menjalankan ulang alur ujian), selaras dengan gate `ExamListActivity`.
+
+### 5. Re-entry recovery — jawaban tersimpan yang belum terkirim bisa dikirim ulang
 
 **Masalah:** `autoSubmitAndExit` mem-persist `submitted=true` **sebelum** submit jaringan — auto-submit background yang gagal (jaringan mati / proses dibunuh) membuat re-entry hanya menampilkan layar "Ujian Sudah Selesai" tanpa jalur kirim ulang, padahal jawaban masih tersimpan lokal.
 
-**Solusi:** saat re-entry dengan `submitted=true` TAPI jawaban masih tersimpan (`SubmissionManager.hasPendingAnswers` — jawaban hanya dibersihkan saat submit sukses), app menampilkan layar recovery **"Kirim Lagi"** yang mengirim ulang jawaban dari prefs (`resubmitPendingAnswers`). Server idempoten (upsert per exam+mac), jadi aman diulang; sukses → layar congrats + jawaban lokal dibersihkan, gagal → tetap di layar recovery. `submitWithRetry` di-refactor menerima override jawaban agar logika retry + polling `/result` dipakai bersama antara auto-submit dan recovery.
+**Solusi:** saat re-entry dengan `submitted=true` TAPI jawaban masih tersimpan (`SubmissionManager.hasPendingAnswers` — jawaban hanya dibersihkan saat submit sukses), app menampilkan layar recovery **"Kirim Lagi"** yang mengirim ulang jawaban dari prefs (`resubmitPendingAnswers`). Server idempoten (upsert per exam+mac), jadi aman diulang; sukses → layar congrats + jawaban lokal dibersihkan, gagal → tetap di layar recovery. `submitWithRetry` di-refactor menerima override jawaban agar logika retry + polling `/result` dipakai bersama antara auto-submit dan recovery. Notifikasi kegagalan auto-submit kini punya content intent + action **"Kirim Lagi"** — tap langsung membuka layar recovery (sebelumnya notifikasi tanpa aksi = jalan buntu; jalur retry hanya lewat navigasi manual).
 
 ---
 

@@ -93,6 +93,7 @@
     <string name="recovery_retry_submit">Kirim Lagi</string>
     <string name="recovery_sending">Mengirim...</string>
     <string name="recovery_exit">Keluar</string>
+    <string name="notification_retry_action">Kirim Lagi</string>
     <string name="notification_channel_name">Pengiriman Jawaban Ujian</string>
     <string name="notification_channel_desc">Notifikasi saat jawaban ujian dikirim otomatis</string>
 

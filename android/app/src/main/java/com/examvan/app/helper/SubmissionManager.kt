@@ -3,6 +3,7 @@ package com.examvan.app.helper
 import android.Manifest
 import android.app.NotificationChannel
 import android.app.NotificationManager
+import android.app.PendingIntent
 import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
@@ -19,6 +20,7 @@ import androidx.lifecycle.lifecycleScope
 import com.examvan.app.AppPrefs
 import com.examvan.app.AuditLog
 import com.examvan.app.CongratulationsActivity
+import com.examvan.app.ExamViewerActivity
 import com.examvan.app.R
 import com.examvan.app.api.ApiClient
 import com.examvan.app.databinding.ActivityExamViewerBinding
@@ -152,13 +154,18 @@ class SubmissionManager(
     }
 
     fun clearSavedAnswers() {
-        val submittedKey = AppPrefs.getSubmittedOrExitedKey(examId)
+        // CATATAN: flag submittedOrExited TIDAK dihapus di sini. Sebelumnya
+        // dihapus → setelah submit SUKSES, re-entry mengira ujian belum selesai
+        // → watchdog deadline (sudah lewat) langsung auto-submit KOSONG dalam
+        // window grace server (end_time + 60 dtk) → menimpa jawaban asli yang
+        // sudah terkirim. Flag di-persist terpisah (persistSubmittedState) dan
+        // dipertahankan sebagai penanda selesai: re-entry menampilkan layar
+        // "Ujian Sudah Selesai", bukan menjalankan ulang alur ujian.
         AppPrefs.getExamPrefsSafe(context).edit()
             .remove(AppPrefs.KEY_SAVED_ANSWERS)
             .remove(AppPrefs.KEY_SAVED_ANSWERS_EXAM_ID)
             .remove(AppPrefs.KEY_SAVED_ANSWERS_TIMESTAMP)
             .remove(AppPrefs.KEY_EXAM_START_TIME)
-            .remove(submittedKey)
             .apply()
     }
 
@@ -252,7 +259,8 @@ class SubmissionManager(
                     if (isActivityFinishing()) {
                         showAutoSubmitNotification(
                             context.getString(R.string.auto_submit_success_title),
-                            context.getString(R.string.toast_auto_submit_success)
+                            context.getString(R.string.toast_auto_submit_success),
+                            isSuccess = true
                         )
                         return@post
                     }
@@ -286,7 +294,8 @@ class SubmissionManager(
                     if (isActivityFinishing()) {
                         showAutoSubmitNotification(
                             context.getString(R.string.auto_submit_failed_title),
-                            context.getString(R.string.toast_auto_submit_failed, errorMsg)
+                            context.getString(R.string.toast_auto_submit_failed, errorMsg),
+                            isSuccess = false
                         )
                         return@post
                     }
@@ -467,7 +476,21 @@ class SubmissionManager(
 
         // 3. Perform network submission in the background using GlobalScope
         GlobalScope.launch(NonCancellable + Dispatchers.IO) {
-            val result = submitWithRetry()
+            // Jawaban efektif: utamakan memori (ViewModel), FALLBACK ke prefs
+            // saat memori kosong. Kasus nyata: deadline sudah lewat saat
+            // re-entry (proses mati) → watchdog menembak SEBELUM jawaban
+            // dipulihkan ke ViewModel — tanpa fallback ini submit kosong akan
+            // menimpa jawaban asli dalam window grace server (end_time + 60 dtk)
+            // dan clearSavedAnswers menghapus jawaban tersimpan. Memori tidak
+            // kosong → dipakai apa adanya (siswa mungkin baru saja mengubah
+            // jawaban setelah auto-save terakhir).
+            val memoryAnswers = getAnswers?.invoke()
+            val answersOverride = if (memoryAnswers.isNullOrEmpty()) {
+                restoreAnswersFromPrefs()
+            } else {
+                null
+            }
+            val result = submitWithRetry(answersOverride)
 
             // Only clear saved answers if submission was successful.
             // If failed, keep answers in SharedPreferences so they can be
@@ -490,7 +513,7 @@ class SubmissionManager(
                 context.getString(R.string.toast_auto_submit_failed, result.message)
             }
 
-            showAutoSubmitNotification(notifTitle, notifMessage)
+            showAutoSubmitNotification(notifTitle, notifMessage, isSuccess = result.success)
         }
     }
 
@@ -523,11 +546,43 @@ class SubmissionManager(
         }
     }
 
-    private fun showAutoSubmitNotification(title: String, message: String) {
+    /**
+     * Notifikasi hasil auto-submit background.
+     *
+     * Sebelumnya notifikasi TANPA content intent → jalan buntu: tap tidak
+     * melakukan apa pun, dan satu-satunya jalur retry adalah membuka app
+     * manual lalu menavigasi ke ujian. Kini tap (dan action "Kirim Lagi" pada
+     * notifikasi GAGAL) membuka ExamViewerActivity langsung ke layar yang
+     * relevan: recovery (jawaban masih tersimpan — dipilih onCreate via
+     * hasPendingAnswers) atau "Ujian Sudah Selesai" (submit sukses).
+     */
+    private fun showAutoSubmitNotification(title: String, message: String, isSuccess: Boolean) {
         try {
             val notificationManager = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
 
-            val notification = NotificationCompat.Builder(context, CHANNEL_ID)
+            // Buka ExamViewerActivity dengan extra yang dibutuhkan onCreate
+            // (recovery / already-submitted). launchMode singleTop + CLEAR_TOP:
+            // instance lama di stack dibersihkan, instance baru membaca extra.
+            val target = Intent(context, ExamViewerActivity::class.java).apply {
+                putExtra("exam_id", examId)
+                putExtra("exam_name", examName)
+                putExtra("student_name", studentName)
+                putExtra("student_number", studentNumber)
+                putExtra("student_class", studentClass)
+                putExtra("identity_data", identityData)
+                putExtra("server_url", serverUrl)
+                putExtra("exam_token", token)
+                flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
+            }
+            val uniqueNotifId = (System.currentTimeMillis() % 100000).toInt()
+            val contentIntent = PendingIntent.getActivity(
+                context,
+                uniqueNotifId,
+                target,
+                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+            )
+
+            val builder = NotificationCompat.Builder(context, CHANNEL_ID)
                 .setSmallIcon(R.mipmap.ic_launcher)
                 .setContentTitle(title)
                 .setContentText(message)
@@ -535,10 +590,21 @@ class SubmissionManager(
                 .setPriority(NotificationCompat.PRIORITY_HIGH)
                 .setDefaults(NotificationCompat.DEFAULT_ALL)
                 .setAutoCancel(true)
-                .build()
+                .setContentIntent(contentIntent)
 
-            val uniqueNotifId = (System.currentTimeMillis() % 100000).toInt()
-            notificationManager.notify(uniqueNotifId, notification)
+            if (!isSuccess) {
+                // Action "Kirim Lagi": buka layar recovery langsung — onCreate
+                // memilihnya karena jawaban masih tersimpan (hasPendingAnswers).
+                builder.addAction(
+                    NotificationCompat.Action.Builder(
+                        R.mipmap.ic_launcher,
+                        context.getString(R.string.notification_retry_action),
+                        contentIntent
+                    ).build()
+                )
+            }
+
+            notificationManager.notify(uniqueNotifId, builder.build())
         } catch (_: Throwable) {
             if (context is android.app.Activity && !context.isFinishing) {
                 Toast.makeText(context, message, Toast.LENGTH_LONG).show()
