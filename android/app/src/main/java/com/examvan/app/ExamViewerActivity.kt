@@ -246,6 +246,11 @@ class ExamViewerActivity : BaseSecureActivity() {
             securityLevel = this@ExamViewerActivity.securityLevel
             onCreateTime = System.currentTimeMillis()
             onLogoutRequested = { confirmAndLogout() }
+            // "Keluar" di layar strict-failed = auto-submit: jawaban tetap
+            // dikumpulkan walau lock task tidak pernah aktif. submissionManager
+            // dibaca saat dipanggil (sudah di-initialize sebelum layar ini
+            // bisa muncul — handleStrictMode berjalan setelah initializeHelpers).
+            onStrictFailedExit = { submissionManager.autoSubmitAndExit() }
         }
 
         // AnswerSheetBuilder

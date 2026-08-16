@@ -70,6 +70,12 @@ class SecurityEnforcer(
     // Callback when user requests to logout
     var onLogoutRequested: (() -> Unit)? = null
 
+    // Callback saat siswa menekan "Keluar" di layar strict-failed — HARUS
+    // auto-submit (jawaban tetap dikumpulkan), bukan sekadar finish tanpa
+    // mengumpulkan: keluar tanpa submit membiarkan siswa mengulang ujian
+    // tanpa proteksi.
+    var onStrictFailedExit: (() -> Unit)? = null
+
     // Callback for back button press (used in strict mode)
     var onBackBlocked: (() -> Unit)? = null
 
@@ -136,6 +142,16 @@ class SecurityEnforcer(
 
         binding.btnRetryDownload.setOnClickListener {
             retryCallback()
+        }
+
+        // "Keluar" yang dijanjikan pesan di atas — jalur aman: auto-submit
+        // (jawaban tetap dikumpulkan), bukan keluar tanpa mengumpulkan.
+        // Back tetap diblokir di strict mode; tombol ini satu-satunya jalan
+        // keluar yang sah sebelum deadline.
+        binding.btnOpenResult.visibility = View.VISIBLE
+        binding.btnOpenResult.text = activity.getString(R.string.recovery_exit)
+        binding.btnOpenResult.setOnClickListener {
+            onStrictFailedExit?.invoke()
         }
     }
 
@@ -253,7 +269,11 @@ class SecurityEnforcer(
             }
             activePopupCount = 0
 
-            if (strictMode && !LockTaskManager.isPinningPending && !LockTaskManager.isActive(activity)) {
+            // Guard !submittedOrExited: setelah deadline auto-submit melepas pin
+            // (stopLockTask), event fokus nyasar tidak boleh RE-PIN activity yang
+            // sedang finishing — dialog "Pin ExamVan?" muncul setelah ujian
+            // selesai dikumpulkan. Branch focus-lost sudah punya guard ini.
+            if (strictMode && !submittedOrExited && !LockTaskManager.isPinningPending && !LockTaskManager.isActive(activity)) {
                 Log.w(TAG, "Lock task inactive on focus gained — re-activating")
                 LockTaskManager.activate(activity) { success ->
                     if (!success) {
@@ -306,7 +326,10 @@ class SecurityEnforcer(
                         autoSubmitCallback()
                     }
 
-                    if (strictMode && !LockTaskManager.isPinningPending && !LockTaskManager.isActive(activity)) {
+                    // Guard !submittedOrExited lagi: runnable ini bisa ditunda
+                    // 500 ms — deadline auto-submit bisa menembak di sela-selanya
+                    // dan sudah melepas pin; jangan re-pin pasca-submit.
+                    if (strictMode && !submittedOrExited && !LockTaskManager.isPinningPending && !LockTaskManager.isActive(activity)) {
                         Log.w(TAG, "Focus lost + lock task inactive — kemungkinan system overlay/bypass")
                         LockTaskManager.activate(activity) { success ->
                             if (!success) {
@@ -492,7 +515,10 @@ class SecurityEnforcer(
      */
     fun verifyLockTask(): Boolean {
         if (LockTaskManager.isPinningPending) return false
-        if (strictMode && lockTaskActivated && !LockTaskManager.isActive(activity)) {
+        // Guard !submittedOrExited: jangan re-pin setelah submit selesai
+        // (deadline auto-submit / submit manual sukses) — activity sedang
+        // menuju finish, re-pin hanya memunculkan dialog konfirmasi.
+        if (strictMode && !submittedOrExited && lockTaskActivated && !LockTaskManager.isActive(activity)) {
             Log.w(TAG, "Lock task inactive — re-activating")
             return LockTaskManager.activate(activity) { success ->
                 if (!success) {
