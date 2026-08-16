@@ -237,6 +237,14 @@ class SubmissionManager(
 
         val answers = getAnswers?.invoke() ?: emptyMap()
 
+        // Flush jawaban persis seperti yang dikirim ke prefs SEBELUM HTTP —
+        // copy prefs (auto-save debounce 500 ms) bisa tertinggal satu perubahan
+        // terakhir. Tanpa flush, process death di jalur 202 queued (jawaban
+        // belum durable di server, polling /result mati) → recovery re-entry
+        // mengirim ulang copy STALE → perubahan terakhir hilang. Dengan flush,
+        // recovery selalu mengirim jawaban yang sama persis dengan yang disubmit.
+        saveAnswersToPrefs(answers)
+
         ApiClient.submitExam(
             examId = examId,
             token = token,
