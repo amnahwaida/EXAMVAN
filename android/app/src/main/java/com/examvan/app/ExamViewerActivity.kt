@@ -14,6 +14,7 @@ import com.examvan.app.api.ApiClient
 import com.examvan.app.api.WebSocketManager
 import com.examvan.app.databinding.ActivityExamViewerBinding
 import com.examvan.app.helper.AnswerSheetBuilder
+import com.examvan.app.helper.ExamModePolicy
 import com.examvan.app.helper.PdfRendererHelper
 import com.examvan.app.helper.SecurityEnforcer
 import com.examvan.app.helper.SubmissionManager
@@ -267,6 +268,19 @@ class ExamViewerActivity : BaseSecureActivity() {
 
         // Wire security to submission
         securityEnforcer.submittedOrExited = false
+
+        // Setup back press callback SEJAK AWAL (sebelum aktivasi strict).
+        // Dulu baru didaftarkan di loadExamContent — selama window aktivasi
+        // (layar gesture-blocked, dialog konfirmasi lock task, layar
+        // strict-failed) tombol/gesture back bisa me-finish activity tanpa
+        // konsekuensi. Dengan registrasi awal, back di strict mode selalu
+        // diblokir (handleBackPressed) dan di medium/low masuk ke dialog
+        // keluar yang benar.
+        onBackPressedDispatcher.addCallback(this, object : OnBackPressedCallback(true) {
+            override fun handleOnBackPressed() {
+                securityEnforcer.handleBackPressed()
+            }
+        })
     }
 
     /**
@@ -349,13 +363,6 @@ class ExamViewerActivity : BaseSecureActivity() {
             binding.btnSubmitAnswers.isEnabled = false
             binding.btnSubmitAnswers.text = getString(R.string.submitted_label)
         }
-
-        // Setup back press callback
-        onBackPressedDispatcher.addCallback(this, object : OnBackPressedCallback(true) {
-            override fun handleOnBackPressed() {
-                securityEnforcer.handleBackPressed()
-            }
-        })
 
         // Setup button listeners
         setupButtonListeners()
@@ -610,6 +617,9 @@ class ExamViewerActivity : BaseSecureActivity() {
                 }
             }
             securityEnforcer.onResume()
+            // Banner mencerminkan mode aktif (juga menutup kasus strict-failed
+            // yang sebelumnya tidak pernah di-update setelah aktivasi gagal).
+            updateSecurityBanner()
             if (viewModel.isPdfReady.value) {
                 startCountdownTimer()
             }
@@ -646,8 +656,10 @@ class ExamViewerActivity : BaseSecureActivity() {
             securityEnforcer.isPdfReady = viewModel.isPdfReady.value
             securityEnforcer.submittedOrExited = viewModel.submittedOrExited.value
             securityEnforcer.handleWindowFocusChanged(hasFocus) {
-                // Only auto-submit for medium mode. Strict mode relies on lock task pin.
-                if (!securityEnforcer.strictMode) {
+                // Auto-submit HANYA di medium mode (lihat ExamModePolicy): low
+                // bebas keluar-masuk tanpa konsekuensi; strict memakai lock task
+                // pin (auto-submit justru melepas pin dan membebaskan siswa).
+                if (ExamModePolicy.shouldAutoSubmitOnFocusLoss(securityLevel, securityEnforcer.strictMode)) {
                     submissionManager.autoSubmitAndExit()
                 }
             }
@@ -656,7 +668,14 @@ class ExamViewerActivity : BaseSecureActivity() {
 
     override fun onKeyDown(keyCode: Int, event: KeyEvent?): Boolean {
         if (::securityEnforcer.isInitialized) {
-            if (securityEnforcer.handleVolumeKey(keyCode)) return true
+            // Volume ditekan hanya di medium/strict (panel volume tidak boleh
+            // dipakai sebagai jalur keluar/bypass); di low tombol volume
+            // berfungsi normal lewat sistem.
+            if (ExamModePolicy.shouldInterceptVolumeKeys(securityLevel) &&
+                securityEnforcer.handleVolumeKey(keyCode)
+            ) {
+                return true
+            }
             if (keyCode == KeyEvent.KEYCODE_POWER) securityEnforcer.handlePowerKey()
         }
         return super.onKeyDown(keyCode, event)

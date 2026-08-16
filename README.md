@@ -57,9 +57,9 @@ EXAMVAN terdiri dari dua komponen utama:
 
 ### 3. Keamanan Klien Seluler (Android)
 * **Tiga Tingkat Keamanan Dinamis (Low, Medium, High/Strict):**
-  1. **Low Mode:** Proteksi dasar berupa anti-screenshot (`FLAG_SECURE`) dan pembersihan papan klip (clipboard). Siswa bebas keluar masuk aplikasi tanpa konsekuensi.
-  2. **Medium Mode:** Jika siswa menekan tombol Home, berpindah aplikasi, membuka laci notifikasi, atau meminimalkan aplikasi, sistem langsung mendeteksi kehilangan fokus dan melakukan **Auto-Submit (Kumpul Jawaban Otomatis)** dalam waktu 3 detik.
-  3. **High/Strict Mode:** Aplikasi mengunci perangkat (lock task) sehingga siswa **tidak bisa keluar** dari aplikasi ujian; jawaban hanya terkumpul saat ujian selesai atau waktu habis.
+  1. **Low Mode:** Proteksi dasar berupa anti-screenshot (`FLAG_SECURE`) dan pembersihan papan klip (clipboard). Siswa bebas keluar masuk aplikasi tanpa konsekuensi — kehilangan fokus **tidak** memicu pengumpulan otomatis, dan tombol volume berfungsi normal (panel sistem tetap muncul).
+  2. **Medium Mode:** Jika siswa menekan tombol Home, berpindah aplikasi, membuka laci notifikasi, atau meminimalkan aplikasi, sistem mendeteksi kehilangan fokus dan melakukan **Auto-Submit (Kumpul Jawaban Otomatis)** dalam waktu ±500 ms. Tombol volume ditekan (panel tidak muncul) agar tidak bisa dijadikan jalur keluar. Ada masa tenggang 1,5 detik setelah penekanan tombol volume untuk menghindari auto-submit yang salah.
+  3. **High/Strict Mode:** Aplikasi mengunci perangkat (lock task) sehingga siswa **tidak bisa keluar** dari aplikasi ujian — termasuk tombol Back diblokir bahkan saat aktivasi lock task belum selesai (fail-closed); jawaban hanya terkumpul saat ujian selesai atau waktu habis.
 * **Zero-Friction Launch:** Siswa tidak lagi dibebani dengan pengaturan rumit. Ujian langsung dimulai secara instan, menghemat waktu persiapan ujian hingga 100%.
 * **Optimasi Layar Anti-Mati (FLAG_KEEP_SCREEN_ON):** Layar perangkat siswa akan tetap menyala terang secara konstan selama aplikasi dibuka.
 * **Anti-Screenshot & Recording:** Layar aplikasi otomatis menjadi hitam jika siswa mencoba menangkap layar atau merekam layar.
