@@ -76,6 +76,21 @@ const (
 	reqAppRateLimitMax    = 30
 	reqAppRateLimitWindow = 60 * time.Second
 
+	// Rate-limit untuk GET /api/exams/token/:token (join wave). Join satu kali
+	// per perangkat, tapi seluruh ruangan mengetik token bersamaan di awal
+	// ujian dari satu NAT sekolah. Bucket per-token 600/menit (ruangan maks
+	// 500 perangkat + headroom) menahan flood join pada satu token (mis.
+	// brute-force token dari banyak IP); middleware per-IP dinaikkan agar
+	// ruangan di belakang NAT tidak saling memblokir.
+	joinRateLimitMax    = 600
+	joinRateLimitWindow = 60 * time.Second
+
+	// Rate-limit untuk GET /api/exams/:exam_id/pdf (download wave). Bucket per
+	// exam+MAC 10/menit — unduhan satu kali + retry; MAC tak dikenal → per
+	// exam+IP. Sama seperti endpoint siswa lain.
+	pdfRateLimitMax    = 10
+	pdfRateLimitWindow = 60 * time.Second
+
 	// defaultMaxApprovalsPerExam caps how many devices may hold an APPROVED
 	// approval row per exam when auto-approve is on (tunable via the
 	// max_approvals_per_exam saas setting; 0 = unlimited).
@@ -87,6 +102,8 @@ const (
 	resultRateKeyPrefix     = "ratelimit:result:"        // + exam_id:mac_address (polling hasil)
 	resultExamRateKeyPrefix = "ratelimit:result-exam:"   // + exam_id (aggregate polling)
 	reqAppDeviceKeyPrefix   = "ratelimit:reqapp-device:" // + exam_id:mac_address
+	joinRateKeyPrefix       = "ratelimit:join:"          // + token (join wave)
+	pdfRateKeyPrefix        = "ratelimit:pdf:"           // + exam_id:mac_address (download)
 	heartbeatKeyPrefix      = "heartbeat:"               // + exam_id:mac_address
 	heartbeatTTL            = 5 * time.Minute
 )
@@ -633,6 +650,21 @@ func ExamByToken() gin.HandlerFunc {
 		pool := getPool(c)
 		ctx := c.Request.Context()
 
+		// --- Rate limit (per-token aggregate) ---
+		// Join satu kali per perangkat, tapi seluruh ruangan bergabung
+		// bersamaan di awal ujian dari satu NAT sekolah — bucket per-IP
+		// middleware tidak cukup. Bucket per-token menahan flood join pada satu
+		// token (mis. brute-force dari banyak IP); skip saat Redis tidak ada
+		// (middleware per-IP tetap berlaku).
+		if rdb := getRedis(c); rdb != nil {
+			if !checkRateLimit(rdb, fmt.Sprintf("%s%s", joinRateKeyPrefix, token),
+				joinRateLimitMax, joinRateLimitWindow) {
+				errorResponse(c, http.StatusTooManyRequests,
+					"Terlalu banyak percobaan. Silakan coba lagi nanti.")
+				return
+			}
+		}
+
 		// Optional version check — if the header is absent the check is
 		// skipped, matching the Python behaviour.
 		clientVersion := c.GetHeader("X-App-Version")
@@ -790,6 +822,23 @@ func ExamPDF() gin.HandlerFunc {
 		if deviceID == "" || deviceID == "unknown" {
 			deviceID = sanitizeMAC(c.Query("mac_address"))
 		}
+
+		// --- Rate limit (per exam + device) ---
+		// Seluruh ruangan mengunduh PDF bersamaan di awal ujian dari satu NAT
+		// sekolah. Bucket per exam+MAC memberi tiap perangkat jatah sendiri
+		// (unduhan satu kali + retry); perangkat tanpa identitas (sanitizeMAC
+		// → "unknown") jatuh ke per exam+IP — pola yang sama dengan endpoint
+		// siswa lain.
+		pdfRateKey := fmt.Sprintf("%s%d:%s", pdfRateKeyPrefix, examID, deviceID)
+		if deviceID == "" || deviceID == "unknown" {
+			pdfRateKey = fmt.Sprintf("%s%d:ip:%s", pdfRateKeyPrefix, examID, c.ClientIP())
+		}
+		if !checkRateLimit(getRedis(c), pdfRateKey, pdfRateLimitMax, pdfRateLimitWindow) {
+			errorResponse(c, http.StatusTooManyRequests,
+				"Terlalu banyak request. Silakan coba lagi nanti.")
+			return
+		}
+
 		var approvalStatus string
 		err = pool.QueryRow(ctx,
 			`SELECT status FROM exam_approvals WHERE exam_id = $1 AND mac_address = $2`,

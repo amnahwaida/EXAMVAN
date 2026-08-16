@@ -50,6 +50,7 @@ func newExamFixesRouter(pool *pgxpool.Pool, rdb *goredis.Client) *gin.Engine {
 		c.Set("r2", stub)
 	})
 	r.POST("/api/exams/request-approval", RequestApproval())
+	r.GET("/api/exams/token/:token", ExamByToken())
 	r.GET("/api/exams/:exam_id/pdf", ExamPDF())
 	r.POST("/api/exams/:exam_id/submit", SubmitExam())
 	r.GET("/api/exams/:exam_id/result", ExamResult())
@@ -559,6 +560,88 @@ func TestRequestApprovalRateLimitKeyedByExamAndMac(t *testing.T) {
 	}
 	rec = doJSONRequest(router, http.MethodPost,
 		"/api/exams/request-approval", "203.0.113.10:9999", headers, payload2)
+	if rec.Code == http.StatusTooManyRequests {
+		t.Fatalf("classmate same-IP status = 429, want not rate-limited (bucket must be per exam+MAC)")
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Fix 9: rate-limit join wave (token) & unduhan PDF untuk ruangan satu NAT
+// ---------------------------------------------------------------------------
+
+// TestExamByTokenRateLimitPerToken locks in that the join endpoint
+// (GET /api/exams/token/:token) is throttled per token, not per-IP alone:
+// the whole room types its exam token at the same time at exam start from one
+// shared NAT. The endpoint carries no per-device identity, so the aggregate
+// per-token bucket is the right granularity (plus the per-IP middleware).
+func TestExamByTokenRateLimitPerToken(t *testing.T) {
+	pool := database.NewPackageTestPool(t, "api")
+	_, token := createRequestApprovalFixture(t, pool, true, true, true)
+	mr := miniredis.RunT(t)
+	rdb := goredis.NewClient(&goredis.Options{Addr: mr.Addr()})
+	t.Cleanup(func() { _ = rdb.Close() })
+	router := newExamFixesRouter(pool, rdb)
+
+	path := fmt.Sprintf("/api/exams/token/%s", token)
+	for i := 0; i < joinRateLimitMax; i++ {
+		rec := doJSONRequest(router, http.MethodGet, path, "203.0.113.10:9999", nil, nil)
+		if rec.Code == http.StatusTooManyRequests {
+			t.Fatalf("join %d unexpectedly rate-limited", i+1)
+		}
+	}
+	rec := doJSONRequest(router, http.MethodGet, path, "203.0.113.10:9999", nil, nil)
+	if rec.Code != http.StatusTooManyRequests {
+		t.Fatalf("join over-cap status = %d, want 429", rec.Code)
+	}
+
+	// A DIFFERENT token (different exam) must have a fresh bucket.
+	otherToken := fmt.Sprintf("Q%07d", time.Now().UnixNano()%10000000)
+	if _, err := pool.Exec(context.Background(), `
+		INSERT INTO exams (name, file_path, size_bytes, token, active_token, status, security_level, created_by, exam_started_at, auto_approve)
+		SELECT 'Ujian Kedua', 'ujian.pdf', 2048, $1, $1, 'active', 'medium', id, CURRENT_TIMESTAMP, true
+		FROM admin_users WHERE username = 'reqapp-guru' LIMIT 1`, otherToken); err != nil {
+		t.Fatalf("insert second exam: %v", err)
+	}
+	rec = doJSONRequest(router, http.MethodGet,
+		fmt.Sprintf("/api/exams/token/%s", otherToken), "203.0.113.10:9999", nil, nil)
+	if rec.Code == http.StatusTooManyRequests {
+		t.Fatalf("other-token join status = 429, want not rate-limited (bucket must be per token)")
+	}
+}
+
+// TestExamPDFRateLimitKeyedByExamAndMac locks in that the PDF download
+// endpoint is throttled per exam+MAC, not per-IP alone: the whole room
+// downloads the PDF at exam start from one shared NAT. Mirrors the
+// per-exam+MAC pattern used across the student routes.
+func TestExamPDFRateLimitKeyedByExamAndMac(t *testing.T) {
+	pool := database.NewPackageTestPool(t, "api")
+	examID, token := createRequestApprovalFixture(t, pool, true, true, true)
+	mr := miniredis.RunT(t)
+	rdb := goredis.NewClient(&goredis.Options{Addr: mr.Addr()})
+	t.Cleanup(func() { _ = rdb.Close() })
+	router := newExamFixesRouter(pool, rdb)
+
+	insertApprovalRow(t, pool, examID, "AA:BB:CC:DD:EE:01")
+	insertApprovalRow(t, pool, examID, "AA:BB:CC:DD:EE:02")
+
+	headers := map[string]string{"X-Exam-Token": token, "X-Device-Id": "AA:BB:CC:DD:EE:01"}
+	path := fmt.Sprintf("/api/exams/%d/pdf", examID)
+
+	// Device 1: drain its own bucket (10 allowed, 11th rejected).
+	for i := 0; i < pdfRateLimitMax; i++ {
+		rec := doJSONRequest(router, http.MethodGet, path, "203.0.113.10:9999", headers, nil)
+		if rec.Code == http.StatusTooManyRequests {
+			t.Fatalf("device 1 download %d unexpectedly rate-limited", i+1)
+		}
+	}
+	rec := doJSONRequest(router, http.MethodGet, path, "203.0.113.10:9999", headers, nil)
+	if rec.Code != http.StatusTooManyRequests {
+		t.Fatalf("device 1 over-cap status = %d, want 429", rec.Code)
+	}
+
+	// Classmate behind the same NAT IP, different device id: must NOT be blocked.
+	headers2 := map[string]string{"X-Exam-Token": token, "X-Device-Id": "AA:BB:CC:DD:EE:02"}
+	rec = doJSONRequest(router, http.MethodGet, path, "203.0.113.10:9999", headers2, nil)
 	if rec.Code == http.StatusTooManyRequests {
 		t.Fatalf("classmate same-IP status = 429, want not rate-limited (bucket must be per exam+MAC)")
 	}

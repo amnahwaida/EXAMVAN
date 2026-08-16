@@ -536,8 +536,13 @@ func registerRoutes(r *gin.Engine, cfg *config.Config, pool *pgxpool.Pool) {
 		// sengaja tinggi (≈20 req/dtk); throttle per perangkat (exam+MAC, 30/menit)
 		// dan aggregate per exam (12000/menit) di-enforce di dalam handler.
 		apiGroup.POST("/exams/request-approval", middleware.RateLimitIP(1200, time.Minute), middleware.AndroidVersionCheck(), api.RequestApproval())
-		apiGroup.GET("/exams/token/:token", middleware.RateLimitIP(30, time.Minute), middleware.AndroidVersionCheck(), api.ExamByToken())
-		apiGroup.GET("/exams/:exam_id/pdf", middleware.RateLimitIP(30, time.Minute), middleware.AndroidVersionCheck(), api.ExamPDF())
+		// Join (token) & unduhan PDF satu kali per perangkat, tapi seluruh
+		// ruangan melakukannya bersamaan di awal ujian dari satu NAT sekolah —
+		// middleware per-IP sengaja tinggi; throttle agregat per-token
+		// (join, 600/menit) dan per exam+MAC (pdf, 10/menit) di-enforce di
+		// dalam handler.
+		apiGroup.GET("/exams/token/:token", middleware.RateLimitIP(1200, time.Minute), middleware.AndroidVersionCheck(), api.ExamByToken())
+		apiGroup.GET("/exams/:exam_id/pdf", middleware.RateLimitIP(1200, time.Minute), middleware.AndroidVersionCheck(), api.ExamPDF())
 		// Per-IP limit stays high because an entire classroom often submits from
 		// a single NAT'd school IP near the deadline.
 		apiGroup.POST("/exams/:exam_id/submit", middleware.LimitBodySize(5*1024*1024), middleware.RateLimitIP(120, time.Minute), middleware.AndroidVersionCheck(), api.SubmitExam())
