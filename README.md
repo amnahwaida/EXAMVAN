@@ -359,6 +359,13 @@ Setiap akun **baru** (baik lewat registrasi publik `/register` maupun dibuat ole
 
 Setelah masa aktif habis, akun **tetap bisa login**, tetapi seluruh fitur terkunci kecuali tab **Paket & Voucher** di hub Pengaturan (`/admin/settings#billing` — menggantikan halaman `/admin/billing` lama) — tempat pemilik akun dapat mengklaim kode voucher atau menunggu perpanjangan manual oleh admin. SuperAdmin tidak pernah terpengaruh masa aktif.
 
+**Perilaku akun feature-locked di hub Pengaturan (terverifikasi):**
+- **Hanya tab Paket & Voucher yang dirender** — seluruh section lain (Kelola User, Voucher, Pengaturan Umum, Aplikasi Sistem) **tidak ada di DOM**; tab bar & dropdown mobile "Pilih Bagian" hanya berisi 1 opsi (`billing`);
+- **Hash apa pun** (`#users`, `#vouchers`, `#general`, `#packages`, `#voucher-audit`, `#system-apps`) **fallback ke billing** — bookmark/link lama tidak pernah membuka konten terkunci;
+- Banner kuning **"Masa aktif akun Anda telah berakhir…"** tampil di atas tab Paket & Voucher;
+- **Accordion Pengaturan Umum & tombol Buka Semua/Lipat Semua tidak dirender** (section-nya tidak ada — 0 blok, 0 error JS);
+- **API billing-exempt tetap terbuka** (tidak di-gate feature-lock): `GET /admin/api/vouchers/mine` → 200, `POST /admin/api/vouchers/redeem` → 400/403 sesuai kebijakan voucher (bukan 403 feature-lock) — sementara `stats`, `users`, `saas-settings` dkk. → **403 JSON** (dengan header API) atau redirect ke billing (tanpa header API).
+
 > ⚠️ **Catatan:** pengaturan ini hanya memengaruhi **akun yang dibuat setelah perubahan** — akun yang sudah ada tidak diperpanjang mundur. Nilai yang tersimpan di database **menimpa** default di kode.
 
 ### Nasib Akun Sub saat Operator Habis Masa Aktif

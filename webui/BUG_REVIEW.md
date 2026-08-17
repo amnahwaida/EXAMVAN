@@ -360,6 +360,25 @@ Audit menyusul fitur desktop/Android auto-submit-and-exit: submit auto berjalan 
 
 ---
 
+## ✅ AUDIT PERILAKU FEATURE-LOCKED DI HUB PENGATURAN (17 Agustus 2026)
+
+Verifikasi end-to-end akun feature-locked (`expires_at` di masa lalu) terhadap halaman settings 5-tab baru (desktop + API, session asli via browser). **Hasil: tidak ada celah — perilaku sudah benar; tidak ada perubahan kode yang diperlukan.**
+
+### A. Halaman settings
+- **Hanya tab Paket & Voucher yang dirender** — `section-general`, `section-users`, `section-vouchers`, `section-system-apps` **tidak ada di DOM** (0 blok accordion, 0 tombol Buka Semua/Lipat Semua, 0 form SaaS); tab bar & dropdown mobile hanya berisi opsi `billing`.
+- **Semua hash lama fallback ke billing** — `#users`, `#vouchers`, `#general`, `#packages`, `#voucher-audit`, `#system-apps` → tab aktif selalu `billing` (5/5 diverifikasi).
+- Banner kuning **"Masa aktif akun Anda telah berakhir…"** tampil (`{{if .user_expired}}` di `settings.html`); 0 error JS.
+
+### B. API (header `Accept: application/json` + `X-Requested-With`)
+- **Billing-exempt tetap terbuka** (by design): `GET /admin/api/vouchers/mine` → 200; `POST /admin/api/vouchers/redeem` → 400 "Kode voucher tidak valid" saat `voucher_redeem_enabled=1` (lolos gating — bukan 403 feature-lock).
+- **Terkunci**: `stats`, `users`, `saas-settings` → 403 JSON (bukan redirect, karena header API).
+
+### C. Catatan
+- Saat `voucher_redeem_enabled=0` (fitur klaim dimatikan) redeem memberi 403 — itu kebijakan fitur, bukan celah gating (diverifikasi dengan toggle `0→1→0`).
+- Referensi perilaku lengkap: [README.md → Konfigurasi Masa Aktif Default (Trial)](../README.md#konfigurasi-masa-aktif-default-trial).
+
+---
+
 ## ✅ Ditolak setelah verifikasi (bukan bug)
 - CSRF `!=` non-constant-time — token adalah milik sesi caller sendiri, tak ada oracle. (`csrf.go:81`)
 - "Race duplikat pending DOKU" — sudah ada unique index parsial `idx_transactions_pending_doku_unique`. (`schema.sql:261`)
