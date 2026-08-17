@@ -87,10 +87,11 @@ function makeCollapsibleBlock(h, index) {
     h.addEventListener('click', toggle);
     h.addEventListener('keydown', toggle);
 
-    // Restore persisted state (default: open).
-    var saved = '1';
+    // Restore persisted state (default: collapsed so the page stays compact;
+    // a stored '1' means the user explicitly opened this block before).
+    var saved = '0';
     try { saved = localStorage.getItem(collapseKeyFor(block)); } catch (e) {}
-    if (saved === '0') {
+    if (saved !== '1') {
         body.style.display = 'none';
         h.setAttribute('aria-expanded', 'false');
         h.classList.add('collapsed');
@@ -129,9 +130,9 @@ function setupGeneralCollapse() {
         pkgWrap.appendChild(pkgBody);
         pkgCard.remove();
 
-        var saved = '1';
+        var saved = '0';
         try { saved = localStorage.getItem(collapseKeyFor(pkgWrap)); } catch (e) {}
-        if (saved === '0') {
+        if (saved !== '1') {
             pkgBody.style.display = 'none';
             pkgHead.setAttribute('aria-expanded', 'false');
             pkgHead.classList.add('collapsed');
