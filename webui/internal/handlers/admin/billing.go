@@ -8,20 +8,11 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-// BillingPage renders the slimmed-down package & voucher page. Purchasing and
-// payment-gateway flows were removed; the page now only shows the account's
-// current package/quota usage and lets non-super-admins redeem a voucher code.
-func BillingPage() gin.HandlerFunc {
-	return func(c *gin.Context) {
-		data := loadBillingPageData(c)
-		data["active_page"] = "billing"
-		renderAdminPage(c, "admin/billing.html", data)
-	}
-}
-
-// loadBillingPageData computes the billing section's data dict. Shared by the
-// standalone /admin/billing page and the merged /admin/settings page so the
-// quota/package cards can never drift between the two.
+// loadBillingPageData computes the Paket & Voucher (billing) section's data
+// dict for the merged /admin/settings page. (The standalone /admin/billing
+// page was removed; its URL now 302-redirects to /admin/settings#billing via
+// SettingsRedirect — the billing section remains the ONE section a
+// feature-locked account may use to renew.)
 func loadBillingPageData(c *gin.Context) gin.H {
 	pool := getPool(c)
 	ctx := c.Request.Context()

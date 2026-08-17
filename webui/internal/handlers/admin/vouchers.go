@@ -62,28 +62,6 @@ func rejectOperatorCreatedAccount(c *gin.Context, pool *pgxpool.Pool, userID int
 	return false
 }
 
-// VouchersPage renders the GET /admin/vouchers management page for SuperAdmin.
-func VouchersPage() gin.HandlerFunc {
-	return func(c *gin.Context) {
-		role := getCurrentUserRole(c)
-		if role != models.RoleSuperAdmin {
-			c.Redirect(http.StatusFound, "/admin/dashboard")
-			return
-		}
-
-		data := gin.H{
-			"title":       "Manajemen Voucher",
-			"active_page": "vouchers",
-			"admin_user":  getCurrentUsername(c),
-			"admin_role":  role,
-			// Sisa kapasitas disk (MB) agar input Maks Storage kustom bisa dibatasi.
-			"storage_free_mb": roundTo(getFreeDiskSpace(getStoragePath(c))/(1024*1024), 2),
-		}
-
-		renderAdminPage(c, "admin/vouchers.html", data)
-	}
-}
-
 // ListVouchers handles GET /admin/api/vouchers (SuperAdmin only).
 func ListVouchers() gin.HandlerFunc {
 	return func(c *gin.Context) {
@@ -1103,29 +1081,6 @@ func ActivateVoucherHandler() gin.HandlerFunc {
 			"package":    r.Package,
 			"expires_at": expiryStr,
 		})
-	}
-}
-
-// VoucherAuditPage renders the GET /admin/vouchers/audit page for SuperAdmin:
-// the global append-only trail of voucher claims and activations
-// (voucher_redeemed / voucher_activated) across all accounts — who claimed or
-// activated which package and when, with the detail snapshot per row.
-func VoucherAuditPage() gin.HandlerFunc {
-	return func(c *gin.Context) {
-		role := getCurrentUserRole(c)
-		if role != models.RoleSuperAdmin {
-			c.Redirect(http.StatusFound, "/admin/dashboard")
-			return
-		}
-
-		data := gin.H{
-			"title":       "Riwayat Klaim Voucher",
-			"active_page": "voucher-audit",
-			"admin_user":  getCurrentUsername(c),
-			"admin_role":  role,
-		}
-
-		renderAdminPage(c, "admin/voucher_audit.html", data)
 	}
 }
 

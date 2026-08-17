@@ -151,8 +151,10 @@ func TestAuthRequiredExpiredWithUsableVoucherKeepsAccess(t *testing.T) {
 
 // TestAuthRequiredExpiredHTMLRedirectShowsFlash covers the HTML (non-API)
 // branch: a feature-locked account navigating the admin UI is redirected to
-// /admin/billing with a flash explaining why — the billing page renders it,
-// so the lock is not silent and the owner lands where they can renew.
+// /admin/settings#billing (the settings hub that replaced the old
+// /admin/billing renewal page) with a flash explaining why — the settings
+// mirror renders it, so the lock is not silent and the owner lands where they
+// can renew.
 func TestAuthRequiredExpiredHTMLRedirectShowsFlash(t *testing.T) {
 	pool := setupVoucherITDB(t)
 	ctx := context.Background()
@@ -167,8 +169,8 @@ func TestAuthRequiredExpiredHTMLRedirectShowsFlash(t *testing.T) {
 	tc.login(t, user.ID)
 
 	// Plain navigation (no Accept: application/json): FeatureLockRequired
-	// redirects to /admin/billing, which the client follows; the billing page
-	// consumes the flash and shows the expiry reason.
+	// redirects to /admin/settings#billing, which the client follows; the
+	// settings mirror consumes the flash and shows the expiry reason.
 	resp, err := tc.client.Get(tc.srv.URL + "/api/auth-ping")
 	if err != nil {
 		t.Fatalf("GET /api/auth-ping (HTML): %v", err)
@@ -176,9 +178,9 @@ func TestAuthRequiredExpiredHTMLRedirectShowsFlash(t *testing.T) {
 	defer resp.Body.Close()
 	body, _ := io.ReadAll(resp.Body)
 	if resp.StatusCode != http.StatusOK {
-		t.Fatalf("billing page after redirect: status=%d, want 200", resp.StatusCode)
+		t.Fatalf("settings page after redirect: status=%d, want 200", resp.StatusCode)
 	}
 	if !strings.Contains(string(body), "Masa aktif akun Anda telah habis") {
-		t.Errorf("billing page missing expiry flash, body=%s", string(body))
+		t.Errorf("settings page missing expiry flash, body=%s", string(body))
 	}
 }

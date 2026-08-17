@@ -665,7 +665,10 @@ func TestSaasSettingsMaxApprovalsPerExamUIMarkup(t *testing.T) {
 		return string(data)
 	}
 
-	users := read("admin/users.html")
+	// The SaaS panel lives in the Kelola User section of the merged settings
+	// page (admin/users.html was removed; its URL now 302-redirects to
+	// /admin/settings#users).
+	users := read("admin/settings.html")
 	for _, frag := range []string{
 		`id="maxApprovalsPerExamInput"`,
 		"Maks Perangkat Disetujui per Ujian",
@@ -676,7 +679,7 @@ func TestSaasSettingsMaxApprovalsPerExamUIMarkup(t *testing.T) {
 		"Pembersihan Otomatis Antrean Persetujuan",
 	} {
 		if !strings.Contains(users, frag) {
-			t.Errorf("users.html must contain %q (approval-cap/cleanup field markup)", frag)
+			t.Errorf("settings.html must contain %q (approval-cap/cleanup field markup)", frag)
 		}
 	}
 

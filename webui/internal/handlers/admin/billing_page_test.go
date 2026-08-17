@@ -24,29 +24,31 @@ import (
 )
 
 // ---------------------------------------------------------------------------
-// Billing page rendering test: the voucher-claim UI must NOT be rendered for
+// Paket & Voucher (billing) section rendering test on the merged
+// /admin/settings page: the voucher-claim UI must NOT be rendered for
 // operator-created sub-accounts.
 // ---------------------------------------------------------------------------
 
-// billingTemplates are exactly the templates billing.html pulls in (its own
-// body plus the head/nav/svg partials). Loading precisely this set keeps the
-// test focused on the real page without parsing every template in the repo
-// (which would require the server's full funcMap).
+// billingTemplates are exactly the templates the merged settings page pulls in
+// (the Paket & Voucher section lives in settings.html now). Loading precisely
+// this set keeps the test focused on the real page without parsing every
+// template in the repo (which would require the server's full funcMap).
 var billingTemplates = []string{
-	"admin/billing.html",
+	"admin/settings.html",
 	"admin/partials/head.html",
 	"admin/partials/nav.html",
 	"admin/partials/settings-tabs.html",
 	"admin/partials/svg-symbols.html",
 }
 
-// loadBillingTemplatesForTest registers the real billing templates on the gin
+// loadBillingTemplatesForTest registers the real settings templates on the gin
 // engine with the minimal funcMap subset those templates actually use
-// (`dict`, `default`, `displayRole` — verified against the template sources),
-// mirroring the server's own loading (cmd/server/main.go:
-// template.New("").Funcs(funcMap) + per-file Parse). The templates dir is
-// resolved relative to the test package dir (webui/internal/handlers/admin →
-// ../../../templates), which is where `go test` runs from.
+// (`dict`, `default`, `displayRole`, `contains`, `hasRole` — verified against
+// the template sources), mirroring the server's own loading
+// (cmd/server/main.go: template.New("").Funcs(funcMap) + per-file Parse). The
+// templates dir is resolved relative to the test package dir
+// (webui/internal/handlers/admin → ../../../templates), which is where
+// `go test` runs from.
 func loadBillingTemplatesForTest(t *testing.T, r *gin.Engine) {
 	t.Helper()
 	templatesDir := "templates"
@@ -73,6 +75,23 @@ func loadBillingTemplatesForTest(t *testing.T, r *gin.Engine) {
 		},
 		"displayRole": models.DisplayRoles,
 		"contains":    strings.Contains,
+		"hasRole":     models.HasRole,
+		"substr": func(s string, start, end int) string {
+			runes := []rune(s)
+			if start < 0 {
+				start = 0
+			}
+			if start >= len(runes) {
+				return ""
+			}
+			if end > len(runes) {
+				end = len(runes)
+			}
+			if end <= start {
+				return ""
+			}
+			return string(runes[start:end])
+		},
 	})
 	for _, name := range billingTemplates {
 		data, err := os.ReadFile(filepath.Join(templatesDir, name))
@@ -86,12 +105,13 @@ func loadBillingTemplatesForTest(t *testing.T, r *gin.Engine) {
 	r.SetHTMLTemplate(tmpl)
 }
 
-// newBillingPageTestRouter mirrors the production wiring for the billing page
-// (AuthRequired → BillingPage, the one admin page a feature-locked account may
-// still use) plus the /test/login/:id session seam shared by the other
-// integration tests. Unlike newVoucherTestRouter — which stubs /admin/billing
-// with a JSON flash probe — this router serves the REAL page with the REAL
-// templates, so the rendered HTML can be asserted.
+// newBillingPageTestRouter mirrors the production wiring for the settings page
+// (AuthRequired → SettingsPage; the Paket & Voucher section is the one section
+// a feature-locked account may still use to renew) plus the /test/login/:id
+// session seam shared by the other integration tests. Unlike
+// newVoucherTestRouter — which stubs /admin/settings with a JSON flash probe —
+// this router serves the REAL page with the REAL templates, so the rendered
+// HTML can be asserted.
 func newBillingPageTestRouter(t *testing.T, pool *pgxpool.Pool) *gin.Engine {
 	t.Helper()
 	gin.SetMode(gin.TestMode)
@@ -119,26 +139,26 @@ func newBillingPageTestRouter(t *testing.T, pool *pgxpool.Pool) *gin.Engine {
 		c.JSON(http.StatusOK, gin.H{"success": true})
 	})
 
-	// Real billing page behind AuthRequired, exactly like production.
+	// Real settings page behind AuthRequired, exactly like production.
 	adminPages := r.Group("/admin", middleware.AuthRequired())
-	adminPages.GET("/billing", BillingPage())
+	adminPages.GET("/settings", SettingsPage())
 
 	loadBillingTemplatesForTest(t, r)
 	return r
 }
 
-// getBillingPage fetches /admin/billing with the client's session and returns
+// getBillingPage fetches /admin/settings with the client's session and returns
 // the HTTP status and the rendered HTML body.
 func getBillingPage(t *testing.T, client *http.Client, srv *httptest.Server) (int, string) {
 	t.Helper()
-	resp, err := client.Get(srv.URL + "/admin/billing")
+	resp, err := client.Get(srv.URL + "/admin/settings")
 	if err != nil {
-		t.Fatalf("GET /admin/billing: %v", err)
+		t.Fatalf("GET /admin/settings: %v", err)
 	}
 	defer resp.Body.Close()
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
-		t.Fatalf("read /admin/billing body: %v", err)
+		t.Fatalf("read /admin/settings body: %v", err)
 	}
 	return resp.StatusCode, string(body)
 }

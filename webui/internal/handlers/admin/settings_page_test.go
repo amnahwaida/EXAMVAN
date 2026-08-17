@@ -75,6 +75,11 @@ func settingsRenderFuncs() template.FuncMap {
 
 func renderSettingsForRole(t *testing.T, role string) string {
 	t.Helper()
+	return renderSettingsForRoleLocked(t, role, false)
+}
+
+func renderSettingsForRoleLocked(t *testing.T, role string, featureLocked bool) string {
+	t.Helper()
 	templatesDir := "templates"
 	if _, err := os.Stat(templatesDir); err != nil {
 		templatesDir = filepath.Join("..", "..", "..", "templates")
@@ -97,6 +102,7 @@ func renderSettingsForRole(t *testing.T, role string) string {
 		"admin_user":              "tester",
 		"csrf_token":              "guard-csrf-token",
 		"version":                 "test",
+		"feature_locked":          featureLocked,
 		"admin_instansi":          "SMA NEGERI 1",
 		"storage_free_mb":         2048.5,
 		"storage_free_display":    "Sisa disk server: 2.00 GB",
@@ -117,7 +123,7 @@ func renderSettingsForRole(t *testing.T, role string) string {
 		"user_operator_created":   false,
 	})
 	if err != nil {
-		t.Fatalf("render settings.html (%s): %v", role, err)
+		t.Fatalf("render settings.html (%s, locked=%v): %v", role, featureLocked, err)
 	}
 	return buf.String()
 }
@@ -180,6 +186,69 @@ func TestSettingsPageSectionsRoleGated(t *testing.T) {
 	}
 }
 
+// TestSettingsPageFeatureLockedOnlyBilling locks in the feature-lock
+// behaviour of the merged settings hub: a feature-locked (expired) account
+// must get ONLY the Paket & Voucher (billing) section and tab — the renewal
+// surface that replaced the old /admin/billing page — never the Kelola User
+// or SuperAdmin-only sections, regardless of its role.
+func TestSettingsPageFeatureLockedOnlyBilling(t *testing.T) {
+	// Operator is the classic locked role (superadmin is never locked): even
+	// with the operator role, a locked account sees no users section/tab.
+	out := renderSettingsForRoleLocked(t, "operator", true)
+	if !strings.Contains(out, `id="section-billing"`) {
+		t.Error("locked settings page must render the billing section (renewal surface)")
+	}
+	for _, gone := range []string{
+		`id="section-users"`,
+		`id="section-vouchers"`,
+		`id="section-voucher-audit"`,
+		`id="section-packages"`,
+		`id="section-system-apps"`,
+	} {
+		if strings.Contains(out, gone) {
+			t.Errorf("locked settings page must NOT render %s (feature lock hides all but billing)", gone)
+		}
+	}
+	// Only the billing tab is offered — no users tab, no SuperAdmin tabs.
+	if !strings.Contains(out, "/admin/settings#billing") {
+		t.Error("locked settings page must offer the billing tab")
+	}
+	for _, goneTab := range []string{
+		"/admin/settings#users",
+		"/admin/settings#vouchers",
+		"/admin/settings#voucher-audit",
+		"/admin/settings#packages",
+		"/admin/settings#system-apps",
+	} {
+		if strings.Contains(out, goneTab) {
+			t.Errorf("locked settings page must NOT offer tab %s", goneTab)
+		}
+	}
+
+	// A locked superadmin is impossible in practice (the middleware exempts
+	// superadmin), but the template gate must hold for completeness: locked
+	// wins over role even for the superadmin role string.
+	out = renderSettingsForRoleLocked(t, "superadmin", true)
+	if !strings.Contains(out, `id="section-billing"`) {
+		t.Error("locked superadmin settings page must still render the billing section")
+	}
+	for _, gone := range []string{`id="section-users"`, `id="section-vouchers"`, `id="section-system-apps"`} {
+		if strings.Contains(out, gone) {
+			t.Errorf("locked superadmin settings page must NOT render %s", gone)
+		}
+	}
+
+	// Sanity: the SAME role WITHOUT the lock still gets its full sections
+	// (guards against the gate accidentally hiding everything).
+	out = renderSettingsForRoleLocked(t, "operator", false)
+	if !strings.Contains(out, `id="section-users"`) || !strings.Contains(out, `id="section-billing"`) {
+		t.Error("unlocked operator settings page must render users + billing sections")
+	}
+	if !strings.Contains(out, "/admin/settings#users") {
+		t.Error("unlocked operator settings page must offer the users tab")
+	}
+}
+
 func TestSettingsPageLazyJsWiring(t *testing.T) {
 	out := renderSettingsForRole(t, "superadmin")
 	for _, frag := range []string{
@@ -207,8 +276,12 @@ func TestSettingsPageLazyJsWiring(t *testing.T) {
 }
 
 // newSettingsPageTestRouter wires /admin/settings exactly like production
-// (AuthRequired -> FeatureLockRequired -> SettingsPage) so the unauthenticated
-// redirect and the template set load with the full rendering path.
+// (AuthRequired -> SettingsPage, OUTSIDE FeatureLockRequired — the settings
+// hub replaced the six standalone pages and stays reachable for
+// feature-locked accounts so they can renew via the Paket & Voucher tab; the
+// SettingsPage handler itself hides every section but billing for locked
+// accounts) so the unauthenticated redirect and the template set load with
+// the full rendering path.
 func newSettingsPageTestRouter(t *testing.T) *gin.Engine {
 	t.Helper()
 	gin.SetMode(gin.TestMode)
@@ -221,8 +294,7 @@ func newSettingsPageTestRouter(t *testing.T) *gin.Engine {
 	})
 
 	adminPages := r.Group("/admin", middleware.AuthRequired())
-	lockedPages := adminPages.Group("", middleware.FeatureLockRequired())
-	lockedPages.GET("/settings", SettingsPage())
+	adminPages.GET("/settings", SettingsPage())
 
 	loadSettingsTemplatesForTest(t, r)
 	return r

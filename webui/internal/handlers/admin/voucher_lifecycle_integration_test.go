@@ -169,10 +169,11 @@ func newVoucherTestRouter(pool *pgxpool.Pool) *gin.Engine {
 		c.JSON(http.StatusOK, gin.H{"success": true})
 	})
 
-	// /admin/billing mirror of the real billing page: renders (and consumes)
-	// pending flash messages as JSON so tests can assert the feature-lock
-	// notice is shown after FeatureLockRequired redirects an HTML request.
-	r.GET("/admin/billing", func(c *gin.Context) {
+	// /admin/settings mirror of the real settings hub (which replaced the old
+	// /admin/billing renewal page): renders (and consumes) pending flash
+	// messages as JSON so tests can assert the feature-lock notice is shown
+	// after FeatureLockRequired redirects an HTML request.
+	r.GET("/admin/settings", func(c *gin.Context) {
 		flashes := sessions.Default(c).Flashes()
 		if flashes == nil {
 			flashes = []interface{}{}

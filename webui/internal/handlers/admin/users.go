@@ -270,19 +270,12 @@ func loadOperatorPackageFallback(ctx context.Context, q quotaQuerier, userID int
 }
 
 // ---------------------------------------------------------------------------
-// 1. GET /admin/users — Render users management page
+// 1. Kelola User section data (merged into /admin/settings)
 // ---------------------------------------------------------------------------
 
-func UsersPage() gin.HandlerFunc {
-	return func(c *gin.Context) {
-		data := loadUsersPageData(c)
-		data["active_page"] = "users"
-		renderAdminPage(c, "admin/users.html", data)
-	}
-}
-
-// loadUsersPageData computes the Kelola User section's data dict. Shared by
-// the standalone /admin/users page and the merged /admin/settings page.
+// loadUsersPageData computes the Kelola User section's data dict for the
+// merged /admin/settings page. (The standalone /admin/users page was removed;
+// its URL now 302-redirects to /admin/settings#users via SettingsRedirect.)
 func loadUsersPageData(c *gin.Context) gin.H {
 	pool := getPool(c)
 	userID := getCurrentUserID(c)

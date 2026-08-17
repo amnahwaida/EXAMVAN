@@ -603,31 +603,41 @@ func registerRoutes(r *gin.Engine, cfg *config.Config, pool *pgxpool.Pool) {
 	// ---- Admin pages (auth required) ----
 	adminPages := r.Group("/admin", middleware.AuthRequired())
 	{
-		// Billing is the ONLY page a feature-locked (expired) account may use —
-		// it is where the owner renews (redeems/activates a voucher).
-		adminPages.GET("/billing", admin.BillingPage())
+		// The settings hub (/admin/settings) is the ONLY page a feature-locked
+		// (expired) account may use — it is where the owner renews
+		// (redeems/activates a voucher) via the Paket & Voucher tab. It is
+		// registered OUTSIDE FeatureLockRequired, and SettingsPage itself hides
+		// every section but billing for locked accounts (mirroring the old
+		// /admin/billing page it replaces).
+		adminPages.GET("/settings", admin.SettingsPage())
+
+		// Legacy settings URLs — the six standalone pages were merged into
+		// /admin/settings: each URL now 302-redirects to its tab on the merged
+		// page, so bookmarks and external links keep working. Role middleware
+		// is kept so the redirect answers exactly like the old page did (a
+		// non-superadmin hitting /admin/vouchers is still denied, not silently
+		// bounced to the settings hub).
+		adminPages.GET("/users", middleware.AdminManagementRequired(), admin.SettingsRedirect("users"))
+		adminPages.GET("/billing", admin.SettingsRedirect("billing"))
+		adminPages.GET("/vouchers", middleware.SuperAdminRequired(), admin.SettingsRedirect("vouchers"))
+		adminPages.GET("/vouchers/audit", middleware.SuperAdminRequired(), admin.SettingsRedirect("voucher-audit"))
+		adminPages.GET("/packages", middleware.SuperAdminRequired(), admin.SettingsRedirect("packages"))
+		adminPages.GET("/system-apps", middleware.SuperAdminRequired(), admin.SettingsRedirect("system-apps"))
 
 		// Logout must stay reachable for locked accounts (GET redirects to login,
 		// so a locked owner can always sign out).
 		adminPages.GET("/logout", func(c *gin.Context) { c.Redirect(http.StatusFound, "/login") })
 
 		// Every other page requires full feature access: a feature-locked
-		// account is redirected to /admin/billing by FeatureLockRequired.
+		// account is redirected to /admin/settings#billing by FeatureLockRequired.
 		lockedPages := adminPages.Group("", middleware.FeatureLockRequired())
 		{
 			lockedPages.GET("/dashboard", admin.Dashboard())
 			lockedPages.GET("/dashboard/redirect", admin.DashboardRedirect())
-			lockedPages.GET("/settings", admin.SettingsPage())
 			lockedPages.GET("/submissions", admin.SubmissionsPage())
-
-			lockedPages.GET("/users", middleware.AdminManagementRequired(), admin.UsersPage())
-			lockedPages.GET("/vouchers", middleware.SuperAdminRequired(), admin.VouchersPage())
-			lockedPages.GET("/vouchers/audit", middleware.SuperAdminRequired(), admin.VoucherAuditPage())
-			lockedPages.GET("/packages", middleware.SuperAdminRequired(), admin.PackagesPage())
 
 			lockedPages.GET("/pengawas", admin.PengawasPage())
 			lockedPages.GET("/pengawas/:exam_id", admin.PengawasDetailPage())
-			lockedPages.GET("/system-apps", middleware.SuperAdminRequired(), admin.SystemAppsPage())
 		}
 	}
 
@@ -977,11 +987,12 @@ func loginHandler(cfg *config.Config) gin.HandlerFunc {
 		if nextTarget != "" {
 			redirectTarget = nextTarget
 		}
-		// A feature-locked (expired) account is sent straight to the billing
-		// page: it can renew there (redeem/activate a voucher) but every other
-		// admin page is blocked by FeatureLockRequired.
+		// A feature-locked (expired) account is sent straight to the settings
+		// hub's Paket & Voucher tab: it can renew there (redeem/activate a
+		// voucher) but every other admin page is blocked by
+		// FeatureLockRequired.
 		if user.IsFeatureLocked() {
-			redirectTarget = "/admin/billing"
+			redirectTarget = "/admin/settings#billing"
 		}
 		c.Redirect(http.StatusFound, redirectTarget)
 	}

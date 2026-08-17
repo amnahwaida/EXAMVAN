@@ -10,32 +10,8 @@ import (
 	"github.com/gin-gonic/gin"
 
 	r2client "github.com/examvan/webui/internal/handlers/r2"
-	"github.com/examvan/webui/internal/middleware"
 	"github.com/examvan/webui/internal/models"
 )
-
-// SystemAppsPage renders the page for superadmin to upload and manage system apps.
-func SystemAppsPage() gin.HandlerFunc {
-	return func(c *gin.Context) {
-		data := middleware.TemplateData(c)
-		pool := getPool(c)
-		ctx := c.Request.Context()
-
-		apps, err := models.GetAllSystemApps(ctx, pool)
-		if err != nil {
-			data["error"] = "Gagal memuat aplikasi sistem."
-		} else {
-			data["apps"] = apps
-		}
-
-		r2Val, exists := c.Get("r2")
-		r2 := r2client.FromContext(r2Val)
-		r2Enabled := exists && r2 != nil && r2.Enabled()
-		data["r2_enabled"] = r2Enabled
-
-		renderAdminPage(c, "admin/system_apps.html", data)
-	}
-}
 
 // UploadSystemApp handles uploading an app file to R2 and storing metadata in DB.
 func UploadSystemApp() gin.HandlerFunc {

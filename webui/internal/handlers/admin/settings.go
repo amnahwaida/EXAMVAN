@@ -14,6 +14,7 @@ import (
 
 	r2client "github.com/examvan/webui/internal/handlers/r2"
 	"github.com/examvan/webui/internal/helpers"
+	"github.com/examvan/webui/internal/middleware"
 	"github.com/examvan/webui/internal/models"
 )
 
@@ -27,9 +28,25 @@ import (
 // sections without a reload. The template gates each section by role; the
 // per-section JS is loaded lazily from /static/js/settings-<section>.js on
 // first tab activation.
+//
+// /admin/settings REPLACED the six standalone settings pages (users, billing,
+// vouchers, voucher audit, packages, system-apps — all now 302-redirect here).
+// Because the old /admin/billing was the ONE page a feature-locked (expired)
+// account may still use to renew, this page must stay reachable for locked
+// accounts too: it is registered OUTSIDE FeatureLockRequired and handles the
+// lock itself — a locked account only gets the Paket & Voucher (billing)
+// section, exactly like the billing page it replaces.
 func SettingsPage() gin.HandlerFunc {
 	return func(c *gin.Context) {
 		data := gin.H{"active_page": "settings"}
+
+		// Feature-locked (expired, non-superadmin) account: only the billing
+		// section is rendered, mirroring the old /admin/billing page it
+		// replaces — the owner lands on the tab where they can renew. The
+		// template hides every other tab/section when feature_locked is set.
+		locked, _ := c.Get(middleware.ContextKeyLocked)
+		featureLocked, _ := locked.(bool)
+		data["feature_locked"] = featureLocked
 
 		// Paket & Voucher (billing) section — rendered for every role.
 		for k, v := range loadBillingPageData(c) {
@@ -38,14 +55,14 @@ func SettingsPage() gin.HandlerFunc {
 
 		isSuper := isSuperAdmin(c)
 		isOp := isOperator(c)
-		if isSuper || isOp {
+		if !featureLocked && (isSuper || isOp) {
 			// Kelola User section (SuperAdmin & Operator).
 			for k, v := range loadUsersPageData(c) {
 				data[k] = v
 			}
 		}
 
-		if isSuper {
+		if !featureLocked && isSuper {
 			// Aplikasi Sistem section (server-rendered app cards) — SuperAdmin.
 			pool := getPool(c)
 			ctx := c.Request.Context()
@@ -61,6 +78,17 @@ func SettingsPage() gin.HandlerFunc {
 		}
 
 		renderAdminPage(c, "admin/settings.html", data)
+	}
+}
+
+// SettingsRedirect 302-redirects a legacy settings URL to its tab on the
+// merged /admin/settings page. Registered for the six old standalone pages
+// (/admin/users, /admin/billing, /admin/vouchers, /admin/vouchers/audit,
+// /admin/packages, /admin/system-apps) so bookmarks and external links keep
+// working: the browser lands on the same section, one hash away.
+func SettingsRedirect(section string) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		c.Redirect(http.StatusFound, "/admin/settings#"+section)
 	}
 }
 

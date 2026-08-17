@@ -45,9 +45,9 @@ func newLockTestRouter(setLocked bool) *gin.Engine {
 		c.JSON(http.StatusOK, gin.H{"success": true})
 	})
 
-	// Billing mirror: renders (and consumes) pending flashes so tests can
-	// assert the lock notice is shown after the redirect.
-	r.GET("/admin/billing", func(c *gin.Context) {
+	// Settings mirror: renders (and consumes) pending flashes so tests can
+	// assert the lock notice is shown after the redirect to /admin/settings#billing.
+	r.GET("/admin/settings", func(c *gin.Context) {
 		flashes := sessions.Default(c).Flashes()
 		if flashes == nil {
 			flashes = []interface{}{}
@@ -73,7 +73,15 @@ func call(r *gin.Engine, method, path string, followRedirects bool) (int, string
 		for _, c := range rec.Result().Cookies() {
 			cookieHeader = append(cookieHeader, c.String())
 		}
-		req2 := httptest.NewRequest(method, loc, nil)
+		// A fragment (#...) is never sent to the server in a real browser —
+		// strip it before the follow-up request, or httptest.NewRequest treats
+		// the hash as part of the path and the route 404s. (The settings-hub
+		// redirect target is /admin/settings#billing.)
+		target := loc
+		if i := strings.IndexByte(target, '#'); i >= 0 {
+			target = target[:i]
+		}
+		req2 := httptest.NewRequest(method, target, nil)
 		req2.Header.Set("Cookie", strings.Join(cookieHeader, "; "))
 		rec2 := httptest.NewRecorder()
 		r.ServeHTTP(rec2, req2)
@@ -143,22 +151,23 @@ func TestFeatureLockRequiredAPIBranch(t *testing.T) {
 }
 
 // TestFeatureLockRequiredHTMLRedirectsToBilling covers the browser branch: a
-// locked account navigating the admin UI is redirected to /admin/billing and
-// the billing page renders the lock flash, so the lock is not silent and the
-// owner lands where they can renew.
+// locked account navigating the admin UI is redirected to
+// /admin/settings#billing — the settings hub that replaced the old
+// /admin/billing renewal page — and the settings mirror renders the lock
+// flash, so the lock is not silent and the owner lands where they can renew.
 func TestFeatureLockRequiredHTMLRedirectsToBilling(t *testing.T) {
 	r := newLockTestRouter(true)
 
-	// Follow the redirect to the billing page and read the flash it consumes.
+	// Follow the redirect to the settings hub and read the flash it consumes.
 	status, body, loc := call(r, http.MethodGet, "/locked/ping", true)
-	if loc != "/admin/billing" {
-		t.Errorf("redirect Location = %q, want /admin/billing", loc)
+	if loc != "/admin/settings#billing" {
+		t.Errorf("redirect Location = %q, want /admin/settings#billing", loc)
 	}
 	if status != http.StatusOK {
-		t.Fatalf("billing page after redirect: status = %d, want 200", status)
+		t.Fatalf("settings page after redirect: status = %d, want 200", status)
 	}
 	if !strings.Contains(body, "Masa aktif akun Anda telah habis") {
-		t.Errorf("billing page missing lock flash, body=%s", body)
+		t.Errorf("settings page missing lock flash, body=%s", body)
 	}
 }
 
@@ -179,7 +188,7 @@ func TestFeatureLockRequiredAllowsUnlocked(t *testing.T) {
 }
 
 // TestFeatureLockRequiredFlashIsConsumedOnce guards against the flash being
-// re-shown on every page view: the billing page consumes the notice on the
+// re-shown on every page view: the settings hub consumes the notice on the
 // first load, so a second navigation does not repeat it.
 func TestFeatureLockRequiredFlashIsConsumedOnce(t *testing.T) {
 	r := newLockTestRouter(true)
@@ -187,14 +196,14 @@ func TestFeatureLockRequiredFlashIsConsumedOnce(t *testing.T) {
 	// First navigation: redirect, flash rendered and consumed.
 	status, body, _ := call(r, http.MethodGet, "/locked/ping", true)
 	if status != http.StatusOK || !strings.Contains(body, "Masa aktif akun Anda telah habis") {
-		t.Fatalf("first navigation: status=%d body=%s, want flash on billing", status, body)
+		t.Fatalf("first navigation: status=%d body=%s, want flash on settings", status, body)
 	}
-	// Fresh navigation to the billing page directly: no new lock flash.
-	status2, body2, _ := call(r, http.MethodGet, "/admin/billing", false)
+	// Fresh navigation to the settings hub directly: no new lock flash.
+	status2, body2, _ := call(r, http.MethodGet, "/admin/settings", false)
 	if status2 != http.StatusOK {
-		t.Fatalf("billing reload: status = %d, want 200", status2)
+		t.Fatalf("settings reload: status = %d, want 200", status2)
 	}
 	if strings.Contains(body2, "Masa aktif akun Anda telah habis") {
-		t.Errorf("billing reload still shows lock flash: body=%s (flash must be consumed)", body2)
+		t.Errorf("settings reload still shows lock flash: body=%s (flash must be consumed)", body2)
 	}
 }

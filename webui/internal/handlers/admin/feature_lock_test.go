@@ -286,7 +286,7 @@ func TestFeatureLockAPIBranchDoesNotRedirect(t *testing.T) {
 	if resp.StatusCode != http.StatusForbidden {
 		t.Fatalf("status=%d, want 403 (no redirect for API)", resp.StatusCode)
 	}
-	if loc := resp.Request.URL.String(); strings.Contains(loc, "/admin/billing") {
+	if loc := resp.Request.URL.String(); strings.Contains(loc, "/admin/settings") {
 		t.Errorf("request was redirected to %s, want the 403 kept in place", loc)
 	}
 	var out struct {
@@ -306,8 +306,9 @@ func TestFeatureLockAPIBranchDoesNotRedirect(t *testing.T) {
 
 // TestFeatureLockHTMLBranchRedirectsToBilling covers the browser branch: a
 // locked account navigating the admin UI (plain HTML accept) is redirected to
-// /admin/billing and the billing page renders the lock flash, so the owner
-// lands exactly where they can renew and knows why.
+// /admin/settings#billing — the settings hub that replaced the old
+// /admin/billing renewal page — and the settings mirror renders the lock
+// flash, so the owner lands exactly where they can renew and knows why.
 func TestFeatureLockHTMLBranchRedirectsToBilling(t *testing.T) {
 	pool := setupVoucherITDB(t)
 	ctx := context.Background()
@@ -322,8 +323,8 @@ func TestFeatureLockHTMLBranchRedirectsToBilling(t *testing.T) {
 	tc.login(t, user.ID)
 
 	// Plain GET (no API headers): FeatureLockRequired redirects to
-	// /admin/billing, the client follows, and the billing mirror consumes the
-	// flash with the expiry reason.
+	// /admin/settings#billing, the client follows, and the settings mirror
+	// consumes the flash with the expiry reason.
 	resp, err := tc.client.Get(tc.srv.URL + "/api/auth-ping")
 	if err != nil {
 		t.Fatalf("GET auth-ping (HTML): %v", err)
@@ -331,10 +332,10 @@ func TestFeatureLockHTMLBranchRedirectsToBilling(t *testing.T) {
 	defer resp.Body.Close()
 	body, _ := io.ReadAll(resp.Body)
 	if resp.StatusCode != http.StatusOK {
-		t.Fatalf("billing page after redirect: status=%d, want 200", resp.StatusCode)
+		t.Fatalf("settings page after redirect: status=%d, want 200", resp.StatusCode)
 	}
 	if !strings.Contains(string(body), "Masa aktif akun Anda telah habis") {
-		t.Errorf("billing page missing lock flash, body=%s", body)
+		t.Errorf("settings page missing lock flash, body=%s", body)
 	}
 }
 
@@ -372,10 +373,11 @@ func TestFeatureLockSuperAdminNeverLocked(t *testing.T) {
 	}
 }
 
-// TestFeatureLockBillingPageReachableAfterLock completes the loop for the
-// plain-HTML side of the billing page itself: it must be reachable (200, not
-// redirected) while the account is locked, because it IS the renewal page.
-func TestFeatureLockBillingPageReachableAfterLock(t *testing.T) {
+// TestFeatureLockSettingsReachableAfterLock completes the loop for the
+// plain-HTML side of the settings hub itself: it must be reachable (200, not
+// redirected) while the account is locked, because its Paket & Voucher
+// section IS the renewal page (the old /admin/billing redirects here).
+func TestFeatureLockSettingsReachableAfterLock(t *testing.T) {
 	pool := setupVoucherITDB(t)
 	ctx := context.Background()
 
@@ -388,18 +390,18 @@ func TestFeatureLockBillingPageReachableAfterLock(t *testing.T) {
 	tc := newVoucherTestClient(t, pool)
 	tc.login(t, user.ID)
 
-	req, err := http.NewRequest(http.MethodGet, tc.srv.URL+"/admin/billing", nil)
+	req, err := http.NewRequest(http.MethodGet, tc.srv.URL+"/admin/settings", nil)
 	if err != nil {
 		t.Fatalf("build request: %v", err)
 	}
 	resp, err := tc.client.Do(req)
 	if err != nil {
-		t.Fatalf("GET /admin/billing: %v", err)
+		t.Fatalf("GET /admin/settings: %v", err)
 	}
 	defer resp.Body.Close()
 	body, _ := io.ReadAll(resp.Body)
-	// The billing mirror answers 200 JSON for any valid session.
+	// The settings mirror answers 200 JSON for any valid session.
 	if resp.StatusCode != http.StatusOK {
-		t.Errorf("billing page while locked: status=%d, want 200 (body=%s)", resp.StatusCode, body)
+		t.Errorf("settings page while locked: status=%d, want 200 (body=%s)", resp.StatusCode, body)
 	}
 }

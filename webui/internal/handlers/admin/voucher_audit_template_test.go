@@ -27,24 +27,44 @@ func TestVoucherAuditUIMarkupPresent(t *testing.T) {
 		}
 		return string(data)
 	}
+	// readRoot reads from the repo root (static assets live outside templates/).
+	readRoot := func(name string) string {
+		t.Helper()
+		data, err := os.ReadFile(filepath.Join("..", "..", "..", name))
+		if err != nil {
+			t.Fatalf("read %s: %v", name, err)
+		}
+		return string(data)
+	}
 
-	// The page itself: title, the audit table, the API fetch with search, and
-	// the pagination renderer.
-	page := read("admin/voucher_audit.html")
+	// The merged settings page: the audit section's title and table markup, the
+	// API fetch with search, and the pagination renderer. (The standalone
+	// voucher_audit.html was removed; its URL now 302-redirects to
+	// /admin/settings#voucher-audit, and the audit JS lives in
+	// static/js/settings-voucher-audit.js, loaded lazily when the tab opens.)
+	page := read("admin/settings.html")
 	for _, frag := range []string{
 		"Riwayat Klaim &amp; Aktivasi Voucher",
-		`/admin/api/vouchers/audit-logs?page=`,
 		"loadAuditLogs(",
+		`id="auditLogsBody"`,
+		`id="auditSearchInput"`,
+	} {
+		if !strings.Contains(page, frag) {
+			t.Errorf("settings.html must contain %q (audit section markup)", frag)
+		}
+	}
+
+	auditJS := readRoot("static/js/settings-voucher-audit.js")
+	for _, frag := range []string{
+		`/admin/api/vouchers/audit-logs?page=`,
 		"renderAuditLogsTable",
 		"renderAuditPagination",
 		"voucher_redeemed",
 		"voucher_activated",
-		`id="auditLogsBody"`,
-		`id="auditSearchInput"`,
 		"localizeUTC(l.created_at)",
 	} {
-		if !strings.Contains(page, frag) {
-			t.Errorf("voucher_audit.html must contain %q (audit page markup)", frag)
+		if !strings.Contains(auditJS, frag) {
+			t.Errorf("settings-voucher-audit.js must contain %q (audit page script)", frag)
 		}
 	}
 

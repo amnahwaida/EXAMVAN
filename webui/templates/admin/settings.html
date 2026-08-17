@@ -740,15 +740,16 @@
 <div class="toast-container" id="toastContainer" aria-live="polite" aria-atomic="true"></div>
 
 {{template "admin/partials/nav.html" dict "active_page" .active_page "admin_role" .admin_role "admin_user" .admin_user "csrf_token" .csrf_token "needs_instansi" .needs_instansi}}
-{{template "admin/partials/settings-tabs.html" dict "active_page" .active_page "admin_role" .admin_role}}
+{{template "admin/partials/settings-tabs.html" dict "active_page" .active_page "admin_role" .admin_role "feature_locked" .feature_locked}}
 
 <main class="dashboard">
  {{ $role := .admin_role }}
 {{ $isSuper := contains $role "superadmin" }}
 {{ $isOp := contains $role "operator" }}
 {{ $isGuru := or (contains $role "guru") (or $isSuper $isOp) }}
+{{ $locked := .feature_locked }}
 
-{{ if or $isSuper $isOp }}
+{{ if and (not $locked) (or $isSuper $isOp) }}
 <section class="settings-section" id="section-users" data-section="users" aria-label="Kelola User">
 <h1 class="sr-only" style="position:absolute;left:-9999px;">Kelola User</h1>
  <div class="users-layout">
@@ -1349,7 +1350,7 @@
 <!-- Billing Script -->
 </section>
 
-{{ if $isSuper }}
+{{ if and (not $locked) $isSuper }}
 <section class="settings-section" id="section-vouchers" data-section="vouchers" aria-label="Kelola Voucher">
 <div class="billing-container" style="padding:24px;max-width:1200px;margin:0 auto;">
 
@@ -1933,7 +1934,11 @@ window.__settingsLoaded = {};
 
   var isSuper = (window.__adminRole === 'superadmin');
   var isOp = (window.__adminRole === 'operator' || (window.__adminRole || '').indexOf('operator') !== -1);
+  // Feature-locked accounts (and roles without the users tab) fall back to
+  // billing — the one section that is always rendered. Guarded by DOM
+  // presence so the default can never point at an unrendered section.
   var defaultSection = (isSuper || isOp) ? 'users' : 'billing';
+  if (!document.getElementById('section-' + defaultSection)) defaultSection = 'billing';
 
   function loadSectionScript(key, cb) {
     if (window.__settingsLoaded[key]) { cb(); return; }

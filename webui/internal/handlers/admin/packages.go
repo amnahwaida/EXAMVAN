@@ -12,29 +12,6 @@ import (
 	"github.com/examvan/webui/internal/models"
 )
 
-// PackagesPage renders the GET /admin/packages quota configuration page for
-// SuperAdmin.
-func PackagesPage() gin.HandlerFunc {
-	return func(c *gin.Context) {
-		role := getCurrentUserRole(c)
-		if role != models.RoleSuperAdmin {
-			c.Redirect(http.StatusFound, "/admin/dashboard")
-			return
-		}
-
-		data := gin.H{
-			"title":       "Pengaturan Paket",
-			"active_page": "packages",
-			"admin_user":  getCurrentUsername(c),
-			"admin_role":  role,
-			// Sisa kapasitas disk (MB) agar kolom Storage di tabel paket bisa dibatasi.
-			"storage_free_mb": roundTo(getFreeDiskSpace(getStoragePath(c))/(1024*1024), 2),
-		}
-
-		renderAdminPage(c, "admin/packages.html", data)
-	}
-}
-
 // ListPackagesSettingsHandler handles GET /admin/api/packages (SuperAdmin
 // only). Returns the editable quota rows for the fixed packages.
 func ListPackagesSettingsHandler() gin.HandlerFunc {

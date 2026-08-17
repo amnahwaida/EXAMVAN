@@ -26,29 +26,31 @@ import (
 )
 
 // ---------------------------------------------------------------------------
-// Kelola User page rendering test: the Operator role chip (id="roleOperator")
-// and the package selector (id="packageSelect") must NOT be rendered for an
-// operator whose session role is the raw role JSON (e.g. '["guru","operator"]'
-// — exactly what vouchers.go writes into the session after a redeem/activate
-// without re-login). The template guards compare by role MEMBERSHIP
-// (hasRole / __adminHasRole), not by exact string equality, so every operator
-// is covered regardless of session-role format. A superadmin still sees both
-// controls (it may create operator accounts).
+// Kelola User section rendering test (on the merged /admin/settings page): the
+// Operator role chip (id="roleOperator") and the package selector
+// (id="packageSelect") must NOT be rendered for an operator whose session role
+// is the raw role JSON (e.g. '["guru","operator"]' — exactly what vouchers.go
+// writes into the session after a redeem/activate without re-login). The
+// template guards compare by role MEMBERSHIP (hasRole / __adminHasRole), not
+// by exact string equality, so every operator is covered regardless of
+// session-role format. A superadmin still sees both controls (it may create
+// operator accounts).
 // ---------------------------------------------------------------------------
 
-// usersPageTemplates are exactly the templates users.html pulls in. Loading
-// precisely this set keeps the test focused on the real page without parsing
-// every template in the repo.
+// usersPageTemplates are exactly the templates the merged settings page pulls
+// in (the Kelola User section lives in settings.html now). Loading precisely
+// this set keeps the test focused on the real page without parsing every
+// template in the repo.
 var usersPageTemplates = []string{
-	"admin/users.html",
+	"admin/settings.html",
 	"admin/partials/head.html",
 	"admin/partials/nav.html",
 	"admin/partials/settings-tabs.html",
 	"admin/partials/svg-symbols.html",
 }
 
-// loadUsersPageTemplatesForTest registers the real users page templates on the
-// gin engine with the funcMap subset users.html + its partials actually use
+// loadUsersPageTemplatesForTest registers the real settings templates on the
+// gin engine with the funcMap subset settings.html + its partials actually use
 // (dict, default, displayRole, contains — from head/nav — plus substr and
 // hasRole from the page body), mirroring cmd/server/main.go.
 func loadUsersPageTemplatesForTest(t *testing.T, r *gin.Engine) {
@@ -107,8 +109,9 @@ func loadUsersPageTemplatesForTest(t *testing.T, r *gin.Engine) {
 	r.SetHTMLTemplate(tmpl)
 }
 
-// newUsersPageTestRouter mirrors the production wiring for the users page
-// (AuthRequired → FeatureLockRequired → AdminManagementRequired → UsersPage).
+// newUsersPageTestRouter mirrors the production wiring for the settings page
+// (AuthRequired → SettingsPage; the Kelola User section is role-gated inside
+// the merged page, and feature-locked accounts get only the billing section).
 // Unlike the dashboard seam, the session role is stored RAW (u.Role) — exactly
 // like vouchers.go does after a redeem/activate — so the test exercises the
 // multi-role / raw-JSON session-role format that used to leak the Operator chip.
@@ -145,14 +148,13 @@ func newUsersPageTestRouter(t *testing.T, pool *pgxpool.Pool, storagePath string
 	})
 
 	adminPages := r.Group("/admin", middleware.AuthRequired())
-	lockedPages := adminPages.Group("", middleware.FeatureLockRequired())
-	lockedPages.GET("/users", middleware.AdminManagementRequired(), UsersPage())
+	adminPages.GET("/settings", SettingsPage())
 
 	loadUsersPageTemplatesForTest(t, r)
 	return r
 }
 
-// fetchUsersPage logs in as the given user and fetches /admin/users,
+// fetchUsersPage logs in as the given user and fetches /admin/settings,
 // returning the HTTP status and the rendered HTML.
 func fetchUsersPage(t *testing.T, pool *pgxpool.Pool, srv *httptest.Server, userID int) (int, string) {
 	t.Helper()
@@ -161,9 +163,9 @@ func fetchUsersPage(t *testing.T, pool *pgxpool.Pool, srv *httptest.Server, user
 	if resp, err := client.Post(srv.URL+"/test/login/"+strconv.Itoa(userID), "application/json", nil); err != nil || resp.StatusCode != http.StatusOK {
 		t.Fatalf("test login: status=%v err=%v", resp, err)
 	}
-	resp, err := client.Get(srv.URL + "/admin/users")
+	resp, err := client.Get(srv.URL + "/admin/settings")
 	if err != nil {
-		t.Fatalf("GET /admin/users: %v", err)
+		t.Fatalf("GET /admin/settings: %v", err)
 	}
 	defer resp.Body.Close()
 	body, _ := io.ReadAll(resp.Body)
@@ -188,10 +190,10 @@ func TestUsersPageHidesOperatorRoleForRawRoleJSON(t *testing.T) {
 	op, err := models.CreateUser(ctx, pool, &models.AdminUser{
 		Username: "it_users_op", Name: "IT Users Op",
 		PasswordHash: "x", Status: models.UserStatusActive,
-		Instansi:     "SMK Alpha",
-		Role:         models.SerializeRoles([]string{models.RoleGuru, models.RoleOperator}),
-		Package:      "sekolah-test",
-		MaxExams:     3, MaxPDFSize: 1048576, MaxConcurrentExams: 2,
+		Instansi: "SMK Alpha",
+		Role:     models.SerializeRoles([]string{models.RoleGuru, models.RoleOperator}),
+		Package:  "sekolah-test",
+		MaxExams: 3, MaxPDFSize: 1048576, MaxConcurrentExams: 2,
 		MaxStorageSize: 50 * 1024 * 1024,
 	})
 	if err != nil {

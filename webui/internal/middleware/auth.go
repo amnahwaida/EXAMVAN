@@ -271,14 +271,16 @@ func SuperAdminRequired() gin.HandlerFunc {
 // beyond the billing page.
 const FeatureLockedMessage = "Masa aktif akun Anda telah habis. Silakan perpanjang masa aktif melalui halaman Paket & Voucher untuk melanjutkan penggunaan."
 
-// FeatureLockRequired gates every admin page/API except billing. It must be
-// used after AuthRequired, which sets ContextKeyLocked when the account's
-// active period has passed (an expired owner keeps their session so they can
-// renew). A locked account is redirected to the billing page (HTML) or gets a
-// 403 JSON (API) — the same shape as the suspended-account handling, but
-// pointing the owner at renewal instead of blocking them out entirely.
-// Accounts that are not feature-locked (valid, suspended — suspended is
-// rejected earlier by AuthRequired — or SuperAdmin) pass through untouched.
+// FeatureLockRequired gates every admin page/API except the settings hub. It
+// must be used after AuthRequired, which sets ContextKeyLocked when the
+// account's active period has passed (an expired owner keeps their session so
+// they can renew). A locked account is redirected to the settings hub's
+// Paket & Voucher tab — /admin/settings#billing — which replaced the old
+// /admin/billing renewal page (HTML) or gets a 403 JSON (API) — the same
+// shape as the suspended-account handling, but pointing the owner at renewal
+// instead of blocking them out entirely. Accounts that are not
+// feature-locked (valid, suspended — suspended is rejected earlier by
+// AuthRequired — or SuperAdmin) pass through untouched.
 func FeatureLockRequired() gin.HandlerFunc {
 	return func(c *gin.Context) {
 		locked, _ := c.Get(ContextKeyLocked)
@@ -290,7 +292,7 @@ func FeatureLockRequired() gin.HandlerFunc {
 				session := sessions.Default(c)
 				session.AddFlash(msg)
 				_ = session.Save()
-				c.Redirect(http.StatusFound, "/admin/billing")
+				c.Redirect(http.StatusFound, "/admin/settings#billing")
 			}
 			c.Abort()
 			return
