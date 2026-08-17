@@ -1498,9 +1498,15 @@
   <!-- SaaS & SMTP Email Verification Settings -->
   {{if eq .admin_role "superadmin"}}
   <section class="glass-card">
-  <h3 style="margin-bottom:16px;font-size:1.1rem;color:#a5b4fc;display:flex;align-items:center;gap:8px;">
+  <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;flex-wrap:wrap;gap:8px;">
+  <h3 style="margin:0;font-size:1.1rem;color:#a5b4fc;display:flex;align-items:center;gap:8px;">
   <svg class="icon-svg" style="color:#a5b4fc;"><use href="#hi-settings"/></svg> SaaS &amp; SMTP Email Settings
   </h3>
+  <button type="button" id="toggleAllGeneralBtn" onclick="toggleAllGeneralCollapse()" class="btn-sm" title="Lipat/buka semua bagian Pengaturan Umum sekaligus" style="background:rgba(99,102,241,0.15);border:1px solid rgba(99,102,241,0.4);color:#a5b4fc;display:inline-flex;align-items:center;gap:6px;cursor:pointer;padding:6px 12px;border-radius:8px;font-size:13px;transition:all 0.2s;">
+  <svg class="icon-svg" style="width:14px;height:14px;transition:transform 0.2s ease;" id="toggleAllGeneralIcon"><use href="#hi-chevron-down"/></svg>
+  <span id="toggleAllGeneralLabel">Buka Semua</span>
+  </button>
+  </div>
   <form id="saasSettingsForm" onsubmit="saveSaasSettings(event)" novalidate style="display:flex;flex-direction:column;gap:12px;">
   <div class="switch-container">
   <span class="switch-label" title="Aktifkan untuk mewajibkan verifikasi kode OTP lewat email saat pendaftaran akun baru">Verifikasi OTP Email</span>

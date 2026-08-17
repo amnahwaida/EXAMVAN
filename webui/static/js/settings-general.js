@@ -20,6 +20,7 @@ function toggleGeneralCollapse(head) {
     head.setAttribute('aria-expanded', isOpen ? 'false' : 'true');
     head.classList.toggle('collapsed', isOpen);
     try { localStorage.setItem(collapseKeyFor(block), isOpen ? '0' : '1'); } catch (e) {}
+    if (typeof updateToggleAllLabel === 'function') updateToggleAllLabel();
 }
 
 // Turn an <h4> into the clickable accordion header of its block: click toggles
@@ -140,8 +141,48 @@ function setupGeneralCollapse() {
     }
 }
 
+// ---- Buka Semua / Lipat Semua (top-right button of the SaaS card) ----
+// Returns true when at least one block in the general section is collapsed.
+function anyGeneralCollapsed() {
+    var blocks = Array.prototype.slice.call(document.querySelectorAll('#section-general .saas-collapse'));
+    return blocks.some(function (b) {
+        var body = b.querySelector('.saas-collapse-body');
+        return body && body.style.display === 'none';
+    });
+}
+
+function setAllGeneralCollapse(expand) {
+    var blocks = Array.prototype.slice.call(document.querySelectorAll('#section-general .saas-collapse'));
+    blocks.forEach(function (b) {
+        var body = b.querySelector('.saas-collapse-body');
+        var head = b.querySelector('.saas-collapse-head');
+        if (!body || !head) return;
+        body.style.display = expand ? '' : 'none';
+        head.setAttribute('aria-expanded', expand ? 'true' : 'false');
+        head.classList.toggle('collapsed', !expand);
+        try { localStorage.setItem(collapseKeyFor(b), expand ? '1' : '0'); } catch (e) {}
+    });
+    updateToggleAllLabel();
+}
+
+function updateToggleAllLabel() {
+    var btn = document.getElementById('toggleAllGeneralBtn');
+    var label = document.getElementById('toggleAllGeneralLabel');
+    var icon = document.getElementById('toggleAllGeneralIcon');
+    if (!btn || !label || !icon) return;
+    var expand = anyGeneralCollapsed();
+    label.textContent = expand ? 'Buka Semua' : 'Lipat Semua';
+    icon.style.transform = expand ? 'rotate(0deg)' : 'rotate(180deg)';
+    btn.title = expand ? 'Buka semua bagian' : 'Lipat semua bagian';
+}
+
+window.toggleAllGeneralCollapse = function () {
+    setAllGeneralCollapse(anyGeneralCollapsed());
+};
+
 window.__settingsReady['general'] = function() {
     setupGeneralCollapse();
+    updateToggleAllLabel();
     if (document.getElementById('emailEnabledInput')) loadSaasSettings();
     if (typeof window.initPackages === 'function') window.initPackages();
 };
