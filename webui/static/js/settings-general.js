@@ -142,13 +142,17 @@ function setupGeneralCollapse() {
 }
 
 // ---- Buka Semua / Lipat Semua (top-right button of the SaaS card) ----
-// Returns true when at least one block in the general section is collapsed.
-function anyGeneralCollapsed() {
+// Returns how many blocks in the general section are currently collapsed.
+function countGeneralCollapsed() {
     var blocks = Array.prototype.slice.call(document.querySelectorAll('#section-general .saas-collapse'));
-    return blocks.some(function (b) {
+    return blocks.filter(function (b) {
         var body = b.querySelector('.saas-collapse-body');
         return body && body.style.display === 'none';
-    });
+    }).length;
+}
+
+function anyGeneralCollapsed() {
+    return countGeneralCollapsed() > 0;
 }
 
 function setAllGeneralCollapse(expand) {
@@ -170,10 +174,12 @@ function updateToggleAllLabel() {
     var label = document.getElementById('toggleAllGeneralLabel');
     var icon = document.getElementById('toggleAllGeneralIcon');
     if (!btn || !label || !icon) return;
-    var expand = anyGeneralCollapsed();
-    label.textContent = expand ? 'Buka Semua' : 'Lipat Semua';
+    var total = document.querySelectorAll('#section-general .saas-collapse').length;
+    var collapsed = countGeneralCollapsed();
+    var expand = collapsed > 0;
+    label.textContent = (expand ? 'Buka Semua' : 'Lipat Semua') + ' (' + collapsed + '/' + total + ' terlipat)';
     icon.style.transform = expand ? 'rotate(0deg)' : 'rotate(180deg)';
-    btn.title = expand ? 'Buka semua bagian' : 'Lipat semua bagian';
+    btn.title = (expand ? 'Buka semua bagian' : 'Lipat semua bagian') + ' (' + collapsed + '/' + total + ' terlipat)';
 }
 
 window.toggleAllGeneralCollapse = function () {
