@@ -1495,19 +1495,24 @@
 
 <section class="settings-section" id="section-general" data-section="general" aria-label="Pengaturan Umum">
 <h1 class="sr-only" style="position:absolute;left:-9999px;">Pengaturan Umum</h1>
-  <!-- SaaS & SMTP Email Verification Settings -->
+  <!-- SaaS & SMTP Email Verification Settings — 8 kartu terpisah, masing-masing
+       dengan tombol simpan sendiri (partial update per bagian). Tombol besar
+       "Simpan Setelan SaaS" dihapus. -->
   {{if eq .admin_role "superadmin"}}
-  <section class="glass-card">
-  <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;flex-wrap:wrap;gap:8px;">
-  <h3 style="margin:0;font-size:1.1rem;color:#a5b4fc;display:flex;align-items:center;gap:8px;">
-  <svg class="icon-svg" style="color:#a5b4fc;"><use href="#hi-settings"/></svg> SaaS &amp; SMTP Email Settings
-  </h3>
+  <div class="saas-toolbar" style="display:flex;justify-content:flex-end;align-items:center;margin-bottom:16px;">
   <button type="button" id="toggleAllGeneralBtn" onclick="toggleAllGeneralCollapse()" class="btn-sm" title="Lipat/buka semua bagian Pengaturan Umum sekaligus" style="background:rgba(99,102,241,0.15);border:1px solid rgba(99,102,241,0.4);color:#a5b4fc;display:inline-flex;align-items:center;gap:6px;cursor:pointer;padding:6px 12px;border-radius:8px;font-size:13px;transition:all 0.2s;">
   <svg class="icon-svg" style="width:14px;height:14px;transition:transform 0.2s ease;" id="toggleAllGeneralIcon"><use href="#hi-chevron-down"/></svg>
   <span id="toggleAllGeneralLabel">Buka Semua</span>
   </button>
   </div>
-  <form id="saasSettingsForm" onsubmit="saveSaasSettings(event)" novalidate style="display:flex;flex-direction:column;gap:12px;">
+
+  <!-- ===== Kartu 1: SaaS & SMTP Email Settings ===== -->
+  <section class="glass-card saas-collapse" id="saas-card-smtp" data-collapse-id="smtp" style="margin-bottom:24px;">
+  <div class="saas-collapse-head" role="button" tabindex="0" aria-expanded="true">
+  <h3 class="saas-collapse-title"><svg class="icon-svg" style="color:#a5b4fc;"><use href="#hi-settings"/></svg> SaaS &amp; SMTP Email Settings</h3>
+  <svg class="saas-collapse-chev" aria-hidden="true" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 8l4 4 4-4"/></svg>
+  </div>
+  <div class="saas-collapse-body">
   <div class="switch-container">
   <span class="switch-label" title="Aktifkan untuk mewajibkan verifikasi kode OTP lewat email saat pendaftaran akun baru">Verifikasi OTP Email</span>
   <label class="switch">
@@ -1557,11 +1562,22 @@
   </div>
   </div>
 
-  <div style="border-top:1px solid var(--color-glass-border);margin-top:16px;padding-top:16px;margin-bottom:6px;">
-  <h4 style="margin:0;font-size:0.85rem;font-weight:600;text-transform:uppercase;letter-spacing:0.5px;color:var(--color-accent-light);display:flex;align-items:center;gap:6px;">
-  <svg class="icon-svg" style="width:16px;height:16px;"><use href="#hi-lock"/></svg> Cloudflare Turnstile (Anti-Bot)
-  </h4>
-  <p style="font-size:12px;color:var(--color-text-secondary);margin:4px 0 8px 0;">Wajibkan verifikasi Turnstile pada form pendaftaran untuk memblokir registrasi massal otomatis. Buat widget gratis di <code style="font-size:11px;color:#a5b4fc;">dash.cloudflare.com &rarr; Turnstile</code> lalu tempel Site Key &amp; Secret Key di sini.</p>
+  <div style="display:flex;justify-content:flex-end;margin-top:16px;padding-top:14px;border-top:1px solid var(--color-glass-border);">
+  <button type="button" id="saveSmtpSettingsBtn" onclick="saveSmtpSettings()" class="btn-upload saas-save-btn" style="background:rgba(16,185,129,0.2);border-color:rgba(16,185,129,0.4);color:#6ee7b7;">
+  <svg class="icon-svg"><use href="#hi-check"/></svg> Simpan Setelan SMTP
+  </button>
+  </div>
+  </div>
+  </section>
+
+  <!-- ===== Kartu 2: Cloudflare Turnstile (Anti-Bot) ===== -->
+  <section class="glass-card saas-collapse" id="saas-card-turnstile" data-collapse-id="turnstile" style="margin-bottom:24px;">
+  <div class="saas-collapse-head" role="button" tabindex="0" aria-expanded="true">
+  <h3 class="saas-collapse-title"><svg class="icon-svg" style="width:16px;height:16px;"><use href="#hi-lock"/></svg> Cloudflare Turnstile (Anti-Bot)</h3>
+  <svg class="saas-collapse-chev" aria-hidden="true" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 8l4 4 4-4"/></svg>
+  </div>
+  <div class="saas-collapse-body">
+  <p style="font-size:12px;color:var(--color-text-secondary);margin:0 0 12px 0;">Wajibkan verifikasi Turnstile pada form pendaftaran untuk memblokir registrasi massal otomatis. Buat widget gratis di <code style="font-size:11px;color:#a5b4fc;">dash.cloudflare.com &rarr; Turnstile</code> lalu tempel Site Key &amp; Secret Key di sini.</p>
   <div class="switch-container">
   <span class="switch-label" title="Aktifkan verifikasi Turnstile di halaman /register">Aktifkan Turnstile</span>
   <label class="switch">
@@ -1591,13 +1607,23 @@
   <input type="number" id="maxApprovalsPerExamInput" min="0" placeholder="500">
   <span class="form-hint saas-domain-hint">Batas perangkat berstatus &quot;disetujui&quot; per ujian saat auto-approve server aktif (anti-spam token bocor — request berikutnya jatuh ke antrean persetujuan). 0 = tanpa batas.</span>
   </div>
-  </div>
 
-  <div style="border-top:1px solid var(--color-glass-border);margin-top:16px;padding-top:16px;margin-bottom:6px;">
-  <h4 style="margin:0;font-size:0.85rem;font-weight:600;text-transform:uppercase;letter-spacing:0.5px;color:var(--color-accent-light);display:flex;align-items:center;gap:6px;">
-  <svg class="icon-svg" style="width:16px;height:16px;"><use href="#hi-refresh"/></svg> Pembersihan Otomatis Antrean Persetujuan
-  </h4>
-  <p style="font-size:12px;color:var(--color-text-secondary);margin:4px 0 8px 0;">Atur seberapa agresif job latar membersihkan baris persetujuan basi (pending yang ujiannya sudah berakhir &amp; pending/approved pada ujian nonaktif). Berlaku tanpa restart server — job membaca nilai ini setiap siklus.</p>
+  <div style="display:flex;justify-content:flex-end;margin-top:16px;padding-top:14px;border-top:1px solid var(--color-glass-border);">
+  <button type="button" id="saveTurnstileSettingsBtn" onclick="saveTurnstileSettings()" class="btn-upload saas-save-btn" style="background:rgba(16,185,129,0.2);border-color:rgba(16,185,129,0.4);color:#6ee7b7;">
+  <svg class="icon-svg"><use href="#hi-check"/></svg> Simpan Setelan Turnstile
+  </button>
+  </div>
+  </div>
+  </section>
+
+  <!-- ===== Kartu 3: Pembersihan Otomatis Antrean Persetujuan ===== -->
+  <section class="glass-card saas-collapse" id="saas-card-cleanup" data-collapse-id="cleanup" style="margin-bottom:24px;">
+  <div class="saas-collapse-head" role="button" tabindex="0" aria-expanded="true">
+  <h3 class="saas-collapse-title"><svg class="icon-svg" style="width:16px;height:16px;"><use href="#hi-refresh"/></svg> Pembersihan Otomatis Antrean Persetujuan</h3>
+  <svg class="saas-collapse-chev" aria-hidden="true" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 8l4 4 4-4"/></svg>
+  </div>
+  <div class="saas-collapse-body">
+  <p style="font-size:12px;color:var(--color-text-secondary);margin:0 0 12px 0;">Atur seberapa agresif job latar membersihkan baris persetujuan basi (pending yang ujiannya sudah berakhir &amp; pending/approved pada ujian nonaktif). Berlaku tanpa restart server — job membaca nilai ini setiap siklus.</p>
   <div class="form-group space-y-1">
   <label for="approvalCleanupIntervalMinutesInput" title="Seberapa sering job pembersih berjalan (menit)">Interval Pembersihan (menit)</label>
   <input type="number" id="approvalCleanupIntervalMinutesInput" min="1" placeholder="15">
@@ -1613,20 +1639,29 @@
   <input type="number" id="approvalCleanupInactiveTTLHoursInput" min="0" placeholder="24">
   <span class="form-hint saas-domain-hint">Baris pending/approved pada ujian nonaktif yang lebih tua dari ini dihapus. 0 = hapus semua. Keputusan &quot;ditolak&quot; dan data pengumpulan siswa tidak pernah disentuh.</span>
   </div>
-  </div>
 
-  <div style="border-top:1px solid var(--color-glass-border);margin-top:16px;padding-top:16px;margin-bottom:6px;">
+  <div style="display:flex;justify-content:flex-end;margin-top:16px;padding-top:14px;border-top:1px solid var(--color-glass-border);">
+  <button type="button" id="saveCleanupSettingsBtn" onclick="saveCleanupSettings()" class="btn-upload saas-save-btn" style="background:rgba(16,185,129,0.2);border-color:rgba(16,185,129,0.4);color:#6ee7b7;">
+  <svg class="icon-svg"><use href="#hi-check"/></svg> Simpan Setelan Pembersihan
+  </button>
+  </div>
+  </div>
+  </section>
+
+  <!-- ===== Kartu 4: Default Paket Pendaftaran ===== -->
+  <section class="glass-card saas-collapse" id="saas-card-default-pkg" data-collapse-id="default-pkg" style="margin-bottom:24px;">
+  <div class="saas-collapse-head" role="button" tabindex="0" aria-expanded="true">
   <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;">
-  <h4 style="margin:0;font-size:0.85rem;font-weight:600;text-transform:uppercase;letter-spacing:0.5px;color:var(--color-accent-light);display:flex;align-items:center;gap:6px;">
-  <svg class="icon-svg"><use href="#hi-clipboard"/></svg> Default Paket Pendaftaran
-  </h4>
+  <h3 class="saas-collapse-title"><svg class="icon-svg"><use href="#hi-clipboard"/></svg> Default Paket Pendaftaran</h3>
   <span class="disk-free-badge" id="diskFreeBadge" title="Sisa kapasitas disk partisi penyimpanan server. Nilai Maks Upload &amp; Maks Storage tidak boleh melebihi sisa disk ini.">
   <svg class="icon-svg" style="width:13px;height:13px;flex-shrink:0;" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><rect x="3" y="4" width="18" height="7" rx="1.5"/><rect x="3" y="13" width="18" height="7" rx="1.5"/><path d="M7 7.5h.01M7 16.5h.01M11 7.5h6M11 16.5h6"/></svg>
   <span id="diskFreeBadgeText">{{if .storage_free_display}}{{.storage_free_display}}{{else}}Sisa disk server tidak dapat ditentukan{{end}}</span>
   </span>
   </div>
-  <p style="font-size:12px;color:var(--color-text-secondary);margin:6px 0 0 0;">Kuota default yang otomatis diterapkan ke akun baru yang mendaftar mandiri.</p>
+  <svg class="saas-collapse-chev" aria-hidden="true" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 8l4 4 4-4"/></svg>
   </div>
+  <div class="saas-collapse-body">
+  <p style="font-size:12px;color:var(--color-text-secondary);margin:0 0 12px 0;">Kuota default yang otomatis diterapkan ke akun baru yang mendaftar mandiri.</p>
 
   <div class="form-row-3col grid grid-cols-1 sm:grid-cols-4 gap-4 default-pkg-row">
   <div class="form-group space-y-1">
@@ -1653,46 +1688,74 @@
   </div>
   </div>
 
- <div style="border-top:1px solid var(--color-glass-border);margin-top:16px;padding-top:16px;margin-bottom:6px;">
- <h4 style="margin:0;font-size:0.85rem;font-weight:600;text-transform:uppercase;letter-spacing:0.5px;color:var(--color-accent-light);display:flex;align-items:center;gap:6px;">
- <svg class="icon-svg"><use href="#hi-download"/></svg> Versi Aplikasi
- </h4>
- </div>
+  <div style="display:flex;justify-content:flex-end;margin-top:16px;padding-top:14px;border-top:1px solid var(--color-glass-border);">
+  <button type="button" id="saveDefaultPkgSettingsBtn" onclick="saveDefaultPkgSettings()" class="btn-upload saas-save-btn" style="background:rgba(16,185,129,0.2);border-color:rgba(16,185,129,0.4);color:#6ee7b7;">
+  <svg class="icon-svg"><use href="#hi-check"/></svg> Simpan Default Paket
+  </button>
+  </div>
+  </div>
+  </section>
 
- <div class="form-row-2col grid grid-cols-1 sm:grid-cols-2 gap-4">
- <div class="form-group space-y-1">
- <label class="required" for="androidVersionInput">Versi Android App (vX.Y.Z)</label>
- <input type="text" id="androidVersionInput" required placeholder="Contoh: 2.0.0">
- </div>
- <div class="form-group space-y-1">
- <label class="required" for="webappVersionInput">Versi WebApp Server (vX.Y.Z)</label>
- <input type="text" id="webappVersionInput" required placeholder="Contoh: 2.0.0">
- </div>
- </div>
-
-<div style="border-top:1px solid var(--color-glass-border);margin-top:16px;padding-top:16px;margin-bottom:6px;">
-   <h4 style="margin:0;font-size:0.85rem;font-weight:600;text-transform:uppercase;letter-spacing:0.5px;color:var(--color-accent-light);display:flex;align-items:center;gap:6px;">
-   <svg class="icon-svg" style="width:16px;height:16px;"><use href="#hi-clipboard"/></svg> Customizing Footer
-   </h4>
-   <p style="font-size:12px;color:var(--color-text-secondary);margin:4px 0 8px 0;">Teks footer yang tampil di semua halaman publik (halaman utama, unduh, login/daftar, dan hasil ujian).</p>
-   </div>
-
-   <div class="form-group space-y-1">
-   <label for="footerTextInput" title="Teks utama footer (biasanya hak cipta)">Teks Footer</label>
-   <input type="text" id="footerTextInput" placeholder="© 2026 EXAMVAN Team. All rights reserved.">
-   </div>
-
-   <div class="form-group space-y-1">
-   <label for="footerTaglineInput" title="Kalimat pendukung di bawah teks footer (boleh kosong)">Subteks Footer</label>
-   <input type="text" id="footerTaglineInput" placeholder="Dibuat khusus untuk pengujian sekolah digital mandiri yang aman.">
-   </div>
-
-   <div style="border-top:1px solid var(--color-glass-border);margin-top:16px;padding-top:16px;margin-bottom:6px;">
-   <h4 style="margin:0;font-size:0.85rem;font-weight:600;text-transform:uppercase;letter-spacing:0.5px;color:var(--color-accent-light);display:flex;align-items:center;gap:6px;">
-   <svg class="icon-svg" style="width:16px;height:16px;fill:none;stroke:currentColor;stroke-width:1.5;stroke-linecap:round;stroke-linejoin:round;"><path d="M12 21a9.004 9.004 0 0 0 8.716-6.747M12 21a9.004 9.004 0 0 1-8.716-6.747M12 21c2.485 0 4.5-4.03 4.5-9S14.485 3 12 3m0 18c-2.485 0-4.5-4.03-4.5-9S9.515 3 12 3m0 0a8.997 8.997 0 0 1 7.843 4.582M12 3a8.997 8.997 0 0 0-7.843 4.582m15.686 0A11.953 11.953 0 0 1 12 10.5c-2.998 0-5.74-1.1-7.843-2.918m15.686 0A8.959 8.959 0 0 1 21 12c0 .778-.099 1.533-.284 2.253m0 0A11.952 11.952 0 0 1 12 16.5c-2.998 0-5.74-1.1-7.843-2.918m0 0A8.959 8.959 0 0 1 3 12c0-.778.099-1.533.284-2.253"/></svg> Pengaturan SEO &amp; Indexing Google
-  </h4>
+  <!-- ===== Kartu 5: Versi Aplikasi ===== -->
+  <section class="glass-card saas-collapse" id="saas-card-versions" data-collapse-id="versions" style="margin-bottom:24px;">
+  <div class="saas-collapse-head" role="button" tabindex="0" aria-expanded="true">
+  <h3 class="saas-collapse-title"><svg class="icon-svg"><use href="#hi-download"/></svg> Versi Aplikasi</h3>
+  <svg class="saas-collapse-chev" aria-hidden="true" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 8l4 4 4-4"/></svg>
+  </div>
+  <div class="saas-collapse-body">
+  <div class="form-row-2col grid grid-cols-1 sm:grid-cols-2 gap-4">
+  <div class="form-group space-y-1">
+  <label class="required" for="androidVersionInput">Versi Android App (vX.Y.Z)</label>
+  <input type="text" id="androidVersionInput" required placeholder="Contoh: 2.0.0">
+  </div>
+  <div class="form-group space-y-1">
+  <label class="required" for="webappVersionInput">Versi WebApp Server (vX.Y.Z)</label>
+  <input type="text" id="webappVersionInput" required placeholder="Contoh: 2.0.0">
+  </div>
   </div>
 
+  <div style="display:flex;justify-content:flex-end;margin-top:16px;padding-top:14px;border-top:1px solid var(--color-glass-border);">
+  <button type="button" id="saveVersionsSettingsBtn" onclick="saveVersionsSettings()" class="btn-upload saas-save-btn" style="background:rgba(16,185,129,0.2);border-color:rgba(16,185,129,0.4);color:#6ee7b7;">
+  <svg class="icon-svg"><use href="#hi-check"/></svg> Simpan Versi Aplikasi
+  </button>
+  </div>
+  </div>
+  </section>
+
+  <!-- ===== Kartu 6: Customizing Footer ===== -->
+  <section class="glass-card saas-collapse" id="saas-card-footer" data-collapse-id="footer" style="margin-bottom:24px;">
+  <div class="saas-collapse-head" role="button" tabindex="0" aria-expanded="true">
+  <h3 class="saas-collapse-title"><svg class="icon-svg" style="width:16px;height:16px;"><use href="#hi-clipboard"/></svg> Customizing Footer</h3>
+  <svg class="saas-collapse-chev" aria-hidden="true" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 8l4 4 4-4"/></svg>
+  </div>
+  <div class="saas-collapse-body">
+  <p style="font-size:12px;color:var(--color-text-secondary);margin:0 0 12px 0;">Teks footer yang tampil di semua halaman publik (halaman utama, unduh, login/daftar, dan hasil ujian).</p>
+
+  <div class="form-group space-y-1">
+  <label for="footerTextInput" title="Teks utama footer (biasanya hak cipta)">Teks Footer</label>
+  <input type="text" id="footerTextInput" placeholder="© 2026 EXAMVAN Team. All rights reserved.">
+  </div>
+
+  <div class="form-group space-y-1">
+  <label for="footerTaglineInput" title="Kalimat pendukung di bawah teks footer (boleh kosong)">Subteks Footer</label>
+  <input type="text" id="footerTaglineInput" placeholder="Dibuat khusus untuk pengujian sekolah digital mandiri yang aman.">
+  </div>
+
+  <div style="display:flex;justify-content:flex-end;margin-top:16px;padding-top:14px;border-top:1px solid var(--color-glass-border);">
+  <button type="button" id="saveFooterSettingsBtn" onclick="saveFooterSettings()" class="btn-upload saas-save-btn" style="background:rgba(16,185,129,0.2);border-color:rgba(16,185,129,0.4);color:#6ee7b7;">
+  <svg class="icon-svg"><use href="#hi-check"/></svg> Simpan Footer
+  </button>
+  </div>
+  </div>
+  </section>
+
+  <!-- ===== Kartu 7: Pengaturan SEO & Indexing Google ===== -->
+  <section class="glass-card saas-collapse" id="saas-card-seo" data-collapse-id="seo" style="margin-bottom:24px;">
+  <div class="saas-collapse-head" role="button" tabindex="0" aria-expanded="true">
+  <h3 class="saas-collapse-title"><svg class="icon-svg" style="width:16px;height:16px;fill:none;stroke:currentColor;stroke-width:1.5;stroke-linecap:round;stroke-linejoin:round;"><path d="M12 21a9.004 9.004 0 0 0 8.716-6.747M12 21a9.004 9.004 0 0 1-8.716-6.747M12 21c2.485 0 4.5-4.03 4.5-9S14.485 3 12 3m0 18c-2.485 0-4.5-4.03-4.5-9S9.515 3 12 3m0 0a8.997 8.997 0 0 1 7.843 4.582M12 3a8.997 8.997 0 0 0-7.843 4.582m15.686 0A11.953 11.953 0 0 1 12 10.5c-2.998 0-5.74-1.1-7.843-2.918m15.686 0A8.959 8.959 0 0 1 21 12c0 .778-.099 1.533-.284 2.253m0 0A11.952 11.952 0 0 1 12 16.5c-2.998 0-5.74-1.1-7.843-2.918m0 0A8.959 8.959 0 0 1 3 12c0-.778.099-1.533.284-2.253"/></svg> Pengaturan SEO &amp; Indexing Google</h3>
+  <svg class="saas-collapse-chev" aria-hidden="true" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 8l4 4 4-4"/></svg>
+  </div>
+  <div class="saas-collapse-body">
   <div class="form-group space-y-1">
   <label for="seoTitleInput" title="Judul situs web yang akan muncul di hasil pencarian Google">Meta Title</label>
   <input type="text" id="seoTitleInput" placeholder="EXAMVAN - Aplikasi Ujian Online Aman &amp; Tertib">
@@ -1719,26 +1782,37 @@
   </div>
   </div>
 
-  <div style="border-top:1px solid var(--color-glass-border);margin-top:16px;padding-top:16px;margin-bottom:6px;">
-  <h4 style="margin:0;font-size:0.85rem;font-weight:600;text-transform:uppercase;letter-spacing:0.5px;color:var(--color-accent-light);display:flex;align-items:center;gap:6px;">
-  <svg class="icon-svg"><use href="#hi-credit-card"/></svg> Kontrol Monetisasi
-  </h4>
-  <p style="font-size:12px;color:var(--color-text-secondary);margin:4px 0 8px 0;">Kelola penukaran kode promo/voucher oleh pengguna. Mematikan hanya menghentikan <em>klaim kode baru</em> — paket yang sudah diklaim tetap dapat diaktifkan/dilanjutkan oleh pengguna.</p>
+  <div style="display:flex;justify-content:flex-end;margin-top:16px;padding-top:14px;border-top:1px solid var(--color-glass-border);">
+  <button type="button" id="saveSeoSettingsBtn" onclick="saveSeoSettings()" class="btn-upload saas-save-btn" style="background:rgba(16,185,129,0.2);border-color:rgba(16,185,129,0.4);color:#6ee7b7;">
+  <svg class="icon-svg"><use href="#hi-check"/></svg> Simpan Setelan SEO
+  </button>
+  </div>
+  </div>
+  </section>
+
+  <!-- ===== Kartu 8: Kontrol Monetisasi ===== -->
+  <section class="glass-card saas-collapse" id="saas-card-monetization" data-collapse-id="monetization" style="margin-bottom:24px;">
+  <div class="saas-collapse-head" role="button" tabindex="0" aria-expanded="true">
+  <h3 class="saas-collapse-title"><svg class="icon-svg"><use href="#hi-credit-card"/></svg> Kontrol Monetisasi</h3>
+  <svg class="saas-collapse-chev" aria-hidden="true" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 8l4 4 4-4"/></svg>
+  </div>
+  <div class="saas-collapse-body">
+  <p style="font-size:12px;color:var(--color-text-secondary);margin:0 0 12px 0;">Kelola penukaran kode promo/voucher oleh pengguna. Mematikan hanya menghentikan <em>klaim kode baru</em> — paket yang sudah diklaim tetap dapat diaktifkan/dilanjutkan oleh pengguna.</p>
   <div style="display:flex;flex-direction:column;gap:8px;">
    <label style="display:flex;align-items:center;gap:8px;font-size:13px;cursor:pointer;padding:8px 10px;border-radius:8px;background:rgba(255,255,255,0.03);">
     <input type="checkbox" id="voucherRedeemEnabledInput" style="accent-color:var(--color-primary);">
     <span><strong>Redeem Kode Promo / Voucher</strong><br><span style="font-size:11px;color:var(--color-text-secondary);">Penukaran kode promo/voucher oleh pengguna. Hanya memblokir klaim kode baru — pengguna tetap bisa mengaktifkan paket yang sudah diklaim sebelumnya.</span></span>
    </label>
   </div>
-  </div>
 
-  <button type="submit" id="saveSaasSettingsBtn" class="btn-upload saas-save-btn" style="margin-top:6px;background:rgba(16,185,129,0.2);border-color:rgba(16,185,129,0.4);color:#6ee7b7;">
-  <svg class="icon-svg"><use href="#hi-check"/></svg> Simpan Setelan SaaS
+  <div style="display:flex;justify-content:flex-end;margin-top:16px;padding-top:14px;border-top:1px solid var(--color-glass-border);">
+  <button type="button" id="saveMonetizationSettingsBtn" onclick="saveMonetizationSettings()" class="btn-upload saas-save-btn" style="background:rgba(16,185,129,0.2);border-color:rgba(16,185,129,0.4);color:#6ee7b7;">
+  <svg class="icon-svg"><use href="#hi-check"/></svg> Simpan Kontrol Monetisasi
   </button>
-  </form>
+  </div>
+  </div>
   </section>
   {{end}}
-
 
  <!-- ===== Pengaturan Paket (dipindah dari section-packages) ===== -->
  <section class="glass-card" id="packages-card" style="margin-top:24px;">

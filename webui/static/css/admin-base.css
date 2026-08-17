@@ -647,17 +647,19 @@ code, pre, .token-code, .mono {
     box-shadow: 0 2px 10px rgba(99, 102, 241, 0.35);
 }
 
-/* Collapsible sub-sections in the Pengaturan Umum tab (settings-general.js
-   wraps each titled block of the SaaS form + the packages card). */
-.saas-collapse {
-    border-top: 1px solid var(--color-glass-border);
-    margin-top: 16px;
-    padding-top: 16px;
+/* Collapsible cards in the Pengaturan Umum tab. The 8 SaaS cards are plain
+   glass-cards with .saas-collapse markup; the Pengaturan Paket card is
+   wrapped into a .saas-collapse by settings-general.js, so it gets the same
+   card chrome here. */
+.saas-collapse[data-collapse-id="packages"] {
+    border: 1px solid var(--color-glass-border);
+    border-radius: 16px;
+    background: rgba(255, 255, 255, 0.02);
+    margin-bottom: 24px;
+    overflow: hidden;
 }
-.saas-collapse:first-child {
-    border-top: none;
-    margin-top: 0;
-    padding-top: 0;
+.saas-collapse[data-collapse-id="packages"] .saas-collapse-body {
+    padding: 0 16px 16px;
 }
 .saas-collapse-head {
     display: flex;

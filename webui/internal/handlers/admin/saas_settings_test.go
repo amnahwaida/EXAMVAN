@@ -648,6 +648,173 @@ func TestSaasSettingsApprovalCleanupTuningRoundtrip(t *testing.T) {
 	}
 }
 
+// TestSaasSettingsPartialUpdatePerSection locks in the per-section save
+// contract of the Pengaturan Umum page: the handler is a PARTIAL update — a
+// payload that only carries one section's fields must write exactly those
+// fields and leave every other setting untouched. This is what makes the 8
+// separate save buttons safe (saving Cloudflare Turnstile must not wipe
+// SMTP/SEO/Footer values — the bug that once erased turnstile_site_key).
+func TestSaasSettingsPartialUpdatePerSection(t *testing.T) {
+	pool := database.NewPackageTestPool(t, "admin")
+	ctx := context.Background()
+
+	su, err := models.CreateUser(ctx, pool, &models.AdminUser{
+		Username: "it_partial_super", Name: "IT Partial Super",
+		PasswordHash: "x", Status: models.UserStatusActive,
+		Role:               models.SerializeRoles([]string{models.RoleSuperAdmin}),
+		MaxExams:           3,
+		MaxPDFSize:         1048576,
+		MaxConcurrentExams: 2,
+		MaxStorageSize:     50 * 1024 * 1024,
+		Package:            "free",
+	})
+	if err != nil {
+		t.Fatalf("create superadmin: %v", err)
+	}
+
+	storageDir, err := os.MkdirTemp("", "examvan-partial-it")
+	if err != nil {
+		t.Fatalf("make temp storage dir: %v", err)
+	}
+	defer os.RemoveAll(storageDir)
+
+	jar, _ := cookiejar.New(nil)
+	srv := httptest.NewServer(newSaasSettingsTestRouter(pool, storageDir))
+	defer srv.Close()
+	client := &http.Client{Jar: jar}
+	if resp, err := client.Post(srv.URL+"/test/login/"+strconv.Itoa(su.ID), "application/json", nil); err != nil || resp.StatusCode != http.StatusOK {
+		t.Fatalf("test login: status=%v err=%v", resp, err)
+	}
+
+	post := func(payload map[string]interface{}) (bool, string) {
+		t.Helper()
+		body, err := json.Marshal(payload)
+		if err != nil {
+			t.Fatalf("marshal payload: %v", err)
+		}
+		resp, err := client.Post(srv.URL+"/api/saas-settings", "application/json", bytes.NewReader(body))
+		if err != nil {
+			t.Fatalf("POST saas-settings: %v", err)
+		}
+		defer resp.Body.Close()
+		var out struct {
+			Success bool   `json:"success"`
+			Message string `json:"message"`
+		}
+		if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
+			t.Fatalf("decode POST response: %v", err)
+		}
+		return out.Success, out.Message
+	}
+	get := func() map[string]interface{} {
+		t.Helper()
+		resp, err := client.Get(srv.URL + "/api/saas-settings")
+		if err != nil {
+			t.Fatalf("GET saas-settings: %v", err)
+		}
+		defer resp.Body.Close()
+		var out struct {
+			Settings map[string]interface{} `json:"settings"`
+		}
+		if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
+			t.Fatalf("decode GET response: %v", err)
+		}
+		return out.Settings
+	}
+	str := func(s map[string]interface{}, k string) string {
+		t.Helper()
+		v, _ := s[k].(string)
+		return v
+	}
+	boolv := func(s map[string]interface{}, k string) bool {
+		t.Helper()
+		v, _ := s[k].(bool)
+		return v
+	}
+
+	// Seed known values across several sections so we can prove they survive.
+	if ok, msg := post(map[string]interface{}{
+		"email_verification_enabled": true,
+		"smtp_host":                 "smtp.seed.example",
+		"smtp_port":                 "587",
+		"seo_title":                 "SEO Seed Title",
+		"footer_text":               "Footer Seed",
+		"turnstile_enabled":         false,
+		"voucher_redeem_enabled":    true,
+	}); !ok {
+		t.Fatalf("seed POST failed: %s", msg)
+	}
+
+	// 1) Save ONLY the SMTP section → SMTP changes, others untouched.
+	if ok, msg := post(map[string]interface{}{
+		"smtp_host": "smtp.changed.example",
+	}); !ok {
+		t.Fatalf("SMTP-only POST failed: %s", msg)
+	}
+	s := get()
+	if got := str(s, "smtp_host"); got != "smtp.changed.example" {
+		t.Errorf("smtp_host after SMTP-only save = %q, want smtp.changed.example", got)
+	}
+	if got := str(s, "seo_title"); got != "SEO Seed Title" {
+		t.Errorf("seo_title after SMTP-only save = %q, want untouched (SEO Seed Title)", got)
+	}
+	if got := str(s, "footer_text"); got != "Footer Seed" {
+		t.Errorf("footer_text after SMTP-only save = %q, want untouched", got)
+	}
+	if got := boolv(s, "email_verification_enabled"); !got {
+		t.Error("email_verification_enabled after SMTP-only save = false, want untouched true")
+	}
+	if got := boolv(s, "voucher_redeem_enabled"); !got {
+		t.Error("voucher_redeem_enabled after SMTP-only save = false, want untouched true")
+	}
+
+	// 2) Save ONLY the SEO section → SEO changes, SMTP untouched.
+	if ok, msg := post(map[string]interface{}{
+		"seo_title": "SEO Changed Title",
+	}); !ok {
+		t.Fatalf("SEO-only POST failed: %s", msg)
+	}
+	s = get()
+	if got := str(s, "seo_title"); got != "SEO Changed Title" {
+		t.Errorf("seo_title after SEO-only save = %q, want SEO Changed Title", got)
+	}
+	if got := str(s, "smtp_host"); got != "smtp.changed.example" {
+		t.Errorf("smtp_host after SEO-only save = %q, want untouched", got)
+	}
+
+	// 3) Save ONLY the monetization toggle → the rest still untouched.
+	if ok, msg := post(map[string]interface{}{
+		"voucher_redeem_enabled": false,
+	}); !ok {
+		t.Fatalf("monetization-only POST failed: %s", msg)
+	}
+	s = get()
+	if boolv(s, "voucher_redeem_enabled") {
+		t.Error("voucher_redeem_enabled after monetization-only save = true, want false")
+	}
+	if got := str(s, "smtp_host"); got != "smtp.changed.example" {
+		t.Errorf("smtp_host after monetization-only save = %q, want untouched", got)
+	}
+	if got := str(s, "seo_title"); got != "SEO Changed Title" {
+		t.Errorf("seo_title after monetization-only save = %q, want untouched", got)
+	}
+
+	// 4) Empty object {} must NOT touch anything (a no-op, not a reset).
+	if ok, _ := post(map[string]interface{}{}); !ok {
+		t.Fatal("empty POST {} should succeed as a no-op")
+	}
+	s = get()
+	if got := str(s, "smtp_host"); got != "smtp.changed.example" {
+		t.Errorf("smtp_host after POST {} = %q, want untouched (no-op)", got)
+	}
+	if got := str(s, "seo_title"); got != "SEO Changed Title" {
+		t.Errorf("seo_title after POST {} = %q, want untouched (no-op)", got)
+	}
+	if boolv(s, "email_verification_enabled") != true {
+		t.Errorf("email_verification_enabled after POST {} = %v, want untouched true", s["email_verification_enabled"])
+	}
+}
+
 // TestSaasSettingsMaxApprovalsPerExamUIMarkup pins the SaaS-panel field in
 // the settings hub's Kelola User section (settings.html) and its admin.js
 // wiring (save reads the input, load fills it), so the SuperAdmin-editable cap

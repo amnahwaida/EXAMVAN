@@ -44,7 +44,7 @@ EXAMVAN terdiri dari dua komponen utama:
 * **Role Management:** Mendukung akun Super Admin, Guru, dan Pengawas.
 * **Hak Akses Eksklusif:** Akun guru hanya dapat melihat, membuat, mengubah, dan menghapus ujian yang dibuatnya sendiri. Super Admin memiliki otorisasi penuh untuk mengawasi seluruh ujian dari semua guru.
 * **Ubah Password Mandiri:** Setiap pengguna dapat memperbarui kata sandinya kapan saja melalui UI modal yang aman.
-* **Navigasi ringkas (header):** Header panel admin hanya menampilkan menu aksi utama — *Daftar Ujian, Hasil Ujian, Pengawasan,* dan satu entri **Pengaturan** yang membuka **satu halaman `/admin/settings`** berisi seluruh bagian pengaturan dengan **tab yang berpindah tanpa reload** (deep-link via hash `#users`, `#billing`, dst.; JS per-bagian dimuat lazy dari `static/js/settings-<bagian>.js` saat tab pertama kali dibuka). **5 tab**: Kelola User, Paket & Voucher, Voucher (dengan subtab Daftar | Riwayat Klaim), Pengaturan Umum (SaaS & SMTP + Pengaturan Paket), Aplikasi Sistem. Super Admin melihat **5 tab**, Operator **2 tab** (Kelola User, Paket & Voucher), dan Guru/Pengawas **1 tab** (Paket & Voucher). Di layar **mobile** tab bar diganti **dropdown "Pilih Bagian"** (bebas scroll kanan-kiri); role/feature-lock gate sama persis dengan tab bar. Implementasi: `templates/admin/settings.html` + partial `templates/admin/partials/settings-tabs.html`; `nav.html` hanya berisi satu tautan "Pengaturan" (desktop & mobile). **Halaman settings lama dihapus** — keenam URL lama (`/admin/users`, `/admin/billing`, `/admin/vouchers`, `/admin/vouchers/audit`, `/admin/packages`, `/admin/system-apps`) kini **302-redirect** ke hash lama di `/admin/settings#<tab>` (`SettingsRedirect`, `internal/handlers/admin/settings.go`); JS memetakan hash lama (`#voucher-audit` → tab Voucher subtab Riwayat, `#packages` → tab Pengaturan Umum) jadi bookmark/link lama tetap berfungsi. Referensi desain: [`webui/SETTINGS_REDESIGN_PLAN.md`](webui/SETTINGS_REDESIGN_PLAN.md).
+* **Navigasi ringkas (header):** Header panel admin hanya menampilkan menu aksi utama — *Daftar Ujian, Hasil Ujian, Pengawasan,* dan satu entri **Pengaturan** yang membuka **satu halaman `/admin/settings`** berisi seluruh bagian pengaturan dengan **tab yang berpindah tanpa reload** (deep-link via hash `#users`, `#billing`, dst.; JS per-bagian dimuat lazy dari `static/js/settings-<bagian>.js` saat tab pertama kali dibuka). **5 tab**: Kelola User, Paket & Voucher, Voucher (dengan subtab Daftar | Riwayat Klaim), Pengaturan Umum (SaaS & SMTP + Pengaturan Paket), Aplikasi Sistem. Tab **Pengaturan Umum** terdiri dari **8 kartu terpisah** — Cloudflare Turnstile, Pembersihan Otomatis, Default Paket Pendaftaran, Versi Aplikasi, Customizing Footer, Pengaturan SEO, Kontrol Monetisasi, SMTP Email — **masing-masing dengan tombol Simpan sendiri** (server melakukan **partial-update**: simpan satu kartu tidak menimpa nilai kartu lain), plus kartu **Pengaturan Paket** di bawahnya; semua kartu **terlipat secara default** dengan tombol **Buka Semua / Lipat Semua (n/8 terlipat)** di header. Super Admin melihat **5 tab**, Operator **2 tab** (Kelola User, Paket & Voucher), dan Guru/Pengawas **1 tab** (Paket & Voucher). Di layar **mobile** tab bar diganti **dropdown "Pilih Bagian"** (bebas scroll kanan-kiri); role/feature-lock gate sama persis dengan tab bar. Implementasi: `templates/admin/settings.html` + partial `templates/admin/partials/settings-tabs.html`; `nav.html` hanya berisi satu tautan "Pengaturan" (desktop & mobile). **Halaman settings lama dihapus** — keenam URL lama (`/admin/users`, `/admin/billing`, `/admin/vouchers`, `/admin/vouchers/audit`, `/admin/packages`, `/admin/system-apps`) kini **302-redirect** ke hash lama di `/admin/settings#<tab>` (`SettingsRedirect`, `internal/handlers/admin/settings.go`); JS memetakan hash lama (`#voucher-audit` → tab Voucher subtab Riwayat, `#packages` → tab Pengaturan Umum) jadi bookmark/link lama tetap berfungsi. Referensi desain: [`webui/SETTINGS_REDESIGN_PLAN.md`](webui/SETTINGS_REDESIGN_PLAN.md).
 
 ### 2. Lembar Jawaban Digital & Koreksi Otomatis
 * **Mendukung 5 Tipe Soal:**
@@ -513,8 +513,8 @@ Test: `TestOneOperatorPerSchoolPolicy` (`webui/internal/handlers/admin/operator_
 
 **Opsi A — Lewat UI Admin (disarankan):**
 1. Login sebagai SuperAdmin.
-2. Buka tab **Pengaturan Umum** (`/admin/settings#general`) → panel **"SaaS & SMTP Email Settings"**.
-3. Ubah field **"Masa Aktif"** (default: `14`, minimal `1`), lalu klik **Simpan Setelan SaaS**.
+2. Buka tab **Pengaturan Umum** (`/admin/settings#general`) → kartu **Default Paket Pendaftaran**.
+3. Ubah field **"Masa Aktif"** (default: `14`, minimal `1`), lalu klik **Simpan** di kartu tersebut.
 4. Berlaku langsung untuk pendaftaran/pembuatan akun berikutnya tanpa perlu deploy ulang.
 
 **Opsi B — Langsung di database (mis. untuk sinkronisasi batch/instalasi baru):**
@@ -553,8 +553,8 @@ Field **"Maks Storage (MB)"** ada di panel **Default Paket Pendaftaran** (halama
 
 **Opsi A — Lewat UI Admin (disarankan):**
 1. Login sebagai SuperAdmin.
-2. Buka tab **Pengaturan Umum** (`/admin/settings#general`) → panel **"SaaS & SMTP Email Settings"** → bagian **Default Paket Pendaftaran**.
-3. Ubah field **"Maks Storage (MB)"** (`0` = tidak terbatas; tidak boleh melebihi sisa disk server), lalu klik **Simpan Setelan SaaS**.
+2. Buka tab **Pengaturan Umum** (`/admin/settings#general`) → kartu **Default Paket Pendaftaran**.
+3. Ubah field **"Maks Storage (MB)"** (`0` = tidak terbatas; tidak boleh melebihi sisa disk server), lalu klik **Simpan** di kartu tersebut.
 4. Berlaku langsung untuk pendaftaran berikutnya tanpa perlu deploy ulang.
 
 **Opsi B — Langsung di database (mis. untuk sinkronisasi batch/instalasi baru):**
@@ -576,10 +576,10 @@ Turnstile melindungi halaman publik **`/register`**, **`/login`**, **`/forgot-pa
 1. **Buat widget di Cloudflare dashboard** — buka `dash.cloudflare.com` → **Turnstile** → **Add Site**:
    - Beri nama widget (mis. "EXAMVAN"), pilih mode (disarankan **Managed**), dan isi **Hostname/Domain** situs Anda (mis. `examvan.school.id`). Domain yang tidak terdaftar di sini akan menampilkan kotak error merah pada widget.
    - Catat **Site Key** dan **Secret Key** (format `0x4AAAA...`).
-2. **Aktifkan di panel admin** — login SuperAdmin → **Pengaturan** (`/admin/settings`) → tab **Pengaturan Umum** → panel **"SaaS & SMTP Email Settings"** → bagian **Cloudflare Turnstile (Anti-Bot)**:
+2. **Aktifkan di panel admin** — login SuperAdmin → **Pengaturan** (`/admin/settings`) → tab **Pengaturan Umum** → kartu **Cloudflare Turnstile (Anti-Bot)**:
    - Centang **Aktifkan Turnstile**.
    - Tempel **Site Key** dan **Secret Key** (secret disimpan terenkripsi/masked, tidak pernah ditampilkan utuh).
-   - Klik **Simpan Setelan SaaS**. Server menolak penyimpanan bila salah satu key kosong saat Turnstile diaktifkan.
+   - Klik **Simpan** di kartu Turnstile. Server menolak penyimpanan bila salah satu key kosong saat Turnstile diaktifkan.
 3. **Pastikan CSP nginx mengizinkan domain Turnstile** — header `Content-Security-Policy` di `webui/nginx/nginx.conf` harus memuat `https://challenges.cloudflare.com` di `script-src`, `frame-src`, `connect-src`, dan `img-src` (sudah terpasang di versi saat ini; jika Anda memakai CSP kustom, tambahkan keempat direktif tersebut sesuai [dokumentasi Cloudflare](https://developers.cloudflare.com/turnstile/)).
 4. **Reload nginx** setelah mengubah `nginx.conf`:
    ```bash

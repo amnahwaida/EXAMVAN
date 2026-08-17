@@ -223,41 +223,48 @@ func boolFlag(b bool) string {
 }
 
 func handleSaasSettingsPost(c *gin.Context, pool *pgxpool.Pool, ctx context.Context) {
+	// Partial update: every field is a pointer, and only the fields PRESENT in
+	// the JSON body are written. This is what lets each section of the
+	// Pengaturan Umum page save independently — saving Cloudflare Turnstile
+	// must not touch SMTP/SEO/Footer values, and vice versa. (Before pointers,
+	// a partial payload silently reset absent fields to defaults — the bug
+	// that once wiped turnstile_site_key.)
 	var body struct {
-		EmailVerificationEnabled  bool     `json:"email_verification_enabled"`
-		EmailDomainWhitelist      string   `json:"email_domain_whitelist"`
-		SMTPHost                  string   `json:"smtp_host"`
-		SMTPPort                  string   `json:"smtp_port"`
-		SMTPUser                  string   `json:"smtp_user"`
-		SMTPPassword              string   `json:"smtp_password"`
-		SMTPSenderName            string   `json:"smtp_sender_name"`
-		DefaultMaxExams           int      `json:"default_max_exams"`
+		EmailVerificationEnabled  *bool    `json:"email_verification_enabled"`
+		EmailDomainWhitelist      *string  `json:"email_domain_whitelist"`
+		SMTPHost                  *string  `json:"smtp_host"`
+		SMTPPort                  *string  `json:"smtp_port"`
+		SMTPUser                  *string  `json:"smtp_user"`
+		SMTPPassword              *string  `json:"smtp_password"`
+		SMTPSenderName            *string  `json:"smtp_sender_name"`
+		DefaultMaxExams           *int     `json:"default_max_exams"`
 		DefaultMaxPDFSizeMB       *float64 `json:"default_max_pdf_size_mb"`
 		DefaultMaxStorageSizeMB   *float64 `json:"default_max_storage_size_mb"`
-		DefaultMaxConcurrentExams int      `json:"default_max_concurrent_exams"`
-		DefaultActiveDays         int      `json:"default_active_days"`
-		AndroidVersion            string   `json:"android_version"`
-		WebappVersion             string   `json:"webapp_version"`
-		CertificateFingerprint    string   `json:"certificate_fingerprint"`
-		SEOTitle                  string   `json:"seo_title"`
-		SEODescription            string   `json:"seo_description"`
-		SEOKeywords               string   `json:"seo_keywords"`
-		SEOIndex                  bool     `json:"seo_index"`
-		FooterText                string   `json:"footer_text"`
-		FooterTagline             string   `json:"footer_tagline"`
-		VoucherRedeemEnabled      bool     `json:"voucher_redeem_enabled"`
-		TurnstileEnabled          bool     `json:"turnstile_enabled"`
-		TurnstileSiteKey          string   `json:"turnstile_site_key"`
-		TurnstileSecretKey        string   `json:"turnstile_secret_key"`
-		MaxAccountsPerIP          int      `json:"max_accounts_per_ip"`
-		// Pointer: 0 is a MEANINGFUL value (unlimited), so an absent field — an
-		// older cached UI saving without this control — must NOT silently reset
-		// a configured cap to unlimited. Same guard as the storage quotas.
+		DefaultMaxConcurrentExams *int     `json:"default_max_concurrent_exams"`
+		DefaultActiveDays         *int     `json:"default_active_days"`
+		AndroidVersion            *string  `json:"android_version"`
+		WebappVersion             *string  `json:"webapp_version"`
+		CertificateFingerprint    *string  `json:"certificate_fingerprint"`
+		SEOTitle                  *string  `json:"seo_title"`
+		SEODescription            *string  `json:"seo_description"`
+		SEOKeywords               *string  `json:"seo_keywords"`
+		SEOIndex                  *bool    `json:"seo_index"`
+		FooterText                *string  `json:"footer_text"`
+		FooterTagline             *string  `json:"footer_tagline"`
+		VoucherRedeemEnabled      *bool    `json:"voucher_redeem_enabled"`
+		TurnstileEnabled          *bool    `json:"turnstile_enabled"`
+		TurnstileSiteKey          *string  `json:"turnstile_site_key"`
+		TurnstileSecretKey        *string  `json:"turnstile_secret_key"`
+		MaxAccountsPerIP          *int     `json:"max_accounts_per_ip"`
+
+		// 0 is a MEANINGFUL value (unlimited), so an absent field — an older
+		// cached UI saving without this control — must NOT silently reset a
+		// configured cap to unlimited. Same guard as the storage quotas.
 		MaxApprovalsPerExam *int `json:"max_approvals_per_exam"`
 
-		// Approval-cleanup job tuning. All pointers for the same reason as
-		// MaxApprovalsPerExam: an older cached UI that predates these controls
-		// must not silently reset tuned purge cadence/windows to defaults.
+		// Approval-cleanup job tuning. Same pointer rule as MaxApprovalsPerExam:
+		// an older cached UI that predates these controls must not silently
+		// reset tuned purge cadence/windows to defaults.
 		ApprovalCleanupIntervalMinutes  *int `json:"approval_cleanup_interval_minutes"`
 		ApprovalCleanupEndedGraceHours  *int `json:"approval_cleanup_ended_grace_hours"`
 		ApprovalCleanupInactiveTTLHours *int `json:"approval_cleanup_inactive_ttl_hours"`
@@ -305,58 +312,75 @@ func handleSaasSettingsPost(c *gin.Context, pool *pgxpool.Pool, ctx context.Cont
 	// Turnstile validation must happen BEFORE any settings are written: enabling
 	// Turnstile without keys would silently block ALL registrations (server-side
 	// verification is fail-closed), and a late rejection here would leave the
-	// earlier writes half-saved.
-	if body.TurnstileEnabled {
-		if strings.TrimSpace(body.TurnstileSiteKey) == "" {
+	// earlier writes half-saved. Only relevant when this payload actually
+	// touches the Turnstile toggle (pointer nil = not this section's concern).
+	if body.TurnstileEnabled != nil && *body.TurnstileEnabled {
+		if body.TurnstileSiteKey == nil || strings.TrimSpace(*body.TurnstileSiteKey) == "" {
 			errorResponse(c, http.StatusBadRequest, "Site Key Turnstile wajib diisi untuk mengaktifkan Turnstile.")
 			return
 		}
 		existingSecret, _ := models.GetSaasSetting(reqCtx, pool, models.SettingTurnstileSecretKey)
-		secretProvided := strings.TrimSpace(body.TurnstileSecretKey) != "" && !strings.HasPrefix(strings.TrimSpace(body.TurnstileSecretKey), "****")
+		secretProvided := body.TurnstileSecretKey != nil && strings.TrimSpace(*body.TurnstileSecretKey) != "" && !strings.HasPrefix(strings.TrimSpace(*body.TurnstileSecretKey), "****")
 		if existingSecret == "" && !secretProvided {
 			errorResponse(c, http.StatusBadRequest, "Secret Key Turnstile wajib diisi untuk mengaktifkan Turnstile.")
 			return
 		}
 	}
 
-	// Email settings
-	emailEnabled := "0"
-	if body.EmailVerificationEnabled {
-		emailEnabled = "1"
-	}
-	if err := models.SetSaasSetting(reqCtx, pool, models.SettingEmailVerificationEnabled, emailEnabled); err != nil {
-		log.Printf("save email_enabled error: %v", err)
+	// Email settings — only written when the SMTP/OTP section sent them.
+	if body.EmailVerificationEnabled != nil {
+		emailEnabled := "0"
+		if *body.EmailVerificationEnabled {
+			emailEnabled = "1"
+		}
+		if err := models.SetSaasSetting(reqCtx, pool, models.SettingEmailVerificationEnabled, emailEnabled); err != nil {
+			log.Printf("save email_enabled error: %v", err)
+		}
 	}
 
 	// Email domain whitelist — normalize (lowercase, dedupe format) and store CSV.
-	models.SetSaasSetting(reqCtx, pool, models.SettingEmailDomainWhitelist,
-		strings.Join(models.ParseDomainList(body.EmailDomainWhitelist), ","))
+	if body.EmailDomainWhitelist != nil {
+		models.SetSaasSetting(reqCtx, pool, models.SettingEmailDomainWhitelist,
+			strings.Join(models.ParseDomainList(*body.EmailDomainWhitelist), ","))
+	}
 
-	models.SetSaasSetting(reqCtx, pool, models.SettingSMTPHost, strings.TrimSpace(body.SMTPHost))
-	models.SetSaasSetting(reqCtx, pool, models.SettingSMTPPort, strings.TrimSpace(body.SMTPPort))
-	models.SetSaasSetting(reqCtx, pool, models.SettingSMTPUser, strings.TrimSpace(body.SMTPUser))
-	models.SetSaasSetting(reqCtx, pool, models.SettingSMTPSenderName, strings.TrimSpace(body.SMTPSenderName))
+	if body.SMTPHost != nil {
+		models.SetSaasSetting(reqCtx, pool, models.SettingSMTPHost, strings.TrimSpace(*body.SMTPHost))
+	}
+	if body.SMTPPort != nil {
+		models.SetSaasSetting(reqCtx, pool, models.SettingSMTPPort, strings.TrimSpace(*body.SMTPPort))
+	}
+	if body.SMTPUser != nil {
+		models.SetSaasSetting(reqCtx, pool, models.SettingSMTPUser, strings.TrimSpace(*body.SMTPUser))
+	}
+	if body.SMTPSenderName != nil {
+		models.SetSaasSetting(reqCtx, pool, models.SettingSMTPSenderName, strings.TrimSpace(*body.SMTPSenderName))
+	}
 
 	// SMTP Password — mask handling
-	smtpPassword := strings.TrimSpace(body.SMTPPassword)
-	if smtpPassword != "" && strings.HasPrefix(smtpPassword, "****") {
-		existing, _ := models.GetSaasSetting(reqCtx, pool, models.SettingSMTPPassword)
-		if existing != "" {
-			smtpPassword = existing
+	if body.SMTPPassword != nil {
+		smtpPassword := strings.TrimSpace(*body.SMTPPassword)
+		if smtpPassword != "" && strings.HasPrefix(smtpPassword, "****") {
+			existing, _ := models.GetSaasSetting(reqCtx, pool, models.SettingSMTPPassword)
+			if existing != "" {
+				smtpPassword = existing
+			}
 		}
-	}
-	if smtpPassword != "" {
-		if err := models.SetSaasSetting(reqCtx, pool, models.SettingSMTPPassword, smtpPassword); err != nil {
-			log.Printf("save smtp_password error: %v", err)
+		if smtpPassword != "" {
+			if err := models.SetSaasSetting(reqCtx, pool, models.SettingSMTPPassword, smtpPassword); err != nil {
+				log.Printf("save smtp_password error: %v", err)
+			}
 		}
 	}
 
-	// Numerical settings
-	defaultMaxExams := body.DefaultMaxExams
-	if defaultMaxExams <= 0 {
-		defaultMaxExams = 3
+	// Numerical settings — only when the Default Paket section sent them.
+	if body.DefaultMaxExams != nil {
+		defaultMaxExams := *body.DefaultMaxExams
+		if defaultMaxExams <= 0 {
+			defaultMaxExams = 3
+		}
+		models.SetSaasSetting(reqCtx, pool, models.SettingDefaultMaxExams, strconv.Itoa(defaultMaxExams))
 	}
-	models.SetSaasSetting(reqCtx, pool, models.SettingDefaultMaxExams, strconv.Itoa(defaultMaxExams))
 
 	if body.DefaultMaxPDFSizeMB != nil {
 		defaultPDFSize := int(math.Max(0, *body.DefaultMaxPDFSizeMB*1024*1024))
@@ -367,82 +391,113 @@ func handleSaasSettingsPost(c *gin.Context, pool *pgxpool.Pool, ctx context.Cont
 	}
 
 	// Default storage quota (MB) for new registrations. 0 = tidak terbatas,
-	// mirroring the per-user quota editor; nilai negatif di-clamp ke 0. This is
-	// the ONLY numeric default saved conditionally (pointer): 0 is a meaningful
-	// value (unlimited), so an absent field — e.g. an older cached UI during a
-	// rollout — must NOT silently flip a configured quota to unlimited.
+	// mirroring the per-user quota editor; nilai negatif di-clamp ke 0. Only
+	// written when present (pointer): an absent field — e.g. a section that is
+	// not being saved — must NOT silently flip a configured quota.
 	if body.DefaultMaxStorageSizeMB != nil {
 		defaultStorageSize := int64(math.Max(0, *body.DefaultMaxStorageSizeMB*1024*1024))
 		models.SetSaasSetting(reqCtx, pool, models.SettingDefaultMaxStorageSize, strconv.FormatInt(defaultStorageSize, 10))
 	}
 
-	defaultConcurrent := body.DefaultMaxConcurrentExams
-	if defaultConcurrent <= 0 {
-		defaultConcurrent = 2
+	if body.DefaultMaxConcurrentExams != nil {
+		defaultConcurrent := *body.DefaultMaxConcurrentExams
+		if defaultConcurrent <= 0 {
+			defaultConcurrent = 2
+		}
+		models.SetSaasSetting(reqCtx, pool, models.SettingDefaultMaxConcurrentExams, strconv.Itoa(defaultConcurrent))
 	}
-	models.SetSaasSetting(reqCtx, pool, models.SettingDefaultMaxConcurrentExams, strconv.Itoa(defaultConcurrent))
 
-	defaultActiveDays := body.DefaultActiveDays
-	if defaultActiveDays <= 0 {
-		defaultActiveDays = 14
+	if body.DefaultActiveDays != nil {
+		defaultActiveDays := *body.DefaultActiveDays
+		if defaultActiveDays <= 0 {
+			defaultActiveDays = 14
+		}
+		models.SetSaasSetting(reqCtx, pool, models.SettingDefaultActiveDays, strconv.Itoa(defaultActiveDays))
 	}
-	models.SetSaasSetting(reqCtx, pool, models.SettingDefaultActiveDays, strconv.Itoa(defaultActiveDays))
 
 	// App versions
-	androidVersion := strings.TrimSpace(body.AndroidVersion)
-	if androidVersion != "" {
-		models.SetSaasSetting(reqCtx, pool, models.SettingAndroidVersion, androidVersion)
+	if body.AndroidVersion != nil {
+		androidVersion := strings.TrimSpace(*body.AndroidVersion)
+		if androidVersion != "" {
+			models.SetSaasSetting(reqCtx, pool, models.SettingAndroidVersion, androidVersion)
+		}
 	}
-	webappVersion := strings.TrimSpace(body.WebappVersion)
-	if webappVersion != "" {
-		models.SetSaasSetting(reqCtx, pool, models.SettingWebappVersion, webappVersion)
+	if body.WebappVersion != nil {
+		webappVersion := strings.TrimSpace(*body.WebappVersion)
+		if webappVersion != "" {
+			models.SetSaasSetting(reqCtx, pool, models.SettingWebappVersion, webappVersion)
+		}
 	}
 
-	certFingerprint := strings.TrimSpace(body.CertificateFingerprint)
-	models.SetSaasSetting(reqCtx, pool, models.SettingCertificateFingerprint, certFingerprint)
+	if body.CertificateFingerprint != nil {
+		certFingerprint := strings.TrimSpace(*body.CertificateFingerprint)
+		models.SetSaasSetting(reqCtx, pool, models.SettingCertificateFingerprint, certFingerprint)
+	}
 
 	// Save SEO settings
-	models.SetSaasSetting(reqCtx, pool, models.SettingSEOTitle, strings.TrimSpace(body.SEOTitle))
-	models.SetSaasSetting(reqCtx, pool, models.SettingSEODescription, strings.TrimSpace(body.SEODescription))
-	models.SetSaasSetting(reqCtx, pool, models.SettingSEOKeywords, strings.TrimSpace(body.SEOKeywords))
-
-	seoIndexVal := "0"
-	if body.SEOIndex {
-		seoIndexVal = "1"
+	if body.SEOTitle != nil {
+		models.SetSaasSetting(reqCtx, pool, models.SettingSEOTitle, strings.TrimSpace(*body.SEOTitle))
 	}
-	models.SetSaasSetting(reqCtx, pool, models.SettingSEOIndex, seoIndexVal)
+	if body.SEODescription != nil {
+		models.SetSaasSetting(reqCtx, pool, models.SettingSEODescription, strings.TrimSpace(*body.SEODescription))
+	}
+	if body.SEOKeywords != nil {
+		models.SetSaasSetting(reqCtx, pool, models.SettingSEOKeywords, strings.TrimSpace(*body.SEOKeywords))
+	}
+
+	if body.SEOIndex != nil {
+		seoIndexVal := "0"
+		if *body.SEOIndex {
+			seoIndexVal = "1"
+		}
+		models.SetSaasSetting(reqCtx, pool, models.SettingSEOIndex, seoIndexVal)
+	}
 
 	// Save footer settings
-	models.SetSaasSetting(reqCtx, pool, models.SettingFooterText, strings.TrimSpace(body.FooterText))
-	models.SetSaasSetting(reqCtx, pool, models.SettingFooterTagline, strings.TrimSpace(body.FooterTagline))
+	if body.FooterText != nil {
+		models.SetSaasSetting(reqCtx, pool, models.SettingFooterText, strings.TrimSpace(*body.FooterText))
+	}
+	if body.FooterTagline != nil {
+		models.SetSaasSetting(reqCtx, pool, models.SettingFooterTagline, strings.TrimSpace(*body.FooterTagline))
+	}
 
 	// Voucher redemption toggle
-	models.SetSaasSetting(reqCtx, pool, models.SettingVoucherRedeemEnabled, boolFlag(body.VoucherRedeemEnabled))
+	if body.VoucherRedeemEnabled != nil {
+		models.SetSaasSetting(reqCtx, pool, models.SettingVoucherRedeemEnabled, boolFlag(*body.VoucherRedeemEnabled))
+	}
 
 	// Cloudflare Turnstile bot protection. The secret key is stored only when
 	// it is not the masked placeholder ("****...") — mirroring SMTP password
 	// handling so an unchanged secret survives a save.
-	models.SetSaasSetting(reqCtx, pool, models.SettingTurnstileEnabled, boolFlag(body.TurnstileEnabled))
-	models.SetSaasSetting(reqCtx, pool, models.SettingTurnstileSiteKey, strings.TrimSpace(body.TurnstileSiteKey))
-	turnstileSecret := strings.TrimSpace(body.TurnstileSecretKey)
-	if turnstileSecret != "" && strings.HasPrefix(turnstileSecret, "****") {
-		existing, _ := models.GetSaasSetting(reqCtx, pool, models.SettingTurnstileSecretKey)
-		if existing != "" {
-			turnstileSecret = existing
-		}
+	if body.TurnstileEnabled != nil {
+		models.SetSaasSetting(reqCtx, pool, models.SettingTurnstileEnabled, boolFlag(*body.TurnstileEnabled))
 	}
-	if turnstileSecret != "" {
-		if err := models.SetSaasSetting(reqCtx, pool, models.SettingTurnstileSecretKey, turnstileSecret); err != nil {
-			log.Printf("save turnstile_secret_key error: %v", err)
+	if body.TurnstileSiteKey != nil {
+		models.SetSaasSetting(reqCtx, pool, models.SettingTurnstileSiteKey, strings.TrimSpace(*body.TurnstileSiteKey))
+	}
+	if body.TurnstileSecretKey != nil {
+		turnstileSecret := strings.TrimSpace(*body.TurnstileSecretKey)
+		if turnstileSecret != "" && strings.HasPrefix(turnstileSecret, "****") {
+			existing, _ := models.GetSaasSetting(reqCtx, pool, models.SettingTurnstileSecretKey)
+			if existing != "" {
+				turnstileSecret = existing
+			}
+		}
+		if turnstileSecret != "" {
+			if err := models.SetSaasSetting(reqCtx, pool, models.SettingTurnstileSecretKey, turnstileSecret); err != nil {
+				log.Printf("save turnstile_secret_key error: %v", err)
+			}
 		}
 	}
 
 	// Per-IP registration cap (0 = unlimited); clamp negatives to 0.
-	maxPerIP := body.MaxAccountsPerIP
-	if maxPerIP < 0 {
-		maxPerIP = 0
+	if body.MaxAccountsPerIP != nil {
+		maxPerIP := *body.MaxAccountsPerIP
+		if maxPerIP < 0 {
+			maxPerIP = 0
+		}
+		models.SetSaasSetting(reqCtx, pool, models.SettingMaxAccountsPerIP, strconv.Itoa(maxPerIP))
 	}
-	models.SetSaasSetting(reqCtx, pool, models.SettingMaxAccountsPerIP, strconv.Itoa(maxPerIP))
 
 	// Per-exam approved-device cap for auto-approve. 0 = unlimited (a
 	// meaningful value, preserved as-is); negatives are clamped to 0. Written

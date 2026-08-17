@@ -2973,52 +2973,75 @@ function deleteSubmission(id) {
     });
 }
 
-function saveSaasSettings(e) {
-    e.preventDefault();
-    const form = e.currentTarget;
-    if (!form.checkValidity()) {
-        form.reportValidity();
-        showToast("Lengkapi atau perbaiki kolom setelan yang ditandai", "error");
-        return;
+// ---- Per-section SaaS saves (Pengaturan Umum: 8 kartu terpisah) ----
+// Each card saves ONLY its own fields — the server handler is a partial
+// update (only fields present in the JSON body are written), so saving one
+// section never touches the others.
+
+// saveSaasSection posts a partial payload and refreshes the form values from
+// the server. btnId is the card's save button (loading state + toast).
+function saveSaasSection(payload, btnId, successMsg) {
+    const btn = document.getElementById(btnId);
+    const originalHTML = btn ? btn.innerHTML : '';
+    if (btn) {
+        btn.disabled = true;
+        btn.textContent = 'Menyimpan...';
     }
+    apiFetch('/admin/api/saas-settings', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+    })
+    .then(r => r.json())
+    .then(res => {
+        if (res.success) {
+            showToast(res.message || successMsg, 'success');
+            loadSaasSettings();
+        } else {
+            showToast(res.message || 'Gagal menyimpan', 'error');
+        }
+    })
+    .catch(() => showToast('Gagal menyimpan setelan', 'error'))
+    .finally(() => {
+        if (btn) {
+            btn.disabled = false;
+            btn.innerHTML = originalHTML;
+        }
+    });
+}
 
-    const saveButton = document.getElementById("saveSaasSettingsBtn");
-    const originalButtonHTML = saveButton ? saveButton.innerHTML : "";
-    if (saveButton) {
-        saveButton.disabled = true;
-        saveButton.textContent = "Menyimpan...";
+function saveSmtpSettings() {
+    const form = document.getElementById('saas-card-smtp');
+    const inputs = form.querySelectorAll('input[required], textarea[required]');
+    for (const el of inputs) {
+        if (!el.value.trim()) {
+            el.reportValidity();
+            showToast('Lengkapi atau perbaiki kolom setelan yang ditandai', 'error');
+            return;
+        }
     }
+    saveSaasSection({
+        email_verification_enabled: document.getElementById('emailEnabledInput').checked,
+        email_domain_whitelist: (document.getElementById('emailDomainWhitelistInput') || {}).value || '',
+        smtp_host: document.getElementById('smtpHostInput').value.trim(),
+        smtp_port: document.getElementById('smtpPortInput').value.trim(),
+        smtp_user: document.getElementById('smtpUserInput').value.trim(),
+        smtp_password: document.getElementById('smtpPasswordInput').value.trim(),
+        smtp_sender_name: document.getElementById('smtpSenderNameInput').value.trim()
+    }, 'saveSmtpSettingsBtn', 'Setelan SMTP disimpan');
+}
 
-    const email_verification_enabled = document.getElementById('emailEnabledInput').checked;
-    const email_domain_whitelist = (document.getElementById('emailDomainWhitelistInput') || {}).value || '';
-    const smtp_host = document.getElementById('smtpHostInput').value.trim();
-    const smtp_port = document.getElementById('smtpPortInput').value.trim();
-    const smtp_user = document.getElementById('smtpUserInput').value.trim();
-    const smtp_password = document.getElementById('smtpPasswordInput').value.trim();
-    const smtp_sender_name = document.getElementById('smtpSenderNameInput').value.trim();
-    const default_max_exams = parseInt(document.getElementById('defaultExamsInput').value);
-    const default_max_concurrent_exams = parseInt(document.getElementById('defaultConcurrentInput').value);
-    const default_max_pdf_size_mb = parseFloat(document.getElementById('defaultPdfInput').value);
-    const default_max_storage_size_mb = parseFloat(document.getElementById('defaultStorageInput').value);
-    const default_active_days = parseInt(document.getElementById('defaultActiveDaysInput').value);
-    const android_version = document.getElementById('androidVersionInput').value.trim();
-    const webapp_version = document.getElementById('webappVersionInput').value.trim();
-    const seo_title = document.getElementById('seoTitleInput').value.trim();
-    const seo_description = document.getElementById('seoDescriptionInput').value.trim();
-    const seo_keywords = document.getElementById('seoKeywordsInput').value.trim();
-    const seo_index = document.getElementById('seoIndexInput').checked;
-    const footer_text = document.getElementById('footerTextInput').value.trim();
-    const footer_tagline = document.getElementById('footerTaglineInput').value.trim();
+function saveTurnstileSettings() {
+    saveSaasSection({
+        turnstile_enabled: !!(document.getElementById('turnstileEnabledInput') || {}).checked,
+        turnstile_site_key: (document.getElementById('turnstileSiteKeyInput') || {}).value || '',
+        turnstile_secret_key: (document.getElementById('turnstileSecretKeyInput') || {}).value || '',
+        max_accounts_per_ip: parseInt((document.getElementById('maxAccountsPerIpInput') || {}).value) || 0,
+        max_approvals_per_exam: parseInt((document.getElementById('maxApprovalsPerExamInput') || {}).value) || 0
+    }, 'saveTurnstileSettingsBtn', 'Setelan Turnstile disimpan');
+}
 
-    // Monetization toggles
-    const voucher_redeem_enabled = !!(document.getElementById('voucherRedeemEnabledInput') || {}).checked;
-
-    // Cloudflare Turnstile bot protection + per-IP registration cap
-    const turnstile_enabled = !!(document.getElementById('turnstileEnabledInput') || {}).checked;
-    const turnstile_site_key = (document.getElementById('turnstileSiteKeyInput') || {}).value || '';
-    const turnstile_secret_key = (document.getElementById('turnstileSecretKeyInput') || {}).value || '';
-    const max_accounts_per_ip = parseInt((document.getElementById('maxAccountsPerIpInput') || {}).value) || 0;
-    const max_approvals_per_exam = parseInt((document.getElementById('maxApprovalsPerExamInput') || {}).value) || 0;
+function saveCleanupSettings() {
     // Numeric tuning fields: 0 is a MEANINGFUL value ("purge immediately") for
     // grace/TTL, so a bare || fallback must not coerce it away — empty/NaN
     // falls back to the default, a typed 0 is preserved as 0.
@@ -3028,41 +3051,68 @@ function saveSaasSettings(e) {
         const n = parseInt(el.value, 10);
         return isNaN(n) ? fallback : n;
     };
-    const approval_cleanup_interval_minutes = cleanupNum('approvalCleanupIntervalMinutesInput', 15);
-    const approval_cleanup_ended_grace_hours = cleanupNum('approvalCleanupEndedGraceHoursInput', 1);
-    const approval_cleanup_inactive_ttl_hours = cleanupNum('approvalCleanupInactiveTTLHoursInput', 24);
+    saveSaasSection({
+        approval_cleanup_interval_minutes: cleanupNum('approvalCleanupIntervalMinutesInput', 15),
+        approval_cleanup_ended_grace_hours: cleanupNum('approvalCleanupEndedGraceHoursInput', 1),
+        approval_cleanup_inactive_ttl_hours: cleanupNum('approvalCleanupInactiveTTLHoursInput', 24)
+    }, 'saveCleanupSettingsBtn', 'Setelan pembersihan disimpan');
+}
 
-    apiFetch('/admin/api/saas-settings', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-            email_verification_enabled, email_domain_whitelist, smtp_host, smtp_port, smtp_user, smtp_password, smtp_sender_name,
-            default_max_exams, default_max_concurrent_exams, default_max_pdf_size_mb, default_max_storage_size_mb,
-            default_active_days, android_version, webapp_version,
-            seo_title, seo_description, seo_keywords, seo_index,
-            footer_text, footer_tagline,
-            voucher_redeem_enabled,
-            turnstile_enabled, turnstile_site_key, turnstile_secret_key,
-            max_accounts_per_ip, max_approvals_per_exam,
-            approval_cleanup_interval_minutes, approval_cleanup_ended_grace_hours, approval_cleanup_inactive_ttl_hours
-        })
-    })
-    .then(r => r.json())
-    .then(res => {
-        if (res.success) {
-            showToast(res.message, 'success');
-            loadSaasSettings();
-        } else {
-            showToast(res.message || 'Gagal menyimpan', 'error');
+function saveDefaultPkgSettings() {
+    const form = document.getElementById('saas-card-default-pkg');
+    const inputs = form.querySelectorAll('input[required]');
+    for (const el of inputs) {
+        if (!el.value.trim()) {
+            el.reportValidity();
+            showToast('Lengkapi atau perbaiki kolom setelan yang ditandai', 'error');
+            return;
         }
-    })
-    .catch(() => showToast('Gagal menyimpan setelan SaaS', 'error'))
-    .finally(() => {
-        if (saveButton) {
-            saveButton.disabled = false;
-            saveButton.innerHTML = originalButtonHTML;
+    }
+    saveSaasSection({
+        default_max_exams: parseInt(document.getElementById('defaultExamsInput').value),
+        default_max_concurrent_exams: parseInt(document.getElementById('defaultConcurrentInput').value),
+        default_max_pdf_size_mb: parseFloat(document.getElementById('defaultPdfInput').value),
+        default_max_storage_size_mb: parseFloat(document.getElementById('defaultStorageInput').value),
+        default_active_days: parseInt(document.getElementById('defaultActiveDaysInput').value)
+    }, 'saveDefaultPkgSettingsBtn', 'Default paket disimpan');
+}
+
+function saveVersionsSettings() {
+    const form = document.getElementById('saas-card-versions');
+    const inputs = form.querySelectorAll('input[required]');
+    for (const el of inputs) {
+        if (!el.value.trim()) {
+            el.reportValidity();
+            showToast('Lengkapi atau perbaiki kolom setelan yang ditandai', 'error');
+            return;
         }
-    });
+    }
+    saveSaasSection({
+        android_version: document.getElementById('androidVersionInput').value.trim(),
+        webapp_version: document.getElementById('webappVersionInput').value.trim()
+    }, 'saveVersionsSettingsBtn', 'Versi aplikasi disimpan');
+}
+
+function saveFooterSettings() {
+    saveSaasSection({
+        footer_text: document.getElementById('footerTextInput').value.trim(),
+        footer_tagline: document.getElementById('footerTaglineInput').value.trim()
+    }, 'saveFooterSettingsBtn', 'Footer disimpan');
+}
+
+function saveSeoSettings() {
+    saveSaasSection({
+        seo_title: document.getElementById('seoTitleInput').value.trim(),
+        seo_description: document.getElementById('seoDescriptionInput').value.trim(),
+        seo_keywords: document.getElementById('seoKeywordsInput').value.trim(),
+        seo_index: document.getElementById('seoIndexInput').checked
+    }, 'saveSeoSettingsBtn', 'Setelan SEO disimpan');
+}
+
+function saveMonetizationSettings() {
+    saveSaasSection({
+        voucher_redeem_enabled: !!(document.getElementById('voucherRedeemEnabledInput') || {}).checked
+    }, 'saveMonetizationSettingsBtn', 'Kontrol monetisasi disimpan');
 }
 
 // Format ukuran storage untuk hint sisa disk (MB → MB/GB).
