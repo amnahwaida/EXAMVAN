@@ -139,5 +139,8 @@
  }
 
  window.__settingsReady['packages'] = loadPackages;
+ // Pengaturan Paket moved into the Pengaturan Umum tab (5-tab redesign);
+ // settings-general.js calls initPackages instead of a standalone tab.
+ window.initPackages = loadPackages;
  window.savePackages = savePackages;
 })();

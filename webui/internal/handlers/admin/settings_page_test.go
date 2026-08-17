@@ -138,20 +138,20 @@ func TestSettingsPageSectionsRoleGated(t *testing.T) {
 	}{
 		{
 			role: "superadmin",
-			want: []string{`id="section-users"`, `id="section-billing"`, `id="section-vouchers"`, `id="section-voucher-audit"`, `id="section-packages"`, `id="section-system-apps"`},
-			tabs: []string{"/admin/settings#users", "/admin/settings#billing", "/admin/settings#vouchers", "/admin/settings#voucher-audit", "/admin/settings#packages", "/admin/settings#system-apps"},
+			want: []string{`id="section-users"`, `id="section-billing"`, `id="section-vouchers"`, `id="section-general"`, `id="section-system-apps"`},
+			tabs: []string{"/admin/settings#users", "/admin/settings#billing", "/admin/settings#vouchers", "/admin/settings#general", "/admin/settings#system-apps"},
 		},
 		{
 			role:  "operator",
 			want:  []string{`id="section-users"`, `id="section-billing"`},
-			not:   []string{`id="section-vouchers"`, `id="section-voucher-audit"`, `id="section-packages"`, `id="section-system-apps"`},
+			not:   []string{`id="section-vouchers"`, `id="section-general"`, `id="section-system-apps"`},
 			tabs:  []string{"/admin/settings#users", "/admin/settings#billing"},
-			noTab: []string{"/admin/settings#vouchers", "/admin/settings#system-apps"},
+			noTab: []string{"/admin/settings#vouchers", "/admin/settings#general", "/admin/settings#system-apps"},
 		},
 		{
 			role:  "guru",
 			want:  []string{`id="section-billing"`},
-			not:   []string{`id="section-users"`, `id="section-vouchers"`, `id="section-packages"`, `id="section-system-apps"`},
+			not:   []string{`id="section-users"`, `id="section-vouchers"`, `id="section-general"`, `id="section-system-apps"`},
 			tabs:  []string{"/admin/settings#billing"},
 			noTab: []string{"/admin/settings#users", "/admin/settings#vouchers"},
 		},
@@ -201,8 +201,7 @@ func TestSettingsPageFeatureLockedOnlyBilling(t *testing.T) {
 	for _, gone := range []string{
 		`id="section-users"`,
 		`id="section-vouchers"`,
-		`id="section-voucher-audit"`,
-		`id="section-packages"`,
+		`id="section-general"`,
 		`id="section-system-apps"`,
 	} {
 		if strings.Contains(out, gone) {
@@ -216,8 +215,7 @@ func TestSettingsPageFeatureLockedOnlyBilling(t *testing.T) {
 	for _, goneTab := range []string{
 		"/admin/settings#users",
 		"/admin/settings#vouchers",
-		"/admin/settings#voucher-audit",
-		"/admin/settings#packages",
+		"/admin/settings#general",
 		"/admin/settings#system-apps",
 	} {
 		if strings.Contains(out, goneTab) {
@@ -232,7 +230,7 @@ func TestSettingsPageFeatureLockedOnlyBilling(t *testing.T) {
 	if !strings.Contains(out, `id="section-billing"`) {
 		t.Error("locked superadmin settings page must still render the billing section")
 	}
-	for _, gone := range []string{`id="section-users"`, `id="section-vouchers"`, `id="section-system-apps"`} {
+	for _, gone := range []string{`id="section-users"`, `id="section-vouchers"`, `id="section-general"`, `id="section-system-apps"`} {
 		if strings.Contains(out, gone) {
 			t.Errorf("locked superadmin settings page must NOT render %s", gone)
 		}
@@ -253,10 +251,14 @@ func TestSettingsPageLazyJsWiring(t *testing.T) {
 	out := renderSettingsForRole(t, "superadmin")
 	for _, frag := range []string{
 		"window.__settingsReady",
-		"/static/js/settings-' + key + '.js", // dynamic per-section script loader
+		"settings-' + key + '.js", // dynamic per-section script loader
 		"loadSectionScript",
+		"resolveSection",
+		"switchVoucherSubtab",
+		"settingsSectionSelect",
 		"data-section=\"users\"",
-		"data-section=\"voucher-audit\"",
+		"data-section=\"vouchers\"",
+		"data-section=\"general\"",
 		"id=\"section-billing\"",
 		"history.replaceState",
 	} {
@@ -265,7 +267,7 @@ func TestSettingsPageLazyJsWiring(t *testing.T) {
 		}
 	}
 	// Every section script file referenced by the loader must exist.
-	for _, key := range []string{"users", "billing", "vouchers", "voucher-audit", "packages", "system-apps"} {
+	for _, key := range []string{"users", "billing", "vouchers", "general", "system-apps", "voucher-audit", "packages"} {
 		path := filepath.Join("static", "js", "settings-"+key+".js")
 		if _, err := os.Stat(path); err != nil {
 			if _, err2 := os.Stat(filepath.Join("..", "..", "..", path)); err2 != nil {

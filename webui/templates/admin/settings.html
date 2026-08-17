@@ -753,247 +753,9 @@
 <section class="settings-section" id="section-users" data-section="users" aria-label="Kelola User">
 <h1 class="sr-only" style="position:absolute;left:-9999px;">Kelola User</h1>
  <div class="users-layout">
- <!-- Left Column: SaaS Config & Add User -->
+ <!-- Left Column: Add User -->
  <div style="display:flex;flex-direction:column;gap:24px;">
-  <!-- SaaS & SMTP Email Verification Settings -->
-  {{if eq .admin_role "superadmin"}}
-  <section class="glass-card">
-  <h3 style="margin-bottom:16px;font-size:1.1rem;color:#a5b4fc;display:flex;align-items:center;gap:8px;">
-  <svg class="icon-svg" style="color:#a5b4fc;"><use href="#hi-settings"/></svg> SaaS &amp; SMTP Email Settings
-  </h3>
-  <form id="saasSettingsForm" onsubmit="saveSaasSettings(event)" novalidate style="display:flex;flex-direction:column;gap:12px;">
-  <div class="switch-container">
-  <span class="switch-label" title="Aktifkan untuk mewajibkan verifikasi kode OTP lewat email saat pendaftaran akun baru">Verifikasi OTP Email</span>
-  <label class="switch">
-  <input type="checkbox" id="emailEnabledInput" onchange="toggleEmailFields()">
-  <span class="slider"></span>
-  </label>
-  </div>
 
-  <div class="form-group space-y-1">
-  <label for="emailDomainWhitelistInput">Whitelist Domain Email Pendaftaran</label>
-  <textarea id="emailDomainWhitelistInput" rows="3" placeholder="gmail.com, yahoo.com, sch.id, ac.id" style="width:100%;background:rgba(255,255,255,0.05);border:1px solid var(--color-glass-border);border-radius:6px;padding:8px;color:var(--color-text);font-family:var(--font-mono);font-size:0.8rem;resize:vertical;"></textarea>
-  <span class="form-hint saas-domain-hint">Hanya email dari domain ini yang boleh mendaftar. Pisahkan dengan koma atau baris baru. Subdomain otomatis diizinkan (mis. <code>sch.id</code> mengizinkan <code>smanegeri1.sch.id</code>). Kosongkan untuk mengizinkan semua domain.</span>
-  </div>
-
-  <div id="emailSettingsFields" style="display:flex;flex-direction:column;gap:12px;">
-  <div class="form-row-2col grid grid-cols-1 sm:grid-cols-2 gap-4">
-  <div class="form-group space-y-1">
-  <label for="smtpHostInput" title="Alamat server SMTP penyedia email (contoh: smtp.gmail.com)">SMTP Host</label>
-  <input type="text" id="smtpHostInput" placeholder="smtp.gmail.com">
-  </div>
-  <div class="form-group space-y-1">
-  <label for="smtpPortInput" title="Port server SMTP (contoh: 587 untuk TLS/STARTTLS, 465 untuk SSL)">SMTP Port</label>
-  <input type="text" id="smtpPortInput" placeholder="587">
-  </div>
-  </div>
-
-  <div class="form-row-2col grid grid-cols-1 sm:grid-cols-2 gap-4">
-  <div class="form-group space-y-1">
-  <label for="smtpUserInput" title="Alamat email yang digunakan sebagai pengirim kode verifikasi OTP">Email Pengirim</label>
-  <input type="email" id="smtpUserInput" placeholder="nama-email@gmail.com">
-  </div>
-  <div class="form-group space-y-1">
-  <label for="smtpPasswordInput" title="Sandi aplikasi 16-karakter (misal Gmail App Password) atau kata sandi akun SMTP Anda">Sandi Aplikasi</label>
-  <input type="password" id="smtpPasswordInput" placeholder="Masukkan password aplikasi atau sandi SMTP">
-  </div>
-  </div>
-
-  <div class="form-group space-y-1">
-  <label for="smtpSenderNameInput" title="Nama pengirim yang muncul di email penerima (contoh: EXAMVAN Verification)">Nama Pengirim Email</label>
-  <input type="text" id="smtpSenderNameInput" placeholder="EXAMVAN Verification">
-  </div>
-  <div style="display:flex;justify-content:flex-end;margin-top:4px;">
-  <button type="button" id="testSmtpBtn" onclick="testSmtpConnection()" class="btn-sm" style="background:rgba(59,130,246,0.2);border:1px solid rgba(59,130,246,0.4);color:#93c5fd;display:flex;align-items:center;gap:6px;cursor:pointer;padding:6px 12px;border-radius:6px;font-size:13px;transition:all 0.2s;">
-  <svg class="icon-svg" style="width:16px;height:16px;" id="testSmtpIcon"><use href="#hi-refresh"/></svg>
-  <span id="testSmtpText">Test Koneksi SMTP</span>
-  </button>
-  </div>
-  </div>
-
-  <div style="border-top:1px solid var(--color-glass-border);margin-top:16px;padding-top:16px;margin-bottom:6px;">
-  <h4 style="margin:0;font-size:0.85rem;font-weight:600;text-transform:uppercase;letter-spacing:0.5px;color:var(--color-accent-light);display:flex;align-items:center;gap:6px;">
-  <svg class="icon-svg" style="width:16px;height:16px;"><use href="#hi-lock"/></svg> Cloudflare Turnstile (Anti-Bot)
-  </h4>
-  <p style="font-size:12px;color:var(--color-text-secondary);margin:4px 0 8px 0;">Wajibkan verifikasi Turnstile pada form pendaftaran untuk memblokir registrasi massal otomatis. Buat widget gratis di <code style="font-size:11px;color:#a5b4fc;">dash.cloudflare.com &rarr; Turnstile</code> lalu tempel Site Key &amp; Secret Key di sini.</p>
-  <div class="switch-container">
-  <span class="switch-label" title="Aktifkan verifikasi Turnstile di halaman /register">Aktifkan Turnstile</span>
-  <label class="switch">
-  <input type="checkbox" id="turnstileEnabledInput" onchange="toggleTurnstileFields()">
-  <span class="slider"></span>
-  </label>
-  </div>
-  <div id="turnstileFields" style="display:none;flex-direction:column;gap:12px;">
-  <div class="form-row-2col grid grid-cols-1 sm:grid-cols-2 gap-4">
-  <div class="form-group space-y-1">
-  <label for="turnstileSiteKeyInput" title="Site Key dari dashboard Turnstile Cloudflare">Site Key</label>
-  <input type="text" id="turnstileSiteKeyInput" placeholder="0x4AAAAAAA...">
-  </div>
-  <div class="form-group space-y-1">
-  <label for="turnstileSecretKeyInput" title="Secret Key dari dashboard Turnstile Cloudflare. Hanya untuk verifikasi server, tidak pernah ditampilkan utuh">Secret Key</label>
-  <input type="password" id="turnstileSecretKeyInput" placeholder="0x4AAAAAAA...">
-  </div>
-  </div>
-  </div>
-  <div class="form-group space-y-1">
-  <label for="maxAccountsPerIpInput" title="Maksimal akun yang boleh dibuat dari satu alamat IP dalam 24 jam (0 = tanpa batas)">Maks Akun per IP (24 jam)</label>
-  <input type="number" id="maxAccountsPerIpInput" min="0" placeholder="3">
-  <span class="form-hint saas-domain-hint">Lapisan kedua di atas Turnstile. Sekolah dengan satu IP bersama (NAT) bisa menaikkan angka ini. 0 = tanpa batas.</span>
-  </div>
-  <div class="form-group space-y-1">
-  <label for="maxApprovalsPerExamInput" title="Maksimal perangkat yang boleh berstatus &quot;disetujui&quot; dalam satu ujian saat auto-approve server aktif (0 = tanpa batas)">Maks Perangkat Disetujui per Ujian</label>
-  <input type="number" id="maxApprovalsPerExamInput" min="0" placeholder="500">
-  <span class="form-hint saas-domain-hint">Batas perangkat berstatus &quot;disetujui&quot; per ujian saat auto-approve server aktif (anti-spam token bocor — request berikutnya jatuh ke antrean persetujuan). 0 = tanpa batas.</span>
-  </div>
-  </div>
-
-  <div style="border-top:1px solid var(--color-glass-border);margin-top:16px;padding-top:16px;margin-bottom:6px;">
-  <h4 style="margin:0;font-size:0.85rem;font-weight:600;text-transform:uppercase;letter-spacing:0.5px;color:var(--color-accent-light);display:flex;align-items:center;gap:6px;">
-  <svg class="icon-svg" style="width:16px;height:16px;"><use href="#hi-refresh"/></svg> Pembersihan Otomatis Antrean Persetujuan
-  </h4>
-  <p style="font-size:12px;color:var(--color-text-secondary);margin:4px 0 8px 0;">Atur seberapa agresif job latar membersihkan baris persetujuan basi (pending yang ujiannya sudah berakhir &amp; pending/approved pada ujian nonaktif). Berlaku tanpa restart server — job membaca nilai ini setiap siklus.</p>
-  <div class="form-group space-y-1">
-  <label for="approvalCleanupIntervalMinutesInput" title="Seberapa sering job pembersih berjalan (menit)">Interval Pembersihan (menit)</label>
-  <input type="number" id="approvalCleanupIntervalMinutesInput" min="1" placeholder="15">
-  <span class="form-hint saas-domain-hint">Frekuensi job membersihkan baris approval basi. Minimum 1 menit. Nilai lebih kecil = antrean lebih ramping tapi beban DB lebih tinggi.</span>
-  </div>
-  <div class="form-group space-y-1">
-  <label for="approvalCleanupEndedGraceHoursInput" title="Toleransi (jam) setelah end_time ujian lewat sebelum barisnya dibersihkan">Toleransi Setelah Ujian Berakhir (jam)</label>
-  <input type="number" id="approvalCleanupEndedGraceHoursInput" min="0" placeholder="1">
-  <span class="form-hint saas-domain-hint">Buffer terhadap selisih jam perangkat &amp; perpanjangan jadwal oleh guru. 0 = bersihkan segera setelah jadwal berakhir.</span>
-  </div>
-  <div class="form-group space-y-1">
-  <label for="approvalCleanupInactiveTTLHoursInput" title="Umur baris pending/approved pada ujian nonaktif sebelum dihapus (jam)">TTL Baris pada Ujian Nonaktif (jam)</label>
-  <input type="number" id="approvalCleanupInactiveTTLHoursInput" min="0" placeholder="24">
-  <span class="form-hint saas-domain-hint">Baris pending/approved pada ujian nonaktif yang lebih tua dari ini dihapus. 0 = hapus semua. Keputusan &quot;ditolak&quot; dan data pengumpulan siswa tidak pernah disentuh.</span>
-  </div>
-  </div>
-
-  <div style="border-top:1px solid var(--color-glass-border);margin-top:16px;padding-top:16px;margin-bottom:6px;">
-  <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;">
-  <h4 style="margin:0;font-size:0.85rem;font-weight:600;text-transform:uppercase;letter-spacing:0.5px;color:var(--color-accent-light);display:flex;align-items:center;gap:6px;">
-  <svg class="icon-svg"><use href="#hi-clipboard"/></svg> Default Paket Pendaftaran
-  </h4>
-  <span class="disk-free-badge" id="diskFreeBadge" title="Sisa kapasitas disk partisi penyimpanan server. Nilai Maks Upload &amp; Maks Storage tidak boleh melebihi sisa disk ini.">
-  <svg class="icon-svg" style="width:13px;height:13px;flex-shrink:0;" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><rect x="3" y="4" width="18" height="7" rx="1.5"/><rect x="3" y="13" width="18" height="7" rx="1.5"/><path d="M7 7.5h.01M7 16.5h.01M11 7.5h6M11 16.5h6"/></svg>
-  <span id="diskFreeBadgeText">{{if .storage_free_display}}{{.storage_free_display}}{{else}}Sisa disk server tidak dapat ditentukan{{end}}</span>
-  </span>
-  </div>
-  <p style="font-size:12px;color:var(--color-text-secondary);margin:6px 0 0 0;">Kuota default yang otomatis diterapkan ke akun baru yang mendaftar mandiri.</p>
-  </div>
-
-  <div class="form-row-3col grid grid-cols-1 sm:grid-cols-4 gap-4 default-pkg-row">
-  <div class="form-group space-y-1">
-  <label class="required" for="defaultExamsInput" title="Default limit jumlah ujian untuk pendaftaran baru">Maks Total Ujian</label>
-  <input type="number" id="defaultExamsInput" required min="1" title="Limit jumlah ujian">
-  </div>
-  <div class="form-group space-y-1">
-  <label class="required" for="defaultConcurrentInput" title="Default maksimal ujian yang berjalan bersamaan (sudah dimulai &amp; bisa dikerjakan siswa) untuk pendaftaran baru">Ujian Serentak</label>
-  <input type="number" id="defaultConcurrentInput" required min="1" title="Maksimal ujian berjalan bersamaan (sudah dimulai & bisa dikerjakan siswa)">
-  </div>
-  <div class="form-group space-y-1">
-  <label class="required" for="defaultPdfInput" title="Default limit ukuran file PDF (dalam Megabytes / MB) untuk pendaftaran baru">Maks Upload (MB)</label>
-  <input type="number" id="defaultPdfInput" required min="0.1" step="0.1" title="Limit ukuran file PDF (MB). Tidak boleh melebihi sisa disk server (maks 100 MB global).">
-  <span class="form-hint saas-domain-hint" id="defaultPdfHint">Maks 100 MB per file PDF.</span>
-  </div>
-  <div class="form-group space-y-1">
-  <label class="required" for="defaultStorageInput" title="Default batas total kapasitas storage (dalam Megabytes / MB) untuk pendaftaran baru. 0 = tidak terbatas.">Maks Storage (MB)</label>
-  <input type="number" id="defaultStorageInput" required min="0" step="0.1" title="Batas total kapasitas storage (dalam Megabytes / MB). 0 = tidak terbatas. Tidak boleh melebihi sisa disk server.">
-  <span class="form-hint saas-domain-hint" id="defaultStorageHint">0 = tidak terbatas.</span>
-  </div>
-  <div class="form-group space-y-1">
-  <label class="required" for="defaultActiveDaysInput" title="Default masa aktif akun (dalam Hari) untuk pendaftaran baru">Masa Aktif</label>
-  <input type="number" id="defaultActiveDaysInput" required min="1" title="Masa aktif akun (dalam Hari)">
-  </div>
-  </div>
-
- <div style="border-top:1px solid var(--color-glass-border);margin-top:16px;padding-top:16px;margin-bottom:6px;">
- <h4 style="margin:0;font-size:0.85rem;font-weight:600;text-transform:uppercase;letter-spacing:0.5px;color:var(--color-accent-light);display:flex;align-items:center;gap:6px;">
- <svg class="icon-svg"><use href="#hi-download"/></svg> Versi Aplikasi
- </h4>
- </div>
-
- <div class="form-row-2col grid grid-cols-1 sm:grid-cols-2 gap-4">
- <div class="form-group space-y-1">
- <label class="required" for="androidVersionInput">Versi Android App (vX.Y.Z)</label>
- <input type="text" id="androidVersionInput" required placeholder="Contoh: 2.0.0">
- </div>
- <div class="form-group space-y-1">
- <label class="required" for="webappVersionInput">Versi WebApp Server (vX.Y.Z)</label>
- <input type="text" id="webappVersionInput" required placeholder="Contoh: 2.0.0">
- </div>
- </div>
-
-<div style="border-top:1px solid var(--color-glass-border);margin-top:16px;padding-top:16px;margin-bottom:6px;">
-   <h4 style="margin:0;font-size:0.85rem;font-weight:600;text-transform:uppercase;letter-spacing:0.5px;color:var(--color-accent-light);display:flex;align-items:center;gap:6px;">
-   <svg class="icon-svg" style="width:16px;height:16px;"><use href="#hi-clipboard"/></svg> Customizing Footer
-   </h4>
-   <p style="font-size:12px;color:var(--color-text-secondary);margin:4px 0 8px 0;">Teks footer yang tampil di semua halaman publik (halaman utama, unduh, login/daftar, dan hasil ujian).</p>
-   </div>
-
-   <div class="form-group space-y-1">
-   <label for="footerTextInput" title="Teks utama footer (biasanya hak cipta)">Teks Footer</label>
-   <input type="text" id="footerTextInput" placeholder="© 2026 EXAMVAN Team. All rights reserved.">
-   </div>
-
-   <div class="form-group space-y-1">
-   <label for="footerTaglineInput" title="Kalimat pendukung di bawah teks footer (boleh kosong)">Subteks Footer</label>
-   <input type="text" id="footerTaglineInput" placeholder="Dibuat khusus untuk pengujian sekolah digital mandiri yang aman.">
-   </div>
-
-   <div style="border-top:1px solid var(--color-glass-border);margin-top:16px;padding-top:16px;margin-bottom:6px;">
-   <h4 style="margin:0;font-size:0.85rem;font-weight:600;text-transform:uppercase;letter-spacing:0.5px;color:var(--color-accent-light);display:flex;align-items:center;gap:6px;">
-   <svg class="icon-svg" style="width:16px;height:16px;fill:none;stroke:currentColor;stroke-width:1.5;stroke-linecap:round;stroke-linejoin:round;"><path d="M12 21a9.004 9.004 0 0 0 8.716-6.747M12 21a9.004 9.004 0 0 1-8.716-6.747M12 21c2.485 0 4.5-4.03 4.5-9S14.485 3 12 3m0 18c-2.485 0-4.5-4.03-4.5-9S9.515 3 12 3m0 0a8.997 8.997 0 0 1 7.843 4.582M12 3a8.997 8.997 0 0 0-7.843 4.582m15.686 0A11.953 11.953 0 0 1 12 10.5c-2.998 0-5.74-1.1-7.843-2.918m15.686 0A8.959 8.959 0 0 1 21 12c0 .778-.099 1.533-.284 2.253m0 0A11.952 11.952 0 0 1 12 16.5c-2.998 0-5.74-1.1-7.843-2.918m0 0A8.959 8.959 0 0 1 3 12c0-.778.099-1.533.284-2.253"/></svg> Pengaturan SEO &amp; Indexing Google
-  </h4>
-  </div>
-
-  <div class="form-group space-y-1">
-  <label for="seoTitleInput" title="Judul situs web yang akan muncul di hasil pencarian Google">Meta Title</label>
-  <input type="text" id="seoTitleInput" placeholder="EXAMVAN - Aplikasi Ujian Online Aman &amp; Tertib">
-  </div>
-
-  <div class="form-group space-y-1">
-  <label for="seoDescriptionInput" title="Deskripsi singkat yang akan muncul di bawah judul situs pada pencarian Google">Meta Description</label>
-  <textarea id="seoDescriptionInput" placeholder="Masukkan deskripsi singkat untuk pencarian Google..." style="width:100%;min-height:60px;background:rgba(255,255,255,0.05);border:1px solid var(--color-glass-border);border-radius:6px;padding:8px;color:var(--color-text);font-family:inherit;font-size:0.875rem;resize:vertical;"></textarea>
-  </div>
-
-  <div class="form-row-2col grid grid-cols-1 sm:grid-cols-2 gap-4">
-  <div class="form-group space-y-1">
-  <label for="seoKeywordsInput" title="Kata kunci pencarian yang relevan, dipisahkan dengan koma">Meta Keywords</label>
-  <input type="text" id="seoKeywordsInput" placeholder="examvan, ujian online, ujian sekolah">
-  </div>
-  <div class="form-group space-y-1" style="display:flex;flex-direction:column;justify-content:center;">
-  <div class="switch-container" style="margin-top:16px;">
-  <span class="switch-label" title="Aktifkan agar Google dan mesin pencari lainnya dapat mengindeks halaman login/registrasi situs ini">Izinkan Google Index</span>
-  <label class="switch">
-  <input type="checkbox" id="seoIndexInput">
-  <span class="slider"></span>
-  </label>
-  </div>
-  </div>
-  </div>
-
-  <div style="border-top:1px solid var(--color-glass-border);margin-top:16px;padding-top:16px;margin-bottom:6px;">
-  <h4 style="margin:0;font-size:0.85rem;font-weight:600;text-transform:uppercase;letter-spacing:0.5px;color:var(--color-accent-light);display:flex;align-items:center;gap:6px;">
-  <svg class="icon-svg"><use href="#hi-credit-card"/></svg> Kontrol Monetisasi
-  </h4>
-  <p style="font-size:12px;color:var(--color-text-secondary);margin:4px 0 8px 0;">Kelola penukaran kode promo/voucher oleh pengguna. Mematikan hanya menghentikan <em>klaim kode baru</em> — paket yang sudah diklaim tetap dapat diaktifkan/dilanjutkan oleh pengguna.</p>
-  <div style="display:flex;flex-direction:column;gap:8px;">
-   <label style="display:flex;align-items:center;gap:8px;font-size:13px;cursor:pointer;padding:8px 10px;border-radius:8px;background:rgba(255,255,255,0.03);">
-    <input type="checkbox" id="voucherRedeemEnabledInput" style="accent-color:var(--color-primary);">
-    <span><strong>Redeem Kode Promo / Voucher</strong><br><span style="font-size:11px;color:var(--color-text-secondary);">Penukaran kode promo/voucher oleh pengguna. Hanya memblokir klaim kode baru — pengguna tetap bisa mengaktifkan paket yang sudah diklaim sebelumnya.</span></span>
-   </label>
-  </div>
-  </div>
-
-  <button type="submit" id="saveSaasSettingsBtn" class="btn-upload saas-save-btn" style="margin-top:6px;background:rgba(16,185,129,0.2);border-color:rgba(16,185,129,0.4);color:#6ee7b7;">
-  <svg class="icon-svg"><use href="#hi-check"/></svg> Simpan Setelan SaaS
-  </button>
-  </form>
-  </section>
-  {{end}}
-
- <!-- Add User Form -->
  <section class="glass-card">
  <h3 style="margin-bottom:16px;font-size:1.1rem;color:#a5b4fc;display:flex;align-items:center;gap:8px;">
  <svg class="icon-svg" style="color:#a5b4fc;"><use href="#hi-plus"/></svg> Tambah User Manual
@@ -1373,6 +1135,12 @@
   </div>
  </div>
 
+ <!-- Subtab: Daftar | Riwayat -->
+ <div class="voucher-subtabs" role="tablist" aria-label="Bagian voucher" style="display:flex;gap:8px;margin-bottom:20px;flex-wrap:wrap;">
+  <button type="button" class="voucher-subtab active" data-subtab="list" role="tab" aria-selected="true" onclick="switchVoucherSubtab('list')" style="padding:8px 16px;border-radius:8px;font-size:13px;font-weight:600;cursor:pointer;border:1px solid var(--color-glass-border);background:linear-gradient(135deg,#a855f7,#6366f1);color:#fff;">Daftar Voucher</button>
+  <button type="button" class="voucher-subtab" data-subtab="history" role="tab" aria-selected="false" onclick="switchVoucherSubtab('history')" style="padding:8px 16px;border-radius:8px;font-size:13px;font-weight:600;cursor:pointer;border:1px solid var(--color-glass-border);background:rgba(255,255,255,0.06);color:#fff;">Riwayat Klaim</button>
+ </div>
+ <div id="voucherListPanel">
  <!-- Filter & Search -->
  <div class="glass-card" style="padding:16px 20px;border-radius:12px;margin-bottom:24px;display:flex;align-items:center;justify-content:space-between;gap:16px;flex-wrap:wrap;">
   <div style="display:flex;align-items:center;gap:12px;flex:1;max-width:400px;">
@@ -1410,6 +1178,62 @@
 
 </div>
 
+</div>
+<div id="voucherHistoryPanel" class="voucher-subpanel" style="display:none;">
+<div class="billing-container" style="padding:24px;max-width:1200px;margin:0 auto;">
+
+ <!-- Page Title -->
+ <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:24px;flex-wrap:wrap;gap:12px;">
+  <div>
+   <h2 style="font-size:1.5rem;font-weight:700;color:#fff;margin:0;font-family:'Outfit',sans-serif;display:flex;align-items:center;gap:10px;">
+    <svg class="icon-svg" style="width:26px;height:26px;color:#34d399;"><use href="#hi-clock"/></svg>
+    Riwayat Klaim &amp; Aktivasi Voucher
+   </h2>
+   <p style="color:var(--color-text-secondary);font-size:0.875rem;margin:2px 0 0 0;">Jejak append-only siapa yang mengklaim, mengaktifkan, atau menonaktifkan paket voucher, kapan, dan detailnya.</p>
+  </div>
+  <div style="display:flex;gap:10px;">
+   <button onclick="loadAuditLogs(1)" class="btn-secondary" style="display:inline-flex;align-items:center;gap:8px;padding:10px 18px;border-radius:10px;font-weight:600;font-size:0.875rem;cursor:pointer;background:rgba(255,255,255,0.06);border:1px solid var(--color-glass-border);color:#fff;">
+    <svg class="icon-svg" style="width:16px;height:16px;"><use href="#hi-refresh"/></svg> Refresh
+   </button>
+  </div>
+ </div>
+
+ <!-- Toolbar -->
+ <div style="display:flex;gap:10px;margin-bottom:16px;flex-wrap:wrap;align-items:center;">
+  <div style="position:relative;flex:1;min-width:220px;max-width:360px;">
+   <input type="text" id="auditSearchInput" placeholder="Cari username / kode voucher..." value=""
+          onkeyup="if(event.key==='Enter') { loadAuditLogs(1); }"
+          style="width:100%;padding:10px 38px 10px 14px;background:rgba(255,255,255,0.04);border:1px solid var(--color-glass-border);border-radius:10px;color:#fff;font-size:13px;outline:none;" />
+   <svg class="icon-svg" style="position:absolute;right:12px;top:50%;transform:translateY(-50%);width:16px;height:16px;color:var(--color-text-secondary);"><use href="#hi-search"/></svg>
+  </div>
+  <button class="btn-sm btn-toggle" onclick="loadAuditLogs(1)" style="height:38px;padding:0 16px;" title="Cari"><svg class="icon-svg" style="width:15px;height:15px;"><use href="#hi-search"/></svg> Cari</button>
+  <button class="btn-sm btn-toggle" onclick="document.getElementById('auditSearchInput').value='';loadAuditLogs(1);" style="height:38px;padding:0 16px;" title="Bersihkan pencarian">Bersihkan</button>
+ </div>
+
+ <!-- Table -->
+ <div class="glass-card" style="border-radius:16px;overflow:hidden;">
+  <div style="overflow-x:auto;">
+   <table style="width:100%;border-collapse:collapse;min-width:760px;">
+    <thead>
+     <tr style="background:rgba(255,255,255,0.03);">
+      <th style="padding:14px 20px;text-align:left;font-size:11px;text-transform:uppercase;letter-spacing:0.5px;color:var(--color-text-secondary);">Waktu</th>
+      <th style="padding:14px 20px;text-align:left;font-size:11px;text-transform:uppercase;letter-spacing:0.5px;color:var(--color-text-secondary);">Aksi</th>
+      <th style="padding:14px 20px;text-align:left;font-size:11px;text-transform:uppercase;letter-spacing:0.5px;color:var(--color-text-secondary);">Oleh</th>
+      <th style="padding:14px 20px;text-align:left;font-size:11px;text-transform:uppercase;letter-spacing:0.5px;color:var(--color-text-secondary);">Detail</th>
+     </tr>
+    </thead>
+    <tbody id="auditLogsBody">
+     <tr><td colspan="4" style="padding:40px;text-align:center;color:var(--color-text-secondary);">Memuat...</td></tr>
+    </tbody>
+   </table>
+  </div>
+ </div>
+
+ <div id="auditPaginationContainer" style="display:flex;justify-content:space-between;align-items:center;margin-top:16px;flex-wrap:wrap;gap:10px;"></div>
+
+</div>
+
+</div>
 <!-- Single Voucher Modal -->
 <div class="modal-overlay" id="singleModal" style="display:none;">
  <div class="modal-card" style="max-width:500px;">
@@ -1667,62 +1491,251 @@
 </div>
 </section>
 
-<section class="settings-section" id="section-voucher-audit" data-section="voucher-audit" aria-label="Riwayat Klaim Voucher">
-<div class="billing-container" style="padding:24px;max-width:1200px;margin:0 auto;">
 
- <!-- Page Title -->
- <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:24px;flex-wrap:wrap;gap:12px;">
-  <div>
-   <h2 style="font-size:1.5rem;font-weight:700;color:#fff;margin:0;font-family:'Outfit',sans-serif;display:flex;align-items:center;gap:10px;">
-    <svg class="icon-svg" style="width:26px;height:26px;color:#34d399;"><use href="#hi-clock"/></svg>
-    Riwayat Klaim &amp; Aktivasi Voucher
-   </h2>
-   <p style="color:var(--color-text-secondary);font-size:0.875rem;margin:2px 0 0 0;">Jejak append-only siapa yang mengklaim, mengaktifkan, atau menonaktifkan paket voucher, kapan, dan detailnya.</p>
+
+<section class="settings-section" id="section-general" data-section="general" aria-label="Pengaturan Umum">
+<h1 class="sr-only" style="position:absolute;left:-9999px;">Pengaturan Umum</h1>
+  <!-- SaaS & SMTP Email Verification Settings -->
+  {{if eq .admin_role "superadmin"}}
+  <section class="glass-card">
+  <h3 style="margin-bottom:16px;font-size:1.1rem;color:#a5b4fc;display:flex;align-items:center;gap:8px;">
+  <svg class="icon-svg" style="color:#a5b4fc;"><use href="#hi-settings"/></svg> SaaS &amp; SMTP Email Settings
+  </h3>
+  <form id="saasSettingsForm" onsubmit="saveSaasSettings(event)" novalidate style="display:flex;flex-direction:column;gap:12px;">
+  <div class="switch-container">
+  <span class="switch-label" title="Aktifkan untuk mewajibkan verifikasi kode OTP lewat email saat pendaftaran akun baru">Verifikasi OTP Email</span>
+  <label class="switch">
+  <input type="checkbox" id="emailEnabledInput" onchange="toggleEmailFields()">
+  <span class="slider"></span>
+  </label>
   </div>
-  <div style="display:flex;gap:10px;">
-   <button onclick="loadAuditLogs(1)" class="btn-secondary" style="display:inline-flex;align-items:center;gap:8px;padding:10px 18px;border-radius:10px;font-weight:600;font-size:0.875rem;cursor:pointer;background:rgba(255,255,255,0.06);border:1px solid var(--color-glass-border);color:#fff;">
-    <svg class="icon-svg" style="width:16px;height:16px;"><use href="#hi-refresh"/></svg> Refresh
-   </button>
+
+  <div class="form-group space-y-1">
+  <label for="emailDomainWhitelistInput">Whitelist Domain Email Pendaftaran</label>
+  <textarea id="emailDomainWhitelistInput" rows="3" placeholder="gmail.com, yahoo.com, sch.id, ac.id" style="width:100%;background:rgba(255,255,255,0.05);border:1px solid var(--color-glass-border);border-radius:6px;padding:8px;color:var(--color-text);font-family:var(--font-mono);font-size:0.8rem;resize:vertical;"></textarea>
+  <span class="form-hint saas-domain-hint">Hanya email dari domain ini yang boleh mendaftar. Pisahkan dengan koma atau baris baru. Subdomain otomatis diizinkan (mis. <code>sch.id</code> mengizinkan <code>smanegeri1.sch.id</code>). Kosongkan untuk mengizinkan semua domain.</span>
   </div>
+
+  <div id="emailSettingsFields" style="display:flex;flex-direction:column;gap:12px;">
+  <div class="form-row-2col grid grid-cols-1 sm:grid-cols-2 gap-4">
+  <div class="form-group space-y-1">
+  <label for="smtpHostInput" title="Alamat server SMTP penyedia email (contoh: smtp.gmail.com)">SMTP Host</label>
+  <input type="text" id="smtpHostInput" placeholder="smtp.gmail.com">
+  </div>
+  <div class="form-group space-y-1">
+  <label for="smtpPortInput" title="Port server SMTP (contoh: 587 untuk TLS/STARTTLS, 465 untuk SSL)">SMTP Port</label>
+  <input type="text" id="smtpPortInput" placeholder="587">
+  </div>
+  </div>
+
+  <div class="form-row-2col grid grid-cols-1 sm:grid-cols-2 gap-4">
+  <div class="form-group space-y-1">
+  <label for="smtpUserInput" title="Alamat email yang digunakan sebagai pengirim kode verifikasi OTP">Email Pengirim</label>
+  <input type="email" id="smtpUserInput" placeholder="nama-email@gmail.com">
+  </div>
+  <div class="form-group space-y-1">
+  <label for="smtpPasswordInput" title="Sandi aplikasi 16-karakter (misal Gmail App Password) atau kata sandi akun SMTP Anda">Sandi Aplikasi</label>
+  <input type="password" id="smtpPasswordInput" placeholder="Masukkan password aplikasi atau sandi SMTP">
+  </div>
+  </div>
+
+  <div class="form-group space-y-1">
+  <label for="smtpSenderNameInput" title="Nama pengirim yang muncul di email penerima (contoh: EXAMVAN Verification)">Nama Pengirim Email</label>
+  <input type="text" id="smtpSenderNameInput" placeholder="EXAMVAN Verification">
+  </div>
+  <div style="display:flex;justify-content:flex-end;margin-top:4px;">
+  <button type="button" id="testSmtpBtn" onclick="testSmtpConnection()" class="btn-sm" style="background:rgba(59,130,246,0.2);border:1px solid rgba(59,130,246,0.4);color:#93c5fd;display:flex;align-items:center;gap:6px;cursor:pointer;padding:6px 12px;border-radius:6px;font-size:13px;transition:all 0.2s;">
+  <svg class="icon-svg" style="width:16px;height:16px;" id="testSmtpIcon"><use href="#hi-refresh"/></svg>
+  <span id="testSmtpText">Test Koneksi SMTP</span>
+  </button>
+  </div>
+  </div>
+
+  <div style="border-top:1px solid var(--color-glass-border);margin-top:16px;padding-top:16px;margin-bottom:6px;">
+  <h4 style="margin:0;font-size:0.85rem;font-weight:600;text-transform:uppercase;letter-spacing:0.5px;color:var(--color-accent-light);display:flex;align-items:center;gap:6px;">
+  <svg class="icon-svg" style="width:16px;height:16px;"><use href="#hi-lock"/></svg> Cloudflare Turnstile (Anti-Bot)
+  </h4>
+  <p style="font-size:12px;color:var(--color-text-secondary);margin:4px 0 8px 0;">Wajibkan verifikasi Turnstile pada form pendaftaran untuk memblokir registrasi massal otomatis. Buat widget gratis di <code style="font-size:11px;color:#a5b4fc;">dash.cloudflare.com &rarr; Turnstile</code> lalu tempel Site Key &amp; Secret Key di sini.</p>
+  <div class="switch-container">
+  <span class="switch-label" title="Aktifkan verifikasi Turnstile di halaman /register">Aktifkan Turnstile</span>
+  <label class="switch">
+  <input type="checkbox" id="turnstileEnabledInput" onchange="toggleTurnstileFields()">
+  <span class="slider"></span>
+  </label>
+  </div>
+  <div id="turnstileFields" style="display:none;flex-direction:column;gap:12px;">
+  <div class="form-row-2col grid grid-cols-1 sm:grid-cols-2 gap-4">
+  <div class="form-group space-y-1">
+  <label for="turnstileSiteKeyInput" title="Site Key dari dashboard Turnstile Cloudflare">Site Key</label>
+  <input type="text" id="turnstileSiteKeyInput" placeholder="0x4AAAAAAA...">
+  </div>
+  <div class="form-group space-y-1">
+  <label for="turnstileSecretKeyInput" title="Secret Key dari dashboard Turnstile Cloudflare. Hanya untuk verifikasi server, tidak pernah ditampilkan utuh">Secret Key</label>
+  <input type="password" id="turnstileSecretKeyInput" placeholder="0x4AAAAAAA...">
+  </div>
+  </div>
+  </div>
+  <div class="form-group space-y-1">
+  <label for="maxAccountsPerIpInput" title="Maksimal akun yang boleh dibuat dari satu alamat IP dalam 24 jam (0 = tanpa batas)">Maks Akun per IP (24 jam)</label>
+  <input type="number" id="maxAccountsPerIpInput" min="0" placeholder="3">
+  <span class="form-hint saas-domain-hint">Lapisan kedua di atas Turnstile. Sekolah dengan satu IP bersama (NAT) bisa menaikkan angka ini. 0 = tanpa batas.</span>
+  </div>
+  <div class="form-group space-y-1">
+  <label for="maxApprovalsPerExamInput" title="Maksimal perangkat yang boleh berstatus &quot;disetujui&quot; dalam satu ujian saat auto-approve server aktif (0 = tanpa batas)">Maks Perangkat Disetujui per Ujian</label>
+  <input type="number" id="maxApprovalsPerExamInput" min="0" placeholder="500">
+  <span class="form-hint saas-domain-hint">Batas perangkat berstatus &quot;disetujui&quot; per ujian saat auto-approve server aktif (anti-spam token bocor — request berikutnya jatuh ke antrean persetujuan). 0 = tanpa batas.</span>
+  </div>
+  </div>
+
+  <div style="border-top:1px solid var(--color-glass-border);margin-top:16px;padding-top:16px;margin-bottom:6px;">
+  <h4 style="margin:0;font-size:0.85rem;font-weight:600;text-transform:uppercase;letter-spacing:0.5px;color:var(--color-accent-light);display:flex;align-items:center;gap:6px;">
+  <svg class="icon-svg" style="width:16px;height:16px;"><use href="#hi-refresh"/></svg> Pembersihan Otomatis Antrean Persetujuan
+  </h4>
+  <p style="font-size:12px;color:var(--color-text-secondary);margin:4px 0 8px 0;">Atur seberapa agresif job latar membersihkan baris persetujuan basi (pending yang ujiannya sudah berakhir &amp; pending/approved pada ujian nonaktif). Berlaku tanpa restart server — job membaca nilai ini setiap siklus.</p>
+  <div class="form-group space-y-1">
+  <label for="approvalCleanupIntervalMinutesInput" title="Seberapa sering job pembersih berjalan (menit)">Interval Pembersihan (menit)</label>
+  <input type="number" id="approvalCleanupIntervalMinutesInput" min="1" placeholder="15">
+  <span class="form-hint saas-domain-hint">Frekuensi job membersihkan baris approval basi. Minimum 1 menit. Nilai lebih kecil = antrean lebih ramping tapi beban DB lebih tinggi.</span>
+  </div>
+  <div class="form-group space-y-1">
+  <label for="approvalCleanupEndedGraceHoursInput" title="Toleransi (jam) setelah end_time ujian lewat sebelum barisnya dibersihkan">Toleransi Setelah Ujian Berakhir (jam)</label>
+  <input type="number" id="approvalCleanupEndedGraceHoursInput" min="0" placeholder="1">
+  <span class="form-hint saas-domain-hint">Buffer terhadap selisih jam perangkat &amp; perpanjangan jadwal oleh guru. 0 = bersihkan segera setelah jadwal berakhir.</span>
+  </div>
+  <div class="form-group space-y-1">
+  <label for="approvalCleanupInactiveTTLHoursInput" title="Umur baris pending/approved pada ujian nonaktif sebelum dihapus (jam)">TTL Baris pada Ujian Nonaktif (jam)</label>
+  <input type="number" id="approvalCleanupInactiveTTLHoursInput" min="0" placeholder="24">
+  <span class="form-hint saas-domain-hint">Baris pending/approved pada ujian nonaktif yang lebih tua dari ini dihapus. 0 = hapus semua. Keputusan &quot;ditolak&quot; dan data pengumpulan siswa tidak pernah disentuh.</span>
+  </div>
+  </div>
+
+  <div style="border-top:1px solid var(--color-glass-border);margin-top:16px;padding-top:16px;margin-bottom:6px;">
+  <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;">
+  <h4 style="margin:0;font-size:0.85rem;font-weight:600;text-transform:uppercase;letter-spacing:0.5px;color:var(--color-accent-light);display:flex;align-items:center;gap:6px;">
+  <svg class="icon-svg"><use href="#hi-clipboard"/></svg> Default Paket Pendaftaran
+  </h4>
+  <span class="disk-free-badge" id="diskFreeBadge" title="Sisa kapasitas disk partisi penyimpanan server. Nilai Maks Upload &amp; Maks Storage tidak boleh melebihi sisa disk ini.">
+  <svg class="icon-svg" style="width:13px;height:13px;flex-shrink:0;" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><rect x="3" y="4" width="18" height="7" rx="1.5"/><rect x="3" y="13" width="18" height="7" rx="1.5"/><path d="M7 7.5h.01M7 16.5h.01M11 7.5h6M11 16.5h6"/></svg>
+  <span id="diskFreeBadgeText">{{if .storage_free_display}}{{.storage_free_display}}{{else}}Sisa disk server tidak dapat ditentukan{{end}}</span>
+  </span>
+  </div>
+  <p style="font-size:12px;color:var(--color-text-secondary);margin:6px 0 0 0;">Kuota default yang otomatis diterapkan ke akun baru yang mendaftar mandiri.</p>
+  </div>
+
+  <div class="form-row-3col grid grid-cols-1 sm:grid-cols-4 gap-4 default-pkg-row">
+  <div class="form-group space-y-1">
+  <label class="required" for="defaultExamsInput" title="Default limit jumlah ujian untuk pendaftaran baru">Maks Total Ujian</label>
+  <input type="number" id="defaultExamsInput" required min="1" title="Limit jumlah ujian">
+  </div>
+  <div class="form-group space-y-1">
+  <label class="required" for="defaultConcurrentInput" title="Default maksimal ujian yang berjalan bersamaan (sudah dimulai &amp; bisa dikerjakan siswa) untuk pendaftaran baru">Ujian Serentak</label>
+  <input type="number" id="defaultConcurrentInput" required min="1" title="Maksimal ujian berjalan bersamaan (sudah dimulai & bisa dikerjakan siswa)">
+  </div>
+  <div class="form-group space-y-1">
+  <label class="required" for="defaultPdfInput" title="Default limit ukuran file PDF (dalam Megabytes / MB) untuk pendaftaran baru">Maks Upload (MB)</label>
+  <input type="number" id="defaultPdfInput" required min="0.1" step="0.1" title="Limit ukuran file PDF (MB). Tidak boleh melebihi sisa disk server (maks 100 MB global).">
+  <span class="form-hint saas-domain-hint" id="defaultPdfHint">Maks 100 MB per file PDF.</span>
+  </div>
+  <div class="form-group space-y-1">
+  <label class="required" for="defaultStorageInput" title="Default batas total kapasitas storage (dalam Megabytes / MB) untuk pendaftaran baru. 0 = tidak terbatas.">Maks Storage (MB)</label>
+  <input type="number" id="defaultStorageInput" required min="0" step="0.1" title="Batas total kapasitas storage (dalam Megabytes / MB). 0 = tidak terbatas. Tidak boleh melebihi sisa disk server.">
+  <span class="form-hint saas-domain-hint" id="defaultStorageHint">0 = tidak terbatas.</span>
+  </div>
+  <div class="form-group space-y-1">
+  <label class="required" for="defaultActiveDaysInput" title="Default masa aktif akun (dalam Hari) untuk pendaftaran baru">Masa Aktif</label>
+  <input type="number" id="defaultActiveDaysInput" required min="1" title="Masa aktif akun (dalam Hari)">
+  </div>
+  </div>
+
+ <div style="border-top:1px solid var(--color-glass-border);margin-top:16px;padding-top:16px;margin-bottom:6px;">
+ <h4 style="margin:0;font-size:0.85rem;font-weight:600;text-transform:uppercase;letter-spacing:0.5px;color:var(--color-accent-light);display:flex;align-items:center;gap:6px;">
+ <svg class="icon-svg"><use href="#hi-download"/></svg> Versi Aplikasi
+ </h4>
  </div>
 
- <!-- Toolbar -->
- <div style="display:flex;gap:10px;margin-bottom:16px;flex-wrap:wrap;align-items:center;">
-  <div style="position:relative;flex:1;min-width:220px;max-width:360px;">
-   <input type="text" id="auditSearchInput" placeholder="Cari username / kode voucher..." value=""
-          onkeyup="if(event.key==='Enter') { loadAuditLogs(1); }"
-          style="width:100%;padding:10px 38px 10px 14px;background:rgba(255,255,255,0.04);border:1px solid var(--color-glass-border);border-radius:10px;color:#fff;font-size:13px;outline:none;" />
-   <svg class="icon-svg" style="position:absolute;right:12px;top:50%;transform:translateY(-50%);width:16px;height:16px;color:var(--color-text-secondary);"><use href="#hi-search"/></svg>
-  </div>
-  <button class="btn-sm btn-toggle" onclick="loadAuditLogs(1)" style="height:38px;padding:0 16px;" title="Cari"><svg class="icon-svg" style="width:15px;height:15px;"><use href="#hi-search"/></svg> Cari</button>
-  <button class="btn-sm btn-toggle" onclick="document.getElementById('auditSearchInput').value='';loadAuditLogs(1);" style="height:38px;padding:0 16px;" title="Bersihkan pencarian">Bersihkan</button>
+ <div class="form-row-2col grid grid-cols-1 sm:grid-cols-2 gap-4">
+ <div class="form-group space-y-1">
+ <label class="required" for="androidVersionInput">Versi Android App (vX.Y.Z)</label>
+ <input type="text" id="androidVersionInput" required placeholder="Contoh: 2.0.0">
+ </div>
+ <div class="form-group space-y-1">
+ <label class="required" for="webappVersionInput">Versi WebApp Server (vX.Y.Z)</label>
+ <input type="text" id="webappVersionInput" required placeholder="Contoh: 2.0.0">
+ </div>
  </div>
 
- <!-- Table -->
- <div class="glass-card" style="border-radius:16px;overflow:hidden;">
-  <div style="overflow-x:auto;">
-   <table style="width:100%;border-collapse:collapse;min-width:760px;">
-    <thead>
-     <tr style="background:rgba(255,255,255,0.03);">
-      <th style="padding:14px 20px;text-align:left;font-size:11px;text-transform:uppercase;letter-spacing:0.5px;color:var(--color-text-secondary);">Waktu</th>
-      <th style="padding:14px 20px;text-align:left;font-size:11px;text-transform:uppercase;letter-spacing:0.5px;color:var(--color-text-secondary);">Aksi</th>
-      <th style="padding:14px 20px;text-align:left;font-size:11px;text-transform:uppercase;letter-spacing:0.5px;color:var(--color-text-secondary);">Oleh</th>
-      <th style="padding:14px 20px;text-align:left;font-size:11px;text-transform:uppercase;letter-spacing:0.5px;color:var(--color-text-secondary);">Detail</th>
-     </tr>
-    </thead>
-    <tbody id="auditLogsBody">
-     <tr><td colspan="4" style="padding:40px;text-align:center;color:var(--color-text-secondary);">Memuat...</td></tr>
-    </tbody>
-   </table>
+<div style="border-top:1px solid var(--color-glass-border);margin-top:16px;padding-top:16px;margin-bottom:6px;">
+   <h4 style="margin:0;font-size:0.85rem;font-weight:600;text-transform:uppercase;letter-spacing:0.5px;color:var(--color-accent-light);display:flex;align-items:center;gap:6px;">
+   <svg class="icon-svg" style="width:16px;height:16px;"><use href="#hi-clipboard"/></svg> Customizing Footer
+   </h4>
+   <p style="font-size:12px;color:var(--color-text-secondary);margin:4px 0 8px 0;">Teks footer yang tampil di semua halaman publik (halaman utama, unduh, login/daftar, dan hasil ujian).</p>
+   </div>
+
+   <div class="form-group space-y-1">
+   <label for="footerTextInput" title="Teks utama footer (biasanya hak cipta)">Teks Footer</label>
+   <input type="text" id="footerTextInput" placeholder="© 2026 EXAMVAN Team. All rights reserved.">
+   </div>
+
+   <div class="form-group space-y-1">
+   <label for="footerTaglineInput" title="Kalimat pendukung di bawah teks footer (boleh kosong)">Subteks Footer</label>
+   <input type="text" id="footerTaglineInput" placeholder="Dibuat khusus untuk pengujian sekolah digital mandiri yang aman.">
+   </div>
+
+   <div style="border-top:1px solid var(--color-glass-border);margin-top:16px;padding-top:16px;margin-bottom:6px;">
+   <h4 style="margin:0;font-size:0.85rem;font-weight:600;text-transform:uppercase;letter-spacing:0.5px;color:var(--color-accent-light);display:flex;align-items:center;gap:6px;">
+   <svg class="icon-svg" style="width:16px;height:16px;fill:none;stroke:currentColor;stroke-width:1.5;stroke-linecap:round;stroke-linejoin:round;"><path d="M12 21a9.004 9.004 0 0 0 8.716-6.747M12 21a9.004 9.004 0 0 1-8.716-6.747M12 21c2.485 0 4.5-4.03 4.5-9S14.485 3 12 3m0 18c-2.485 0-4.5-4.03-4.5-9S9.515 3 12 3m0 0a8.997 8.997 0 0 1 7.843 4.582M12 3a8.997 8.997 0 0 0-7.843 4.582m15.686 0A11.953 11.953 0 0 1 12 10.5c-2.998 0-5.74-1.1-7.843-2.918m15.686 0A8.959 8.959 0 0 1 21 12c0 .778-.099 1.533-.284 2.253m0 0A11.952 11.952 0 0 1 12 16.5c-2.998 0-5.74-1.1-7.843-2.918m0 0A8.959 8.959 0 0 1 3 12c0-.778.099-1.533.284-2.253"/></svg> Pengaturan SEO &amp; Indexing Google
+  </h4>
   </div>
- </div>
 
- <div id="auditPaginationContainer" style="display:flex;justify-content:space-between;align-items:center;margin-top:16px;flex-wrap:wrap;gap:10px;"></div>
+  <div class="form-group space-y-1">
+  <label for="seoTitleInput" title="Judul situs web yang akan muncul di hasil pencarian Google">Meta Title</label>
+  <input type="text" id="seoTitleInput" placeholder="EXAMVAN - Aplikasi Ujian Online Aman &amp; Tertib">
+  </div>
 
-</div>
-</section>
+  <div class="form-group space-y-1">
+  <label for="seoDescriptionInput" title="Deskripsi singkat yang akan muncul di bawah judul situs pada pencarian Google">Meta Description</label>
+  <textarea id="seoDescriptionInput" placeholder="Masukkan deskripsi singkat untuk pencarian Google..." style="width:100%;min-height:60px;background:rgba(255,255,255,0.05);border:1px solid var(--color-glass-border);border-radius:6px;padding:8px;color:var(--color-text);font-family:inherit;font-size:0.875rem;resize:vertical;"></textarea>
+  </div>
 
-<section class="settings-section" id="section-packages" data-section="packages" aria-label="Pengaturan Paket">
+  <div class="form-row-2col grid grid-cols-1 sm:grid-cols-2 gap-4">
+  <div class="form-group space-y-1">
+  <label for="seoKeywordsInput" title="Kata kunci pencarian yang relevan, dipisahkan dengan koma">Meta Keywords</label>
+  <input type="text" id="seoKeywordsInput" placeholder="examvan, ujian online, ujian sekolah">
+  </div>
+  <div class="form-group space-y-1" style="display:flex;flex-direction:column;justify-content:center;">
+  <div class="switch-container" style="margin-top:16px;">
+  <span class="switch-label" title="Aktifkan agar Google dan mesin pencari lainnya dapat mengindeks halaman login/registrasi situs ini">Izinkan Google Index</span>
+  <label class="switch">
+  <input type="checkbox" id="seoIndexInput">
+  <span class="slider"></span>
+  </label>
+  </div>
+  </div>
+  </div>
+
+  <div style="border-top:1px solid var(--color-glass-border);margin-top:16px;padding-top:16px;margin-bottom:6px;">
+  <h4 style="margin:0;font-size:0.85rem;font-weight:600;text-transform:uppercase;letter-spacing:0.5px;color:var(--color-accent-light);display:flex;align-items:center;gap:6px;">
+  <svg class="icon-svg"><use href="#hi-credit-card"/></svg> Kontrol Monetisasi
+  </h4>
+  <p style="font-size:12px;color:var(--color-text-secondary);margin:4px 0 8px 0;">Kelola penukaran kode promo/voucher oleh pengguna. Mematikan hanya menghentikan <em>klaim kode baru</em> — paket yang sudah diklaim tetap dapat diaktifkan/dilanjutkan oleh pengguna.</p>
+  <div style="display:flex;flex-direction:column;gap:8px;">
+   <label style="display:flex;align-items:center;gap:8px;font-size:13px;cursor:pointer;padding:8px 10px;border-radius:8px;background:rgba(255,255,255,0.03);">
+    <input type="checkbox" id="voucherRedeemEnabledInput" style="accent-color:var(--color-primary);">
+    <span><strong>Redeem Kode Promo / Voucher</strong><br><span style="font-size:11px;color:var(--color-text-secondary);">Penukaran kode promo/voucher oleh pengguna. Hanya memblokir klaim kode baru — pengguna tetap bisa mengaktifkan paket yang sudah diklaim sebelumnya.</span></span>
+   </label>
+  </div>
+  </div>
+
+  <button type="submit" id="saveSaasSettingsBtn" class="btn-upload saas-save-btn" style="margin-top:6px;background:rgba(16,185,129,0.2);border-color:rgba(16,185,129,0.4);color:#6ee7b7;">
+  <svg class="icon-svg"><use href="#hi-check"/></svg> Simpan Setelan SaaS
+  </button>
+  </form>
+  </section>
+  {{end}}
+
+
+ <!-- ===== Pengaturan Paket (dipindah dari section-packages) ===== -->
+ <section class="glass-card" id="packages-card" style="margin-top:24px;">
 <div class="billing-container" style="padding:24px;max-width:1200px;margin:0 auto;">
 
  <!-- Page Title -->
@@ -1771,8 +1784,7 @@
 
 </div>
 
-<!-- Toast container -->
-<div id="toastContainer"></div>
+ </section>
 </section>
 
 <section class="settings-section" id="section-system-apps" data-section="system-apps" aria-label="Aplikasi Sistem">
@@ -1940,20 +1952,48 @@ window.__settingsLoaded = {};
   var defaultSection = (isSuper || isOp) ? 'users' : 'billing';
   if (!document.getElementById('section-' + defaultSection)) defaultSection = 'billing';
 
+  // Legacy hashes still open the right content after the 5-tab merge:
+  //   #voucher-audit  -> Voucher tab, Riwayat sub-tab active
+  //   #packages       -> Pengaturan Umum tab, scrolled to the packages card
+  // (the 302 redirects in main.go keep pointing at these old hashes).
+  function resolveSection(h) {
+    if (h === 'voucher-audit') return 'vouchers';
+    if (h === 'packages') return 'general';
+    return h;
+  }
+
   function loadSectionScript(key, cb) {
     if (window.__settingsLoaded[key]) { cb(); return; }
     window.__settingsLoaded[key] = true;
-    var s = document.createElement('script');
-    s.src = '/static/js/settings-' + key + '.js?v={{.version}}';
-    s.onload = cb;
-    s.onerror = function() {
-      window.__settingsLoaded[key] = false;
-      if (typeof showToast === 'function') showToast('Gagal memuat modul Pengaturan', 'error');
-    };
-    document.head.appendChild(s);
+    // The Voucher tab owns two modules: the list (settings-vouchers.js) and
+    // the Riwayat sub-tab (settings-voucher-audit.js, merged in 5-tab redesign).
+    // The Pengaturan Umum tab similarly owns SaaS (settings-general.js) plus
+    // the packages editor (settings-packages.js).
+    var files = ['settings-' + key + '.js'];
+    if (key === 'vouchers') files.push('settings-voucher-audit.js');
+    if (key === 'general') files.push('settings-packages.js');
+    var remaining = files.length;
+    function done() { if (--remaining <= 0 && cb) cb(); }
+    files.forEach(function(f) {
+      var s = document.createElement('script');
+      s.src = '/static/js/' + f + '?v={{.version}}';
+      s.onload = done;
+      s.onerror = function() {
+        window.__settingsLoaded[key] = false;
+        if (typeof showToast === 'function') showToast('Gagal memuat modul Pengaturan', 'error');
+        done();
+      };
+      document.head.appendChild(s);
+    });
   }
 
-  function activate(key) {
+  function syncSelect(key) {
+    var sel = document.getElementById('settingsSectionSelect');
+    if (sel) sel.value = key;
+  }
+
+  function activate(key, opts) {
+    opts = opts || {};
     var target = document.getElementById('section-' + key);
     if (!target) key = defaultSection;
     sections.forEach(function(sec) {
@@ -1967,15 +2007,37 @@ window.__settingsLoaded = {};
       if (active) t.setAttribute('aria-current', 'page');
       else t.removeAttribute('aria-current');
     });
+    syncSelect(key);
     if (!inited[key]) {
       inited[key] = true;
       loadSectionScript(key, function() {
         if (window.__settingsReady && typeof window.__settingsReady[key] === 'function') {
           window.__settingsReady[key]();
         }
+        if (opts.afterInit) opts.afterInit();
       });
+    } else if (opts.afterInit) {
+      opts.afterInit();
     }
   }
+
+  // Voucher sub-tabs: Daftar | Riwayat (both live inside section-vouchers).
+  window.switchVoucherSubtab = function(name) {
+    var listPanel = document.getElementById('voucherListPanel');
+    var historyPanel = document.getElementById('voucherHistoryPanel');
+    if (!listPanel || !historyPanel) return;
+    var showHistory = (name === 'history');
+    listPanel.style.display = showHistory ? 'none' : '';
+    historyPanel.style.display = showHistory ? '' : 'none';
+    var btns = document.querySelectorAll('.voucher-subtab');
+    btns.forEach(function(b) {
+      var on = b.getAttribute('data-subtab') === name;
+      b.classList.toggle('active', on);
+      b.setAttribute('aria-selected', on ? 'true' : 'false');
+      b.style.background = on ? 'linear-gradient(135deg,#a855f7,#6366f1)' : 'rgba(255,255,255,0.06)';
+      b.style.color = on ? '#fff' : '#fff';
+    });
+  };
 
   tabs.forEach(function(t) {
     t.addEventListener('click', function(e) {
@@ -1987,19 +2049,52 @@ window.__settingsLoaded = {};
     });
   });
 
+  // Mobile dropdown sync.
+  var sel = document.getElementById('settingsSectionSelect');
+  if (sel) {
+    sel.addEventListener('change', function() {
+      var key = sel.value;
+      if (!key) return;
+      activate(key);
+      try { history.replaceState(null, '', '#' + key); } catch (err) {}
+    });
+  }
+
   function initialFromHash() {
     var h = (window.location.hash || '').replace(/^#/, '').trim();
-    return document.getElementById('section-' + h) ? h : '';
+    return document.getElementById('section-' + resolveSection(h)) ? resolveSection(h) : '';
   }
 
   // Hash berubah tanpa reload (back/forward, ketik manual di address bar) —
   // sinkronkan tab tanpa memuat ulang dokumen.
   window.addEventListener('hashchange', function() {
     var h = (window.location.hash || '').replace(/^#/, '').trim();
-    if (document.getElementById('section-' + h)) activate(h);
+    var key = resolveSection(h);
+    if (!document.getElementById('section-' + key)) return;
+    activate(key, {
+      afterInit: function() {
+        if (h === 'voucher-audit' && typeof window.switchVoucherSubtab === 'function') {
+          window.switchVoucherSubtab('history');
+        } else if (h === 'packages') {
+          var card = document.getElementById('packages-card');
+          if (card && card.scrollIntoView) card.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        }
+      }
+    });
   });
 
-  activate(initialFromHash() || defaultSection);
+  var initial = initialFromHash() || defaultSection;
+  var initialHash = (window.location.hash || '').replace(/^#/, '').trim();
+  activate(initial, {
+    afterInit: function() {
+      if (initialHash === 'voucher-audit' && typeof window.switchVoucherSubtab === 'function') {
+        window.switchVoucherSubtab('history');
+      } else if (initialHash === 'packages') {
+        var card = document.getElementById('packages-card');
+        if (card && card.scrollIntoView) setTimeout(function() { card.scrollIntoView({ behavior: 'smooth', block: 'start' }); }, 100);
+      }
+    }
+  });
 })();
 
 document.addEventListener('DOMContentLoaded', function() {

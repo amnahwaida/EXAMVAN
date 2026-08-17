@@ -602,6 +602,51 @@ code, pre, .token-code, .mono {
     }
 }
 
+/* Mobile: replace the scrollable tab bar with a "Pilih Bagian" dropdown.
+   The nav (settings-tabs) hides under the mobile breakpoint; the select
+   (settings-tabs-mobile) shows. Both are rendered by the same partial with
+   the same role gate, so the options always match the tabs. */
+.settings-tabs-mobile {
+    display: none;
+    padding: 10px 16px;
+    border-bottom: 1px solid var(--color-glass-border);
+    background: rgba(15, 23, 42, 0.55);
+    position: relative;
+    z-index: 50;
+}
+.settings-tabs-mobile select {
+    width: 100%;
+    padding: 10px 12px;
+    border-radius: 10px;
+    background: rgba(255, 255, 255, 0.06);
+    border: 1px solid var(--color-glass-border);
+    color: #fff;
+    font-size: 0.875rem;
+    font-weight: 600;
+    outline: none;
+    cursor: pointer;
+}
+.settings-tabs-mobile select option {
+    background: #0f172a;
+    color: #fff;
+}
+@media (max-width: 1100px), (hover: none) and (pointer: coarse) {
+    .settings-tabs {
+        display: none;
+    }
+    .settings-tabs-mobile {
+        display: block;
+    }
+}
+
+/* Voucher sub-tabs (Daftar | Riwayat) inside the Voucher tab. */
+.voucher-subtab {
+    transition: all 0.2s ease;
+}
+.voucher-subtab.active {
+    box-shadow: 0 2px 10px rgba(99, 102, 241, 0.35);
+}
+
 /* ===== Modal manager (paired with admin-core.js) ===== */
 /* Lock the page behind any open modal; the manager toggles this class. */
 body.modal-open {

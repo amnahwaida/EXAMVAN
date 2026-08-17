@@ -1,8 +1,9 @@
 # Rencana Implementasi: Redesign Tab Pengaturan (5 Tab + Dropdown Mobile)
 
-> **Status:** RENCANA — belum diimplementasikan. Dokumen ini adalah kontrak kerja:
-> jika pengerjaan terputus, lanjutkan dari checklist di bawah (bagian *Langkah
-> Implementasi*). Setiap langkah yang selesai ditandai `[x]`.
+> **Status:** ✅ SELESAI DIIMPLEMENTASI (commit `bb953be`-lanjutan). Dokumen ini
+> awalnya adalah kontrak kerja untuk jika pengerjaan terputus; semua langkah di
+> bawah sudah selesai dan diverifikasi (build, vet, test DB, browser desktop &
+> mobile). Tetap dipertahankan sebagai referensi desain.
 
 ---
 
@@ -163,35 +164,35 @@ Hash yang ditulis ke address bar saat klik tab tetap hash "kanonik" tab
 Urutan dikerjakan dari yang paling independen ke paling berisiko. Tandai `[x]`
 setelah selesai.
 
-- [ ] **L1 — Pindahkan SaaS & SMTP ke tab `general` (template):**
+- [x] **L1 — Pindahkan SaaS & SMTP ke tab `general` (template):**
   buat `section-general` baru di `settings.html`, pindahkan kartu SaaS & SMTP
   (form `saasSettingsForm` + field-fieldnya) dari `section-users`, gate
   `{{if eq .admin_role "superadmin"}}` dipertahankan.
-- [ ] **L2 — Pindahkan Pengaturan Paket ke tab `general`:**
+- [x] **L2 — Pindahkan Pengaturan Paket ke tab `general`:**
   pindahkan kartu Pengaturan Paket (ex-`section-packages`) ke `section-general`.
-- [ ] **L3 — Gabungkan Riwayat Klaim ke tab `vouchers` (subtab):**
+- [x] **L3 — Gabungkan Riwayat Klaim ke tab `vouchers` (subtab):**
   `section-voucher-audit` menjadi panel subtab di dalam `section-vouchers`;
   tombol toggle "Daftar Voucher" / "Riwayat Klaim"; JS subtab.
-- [ ] **L4 — Update tab bar (partial) jadi 5 tab:**
+- [x] **L4 — Update tab bar (partial) jadi 5 tab:**
   hapus tab `voucher-audit` & `packages`, tambah tab `general`, label
   "Kelola Voucher" → "Voucher"; rapikan duplikat tab `billing`.
-- [ ] **L5 — JS shell: `resolveSection` + subtab + dropdown sync:**
+- [x] **L5 — JS shell: `resolveSection` + subtab + dropdown sync:**
   inline script di `settings.html`: alias hash, logika subtab voucher, dan
   sinkronisasi `select#settingsSectionSelect` ↔ `activate()`.
-- [ ] **L6 — Dropdown mobile (partial + CSS):**
+- [x] **L6 — Dropdown mobile (partial + CSS):**
   tambah `select#settingsSectionSelect` di `settings-tabs.html` dengan gate
   role/feature_locked sama; CSS media query ≤1100px.
-- [ ] **L7 — Pisah/atur modul JS per tab:**
+- [x] **L7 — Pisah/atur modul JS per tab:**
   `settings-general.js` (SaaS + paket), `settings-vouchers.js` (daftar +
   riwayat), `settings-voucher-audit.js` → subtab riwayat,
   `settings-packages.js` → dipanggil dari general.
-- [ ] **L8 — Update test:**
+- [x] **L8 — Update test:**
   `settings_page_test.go` (markup section baru, default section),
   `voucher_audit_template_test.go` (baca `settings-vouchers.js` / subtab),
   `saas_settings_test.go` (marker SaaS kini di `section-general`),
   `templates_js_syntax_test.go` (file JS baru ikut dicek), dll. yang
   menyebut `section-users` untuk SaaS.
-- [ ] **L9 — Verifikasi:**
+- [x] **L9 — Verifikasi:**
   `go build ./...`, `go vet ./...`, test dengan DB
   (`TEST_DATABASE_URL=... TEST_DB_RESET=1 go test ./internal/handlers/admin/`),
   lalu verifikasi browser: desktop (5 tab), mobile (dropdown, tanpa scroll),

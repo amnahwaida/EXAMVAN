@@ -31,10 +31,31 @@
   <a href="/admin/settings#billing" data-section="billing" class="settings-tab {{if eq $active "billing"}}active{{end}}"><svg class="icon-svg" aria-hidden="true"><use href="#hi-clipboard"/></svg> Paket &amp; Voucher</a>
   {{ end }}
   {{ if and $isSuper (not $locked) }}
-  <a href="/admin/settings#vouchers" data-section="vouchers" class="settings-tab {{if eq $active "vouchers"}}active{{end}}"><svg class="icon-svg" aria-hidden="true"><use href="#hi-ticket"/></svg> Kelola Voucher</a>
-  <a href="/admin/settings#voucher-audit" data-section="voucher-audit" class="settings-tab {{if eq $active "voucher-audit"}}active{{end}}"><svg class="icon-svg" aria-hidden="true"><use href="#hi-clock"/></svg> Riwayat Klaim Voucher</a>
-  <a href="/admin/settings#packages" data-section="packages" class="settings-tab {{if eq $active "packages"}}active{{end}}"><svg class="icon-svg" aria-hidden="true"><use href="#hi-settings"/></svg> Pengaturan Paket</a>
+  <a href="/admin/settings#vouchers" data-section="vouchers" class="settings-tab {{if eq $active "vouchers"}}active{{end}}"><svg class="icon-svg" aria-hidden="true"><use href="#hi-ticket"/></svg> Voucher</a>
+  <a href="/admin/settings#general" data-section="general" class="settings-tab {{if eq $active "general"}}active{{end}}"><svg class="icon-svg" aria-hidden="true"><use href="#hi-settings"/></svg> Pengaturan Umum</a>
   <a href="/admin/settings#system-apps" data-section="system-apps" class="settings-tab {{if eq $active "system-apps"}}active{{end}}"><svg class="icon-svg" aria-hidden="true"><use href="#hi-download"/></svg> Aplikasi Sistem</a>
   {{ end }}
  </div>
+</nav>
+
+<!-- Mobile: dropdown "Pilih Bagian" — same role gate as the tab bar above.
+     Shown only under the mobile breakpoint (see admin-base.css); hidden on
+     desktop. JS in settings.html syncs it with activate()/hash. -->
+<nav class="settings-tabs-mobile" aria-label="Menu Pengaturan (mobile)">
+ <label for="settingsSectionSelect" class="sr-only">Pilih bagian pengaturan</label>
+ <select id="settingsSectionSelect" aria-label="Pilih bagian pengaturan">
+  {{ if $locked }}
+  <option value="billing" {{if eq $active "billing"}}selected{{end}}>Paket &amp; Voucher</option>
+  {{ else if or $isSuper $isOp }}
+  <option value="users" {{if eq $active "users"}}selected{{end}}>Kelola User</option>
+  <option value="billing" {{if eq $active "billing"}}selected{{end}}>Paket &amp; Voucher</option>
+  {{ else if $isGuru }}
+  <option value="billing" {{if eq $active "billing"}}selected{{end}}>Paket &amp; Voucher</option>
+  {{ end }}
+  {{ if and $isSuper (not $locked) }}
+  <option value="vouchers" {{if eq $active "vouchers"}}selected{{end}}>Voucher</option>
+  <option value="general" {{if eq $active "general"}}selected{{end}}>Pengaturan Umum</option>
+  <option value="system-apps" {{if eq $active "system-apps"}}selected{{end}}>Aplikasi Sistem</option>
+  {{ end }}
+ </select>
 </nav>

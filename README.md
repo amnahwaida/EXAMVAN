@@ -44,8 +44,7 @@ EXAMVAN terdiri dari dua komponen utama:
 * **Role Management:** Mendukung akun Super Admin, Guru, dan Pengawas.
 * **Hak Akses Eksklusif:** Akun guru hanya dapat melihat, membuat, mengubah, dan menghapus ujian yang dibuatnya sendiri. Super Admin memiliki otorisasi penuh untuk mengawasi seluruh ujian dari semua guru.
 * **Ubah Password Mandiri:** Setiap pengguna dapat memperbarui kata sandinya kapan saja melalui UI modal yang aman.
-* **Navigasi ringkas (header):** Header panel admin hanya menampilkan menu aksi utama — *Daftar Ujian, Hasil Ujian, Pengawasan,* dan satu entri **Pengaturan** yang membuka **satu halaman `/admin/settings`** berisi seluruh bagian pengaturan (Kelola User, Paket & Voucher, Kelola Voucher, Riwayat Klaim Voucher, Pengaturan Paket, Aplikasi Sistem) dengan **tab yang berpindah tanpa reload** (deep-link via hash `#users`, `#billing`, dst.; JS per-bagian dimuat lazy dari `static/js/settings-<bagian>.js` saat tab pertama kali dibuka). Super Admin melihat **6 tab**, Operator **2 tab** (Kelola User, Paket & Voucher), dan Guru/Pengawas **1 tab** (Paket & Voucher). Implementasi: `templates/admin/settings.html` + partial `templates/admin/partials/settings-tabs.html`; `nav.html` hanya berisi satu tautan "Pengaturan" (desktop & mobile). **Halaman settings lama dihapus** — keenam URL lama (`/admin/users`, `/admin/billing`, `/admin/vouchers`, `/admin/vouchers/audit`, `/admin/packages`, `/admin/system-apps`) kini **302-redirect** ke tabnya di `/admin/settings#<tab>` (`SettingsRedirect`, `internal/handlers/admin/settings.go`), jadi bookmark/link lama tetap berfungsi.
-* **Redesign tab Pengaturan (rencana):** struktur 6 tab disederhanakan menjadi **5 tab** — SaaS & SMTP Email Settings + Pengaturan Paket dipindah ke tab baru **Pengaturan Umum** (`#general`), Riwayat Klaim Voucher digabung ke tab **Voucher** sebagai subtab, dan tab bar diganti **dropdown "Pilih Bagian"** di layar mobile (bebas scroll kanan-kiri). Hash lama (`#voucher-audit`, `#packages`) tetap berfungsi via alias. Detail lengkap + checklist pengerjaan: [`webui/SETTINGS_REDESIGN_PLAN.md`](webui/SETTINGS_REDESIGN_PLAN.md).
+* **Navigasi ringkas (header):** Header panel admin hanya menampilkan menu aksi utama — *Daftar Ujian, Hasil Ujian, Pengawasan,* dan satu entri **Pengaturan** yang membuka **satu halaman `/admin/settings`** berisi seluruh bagian pengaturan dengan **tab yang berpindah tanpa reload** (deep-link via hash `#users`, `#billing`, dst.; JS per-bagian dimuat lazy dari `static/js/settings-<bagian>.js` saat tab pertama kali dibuka). **5 tab**: Kelola User, Paket & Voucher, Voucher (dengan subtab Daftar | Riwayat Klaim), Pengaturan Umum (SaaS & SMTP + Pengaturan Paket), Aplikasi Sistem. Super Admin melihat **5 tab**, Operator **2 tab** (Kelola User, Paket & Voucher), dan Guru/Pengawas **1 tab** (Paket & Voucher). Di layar **mobile** tab bar diganti **dropdown "Pilih Bagian"** (bebas scroll kanan-kiri); role/feature-lock gate sama persis dengan tab bar. Implementasi: `templates/admin/settings.html` + partial `templates/admin/partials/settings-tabs.html`; `nav.html` hanya berisi satu tautan "Pengaturan" (desktop & mobile). **Halaman settings lama dihapus** — keenam URL lama (`/admin/users`, `/admin/billing`, `/admin/vouchers`, `/admin/vouchers/audit`, `/admin/packages`, `/admin/system-apps`) kini **302-redirect** ke hash lama di `/admin/settings#<tab>` (`SettingsRedirect`, `internal/handlers/admin/settings.go`); JS memetakan hash lama (`#voucher-audit` → tab Voucher subtab Riwayat, `#packages` → tab Pengaturan Umum) jadi bookmark/link lama tetap berfungsi. Referensi desain: [`webui/SETTINGS_REDESIGN_PLAN.md`](webui/SETTINGS_REDESIGN_PLAN.md).
 
 ### 2. Lembar Jawaban Digital & Koreksi Otomatis
 * **Mendukung 5 Tipe Soal:**
@@ -507,7 +506,7 @@ Test: `TestOneOperatorPerSchoolPolicy` (`webui/internal/handlers/admin/operator_
 
 **Opsi A — Lewat UI Admin (disarankan):**
 1. Login sebagai SuperAdmin.
-2. Buka tab **Kelola User** (`/admin/settings#users`) → panel **"SaaS & SMTP Email Settings"**.
+2. Buka tab **Pengaturan Umum** (`/admin/settings#general`) → panel **"SaaS & SMTP Email Settings"**.
 3. Ubah field **"Masa Aktif"** (default: `14`, minimal `1`), lalu klik **Simpan Setelan SaaS**.
 4. Berlaku langsung untuk pendaftaran/pembuatan akun berikutnya tanpa perlu deploy ulang.
 
@@ -547,7 +546,7 @@ Field **"Maks Storage (MB)"** ada di panel **Default Paket Pendaftaran** (halama
 
 **Opsi A — Lewat UI Admin (disarankan):**
 1. Login sebagai SuperAdmin.
-2. Buka tab **Kelola User** (`/admin/settings#users`) → panel **"SaaS & SMTP Email Settings"** → bagian **Default Paket Pendaftaran**.
+2. Buka tab **Pengaturan Umum** (`/admin/settings#general`) → panel **"SaaS & SMTP Email Settings"** → bagian **Default Paket Pendaftaran**.
 3. Ubah field **"Maks Storage (MB)"** (`0` = tidak terbatas; tidak boleh melebihi sisa disk server), lalu klik **Simpan Setelan SaaS**.
 4. Berlaku langsung untuk pendaftaran berikutnya tanpa perlu deploy ulang.
 
@@ -570,7 +569,7 @@ Turnstile melindungi halaman publik **`/register`**, **`/login`**, **`/forgot-pa
 1. **Buat widget di Cloudflare dashboard** — buka `dash.cloudflare.com` → **Turnstile** → **Add Site**:
    - Beri nama widget (mis. "EXAMVAN"), pilih mode (disarankan **Managed**), dan isi **Hostname/Domain** situs Anda (mis. `examvan.school.id`). Domain yang tidak terdaftar di sini akan menampilkan kotak error merah pada widget.
    - Catat **Site Key** dan **Secret Key** (format `0x4AAAA...`).
-2. **Aktifkan di panel admin** — login SuperAdmin → **Pengaturan** (`/admin/settings`) → tab **Kelola User** → panel **"SaaS & SMTP Email Settings"** → bagian **Cloudflare Turnstile (Anti-Bot)**:
+2. **Aktifkan di panel admin** — login SuperAdmin → **Pengaturan** (`/admin/settings`) → tab **Pengaturan Umum** → panel **"SaaS & SMTP Email Settings"** → bagian **Cloudflare Turnstile (Anti-Bot)**:
    - Centang **Aktifkan Turnstile**.
    - Tempel **Site Key** dan **Secret Key** (secret disimpan terenkripsi/masked, tidak pernah ditampilkan utuh).
    - Klik **Simpan Setelan SaaS**. Server menolak penyimpanan bila salah satu key kosong saat Turnstile diaktifkan.
@@ -604,8 +603,8 @@ Validasi kapasitas disk yang sama dengan editor storage lainnya juga diterapkan 
 
 **Di mana editor-nya:**
 
-- **Voucher kustom** — tab **Kelola Voucher** (`/admin/settings#vouchers`) → paket **Custom** pada form *Tambah Voucher* (single) dan *Buat Batch*: field **"Maks Storage (MB)"** (`custom_max_storage_size_mb`) dan **"Maks Upload (MB)"** (`custom_max_pdf_size_mb`). Divalidasi di `parseCustomVoucherInto` (`webui/internal/handlers/admin/vouchers.go`) — jalur **single maupun batch**.
-- **Pengaturan paket** — tab **Pengaturan Paket** (`/admin/settings#packages`): kolom **Storage (MB)** (`max_storage_mb`) dan **Maks. PDF (MB)** (`max_pdf_size_mb`) per paket. Divalidasi di `SavePackageSettingsHandler` (`webui/internal/handlers/admin/packages.go`).
+- **Voucher kustom** — tab **Voucher** (`/admin/settings#vouchers`) → paket **Custom** pada form *Tambah Voucher* (single) dan *Buat Batch*: field **"Maks Storage (MB)"** (`custom_max_storage_size_mb`) dan **"Maks Upload (MB)"** (`custom_max_pdf_size_mb`). Divalidasi di `parseCustomVoucherInto` (`webui/internal/handlers/admin/vouchers.go`) — jalur **single maupun batch**.
+- **Pengaturan paket** — tab **Pengaturan Umum** (`/admin/settings#general`, kartu Pengaturan Paket; hash lama `#packages` tetap bekerja): kolom **Storage (MB)** (`max_storage_mb`) dan **Maks. PDF (MB)** (`max_pdf_size_mb`) per paket. Divalidasi di `SavePackageSettingsHandler` (`webui/internal/handlers/admin/packages.go`).
 - **Panel SaaS & form user** — "Maks Upload (MB)" (`default_max_pdf_size_mb`) di panel **Default Paket Pendaftaran** (halaman Users), input "Maks Upload (MB)" di form **Tambah User** (`max_pdf_size_mb`), dan modal **Atur Limit** per-user — semuanya tunduk pada cap disk yang sama (`handleSaasSettingsPost` di `settings.go`, `CreateUser`/`EditUser` di `users.go`).
 
 **Aturan (identik di kedua alur):**
@@ -657,7 +656,7 @@ Clawback role berjalan lewat `syncInstansiWithOperatorRole` — menonaktifkan pa
 
 ### Jejak audit
 
-Aksi dicatat ke jejak append-only `admin_audit_logs` dengan action **`voucher_deactivated`** (siapa yang menonaktifkan, paket mana, hasil akhir akun). Tab **Riwayat Klaim Voucher** (`/admin/settings#voucher-audit`) kini menampilkan aksi ini dengan badge merah **"Dinonaktifkan"**, dan pencarian per username tetap berfungsi — riwayat lengkap sebuah akun (klaim → aktivasi → penonaktifan) bisa dilihat di satu tempat.
+Aksi dicatat ke jejak append-only `admin_audit_logs` dengan action **`voucher_deactivated`** (siapa yang menonaktifkan, paket mana, hasil akhir akun). Subtab **Riwayat Klaim** di tab **Voucher** (`/admin/settings#vouchers`; hash lama `#voucher-audit` tetap membukanya) kini menampilkan aksi ini dengan badge merah **"Dinonaktifkan"**, dan pencarian per username tetap berfungsi — riwayat lengkap sebuah akun (klaim → aktivasi → penonaktifan) bisa dilihat di satu tempat.
 
 ### Endpoint
 

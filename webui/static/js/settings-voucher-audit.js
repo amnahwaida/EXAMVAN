@@ -70,4 +70,12 @@ function renderAuditPagination(pg) {
 }
 
 
-window.__settingsReady['voucher-audit'] = function() { loadAuditLogs(1); };
+// Riwayat Klaim is now a sub-tab inside the Voucher tab (section-vouchers);
+// this file is loaded together with settings-vouchers.js. The audit list is
+// rendered lazily on first show of the Riwayat sub-tab.
+window.__auditLoaded = false;
+window.initVoucherAudit = function() {
+    if (window.__auditLoaded) return;
+    window.__auditLoaded = true;
+    loadAuditLogs(1);
+};

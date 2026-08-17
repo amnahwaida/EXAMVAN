@@ -375,4 +375,27 @@ function viewRedemptions(id, code) {
 }
 
 
-window.__settingsReady['vouchers'] = function() { loadVouchers(1); };
+// The Voucher tab owns two sub-panels: Daftar (this file) and Riwayat
+// (settings-voucher-audit.js, loaded alongside). Wire the sub-tab switch to
+// lazy-load the audit list the first time Riwayat is shown, and pre-warm it
+// after the list so the switch is instant.
+function wireVoucherSubtabs() {
+    if (window.__voucherSubtabsWired) return;
+    window.__voucherSubtabsWired = true;
+    var orig = window.switchVoucherSubtab;
+    if (typeof orig === 'function') {
+        window.switchVoucherSubtab = function(name) {
+            orig(name);
+            if (name === 'history' && typeof window.initVoucherAudit === 'function') {
+                window.initVoucherAudit();
+            }
+        };
+    }
+}
+
+window.__settingsReady['vouchers'] = function() {
+    loadVouchers(1);
+    wireVoucherSubtabs();
+    // Pre-warm the audit list so the Riwayat sub-tab is ready instantly.
+    if (typeof window.initVoucherAudit === 'function') window.initVoucherAudit();
+};

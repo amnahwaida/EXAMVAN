@@ -80,10 +80,23 @@ func TestVoucherAuditUIMarkupPresent(t *testing.T) {
 	}
 
 	tabs := read("admin/partials/settings-tabs.html")
-	if strings.Count(tabs, "/admin/settings#voucher-audit") != 1 {
-		t.Errorf("settings-tabs.html must link /admin/settings#voucher-audit exactly once, got %d", strings.Count(tabs, "/admin/settings#voucher-audit"))
+	// 5-tab redesign: the audit trail is a sub-tab of the Voucher tab, so the
+	// tab bar offers the merged #vouchers (desktop href + mobile dropdown
+	// option) and must NOT offer a standalone #voucher-audit link.
+	if strings.Contains(tabs, "/admin/settings#voucher-audit") {
+		t.Errorf("settings-tabs.html must NOT link /admin/settings#voucher-audit anymore (moved into Voucher sub-tab), got %d", strings.Count(tabs, "/admin/settings#voucher-audit"))
 	}
-	if !strings.Contains(tabs, "Riwayat Klaim Voucher") {
-		t.Errorf("settings-tabs.html must contain the %q label", "Riwayat Klaim Voucher")
+	if strings.Count(tabs, "#vouchers") != 1 {
+		t.Errorf("settings-tabs.html must link #vouchers once in the desktop tab bar, got %d", strings.Count(tabs, "#vouchers"))
+	}
+	if strings.Count(tabs, `value="vouchers"`) != 1 {
+		t.Errorf("settings-tabs.html must offer the vouchers option once in the mobile dropdown, got %d", strings.Count(tabs, `value="vouchers"`))
+	}
+	if !strings.Contains(tabs, "Voucher") {
+		t.Errorf("settings-tabs.html must contain the %q tab label", "Voucher")
+	}
+	// The sub-tab bar lives in the section markup (settings.html), not the tab bar.
+	if !strings.Contains(page, "switchVoucherSubtab") {
+		t.Errorf("settings.html must contain switchVoucherSubtab (Daftar/Riwayat sub-tab wiring)")
 	}
 }
