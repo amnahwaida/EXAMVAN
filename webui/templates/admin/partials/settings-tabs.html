@@ -1,0 +1,35 @@
+{{/*
+  EXAMVAN Settings Tab Bar
+  =========================
+  Sub-navigation shown on every settings page (users, billing, vouchers,
+  voucher audit, packages, system-apps). Rendered between the topbar
+  (admin/partials/nav.html) and the page content so the header stays clean —
+  a single "Pengaturan" entry — and the settings area is navigated with tabs
+  instead of a long dropdown.
+
+  Required template variables (via dict):
+    .active_page  — string: "users", "billing", "vouchers", "voucher-audit",
+                    "packages", "system-apps"
+    .admin_role   — role string, e.g. "superadmin", "operator", "guru"
+*/}}
+{{ $role := .admin_role }}
+{{ $isSuper := contains $role "superadmin" }}
+{{ $isOp := contains $role "operator" }}
+{{ $isGuru := or (contains $role "guru") (or $isSuper $isOp) }}
+{{ $active := .active_page }}
+<nav class="settings-tabs" aria-label="Menu Pengaturan">
+ <div class="settings-tabs-scroll">
+  {{ if or $isSuper $isOp }}
+  <a href="/admin/settings#users" data-section="users" class="settings-tab {{if eq $active "users"}}active{{end}}"><svg class="icon-svg" aria-hidden="true"><use href="#hi-users"/></svg> Kelola User</a>
+  <a href="/admin/settings#billing" data-section="billing" class="settings-tab {{if eq $active "billing"}}active{{end}}"><svg class="icon-svg" aria-hidden="true"><use href="#hi-clipboard"/></svg> Paket &amp; Voucher</a>
+  {{ else if $isGuru }}
+  <a href="/admin/settings#billing" data-section="billing" class="settings-tab {{if eq $active "billing"}}active{{end}}"><svg class="icon-svg" aria-hidden="true"><use href="#hi-clipboard"/></svg> Paket &amp; Voucher</a>
+  {{ end }}
+  {{ if $isSuper }}
+  <a href="/admin/settings#vouchers" data-section="vouchers" class="settings-tab {{if eq $active "vouchers"}}active{{end}}"><svg class="icon-svg" aria-hidden="true"><use href="#hi-ticket"/></svg> Kelola Voucher</a>
+  <a href="/admin/settings#voucher-audit" data-section="voucher-audit" class="settings-tab {{if eq $active "voucher-audit"}}active{{end}}"><svg class="icon-svg" aria-hidden="true"><use href="#hi-clock"/></svg> Riwayat Klaim Voucher</a>
+  <a href="/admin/settings#packages" data-section="packages" class="settings-tab {{if eq $active "packages"}}active{{end}}"><svg class="icon-svg" aria-hidden="true"><use href="#hi-settings"/></svg> Pengaturan Paket</a>
+  <a href="/admin/settings#system-apps" data-section="system-apps" class="settings-tab {{if eq $active "system-apps"}}active{{end}}"><svg class="icon-svg" aria-hidden="true"><use href="#hi-download"/></svg> Aplikasi Sistem</a>
+  {{ end }}
+ </div>
+</nav>

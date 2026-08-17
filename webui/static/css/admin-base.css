@@ -542,6 +542,66 @@ code, pre, .token-code, .mono {
     outline-offset: 2px;
 }
 
+/* ===== Settings tab bar (paired with admin/partials/settings-tabs.html) =====
+   Shown under the topbar on every settings page; keeps the header to a single
+   "Pengaturan" entry and moves section navigation into tabs. */
+.settings-tabs {
+    display: flex;
+    align-items: center;
+    padding: 10px 20px;
+    border-bottom: 1px solid var(--color-glass-border);
+    background: rgba(15, 23, 42, 0.55);
+    overflow-x: auto;
+    scrollbar-width: thin;
+    position: relative;
+    z-index: 50;
+}
+.settings-tabs-scroll {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    margin: 0 auto;
+    max-width: 1200px;
+    width: 100%;
+}
+.settings-tab {
+    display: inline-flex;
+    align-items: center;
+    gap: 7px;
+    padding: 8px 14px;
+    border-radius: 999px;
+    font-size: 0.8rem;
+    font-weight: 600;
+    color: var(--color-text-secondary);
+    text-decoration: none;
+    white-space: nowrap;
+    border: 1px solid transparent;
+    transition: all 0.2s ease;
+}
+.settings-tab:hover {
+    color: #fff;
+    background: rgba(255, 255, 255, 0.06);
+}
+.settings-tab.active {
+    color: #fff;
+    background: linear-gradient(135deg, #6366f1, #a855f7);
+    box-shadow: 0 2px 10px rgba(99, 102, 241, 0.35);
+}
+.settings-tab .icon-svg {
+    width: 15px;
+    height: 15px;
+    flex-shrink: 0;
+}
+@media (max-width: 768px) {
+    .settings-tabs {
+        padding: 8px 14px;
+    }
+    .settings-tab {
+        padding: 7px 12px;
+        font-size: 0.75rem;
+    }
+}
+
 /* ===== Modal manager (paired with admin-core.js) ===== */
 /* Lock the page behind any open modal; the manager toggles this class. */
 body.modal-open {

@@ -1,99 +1,6 @@
-<!DOCTYPE html>
-<html lang="id">
-<head>
- {{template "admin/partials/head.html" dict "version" .version "csrf_token" .csrf_token "title" "Pengaturan Paket"}}
- <style>
-  .pkg-table input[type="text"], .pkg-table input[type="number"], .pkg-table select {
-   width: 100%;
-   padding: 7px 10px;
-   background: rgba(0,0,0,0.3);
-   border: 1px solid var(--color-glass-border);
-   border-radius: 8px;
-   color: #fff;
-   font-size: 13px;
-   outline: none;
-  }
-  .pkg-table input:focus, .pkg-table select:focus {
-   border-color: #a855f7;
-   box-shadow: 0 0 0 2px rgba(168,85,247,0.2);
-  }
-  .pkg-table input[type="number"] { min-width: 90px; }
-  .pkg-table select option { background: #1e1b4b; color: #fff; }
-  .pkg-key-badge {
-   font-family: var(--font-mono);
-   font-size: 0.78rem;
-   font-weight: 700;
-   padding: 3px 8px;
-   border-radius: 6px;
-   background: rgba(99,102,241,0.12);
-   border: 1px solid rgba(99,102,241,0.3);
-   color: #a5b4fc;
-   display: inline-block;
-   margin-top: 4px;
-  }
- </style>
-</head>
-<body class="dashboard-page">
-{{template "admin/partials/nav.html" dict "active_page" .active_page "admin_role" .admin_role "admin_user" .admin_user "csrf_token" .csrf_token "needs_instansi" .needs_instansi}}
-{{template "admin/partials/settings-tabs.html" dict "active_page" .active_page "admin_role" .admin_role}}
+/* GENERATED from the standalone settings pages — see templates/admin/settings.html.
+   Loaded lazily when its tab is first opened. */
 
-<main class="dashboard">
-<div class="billing-container" style="padding:24px;max-width:1200px;margin:0 auto;">
-
- <!-- Page Title -->
- <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:24px;flex-wrap:wrap;gap:12px;">
-  <div>
-   <h2 style="font-size:1.5rem;font-weight:700;color:#fff;margin:0;font-family:'Outfit',sans-serif;display:flex;align-items:center;gap:10px;">
-    <svg class="icon-svg" style="width:26px;height:26px;color:#a5b4fc;"><use href="#hi-settings"/></svg>
-    Pengaturan Paket
-   </h2>
-   <p style="color:var(--color-text-secondary);font-size:0.875rem;margin:2px 0 0 0;">Atur kuota default setiap paket. Perubahan berlaku untuk klaim voucher berikutnya; paket yang sudah diklaim tetap memakai snapshot lamanya.</p>
-  </div>
-  <button onclick="savePackages()" id="btnSavePackages" class="btn-primary" style="display:inline-flex;align-items:center;gap:8px;padding:10px 20px;border-radius:10px;font-weight:600;font-size:0.875rem;cursor:pointer;background:linear-gradient(135deg, #a855f7, #6366f1);border:none;color:#fff;">
-   <svg class="icon-svg" style="width:16px;height:16px;"><use href="#hi-check"/></svg> Simpan Perubahan
-  </button>
- </div>
-
- <!-- Packages Table -->
- <div class="glass-card" style="border-radius:16px;overflow:hidden;">
-  <div style="overflow-x:auto;">
-   <table class="exam-table pkg-table" style="width:100%;border-collapse:collapse;text-align:left;font-size:13.5px;">
-    <thead>
-     <tr style="border-bottom:1px solid var(--color-glass-border);background:rgba(255,255,255,0.02);color:var(--color-text-secondary);font-size:12px;text-transform:uppercase;letter-spacing:0.5px;">
-      <th style="padding:16px 20px;min-width:170px;">Nama Paket</th>
-      <th style="padding:16px 20px;min-width:110px;">Total Ujian</th>
-      <th style="padding:16px 20px;min-width:120px;">Ujian Serentak</th>
-      <th style="padding:16px 20px;min-width:120px;">Maks. PDF (MB)</th>
-      <th style="padding:16px 20px;min-width:130px;">Storage (MB)</th>
-      <th style="padding:16px 20px;min-width:130px;">Maks. Akun Guru</th>
-      <th style="padding:16px 20px;min-width:140px;">Role</th>
-     </tr>
-    </thead>
-    <tbody id="packagesTableBody">
-     <tr>
-      <td colspan="7" style="padding:32px;text-align:center;color:var(--color-text-secondary);">
-       <span style="display:inline-flex;align-items:center;gap:6px;"><svg class="icon-svg spin" style="width:16px;height:16px;"><use href="#hi-refresh"/></svg> Memuat pengaturan paket...</span>
-      </td>
-     </tr>
-    </tbody>
-   </table>
-  </div>
- </div>
-
- <p style="color:var(--color-text-secondary);font-size:12.5px;margin-top:14px;">
-  Keterangan: <strong style="color:#fff;">Total Ujian</strong> = maksimal ujian yang dapat dibuat; <strong style="color:#fff;">Ujian Serentak</strong> = maksimal ujian yang berjalan bersamaan (otomatis dibatasi tidak melebihi Total Ujian); <strong style="color:#fff;">Maks. Akun Guru</strong> = batas jumlah akun yang boleh dibuat operator di instansi (0 = tanpa batas); <strong style="color:#fff;">Role</strong> = peran tambahan yang diberikan saat voucher paket ini diklaim.
- </p>
-
-</div>
-
-<!-- Toast container -->
-<div id="toastContainer"></div>
-
-<script src="/static/js/admin-core.js?v={{.version}}"></script>
-<script>
-window.__storageFreeMb = {{if .storage_free_mb}}{{.storage_free_mb}}{{else}}0{{end}};
-</script>
-<script>
 (function() {
  var PACKAGES = [];
  var ROLE_NAMES = { 'guru': 'Guru', 'pengawas': 'Pengawas', 'operator': 'Operator' };
@@ -231,10 +138,6 @@ window.__storageFreeMb = {{if .storage_free_mb}}{{.storage_free_mb}}{{else}}0{{e
   });
  }
 
- document.addEventListener('DOMContentLoaded', loadPackages);
+ window.__settingsReady['packages'] = loadPackages;
  window.savePackages = savePackages;
 })();
-</script>
-</main>
-</body>
-</html>

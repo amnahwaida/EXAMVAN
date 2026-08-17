@@ -275,49 +275,56 @@ func loadOperatorPackageFallback(ctx context.Context, q quotaQuerier, userID int
 
 func UsersPage() gin.HandlerFunc {
 	return func(c *gin.Context) {
-		pool := getPool(c)
-		userID := getCurrentUserID(c)
+		data := loadUsersPageData(c)
+		data["active_page"] = "users"
+		renderAdminPage(c, "admin/users.html", data)
+	}
+}
 
-		adminInstansi := ""
-		var operatorExpiresAt *string
+// loadUsersPageData computes the Kelola User section's data dict. Shared by
+// the standalone /admin/users page and the merged /admin/settings page.
+func loadUsersPageData(c *gin.Context) gin.H {
+	pool := getPool(c)
+	userID := getCurrentUserID(c)
 
-		if isOperator(c) {
-			instansi, err := getInstansiForOperator(c.Request.Context(), pool, userID)
-			if err != nil {
-				log.Printf("users page: operator instansi lookup error: %v", err)
-			}
-			adminInstansi = instansi
+	adminInstansi := ""
+	var operatorExpiresAt *string
 
-			user, err := models.GetUserByID(c.Request.Context(), pool, userID)
-			if err == nil && user.ExpiresAt != nil {
-				s := user.ExpiresAt.Format("2006-01-02 15:04:05")
-				operatorExpiresAt = &s
-			}
+	if isOperator(c) {
+		instansi, err := getInstansiForOperator(c.Request.Context(), pool, userID)
+		if err != nil {
+			log.Printf("users page: operator instansi lookup error: %v", err)
 		}
+		adminInstansi = instansi
 
-		freeMB := getFreeDiskSpace(getStoragePath(c)) / (1024 * 1024)
-		// Preformatted "Sisa disk server: X GB/MB" supaya badge di header
-		// Default Paket Pendaftaran langsung terisi saat render (tanpa flash
-		// "memuat…"). Format disamakan dengan fmtStorageSize di admin.js.
-		storageFreeDisplay := ""
-		if freeMB > 0 {
-			if freeMB >= 1024 {
-				storageFreeDisplay = fmt.Sprintf("Sisa disk server: %.2f GB", freeMB/1024)
-			} else {
-				storageFreeDisplay = fmt.Sprintf("Sisa disk server: %.0f MB", freeMB)
-			}
+		user, err := models.GetUserByID(c.Request.Context(), pool, userID)
+		if err == nil && user.ExpiresAt != nil {
+			s := user.ExpiresAt.Format("2006-01-02 15:04:05")
+			operatorExpiresAt = &s
 		}
+	}
 
-		renderAdminPage(c, "admin/users.html", gin.H{
-			"active_page":         "users",
-			"admin_instansi":      adminInstansi,
-			"operator_expires_at": operatorExpiresAt,
-			// Free space on the storage partition (MB), so the Tambah User &
-			// Atur Limit forms can cap Maks Storage at what the server disk can
-			// actually hold (0 = tidak dapat ditentukan).
-			"storage_free_mb":      roundTo(freeMB, 2),
-			"storage_free_display": storageFreeDisplay,
-		})
+	freeMB := getFreeDiskSpace(getStoragePath(c)) / (1024 * 1024)
+	// Preformatted "Sisa disk server: X GB/MB" supaya badge di header
+	// Default Paket Pendaftaran langsung terisi saat render (tanpa flash
+	// "memuat…"). Format disamakan dengan fmtStorageSize di admin.js.
+	storageFreeDisplay := ""
+	if freeMB > 0 {
+		if freeMB >= 1024 {
+			storageFreeDisplay = fmt.Sprintf("Sisa disk server: %.2f GB", freeMB/1024)
+		} else {
+			storageFreeDisplay = fmt.Sprintf("Sisa disk server: %.0f MB", freeMB)
+		}
+	}
+
+	return gin.H{
+		"admin_instansi":      adminInstansi,
+		"operator_expires_at": operatorExpiresAt,
+		// Free space on the storage partition (MB), so the Tambah User &
+		// Atur Limit forms can cap Maks Storage at what the server disk can
+		// actually hold (0 = tidak dapat ditentukan).
+		"storage_free_mb":      roundTo(freeMB, 2),
+		"storage_free_display": storageFreeDisplay,
 	}
 }
 
@@ -1869,7 +1876,7 @@ func DeactivateUserPackage() gin.HandlerFunc {
 			if errors.Is(err, pgx.ErrNoRows) {
 				errorResponse(c, http.StatusBadRequest, "Akun ini tidak memiliki paket aktif untuk dinonaktifkan.")
 				return
-		}
+			}
 			log.Printf("deactivate package: lock active redemption (user %d): %v", targetID, err)
 			errorResponse(c, http.StatusInternalServerError, "Gagal menonaktifkan paket")
 			return

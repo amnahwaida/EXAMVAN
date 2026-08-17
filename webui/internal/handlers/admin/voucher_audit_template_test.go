@@ -48,13 +48,22 @@ func TestVoucherAuditUIMarkupPresent(t *testing.T) {
 		}
 	}
 
-	// The nav (desktop + mobile Pengaturan dropdowns): the SuperAdmin-only
-	// entry pointing at the new page.
+	// The header now has a single "Pengaturan" entry (desktop + mobile) pointing
+	// at /admin/settings; the SuperAdmin-only sections live in the settings tab
+	// bar (admin/partials/settings-tabs.html) shared by every settings page.
 	nav := read("admin/partials/nav.html")
-	if strings.Count(nav, "/admin/vouchers/audit") != 2 {
-		t.Errorf("nav.html must link /admin/vouchers/audit in both desktop and mobile dropdowns, got %d", strings.Count(nav, "/admin/vouchers/audit"))
+	if strings.Count(nav, "/admin/settings") != 2 {
+		t.Errorf("nav.html must link /admin/settings in both desktop and mobile menus, got %d", strings.Count(nav, "/admin/settings"))
 	}
-	if !strings.Contains(nav, "Riwayat Klaim Voucher") {
-		t.Errorf("nav.html must contain the %q label", "Riwayat Klaim Voucher")
+	if strings.Contains(nav, "/admin/vouchers/audit") {
+		t.Errorf("nav.html must NOT link /admin/vouchers/audit anymore (moved to settings tab bar), got %d", strings.Count(nav, "/admin/vouchers/audit"))
+	}
+
+	tabs := read("admin/partials/settings-tabs.html")
+	if strings.Count(tabs, "/admin/settings#voucher-audit") != 1 {
+		t.Errorf("settings-tabs.html must link /admin/settings#voucher-audit exactly once, got %d", strings.Count(tabs, "/admin/settings#voucher-audit"))
+	}
+	if !strings.Contains(tabs, "Riwayat Klaim Voucher") {
+		t.Errorf("settings-tabs.html must contain the %q label", "Riwayat Klaim Voucher")
 	}
 }

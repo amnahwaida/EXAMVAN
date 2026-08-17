@@ -43,6 +43,7 @@ var usersPageTemplates = []string{
 	"admin/users.html",
 	"admin/partials/head.html",
 	"admin/partials/nav.html",
+	"admin/partials/settings-tabs.html",
 	"admin/partials/svg-symbols.html",
 }
 

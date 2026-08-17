@@ -55,7 +55,7 @@ Audit lanjutan dari kebijakan "akun sub (dibuat operator) tidak boleh klaim vouc
 
 ### C. Halaman admin lain yang terjangkau akun sub — sudah terkunci
 - Dashboard/submissions/pengawas/system-apps: 0 referensi voucher. Satu-satunya halaman berisi form klaim adalah `/admin/billing` — sudah menyembunyikan form klaim + daftar "Paket yang Sudah Anda Klaim" untuk akun sub (kartu penjelasan "Akun Sub (Dibuat Operator)").
-- Nav "Kelola Voucher"/"Pengaturan Paket" dibungkus `{{if $isSuper}}` (`nav.html`); toggle "Redeem Kode Promo / Voucher" di panel "Kontrol Monetisasi" (`users.html`) hanya dirender di dalam panel SaaS `{{if eq .admin_role "superadmin"}}` — keduanya bukan aksi klaim per akun.
+- Menu "Kelola Voucher"/"Pengaturan Paket" dibungkus `{{if $isSuper}}` di tab bar Pengaturan (`admin/partials/settings-tabs.html`); sejak 17 Agustus 2026 semua bagian settings pindah dari dropdown header `nav.html` ke **satu halaman `/admin/settings`** (`templates/admin/settings.html`) dengan tab client-side tanpa reload dan JS per-bagian dimuat lazy (`static/js/settings-*.js`); toggle "Redeem Kode Promo / Voucher" di panel "Kontrol Monetisasi" (`users.html`) hanya dirender di dalam panel SaaS `{{if eq .admin_role "superadmin"}}` — keduanya bukan aksi klaim per akun.
 
 ### D. Kontrak rute
 - `TestNoPublicVoucherRoutes` (`cmd/server/routes_voucher_public_test.go`) menginspeksi tabel rute hasil `registerRoutes` asli: tidak ada rute ber-`voucher`/`redeem`/`activate` di luar prefix `/admin`, dan `POST /admin/api/vouchers/redeem`, `POST /admin/api/vouchers/activate`, `GET /admin/api/vouchers/mine` tetap terdaftar.

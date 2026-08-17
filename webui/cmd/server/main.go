@@ -617,6 +617,7 @@ func registerRoutes(r *gin.Engine, cfg *config.Config, pool *pgxpool.Pool) {
 		{
 			lockedPages.GET("/dashboard", admin.Dashboard())
 			lockedPages.GET("/dashboard/redirect", admin.DashboardRedirect())
+			lockedPages.GET("/settings", admin.SettingsPage())
 			lockedPages.GET("/submissions", admin.SubmissionsPage())
 
 			lockedPages.GET("/users", middleware.AdminManagementRequired(), admin.UsersPage())

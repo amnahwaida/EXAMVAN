@@ -12,9 +12,57 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	r2client "github.com/examvan/webui/internal/handlers/r2"
 	"github.com/examvan/webui/internal/helpers"
 	"github.com/examvan/webui/internal/models"
 )
+
+// ---------------------------------------------------------------------------
+// Settings hub — single page with client-side tabs
+// ---------------------------------------------------------------------------
+
+// SettingsPage renders the merged /admin/settings page: one page holding every
+// settings section (Kelola User, Paket & Voucher, Kelola Voucher, Riwayat
+// Klaim Voucher, Pengaturan Paket, Aplikasi Sistem) with tabs that switch
+// sections without a reload. The template gates each section by role; the
+// per-section JS is loaded lazily from /static/js/settings-<section>.js on
+// first tab activation.
+func SettingsPage() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		data := gin.H{"active_page": "settings"}
+
+		// Paket & Voucher (billing) section — rendered for every role.
+		for k, v := range loadBillingPageData(c) {
+			data[k] = v
+		}
+
+		isSuper := isSuperAdmin(c)
+		isOp := isOperator(c)
+		if isSuper || isOp {
+			// Kelola User section (SuperAdmin & Operator).
+			for k, v := range loadUsersPageData(c) {
+				data[k] = v
+			}
+		}
+
+		if isSuper {
+			// Aplikasi Sistem section (server-rendered app cards) — SuperAdmin.
+			pool := getPool(c)
+			ctx := c.Request.Context()
+			apps, err := models.GetAllSystemApps(ctx, pool)
+			if err != nil {
+				data["error"] = "Gagal memuat aplikasi sistem."
+			} else {
+				data["apps"] = apps
+			}
+			r2Val, exists := c.Get("r2")
+			r2 := r2client.FromContext(r2Val)
+			data["r2_enabled"] = exists && r2 != nil && r2.Enabled()
+		}
+
+		renderAdminPage(c, "admin/settings.html", data)
+	}
+}
 
 // ---------------------------------------------------------------------------
 // SaaS Settings handler (GET + POST)
@@ -177,7 +225,7 @@ func handleSaasSettingsPost(c *gin.Context, pool *pgxpool.Pool, ctx context.Cont
 		// Pointer: 0 is a MEANINGFUL value (unlimited), so an absent field — an
 		// older cached UI saving without this control — must NOT silently reset
 		// a configured cap to unlimited. Same guard as the storage quotas.
-		MaxApprovalsPerExam       *int     `json:"max_approvals_per_exam"`
+		MaxApprovalsPerExam *int `json:"max_approvals_per_exam"`
 
 		// Approval-cleanup job tuning. All pointers for the same reason as
 		// MaxApprovalsPerExam: an older cached UI that predates these controls

@@ -45,10 +45,9 @@
    {{if hasRole .admin_role "pengawas"}}
    <a href="/admin/pengawas" class="nav-link {{if eq .active_page "pengawas"}}active{{end}}"><svg class="icon-svg" aria-hidden="true"><use href="#hi-eye"/></svg> Pengawasan</a>
    {{end}}
-    {{if or (eq .admin_role "superadmin") (eq .admin_role "operator") (hasRole .admin_role "operator")}}
-    <a href="/admin/users" class="nav-link {{if eq .active_page "users"}}active{{end}}"><svg class="icon-svg" aria-hidden="true"><use href="#hi-users"/></svg> Kelola User</a>
+    {{if hasRole .admin_role "guru"}}
+    <a href="/admin/settings" class="nav-link {{if or (eq .active_page "users") (eq .active_page "billing") (eq .active_page "vouchers") (eq .active_page "voucher-audit") (eq .active_page "packages") (eq .active_page "system-apps")}}active{{end}}"><svg class="icon-svg" aria-hidden="true"><use href="#hi-settings"/></svg> Pengaturan</a>
     {{end}}
-    <a href="/admin/billing" class="nav-link {{if eq .active_page "billing"}}active{{end}}"><svg class="icon-svg" aria-hidden="true"><use href="#hi-clipboard"/></svg> Paket &amp; Voucher</a>
   </div>
  </div>
  <div class="topbar-right">
@@ -79,13 +78,9 @@
    <svg class="icon-svg" aria-hidden="true"><use href="#hi-eye"/></svg> Pengawasan
    </a>
    {{end}}
-   {{if or (eq .admin_role "superadmin") (eq .admin_role "operator") (hasRole .admin_role "operator")}}
-   <a href="/admin/users" class="dropdown-item {{if eq .active_page "users"}}active-dropdown-item{{end}}">
-   <svg class="icon-svg" aria-hidden="true"><use href="#hi-users"/></svg> Kelola User
-   </a>
-   {{end}}
-   <a href="/admin/billing" class="dropdown-item {{if eq .active_page "billing"}}active-dropdown-item{{end}}">
-   <svg class="icon-svg" aria-hidden="true"><use href="#hi-clipboard"/></svg> Paket &amp; Voucher
+   {{if hasRole .admin_role "guru"}}
+   <a href="/admin/settings" class="dropdown-item {{if or (eq .active_page "users") (eq .active_page "billing") (eq .active_page "vouchers") (eq .active_page "voucher-audit") (eq .active_page "packages") (eq .active_page "system-apps")}}active-dropdown-item{{end}}">
+   <svg class="icon-svg" aria-hidden="true"><use href="#hi-settings"/></svg> Pengaturan
    </a>
    <div class="dropdown-divider"></div>
    </div>

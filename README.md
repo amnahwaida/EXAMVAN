@@ -44,6 +44,7 @@ EXAMVAN terdiri dari dua komponen utama:
 * **Role Management:** Mendukung akun Super Admin, Guru, dan Pengawas.
 * **Hak Akses Eksklusif:** Akun guru hanya dapat melihat, membuat, mengubah, dan menghapus ujian yang dibuatnya sendiri. Super Admin memiliki otorisasi penuh untuk mengawasi seluruh ujian dari semua guru.
 * **Ubah Password Mandiri:** Setiap pengguna dapat memperbarui kata sandinya kapan saja melalui UI modal yang aman.
+* **Navigasi ringkas (header):** Header panel admin hanya menampilkan menu aksi utama — *Daftar Ujian, Hasil Ujian, Pengawasan,* dan satu entri **Pengaturan** yang membuka **satu halaman `/admin/settings`** berisi seluruh bagian pengaturan (Kelola User, Paket & Voucher, Kelola Voucher, Riwayat Klaim Voucher, Pengaturan Paket, Aplikasi Sistem) dengan **tab yang berpindah tanpa reload** (deep-link via hash `#users`, `#billing`, dst.; JS per-bagian dimuat lazy dari `static/js/settings-<bagian>.js` saat tab pertama kali dibuka). Super Admin melihat **6 tab**, Operator **2 tab** (Kelola User, Paket & Voucher), dan Guru/Pengawas **1 tab** (Paket & Voucher). Implementasi: `templates/admin/settings.html` + partial `templates/admin/partials/settings-tabs.html`; `nav.html` hanya berisi satu tautan "Pengaturan" (desktop & mobile). Halaman settings lama (`/admin/users`, `/admin/billing`, dst.) tetap ada sebagai jalur langsung/fallback dan berbagi tab bar yang sama.
 
 ### 2. Lembar Jawaban Digital & Koreksi Otomatis
 * **Mendukung 5 Tipe Soal:**
