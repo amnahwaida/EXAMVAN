@@ -1358,7 +1358,8 @@ func TestBillingDisplayShowsFrozenRemainingAfterFreezeClock(t *testing.T) {
 	}
 
 	// Drive the real billing display endpoint as the reactivated user and
-	// parse the ACTIVE package item exactly as billing.html would render it.
+	// parse the ACTIVE package item exactly as the Paket & Voucher section of
+	// the settings hub would render it.
 	tc.login(t, u.ID) // refresh the session: AuthRequired clears it on suspend
 	payload, activeIdx := fetchBillingDisplay(t, tc)
 	active := assertBillingDisplay(t, "bill-freeze", "freeze re-opened the clock",

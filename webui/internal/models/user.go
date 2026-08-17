@@ -1370,10 +1370,10 @@ func AuthenticateUser(ctx context.Context, pool *pgxpool.Pool, username, passwor
 	}
 
 	// An expired account is NOT rejected here: the owner is admitted so they
-	// can reach the billing page and renew (redeem/activate a voucher or wait
+	// can reach the billing tab and renew (redeem/activate a voucher or wait
 	// for an admin renewal). Feature access is gated downstream: the login
-	// handler sends feature-locked accounts straight to /admin/billing, and
-	// FeatureLockRequired middleware blocks every other admin page/API until
+	// handler sends feature-locked accounts straight to /admin/settings#billing,
+	// and FeatureLockRequired middleware blocks every other admin page/API until
 	// the account's expiry is extended. Suspended accounts were rejected above.
 
 	return &user, ""

@@ -464,8 +464,9 @@ type billingDisplayItem struct {
 // realigned stored remaining_seconds, and the redemption's expected identity
 // (wantID/wantPackage — read straight from the DB by the caller), it asserts
 // the item is rendered as an active, finite package (not expired, not
-// unlimited) that IS the expected redemption (id/package match — billing.html
-// keys on id, labels on package), and that the displayed remaining_seconds (a)
+// unlimited) that IS the expected redemption (id/package match — the billing
+// section keys on id, labels on package), and that the displayed
+// remaining_seconds (a)
 // matches expires_at − now on the Go clock (±60s — only the sub-second
 // request-to-read gap) and (b) agrees with the realigned stored clock (±120s —
 // the stored value was written by the DB's now() while the display uses the Go
@@ -509,9 +510,9 @@ func assertBillingDisplay(t *testing.T, label, why string, got time.Time, stored
 	}
 
 	// The rendered item must be the SAME redemption the display derives from:
-	// its identity fields (billing.html keys on id, labels on package) must
-	// match the expected redemption read from the DB — not just the remaining
-	// lifetime.
+	// its identity fields (the billing section keys on id, labels on package)
+	// must match the expected redemption read from the DB — not just the
+	// remaining lifetime.
 	if item.ID != wantID {
 		t.Errorf("%s: display redemption id=%d, want %d (the active redemption)", label, item.ID, wantID)
 	}
@@ -522,15 +523,17 @@ func assertBillingDisplay(t *testing.T, label, why string, got time.Time, stored
 }
 
 // billingDisplayPayload is the decoded response of GET /admin/api/vouchers/mine
-// (the endpoint that backs billing.html's "Paket Aktif" / "Sisa Masa Aktif").
+// (the endpoint that backs the billing section's "Paket Aktif" / "Sisa Masa
+// Aktif").
 type billingDisplayPayload struct {
 	Success     bool                 `json:"success"`
 	Redemptions []billingDisplayItem `json:"redemptions"`
 }
 
 // fetchBillingDisplay drives the real billing display endpoint as the
-// currently-logged-in user and decodes the response exactly as billing.html
-// would render it. Returns the payload and the index of the ACTIVE package
+// currently-logged-in user and decodes the response exactly as the billing
+// section of the settings hub would render it. Returns the payload and the
+// index of the ACTIVE package
 // item (failing the test when there is none). The caller then asserts on the
 // item (e.g. via assertBillingDisplay) plus its context-specific sanity bound.
 func fetchBillingDisplay(t *testing.T, tc *voucherTestClient) (billingDisplayPayload, int) {

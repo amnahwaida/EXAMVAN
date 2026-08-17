@@ -19,7 +19,7 @@ import (
 // because the lock flag is set by AuthRequired from the session and the DB
 // expiry row, which the integration tests cover; here we drive the flag
 // directly and assert the two branches (403 JSON for API, redirect + flash to
-// /admin/billing for HTML) plus the pass-through.
+// /admin/settings#billing for HTML) plus the pass-through.
 // ---------------------------------------------------------------------------
 
 // newLockTestRouter builds a minimal router with a real session store and the

@@ -165,13 +165,14 @@ func getBillingPage(t *testing.T, client *http.Client, srv *httptest.Server) (in
 
 // TestBillingPageHidesRedeemFormForSubAccount locks in the UI half of the
 // sub-account voucher policy: when the account was CREATED BY an operator
-// (admin_users.operator_created = true), the rendered /admin/billing page must
-// NOT contain the voucher-claim form (input #voucherCodeInput, button
-// #btnRedeemVoucher) nor the "Paket yang Sudah Anda Klaim" list — instead it
-// shows the explanatory sub-account notice card. A directly-created (non-sub)
-// account still gets the full claim UI. The page is rendered through the REAL
-// BillingPage handler with the REAL templates, so the test breaks the moment
-// the template conditional regresses.
+// (admin_users.operator_created = true), the rendered Paket & Voucher section
+// of the settings hub (/admin/settings#billing) must NOT contain the
+// voucher-claim form (input #voucherCodeInput, button #btnRedeemVoucher) nor
+// the "Paket yang Sudah Anda Klaim" list — instead it shows the explanatory
+// sub-account notice card. A directly-created (non-sub) account still gets
+// the full claim UI. The page is rendered through the REAL SettingsPage
+// handler with the REAL templates, so the test breaks the moment the template
+// conditional regresses.
 func TestBillingPageHidesRedeemFormForSubAccount(t *testing.T) {
 	pool := setupVoucherITDB(t)
 	ctx := context.Background()
@@ -273,11 +274,11 @@ func TestBillingPageHidesRedeemFormForSubAccount(t *testing.T) {
 // snapshot — the same source that gates exam/PDF/storage/concurrent at upload
 // time), NOT from its own admin_users columns, which only hold the forced
 // 'free' defaults (CreateUser forces package='free' and default quotas). The
-// rendered /admin/billing page must therefore show the school package values
-// (PDF 50 MB, storage 500 MB, concurrent 3 from the IT-SEKOLAH voucher) and
-// the school package label instead of "free" / 1 MB / 2 / 50 MB. Rendered
-// through the REAL BillingPage handler with the REAL templates, so the test
-// breaks the moment the display override regresses.
+// rendered Paket & Voucher section of the settings hub must therefore show the
+// school package values (PDF 50 MB, storage 500 MB, concurrent 3 from the
+// IT-SEKOLAH voucher) and the school package label instead of "free" / 1 MB /
+// 2 / 50 MB. Rendered through the REAL SettingsPage handler with the REAL
+// templates, so the test breaks the moment the display override regresses.
 func TestBillingPageShowsSchoolPoolQuotaForSubAccount(t *testing.T) {
 	pool := setupVoucherITDB(t)
 

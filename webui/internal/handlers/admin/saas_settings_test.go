@@ -649,8 +649,9 @@ func TestSaasSettingsApprovalCleanupTuningRoundtrip(t *testing.T) {
 }
 
 // TestSaasSettingsMaxApprovalsPerExamUIMarkup pins the SaaS-panel field in
-// users.html and its admin.js wiring (save reads the input, load fills it), so
-// the SuperAdmin-editable cap cannot silently vanish from the UI.
+// the settings hub's Kelola User section (settings.html) and its admin.js
+// wiring (save reads the input, load fills it), so the SuperAdmin-editable cap
+// cannot silently vanish from the UI.
 func TestSaasSettingsMaxApprovalsPerExamUIMarkup(t *testing.T) {
 	templatesDir := "templates"
 	if _, err := os.Stat(templatesDir); err != nil {

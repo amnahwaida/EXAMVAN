@@ -73,7 +73,7 @@
 | Fitur | Deskripsi |
 |-------|-----------|
 | **Masa Aktif Awal (Trial)** | Akun baru (registrasi `/register` atau dibuat admin) mendapat masa aktif **14 hari** (setting SaaS `default_active_days`, dapat diubah SuperAdmin). |
-| **Setelah Masa Aktif Habis** | Login **tetap diizinkan**; seluruh fitur terkunci kecuali halaman **Paket & Voucher** (`/admin/billing`) untuk klaim kode voucher. |
+| **Setelah Masa Aktif Habis** | Login **tetap diizinkan**; seluruh fitur terkunci kecuali tab **Paket & Voucher** di hub Pengaturan (`/admin/settings#billing`) untuk klaim kode voucher. |
 | **Perpanjangan** | Melalui **klaim voucher** oleh pemilik akun, atau **perpanjangan manual** oleh SuperAdmin/Operator. SuperAdmin tidak pernah terkunci masa aktif. |
 | **Akun Sub Operator** | Akun yang dibuat operator **mewarisi `expires_at` operator** saat dibuat — termasuk status **unlimited** (operator tanpa masa aktif/`expires_at` NULL membuat sub yang juga unlimited, bukan trial 14 hari). Saat masa aktif operator habis, akun sub ikut terkunci (tetap bisa login, fitur terkunci ke Paket & Voucher; ujian aktif yang belum dimulai di-tombstone). Perpanjangan operator — lewat voucher sekolah, EditUser, maupun tombol Aktifkan (toggle-status) — **menyebar** ke akun sub tanpa paket aktif sendiri (GREATEST, hanya memanjang); mengosongkan expiry operator (clear → unlimited) juga membuat sub tanpa paket sendiri ikut **unlimited**. Sub dengan paket aktif sendiri / ber-role operator / sudah unlimited tidak disentuh. |
 | **Cakupan** | Hanya akun yang dibuat **setelah** pengaturan diubah; akun lama tidak terpengaruh otomatis. |

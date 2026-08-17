@@ -558,8 +558,8 @@ func CreateUser() gin.HandlerFunc {
 		}
 
 		// Same minimum the UI enforces (minlength=8 on both create/edit forms,
-		// users.html): the server must not accept weaker passwords from a
-		// hand-crafted request.
+		// settings hub Kelola User section): the server must not accept weaker
+		// passwords from a hand-crafted request.
 		if len(password) < 8 {
 			errorResponse(c, http.StatusBadRequest, "Password minimal 8 karakter")
 			return

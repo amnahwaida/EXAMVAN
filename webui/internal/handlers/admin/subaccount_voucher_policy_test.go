@@ -1157,11 +1157,12 @@ func TestCreateUserEmailDuplicateFriendlyErrors(t *testing.T) {
 
 // TestSubAccountCannotListRedemptions locks in the third leg of the
 // sub-account voucher policy: GET /admin/api/vouchers/mine (the endpoint that
-// backs the "Paket yang Sudah Anda Klaim" list on billing.html) must answer
-// 403 for an operator-created account — the same origin-based block as
-// redeem/activate — so a sub-account can never read a redemption list, even
-// one left over from before the policy (a pre-policy claim planted on its
-// row). The operator themself (operator_created=false) keeps full access.
+// backs the "Paket yang Sudah Anda Klaim" list on the Paket & Voucher tab of
+// the settings hub) must answer 403 for an operator-created account — the
+// same origin-based block as redeem/activate — so a sub-account can never
+// read a redemption list, even one left over from before the policy (a
+// pre-policy claim planted on its row). The operator themself
+// (operator_created=false) keeps full access.
 func TestSubAccountCannotListRedemptions(t *testing.T) {
 	pool := setupVoucherITDB(t)
 	ctx := context.Background()

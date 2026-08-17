@@ -22,7 +22,7 @@ function getCsrfToken() {
 // No toast is shown here: the global 'api:error' listener auto-toasts mapped
 // R2 error codes, and a call site that ALREADY renders its own error toast
 // opts out by passing {suppressApiErrorToast: true} (see deleteApp in
-// system_apps.html) so the two never double-toast.
+// settings-system-apps.js) so the two never double-toast.
 function apiFetch(url, options = {}) {
     const method = (options.method || 'GET').toUpperCase();
     if (['POST', 'PUT', 'DELETE', 'PATCH'].includes(method)) {

@@ -547,7 +547,8 @@ WHERE u.instansi_id = i.id AND (u.instansi_code IS NULL OR u.instansi_code = '')
 -- Package quotas configuration (SuperAdmin-editable)
 -- ============================================================
 -- Default quotas for the fixed packages, editable by SuperAdmin on
--- /admin/packages. NEW voucher claims snapshot these values at redeem time;
+-- /admin/settings#packages (Pengaturan Paket tab). NEW voucher claims
+-- snapshot these values at redeem time;
 -- existing redemptions keep their own snapshot. The seed mirrors
 -- packageEntitlement() in Go and the one-time redemption backfill. Sizes are
 -- in bytes; role is a JSON array of roles (serialized). Safe to re-run: any
