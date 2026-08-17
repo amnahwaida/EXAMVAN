@@ -75,10 +75,16 @@ func settingsRenderFuncs() template.FuncMap {
 
 func renderSettingsForRole(t *testing.T, role string) string {
 	t.Helper()
-	return renderSettingsForRoleLocked(t, role, false)
+	return renderSettingsForRoleLocked(t, role, false, false)
 }
 
-func renderSettingsForRoleLocked(t *testing.T, role string, featureLocked bool) string {
+// renderSettingsForRoleLocked renders the settings page for the given role
+// with the feature-lock and expiry flags the handler derives from the session
+// user: featureLocked hides every section but billing, and userExpired drives
+// the yellow "Masa aktif akun Anda telah berakhir" banner. In production the
+// two always move together (an expired account is feature-locked), but the
+// template keeps them as separate inputs — the test pins both combinations.
+func renderSettingsForRoleLocked(t *testing.T, role string, featureLocked, userExpired bool) string {
 	t.Helper()
 	templatesDir := "templates"
 	if _, err := os.Stat(templatesDir); err != nil {
@@ -115,7 +121,7 @@ func renderSettingsForRoleLocked(t *testing.T, role string, featureLocked bool) 
 		"user_max_pdf_size_mb":    1.0,
 		"user_max_storage_mb":     0.0,
 		"user_is_super":           true,
-		"user_expired":            false,
+		"user_expired":            userExpired,
 		"user_max_accounts":       int64(0),
 		"user_accounts_used":      int64(0),
 		"user_accounts_pct":       0,
@@ -123,7 +129,7 @@ func renderSettingsForRoleLocked(t *testing.T, role string, featureLocked bool) 
 		"user_operator_created":   false,
 	})
 	if err != nil {
-		t.Fatalf("render settings.html (%s, locked=%v): %v", role, featureLocked, err)
+		t.Fatalf("render settings.html (%s, locked=%v, expired=%v): %v", role, featureLocked, userExpired, err)
 	}
 	return buf.String()
 }
@@ -194,7 +200,7 @@ func TestSettingsPageSectionsRoleGated(t *testing.T) {
 func TestSettingsPageFeatureLockedOnlyBilling(t *testing.T) {
 	// Operator is the classic locked role (superadmin is never locked): even
 	// with the operator role, a locked account sees no users section/tab.
-	out := renderSettingsForRoleLocked(t, "operator", true)
+	out := renderSettingsForRoleLocked(t, "operator", true, true)
 	if !strings.Contains(out, `id="section-billing"`) {
 		t.Error("locked settings page must render the billing section (renewal surface)")
 	}
@@ -226,7 +232,7 @@ func TestSettingsPageFeatureLockedOnlyBilling(t *testing.T) {
 	// A locked superadmin is impossible in practice (the middleware exempts
 	// superadmin), but the template gate must hold for completeness: locked
 	// wins over role even for the superadmin role string.
-	out = renderSettingsForRoleLocked(t, "superadmin", true)
+	out = renderSettingsForRoleLocked(t, "superadmin", true, true)
 	if !strings.Contains(out, `id="section-billing"`) {
 		t.Error("locked superadmin settings page must still render the billing section")
 	}
@@ -238,13 +244,120 @@ func TestSettingsPageFeatureLockedOnlyBilling(t *testing.T) {
 
 	// Sanity: the SAME role WITHOUT the lock still gets its full sections
 	// (guards against the gate accidentally hiding everything).
-	out = renderSettingsForRoleLocked(t, "operator", false)
+	out = renderSettingsForRoleLocked(t, "operator", false, false)
 	if !strings.Contains(out, `id="section-users"`) || !strings.Contains(out, `id="section-billing"`) {
 		t.Error("unlocked operator settings page must render users + billing sections")
 	}
 	if !strings.Contains(out, "/admin/settings#users") {
 		t.Error("unlocked operator settings page must offer the users tab")
 	}
+}
+
+// settingsSelectOptions extracts the <option value=...> values inside the
+// mobile settingsSectionSelect dropdown only (the page has other <select>
+// elements whose options must not be counted).
+func settingsSelectOptions(out string) []string {
+	const open = `<select id="settingsSectionSelect"`
+	i := strings.Index(out, open)
+	if i < 0 {
+		return nil
+	}
+	rest := out[i:]
+	j := strings.Index(rest, "</select>")
+	if j < 0 {
+		return nil
+	}
+	var opts []string
+	for _, seg := range strings.Split(rest[:j], `<option value="`)[1:] {
+		if k := strings.Index(seg, `"`); k > 0 {
+			opts = append(opts, seg[:k])
+		}
+	}
+	return opts
+}
+
+// TestSettingsPageFeatureLockedBannerAndAccordion pins the two UI details that
+// distinguish a feature-locked account from a merely low-privilege one:
+//
+//   - the yellow expiry banner renders exactly when user_expired is set (and
+//     stays absent for a healthy account of the same role), and
+//   - the Pengaturan Umum accordion markup (the section itself and its
+//     toggle-all button) only ships inside the superadmin section, so a
+//     locked account can never receive the accordion UI at all.
+//
+// Note: the lazily-loaded JS module names (settings-general.js etc.) are NOT
+// asserted here — Go's html/template strips // comments from <script> output,
+// and the module loader builds filenames from a key variable, so the only
+// reliable markup markers are the section/button ids themselves.
+func TestSettingsPageFeatureLockedBannerAndAccordion(t *testing.T) {
+	// Expired account: the banner is rendered (tells the owner where to renew)
+	// and the accordion/toggle-all markup must NOT exist anywhere in the page.
+	out := renderSettingsForRoleLocked(t, "operator", true, true)
+	if !strings.Contains(out, "Masa aktif akun Anda telah berakhir") {
+		t.Error("expired account must see the yellow expiry banner")
+	}
+	if !strings.Contains(out, "telah berakhir. Seluruh fitur dikunci") {
+		t.Errorf("expiry banner must explain the lock, got: %s", excerpt(out, "Masa aktif akun Anda"))
+	}
+	for _, gone := range []string{
+		`id="section-general"`,
+		`id="toggleAllGeneralBtn"`,
+		"Buka Semua",
+	} {
+		if strings.Contains(out, gone) {
+			t.Errorf("locked page must NOT contain %s (accordion is superadmin-only)", gone)
+		}
+	}
+	// The mobile dropdown must offer only billing for the locked account.
+	if got := settingsSelectOptions(out); len(got) != 1 || got[0] != "billing" {
+		t.Errorf("locked dropdown options = %v, want exactly [billing]", got)
+	}
+
+	// Healthy account of the same role: banner gone, and still no accordion
+	// (operator has no Pengaturan Umum section) — but the dropdown grows.
+	out = renderSettingsForRoleLocked(t, "operator", false, false)
+	if strings.Contains(out, "Masa aktif akun Anda telah berakhir") {
+		t.Error("healthy account must NOT see the expiry banner")
+	}
+	if strings.Contains(out, `id="toggleAllGeneralBtn"`) {
+		t.Error("operator must not receive the accordion toggle button")
+	}
+	if got := settingsSelectOptions(out); len(got) != 2 {
+		t.Errorf("operator dropdown options = %v, want 2 options", got)
+	}
+
+	// Superadmin (the only accordion owner): banner absent when healthy, and
+	// the toggle-all button + Pengaturan Umum section ARE present.
+	out = renderSettingsForRoleLocked(t, "superadmin", false, false)
+	if strings.Contains(out, "Masa aktif akun Anda telah berakhir") {
+		t.Error("healthy superadmin must NOT see the expiry banner")
+	}
+	for _, want := range []string{
+		`id="section-general"`,
+		`id="toggleAllGeneralBtn"`,
+		"Buka Semua",
+	} {
+		if !strings.Contains(out, want) {
+			t.Errorf("superadmin page must contain %q (accordion machinery)", want)
+		}
+	}
+	if got := settingsSelectOptions(out); len(got) != 5 {
+		t.Errorf("superadmin dropdown options = %v, want 5 options", got)
+	}
+}
+
+// excerpt returns a short window of s starting at the first occurrence of
+// marker (or the beginning of s), for readable test failure output.
+func excerpt(s, marker string) string {
+	const maxLen = 200
+	i := strings.Index(s, marker)
+	if i < 0 {
+		i = 0
+	}
+	if i+maxLen > len(s) {
+		return s[i:]
+	}
+	return s[i : i+maxLen]
 }
 
 func TestSettingsPageLazyJsWiring(t *testing.T) {
