@@ -139,6 +139,20 @@ func loadBillingPageData(c *gin.Context) gin.H {
 		}
 	}
 
+	// "Paket Saat Ini" label — now always human-readable. The template renders
+	// `default .user_package .user_package_name`: it shows user_package_name
+	// whenever set, falling back to the raw package key otherwise. Fill the
+	// label for everyone: normal accounts get the mapped display name ("Paket
+	// Sekolah Unggulan", not "sekolah_unggulan"); superadmin shows the same
+	// "SuperAdmin (Full)" label as the dashboard. Operator-created
+	// sub-accounts resolve their label above ("Paket Sekolah" or the school
+	// package), so the card never reads their forced 'free' row.
+	if isSuper {
+		userPackageName = "SuperAdmin (Full)"
+	} else if userPackageName == "" {
+		userPackageName = packageDisplayName(userPackage)
+	}
+
 	return gin.H{
 		"voucher_enabled":         voucherEnabled,
 		"user_package":            userPackage,

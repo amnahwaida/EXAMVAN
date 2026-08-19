@@ -1,30 +1,46 @@
 /* GENERATED from the standalone settings pages — see templates/admin/settings.html.
    Loaded lazily when its tab is first opened. */
 
+function renderAuditError(msg, page) {
+    const tbody = document.getElementById('auditLogsBody');
+    if (!tbody) return;
+    tbody.setAttribute('aria-busy', 'false');
+    tbody.innerHTML = '<tr><td colspan="4" style="text-align:center;padding:40px;color:#fca5a5;">' + msg
+        + '<div style="margin-top:12px;"><button type="button" class="btn-sm btn-secondary" onclick="loadAuditLogs(' + page + ')">Coba Lagi</button></div></td></tr>';
+}
+
 function loadAuditLogs(page = 1) {
+    const tbody = document.getElementById('auditLogsBody');
     const search = document.getElementById('auditSearchInput').value.trim();
+    if (tbody) {
+        tbody.setAttribute('aria-busy', 'true');
+        tbody.innerHTML = '<tr><td colspan="4" style="text-align:center;padding:40px;color:var(--color-text-secondary);"><svg class="icon-svg spin" style="width:16px;height:16px;vertical-align:-3px;margin-right:8px;" aria-hidden="true"><use href="#hi-refresh"/></svg>Memuat riwayat...</td></tr>';
+    }
     const url = `/admin/api/vouchers/audit-logs?page=${page}&per_page=20&search=${encodeURIComponent(search)}`;
 
     apiFetch(url)
     .then(r => r.json())
     .then(res => {
         if (!res.success) {
-            showToast(res.message || 'Gagal memuat riwayat audit', 'error');
+            renderAuditError(res.message || 'Gagal memuat riwayat audit', page);
             return;
         }
+        if (tbody) tbody.setAttribute('aria-busy', 'false');
         renderAuditLogsTable(res.logs || []);
         renderAuditPagination(res.pagination);
     })
     .catch(err => {
         console.error(err);
-        showToast('Gagal terhubung ke server', 'error');
+        renderAuditError('Gagal terhubung ke server', page);
     });
 }
 
 function renderAuditLogsTable(logs) {
     const tbody = document.getElementById('auditLogsBody');
     if (!logs.length) {
-        tbody.innerHTML = '<tr><td colspan="4" style="padding:40px;text-align:center;color:var(--color-text-secondary);">Belum ada riwayat klaim atau aktivasi voucher.</td></tr>';
+        const searchEl = document.getElementById('auditSearchInput');
+        const q = searchEl ? searchEl.value.trim() : '';
+        tbody.innerHTML = '<tr><td colspan="4" style="padding:40px;text-align:center;color:var(--color-text-secondary);">' + (q ? 'Tidak ditemukan riwayat yang cocok dengan pencarian "' + escapeHtml(q) + '".' : 'Belum ada riwayat klaim atau aktivasi voucher.') + '</td></tr>';
         return;
     }
 
@@ -58,15 +74,21 @@ function renderAuditPagination(pg) {
         return;
     }
 
+    // Cap halaman (sama seperti pagination Daftar Voucher): maksimal ~9 tombol.
+    const range = paginationRange(pg.page, pg.total_pages);
     let btns = '';
-    for (let i = 1; i <= pg.total_pages; i++) {
-        const activeStyle = i === pg.page ? 'background:var(--color-primary);color:#fff;' : 'background:rgba(255,255,255,0.06);color:var(--color-text-secondary);';
-        btns += `<button onclick="loadAuditLogs(${i})" style="padding:4px 10px;border-radius:6px;border:none;font-size:12px;cursor:pointer;margin-left:4px;${activeStyle}">${i}</button>`;
+    for (const item of range) {
+        if (item === '…') {
+            btns += `<span style="color:var(--color-text-secondary);padding:4px 6px;font-size:12px;">…</span>`;
+            continue;
+        }
+        const activeStyle = item === pg.page ? 'background:var(--color-primary);color:#fff;' : 'background:rgba(255,255,255,0.06);color:var(--color-text-secondary);';
+        btns += `<button onclick="loadAuditLogs(${item})" style="padding:4px 10px;border-radius:6px;border:none;font-size:12px;cursor:pointer;${activeStyle}">${item}</button>`;
     }
 
     container.innerHTML = `
         <span style="font-size:12px;color:var(--color-text-secondary);">Halaman ${pg.page} dari ${pg.total_pages} (Total ${pg.total} catatan)</span>
-        <div>${btns}</div>`;
+        <div style="display:flex;flex-wrap:wrap;gap:6px;">${btns}</div>`;
 }
 
 

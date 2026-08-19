@@ -1341,21 +1341,125 @@ function closeManageUsersModal() {
     if (modal) modal.style.display = 'none';
 }
 
+// ===== Kelola User: kolom sorting + pencarian live =====
+
+// Sorting state for the user table. Keys must match the whitelist on the
+// server (models/user.go userSortExprs) — unknowns there fall back to the
+// default role-priority order, so the UI only ever sends known keys.
+var usersSortState = { key: '', dir: 'asc' };
+
+function toggleUsersSort(key) {
+    if (!key) return;
+    if (usersSortState.key === key) {
+        if (usersSortState.dir === 'asc') {
+            usersSortState.dir = 'desc';
+        } else {
+            // Klik ketiga pada kolom yang sama: kembali ke urutan default
+            // (role-priority) — cara mudah membatalkan sorting.
+            usersSortState.key = '';
+            usersSortState.dir = 'asc';
+        }
+    } else {
+        usersSortState.key = key;
+        usersSortState.dir = 'asc';
+    }
+    refreshUsersSortHeaders();
+    loadUsersList(1);
+}
+
+// Sinkronkan dropdown sortir mobile dengan state sorting desktop (dipanggil
+// dari refreshUsersSortHeaders, jadi kedua arah selalu konsisten).
+function syncUsersSortMobileSelect() {
+    var sel = document.getElementById('userSortMobile');
+    if (!sel) return;
+    sel.value = usersSortState.key ? usersSortState.key + '_' + usersSortState.dir : '';
+}
+
+function onUsersSortMobileChange() {
+    var sel = document.getElementById('userSortMobile');
+    if (!sel) return;
+    var v = sel.value; // '' atau 'key_dir' — semua kunci kolom satu kata
+    if (!v) {
+        usersSortState.key = '';
+        usersSortState.dir = 'asc';
+    } else {
+        var parts = v.split('_');
+        usersSortState.key = parts[0];
+        usersSortState.dir = parts[1] === 'desc' ? 'desc' : 'asc';
+    }
+    refreshUsersSortHeaders();
+    loadUsersList(1);
+}
+
+function refreshUsersSortHeaders() {
+    var tableEl = document.getElementById('usersTableBody');
+    if (!tableEl) return;
+    var table = tableEl.closest('table');
+    if (!table) return;
+    table.querySelectorAll('th[data-sort]').forEach(function(th) {
+        var k = th.getAttribute('data-sort');
+        if (!th.dataset.titleBase) th.dataset.titleBase = th.title;
+        th.classList.remove('sort-active', 'sort-asc', 'sort-desc');
+        th.removeAttribute('aria-sort');
+        if (k === usersSortState.key) {
+            th.classList.add('sort-active', 'sort-' + usersSortState.dir);
+            th.setAttribute('aria-sort', usersSortState.dir === 'asc' ? 'ascending' : 'descending');
+            th.title = th.dataset.titleBase + ' (klik lagi: balik arah, klik ke-3: kembali ke urutan default)';
+        } else {
+            th.title = th.dataset.titleBase;
+        }
+    });
+    syncUsersSortMobileSelect();
+}
+
+// Keyboard parity untuk header sortable (th memakai tabindex="0" di markup
+// template): Enter/Space pada sebuah <th> memicu sorting seperti klik.
+document.addEventListener('keydown', function(e) {
+    if (e.key !== 'Enter' && e.key !== ' ') return;
+    var th = e.target && e.target.closest ? e.target.closest('th.sortable') : null;
+    if (!th || !th.getAttribute('data-sort')) return;
+    e.preventDefault();
+    toggleUsersSort(th.getAttribute('data-sort'));
+});
+
+// Pencarian live: debounce 300ms; panah angkut, Enter langsung jalankan.
+// Tombol ✕ hanya tampil saat ada teks (dan ikut memicu pemuatan ulang).
+function onUsersSearchInput(input) {
+    var clearBtn = document.getElementById('userSearchClearBtn');
+    if (clearBtn) clearBtn.style.display = input.value ? '' : 'none';
+    clearTimeout(window.__usersSearchTimer);
+    window.__usersSearchTimer = setTimeout(function() { loadUsersList(1); }, 300);
+}
+
+function clearUsersSearch() {
+    var input = document.getElementById('userSearchInput');
+    if (input) input.value = '';
+    var clearBtn = document.getElementById('userSearchClearBtn');
+    if (clearBtn) clearBtn.style.display = 'none';
+    clearTimeout(window.__usersSearchTimer);
+    loadUsersList(1);
+}
+
 function loadUsersList(page) {
     const tbody = document.getElementById('usersTableBody');
     if (!tbody) return;
     if (!page) page = 1;
 
+    tbody.setAttribute('aria-busy', 'true');
     var searchVal = document.getElementById('userSearchInput')?.value?.trim() || '';
     var roleFilter = document.getElementById('userRoleFilter')?.value || '';
-    var url = '/admin/api/users?page=' + page + '&per_page=10';
+    // #users-per-page: pemilih 10/25/50 — default 10, diteruskan ke server
+    // (server clamp mempertahankan jendela masuk akal 5..200).
+    var perPage = document.getElementById('userPerPage')?.value || '10';
+    var url = '/admin/api/users?page=' + page + '&per_page=' + encodeURIComponent(perPage);
     if (searchVal) url += '&search=' + encodeURIComponent(searchVal);
     if (roleFilter) url += '&role=' + encodeURIComponent(roleFilter);
+    if (usersSortState.key) url += '&sort_by=' + encodeURIComponent(usersSortState.key) + '&sort_dir=' + usersSortState.dir;
 
     // Hapus popup yang tertinggal di body (dari fix backdrop-filter containing block)
     document.querySelectorAll('body > .user-info-popup').forEach(function(p) { p.remove(); });
 
-    tbody.innerHTML = '<tr><td colspan="8" style="text-align:center; padding: 20px; color: var(--color-text-secondary);">⏳ Memuat...</td></tr>';
+    tbody.innerHTML = '<tr><td colspan="9" style="text-align:center; padding: 20px; color: var(--color-text-secondary);"><svg class="icon-svg spin" style="width:16px;height:16px;vertical-align:-3px;margin-right:8px;" aria-hidden="true"><use href="#hi-refresh"/></svg>Memuat...</td></tr>';
 
     apiFetch(url)
         .then(r => r.json())
@@ -1365,9 +1469,10 @@ function loadUsersList(page) {
                 tbody.innerHTML = '';
 
                 if (!Array.isArray(res.users) || res.users.length === 0) {
-                    tbody.innerHTML = '<tr><td colspan="8" style="text-align:center; padding: 40px; color: var(--color-text-secondary);">'
+                    tbody.innerHTML = '<tr><td colspan="9" style="text-align:center; padding: 40px; color: var(--color-text-secondary);">'
                         + (searchVal ? 'Tidak ditemukan user yang cocok dengan "' + escapeHtml(searchVal) + '"' : 'Belum ada user terdaftar')
                         + '</td></tr>';
+                    tbody.setAttribute('aria-busy', 'false');
                     renderUsersPagination(pagination, page);
                     return;
                 }
@@ -1379,12 +1484,36 @@ function loadUsersList(page) {
                     // "Verifikasi" action — the generic status toggle would
                     // silently bypass the email/OTP gate, so its badge is not
                     // clickable.
-                    var statusClick = (isAdmin || user.status === 'pending_otp') ? '' : ' onclick="toggleUserStatus(' + user.id + ')"';
-                    var statusBadge = user.status === 'active'
-                         ? '<span class="status-badge status-active"' + statusClick + '>Aktif</span>'
-                         : user.status === 'suspended'
-                         ? '<span class="status-badge status-suspended"' + statusClick + '>Suspen</span>'
-                         : '<span class="status-badge status-inactive"' + statusClick + '>Pending</span>';
+                    var statusToggleable = !isAdmin && user.status !== 'pending_otp';
+                    var statusLabel = user.status === 'active'
+                        ? 'Aktif'
+                        : user.status === 'suspended'
+                        ? 'Nonaktif'
+                        : 'Pending';
+                    var statusCls = user.status === 'active'
+                        ? 'status-active'
+                        : user.status === 'suspended'
+                        ? 'status-suspended'
+                        : 'status-inactive';
+                    // Affordance: clickable badges get role="button" (pointer
+                    // cursor) + a real title describing the NEXT action.
+                    var statusTitle;
+                    if (isAdmin) {
+                        statusTitle = 'Akun Super Admin';
+                    } else if (user.status === 'pending_otp') {
+                        statusTitle = 'Menunggu verifikasi email/OTP — gunakan tombol Verifikasi';
+                    } else if (user.status === 'active') {
+                        statusTitle = 'Klik untuk menonaktifkan akun';
+                    } else if (user.status === 'suspended') {
+                        statusTitle = 'Klik untuk mengaktifkan kembali akun';
+                    } else {
+                        statusTitle = 'Klik untuk mengaktifkan akun';
+                    }
+                    var statusBadge = '<span class="status-badge ' + statusCls
+                        + (statusToggleable ? ' status-toggle' : '')
+                        + '" title="' + statusTitle + '"'
+                        + (statusToggleable ? ' role="button" tabindex="0" data-user-id="' + user.id + '" data-username="' + escapeHtml(jsEscape(user.username)) + '" data-status="' + user.status + '"' : '')
+                        + '>' + statusLabel + '</span>';
                     // expires_at dikirim server dalam format UTC "YYYY-MM-DD HH:MM:SS"
                     // (dikonversi ke Date dengan + 'Z'). Akun dianggap "masa aktif habis"
                     // bila expires_at terisi dan sudah lewat dari waktu sekarang.
@@ -1398,8 +1527,11 @@ function loadUsersList(page) {
                     // Build action buttons for non-admin users
                     var actionsHtml = '<span style="font-size:11px; color: var(--color-text-secondary);">—</span>';
                     if (!isAdmin) {
+                        // Icon + label: the row actions were icon-only, which
+                        // left desktop users guessing and touch users with no
+                        // tooltip at all (title does not appear on tap).
                         var verifyBtn = user.status === 'pending_otp'
-                            ? '<button class="btn-sm" onclick="verifyUser(' + user.id + ', \'' + escapeHtml(jsEscape(user.username)) + '\')" title="Verifikasi manual" style="font-size:11px;padding:2px 8px;background:rgba(99,102,241,0.15);border:1px solid rgba(99,102,241,0.3);color:#a5b4fc;"><svg class="icon-svg" style="width:14px;height:14px;"><use href="#hi-check"/></svg></button> '
+                            ? '<button class="btn-sm btn-row-action btn-row-action-verify" onclick="verifyUser(' + user.id + ', \'' + escapeHtml(jsEscape(user.username)) + '\')" title="Verifikasi manual"><svg class="icon-svg" aria-hidden="true"><use href="#hi-check"/></svg> Verifikasi</button> '
                             : '';
 
                         // "Nonaktifkan Paket" — SuperAdmin only, and only when the
@@ -1409,14 +1541,14 @@ function loadUsersList(page) {
                         // active package: the account falls back to the best
                         // remaining claimed voucher or reverts to the free trial.
                         var deactivateBtn = (window.__adminRole === 'superadmin' && user.has_active_package)
-                            ? '<button class="btn-sm" onclick="deactivatePackage(' + user.id + ', \'' + escapeHtml(jsEscape(user.username)) + '\')" title="Nonaktifkan paket aktif akun ini — akun kembali ke paket free atau voucher lain yang masih tersisa" style="font-size:11px;padding:2px 8px;background:rgba(248,113,113,0.12);border:1px solid rgba(248,113,113,0.3);color:#fca5a5;"><svg class="icon-svg" style="width:14px;height:14px;"><use href="#hi-exclamation"/></svg></button> '
+                            ? '<button class="btn-sm btn-row-action btn-row-action-deactivate" onclick="deactivatePackage(' + user.id + ', \'' + escapeHtml(jsEscape(user.username)) + '\')" title="Nonaktifkan paket aktif akun ini — akun kembali ke paket free atau voucher lain yang masih tersisa"><svg class="icon-svg" aria-hidden="true"><use href="#hi-exclamation"/></svg> Nonaktifkan Paket</button> '
                             : '';
 
-                        actionsHtml = '<div style="display:flex;gap:4px;flex-wrap:wrap;justify-content:flex-end;">'
+                        actionsHtml = '<div class="user-row-actions">'
                             + verifyBtn
                             + deactivateBtn
-                            + '<button class="btn-sm" onclick="openEditUserModal(' + user.id + ')" title="Atur limit & reset password" style="font-size:11px;padding:2px 8px;background:rgba(99,102,241,0.1);border:1px solid rgba(99,102,241,0.2);color:#a5b4fc;"><svg class="icon-svg" style="width:14px;height:14px;"><use href="#hi-edit"/></svg></button> '
-                            + '<button class="btn-sm btn-delete" onclick="deleteUser(' + user.id + ', \'' + escapeHtml(jsEscape(user.username)) + '\')" style="font-size:11px;padding:2px 8px;"><svg class="icon-svg" style="width:14px;height:14px;"><use href="#hi-trash"/></svg></button>'
+                            + '<button class="btn-sm btn-row-action btn-row-action-edit" onclick="openEditUserModal(' + user.id + ')" title="Atur limit & reset password"><svg class="icon-svg" aria-hidden="true"><use href="#hi-edit"/></svg> Edit</button> '
+                            + '<button class="btn-sm btn-row-action btn-row-action-danger" onclick="deleteUser(' + user.id + ', \'' + escapeHtml(jsEscape(user.username)) + '\')" title="Hapus user beserta semua ujiannya"><svg class="icon-svg" aria-hidden="true"><use href="#hi-trash"/></svg> Hapus</button>'
                             + '</div>';
                     }
 
@@ -1424,6 +1556,7 @@ function loadUsersList(page) {
                         <td data-label="Username">
                             <strong class="user-info-btn" style="cursor:pointer;color: ${isAdmin ? 'var(--color-accent-light)' : 'var(--color-text)'};">
                                 ${isAdmin ? '<svg class="icon-svg" style="width:16px;height:16px;vertical-align:middle;color:#fbbf24;"><use href="#hi-star"/></svg> ' : ''}${escapeHtml(user.username)}
+                                <svg class="icon-svg user-info-icon" aria-hidden="true" title="Klik untuk lihat detail kuota &amp; masa aktif"><use href="#hi-information"/></svg>
                             </strong>
                             ${isAdmin ? '<span style="font-size:11px; color: var(--color-text-secondary); display:block;">Super Admin</span>' : ''}
                             ${user.operator_created ? '<span title="Akun ini dibuat oleh Operator (akun sub sekolah). Paket, kuota, dan masa aktifnya dikelola melalui paket sekolah Operator — akun ini tidak dapat menukar kode voucher sendiri." style="display:inline-block;margin-top:3px;padding:1px 8px;border-radius:10px;font-size:10px;font-weight:600;background:rgba(251,146,60,0.12);color:#fb923c;border:1px solid rgba(251,146,60,0.25);cursor:help;">Dibuat oleh Operator</span>' : ''}
@@ -1438,11 +1571,12 @@ function loadUsersList(page) {
                             </div>
                         </td>
                         <td data-label="Nama">${escapeHtml(user.name || '—')}</td>
-                        <td data-label="Instansi">${window.__adminRole === 'superadmin' ? '<span class="editable-instansi" data-user-id="' + user.id + '" style="color:#a5b4fc;cursor:pointer;border-bottom:1px dashed rgba(165,180,252,0.3);" title="Klik untuk ubah instansi">' + escapeHtml(user.instansi || '—') + '</span>' : escapeHtml(user.instansi || '—')}</td>
+                        <td data-label="Instansi">${window.__adminRole === 'superadmin' ? '<span class="editable-instansi" data-user-id="' + user.id + '" role="button" tabindex="0" aria-label="Ubah instansi" style="color:#a5b4fc;cursor:pointer;border-bottom:1px dashed rgba(165,180,252,0.3);" title="Klik untuk ubah instansi">' + escapeHtml(user.instansi || '—') + '</span>' : escapeHtml(user.instansi || '—')}</td>
                         <td data-label="Paket"><span style="text-transform:uppercase;font-size:11px;font-weight:600;color:var(--color-accent-light);">${escapeHtml(user.package || 'free')}</span></td>
                         <td data-label="Role">${isAdmin ? '<span style="display:inline-block;padding:2px 8px;border-radius:10px;font-size:11px;font-weight:600;background:rgba(251,191,36,0.15);color:#fbbf24;border:1px solid rgba(251,191,36,0.3);">Super Admin</span>' : renderRoleBadges(user.base_roles, user.package_roles)}</td>
                         <td data-label="Email">${escapeHtml(user.email || '—')}</td>
-                        <td data-label="Status" style="text-align:center;">${statusBadge}${expiredBadge ? '<div style="margin-top:4px;">' + expiredBadge + '</div>' : ''}</td>
+                        <td data-label="Status" style="text-align:center;"><span class="user-status-cell">${statusBadge}${expiredBadge}</span></td>
+                        <td data-label="Terdaftar">${createdAt}</td>
                         <td data-label="Aksi" style="text-align:right;">${actionsHtml}</td>
                     `;
                     tbody.appendChild(tr);
@@ -1456,14 +1590,30 @@ function loadUsersList(page) {
                         if (current === '—') current = '';
                         editUserInstansi(uid, current, this);
                     });
+                    // Keyboard parity: role="button" spans must react to
+                    // Enter/Space exactly like a click.
+                    el.addEventListener('keydown', function(e) {
+                        if (e.key !== 'Enter' && e.key !== ' ') return;
+                        e.preventDefault();
+                        this.click();
+                    });
                 });
                 renderUsersPagination(pagination, page);
+                refreshUsersSortHeaders();
+                tbody.setAttribute('aria-busy', 'false');
             } else {
-                tbody.innerHTML = '<tr><td colspan="7" style="text-align:center; padding: 20px; color: #fca5a5;">Gagal memuat daftar user</td></tr>';
+                tbody.innerHTML = '<tr><td colspan="9" style="text-align:center; padding: 20px; color: #fca5a5;">Gagal memuat daftar user'
+                    + '<div style="margin-top:12px;"><button type="button" class="btn-sm btn-secondary" onclick="loadUsersList(' + page + ')">Coba Lagi</button></div></td></tr>';
+                tbody.setAttribute('aria-busy', 'false');
             }
         })
         .catch(() => {
-            tbody.innerHTML = '<tr><td colspan="4" style="text-align:center; padding: 20px; color: #fca5a5;">Gagal memuat daftar user</td></tr>';
+            var t = document.getElementById('usersTableBody');
+            if (t) {
+                t.innerHTML = '<tr><td colspan="9" style="text-align:center; padding: 20px; color: #fca5a5;">Gagal memuat daftar user'
+                    + '<div style="margin-top:12px;"><button type="button" class="btn-sm btn-secondary" onclick="loadUsersList(' + page + ')">Coba Lagi</button></div></td></tr>';
+                t.setAttribute('aria-busy', 'false');
+            }
         });
 }
 
@@ -1472,50 +1622,80 @@ function renderUsersPagination(pagination, currentPage) {
     var existing = document.getElementById('usersPagination');
     if (existing) existing.remove();
 
-    if (!pagination || pagination.total_pages <= 1) return;
+    if (!pagination || pagination.total <= 0) return;
+
+    var total = pagination.total;
+    var perPage = pagination.per_page || 10;
+    var totalPages = pagination.total_pages || 1;
+    var start = (currentPage - 1) * perPage + 1;
+    var end = Math.min(currentPage * perPage, total);
 
     var container = document.createElement('div');
     container.id = 'usersPagination';
     container.style.cssText = 'display:flex;justify-content:space-between;align-items:center;padding:16px 0 0 0;flex-wrap:wrap;gap:12px;';
 
+    // Rentang numerik ("1–10 dari 57 user") — tidak hanya jumlah total.
     var info = document.createElement('span');
     info.style.cssText = 'font-size:13px;color:var(--color-text-muted);';
-    info.textContent = 'Menampilkan ' + pagination.total + ' user';
+    info.textContent = 'Menampilkan ' + start + '–' + end + ' dari ' + total + ' user';
     container.appendChild(info);
 
-    var pagesDiv = document.createElement('div');
-    pagesDiv.style.cssText = 'display:flex;gap:6px;align-items:center;';
+    // Kontrol satu halaman muncul saat total <= 0? Tidak — info baris di atas
+    // tetap ditampilkan untuk daftar 1 halaman. Tombol page hanya bila > 1.
+    if (totalPages > 1) {
+        var pagesDiv = document.createElement('div');
+        pagesDiv.style.cssText = 'display:flex;gap:6px;align-items:center;flex-wrap:wrap;';
 
-    // Prev button
-    var prev = document.createElement('a');
-    prev.href = '#';
-    prev.style.cssText = 'padding:8px 12px;border-radius:8px;font-size:13px;font-weight:600;background:rgba(255,255,255,0.04);border:1px solid var(--color-glass-border);color:var(--color-text-secondary);text-decoration:none;display:inline-flex;align-items:center;min-height:40px;' + (currentPage <= 1 ? 'opacity:0.4;pointer-events:none;' : '');
-    prev.textContent = '◀ Sebelumnya';
-    prev.onclick = function(e) { e.preventDefault(); loadUsersList(currentPage - 1); };
-    pagesDiv.appendChild(prev);
-
-    // Page numbers
-    for (var p = 1; p <= pagination.total_pages; p++) {
-        if (p >= currentPage - 2 && p <= currentPage + 2) {
-            var pageLink = document.createElement('a');
-            pageLink.href = '#';
-            if (p === currentPage) pageLink.className = 'page-current';
-            pageLink.style.cssText = 'padding:8px 12px;border-radius:8px;font-size:13px;font-weight:' + (p === currentPage ? '800' : '600') + ';text-decoration:none;display:inline-flex;align-items:center;min-height:40px;min-width:36px;justify-content:center;' + (p === currentPage ? 'background:rgba(99,102,241,0.2);color:#a5b4fc;border:1px solid rgba(99,102,241,0.4);' : 'background:rgba(255,255,255,0.03);color:var(--color-text-secondary);border:1px solid transparent;');
-            pageLink.textContent = String(p);
-            pageLink.onclick = (function(pg) { return function(e) { e.preventDefault(); loadUsersList(pg); }; })(p);
-            pagesDiv.appendChild(pageLink);
+        function mkBtn(label, pg, disabled, isCurrent) {
+            var b = document.createElement('button');
+            b.type = 'button';
+            b.style.cssText = 'padding:8px 12px;border-radius:8px;font-size:13px;font-weight:600;background:rgba(255,255,255,0.04);border:1px solid var(--color-glass-border);color:var(--color-text-secondary);cursor:pointer;display:inline-flex;align-items:center;min-height:40px;min-width:36px;justify-content:center;font-family:inherit;transition:background 0.2s,border-color 0.2s;';
+            if (disabled) {
+                b.disabled = true;
+                b.style.cssText += 'opacity:0.4;cursor:not-allowed;';
+            }
+            if (isCurrent) {
+                b.className = 'pagination-current';
+                b.disabled = true;
+                b.style.cssText += 'background:rgba(99,102,241,0.2);color:#a5b4fc;border:1px solid rgba(99,102,241,0.4);font-weight:800;';
+            }
+            b.textContent = label;
+            b.onclick = function() { loadUsersList(pg); };
+            return b;
         }
+
+        // Navigasi: jendela halaman dengan ellipsis + lompat ke halaman
+        // pertama/terakhir — sebelumnya halaman 1 hilang dari jendela saat
+        // berada jauh di daftar, tanpa cara lompat cepat.
+        pagesDiv.appendChild(mkBtn('◀ Sebelumnya', currentPage - 1, currentPage <= 1, false));
+
+        var pages = [];
+        if (totalPages <= 7) {
+            for (var p = 1; p <= totalPages; p++) pages.push(p);
+        } else {
+            pages.push(1);
+            var lo = Math.max(2, currentPage - 1);
+            var hi = Math.min(totalPages - 1, currentPage + 1);
+            if (lo > 2) pages.push('…');
+            for (var q = lo; q <= hi; q++) pages.push(q);
+            if (hi < totalPages - 1) pages.push('…');
+            pages.push(totalPages);
+        }
+        pages.forEach(function(pg) {
+            if (pg === '…') {
+                var e = document.createElement('span');
+                e.textContent = '…';
+                e.setAttribute('aria-hidden', 'true');
+                e.style.cssText = 'color:var(--color-text-muted);padding:0 4px;';
+                pagesDiv.appendChild(e);
+            } else {
+                pagesDiv.appendChild(mkBtn(String(pg), pg, false, pg === currentPage));
+            }
+        });
+
+        pagesDiv.appendChild(mkBtn('Berikutnya ▶', currentPage + 1, currentPage >= totalPages, false));
+        container.appendChild(pagesDiv);
     }
-
-    // Next button
-    var next = document.createElement('a');
-    next.href = '#';
-    next.style.cssText = 'padding:8px 12px;border-radius:8px;font-size:13px;font-weight:600;background:rgba(255,255,255,0.04);border:1px solid var(--color-glass-border);color:var(--color-text-secondary);text-decoration:none;display:inline-flex;align-items:center;min-height:40px;' + (currentPage >= pagination.total_pages ? 'opacity:0.4;pointer-events:none;' : '');
-    next.textContent = 'Berikutnya ▶';
-    next.onclick = function(e) { e.preventDefault(); loadUsersList(currentPage + 1); };
-    pagesDiv.appendChild(next);
-
-    container.appendChild(pagesDiv);
 
     var tableSection = document.querySelector('#usersTableBody')?.closest('.glass-card');
     if (tableSection) tableSection.appendChild(container);
@@ -1536,6 +1716,12 @@ function localizeDates() {
     var tableBody = document.getElementById('usersTableBody');
     if (!tableBody) return;
     tableBody.addEventListener('click', function(e) {
+        // Status badge toggle — ikon info & username pakai popup (di bawah).
+        var st = e.target.closest('.status-toggle');
+        if (st) {
+            toggleUserStatus(parseInt(st.getAttribute('data-user-id')), st.getAttribute('data-username'), st.getAttribute('data-status'));
+            return;
+        }
         var btn = e.target.closest('.user-info-btn');
         if (btn) {
             // Gunakan popup tersimpan (setelah dipindah ke body di klik sebelumnya),
@@ -1574,6 +1760,14 @@ function localizeDates() {
         if (!e.target.closest('.user-info-popup')) {
             document.querySelectorAll('.user-info-popup.show').forEach(function(p) { p.classList.remove('show'); });
         }
+    });
+    // Keyboard: Enter/Space pada badge status yang punya role="button".
+    tableBody.addEventListener('keydown', function(e) {
+        if (e.key !== 'Enter' && e.key !== ' ') return;
+        var st = e.target.closest('.status-toggle');
+        if (!st) return;
+        e.preventDefault();
+        toggleUserStatus(parseInt(st.getAttribute('data-user-id')), st.getAttribute('data-username'), st.getAttribute('data-status'));
     });
 })();
 
@@ -1626,8 +1820,23 @@ function deactivatePackage(userId, username) {
     });
 }
 
-function toggleUserStatus(userId) {
-    showConfirm('Konfirmasi', 'Yakin ingin mengubah status user ini?', 'Ya, Ubah', 'Batal').then(ok => {
+function toggleUserStatus(userId, username, currentStatus) {
+    // Konfirmasi menyebutkan status AKTIF-SAAT-INI dan tindakan berikutnya,
+    // bukan teks generik "Yakin ingin mengubah status?".
+    var isActive = currentStatus === 'active';
+    var title;
+    var msg;
+    var confirmLabel;
+    if (isActive) {
+        title = 'Nonaktifkan akun "' + username + '"?';
+        msg = 'Akun tidak dapat login sampai kamu mengaktifkannya kembali.';
+        confirmLabel = 'Ya, Nonaktifkan';
+    } else {
+        title = 'Aktifkan akun "' + username + '"?';
+        msg = 'Akun dapat login dan menggunakan fitur kembali.';
+        confirmLabel = 'Ya, Aktifkan';
+    }
+    showConfirm(title, msg, confirmLabel, 'Batal').then(ok => {
         if (!ok) return;
         apiFetch(`/admin/api/users/${userId}/toggle-status`, {
             method: 'POST'
@@ -1667,28 +1876,25 @@ function verifyUser(userId, username) {
 function getCurrentUsersPage() {
     var pagEl = document.getElementById('usersPagination');
     if (pagEl) {
-        // Try to extract current page from pagination info
-        var activePage = pagEl.querySelector('a.page-current');
-        if (activePage) return parseInt(activePage.textContent) || 1;
+        var active = pagEl.querySelector('button.pagination-current');
+        if (active) return parseInt(active.textContent) || 1;
     }
     return 1;
 }
 
 // ===== Edit User Modal =====
 function openEditUserModal(userId) {
-    // Fetch user data first
-    apiFetch('/admin/api/users?page=1&per_page=1000')
+    // Fetch user data from the single-account detail endpoint — the old
+    // per_page=1000 list fetch slowed down in lockstep with the account
+    // count, so the modal now loads exactly one row.
+    apiFetch('/admin/api/users/' + userId)
         .then(r => r.json())
         .then(res => {
-            if (!res.success || !res.users) {
+            if (!res.success || !res.user) {
                 showToast('Gagal memuat data user', 'error');
                 return;
             }
-            var user = res.users.find(function(u) { return u.id === userId; });
-            if (!user) {
-                showToast('User tidak ditemukan', 'error');
-                return;
-            }
+            var user = res.user;
 
             var editModal = document.getElementById('editUserModal');
             if (!editModal) {
@@ -2000,7 +2206,7 @@ function createEditUserModal() {
                             <option value="sekolah_unggulan">Paket Sekolah Unggulan</option>
                         </select>
                     </div>
-                    <div id="editUserQuotaGrid" style="display:grid;grid-template-columns:1fr 1fr;gap:12px;">
+                    <div id="editUserQuotaGrid" class="edit-user-quota-grid" style="display:grid;grid-template-columns:1fr 1fr;gap:12px;">
                         <div class="form-group" style="margin-bottom:8px;">
                             <label for="editUserExams">Maks Total Ujian</label>
                             <input type="number" id="editUserExams" required min="0" style="width:100%;">
@@ -2019,10 +2225,10 @@ function createEditUserModal() {
                         </div>
                     </div>
                     <div class="form-group" style="margin-bottom:8px;">
-                        <label for="editUserEmail">Email</label>
+                        <label for="editUserEmail">Email <span style="font-size:11px;opacity:0.7;">(opsional)</span></label>
                         <input type="email" id="editUserEmail" placeholder="Contoh: guru@gmail.com" style="width:100%;">
                     </div>
-                    <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;">
+                    <div class="edit-user-row-2" style="display:grid;grid-template-columns:1fr 1fr;gap:12px;">
                         <div class="form-group" style="margin-bottom:8px;">
                             <label for="editUserInstansi">Instansi <span style="font-size:11px;opacity:0.7;">(wajib)</span></label>
                             <input type="text" id="editUserInstansi" required placeholder="Contoh: SMA Negeri 1 Jakarta" style="width:100%;">
@@ -2031,13 +2237,13 @@ function createEditUserModal() {
                             <label>Role <span class="multirole-hint">multirole</span></label>
                             <div class="role-chips">
                                 <label class="role-chip">
-                                    <input type="checkbox" id="editRoleGuru" value="guru"> <span title="Guru">G</span>
+                                    <input type="checkbox" id="editRoleGuru" value="guru"> <span title="Guru">Guru</span>
                                 </label>
                                 <label class="role-chip">
-                                    <input type="checkbox" id="editRolePengawas" value="pengawas"> <span title="Pengawas">P</span>
+                                    <input type="checkbox" id="editRolePengawas" value="pengawas"> <span title="Pengawas">Pengawas</span>
                                 </label>
                                 <label class="role-chip" id="editRoleOperatorGroup">
-                                    <input type="checkbox" id="editRoleOperator" value="operator"> <span title="Operator">O</span>
+                                    <input type="checkbox" id="editRoleOperator" value="operator"> <span title="Operator">Operator</span>
                                 </label>
                             </div>
                         </div>
@@ -2048,7 +2254,7 @@ function createEditUserModal() {
                     </div>
                     <div class="form-group" style="margin-bottom:12px;">
                         <label>Masa Aktif <span style="font-size:11px;opacity:0.7;">(Kosongkan untuk tidak terbatas)</span></label>
-                        <div style="display:flex;gap:8px;">
+                        <div class="edit-user-expiry-row" style="display:flex;gap:8px;">
                             <input type="date" id="editUserExpiry" style="flex:1;">
                             <input type="time" id="editUserExpiryTime" value="23:59" style="width:120px;">
                         </div>
@@ -3198,6 +3404,15 @@ document.addEventListener('DOMContentLoaded', function() {
 
 function createUser(e) {
     e.preventDefault();
+    // Double-submit guard: disable tombol selama request berjalan agar klik
+    // ganda (atau Enter berulang) tidak membuat akun duplikat.
+    var btn = e.target.querySelector('button[type="submit"]');
+    if (!btn) return;
+    if (btn.disabled) return;
+    btn.disabled = true;
+    var originalHtml = btn.innerHTML;
+    var restoreBtn = function() { if (!btn) return; btn.disabled = false; btn.innerHTML = originalHtml; };
+
     const username = document.getElementById('usernameInput').value.trim();
     const name = document.getElementById('nameInput')?.value?.trim() || '';
     const password = document.getElementById('passwordInput').value;
@@ -3212,23 +3427,24 @@ function createUser(e) {
     if (document.getElementById('rolePengawas').checked) roles.push('pengawas');
     var roleOpEl = document.getElementById('roleOperator');
     if (roleOpEl && roleOpEl.checked) roles.push('operator');
-    if (roles.length === 0) { showToast('Pilih minimal 1 role','error'); return; }
     const max_exams = parseInt(document.getElementById('limitInput').value);
     const max_concurrent_exams = parseInt(document.getElementById('concurrentInput').value);
     const max_pdf_size_mb = parseFloat(document.getElementById('pdfSizeInput').value);
     const max_storage_size_mb = parseFloat(document.getElementById('storageSizeInput').value);
+    if (!username || !password) { restoreBtn(); showToast('Username dan password wajib diisi','error'); return; }
+    if (roles.length === 0) { restoreBtn(); showToast('Pilih minimal 1 role','error'); return; }
     // Pre-check Maks Storage terhadap sisa kapasitas disk server (server juga memvalidasi).
     if (window.__storageFreeMb > 0 && max_storage_size_mb > window.__storageFreeMb) {
-        showToast('Maks Storage melebihi sisa kapasitas disk server (' + fmtStorageSize(window.__storageFreeMb) + ')', 'error');
+        restoreBtn(); showToast('Maks Storage melebihi sisa kapasitas disk server (' + fmtStorageSize(window.__storageFreeMb) + ')', 'error');
         return;
     }
     // Pre-check Maks Upload PDF (server juga memvalidasi). 100 MB = batas upload global (maxFileSize, exams.go).
     if (window.__storageFreeMb > 0 && max_pdf_size_mb > window.__storageFreeMb) {
-        showToast('Maks Upload PDF melebihi sisa kapasitas disk server (' + fmtStorageSize(window.__storageFreeMb) + ')', 'error');
+        restoreBtn(); showToast('Maks Upload PDF melebihi sisa kapasitas disk server (' + fmtStorageSize(window.__storageFreeMb) + ')', 'error');
         return;
     }
     if (max_pdf_size_mb > 100) {
-        showToast('Maks Upload PDF melebihi batas upload global (100 MB)', 'error');
+        restoreBtn(); showToast('Maks Upload PDF melebihi batas upload global (100 MB)', 'error');
         return;
     }
     const opExpiryEl = document.getElementById('operatorExpiresAt');
@@ -3250,18 +3466,18 @@ function createUser(e) {
     // yang sama untuk akun yang dibuat operator.
     var pkgEl = document.getElementById('packageSelect');
     const package = pkgEl ? pkgEl.value : 'free';
-    if (!username || !password) { showToast('Username dan password wajib diisi','error'); return; }
     apiFetch('/admin/api/users', {
         method: 'POST', headers: {'Content-Type':'application/json'},
         body: JSON.stringify({ username, name, password, email, instansi, roles, max_exams, max_concurrent_exams, max_pdf_size_mb, max_storage_size_mb, expires_at, package })
     }).then(r=>r.json()).then(res => {
+        restoreBtn();
         if (res.success) {
             showToast(res.message,'success');
             document.getElementById('newUserForm').reset();
             loadUsersList(1);
         }
         else showToast(res.message||'Gagal','error');
-    }).catch(()=>showToast('Gagal menghubungi server','error'));
+    }).catch(()=>{ restoreBtn(); showToast('Gagal menghubungi server','error'); });
 }
 
 function resetNewUserFormDefaults() {

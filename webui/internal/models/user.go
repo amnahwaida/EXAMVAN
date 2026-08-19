@@ -480,6 +480,57 @@ type ListUsersOpts struct {
 	RoleFilter        string // optional: "guru", "pengawas", "operator"
 	ExcludeSuperAdmin bool
 	ExcludeOperator   bool
+	SortBy            string // whitelisted column key; empty = default role-priority order
+	SortDir           string // "ASC" or "DESC" (anything else becomes "ASC")
+}
+
+// userSortExprs maps client-supplied sort keys to SQL column expressions. The
+// whitelist (not the raw key) reaches the ORDER BY clause, so a hand-crafted
+// sort_by value can never inject SQL.
+var userSortExprs = map[string]string{
+	"username": "u.username",
+	// Empty string is the DB convention for "no value" (email uniqueness
+	// index ignores ''), so NULLIF folds it into NULL — NULLS LAST below
+	// keeps accounts without a name/email at the end in BOTH directions.
+	"name":     "NULLIF(u.name, '')",
+	"instansi": "u.instansi",
+	"package":  "COALESCE(u.package, 'free')",
+	"role": `CASE
+		WHEN u.role ILIKE '%"superadmin"%' THEN 0
+		WHEN u.role ILIKE '%"operator"%' THEN 1
+		WHEN u.role ILIKE '%"guru"%' THEN 2
+		WHEN u.role ILIKE '%"pengawas"%' THEN 3
+		ELSE 4
+	END`,
+	"email":      "NULLIF(u.email, '')",
+	"status":     "u.status",
+	"created_at": "u.created_at",
+	"expires_at": "u.expires_at",
+}
+
+// listUsersOrderBy builds the ORDER BY clause for ListUsers. The default keeps
+// the historical role-priority ordering (superadmin → operator → guru →
+// pengawas → other, then username). A whitelisted SortBy replaces the priority
+// tier with that column; NULLs always sort last so asc/desc never hide
+// accounts without a value (e.g. name/email/expires_at). Username remains the
+// tie-breaker in every path, so paging stays deterministic.
+func listUsersOrderBy(opts ListUsersOpts) string {
+	defaultOrder := `CASE
+		WHEN u.role ILIKE '%"superadmin"%' THEN 0
+		WHEN u.role ILIKE '%"operator"%' THEN 1
+		WHEN u.role ILIKE '%"guru"%' THEN 2
+		WHEN u.role ILIKE '%"pengawas"%' THEN 3
+		ELSE 4
+	END, u.username ASC`
+	expr, ok := userSortExprs[opts.SortBy]
+	if !ok {
+		return defaultOrder
+	}
+	dir := "ASC"
+	if opts.SortDir == "DESC" {
+		dir = "DESC"
+	}
+	return expr + " " + dir + " NULLS LAST, u.username ASC"
 }
 
 // UserWithExamCount extends AdminUser with the count of exams they created
@@ -580,14 +631,8 @@ func ListUsers(ctx context.Context, pool *pgxpool.Pool, opts ListUsersOpts) (Lis
 	EXISTS (SELECT 1 FROM voucher_redemptions vr WHERE vr.user_id = u.id AND vr.is_active) as has_active_package
 	FROM admin_users u
 	LEFT JOIN exams e ON e.created_by = u.id` + whereClause +
-		` GROUP BY u.id ORDER BY 
-			CASE
-				WHEN u.role ILIKE '%"superadmin"%' THEN 0
-				WHEN u.role ILIKE '%"operator"%' THEN 1
-				WHEN u.role ILIKE '%"guru"%' THEN 2
-				WHEN u.role ILIKE '%"pengawas"%' THEN 3
-				ELSE 4
-			END, u.username ASC LIMIT $` + fmt.Sprintf("%d", argIdx) +
+		` GROUP BY u.id ORDER BY ` + listUsersOrderBy(opts) +
+		` LIMIT $` + fmt.Sprintf("%d", argIdx) +
 		` OFFSET $` + fmt.Sprintf("%d", argIdx+1)
 	args = append(args, perPage, offset)
 
@@ -632,6 +677,42 @@ func ListUsers(ctx context.Context, pool *pgxpool.Pool, opts ListUsersOpts) (Lis
 		Page:       opts.Page,
 		PerPage:    perPage,
 	}, nil
+}
+
+// GetUserWithExtras retrieves ONE account with the same derived columns the
+// Kelola User list renders (exam count, active-package flag, COALESCE'd
+// package label) — the single-account counterpart of ListUsers' row query.
+// It backs GET /admin/api/users/:user_id so the Atur User modal can load one
+// account directly instead of paging through the whole list (the old
+// per_page=1000 fetch) just to find a single id. Scoping/authorization is the
+// caller's (the admin handler applies the same operator/instansi rules as
+// EditUser/ListUsers).
+func GetUserWithExtras(ctx context.Context, pool *pgxpool.Pool, id int) (UserWithExamCount, error) {
+	var u AdminUser
+	var examCount int
+	var hasActivePackage bool
+	sql := `SELECT u.id, u.username, u.name, u.password_hash, u.created_at, u.status,
+	u.instansi, u.role, u.max_exams, u.max_pdf_size, u.max_concurrent_exams,
+	u.max_storage_size, u.whatsapp_number, u.email, u.expires_at, u.otp_code, u.otp_expiry,
+	u.base_role, u.package_role, u.operator_created, u.created_by,
+	COALESCE(u.package, 'free'),
+	COALESCE(COUNT(e.id), 0) as exam_count,
+	EXISTS (SELECT 1 FROM voucher_redemptions vr WHERE vr.user_id = u.id AND vr.is_active) as has_active_package
+	FROM admin_users u
+	LEFT JOIN exams e ON e.created_by = u.id
+	WHERE u.id = $1
+	GROUP BY u.id`
+	err := pool.QueryRow(ctx, sql, id).Scan(
+		&u.ID, &u.Username, &u.Name, &u.PasswordHash, &u.CreatedAt, &u.Status,
+		&u.Instansi, &u.Role, &u.MaxExams, &u.MaxPDFSize, &u.MaxConcurrentExams,
+		&u.MaxStorageSize, &u.WhatsappNumber, &u.Email, &u.ExpiresAt, &u.OTPCode, &u.OTPExpiry,
+		&u.BaseRole, &u.PackageRole, &u.OperatorCreated, &u.CreatedBy,
+		&u.Package, &examCount, &hasActivePackage,
+	)
+	if err != nil {
+		return UserWithExamCount{}, err
+	}
+	return UserWithExamCount{AdminUser: u, ExamCount: examCount, HasActivePackage: hasActivePackage}, nil
 }
 
 // rowQuerier abstracts a single-query source (pgx.Tx or pgxpool.Pool) so the

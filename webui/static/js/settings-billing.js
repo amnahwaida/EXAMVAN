@@ -141,7 +141,7 @@ function loadMyPackages() {
                     remaining = p.is_active ? fmtRemaining(p.remaining_seconds) + ' (berjalan)' : fmtRemaining(p.remaining_seconds);
                 }
                 html += '<tr>' +
-                    '<td data-label="Paket"><strong style="color:#fff;">' + escapeHtml(packageDisplayName(p.package)) + '</strong><div style="font-size:11px;color:var(--color-text-secondary);">' + p.max_exams + ' ujian serentak &middot; PDF ' + fmtMB(p.max_pdf_size_mb) + ' &middot; Storage ' + fmtMB(p.max_storage_mb) + '</div></td>' +
+                    '<td data-label="Paket"><strong style="color:#fff;">' + escapeHtml(packageDisplayName(p.package)) + '</strong><div style="font-size:11px;color:var(--color-text-secondary);">' + p.max_exams + ' ujian &middot; ' + (p.max_concurrent_exams || p.max_exams || 1) + ' serentak &middot; PDF ' + fmtMB(p.max_pdf_size_mb) + ' &middot; Storage ' + fmtMB(p.max_storage_mb) + '</div></td>' +
                     '<td data-label="Kode"><span style="font-family:var(--font-mono);font-size:12.5px;">' + escapeHtml(p.code || '—') + '</span></td>' +
                     '<td data-label="Sisa Masa Aktif"><span style="font-size:12.5px;">' + remaining + '</span></td>' +
                     '<td data-label="Status" style="text-align:center;">' + badge + '</td>' +
@@ -154,7 +154,8 @@ function loadMyPackages() {
         })
         .catch(function(err) {
             console.error(err);
-            wrap.innerHTML = '<div style="text-align:center;padding:24px;color:#f87171;">Gagal memuat daftar paket.</div>';
+            wrap.innerHTML = '<div style="text-align:center;padding:24px;color:#f87171;">Gagal memuat daftar paket.'
+                + '<div style="margin-top:12px;"><button type="button" class="btn-sm btn-secondary" onclick="loadMyPackages()">Coba Lagi</button></div></div>';
         });
 }
 

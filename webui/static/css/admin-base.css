@@ -709,6 +709,21 @@ code, pre, .token-code, .mono {
 .saas-collapse-body {
     margin-top: 8px;
 }
+/* Sub-sections inside the Tambah User form (Kelola User tab): bordered
+   blocks with a collapsible head, mirroring the SaaS cards but nested in
+   the form so all fields still submit together. */
+.users-sub {
+    border: 1px solid var(--color-glass-border);
+    border-radius: 12px;
+    background: rgba(255, 255, 255, 0.02);
+    padding: 10px 12px;
+}
+.users-sub .saas-collapse-head {
+    padding: 2px 0;
+}
+.users-sub .saas-collapse-title {
+    font-size: 0.8rem;
+}
 .packages-head {
     padding: 12px 16px;
     border-radius: 12px;
@@ -984,4 +999,443 @@ html.touch-device .topbar-dropdown-content {
   position: fixed; top: 62px; right: 10px;
   width: min(260px, calc(100vw - 20px));
   max-height: calc(100dvh - 70px); overflow-y: auto;
+}
+
+/* ===== Kelola User (tab users) polish — UI/UX review fixes ===== */
+
+/* Toolbar Buka Semua / Lipat Semua di atas kartu Tambah & Daftar. */
+.btn-toggle-all {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  cursor: pointer;
+  padding: 6px 12px;
+  border-radius: 8px;
+  font-size: 13px;
+  font-family: inherit;
+  background: rgba(99, 102, 241, 0.15);
+  border: 1px solid rgba(99, 102, 241, 0.4);
+  color: #a5b4fc;
+  transition: all 0.2s;
+}
+.btn-toggle-all:hover {
+  background: rgba(99, 102, 241, 0.25);
+  border-color: rgba(99, 102, 241, 0.55);
+  color: #fff;
+}
+.btn-toggle-all:focus-visible {
+  outline: 2px solid var(--color-primary);
+  outline-offset: 2px;
+}
+
+/* Catatan bentuk-bebas di dalam form (banner kebijakan akun sub, dll.) —
+   tidak punya definisi CSS sebelumnya dan dipakai sebagai banner utama
+   ("Akun sub sekolah…") untuk tujuan Operator. */
+.sub-pkg-note {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  font-size: 12px;
+  line-height: 1.55;
+  color: var(--color-text-secondary);
+  background: rgba(99, 102, 241, 0.05);
+  border: 1px dashed rgba(99, 102, 241, 0.28);
+  border-radius: 10px;
+  padding: 8px 12px;
+}
+.sub-pkg-note strong { color: var(--color-text); }
+
+/* Toolbar pencarian daftar user: baris berisi input cari, tombol cari, filter
+   role, dan pemilih per-page. Memakai kelas toolbar-* yang sudah ada
+   (toolbar-search-wrap / toolbar-search-input / toolbar-search-clear /
+   toolbar-btn / toolbar-select) — hanya wrapper baris yang ditambah di sini. */
+.users-toolbar {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  flex-wrap: wrap;
+  padding: 0 0 16px 0;
+}
+.users-toolbar .toolbar-search-input { width: 220px; }
+@media (max-width: 768px) {
+  .users-toolbar .toolbar-search-input { width: 100%; }
+  .users-toolbar > * { flex: 1 1 auto; }
+}
+
+/* Ikon info popup kuota di samping username — memberi affordance bahwa
+   username bisa diklik untuk melihat detail kuota & masa aktif. */
+.user-info-icon {
+  width: 13px;
+  height: 13px;
+  margin-left: 3px;
+  vertical-align: -2px;
+  opacity: 0.45;
+  color: var(--color-accent-light);
+  pointer-events: none;
+  transition: opacity 0.15s;
+}
+.user-info-btn:hover .user-info-icon,
+.user-info-btn:focus-visible .user-info-icon {
+  opacity: 1;
+  color: var(--color-primary);
+}
+
+/* Badge status klikabel (toggle suspend/aktif) — affordance eksplisit. */
+.status-badge.status-toggle {
+  cursor: pointer;
+  text-decoration: underline dotted rgba(255, 255, 255, 0.35);
+  text-underline-offset: 3px;
+}
+.status-badge.status-toggle:focus-visible {
+  outline: 2px solid var(--color-primary);
+  outline-offset: 2px;
+}
+
+/* Kolom status: badge Aktif/Suspen/Pending + badge "Masa aktif habis" dalam
+   satu baris (sebelumnya ditumpuk vertikal sehingga tinggi baris melompat). */
+.user-status-cell {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  flex-wrap: wrap;
+  justify-content: center;
+}
+
+/* Tombol aksi baris: ikon + label teks, dengan touch target layak. */
+.user-row-actions {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+.btn-row-action {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 11px;
+  font-weight: 600;
+  padding: 5px 10px;
+  min-height: 30px;
+  border-radius: 8px;
+  cursor: pointer;
+  white-space: nowrap;
+  line-height: 1.3;
+  transition: all 0.15s ease;
+  font-family: inherit;
+}
+.btn-row-action .icon-svg {
+  width: 14px;
+  height: 14px;
+  flex-shrink: 0;
+}
+.btn-row-action:hover { transform: translateY(-1px); }
+.btn-row-action:active { transform: scale(0.96); }
+.btn-row-action:focus-visible { outline: 2px solid var(--color-primary); outline-offset: 1px; }
+.btn-row-action-verify,
+.btn-row-action-edit {
+  background: rgba(99, 102, 241, 0.12);
+  border: 1px solid rgba(99, 102, 241, 0.3);
+  color: #a5b4fc;
+}
+.btn-row-action-verify:hover,
+.btn-row-action-edit:hover {
+  background: rgba(99, 102, 241, 0.22);
+  border-color: rgba(99, 102, 241, 0.5);
+  color: #fff;
+}
+.btn-row-action-deactivate {
+  background: rgba(248, 113, 113, 0.12);
+  border: 1px solid rgba(248, 113, 113, 0.3);
+  color: #fca5a5;
+}
+.btn-row-action-deactivate:hover {
+  background: rgba(248, 113, 113, 0.22);
+  border-color: rgba(248, 113, 113, 0.5);
+  color: #fff;
+}
+.btn-row-action-danger {
+  background: rgba(239, 68, 68, 0.08);
+  border: 1px solid rgba(239, 68, 68, 0.22);
+  color: #fca5a5;
+}
+.btn-row-action-danger:hover {
+  background: rgba(239, 68, 68, 0.18);
+  border-color: rgba(239, 68, 68, 0.4);
+  color: #fecaca;
+}
+@media (max-width: 768px) {
+  .btn-row-action { min-height: 40px; padding: 6px 12px; }
+  .user-row-actions { justify-content: flex-start; }
+}
+
+/* ===== Kelola User (tab users) polish — UI/UX review pass 2 ===== */
+
+/* Dropdown sortir alternatif: hanya tampil di layar kecil (≤768px) karena
+   header kolom (yang bisa diklik untuk sorting) disembunyikan di sana —
+   tabel berubah jadi kartu. Di desktop disembunyikan agar toolbar tidak
+   menduplikasi kontrol yang sudah ada di <thead>. */
+.users-sort-mobile {
+  display: none;
+}
+@media (max-width: 768px) {
+  .users-sort-mobile {
+    display: block;
+  }
+}
+
+/* Chip role berlabel lengkap (Guru/Pengawas/Operator) menggantikan huruf
+   tunggal G/P/O yang sulit dikenali (tooltip hover tidak muncul di layar
+   sentuh). Override lebar tetap 32px dari output.css — selector memiliki
+   spesifisitas yang sama dan admin-base.css dimuat TERAKHIR, jadi
+   properti ini menang di cascade. */
+.role-chip {
+  width: auto;
+  min-width: 34px;
+  height: 32px;
+  padding: 0 10px;
+  gap: 4px;
+  font-size: 0.72rem;
+}
+
+/* Badge status yang bisa di-toggle: touch target ≥ 32px. */
+.status-badge.status-toggle {
+  min-height: 32px;
+  padding-inline: 10px;
+}
+
+/* Edit instansi inline (SuperAdmin) — affordance keyboard + focus ring
+   yang terlihat (mengikuti pola .status-toggle yang sudah ada). */
+.editable-instansi {
+  border-radius: 4px;
+}
+.editable-instansi:focus-visible {
+  outline: 2px solid var(--color-primary);
+  outline-offset: 2px;
+}
+
+/* ===== Kelola User (tab users) polish — card sizing pass 3 ===== */
+
+/* 1) Row-card di mobile: layout blok (settings.html) cuma memberi radius
+   tanpa background/border, jadi baris tampak seperti teks melayang di atas
+   glass-card — tidak terbaca sebagai kartu. Tambah surface, border, dan
+   bayangan tipis. Berlaku juga untuk dashboard/submissions (kelas .exam-table
+   yang sama, tanpa striping), jadi konsisten di semua tabel kartu. */
+@media (max-width: 768px) {
+  .exam-table tbody tr {
+    background: linear-gradient(180deg, rgba(255,255,255,0.05), rgba(255,255,255,0.02));
+    border: 1px solid var(--color-glass-border);
+    box-shadow: 0 4px 14px rgba(0, 0, 0, 0.18);
+  }
+}
+
+/* 2) Tombol aksi di layar ≤400px: V/Nak Ed/Hapus (min-height 40px di mobile)
+   wrap ke dua baris sehingga tinggi kartu didominasi tombol. Grid 2 kolom
+   merata mengikat tinggi jadi maksimal 2 baris rapi. */
+@media (max-width: 400px) {
+  .user-row-actions {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 8px;
+    width: 100%;
+  }
+  .user-row-actions .btn-row-action {
+    width: 100%;
+    justify-content: center;
+    white-space: normal;
+    text-align: center;
+    padding: 8px 10px;
+  }
+}
+
+/* 3) Toolbar card di mobile: 5 kontrol (cari + Cari + filter + perPage +
+   sortir) saling squeeze karena semua flex:1 1 auto. Search mengambil satu
+   baris penuh; sisanya di-grid dengan lebar min 150px agar option panjang
+   (mis. "Urutkan: Default") tidak terpotong. */
+@media (max-width: 768px) {
+  .users-toolbar {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+    gap: 8px;
+  }
+  .users-toolbar .toolbar-search-wrap {
+    grid-column: 1 / -1;
+  }
+  .users-toolbar > * {
+    width: 100%;
+    min-width: 0;
+  }
+}
+
+/* 4) Status cell di desktop: flex-wrap membiarkan "Nonaktif" + "Masa aktif
+   habis" tumpuk dua baris di kolom sempit, mempertinggi SEMUA baris tabel.
+   Satu baris nowrap di desktop; wrap tetap diizinkan di mobile. */
+@media (min-width: 769px) {
+  .user-status-cell {
+    flex-wrap: nowrap;
+    white-space: nowrap;
+  }
+}
+
+/* ===== Kelola User (tab users) polish — fit-to-width pass 4 ===== */
+
+/* Tabel 9 kolom (username..aksi) butuh ~1230px; di desktop yang menumpuk
+   full-width, lebar tersedia = viewport − padding halaman − padding card.
+   Di 769–1340px kolom yang jarang dibaca (Email, dan di rentang tersempit
+   juga Terdaftar) disembunyikan agar tabel muat tanpa scroll horizontal.
+   Serupa pola yang sudah ada di submissions (embunyikan kolom di lebar
+   tertentu). Catatan: di ≤768 kartu mobile tetap menampilkan SEMUA kolom
+   sebagai baris label, jadi tidak ada informasi yang hilang di HP. */
+@media (min-width: 769px) and (max-width: 1340px) {
+  .users-layout th:nth-child(6),
+  .users-layout td[data-label="Email"] {
+    display: none;
+  }
+}
+@media (min-width: 769px) and (max-width: 1125px) {
+  .users-layout th:nth-child(8),
+  .users-layout td[data-label="Terdaftar"] {
+    display: none;
+  }
+}
+
+/* Input tanggal + jam ("Masa Aktif Akun") di layar sangat sempit (≤380px):
+   dua input native punya lebar intrinsik ~110px, berdua mereka bisa meluber
+   keluar kartu. Tumpuk vertikal di bawah 380px. */
+@media (max-width: 380px) {
+  .expiry-input-row {
+    flex-wrap: wrap;
+  }
+  .expiry-field {
+    flex: 1 1 100%;
+  }
+}
+
+/* Lebar card harus sama: .users-layout membawa align-items:flex-start
+   (items-start pada definisi grid original). Saat display:flex inline
+   (templates/admin/settings.html) menimpa display:grid, items-start tetap
+   aktif sehingga TIAP card mengukur lebarnya sendiri dari isinya — card
+   "Daftar User" (tabel lebar) jadi lebih lebar dari "Tambah User Manual"
+   (form ramping). Paksa stretch agar keduanya selalu selebar kontainer. */
+.users-layout {
+  align-items: stretch;
+}
+
+/* ===== Paket & Voucher (tab billing & vouchers) polish — UI/UX pass 1 ===== */
+
+/* 1) Semua input/select Paket & Voucher memakai outline:none inline (warisan
+   billing.html/vouchers.html lama), jadi tidak ada indikator fokus yang
+   terlihat untuk pengguna keyboard. Outline !important mengalahkan inline
+   style non-important; checkbox/radio sengaja dikecualikan. */
+#section-billing input:not([type="checkbox"]):not([type="radio"]):focus,
+#section-billing select:focus,
+#section-vouchers input:not([type="checkbox"]):not([type="radio"]):focus,
+#section-vouchers select:focus,
+.modal-overlay input:not([type="checkbox"]):not([type="radio"]):focus,
+.modal-overlay select:focus {
+  outline: 2px solid var(--color-primary) !important;
+  outline-offset: 1px;
+}
+
+/* 2) Modal single/batch voucher: grid 2 kolom inline (1fr 1fr) tetap aktif di
+   layar ≤480px sehingga tiap kolom ~130px — input kekecilan. Collapse ke satu
+   kolom di layar sempit. Selector atribut mencakup semua wrapper grid 2 kolom
+   di kedua modal (paket/durasi, limit/expiry, entitlement kustom) sekaligus. */
+@media (max-width: 480px) {
+  .modal-overlay [style*="grid-template-columns:1fr 1fr"] {
+    grid-template-columns: 1fr !important;
+  }
+}
+
+/* 3) Badge kode voucher: kode kustom bisa sampai 64 karakter dan menarik
+   badge inline-flex melebar melewati kartu/kolom. Maksimal selebar selnya,
+   teks panjang diputus per karakter supaya tidak meluap secara horizontal. */
+.voucher-code-badge {
+  max-width: 100%;
+  overflow-wrap: anywhere;
+}
+
+/* 4) Input pencarian Daftar Voucher: tombol ✕ (hapus pencarian) diposisikan
+   absolut di kanan input; beri ruang agar teks tidak tertutup tombol. */
+#searchVoucher {
+  padding-right: 34px !important;
+}
+
+/* ===== Paket & Voucher (tab billing & vouchers) polish — UI/UX pass 5 ===== */
+
+/* Sel kartu mobile (≤768px) yang isinya >1 komponen: aturan flex dari
+   settings.html menempatkan label + nama paket + baris detail dalam SATU
+   baris (justify-content:space-between), sehingga detail panjang seperti
+   "10 ujian · 5 serentak · PDF 10 MB · Storage 100 MB" terjepit mendekati /
+   berhimpit dengan nama paket. Tumpuk vertikal hanya untuk sel tersebut:
+   label di baris pertama, isi di bawahnya. Sel 1-komponen tetap label-kiri /
+   isi-kanan. */
+@media (max-width: 768px) {
+  #myPackagesList td[data-label="Paket"],
+  #vouchersTableBody td[data-label="Paket & Durasi"],
+  #vouchersTableBody td[data-label="Penggunaan"],
+  #vouchersTableBody td[data-label="Aksi"] {
+    flex-direction: column !important;
+    align-items: flex-start !important;
+    justify-content: flex-start !important;
+    gap: 4px !important;
+  }
+  #myPackagesList td[data-label="Paket"] div,
+  #vouchersTableBody td[data-label="Paket & Durasi"] div {
+    width: 100%;
+  }
+}
+
+/* Sorting kolom tabel user — header yang bisa diklik menunjukkan arah
+   urutan lewat panah kecil (bandingkan ↕ samar saat tidak aktif). */
+.exam-table th.sortable {
+  cursor: pointer;
+  user-select: none;
+  white-space: nowrap;
+}
+.exam-table th.sortable:hover {
+  color: #fff;
+}
+.exam-table th.sortable .sort-indicator {
+  display: inline-block;
+  margin-left: 4px;
+  font-size: 10px;
+  line-height: 1;
+  color: var(--color-text-muted);
+  opacity: 0.55;
+  transition: opacity 0.15s ease;
+}
+.exam-table th.sortable:hover .sort-indicator {
+  opacity: 1;
+}
+.exam-table th.sortable .sort-indicator::before { content: "↕"; }
+.exam-table th.sortable.sort-asc .sort-indicator::before { content: "▲"; }
+.exam-table th.sortable.sort-desc .sort-indicator::before { content: "▼"; }
+.exam-table th.sortable.sort-active {
+  color: var(--color-accent-light);
+}
+.exam-table th.sortable.sort-active .sort-indicator {
+  opacity: 1;
+  color: var(--color-primary);
+}
+.exam-table th.sortable:focus-visible {
+  outline: 2px solid var(--color-primary);
+  outline-offset: -2px;
+}
+
+/* Modal Atur User: grid 2 kolom tetap di layar sempit membuat input
+   menyempit — ganti 1 kolom di bawah 560px (date+time juga ditumpuk). */
+@media (max-width: 560px) {
+  .edit-user-quota-grid,
+  .edit-user-row-2 {
+    grid-template-columns: 1fr !important;
+  }
+  .edit-user-expiry-row {
+    flex-wrap: wrap;
+  }
+  .edit-user-expiry-row input[type="date"] {
+    flex: 1 1 100% !important;
+  }
+  .edit-user-expiry-row input[type="time"] {
+    width: 100% !important;
+  }
 }

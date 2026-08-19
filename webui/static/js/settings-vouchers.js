@@ -1,6 +1,8 @@
 /* GENERATED from the standalone settings pages — see templates/admin/settings.html.
    Loaded lazily when its tab is first opened. */
 
+let currentVoucherPage = 1;
+
 function copyCode(el, code) {
     let textToCopy = '';
     let targetBadge = null;
@@ -39,30 +41,47 @@ function copyCode(el, code) {
     });
 }
 
+function renderVouchersError(msg, page) {
+    const tbody = document.getElementById('vouchersTableBody');
+    if (!tbody) return;
+    tbody.setAttribute('aria-busy', 'false');
+    tbody.innerHTML = `<tr><td colspan="7" style="text-align:center;padding:40px;color:#fca5a5;">${msg}
+        <div style="margin-top:12px;"><button type="button" class="btn-sm btn-secondary" onclick="loadVouchers(${page})">Coba Lagi</button></div></td></tr>`;
+}
+
 function loadVouchers(page = 1) {
+    currentVoucherPage = Math.max(1, parseInt(page, 10) || 1);
+    const tbody = document.getElementById('vouchersTableBody');
     const search = document.getElementById('searchVoucher').value.trim();
+    if (tbody) {
+        tbody.setAttribute('aria-busy', 'true');
+        tbody.innerHTML = `<tr><td colspan="7" style="text-align:center;padding:40px;color:var(--color-text-secondary);"><svg class="icon-svg spin" style="width:16px;height:16px;vertical-align:-3px;margin-right:8px;" aria-hidden="true"><use href="#hi-refresh"/></svg>Memuat data voucher...</td></tr>`;
+    }
     const url = `/admin/api/vouchers?page=${page}&search=${encodeURIComponent(search)}`;
     
     apiFetch(url)
     .then(r => r.json())
     .then(res => {
         if (!res.success) {
-            showToast(res.message || 'Gagal memuat voucher', 'error');
+            renderVouchersError(res.message || 'Gagal memuat voucher', page);
             return;
         }
+        if (tbody) tbody.setAttribute('aria-busy', 'false');
         renderVouchersTable(res.vouchers);
         renderPagination(res.pagination);
     })
     .catch(err => {
         console.error(err);
-        showToast('Gagal terhubung ke server', 'error');
+        renderVouchersError('Gagal terhubung ke server', page);
     });
 }
 
 function renderVouchersTable(vouchers) {
     const tbody = document.getElementById('vouchersTableBody');
     if (!vouchers || vouchers.length === 0) {
-        tbody.innerHTML = `<tr><td colspan="7" style="padding:40px;text-align:center;color:var(--color-text-secondary);">Belum ada voucher yang dibuat.</td></tr>`;
+        const searchEl = document.getElementById('searchVoucher');
+        const q = searchEl ? searchEl.value.trim() : '';
+        tbody.innerHTML = `<tr><td colspan="7" style="padding:40px;text-align:center;color:var(--color-text-secondary);">${q ? 'Tidak ditemukan voucher yang cocok dengan pencarian "' + escapeHtml(q) + '".' : 'Belum ada voucher yang dibuat.'}</td></tr>`;
         return;
     }
 
@@ -108,10 +127,12 @@ function renderVouchersTable(vouchers) {
             <td data-label="Status" style="padding:14px 20px;">${statusBadge}</td>
             <td data-label="Catatan" style="padding:14px 20px;font-size:12px;color:var(--color-text-secondary);">${v.notes || '—'}</td>
             <td data-label="Aksi" style="padding:14px 20px;text-align:right;">
-                <button onclick="toggleVoucher(${v.id}, '${v.code}', ${v.is_active})" style="background:rgba(255,255,255,0.06);border:1px solid var(--color-glass-border);color:#fff;padding:8px 12px;border-radius:8px;font-size:12px;cursor:pointer;margin-right:8px;min-height:36px;">
+                <button onclick="toggleVoucher(${v.id}, '${v.code}', ${v.is_active})" style="display:inline-flex;align-items:center;gap:5px;background:rgba(255,255,255,0.06);border:1px solid var(--color-glass-border);color:#fff;padding:8px 12px;border-radius:8px;font-size:12px;cursor:pointer;margin-right:8px;min-height:36px;">
+                    <svg class="icon-svg" style="width:13px;height:13px;" aria-hidden="true"><use href="#${v.is_active ? 'hi-stop' : 'hi-play'}"/></svg>
                     ${v.is_active ? 'Matikan' : 'Aktifkan'}
                 </button>
-                <button onclick="deleteVoucher(${v.id}, '${v.code}')" style="background:rgba(239,68,68,0.15);border:1px solid rgba(239,68,68,0.3);color:#ef4444;padding:8px 12px;border-radius:8px;font-size:12px;cursor:pointer;min-height:36px;">
+                <button onclick="deleteVoucher(${v.id}, '${v.code}')" style="display:inline-flex;align-items:center;gap:5px;background:rgba(239,68,68,0.15);border:1px solid rgba(239,68,68,0.3);color:#ef4444;padding:8px 12px;border-radius:8px;font-size:12px;cursor:pointer;min-height:36px;">
+                    <svg class="icon-svg" style="width:13px;height:13px;" aria-hidden="true"><use href="#hi-trash"/></svg>
                     Hapus
                 </button>
             </td>
@@ -128,15 +149,42 @@ function renderPagination(pg) {
         return;
     }
 
+    // Cap halaman yang dirender: maksimal ~9 tombol (1, …, sekitar halaman
+    // aktif, …, terakhir) supaya daftar dengan banyak halaman tidak
+    // memunculkan puluhan tombol.
+    const range = paginationRange(pg.page, pg.total_pages);
     let btns = '';
-    for (let i = 1; i <= pg.total_pages; i++) {
-        const activeStyle = i === pg.page ? 'background:var(--color-primary);color:#fff;' : 'background:rgba(255,255,255,0.06);color:var(--color-text-secondary);';
-        btns += `<button onclick="loadVouchers(${i})" style="padding:4px 10px;border-radius:6px;border:none;font-size:12px;cursor:pointer;margin-left:4px;${activeStyle}">${i}</button>`;
+    for (const item of range) {
+        if (item === '…') {
+            btns += `<span style="color:var(--color-text-secondary);padding:4px 6px;font-size:12px;">…</span>`;
+            continue;
+        }
+        const activeStyle = item === pg.page ? 'background:var(--color-primary);color:#fff;' : 'background:rgba(255,255,255,0.06);color:var(--color-text-secondary);';
+        btns += `<button onclick="loadVouchers(${item})" style="padding:4px 10px;border-radius:6px;border:none;font-size:12px;cursor:pointer;${activeStyle}">${item}</button>`;
     }
 
     container.innerHTML = `
         <span style="font-size:12px;color:var(--color-text-secondary);">Halaman ${pg.page} dari ${pg.total_pages} (Total ${pg.total} voucher)</span>
-        <div>${btns}</div>`;
+        <div style="display:flex;flex-wrap:wrap;gap:6px;">${btns}</div>`;
+}
+
+// Halaman yang dirender untuk pagination ter-cap (dipakai juga oleh Riwayat).
+function paginationRange(page, total) {
+    if (total <= 9) {
+        const r = [];
+        for (let i = 1; i <= total; i++) r.push(i);
+        return r;
+    }
+    const candidates = new Set([1, page - 2, page - 1, page, page + 1, page + 2, total]);
+    const nums = Array.from(candidates).filter(n => n >= 1 && n <= total).sort((a, b) => a - b);
+    const out = [];
+    let prev = 0;
+    for (const n of nums) {
+        if (prev && n - prev > 1) out.push('…');
+        out.push(n);
+        prev = n;
+    }
+    return out;
 }
 
 function openSingleModal() { document.getElementById('singleModal').style.display = 'flex'; }
@@ -317,7 +365,7 @@ function toggleVoucher(id, code, isActive) {
             .then(res => {
                 if (res.success) {
                     showToast(res.message, 'success');
-                    loadVouchers();
+                    loadVouchers(currentVoucherPage);
                 } else {
                     showToast(res.message, 'error');
                 }
@@ -325,6 +373,19 @@ function toggleVoucher(id, code, isActive) {
             .catch(() => showToast('Gagal terhubung ke server', 'error'));
         }
     );
+}
+
+function toggleVoucherSearchClear() {
+    const btn = document.getElementById('voucherSearchClearBtn');
+    const input = document.getElementById('searchVoucher');
+    if (btn && input) btn.style.display = input.value ? 'flex' : 'none';
+}
+
+function clearVoucherSearch() {
+    const input = document.getElementById('searchVoucher');
+    if (input) input.value = '';
+    toggleVoucherSearchClear();
+    loadVouchers(1);
 }
 
 function deleteVoucher(id, code) {
@@ -339,7 +400,7 @@ function deleteVoucher(id, code) {
             .then(res => {
                 if (res.success) {
                     showToast(res.message, 'success');
-                    loadVouchers();
+                    loadVouchers(currentVoucherPage);
                 } else {
                     showToast(res.message, 'error');
                 }
@@ -357,20 +418,27 @@ function viewRedemptions(id, code) {
     apiFetch(`/admin/api/vouchers/${id}/redemptions`)
     .then(r => r.json())
     .then(res => {
-        if (!res.success || !res.redemptions || res.redemptions.length === 0) {
+        if (!res.success) {
+            document.getElementById('redemptionsBody').innerHTML = `<p style="text-align:center;color:#fca5a5;">${escapeHtml(res.message || 'Gagal memuat data pengguna')} <button type="button" class="btn-sm btn-secondary" onclick="viewRedemptions(${id}, '${code}')" style="margin-left:8px;">Coba Lagi</button></p>`;
+            return;
+        }
+        if (!res.redemptions || res.redemptions.length === 0) {
             document.getElementById('redemptionsBody').innerHTML = `<p style="text-align:center;color:var(--color-text-secondary);">Belum ada user yang mengklaim voucher ini.</p>`;
             return;
         }
         let html = '<ul style="list-style:none;padding:0;margin:0;">';
         res.redemptions.forEach(r => {
             const dateStr = new Date(r.redeemed_at).toLocaleString('id-ID');
-            html += `<li style="padding:10px 14px;border-bottom:1px solid var(--color-glass-border);display:flex;justify-content:space-between;align-items:center;">
-                <strong style="color:#fff;">${r.username}</strong>
+            html += `<li style="padding:10px 14px;border-bottom:1px solid var(--color-glass-border);display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap;">
+                <strong style="color:#fff;">${escapeHtml(r.username)}</strong>
                 <span style="font-size:12px;color:var(--color-text-secondary);">${dateStr}</span>
             </li>`;
         });
         html += '</ul>';
         document.getElementById('redemptionsBody').innerHTML = html;
+    })
+    .catch(() => {
+        document.getElementById('redemptionsBody').innerHTML = `<p style="text-align:center;color:#fca5a5;">Gagal terhubung ke server. <button type="button" class="btn-sm btn-secondary" onclick="viewRedemptions(${id}, '${code}')" style="margin-left:8px;">Coba Lagi</button></p>`;
     });
 }
 

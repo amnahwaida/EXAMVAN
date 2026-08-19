@@ -752,63 +752,90 @@
 {{ if and (not $locked) (or $isSuper $isOp) }}
 <section class="settings-section" id="section-users" data-section="users" aria-label="Kelola User">
 <h1 class="sr-only" style="position:absolute;left:-9999px;">Kelola User</h1>
- <div class="users-layout">
- <!-- Left Column: Add User -->
- <div style="display:flex;flex-direction:column;gap:24px;">
+<!-- Toolbar: Buka Semua / Lipat Semua (Kelola User) -->
+ <div style="display:flex;justify-content:flex-end;align-items:center;margin-bottom:4px;">
+  <button type="button" id="toggleAllUsersBtn" onclick="toggleAllUsersCollapse()" class="btn-toggle-all" title="Lipat/buka semua bagian Kelola User sekaligus">
+  <svg class="icon-svg" style="width:14px;height:14px;transition:transform 0.2s ease;" id="toggleAllUsersIcon" aria-hidden="true"><use href="#hi-chevron-down"/></svg>
+  <span id="toggleAllUsersLabel">Lipat Semua</span>
+  </button>
+ </div>
+ <div class="users-layout" style="display:flex;flex-direction:column;gap:24px;">
 
- <section class="glass-card">
- <h3 style="margin-bottom:16px;font-size:1.1rem;color:#a5b4fc;display:flex;align-items:center;gap:8px;">
- <svg class="icon-svg" style="color:#a5b4fc;"><use href="#hi-plus"/></svg> Tambah User Manual
- </h3>
+ <!-- Card: Tambah User Manual -->
+ <section class="glass-card saas-collapse" data-collapse-id="users-add">
+ <div class="saas-collapse-head" role="button" tabindex="0" aria-expanded="true">
+ <span class="saas-collapse-title"><svg class="icon-svg" style="width:18px;height:18px;color:#a5b4fc;"><use href="#hi-plus"/></svg> Tambah User Manual</span>
+ <svg class="saas-collapse-chev" aria-hidden="true" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 8l4 4 4-4"/></svg>
+ </div>
+ <div class="saas-collapse-body">
  <form id="newUserForm" onsubmit="createUser(event)" style="display:flex;flex-direction:column;gap:12px;">
-  <div class="form-row-2col grid grid-cols-1 sm:grid-cols-2 gap-4">
-  <div class="form-group space-y-1">
-  <label class="required" for="usernameInput">Username</label>
-  <input type="text" id="usernameInput" required placeholder="Contoh: pak_budi" minlength="3">
-  </div>
-  <div class="form-group space-y-1">
-  <label for="nameInput">Nama</label>
-  <input type="text" id="nameInput" placeholder="Contoh: Budi Sudarsono">
-  </div>
-  </div>
-  <div class="form-row-2col grid grid-cols-1 sm:grid-cols-2 gap-4">
-  <div class="form-group space-y-1">
-  <label for="emailInput">Email</label>
-  <input type="email" id="emailInput" placeholder="Contoh: budi@sekolah.sch.id">
-  </div>
-  <div class="form-group space-y-1">
-  <label class="required" for="passwordInput">Password</label>
-  <input type="password" id="passwordInput" required placeholder="Password awal" minlength="8">
-  </div>
-  </div>
+
   {{if hasRole .admin_role "operator"}}
-  <div class="form-group space-y-1" style="margin-bottom: 8px;">
-    <label>Instansi</label>
-    <div class="sub-pkg-note" title="Akun sub selalu dibuat di instansi sekolah Anda — server memaksa nilai ini, kolom tidak dapat diubah.">
-      <svg class="icon-svg" style="width:14px;height:14px;flex-shrink:0;margin-top:1px;"><use href="#hi-lock"/></svg>
-      <span>Akun sub selalu dibuat di instansi Anda{{if .admin_instansi}} ({{.admin_instansi}}){{end}} — nilai tidak dapat diubah.</span>
-    </div>
-  </div>
-  {{else}}
-  <div class="form-row-2col grid grid-cols-1 sm:grid-cols-2 gap-4">
-  <div class="form-group space-y-1">
-    <label for="instansiInput">Instansi</label>
-    <input type="text" id="instansiInput" placeholder="Nama instansi">
-  </div>
+  <!-- Satu banner penjelas kebijakan akun sub — menggantikan tiga catatan berulang
+       (instansi, paket, kuota) yang dulu tersebar di tiga sub-bagian form. -->
+  <div class="sub-pkg-note" title="Kebijakan akun sub sekolah: identitas, paket, kuota, dan masa aktif mengikuti akun operator.">
+   <svg class="icon-svg" style="width:14px;height:14px;flex-shrink:0;margin-top:1px;" aria-hidden="true"><use href="#hi-lock"/></svg>
+   <span>Akun sub sekolah selalu dibuat di instansi Anda{{if .admin_instansi}} (<strong>{{.admin_instansi}}</strong>){{end}}. Akun sub tidak memiliki paket sendiri: paket dan kuota ujian/storage/PDF mengikuti paket sekolah Anda, dan masa aktif akun sub mengikuti masa aktif akun Anda — kolom terkait otomatis terkunci.</span>
   </div>
   {{end}}
+
+  <!-- Sub 1: Informasi Akun -->
+  <section class="saas-collapse users-sub" data-collapse-id="users-identity">
+  <div class="saas-collapse-head" role="button" tabindex="0" aria-expanded="true">
+  <span class="saas-collapse-title">Informasi Akun</span>
+  <svg class="saas-collapse-chev" aria-hidden="true" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 8l4 4 4-4"/></svg>
+  </div>
+  <div class="saas-collapse-body" style="display:flex;flex-direction:column;gap:12px;">
+  <div class="form-row-2col grid grid-cols-1 sm:grid-cols-2 gap-4">
+   <div class="form-group space-y-1">
+   <label class="required" for="usernameInput">Username</label>
+   <input type="text" id="usernameInput" required placeholder="Contoh: pak_budi" minlength="3">
+   </div>
+   <div class="form-group space-y-1">
+   <label for="nameInput">Nama</label>
+   <input type="text" id="nameInput" placeholder="Contoh: Budi Sudarsono">
+   </div>
+   </div>
+   <div class="form-row-2col grid grid-cols-1 sm:grid-cols-2 gap-4">
+   <div class="form-group space-y-1">
+   <label for="emailInput">Email <span class="form-hint-inline">opsional</span></label>
+   <input type="email" id="emailInput" placeholder="Contoh: budi@sekolah.sch.id">
+   </div>
+   <div class="form-group space-y-1">
+   <label class="required" for="passwordInput">Password</label>
+   <input type="password" id="passwordInput" required placeholder="Password awal" minlength="8">
+   </div>
+   </div>
+   {{if not (hasRole .admin_role "operator")}}
+   <div class="form-row-2col grid grid-cols-1 sm:grid-cols-2 gap-4">
+<div class="form-group space-y-1">
+      <label for="instansiInput">Instansi <span class="form-hint-inline">kosong = personal</span></label>
+      <input type="text" id="instansiInput" placeholder="Nama instansi (kosong = personal)">
+    </div>
+   </div>
+   {{end}}
+  </div>
+  </section>
+
+  <!-- Sub 2: Role & Paket -->
+  <section class="saas-collapse users-sub" data-collapse-id="users-role">
+  <div class="saas-collapse-head" role="button" tabindex="0" aria-expanded="true">
+  <span class="saas-collapse-title">Role &amp; Paket</span>
+  <svg class="saas-collapse-chev" aria-hidden="true" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 8l4 4 4-4"/></svg>
+  </div>
+  <div class="saas-collapse-body" style="display:flex;flex-direction:column;gap:12px;">
   <div class="form-group space-y-1">
   <label>Role <span class="multirole-hint">multirole</span></label>
   <div class="role-chips">
   <label class="role-chip">
-  <input type="checkbox" id="roleGuru" value="guru" checked> <span title="Guru">G</span>
+  <input type="checkbox" id="roleGuru" value="guru" checked> <span title="Guru">Guru</span>
   </label>
   <label class="role-chip">
-  <input type="checkbox" id="rolePengawas" value="pengawas"> <span title="Pengawas">P</span>
+  <input type="checkbox" id="rolePengawas" value="pengawas"> <span title="Pengawas">Pengawas</span>
   </label>
   {{if not (hasRole .admin_role "operator")}}
   <label class="role-chip">
-  <input type="checkbox" id="roleOperator" value="operator"> <span title="Operator">O</span>
+  <input type="checkbox" id="roleOperator" value="operator"> <span title="Operator">Operator</span>
   </label>
   {{end}}
   </div>
@@ -826,95 +853,140 @@
        <option value="sekolah_unggulan">Paket Sekolah Unggulan (Rp 1.5jt)</option>
      </select>
    </div>
+   {{end}}
+  </div>
+  </section>
+
+<!-- Sub 3: Kuota & Masa Aktif -->
+   <section class="saas-collapse users-sub" data-collapse-id="users-quota">
+   <div class="saas-collapse-head" role="button" tabindex="0" aria-expanded="true">
+   <span class="saas-collapse-title">Kuota &amp; Masa Aktif</span>
+   <svg class="saas-collapse-chev" aria-hidden="true" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 8l4 4 4-4"/></svg>
+   </div>
+   <div class="saas-collapse-body" style="display:flex;flex-direction:column;gap:12px;">
+   {{if hasRole .admin_role "operator"}}
+   <!-- Kuota akun sub selalu mengikuti paket sekolah (lihat banner di atas form).
+        Input disembunyikan agar tidak tampak dapat diatur, tetapi tetap dirender
+        (type=hidden) supaya createUser() tetap membaca nilai 0 seperti sebelumnya. -->
+   <input type="hidden" id="limitInput" value="0">
+   <input type="hidden" id="concurrentInput" value="0">
+   <input type="hidden" id="pdfSizeInput" value="0">
+   <input type="hidden" id="storageSizeInput" value="0">
    {{else}}
-   <div class="form-group space-y-1" style="margin-bottom: 8px;">
-     <label>Paket Langganan</label>
-     <div class="sub-pkg-note" title="Akun sub sekolah tidak memiliki paket langganan sendiri — paket tidak dapat dipilih. Masa aktif akun mengikuti akun Anda; kuota ujian/storage/PDF mengikuti paket sekolah dan tidak dapat diatur terpisah.">
-       <svg class="icon-svg" style="width:14px;height:14px;flex-shrink:0;margin-top:1px;"><use href="#hi-lock"/></svg>
-       <span>Akun sub sekolah: paket langganan tidak dapat dipilih. Masa aktif akun mengikuti akun Anda; kuota ujian/storage/PDF mengikuti paket sekolah dan tidak dapat diatur terpisah.</span>
-     </div>
+   <div class="form-row-2col grid grid-cols-1 sm:grid-cols-4 gap-4">
+   <div class="form-group space-y-1">
+    <label class="required" for="limitInput" title="Batas maksimal total ujian yang pernah dibuat akun ini">Maks Total Ujian</label>
+    <input type="number" id="limitInput" required value="0" min="0" class="q-field-input">
+   </div>
+   <div class="form-group space-y-1">
+    <label class="required" for="concurrentInput" title="Maksimal ujian yang berjalan bersamaan (sudah dimulai &amp; bisa dikerjakan siswa)">Ujian Serentak</label>
+    <input type="number" id="concurrentInput" required value="0" min="0" class="q-field-input">
+   </div>
+   <div class="form-group space-y-1">
+    <label class="required" for="pdfSizeInput" title="Limit ukuran file PDF (MB). Tidak boleh melebihi sisa disk server (maks 100 MB global).">Maks Upload (MB)</label>
+    <!-- max = min(sisa disk, 100): 100 MB = batas upload global maxFileSize (exams.go) -->
+    <input type="number" id="pdfSizeInput" required value="0.5" min="0" step="0.1" class="q-field-input"{{if .storage_free_mb}} max="{{if le .storage_free_mb 100.0}}{{.storage_free_mb}}{{else}}100{{end}}"{{end}}>
+   </div>
+   <div class="form-group space-y-1">
+    <label class="required" for="storageSizeInput" title="Batas total kapasitas storage (MB). 0 = tidak terbatas. Tidak boleh melebihi sisa disk server.">Maks Storage (MB)</label>
+    <input type="number" id="storageSizeInput" required value="0" min="0" class="q-field-input"{{if .storage_free_mb}} max="{{.storage_free_mb}}"{{end}}>
+   </div>
    </div>
    {{end}}
-  <div class="form-row-2col grid grid-cols-1 sm:grid-cols-4 gap-4">
- <div class="form-group space-y-1">
-  <label class="required" for="limitInput">Maks Total Ujian</label>
-  <input type="number" id="limitInput" required value="0" min="0" class="q-field-input" {{if hasRole .admin_role "operator"}}disabled value="0" title="Kuota akun sub mengikuti paket sekolah — server memaksa nilai default"{{end}}>
- </div>
- <div class="form-group space-y-1">
-  <label class="required" for="concurrentInput" title="Maksimal ujian yang berjalan bersamaan (sudah dimulai &amp; bisa dikerjakan siswa)">Ujian Serentak</label>
-  <input type="number" id="concurrentInput" required value="0" min="0" class="q-field-input" {{if hasRole .admin_role "operator"}}disabled value="0" title="Kuota akun sub mengikuti paket sekolah — server memaksa nilai default"{{end}}>
- </div>
- <div class="form-group space-y-1">
-  <label class="required" for="pdfSizeInput" title="Limit ukuran file PDF (MB). Tidak boleh melebihi sisa disk server (maks 100 MB global).">Maks Upload (MB)</label>
-  <!-- max = min(sisa disk, 100): 100 MB = batas upload global maxFileSize (exams.go) -->
-  <input type="number" id="pdfSizeInput" required value="0.5" min="0" step="0.1" class="q-field-input" {{if hasRole .admin_role "operator"}}disabled value="0" title="Kuota akun sub mengikuti paket sekolah — server memaksa nilai default"{{else}}{{if .storage_free_mb}}max="{{if le .storage_free_mb 100.0}}{{.storage_free_mb}}{{else}}100{{end}}"{{end}}{{end}} title="Limit ukuran file PDF (MB). Tidak boleh melebihi sisa disk server (maks 100 MB global).">
- </div>
- <div class="form-group space-y-1">
-  <label class="required" for="storageSizeInput" title="Batas total kapasitas storage (0 = tidak terbatas)">Maks Storage (MB)</label>
-  <input type="number" id="storageSizeInput" required value="0" min="0" class="q-field-input" {{if hasRole .admin_role "operator"}}disabled value="0" title="Kuota akun sub mengikuti paket sekolah — server memaksa nilai default"{{else}}{{if .storage_free_mb}}max="{{.storage_free_mb}}"{{end}}{{end}} title="Batas total kapasitas storage (MB). 0 = tidak terbatas. Tidak boleh melebihi sisa disk server.">
- </div>
- </div>
- {{if and (hasRole .admin_role "operator") .operator_expires_at}}
- {{$exp := .operator_expires_at}}
- <div class="expiry-group">
- <label>Masa Aktif Akun <span class="form-hint-inline">ikuti operator</span></label>
- <div class="expiry-input-row">
- <input type="date" id="newUserExpiry" value="{{substr $exp 0 10}}" disabled class="expiry-field">
- <input type="time" id="newUserExpiryTime" value="{{substr $exp 11 16}}" disabled class="expiry-field">
- </div>
- <input type="hidden" id="operatorExpiresAt" value="{{$exp}}">
- </div>
- {{else}}
- <div class="expiry-group">
- <label title="Kosongkan untuk menggunakan batas waktu default dari pengaturan SaaS">Masa Aktif Akun</label>
- <div class="expiry-input-row">
- <input type="date" id="newUserExpiry" class="expiry-field">
- <input type="time" id="newUserExpiryTime" value="23:59" class="expiry-field">
- </div>
- </div>
- {{end}}
+   {{if and (hasRole .admin_role "operator") .operator_expires_at}}
+   {{$exp := .operator_expires_at}}
+   <div class="expiry-group">
+   <label>Masa Aktif Akun <span class="form-hint-inline">ikuti operator</span></label>
+   <div class="expiry-input-row">
+   <input type="date" id="newUserExpiry" value="{{substr $exp 0 10}}" disabled class="expiry-field">
+   <input type="time" id="newUserExpiryTime" value="{{substr $exp 11 16}}" disabled class="expiry-field">
+   </div>
+   <input type="hidden" id="operatorExpiresAt" value="{{$exp}}">
+   </div>
+   {{else}}
+   <div class="expiry-group">
+   <label title="Kosongkan untuk menggunakan batas waktu default dari pengaturan SaaS">Masa Aktif Akun</label>
+   <div class="expiry-input-row">
+   <input type="date" id="newUserExpiry" class="expiry-field">
+   <input type="time" id="newUserExpiryTime" value="23:59" class="expiry-field">
+   </div>
+   </div>
+   {{end}}
+   </div>
+   </section>
+
  <button type="submit" class="btn-upload" style="margin-top:4px;">
  <svg class="icon-svg"><use href="#hi-plus"/></svg> Tambah Akun
  </button>
  </form>
+ </div>
  </section>
- </div>
 
- <!-- Right Card: User List -->
- <section class="glass-card" style="min-height:500px;">
- <div class="table-header flex items-center justify-between mb-5 flex-wrap gap-3">
- <h3 style="font-size:1.1rem;color:#a5b4fc;display:flex;align-items:center;gap:8px;">
- <svg class="icon-svg" style="color:#a5b4fc;"><use href="#hi-users"/></svg> Daftar User &amp; Guru Terdaftar
- </h3>
- <button class="btn-refresh" onclick="loadUsersList(getCurrentUsersPage())" aria-label="Refresh daftar user"><svg class="icon-svg"><use href="#hi-refresh"/></svg> Refresh</button>
+ <!-- Card: Daftar User & Guru -->
+ <section class="glass-card saas-collapse" data-collapse-id="users-list">
+ <div class="saas-collapse-head" role="button" tabindex="0" aria-expanded="true">
+ <span class="saas-collapse-title"><svg class="icon-svg" style="width:18px;height:18px;color:#a5b4fc;"><use href="#hi-users"/></svg> Daftar User &amp; Guru Terdaftar</span>
+ <span style="display:inline-flex;align-items:center;gap:10px;">
+  <button class="btn-refresh" onclick="event.stopPropagation();loadUsersList(getCurrentUsersPage())" aria-label="Refresh daftar user"><svg class="icon-svg"><use href="#hi-refresh"/></svg> Refresh</button>
+  <svg class="saas-collapse-chev" aria-hidden="true" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 8l4 4 4-4"/></svg>
+ </span>
  </div>
-
- <!-- Search Bar -->
- <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;padding:0 0 16px 0;">
- <div style="position:relative;display:inline-block;">
-  <input type="text" id="userSearchInput" placeholder="Cari username atau email..."
-   style="padding:8px 32px 8px 14px;background:rgba(255,255,255,0.04);border:1px solid var(--color-glass-border);border-radius:10px;color:var(--color-text);outline:none;font-size:13px;width:220px;transition:border-color 0.2s;"
-   onkeyup="if(event.key==='Enter') { loadUsersList(1); }"
-   onfocus="this.style.borderColor='var(--color-primary)'" onblur="this.style.borderColor=''">
-  <button class="search-clear-btn" onclick="document.getElementById('userSearchInput').value='';loadUsersList(1); this.style.display='none';" id="userSearchClearBtn" title="Hapus" aria-label="Hapus pencarian"><svg class="icon-svg" style="width:14px;height:14px;"><use href="#hi-x"/></svg></button>
+ <div class="saas-collapse-body">
+ <!-- Search Bar + filter + jumlah baris per halaman. userPerPage dibaca
+      loadUsersList() di admin.js (onchange memuat ulang dari halaman 1). -->
+ <div class="users-toolbar">
+<div class="toolbar-search-wrap">
+  <input type="text" id="userSearchInput" placeholder="Cari username, nama, atau email..." class="toolbar-search-input"
+   onkeydown="if(event.key==='Enter'){ clearTimeout(window.__usersSearchTimer); loadUsersList(1); }" oninput="onUsersSearchInput(this)">
+  <button class="search-clear-btn" onclick="clearUsersSearch()" id="userSearchClearBtn" title="Hapus pencarian" aria-label="Hapus pencarian" style="display:none;"><svg class="icon-svg" style="width:14px;height:14px;"><use href="#hi-x"/></svg></button>
  </div>
  <button class="btn-sm btn-toggle" onclick="loadUsersList(1)" style="height:32px;padding:0 12px;" title="Cari user"><svg class="icon-svg"><use href="#hi-search"/></svg> Cari</button>
- <select id="userRoleFilter" onchange="loadUsersList(1)" class="toolbar-select" aria-label="Filter role" style="padding:8px 14px;background:rgba(255,255,255,0.04);border:1px solid var(--color-glass-border);border-radius:10px;color:var(--color-text);font-size:13px;cursor:pointer;">
+<select id="userRoleFilter" onchange="loadUsersList(1)" class="toolbar-select" aria-label="Filter role">
   <option value="">Semua Role</option>
   <option value="guru">Guru</option>
   <option value="pengawas">Pengawas</option>
+  {{if not (hasRole .admin_role "operator")}}
   <option value="operator">Operator</option>
- </select>
- </div>
+  {{end}}
+  </select>
+  <select id="userPerPage" onchange="loadUsersList(1)" class="toolbar-select" aria-label="Jumlah user per halaman" title="Jumlah user per halaman">
+  <option value="10" selected>10 / halaman</option>
+  <option value="25">25 / halaman</option>
+  <option value="50">50 / halaman</option>
+  </select>
+  <!-- Sortir alternatif untuk layar kecil: thead (header kolom) disembunyikan
+       di bawah 768px karena tabel berubah jadi kartu, jadi urutan tetap bisa
+       diubah lewat dropdown ini — sinkron dengan header kolom di desktop. -->
+  <select id="userSortMobile" onchange="onUsersSortMobileChange()" class="toolbar-select users-sort-mobile" aria-label="Urutkan daftar user" title="Urutkan daftar user">
+  <option value="">Urutkan: Default</option>
+  <option value="username_asc">Username (A–Z)</option>
+  <option value="username_desc">Username (Z–A)</option>
+  <option value="name_asc">Nama (A–Z)</option>
+  <option value="name_desc">Nama (Z–A)</option>
+  <option value="instansi_asc">Instansi (A–Z)</option>
+  <option value="instansi_desc">Instansi (Z–A)</option>
+  <option value="package_asc">Paket (A–Z)</option>
+  <option value="package_desc">Paket (Z–A)</option>
+  <option value="role_asc">Role (prioritas)</option>
+  <option value="role_desc">Role (prioritas terbalik)</option>
+  <option value="email_asc">Email (A–Z)</option>
+  <option value="email_desc">Email (Z–A)</option>
+  <option value="status_asc">Status (A–Z)</option>
+  <option value="status_desc">Status (Z–A)</option>
+  <option value="created_at_asc">Terdaftar (terlama dulu)</option>
+  <option value="created_at_desc">Terdaftar (terbaru dulu)</option>
+  </select>
+  </div>
 
- <!-- Role legend: base (permanent) roles vs roles granted by the active package -->
+ <!-- Role legend: base (permanent) roles vs roles granted by the active package.
+     Sampel memakai style inline yang sama persis dengan badge di tabel. -->
  <div style="display:flex;align-items:center;gap:16px;flex-wrap:wrap;padding:0 0 12px 0;font-size:11px;color:var(--color-text-muted);">
   <span style="display:inline-flex;align-items:center;gap:6px;">
-   <span style="display:inline-block;width:9px;height:9px;border-radius:50%;background:#a5b4fc;box-shadow:0 0 0 3px rgba(99,102,241,0.15);"></span>
-   Role tetap (pemberian admin / identitas)
+   <span style="display:inline-block;padding:2px 8px;border-radius:10px;font-size:11px;font-weight:600;background:rgba(99,102,241,0.15);color:#a5b4fc;border:1px solid rgba(99,102,241,0.3);">Guru</span>
+   Role tetap <em style="font-style:normal;opacity:0.75;">(pemberian admin / identitas)</em>
   </span>
   <span style="display:inline-flex;align-items:center;gap:6px;">
-   <span style="display:inline-block;width:9px;height:9px;border-radius:50%;background:#34d399;box-shadow:0 0 0 3px rgba(16,185,129,0.15);"></span>
+   <span style="display:inline-block;padding:2px 8px;border-radius:10px;font-size:11px;font-weight:600;background:rgba(16,185,129,0.15);color:#34d399;border:1px solid rgba(16,185,129,0.3);">Guru <em style="font-style:normal;opacity:0.75;font-weight:500;font-size:9px;text-transform:uppercase;letter-spacing:0.03em;">paket</em></span>
    Role dari paket aktif <em style="font-style:normal;opacity:0.75;">(hilang saat paket diganti/berakhir)</em>
   </span>
  </div>
@@ -923,24 +995,26 @@
  <table class="exam-table">
  <thead>
  <tr>
- <th scope="col">Username</th>
- <th scope="col">Nama</th>
- <th scope="col">Instansi</th>
- <th scope="col">Paket</th>
- <th scope="col">Role</th>
- <th scope="col">Email</th>
- <th scope="col" class="text-center">Status</th>
- <th scope="col" class="text-right">Aksi</th>
+ <th scope="col" class="sortable" data-sort="username" tabindex="0" onclick="toggleUsersSort('username')" title="Urutkan berdasarkan username">Username<span class="sort-indicator" aria-hidden="true"></span></th>
+ <th scope="col" class="sortable" data-sort="name" tabindex="0" onclick="toggleUsersSort('name')" title="Urutkan berdasarkan nama">Nama<span class="sort-indicator" aria-hidden="true"></span></th>
+ <th scope="col" class="sortable" data-sort="instansi" tabindex="0" onclick="toggleUsersSort('instansi')" title="Urutkan berdasarkan instansi">Instansi<span class="sort-indicator" aria-hidden="true"></span></th>
+ <th scope="col" class="sortable" data-sort="package" tabindex="0" onclick="toggleUsersSort('package')" title="Urutkan berdasarkan paket">Paket<span class="sort-indicator" aria-hidden="true"></span></th>
+ <th scope="col" class="sortable" data-sort="role" tabindex="0" onclick="toggleUsersSort('role')" title="Urutkan berdasarkan role">Role<span class="sort-indicator" aria-hidden="true"></span></th>
+ <th scope="col" class="sortable" data-sort="email" tabindex="0" onclick="toggleUsersSort('email')" title="Urutkan berdasarkan email">Email<span class="sort-indicator" aria-hidden="true"></span></th>
+ <th scope="col" class="text-center sortable" data-sort="status" tabindex="0" onclick="toggleUsersSort('status')" title="Urutkan berdasarkan status">Status<span class="sort-indicator" aria-hidden="true"></span></th>
+ <th scope="col" class="sortable" data-sort="created_at" tabindex="0" onclick="toggleUsersSort('created_at')" title="Urutkan berdasarkan tanggal terdaftar">Terdaftar<span class="sort-indicator" aria-hidden="true"></span></th>
+ <th scope="col" class="text-right" title="Tindakan pada akun">Aksi</th>
  </tr>
  </thead>
- <tbody id="usersTableBody">
+ <tbody id="usersTableBody" aria-live="polite" aria-busy="false">
  <tr>
- <td colspan="8" style="text-align:center;padding:40px;color:var(--color-text-secondary);">
+ <td colspan="9" style="text-align:center;padding:40px;color:var(--color-text-secondary);">
  Memuat data user...
  </td>
  </tr>
  </tbody>
  </table>
+ </div>
  </div>
  </section>
 
@@ -1009,7 +1083,7 @@
    {{if .voucher_enabled}}
    <p style="font-size:12px;color:var(--color-text-secondary);margin:0 0 10px 0;">Masukkan kode promo untuk upgrade paket instan.</p>
    <div class="voucher-redeem-row">
-    <input type="text" id="voucherCodeInput" placeholder="EV-PROMO-2026" aria-label="Kode voucher / promo" maxlength="64" style="flex:1;padding:8px 12px;background:rgba(0,0,0,0.3);border:1px solid rgba(255,255,255,0.15);border-radius:8px;color:#fff;font-family:var(--font-mono);font-size:13px;text-transform:uppercase;outline:none;" />
+    <input type="text" id="voucherCodeInput" placeholder="EV-PROMO-2026" aria-label="Kode voucher / promo" maxlength="64" style="flex:1;padding:8px 12px;background:rgba(0,0,0,0.3);border:1px solid rgba(255,255,255,0.15);border-radius:8px;color:#fff;font-family:var(--font-mono);font-size:13px;text-transform:uppercase;outline:none;" onkeyup="if(event.key==='Enter') redeemVoucher()" />
     <button onclick="redeemVoucher()" id="btnRedeemVoucher" style="padding:8px 16px;border-radius:8px;font-weight:600;font-size:13px;cursor:pointer;background:linear-gradient(135deg, #a855f7, #6366f1);border:none;color:#fff;white-space:nowrap;transition:all 0.2s;">Klaim</button>
    </div>
    {{else}}
@@ -1073,7 +1147,7 @@
   </div>
   <p style="color:var(--color-text-secondary);font-size:0.85rem;margin:0 0 20px 0;">Hanya paket yang aktif yang masa berlangganannya berjalan. Paket lain otomatis dijeda dan melanjutkan sisa waktunya saat Anda aktifkan kembali.</p>
 
-  <div id="myPackagesList" class="table-responsive">
+  <div id="myPackagesList" class="table-responsive" aria-live="polite">
    <div style="text-align:center;padding:24px;color:var(--color-text-secondary);">
     <span style="display:inline-flex;align-items:center;gap:6px;"><svg class="icon-svg spin" style="width:16px;height:16px;"><use href="#hi-refresh"/></svg> Memuat paket...</span>
    </div>
@@ -1095,7 +1169,7 @@
   </div>
   <div class="modal-body" style="padding:20px 24px 24px;">
    <p style="color:var(--color-text-secondary);font-size:13.5px;margin:0 0 16px 0;">
-    Apakah Anda yakin ingin mengklaim kode voucher berikut? Paket ini akan langsung aktif, dan paket lain yang sedang berjalan otomatis dijeda (sisa waktumya dipertahankan).
+    Apakah Anda yakin ingin mengklaim kode voucher berikut? Paket ini akan langsung aktif, dan paket lain yang sedang berjalan otomatis dijeda (sisa waktunya dipertahankan).
    </p>
    <div style="background:rgba(168,85,247,0.1);border:1px solid rgba(168,85,247,0.25);padding:14px 18px;border-radius:10px;margin-bottom:20px;text-align:center;">
     <span style="font-size:11px;color:#c084fc;text-transform:uppercase;font-weight:700;letter-spacing:0.5px;display:block;margin-bottom:4px;">Kode Voucher:</span>
@@ -1137,14 +1211,17 @@
 
  <!-- Subtab: Daftar | Riwayat -->
  <div class="voucher-subtabs" role="tablist" aria-label="Bagian voucher" style="display:flex;gap:8px;margin-bottom:20px;flex-wrap:wrap;">
-  <button type="button" class="voucher-subtab active" data-subtab="list" role="tab" aria-selected="true" onclick="switchVoucherSubtab('list')" style="padding:8px 16px;border-radius:8px;font-size:13px;font-weight:600;cursor:pointer;border:1px solid var(--color-glass-border);background:linear-gradient(135deg,#a855f7,#6366f1);color:#fff;">Daftar Voucher</button>
-  <button type="button" class="voucher-subtab" data-subtab="history" role="tab" aria-selected="false" onclick="switchVoucherSubtab('history')" style="padding:8px 16px;border-radius:8px;font-size:13px;font-weight:600;cursor:pointer;border:1px solid var(--color-glass-border);background:rgba(255,255,255,0.06);color:#fff;">Riwayat Klaim</button>
- </div>
- <div id="voucherListPanel">
+<button type="button" class="voucher-subtab active" data-subtab="list" role="tab" id="voucherSubtabList" aria-selected="true" aria-controls="voucherListPanel" onclick="switchVoucherSubtab('list')" style="padding:8px 16px;border-radius:8px;font-size:13px;font-weight:600;cursor:pointer;border:1px solid var(--color-glass-border);background:linear-gradient(135deg,#a855f7,#6366f1);color:#fff;">Daftar Voucher</button>
+  <button type="button" class="voucher-subtab" data-subtab="history" role="tab" id="voucherSubtabHistory" aria-selected="false" aria-controls="voucherHistoryPanel" onclick="switchVoucherSubtab('history')" style="padding:8px 16px;border-radius:8px;font-size:13px;font-weight:600;cursor:pointer;border:1px solid var(--color-glass-border);background:rgba(255,255,255,0.06);color:#fff;">Riwayat Klaim</button>
+  </div>
+  <div id="voucherListPanel" role="tabpanel" aria-labelledby="voucherSubtabList">
  <!-- Filter & Search -->
  <div class="glass-card" style="padding:16px 20px;border-radius:12px;margin-bottom:24px;display:flex;align-items:center;justify-content:space-between;gap:16px;flex-wrap:wrap;">
   <div style="display:flex;align-items:center;gap:12px;flex:1;max-width:400px;">
-   <input type="text" id="searchVoucher" placeholder="Cari kode atau catatan..." aria-label="Cari voucher" style="width:100%;padding:8px 14px;background:rgba(0,0,0,0.3);border:1px solid var(--color-glass-border);border-radius:8px;color:#fff;font-size:13px;outline:none;" onkeyup="if(event.key==='Enter') loadVouchers(1)" />
+   <div style="position:relative;flex:1;">
+    <input type="text" id="searchVoucher" placeholder="Cari kode atau catatan..." aria-label="Cari voucher" style="width:100%;padding:8px 14px;background:rgba(0,0,0,0.3);border:1px solid var(--color-glass-border);border-radius:8px;color:#fff;font-size:13px;outline:none;" oninput="toggleVoucherSearchClear()" onkeyup="if(event.key==='Enter') loadVouchers(1)" />
+    <button type="button" id="voucherSearchClearBtn" onclick="clearVoucherSearch()" title="Hapus pencarian" aria-label="Hapus pencarian" style="display:none;position:absolute;right:8px;top:50%;transform:translateY(-50%);background:none;border:none;color:var(--color-text-secondary);cursor:pointer;padding:6px;"><svg class="icon-svg" style="width:14px;height:14px;display:block;" aria-hidden="true"><use href="#hi-x"/></svg></button>
+   </div>
    <button onclick="loadVouchers(1)" class="btn-secondary" style="padding:8px 16px;border-radius:8px;font-size:13px;cursor:pointer;">Cari</button>
   </div>
  </div>
@@ -1164,7 +1241,7 @@
       <th style="padding:16px 20px;text-align:right;">Aksi</th>
      </tr>
     </thead>
-    <tbody id="vouchersTableBody">
+    <tbody id="vouchersTableBody" aria-live="polite" aria-busy="false">
      <tr>
       <td colspan="7" style="padding:40px;text-align:center;color:var(--color-text-secondary);">Memuat data voucher...</td>
      </tr>
@@ -1173,13 +1250,13 @@
   </div>
   
   <!-- Pagination -->
-  <div id="paginationContainer" style="padding:16px 20px;border-top:1px solid var(--color-glass-border);display:flex;justify-content:space-between;align-items:center;"></div>
+  <div id="paginationContainer" style="padding:16px 20px;border-top:1px solid var(--color-glass-border);display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:12px;"></div>
  </div>
 
 </div>
 
 </div>
-<div id="voucherHistoryPanel" class="voucher-subpanel" style="display:none;">
+<div id="voucherHistoryPanel" class="voucher-subpanel" role="tabpanel" aria-labelledby="voucherSubtabHistory" style="display:none;">
 <div class="billing-container" style="padding:24px;max-width:1200px;margin:0 auto;">
 
  <!-- Page Title -->
@@ -1222,7 +1299,7 @@
       <th style="padding:14px 20px;text-align:left;font-size:11px;text-transform:uppercase;letter-spacing:0.5px;color:var(--color-text-secondary);">Detail</th>
      </tr>
     </thead>
-    <tbody id="auditLogsBody">
+    <tbody id="auditLogsBody" aria-live="polite" aria-busy="false">
      <tr><td colspan="4" style="padding:40px;text-align:center;color:var(--color-text-secondary);">Memuat...</td></tr>
     </tbody>
    </table>
@@ -1235,7 +1312,7 @@
 
 </div>
 <!-- Single Voucher Modal -->
-<div class="modal-overlay" id="singleModal" style="display:none;">
+<div class="modal-overlay" id="singleModal" onclick="if(event.target===this)closeSingleModal()" style="display:none;">
  <div class="modal-card" style="max-width:500px;">
   <div class="modal-header">
    <h3 style="font-size:1.1rem;color:#fff;margin:0;">Buat Voucher Single</h3>
@@ -1344,7 +1421,7 @@
 </div>
 
 <!-- Batch Voucher Modal -->
-<div class="modal-overlay" id="batchModal" style="display:none;">
+<div class="modal-overlay" id="batchModal" onclick="if(event.target===this)closeBatchModal()" style="display:none;">
  <div class="modal-card" style="max-width:500px;">
   <div class="modal-header">
    <h3 style="font-size:1.1rem;color:#fff;margin:0;">Generate Batch Voucher (Banyak)</h3>
@@ -1434,7 +1511,7 @@
 
     <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:14px;">
      <div>
-      <label style="display:block;font-size:12px;color:var(--color-text-secondary);margin-bottom:4px;">Limit Penggunaan / Voucher</label>
+      <label style="display:block;font-size:12px;color:var(--color-text-secondary);margin-bottom:4px;">Maksimal Penggunaan</label>
       <input type="number" id="batchMaxUsage" value="1" min="1" required style="width:100%;padding:10px;background:rgba(0,0,0,0.3);border:1px solid var(--color-glass-border);border-radius:8px;color:#fff;outline:none;" />
      </div>
      <div>
@@ -1458,7 +1535,7 @@
 </div>
 
 <!-- Redemptions History Modal -->
-<div class="modal-overlay" id="redemptionsModal" style="display:none;">
+<div class="modal-overlay" id="redemptionsModal" onclick="if(event.target===this)closeRedemptionsModal()" style="display:none;">
  <div class="modal-card" style="max-width:550px;">
   <div class="modal-header">
    <h3 style="font-size:1.1rem;color:#fff;margin:0;" id="redemptionsTitle">Pengguna Voucher</h3>

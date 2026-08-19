@@ -748,6 +748,10 @@ func registerRoutes(r *gin.Engine, cfg *config.Config, pool *pgxpool.Pool) {
 			adminUsersRead := lockedAPI.Group("", middleware.AdminManagementRequired())
 			{
 				adminUsersRead.GET("/users", admin.ListUsers())
+				// Single-account detail: the Atur User modal loads its form
+				// data from here instead of paging the whole list
+				// (per_page=1000) to find one id.
+				adminUsersRead.GET("/users/:user_id", admin.GetUser())
 			}
 
 			lockedAPI.GET("/pengawas/exams", admin.PengawasExams())

@@ -1,7 +1,111 @@
-/* GENERATED from the standalone settings pages — see templates/admin/settings.html.
-   Loaded lazily when its tab is first opened. */
+/* GENERATED from the merged settings page — see templates/admin/settings.html.
+   Loaded lazily when the Kelola User tab is first opened.
+   Wires the collapsible cards in #section-users:
+     - Kartu "Tambah User Manual" (users-add) berisi form yang dipecah jadi
+       3 sub-bagian collapsible: Informasi Akun (users-identity), Role & Paket
+       (users-role), Kuota & Masa Aktif (users-quota)
+     - Kartu "Daftar User & Guru" (users-list)
+   Plus the Buka Semua / Lipat Semua toolbar (toggleAllUsersBtn).
+   Unlike Pengaturan Umum (default collapsed — halaman konfigurasi), Kelola
+   User adalah halaman kerja: semua blok default TERBUKA agar form & daftar
+   siap pakai; lipatan manual user persist di localStorage.               */
+
+function usersCollapseKeyFor(block) {
+    return 'saas-collapse:' + (block.getAttribute('data-collapse-id') || block.id || 'x');
+}
+
+function toggleUsersCollapse(head) {
+    var block = head.closest('.saas-collapse');
+    if (!block) return;
+    var body = block.querySelector('.saas-collapse-body');
+    if (!body) return;
+    var isOpen = body.style.display !== 'none';
+    body.style.display = isOpen ? 'none' : '';
+    head.setAttribute('aria-expanded', isOpen ? 'false' : 'true');
+    head.classList.toggle('collapsed', isOpen);
+    try { localStorage.setItem(usersCollapseKeyFor(block), isOpen ? '0' : '1'); } catch (e) {}
+    updateToggleAllUsersLabel();
+}
+
+// Wire one existing .saas-collapse: head click/keyboard toggles the body,
+// then restore the persisted state. Default: OPEN; a stored '0' means the
+// user explicitly folded this block before.
+function wireUsersCollapseBlock(block) {
+    if (block.dataset.collapseReady) return;
+    block.dataset.collapseReady = '1';
+    var head = block.querySelector('.saas-collapse-head');
+    var body = block.querySelector('.saas-collapse-body');
+    if (!head || !body) return;
+    if (!head.getAttribute('role')) head.setAttribute('role', 'button');
+    if (!head.getAttribute('tabindex')) head.setAttribute('tabindex', '0');
+    var toggle = function (e) {
+        if (e && e.type === 'keydown' && e.key !== 'Enter' && e.key !== ' ') return;
+        if (e && e.type === 'keydown') e.preventDefault();
+        toggleUsersCollapse(head);
+    };
+    head.addEventListener('click', toggle);
+    head.addEventListener('keydown', toggle);
+
+    var saved = '';
+    try { saved = localStorage.getItem(usersCollapseKeyFor(block)); } catch (e) {}
+    if (saved === '0') {
+        body.style.display = 'none';
+        head.setAttribute('aria-expanded', 'false');
+        head.classList.add('collapsed');
+    }
+}
+
+function setupUsersCollapse() {
+    var blocks = Array.prototype.slice.call(document.querySelectorAll('#section-users .saas-collapse'));
+    blocks.forEach(wireUsersCollapseBlock);
+    updateToggleAllUsersLabel();
+}
+
+// ---- Buka Semua / Lipat Semua (toolbar above the cards) ----
+function countUsersCollapsed() {
+    var blocks = Array.prototype.slice.call(document.querySelectorAll('#section-users .saas-collapse'));
+    return blocks.filter(function (b) {
+        var body = b.querySelector('.saas-collapse-body');
+        return body && body.style.display === 'none';
+    }).length;
+}
+
+function setAllUsersCollapse(expand) {
+    var blocks = Array.prototype.slice.call(document.querySelectorAll('#section-users .saas-collapse'));
+    blocks.forEach(function (b) {
+        var body = b.querySelector('.saas-collapse-body');
+        var head = b.querySelector('.saas-collapse-head');
+        if (!body || !head) return;
+        body.style.display = expand ? '' : 'none';
+        head.setAttribute('aria-expanded', expand ? 'true' : 'false');
+        head.classList.toggle('collapsed', !expand);
+        try { localStorage.setItem(usersCollapseKeyFor(b), expand ? '1' : '0'); } catch (e) {}
+    });
+    updateToggleAllUsersLabel();
+}
+
+function updateToggleAllUsersLabel() {
+    var btn = document.getElementById('toggleAllUsersBtn');
+    var label = document.getElementById('toggleAllUsersLabel');
+    var icon = document.getElementById('toggleAllUsersIcon');
+    if (!btn || !label || !icon) return;
+    var total = document.querySelectorAll('#section-users .saas-collapse').length;
+    var collapsed = countUsersCollapsed();
+    var expand = collapsed > 0;
+    // Label cukup kata kerja (Buka Semua / Lipat Semua) — jumlah terlipat
+    // dipindah ke title agar teks tombol tidak membingungkan saat 0 terlipat.
+    label.textContent = expand ? 'Buka Semua' : 'Lipat Semua';
+    icon.style.transform = expand ? 'rotate(0deg)' : 'rotate(180deg)';
+    btn.title = (expand ? 'Buka semua bagian' : 'Lipat semua bagian') + ' (' + collapsed + '/' + total + ' terlipat)';
+}
+
+window.toggleAllUsersCollapse = function () {
+    setAllUsersCollapse(countUsersCollapsed() > 0);
+};
+
 window.__settingsReady['users'] = function() {
 
+ setupUsersCollapse();
  loadUsersList();
  if (document.getElementById('emailEnabledInput')) loadSaasSettings();  // Cap Maks Storage di form Tambah User pada sisa kapasitas disk server.
   if (window.__storageFreeMb > 0) {
@@ -30,3 +134,4 @@ window.__settingsReady['users'] = function() {
  }
 
 };
+window.toggleUsersCollapse = toggleUsersCollapse;

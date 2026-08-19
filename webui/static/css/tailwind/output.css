@@ -2005,8 +2005,26 @@ input:disabled, select:disabled, textarea:disabled, button:disabled, .btn-sm:dis
   color: #a5b4fc;
   box-shadow: 0 0 0 1px rgba(99,102,241,0.3);
 }
+/* Checkbox chip tersembunyi VISUAL saja (bukan display:none) — tetap ada di
+   accessibility tree, bisa difokus via Tab, dan di-toggle Enter/Space. */
 .role-chip input {
-  display: none;
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  clip-path: inset(50%);
+  white-space: nowrap;
+  border: 0;
+  padding: 0;
+  margin: -1px;
+}
+.role-chip:has(input:focus-visible) {
+  border-color: var(--color-primary);
+  background: rgba(99,102,241,0.12);
+  color: #a5b4fc;
+  box-shadow: 0 0 0 2px rgba(99,102,241,0.35);
+  outline: none;
 }
 
 .form-hint {

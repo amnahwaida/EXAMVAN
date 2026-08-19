@@ -325,6 +325,70 @@ func loadUsersPageData(c *gin.Context) gin.H {
 // 2. GET /admin/api/users — List users with search + pagination
 // ---------------------------------------------------------------------------
 
+// userItem is the JSON shape a single row of the Kelola User list serializes.
+// Shared by ListUsers and GetUser (single-account detail) so the two endpoints
+// can never disagree on the fields the page renders.
+type userItem struct {
+	ID                 int      `json:"id"`
+	Username           string   `json:"username"`
+	Name               string   `json:"name"`
+	WhatsappNumber     string   `json:"whatsapp_number"`
+	Email              string   `json:"email"`
+	Status             string   `json:"status"`
+	MaxExams           int      `json:"max_exams"`
+	MaxPDFSize         int      `json:"max_pdf_size"`
+	MaxConcurrentExams int      `json:"max_concurrent_exams"`
+	MaxStorageSize     int64    `json:"max_storage_size"`
+	MaxStorageMB       int      `json:"max_storage_mb"`
+	Instansi           string   `json:"instansi"`
+	Roles              []string `json:"roles"`         // merged role list (base ∪ package)
+	BaseRoles          []string `json:"base_roles"`    // roles held independently of packages
+	PackageRoles       []string `json:"package_roles"` // roles granted by the active package
+	Role               string   `json:"role"`
+	ExpiresAt          string   `json:"expires_at"`
+	ExamCount          int      `json:"exam_count"`
+	CreatedAt          string   `json:"created_at"`
+	Package            string   `json:"package"`
+	// OperatorCreated exposes the origin flag to the Kelola Users page so
+	// it can render the "Dibuat oleh Operator" badge on sub-accounts.
+	OperatorCreated bool `json:"operator_created"`
+	// HasActivePackage tells the Kelola User page whether the account
+	// currently runs an active package — the "Nonaktifkan Paket" action
+	// only renders when there is something to deactivate.
+	HasActivePackage bool `json:"has_active_package"`
+}
+
+func userItemFrom(u models.UserWithExamCount) userItem {
+	expStr := ""
+	if u.ExpiresAt != nil {
+		expStr = u.ExpiresAt.Format("2006-01-02 15:04:05")
+	}
+	return userItem{
+		ID:                 u.ID,
+		Username:           u.Username,
+		Name:               u.Name,
+		WhatsappNumber:     u.WhatsappNumber,
+		Email:              u.Email,
+		Status:             u.Status,
+		MaxExams:           u.MaxExams,
+		MaxPDFSize:         u.MaxPDFSize,
+		MaxConcurrentExams: u.MaxConcurrentExams,
+		MaxStorageSize:     u.MaxStorageSize,
+		MaxStorageMB:       int(u.MaxStorageSize / (1024 * 1024)),
+		Instansi:           u.Instansi,
+		Roles:              models.ParseRoles(u.Role),
+		BaseRoles:          effectiveBaseRoles(u.AdminUser),  // lazy-derived when base_role is empty
+		PackageRoles:       parsePackageRoles(u.PackageRole), // empty-safe: '' means no package roles
+		Role:               models.SerializeRoles(models.ParseRoles(u.Role)),
+		ExpiresAt:          expStr,
+		ExamCount:          u.ExamCount,
+		CreatedAt:          formatISOUTC(u.CreatedAt),
+		Package:            u.Package,
+		OperatorCreated:    u.OperatorCreated,
+		HasActivePackage:   u.HasActivePackage,
+	}
+}
+
 func ListUsers() gin.HandlerFunc {
 	return func(c *gin.Context) {
 		pool := getPool(c)
@@ -345,6 +409,14 @@ func ListUsers() gin.HandlerFunc {
 			perPage = 200
 		}
 
+		// Column sorting (whitelisted inside models.ListUsers — an unknown
+		// sort_by silently falls back to the default role-priority order).
+		sortBy := strings.ToLower(strings.TrimSpace(c.Query("sort_by")))
+		sortDir := strings.ToUpper(strings.TrimSpace(c.Query("sort_dir")))
+		if sortDir != "DESC" {
+			sortDir = "ASC"
+		}
+
 		opts := models.ListUsersOpts{
 			Page:              page,
 			PerPage:           perPage,
@@ -352,6 +424,8 @@ func ListUsers() gin.HandlerFunc {
 			RoleFilter:        roleFilter,
 			ExcludeSuperAdmin: !isSuperAdmin(c),
 			ExcludeOperator:   isOp,
+			SortBy:            sortBy,
+			SortDir:           sortDir,
 		}
 
 		if isOp {
@@ -376,67 +450,9 @@ func ListUsers() gin.HandlerFunc {
 			return
 		}
 
-		// Build user list
-		type userItem struct {
-			ID                 int      `json:"id"`
-			Username           string   `json:"username"`
-			Name               string   `json:"name"`
-			WhatsappNumber     string   `json:"whatsapp_number"`
-			Email              string   `json:"email"`
-			Status             string   `json:"status"`
-			MaxExams           int      `json:"max_exams"`
-			MaxPDFSize         int      `json:"max_pdf_size"`
-			MaxConcurrentExams int      `json:"max_concurrent_exams"`
-			MaxStorageSize     int64    `json:"max_storage_size"`
-			MaxStorageMB       int      `json:"max_storage_mb"`
-			Instansi           string   `json:"instansi"`
-			Roles              []string `json:"roles"`         // merged role list (base ∪ package)
-			BaseRoles          []string `json:"base_roles"`    // roles held independently of packages
-			PackageRoles       []string `json:"package_roles"` // roles granted by the active package
-			Role               string   `json:"role"`
-			ExpiresAt          string   `json:"expires_at"`
-			ExamCount          int      `json:"exam_count"`
-			CreatedAt          string   `json:"created_at"`
-			Package            string   `json:"package"`
-			// OperatorCreated exposes the origin flag to the Kelola Users page so
-			// it can render the "Dibuat oleh Operator" badge on sub-accounts.
-			OperatorCreated bool `json:"operator_created"`
-			// HasActivePackage tells the Kelola User page whether the account
-			// currently runs an active package — the "Nonaktifkan Paket" action
-			// only renders when there is something to deactivate.
-			HasActivePackage bool `json:"has_active_package"`
-		}
-
 		users := make([]userItem, 0, len(result.Users))
 		for _, u := range result.Users {
-			expStr := ""
-			if u.ExpiresAt != nil {
-				expStr = u.ExpiresAt.Format("2006-01-02 15:04:05")
-			}
-			users = append(users, userItem{
-				ID:                 u.ID,
-				Username:           u.Username,
-				Name:               u.Name,
-				WhatsappNumber:     u.WhatsappNumber,
-				Email:              u.Email,
-				Status:             u.Status,
-				MaxExams:           u.MaxExams,
-				MaxPDFSize:         u.MaxPDFSize,
-				MaxConcurrentExams: u.MaxConcurrentExams,
-				MaxStorageSize:     u.MaxStorageSize,
-				MaxStorageMB:       int(u.MaxStorageSize / (1024 * 1024)),
-				Instansi:           u.Instansi,
-				Roles:              models.ParseRoles(u.Role),
-				BaseRoles:          effectiveBaseRoles(u.AdminUser),  // lazy-derived when base_role is empty
-				PackageRoles:       parsePackageRoles(u.PackageRole), // empty-safe: '' means no package roles
-				Role:               models.SerializeRoles(models.ParseRoles(u.Role)),
-				ExpiresAt:          expStr,
-				ExamCount:          u.ExamCount,
-				CreatedAt:          formatISOUTC(u.CreatedAt),
-				Package:            u.Package,
-				OperatorCreated:    u.OperatorCreated,
-				HasActivePackage:   u.HasActivePackage,
-			})
+			users = append(users, userItemFrom(u))
 		}
 
 		c.JSON(http.StatusOK, gin.H{
@@ -448,6 +464,67 @@ func ListUsers() gin.HandlerFunc {
 				"total":       result.Total,
 				"total_pages": result.TotalPages,
 			},
+		})
+	}
+}
+
+// ---------------------------------------------------------------------------
+// 2b. GET /admin/api/users/:user_id — single user detail
+// ---------------------------------------------------------------------------
+
+// GetUser returns ONE account in the exact JSON shape of a ListUsers row, so
+// the Atur User modal loads its form data from the detail endpoint instead of
+// paging through the entire list (per_page=1000) to find a single id — a
+// request that got slower in lockstep with the account count.
+//
+// Scope rules mirror EditUser/ListUsers: fail CLOSED on an unresolvable
+// operator instansi; an operator may view only its own instansi's accounts
+// and never an operator/superadmin account.
+func GetUser() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		targetID, err := strconv.Atoi(c.Param("user_id"))
+		if err != nil {
+			errorResponse(c, http.StatusBadRequest, "ID user tidak valid")
+			return
+		}
+
+		pool := getPool(c)
+		userID := getCurrentUserID(c)
+		ctx := c.Request.Context()
+
+		targetUser, err := models.GetUserWithExtras(ctx, pool, targetID)
+		if err != nil {
+			errorResponse(c, http.StatusNotFound, "User tidak ditemukan")
+			return
+		}
+
+		if isOperator(c) {
+			opInstansi, err := getInstansiForOperator(ctx, pool, userID)
+			if err != nil || opInstansi == "" {
+				log.Printf("get user: operator instansi unresolved (user %d, err=%v)", userID, err)
+				errorResponse(c, http.StatusInternalServerError, "Gagal memuat data user")
+				return
+			}
+			if targetUser.Instansi != opInstansi {
+				errorResponse(c, http.StatusBadRequest, "Anda hanya dapat mengelola user dalam satu instansi yang sama")
+				return
+			}
+			// Mirrors EditUser/ToggleUserStatus: an operator must not manage
+			// peer operators (the cascade rules treat operator accounts as
+			// school-level, not per-operator).
+			if targetUser.IsOperator() {
+				errorResponse(c, http.StatusBadRequest, "Operator tidak dapat mengelola akun dengan role Operator")
+				return
+			}
+			if targetUser.Username == models.SuperAdminUsername {
+				errorResponse(c, http.StatusBadRequest, "Operator tidak dapat mengelola akun Super Admin")
+				return
+			}
+		}
+
+		c.JSON(http.StatusOK, gin.H{
+			"success": true,
+			"user":    userItemFrom(targetUser),
 		})
 	}
 }

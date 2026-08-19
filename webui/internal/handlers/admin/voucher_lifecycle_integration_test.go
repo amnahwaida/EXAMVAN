@@ -233,6 +233,11 @@ func newVoucherTestRouter(pool *pgxpool.Pool) *gin.Engine {
 	// list endpoint. Tests assert the JSON carries operator_created so the
 	// page can render the "Dibuat oleh Operator" badge on sub-accounts.
 	api.GET("/users", middleware.AdminManagementRequired(), ListUsers())
+	// GET /users/:user_id mirror of production GET /admin/api/users/:user_id
+	// (AuthRequired → FeatureLockRequired → AdminManagementRequired): the
+	// single-account detail endpoint backing the Atur User modal, with the
+	// same operator instansi/role scope rules as EditUser.
+	api.GET("/users/:user_id", middleware.AdminManagementRequired(), GetUser())
 	// AuthRequired/FeatureLockRequired probe: a protected GET that answers 200
 	// only when a valid, non-locked session passes both middlewares — used to
 	// observe per-request status and feature-lock enforcement without depending
