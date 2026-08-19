@@ -192,6 +192,24 @@
     margin: 0 0 8px 0; 
     font-family: 'Outfit', sans-serif; 
     font-size: 18px;
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 10px;
+  }
+  .new-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    background: linear-gradient(135deg, #10b981, #059669);
+    color: #04120c;
+    font-size: 11px;
+    font-weight: 800;
+    letter-spacing: 0.06em;
+    padding: 4px 10px;
+    border-radius: 99px;
+    text-transform: uppercase;
+    box-shadow: 0 2px 10px rgba(16, 185, 129, 0.35);
   }
   .flavor-meta {
     color: var(--text-muted); 
@@ -496,7 +514,12 @@
           {{ if .android_app }}
           <div class="flavor-box" style="border-color: rgba(139,92,246,0.35); background: rgba(139,92,246,0.06);">
             <div>
-              <h4 class="flavor-title" style="color:#c4b5fd;">{{ .android_app.Name }} — Rilis Resmi</h4>
+              <h4 class="flavor-title" style="color:#c4b5fd;">{{ .android_app.Name }} — Rilis Resmi
+                <span class="new-badge">
+                  <svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg>
+                  Terbaru
+                </span>
+              </h4>
               <p class="flavor-meta">
                 Rilis Resmi • Versi: <span class="meta-val">v{{ .android_app.Version }}</span> • Ukuran: <span class="meta-val"><script>document.write( ({{ .android_app.SizeBytes }} / 1048576.0).toFixed(2) );</script> MB</span>
               </p>

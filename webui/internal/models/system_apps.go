@@ -31,6 +31,12 @@ func BestAndroidApp(apps []SystemApp) *SystemApp {
 		}
 		if best == nil || CompareVersions(app.Version, best.Version) > 0 {
 			best = app
+		} else if CompareVersions(app.Version, best.Version) == 0 &&
+			strings.Contains(strings.ToLower(best.Name), "kiosk") &&
+			!strings.Contains(strings.ToLower(app.Name), "kiosk") {
+			// Tie-break versi sama: prefer the regular (non-kiosk) client so
+			// the primary download card is never the kiosk flavor.
+			best = app
 		}
 	}
 	return best

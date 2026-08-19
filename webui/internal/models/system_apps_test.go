@@ -57,6 +57,31 @@ func TestBestAndroidAppVersion(t *testing.T) {
 	}
 }
 
+func TestBestAndroidAppTieBreakNonKiosk(t *testing.T) {
+	apps := []SystemApp{
+		{ID: 1, Platform: "android", Version: "2.7.0", Name: "EXAMVAN"},
+		{ID: 2, Platform: "android", Version: "2.7.0", Name: "EXAMVAN Kiosk"},
+	}
+	// Equal versions: the regular client must win the tie even when the kiosk
+	// entry appears first (GetAllSystemApps orders by created_at DESC, so a
+	// freshly uploaded kiosk row would otherwise become the primary card).
+	got := BestAndroidApp(apps)
+	if got == nil || got.ID != 1 {
+		t.Fatalf("BestAndroidApp tie = %+v, want EXAMVAN (id=1)", got)
+	}
+
+	// Kiosk still wins outright when its version is strictly higher.
+	apps[1].Version = "2.8.0"
+	if got := BestAndroidApp(apps); got == nil || got.ID != 2 {
+		t.Fatalf("BestAndroidApp higher kiosk = %+v, want kiosk (id=2)", got)
+	}
+
+	// Non-android entries never win.
+	if got := BestAndroidApp([]SystemApp{{Platform: "windows", Version: "99.0.0"}}); got != nil {
+		t.Fatalf("BestAndroidApp non-android = %+v, want nil", got)
+	}
+}
+
 func TestEffectiveAndroidRequiredVersionFrom(t *testing.T) {
 	cases := []struct {
 		name       string

@@ -1,14 +1,20 @@
 //go:build ignore
 
-// One-off operational script: upload the freshly built 2.4.1 APK to Cloudflare
-// R2 and point the system_apps android record (id=4) at the new file, so the
-// R2 label matches the real BuildConfig.VERSION_NAME (bump 2.2.0 -> 2.4.1).
+// Operational release script: upload freshly built EXAMVAN Android APKs
+// (student + kiosk flavors) to Cloudflare R2 and point the system_apps rows
+// at the new files, then sync the android_version saas_setting so the
+// version gate requires the newly released version.
 //
-// Run from webui/:  go run cmd/release_apk/main.go
+// Usage (run from webui/, needs R2_*/DATABASE_URL in env or .env):
+//   go run cmd/release_apk/main.go -list
+//   go run cmd/release_apk/main.go -version 2.7.0 \
+//     -student-apk ../android/app/build/outputs/apk/student/release/app-student-release.apk \
+//     -kiosk-apk ../android/app/build/outputs/apk/kiosk/release/app-kiosk-release.apk
 package main
 
 import (
 	"context"
+	"flag"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -38,17 +44,20 @@ func loadEnv(path string) map[string]string {
 }
 
 func main() {
-	env := loadEnv(".env")
+	version := flag.String("version", "", "versi rilis APK (mis. 2.7.0)")
+	studentApk := flag.String("student-apk", "", "path APK flavor student")
+	kioskApk := flag.String("kiosk-apk", "", "path APK flavor kiosk (opsional)")
+	listOnly := flag.Bool("list", false, "hanya cetak isi system_apps + android_version")
+	flag.Parse()
 
-	// Prefer the real environment over .env so the script can run inside the
-	// compose network (container). In that network DATABASE_URL must come from
-	// the environment (host .env has no DATABASE_URL — the DB is internal).
+	env := loadEnv(".env")
 	envVal := func(key string) string {
 		if v := os.Getenv(key); v != "" {
 			return v
 		}
 		return env[key]
 	}
+
 	accessKey := envVal("R2_ACCESS_KEY_ID")
 	secretKey := envVal("R2_SECRET_ACCESS_KEY")
 	endpoint := envVal("R2_ENDPOINT")
@@ -73,53 +82,115 @@ func main() {
 	}
 	defer pool.Close()
 
-	// 1. Baca record android lama (id 4)
-	app, err := models.GetSystemAppByID(ctx, pool, 4)
+	apps, err := models.GetAllSystemApps(ctx, pool)
 	if err != nil {
-		fmt.Printf("FATAL: GetSystemAppByID(4): %v\n", err)
+		fmt.Printf("FATAL: GetAllSystemApps: %v\n", err)
 		os.Exit(1)
 	}
-	fmt.Printf("Record lama: id=%d name=%s platform=%s version=%s\n  file=%s\n  size=%d\n",
-		app.ID, app.Name, app.Platform, app.Version, app.FilePath, app.SizeBytes)
+	if *listOnly {
+		fmt.Println("system_apps saat ini:")
+		for _, a := range apps {
+			fmt.Printf("  id=%d name=%q platform=%s version=%s size=%d file=%s\n",
+				a.ID, a.Name, a.Platform, a.Version, a.SizeBytes, a.FilePath)
+		}
+		av := models.GetSaasSettingWithDefault(ctx, pool, models.SettingAndroidVersion, models.DefaultSettings[models.SettingAndroidVersion])
+		fmt.Printf("saas_setting android_version = %q\n", av)
+		return
+	}
 
-	// 2. Upload APK student baru (versionName 2.4.1) ke R2
-	apkPath := "../android/app/build/outputs/apk/student/debug/app-student-debug.apk"
-	f, err := os.Open(apkPath)
-	if err != nil {
-		fmt.Printf("FATAL: buka APK: %v\n", err)
+	if *version == "" || *studentApk == "" {
+		fmt.Println("FATAL: -version dan -student-apk wajib (lihat header file ini)")
 		os.Exit(1)
 	}
-	defer f.Close()
-	st, _ := f.Stat()
-	fmt.Printf("APK baru: %s (%d bytes)\n", apkPath, st.Size())
 
-	newKey := fmt.Sprintf("apps/android/2.4.1/%s-%d", filepath.Base(apkPath), time.Now().UnixNano())
-	if err := r2c.UploadWithContentType(ctx, newKey, f, "application/vnd.android.package-archive"); err != nil {
-		fmt.Printf("FATAL: upload R2: %v\n", err)
+	// Cari row system_apps: student = nama persis "EXAMVAN"; kiosk = nama
+	// mengandung "kiosk". Row yang belum ada dibuat baru.
+	findRow := func(nameMatch func(string) bool) *models.SystemApp {
+		for i := range apps {
+			if apps[i].Platform == "android" && nameMatch(strings.ToLower(apps[i].Name)) {
+				return &apps[i]
+			}
+		}
+		return nil
+	}
+
+	nameFor := func(flavor string) string {
+		if flavor == "kiosk" {
+			return "EXAMVAN Kiosk"
+		}
+		return "EXAMVAN"
+	}
+
+	publish := func(app *models.SystemApp, apkPath, flavor string) error {
+		f, err := os.Open(apkPath)
+		if err != nil {
+			return fmt.Errorf("buka APK: %w", err)
+		}
+		defer f.Close()
+		st, _ := f.Stat()
+		fmt.Printf("APK %s baru: %s (%d bytes)\n", flavor, apkPath, st.Size())
+
+		newKey := fmt.Sprintf("apps/android/%s/%s-%d", *version, filepath.Base(apkPath), time.Now().UnixNano())
+		if err := r2c.UploadWithContentType(ctx, newKey, f, "application/vnd.android.package-archive"); err != nil {
+			return fmt.Errorf("upload R2: %w", err)
+		}
+		fmt.Printf("Upload OK %s: %s\n", flavor, newKey)
+
+		oldKey := ""
+		if app == nil {
+			app = &models.SystemApp{Name: nameFor(flavor), Platform: "android", Version: *version, FilePath: newKey, SizeBytes: st.Size()}
+			if err := models.CreateSystemApp(ctx, pool, app); err != nil {
+				_ = r2c.Delete(ctx, newKey)
+				return fmt.Errorf("insert system_app: %w", err)
+			}
+			fmt.Printf("Row baru system_app id=%d name=%q\n", app.ID, app.Name)
+		} else {
+			oldKey = app.FilePath
+			app.Version = *version
+			app.FilePath = newKey
+			app.SizeBytes = st.Size()
+			if _, err := pool.Exec(ctx,
+				`UPDATE system_apps SET version=$1, file_path=$2, size_bytes=$3, updated_at=NOW() WHERE id=$4`,
+				app.Version, app.FilePath, app.SizeBytes, app.ID); err != nil {
+				_ = r2c.Delete(ctx, newKey)
+				return fmt.Errorf("update system_app: %w", err)
+			}
+			fmt.Printf("Row system_app id=%d (name=%q) kini menunjuk %s\n", app.ID, app.Name, newKey)
+
+			if oldKey != "" && oldKey != newKey {
+				if err := r2c.Delete(ctx, oldKey); err != nil {
+					fmt.Printf("WARN: hapus file R2 lama (%s) gagal: %v\n", oldKey, err)
+				} else {
+					fmt.Printf("File R2 lama dihapus: %s\n", oldKey)
+				}
+			}
+		}
+		return nil
+	}
+
+	if err := publish(findRow(func(n string) bool { return n == "examvan" }), *studentApk, "student"); err != nil {
+		fmt.Printf("FATAL (student): %v\n", err)
 		os.Exit(1)
 	}
-	fmt.Printf("Upload OK: %s\n", newKey)
-
-	// 3. Update record id=4: versi tetap 2.4.1, file & ukuran baru
-	oldKey := app.FilePath
-	app.Version = "2.4.1"
-	app.FilePath = newKey
-	app.SizeBytes = st.Size()
-	// Tidak ada model.UpdateSystemApp; pakai SQL langsung
-	_, err = pool.Exec(ctx,
-		`UPDATE system_apps SET version=$1, file_path=$2, size_bytes=$3, updated_at=NOW() WHERE id=$4`,
-		app.Version, app.FilePath, app.SizeBytes, app.ID)
-	if err != nil {
-		fmt.Printf("FATAL: update DB: %v\n", err)
-		_ = r2c.Delete(ctx, newKey)
-		os.Exit(1)
+	if *kioskApk != "" {
+		if err := publish(findRow(func(n string) bool { return strings.Contains(n, "kiosk") }), *kioskApk, "kiosk"); err != nil {
+			fmt.Printf("FATAL (kiosk): %v\n", err)
+			os.Exit(1)
+		}
 	}
-	fmt.Println("DB update OK — record id=4 kini menunjuk APK 2.4.1 baru.")
 
-	// 4. Hapus file R2 lama (supaya tidak ada duplikasi label 2.4.1)
-	if err := r2c.Delete(ctx, oldKey); err != nil {
-		fmt.Printf("WARN: hapus file R2 lama gagal: %v\n", err)
+	// Sinkronkan syarat versi server dengan rilis yang baru saja dipublikasi:
+	// klien usang langsung mendapat 426 force-update yang jelas.
+	cur := models.GetSaasSettingWithDefault(ctx, pool, models.SettingAndroidVersion, models.DefaultSettings[models.SettingAndroidVersion])
+	if cur != *version {
+		if err := models.SetSaasSetting(ctx, pool, models.SettingAndroidVersion, *version); err != nil {
+			fmt.Printf("WARN: SetSaasSetting android_version: %v\n", err)
+		} else {
+			fmt.Printf("saas_setting android_version: %q -> %q\n", cur, *version)
+		}
 	} else {
-		fmt.Printf("File R2 lama dihapus: %s\n", oldKey)
+		fmt.Printf("saas_setting android_version sudah %q\n", *version)
 	}
+
+	fmt.Println("RELEASE SELESAI.")
 }
