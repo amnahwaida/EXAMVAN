@@ -264,12 +264,19 @@ class SubmissionManager(
                     AuditLog.i(AuditLog.Events.SUBMIT_SUCCESS, "examId=$examId")
                     deactivateLockTask?.invoke()
 
+                    val notifPayload = SubmissionNotificationPolicy.getNotificationContent(
+                        type = SubmissionNotificationPolicy.SubmissionType.MANUAL,
+                        isSuccess = true,
+                        examName = examName,
+                        serverMessage = result.message
+                    )
+                    showAutoSubmitNotification(
+                        notifPayload.title,
+                        notifPayload.message,
+                        isSuccess = true
+                    )
+
                     if (isActivityFinishing()) {
-                        showAutoSubmitNotification(
-                            context.getString(R.string.auto_submit_success_title),
-                            context.getString(R.string.toast_auto_submit_success),
-                            isSuccess = true
-                        )
                         return@post
                     }
 
@@ -510,18 +517,14 @@ class SubmissionManager(
                 Log.w(TAG, "Auto-submit failed after retries, keeping saved answers for recovery: ${result.message}")
             }
 
-            val notifTitle = if (result.success) {
-                context.getString(R.string.auto_submit_success_title)
-            } else {
-                context.getString(R.string.auto_submit_failed_title)
-            }
-            val notifMessage = if (result.success) {
-                context.getString(R.string.toast_auto_submit_success)
-            } else {
-                context.getString(R.string.toast_auto_submit_failed, result.message)
-            }
+            val notifPayload = SubmissionNotificationPolicy.getNotificationContent(
+                type = SubmissionNotificationPolicy.SubmissionType.AUTO,
+                isSuccess = result.success,
+                examName = examName,
+                serverMessage = result.message
+            )
 
-            showAutoSubmitNotification(notifTitle, notifMessage, isSuccess = result.success)
+            showAutoSubmitNotification(notifPayload.title, notifPayload.message, isSuccess = result.success)
         }
     }
 

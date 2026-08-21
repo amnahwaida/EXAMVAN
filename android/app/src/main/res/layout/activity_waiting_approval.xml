@@ -213,7 +213,7 @@
                     android:layout_height="wrap_content"
                     android:layout_weight="1"
                     android:textSize="13sp"
-                    android:textColor="#92400E"
+                    android:textColor="@color/warning_text"
                     android:lineSpacingMultiplier="1.2" />
 
             </LinearLayout>
@@ -254,7 +254,7 @@
                     android:layout_height="wrap_content"
                     android:text="@string/approval_rejected_message"
                     android:textSize="14sp"
-                    android:textColor="#991B1B"
+                    android:textColor="@color/danger_text"
                     android:gravity="center"
                     android:lineSpacingMultiplier="1.3" />
 

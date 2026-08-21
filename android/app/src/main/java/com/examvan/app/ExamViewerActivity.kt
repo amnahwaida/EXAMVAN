@@ -502,16 +502,16 @@ class ExamViewerActivity : BaseSecureActivity() {
     private fun updateSecurityBanner() {
         if (securityEnforcer.strictMode) {
             binding.tvSecurityBanner.text = getString(R.string.strict_mode_active)
-            binding.tvSecurityBanner.setBackgroundColor(android.graphics.Color.parseColor("#B71C1C"))
-            binding.tvSecurityBanner.setTextColor(android.graphics.Color.parseColor("#FFFFFF"))
+            binding.tvSecurityBanner.setBackgroundColor(androidx.core.content.ContextCompat.getColor(this, R.color.security_banner_critical))
+            binding.tvSecurityBanner.setTextColor(androidx.core.content.ContextCompat.getColor(this, R.color.security_banner_text))
         } else if (securityLevel == "medium") {
             binding.tvSecurityBanner.text = getString(R.string.autosubmit_status_active)
-            binding.tvSecurityBanner.setBackgroundColor(android.graphics.Color.parseColor("#D32F2F"))
-            binding.tvSecurityBanner.setTextColor(android.graphics.Color.parseColor("#FFFFFF"))
+            binding.tvSecurityBanner.setBackgroundColor(androidx.core.content.ContextCompat.getColor(this, R.color.security_banner_warning))
+            binding.tvSecurityBanner.setTextColor(androidx.core.content.ContextCompat.getColor(this, R.color.security_banner_text))
         } else {
             binding.tvSecurityBanner.text = getString(R.string.autosubmit_status_inactive)
-            binding.tvSecurityBanner.setBackgroundColor(android.graphics.Color.parseColor("#455A64"))
-            binding.tvSecurityBanner.setTextColor(android.graphics.Color.parseColor("#FFFFFF"))
+            binding.tvSecurityBanner.setBackgroundColor(androidx.core.content.ContextCompat.getColor(this, R.color.security_banner_info))
+            binding.tvSecurityBanner.setTextColor(androidx.core.content.ContextCompat.getColor(this, R.color.security_banner_text))
         }
     }
 
@@ -663,6 +663,17 @@ class ExamViewerActivity : BaseSecureActivity() {
     override fun onPause() {
         super.onPause()
         countDownTimer?.cancel()
+    }
+
+    override fun onStop() {
+        super.onStop()
+        if (::securityEnforcer.isInitialized && ::submissionManager.isInitialized) {
+            if (!submissionManager.submittedOrExited && viewModel.isPdfReady.value) {
+                if (ExamModePolicy.shouldAutoSubmitOnFocusLoss(securityLevel, securityEnforcer.strictMode)) {
+                    submissionManager.autoSubmitAndExit()
+                }
+            }
+        }
     }
 
     override fun onUserLeaveHint() {

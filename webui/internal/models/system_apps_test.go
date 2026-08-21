@@ -59,8 +59,8 @@ func TestBestAndroidAppVersion(t *testing.T) {
 
 func TestBestAndroidAppTieBreakNonKiosk(t *testing.T) {
 	apps := []SystemApp{
-		{ID: 1, Platform: "android", Version: "2.7.0", Name: "EXAMVAN"},
-		{ID: 2, Platform: "android", Version: "2.7.0", Name: "EXAMVAN Kiosk"},
+		{ID: 1, Platform: "android", Version: "2.7.2", Name: "EXAMVAN"},
+		{ID: 2, Platform: "android", Version: "2.7.2", Name: "EXAMVAN Kiosk"},
 	}
 	// Equal versions: the regular client must win the tie even when the kiosk
 	// entry appears first (GetAllSystemApps orders by created_at DESC, so a

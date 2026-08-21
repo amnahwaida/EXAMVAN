@@ -2,7 +2,7 @@
 
 > Platform distribusi & pelaksanaan ujian digital aman berbasis cloud (HTTPS) untuk sekolah dan kampus dengan perlindungan anti-cheat berlapis di sisi Android.
 >
-> 🏷️ **Rilis terbaru:** tag **`v2.7.0`** (19 Agustus 2026) — changelog lengkap di [GitHub Releases](https://github.com/amnahwaida/EXAMVAN/releases).
+> 🏷️ **Rilis terbaru:** tag **`v2.7.2`** (21 Agustus 2026) — changelog lengkap di [GitHub Releases](https://github.com/amnahwaida/EXAMVAN/releases).
 
 ---
 

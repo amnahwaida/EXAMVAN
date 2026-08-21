@@ -11,8 +11,8 @@ android {
         applicationId = "com.examvan.app"
         minSdk = 24
         targetSdk = 35
-        versionCode = 36
-        versionName = "2.7.0"
+        versionCode = 38
+        versionName = "2.7.2"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 

@@ -7,7 +7,7 @@
 //
 // Usage (run from webui/, needs R2_*/DATABASE_URL in env or .env):
 //   go run cmd/release_apk/main.go -list
-//   go run cmd/release_apk/main.go -version 2.7.0 \
+//   go run cmd/release_apk/main.go -version 2.7.2 \
 //     -student-apk ../android/app/build/outputs/apk/student/release/app-student-release.apk \
 //     -kiosk-apk ../android/app/build/outputs/apk/kiosk/release/app-kiosk-release.apk
 package main
@@ -44,7 +44,7 @@ func loadEnv(path string) map[string]string {
 }
 
 func main() {
-	version := flag.String("version", "", "versi rilis APK (mis. 2.7.0)")
+	version := flag.String("version", "", "versi rilis APK (mis. 2.7.2)")
 	studentApk := flag.String("student-apk", "", "path APK flavor student")
 	kioskApk := flag.String("kiosk-apk", "", "path APK flavor kiosk (opsional)")
 	listOnly := flag.Bool("list", false, "hanya cetak isi system_apps + android_version")

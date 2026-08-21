@@ -427,7 +427,7 @@ class AnswerSheetBuilder(
         if (view is TextView) {
             view.setTextColor(textColor)
             if (view is EditText) {
-                view.setHintTextColor(if (isDark) android.graphics.Color.parseColor("#B0FFFFFF") else android.graphics.Color.parseColor("#80000000"))
+                view.setHintTextColor(if (isDark) androidx.core.content.ContextCompat.getColor(context, R.color.hint_on_dark_panel) else androidx.core.content.ContextCompat.getColor(context, R.color.hint_on_light_panel))
                 view.backgroundTintList = android.content.res.ColorStateList.valueOf(textColor)
             }
             if (view is RadioButton) {

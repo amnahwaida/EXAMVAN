@@ -59,7 +59,7 @@
             android:layout_height="wrap_content"
             android:text="@string/storage_fallback_warning"
             android:textSize="12sp"
-            android:textColor="#92400E"
+            android:textColor="@color/warning_text"
             android:background="@drawable/bg_status_warning"
             android:padding="10dp"
             android:visibility="gone"

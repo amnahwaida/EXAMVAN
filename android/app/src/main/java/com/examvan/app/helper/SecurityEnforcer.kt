@@ -288,7 +288,7 @@ class SecurityEnforcer(
             AuditLog.i(AuditLog.Events.FOCUS_RESTORED,
                 "strict=$strictMode isActive=${LockTaskManager.isActive(activity)}")
         } else {
-            if (strictMode && !isShowingAppDialog && isPdfReady && !submittedOrExited) {
+            if (!isShowingAppDialog && isPdfReady && !submittedOrExited) {
                 if (System.currentTimeMillis() - volumeKeyPressedAt < 1500) return
                 if (activePopupCount > 0) return
 
