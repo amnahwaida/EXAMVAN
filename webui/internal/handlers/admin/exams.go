@@ -371,7 +371,7 @@ func UploadExam() gin.HandlerFunc {
 			// New exams start INACTIVE: they only become joinable for students
 			// after the admin explicitly activates and starts them.
 			Status:             "inactive",
-			SecurityLevel:      "medium",
+			SecurityLevel:      "high",
 			PublicResults:      1,
 			CreatedBy:          userID,
 			DelegatedTo:        delegatedTo,
@@ -1292,7 +1292,7 @@ func GetQuestions() gin.HandlerFunc {
 		}
 
 		// Security level
-		securityLevel := "medium"
+		securityLevel := "high"
 		if exam.SecurityLevel != "" {
 			securityLevel = exam.SecurityLevel
 		}
@@ -1434,8 +1434,12 @@ func SaveQuestions() gin.HandlerFunc {
 		}
 
 		securityLevel := body.SecurityLevel
-		if securityLevel != "low" && securityLevel != "medium" && securityLevel != "high" {
-			securityLevel = "medium"
+		if securityLevel == "medium" {
+			errorResponse(c, http.StatusBadRequest, "Mode ujian Medium saat ini dinonaktifkan. Silakan pilih mode Low atau High / Strict.")
+			return
+		}
+		if securityLevel != "low" && securityLevel != "high" {
+			securityLevel = "high"
 		}
 
 		strictMode := 0

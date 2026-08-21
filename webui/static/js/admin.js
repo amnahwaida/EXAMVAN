@@ -424,7 +424,7 @@ function openQuestionsModal(examId, examName) {
                 activeExamId = examId; // Set AFTER data loaded
                 const secSelect = document.getElementById('examSecurityLevel');
                 if (secSelect) {
-                    secSelect.value = res.security_level || 'medium';
+                    secSelect.value = res.security_level || 'high';
                 }
                 // Panel color
                 const colorVal = res.panel_color || '#6366F1';
@@ -1208,7 +1208,12 @@ function saveQuestionsConfig() {
     if (!activeExamId) return;
 
     const questions = getQuestionsFromEditor();
-    const securityLevel = document.getElementById('examSecurityLevel') ? document.getElementById('examSecurityLevel').value : 'medium';
+    const secSelect = document.getElementById('examSecurityLevel');
+    const securityLevel = secSelect ? secSelect.value : 'high';
+    if (securityLevel === 'medium') {
+        showToast('Mode ujian Medium saat ini dinonaktifkan. Silakan pilih mode Low atau High / Strict.', 'error');
+        return;
+    }
     const strictMode = securityLevel === 'high';
 
     const identityFields = getIdentityFieldsFromEditor();
