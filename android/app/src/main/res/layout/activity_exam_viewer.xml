@@ -240,20 +240,17 @@
         app:layout_constraintEnd_toEndOf="parent"
         app:layout_constraintHeight_percent="0.45">
 
-        <!-- Scrollable Answer List -->
-        <ScrollView
+        <!-- Answer list — RecyclerView scroll SENDIRI (fix arsitektur:
+             di dalam ScrollView dengan wrap_content, RecyclerView
+             meng-inflate semua item dan tujuan penghematan memori gagal) -->
+        <androidx.recyclerview.widget.RecyclerView
+            android:id="@+id/answerListContainer"
             android:layout_width="match_parent"
             android:layout_height="0dp"
             android:layout_weight="1"
             android:padding="12dp"
-            android:fillViewport="true">
-
-            <LinearLayout
-                android:id="@+id/answerListContainer"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:orientation="vertical" />
-        </ScrollView>
+            android:clipToPadding="false"
+            android:overScrollMode="never" />
 
         <!-- Submit Button -->
         <Button
