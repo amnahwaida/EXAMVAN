@@ -42,6 +42,14 @@ class PdfRendererHelper(
     private var isCleanedUp = false
 
     /**
+     * Fix review render PDF #3: increment terjadi di thread caller sedangkan
+     * pembacaan di worker thread (di luar jangkauan mutex) — Long non-volatile
+     * punya celah visibilitas.
+     */
+    @Volatile
+    private var renderVersion = 0L
+
+    /**
      * Mutex serializes PdfRenderer access (thread-safe — PdfRenderer is NOT thread-safe).
      *
      * Fixes #3: Unlike Job.cancel() which can race (old render continues on Default dispatcher
@@ -49,7 +57,6 @@ class PdfRendererHelper(
      * arrives late, it's discarded when [renderVersion] has advanced.
      */
     private val renderMutex = Mutex()
-    private var renderVersion = 0L
 
     // Callback when PDF is fully ready and rendered
     var onPdfReady: (() -> Unit)? = null
@@ -68,25 +75,26 @@ class PdfRendererHelper(
     /**
      * Check if a page is already cached on disk.
      */
-    fun hasCachedPdf(examId: Int): Boolean {
-        val cachedFile = File(context.cacheDir, "exam_$examId.pdf")
-        return cachedFile.exists() && cachedFile.length() > 0
-    }
+    fun hasCachedPdf(examId: Int): Boolean =
+        PdfCache.hasCachedPdf(context.cacheDir, examId)
 
     /**
      * Start downloading the exam PDF.
-     * Checks cache first, then downloads with progress.
+     * Checks usable cache first (ada + tidak kosong + usia <= 12 jam — fix
+     * review #2), then downloads with progress.
      */
     fun downloadPdf(examId: Int, token: String) {
         showDownloading()
 
-        val cachedFile = File(context.cacheDir, "exam_$examId.pdf")
-        if (cachedFile.exists() && cachedFile.length() > 0) {
+        val cachedFile = PdfCache.pdfFile(context.cacheDir, examId)
+        if (PdfCache.isCacheUsable(cachedFile, System.currentTimeMillis())) {
             binding.tvDownloadPercent.text = "100%"
             binding.progressDownload.progress = 100
-            openPdf(cachedFile)
+            openPdfAsync(cachedFile)
             return
         }
+        // Cache basi/rusak → buang agar tidak menabrak file unduhan baru.
+        cachedFile.delete()
 
         downloadCall?.cancel()
         val mainHandler = android.os.Handler(android.os.Looper.getMainLooper())
@@ -109,7 +117,7 @@ class PdfRendererHelper(
                 mainHandler.post {
                     val isActivityFinishing = (context as? android.app.Activity)?.let { it.isFinishing || it.isDestroyed } ?: false
                     if (isCleanedUp || isActivityFinishing) return@post
-                    openPdf(file)
+                    openPdfAsync(file)
                 }
             },
             onError = { errorMsg ->
@@ -147,36 +155,59 @@ class PdfRendererHelper(
     }
 
     /**
-     * Open a PDF file for rendering.
+     * Open a PDF file for rendering — ASYNC di Dispatchers.Default
+     * (fix review render PDF #1: dulu ParcelFileDescriptor.open + konstruktor
+     * PdfRenderer — disk I/O + parse struktur PDF — berjalan di MAIN thread,
+     * PDF besar = jank/ANR saat pembukaan). UI callback tetap di main.
      */
-    private fun openPdf(file: File) {
-        try {
-            fileDescriptor = ParcelFileDescriptor.open(
-                file, ParcelFileDescriptor.MODE_READ_ONLY
-            )
-            val fd = fileDescriptor ?: run {
-                onError?.invoke("Gagal membuka file PDF")
-                return
+    private fun openPdfAsync(file: File) {
+        lifecycleScope.launch {
+            val openedPageCount: Int? = renderMutex.withLock {
+                if (isCleanedUp) return@withLock null
+                withContext(Dispatchers.Default) {
+                    try {
+                        closeCurrentDocument()
+                        fileDescriptor = ParcelFileDescriptor.open(
+                            file, ParcelFileDescriptor.MODE_READ_ONLY
+                        )
+                        val renderer = PdfRenderer(fileDescriptor!!)
+                        pdfRenderer = renderer
+                        renderer.pageCount
+                    } catch (e: Exception) {
+                        Log.e(TAG, "Gagal membuka file PDF", e)
+                        null
+                    }
+                }
             }
-            pdfRenderer = PdfRenderer(fd)
-            val renderer = pdfRenderer ?: run {
-                onError?.invoke("Gagal merender PDF")
-                return
+
+            android.os.Handler(android.os.Looper.getMainLooper()).post {
+                if (isCleanedUp || !isMainThreadSafe()) return@post
+                if (openedPageCount == null || openedPageCount <= 0) {
+                    onError?.invoke("Gagal membuka file PDF")
+                    return@post
+                }
+                totalPages = openedPageCount
+                currentPage = if (pendingRestorePage in 0 until totalPages) {
+                    val p = pendingRestorePage
+                    pendingRestorePage = PENDING_PAGE_NONE
+                    p
+                } else 0
+                showPdfViewer()
+                onPdfReady?.invoke()
+                renderPage(currentPage)
             }
-            totalPages = renderer.pageCount
-            // Restore pending page if set
-            if (pendingRestorePage in 0 until totalPages) {
-                currentPage = pendingRestorePage
-                pendingRestorePage = PENDING_PAGE_NONE
-            } else {
-                currentPage = 0
-            }
-            renderPage(currentPage)
-            showPdfViewer()
-            onPdfReady?.invoke()
-        } catch (e: Exception) {
-            onError?.invoke("Gagal membuka file PDF: ${e.message}")
         }
+    }
+
+    private fun isMainThreadSafe(): Boolean =
+        (context as? android.app.Activity)?.let { !it.isFinishing && !it.isDestroyed } ?: true
+
+    /** Tutup dokumen yang sedang terbuka dengan aman. */
+    private fun closeCurrentDocument() {
+        try { pdfRenderer?.close() } catch (_: Exception) { }
+        try { fileDescriptor?.close() } catch (_: Exception) { }
+        pdfRenderer = null
+        fileDescriptor = null
     }
 
     /** Pending page to restore after configuration change */
@@ -296,12 +327,7 @@ class PdfRendererHelper(
         cancelDownload()
         setSwipeListener(null)
         renderVersion++ // invalidates any in-flight render
-        try {
-            pdfRenderer?.close()
-            fileDescriptor?.close()
-        } catch (_: Exception) { }
-        pdfRenderer = null
-        fileDescriptor = null
+        closeCurrentDocument()
         currentBitmap?.recycle()
         currentBitmap = null
     }
