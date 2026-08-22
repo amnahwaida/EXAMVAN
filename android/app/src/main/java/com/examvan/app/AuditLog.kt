@@ -27,8 +27,12 @@ object AuditLog {
 
     private const val TAG = "AuditLog"
 
-    // Event counters — bisa dipantau secara real-time via logcat grep
-    private val counters = mutableMapOf<String, Int>()
+    // Event counters — bisa dipantau secara real-time via logcat grep.
+    // ConcurrentHashMap (fix review strict ronde 3 #1): pemanggil kini
+    // tersebar multi-thread (main, Dispatchers.IO untuk scan lingkungan,
+    // GlobalScope untuk submit background) — HashMap kehilangan update
+    // di bawah tulisan konkuren (terbukti oleh AuditLogTest stres).
+    private val counters = java.util.concurrent.ConcurrentHashMap<String, Int>()
 
     private const val SEP = " | "
 
@@ -56,6 +60,12 @@ object AuditLog {
         counters.clear()
     }
 
+    /**
+     * Jumlah kejadian untuk [event] sejak reset terakhir — dipakai test
+     * JVM untuk mengunci perilaku logging (android.util.Log di-stub no-op).
+     */
+    fun countFor(event: String): Int = counters[event] ?: 0
+
     // ── Event type constants ────────────────────────────────────────
 
     object Events {
@@ -80,6 +90,6 @@ object AuditLog {
     // ── Private ─────────────────────────────────────────────────────
 
     private fun increment(event: String) {
-        counters[event] = (counters[event] ?: 0) + 1
+        counters.merge(event, 1, Int::plus)
     }
 }

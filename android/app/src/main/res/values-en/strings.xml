@@ -151,4 +151,6 @@
 
     <!-- Update required dialog -->
     <string name="update_required_url_missing">Server address is not saved yet. Contact the supervisor to update the app.</string>
+    <!-- Device admin (kiosk) -->
+    <string name="device_admin_description">EXAMVAN administrator for exam kiosk mode</string>
 </resources>

@@ -1,15 +1,15 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
 
-    <!-- Kiosk-only permissions for Device Owner / Screen Pinning -->
-    <uses-permission android:name="android.permission.REORDER_TASKS" />
-    <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" />
+    <!-- Fix review strict ronde 2 #1: SYSTEM_ALERT_WINDOW & REORDER_TASKS
+         dihapus — tidak pernah dipakai kode, dan overlay permission justru
+         identik dengan vektor tapjacking yang dibela aplikasi ini. -->
 
     <application>
         <receiver
             android:name="com.examvan.app.receiver.MyDeviceAdminReceiver"
             android:label="Examvan Admin"
-            android:description="@string/app_name"
+            android:description="@string/device_admin_description"
             android:permission="android.permission.BIND_DEVICE_ADMIN"
             android:exported="true">
             <meta-data

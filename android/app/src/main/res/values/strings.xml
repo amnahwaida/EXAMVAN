@@ -149,4 +149,6 @@
 
     <!-- Secure storage fallback warning (keystore corrupt) -->
     <string name="storage_fallback_warning">Penyimpanan aman (keystore) tidak tersedia di perangkat ini. URL, token, dan data identitas akan disimpan TANPA enkripsi. Hubungi pengawas sebelum melanjutkan.</string>
+    <!-- Device admin (kiosk) -->
+    <string name="device_admin_description">Administrator EXAMVAN untuk mode kiosk ujian</string>
 </resources>

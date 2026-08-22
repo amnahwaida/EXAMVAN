@@ -748,6 +748,9 @@ class ExamViewerActivity : BaseSecureActivity() {
                 }
             }
             securityEnforcer.onResume()
+            // Fix review strict ronde 2 #2: recovery lock task aktif hanya
+            // saat foreground.
+            securityEnforcer.setLockRecoveryEnabled(true)
             // Banner mencerminkan mode aktif (juga menutup kasus strict-failed
             // yang sebelumnya tidak pernah di-update setelah aktivasi gagal).
             updateSecurityBanner()
@@ -759,6 +762,11 @@ class ExamViewerActivity : BaseSecureActivity() {
 
     override fun onPause() {
         super.onPause()
+        if (::securityEnforcer.isInitialized) {
+            // Fix review strict ronde 2 #2: matikan recovery lock task saat
+            // background agar health check tidak spam startLockTask gagal.
+            securityEnforcer.setLockRecoveryEnabled(false)
+        }
         countDownTimer?.cancel()
     }
 

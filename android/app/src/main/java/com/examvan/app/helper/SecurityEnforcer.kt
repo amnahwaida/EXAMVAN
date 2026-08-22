@@ -260,6 +260,11 @@ class SecurityEnforcer(
         if (submittedOrExited) return
         if (!isPdfReady) return
         if (isShowingAppDialog) return
+        // Fix review strict #3: jangan re-pin saat dialog konfirmasi pinning
+        // sedang menunggu jawaban user (saat ini tak terjangkau karena
+        // isPdfReady false pra-aktivasi, tapi guard ini mencegah regresi
+        // bila urutan flow berubah — mis. PDF di-prefetch).
+        if (LockTaskManager.isPinningPending) return
         if (System.currentTimeMillis() - onCreateTime < 3000) return
 
         if (strictMode) {
@@ -787,6 +792,15 @@ class SecurityEnforcer(
             strictMode = false
             LockTaskManager.deactivate(activity)
         }
+    }
+
+    /**
+     * Gerbang recovery lock task (fix review strict ronde 2 #2): dipanggil
+     * activity dari onResume(true) / onPause(false) agar health check hanya
+     * mencoba re-aktivasi saat app benar-benar foreground.
+     */
+    fun setLockRecoveryEnabled(enabled: Boolean) {
+        LockTaskManager.setRecoveryEnabled(enabled)
     }
 
     fun stopHealthCheck() {

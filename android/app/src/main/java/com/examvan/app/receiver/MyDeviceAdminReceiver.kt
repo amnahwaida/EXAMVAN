@@ -3,7 +3,6 @@ package com.examvan.app.receiver
 import android.app.admin.DeviceAdminReceiver
 import android.content.Context
 import android.content.Intent
-import android.widget.Toast
 
 /**
  * DeviceAdminReceiver to support Android Enterprise Device Owner mode.
@@ -14,11 +13,9 @@ class MyDeviceAdminReceiver : DeviceAdminReceiver() {
 
     override fun onEnabled(context: Context, intent: Intent) {
         super.onEnabled(context, intent)
-        Toast.makeText(context, "EXAMVAN Administrator Aktif", Toast.LENGTH_SHORT).show()
-    }
-
-    override fun onDisabled(context: Context, intent: Intent) {
-        super.onDisabled(context, intent)
-        Toast.makeText(context, "EXAMVAN Administrator Nonaktif", Toast.LENGTH_SHORT).show()
+        // Toast konfirmasi hanya saat AKTIF — berguna bagi admin sekolah
+        // saat setup kiosk. Penonaktifan tidak diberi toast (fix review
+        // strict ronde 2 #3): perubahan admin di perangkat sekolah jarang
+        // dan bukan sesuatu yang perlu diumumkan ke siswa.
     }
 }

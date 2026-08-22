@@ -39,6 +39,13 @@ import android.util.Log
  *  - Volume key long-press (Accessibility)
  * Lihat [ExamViewerActivity] untuk perlindungan tambahan terhadap ini.
  *
+ * Keterbatasan platform lain (review strict ronde 4):
+ *  - OEM yang mematikan proses saat pinned melepas pin di sisi sistem —
+ *    tidak ada yang bisa dilakukan client-side; deteksi hanya dari
+ *    ketidakhadiran siswa di dasbor/server.
+ *  - Re-entry pasca proses mati memerlukan input token ulang via launcher
+ *    (belum ada deep-link "lanjutkan ujian" — backlog produk).
+ *
  * Catatan: compileSdk 34 mengekspos isInLockTaskMode() via ActivityManager,
  * BUKAN Activity. Untuk API 29+ prefer getLockTaskModeState().
  */
@@ -47,12 +54,42 @@ object LockTaskManager {
     private const val TAG = "LockTaskManager"
     private const val HEALTH_CHECK_INTERVAL_MS = 15_000L // 15 detik
 
+    /**
+     * Detail audit saat rantai poll verifikasi habis (fix review strict
+     * ronde 4 #1): penyebabnya TIDAK dapat dibedakan antara user menolak
+     * dialog vs tidak sempat menjawab (Home, layar mati, lambat) — label
+     * lama "user_cancelled_dialog" mengklaim kepastian yang tidak ada.
+     */
+    const val REJECT_DETAIL_REJECTED_OR_NO_RESPONSE = "rejected_or_no_response"
+
     private var healthCheckHandler: Handler? = null
     private var healthCheckRunnable: Runnable? = null
     private var healthCheckActive = false
 
     var isPinningPending = false
         private set
+
+    // Guard generasi rantai poll (fix review strict #1): retry cepat tidak
+    // boleh menumpuk rantai poll paralel — hanya generasi terbaru yang
+    // boleh melaporkan hasil.
+    private val pinPollGuard = com.examvan.app.helper.PollChainGuard()
+    private var pollHandler: Handler? = null
+    private var pollRunnable: Runnable? = null
+
+    // Gerbang recovery berbasis lifecycle (fix review strict ronde 2 #2):
+    // re-aktivasi otomatis hanya saat activity resumed. Default false —
+    // health check pertama dimulai dari onCreate, sebelum onResume.
+    private val recoveryGate = com.examvan.app.helper.RecoveryGate()
+    @Volatile
+    private var deferredRecoveryLogged = false
+
+    /** Di-set oleh SecurityEnforcer via activity lifecycle. */
+    fun setRecoveryEnabled(enabled: Boolean) {
+        val changed = recoveryGate.setEnabled(enabled)
+        if (changed && !enabled) {
+            deferredRecoveryLogged = false // siklus background baru
+        }
+    }
 
     // Component name untuk DeviceAdminReceiver — menggunakan string literal
     // agar kompatibel di kedua flavor (student & kiosk). Di student flavor
@@ -88,6 +125,9 @@ object LockTaskManager {
             return true
         }
         // Tier 2: Regular startLockTask (mungkin muncul dialog konfirmasi)
+        // Fix review strict #1: batalkan rantai poll lama sebelum memulai
+        // yang baru — retry cepat tidak boleh menumpuk rantai paralel.
+        cancelPollChain()
         isPinningPending = true
         val result = tryStartLockTask(activity) { success ->
             isPinningPending = false
@@ -146,11 +186,37 @@ object LockTaskManager {
                 return@Runnable
             }
             if (!isLockTaskActive(activity)) {
+                // Fix review strict ronde 2 #2: saat background, JANGAN
+                // mencoba startLockTask (pasti gagal + log spam) — cukup
+                // audit sekali per siklus; onResume yang sudah ada akan
+                // menangani re-pin begitu app dibuka lagi.
+                if (!recoveryGate.shouldAttemptRecovery()) {
+                    if (!deferredRecoveryLogged) {
+                        deferredRecoveryLogged = true
+                        AuditLog.w(AuditLog.Events.LOCKTASK_LOST, "backgrounded_deferred")
+                    }
+                    healthCheckHandler?.postDelayed(healthCheckRunnable!!, HEALTH_CHECK_INTERVAL_MS)
+                    return@Runnable
+                }
                 Log.w(TAG, "HealthCheck: Lock task lost! Re-activating...")
                 AuditLog.w(AuditLog.Events.LOCKTASK_LOST, "health_check")
-                // Coba DPM dulu, baru fallback
+                // Coba DPM dulu, baru fallback. Fix review strict #2:
+                // penolakan user pada dialog re-pin kini TERCATAT
+                // (dulu senyap — berbeda dengan aktivasi awal), dan
+                // isPinningPending dikelola agar guard re-pin konsisten.
+                isPinningPending = true
                 if (!tryDpmLockTask(activity)) {
-                    tryStartLockTask(activity)
+                    tryStartLockTask(activity) { success ->
+                        isPinningPending = false
+                        if (!success) {
+                            AuditLog.w(
+                                AuditLog.Events.LOCKTASK_REJECTED,
+                                "health_check_recovery"
+                            )
+                        }
+                    }
+                } else {
+                    isPinningPending = false
                 }
                 AuditLog.i(AuditLog.Events.LOCKTASK_HEALTH_RECOVER, "re-activation_requested")
             } else {
@@ -297,15 +363,23 @@ object LockTaskManager {
      * pinning, jadi kita polling isLockTaskActive() dengan interval.
      *
      * Strategi: poll 15 kali (400ms interval, total 6 detik).
+     *
+     * Fix review strict #1: rantai poll kini ber-generasi via PollChainGuard
+     * — retry aktivasi membatalkan rantai lama (cancelPollChain) dan tick
+     * rantai stale berhenti senyap tanpa melaporkan hasil.
      */
     private fun deferredLogOnReject(activity: Activity, onResult: (Boolean) -> Unit) {
-        val pollHandler = Handler(Looper.getMainLooper())
+        val chainGeneration = pinPollGuard.newChain()
         val pollIntervalMs = 400L
         val maxPolls = 15
         var pollCount = 0
 
-        val pollRunnable = object : Runnable {
+        val runnable = object : Runnable {
             override fun run() {
+                // Rantai sudah digantikan retry yang lebih baru → berhenti
+                // SENYAP tanpa onResult (pemilik hasil = rantai terbaru).
+                if (!pinPollGuard.isCurrent(chainGeneration)) return
+
                 pollCount++
                 if (activity.isFinishing || activity.isDestroyed) {
                     onResult(false)
@@ -320,17 +394,30 @@ object LockTaskManager {
                 }
 
                 if (pollCount >= maxPolls) {
-                    // Semua poll gagal — user menolak dialog atau timeout
-                    Log.w(TAG, "startLockTask REGULAR ditolak user (${maxPolls}x polls failed)")
-                    AuditLog.w(AuditLog.Events.LOCKTASK_REJECTED, "user_cancelled_dialog")
+                    // Semua poll gagal — user menolak dialog ATAU tidak
+                    // sempat menjawab (tak dapat dibedakan; lihat konstanta).
+                    Log.w(TAG, "startLockTask REGULAR ditolak/timeout (${maxPolls}x polls)")
+                    AuditLog.w(
+                        AuditLog.Events.LOCKTASK_REJECTED,
+                        REJECT_DETAIL_REJECTED_OR_NO_RESPONSE
+                    )
                     onResult(false)
                     return // stop polling — ditolak
                 }
 
                 // Poll lagi dengan interval tetap
-                pollHandler.postDelayed(this, pollIntervalMs)
+                pollHandler?.postDelayed(this, pollIntervalMs)
             }
         }
-        pollHandler.postDelayed(pollRunnable, pollIntervalMs)
+        pollHandler = Handler(Looper.getMainLooper())
+        pollRunnable = runnable
+        pollHandler?.postDelayed(runnable, pollIntervalMs)
+    }
+
+    /** Batalkan rantai poll verifikasi yang sedang berjalan (jika ada). */
+    private fun cancelPollChain() {
+        // Generasi baru membuat semua tick rantai lama berhenti sendiri;
+        // removeCallbacks hanya mempercepat pembersihannya.
+        pollHandler?.removeCallbacks(pollRunnable ?: return)
     }
 }
