@@ -39,4 +39,18 @@ object DeviceStatusPolicy {
      */
     fun isOnline(hasInternet: Boolean, validated: Boolean): Boolean =
         hasInternet && validated
+
+    /**
+     * Keputusan online dari JARINGAN AKTIF saat ini (fix review fitur #1:
+     * perangkat bisa punya WiFi + seluler bersamaan — kehilangan satu
+     * transport tidak berarti offline; keputusan harus dari capabilities
+     * jaringan aktif, bukan semantik per-event).
+     *
+     * @param activeHasInternet null = tidak ada jaringan aktif.
+     * @param activeValidated   null = tidak ada jaringan aktif.
+     */
+    fun isOnlineFromActiveNetwork(activeHasInternet: Boolean?, activeValidated: Boolean?): Boolean {
+        if (activeHasInternet == null || activeValidated == null) return false
+        return isOnline(activeHasInternet, activeValidated)
+    }
 }

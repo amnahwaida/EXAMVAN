@@ -99,6 +99,9 @@ class ExamViewerActivity : BaseSecureActivity() {
     // Network callback
     private val networkCallback = object : android.net.ConnectivityManager.NetworkCallback() {
         override fun onAvailable(network: android.net.Network) {
+            // Fix review fitur indikator ronde 2 #1: SEMUA event jaringan
+            // membaca ulang state — kontrak seragam dengan callback lain.
+            refreshConnectionIndicator()
             if (!viewModel.isPdfReady.value && !viewModel.submittedOrExited.value && examId != -1) {
                 android.os.Handler(android.os.Looper.getMainLooper()).post {
                     if (!isFinishing && !isDestroyed && !viewModel.isPdfReady.value) {
@@ -109,29 +112,22 @@ class ExamViewerActivity : BaseSecureActivity() {
             }
         }
 
-        // Indikator koneksi (fitur baru): online hanya bila capability
-        // INTERNET + VALIDATED (captive portal bukan online).
+        // Indikator koneksi (fitur baru): keputusan SELALU dari jaringan
+        // aktif saat ini — dulu onLost satu network (WiFi hilang, seluler
+        // masih aktif) langsung menandai "Offline" palsu.
         override fun onCapabilitiesChanged(
             network: android.net.Network,
             networkCapabilities: android.net.NetworkCapabilities
         ) {
-            val online = com.examvan.app.helper.DeviceStatusPolicy.isOnline(
-                hasInternet = networkCapabilities.hasCapability(
-                    android.net.NetworkCapabilities.NET_CAPABILITY_INTERNET
-                ),
-                validated = networkCapabilities.hasCapability(
-                    android.net.NetworkCapabilities.NET_CAPABILITY_VALIDATED
-                )
-            )
-            updateConnectionIndicator(online)
+            refreshConnectionIndicator()
         }
 
         override fun onLost(network: android.net.Network) {
-            updateConnectionIndicator(false)
+            refreshConnectionIndicator()
         }
 
         override fun onUnavailable() {
-            updateConnectionIndicator(false)
+            refreshConnectionIndicator()
         }
     }
 
@@ -158,8 +154,11 @@ class ExamViewerActivity : BaseSecureActivity() {
         applyEdgeToEdgeInsets(binding.root, includeIme = true)
         binding.btnSubmitAnswers.filterTouchesWhenObscured = true
 
-        // Indikator baterai & koneksi (fitur baru) — tampil selama ujian.
+        // Indikator baterai & koneksi (fitur baru) — tampil selama ujian,
+        // termasuk di fase aktivasi strict sebelum callback jaringan
+        // terdaftar (fix review fitur #2: tidak ada indikator kosong).
         registerBatteryIndicator()
+        refreshConnectionIndicator()
 
         // Read intent extras
         examId = intent.getIntExtra("exam_id", -1)
@@ -960,6 +959,25 @@ class ExamViewerActivity : BaseSecureActivity() {
     }
 
     // ===== Indikator baterai & koneksi (fitur baru) =====
+
+    /**
+     * Baca ulang status jaringan AKTIF dan perbarui indikator — dipakai
+     * semua event callback agar multi-network tidak menandai offline palsu.
+     */
+    private fun refreshConnectionIndicator() {
+        val cm = getSystemService(android.content.Context.CONNECTIVITY_SERVICE) as?
+                android.net.ConnectivityManager
+        val caps = cm?.getNetworkCapabilities(cm.activeNetwork)
+        val online = com.examvan.app.helper.DeviceStatusPolicy.isOnlineFromActiveNetwork(
+            activeHasInternet = caps?.hasCapability(
+                android.net.NetworkCapabilities.NET_CAPABILITY_INTERNET
+            ),
+            activeValidated = caps?.hasCapability(
+                android.net.NetworkCapabilities.NET_CAPABILITY_VALIDATED
+            )
+        )
+        updateConnectionIndicator(online)
+    }
 
     /**
      * Indikator koneksi: hijau "Online" / merah "Offline". Callback jaringan

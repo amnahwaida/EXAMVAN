@@ -98,4 +98,51 @@ class DeviceStatusPolicyTest {
         assertFalse(DeviceStatusPolicy.isOnline(hasInternet = false, validated = true))
         assertFalse(DeviceStatusPolicy.isOnline(hasInternet = false, validated = false))
     }
+
+    // ── Keputusan dari JARINGAN AKTIF (fix review fitur #1) ──────────────
+
+    /**
+     * Perangkat bisa punya WiFi + seluler aktif bersamaan. Dulu onLost satu
+     * network langsung menandai "Offline" padahal network lain masih
+     * menghubungkan. Kontrak baru: keputusan diambil dari capabilities
+     * jaringan AKTIF saat ini; tanpa jaringan aktif (null) = offline.
+     */
+    @Test
+    fun fromActiveNetwork_online_whenInternetAndValidated() {
+        assertTrue(
+            DeviceStatusPolicy.isOnlineFromActiveNetwork(
+                activeHasInternet = true, activeValidated = true
+            )
+        )
+    }
+
+    @Test
+    fun fromActiveNetwork_captivePortal_offline() {
+        assertFalse(
+            DeviceStatusPolicy.isOnlineFromActiveNetwork(
+                activeHasInternet = true, activeValidated = false
+            )
+        )
+    }
+
+    @Test
+    fun fromActiveNetwork_noInternetCapability_offline() {
+        assertFalse(
+            DeviceStatusPolicy.isOnlineFromActiveNetwork(
+                activeHasInternet = false, activeValidated = true
+            )
+        )
+    }
+
+    @Test
+    fun fromActiveNetwork_nullMeansNoActiveNetwork_offline() {
+        // Kehilangan WiFi tanpa pengganti → activeNetwork null.
+        assertFalse(
+            DeviceStatusPolicy.isOnlineFromActiveNetwork(
+                activeHasInternet = null, activeValidated = null
+            )
+        )
+        assertFalse(DeviceStatusPolicy.isOnlineFromActiveNetwork(null, true))
+        assertFalse(DeviceStatusPolicy.isOnlineFromActiveNetwork(true, null))
+    }
 }
