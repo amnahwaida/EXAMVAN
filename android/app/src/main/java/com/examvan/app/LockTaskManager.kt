@@ -32,12 +32,17 @@ import android.util.Log
  * ## Keterbatasan:
  * Lock Task hanya memblokir tombol Home, Recent Apps, dan gesture navigasi
  * terkait. TIDAK memblokir:
- *  - Notification shade / Quick Settings
+ *  - Notification shade / Quick Settings  → DIMITIGASI di tier DPM/kiosk
+ *    (API 30+): setLockTaskFeatures() mematikan shade selama pinned,
+ *    lihat [com.examvan.app.helper.LockTaskFeaturePolicy]
+ *  - Recent Tasks                          → DIMITIGASI idem (API 30+)
  *  - Google Assistant (voice atau corner swipe)
  *  - OEM Edge Panels (Samsung, OPPO, Xiaomi)
  *  - Power button long-press (Bixby, Emergency)
  *  - Volume key long-press (Accessibility)
  * Lihat [ExamViewerActivity] untuk perlindungan tambahan terhadap ini.
+ * Regular pinning (student flavor) tidak mendukung setLockTaskFeatures —
+ * keterbatasan penuh berlaku di sana.
  *
  * Keterbatasan platform lain (review strict ronde 4):
  *  - OEM yang mematikan proses saat pinned melepas pin di sisi sistem —
@@ -277,6 +282,22 @@ object LockTaskManager {
                 Log.w(TAG, "Device admin aktif tapi lock task tidak diizinkan " +
                         "(cek device_admin_rules.xml)")
                 return false
+            }
+
+            // Fix review strict ronde 5 #1: matikan fitur sistem pengalih
+            // perhatian SELAMA lock task (shade/quick settings, recents,
+            // home) — menutup keterbatasan terdokumentasi untuk tier
+            // Device-Owner. API 30+; kegagalan tidak menghalangi aktivasi.
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+                try {
+                    dpm.setLockTaskFeatures(
+                        cn,
+                        com.examvan.app.helper.LockTaskFeaturePolicy.allowedFeatures()
+                    )
+                    Log.i(TAG, "DPM: setLockTaskFeatures() diterapkan (API 30+)")
+                } catch (e: Exception) {
+                    Log.w(TAG, "setLockTaskFeatures tidak didukung: ${e.message}")
+                }
             }
 
             // Sekarang startLockTask() bisa dipanggil — tanpa dialog
