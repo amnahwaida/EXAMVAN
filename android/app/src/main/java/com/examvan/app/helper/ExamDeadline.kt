@@ -29,4 +29,19 @@ internal object ExamDeadline {
             null
         }
     }
+
+    /**
+     * Komponen jam/menit/detik untuk tampilan timer (fix review ronde 2 #1:
+     * pemformatan pindah ke string resource agar i18n; object murni ini hanya
+     * menyediakan komponen angka). Jam tidak dipotong modulo 24; negatif
+     * dicukup ke nol.
+     */
+    fun remainingHms(millisRemaining: Long): List<Long> {
+        val totalSeconds = millisRemaining.coerceAtLeast(0L) / 1000
+        return listOf(
+            totalSeconds / 3600,
+            (totalSeconds % 3600) / 60,
+            totalSeconds % 60
+        )
+    }
 }

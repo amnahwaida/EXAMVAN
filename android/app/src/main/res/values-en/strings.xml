@@ -153,4 +153,13 @@
     <string name="update_required_url_missing">Server address is not saved yet. Contact the supervisor to update the app.</string>
     <!-- Device admin (kiosk) -->
     <string name="device_admin_description">EXAMVAN administrator for exam kiosk mode</string>
+
+    <!-- Timer & answer sheet (i18n fix) -->
+    <string name="timer_remaining">Remaining: %1$02d:%2$02d:%3$02d</string>
+    <string name="answer_sheet_question_number">Question %1$d</string>
+    <string name="answer_sheet_true_false_suffix">(True/False)</string>
+    <string name="answer_sheet_multiple_suffix">(Multiple choice)</string>
+    <string name="answer_sheet_matching_suffix">(Matching)</string>
+    <string name="answer_sheet_short_answer_suffix">(Short answer)</string>
+    <string name="spinner_placeholder">-- Select --</string>
 </resources>

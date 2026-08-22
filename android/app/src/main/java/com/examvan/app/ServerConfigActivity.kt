@@ -275,7 +275,8 @@ class ServerConfigActivity : BaseSecureActivity() {
                 IdentityField("student_class", "Kelas", true)
             )
         }
-        val fields = rawFields.map { it.copy(required = true) }
+        val fields = com.examvan.app.helper.IdentityFormPolicy
+            .dedupeFields(rawFields.map { it.copy(required = true) })
 
         // Inflate XML layout template — lebih maintainable daripada build 100% programmatic
         val dialogView = LayoutInflater.from(this).inflate(R.layout.dialog_student_identity, null)
@@ -314,7 +315,11 @@ class ServerConfigActivity : BaseSecureActivity() {
                 }
                 setPadding(16, 12, 16, 12)
                 textSize = 15f
-                filters = arrayOf(android.text.InputFilter.LengthFilter(100))
+                // Fix review form identitas & timer #2: teks satu baris +
+                // kapitalisasi kata — newline tidak bisa masuk ke nilai.
+                inputType = com.examvan.app.helper.IdentityFormPolicy.INPUT_TYPE
+                maxLines = com.examvan.app.helper.IdentityFormPolicy.MAX_LINES
+                filters = arrayOf(android.text.InputFilter.LengthFilter(com.examvan.app.helper.IdentityFormPolicy.MAX_LENGTH))
             }
             fieldsContainer.addView(editText, LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT,

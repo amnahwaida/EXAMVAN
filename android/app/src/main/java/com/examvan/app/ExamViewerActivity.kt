@@ -955,12 +955,10 @@ class ExamViewerActivity : BaseSecureActivity() {
 
         countDownTimer = object : android.os.CountDownTimer(remainingMs, 1000) {
             override fun onTick(millisUntilFinished: Long) {
-                val seconds = millisUntilFinished / 1000
-                val hours = seconds / 3600
-                val minutes = (seconds % 3600) / 60
-                val secs = seconds % 60
-                val timeStr = String.format("Sisa: %02d:%02d:%02d", hours, minutes, secs)
-                binding.tvTimer.text = timeStr
+                // Fix review ronde 2 #1: pemformatan via string resource
+                // (i18n); komponen jam/menit/detik dari object murni.
+                val (h, m, s) = ExamDeadline.remainingHms(millisUntilFinished)
+                binding.tvTimer.text = getString(R.string.timer_remaining, h, m, s)
             }
 
             override fun onFinish() {

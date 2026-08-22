@@ -59,4 +59,33 @@ class ExamDeadlineTest {
         // 2026-08-16T19:00:00+07:00 == 12:00:00Z → tepat deadline.
         assertEquals(0L, ExamDeadline.remainingMs("2026-08-16T19:00:00+07:00", nowMs, skewMs = 0L))
     }
+
+    // ── Komponen tampilan timer (fix review ronde 2 #1: i18n via resource;
+    //    object murni menyediakan komponen jam/menit/detik) ────────────────
+
+    @Test
+    fun components_zero_isAllZeros() {
+        assertEquals(listOf(0L, 0L, 0L), ExamDeadline.remainingHms(0))
+    }
+
+    @Test
+    fun components_oneHourOneMinuteOneSecond() {
+        assertEquals(listOf(1L, 1L, 1L), ExamDeadline.remainingHms(3_661_000L))
+    }
+
+    @Test
+    fun components_negative_clampedToZero() {
+        assertEquals(listOf(0L, 0L, 0L), ExamDeadline.remainingHms(-5_000L))
+    }
+
+    @Test
+    fun components_hoursBeyondTwoDigits_notTruncated() {
+        // Ujian maraton 25 jam — jam tidak boleh terpotong modulo 24.
+        assertEquals(listOf(25L, 0L, 0L), ExamDeadline.remainingHms(25 * 3_600_000L))
+    }
+
+    @Test
+    fun components_oneHour21Minutes45Seconds() {
+        assertEquals(listOf(1L, 21L, 45L), ExamDeadline.remainingHms(4_905_000L))
+    }
 }

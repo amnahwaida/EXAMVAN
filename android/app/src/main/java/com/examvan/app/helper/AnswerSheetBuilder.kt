@@ -242,7 +242,7 @@ class AnswerSheetBuilder(
         checkboxLayout.visibility = View.GONE
         radioGroup.visibility = View.VISIBLE
 
-        label.text = "Soal $number"
+        label.text = context.getString(R.string.answer_sheet_question_number, number)
 
         for (choice in choices) {
             val rb = RadioButton(context).apply {
@@ -275,7 +275,8 @@ class AnswerSheetBuilder(
         checkboxLayout.visibility = View.GONE
         radioGroup.visibility = View.VISIBLE
 
-        label.text = "Soal $number (Benar/Salah)"
+        label.text = context.getString(R.string.answer_sheet_question_number, number) + " " +
+                context.getString(R.string.answer_sheet_true_false_suffix)
 
         for (choice in listOf("TRUE", "FALSE")) {
             val rb = RadioButton(context).apply {
@@ -308,7 +309,8 @@ class AnswerSheetBuilder(
         radioGroup.visibility = View.GONE
         checkboxLayout.visibility = View.VISIBLE
 
-        label.text = "Soal $number (Pilih beberapa)"
+        label.text = context.getString(R.string.answer_sheet_question_number, number) + " " +
+                context.getString(R.string.answer_sheet_multiple_suffix)
 
         for (choice in choices) {
             val cb = CheckBox(context).apply {
@@ -347,7 +349,8 @@ class AnswerSheetBuilder(
         val label = view.findViewById<TextView>(R.id.tvMatchingLabel)
         val matchingContainer = view.findViewById<LinearLayout>(R.id.layoutMatchingContainer)
 
-        label.text = "Soal $number (Menjodohkan)"
+        label.text = context.getString(R.string.answer_sheet_question_number, number) + " " +
+                context.getString(R.string.answer_sheet_matching_suffix)
 
         val matchingAnswers = mutableMapOf<String, String>()
 
@@ -358,7 +361,7 @@ class AnswerSheetBuilder(
 
             tvLeft.text = leftItem
 
-            val spinnerItems = mutableListOf("-- Pilih --")
+            val spinnerItems = mutableListOf(context.getString(R.string.spinner_placeholder))
             spinnerItems.addAll(rightItems)
 
             val adapter = ArrayAdapter(context, android.R.layout.simple_spinner_item, spinnerItems)
@@ -421,7 +424,8 @@ class AnswerSheetBuilder(
         val label = view.findViewById<TextView>(R.id.tvQuestionLabel)
         val editText = view.findViewById<EditText>(R.id.etShortAnswer)
 
-        label.text = "Soal $number (Isian Singkat)"
+        label.text = context.getString(R.string.answer_sheet_question_number, number) + " " +
+                context.getString(R.string.answer_sheet_short_answer_suffix)
 
         // Restore answer if already saved
         val currentAns = getAnswer?.invoke(number.toString()) as? String
