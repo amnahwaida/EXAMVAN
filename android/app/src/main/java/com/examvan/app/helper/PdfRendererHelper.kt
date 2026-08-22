@@ -39,6 +39,7 @@ class PdfRendererHelper(
         private set
     private var currentBitmap: Bitmap? = null
     private var downloadCall: Call? = null
+    private var downloadStartedAtMs = 0L
     private var isCleanedUp = false
 
     /**
@@ -110,6 +111,14 @@ class PdfRendererHelper(
                 mainHandler.post {
                     val isActivityFinishing = (context as? android.app.Activity)?.let { it.isFinishing || it.isDestroyed } ?: false
                     if (isCleanedUp || isActivityFinishing) return@post
+                    // Fix review UI/UX #3: batal berbasis WAKTU (grace 3 detik),
+                    // bukan persen — dulu `if (percent < 50) visible` terbaca
+                    // terbalik dan tidak pernah menyembunyikan kembali.
+                    binding.btnCancel.visibility = if (
+                        DownloadUiPolicy.cancelVisible(
+                            System.currentTimeMillis() - downloadStartedAtMs
+                        )
+                    ) View.VISIBLE else View.GONE
                     onProgress?.invoke(percent)
                 }
             },
@@ -301,6 +310,7 @@ class PdfRendererHelper(
         binding.layoutError.visibility = View.GONE
         binding.ivPdfPage.visibility = View.GONE
         binding.btnCancel.visibility = View.GONE
+        downloadStartedAtMs = System.currentTimeMillis()
         binding.progressDownload.progress = 0
         binding.tvDownloadPercent.text = "0%"
     }

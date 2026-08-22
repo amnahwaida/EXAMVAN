@@ -88,4 +88,38 @@ class ExamDeadlineTest {
     fun components_oneHour21Minutes45Seconds() {
         assertEquals(listOf(1L, 21L, 45L), ExamDeadline.remainingHms(4_905_000L))
     }
+
+    // ── Urgensi timer berjenjang (fix review UI/UX #2: merah bukan warna
+    //    abadi — netral >10 menit, kuning <=10 menit, merah <=5 menit) ────
+
+    private val MIN = 60_000L
+
+    @Test
+    fun urgency_farFromDeadline_normal() {
+        assertEquals(
+            ExamDeadline.TimerUrgency.NORMAL,
+            ExamDeadline.timerUrgency(30 * MIN)
+        )
+        assertEquals(
+            ExamDeadline.TimerUrgency.NORMAL,
+            ExamDeadline.timerUrgency(10 * MIN + 1)
+        )
+    }
+
+    @Test
+    fun urgency_exactlyTenMinutes_warning() {
+        assertEquals(ExamDeadline.TimerUrgency.WARNING, ExamDeadline.timerUrgency(10 * MIN))
+        assertEquals(ExamDeadline.TimerUrgency.WARNING, ExamDeadline.timerUrgency(5 * MIN + 1))
+    }
+
+    @Test
+    fun urgency_fiveMinutesAndBelow_critical() {
+        assertEquals(ExamDeadline.TimerUrgency.CRITICAL, ExamDeadline.timerUrgency(5 * MIN))
+        assertEquals(ExamDeadline.TimerUrgency.CRITICAL, ExamDeadline.timerUrgency(1_000L))
+    }
+
+    @Test
+    fun urgency_negative_critical() {
+        assertEquals(ExamDeadline.TimerUrgency.CRITICAL, ExamDeadline.timerUrgency(-1L))
+    }
 }

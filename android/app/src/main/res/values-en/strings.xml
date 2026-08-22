@@ -164,7 +164,8 @@
     <string name="spinner_placeholder">-- Select --</string>
     <string name="results_load_error">Failed to load the results page. Check your internet connection, then tap the close button and try again.</string>
     <string name="status_battery_charging">Charging</string>
-    <string name="status_battery_percent">Battery %1$d%%</string>
+    <string name="status_battery_percent">%1$d%%</string>
     <string name="status_online">Online</string>
     <string name="status_offline">Offline</string>
+    <string name="results_close">Close</string>
 </resources>

@@ -603,19 +603,34 @@ class ExamViewerActivity : BaseSecureActivity() {
     }
 
     private fun updateSecurityBanner() {
-        if (securityEnforcer.strictMode) {
-            binding.tvSecurityBanner.text = getString(R.string.strict_mode_active)
-            binding.tvSecurityBanner.setBackgroundColor(androidx.core.content.ContextCompat.getColor(this, R.color.security_banner_critical))
-            binding.tvSecurityBanner.setTextColor(androidx.core.content.ContextCompat.getColor(this, R.color.security_banner_text))
+        // Fix review UI/UX ronde 2 #1: warna via SecurityBannerPolicy —
+        // medium kini AMBER (bukan merah) agar pelanggaran nyata di strict
+        // tetap punya pembeda visual.
+        binding.tvSecurityBanner.text = if (securityEnforcer.strictMode) {
+            getString(R.string.strict_mode_active)
         } else if (securityLevel == ExamModePolicy.LEVEL_MEDIUM) {
-            binding.tvSecurityBanner.text = getString(R.string.autosubmit_status_active)
-            binding.tvSecurityBanner.setBackgroundColor(androidx.core.content.ContextCompat.getColor(this, R.color.security_banner_warning))
-            binding.tvSecurityBanner.setTextColor(androidx.core.content.ContextCompat.getColor(this, R.color.security_banner_text))
+            getString(R.string.autosubmit_status_active)
         } else {
-            binding.tvSecurityBanner.text = getString(R.string.autosubmit_status_inactive)
-            binding.tvSecurityBanner.setBackgroundColor(androidx.core.content.ContextCompat.getColor(this, R.color.security_banner_info))
-            binding.tvSecurityBanner.setTextColor(androidx.core.content.ContextCompat.getColor(this, R.color.security_banner_text))
+            getString(R.string.autosubmit_status_inactive)
         }
+        binding.tvSecurityBanner.setBackgroundColor(
+            androidx.core.content.ContextCompat.getColor(
+                this,
+                com.examvan.app.helper.SecurityBannerPolicy.backgroundRes(
+                    strictMode = securityEnforcer.strictMode,
+                    securityLevel = securityLevel
+                )
+            )
+        )
+        binding.tvSecurityBanner.setTextColor(
+            androidx.core.content.ContextCompat.getColor(
+                this,
+                com.examvan.app.helper.SecurityBannerPolicy.textRes(
+                    strictMode = securityEnforcer.strictMode,
+                    securityLevel = securityLevel
+                )
+            )
+        )
     }
 
     private fun applyPanelColor() {
@@ -1021,6 +1036,8 @@ class ExamViewerActivity : BaseSecureActivity() {
 
     private fun updateBatteryIndicator(percent: Int, charging: Boolean) {
         val category = com.examvan.app.helper.DeviceStatusPolicy.batteryCategory(percent)
+        // Fix review UI/UX #1: label ringkas "45%" — warna sudah membawa
+        // status; toolbar padat tidak boleh makin sesak.
         binding.tvBatteryStatus.text = if (charging) {
             getString(R.string.status_battery_charging)
         } else {
@@ -1077,6 +1094,16 @@ class ExamViewerActivity : BaseSecureActivity() {
                 // (i18n); komponen jam/menit/detik dari object murni.
                 val (h, m, s) = ExamDeadline.remainingHms(millisUntilFinished)
                 binding.tvTimer.text = getString(R.string.timer_remaining, h, m, s)
+                // Fix review UI/UX #2: merah bukan warna abadi — berjenjang
+                // netral → kuning (<=10 menit) → merah (<=5 menit).
+                val colorRes = when (ExamDeadline.timerUrgency(millisUntilFinished)) {
+                    ExamDeadline.TimerUrgency.NORMAL -> R.color.on_surface
+                    ExamDeadline.TimerUrgency.WARNING -> R.color.warning
+                    ExamDeadline.TimerUrgency.CRITICAL -> R.color.timer_text
+                }
+                binding.tvTimer.setTextColor(
+                    androidx.core.content.ContextCompat.getColor(this@ExamViewerActivity, colorRes)
+                )
             }
 
             override fun onFinish() {

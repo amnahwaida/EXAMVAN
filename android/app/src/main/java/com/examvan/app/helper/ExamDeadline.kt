@@ -44,4 +44,20 @@ internal object ExamDeadline {
             totalSeconds % 60
         )
     }
+
+    /** Tingkat urgensi timer untuk pewarnaan berjenjang (fix review UI/UX #2). */
+    enum class TimerUrgency { NORMAL, WARNING, CRITICAL }
+
+    const val WARNING_THRESHOLD_MS = 10 * 60_000L  // <= 10 menit: kuning
+    const val CRITICAL_THRESHOLD_MS = 5 * 60_000L  // <= 5 menit: merah
+
+    /**
+     * Urgensi dari sisa waktu — merah bukan warna abadi: netral selama waktu
+     * masih longgar, kuning saat <= 10 menit, merah saat <= 5 menit.
+     */
+    fun timerUrgency(millisRemaining: Long): TimerUrgency = when {
+        millisRemaining <= CRITICAL_THRESHOLD_MS -> TimerUrgency.CRITICAL
+        millisRemaining <= WARNING_THRESHOLD_MS -> TimerUrgency.WARNING
+        else -> TimerUrgency.NORMAL
+    }
 }

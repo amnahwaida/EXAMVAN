@@ -162,7 +162,8 @@
     <string name="spinner_placeholder">-- Pilih --</string>
     <string name="results_load_error">Gagal memuat halaman hasil. Periksa koneksi internet Anda lalu ketuk tombol tutup dan coba lagi.</string>
     <string name="status_battery_charging">Mengisi baterai</string>
-    <string name="status_battery_percent">Baterai %1$d%%</string>
+    <string name="status_battery_percent">%1$d%%</string>
     <string name="status_online">Online</string>
     <string name="status_offline">Offline</string>
+    <string name="results_close">Tutup</string>
 </resources>
