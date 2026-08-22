@@ -25,7 +25,7 @@
             android:layout_height="40dp"
             android:src="@drawable/ic_close"
             android:background="?attr/selectableItemBackgroundBorderless"
-            android:contentDescription="Tutup ujian"
+            android:contentDescription="@string/cd_close_exam"
             android:layout_marginEnd="8dp" />
 
         <TextView
@@ -96,7 +96,7 @@
         android:layout_width="0dp"
         android:layout_height="0dp"
         android:background="@color/background"
-        android:contentDescription="Halaman PDF ujian"
+        android:contentDescription="@string/cd_pdf_page"
         app:layout_constraintTop_toBottomOf="@id/tvSecurityBanner"
         app:layout_constraintBottom_toTopOf="@id/answerSheetToggle"
         app:layout_constraintStart_toStartOf="parent"
@@ -291,7 +291,7 @@
             android:backgroundTint="@color/surface_variant"
             android:textColor="@color/text_secondary"
             android:layout_marginHorizontal="8dp"
-            android:contentDescription="Halaman sebelumnya"
+            android:contentDescription="@string/cd_page_previous"
             android:enabled="false" />
 
         <TextView
@@ -313,7 +313,7 @@
             android:backgroundTint="@color/primary"
             android:textColor="@color/on_primary"
             android:layout_marginHorizontal="8dp"
-            android:contentDescription="Halaman berikutnya" />
+            android:contentDescription="@string/cd_page_next" />
     </LinearLayout>
 
 </androidx.constraintlayout.widget.ConstraintLayout>

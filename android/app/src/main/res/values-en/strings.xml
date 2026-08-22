@@ -168,4 +168,10 @@
     <string name="status_online">Online</string>
     <string name="status_offline">Offline</string>
     <string name="results_close">Close</string>
+    <!-- contentDescription -->
+    <string name="cd_close_exam">Close exam</string>
+    <string name="cd_pdf_page">Exam PDF page</string>
+    <string name="cd_page_previous">Previous page</string>
+    <string name="cd_page_next">Next page</string>
+    <string name="cd_exam_document">Exam document</string>
 </resources>

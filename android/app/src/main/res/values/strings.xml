@@ -166,4 +166,10 @@
     <string name="status_online">Online</string>
     <string name="status_offline">Offline</string>
     <string name="results_close">Tutup</string>
+    <!-- contentDescription -->
+    <string name="cd_close_exam">Tutup ujian</string>
+    <string name="cd_pdf_page">Halaman PDF ujian</string>
+    <string name="cd_page_previous">Halaman sebelumnya</string>
+    <string name="cd_page_next">Halaman berikutnya</string>
+    <string name="cd_exam_document">Dokumen ujian</string>
 </resources>

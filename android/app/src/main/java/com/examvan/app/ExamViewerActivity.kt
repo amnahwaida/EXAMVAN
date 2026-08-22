@@ -134,6 +134,10 @@ class ExamViewerActivity : BaseSecureActivity() {
     // Receiver baterai (fitur baru: indikator baterai selama ujian)
     private var batteryReceiver: BroadcastReceiver? = null
 
+    // Haptic momen kritis (backlog aksesibilitas): getar hanya pada
+    // TRANSISI masuk CRITICAL, bukan tiap tick (HapticPolicy).
+    private var lastTimerUrgency: com.examvan.app.helper.ExamDeadline.TimerUrgency? = null
+
     companion object {
         private const val TAG = "ExamViewer"
         private val questionsListType = object : TypeToken<List<Map<String, Any>>>() {}.type
@@ -973,6 +977,23 @@ class ExamViewerActivity : BaseSecureActivity() {
         cm.registerNetworkCallback(request, networkCallback)
     }
 
+    /** Getar pendek peringatan kritis (aman untuk semua API level). */
+    private fun buzz(durationMs: Long) {
+        val vibrator = getSystemService(android.content.Context.VIBRATOR_SERVICE) as? android.os.Vibrator ?: return
+        try {
+            if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
+                vibrator.vibrate(
+                    android.os.VibrationEffect.createOneShot(
+                        durationMs, android.os.VibrationEffect.DEFAULT_AMPLITUDE
+                    )
+                )
+            } else {
+                @Suppress("DEPRECATION")
+                vibrator.vibrate(durationMs)
+            }
+        } catch (_: Exception) { }
+    }
+
     // ===== Indikator baterai & koneksi (fitur baru) =====
 
     /**
@@ -1104,6 +1125,11 @@ class ExamViewerActivity : BaseSecureActivity() {
                 binding.tvTimer.setTextColor(
                     androidx.core.content.ContextCompat.getColor(this@ExamViewerActivity, colorRes)
                 )
+                val urgency = ExamDeadline.timerUrgency(millisUntilFinished)
+                if (com.examvan.app.helper.HapticPolicy.shouldBuzz(lastTimerUrgency, urgency)) {
+                    buzz(com.examvan.app.helper.HapticPolicy.BUZZ_DURATION_MS)
+                }
+                lastTimerUrgency = urgency
             }
 
             override fun onFinish() {
@@ -1174,7 +1200,8 @@ class ExamViewerActivity : BaseSecureActivity() {
         // mencegah toast ganda di level UI.
         if (submissionManager.submittedOrExited || submissionManager.isSubmitting) return
 
-        binding.tvTimer.text = "Sisa: 00:00:00"
+        binding.tvTimer.text = getString(R.string.timer_remaining, 0L, 0L, 0L)
+        buzz(com.examvan.app.helper.HapticPolicy.BUZZ_DURATION_MS)
         Toast.makeText(this@ExamViewerActivity, "Waktu habis! Menyerahkan jawaban...", Toast.LENGTH_LONG).show()
         submissionManager.autoSubmitAndExit()
     }

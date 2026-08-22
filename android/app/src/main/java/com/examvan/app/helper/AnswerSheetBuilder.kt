@@ -250,7 +250,7 @@ class AnswerSheetBuilder(
                 setTextColor(ContextCompat.getColor(context, R.color.on_surface))
                 buttonTintList = ContextCompat.getColorStateList(context, R.color.primary)
                 textSize = 14f
-                setPadding(4, 0, 16, 0)
+                setPaddingRelative(4, 0, 16, 0)
             }
             radioGroup.addView(rb)
         }
@@ -284,7 +284,7 @@ class AnswerSheetBuilder(
                 setTextColor(ContextCompat.getColor(context, R.color.on_surface))
                 buttonTintList = ContextCompat.getColorStateList(context, R.color.primary)
                 textSize = 14f
-                setPadding(4, 0, 16, 0)
+                setPaddingRelative(4, 0, 16, 0)
             }
             radioGroup.addView(rb)
         }
@@ -318,7 +318,7 @@ class AnswerSheetBuilder(
                 setTextColor(ContextCompat.getColor(context, R.color.on_surface))
                 buttonTintList = ContextCompat.getColorStateList(context, R.color.primary)
                 textSize = 14f
-                setPadding(4, 0, 16, 0)
+                setPaddingRelative(4, 0, 16, 0)
             }
 
             cb.setOnCheckedChangeListener { _, _ ->
