@@ -57,20 +57,37 @@ class AnswerSheetBuilder(
             return 0
         }
 
+        val seenNumbers = mutableSetOf<Int>()
         for (q in questions) {
             // Parsing robust: nomor bisa JSON number ATAU string (server
             // menyimpan Question.Number sebagai interface{}). Soal dengan nomor
             // tidak valid dilewati — bukan di-skip diam-diam karena salah tipe.
             val number = QuestionParsing.questionNumber(q["number"]) ?: continue
-            renderedCount++
-            val type = q["type"] as? String ?: "single_choice"
 
-            when (type) {
-                "single_choice" -> addSingleChoiceQuestion(container, number, q)
-                "true_false" -> addTrueFalseQuestion(container, number)
-                "multiple_choice" -> addMultipleChoiceQuestion(container, number, q)
-                "matching" -> addMatchingQuestion(container, number, q)
-                "short_answer" -> addShortAnswerQuestion(container, number)
+            // Fix review lembar jawaban ronde 2 #2: nomor duplikat membuat dua
+            // view bertabrakan di key jawaban yang sama — lewati.
+            if (!seenNumbers.add(number)) continue
+
+            // Fix review lembar jawaban ronde 2 #1: keputusan render eksplisit
+            // via policy — tipe tak dikenal & data pilihan tidak valid di-SKIP
+            // DENGAN ALASAN, totalQuestions tetap jujur.
+            when (val decision = com.examvan.app.helper.QuestionRenderPolicy.evaluate(q)) {
+                is com.examvan.app.helper.QuestionRenderPolicy.Render -> {
+                    renderedCount++
+                    when (decision.type) {
+                        "single_choice" -> addSingleChoiceQuestion(container, number, decision.choices!!)
+                        "true_false" -> addTrueFalseQuestion(container, number)
+                        "multiple_choice" -> addMultipleChoiceQuestion(container, number, decision.choices!!)
+                        "matching" -> addMatchingQuestion(container, number, decision.leftItems!!, decision.rightItems!!)
+                        "short_answer" -> addShortAnswerQuestion(container, number)
+                    }
+                }
+                is com.examvan.app.helper.QuestionRenderPolicy.Skip -> {
+                    android.util.Log.w(
+                        "AnswerSheet",
+                        "Soal $number dilewati: ${decision.reason}"
+                    )
+                }
             }
         }
 
@@ -79,10 +96,12 @@ class AnswerSheetBuilder(
     }
 
     /**
-     * Restore answers from saved data into the UI.
+     * Restore answers from saved data into the UI (fix review lembar jawaban
+     * #1: nilai TERSTRUKTUR — multiple choice List, matching Map; format
+     * string legacy "[A, B]"/"{1=A}" tetap didukung sebagai fallback).
      * Uses view tags to match question numbers efficiently.
      */
-    fun restoreFromSaved(savedAnswers: Map<String, String>) {
+    fun restoreFromSaved(savedAnswers: Map<String, Any>) {
         for (i in 0 until binding.answerListContainer.childCount) {
             val view = binding.answerListContainer.getChildAt(i)
             val tag = view.getTag(R.id.tag_question_number)
@@ -93,36 +112,73 @@ class AnswerSheetBuilder(
         }
     }
 
+    /** Nilai jawaban bisa String (legacy/typed) / List / Map. */
+    private fun asStringList(value: Any): List<String>? = when (value) {
+        is List<*> -> value.filterIsInstance<String>().takeIf { it.isNotEmpty() }
+        is String -> parseLegacyStringList(value)
+        else -> null
+    }
+
+    @Suppress("UNCHECKED_CAST")
+    private fun asStringMap(value: Any): Map<String, String>? = when (value) {
+        is Map<*, *> -> value.entries
+            .filter { it.key is String && it.value is String }
+            .associate { it.key as String to it.value as String }
+            .takeIf { it.isNotEmpty() }
+        is String -> parseLegacyStringMap(value)
+        else -> null
+    }
+
+    /** Fallback format lama "[A, B]" — hanya untuk data tersimpan versi lama. */
+    private fun parseLegacyStringList(savedValue: String): List<String> =
+        savedValue.removeSurrounding("[", "]")
+            .split(", ")
+            .map { it.trim() }
+            .filter { it.isNotEmpty() }
+            .ifEmpty { null } ?: emptyList()
+
+    /** Fallback format lama "{k=v, ...}" — hanya untuk data versi lama. */
+    private fun parseLegacyStringMap(savedValue: String): Map<String, String> =
+        savedValue.removeSurrounding("{", "}")
+            .split(", ")
+            .mapNotNull { entry ->
+                val parts = entry.split("=", limit = 2)
+                if (parts.size == 2) parts[0].trim() to parts[1].trim() else null
+            }
+            .toMap()
+
     /**
      * Restore a single answer into its view by traversing known view types.
      */
-    private fun restoreAnswerInView(view: View, questionNum: String, savedValue: String) {
+    private fun restoreAnswerInView(view: View, questionNum: String, savedValue: Any) {
         when (view) {
             is RadioGroup -> {
-                restoreRadioGroup(view, savedValue)
+                val text = savedValue as? String ?: return
+                restoreRadioGroup(view, text)
             }
             is EditText -> {
+                val text = savedValue as? String ?: return
                 if (view.text.isNullOrEmpty()) {
-                    view.setText(savedValue)
+                    view.setText(text)
                 }
             }
             is ViewGroup -> {
                 // Only go one level deep for known containers
                 val radioGroup = view.findViewById<RadioGroup>(R.id.rgChoices)
                 if (radioGroup != null && radioGroup.checkedRadioButtonId == -1) {
-                    restoreRadioGroup(radioGroup, savedValue)
+                    (savedValue as? String)?.let { restoreRadioGroup(radioGroup, it) }
                 }
                 val checkboxLayout = view.findViewById<LinearLayout>(R.id.layoutCheckboxes)
                 if (checkboxLayout != null) {
-                    restoreCheckboxes(checkboxLayout, savedValue)
+                    asStringList(savedValue)?.let { restoreCheckboxes(checkboxLayout, it) }
                 }
                 val editText = view.findViewById<EditText>(R.id.etShortAnswer)
                 if (editText != null && editText.text.isNullOrEmpty()) {
-                    editText.setText(savedValue)
+                    (savedValue as? String)?.let { editText.setText(it) }
                 }
                 val matchingContainer = view.findViewById<LinearLayout>(R.id.layoutMatchingContainer)
                 if (matchingContainer != null) {
-                    restoreMatching(matchingContainer, savedValue)
+                    asStringMap(savedValue)?.let { restoreMatching(matchingContainer, it) }
                 }
             }
         }
@@ -139,29 +195,14 @@ class AnswerSheetBuilder(
         }
     }
 
-    private fun restoreCheckboxes(layout: LinearLayout, savedValue: String) {
-        // Parse saved value as a list string "[A, B, C]"
-        val selectedValues = savedValue
-            .removeSurrounding("[", "]")
-            .split(", ")
-            .map { it.trim() }
-            .filter { it.isNotEmpty() }
-
+    private fun restoreCheckboxes(layout: LinearLayout, selectedValues: List<String>) {
         for (i in 0 until layout.childCount) {
             val cb = layout.getChildAt(i) as? CheckBox ?: continue
             cb.isChecked = selectedValues.contains(cb.text.toString())
         }
     }
 
-    private fun restoreMatching(container: LinearLayout, savedValue: String) {
-        // Parse saved value as a map string "{key=value, ...}"
-        val pairs = savedValue
-            .removeSurrounding("{", "}")
-            .split(", ")
-            .map { it.split("=").take(2) }
-            .filter { it.size == 2 }
-            .associate { it[0].trim() to it[1].trim() }
-
+    private fun restoreMatching(container: LinearLayout, pairs: Map<String, String>) {
         for (i in 0 until container.childCount) {
             val row = container.getChildAt(i) as? ViewGroup ?: continue
             val tvLeft = row.findViewById<TextView>(R.id.tvLeftItem) ?: continue
@@ -191,8 +232,7 @@ class AnswerSheetBuilder(
 
     // ---- Question type builders with view tagging (#6 fix) ----
 
-    @Suppress("UNCHECKED_CAST")
-    private fun addSingleChoiceQuestion(container: LinearLayout, number: Int, q: Map<String, Any>) {
+    private fun addSingleChoiceQuestion(container: LinearLayout, number: Int, choices: List<String>) {
         val view = LayoutInflater.from(context).inflate(R.layout.item_question_choice, container, false)
         view.setTag(R.id.tag_question_number, number.toString())
 
@@ -203,8 +243,6 @@ class AnswerSheetBuilder(
         radioGroup.visibility = View.VISIBLE
 
         label.text = "Soal $number"
-
-        val choices = (q["choices"] as? List<*>)?.filterIsInstance<String>() ?: listOf("A", "B", "C", "D", "E")
 
         for (choice in choices) {
             val rb = RadioButton(context).apply {
@@ -260,8 +298,7 @@ class AnswerSheetBuilder(
         container.addView(view)
     }
 
-    @Suppress("UNCHECKED_CAST")
-    private fun addMultipleChoiceQuestion(container: LinearLayout, number: Int, q: Map<String, Any>) {
+    private fun addMultipleChoiceQuestion(container: LinearLayout, number: Int, choices: List<String>) {
         val view = LayoutInflater.from(context).inflate(R.layout.item_question_choice, container, false)
         view.setTag(R.id.tag_question_number, number.toString())
 
@@ -272,8 +309,6 @@ class AnswerSheetBuilder(
         checkboxLayout.visibility = View.VISIBLE
 
         label.text = "Soal $number (Pilih beberapa)"
-
-        val choices = (q["choices"] as? List<*>)?.filterIsInstance<String>() ?: listOf("A", "B", "C", "D", "E")
 
         for (choice in choices) {
             val cb = CheckBox(context).apply {
@@ -305,8 +340,7 @@ class AnswerSheetBuilder(
         container.addView(view)
     }
 
-    @Suppress("UNCHECKED_CAST")
-    private fun addMatchingQuestion(container: LinearLayout, number: Int, q: Map<String, Any>) {
+    private fun addMatchingQuestion(container: LinearLayout, number: Int, leftItems: List<String>, rightItems: List<String>) {
         val view = LayoutInflater.from(context).inflate(R.layout.item_question_matching, container, false)
         view.setTag(R.id.tag_question_number, number.toString())
 
@@ -314,9 +348,6 @@ class AnswerSheetBuilder(
         val matchingContainer = view.findViewById<LinearLayout>(R.id.layoutMatchingContainer)
 
         label.text = "Soal $number (Menjodohkan)"
-
-        val leftItems = (q["left_items"] as? List<*>)?.filterIsInstance<String>() ?: listOf("1", "2", "3")
-        val rightItems = (q["right_items"] as? List<*>)?.filterIsInstance<String>() ?: listOf("A", "B", "C")
 
         val matchingAnswers = mutableMapOf<String, String>()
 
@@ -369,6 +400,10 @@ class AnswerSheetBuilder(
                     }
                 }
                 override fun onNothingSelected(parent: AdapterView<*>?) {
+                    // Quirk Android: callback ini nyaris tidak pernah dipanggil
+                    // (dropdown ditutup tanpa memilih biasanya tidak memicunya).
+                    // Konsekuensi: popup counter bisa bocor +1 — tertutup oleh
+                    // reset activePopupCount saat fokus kembali (SecurityEnforcer).
                     onSpinnerPopupChanged?.invoke(-1)
                 }
             }

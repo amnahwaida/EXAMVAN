@@ -57,4 +57,42 @@ class QuestionParsingTest {
         // 3.9 → 3 (perilaku toInt() lama dipertahankan).
         assertEquals(3, QuestionParsing.questionNumber(3.9))
     }
+
+    // ── stringList: daftar pilihan dari konfigurasi soal ────────────────
+    // (fix review lembar jawaban #2: soal tanpa pilihan valid harus
+    // DILEWATI, bukan dibuatkan opsi A–E / 1-2-3 palsu.)
+
+    @Test
+    fun stringList_validListOfStrings_preserved() {
+        assertEquals(
+            listOf("A", "B", "C"),
+            QuestionParsing.stringList(listOf("A", "B", "C"))
+        )
+    }
+
+    @Test
+    fun stringList_nullOrNonList_empty() {
+        assertEquals(emptyList<String>(), QuestionParsing.stringList(null))
+        assertEquals(emptyList<String>(), QuestionParsing.stringList("A,B"))
+        assertEquals(emptyList<String>(), QuestionParsing.stringList(mapOf<String, Any>()))
+    }
+
+    @Test
+    fun stringList_nonStringEntries_filtered() {
+        // Konfigurasi rusak (angka di dalam pilihan) → entri dibuang;
+        // bila hasil kosong, pemanggil melewatkan soal.
+        assertEquals(
+            listOf("A"),
+            QuestionParsing.stringList(listOf("A", 1, true))
+        )
+    }
+
+    @Test
+    fun stringList_commaInsideItem_preserved() {
+        // Teks pilihan mengandung koma — tidak boleh dipecah.
+        assertEquals(
+            listOf("Jakarta, Bandung"),
+            QuestionParsing.stringList(listOf("Jakarta, Bandung"))
+        )
+    }
 }

@@ -68,7 +68,9 @@ class ServerConfigActivity : BaseSecureActivity() {
         if (savedUrl.isNotEmpty()) {
             binding.etServerUrl.setText(savedUrl)
         } else {
-            binding.etServerUrl.setText("https://examvan.my.id")
+            // Endpoint bawaan (fix permintaan produk: examvan.my.id tidak
+            // pernah hilang) via sumber tunggal ServerEndpointPolicy.
+            binding.etServerUrl.setText(com.examvan.app.helper.ServerEndpointPolicy.DEFAULT_SERVER_URL)
         }
         if (savedToken.isNotEmpty()) {
             binding.etToken.setText(savedToken)
@@ -463,7 +465,12 @@ class ServerConfigActivity : BaseSecureActivity() {
         // plaintext-nya: saat keystore corrupt, data yang benar-benar terbaca
         // ada di file fallback — tidak boleh tertinggal.
         val clearedAll = AppPrefs.clearAllData(this)
-        binding.etServerUrl.setText("")
+        // Fix permintaan produk: endpoint bawaan TIDAK BOLEH hilang setelah
+        // hapus/reset data — field langsung dipulihkan ke examvan.my.id
+        // (user tetap bebas menggantinya manual).
+        binding.etServerUrl.setText(
+            com.examvan.app.helper.ServerEndpointPolicy.resolveDisplayUrl(savedUrl = "")
+        )
         binding.etToken.setText("")
         if (clearedAll) {
             binding.btnClearData.visibility = View.GONE

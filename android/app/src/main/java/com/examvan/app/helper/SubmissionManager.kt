@@ -146,8 +146,10 @@ class SubmissionManager(
     private fun saveAnswersToPrefs(answers: Map<String, Any>) {
         try {
             val prefs = AppPrefs.getExamPrefsSafe(context)
-            val stringMap = answers.mapValues { it.value.toString() }
-            val json = gsonForSave.toJson(stringMap)
+            // Fix review lembar jawaban #1: simpan TERSTRUKTUR (Gson dari
+            // Map<String,Any>) — tipe nilai dipertahankan; dulu toString()
+            // merusak restore jawaban ber-koma/'='.
+            val json = AnswerSerialization.serialize(answers)
             prefs.edit()
                 .putString(AppPrefs.KEY_SAVED_ANSWERS, json)
                 .putInt(AppPrefs.KEY_SAVED_ANSWERS_EXAM_ID, examId)
@@ -159,13 +161,15 @@ class SubmissionManager(
     }
 
     /**
-     * Pulihkan jawaban tersimpan untuk [examId].
+     * Pulihkan jawaban tersimpan untuk [examId] — TERSTRUKTUR
+     * (Map&lt;String, Any&gt;: multiple choice = List, matching = Map).
+     * Format lama (semua value string) tetap terbaca.
      *
      * Kedaluwarsa 24 jam (review low-mode ronde 2 #3 — asumsi eksplisit):
      * ujian EXAMVAN berjalan dalam satu hari; bila kelak ada ujian lintas
      * hari, konstanta di bawah harus dinaikkan bersama hasPendingAnswers.
      */
-    fun restoreAnswersFromPrefs(): Map<String, String>? {
+    fun restoreAnswersFromPrefs(): Map<String, Any>? {
         try {
             val prefs = AppPrefs.getExamPrefsSafe(context)
             val savedExamId = prefs.getInt(AppPrefs.KEY_SAVED_ANSWERS_EXAM_ID, -1)
@@ -180,7 +184,7 @@ class SubmissionManager(
                 return null
             }
             val json = prefs.getString(AppPrefs.KEY_SAVED_ANSWERS, null) ?: return null
-            return gsonForSave.fromJson(json, object : com.google.gson.reflect.TypeToken<Map<String, String>>() {}.type)
+            return AnswerSerialization.deserialize(json)
         } catch (e: Exception) {
             Log.w(TAG, "Failed to restore answers", e)
             return null

@@ -23,16 +23,14 @@
             android:orientation="vertical"
             android:gravity="center_horizontal">
 
-            <!-- Logo -->
-        <TextView
+            <!-- Logo = ikon aplikasi asli (fix permintaan produk: samakan
+                 dengan launcher icon) -->
+        <ImageView
+            android:id="@+id/ivAppLogo"
             android:layout_width="64dp"
             android:layout_height="64dp"
-            android:gravity="center"
-            android:text="E"
-            android:textSize="28sp"
-            android:textColor="@color/on_primary"
-            android:textStyle="bold"
-            android:background="@color/primary"
+            android:contentDescription="@string/app_name"
+            android:src="@mipmap/ic_launcher"
             android:layout_marginBottom="16dp" />
 
         <TextView

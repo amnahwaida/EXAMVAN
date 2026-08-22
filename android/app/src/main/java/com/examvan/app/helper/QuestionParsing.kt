@@ -23,4 +23,15 @@ internal object QuestionParsing {
         is String -> raw.trim().toIntOrNull()
         else -> null
     }
+
+    /**
+     * Daftar pilihan dari konfigurasi soal — fix review lembar jawaban #2:
+     * soal tanpa daftar valid HARUS dilewati, bukan dibuatkan opsi A–E /
+     * 1-2-3 palsu yang tidak cocok dengan kunci jawaban server.
+     * Entri non-string dibuang; item dengan koma di dalamnya utuh.
+     */
+    fun stringList(raw: Any?): List<String> {
+        val list = raw as? List<*> ?: return emptyList()
+        return list.filterIsInstance<String>()
+    }
 }

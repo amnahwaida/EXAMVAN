@@ -241,11 +241,10 @@ object AppPrefs {
         return context.getSharedPreferences(prefsName + "_fallback", Context.MODE_PRIVATE)
     }
 
-    fun clearIdentityData(context: Context) {
-        getConfigPrefs(context).edit()
-            .remove(KEY_IDENTITY_DATA)
-            .apply()
-    }
+    // CATATAN RETENSI IDENTITAS (permintaan pemilik produk): kolom identitas
+    // dipertahankan isinya sampai user menekan "Hapus Data Tersimpan"
+    // (clearAllData). Tidak ada — dan tidak boleh ada — alur lain yang
+    // menghapus KEY_IDENTITY_DATA; dikunci IdentityRetentionGuardTest.
 
     /**
      * Wipe every saved preference — the encrypted backends AND their plain
