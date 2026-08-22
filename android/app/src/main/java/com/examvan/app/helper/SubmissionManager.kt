@@ -77,6 +77,14 @@ class SubmissionManager(
     var isShowingAppDialog: () -> Boolean = { false }
     var setShowingAppDialog: (Boolean) -> Unit = {}
 
+    /**
+     * Tandai status "prompt izin masih berjalan" ke AppDialogFlagRegistry
+     * milik SecurityEnforcer (fix review gel. 2 #1) — agar safety-net reset
+     * flag dari onResume tidak mematikan proteksi saat dialog sistem izin
+     * masih di layar.
+     */
+    var markPermissionPromptPending: (Boolean) -> Unit = {}
+
     // Callback for finish
     var onFinish: (() -> Unit)? = null
 
@@ -107,13 +115,32 @@ class SubmissionManager(
     /**
      * Trigger auto-save with debounce (500ms).
      */
+    // Buffer jawaban terakhir (fix review low-mode ronde 2 #1): nilai yang
+    // masih dalam jendela debounce tetap tersedia untuk flush sinkron saat
+    // siswa keluar, sehingga edit 500ms terakhir tidak hilang.
+    private val autoSaveBuffer = AutoSaveBuffer<Map<String, Any>>()
+
     fun triggerAutoSave(answers: Map<String, Any>) {
         if (submittedOrExited) return
+        autoSaveBuffer.update(answers)
         autoSaveJob?.cancel()
         autoSaveJob = (lifecycleOwner as? androidx.lifecycle.LifecycleOwner)?.lifecycleScope?.launch {
             delay(500)
-            saveAnswersToPrefs(answers)
+            autoSaveBuffer.drain()?.let { saveAnswersToPrefs(it) }
         }
+    }
+
+    /**
+     * Tulis jawaban yang belum tersimpan SEKARANG (sinkron) — dipanggil di
+     * jalur keluar-bebas (low) sebelum finish. Job debounce yang tertunda
+     * dibatalkan; bila job sudah sempat jalan, buffer kosong dan fungsi ini
+     * no-op. Aman dipanggil berulang.
+     */
+    fun flushPendingAutoSave() {
+        try {
+            autoSaveJob?.cancel()
+        } catch (_: Throwable) { }
+        autoSaveBuffer.drain()?.let { saveAnswersToPrefs(it) }
     }
 
     private fun saveAnswersToPrefs(answers: Map<String, Any>) {
@@ -131,6 +158,13 @@ class SubmissionManager(
         }
     }
 
+    /**
+     * Pulihkan jawaban tersimpan untuk [examId].
+     *
+     * Kedaluwarsa 24 jam (review low-mode ronde 2 #3 — asumsi eksplisit):
+     * ujian EXAMVAN berjalan dalam satu hari; bila kelak ada ujian lintas
+     * hari, konstanta di bawah harus dinaikkan bersama hasPendingAnswers.
+     */
     fun restoreAnswersFromPrefs(): Map<String, String>? {
         try {
             val prefs = AppPrefs.getExamPrefsSafe(context)
@@ -198,6 +232,15 @@ class SubmissionManager(
 
     // ---- Submit ----
 
+    /**
+     * Callback holder flag dialog (fix review ronde 4 #1) — di-wire ke
+     * SecurityEnforcer.holdAppDialog/releaseAppDialog oleh activity agar
+     * safety-net reset onResume kondisional berlaku untuk SEMUA dialog,
+     * termasuk milik SubmissionManager.
+     */
+    var holdAppDialog: (String) -> Unit = {}
+    var releaseAppDialog: (String) -> Unit = {}
+
     fun confirmAndSubmit() {
         val answers = getAnswers?.invoke() ?: emptyMap()
         val answered = answers.size
@@ -209,18 +252,18 @@ class SubmissionManager(
             context.getString(R.string.submit_answers_confirm_all, total)
         }
 
-        setShowingAppDialog(true)
+        holdAppDialog(AppDialogIds.SUBMIT_CONFIRM)
         AlertDialog.Builder(context)
             .setTitle(context.getString(R.string.submit_answers_title))
             .setMessage(message)
             .setPositiveButton(context.getString(R.string.submit_confirm_yes)) { _, _ ->
-                setShowingAppDialog(false)
+                releaseAppDialog(AppDialogIds.SUBMIT_CONFIRM)
                 submitAnswers()
             }
             .setNegativeButton(context.getString(R.string.btn_cancel)) { _, _ ->
-                setShowingAppDialog(false)
+                releaseAppDialog(AppDialogIds.SUBMIT_CONFIRM)
             }
-            .setOnCancelListener { setShowingAppDialog(false) }
+            .setOnCancelListener { releaseAppDialog(AppDialogIds.SUBMIT_CONFIRM) }
             .show()
     }
 
@@ -321,14 +364,14 @@ class SubmissionManager(
                     val dialogTitle = if (strictMode) context.getString(R.string.submit_failed_title_strict) else context.getString(R.string.submit_failed_title)
                     val dialogMsg = if (strictMode) context.getString(R.string.submit_failed_message_strict, errorMsg) else context.getString(R.string.submit_failed_message, errorMsg)
 
-                    setShowingAppDialog(true)
+                    holdAppDialog(AppDialogIds.SUBMIT_FAILED)
                     AlertDialog.Builder(context)
                         .setTitle(dialogTitle)
                         .setMessage(dialogMsg)
                         .setPositiveButton(context.getString(R.string.dialog_ok)) { _, _ ->
-                            setShowingAppDialog(false)
+                            releaseAppDialog(AppDialogIds.SUBMIT_FAILED)
                         }
-                        .setOnCancelListener { setShowingAppDialog(false) }
+                        .setOnCancelListener { releaseAppDialog(AppDialogIds.SUBMIT_FAILED) }
                         .show()
                     AuditLog.e(AuditLog.Events.SUBMIT_FAILED, "examId=$examId error=${errorMsg.take(80)}")
                 }
@@ -372,7 +415,9 @@ class SubmissionManager(
      * the same UI. Internal: dipakai juga oleh jalur recovery re-entry.
      */
     internal fun showCongrats(result: ApiClient.SubmitResult) {
-        setShowingAppDialog(true)
+        // Flag dipegang selama transisi ke layar congratulation — menutup
+        // celah focus-blip sesaat sebelum activity baru tampil.
+        holdAppDialog(AppDialogIds.SUBMIT_CONGRATS)
         try {
             val intent = Intent(context, CongratulationsActivity::class.java).apply {
                 putExtra("server_url", serverUrl)
@@ -392,13 +437,13 @@ class SubmissionManager(
                 .setMessage(context.getString(R.string.submit_success_message, result.message))
                 .setCancelable(false)
                 .setPositiveButton(context.getString(R.string.submit_success_done)) { _, _ ->
-                    setShowingAppDialog(false)
+                    releaseAppDialog(AppDialogIds.SUBMIT_CONGRATS)
                     onFinish?.invoke()
                 }
                 .show()
             return
         }
-        setShowingAppDialog(false)
+        releaseAppDialog(AppDialogIds.SUBMIT_CONGRATS)
         onFinish?.invoke()
     }
 
@@ -480,6 +525,10 @@ class SubmissionManager(
         submittedOrExited = true
 
         AuditLog.i(AuditLog.Events.AUTO_SUBMIT, "strict=$strictMode answers=${getAnswers?.invoke()?.size}")
+
+        // Laporkan penutupan otomatis ke log presence server (fix review
+        // ronde 3 #4) — fire-and-forget, tidak mengubah alur submit.
+        try { onAutoSubmitAccessLog?.invoke() } catch (_: Throwable) { }
 
         // 1. Immediately persist submitted/exited state in SharedPreferences
         onSubmitSuccess?.invoke()
@@ -625,6 +674,17 @@ class SubmissionManager(
 
     // ---- Notification permission ----
 
+    /**
+     * Koordinator flag app-dialog untuk prompt izin (fix temuan review mode
+     * medium #1: dialog izin sistem mencuri fokus window — tanpa flag, jalur
+     * focus-loss memicu auto-submit palsu bila PDF sudah siap). markPending
+     * mendaftarkan holder ke registry agar reset onResume bersifat kondisional.
+     */
+    private val permissionPromptCoordinator = PermissionPromptCoordinator(
+        setDialogFlag = { setShowingAppDialog(it) },
+        markPending = { markPermissionPromptPending(it) }
+    )
+
     fun requestNotificationPermission() {
         if (Build.VERSION.SDK_INT < 33) return
         if (ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS)
@@ -632,31 +692,57 @@ class SubmissionManager(
 
         if (context is ActivityCompat.OnRequestPermissionsResultCallback) {
             if (ActivityCompat.shouldShowRequestPermissionRationale(context as android.app.Activity, Manifest.permission.POST_NOTIFICATIONS)) {
-                setShowingAppDialog(true)
+                // Fix review ronde 3 #1: holder didaftarkan SEJAK dialog
+                // rationale tampil (dulu flag diset langsung tanpa holder —
+                // safety-net reset onResume bisa melepasnya di tengah dialog).
+                permissionPromptCoordinator.showRationaleWithHolder()
                 AlertDialog.Builder(context)
                     .setTitle("Izin Notifikasi")
                     .setMessage("Notifikasi digunakan hanya untuk memberi tahu status pengumpulan ujian. " +
                             "Tidak ada notifikasi iklan atau promosi.")
                     .setPositiveButton("Izinkan") { _, _ ->
-                        setShowingAppDialog(false)
-                        ActivityCompat.requestPermissions(
-                            context as android.app.Activity,
-                            arrayOf(Manifest.permission.POST_NOTIFICATIONS),
-                            REQUEST_NOTIFICATION_PERMISSION
-                        )
+                        // Lanjut ke prompt sistem; acquire idempoten — holder
+                        // yang sama dipertahankan sampai onPermissionResult.
+                        permissionPromptCoordinator.requestViaSystemDialog {
+                            ActivityCompat.requestPermissions(
+                                context as android.app.Activity,
+                                arrayOf(Manifest.permission.POST_NOTIFICATIONS),
+                                REQUEST_NOTIFICATION_PERMISSION
+                            )
+                        }
                     }
                     .setNegativeButton("Jangan Izinkan") { _, _ ->
-                        setShowingAppDialog(false)
+                        permissionPromptCoordinator.dismissRationaleWithoutRequest()
                     }
-                    .setOnCancelListener { setShowingAppDialog(false) }
+                    .setOnCancelListener {
+                        permissionPromptCoordinator.dismissRationaleWithoutRequest()
+                    }
                     .show()
             } else {
-                ActivityCompat.requestPermissions(
-                    context as android.app.Activity,
-                    arrayOf(Manifest.permission.POST_NOTIFICATIONS),
-                    REQUEST_NOTIFICATION_PERMISSION
-                )
+                permissionPromptCoordinator.requestViaSystemDialog {
+                    ActivityCompat.requestPermissions(
+                        context as android.app.Activity,
+                        arrayOf(Manifest.permission.POST_NOTIFICATIONS),
+                        REQUEST_NOTIFICATION_PERMISSION
+                    )
+                }
             }
         }
     }
+
+    /**
+     * Dipanggil activity dari onRequestPermissionsResult (requestCode 1001):
+     * dialog sistem sudah tertutup — fokus kembali normal, flag dilepas.
+     */
+    fun onNotificationPermissionResult() {
+        permissionPromptCoordinator.onPermissionResult()
+    }
+
+    /**
+     * Access-log event penutupan ujian otomatis (fix review ronde 3 #4).
+     * Fire-and-forget — dipanggil activity tepat sebelum background POST,
+     * agar log presence server punya penanda eksplisit "auto_submit",
+     * berbeda dari login/logout.
+     */
+    var onAutoSubmitAccessLog: (() -> Unit)? = null
 }

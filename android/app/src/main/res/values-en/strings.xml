@@ -120,4 +120,35 @@
 
     <!-- Secure storage fallback warning (keystore corrupt) -->
     <string name="storage_fallback_warning">Secure storage (keystore) is unavailable on this device. Server URL, token, and identity data will be stored WITHOUT encryption. Contact the supervisor before continuing.</string>
+
+    <!-- Accessibility service warning (fix review: previously log-only) -->
+    <string name="accessibility_warning_title">Accessibility Service Active</string>
+    <string name="accessibility_warning_message">This device has an Accessibility service that can read screen content or control touches automatically.\n\nFor exam security, disable that service in Settings \u2192 Accessibility if you are not using it. This activity is logged for supervisor audit.</string>
+
+    <!-- Results viewer (in-app WebView) -->
+    <string name="results_viewer_title">Exam Results</string>
+
+    <!-- Waiting approval screen -->
+    <string name="approval_waiting_title">Waiting for Approval</string>
+    <string name="approval_waiting_subtitle">Your request has been sent to the exam supervisor.\nPlease stay on this page until the supervisor approves it.</string>
+    <string name="approval_exam_label">Exam</string>
+    <string name="approval_identity_label">Participant Data</string>
+    <string name="approval_status_connected">Connected to server - waiting for supervisor</string>
+    <string name="approval_status_retrying">Connection interrupted, retrying\u2026</string>
+    <string name="approval_warning_message">Connection to the server was interrupted: %1$s\nThe app will keep trying automatically.</string>
+    <string name="approval_approved_title">Approved! \u2713</string>
+    <string name="approval_approved_message">The supervisor has approved your request.\nEntering the exam\u2026</string>
+    <string name="approval_rejected_title">Request Rejected</string>
+    <string name="approval_rejected_subtitle">The supervisor rejected your request.</string>
+    <string name="approval_rejected_message">The exam supervisor rejected your request to enter this exam.\nPlease contact the supervisor for more information.</string>
+    <string name="approval_btn_cancel">Cancel Request</string>
+    <string name="approval_btn_back">Back</string>
+    <string name="approval_btn_retry">Request Permission Again</string>
+    <string name="approval_cancel_title">Cancel Request?</string>
+    <string name="approval_cancel_message">Are you sure you want to cancel the approval request and return to the previous screen?</string>
+    <string name="approval_cancel_yes">Yes, Cancel</string>
+    <string name="approval_cancel_no">Keep Waiting</string>
+
+    <!-- Update required dialog -->
+    <string name="update_required_url_missing">Server address is not saved yet. Contact the supervisor to update the app.</string>
 </resources>

@@ -46,11 +46,26 @@ object UpdateManager {
     }
 
     private fun parseVersion(v: String): List<Int> {
-        return v.split(".").map { seg ->
+        val segments = v.split(".")
+        val out = ArrayList<Int>(segments.size)
+        var sawUnparseableSegment = false
+        for (seg in segments) {
             // Take leading digits only (discard non-numeric suffix like "-beta")
             val digits = seg.takeWhile { it.isDigit() }
-            if (digits.isEmpty()) 0 else digits.toInt()
+            if (digits.isEmpty()) {
+                // Segmen non-kosong tanpa digit sama sekali (mis. "abc") berarti
+                // versi tidak dapat di-parse → sinyalkan lewat exception agar
+                // compareVersions jatuh ke fallback string comparison.
+                if (seg.isNotEmpty()) sawUnparseableSegment = true
+                out.add(0)
+            } else {
+                out.add(digits.toInt())
+            }
         }
+        if (sawUnparseableSegment && out.all { it == 0 }) {
+            throw NumberFormatException("Unparseable version: $v")
+        }
+        return out
     }
 
     /**
@@ -63,12 +78,28 @@ object UpdateManager {
      * HTTP 426 but the required version is unknown (falls back to a generic
      * message without the version line).
      */
+    /**
+     * Guard untuk pemanggilan dialog dari callback async (fix temuan review:
+     * "showUpdateRequiredDialog dipanggil dari callback checkHealth tanpa cek
+     * isFinishing/isDestroyed → BadTokenException saat activity sudah mati").
+     *
+     * @return true hanya bila activity masih layak menampilkan dialog.
+     */
+    fun canPresentDialog(isFinishing: Boolean, isDestroyed: Boolean): Boolean {
+        return !isFinishing && !isDestroyed
+    }
+
     fun showUpdateRequiredDialog(
         activity: Activity,
         currentVersion: String,
         requiredVersion: String?,
         serverUrl: String
     ) {
+        // Callback jaringan bisa pulang setelah activity mati (user menekan
+        // back saat checkHealth berjalan) — jangan pernah buat dialog pada
+        // window token yang sudah invalid.
+        if (!canPresentDialog(activity.isFinishing, activity.isDestroyed)) return
+
         val message = if (requiredVersion.isNullOrBlank()) {
             activity.getString(R.string.update_required_message_generic)
         } else {

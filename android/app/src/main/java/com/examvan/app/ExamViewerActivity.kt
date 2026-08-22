@@ -2,7 +2,6 @@ package com.examvan.app
 
 import android.content.Intent
 import android.content.pm.PackageManager
-import android.net.Uri
 import android.os.Bundle
 import android.util.Log
 import android.view.KeyEvent
@@ -13,8 +12,11 @@ import androidx.appcompat.app.AlertDialog
 import com.examvan.app.api.ApiClient
 import com.examvan.app.api.WebSocketManager
 import com.examvan.app.databinding.ActivityExamViewerBinding
+import com.examvan.app.helper.AccessLogPolicy
 import com.examvan.app.helper.AnswerSheetBuilder
+import com.examvan.app.helper.AppDialogIds
 import com.examvan.app.helper.ExamDeadline
+import com.examvan.app.helper.ExamLaunchPolicy
 import com.examvan.app.helper.ExamModePolicy
 import com.examvan.app.helper.PdfRendererHelper
 import com.examvan.app.helper.SecurityEnforcer
@@ -67,8 +69,22 @@ class ExamViewerActivity : BaseSecureActivity() {
     private var macAddress = ""
     private var serverUrl = ""
     private var examToken = ""
-    private var securityLevel = "medium"
+    private var securityLevel = ExamModePolicy.DEFAULT_LEVEL
     private var examContentLoaded = false
+
+    /**
+     * Timestamp saat PDF pertama kali siap — dasar grace period startup
+     * auto-submit mode medium (ExamModePolicy.isWithinStartupGrace).
+     * Null = PDF belum siap.
+     */
+    private var pdfReadyAtMs: Long? = null
+
+    /**
+     * Grace startup aktif → jalur keluar (Home/fokus/onStop) MENUNDA
+     * auto-submit. Deadline watchdog tidak pernah terpengaruh.
+     */
+    private fun suppressedByStartupGrace(): Boolean =
+        ExamModePolicy.isWithinStartupGrace(pdfReadyAtMs, System.currentTimeMillis())
 
     // Questions config
     private var questions: List<Map<String, Any>> = emptyList()
@@ -94,6 +110,8 @@ class ExamViewerActivity : BaseSecureActivity() {
     companion object {
         private const val TAG = "ExamViewer"
         private val questionsListType = object : TypeToken<List<Map<String, Any>>>() {}.type
+
+        // ID holder dialog terpusat di AppDialogIds (fix review ronde 4 #1).
     }
 
     // ===== Lifecycle =====
@@ -145,13 +163,28 @@ class ExamViewerActivity : BaseSecureActivity() {
         // Read from Intent first (to avoid race conditions on fresh save), fallback to EncryptedSharedPreferences
         val strictMode = intent.getBooleanExtra("strict_mode", false) ||
                 AppPrefs.getExamPrefsSafe(this).getBoolean(AppPrefs.KEY_STRICT_MODE, false)
-        securityLevel = intent.getStringExtra("security_level") ?:
-                AppPrefs.getExamPrefsSafe(this).getString(AppPrefs.KEY_SECURITY_LEVEL, "medium") ?: "medium"
+        // Normalisasi defensif (fix review low-mode #1): sumber hulu sudah
+        // dinormalisasi, tapi nilai lama dari prefs versi sebelumnya bisa
+        // belum ternormalisasi.
+        securityLevel = ExamModePolicy.normalize(
+            intent.getStringExtra("security_level")
+                ?: AppPrefs.getExamPrefsSafe(this).getString(AppPrefs.KEY_SECURITY_LEVEL, null)
+        )
         macAddress = DeviceIdResolver.resolveDeviceId(this)
         binding.tvExamTitle.text = ""
 
         // ---- Initialize helpers ----
         initializeHelpers(strictMode, savedInstanceState)
+
+        // Validasi intent SEKARANG — sebelum efek samping apapun (fix temuan
+        // review: dulu cek examId == -1 baru jalan SETELAH WebSocket connect,
+        // access log, dan penjadwalan deadline watchdog).
+        val launchCheck = ExamLaunchPolicy.validate(examId, serverUrl, examToken)
+        if (launchCheck is ExamLaunchPolicy.Invalid) {
+            Log.e(TAG, "Intent ujian tidak valid: field=${launchCheck.field}")
+            showError(getString(R.string.exam_invalid_id))
+            return
+        }
 
         // Start WebSocket for real-time communication
         if (serverUrl.isNotEmpty() && examToken.isNotEmpty() && examId > 0) {
@@ -191,11 +224,6 @@ class ExamViewerActivity : BaseSecureActivity() {
             sendAccessLog("login")
         }
 
-        if (examId == -1) {
-            showError(getString(R.string.exam_invalid_id))
-            return
-        }
-
         // Watchdog deadline dijadwalkan SEGERA (sebelum PDF siap) — lihat
         // scheduleDeadlineFromStart. Menutup kasus PDF tidak pernah siap:
         // sebelumnya deadline lewat tanpa auto-submit bila siswa terjebak di
@@ -221,6 +249,11 @@ class ExamViewerActivity : BaseSecureActivity() {
             onPdfReady = {
                 viewModel.setPdfReady(true)
                 securityEnforcer.isPdfReady = true
+                // Catat waktu PDF siap — dasar grace period startup agar
+                // Home tidak sengaja sesaat setelah ujian terbuka tidak
+                // langsung memicu auto-submit (fix temuan review mode
+                // medium #4; lihat ExamModePolicy.isWithinStartupGrace).
+                pdfReadyAtMs = System.currentTimeMillis()
                 // One-time gesture warning in strict mode
                 securityEnforcer.showGestureWarningOnce()
                 startCountdownTimer()
@@ -287,6 +320,20 @@ class ExamViewerActivity : BaseSecureActivity() {
             getAnswers = { this@ExamViewerActivity.studentAnswers }
             isShowingAppDialog = { securityEnforcer.isShowingAppDialog }
             setShowingAppDialog = { v -> securityEnforcer.isShowingAppDialog = v }
+            // Fix review gel. 2 #1: status prompt izin terdaftar sebagai
+            // holder di registry — safety-net reset onResume jadi kondisional.
+            markPermissionPromptPending = { pending ->
+                if (pending) securityEnforcer.holdAppDialog(AppDialogIds.PERMISSION_PROMPT)
+                else securityEnforcer.releaseAppDialog(AppDialogIds.PERMISSION_PROMPT)
+            }
+            // Fix review ronde 4 #1: dialog milik SubmissionManager (konfirmasi
+            // submit, submit-gagal, congrats) kini juga memegang flag via
+            // holder — invariant reset kondisional berlaku tanpa pengecualian.
+            holdAppDialog = { securityEnforcer.holdAppDialog(it) }
+            releaseAppDialog = { securityEnforcer.releaseAppDialog(it) }
+            // Fix review ronde 3 #4: log presence server dapat penanda
+            // eksplisit "auto_submit" saat ujian ditutup otomatis.
+            onAutoSubmitAccessLog = { sendAccessLog(AccessLogPolicy.EVENT_AUTO_SUBMIT) }
             onFinish = { finish() }
             isActivityFinishing = { isFinishing || isDestroyed }
             onSubmitSuccess = {
@@ -353,11 +400,16 @@ class ExamViewerActivity : BaseSecureActivity() {
         if (savedInstanceState != null) {
             pdfRendererHelper.setPendingRestorePage(savedInstanceState.getInt("currentPage", -1))
             val answerSheetExpanded = savedInstanceState.getBoolean("answerSheetExpanded", false)
-            securityLevel = savedInstanceState.getString("securityLevel", "medium") ?: "medium"
+            securityLevel = savedInstanceState.getString("securityLevel", ExamModePolicy.DEFAULT_LEVEL) ?: ExamModePolicy.DEFAULT_LEVEL
             if (answerSheetExpanded) {
                 binding.answerSheetPanel.visibility = View.VISIBLE
                 binding.btnToggleAnswerSheet.text = getString(R.string.answer_sheet_close)
             }
+            // Fix review gel. 2 #3: restore grace startup agar rotasi di
+            // dalam window 3s pertama tidak menghilangkan perlindungan
+            // anti-auto-submit-dini. -1 = belum pernah PDF siap.
+            val savedReadyAt = savedInstanceState.getLong("pdfReadyAtMs", -1L)
+            if (savedReadyAt > 0) pdfReadyAtMs = savedReadyAt
         }
 
         // Start time process death resilience
@@ -374,9 +426,22 @@ class ExamViewerActivity : BaseSecureActivity() {
         }
         submissionManager.startTime = startTime
 
-        val savedDrift = savedInstanceState?.getLong("initialClockDrift", 0L) ?: 0L
-        if (savedDrift != 0L) {
-            securityEnforcer.initialClockDrift = savedDrift
+        // Baseline clock-drift (fix temuan review: dulu baseline hanya ada di
+        // savedInstanceState — proses mati = baseline hilang = siswa bebas
+        // memanipulasi jam setelah restart). Prioritas via ClockDriftPolicy:
+        // savedInstanceState → prefs terenkripsi → hitung baru (+persist).
+        val savedDriftRaw = savedInstanceState?.getLong("initialClockDrift", 0L)
+        val persistedDrift = if (prefs.contains(AppPrefs.KEY_CLOCK_DRIFT_BASELINE)) {
+            prefs.getLong(AppPrefs.KEY_CLOCK_DRIFT_BASELINE, 0L)
+        } else null
+        val resolvedDrift = com.examvan.app.helper.ClockDriftPolicy.resolveBaseline(
+            savedStateDriftMs = savedDriftRaw,
+            persistedDriftMs = persistedDrift,
+            freshDriftMs = System.currentTimeMillis() - android.os.SystemClock.elapsedRealtime()
+        )
+        securityEnforcer.initialClockDrift = resolvedDrift.baselineDriftMs
+        if (resolvedDrift.isNew) {
+            prefs.edit().putLong(AppPrefs.KEY_CLOCK_DRIFT_BASELINE, resolvedDrift.baselineDriftMs).apply()
         }
 
         val savedEndTime = savedInstanceState?.getString("endTime")
@@ -431,8 +496,10 @@ class ExamViewerActivity : BaseSecureActivity() {
 
         binding.btnCancel.setOnClickListener {
             pdfRendererHelper.cancelDownload()
+            // Jalur keluar-bebas (batal unduh): logout dengan retry agar
+            // presence dasbor akurat (fix review low-mode ronde 2 #2).
             viewModel.setSubmittedOrExited(true)
-            sendAccessLog("logout")
+            sendAccessLog("logout", retryOnFailure = true)
             finish()
         }
 
@@ -457,7 +524,10 @@ class ExamViewerActivity : BaseSecureActivity() {
         try {
             val prefs = AppPrefs.getExamPrefsSafe(this)
             val json = prefs.getString(AppPrefs.KEY_QUESTIONS_JSON, null)
-            securityLevel = intent.getStringExtra("security_level") ?: prefs.getString(AppPrefs.KEY_SECURITY_LEVEL, "medium") ?: "medium"
+            securityLevel = ExamModePolicy.normalize(
+                intent.getStringExtra("security_level")
+                    ?: prefs.getString(AppPrefs.KEY_SECURITY_LEVEL, null)
+            )
             updateSecurityBanner()
             applyPanelColor()
             submissionManager.requestNotificationPermission()
@@ -504,7 +574,7 @@ class ExamViewerActivity : BaseSecureActivity() {
             binding.tvSecurityBanner.text = getString(R.string.strict_mode_active)
             binding.tvSecurityBanner.setBackgroundColor(androidx.core.content.ContextCompat.getColor(this, R.color.security_banner_critical))
             binding.tvSecurityBanner.setTextColor(androidx.core.content.ContextCompat.getColor(this, R.color.security_banner_text))
-        } else if (securityLevel == "medium") {
+        } else if (securityLevel == ExamModePolicy.LEVEL_MEDIUM) {
             binding.tvSecurityBanner.text = getString(R.string.autosubmit_status_active)
             binding.tvSecurityBanner.setBackgroundColor(androidx.core.content.ContextCompat.getColor(this, R.color.security_banner_warning))
             binding.tvSecurityBanner.setTextColor(androidx.core.content.ContextCompat.getColor(this, R.color.security_banner_text))
@@ -558,15 +628,18 @@ class ExamViewerActivity : BaseSecureActivity() {
 
     private fun confirmAndLogout() {
         if (securityEnforcer.strictMode) {
-            securityEnforcer.isShowingAppDialog = true
+            // Holder-based flag (fix review gel. 2 #1): dialog terdaftar di
+            // registry sehingga safety-net reset onResume tidak mematikan
+            // proteksi selama dialog masih terbuka.
+            securityEnforcer.holdAppDialog(AppDialogIds.LOGOUT_CONFIRM)
             AlertDialog.Builder(this)
                 .setTitle(getString(R.string.strict_mode_cannot_exit_title))
                 .setMessage("Mode ketat: Anda tidak bisa keluar dari ujian. " +
                         "Selesaikan semua jawaban dan tekan tombol 'Kumpulkan' untuk menyelesaikan ujian.")
                 .setPositiveButton(getString(R.string.dialog_ok)) { _, _ ->
-                    securityEnforcer.isShowingAppDialog = false
+                    securityEnforcer.releaseAppDialog(AppDialogIds.LOGOUT_CONFIRM)
                 }
-                .setOnCancelListener { securityEnforcer.isShowingAppDialog = false }
+                .setOnCancelListener { securityEnforcer.releaseAppDialog(AppDialogIds.LOGOUT_CONFIRM) }
                 .show()
             return
         }
@@ -575,7 +648,7 @@ class ExamViewerActivity : BaseSecureActivity() {
         val message: String
         val positiveButtonText: String
 
-        if (securityLevel == "low") {
+        if (securityLevel == ExamModePolicy.LEVEL_LOW) {
             title = getString(R.string.logout_low_title)
             message = getString(R.string.logout_low_message)
             positiveButtonText = getString(R.string.logout_low_positive)
@@ -585,24 +658,27 @@ class ExamViewerActivity : BaseSecureActivity() {
             positiveButtonText = getString(R.string.logout_default_positive)
         }
 
-        securityEnforcer.isShowingAppDialog = true
+        securityEnforcer.holdAppDialog(AppDialogIds.LOGOUT_CONFIRM)
         AlertDialog.Builder(this)
             .setTitle(title)
             .setMessage(message)
             .setPositiveButton(positiveButtonText) { _, _ ->
-                securityEnforcer.isShowingAppDialog = false
-                if (securityLevel == "low") {
+                securityEnforcer.releaseAppDialog(AppDialogIds.LOGOUT_CONFIRM)
+                if (securityLevel == ExamModePolicy.LEVEL_LOW) {
+                    // Flush jawaban dalam jendela debounce (fix review
+                    // low-mode ronde 2 #1): edit 500ms terakhir tidak hilang.
+                    submissionManager.flushPendingAutoSave()
                     viewModel.setSubmittedOrExited(true)
-                    sendAccessLog("logout")
+                    sendAccessLog("logout", retryOnFailure = true)
                     finish()
                 } else {
                     submissionManager.autoSubmitAndExit()
                 }
             }
             .setNegativeButton(getString(R.string.btn_cancel)) { _, _ ->
-                securityEnforcer.isShowingAppDialog = false
+                securityEnforcer.releaseAppDialog(AppDialogIds.LOGOUT_CONFIRM)
             }
-            .setOnCancelListener { securityEnforcer.isShowingAppDialog = false }
+            .setOnCancelListener { securityEnforcer.releaseAppDialog(AppDialogIds.LOGOUT_CONFIRM) }
             .show()
     }
 
@@ -614,9 +690,26 @@ class ExamViewerActivity : BaseSecureActivity() {
      * Laporkan event presence siswa (login/heartbeat/logout) ke server via
      * HTTP POST /access-log. Fire-and-forget — kegagalan tidak memengaruhi
      * jalannya ujian.
+     *
+     * [retryOnFailure] = true untuk event LOGOUT di jalur keluar-bebas:
+     * kegagalan membuat siswa tampak "online" di dasbor sampai TTL presence
+     * habis (fix review low-mode ronde 2 #2 — retry sekali).
      */
-    private fun sendAccessLog(event: String) {
+    private fun sendAccessLog(event: String, retryOnFailure: Boolean = false) {
         if (examId <= 0 || examToken.isEmpty() || serverUrl.isEmpty()) return
+        if (retryOnFailure) {
+            ApiClient.sendAccessLogWithRetry(
+                examId = examId,
+                token = examToken,
+                macAddress = macAddress,
+                event = event,
+                studentName = studentName,
+                examNumber = studentNumber,
+                studentClass = studentClass,
+                deviceInfo = android.os.Build.MODEL
+            )
+            return
+        }
         ApiClient.sendAccessLog(
             examId = examId,
             token = examToken,
@@ -644,10 +737,14 @@ class ExamViewerActivity : BaseSecureActivity() {
     override fun onResume() {
         super.onResume()
         if (::securityEnforcer.isInitialized) {
-            // Reset dialog flag
+            // Reset dialog flag — KONDISIONAL (fix review gel. 2 #1): dulu
+            // posted runnable ini memaksa flag false secara buta, sehingga
+            // flag bisa lepas padahal prompt izin / dialog masih terbuka dan
+            // jalur focus-loss memicu auto-submit palsu. Kini reset no-op
+            // bila ada holder aktif di AppDialogFlagRegistry.
             android.os.Handler(android.os.Looper.getMainLooper()).post {
                 if (!isFinishing && !isDestroyed) {
-                    securityEnforcer.isShowingAppDialog = false
+                    securityEnforcer.resetAppDialogIfIdle()
                 }
             }
             securityEnforcer.onResume()
@@ -669,6 +766,7 @@ class ExamViewerActivity : BaseSecureActivity() {
         super.onStop()
         if (::securityEnforcer.isInitialized && ::submissionManager.isInitialized) {
             if (!submissionManager.submittedOrExited && viewModel.isPdfReady.value) {
+                if (suppressedByStartupGrace()) return  // grace startup (fix #4)
                 if (ExamModePolicy.shouldAutoSubmitOnFocusLoss(securityLevel, securityEnforcer.strictMode)) {
                     submissionManager.autoSubmitAndExit()
                 }
@@ -687,8 +785,16 @@ class ExamViewerActivity : BaseSecureActivity() {
             // Calling autoSubmitAndExit releases the pin (stopLockTask) and lets students out freely.
             // Instead, let Android handle it: forced unpin → Android lockscreen → student can't open anything.
             // MEDIUM MODE: Auto-submit and exit immediately.
+            //
+            // Fix temuan review mode medium #2: keputusan mode kini lewat
+            // ExamModePolicy.shouldAutoSubmitOnUserLeave (bukan
+            // `== "medium"` hardcoded) agar konsisten dengan jalur
+            // onStop/fokus untuk level level tak dikenal/custom.
+            // Fix #4: dalam grace startup, Home tidak sengaja tidak langsung
+            // men-submit — siswa diberi waktu masuk terlebih dahulu.
             if (!submissionManager.submittedOrExited && viewModel.isPdfReady.value) {
-                if (securityLevel == "medium" && !securityEnforcer.strictMode) {
+                if (suppressedByStartupGrace()) return
+                if (ExamModePolicy.shouldAutoSubmitOnUserLeave(securityLevel, securityEnforcer.strictMode)) {
                     submissionManager.autoSubmitAndExit()
                 }
             }
@@ -704,6 +810,9 @@ class ExamViewerActivity : BaseSecureActivity() {
                 // Auto-submit HANYA di medium mode (lihat ExamModePolicy): low
                 // bebas keluar-masuk tanpa konsekuensi; strict memakai lock task
                 // pin (auto-submit justru melepas pin dan membebaskan siswa).
+                // Grace startup juga berlaku di sini (fix #4): dialog sistem
+                // yang muncul beberapa detik pertama tak boleh men-submit.
+                if (suppressedByStartupGrace()) return@handleWindowFocusChanged
                 if (ExamModePolicy.shouldAutoSubmitOnFocusLoss(securityLevel, securityEnforcer.strictMode)) {
                     submissionManager.autoSubmitAndExit()
                 }
@@ -713,10 +822,11 @@ class ExamViewerActivity : BaseSecureActivity() {
 
     override fun onKeyDown(keyCode: Int, event: KeyEvent?): Boolean {
         if (::securityEnforcer.isInitialized) {
-            // Volume ditekan hanya di medium/strict (panel volume tidak boleh
-            // dipakai sebagai jalur keluar/bypass); di low tombol volume
-            // berfungsi normal lewat sistem.
-            if (ExamModePolicy.shouldInterceptVolumeKeys(securityLevel) &&
+            // Volume ditekan di medium/strict ATAU saat lock task aktif
+            // (low+strict) — panel volume tidak boleh jadi jalur keluar/
+            // bypass. Di low non-strict tombol volume berfungsi normal.
+            // Fix review low-mode ronde 3 #1: kebijakan kini strict-aware.
+            if (ExamModePolicy.shouldInterceptVolumeKeys(securityLevel, securityEnforcer.strictMode) &&
                 securityEnforcer.handleVolumeKey(keyCode)
             ) {
                 return true
@@ -729,7 +839,14 @@ class ExamViewerActivity : BaseSecureActivity() {
     override fun onKeyLongPress(keyCode: Int, event: KeyEvent?): Boolean {
         if (::securityEnforcer.isInitialized) {
             if (keyCode == KeyEvent.KEYCODE_VOLUME_UP || keyCode == KeyEvent.KEYCODE_VOLUME_DOWN) {
-                return securityEnforcer.handleVolumeKeyLongPress()
+                // Fix review low-mode ronde 3 #2: long-press kini mengikuti
+                // kebijakan yang sama dengan short-press — dulu SELALU
+                // dikonsumsi tanpa melihat mode (di low, single-press normal
+                // tapi long-press mati diam-diam).
+                if (ExamModePolicy.shouldInterceptVolumeLongPress(securityLevel, securityEnforcer.strictMode)) {
+                    return securityEnforcer.handleVolumeKeyLongPress()
+                }
+                return super.onKeyLongPress(keyCode, event)
             }
             if (keyCode == KeyEvent.KEYCODE_POWER && securityEnforcer.strictMode) {
                 return securityEnforcer.handlePowerKeyLongPress()
@@ -756,6 +873,8 @@ class ExamViewerActivity : BaseSecureActivity() {
         outState.putString("securityLevel", securityLevel)
         outState.putString("startTime", startTime)
         outState.putString("endTime", endTime)
+        // Fix review gel. 2 #3: grace startup bertahan lintas rotasi.
+        outState.putLong("pdfReadyAtMs", pdfReadyAtMs ?: -1L)
     }
 
     override fun onDestroy() {
@@ -773,6 +892,12 @@ class ExamViewerActivity : BaseSecureActivity() {
     override fun onRequestPermissionsResult(requestCode: Int, permissions: Array<String>, grantResults: IntArray) {
         super.onRequestPermissionsResult(requestCode, permissions, grantResults)
         if (requestCode == 1001) { // REQUEST_NOTIFICATION_PERMISSION
+            // Fix temuan review mode medium #1: dialog sistem izin sudah
+            // tertutup — lepas flag app-dialog agar jalur focus-loss kembali
+            // aktif secara normal.
+            if (::submissionManager.isInitialized) {
+                submissionManager.onNotificationPermissionResult()
+            }
             val granted = grantResults.isNotEmpty() && grantResults[0] == PackageManager.PERMISSION_GRANTED
             Log.d(TAG, "Notification permission ${if (granted) "granted" else "denied"}")
         }
@@ -878,6 +1003,12 @@ class ExamViewerActivity : BaseSecureActivity() {
      * Waktu ujian habis: batalkan timer & watchdog, lalu auto-submit.
      * Dipanggil dari onFinish CountDownTimer ATAU watchdog (yang menembak
      * bahkan saat activity paused). Idempoten via guard autoSubmitAndExit.
+     *
+     * CATATAN (review ronde 4 #2, perilaku disengaja): deadline TIDAK
+     * mengecek flag/holder dialog aktif — bila siswa sedang di dialog
+     * konfirmasi submit tepat saat waktu habis, auto-submit langsung
+     * menuntaskan alur dan menutup activity beserta dialognya. Deadline
+     * selalu mengalahkan interaksi apapun.
      */
     private fun triggerDeadlineAutoSubmit() {
         deadlineRunnable?.let { deadlineHandler?.removeCallbacks(it) }
@@ -936,14 +1067,7 @@ class ExamViewerActivity : BaseSecureActivity() {
      * retry tidak menduplikasi baris.
      */
     private fun showPendingSubmitRecoveryScreen() {
-        binding.btnBack.visibility = View.GONE
-        binding.btnToggleAnswerSheet.visibility = View.GONE
-        binding.btnSubmitAnswers.visibility = View.GONE
-        binding.btnPrev.visibility = View.GONE
-        binding.btnNext.visibility = View.GONE
-        binding.answerSheetToggle.visibility = View.GONE
-        binding.layoutDownload.visibility = View.GONE
-        binding.ivPdfPage.visibility = View.GONE
+        com.examvan.app.helper.ExamScreenPanels.hideAllControls(binding)
 
         binding.tvErrorMsg.text = getString(R.string.recovery_pending_message)
         binding.btnRetryDownload.text = getString(R.string.recovery_retry_submit)
@@ -978,14 +1102,7 @@ class ExamViewerActivity : BaseSecureActivity() {
     }
 
     private fun showExamAlreadySubmittedScreen() {
-        binding.btnBack.visibility = View.GONE
-        binding.btnToggleAnswerSheet.visibility = View.GONE
-        binding.btnSubmitAnswers.visibility = View.GONE
-        binding.btnPrev.visibility = View.GONE
-        binding.btnNext.visibility = View.GONE
-        binding.answerSheetToggle.visibility = View.GONE
-        binding.layoutDownload.visibility = View.GONE
-        binding.ivPdfPage.visibility = View.GONE
+        com.examvan.app.helper.ExamScreenPanels.hideAllControls(binding)
 
         binding.tvErrorMsg.text = "Ujian Sudah Selesai!\n\nAnda telah mengumpulkan jawaban untuk ujian ini. Terima kasih!"
         binding.btnRetryDownload.text = "Keluar"
@@ -993,27 +1110,34 @@ class ExamViewerActivity : BaseSecureActivity() {
             finish()
         }
 
-        // "Buka Halaman Hasil" — also available when re-entering an already
-        // submitted exam, so the student can still reach their results page.
+        // "Buka Halaman Hasil" — juga tersedia saat membuka ulang ujian yang
+        // sudah dikumpulkan. Fix temuan review: hasil dibuka di WebView
+        // IN-APP (ResultsViewerActivity, FLAG_SECURE) — token tidak lagi
+        // bocor ke history browser eksternal.
         binding.btnOpenResult.visibility = View.VISIBLE
-        binding.btnOpenResult.setOnClickListener {
-            val base = serverUrl.trim().trimEnd('/')
-            val token = examToken.trim()
-            if (base.isNotEmpty() && token.isNotEmpty()) {
-                try {
-                    startActivity(
-                        Intent(Intent.ACTION_VIEW, Uri.parse("$base/$token"))
-                            .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-                    )
-                } catch (_: Exception) {
-                    Toast.makeText(this, R.string.congrats_link_missing, Toast.LENGTH_SHORT).show()
-                }
-            } else {
-                Toast.makeText(this, R.string.congrats_link_missing, Toast.LENGTH_SHORT).show()
-            }
-        }
+        binding.btnOpenResult.setOnClickListener { openResultsInApp() }
 
         binding.layoutError.visibility = View.VISIBLE
+    }
+
+    /**
+     * Buka halaman hasil di dalam app (WebView). Token tetap di sandbox app:
+     * tidak masuk browser eksternal, history, atau Referrer header.
+     */
+    private fun openResultsInApp() {
+        val url = com.examvan.app.helper.ResultsLinkPolicy.build(serverUrl, examToken)
+        if (url.isEmpty()) {
+            Toast.makeText(this, R.string.congrats_link_missing, Toast.LENGTH_SHORT).show()
+            return
+        }
+        try {
+            startActivity(
+                Intent(this, ResultsViewerActivity::class.java)
+                    .putExtra(ResultsViewerActivity.EXTRA_URL, url)
+            )
+        } catch (_: Exception) {
+            Toast.makeText(this, R.string.congrats_link_missing, Toast.LENGTH_SHORT).show()
+        }
     }
 
     private fun unregisterNetworkCallback() {

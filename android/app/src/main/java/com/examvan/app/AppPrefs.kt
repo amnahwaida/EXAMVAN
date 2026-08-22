@@ -30,6 +30,15 @@ object AppPrefs {
     const val KEY_SUBMITTED_OR_EXITED = "submitted_or_exited"
     const val KEY_LAST_VERSION_CHECK_TS = "last_version_check_ts"
 
+    /**
+     * Baseline clock-drift sesi ujian (wallClock - elapsedRealtime saat mulai).
+     * Dipersist ke prefs terenkripsi agar bertahan process death — fix temuan
+     * review: dulu baseline hanya ada di memory/savedInstanceState sehingga
+     * siswa bisa memanipulasi jam setelah me-restart proses app.
+     * Lihat ClockDriftPolicy.resolveBaseline.
+     */
+    const val KEY_CLOCK_DRIFT_BASELINE = "clock_drift_baseline"
+
     fun getSubmittedOrExitedKey(examId: Int): String {
         return "${KEY_SUBMITTED_OR_EXITED}_$examId"
     }
@@ -47,6 +56,29 @@ object AppPrefs {
                 .build()
                 .also { masterKey = it }
         }
+    }
+
+    /**
+     * Reset data sesi ujian lama saat bergabung ke ujian (fix review ronde 5
+     * #1 & #2). Keputusan reset & pemangkasan delegasi ke
+     * ExamSessionResetPolicy:
+     *  - KEY_EXAM_START_TIME dihapus bila [newExamId] berbeda dari sesi
+     *    tersimpan (rejoin ujian sama tidak disentuh — resilience recovery);
+     *  - flag submitted_or_exit_<id> milik ujian LAIN dipangkas.
+     *
+     * @return true bila ada key yang dihapus.
+     */
+    fun clearStaleExamSession(context: Context, storedExamId: Int, newExamId: Int): Boolean {
+        if (!com.examvan.app.helper.ExamSessionResetPolicy.shouldResetSession(storedExamId, newExamId)) {
+            return false
+        }
+        val prefs = getExamPrefsSafe(context)
+        val editor = prefs.edit().remove(KEY_EXAM_START_TIME)
+        val prunable = com.examvan.app.helper.ExamSessionResetPolicy
+            .prunableSubmittedFlagKeys(prefs.all.keys, keepExamId = newExamId)
+        prunable.forEach { editor.remove(it) }
+        editor.apply()
+        return true
     }
 
     fun getConfigPrefs(context: Context): SharedPreferences {

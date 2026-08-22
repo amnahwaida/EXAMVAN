@@ -45,10 +45,6 @@
         </activity>
 
         <activity
-            android:name=".ExamListActivity"
-            android:exported="false" />
-
-        <activity
             android:name=".WaitingApprovalActivity"
             android:exported="false"
             android:screenOrientation="portrait" />
@@ -63,6 +59,12 @@
 
         <activity
             android:name=".CongratulationsActivity"
+            android:exported="false"
+            android:screenOrientation="portrait" />
+
+        <!-- Halaman hasil in-app (WebView): token tidak bocor ke browser eksternal -->
+        <activity
+            android:name=".ResultsViewerActivity"
             android:exported="false"
             android:screenOrientation="portrait" />
 

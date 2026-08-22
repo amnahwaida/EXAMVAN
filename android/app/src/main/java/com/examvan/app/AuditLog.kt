@@ -74,6 +74,7 @@ object AuditLog {
         const val AUTO_SUBMIT = "AUTO_SUBMIT"
         const val USER_LEAVE_DETECTED = "USER_LEAVE_DETECTED"
         const val POWER_BUTTON_SCREEN_OFF = "SCREEN_OFF"
+        const val SECURITY_ACCESSIBILITY = "SECURITY_ACCESSIBILITY"
     }
 
     // ── Private ─────────────────────────────────────────────────────

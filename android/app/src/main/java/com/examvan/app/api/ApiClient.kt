@@ -721,21 +721,10 @@ object ApiClient {
         studentClass: String = "",
         deviceInfo: String = ""
     ) {
-        val json = org.json.JSONObject().apply {
-            put("event", event)
-            put("mac_address", macAddress)
-            put("student_name", studentName)
-            put("exam_number", examNumber)
-            put("student_class", studentClass)
-            put("device_info", deviceInfo)
-        }
-        val mediaType = "application/json; charset=utf-8".toMediaTypeOrNull()
-        val request = Request.Builder()
-            .url("$baseUrl/api/exams/$examId/access-log")
-            .post(json.toString().toRequestBody(mediaType))
-            .header("X-Exam-Token", token)
-            .build()
-
+        val request = buildAccessLogRequest(
+            examId, token, macAddress, event,
+            studentName, examNumber, studentClass, deviceInfo
+        )
         client.newCall(request).enqueue(object : Callback {
             override fun onFailure(call: Call, e: IOException) {
                 Log.w(TAG, "access-log ($event) gagal: ${e.message}")
@@ -745,6 +734,91 @@ object ApiClient {
                 response.close()
             }
         })
+    }
+
+    /**
+     * sendAccessLog dengan SATU retry bila gagal (fix temuan review low-mode
+     * ronde 2 #2): dipakai untuk event yang menentukan presence dasbor
+     * (logout di jalur keluar-bebas) — kegagalan membuat siswa tampak
+     * "online" sampai TTL presence habis. Keputusan retry delegasi ke
+     * AccessLogRetryPolicy; hasil akhir dilaporkan via [onResult].
+     * Berjalan di thread eksekutor OkHttp — aman dipanggil dari UI thread.
+     */
+    fun sendAccessLogWithRetry(
+        examId: Int,
+        token: String,
+        macAddress: String,
+        event: String,
+        studentName: String = "",
+        examNumber: String = "",
+        studentClass: String = "",
+        deviceInfo: String = "",
+        onResult: ((success: Boolean) -> Unit)? = null
+    ) {
+        val request = buildAccessLogRequest(
+            examId, token, macAddress, event,
+            studentName, examNumber, studentClass, deviceInfo
+        )
+        val executor = client.dispatcher.executorService
+        val runAttempts = Runnable {
+            var attempt = 0
+            var success = false
+            while (attempt < com.examvan.app.helper.AccessLogRetryPolicy.MAX_ATTEMPTS && !success) {
+                attempt++
+                success = try {
+                    executeAccessLog(request)
+                } catch (e: Exception) {
+                    Log.w(TAG, "access-log-with-retry ($event) percobaan $attempt gagal: ${e.message}")
+                    false
+                }
+                if (!success && attempt < com.examvan.app.helper.AccessLogRetryPolicy.MAX_ATTEMPTS) {
+                    try { Thread.sleep(com.examvan.app.helper.AccessLogRetryPolicy.RETRY_DELAY_MS) } catch (_: InterruptedException) { break }
+                }
+            }
+            Log.d(TAG, "access-log-with-retry ($event) selesai: success=$success attempts=$attempt")
+            onResult?.invoke(success)
+        }
+        try {
+            executor.execute(runAttempts)
+        } catch (e: Exception) {
+            // Eksekutor sudah shutdown (mis. saat test teardown) — fallback
+            // jalur fire-and-forget biasa agar perilaku tidak berubah drastis.
+            Log.w(TAG, "access-log-with-retry executor unavailable: ${e.message}")
+            sendAccessLog(examId, token, macAddress, event, studentName, examNumber, studentClass, deviceInfo)
+        }
+    }
+
+    private fun buildAccessLogRequest(
+        examId: Int,
+        token: String,
+        macAddress: String,
+        event: String,
+        studentName: String,
+        examNumber: String,
+        studentClass: String,
+        deviceInfo: String
+    ): Request {
+        val json = org.json.JSONObject().apply {
+            put("event", event)
+            put("mac_address", macAddress)
+            put("student_name", studentName)
+            put("exam_number", examNumber)
+            put("student_class", studentClass)
+            put("device_info", deviceInfo)
+        }
+        val mediaType = "application/json; charset=utf-8".toMediaTypeOrNull()
+        return Request.Builder()
+            .url("$baseUrl/api/exams/$examId/access-log")
+            .post(json.toString().toRequestBody(mediaType))
+            .header("X-Exam-Token", token)
+            .build()
+    }
+
+    /** Satu percobaan sinkron POST access-log; true bila 2xx. */
+    private fun executeAccessLog(request: Request): Boolean {
+        client.newCall(request).execute().use { response ->
+            return response.isSuccessful
+        }
     }
 
     /**

@@ -19,6 +19,7 @@ import androidx.core.content.ContextCompat
 import com.examvan.app.api.ApiClient
 import com.examvan.app.databinding.ActivityServerConfigBinding
 import com.examvan.app.helper.UpdateManager
+import com.examvan.app.helper.ExamModePolicy
 import com.examvan.app.model.Exam
 import com.examvan.app.model.IdentityField
 import com.examvan.app.BuildConfig
@@ -171,6 +172,10 @@ class ServerConfigActivity : BaseSecureActivity() {
 
                 if (requiredVersion != null && UpdateManager.isOutdated(appVersion, requiredVersion)) {
                     runOnUiThread {
+                        // Guard activity mati (fix temuan review: dialog dari
+                        // callback async → BadTokenException). Guard ganda:
+                        // canPresentDialog di dalam UpdateManager.
+                        if (isFinishing || isDestroyed) return@runOnUiThread
                         setLoading(false)
                         UpdateManager.showUpdateRequiredDialog(this@ServerConfigActivity, appVersion, requiredVersion, url)
                     }
@@ -182,9 +187,23 @@ class ServerConfigActivity : BaseSecureActivity() {
                     token = token,
                     onSuccess = { response ->
                         runOnUiThread {
+                            // Guard activity mati saat request jaringan berjalan.
+                            if (isFinishing || isDestroyed) return@runOnUiThread
                             setLoading(false)
                             val exam = response.data
                             if (exam != null) {
+                                // Reset sesi ujian lama saat bergabung ke
+                                // ujian berbeda (fix review ronde 5 #1 & #2):
+                                // start_time tidak diwarisi ujian gagal-submit
+                                // sebelumnya, dan flag submitted lama dipangkas.
+                                // Rejoin ujian yang sama tetap mempertahankan
+                                // state recovery.
+                                AppPrefs.clearStaleExamSession(
+                                    this@ServerConfigActivity,
+                                    storedExamId = AppPrefs.getConfigPrefsSafe(this@ServerConfigActivity)
+                                        .getInt(AppPrefs.KEY_EXAM_ID, -1),
+                                    newExamId = exam.id
+                                )
                                 // Save connection preferences if remember is checked
                                 val tokenToUse = exam.token ?: token
                                 if (binding.cbRememberUrl.isChecked) {
@@ -215,6 +234,8 @@ class ServerConfigActivity : BaseSecureActivity() {
                     },
                     onError = { statusCode, errorMsg ->
                         runOnUiThread {
+                            // Guard activity mati saat request jaringan berjalan.
+                            if (isFinishing || isDestroyed) return@runOnUiThread
                             setLoading(false)
                             if (statusCode == ApiClient.HTTP_UPGRADE_REQUIRED) {
                                 UpdateManager.showUpdateRequiredDialog(
@@ -232,6 +253,8 @@ class ServerConfigActivity : BaseSecureActivity() {
             },
             onError = { errorMsg ->
                 runOnUiThread {
+                    // Guard activity mati saat request jaringan berjalan.
+                    if (isFinishing || isDestroyed) return@runOnUiThread
                     setLoading(false)
                     showError(getString(R.string.connection_error_format, errorMsg))
                 }
@@ -342,7 +365,9 @@ class ServerConfigActivity : BaseSecureActivity() {
 
             // Save questions JSON and security level
             val questionsJson = com.google.gson.Gson().toJson(exam.questions ?: emptyList<Any>())
-            val securityLevel = exam.security_level ?: "medium"
+            // Normalisasi di titik intake (fix review low-mode #1): nilai
+            // mentah server ("LOW", " Low ") tidak boleh lolos ke hilir.
+            val securityLevel = ExamModePolicy.normalize(exam.security_level)
             val strictMode = exam.strict_mode ?: false
             val panelColor = exam.panel_color ?: ""
             // Safe accessor: tidak crash saat keystore corrupt (fallback plaintext).
@@ -420,23 +445,6 @@ class ServerConfigActivity : BaseSecureActivity() {
             putExtra("student_number", number)
             putExtra("student_class", studentClass)
             putExtra("identity_data", identityDataStr)
-            putExtra("end_time", endTime)
-            putExtra("security_level", securityLevel)
-            putExtra("strict_mode", strictMode)
-        }
-        startActivity(intent)
-    }
-
-    private fun startExamViewer(examId: Int, examName: String, serverUrl: String, token: String, name: String, number: String, studentClass: String, identityData: String = "{}", endTime: String? = null, securityLevel: String = "medium", strictMode: Boolean = false) {
-        val intent = Intent(this@ServerConfigActivity, ExamViewerActivity::class.java).apply {
-            putExtra("exam_id", examId)
-            putExtra("exam_name", examName)
-            putExtra("server_url", serverUrl)
-            putExtra("exam_token", token)
-            putExtra("student_name", name)
-            putExtra("student_number", number)
-            putExtra("student_class", studentClass)
-            putExtra("identity_data", identityData)
             putExtra("end_time", endTime)
             putExtra("security_level", securityLevel)
             putExtra("strict_mode", strictMode)

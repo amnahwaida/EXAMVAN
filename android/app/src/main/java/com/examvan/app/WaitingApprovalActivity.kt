@@ -42,14 +42,20 @@ class WaitingApprovalActivity : BaseSecureActivity() {
     private var studentClass: String = ""
     private var identityDataStr: String = "{}"
     private var endTime: String? = null
-    private var securityLevel: String = "medium"
+    private var securityLevel: String = com.examvan.app.helper.ExamModePolicy.DEFAULT_LEVEL
     private var strictMode: Boolean = false
 
     private val handler = Handler(Looper.getMainLooper())
     private var isWaiting = true
-    private var isFirstCheck = true
     private var pulseAnimator: ObjectAnimator? = null
     private var dotsAnimator: ValueAnimator? = null
+
+    /**
+     * Gerbang polling lifecycle (fix review ronde 5 #3): polling berhenti
+     * saat activity background dan dilanjutkan saat kembali aktif — dulu
+     * handler terus posting tiap 5 detik walau stopped.
+     */
+    private val pollGate = com.examvan.app.helper.PollingGate(initiallyPaused = true)
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -82,8 +88,8 @@ class WaitingApprovalActivity : BaseSecureActivity() {
             showCancelConfirmation()
         }
 
-        // Start polling for approval
-        handler.post(pollRunnable)
+        // Polling dimulai di onStart() via pollGate — BUKAN di sini, agar
+        // tidak dobel-rantai dengan resume pertama (fix review ronde 5 #3).
 
         // Belt-and-braces: catch an outdated build via health once per day
         // (the 426 path above uses server-side enforcement).
@@ -100,7 +106,9 @@ class WaitingApprovalActivity : BaseSecureActivity() {
         studentClass = intent.getStringExtra("student_class") ?: ""
         identityDataStr = intent.getStringExtra("identity_data") ?: "{}"
         endTime = intent.getStringExtra("end_time")
-        securityLevel = intent.getStringExtra("security_level") ?: "medium"
+        securityLevel = com.examvan.app.helper.ExamModePolicy.normalize(
+            intent.getStringExtra("security_level")
+        )
         strictMode = intent.getBooleanExtra("strict_mode", false)
     }
 
@@ -223,7 +231,7 @@ class WaitingApprovalActivity : BaseSecureActivity() {
 
     private val pollRunnable = object : Runnable {
         override fun run() {
-            if (!isWaiting) return
+            if (!isWaiting || !pollGate.shouldRun()) return
 
             val macAddress = DeviceIdResolver.resolveDeviceId(this@WaitingApprovalActivity)
 
@@ -452,6 +460,25 @@ class WaitingApprovalActivity : BaseSecureActivity() {
     }
 
     // ── Lifecycle ───────────────────────────────────────────────────
+
+    override fun onStart() {
+        super.onStart()
+        // Lanjutkan polling saat kembali aktif (fix review ronde 5 #3).
+        if (pollGate.resume() && isWaiting) {
+            handler.removeCallbacks(pollRunnable)
+            handler.post(pollRunnable)
+        }
+    }
+
+    override fun onStop() {
+        super.onStop()
+        // Hentikan rantai polling saat background — HANYA runnable polling;
+        // postDelayed navigasi (onApproved) tidak boleh ikut terhapus agar
+        // persetujuan yang datang di detik terakhir tetap lanjut ke ujian.
+        if (pollGate.pause()) {
+            handler.removeCallbacks(pollRunnable)
+        }
+    }
 
     private fun stopAnimations() {
         pulseAnimator?.cancel()

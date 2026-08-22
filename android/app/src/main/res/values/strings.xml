@@ -103,6 +103,13 @@
     <string name="gesture_warning_ok">Buka Settings</string>
     <string name="gesture_warning_skip">Abaikan, Saya Tahu</string>
 
+    <!-- Accessibility service warning (fix review: dulu hanya log, siswa tidak pernah diberi tahu) -->
+    <string name="accessibility_warning_title">Layanan Aksesibilitas Aktif</string>
+    <string name="accessibility_warning_message">Perangkat ini memiliki layanan Aksesibilitas yang dapat membaca isi layar atau mengendalikan sentuhan secara otomatis.\n\nUntuk keamanan ujian, nonaktifkan layanan tersebut di Settings → Aksesibilitas jika tidak Anda gunakan. Aktivitas ini tercatat untuk audit pengawas.</string>
+
+    <!-- Results viewer (fix review: token hasil tidak lagi dibuka di browser eksternal) -->
+    <string name="results_viewer_title">Hasil Ujian</string>
+
     <!-- Logout dialog -->
     <string name="logout_low_title">Keluar dari Ujian</string>
     <string name="logout_low_message">Apakah Anda yakin ingin keluar dari ujian?\n\nJawaban Anda TIDAK akan dikumpulkan secara otomatis (Anda dapat melanjutkan nanti).</string>

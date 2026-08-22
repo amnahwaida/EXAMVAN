@@ -17,6 +17,12 @@ import com.examvan.app.LockTaskManager
 import com.examvan.app.R
 import com.examvan.app.databinding.ActivityExamViewerBinding
 import com.google.android.material.snackbar.Snackbar
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.cancel
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 /**
  * Handles security enforcement for exam sessions:
@@ -30,7 +36,7 @@ class SecurityEnforcer(
     private val activity: Activity,
     private val binding: ActivityExamViewerBinding
 ) {
-    var securityLevel: String = "medium"
+    var securityLevel: String = com.examvan.app.helper.ExamModePolicy.DEFAULT_LEVEL
 
     /** Strict mode: lock task required. */
     var strictMode: Boolean = false
@@ -58,6 +64,25 @@ class SecurityEnforcer(
 
     // Whether app dialog is showing
     var isShowingAppDialog: Boolean = false
+
+    /**
+     * Registri holder flag dialog (fix review gel. 2 #1): setiap dialog /
+     * prompt mendaftar sebagai holder sehingga safety-net reset dari onResume
+     * jadi KONDISIONAL — flag tidak bisa lepas saat dialog masih terbuka.
+     */
+    private val appDialogFlags = AppDialogFlagRegistry { isShowingAppDialog = it }
+
+    /** Tandai dialog/prompt [id] mulai aktif (flag ON). */
+    fun holdAppDialog(id: String) = appDialogFlags.acquire(id)
+
+    /** Lepaskan dialog/prompt [id]; flag OFF hanya bila holder terakhir. */
+    fun releaseAppDialog(id: String) = appDialogFlags.release(id)
+
+    /**
+     * Safety-net reset dari onResume — KONDISIONAL: no-op bila ada dialog
+     * yang masih aktif (mis. prompt izin notifikasi).
+     */
+    fun resetAppDialogIfIdle(): Boolean = appDialogFlags.resetIfIdle()
 
     private var gestureRetryCallback: (() -> Unit)? = null
     var isGestureBlockedShowing: Boolean = false
@@ -90,9 +115,30 @@ class SecurityEnforcer(
     /**
      * Attempt to activate strict mode (lock task).
      * Returns true if successful, false otherwise.
+     *
+     * retryStrictMode adalah kasus khusus dari fungsi ini (deduplikasi ~90%
+     * sesuai temuan review) — keduanya kini memakai tryActivateLockTask.
      */
     fun activateStrictMode(onConfirmed: () -> Unit = {}): Boolean {
         strictMode = true
+        return tryActivateLockTask(onConfirmed)
+    }
+
+    /**
+     * Retry strict mode activation after failure. Identik dengan
+     * activateStrictMode — dipertahankan sebagai API publik karena
+     * ExamViewerActivity memanggilnya di layar strict-failed.
+     */
+    fun retryStrictMode(onConfirmed: () -> Unit = {}): Boolean {
+        return tryActivateLockTask(onConfirmed)
+    }
+
+    /**
+     * Satu jalur aktivasi lock task yang dipakai activate & retry: sukses →
+     * pulihkan UI + immersive + health check + callback; gagal → tampilkan
+     * layar strict-failed dengan opsi retry.
+     */
+    private fun tryActivateLockTask(onConfirmed: () -> Unit): Boolean {
         val activated = LockTaskManager.activate(activity) { success ->
             if (success) {
                 strictModeFailed = false
@@ -125,14 +171,7 @@ class SecurityEnforcer(
      * Show strict mode failure UI and configure retry button.
      */
     fun showStrictModeFailed(retryCallback: () -> Unit) {
-        binding.btnBack.visibility = View.GONE
-        binding.btnToggleAnswerSheet.visibility = View.GONE
-        binding.btnSubmitAnswers.visibility = View.GONE
-        binding.btnPrev.visibility = View.GONE
-        binding.btnNext.visibility = View.GONE
-        binding.answerSheetToggle.visibility = View.GONE
-        binding.layoutDownload.visibility = View.GONE
-        binding.ivPdfPage.visibility = View.GONE
+        ExamScreenPanels.hideAllControls(binding)
 
         binding.tvErrorMsg.text = "Mode STRICT GAGAL diaktifkan!\n\n" +
                 "Ketuk 'Coba Lagi' untuk mencoba mengaktifkan ulang.\n" +
@@ -155,40 +194,8 @@ class SecurityEnforcer(
         }
     }
 
-    /**
-     * Retry strict mode activation after failure.
-     */
-    fun retryStrictMode(onConfirmed: () -> Unit = {}): Boolean {
-        val retryActivated = LockTaskManager.activate(activity) { success ->
-            if (success) {
-                strictModeFailed = false
-                lockTaskActivated = true
-                enterImmersiveMode()
-                restoreButtonVisibility()
-                binding.layoutError.visibility = View.GONE
-                binding.btnRetryDownload.text = activity.getString(R.string.btn_retry)
-                LockTaskManager.startHealthCheck(activity)
-                onConfirmed()
-            } else {
-                strictModeFailed = true
-                showStrictModeFailed {
-                    retryStrictMode(onConfirmed)
-                }
-            }
-        }
-        if (!retryActivated) {
-            strictModeFailed = true
-        }
-        return retryActivated
-    }
-
     private fun restoreButtonVisibility() {
-        binding.btnBack.visibility = View.VISIBLE
-        binding.btnToggleAnswerSheet.visibility = View.VISIBLE
-        binding.btnSubmitAnswers.visibility = View.VISIBLE
-        binding.btnPrev.visibility = View.VISIBLE
-        binding.btnNext.visibility = View.VISIBLE
-        binding.answerSheetToggle.visibility = View.VISIBLE
+        ExamScreenPanels.showMainControls(binding)
     }
 
     /**
@@ -241,6 +248,13 @@ class SecurityEnforcer(
 
     /**
      * Handle Home button / Recent Apps (onUserLeaveHint in strict mode).
+     *
+     * CATATAN dua grace window 3 detik yang BERBEDA (fix review ronde 3 #3,
+     * dokumentasi): window di bawah ini memakai [onCreateTime] dan hanya
+     * berlaku untuk re-pin STRICT. Grace auto-submit MEDIUM memakai sumber
+     * waktu lain — ExamModePolicy.STARTUP_GRACE_MS yang berbasis
+     * pdfReadyAtMs (sejak PDF siap) — lihat ExamViewerActivity. Jangan
+     * disatukan: maknanya berbeda (masuk-activity vs soal-siap).
      */
     fun handleUserLeave() {
         if (submittedOrExited) return
@@ -261,13 +275,23 @@ class SecurityEnforcer(
      */
     fun handleWindowFocusChanged(hasFocus: Boolean, autoSubmitCallback: () -> Unit) {
         if (hasFocus) {
-            if (System.currentTimeMillis() - volumeKeyPressedAt < 1500) return
-
+            // Fix review ronde 3 #2: PEMBERSIHAN (cancel pending runnable,
+            // reset popup count) kini SELALU berjalan — dulu seluruh branch
+            // early-return dalam grace volume sehingga pending runnable dan
+            // popup count bisa stale. Yang ditunda hanya aksi keamanan
+            // lanjutan (re-pin strict, immersive, audit) selagi panel volume
+            // mungkin masih turun.
             focusLostRunnable?.let {
                 Handler(Looper.getMainLooper()).removeCallbacks(it)
                 focusLostRunnable = null
             }
             activePopupCount = 0
+
+            if (ExamModePolicy.isWithinVolumeGrace(
+                    volumeKeyPressedAtMs = volumeKeyPressedAt.takeIf { it > 0L },
+                    nowMs = System.currentTimeMillis()
+                )
+            ) return
 
             // Guard !submittedOrExited: setelah deadline auto-submit melepas pin
             // (stopLockTask), event fokus nyasar tidak boleh RE-PIN activity yang
@@ -288,8 +312,12 @@ class SecurityEnforcer(
             AuditLog.i(AuditLog.Events.FOCUS_RESTORED,
                 "strict=$strictMode isActive=${LockTaskManager.isActive(activity)}")
         } else {
+            // Fix review low-mode #4: low non-strict tidak pernah memakai
+            // runnable ini (tidak auto-submit, bukan strict) — jangan
+            // jadwalkan kerja sia-sia.
+            if (!ExamModePolicy.shouldScheduleFocusLossWatch(strictMode, securityLevel)) return
+
             if (!isShowingAppDialog && isPdfReady && !submittedOrExited) {
-                if (System.currentTimeMillis() - volumeKeyPressedAt < 1500) return
                 if (activePopupCount > 0) return
 
                 AuditLog.w(AuditLog.Events.FOCUS_LOST_SUSPICIOUS,
@@ -298,6 +326,15 @@ class SecurityEnforcer(
                 focusLostRunnable?.let {
                     Handler(Looper.getMainLooper()).removeCallbacks(it)
                 }
+
+                // Fix review gel. 2 #2: tekanan volume dalam grace TIDAK lagi
+                // membuang event — evaluasi ditunda sampai grace selesai
+                // (delay = base + sisa grace). Dulu `return` di sini membuat
+                // overlay yang muncul pasca-tekanan volume lolos dari submit.
+                val delayMs = ExamModePolicy.focusLossDelayMs(
+                    volumeKeyPressedAtMs = volumeKeyPressedAt.takeIf { it > 0L },
+                    nowMs = System.currentTimeMillis()
+                )
 
                 focusLostRunnable = Runnable {
                     if (activity.isFinishing || activity.isDestroyed) {
@@ -340,7 +377,7 @@ class SecurityEnforcer(
                     }
                     focusLostRunnable = null
                 }
-                Handler(Looper.getMainLooper()).postDelayed(focusLostRunnable!!, 500)
+                Handler(Looper.getMainLooper()).postDelayed(focusLostRunnable!!, delayMs)
             }
         }
     }
@@ -414,14 +451,7 @@ class SecurityEnforcer(
         gestureRetryCallback = retryCallback
         isGestureBlockedShowing = true
 
-        binding.btnBack.visibility = View.GONE
-        binding.btnToggleAnswerSheet.visibility = View.GONE
-        binding.btnSubmitAnswers.visibility = View.GONE
-        binding.btnPrev.visibility = View.GONE
-        binding.btnNext.visibility = View.GONE
-        binding.answerSheetToggle.visibility = View.GONE
-        binding.layoutDownload.visibility = View.GONE
-        binding.ivPdfPage.visibility = View.GONE
+        ExamScreenPanels.hideAllControls(binding)
 
         binding.tvErrorMsg.text = "Navigasi Gesture Terdeteksi!\n\n" +
                 "Untuk keamanan ujian, Anda WAJIB mengaktifkan Navigasi 3 Tombol (3-Button Navigation) terlebih dahulu.\n\nSilakan ubah mode navigasi Anda."
@@ -539,14 +569,7 @@ class SecurityEnforcer(
         securityRetryCallback = retryCallback
         isSecurityViolationShowing = true
 
-        binding.btnBack.visibility = View.GONE
-        binding.btnToggleAnswerSheet.visibility = View.GONE
-        binding.btnSubmitAnswers.visibility = View.GONE
-        binding.btnPrev.visibility = View.GONE
-        binding.btnNext.visibility = View.GONE
-        binding.answerSheetToggle.visibility = View.GONE
-        binding.layoutDownload.visibility = View.GONE
-        binding.ivPdfPage.visibility = View.GONE
+        ExamScreenPanels.hideAllControls(binding)
 
         binding.tvErrorMsg.text = message
         binding.btnRetryDownload.text = "Periksa Ulang"
@@ -558,115 +581,132 @@ class SecurityEnforcer(
         binding.layoutError.visibility = View.VISIBLE
     }
 
+    /**
+     * Cek pelanggaran keamanan yang MURAH (tanpa I/O blocking): clock drift
+     * dari baseline yang sudah tersimpan. Dipanggil sinkron di onResume —
+     * pemeriksaan berat (File.exists 13 path, exec "which") dipindah ke
+     * [runEnvironmentScanAsync] di background thread.
+     */
     fun checkSecurityViolations(): String? {
-        // 1. Emulator check
-        if (isEmulator()) {
+        // Clock manipulation check (fix temuan review: baseline kini di-resolve
+        // lewat ClockDriftPolicy sehingga bertahan process death — lihat
+        // ExamViewerActivity.loadExamContent).
+        val currentDrift = System.currentTimeMillis() - android.os.SystemClock.elapsedRealtime()
+        val drift = EnvironmentCheckPolicy.evaluateClockDrift(
+            initialClockDrift, currentDrift, EnvironmentCheckPolicy.CLOCK_DRIFT_THRESHOLD_MS
+        )
+        if (drift.tampered) {
+            return "Perubahan Waktu Sistem Terdeteksi!\n\nAnda terdeteksi melakukan perubahan waktu sistem (jam perangkat) saat ujian berlangsung. Untuk alasan keamanan, manipulasi waktu tidak diizinkan. Silakan kembalikan jam Anda ke waktu yang benar."
+        }
+        return null
+    }
+
+    // ── Scan lingkungan async ────────────────────────────────────────────
+
+    /**
+     * Scope untuk scan lingkungan; dibatalkan di cleanup() agar tidak ada
+     * callback yang menyentuh activity setelah destroy.
+     */
+    private val envScanScope = CoroutineScope(
+        Dispatchers.IO + Job()
+    )
+
+    @Volatile
+    private var cachedEnvViolation: String? = null
+
+    /**
+     * Jalankan scan lingkungan BERAT (emulator fingerprint, marker root di
+     * disk, `which su`, USB debugging, screen mirroring) DI LUAR UI thread
+     * (fix temuan review: "Runtime.exec + waitFor memblokir main thread di
+     * onResume dan bisa ANR"). Hasil dilaporkan via [onViolation] di main
+     * thread; hasil juga di-cache untuk pemanggilan berikutnya selama proses
+     * masih hidup.
+     */
+    fun runEnvironmentScanAsync(onViolation: (String?) -> Unit) {
+        envScanScope.launch {
+            val violation = scanEnvironmentBlocking()
+            cachedEnvViolation = violation
+            withContext(Dispatchers.Main) {
+                onViolation(violation)
+            }
+        }
+    }
+
+    /** Hasil scan terakhir (null = bersih / belum pernah discan). */
+    fun lastEnvironmentViolation(): String? = cachedEnvViolation
+
+    /**
+     * Scan lingkungan lengkap — BLOCKING, hanya boleh dipanggil dari
+     * Dispatchers.IO. Keputusan murni didelegasikan ke EnvironmentCheckPolicy.
+     */
+    private fun scanEnvironmentBlocking(): String? {
+        val buildProps = mapOf(
+            "fingerprint" to Build.FINGERPRINT,
+            "model" to Build.MODEL,
+            "manufacturer" to Build.MANUFACTURER,
+            "hardware" to Build.HARDWARE,
+            "product" to Build.PRODUCT,
+            "board" to Build.BOARD,
+            "brand" to Build.BRAND,
+            "device" to Build.DEVICE
+        )
+        if (EnvironmentCheckPolicy.isEmulator(
+                buildProps["fingerprint"]!!, buildProps["model"]!!,
+                buildProps["manufacturer"]!!, buildProps["hardware"]!!,
+                buildProps["product"]!!, buildProps["board"]!!,
+                buildProps["brand"]!!, buildProps["device"]!!
+            )
+        ) {
             return "Perangkat Simulator/Emulator Terdeteksi!\n\nUntuk alasan keamanan, EXAMVAN tidak dapat dijalankan di dalam emulator (seperti BlueStacks, Nox, dll.). Silakan gunakan perangkat ponsel Android fisik."
         }
 
-        // 2. Root check
-        if (isDeviceRooted()) {
+        // I/O root: File.exists untuk semua marker + lookup PATH (`which su`)
+        // dengan resource management yang benar.
+        val foundMarkers = mutableSetOf<String>()
+        for (path in EnvironmentCheckPolicy.ROOT_MARKER_PATHS) {
+            try {
+                if (java.io.File(path).exists()) foundMarkers.add(path)
+            } catch (_: Throwable) { }
+        }
+        if (isExecutableOnPath("su")) foundMarkers.add("su-on-path")
+        if (EnvironmentCheckPolicy.isRootedByMarkers(foundMarkers, Build.TAGS)) {
             return "Perangkat Ter-Root Terdeteksi!\n\nEXAMVAN mendeteksi akses root pada perangkat ini. Untuk menjaga integritas ujian, perangkat ter-root tidak diizinkan mengakses halaman ujian. Silakan un-root perangkat Anda."
         }
 
-        // 3. USB Debugging check
         if (isUsbDebuggingEnabled()) {
             return "USB Debugging Aktif!\n\nUntuk alasan keamanan, Anda WAJIB mematikan opsi pengembang 'USB Debugging' di pengaturan sistem perangkat Anda terlebih dahulu sebelum memulai ujian."
         }
 
-        // 4. Screen mirroring / casting check
         if (isScreenMirrored()) {
             return "Proyeksi / Duplikasi Layar Terdeteksi!\n\nEXAMVAN mendeteksi bahwa layar perangkat Anda sedang dibagikan/diproyeksikan ke layar eksternal (Cast Screen/Wireless Display). Silakan putuskan koneksi proyeksi layar Anda terlebih dahulu."
-        }
-
-        // 5. Clock manipulation check
-        val currentDrift = System.currentTimeMillis() - android.os.SystemClock.elapsedRealtime()
-        if (initialClockDrift != 0L && Math.abs(currentDrift - initialClockDrift) > 10_000L) { // 10 seconds threshold
-            return "Perubahan Waktu Sistem Terdeteksi!\n\nAnda terdeteksi melakukan perubahan waktu sistem (jam perangkat) saat ujian berlangsung. Untuk alasan keamanan, manipulasi waktu tidak diizinkan. Silakan kembalikan jam Anda ke waktu yang benar."
         }
 
         return null
     }
 
-    private fun isEmulator(): Boolean {
-        val fingerprint = Build.FINGERPRINT
-        val model = Build.MODEL
-        val manufacturer = Build.MANUFACTURER
-        val hardware = Build.HARDWARE
-        val product = Build.PRODUCT
-        val board = Build.BOARD
-        val brand = Build.BRAND
-        val device = Build.DEVICE
-
-        return (fingerprint.startsWith("generic")
-                || fingerprint.startsWith("unknown")
-                || model.contains("google_sdk")
-                || model.contains("Emulator")
-                || model.contains("Android SDK built for x86")
-                || manufacturer.contains("Genymotion")
-                || hardware.contains("goldfish")
-                || hardware.contains("ranchu")
-                || product.contains("sdk_gphone")
-                || product.contains("google_sdk")
-                || product.contains("emulator")
-                || board.contains("nox")
-                || manufacturer.contains("nox")
-                || brand.startsWith("generic") && device.startsWith("generic")
-                || "google_sdk" == product)
-    }
-
-    private fun isDeviceRooted(): Boolean {
-        // 1. Known root binary / mount marker paths. The mount markers catch
-        //    the modern root solutions even though their su binaries live on
-        //    tmpfs / in the adb data partition (not the classic paths):
-        //    - /data/adb/magisk  -> Magisk v20+
-        //    - /data/adb/ksu     -> KernelSU
-        //    - /data/adb/apd     -> APatch
-        //    - /sbin/.magisk     -> Magisk on legacy devices
-        val paths = arrayOf(
-            "/system/app/Superuser.apk",
-            "/sbin/su",
-            "/system/bin/su",
-            "/system/xbin/su",
-            "/data/local/xbin/su",
-            "/data/local/bin/su",
-            "/system/sd/xbin/su",
-            "/system/bin/failsafe/su",
-            "/data/local/su",
-            "/data/adb/magisk",
-            "/data/adb/ksu",
-            "/data/adb/apd",
-            "/sbin/.magisk"
-        )
-        for (path in paths) {
-            if (java.io.File(path).exists()) return true
-        }
-
-        // 2. su resolvable from PATH (covers su installed in a non-standard
-        //    location, e.g. Magisk mounting su into a tmpfs PATH entry).
-        if (isExecutableOnPath("su")) return true
-
-        // 3. Build signed with test keys — a common trait of custom ROMs and
-        //    pre-rooted builds (stock devices ship "release-keys").
-        if (Build.TAGS != null && Build.TAGS.contains("test-keys")) return true
-
-        return false
-    }
-
     /**
      * True when the given binary resolves to a real executable via `which`.
-     * Uses a separate process so a lookup can never crash the exam flow.
+     *
+     * Fix temuan review: versi lama tidak mengonsumsi stderr (potensi deadlock
+     * pipe buffer), tidak memanggil destroy(), dan bisa bocor stream. Kini:
+     * redirect error stream ke stdout, semua stream ditutup di finally, dan
+     * proses di-destroy pada timeout agar scan tak pernah menggantung.
      */
     private fun isExecutableOnPath(binary: String): Boolean {
+        var process: Process? = null
         return try {
-            val process = Runtime.getRuntime().exec(arrayOf("which", binary))
-            val reader = java.io.BufferedReader(java.io.InputStreamReader(process.inputStream))
-            val result = reader.readLine()
+            process = ProcessBuilder("which", binary)
+                .redirectErrorStream(true)
+                .start()
+            val output = process.inputStream.bufferedReader().use { it.readLine() }
             process.waitFor()
-            reader.close()
-            !result.isNullOrEmpty()
-        } catch (e: Exception) {
+            !output.isNullOrEmpty()
+        } catch (_: Exception) {
             false
+        } finally {
+            try {
+                process?.destroy()
+            } catch (_: Throwable) { }
         }
     }
 
@@ -700,12 +740,29 @@ class SecurityEnforcer(
             return
         }
 
+        // Cek murah dulu di UI thread (clock drift).
         val violation = checkSecurityViolations()
         if (violation != null) {
             showSecurityViolation(violation) {
                 onResume()
             }
             return
+        }
+
+        // Scan berat (File.exists, exec, DisplayManager) di background thread.
+        // Selama scan berjalan, tampilkan hasil cache agar pelanggaran yang
+        // sudah terdeteksi sebelumnya tetap ter-enforce tanpa jeda.
+        cachedEnvViolation?.let {
+            showSecurityViolation(it) { onResume() }
+            return
+        }
+        runEnvironmentScanAsync { envViolation ->
+            // Activity bisa sudah destroy saat scan selesai — guard dulu.
+            if (activity.isFinishing || activity.isDestroyed) return@runEnvironmentScanAsync
+            val v = envViolation ?: checkSecurityViolations()
+            if (v != null && !isSecurityViolationShowing) {
+                showSecurityViolation(v) { onResume() }
+            }
         }
 
         if (strictMode) {
@@ -738,5 +795,8 @@ class SecurityEnforcer(
 
     fun cleanup() {
         stopHealthCheck()
+        // Batalkan scan lingkungan yang masih berjalan — tanpa ini callback
+        // bisa menyentuh activity yang sudah destroy (temuan review: leak).
+        envScanScope.cancel()
     }
 }

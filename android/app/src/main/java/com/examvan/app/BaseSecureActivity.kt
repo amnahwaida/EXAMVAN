@@ -53,9 +53,16 @@ abstract class BaseSecureActivity : AppCompatActivity() {
      * 1. Bisa membaca konten layar (canRetrieveWindowContent)
      * 2. Bisa melakukan gesture injection (canPerformGestures)
      *
-     * Jika terdeteksi service mencurigakan, tampilkan peringatan.
+     * Jika terdeteksi service mencurigakan, tampilkan peringatan DIALOG ke
+     * siswa (fix temuan review: sebelumnya hanya Log.w — siswa tidak pernah
+     * tahu ada spyware aksesibilitas yang membaca soal). Klasifikasi
+     * didelegasikan ke AccessibilityThreatPolicy; layanan whitelist
+     * (TalkBack, Select-to-Speak, Switch Access) tetap diizinkan agar siswa
+     * disabilitas bisa mengikuti ujian.
+     *
      * Catatan: deteksi ini tidak 100% akurat — beberapa aksesibilitas
-     * legitimate (TalkBack, Select-to-Speak) juga memiliki flag ini.
+     * legitimate (password manager, dsb.) juga memiliki flag ini, sehingga
+     * peringatan bersifat informatif (tidak memblokir ujian).
      */
     protected fun checkAccessibilityServices() {
         try {
@@ -64,27 +71,61 @@ abstract class BaseSecureActivity : AppCompatActivity() {
             val enabledServices = am.getEnabledAccessibilityServiceList(
                     AccessibilityServiceInfo.FEEDBACK_ALL_MASK)
 
+            val suspicious = mutableListOf<String>()
             for (service in enabledServices) {
-                val id = service.id
-                val canRetrieve = service.canRetrieveWindowContent
-                // Cek apakah service bisa melakukan gesture injection
-                val caps = service.capabilities
-                val canPerformGestures = caps and
-                        AccessibilityServiceInfo.CAPABILITY_CAN_PERFORM_GESTURES != 0
-
-                // Skip service bawaan sistem yang legitimate
-                if (id.contains("talkback", ignoreCase = true) ||
-                    id.contains("select_to_speak", ignoreCase = true) ||
-                    id.contains("switchaccess", ignoreCase = true)) continue
-
-                if (canRetrieve || canPerformGestures) {
-                    Log.w("BaseSecure",
-                            "Accessibility service berbahaya: $id " +
-                            "(retrieveWindow=$canRetrieve, performGestures=$canPerformGestures)")
+                when (
+                    com.examvan.app.helper.AccessibilityThreatPolicy.classify(
+                        serviceId = service.id,
+                        canRetrieveWindowContent = service.canRetrieveWindowContent,
+                        canPerformGestures = service.capabilities and
+                                AccessibilityServiceInfo.CAPABILITY_CAN_PERFORM_GESTURES != 0
+                    )
+                ) {
+                    com.examvan.app.helper.AccessibilityThreatPolicy.Threat.WHITELISTED -> { /* diam */ }
+                    com.examvan.app.helper.AccessibilityThreatPolicy.Threat.BENIGN -> { /* diam */ }
+                    com.examvan.app.helper.AccessibilityThreatPolicy.Threat.SUSPICIOUS -> {
+                        suspicious.add(service.id ?: "(tanpa id)")
+                    }
                 }
+            }
+
+            if (suspicious.isNotEmpty()) {
+                Log.w("BaseSecure", "Accessibility service mencurigakan: $suspicious")
+                AuditLog.w(AuditLog.Events.SECURITY_ACCESSIBILITY, "suspicious=${suspicious.joinToString(",")}")
+                showAccessibilityWarning(suspicious)
             }
         } catch (e: Exception) {
             Log.w("BaseSecure", "Gagal cek accessibility services", e)
+        }
+    }
+
+    /**
+     * Peringatan non-blocking ke siswa bahwa ada service aksesibilitas yang
+     * bisa membaca layar / menyuntik gesture. Ujian TETAP bisa diikuti, tapi
+     * siswa diberi tahu (dan pengawas bisa menindaklanjuti lewat audit log).
+     */
+    /** Tampilkan peringatan maksimal satu kali per instance activity. */
+    private var accessibilityWarned = false
+
+    /**
+     * Peringatan non-blocking ke siswa bahwa ada service aksesibilitas yang
+     * bisa membaca layar / menyuntik gesture. Ujian TETAP bisa diikuti, tapi
+     * siswa diberi tahu (dan pengawas bisa menindaklanjuti lewat audit log).
+     */
+    private fun showAccessibilityWarning(suspicious: List<String>) {
+        if (accessibilityWarned) return
+        if (isFinishing || isDestroyed) return
+        accessibilityWarned = true
+
+        try {
+            androidx.appcompat.app.AlertDialog.Builder(this)
+                .setTitle(R.string.accessibility_warning_title)
+                .setMessage(getString(R.string.accessibility_warning_message))
+                .setPositiveButton(android.R.string.ok, null)
+                .show()
+        } catch (e: Exception) {
+            // Window token invalid (activity mati mendadak) — jangan crash.
+            Log.w("BaseSecure", "Gagal menampilkan peringatan accessibility", e)
         }
     }
 

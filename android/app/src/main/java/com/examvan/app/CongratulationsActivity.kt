@@ -4,7 +4,6 @@ import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
 import android.content.Intent
-import android.net.Uri
 import android.os.Bundle
 import android.widget.LinearLayout
 import android.widget.TextView
@@ -60,7 +59,8 @@ class CongratulationsActivity : BaseSecureActivity() {
         populateIdentity()
 
         // Result link = short-link {serverUrl}/{examToken} → redirects to /hasil/<token>
-        val resultUrl = buildResultUrl()
+        // Fix temuan review: format URL kini terpusat di ResultsLinkPolicy.
+        val resultUrl = com.examvan.app.helper.ResultsLinkPolicy.build(serverUrl, examToken)
 
         binding.btnCopyLink.setOnClickListener {
             copyResultLink(resultUrl)
@@ -68,12 +68,6 @@ class CongratulationsActivity : BaseSecureActivity() {
         binding.btnOpenResult.setOnClickListener {
             openResultLink(resultUrl)
         }
-    }
-
-    private fun buildResultUrl(): String {
-        val base = serverUrl.trim().trimEnd('/')
-        val token = examToken.trim()
-        return if (base.isNotEmpty() && token.isNotEmpty()) "$base/$token" else ""
     }
 
     private fun copyResultLink(resultUrl: String) {
@@ -95,11 +89,13 @@ class CongratulationsActivity : BaseSecureActivity() {
             Toast.makeText(this, R.string.congrats_link_missing, Toast.LENGTH_SHORT).show()
             return
         }
+        // Fix temuan review: buka hasil di WebView IN-APP — token tidak lagi
+        // masuk history browser eksternal (yang tidak terproteksi FLAG_SECURE).
         try {
-            val intent = Intent(Intent.ACTION_VIEW, Uri.parse(resultUrl)).apply {
-                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-            }
-            startActivity(intent)
+            startActivity(
+                Intent(this, ResultsViewerActivity::class.java)
+                    .putExtra(ResultsViewerActivity.EXTRA_URL, resultUrl)
+            )
         } catch (_: Exception) {
             Toast.makeText(this, R.string.congrats_link_missing, Toast.LENGTH_SHORT).show()
         }
