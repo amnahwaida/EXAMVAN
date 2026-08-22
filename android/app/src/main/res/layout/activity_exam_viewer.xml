@@ -39,6 +39,24 @@
             android:maxLines="1"
             android:ellipsize="end" />
 
+        <!-- Indikator koneksi internet (fitur baru) -->
+        <TextView
+            android:id="@+id/tvConnectionStatus"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:textSize="12sp"
+            android:textColor="@color/text_secondary"
+            android:layout_marginEnd="12dp" />
+
+        <!-- Indikator baterai (fitur baru) -->
+        <TextView
+            android:id="@+id/tvBatteryStatus"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:textSize="12sp"
+            android:textColor="@color/text_secondary"
+            android:layout_marginEnd="12dp" />
+
         <TextView
             android:id="@+id/tvTimer"
             android:layout_width="wrap_content"

@@ -48,6 +48,15 @@ class IdentityFormPolicyTest {
     }
 
     @Test
+    fun inputType_noSuggestions_keyboardBersih() {
+        // Fix review ronde 3 #1: saran keyboard tidak relevan untuk nama/
+        // nomor ujian — samakan perlakuan dengan field token.
+        assertTrue(
+            IdentityFormPolicy.INPUT_TYPE and InputType.TYPE_TEXT_FLAG_NO_SUGGESTIONS != 0
+        )
+    }
+
+    @Test
     fun maxLines_singleLine() {
         assertEquals(1, IdentityFormPolicy.MAX_LINES)
     }

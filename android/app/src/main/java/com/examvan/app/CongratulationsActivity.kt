@@ -17,7 +17,7 @@ import com.examvan.app.databinding.ActivityCongratulationsBinding
  * Ditampilkan setelah submit berhasil di ExamViewerActivity. Menampilkan
  * pesan ucapan selamat yang bisa di-custom oleh guru (congrats_message dari
  * server, fallback ke pesan bawaan), info siswa, serta tombol untuk menyalin
- * link hasil dan membukanya di browser eksternal.
+ * link hasil dan membukanya di WebView in-app (ResultsViewerActivity).
  */
 class CongratulationsActivity : BaseSecureActivity() {
 

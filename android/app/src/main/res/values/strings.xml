@@ -160,4 +160,9 @@
     <string name="answer_sheet_matching_suffix">(Menjodohkan)</string>
     <string name="answer_sheet_short_answer_suffix">(Isian Singkat)</string>
     <string name="spinner_placeholder">-- Pilih --</string>
+    <string name="results_load_error">Gagal memuat halaman hasil. Periksa koneksi internet Anda lalu ketuk tombol tutup dan coba lagi.</string>
+    <string name="status_battery_charging">Mengisi baterai</string>
+    <string name="status_battery_percent">Baterai %1$d%%</string>
+    <string name="status_online">Online</string>
+    <string name="status_offline">Offline</string>
 </resources>

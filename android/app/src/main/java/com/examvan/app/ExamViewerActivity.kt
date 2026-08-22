@@ -1,7 +1,10 @@
 package com.examvan.app
 
+import android.content.BroadcastReceiver
 import android.content.Intent
+import android.content.IntentFilter
 import android.content.pm.PackageManager
+import android.os.BatteryManager
 import android.os.Bundle
 import android.util.Log
 import android.view.KeyEvent
@@ -105,7 +108,35 @@ class ExamViewerActivity : BaseSecureActivity() {
                 }
             }
         }
+
+        // Indikator koneksi (fitur baru): online hanya bila capability
+        // INTERNET + VALIDATED (captive portal bukan online).
+        override fun onCapabilitiesChanged(
+            network: android.net.Network,
+            networkCapabilities: android.net.NetworkCapabilities
+        ) {
+            val online = com.examvan.app.helper.DeviceStatusPolicy.isOnline(
+                hasInternet = networkCapabilities.hasCapability(
+                    android.net.NetworkCapabilities.NET_CAPABILITY_INTERNET
+                ),
+                validated = networkCapabilities.hasCapability(
+                    android.net.NetworkCapabilities.NET_CAPABILITY_VALIDATED
+                )
+            )
+            updateConnectionIndicator(online)
+        }
+
+        override fun onLost(network: android.net.Network) {
+            updateConnectionIndicator(false)
+        }
+
+        override fun onUnavailable() {
+            updateConnectionIndicator(false)
+        }
     }
+
+    // Receiver baterai (fitur baru: indikator baterai selama ujian)
+    private var batteryReceiver: BroadcastReceiver? = null
 
     companion object {
         private const val TAG = "ExamViewer"
@@ -126,6 +157,9 @@ class ExamViewerActivity : BaseSecureActivity() {
         // input tidak tertutup keyboard.
         applyEdgeToEdgeInsets(binding.root, includeIme = true)
         binding.btnSubmitAnswers.filterTouchesWhenObscured = true
+
+        // Indikator baterai & koneksi (fitur baru) — tampil selama ujian.
+        registerBatteryIndicator()
 
         // Read intent extras
         examId = intent.getIntExtra("exam_id", -1)
@@ -893,6 +927,10 @@ class ExamViewerActivity : BaseSecureActivity() {
         if (::pdfRendererHelper.isInitialized) pdfRendererHelper.cleanup()
         if (::securityEnforcer.isInitialized) securityEnforcer.cleanup()
         unregisterNetworkCallback()
+        batteryReceiver?.let {
+            try { unregisterReceiver(it) } catch (_: Exception) { }
+        }
+        batteryReceiver = null
         WebSocketManager.disconnect()
         AuditLog.reset()
     }
@@ -919,6 +957,68 @@ class ExamViewerActivity : BaseSecureActivity() {
             .addCapability(android.net.NetworkCapabilities.NET_CAPABILITY_INTERNET)
             .build()
         cm.registerNetworkCallback(request, networkCallback)
+    }
+
+    // ===== Indikator baterai & koneksi (fitur baru) =====
+
+    /**
+     * Indikator koneksi: hijau "Online" / merah "Offline". Callback jaringan
+     * bisa datang dari thread non-UI — selalu lewat runOnUiThread.
+     */
+    private fun updateConnectionIndicator(online: Boolean) {
+        runOnUiThread {
+            if (isFinishing || isDestroyed) return@runOnUiThread
+            binding.tvConnectionStatus.text =
+                getString(if (online) R.string.status_online else R.string.status_offline)
+            binding.tvConnectionStatus.setTextColor(
+                androidx.core.content.ContextCompat.getColor(
+                    this,
+                    if (online) R.color.success else R.color.danger
+                )
+            )
+        }
+    }
+
+    /**
+     * Receiver sticky ACTION_BATTERY_CHANGED — level & status charging
+     * terkirim ulang setiap perubahan; keputusan kategori via
+     * DeviceStatusPolicy.batteryCategory.
+     */
+    private fun registerBatteryIndicator() {
+        val receiver = object : BroadcastReceiver() {
+            override fun onReceive(ctx: android.content.Context?, intent: Intent?) {
+                if (intent == null) return
+                val level = intent.getIntExtra(BatteryManager.EXTRA_LEVEL, -1)
+                val scale = intent.getIntExtra(BatteryManager.EXTRA_SCALE, 100)
+                val status = intent.getIntExtra(BatteryManager.EXTRA_STATUS, -1)
+                val charging = status == BatteryManager.BATTERY_STATUS_CHARGING ||
+                        status == BatteryManager.BATTERY_STATUS_FULL
+                if (scale <= 0 || level < 0) return
+                updateBatteryIndicator((level * 100) / scale, charging)
+            }
+        }
+        batteryReceiver = receiver
+        registerReceiver(receiver, IntentFilter(Intent.ACTION_BATTERY_CHANGED))
+    }
+
+    private fun updateBatteryIndicator(percent: Int, charging: Boolean) {
+        val category = com.examvan.app.helper.DeviceStatusPolicy.batteryCategory(percent)
+        binding.tvBatteryStatus.text = if (charging) {
+            getString(R.string.status_battery_charging)
+        } else {
+            getString(R.string.status_battery_percent, percent)
+        }
+        binding.tvBatteryStatus.setTextColor(
+            androidx.core.content.ContextCompat.getColor(
+                this,
+                when (category) {
+                    com.examvan.app.helper.DeviceStatusPolicy.BatteryLevel.CRITICAL -> R.color.danger
+                    com.examvan.app.helper.DeviceStatusPolicy.BatteryLevel.LOW -> R.color.warning
+                    com.examvan.app.helper.DeviceStatusPolicy.BatteryLevel.NORMAL ->
+                        if (charging) R.color.success else R.color.text_secondary
+                }
+            )
+        )
     }
 
     private fun startCountdownTimer() {

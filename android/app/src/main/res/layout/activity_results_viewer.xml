@@ -47,6 +47,17 @@
         android:layout_height="wrap_content"
         android:layout_gravity="center_horizontal" />
 
+    <!-- Pesan error loading (fix review pasca-submit #1: spinner tidak
+         boleh berputar selamanya saat jaringan putus) -->
+    <TextView
+        android:id="@+id/tvError"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:gravity="center"
+        android:padding="16dp"
+        android:textColor="@color/danger"
+        android:visibility="gone" />
+
     <WebView
         android:id="@+id/webView"
         android:layout_width="match_parent"

@@ -15,9 +15,10 @@ import com.examvan.app.model.IdentityField
  */
 object IdentityFormPolicy {
 
-    /** Teks biasa + kapitalisasi kata, TANPA flag multiline (anti newline). */
+    /** Teks satu baris + kapitalisasi kata + tanpa saran keyboard. */
     val INPUT_TYPE: Int =
-        InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_FLAG_CAP_WORDS
+        InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_FLAG_CAP_WORDS or
+            InputType.TYPE_TEXT_FLAG_NO_SUGGESTIONS
 
     const val MAX_LINES = 1
 
