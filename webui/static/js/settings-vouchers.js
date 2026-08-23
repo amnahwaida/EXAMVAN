@@ -453,6 +453,25 @@ function wireRedemptionsRetry() {
 }
 
 
+// ===== Batch 8 (R28-FU): registrasi aksi delegasi milik modul ini ============
+// Wrapper-tipis yang sebelumnya ada di inline script settings.html dipindah
+// ke SINI — satu tempat mendefinisikan + mendaftarkan; fungsi dipanggil
+// langsung (hoisting function declaration), tanpa guard typeof.
+if (window.Actions && typeof window.Actions.register === 'function') {
+    // Buka/tutup modal generate & kelola voucher.
+    window.Actions.register('voucher-open-batch', function () { openBatchModal(); });
+    window.Actions.register('voucher-open-single', function () { openSingleModal(); });
+    window.Actions.register('voucher-close-batch', function () { closeBatchModal(); });
+    window.Actions.register('voucher-close-single', function () { closeSingleModal(); });
+    window.Actions.register('voucher-close-redemptions', function () { closeRedemptionsModal(); });
+    // Toolbar pencarian daftar voucher.
+    window.Actions.register('voucher-search', function () { loadVouchers(1); });
+    window.Actions.register('voucher-search-clear', function () { clearVoucherSearch(); });
+    // Modal konfirmasi generik dipakai modul ini untuk hapus voucher dsb.;
+    // closeConfirmActionModal didefinisikan di file ini juga.
+    window.Actions.register('confirm-action-close', function () { closeConfirmActionModal(); });
+}
+
 // The Voucher tab owns two sub-panels: Daftar (this file) and Riwayat
 // (settings-voucher-audit.js, loaded alongside). Wire the sub-tab switch to
 // lazy-load the audit list the first time Riwayat is shown, and pre-warm it

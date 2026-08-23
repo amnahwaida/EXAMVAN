@@ -408,24 +408,11 @@ Mulai: <span id="detailStartTime">—</span> | Kumpul: <span id="detailSubmitTim
 <script src="/static/js/admin-core.js?v={{.version}}"></script>
 <script src="/static/js/admin.js?v={{.version}}"></script>
 <script>
-// ===== Batch 7 (R28): delegasi data-action =====
-// Wrapper tipis ke admin.js (milik agen lain — fungsi TIDAK dipindah).
-// FOLLOW-UP (pemilik admin.js): pertimbangkan mendaftarkan aksi ini
-// langsung di modulnya.
-(function() {
-  if (typeof Actions === 'undefined') return;
-  Actions.register('show-submission-detail', function(el) {
-    var id = el.getAttribute('data-submission-id');
-    if (id && typeof showSubmissionDetail === 'function') showSubmissionDetail(id);
-  });
-  Actions.register('delete-submission', function(el) {
-    var id = el.getAttribute('data-submission-id');
-    if (id && typeof deleteSubmission === 'function') deleteSubmission(id);
-  });
-  Actions.register('close-detail-modal', function() { if (typeof closeDetailModal === 'function') closeDetailModal(); });
-  Actions.register('export-submissions', function() { if (typeof exportSubmissions === 'function') exportSubmissions(); });
-})();
-// ===== end Batch 7 (R28) =====
+// ===== Delegasi data-action =====
+// Registrasi aksi halaman ini (show-submission-detail, delete-submission,
+// close-detail-modal, export-submissions) kini HIDUP di admin.js (Batch 8) —
+// modul pemilik fungsinya; admin-core.js menyediakan registry Actions dan
+// listener klik delegasi dokumen. Halaman tidak memasang registrasi sendiri.
 
 document.addEventListener('DOMContentLoaded', function() {
     document.querySelectorAll('.duration-cell').forEach(function(el) {

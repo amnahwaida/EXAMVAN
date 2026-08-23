@@ -38,14 +38,14 @@
   }
   .input-icon-wrap input:focus ~ .input-icon,
   .input-icon-wrap:focus-within .input-icon {
-   color: #a5b4fc;
+   color: var(--color-primary-light);
   }
 
   /* Password strength bar */
   .pw-strength-bar {
    height: 4px;
    border-radius: 4px;
-   background: rgba(255,255,255,0.06);
+   background: rgba(var(--rgb-white),0.06);
    margin-top: 8px;
    overflow: hidden;
    transition: opacity 0.3s;
@@ -56,8 +56,8 @@
    width: 0%;
    transition: width 0.4s cubic-bezier(.4,0,.2,1), background 0.4s;
   }
-  .pw-strength-bar .pw-bar-fill.weak { width: 25%; background: #ef4444; }
-  .pw-strength-bar .pw-bar-fill.fair { width: 50%; background: #f59e0b; }
+  .pw-strength-bar .pw-bar-fill.weak { width: 25%; background: var(--color-danger); }
+  .pw-strength-bar .pw-bar-fill.fair { width: 50%; background: var(--color-warning); }
   .pw-strength-bar .pw-bar-fill.good { width: 75%; background: #22c55e; }
   .pw-strength-bar .pw-bar-fill.strong { width: 100%; background: linear-gradient(90deg,#22c55e,#06b6d4); }
   .pw-strength-text {
@@ -90,17 +90,17 @@
    justify-content: center;
    font-size: 12px;
    font-weight: 700;
-   border: 2px solid rgba(255,255,255,0.1);
+   border: 2px solid rgba(var(--rgb-white),0.1);
    color: var(--color-text-muted);
    background: transparent;
    transition: all 0.3s;
    flex-shrink: 0;
   }
   .reg-step.active .reg-step-num {
-   border-color: rgba(99,102,241,0.5);
-   background: rgba(99,102,241,0.15);
-   color: #a5b4fc;
-   box-shadow: 0 0 12px rgba(99,102,241,0.2);
+   border-color: rgba(var(--rgb-info),0.5);
+   background: rgba(var(--rgb-info),0.15);
+   color: var(--color-primary-light);
+   box-shadow: 0 0 12px rgba(var(--rgb-info),0.2);
   }
   .reg-step-label {
    font-size: 12px;
@@ -114,7 +114,7 @@
   .reg-step-line {
    width: 40px;
    height: 2px;
-   background: rgba(255,255,255,0.06);
+   background: rgba(var(--rgb-white),0.06);
    margin: 0 8px;
    border-radius: 2px;
    flex-shrink: 0;
@@ -125,8 +125,8 @@
    display: flex;
    align-items: flex-start;
    gap: 10px;
-   background: rgba(99,102,241,0.06);
-   border: 1px solid rgba(99,102,241,0.12);
+   background: rgba(var(--rgb-info),0.06);
+   border: 1px solid rgba(var(--rgb-info),0.12);
    border-radius: 12px;
    padding: 12px 14px;
    margin-bottom: 24px;
@@ -171,7 +171,7 @@
    left: -100%;
    width: 100%;
    height: 100%;
-   background: linear-gradient(90deg, transparent, rgba(255,255,255,0.04), transparent);
+   background: linear-gradient(90deg, transparent, rgba(var(--rgb-white),0.04), transparent);
    transition: left 0.5s;
   }
   .btn-login:hover::before {
@@ -405,9 +405,9 @@
     if (/[0-9]/.test(val)) score++;
     if (/[^A-Za-z0-9]/.test(val)) score++;
     var levels = [
-     { cls: 'weak', label: 'Lemah — tambahkan karakter', color: '#ef4444' },
-     { cls: 'weak', label: 'Lemah — tambahkan variasi', color: '#ef4444' },
-     { cls: 'fair', label: 'Cukup — bisa lebih baik', color: '#f59e0b' },
+     { cls: 'weak', label: 'Lemah — tambahkan karakter', color: 'var(--color-danger)' },
+     { cls: 'weak', label: 'Lemah — tambahkan variasi', color: 'var(--color-danger)' },
+     { cls: 'fair', label: 'Cukup — bisa lebih baik', color: 'var(--color-warning)' },
      { cls: 'good', label: 'Bagus — password cukup kuat', color: '#22c55e' },
      { cls: 'strong', label: 'Kuat — password sangat aman!', color: '#06b6d4' }
     ];
@@ -457,7 +457,7 @@
    var toast = document.createElement('div');
    toast.setAttribute('role', 'status');
    toast.textContent = 'Beberapa karakter tidak diizinkan dan telah dihapus. Hanya huruf, angka, titik, dan garis bawah.';
-   toast.style.cssText = 'position:fixed;left:50%;bottom:28px;transform:translateX(-50%);z-index:9999;background:rgba(239,68,68,0.2);border:1px solid rgba(239,68,68,0.35);color:#fca5a5;padding:10px 18px;border-radius:12px;font-size:13px;backdrop-filter:blur(8px);box-shadow:0 8px 30px rgba(0,0,0,0.4);max-width:calc(100vw - 32px);text-align:center;';
+   toast.style.cssText = 'position:fixed;left:50%;bottom:28px;transform:translateX(-50%);z-index:9999;background:rgba(var(--rgb-danger),0.2);border:1px solid rgba(var(--rgb-danger),0.35);color:var(--color-danger-light);padding:10px 18px;border-radius:12px;font-size:13px;backdrop-filter:blur(8px);box-shadow:0 8px 30px rgba(var(--rgb-black),0.4);max-width:calc(100vw - 32px);text-align:center;';
    document.body.appendChild(toast);
    setTimeout(function() {
     toast.style.transition = 'opacity 0.4s ease';

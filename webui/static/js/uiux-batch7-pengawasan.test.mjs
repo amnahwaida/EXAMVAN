@@ -38,6 +38,9 @@ const read = (rel) => fs.readFileSync(path.join(WEBUI_ROOT, rel), 'utf8');
 const SUBMISSIONS = read('templates/admin/submissions.html');
 const PENGAWAS = read('templates/admin/pengawas.html');
 const DETAIL = read('templates/admin/pengawas_detail.html');
+// Batch 8: registrasi aksi submissions pindah ke modul pemilik fungsinya
+// (admin.js) — tetap dihitung valid untuk pemetaan dua arah.
+const ADMIN_JS_SRC = read('static/js/admin.js');
 
 /**
  * Blok registrasi halaman. Penangkap menyertakan prefix komentar `//` agar
@@ -78,21 +81,32 @@ test('R28/static: tidak ada lagi atribut onclick di pengawas_detail.html, pengaw
 // ---------------------------------------------------------------------------
 
 for (const [name, html] of [['pengawas_detail.html', DETAIL], ['pengawas.html', PENGAWAS], ['submissions.html', SUBMISSIONS]]) {
-    test(`R28/static (${name}): setiap data-action punya handler Actions.register di inline script halaman`, () => {
+    test(`R28/static (${name}): setiap data-action punya handler Actions.register (inline halaman ∪ modul pemilik)`, () => {
         const used = collectDataActions(html);
         assert.ok(used.length > 0, `${name}: minimal satu data-action harus ada`);
-        const registered = collectRegistered(html);
-        assert.ok(registered, `${name}: blok registrasi "Batch 7 (R28)" tidak ditemukan`);
+        // Batch 8: submissions.html tidak lagi memuat blok registrasi —
+        // handler-nya didaftarkan di admin.js (modul pemilik fungsinya),
+        // dan modal-dismiss kanonik di admin-core.js. Keduanya valid.
+        const registered = new Set(collectRegistered(html) || []);
+        if (name === 'submissions.html') {
+            for (const m of ADMIN_JS_SRC.matchAll(/Actions\.register\(\s*['"]([a-z0-9-]+)['"]/g)) {
+                registered.add(m[1]);
+            }
+            registered.add('modal-dismiss'); // kanonik di admin-core.js (Batch 8)
+        }
+        assert.ok(registered.size > 0, `${name}: tidak ada sumber registrasi yang ditemukan`);
         for (const action of used) {
-            assert.ok(registered.includes(action),
+            assert.ok(registered.has(action),
                 `${name}: data-action="${action}" dipakai di markup tapi tidak didaftarkan via Actions.register`);
         }
     });
 
-    test(`R28/static (${name}): setiap Actions.register dipakai minimal sekali di markup (tidak ada handler yatim)`, () => {
+    test(`R28/static (${name}): setiap Actions.register halaman dipakai minimal sekali di markup (tidak ada handler yatim)`, () => {
         const used = collectDataActions(html);
-        const registered = collectRegistered(html);
-        assert.ok(registered, `${name}: blok registrasi "Batch 7 (R28)" tidak ditemukan`);
+        // Batch 8: pemeriksaan yatim hanya untuk registrasi yang TINGGAL di
+        // halaman; registrasi pindahan ke modul pemilik punya markup halaman
+        // lain sehingga justru wajar "yatim" dari sudut pandang file ini.
+        const registered = collectRegistered(html) || [];
         for (const action of registered) {
             assert.ok(used.includes(action),
                 `${name}: Actions.register('${action}') terdaftar tapi tidak ada elemen pemakainya`);
@@ -361,9 +375,15 @@ test('R28/vm: aksi pagination delegasi memanggil loadDetail dengan nomor halaman
     assert.deepEqual(pages, [3, 1]);
 });
 
-test('R28/vm: wrapper submissions meneruskan data-submission-id ke showSubmissionDetail/deleteSubmission (admin.js)', () => {
-    const regBlock = SUBMISSIONS.match(REG_BLOCK_RE);
-    assert.ok(regBlock, 'blok registrasi Batch 7 (R28) submissions.html ditemukan');
+test('R28/vm: aksi submissions terdaftar di admin.js meneruskan data-submission-id (angka) ke showSubmissionDetail/deleteSubmission', () => {
+    // Batch 8: blok registrasi pindah dari inline submissions.html ke
+    // admin.js — eksekusi potongan registrasi ASLI dari modul pemiliknya.
+    const names = ['show-submission-detail', 'delete-submission', 'close-detail-modal', 'export-submissions'];
+    const snippets = names.map((n) => {
+        const m = ADMIN_JS_SRC.match(new RegExp("Actions\\.register\\(\\s*'" + n + "'[\\s\\S]*?\\}\\);"));
+        assert.ok(m, `registrasi '${n}' harus ada di admin.js`);
+        return m[0];
+    }).join('\n');
 
     const calls = { detail: [], del: [], close: 0, export: 0 };
     const sandbox = {
@@ -376,7 +396,7 @@ test('R28/vm: wrapper submissions meneruskan data-submission-id ke showSubmissio
     };
     sandbox.globalThis = sandbox;
     vm.createContext(sandbox);
-    vm.runInContext(regBlock[0], sandbox, { filename: 'submissions.html#batch7' });
+    vm.runInContext(snippets, sandbox, { filename: 'admin.js#submissions' });
 
     const dispatch = makeDispatcher(sandbox.Actions);
     dispatch(fakeEl('button', { 'data-action': 'show-submission-detail', 'data-submission-id': '42' }));
@@ -384,8 +404,9 @@ test('R28/vm: wrapper submissions meneruskan data-submission-id ke showSubmissio
     dispatch(fakeEl('button', { 'data-action': 'close-detail-modal' }));
     dispatch(fakeEl('button', { 'data-action': 'export-submissions' }));
 
-    assert.deepEqual(calls.detail, ['42'], 'wrapper showSubmissionDetail menerima id dari data-*');
-    assert.deepEqual(calls.del, ['42']);
+    // Batch 8 normalisasi: id numerik lewat parseInt(..., 10), bukan string.
+    assert.deepEqual(calls.detail, [42], 'showSubmissionDetail menerima id angka dari data-*');
+    assert.deepEqual(calls.del, [42]);
     assert.equal(calls.close, 1);
     assert.equal(calls.export, 1);
 });

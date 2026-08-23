@@ -40,11 +40,11 @@ body {
     background: transparent;
 }
 ::-webkit-scrollbar-thumb {
-    background: rgba(255, 255, 255, 0.1);
+    background: rgba(var(--rgb-white), 0.1);
     border-radius: 3px;
 }
 ::-webkit-scrollbar-thumb:hover {
-    background: rgba(255, 255, 255, 0.2);
+    background: rgba(var(--rgb-white), 0.2);
 }
 
 /* Firefox scrollbar */
@@ -123,7 +123,7 @@ code, pre, .token-code, .mono {
     overflow-y: auto;
     margin: 8px 0 4px;
     padding: 8px;
-    background: rgba(255,255,255,0.03);
+    background: rgba(var(--rgb-white),0.03);
     border-radius: 8px;
     white-space: pre-wrap;
     text-align: left;
@@ -147,7 +147,7 @@ code, pre, .token-code, .mono {
     100% { background-position: 200% 0; }
 }
 .skeleton {
-    background: linear-gradient(90deg, rgba(255,255,255,0.03) 25%, rgba(255,255,255,0.08) 50%, rgba(255,255,255,0.03) 75%);
+    background: linear-gradient(90deg, rgba(var(--rgb-white),0.03) 25%, rgba(var(--rgb-white),0.08) 50%, rgba(var(--rgb-white),0.03) 75%);
     background-size: 200% 100%;
     animation: shimmer 1.5s ease-in-out infinite;
     border-radius: 6px;
@@ -169,7 +169,7 @@ code, pre, .token-code, .mono {
 .skeleton-card {
     padding: 20px;
     border-radius: var(--radius-md);
-    background: rgba(255,255,255,0.02);
+    background: rgba(var(--rgb-white),0.02);
     border: 1px solid var(--color-glass-border);
 }
 .skeleton-circle {
@@ -191,7 +191,7 @@ code, pre, .token-code, .mono {
     padding: 16px 20px;
     -webkit-backdrop-filter: blur(16px);
     backdrop-filter: blur(16px);
-    box-shadow: 0 10px 30px rgba(0,0,0,0.5);
+    box-shadow: 0 10px 30px rgba(var(--rgb-black),0.5);
     min-width: 240px;
     display: none;
 }
@@ -219,7 +219,7 @@ code, pre, .token-code, .mono {
     display: inline-flex;
     align-items: center;
     justify-content: center;
-    background: rgba(255,255,255,0.06);
+    background: rgba(var(--rgb-white),0.06);
     border: 1px solid var(--color-glass-border);
     border-radius: var(--radius-xs);
     padding: 2px 8px;
@@ -255,7 +255,7 @@ code, pre, .token-code, .mono {
 }
 .circular-progress .progress-track {
     fill: none;
-    stroke: rgba(255,255,255,0.08);
+    stroke: rgba(var(--rgb-white),0.08);
 }
 .circular-progress .progress-fill-circ {
     fill: none;
@@ -278,7 +278,7 @@ code, pre, .token-code, .mono {
     }
     .skeleton {
         animation: none !important;
-        background: rgba(255,255,255,0.05);
+        background: rgba(var(--rgb-white),0.05);
     }
 }
 
@@ -297,7 +297,7 @@ code, pre, .token-code, .mono {
     padding: 12px 16px;
     gap: 10px;
     align-items: center;
-    box-shadow: 0 -4px 20px rgba(0,0,0,0.4);
+    box-shadow: 0 -4px 20px rgba(var(--rgb-black),0.4);
 }
 .mobile-bottom-bar.show { display: flex; }
 .mobile-bottom-bar .bottom-bar-count {
@@ -328,11 +328,11 @@ code, pre, .token-code, .mono {
     font-size: 0.82rem;
     font-weight: 500;
     font-family: inherit;
-    border: 1px solid rgba(255,255,255,0.08);
+    border: 1px solid rgba(var(--rgb-white),0.08);
     border-radius: 8px;
     cursor: pointer;
     transition: all 0.15s ease;
-    background: rgba(255,255,255,0.04);
+    background: rgba(var(--rgb-white),0.04);
     color: var(--color-text, #e2e8f0);
     text-decoration: none;
     white-space: nowrap;
@@ -340,8 +340,8 @@ code, pre, .token-code, .mono {
     user-select: none;
 }
 .btn-sm:hover {
-    background: rgba(255,255,255,0.1);
-    border-color: rgba(255,255,255,0.15);
+    background: rgba(var(--rgb-white),0.1);
+    border-color: rgba(var(--rgb-white),0.15);
 }
 .btn-sm:active {
     transform: scale(0.97);
@@ -420,18 +420,18 @@ code, pre, .token-code, .mono {
     font-size: 0.82rem;
     font-weight: 500;
     color: var(--color-text, #e2e8f0);
-    border: 1px solid rgba(255,255,255,0.08);
+    border: 1px solid rgba(var(--rgb-white),0.08);
     border-radius: 8px;
     cursor: pointer;
     transition: all 0.15s ease;
-    background: rgba(255,255,255,0.04);
+    background: rgba(var(--rgb-white),0.04);
     text-decoration: none;
     white-space: nowrap;
     user-select: none;
 }
 .btn-toggle:hover {
-    background: rgba(255,255,255,0.1);
-    border-color: rgba(255,255,255,0.15);
+    background: rgba(var(--rgb-white),0.1);
+    border-color: rgba(var(--rgb-white),0.15);
 }
 .btn-toggle.disabled {
     opacity: 0.4;
@@ -581,7 +581,7 @@ code, pre, .token-code, .mono {
 }
 .settings-tab:hover {
     color: #fff;
-    background: rgba(255, 255, 255, 0.06);
+    background: rgba(var(--rgb-white), 0.06);
 }
 .settings-tab.active {
     color: #fff;
@@ -619,7 +619,7 @@ code, pre, .token-code, .mono {
     width: 100%;
     padding: 10px 12px;
     border-radius: var(--radius-sm);
-    background: rgba(255, 255, 255, 0.06);
+    background: rgba(var(--rgb-white), 0.06);
     border: 1px solid var(--color-glass-border);
     color: #fff;
     font-size: 0.875rem;
@@ -655,7 +655,7 @@ code, pre, .token-code, .mono {
 .saas-collapse[data-collapse-id="packages"] {
     border: 1px solid var(--color-glass-border);
     border-radius: var(--radius-lg);
-    background: rgba(255, 255, 255, 0.02);
+    background: rgba(var(--rgb-white), 0.02);
     margin-bottom: 24px;
     overflow: hidden;
 }
@@ -716,7 +716,7 @@ code, pre, .token-code, .mono {
 .users-sub {
     border: 1px solid var(--color-glass-border);
     border-radius: var(--radius-md);
-    background: rgba(255, 255, 255, 0.02);
+    background: rgba(var(--rgb-white), 0.02);
     padding: 10px 12px;
 }
 .users-sub .saas-collapse-head {
@@ -728,11 +728,11 @@ code, pre, .token-code, .mono {
 .packages-head {
     padding: 12px 16px;
     border-radius: var(--radius-md);
-    background: rgba(255, 255, 255, 0.04);
+    background: rgba(var(--rgb-white), 0.04);
     border: 1px solid var(--color-glass-border);
 }
 .packages-head:hover {
-    background: rgba(255, 255, 255, 0.08);
+    background: rgba(var(--rgb-white), 0.08);
 }
 
 /* ===== Modal manager (paired with admin-core.js) ===== */
@@ -764,7 +764,7 @@ body.modal-open {
     align-items: center;
     justify-content: center;
     gap: 6px;
-    background: rgba(255, 255, 255, 0.06);
+    background: rgba(var(--rgb-white), 0.06);
     border: 1px solid var(--color-glass-border);
     color: var(--color-text);
     border-radius: 8px;
@@ -773,7 +773,7 @@ body.modal-open {
     transition: background 0.2s ease, border-color 0.2s ease;
 }
 .btn-secondary:hover {
-    background: rgba(255, 255, 255, 0.12);
+    background: rgba(var(--rgb-white), 0.12);
 }
 
 /* Loading spinner: billing uses <svg class="icon-svg spin"> but no admin
@@ -934,7 +934,7 @@ body.modal-open {
         padding: 10px 12px;
         margin-bottom: 10px;
         border-radius: var(--radius-sm);
-        background: rgba(255, 255, 255, 0.04);
+        background: rgba(var(--rgb-white), 0.04);
         border: 1px solid var(--color-glass-border);
         font-size: 13px;
         cursor: pointer;
@@ -1133,7 +1133,7 @@ html.touch-device .topbar-dropdown-content {
 /* Badge status klikabel (toggle suspend/aktif) — affordance eksplisit. */
 .status-badge.status-toggle {
   cursor: pointer;
-  text-decoration: underline dotted rgba(255, 255, 255, 0.35);
+  text-decoration: underline dotted rgba(var(--rgb-white), 0.35);
   text-underline-offset: 3px;
 }
 .status-badge.status-toggle:focus-visible {
@@ -1272,9 +1272,9 @@ html.touch-device .topbar-dropdown-content {
    yang sama, tanpa striping), jadi konsisten di semua tabel kartu. */
 @media (max-width: 768px) {
   .exam-table tbody tr {
-    background: linear-gradient(180deg, rgba(255,255,255,0.05), rgba(255,255,255,0.02));
+    background: linear-gradient(180deg, rgba(var(--rgb-white),0.05), rgba(var(--rgb-white),0.02));
     border: 1px solid var(--color-glass-border);
-    box-shadow: 0 4px 14px rgba(0, 0, 0, 0.18);
+    box-shadow: 0 4px 14px rgba(var(--rgb-black), 0.18);
   }
 }
 

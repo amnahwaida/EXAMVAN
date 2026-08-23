@@ -2219,69 +2219,19 @@ const CSRF_TOKEN = '{{.csrf_token}}';
 window.__settingsReady = {};
 window.__settingsLoaded = {};
 
-// ===== Batch 7 (R28-lanjutan): delegasi data-action =====
-// Shim defensif bila Actions dari admin-core.js (kontrak antar-agen, Batch 5)
-// belum tersedia — registry + SATU listener klik dokumen yang sama persis
-// dengan kontrak: closest('[data-action]') → fn(el, event).
-(function() {
-  if (window.Actions && typeof window.Actions.register === 'function') return;
-  var registry = {};
-  window.Actions = {
-    register: function(name, fn) { registry[name] = fn; },
-    has: function(name) { return typeof registry[name] === 'function'; }
-  };
-  document.addEventListener('click', function(ev) {
-    var t = ev.target;
-    var el = t && t.closest ? t.closest('[data-action]') : null;
-    if (!el) return;
-    var fn = registry[el.getAttribute('data-action')];
-    if (fn) fn(el, ev);
-  });
-})();
+// ===== Delegasi data-action =====
+// Registry Actions + SATU listener klik dokumen disediakan admin-core.js
+// (selalu dimuat lebih dulu di atas) — halaman ini TIDAK lagi memasang shim
+// defensif maupun listener sendiri. Registrasi handler milik modul-modul ada
+// di file JS masing-masing (admin.js, settings-vouchers.js, settings-users.js,
+// dst.); hanya aksi yang fungsinya hidup di inline script halaman ini yang
+// didaftarkan di bawah.
 
-// Registrasi aksi level-halaman. Wrapper tipis di bawah menutup handler yang
-// HIDUP di modul milik agen lain (admin.js / settings-vouchers.js) — fungsi
-// milik modul settings-* sendiri diregister di file modulnya masing-masing.
-// FOLLOW-UP (agen pemilik): pindahkan register ini ke modul definisinya.
+// Aksi level-halaman yang fungsi hidupnya di inline script ini.
 (function() {
-  // Backdrop modal: hanya klik LANGSUNG pada overlay yang menutup — setara
-  // dengan pola atribut "if(event.target===this)closeXxx()" sebelumnya; klik
-  // di dalam kartu modal tidak lagi butuh stopPropagation manual.
-  window.Actions.register('modal-dismiss', function(el, ev) {
-    if (!ev || ev.target !== el) return;
-    var closeName = el.getAttribute('data-modal-close');
-    if (closeName && typeof window[closeName] === 'function') window[closeName]();
-  });
-  window.Actions.register('users-refresh-list', function(el, ev) {
-    if (ev && ev.stopPropagation) ev.stopPropagation();
-    if (typeof window.loadUsersList === 'function') window.loadUsersList(window.getCurrentUsersPage());
-  });
-  window.Actions.register('users-clear-search', function() { if (typeof window.clearUsersSearch === 'function') window.clearUsersSearch(); });
-  window.Actions.register('users-search', function() { if (typeof window.loadUsersList === 'function') window.loadUsersList(1); });
-  window.Actions.register('users-toggle-sort', function(el) { if (typeof window.toggleUsersSort === 'function') window.toggleUsersSort(el.getAttribute('data-sort')); });
   // switchVoucherSubtab didefinisikan di IIFE tab di bawah (file ini juga);
   // register tetap di sini karena inilah satu-satunya tempat definisinya.
   window.Actions.register('voucher-subtab', function(el) { window.switchVoucherSubtab(el.getAttribute('data-subtab')); });
-  // Wrapper ke settings-vouchers.js (milik agen lain):
-  window.Actions.register('voucher-open-batch', function() { if (typeof window.openBatchModal === 'function') window.openBatchModal(); });
-  window.Actions.register('voucher-open-single', function() { if (typeof window.openSingleModal === 'function') window.openSingleModal(); });
-  window.Actions.register('voucher-close-batch', function() { if (typeof window.closeBatchModal === 'function') window.closeBatchModal(); });
-  window.Actions.register('voucher-close-single', function() { if (typeof window.closeSingleModal === 'function') window.closeSingleModal(); });
-  window.Actions.register('voucher-close-redemptions', function() { if (typeof window.closeRedemptionsModal === 'function') window.closeRedemptionsModal(); });
-  window.Actions.register('voucher-search', function() { if (typeof window.loadVouchers === 'function') window.loadVouchers(1); });
-  window.Actions.register('voucher-search-clear', function() { if (typeof window.clearVoucherSearch === 'function') window.clearVoucherSearch(); });
-  window.Actions.register('confirm-action-close', function() { if (typeof window.closeConfirmActionModal === 'function') window.closeConfirmActionModal(); });
-  // Wrapper ke admin.js (milik agen lain):
-  window.Actions.register('smtp-test', function() { if (typeof window.testSmtpConnection === 'function') window.testSmtpConnection(); });
-  window.Actions.register('smtp-save', function() { if (typeof window.saveSmtpSettings === 'function') window.saveSmtpSettings(); });
-  window.Actions.register('turnstile-save', function() { if (typeof window.saveTurnstileSettings === 'function') window.saveTurnstileSettings(); });
-  window.Actions.register('cleanup-save', function() { if (typeof window.saveCleanupSettings === 'function') window.saveCleanupSettings(); });
-  window.Actions.register('default-pkg-save', function() { if (typeof window.saveDefaultPkgSettings === 'function') window.saveDefaultPkgSettings(); });
-  window.Actions.register('versions-save', function() { if (typeof window.saveVersionsSettings === 'function') window.saveVersionsSettings(); });
-  window.Actions.register('footer-save', function() { if (typeof window.saveFooterSettings === 'function') window.saveFooterSettings(); });
-  window.Actions.register('seo-save', function() { if (typeof window.saveSeoSettings === 'function') window.saveSeoSettings(); });
-  window.Actions.register('monetization-save', function() { if (typeof window.saveMonetizationSettings === 'function') window.saveMonetizationSettings(); });
-  window.Actions.register('password-modal-close', function() { if (typeof window.closeChangePasswordModal === 'function') window.closeChangePasswordModal(); });
 })();
 
 // ===== Tab switching (hash-based, no reload) =====

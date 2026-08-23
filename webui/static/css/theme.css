@@ -43,6 +43,16 @@
     --rgb-danger: 239, 68, 68;          /* triplet merah — .tone-danger (pasangan --color-danger) */
     --rgb-info: 99, 102, 241;           /* triplet indigo info — pasangan var(--color-primary-light) */
     --rgb-accent: 168, 85, 247;         /* triplet aksen ungu — .tone-accent (beda dari --color-accent #8b5cf6) */
+    /* === Triplet hitam/putih (Batch 8) ===
+       Kontrak lintas-agen — nama & nilai WAJIB persis. Tujuan: mengganti sisa
+       substitusi rgba hitam/putih literal di CSS inti
+       (shadow, overlay, border kaca, scrollbar track, dsb.) menjadi
+       rgba(var(--rgb-black), α) / rgba(var(--rgb-white), α), sehingga intensi-
+       tas lapisan gelap/terang bisa disetel dari satu titik. Definisi token
+       warna di :root (mis. --color-surface di bawah) TETAP literal: mereka
+       source-of-truth, bukan substitusi. */
+    --rgb-black: 0, 0, 0;
+    --rgb-white: 255, 255, 255;
     /* Surface kaca lebih pekat dari --color-surface — latar .tone-neutral. */
     --glass-bg-strong: rgba(255, 255, 255, 0.06);
     --color-text: #f8fafc;
@@ -58,9 +68,9 @@
     --radius-md: 12px;
     --radius-lg: 16px;
     --radius-xl: 20px;
-    --shadow-card: 0 8px 32px rgba(0, 0, 0, 0.3);
-    --shadow-lg: 0 20px 50px rgba(0, 0, 0, 0.4);
-    --shadow-sm: 0 4px 12px rgba(0, 0, 0, 0.2);
+    --shadow-card: 0 8px 32px rgba(var(--rgb-black), 0.3);
+    --shadow-lg: 0 20px 50px rgba(var(--rgb-black), 0.4);
+    --shadow-sm: 0 4px 12px rgba(var(--rgb-black), 0.2);
     --ease-spring: cubic-bezier(0.4, 0, 0.2, 1);
 
     /* === Fonts === */

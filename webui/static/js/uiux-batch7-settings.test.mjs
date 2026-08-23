@@ -35,8 +35,9 @@ const read = (rel) => fs.readFileSync(path.join(WEBUI_ROOT, rel), 'utf8');
 
 const SETTINGS = read('templates/admin/settings.html');
 
-// Modul milik agen batch-7-settings (satu-satunya tempat register selain
-// inline script halaman).
+// Modul milik agen batch-7-settings. Batch 8: registrasi wrapper kini juga
+// valid di modul pemilik fungsinya (admin.js, settings-vouchers.js) dan di
+// admin-core.js (kanonik modal-dismiss) — semuanya ikut dalam union sumber.
 const OWN_MODULES = [
     'settings-users.js',
     'settings-general.js',
@@ -45,6 +46,10 @@ const OWN_MODULES = [
     'settings-voucher-audit.js',
     'settings-system-apps.js'
 ].map((f) => ({ file: f, src: read('static/js/' + f) }));
+
+const ADMIN_CORE_SRC = read('static/js/admin-core.js');
+const ADMIN_JS_SRC = read('static/js/admin.js');
+const VOUCHERS_JS_SRC = read('static/js/settings-vouchers.js');
 
 // --- baseline guard (S15-lanjutan) -------------------------------------------
 
@@ -106,7 +111,12 @@ test('R28: SEMUA data-action di settings.html terdaftar (inline script ∪ modul
     );
     assert.ok(used.size > 20, `minimal 20 nama aksi unik dipakai HTML, dapat ${used.size}`);
 
-    const sources = INLINE_JS + '\n' + OWN_MODULES.map((m) => m.src).join('\n');
+    // Batch 8: registrasi wrapper pindah ke modul pemilik (admin.js /
+    // settings-vouchers.js) dan kanonik modal-dismiss ke admin-core.js —
+    // ketiganya dihitung valid selain inline script halaman.
+    const sources = INLINE_JS + '\n'
+        + OWN_MODULES.map((m) => m.src).join('\n') + '\n'
+        + ADMIN_CORE_SRC + '\n' + ADMIN_JS_SRC + '\n' + VOUCHERS_JS_SRC;
     const registered = new Set(
         [...sources.matchAll(/Actions\.register\(\s*['"]([a-z0-9-]+)['"]/g)].map((m) => m[1])
     );
@@ -199,9 +209,10 @@ function fakeNode(tag) {
 }
 
 /**
- * Muat inline script settings.html dalam sandbox dengan Actions BELUM ada —
- * shim fallback di inline script harus menyediakan registry + delegasi klik
- * dokumen sehingga halaman tetap hidup walau admin-core paralel belum landas.
+ * Muat halaman settings.html dalam sandbox dengan URUTAN <script> aslinya:
+ * admin-core.js dulu (kontrak Actions + listener delegasi dokumen), baru
+ * script inline. Batch 8: shim defensif di inline script DIHAPUS — kalau
+ * kontrak core rusak, test ini yang harus merah.
  */
 function loadPageInlineScripts() {
     const allNodes = [];
@@ -233,6 +244,10 @@ function loadPageInlineScripts() {
     };
     win.window = win;
 
+    function MutationObserverMock() {}
+    MutationObserverMock.prototype.observe = function () {};
+    MutationObserverMock.prototype.disconnect = function () {};
+
     const sandbox = {
         window: win,
         document: docMock,
@@ -240,11 +255,23 @@ function loadPageInlineScripts() {
         history: { replaceState() {}, pushState() {} },
         setTimeout: () => 0,
         clearTimeout() {},
+        setInterval: () => 0,
+        clearInterval() {},
         localStorage: { getItem: () => null, setItem() {} },
+        // Stub API yang dipakai admin-core.js saat load.
+        CustomEvent: function (t, opts) { this.type = t; this.detail = (opts && opts.detail) || null; },
+        MouseEvent: function (type) { this.type = type; },
+        MutationObserver: MutationObserverMock,
+        getComputedStyle: () => ({ display: 'block' }),
+        navigator: {},
         console
     };
     sandbox.globalThis = sandbox;
     vm.createContext(sandbox);
+    vm.runInContext(ADMIN_CORE_SRC, sandbox, { filename: 'admin-core.js' });
+    // Di browser `var Actions` top-level menjadi properti window; vm
+    // memisahkan keduanya — cerminkan agar identik dengan runtime asli.
+    win.Actions = sandbox.Actions;
     vm.runInContext(INLINE_JS_EXEC, sandbox, { filename: 'settings.html#inline' });
 
     return {
@@ -265,15 +292,25 @@ function loadPageInlineScripts() {
     };
 }
 
-test('PERILAKU: delegasi klik dokumen menjalankan aksi terdaftar dengan argumen data-*', () => {
+test('PERILAKU: delegasi klik dokumen (admin-core) menjalankan aksi terdaftar dengan argumen data-*', () => {
     const env = loadPageInlineScripts();
 
-    // Shim fallback harus hadir karena admin-core kontrak belum di-stub masuk.
-    assert.equal(typeof env.win.Actions.register, 'function', 'shim Actions harus ada');
-    assert.equal(typeof env.win.Actions.has, 'function');
+    // Batch 8: shim defensif DIHAPUS — Actions pasti berasal dari
+    // admin-core.js yang dimuat lebih dulu (urutan <script> halaman).
+    assert.equal(typeof env.sandbox.Actions.register, 'function',
+        'Actions harus tersedia dari admin-core.js (bukan shim halaman)');
+    assert.equal(typeof env.sandbox.Actions.has, 'function');
+    assert.doesNotMatch(INLINE_JS_EXEC, /window\.Actions\s*=\s*\{/,
+        'inline script tidak boleh memasang shim registry sendiri lagi');
+
+    // Registrasi users-toggle-sort kini hidup di admin.js (modul pemilik,
+    // Batch 8) — eksekusi potongan aslinya di sandbox yang sama.
+    const reg = ADMIN_JS_SRC.match(/Actions\.register\(\s*'users-toggle-sort'[\s\S]*?\}\);/);
+    assert.ok(reg, 'registrasi users-toggle-sort ada di admin.js');
+    vm.runInContext(reg[0], env.sandbox, { filename: 'admin.js#users-toggle-sort' });
 
     const calls = [];
-    env.win.toggleUsersSort = (field) => calls.push(field);
+    env.sandbox.toggleUsersSort = (field) => calls.push(field);
 
     const th = env.makeNode('th', { 'data-action': 'users-toggle-sort', 'data-sort': 'username' });
     const child = env.makeNode('span');
@@ -286,7 +323,7 @@ test('PERILAKU: delegasi klik dokumen menjalankan aksi terdaftar dengan argumen 
         'delegasi harus resolve closest([data-action]) lalu memanggil handler dengan data-sort');
 });
 
-test('PERILAKU: modal-dismiss hanya menutup saat klik LANGSUNG pada backdrop', () => {
+test('PERILAKU: modal-dismiss kanonik (admin-core) hanya menutup saat klik LANGSUNG pada backdrop', () => {
     const env = loadPageInlineScripts();
 
     let closed = 0;

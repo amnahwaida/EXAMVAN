@@ -10,13 +10,13 @@
 @media (min-width: 1101px) {
   :root { --desktop-content: 1280px; }
 
-  body > nav { background: rgba(11, 15, 25, .9); border-bottom-color: rgba(255,255,255,.07); }
+  body > nav { background: rgba(11, 15, 25, .9); border-bottom-color: rgba(var(--rgb-white),.07); }
   .nav-container { max-width: var(--desktop-content); min-height: 72px; padding: 12px 32px; }
   .logo-badge { width: 40px; height: 40px; border-radius: 8px; }
   .logo-text { font-size: 22px; }
   .nav-links { gap: 6px; }
   .nav-links .nav-link { padding: 10px 14px; border-radius: 6px; font-size: 14px; }
-  .nav-links .nav-link:hover { background: rgba(255,255,255,.045); }
+  .nav-links .nav-link:hover { background: rgba(var(--rgb-white),.045); }
   .nav-links .btn-nav-login { margin-left: 8px; padding: 10px 18px; border-color: rgba(129,140,248,.28); background: rgba(99,102,241,.1); }
 
   .hero { max-width: var(--desktop-content); min-height: calc(100svh - 72px); padding: 126px 32px 64px !important; grid-template-columns: minmax(0, 1.12fr) minmax(420px, .88fr); gap: 72px; }
@@ -27,7 +27,7 @@
   .hero-actions { gap: 12px; margin-bottom: 0; }
   .hero-actions .btn-primary, .hero-actions .btn-secondary { min-height: 52px; padding: 14px 24px; border-radius: 7px; }
   .hero-mockup { justify-content: flex-end; }
-  .mockup-wrapper { max-width: 500px; padding: 12px; border-radius: 8px; box-shadow: 0 28px 70px rgba(0,0,0,.45); }
+  .mockup-wrapper { max-width: 500px; padding: 12px; border-radius: 8px; box-shadow: 0 28px 70px rgba(var(--rgb-black),.45); }
   .mockup-screen { min-height: 350px; border-radius: 6px; }
 
   .stats { padding: 28px 32px; }
@@ -66,7 +66,7 @@
   .toggle-btn { min-width: 165px; border-radius: 6px !important; }
   .pricing-grid { grid-template-columns: repeat(3, minmax(0, 1fr)) !important; gap: 18px !important; margin-bottom: 72px !important; align-items: stretch; }
   .pricing-card { min-height: 100%; padding: 30px !important; border-radius: 8px !important; }
-  .pricing-card.popular { transform: none; border-color: rgba(99,102,241,.5); box-shadow: 0 18px 45px rgba(0,0,0,.26); }
+  .pricing-card.popular { transform: none; border-color: rgba(99,102,241,.5); box-shadow: 0 18px 45px rgba(var(--rgb-black),.26); }
   .pricing-card:hover { transform: translateY(-3px) !important; }
   .comparison-table-wrapper { border-radius: 8px; }
   .adv-grid { grid-template-columns: repeat(4, minmax(0,1fr)); gap: 14px; }
@@ -74,9 +74,9 @@
   .adv-card:hover { transform: translateY(-2px); }
 
   .login-page { padding: calc(72px + 48px) 48px 48px; align-items: center; background: #090d16; }
-  .login-page::before { content: ''; position: fixed; inset: 0 50% 0 0; background: #0f1724; border-right: 1px solid rgba(255,255,255,.06); pointer-events: none; }
+  .login-page::before { content: ''; position: fixed; inset: 0 50% 0 0; background: #0f1724; border-right: 1px solid rgba(var(--rgb-white),.06); pointer-events: none; }
   .login-container { max-width: 520px !important; margin: auto 12% auto auto; padding: 0 !important; }
-  .login-card { max-width: 520px !important; padding: 38px !important; border-radius: 8px !important; background: #111827; box-shadow: 0 24px 70px rgba(0,0,0,.32); }
+  .login-card { max-width: 520px !important; padding: 38px !important; border-radius: 8px !important; background: #111827; box-shadow: 0 24px 70px rgba(var(--rgb-black),.32); }
   .login-header { margin-bottom: 26px; }
   .login-header h1 { font-size: 28px !important; }
   .login-form .form-group { margin-bottom: 18px; }

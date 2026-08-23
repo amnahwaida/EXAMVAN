@@ -812,15 +812,56 @@
 - [x] Kontrak test lama yang basi akibat migrasi direvisi minimal dengan intent proteksi dipertahankan
   (batch6-pengawasan mac-cell, batch4-modal R8 kartu monitor, batch2 T11 locator tombol hapus).
 
-### Batch 8 (usulan lanjutan)
-- [ ] Pindahkan register wrapper Actions ke modul pemiliknya (admin.js/settings-vouchers.js/
-  admin-core.js) — saat ini sebagian aksi masih didaftarkan wrapper tipis di inline script halaman;
-  samakan juga nama aksi `modal-dismiss` antar halaman agar tak saling menimpa di registry.
-- [ ] Normalisasi tipe argumen data-* (string vs number, mis. `parseInt(dataSubmissionId)`) di
-  handler admin.js hasil delegasi submissions.
-- [ ] Token triplet hitam/putih (`--rgb-black/--rgb-white`) + migrasi sisa `rgba(0,0,0,.3)`×31 &
-  `rgba(255,255,255,x)`; lanjutkan migrasi hex/rgba ke template publik (download/shared/register).
-- [ ] Hapus shim defensif `Actions` di inline script settings.html (kini kontrak core pasti ada).
+### Batch 8 — Lanjutan delegasi aksi + fase 2 token ✅ SELESAI (2026-08-24, test-first via 2 agen paralel + 1 sesi langsung dengan kepemilikan file terpisah; suite gabungan repo **411/411 hijau**, `go build` OK)
+
+> **Metode:** sama dengan Batch 6–7 — kontrak ditulis lebih dulu sebagai file
+> `uiux-batch8-*.test.mjs` (diverifikasi merah → implementasi → hijau). Tiga pemilik
+> cakupan paralel tanpa tumpang tindih file:
+>
+> | Agen | Kepemilikan file | Suite |
+> |---|---|---|
+> | batch-8-actions | `admin-core.js`, `admin.js`, `settings-vouchers.js`, `settings-users.js`, `settings.html`, `submissions.html` | `uiux-batch8-actions.test.mjs` — 15 |
+> | batch-8-tokens-css | `theme.css`, `admin-base.css`, `hasil.css`, `public-desktop.css`, `public-mobile.css` | `uiux-batch8-tokens-css.test.mjs` — 23 |
+> | (publik, sesi langsung) | `download.html`, `shared.html`, `register.html` | `uiux-batch8-publik.test.mjs` — 62 |
+
+- [x] **Registrasi Actions pindah ke modul pemiliknya** (lanjutan R28/Batch 7):
+  wrapper tipis di inline script halaman dihapus dari tempat asalnya dan didaftarkan
+  langsung di modul yang MENDEFINISIKAN fungsinya — 10 aksi settings (`smtp-test`,
+  `smtp-save`, `turnstile-save`, `cleanup-save`, `default-pkg-save`, `versions-save`,
+  `footer-save`, `seo-save`, `monetization-save`, `password-modal-close`) + 4 aksi users +
+  4 aksi submissions kini di blok registrasi `admin.js`; 7 aksi voucher +
+  `confirm-action-close` kini di `settings-vouchers.js`; inline `submissions.html` tinggal
+  komentar penunjuk. Guard `typeof window.x === 'function'` dihapus karena kini satu file.
+- [x] **`modal-dismiss` disatukan** (sebelumnya dobel-registrasi admin.js + settings.html yang
+  saling MENIMPA di registry): SATU registrasi kanonik di `admin-core.js` tepat setelah objek
+  `Actions` — tersedia otomatis di semua halaman; semantik superset (guard klik-overlay
+  `ev.target !== el` + resolver close-fn via `window` → fallback `globalThis`).
+- [x] **Normalisasi tipe argumen data-*:** handler id numerik di admin.js kini konsisten
+  `parseInt(..., 10)` — termasuk `show-submission-detail`/`delete-submission`
+  (`data-submission-id` sebelumnya string mentah) plus `token-edit-open`, `questions-open`,
+  `exam-delete`, `edit-exam-open`, `delegate-exam-open`. Argumen yang memang string
+  (`data-token`, `data-name`, `data-color`) tidak disentuh.
+- [x] **Shim defensif `Actions` di settings.html DIHAPUS total** — kontrak core pasti
+  (admin-core.js selalu dimuat lebih dulu); harness uji batch7-settings direvisi mengikuti
+  urutan `<script>` halaman sungguhan.
+- [x] **Token triplet hitam/putih** di theme.css: `--rgb-black: 0, 0, 0` & `--rgb-white:
+  255, 255, 255` (kontrak lintas-agen, nama & nilai dikunci test). Migrasi substitusi-
+  nilai-persis di CSS inti: **75 literal rgba hitam/putih → rgba(var(--rgb-*), α)** —
+  admin-base.css 30 · hasil.css 30 · public-desktop.css 6 · public-mobile.css 6 ·
+  theme.css 3 (shadow-card/lg/sm). Pengecualian ber-comment alasan: definisi token :root
+  theme.css (tidak boleh self-referential) + scrollbar hasil.css (regex test Batch 3
+  menguras alpha literal).
+- [x] **Migrasi hex/rgba template publik (download/shared/register):** rgba hitam/putih
+  → `var(--rgb-black/white)`; triplet brand → `var(--rgb-info/success/warning/danger/accent)`
+  (63+44+12 = 119 pemakaian `rgba(var(--rgb-*))` baru); hex bersubstitusi → token semantik
+  persis (#a5b4fc→primary-light, #fbbf24→warning-light, dst.). Hex turun download 37→16,
+  shared 32→27, register 16→8; sisa = nilai unik tanpa padanan token (#818cf8, #7c3aed,
+  rgba(129,140,248,…)). Whitelist eksplisit dikunci test: definisi token lokal `:root`
+  shared.html & `<meta name="theme-color">` (konteks non-CSS wajib literal).
+- [x] Kontrak test lama direvisi minimal dengan intent proteksi dipertahankan:
+  batch7-dashboard/settings/pengawasan kini menerima registrasi dari modul pemilik +
+  admin-core.js (union sumber); asersi "shim harus ada" dibalik menjadi "shim tidak ada";
+  test vm wrapper submissions mengharapkan id angka hasil normalisasi.
 
 
 

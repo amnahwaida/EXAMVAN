@@ -4036,18 +4036,13 @@ if (typeof Actions !== 'undefined' && typeof Actions.register === 'function') {
         var fn = __resolveModalCloseFn(el.getAttribute('data-modal-close'));
         if (fn) fn();
     });
-    // Backdrop modal (klik overlay LANGSUNG saja — klik kartu tidak menutup,
-    // menggantikan pola lama onclick="close()" + stopPropagation di kartu).
-    Actions.register('modal-dismiss', function (el, ev) {
-        if (ev && ev.target !== el) return;
-        var fn = __resolveModalCloseFn(el.getAttribute('data-modal-close'));
-        if (fn) fn();
-    });
+    // Backdrop modal (modal-dismiss) kini diregistrasi KANONIK di
+    // admin-core.js — tersedia otomatis di semua halaman (Batch 8).
 
     // Token kolom daftar ujian
     Actions.register('token-copy', function (el) { copyToken(el.getAttribute('data-token')); });
     Actions.register('token-edit-open', function (el) {
-        openEditTokenModal(el.getAttribute('data-exam-id'), el.getAttribute('data-token'));
+        openEditTokenModal(parseInt(el.getAttribute('data-exam-id'), 10), el.getAttribute('data-token'));
     });
     Actions.register('token-interval-save', function (el) {
         saveTokenInterval(parseInt(el.getAttribute('data-exam-id'), 10));
@@ -4065,7 +4060,7 @@ if (typeof Actions !== 'undefined' && typeof Actions.register === 'function') {
         togglePengawasPopup(ev, parseInt(el.getAttribute('data-exam-id'), 10));
     });
     Actions.register('questions-open', function (el) {
-        openQuestionsModal(el.getAttribute('data-exam-id'), el.getAttribute('data-exam-name'));
+        openQuestionsModal(parseInt(el.getAttribute('data-exam-id'), 10), el.getAttribute('data-exam-name'));
     });
     // Dropdown baris: sama seperti popup pengawas — closer "tutup semua
     // dropdown" yang terdaftar lebih lambat di document TIDAK boleh langsung
@@ -4075,14 +4070,14 @@ if (typeof Actions !== 'undefined' && typeof Actions.register === 'function') {
         toggleRowDropdown(ev, parseInt(el.getAttribute('data-exam-id'), 10));
     });
     Actions.register('edit-exam-open', function (el) {
-        openEditExamModal(el.getAttribute('data-exam-id'), el.getAttribute('data-exam-name'));
+        openEditExamModal(parseInt(el.getAttribute('data-exam-id'), 10), el.getAttribute('data-exam-name'));
     });
     Actions.register('delegate-exam-open', function (el) {
-        openDelegateExamModal(el.getAttribute('data-exam-id'));
+        openDelegateExamModal(parseInt(el.getAttribute('data-exam-id'), 10));
     });
     Actions.register('delegate-exam-confirm', function () { confirmDelegateExam(); });
     Actions.register('exam-delete', function (el) {
-        deleteExam(el.getAttribute('data-exam-id'), el.getAttribute('data-exam-name'));
+        deleteExam(parseInt(el.getAttribute('data-exam-id'), 10), el.getAttribute('data-exam-name'));
     });
 
     // Modal konfigurasi soal & kontrolnya
@@ -4098,6 +4093,50 @@ if (typeof Actions !== 'undefined' && typeof Actions.register === 'function') {
     });
     Actions.register('xml-export', function () { exportXMLQuestions(); });
     Actions.register('questions-save', function () { saveQuestionsConfig(); });
+
+    // ===== Batch 8: wrapper pindahan dari inline script halaman ==============
+    // Fungsi-fungsi di bawah HIDUP di admin.js ini juga, jadi registrasinya
+    // dipindah ke sini (satu tempat mendefinisikan + mendaftarkan) dan fungsi
+    // dipanggil LANGSUNG tanpa guard typeof window.x.
+    // Halaman Pengaturan — kartu SMTP/Turnstile/Cleanup/dll. & modal password
+    Actions.register('smtp-test', function () { testSmtpConnection(); });
+    Actions.register('smtp-save', function () { saveSmtpSettings(); });
+    Actions.register('turnstile-save', function () { saveTurnstileSettings(); });
+    Actions.register('cleanup-save', function () { saveCleanupSettings(); });
+    Actions.register('default-pkg-save', function () { saveDefaultPkgSettings(); });
+    Actions.register('versions-save', function () { saveVersionsSettings(); });
+    Actions.register('footer-save', function () { saveFooterSettings(); });
+    Actions.register('seo-save', function () { saveSeoSettings(); });
+    Actions.register('monetization-save', function () { saveMonetizationSettings(); });
+    Actions.register('password-modal-close', function () { closeChangePasswordModal(); });
+
+    // Kelola User — toolbar pencarian/urut & refresh daftar
+    Actions.register('users-refresh-list', function (el, ev) {
+        // stopPropagation dipertahankan dari onclick lama: tombol refresh ada
+        // di dalam header kartu yang punya listener klik sendiri.
+        if (ev && ev.stopPropagation) ev.stopPropagation();
+        loadUsersList(getCurrentUsersPage());
+    });
+    Actions.register('users-clear-search', function () { clearUsersSearch(); });
+    Actions.register('users-search', function () { loadUsersList(1); });
+    Actions.register('users-toggle-sort', function (el) {
+        toggleUsersSort(el.getAttribute('data-sort'));
+    });
+
+    // Halaman Pengajuan (submissions.html)
+    // Id numerik dinormalisasi parseInt(..., 10) — konsisten dengan handler
+    // exam-toggle-status/token-interval-save; argumen string (token/nama/
+    // warna) sengaja TIDAK di-parse.
+    Actions.register('show-submission-detail', function (el) {
+        var id = parseInt(el.getAttribute('data-submission-id'), 10);
+        if (id) showSubmissionDetail(id);
+    });
+    Actions.register('delete-submission', function (el) {
+        var id = parseInt(el.getAttribute('data-submission-id'), 10);
+        if (id) deleteSubmission(id);
+    });
+    Actions.register('close-detail-modal', function () { closeDetailModal(); });
+    Actions.register('export-submissions', function () { exportSubmissions(); });
 }
 
 // Keyboard parity untuk elemen NON-button ber-data-action (badge status,

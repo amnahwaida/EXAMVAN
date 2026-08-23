@@ -332,6 +332,20 @@ var Actions = {
     }
 };
 
+// Batch 8: registrasi kanonik modal-dismiss TINGGAL DI CORE — sebelumnya
+// dobel-didaftarkan di admin.js dan inline settings.html (pendaftaran kedua
+// menimpa yang pertama di registry). Ditempatkan di sini agar tersedia
+// otomatis di SEMUA halaman tanpa registrasi per-halaman. Semantik superset:
+// klik overlay LANGSUNG saja yang menutup; fungsi penutup di-resolve via
+// window lalu fallback globalThis.
+Actions.register('modal-dismiss', function (el, ev) {
+    if (!ev || ev.target !== el) return;
+    var closeName = el.getAttribute('data-modal-close');
+    if (!closeName) return;
+    if (typeof window[closeName] === 'function') { window[closeName](); return; }
+    if (typeof globalThis !== 'undefined' && typeof globalThis[closeName] === 'function') globalThis[closeName]();
+});
+
 // Listener delegasi tunggal: cari target/ancestor terdekat ber-[data-action],
 // lookup registry, panggil fn(el, e). Nama tak terdaftar → diam (return) —
 // elemen data-action milik agen lain boleh muncul duluan di markup sebelum

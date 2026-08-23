@@ -76,14 +76,16 @@ function inlineScripts(html) {
 
 const INLINE_JS = inlineScripts(DASHBOARD).join('\n');
 
-test('R28: SEMUA data-action di dashboard.html terdaftar (admin.js ∪ inline script halaman)', () => {
+test('R28: SEMUA data-action di dashboard.html terdaftar (admin-core ∪ admin.js ∪ inline script halaman)', () => {
     const used = new Set(
         [...DASHBOARD.matchAll(/data-action="([a-z0-9-]+)"/g)].map((m) => m[1])
     );
     assert.ok(used.size >= 15, `minimal 15 nama aksi unik dipakai HTML, dapat ${used.size}`);
 
+    // Batch 8: registrasi kanonik modal-dismiss kini hidup di admin-core.js
+    // (satu sumber untuk semua halaman), jadi core ikut masuk union sumber.
     const registered = new Set(
-        [...(ADMIN_JS_SRC + '\n' + INLINE_JS).matchAll(/Actions\.register\(\s*['"]([a-z0-9-]+)['"]/g)].map((m) => m[1])
+        [...(ADMIN_CORE_SRC + '\n' + ADMIN_JS_SRC + '\n' + INLINE_JS).matchAll(/Actions\.register\(\s*['"]([a-z0-9-]+)['"]/g)].map((m) => m[1])
     );
     const missing = [...used].filter((name) => !registered.has(name));
     assert.deepEqual(missing, [],
