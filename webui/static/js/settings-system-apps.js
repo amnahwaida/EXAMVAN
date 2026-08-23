@@ -50,7 +50,7 @@ function renderAppsGrid(apps) {
         const empty = el('div',
             'grid-column:1/-1;text-align:center;padding:80px 20px;background:rgba(255,255,255,0.02);border-radius:24px;border:2px dashed rgba(255,255,255,0.1);');
         empty.appendChild(el('h3', 'color:white;font-size:1.5rem;font-weight:700;margin:0 0 12px 0;', 'Belum Ada Aplikasi'));
-        empty.appendChild(el('p', 'color:#94a3b8;font-size:1.05rem;max-width:480px;margin:0 auto;',
+        empty.appendChild(el('p', 'color:var(--color-text-placeholder);font-size:1.05rem;max-width:480px;margin:0 auto;',
             'Anda belum mengunggah aplikasi. Klik tombol unggah di kanan atas untuk mulai mendistribusikan aplikasi ujian ke siswa.'));
         grid.appendChild(empty);
         return;
@@ -104,13 +104,13 @@ function renderAppsGrid(apps) {
         actions.className = 'action-buttons';
 
         const dl = el('a',
-            'display:flex;align-items:center;gap:6px;color:#94a3b8;text-decoration:none;font-size:13px;', 'Unduh');
+            'display:flex;align-items:center;gap:6px;color:var(--color-text-placeholder);text-decoration:none;font-size:13px;', 'Unduh');
         dl.href = '/download/app/' + app.ID;
         dl.target = '_blank';
         actions.appendChild(dl);
 
         const delBtn = el('button',
-            'background:none;border:none;color:#f87171;cursor:pointer;font-size:13px;', 'Hapus');
+            'background:none;border:none;color:var(--color-danger-light);cursor:pointer;font-size:13px;', 'Hapus');
         delBtn.addEventListener('click', function() { deleteApp(app.ID, app.Name); });
         actions.appendChild(delBtn);
 
@@ -151,7 +151,7 @@ function updateFileName(input) {
     const display = document.getElementById('file-name-display');
     if (input.files && input.files[0]) {
         display.innerText = input.files[0].name;
-        display.style.color = '#c084fc';
+        display.style.color = 'var(--color-accent-light)';
     } else {
         display.innerText = 'Pilih atau Seret File Kesini';
         display.style.color = 'white';
@@ -362,3 +362,16 @@ window.__settingsReady['system-apps'] = function() {
         try { window.history.replaceState({}, '', '/admin/settings#system-apps'); } catch (e) {}
     }
 };
+
+// Batch 7 (R28): aksi modal unggah & hapus aplikasi via delegasi data-action.
+// Argumen dibawa data-* di markup (data-app-id / data-app-name), sehingga
+// nama aplikasi ber-kutip tidak bisa memutus atribut (pola S3).
+if (window.Actions && typeof window.Actions.register === 'function') {
+    window.Actions.register('app-upload-close', function () { closeUploadModal(); });
+    window.Actions.register('app-upload-submit', function (el, ev) { submitUpload(ev); });
+    window.Actions.register('app-delete', function (el) {
+        var id = parseInt(el.getAttribute('data-app-id'), 10);
+        if (Number.isNaN(id)) return;
+        deleteApp(id, el.getAttribute('data-app-name') || '');
+    });
+}

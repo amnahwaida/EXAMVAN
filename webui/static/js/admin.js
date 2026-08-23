@@ -1432,13 +1432,13 @@ function renderRoleBadges(baseRoles, pkgRoles) {
     if (!Array.isArray(pkgRoles)) pkgRoles = [];
     if (baseRoles.length + pkgRoles.length === 0) return '<span style="color:var(--color-text-muted);font-size:12px;">—</span>';
     var badgeStyles = {
-        guru: 'background:rgba(99,102,241,0.15);color:#a5b4fc;border:1px solid rgba(99,102,241,0.3);',
+        guru: 'background:rgba(99,102,241,0.15);color:var(--color-primary-light);border:1px solid rgba(99,102,241,0.3);',
         pengawas: 'background:rgba(168,85,247,0.15);color:#c084fc;border:1px solid rgba(168,85,247,0.3);'
     };
     // Roles granted by the ACTIVE package get an emerald tone + a small "paket"
     // tag so admins can tell them apart from base (permanent) roles — these
     // disappear when the package is switched or expires.
-    var pkgStyle = 'background:rgba(16,185,129,0.15);color:#34d399;border:1px solid rgba(16,185,129,0.3);';
+    var pkgStyle = 'background:rgba(16,185,129,0.15);color:var(--color-success-light);border:1px solid rgba(16,185,129,0.3);';
     var labels = { guru: 'Guru', pengawas: 'Pengawas' };
     var badges = [];
     baseRoles.forEach(function(r) {
@@ -1667,7 +1667,7 @@ function loadUsersList(page) {
                     tr.innerHTML = `
                         <td data-label="Username">
                             <strong class="user-info-btn" style="cursor:pointer;color: ${isAdmin ? 'var(--color-accent-light)' : 'var(--color-text)'};">
-                                ${isAdmin ? '<svg class="icon-svg" style="width:16px;height:16px;vertical-align:middle;color:#fbbf24;"><use href="#hi-star"/></svg> ' : ''}${escapeHtml(user.username)}
+                                ${isAdmin ? '<svg class="icon-svg" style="width:16px;height:16px;vertical-align:middle;color:var(--color-warning-light);"><use href="#hi-star"/></svg> ' : ''}${escapeHtml(user.username)}
                                 <svg class="icon-svg user-info-icon" aria-hidden="true" title="Klik untuk lihat detail kuota &amp; masa aktif"><use href="#hi-information"/></svg>
                             </strong>
                             ${isAdmin ? '<span style="font-size:11px; color: var(--color-text-secondary); display:block;">Super Admin</span>' : ''}
@@ -1683,9 +1683,9 @@ function loadUsersList(page) {
                             </div>
                         </td>
                         <td data-label="Nama">${escapeHtml(user.name || '—')}</td>
-                        <td data-label="Instansi">${window.__adminRole === 'superadmin' ? '<span class="editable-instansi" data-user-id="' + user.id + '" role="button" tabindex="0" aria-label="Ubah instansi" style="color:#a5b4fc;cursor:pointer;border-bottom:1px dashed rgba(165,180,252,0.3);" title="Klik untuk ubah instansi">' + escapeHtml(user.instansi || '—') + '</span>' : escapeHtml(user.instansi || '—')}</td>
+                        <td data-label="Instansi">${window.__adminRole === 'superadmin' ? '<span class="editable-instansi" data-user-id="' + user.id + '" role="button" tabindex="0" aria-label="Ubah instansi" style="color:var(--color-primary-light);cursor:pointer;border-bottom:1px dashed rgba(165,180,252,0.3);" title="Klik untuk ubah instansi">' + escapeHtml(user.instansi || '—') + '</span>' : escapeHtml(user.instansi || '—')}</td>
                         <td data-label="Paket"><span style="text-transform:uppercase;font-size:11px;font-weight:600;color:var(--color-accent-light);">${escapeHtml(user.package || 'free')}</span></td>
-                        <td data-label="Role">${isAdmin ? '<span style="display:inline-block;padding:2px 8px;border-radius:10px;font-size:11px;font-weight:600;background:rgba(251,191,36,0.15);color:#fbbf24;border:1px solid rgba(251,191,36,0.3);">Super Admin</span>' : renderRoleBadges(user.base_roles, user.package_roles)}</td>
+                        <td data-label="Role">${isAdmin ? '<span style="display:inline-block;padding:2px 8px;border-radius:10px;font-size:11px;font-weight:600;background:rgba(251,191,36,0.15);color:var(--color-warning-light);border:1px solid rgba(251,191,36,0.3);">Super Admin</span>' : renderRoleBadges(user.base_roles, user.package_roles)}</td>
                         <td data-label="Email">${escapeHtml(user.email || '—')}</td>
                         <td data-label="Status" style="text-align:center;"><span class="user-status-cell">${statusBadge}${expiredBadge}</span></td>
                         <td data-label="Terdaftar">${createdAt}</td>
@@ -1714,7 +1714,7 @@ function loadUsersList(page) {
                 refreshUsersSortHeaders();
                 tbody.setAttribute('aria-busy', 'false');
             } else {
-                tbody.innerHTML = '<tr><td colspan="9" style="text-align:center; padding: 20px; color: #fca5a5;">Gagal memuat daftar user'
+                tbody.innerHTML = '<tr><td colspan="9" style="text-align:center; padding: 20px; color: var(--color-danger-light);">Gagal memuat daftar user'
                     + '<div style="margin-top:12px;"><button type="button" class="btn-sm btn-secondary" onclick="loadUsersList(' + page + ')">Coba Lagi</button></div></td></tr>';
                 tbody.setAttribute('aria-busy', 'false');
             }
@@ -1722,7 +1722,7 @@ function loadUsersList(page) {
         .catch(() => {
             var t = document.getElementById('usersTableBody');
             if (t) {
-                t.innerHTML = '<tr><td colspan="9" style="text-align:center; padding: 20px; color: #fca5a5;">Gagal memuat daftar user'
+                t.innerHTML = '<tr><td colspan="9" style="text-align:center; padding: 20px; color: var(--color-danger-light);">Gagal memuat daftar user'
                     + '<div style="margin-top:12px;"><button type="button" class="btn-sm btn-secondary" onclick="loadUsersList(' + page + ')">Coba Lagi</button></div></td></tr>';
                 t.setAttribute('aria-busy', 'false');
             }
@@ -1769,7 +1769,7 @@ function renderUsersPagination(pagination, currentPage) {
             if (isCurrent) {
                 b.className = 'pagination-current';
                 b.disabled = true;
-                b.style.cssText += 'background:rgba(99,102,241,0.2);color:#a5b4fc;border:1px solid rgba(99,102,241,0.4);font-weight:800;';
+                b.style.cssText += 'background:rgba(99,102,241,0.2);color:var(--color-primary-light);border:1px solid rgba(99,102,241,0.4);font-weight:800;';
             }
             b.textContent = label;
             b.onclick = function() { loadUsersList(pg); };
@@ -2297,7 +2297,7 @@ function createEditUserModal() {
     modal.innerHTML = `
         <div class="modal-card glass-card" style="max-width:540px;">
             <div class="modal-header">
-                <h3><svg class="icon-svg" style="vertical-align:middle;margin-top:-2px;"><use href="#hi-users"/></svg> Atur User: <span id="editUserUsername" style="color:#a5b4fc;"></span></h3>
+                <h3><svg class="icon-svg" style="vertical-align:middle;margin-top:-2px;"><use href="#hi-users"/></svg> Atur User: <span id="editUserUsername" style="color:var(--color-primary-light);"></span></h3>
                 <button class="modal-close" onclick="closeEditUserModal()" aria-label="Tutup"><svg class="icon-svg" style="width:18px;height:18px;"><use href="#hi-x"/></svg></button>
             </div>
             <div class="modal-body">
@@ -2470,8 +2470,10 @@ function submitEditToken(e) {
                 if (tokenUpdated) {
                     var editBtn = document.querySelector(`.btn-edit[data-exam-id="${examId}"]`);
                     if (editBtn) {
+                        // R28-lanjutan: tombol kini ber-aksi via delegasi
+                        // data-action="token-edit-open" — cukup perbarui
+                        // data-token, TANPA memasang ulang onclick lama.
                         editBtn.setAttribute('data-token', res.token);
-                        editBtn.setAttribute('onclick', `openEditTokenModal(${examId}, '${jsEscape(res.token)}')`);
                     }
                     // Update permanent token display
                     const permTokenEl = document.querySelector(`#exam-row-${examId} .token-permanent`);
@@ -2722,7 +2724,7 @@ function togglePublicResults(examId) {
                     if (res.public_results === 1) {
                         btn.style.background = 'rgba(16, 185, 129, 0.15)';
                         btn.style.borderColor = 'rgba(16, 185, 129, 0.3)';
-                        btn.style.color = '#34d399';
+                        btn.style.color = 'var(--color-success-light)';
                         btn.innerHTML = '<svg class="icon-svg" style="width:16px;height:16px;vertical-align:middle;margin-top:-2px;" aria-hidden="true"><use href="#hi-eye"/></svg> Hal. Siswa Aktif';
                     } else {
                         btn.style.background = 'rgba(239, 68, 68, 0.15)';
@@ -2762,12 +2764,12 @@ function toggleShowAnswers(examId) {
                     if (res.show_answers === 1) {
                         btn.style.background = 'rgba(251, 191, 36, 0.15)';
                         btn.style.borderColor = 'rgba(251, 191, 36, 0.3)';
-                        btn.style.color = '#fbbf24';
+                        btn.style.color = 'var(--color-warning-light)';
                         btn.innerHTML = '<svg class="icon-svg" style="width:14px;height:14px;"><use href="#hi-lock-open"/></svg> Kunci Terlihat';
                     } else {
                         btn.style.background = 'rgba(107, 114, 128, 0.15)';
                         btn.style.borderColor = 'rgba(107, 114, 128, 0.3)';
-                        btn.style.color = '#9ca3af';
+                        btn.style.color = 'var(--color-text-muted)';
                         btn.innerHTML = '<svg class="icon-svg" style="width:14px;height:14px;"><use href="#hi-lock"/></svg> Kunci Tersembunyi';
                     }
                 }
@@ -2853,7 +2855,7 @@ function openDelegateExamModal(examId) {
                         var infoDiv = document.querySelector('#delegateExamModal .form-group');
                         var lbl = document.createElement('div');
                         lbl.id = 'delegateCurrentLabel';
-                        lbl.style.cssText = 'font-size:0.8rem;color:#94a3b8;margin-bottom:6px;';
+                        lbl.style.cssText = 'font-size:0.8rem;color:var(--color-text-placeholder);margin-bottom:6px;';
                         lbl.textContent = 'Guru saat ini: ' + d.delegated_to.username;
                         infoDiv.parentNode.insertBefore(lbl, infoDiv);
                     }
@@ -3827,7 +3829,7 @@ function showSubmissionDetail(id) {
 
                 const item = document.createElement('div');
                 item.className = `detail-answer-item ${escapeHtml(statusClass)}`;
-                const statusColor = statusClass === 'correct' ? '#34d399' : statusClass === 'partial' ? '#f59e0b' : '#f87171';
+                const statusColor = statusClass === 'correct' ? 'var(--color-success-light)' : statusClass === 'partial' ? 'var(--color-warning)' : '#f87171';
                 item.innerHTML = `
                     <span class="detail-q-num">No. ${escapeHtml(qNum)}</span>
                     <span class="detail-q-ans">${escapeHtml(fmtAns(studentAns))}</span>
@@ -4004,4 +4006,110 @@ function applyPackagePreset(type) {
         }
     }
 }
+
+// ===== R28-lanjutan (Batch 7): registrasi aksi delegasi dashboard ============
+// Semua fungsi milik admin.js yang sebelumnya dipanggil onclick inline di
+// dashboard.html kini didaftarkan ke registry Actions (admin-core.js) lewat
+// SATU blok terpusat ini — argumen dibawa lewat atribut data-* pada elemen.
+// Aksi milik skrip inline dashboard.html (instansi-open, exams-search, dst.)
+// didaftarkan di inline script halaman itu sendiri.
+//
+// Guard typeof: admin.js juga dieksekusi harness uji tanpa admin-core.
+if (typeof Actions !== 'undefined' && typeof Actions.register === 'function') {
+    // Resolver nama fungsi penutup modal: utama via window, fallback ke
+    // globalThis (identik di browser; berguna di lingkungan sandbox).
+    var __resolveModalCloseFn = function (name) {
+        if (!name) return null;
+        if (typeof window[name] === 'function') return window[name];
+        if (typeof globalThis !== 'undefined' && typeof globalThis[name] === 'function') return globalThis[name];
+        return null;
+    };
+
+    // Toolbar & utilitas
+    Actions.register('page-reload', function () { location.reload(); });
+    // Nonaktifkan/Aktifkan terpilih (toolbar bulk) — milik admin.js.
+    // (bulk-delete-confirm milik skrip inline dashboard.html.)
+    Actions.register('bulk-toggle-exams', function () { bulkToggleExams(); });
+    // Tutup modal via nama fungsi penutup (data-modal-close). Dipakai tombol
+    // ✕/Batal modal; perilaku identik memanggil close*() langsung.
+    Actions.register('modal-close', function (el) {
+        var fn = __resolveModalCloseFn(el.getAttribute('data-modal-close'));
+        if (fn) fn();
+    });
+    // Backdrop modal (klik overlay LANGSUNG saja — klik kartu tidak menutup,
+    // menggantikan pola lama onclick="close()" + stopPropagation di kartu).
+    Actions.register('modal-dismiss', function (el, ev) {
+        if (ev && ev.target !== el) return;
+        var fn = __resolveModalCloseFn(el.getAttribute('data-modal-close'));
+        if (fn) fn();
+    });
+
+    // Token kolom daftar ujian
+    Actions.register('token-copy', function (el) { copyToken(el.getAttribute('data-token')); });
+    Actions.register('token-edit-open', function (el) {
+        openEditTokenModal(el.getAttribute('data-exam-id'), el.getAttribute('data-token'));
+    });
+    Actions.register('token-interval-save', function (el) {
+        saveTokenInterval(parseInt(el.getAttribute('data-exam-id'), 10));
+    });
+
+    // Baris daftar ujian
+    Actions.register('exam-toggle-status', function (el) {
+        toggleExam(parseInt(el.getAttribute('data-exam-id'), 10));
+    });
+    // Popup pengawas: hentikan propagasi SEKARANG (listener dokumen lain tidak
+    // boleh melihat klik ini — paritas dengan onclick attribute lama yang
+    // berhenti di elemen sebelum mencapai document).
+    Actions.register('pengawas-popup-toggle', function (el, ev) {
+        if (ev && typeof ev.stopImmediatePropagation === 'function') ev.stopImmediatePropagation();
+        togglePengawasPopup(ev, parseInt(el.getAttribute('data-exam-id'), 10));
+    });
+    Actions.register('questions-open', function (el) {
+        openQuestionsModal(el.getAttribute('data-exam-id'), el.getAttribute('data-exam-name'));
+    });
+    // Dropdown baris: sama seperti popup pengawas — closer "tutup semua
+    // dropdown" yang terdaftar lebih lambat di document TIDAK boleh langsung
+    // menutup menu yang baru dibuka handler ini.
+    Actions.register('row-dropdown-toggle', function (el, ev) {
+        if (ev && typeof ev.stopImmediatePropagation === 'function') ev.stopImmediatePropagation();
+        toggleRowDropdown(ev, parseInt(el.getAttribute('data-exam-id'), 10));
+    });
+    Actions.register('edit-exam-open', function (el) {
+        openEditExamModal(el.getAttribute('data-exam-id'), el.getAttribute('data-exam-name'));
+    });
+    Actions.register('delegate-exam-open', function (el) {
+        openDelegateExamModal(el.getAttribute('data-exam-id'));
+    });
+    Actions.register('delegate-exam-confirm', function () { confirmDelegateExam(); });
+    Actions.register('exam-delete', function (el) {
+        deleteExam(el.getAttribute('data-exam-id'), el.getAttribute('data-exam-name'));
+    });
+
+    // Modal konfigurasi soal & kontrolnya
+    Actions.register('panel-color-set', function (el) { setPanelColor(el.getAttribute('data-color')); });
+    Actions.register('schedule-clear', function () { clearSchedule(); });
+    Actions.register('identity-field-add', function () { addIdentityField(); });
+    Actions.register('questions-generate', function () { quickGenerateQuestions(); });
+    Actions.register('weights-set-all', function () { setAllWeights(); });
+    Actions.register('ai-prompt-copy', function () { copyAIPrompt(); });
+    Actions.register('xml-import-browse', function () {
+        var input = document.getElementById('xmlFileInput');
+        if (input && typeof input.click === 'function') input.click();
+    });
+    Actions.register('xml-export', function () { exportXMLQuestions(); });
+    Actions.register('questions-save', function () { saveQuestionsConfig(); });
+}
+
+// Keyboard parity untuk elemen NON-button ber-data-action (badge status,
+// kartu instansi, kode token, badge pengawas — semuanya role="button"
+// tabindex="0"): Enter/Space memicu click yang sama dengan klik mouse.
+// BUTTON/A sengaja dikecualikan agar tidak dobel (browser sudah memicu click
+// native untuk mereka).
+document.addEventListener('keydown', function (e) {
+    if (e.key !== 'Enter' && e.key !== ' ') return;
+    var el = e.target && e.target.closest ? e.target.closest('[data-action][role="button"]') : null;
+    if (!el || !Actions.has(el.getAttribute('data-action'))) return;
+    if (typeof e.preventDefault === 'function') e.preventDefault();
+    if (typeof el.click === 'function') el.click();
+});
 

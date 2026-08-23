@@ -103,6 +103,13 @@ window.toggleAllUsersCollapse = function () {
     setAllUsersCollapse(countUsersCollapsed() > 0);
 };
 
+// Batch 7 (R28): aksi toolbar "Lipat/Buka Semua" via delegasi data-action.
+if (window.Actions && typeof window.Actions.register === 'function') {
+    window.Actions.register('users-toggle-all', function () {
+        window.toggleAllUsersCollapse();
+    });
+}
+
 window.__settingsReady['users'] = function() {
 
  setupUsersCollapse();

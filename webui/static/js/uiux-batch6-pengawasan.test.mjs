@@ -249,7 +249,9 @@ test('S26/static: mac-cell riwayat akses jadi <button type="button"> (bukan <a> 
     assert.ok(!html.includes('<a class="mac-cell"'), 'mac-cell anchor tanpa href tidak boleh tersisa');
     const btn = html.match(/<button type="button" class="mac-cell"[^>]*>/);
     assert.ok(btn, 'mac-cell wajib dirender sebagai <button type="button" class="mac-cell">');
-    assert.match(btn[0], /onclick="showAccessLog/, 'handler riwayat akses tetap sama');
+    // Batch 7 (R28 lanjutan): handler inline onclick dimigrasi ke delegasi
+    // data-action — intent proteksi sama, handler riwayat akses tetap terpasang.
+    assert.match(btn[0], /data-action="show-access-log"/, 'handler riwayat akses tetap sama (delegasi data-action)');
     assert.match(btn[0], /title="/, 'title petunjuk klik tetap ada');
 
     // Anchor "Detail" di baris yang sama juga tanpa href — minimal role=button.

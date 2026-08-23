@@ -65,7 +65,7 @@
    .catch(function(err) {
     console.error(err);
     document.getElementById('packagesTableBody').innerHTML =
-     '<tr><td colspan="7" style="padding:32px;text-align:center;color:#f87171;">Gagal memuat pengaturan paket.</td></tr>';
+     '<tr><td colspan="7" style="padding:32px;text-align:center;color:var(--color-danger-light);">Gagal memuat pengaturan paket.</td></tr>';
    });
  }
 
@@ -143,4 +143,9 @@
  // settings-general.js calls initPackages instead of a standalone tab.
  window.initPackages = loadPackages;
  window.savePackages = savePackages;
+
+ // Batch 7 (R28): tombol "Simpan Perubahan" paket via delegasi data-action.
+ if (window.Actions && typeof window.Actions.register === 'function') {
+  window.Actions.register('packages-save', function () { savePackages(); });
+ }
 })();

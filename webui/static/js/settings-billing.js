@@ -124,14 +124,14 @@ function loadMyPackages() {
                 // Expired wins over active: an exhausted package whose clock
                 // has run out must read as "Berakhir", not "Paket Aktif".
                 if (p.is_expired) {
-                    badge = '<span class="status-badge" style="background:rgba(239,68,68,0.15);color:#ef4444;border:1px solid rgba(239,68,68,0.3);">Berakhir</span>';
+                    badge = '<span class="status-badge" style="background:rgba(239,68,68,0.15);color:var(--color-danger);border:1px solid rgba(239,68,68,0.3);">Berakhir</span>';
                     action = '<span style="color:var(--color-text-secondary);font-size:12px;">Tidak tersedia</span>';
                 } else if (p.is_active) {
-                    badge = '<span class="status-badge" style="background:rgba(16,185,129,0.15);color:#10b981;border:1px solid rgba(16,185,129,0.3);">Paket Aktif</span>';
+                    badge = '<span class="status-badge" style="background:rgba(16,185,129,0.15);color:rgb(var(--rgb-success));border:1px solid rgba(16,185,129,0.3);">Paket Aktif</span>';
                     action = '<span style="color:var(--color-text-secondary);font-size:12px;">Berjalan</span>';
                 } else {
-                    badge = '<span class="status-badge" style="background:rgba(245,158,11,0.15);color:#f59e0b;border:1px solid rgba(245,158,11,0.3);">Dijeda</span>';
-                    action = '<button class="btn-sm" onclick="activatePackage(' + p.id + ')" style="background:rgba(168,85,247,0.15);color:#c084fc;border:1px solid rgba(168,85,247,0.3);padding:4px 12px;cursor:pointer;">Aktifkan</button>';
+                    badge = '<span class="status-badge" style="background:rgba(245,158,11,0.15);color:var(--color-warning);border:1px solid rgba(245,158,11,0.3);">Dijeda</span>';
+                    action = '<button class="btn-sm" onclick="activatePackage(' + p.id + ')" style="background:rgba(168,85,247,0.15);color:var(--color-accent-light);border:1px solid rgba(168,85,247,0.3);padding:4px 12px;cursor:pointer;">Aktifkan</button>';
                 }
 
                 var remaining;
@@ -154,7 +154,7 @@ function loadMyPackages() {
         })
         .catch(function(err) {
             console.error(err);
-            wrap.innerHTML = '<div style="text-align:center;padding:24px;color:#f87171;">Gagal memuat daftar paket.'
+            wrap.innerHTML = '<div style="text-align:center;padding:24px;color:var(--color-danger-light);">Gagal memuat daftar paket.'
                 + '<div style="margin-top:12px;"><button type="button" class="btn-sm btn-secondary" onclick="loadMyPackages()">Coba Lagi</button></div></div>';
         });
 }
@@ -198,3 +198,14 @@ window.__settingsReady['billing'] = function() {
     }
 
 };
+
+// Batch 7 (R28): aksi kartu klaim voucher & modal konfirmasi via delegasi
+// data-action (tombol di settings.html membawa atribut, handler tetap di sini).
+// Catatan: backdrop confirmRedeemModal ditangani aksi 'modal-dismiss' level
+// halaman yang memanggil closeConfirmRedeemModal() tanpa argumen — perilaku
+// lama hanya menutup untuk klik langsung di overlay / tombol tutup.
+if (window.Actions && typeof window.Actions.register === 'function') {
+    window.Actions.register('billing-redeem-open', function () { redeemVoucher(); });
+    window.Actions.register('billing-redeem-cancel', function () { closeConfirmRedeemModal(); });
+    window.Actions.register('billing-redeem-confirm', function () { doRedeemVoucher(); });
+}

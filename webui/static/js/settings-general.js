@@ -73,7 +73,7 @@ function setupGeneralCollapse() {
         var pkgHead = document.createElement('div');
         pkgHead.className = 'saas-collapse-head packages-head';
         pkgHead.setAttribute('aria-expanded', 'true');
-        pkgHead.innerHTML = '<span class="saas-collapse-title"><svg class="icon-svg" style="width:18px;height:18px;color:#a5b4fc;"><use href="#hi-settings"/></svg> Pengaturan Paket</span>' +
+        pkgHead.innerHTML = '<span class="saas-collapse-title"><svg class="icon-svg" style="width:18px;height:18px;color:var(--color-primary-light);"><use href="#hi-settings"/></svg> Pengaturan Paket</span>' +
             '<svg class="saas-collapse-chev" aria-hidden="true" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 8l4 4 4-4"/></svg>';
         pkgWrap.appendChild(pkgHead);
 
@@ -131,6 +131,13 @@ function updateToggleAllLabel() {
 window.toggleAllGeneralCollapse = function () {
     setAllGeneralCollapse(anyGeneralCollapsed());
 };
+
+// Batch 7 (R28): aksi toolbar "Buka/Lipat Semua" via delegasi data-action.
+if (window.Actions && typeof window.Actions.register === 'function') {
+    window.Actions.register('general-toggle-all', function () {
+        window.toggleAllGeneralCollapse();
+    });
+}
 
 window.__settingsReady['general'] = function() {
     setupGeneralCollapse();

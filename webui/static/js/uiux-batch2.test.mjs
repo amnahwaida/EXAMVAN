@@ -179,8 +179,10 @@ for (const f of ['static/css/tailwind/output.css', 'static/css/tailwind/admin-ta
 
 test('T11: tombol hapus submissions berlabel teks "Hapus" + target sentuh ≥ 44px', () => {
     const html = read('templates/admin/submissions.html');
-    const idx = html.indexOf('deleteSubmission(');
-    assert.ok(idx >= 0, 'handler deleteSubmission harus tetap ada');
+    // Batch 7 (R28): tombol memanggil via data-action="delete-submission"
+    // (delegasi); handler deleteSubmission hidup di admin.js.
+    const idx = html.indexOf('data-action="delete-submission"');
+    assert.ok(idx >= 0, 'tombol hapus (data-action="delete-submission") harus tetap ada');
     const btnRegion = html.slice(Math.max(0, idx - 300), idx + 500);
 
     assert.match(btnRegion, />\s*Hapus\s*</, 'label teks "Hapus" harus terlihat (bukan ikon-only)');

@@ -5,7 +5,7 @@ function renderAuditError(msg, page) {
     const tbody = document.getElementById('auditLogsBody');
     if (!tbody) return;
     tbody.setAttribute('aria-busy', 'false');
-    tbody.innerHTML = '<tr><td colspan="4" style="text-align:center;padding:40px;color:#fca5a5;">' + msg
+    tbody.innerHTML = '<tr><td colspan="4" style="text-align:center;padding:40px;color:var(--color-danger-light);">' + msg
         + '<div style="margin-top:12px;"><button type="button" class="btn-sm btn-secondary" onclick="loadAuditLogs(' + page + ')">Coba Lagi</button></div></td></tr>';
 }
 
@@ -61,7 +61,7 @@ function renderAuditLogsTable(logs) {
             <td data-label="Waktu" style="padding:14px 20px;font-size:12px;color:var(--color-text-secondary);white-space:nowrap;">${localizeUTC(l.created_at)}</td>
             <td data-label="Aksi" style="padding:14px 20px;">${badge}</td>
             <td data-label="Oleh" style="padding:14px 20px;"><strong style="color:#fff;font-size:12px;">${escapeHtml(l.username || '—')}</strong></td>
-            <td data-label="Detail" style="padding:14px 20px;font-size:12px;color:#cbd5e1;">${escapeHtml(l.detail || '—')}</td>
+            <td data-label="Detail" style="padding:14px 20px;font-size:12px;color:var(--color-text-secondary);">${escapeHtml(l.detail || '—')}</td>
         </tr>`;
     }
     tbody.innerHTML = html;
@@ -101,3 +101,14 @@ window.initVoucherAudit = function() {
     window.__auditLoaded = true;
     loadAuditLogs(1);
 };
+
+// Batch 7 (R28): aksi toolbar Riwayat Klaim via delegasi data-action.
+if (window.Actions && typeof window.Actions.register === 'function') {
+    window.Actions.register('audit-refresh', function () { loadAuditLogs(1); });
+    window.Actions.register('audit-search', function () { loadAuditLogs(1); });
+    window.Actions.register('audit-search-clear', function () {
+        var input = document.getElementById('auditSearchInput');
+        if (input) input.value = '';
+        loadAuditLogs(1);
+    });
+}

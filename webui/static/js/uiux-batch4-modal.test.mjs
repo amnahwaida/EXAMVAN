@@ -177,14 +177,16 @@ test('R7: pagination submissions.html punya indikator posisi "N dari M" dan nomo
 // R8 — link "Pantau" di kartu pengawas stopPropagation
 // ---------------------------------------------------------------------------
 
-test('R8: link Pantau bersarang di kartu pengawas melakukan stopPropagation (tak navigasi ganda)', () => {
+test('R8: kartu pengawas navigasi via delegasi; link Pantau bersarang tidak menavigasi ganda', () => {
     const html = read('templates/admin/pengawas.html');
-    const card = html.match(/exam-monitor-card[\s\S]{0,200}onclick="window\.location/);
-    assert.ok(card, 'kartu pengawas tetap navigasi via onclick window.location');
+    // Batch 7 (R28 lanjutan): onclick inline kartu dimigrasi ke delegasi
+    // data-action + data-exam-id — perilaku navigasi tetap sama.
+    const card = html.match(/exam-monitor-card[\s\S]{0,200}data-action="open-pengawas-detail" data-exam-id=/);
+    assert.ok(card, 'kartu pengawas tetap navigasi via delegasi data-action');
 
-    // Anchor "Pantau" harus menghentikan propagasi sebelum sampai ke onclick kartu.
+    // Anchor "Pantau" masih ada; stopPropagation inline dihapus karena handler
+    // kartu berbasis delegasi kini mundur bila klik berasal dari anchor —
+    // href anchor yang menavigasi (tidak ada lagi navigasi ganda).
     const pantau = html.match(/<a href="\/admin\/pengawas\/' \+ ex\.id \+ '"[^>]*>[^<]*<svg[\s\S]*?Pantau<\/a>/);
     assert.ok(pantau, 'anchor Pantau masih ada');
-    assert.match(pantau[0], /event\.stopPropagation\(\)/,
-        'anchor Pantau wajib memanggil event.stopPropagation() di handler inline-nya');
 });

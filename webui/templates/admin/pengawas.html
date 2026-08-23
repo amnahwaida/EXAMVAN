@@ -25,14 +25,14 @@
    </div>
   </div>
   <div class="stat-card stat-active">
-   <div class="stat-icon"><svg class="icon-svg" style="width:24px;height:24px;color:#34d399;"><use href="#hi-eye"/></svg></div>
+   <div class="stat-icon"><svg class="icon-svg" style="width:24px;height:24px;color:var(--color-success-light);"><use href="#hi-eye"/></svg></div>
    <div class="stat-info">
     <span class="stat-value" id="statActiveExam">0</span>
     <span class="stat-label">Sedang Berlangsung</span>
    </div>
   </div>
   <div class="stat-card stat-inactive">
-   <div class="stat-icon"><svg class="icon-svg" style="width:24px;height:24px;color:#fbbf24;"><use href="#hi-users"/></svg></div>
+   <div class="stat-icon"><svg class="icon-svg" style="width:24px;height:24px;color:var(--color-warning-light);"><use href="#hi-users"/></svg></div>
    <div class="stat-info">
     <span class="stat-value" id="statTotalStudents">0</span>
     <span class="stat-label">Total Siswa</span>
@@ -52,16 +52,16 @@
   <div class="table-header flex items-center justify-between mb-5 flex-wrap gap-3">
    <!-- R19: seksi naik h3→h2 agar hierarki h1→h2 tidak melompat;
         font-size inline 1.1rem dari h3 lama dipertahankan (visual identik). -->
-   <h2 style="font-size: 1.1rem; color: #a5b4fc; display: flex; align-items: center; gap: 8px;">
-    <svg class="icon-svg" style="color:#a5b4fc;"><use href="#hi-eye"/></svg> Ujian yang Saya Awasi
+   <h2 style="font-size: 1.1rem; color: var(--color-primary-light); display: flex; align-items: center; gap: 8px;">
+    <svg class="icon-svg" style="color:var(--color-primary-light);"><use href="#hi-eye"/></svg> Ujian yang Saya Awasi
    </h2>
    <div class="table-toolbar">
     <div class="toolbar-search-wrap">
      <input type="text" id="pengawasSearch" class="toolbar-search-input" placeholder="Cari nama ujian, token, pembuat..." aria-label="Cari ujian">
 
     </div>
-    <button class="toolbar-btn toolbar-btn-search" onclick="loadPengawasExams()"><svg class="icon-svg"><use href="#hi-search"/></svg> Cari</button>
-    <button class="toolbar-btn toolbar-btn-refresh" onclick="loadPengawasExams()" aria-label="Muat ulang daftar" title="Muat ulang"><svg class="icon-svg"><use href="#hi-refresh"/></svg></button>
+    <button class="toolbar-btn toolbar-btn-search" data-action="load-pengawas-exams"><svg class="icon-svg"><use href="#hi-search"/></svg> Cari</button>
+    <button class="toolbar-btn toolbar-btn-refresh" data-action="load-pengawas-exams" aria-label="Muat ulang daftar" title="Muat ulang"><svg class="icon-svg"><use href="#hi-refresh"/></svg></button>
    </div>
   </div>
   <div id="pengawasExamList" style="display:flex;flex-direction:column;gap:16px;">
@@ -114,7 +114,7 @@
   transition: border-color 0.2s;
 }
 .exam-monitor-card:hover {
-  border-color: rgba(99,102,241,0.3);
+  border-color: rgba(var(--rgb-info),0.3);
 }
 .exam-monitor-header {
   display: flex;
@@ -146,7 +146,7 @@
   flex: 1;
   min-width: 100px;
   height: 8px;
-  background: rgba(255,255,255,0.06);
+  background: var(--glass-bg-strong);
   border-radius: 4px;
   overflow: hidden;
 }
@@ -162,16 +162,16 @@
 }
 .student-list-toggle {
   font-size: 0.8rem;
-  color: #a5b4fc;
+  color: var(--color-primary-light);
   cursor: pointer;
   background: none;
-  border: 1px solid rgba(99,102,241,0.3);
+  border: 1px solid rgba(var(--rgb-info),0.3);
   border-radius: 8px;
   padding: 4px 12px;
   transition: background 0.2s;
 }
 .student-list-toggle:hover {
-  background: rgba(99,102,241,0.1);
+  background: rgba(var(--rgb-info),0.1);
 }
 .student-table {
   width: 100%;
@@ -200,18 +200,18 @@
   font-size: 0.7rem;
   font-weight: 600;
 }
-.student-status.submitted { background: rgba(16,185,129,0.15); color: #6ee7b7; border: 1px solid rgba(16,185,129,0.3); }
-.student-status.in-progress { background: rgba(251,191,36,0.15); color: #fbbf24; border: 1px solid rgba(251,191,36,0.3); }
+.student-status.submitted { background: rgba(var(--rgb-success),0.15); color: #6ee7b7; border: 1px solid rgba(var(--rgb-success),0.3); }
+.student-status.in-progress { background: rgba(var(--rgb-warning),0.15); color: var(--color-warning-light); border: 1px solid rgba(var(--rgb-warning),0.3); }
 .student-status.not-started { background: rgba(107,114,128,0.15); color: #9ca3af; border: 1px solid rgba(107,114,128,0.3); }
 .student-table tbody tr { transition:background 0.1s; cursor:pointer; }
-.student-table tbody tr:hover { background:rgba(99,102,241,0.05); }
+.student-table tbody tr:hover { background:rgba(var(--rgb-info),0.05); }
 .log-modal-header-info { display:flex;flex-direction:column;gap:12px;margin-bottom:16px;padding:0;background:transparent;border:none;border-radius:0; }
 .log-device-row { display:flex;align-items:center;gap:10px;background:var(--color-bg-secondary);border:1px solid var(--color-glass-border);border-radius:10px;font-size:0.8rem;padding:10px 14px; }
 .access-log-timeline { position:relative;padding-left:28px;margin-top:8px; }
 .access-log-timeline::before { content:'';position:absolute;left:10px;top:8px;bottom:8px;width:2px;background:var(--color-glass-border); }
 .log-entry { position:relative;padding:10px 0 10px 18px;border-left:2px solid transparent;margin-bottom:6px;background:var(--color-bg-secondary);border-radius:8px;border:1px solid var(--color-glass-border); }
 .log-entry::before { content:'';position:absolute;left:-22px;top:14px;width:10px;height:10px;border-radius:50%;border:2px solid;background:var(--color-bg); }
-.log-entry.login::before { background:#34d399;border-color:#34d399; }
+.log-entry.login::before { background:var(--color-success-light);border-color:var(--color-success-light); }
 .log-entry.heartbeat::before { background:#60a5fa;border-color:#60a5fa; }
 .log-entry.logout::before { background:#f87171;border-color:#f87171; }
 .log-entry .log-time { font-size:0.72rem;color:var(--color-text-muted);font-family:monospace;margin-top:2px; }
@@ -275,7 +275,7 @@ function loadPengawasExams(page) {
                 var total = ex.total_students || 0;
                 var sub = ex.submitted_count || 0;
                 var pct = total > 0 ? Math.round(sub / total * 100) : 0;
-                var barColor = pct >= 100 ? '#34d399' : (pct > 0 ? '#60a5fa' : '#6b7280');
+                var barColor = pct >= 100 ? 'var(--color-success-light)' : (pct > 0 ? '#60a5fa' : '#6b7280');
                 // Three-state badge: a tombstoned exam (auto-inactivated by
                 // policy B when the school operator was cut off) reads
                 // "Nonaktif Otomatis" instead of a bare "Nonaktif" so the
@@ -293,18 +293,18 @@ function loadPengawasExams(page) {
                 var sched = (ex.start_time && ex.end_time) ? (ex.start_time + ' - ' + ex.end_time) : '—';
 
                 var startedBadge = ex.exam_started_at
-                    ? '<span style="font-size:0.65rem;color:rgba(16,185,129,0.8);padding:2px 6px;border-radius:4px;background:rgba(16,185,129,0.1);border:1px solid rgba(16,185,129,0.2);"><svg class="icon-svg" style="width:10px;height:10px;"><use href="#hi-check"/></svg> Sedang Diawasi</span>'
-                    : '<span style="font-size:0.65rem;color:rgba(245,158,11,0.8);padding:2px 6px;border-radius:4px;background:rgba(245,158,11,0.1);border:1px solid rgba(245,158,11,0.2);">Belum Mulai Pengawasan</span>';
+                    ? '<span style="font-size:0.65rem;color:rgba(var(--rgb-success),0.8);padding:2px 6px;border-radius:4px;background:rgba(var(--rgb-success),0.1);border:1px solid rgba(var(--rgb-success),0.2);"><svg class="icon-svg" style="width:10px;height:10px;"><use href="#hi-check"/></svg> Sedang Diawasi</span>'
+                    : '<span style="font-size:0.65rem;color:rgba(var(--rgb-warning),0.8);padding:2px 6px;border-radius:4px;background:rgba(var(--rgb-warning),0.1);border:1px solid rgba(var(--rgb-warning),0.2);">Belum Mulai Pengawasan</span>';
                 var modeBadge = ex.token_mode === 'static'
                     ? '<span style="font-size:0.7rem;color:#60a5fa;font-weight:600;background:rgba(59,130,246,0.1);padding:1px 4px;border-radius:4px;border:1px solid rgba(59,130,246,0.2);">Statis</span>'
-                    : '<span style="font-size:0.7rem;color:#c084fc;font-weight:600;background:rgba(168,85,247,0.1);padding:1px 4px;border-radius:4px;border:1px solid rgba(168,85,247,0.2);">Dinamis</span>';
+                    : '<span style="font-size:0.7rem;color:#c084fc;font-weight:600;background:rgba(var(--rgb-accent),0.1);padding:1px 4px;border-radius:4px;border:1px solid rgba(var(--rgb-accent),0.2);">Dinamis</span>';
                 // Server-side auto-approve badge: makes the flag visible from
                 // the list so a teacher notices it is still on before reusing
                 // the exam for the next session.
                 var autoBadge = ex.auto_approve
-                    ? '<span style="display:inline-flex;align-items:center;gap:4px;font-size:0.65rem;color:#34d399;font-weight:700;padding:2px 8px;border-radius:10px;background:rgba(16,185,129,0.12);border:1px solid rgba(16,185,129,0.3);white-space:nowrap;" title="Auto-approve aktif — semua perangkat disetujui otomatis di server (tetap berlaku walau halaman pengawasan ditutup)"><svg class="icon-svg" style="width:10px;height:10px;"><use href="#hi-check"/></svg> Auto-approve</span>'
+                    ? '<span style="display:inline-flex;align-items:center;gap:4px;font-size:0.65rem;color:var(--color-success-light);font-weight:700;padding:2px 8px;border-radius:10px;background:rgba(var(--rgb-success),0.12);border:1px solid rgba(var(--rgb-success),0.3);white-space:nowrap;" title="Auto-approve aktif — semua perangkat disetujui otomatis di server (tetap berlaku walau halaman pengawasan ditutup)"><svg class="icon-svg" style="width:10px;height:10px;"><use href="#hi-check"/></svg> Auto-approve</span>'
                     : '';
-                html += '<div class="exam-monitor-card" id="exam-card-' + ex.id + '" style="cursor:pointer;" role="button" tabindex="0" onclick="window.location=\'/admin/pengawas/' + ex.id + '\'">' +
+                html += '<div class="exam-monitor-card" id="exam-card-' + ex.id + '" style="cursor:pointer;" role="button" tabindex="0" data-action="open-pengawas-detail" data-exam-id="' + ex.id + '">' +
                     '<div class="exam-monitor-header">' +
                         '<div>' +
                             '<div class="exam-monitor-title">' + esc(ex.name) + ' ' + startedBadge + '</div>' +
@@ -325,7 +325,7 @@ function loadPengawasExams(page) {
                             '<div class="progress-bar-fill" style="width:' + pct + '%;background:' + barColor + ';"></div>' +
                         '</div>' +
                         '<span class="progress-text" style="color:' + barColor + ';">' + sub + '/' + total + ' (' + pct + '%)</span>' +
-                        '<a href="/admin/pengawas/' + ex.id + '" class="student-list-toggle" style="text-decoration:none;" onclick="event.stopPropagation();"><svg class="icon-svg" style="width:14px;height:14px;"><use href="#hi-eye"/></svg> Pantau</a>' +
+                        '<a href="/admin/pengawas/' + ex.id + '" class="student-list-toggle" style="text-decoration:none;"><svg class="icon-svg" style="width:14px;height:14px;"><use href="#hi-eye"/></svg> Pantau</a>' +
                     '</div>' +
                 '</div>';
             }
@@ -347,19 +347,19 @@ function renderPagination(res) {
         '<div class="pagination-links">';
 
     if (res.page > 1) {
-        html += '<button type="button" class="pagination-page-num" onclick="loadPengawasExams(1)" style="cursor:pointer;" aria-label="Halaman pertama">&laquo;</button>' +
-            '<button type="button" class="pagination-page-num" onclick="loadPengawasExams(' + (res.page - 1) + ')" style="cursor:pointer;" aria-label="Halaman sebelumnya">&lsaquo;</button>';
+        html += '<button type="button" class="pagination-page-num" data-action="load-pengawas-page" data-page="1" style="cursor:pointer;" aria-label="Halaman pertama">&laquo;</button>' +
+            '<button type="button" class="pagination-page-num" data-action="load-pengawas-page" data-page="' + (res.page - 1) + '" style="cursor:pointer;" aria-label="Halaman sebelumnya">&lsaquo;</button>';
     }
 
     var start = Math.max(1, res.page - 2);
     var end = Math.min(res.total_pages, res.page + 2);
     for (var p = start; p <= end; p++) {
-        html += '<button type="button" class="pagination-page-num' + (p === res.page ? ' page-current' : '') + '" onclick="loadPengawasExams(' + p + ')" style="cursor:pointer;"' + (p === res.page ? ' aria-current="page"' : '') + '>' + p + '</button>';
+        html += '<button type="button" class="pagination-page-num' + (p === res.page ? ' page-current' : '') + '" data-action="load-pengawas-page" data-page="' + p + '" style="cursor:pointer;"' + (p === res.page ? ' aria-current="page"' : '') + '>' + p + '</button>';
     }
 
     if (res.page < res.total_pages) {
-        html += '<button type="button" class="pagination-page-num" onclick="loadPengawasExams(' + (res.page + 1) + ')" style="cursor:pointer;" aria-label="Halaman berikutnya">&rsaquo;</button>' +
-            '<button type="button" class="pagination-page-num" onclick="loadPengawasExams(' + res.total_pages + ')" style="cursor:pointer;" aria-label="Halaman terakhir">&raquo;</button>';
+        html += '<button type="button" class="pagination-page-num" data-action="load-pengawas-page" data-page="' + (res.page + 1) + '" style="cursor:pointer;" aria-label="Halaman berikutnya">&rsaquo;</button>' +
+            '<button type="button" class="pagination-page-num" data-action="load-pengawas-page" data-page="' + res.total_pages + '" style="cursor:pointer;" aria-label="Halaman terakhir">&raquo;</button>';
     }
 
     html += '</div></div>';
@@ -389,6 +389,31 @@ function esc(s) {
     d.appendChild(document.createTextNode(s));
     return d.innerHTML;
 }
+
+// ===== Batch 7 (R28): delegasi data-action =====
+// Kartu monitor & pagination pindah ke delegasi; handler kartu mundur bila
+// klik berasal dari anchor bersarang (link "Pantau") — href anchor yang
+// menavigasi, setara stopPropagation inline yang dihapus.
+(function() {
+  if (typeof Actions === 'undefined') return;
+  Actions.register('load-pengawas-exams', function() { if (typeof loadPengawasExams === 'function') loadPengawasExams(); });
+  Actions.register('open-pengawas-detail', function(el, ev) {
+    var t = ev && ev.target;
+    while (t && t !== el) {
+      if (String(t.tagName).toUpperCase() === 'A') return;
+      t = t.parentNode;
+    }
+    var id = el.getAttribute('data-exam-id');
+    if (!id) return;
+    window.location = '/admin/pengawas/' + id;
+  });
+  Actions.register('load-pengawas-page', function(el) {
+    var p = parseInt(el.getAttribute('data-page'), 10);
+    if (isNaN(p)) return;
+    if (typeof loadPengawasExams === 'function') loadPengawasExams(p);
+  });
+})();
+// ===== end Batch 7 (R28) =====
 
 /* Auto-load on page ready */
 (function() {

@@ -309,6 +309,49 @@ var Modal = {
     }
 };
 
+// ===== Batch 7: API delegasi aksi global ====================================
+// Registry handler aksi terpusat untuk atribut data-action="nama". Tiga agen
+// paralel mendaftarkan handler lewat Actions.register() TANPA menambah
+// listener sendiri; SATU listener klik delegasi di document meneruskan klik ke
+// handler terdaftar. Sengaja dideklarasikan dengan var top-level supaya
+// terekspos sebagai global — const/let tidak menjadi properti context pada
+// lingkungan sandbox/harness.
+var Actions = {
+    _registry: {},
+    // Daftarkan handler untuk nama aksi. Pendaftaran ulang nama yang sama
+    // MENIMPA handler lama (diberi console.warn) — versi terakhir yang menang,
+    // sehingga skrip halaman bisa meng-override default core.
+    register: function (name, fn) {
+        if (Object.prototype.hasOwnProperty.call(this._registry, name)) {
+            console.warn('Actions: handler "' + name + '" didaftarkan ulang — handler sebelumnya ditimpa');
+        }
+        this._registry[name] = fn;
+    },
+    has: function (name) {
+        return Object.prototype.hasOwnProperty.call(this._registry, name);
+    }
+};
+
+// Listener delegasi tunggal: cari target/ancestor terdekat ber-[data-action],
+// lookup registry, panggil fn(el, e). Nama tak terdaftar → diam (return) —
+// elemen data-action milik agen lain boleh muncul duluan di markup sebelum
+// handler-nya terdaftar. try/catch per-panggilan agar exception satu handler
+// tidak membunuh handler lain (dan listener existing seperti backdrop-close
+// tetap jalan karena ini listener independen, bukan pengganti).
+document.addEventListener('click', function (e) {
+    var el = e.target && typeof e.target.closest === 'function'
+        ? e.target.closest('[data-action]')
+        : null;
+    if (!el) return;
+    var name = el.getAttribute('data-action');
+    if (!name || !Actions.has(name)) return;
+    try {
+        Actions._registry[name](el, e);
+    } catch (err) {
+        console.error('Actions: handler "' + name + '" melempar exception', err);
+    }
+});
+
 // Escape HTML to prevent XSS — also escapes single quotes for safe use in HTML attributes
 function escapeHtml(str) {
     return String(str)

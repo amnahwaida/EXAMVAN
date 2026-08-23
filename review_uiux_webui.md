@@ -764,11 +764,64 @@
   - register_confirm skip-link menyatu ke partial `public_skip_link` (kontrak test batch4 direvisi;
     inline style lama 9× → bersih, base styling `.skip-link` di theme.css).
 
-### Batch 7 (usulan lanjutan)
-- [ ] Fase 2 design token (L, bertahap): migrasi hex/rgba inline template (**290 hex + 430 rgba**) & JS
-  (**±49 hex**) → kelas utilitas badge + assertion hitungan hex folder templates/
-- [ ] Migrasi penuh event-delegation `data-action` (lanjutan R28) & pelepasan handler inline onclick
-  (`window.x = fn`) bertahap per halaman
+### Batch 7 — Fase 2 design token + migrasi event-delegation ✅ SELESAI (2026-08-24, test-first via 4 agen paralel; suite gabungan repo **322/322 hijau**, `go build` OK)
+
+> **Metode batch ini:** sama dengan Batch 6 — kontrak ditulis lebih dulu sebagai file
+> `uiux-batch7-*.test.mjs` (diverifikasi merah → implementasi → hijau). Karena skala besar
+> (baseline: ±300 hex & ±520 rgba di template, ±69 hex di JS, 146 onclick inline), pekerjaan
+> dipecah ke 4 agen paralel dengan kepemilikan file yang tidak tumpang tindih, dan dua
+> **kontrak lintas-agen ditetapkan di depan** agar semua agen bisa menulis test terhadapnya:
+>
+> | Agen | Cakupan | Suite |
+> |---|---|---|
+> | batch-7-core | infrastruktur: API `Actions` + token `--rgb-*`/`--glass-bg-strong` + kelas `.tone-*`/`.notice-warning` | `uiux-batch7-core.test.mjs` — 13 |
+> | batch-7-dashboard | dashboard.html (48 onclick) + admin.js | `uiux-batch7-dashboard.test.mjs` — 9 |
+> | batch-7-pengawasan | pengawas_detail/pengawas/submissions (41 onclick) | `uiux-batch7-pengawasan.test.mjs` — 17 |
+> | batch-7-settings | settings.html (57 onclick) + 6 modul settings-*.js | `uiux-batch7-settings.test.mjs` — 9 |
+
+- [x] **Infrastruktur delegasi aksi global (R28 lanjutan):** core kini mengekspor
+  `var Actions = { register(name, fn), has(name) }` + SATU listener klik delegasi di document
+  (`closest('[data-action]') → fn(el, e)` dalam try/catch per handler; nama tak terdaftar diam).
+  Argumen lewat data-* (`data-exam-id`, `data-mac`, `data-submission-id`, dst.) — interpolasi mentah
+  ke atribut onclick (pola S3) pun hilang sepenuhnya dari halaman-halaman yang dimigrasi.
+- [x] **Migrasi onclick → data-action selesai untuk SELURUH halaman admin:** 146 handler inline
+  (settings 57 · dashboard 48 · pengawas_detail 27 · pengawas 9 · submissions 5) kini **0 onclick**
+  (dikunci guard test per halaman). Handler didaftarkan di tempat definisinya (inline script halaman /
+  module settings-*.js / admin.js); fungsi milik file agen lain dibungkus wrapper tipis
+  *(follow-up: pindahkan register wrapper ke modul pemiliknya)*. Perilaku lama utuh: showConfirm,
+  guard unsaved-changes (S2), double-submit guard (S27), hapus-tanpa-reload (R6), defer-render polling
+  Izinkan/Tolak (T8), visibility-guard (S36). Elemen non-button bekas onclick diberi
+  role="button" tabindex="0"; keyboard parity via listener keydown delegasi.
+- [x] **Fase 2 design token (S15 lanjutan):** token triplet baru di theme.css —
+  `--rgb-success/warning/danger/info/accent`, `--color-success-light`, `--glass-bg-strong`
+  (rekonsiliasi anti-duplikat: warning/danger/primary/accent-light existing dipakai ulang) — dan kelas
+  utilitas surface di admin-base.css: `.tone-success/warning/danger/info/accent/neutral` +
+  `.notice-warning`, murni `var()`/`rgba(var(--rgb-*), α)` tanpa hex literal baru.
+- [x] **Reduksi terukur (dikunci guard):**
+  | File | Hex | rgba literal |
+  |---|---|---|
+  | settings.html | 184 → 100 (−46%) | 191 → 110 (−42%) |
+  | pengawas_detail.html | 59 → 20 (−66%) | 69 → 11 (−84%) |
+  | dashboard.html | 49 → 28 (−43%) | 54 → 32 (−41%) |
+  | pengawas.html | 24 → 14 (−42%) | 30 → 11 (−63%) |
+  | admin.js (JS) | 23 → 8 | — |
+  Sisa literal = nilai unik sekali-pakai/tanpa padanan token (swatch data, canvas/chart) atau butuh
+  token hitam/putih triplet yang belum ada. Folder-wide guard baru `uiux-batch7-tokens.test.mjs`
+  mengunci total templates/ ≤300 hex & ≤520 rgba serta admin.js ≤8 hex — angka tidak boleh naik lagi
+  tanpa keputusan sadar.
+- [x] Kontrak test lama yang basi akibat migrasi direvisi minimal dengan intent proteksi dipertahankan
+  (batch6-pengawasan mac-cell, batch4-modal R8 kartu monitor, batch2 T11 locator tombol hapus).
+
+### Batch 8 (usulan lanjutan)
+- [ ] Pindahkan register wrapper Actions ke modul pemiliknya (admin.js/settings-vouchers.js/
+  admin-core.js) — saat ini sebagian aksi masih didaftarkan wrapper tipis di inline script halaman;
+  samakan juga nama aksi `modal-dismiss` antar halaman agar tak saling menimpa di registry.
+- [ ] Normalisasi tipe argumen data-* (string vs number, mis. `parseInt(dataSubmissionId)`) di
+  handler admin.js hasil delegasi submissions.
+- [ ] Token triplet hitam/putih (`--rgb-black/--rgb-white`) + migrasi sisa `rgba(0,0,0,.3)`×31 &
+  `rgba(255,255,255,x)`; lanjutkan migrasi hex/rgba ke template publik (download/shared/register).
+- [ ] Hapus shim defensif `Actions` di inline script settings.html (kini kontrak core pasti ada).
+
 
 
 ---

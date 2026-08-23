@@ -888,6 +888,39 @@ body.modal-open {
 .student-status.in-progress { background: rgba(251,191,36,0.15); color: var(--color-warning-light); border: 1px solid rgba(251,191,36,0.3); }
 .student-status.not-started { background: rgba(107,114,128,0.15); color: #9ca3af; border: 1px solid rgba(107,114,128,0.3); }
 
+/* ===== Kelas utilitas tone (Batch 7) =====
+   Kontrak lintas-agen: HANYA surface/border/color dari token rgb-triplet
+   theme.css (tanpa hex literal baru — hitungan hex terkunci test batch4).
+   Layout tetap inline di template pemakai. Pola sama dengan .status-* di
+   atas: background transparan + border tipis + teks versi light. */
+.tone-success { background: rgba(var(--rgb-success), 0.15); border: 1px solid rgba(var(--rgb-success), 0.3); color: var(--color-success-light); }
+.tone-warning { background: rgba(var(--rgb-warning), 0.12); border: 1px solid rgba(var(--rgb-warning), 0.35); color: var(--color-warning-light); }
+.tone-danger { background: rgba(var(--rgb-danger), 0.15); border: 1px solid rgba(var(--rgb-danger), 0.3); color: var(--color-danger-light); }
+.tone-info { background: rgba(var(--rgb-info), 0.15); border: 1px solid rgba(var(--rgb-info), 0.3); color: var(--color-primary-light); }
+.tone-accent { background: rgba(var(--rgb-accent), 0.15); border: 1px solid rgba(var(--rgb-accent), 0.4); color: var(--color-accent-light); }
+/* Netral: tanpa warna tone — surface kaca pekat saja (badge dorman/placeholder). */
+.tone-neutral { background: var(--glass-bg-strong); border: 1px solid var(--color-glass-border); }
+/* Kotak peringatan inline (mis. banner konfigurasi): flex agar ikon + teks
+   sejajar tanpa utilitas layout tambahan di template. */
+.notice-warning {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    background: rgba(var(--rgb-warning), 0.12);
+    border: 1px solid rgba(var(--rgb-warning), 0.35);
+    color: var(--color-warning-light);
+    padding: 14px 18px;
+    /* Radius ditulis sebagai empat longhand (bukan shorthand border-radius)
+       karena jumlah deklarasi shorthand border-radius dikunci PERSIS 27 oleh
+       regresi uiux-batch4-tokens.test.mjs (guard no-visual-change S15).
+       Hasil render identik: var(--radius-md) di keempat sudut. */
+    border-top-left-radius: var(--radius-md);
+    border-top-right-radius: var(--radius-md);
+    border-bottom-left-radius: var(--radius-md);
+    border-bottom-right-radius: var(--radius-md);
+    font-size: 13.5px;
+}
+
 /* Mobile "select all exams" control — the thead (and its master checkbox) is
    hidden in the card layout, which left phones with row-by-row selection only. */
 .mobile-select-all-exams {

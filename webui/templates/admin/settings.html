@@ -234,9 +234,9 @@
     font-weight: 600;
     letter-spacing: 0.02em;
     line-height: 1.4;
-    background: rgba(245, 158, 11, 0.12);
-    color: #fbbf24;
-    border: 1px solid rgba(245, 158, 11, 0.28);
+    background: rgba(var(--rgb-warning), 0.12);
+    color: var(--color-warning-light);
+    border: 1px solid rgba(var(--rgb-warning), 0.28);
     cursor: help;
     animation: diskBadgeIn 0.4s ease both;
   }
@@ -363,9 +363,9 @@
     font-weight: 700;
     padding: 5px 12px;
     border-radius: 8px;
-    background: rgba(168, 85, 247, 0.12);
-    border: 1px solid rgba(168, 85, 247, 0.3);
-    color: #c084fc;
+    background: rgba(var(--rgb-accent), 0.12);
+    border: 1px solid rgba(var(--rgb-accent), 0.3);
+    color: var(--color-accent-light);
     display: inline-flex;
     align-items: center;
     gap: 8px;
@@ -375,20 +375,20 @@
     position: relative;
   }
   .voucher-code-badge:hover {
-    background: rgba(168, 85, 247, 0.25);
-    border-color: rgba(168, 85, 247, 0.5);
-    box-shadow: 0 0 12px rgba(168, 85, 247, 0.25);
+    background: rgba(var(--rgb-accent), 0.25);
+    border-color: rgba(var(--rgb-accent), 0.5);
+    box-shadow: 0 0 12px rgba(var(--rgb-accent), 0.25);
     transform: translateY(-1px);
   }
   .voucher-code-badge.copied {
-    background: rgba(16, 185, 129, 0.2) !important;
-    border-color: rgba(16, 185, 129, 0.6) !important;
-    color: #34d399 !important;
-    box-shadow: 0 0 16px rgba(16, 185, 129, 0.45);
+    background: rgba(var(--rgb-success), 0.2) !important;
+    border-color: rgba(var(--rgb-success), 0.6) !important;
+    color: var(--color-success-light) !important;
+    box-shadow: 0 0 16px rgba(var(--rgb-success), 0.45);
     animation: copyPulse 0.4s ease-out;
   }
   .voucher-code-badge.copied .voucher-copy-btn {
-    color: #34d399;
+    color: var(--color-success-light);
     opacity: 1;
   }
   @keyframes copyPulse {
@@ -422,14 +422,14 @@
     letter-spacing: 0.3px;
   }
   .audit-action-badge.redeemed {
-    background: rgba(16, 185, 129, 0.12);
-    border: 1px solid rgba(16, 185, 129, 0.35);
-    color: #34d399;
+    background: rgba(var(--rgb-success), 0.12);
+    border: 1px solid rgba(var(--rgb-success), 0.35);
+    color: var(--color-success-light);
   }
   .audit-action-badge.activated {
-    background: rgba(168, 85, 247, 0.12);
-    border: 1px solid rgba(168, 85, 247, 0.35);
-    color: #c084fc;
+    background: rgba(var(--rgb-accent), 0.12);
+    border: 1px solid rgba(var(--rgb-accent), 0.35);
+    color: var(--color-accent-light);
   }
   .audit-action-badge.deactivated {
     background: rgba(248, 113, 113, 0.12);
@@ -452,8 +452,8 @@
    outline: none;
   }
   .pkg-table input:focus, .pkg-table select:focus {
-   border-color: #a855f7;
-   box-shadow: 0 0 0 2px rgba(168,85,247,0.2);
+   border-color: rgb(var(--rgb-accent));
+   box-shadow: 0 0 0 2px rgba(var(--rgb-accent),0.2);
   }
   .pkg-table input[type="number"] { min-width: 90px; }
   .pkg-table select option { background: #1e1b4b; color: #fff; }
@@ -463,9 +463,9 @@
    font-weight: 700;
    padding: 3px 8px;
    border-radius: 6px;
-   background: rgba(99,102,241,0.12);
-   border: 1px solid rgba(99,102,241,0.3);
-   color: #a5b4fc;
+   background: rgba(var(--rgb-info),0.12);
+   border: 1px solid rgba(var(--rgb-info),0.3);
+   color: var(--color-primary-light);
    display: inline-block;
    margin-top: 4px;
   }
@@ -478,7 +478,7 @@
     .premium-header-title {
         font-size: 2rem;
         font-weight: 800;
-        background: linear-gradient(135deg, #818cf8, #c084fc, #f472b6);
+        background: linear-gradient(135deg, #818cf8, var(--color-accent-light), #f472b6);
         -webkit-background-clip: text;
         -webkit-text-fill-color: transparent;
         display: flex;
@@ -490,7 +490,7 @@
     .header-icon-wrap {
         width: 46px;
         height: 46px;
-        background: linear-gradient(135deg, rgba(99,102,241,0.15), rgba(168,85,247,0.15));
+        background: linear-gradient(135deg, rgba(var(--rgb-info),0.15), rgba(var(--rgb-accent),0.15));
         border: 1px solid rgba(139,92,246,0.3);
         border-radius: 14px;
         display: flex;
@@ -502,7 +502,7 @@
     .btn-premium {
         background: linear-gradient(135deg, #4f46e5, #7c3aed);
         border: none;
-        box-shadow: 0 4px 15px rgba(99, 102, 241, 0.4);
+        box-shadow: 0 4px 15px rgba(var(--rgb-info), 0.4);
         transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
         border-radius: 12px;
         font-weight: 600;
@@ -528,7 +528,7 @@
     }
     .btn-premium:hover {
         transform: translateY(-2px);
-        box-shadow: 0 8px 25px rgba(99, 102, 241, 0.5);
+        box-shadow: 0 8px 25px rgba(var(--rgb-info), 0.5);
     }
     .btn-premium:disabled {
         opacity: 0.7;
@@ -566,9 +566,9 @@
         font-size: 28px;
         margin-bottom: 20px;
     }
-    .platform-android { background: linear-gradient(135deg, rgba(16,185,129,0.1), rgba(5,150,105,0.2)); color: #34d399; border: 1px solid rgba(16,185,129,0.3); box-shadow: 0 4px 15px rgba(16,185,129,0.1); }
+    .platform-android { background: linear-gradient(135deg, rgba(var(--rgb-success),0.1), rgba(5,150,105,0.2)); color: var(--color-success-light); border: 1px solid rgba(var(--rgb-success),0.3); box-shadow: 0 4px 15px rgba(var(--rgb-success),0.1); }
     .platform-windows { background: linear-gradient(135deg, rgba(59,130,246,0.1), rgba(37,99,235,0.2)); color: #60a5fa; border: 1px solid rgba(59,130,246,0.3); box-shadow: 0 4px 15px rgba(59,130,246,0.1); }
-    .platform-linux { background: linear-gradient(135deg, rgba(245,158,11,0.1), rgba(217,119,6,0.2)); color: #fbbf24; border: 1px solid rgba(245,158,11,0.3); box-shadow: 0 4px 15px rgba(245,158,11,0.1); }
+    .platform-linux { background: linear-gradient(135deg, rgba(var(--rgb-warning),0.1), rgba(217,119,6,0.2)); color: var(--color-warning-light); border: 1px solid rgba(var(--rgb-warning),0.3); box-shadow: 0 4px 15px rgba(var(--rgb-warning),0.1); }
     
     .app-title {
         font-size: 1.3rem;
@@ -600,7 +600,7 @@
         display: flex;
         justify-content: space-between;
         font-size: 0.85rem;
-        color: #94a3b8;
+        color: var(--color-text-placeholder);
         margin-top: auto;
         padding-top: 16px;
         border-top: 1px solid rgba(255,255,255,0.08);
@@ -640,15 +640,15 @@
     }
     
     .btn-delete {
-        background: rgba(239, 68, 68, 0.1);
+        background: rgba(var(--rgb-danger), 0.1);
         color: #f87171;
-        border-color: rgba(239, 68, 68, 0.2);
+        border-color: rgba(var(--rgb-danger), 0.2);
     }
     .btn-delete:hover {
-        background: #ef4444;
+        background: var(--color-danger);
         color: white;
-        border-color: #ef4444;
-        box-shadow: 0 4px 15px rgba(239, 68, 68, 0.4);
+        border-color: var(--color-danger);
+        box-shadow: 0 4px 15px rgba(var(--rgb-danger), 0.4);
     }
 
     /* Modal Styling */
@@ -685,7 +685,7 @@
     }
     
     .form-label {
-        display: block; font-size: 0.9rem; font-weight: 600; color: #cbd5e1; margin-bottom: 10px;
+        display: block; font-size: 0.9rem; font-weight: 600; color: var(--color-text-secondary); margin-bottom: 10px;
     }
     .custom-input, .custom-select {
         width: 100%; padding: 14px 18px; border-radius: 12px;
@@ -706,28 +706,28 @@
     .file-icon {
         width: 54px; height: 54px; margin: 0 auto 16px; color: #a78bfa; transition: transform 0.3s ease;
     }
-    .custom-file-input:hover .file-icon { transform: translateY(-4px); color: #c084fc; }
+    .custom-file-input:hover .file-icon { transform: translateY(-4px); color: var(--color-accent-light); }
     
     .btn-cancel {
-        padding: 12px 24px; border-radius: 12px; border: 1px solid rgba(255,255,255,0.1); background: transparent; color: #cbd5e1; font-weight: 600; cursor: pointer; transition: all 0.2s;
+        padding: 12px 24px; border-radius: 12px; border: 1px solid rgba(255,255,255,0.1); background: transparent; color: var(--color-text-secondary); font-weight: 600; cursor: pointer; transition: all 0.2s;
     }
     .btn-cancel:hover { background: rgba(255,255,255,0.1); color: white; }
     
     .alert-premium {
         margin-bottom:36px; 
-        background: linear-gradient(to right, rgba(245,158,11,0.15), rgba(245,158,11,0.05)); 
+        background: linear-gradient(to right, rgba(var(--rgb-warning),0.15), rgba(var(--rgb-warning),0.05)); 
         padding:24px; 
         border-radius:20px; 
-        border: 1px solid rgba(245,158,11,0.4); 
+        border: 1px solid rgba(var(--rgb-warning),0.4); 
         display:flex; 
         gap:20px; 
         align-items:center; 
-        box-shadow: 0 10px 30px rgba(245,158,11,0.1);
+        box-shadow: 0 10px 30px rgba(var(--rgb-warning),0.1);
     }
     .alert-icon-box {
-        width: 56px; height: 56px; border-radius: 16px; background: rgba(245,158,11,0.2); 
-        display: flex; align-items: center; justify-content: center; color: #fbbf24; flex-shrink: 0;
-        border: 1px solid rgba(245,158,11,0.3);
+        width: 56px; height: 56px; border-radius: 16px; background: rgba(var(--rgb-warning),0.2); 
+        display: flex; align-items: center; justify-content: center; color: var(--color-warning-light); flex-shrink: 0;
+        border: 1px solid rgba(var(--rgb-warning),0.3);
     }
 
 </style>
@@ -754,7 +754,7 @@
 <h2 class="sr-only" style="position:absolute;left:-9999px;">Kelola User</h2>
 <!-- Toolbar: Buka Semua / Lipat Semua (Kelola User) -->
  <div style="display:flex;justify-content:flex-end;align-items:center;margin-bottom:4px;">
-  <button type="button" id="toggleAllUsersBtn" onclick="toggleAllUsersCollapse()" class="btn-toggle-all" title="Lipat/buka semua bagian Kelola User sekaligus">
+  <button type="button" id="toggleAllUsersBtn" data-action="users-toggle-all" class="btn-toggle-all" title="Lipat/buka semua bagian Kelola User sekaligus">
   <svg class="icon-svg" style="width:14px;height:14px;transition:transform 0.2s ease;" id="toggleAllUsersIcon" aria-hidden="true"><use href="#hi-chevron-down"/></svg>
   <span id="toggleAllUsersLabel">Lipat Semua</span>
   </button>
@@ -764,7 +764,7 @@
  <!-- Card: Tambah User Manual -->
  <section class="glass-card saas-collapse" data-collapse-id="users-add">
  <div class="saas-collapse-head" role="button" tabindex="0" aria-expanded="true">
- <span class="saas-collapse-title"><svg class="icon-svg" style="width:18px;height:18px;color:#a5b4fc;"><use href="#hi-plus"/></svg> Tambah User Manual</span>
+ <span class="saas-collapse-title"><svg class="icon-svg" style="width:18px;height:18px;color:var(--color-primary-light);"><use href="#hi-plus"/></svg> Tambah User Manual</span>
  <svg class="saas-collapse-chev" aria-hidden="true" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 8l4 4 4-4"/></svg>
  </div>
  <div class="saas-collapse-body">
@@ -925,9 +925,9 @@
  <!-- Card: Daftar User & Guru -->
  <section class="glass-card saas-collapse" data-collapse-id="users-list">
  <div class="saas-collapse-head" role="button" tabindex="0" aria-expanded="true">
- <span class="saas-collapse-title"><svg class="icon-svg" style="width:18px;height:18px;color:#a5b4fc;"><use href="#hi-users"/></svg> Daftar User &amp; Guru Terdaftar</span>
+ <span class="saas-collapse-title"><svg class="icon-svg" style="width:18px;height:18px;color:var(--color-primary-light);"><use href="#hi-users"/></svg> Daftar User &amp; Guru Terdaftar</span>
  <span style="display:inline-flex;align-items:center;gap:10px;">
-  <button class="btn-refresh" onclick="event.stopPropagation();loadUsersList(getCurrentUsersPage())" aria-label="Refresh daftar user"><svg class="icon-svg"><use href="#hi-refresh"/></svg> Refresh</button>
+     <button class="btn-refresh" data-action="users-refresh-list" aria-label="Refresh daftar user"><svg class="icon-svg"><use href="#hi-refresh"/></svg> Refresh</button>
   <svg class="saas-collapse-chev" aria-hidden="true" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 8l4 4 4-4"/></svg>
  </span>
  </div>
@@ -938,9 +938,9 @@
 <div class="toolbar-search-wrap">
   <input type="text" id="userSearchInput" placeholder="Cari username, nama, atau email..." aria-label="Cari pengguna" class="toolbar-search-input"
    onkeydown="if(event.key==='Enter'){ clearTimeout(window.__usersSearchTimer); loadUsersList(1); }" oninput="onUsersSearchInput(this)">
-  <button class="search-clear-btn" onclick="clearUsersSearch()" id="userSearchClearBtn" title="Hapus pencarian" aria-label="Hapus pencarian" style="display:none;"><svg class="icon-svg" style="width:14px;height:14px;"><use href="#hi-x"/></svg></button>
+     <button class="search-clear-btn" data-action="users-clear-search" id="userSearchClearBtn" title="Hapus pencarian" aria-label="Hapus pencarian" style="display:none;"><svg class="icon-svg" style="width:14px;height:14px;"><use href="#hi-x"/></svg></button>
  </div>
- <button class="btn-sm btn-toggle" onclick="loadUsersList(1)" style="height:32px;padding:0 12px;" title="Cari user"><svg class="icon-svg"><use href="#hi-search"/></svg> Cari</button>
+ <button class="btn-sm btn-toggle" data-action="users-search" style="height:32px;padding:0 12px;" title="Cari user"><svg class="icon-svg"><use href="#hi-search"/></svg> Cari</button>
 <select id="userRoleFilter" onchange="loadUsersList(1)" class="toolbar-select" aria-label="Filter role">
   <option value="">Semua Role</option>
   <option value="guru">Guru</option>
@@ -982,11 +982,11 @@
      Sampel memakai style inline yang sama persis dengan badge di tabel. -->
  <div style="display:flex;align-items:center;gap:16px;flex-wrap:wrap;padding:0 0 12px 0;font-size:11px;color:var(--color-text-muted);">
   <span style="display:inline-flex;align-items:center;gap:6px;">
-   <span style="display:inline-block;padding:2px 8px;border-radius:10px;font-size:11px;font-weight:600;background:rgba(99,102,241,0.15);color:#a5b4fc;border:1px solid rgba(99,102,241,0.3);">Guru</span>
+    <span class="tone-info" style="display:inline-block;padding:2px 8px;border-radius:10px;font-size:11px;font-weight:600;">Guru</span>
    Role tetap <em style="font-style:normal;opacity:0.75;">(pemberian admin / identitas)</em>
   </span>
   <span style="display:inline-flex;align-items:center;gap:6px;">
-   <span style="display:inline-block;padding:2px 8px;border-radius:10px;font-size:11px;font-weight:600;background:rgba(16,185,129,0.15);color:#34d399;border:1px solid rgba(16,185,129,0.3);">Guru <em style="font-style:normal;opacity:0.75;font-weight:500;font-size:9px;text-transform:uppercase;letter-spacing:0.03em;">paket</em></span>
+    <span class="tone-success" style="display:inline-block;padding:2px 8px;border-radius:10px;font-size:11px;font-weight:600;">Guru <em style="font-style:normal;opacity:0.75;font-weight:500;font-size:9px;text-transform:uppercase;letter-spacing:0.03em;">paket</em></span>
    Role dari paket aktif <em style="font-style:normal;opacity:0.75;">(hilang saat paket diganti/berakhir)</em>
   </span>
  </div>
@@ -995,14 +995,14 @@
  <table class="exam-table">
  <thead>
  <tr>
- <th scope="col" class="sortable" data-sort="username" tabindex="0" onclick="toggleUsersSort('username')" title="Urutkan berdasarkan username">Username<span class="sort-indicator" aria-hidden="true"></span></th>
- <th scope="col" class="sortable" data-sort="name" tabindex="0" onclick="toggleUsersSort('name')" title="Urutkan berdasarkan nama">Nama<span class="sort-indicator" aria-hidden="true"></span></th>
- <th scope="col" class="sortable" data-sort="instansi" tabindex="0" onclick="toggleUsersSort('instansi')" title="Urutkan berdasarkan instansi">Instansi<span class="sort-indicator" aria-hidden="true"></span></th>
- <th scope="col" class="sortable" data-sort="package" tabindex="0" onclick="toggleUsersSort('package')" title="Urutkan berdasarkan paket">Paket<span class="sort-indicator" aria-hidden="true"></span></th>
- <th scope="col" class="sortable" data-sort="role" tabindex="0" onclick="toggleUsersSort('role')" title="Urutkan berdasarkan role">Role<span class="sort-indicator" aria-hidden="true"></span></th>
- <th scope="col" class="sortable" data-sort="email" tabindex="0" onclick="toggleUsersSort('email')" title="Urutkan berdasarkan email">Email<span class="sort-indicator" aria-hidden="true"></span></th>
- <th scope="col" class="text-center sortable" data-sort="status" tabindex="0" onclick="toggleUsersSort('status')" title="Urutkan berdasarkan status">Status<span class="sort-indicator" aria-hidden="true"></span></th>
- <th scope="col" class="sortable" data-sort="created_at" tabindex="0" onclick="toggleUsersSort('created_at')" title="Urutkan berdasarkan tanggal terdaftar">Terdaftar<span class="sort-indicator" aria-hidden="true"></span></th>
+ <th scope="col" class="sortable" data-sort="username" tabindex="0" data-action="users-toggle-sort" role="button" title="Urutkan berdasarkan username">Username<span class="sort-indicator" aria-hidden="true"></span></th>
+ <th scope="col" class="sortable" data-sort="name" tabindex="0" data-action="users-toggle-sort" role="button" title="Urutkan berdasarkan nama">Nama<span class="sort-indicator" aria-hidden="true"></span></th>
+ <th scope="col" class="sortable" data-sort="instansi" tabindex="0" data-action="users-toggle-sort" role="button" title="Urutkan berdasarkan instansi">Instansi<span class="sort-indicator" aria-hidden="true"></span></th>
+ <th scope="col" class="sortable" data-sort="package" tabindex="0" data-action="users-toggle-sort" role="button" title="Urutkan berdasarkan paket">Paket<span class="sort-indicator" aria-hidden="true"></span></th>
+ <th scope="col" class="sortable" data-sort="role" tabindex="0" data-action="users-toggle-sort" role="button" title="Urutkan berdasarkan role">Role<span class="sort-indicator" aria-hidden="true"></span></th>
+ <th scope="col" class="sortable" data-sort="email" tabindex="0" data-action="users-toggle-sort" role="button" title="Urutkan berdasarkan email">Email<span class="sort-indicator" aria-hidden="true"></span></th>
+ <th scope="col" class="text-center sortable" data-sort="status" tabindex="0" data-action="users-toggle-sort" role="button" title="Urutkan berdasarkan status">Status<span class="sort-indicator" aria-hidden="true"></span></th>
+ <th scope="col" class="sortable" data-sort="created_at" tabindex="0" data-action="users-toggle-sort" role="button" title="Urutkan berdasarkan tanggal terdaftar">Terdaftar<span class="sort-indicator" aria-hidden="true"></span></th>
  <th scope="col" class="text-right" title="Tindakan pada akun">Aksi</th>
  </tr>
  </thead>
@@ -1028,7 +1028,7 @@
  <!-- Page Title -->
  <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:24px;flex-wrap:wrap;gap:12px;">
   <div>
-   <h2 style="font-size:1.5rem;font-weight:700;color:#fff;margin:0;font-family:'Outfit',sans-serif;display:flex;align-items:center;gap:10px;"><svg class="icon-svg" style="width:26px;height:26px;color:#a5b4fc;"><use href="#hi-clipboard"/></svg>Paket &amp; Voucher</h2>
+   <h2 style="font-size:1.5rem;font-weight:700;color:#fff;margin:0;font-family:'Outfit',sans-serif;display:flex;align-items:center;gap:10px;"><svg class="icon-svg" style="width:26px;height:26px;color:var(--color-primary-light);"><use href="#hi-clipboard"/></svg>Paket &amp; Voucher</h2>
    <p style="color:var(--color-text-secondary);font-size:0.875rem;margin:2px 0 0 0;">{{if eq .admin_role "superadmin"}}Lihat kuota akun Anda.{{else}}Lihat kuota akun Anda dan klaim kode voucher untuk upgrade paket.{{end}}</p>
   </div>
  </div>
@@ -1036,9 +1036,9 @@
  {{if .flashes}}
  <div style="margin-bottom:24px;">
   {{range .flashes}}
-  <div style="display:flex;align-items:center;gap:12px;background:rgba(245,158,11,0.12);border:1px solid rgba(245,158,11,0.35);color:#fbbf24;padding:14px 18px;border-radius:12px;margin-bottom:8px;font-size:13.5px;">
-   {{.}}
-  </div>
+   <div class="notice-warning" style="margin-bottom:8px;font-size:13.5px;">
+    {{.}}
+   </div>
   {{end}}
  </div>
  {{end}}
@@ -1047,7 +1047,7 @@
       session so they can renew here — every other admin page is redirected
       back to this page until the account's expiry is extended. -->
  {{if .user_expired}}
- <div style="display:flex;align-items:center;gap:12px;background:rgba(245,158,11,0.12);border:1px solid rgba(245,158,11,0.35);color:#fbbf24;padding:14px 18px;border-radius:12px;margin-bottom:24px;font-size:13.5px;">
+ <div class="notice-warning" style="margin-bottom:24px;font-size:13.5px;">
   <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="flex:0 0 auto;"><path d="M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
   {{if .user_operator_created}}
   <span>Masa aktif akun Anda telah berakhir. Seluruh fitur dikunci; Anda hanya dapat mengakses halaman ini. Hubungi Operator/Super Admin sekolah untuk memperpanjang masa aktif.</span>
@@ -1071,20 +1071,20 @@
   <!-- Voucher Redeem Card -->
   {{if ne .admin_role "superadmin"}}
   {{if .user_operator_created}}
-  <div class="glass-card" style="padding:24px;border-radius:16px;display:flex;flex-direction:column;justify-content:center;position:relative;overflow:hidden;border:1px solid rgba(245,158,11,0.35);background:linear-gradient(135deg, rgba(245,158,11,0.06), rgba(99,102,241,0.04));">
-   <div style="position:absolute;top:0;left:0;right:0;height:4px;background:linear-gradient(90deg, #f59e0b, #6366f1);"></div>
-   <span style="font-size:11px;font-weight:700;text-transform:uppercase;color:#fbbf24;letter-spacing:0.5px;display:block;margin-bottom:6px;">Akun Sub (Dibuat Operator)</span>
+  <div class="glass-card" style="padding:24px;border-radius:16px;display:flex;flex-direction:column;justify-content:center;position:relative;overflow:hidden;border:1px solid rgba(var(--rgb-warning),0.35);background:linear-gradient(135deg, rgba(var(--rgb-warning),0.06), rgba(var(--rgb-info),0.04));">
+   <div style="position:absolute;top:0;left:0;right:0;height:4px;background:linear-gradient(90deg, var(--color-warning), rgb(var(--rgb-info)));"></div>
+   <span style="font-size:11px;font-weight:700;text-transform:uppercase;color:var(--color-warning-light);letter-spacing:0.5px;display:block;margin-bottom:6px;">Akun Sub (Dibuat Operator)</span>
    <p style="font-size:12px;color:var(--color-text-secondary);margin:0;line-height:1.5;">Akun yang dibuat oleh Operator tidak dapat menukar kode voucher. Kuota, paket, dan masa aktif akun ini dikelola oleh Operator/Super Admin sekolah Anda.</p>
   </div>
   {{else}}
-  <div class="glass-card" style="padding:24px;border-radius:16px;display:flex;flex-direction:column;justify-content:center;position:relative;overflow:hidden;border:1px solid rgba(168,85,247,0.3);background:linear-gradient(135deg, rgba(168,85,247,0.05), rgba(99,102,241,0.05));">
-   <div style="position:absolute;top:0;left:0;right:0;height:4px;background:linear-gradient(90deg, #a855f7, #6366f1);"></div>
-   <span style="font-size:11px;font-weight:700;text-transform:uppercase;color:#c084fc;letter-spacing:0.5px;display:block;margin-bottom:6px;">Punya Kode Voucher?</span>
+  <div class="glass-card" style="padding:24px;border-radius:16px;display:flex;flex-direction:column;justify-content:center;position:relative;overflow:hidden;border:1px solid rgba(var(--rgb-accent),0.3);background:linear-gradient(135deg, rgba(var(--rgb-accent),0.05), rgba(var(--rgb-info),0.05));">
+   <div style="position:absolute;top:0;left:0;right:0;height:4px;background:linear-gradient(90deg, rgb(var(--rgb-accent)), rgb(var(--rgb-info)));"></div>
+   <span style="font-size:11px;font-weight:700;text-transform:uppercase;color:var(--color-accent-light);letter-spacing:0.5px;display:block;margin-bottom:6px;">Punya Kode Voucher?</span>
    {{if .voucher_enabled}}
    <p style="font-size:12px;color:var(--color-text-secondary);margin:0 0 10px 0;">Masukkan kode promo untuk upgrade paket instan.</p>
    <div class="voucher-redeem-row">
     <input type="text" id="voucherCodeInput" placeholder="EV-PROMO-2026" aria-label="Kode voucher / promo" maxlength="64" style="flex:1;padding:8px 12px;background:rgba(0,0,0,0.3);border:1px solid rgba(255,255,255,0.15);border-radius:8px;color:#fff;font-family:var(--font-mono);font-size:13px;text-transform:uppercase;outline:none;" onkeyup="if(event.key==='Enter') redeemVoucher()" />
-    <button onclick="redeemVoucher()" id="btnRedeemVoucher" style="padding:8px 16px;border-radius:8px;font-weight:600;font-size:13px;cursor:pointer;background:linear-gradient(135deg, #a855f7, #6366f1);border:none;color:#fff;white-space:nowrap;transition:all 0.2s;">Klaim</button>
+    <button data-action="billing-redeem-open" id="btnRedeemVoucher" style="padding:8px 16px;border-radius:8px;font-weight:600;font-size:13px;cursor:pointer;background:linear-gradient(135deg, rgb(var(--rgb-accent)), rgb(var(--rgb-info)));border:none;color:var(--color-text-on-primary);white-space:nowrap;transition:all 0.2s;">Klaim</button>
    </div>
    {{else}}
    <p style="font-size:12px;color:var(--color-text-secondary);margin:0;">Penukaran kode promo sedang tidak tersedia untuk saat ini.</p>
@@ -1115,9 +1115,9 @@
     <strong style="color:#fff;">{{.user_accounts_used}} / {{.user_max_accounts}}</strong>
    </div>
    <div style="height:6px;border-radius:99px;background:rgba(255,255,255,0.08);overflow:hidden;margin-bottom:8px;">
-    <div style="height:100%;width:{{.user_accounts_pct}}%;border-radius:99px;background:{{if ge .user_accounts_pct 100}}#ef4444{{else if ge .user_accounts_pct 80}}#f59e0b{{else}}linear-gradient(90deg, #a855f7, #6366f1){{end}};transition:width 0.4s ease;"></div>
+    <div style="height:100%;width:{{.user_accounts_pct}}%;border-radius:99px;background:{{if ge .user_accounts_pct 100}}var(--color-danger){{else if ge .user_accounts_pct 80}}var(--color-warning){{else}}linear-gradient(90deg, rgb(var(--rgb-accent)), rgb(var(--rgb-info))){{end}};transition:width 0.4s ease;"></div>
    </div>
-   <p style="font-size:12px;color:var(--color-text-secondary);margin:0;">Sisa kuota: <strong style="color:{{if ge .user_accounts_pct 100}}#ef4444{{else}}#fff{{end}};">{{.user_accounts_remaining}} akun</strong>{{if ge .user_accounts_pct 100}} — batas tercapai, pembuatan akun baru diblokir.{{end}}</p>
+   <p style="font-size:12px;color:var(--color-text-secondary);margin:0;">Sisa kuota: <strong style="color:{{if ge .user_accounts_pct 100}}var(--color-danger){{else}}#fff{{end}};">{{.user_accounts_remaining}} akun</strong>{{if ge .user_accounts_pct 100}} — batas tercapai, pembuatan akun baru diblokir.{{end}}</p>
   </div>
   {{end}}
 
@@ -1140,8 +1140,8 @@
  {{if and (ne .admin_role "superadmin") (not .user_operator_created)}}
  <section class="glass-card" style="padding:24px;border-radius:16px;margin-top:32px;">
   <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;flex-wrap:wrap;gap:8px;">
-   <h3 style="font-size:1.15rem;color:#a5b4fc;margin:0;font-family:'Outfit',sans-serif;display:flex;align-items:center;gap:8px;">
-    <svg class="icon-svg" style="width:20px;height:20px;color:#a5b4fc;"><use href="#hi-ticket"/></svg>
+   <h3 style="font-size:1.15rem;color:var(--color-primary-light);margin:0;font-family:'Outfit',sans-serif;display:flex;align-items:center;gap:8px;">
+    <svg class="icon-svg" style="width:20px;height:20px;color:var(--color-primary-light);"><use href="#hi-ticket"/></svg>
     Paket yang Sudah Anda Klaim
    </h3>
   </div>
@@ -1158,26 +1158,26 @@
 </div>
 
 <!-- Confirm Redeem Voucher Modal -->
-<div class="modal-overlay" id="confirmRedeemModal" role="dialog" aria-modal="true" aria-labelledby="confirmRedeemModalTitle" style="display:none;" onclick="closeConfirmRedeemModal(event)">
- <div class="modal-card" style="max-width: 440px;" onclick="event.stopPropagation()">
+<div class="modal-overlay" id="confirmRedeemModal" role="dialog" aria-modal="true" aria-labelledby="confirmRedeemModalTitle" style="display:none;" data-action="modal-dismiss" data-modal-close="closeConfirmRedeemModal">
+ <div class="modal-card" style="max-width: 440px;">
   <div class="modal-header">
    <h3 id="confirmRedeemModalTitle" style="font-size:1.1rem;color:#fff;margin:0;display:flex;align-items:center;gap:8px;">
-    <svg class="icon-svg" style="width:20px;height:20px;color:#c084fc;"><use href="#hi-ticket"/></svg>
+    <svg class="icon-svg" style="width:20px;height:20px;color:var(--color-accent-light);"><use href="#hi-ticket"/></svg>
     Konfirmasi Klaim Voucher
    </h3>
-   <button class="modal-close" onclick="closeConfirmRedeemModal()" aria-label="Tutup">&times;</button>
+   <button class="modal-close" data-action="billing-redeem-cancel" aria-label="Tutup">&times;</button>
   </div>
   <div class="modal-body" style="padding:20px 24px 24px;">
    <p style="color:var(--color-text-secondary);font-size:13.5px;margin:0 0 16px 0;">
     Apakah Anda yakin ingin mengklaim kode voucher berikut? Paket ini akan langsung aktif, dan paket lain yang sedang berjalan otomatis dijeda (sisa waktunya dipertahankan).
    </p>
-   <div style="background:rgba(168,85,247,0.1);border:1px solid rgba(168,85,247,0.25);padding:14px 18px;border-radius:10px;margin-bottom:20px;text-align:center;">
-    <span style="font-size:11px;color:#c084fc;text-transform:uppercase;font-weight:700;letter-spacing:0.5px;display:block;margin-bottom:4px;">Kode Voucher:</span>
+   <div style="background:rgba(var(--rgb-accent),0.1);border:1px solid rgba(var(--rgb-accent),0.25);padding:14px 18px;border-radius:10px;margin-bottom:20px;text-align:center;">
+    <span style="font-size:11px;color:var(--color-accent-light);text-transform:uppercase;font-weight:700;letter-spacing:0.5px;display:block;margin-bottom:4px;">Kode Voucher:</span>
     <span style="font-family:var(--font-mono);font-weight:800;font-size:1.25rem;color:#fff;" id="confirmRedeemCodeDisplay">PROMO</span>
    </div>
    <div style="display:flex;justify-content:flex-end;gap:10px;">
-    <button class="btn-secondary" onclick="closeConfirmRedeemModal()" style="padding:10px 18px;border-radius:8px;cursor:pointer;">Batal</button>
-    <button id="btnConfirmDoRedeem" onclick="doRedeemVoucher()" style="padding:10px 20px;border-radius:8px;font-weight:600;background:linear-gradient(135deg, #a855f7, #6366f1);border:none;color:#fff;cursor:pointer;">Ya, Klaim Sekarang</button>
+    <button class="btn-secondary" data-action="billing-redeem-cancel" style="padding:10px 18px;border-radius:8px;cursor:pointer;">Batal</button>
+    <button id="btnConfirmDoRedeem" data-action="billing-redeem-confirm" style="padding:10px 20px;border-radius:8px;font-weight:600;background:linear-gradient(135deg, rgb(var(--rgb-accent)), rgb(var(--rgb-info)));border:none;color:var(--color-text-on-primary);cursor:pointer;">Ya, Klaim Sekarang</button>
    </div>
   </div>
  </div>
@@ -1194,16 +1194,16 @@
  <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:24px;flex-wrap:wrap;gap:12px;">
   <div>
    <h2 style="font-size:1.5rem;font-weight:700;color:#fff;margin:0;font-family:'Outfit',sans-serif;display:flex;align-items:center;gap:10px;">
-    <svg class="icon-svg" style="width:26px;height:26px;color:#c084fc;"><use href="#hi-ticket"/></svg>
+    <svg class="icon-svg" style="width:26px;height:26px;color:var(--color-accent-light);"><use href="#hi-ticket"/></svg>
     Manajemen Voucher Promo
    </h2>
    <p style="color:var(--color-text-secondary);font-size:0.875rem;margin:2px 0 0 0;">Buat dan kelola kode voucher untuk klaim paket otomatis.</p>
   </div>
   <div style="display:flex;gap:10px;">
-   <button onclick="openBatchModal()" class="btn-secondary" style="display:inline-flex;align-items:center;gap:8px;padding:10px 18px;border-radius:10px;font-weight:600;font-size:0.875rem;cursor:pointer;background:rgba(255,255,255,0.06);border:1px solid var(--color-glass-border);color:#fff;">
+    <button data-action="voucher-open-batch" class="btn-secondary" style="display:inline-flex;align-items:center;gap:8px;padding:10px 18px;border-radius:10px;font-weight:600;font-size:0.875rem;cursor:pointer;background:rgba(255,255,255,0.06);border:1px solid var(--color-glass-border);color:#fff;">
     <svg class="icon-svg" style="width:16px;height:16px;"><use href="#hi-plus"/></svg> Batch Generate
    </button>
-   <button onclick="openSingleModal()" class="btn-primary" style="display:inline-flex;align-items:center;gap:8px;padding:10px 18px;border-radius:10px;font-weight:600;font-size:0.875rem;cursor:pointer;background:linear-gradient(135deg, #a855f7, #6366f1);border:none;color:#fff;">
+    <button data-action="voucher-open-single" class="btn-primary" style="display:inline-flex;align-items:center;gap:8px;padding:10px 18px;border-radius:10px;font-weight:600;font-size:0.875rem;cursor:pointer;background:linear-gradient(135deg, rgb(var(--rgb-accent)), rgb(var(--rgb-info)));border:none;color:var(--color-text-on-primary);">
     <svg class="icon-svg" style="width:16px;height:16px;"><use href="#hi-plus"/></svg> Buat Voucher Single
    </button>
   </div>
@@ -1211,8 +1211,8 @@
 
  <!-- Subtab: Daftar | Riwayat -->
  <div class="voucher-subtabs" role="tablist" aria-label="Bagian voucher" style="display:flex;gap:8px;margin-bottom:20px;flex-wrap:wrap;">
-<button type="button" class="voucher-subtab active" data-subtab="list" role="tab" id="voucherSubtabList" aria-selected="true" aria-controls="voucherListPanel" onclick="switchVoucherSubtab('list')" style="padding:8px 16px;border-radius:8px;font-size:13px;font-weight:600;cursor:pointer;border:1px solid var(--color-glass-border);background:linear-gradient(135deg,#a855f7,#6366f1);color:#fff;">Daftar Voucher</button>
-  <button type="button" class="voucher-subtab" data-subtab="history" role="tab" id="voucherSubtabHistory" aria-selected="false" aria-controls="voucherHistoryPanel" onclick="switchVoucherSubtab('history')" style="padding:8px 16px;border-radius:8px;font-size:13px;font-weight:600;cursor:pointer;border:1px solid var(--color-glass-border);background:rgba(255,255,255,0.06);color:#fff;">Riwayat Klaim</button>
+<button type="button" class="voucher-subtab active" data-subtab="list" role="tab" id="voucherSubtabList" aria-selected="true" aria-controls="voucherListPanel" data-action="voucher-subtab" style="padding:8px 16px;border-radius:8px;font-size:13px;font-weight:600;cursor:pointer;border:1px solid var(--color-glass-border);background:linear-gradient(135deg,rgb(var(--rgb-accent)),rgb(var(--rgb-info)));color:var(--color-text-on-primary);">Daftar Voucher</button>
+  <button type="button" class="voucher-subtab" data-subtab="history" role="tab" id="voucherSubtabHistory" aria-selected="false" aria-controls="voucherHistoryPanel" data-action="voucher-subtab" style="padding:8px 16px;border-radius:8px;font-size:13px;font-weight:600;cursor:pointer;border:1px solid var(--color-glass-border);background:rgba(255,255,255,0.06);color:#fff;">Riwayat Klaim</button>
   </div>
   <div id="voucherListPanel" role="tabpanel" aria-labelledby="voucherSubtabList">
  <!-- Filter & Search -->
@@ -1220,9 +1220,9 @@
   <div style="display:flex;align-items:center;gap:12px;flex:1;max-width:400px;">
    <div style="position:relative;flex:1;">
     <input type="text" id="searchVoucher" placeholder="Cari kode atau catatan..." aria-label="Cari voucher" style="width:100%;padding:8px 14px;background:rgba(0,0,0,0.3);border:1px solid var(--color-glass-border);border-radius:8px;color:#fff;font-size:13px;outline:none;" oninput="toggleVoucherSearchClear()" onkeyup="if(event.key==='Enter') loadVouchers(1)" />
-    <button type="button" id="voucherSearchClearBtn" onclick="clearVoucherSearch()" title="Hapus pencarian" aria-label="Hapus pencarian" style="display:none;position:absolute;right:8px;top:50%;transform:translateY(-50%);background:none;border:none;color:var(--color-text-secondary);cursor:pointer;padding:6px;"><svg class="icon-svg" style="width:14px;height:14px;display:block;" aria-hidden="true"><use href="#hi-x"/></svg></button>
+    <button type="button" id="voucherSearchClearBtn" data-action="voucher-search-clear" title="Hapus pencarian" aria-label="Hapus pencarian" style="display:none;position:absolute;right:8px;top:50%;transform:translateY(-50%);background:none;border:none;color:var(--color-text-secondary);cursor:pointer;padding:6px;"><svg class="icon-svg" style="width:14px;height:14px;display:block;" aria-hidden="true"><use href="#hi-x"/></svg></button>
    </div>
-   <button onclick="loadVouchers(1)" class="btn-secondary" style="padding:8px 16px;border-radius:8px;font-size:13px;cursor:pointer;">Cari</button>
+   <button data-action="voucher-search" class="btn-secondary" style="padding:8px 16px;border-radius:8px;font-size:13px;cursor:pointer;">Cari</button>
   </div>
  </div>
 
@@ -1263,13 +1263,13 @@
  <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:24px;flex-wrap:wrap;gap:12px;">
   <div>
    <h2 style="font-size:1.5rem;font-weight:700;color:#fff;margin:0;font-family:'Outfit',sans-serif;display:flex;align-items:center;gap:10px;">
-    <svg class="icon-svg" style="width:26px;height:26px;color:#34d399;"><use href="#hi-clock"/></svg>
+    <svg class="icon-svg" style="width:26px;height:26px;color:var(--color-success-light);"><use href="#hi-clock"/></svg>
     Riwayat Klaim &amp; Aktivasi Voucher
    </h2>
    <p style="color:var(--color-text-secondary);font-size:0.875rem;margin:2px 0 0 0;">Jejak append-only siapa yang mengklaim, mengaktifkan, atau menonaktifkan paket voucher, kapan, dan detailnya.</p>
   </div>
   <div style="display:flex;gap:10px;">
-   <button onclick="loadAuditLogs(1)" class="btn-secondary" style="display:inline-flex;align-items:center;gap:8px;padding:10px 18px;border-radius:10px;font-weight:600;font-size:0.875rem;cursor:pointer;background:rgba(255,255,255,0.06);border:1px solid var(--color-glass-border);color:#fff;">
+    <button data-action="audit-refresh" class="btn-secondary" style="display:inline-flex;align-items:center;gap:8px;padding:10px 18px;border-radius:10px;font-weight:600;font-size:0.875rem;cursor:pointer;background:rgba(255,255,255,0.06);border:1px solid var(--color-glass-border);color:#fff;">
     <svg class="icon-svg" style="width:16px;height:16px;"><use href="#hi-refresh"/></svg> Refresh
    </button>
   </div>
@@ -1283,8 +1283,8 @@
           style="width:100%;padding:10px 38px 10px 14px;background:rgba(255,255,255,0.04);border:1px solid var(--color-glass-border);border-radius:10px;color:#fff;font-size:13px;outline:none;" />
    <svg class="icon-svg" style="position:absolute;right:12px;top:50%;transform:translateY(-50%);width:16px;height:16px;color:var(--color-text-secondary);"><use href="#hi-search"/></svg>
   </div>
-  <button class="btn-sm btn-toggle" onclick="loadAuditLogs(1)" style="height:38px;padding:0 16px;" title="Cari"><svg class="icon-svg" style="width:15px;height:15px;"><use href="#hi-search"/></svg> Cari</button>
-  <button class="btn-sm btn-toggle" onclick="document.getElementById('auditSearchInput').value='';loadAuditLogs(1);" style="height:38px;padding:0 16px;" title="Bersihkan pencarian">Bersihkan</button>
+  <button class="btn-sm btn-toggle" data-action="audit-search" style="height:38px;padding:0 16px;" title="Cari"><svg class="icon-svg" style="width:15px;height:15px;"><use href="#hi-search"/></svg> Cari</button>
+  <button class="btn-sm btn-toggle" data-action="audit-search-clear" style="height:38px;padding:0 16px;" title="Bersihkan pencarian">Bersihkan</button>
  </div>
 
  <!-- Table -->
@@ -1312,11 +1312,11 @@
 
 </div>
 <!-- Single Voucher Modal -->
-<div class="modal-overlay" id="singleModal" role="dialog" aria-modal="true" aria-labelledby="singleModalTitle" onclick="if(event.target===this)closeSingleModal()" style="display:none;">
+<div class="modal-overlay" id="singleModal" role="dialog" aria-modal="true" aria-labelledby="singleModalTitle" data-action="modal-dismiss" data-modal-close="closeSingleModal" style="display:none;">
  <div class="modal-card" style="max-width:500px;">
   <div class="modal-header">
    <h3 id="singleModalTitle" style="font-size:1.1rem;color:#fff;margin:0;">Buat Voucher Single</h3>
-   <button class="modal-close" onclick="closeSingleModal()" aria-label="Tutup">&times;</button>
+   <button class="modal-close" data-action="voucher-close-single" aria-label="Tutup">&times;</button>
   </div>
   <div style="padding:20px;max-height:calc(90vh - 60px);overflow-y:auto;-webkit-overflow-scrolling:touch;">
    <form id="formSingleVoucher" onsubmit="submitSingleVoucher(event)">
@@ -1350,12 +1350,12 @@
     </div>
 
     <div id="singleCustomDaysGroup" style="display:none;margin-bottom:14px;">
-     <label style="display:block;font-size:12px;color:#c084fc;margin-bottom:4px;font-weight:600;">Jumlah Hari Masa Aktif (Kustom)</label>
-     <input type="number" id="singleCustomDays" placeholder="Misal: 7, 14, 45, 90..." min="1" value="7" style="width:100%;padding:10px;background:rgba(0,0,0,0.3);border:1px solid rgba(168,85,247,0.4);border-radius:8px;color:#fff;outline:none;" />
+     <label style="display:block;font-size:12px;color:var(--color-accent-light);margin-bottom:4px;font-weight:600;">Jumlah Hari Masa Aktif (Kustom)</label>
+     <input type="number" id="singleCustomDays" placeholder="Misal: 7, 14, 45, 90..." min="1" value="7" style="width:100%;padding:10px;background:rgba(0,0,0,0.3);border:1px solid rgba(var(--rgb-accent),0.4);border-radius:8px;color:#fff;outline:none;" />
     </div>
 
-    <div id="singleCustomGroup" style="display:none;margin-bottom:14px;padding:12px;border:1px dashed rgba(168,85,247,0.4);border-radius:8px;background:rgba(168,85,247,0.05);">
-     <div style="font-size:12px;color:#c084fc;font-weight:700;margin-bottom:8px;">⚙️ Entitlement Kustom (menimpa limit akun saat redeem)</div>
+    <div id="singleCustomGroup" style="display:none;margin-bottom:14px;padding:12px;border:1px dashed rgba(var(--rgb-accent),0.4);border-radius:8px;background:rgba(var(--rgb-accent),0.05);">
+     <div style="font-size:12px;color:var(--color-accent-light);font-weight:700;margin-bottom:8px;">⚙️ Entitlement Kustom (menimpa limit akun saat redeem)</div>
      <div style="margin-bottom:10px;">
       <label style="display:block;font-size:12px;color:var(--color-text-secondary);margin-bottom:4px;">Label Paket</label>
       <input type="text" id="singleCustomLabel" placeholder="Misal: PROMO-KHUSUS" style="width:100%;padding:8px;background:rgba(0,0,0,0.3);border:1px solid var(--color-glass-border);border-radius:8px;color:#fff;outline:none;" />
@@ -1412,8 +1412,8 @@
     </div>
 
     <div style="display:flex;justify-content:flex-end;gap:10px;">
-     <button type="button" onclick="closeSingleModal()" style="padding:10px 18px;border-radius:8px;background:rgba(255,255,255,0.06);border:1px solid var(--color-glass-border);color:#fff;cursor:pointer;">Batal</button>
-     <button type="submit" id="btnSubmitSingle" style="padding:10px 20px;border-radius:8px;background:linear-gradient(135deg, #a855f7, #6366f1);border:none;color:#fff;font-weight:600;cursor:pointer;">Simpan Voucher</button>
+     <button type="button" data-action="voucher-close-single" style="padding:10px 18px;border-radius:8px;background:rgba(255,255,255,0.06);border:1px solid var(--color-glass-border);color:#fff;cursor:pointer;">Batal</button>
+     <button type="submit" id="btnSubmitSingle" style="padding:10px 20px;border-radius:8px;background:linear-gradient(135deg, rgb(var(--rgb-accent)), rgb(var(--rgb-info)));border:none;color:var(--color-text-on-primary);font-weight:600;cursor:pointer;">Simpan Voucher</button>
     </div>
    </form>
   </div>
@@ -1421,11 +1421,11 @@
 </div>
 
 <!-- Batch Voucher Modal -->
-<div class="modal-overlay" id="batchModal" role="dialog" aria-modal="true" aria-labelledby="batchModalTitle" onclick="if(event.target===this)closeBatchModal()" style="display:none;">
+<div class="modal-overlay" id="batchModal" role="dialog" aria-modal="true" aria-labelledby="batchModalTitle" data-action="modal-dismiss" data-modal-close="closeBatchModal" style="display:none;">
  <div class="modal-card" style="max-width:500px;">
   <div class="modal-header">
    <h3 id="batchModalTitle" style="font-size:1.1rem;color:#fff;margin:0;">Generate Batch Voucher (Banyak)</h3>
-   <button class="modal-close" onclick="closeBatchModal()" aria-label="Tutup">&times;</button>
+   <button class="modal-close" data-action="voucher-close-batch" aria-label="Tutup">&times;</button>
   </div>
   <div style="padding:20px;max-height:calc(90vh - 60px);overflow-y:auto;-webkit-overflow-scrolling:touch;">
    <form id="formBatchVoucher" onsubmit="submitBatchVoucher(event)">
@@ -1465,12 +1465,12 @@
     </div>
 
     <div id="batchCustomDaysGroup" style="display:none;margin-bottom:14px;">
-     <label style="display:block;font-size:12px;color:#c084fc;margin-bottom:4px;font-weight:600;">Jumlah Hari Masa Aktif (Kustom)</label>
-     <input type="number" id="batchCustomDays" placeholder="Misal: 7, 14, 45, 90..." min="1" value="7" style="width:100%;padding:10px;background:rgba(0,0,0,0.3);border:1px solid rgba(168,85,247,0.4);border-radius:8px;color:#fff;outline:none;" />
+     <label style="display:block;font-size:12px;color:var(--color-accent-light);margin-bottom:4px;font-weight:600;">Jumlah Hari Masa Aktif (Kustom)</label>
+     <input type="number" id="batchCustomDays" placeholder="Misal: 7, 14, 45, 90..." min="1" value="7" style="width:100%;padding:10px;background:rgba(0,0,0,0.3);border:1px solid rgba(var(--rgb-accent),0.4);border-radius:8px;color:#fff;outline:none;" />
     </div>
 
-    <div id="batchCustomGroup" style="display:none;margin-bottom:14px;padding:12px;border:1px dashed rgba(168,85,247,0.4);border-radius:8px;background:rgba(168,85,247,0.05);">
-     <div style="font-size:12px;color:#c084fc;font-weight:700;margin-bottom:8px;">⚙️ Entitlement Kustom (berlaku untuk semua kode di batch)</div>
+    <div id="batchCustomGroup" style="display:none;margin-bottom:14px;padding:12px;border:1px dashed rgba(var(--rgb-accent),0.4);border-radius:8px;background:rgba(var(--rgb-accent),0.05);">
+     <div style="font-size:12px;color:var(--color-accent-light);font-weight:700;margin-bottom:8px;">⚙️ Entitlement Kustom (berlaku untuk semua kode di batch)</div>
      <div style="margin-bottom:10px;">
       <label style="display:block;font-size:12px;color:var(--color-text-secondary);margin-bottom:4px;">Label Paket</label>
       <input type="text" id="batchCustomLabel" placeholder="Misal: PROMO-KHUSUS" style="width:100%;padding:8px;background:rgba(0,0,0,0.3);border:1px solid var(--color-glass-border);border-radius:8px;color:#fff;outline:none;" />
@@ -1526,8 +1526,8 @@
     </div>
 
     <div style="display:flex;justify-content:flex-end;gap:10px;">
-     <button type="button" onclick="closeBatchModal()" style="padding:10px 18px;border-radius:8px;background:rgba(255,255,255,0.06);border:1px solid var(--color-glass-border);color:#fff;cursor:pointer;">Batal</button>
-     <button type="submit" id="btnSubmitBatch" style="padding:10px 20px;border-radius:8px;background:linear-gradient(135deg, #a855f7, #6366f1);border:none;color:#fff;font-weight:600;cursor:pointer;">Generate Batch</button>
+     <button type="button" data-action="voucher-close-batch" style="padding:10px 18px;border-radius:8px;background:rgba(255,255,255,0.06);border:1px solid var(--color-glass-border);color:#fff;cursor:pointer;">Batal</button>
+     <button type="submit" id="btnSubmitBatch" style="padding:10px 20px;border-radius:8px;background:linear-gradient(135deg, rgb(var(--rgb-accent)), rgb(var(--rgb-info)));border:none;color:var(--color-text-on-primary);font-weight:600;cursor:pointer;">Generate Batch</button>
     </div>
    </form>
   </div>
@@ -1535,11 +1535,11 @@
 </div>
 
 <!-- Redemptions History Modal -->
-<div class="modal-overlay" id="redemptionsModal" role="dialog" aria-modal="true" aria-labelledby="redemptionsTitle" onclick="if(event.target===this)closeRedemptionsModal()" style="display:none;">
+<div class="modal-overlay" id="redemptionsModal" role="dialog" aria-modal="true" aria-labelledby="redemptionsTitle" data-action="modal-dismiss" data-modal-close="closeRedemptionsModal" style="display:none;">
  <div class="modal-card" style="max-width:550px;">
   <div class="modal-header">
    <h3 style="font-size:1.1rem;color:#fff;margin:0;" id="redemptionsTitle">Pengguna Voucher</h3>
-   <button class="modal-close" onclick="closeRedemptionsModal()" aria-label="Tutup">&times;</button>
+   <button class="modal-close" data-action="voucher-close-redemptions" aria-label="Tutup">&times;</button>
   </div>
   <div style="padding:20px;max-height:60vh;overflow-y:auto;" id="redemptionsBody">
    <p style="text-align:center;color:var(--color-text-secondary);">Memuat...</p>
@@ -1547,20 +1547,20 @@
  </div>
 </div>
 <!-- Confirm Action Modal -->
-<div class="modal-overlay" id="confirmActionModal" role="dialog" aria-modal="true" aria-labelledby="confirmActionTitle" style="display:none;" onclick="closeConfirmActionModal(event)">
- <div class="modal-card" style="max-width:440px;" onclick="event.stopPropagation()">
+<div class="modal-overlay" id="confirmActionModal" role="dialog" aria-modal="true" aria-labelledby="confirmActionTitle" style="display:none;" data-action="modal-dismiss" data-modal-close="closeConfirmActionModal">
+ <div class="modal-card" style="max-width:440px;">
   <div class="modal-header">
    <h3 style="font-size:1.1rem;color:#fff;margin:0;display:flex;align-items:center;gap:8px;" id="confirmActionTitle">
     Konfirmasi Tindakan
    </h3>
-   <button class="modal-close" onclick="closeConfirmActionModal()" aria-label="Tutup">&times;</button>
+   <button class="modal-close" data-action="confirm-action-close" aria-label="Tutup">&times;</button>
   </div>
   <div style="padding:20px 24px 24px;">
    <p style="color:var(--color-text-secondary);font-size:13.5px;margin:0 0 20px 0;" id="confirmActionMessage">
     Apakah Anda yakin ingin melanjutkan tindakan ini?
    </p>
    <div style="display:flex;justify-content:flex-end;gap:10px;">
-    <button class="btn-secondary" onclick="closeConfirmActionModal()" style="padding:10px 18px;border-radius:8px;cursor:pointer;">Batal</button>
+    <button class="btn-secondary" data-action="confirm-action-close" style="padding:10px 18px;border-radius:8px;cursor:pointer;">Batal</button>
     <button id="btnConfirmActionSubmit" style="padding:10px 20px;border-radius:8px;font-weight:600;border:none;color:#fff;cursor:pointer;">Ya, Lanjutkan</button>
    </div>
   </div>
@@ -1577,7 +1577,7 @@
        "Simpan Setelan SaaS" dihapus. -->
   {{if eq .admin_role "superadmin"}}
   <div class="saas-toolbar" style="display:flex;justify-content:flex-end;align-items:center;margin-bottom:16px;">
-  <button type="button" id="toggleAllGeneralBtn" onclick="toggleAllGeneralCollapse()" class="btn-sm" title="Lipat/buka semua bagian Pengaturan Umum sekaligus" style="background:rgba(99,102,241,0.15);border:1px solid rgba(99,102,241,0.4);color:#a5b4fc;display:inline-flex;align-items:center;gap:6px;cursor:pointer;padding:6px 12px;border-radius:8px;font-size:13px;transition:all 0.2s;">
+  <button type="button" id="toggleAllGeneralBtn" data-action="general-toggle-all" class="btn-sm" title="Lipat/buka semua bagian Pengaturan Umum sekaligus" style="background:rgba(var(--rgb-info),0.15);border:1px solid rgba(var(--rgb-info),0.4);color:var(--color-primary-light);display:inline-flex;align-items:center;gap:6px;cursor:pointer;padding:6px 12px;border-radius:8px;font-size:13px;transition:all 0.2s;">
   <svg class="icon-svg" style="width:14px;height:14px;transition:transform 0.2s ease;" id="toggleAllGeneralIcon"><use href="#hi-chevron-down"/></svg>
   <span id="toggleAllGeneralLabel">Buka Semua</span>
   </button>
@@ -1586,7 +1586,7 @@
   <!-- ===== Kartu 1: SaaS & SMTP Email Settings ===== -->
   <section class="glass-card saas-collapse" id="saas-card-smtp" data-collapse-id="smtp" style="margin-bottom:24px;">
   <div class="saas-collapse-head" role="button" tabindex="0" aria-expanded="true">
-  <h3 class="saas-collapse-title"><svg class="icon-svg" style="color:#a5b4fc;"><use href="#hi-settings"/></svg> Pengaturan Email SaaS &amp; SMTP</h3>
+  <h3 class="saas-collapse-title"><svg class="icon-svg" style="color:var(--color-primary-light);"><use href="#hi-settings"/></svg> Pengaturan Email SaaS &amp; SMTP</h3>
   <svg class="saas-collapse-chev" aria-hidden="true" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 8l4 4 4-4"/></svg>
   </div>
   <div class="saas-collapse-body">
@@ -1632,7 +1632,7 @@
   <input type="text" id="smtpSenderNameInput" placeholder="EXAMVAN Verification">
   </div>
   <div style="display:flex;justify-content:flex-end;margin-top:4px;">
-  <button type="button" id="testSmtpBtn" onclick="testSmtpConnection()" class="btn-sm" style="background:rgba(59,130,246,0.2);border:1px solid rgba(59,130,246,0.4);color:#93c5fd;display:flex;align-items:center;gap:6px;cursor:pointer;padding:6px 12px;border-radius:6px;font-size:13px;transition:all 0.2s;">
+  <button type="button" id="testSmtpBtn" data-action="smtp-test" class="btn-sm" style="background:rgba(59,130,246,0.2);border:1px solid rgba(59,130,246,0.4);color:#93c5fd;display:flex;align-items:center;gap:6px;cursor:pointer;padding:6px 12px;border-radius:6px;font-size:13px;transition:all 0.2s;">
   <svg class="icon-svg" style="width:16px;height:16px;" id="testSmtpIcon"><use href="#hi-refresh"/></svg>
   <span id="testSmtpText">Test Koneksi SMTP</span>
   </button>
@@ -1640,7 +1640,7 @@
   </div>
 
   <div style="display:flex;justify-content:flex-end;margin-top:16px;padding-top:14px;border-top:1px solid var(--color-glass-border);">
-  <button type="button" id="saveSmtpSettingsBtn" onclick="saveSmtpSettings()" class="btn-upload saas-save-btn" style="background:rgba(16,185,129,0.2);border-color:rgba(16,185,129,0.4);color:#6ee7b7;">
+  <button type="button" id="saveSmtpSettingsBtn" data-action="smtp-save" class="btn-upload saas-save-btn" style="background:rgba(var(--rgb-success),0.2);border-color:rgba(var(--rgb-success),0.4);color:#6ee7b7;">
   <svg class="icon-svg"><use href="#hi-check"/></svg> Simpan Setelan SMTP
   </button>
   </div>
@@ -1654,7 +1654,7 @@
   <svg class="saas-collapse-chev" aria-hidden="true" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 8l4 4 4-4"/></svg>
   </div>
   <div class="saas-collapse-body">
-  <p style="font-size:12px;color:var(--color-text-secondary);margin:0 0 12px 0;">Wajibkan verifikasi Turnstile pada form pendaftaran untuk memblokir registrasi massal otomatis. Buat widget gratis di <code style="font-size:11px;color:#a5b4fc;">dash.cloudflare.com &rarr; Turnstile</code> lalu tempel Site Key &amp; Secret Key di sini.</p>
+  <p style="font-size:12px;color:var(--color-text-secondary);margin:0 0 12px 0;">Wajibkan verifikasi Turnstile pada form pendaftaran untuk memblokir registrasi massal otomatis. Buat widget gratis di <code style="font-size:11px;color:var(--color-primary-light);">dash.cloudflare.com &rarr; Turnstile</code> lalu tempel Site Key &amp; Secret Key di sini.</p>
   <div class="switch-container">
   <span class="switch-label" title="Aktifkan verifikasi Turnstile di halaman /register">Aktifkan Turnstile</span>
   <label class="switch">
@@ -1686,7 +1686,7 @@
   </div>
 
   <div style="display:flex;justify-content:flex-end;margin-top:16px;padding-top:14px;border-top:1px solid var(--color-glass-border);">
-  <button type="button" id="saveTurnstileSettingsBtn" onclick="saveTurnstileSettings()" class="btn-upload saas-save-btn" style="background:rgba(16,185,129,0.2);border-color:rgba(16,185,129,0.4);color:#6ee7b7;">
+  <button type="button" id="saveTurnstileSettingsBtn" data-action="turnstile-save" class="btn-upload saas-save-btn" style="background:rgba(var(--rgb-success),0.2);border-color:rgba(var(--rgb-success),0.4);color:#6ee7b7;">
   <svg class="icon-svg"><use href="#hi-check"/></svg> Simpan Setelan Turnstile
   </button>
   </div>
@@ -1718,7 +1718,7 @@
   </div>
 
   <div style="display:flex;justify-content:flex-end;margin-top:16px;padding-top:14px;border-top:1px solid var(--color-glass-border);">
-  <button type="button" id="saveCleanupSettingsBtn" onclick="saveCleanupSettings()" class="btn-upload saas-save-btn" style="background:rgba(16,185,129,0.2);border-color:rgba(16,185,129,0.4);color:#6ee7b7;">
+  <button type="button" id="saveCleanupSettingsBtn" data-action="cleanup-save" class="btn-upload saas-save-btn" style="background:rgba(var(--rgb-success),0.2);border-color:rgba(var(--rgb-success),0.4);color:#6ee7b7;">
   <svg class="icon-svg"><use href="#hi-check"/></svg> Simpan Setelan Pembersihan
   </button>
   </div>
@@ -1766,7 +1766,7 @@
   </div>
 
   <div style="display:flex;justify-content:flex-end;margin-top:16px;padding-top:14px;border-top:1px solid var(--color-glass-border);">
-  <button type="button" id="saveDefaultPkgSettingsBtn" onclick="saveDefaultPkgSettings()" class="btn-upload saas-save-btn" style="background:rgba(16,185,129,0.2);border-color:rgba(16,185,129,0.4);color:#6ee7b7;">
+  <button type="button" id="saveDefaultPkgSettingsBtn" data-action="default-pkg-save" class="btn-upload saas-save-btn" style="background:rgba(var(--rgb-success),0.2);border-color:rgba(var(--rgb-success),0.4);color:#6ee7b7;">
   <svg class="icon-svg"><use href="#hi-check"/></svg> Simpan Default Paket
   </button>
   </div>
@@ -1792,7 +1792,7 @@
   </div>
 
   <div style="display:flex;justify-content:flex-end;margin-top:16px;padding-top:14px;border-top:1px solid var(--color-glass-border);">
-  <button type="button" id="saveVersionsSettingsBtn" onclick="saveVersionsSettings()" class="btn-upload saas-save-btn" style="background:rgba(16,185,129,0.2);border-color:rgba(16,185,129,0.4);color:#6ee7b7;">
+  <button type="button" id="saveVersionsSettingsBtn" data-action="versions-save" class="btn-upload saas-save-btn" style="background:rgba(var(--rgb-success),0.2);border-color:rgba(var(--rgb-success),0.4);color:#6ee7b7;">
   <svg class="icon-svg"><use href="#hi-check"/></svg> Simpan Versi Aplikasi
   </button>
   </div>
@@ -1819,7 +1819,7 @@
   </div>
 
   <div style="display:flex;justify-content:flex-end;margin-top:16px;padding-top:14px;border-top:1px solid var(--color-glass-border);">
-  <button type="button" id="saveFooterSettingsBtn" onclick="saveFooterSettings()" class="btn-upload saas-save-btn" style="background:rgba(16,185,129,0.2);border-color:rgba(16,185,129,0.4);color:#6ee7b7;">
+  <button type="button" id="saveFooterSettingsBtn" data-action="footer-save" class="btn-upload saas-save-btn" style="background:rgba(var(--rgb-success),0.2);border-color:rgba(var(--rgb-success),0.4);color:#6ee7b7;">
   <svg class="icon-svg"><use href="#hi-check"/></svg> Simpan Footer
   </button>
   </div>
@@ -1860,7 +1860,7 @@
   </div>
 
   <div style="display:flex;justify-content:flex-end;margin-top:16px;padding-top:14px;border-top:1px solid var(--color-glass-border);">
-  <button type="button" id="saveSeoSettingsBtn" onclick="saveSeoSettings()" class="btn-upload saas-save-btn" style="background:rgba(16,185,129,0.2);border-color:rgba(16,185,129,0.4);color:#6ee7b7;">
+  <button type="button" id="saveSeoSettingsBtn" data-action="seo-save" class="btn-upload saas-save-btn" style="background:rgba(var(--rgb-success),0.2);border-color:rgba(var(--rgb-success),0.4);color:#6ee7b7;">
   <svg class="icon-svg"><use href="#hi-check"/></svg> Simpan Setelan SEO
   </button>
   </div>
@@ -1883,7 +1883,7 @@
   </div>
 
   <div style="display:flex;justify-content:flex-end;margin-top:16px;padding-top:14px;border-top:1px solid var(--color-glass-border);">
-  <button type="button" id="saveMonetizationSettingsBtn" onclick="saveMonetizationSettings()" class="btn-upload saas-save-btn" style="background:rgba(16,185,129,0.2);border-color:rgba(16,185,129,0.4);color:#6ee7b7;">
+  <button type="button" id="saveMonetizationSettingsBtn" data-action="monetization-save" class="btn-upload saas-save-btn" style="background:rgba(var(--rgb-success),0.2);border-color:rgba(var(--rgb-success),0.4);color:#6ee7b7;">
   <svg class="icon-svg"><use href="#hi-check"/></svg> Simpan Kontrol Monetisasi
   </button>
   </div>
@@ -1899,12 +1899,12 @@
  <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:24px;flex-wrap:wrap;gap:12px;">
   <div>
    <h2 style="font-size:1.5rem;font-weight:700;color:#fff;margin:0;font-family:'Outfit',sans-serif;display:flex;align-items:center;gap:10px;">
-    <svg class="icon-svg" style="width:26px;height:26px;color:#a5b4fc;"><use href="#hi-settings"/></svg>
+    <svg class="icon-svg" style="width:26px;height:26px;color:var(--color-primary-light);"><use href="#hi-settings"/></svg>
     Pengaturan Paket
    </h2>
    <p style="color:var(--color-text-secondary);font-size:0.875rem;margin:2px 0 0 0;">Atur kuota default setiap paket. Perubahan berlaku untuk klaim voucher berikutnya; paket yang sudah diklaim tetap memakai snapshot lamanya.</p>
   </div>
-  <button onclick="savePackages()" id="btnSavePackages" class="btn-primary" style="display:inline-flex;align-items:center;gap:8px;padding:10px 20px;border-radius:10px;font-weight:600;font-size:0.875rem;cursor:pointer;background:linear-gradient(135deg, #a855f7, #6366f1);border:none;color:#fff;">
+  <button data-action="packages-save" id="btnSavePackages" class="btn-primary" style="display:inline-flex;align-items:center;gap:8px;padding:10px 20px;border-radius:10px;font-weight:600;font-size:0.875rem;cursor:pointer;background:linear-gradient(135deg, rgb(var(--rgb-accent)), rgb(var(--rgb-info)));border:none;color:var(--color-text-on-primary);">
    <svg class="icon-svg" style="width:16px;height:16px;"><use href="#hi-check"/></svg> Simpan Perubahan
   </button>
  </div>
@@ -1951,8 +1951,8 @@
             <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="8" x2="12" y2="12"></line><line x1="12" y1="16" x2="12.01" y2="16"></line></svg>
         </div>
         <div>
-            <h3 style="color:#fca5a5; font-weight:800; font-size:1.1rem; margin:0 0 4px 0;">Gagal Memuat Daftar Aplikasi</h3>
-            <p style="color:#fca5a5; margin:0; font-size:0.95rem;">{{ .error }} — coba muat ulang halaman.</p>
+            <h3 style="color:var(--color-danger-light); font-weight:800; font-size:1.1rem; margin:0 0 4px 0;">Gagal Memuat Daftar Aplikasi</h3>
+            <p style="color:var(--color-danger-light); margin:0; font-size:0.95rem;">{{ .error }} — coba muat ulang halaman.</p>
         </div>
     </div>
     {{ end }}
@@ -1963,7 +1963,7 @@
             </div>
             <div>
                 <h1 class="premium-header-title">Aplikasi Sistem</h1>
-                <p style="color:#94a3b8; font-size:16px; margin:8px 0 0 0;">Kelola dan distribusikan aplikasi ujian (Android, Windows, Linux) via Cloudflare R2.</p>
+                <p style="color:var(--color-text-placeholder); font-size:16px; margin:8px 0 0 0;">Kelola dan distribusikan aplikasi ujian (Android, Windows, Linux) via Cloudflare R2.</p>
             </div>
         </div>
         {{ if .r2_enabled }}
@@ -1980,23 +1980,23 @@
             <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"></path><line x1="12" y1="9" x2="12" y2="13"></line><line x1="12" y1="17" x2="12.01" y2="17"></line></svg>
         </div>
         <div>
-            <h3 style="color:#fbbf24; font-weight:800; font-size:1.2rem; margin:0 0 6px 0; letter-spacing:-0.01em;">Cloudflare R2 Belum Dikonfigurasi!</h3>
+            <h3 style="color:var(--color-warning-light); font-weight:800; font-size:1.2rem; margin:0 0 6px 0; letter-spacing:-0.01em;">Cloudflare R2 Belum Dikonfigurasi!</h3>
             <p style="color:#fcd34d; margin:0; font-size:1rem; opacity: 0.95;">Fitur distribusi aplikasi memerlukan kredensial R2. Silakan tambahkan konfigurasi pada file <code style="background:rgba(0,0,0,0.3); padding:2px 8px; border-radius:6px; font-weight:600;">.env</code> Anda.</p>
         </div>
     </div>
     {{ end }}
 
-<div id="uploadModal" class="modal-backdrop" role="dialog" aria-modal="true" aria-labelledby="uploadModalTitle" onclick="if(event.target===this)closeUploadModal()">
-    <div class="modal-glass" onclick="event.stopPropagation()">
+<div id="uploadModal" class="modal-backdrop" role="dialog" aria-modal="true" aria-labelledby="uploadModalTitle" data-action="modal-dismiss" data-modal-close="closeUploadModal">
+    <div class="modal-glass">
         <div class="modal-header" style="position:relative;">
-            <button type="button" onclick="closeUploadModal()" aria-label="Tutup" style="position:absolute;top:0;right:0;width:40px;height:40px;display:flex;align-items:center;justify-content:center;background:rgba(255,255,255,0.06);border:1px solid rgba(255,255,255,0.1);border-radius:10px;color:#e2e8f0;font-size:18px;cursor:pointer;line-height:1;">&times;</button>
+            <button type="button" data-action="app-upload-close" aria-label="Tutup" style="position:absolute;top:0;right:0;width:40px;height:40px;display:flex;align-items:center;justify-content:center;background:rgba(255,255,255,0.06);border:1px solid rgba(255,255,255,0.1);border-radius:10px;color:#e2e8f0;font-size:18px;cursor:pointer;line-height:1;">&times;</button>
             <h3 id="uploadModalTitle" style="margin:0; font-size:1.5rem; font-weight:800; color:white; display:flex; align-items:center; gap:12px; padding-right:52px;">
-                <div style="width: 40px; height: 40px; background: rgba(168,85,247,0.15); border-radius: 12px; display: flex; align-items: center; justify-content: center; color: #c084fc;">
+                <div style="width: 40px; height: 40px; background: rgba(var(--rgb-accent),0.15); border-radius: 12px; display: flex; align-items: center; justify-content: center; color: var(--color-accent-light);">
                     <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="17 8 12 3 7 8"></polyline><line x1="12" y1="3" x2="12" y2="15"></line></svg>
                 </div>
                 Unggah Aplikasi Baru
             </h3>
-            <p style="margin:12px 0 0 0; font-size:0.95rem; color:#94a3b8; line-height:1.5;">Lengkapi data dan pilih file instalasi aplikasi klien yang akan didistribusikan.</p>
+            <p style="margin:12px 0 0 0; font-size:0.95rem; color:var(--color-text-placeholder); line-height:1.5;">Lengkapi data dan pilih file instalasi aplikasi klien yang akan didistribusikan.</p>
         </div>
         <div class="modal-body">
             <form id="uploadAppForm">
@@ -2026,11 +2026,11 @@
                         <input type="file" id="appFile" name="file" required onchange="updateFileName(this)">
                         <svg class="file-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline><line x1="12" y1="18" x2="12" y2="12"></line><line x1="9" y1="15" x2="15" y2="15"></line></svg>
                         <div id="file-name-display" style="font-weight:700; color:white; font-size:1.15rem; margin-bottom:6px;">Pilih atau Seret File Kesini</div>
-                        <div style="font-size:0.9rem; color:#94a3b8;">Mendukung file .apk, .exe, atau executable linux.</div>
+                        <div style="font-size:0.9rem; color:var(--color-text-placeholder);">Mendukung file .apk, .exe, atau executable linux.</div>
                     </div>
                 </div>
                 
-                <div id="uploadError" style="margin-bottom:20px; padding:16px 20px; border-radius:12px; background:rgba(239,68,68,0.15); border:1px solid rgba(239,68,68,0.4); color:#fca5a5; font-size:14.5px; font-weight:500; display:none; align-items:flex-start; gap:12px; box-shadow:0 4px 15px rgba(239,68,68,0.1);">
+                <div id="uploadError" style="margin-bottom:20px; padding:16px 20px; border-radius:12px; background:rgba(var(--rgb-danger),0.15); border:1px solid rgba(var(--rgb-danger),0.4); color:var(--color-danger-light); font-size:14.5px; font-weight:500; display:none; align-items:flex-start; gap:12px; box-shadow:0 4px 15px rgba(var(--rgb-danger),0.1);">
                     <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" style="flex-shrink:0; margin-top:1px;"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="8" x2="12" y2="12"></line><line x1="12" y1="16" x2="12.01" y2="16"></line></svg>
                     <span id="uploadErrorText" style="line-height:1.5;"></span>
                 </div>
@@ -2041,18 +2041,18 @@
                             <svg class="animate-spin" width="18" height="18" style="animation: spin 1s linear infinite;" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M21 12a9 9 0 1 1-6.219-8.56"></path></svg>
                             Mengunggah File...
                         </span>
-                        <span id="uploadPercentage" style="color:#c084fc; font-size:16px;">0%</span>
+                        <span id="uploadPercentage" style="color:var(--color-accent-light); font-size:16px;">0%</span>
                     </div>
                     <div style="width:100%; height:12px; background:rgba(255,255,255,0.1); border-radius:12px; overflow:hidden; box-shadow:inset 0 2px 4px rgba(0,0,0,0.3);">
-                        <div id="uploadProgressBar" style="height:100%; width:0%; background:linear-gradient(90deg, #4f46e5, #c084fc, #f472b6); border-radius:12px; transition:width 0.3s cubic-bezier(0.4, 0, 0.2, 1); box-shadow: 0 0 15px rgba(168,85,247,0.6);"></div>
+                        <div id="uploadProgressBar" style="height:100%; width:0%; background:linear-gradient(90deg, #4f46e5, var(--color-accent-light), #f472b6); border-radius:12px; transition:width 0.3s cubic-bezier(0.4, 0, 0.2, 1); box-shadow: 0 0 15px rgba(var(--rgb-accent),0.6);"></div>
                     </div>
                     <style>@keyframes spin { 100% { transform: rotate(360deg); } }</style>
                 </div>
             </form>
         </div>
         <div class="modal-footer">
-            <button class="btn-cancel" onclick="closeUploadModal()">Batal</button>
-            <button id="uploadSubmitBtn" class="btn-premium" onclick="submitUpload(event)">
+            <button class="btn-cancel" data-action="app-upload-close">Batal</button>
+            <button id="uploadSubmitBtn" class="btn-premium" data-action="app-upload-submit">
                 <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" style="margin-right:4px;"><polyline points="20 6 9 17 4 12"></polyline></svg>
                 Unggah Sekarang
             </button>
@@ -2104,7 +2104,7 @@
         <div style="grid-column: 1 / -1; text-align: center; padding: 80px 20px; background: rgba(255,255,255,0.02); border-radius: 24px; border: 2px dashed rgba(255,255,255,0.1);">
             <svg style="width: 80px; height: 80px; color: rgba(255,255,255,0.1); margin-bottom: 24px;" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"></path><polyline points="3.27 6.96 12 12.01 20.73 6.96"></polyline><line x1="12" y1="22.08" x2="12" y2="12"></line></svg>
             <h3 style="color:white; font-size:1.5rem; font-weight:700; margin-bottom:12px;">Belum Ada Aplikasi</h3>
-            <p style="color:#94a3b8; font-size:1.05rem; max-width:480px; margin:0 auto; line-height:1.6;">Anda belum mengunggah aplikasi apapun. Klik tombol unggah di kanan atas untuk mulai mendistribusikan aplikasi ujian ke siswa.</p>
+            <p style="color:var(--color-text-placeholder); font-size:1.05rem; max-width:480px; margin:0 auto; line-height:1.6;">Anda belum mengunggah aplikasi apapun. Klik tombol unggah di kanan atas untuk mulai mendistribusikan aplikasi ujian ke siswa.</p>
         </div>
         {{ else }}
             {{ range .apps }}
@@ -2140,7 +2140,7 @@
                         <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg>
                         Unduh
                     </a>
-                    <button onclick="deleteApp({{ .ID }}, '{{ .Name }}')" class="btn-icon btn-delete" title="Hapus Aplikasi">
+                    <button data-action="app-delete" data-app-id="{{ .ID }}" data-app-name="{{ .Name }}" class="btn-icon btn-delete" title="Hapus Aplikasi">
                         <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path></svg>
                         Hapus
                     </button>
@@ -2159,7 +2159,7 @@
  <div class="modal-card glass-card" style="max-width: 420px;">
  <div class="modal-header">
  <h3 id="changePasswordModalTitle"><svg class="icon-svg" style="vertical-align:middle;margin-top:-2px;"><use href="#hi-key"/></svg> Ubah Password</h3>
- <button class="modal-close" onclick="closeChangePasswordModal()" aria-label="Tutup"><svg class="icon-svg" style="width:18px;height:18px;"><use href="#hi-x"/></svg></button>
+ <button class="modal-close" data-action="password-modal-close" aria-label="Tutup"><svg class="icon-svg" style="width:18px;height:18px;"><use href="#hi-x"/></svg></button>
  </div>
  <div class="modal-body">
  <form id="changePasswordForm" onsubmit="submitChangePassword(event)">
@@ -2218,6 +2218,71 @@ const CSRF_TOKEN = '{{.csrf_token}}';
 // Section scripts register their init here; the tab code calls it once.
 window.__settingsReady = {};
 window.__settingsLoaded = {};
+
+// ===== Batch 7 (R28-lanjutan): delegasi data-action =====
+// Shim defensif bila Actions dari admin-core.js (kontrak antar-agen, Batch 5)
+// belum tersedia — registry + SATU listener klik dokumen yang sama persis
+// dengan kontrak: closest('[data-action]') → fn(el, event).
+(function() {
+  if (window.Actions && typeof window.Actions.register === 'function') return;
+  var registry = {};
+  window.Actions = {
+    register: function(name, fn) { registry[name] = fn; },
+    has: function(name) { return typeof registry[name] === 'function'; }
+  };
+  document.addEventListener('click', function(ev) {
+    var t = ev.target;
+    var el = t && t.closest ? t.closest('[data-action]') : null;
+    if (!el) return;
+    var fn = registry[el.getAttribute('data-action')];
+    if (fn) fn(el, ev);
+  });
+})();
+
+// Registrasi aksi level-halaman. Wrapper tipis di bawah menutup handler yang
+// HIDUP di modul milik agen lain (admin.js / settings-vouchers.js) — fungsi
+// milik modul settings-* sendiri diregister di file modulnya masing-masing.
+// FOLLOW-UP (agen pemilik): pindahkan register ini ke modul definisinya.
+(function() {
+  // Backdrop modal: hanya klik LANGSUNG pada overlay yang menutup — setara
+  // dengan pola atribut "if(event.target===this)closeXxx()" sebelumnya; klik
+  // di dalam kartu modal tidak lagi butuh stopPropagation manual.
+  window.Actions.register('modal-dismiss', function(el, ev) {
+    if (!ev || ev.target !== el) return;
+    var closeName = el.getAttribute('data-modal-close');
+    if (closeName && typeof window[closeName] === 'function') window[closeName]();
+  });
+  window.Actions.register('users-refresh-list', function(el, ev) {
+    if (ev && ev.stopPropagation) ev.stopPropagation();
+    if (typeof window.loadUsersList === 'function') window.loadUsersList(window.getCurrentUsersPage());
+  });
+  window.Actions.register('users-clear-search', function() { if (typeof window.clearUsersSearch === 'function') window.clearUsersSearch(); });
+  window.Actions.register('users-search', function() { if (typeof window.loadUsersList === 'function') window.loadUsersList(1); });
+  window.Actions.register('users-toggle-sort', function(el) { if (typeof window.toggleUsersSort === 'function') window.toggleUsersSort(el.getAttribute('data-sort')); });
+  // switchVoucherSubtab didefinisikan di IIFE tab di bawah (file ini juga);
+  // register tetap di sini karena inilah satu-satunya tempat definisinya.
+  window.Actions.register('voucher-subtab', function(el) { window.switchVoucherSubtab(el.getAttribute('data-subtab')); });
+  // Wrapper ke settings-vouchers.js (milik agen lain):
+  window.Actions.register('voucher-open-batch', function() { if (typeof window.openBatchModal === 'function') window.openBatchModal(); });
+  window.Actions.register('voucher-open-single', function() { if (typeof window.openSingleModal === 'function') window.openSingleModal(); });
+  window.Actions.register('voucher-close-batch', function() { if (typeof window.closeBatchModal === 'function') window.closeBatchModal(); });
+  window.Actions.register('voucher-close-single', function() { if (typeof window.closeSingleModal === 'function') window.closeSingleModal(); });
+  window.Actions.register('voucher-close-redemptions', function() { if (typeof window.closeRedemptionsModal === 'function') window.closeRedemptionsModal(); });
+  window.Actions.register('voucher-search', function() { if (typeof window.loadVouchers === 'function') window.loadVouchers(1); });
+  window.Actions.register('voucher-search-clear', function() { if (typeof window.clearVoucherSearch === 'function') window.clearVoucherSearch(); });
+  window.Actions.register('confirm-action-close', function() { if (typeof window.closeConfirmActionModal === 'function') window.closeConfirmActionModal(); });
+  // Wrapper ke admin.js (milik agen lain):
+  window.Actions.register('smtp-test', function() { if (typeof window.testSmtpConnection === 'function') window.testSmtpConnection(); });
+  window.Actions.register('smtp-save', function() { if (typeof window.saveSmtpSettings === 'function') window.saveSmtpSettings(); });
+  window.Actions.register('turnstile-save', function() { if (typeof window.saveTurnstileSettings === 'function') window.saveTurnstileSettings(); });
+  window.Actions.register('cleanup-save', function() { if (typeof window.saveCleanupSettings === 'function') window.saveCleanupSettings(); });
+  window.Actions.register('default-pkg-save', function() { if (typeof window.saveDefaultPkgSettings === 'function') window.saveDefaultPkgSettings(); });
+  window.Actions.register('versions-save', function() { if (typeof window.saveVersionsSettings === 'function') window.saveVersionsSettings(); });
+  window.Actions.register('footer-save', function() { if (typeof window.saveFooterSettings === 'function') window.saveFooterSettings(); });
+  window.Actions.register('seo-save', function() { if (typeof window.saveSeoSettings === 'function') window.saveSeoSettings(); });
+  window.Actions.register('monetization-save', function() { if (typeof window.saveMonetizationSettings === 'function') window.saveMonetizationSettings(); });
+  window.Actions.register('password-modal-close', function() { if (typeof window.closeChangePasswordModal === 'function') window.closeChangePasswordModal(); });
+})();
 
 // ===== Tab switching (hash-based, no reload) =====
 (function() {
@@ -2315,7 +2380,7 @@ window.__settingsLoaded = {};
       var on = b.getAttribute('data-subtab') === name;
       b.classList.toggle('active', on);
       b.setAttribute('aria-selected', on ? 'true' : 'false');
-      b.style.background = on ? 'linear-gradient(135deg,#a855f7,#6366f1)' : 'rgba(255,255,255,0.06)';
+      b.style.background = on ? 'linear-gradient(135deg,rgb(var(--rgb-accent)),rgb(var(--rgb-info)))' : 'rgba(255,255,255,0.06)';
       b.style.color = on ? '#fff' : '#fff';
     });
   };

@@ -14,22 +14,22 @@
  <style>
 .dropdown-user-instansi{display:block;font-size:0.7rem;color:var(--color-text-muted);margin-top:1px;padding:0 16px}
 .pengawas-cell{position:relative}
-.pengawas-badge{display:inline-flex;align-items:center;gap:4px;padding:2px 8px;border-radius:8px;font-size:0.75rem;font-weight:600;background:rgba(168,85,247,0.1);color:#c084fc;border:1px solid rgba(168,85,247,0.2);cursor:pointer;white-space:nowrap;user-select:none}
-.pengawas-more{display:inline-flex;align-items:center;justify-content:center;width:18px;height:18px;border-radius:50%;background:rgba(168,85,247,0.2);font-size:0.65rem;font-weight:700;color:#a78bfa;margin-left:2px}
+.pengawas-badge{display:inline-flex;align-items:center;gap:4px;padding:2px 8px;border-radius:8px;font-size:0.75rem;font-weight:600;background:rgba(var(--rgb-accent),0.1);color:#c084fc;border:1px solid rgba(var(--rgb-accent),0.2);cursor:pointer;white-space:nowrap;user-select:none}
+.pengawas-more{display:inline-flex;align-items:center;justify-content:center;width:18px;height:18px;border-radius:50%;background:rgba(var(--rgb-accent),0.2);font-size:0.65rem;font-weight:700;color:var(--color-accent-light);margin-left:2px}
 .pengawas-popup{display:none;position:absolute;z-index:100;top:100%;left:0;min-width:160px;background:var(--color-card-bg,#1e1e2e);border:1px solid var(--color-glass-border);border-radius:10px;padding:6px 0;box-shadow:0 8px 32px rgba(0,0,0,0.4);margin-top:4px}
 .pengawas-popup.show{display:block}
 .pengawas-popup-item{padding:6px 14px;font-size:0.78rem;color:var(--color-text);white-space:nowrap}
-.pengawas-popup-item:hover{background:rgba(168,85,247,0.08)}
+.pengawas-popup-item:hover{background:rgba(var(--rgb-accent),0.08)}
 .token-mode-group{display:flex;flex-direction:column;gap:6px}
 .token-mode-select{padding:2px 6px;background:rgba(255,255,255,0.05);border:1px solid var(--color-glass-border);border-radius:6px;color:var(--color-text-secondary);font-size:0.75rem;outline:none;cursor:pointer;margin-bottom:4px;width:100%;max-width:120px;transition:border-color 0.2s}
-.token-mode-select:focus{border-color:rgba(99,102,241,0.5)}
+.token-mode-select:focus{border-color:rgba(var(--rgb-info),0.5)}
 .token-dynamic-settings{display:flex;align-items:center;gap:6px;flex-wrap:wrap}
 .token-interval-group{display:flex;align-items:center;gap:4px}
 .token-interval-input{width:54px;padding:4px 8px;border-radius:6px;background:var(--color-bg);border:1px solid var(--color-glass-border);color:var(--color-text);font-size:0.75rem;text-align:center;font-family:var(--font-mono);outline:none;transition:border-color 0.2s}
-.token-interval-input:focus{outline:none;border-color:rgba(99,102,241,0.5);box-shadow:0 0 0 2px var(--color-primary-glow)}
+.token-interval-input:focus{outline:none;border-color:rgba(var(--rgb-info),0.5);box-shadow:0 0 0 2px var(--color-primary-glow)}
 .token-interval-label{font-size:0.7rem;color:var(--color-text-muted);white-space:nowrap}
-.btn-save-interval{background:rgba(16,185,129,0.15);border:1px solid rgba(16,185,129,0.3);color:#34d399;border-radius:6px;padding:4px 8px;cursor:pointer;display:inline-flex;align-items:center;line-height:1}
-.btn-save-interval:hover{background:rgba(16,185,129,0.25)}
+.btn-save-interval{background:rgba(var(--rgb-success),0.15);border:1px solid rgba(var(--rgb-success),0.3);color:var(--color-success-light);border-radius:6px;padding:4px 8px;cursor:pointer;display:inline-flex;align-items:center;line-height:1}
+.btn-save-interval:hover{background:rgba(var(--rgb-success),0.25)}
 /* Student access & answer-key controls (moved from pengawasan page) */
 .pd-action-btn {
   display: inline-flex;
@@ -46,23 +46,23 @@
   white-space: nowrap;
 }
 .pd-action-link {
-  background: rgba(99,102,241,0.08);
+  background: rgba(var(--rgb-info),0.08);
   color: var(--color-primary-light);
-  border-color: rgba(99,102,241,0.25);
+  border-color: rgba(var(--rgb-info),0.25);
 }
-.pd-action-link:hover { background: rgba(99,102,241,0.15); border-color: rgba(99,102,241,0.4); }
+.pd-action-link:hover { background: rgba(var(--rgb-info),0.15); border-color: rgba(var(--rgb-info),0.4); }
 .pd-action-active {
-  background: rgba(16,185,129,0.1);
-  color: #34d399;
-  border-color: rgba(16,185,129,0.3);
+  background: rgba(var(--rgb-success),0.1);
+  color: var(--color-success-light);
+  border-color: rgba(var(--rgb-success),0.3);
 }
-.pd-action-active:hover { background: rgba(16,185,129,0.18); }
+.pd-action-active:hover { background: rgba(var(--rgb-success),0.18); }
 .pd-action-danger {
-  background: rgba(239,68,68,0.1);
+  background: rgba(var(--rgb-danger),0.1);
   color: #f87171;
-  border-color: rgba(239,68,68,0.3);
+  border-color: rgba(var(--rgb-danger),0.3);
 }
-.pd-action-danger:hover { background: rgba(239,68,68,0.18); }
+.pd-action-danger:hover { background: rgba(var(--rgb-danger),0.18); }
 .pd-action-warning {
   background: rgba(251,191,36,0.1);
   color: #fbbf24;
@@ -271,7 +271,7 @@
      guru/pengawas tidak boleh melihat kontrol yang akan gagal (dan tidak
      seharusnya mengganti nama instansi sekolah). */}}
 {{if or (eq .admin_role "superadmin") (hasRole .admin_role "operator")}}
-<div class="stat-card stat-instansi" title="Klik untuk mengubah nama Instansi/Sekolah Anda" style="cursor:pointer;" onclick="openEditInstansiModal()">
+<div class="stat-card stat-instansi" title="Klik untuk mengubah nama Instansi/Sekolah Anda" style="cursor:pointer;" data-action="instansi-open" role="button" tabindex="0">
 <div class="stat-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M3 21h18M3 10h18M5 6l7-3 7 3M4 10v11m16-11v11M8 14v.01M12 14v.01M16 14v.01M9 21v-4h6v4"/></svg></div>
 <div class="stat-info" style="flex:1;">
 <div style="display:flex;align-items:center;justify-content:space-between;gap:4px;width:100%;min-width:0;">
@@ -341,7 +341,7 @@
 {{if .instansi_code}}
 <div class="net-item" title="Kode Unik Instansi Anda (Identitas unik sekolah)">
 <span class="net-label">Kode Instansi</span>
-<span class="net-value" style="font-family:var(--font-mono);color:#34d399;font-weight:700;font-size:12px;cursor:pointer;" onclick="copyCode(this, '{{.instansi_code}}')" title="Klik untuk menyalin Kode Instansi">
+<span class="net-value" style="font-family:var(--font-mono);color:var(--color-success-light);font-weight:700;font-size:12px;cursor:pointer;" data-action="instansi-code-copy" data-code="{{.instansi_code}}" role="button" tabindex="0" title="Klik untuk menyalin Kode Instansi">
   {{.instansi_code}}
 </span>
 </div>
@@ -356,7 +356,7 @@
       <code id="serverUrlValue" title="URL yang dibutuhkan untuk login dan mengakses ujian dari aplikasi" style="font-size:0.85rem;color:var(--color-text);font-family:monospace;word-break:break-all;">{{.server_url}}</code>
     </div>
   </div>
-  <button class="btn-sm" title="Salin alamat URL server ini" onclick="copyServerURL('{{.server_url}}')" style="padding:4px 8px;font-size:0.75rem;display:inline-flex;align-items:center;gap:4px;flex-shrink:0;">
+  <button class="btn-sm" title="Salin alamat URL server ini" data-action="server-url-copy" data-url="{{.server_url}}" style="padding:4px 8px;font-size:0.75rem;display:inline-flex;align-items:center;gap:4px;flex-shrink:0;">
     <svg class="icon-svg" style="width:12px;height:12px;"><use href="#hi-clipboard"/></svg> Salin
   </button>
 </div>
@@ -411,12 +411,12 @@
 <div class="toolbar-search-wrap">
 <label for="searchExam" style="position:absolute;left:-9999px;">Cari ujian</label>
 <input type="text" id="searchExam" class="toolbar-search-input" placeholder="Cari nama, token, atau pembuat..." value="{{.search}}">
-<button class="toolbar-search-clear" id="searchClearBtn" onclick="clearSearch()" aria-label="Bersihkan pencarian" style="display:{{if .search}}flex{{else}}none{{end}};"><svg class="icon-svg" style="width:14px;height:14px;"><use href="#hi-x"/></svg></button>
+<button class="toolbar-search-clear" id="searchClearBtn" data-action="search-clear" aria-label="Bersihkan pencarian" style="display:{{if .search}}flex{{else}}none{{end}};"><svg class="icon-svg" style="width:14px;height:14px;"><use href="#hi-x"/></svg></button>
 </div>
-<button class="toolbar-btn toolbar-btn-search" onclick="searchExamsWithStatus()"><svg class="icon-svg"><use href="#hi-search"/></svg> Cari</button>
-<button class="toolbar-btn toolbar-btn-refresh" onclick="location.reload()" aria-label="Muat ulang daftar"><svg class="icon-svg"><use href="#hi-refresh"/></svg></button>
-<button class="toolbar-btn toolbar-btn-delete" id="bulkDeleteBtn" onclick="confirmBulkDelete()" style="display:none;"><svg class="icon-svg"><use href="#hi-trash"/></svg> Hapus Terpilih (<span id="bulkDeleteCount">0</span>)</button>
-<button class="toolbar-btn toolbar-btn-toggle" id="bulkToggleBtn" onclick="bulkToggleExams()" style="display:none;"><svg class="icon-svg"><use href="#hi-lock"/></svg> Nonaktifkan Terpilih (<span id="bulkToggleCount">0</span>)</button>
+<button class="toolbar-btn toolbar-btn-search" data-action="exams-search"><svg class="icon-svg"><use href="#hi-search"/></svg> Cari</button>
+<button class="toolbar-btn toolbar-btn-refresh" data-action="page-reload" aria-label="Muat ulang daftar"><svg class="icon-svg"><use href="#hi-refresh"/></svg></button>
+<button class="toolbar-btn toolbar-btn-delete" id="bulkDeleteBtn" data-action="bulk-delete-confirm" style="display:none;"><svg class="icon-svg"><use href="#hi-trash"/></svg> Hapus Terpilih (<span id="bulkDeleteCount">0</span>)</button>
+<button class="toolbar-btn toolbar-btn-toggle" id="bulkToggleBtn" data-action="bulk-toggle-exams" style="display:none;"><svg class="icon-svg"><use href="#hi-lock"/></svg> Nonaktifkan Terpilih (<span id="bulkToggleCount">0</span>)</button>
 </div>
 </div>
 
@@ -465,20 +465,20 @@
 
   <!-- Static settings -->
   <div class="token-static-settings" id="token-static-{{$exam.ID}}" style="{{if eq $exam.TokenMode "static"}}display:flex;{{else}}display:none;{{end}}align-items:center;gap:4px;white-space:nowrap;">
-    <code class="token-code" id="token-{{$exam.ID}}" data-token="{{$exam.ActiveToken}}" onclick="copyToken(this.dataset.token)" title="Klik untuk Salin Token">{{$exam.ActiveToken}}</code>
-    <button class="btn-icon btn-edit" data-exam-id="{{$exam.ID}}" data-token="{{$exam.Token}}" onclick="openEditTokenModal(this.dataset.examId, this.dataset.token)" title="Kustomisasi Token Awal" style="background:transparent;border:none;cursor:pointer;color:var(--color-text-muted);padding:2px;display:inline-flex;align-items:center;justify-content:center;transition:color 0.2s;margin-left:-2px;"><svg class="icon-svg" style="width:14px;height:14px;"><use href="#hi-edit"/></svg></button>
+    <code class="token-code" id="token-{{$exam.ID}}" data-token="{{$exam.ActiveToken}}" data-action="token-copy" role="button" tabindex="0" title="Klik untuk Salin Token">{{$exam.ActiveToken}}</code>
+    <button class="btn-icon btn-edit" data-exam-id="{{$exam.ID}}" data-token="{{$exam.Token}}" data-action="token-edit-open" title="Kustomisasi Token Awal" style="background:transparent;border:none;cursor:pointer;color:var(--color-text-muted);padding:2px;display:inline-flex;align-items:center;justify-content:center;transition:color 0.2s;margin-left:-2px;"><svg class="icon-svg" style="width:14px;height:14px;"><use href="#hi-edit"/></svg></button>
   </div>
 
   <!-- Dynamic settings -->
   <div class="token-dynamic-settings" id="token-dynamic-{{$exam.ID}}" style="{{if eq $exam.TokenMode "static"}}display:none;{{else}}display:flex;{{end}}align-items:center;gap:6px;flex-wrap:wrap;">
     <div style="display:flex;align-items:center;gap:4px;flex-shrink:0;white-space:nowrap;">
-      <code class="token-code" id="token-dyn-{{$exam.ID}}" data-token="{{$exam.ActiveToken}}" onclick="copyToken(this.dataset.token)" title="Klik untuk Salin Token">{{$exam.ActiveToken}}</code>
-      <button class="btn-icon btn-edit" data-exam-id="{{$exam.ID}}" data-token="{{$exam.Token}}" onclick="openEditTokenModal(this.dataset.examId, this.dataset.token)" title="Kustomisasi Token Awal" style="background:transparent;border:none;cursor:pointer;color:var(--color-text-muted);padding:2px;display:inline-flex;align-items:center;justify-content:center;transition:color 0.2s;margin-left:-2px;"><svg class="icon-svg" style="width:14px;height:14px;"><use href="#hi-edit"/></svg></button>
+      <code class="token-code" id="token-dyn-{{$exam.ID}}" data-token="{{$exam.ActiveToken}}" data-action="token-copy" role="button" tabindex="0" title="Klik untuk Salin Token">{{$exam.ActiveToken}}</code>
+      <button class="btn-icon btn-edit" data-exam-id="{{$exam.ID}}" data-token="{{$exam.Token}}" data-action="token-edit-open" title="Kustomisasi Token Awal" style="background:transparent;border:none;cursor:pointer;color:var(--color-text-muted);padding:2px;display:inline-flex;align-items:center;justify-content:center;transition:color 0.2s;margin-left:-2px;"><svg class="icon-svg" style="width:14px;height:14px;"><use href="#hi-edit"/></svg></button>
     </div>
     <div class="token-interval-group">
       <input type="number" class="token-interval-input" id="interval-{{$exam.ID}}" value="{{if $exam.TokenResetInterval}}{{$exam.TokenResetInterval}}{{else}}5{{end}}" min="1" placeholder="30" title="Interval reset token (menit)">
       <span class="token-interval-label">menit</span>
-      <button class="btn-icon btn-save-interval" onclick="saveTokenInterval({{$exam.ID}})" title="Simpan Interval"><svg class="icon-svg" style="width:16px;height:16px;"><use href="#hi-check"/></svg></button>
+      <button class="btn-icon btn-save-interval" data-action="token-interval-save" data-exam-id="{{$exam.ID}}" title="Simpan Interval"><svg class="icon-svg" style="width:16px;height:16px;"><use href="#hi-check"/></svg></button>
     </div>
   </div>
 </div>
@@ -489,11 +489,11 @@
 {{if $exam.TombstonedAt}}{{$tombTitle = printf "%s (%s)" $tombTitle $exam.TombstonedAt}}{{end}}
 {{if $canToggle}}
 {{if eq $exam.Status "active"}}
-<span class="status-badge status-active" id="status-{{$exam.ID}}" onclick="toggleExam({{$exam.ID}})" onkeydown="if(event.key==='Enter' || event.key===' '){event.preventDefault();toggleExam({{$exam.ID}});}" tabindex="0" role="button" aria-pressed="true" aria-label="Ubah status ujian {{$exam.Name}}" title="Klik untuk menonaktifkan ujian">Aktif</span>
+<span class="status-badge status-active" id="status-{{$exam.ID}}" data-action="exam-toggle-status" data-exam-id="{{$exam.ID}}" tabindex="0" role="button" aria-pressed="true" aria-label="Ubah status ujian {{$exam.Name}}" title="Klik untuk menonaktifkan ujian">Aktif</span>
 {{else if $exam.Tombstoned}}
-<span class="status-badge status-tombstoned" id="status-{{$exam.ID}}" onclick="toggleExam({{$exam.ID}})" onkeydown="if(event.key==='Enter' || event.key===' '){event.preventDefault();toggleExam({{$exam.ID}});}" tabindex="0" role="button" aria-pressed="false" aria-label="Aktifkan kembali ujian {{$exam.Name}}" title="{{$tombTitle}}. Klik untuk mengaktifkan kembali">Nonaktif Otomatis</span>
+<span class="status-badge status-tombstoned" id="status-{{$exam.ID}}" data-action="exam-toggle-status" data-exam-id="{{$exam.ID}}" tabindex="0" role="button" aria-pressed="false" aria-label="Aktifkan kembali ujian {{$exam.Name}}" title="{{$tombTitle}}. Klik untuk mengaktifkan kembali">Nonaktif Otomatis</span>
 {{else}}
-<span class="status-badge status-inactive" id="status-{{$exam.ID}}" onclick="toggleExam({{$exam.ID}})" onkeydown="if(event.key==='Enter' || event.key===' '){event.preventDefault();toggleExam({{$exam.ID}});}" tabindex="0" role="button" aria-pressed="false" aria-label="Ubah status ujian {{$exam.Name}}" title="Klik untuk mengaktifkan ujian">Nonaktif</span>
+<span class="status-badge status-inactive" id="status-{{$exam.ID}}" data-action="exam-toggle-status" data-exam-id="{{$exam.ID}}" tabindex="0" role="button" aria-pressed="false" aria-label="Ubah status ujian {{$exam.Name}}" title="Klik untuk mengaktifkan ujian">Nonaktif</span>
 {{end}}
 {{else}}
 {{if eq $exam.Status "active"}}
@@ -505,13 +505,13 @@
 {{end}}
 {{end}}
 {{if $exam.AutoApprove}}
-<span id="auto-approve-{{$exam.ID}}" style="display:inline-flex;align-items:center;gap:4px;margin-left:6px;font-size:0.65rem;color:#34d399;font-weight:700;padding:2px 8px;border-radius:10px;background:rgba(16,185,129,0.12);border:1px solid rgba(16,185,129,0.3);vertical-align:middle;white-space:nowrap;" title="Auto-approve aktif — semua perangkat disetujui otomatis di server (tetap berlaku walau halaman pengawasan ditutup)"><svg class="icon-svg" style="width:10px;height:10px;"><use href="#hi-check"/></svg> Auto-approve</span>
+<span id="auto-approve-{{$exam.ID}}" style="display:inline-flex;align-items:center;gap:4px;margin-left:6px;font-size:0.65rem;color:var(--color-success-light);font-weight:700;padding:2px 8px;border-radius:10px;background:rgba(var(--rgb-success),0.12);border:1px solid rgba(var(--rgb-success),0.3);vertical-align:middle;white-space:nowrap;" title="Auto-approve aktif — semua perangkat disetujui otomatis di server (tetap berlaku walau halaman pengawasan ditutup)"><svg class="icon-svg" style="width:10px;height:10px;"><use href="#hi-check"/></svg> Auto-approve</span>
 {{end}}
 </td>
 <td data-label="Pengawas" class="pengawas-cell">
 {{$pw := index $.exam_pengawas_map $exam.ID}}
 {{if $pw}}
-<span class="pengawas-badge" onclick="togglePengawasPopup(event, {{$exam.ID}})">
+<span class="pengawas-badge" data-action="pengawas-popup-toggle" data-exam-id="{{$exam.ID}}" role="button" tabindex="0">
 {{index $pw 0}}
 {{if gt (len $pw) 1}}<span class="pengawas-more">+{{sub (len $pw) 1}}</span>{{end}}
 </span>
@@ -524,18 +524,18 @@
 </td>
 <td class="td-actions" data-label="">
 <div class="actions-group">
-<button class="btn-sm btn-questions btn-sm-compact" data-exam-id="{{$exam.ID}}" data-exam-name="{{$exam.Name}}" onclick="openQuestionsModal(this.dataset.examId, this.dataset.examName)" title="Atur Soal & Kunci Jawaban" aria-label="Atur soal dan kunci jawaban"><svg class="icon-svg" aria-hidden="true"><use href="#hi-settings"/></svg></button>
+<button class="btn-sm btn-questions btn-sm-compact" data-exam-id="{{$exam.ID}}" data-exam-name="{{$exam.Name}}" data-action="questions-open" title="Atur Soal & Kunci Jawaban" aria-label="Atur soal dan kunci jawaban"><svg class="icon-svg" aria-hidden="true"><use href="#hi-settings"/></svg></button>
 <div class="exam-action-dropdown">
-<button class="btn-sm btn-more btn-sm-compact" onclick="toggleRowDropdown(event, {{$exam.ID}})" title="Menu Tindakan Lainnya" aria-label="Tindakan lainnya"><svg class="icon-svg" aria-hidden="true"><use href="#hi-chevron-down"/></svg></button>
+<button class="btn-sm btn-more btn-sm-compact" data-action="row-dropdown-toggle" data-exam-id="{{$exam.ID}}" title="Menu Tindakan Lainnya" aria-label="Tindakan lainnya"><svg class="icon-svg" aria-hidden="true"><use href="#hi-chevron-down"/></svg></button>
 <div class="exam-action-dropdown-content" id="dropdown-content-{{$exam.ID}}">
 <a href="/admin/api/exams/{{$exam.ID}}/pdf" target="_blank"><svg class="icon-svg"><use href="#hi-eye"/></svg> Lihat PDF</a>
 <a href="/admin/api/exams/{{$exam.ID}}/pdf?download=1"><svg class="icon-svg"><use href="#hi-download"/></svg> Download PDF</a>
-<button data-exam-id="{{$exam.ID}}" data-exam-name="{{$exam.Name}}" onclick="openEditExamModal(this.dataset.examId, this.dataset.examName)"><svg class="icon-svg"><use href="#hi-edit"/></svg> Edit Nama &amp; PDF</button>
+<button data-exam-id="{{$exam.ID}}" data-exam-name="{{$exam.Name}}" data-action="edit-exam-open"><svg class="icon-svg"><use href="#hi-edit"/></svg> Edit Nama &amp; PDF</button>
 {{if or (hasRole $.admin_role "operator") (eq $.admin_role "superadmin")}}
-<button data-exam-id="{{$exam.ID}}" onclick="openDelegateExamModal(this.dataset.examId)"><svg class="icon-svg"><use href="#hi-users"/></svg> Delegasi Ujian</button>
+<button data-exam-id="{{$exam.ID}}" data-action="delegate-exam-open"><svg class="icon-svg"><use href="#hi-users"/></svg> Delegasi Ujian</button>
 {{end}}
 {{if or (eq $.admin_role "superadmin") (hasRole $.admin_role "operator") (eq $.admin_id $exam.CreatedBy) (and $exam.DelegatedTo (eq $.admin_id $exam.DelegatedTo))}}
-<button data-exam-id="{{$exam.ID}}" data-exam-name="{{$exam.Name}}" onclick="deleteExam(this.dataset.examId, this.dataset.examName)" class="dropdown-toggle-btn" style="color:#f87171;"><svg class="icon-svg"><use href="#hi-trash"/></svg> Hapus Ujian</button>
+<button data-exam-id="{{$exam.ID}}" data-exam-name="{{$exam.Name}}" data-action="exam-delete" class="dropdown-toggle-btn" style="color:#f87171;"><svg class="icon-svg"><use href="#hi-trash"/></svg> Hapus Ujian</button>
 {{end}}
 </div>
 </div>
@@ -573,7 +573,7 @@
 <div class="modal-card glass-card" style="max-width: 420px;">
 <div class="modal-header">
 <h3 id="changePasswordModalTitle"><svg class="icon-svg" style="vertical-align:middle;margin-top:-2px;"><use href="#hi-key"/></svg> Ubah Password</h3>
-<button class="modal-close" onclick="closeChangePasswordModal()" aria-label="Tutup"><svg class="icon-svg" style="width:18px;height:18px;"><use href="#hi-x"/></svg></button>
+<button class="modal-close" data-action="modal-close" data-modal-close="closeChangePasswordModal" aria-label="Tutup"><svg class="icon-svg" style="width:18px;height:18px;"><use href="#hi-x"/></svg></button>
 </div>
 <div class="modal-body">
 <form id="changePasswordForm" onsubmit="submitChangePassword(event)">
@@ -625,7 +625,7 @@
 <div class="modal-card glass-card" style="max-width: 480px;">
 <div class="modal-header">
 <h3 id="editExamModalTitle"><svg class="icon-svg" style="vertical-align:middle;margin-top:-2px;"><use href="#hi-edit"/></svg> Edit Ujian (Nama &amp; PDF)</h3>
-<button class="modal-close" onclick="closeEditExamModal()" aria-label="Tutup"><svg class="icon-svg" style="width:18px;height:18px;"><use href="#hi-x"/></svg></button>
+<button class="modal-close" data-action="modal-close" data-modal-close="closeEditExamModal" aria-label="Tutup"><svg class="icon-svg" style="width:18px;height:18px;"><use href="#hi-x"/></svg></button>
 </div>
 <div class="modal-body">
 <form id="editExamForm" onsubmit="submitEditExam(event)" enctype="multipart/form-data">
@@ -660,7 +660,7 @@
 <div class="modal-card glass-card" style="max-width: 400px;">
 <div class="modal-header">
 <h3 id="editTokenModalTitle"><svg class="icon-svg" style="vertical-align:middle;margin-top:-2px;"><use href="#hi-edit"/></svg> Ubah Token Kustom</h3>
-<button class="modal-close" onclick="closeEditTokenModal()" aria-label="Tutup"><svg class="icon-svg" style="width:18px;height:18px;"><use href="#hi-x"/></svg></button>
+<button class="modal-close" data-action="modal-close" data-modal-close="closeEditTokenModal" aria-label="Tutup"><svg class="icon-svg" style="width:18px;height:18px;"><use href="#hi-x"/></svg></button>
 </div>
 <div class="modal-body">
 <form id="editTokenForm" onsubmit="submitEditToken(event)">
@@ -681,7 +681,7 @@
 <div class="modal-card glass-card" style="max-width: 480px;">
 <div class="modal-header">
 <h3 id="delegateExamModalTitle"><svg class="icon-svg" style="vertical-align:middle;margin-top:-2px;"><use href="#hi-users"/></svg> Delegasi Ujian</h3>
-<button class="modal-close" onclick="closeDelegateExamModal()" aria-label="Tutup"><svg class="icon-svg" style="width:18px;height:18px;"><use href="#hi-x"/></svg></button>
+<button class="modal-close" data-action="modal-close" data-modal-close="closeDelegateExamModal" aria-label="Tutup"><svg class="icon-svg" style="width:18px;height:18px;"><use href="#hi-x"/></svg></button>
 </div>
 <div class="modal-body">
 <input type="hidden" id="delegateExamId">
@@ -719,8 +719,8 @@
 </div>
 
 <div style="display:flex;gap:8px;justify-content:flex-end;">
-<button class="btn-sm btn-delete" onclick="closeDelegateExamModal()">Batal</button>
-<button class="btn-upload" onclick="confirmDelegateExam()">Simpan</button>
+<button class="btn-sm btn-delete" data-action="modal-close" data-modal-close="closeDelegateExamModal">Batal</button>
+<button class="btn-upload" data-action="delegate-exam-confirm">Simpan</button>
 </div>
 </div>
 </div>
@@ -731,7 +731,7 @@
 <div class="modal-card glass-card" style="max-width: 780px;">
 <div class="modal-header">
 <h3 id="modalTitle"><svg class="icon-svg" style="vertical-align:middle;margin-top:-2px;"><use href="#hi-settings"/></svg> Atur Soal Ujian</h3>
-<button class="modal-close" onclick="closeQuestionsModal()" aria-label="Tutup"><svg class="icon-svg" style="width:18px;height:18px;"><use href="#hi-x"/></svg></button>
+<button class="modal-close" data-action="modal-close" data-modal-close="closeQuestionsModal" aria-label="Tutup"><svg class="icon-svg" style="width:18px;height:18px;"><use href="#hi-x"/></svg></button>
 </div>
 <div class="modal-body" style="max-height:80vh;overflow-y:auto;">
 
@@ -800,12 +800,12 @@
 </div>
 </div>
 <div style="display:flex;gap:6px;margin-top:10px;flex-wrap:wrap;">
-<button type="button" class="btn-sm" style="background:#6366F1;color:#fff;border:none;padding:4px 10px;border-radius:6px;font-size:11px;cursor:pointer;" onclick="setPanelColor('#6366F1')">Indigo</button>
-<button type="button" class="btn-sm" style="background:#10B981;color:#fff;border:none;padding:4px 10px;border-radius:6px;font-size:11px;cursor:pointer;" onclick="setPanelColor('#10B981')">Emerald</button>
-<button type="button" class="btn-sm" style="background:#F43F5E;color:#fff;border:none;padding:4px 10px;border-radius:6px;font-size:11px;cursor:pointer;" onclick="setPanelColor('#F43F5E')">Rose</button>
-<button type="button" class="btn-sm" style="background:#F59E0B;color:#fff;border:none;padding:4px 10px;border-radius:6px;font-size:11px;cursor:pointer;" onclick="setPanelColor('#F59E0B')">Amber</button>
-<button type="button" class="btn-sm" style="background:#06B6D4;color:#fff;border:none;padding:4px 10px;border-radius:6px;font-size:11px;cursor:pointer;" onclick="setPanelColor('#06B6D4')">Cyan</button>
-<button type="button" class="btn-sm" style="background:#64748B;color:#fff;border:none;padding:4px 10px;border-radius:6px;font-size:11px;cursor:pointer;" onclick="setPanelColor('#64748B')">Slate</button>
+<button type="button" class="btn-sm" style="background:var(--color-primary);color:var(--color-text-on-primary);border:none;padding:4px 10px;border-radius:6px;font-size:11px;cursor:pointer;" data-action="panel-color-set" data-color="#6366F1">Indigo</button>
+<button type="button" class="btn-sm" style="background:var(--color-success);color:var(--color-text-on-primary);border:none;padding:4px 10px;border-radius:6px;font-size:11px;cursor:pointer;" data-action="panel-color-set" data-color="#10B981">Emerald</button>
+<button type="button" class="btn-sm" style="background:#F43F5E;color:var(--color-text-on-primary);border:none;padding:4px 10px;border-radius:6px;font-size:11px;cursor:pointer;" data-action="panel-color-set" data-color="#F43F5E">Rose</button>
+<button type="button" class="btn-sm" style="background:var(--color-warning);color:var(--color-text-on-primary);border:none;padding:4px 10px;border-radius:6px;font-size:11px;cursor:pointer;" data-action="panel-color-set" data-color="#F59E0B">Amber</button>
+<button type="button" class="btn-sm" style="background:#06B6D4;color:var(--color-text-on-primary);border:none;padding:4px 10px;border-radius:6px;font-size:11px;cursor:pointer;" data-action="panel-color-set" data-color="#06B6D4">Cyan</button>
+<button type="button" class="btn-sm" style="background:#64748B;color:var(--color-text-on-primary);border:none;padding:4px 10px;border-radius:6px;font-size:11px;cursor:pointer;" data-action="panel-color-set" data-color="#64748B">Slate</button>
 </div>
 </div>
 
@@ -819,7 +819,7 @@
 <div style="font-size:0.75rem;color:var(--color-text-muted);">Atur jam mulai dan selesai ujian.</div>
 </div>
 </div>
-<button type="button" class="btn-sm btn-delete" onclick="clearSchedule()" style="font-size:11px;flex-shrink:0;">
+<button type="button" class="btn-sm btn-delete" data-action="schedule-clear" style="font-size:11px;flex-shrink:0;">
 <svg class="icon-svg" style="width:12px;height:12px;"><use href="#hi-x"/></svg> Hapus Jadwal
 </button>
 </div>
@@ -872,7 +872,7 @@
 <div style="font-size:0.75rem;color:var(--color-text-muted);">Data yang wajib diisi siswa sebelum memulai ujian di Android.</div>
 </div>
 </div>
-<button class="btn-sm" onclick="addIdentityField()" style="height:30px;font-size:12px;"><svg class="icon-svg" style="width:14px;height:14px;"><use href="#hi-plus"/></svg> Tambah Field</button>
+<button class="btn-sm" data-action="identity-field-add" style="height:30px;font-size:12px;"><svg class="icon-svg" style="width:14px;height:14px;"><use href="#hi-plus"/></svg> Tambah Field</button>
 </div>
 <div id="identityFieldsList">
 <!-- Fields rendered by JS -->
@@ -893,16 +893,16 @@
 <option value="matching">Menjodohkan</option>
 <option value="short_answer">Isian Singkat</option>
 </select>
-<button class="btn-sm" onclick="quickGenerateQuestions()" style="gap:4px;"><svg class="icon-svg" style="width:14px;height:14px;"><use href="#hi-plus"/></svg> Generate</button>
+<button class="btn-sm" data-action="questions-generate" style="gap:4px;"><svg class="icon-svg" style="width:14px;height:14px;"><use href="#hi-plus"/></svg> Generate</button>
 </div>
 <div class="inline-group" style="display:flex;align-items:center;gap:6px;">
-<button class="btn-sm" onclick="setAllWeights()" style="gap:4px;"><svg class="icon-svg" style="width:14px;height:14px;"><use href="#hi-settings"/></svg> Terapkan ke Semua Bobot</button>
+<button class="btn-sm" data-action="weights-set-all" style="gap:4px;"><svg class="icon-svg" style="width:14px;height:14px;"><use href="#hi-settings"/></svg> Terapkan ke Semua Bobot</button>
 </div>
 <div class="xml-import-wrapper" style="display:flex;align-items:center;gap:6px;">
-<button class="btn-sm" onclick="copyAIPrompt()" style="gap:4px;"><svg class="icon-svg" style="width:14px;height:14px;"><use href="#hi-clipboard"/></svg> Prompt AI</button>
+<button class="btn-sm" data-action="ai-prompt-copy" style="gap:4px;"><svg class="icon-svg" style="width:14px;height:14px;"><use href="#hi-clipboard"/></svg> Prompt AI</button>
 <input type="file" id="xmlFileInput" accept=".xml" style="display:none;" onchange="importXMLQuestions(event)">
-<button class="btn-sm" onclick="document.getElementById('xmlFileInput').click()" style="gap:4px;"><svg class="icon-svg" style="width:14px;height:14px;"><use href="#hi-download"/></svg> Import XML</button>
-<button class="btn-sm" onclick="exportXMLQuestions()" style="gap:4px;"><svg class="icon-svg" style="width:14px;height:14px;"><use href="#hi-upload"/></svg> Export XML</button>
+<button class="btn-sm" data-action="xml-import-browse" style="gap:4px;"><svg class="icon-svg" style="width:14px;height:14px;"><use href="#hi-download"/></svg> Import XML</button>
+<button class="btn-sm" data-action="xml-export" style="gap:4px;"><svg class="icon-svg" style="width:14px;height:14px;"><use href="#hi-upload"/></svg> Export XML</button>
 </div>
 </div>
 </div>
@@ -914,8 +914,8 @@
 
 </div>
 <div class="modal-footer" style="display:flex;gap:8px;justify-content:flex-end;padding:12px 24px;border-top:1px solid var(--color-glass-border);">
-<button class="btn-sm btn-delete" onclick="closeQuestionsModal()">Batal</button>
-<button id="btnSaveQuestionsConfig" class="btn-upload" onclick="saveQuestionsConfig()"><svg class="icon-svg"><use href="#hi-check"/></svg> Simpan Konfigurasi</button>
+<button class="btn-sm btn-delete" data-action="modal-close" data-modal-close="closeQuestionsModal">Batal</button>
+<button id="btnSaveQuestionsConfig" class="btn-upload" data-action="questions-save"><svg class="icon-svg"><use href="#hi-check"/></svg> Simpan Konfigurasi</button>
 </div>
 </div>
 </div>
@@ -1029,9 +1029,9 @@ document.addEventListener('DOMContentLoaded', function() {
                 var diffMs = expiresDate - now;
                 var diffDays = Math.ceil(diffMs / (1000 * 60 * 60 * 24));
                 if (diffDays < 0) expiryEl.innerHTML = '<span style="color:#f87171;font-weight:600;">Kedaluwarsa</span>';
-                else if (diffDays === 0) expiryEl.innerHTML = '<span style="color:#fbbf24;font-weight:600;">Kedaluwarsa hari ini</span>';
+                else if (diffDays === 0) expiryEl.innerHTML = '<span style="color:var(--color-warning-light);font-weight:600;">Kedaluwarsa hari ini</span>';
                 else if (diffDays <= 7) expiryEl.innerHTML = '<span style="color:#f87171;font-weight:600;">' + diffDays + ' hari lagi</span>';
-                else expiryEl.innerHTML = '<span style="color:#34d399;font-weight:700;">' + diffDays + ' hari lagi</span>';
+                else expiryEl.innerHTML = '<span style="color:var(--color-success-light);font-weight:700;">' + diffDays + ' hari lagi</span>';
             }
         }
     }
@@ -1064,28 +1064,28 @@ function copyServerURL(url) {
 </script>
 
 <!-- Modal Ubah Instansi -->
-<div class="modal-overlay" id="editInstansiModal" role="dialog" aria-modal="true" aria-labelledby="editInstansiTitle" style="display:none;" onclick="closeEditInstansiModal()">
-  <div class="modal-card glass-card" style="max-width: 440px;" onclick="event.stopPropagation()">
+<div class="modal-overlay" id="editInstansiModal" role="dialog" aria-modal="true" aria-labelledby="editInstansiTitle" style="display:none;" data-action="modal-dismiss" data-modal-close="closeEditInstansiModal">
+  <div class="modal-card glass-card" style="max-width: 440px;">
     <div class="modal-header" style="border-bottom:1px solid rgba(255,255,255,0.1);padding-bottom:12px;">
       <h3 id="editInstansiTitle" style="margin:0;font-size:1.1rem;color:#fff;display:flex;align-items:center;gap:8px;">
         <svg class="icon-svg" style="width:20px;height:20px;color:#c084fc;"><use href="#hi-building-library"/></svg>
         Ubah Nama Instansi / Sekolah
       </h3>
-      <button class="btn-close" onclick="closeEditInstansiModal()" aria-label="Tutup modal ubah instansi" style="background:none;border:none;color:#94a3b8;font-size:1.4rem;cursor:pointer;">&times;</button>
+      <button class="btn-close" data-action="modal-close" data-modal-close="closeEditInstansiModal" aria-label="Tutup modal ubah instansi" style="background:none;border:none;color:var(--color-text-placeholder);font-size:1.4rem;cursor:pointer;">&times;</button>
     </div>
     <form id="formEditInstansi" onsubmit="saveEditInstansi(event)" style="margin-top:16px;">
       <div style="margin-bottom:20px;">
         <label for="editInstansiInput" style="display:block;font-size:0.85rem;font-weight:600;color:var(--color-text-secondary);margin-bottom:8px;">
-          Nama Instansi / Sekolah <span style="color:#ef4444;">*</span>
+          Nama Instansi / Sekolah <span style="color:var(--color-danger);">*</span>
         </label>
-        <input type="text" id="editInstansiInput" required value="{{.admin_instansi}}" placeholder="Contoh: SMA Negeri 1 Jakarta" style="width:100%;padding:10px 12px;border-radius:8px;background:rgba(255,255,255,0.06);border:1px solid rgba(255,255,255,0.15);color:#fff;font-size:0.9rem;">
+        <input type="text" id="editInstansiInput" required value="{{.admin_instansi}}" placeholder="Contoh: SMA Negeri 1 Jakarta" style="width:100%;padding:10px 12px;border-radius:8px;background:var(--glass-bg-strong);border:1px solid rgba(255,255,255,0.15);color:var(--color-text-on-primary);font-size:0.9rem;">
         <span style="font-size:0.75rem;color:var(--color-text-muted);display:block;margin-top:6px;">
           Perubahan nama instansi akan otomatis berlaku untuk seluruh akun guru/pengawas di sekolah Anda.
         </span>
       </div>
       <div style="display:flex;justify-content:flex-end;gap:10px;">
-        <button type="button" class="btn btn-secondary" onclick="closeEditInstansiModal()" style="padding:8px 16px;border-radius:8px;background:rgba(255,255,255,0.1);border:none;color:#fff;cursor:pointer;">Batal</button>
-        <button type="submit" id="btnSaveEditInstansi" class="btn btn-primary" style="padding:8px 16px;border-radius:8px;background:linear-gradient(135deg, #a855f7, #6366f1);border:none;color:#fff;font-weight:600;cursor:pointer;">
+        <button type="button" class="btn btn-secondary" data-action="modal-close" data-modal-close="closeEditInstansiModal" style="padding:8px 16px;border-radius:8px;background:rgba(255,255,255,0.1);border:none;color:var(--color-text-on-primary);cursor:pointer;">Batal</button>
+        <button type="submit" id="btnSaveEditInstansi" class="btn btn-primary" style="padding:8px 16px;border-radius:8px;background:linear-gradient(135deg, #a855f7, #6366f1);border:none;color:var(--color-text-on-accent);font-weight:600;cursor:pointer;">
           Simpan Perubahan
         </button>
       </div>
@@ -1154,6 +1154,19 @@ function saveEditInstansi(e) {
     }
     showToast('Terjadi kesalahan jaringan', 'error');
   });
+}
+
+// ===== R28-lanjutan: registrasi aksi delegasi milik skrip halaman ============
+// Fungsi-fungsi yang didefinisikan di atas (inline script) didaftarkan DI SINI;
+// fungsi milik admin.js didaftarkan di blok registrasi admin.js. Delegasi klik
+// global + registry Actions disediakan admin-core.js.
+if (typeof Actions !== 'undefined' && typeof Actions.register === 'function') {
+  Actions.register('instansi-open', function () { openEditInstansiModal(); });
+  Actions.register('instansi-code-copy', function (el) { copyCode(el.getAttribute('data-code')); });
+  Actions.register('server-url-copy', function (el) { copyServerURL(el.getAttribute('data-url')); });
+  Actions.register('search-clear', function () { clearSearch(); });
+  Actions.register('exams-search', function () { searchExamsWithStatus(); });
+  Actions.register('bulk-delete-confirm', function () { confirmBulkDelete(); });
 }
 </script>
 </body>

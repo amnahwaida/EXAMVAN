@@ -148,7 +148,7 @@
         <option value="{{index . "id"}}" {{if eq (printf "%d" (index . "id")) (printf "%d" $.exam_filter_param)}}selected{{end}}>{{index . "name"}} (oleh {{index . "creator"}}){{if index . "tombstoned"}} — Nonaktif Otomatis{{end}}</option>
         {{end}}
       </select>
-      <button class="toolbar-btn" onclick="exportSubmissions()" title="Ekspor ke Excel sesuai filter ujian yang dipilih. Pilih Semua Ujian di filter untuk mengekspor seluruh data." style="height:36px;display:inline-flex;align-items:center;gap:6px;font-size:13px;"><svg class="icon-svg" style="width:16px;height:16px;"><use href="#hi-download"/></svg> Ekspor Excel</button>
+      <button class="toolbar-btn" data-action="export-submissions" title="Ekspor ke Excel sesuai filter ujian yang dipilih. Pilih Semua Ujian di filter untuk mengekspor seluruh data." style="height:36px;display:inline-flex;align-items:center;gap:6px;font-size:13px;"><svg class="icon-svg" style="width:16px;height:16px;"><use href="#hi-download"/></svg> Ekspor Excel</button>
     </div>
   </div>
 
@@ -170,7 +170,7 @@
         {{end}}
       </h2>
       <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
-        <span class="info-badge-token" style="font-family:monospace;font-size:0.8rem;padding:4px 10px;background:rgba(99,102,241,0.1);border:1px solid rgba(99,102,241,0.3);color:var(--color-primary-light);border-radius:20px;font-weight:700;display:flex;align-items:center;gap:4px;">
+        <span class="info-badge-token" style="font-family:monospace;font-size:0.8rem;padding:4px 10px;background:rgba(var(--rgb-info),0.1);border:1px solid rgba(var(--rgb-info),0.3);color:var(--color-primary-light);border-radius:20px;font-weight:700;display:flex;align-items:center;gap:4px;">
           <svg class="icon-svg" style="width:12px;height:12px;"><use href="#hi-key"/></svg> {{index $ei "token"}}
         </span>
       </div>
@@ -237,7 +237,7 @@
         <h4 style="margin:0 0 10px 0;font-size:0.75rem;text-transform:uppercase;color:var(--color-text-muted);letter-spacing:0.5px;">Pengawas Terdaftar</h4>
         <div style="display:flex;flex-wrap:wrap;gap:4px;margin-top:2px;">
           {{range $pw := index $ei "pengawas"}}
-          <span style="display:inline-block;padding:2px 8px;border-radius:10px;font-size:11px;background:rgba(99,102,241,0.12);color:var(--color-primary-light);border:1px solid rgba(99,102,241,0.2);">{{$pw}}</span>
+          <span style="display:inline-block;padding:2px 8px;border-radius:10px;font-size:11px;background:rgba(var(--rgb-info),0.12);color:var(--color-primary-light);border:1px solid rgba(var(--rgb-info),0.2);">{{$pw}}</span>
           {{end}}
         </div>
       </div>
@@ -258,7 +258,7 @@
     <h3 style="font-size:1.1rem;color:var(--color-primary-light);display:flex;align-items:center;gap:8px;margin:0;">
       <svg class="icon-svg" style="color:var(--color-primary-light);"><use href="#hi-clipboard"/></svg> Daftar Hasil Siswa
     </h3>
-    <span style="font-size:0.75rem;padding:3px 8px;background:rgba(99,102,241,0.12);color:var(--color-primary-light);border:1px solid rgba(99,102,241,0.2);border-radius:12px;font-weight:600;">
+    <span style="font-size:0.75rem;padding:3px 8px;background:rgba(var(--rgb-info),0.12);color:var(--color-primary-light);border:1px solid rgba(var(--rgb-info),0.2);border-radius:12px;font-weight:600;">
       {{.total_submissions}} Siswa
     </span>
   </div>
@@ -291,7 +291,7 @@
  {{.ScoreDisplay}}
  </span>
  {{if .HasScore}}
- <div style="width:50px;height:3px;background:rgba(255,255,255,0.06);border-radius:2px;overflow:hidden;">
+ <div style="width:50px;height:3px;background:var(--glass-bg-strong);border-radius:2px;overflow:hidden;">
  <div style="height:100%;width:{{printf "%.0f" $scorePct}}%;border-radius:2px;
  {{if ge $scorePct 80.0}}background:var(--color-success);
  {{else if ge $scorePct 60.0}}background:var(--color-warning);
@@ -313,10 +313,10 @@
  </td>
   <td class="td-actions" data-label="Aksi" style="text-align:center;">
   <div style="display:flex;gap:6px;justify-content:center;">
-  <button class="btn-sm btn-toggle" onclick="showSubmissionDetail({{.ID}})" style="display:inline-flex;align-items:center;gap:4px;font-size:12px;padding:4px 10px;">
+  <button class="btn-sm btn-toggle" data-action="show-submission-detail" data-submission-id="{{.ID}}" style="display:inline-flex;align-items:center;gap:4px;font-size:12px;padding:4px 10px;">
   <svg class="icon-svg" style="width:14px;height:14px;"><use href="#hi-eye"/></svg> Detail
   </button>
-  <button class="btn-sm btn-delete" onclick="deleteSubmission({{.ID}})" aria-label="Hapus hasil ujian" style="display:inline-flex;align-items:center;gap:4px;font-size:12px;min-height:44px;min-width:44px;padding:8px 12px;">
+  <button class="btn-sm btn-delete" data-action="delete-submission" data-submission-id="{{.ID}}" aria-label="Hapus hasil ujian" style="display:inline-flex;align-items:center;gap:4px;font-size:12px;min-height:44px;min-width:44px;padding:8px 12px;">
   <svg class="icon-svg" style="width:14px;height:14px;"><use href="#hi-trash"/></svg> Hapus
   </button>
   </div>
@@ -356,7 +356,7 @@
 <div class="modal-card" style="max-width:700px;">
 <div class="modal-header">
 <h3 id="detailModalTitle"><svg class="icon-svg" style="vertical-align:middle;margin-top:-2px;"><use href="#hi-eye"/></svg> Detail Jawaban Siswa</h3>
-<button class="modal-close" onclick="closeDetailModal()" aria-label="Tutup"><svg class="icon-svg" style="width:18px;height:18px;"><use href="#hi-x"/></svg></button>
+<button class="modal-close" data-action="close-detail-modal" aria-label="Tutup"><svg class="icon-svg" style="width:18px;height:18px;"><use href="#hi-x"/></svg></button>
 </div>
 <div class="modal-body">
 <div style="display:flex;justify-content:space-between;flex-wrap:wrap;gap:8px;margin-bottom:12px;">
@@ -377,7 +377,7 @@ Mulai: <span id="detailStartTime">—</span> | Kumpul: <span id="detailSubmitTim
 <div id="detailAnswersContainer"></div>
 </div>
 <div style="padding:12px 24px;border-top:1px solid var(--color-glass-border);display:flex;justify-content:flex-end;">
-<button class="btn-sm btn-toggle" onclick="closeDetailModal()">Tutup</button>
+<button class="btn-sm btn-toggle" data-action="close-detail-modal">Tutup</button>
 </div>
 </div>
 </div>
@@ -408,6 +408,25 @@ Mulai: <span id="detailStartTime">—</span> | Kumpul: <span id="detailSubmitTim
 <script src="/static/js/admin-core.js?v={{.version}}"></script>
 <script src="/static/js/admin.js?v={{.version}}"></script>
 <script>
+// ===== Batch 7 (R28): delegasi data-action =====
+// Wrapper tipis ke admin.js (milik agen lain — fungsi TIDAK dipindah).
+// FOLLOW-UP (pemilik admin.js): pertimbangkan mendaftarkan aksi ini
+// langsung di modulnya.
+(function() {
+  if (typeof Actions === 'undefined') return;
+  Actions.register('show-submission-detail', function(el) {
+    var id = el.getAttribute('data-submission-id');
+    if (id && typeof showSubmissionDetail === 'function') showSubmissionDetail(id);
+  });
+  Actions.register('delete-submission', function(el) {
+    var id = el.getAttribute('data-submission-id');
+    if (id && typeof deleteSubmission === 'function') deleteSubmission(id);
+  });
+  Actions.register('close-detail-modal', function() { if (typeof closeDetailModal === 'function') closeDetailModal(); });
+  Actions.register('export-submissions', function() { if (typeof exportSubmissions === 'function') exportSubmissions(); });
+})();
+// ===== end Batch 7 (R28) =====
+
 document.addEventListener('DOMContentLoaded', function() {
     document.querySelectorAll('.duration-cell').forEach(function(el) {
         var startStr = el.getAttribute('data-start');

@@ -31,6 +31,20 @@
     /* Teks primary versi soft (di atas surface gelap) & placeholder/dorman. */
     --color-primary-soft: #c7d2fe;
     --color-text-placeholder: #94a3b8;
+    /* === RGB triplet + tone tokens (Batch 7) ===
+       Kontrak lintas-agen — nama & nilai WAJIB persis; kelas utilitas
+       .tone-* / .notice-warning di admin-base.css mensubstitusi memakai
+       rgba(var(--rgb-*), alpha). Token existing (warning-light,
+       danger-light, accent-light, primary-light) TIDAK dideklarasikan ulang:
+       rekonsiliasi memakai padanan yang sudah ada di atas. */
+    --rgb-success: 16, 185, 129;        /* triplet hijau — surface/border badge sukses */
+    --color-success-light: #34d399;     /* teks sukses terang di atas surface gelap */
+    --rgb-warning: 245, 158, 11;        /* triplet kuning — .tone-warning & .notice-warning */
+    --rgb-danger: 239, 68, 68;          /* triplet merah — .tone-danger (pasangan --color-danger) */
+    --rgb-info: 99, 102, 241;           /* triplet indigo info — pasangan var(--color-primary-light) */
+    --rgb-accent: 168, 85, 247;         /* triplet aksen ungu — .tone-accent (beda dari --color-accent #8b5cf6) */
+    /* Surface kaca lebih pekat dari --color-surface — latar .tone-neutral. */
+    --glass-bg-strong: rgba(255, 255, 255, 0.06);
     --color-text: #f8fafc;
     --color-text-secondary: #cbd5e1;
     --color-text-muted: #a0aec0;
