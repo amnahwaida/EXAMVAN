@@ -367,11 +367,13 @@
 - **Lokasi:** `hasil.html:451` (+ `103-110`): rank 1–3 diberi warna emas/perunggu; rata-rata & nilai terendah publik.
 - **Isu:** Siapa pun yang mengetahui/menebak URL token bisa melihat peringkat seluruh siswa termasuk nilai TERENDAH. Secara sosial-emosional berdampak ke siswa (perundungan berbasis nilai adalah risiko nyata di sekolah).
 - **Opsi:** (a) peringkat hanya tampil untuk guru/admin, (b) peringkat anonim (nis saja), (c) biarkan — tapi jadilah keputusan sadar. Minimal: nilai terendah/rata-rata kelas hanya untuk guru.
+- **✅ KEPUTUSAN (2026-08-23): opsi (c) — biarkan terbuka, secara sadar.** Lihat rekap "Keputusan produk".
 
 ### P2 — "Remember me" pada login admin belum ada
 - **Lokasi:** `login.html:67-91` (form hanya username/password/turnstile; `autocomplete` sudah benar).
 - **Isu:** Murni keputusan produk. Untuk perangkat guru pribadi, sesi lebih panjang nyaman; untuk perangkat lab bersama, sesi pendek lebih aman.
 - **Opsi:** Checkbox remember-me (extend TTL cookie) + default sesi pendek.
+- **✅ KEPUTUSAN (2026-08-23): tidak dibuat.** Sesi pendek dipertahankan demi keamanan perangkat bersama. Lihat rekap "Keputusan produk".
 
 ### P3 — Ambang warna skor 70/40 hard-coded (terkait T3)
 - **Lokasi:** `hasil.html:791-797`
@@ -454,9 +456,17 @@
 - [x] **R14** Turnstile `data-theme="dark"` kini konsisten by-design (dark-only sejak S17) + komentar penjelas
 - [x] **R15** script setelah `</html>` dipindah ke body, favicon duplikat disisakan satu, register_confirm dapat skip-link
 
-### Keputusan produk (butuh diskusi, bukan kode)
-- [ ] **P1** visibilitas peringkat & nilai terendah publik
-- [ ] **P2** remember-me login admin
+### Keputusan produk ✅ SELESAI (2026-08-23 — diputuskan oleh pemilik produk, terdokumentasi)
+- [x] **P1** visibilitas peringkat & nilai terendah publik → **KEPUTUSAN: C — BIARKAN TERBUKA.**
+  Siapa pun yang punya token hasil ujian tetap dapat melihat peringkat 1–3, rata-rata kelas,
+  dan nilai terendah. Keputusan ini dibuat secara sadar dengan mempertimbangkan risiko
+  perundungan berbasis nilai; mitigasi yang tetap berlaku adalah sifat token itu sendiri
+  (URL harus diketahui/diberikan pengawas). Bila kelak kebijakan sekolah berubah, opsi
+  A (peringkat hanya guru) atau B (peringkat anonim per NIS) tinggal diambil dari catatan ini.
+- [x] **P2** remember-me login admin → **KEPUTUSAN: TIDAK DIBUAT.**
+  Sesi login admin dibiarkan pendek seperti sekarang; guru selalu login ulang saat sesi
+  habis. Alasan: keamanan perangkat lab bersama lebih diutamakan daripada kenyamanan,
+  dan frekuensi login admin dinilai masih wajar.
 
 ---
 
