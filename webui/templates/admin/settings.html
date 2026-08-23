@@ -742,7 +742,7 @@
 {{template "admin/partials/nav.html" dict "active_page" .active_page "admin_role" .admin_role "admin_user" .admin_user "csrf_token" .csrf_token "needs_instansi" .needs_instansi}}
 {{template "admin/partials/settings-tabs.html" dict "active_page" .active_page "admin_role" .admin_role "feature_locked" .feature_locked}}
 
-<main class="dashboard">
+<main class="dashboard" id="mainContent">
  {{ $role := .admin_role }}
 {{ $isSuper := contains $role "superadmin" }}
 {{ $isOp := contains $role "operator" }}
@@ -936,7 +936,7 @@
       loadUsersList() di admin.js (onchange memuat ulang dari halaman 1). -->
  <div class="users-toolbar">
 <div class="toolbar-search-wrap">
-  <input type="text" id="userSearchInput" placeholder="Cari username, nama, atau email..." class="toolbar-search-input"
+  <input type="text" id="userSearchInput" placeholder="Cari username, nama, atau email..." aria-label="Cari pengguna" class="toolbar-search-input"
    onkeydown="if(event.key==='Enter'){ clearTimeout(window.__usersSearchTimer); loadUsersList(1); }" oninput="onUsersSearchInput(this)">
   <button class="search-clear-btn" onclick="clearUsersSearch()" id="userSearchClearBtn" title="Hapus pencarian" aria-label="Hapus pencarian" style="display:none;"><svg class="icon-svg" style="width:14px;height:14px;"><use href="#hi-x"/></svg></button>
  </div>
@@ -1158,10 +1158,10 @@
 </div>
 
 <!-- Confirm Redeem Voucher Modal -->
-<div class="modal-overlay" id="confirmRedeemModal" style="display:none;" onclick="closeConfirmRedeemModal(event)">
+<div class="modal-overlay" id="confirmRedeemModal" role="dialog" aria-modal="true" aria-labelledby="confirmRedeemModalTitle" style="display:none;" onclick="closeConfirmRedeemModal(event)">
  <div class="modal-card" style="max-width: 440px;" onclick="event.stopPropagation()">
   <div class="modal-header">
-   <h3 style="font-size:1.1rem;color:#fff;margin:0;display:flex;align-items:center;gap:8px;">
+   <h3 id="confirmRedeemModalTitle" style="font-size:1.1rem;color:#fff;margin:0;display:flex;align-items:center;gap:8px;">
     <svg class="icon-svg" style="width:20px;height:20px;color:#c084fc;"><use href="#hi-ticket"/></svg>
     Konfirmasi Klaim Voucher
    </h3>
@@ -1278,7 +1278,7 @@
  <!-- Toolbar -->
  <div style="display:flex;gap:10px;margin-bottom:16px;flex-wrap:wrap;align-items:center;">
   <div style="position:relative;flex:1;min-width:220px;max-width:360px;">
-   <input type="text" id="auditSearchInput" placeholder="Cari username / kode voucher..." value=""
+   <input type="text" id="auditSearchInput" placeholder="Cari username / kode voucher..." value="" aria-label="Cari riwayat voucher"
           onkeyup="if(event.key==='Enter') { loadAuditLogs(1); }"
           style="width:100%;padding:10px 38px 10px 14px;background:rgba(255,255,255,0.04);border:1px solid var(--color-glass-border);border-radius:10px;color:#fff;font-size:13px;outline:none;" />
    <svg class="icon-svg" style="position:absolute;right:12px;top:50%;transform:translateY(-50%);width:16px;height:16px;color:var(--color-text-secondary);"><use href="#hi-search"/></svg>
@@ -1312,10 +1312,10 @@
 
 </div>
 <!-- Single Voucher Modal -->
-<div class="modal-overlay" id="singleModal" onclick="if(event.target===this)closeSingleModal()" style="display:none;">
+<div class="modal-overlay" id="singleModal" role="dialog" aria-modal="true" aria-labelledby="singleModalTitle" onclick="if(event.target===this)closeSingleModal()" style="display:none;">
  <div class="modal-card" style="max-width:500px;">
   <div class="modal-header">
-   <h3 style="font-size:1.1rem;color:#fff;margin:0;">Buat Voucher Single</h3>
+   <h3 id="singleModalTitle" style="font-size:1.1rem;color:#fff;margin:0;">Buat Voucher Single</h3>
    <button class="modal-close" onclick="closeSingleModal()" aria-label="Tutup">&times;</button>
   </div>
   <div style="padding:20px;max-height:calc(90vh - 60px);overflow-y:auto;-webkit-overflow-scrolling:touch;">
@@ -1421,10 +1421,10 @@
 </div>
 
 <!-- Batch Voucher Modal -->
-<div class="modal-overlay" id="batchModal" onclick="if(event.target===this)closeBatchModal()" style="display:none;">
+<div class="modal-overlay" id="batchModal" role="dialog" aria-modal="true" aria-labelledby="batchModalTitle" onclick="if(event.target===this)closeBatchModal()" style="display:none;">
  <div class="modal-card" style="max-width:500px;">
   <div class="modal-header">
-   <h3 style="font-size:1.1rem;color:#fff;margin:0;">Generate Batch Voucher (Banyak)</h3>
+   <h3 id="batchModalTitle" style="font-size:1.1rem;color:#fff;margin:0;">Generate Batch Voucher (Banyak)</h3>
    <button class="modal-close" onclick="closeBatchModal()" aria-label="Tutup">&times;</button>
   </div>
   <div style="padding:20px;max-height:calc(90vh - 60px);overflow-y:auto;-webkit-overflow-scrolling:touch;">
@@ -1535,7 +1535,7 @@
 </div>
 
 <!-- Redemptions History Modal -->
-<div class="modal-overlay" id="redemptionsModal" onclick="if(event.target===this)closeRedemptionsModal()" style="display:none;">
+<div class="modal-overlay" id="redemptionsModal" role="dialog" aria-modal="true" aria-labelledby="redemptionsTitle" onclick="if(event.target===this)closeRedemptionsModal()" style="display:none;">
  <div class="modal-card" style="max-width:550px;">
   <div class="modal-header">
    <h3 style="font-size:1.1rem;color:#fff;margin:0;" id="redemptionsTitle">Pengguna Voucher</h3>
@@ -1547,13 +1547,13 @@
  </div>
 </div>
 <!-- Confirm Action Modal -->
-<div class="modal-overlay" id="confirmActionModal" style="display:none;" onclick="closeConfirmActionModal(event)">
+<div class="modal-overlay" id="confirmActionModal" role="dialog" aria-modal="true" aria-labelledby="confirmActionTitle" style="display:none;" onclick="closeConfirmActionModal(event)">
  <div class="modal-card" style="max-width:440px;" onclick="event.stopPropagation()">
   <div class="modal-header">
    <h3 style="font-size:1.1rem;color:#fff;margin:0;display:flex;align-items:center;gap:8px;" id="confirmActionTitle">
     Konfirmasi Tindakan
    </h3>
-   <button class="modal-close" onclick="closeConfirmActionModal()">&times;</button>
+   <button class="modal-close" onclick="closeConfirmActionModal()" aria-label="Tutup">&times;</button>
   </div>
   <div style="padding:20px 24px 24px;">
    <p style="color:var(--color-text-secondary);font-size:13.5px;margin:0 0 20px 0;" id="confirmActionMessage">
@@ -2155,7 +2155,7 @@
 </main>
 
 <!-- Modal Ubah Password -->
-<div class="modal-overlay" id="changePasswordModal" style="display:none;">
+<div class="modal-overlay" id="changePasswordModal" role="dialog" aria-modal="true" aria-labelledby="changePasswordModalTitle" style="display:none;">
  <div class="modal-card glass-card" style="max-width: 420px;">
  <div class="modal-header">
  <h3 id="changePasswordModalTitle"><svg class="icon-svg" style="vertical-align:middle;margin-top:-2px;"><use href="#hi-key"/></svg> Ubah Password</h3>

@@ -127,7 +127,11 @@
 
 {{template "admin/partials/nav.html" dict "active_page" .active_page "admin_role" .admin_role "admin_user" .admin_user "csrf_token" .csrf_token "needs_instansi" .needs_instansi}}
 
-<main class="dashboard">
+<!-- T13: container toast wajib ada di sini — showToast (sukses hapus hasil,
+     gagal muat detail) tidak tampil sama sekali tanpa elemen ini. -->
+<div class="toast-container" id="toastContainer" aria-live="polite" aria-atomic="true"></div>
+
+<main class="dashboard" id="mainContent">
  <h1 class="sr-only" style="position:absolute;left:-9999px;">Rekapitulasi Hasil Ujian</h1>
 
   <!-- Page Header: Title & Filter Controls (Borderless) -->
@@ -141,10 +145,10 @@
       <select id="filterExam" onchange="filterSubmissions()" class="toolbar-select" style="min-width:180px;">
         <option value="">Semua Ujian</option>
         {{range .exams}}
-        <option value="{{index . "id"}}" {{if eq (printf "%d" (index . "id")) (printf "%d" $.exam_filter_param)}}selected{{end}}>{{index . "name"}} (oleh {{index . "creator"}}){{if index . "tombstoned"}} — Ditombstone{{end}}</option>
+        <option value="{{index . "id"}}" {{if eq (printf "%d" (index . "id")) (printf "%d" $.exam_filter_param)}}selected{{end}}>{{index . "name"}} (oleh {{index . "creator"}}){{if index . "tombstoned"}} — Nonaktif Otomatis{{end}}</option>
         {{end}}
       </select>
-      <button class="toolbar-btn" onclick="exportSubmissions()" title="Ekspor ke Excel sesuai filter ujian yang dipilih. Pilih Semua Ujian di filter untuk mengekspor seluruh data." style="height:36px;display:inline-flex;align-items:center;gap:6px;font-size:13px;"><svg class="icon-svg" style="width:16px;height:16px;"><use href="#hi-download"/></svg> Export Excel</button>
+      <button class="toolbar-btn" onclick="exportSubmissions()" title="Ekspor ke Excel sesuai filter ujian yang dipilih. Pilih Semua Ujian di filter untuk mengekspor seluruh data." style="height:36px;display:inline-flex;align-items:center;gap:6px;font-size:13px;"><svg class="icon-svg" style="width:16px;height:16px;"><use href="#hi-download"/></svg> Ekspor Excel</button>
     </div>
   </div>
 
@@ -160,7 +164,7 @@
         {{if eq (index $ei "status") "active"}}
         <span class="status-badge status-active" style="cursor:default;">Aktif</span>
         {{else if index $ei "tombstoned"}}
-        <span class="status-badge status-tombstoned" style="cursor:default;" title="Nonaktif otomatis oleh sistem saat paket berakhir/berganti atau masa aktif akun habis{{if index $ei "tombstoned_at"}} ({{formatExamTime (index $ei "tombstoned_at")}} WIB){{end}}">Ditombstone</span>
+        <span class="status-badge status-tombstoned" style="cursor:default;" title="Nonaktif otomatis oleh sistem saat paket berakhir/berganti atau masa aktif akun habis{{if index $ei "tombstoned_at"}} ({{formatExamTime (index $ei "tombstoned_at")}} WIB){{end}}">Nonaktif Otomatis</span>
         {{else}}
         <span class="status-badge status-inactive" style="cursor:default;">Nonaktif</span>
         {{end}}
@@ -348,10 +352,10 @@
 <div class="identity-popup" id="identityPopup" style="display:none;"></div>
 
 <!-- Detail Submission Modal -->
-<div class="modal-overlay" id="detailModal">
+<div class="modal-overlay" id="detailModal" role="dialog" aria-modal="true" aria-labelledby="detailModalTitle">
 <div class="modal-card" style="max-width:700px;">
 <div class="modal-header">
-<h3><svg class="icon-svg" style="vertical-align:middle;margin-top:-2px;"><use href="#hi-eye"/></svg> Detail Jawaban Siswa</h3>
+<h3 id="detailModalTitle"><svg class="icon-svg" style="vertical-align:middle;margin-top:-2px;"><use href="#hi-eye"/></svg> Detail Jawaban Siswa</h3>
 <button class="modal-close" onclick="closeDetailModal()" aria-label="Tutup"><svg class="icon-svg" style="width:18px;height:18px;"><use href="#hi-x"/></svg></button>
 </div>
 <div class="modal-body">

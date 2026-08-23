@@ -931,12 +931,15 @@ font-weight: 600;
 
 /* Teachers print/save this page; the dark-theme palette would otherwise
    produce near-white text on white paper. */
+/* R20: selector dulu salah (.search-card/.pagination tidak eksis di markup).
+   Kelas nyata: .search-section & .pagination-wrapper; .header-badge ikut
+   disembunyikan agar cetak bersih. */
 @media print {
 body {
 background: #fff !important;
 color: #111827 !important;
 }
-.bg-orbs, .bg-orb, .back-nav, .tab-nav, .search-card, .pagination, .skip-link { display: none !important; }
+.bg-orbs, .bg-orb, .back-nav, .tab-nav, .header-badge, .search-section, .pagination-wrapper, .skip-link { display: none !important; }
 .exam-hero, .glass-card, .results-table tbody tr {
 background: #fff !important;
 border-color: #d1d5db !important;

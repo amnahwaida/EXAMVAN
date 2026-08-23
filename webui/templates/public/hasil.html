@@ -17,8 +17,8 @@
  <meta charset="UTF-8">
  <meta name="viewport" content="width=device-width, initial-scale=1.0">
  {{ template "public_fonts" . }}
- <title>EXAMVAN - Hasil Ujian {{.exam_name}}</title>
- <meta name="description" content="Lihat hasil ujian {{.exam_name}} - EXAMVAN">
+ <title>EXAMVAN - {{if .exam_name}}Hasil Ujian {{.exam_name}}{{else}}Hasil Ujian{{end}}</title>
+ <meta name="description" content="{{if .exam_name}}Lihat hasil ujian {{.exam_name}} - EXAMVAN{{else}}Lihat hasil ujian - EXAMVAN{{end}}">
  <meta name="robots" content="noindex, nofollow">
  <link rel="stylesheet" href="/static/css/theme.css?v={{.version}}">
  <link rel="stylesheet" href="/static/css/tailwind/output.css?v={{.version}}">
@@ -55,7 +55,7 @@
 </head>
 <body>
  <div class="toast-container" id="toastContainer" aria-live="polite" aria-atomic="true"></div>
- <a href="#main-content" class="skip-link" style="position:absolute;left:-9999px;z-index:9999;padding:12px 20px;background:var(--color-primary,#6366f1);color:white;border-radius:8px;font-weight:600;text-decoration:none;">Langsung ke konten</a>
+ {{ template "public_skip_link" . }}
  <!-- Heroicons Sprite -->
  <svg xmlns="http://www.w3.org/2000/svg" style="display:none;" aria-hidden="true">
   <symbol id="hi-results" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M3 13.125C3 12.504 3.504 12 4.125 12h2.25c.621 0 1.125.504 1.125 1.125v6.75C7.5 20.496 6.996 21 6.375 21h-2.25A1.125 1.125 0 0 1 3 19.875v-6.75ZM9.75 8.625c0-.621.504-1.125 1.125-1.125h2.25c.621 0 1.125.504 1.125 1.125v11.25c0 .621-.504 1.125-1.125 1.125h-2.25a1.125 1.125 0 0 1-1.125-1.125V8.625ZM16.5 4.125c0-.621.504-1.125 1.125-1.125h2.25C20.496 3 21 3.504 21 4.125v15.75c0 .621-.504 1.125-1.125 1.125h-2.25a1.125 1.125 0 0 1-1.125-1.125V4.125Z"/></symbol>
@@ -101,7 +101,37 @@
  </header>
 
  <main class="main" id="main-content">
- <!-- Exam Hero -->
+ {{if .is_disabled}}
+ <!-- T12: state non-sukses — judul netral sederhana, tanpa hero dinamis
+      (exam_name internal / chip "Peserta: 0" menyesatkan saat error). -->
+ <section class="exam-hero">
+ <h1>Hasil Ujian</h1>
+ </section>
+ <section class="glass-card" style="padding: 60px 40px; text-align: center; margin-top: 24px; border: 1px solid rgba(239, 68, 68, 0.15); background: rgba(239, 68, 68, 0.02);">
+ <svg class="icon-svg" style="width:60px;height:60px;margin-bottom:20px;color:#ef4444;filter:drop-shadow(0 0 10px rgba(239,68,68,0.3));" aria-hidden="true"><use href="#hi-lock"/></svg>
+ <h2 style="font-size: 1.6rem; font-weight: 800; color: #f8fafc; margin-bottom: 12px; font-family: 'Inter', sans-serif;">Halaman Hasil Dinonaktifkan</h2>
+ <p style="color: var(--color-text-secondary); max-width: 520px; margin: 0 auto 28px auto; line-height: 1.7; font-size: 0.95rem;">
+ Halaman hasil ujian untuk siswa pada ujian ini telah dinonaktifkan oleh Guru / Admin yang bersangkutan.
+ Silakan hubungi pihak sekolah untuk mendapatkan informasi nilai Anda.
+ </p>
+ <div style="display: inline-flex; justify-content: center; width: 100%;">
+ <a href="/" style="background: linear-gradient(135deg, var(--color-primary), var(--color-accent)); color: white; padding: 12px 28px; border-radius: 12px; font-weight: 600; text-decoration: none; display: inline-flex; align-items: center; gap: 8px; box-shadow: 0 4px 20px rgba(99, 102, 241, 0.25); transition: all 0.3s;">
+ <svg class="icon-svg" style="width:14px;height:14px;vertical-align:middle;" aria-hidden="true"><use href="#hi-arrow-left"/></svg> Kembali ke Beranda
+ </a>
+ </div>
+ </section>
+ {{else if .error}}
+ <!-- T12: judul netral juga untuk state error -->
+ <section class="exam-hero">
+ <h1>Hasil Ujian</h1>
+ </section>
+ <section class="glass-card" style="padding: 60px 40px; text-align: center; margin-top: 24px;">
+ <svg class="icon-svg" style="width:60px;height:60px;margin-bottom:20px;color:#f87171;" aria-hidden="true"><use href="#hi-x"/></svg>
+ <h2 style="font-size: 1.4rem; font-weight: 700; color: #f8fafc; margin-bottom: 12px;">Ujian Tidak Ditemukan</h2>
+ <p style="color: var(--color-text-secondary);">Token "{{.token}}" tidak valid atau ujian tidak ditemukan.</p>
+ </section>
+ {{else}}
+ <!-- Exam Hero — hanya dirender pada state sukses (T12) -->
  <section class="exam-hero">
  <h1 id="examTitle">{{.exam_name}}</h1>
  <div class="exam-meta">
@@ -138,27 +168,6 @@
  <!-- T3: legenda ambang tampilan warna skor — ditampilkan saat statistik termuat -->
  <p class="score-legend" id="scoreLegend" style="display: none;">Ambang tampilan: Hijau ≥ 70 · Kuning 40–69 · Merah &lt; 40 (ambang sementara — KKM sekolah dapat berbeda)</p>
  </section>
- {{if .is_disabled}}
- <section class="glass-card" style="padding: 60px 40px; text-align: center; margin-top: 24px; border: 1px solid rgba(239, 68, 68, 0.15); background: rgba(239, 68, 68, 0.02);">
- <svg class="icon-svg" style="width:60px;height:60px;margin-bottom:20px;color:#ef4444;filter:drop-shadow(0 0 10px rgba(239,68,68,0.3));" aria-hidden="true"><use href="#hi-lock"/></svg>
- <h2 style="font-size: 1.6rem; font-weight: 800; color: #f8fafc; margin-bottom: 12px; font-family: 'Inter', sans-serif;">Halaman Hasil Dinonaktifkan</h2>
- <p style="color: var(--color-text-secondary); max-width: 520px; margin: 0 auto 28px auto; line-height: 1.7; font-size: 0.95rem;">
- Halaman hasil ujian untuk siswa pada ujian ini telah dinonaktifkan oleh Guru / Admin yang bersangkutan.
- Silakan hubungi pihak sekolah untuk mendapatkan informasi nilai Anda.
- </p>
- <div style="display: inline-flex; justify-content: center; width: 100%;">
- <a href="/" style="background: linear-gradient(135deg, var(--color-primary), var(--color-accent)); color: white; padding: 12px 28px; border-radius: 12px; font-weight: 600; text-decoration: none; display: inline-flex; align-items: center; gap: 8px; box-shadow: 0 4px 20px rgba(99, 102, 241, 0.25); transition: all 0.3s;">
- <svg class="icon-svg" style="width:14px;height:14px;vertical-align:middle;" aria-hidden="true"><use href="#hi-arrow-left"/></svg> Kembali ke Beranda
- </a>
- </div>
- </section>
- {{else if .error}}
- <section class="glass-card" style="padding: 60px 40px; text-align: center; margin-top: 24px;">
- <svg class="icon-svg" style="width:60px;height:60px;margin-bottom:20px;color:#f87171;" aria-hidden="true"><use href="#hi-x"/></svg>
- <h2 style="font-size: 1.4rem; font-weight: 700; color: #f8fafc; margin-bottom: 12px;">Ujian Tidak Ditemukan</h2>
- <p style="color: var(--color-text-secondary);">Token "{{.token}}" tidak valid atau ujian tidak ditemukan.</p>
- </section>
- {{else}}
  <!-- Tab Navigation -->
  <div class="tab-nav" id="tabNav" style="display: none;">
  <button class="tab-btn active" id="tabScores" onclick="switchTab('scores')" aria-label="Daftar Nilai">
@@ -173,9 +182,10 @@
  <section class="search-section">
  <div class="search-row">
  <div class="search-input-wrapper">
- <input type="text" class="search-input" id="searchInput"
-  placeholder="Cari berdasarkan nama siswa..."
-  oninput="filterResults(); var c=document.getElementById('searchClearBtn'); if(c)c.style.display=this.value?'flex':'none'">
+<input type="text" class="search-input" id="searchInput"
+   placeholder="Cari berdasarkan nama siswa..."
+   aria-label="Cari nama siswa"
+   oninput="filterResults(); var c=document.getElementById('searchClearBtn'); if(c)c.style.display=this.value?'flex':'none'">
  <button class="search-clear-btn" id="searchClearBtn" onclick="document.getElementById('searchInput').value='';filterResults();this.style.display='none'" style="display:none;" title="Hapus pencarian" aria-label="Hapus pencarian"><svg class="icon-svg" style="width:14px;height:14px;"><use href="#hi-x"/></svg></button>
  </div>
  </div>
@@ -285,8 +295,10 @@
  let resultsRerunPending = false;
 
  // ===== Init =====
+ const pageHasError = {{if .error}}true{{else}}false{{end}};
  document.addEventListener('DOMContentLoaded', () => {
- if (!isDisabled) {
+ // T12: state error tidak punya elemen hero/tabel — jangan mulai polling.
+ if (!isDisabled && !pageHasError) {
  loadResults();
  }
  });

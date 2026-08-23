@@ -12,7 +12,7 @@
 
 {{template "admin/partials/nav.html" dict "active_page" .active_page "admin_role" .admin_role "admin_user" .admin_user "csrf_token" .csrf_token "needs_instansi" .needs_instansi}}
 
-<main class="dashboard">
+<main class="dashboard" id="mainContent">
  <h1 class="sr-only" style="position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0;">Pengawasan Ujian</h1>
 
  <!-- Stats Cards -->
@@ -50,12 +50,14 @@
  <!-- Exam Cards -->
  <section class="glass-card" style="margin-top: 24px;">
   <div class="table-header flex items-center justify-between mb-5 flex-wrap gap-3">
-   <h3 style="font-size: 1.1rem; color: #a5b4fc; display: flex; align-items: center; gap: 8px;">
+   <!-- R19: seksi naik h3→h2 agar hierarki h1→h2 tidak melompat;
+        font-size inline 1.1rem dari h3 lama dipertahankan (visual identik). -->
+   <h2 style="font-size: 1.1rem; color: #a5b4fc; display: flex; align-items: center; gap: 8px;">
     <svg class="icon-svg" style="color:#a5b4fc;"><use href="#hi-eye"/></svg> Ujian yang Saya Awasi
-   </h3>
+   </h2>
    <div class="table-toolbar">
     <div class="toolbar-search-wrap">
-     <input type="text" id="pengawasSearch" class="toolbar-search-input" placeholder="Cari nama ujian, token, pembuat...">
+     <input type="text" id="pengawasSearch" class="toolbar-search-input" placeholder="Cari nama ujian, token, pembuat..." aria-label="Cari ujian">
 
     </div>
     <button class="toolbar-btn toolbar-btn-search" onclick="loadPengawasExams()"><svg class="icon-svg"><use href="#hi-search"/></svg> Cari</button>
@@ -276,14 +278,15 @@ function loadPengawasExams(page) {
                 var barColor = pct >= 100 ? '#34d399' : (pct > 0 ? '#60a5fa' : '#6b7280');
                 // Three-state badge: a tombstoned exam (auto-inactivated by
                 // policy B when the school operator was cut off) reads
-                // "Ditombstone" instead of a bare "Nonaktif" so the operator
-                // is not left wondering why the exam is dormant.
+                // "Nonaktif Otomatis" instead of a bare "Nonaktif" so the
+                // operator is not left wondering why the exam is dormant.
+                // Label kanonik sama dengan dashboard (S24).
                 var statusHtml;
                 if (ex.status === 'active') {
                     statusHtml = '<span class="status-badge status-active">Aktif</span>';
                 } else if (ex.tombstoned) {
                     var tombTitle = 'Nonaktif otomatis oleh sistem saat paket berakhir/berganti atau masa aktif akun habis' + (ex.tombstoned_at ? ' (' + ex.tombstoned_at + ')' : '');
-                    statusHtml = '<span class="status-badge status-tombstoned" title="' + tombTitle + '">Ditombstone</span>';
+                    statusHtml = '<span class="status-badge status-tombstoned" title="' + tombTitle + '">Nonaktif Otomatis</span>';
                 } else {
                     statusHtml = '<span class="status-badge status-inactive">Nonaktif</span>';
                 }

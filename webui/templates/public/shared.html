@@ -59,6 +59,16 @@
  </script>
 {{ end }}
 
+{{ define "public_skip_link" }}{{/*
+  S30: single source of truth untuk skip-link publik (WCAG 2.4.1).
+  Base styling off-screen didefinisikan DI SINI sekali; reveal saat focus
+  tetap ditangani .skip-link:focus di theme.css (:77-84) yang dimuat semua
+  halaman publik. Target anchor #main-content wajib eksis per halaman.
+*/}}
+ <style>.skip-link{position:absolute;left:-9999px;z-index:9999;padding:12px 20px;background:var(--color-primary,#6366f1);color:#fff;border-radius:8px;font-weight:600;text-decoration:none;}</style>
+ <a href="#main-content" class="skip-link">Langsung ke konten</a>
+{{ end }}
+
 {{ define "public_head" }}
 {{/*
   EXAMVAN Public Landing Page
@@ -913,7 +923,7 @@
 </head>
 <body>
 
- <a href="#main-content" class="skip-link" style="position:absolute;left:-9999px;z-index:9999;padding:12px 20px;background:var(--color-primary,#6366f1);color:white;border-radius:8px;font-weight:600;text-decoration:none;">Langsung ke konten</a>
+ {{ template "public_skip_link" . }}
 
  <!-- Glow Blobs -->
  <div class="glow-blob blob-1"></div>
@@ -936,7 +946,12 @@
  document.addEventListener("DOMContentLoaded", function() {
    var path = window.location.pathname;
    document.querySelectorAll(".nav-link").forEach(function(link) {
-     if (link.getAttribute("href") === path) link.classList.add("active");
+     var isActive = link.getAttribute("href") === path;
+     // R17: aria-current="page" — class .active hanya visual, screen reader
+     // butuh atribut semantik; link lain wajib dibersihkan.
+     link.classList.toggle("active", isActive);
+     if (isActive) link.setAttribute("aria-current", "page");
+     else link.removeAttribute("aria-current");
    });
  });
  </script>

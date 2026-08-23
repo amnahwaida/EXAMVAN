@@ -1,5 +1,11 @@
 {{template "admin/partials/svg-symbols.html"}}
 {{ $adminRole := .admin_role }}
+<!-- Skip-link WCAG 2.4.1 (S30): elemen interaktif pertama di semua halaman
+     yang memuat partial ini. CSS reveal ada di theme.css (.skip-link:focus),
+     perilaku focus/blur di admin-core.js initSkipLink(). Target #mainContent:
+     dashboard/settings sudah punya id ini pada <main>; halaman lain akan
+     menyusul (anchor tak eksis = no-op aman, link tetap terfokus). -->
+<a href="#mainContent" class="skip-link" style="position:absolute;left:-9999px;z-index:9999;padding:12px 20px;background:var(--color-primary,#6366f1);color:white;border-radius:8px;font-weight:600;text-decoration:none;">Langsung ke konten utama</a>
 {{ $isSuper := contains $adminRole "superadmin" }}
 {{ $isOp := contains $adminRole "operator" }}
 {{ $isGuru := or (contains $adminRole "guru") (or $isSuper $isOp) }}

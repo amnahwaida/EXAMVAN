@@ -337,18 +337,9 @@ function copyToken(token) {
         showToast('Token belum tersedia', 'error');
         return;
     }
-    navigator.clipboard.writeText(token).then(() => {
-        showToast(`Token "${token}" berhasil disalin`, 'success');
-    }).catch(() => {
-        // Fallback for older browsers
-        const textarea = document.createElement('textarea');
-        textarea.value = token;
-        document.body.appendChild(textarea);
-        textarea.select();
-        document.execCommand('copy');
-        textarea.remove();
-        showToast(`Token "${token}" berhasil disalin`, 'success');
-    });
+    // S29: delegasi ke copyCode (admin-core.js) yang berguard clipboard API
+    // + fallback execCommand + toast — aman di origin HTTP LAN.
+    copyCode(String(token));
 }
 
 // Copy all visible active tokens to clipboard (excludes permanent token)
@@ -358,18 +349,8 @@ function copyAllTokens() {
         showToast('Tidak ada token tersedia', 'error');
         return;
     }
-    const text = tokens.map((t, i) => `${i + 1}. ${t}`).join('\n');
-    navigator.clipboard.writeText(text).then(() => {
-        showToast(`${tokens.length} token berhasil disalin ke clipboard`, 'success');
-    }).catch(() => {
-        const textarea = document.createElement('textarea');
-        textarea.value = text;
-        document.body.appendChild(textarea);
-        textarea.select();
-        document.execCommand('copy');
-        textarea.remove();
-        showToast(`${tokens.length} token berhasil disalin`, 'success');
-    });
+    // S29: guard+fallback lewat copyCode.
+    copyCode(tokens.map((t, i) => `${i + 1}. ${t}`).join('\n'));
 }
 
 // Copy results short link to clipboard
@@ -378,18 +359,8 @@ function copyResultsLink(token) {
         showToast('Token belum tersedia', 'error');
         return;
     }
-    const link = window.location.origin + '/hasil/' + token;
-    navigator.clipboard.writeText(link).then(() => {
-        showToast(`Link hasil ujian berhasil disalin: ${link}`, 'success');
-    }).catch(() => {
-        const textarea = document.createElement('textarea');
-        textarea.value = link;
-        document.body.appendChild(textarea);
-        textarea.select();
-        document.execCommand('copy');
-        textarea.remove();
-        showToast(`Link hasil ujian berhasil disalin: ${link}`, 'success');
-    });
+    // S29: guard+fallback lewat copyCode.
+    copyCode(window.location.origin + '/hasil/' + token);
 }
 
 // Token mode handlers (static vs dynamic)
@@ -1417,6 +1388,13 @@ function clearSchedule() {
 function saveQuestionsConfig() {
     if (!activeExamId) return;
 
+    // S27 double-submit guard: disable tombol selama request (pola createUser).
+    var btn = document.getElementById('btnSaveQuestionsConfig');
+    if (!btn || btn.disabled) return;
+    btn.disabled = true;
+    var originalHtml = btn.innerHTML;
+    var restoreBtn = function() { btn.disabled = false; btn.innerHTML = originalHtml; };
+
     const questions = getQuestionsFromEditor();
     const securityLevel = document.getElementById('examSecurityLevel') ? document.getElementById('examSecurityLevel').value : 'medium';
     const strictMode = securityLevel === 'high';
@@ -1454,9 +1432,9 @@ function saveQuestionsConfig() {
                 showToast(res.message || 'Gagal menyimpan konfigurasi', 'error');
             }
         })
-        .catch(() => showToast('Gagal menyimpan konfigurasi', 'error'));
+        .catch(() => showToast('Gagal menyimpan konfigurasi', 'error'))
+        .finally(restoreBtn);
 }
-
 
 // ===== Change Password Modal =====
 
@@ -1490,6 +1468,14 @@ function submitChangePassword(e) {
         return;
     }
 
+    // S27 double-submit guard (pola createUser): disable tombol submit selama
+    // request; klik ganda/Enter berulang tidak mengirim POST kedua.
+    var btn = e.target.querySelector('button[type="submit"]');
+    if (!btn || btn.disabled) return;
+    btn.disabled = true;
+    var originalHtml = btn.innerHTML;
+    var restoreBtn = function() { btn.disabled = false; btn.innerHTML = originalHtml; };
+
     apiFetch('/admin/api/change-password', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -1507,7 +1493,8 @@ function submitChangePassword(e) {
                 showToast(res.message || 'Gagal mengubah password', 'error');
             }
         })
-        .catch(() => showToast('Gagal mengubah password', 'error'));
+        .catch(() => showToast('Gagal mengubah password', 'error'))
+        .finally(restoreBtn);
 }
 
 
@@ -2530,6 +2517,13 @@ function submitEditToken(e) {
         return;
     }
 
+    // S27 double-submit guard (pola createUser).
+    var btn = e.target.querySelector('button[type="submit"]');
+    if (!btn || btn.disabled) return;
+    btn.disabled = true;
+    var originalHtml = btn.innerHTML;
+    var restoreBtn = function() { btn.disabled = false; btn.innerHTML = originalHtml; };
+
     apiFetch(`/admin/api/exams/${examId}/edit-token`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -2581,7 +2575,8 @@ function submitEditToken(e) {
                 showToast(res.message || 'Gagal mengubah token', 'error');
             }
         })
-        .catch(() => showToast('Koneksi gagal', 'error'));
+        .catch(() => showToast('Koneksi gagal', 'error'))
+        .finally(restoreBtn);
 }
 
 
@@ -2788,9 +2783,8 @@ Contoh:
 Mulai analisis dokumen soal ujian berikut:`;
 
 function copyAIPrompt() {
-    navigator.clipboard.writeText(AI_PROMPT_CONTENT)
-        .then(() => showToast("Prompt AI berhasil disalin ke clipboard!", "success"))
-        .catch(() => showToast("Gagal menyalin prompt", "error"));
+    // S29: guard+fallback lewat copyCode.
+    copyCode(AI_PROMPT_CONTENT);
 }
 
 // Toggle public student results access page
@@ -3317,6 +3311,13 @@ async function bulkDeleteExams() {
     const checkboxes = document.querySelectorAll('.exam-checkbox:checked');
     if (checkboxes.length === 0) return;
 
+    // S27 double-submit guard: tombol toolbar bulk-delete dinonaktifkan selama
+    // request; restore di finally agar error jaringan pun memulihkannya.
+    const btn = document.getElementById('bulkDeleteBtn');
+    if (!btn || btn.disabled) return;
+    btn.disabled = true;
+    var originalHtml = btn.innerHTML;
+
     const ids = Array.from(checkboxes).map(cb => parseInt(cb.value));
     // Confirmation already handled by confirmBulkDelete() in template
 
@@ -3337,6 +3338,9 @@ async function bulkDeleteExams() {
         }
     } catch (err) {
         showToast('Gagal menghubungi server', 'error');
+    } finally {
+        btn.disabled = false;
+        btn.innerHTML = originalHtml;
     }
 }
 
@@ -3822,6 +3826,12 @@ async function bulkToggleExams() {
     const confirmed = await showConfirm(`${actionLabel} ${ids.length} ujian terpilih?`, '', `Ya, ${actionLabel}`, 'Batal');
     if (!confirmed) return;
 
+    // S27 double-submit guard (setelah konfirmasi disetujui).
+    const btn = document.getElementById('bulkToggleBtn');
+    if (!btn || btn.disabled) return;
+    btn.disabled = true;
+    var originalHtml = btn.innerHTML;
+
     try {
         const response = await apiFetch('/admin/api/exams/bulk-toggle', {
             method: 'POST',
@@ -3839,6 +3849,9 @@ async function bulkToggleExams() {
         }
     } catch (err) {
         showToast('Gagal menghubungi server', 'error');
+    } finally {
+        btn.disabled = false;
+        btn.innerHTML = originalHtml;
     }
 }
 

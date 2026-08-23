@@ -186,6 +186,8 @@
     margin-bottom: 14px !important;
     padding: 16px !important;
   }
+  /* R19: seksi naik ke h2 — rule mobile mencakup kedua level agar aman */
+  .upload-section h2,
   .upload-section h3 {
     font-size: 1rem !important;
     margin-bottom: 12px !important;
@@ -238,7 +240,7 @@
 <body class="dashboard-page">
 {{template "admin/partials/nav.html" dict "active_page" .active_page "admin_role" .admin_role "admin_user" .admin_user "csrf_token" .csrf_token "needs_instansi" .needs_instansi}}
 
-<main class="dashboard">
+<main class="dashboard" id="mainContent">
 <h1 class="sr-only" style="position:absolute;left:-9999px;">Daftar Ujian</h1>
 
 <!-- Stats Cards -->
@@ -300,7 +302,7 @@
 
 <!-- Network Info -->
 <section class="network-info glass-card">
-<h3><svg class="icon-svg" style="vertical-align:middle;margin-top:-2px;"><use href="#hi-settings"/></svg> Info Server & Paket Aktif</h3>
+<h2 style="font-size:1.15rem;"><svg class="icon-svg" style="vertical-align:middle;margin-top:-2px;"><use href="#hi-settings"/></svg> Info Server & Paket Aktif</h2>
 <div class="network-grid" style="grid-template-columns: repeat(auto-fit, minmax(130px, 1fr));">
 <div class="net-item" title="Paket langganan akun Anda saat ini">
 <span class="net-label">Paket Aktif</span>
@@ -362,7 +364,7 @@
 
 <!-- Upload Section -->
 <section class="upload-section glass-card">
-<h3 style="margin-bottom:16px;display:flex;align-items:center;gap:8px;"><svg class="icon-svg"><use href="#hi-upload"/></svg> Tambah Ujian Baru</h3>
+<h2 style="font-size:1.15rem;margin-bottom:16px;display:flex;align-items:center;gap:8px;"><svg class="icon-svg"><use href="#hi-upload"/></svg> Tambah Ujian Baru</h2>
 <div id="methodPdfForm">
 <form id="uploadForm" class="upload-form" enctype="multipart/form-data">
 <input type="hidden" name="csrf_token" value="{{.csrf_token}}">
@@ -398,7 +400,7 @@
 <!-- Exam Table -->
 <section class="exam-table-section glass-card">
 <div class="table-header">
-<h3><svg class="icon-svg" style="vertical-align:middle;margin-top:-2px;"><use href="#hi-dashboard"/></svg> Daftar Ujian</h3>
+<h2 style="font-size:1.15rem;"><svg class="icon-svg" style="vertical-align:middle;margin-top:-2px;"><use href="#hi-dashboard"/></svg> Daftar Ujian</h2>
 <div class="table-toolbar">
 <select id="statusFilter" onchange="searchExamsWithStatus()" class="toolbar-select" aria-label="Filter status ujian">
 <option value="" {{if eq $.status_filter ""}}selected{{end}}>Semua Status</option>
@@ -409,10 +411,10 @@
 <div class="toolbar-search-wrap">
 <label for="searchExam" style="position:absolute;left:-9999px;">Cari ujian</label>
 <input type="text" id="searchExam" class="toolbar-search-input" placeholder="Cari nama, token, atau pembuat..." value="{{.search}}">
-<button class="toolbar-search-clear" id="searchClearBtn" onclick="clearSearch()" style="display:{{if .search}}flex{{else}}none{{end}};"><svg class="icon-svg" style="width:14px;height:14px;"><use href="#hi-x"/></svg></button>
+<button class="toolbar-search-clear" id="searchClearBtn" onclick="clearSearch()" aria-label="Bersihkan pencarian" style="display:{{if .search}}flex{{else}}none{{end}};"><svg class="icon-svg" style="width:14px;height:14px;"><use href="#hi-x"/></svg></button>
 </div>
 <button class="toolbar-btn toolbar-btn-search" onclick="searchExamsWithStatus()"><svg class="icon-svg"><use href="#hi-search"/></svg> Cari</button>
-<button class="toolbar-btn toolbar-btn-refresh" onclick="location.reload()"><svg class="icon-svg"><use href="#hi-refresh"/></svg></button>
+<button class="toolbar-btn toolbar-btn-refresh" onclick="location.reload()" aria-label="Muat ulang daftar"><svg class="icon-svg"><use href="#hi-refresh"/></svg></button>
 <button class="toolbar-btn toolbar-btn-delete" id="bulkDeleteBtn" onclick="confirmBulkDelete()" style="display:none;"><svg class="icon-svg"><use href="#hi-trash"/></svg> Hapus Terpilih (<span id="bulkDeleteCount">0</span>)</button>
 <button class="toolbar-btn toolbar-btn-toggle" id="bulkToggleBtn" onclick="bulkToggleExams()" style="display:none;"><svg class="icon-svg"><use href="#hi-lock"/></svg> Nonaktifkan Terpilih (<span id="bulkToggleCount">0</span>)</button>
 </div>
@@ -567,7 +569,7 @@
 <!-- ===== Modals (self-contained; perilaku Escape/trap oleh Modal Manager admin-core.js) ===== -->
 
 <!-- Modal Ubah Password -->
-<div class="modal-overlay" id="changePasswordModal">
+<div class="modal-overlay" id="changePasswordModal" role="dialog" aria-modal="true" aria-labelledby="changePasswordModalTitle">
 <div class="modal-card glass-card" style="max-width: 420px;">
 <div class="modal-header">
 <h3 id="changePasswordModalTitle"><svg class="icon-svg" style="vertical-align:middle;margin-top:-2px;"><use href="#hi-key"/></svg> Ubah Password</h3>
@@ -619,10 +621,10 @@
 </div>
 
 <!-- Modal Edit Ujian -->
-<div class="modal-overlay" id="editExamModal">
+<div class="modal-overlay" id="editExamModal" role="dialog" aria-modal="true" aria-labelledby="editExamModalTitle">
 <div class="modal-card glass-card" style="max-width: 480px;">
 <div class="modal-header">
-<h3><svg class="icon-svg" style="vertical-align:middle;margin-top:-2px;"><use href="#hi-edit"/></svg> Edit Ujian (Nama &amp; PDF)</h3>
+<h3 id="editExamModalTitle"><svg class="icon-svg" style="vertical-align:middle;margin-top:-2px;"><use href="#hi-edit"/></svg> Edit Ujian (Nama &amp; PDF)</h3>
 <button class="modal-close" onclick="closeEditExamModal()" aria-label="Tutup"><svg class="icon-svg" style="width:18px;height:18px;"><use href="#hi-x"/></svg></button>
 </div>
 <div class="modal-body">
@@ -654,7 +656,7 @@
 </div>
 
 <!-- Modal Edit Token -->
-<div class="modal-overlay" id="editTokenModal">
+<div class="modal-overlay" id="editTokenModal" role="dialog" aria-modal="true" aria-labelledby="editTokenModalTitle">
 <div class="modal-card glass-card" style="max-width: 400px;">
 <div class="modal-header">
 <h3 id="editTokenModalTitle"><svg class="icon-svg" style="vertical-align:middle;margin-top:-2px;"><use href="#hi-edit"/></svg> Ubah Token Kustom</h3>
@@ -675,10 +677,10 @@
 </div>
 
 <!-- Modal Delegasi Ujian -->
-<div class="modal-overlay" id="delegateExamModal">
+<div class="modal-overlay" id="delegateExamModal" role="dialog" aria-modal="true" aria-labelledby="delegateExamModalTitle">
 <div class="modal-card glass-card" style="max-width: 480px;">
 <div class="modal-header">
-<h3><svg class="icon-svg" style="vertical-align:middle;margin-top:-2px;"><use href="#hi-users"/></svg> Delegasi Ujian</h3>
+<h3 id="delegateExamModalTitle"><svg class="icon-svg" style="vertical-align:middle;margin-top:-2px;"><use href="#hi-users"/></svg> Delegasi Ujian</h3>
 <button class="modal-close" onclick="closeDelegateExamModal()" aria-label="Tutup"><svg class="icon-svg" style="width:18px;height:18px;"><use href="#hi-x"/></svg></button>
 </div>
 <div class="modal-body">
@@ -725,7 +727,7 @@
 </div>
 
 <!-- ===== Questions Modal (Atur Soal & Kunci Jawaban) ===== -->
-<div class="modal-overlay" id="questionsModal">
+<div class="modal-overlay" id="questionsModal" role="dialog" aria-modal="true" aria-labelledby="modalTitle">
 <div class="modal-card glass-card" style="max-width: 780px;">
 <div class="modal-header">
 <h3 id="modalTitle"><svg class="icon-svg" style="vertical-align:middle;margin-top:-2px;"><use href="#hi-settings"/></svg> Atur Soal Ujian</h3>
@@ -913,7 +915,7 @@
 </div>
 <div class="modal-footer" style="display:flex;gap:8px;justify-content:flex-end;padding:12px 24px;border-top:1px solid var(--color-glass-border);">
 <button class="btn-sm btn-delete" onclick="closeQuestionsModal()">Batal</button>
-<button class="btn-upload" onclick="saveQuestionsConfig()"><svg class="icon-svg"><use href="#hi-check"/></svg> Simpan Konfigurasi</button>
+<button id="btnSaveQuestionsConfig" class="btn-upload" onclick="saveQuestionsConfig()"><svg class="icon-svg"><use href="#hi-check"/></svg> Simpan Konfigurasi</button>
 </div>
 </div>
 </div>

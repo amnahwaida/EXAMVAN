@@ -92,8 +92,12 @@ func HasilPage() gin.HandlerFunc {
 
 		pool := getPool(c)
 		if pool == nil {
+			// T12: pesan internal JANGAN dipasangkan ke exam_name — dulu field
+			// ini dirender sebagai <h1> hero raksasa. Kirim flag error bersih
+			// + judul netral; pesan user-friendly ada di kartu error template.
 			c.HTML(http.StatusInternalServerError, "public/hasil.html", middleware.MergeTemplateData(c, gin.H{
-				"exam_name":      "Database Tidak Tersedia",
+				"error_state":    true,
+				"exam_name":      "",
 				"token":          token,
 				"total_students": 0,
 				"error":          true,
@@ -106,7 +110,8 @@ func HasilPage() gin.HandlerFunc {
 		if err != nil {
 			if err == pgx.ErrNoRows {
 				c.HTML(http.StatusNotFound, "public/hasil.html", middleware.MergeTemplateData(c, gin.H{
-					"exam_name":      "Ujian Tidak Ditemukan",
+					"error_state":    true,
+					"exam_name":      "",
 					"token":          token,
 					"total_students": 0,
 					"error":          true,
@@ -115,7 +120,8 @@ func HasilPage() gin.HandlerFunc {
 			}
 			log.Printf("hasil page exam lookup error: %v", err)
 			c.HTML(http.StatusInternalServerError, "public/hasil.html", middleware.MergeTemplateData(c, gin.H{
-				"exam_name":      "Error",
+				"error_state":    true,
+				"exam_name":      "",
 				"token":          token,
 				"total_students": 0,
 				"error":          true,
