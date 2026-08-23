@@ -54,7 +54,7 @@
  </div>
  {{if .error}}
  <div class="flash-messages">
- <div class="flash-msg flash-error">{{.error}}</div>
+ <div class="flash-msg flash-error" role="alert">{{.error}}</div>
  </div>
  {{end}}
  {{if .flashes}}
@@ -133,13 +133,15 @@
   btn.disabled = false;
  }
  }
- /* Auto-dismiss flash messages after 5 seconds with fade-out */
- var flashMessages = document.querySelector('.flash-messages');
- if (flashMessages) {
+ /* Auto-hide hanya pesan sukses; error login (username/password salah) tetap tampil */
+ var successFlashes = document.querySelectorAll('.flash-msg:not(.flash-error)');
+ if (successFlashes.length) {
   setTimeout(function() {
-   flashMessages.style.transition = 'opacity 0.5s ease';
-   flashMessages.style.opacity = '0';
-   setTimeout(function() { flashMessages.style.display = 'none'; }, 500);
+   successFlashes.forEach(function(el) {
+    el.style.transition = 'opacity 0.5s ease';
+    el.style.opacity = '0';
+    setTimeout(function() { el.style.display = 'none'; }, 500);
+   });
   }, 5000);
  }
  });

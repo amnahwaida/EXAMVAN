@@ -398,7 +398,7 @@ select[multiple] option:checked {
   border-color: rgba(255,255,255,0.15);
 }
 .toolbar-search-input::placeholder {
-  color: #64748b;
+  color: var(--color-text-muted, #94a3b8);
 }
 .toolbar-search-clear {
   position: absolute;
@@ -1159,8 +1159,9 @@ select[multiple] option:checked {
 }
 .toast-close {
   flex-shrink: 0;
-  width: 24px;
-  height: 24px;
+  min-width: 24px;
+  min-height: 24px;
+  padding: 10px;
   border-radius: 6px;
   border: none;
   background: rgba(255,255,255,0.08);
@@ -1174,6 +1175,11 @@ select[multiple] option:checked {
   transition: all 0.2s;
 }
 .toast:hover .toast-close {
+  opacity: 1;
+}
+/* Tombol ✕ sebelumnya opacity:0 permanen di desktop (hanya muncul saat
+   hover) — pengguna keyboard tidak bisa melihat tombol yang mereka fokus. */
+.toast-close:focus-visible {
   opacity: 1;
 }
 .toast-close:hover {
@@ -1991,7 +1997,7 @@ input:disabled, select:disabled, textarea:disabled, button:disabled, .btn-sm:dis
   transition: all 0.15s ease;
   border: 1px solid rgba(255,255,255,0.08);
   background: rgba(255,255,255,0.03);
-  color: #64748b;
+  color: var(--color-text-muted, #94a3b8);
   user-select: none;
 }
 .role-chip:hover {
@@ -2030,7 +2036,7 @@ input:disabled, select:disabled, textarea:disabled, button:disabled, .btn-sm:dis
 .form-hint {
   font-size: 10px;
   font-weight: 500;
-  color: #64748b;
+  color: var(--color-text-muted, #94a3b8);
   background: rgba(255,255,255,0.04);
   padding: 1px 8px;
   border-radius: 4px;

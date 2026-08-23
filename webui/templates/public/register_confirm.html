@@ -204,7 +204,7 @@
    <!-- Error Messages -->
    {{if .error}}
    <div class="flash-messages">
-    <div class="flash-msg flash-error">
+    <div class="flash-msg flash-error" role="alert">
      <svg style="width:16px;height:16px;flex-shrink:0;margin-right:6px;vertical-align:middle;display:inline;" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 9v3.75m9-.75a9 9 0 1 1-18 0 9 9 0 0 1 18 0Zm-9 3.75h.008v.008H12v-.008Z"/></svg>
      {{.error}}
     </div>
@@ -338,16 +338,6 @@
     verifyBtn.disabled = true;
     verifyBtn.innerHTML = '<span style="vertical-align:middle;">Memverifikasi...</span>';
    });
-  }
-
-  // Auto-dismiss flash messages
-  var flashMessages = document.querySelector('.flash-messages');
-  if (flashMessages) {
-   setTimeout(function() {
-    flashMessages.style.transition = 'opacity 0.5s ease';
-    flashMessages.style.opacity = '0';
-    setTimeout(function() { flashMessages.style.display = 'none'; }, 500);
-   }, 6000);
   }
 
   // ---- Resend OTP ----

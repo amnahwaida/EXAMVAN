@@ -12,7 +12,7 @@
 <head>
  {{template "admin/partials/head.html" dict "version" .version "csrf_token" .csrf_token "title" "Dashboard"}}
  <style>
-.dropdown-user-instansi{display:block;font-size:0.7rem;color:#64748b;margin-top:1px;padding:0 16px}
+.dropdown-user-instansi{display:block;font-size:0.7rem;color:var(--color-text-muted);margin-top:1px;padding:0 16px}
 .pengawas-cell{position:relative}
 .pengawas-badge{display:inline-flex;align-items:center;gap:4px;padding:2px 8px;border-radius:8px;font-size:0.75rem;font-weight:600;background:rgba(168,85,247,0.1);color:#c084fc;border:1px solid rgba(168,85,247,0.2);cursor:pointer;white-space:nowrap;user-select:none}
 .pengawas-more{display:inline-flex;align-items:center;justify-content:center;width:18px;height:18px;border-radius:50%;background:rgba(168,85,247,0.2);font-size:0.65rem;font-weight:700;color:#a78bfa;margin-left:2px}

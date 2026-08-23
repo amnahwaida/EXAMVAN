@@ -17,7 +17,7 @@ const (
 // It is overridden at build time via -ldflags "-X ..." with a per-build value
 // (e.g. a hash of the static assets) so that browsers/Cloudflare never serve
 // stale CSS/JS from a previous build.
-var DefaultVersion = "2.4.2"
+var DefaultVersion = "2.4.3"
 
 type Config struct {
 	ServerPort       int

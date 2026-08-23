@@ -411,15 +411,15 @@
 - [x] **R10** guard NaN kartu nonaktif *(koreksi: bagian "komentar interval" batal — komentar terbukti akurat, dashboard memanggil `startAutoRefresh(30)` di `admin.js:3876`)*
 - [x] **R16** tab download mobile 3 kolom sejajar (`repeat(3, minmax(0, 1fr))`)
 
-### Batch 2 — Perbaikan tinggi hari ini
-- [ ] **T1** konfirmasi password registrasi (S)
-- [ ] **T6** error tidak auto-dismiss + `role="alert"` (S)
-- [ ] **T4** entry point "Cek Hasil Ujian" di nav publik (S)
-- [ ] **T7** muat font di partials/head.html (XS)
-- [ ] **T9** naikkan kontras `#64748b` → `--color-text-muted` (S)
-- [ ] **T3 + P3** status Lulus/Belum + KKM jadi setting + legenda (M)
-- [ ] **T11** tombol hapus submissions ≥44px + label (XS)
-- [ ] **T10a** reveal `.toast-close` pada `:focus-visible` + hit-area (XS)
+### Batch 2 — Perbaikan tinggi hari ini ✅ SELESAI (2026-08-23, test-first via 3 agen paralel: `webui/static/js/uiux-batch2.test.mjs` — total 37/37 hijau lintas suite)
+- [x] **T1** konfirmasi password registrasi — field "Ulangi Password", validasi mismatch live, blokir submit native
+- [x] **T6** error persisten + `role="alert"` di 5 halaman auth; login hanya fade-out pesan sukses
+- [x] **T4** nav publik "Cek Hasil Ujian" → halaman `/hasil` baru (form token, redirect ke `/hasil/<token>`) + handler Go `CekHasilPage`
+- [x] **T7** font Outfit + Plus Jakarta Sans dimuat di partials/head.html — panel admin tak lagi fallback system-ui
+- [x] **T9** `#64748b` → `var(--color-text-muted)` (form-hint, role-chip, placeholder, dropdown instansi); kontras ≥4.5:1 diverifikasi perhitungan WCAG dalam test
+- [x] **T3** chip status Lulus/Belum Lulus/Belum Dikoreksi + badge rekap + legenda ambang *(bagian P3 "KKM jadi setting server" DITUNDA — butuh skema/API backend, masuk batch berikutnya)*
+- [x] **T11** tombol hapus permanen Hasil Ujian berlabel "Hapus" + target sentuh 44px
+- [x] **T10a** `.toast-close`: padding 10px (min-size anti box-sizing no-op) + `:focus-visible { opacity:1 }`
 
 ### Batch 3 — Minggu ini
 - [ ] **T8** diff-render polling pengawas (M)

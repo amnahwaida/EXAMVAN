@@ -139,7 +139,7 @@ select[multiple] option:checked {
     border-color: rgba(255,255,255,0.15);
 }
 .toolbar-search-input::placeholder {
-    color: #64748b;
+    color: var(--color-text-muted, #94a3b8);
 }
 .toolbar-search-clear {
     position: absolute;
@@ -614,8 +614,9 @@ select[multiple] option:checked {
 }
 .toast-close {
     flex-shrink: 0;
-    width: 24px;
-    height: 24px;
+    min-width: 24px;
+    min-height: 24px;
+    padding: 10px;
     border-radius: 6px;
     border: none;
     background: rgba(255,255,255,0.08);
@@ -629,6 +630,11 @@ select[multiple] option:checked {
     transition: all 0.2s;
 }
 .toast:hover .toast-close {
+    opacity: 1;
+}
+/* Tombol ✕ sebelumnya opacity:0 permanen di desktop (hanya muncul saat
+   hover) — pengguna keyboard tidak bisa melihat tombol yang mereka fokus. */
+.toast-close:focus-visible {
     opacity: 1;
 }
 .toast-close:hover {
@@ -1217,14 +1223,14 @@ button:disabled, .btn-sm:disabled, .btn-upload:disabled, .btn-login:disabled {
 .dropdown-user-instansi { @apply text-xs; color: #94a3b8; display: flex; align-items: center; gap: 6px; margin-top: 1px; }
 .multirole-hint { font-size: 10px; font-weight: 500; color: #94a3b8; background: rgba(255,255,255,0.06); padding: 1px 7px; border-radius: 4px; margin-left: 6px; white-space: nowrap; }
 .role-chips { display: flex; gap: 6px; flex-wrap: wrap; padding-top: 4px; }
-.role-chip { display: inline-flex; align-items: center; justify-content: center; width: 32px; height: 32px; border-radius: 8px; font-size: 13px; font-weight: 700; cursor: pointer; transition: all 0.15s ease; border: 1px solid rgba(255,255,255,0.08); background: rgba(255,255,255,0.03); color: #64748b; user-select: none; }
+.role-chip { display: inline-flex; align-items: center; justify-content: center; width: 32px; height: 32px; border-radius: 8px; font-size: 13px; font-weight: 700; cursor: pointer; transition: all 0.15s ease; border: 1px solid rgba(255,255,255,0.08); background: rgba(255,255,255,0.03); color: var(--color-text-muted, #94a3b8); user-select: none; }
 .role-chip:hover { border-color: rgba(99,102,241,0.25); background: rgba(99,102,241,0.06); color: #94a3b8; }
 .role-chip:has(input:checked) { border-color: var(--color-primary); background: rgba(99,102,241,0.15); color: #a5b4fc; box-shadow: 0 0 0 1px rgba(99,102,241,0.3); }
 /* Checkbox chip tersembunyi VISUAL saja (bukan display:none) — tetap ada di
    accessibility tree, bisa difokus via Tab, dan di-toggle Enter/Space. */
 .role-chip input { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); clip-path: inset(50%); white-space: nowrap; border: 0; padding: 0; margin: -1px; }
 .role-chip:has(input:focus-visible) { border-color: var(--color-primary); background: rgba(99,102,241,0.12); color: #a5b4fc; box-shadow: 0 0 0 2px rgba(99,102,241,0.35); outline: none; }
-.form-hint { font-size: 10px; font-weight: 500; color: #64748b; background: rgba(255,255,255,0.04); padding: 1px 8px; border-radius: 4px; margin-left: 6px; white-space: nowrap; letter-spacing: 0.2px; }
+.form-hint { font-size: 10px; font-weight: 500; color: var(--color-text-muted, #94a3b8); background: rgba(255,255,255,0.04); padding: 1px 8px; border-radius: 4px; margin-left: 6px; white-space: nowrap; letter-spacing: 0.2px; }
 .expiry-group { background: rgba(255,255,255,0.02); border: 1px solid rgba(255,255,255,0.06); border-radius: 10px; padding: 10px 12px; }
 .expiry-input-row { display: flex; gap: 8px; margin-top: 6px; }
 .expiry-field { padding: 7px 10px; border-radius: 6px; border: 1px solid rgba(255,255,255,0.08); background: rgba(255,255,255,0.04); color: var(--color-text); font-size: 13px; outline: none; transition: border-color 0.15s; min-width: 0; }

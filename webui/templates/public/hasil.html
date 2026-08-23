@@ -23,6 +23,31 @@
  <link rel="stylesheet" href="/static/css/theme.css?v={{.version}}">
  <link rel="stylesheet" href="/static/css/tailwind/output.css?v={{.version}}">
  <link rel="stylesheet" href="/static/css/hasil.css?v={{.version}}-2">
+ <style>
+  /* T3: chip status kelulusan eksplisit + legenda ambang tampilan.
+     Ambang warna tetap mengikuti getScoreClass() (70/40); KKM per sekolah
+     (setting backend) menyusul di batch berikutnya. */
+  .score-status-chip {
+   display: inline-block;
+   font-size: 0.66rem;
+   font-weight: 700;
+   letter-spacing: 0.3px;
+   padding: 2px 10px;
+   border-radius: 999px;
+   white-space: nowrap;
+  }
+  .score-status-pass { color: var(--color-success); background: rgba(16, 185, 129, 0.12); border: 1px solid rgba(16, 185, 129, 0.35); }
+  .score-status-fail { color: var(--color-danger); background: rgba(239, 68, 68, 0.12); border: 1px solid rgba(239, 68, 68, 0.35); }
+  .score-status-none { color: var(--color-text-secondary); background: rgba(148, 163, 184, 0.12); border: 1px solid rgba(148, 163, 184, 0.30); }
+  /* Badge status di bar rekap skor lembar jawaban (dirender oleh JS). */
+  #scoreStatusBadge { margin-left: 10px; vertical-align: middle; }
+  .score-legend {
+   margin: 10px 4px 0;
+   font-size: 0.75rem;
+   color: var(--color-text-muted);
+   text-align: center;
+  }
+ </style>
  <link rel="icon" type="image/png" href="/static/favicon.png">
  <script src="/static/js/admin-core.js?v={{.version}}" defer></script>
  <link rel="stylesheet" href="/static/css/public-mobile.css?v={{.version}}-5">
@@ -110,6 +135,8 @@
   </div>
  </div>
  <div class="stats-row" id="statsRow" style="display: none;"></div>
+ <!-- T3: legenda ambang tampilan warna skor — ditampilkan saat statistik termuat -->
+ <p class="score-legend" id="scoreLegend" style="display: none;">Ambang tampilan: Hijau ≥ 70 · Kuning 40–69 · Merah &lt; 40 (ambang sementara — KKM sekolah dapat berbeda)</p>
  </section>
  {{if .is_disabled}}
  <section class="glass-card" style="padding: 60px 40px; text-align: center; margin-top: 24px; border: 1px solid rgba(239, 68, 68, 0.15); background: rgba(239, 68, 68, 0.02);">
@@ -365,6 +392,9 @@
   document.getElementById('maxScoreItem').style.display = 'flex';
 
   statsRow.style.display = 'grid';
+  // T3: legenda ambang tampilan muncul bersama statistik skor
+  const scoreLegend = document.getElementById('scoreLegend');
+  if (scoreLegend) scoreLegend.style.display = 'block';
   statsRow.innerHTML = `
   <div class="stat-mini">
   <span class="stat-mini-value" style="color: var(--color-success);">${avg.toFixed(1)}</span>
@@ -445,6 +475,7 @@
  const rankClass = globalRank <= 3 ? 'rank-' + globalRank : '';
  const scoreClass = getScoreClass(sub.score, sub.max_score);
  const scoreDisplay = sub.score !== null ? sub.score.toFixed(1) : '&mdash;';
+ const passStatus = getPassStatus(sub.score, sub.max_score);
  const durationStr = getDurationString(sub.start_time, sub.created_at);
 
  tr.innerHTML = `
@@ -455,6 +486,7 @@
  <td data-label="Durasi" class="td-center-secondary">${durationStr}</td>
  <td data-label="Nilai" class="td-center">
  <span class="score-badge ${scoreClass}">${scoreDisplay}</span>
+ <span class="score-status-chip ${passStatus.cls}" style="display:block;width:fit-content;margin:4px auto 0;">${passStatus.text}</span>
  </td>
  <td data-label="" class="td-center">
  <svg class="icon-svg expand-icon" style="width:14px;height:14px;" aria-hidden="true"><use href="#hi-chevron-down"/></svg>
@@ -557,6 +589,9 @@
  const startTimeStr = sub.start_time ? localizeUTC(sub.start_time) : '&mdash;';
  const endTimeStr = sub.created_at ? localizeUTC(sub.created_at) : '&mdash;';
  const durationStr = getDurationString(sub.start_time, sub.created_at);
+ // T3: status kelulusan eksplisit mengikuti skor RESMI (sub.score) — bukan
+ // total evaluasi sisi-klien. Skor belum ada → "Belum Dikoreksi".
+ const passStatus = getPassStatus(sub.score, totalMax);
 
  // Build dynamic identity fields (excluding student_name which is already in main table)
  let identityHtml = '';
@@ -634,6 +669,7 @@
  <span class="score-badge ${getScoreClass(totalEarned, totalMax)}" style="font-size:0.9rem;">
  ${totalEarned.toFixed(1)} / ${totalMax.toFixed(1)}
  </span>
+ <span class="score-status-chip ${passStatus.cls}" id="scoreStatusBadge">${passStatus.text}</span>
  </div>
  </div>
  `;
@@ -794,6 +830,18 @@
  if (pct >= 70) return 'score-high';
  if (pct >= 40) return 'score-mid';
  return 'score-low';
+ }
+
+ // ===== T3: Status kelulusan eksplisit =====
+ // Label status untuk sebuah nilai, memakai ambang tampilan yang sama dengan
+ // getScoreClass() (hijau ≥ 70, kuning 40–69, merah < 40). Ambang masih
+ // hard-coded mengikuti warna badge; KKM per sekolah (setting backend)
+ // menyusul di batch berikutnya.
+ function getPassStatus(score, maxScore) {
+ if (score === null || score === undefined) return { text: 'Belum Dikoreksi', cls: 'score-status-none' };
+ const pct = maxScore ? (score / maxScore) * 100 : score;
+ if (pct >= 70) return { text: 'Lulus', cls: 'score-status-pass' };
+ return { text: 'Belum Lulus', cls: 'score-status-fail' };
  }
 
  function formatAnswer(val) {

@@ -1,0 +1,76 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+ <meta charset="UTF-8">
+ <meta name="viewport" content="width=device-width, initial-scale=1.0">
+ {{ template "public_fonts" . }}
+ <title>EXAMVAN - Cek Hasil Ujian</title>
+ <meta name="description" content="{{.seo_description}}">
+ <meta name="robots" content="noindex, nofollow">
+ <link rel="stylesheet" href="/static/css/theme.css?v={{.version}}">
+ <link rel="stylesheet" href="/static/css/tailwind/output.css?v={{.version}}">
+ <link rel="icon" type="image/png" href="/static/favicon.png">
+ <style>
+  /* Prevent iOS Safari auto-zoom on focus. */
+  .login-form .form-group input { font-size: 16px; }
+ </style>
+<link rel="stylesheet" href="/static/css/public-mobile.css?v={{.version}}-5">
+ <link rel="stylesheet" href="/static/css/public-desktop.css?v={{.version}}-3">
+</head>
+<body class="login-page">
+ {{ template "public_auth_nav" . }}
+ <a href="#main-content" class="skip-link" style="position:absolute;left:-9999px;z-index:9999;padding:12px 20px;background:var(--color-primary,#6366f1);color:white;border-radius:8px;font-weight:600;text-decoration:none;">Langsung ke konten</a>
+ <div class="login-bg">
+ <div class="login-orb login-orb-1"></div>
+ <div class="login-orb login-orb-2"></div>
+ </div>
+ <div class="login-container" id="main-content">
+ <div class="login-card">
+ <div class="login-header">
+ <div class="login-logo">E</div>
+ <h1>EXAMVAN</h1>
+ <p class="login-subtitle">Cek Hasil Ujian</p>
+ </div>
+
+ {{if .error}}
+ <div class="flash-messages" role="alert">
+ <div class="flash-msg flash-error">{{.error}}</div>
+ </div>
+ {{end}}
+
+ <p style="font-size:13px;color:var(--color-text-secondary);line-height:1.6;margin:0 0 16px;text-align:center;">
+  Masukkan token ujian untuk melihat daftar nilai. Token (8 huruf/angka) diberikan oleh pengawas atau panitia ujian.
+ </p>
+
+ <form method="get" action="/hasil" class="login-form" id="cekHasilForm">
+ <div class="form-group">
+ <label class="required" for="token">Token Ujian</label>
+ <input type="text" id="token" name="token" placeholder="Contoh: AB12CD34" maxlength="8" required autofocus autocomplete="off" autocapitalize="characters" spellcheck="false" style="text-transform:uppercase;text-align:center;letter-spacing:4px;font-weight:700;">
+ </div>
+ <button type="submit" class="btn-login" id="cekHasilSubmitBtn">Lihat Hasil</button>
+ </form>
+
+ <div class="login-link-row" style="margin-top:14px;">
+ <span class="login-link-text"><a href="/">← Kembali ke Beranda</a></span>
+ </div>
+ <div class="login-footer"><p>{{.footer_text}}</p></div>
+ </div>
+ </div>
+ <script>
+ // Normalisasi token ke huruf besar sebelum dikirim (server juga melakukan
+ // hal yang sama; ini menjaga nilai input tetap sama dengan tampilannya).
+ document.addEventListener('DOMContentLoaded', function() {
+  var form = document.getElementById('cekHasilForm');
+  var input = document.getElementById('token');
+  if (form && input) {
+   input.addEventListener('input', function() {
+    if (this.value !== this.value.toUpperCase()) this.value = this.value.toUpperCase();
+   });
+   form.addEventListener('submit', function() {
+    input.value = input.value.trim().toUpperCase();
+   });
+  }
+ });
+ </script>
+</body>
+</html>

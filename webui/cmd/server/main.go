@@ -485,6 +485,7 @@ func registerRoutes(r *gin.Engine, cfg *config.Config, pool *pgxpool.Pool) {
 	r.GET("/download", public.DownloadPage())
 	r.GET("/download/apk", public.DownloadAPK())
 	r.GET("/download/app/:id", middleware.RateLimit(60, time.Minute), public.DownloadSystemApp())
+	r.GET("/hasil", public.CekHasilPage())
 	r.GET("/hasil/:token", public.HasilPage())
 
 	// ---- Short URL redirect: /<8-char-token> → /hasil/<token> ----
