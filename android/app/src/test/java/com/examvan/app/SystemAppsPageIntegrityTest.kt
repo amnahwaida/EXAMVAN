@@ -76,6 +76,37 @@ class SystemAppsPageIntegrityTest {
         )
     }
 
+    // ── Fix review ronde 3: semua modal wajib tersembunyi bawaan ─────────
+
+    @Test
+    fun everyModalContainer_hiddenByDefault() {
+        // Div modal tanpa display:none akan ter-render di aliran halaman —
+        // memblokir klik di sekitarnya dan tampak nyasar (kasus nyata:
+        // changePasswordModal tampil di tab Aplikasi Sistem).
+        // Pengecualian: class "modal-backdrop" disembunyikan oleh CSS
+        // .modal-backdrop{display:none} di settings.html.
+        val html = webuiPage().readText()
+        val offenders = mutableListOf<String>()
+        Regex("""<div[^>]*class="(?:modal-overlay|modal-backdrop)[^"]*"[^>]*>""")
+            .findAll(html)
+            .forEach { m ->
+                val tag = m.value
+                val isBackdrop = tag.contains("modal-backdrop")
+                val hasInlineHide =
+                    tag.contains("display:none") || tag.contains("display: none")
+                if (!isBackdrop && !hasInlineHide) {
+                    val id = Regex("id=\"([^\"]*)\"").find(tag)?.groupValues?.get(1) ?: "(tanpa id)"
+                    offenders.add(id)
+                }
+            }
+
+        assertTrue(
+            "Container modal berikut tidak memiliki display:none bawaan:\n" +
+                offenders.joinToString("\n") { "  - $it" },
+            offenders.isEmpty()
+        )
+    }
+
     // ── Fix review Aplikasi Sistem: drag-drop & modal-close guard ────────
 
     @Test
