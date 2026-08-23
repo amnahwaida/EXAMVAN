@@ -20,15 +20,15 @@ const (
 var DefaultVersion = "2.4.1"
 
 type Config struct {
-	ServerPort  int
-	DatabaseURL string
-	RedisURL    string
-	SecretKey   string
-	AdminUser   string
-	AdminPass   string
-	StoragePath string
-	MaxFileSize int64
-	Version     string
+	ServerPort       int
+	DatabaseURL      string
+	RedisURL         string
+	SecretKey        string
+	AdminUser        string
+	AdminPass        string
+	StoragePath      string
+	MaxFileSize      int64
+	Version          string
 	DatabaseMaxConns int
 
 	// Cloudflare R2 (S3-compatible object storage)
@@ -52,12 +52,17 @@ func Load() *Config {
 		StoragePath: envStr("STORAGE_PATH", DefaultStoragePath),
 		MaxFileSize: DefaultMaxFileSize,
 		Version:     DefaultVersion,
-		DatabaseMaxConns: envInt("DATABASE_MAX_CONNS", 100),
-		R2AccessKey: os.Getenv("R2_ACCESS_KEY_ID"),
-		R2SecretKey: os.Getenv("R2_SECRET_ACCESS_KEY"),
-		R2Bucket:    envStr("R2_BUCKET", "examvan-pdfs"),
-		R2Endpoint:  os.Getenv("R2_ENDPOINT"),
-		CORSOrigins: os.Getenv("EXAMVAN_CORS_ORIGINS"),
+		// Default 60 (Lapis 1 — kapasitas): harus SELALU lebih kecil dari
+		// max_connections PostgreSQL-nya (compose: 150) agar koneksi migrasi,
+		// healthcheck, dan admin tidak pernah ditolak "too many clients"
+		// ketika pool aplikasi penuh. MinConns = MaxConns/5 backend idel
+		// permanen juga ikut turun → hemat memori di server kecil.
+		DatabaseMaxConns: envInt("DATABASE_MAX_CONNS", 60),
+		R2AccessKey:      os.Getenv("R2_ACCESS_KEY_ID"),
+		R2SecretKey:      os.Getenv("R2_SECRET_ACCESS_KEY"),
+		R2Bucket:         envStr("R2_BUCKET", "examvan-pdfs"),
+		R2Endpoint:       os.Getenv("R2_ENDPOINT"),
+		CORSOrigins:      os.Getenv("EXAMVAN_CORS_ORIGINS"),
 	}
 
 	if cfg.StoragePath == "" {

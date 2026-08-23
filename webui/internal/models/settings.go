@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"log"
 	"strings"
+	"sync"
+	"time"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -114,9 +116,19 @@ const (
 	// row on an INACTIVE exam must be before it is purged. Units: minutes for
 	// the interval, hours for the two staleness windows. SuperAdmin-tunable so
 	// an unusually spam-heavy school can tighten the purge without a redeploy.
-	SettingApprovalCleanupIntervalMinutes = "approval_cleanup_interval_minutes"
-	SettingApprovalCleanupEndedGraceHours = "approval_cleanup_ended_grace_hours"
+	SettingApprovalCleanupIntervalMinutes  = "approval_cleanup_interval_minutes"
+	SettingApprovalCleanupEndedGraceHours  = "approval_cleanup_ended_grace_hours"
 	SettingApprovalCleanupInactiveTTLHours = "approval_cleanup_inactive_ttl_hours"
+
+	// Access-log retention tuning (see admin.StartAccessLogRetentionJob):
+	// student_access_logs tumbuh sebanding dengan jumlah perangkat × durasi
+	// ujian (tiap perangkat ±1 heartbeat/menit di-flush ke DB oleh
+	// heartbeat-flusher). Tanpa pembersihan berkala, partisi disk server yang
+	// kecil (mis. thin-client 13 GB) bisa habis dalam hitungan jam pada event
+	// besar. Units: days for the retention window, minutes for the loop
+	// interval. SuperAdmin-tunable via saas_settings.
+	SettingAccessLogRetentionDays            = "access_log_retention_days"
+	SettingAccessLogRetentionIntervalMinutes = "access_log_retention_interval_minutes"
 )
 
 // Default settings values as defined in the Python app.py.
@@ -168,23 +180,108 @@ var DefaultSettings = map[string]string{
 	// Approval-cleanup job defaults mirror the original code constants: one
 	// pass every 15 minutes, 1h grace after an exam ends, 24h TTL on inactive
 	// exams (see admin/approval_cleanup_job.go).
-	SettingApprovalCleanupIntervalMinutes: "15",
-	SettingApprovalCleanupEndedGraceHours: "1",
+	SettingApprovalCleanupIntervalMinutes:  "15",
+	SettingApprovalCleanupEndedGraceHours:  "1",
 	SettingApprovalCleanupInactiveTTLHours: "24",
+
+	// Access-log retention defaults: keep audit history for 90 days, sweep
+	// once per hour. 90 hari cukup untuk rekap semester tanpa membiarkan
+	// tabel tumbuh tanpa batas di disk server yang kecil.
+	SettingAccessLogRetentionDays:            "90",
+	SettingAccessLogRetentionIntervalMinutes: "60",
+}
+
+// ---------------------------------------------------------------------------
+// saas_settings read cache
+// ---------------------------------------------------------------------------
+//
+// Why this exists: GetSaasSetting sits on the HOT student path. The
+// middleware.AndroidVersionCheck calls it for EVERY /api/exams/* request, and
+// SubmitExam/AccessLog call it again inside their handlers. At wave scale
+// (hundreds of devices joining one exam through a single NAT, see README
+// "Kapasitas Satu NAT") that is +1-2 PostgreSQL queries per request to read
+// values that almost never change — pure load on the weakest component of a
+// small server, bought for nothing.
+//
+// Design: an in-process TTL cache keyed per (pool, key).
+//   - Keyed per POOL so integration tests that run several pools inside one
+//     process never observe each other's (stale) values.
+//   - TTL 30s bounds cross-process staleness: a SuperAdmin edit made in
+//     another replica/process becomes visible here within 30s, while edits
+//     made IN THIS PROCESS are visible immediately because SetSaasSetting
+//     invalidates the entry it writes.
+//   - Missing rows are ALSO cached (found=false): endpoints polling a key
+//     that was never set stop hitting the DB for it. SeedDefaultSettings
+//     inserts every default at boot, so misses should be rare — but they are
+//     cheap to remember.
+//
+// Memory bound: entries are bounded by (#pools × #distinct keys read), i.e.
+// a handful of pools × ~40 known setting names — kilobytes.
+const saasSettingCacheTTL = 30 * time.Second
+
+type saasSettingCacheKey struct {
+	pool *pgxpool.Pool
+	key  string
+}
+
+type saasSettingCacheEntry struct {
+	value   string
+	found   bool
+	expires time.Time
+}
+
+var (
+	saasSettingCacheMu sync.RWMutex
+	saasSettingCache   = make(map[saasSettingCacheKey]saasSettingCacheEntry)
+)
+
+// invalidateSaasSettingCache drops the cached entry for (pool, key) so the
+// next read goes back to the database. Called after every successful write.
+func invalidateSaasSettingCache(pool *pgxpool.Pool, key string) {
+	saasSettingCacheMu.Lock()
+	delete(saasSettingCache, saasSettingCacheKey{pool: pool, key: key})
+	saasSettingCacheMu.Unlock()
 }
 
 // GetSaasSetting retrieves a setting value by key.
 // Returns the value as a string. If the key does not exist, returns an empty string
 // and no error (the caller should use GetSaasSettingWithDefault for a fallback).
+// Reads are served from the per-process TTL cache (see above); a database
+// error other than a missing row is never cached.
 func GetSaasSetting(ctx context.Context, pool *pgxpool.Pool, key string) (string, error) {
+	cacheKey := saasSettingCacheKey{pool: pool, key: key}
+
+	saasSettingCacheMu.RLock()
+	entry, ok := saasSettingCache[cacheKey]
+	saasSettingCacheMu.RUnlock()
+	if ok && time.Now().Before(entry.expires) {
+		if !entry.found {
+			return "", nil // row memang tidak ada — konsisten dengan perilaku lama
+		}
+		return entry.value, nil
+	}
+
 	var value string
 	err := pool.QueryRow(ctx, `SELECT value FROM saas_settings WHERE key = $1`, key).Scan(&value)
 	if err != nil {
 		if err == pgx.ErrNoRows {
+			saasSettingCacheMu.Lock()
+			saasSettingCache[cacheKey] = saasSettingCacheEntry{
+				expires: time.Now().Add(saasSettingCacheTTL),
+			}
+			saasSettingCacheMu.Unlock()
 			return "", nil
 		}
 		return "", fmt.Errorf("get setting %s: %w", key, err)
 	}
+
+	saasSettingCacheMu.Lock()
+	saasSettingCache[cacheKey] = saasSettingCacheEntry{
+		value:   value,
+		found:   true,
+		expires: time.Now().Add(saasSettingCacheTTL),
+	}
+	saasSettingCacheMu.Unlock()
 	return value, nil
 }
 
@@ -198,7 +295,9 @@ func GetSaasSettingWithDefault(ctx context.Context, pool *pgxpool.Pool, key, def
 }
 
 // SetSaasSetting upserts a setting value. If the key already exists it is updated;
-// otherwise a new row is inserted.
+// otherwise a new row is inserted. The read cache entry for this key is
+// invalidated on success so the new value is visible immediately in this
+// process (other processes catch up within saasSettingCacheTTL).
 func SetSaasSetting(ctx context.Context, pool *pgxpool.Pool, key, value string) error {
 	_, err := pool.Exec(ctx,
 		`INSERT INTO saas_settings (key, value) VALUES ($1, $2)
@@ -207,6 +306,7 @@ func SetSaasSetting(ctx context.Context, pool *pgxpool.Pool, key, value string) 
 	if err != nil {
 		return fmt.Errorf("set setting %s: %w", key, err)
 	}
+	invalidateSaasSettingCache(pool, key)
 	return nil
 }
 

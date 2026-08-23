@@ -174,6 +174,17 @@ func main() {
 	}
 
 	// -----------------------------------------------------------------------
+	// 4e. Access-log retention job (Lapis 1 — kapasitas): student_access_logs
+	// tumbuh ±1 baris/perangkat/menit selama ujian lewat heartbeat-flusher.
+	// Tanpa sapuan berkala, tabel — dan partisi disk di bawahnya yang pada
+	// deployment thin-client hanya belasan GB — habis di musim ujian.
+	// Jendela retensi & interval bisa di-tune SuperAdmin via saas_settings.
+	// -----------------------------------------------------------------------
+	if pool != nil {
+		admin.StartAccessLogRetentionJob(jobCtx, pool)
+	}
+
+	// -----------------------------------------------------------------------
 	// 5. Create Gin engine
 	// -----------------------------------------------------------------------
 	if cfg.IsDevelopment() {
@@ -187,7 +198,13 @@ func main() {
 	// reads X-Forwarded-For from nginx without allowing IP spoofing.
 	// Docker default bridge: 172.17.0.0/16; Compose internal: 172.x.x.x
 	r.SetTrustedProxies([]string{"127.0.0.1", "::1", "10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16"})
-	r.Use(gin.Logger())
+	// Access-log Gin hanya di development (Lapis 1 — kapasitas): satu baris
+	// log terformat per request. Pada trafik gelombang ujian — ratusan req/dtk
+	// saat join wave — itu CPU terbuang plus churn rotasi log Docker; di
+	// produksi access_log nginx sudah mencakup kebutuhan audit HTTP.
+	if cfg.IsDevelopment() {
+		r.Use(gin.Logger())
+	}
 	r.Use(gin.Recovery())
 	r.Use(middleware.CORS(cfg.CORSOrigins))
 
@@ -1538,8 +1555,27 @@ func roundTo(val float64, decimals int) float64 {
 	return math.Round(val*pow) / pow
 }
 
-// startHeartbeatFlusher periodically flushes heartbeat data from Redis to PostgreSQL.
-// Runs in the background, does not block API requests.
+// Heartbeat flusher tuning (Lapis 1 — kapasitas; lihat seksi README
+// "Kapasitas Lapis 1"):
+//   - heartbeatFlushBatchSize   : baris per transaksi (INSERT batch per tx,
+//     bukan satu tx raksasa — satu tick memecah diri menjadi beberapa tx).
+//   - heartbeatFlushMaxBatches  : pengaman per tick agar satu tick tidak bisa
+//     menghabiskan koneksi/koneksi-pool untuk waktu tak terbatas.
+//
+// Kapasitas drain = 500 × 20 = 10.000 baris per tick (30 detik) ≈ 20.000
+// baris/menit — jauh di atas gelombang terburuk ruangan penuh (500 perangkat ×
+// ±1 heartbeat/menit = 500/menit), yang sebelumnya TIDAK terkejar: drain lama
+// tetap 100 baris/30 detik (= 200 baris/menit) sehingga antrean tumbuh tanpa
+// batas selama ujian, Redis merangkak ke arah mem_limit-nya, dan audit insert
+// tertinggal berjam-jam di belakang realtime dashboard.
+const (
+	heartbeatFlushQueueKey   = "examvan:heartbeats:pending"
+	heartbeatFlushBatchSize  = 500
+	heartbeatFlushMaxBatches = 20
+)
+
+// startHeartbeatFlusher periodically drains heartbeat data from Redis into
+// PostgreSQL. Runs in the background, does not block API requests.
 func startHeartbeatFlusher(rdb *redis.Client, pool *pgxpool.Pool) {
 	if rdb == nil || pool == nil {
 		log.Println("heartbeat-flusher: skipped (requires Redis + PostgreSQL)")
@@ -1551,27 +1587,59 @@ func startHeartbeatFlusher(rdb *redis.Client, pool *pgxpool.Pool) {
 		defer ticker.Stop()
 
 		for range ticker.C {
-			flushHeartbeatsQueue(context.Background(), rdb, pool)
+			drainHeartbeatsQueue(context.Background(), rdb, pool)
 		}
 	}()
-	log.Println("heartbeat-flusher: started (flush every 30s)")
+	log.Printf("heartbeat-flusher: started (drain every 30s, up to %d rows/tick)",
+		heartbeatFlushBatchSize*heartbeatFlushMaxBatches)
 }
 
-func flushHeartbeatsQueue(ctx context.Context, rdb *redis.Client, pool *pgxpool.Pool) {
-	const batchSize = 100
+// drainHeartbeatsQueue pops batches until the list is empty or the per-tick
+// safety cap is reached. Each batch commits independently, so a failure only
+// costs one batch, not the whole tick.
+func drainHeartbeatsQueue(ctx context.Context, rdb *redis.Client, pool *pgxpool.Pool) {
+	total := 0
+	for batch := 0; batch < heartbeatFlushMaxBatches; batch++ {
+		n := flushHeartbeatBatch(ctx, rdb, pool)
+		if n == 0 {
+			break // antrean kosong — tick berikutnya tidak perlu menunggu
+		}
+		total += n
+		if n < heartbeatFlushBatchSize {
+			break // batch parsial = antrean sudah habis
+		}
+	}
+	if total > 0 {
+		log.Printf("heartbeat-flusher: flushed %d heartbeats to PostgreSQL", total)
+	}
+}
 
-	// Pop up to batchSize items from the list
+// flushHeartbeatBatch moves up to heartbeatFlushBatchSize heartbeats from the
+// Redis queue into student_access_logs (audit) + submissions ("Monitoring
+// Perangkat"), inside ONE transaction. Returns how many payloads were popped;
+// a transaction failure re-pushes the whole batch so the next tick retries it
+// instead of silently dropping already-popped audit data.
+func flushHeartbeatBatch(ctx context.Context, rdb *redis.Client, pool *pgxpool.Pool) int {
 	var payloads []string
-	for i := 0; i < batchSize; i++ {
-		val, err := rdb.RPop(ctx, "examvan:heartbeats:pending").Result()
+	for i := 0; i < heartbeatFlushBatchSize; i++ {
+		val, err := rdb.RPop(ctx, heartbeatFlushQueueKey).Result()
 		if err != nil {
-			break
+			break // list kosong / error sementara
 		}
 		payloads = append(payloads, val)
 	}
-
 	if len(payloads) == 0 {
-		return
+		return 0
+	}
+
+	requeue := func(reason string) {
+		log.Printf("heartbeat-flusher: %s — requeueing %d payloads", reason, len(payloads))
+		for _, p := range payloads {
+			if pushErr := rdb.LPush(ctx, heartbeatFlushQueueKey, p).Err(); pushErr != nil {
+				log.Printf("heartbeat-flusher: requeue failed (%v) — %d payloads lost", pushErr, len(payloads))
+				break
+			}
+		}
 	}
 
 	type heartbeatData struct {
@@ -1588,14 +1656,17 @@ func flushHeartbeatsQueue(ctx context.Context, rdb *redis.Client, pool *pgxpool.
 
 	tx, err := pool.Begin(ctx)
 	if err != nil {
-		log.Printf("heartbeat-flusher: tx begin error: %v", err)
-		return
+		requeue(fmt.Sprintf("tx begin error: %v", err))
+		return len(payloads)
 	}
 	defer tx.Rollback(ctx)
 
 	for _, payload := range payloads {
 		var hb heartbeatData
 		if err := json.Unmarshal([]byte(payload), &hb); err != nil {
+			// Payload rusak tidak ikut di-requeue — akan poison loop kalau
+			// ya; drop seperti perilaku lama dan lanjut ke item berikutnya.
+			log.Printf("heartbeat-flusher: skipping malformed payload: %v", err)
 			continue
 		}
 
@@ -1604,14 +1675,13 @@ func flushHeartbeatsQueue(ctx context.Context, rdb *redis.Client, pool *pgxpool.
 			t = time.Now().UTC()
 		}
 
-		_, err = tx.Exec(ctx,
+		if _, err = tx.Exec(ctx,
 			`INSERT INTO student_access_logs
 			 (exam_id, student_identifier, student_name, exam_number, student_class, event, ip_address, device_info, created_at)
 			 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
 			hb.ExamID, hb.MacAddress, hb.StudentName, hb.ExamNumber, hb.StudentClass,
 			hb.Event, hb.IPAddress, hb.DeviceInfo, t,
-		)
-		if err != nil {
+		); err != nil {
 			log.Printf("heartbeat-flusher: insert error: %v", err)
 		}
 
@@ -1632,8 +1702,8 @@ func flushHeartbeatsQueue(ctx context.Context, rdb *redis.Client, pool *pgxpool.
 	}
 
 	if err := tx.Commit(ctx); err != nil {
-		log.Printf("heartbeat-flusher: tx commit error: %v", err)
-	} else {
-		log.Printf("heartbeat-flusher: successfully flushed %d heartbeats to PostgreSQL", len(payloads))
+		requeue(fmt.Sprintf("tx commit error: %v", err))
+		return len(payloads)
 	}
+	return len(payloads)
 }

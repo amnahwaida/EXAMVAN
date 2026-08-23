@@ -1,6 +1,11 @@
 package models
 
-import "testing"
+import (
+	"context"
+	"testing"
+
+	"github.com/examvan/webui/internal/database"
+)
 
 func TestEmailDomainAllowed(t *testing.T) {
 	const wl = "gmail.com, sch.id, ac.id"
@@ -43,5 +48,55 @@ func TestParseDomainList(t *testing.T) {
 		if got[i] != want[i] {
 			t.Errorf("ParseDomainList[%d] = %q, want %q", i, got[i], want[i])
 		}
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Cache baca saas_settings (Lapis 1 — kapasitas)
+// ---------------------------------------------------------------------------
+//
+// GetSaasSetting berada di jalur panas setiap request siswa (middleware versi
+// Android + handler). Karena kini dibungkus cache TTL 30 detik, dua kontrak
+// lama harus tetap terjaga dan dikunci test ini:
+//
+//  1. Tulisan terlihat SEGERA di proses yang sama — SetSaasSetting wajib
+//     meng-invalidasi entri cache-nya; kalau tidak, panel admin menyimpan
+//     nilai baru tapi handler masih membaca nilai lama sampai TTL habis.
+//  2. Key yang belum ada di DB tetap konsisten ("", nil), termasuk pada
+//     pembacaan kedua yang dilayani dari cache miss persisten.
+func TestSaasSettingCacheWriteVisibility(t *testing.T) {
+	pool := database.NewPackageTestPool(t, "models")
+	ctx := context.Background()
+
+	const key = "cache_write_visibility_test_key"
+
+	// Bersihkan sisa run sebelumnya, lalu pastikan miss terbaca konsisten.
+	if err := SetSaasSetting(ctx, pool, key, ""); err != nil {
+		t.Fatalf("reset key: %v", err)
+	}
+	invalidateSaasSettingCache(pool, key)
+
+	for i := 0; i < 2; i++ {
+		val, err := GetSaasSetting(ctx, pool, key)
+		if err != nil || val != "" {
+			t.Fatalf("read #%d of unset key: val=%q err=%v, want \"\",nil", i+1, val, err)
+		}
+	}
+
+	// Tulis pertama → terlihat segera.
+	if err := SetSaasSetting(ctx, pool, key, "nilai-pertama"); err != nil {
+		t.Fatalf("set first value: %v", err)
+	}
+	if val, _ := GetSaasSetting(ctx, pool, key); val != "nilai-pertama" {
+		t.Fatalf("after first Set: got %q, want %q", val, "nilai-pertama")
+	}
+
+	// Timpa saat entri masih hangat di cache → tetap harus terlihat segera
+	// (inilah kontrak invalidasi; tanpa itu pembacaan kedua akan stale).
+	if err := SetSaasSetting(ctx, pool, key, "nilai-kedua"); err != nil {
+		t.Fatalf("set second value: %v", err)
+	}
+	if val, _ := GetSaasSetting(ctx, pool, key); val != "nilai-kedua" {
+		t.Fatalf("after overwrite: got %q, want %q (cache not invalidated?)", val, "nilai-kedua")
 	}
 }

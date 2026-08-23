@@ -768,6 +768,99 @@ Bucket per-IP middleware hanyalah brake kasar; throttle sebenarnya di-enforce di
 
 ---
 
+## Kapasitas Lapis 1 — Plafon Koneksi nginx, Cache Setting, Pipa Heartbeat, Retensi Log & Persistensi Redis (23 Agustus 2026)
+
+Seksi ini mendokumentasikan penguatan **kapasitas agregat** server: kemampuan melayani **banyak ujian aktif bersamaan** (bukan sekadar satu ruangan besar). Review kapasitas menemukan bahwa hambatan pertama sistem justru bukan CPU, melainkan beberapa plafon yang tertanam di konfigurasi dan kode. Semuanya dibereskan di "Lapis 1" ini **tanpa mengubah arsitektur** (masih satu host, satu stack Docker).
+
+### Ringkasan masalah → solusi
+
+| # | Dinding yang ditemukan | Dampak sebelum | Perbaikan |
+|---|---|---|---|
+| 1 | nginx berjalan **1 worker × 2048 koneksi** (`nginx.conf` tidak men-set `worker_processes`; default nginx = 1) | ±2.000 perangkat terhubung serentak untuk **seluruh sistem** — semua trafik siswa lewat nginx ini, dan koneksi WS menyandera slot selama ujian | `worker_processes auto`, `worker_connections 10240`, `worker_rlimit_nofile 65535` + `ulimits` kontainer |
+| 2 | `GetSaasSetting` dipanggil di jalur panas **setiap request siswa** (middleware versi Android + handler) tanpa cache | +1–2 query PostgreSQL per request hanya untuk nilai yang nyaris tak pernah berubah — beban pada komponen terlemah | Cache in-process TTL 30 detik dengan invalidasi saat ditulis |
+| 3 | Heartbeat flusher menguras antrean Redis **tetap 100 baris/30 detik (=200/menit)** | Ruangan penuh (500 perangkat × ~1 heartbeat/menit = 500/menit) TIDAK terkejar → antrean tumbuh tanpa batas, audit tertinggal berjam-jam | Drain sampai habis: batch 500 × maks 20 batch/tick ≈ 20.000 baris/menit |
+| 4 | Handler access-log menjalankan SELECT `submissions` untuk **semua** event termasuk heartbeat, padahal hasilnya hanya dipakai non-heartbeat | Satu query terbuang per heartbeat (~90% trafik access-log) | Blok dipindah ke dalam cabang non-heartbeat |
+| 5 | `student_access_logs` tumbuh ±1 baris/perangkat/menit **tanpa pembersihan** | Di partisi kecil (thin-client 13 GB) tabel memakan disk seiring musim ujian | Job retensi berkala (default 90 hari) + index `created_at` |
+| 6 | Redis jalan **tanpa persistensi** (`--appendonly no --save ""`, tanpa volume) | Restart Redis = antrean submission yang sudah dilaporkan "berhasil" (HTTP 202) hilang | AOF `everysec` + volume `redis_data` |
+| 7 | PostgreSQL di-cap cgroup **256M** padahal MinConns=20 backend + shared_buffers sudah mepet; pool aplikasi default 100 == `max_connections` PG default 100 | Risiko OOM-kill db & error "too many clients" saat burst | `mem_limit 1G`, tuning eksplisit PG (`max_connections=150`, `shared_buffers=256MB`), default pool turun ke 60 |
+
+### 1. Plafon koneksi nginx diangkat
+
+Semua request siswa mengalir `cloudflared → nginx → Go`. Setiap request yang di-proxy memakai **2 slot** `worker_connections` (koneksi klien + koneksi upstream), dan WebSocket siswa adalah koneksi long-lived yang memegang slot sepanjang ujian. Konfigurasi lama (1 worker × 2048) berarti plafon mutlak ±1.000-an klien terhubung serentak untuk seluruh sistem — lebih kecil dari SATU ujian besar, apalagi seribu.
+
+Konfigurasi baru (`webui/nginx/nginx.conf`):
+
+- `worker_processes auto;` — satu worker per core CPU;
+- `worker_connections 10240;` — per worker;
+- `worker_rlimit_nofile 65535;` — dipasangkan dengan `ulimits.nofile` pada service `nginx-lb` di `docker-compose.yml` (harus ≥ nilainya, jika tidak nginx gagal start dengan `setrlimit() failed`).
+
+Pada host 2-core, plafon efektif menjadi ~40 ribu slot (~20 ribu klien) — jauh di atas titik di mana CPU server jadi pembatas berikutnya, sehingga koneksi tidak lagi pernah menjadi hambatan pertama.
+
+### 2. Cache baca `saas_settings` (TTL 30 detik)
+
+`middleware.AndroidVersionCheck` membaca setting `android_version` untuk **setiap** endpoint `/api/exams/*`, dan handler SubmitExam/AccessLog membacanya lagi. Implementasi (`webui/internal/models/settings.go`):
+
+- Cache **in-process**, keyed per `(pool, key)` — keyed per pool agar test integrasi yang menjalankan beberapa pool dalam satu proses tidak saling melihat nilai stale;
+- TTL **30 detik**: edit SuperAdmin dari proses/instansi lain terlihat maksimal 30 detik kemudian;
+- `SetSaasSetting` **meng-invalidasi** entri yang dia tulis — di proses yang sama, nilai baru terlihat SEGERA (dikunci test);
+- Miss (key belum ada di DB) juga dicache agar polling endpoint yang membaca key yang memang tidak pernah diset tetap hemat query; error DB tidak pernah dicache.
+
+### 3. Pipa heartbeat: drain-rate & query terbuang
+
+Alurnya: app siswa → `POST /access-log` (event `heartbeat`) → Redis list `examvan:heartbeats:pending` → **heartbeat-flusher** (tiap 30 detik) → `student_access_logs` + baris `submissions` untuk dasbor "Monitoring Perangkat".
+
+Dua perbaikan:
+
+1. **Drain sampai habis** (`webui/cmd/server/main.go`): tiap tick menguras maksimal 20 batch × 500 baris, satu transaksi per batch (kegagalan hanya mengorbankan satu batch, bukan satu tick). Jika transaksi gagal, seluruh payload batch di-*requeue* ke Redis agar tick berikutnya mencoba lagi — data audit yang sudah di-pop tidak lagi hilang diam-diam. Payload JSON rusak tetap dibuang (tidak ikut requeue) supaya tidak menjadi *poison loop*.
+2. **SELECT `submissions` tidak dijalankan untuk heartbeat** (`webui/internal/handlers/api/exams.go`): lookup itu hanya memberi `submission_id` untuk INSERT log login/logout, jadi bloknya dipindah ke cabang non-heartbeat. Hemat satu indexed SELECT per heartbeat.
+
+### 4. Job retensi `student_access_logs`
+
+Baru (`webui/internal/handlers/admin/access_log_retention_job.go`), pola sama dengan approval-cleanup job:
+
+- Menghapus baris lebih tua dari **`access_log_retention_days`** (saas_settings, default **90**); nilai `0` atau negatif = **retensi MATI** — bukan "hapus semua" (dikunci test: salah konfigurasi tidak boleh berarti wipe seluruh audit trail);
+- Loop tiap **`access_log_retention_interval_minutes`** (default **60**, lantai minimal 5 menit);
+- Index pendukung `idx_student_access_logs_created_at` (`schema.sql`) — DELETE penyaring umur saja tidak bisa dilayani index komposit `(exam_id, created_at)` yang ada, jadi tanpa index ini tiap sapuan akan menjadi sequential scan;
+- Autovacuum tabel ini sudah dilonggarkan sebelumnya (`autovacuum_vacuum_scale_factor = 0.01`).
+
+Cara SuperAdmin menyetel ulang tanpa redeploy (misal musim ujian mau longgar):
+
+```sql
+UPDATE saas_settings SET value = '180' WHERE key = 'access_log_retention_days';
+UPDATE saas_settings SET value = '30'  WHERE key = 'access_log_retention_interval_minutes';
+```
+
+### 5. Persistensi Redis
+
+Antrean `examvan:submissions:pending` berisi jawaban siswa yang sudah dikonfirmasi HTTP 202 ke aplikasi namun belum di-commit ke PostgreSQL oleh queue worker. Sebelumnya Redis berjalan tanpa persistensi dan tanpa volume — restart kontainer menghapus antrean itu. Sekarang: `--appendonly yes --appendfsync everysec` (maksimal ±1 detik tulisan hilang saat crash) + volume `redis_data:/data`.
+
+> 📌 **Upgrade dari instalasi lama:** volume `redis_data` baru dibuat otomatis saat `docker compose up -d`; tidak ada langkah migrasi manual.
+
+### 6. Penyelarasan limit resource
+
+- **db `mem_limit`: 256M → 1G** — MinConns=20 backend permanen + `shared_buffers` sudah mepet limit lama; burst insert (flusher/queue) bisa memicu OOM-kill cgroup. RAM host tipikal jauh melimpah dibanding kebutuhan gabungan kontainer;
+- **Tuning PostgreSQL eksplisit**: `max_connections=150` (headroom di atas pool aplikasi untuk migrasi/healthcheck/admin), `shared_buffers=256MB`, `effective_cache_size=768MB`;
+- **`DATABASE_MAX_CONNS` default: 100 → 60** (`docker-compose.yml` + fallback `internal/config/config.go`) — pool aplikasi harus SELALU di bawah `max_connections` PG agar tidak pernah ada koneksi lain yang ditolak "too many clients"; bonus: MinConns ikut turun ke 12 backend idle;
+- **`gin.Logger()` hanya di development** — satu baris log terformat per request boros CPU di gelombang ratusan req/dtk; di produksi access_log nginx mencukupi audit HTTP.
+
+### Test yang mengunci
+
+- `TestSaasSettingCacheWriteVisibility` (`webui/internal/models/settings_test.go`) — tulisan terlihat segera walau entri cache hangat (kontrak invalidasi), dan miss konsisten;
+- `TestPurgeOldStudentAccessLogsRemovesOnlyExpired` / `TestPurgeOldStudentAccessLogsZeroDaysIsDisabled` (`webui/internal/models/access_log_retention_test.go`) — purge hanya usang; `days <= 0` menghapus nol baris.
+
+```bash
+TEST_DATABASE_URL=postgresql://user:pass@localhost:5432/examvan_test \
+  go test ./internal/models/ -run 'TestSaasSettingCache|TestPurgeOldStudentAccessLogs' -v
+```
+
+### Dampak kapasitas
+
+Setelah Lapis 1, urutan hambatan agregat bergeser: ~~plafon koneksi nginx~~ (diangkat) → **RAM untuk koneksi WebSocket** → **CPU + PostgreSQL**. Untuk melampaui itu (target ribuan ujian serentak multi-host) diperlukan Lapis 2: eksternalisasi fan-out WebSocket hub ke Redis pub/sub, pgbouncer + PostgreSQL terpisah, dan multi-replika app di belakang load balancer — semuanya perubahan arsitektur, bukan konfigurasi.
+
+> ⚠️ **Deployment:** perubahan webui TIDAK live sampai image di-build ulang — jalankan `docker compose build && docker compose up -d` (restart saja tidak cukup). Konfigurasi nginx/redis/db ikut termuat ulang oleh `up -d`.
+
+---
+
 ## Pengujian (Tes Otomatis)
 
 ### 1. Tes Unit (tanpa database)

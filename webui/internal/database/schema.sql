@@ -285,6 +285,13 @@ CREATE INDEX IF NOT EXISTS idx_exams_active ON exams(id) WHERE status = 'active'
 -- exams accumulate. Same idempotent IF NOT EXISTS style as its neighbours.
 CREATE INDEX IF NOT EXISTS idx_exams_end_time ON exams(end_time) WHERE end_time IS NOT NULL;
 
+-- Plain created_at index supporting the access-log retention sweep
+-- (PurgeOldStudentAccessLogs): the DELETE filters ONLY by age — no exam_id
+-- predicate — so the composite idx_access_logs_exam_time(exam_id, created_at)
+-- cannot serve it and every pass would degrade into a sequential scan as the
+-- table grows. With this index the sweep reads just the expired range.
+CREATE INDEX IF NOT EXISTS idx_student_access_logs_created_at ON student_access_logs(created_at);
+
 ALTER TABLE submissions SET (autovacuum_vacuum_scale_factor = 0.01);
 ALTER TABLE student_access_logs SET (autovacuum_vacuum_scale_factor = 0.01);
 

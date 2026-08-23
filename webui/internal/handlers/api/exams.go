@@ -1518,20 +1518,24 @@ func AccessLog() gin.HandlerFunc {
 			}
 		}
 
-		// --- Find matching submission by MAC address ---
-		var submissionID *int
-		if macAddress != "" && macAddress != "unknown" {
-			var sid int
-			err := pool.QueryRow(ctx,
-				`SELECT id FROM submissions WHERE exam_id = $1 AND mac_address = $2 ORDER BY id DESC LIMIT 1`,
-				examID, macAddress).Scan(&sid)
-			if err == nil {
-				submissionID = &sid
-			}
-		}
-
 		// --- Insert access log (login/logout only, heartbeats are Redis-only for database performance) ---
+		// The submissions lookup below only ever feeds CreateAccessLog, so the
+		// WHOLE block is skipped for heartbeats: at wave scale heartbeats are
+		// ~90% of access-log traffic and this used to cost one extra indexed
+		// SELECT per heartbeat whose result was immediately discarded.
 		if event != "heartbeat" {
+			// --- Find matching submission by MAC address ---
+			var submissionID *int
+			if macAddress != "" && macAddress != "unknown" {
+				var sid int
+				err := pool.QueryRow(ctx,
+					`SELECT id FROM submissions WHERE exam_id = $1 AND mac_address = $2 ORDER BY id DESC LIMIT 1`,
+					examID, macAddress).Scan(&sid)
+				if err == nil {
+					submissionID = &sid
+				}
+			}
+
 			accessLog := &models.StudentAccessLog{
 				ExamID:            examID,
 				SubmissionID:      submissionID,
