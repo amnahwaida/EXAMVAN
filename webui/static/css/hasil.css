@@ -102,9 +102,11 @@ background: linear-gradient(135deg, var(--color-text), var(--color-text-secondar
 -webkit-text-fill-color: transparent;
 background-clip: text;
 }
+/* S8: badge informatif "Hasil Ujian" — ambang bawah 12px; kompensasi lewat
+   padding lebih rapat, bukan mengecilkan font. */
 .header-badge {
-font-size: 0.65rem;
-padding: 3px 10px;
+font-size: 0.75rem;
+padding: 2px 8px;
 border-radius: 20px;
 background: rgba(99, 102, 241, 0.15);
 border: 1px solid rgba(99, 102, 241, 0.3);
@@ -290,7 +292,7 @@ font-size: 0.82rem;
 .results-table thead th {
 padding: 12px 14px;
 text-align: left;
-font-size: 0.7rem;
+font-size: 0.75rem; /* S8: dulu 0.7rem */
 font-weight: 700;
 text-transform: uppercase;
 letter-spacing: 0.8px;
@@ -373,7 +375,7 @@ border-radius: 10px;
 padding: 14px 16px;
 }
 .detail-info-heading {
-font-size: 0.72rem;
+font-size: 0.75rem; /* S8: dulu 0.72rem */
 font-weight: 700;
 text-transform: uppercase;
 letter-spacing: 0.5px;
@@ -409,6 +411,12 @@ text-align: right;
 }
 
 /* Answer grid */
+/* S9 (desktop): daftar jawaban tetap panel ringkas 380px, TAPI indikator
+   ada-lanjutan wajib jelas — scrollbar selalu tampak (track berwarna, thumb
+   kontras; Firefox via scrollbar-color). Fade-mask statis di tepi bawah sengaja
+   TIDAK dipakai: ia juga memudam baris terakhir saat konten muat penuh,
+   memberi sinyal palsu "masih ada lanjutan". Di mobile (<768px) batas ini
+   dilepas total — lihat blok responsive di bawah. */
 .answer-grid {
 display: flex;
 flex-direction: column;
@@ -416,11 +424,14 @@ gap: 6px;
 max-height: 380px;
 overflow-y: auto;
 padding-right: 8px;
+scrollbar-width: thin;
+scrollbar-color: rgba(255,255,255,0.35) rgba(255,255,255,0.08);
 }
-.answer-grid::-webkit-scrollbar { width: 6px; background: transparent; }
+.answer-grid::-webkit-scrollbar { width: 10px; background: rgba(255,255,255,0.06); }
 .answer-grid::-webkit-scrollbar-thumb {
-background: rgba(255,255,255,0.1); border-radius: 3px;
+background: rgba(255,255,255,0.3); border-radius: 5px;
 }
+.answer-grid::-webkit-scrollbar-thumb:hover { background: rgba(255,255,255,0.45); }
 .answer-item {
 display: flex;
 align-items: center;
@@ -481,7 +492,7 @@ margin-bottom: 10px;
 .detail-header-labels {
 display: flex;
 gap: 12px;
-font-size: 0.65rem;
+font-size: 0.75rem; /* S8: dulu 0.65rem — label kolom jawaban informatif */
 font-weight: 700;
 text-transform: uppercase;
 letter-spacing: 0.5px;
@@ -518,7 +529,7 @@ border: 1px solid rgba(255,255,255,0.06);
 }
 .stat-mini-value { font-size: 1.4rem; font-weight: 800; display: block; }
 .stat-mini-label {
-font-size: 0.65rem;
+font-size: 0.75rem; /* S8: dulu 0.65rem — label statistik informatif */
 color: var(--color-text-muted);
 text-transform: uppercase;
 letter-spacing: 0.5px;
@@ -553,10 +564,11 @@ color: var(--color-accent-light);
 background: rgba(99, 102, 241, 0.15);
 padding: 3px 10px; border-radius: 8px;
 }
+/* S8: "Bobot: N" informatif — font naik ke ambang 12px, kompensasi padding rapat */
 .key-card-weight {
-font-size: 0.65rem; color: var(--color-text-muted);
+font-size: 0.75rem; color: var(--color-text-muted);
 background: rgba(255,255,255,0.04);
-padding: 2px 8px; border-radius: 6px;
+padding: 1px 6px; border-radius: 6px;
 }
 
 /* Loading */
@@ -600,8 +612,11 @@ color: var(--color-primary-light);
 .rank-num.rank-1 { color: var(--color-warning); }
 .rank-num.rank-2 { color: #e2e8f0; }
 .rank-num.rank-3 { color: #d97706; }
+/* S8: ikon chevron — ukuran render dikunci inline 14px (aria-hidden) oleh
+   template; font-size tetap dinaikkan ke ambang agar aturan tunggal berlaku
+   bila ikon suatu saat diganti glyph teks. */
 .expand-icon {
-font-size: 0.65rem; color: var(--color-text-muted);
+font-size: 0.75rem; color: var(--color-text-muted);
 transition: transform 0.3s; display: inline-block;
 }
 .expanded .expand-icon { transform: rotate(180deg); }
@@ -711,7 +726,7 @@ transition: transform 0.3s; display: inline-block;
  gap: 10px;
 }
 .pagination-info {
- font-size: 0.72rem;
+ font-size: 0.75rem; /* S8: dulu 0.72rem */
  text-align: center;
 }
 .pagination-controls {
@@ -733,7 +748,7 @@ transition: transform 0.3s; display: inline-block;
 /* Footer */
 .footer {
 text-align: center; padding: 24px 20px;
-color: var(--color-text-muted); font-size: 0.72rem;
+color: var(--color-text-muted); font-size: 0.75rem; /* S8: footer dulu 0.72rem */
 position: relative; z-index: 1; flex: 0 0 auto;
 }
 
@@ -757,11 +772,13 @@ to { opacity: 1; transform: translateY(0); }
 .header { padding: 12px 16px; }
 .header-title { font-size: 0.95rem; }
 .header-divider { display: none; }
-.header-badge { font-size: 0.55rem; padding: 2px 8px; }
+/* S8: badge "Hasil Ujian" informatif — dulu 0.55rem (≈8.8px, anchor temuan);
+   font naik ke ambang 12px, kompensasi lewat padding lebih rapat. */
+.header-badge { font-size: 0.75rem; padding: 1px 6px; }
 .stats-row { grid-template-columns: repeat(2, 1fr); gap: 8px; }
 .stat-mini { padding: 8px; }
 .stat-mini-value { font-size: 1.2rem; }
-.stat-mini-label { font-size: 0.6rem; }
+.stat-mini-label { font-size: 0.75rem; letter-spacing: 0.25px; } /* S8: dulu 0.6rem — kompensasi letter-spacing rapat */
 
 .results-table thead { display: none; }
 .results-table, .results-table tbody {
@@ -857,9 +874,17 @@ to { opacity: 1; transform: translateY(0); }
 .detail-info-grid { grid-template-columns: 1fr; gap: 10px; }
 .detail-info-section { padding: 10px 12px; }
 .detail-header { display: none; }
+/* S9 (mobile): hapus scroll-trap — tanpa max-height/overflow, daftar jawaban
+   mengembang penuh dan HALAMAN yang scroll (satu momentum sentuh, tidak ada
+   area gulir tersarang yang membuat siswa mengira daftar sudah habis). */
+.answer-grid {
+max-height: none;
+overflow: visible;
+padding-right: 0;
+}
 .answer-item { padding: 6px 10px; gap: 6px; flex-wrap: wrap; }
-.q-num { min-width: 34px; font-size: 0.72rem; }
-.q-status { min-width: auto; text-align: left; font-size: 0.72rem; }
+.q-num { min-width: 36px; font-size: 0.75rem; } /* S8: dulu 0.72rem — kompensasi min-width */
+.q-status { min-width: auto; text-align: left; font-size: 0.75rem; } /* S8: dulu 0.72rem */
 }
 
 @media (max-width: 480px) {
@@ -893,13 +918,13 @@ overflow-x: auto;
 .q-student-ans::before {
 content: "Jawaban: ";
 color: var(--color-text-muted);
-font-size: 0.68rem;
+font-size: 0.75rem; /* S8: dulu 0.68rem — label informatif */
 font-weight: 600;
 }
 .q-correct-ans::before {
 content: "Kunci: ";
 color: var(--color-text-muted);
-font-size: 0.68rem;
+font-size: 0.75rem; /* S8: dulu 0.68rem — label informatif */
 font-weight: 600;
 }
 }

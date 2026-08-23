@@ -1119,6 +1119,9 @@
 
 <script src="/static/js/admin-core.js?v={{.version}}"></script>
 <script src="/static/js/admin.js?v={{.version}}"></script>
+<!-- T8: logika murni diff antrean izin (serializeApprovals/computeApprovalRowOps).
+     Harus terload SEBELUM script inline di bawah yang memakainya. -->
+<script src="/static/js/pengawas-detail.js?v={{.version}}"></script>
 <script>
 var EXAM_ID = {{.exam.ID}};
 var SUB_PAGE = 1;
@@ -1189,6 +1192,29 @@ function stopExamPengawasDetail(examId) {
 // silently dropped.
 var approvalLoading = false;
 var approvalRerunPending = false;
+// T8: guard skip-if-same + state render antrean.
+// approvalLastSerialized = sidik jari payload render SUKSES terakhir; bila poll
+// berikutnya menghasilkan serialisasi identik, tbody sama sekali tidak disentuh
+// (tap Izinkan/Tolak tidak bisa mendarat di DOM yang baru diganti).
+// approvalRowsLive = penanda tbody sedang berisi baris data (bukan notice).
+// approvalActionBusy = aksi Izinkan/Tolak sedang in-flight → render antrean
+// ditunda via approvalRerunPending agar tombol yang sedang ditekan tak hilang.
+var approvalLastSerialized = null;
+var approvalRowsLive = false;
+var approvalRowsCache = [];
+var approvalActionBusy = false;
+
+// Notice (empty/error/closed) SELALU menimpa baris data — snapshot wajib
+// divalidasi di sini agar poll berikutnya dengan payload sama tidak salah
+// "skip" dan layar mentok di notice.
+function renderApprovalNotice(html) {
+    var tbody = document.getElementById('approvalBody');
+    if (!tbody) return;
+    tbody.innerHTML = html;
+    approvalLastSerialized = null;
+    approvalRowsLive = false;
+    approvalRowsCache = [];
+}
 
 function loadApprovals() {
     var tbody = document.getElementById('approvalBody');
@@ -1196,6 +1222,10 @@ function loadApprovals() {
     if (!tbody || !section) return;
 
     if (approvalLoading) { approvalRerunPending = true; return; }
+    // T8: selama aksi Izinkan/Tolak berjalan, tunda render — jangan ganti DOM
+    // tempat guru baru saja menekan tombol. Panggilan ini diingat dan diulang
+    // setelah aksi selesai (jalur .finally setApproval memicu rerun).
+    if (approvalActionBusy) { approvalRerunPending = true; return; }
     approvalLoading = true;
 
     // Paginated: the server returns at most `limit` oldest pending rows; a
@@ -1212,62 +1242,61 @@ function loadApprovals() {
                     note.style.display = 'none';
                 }
             }
+            // T8: guard skip-if-same dievaluasi SEBELUM penulisan DOM apa pun
+            // pada jalur sukses — bila payload identik dengan render sukses
+            // terakhir, jangan sentuh tbody sama sekali (cukup perbarui stempel).
+            // Aman dipanggil walau res gagal: serializeApprovals menerima
+            // null/undefined, dan snapshot tak pernah live saat tbody berisi
+            // notice (selalu divalidasi oleh renderApprovalNotice).
+            var serialized = PengawasDetailQueue.serializeApprovals(res ? res.data : null);
+            if (approvalRowsLive && approvalLastSerialized === serialized) {
+                markUpdated();
+                return;
+            }
             if (!res || !res.success) {
                 // An exam that is no longer live (stopped/ended) rejects the
                 // queue read — show a calm "closed" state instead of spamming
                 // an error toast from the 5s poll.
                 var gateMsg = (res && res.message) || '';
                 if (gateMsg.indexOf('Ujian tidak aktif') === 0 || gateMsg.indexOf('Waktu ujian telah berakhir') === 0) {
-                    tbody.innerHTML = '<tr><td colspan="5" class="pd-table-empty" style="color:var(--color-text-muted);">Antrean izin ditutup — ujian tidak aktif atau telah berakhir.</td></tr>';
+                    renderApprovalNotice('<tr><td colspan="5" class="pd-table-empty" style="color:var(--color-text-muted);">Antrean izin ditutup — ujian tidak aktif atau telah berakhir.</td></tr>');
                     return;
                 }
                 // Gagal memuat antrean — jangan samarkan sebagai antrean kosong.
                 showToast((res && res.message) || 'Gagal memuat antrean izin perangkat', 'error');
-                tbody.innerHTML = '<tr><td colspan="5" class="pd-table-empty" style="color:#fca5a5;">Gagal memuat antrean. Coba lagi.</td></tr>';
+                renderApprovalNotice('<tr><td colspan="5" class="pd-table-empty" style="color:#fca5a5;">Gagal memuat antrean. Coba lagi.</td></tr>');
                 return;
             }
             if (!res.data || res.data.length === 0) {
                 if (document.getElementById('autoAcceptToggle') && document.getElementById('autoAcceptToggle').checked) {
-                    tbody.innerHTML = '<tr><td colspan="5" class="pd-table-empty" style="color:var(--color-text-muted);"><div class="pd-pulse" style="display:inline-block;margin-right:8px;background:#34d399;"></div> Auto-approve aktif — peserta disetujui otomatis di server...</td></tr>';
+                    renderApprovalNotice('<tr><td colspan="5" class="pd-table-empty" style="color:var(--color-text-muted);"><div class="pd-pulse" style="display:inline-block;margin-right:8px;background:#34d399;"></div> Auto-approve aktif — peserta disetujui otomatis di server...</td></tr>');
                 } else {
-                    tbody.innerHTML = '<tr><td colspan="5" class="pd-table-empty" style="color:var(--color-text-muted);">Belum ada antrean peserta saat ini.</td></tr>';
+                    renderApprovalNotice('<tr><td colspan="5" class="pd-table-empty" style="color:var(--color-text-muted);">Belum ada antrean peserta saat ini.</td></tr>');
                 }
                 return;
             }
-            var html = '';
-            for (var i = 0; i < res.data.length; i++) {
-                var a = res.data[i];
-                var t = a.created_at ? localizeUTC(a.created_at) : '—';
-                var studentInfo = esc(a.student_name);
-                if (!studentInfo || studentInfo === '—') studentInfo = '<em style="color:var(--color-text-muted);">Tidak diketahui (Anonim)</em>';
-                
-                // Revamped table row design matching the premium theme
-                html += '<tr style="transition: all 0.2s; border-bottom: 1px solid rgba(245, 158, 11, 0.1);">' +
-                    '<td data-label="No">' + (i + 1) + '</td>' +
-                    '<td data-label="ID Perangkat">' +
-                        '<div style="display:inline-flex; align-items:center; gap:6px; background:rgba(99,102,241,0.1); color:#818cf8; padding:4px 8px; border-radius:6px; font-family:var(--font-mono); font-size:0.75rem; font-weight:600; border:1px solid rgba(99,102,241,0.2);">' +
-                            '<svg class="icon-svg" style="width:12px;height:12px;"><use href="#hi-device"/></svg> ' + esc(a.mac_address) +
-                        '</div>' +
-                    '</td>' +
-                    '<td data-label="Siswa" style="font-weight:600;">' + studentInfo + '</td>' +
-                    '<td data-label="Waktu Minta Izin" style="font-size:0.8rem; color:var(--color-text-secondary);">' +
-                        '<div style="display:flex; align-items:center; gap:4px;">' +
-                            '<svg class="icon-svg" style="width:12px;height:12px;"><use href="#hi-clock"/></svg> ' + t +
-                        '</div>' +
-                    '</td>' +
-                    '<td data-label="Aksi" style="text-align:right;">' +
-                        '<div style="display:flex; justify-content:flex-end; gap:8px;">' +
-                            '<button class="pd-action-btn pd-action-active" onclick="setApproval(\'' + escapeHtml(jsEscape(a.mac_address)) + '\', \'approved\')" style="padding:6px 12px; border-radius:8px; font-weight:600;">' +
-                                '<svg class="icon-svg" style="width:14px;height:14px;"><use href="#hi-check"/></svg> Izinkan' +
-                            '</button>' +
-                            '<button class="pd-action-btn pd-action-danger" onclick="setApproval(\'' + escapeHtml(jsEscape(a.mac_address)) + '\', \'rejected\')" style="padding:6px 12px; border-radius:8px; font-weight:600;">' +
-                                '<svg class="icon-svg" style="width:14px;height:14px;"><use href="#hi-x"/></svg> Tolak' +
-                            '</button>' +
-                        '</div>' +
-                    '</td>' +
-                '</tr>';
+            // T8: coba update per-baris (add/update/remove by mac_address) agar
+            // baris yang tidak berubah TIDAK dibuat ulang — fokus/hover/tap
+            // pengguna pada tombol lain tetap utuh. Replace penuh hanya sebagai
+            // fallback bila diff tak terpetakan (atau render pertama).
+            var appliedInPlace = false;
+            if (approvalRowsLive && approvalRowsCache.length > 0) {
+                var diff = PengawasDetailQueue.computeApprovalRowOps(approvalRowsCache, res.data);
+                if (diff.type === 'ops' && applyApprovalRowOps(diff.ops)) {
+                    appliedInPlace = true;
+                }
             }
-            tbody.innerHTML = html;
+            if (!appliedInPlace) {
+                var html = '';
+                for (var i = 0; i < res.data.length; i++) {
+                    html += buildApprovalRowHTML(res.data[i], i);
+                }
+                tbody.innerHTML = html;
+            }
+            approvalLastSerialized = serialized;
+            approvalRowsLive = true;
+            approvalRowsCache = res.data;
+            markUpdated();
         })
         .catch(function(err) {
             console.error('Fetch approvals error:', err);
@@ -1286,12 +1315,103 @@ function loadApprovals() {
         });
 }
 
+// T8: markup satu baris antrean — dipakai baik oleh render penuh maupun
+// penyisipan per-baris (applyApprovalRowOps). Baris membawa identitas
+// mac_address pada atribut data-mac agar bisa dimutasi in-place.
+function buildApprovalRowHTML(a, i) {
+    var t = a.created_at ? localizeUTC(a.created_at) : '—';
+    var studentInfo = esc(a.student_name);
+    if (!studentInfo || studentInfo === '—') studentInfo = '<em style="color:var(--color-text-muted);">Tidak diketahui (Anonim)</em>';
+
+    // Revamped table row design matching the premium theme
+    return '<tr data-mac="' + escapeHtml(jsEscape(a.mac_address)) + '" style="transition: all 0.2s; border-bottom: 1px solid rgba(245, 158, 11, 0.1);">' +
+        '<td data-label="No">' + (i + 1) + '</td>' +
+        '<td data-label="ID Perangkat">' +
+            '<div style="display:inline-flex; align-items:center; gap:6px; background:rgba(99,102,241,0.1); color:#818cf8; padding:4px 8px; border-radius:6px; font-family:var(--font-mono); font-size:0.75rem; font-weight:600; border:1px solid rgba(99,102,241,0.2);">' +
+                '<svg class="icon-svg" style="width:12px;height:12px;"><use href="#hi-device"/></svg> ' + esc(a.mac_address) +
+            '</div>' +
+        '</td>' +
+        '<td data-label="Siswa" style="font-weight:600;">' + studentInfo + '</td>' +
+        '<td data-label="Waktu Minta Izin" style="font-size:0.8rem; color:var(--color-text-secondary);">' +
+            '<div style="display:flex; align-items:center; gap:4px;">' +
+                '<svg class="icon-svg" style="width:12px;height:12px;"><use href="#hi-clock"/></svg> ' + t +
+            '</div>' +
+        '</td>' +
+        '<td data-label="Aksi" style="text-align:right;">' +
+            '<div style="display:flex; justify-content:flex-end; gap:8px;">' +
+                '<button class="pd-action-btn pd-action-active" onclick="setApproval(\'' + escapeHtml(jsEscape(a.mac_address)) + '\', \'approved\')" style="padding:6px 12px; border-radius:8px; font-weight:600;">' +
+                    '<svg class="icon-svg" style="width:14px;height:14px;"><use href="#hi-check"/></svg> Izinkan' +
+                '</button>' +
+                '<button class="pd-action-btn pd-action-danger" onclick="setApproval(\'' + escapeHtml(jsEscape(a.mac_address)) + '\', \'rejected\')" style="padding:6px 12px; border-radius:8px; font-weight:600;">' +
+                    '<svg class="icon-svg" style="width:14px;height:14px;"><use href="#hi-x"/></svg> Tolak' +
+                '</button>' +
+            '</div>' +
+        '</td>' +
+    '</tr>';
+}
+
+function findApprovalRowByMac(tbody, mac) {
+    var rows = tbody.querySelectorAll('tr[data-mac]');
+    for (var i = 0; i < rows.length; i++) {
+        if (rows[i].getAttribute('data-mac') === mac) return rows[i];
+    }
+    return null;
+}
+
+// T8: terapkan operasi per-baris hasil computeApprovalRowOps tanpa menimpa
+// tbody. Kontrak urutan dari modul: semua remove dulu, lalu update, lalu add
+// terurut index menaik (index mengacu posisi FINAL) — penyisipan cukup jalan
+// sekali dari kiri ke kanan.
+function applyApprovalRowOps(ops) {
+    var tbody = document.getElementById('approvalBody');
+    if (!tbody) return false;
+    var applied = 0;
+    // Tahap 1: hapus baris yang hilang dari payload baru.
+    for (var r = 0; r < ops.length; r++) {
+        var rop = ops[r];
+        if (rop.op !== 'remove') continue;
+        var dead = findApprovalRowByMac(tbody, rop.id);
+        if (dead && dead.parentNode) {
+            dead.parentNode.removeChild(dead);
+            applied++;
+        }
+    }
+    var liveRows = function() { return tbody.querySelectorAll('tr[data-mac]'); };
+    // Tahap 2+3: update in-place lalu sisipkan baris baru by index menaik.
+    for (var u = 0; u < ops.length; u++) {
+        var op = ops[u];
+        if (op.op !== 'update' && op.op !== 'add') continue;
+        var fresh = document.createElement('template');
+        fresh.innerHTML = buildApprovalRowHTML(op.item, op.index);
+        var newRow = fresh.content.firstElementChild;
+        if (!newRow) continue;
+        if (op.op === 'update') {
+            var stale = findApprovalRowByMac(tbody, op.id);
+            if (!stale) continue;
+            tbody.insertBefore(newRow, stale);
+            stale.parentNode.removeChild(stale);
+        } else {
+            var rows = liveRows();
+            if (op.index < rows.length) {
+                tbody.insertBefore(newRow, rows[op.index]);
+            } else {
+                tbody.appendChild(newRow);
+            }
+        }
+        applied++;
+    }
+    return applied > 0;
+}
+
 function setApproval(macAddress, status, skipConfirm) {
     if (!skipConfirm) {
         showConfirmApprovalModal(macAddress, status);
         return;
     }
     // apiFetch menyuntik X-CSRF-Token otomatis untuk method POST.
+    // T8: selama aksi berjangan, polling antrean ditunda (approvalRerunPending)
+    // agar baris/tombol yang sedang berinteraksi tidak diganti di tengah tap.
+    approvalActionBusy = true;
     apiFetch('/admin/api/pengawas/exams/' + EXAM_ID + '/approvals/' + encodeURIComponent(macAddress), {
         method: 'POST',
         headers: {
@@ -1313,6 +1433,15 @@ function setApproval(macAddress, status, skipConfirm) {
     })
     .catch(function(err) {
         showToast('Terjadi kesalahan jaringan', 'error');
+    })
+    .finally(function() {
+        // T8: state aksi selalu dibersihkan — termasuk saat network error —
+        // lalu jalankan render antrean yang tertunda selama aksi in-flight.
+        approvalActionBusy = false;
+        if (approvalRerunPending) {
+            approvalRerunPending = false;
+            loadApprovals();
+        }
     });
 }
 

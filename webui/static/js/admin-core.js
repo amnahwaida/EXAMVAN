@@ -276,14 +276,24 @@ function initMenuToggle() {
     const menuToggle = document.getElementById('menuToggleBtn');
     const dropdownContent = document.getElementById('menuDropdownContent');
     if (menuToggle && dropdownContent) {
+        // Sinkron aria-expanded dengan state menu (S18) — dipanggil di setiap
+        // jalur perubahan: toggle, outside-click, dan Escape.
+        const syncMenuAriaExpanded = () => {
+            menuToggle.setAttribute(
+                'aria-expanded',
+                dropdownContent.classList.contains('show') ? 'true' : 'false'
+            );
+        };
         menuToggle.onclick = (e) => {
             e.stopPropagation();
             dropdownContent.classList.toggle('show');
+            syncMenuAriaExpanded();
         };
         if (!_menuToggleInitialized) {
             document.addEventListener('click', (e) => {
                 if (!menuToggle.contains(e.target) && !dropdownContent.contains(e.target)) {
                     dropdownContent.classList.remove('show');
+                    syncMenuAriaExpanded();
                 }
                 const pengaturanDropdown = document.getElementById('pengaturanDropdown');
                 if (pengaturanDropdown && !pengaturanDropdown.contains(e.target) && !e.target.closest('.nav-link')) {
@@ -473,14 +483,141 @@ function initKeyboardShortcuts() {
                     document.getElementById('examName')?.focus();
                     document.getElementById('examName')?.scrollIntoView({ behavior: 'smooth' });
                     break;
-                case 'f':
-                    e.preventDefault();
-                    const search = document.getElementById('searchExam');
-                    if (search) { search.focus(); search.select(); }
-                    break;
+                // S20: binding Ctrl+F/Cmd+F sengaja DIHAPUS — menimpa
+                // find-in-browser bawaan browser. Fokus pencarian sudah
+                // dilayani shortcut '/' yang lebih wajar.
             }
         }
     });
+}
+
+// ===== Validasi field-level (S19) ==========================================
+// Pola error per-field: border merah + aria-invalid + <p role="alert"> yang
+// di-inject tepat setelah input, dirujuk via aria-describedby. Dipakai form
+// admin (mis. modal upload) agar pesan tidak hilang bersama toast (T6/T10).
+// Class CSS .input-error / .field-error-text ada di admin-base.css.
+
+function ensureFieldId(inputEl) {
+    if (!inputEl.id) {
+        inputEl.id = 'field-' + Math.random().toString(36).slice(2, 10);
+    }
+    return inputEl.id;
+}
+
+function fieldErrorId(inputEl) {
+    return ensureFieldId(inputEl) + '-error';
+}
+
+function setFieldError(inputEl, message) {
+    if (!inputEl) return;
+    var errId = fieldErrorId(inputEl);
+
+    inputEl.classList.add('input-error');
+    inputEl.setAttribute('aria-invalid', 'true');
+
+    // Referensi hint lama dijaga: append id error, jangan timpa.
+    var describedby = (inputEl.getAttribute('aria-describedby') || '')
+        .split(/\s+/).filter(Boolean).filter(function (id) { return id !== errId; });
+    describedby.push(errId);
+    inputEl.setAttribute('aria-describedby', describedby.join(' '));
+
+    // <p> error dibuat sekali, dipakai ulang untuk update pesan.
+    var doc = inputEl.ownerDocument || document;
+    var errEl = doc.getElementById(errId);
+    if (!errEl || errEl.parentNode !== inputEl.parentNode) {
+        if (errEl && errEl.parentNode) errEl.parentNode.removeChild(errEl);
+        errEl = doc.createElement('p');
+        errEl.id = errId;
+        errEl.className = 'field-error-text';
+        errEl.setAttribute('role', 'alert');
+        if (inputEl.nextSibling) {
+            inputEl.parentNode.insertBefore(errEl, inputEl.nextSibling);
+        } else if (inputEl.parentNode) {
+            inputEl.parentNode.appendChild(errEl);
+        }
+    }
+    errEl.textContent = message;
+}
+
+function clearFieldError(inputEl) {
+    if (!inputEl) return;
+    var errId = fieldErrorId(inputEl);
+
+    inputEl.classList.remove('input-error');
+    inputEl.removeAttribute('aria-invalid');
+
+    // Lepas HANYA referensi id error ini dari aria-describedby.
+    var describedby = (inputEl.getAttribute('aria-describedby') || '')
+        .split(/\s+/).filter(Boolean).filter(function (id) { return id !== errId; });
+    if (describedby.length) inputEl.setAttribute('aria-describedby', describedby.join(' '));
+    else inputEl.removeAttribute('aria-describedby');
+
+    var doc = inputEl.ownerDocument || document;
+    var errEl = doc.getElementById(errId);
+    if (errEl && errEl.parentNode) errEl.parentNode.removeChild(errEl);
+}
+
+function clearFieldErrors(containerEl) {
+    if (!containerEl) return;
+    // Selector id berakhiran "-error" tidak praktis lintas-browser; cukup
+    // bersihkan semua kontrol form dan biarkan clearFieldError yang melepas
+    // <p> via id-nya masing-masing.
+    var controls = containerEl.querySelectorAll ? containerEl.querySelectorAll('input, select, textarea') : [];
+    Array.prototype.forEach.call(controls, function (el) {
+        if (typeof clearFieldError === 'function') clearFieldError(el);
+    });
+}
+
+// ===== Live search terpadu (S5) ============================================
+// Satu pola pencarian untuk semua halaman: debounce saat mengetik, Enter
+// memanggil langsung dan membatalkan timer pending. Pemakaian:
+//   initLiveSearch(document.getElementById('pengawasSearch'), loadPengawasExams)
+function initLiveSearch(inputEl, callback, delayMs = 300) {
+    if (!inputEl || typeof callback !== 'function') return null;
+    // Guard tambahan: nilai non-numerik/<=0 tetap jatuh ke default 300.
+    var delay = typeof delayMs === 'number' && delayMs > 0 ? delayMs : 300;
+    var timerId = null;
+
+    function cancelPending() {
+        if (timerId !== null) {
+            clearTimeout(timerId);
+            timerId = null;
+        }
+    }
+
+    function onInput() {
+        cancelPending();
+        timerId = setTimeout(callback, delay);
+    }
+
+    function onKeyDown(e) {
+        if ((e.key || '') === 'Enter') {
+            // Enter = maksud eksplisit "cari sekarang": jalankan sinkron,
+            // batalkan debounce supaya tidak dobel.
+            cancelPending();
+            callback();
+        }
+    }
+
+    function onKeyUp(e) {
+        // keyup Enter dilewati — sudah ditangani keydown; keystroke lain
+        // ikut debounce bersama event 'input'.
+        if ((e.key || '') === 'Enter') return;
+        onInput();
+    }
+
+    inputEl.addEventListener('input', onInput);
+    inputEl.addEventListener('keydown', onKeyDown);
+    inputEl.addEventListener('keyup', onKeyUp);
+
+    return {
+        destroy: function () {
+            cancelPending();
+            inputEl.removeEventListener('input', onInput);
+            inputEl.removeEventListener('keydown', onKeyDown);
+            inputEl.removeEventListener('keyup', onKeyUp);
+        }
+    };
 }
 
 // ===== Auto-refresh Dashboard (AJAX-based, no full page reload) =====

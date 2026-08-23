@@ -183,9 +183,73 @@ function updateFileName(input) {
     });
 })();
 
+// ===== Validasi field-level modal unggah aplikasi (T10b) =====
+// Dulu validasi hanya native reportValidity() + toast saat submit — pesan
+// lenyap 5 detik tanpa penanda field mana yang salah. Kini tiap field
+// bermasalah ditandai inline via setFieldError() (admin-core.js): border
+// merah + aria-invalid + <p role="alert"> tepat di bawah input.
+function validateUploadForm() {
+    const hasHelper = typeof setFieldError === 'function';
+    if (!hasHelper) return true; // admin-core belum termuat — fallback native validity
+
+    const form = document.getElementById('uploadAppForm');
+    let valid = true;
+
+    const nameInput = document.getElementById('appName');
+    if (nameInput && !nameInput.value.trim()) {
+        setFieldError(nameInput, 'Nama aplikasi wajib diisi.');
+        valid = false;
+    } else if (nameInput) clearFieldError(nameInput);
+
+    const versionInput = document.getElementById('appVersion');
+    if (versionInput && !versionInput.value.trim()) {
+        setFieldError(versionInput, 'Versi aplikasi wajib diisi (contoh: 2.1.0).');
+        valid = false;
+    } else if (versionInput) clearFieldError(versionInput);
+
+    const fileInput = document.getElementById('appFile');
+    if (fileInput && !fileInput.files.length) {
+        setFieldError(fileInput, 'Pilih file aplikasi terlebih dahulu (.apk / .exe / .AppImage).');
+        valid = false;
+    } else if (fileInput) clearFieldError(fileInput);
+
+    return valid;
+}
+
+// Pembersihan live: error hilang begitu user memperbaiki field. Dipasang
+// sekali per halaman (form ada di modal statis settings).
+(function wireUploadFieldValidation() {
+    function bind() {
+        ['appName', 'appVersion'].forEach(function (id) {
+            var input = document.getElementById(id);
+            if (!input || input.dataset.fieldValidation) return;
+            input.dataset.fieldValidation = '1';
+            input.addEventListener('blur', function () { validateUploadForm(); });
+            input.addEventListener('input', function () { clearFieldError(input); });
+        });
+        var fileInput = document.getElementById('appFile');
+        if (fileInput && !fileInput.dataset.fieldValidation) {
+            fileInput.dataset.fieldValidation = '1';
+            fileInput.addEventListener('blur', function () { validateUploadForm(); });
+            fileInput.addEventListener('change', function () { clearFieldError(fileInput); });
+            // Event 'input' pada type=file tak konsisten antar browser;
+            // dipasang defensif untuk kontrak listener, 'change' yang efektif.
+            fileInput.addEventListener('input', function () { clearFieldError(fileInput); });
+        }
+    }
+    if (document.readyState === 'loading') {
+        document.addEventListener('DOMContentLoaded', bind);
+    } else {
+        bind();
+    }
+})();
+
 function submitUpload(event) {
     event.preventDefault();
     const form = document.getElementById('uploadAppForm');
+    // Validasi field-level dulu (inline, persisten); native validity sebagai
+    // lapis kedua untuk aturan yang tidak kami duplikasi.
+    if (!validateUploadForm()) return;
     if (!form.reportValidity()) return;
 
     const btn = document.getElementById('uploadSubmitBtn');

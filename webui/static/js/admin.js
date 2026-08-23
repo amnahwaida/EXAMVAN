@@ -43,6 +43,114 @@ if (pdfInput) {
     });
 }
 
+// ===== T10b/S19: validasi field-level form upload ujian =====
+// Pesan error tampil inline per field via helper admin-core.js (setFieldError
+// dikerjakan agen lain — panggil defensif), bukan hanya toast yang lenyap.
+// Toast tetap ada sebagai pelengkap ringkasan saat submit.
+function showUploadFieldError(inputEl, msg) {
+    if (typeof setFieldError === 'function') {
+        setFieldError(inputEl, msg);
+    } else {
+        // Fallback minimal bila helper belum tersedia di halaman ini
+        inputEl.setAttribute('aria-invalid', 'true');
+    }
+}
+
+function clearUploadFieldError(inputEl) {
+    if (typeof clearFieldError === 'function') {
+        clearFieldError(inputEl);
+    } else {
+        inputEl.removeAttribute('aria-invalid');
+    }
+}
+
+function validateUploadExamName() {
+    const el = document.getElementById('examName');
+    if (!el) return true;
+    if (!el.value.trim()) {
+        showUploadFieldError(el, 'Nama ujian wajib diisi');
+        return false;
+    }
+    clearUploadFieldError(el);
+    return true;
+}
+
+function validateUploadPdfFile() {
+    const el = document.getElementById('pdfFile');
+    if (!el) return true;
+    if (!el.files.length) {
+        showUploadFieldError(el, 'Pilih file PDF terlebih dahulu');
+        return false;
+    }
+    const maxUploadMB = parseFloat(el.getAttribute('data-max-mb')) || 0;
+    if (maxUploadMB > 0 && el.files[0].size > maxUploadMB * 1048576) {
+        showUploadFieldError(el, 'Ukuran file melebihi batas ' + maxUploadMB + ' MB');
+        return false;
+    }
+    clearUploadFieldError(el);
+    return true;
+}
+
+function validateUploadCustomToken() {
+    const el = document.getElementById('customToken');
+    if (!el) return true;
+    // Kosong = generate otomatis (field opsional). Huruf kecil dinormalisasi
+    // karena input hanya di-style text-transform:uppercase.
+    const val = el.value.trim().toUpperCase();
+    if (!val) {
+        clearUploadFieldError(el);
+        return true;
+    }
+    if (val.length !== 8 || !/^[A-Z0-9]+$/.test(val)) {
+        showUploadFieldError(el, 'Token kustom harus tepat 8 karakter huruf/angka (A-Z, 0-9)');
+        return false;
+    }
+    clearUploadFieldError(el);
+    return true;
+}
+
+// Jalankan semua validator; fokuskan field invalid pertama agar guru langsung
+// diarahkan ke masalahnya. Return true bila seluruh field valid.
+function validateUploadFormFields() {
+    const results = [
+        validateUploadExamName(),
+        validateUploadPdfFile(),
+        validateUploadCustomToken()
+    ];
+    if (results.indexOf(false) !== -1) {
+        const order = ['examName', 'pdfFile', 'customToken'];
+        for (var i = 0; i < order.length; i++) {
+            var el = document.getElementById(order[i]);
+            if (el && el.getAttribute && el.getAttribute('aria-invalid') === 'true') { el.focus(); break; }
+        }
+        return false;
+    }
+    return true;
+}
+
+// Validasi live: tampilkan saat blur dengan isian salah, clear segera saat
+// isian diperbaiki (input/change).
+(function () {
+    const nameInput = document.getElementById('examName');
+    if (nameInput) {
+        nameInput.addEventListener('blur', validateUploadExamName);
+        nameInput.addEventListener('input', function() {
+            if (nameInput.getAttribute('aria-invalid') === 'true') validateUploadExamName();
+        });
+    }
+    const pdfFileEl = document.getElementById('pdfFile');
+    if (pdfFileEl) {
+        pdfFileEl.addEventListener('change', validateUploadPdfFile);
+    }
+    const tokenInput = document.getElementById('customToken');
+    if (tokenInput) {
+        tokenInput.addEventListener('blur', validateUploadCustomToken);
+        tokenInput.addEventListener('input', function() {
+            if (tokenInput.getAttribute('aria-invalid') === 'true') validateUploadCustomToken();
+        });
+    }
+})();
+
 // Upload form
 const uploadForm = document.getElementById('uploadForm');
 if (uploadForm) {
@@ -58,17 +166,10 @@ if (uploadForm) {
 
         const customTokenInput = document.getElementById('customToken');
 
-        if (!nameInput.value.trim()) {
-            showToast('Nama ujian wajib diisi', 'error');
-            return;
-        }
-        if (!fileInput.files.length) {
-            showToast('Pilih file PDF terlebih dahulu', 'error');
-            return;
-        }
-        const maxUploadMB = parseFloat(fileInput.getAttribute('data-max-mb')) || 0;
-        if (maxUploadMB > 0 && fileInput.files[0].size > maxUploadMB * 1048576) {
-            showToast('Ukuran file melebihi batas ' + maxUploadMB + ' MB', 'error');
+        // T10b: validasi inline per-field — hasilnya ditandai di masing-masing
+        // field, toast hanya pelengkap ringkasan.
+        if (!validateUploadFormFields()) {
+            showToast('Periksa kembali isian yang ditandai merah', 'error');
             return;
         }
 
@@ -76,12 +177,7 @@ if (uploadForm) {
         formData.append('name', nameInput.value.trim());
         formData.append('pdf_file', fileInput.files[0]);
         if (customTokenInput && customTokenInput.value.trim()) {
-            const tokenVal = customTokenInput.value.trim().toUpperCase();
-            if (tokenVal.length !== 8 || !/^[A-Z0-9]+$/.test(tokenVal)) {
-                showToast('Token kustom harus terdiri dari 8 karakter alfanumerik', 'error');
-                return;
-            }
-            formData.append('custom_token', tokenVal);
+            formData.append('custom_token', customTokenInput.value.trim().toUpperCase());
         }
 
         btn.disabled = true;
@@ -131,41 +227,71 @@ if (uploadForm) {
     });
 }
 
-// Toggle exam status — update UI in-place tanpa reload
+// Toggle exam status — update UI in-place tanpa reload.
+// S1: perubahan status kini lewat dialog konfirmasi dulu (label tombol
+// menyesuaikan arah toggle) supaya badge tidak ter-trigger salah ketuk saat
+// scroll/zoom daftar ujian di HP.
 function toggleExam(examId) {
     const badge = document.getElementById('status-' + examId);
     if (!badge) return;
-    // Disable sementara untuk cegah double-click
-    badge.style.pointerEvents = 'none';
-    badge.style.opacity = '0.5';
+    if (badge.dataset.toggling === '1') return; // request sedang berjalan
 
-    apiFetch(`/admin/api/exams/${examId}/toggle`, { method: 'POST' })
-        .then(r => r.json())
-        .then(res => {
-            if (res.success) {
-                // Update badge in-place berdasarkan new_status dari server.
-                // status-tombstoned dibuang: mengaktifkan ujian otomatis
-                // membersihkan penanda tombstone di server, jadi badge harus
-                // kembali normal (Aktif/Nonaktif), bukan lagi "Ditombstone".
-                var isActive = res.new_status === 'active';
-                badge.classList.remove('status-tombstoned');
-                badge.classList.toggle('status-active', isActive);
-                badge.classList.toggle('status-inactive', !isActive);
-                badge.textContent = isActive ? 'Aktif' : 'Nonaktif';
-                showToast(res.message, 'success');
-            } else {
-                showToast(res.message || 'Gagal mengubah status', 'error');
-                badge.style.opacity = '1';
-            }
-        })
-        .catch(function() {
-            showToast('Koneksi gagal', 'error');
-            badge.style.opacity = '';
-        })
-        .finally(function() {
-            badge.style.pointerEvents = '';
-            badge.style.opacity = '';
-        });
+    const wasActive = badge.classList.contains('status-active');
+    // Nama ujian untuk pesan konfirmasi: ambil dari checkbox baris (data-name),
+    // fallback ke link nama ujian di kolom yang sama.
+    const row = document.getElementById('exam-row-' + examId);
+    const nameSrc = row ? (row.querySelector('.exam-checkbox') || row.querySelector('.exam-link')) : null;
+    let examName = nameSrc ? ((nameSrc.getAttribute('data-name') || nameSrc.textContent || '') + '').trim() : '';
+    if (!examName) examName = 'ini';
+
+    const confirmMsg = wasActive
+        ? `Nonaktifkan ujian "${examName}"?`
+        : `Aktifkan ujian "${examName}"?`;
+    const confirmDetail = wasActive
+        ? 'Siswa tidak bisa login ujian ini selama statusnya nonaktif.'
+        : 'Siswa bisa kembali login dan mengerjakan ujian ini.';
+    const confirmLabel = wasActive ? 'Ya, Nonaktifkan' : 'Ya, Aktifkan';
+
+    showConfirm(confirmMsg, confirmDetail, confirmLabel, 'Batal').then(ok => {
+        if (!ok) return; // batal: badge tidak pernah dikunci, tidak ada yang perlu dipulihkan
+        // Disable sementara untuk cegah double-click selama request berjalan
+        badge.dataset.toggling = '1';
+        badge.style.pointerEvents = 'none';
+        badge.style.opacity = '0.5';
+
+        apiFetch(`/admin/api/exams/${examId}/toggle`, { method: 'POST' })
+            .then(r => r.json())
+            .then(res => {
+                if (res.success) {
+                    // Update badge in-place berdasarkan new_status dari server.
+                    // status-tombstoned dibuang: mengaktifkan ujian otomatis
+                    // membersihkan penanda tombstone di server, jadi badge harus
+                    // kembali normal (Aktif/Nonaktif), bukan lagi "Nonaktif Otomatis".
+                    var isActive = res.new_status === 'active';
+                    badge.classList.remove('status-tombstoned');
+                    badge.classList.toggle('status-active', isActive);
+                    badge.classList.toggle('status-inactive', !isActive);
+                    badge.textContent = isActive ? 'Aktif' : 'Nonaktif';
+                    // Status juga diekspos ke assistive technology via aria-pressed,
+                    // dan title disesuaikan dengan arah toggle berikutnya.
+                    badge.setAttribute('aria-pressed', isActive ? 'true' : 'false');
+                    badge.title = isActive ? 'Klik untuk menonaktifkan ujian' : 'Klik untuk mengaktifkan ujian';
+                    showToast(res.message, 'success');
+                } else {
+                    showToast(res.message || 'Gagal mengubah status', 'error');
+                    badge.style.opacity = '1';
+                }
+            })
+            .catch(function() {
+                showToast('Koneksi gagal', 'error');
+                badge.style.opacity = '';
+            })
+            .finally(function() {
+                delete badge.dataset.toggling;
+                badge.style.pointerEvents = '';
+                badge.style.opacity = '';
+            });
+    });
 }
 
 // Delete exam
@@ -404,8 +530,33 @@ window.addEventListener('beforeunload', function(e) {
     }
 });
 
+// ===== S2: guard unsaved-changes modal konfigurasi soal =====
+// Semua input di modal (bobot soal, level keamanan, jumlah soal, jadwal,
+// pesan ucapan, warna panel, identitas siswa, pengawas) menandai state kotor
+// lewat listener terdelegasi di bawah; perubahan yang dilakukan programatik
+// (setAllWeights, tambah/hapus/sisip soal, reorder drag-drop, preset warna,
+// hapus jadwal) menandai manual karena tidak memicu event input/change.
+let questionsConfigDirty = false;
+let questionsDiscardConfirmOpen = false;
+
+function markQuestionsConfigDirty() {
+    // Tanpa guard activeExamId: field hanya bisa berubah lewat UI saat modal
+    // terbuka, dan openQuestionsModal me-reset flag ini pasca data server
+    // ter-render — sehingga pemanggilan liar di luar konteks tak berbahaya.
+    questionsConfigDirty = true;
+}
+
+function resetQuestionsConfigDirty() {
+    questionsConfigDirty = false;
+}
+
 function openQuestionsModal(examId, examName) {
     activeExamName = examName;
+    // Modal dibuka dengan data segar dari server — mulai dari state bersih.
+    questionsConfigDirty = false;
+    // (reset penuh lewat helper setelah data server ter-render; assignment
+    // di sini menutup celah klik-kotak antara open dan fetch selesai.)
+    resetQuestionsConfigDirty();
     document.getElementById('modalTitle').textContent = `Atur Soal Ujian: ${examName}`;
     const container = document.getElementById('questionsList');
     container.innerHTML = '<div style="color:var(--color-text-secondary); text-align:center; padding: 20px;">Memuat data soal...</div>';
@@ -422,6 +573,9 @@ function openQuestionsModal(examId, examName) {
             if (fetchId !== pendingFetchId) return; // Stale response
             if (res.success) {
                 activeExamId = examId; // Set AFTER data loaded
+                // Data server sudah dirender ulang (edit yang dilakukan saat
+                // loading ikut terganti) — mulai hitung dirty dari titik ini.
+                resetQuestionsConfigDirty();
                 const secSelect = document.getElementById('examSecurityLevel');
                 if (secSelect) {
                     secSelect.value = res.security_level || 'medium';
@@ -471,11 +625,60 @@ function openQuestionsModal(examId, examName) {
         });
 }
 
-function closeQuestionsModal() {
+function closeQuestionsModal(force) {
+    // S2: Batal/✕/Escape/backdrop saat ada perubahan belum disimpan →
+    // konfirmasi dulu sebelum membuang. force=true dipakai jalur internal
+    // (pasca-setuju buang, atau pasca simpan sukses).
+    if (!force && questionsConfigDirty && !questionsDiscardConfirmOpen) {
+        questionsDiscardConfirmOpen = true;
+        showConfirm('Buang perubahan?', 'Perubahan konfigurasi soal belum disimpan dan akan hilang bila modal ditutup.', 'Ya, Buang', 'Lanjut Edit')
+            .then(function(ok) {
+                questionsDiscardConfirmOpen = false;
+                if (ok) closeQuestionsModal(true);
+            });
+        return;
+    }
+    resetQuestionsConfigDirty();
     document.getElementById('questionsModal').style.display = 'none';
     activeExamId = null;
     activeExamName = '';
 }
+
+// S2: tandai kotor pada input/change apa pun di dalam modal (bubble dari
+// field statis maupun yang dirender JS dinamis). Dipasang eksplisit agar
+// mudah diuji dan tidak terlewat saat modal dirender ulang.
+(function () {
+    const qModal = document.getElementById('questionsModal');
+    if (!qModal) return;
+    qModal.addEventListener('input', markQuestionsConfigDirty);
+    qModal.addEventListener('change', markQuestionsConfigDirty);
+
+    function isQuestionsModalOpen() {
+        return qModal.style.display !== 'none' && qModal.style.display !== '';
+    }
+
+    // Escape & backdrop click secara normal ditangani Global Modal Manager
+    // (admin-core.js) yang memaksa-menutup overlay yang masih terbuka — itu
+    // akan membuang perubahan melewati guard di atas. Keduanya di-intercept
+    // di fase capture SAAT state kotor saja; selain itu alur lama berjalan
+    // normal. Manager sendiri melewatkan keydown bila defaultPrevented, jadi
+    // tidak perlu menyentuh admin-core.js (refactor penuh = S16 batch 4).
+    window.guardQuestionsModalEscape = function guardQuestionsModalEscape(e) {
+        if (e.key !== 'Escape') return;
+        if (!isQuestionsModalOpen() || !questionsConfigDirty || questionsDiscardConfirmOpen) return;
+        e.preventDefault();
+        e.stopPropagation();
+        closeQuestionsModal(); // tampilkan konfirmasi buang via guard closeQuestionsModal
+    };
+    window.guardQuestionsModalBackdropClick = function guardQuestionsModalBackdropClick(e) {
+        if (e.target !== qModal) return; // hanya klik backdrop sungguhan
+        if (!isQuestionsModalOpen() || !questionsConfigDirty || questionsDiscardConfirmOpen) return;
+        e.stopPropagation();
+        closeQuestionsModal();
+    };
+    document.addEventListener('keydown', guardQuestionsModalEscape, true);
+    document.addEventListener('click', guardQuestionsModalBackdropClick, true);
+})();
 
 // Render the student access & answer-key controls inside the questions modal
 // (moved here from the pengawasan page).
@@ -500,6 +703,7 @@ function renderStudentAccessControls(examId, res) {
 function setPanelColor(hex) {
     var colorInput = document.getElementById('examPanelColor');
     var hexInput = document.getElementById('panelColorHex');
+    markQuestionsConfigDirty(); // S2: preset warna programatik tidak memicu event input/change
     if (colorInput) colorInput.value = hex;
     if (hexInput) hexInput.value = hex;
 }
@@ -591,7 +795,7 @@ function insertQuestionAt(index) {
     const newQ = { type: 'single_choice', weight: 1.0 };
     const newCard = createNewQuestionCard(newQ, 0);
     const newDivider = createDivider(0);
-    
+    markQuestionsConfigDirty(); // S2: soal baru = perubahan belum tersimpan
     const dividers = Array.from(container.querySelectorAll('.q-editor-divider'));
     const targetDivider = dividers.find(d => d.dataset.index == index);
     if (targetDivider) {
@@ -612,6 +816,7 @@ function insertQuestionAt(index) {
 
 function removeQuestionCard(btn) {
     const card = btn.closest('.question-editor-card');
+    markQuestionsConfigDirty(); // S2: hapus soal = perubahan belum tersimpan
     const divider = card.nextSibling;
     if (divider && divider.classList && divider.classList.contains('q-editor-divider')) {
         divider.remove();
@@ -713,6 +918,7 @@ function handleDrop(e) {
     }
 
     document.querySelectorAll('.q-editor-divider').forEach(d => d.classList.remove('q-drag-hover'));
+    markQuestionsConfigDirty(); // S2: reorder mengubah nomor/nomor urut soal
     reindexQuestions();
     showToast('Soal berhasil diurutkan ulang', 'success');
 }
@@ -788,6 +994,7 @@ function applyBulkWeight(btn) {
         }
         inputEl.value = parsed;
     });
+    markQuestionsConfigDirty(); // S2: set nilai programatik tidak memicu event input/change
 
     overlay.remove();
     showToast(`Bobot ${weightInputs.length} soal diubah menjadi ${parsed}`, 'success');
@@ -856,6 +1063,7 @@ function addIdentityField() {
     const container = document.getElementById('identityFieldsList');
     const count = container.children.length;
     const field = { key: 'field_' + (count + 1), label: '', required: false };
+    markQuestionsConfigDirty(); // S2: baris identitas baru = perubahan belum tersimpan
     addIdentityFieldRow(container, field, count);
 }
 
@@ -1198,6 +1406,7 @@ function exportXMLQuestions() {
 }
 
 function clearSchedule() {
+    markQuestionsConfigDirty(); // S2: set nilai programatik tidak memicu event input/change
     ['examStartDate','examStartTime','examEndDate','examEndTime'].forEach(function(id) {
         var el = document.getElementById(id);
         if (el) el.value = '';
@@ -1237,6 +1446,7 @@ function saveQuestionsConfig() {
         .then(res => {
             if (res.success) {
                 showToast(res.message, 'success');
+                resetQuestionsConfigDirty(); // S2: sudah tersimpan — tutup tanpa konfirmasi buang
                 closeQuestionsModal();
                 setTimeout(function() { location.reload(); }, 500);
             } else {
@@ -3799,9 +4009,9 @@ function filterExamRows() {
         ].join(' ').toLowerCase();
         const matchQuery = !query || text.includes(query);
         // Select values are machine keys (active/inactive/tombstoned) while the
-        // badges read localized labels (Aktif/Nonaktif/Ditombstone) — map the
-        // value to the label so the client-side filter matches the rows.
-        const statusText = { active: 'Aktif', inactive: 'Nonaktif', tombstoned: 'Ditombstone' };
+        // badges read localized labels (Aktif/Nonaktif/Nonaktif Otomatis) — map
+        // the value to the label so the client-side filter matches the rows.
+        const statusText = { active: 'Aktif', inactive: 'Nonaktif', tombstoned: 'Nonaktif Otomatis' };
         const matchStatus = !status || (statusEl?.textContent.trim() === (statusText[status] || status));
         if (matchQuery && matchStatus) {
             row.style.display = '';

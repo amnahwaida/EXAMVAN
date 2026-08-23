@@ -421,20 +421,20 @@
 - [x] **T11** tombol hapus permanen Hasil Ujian berlabel "Hapus" + target sentuh 44px
 - [x] **T10a** `.toast-close`: padding 10px (min-size anti box-sizing no-op) + `:focus-visible { opacity:1 }`
 
-### Batch 3 — Minggu ini
-- [ ] **T8** diff-render polling pengawas (M)
-- [ ] **T10b + S19** validasi inline per-field + helper `setFieldError` (M)
-- [ ] **S1** toggle status ujian → switch + konfirmasi (S)
-- [ ] **S2** guard unsaved-changes modal soal (S)
-- [ ] **S3** escaping onclick voucher (S)
-- [ ] **S4** sweep bahasa EN→ID (S)
-- [ ] **S5** samakan live-search (XS)
-- [ ] **S8/S9** font mikro & scroll bersarang halaman hasil (S)
-- [ ] **S10** audit touch target ≥44px (S)
-- [ ] **S11/S12** pisahkan panduan siswa vs IT + detail unknown-source (S)
-- [ ] **S14** ARIA tabs + deep-link download (S)
-- [ ] **S18** aria-current + aria-expanded nav (XS)
-- [ ] **S20** lepaskan bajak Ctrl+F (XS)
+### Batch 3 — Minggu ini ✅ SELESAI (2026-08-23, test-first: `webui/static/js/uiux-batch3-*.test.mjs` — total 119/119 hijau lintas 7 suite)
+- [x] **T8** diff-render polling pengawas — modul murni `pengawas-detail.js` (`serializeApprovals` + `computeApprovalRowOps`), skip bila payload identik, update per-baris by mac (`data-mac`, `applyApprovalRowOps`), defer render saat aksi Izinkan/Tolak in-flight (`approvalActionBusy` + rerun), notice selalu invalidate snapshot (22 test: `uiux-batch3-t8-polling.test.mjs`)
+- [x] **T10b + S19** validasi inline per-field + helper `setFieldError` (`aria-invalid`, pesan per-field, toast hanya pelengkap)
+- [x] **S1** toggle status ujian → switch + konfirmasi `showConfirm`
+- [x] **S2** guard unsaved-changes modal soal (Batal/Escape/backdrop → konfirmasi buang perubahan) *(S1–S4, S19: `uiux-batch3-dashboard.test.mjs`)*
+- [x] **S3** escaping onclick voucher — data-* + event delegation, tanpa interpolasi mentah
+- [x] **S4** sweep bahasa EN→ID (level keamanan Rendah/Sedang/Tinggi, "Set Semua Bobot", filter status, label settings, nav publik seragam)
+- [x] **S5** samakan live-search debounce di semua input pencarian admin
+- [x] **S8/S9** font mikro halaman hasil ≥ 12px & hapus scroll bersarang `.answer-grid` di mobile *(`uiux-batch3-hasil-css.test.mjs`)*
+- [x] **S10** audit touch target ≥44px (status-badge, search-clear, modal-close, btn-sm/btn-icon; toast-close sudah di Batch 2) *(`uiux-batch3-a11y-css.test.mjs`)*
+- [x] **S11/S12** panduan dipisah "Untuk Siswa" vs "Untuk Admin IT Sekolah" (collapsible `<details>`) + detail unknown-source per-merk Samsung/Xiaomi/vivo/Oppo + asal-usul alamat server & token dengan contoh format
+- [x] **S14** ARIA tabs pattern (tablist/tab/tabpanel, roving tabindex, arrow keys) + deep-link hash (#android/#windows/#linux) + respons `hashchange` *(`uiux-batch3-download.test.mjs`, 10 test)*
+- [x] **S18** `aria-current="page"` di nav topbar & dropdown + `aria-expanded` pada hamburger
+- [x] **S20** bajakan Ctrl+F dilepas (shortcut `/` tetap); panel pintasan disesuaikan
 
 ### Batch 4 — Bersih-bersih struktural
 - [ ] **S16** satukan sistem modal ke Global Modal Manager (M/L)

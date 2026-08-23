@@ -404,7 +404,7 @@
 <option value="" {{if eq $.status_filter ""}}selected{{end}}>Semua Status</option>
 <option value="active" {{if eq $.status_filter "active"}}selected{{end}}>Aktif</option>
 <option value="inactive" {{if eq $.status_filter "inactive"}}selected{{end}}>Nonaktif</option>
-<option value="tombstoned" {{if eq $.status_filter "tombstoned"}}selected{{end}}>Ditombstone</option>
+<option value="tombstoned" {{if eq $.status_filter "tombstoned"}}selected{{end}}>Nonaktif Otomatis</option>
 </select>
 <div class="toolbar-search-wrap">
 <label for="searchExam" style="position:absolute;left:-9999px;">Cari ujian</label>
@@ -487,17 +487,17 @@
 {{if $exam.TombstonedAt}}{{$tombTitle = printf "%s (%s)" $tombTitle $exam.TombstonedAt}}{{end}}
 {{if $canToggle}}
 {{if eq $exam.Status "active"}}
-<span class="status-badge status-active" id="status-{{$exam.ID}}" onclick="toggleExam({{$exam.ID}})" onkeydown="if(event.key==='Enter' || event.key===' '){event.preventDefault();toggleExam({{$exam.ID}});}" tabindex="0" role="button" aria-label="Ubah status ujian {{$exam.Name}}" title="Klik untuk menonaktifkan ujian">Aktif</span>
+<span class="status-badge status-active" id="status-{{$exam.ID}}" onclick="toggleExam({{$exam.ID}})" onkeydown="if(event.key==='Enter' || event.key===' '){event.preventDefault();toggleExam({{$exam.ID}});}" tabindex="0" role="button" aria-pressed="true" aria-label="Ubah status ujian {{$exam.Name}}" title="Klik untuk menonaktifkan ujian">Aktif</span>
 {{else if $exam.Tombstoned}}
-<span class="status-badge status-tombstoned" id="status-{{$exam.ID}}" onclick="toggleExam({{$exam.ID}})" onkeydown="if(event.key==='Enter' || event.key===' '){event.preventDefault();toggleExam({{$exam.ID}});}" tabindex="0" role="button" aria-label="Aktifkan kembali ujian {{$exam.Name}}" title="{{$tombTitle}}. Klik untuk mengaktifkan kembali">Ditombstone</span>
+<span class="status-badge status-tombstoned" id="status-{{$exam.ID}}" onclick="toggleExam({{$exam.ID}})" onkeydown="if(event.key==='Enter' || event.key===' '){event.preventDefault();toggleExam({{$exam.ID}});}" tabindex="0" role="button" aria-pressed="false" aria-label="Aktifkan kembali ujian {{$exam.Name}}" title="{{$tombTitle}}. Klik untuk mengaktifkan kembali">Nonaktif Otomatis</span>
 {{else}}
-<span class="status-badge status-inactive" id="status-{{$exam.ID}}" onclick="toggleExam({{$exam.ID}})" onkeydown="if(event.key==='Enter' || event.key===' '){event.preventDefault();toggleExam({{$exam.ID}});}" tabindex="0" role="button" aria-label="Ubah status ujian {{$exam.Name}}" title="Klik untuk mengaktifkan ujian">Nonaktif</span>
+<span class="status-badge status-inactive" id="status-{{$exam.ID}}" onclick="toggleExam({{$exam.ID}})" onkeydown="if(event.key==='Enter' || event.key===' '){event.preventDefault();toggleExam({{$exam.ID}});}" tabindex="0" role="button" aria-pressed="false" aria-label="Ubah status ujian {{$exam.Name}}" title="Klik untuk mengaktifkan ujian">Nonaktif</span>
 {{end}}
 {{else}}
 {{if eq $exam.Status "active"}}
 <span class="status-badge status-active" style="cursor:default;">Aktif</span>
 {{else if $exam.Tombstoned}}
-<span class="status-badge status-tombstoned" style="cursor:default;" title="{{$tombTitle}}">Ditombstone</span>
+<span class="status-badge status-tombstoned" style="cursor:default;" title="{{$tombTitle}}">Nonaktif Otomatis</span>
 {{else}}
 <span class="status-badge status-inactive" style="cursor:default;">Nonaktif</span>
 {{end}}
@@ -745,9 +745,9 @@
 </div>
 <div>
 <select id="examSecurityLevel" style="min-width:220px;margin:0;padding:8px 10px;background:rgba(255,255,255,0.04);border:1px solid var(--color-glass-border);border-radius:8px;color:var(--color-text);font-size:13px;">
-<option value="low">Low — Bisa Keluar (Tanpa Submit)</option>
-<option value="medium">Medium — Bisa Keluar (Auto-Submit)</option>
-<option value="high">High / Strict — TIDAK BISA Keluar (Wajib Submit)</option>
+<option value="low">Rendah — Bisa Keluar (Tanpa Submit)</option>
+<option value="medium">Sedang — Bisa Keluar (Auto-Submit)</option>
+<option value="high">Tinggi — TIDAK BISA Keluar (Wajib Submit)</option>
 </select>
 </div>
 </div>
@@ -894,7 +894,7 @@
 <button class="btn-sm" onclick="quickGenerateQuestions()" style="gap:4px;"><svg class="icon-svg" style="width:14px;height:14px;"><use href="#hi-plus"/></svg> Generate</button>
 </div>
 <div class="inline-group" style="display:flex;align-items:center;gap:6px;">
-<button class="btn-sm" onclick="setAllWeights()" style="gap:4px;"><svg class="icon-svg" style="width:14px;height:14px;"><use href="#hi-settings"/></svg> Set All Bobot</button>
+<button class="btn-sm" onclick="setAllWeights()" style="gap:4px;"><svg class="icon-svg" style="width:14px;height:14px;"><use href="#hi-settings"/></svg> Terapkan ke Semua Bobot</button>
 </div>
 <div class="xml-import-wrapper" style="display:flex;align-items:center;gap:6px;">
 <button class="btn-sm" onclick="copyAIPrompt()" style="gap:4px;"><svg class="icon-svg" style="width:14px;height:14px;"><use href="#hi-clipboard"/></svg> Prompt AI</button>

@@ -55,8 +55,8 @@
    </h3>
    <div class="table-toolbar">
     <div class="toolbar-search-wrap">
-     <input type="text" id="pengawasSearch" class="toolbar-search-input" placeholder="Cari nama ujian, token, pembuat..."
-      onkeyup="if(event.key==='Enter') loadPengawasExams()">
+     <input type="text" id="pengawasSearch" class="toolbar-search-input" placeholder="Cari nama ujian, token, pembuat...">
+
     </div>
     <button class="toolbar-btn toolbar-btn-search" onclick="loadPengawasExams()"><svg class="icon-svg"><use href="#hi-search"/></svg> Cari</button>
     <button class="toolbar-btn toolbar-btn-refresh" onclick="loadPengawasExams()" aria-label="Muat ulang daftar" title="Muat ulang"><svg class="icon-svg"><use href="#hi-refresh"/></svg></button>
@@ -390,6 +390,23 @@ function esc(s) {
 /* Auto-load on page ready */
 (function() {
     loadPengawasExams();
+})();
+
+/* Live-search: hasil diperbarui saat mengetik (debounce 300ms di helper
+   bersama initLiveSearch, admin-core.js); Enter tetap langsung mencari.
+   Bila helper belum tersedia (admin-core.js versi lama), pakai fallback
+   keydown Enter sederhana seperti perilaku lama. */
+(function() {
+    var input = document.getElementById('pengawasSearch');
+    if (!input || input.dataset.liveSearchWired) return;
+    input.dataset.liveSearchWired = '1';
+    if (typeof initLiveSearch === 'function') {
+        initLiveSearch(document.getElementById('pengawasSearch'), loadPengawasExams);
+    } else {
+        input.addEventListener('keydown', function(e) {
+            if (e.key === 'Enter') { e.preventDefault(); loadPengawasExams(); }
+        });
+    }
 })();
 </script>
 

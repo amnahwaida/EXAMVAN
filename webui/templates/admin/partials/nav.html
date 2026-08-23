@@ -15,20 +15,20 @@
  <div class="topbar-center">
   <div class="topbar-nav">
    {{ if $isGuru }}
-    <a href="/admin/dashboard" class="nav-link {{if eq $activePage "dashboard"}}active{{end}}"><svg class="icon-svg" aria-hidden="true"><use href="#hi-dashboard"/></svg> Daftar Ujian</a>
-    <a href="/admin/submissions" class="nav-link {{if eq $activePage "submissions"}}active{{end}}"><svg class="icon-svg" aria-hidden="true"><use href="#hi-results"/></svg> Hasil Ujian</a>
+    <a href="/admin/dashboard" class="nav-link {{if eq $activePage "dashboard"}}active{{end}}" {{if eq $activePage "dashboard"}}aria-current="page"{{end}}><svg class="icon-svg" aria-hidden="true"><use href="#hi-dashboard"/></svg> Daftar Ujian</a>
+    <a href="/admin/submissions" class="nav-link {{if eq $activePage "submissions"}}active{{end}}" {{if eq $activePage "submissions"}}aria-current="page"{{end}}><svg class="icon-svg" aria-hidden="true"><use href="#hi-results"/></svg> Hasil Ujian</a>
    {{ end }}
    {{ if or $isPengawas $isGuru }}
-    <a href="/admin/pengawas" class="nav-link {{if eq $activePage "pengawas"}}active{{end}}"><svg class="icon-svg" aria-hidden="true"><use href="#hi-eye"/></svg> Pengawasan</a>
+    <a href="/admin/pengawas" class="nav-link {{if eq $activePage "pengawas"}}active{{end}}" {{if eq $activePage "pengawas"}}aria-current="page"{{end}}><svg class="icon-svg" aria-hidden="true"><use href="#hi-eye"/></svg> Pengawasan</a>
    {{ end }}
    {{ if $isGuru }}
-    <a href="/admin/settings" class="nav-link {{if $isSettings}}active{{end}}"><svg class="icon-svg" aria-hidden="true"><use href="#hi-settings"/></svg> Pengaturan</a>
+    <a href="/admin/settings" class="nav-link {{if $isSettings}}active{{end}}" {{if $isSettings}}aria-current="page"{{end}}><svg class="icon-svg" aria-hidden="true"><use href="#hi-settings"/></svg> Pengaturan</a>
    {{ end }}
   </div>
  </div>
  <div class="topbar-right">
   <div class="topbar-menu-dropdown">
-   <button class="topbar-menu-toggle" id="menuToggleBtn" aria-label="Menu akun & pengaturan" aria-haspopup="true" onclick="event.stopPropagation();document.getElementById('menuDropdownContent').classList.toggle('show');">
+   <button class="topbar-menu-toggle" id="menuToggleBtn" aria-label="Menu akun & pengaturan" aria-haspopup="true" aria-expanded="false" onclick="event.stopPropagation();document.getElementById('menuDropdownContent').classList.toggle('show');">
     <span class="menu-hamburger-icon">&#9776;</span>
    </button>
    <div class="topbar-dropdown-content" id="menuDropdownContent">
@@ -42,15 +42,15 @@
     <div class="dropdown-divider mobile-only-divider"></div>
     <div class="mobile-nav-links">
      {{ if $isGuru }}
-      <a href="/admin/dashboard" class="dropdown-item {{if eq $activePage "dashboard"}}active{{end}}"><svg class="icon-svg"><use href="#hi-dashboard"/></svg> Daftar Ujian</a>
-      <a href="/admin/submissions" class="dropdown-item {{if eq $activePage "submissions"}}active{{end}}"><svg class="icon-svg"><use href="#hi-results"/></svg> Hasil Ujian</a>
+      <a href="/admin/dashboard" class="dropdown-item {{if eq $activePage "dashboard"}}active{{end}}" {{if eq $activePage "dashboard"}}aria-current="page"{{end}}><svg class="icon-svg"><use href="#hi-dashboard"/></svg> Daftar Ujian</a>
+      <a href="/admin/submissions" class="dropdown-item {{if eq $activePage "submissions"}}active{{end}}" {{if eq $activePage "submissions"}}aria-current="page"{{end}}><svg class="icon-svg"><use href="#hi-results"/></svg> Hasil Ujian</a>
      {{ end }}
      {{ if or $isPengawas $isGuru }}
-      <a href="/admin/pengawas" class="dropdown-item {{if eq $activePage "pengawas"}}active{{end}}"><svg class="icon-svg"><use href="#hi-eye"/></svg> Pengawasan</a>
+      <a href="/admin/pengawas" class="dropdown-item {{if eq $activePage "pengawas"}}active{{end}}" {{if eq $activePage "pengawas"}}aria-current="page"{{end}}><svg class="icon-svg"><use href="#hi-eye"/></svg> Pengawasan</a>
      {{ end }}
      {{ if $isGuru }}
       <div class="dropdown-divider"></div>
-      <a href="/admin/settings" class="dropdown-item {{if $isSettings}}active{{end}}"><svg class="icon-svg"><use href="#hi-settings"/></svg> Pengaturan</a>
+      <a href="/admin/settings" class="dropdown-item {{if $isSettings}}active{{end}}" {{if $isSettings}}aria-current="page"{{end}}><svg class="icon-svg"><use href="#hi-settings"/></svg> Pengaturan</a>
      {{ end }}
     </div>
     <div class="dropdown-divider"></div>

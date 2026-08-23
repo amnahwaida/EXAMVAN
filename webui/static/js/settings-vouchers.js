@@ -87,6 +87,10 @@ function renderVouchersTable(vouchers) {
 
     let html = '';
     vouchers.forEach(v => {
+        // Kode voucher di-escape sekali dan dipakai untuk teks tampil MAUPUN
+        // nilai data-* sehingga kode berisi kutip/backslash/tag tidak pernah
+        // dimasukkan mentah ke markup (S3).
+        const safeCode = escapeHtml(v.code);
         const isExpired = v.expires_at && new Date(v.expires_at) < new Date();
         const isFull = v.used_count >= v.max_usage;
         let statusBadge = `<span style="padding:3px 8px;border-radius:12px;font-size:11px;font-weight:700;background:rgba(16,185,129,0.15);color:#10b981;">Aktif</span>`;
@@ -110,8 +114,8 @@ function renderVouchersTable(vouchers) {
         html += `
         <tr style="border-bottom:1px solid rgba(255,255,255,0.04);">
             <td data-label="Kode" style="padding:14px 20px;">
-                <div class="voucher-code-badge" onclick="copyCode(this, '${v.code}')" title="Klik untuk menyalin kode">
-                    <span>${v.code}</span>
+                <div class="voucher-code-badge" data-action="copy" data-voucher-code="${safeCode}" title="Klik untuk menyalin kode">
+                    <span>${safeCode}</span>
                     <svg class="icon-svg voucher-copy-btn" style="width:14px;height:14px;"><use href="#hi-clipboard"/></svg>
                 </div>
             </td>
@@ -121,17 +125,17 @@ function renderVouchersTable(vouchers) {
             </td>
             <td data-label="Penggunaan" style="padding:14px 20px;">
                 <span style="font-weight:700;color:${v.used_count > 0 ? '#c084fc' : '#94a3b8'};">${v.used_count}</span> / ${v.max_usage}
-                ${v.used_count > 0 ? `<button onclick="viewRedemptions(${v.id}, '${v.code}')" style="background:none;border:none;color:#a855f7;font-size:12px;cursor:pointer;margin-left:4px;text-decoration:underline;padding:8px 6px;">(Lihat User)</button>` : ''}
+                ${v.used_count > 0 ? `<button type="button" data-action="redemptions" data-id="${v.id}" data-voucher-code="${safeCode}" style="background:none;border:none;color:#a855f7;font-size:12px;cursor:pointer;margin-left:4px;text-decoration:underline;padding:8px 6px;">(Lihat User)</button>` : ''}
             </td>
             <td data-label="Kadaluarsa" style="padding:14px 20px;font-size:12px;color:var(--color-text-secondary);">${expiryStr}</td>
             <td data-label="Status" style="padding:14px 20px;">${statusBadge}</td>
             <td data-label="Catatan" style="padding:14px 20px;font-size:12px;color:var(--color-text-secondary);">${v.notes || '—'}</td>
             <td data-label="Aksi" style="padding:14px 20px;text-align:right;">
-                <button onclick="toggleVoucher(${v.id}, '${v.code}', ${v.is_active})" style="display:inline-flex;align-items:center;gap:5px;background:rgba(255,255,255,0.06);border:1px solid var(--color-glass-border);color:#fff;padding:8px 12px;border-radius:8px;font-size:12px;cursor:pointer;margin-right:8px;min-height:36px;">
+                <button type="button" data-action="toggle" data-id="${v.id}" data-voucher-code="${safeCode}" data-active="${v.is_active ? '1' : '0'}" style="display:inline-flex;align-items:center;gap:5px;background:rgba(255,255,255,0.06);border:1px solid var(--color-glass-border);color:#fff;padding:8px 12px;border-radius:8px;font-size:12px;cursor:pointer;margin-right:8px;min-height:36px;">
                     <svg class="icon-svg" style="width:13px;height:13px;" aria-hidden="true"><use href="#${v.is_active ? 'hi-stop' : 'hi-play'}"/></svg>
                     ${v.is_active ? 'Matikan' : 'Aktifkan'}
                 </button>
-                <button onclick="deleteVoucher(${v.id}, '${v.code}')" style="display:inline-flex;align-items:center;gap:5px;background:rgba(239,68,68,0.15);border:1px solid rgba(239,68,68,0.3);color:#ef4444;padding:8px 12px;border-radius:8px;font-size:12px;cursor:pointer;min-height:36px;">
+                <button type="button" data-action="delete" data-id="${v.id}" data-voucher-code="${safeCode}" style="display:inline-flex;align-items:center;gap:5px;background:rgba(239,68,68,0.15);border:1px solid rgba(239,68,68,0.3);color:#ef4444;padding:8px 12px;border-radius:8px;font-size:12px;cursor:pointer;min-height:36px;">
                     <svg class="icon-svg" style="width:13px;height:13px;" aria-hidden="true"><use href="#hi-trash"/></svg>
                     Hapus
                 </button>
@@ -140,6 +144,30 @@ function renderVouchersTable(vouchers) {
     });
 
     tbody.innerHTML = html;
+}
+
+// Delegasi klik untuk semua aksi baris voucher (salin/toggle/lihat user/
+// hapus): id & kode voucher dibawa lewat data-* attribute sehingga kode yang
+// mengandung kutip/backslash tidak bisa memutus atribut handler (S3).
+function wireVoucherRowActions() {
+    const tbody = document.getElementById('vouchersTableBody');
+    if (!tbody || tbody.dataset.rowActionsWired) return;
+    tbody.dataset.rowActionsWired = '1';
+    tbody.addEventListener('click', (e) => {
+        const target = e.target.closest('[data-action]');
+        if (!target || !tbody.contains(target)) return;
+        const action = target.getAttribute('data-action');
+        if (action === 'copy') {
+            copyCode(target.closest('.voucher-code-badge') || target, target.getAttribute('data-voucher-code') || '');
+            return;
+        }
+        const id = parseInt(target.getAttribute('data-id'), 10);
+        if (Number.isNaN(id)) return;
+        const code = target.getAttribute('data-voucher-code') || '';
+        if (action === 'redemptions') viewRedemptions(id, code);
+        else if (action === 'toggle') toggleVoucher(id, code, target.getAttribute('data-active') === '1');
+        else if (action === 'delete') deleteVoucher(id, code);
+    });
 }
 
 function renderPagination(pg) {
@@ -356,7 +384,7 @@ function toggleVoucher(id, code, isActive) {
     const btnText = isActive ? 'Matikan Voucher' : 'Aktifkan Voucher';
     showConfirmModal(
         'Konfirmasi Status Voucher',
-        `Apakah Anda yakin ingin ${actionText} kode voucher <strong style="color:#c084fc;">${code}</strong>?`,
+        `Apakah Anda yakin ingin ${actionText} kode voucher <strong style="color:#c084fc;">${escapeHtml(code)}</strong>?`,
         btnText,
         isActive,
         () => {
@@ -391,7 +419,7 @@ function clearVoucherSearch() {
 function deleteVoucher(id, code) {
     showConfirmModal(
         'Konfirmasi Hapus Voucher',
-        `Apakah Anda yakin ingin menghapus kode voucher <strong style="color:#c084fc;">${code}</strong>? Tindakan ini tidak dapat dibatalkan.`,
+        `Apakah Anda yakin ingin menghapus kode voucher <strong style="color:#c084fc;">${escapeHtml(code)}</strong>? Tindakan ini tidak dapat dibatalkan.`,
         'Hapus Voucher',
         true,
         () => {
@@ -411,6 +439,7 @@ function deleteVoucher(id, code) {
 }
 
 function viewRedemptions(id, code) {
+    wireRedemptionsRetry();
     document.getElementById('redemptionsTitle').textContent = `Pengguna Voucher (${code})`;
     document.getElementById('redemptionsBody').innerHTML = `<p style="text-align:center;color:var(--color-text-secondary);">Memuat...</p>`;
     document.getElementById('redemptionsModal').style.display = 'flex';
@@ -419,7 +448,7 @@ function viewRedemptions(id, code) {
     .then(r => r.json())
     .then(res => {
         if (!res.success) {
-            document.getElementById('redemptionsBody').innerHTML = `<p style="text-align:center;color:#fca5a5;">${escapeHtml(res.message || 'Gagal memuat data pengguna')} <button type="button" class="btn-sm btn-secondary" onclick="viewRedemptions(${id}, '${code}')" style="margin-left:8px;">Coba Lagi</button></p>`;
+            document.getElementById('redemptionsBody').innerHTML = `<p style="text-align:center;color:#fca5a5;">${escapeHtml(res.message || 'Gagal memuat data pengguna')} <button type="button" class="btn-sm btn-secondary" data-retry-redemptions data-id="${parseInt(id, 10) || 0}" data-code="${escapeHtml(code)}" style="margin-left:8px;">Coba Lagi</button></p>`;
             return;
         }
         if (!res.redemptions || res.redemptions.length === 0) {
@@ -438,7 +467,20 @@ function viewRedemptions(id, code) {
         document.getElementById('redemptionsBody').innerHTML = html;
     })
     .catch(() => {
-        document.getElementById('redemptionsBody').innerHTML = `<p style="text-align:center;color:#fca5a5;">Gagal terhubung ke server. <button type="button" class="btn-sm btn-secondary" onclick="viewRedemptions(${id}, '${code}')" style="margin-left:8px;">Coba Lagi</button></p>`;
+        document.getElementById('redemptionsBody').innerHTML = `<p style="text-align:center;color:#fca5a5;">Gagal terhubung ke server. <button type="button" class="btn-sm btn-secondary" data-retry-redemptions data-id="${parseInt(id, 10) || 0}" data-code="${escapeHtml(code)}" style="margin-left:8px;">Coba Lagi</button></p>`;
+    });
+}
+
+// Delegasi klik tombol "Coba Lagi" di modal redemptions — pengganti inline
+// onclick yang sebelumnya menyisipkan kode voucher mentah ke atribut (S3).
+function wireRedemptionsRetry() {
+    const body = document.getElementById('redemptionsBody');
+    if (!body || body.dataset.retryWired) return;
+    body.dataset.retryWired = '1';
+    body.addEventListener('click', (e) => {
+        const btn = e.target.closest('[data-retry-redemptions]');
+        if (!btn) return;
+        viewRedemptions(parseInt(btn.getAttribute('data-id'), 10) || 0, btn.getAttribute('data-code') || '');
     });
 }
 
@@ -462,6 +504,7 @@ function wireVoucherSubtabs() {
 }
 
 window.__settingsReady['vouchers'] = function() {
+    wireVoucherRowActions();
     loadVouchers(1);
     wireVoucherSubtabs();
     // Pre-warm the audit list so the Riwayat sub-tab is ready instantly.

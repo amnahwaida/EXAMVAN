@@ -511,13 +511,14 @@ code, pre, .token-code, .mono {
         -webkit-overflow-scrolling: touch;
     }
 
-    /* Comfortable touch targets for icon / small action buttons. */
+    /* Comfortable touch targets for icon / small action buttons (S10 audit:
+       44px, bukan 40px — ambang target sentuh standar). */
     .btn-icon {
-        min-width: 40px;
-        min-height: 40px;
+        min-width: 44px;
+        min-height: 44px;
     }
     .btn-sm {
-        min-height: 40px;
+        min-height: 44px;
     }
 
     /* Respect the notch / home-indicator safe area for the fixed bottom bar. */
@@ -809,6 +810,21 @@ body.modal-open {
     vertical-align: middle;
 }
 
+/* ===== Kontrak CSS validasi per-field (temuan S19/T10b) ===== */
+/* Dipakai setFieldError() di admin-core.js — jangan mengubah nama class atau
+   properti di bawah tanpa menyinkronkan helper JS-nya (test:
+   uiux-batch3-a11y-css.test.mjs). */
+.input-error {
+    border-color: var(--color-danger) !important;
+}
+.field-error-text {
+    color: #fca5a5;
+    font-size: 12.5px;
+    margin-top: 6px;
+    margin-bottom: 0;
+    line-height: 1.45;
+}
+
 /* Status badges are only interactive when promoted to role="button"
    (dashboard toggle). Read-only badges (pengawas pages) previously showed a
    pointer cursor and hovered to the OPPOSITE color, implying a toggle. */
@@ -896,9 +912,10 @@ body.modal-open {
         height: 18px;
         accent-color: var(--color-primary);
     }
-    /* Interactive status toggle needs a real touch target on phones. */
+    /* Interactive status toggle needs a real touch target on phones (S10:
+       34px → 44px; ini satu-satunya kontrol aktif/nonaktif ujian di dashboard). */
     .status-badge[role="button"] {
-        min-height: 34px;
+        min-height: 44px;
         padding-block: calc(var(--spacing) * 2);
     }
     /* pengawas_detail row action links were ~26px tall. */

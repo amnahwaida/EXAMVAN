@@ -1159,6 +1159,7 @@ select[multiple] option:checked {
 }
 .toast-close {
   flex-shrink: 0;
+  position: relative;
   min-width: 24px;
   min-height: 24px;
   padding: 10px;
@@ -1185,6 +1186,14 @@ select[multiple] option:checked {
 .toast-close:hover {
   background: rgba(255,255,255,0.15);
   color: #fff;
+}
+/* S10: hit-area ≥44×44px tanpa mengubah visual — pseudo-element transparan
+   memperluas zona klik di luar tombol (floor border-box: min 24px + 2×10px
+   inset = 44px; ukuran riil ~33px + 20px ≈ 53px). */
+.toast-close::before {
+  content: '';
+  position: absolute;
+  inset: -10px;
 }
 .search-clear-btn {
   display: inline-flex;
@@ -1214,6 +1223,14 @@ select[multiple] option:checked {
   outline: 2px solid var(--color-primary);
   outline-offset: 2px;
   background: rgba(255, 255, 255, 0.06);
+}
+/* S10: zona klik 44×44px (visual 28px + inset 8px tiap sisi) — ikon ✕ di
+   ujung input pencarian tetap ringkas; elemen sudah position:absolute sehingga
+   pseudo-element mengacu padanya. */
+.search-clear-btn::before {
+  content: '';
+  position: absolute;
+  inset: -8px;
 }
 input:disabled, select:disabled, textarea:disabled, button:disabled, .btn-sm:disabled, .btn-upload:disabled, .btn-login:disabled {
   opacity: 0.5;
@@ -2184,6 +2201,7 @@ input:disabled, select:disabled, textarea:disabled, button:disabled, .btn-sm:dis
   cursor: pointer;
   --tw-border-style: none;
   border-style: none;
+  position: relative;
   font-size: 1.1rem;
   color: var(--color-text-secondary);
   width: 32px;
@@ -2202,6 +2220,14 @@ input:disabled, select:disabled, textarea:disabled, button:disabled, .btn-sm:dis
 .modal-close:focus-visible {
   outline: 2px solid var(--color-primary);
   outline-offset: 2px;
+}
+/* S10: kontrol inti yang kecil di semua breakpoint — zona klik diperluas ke
+   44×44px (visual chip 32px + inset 6px tiap sisi) tanpa membesarkan
+   tampilan tombol tutup modal. */
+.modal-close::before {
+  content: '';
+  position: absolute;
+  inset: -6px;
 }
 .modal-body {
   flex: 1;
@@ -3160,6 +3186,10 @@ input:disabled, select:disabled, textarea:disabled, button:disabled, .btn-sm:dis
   }
   .toast-close {
     opacity: 1;
+    /* S10: di ponsel tombol ✕ adalah satu-satunya cara menutup toast yang
+       panjang — elemennya sendiri wajib ≥44×44px, bukan sekadar hit-area. */
+    min-width: 44px;
+    min-height: 44px;
   }
   .td-actions {
     display: flex;

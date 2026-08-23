@@ -483,17 +483,20 @@
       <h1 class="hero-title">Pusat Unduhan EXAMVAN</h1>
       <p class="hero-desc">Unduh berkas instalasi client ujian terproteksi untuk tipe perangkat Android, Windows, maupun Linux.</p>
 
-      <!-- Tabs Navigation -->
-      <div class="tabs-container">
-        <button id="tab-android" class="tab-btn active" onclick="switchTab('android')">
+      <!-- Tabs Navigation — pola ARIA tabs: role=tablist/tab/tabpanel,
+           aria-selected sinkron JS, panel terhubung via aria-controls/aria-labelledby.
+           Tab aktif tersimpan di URL hash (#android/#windows/#linux) agar
+           deep-linkable. -->
+      <div class="tabs-container" role="tablist" aria-label="Pilih platform unduhan">
+        <button id="tab-android" class="tab-btn active" role="tab" aria-selected="true" aria-controls="section-android" onclick="switchTab('android')">
           <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><rect x="5" y="2" width="14" height="20" rx="2" ry="2"></rect><line x1="12" y1="18" x2="12.01" y2="18"></line></svg>
           Android (HP / Tablet)
         </button>
-        <button id="tab-windows" class="tab-btn" onclick="switchTab('windows')">
+        <button id="tab-windows" class="tab-btn" role="tab" aria-selected="false" aria-controls="section-windows" onclick="switchTab('windows')">
           <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="3" width="20" height="14" rx="2" ry="2"></rect><line x1="8" y1="21" x2="16" y2="21"></line><line x1="12" y1="17" x2="12" y2="21"></line></svg>
           Windows (PC / Laptop)
         </button>
-        <button id="tab-linux" class="tab-btn" onclick="switchTab('linux')">
+        <button id="tab-linux" class="tab-btn" role="tab" aria-selected="false" aria-controls="section-linux" onclick="switchTab('linux')">
           <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="3" width="20" height="14" rx="2" ry="2"></rect><line x1="12" y1="17" x2="12" y2="21"></line></svg>
           Linux
         </button>
@@ -501,7 +504,7 @@
     </div>
 
     <!-- Android Platform Section -->
-    <div id="section-android" class="platform-section" style="display: block;">
+    <div id="section-android" class="platform-section" role="tabpanel" aria-labelledby="tab-android" style="display: block;">
       <div class="platform-layout">
         
         <div class="download-card reveal">
@@ -571,29 +574,72 @@
             Panduan Aktivasi Android
           </h3>
 
-          <div style="margin-bottom: 32px; border-bottom: 1px dashed rgba(255, 255, 255, 0.08); padding-bottom: 24px;">
-            <h4 style="color: #a5b4fc; font-size: 16px; font-family: 'Outfit'; font-weight: 800; margin: 0 0 16px 0;">Metode 1: Tipe Student (Reguler)</h4>
-            <div class="inst-steps">
+          <!-- Panduan dipisah per audiens: siswa awam vs admin IT sekolah
+               (temuan S11). Instruksi teknis kiosk/ADB hanya untuk admin. -->
+          <details id="panduan-siswa-android" open>
+            <summary style="cursor: pointer;">Untuk Siswa — Instalasi Normal</summary>
+            <div class="inst-steps" style="margin-top: 20px;">
               <div class="step-item">
                 <span class="step-number">1</span>
                 <div class="step-content">
-                  <span class="step-title">Unduh &amp; Izinkan Pemasangan</span>
-                  <span class="step-desc">Unduh berkas APK. Klik file hasil unduhan dan aktifkan opsi "Izinkan Pemasangan dari Sumber Tidak Dikenal" jika diminta browser.</span>
+                  <span class="step-title">Unduh Aplikasi</span>
+                  <span class="step-desc">Ketuk tombol <strong>Unduh APK</strong> di sebelah kiri, lalu tunggu hingga unduhan selesai.</span>
                 </div>
               </div>
               <div class="step-item">
                 <span class="step-number">2</span>
                 <div class="step-content">
-                  <span class="step-title">Sambungkan &amp; Ujian</span>
-                  <span class="step-desc">Buka aplikasi, masukkan alamat server sekolah Anda (HTTPS/domain), lalu masukkan Token Ujian 8-karakter untuk masuk.</span>
+                  <span class="step-title">Izinkan Pemasangan dari Sumber Tidak Dikenal</span>
+                  <span class="step-desc">Buka file APK hasil unduhan. Jika muncul peringatan keamanan, pilih izinkan pemasangan dari sumber tidak dikenal untuk aplikasi browser yang Anda pakai. Lokasi menu pengaturan ini <strong>berbeda-beda tergantung merk HP</strong> — buka daftar di bawah sesuai merk perangkatmu:</span>
+                  <details style="margin-top: 12px;">
+                    <summary style="cursor: pointer; font-weight: 700; color: #a5b4fc;">Samsung</summary>
+                    <span class="step-desc" style="display: block; margin-top: 8px;">Pengaturan → <strong>Aplikasi</strong> → ketuk titik tiga (⋮) di kanan atas → <strong>Akses khusus</strong> → <strong>Instal aplikasi tak dikenal</strong> → pilih browser (Chrome/dll.) → aktifkan <strong>Izinkan dari sumber ini</strong>.</span>
+                  </details>
+                  <details style="margin-top: 8px;">
+                    <summary style="cursor: pointer; font-weight: 700; color: #a5b4fc;">Xiaomi / Redmi / POCO</summary>
+                    <span class="step-desc" style="display: block; margin-top: 8px;">Pengaturan → <strong>Sandi &amp; keamanan</strong> (atau <strong>Privasi</strong>) → <strong>Kontrol lebih lanjut</strong> → <strong>Instal aplikasi tak dikenal</strong> → pilih browser → aktifkan izinnya. Jika diminta, masuk ke akun Mi dan centang <strong>"Saya menyadari risikonya"</strong>.</span>
+                  </details>
+                  <details style="margin-top: 8px;">
+                    <summary style="cursor: pointer; font-weight: 700; color: #a5b4fc;">vivo / iQOO</summary>
+                    <span class="step-desc" style="display: block; margin-top: 8px;">Pengaturan → <strong>Aplikasi</strong> → <strong>Instal aplikasi tak dikenal</strong> (atau lewat <strong>Manajer i</strong> → Izin) → pilih browser → aktifkan <strong>Izinkan menginstal aplikasi tak dikenal</strong>.</span>
+                  </details>
+                  <details style="margin-top: 8px;">
+                    <summary style="cursor: pointer; font-weight: 700; color: #a5b4fc;">Oppo / Realme / OnePlus</summary>
+                    <span class="step-desc" style="display: block; margin-top: 8px;">Pengaturan → <strong>Pengaturan tambahan</strong> → <strong>Instal aplikasi tak dikenal</strong> (atau <strong>Perangkat &amp; aplikasi</strong> → akses khusus) → pilih browser → aktifkan <strong>Izinkan instalasi aplikasi</strong>.</span>
+                  </details>
+                </div>
+              </div>
+              <div class="step-item">
+                <span class="step-number">3</span>
+                <div class="step-content">
+                  <span class="step-title">Masukkan Alamat Server &amp; Token Ujian</span>
+                  <span class="step-desc">Buka aplikasi EXAMVAN, lalu isi kolom alamat server dan Token Ujian 8-karakter. <strong>Alamat server &amp; token diberikan oleh pengawas atau panitia ujian</strong> saat ujian dimulai — jangan menebak-nebak.<br>
+                    Contoh format alamat server: <code style="background: rgba(0,0,0,0.4); color: #818cf8; padding: 6px 10px; border-radius: 8px; font-family: monospace; font-size: 13px; border: 1px solid rgba(129,140,248,0.2);">http://192.168.1.10:8080</code></span>
                 </div>
               </div>
             </div>
-          </div>
 
-          <div>
-            <h4 style="color: #fbbf24; font-size: 16px; font-family: 'Outfit'; font-weight: 800; margin: 0 0 16px 0;">Metode 2: Tipe Kiosk (Device Owner)</h4>
-            <div class="inst-steps">
+            <div class="device-tips" style="margin-top: 24px;">
+              <div class="tips-title">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"></path></svg>
+                Tips Pemecahan Masalah
+              </div>
+              <ul class="tips-list">
+                <li><strong style="color: #fbbf24;">Uninstall Versi Lama:</strong> Hapus versi lawas terlebih dahulu sebelum memasang yang baru untuk mencegah konflik sertifikat digital.</li>
+                <li><strong style="color: #fbbf24;">Play Protect:</strong> Jika muncul penolakan, pilih <strong>"Detail"</strong> lalu klik <strong>"Tetap Pasang" (Install Anyway)</strong>.</li>
+              </ul>
+            </div>
+          </details>
+
+          <details id="panduan-admin-it-android" style="margin-top: 24px;">
+            <summary style="cursor: pointer;">Untuk Admin IT Sekolah — Metode Kiosk (Device Owner)</summary>
+            <div style="margin-top: 20px; background: rgba(239, 68, 68, 0.08); border: 1px solid rgba(239, 68, 68, 0.25); border-radius: 16px; padding: 16px 20px;">
+              <strong style="color: #f87171;">PERINGATAN:</strong>
+              <span style="color: var(--text-muted); font-size: 14px; line-height: 1.6; display: block; margin-top: 6px;">
+                Metode ini akan <strong>menghapus seluruh data</strong> di perangkat dan menguncinya sebagai kiosk ujian. Hanya gunakan pada perangkat sekolah yang dikelola tim IT — <strong>jangan gunakan pada HP pribadi siswa/guru</strong>.
+              </span>
+            </div>
+            <div class="inst-steps" style="margin-top: 20px;">
               <div class="step-item">
                 <span class="step-number">1</span>
                 <div class="step-content">
@@ -611,18 +657,7 @@
                 </div>
               </div>
             </div>
-          </div>
-
-          <div class="device-tips">
-            <div class="tips-title">
-              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"></path></svg>
-              Tips Pemecahan Masalah
-            </div>
-            <ul class="tips-list">
-              <li><strong style="color: #fbbf24;">Uninstall Versi Lama:</strong> Hapus versi lawas terlebih dahulu sebelum memasang yang baru untuk mencegah konflik sertifikat digital.</li>
-              <li><strong style="color: #fbbf24;">Play Protect:</strong> Jika muncul penolakan, pilih <strong>"Detail"</strong> lalu klik <strong>"Tetap Pasang" (Install Anyway)</strong>.</li>
-            </ul>
-          </div>
+          </details>
 
         </div>
 
@@ -630,7 +665,7 @@
     </div>
 
     <!-- Windows Platform Section -->
-    <div id="section-windows" class="platform-section">
+    <div id="section-windows" class="platform-section" role="tabpanel" aria-labelledby="tab-windows">
       <div class="platform-layout">
         
         <div class="download-card reveal">
@@ -709,7 +744,7 @@
     </div>
 
     <!-- Linux Platform Section -->
-    <div id="section-linux" class="platform-section">
+    <div id="section-linux" class="platform-section" role="tabpanel" aria-labelledby="tab-linux">
       <div class="platform-layout">
         
         <div class="download-card reveal">
@@ -791,8 +826,19 @@
   </main>
 
   <script>
-    function switchTab(platform) {
-      document.querySelectorAll('.tab-btn').forEach(btn => btn.classList.remove('active'));
+    // Daftar platform valid untuk resolusi location.hash — hash arbitrer
+    // tidak dipercaya dan selalu jatuh ke default.
+    var VALID_PLATFORMS = ['android', 'windows', 'linux'];
+    var DEFAULT_PLATFORM = 'android';
+
+    function switchTab(platform, opts) {
+      document.querySelectorAll('.tab-btn').forEach(btn => {
+        const active = btn.id === 'tab-' + platform;
+        btn.classList.toggle('active', active);
+        btn.setAttribute('aria-selected', active ? 'true' : 'false');
+        // Roving tabindex: hanya tab aktif yang bisa di-tab keyboard.
+        btn.tabIndex = active ? 0 : -1;
+      });
       document.querySelectorAll('.platform-section').forEach(sec => sec.style.display = 'none');
 
       document.getElementById('tab-' + platform).classList.add('active');
@@ -801,9 +847,52 @@
       // Konten tab yang baru ditampilkan mungkin belum pernah ter-observe
       // dalam keadaan terlihat — tampilkan langsung agar tidak blank.
       section.querySelectorAll('.reveal:not(.visible)').forEach(el => el.classList.add('visible'));
+
+      // Simpan tab aktif di URL agar deep-linkable. replaceState (bukan
+      // assignment) supaya tidak memicu scroll-to-top / entri history baru;
+      // ops skipHash dipakai saat balasan dari event hashchange.
+      if (!opts || !opts.skipHash) {
+        history.replaceState(null, '', '#' + platform);
+      }
+    }
+
+    function resolvePlatformFromHash() {
+      const h = (location.hash || '').replace('#', '');
+      return VALID_PLATFORMS.includes(h) ? h : DEFAULT_PLATFORM;
     }
 
     document.addEventListener('DOMContentLoaded', () => {
+      // Deep-link: buka tab sesuai #hash URL (fallback default bila kosong/
+      // tidak dikenal). Dipanggil sekali juga tanpa hash agar state ARIA
+      // (aria-selected/tabIndex) tersinkron dari awal.
+      switchTab(resolvePlatformFromHash(), { skipHash: true });
+
+      // Navigasi keyboard antar tab (pola ARIA tabs): panah kiri/kanan,
+      // Home/End memindahkan fokus & mengaktifkan tab.
+      const tablist = document.querySelector('[role="tablist"]');
+      if (tablist) {
+        tablist.addEventListener('keydown', (e) => {
+          if (!['ArrowRight', 'ArrowLeft', 'Home', 'End'].includes(e.key)) return;
+          e.preventDefault();
+          const tabs = VALID_PLATFORMS.map(p => document.getElementById('tab-' + p));
+          const current = tabs.indexOf(document.activeElement);
+          if (current < 0) return;
+          let next;
+          if (e.key === 'ArrowRight') next = (current + 1) % tabs.length;
+          else if (e.key === 'ArrowLeft') next = (current - 1 + tabs.length) % tabs.length;
+          else if (e.key === 'Home') next = 0;
+          else next = tabs.length - 1;
+          tabs[next].focus();
+          switchTab(VALID_PLATFORMS[next]);
+        });
+      }
+
+      // Hash berubah dari luar (mis. user edit URL / back-forward cache):
+      // ikuti perubahan tanpa menulis ulang hash.
+      window.addEventListener('hashchange', () => {
+        switchTab(resolvePlatformFromHash(), { skipHash: true });
+      });
+
       if (!('IntersectionObserver' in window)) {
         document.querySelectorAll('.reveal').forEach(el => el.classList.add('visible'));
         return;
