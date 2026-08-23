@@ -241,6 +241,11 @@
     box-shadow: 0 6px 24px rgba(99, 102, 241, 0.5);
     transform: translateY(-2px);
   }
+  .btn-download-big.is-loading {
+    opacity: 0.7;
+    pointer-events: none;
+  }
+  @keyframes dl-spin { to { transform: rotate(360deg); } }
 
   /* Instructions */
   .inst-title {
@@ -524,7 +529,7 @@
                 Rilis Resmi • Versi: <span class="meta-val">v{{ .android_app.Version }}</span> • Ukuran: <span class="meta-val"><script>document.write( ({{ .android_app.SizeBytes }} / 1048576.0).toFixed(2) );</script> MB</span>
               </p>
             </div>
-            <a href="/download/app/{{ .android_app.ID }}" class="btn-download-big" style="background: linear-gradient(135deg, #8b5cf6, #7c3aed);" onclick="event.preventDefault(); downloadApp({{ .android_app.ID }});">
+            <a href="/download/app/{{ .android_app.ID }}" class="btn-download-big" style="background: linear-gradient(135deg, #8b5cf6, #7c3aed);" onclick="event.preventDefault(); downloadApp({{ .android_app.ID }}, this);">
               <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg>
               Unduh APK
             </a>
@@ -542,7 +547,7 @@
                       Rilis Resmi • Versi: <span class="meta-val">v{{ .Version }}</span> • Ukuran: <span class="meta-val"><script>document.write( ({{ .SizeBytes }} / 1048576.0).toFixed(2) );</script> MB</span>
                     </p>
                   </div>
-                  <a href="/download/app/{{ .ID }}" class="btn-download-big" onclick="event.preventDefault(); downloadApp({{ .ID }});">
+                  <a href="/download/app/{{ .ID }}" class="btn-download-big" onclick="event.preventDefault(); downloadApp({{ .ID }}, this);">
                     <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg>
                     Unduh Aplikasi Klien
                   </a>
@@ -652,7 +657,7 @@
                       Rilis Resmi • Versi: <span class="meta-val">v{{.Version}}</span> • Ukuran: <span class="meta-val"><script>document.write( ({{ .SizeBytes }} / 1048576.0).toFixed(2) );</script> MB</span>
                     </p>
                   </div>
-                  <a href="/download/app/{{.ID}}" class="btn-download-big" style="background: linear-gradient(135deg, #3b82f6, #2563eb);" onclick="event.preventDefault(); downloadApp({{.ID}});">
+                  <a href="/download/app/{{.ID}}" class="btn-download-big" style="background: linear-gradient(135deg, #3b82f6, #2563eb);" onclick="event.preventDefault(); downloadApp({{.ID}}, this);">
                     <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg>
                     Unduh Windows Client (.exe)
                   </a>
@@ -731,7 +736,7 @@
                       Rilis Resmi • Versi: <span class="meta-val">v{{.Version}}</span> • Ukuran: <span class="meta-val"><script>document.write( ({{ .SizeBytes }} / 1048576.0).toFixed(2) );</script> MB</span>
                     </p>
                   </div>
-                  <a href="/download/app/{{.ID}}" class="btn-download-big" style="background: linear-gradient(135deg, #8b5cf6, #7c3aed);" onclick="event.preventDefault(); downloadApp({{.ID}});">
+                  <a href="/download/app/{{.ID}}" class="btn-download-big" style="background: linear-gradient(135deg, #8b5cf6, #7c3aed);" onclick="event.preventDefault(); downloadApp({{.ID}}, this);">
                     <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg>
                     Unduh Linux AppImage (.AppImage)
                   </a>
@@ -821,12 +826,31 @@
     // opaqueredirect) = sukses → navigasi ulang untuk unduhan native (browser
     // menangani Content-Disposition). Dipakai sengaja fetch mentah (bukan
     // apiFetch): apiFetch menganggap respons redirect non-2xx sebagai error.
-    function downloadApp(appId) {
+    function downloadApp(appId, btn) {
         var url = '/download/app/' + appId;
+        // Guard dobel-klik: selama probe berjalan, tap lanjutan diabaikan —
+        // di jaringan lambat dulu tombol terasa "mati" sehingga user tap
+        // berkali-kali (multiple request unduhan).
+        if (!btn) { window.location = url; return; }   // dipanggil tanpa elemen tombol
+        if (btn.dataset.loading === '1') return;
+        btn.dataset.loading = '1';
+        btn.setAttribute('aria-busy', 'true');
+        btn.classList.add('is-loading');
+        var original = btn.innerHTML;
+        btn.innerHTML = '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" style="animation: dl-spin 0.8s linear infinite;"><path d="M21 12a9 9 0 1 1-6.219-8.56"></path></svg> Memeriksa...';
+
+        function restore() {
+            btn.dataset.loading = '';
+            btn.removeAttribute('aria-busy');
+            btn.classList.remove('is-loading');
+            btn.innerHTML = original;
+        }
+
         // Fallback defensif: jika admin-core.js gagal dimuat (cache/CSP),
         // lanjutkan navigasi polos seperti anchor biasa — jangan blokir unduhan.
         if (typeof showApiErrorToast !== 'function') {
             window.location = url;
+            restore();
             return;
         }
         fetch(url, { redirect: 'manual' })
@@ -847,7 +871,8 @@
             })
             .catch(function() {
                 showApiErrorToast(null, 'Gagal memulai unduhan');
-            });
+            })
+            .finally(restore);
     }
   </script>
 {{ template "public_foot" . }}

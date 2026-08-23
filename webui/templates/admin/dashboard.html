@@ -474,7 +474,7 @@
       <button class="btn-icon btn-edit" data-exam-id="{{$exam.ID}}" data-token="{{$exam.Token}}" onclick="openEditTokenModal(this.dataset.examId, this.dataset.token)" title="Kustomisasi Token Awal" style="background:transparent;border:none;cursor:pointer;color:var(--color-text-muted);padding:2px;display:inline-flex;align-items:center;justify-content:center;transition:color 0.2s;margin-left:-2px;"><svg class="icon-svg" style="width:14px;height:14px;"><use href="#hi-edit"/></svg></button>
     </div>
     <div class="token-interval-group">
-      <input type="number" class="token-interval-input" id="interval-{{$exam.ID}}" value="{{if $exam.TokenResetInterval}}{{$exam.TokenResetInterval}}{{else}}5{{end}}" min="1" placeholder="menit" title="Interval reset token (menit)">
+      <input type="number" class="token-interval-input" id="interval-{{$exam.ID}}" value="{{if $exam.TokenResetInterval}}{{$exam.TokenResetInterval}}{{else}}5{{end}}" min="1" placeholder="30" title="Interval reset token (menit)">
       <span class="token-interval-label">menit</span>
       <button class="btn-icon btn-save-interval" onclick="saveTokenInterval({{$exam.ID}})" title="Simpan Interval"><svg class="icon-svg" style="width:16px;height:16px;"><use href="#hi-check"/></svg></button>
     </div>

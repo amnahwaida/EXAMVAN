@@ -351,7 +351,7 @@
 | R7 | Pagination submissions minim: prev/next tanpa posisi "Halaman X dari Y"; anchor prev tetap `href` aktif walau class disabled | `submissions.html:326-335` (pembanding benar: `dashboard.html:548-562` menampilkan nomor halaman + "N dari M") | Samakan pola dashboard | S | `[ ]` |
 | R8 | Kartu utuh clickable berisi link bersarang — `onclick="window.location=..."` di kartu yang di dalamnya ada `<a>Pantau</a>`; dua target interaktif bertumpuk | `pengawas.html:304` & `:325` | Jadikan judul kartu link tunggal, atau stopPropagation pada link | S | `[ ]` |
 | R9 | Username "disanitasi diam-diam" — karakter ilegal dihapus langsung saat mengetik tanpa pesan aturan (placeholder hanya "min. 3 karakter") | `register.html:394-400` | Tampilkan aturan charset di hint + toast sekali saat sanitasi terjadi | XS | `[ ]` |
-| R10 | Bug NaN statistik dashboard: `(stats.total - stats.active) ?? '0'` — `??` tak menangkap NaN hasil `undefined - undefined`. Sekalian: komentar "the 30s interval" vs realita default `startAutoRefresh(intervalSec = 120)` (doc drift) | `admin-core.js:535` & komentar `489-493` vs `540` | Guard `Number.isFinite(...)`, perbaiki komentar | XS | `[ ]` |
+| R10 | Bug NaN statistik dashboard: `(stats.total - stats.active) ?? '0'` — `??` tak menangkap NaN hasil `undefined - undefined`. *Koreksi setelah verifikasi: komentar "30s interval" ternyata AKURAT — `admin.js:3876` memanggil `startAutoRefresh(30)`; default 120 hanya fallback* | `admin-core.js:535` | Guard eksplisit cek tipe number sebelum mengurangi | XS | `[x]` ✅ |
 | R11 | Script dimuat sinkron tanpa `defer` (posisi akhir body, dampak kecil — tapi `defer` gratis & lebih aman urutan) | `base.html:315-316`; `login.html:148-149` (fingerprintjs.min.js 37KB) | Tambah `defer` | XS | `[ ]` |
 | R12 | Skip-link pola rapuh: inline `left:-9999px` + override `!important` di theme.css untuk mereveal (diakui sendiri di komentarnya) | `base.html:33` + `theme.css:101-108` | Pindahkan ke class `.skip-link` biasa | XS | `[ ]` |
 | R13 | Tiga `<h1>` dalam satu dokumen settings (dua sr-only + satu visible) — outline heading melompat-lompat | `settings.html:754, 1574, 1965` | Turunkan ke h2 (halaman lain sudah patuh, mis. dashboard 1 h1) | XS | `[ ]` |
@@ -401,15 +401,15 @@
 
 > Centang `[x]` + cantumkan hash commit saat selesai. Urut sesuai prioritas eksekusi.
 
-### Batch 1 — Quick wins (±1 jam total)
-- [ ] **T2** uploadError visible-by-default + teks EN (XS)
-- [ ] **R1** colspan 8→6 (XS)
-- [ ] **R3** dobel push settings-packages.js (XS)
-- [ ] **R5** placeholder "menit" dobel (XS)
-- [ ] **T5** ganti CTA state hasil dinonaktifkan (XS)
-- [ ] **S13** loading state tombol unduh (XS)
-- [ ] **R10** guard NaN + komentar interval (XS)
-- [ ] **R16** grid tab download mobile (XS)
+### Batch 1 — Quick wins (±1 jam total) ✅ SELESAI (2026-08-23, test-first: `webui/static/js/uiux-batch1.test.mjs` — 17/17 hijau)
+- [x] **T2** uploadError `display:none` default + hapus teks placeholder EN + reset saat modal dibuka
+- [x] **R1** colspan 8→6 (baris loading & catch)
+- [x] **R3** dobel push settings-packages.js dihapus
+- [x] **R5** placeholder "menit" → contoh angka `30` (label span tetap menyebut satuan)
+- [x] **T5** CTA state dinonaktifkan → "Kembali ke Beranda" (`href="/"`, ikon panah kiri)
+- [x] **S13** loading state tombol unduh: spinner "Memeriksa..." + `aria-busy` + guard dobel-klik `dataset.loading` + pemulihan via `.finally()`
+- [x] **R10** guard NaN kartu nonaktif *(koreksi: bagian "komentar interval" batal — komentar terbukti akurat, dashboard memanggil `startAutoRefresh(30)` di `admin.js:3876`)*
+- [x] **R16** tab download mobile 3 kolom sejajar (`repeat(3, minmax(0, 1fr))`)
 
 ### Batch 2 — Perbaikan tinggi hari ini
 - [ ] **T1** konfirmasi password registrasi (S)

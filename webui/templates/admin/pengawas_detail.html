@@ -1344,7 +1344,7 @@ function loadDetail(page, silent) {
     detailLoading = true;
 
     // On silent auto-refresh, keep the current rows in place (no loading flash).
-    if (!silent) tbody.innerHTML = '<tr><td colspan="8" class="pd-table-empty">Memuat data...</td></tr>';
+    if (!silent) tbody.innerHTML = '<tr><td colspan="6" class="pd-table-empty">Memuat data...</td></tr>';
 
     var search = document.getElementById('pengawasSearch') ? document.getElementById('pengawasSearch').value.trim() : '';
     var status = document.getElementById('statusFilter') ? document.getElementById('statusFilter').value : '';
@@ -1406,7 +1406,7 @@ function loadDetail(page, silent) {
             if (card) card.setAttribute('data-subs', JSON.stringify(subs));
         })
         .catch(function() {
-            tbody.innerHTML = '<tr><td colspan="8" class="pd-table-empty" style="color:#fca5a5;">Gagal menghubungi server</td></tr>';
+            tbody.innerHTML = '<tr><td colspan="6" class="pd-table-empty" style="color:#fca5a5;">Gagal menghubungi server</td></tr>';
         })
         .finally(function() {
             detailLoading = false;

@@ -110,7 +110,7 @@ body main { padding-top: 96px; }
 .hero-section { margin-bottom: 32px !important; }
 .live-badge, .hero-badge { max-width: 100%; white-space: normal; text-align: left; }
 .tabs-container {
-  display: grid !important; grid-template-columns: 1fr 1fr; width: 100% !important;
+  display: grid !important; grid-template-columns: repeat(3, minmax(0, 1fr)); width: 100% !important;
   margin-bottom: 28px !important; gap: 6px !important; padding: 6px !important; border-radius: 8px !important;
 }
 .tab-btn { min-height: 48px; padding: 10px 8px !important; justify-content: center; font-size: 13px !important; border-radius: 6px !important; }

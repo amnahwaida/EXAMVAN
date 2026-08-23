@@ -2030,9 +2030,9 @@
                     </div>
                 </div>
                 
-                <div id="uploadError" style="margin-bottom:20px; padding:16px 20px; border-radius:12px; background:rgba(239,68,68,0.15); border:1px solid rgba(239,68,68,0.4); color:#fca5a5; font-size:14.5px; font-weight:500; display:flex; align-items:flex-start; gap:12px; box-shadow:0 4px 15px rgba(239,68,68,0.1);">
+                <div id="uploadError" style="margin-bottom:20px; padding:16px 20px; border-radius:12px; background:rgba(239,68,68,0.15); border:1px solid rgba(239,68,68,0.4); color:#fca5a5; font-size:14.5px; font-weight:500; display:none; align-items:flex-start; gap:12px; box-shadow:0 4px 15px rgba(239,68,68,0.1);">
                     <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" style="flex-shrink:0; margin-top:1px;"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="8" x2="12" y2="12"></line><line x1="12" y1="16" x2="12.01" y2="16"></line></svg>
-                    <span id="uploadErrorText" style="line-height:1.5;">Error message here</span>
+                    <span id="uploadErrorText" style="line-height:1.5;"></span>
                 </div>
                 
                 <div id="uploadProgressContainer" style="display:none; margin-bottom:20px; background:rgba(0,0,0,0.3); padding:24px; border-radius:16px; border:1px solid rgba(255,255,255,0.08); box-shadow:inset 0 4px 10px rgba(0,0,0,0.2);">
@@ -2252,7 +2252,6 @@ window.__settingsLoaded = {};
     // the packages editor (settings-packages.js).
     var files = ['settings-' + key + '.js'];
     if (key === 'vouchers') files.push('settings-voucher-audit.js');
-    if (key === 'general') files.push('settings-packages.js');
     if (key === 'general') files.push('settings-packages.js');
     var remaining = files.length;
     function done() { if (--remaining <= 0 && cb) cb(); }

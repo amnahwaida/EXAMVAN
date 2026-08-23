@@ -532,7 +532,14 @@ function refreshUserInterface(stats) {
     if (activeEl) activeEl.textContent = stats.active ?? '0';
     // inactive is the second .stat-value in .stat-status
     var statusEls = document.querySelectorAll('.stat-status .stat-value');
-    if (statusEls.length >= 2) statusEls[1].textContent = (stats.total - stats.active) ?? '0';
+    if (statusEls.length >= 2) {
+        // ?? tidak menangkap NaN hasil undefined - undefined — guard eksplisit
+        // agar kartu "nonaktif" tidak pernah merender "NaN" saat field hilang.
+        var inactive = (typeof stats.total === 'number' && typeof stats.active === 'number')
+            ? stats.total - stats.active
+            : 0;
+        statusEls[1].textContent = String(inactive);
+    }
     var storageEl = document.querySelector('.stat-storage .stat-value');
     if (storageEl) storageEl.textContent = (stats.storage_mb ?? '0') + ' MB';
 }

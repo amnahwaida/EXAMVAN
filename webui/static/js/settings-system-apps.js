@@ -121,6 +121,8 @@ function renderAppsGrid(apps) {
 
 function openUploadModal() {
     const modal = document.getElementById('uploadModal');
+    // Reset defensif: jangan pernah menyambut user dengan error upaya sebelumnya.
+    document.getElementById('uploadError').style.display = 'none';
     modal.style.display = 'flex';
     void modal.offsetWidth;
     modal.classList.add('show');
