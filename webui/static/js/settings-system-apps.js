@@ -55,7 +55,10 @@ function submitUpload(event) {
     const xhr = new XMLHttpRequest();
 
     xhr.open('POST', '/admin/api/system-apps', true);
-    xhr.setRequestHeader('X-CSRF-Token', '{{ .csrf_token }}');
+    // Fix: file ini STATIK — literal '{{ .csrf_token }}' tidak pernah
+    // ter-render oleh template engine. Ambil token dari meta tag base.html
+    // via helper getCsrfToken() (admin-core.js).
+    xhr.setRequestHeader('X-CSRF-Token', getCsrfToken());
 
     xhr.upload.onprogress = function(e) {
         if (e.lengthComputable) {

@@ -1956,7 +1956,7 @@
             </div>
         </div>
         {{ if .r2_enabled }}
-        <button class="btn-premium" onclick="openUploadModal()">
+        <button class="btn-premium" type="button" id="btnOpenUploadApp">
             <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg> 
             Unggah Aplikasi Baru
         </button>
@@ -1974,6 +1974,119 @@
         </div>
     </div>
     {{ end }}
+
+<div id="uploadModal" class="modal-backdrop" role="dialog" aria-modal="true" aria-labelledby="uploadModalTitle" onclick="if(event.target===this)closeUploadModal()">
+    <div class="modal-glass" onclick="event.stopPropagation()">
+        <div class="modal-header" style="position:relative;">
+            <button type="button" onclick="closeUploadModal()" aria-label="Tutup" style="position:absolute;top:0;right:0;width:40px;height:40px;display:flex;align-items:center;justify-content:center;background:rgba(255,255,255,0.06);border:1px solid rgba(255,255,255,0.1);border-radius:10px;color:#e2e8f0;font-size:18px;cursor:pointer;line-height:1;">&times;</button>
+            <h3 id="uploadModalTitle" style="margin:0; font-size:1.5rem; font-weight:800; color:white; display:flex; align-items:center; gap:12px; padding-right:52px;">
+                <div style="width: 40px; height: 40px; background: rgba(168,85,247,0.15); border-radius: 12px; display: flex; align-items: center; justify-content: center; color: #c084fc;">
+                    <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="17 8 12 3 7 8"></polyline><line x1="12" y1="3" x2="12" y2="15"></line></svg>
+                </div>
+                Unggah Aplikasi Baru
+            </h3>
+            <p style="margin:12px 0 0 0; font-size:0.95rem; color:#94a3b8; line-height:1.5;">Lengkapi data dan pilih file instalasi aplikasi klien yang akan didistribusikan.</p>
+        </div>
+        <div class="modal-body">
+            <form id="uploadAppForm">
+                <div style="margin-bottom:24px;">
+                    <label class="form-label" for="appName">Nama Aplikasi <span style="color:#f43f5e;">*</span></label>
+                    <input type="text" id="appName" name="name" class="custom-input" required placeholder="Contoh: EXAMVAN Client CBT">
+                </div>
+
+                <div style="display:flex; gap:20px; margin-bottom:24px;">
+                    <div style="flex:1;">
+                        <label class="form-label" for="platformSelect">Platform <span style="color:#f43f5e;">*</span></label>
+                        <select id="platformSelect" name="platform" class="custom-select" required>
+                            <option value="android">Android (.apk)</option>
+                            <option value="windows">Windows (.exe)</option>
+                            <option value="linux">Linux (.AppImage / ELF)</option>
+                        </select>
+                    </div>
+                    <div style="flex:1;">
+                        <label class="form-label" for="appVersion">Versi <span style="color:#f43f5e;">*</span></label>
+                        <input type="text" id="appVersion" name="version" class="custom-input" required placeholder="Contoh: 2.1.0">
+                    </div>
+                </div>
+
+                <div style="margin-bottom:24px;">
+                    <label class="form-label">File Aplikasi <span style="color:#f43f5e;">*</span></label>
+                    <div class="custom-file-input">
+                        <input type="file" id="appFile" name="file" required onchange="updateFileName(this)">
+                        <svg class="file-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline><line x1="12" y1="18" x2="12" y2="12"></line><line x1="9" y1="15" x2="15" y2="15"></line></svg>
+                        <div id="file-name-display" style="font-weight:700; color:white; font-size:1.15rem; margin-bottom:6px;">Pilih atau Seret File Kesini</div>
+                        <div style="font-size:0.9rem; color:#94a3b8;">Mendukung file .apk, .exe, atau executable linux.</div>
+                    </div>
+                </div>
+                
+                <div id="uploadError" style="margin-bottom:20px; padding:16px 20px; border-radius:12px; background:rgba(239,68,68,0.15); border:1px solid rgba(239,68,68,0.4); color:#fca5a5; font-size:14.5px; font-weight:500; display:flex; align-items:flex-start; gap:12px; box-shadow:0 4px 15px rgba(239,68,68,0.1);">
+                    <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" style="flex-shrink:0; margin-top:1px;"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="8" x2="12" y2="12"></line><line x1="12" y1="16" x2="12.01" y2="16"></line></svg>
+                    <span id="uploadErrorText" style="line-height:1.5;">Error message here</span>
+                </div>
+                
+                <div id="uploadProgressContainer" style="display:none; margin-bottom:20px; background:rgba(0,0,0,0.3); padding:24px; border-radius:16px; border:1px solid rgba(255,255,255,0.08); box-shadow:inset 0 4px 10px rgba(0,0,0,0.2);">
+                    <div style="display:flex; justify-content:space-between; font-weight:700; font-size:15px; margin-bottom:14px; color:white;">
+                        <span id="uploadStatusText" style="display:flex; align-items:center; gap:10px;">
+                            <svg class="animate-spin" width="18" height="18" style="animation: spin 1s linear infinite;" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M21 12a9 9 0 1 1-6.219-8.56"></path></svg>
+                            Mengunggah File...
+                        </span>
+                        <span id="uploadPercentage" style="color:#c084fc; font-size:16px;">0%</span>
+                    </div>
+                    <div style="width:100%; height:12px; background:rgba(255,255,255,0.1); border-radius:12px; overflow:hidden; box-shadow:inset 0 2px 4px rgba(0,0,0,0.3);">
+                        <div id="uploadProgressBar" style="height:100%; width:0%; background:linear-gradient(90deg, #4f46e5, #c084fc, #f472b6); border-radius:12px; transition:width 0.3s cubic-bezier(0.4, 0, 0.2, 1); box-shadow: 0 0 15px rgba(168,85,247,0.6);"></div>
+                    </div>
+                    <style>@keyframes spin { 100% { transform: rotate(360deg); } }</style>
+                </div>
+            </form>
+        </div>
+        <div class="modal-footer">
+            <button class="btn-cancel" onclick="closeUploadModal()">Batal</button>
+            <button id="uploadSubmitBtn" class="btn-premium" onclick="submitUpload(event)">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" style="margin-right:4px;"><polyline points="20 6 9 17 4 12"></polyline></svg>
+                Unggah Sekarang
+            </button>
+        </div>
+    </div>
+
+    <script>
+    // Fix: tombol unggah tak merespons bila diklik sebelum modul lazy
+    // settings-system-apps.js selesai dimuat. Dispatcher ini selalu ada:
+    // bila fungsi modul belum ada, muat modulnya dulu lalu buka modal.
+    (function() {
+      var pending = false;
+      window.openUploadModalSafe = function() {
+        if (typeof window.openUploadModal === 'function') {
+          window.openUploadModal();
+          return;
+        }
+        if (pending) return;
+        pending = true;
+        var tryOpen = function() {
+          pending = false;
+          if (typeof window.openUploadModal === 'function') window.openUploadModal();
+        };
+        if (typeof window.loadSectionScript === 'function') {
+          window.__settingsLoaded['system-apps'] = false;
+          window.loadSectionScript('system-apps', tryOpen);
+        } else {
+          var s = document.createElement('script');
+          s.src = '/static/js/settings-system-apps.js';
+          s.onload = tryOpen;
+          document.head.appendChild(s);
+        }
+      };
+      document.addEventListener('DOMContentLoaded', function() {
+        var btn = document.getElementById('btnOpenUploadApp');
+        if (btn) btn.addEventListener('click', window.openUploadModalSafe);
+      });
+      // Tab mungkin sudah dirender ulang oleh HTMX/turbo-like swap:
+      // delegasi global sebagai jaring pengaman tambahan.
+      document.addEventListener('click', function(e) {
+        var el = e.target.closest && e.target.closest('#btnOpenUploadApp');
+        if (el) { e.preventDefault(); window.openUploadModalSafe(); }
+      });
+    })();
+    </script>
 
     <div class="apps-grid">
         {{ if not .apps }}

@@ -1,0 +1,77 @@
+package com.examvan.app
+
+import org.junit.Assert.assertTrue
+import org.junit.Test
+import java.io.File
+
+/**
+ * Guard integritas halaman Aplikasi Sistem (bug nyata: saat penggabungan 5
+ * halaman settings menjadi satu, MARKUP MODAL UNGGAH tertinggal — tombol
+ * "Unggah Aplikasi Baru" tampak tapi mati karena openUploadModal() menabrak
+ * elemen null).
+ *
+ * Kontrak: SETIAP id elemen yang dirujuk oleh modul
+ * settings-system-apps.js WAJIB ada di settings.html.
+ *
+ *   ./gradlew :app:testStudentDebugUnitTest
+ */
+class SystemAppsPageIntegrityTest {
+
+    /** Root repo (menaiki direktori sampai menemukan .git). */
+    private fun repoRoot(): File {
+        var dir = File(System.getProperty("user.dir") ?: ".").absoluteFile
+        while (dir != null && !File(dir, ".git").exists()) {
+            dir = dir.parentFile ?: error("Root repo tidak ditemukan dari $dir")
+        }
+        return dir
+    }
+
+    private fun webuiPage(): File =
+        repoRoot().resolve("webui/templates/admin/settings.html")
+
+    private fun webuiJs(): File =
+        repoRoot().resolve("webui/static/js/settings-system-apps.js")
+
+    /** Id yang wajib ada — diekstrak dari referensi settings-system-apps.js. */
+    private val requiredIds = listOf(
+        "btnOpenUploadApp",
+        "uploadModal",
+        "uploadAppForm",
+        "appName",
+        "platformSelect",
+        "appVersion",
+        "appFile",
+        "file-name-display",
+        "uploadError",
+        "uploadErrorText",
+        "uploadProgressContainer",
+        "uploadProgressBar",
+        "uploadPercentage",
+        "uploadStatusText",
+        "uploadSubmitBtn"
+    )
+
+    @Test
+    fun systemAppsSection_containsEveryReferencedElementId() {
+        val html = webuiPage().readText()
+
+        val missing = requiredIds.filter { id ->
+            !html.contains("""id="$id"""")
+        }
+
+        assertTrue(
+            "Elemen berikut hilang dari webui/templates/admin/settings.html " +
+                "(tombol/modal akan mati):\n" + missing.joinToString("\n") { "  - #$it" },
+            missing.isEmpty()
+        )
+    }
+
+    @Test
+    fun jsModule_exists() {
+        val js = webuiJs()
+        assertTrue(
+            "Modul settings-system-apps.js harus ada (dimuat lazy oleh tab Pengaturan)",
+            js.exists() && js.length() > 0L
+        )
+    }
+}
