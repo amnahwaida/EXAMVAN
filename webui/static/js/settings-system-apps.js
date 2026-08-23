@@ -6,6 +6,119 @@ function canCloseUpload(uploadActive) {
     return !uploadActive;
 }
 
+
+// ===== Refresh kartu aplikasi IN-PLACE =====
+// Fix review Aplikasi Sistem: satu unggah/hapus tidak lagi memicu reload
+// penuh yang mendarat di tab default — grid dibangun ulang dari API JSON.
+
+const PLATFORM_ICONS = {
+    android: '<svg width="32" height="32" viewBox="0 0 24 24" fill="currentColor"><path d="M17.523 15.3414c-.5511 0-.9993-.4486-.9993-.9997s.4483-.9993.9993-.9993c.5511 0 .9993.4482.9993.9993s-.4482.9997-.9993.9997zm-11.046 0c-.5511 0-.9993-.4486-.9993-.9997s.4482-.9993.9993-.9993c.5515 0 .9997.4482.9997.9993s-.4482.9997-.9997.9997zm11.4045-6.02l1.9973-3.4592c.1158-.201.0462-.4576-.1551-.5737-.201-.1162-.4576-.0462-.5737.1551l-2.0224 3.502c-1.3965-.6328-2.9658-.9881-4.6277-.9881s-3.2312.3553-4.6276.9881l-2.0225-3.502c-.1161-.2013-.3726-.2713-.5737-.1551-.2013.1161-.2709.3726-.1551.5737l1.9973 3.4592C2.695 10.7495.2718 14.7766.2718 19.5h23.4563c0-4.7234-2.4232-8.7505-6.7996-10.1786z"/></svg>',
+    windows: '<svg width="32" height="32" viewBox="0 0 24 24" fill="currentColor"><path d="M0 3.449L9.75 2.1v9.451H0m10.949-9.602L24 0v11.4H10.949M0 12.6h9.75v9.451L0 20.699M10.949 12.6H24V24l-12.951-1.801"/></svg>',
+    linux: '<svg width="32" height="32" viewBox="0 0 24 24" fill="currentColor"><path d="M12.015 0c-2.41 0-4.623 1.156-5.918 3.125-.333.51-.531 1.094-.531 1.688 0 2.21 2.375 5.56 4.312 8.44-1.28.374-2.22 1.34-2.47 2.344-.656-.25-1.5-.188-2.124.281-.781.593-1.062 1.562-.688 2.406.344.75 1.125 1.125 1.938 1.125 1.125 0 2.125-.656 2.5-1.625.5 1.25 1.938 2.22 3.688 2.22 1.718 0 3.156-.97 3.656-2.188.375.938 1.344 1.594 2.469 1.594.781 0 1.53-.375 1.875-1.094.406-.844.156-1.844-.625-2.438-.594-.47-1.406-.56-2.062-.31-2.41-1.03-2.312-2.188-3.468-2.25 1.937-2.844 4.312-6.188 4.312-8.375 0-.594-.188-1.156-.531-1.656-1.313-1.97-3.5-3.125-5.938-3.125H12zM9 16c.563 0 1 .438 1 1s-.438 1-1 1-1-.438-1-1 .438-1 1-1zm6 0c.563 0 1 .438 1 1s-.438 1-1 1-1-.438-1-1 .438-1 1-1z"/></svg>'
+};
+
+function platformIcon(platform) {
+    return PLATFORM_ICONS[platform] ||
+        '<svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4a2 2 0 0 0 2 0z"/></svg>';
+}
+
+async function loadApps() {
+    try {
+        const res = await apiFetch('/admin/api/system-apps');
+        const data = await res.json();
+        if (!data.success) throw new Error(data.message || 'Gagal memuat');
+        renderAppsGrid(data.apps || []);
+    } catch (e) {
+        showToast('Gagal memuat daftar aplikasi: ' + e.message, 'error');
+    }
+}
+
+// Pembuat elemen ringkas; textContent aman XSS dari nama/versi custom.
+function el(tag, styleText, textContentValue) {
+    const node = document.createElement(tag);
+    if (styleText) node.style.cssText = styleText;
+    if (textContentValue !== undefined) node.textContent = textContentValue;
+    return node;
+}
+
+function renderAppsGrid(apps) {
+    const grid = document.querySelector('#section-system-apps .apps-grid');
+    if (!grid) return;
+    grid.innerHTML = '';
+
+    if (!apps.length) {
+        const empty = el('div',
+            'grid-column:1/-1;text-align:center;padding:80px 20px;background:rgba(255,255,255,0.02);border-radius:24px;border:2px dashed rgba(255,255,255,0.1);');
+        empty.appendChild(el('h3', 'color:white;font-size:1.5rem;font-weight:700;margin:0 0 12px 0;', 'Belum Ada Aplikasi'));
+        empty.appendChild(el('p', 'color:#94a3b8;font-size:1.05rem;max-width:480px;margin:0 auto;',
+            'Anda belum mengunggah aplikasi. Klik tombol unggah di kanan atas untuk mulai mendistribusikan aplikasi ujian ke siswa.'));
+        grid.appendChild(empty);
+        return;
+    }
+
+    apps.forEach(function(app) {
+        const card = el('div', '');
+        card.className = 'premium-card';
+
+        const iconWrap = el('div', '');
+        iconWrap.className = 'platform-icon platform-' + app.Platform;
+        iconWrap.innerHTML = platformIcon(app.Platform);
+        card.appendChild(iconWrap);
+
+        // Judul & versi — textContent agar aman XSS dari nama custom.
+        const title = el('h3', '', '');
+        title.className = 'app-title';
+        title.textContent = app.Name;
+        card.appendChild(title);
+
+        const badge = el('div', '', '');
+        const ver = el('span', '', '');
+        ver.className = 'app-version';
+        ver.textContent = 'v' + app.Version;
+        badge.appendChild(ver);
+        card.appendChild(badge);
+
+        const meta = el('div', '', '');
+        meta.className = 'app-meta';
+
+        const sizeWrap = el('div', '', '');
+        sizeWrap.appendChild(el('div',
+            'font-size:0.75rem;text-transform:uppercase;letter-spacing:0.08em;margin-bottom:4px;font-weight:600;', 'Ukuran'));
+        sizeWrap.appendChild(el('div',
+            'font-weight:700;color:white;font-size:1.05rem;',
+            (app.SizeBytes / (1024 * 1024)).toFixed(2) + ' MB'));
+        meta.appendChild(sizeWrap);
+
+        const dateWrap = el('div', 'text-align:right;', '');
+        dateWrap.appendChild(el('div',
+            'font-size:0.75rem;text-transform:uppercase;letter-spacing:0.08em;margin-bottom:4px;font-weight:600;', 'Diunggah Pada'));
+        let dateText = '-';
+        try { dateText = new Date(app.CreatedAt).toLocaleDateString('id-ID', { day: '2-digit', month: 'short', year: 'numeric' }); } catch (_) {}
+        dateWrap.appendChild(el('div',
+            'font-weight:700;color:white;font-size:1.05rem;', dateText));
+        meta.appendChild(dateWrap);
+
+        card.appendChild(meta);
+
+        const actions = el('div', 'display:flex;gap:16px;', '');
+        actions.className = 'action-buttons';
+
+        const dl = el('a',
+            'display:flex;align-items:center;gap:6px;color:#94a3b8;text-decoration:none;font-size:13px;', 'Unduh');
+        dl.href = '/download/app/' + app.ID;
+        dl.target = '_blank';
+        actions.appendChild(dl);
+
+        const delBtn = el('button',
+            'background:none;border:none;color:#f87171;cursor:pointer;font-size:13px;', 'Hapus');
+        delBtn.addEventListener('click', function() { deleteApp(app.ID, app.Name); });
+        actions.appendChild(delBtn);
+
+        card.appendChild(actions);
+        grid.appendChild(card);
+    });
+}
+
 function openUploadModal() {
     const modal = document.getElementById('uploadModal');
     modal.style.display = 'flex';
@@ -113,11 +226,11 @@ function submitUpload(event) {
         if (xhr.status === 200) {
             const data = JSON.parse(xhr.responseText);
             if (data.success) {
-                // Fix UX: kembali KE TAB APLIKASI SISTEM (query ?uploaded=1
-                // memaksa reload penuh; hash membuka tab yang benar) — dulu
-                // reload polos mendarat di tab default (Kelola User) sehingga
-                // kartu aplikasi seolah hilang.
-                window.location.href = '/admin/settings?uploaded=1#system-apps';
+                // Fix review ronde 3: refresh KARTU aplikasi secara in-place —
+                // tanpa reload/navigasi apapun, konteks tab tetap terjaga.
+                showToast('Aplikasi berhasil diunggah', 'success');
+                loadApps();
+                closeUploadModal();
             } else {
                 showError(apiErrorMessage(data, 'Gagal mengunggah aplikasi'));
             }
@@ -163,7 +276,7 @@ async function deleteApp(id, name) {
         const data = await res.json();
         if (data.success) {
             showToast('Aplikasi berhasil dihapus', 'success');
-            window.location.reload();
+            loadApps();
         } else {
             showApiErrorToast(data, 'Gagal menghapus aplikasi');
         }

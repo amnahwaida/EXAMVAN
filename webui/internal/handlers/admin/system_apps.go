@@ -13,6 +13,27 @@ import (
 	"github.com/examvan/webui/internal/models"
 )
 
+// ListSystemAppsJSON handles GET /admin/api/system-apps — sumber data
+// refresh kartu aplikasi IN-PLACE (fix review Aplikasi Sistem: dulu satu
+// unggah/hapus memicu reload penuh yang mendarat di tab default, sehingga
+// daftar aplikasi "hilang" dari pandangan).
+func ListSystemAppsJSON() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		pool := getPool(c)
+		ctx := c.Request.Context()
+
+		apps, err := models.GetAllSystemApps(ctx, pool)
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{
+				"success": false,
+				"message": "Gagal memuat aplikasi.",
+			})
+			return
+		}
+		c.JSON(http.StatusOK, gin.H{"success": true, "apps": apps})
+	}
+}
+
 // UploadSystemApp handles uploading an app file to R2 and storing metadata in DB.
 func UploadSystemApp() gin.HandlerFunc {
 	return func(c *gin.Context) {

@@ -1,5 +1,6 @@
 package com.examvan.app
 
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import java.io.File
@@ -97,6 +98,36 @@ class SystemAppsPageIntegrityTest {
         assertTrue(
             "closeUploadModal harus menolak penutupan selama unggahan berjalan",
             js.contains("__uploadInProgress") && js.contains("canCloseUpload")
+        )
+    }
+
+    // ── Fix review ronde 3: refresh daftar IN-PLACE tanpa reload ─────────
+
+    @Test
+    fun jsonListEndpoint_registered() {
+        val mainGo = repoRoot().resolve("webui/cmd/server/main.go").readText()
+        assertTrue(
+            "Endpoint GET /admin/api/system-apps wajib terdaftar (sumber data " +
+                "refresh kartu aplikasi tanpa reload halaman)",
+            mainGo.contains("adminSettings.GET(\"/system-apps\", admin.ListSystemAppsJSON())")
+        )
+    }
+
+    @Test
+    fun gridRefreshedInPlace_noFullPageReload() {
+        val js = webuiJs().readText()
+        assertTrue(
+            "loadApps() wajib ada — refresh kartu aplikasi via API JSON",
+            js.contains("function loadApps()")
+        )
+        assertTrue(
+            "renderAppsGrid wajib ada — merender ulang grid dari data",
+            js.contains("function renderAppsGrid")
+        )
+        // Reload polos = kembali ke tab default & kehilangan konteks tab.
+        assertFalse(
+            "window.location.reload() tidak boleh lagi dipakai di modul ini",
+            js.contains("window.location.reload()")
         )
     }
 }
