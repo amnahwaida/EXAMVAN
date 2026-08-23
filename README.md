@@ -197,6 +197,51 @@ Output:
 - `android/app/build/outputs/bundle/studentRelease/app-student-release.aab` (flavor siswa)
 - `android/app/build/outputs/bundle/kioskRelease/app-kiosk-release.aab` (flavor kiosk)
 
+### Build AAB (ditandatangani)
+
+```bash
+cd android
+# Muat kredensial upload key dari file lokal (gitignored, lihat bawah)
+export $(grep -v '^#' keystore-credentials.txt | xargs)
+./gradlew bundleRelease
+```
+
+Output:
+
+- `android/app/build/outputs/bundle/studentRelease/app-student-release.aab` (flavor siswa)
+- `android/app/build/outputs/bundle/kioskRelease/app-kiosk-release.aab` (flavor kiosk)
+
+### Penamaan APK release & checklist publikasi (konvensi resmi)
+
+Sejak 2.7.3, APK release otomatis diberi nama proper oleh Gradle:
+
+```
+EXAMVAN-v<versionName>-<Flavor>.apk
+├── EXAMVAN-v2.7.3-Student.apk   (flavor student — HP pribadi siswa)
+└── EXAMVAN-v2.7.3-Kiosk.apk     (flavor kiosk   — tablet sekolah, device owner)
+```
+
+Checklist rilis versi baru:
+
+1. **Naikkan versi** di `android/app/build.gradle.kts` (`versionCode` +1,
+   `versionName` sesuai rilis) **dan** seed `SettingAndroidVersion` di
+   `webui/internal/models/settings.go`.
+2. **Build**: `./gradlew :app:assembleStudentRelease :app:assembleKioskRelease`
+   → output ber-naming proper di
+   `app/build/outputs/apk/<flavor>/release/`.
+3. **Unggah kedua APK** via dasbor admin (*Pengaturan → Aplikasi Sistem*) —
+   file masuk Cloudflare R2 pada pola
+   `apps/android/<version>/…` + baris `system_apps`.
+4. **Perbarui setting `android_version`** ke versi baru di pengaturan SaaS.
+5. **Verifikasi**: `/download` menampilkan kartu versi baru dengan tombol
+   unduh; `/api/health` melaporkan `required_app_version` baru; APK lama
+   (2.7.2) menerima HTTP 426 dan diarahkan ke halaman download.
+
+> Catatan: server produksi wajib menjalankan build webui yang memiliki fitur
+> *Aplikasi Sistem* (upload R2). Bila endpoint
+> `/admin/settings/system-apps` mengembalikan 404, deploy webui terbaru
+> terlebih dahulu sebelum langkah 3–4.
+
 ### Upload key & Play App Signing
 
 - **Keystore upload key:** `android/app/release.keystore` (sudah dibuat, **gitignored** — JANGAN pernah commit).

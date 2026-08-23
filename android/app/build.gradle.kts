@@ -86,6 +86,18 @@ android {
     kotlinOptions {
         jvmTarget = "17"
     }
+
+    // Penamaan APK release yang proper (konvensi terdokumentasi di README):
+    // EXAMVAN-v<versionName>-<Flavor>.apk — contoh: EXAMVAN-v2.7.3-Student.apk
+    // Catatan AGP 8: penggantian nama output memerlukan cast ke
+    // BaseVariantOutputImpl (API internal yang stabil secara de facto).
+    applicationVariants.all {
+        val flavorLabel = flavorName.replaceFirstChar { it.uppercase() }
+        outputs.all {
+            val outputImpl = this as? com.android.build.gradle.internal.api.BaseVariantOutputImpl
+            outputImpl?.outputFileName = "EXAMVAN-v${versionName}-${flavorLabel}.apk"
+        }
+    }
 }
 
 dependencies {
