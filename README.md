@@ -857,6 +857,8 @@ TEST_DATABASE_URL=postgresql://user:pass@localhost:5432/examvan_test \
 
 Setelah Lapis 1, urutan hambatan agregat bergeser: ~~plafon koneksi nginx~~ (diangkat) → **RAM untuk koneksi WebSocket** → **CPU + PostgreSQL**. Untuk melampaui itu (target ribuan ujian serentak multi-host) diperlukan Lapis 2: eksternalisasi fan-out WebSocket hub ke Redis pub/sub, pgbouncer + PostgreSQL terpisah, dan multi-replika app di belakang load balancer — semuanya perubahan arsitektur, bukan konfigurasi.
 
+> 🗺️ **Rencana lengkapnya** — desain deskriptif tiap workstream Lapis 2, visi Lapis 3, tangga kapasitas, kriteria pemicu naik lapis yang objektif, dan anti-scope (apa yang sengaja tidak dilakukan) — didokumentasikan terpisah di [`roadmap_kapasitas.md`](roadmap_kapasitas.md).
+
 > ⚠️ **Deployment:** perubahan webui TIDAK live sampai image di-build ulang — jalankan `docker compose build && docker compose up -d` (restart saja tidak cukup). Konfigurasi nginx/redis/db ikut termuat ulang oleh `up -d`.
 
 ---
