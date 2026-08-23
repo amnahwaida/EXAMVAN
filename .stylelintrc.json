@@ -1,0 +1,26 @@
+{
+  "_docs": [
+    "EXAMVAN — guard anti-regresi design token (Batch 4, temuan S15 fase 1).",
+    "ATURAN: nilai warna hex/rgba hanya boleh didefinisikan di",
+    "webui/static/css/theme.css (single source of truth). Stylesheet lain",
+    "(admin-base.css, hasil.css, public-*.css) wajib memakai var(--token).",
+    "theme.css adalah SATU-SATUNYA pengecualian (ignoreFiles) karena di sanalah",
+    "token didefinisikan.",
+    "",
+    "CATATAN AKTIVASI (fase 2): config ini DISIAPKAN untuk fase berikutnya.",
+    "Stylelint belum terinstal dan sengaja TIDAK ditambahkan ke package.json",
+    "di Batch 4 agar tidak menarik dependensi npm tanpa persetujuan.",
+    "Untuk mengaktifkan:",
+    "  npm install --save-dev stylelint && npx stylelint \"webui/static/css/*.css\""
+  ],
+  "ignoreFiles": [
+    "**/node_modules/**",
+    "**/tailwind/**",
+    "**/static/css/theme.css"
+  ],
+  "rules": {
+    "declaration-property-value-disallowed-list": {
+      "/^(color|background|background-color|border|border-color|border-top-color|border-right-color|border-bottom-color|border-left-color|outline|outline-color|box-shadow|text-decoration-color|fill|stroke|accent-color|caret-color)$/": ["/#[0-9a-fA-F]{3,8}/", "/rgba?\\(/i"]
+    }
+  }
+}

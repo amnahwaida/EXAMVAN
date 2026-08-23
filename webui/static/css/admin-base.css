@@ -95,7 +95,7 @@ code, pre, .token-code, .mono {
 *:focus-visible {
     outline: 2px solid var(--color-primary);
     outline-offset: 2px;
-    border-radius: 4px;
+    border-radius: var(--radius-xs);
 }
 *:focus:not(:focus-visible) {
     outline: none;
@@ -168,7 +168,7 @@ code, pre, .token-code, .mono {
 }
 .skeleton-card {
     padding: 20px;
-    border-radius: 12px;
+    border-radius: var(--radius-md);
     background: rgba(255,255,255,0.02);
     border: 1px solid var(--color-glass-border);
 }
@@ -187,7 +187,7 @@ code, pre, .token-code, .mono {
     z-index: 9998;
     background: rgba(10,10,22,0.9);
     border: 1px solid var(--color-glass-border);
-    border-radius: 12px;
+    border-radius: var(--radius-md);
     padding: 16px 20px;
     -webkit-backdrop-filter: blur(16px);
     backdrop-filter: blur(16px);
@@ -221,7 +221,7 @@ code, pre, .token-code, .mono {
     justify-content: center;
     background: rgba(255,255,255,0.06);
     border: 1px solid var(--color-glass-border);
-    border-radius: 4px;
+    border-radius: var(--radius-xs);
     padding: 2px 8px;
     font-size: 11px;
     font-weight: 700;
@@ -362,11 +362,11 @@ code, pre, .token-code, .mono {
     font-weight: 600;
     font-family: inherit;
     border: 1px solid rgba(99,102,241,0.3);
-    border-radius: 10px;
+    border-radius: var(--radius-sm);
     cursor: pointer;
     transition: all 0.2s ease;
     background: linear-gradient(135deg, rgba(99,102,241,0.2), rgba(139,92,246,0.2));
-    color: #c7d2fe;
+    color: var(--color-primary-soft);
     text-decoration: none;
     line-height: 1.4;
     user-select: none;
@@ -398,7 +398,7 @@ code, pre, .token-code, .mono {
     cursor: pointer;
     transition: all 0.15s ease;
     background: rgba(239,68,68,0.08);
-    color: #fca5a5;
+    color: var(--color-danger-light);
     text-decoration: none;
     white-space: nowrap;
     line-height: 1.4;
@@ -618,7 +618,7 @@ code, pre, .token-code, .mono {
 .settings-tabs-mobile select {
     width: 100%;
     padding: 10px 12px;
-    border-radius: 10px;
+    border-radius: var(--radius-sm);
     background: rgba(255, 255, 255, 0.06);
     border: 1px solid var(--color-glass-border);
     color: #fff;
@@ -654,7 +654,7 @@ code, pre, .token-code, .mono {
    card chrome here. */
 .saas-collapse[data-collapse-id="packages"] {
     border: 1px solid var(--color-glass-border);
-    border-radius: 16px;
+    border-radius: var(--radius-lg);
     background: rgba(255, 255, 255, 0.02);
     margin-bottom: 24px;
     overflow: hidden;
@@ -715,7 +715,7 @@ code, pre, .token-code, .mono {
    the form so all fields still submit together. */
 .users-sub {
     border: 1px solid var(--color-glass-border);
-    border-radius: 12px;
+    border-radius: var(--radius-md);
     background: rgba(255, 255, 255, 0.02);
     padding: 10px 12px;
 }
@@ -727,7 +727,7 @@ code, pre, .token-code, .mono {
 }
 .packages-head {
     padding: 12px 16px;
-    border-radius: 12px;
+    border-radius: var(--radius-md);
     background: rgba(255, 255, 255, 0.04);
     border: 1px solid var(--color-glass-border);
 }
@@ -818,7 +818,7 @@ body.modal-open {
     border-color: var(--color-danger) !important;
 }
 .field-error-text {
-    color: #fca5a5;
+    color: var(--color-danger-light);
     font-size: 12.5px;
     margin-top: 6px;
     margin-bottom: 0;
@@ -850,7 +850,7 @@ body.modal-open {
    dashboard it is a toggle, so hovering hints the next click reactivates. */
 .status-tombstoned {
     background: rgba(148, 163, 184, 0.12);
-    color: #94a3b8;
+    color: var(--color-text-placeholder);
     border: 1px dashed rgba(148, 163, 184, 0.45);
 }
 .status-tombstoned:hover {
@@ -864,7 +864,7 @@ body.modal-open {
    the dashed system-dormant tombstone badge above. */
 .status-expired {
     background: rgba(239, 68, 68, 0.12);
-    color: #fca5a5;
+    color: var(--color-danger-light);
     border: 1px solid rgba(239, 68, 68, 0.4);
 }
 .status-expired:hover {
@@ -880,12 +880,12 @@ body.modal-open {
     align-items: center;
     gap: 4px;
     padding: 2px 8px;
-    border-radius: 10px;
+    border-radius: var(--radius-sm);
     font-size: 0.7rem;
     font-weight: 600;
 }
 .student-status.submitted { background: rgba(16,185,129,0.15); color: #6ee7b7; border: 1px solid rgba(16,185,129,0.3); }
-.student-status.in-progress { background: rgba(251,191,36,0.15); color: #fbbf24; border: 1px solid rgba(251,191,36,0.3); }
+.student-status.in-progress { background: rgba(251,191,36,0.15); color: var(--color-warning-light); border: 1px solid rgba(251,191,36,0.3); }
 .student-status.not-started { background: rgba(107,114,128,0.15); color: #9ca3af; border: 1px solid rgba(107,114,128,0.3); }
 
 /* Mobile "select all exams" control — the thead (and its master checkbox) is
@@ -900,7 +900,7 @@ body.modal-open {
         gap: 8px;
         padding: 10px 12px;
         margin-bottom: 10px;
-        border-radius: 10px;
+        border-radius: var(--radius-sm);
         background: rgba(255, 255, 255, 0.04);
         border: 1px solid var(--color-glass-border);
         font-size: 13px;
@@ -1032,7 +1032,7 @@ html.touch-device .topbar-dropdown-content {
   font-family: inherit;
   background: rgba(99, 102, 241, 0.15);
   border: 1px solid rgba(99, 102, 241, 0.4);
-  color: #a5b4fc;
+  color: var(--color-primary-light);
   transition: all 0.2s;
 }
 .btn-toggle-all:hover {
@@ -1057,7 +1057,7 @@ html.touch-device .topbar-dropdown-content {
   color: var(--color-text-secondary);
   background: rgba(99, 102, 241, 0.05);
   border: 1px dashed rgba(99, 102, 241, 0.28);
-  border-radius: 10px;
+  border-radius: var(--radius-sm);
   padding: 8px 12px;
 }
 .sub-pkg-note strong { color: var(--color-text); }
@@ -1152,7 +1152,7 @@ html.touch-device .topbar-dropdown-content {
 .btn-row-action-edit {
   background: rgba(99, 102, 241, 0.12);
   border: 1px solid rgba(99, 102, 241, 0.3);
-  color: #a5b4fc;
+  color: var(--color-primary-light);
 }
 .btn-row-action-verify:hover,
 .btn-row-action-edit:hover {
@@ -1163,7 +1163,7 @@ html.touch-device .topbar-dropdown-content {
 .btn-row-action-deactivate {
   background: rgba(248, 113, 113, 0.12);
   border: 1px solid rgba(248, 113, 113, 0.3);
-  color: #fca5a5;
+  color: var(--color-danger-light);
 }
 .btn-row-action-deactivate:hover {
   background: rgba(248, 113, 113, 0.22);
@@ -1173,7 +1173,7 @@ html.touch-device .topbar-dropdown-content {
 .btn-row-action-danger {
   background: rgba(239, 68, 68, 0.08);
   border: 1px solid rgba(239, 68, 68, 0.22);
-  color: #fca5a5;
+  color: var(--color-danger-light);
 }
 .btn-row-action-danger:hover {
   background: rgba(239, 68, 68, 0.18);
@@ -1223,7 +1223,7 @@ html.touch-device .topbar-dropdown-content {
 /* Edit instansi inline (SuperAdmin) — affordance keyboard + focus ring
    yang terlihat (mengikuti pola .status-toggle yang sudah ada). */
 .editable-instansi {
-  border-radius: 4px;
+  border-radius: var(--radius-xs);
 }
 .editable-instansi:focus-visible {
   outline: 2px solid var(--color-primary);

@@ -328,9 +328,15 @@
  <span class="pagination-info">{{len .submissions}} dari {{.total_submissions}} hasil</span>
  <div class="pagination-links">
  <a href="?page={{sub .page 1}}{{if .exam_filter_param}}&exam_id={{.exam_filter_param}}{{end}}"
- class="btn-sm btn-toggle page-link-main {{if le .page 1}}disabled{{end}}">&#9664; Sebelumnya</a>
+ class="btn-sm btn-toggle page-link-main {{if le .page 1}}disabled{{end}}" {{if le .page 1}}aria-disabled="true"{{end}}>&#9664; Sebelumnya</a>
+ {{$p := .page}}{{$tp := .total_pages}}{{$fp := .exam_filter_param}}
+ {{range $pagenum := $tp | seq}}
+ {{if ge $pagenum (sub $p 2)}}
+ {{if le $pagenum (add $p 2)}}
+ <a href="?page={{$pagenum}}{{if $fp}}&exam_id={{$fp}}{{end}}" class="pagination-page-num {{if eq $pagenum $p}}page-current{{end}}" {{if eq $pagenum $p}}aria-current="page"{{end}}>{{$pagenum}}</a>
+ {{end}}{{end}}{{end}}
  <a href="?page={{add .page 1}}{{if .exam_filter_param}}&exam_id={{.exam_filter_param}}{{end}}"
- class="btn-sm btn-toggle page-link-main {{if ge .page .total_pages}}disabled{{end}}">Berikutnya &#9654;</a>
+ class="btn-sm btn-toggle page-link-main {{if ge .page .total_pages}}disabled{{end}}" {{if ge .page .total_pages}}aria-disabled="true"{{end}}>Berikutnya &#9654;</a>
  </div>
  </div>
  {{end}}

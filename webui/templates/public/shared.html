@@ -909,8 +909,7 @@
  <link rel="stylesheet" href="/static/css/theme.css">
  <link rel="stylesheet" href="/static/css/public-mobile.css?v={{.version}}-5">
  <link rel="stylesheet" href="/static/css/public-desktop.css?v={{.version}}-3">
- <link rel="icon" type="image/png" href="/static/favicon.png">
- 
+
 </head>
 <body>
 
@@ -933,16 +932,17 @@
  </div>
  </footer>
 
+ <script>
+ document.addEventListener("DOMContentLoaded", function() {
+   var path = window.location.pathname;
+   document.querySelectorAll(".nav-link").forEach(function(link) {
+     if (link.getAttribute("href") === path) link.classList.add("active");
+   });
+ });
+ </script>
+
 </body>
 </html>
-<script>
-document.addEventListener("DOMContentLoaded", function() {
-  var path = window.location.pathname;
-  document.querySelectorAll(".nav-link").forEach(function(link) {
-    if (link.getAttribute("href") === path) link.classList.add("active");
-  });
-});
-</script>
 
 {{ end }}
 

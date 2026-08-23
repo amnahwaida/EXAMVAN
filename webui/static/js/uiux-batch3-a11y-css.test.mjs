@@ -238,7 +238,10 @@ test('Kontrak: .input-error & .field-error-text terdefinisi persis di admin-base
 
     const fet = cssRule(ADMIN_CSS, '\\.field-error-text');
     assert.ok(fet !== null, '.field-error-text harus ada di admin-base.css');
-    assert.match(fet, /color:\s*#fca5a5/, '.field-error-text color wajib #fca5a5');
+    // Batch 4 (S15): literal #fca5a5 dimigrasi ke token --color-danger-light
+    // (nilai visual identik, didefinisikan di theme.css).
+    assert.match(fet, /color:\s*var\(--color-danger-light\)/,
+        '.field-error-text color wajib var(--color-danger-light) (= #fca5a5)');
     assert.match(fet, /font-size:\s*12\.5px/, '.field-error-text font-size wajib 12.5px');
     assert.match(fet, /margin-top:\s*6px/, '.field-error-text margin-top wajib 6px');
     assert.match(fet, /margin-bottom:\s*0/, '.field-error-text margin-bottom wajib 0');

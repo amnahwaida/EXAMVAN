@@ -312,15 +312,16 @@ function deleteExam(examId, examName) {
             .then(res => {
                 if (res.success) {
                     showToast(res.message, 'success');
+                    // R6: hapus row langsung dari DOM tanpa reload halaman
+                    // penuh, agar posisi scroll & pagination tidak hilang.
+                    // Animasi keluar yang lama sia-sia karena tetap diakhiri
+                    // reload.
                     const row = document.getElementById(`exam-row-${examId}`);
-                    if (row) {
-                        row.style.opacity = '0';
-                        row.style.transform = 'translateX(-20px)';
-                        row.style.transition = 'all 0.3s';
-                        setTimeout(() => {
-                            row.remove();
-                            location.reload();
-                        }, 300);
+                    if (row) row.remove();
+                    // Perbarui kartu statistik dashboard bila tersedia
+                    // (refreshDashboardStats guard sendiri terhadap #statsGrid).
+                    if (typeof refreshDashboardStats === 'function') {
+                        refreshDashboardStats();
                     }
                 } else {
                     showApiErrorToast(res, 'Gagal menghapus ujian');

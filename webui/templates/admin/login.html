@@ -83,6 +83,8 @@
  </div>
  {{if .turnstile_enabled}}
  <div class="form-group" style="display:flex;flex-direction:column;align-items:center;">
+  <!-- data-theme="dark": aplikasi dark-by-design sejak Batch 4 (keputusan S17/R14) —
+       palet light sudah dihapus dari theme.css, jadi dark di sini KONSISTEN, bukan hard-code salah. -->
   <div class="cf-turnstile" data-sitekey="{{.turnstile_site_key}}" data-theme="dark"></div>
   <div id="turnstileError" style="display:none;color:#f87171;font-size:12px;margin-top:8px;text-align:center;"></div>
  </div>
@@ -147,7 +149,7 @@
  });
  </script>
 
- <script src="/static/js/fingerprintjs.min.js?v={{.version}}"></script>
+ <script src="/static/js/fingerprintjs.min.js?v={{.version}}" defer></script>
  <script src="/static/js/device-fingerprint.js?v={{.version}}"></script>
 </body>
 </html>

@@ -322,7 +322,7 @@ function loadPengawasExams(page) {
                             '<div class="progress-bar-fill" style="width:' + pct + '%;background:' + barColor + ';"></div>' +
                         '</div>' +
                         '<span class="progress-text" style="color:' + barColor + ';">' + sub + '/' + total + ' (' + pct + '%)</span>' +
-                        '<a href="/admin/pengawas/' + ex.id + '" class="student-list-toggle" style="text-decoration:none;"><svg class="icon-svg" style="width:14px;height:14px;"><use href="#hi-eye"/></svg> Pantau</a>' +
+                        '<a href="/admin/pengawas/' + ex.id + '" class="student-list-toggle" style="text-decoration:none;" onclick="event.stopPropagation();"><svg class="icon-svg" style="width:14px;height:14px;"><use href="#hi-eye"/></svg> Pantau</a>' +
                     '</div>' +
                 '</div>';
             }

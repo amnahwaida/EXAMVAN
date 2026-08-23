@@ -257,10 +257,11 @@
  <div class="form-group">
   <label class="required" for="username">Username</label>
   <div class="input-icon-wrap">
-   <input type="text" id="username" name="username" placeholder="Pilih username unik (min. 3 karakter)" required minlength="3" autocomplete="username"{{if .form_username}} value="{{.form_username}}"{{end}}>
-   <svg class="input-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M15.75 6a3.75 3.75 0 1 1-7.5 0 3.75 3.75 0 0 1 7.5 0ZM4.501 20.118a7.5 7.5 0 0 1 14.998 0A17.933 17.933 0 0 1 12 21.75c-2.676 0-5.216-.584-7.499-1.632Z"/></svg>
+    <input type="text" id="username" name="username" placeholder="Pilih username unik (min. 3 karakter)" required minlength="3" autocomplete="username"{{if .form_username}} value="{{.form_username}}"{{end}}>
+    <svg class="input-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M15.75 6a3.75 3.75 0 1 1-7.5 0 3.75 3.75 0 0 1 7.5 0ZM4.501 20.118a7.5 7.5 0 0 1 14.998 0A17.933 17.933 0 0 1 12 21.75c-2.676 0-5.216-.584-7.499-1.632Z"/></svg>
+   </div>
+   <span class="form-hint-subtle" id="usernameHint">Hanya huruf, angka, titik, dan garis bawah. Min. 3 karakter.</span>
   </div>
- </div>
 
  <!-- Email -->
  <div class="form-group">
@@ -438,9 +439,29 @@
   // Username live validation hint
   var usernameInput = document.getElementById('username');
   if (usernameInput) {
+   var usernameSanitizeToastShown = false;
    usernameInput.addEventListener('input', function() {
-    this.value = this.value.toLowerCase().replace(/[^a-z0-9._-]/g, '');
+    var cleaned = this.value.toLowerCase().replace(/[^a-z0-9._-]/g, '');
+    // Toast hanya SEKALI per sesi ketik, dan hanya bila sanitasi benar-benar menghapus karakter.
+    if (cleaned !== this.value && !usernameSanitizeToastShown) {
+     usernameSanitizeToastShown = true;
+     showUsernameCharsetToast();
+    }
+    this.value = cleaned;
    });
+  }
+
+  function showUsernameCharsetToast() {
+   var toast = document.createElement('div');
+   toast.setAttribute('role', 'status');
+   toast.textContent = 'Beberapa karakter tidak diizinkan dan telah dihapus. Hanya huruf, angka, titik, dan garis bawah.';
+   toast.style.cssText = 'position:fixed;left:50%;bottom:28px;transform:translateX(-50%);z-index:9999;background:rgba(239,68,68,0.2);border:1px solid rgba(239,68,68,0.35);color:#fca5a5;padding:10px 18px;border-radius:12px;font-size:13px;backdrop-filter:blur(8px);box-shadow:0 8px 30px rgba(0,0,0,0.4);max-width:calc(100vw - 32px);text-align:center;';
+   document.body.appendChild(toast);
+   setTimeout(function() {
+    toast.style.transition = 'opacity 0.4s ease';
+    toast.style.opacity = '0';
+    setTimeout(function() { toast.remove(); }, 400);
+   }, 4000);
   }
 
   // Pesan sukses boleh memudar sendiri; pesan error tetap tampil sampai user mencoba lagi.

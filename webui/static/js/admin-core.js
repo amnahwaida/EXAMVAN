@@ -410,42 +410,12 @@ function showConfirm(message, detailText = '', confirmLabel = 'Ya, Hapus', cance
     });
 }
 
-// Skeleton loading helpers
-function showSkeleton(containerId, count = 3, type = 'card') {
-    const container = document.getElementById(containerId);
-    if (!container) return;
-    container.innerHTML = '';
-    for (let i = 0; i < count; i++) {
-        const skeleton = document.createElement('div');
-        if (type === 'card') {
-            skeleton.className = 'skeleton-card';
-            skeleton.innerHTML = `
-                <div class="skeleton skeleton-block" style="width:40%;"></div>
-                <div class="skeleton skeleton-block" style="width:80%;"></div>
-                <div class="skeleton skeleton-block" style="width:60%;"></div>
-            `;
-        } else if (type === 'row') {
-            skeleton.style.cssText = 'display:flex; gap:12px; padding:14px 0; border-bottom:1px solid rgba(255,255,255,0.04);';
-            skeleton.innerHTML = `
-                <div class="skeleton skeleton-circle"></div>
-                <div style="flex:1;">
-                    <div class="skeleton skeleton-block" style="width:50%;"></div>
-                    <div class="skeleton skeleton-block" style="width:70%;"></div>
-                </div>
-            `;
-        } else {
-            skeleton.className = 'skeleton skeleton-block';
-            skeleton.style.width = type === 'wide' ? '90%' : '60%';
-        }
-        container.appendChild(skeleton);
-    }
-}
-
-// ===== Skeleton Loading for Dashboard =====
-function showDashboardSkeletons() {
-    showSkeleton('statsGrid', 4, 'card');
-    showSkeleton('examTableBody', 5, 'row');
-}
+// R2 (review_uiux_webui.md): helper skeleton loading (showSkeleton /
+// showDashboardSkeletons) DIHAPUS — tidak pernah dipanggil mana pun sehingga
+// hanya menjadi dead code. Keputusan final: hapus, bukan aktifkan; aktivasi
+// ditunda karena butuh desain loading state per halaman (dashboard & pengawas
+// blank-flash saat render awal). Pulihkan dari git history bila kelak
+// diaktifkan. CSS .skeleton* di admin-base.css sengaja tidak disentuh.
 
 // Keyboard shortcuts
 let shortcutsVisible = false;
@@ -651,11 +621,6 @@ async function refreshDashboardStats() {
     } catch (e) {
         // Silent fail — don't disrupt the user
         console.debug('Dashboard auto-refresh failed');
-        // Fallback: jika skeleton masih terlihat, reload untuk tampilkan data dari server
-        const skeleton = document.querySelector('.skeleton-card');
-        if (skeleton && document.getElementById('statsGrid')) {
-            setTimeout(() => location.reload(), 3000);
-        }
     } finally {
         statsRefreshInFlight = false;
     }

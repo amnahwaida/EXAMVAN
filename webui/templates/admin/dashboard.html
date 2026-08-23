@@ -239,7 +239,7 @@
 {{template "admin/partials/nav.html" dict "active_page" .active_page "admin_role" .admin_role "admin_user" .admin_user "csrf_token" .csrf_token "needs_instansi" .needs_instansi}}
 
 <main class="dashboard">
-<h1 class="sr-only" style="position:absolute;left:-9999px;">Dashboard Admin</h1>
+<h1 class="sr-only" style="position:absolute;left:-9999px;">Daftar Ujian</h1>
 
 <!-- Stats Cards -->
 <section class="stats-grid" id="statsGrid">
@@ -564,7 +564,7 @@
 </section>
 </main>
 
-<!-- ===== Modals (copied from base.html) ===== -->
+<!-- ===== Modals (self-contained; perilaku Escape/trap oleh Modal Manager admin-core.js) ===== -->
 
 <!-- Modal Ubah Password -->
 <div class="modal-overlay" id="changePasswordModal">
@@ -1098,36 +1098,16 @@ function openEditInstansiModal() {
     modal.style.display = 'flex';
     modal.setAttribute('aria-modal', 'true');
     modal.setAttribute('role', 'dialog');
-    var inp = document.getElementById('editInstansiInput');
-    if (inp) { inp.focus(); }
-
-    // Focus trap for accessibility
-    var focusable = modal.querySelectorAll('button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])');
-    if (focusable.length) {
-      modal.__firstFocus = focusable[0];
-      modal.__lastFocus = focusable[focusable.length - 1];
-    }
-    modal.__trapHandler = function(e) {
-      if (e.key !== 'Tab') return;
-      var focusableLive = modal.querySelectorAll('button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])');
-      if (!focusableLive.length) return;
-      var first = focusableLive[0], last = focusableLive[focusableLive.length - 1];
-      if (e.shiftKey && document.activeElement === first) { e.preventDefault(); last.focus(); }
-      else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first.focus(); }
-    };
-    modal.addEventListener('keydown', modal.__trapHandler);
-    modal.__escHandler = function(e) {
-      if (e.key === 'Escape') { e.preventDefault(); closeEditInstansiModal(); }
-    };
-    modal.addEventListener('keydown', modal.__escHandler);
+    // Escape-to-close & Tab focus-trap TIDAK dipasang di sini lagi —
+    // didelegasikan ke Global Modal Manager di admin-core.js (observer
+    // .modal-overlay yang menangani Escape, focus trap, scroll-lock,
+    // initial focus, dan restore fokus saat modal ditutup).
   }
 }
 function closeEditInstansiModal() {
   var modal = document.getElementById('editInstansiModal');
   if (modal) {
     modal.style.display = 'none';
-    if (modal.__trapHandler) { modal.removeEventListener('keydown', modal.__trapHandler); modal.__trapHandler = null; }
-    if (modal.__escHandler) { modal.removeEventListener('keydown', modal.__escHandler); modal.__escHandler = null; }
   }
 }
 function saveEditInstansi(e) {

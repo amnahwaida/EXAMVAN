@@ -304,11 +304,6 @@ func main() {
 		}
 		rel, _ := filepath.Rel(templatesDir, path)
 		name := filepath.ToSlash(rel)
-		// Skip base.html — it's a reference file, not a renderable template.
-		// Self-contained pages use {{adminHead}} and {{adminNav}} instead.
-		if strings.HasSuffix(name, "/base.html") {
-			return nil
-		}
 		data, err := os.ReadFile(path)
 		if err != nil {
 			log.Printf("WARNING: cannot read template: %s: %v", path, err)

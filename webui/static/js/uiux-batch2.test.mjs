@@ -145,8 +145,10 @@ for (const t of CONTRAST_TARGETS) {
     });
 }
 
-test('T9: #64748b tidak lagi dipakai di base.html / dashboard.html (dropdown instansi)', () => {
-    for (const f of ['templates/admin/base.html', 'templates/admin/dashboard.html']) {
+test('T9: #64748b tidak lagi dipakai di dashboard.html (dropdown instansi)', () => {
+    // base.html sudah diarsipkan/dihapus (Batch 4, temuan S16) — hanya
+    // dashboard.html yang tersisa sebagai pemakai warna ini.
+    for (const f of ['templates/admin/dashboard.html']) {
         const html = read(f);
         assert.ok(!html.includes('#64748b'), `${f} masih memakai #64748b — ganti ke var(--color-text-muted)`);
     }

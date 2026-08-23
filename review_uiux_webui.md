@@ -436,15 +436,23 @@
 - [x] **S18** `aria-current="page"` di nav topbar & dropdown + `aria-expanded` pada hamburger
 - [x] **S20** bajakan Ctrl+F dilepas (shortcut `/` tetap); panel pintasan disesuaikan
 
-### Batch 4 — Bersih-bersih struktural
-- [ ] **S16** satukan sistem modal ke Global Modal Manager (M/L)
-- [ ] **S15** tegakkan design token (token baru → migrasi bertahap → stylelint) (L)
-- [ ] **base.html** putuskan: hapus, atau jadikan layout sungguhan (keputusan arsitektur template) (M)
-- [ ] **S17** putuskan nasib palet light: hapus atau implementasikan toggle (XS)
-- [ ] **S6** satukan pola OTP (M)
-- [ ] **S7** sinkron judul halaman ↔ nav (XS)
-- [ ] **R2** aktifkan atau hapus skeleton helper (S)
-- [ ] **R6/R7/R8/R9/R11–R15** sisa kebersihan (S)
+### Batch 4 — Bersih-bersih struktural ✅ SELESAI (2026-08-23, test-first via 4 agen paralel: `webui/static/js/uiux-batch4-*.test.mjs` — total 163/163 hijau lintas 11 suite)
+- [x] **S16** sistem modal disatukan: **keputusan arsitektur — `base.html` DIHAPUS** (tak pernah dirender sejak awal, markup drift dari nav.html, sumber regresi senyap); blok skip di `main.go` ikut dihapus; audit 4 halaman standalone bebas trap Escape/Tab ganda — fokus-trap kini murni Global Modal Manager (`uiux-batch4-modal.test.mjs`, 11 test)
+- [x] **S15** fase 1 tegakkan design token: token baru di theme.css (`--radius-xs`, `--color-danger-light`, `--color-primary-soft`, `--color-text-placeholder`, `--color-warning-light`), migrasi substitusi-nilai-persis di admin-base.css (hex literal 41→31, pemakaian `var(--radius*` 0→13, visual nol perubahan) + guard `.stylelintrc.json` (config siap, install stylelint ditunda fase 2 tanpa menambah dependensi) *(`uiux-batch4-tokens.test.mjs`, 12 test)*
+- [x] **base.html** — terjawab bersama S16 di atas: dihapus, bukan dijadikan layout
+- [x] **S17** palet light: **KEPUTUSAN — hapus** (dead code tanpa mekanisme aktivasi; aplikasi resmi dark-by-design; pulihkan via git history bila kelak dibutuhkan)
+- [x] **S6** pola OTP disatukan ke 6-kotak register_confirm (G4): reset_password port penuh — paste multi-digit, panah/backspace, aria-label per digit, hidden `otp_code` tetap sinkron *(`uiux-batch4-auth.test.mjs`, 13 test)*
+- [x] **S7** judul dashboard ↔ nav kanonik "Daftar Ujian"
+- [x] **R2** helper skeleton mati: **KEPUTUSAN — hapus** (`showSkeleton`/`showDashboardSkeletons` + fallback reload; aktivasi butuh desain loading state per halaman — ditunda) *(`uiux-batch4-jscore.test.mjs`, 8 test)*
+- [x] **R6** hapus ujian tanpa `location.reload()` — row di-remove, counter diperbarui via `refreshDashboardStats()`, showConfirm dipertahankan
+- [x] **R7** pagination submissions meniru dashboard (nomor halaman ±2 + "N dari M" + `aria-disabled`)
+- [x] **R8** link Pantau bersarang di kartu pengawas dapat `stopPropagation`
+- [x] **R9** username register: hint charset eksplisit + toast sekali-per-sesi saat sanitasi menghapus karakter
+- [x] **R11** fingerprintjs login dimuat `defer`
+- [x] **R12** skip-link inline base.html moot — file diarsipkan; skip-link halaman aktif memakai class biasa
+- [x] **R13** settings tinggal 1 h1 (2 h1 sr-only diturunkan h2)
+- [x] **R14** Turnstile `data-theme="dark"` kini konsisten by-design (dark-only sejak S17) + komentar penjelas
+- [x] **R15** script setelah `</html>` dipindah ke body, favicon duplikat disisakan satu, register_confirm dapat skip-link
 
 ### Keputusan produk (butuh diskusi, bukan kode)
 - [ ] **P1** visibilitas peringkat & nilai terendah publik
