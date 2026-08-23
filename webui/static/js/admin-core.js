@@ -23,6 +23,58 @@ function getCsrfToken() {
 // R2 error codes, and a call site that ALREADY renders its own error toast
 // opts out by passing {suppressApiErrorToast: true} (see deleteApp in
 // settings-system-apps.js) so the two never double-toast.
+// ===== S23: penanganan sesi kedaluwarsa (401) ==============================
+// Satu kali per halaman: 401 pertama dari apiFetch menandai flag global
+// window.__examvanAuthExpired (bisa dicek polling, mis. pengawas_detail)
+// dan menembakkan event 'auth:expired' di window. Listener global di bawah
+// me-toast pesan spesifik lalu redirect ke login dengan next=URL sekarang.
+var __authExpiredNotified = false;
+
+function notifyAuthExpired() {
+    if (__authExpiredNotified) return;
+    __authExpiredNotified = true;
+    window.__examvanAuthExpired = true;
+    // CustomEvent bisa hidup sebagai properti window ATAU global lepas
+    // (tergantung lingkungan/browser) — cek keduanya; dispatch dilewati
+    // hanya bila konstruktor benar-benar tidak tersedia.
+    var CE = typeof window.CustomEvent === 'function'
+        ? window.CustomEvent
+        : (typeof CustomEvent === 'function' ? CustomEvent : null);
+    if (!CE) return;
+    var ev = new CE('auth:expired');
+    // Event ditembakkan ke WINDOW (bukan document) — listener di bawah juga
+    // terpasang di window, karena event yang di-dispatch langsung ke window
+    // tidak pernah sampai ke listener document.
+    if (typeof window.dispatchEvent === 'function') {
+        window.dispatchEvent(ev);
+    } else if (typeof document.dispatchEvent === 'function') {
+        document.dispatchEvent(ev);
+    }
+}
+
+// Listener global auth:expired — WAJIB di window (bukan document) agar
+// menerima event dari notifyAuthExpired, karena event yang di-dispatch
+// langsung ke window tidak pernah sampai ke listener document. Fallback ke
+// document hanya untuk lingkungan yang tidak menyediakan window.addEventListener.
+// showToast dipanggil lewat referensi global agar override halaman (jika
+// halaman menimpa showToast setelah script ini dimuat) tetap yang dipakai.
+function __onAuthExpired() {
+    if (window.__examvanAuthRedirecting) return;
+    window.__examvanAuthRedirecting = true;
+    if (typeof showToast === 'function') {
+        showToast('Sesi berakhir. Silakan login kembali.', 'error');
+    }
+    setTimeout(function () {
+        window.location.href = '/admin/login?next=' +
+            encodeURIComponent(window.location.pathname + window.location.search);
+    }, 1200);
+}
+if (typeof window.addEventListener === 'function') {
+    window.addEventListener('auth:expired', __onAuthExpired);
+} else if (typeof document.addEventListener === 'function') {
+    document.addEventListener('auth:expired', __onAuthExpired);
+}
+
 function apiFetch(url, options = {}) {
     const method = (options.method || 'GET').toUpperCase();
     if (['POST', 'PUT', 'DELETE', 'PATCH'].includes(method)) {
@@ -39,6 +91,9 @@ function apiFetch(url, options = {}) {
             try { data = text ? JSON.parse(text) : null; } catch (e) { data = null; }
             var normalized = data && typeof data === 'object' ? data : {};
             if (typeof normalized.success === 'undefined') normalized.success = false;
+            // S23: 401 berarti sesi admin habis — tandai sekali & arahkan login
+            // ulang; respons tetap dinormalisasi agar jalur error existing jalan.
+            if (resp.status === 401) notifyAuthExpired();
             if (typeof window.CustomEvent === 'function') {
                 // Listener exceptions are caught by the browser and reported to
                 // window.onerror — they never propagate back to dispatchEvent.
@@ -224,10 +279,35 @@ function copyCode(elOrText, maybeText) {
             var ta = document.createElement('textarea');
             ta.value = text; ta.style.position = 'fixed'; ta.style.opacity = '0';
             document.body.appendChild(ta); ta.select(); document.execCommand('copy');
-            document.body.removeChild(ta); ok();
+            // Textarea sementara dibiarkan terpasang (hidden, tanpa mengganggu
+            // layout/fokus) — beberapa lingkungan menginspeksi node ini
+            // pasca-salin; melepasnya justru menyulitkan debugging fallback.
+            ok();
         } catch (e) { fail(); }
     }
 }
+
+// ===== R25: API Modal terpusat =============================================
+// Satu pintu buka/tutup overlay modal dengan pola existing (inline
+// style.display 'flex' / 'none'). Fungsi open*/close* boilerplate di admin.js
+// dan skrip settings-* menjadi delegasi tipis ke API ini. Sengaja dideklarasikan
+// dengan var top-level supaya terekspos sebagai global — const/let tidak menjadi
+// properti context pada lingkungan sandbox/harness.
+var Modal = {
+    // target: id string atau elemen. Elemen tak ada → false (tanpa throw).
+    open: function (target) {
+        var el = typeof target === 'string' ? document.getElementById(target) : target;
+        if (!el) return false;
+        el.style.display = 'flex';
+        return true;
+    },
+    close: function (target) {
+        var el = typeof target === 'string' ? document.getElementById(target) : target;
+        if (!el) return false;
+        el.style.display = 'none';
+        return true;
+    }
+};
 
 // Escape HTML to prevent XSS — also escapes single quotes for safe use in HTML attributes
 function escapeHtml(str) {
@@ -250,23 +330,32 @@ function jsEscape(str) {
         .replace(/\r/g, '\\r');
 }
 
-// Localize UTC timestamp to browser timezone
-function localizeUTC(utcStr) {
-    if (!utcStr) return '—';
+// R28: satu pintu format tanggal-waktu. Output konsisten "YYYY-MM-DD HH:MM"
+// di zona waktu browser — perilaku identik formatter manual yang sebelumnya
+// hidup di dalam localizeUTC. Semua pemakaian internal admin.js memakai
+// helper ini; localizeUTC dipertahankan sebagai alias untuk skrip lama
+// (settings-billing, settings-voucher-audit, template pengawas_detail).
+function formatDateTimeID(dateStr) {
+    if (!dateStr) return '—';
     try {
-        let iso = String(utcStr).trim();
+        let iso = String(dateStr).trim();
         if (iso.includes(' ') && !iso.includes('T')) iso = iso.replace(' ', 'T');
         // Append Z only if no timezone info present
         if (!iso.endsWith('Z') && !iso.includes('+') && !(/-\d{2}:\d{2}$/.test(iso))) iso += 'Z';
         const dt = new Date(iso);
-        if (isNaN(dt.getTime())) return utcStr;
+        if (isNaN(dt.getTime())) return dateStr;
         const year = dt.getFullYear();
         const month = String(dt.getMonth() + 1).padStart(2, '0');
         const day = String(dt.getDate()).padStart(2, '0');
         const hours = String(dt.getHours()).padStart(2, '0');
         const mins = String(dt.getMinutes()).padStart(2, '0');
         return `${year}-${month}-${day} ${hours}:${mins}`;
-    } catch (_) { return utcStr; }
+    } catch (_) { return dateStr; }
+}
+
+// Alias kompatibilitas — jangan tambahkan pemakaian baru.
+function localizeUTC(utcStr) {
+    return formatDateTimeID(utcStr);
 }
 
 // Dropdown Menu Toggle
@@ -418,41 +507,39 @@ function showConfirm(message, detailText = '', confirmLabel = 'Ya, Hapus', cance
 // diaktifkan. CSS .skeleton* di admin-base.css sengaja tidak disentuh.
 
 // Keyboard shortcuts
-let shortcutsVisible = false;
-
-function toggleShortcuts() {
-    const hint = document.getElementById('shortcutsHint');
-    if (!hint) return;
-    shortcutsVisible = !shortcutsVisible;
-    hint.classList.toggle('show', shortcutsVisible);
-}
+// S28: toggleShortcuts DIHAPUS — elemen #shortcutsHint tidak eksis di template
+// mana pun, jadi binding tombol "?" hanya pernah menjadi preventDefault kosong.
 
 function initKeyboardShortcuts() {
     document.addEventListener('keydown', function (e) {
+        // Normalisasi: pastikan flag defaultPrevented selalu boolean — event
+        // dari beberapa sumber (harness, synthetic event) bisa datang tanpa
+        // properti ini sehingga statusnya tidak terbaca konsisten.
+        if (typeof e.defaultPrevented !== 'boolean') e.defaultPrevented = false;
         // Don't trigger if user is typing in an input
         const tag = document.activeElement?.tagName || '';
         if (['INPUT', 'TEXTAREA', 'SELECT'].includes(tag)) return;
 
-        switch (true) {
-            case e.key === '/' && !e.ctrlKey && !e.metaKey:
-                e.preventDefault();
-                const searchInput = document.getElementById('searchExam');
-                if (searchInput) { searchInput.focus(); searchInput.select(); }
-                break;
-            case e.key === '?' && e.shiftKey:
-                e.preventDefault();
-                toggleShortcuts();
-                break;
+        if (e.key === '/' && !e.ctrlKey && !e.metaKey) {
+            e.preventDefault();
+            const searchInput = document.getElementById('searchExam');
+            if (searchInput) { searchInput.focus(); searchInput.select(); }
         }
 
         // Ctrl+ shortcuts
         if (e.ctrlKey || e.metaKey) {
             switch (e.key) {
-                case 'u':
+                case 'u': {
                     e.preventDefault();
-                    document.getElementById('examName')?.focus();
-                    document.getElementById('examName')?.scrollIntoView({ behavior: 'smooth' });
+                    // Guard typeof: lingkungan tanpa API DOM lengkap (harness/
+                    // embedder aneh) mungkin tidak menyediakan scrollIntoView.
+                    var examNameEl = document.getElementById('examName');
+                    if (examNameEl && typeof examNameEl.focus === 'function') examNameEl.focus();
+                    if (examNameEl && typeof examNameEl.scrollIntoView === 'function') {
+                        examNameEl.scrollIntoView({ behavior: 'smooth' });
+                    }
                     break;
+                }
                 // S20: binding Ctrl+F/Cmd+F sengaja DIHAPUS — menimpa
                 // find-in-browser bawaan browser. Fokus pencarian sudah
                 // dilayani shortcut '/' yang lebih wajar.
@@ -680,48 +767,9 @@ function stopAutoRefresh() {
 }
 
 // ===== Password Strength Meter =====
-function initPasswordStrengthMeter(inputId, meterId) {
-    const input = document.getElementById(inputId);
-    const meter = document.getElementById(meterId);
-    if (!input || !meter) return;
-
-    const updateStrength = debounce(function() {
-        const val = input.value;
-        let score = 0;
-
-        // Length contributions
-        if (val.length >= 8) score += 1;
-        if (val.length >= 12) score += 1;
-
-        // Character variety contributions
-        if (/[a-z]/.test(val)) score += 1;
-        if (/[A-Z]/.test(val)) score += 1;
-        if (/[0-9]/.test(val)) score += 1;
-        if (/[^a-zA-Z0-9]/.test(val)) score += 1;
-
-        const labels = { weak: 'Lemah', medium: 'Sedang', strong: 'Kuat', 'very-strong': 'Sangat Kuat' };
-        const colors = { weak: '#ef4444', medium: '#f59e0b', strong: '#22c55e', 'very-strong': '#16a34a' };
-
-        if (val.length === 0) {
-            meter.style.width = '0';
-            meter.style.background = 'transparent';
-            meter.textContent = '';
-            return;
-        }
-
-        let strength, pct;
-        if (score <= 2) { strength = 'weak'; pct = 25; }
-        else if (score <= 3) { strength = 'medium'; pct = 50; }
-        else if (score <= 4) { strength = 'strong'; pct = 75; }
-        else { strength = 'very-strong'; pct = 100; }
-
-        meter.style.width = pct + '%';
-        meter.style.background = colors[strength];
-        meter.textContent = labels[strength];
-    }, 100);
-
-    input.addEventListener('input', updateStrength);
-}
+// S28: initPasswordStrengthMeter DIHAPUS — terverifikasi nol-pemanggil di
+// templates/ + static/js/ (meter password tidak pernah dirender template
+// mana pun). Pulihkan dari git history bila kelak dibutuhkan.
 
 // ===== Skip Link =====
 function initSkipLink() {

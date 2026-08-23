@@ -110,6 +110,11 @@ body main { padding-top: 96px; }
 .hero-section { margin-bottom: 32px !important; }
 .live-badge, .hero-badge { max-width: 100%; white-space: normal; text-align: left; }
 .tabs-container {
+  /* R21: intent tunggal 3 kolom di SEMUA ukuran (Batch 1 R16). Tanpa
+     !important pada kolom — aman karena file ini dimuat SETELAH style inline
+     download.html (yang tak mendeklarasikan grid-template-columns) dan
+     deklarasi desktop yang bertabrakan sudah dihapus. display tetap penting:
+     style inline download.html memakai display:flex. */
   display: grid !important; grid-template-columns: repeat(3, minmax(0, 1fr)); width: 100% !important;
   margin-bottom: 28px !important; gap: 6px !important; padding: 6px !important; border-radius: 8px !important;
 }

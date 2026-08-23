@@ -176,17 +176,17 @@ test('R15b: shared.html melink favicon tepat satu kali', () => {
 });
 
 test('R15c: register_confirm.html punya skip-link seperti halaman publik lain', () => {
+    // Batch 6 (tugas 6): anchor literal + salinan lokal <style> .skip-link
+    // di register_confirm DIHAPUS — satu-satunya mekanisme kini partial
+    // public_skip_link di shared.html, dengan base styling di theme.css.
+    // Assertion lama yang mewajibkan anchor literal identik antar dua file
+    // disesuaikan ke kontrak partial (perubahan minimal, tujuan R15 sama:
+    // skip-link hadir dan seragam).
     const rc = read('templates/public/register_confirm.html');
-    const anchor = rc.match(/<a href="#main-content" class="skip-link"[^>]*>[^<]*<\/a>/);
-    assert.ok(anchor, 'skip-link ke #main-content harus ada');
-    assert.match(anchor[0], /Langsung ke konten/, 'teks skip-link sama dengan halaman publik lain');
-    // Pola class/style identik dengan shared.html.
+    assert.match(rc, /\{\{\s*template\s+"public_skip_link"\s+\.\s*\}\}/,
+        'register_confirm wajib memakai partial public_skip_link seperti halaman publik lain');
+
     const shared = read('templates/public/shared.html');
-    const sharedAnchor = shared.match(/<a href="#main-content" class="skip-link"[^>]*>/);
-    assert.ok(sharedAnchor, 'shared.html juga punya skip-link sebagai pembanding');
-    assert.equal(
-        anchor[0].replace(/>.*$/, '>').trim(),
-        sharedAnchor[0].replace(/>.*$/, '>').trim(),
-        'atribut skip-link register_confirm harus identik dengan pola shared.html'
-    );
+    assert.match(shared, /\{\{\s*define\s+"public_skip_link"\s*\}\}/,
+        'shared.html tetap mendefinisikan partial tunggal tersebut');
 });

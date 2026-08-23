@@ -57,6 +57,22 @@
     /* === Background Gradient === */
     --color-card-bg: #1e1e2e;
     --bg-gradient: radial-gradient(ellipse at 50% 0%, #17152f 0%, #0c0a1a 50%, #06050b 100%);
+
+    /* === Z-index Scale (S33, Batch 6) ===
+       Kontrak lintas-agen — nama & nilai WAJIB persis (admin templates
+       mensubstitusi memakai nama yang sama):
+         --z-skip-link : 9998   (skip-link off-screen/fokus)
+         --z-dropdown  : 9999   (dropdown/popover di atas konten)
+         --z-toast     : 10002  (lapisan toast tertinggi reguler)
+         --z-onboarding: 99999  (modal onboarding, mengalahkan semua)
+       Nilai z lain yang tersebar (nav 100/210/220, overlay 90/160 dst.)
+       adalah layering lokal konteks-spesifik dan TIDAK dijadikan token:
+       tidak berulang lintas-file dengan makna sama, jadi literalnya
+       dipertahankan agar refactor ini tetap netral-visual. */
+    --z-skip-link: 9998;
+    --z-dropdown: 9999;
+    --z-toast: 10002;
+    --z-onboarding: 99999;
 }
 
 /* KEPUTUSAN Batch 4 (temuan S17): palet light (:root[data-theme="light"])
@@ -70,15 +86,27 @@
 /* Jika ingin self-host font, tambahkan @font-face di sini */
 
 /* ===== Skip link (WCAG 2.4.1) =====
-   The links themselves are positioned off-screen via inline style
-   (left:-9999px), so the focus reveal must win over that inline style.
-   admin-core.js also reveals it via JS where loaded; this CSS covers pages
-   that don't load admin-core.js (register_confirm, forgot_password, etc). */
+   Batch 6: base styling .skip-link dipindah ke SINI (dulu inline <style>
+   di partial public_skip_link shared.html + salinan lokal register_confirm)
+   agar folder template publik bebas dari duplikasi drift (tugas 6 / S30).
+   Reveal saat focus menang atas segala kondisi; admin-core.js juga
+   me-reveal via JS bila dimuat. */
+.skip-link {
+        position: absolute;
+        left: -9999px;
+        z-index: var(--z-skip-link);
+        padding: 12px 20px;
+        background: var(--color-primary, #6366f1);
+        color: #fff;
+        border-radius: 8px;
+        font-weight: 600;
+        text-decoration: none;
+}
 .skip-link:focus,
 .skip-link:focus-visible {
         left: 12px !important;
         top: 12px;
-        z-index: 10002;
+        z-index: var(--z-toast); /* S33: dulu literal 10002 — lapisan tertinggi reguler */
         outline: 2px solid #fff;
         outline-offset: 2px;
 }

@@ -167,30 +167,15 @@
    .otp-input-wrapper { gap: 6px; }
   }
  </style>
- <style>
-  /* S30: base skip-link — salinan lokal karena halaman ini memakai anchor
-     literal (bukan partial public_skip_link); reveal focus tetap dari
-     theme.css .skip-link:focus. */
-  .skip-link {
-   position: absolute;
-   left: -9999px;
-   z-index: 9999;
-   padding: 12px 20px;
-   background: var(--color-primary, #6366f1);
-   color: #fff;
-   border-radius: 8px;
-   font-weight: 600;
-   text-decoration: none;
-  }
- </style>
-<link rel="stylesheet" href="/static/css/public-mobile.css?v={{.version}}-5">
+ <link rel="stylesheet" href="/static/css/public-mobile.css?v={{.version}}-5">
   <link rel="stylesheet" href="/static/css/public-desktop.css?v={{.version}}-3">
 </head>
 <body class="login-page">
  {{ template "public_auth_nav" . }}
- <!-- S30: anchor literal dipertahankan (kontrak regresi R15c batch4);
-      base styling di bawah — reveal focus dari theme.css:77-84. -->
- <a href="#main-content" class="skip-link">Langsung ke konten</a>
+ {{/* Batch 6 (tugas 6): satu-satunya sisa skip-link inline kini menyatu —
+      partial public_skip_link dipakai seperti halaman publik lain; base
+      styling cukup dari theme.css (.skip-link). */}}
+ {{ template "public_skip_link" . }}
  <div class="login-bg">
   <div class="login-orb login-orb-1"></div>
   <div class="login-orb login-orb-2"></div>

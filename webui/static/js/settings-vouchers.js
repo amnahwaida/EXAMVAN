@@ -1,45 +1,12 @@
 /* GENERATED from the standalone settings pages — see templates/admin/settings.html.
    Loaded lazily when its tab is first opened. */
 
+// S29-followup: definisi copyCode versi lokal DIHAPUS — versi tanpa guard
+// navigator.clipboard menimpa versi guarded dari admin-core.js sehingga klik
+// salin kode voucher gagal senyap di HTTP LAN. Semua pemanggil kini memakai
+// copyCode guarded (guard API + fallback textarea/execCommand) dari core.
+
 let currentVoucherPage = 1;
-
-function copyCode(el, code) {
-    let textToCopy = '';
-    let targetBadge = null;
-
-    if (typeof el === 'string') {
-        textToCopy = el;
-    } else if (el) {
-        textToCopy = code || el.textContent.trim();
-        targetBadge = el.closest('.voucher-code-badge') || el;
-    }
-
-    if (!textToCopy) return;
-
-    navigator.clipboard.writeText(textToCopy).then(() => {
-        showToast(`Kode ${textToCopy} tersalin ke clipboard!`, 'success');
-        
-        if (targetBadge) {
-            targetBadge.classList.add('copied');
-            
-            const useEl = targetBadge.querySelector('use');
-            let origHref = '';
-            if (useEl) {
-                origHref = useEl.getAttribute('href');
-                useEl.setAttribute('href', '#hi-check');
-            }
-            
-            setTimeout(() => {
-                targetBadge.classList.remove('copied');
-                if (useEl && origHref) {
-                    useEl.setAttribute('href', origHref);
-                }
-            }, 1400);
-        }
-    }).catch(() => {
-        showToast('Gagal menyalin kode', 'error');
-    });
-}
 
 function renderVouchersError(msg, page) {
     const tbody = document.getElementById('vouchersTableBody');
@@ -364,7 +331,8 @@ function showConfirmModal(title, message, actionBtnText, isDanger, onConfirm) {
 
 function closeConfirmActionModal(e) {
     if (!e || e.target.id === 'confirmActionModal' || e.target.classList.contains('modal-close') || e.target.tagName === 'BUTTON') {
-        document.getElementById('confirmActionModal').style.display = 'none';
+        // R25: tutup via API Modal terpusat (admin-core.js).
+        Modal.close('confirmActionModal');
         pendingConfirmCallback = null;
     }
 }

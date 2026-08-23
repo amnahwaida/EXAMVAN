@@ -1,4 +1,12 @@
 /* Desktop-only presentation. Mobile and tablet layouts remain owned by public-mobile.css. */
+
+/* S32: reduced-motion di layer desktop (dulu 0 kemunculan — halaman yang
+   hanya memuat layer desktop ikut bolong). Pola mengikuti admin-base.css. */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation-duration: .01ms !important; animation-iteration-count: 1 !important; transition-duration: .01ms !important; }
+  html { scroll-behavior: auto !important; }
+}
+
 @media (min-width: 1101px) {
   :root { --desktop-content: 1280px; }
 
@@ -43,7 +51,10 @@
   main .hero-section .hero-title { max-width: none; font-size: 46px !important; }
   main .hero-section .hero-desc { max-width: 720px; font-size: 16px !important; }
 
-  .tabs-container { width: fit-content !important; min-width: 430px; margin: 0 auto 42px !important; grid-template-columns: repeat(2, 1fr); border-radius: 8px !important; }
+  /* R21: grid-template-columns repeat(2,1fr) DIHAPUS — dead code yang selalu
+     dikalahkan intent aktual 3 kolom (public-mobile.css, Batch 1 R16).
+     Satu sumber kebenaran kolom tab platform; rule non-grid tetap di sini. */
+  .tabs-container { width: fit-content !important; min-width: 430px; margin: 0 auto 42px !important; border-radius: 8px !important; }
   .tab-btn { min-width: 200px; border-radius: 6px !important; }
   .platform-layout { grid-template-columns: minmax(0, 1.18fr) minmax(360px, .82fr) !important; gap: 22px !important; align-items: start; }
   .download-card, .instruction-card { border-radius: 8px !important; padding: 30px !important; }

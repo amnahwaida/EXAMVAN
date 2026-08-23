@@ -304,7 +304,7 @@ function loadPengawasExams(page) {
                 var autoBadge = ex.auto_approve
                     ? '<span style="display:inline-flex;align-items:center;gap:4px;font-size:0.65rem;color:#34d399;font-weight:700;padding:2px 8px;border-radius:10px;background:rgba(16,185,129,0.12);border:1px solid rgba(16,185,129,0.3);white-space:nowrap;" title="Auto-approve aktif — semua perangkat disetujui otomatis di server (tetap berlaku walau halaman pengawasan ditutup)"><svg class="icon-svg" style="width:10px;height:10px;"><use href="#hi-check"/></svg> Auto-approve</span>'
                     : '';
-                html += '<div class="exam-monitor-card" id="exam-card-' + ex.id + '" style="cursor:pointer;" onclick="window.location=\'/admin/pengawas/' + ex.id + '\'">' +
+                html += '<div class="exam-monitor-card" id="exam-card-' + ex.id + '" style="cursor:pointer;" role="button" tabindex="0" onclick="window.location=\'/admin/pengawas/' + ex.id + '\'">' +
                     '<div class="exam-monitor-header">' +
                         '<div>' +
                             '<div class="exam-monitor-title">' + esc(ex.name) + ' ' + startedBadge + '</div>' +
@@ -347,19 +347,19 @@ function renderPagination(res) {
         '<div class="pagination-links">';
 
     if (res.page > 1) {
-        html += '<a class="pagination-page-num" onclick="loadPengawasExams(1)" style="cursor:pointer;">&laquo;</a>' +
-            '<a class="pagination-page-num" onclick="loadPengawasExams(' + (res.page - 1) + ')" style="cursor:pointer;">&lsaquo;</a>';
+        html += '<button type="button" class="pagination-page-num" onclick="loadPengawasExams(1)" style="cursor:pointer;" aria-label="Halaman pertama">&laquo;</button>' +
+            '<button type="button" class="pagination-page-num" onclick="loadPengawasExams(' + (res.page - 1) + ')" style="cursor:pointer;" aria-label="Halaman sebelumnya">&lsaquo;</button>';
     }
 
     var start = Math.max(1, res.page - 2);
     var end = Math.min(res.total_pages, res.page + 2);
     for (var p = start; p <= end; p++) {
-        html += '<a class="pagination-page-num' + (p === res.page ? ' page-current' : '') + '" onclick="loadPengawasExams(' + p + ')" style="cursor:pointer;">' + p + '</a>';
+        html += '<button type="button" class="pagination-page-num' + (p === res.page ? ' page-current' : '') + '" onclick="loadPengawasExams(' + p + ')" style="cursor:pointer;"' + (p === res.page ? ' aria-current="page"' : '') + '>' + p + '</button>';
     }
 
     if (res.page < res.total_pages) {
-        html += '<a class="pagination-page-num" onclick="loadPengawasExams(' + (res.page + 1) + ')" style="cursor:pointer;">&rsaquo;</a>' +
-            '<a class="pagination-page-num" onclick="loadPengawasExams(' + res.total_pages + ')" style="cursor:pointer;">&raquo;</a>';
+        html += '<button type="button" class="pagination-page-num" onclick="loadPengawasExams(' + (res.page + 1) + ')" style="cursor:pointer;" aria-label="Halaman berikutnya">&rsaquo;</button>' +
+            '<button type="button" class="pagination-page-num" onclick="loadPengawasExams(' + res.total_pages + ')" style="cursor:pointer;" aria-label="Halaman terakhir">&raquo;</button>';
     }
 
     html += '</div></div>';

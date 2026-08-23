@@ -481,8 +481,10 @@ test('S29 (statik): admin.js tidak lagi memanggil navigator.clipboard langsung',
         'semua akses clipboard harus lewat copyCode yang berguard+fallback');
 });
 
-test('S29 (statik): copyToken/copyAllTokens/copyResultsLink/copyAIPrompt menjadi wrapper copyCode', () => {
-    for (const name of ['copyToken', 'copyAllTokens', 'copyResultsLink', 'copyAIPrompt']) {
+// Revisi Batch 6: copyAllTokens & copyResultsLink dihapus dari daftar ini —
+// keduanya terverifikasi nol-pemanggil dan dibersihkan oleh S28 (Batch 6).
+test('S29 (statik): copyToken/copyAIPrompt menjadi wrapper copyCode', () => {
+    for (const name of ['copyToken', 'copyAIPrompt']) {
         const body = extractFunction(ADMIN_JS_SRC, name);
         assert.ok(body, `${name} harus ada`);
         assert.match(body, /copyCode\(/, `${name} wajib mendelegasikan ke copyCode`);

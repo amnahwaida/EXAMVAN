@@ -59,15 +59,15 @@
  </script>
 {{ end }}
 
-{{ define "public_skip_link" }}{{/*
-  S30: single source of truth untuk skip-link publik (WCAG 2.4.1).
-  Base styling off-screen didefinisikan DI SINI sekali; reveal saat focus
-  tetap ditangani .skip-link:focus di theme.css (:77-84) yang dimuat semua
-  halaman publik. Target anchor #main-content wajib eksis per halaman.
-*/}}
- <style>.skip-link{position:absolute;left:-9999px;z-index:9999;padding:12px 20px;background:var(--color-primary,#6366f1);color:#fff;border-radius:8px;font-weight:600;text-decoration:none;}</style>
- <a href="#main-content" class="skip-link">Langsung ke konten</a>
-{{ end }}
+ {{ define "public_skip_link" }}{{/*
+   S30: single source of truth untuk skip-link publik (WCAG 2.4.1).
+   Batch 6: base styling dipindah ke theme.css (.skip-link dasar, memakai
+   token --z-skip-link) sehingga partial ini hanya memancarkan anchor —
+   folder template publik bebas dari duplikasi inline style.
+   Target anchor #main-content wajib eksis per halaman.
+ */}}
+  <a href="#main-content" class="skip-link">Langsung ke konten</a>
+ {{ end }}
 
 {{ define "public_head" }}
 {{/*
@@ -91,6 +91,20 @@
  {{else}}
  <meta name="robots" content="noindex, nofollow">
  {{end}}
+
+ <!-- S34: Open Graph — preview share WhatsApp/social.
+      Override-able per halaman ala .seo_description: handler bisa mengisi
+      .og_title/.og_description/.og_image; bila kosong, fallback aman ke
+      SEO settings (diisi middleware/template.go). og:image memakai path
+      relatif "/static/favicon.png" sebagai fallback (sebagian krawler
+      menuntut URL absolut — host final bisa dioverride via .og_image). -->
+ <meta property="og:title" content="{{if .og_title}}{{.og_title}}{{else}}{{.seo_title}}{{end}}">
+ <meta property="og:description" content="{{if .og_description}}{{.og_description}}{{else}}{{.seo_description}}{{end}}">
+ <meta property="og:type" content="website">
+ <meta property="og:image" content="{{if .og_image}}{{.og_image}}{{else}}/static/favicon.png{{end}}">
+ <!-- S34: warna brand address-bar mobile; nilai = --color-bg theme.css
+      (dijaga sinkron oleh test batch6 S34b). -->
+ <meta name="theme-color" content="#09090e">
 
  {{ template "public_fonts" . }}
  <link rel="icon" type="image/png" href="/static/favicon.png">

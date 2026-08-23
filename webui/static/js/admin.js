@@ -342,27 +342,6 @@ function copyToken(token) {
     copyCode(String(token));
 }
 
-// Copy all visible active tokens to clipboard (excludes permanent token)
-function copyAllTokens() {
-    const tokens = Array.from(document.querySelectorAll('.token-code:not(.token-permanent)')).filter(function(el) { return el.offsetParent !== null; }).map(el => el.textContent.trim()).filter(t => t && t !== '—');
-    if (tokens.length === 0) {
-        showToast('Tidak ada token tersedia', 'error');
-        return;
-    }
-    // S29: guard+fallback lewat copyCode.
-    copyCode(tokens.map((t, i) => `${i + 1}. ${t}`).join('\n'));
-}
-
-// Copy results short link to clipboard
-function copyResultsLink(token) {
-    if (!token || token === '—') {
-        showToast('Token belum tersedia', 'error');
-        return;
-    }
-    // S29: guard+fallback lewat copyCode.
-    copyCode(window.location.origin + '/hasil/' + token);
-}
-
 // Token mode handlers (static vs dynamic)
 function onTokenModeChange(selectEl, examId) {
     var mode = selectEl.value;
@@ -434,61 +413,6 @@ function saveTokenInterval(examId) {
     });
 }
 
-// Regenerate token
-function regenerateToken(examId) {
-    showConfirm('Generate token baru?', 'Token lama tidak akan bisa digunakan lagi.', 'Ya, Generate', 'Batal').then(ok => {
-        if (!ok) return;
-
-        apiFetch(`/admin/api/exams/${examId}/regenerate-token`, { method: 'POST' })
-            .then(r => r.json())
-            .then(res => {
-                if (res.success) {
-                    var newToken = res.token;
-                    // Update static token
-                    const tokenEl = document.getElementById(`token-${examId}`);
-                    if (tokenEl) {
-                        tokenEl.textContent = newToken;
-                        tokenEl.dataset.token = newToken;
-                        tokenEl.style.animation = 'none';
-                        tokenEl.offsetHeight; // force reflow
-                        tokenEl.style.animation = 'toastIn 0.3s ease';
-                    }
-                    // Update dynamic token
-                    const tokenDynEl = document.getElementById(`token-dyn-${examId}`);
-                    if (tokenDynEl) {
-                        tokenDynEl.textContent = newToken;
-                        tokenDynEl.dataset.token = newToken;
-                        tokenDynEl.style.animation = 'none';
-                        tokenDynEl.offsetHeight;
-                        tokenDynEl.style.animation = 'toastIn 0.3s ease';
-                    }
-                    // Update edit button
-                    var editBtn = document.querySelector(`.btn-edit[data-exam-id="${examId}"]`);
-                    if (editBtn) {
-                        editBtn.setAttribute('data-token', newToken);
-                        editBtn.setAttribute('onclick', `openEditTokenModal(${examId}, '${jsEscape(newToken)}')`);
-                    }
-                    // Update permanent token display
-                    const permTokenEl = document.querySelector(`#exam-row-${examId} .token-permanent`);
-                    if (permTokenEl) {
-                        permTokenEl.textContent = newToken;
-                        permTokenEl.dataset.token = newToken;
-                    }
-                    // Update all copy-link buttons for this exam
-                    document.querySelectorAll(`.btn-copy-link[data-token]`).forEach(function(btn) {
-                        if (btn.closest(`#token-static-${examId}`) || btn.closest(`#token-dynamic-${examId}`)) {
-                            btn.setAttribute('data-token', newToken);
-                        }
-                    });
-                    showToast(res.message, 'success');
-                } else {
-                    showToast(res.message || 'Gagal regenerate token', 'error');
-                }
-            })
-            .catch(() => showToast('Koneksi gagal', 'error'));
-    });
-}
-
 // Global modal state
 let activeExamId = null;
 let activeExamName = '';
@@ -534,7 +458,8 @@ function openQuestionsModal(examId, examName) {
     container.innerHTML = '<div style="color:var(--color-text-secondary); text-align:center; padding: 20px;">Memuat data soal...</div>';
 
     // Open modal first
-    document.getElementById('questionsModal').style.display = 'flex';
+    // R25: toggle display lewat API Modal terpusat (admin-core.js).
+    Modal.open('questionsModal');
 
     // Track fetch to prevent race condition
     const fetchId = ++pendingFetchId;
@@ -611,7 +536,14 @@ function closeQuestionsModal(force) {
         return;
     }
     resetQuestionsConfigDirty();
-    document.getElementById('questionsModal').style.display = 'none';
+    // R25: delegasi ke API Modal terpusat; fallback manual hanya bila
+    // admin-core.js tidak ikut dimuat (halaman/embedding terisolasi).
+    if (typeof Modal === 'undefined') {
+        var _qModal = document.getElementById('questionsModal');
+        if (_qModal) _qModal.style.display = 'none';
+    } else {
+        Modal.close('questionsModal');
+    }
     activeExamId = null;
     activeExamName = '';
 }
@@ -1439,17 +1371,14 @@ function saveQuestionsConfig() {
 // ===== Change Password Modal =====
 
 function openChangePasswordModal() {
-    const modal = document.getElementById('changePasswordModal');
-    if (modal) {
-        modal.style.display = 'flex';
-        const form = document.getElementById('changePasswordForm');
-        if (form) form.reset();
-    }
+    // R25: buka via API Modal terpusat; reset form tetap side-effect di sini.
+    if (!Modal.open('changePasswordModal')) return;
+    const form = document.getElementById('changePasswordForm');
+    if (form) form.reset();
 }
 
 function closeChangePasswordModal() {
-    const modal = document.getElementById('changePasswordModal');
-    if (modal) modal.style.display = 'none';
+    Modal.close('changePasswordModal');
 }
 
 function submitChangePassword(e) {
@@ -1522,21 +1451,6 @@ function renderRoleBadges(baseRoles, pkgRoles) {
         badges.push('<span title="Dari paket aktif — hilang saat paket diganti/berakhir" style="display:inline-block;padding:2px 8px;border-radius:10px;font-size:11px;font-weight:600;cursor:help;' + pkgStyle + '">' + label + ' <em style="font-style:normal;opacity:0.75;font-weight:500;font-size:9px;text-transform:uppercase;letter-spacing:0.03em;">paket</em></span>');
     });
     return badges.join(' ');
-}
-
-// ===== Manage Users Modal (Super Admin Only) =====
-
-function openManageUsersModal() {
-    const modal = document.getElementById('manageUsersModal');
-    if (modal) {
-        modal.style.display = 'flex';
-        loadUsersList();
-    }
-}
-
-function closeManageUsersModal() {
-    const modal = document.getElementById('manageUsersModal');
-    if (modal) modal.style.display = 'none';
 }
 
 // ===== Kelola User: kolom sorting + pencarian live =====
@@ -1718,7 +1632,7 @@ function loadUsersList(page) {
                     const isExpired = Boolean(user.expires_at && new Date(user.expires_at.replace(' ', 'T') + 'Z').getTime() <= Date.now());
                     const expiredBadge = isExpired ? '<span class="status-badge status-expired" title="Masa aktif akun telah habis. Perpanjang masa aktif agar user dapat login kembali.">Masa aktif habis</span>' : '';
                     const expiresAt = user.expires_at || '—';
-                    const createdAt = user.created_at ? localizeUTC(user.created_at) : '—';
+                    const createdAt = user.created_at ? formatDateTimeID(user.created_at) : '—';
                     const limitPdfMb = user.max_pdf_size ? (user.max_pdf_size / (1024*1024)).toFixed(1) + ' MB' : '—';
                     const limitStorageMb = user.max_storage_size ? (user.max_storage_size / (1024*1024)).toFixed(1) + ' MB' : '—';
 
@@ -1904,7 +1818,7 @@ function localizeDates() {
         const rawDate = el.dataset.utc;
         if (rawDate) {
             el.dataset.utc = rawDate;
-            el.textContent = localizeUTC(rawDate);
+            el.textContent = formatDateTimeID(rawDate);
         }
     });
 }
@@ -2162,7 +2076,8 @@ function openEditUserModal(userId) {
                 epengawas.addEventListener('change', syncEditLimitFields);
             }
 
-            editModal.style.display = 'flex';
+            // R25: buka via API Modal terpusat.
+            Modal.open(editModal);
         });
 }
 
@@ -2186,8 +2101,8 @@ function syncEditLimitFields() {
 }
 
 function closeEditUserModal() {
-    var modal = document.getElementById('editUserModal');
-    if (modal) modal.style.display = 'none';
+    // R25: delegasi ke API Modal terpusat.
+    Modal.close('editUserModal');
 }
 
 // Inline edit instansi (superadmin only)
@@ -2498,12 +2413,14 @@ function createEditUserModal() {
 function openEditTokenModal(examId, currentToken) {
     document.getElementById('editTokenExamId').value = examId;
     document.getElementById('editTokenInput').value = currentToken && currentToken !== '—' ? currentToken : '';
-    document.getElementById('editTokenModal').style.display = 'flex';
+    // R25: buka via API Modal terpusat.
+    Modal.open('editTokenModal');
     setTimeout(() => document.getElementById('editTokenInput').focus(), 100);
 }
 
 function closeEditTokenModal() {
-    document.getElementById('editTokenModal').style.display = 'none';
+    // R25: delegasi ke API Modal terpusat; reset form tetap side-effect di sini.
+    Modal.close('editTokenModal');
     document.getElementById('editTokenForm').reset();
 }
 
@@ -2596,8 +2513,6 @@ document.addEventListener('click', function(e) {
             closeEditTokenModal();
         } else if (modalId === 'detailModal') {
             closeDetailModal();
-        } else if (modalId === 'manageUsersModal') {
-            closeManageUsersModal();
         } else {
             overlay.style.display = 'none';
         }
@@ -2895,12 +2810,13 @@ function openEditExamModal(examId, examName) {
     const progressFill = document.getElementById('editProgressFill');
     if (progressFill) progressFill.style.width = '0%';
     
-    modal.style.display = 'flex';
+    // R25: buka via API Modal terpusat.
+    Modal.open(modal);
 }
 
 function closeEditExamModal() {
-    const modal = document.getElementById('editExamModal');
-    if (modal) modal.style.display = 'none';
+    // R25: delegasi ke API Modal terpusat.
+    Modal.close('editExamModal');
 }
 
 // ===== Delegate Exam (Operator) =====
@@ -2908,7 +2824,8 @@ function openDelegateExamModal(examId) {
     const modal = document.getElementById('delegateExamModal');
     if (!modal) return;
     document.getElementById('delegateExamId').value = examId;
-    modal.style.display = 'flex';
+    // R25: buka via API Modal terpusat.
+    Modal.open(modal);
 
     const guruSelect = document.getElementById('delegateOwnerSelect');
     guruSelect.innerHTML = '<option value="">-- Memuat data... --</option>';
@@ -2995,8 +2912,8 @@ function renderDelegatePengawas(available, assignedIds) {
 }
 
 function closeDelegateExamModal() {
-    const modal = document.getElementById('delegateExamModal');
-    if (modal) modal.style.display = 'none';
+    // R25: delegasi ke API Modal terpusat.
+    Modal.close('delegateExamModal');
 }
 
 function confirmDelegateExam() {
@@ -3695,13 +3612,6 @@ function createUser(e) {
     }).catch(()=>{ restoreBtn(); showToast('Gagal menghubungi server','error'); });
 }
 
-function resetNewUserFormDefaults() {
-    document.getElementById('limitInput').value = 0;
-    document.getElementById('concurrentInput').value = 0;
-    document.getElementById('pdfSizeInput').value = 1.0;
-    syncLimitFields();
-}
-
 function loadSaasSettings() {
     apiFetch('/admin/api/saas-settings')
         .then(r => r.json())
@@ -3868,7 +3778,8 @@ function showSubmissionDetail(id) {
     document.getElementById('detailStudentName').textContent = '...';
     document.getElementById('detailStudentClass').textContent = '...';
 
-    document.getElementById('detailModal').style.display = 'flex';
+    // R25: buka via API Modal terpusat.
+    Modal.open('detailModal');
 
     apiFetch(`/admin/api/submissions/${id}/detail`)
         .then(r => r.json())
@@ -3882,8 +3793,8 @@ function showSubmissionDetail(id) {
             document.getElementById('detailStudentName').textContent = res.student_name;
             document.getElementById('detailStudentClass').textContent = res.student_class;
             document.getElementById('detailExamName').textContent = res.exam_name || '—';
-            document.getElementById('detailStartTime').textContent = res.start_time ? localizeUTC(res.start_time) : '—';
-            document.getElementById('detailSubmitTime').textContent = res.created_at ? localizeUTC(res.created_at) : '—';
+            document.getElementById('detailStartTime').textContent = res.start_time ? formatDateTimeID(res.start_time) : '—';
+            document.getElementById('detailSubmitTime').textContent = res.created_at ? formatDateTimeID(res.created_at) : '—';
             document.getElementById('detailMacAddress').textContent = res.mac_address || '—';
 
             container.innerHTML = '';
@@ -3936,7 +3847,8 @@ function showSubmissionDetail(id) {
 }
 
 function closeDetailModal() {
-    document.getElementById('detailModal').style.display = 'none';
+    // R25: delegasi ke API Modal terpusat.
+    Modal.close('detailModal');
 }
 
 // ===== Identity Popup (klik nama siswa di tabel hasil) =====
@@ -4005,86 +3917,18 @@ document.addEventListener('click', function() {
     document.querySelectorAll('.identity-popup.show').forEach(function(p) { p.classList.remove('show'); });
 });
 
-// ===== Search Exams (client-side) =====
-function filterExamRows() {
-    const query = document.getElementById('searchExam').value.trim().toLowerCase();
-    const status = document.getElementById('statusFilter')?.value || '';
-    const rows = document.querySelectorAll('#examTable tbody tr');
-    let visibleCount = 0;
-    rows.forEach(row => {
-        const nameEl = row.querySelector('.td-name');
-        const tokenEl = row.querySelector('.token-code');
-        const creatorEl = row.querySelector('td[data-label="Pembuat"]');
-        const statusEl = row.querySelector('.status-badge');
-        const text = [
-            nameEl?.textContent || '',
-            tokenEl?.textContent || '',
-            creatorEl?.textContent || ''
-        ].join(' ').toLowerCase();
-        const matchQuery = !query || text.includes(query);
-        // Select values are machine keys (active/inactive/tombstoned) while the
-        // badges read localized labels (Aktif/Nonaktif/Nonaktif Otomatis) — map
-        // the value to the label so the client-side filter matches the rows.
-        const statusText = { active: 'Aktif', inactive: 'Nonaktif', tombstoned: 'Nonaktif Otomatis' };
-        const matchStatus = !status || (statusEl?.textContent.trim() === (statusText[status] || status));
-        if (matchQuery && matchStatus) {
-            row.style.display = '';
-            visibleCount++;
-        } else {
-            row.style.display = 'none';
-        }
-    });
-    // Show/hide empty state
-    let emptyEl = document.querySelector('.empty-search-state');
-    if (visibleCount === 0 && rows.length > 0) {
-        if (!emptyEl) {
-            emptyEl = document.createElement('div');
-            emptyEl.className = 'empty-search-state';
-            emptyEl.style.cssText = 'text-align:center;padding:40px 20px;color:var(--color-text-muted);';
-            emptyEl.innerHTML = '<svg class="icon-svg-xl" style="margin:0 auto 16px;opacity:0.4;"><use href="#hi-search"/></svg><p>Tidak ditemukan ujian yang cocok dengan pencarian Anda.</p>';
-            const table = document.getElementById('examTable');
-            table.parentNode.insertBefore(emptyEl, table.nextSibling);
-        }
-        emptyEl.style.display = '';
-        document.getElementById('examTable').style.display = 'none';
-    } else {
-        if (emptyEl) emptyEl.style.display = 'none';
-        document.getElementById('examTable').style.display = '';
-    }
-    // Update clear button
-    const btn = document.getElementById('searchClearBtn');
-    if (btn) btn.style.display = query || status ? 'flex' : 'none';
-}
+// ===== S28: pencarian client-side DIHAPUS ==================================
+// Fungsi pencarian/filter baris versi client-side beserta timer debounce-nya
+// dan listener Enter-nya dihapus — dashboard.html mendefinisikan ulang versi
+// URL-navigasi sendiri SETELAH file ini dimuat, sehingga versi di sini MATI
+// (tertimpa) tapi listener Enter-nya tetap hidup dan menyebabkan flicker
+// dobel-alur saat menekan Enter di kolom cari. Pulihkan dari git history
+// bila strategi client-side kelak dibutuhkan.
 
-const debounceSearch = debounce(filterExamRows, 300);
-// Keep old name as alias for inline onkeyup="searchExams()"
-function searchExams() { filterExamRows(); }
-
-function clearSearch() {
-    const input = document.getElementById('searchExam');
-    if (input) input.value = '';
-    const statusEl = document.getElementById('statusFilter');
-    if (statusEl) statusEl.value = '';
-    filterExamRows();
-}
-
-// Override inline onchange handler: filter client-side instead of page reload
-function searchExamsWithStatus() {
-    filterExamRows();
-}
-
-// Enter key also triggers client-side filter
-document.addEventListener('DOMContentLoaded', function() {
-    const searchInput = document.getElementById('searchExam');
-    if (searchInput) {
-        searchInput.addEventListener('keydown', function(e) {
-            if (e.key === 'Enter') {
-                e.preventDefault();
-                filterExamRows();
-            }
-        });
-    }
-});
+// Peta value→label status ujian tetap dipertahankan sebagai konstanta bersama:
+// menjadi acuan label badge status (label baru "Nonaktif Otomatis") dan
+// kompatibel dengan skrip halaman yang membacanya lintas file.
+var EXAM_STATUS_LABELS = { active: 'Aktif', inactive: 'Nonaktif', tombstoned: 'Nonaktif Otomatis' };
 
 // ===== Calculate Duration =====
 document.addEventListener('DOMContentLoaded', function() {

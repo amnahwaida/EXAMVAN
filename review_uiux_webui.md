@@ -460,7 +460,7 @@
 ---
 
 ### S23 — Tanpa penanganan sesi kedaluwarsa (401): halaman polling menampilkan error generik berulang
-- **Usaha:** M · **Area:** Admin · **Status:** `[ ]`
+- **Usaha:** M · **Area:** Admin · **Status:** `[x]` ✅ **Batch 6**
 - **Lokasi:** `admin-core.js:26-67` (`apiFetch`); `pengawas_detail.html:2038` (poll 5 dtk), `pengawas.html:247`
 - **Masalah:** Tidak ada satu pun cek `resp.status === 401` di JS admin. Saat sesi habis di halaman monitoring yang dibiarkan terbuka, poll tiap 5 detik terus menampilkan toast/baris "Gagal memuat…" tanpa penjelasan bahwa sesinya berakhir, tanpa arahan login ulang.
 - **Dampak:** Guru menyalahkan "server down" dan bisa kehilangan momen pengawasan ujian berjalan.
@@ -480,7 +480,7 @@
 - **Rekomendasi:** Tambahkan atribut ARIA ke 12 modal (id heading sebagian besar sudah ada); lengkapi `aria-label="Tutup"` di `settings.html:1556`.
 
 ### S26 — Kontrol hasil render-JS tak bisa dioperasikan keyboard: pagination `<a>` tanpa href, kartu ujian `<div onclick>`
-- **Usaha:** M · **Area:** Admin · **Status:** `[ ]`
+- **Usaha:** M · **Area:** Admin · **Status:** `[x]` ✅ **Batch 6**
 - **Lokasi:** `pengawas.html:347-359` (pagination `<a>` tanpa href/tabindex), `:304` (kartu monitor `div onclick`); `pengawas_detail.html:1562-1572` (pola sama), `:1521,1526` (`<a class="mac-cell">` tanpa href); `submissions.html:277` (popup identitas hanya mouse/touch)
 - **Dampak:** Pengguna keyboard/screen reader tak bisa pindah halaman daftar pengawasan/peserta, tak bisa membuka riwayat akses perangkat atau popup identitas siswa. Helper global `role="button"` handler (admin-core.js:765-776) tak membantu karena elemen-elemen ini tak punya role.
 - **Rekomendasi:** Pakai `<button type="button">` untuk pagination/aksi; tambahkan `role="button" tabindex="0"` pada kartu ujian & tombol identitas (handler Enter/Space global sudah siap).
@@ -492,14 +492,14 @@
 - **Rekomendasi:** Pola `btn.disabled = true` + label "Menyimpan..." + restore di `.finally()` pada kelima fungsi.
 
 ### S28 — Implementasi pencarian ganda & dead-code besar di admin.js (definisi fungsi saling menimpa)
-- **Usaha:** S · **Area:** Admin · **Status:** `[ ]`
+- **Usaha:** S · **Area:** Admin · **Status:** `[x]` ✅ **Batch 6**
 - **Lokasi:** `admin.js:3996-4074` mendefinisikan `filterExamRows/searchExams/clearSearch/searchExamsWithStatus` client-side — namun `dashboard.html:971-984` (inline script, dimuat SETELAH admin.js) mendefinisikan ulang versi URL-navigasi; versi inilah yang menang. Versi admin.js mati, tapi listener Enter-nya (`admin.js:4064-4074`) tetap hidup: Enter di kolom cari menyembunyikan baris sesaat lalu reload penuh (flicker dobel-alur).
 - **Dead code terverifikasi tanpa pemanggil:** `openManageUsersModal/closeManageUsersModal` (admin.js:1542-1553), `resetNewUserFormDefaults` (:3694), `copyAllTokens` (:355), `copyResultsLink` (:376), `regenerateToken` (:467), `initPasswordStrengthMeter` (admin-core.js:683), shortcut `?`/`toggleShortcuts` (admin-core.js:423-445 — elemen `#shortcutsHint` tak ada sehingga menekan `?` hanya `preventDefault` tanpa efek), `const CSRF_TOKEN` (settings.html:2216).
 - **Dampak:** Dua strategi pencarian hidup berdampingan; ~200 baris mati membebani pemeliharaan & cache klien.
 - **Rekomendasi:** Putuskan satu strategi (URL-based lebih tepat untuk tabel server-side paginated); hapus blok mati + listener Enter; hapus shortcut `?` atau render elemen hints-nya.
 
 ### S29 — `copyToken`/`copyAIPrompt` tanpa guard `navigator.clipboard` — gagal senyap di LAN HTTP
-- **Usaha:** XS · **Area:** Admin · **Status:** `[ ]`
+- **Usaha:** XS · **Area:** Admin · **Status:** `[x]` ✅ Batch 5 (wrapper) + **Batch 6** (follow-up override vouchers)
 - **Lokasi:** `admin.js:340` (`navigator.clipboard.writeText(token)` tanpa cek eksistensi; juga `:362, :382, :2791`). Pembanding yang benar: `admin-core.js:214-230` (`copyCode`: guard + fallback `execCommand`).
 - **Dampak:** `navigator.clipboard` = `undefined` pada origin non-secure — skenario nyata sekolah via `http://192.168.x.x`. Klik "Salin Token" melempar TypeError, token tak tersalin, tanpa toast apa pun.
 - **Rekomendasi:** Jadikan `copyCode` satu-satunya implementasi; fungsi lain menjadi wrapper tipis di atasnya.
@@ -516,29 +516,29 @@
 - **Rekomendasi:** Tambah `aria-label`; tambahkan assertion di test a11y bahwa `<button>` tanpa teks wajib ber-aria-label.
 
 ### S32 — `prefers-reduced-motion` bolong di jalur tertentu; `prefers-contrast` = 0; print style parsial
-- **Usaha:** M · **Area:** Lintas · **Status:** `[ ]`
+- **Usaha:** M · **Area:** Lintas · **Status:** `[x]` ✅ **Batch 6** (reduced-motion public-desktop + print style minimal publik)
 - **Lokasi:** reduced-motion ada di admin-base.css, hasil.css, public-mobile.css, shared.html, download.html — **tapi 0 di public-desktop.css** dan hanya 2 dari ±20 blok `<style>` inline template. `prefers-contrast`: 0 di seluruh repo. `@media print` hanya 2 (admin-base.css:453, hasil.css:934) — index/register/download/cek_hasil tanpa print style.
 - **Rekomendasi:** Tambah reduced-motion ke public-desktop.css + blok umum; print style minimal bersama untuk halaman publik.
 
 ### S33 — Z-index acak tanpa token
-- **Usaha:** S · **Area:** Lintas · **Status:** `[ ]`
+- **Usaha:** S · **Area:** Lintas · **Status:** `[x]` ✅ **Batch 6**
 - **Lokasi:** sebaran `9999` ×11, `10002` (theme.css:81), `99999` (nav.html:82 onboarding modal — mengalahkan semua termasuk toast/skip-link), plus 220/200/160/… tersebar. `admin-base.css:744` sudah mendokumentasikan skala — tapi hanya komentar, bukan token.
 - **Rekomendasi:** Definisikan `--z-skip-link/--z-dropdown/--z-sticky/--z-toast/--z-modal` di theme.css, substitusi persis (pola S15 fase 1).
 
 ### S34 — Open Graph & `theme-color` = 0 di seluruh template
-- **Usaha:** S · **Area:** Publik · **Status:** `[ ]`
+- **Usaha:** S · **Area:** Publik · **Status:** `[x]` ✅ **Batch 6**
 - **Lokasi:** grep og:/theme-color → 0 hasil. Viewport/favicon/meta description sudah ✓ (shared.html:77-86, hasil.html:21).
 - **Dampak:** Preview share WhatsApp/social tanpa judul-gambar — padahal `download.html` adalah halaman yang paling layak dibagikan; address bar mobile tak ikut warna brand.
 - **Rekomendasi:** Tambah `og:title/description/image` minimal di shared.html (override-able per halaman) + `theme-color: #09090e` di kedua head partial.
 
 ### S35 — Feedback loading paginasi/pencarian halaman hasil tidak ada; transisi state tak diumumkan
-- **Usaha:** S · **Area:** Publik (Hasil) · **Status:** `[ ]`
+- **Usaha:** S · **Area:** Publik (Hasil) · **Status:** `[x]` ✅ **Batch 6**
 - **Lokasi:** `hasil.html:334` (`loadingIndicator` disembunyikan permanen setelah muat awal, tak pernah dipakai ulang), `:750-753` (`goToPage` scroll SEBELUM data datang, tanpa spinner/disable), `:744-754`.
 - **Dampak:** Jaringan lambat → klik halaman 2/ketik pencarian membuat tabel tampak mati beberapa detik (mirip dobel-klik unduhan yang sudah difix di S13); pengguna screen reader tak tahu hasil pencarian telah tampil.
 - **Rekomendasi:** Redupkan area tabel + spinner saat `loadResults()` berjalan (guard anti-dobel seperti pola `resultsLoading`); tambahkan region `aria-live="polite"` "Menampilkan X–Y dari Z peserta".
 
 ### S36 — Empat interval polling detail pengawas mengabaikan `document.hidden` & tak pernah di-clear
-- **Usaha:** S · **Area:** Admin (Pengawasan) · **Status:** `[ ]`
+- **Usaha:** S · **Area:** Admin (Pengawasan) · **Status:** `[x]` ✅ **Batch 6**
 - **Lokasi:** `pengawas_detail.html:2038-2044`: `setInterval(loadApprovals, 5000)`, `loadDetail(12000)`, `refreshActiveToken(30000)`, `updateCountdown(1000)` — permanen, tanpa clearInterval, tanpa visibility-guard. Pembanding yang benar: `refreshDashboardStats` (admin-core.js:657-668) cek `document.hidden` + flag in-flight.
 - **Dampak:** Tab dibiarkan terbuka terus menembak 4 endpoint berkala — beban server (relevan dengan roadmap kapasitas) + boros baterai laptop/tablet pengawas. Countdown habis memicu request refreshActiveToken tiap detik.
 - **Rekomendasi:** Bungkus callback dengan cek `document.hidden` (seperti startAutoRefresh), simpan handle, clear pada `visibilitychange`/`pagehide`.
@@ -557,7 +557,7 @@
 - **Rekomendasi:** `role="alert"` pada div; kosongkan pada callback sukses/token-expired Turnstile atau sebelum tiap attempt submit.
 
 ### R19 — Hierarki heading melompat di beberapa halaman + nav admin tanpa `<header>`
-- **Usaha:** XS–S · **Area:** Publik + Admin · **Status:** `[ ]`
+- **Usaha:** XS–S · **Area:** Publik + Admin · **Status:** `[x]` ✅ Batch 5 (heading) + **Batch 6** (landmark `<header>` topbar nav.html)
 - **Lokasi:** `index.html:33` (`h1`→`h3` sebelum `h2` pertama `:66`); `dashboard.html:242` (h1 sr-only) → `:303,:365,:401,…` sembilan kali h3 tanpa satu pun h2 (sama di `pengawas.html:16→53`, `pengawas_detail.html`); `nav.html` tak dibungkus `<header>` (0 `<header>` di semua halaman kecuali hasil.html). Submissions & settings sudah benar.
 - **Rekomendasi:** Naikkan h3 seksi menjadi h2 (CSS visual via class); mockup-title landing → p/h2; bungkus topbar dengan `<header>`.
 
@@ -568,7 +568,7 @@
 - **Rekomendasi:** Ganti selector (pertimbangkan juga `.header-badge`).
 
 ### R21 — Konflik grid tab platform: aturan desktop kalah permanen oleh `!important` layer mobile
-- **Usaha:** XS · **Area:** Publik (Download) · **Status:** `[ ]`
+- **Usaha:** XS · **Area:** Publik (Download) · **Status:** `[x]` ✅ **Batch 6**
 - **Lokasi:** `public-mobile.css:112-115` (`repeat(3,...) !important`, topik-level semua lebar) vs `public-desktop.css:46` (`repeat(2,1fr)` tanpa important) — intent desktop tak pernah diterapkan (dead code menyesatkan, sumber regresi senyap).
 - **Rekomendasi:** Putuskan satu intent (3 kolom tampaknya aktual): hapus grid-template-columns desktop, atau pindahkan rule mobile ke media query.
 
@@ -583,12 +583,12 @@
 - **Rekomendasi:** Tambah `aria-label="Cari ..."` pada keenam input.
 
 ### R24 — Toast tolak perangkat memakai tipe `error` + frasa salin tidak seragam
-- **Usaha:** XS · **Area:** Admin (Pengawasan) · **Status:** `[ ]`
+- **Usaha:** XS · **Area:** Admin (Pengawasan) · **Status:** `[x]` ✅ **Batch 6** (tipe toast; frasa salin distandarkan lewat copyCode Batch 5/6)
 - **Lokasi:** `pengawas_detail.html:1425` — menolak peserta (aksi berhasil) ditampilkan toast merah 'error'. Pesan salin beda-beda: `admin-core.js:218` vs `admin.js:341` vs `settings-vouchers.js:19`.
 - **Rekomendasi:** Tipe `info`/`success` untuk konfirmasi tolak; standarkan frasa salin lewat satu helper (`copyCode`).
 
 ### R25 — Boilerplate modal: 26 fungsi open/close ad-hoc + 2 kelas arwah
-- **Usaha:** M · **Area:** Admin · **Status:** `[ ]`
+- **Usaha:** M · **Area:** Admin · **Status:** `[x]` ✅ **Batch 6**
 - **Lokasi:** pola dominan kini seragam (`.modal-overlay` ×17, `.modal-card` ×17), tapi JS masih punya **26 fungsi `open*/close*Modal`** tulisan tangan yang isinya cuma toggle display (admin.js:554,629,1463,1472,…); sisa anomali `.modal-backdrop` ×1 dan `.modal-glass` ×1. `<dialog>`: 0.
 - **Rekomendasi:** Ekspor API `Modal.open(el)/Modal.close(el)` dari core, refactor 26 fungsi jadi delegasi; seragamkan 2 kelas arwah.
 
@@ -603,7 +603,7 @@
 - **Rekomendasi:** Pindahkan `<style>` inline halaman ke file CSS per-halaman; audit `!important` hasil.css — kebanyakan hilang jika urutan load CSS dirapikan.
 
 ### R28 — Global namespace pollution (±50 handler inline onclick) & format tanggal tak satu pintu
-- **Usaha:** S · **Area:** Admin · **Status:** `[ ]`
+- **Usaha:** S · **Area:** Admin · **Status:** `[x]` ✅ **Batch 6** (formatDateTimeID satu pintu; migrasi penuh data-action tetap berkelanjutan)
 - **Bukti:** ±dozen `window.x = fn` dipaksa oleh onclick inline (57 di settings.html, 48 di dashboard.html, 27 di pengawas_detail.html) — CSP-unsafe. Tanggal: `admin-core.js:263-268` format manual tanpa `Intl`, sementara `pengawas_detail.html:1592` sudah `toLocaleString('id-ID',...)`. Positif: pola event-delegation `data-action` mulai dipakai (settings-vouchers.js:128).
 - **Rekomendasi:** Satu helper `formatDateTimeID()` di core; lanjutkan migrasi delegation `data-action`.
 
@@ -695,19 +695,81 @@
 - [x] **S30** skip-link: partials/nav.html memuat skip-link tunggal `#mainContent`; deduplikasi publik via partial baru `public_skip_link` di shared.html (inline style lama 9× → 1×, pengecualian register_confirm karena kontrak test batch4); `id="mainContent"` terpasang di kelima halaman admin
 - [x] **R22** reset_password mendapat strength meter penuh (port dari register: markup bar+teks, fungsi skor, wiring input event)
 
-### Batch 6 — Ronde 2: struktural (usulan)
-- [ ] **S28** hapus pencarian ganda + dead code ~200 baris admin.js
-- [ ] **S23** penanganan 401/sesi kedaluwarsa global (`auth:expired`)
-- [ ] **S36** visibility-guard polling pengawas_detail
-- [ ] **S26** keyboard-aksesibel untuk kontrol render-JS
-- [ ] **S34** og tags + theme-color
-- [ ] **S35** loading/aria-live paginasi & pencarian halaman hasil
-- [ ] **S32/S33/R21** reduced-motion lengkap, token z-index, konflik grid tab download
-- [ ] **R24/R25/R28** konsistensi toast, API Modal terpusat, delegasi event
-- [ ] Sisa Batch 5: landmark `<header>` di nav.html topbar; `settings-vouchers.js:6` berhenti meng-override `copyCode` tanpa guard (delegasikan ke core); register_confirm skip-link menyatu ke partial saat kontrak test batch4 direvisi
+### Batch 6 — Ronde 2: struktural ✅ SELESAI (2026-08-24, test-first via 3 agen paralel + 1 agen lanjutan dengan kepemilikan file terpisah; suite gabungan repo **271/271 hijau**, `go build` OK)
 
-### Fase 2 design token (L, bertahap — lanjutan S15 fase 1)
-- [ ] Migrasi token untuk template (**290 hex + 430 rgba** inline) & JS (**±49 hex**) — buat kelas utilitas badge (`rgba(...,0.15)/border 0.3` muncul >30×), perluas test batch4 dengan assertion hitungan hex di folder templates/
+> **Metode batch ini:** setiap item dikerjakan *test-first* — kontrak perilaku ditulis lebih dulu sebagai
+> file `uiux-batch6-*.test.mjs` (statik fs-read + perilaku via `vm.runInNewContext` mengeksekusi JS asli
+> yang dikirim ke browser, pola sama dengan batch sebelumnya), diverifikasi MERAH dulu, baru implementasi
+> sampai HIJAU. Empat agen berjalan paralel dengan kepemilikan file yang tidak tumpang tindih:
+>
+> | Agen | Kepemilikan file | Suite |
+> |---|---|---|
+> | batch-6-jscore | `admin-core.js`, `admin.js`, `settings-vouchers.js` | `uiux-batch6-jscore.test.mjs` — 20/20 |
+> | batch-6-pengawasan | `pengawas_detail.html`, `pengawas.html`, `submissions.html` | `uiux-batch6-pengawasan.test.mjs` — 12/12 |
+> | batch-6-nav | `partials/nav.html` | `uiux-batch6-nav.test.mjs` — 6/6 |
+> | (lanjutan publik/CSS, sesi awal) | `shared.html`, `hasil.html`, `hasil.css`, `public-*.css`, `theme.css`, `register_confirm.html` | `uiux-batch6-publik-css.test.mjs` — 14/14 |
+
+- [x] **S28** pencarian ganda & dead code dihapus (~230 baris netto dari admin.js):
+  versi client-side MATI (`filterExamRows`/`searchExams`/`clearSearch`/`searchExamsWithStatus`,
+  `debounceSearch`, listener Enter DOMContentLoaded penyebab flicker dobel-alur) dihapus total;
+  strategi URL-navigasi di dashboard.html tetap satu-satunya. Dead code nol-pemanggil ikut dibersihkan:
+  `openManageUsersModal`/`closeManageUsersModal` (+ branch overlay-click), `resetNewUserFormDefaults`,
+  `copyAllTokens`, `copyResultsLink`, `regenerateToken`; di admin-core.js: `initPasswordStrengthMeter`,
+  `toggleShortcuts` + bajakan tombol `"?"`. Shortcut `/` dan Ctrl+U dipertahankan dan diuji perilakunya.
+  *(Kontrak test S29 Batch 5 direvisi seperlunya: dua nama wrapper yang dihapus S28 keluar dari daftar asersi.)*
+- [x] **S23** penanganan sesi kedaluwarsa global: `apiFetch` mendeteksi `resp.status === 401` →
+  `notifyAuthExpired()` (guard once per halaman) menyalakan flag `window.__examvanAuthExpired`
+  (bisa dicek polling untuk skip interval) dan menembakkan event `auth:expired`; listener global
+  me-toast "Sesi berakhir. Silakan login kembali." lalu redirect tertunda ke
+  `/admin/login?next=<pathname+search>`. Error non-401 tidak tersentuh (diuji). Konstruktor CustomEvent
+  di-resolve robust (`window.CustomEvent` → global → null); listener terpasang di window dengan fallback
+  document.
+- [x] **S36** visibility-guard polling pengawas_detail: 4 interval permanen (5s/12s/30s/1s) diganti
+  scheduler `startPengawasPolling()`/`stopPengawasPolling()` — handle disimpan, semua callback di-guard
+  `document.hidden`, tab tersembunyi mengosongkan timer & kembali visible me-re-schedule + refresh
+  langsung; start selalu stop dulu (anti double-scheduling). Flag anti-overlap & diff-render Batch 3 tak
+  berubah. *(Diuji perilaku via vm: visible→4 interval jalan; hidden→skip+clear; kembali visible→tanpa
+  penumpukan.)*
+- [x] **S26** kontrol render-JS keyboard-aksesibel: pagination render-JS pengawas & pengawas_detail kini
+  `<button type="button" class="pagination-page-num">` (+`aria-current`); kartu monitor pengawas,
+  `.mac-cell` riwayat perangkat, action-link Detail, dan pemicu popup identitas submissions diberi
+  `role="button" tabindex="0"` (Enter/Space lewat handler global admin-core).
+- [x] **R24** toast tolak peserta sukses tidak lagi merah `'error'` → `'info'`. Frasa salin distandarkan
+  lewat `copyCode` (Batch 5) + follow-up di bawah.
+- [x] **R25** API Modal terpusat: core mengekspor `var Modal = { open, close }` (resolve by id-string /
+  element, return boolean, aman bila elemen tak eksis). Fungsi boilerplate open/close di admin.js &
+  settings-vouchers.js menjadi delegasi tipis sambil mempertahankan side-effect (reset form dsb.) —
+  diuji bahwa path open/close masih menyasar elemen yang sama.
+- [x] **R28** (parsel tanggal) helper `formatDateTimeID()` di core menjadi satu pintu format
+  "YYYY-MM-DD HH:MM" (identik formatter manual lama — diuji kesetaraan output); admin.js tak lagi
+  memanggil `localizeUTC` (alias kompatibilitas dipertahankan untuk skrip lama lain). *(Migrasi penuh
+  event-delegation `data-action` bersifat berkelanjutan, bukan sekali angkat.)*
+- [x] **S34** meta sosial: `og:title/og:description/og:type/og:image` (dengan fallback default) di head
+  publik + `theme-color` yang nilainya divalidasi test == `--color-bg` theme.css.
+- [x] **S35** feedback loading halaman hasil: region `aria-live="polite"` mengumumkan "Menampilkan X–Y
+  dari Z peserta" tiap render tabel; `loadResults` menerapkan `aria-busy` + redup tabel saat fetch dan
+  melepasnya di `finally`; scroll paginasi kini SETELAH data tampil (diuji urutannya).
+- [x] **S32** reduced-motion lengkap: blok `@media (prefers-reduced-motion: reduce)` ditambahkan ke
+  public-desktop.css (sebelumnya 0) + print style minimal halaman publik.
+- [x] **S33** token z-index: `--z-*` didefinisikan di theme.css; literal liar `9999|10002|99999` di CSS
+  inti publik/hasil diganti token (test lintas-file memastikan tak ada lagi literalnya).
+- [x] **R21** konflik grid tab download diselesaikan: intent tunggal 3 kolom mobile tanpa
+  `!important`; deklarasi desktop yang mati dihapus.
+- [x] **Sisa Batch 5:**
+  - landmark `<header>` membungkus topbar di partials/nav.html (tanpa mengubah markup/class/logika
+    template; aria-current, aria-expanded hamburger, dan urutan skip-link dipertahankan — snapshot oleh test regresi);
+  - follow-up S29: settings-vouchers.js berhenti mendefinisikan ulang `copyCode` tanpa guard — call site
+    kini memakai versi guarded core (diuji: tanpa `navigator.clipboard`, salin tetap sukses via fallback
+    execCommand);
+  - register_confirm skip-link menyatu ke partial `public_skip_link` (kontrak test batch4 direvisi;
+    inline style lama 9× → bersih, base styling `.skip-link` di theme.css).
+
+### Batch 7 (usulan lanjutan)
+- [ ] Fase 2 design token (L, bertahap): migrasi hex/rgba inline template (**290 hex + 430 rgba**) & JS
+  (**±49 hex**) → kelas utilitas badge + assertion hitungan hex folder templates/
+- [ ] Migrasi penuh event-delegation `data-action` (lanjutan R28) & pelepasan handler inline onclick
+  (`window.x = fn`) bertahap per halaman
+
 
 ---
 

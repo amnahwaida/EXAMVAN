@@ -1217,6 +1217,10 @@ function renderApprovalNotice(html) {
 }
 
 function loadApprovals() {
+    // S36: polling diam saat tab tersembunyi — hemat fetch & render. Panggilan
+    // eksplisit pengguna (aksi Izinkan/Tolak, kembali ke tab) selalu terjadi
+    // saat tab terlihat, jadi guard ini hanya memadamkan tick interval.
+    if (document.hidden) return;
     var tbody = document.getElementById('approvalBody');
     var section = document.getElementById('approvalSection');
     if (!tbody || !section) return;
@@ -1422,7 +1426,9 @@ function setApproval(macAddress, status, skipConfirm) {
     .then(function(r) { return r.json(); })
     .then(function(res) {
         if (res.success) {
-            showToast(status === 'approved' ? 'Perangkat diizinkan' : 'Perangkat ditolak', status === 'approved' ? 'success' : 'error');
+            // R24: penolakan yang BERHASIL adalah konfirmasi, bukan kegagalan —
+            // toast netral 'info', bukan merah 'error'.
+            showToast(status === 'approved' ? 'Perangkat diizinkan' : 'Perangkat ditolak', status === 'approved' ? 'success' : 'info');
             loadApprovals();
             // Also refresh the device monitoring table so a revoke ("Tolak")
             // from that table gives immediate feedback.
@@ -1518,12 +1524,12 @@ function loadDetail(page, silent) {
 
                 html += '<tr>' +
                     '<td data-label="No" style="font-weight:600;color:var(--color-text-muted);width:40px;">' + ((SUB_PAGE - 1) * 20 + i + 1) + '</td>' +
-                    '<td data-label="ID Perangkat"><a class="mac-cell" onclick="showAccessLog(' + s.id + ')" title="' + escapeHtml(s.mac_address) + ' (Klik untuk riwayat akses)">' + escapeHtml(s.mac_address) + '</a></td>' +
+                    '<td data-label="ID Perangkat"><button type="button" class="mac-cell" style="background:transparent;" onclick="showAccessLog(' + s.id + ')" title="' + escapeHtml(s.mac_address) + ' (Klik untuk riwayat akses)">' + escapeHtml(s.mac_address) + '</button></td>' +
                     '<td data-label="Status"><span class="status-badge-sm" style="background:' + color + '15;color:' + color + ';border:1px solid ' + color + '30;">' + sl + '</span></td>' +
                     '<td data-label="Mulai" style="font-size:0.75rem;color:var(--color-text-muted);font-family:var(--font-mono);">' + startTime + '</td>' +
                     '<td data-label="Upaya" style="text-align:center;">' + attCount + '</td>' +
                     '<td data-label="Aksi"><div style="display:flex;justify-content:flex-end;gap:8px;align-items:center;">' +
-                        '<a class="action-link" onclick="showAccessLog(' + s.id + ')"><svg class="icon-svg" style="width:12px;height:12px;"><use href="#hi-eye"/></svg> Detail</a>' +
+                        '<a class="action-link" role="button" tabindex="0" onclick="showAccessLog(' + s.id + ')"><svg class="icon-svg" style="width:12px;height:12px;"><use href="#hi-eye"/></svg> Detail</a>' +
                         (s.submitted ? '' : '<button class="pd-action-btn pd-action-danger" title="Cabut izin perangkat — sesi berikutnya harus minta izin lagi" onclick="setApproval(\'' + escapeHtml(jsEscape(s.mac_address)) + '\', \'rejected\')" style="padding:5px 10px;border-radius:6px;font-weight:600;font-size:0.7rem;"><svg class="icon-svg" style="width:12px;height:12px;"><use href="#hi-x"/></svg> Tolak</button>') +
                     '</div></td>' +
                     '</tr>';
@@ -1559,17 +1565,17 @@ function renderSubPagination(res) {
         '<div class="pagination-links">';
 
     if (res.page > 1) {
-        html += '<a class="pagination-page-num" onclick="loadDetail(1)" style="cursor:pointer;">&laquo;</a>';
-        html += '<a class="pagination-page-num" onclick="loadDetail(' + (res.page - 1) + ')" style="cursor:pointer;">&lsaquo;</a>';
+        html += '<button type="button" class="pagination-page-num" onclick="loadDetail(1)" style="cursor:pointer;" aria-label="Halaman pertama">&laquo;</button>';
+        html += '<button type="button" class="pagination-page-num" onclick="loadDetail(' + (res.page - 1) + ')" style="cursor:pointer;" aria-label="Halaman sebelumnya">&lsaquo;</button>';
     }
     var start = Math.max(1, res.page - 2);
     var end = Math.min(res.total_pages, res.page + 2);
     for (var p = start; p <= end; p++) {
-        html += '<a class="pagination-page-num' + (p === res.page ? ' page-current' : '') + '" onclick="loadDetail(' + p + ')" style="cursor:pointer;">' + p + '</a>';
+        html += '<button type="button" class="pagination-page-num' + (p === res.page ? ' page-current' : '') + '" onclick="loadDetail(' + p + ')" style="cursor:pointer;"' + (p === res.page ? ' aria-current="page"' : '') + '>' + p + '</button>';
     }
     if (res.page < res.total_pages) {
-        html += '<a class="pagination-page-num" onclick="loadDetail(' + (res.page + 1) + ')" style="cursor:pointer;">&rsaquo;</a>';
-        html += '<a class="pagination-page-num" onclick="loadDetail(' + res.total_pages + ')" style="cursor:pointer;">&raquo;</a>';
+        html += '<button type="button" class="pagination-page-num" onclick="loadDetail(' + (res.page + 1) + ')" style="cursor:pointer;" aria-label="Halaman berikutnya">&rsaquo;</button>';
+        html += '<button type="button" class="pagination-page-num" onclick="loadDetail(' + res.total_pages + ')" style="cursor:pointer;" aria-label="Halaman terakhir">&raquo;</button>';
     }
     html += '</div></div>';
     pagEl.innerHTML = html;
@@ -2035,13 +2041,36 @@ loadAAStatus();
     loadDetail();
     // Queue load is triggered by loadAAStatus() above (and by its fetch's
     // catch path), so no duplicate fetch here.
-    setInterval(loadApprovals, 5000);
-    // Keep the "live" monitoring stats + student table actually live (silent
-    // refresh preserves the current page/filter and avoids a loading flash).
-    setInterval(function() { loadDetail(SUB_PAGE, true); }, 12000);
-    setInterval(refreshActiveToken, 30000);
-    setInterval(updateCountdown, 1000);
-    updateCountdown();
+    // S36: polling pengawasan hanya berjalan saat tab terlihat (pola
+    // refreshDashboardStats/startAutoRefresh di admin-core.js). Handle semua
+    // interval disimpan di pollTimers; visibilitychange→hidden meng-clear
+    // semuanya, visible menjadwalkan ulang. startPengawasPolling selalu stop
+    // dulu sehingga tidak pernah ada double-scheduling.
+    var pollTimers = [];
+    function stopPengawasPolling() {
+        while (pollTimers.length) clearInterval(pollTimers.pop());
+    }
+    function startPengawasPolling() {
+        stopPengawasPolling();
+        pollTimers.push(setInterval(loadApprovals, 5000));
+        // Keep the "live" monitoring stats + student table actually live (silent
+        // refresh preserves the current page/filter and avoids a loading flash).
+        pollTimers.push(setInterval(function() { if (!document.hidden) loadDetail(SUB_PAGE, true); }, 12000));
+        pollTimers.push(setInterval(function() { if (!document.hidden) refreshActiveToken(); }, 30000));
+        pollTimers.push(setInterval(function() { if (!document.hidden) updateCountdown(); }, 1000));
+    }
+    document.addEventListener('visibilitychange', function() {
+        if (document.hidden) {
+            stopPengawasPolling();
+        } else {
+            loadApprovals();
+            loadDetail(SUB_PAGE, true);
+            refreshActiveToken();
+            updateCountdown();
+            startPengawasPolling();
+        }
+    });
+    startPengawasPolling();
 })();
 </script>
 

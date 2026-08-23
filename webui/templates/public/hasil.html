@@ -193,6 +193,9 @@
 
  <!-- Results Content -->
  <section class="glass-card" id="resultsSection">
+ <!-- S35: region pengumuman screen reader — diupdate tiap render tabel
+      selesai ("Menampilkan X–Y dari Z peserta"); visually hidden. -->
+ <div id="resultsLiveRegion" class="sr-only-results" aria-live="polite" role="status"></div>
  <div class="loading-text" id="loadingIndicator">
  <span class="loading-spinner" aria-hidden="true"></span>
  <span>Memuat data hasil ujian...</span>
@@ -291,8 +294,25 @@
  // that arrives mid-flight is remembered once and re-run after the current
  // one settles, so the user's latest action (search, page click) always
  // lands; currentPage/searchQuery are read fresh at re-run time.
- let resultsLoading = false;
- let resultsRerunPending = false;
+  let resultsLoading = false;
+  let resultsRerunPending = false;
+  // S35: muat pertama memakai loadingIndicator penuh; feedback dim/aria-busy
+  // hanya untuk fetch berikutnya (paginasi/pencarian). pendingScrollToTable
+  // menunda scroll goToPage sampai data halaman baru benar-benar tampil.
+  let firstLoadDone = false;
+  let pendingScrollToTable = false;
+
+  // S35: redup area tabel + aria-busy saat fetch berjalan (bukan muat awal);
+  // CSS .is-loading juga mematikan pointer-events → guard anti-dobel-klik
+  // paginasi di lapisan visual, di atas guard resultsLoading di sini.
+  function setResultsBusy(busy) {
+   if (!firstLoadDone) return;
+   const section = document.getElementById('resultsSection');
+   if (!section) return;
+   section.classList.toggle('is-loading', busy);
+   if (busy) section.setAttribute('aria-busy', 'true');
+   else section.removeAttribute('aria-busy');
+  }
 
  // ===== Init =====
  const pageHasError = {{if .error}}true{{else}}false{{end}};
@@ -305,9 +325,10 @@
 
  // ===== API: Load Results (server-side pagination + search) =====
  async function loadResults() {
-  if (resultsLoading) { resultsRerunPending = true; return; }
-  resultsLoading = true;
-  try {
+   if (resultsLoading) { resultsRerunPending = true; return; }
+   resultsLoading = true;
+   setResultsBusy(true);
+   try {
   const params = new URLSearchParams();
   params.set('per_page', String(PER_PAGE));
   params.set('page', String(currentPage));
@@ -345,11 +366,14 @@
 
   document.getElementById('loadingIndicator').style.display = 'none';
 
-  if (pagination.total === 0) {
-   document.getElementById('emptyState').style.display = searchQuery ? 'none' : 'block';
-   document.getElementById('noSearchResults').style.display = searchQuery ? 'block' : 'none';
-   return;
-  }
+   if (pagination.total === 0) {
+    document.getElementById('emptyState').style.display = searchQuery ? 'none' : 'block';
+    document.getElementById('noSearchResults').style.display = searchQuery ? 'block' : 'none';
+    // S35: umumkan hasil kosong/pencarian tanpa hasil ke screen reader.
+    updateResultsLiveRegion();
+    pendingScrollToTable = false;
+    return;
+   }
 
   renderStats();
 
@@ -358,7 +382,15 @@
   renderScoresTable();
   renderKeysGrid();
 
-  document.getElementById('scoresContent').style.display = 'block';
+   document.getElementById('scoresContent').style.display = 'block';
+
+   // S35: scroll pagination dieksekusi SETELAH data halaman baru tampil —
+   // dulu scroll dilakukan sebelum fetch sehingga tabel "mati" di layar.
+   if (pendingScrollToTable && !resultsRerunPending) {
+    pendingScrollToTable = false;
+    const tableTop = document.getElementById('scoresContent');
+    if (tableTop) tableTop.scrollIntoView({ behavior: 'smooth', block: 'start' });
+   }
 
   // Show tabNav and tabKeys strictly if server says show_answers is enabled
   if (questionsData.length > 0 && showAnswersFromServer) {
@@ -370,9 +402,11 @@
   document.getElementById('loadingIndicator').innerHTML =
   '<div class="empty-state"><div class="empty-icon" aria-hidden="true"><svg class="icon-svg" style="width:40px;height:40px;margin-bottom:16px;opacity:0.4;"><use href="#hi-exclamation"/></svg></div><p>Gagal memuat data hasil ujian. Periksa koneksi atau coba lagi nanti.</p>' +
   '<button class="back-nav" onclick="location.reload()" style="margin-top:16px;display:inline-flex;"><svg width="14" height="14" aria-hidden="true"><use href="#hi-arrow-path"/></svg> Coba Lagi</button></div>';
-  } finally {
-  resultsLoading = false;
-  if (resultsRerunPending) {
+   } finally {
+   setResultsBusy(false);
+   firstLoadDone = true;
+   resultsLoading = false;
+   if (resultsRerunPending) {
    resultsRerunPending = false;
    // Re-run with the CURRENT (latest) currentPage/searchQuery — the user's
    // newest action wins, even if this older response already rendered.
@@ -519,6 +553,21 @@
  });
 
  renderPagination(pagination.total, pagination.total_pages || 1);
+ // S35: umumkan isi tabel terbaru ke screen reader SETELAH render selesai.
+ updateResultsLiveRegion();
+ }
+
+ // ===== S35: Pengumuman live region =====
+ function updateResultsLiveRegion() {
+ const live = document.getElementById('resultsLiveRegion');
+ if (!live) return;
+ if (pagination.total === 0) {
+ live.textContent = searchQuery ? 'Tidak ditemukan hasil yang cocok dengan pencarian.' : 'Belum ada peserta.';
+ return;
+ }
+ const start = (currentPage - 1) * PER_PAGE + 1;
+ const end = Math.min(currentPage * PER_PAGE, pagination.total);
+ live.textContent = 'Menampilkan ' + start + '-' + end + ' dari ' + pagination.total + ' peserta';
  }
 
  // ===== Toggle Detail Scores =====
@@ -757,12 +806,11 @@
  const totalPages = pagination.total_pages || 1;
  if (page < 1 || page > totalPages) return;
  currentPage = page;
+ // S35: scroll DITUNDA sampai data halaman baru tampil (dieksekusi di
+ // loadResults setelah render); guard dobel-klik tetap dari resultsLoading
+ // (rerun pending) + .is-loading pointer-events:none.
+ pendingScrollToTable = true;
  loadResults();
- // Scroll to top of table
- const scoresSection = document.getElementById('scoresContent');
- if (scoresSection) {
- scoresSection.scrollIntoView({ behavior: 'smooth', block: 'start' });
- }
  }
 
  // ===== Switch Tab =====

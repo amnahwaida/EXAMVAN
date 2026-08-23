@@ -13,6 +13,7 @@
 {{ $activePage := .active_page }}
 {{ $isSettings := or (eq $activePage "settings") (eq $activePage "users") (eq $activePage "billing") (eq $activePage "vouchers") (eq $activePage "voucher-audit") (eq $activePage "packages") (eq $activePage "system-apps") }}
 
+<header>
 <nav class="topbar">
  <div class="topbar-left">
   <div class="topbar-logo">E</div>
@@ -82,7 +83,8 @@
    </div>
   </div>
  </div>
-</nav>
+ </nav>
+</header>
 
 {{if .needs_instansi}}
 <div id="instansiOnboardingModal" class="modal-overlay" style="display:flex; z-index:99999; background: rgba(15, 23, 42, 0.88); backdrop-filter: blur(12px);" onclick="event.stopPropagation()">
