@@ -1,6 +1,11 @@
 /* GENERATED from the standalone settings pages — see templates/admin/settings.html.
    Loaded lazily when its tab is first opened. */
 
+// Murni: true = aman menutup modal (tidak ada unggahan berjalan).
+function canCloseUpload(uploadActive) {
+    return !uploadActive;
+}
+
 function openUploadModal() {
     const modal = document.getElementById('uploadModal');
     modal.style.display = 'flex';
@@ -9,6 +14,12 @@ function openUploadModal() {
 }
 
 function closeUploadModal() {
+    // Fix review Aplikasi Sistem #2: menutup modal saat unggah berjalan
+    // tidak membatalkan XHR — reload sukses bisa terjadi mendadak.
+    if (!canCloseUpload(!!window.__uploadInProgress)) {
+        showToast('Unggahan masih berlangsung — tunggu hingga selesai.', 'error');
+        return;
+    }
     const modal = document.getElementById('uploadModal');
     modal.classList.remove('show');
     setTimeout(() => {
@@ -32,6 +43,31 @@ function updateFileName(input) {
     }
 }
 
+// Fix review Aplikasi Sistem #1: wire drag & drop pada area file —
+// teks "Pilih atau Seret File Kesini" dulu hanya janji tanpa handler.
+(function wireDragDrop() {
+    const area = document.getElementById('fileDropArea');
+    if (!area) return;
+    ['dragover', 'dragenter'].forEach(function(ev) {
+        area.addEventListener(ev, function(e) {
+            e.preventDefault();
+            area.classList.add('drag-over');
+        });
+    });
+    ['dragleave', 'dragend'].forEach(function(ev) {
+        area.addEventListener(ev, function() { area.classList.remove('drag-over'); });
+    });
+    area.addEventListener('drop', function(e) {
+        e.preventDefault();
+        area.classList.remove('drag-over');
+        if (e.dataTransfer && e.dataTransfer.files.length) {
+            const input = document.getElementById('appFile');
+            input.files = e.dataTransfer.files;
+            updateFileName(input);
+        }
+    });
+})();
+
 function submitUpload(event) {
     event.preventDefault();
     const form = document.getElementById('uploadAppForm');
@@ -48,6 +84,7 @@ function submitUpload(event) {
 
     errorDiv.style.display = 'none';
     progressContainer.style.display = 'block';
+    window.__uploadInProgress = true;
     btn.innerHTML = '<svg class="animate-spin" width="20" height="20" style="animation: spin 1s linear infinite;" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M21 12a9 9 0 1 1-6.219-8.56"></path></svg> Memproses...';
     btn.disabled = true;
 
@@ -72,10 +109,15 @@ function submitUpload(event) {
     };
 
     xhr.onload = function() {
+        window.__uploadInProgress = false;
         if (xhr.status === 200) {
             const data = JSON.parse(xhr.responseText);
             if (data.success) {
-                window.location.reload();
+                // Fix UX: kembali KE TAB APLIKASI SISTEM (query ?uploaded=1
+                // memaksa reload penuh; hash membuka tab yang benar) — dulu
+                // reload polos mendarat di tab default (Kelola User) sehingga
+                // kartu aplikasi seolah hilang.
+                window.location.href = '/admin/settings?uploaded=1#system-apps';
             } else {
                 showError(apiErrorMessage(data, 'Gagal mengunggah aplikasi'));
             }
@@ -102,7 +144,7 @@ function submitUpload(event) {
         progressBar.style.width = '0%';
     }
 
-    xhr.send(formData);
+        xhr.send(formData);
 }
 
 async function deleteApp(id, name) {
@@ -129,3 +171,15 @@ async function deleteApp(id, name) {
         showToast('Gagal menghapus: ' + e.message, 'error');
     }
 }
+
+
+// ===== Init pasca-load modul =====
+window.__settingsReady = window.__settingsReady || {};
+window.__settingsReady['system-apps'] = function() {
+    // Toast sukses setelah redirect pasca-upload (?uploaded=1).
+    var params = new URLSearchParams(window.location.search);
+    if (params.get('uploaded') === '1' && typeof showToast === 'function') {
+        showToast('Aplikasi berhasil diunggah', 'success');
+        try { window.history.replaceState({}, '', '/admin/settings#system-apps'); } catch (e) {}
+    }
+};

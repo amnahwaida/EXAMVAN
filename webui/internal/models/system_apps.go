@@ -1,6 +1,7 @@
 package models
 
 import (
+	"regexp"
 	"context"
 	"fmt"
 	"strings"
@@ -49,6 +50,28 @@ func BestAndroidAppVersion(apps []SystemApp) string {
 		return best.Version
 	}
 	return ""
+}
+
+// appVersionPattern memvalidasi bentuk versi aplikasi sistem:
+// 1–4 segmen angka ber titik (mis. "2", "2.7", "2.7.3").
+var appVersionPattern = regexp.MustCompile(`^\d+(\.\d+){0,3}$`)
+
+// NormalizeAppVersion membersihkan input versi dari admin (fix review
+// Aplikasi Sistem #3): trim spasi, buang prefiks 'v'/'V', lalu validasi
+// pola angka ber titik.
+//
+// Returns "" untuk input invalid — caller WAJIB menolak unggah; dulu
+// teks bebas ("V2.7.3", "nanti saja") tersimpan apa adanya sehingga dua
+// penulisan berbeda dianggap dua rilis dan label halaman download kacau.
+func NormalizeAppVersion(v string) string {
+	v = strings.TrimSpace(v)
+	if len(v) >= 1 && (v[0] == 'v' || v[0] == 'V') {
+		v = v[1:]
+	}
+	if !appVersionPattern.MatchString(v) {
+		return ""
+	}
+	return v
 }
 
 // CompareVersions returns -1 when a < b, 0 when equal, 1 when a > b.

@@ -74,4 +74,29 @@ class SystemAppsPageIntegrityTest {
             js.exists() && js.length() > 0L
         )
     }
+
+    // ── Fix review Aplikasi Sistem: drag-drop & modal-close guard ────────
+
+    @Test
+    fun dragAndDrop_isWired() {
+        val js = webuiJs().readText()
+        assertTrue(
+            "Teks area file menjanjikan 'Seret File' tapi tidak ada handler " +
+                "dragover/drop — wajib di-wire",
+            js.contains("'dragover'") && js.contains("addEventListener('drop'")
+        )
+        assertTrue(
+            "Handler drop harus meneruskan file ke input #appFile",
+            js.contains("appFile")
+        )
+    }
+
+    @Test
+    fun modalClose_blockedWhileUploading() {
+        val js = webuiJs().readText()
+        assertTrue(
+            "closeUploadModal harus menolak penutupan selama unggahan berjalan",
+            js.contains("__uploadInProgress") && js.contains("canCloseUpload")
+        )
+    }
 }

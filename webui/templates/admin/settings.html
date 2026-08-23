@@ -1945,6 +1945,17 @@
 </section>
 
 <section class="settings-section" id="section-system-apps" data-section="system-apps" aria-label="Aplikasi Sistem">
+    {{ if .error }}
+    <div class="alert-premium" style="margin-bottom:24px;">
+        <div class="alert-icon-box">
+            <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="8" x2="12" y2="12"></line><line x1="12" y1="16" x2="12.01" y2="16"></line></svg>
+        </div>
+        <div>
+            <h3 style="color:#fca5a5; font-weight:800; font-size:1.1rem; margin:0 0 4px 0;">Gagal Memuat Daftar Aplikasi</h3>
+            <p style="color:#fca5a5; margin:0; font-size:0.95rem;">{{ .error }} — coba muat ulang halaman.</p>
+        </div>
+    </div>
+    {{ end }}
 <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:48px; flex-wrap: wrap; gap: 24px;">
         <div style="display:flex; align-items:center; gap:20px; flex-wrap:wrap;">
             <div class="header-icon-wrap">
@@ -2011,7 +2022,7 @@
 
                 <div style="margin-bottom:24px;">
                     <label class="form-label">File Aplikasi <span style="color:#f43f5e;">*</span></label>
-                    <div class="custom-file-input">
+                    <div class="custom-file-input" id="fileDropArea">
                         <input type="file" id="appFile" name="file" required onchange="updateFileName(this)">
                         <svg class="file-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline><line x1="12" y1="18" x2="12" y2="12"></line><line x1="9" y1="15" x2="15" y2="15"></line></svg>
                         <div id="file-name-display" style="font-weight:700; color:white; font-size:1.15rem; margin-bottom:6px;">Pilih atau Seret File Kesini</div>

@@ -35,6 +35,14 @@ func UploadSystemApp() gin.HandlerFunc {
 			return
 		}
 
+		// Fix review Aplikasi Sistem #3: normalisasi & validasi versi —
+		// dulu teks bebas ("V2.7.3", "nanti saja") tersimpan apa adanya.
+		version = models.NormalizeAppVersion(version)
+		if version == "" {
+			c.JSON(http.StatusBadRequest, gin.H{"success": false, "message": "Format versi tidak valid. Gunakan pola angka ber titik, contoh: 2.7.3"})
+			return
+		}
+
 		// Check for duplicate app name + platform + version
 		existsApp, err := models.CheckSystemAppExists(ctx, pool, appName, platform, version)
 		if err == nil && existsApp {
