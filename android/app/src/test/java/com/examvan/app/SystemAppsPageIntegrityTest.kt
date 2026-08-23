@@ -76,6 +76,35 @@ class SystemAppsPageIntegrityTest {
         )
     }
 
+    // ── Fix review ronde 3: daftar modul lazy-load konsisten dengan file ──
+
+    @Test
+    fun everyLazyLoadedModuleFile_exists() {
+        // settings.html mendaftarkan modul tambahan via files.push('X.js').
+        // File yang tidak ada = 404 = toast "Gagal memuat modul Pengaturan"
+        // (kasus nyata: referensi system-apps-grid.js tertinggal setelah
+        // kontennya digabung ke settings-system-apps.js lalu filenya dihapus).
+        val html = webuiPage().readText()
+        val staticJs = repoRoot().resolve("webui/static/js")
+
+        val referenced = Regex("""files\.push\('([a-z-]+\.js)'\)""")
+            .findAll(html)
+            .map { it.groupValues[1] }
+            .toList()
+
+        assertTrue(
+            "Tidak ada modul lazy tambahan yang terdaftar — pola loadSectionScript berubah?",
+            referenced.isNotEmpty()
+        )
+
+        val missing = referenced.filter { !staticJs.resolve(it).exists() }
+        assertTrue(
+            "Modul lazy berikut tidak ditemukan di webui/static/js:\n" +
+                missing.joinToString("\n") { "  - $it" },
+            missing.isEmpty()
+        )
+    }
+
     // ── Fix review ronde 3: semua modal wajib tersembunyi bawaan ─────────
 
     @Test

@@ -2252,7 +2252,7 @@ window.__settingsLoaded = {};
     // the packages editor (settings-packages.js).
     var files = ['settings-' + key + '.js'];
     if (key === 'vouchers') files.push('settings-voucher-audit.js');
-    if (key === 'system-apps') files.push('system-apps-grid.js');
+    if (key === 'general') files.push('settings-packages.js');
     if (key === 'general') files.push('settings-packages.js');
     var remaining = files.length;
     function done() { if (--remaining <= 0 && cb) cb(); }
