@@ -143,7 +143,8 @@ test('R28: backdrop modal pakai pola modal-dismiss + data-modal-close, role="dia
         ['singleModal', 'closeSingleModal'],
         ['batchModal', 'closeBatchModal'],
         ['redemptionsModal', 'closeRedemptionsModal'],
-        ['confirmActionModal', 'closeConfirmActionModal'],
+        // Batch 12 (T22): confirmActionModal DIHAPUS — konfirmasi voucher
+        // memakai showConfirm core; entri dari daftar dikeluarkan.
         ['uploadModal', 'closeUploadModal']
     ]) {
         const tag = new RegExp(`<div[^>]*id="${id}"[^>]*>`).exec(SETTINGS);

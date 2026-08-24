@@ -111,9 +111,13 @@ test('B8-1 (statik): wrapper voucher + confirm-action-close didaftarkan di setti
     const voucherOwned = [
         'voucher-open-batch', 'voucher-open-single', 'voucher-close-batch',
         'voucher-close-single', 'voucher-close-redemptions', 'voucher-search',
-        'voucher-search-clear', 'confirm-action-close'
+        'voucher-search-clear'
+        // Batch 12 (T22): confirm-action-close DIHAPUS — modal arwah voucher
+        // diganti showConfirm core; tidak ada lagi registrasinya.
     ];
     const inVouchers = registeredNames(VOUCHERS_JS_SRC);
+    assert.ok(!inVouchers.has('confirm-action-close'),
+        "registrasi arwah 'confirm-action-close' tidak boleh kembali");
     for (const name of voucherOwned) {
         assert.ok(inVouchers.has(name),
             `Actions.register('${name}') harus ada di settings-vouchers.js`);
@@ -123,7 +127,7 @@ test('B8-1 (statik): wrapper voucher + confirm-action-close didaftarkan di setti
     // Fungsi target memang didefinisikan di modul yang sama.
     for (const fn of ['openBatchModal', 'openSingleModal', 'closeBatchModal',
         'closeSingleModal', 'closeRedemptionsModal', 'loadVouchers',
-        'clearVoucherSearch', 'closeConfirmActionModal']) {
+        'clearVoucherSearch']) {
         assert.match(VOUCHERS_JS_SRC, new RegExp('function\\s+' + fn + '\\b'),
             `${fn} harus hidup di settings-vouchers.js`);
     }
@@ -390,23 +394,20 @@ test('B8-1 (perilaku): registrasi voucher di settings-vouchers.js hidup lewat de
     env.sandbox.closeBatchModal = () => calls.push(['closeBatchModal']);
     env.sandbox.closeSingleModal = () => calls.push(['closeSingleModal']);
     env.sandbox.closeRedemptionsModal = () => calls.push(['closeRedemptionsModal']);
-    env.sandbox.closeConfirmActionModal = () => calls.push(['closeConfirmActionModal']);
 
     env.runSnippet(extractRegistrations(VOUCHERS_JS_SRC, [
         'voucher-open-batch', 'voucher-open-single', 'voucher-close-batch',
         'voucher-close-single', 'voucher-close-redemptions', 'voucher-search',
-        'voucher-search-clear', 'confirm-action-close'
+        'voucher-search-clear'
     ], 'settings-vouchers.js'), 'settings-vouchers.js#b8');
 
     env.fireDocClick(env.makeNode('button', { 'data-action': 'voucher-search' }));
     env.fireDocClick(env.makeNode('button', { 'data-action': 'voucher-close-single' }));
-    env.fireDocClick(env.makeNode('button', { 'data-action': 'confirm-action-close' }));
     env.fireDocClick(env.makeNode('button', { 'data-action': 'voucher-open-batch' }));
 
     assert.deepEqual(calls, [
         ['loadVouchers', 1],
         ['closeSingleModal'],
-        ['closeConfirmActionModal'],
         ['openBatchModal']
     ], 'delegasi harus meneruskan ke fungsi modul voucher dengan argumen benar');
 });

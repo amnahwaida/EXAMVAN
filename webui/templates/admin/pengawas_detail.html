@@ -263,7 +263,7 @@
      <svg class="icon-svg pd-search-icon"><use href="#hi-search"/></svg>
       <input type="text" id="pengawasSearch" class="pd-search-input" placeholder="Cari nama, ID perangkat..." aria-label="Cari peserta">
     </div>
-    <span id="lastUpdatedLabel" style="font-size:11px;color:var(--color-text-muted);white-space:nowrap;align-self:center;" aria-live="off"></span>
+    <span id="lastUpdatedLabel" style="font-size:11px;color:var(--color-text-muted);white-space:nowrap;align-self:center;" aria-live="polite"></span>
     <button class="pd-toolbar-btn" data-action="load-detail" title="Muat Ulang" aria-label="Muat ulang data peserta">
      <svg class="icon-svg"><use href="#hi-refresh"/></svg>
     </button>
@@ -607,7 +607,7 @@
 .pd-action-active:hover { background: rgba(var(--rgb-success),0.18); }
 .pd-action-danger {
   background: rgba(var(--rgb-danger),0.1);
-  color: #f87171;
+  color: var(--color-danger-bright);
   border-color: rgba(var(--rgb-danger),0.3);
 }
 .pd-action-danger:hover { background: rgba(var(--rgb-danger),0.18); }
@@ -935,7 +935,7 @@
   transition: all 0.2s;
 }
 .btn-modal-reject:hover {
-  background: #f87171;
+  background: var(--color-danger-bright);
   transform: translateY(-1px);
 }
 
@@ -948,7 +948,7 @@
 .log-entry::before { content:'';position:absolute;left:-22px;top:16px;width:10px;height:10px;border-radius:50%;border:2px solid;background:var(--color-bg); }
 .log-entry.login::before { background:var(--color-success-light);border-color:var(--color-success-light); }
 .log-entry.heartbeat::before { background:#60a5fa;border-color:#60a5fa; }
-.log-entry.logout::before { background:#f87171;border-color:#f87171; }
+.log-entry.logout::before { background:var(--color-danger-bright);border-color:var(--color-danger-bright); }
 .log-entry .log-time { font-size:0.72rem;color:var(--color-text-muted);font-family:var(--font-mono);margin-top:2px; }
 .log-entry .log-event { font-size:0.85rem;font-weight:700;color:var(--color-text); }
 .log-entry .log-detail { font-size:0.72rem;color:var(--color-text-muted);margin-top:2px; }
@@ -959,7 +959,7 @@
 .audit-log-timeline { position:relative;padding-left:28px;margin-top:8px; }
 .audit-log-timeline::before { content:'';position:absolute;left:10px;top:8px;bottom:8px;width:2px;background:var(--color-glass-border); }
 .audit-log-entry.enable::before { background:var(--color-success-light);border-color:var(--color-success-light); }
-.audit-log-entry.disable::before { background:#f87171;border-color:#f87171; }
+.audit-log-entry.disable::before { background:var(--color-danger-bright);border-color:var(--color-danger-bright); }
 .audit-log-entry .log-actor { display:flex;align-items:center;gap:6px;margin-top:2px;font-size:0.72rem;color:var(--color-text-muted); }
 .audit-log-entry .log-actor strong { color:var(--color-text); }
 
@@ -1050,7 +1050,9 @@
   .pd-stat-card { padding: 12px 10px; }
   .pd-stat-value { font-size: 1.1rem; }
   .pd-stat-label { font-size: 0.65rem; }
-  .pd-action-btn { font-size: 0.65rem; padding: 5px 8px; }
+  /* Batch 12 (R76): label Izinkan/Tolak tetap terbaca di ponsel kecil —
+     hemat ruang lewat padding, bukan mengecilkan font. */
+  .pd-action-btn { font-size: 0.75rem; padding: 4px 6px; }
   .pd-control-btn { font-size: 0.8rem; padding: 10px 16px; }
 }
 /* --- Toggle Switch --- */
@@ -1204,6 +1206,11 @@ var approvalLastSerialized = null;
 var approvalRowsLive = false;
 var approvalRowsCache = [];
 var approvalActionBusy = false;
+// Batch 12 (R75): de-dup toast gagal antrean izin — poll tiap 5 detik tidak
+// boleh men-spam toast yang sama. Pola once seperti notifyAuthExpired: flag
+// di-set saat toast error dikirim, dan di-reset saat poll kembali sukses
+// agar kegagalan BARU setelah masa sehat tetap terlihat.
+var approvalsErrorToasted = false;
 
 // Notice (empty/error/closed) SELALU menimpa baris data — snapshot wajib
 // divalidasi di sini agar poll berikutnya dengan payload sama tidak salah
@@ -1238,6 +1245,8 @@ function loadApprovals() {
     apiFetch('/admin/api/pengawas/exams/' + EXAM_ID + '/approvals?limit=200', { headers: { 'Accept': 'application/json' } })
         .then(function(r) { return r.json(); })
         .then(function(res) {
+            // R75: poll sukses menghidupkan kembali izin toast kegagalan baru.
+            if (res && res.success) approvalsErrorToasted = false;
             var note = document.getElementById('approvalOverflowNote');
             if (note) {
                 if (res && res.success && res.total > (res.data ? res.data.length : 0)) {
@@ -1268,7 +1277,12 @@ function loadApprovals() {
                     return;
                 }
                 // Gagal memuat antrean — jangan samarkan sebagai antrean kosong.
-                showToast((res && res.message) || 'Gagal memuat antrean izin perangkat', 'error');
+                // R75: satu toast per episode gagal; tick 5 detik berikutnya
+                // cukup memperbarui notice tanpa menumpuk toast.
+                if (!approvalsErrorToasted) {
+                    approvalsErrorToasted = true;
+                    showToast((res && res.message) || 'Gagal memuat antrean izin perangkat', 'error');
+                }
                 renderApprovalNotice('<tr><td colspan="5" class="pd-table-empty" style="color:var(--color-danger-light);">Gagal memuat antrean. Coba lagi.</td></tr>');
                 return;
             }
@@ -1483,6 +1497,10 @@ function setApproval(macAddress, status, skipConfirm) {
 function markUpdated() {
     var el = document.getElementById('lastUpdatedLabel');
     if (!el) return;
+    // Batch 12 (S69): stempel kesegaran data. Format HH:MM:SS dipertahankan
+    // (detik bermakna untuk polling 5-12 dtk; formatDateTimeID tak punya
+    // detik) — catatan: memakai jam perangkat sampai server menyertakan
+    // timestamp respons; selisih jam perangkat konsisten di seluruh kolom.
     var d = new Date();
     var pad = function(n) { return (n < 10 ? '0' : '') + n; };
     el.textContent = 'Diperbarui ' + pad(d.getHours()) + ':' + pad(d.getMinutes()) + ':' + pad(d.getSeconds());
@@ -2007,8 +2025,10 @@ function updateCountdown() {
         el.innerHTML = '';
         return;
     }
-    if (!TOKEN_LAST_RESET || !TOKEN_INTERVAL_MINUTES) return;
-
+    // Batch 12 (R74): guard ganda "!TOKEN_LAST_RESET || !TOKEN_INTERVAL_MINUTES"
+    // membuat pesan empty-state di bawah menjadi cabang mati — dipisah:
+    // interval mati → keluar diam; token belum pernah di-reset → pesan tampil.
+    if (!TOKEN_INTERVAL_MINUTES) return;
     try {
         if (!TOKEN_LAST_RESET || TOKEN_LAST_RESET === '') {
             el.innerHTML = '<span style="color:var(--color-text-muted);font-size:0.75rem;">Rotasi otomatis belum aktif</span>';

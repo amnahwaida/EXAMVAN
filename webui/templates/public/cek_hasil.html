@@ -9,13 +9,14 @@
  <meta name="robots" content="noindex, nofollow">
  <link rel="stylesheet" href="/static/css/theme.css?v={{.version}}">
  <link rel="stylesheet" href="/static/css/tailwind/output.css?v={{.version}}">
+ <!-- R71: seluruh link stylesheet eksternal wajib SEBELUM blok style inline pertama; urutan antar-link dipertahankan. -->
+<link rel="stylesheet" href="/static/css/public-mobile.css?v={{.version}}">
+ <link rel="stylesheet" href="/static/css/public-desktop.css?v={{.version}}">
  <link rel="icon" type="image/png" href="/static/favicon.png">
  <style>
   /* Prevent iOS Safari auto-zoom on focus. */
   .login-form .form-group input { font-size: 16px; }
  </style>
-<link rel="stylesheet" href="/static/css/public-mobile.css?v={{.version}}">
- <link rel="stylesheet" href="/static/css/public-desktop.css?v={{.version}}">
 </head>
 <body class="login-page">
  {{ template "public_auth_nav" . }}

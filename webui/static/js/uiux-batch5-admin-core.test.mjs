@@ -248,7 +248,9 @@ const MODALS_DASHBOARD = [
 ];
 const MODALS_SETTINGS = [
     'confirmRedeemModal', 'singleModal', 'batchModal',
-    'redemptionsModal', 'confirmActionModal', 'changePasswordModal'
+    // Batch 12 (T22): confirmActionModal DIHAPUS — konfirmasi voucher kini
+    // memakai showConfirm core (satu sistem, focus-trap G5).
+    'changePasswordModal'
 ];
 
 function modalTagById(html, id) {
@@ -295,10 +297,11 @@ test('S25: SEMUA .modal-overlay/modal utama di dashboard+settings ber-role dialo
     }
 });
 
-test('S25: SEMUA tombol .modal-close punya aria-label="Tutup" (termasuk settings confirmActionModal)', () => {
+test('S25: SEMUA tombol .modal-close punya aria-label="Tutup" (settings)', () => {
     for (const [name, html] of [['dashboard.html', DASHBOARD], ['settings.html', SETTINGS]]) {
         const closes = html.match(/<button[^>]*class="[^"]*modal-close[^"]*"[^>]*>/g) || [];
-        const min = name === 'dashboard.html' ? 5 : 6;
+        // Batch 12 (T22): confirmActionModal dihapus — minimal settings 6 → 5.
+        const min = name === 'dashboard.html' ? 5 : 5;
         // Catatan: close button uploadModal (settings.html:1992) tidak ber-class
         // modal-close (inline styled) tapi sudah punya aria-label="Tutup".
         assert.ok(closes.length >= min, `${name}: minimal ${min} modal-close ditemukan, dapat ${closes.length}`);

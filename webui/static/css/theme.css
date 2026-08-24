@@ -23,6 +23,11 @@
     --color-success: #10b981;
     --color-success-bg: rgba(16, 185, 129, 0.12);
     --color-danger: #ef4444;
+    /* Batch 12 (kontrak lintas-agen): untuk teks status merah yang butuh
+       versi lebih terang dari --color-danger #ef4444 namun tetap beda dari
+       --color-danger-light #fca5a5. Pemakaian #f87171 literal wajib lewat
+       token ini. */
+    --color-danger-bright: #f87171;
     --color-danger-light: #fca5a5;
     --color-danger-bg: rgba(239, 68, 68, 0.12);
     --color-warning: #f59e0b;

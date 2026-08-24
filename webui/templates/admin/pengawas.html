@@ -213,7 +213,7 @@
 .log-entry::before { content:'';position:absolute;left:-22px;top:14px;width:10px;height:10px;border-radius:50%;border:2px solid;background:var(--color-bg); }
 .log-entry.login::before { background:var(--color-success-light);border-color:var(--color-success-light); }
 .log-entry.heartbeat::before { background:#60a5fa;border-color:#60a5fa; }
-.log-entry.logout::before { background:#f87171;border-color:#f87171; }
+.log-entry.logout::before { background:var(--color-danger-bright);border-color:var(--color-danger-bright); }
 .log-entry .log-time { font-size:0.72rem;color:var(--color-text-muted);font-family:monospace;margin-top:2px; }
 .log-entry .log-event { font-size:0.85rem;font-weight:600;color:var(--color-text); }
 .log-entry .log-detail { font-size:0.72rem;color:var(--color-text-muted);margin-top:2px; }
@@ -350,8 +350,15 @@ function renderPagination(res) {
     if (!pagEl) return;
     if (!res.total_pages || res.total_pages <= 1) { pagEl.style.display = 'none'; return; }
 
+    // Batch 12 (R73): sinkron dengan per_page=10 di loadPengawasExams.
+    var perPage = 10;
+    var rangeStart = (res.page - 1) * perPage + 1;
+    var rangeEnd = Math.min(res.page * perPage, res.total);
+
+    // Batch 12 (R73, ekor R56): info paginasi memakai rentang offset —
+    // "Menampilkan 21–30 dari 25 ujian", bukan jumlah baris halaman aktif.
     var html = '<div class="pagination-wrapper">' +
-        '<span class="pagination-info">Menampilkan ' + res.exams.length + ' dari ' + res.total + ' ujian</span>' +
+        '<span class="pagination-info">Menampilkan ' + rangeStart + '&ndash;' + rangeEnd + ' dari ' + res.total + ' ujian</span>' +
         '<div class="pagination-links">';
 
     if (res.page > 1) {

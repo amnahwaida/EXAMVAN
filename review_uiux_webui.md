@@ -6,6 +6,7 @@
 > **Ronde 3 (24 Agustus 2026 @ `1387853`, pasca Batch 8):** migrasi Batch 7–8 terverifikasi bersih di level registry; ditemukan **3 masalah Tinggi, 10 Sedang, dan 13 Rendah baru** — lihat [bagian 5.6](#56-re-review-ronde-3--temuan-baru-pasca-batch-58). Seluruhnya dieksekusi di **Batch 9** (25/26 item — sisa terbuka: R30 ditunda butuh keputusan UX).
 > **Ronde 4 (24 Agustus 2026 @ `a1afd9c`, pasca Batch 9):** regresi Batch 9 hampir seluruhnya bersih (1 eksekusi perlu dirapikan → S47); ditemukan **2 masalah Tinggi, 13 Sedang, dan 12 Rendah baru** — lihat [bagian 5.7](#57-re-review-ronde-4--temuan-baru-pasca-batch-9). Seluruhnya dieksekusi di **Batch 10** kecuali S57 ditunda (ekstraksi blok inline besar).
 > **Ronde 5 (24 Agustus 2026 @ `2debff6`, pasca Batch 10):** eksekusi Batch 10 terverifikasi asli & terukur, namun ditemukan **3 masalah Tinggi, 5 Sedang, dan 13 Rendah baru** — termasuk regresi fungsional T19 (race defer vs registrasi Actions) dan dua temuan integritas proses (klaim `[x]` yang tidak tuntas) — lihat [bagian 5.8](#58-re-review-ronde-5--temuan-baru-pasca-batch-10). Seluruhnya dieksekusi di **Batch 11**.
+> **Ronde 6 (24 Agustus 2026 @ `4c87bc8`, pasca Batch 11):** verifikasi Batch 11 praktis bersih (1 sub-item tertinggal → S66); ditemukan **1 masalah Tinggi, 5 Sedang, dan 10 Rendah baru** — lihat [bagian 5.9](#59-re-review-ronde-6--temuan-baru-pasca-batch-11). Seluruhnya dieksekusi di **Batch 12** (S69 parsial: aria-live tuntas, stempel jam-perangkat ditunda butuh timestamp server).
 > **Tujuan:** acuan perbaikan UI/UX tahap selanjutnya. Setiap temuan punya ID unik (`T`=Tinggi, `S`=Sedang, `R`=Rendah, `P`=Keputusan Produk, `G`=Positif) agar mudah dirujuk di commit/issues (mis. `fix(uiux): T2 …`).
 
 ---
@@ -1113,9 +1114,150 @@ Item lama tetap terbuka: R4 document.write (`download.html:537,555,697,776`, `se
 
 ---
 
+## 5.9 RE-REVIEW RONDE 6 — Temuan baru pasca Batch 11
+
+> **Tanggal:** 24 Agustus 2026 · **Basis kode:** `4c87bc8` (pasca Batch 11, suite 666/666 hijau) · **Metode:** 3 reviewer paralel (area admin, area publik, lintas-halaman/design-system) + verifikasi manual silang temuan kunci.
+> Fokus khusus ronde ini: verifikasi eksekusi Batch 11 dan sisa ekor polish. Penomoran ID melanjutkan ronde sebelumnya.
+
+### Status verifikasi cepat
+
+**Regresi/eksekusi Batch 11 (spot-check langsung ke kode):**
+
+| Item | Vonis | Bukti kunci |
+|---|---|---|
+| T19 registrasi Actions DOMContentLoaded | ✅ BERES | hasil.html:337-356 & download.html:842-856; core defer tereksekusi sebelum event; fungsi terhoisting |
+| T21 handler inline | ✅ BERES | grep `\son[a-z]+=` templates = 0; guard folder-wide rekursif benar; dashboard wiring setara (Enter pencarian via keydown, delegasi change lengkap) |
+| S60 reset halaman live-search | ✅ BERES | loadDetail(1)/loadPengawasExams(1) di callback & fallback Enter |
+| S49-lanjutan/R66 waktu WIB server | ✅ BERES | hasil.go jakartaLoc+FixedZone; field *_display dikirim, ISO dipertahankan untuk durasi klien — dua layar resmi konsisten |
+| S47/S61/R55/R58/R62–R65 | ✅ BERES | dirty-clear 8 kartu; expires_at terformat; formatter durasi tunggal; countdown berbasis jam; label OTP for; CTA 404; aria strength meter; hint lowercase |
+| S63 #fff settings | ✅ BERES (0 tersisa) | migrasi kontekstual diverifikasi per-baris |
+
+**Audit terukur pasca Batch 12:** hex templates/**146** (plafon diperketat ≤150), rgba literal **140** (≤145) — margin folder kini sempit & bermakna; `#64748b`=0, `#fff` settings=0.
+
+Item lama tetap terbuka: R4 document.write, R30, P3, S57, duplikasi modal password, S21/S22 (sebagian dieksekusi R69).
+
+---
+
+### T22 — Sistem konfirmasi KETIGA masih hidup di vouchers + gradien gagal-AA dipasang dari JS
+- **Prioritas:** 🔴 Tinggi · **Usaha:** S · **Area:** Admin (Settings/Vouchers) · **Status:** `[x]` ✅ **Batch 12**
+- **Lokasi (pra-fix):** `settings-vouchers.js:315-332` (showConfirmModal + trap sendiri), pemanggil :356/:391; gradien terlarang `linear-gradient(135deg,#a855f7,#6366f1)` + putih (:326, 3.96/4.47:1); markup `settings.html:1575`.
+- **Dampak:** CTA destruktif hapus voucher gagal WCAG AA dan dialognya berbeda dari semua konfirmasi lain — drift sistem modal (S16) bangkit di titik baru.
+- **Eksekusi Batch 12:** showConfirmModal + closeConfirmActionModal + modal arwah DIHAPUS; kedua pemanggil memakai showConfirm core dengan label eksplisit ("Ya, Matikan/Aktifkan Voucher", "Hapus Voucher"); registrasi arwah `confirm-action-close` dihapus; warna link voucher → var(--color-accent-light) (kontras naik). Whitelist larangan endpoint kini mencakup JS render-path.
+
+### S65 — Kartu error "Coba Lagi" tak terlihat pada kegagalan fetch pasca-muat-pertama
+- **Prioritas:** 🟡 Sedang · **Usaha:** XS · **Area:** Publik (Hasil) · **Status:** `[x]` ✅ **Batch 12**
+- **Lokasi (pra-fix):** `hasil.html:447` menyembunyikan loadingIndicator permanen; ketiga jalur gagal menulis innerHTML tanpa memulihkan display → tombol pemulihan mustahil diklik pada gagal paginasi/pencarian berikutnya.
+- **Eksekusi Batch 12:** ketiga jalur gagal men-set display='block' sebelum menulis error state; test vm sukses→gagal.
+
+### S66 — Klaim R60 tidak penuh: suffix cache-busting manual lolos di login.html
+- **Prioritas:** 🟡 Sedang (integritas proses) · **Usaha:** XS · **Status:** `[x]` ✅ **Batch 12**
+- **Lokasi (pra-fix):** `admin/login.html:34-35` (`?v={{.version}}-5` / `-3`) — guard R60 hanya memindai folder publik.
+- **Eksekusi Batch 12:** suffix dihapus; asersi anti-suffix diperluas ke template milik cakupan pengawasan-nav.
+
+### S67 — Outline heading settings rusak dua arah: h1 "Aplikasi Sistem" di tengah dokumen
+- **Prioritas:** 🟡 Sedang · **Usaha:** XS · **Area:** Admin · **Status:** `[x]` ✅ **Batch 12**
+- **Lokasi (pra-fix):** `settings.html:1990` h1 di tengah outline (setelah 23 seksi h2/h3); tak ada judul halaman.
+- **Eksekusi Batch 12:** turun ke h2; h1 sr-only kanonik "Pengaturan" ditambahkan di awal main; assertion urutan heading baru.
+
+### S68 — Kelompok ad-hoc terbesar: `#f87171` ×24 + triplet info ×18 di hasil.css
+- **Prioritas:** 🟡 Sedang · **Usaha:** S · **Area:** Lintas · **Status:** `[x]` ✅ **Batch 12**
+- **Eksekusi Batch 12:** token baru `--color-danger-bright: #f87171` di theme.css; seluruh pemakaian publik ×10 + admin ×14 → var(--color-danger-bright); hasil.css rgba(99,102,241,α) ×18 → rgba(var(--rgb-info), α).
+- **Catatan:** dashboard.html ×3 ikut dimigrasi koordinator saat integrasi.
+
+### S69 — Stempel realtime "Diperbarui" jam perangkat pengawas + aria-live off
+- **Prioritas:** 🟡 Sedang · **Usaha:** XS–S · **Area:** Admin (Pengawasan) · **Status:** `[x]` ✅ **Batch 12 (PARSIAL)** *(diverifikasi manual)*
+- **Fakta:** stempel memakai `new Date()` perangkat (jam PC lab sering meleset) bersanding data WIB server; `aria-live="off"` membuat refresh senyap bagi screen reader.
+- **Eksekusi Batch 12:** `aria-live="polite"` terpasang ✅; konversi timestamp-server DITUNDA (API belum menyertakan waktu respons) — komentar kode mendokumentasikan keterbatasan; format HH:MM:SS dipertahankan (detik bermakna untuk polling).
+
+### R67 — Klik ✕ clear-search membuat fokus jatuh ke `<body>`
+- **Usaha:** XS · **Area:** Publik (Hasil) · **Status:** `[x]` ✅ **Batch 12**
+- **Lokasi (pra-fix):** `hasil.html:349-354`. **Fix:** akhir handler `input.focus()`.
+
+### R68 — Strength meter good/strong masih hex + klaim asersi Batch 10 tidak akurat
+- **Usaha:** XS · **Area:** Publik · **Status:** `[x]` ✅ **Batch 12**
+- **Lokasi (pra-fix):** register.html:413-414 & reset_password.html:266-267 (`#22c55e`, `#06b6d4`). **Fix:** token --color-success/--color-accent-cyan + asersi blok bebas hex (klaim lama kini benar-benar ada penjaganya).
+
+### R69 — Copywriting publik: badge "(Stable)" hard-coded & hero "Cloud Teraman"
+- **Usaha:** XS · **Area:** Publik · **Status:** `[x]` ✅ **Batch 12**
+- **Eksekusi Batch 12:** "(Stable)" dihapus (server tak mengirim data stabilitas — diverifikasi download.go); hero → "Ujian Digital Teraman & Siap Offline" (selaras keluarga S21/S22).
+
+### R70 — Margin guard folder-wide melebar lagi + 2 file JS tak ter-guard
+- **Usaha:** XS · **Area:** Tooling · **Status:** `[x]` ✅ **Batch 12**
+- **Eksekusi Batch 12:** plafon folder-wide hex 300→150, rgba 225→145 (=aktual); baseline settings-system-apps.js & pengawas-detail.js ditambahkan; entri basi settings.html:110 dirapikan.
+
+### R71 — Blok `<style>` inline disisipkan DI ANTARA link eksternal ×4 halaman publik
+- **Usaha:** S · **Area:** Publik · **Status:** `[x]` ✅ **Batch 12**
+- **Eksekusi Batch 12:** semua link stylesheet dipindah sebelum blok inline pertama (hasil/download/register/cek_hasil); asersi "0 link setelah style pertama" per halaman.
+
+### R72 — Asterisk required `#f43f5e` di kartu form 4.44:1
+- **Usaha:** XS · **Area:** Admin (Settings) · **Status:** `[x]` ✅ **Batch 12**
+- **Eksekusi Batch 12:** ×4 → var(--color-danger-light) (pola R41/tone-danger).
+
+### R73 — Info paginasi daftar ujian pengawasan tanpa offset (ekor R56)
+- **Usaha:** XS · **Area:** Admin (Pengawasan) · **Status:** `[x]` ✅ **Batch 12**
+- **Eksekusi Batch 12:** rentang "Menampilkan X–Y dari Z ujian" (test vm page 3/25 → "21–25 dari 25").
+
+### R74 — Empty-state countdown rotasi mati (dead branch)
+- **Usaha:** XS · **Area:** Admin (Pengawasan) · **Status:** `[x]` ✅ **Batch 12**
+- **Eksekusi Batch 12:** guard ganda dipisah — pesan "Rotasi otomatis belum aktif" kini dapat tampil (test vm 4 kasus).
+
+### R75 — Toast gagal antrean izin spam tiap 5 detik tanpa de-dup
+- **Usaha:** XS · **Area:** Admin (Pengawasan) · **Status:** `[x]` ✅ **Batch 12**
+- **Eksekusi Batch 12:** flag `approvalsErrorToasted` once-pattern (reset saat sukses) — test vm 3 gagal berturut = 1 toast.
+
+### R76 — Label Izinkan/Tolak menyusut ±10,4px di layar ≤480px
+- **Usaha:** XS · **Area:** Admin (Pengawasan) · **Status:** `[x]` ✅ **Batch 12**
+- **Eksekusi Batch 12:** font-size 0.75rem, hemat lewat padding (target sentuh tetap aman).
+
+---
+
 ## 6. REKAP TRACKING
 
 > Centang `[x]` + cantumkan hash commit saat selesai. Urut sesuai prioritas eksekusi.
+
+### Batch 12 — Ronde 6: eksekusi temuan 5.9 ✅ SELESAI (2026-08-24, test-first via 3 agen paralel (1 terputus → dituntaskan koordinator); suite gabungan repo **666/666 hijau**, `go build`+`go vet` OK)
+
+> Kontrak lintas-agen: (1) token baru `--color-danger-bright: #f87171` didefinisikan theme.css
+> (agen publik) — seluruh pemakaian #f87171 di template bermigrasi ke var(); (2) plafon guard
+> folder-wide dikunci ke baseline aktual oleh agen settings-guard; (3) dashboard.html (#f87171 ×3)
+> ditangani koordinator saat integrasi.
+
+- [x] **T22** sistem konfirmasi ketiga DIHAPUS dari vouchers: showConfirmModal +
+  closeConfirmActionModal + modal arwah confirmActionModal (markup settings.html) dihapus; kedua
+  pemanggil (toggle/delete voucher) memakai showConfirm core dengan label eksplisit ("Ya,
+  Matikan/Aktifkan Voucher", "Hapus Voucher"); gradien terlarang #a855f7/#6366f1 hilang dari JS —
+  link warna aksen → var(--color-accent-light) (kontras naik); registrasi arwah confirm-action-close
+  dihapus. Whitelist larangan endpoint kini mencakup JS render-path.
+- [x] **S65** ketiga jalur gagal fetch halaman hasil memulihkan display kontainer error sebelum
+  menulis innerHTML — tombol "Coba Lagi" kini terlihat pada gagal paginasi/pencarian berikutnya.
+- [x] **S66** suffix cache-busting manual di login.html (`-5`/`-3`) dihapus; asersi anti-suffix
+  diperluas ke cakupan pengawasan-nav (klaim R60 kini benar-benar penuh).
+- [x] **S67** outline heading settings dibereskan: h1 sr-only kanonik "Pengaturan" di awal main;
+  "Aplikasi Sistem" turun h2; assertion urutan heading baru.
+- [x] **S68** migrasi literal: #f87171 ×24 → var(--color-danger-bright) (publik ×10, admin ×14);
+  hasil.css rgba(99,102,241,α) ×18 → rgba(var(--rgb-info), α) — visual nol perubahan.
+- [x] **S69 (PARSIAL)** `aria-live="polite"` pada stempel "Diperbarui" ✅; konversi timestamp-server
+  DITUNDA (API belum menyertakan waktu respons — didokumentasikan di kode; format HH:MM:SS
+  dipertahankan karena detik bermakna untuk polling).
+- [x] **R67** clear-search mengembalikan fokus ke input pencarian (tak lagi jatuh ke body).
+- [x] **R68** strength meter good/strong → token (--color-success/--color-accent-cyan) register &
+  reset_password + asersi blok bebas hex (klaim Batch 10 yang tidak akurat kini benar-benar dijaga).
+- [x] **R69** badge "(Stable)" hard-coded dihapus (server tak kirim data stabilitas); hero landing →
+  "Ujian Digital Teraman & Siap Offline" (keluarga S21/S22).
+- [x] **R70** plafon guard folder-wide hex 300→150, rgba 225→145 (=aktual); baseline JS ditambah
+  settings-system-apps.js & pengawas-detail.js; entri basi settings.html dirapikan.
+- [x] **R71** semua link stylesheet eksternal dipindah sebelum blok <style> inline pertama
+  (hasil/download/register/cek_hasil) + asersi per-halaman.
+- [x] **R72** asterisk required #f43f5e ×4 → var(--color-danger-light).
+- [x] **R73** info paginasi daftar ujian pengawasan memakai rentang (pola R56).
+- [x] **R74** dead branch countdown rotasi diperbaiki — pesan "Rotasi otomatis belum aktif" dapat tampil.
+- [x] **R75** toast gagal antrean izin de-dup once-pattern (reset saat sukses) — 3 gagal = 1 toast.
+- [x] **R76** label Izinkan/Tolak ≤480px naik 0.75rem (hemat via padding).
+- Kontrak test lama direvisi minimal dengan intent proteksi dipertahankan: batch4-modal R13
+  (h1 tunggal kini sr-only kanonik), batch5-admin-core S25 (confirmActionModal keluar daftar,
+  minimum modal-close 6→5), batch7-settings (entri modal arwah keluar), batch6-jscore (test
+  delegasi closeConfirmActionModal dihapus bersama fungsinya), batch8-actions B8-1 (registrasi
+  arwah dilarang kembali).
 
 ### Batch 11 — Ronde 5: eksekusi temuan 5.8 ✅ SELESAI (2026-08-24, test-first via 4 agen paralel (2 terputus → dikerjakan/dituntaskan koordinator); suite gabungan repo **631/631 hijau**, `go build`+`go vet` OK)
 

@@ -63,14 +63,17 @@ test('S43 (self-test): regex rgba literal tidak menghitung rgba(var( sebagai lit
 // Angka = hasil ukur langsung; jangan dinaikkan tanpa alasan terdokumentasi.
 test('S15 fase 2 (guard): total hex literal di seluruh templates/ tidak naik dari baseline Batch 7', () => {
     const total = countFolder(HEX_RE);
-    assert.ok(total <= 300,
-        `total hex templates/ = ${total}, baseline terkunci ≤ 300 — pakai var(--token) untuk warna baru`);
+    // Batch 12 (R70): plafon diperketat ke baseline aktual (146) — margin
+    // ratusan literal membuat guard melindungi tempat yang salah.
+    assert.ok(total <= 150,
+        `total hex templates/ = ${total}, baseline terkunci ≤ 150 — pakai var(--token) untuk warna baru`);
 });
 
 test('S15 fase 2/S43 (guard): total rgba LITERAL (digit pembuka) di seluruh templates/ tidak naik', () => {
     const total = countFolder(RGBA_RE);
-    assert.ok(total <= 225,
-        `total rgba literal templates/ = ${total}, baseline terkunci ≤ 225 — pakai rgba(var(--rgb-*), α) / --glass-bg-strong`);
+    // Batch 12 (R70): baseline aktual 140 (pasca migrasi S58/Batch 11-12).
+    assert.ok(total <= 145,
+        `total rgba literal templates/ = ${total}, baseline terkunci ≤ 145 — pakai rgba(var(--rgb-*), α) / --glass-bg-strong`);
 });
 
 // Plafon per-file rgba literal (hasil ukur S43, regex digit-pembuka).

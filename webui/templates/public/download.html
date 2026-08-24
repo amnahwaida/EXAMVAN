@@ -1,6 +1,9 @@
 {{ template "public_head" . }}
 <script src="/static/js/admin-core.js?v={{.version}}" defer></script>
 <div class="toast-container" id="toastContainer" aria-live="polite" aria-atomic="true"></div>
+<!-- R71: seluruh link stylesheet eksternal wajib SEBELUM blok style inline pertama; urutan antar-link dipertahankan. -->
+<link rel="stylesheet" href="/static/css/public-mobile.css?v={{.version}}">
+<link rel="stylesheet" href="/static/css/public-desktop.css?v={{.version}}">
 <style>
   main {
     flex: 1;
@@ -449,7 +452,7 @@
   .toast-warning { background: rgba(var(--rgb-warning), 0.2); border-color: rgba(var(--rgb-warning), 0.3); }
   .toast-info { background: rgba(var(--rgb-info), 0.2); border-color: rgba(var(--rgb-info), 0.3); }
   .toast-success .toast-icon { color: var(--color-success-light); }
-  .toast-error .toast-icon { color: #f87171; }
+   .toast-error .toast-icon { color: var(--color-danger-bright); }
   .toast-warning .toast-icon { color: var(--color-warning-light); }
   .toast-info .toast-icon { color: var(--color-primary-light); }
   .toast-r2-config {
@@ -472,8 +475,6 @@
     .toast-close { opacity: 1; }
   }
 </style>
-<link rel="stylesheet" href="/static/css/public-mobile.css?v={{.version}}">
-<link rel="stylesheet" href="/static/css/public-desktop.css?v={{.version}}">
 <noscript><style>.reveal { opacity: 1 !important; transform: none !important; }</style></noscript>
 
   <main id="main-content">
@@ -639,7 +640,7 @@
           <details id="panduan-admin-it-android" style="margin-top: 24px;">
             <summary style="cursor: pointer;">Untuk Admin IT Sekolah — Metode Kiosk (Device Owner)</summary>
             <div style="margin-top: 20px; background: rgba(var(--rgb-danger), 0.08); border: 1px solid rgba(var(--rgb-danger), 0.25); border-radius: 16px; padding: 16px 20px;">
-              <strong style="color: #f87171;">PERINGATAN:</strong>
+              <strong style="color: var(--color-danger-bright);">PERINGATAN:</strong>
               <span style="color: var(--color-text-muted); font-size: 14px; line-height: 1.6; display: block; margin-top: 6px;">
                 Metode ini akan <strong>menghapus seluruh data</strong> di perangkat dan menguncinya sebagai kiosk ujian. Hanya gunakan pada perangkat sekolah yang dikelola tim IT — <strong>jangan gunakan pada HP pribadi siswa/guru</strong>.
               </span>
@@ -825,7 +826,10 @@
     <!-- WebApp & Server Status Info -->
     <div class="server-version-box reveal">
       <span>Versi WebApp Server yang aktif saat ini:</span>
-      <strong style="color: white; font-family: 'Outfit'; font-size: 16px; background: rgba(var(--rgb-white),0.1); padding: 4px 12px; border-radius: 8px;">v{{.webapp_version}} (Stable)</strong>
+      <!-- R69: label stabilitas rilis dihapus — data yang dikirim server
+           (webapp_version) tidak mencakup status stabilitas, jadi halaman
+           tidak boleh mengklaim apa yang tak dikendalikan data. -->
+      <strong style="color: white; font-family: 'Outfit'; font-size: 16px; background: rgba(var(--rgb-white),0.1); padding: 4px 12px; border-radius: 8px;">v{{.webapp_version}}</strong>
     </div>
 
   </main>

@@ -149,8 +149,10 @@ test('R13: settings.html memiliki tepat 1 h1 (heading visible), heading halaman-
     const html = read('templates/admin/settings.html');
     const h1s = [...html.matchAll(/<h1\b[^>]*>([\s\S]*?)<\/h1>/g)];
     assert.equal(h1s.length, 1, `settings harus tepat 1 h1 (dapat ${h1s.length})`);
-    assert.doesNotMatch(h1s[0][0], /sr-only/, 'satu-satunya h1 tidak boleh sr-only');
-    assert.doesNotMatch(html, /<h1[^>]*sr-only/, 'tidak boleh ada lagi h1 sr-only');
+    // Batch 12 (S67): satu-satunya h1 kini sr-only judul kanonik "Pengaturan"
+    // di awal dokumen; "Aplikasi Sistem" turun ke h2 (visual via class).
+    assert.match(h1s[0][0], /sr-only/, 'satu-satunya h1 adalah judul kanonik sr-only');
+    assert.match(h1s[0][0], /Pengaturan/);
 });
 
 // ---------------------------------------------------------------------------

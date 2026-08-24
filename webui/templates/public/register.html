@@ -11,9 +11,12 @@
  {{else}}
  <meta name="robots" content="noindex, nofollow">
  {{end}}
- <link rel="stylesheet" href="/static/css/theme.css?v={{.version}}">
- <link rel="stylesheet" href="/static/css/tailwind/output.css?v={{.version}}">
- <link rel="icon" type="image/png" href="/static/favicon.png">
+  <link rel="stylesheet" href="/static/css/theme.css?v={{.version}}">
+  <link rel="stylesheet" href="/static/css/tailwind/output.css?v={{.version}}">
+  <!-- R71: seluruh link stylesheet eksternal wajib SEBELUM blok style inline pertama; urutan antar-link dipertahankan. -->
+  <link rel="stylesheet" href="/static/css/public-mobile.css?v={{.version}}">
+  <link rel="stylesheet" href="/static/css/public-desktop.css?v={{.version}}">
+  <link rel="icon" type="image/png" href="/static/favicon.png">
  <meta name="csrf-token" content="{{.csrf_token}}">
  <style>
   /* Inline input icons */
@@ -186,10 +189,8 @@
    .reg-step-label { display: none; }
    .reg-step-line { width: 24px; }
   }
- </style>
- <link rel="stylesheet" href="/static/css/public-mobile.css?v={{.version}}">
- <link rel="stylesheet" href="/static/css/public-desktop.css?v={{.version}}">
- {{if .turnstile_enabled}}
+  </style>
+  {{if .turnstile_enabled}}
  <!-- Cloudflare Turnstile — bot protection on registration (SuperAdmin-managed) -->
  <script src="https://challenges.cloudflare.com/turnstile/v0/api.js" async defer></script>
  {{end}}
@@ -303,14 +304,14 @@
    </div>
    <svg class="input-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M16.5 10.5V6.75a4.5 4.5 0 1 0-9 0v3.75m-.75 11.25h10.5a2.25 2.25 0 0 0 2.25-2.25v-6.75a2.25 2.25 0 0 0-2.25-2.25H6.75a2.25 2.25 0 0 0-2.25 2.25v6.75a2.25 2.25 0 0 0 2.25 2.25Z"/></svg>
   </div>
-  <span id="pwMatchError" role="alert" style="display:none;font-size:12px;color:#f87171;margin-top:6px;">Password tidak cocok</span>
+  <span id="pwMatchError" role="alert" style="display:none;font-size:12px;color:var(--color-danger-bright);margin-top:6px;">Password tidak cocok</span>
  </div>
 
  <!-- Cloudflare Turnstile bot protection -->
  {{if .turnstile_enabled}}
  <div class="form-group" style="display:flex;flex-direction:column;align-items:center;">
   <div class="cf-turnstile" data-sitekey="{{.turnstile_site_key}}" data-theme="dark"></div>
-   <div id="turnstileError" role="alert" style="display:none;color:#f87171;font-size:12px;margin-top:8px;text-align:center;"></div>
+   <div id="turnstileError" role="alert" style="display:none;color:var(--color-danger-bright);font-size:12px;margin-top:8px;text-align:center;"></div>
  </div>
  {{end}}
 
@@ -410,8 +411,8 @@
      { cls: 'weak', label: 'Lemah — tambahkan karakter', color: 'var(--color-danger)' },
      { cls: 'weak', label: 'Lemah — tambahkan variasi', color: 'var(--color-danger)' },
      { cls: 'fair', label: 'Cukup — bisa lebih baik', color: 'var(--color-warning)' },
-     { cls: 'good', label: 'Bagus — password cukup kuat', color: '#22c55e' },
-     { cls: 'strong', label: 'Kuat — password sangat aman!', color: '#06b6d4' }
+   { cls: 'good', label: 'Bagus — password cukup kuat', color: 'var(--color-success)' },
+    { cls: 'strong', label: 'Kuat — password sangat aman!', color: 'var(--color-accent-cyan)' }
     ];
     var idx = Math.min(score, levels.length - 1);
     barFill.className = 'pw-bar-fill ' + levels[idx].cls;

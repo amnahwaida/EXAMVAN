@@ -397,13 +397,13 @@
     if (resendLink) resendLink.style.pointerEvents = '';
     if (resendMsg) {
      resendMsg.textContent = res.j.message || (res.ok ? 'Kode baru terkirim.' : 'Gagal mengirim ulang.');
-     resendMsg.style.color = res.ok && res.j.success ? '#34d399' : '#f87171';
+     resendMsg.style.color = res.ok && res.j.success ? '#34d399' : 'var(--color-danger-bright)';
     }
     if (res.ok && res.j.success) startCooldown(60);
    })
    .catch(function() {
     if (resendLink) resendLink.style.pointerEvents = '';
-    if (resendMsg) { resendMsg.textContent = 'Gagal terhubung ke server.'; resendMsg.style.color = '#f87171'; }
+     if (resendMsg) { resendMsg.textContent = 'Gagal terhubung ke server.'; resendMsg.style.color = 'var(--color-danger-bright)'; }
    });
   };
 

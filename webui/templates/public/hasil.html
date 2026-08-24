@@ -23,6 +23,9 @@
  <link rel="stylesheet" href="/static/css/theme.css?v={{.version}}">
  <link rel="stylesheet" href="/static/css/tailwind/output.css?v={{.version}}">
  <link rel="stylesheet" href="/static/css/hasil.css?v={{.version}}">
+ <!-- R71: seluruh link stylesheet eksternal wajib SEBELUM blok style inline pertama; urutan antar-link dipertahankan. -->
+ <link rel="stylesheet" href="/static/css/public-mobile.css?v={{.version}}">
+ <link rel="stylesheet" href="/static/css/public-desktop.css?v={{.version}}">
  <style>
   /* T3: chip status kelulusan eksplisit + legenda ambang tampilan.
      Ambang warna tetap mengikuti getScoreClass() (70/40); KKM per sekolah
@@ -56,8 +59,6 @@
  </style>
  <link rel="icon" type="image/png" href="/static/favicon.png">
  <script src="/static/js/admin-core.js?v={{.version}}" defer></script>
- <link rel="stylesheet" href="/static/css/public-mobile.css?v={{.version}}">
- <link rel="stylesheet" href="/static/css/public-desktop.css?v={{.version}}">
 </head>
 <body>
  <div class="toast-container" id="toastContainer" aria-live="polite" aria-atomic="true"></div>
@@ -132,7 +133,7 @@
  <h1>Hasil Ujian</h1>
  </section>
  <section class="glass-card" style="padding: 60px 40px; text-align: center; margin-top: 24px;">
- <svg class="icon-svg" style="width:60px;height:60px;margin-bottom:20px;color:#f87171;" aria-hidden="true"><use href="#hi-x"/></svg>
+  <svg class="icon-svg" style="width:60px;height:60px;margin-bottom:20px;color:var(--color-danger-bright);" aria-hidden="true"><use href="#hi-x"/></svg>
  <h2 style="font-size: 1.4rem; font-weight: 700; color: #f8fafc; margin-bottom: 12px;">Ujian Tidak Ditemukan</h2>
  <p style="color: var(--color-text-secondary);">Token "{{.token}}" tidak valid atau ujian tidak ditemukan.</p>
  <!-- R63: state error bukan dead-end — CTA utama + jalur coba token lain,
@@ -346,12 +347,15 @@
    });
    Actions.register('page-prev', function () { goToPage(currentPage - 1); });
    Actions.register('page-next', function () { goToPage(currentPage + 1); });
-   Actions.register('clear-search', function (el) {
-    var input = document.getElementById('searchInput');
-    if (input) input.value = '';
-    filterResults();
-    el.style.display = 'none';
-   });
+    Actions.register('clear-search', function (el) {
+     var input = document.getElementById('searchInput');
+     if (input) input.value = '';
+     filterResults();
+     el.style.display = 'none';
+     // R67: tombol clear kini display:none — tanpa pemulihan fokus eksplisit,
+     // fokus keyboard jatuh ke <body>. Kembalikan ke input pencarian.
+     if (input) input.focus();
+    });
    Actions.register('reload-page', function () { location.reload(); });
   }
 
@@ -415,19 +419,25 @@
   if (searchQuery) params.set('search', searchQuery);
 
   const resp = await apiFetch('/api/hasil/' + EXAM_TOKEN + '?' + params.toString(), { suppressApiErrorToast: true });
-  if (!resp.ok) {
-   const errData = await resp.json(); // dinormalisasi apiFetch: {success:false, error_code, message}
-   showApiErrorToast(errData, 'Gagal memuat data hasil');
-   document.getElementById('loadingIndicator').innerHTML =
+   if (!resp.ok) {
+    const errData = await resp.json(); // dinormalisasi apiFetch: {success:false, error_code, message}
+    showApiErrorToast(errData, 'Gagal memuat data hasil');
+    // S65: muat sukses pertama menyembunyikan loadingIndicator permanen —
+    // pulihkan display sebelum menulis kartu error, jika tidak kartu
+    // "Coba Lagi" tak terlihat pada kegagalan fetch berikutnya.
+    document.getElementById('loadingIndicator').style.display = 'block';
+    document.getElementById('loadingIndicator').innerHTML =
    '<div class="empty-state"><div class="empty-icon" aria-hidden="true"><svg class="icon-svg" style="width:40px;height:40px;margin-bottom:16px;opacity:0.4;"><use href="#hi-exclamation"/></svg></div><p>' + escapeHtml(errData.message || ('Gagal memuat data (HTTP ' + resp.status + '). Coba lagi nanti.')) + '</p>' +
    '<button class="back-nav" data-action="reload-page" style="margin-top:16px;display:inline-flex;"><svg width="14" height="14" aria-hidden="true"><use href="#hi-arrow-path"/></svg> Coba Lagi</button></div>';
     return;
   }
   const data = await resp.json();
 
-  if (!data.success) {
-   showApiErrorToast(data, 'Gagal memuat data hasil');
-   document.getElementById('loadingIndicator').innerHTML =
+   if (!data.success) {
+    showApiErrorToast(data, 'Gagal memuat data hasil');
+    // S65: pulihkan display (lihat catatan jalur !resp.ok di atas).
+    document.getElementById('loadingIndicator').style.display = 'block';
+    document.getElementById('loadingIndicator').innerHTML =
    `<div class="empty-state"><div class="empty-icon" aria-hidden="true"><svg class="icon-svg" style="width:40px;height:40px;margin-bottom:16px;opacity:0.4;"><use href="#hi-x"/></svg></div><p>${escapeHtml(data.message || 'Gagal memuat data')}</p></div>`;
    return;
   }
@@ -486,6 +496,8 @@
   } catch (err) {
   console.error('Error loading results:', err);
   showApiErrorToast(null, 'Gagal memuat data hasil ujian');
+  // S65: pulihkan display (lihat catatan jalur !resp.ok di atas).
+  document.getElementById('loadingIndicator').style.display = 'block';
   document.getElementById('loadingIndicator').innerHTML =
   '<div class="empty-state"><div class="empty-icon" aria-hidden="true"><svg class="icon-svg" style="width:40px;height:40px;margin-bottom:16px;opacity:0.4;"><use href="#hi-exclamation"/></svg></div><p>Gagal memuat data hasil ujian. Periksa koneksi atau coba lagi nanti.</p>' +
    '<button class="back-nav" data-action="reload-page" style="margin-top:16px;display:inline-flex;"><svg width="14" height="14" aria-hidden="true"><use href="#hi-arrow-path"/></svg> Coba Lagi</button></div>';

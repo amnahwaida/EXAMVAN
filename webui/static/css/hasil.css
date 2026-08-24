@@ -108,8 +108,8 @@ background-clip: text;
 font-size: 0.75rem;
 padding: 2px 8px;
 border-radius: 20px;
-background: rgba(99, 102, 241, 0.15);
-border: 1px solid rgba(99, 102, 241, 0.3);
+background: rgba(var(--rgb-info), 0.15);
+border: 1px solid rgba(var(--rgb-info), 0.3);
 color: var(--color-primary-light);
 font-weight: 600;
 letter-spacing: 0.5px;
@@ -201,8 +201,8 @@ color: var(--color-text-secondary);
 border-color: rgba(var(--rgb-white),0.12);
 }
 .tab-btn.active {
-background: rgba(99, 102, 241, 0.15);
-border-color: rgba(99, 102, 241, 0.4);
+background: rgba(var(--rgb-info), 0.15);
+border-color: rgba(var(--rgb-info), 0.4);
 color: var(--color-primary-light);
 }
 
@@ -308,9 +308,9 @@ border-bottom: 1px solid rgba(var(--rgb-white),0.04);
 transition: all 0.2s;
 cursor: pointer;
 }
-.results-table tbody tr:hover { background: rgba(99, 102, 241, 0.06); }
+.results-table tbody tr:hover { background: rgba(var(--rgb-info), 0.06); }
 .results-table tbody tr.expanded {
-background: rgba(99, 102, 241, 0.08);
+background: rgba(var(--rgb-info), 0.08);
 border-bottom-color: transparent;
 }
 .results-table tbody td { padding: 12px 14px; vertical-align: middle; }
@@ -353,12 +353,12 @@ font-weight: 500;
 .detail-row.show { display: table-row; }
 .detail-row td {
 padding: 0 !important;
-border-bottom: 1px solid rgba(99, 102, 241, 0.15);
+border-bottom: 1px solid rgba(var(--rgb-info), 0.15);
 }
 .detail-content {
 padding: 16px 20px;
-background: rgba(99, 102, 241, 0.03);
-border-top: 1px solid rgba(99, 102, 241, 0.1);
+background: rgba(var(--rgb-info), 0.03);
+border-top: 1px solid rgba(var(--rgb-info), 0.1);
 }
 
 /* Detail info grid (identity fields + time info) */
@@ -557,15 +557,15 @@ gap: 8px;
 transition: all 0.3s ease;
 }
 .key-card:hover {
-background: rgba(99, 102, 241, 0.05);
-border-color: rgba(99, 102, 241, 0.2);
+background: rgba(var(--rgb-info), 0.05);
+border-color: rgba(var(--rgb-info), 0.2);
 transform: translateY(-2px);
 }
 .key-card-header { display: flex; justify-content: space-between; align-items: center; }
 .key-card-number {
 font-weight: 800; font-size: 0.9rem;
 color: var(--color-accent-light);
-background: rgba(99, 102, 241, 0.15);
+background: rgba(var(--rgb-info), 0.15);
 padding: 3px 10px; border-radius: 8px;
 }
 /* S8: "Bobot: N" informatif — font naik ke ambang 12px, kompensasi padding rapat */
@@ -629,8 +629,8 @@ text-decoration: none; transition: all 0.2s ease; cursor: pointer;
 flex-shrink: 0;
 }
 .back-nav:hover {
-background: rgba(99, 102, 241, 0.1);
-border-color: rgba(99, 102, 241, 0.3);
+background: rgba(var(--rgb-info), 0.1);
+border-color: rgba(var(--rgb-info), 0.3);
 color: var(--color-primary-light);
 }
 
@@ -698,8 +698,8 @@ transition: transform 0.3s; display: inline-block;
  font-size: 0.85rem;
 }
 .pagination-btn:hover:not(:disabled) {
- background: rgba(99, 102, 241, 0.1);
- border-color: rgba(99, 102, 241, 0.3);
+ background: rgba(var(--rgb-info), 0.1);
+ border-color: rgba(var(--rgb-info), 0.3);
  color: var(--color-primary-light);
 }
 .pagination-btn:disabled {
@@ -733,8 +733,8 @@ transition: transform 0.3s; display: inline-block;
  color: var(--color-text);
 }
 .pagination-page-btn.active {
- background: rgba(99, 102, 241, 0.15);
- border-color: rgba(99, 102, 241, 0.4);
+ background: rgba(var(--rgb-info), 0.15);
+ border-color: rgba(var(--rgb-info), 0.4);
  color: var(--color-primary-light);
  font-weight: 700;
 }

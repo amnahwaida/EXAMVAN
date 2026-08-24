@@ -767,12 +767,16 @@
 {{template "admin/partials/settings-tabs.html" dict "active_page" .active_page "admin_role" .admin_role "feature_locked" .feature_locked}}
 
 <main class="dashboard" id="mainContent">
- {{ $role := .admin_role }}
+{{ $role := .admin_role }}
 {{ $isSuper := contains $role "superadmin" }}
 {{ $isOp := contains $role "operator" }}
 {{ $isGuru := or (contains $role "guru") (or $isSuper $isOp) }}
 {{ $locked := .feature_locked }}
 
+<!-- Batch 12 (S67): judul halaman kanonik — satu-satunya h1, di awal outline -->
+<h1 class="sr-only" style="position:absolute;left:-9999px;">Pengaturan</h1>
+
+{{ if and (not $locked) (or $isSuper $isOp) }}
 {{ if and (not $locked) (or $isSuper $isOp) }}
 <section class="settings-section" id="section-users" data-section="users" aria-label="Kelola User">
 <h2 class="sr-only" style="position:absolute;left:-9999px;">Kelola User</h2>
@@ -1571,25 +1575,6 @@
   </div>
  </div>
 </div>
-<!-- Confirm Action Modal -->
-<div class="modal-overlay" id="confirmActionModal" role="dialog" aria-modal="true" aria-labelledby="confirmActionTitle" style="display:none;" data-action="modal-dismiss" data-modal-close="closeConfirmActionModal">
- <div class="modal-card" style="max-width:440px;">
-  <div class="modal-header">
-   <h3 style="font-size:1.1rem;color:var(--color-text);margin:0;display:flex;align-items:center;gap:8px;" id="confirmActionTitle">
-    Konfirmasi Tindakan
-   </h3>
-   <button class="modal-close" data-action="confirm-action-close" aria-label="Tutup">&times;</button>
-  </div>
-  <div style="padding:20px 24px 24px;">
-   <p style="color:var(--color-text-secondary);font-size:13.5px;margin:0 0 20px 0;" id="confirmActionMessage">
-    Apakah Anda yakin ingin melanjutkan tindakan ini?
-   </p>
-   <div style="display:flex;justify-content:flex-end;gap:10px;">
-    <button class="btn-secondary" data-action="confirm-action-close" style="padding:10px 18px;border-radius:8px;cursor:pointer;">Batal</button>
-    <button id="btnConfirmActionSubmit" style="padding:10px 20px;border-radius:8px;font-weight:600;border:none;color:var(--color-text);cursor:pointer;">Ya, Lanjutkan</button>
-   </div>
-  </div>
- </div>
 </div>
 </section>
 
@@ -1987,7 +1972,7 @@
                 <svg class="icon-svg" style="width:28px;height:28px;color:#818cf8;"><use href="#hi-download"/></svg>
             </div>
             <div>
-                <h1 class="premium-header-title">Aplikasi Sistem</h1>
+                <h2 class="premium-header-title">Aplikasi Sistem</h2>
                 <p style="color:var(--color-text-placeholder); font-size:16px; margin:8px 0 0 0;">Kelola dan distribusikan aplikasi ujian (Android, Windows, Linux) via Cloudflare R2.</p>
             </div>
         </div>
@@ -2026,13 +2011,13 @@
         <div class="modal-body">
             <form id="uploadAppForm">
                 <div style="margin-bottom:24px;">
-                    <label class="form-label" for="appName">Nama Aplikasi <span style="color:#f43f5e;">*</span></label>
+                    <label class="form-label" for="appName">Nama Aplikasi <span style="color:var(--color-danger-light);">*</span></label>
                     <input type="text" id="appName" name="name" class="custom-input" required placeholder="Contoh: EXAMVAN Client CBT">
                 </div>
 
                 <div style="display:flex; gap:20px; margin-bottom:24px;">
                     <div style="flex:1;">
-                        <label class="form-label" for="platformSelect">Platform <span style="color:#f43f5e;">*</span></label>
+                        <label class="form-label" for="platformSelect">Platform <span style="color:var(--color-danger-light);">*</span></label>
                         <select id="platformSelect" name="platform" class="custom-select" required>
                             <option value="android">Android (.apk)</option>
                             <option value="windows">Windows (.exe)</option>
@@ -2040,13 +2025,13 @@
                         </select>
                     </div>
                     <div style="flex:1;">
-                        <label class="form-label" for="appVersion">Versi <span style="color:#f43f5e;">*</span></label>
+                        <label class="form-label" for="appVersion">Versi <span style="color:var(--color-danger-light);">*</span></label>
                         <input type="text" id="appVersion" name="version" class="custom-input" required placeholder="Contoh: 2.1.0">
                     </div>
                 </div>
 
                 <div style="margin-bottom:24px;">
-                    <label class="form-label" for="appFile">File Aplikasi <span style="color:#f43f5e;">*</span></label>
+                    <label class="form-label" for="appFile">File Aplikasi <span style="color:var(--color-danger-light);">*</span></label>
                     <div class="custom-file-input" id="fileDropArea">
                         <input type="file" id="appFile" name="file" required>
                         <svg class="file-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline><line x1="12" y1="18" x2="12" y2="12"></line><line x1="9" y1="15" x2="15" y2="15"></line></svg>

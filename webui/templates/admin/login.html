@@ -31,8 +31,10 @@
   .login-form .form-group input,
   .login-form .form-group select { font-size: 16px; }
  </style>
-<link rel="stylesheet" href="/static/css/public-mobile.css?v={{.version}}-5">
-<link rel="stylesheet" href="/static/css/public-desktop.css?v={{.version}}-3">
+<!-- Batch 12 (S66): suffix cache-busting manual dihapus (integritas R60) —
+     invalidasi cache lewat {{.version}} murni. -->
+<link rel="stylesheet" href="/static/css/public-mobile.css?v={{.version}}">
+<link rel="stylesheet" href="/static/css/public-desktop.css?v={{.version}}">
  {{if .turnstile_enabled}}
  <!-- Cloudflare Turnstile — bot protection on login (SuperAdmin-managed) -->
  <script src="https://challenges.cloudflare.com/turnstile/v0/api.js" async defer></script>
@@ -86,7 +88,7 @@
   <!-- data-theme="dark": aplikasi dark-by-design sejak Batch 4 (keputusan S17/R14) —
        palet light sudah dihapus dari theme.css, jadi dark di sini KONSISTEN, bukan hard-code salah. -->
   <div class="cf-turnstile" data-sitekey="{{.turnstile_site_key}}" data-theme="dark"></div>
-  <div id="turnstileError" role="alert" style="display:none;color:#f87171;font-size:12px;margin-top:8px;text-align:center;"></div>
+  <div id="turnstileError" role="alert" style="display:none;color:var(--color-danger-bright);font-size:12px;margin-top:8px;text-align:center;"></div>
  </div>
  {{end}}
  <button type="submit" class="btn-login" id="loginSubmitBtn">Masuk</button>

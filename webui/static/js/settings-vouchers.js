@@ -94,7 +94,7 @@ function renderVouchersTable(vouchers) {
             </td>
             <td data-label="Penggunaan" style="padding:14px 20px;">
                 <span style="font-weight:700;color:${v.used_count > 0 ? '#c084fc' : '#94a3b8'};">${v.used_count}</span> / ${v.max_usage}
-                ${v.used_count > 0 ? `<button type="button" data-action="redemptions" data-id="${v.id}" data-voucher-code="${safeCode}" style="background:none;border:none;color:#a855f7;font-size:12px;cursor:pointer;margin-left:4px;text-decoration:underline;padding:8px 6px;">(Lihat User)</button>` : ''}
+                ${v.used_count > 0 ? `<button type="button" data-action="redemptions" data-id="${v.id}" data-voucher-code="${safeCode}" style="background:none;border:none;color:var(--color-accent-light);font-size:12px;cursor:pointer;margin-left:4px;text-decoration:underline;padding:8px 6px;">(Lihat User)</button>` : ''}
             </td>
             <td data-label="Kadaluarsa" style="padding:14px 20px;font-size:12px;color:var(--color-text-secondary);">${expiryStr}</td>
             <td data-label="Status" style="padding:14px 20px;">${statusBadge}</td>
@@ -310,36 +310,6 @@ function submitBatchVoucher(e) {
     });
 }
 
-let pendingConfirmCallback = null;
-
-function showConfirmModal(title, message, actionBtnText, isDanger, onConfirm) {
-    document.getElementById('confirmActionTitle').textContent = title;
-    document.getElementById('confirmActionMessage').innerHTML = message;
-    
-    const btn = document.getElementById('btnConfirmActionSubmit');
-    btn.textContent = actionBtnText || 'Ya, Lanjutkan';
-    if (isDanger) {
-        btn.style.background = '#ef4444';
-        btn.style.border = 'none';
-        btn.style.color = '#fff';
-    } else {
-        btn.style.background = 'linear-gradient(135deg, #a855f7, #6366f1)';
-        btn.style.border = 'none';
-        btn.style.color = '#fff';
-    }
-    
-    pendingConfirmCallback = onConfirm;
-    document.getElementById('confirmActionModal').style.display = 'flex';
-}
-
-function closeConfirmActionModal(e) {
-    if (!e || e.target.id === 'confirmActionModal' || e.target.classList.contains('modal-close') || e.target.tagName === 'BUTTON') {
-        // R25: tutup via API Modal terpusat (admin-core.js).
-        Modal.close('confirmActionModal');
-        pendingConfirmCallback = null;
-    }
-}
-
 var __btnConfirmAction = document.getElementById('btnConfirmActionSubmit');
 if (__btnConfirmAction) __btnConfirmAction.addEventListener('click', () => {
     if (pendingConfirmCallback) {
@@ -352,13 +322,17 @@ if (__btnConfirmAction) __btnConfirmAction.addEventListener('click', () => {
 
 function toggleVoucher(id, code, isActive) {
     const actionText = isActive ? 'menonaktifkan' : 'mengaktifkan kembali';
-    const btnText = isActive ? 'Matikan Voucher' : 'Aktifkan Voucher';
-    showConfirmModal(
-        'Konfirmasi Status Voucher',
-        `Apakah Anda yakin ingin ${actionText} kode voucher <strong style="color:#c084fc;">${escapeHtml(code)}</strong>?`,
+    const btnText = isActive ? 'Ya, Matikan Voucher' : 'Ya, Aktifkan Voucher';
+    // Batch 12 (T22): konfirmasi via showConfirm core — satu sistem,
+    // focus-trap & pesan konsekuensi konsisten (G5).
+    showConfirm(
+        `Apakah Anda yakin ingin ${actionText} kode voucher <strong style="color:var(--color-accent-light);">${escapeHtml(code)}</strong>?`,
+        '',
         btnText,
-        isActive,
-        () => {
+        'Batal'
+    ).then((ok) => {
+        if (!ok) return;
+        {
             apiFetch(`/admin/api/vouchers/${id}/toggle`, { method: 'POST' })
             .then(r => r.json())
             .then(res => {
@@ -371,7 +345,7 @@ function toggleVoucher(id, code, isActive) {
             })
             .catch(() => showToast('Gagal terhubung ke server', 'error'));
         }
-    );
+    });
 }
 
 function toggleVoucherSearchClear() {
@@ -388,12 +362,14 @@ function clearVoucherSearch() {
 }
 
 function deleteVoucher(id, code) {
-    showConfirmModal(
-        'Konfirmasi Hapus Voucher',
-        `Apakah Anda yakin ingin menghapus kode voucher <strong style="color:#c084fc;">${escapeHtml(code)}</strong>? Tindakan ini tidak dapat dibatalkan.`,
+    showConfirm(
+        `Apakah Anda yakin ingin menghapus kode voucher <strong style="color:var(--color-danger-light);">${escapeHtml(code)}</strong>? Tindakan ini tidak dapat dibatalkan.`,
+        '',
         'Hapus Voucher',
-        true,
-        () => {
+        'Batal'
+    ).then((ok) => {
+        if (!ok) return;
+        {
             apiFetch(`/admin/api/vouchers/${id}/delete`, { method: 'POST' })
             .then(r => r.json())
             .then(res => {
@@ -406,7 +382,7 @@ function deleteVoucher(id, code) {
             })
             .catch(() => showToast('Gagal terhubung ke server', 'error'));
         }
-    );
+    });
 }
 
 function viewRedemptions(id, code) {
@@ -478,9 +454,6 @@ if (window.Actions && typeof window.Actions.register === 'function') {
     window.Actions.register('voucher-page', function (el) {
         loadVouchers(parseInt(el.getAttribute('data-page'), 10) || 1);
     });
-    // Modal konfirmasi generik dipakai modul ini untuk hapus voucher dsb.;
-    // closeConfirmActionModal didefinisikan di file ini juga.
-    window.Actions.register('confirm-action-close', function () { closeConfirmActionModal(); });
 }
 
 // The Voucher tab owns two sub-panels: Daftar (this file) and Riwayat

@@ -464,17 +464,10 @@ test('R25 (perilaku refactor): closeEditTokenModal tetap menutup #editTokenModal
     assert.equal(form._spies.reset, 1, 'reset form edit token dipertahankan');
 });
 
-test('R25 (perilaku refactor): closeConfirmActionModal (settings-vouchers) mendelegasikan ke Modal.close', () => {
-    const env = loadScripts({ withVouchers: true });
-    const modal = env.makeNode('div');
-    modal.id = 'confirmActionModal';
-    env.doc.body.appendChild(modal);
-
-    env.sandbox.closeConfirmActionModal(); // tanpa event = tutup (perilaku lama)
-    assert.equal(modal.style.display, 'none');
-    assert.match(extractFunction(VOUCHERS_SRC, 'closeConfirmActionModal').replace(/\s+/g, ' '), /Modal\.close/,
-        'fungsi ad-hoc voucher juga jadi delegasi tipis');
-});
+// Batch 12 (T22): test delegasi closeConfirmActionModal DIHAPUS — fungsi
+// ad-hoc voucher (beserta modal arwahnya) dihapus total; konfirmasi voucher
+// kini memakai showConfirm core. Kontrak R25 tetap berlaku untuk delegasi
+// lain di bawah.
 
 test('R25 (statik): fungsi open/close ad-hoc lain di admin.js menjadi delegasi Modal.*', () => {
     for (const name of ['openQuestionsModal', 'closeQuestionsModal', 'openEditTokenModal',
