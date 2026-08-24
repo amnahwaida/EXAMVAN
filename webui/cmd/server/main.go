@@ -272,7 +272,13 @@ func main() {
 			if t == nil {
 				return ""
 			}
-			jakartaLoc, _ := time.LoadLocation("Asia/Jakarta")
+			// Batch 11 (R59): fallback selaras submissions.go — bila tzdata
+			// tak tersedia (kontainer minimal), pakai FixedZone offset WIB
+			// agar badge jadwal tidak diam-diam kembali ke UTC.
+			jakartaLoc, err := time.LoadLocation("Asia/Jakarta")
+			if err != nil {
+				jakartaLoc = time.FixedZone("WIB", 7*60*60)
+			}
 			return t.In(jakartaLoc).Format("2006-01-02 15:04")
 		},
 		"substr": func(s string, start, end int) string {

@@ -22,7 +22,7 @@
  <meta name="robots" content="noindex, nofollow">
  <link rel="stylesheet" href="/static/css/theme.css?v={{.version}}">
  <link rel="stylesheet" href="/static/css/tailwind/output.css?v={{.version}}">
- <link rel="stylesheet" href="/static/css/hasil.css?v={{.version}}-2">
+ <link rel="stylesheet" href="/static/css/hasil.css?v={{.version}}">
  <style>
   /* T3: chip status kelulusan eksplisit + legenda ambang tampilan.
      Ambang warna tetap mengikuti getScoreClass() (70/40); KKM per sekolah
@@ -56,8 +56,8 @@
  </style>
  <link rel="icon" type="image/png" href="/static/favicon.png">
  <script src="/static/js/admin-core.js?v={{.version}}" defer></script>
- <link rel="stylesheet" href="/static/css/public-mobile.css?v={{.version}}-5">
- <link rel="stylesheet" href="/static/css/public-desktop.css?v={{.version}}-3">
+ <link rel="stylesheet" href="/static/css/public-mobile.css?v={{.version}}">
+ <link rel="stylesheet" href="/static/css/public-desktop.css?v={{.version}}">
 </head>
 <body>
  <div class="toast-container" id="toastContainer" aria-live="polite" aria-atomic="true"></div>
@@ -121,7 +121,7 @@
  Silakan hubungi pihak sekolah untuk mendapatkan informasi nilai Anda.
  </p>
  <div style="display: inline-flex; justify-content: center; width: 100%;">
- <a href="/" style="background: linear-gradient(135deg, var(--color-primary), var(--color-accent)); color: white; padding: 12px 28px; border-radius: 12px; font-weight: 600; text-decoration: none; display: inline-flex; align-items: center; gap: 8px; box-shadow: 0 4px 20px rgba(99, 102, 241, 0.25); transition: all 0.3s;">
+ <a href="/" style="background: linear-gradient(135deg, var(--color-primary), var(--color-accent)); color: white; padding: 12px 28px; border-radius: 12px; font-weight: 600; text-decoration: none; display: inline-flex; align-items: center; gap: 8px; box-shadow: 0 4px 20px rgba(var(--rgb-info), 0.25); transition: all 0.3s;">
  <svg class="icon-svg" style="width:14px;height:14px;vertical-align:middle;" aria-hidden="true"><use href="#hi-arrow-left"/></svg> Kembali ke Beranda
  </a>
  </div>
@@ -135,6 +135,14 @@
  <svg class="icon-svg" style="width:60px;height:60px;margin-bottom:20px;color:#f87171;" aria-hidden="true"><use href="#hi-x"/></svg>
  <h2 style="font-size: 1.4rem; font-weight: 700; color: #f8fafc; margin-bottom: 12px;">Ujian Tidak Ditemukan</h2>
  <p style="color: var(--color-text-secondary);">Token "{{.token}}" tidak valid atau ujian tidak ditemukan.</p>
+ <!-- R63: state error bukan dead-end — CTA utama + jalur coba token lain,
+      pola konsisten dengan state disabled di atas. -->
+ <div style="display: inline-flex; justify-content: center; align-items: center; gap: 16px; flex-wrap: wrap; width: 100%;">
+ <a href="/" style="background: linear-gradient(135deg, var(--color-primary), var(--color-accent)); color: white; padding: 12px 28px; border-radius: 12px; font-weight: 600; text-decoration: none; display: inline-flex; align-items: center; gap: 8px; box-shadow: 0 4px 20px rgba(var(--rgb-info), 0.25); transition: all 0.3s;">
+ <svg class="icon-svg" style="width:14px;height:14px;vertical-align:middle;" aria-hidden="true"><use href="#hi-arrow-left"/></svg> Kembali ke Beranda
+ </a>
+ <a href="/hasil" style="color: var(--color-text-secondary); font-size: 0.9rem; text-decoration: underline; text-underline-offset: 3px;">Coba Token Lain</a>
+ </div>
  </section>
  {{else}}
  <!-- Exam Hero — hanya dirender pada state sukses (T12) -->
@@ -193,8 +201,9 @@
  <div class="search-input-wrapper">
 <input type="text" class="search-input" id="searchInput"
    placeholder="Cari berdasarkan nama siswa..."
-   aria-label="Cari nama siswa"
-   oninput="filterResults(); var c=document.getElementById('searchClearBtn'); if(c)c.style.display=this.value?'flex':'none'">
+   aria-label="Cari nama siswa">
+  <!-- T21: perilaku oninput lama (filterResults + toggle tombol clear)
+       dipindah ke listener addEventListener di init DOMContentLoaded. -->
  <button class="search-clear-btn" id="searchClearBtn" data-action="clear-search" style="display:none;" title="Hapus pencarian" aria-label="Hapus pencarian"><svg class="icon-svg" style="width:14px;height:14px;"><use href="#hi-x"/></svg></button>
  </div>
  </div>
@@ -326,7 +335,38 @@
  // ===== Init =====
  const pageHasError = {{if .error}}true{{else}}false{{end}};
  document.addEventListener('DOMContentLoaded', () => {
- // T12/S53: state error/disabled tidak merender tabNav/tombol tab —
+  // T19: registrasi handler aksi HARUS di dalam DOMContentLoaded — admin-core.js
+  // dimuat defer sehingga saat inline script ini dieksekusi registry Actions
+  // belum ada (guard typeof lama selalu false → semua aksi mati untuk mouse).
+  // Deferred scripts tereksekusi sebelum DOMContentLoaded, jadi di titik ini
+  // Actions sudah tersedia.
+  if (typeof Actions !== 'undefined') {
+   Actions.register('switch-tab', function (el) {
+    switchTab(el.getAttribute('data-tab'));
+   });
+   Actions.register('page-prev', function () { goToPage(currentPage - 1); });
+   Actions.register('page-next', function () { goToPage(currentPage + 1); });
+   Actions.register('clear-search', function (el) {
+    var input = document.getElementById('searchInput');
+    if (input) input.value = '';
+    filterResults();
+    el.style.display = 'none';
+   });
+   Actions.register('reload-page', function () { location.reload(); });
+  }
+
+  // T21: wiring pencarian (pengganti atribut oninput) — perilaku identik:
+  // filterResults + tampilkan/sembunyikan tombol clear sesuai isi input.
+  var searchInput = document.getElementById('searchInput');
+  if (searchInput) {
+   searchInput.addEventListener('input', function () {
+    filterResults();
+    var c = document.getElementById('searchClearBtn');
+    if (c) c.style.display = this.value ? 'flex' : 'none';
+   });
+  }
+
+  // T12/S53: state error/disabled tidak merender tabNav/tombol tab —
  // jangan sentuh elemen yang tidak ada (dulu: TypeError null) dan jangan
  // mulai polling hasil.
  if (!isDisabled && !pageHasError) {
@@ -360,26 +400,8 @@
   }
 
   loadResults();
- }
+  }
  });
-
- // ===== S59: aksi halaman lewat registry Actions (admin-core.js) =====
- // Pengganti onclick inline; satu listener delegasi core meneruskan klik ke
- // handler terdaftar. Argumen dibawa via data-* pada elemen pemicu.
- if (typeof Actions !== 'undefined') {
-  Actions.register('switch-tab', function (el) {
-   switchTab(el.getAttribute('data-tab'));
-  });
-  Actions.register('page-prev', function () { goToPage(currentPage - 1); });
-  Actions.register('page-next', function () { goToPage(currentPage + 1); });
-  Actions.register('clear-search', function (el) {
-   var input = document.getElementById('searchInput');
-   if (input) input.value = '';
-   filterResults();
-   el.style.display = 'none';
-  });
-  Actions.register('reload-page', function () { location.reload(); });
- }
 
  // ===== API: Load Results (server-side pagination + search) =====
  async function loadResults() {
@@ -712,8 +734,12 @@
  `;
  });
 
- const startTimeStr = sub.start_time ? localizeUTC(sub.start_time) : '&mdash;';
- const endTimeStr = sub.created_at ? localizeUTC(sub.created_at) : '&mdash;';
+  // R66: waktu tampilan memakai string WIB terformat dari server
+  // (start_time_display / created_at_display) — sama dengan kartu guru,
+  // tidak lagi mengikuti jam perangkat penonton. Fallback localizeUTC untuk
+  // respons lama tanpa field display.
+  const startTimeStr = sub.start_time_display || (sub.start_time ? localizeUTC(sub.start_time) : '&mdash;');
+  const endTimeStr = sub.created_at_display || (sub.created_at ? localizeUTC(sub.created_at) : '&mdash;');
  const durationStr = getDurationString(sub.start_time, sub.created_at);
  // T3: status kelulusan eksplisit mengikuti skor RESMI (sub.score) — bukan
  // total evaluasi sisi-klien. Skor belum ada → "Belum Dikoreksi".

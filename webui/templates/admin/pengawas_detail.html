@@ -1587,8 +1587,14 @@ function renderSubPagination(res) {
     if (!pagEl) return;
     if (!res.total_pages || res.total_pages <= 1) { pagEl.style.display = 'none'; return; }
 
+    // Batch 11 (R56): info paginasi memakai rentang offset, bukan jumlah
+    // baris halaman aktif — "Menampilkan 41–57 dari 57 perangkat".
+    var perPage = 20;
+    var rangeStart = (res.page - 1) * perPage + 1;
+    var rangeEnd = Math.min(res.page * perPage, res.total);
+
     var html = '<div class="pagination-wrapper">' +
-        '<span class="pagination-info">Menampilkan ' + res.submissions.length + ' dari ' + res.total + ' perangkat</span>' +
+        '<span class="pagination-info">Menampilkan ' + rangeStart + '&ndash;' + rangeEnd + ' dari ' + res.total + ' perangkat</span>' +
         '<div class="pagination-links">';
 
     if (res.page > 1) {
@@ -1616,15 +1622,9 @@ function esc(s) {
     return d.innerHTML;
 }
 
-function localizeUTC(str) {
-    if (!str) return '—';
-    try {
-        var t = str.indexOf('T') >= 0 ? str : str.replace(' ', 'T') + 'Z';
-        var d = new Date(t);
-        if (isNaN(d.getTime())) return str;
-        return d.toLocaleString('id-ID', { day:'2-digit', month:'short', hour:'2-digit', minute:'2-digit' });
-    } catch(e) { return str; }
-}
+// Batch 11 (R57): definisi lokal localizeUTC dihapus — pemakaian jatuh ke
+// alias admin-core.js formatDateTimeID agar format tanggal seragam
+// ("YYYY-MM-DD HH:MM") di seluruh halaman admin.
 
 function showAccessLog(subId) {
     var modal = document.getElementById('accessLogModal');
@@ -2103,7 +2103,8 @@ loadAAStatus();
             if (enabled && typeof showConfirm === 'function') {
                 showConfirm(
                     'Aktifkan terima otomatis? Semua perangkat berikutnya akan ' +
-                    'disetujui tanpa pemeriksaan hingga dimatikan.'
+                    'disetujui tanpa pemeriksaan hingga dimatikan.',
+                    '', 'Ya, Aktifkan', 'Batal'
                 ).then(function(ok) {
                     if (ok) { setAutoApprove(enabled); }
                     else { aaToggle.checked = false; }
@@ -2143,10 +2144,12 @@ loadAAStatus();
     // Batch 10 (S48): pencarian peserta live-search (debounce dari core) —
     // bukan lagi Enter-only; select filter ikut memicu muat ulang via change.
     if (typeof initLiveSearch === 'function') {
-        initLiveSearch(document.getElementById('pengawasSearch'), function() { loadDetail(); });
+        // Batch 11 (S60): reset ke halaman 1 — pencarian dari page > 1 tanpa
+        // reset menghasilkan tabel kosong palsu.
+        initLiveSearch(document.getElementById('pengawasSearch'), function() { loadDetail(1); });
     }
     var statusFilterEl = document.getElementById('statusFilter');
-    if (statusFilterEl) statusFilterEl.addEventListener('change', function() { loadDetail(); });
+    if (statusFilterEl) statusFilterEl.addEventListener('change', function() { loadDetail(1); });
 
     loadDetail();
     // Queue load is triggered by loadAAStatus() above (and by its fetch's

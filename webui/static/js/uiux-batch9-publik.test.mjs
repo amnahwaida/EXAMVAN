@@ -473,7 +473,10 @@ test('R37b (perilaku): switchTab menulis hash #nilai/#kunci; resolusi hash aman'
 
 test('R37c: tab aktif dibaca dari hash saat load + diikuti saat hashchange', () => {
     const html = HASIL();
-    assert.match(html, /DOMContentLoaded[\s\S]{0,600}?switchTab\(resolveTabFromHash\(\)/,
+    // Batch 11 (T19): blok registrasi Actions ikut berpindah ke dalam
+    // DOMContentLoaded (sebelum init tab) — jendela regex diperlebar agar
+    // tetap menjangkau panggilan switchTab(resolveTabFromHash()) pertama.
+    assert.match(html, /DOMContentLoaded[\s\S]{0,1800}?switchTab\(resolveTabFromHash\(\)/,
         'saat load, tab awal wajib dibaca dari location.hash');
     assert.match(html, /hashchange[\s\S]{0,300}?switchTab\(resolveTabFromHash\(\)/,
         'perubahan hash dari luar wajib diikuti (deep-link/back-forward)');

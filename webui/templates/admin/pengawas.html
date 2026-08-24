@@ -437,10 +437,12 @@ function esc(s) {
     if (!input || input.dataset.liveSearchWired) return;
     input.dataset.liveSearchWired = '1';
     if (typeof initLiveSearch === 'function') {
-        initLiveSearch(document.getElementById('pengawasSearch'), loadPengawasExams);
+        // Batch 11 (S60): reset ke halaman 1 agar pencarian dari page > 1
+        // tidak menampilkan hasil kosong palsu.
+        initLiveSearch(document.getElementById('pengawasSearch'), function() { loadPengawasExams(1); });
     } else {
         input.addEventListener('keydown', function(e) {
-            if (e.key === 'Enter') { e.preventDefault(); loadPengawasExams(); }
+            if (e.key === 'Enter') { e.preventDefault(); loadPengawasExams(1); }
         });
     }
 })();

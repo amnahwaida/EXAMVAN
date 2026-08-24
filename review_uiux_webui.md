@@ -5,6 +5,7 @@
 > **Ronde 2:** seluruh temuan lama Tinggi/Sedang/Rendah (kecuali yang dicatat masih terbuka) terverifikasi BERES; ditemukan **2 masalah Tinggi, 14 Sedang, dan 12 Rendah baru** — lihat [bagian 5.5](#55-re-review-ronde-2--temuan-baru-pasca-batch-14).
 > **Ronde 3 (24 Agustus 2026 @ `1387853`, pasca Batch 8):** migrasi Batch 7–8 terverifikasi bersih di level registry; ditemukan **3 masalah Tinggi, 10 Sedang, dan 13 Rendah baru** — lihat [bagian 5.6](#56-re-review-ronde-3--temuan-baru-pasca-batch-58). Seluruhnya dieksekusi di **Batch 9** (25/26 item — sisa terbuka: R30 ditunda butuh keputusan UX).
 > **Ronde 4 (24 Agustus 2026 @ `a1afd9c`, pasca Batch 9):** regresi Batch 9 hampir seluruhnya bersih (1 eksekusi perlu dirapikan → S47); ditemukan **2 masalah Tinggi, 13 Sedang, dan 12 Rendah baru** — lihat [bagian 5.7](#57-re-review-ronde-4--temuan-baru-pasca-batch-9). Seluruhnya dieksekusi di **Batch 10** kecuali S57 ditunda (ekstraksi blok inline besar).
+> **Ronde 5 (24 Agustus 2026 @ `2debff6`, pasca Batch 10):** eksekusi Batch 10 terverifikasi asli & terukur, namun ditemukan **3 masalah Tinggi, 5 Sedang, dan 13 Rendah baru** — termasuk regresi fungsional T19 (race defer vs registrasi Actions) dan dua temuan integritas proses (klaim `[x]` yang tidak tuntas) — lihat [bagian 5.8](#58-re-review-ronde-5--temuan-baru-pasca-batch-10). Seluruhnya dieksekusi di **Batch 11**.
 > **Tujuan:** acuan perbaikan UI/UX tahap selanjutnya. Setiap temuan punya ID unik (`T`=Tinggi, `S`=Sedang, `R`=Rendah, `P`=Keputusan Produk, `G`=Positif) agar mudah dirujuk di commit/issues (mis. `fix(uiux): T2 …`).
 
 ---
@@ -962,9 +963,215 @@
 
 ---
 
+## 5.8 RE-REVIEW RONDE 5 — Temuan baru pasca Batch 10
+
+> **Tanggal:** 24 Agustus 2026 · **Basis kode:** `2debff6` (pasca Batch 10, suite 569+/569+ hijau) · **Metode:** 3 reviewer paralel (area admin, area publik, lintas-halaman/design-system) + verifikasi manual silang temuan kunci.
+> Fokus khusus ronde ini: verifikasi eksekusi Batch 10 (termasuk integritas klaim `[x]`) dan audit terukur lanjutan. Penomoran ID melanjutkan ronde sebelumnya.
+
+### Status verifikasi cepat
+
+**Regresi/eksekusi Batch 10 (spot-check langsung ke kode):**
+
+| Item | Vonis | Bukti kunci |
+|---|---|---|
+| T17 deep-link #kunci | ✅ BERES di jalur utama *(fungsionalitas tab kini mati untuk mouse oleh T19)* | `hasil.html:463` menutup dengan switchTab(currentTab); paginasi hidup dalam panel Nilai |
+| T18 gradien instansi | ✅ BERES | grep `#a855f7\|#6366f1` templates/admin = 0; guard endpoint terlarang ada |
+| S47 dirty-clear | ✅ BERES | **8/8** pemanggil save meneruskan cardId yang cocok; pembersihan hanya cabang success; observer toast dihapus |
+| S48 live-search | ⚠️ SEBAGIAN → **S60** | Wiring benar & debounce jalan, TAPI callback tak me-reset halaman: cari dari page >1 → hasil kosong palsu |
+| S49 waktu WIB | ⚠️ SEBAGIAN → **S61**, **R59** | submissions.go konsisten & lebih robust; sub-item `expires_at` popup kuota TIDAK dieksekusi (klaim Batch 10 tidak ada di diff — diverifikasi `git show`); fallback tz main.go vs submissions.go tak seragam |
+| S50/S52 modal identitas & auto-approve | ✅ BERES *(catatan kecil → R54: tombol default "Ya, Hapus" merah)* | formatApprovalStudentLabel dipakai kedua cabang; showConfirm + revert switch benar |
+| S51 onclick users | ✅ BERES | grep onclick= admin.js = 0; render users sepenuhnya data-action |
+| S55–R44, R45–R53 | ✅ SELURUHNYA BERES | focus-visible download; defer reset_password; token strength meter; print max-height:none; Promise.race 1500ms; dst. |
+| R51 heading order | 🔴 **FALSE POSITIVE → T20** | Semua lokasi yang dikutip masih `<h4>`; tidak ada perubahan h3/h4 di diff `2debff6`; assertion urutan heading juga tidak ada |
+| S59 "0 onclick publik" | 🔴 SEBAGIAN → **T21**, **S62** | Guard hanya memindai `onclick=` — **36 handler inline non-onclick** (onsubmit/onkeyup/oninput/onchange) lolos radar; +4 onclick tersisa di settings-billing.js & settings-voucher-audit.js |
+
+**Audit terukur pasca Batch 10:**
+
+| Metrik | Angka | vs ronde 4 |
+|---|---|---|
+| hex templates/ | **241** | ≈256 → turun |
+| rgba literal templates/ | **141** | 223 → turun 37% |
+| Margin plafon folder | hex **59**, rgba **84** | rgba pulih dari margin 2 (S58 berhasil) |
+| hasil.css `!important` | **65** | 63 → NAIK (+2 dari fix R43 print — lihat R61) |
+| Matriks kontras AA aktif | Praktis bersih | Endpoint gradien pasca-T16/T18 lolos semua; watchlist: endpoint lama masih hidup di JS render-path (billing.js) |
+
+Item lama tetap terbuka: R4 document.write (`download.html:537,555,697,776`, `settings.html:2156`), S21/S22, P3, R30, S57, duplikasi modal password.
+
+---
+
+### T19 — Regresi S59: registrasi `Actions` halaman publik kalah race terhadap admin-core.js ber-`defer` — tab, paginasi, unduhan MATI untuk klik mouse
+- **Prioritas:** 🔴 Tinggi · **Usaha:** XS–S · **Area:** Publik (Hasil + Download) · **Status:** `[x]` ✅ **Batch 11** *(terverifikasi manual)*
+- **Lokasi:** `hasil.html:58` (core defer) + blok registrasi top-level `:369-382`; `download.html:2` + `:842-850`. Pembanding benar: halaman admin memuat core sinkron.
+- **Bukti:** Inline script akhir-body dieksekusi SAAT parsing; script `defer` dieksekusi SETELAH parsing selesai. Saat guard `if (typeof Actions !== 'undefined')` dievaluasi, nilainya pasti undefined → seluruh `Actions.register(...)` dilewati permanen tanpa retry.
+- **Dampak:** `/hasil/<token>`: klik mouse pada tab Daftar Nilai/Kunci, paginasi prev/next, clear-search, dan "Coba Lagi" tak berfungsi sama sekali (navigasi panah keyboard masih jalan karena terpasang di DOMContentLoaded). `/download`: ketiga tab platform mati untuk klik. Ini regresi fungsional langsung dari migrasi onclick→data-action Batch 10.
+- **Rekomendasi:** Pindahkan blok registrasi ke dalam `DOMContentLoaded`; test vm yang mengeksekusi skrip dalam urutan nyata (inline → core defer → DOMContentLoaded) lalu asersi `Actions.has('switch-tab')`.
+
+### T20 — Klaim R51 false-positive: heading order tidak pernah diperbaiki dan assertion tidak pernah ditulis
+- **Prioritas:** 🔴 Tinggi · **Usaha:** XS · **Area:** Lintas · **Status:** `[x]` ✅ **Batch 11** *(diverifikasi `git show`)*
+- **Lokasi:** `download.html:530,553,774` masih `<h4 class="flavor-title">` setelah `<h2>`; `submissions.html:182,197,220,236` masih empat `<h4>` setelah `<h2>`; grep 38 suite = 0 asersi urutan heading.
+- **Dampak:** Item dicatat `[x] ✅ Batch 10` padahal fix tak pernah mendarat — outline screen reader tetap melompat, dan rekap tracking kehilangan kredibilitas.
+- **Rekomendasi:** Eksekusi ulang R51 (h4→h3, visual via class) + assertion urutan heading; audit silang sampel acak klaim `[x]` Batch 9–10.
+
+### T21 — Kontrak CSP "0 handler inline" memberi rasa aman palsu: 36 handler non-onclick tersisa
+- **Prioritas:** 🔴 Tinggi · **Usaha:** S · **Area:** Lintas · **Status:** `[x]` ✅ **Batch 11**
+- **Lokasi/bukti:** grep `\son(click|change|submit|keyup|input)=` templates = **36**: settings.html ×20 (mis. `:795 onsubmit="createUser(event)"`, `:1112/:1248/:1308 onkeyup Enter-only`, `:2191 onsubmit="submitChangePassword(event)"`), dashboard ×13, nav ×1, publik `hasil.html:197` (oninput multi-statement).
+- **Dampak:** Semuanya tetap butuh CSP `unsafe-inline`; guard S59 hanya memindai `onclick=` sehingga suite hijau padahal masalahnya utuh — preseden handler inline baru "tak terhitung".
+- **Rekomendasi:** Perluas guard ke regex `\son[a-z]+=` di templates/**; migrasi bertahap mulai `hasil.html:197` & form onsubmit (listener submit delegasi).
+
+### S60 — Live-search & filter peserta tidak me-reset halaman: "Pencarian tidak ditemukan" palsu
+- **Usaha:** XS · **Area:** Admin (Pengawasan) · **Status:** `[x]` ✅ **Batch 11**
+- **Lokasi:** `pengawas_detail.html:2146` (callback tanpa argumen) + `loadDetail` :1503 (`SUB_PAGE` hanya berubah bila argumen diberikan) + server `pengawas.go:380-382` (tanpa clamp ke total_pages). Pola sama `pengawas.html:237`.
+- **Dampak:** Di halaman 3, mencari nama siswa → request `page=3` dari hasil terfilter → tabel kosong padahal siswa ada.
+- **Rekomendasi:** Wrapper live-search & listener change memanggil `loadDetail(1)` / `loadPengawasExams(1)`.
+
+### S61 — Sub-item S49 tidak tuntas: `expires_at` popup kuota user MASIH UTC mentah
+- **Usaha:** XS · **Area:** Admin (Settings/Users) · **Status:** `[x]` ✅ **Batch 11**
+- **Lokasi:** `admin.js:1674` (`const expiresAt = user.expires_at || '—'`) dirender `:1721` samping "Terdaftar" yang sudah WIB (`:1675`). Diverifikasi `git show 2debff6`: titik ini tak tersentuh meski diklaim di rekap.
+- **Rekomendasi:** `user.expires_at ? formatDateTimeID(user.expires_at) : '—'` (+ cek blok edit ~:2090); asersi render popup bebas interpolasi mentah.
+
+### S62 — onclick render-JS lolos kedua guard di settings-billing.js & settings-voucher-audit.js
+- **Usaha:** XS–S · **Area:** Admin · **Status:** `[x]` ✅ **Batch 11**
+- **Lokasi:** `settings-billing.js:134,158`; `settings-voucher-audit.js:9,86` (interpolasi id/page mentah ke atribut). Guard S59 hanya pindai template publik; R29 hanya snippet admin.js tertentu.
+- **Rekomendasi:** Migrasi ke Actions.register; sweep `settings-*.js bebas \sonclick=` di suite guard.
+
+### S63 — Kelompok ad-hoc terbesar tersisa: `#fff` ×66 di settings.html (saudara rgba-white yang sudah dimigrasi)
+- **Usaha:** XS–S · **Area:** Admin · **Status:** `[x]` ✅ **Batch 11**
+- **Fakta:** dari 100 hex settings.html, 66 adalah `#fff` — baris yang sama kerap campur `rgba(var(--rgb-black), …)` (contoh `:1112`). Watchlist terkait: endpoint lama `rgba(168,85,247,…)` masih hidup di JS render-path di luar whitelist gradien (billing.js:134).
+- **Rekomendasi:** Satu pass `#fff|#ffffff` → token semantik sesuai konteks; perluas whitelist larangan endpoint lama ke static/js/*.js; tambahkan cap hex per-file settings.
+
+### S64 — Plafon guard basi: beberapa file TEPAT di plafon, settings longgar 82
+- **Usaha:** XS · **Area:** Tooling · **Status:** `[x]` ✅ **Batch 11**
+- **Fakta:** tepat-di-plafon: admin-base.css rgba 17/17, dashboard 32/32, register_confirm 19/19, pengawas/pengawas_detail/download 11/11, hasil 10/10 — fitur berikutnya langsung merah. Sebaliknya settings cap 110 vs aktual 28 (bisa nambah 82 literal tanpa alarm). `!important` CSS tak dikunci test apa pun.
+- **Rekomendasi:** Kunci ulang cap per-file = angka aktual; pecah plafon settings; tambahkan count `!important` per-file ke guard.
+
+### R54 — Konfirmasi AKTIFKAN auto-approve memakai tombol default merah "Ya, Hapus"
+- **Usaha:** XS · **Area:** Admin (Pengawasan) · **Status:** `[x]` ✅ **Batch 11**
+- **Lokasi:** `pengawas_detail.html:2104-2107` — showConfirm satu argumen → confirmLabel default `'Ya, Hapus'` + class `.btn-delete` (admin-core.js:497,:517). Pembanding benar: `regenerateActiveToken` mengirim label eksplisit.
+- **Rekomendasi:** `showConfirm(msg, '', 'Ya, Aktifkan', 'Batal')`.
+
+### R55 — Dua kalkulator durasi berlomba di submissions ("2j 5m" vs "2 jam 5 menit")
+- **Usaha:** XS · **Area:** Admin (Submissions) · **Status:** `[x]` ✅ **Batch 11**
+- **Lokasi:** `admin.js:4061-4085` (singkat, skip diff≤0) vs `submissions.html:421-448` (verbose, clamp 0) — keduanya terdaftar DOMContentLoaded pada target `.duration-cell`; inline menimpa output admin.js sehingga satu blok duplikat-mati-berjalan, cukup perubahan urutan script untuk format berubah.
+- **Rekomendasi:** Satu formatter saja (versi verbose); hapus blok lain.
+
+### R56 — Info paginasi peserta monitoring tanpa offset: "Menampilkan 20 dari 57" di semua halaman
+- **Usaha:** XS · **Area:** Admin (Pengawasan) · **Status:** `[x]` ✅ **Batch 11**
+- **Lokasi:** `pengawas_detail.html:1591`; pembanding benar `admin.js:1792` (rentang start–end).
+- **Rekomendasi:** Hitung start/end → "Menampilkan 41–57 dari 57 perangkat".
+
+### R57 — `localizeUTC` lokal pengawas_detail menimpa alias core: dua format tanggal dalam satu produk
+- **Usaha:** XS · **Area:** Admin (Pengawasan) · **Status:** `[x]` ✅ **Batch 11**
+- **Lokasi:** `pengawas_detail.html:1619-1627` mendefinisikan ulang alias core (:413-416 "jangan tambahkan pemakaian baru") → kolom waktu monitoring "24 Agu 10.11" vs halaman lain "2026-08-24 10:11".
+- **Rekomendasi:** Hapus definisi lokal (jatuh ke alias core) atau tambahkan varian resmi di core.
+
+### R58 — Countdown kedaluwarsa akun: "Kedaluwarsa hari ini" nyaris mustahil (Math.ceil)
+- **Usaha:** XS · **Area:** Admin (Dashboard) · **Status:** `[x]` ✅ **Batch 11**
+- **Lokasi:** `dashboard.html:1032-1036` — sisa 10 menit → ceil = "1 hari lagi"; cabang hari-ini hanya kena bila sisa tepat 0 ms.
+- **Rekomendasi:** Floor untuk sisa >0 + ambang jam (<24h → "hari ini"/"± X jam").
+
+### R59 — Fallback zona tak seragam: main.go diam-diam UTC bila tzdata hilang, submissions.go WIB
+- **Usaha:** XS · **Area:** Admin · **Status:** `[x]` ✅ **Batch 11**
+- **Lokasi:** `main.go:274-276` (error diabaikan, In(nil)=UTC) vs `submissions.go:33-38` (fallback FixedZone benar — pola Batch 10).
+- **Dampak:** Di kontainer tanpa tzdata, badge jadwal dashboard/pengawas kembali UTC persis seperti bug S49 — hanya separuh yang ditambal.
+- **Rekomendasi:** Ekstrak jakartaLoc+fallback ke helper bersama, atau import `_ "time/tzdata"` di main.
+
+### R60 — Cache-busting manual drift: suffix `-N` tangan di atas `{{.version}}`
+- **Usaha:** XS · **Area:** Publik + Admin · **Status:** `[x]` ✅ **Batch 11**
+- **Lokasi:** `partials/head.html:11` (`?v={{.version}}-settings-tabs-1`), `hasil.html:25,59,60` (`-2`, `-5`, `-3`), sama di download/register/reset/cek_hasil/forgot.
+- **Dampak:** Eksistensi suffix membuktikan rilis lama mengedit file tanpa bump version — mekanisme busting bocor; suffix manual pasti lupa di-bump (skenario proxy LAN R34).
+- **Rekomendasi:** Hitung `?v=` dari hash-konten file (middleware murah untuk ±7 file) atau hapus semua suffix.
+
+### R61 — hasil.css `!important` naik 63→65 (arah berlawanan metrik R27) & tak dikunci guard
+- **Usaha:** XS · **Area:** Publik · **Status:** `[x]` ✅ **Batch 11**
+- **Lokasi:** `git diff a1afd9c..2debff6 -- hasil.css`: fix R43 menambah 2 `!important` print; aktual kini 65 (tertinggi repo). Padahal blok print ada SETELAH rule sumber, specificity setara — important tak perlu.
+- **Rekomendasi:** Hapus kedua important; tambahkan count `!important` per-file ke guard (gabung S64).
+
+### R62 — Label grup OTP tanpa asosiasi programatik (ekor R32)
+- **Usaha:** XS · **Area:** Publik · **Status:** `[x]` ✅ **Batch 11**
+- **Lokasi:** `register_confirm.html:240`, `reset_password.html:129` — label non-wrapping tanpa for; sisa label tanpa-for lain sah (implicit wrapping).
+- **Rekomendasi:** `for="otp-1"` atau aria-labelledby ke container group; asersi "label non-wrapping wajib ber-for".
+
+### R63 — State error 404 "Ujian Tidak Ditemukan" dead-end tanpa CTA
+- **Usaha:** XS · **Area:** Publik (Hasil) · **Status:** `[x]` ✅ **Batch 11**
+- **Lokasi:** `hasil.html:134-138` — kartu tanpa satu pun link/tombol; pembanding state disabled sudah benar punya "Kembali ke Beranda".
+- **Rekomendasi:** Duplikat CTA "Kembali ke Beranda" + link "Coba Token Lain" → /hasil.
+
+### R64 — Strength meter tak terhubung programatik: screen reader tak pernah mendengar feedback kekuatan
+- **Usaha:** XS–S · **Area:** Publik (auth) · **Status:** `[x]` ✅ **Batch 11**
+- **Lokasi:** `register.html:281,288-289` (+reset_password): input tanpa aria-describedby ke pwStrengthText; teks kekuatan tanpa aria-live.
+- **Rekomendasi:** `aria-describedby="pwStrengthText"` + `aria-live="polite"`.
+
+### R65 — Hint username tak menyebut huruf kecil wajib; konversi toLowerCase diam-diam
+- **Usaha:** XS · **Area:** Publik (Register) · **Status:** `[x]` ✅ **Batch 11**
+- **Lokasi:** hint `register.html:263` vs JS `:446` (toLowerCase) — "BudiGuru" tampil "budiguru" tanpa penjelasan (toast R9 hanya untuk karakter dihapus).
+- **Rekomendasi:** Hint "Huruf kecil, angka, titik, garis bawah…".
+
+### R66 — Zona waktu halaman hasil publik mengikuti jam perangkat penonton — kontradiksi dengan kartu guru (WIB)
+- **Usaha:** XS · **Area:** Publik (Hasil) · **Status:** `[x]` ✅ **Batch 11**
+- **Lokasi:** `hasil.html:715-716` (formatDateTimeID zona browser) vs kanonik server formatExamTimeWIB (fix S49) — submission sama bisa tampil beda jam di dua layar resmi (pola S49).
+- **Rekomendasi:** Kirim string terformat WIB dari API hasil, atau dokumentasikan perilaku zona-penonton.
+
+---
+
 ## 6. REKAP TRACKING
 
 > Centang `[x]` + cantumkan hash commit saat selesai. Urut sesuai prioritas eksekusi.
+
+### Batch 11 — Ronde 5: eksekusi temuan 5.8 ✅ SELESAI (2026-08-24, test-first via 4 agen paralel (2 terputus → dikerjakan/dituntaskan koordinator); suite gabungan repo **631/631 hijau**, `go build`+`go vet` OK)
+
+> Kontrak lintas-agen: (1) seluruh `templates/**/*.html` wajib **0 handler inline** (`\son[a-z]+=`)
+> — dikunci guard folder-wide baru; (2) plafon token di-rebalance ke angka aktual (pengurangan
+> oleh agen lain aman); (3) R59 (fallback tz main.go) dikerjakan koordinator langsung.
+
+- [x] **T19** regresi fungsional T19 dibereskan: blok registrasi `Actions` hasil.html & download.html
+  dipindah ke dalam DOMContentLoaded (deferred core terekseksi sebelum event itu) — tab Nilai/Kunci,
+  paginasi, clear-search, "Coba Lagi", dan tab platform unduhan hidup kembali untuk klik mouse;
+  test vm mengeksekusi skrip dalam urutan nyata (inline → core → DOMContentLoaded) dan mengunci
+  `Actions.has('switch-tab'/'download-app')`.
+- [x] **T20** eksekusi ulang R51 yang false-positive: heading order download.html (3 flavor-title
+  h4→h3) & submissions.html (4 section-title h4→h3, visual via style existing + selector disesuaikan);
+  assertion urutan heading ditambahkan di kedua suite.
+- [x] **T21** seluruh 36 handler inline non-onclick dihabiskan: settings ×20, dashboard ×13
+  (form submit listener, delegasi change select-all/token-mode/statusFilter, wiring file-input &
+  color-picker), nav ×1, hasil oninput ×1, + submissions onchange ×1 (ekstra kontrak) —
+  **guard folder-wide `\son[a-z]+=` = 0 di templates/** kini hijau**.
+- [x] **S60** live-search & filter peserta me-reset halaman: callback → `loadDetail(1)` /
+  `loadPengawasExams(1)` — cari dari page >1 tak lagi menghasilkan kosong palsu (test vm page=3).
+- [x] **S61** sub-item S49 tuntas: `expires_at` popup kuota user diformat `formatDateTimeID`
+  (+ asersi render popup bebas interpolasi mentah).
+- [x] **S62** onclick render-JS settings-billing.js (:134 activatePackage, :158 retry) & 
+  settings-voucher-audit.js (:9,:86 paginasi) bermigrasi ke data-action + registrasi modul pemilik;
+  sweep bebas onclick untuk modul settings ditambahkan.
+- [x] **S63** hex `#fff` ×66 settings.html dimigrasi kontekstual ke token semantik
+  (--color-text/--color-text-on-primary/rgba(var(--rgb-white))) — visual dijaga per-baris.
+- [x] **S64** plafon guard di-rebalance: cap per-file = angka aktual (settings rgba/hex, file-file
+  tepat-plafon), dan count `!important` per CSS file dikunci sebagai plafon (pertama kali).
+- [x] **R54** konfirmasi auto-approve: label eksplisit `'Ya, Aktifkan'` (bukan default merah
+  "Ya, Hapus").
+- [x] **R55** kalkulator durasi ganda: blok admin.js ("Xj Ym") dihapus — formatter verbose
+  submissions.html satu-satunya sumber.
+- [x] **R56** info paginasi peserta monitoring memakai rentang: "Menampilkan 41–57 dari 57
+  perangkat" (test vm page 2/3).
+- [x] **R57** shadowing `localizeUTC` lokal pengawas_detail dihapus — format waktu seragam satu-pintu.
+- [x] **R58** countdown kedaluwarsa akun: <1 jam "± N menit lagi" (danger), <24 jam "Kedaluwarsa
+  hari ini", sisanya floor hari — Math.ceil dihapus (test vm 10 menit/5 jam/2 hari/lewat).
+- [x] **R59** fallback zona seragam: main.go formatExamTime memakai FixedZone("WIB") bila tzdata
+  hilang — selaras submissions.go & hasil.go (dikerjakan koordinator).
+- [x] **R60** suffix cache-busting manual `-N` dihapus semua (head.html + template publik) —
+  `?v={{.version}}` tunggal.
+- [x] **R61** dua `!important` print hasil.css dihapus (urutan file cukup) — count turun 65→63,
+  kini terkunci plafon guard S64.
+- [x] **R62** label grup OTP ber-asosiasi programatik (for ke kotak pertama) di
+  register_confirm & reset_password.
+- [x] **R63** state error 404 hasil dapat CTA "Kembali ke Beranda" + "Coba Token Lain".
+- [x] **R64** strength meter terhubung programatik: aria-describedby + aria-live="polite"
+  (register & reset_password).
+- [x] **R65** hint username menyebut huruf kecil wajib.
+- [x] **R66** waktu halaman hasil publik dikirim terformat WIB dari server (hasil.go helper
+  jakartaLoc fallback FixedZone — pilihan A) — konsisten dengan kartu guru.
+- Kontrak test lama direvisi minimal dengan intent proteksi dipertahankan: batch9-publik R37c
+  (jendela regex diperlebar atas blok komentar T19), batch10-pengawasan-nav/batch3-settings-nav/
+  batch7 (anchor loadDetail(1), localizeUTC keluar daftar ekstraksi).
 
 ### Batch 10 — Ronde 4: eksekusi temuan 5.7 ✅ SELESAI (2026-08-24, test-first via 5 agen paralel (2 agen terputus → dikerjakan koordinator); suite gabungan repo **577/577 hijau**, `go build`+`go vet` OK)
 

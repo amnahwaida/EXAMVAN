@@ -1671,7 +1671,7 @@ function loadUsersList(page) {
                     // bila expires_at terisi dan sudah lewat dari waktu sekarang.
                     const isExpired = Boolean(user.expires_at && new Date(user.expires_at.replace(' ', 'T') + 'Z').getTime() <= Date.now());
                     const expiredBadge = isExpired ? '<span class="status-badge status-expired" title="Masa aktif akun telah habis. Perpanjang masa aktif agar user dapat login kembali.">Masa aktif habis</span>' : '';
-                    const expiresAt = user.expires_at || '—';
+                    const expiresAt = user.expires_at ? formatDateTimeID(user.expires_at) : '—';
                     const createdAt = user.created_at ? formatDateTimeID(user.created_at) : '—';
                     const limitPdfMb = user.max_pdf_size ? (user.max_pdf_size / (1024*1024)).toFixed(1) + ' MB' : '—';
                     const limitStorageMb = user.max_storage_size ? (user.max_storage_size / (1024*1024)).toFixed(1) + ' MB' : '—';
@@ -4058,31 +4058,10 @@ document.addEventListener('DOMContentLoaded', function() {
         }
     }
 
-    document.querySelectorAll('.duration-cell').forEach(function(el) {
-        var start = el.getAttribute('data-start');
-        var end = el.getAttribute('data-end');
-        if (start && end) {
-            try {
-                var toIso = function(v) {
-                    var s = String(v).trim();
-                    if (s.includes(' ') && !s.includes('T')) s = s.replace(' ', 'T');
-                    if (!s.endsWith('Z') && !s.includes('+') && !(/-\d{2}:\d{2}$/.test(s))) s += 'Z';
-                    return s;
-                };
-                var s = new Date(toIso(start));
-                var e = new Date(toIso(end));
-                var diff = Math.floor((e - s) / 1000);
-                if (diff > 0) {
-                    var h = Math.floor(diff / 3600);
-                    var m = Math.floor((diff % 3600) / 60);
-                    var parts = [];
-                    if (h > 0) parts.push(h + 'j');
-                    parts.push(m + 'm');
-                    el.textContent = parts.join(' ');
-                }
-            } catch(_) {}
-        }
-    });
+    // R55: kalkulator durasi versi singkat ("Xj Ym") DIHAPUS —
+    // submissions.html punya formatter verbose sendiri dan keduanya berlomba
+    // menimpa isi sel beberapa detik setelah render. Satu sumber kebenaran:
+    // formatter di submissions.html.
 });
 
 // Subscription Package Presets Config

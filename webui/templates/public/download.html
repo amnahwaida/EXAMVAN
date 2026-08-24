@@ -472,8 +472,8 @@
     .toast-close { opacity: 1; }
   }
 </style>
-<link rel="stylesheet" href="/static/css/public-mobile.css?v={{.version}}-5">
-<link rel="stylesheet" href="/static/css/public-desktop.css?v={{.version}}-3">
+<link rel="stylesheet" href="/static/css/public-mobile.css?v={{.version}}">
+<link rel="stylesheet" href="/static/css/public-desktop.css?v={{.version}}">
 <noscript><style>.reveal { opacity: 1 !important; transform: none !important; }</style></noscript>
 
   <main id="main-content">
@@ -527,12 +527,12 @@
           {{ if .android_app }}
           <div class="flavor-box" style="border-color: rgba(139,92,246,0.35); background: rgba(139,92,246,0.06);">
             <div>
-              <h4 class="flavor-title" style="color:#c4b5fd;">{{ .android_app.Name }} — Rilis Resmi
+              <h3 class="flavor-title" style="color:#c4b5fd;">{{ .android_app.Name }} — Rilis Resmi
                 <span class="new-badge">
                   <svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg>
                   Terbaru
                 </span>
-              </h4>
+              </h3>
               <p class="flavor-meta">
                 Rilis Resmi • Versi: <span class="meta-val">v{{ .android_app.Version }}</span> • Ukuran: <span class="meta-val"><script>document.write( ({{ .android_app.SizeBytes }} / 1048576.0).toFixed(2) );</script> MB</span>
               </p>
@@ -550,7 +550,7 @@
               {{ if and (eq .Platform "android") (ne .ID $.android_app.ID) }}
                 <div class="flavor-box">
                   <div>
-                    <h4 class="flavor-title">{{ .Name }}</h4>
+                    <h3 class="flavor-title">{{ .Name }}</h3>
                     <p class="flavor-meta">
                       Rilis Resmi • Versi: <span class="meta-val">v{{ .Version }}</span> • Ukuran: <span class="meta-val"><script>document.write( ({{ .SizeBytes }} / 1048576.0).toFixed(2) );</script> MB</span>
                     </p>
@@ -692,7 +692,7 @@
                 {{ $hasWindowsApp = true }}
                 <div class="flavor-box">
                   <div>
-                    <h4 class="flavor-title">{{.Name}}</h4>
+                    <h3 class="flavor-title">{{.Name}}</h3>
                     <p class="flavor-meta">
                       Rilis Resmi • Versi: <span class="meta-val">v{{.Version}}</span> • Ukuran: <span class="meta-val"><script>document.write( ({{ .SizeBytes }} / 1048576.0).toFixed(2) );</script> MB</span>
                     </p>
@@ -771,7 +771,7 @@
                 {{ $hasLinuxApp = true }}
                 <div class="flavor-box">
                   <div>
-                    <h4 class="flavor-title">{{.Name}}</h4>
+                    <h3 class="flavor-title">{{.Name}}</h3>
                     <p class="flavor-meta">
                       Rilis Resmi • Versi: <span class="meta-val">v{{.Version}}</span> • Ukuran: <span class="meta-val"><script>document.write( ({{ .SizeBytes }} / 1048576.0).toFixed(2) );</script> MB</span>
                     </p>
@@ -839,15 +839,21 @@
     // S59: aksi halaman lewat registry Actions (admin-core.js) — pengganti
     // onclick inline. Argumen dibawa via data-*; preventDefault dipertahankan
     // agar href fallback tidak ikut menavigasi saat probe berjalan.
-    if (typeof Actions !== 'undefined') {
-      Actions.register('switch-tab', function (el) {
-        switchTab(el.getAttribute('data-platform'));
-      });
-      Actions.register('download-app', function (el, ev) {
-        if (ev && typeof ev.preventDefault === 'function') ev.preventDefault();
-        downloadApp(el.getAttribute('data-app-id'), el);
-      });
-    }
+    document.addEventListener('DOMContentLoaded', () => {
+      // T19: registrasi HARUS di dalam DOMContentLoaded — admin-core.js dimuat
+      // defer, jadi saat script ini dieksekusi registry Actions belum ada
+      // (guard typeof lama selalu false → semua tab & unduhan mati untuk klik
+      // mouse). Deferred scripts selesai sebelum DOMContentLoaded.
+      if (typeof Actions !== 'undefined') {
+        Actions.register('switch-tab', function (el) {
+          switchTab(el.getAttribute('data-platform'));
+        });
+        Actions.register('download-app', function (el, ev) {
+          if (ev && typeof ev.preventDefault === 'function') ev.preventDefault();
+          downloadApp(el.getAttribute('data-app-id'), el);
+        });
+      }
+    });
 
     function switchTab(platform, opts) {
       document.querySelectorAll('.tab-btn').forEach(btn => {
@@ -879,6 +885,9 @@
       return VALID_PLATFORMS.includes(h) ? h : DEFAULT_PLATFORM;
     }
 
+    // Init halaman: deep-link tab, navigasi keyboard, sinkronisasi hash,
+    // reveal-on-scroll. Registrasi Actions dilakukan di listener pertama
+    // (urutan listener DOMContentLoaded terjaga).
     document.addEventListener('DOMContentLoaded', () => {
       // Deep-link: buka tab sesuai #hash URL (fallback default bila kosong/
       // tidak dikenal). Dipanggil sekali juga tanpa hash agar state ARIA

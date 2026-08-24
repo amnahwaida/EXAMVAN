@@ -402,7 +402,7 @@
 <div class="table-header">
 <h2 style="font-size:1.15rem;"><svg class="icon-svg" style="vertical-align:middle;margin-top:-2px;"><use href="#hi-dashboard"/></svg> Daftar Ujian</h2>
 <div class="table-toolbar">
-<select id="statusFilter" onchange="searchExamsWithStatus()" class="toolbar-select" aria-label="Filter status ujian">
+<select id="statusFilter" class="toolbar-select" aria-label="Filter status ujian">
 <option value="" {{if eq $.status_filter ""}}selected{{end}}>Semua Status</option>
 <option value="active" {{if eq $.status_filter "active"}}selected{{end}}>Aktif</option>
 <option value="inactive" {{if eq $.status_filter "inactive"}}selected{{end}}>Nonaktif</option>
@@ -429,13 +429,13 @@
 {{/* Di ponsel thead disembunyikan (layout kartu), jadi kontrol "pilih semua"
      perlu tersedia di luar thead. */}}
 <label class="mobile-select-all-exams">
-<input type="checkbox" onchange="toggleSelectAllExams(this)" class="exam-checkbox-input"> Pilih semua ujian
+<input type="checkbox" id="selectAllExamsMobile" class="exam-checkbox-input"> Pilih semua ujian
 </label>
 <div class="table-responsive">
 <table class="exam-table table-with-checkbox" id="examTable">
 <thead>
 <tr>
-<th scope="col" style="width:40px;text-align:center;"><input type="checkbox" id="selectAllExams" onchange="toggleSelectAllExams(this)" title="Pilih Semua" class="exam-checkbox-input"></th>
+<th scope="col" style="width:40px;text-align:center;"><input type="checkbox" id="selectAllExams" title="Pilih Semua" class="exam-checkbox-input"></th>
 <th scope="col">Nama Ujian</th>
 {{if or (eq .admin_role "superadmin") (hasRole .admin_role "operator")}}
 <th scope="col">Pembuat</th>
@@ -450,7 +450,7 @@
 <tbody>
 {{range $i, $exam := .exams}}
 <tr id="exam-row-{{$exam.ID}}">
-<td data-label=""><input type="checkbox" class="exam-checkbox exam-checkbox-input" value="{{$exam.ID}}" data-name="{{$exam.Name}}" data-status="{{$exam.Status}}" data-owner="{{$exam.CreatorName}}" data-owner-id="{{$exam.CreatedBy}}" onchange="updateBulkActions()"></td>
+<td data-label=""><input type="checkbox" class="exam-checkbox exam-checkbox-input" value="{{$exam.ID}}" data-name="{{$exam.Name}}" data-status="{{$exam.Status}}" data-owner="{{$exam.CreatorName}}" data-owner-id="{{$exam.CreatedBy}}"></td>
 <td class="td-name" data-label="Ujian"><a href="/admin/submissions?exam_id={{$exam.ID}}" class="exam-link" title="Lihat Hasil Ujian">{{$exam.Name}}</a></td>
 {{if or (eq $.admin_role "superadmin") (hasRole $.admin_role "operator")}}
 <td data-label="Pembuat"><span style="font-weight:600;color:var(--accent-light);">{{$exam.CreatorName}}</span></td>
@@ -458,7 +458,7 @@
 {{end}}
 <td class="td-token" data-label="Token">
 <div class="token-mode-group">
-  <select class="token-mode-select" aria-label="Mode token ujian" title="Statis: token tetap sepanjang ujian. Dinamis: token berganti otomatis tiap beberapa menit demi keamanan (anti-bocor)." onchange="onTokenModeChange(this, {{$exam.ID}})">
+  <select class="token-mode-select" aria-label="Mode token ujian" title="Statis: token tetap sepanjang ujian. Dinamis: token berganti otomatis tiap beberapa menit demi keamanan (anti-bocor)." data-exam-id="{{$exam.ID}}">
     <option value="static" {{if eq $exam.TokenMode "static"}}selected{{end}}>Statis</option>
     <option value="dynamic" {{if or (not $exam.TokenMode) (eq $exam.TokenMode "dynamic")}}selected{{end}}>Dinamis</option>
   </select>
@@ -576,7 +576,7 @@
 <button class="modal-close" data-action="modal-close" data-modal-close="closeChangePasswordModal" aria-label="Tutup"><svg class="icon-svg" style="width:18px;height:18px;"><use href="#hi-x"/></svg></button>
 </div>
 <div class="modal-body">
-<form id="changePasswordForm" onsubmit="submitChangePassword(event)">
+<form id="changePasswordForm">
 <input type="hidden" name="csrf_token" value="{{.csrf_token}}">
 <div class="form-group" style="margin-bottom: 16px;">
 <label class="required" for="currentPassword">Password Saat Ini</label>
@@ -628,7 +628,7 @@
 <button class="modal-close" data-action="modal-close" data-modal-close="closeEditExamModal" aria-label="Tutup"><svg class="icon-svg" style="width:18px;height:18px;"><use href="#hi-x"/></svg></button>
 </div>
 <div class="modal-body">
-<form id="editExamForm" onsubmit="submitEditExam(event)" enctype="multipart/form-data">
+<form id="editExamForm" enctype="multipart/form-data">
 <input type="hidden" name="csrf_token" value="{{.csrf_token}}">
 <input type="hidden" id="editExamId">
 <div class="form-group" style="margin-bottom: 16px;">
@@ -638,7 +638,7 @@
 <div class="form-group" style="margin-bottom: 20px;">
 <label for="editPdfFile">File PDF Baru <span style="font-size: 11px; opacity: 0.7;">(Opsional)</span></label>
 <div class="file-input-wrapper">
-<input type="file" id="editPdfFile" accept="application/pdf" data-max-mb="{{.max_size_mb}}" onchange="handleEditFileChange(this)">
+<input type="file" id="editPdfFile" accept="application/pdf" data-max-mb="{{.max_size_mb}}">
 <div class="file-input-display" id="editFileDisplay">
 <svg class="icon-svg" style="width:20px;height:20px;flex-shrink:0;"><use href="#hi-file"/></svg>
 <span class="file-text" id="editFileDisplayText">Pilih file PDF baru jika ingin merubah...</span>
@@ -663,7 +663,7 @@
 <button class="modal-close" data-action="modal-close" data-modal-close="closeEditTokenModal" aria-label="Tutup"><svg class="icon-svg" style="width:18px;height:18px;"><use href="#hi-x"/></svg></button>
 </div>
 <div class="modal-body">
-<form id="editTokenForm" onsubmit="submitEditToken(event)">
+<form id="editTokenForm">
 <input type="hidden" name="csrf_token" value="{{.csrf_token}}">
 <input type="hidden" id="editTokenExamId">
 <div class="form-group" style="margin-bottom: 20px;">
@@ -795,8 +795,8 @@
 </div>
 </div>
 <div style="display:flex;align-items:center;gap:8px;">
-<input type="color" id="examPanelColor" value="#6366F1" onchange="document.getElementById('panelColorHex').value=this.value" style="width:36px;height:36px;border:none;border-radius:8px;cursor:pointer;background:transparent;">
-<input type="text" id="panelColorHex" value="#6366F1" maxlength="7" placeholder="#6366F1" oninput="document.getElementById('examPanelColor').value=this.value" style="width:80px;padding:6px 8px;border:1px solid var(--color-glass-border);border-radius:8px;background:rgba(255,255,255,0.04);color:var(--color-text);font-family:monospace;font-size:0.8rem;text-align:center;">
+<input type="color" id="examPanelColor" value="#6366F1" style="width:36px;height:36px;border:none;border-radius:8px;cursor:pointer;background:transparent;">
+<input type="text" id="panelColorHex" value="#6366F1" maxlength="7" placeholder="#6366F1" style="width:80px;padding:6px 8px;border:1px solid var(--color-glass-border);border-radius:8px;background:rgba(255,255,255,0.04);color:var(--color-text);font-family:monospace;font-size:0.8rem;text-align:center;">
 </div>
 </div>
 <div style="display:flex;gap:6px;margin-top:10px;flex-wrap:wrap;">
@@ -900,7 +900,7 @@
 </div>
 <div class="xml-import-wrapper" style="display:flex;align-items:center;gap:6px;">
 <button class="btn-sm" data-action="ai-prompt-copy" style="gap:4px;"><svg class="icon-svg" style="width:14px;height:14px;"><use href="#hi-clipboard"/></svg> Prompt AI</button>
-<input type="file" id="xmlFileInput" accept=".xml" style="display:none;" onchange="importXMLQuestions(event)">
+<input type="file" id="xmlFileInput" accept=".xml" style="display:none;">
 <button class="btn-sm" data-action="xml-import-browse" style="gap:4px;"><svg class="icon-svg" style="width:14px;height:14px;"><use href="#hi-download"/></svg> Import XML</button>
 <button class="btn-sm" data-action="xml-export" style="gap:4px;"><svg class="icon-svg" style="width:14px;height:14px;"><use href="#hi-upload"/></svg> Ekspor XML</button>
 </div>
@@ -1008,6 +1008,28 @@ document.addEventListener('click', function(e) {
     }
 });
 
+// ===== R58: countdown kedaluwarsa akun ======================================
+// Pembulatan ke atas per-hari membuat "Kedaluwarsa hari ini" mustahil
+// tercapai (sisa 5 jam → terhitung "1 hari lagi"). Logika berbasis jam:
+// <1 jam tampil menit, <24 jam = "Kedaluwarsa hari ini", sisanya floor hari.
+function expiryCountdownHtml(diffMs) {
+    if (diffMs <= 0) {
+        return '<span style="color:var(--color-danger-light);font-weight:600;">Kedaluwarsa</span>';
+    }
+    if (diffMs < 60 * 60 * 1000) {
+        var mins = Math.max(1, Math.round(diffMs / 60000));
+        return '<span style="color:var(--color-danger-light);font-weight:700;">± ' + mins + ' menit lagi</span>';
+    }
+    if (diffMs < 24 * 60 * 60 * 1000) {
+        return '<span style="color:var(--color-warning-light);font-weight:600;">Kedaluwarsa hari ini</span>';
+    }
+    var days = Math.floor(diffMs / (24 * 60 * 60 * 1000));
+    if (days <= 7) {
+        return '<span style="color:var(--color-danger-light);font-weight:600;">' + days + ' hari lagi</span>';
+    }
+    return '<span style="color:var(--color-success-light);font-weight:700;">' + days + ' hari lagi</span>';
+}
+
 document.addEventListener('DOMContentLoaded', function() {
     var si = document.getElementById('searchExam');
     var sf = document.getElementById('statusFilter');
@@ -1029,14 +1051,54 @@ document.addEventListener('DOMContentLoaded', function() {
             if (!isNaN(expiresDate.getTime())) {
                 var now = new Date();
                 var diffMs = expiresDate - now;
-                var diffDays = Math.ceil(diffMs / (1000 * 60 * 60 * 24));
-                if (diffDays < 0) expiryEl.innerHTML = '<span style="color:#f87171;font-weight:600;">Kedaluwarsa</span>';
-                else if (diffDays === 0) expiryEl.innerHTML = '<span style="color:var(--color-warning-light);font-weight:600;">Kedaluwarsa hari ini</span>';
-                else if (diffDays <= 7) expiryEl.innerHTML = '<span style="color:#f87171;font-weight:600;">' + diffDays + ' hari lagi</span>';
-                else expiryEl.innerHTML = '<span style="color:var(--color-success-light);font-weight:700;">' + diffDays + ' hari lagi</span>';
+                expiryEl.innerHTML = expiryCountdownHtml(diffMs);
             }
         }
     }
+
+    // ===== T21: migrasi handler inline on*= ke addEventListener/delegasi =====
+    // Perilaku identik dengan versi onchange/onsubmit/oninput sebelumnya,
+    // tapi CSP-safe dan terpusat di blok init halaman ini.
+    var changePasswordFormEl = document.getElementById('changePasswordForm');
+    if (changePasswordFormEl) changePasswordFormEl.addEventListener('submit', submitChangePassword);
+    var editExamFormEl = document.getElementById('editExamForm');
+    if (editExamFormEl) editExamFormEl.addEventListener('submit', submitEditExam);
+    var editTokenFormEl = document.getElementById('editTokenForm');
+    if (editTokenFormEl) editTokenFormEl.addEventListener('submit', submitEditToken);
+    var formEditInstansiEl = document.getElementById('formEditInstansi');
+    if (formEditInstansiEl) formEditInstansiEl.addEventListener('submit', saveEditInstansi);
+
+    var editPdfFileEl = document.getElementById('editPdfFile');
+    if (editPdfFileEl) {
+        editPdfFileEl.addEventListener('change', function() { handleEditFileChange(this); });
+    }
+    var xmlFileInputEl = document.getElementById('xmlFileInput');
+    if (xmlFileInputEl) xmlFileInputEl.addEventListener('change', importXMLQuestions);
+
+    // Sinkronisasi dua arah color picker <-> input hex warna panel jawaban.
+    var panelColorEl = document.getElementById('examPanelColor');
+    var panelHexEl = document.getElementById('panelColorHex');
+    if (panelColorEl && panelHexEl) {
+        panelColorEl.addEventListener('change', function() { panelHexEl.value = this.value; });
+        panelHexEl.addEventListener('input', function() { panelColorEl.value = this.value; });
+    }
+
+    // Delegasi change: checkbox pilih-semua, checkbox baris ujian, mode token,
+    // filter status. Argumen examId dibawa data-exam-id pada select.
+    document.addEventListener('change', function(e) {
+        var t = e.target;
+        if (!t || !t.classList) return;
+        if (t.id === 'selectAllExams' || t.id === 'selectAllExamsMobile'
+            || (t.closest && t.closest('.mobile-select-all-exams'))) {
+            toggleSelectAllExams(t);
+        } else if (t.classList.contains('exam-checkbox')) {
+            updateBulkActions();
+        } else if (t.classList.contains('token-mode-select')) {
+            onTokenModeChange(t, t.getAttribute('data-exam-id'));
+        } else if (t.id === 'statusFilter') {
+            searchExamsWithStatus();
+        }
+    });
 });
 
 // NOTE: toggleRowDropdown is intentionally NOT redefined here — admin.js
@@ -1056,7 +1118,7 @@ document.addEventListener('click', function() { document.querySelectorAll('.exam
       </h3>
       <button class="btn-close" data-action="modal-close" data-modal-close="closeEditInstansiModal" aria-label="Tutup modal ubah instansi" style="background:none;border:none;color:var(--color-text-placeholder);font-size:1.4rem;cursor:pointer;">&times;</button>
     </div>
-    <form id="formEditInstansi" onsubmit="saveEditInstansi(event)" style="margin-top:16px;">
+    <form id="formEditInstansi" style="margin-top:16px;">
       <div style="margin-bottom:20px;">
         <label for="editInstansiInput" style="display:block;font-size:0.85rem;font-weight:600;color:var(--color-text-secondary);margin-bottom:8px;">
           Nama Instansi / Sekolah <span style="color:var(--color-danger);">*</span>

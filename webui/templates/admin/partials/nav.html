@@ -138,7 +138,7 @@
                     Sebelum menggunakan fitur aplikasi, silakan atur nama resmi Sekolah/Instansi Anda terlebih dahulu.
                 </p>
             </div>
-            <form id="formMandatoryInstansi" onsubmit="submitMandatoryInstansi(event)">
+            <form id="formMandatoryInstansi">
                 <div style="margin-bottom:20px;">
                     <label for="newInstansiName" style="display:block; margin-bottom:8px; font-weight:600; font-size:0.85rem; color:var(--color-text-secondary);">
                         Nama Sekolah / Instansi <span style="color:#ef4444;">*</span>
@@ -199,5 +199,12 @@ function submitMandatoryInstansi(e) {
         btn.disabled = false;
     });
 }
+
+// Batch 11 (T21): wiring submit instansi via addEventListener — handler
+// inline non-onclick (onsubmit) tidak diizinkan lagi di template.
+(function() {
+    var form = document.getElementById('formMandatoryInstansi');
+    if (form) form.addEventListener('submit', submitMandatoryInstansi);
+})();
 </script>
 {{end}}

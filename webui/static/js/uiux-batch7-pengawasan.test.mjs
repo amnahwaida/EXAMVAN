@@ -266,9 +266,12 @@ function loadDetailPageActions(sandbox) {
     // Batch 10 (S50): global halaman yang dibaca findApprovalStudentName.
     sandbox.approvalRowsCache = [];
     sandbox.console = console;
+    // Batch 11 (R57): definisi lokal localizeUTC dihapus dari pengawas_detail
+    // (pemakaian jatuh ke alias admin-core.js) — stub setara untuk sandbox.
+    sandbox.localizeUTC = (s) => (s || '');
 
     const parts = [];
-    for (const fname of ['esc', 'localizeUTC', 'buildApprovalRowHTML', 'showConfirmApprovalModal', 'closeConfirmApprovalModal',
+    for (const fname of ['esc', 'buildApprovalRowHTML', 'showConfirmApprovalModal', 'closeConfirmApprovalModal',
         // Batch 10 (S50): helper label identitas dipanggil dari dalam
         // showConfirmApprovalModal — ikut dimuat agar sandbox lengkap.
         'findApprovalStudentName', 'formatApprovalStudentLabel']) {

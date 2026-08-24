@@ -53,6 +53,37 @@ func getPool(c *gin.Context) *pgxpool.Pool {
 // Time formatting
 // ---------------------------------------------------------------------------
 
+// R66: zona sekolah WIB untuk waktu tampilan halaman hasil — selaras
+// submissions.go (Batch 10/S49). LoadLocation gagal (kontainer tanpa tzdata)
+// → fallback FixedZone dengan offset yang sama (WIB tidak mengenal DST).
+var jakartaLoc = func() *time.Location {
+	loc, err := time.LoadLocation("Asia/Jakarta")
+	if err != nil {
+		return time.FixedZone("WIB", 7*60*60)
+	}
+	return loc
+}()
+
+// formatWIBDisplay formats a time as a human-readable WIB display string.
+func formatWIBDisplay(t time.Time) string {
+	return t.In(jakartaLoc).Format("2006-01-02 15:04")
+}
+
+// parseLegacyUTCTime parses legacy submission timestamp strings ("2024-01-15
+// 10:30:00" naive-UTC, atau ISO "2024-01-15T10:30:00Z") sebagai UTC.
+func parseLegacyUTCTime(s string) (time.Time, bool) {
+	s = strings.TrimSpace(s)
+	if s == "" {
+		return time.Time{}, false
+	}
+	for _, layout := range []string{"2006-01-02 15:04:05", "2006-01-02T15:04:05Z", "2006-01-02T15:04:05"} {
+		if t, err := time.Parse(layout, s); err == nil {
+			return t, true
+		}
+	}
+	return time.Time{}, false
+}
+
 // formatISOUTC formats a time.Time as a UTC ISO 8601 string.
 func formatISOUTC(t time.Time) string {
 	return t.UTC().Format("2006-01-02T15:04:05Z")
@@ -323,7 +354,11 @@ func HasilAPI() gin.HandlerFunc {
 			MaxScore         *float64                        `json:"max_score"`
 			StartTime        interface{}                     `json:"start_time"`
 			CreatedAt        string                          `json:"created_at"`
-			Answers          map[string]interface{}          `json:"answers,omitempty"`
+			// R66: waktu tampilan terformat WIB dari server — penonton tidak
+			// lagi melihat jam menurut zona perangkatnya (selaras kartu guru).
+			StartTimeDisplay string                             `json:"start_time_display,omitempty"`
+			CreatedAtDisplay string                             `json:"created_at_display,omitempty"`
+			Answers          map[string]interface{}             `json:"answers,omitempty"`
 			EvaluatedAnswers map[string]models.EvaluationDetail `json:"evaluated_answers"`
 		}
 
@@ -377,18 +412,27 @@ func HasilAPI() gin.HandlerFunc {
 				evaluated = map[string]models.EvaluationDetail{}
 			}
 
-			item := submissionItem{
-				ID:               id,
-				StudentName:      studentName,
-				ExamNumber:       examNumber,
-				StudentClass:     studentClass,
-				IdentityData:     idData,
-				Score:            score,
-				MaxScore:         maxScorePtr,
-				StartTime:        formatISOUTCString(ptrString(startTime)),
-				CreatedAt:        formatISOUTC(createdAt),
-				EvaluatedAnswers: evaluated,
-			}
+		// R66: waktu tampilan WIB dihitung server-side; field ISO mentah tetap
+		// dikirim untuk perhitungan durasi sisi klien (getDurationString).
+		startTimeDisplay := ""
+		if st, ok := parseLegacyUTCTime(ptrString(startTime)); ok {
+			startTimeDisplay = formatWIBDisplay(st)
+		}
+
+		item := submissionItem{
+			ID:               id,
+			StudentName:      studentName,
+			ExamNumber:       examNumber,
+			StudentClass:     studentClass,
+			IdentityData:     idData,
+			Score:            score,
+			MaxScore:         maxScorePtr,
+			StartTime:        formatISOUTCString(ptrString(startTime)),
+			CreatedAt:        formatISOUTC(createdAt),
+			StartTimeDisplay: startTimeDisplay,
+			CreatedAtDisplay: formatWIBDisplay(createdAt),
+			EvaluatedAnswers: evaluated,
+		}
 			// Raw student answers are sent only when the visitor is entitled
 			// (logged in or the teacher enabled show_answers); otherwise the
 			// frontend masks them while still showing per-question status.

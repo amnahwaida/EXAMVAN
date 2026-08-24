@@ -6,7 +6,7 @@ function renderAuditError(msg, page) {
     if (!tbody) return;
     tbody.setAttribute('aria-busy', 'false');
     tbody.innerHTML = '<tr><td colspan="4" style="text-align:center;padding:40px;color:var(--color-danger-light);">' + msg
-        + '<div style="margin-top:12px;"><button type="button" class="btn-sm btn-secondary" onclick="loadAuditLogs(' + page + ')">Coba Lagi</button></div></td></tr>';
+        + '<div style="margin-top:12px;"><button type="button" class="btn-sm btn-secondary" data-action="audit-retry" data-page="' + page + '">Coba Lagi</button></div></td></tr>';
 }
 
 function loadAuditLogs(page = 1) {
@@ -83,7 +83,7 @@ function renderAuditPagination(pg) {
             continue;
         }
         const activeStyle = item === pg.page ? 'background:var(--color-primary);color:#fff;' : 'background:rgba(255,255,255,0.06);color:var(--color-text-secondary);';
-        btns += `<button onclick="loadAuditLogs(${item})" style="padding:4px 10px;border-radius:6px;border:none;font-size:12px;cursor:pointer;${activeStyle}">${item}</button>`;
+        btns += `<button type="button" data-action="audit-page" data-page="${item}" aria-label="Halaman ${item}"${item === pg.page ? ' aria-current="page"' : ''} style="padding:4px 10px;border-radius:6px;border:none;font-size:12px;cursor:pointer;${activeStyle}">${item}</button>`;
     }
 
     container.innerHTML = `
@@ -110,5 +110,13 @@ if (window.Actions && typeof window.Actions.register === 'function') {
         var input = document.getElementById('auditSearchInput');
         if (input) input.value = '';
         loadAuditLogs(1);
+    });
+    // Batch 11 (S62): render-JS error/paginasi kini bebas onclick —
+    // nomor halaman lewat data-* + normalisasi parseInt (pola Batch 8).
+    window.Actions.register('audit-retry', function (el) {
+        loadAuditLogs(parseInt(el.getAttribute('data-page'), 10) || 1);
+    });
+    window.Actions.register('audit-page', function (el) {
+        loadAuditLogs(parseInt(el.getAttribute('data-page'), 10) || 1);
     });
 }

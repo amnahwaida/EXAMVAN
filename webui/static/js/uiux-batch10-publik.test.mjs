@@ -359,9 +359,11 @@ test('S54 (perilaku): switchTab menyinkronkan aria-selected + roving tabindex', 
 
 test('S54 (statik): navigasi keyboard panah/Home/End terpasang pada tablist hasil', () => {
     const html = HASIL();
-    const initBlock = html.match(/DOMContentLoaded[\s\S]{0,200000}$/);
-    assert.ok(initBlock, 'blok init harus ada');
-    const region = initBlock[0].slice(0, 3000);
+    // Revisi Batch 11: kata "DOMContentLoaded" kini juga muncul di komentar
+    // HTML (T21) — ambil kemunculan TERAKHIR yaitu listener init sebenarnya.
+    const idx = html.lastIndexOf('DOMContentLoaded');
+    assert.ok(idx !== -1, 'blok init harus ada');
+    const region = html.slice(idx, idx + 5000);
     for (const key of ['ArrowRight', 'ArrowLeft', 'Home', 'End']) {
         assert.ok(region.includes(key), `navigasi keyboard ${key} wajib ditangani di init tab`);
     }

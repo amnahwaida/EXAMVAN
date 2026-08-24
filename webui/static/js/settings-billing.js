@@ -131,7 +131,7 @@ function loadMyPackages() {
                     action = '<span style="color:var(--color-text-secondary);font-size:12px;">Berjalan</span>';
                 } else {
                     badge = '<span class="status-badge" style="background:rgba(245,158,11,0.15);color:var(--color-warning);border:1px solid rgba(245,158,11,0.3);">Dijeda</span>';
-                    action = '<button class="btn-sm" onclick="activatePackage(' + p.id + ')" style="background:rgba(168,85,247,0.15);color:var(--color-accent-light);border:1px solid rgba(168,85,247,0.3);padding:4px 12px;cursor:pointer;">Aktifkan</button>';
+                    action = '<button type="button" class="btn-sm" data-action="billing-package-activate" data-redemption-id="' + p.id + '" style="background:rgba(168,85,247,0.15);color:var(--color-accent-light);border:1px solid rgba(168,85,247,0.3);padding:4px 12px;cursor:pointer;">Aktifkan</button>';
                 }
 
                 var remaining;
@@ -155,7 +155,7 @@ function loadMyPackages() {
         .catch(function(err) {
             console.error(err);
             wrap.innerHTML = '<div style="text-align:center;padding:24px;color:var(--color-danger-light);">Gagal memuat daftar paket.'
-                + '<div style="margin-top:12px;"><button type="button" class="btn-sm btn-secondary" onclick="loadMyPackages()">Coba Lagi</button></div></div>';
+                + '<div style="margin-top:12px;"><button type="button" class="btn-sm btn-secondary" data-action="billing-packages-retry">Coba Lagi</button></div></div>';
         });
 }
 
@@ -208,4 +208,10 @@ if (window.Actions && typeof window.Actions.register === 'function') {
     window.Actions.register('billing-redeem-open', function () { redeemVoucher(); });
     window.Actions.register('billing-redeem-cancel', function () { closeConfirmRedeemModal(); });
     window.Actions.register('billing-redeem-confirm', function () { doRedeemVoucher(); });
+    // Batch 11 (S62): render-JS tabel paket klaiman kini bebas onclick —
+    // id redemption lewat data-* + normalisasi parseInt (pola Batch 8).
+    window.Actions.register('billing-package-activate', function (el) {
+        activatePackage(parseInt(el.getAttribute('data-redemption-id'), 10));
+    });
+    window.Actions.register('billing-packages-retry', function () { loadMyPackages(); });
 }

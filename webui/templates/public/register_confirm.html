@@ -167,8 +167,8 @@
    .otp-input-wrapper { gap: 6px; }
   }
  </style>
- <link rel="stylesheet" href="/static/css/public-mobile.css?v={{.version}}-5">
-  <link rel="stylesheet" href="/static/css/public-desktop.css?v={{.version}}-3">
+ <link rel="stylesheet" href="/static/css/public-mobile.css?v={{.version}}">
+  <link rel="stylesheet" href="/static/css/public-desktop.css?v={{.version}}">
 </head>
 <body class="login-page">
  {{ template "public_auth_nav" . }}
@@ -237,9 +237,9 @@
     <input type="hidden" name="device_fingerprint" value="">
 
     <div style="text-align:center;">
-     <label style="display:block;margin-bottom:6px;font-weight:500;font-size:13px;color:var(--color-text);">Masukkan Kode OTP</label>
+      <label for="otp-digit-1" style="display:block;margin-bottom:6px;font-weight:500;font-size:13px;color:var(--color-text);">Masukkan Kode OTP</label>
      <div class="otp-input-wrapper" id="otpInputWrapper">
-      <input type="text" class="otp-digit" maxlength="1" inputmode="numeric" pattern="[0-9]" data-idx="0" aria-label="Digit 1 kode OTP" autofocus autocomplete="one-time-code">
+      <input type="text" class="otp-digit" id="otp-digit-1" maxlength="1" inputmode="numeric" pattern="[0-9]" data-idx="0" aria-label="Digit 1 kode OTP" autofocus autocomplete="one-time-code">
       <input type="text" class="otp-digit" maxlength="1" inputmode="numeric" pattern="[0-9]" data-idx="1" aria-label="Digit 2 kode OTP">
       <input type="text" class="otp-digit" maxlength="1" inputmode="numeric" pattern="[0-9]" data-idx="2" aria-label="Digit 3 kode OTP">
       <input type="text" class="otp-digit" maxlength="1" inputmode="numeric" pattern="[0-9]" data-idx="3" aria-label="Digit 4 kode OTP">

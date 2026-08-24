@@ -103,7 +103,7 @@
    .exam-info-grid {
      gap: 14px !important;
    }
-   .info-group h4 {
+    .info-group h3 {
      margin-bottom: 6px !important;
      font-size: 0.7rem !important;
    }
@@ -141,7 +141,7 @@
     </h2>
     <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
       <label for="filterExam" style="position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0;">Filter ujian</label>
-      <select id="filterExam" onchange="filterSubmissions()" class="toolbar-select" style="min-width:180px;">
+      <select id="filterExam" class="toolbar-select" style="min-width:180px;">
         <option value="">Semua Ujian</option>
         {{range .exams}}
         <option value="{{index . "id"}}" {{if eq (printf "%d" (index . "id")) (printf "%d" $.exam_filter_param)}}selected{{end}}>{{index . "name"}} (oleh {{index . "creator"}}){{if index . "tombstoned"}} — Nonaktif Otomatis{{end}}</option>
@@ -179,7 +179,7 @@
     <div class="exam-info-grid" style="display:grid;grid-template-columns:repeat(auto-fit, minmax(220px, 1fr));gap:20px;">
       <!-- Column 1: Statistik Ujian -->
       <div class="info-group">
-        <h4 style="margin:0 0 10px 0;font-size:0.75rem;text-transform:uppercase;color:var(--color-text-muted);letter-spacing:0.5px;">Statistik Ujian</h4>
+        <h3 style="margin:0 0 10px 0;font-size:0.75rem;text-transform:uppercase;color:var(--color-text-muted);letter-spacing:0.5px;">Statistik Ujian</h3>
         <div style="display:flex;flex-direction:column;gap:8px;">
           <div style="display:flex;align-items:center;gap:8px;font-size:0.85rem;color:var(--color-text-secondary);">
             <svg class="icon-svg" style="color:var(--color-text-muted);"><use href="#hi-users"/></svg>
@@ -194,7 +194,7 @@
 
       <!-- Column 2: Alur Waktu -->
       <div class="info-group">
-        <h4 style="margin:0 0 10px 0;font-size:0.75rem;text-transform:uppercase;color:var(--color-text-muted);letter-spacing:0.5px;">Waktu &amp; Jadwal</h4>
+        <h3 style="margin:0 0 10px 0;font-size:0.75rem;text-transform:uppercase;color:var(--color-text-muted);letter-spacing:0.5px;">Waktu &amp; Jadwal</h3>
         <div style="display:flex;flex-direction:column;gap:8px;">
           <div style="display:flex;align-items:center;gap:8px;font-size:0.85rem;color:var(--color-text-secondary);">
             <svg class="icon-svg" style="color:var(--color-text-muted);"><use href="#hi-clock"/></svg>
@@ -217,7 +217,7 @@
 
       <!-- Column 3: Pembuat & Guru -->
       <div class="info-group">
-        <h4 style="margin:0 0 10px 0;font-size:0.75rem;text-transform:uppercase;color:var(--color-text-muted);letter-spacing:0.5px;">Pembuat &amp; Guru</h4>
+        <h3 style="margin:0 0 10px 0;font-size:0.75rem;text-transform:uppercase;color:var(--color-text-muted);letter-spacing:0.5px;">Pembuat &amp; Guru</h3>
         <div style="display:flex;flex-direction:column;gap:8px;">
           <div style="display:flex;align-items:center;gap:8px;font-size:0.85rem;color:var(--color-text-secondary);">
             <svg class="icon-svg" style="color:var(--color-text-muted);"><use href="#hi-user"/></svg>
@@ -233,7 +233,7 @@
       <!-- Column 4: Pengawas Ujian -->
       {{if index $ei "pengawas"}}
       <div class="info-group">
-        <h4 style="margin:0 0 10px 0;font-size:0.75rem;text-transform:uppercase;color:var(--color-text-muted);letter-spacing:0.5px;">Pengawas Terdaftar</h4>
+        <h3 style="margin:0 0 10px 0;font-size:0.75rem;text-transform:uppercase;color:var(--color-text-muted);letter-spacing:0.5px;">Pengawas Terdaftar</h3>
         <div style="display:flex;flex-wrap:wrap;gap:4px;margin-top:2px;">
           {{range $pw := index $ei "pengawas"}}
           <span style="display:inline-block;padding:2px 8px;border-radius:10px;font-size:11px;background:rgba(var(--rgb-info),0.12);color:var(--color-primary-light);border:1px solid rgba(var(--rgb-info),0.2);">{{$pw}}</span>
@@ -416,6 +416,11 @@ Mulai: <span id="detailStartTime">—</span> | Kumpul: <span id="detailSubmitTim
 // close-detail-modal, export-submissions) kini HIDUP di admin.js (Batch 8) —
 // modul pemilik fungsinya; admin-core.js menyediakan registry Actions dan
 // listener klik delegasi dokumen. Halaman tidak memasang registrasi sendiri.
+
+// Batch 11 (T21): handler inline non-onclick dilarang — wiring filter ujian
+// via addEventListener (filterSubmissions global milik admin.js).
+var filterExamEl = document.getElementById('filterExam');
+if (filterExamEl) filterExamEl.addEventListener('change', function() { filterSubmissions(); });
 
 document.addEventListener('DOMContentLoaded', function() {
     document.querySelectorAll('.duration-cell').forEach(function(el) {

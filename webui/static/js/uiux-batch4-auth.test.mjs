@@ -105,7 +105,10 @@ test('R9a: register.html menampilkan aturan charset username pada hint field', (
     const hint = html.match(/<span[^>]*form-hint-subtle[^>]*id="usernameHint"[^>]*>([\s\S]*?)<\/span>/)
         || html.match(/<span[^>]*id="usernameHint"[^>]*>([\s\S]*?)<\/span>/);
     assert.ok(hint, 'harus ada <span id="usernameHint"> di bawah input username');
-    assert.match(hint[1], /[Hh]anya huruf/i, 'hint harus menyebut aturan huruf');
+    // Revisi Batch 11/R65: kini eksplisit "Huruf kecil" (sanitasi JS
+    // melakukan toLowerCase diam-diam) — intent R9 tetap: hint menyebut
+    // aturan huruf.
+    assert.match(hint[1], /[Hh]uruf( kecil)?|[Hh]anya huruf/i, 'hint harus menyebut aturan huruf');
     assert.match(hint[1], /angka/, 'hint harus menyebut angka');
     assert.match(hint[1], /titik|garis bawah|strip|hubung/i, 'hint harus menyebut karakter khusus yang diizinkan');
     assert.match(hint[1], /[Mm]in\.?\s*3/, 'hint harus menyebut panjang minimum 3 karakter');

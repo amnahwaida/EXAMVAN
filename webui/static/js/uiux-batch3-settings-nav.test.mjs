@@ -181,8 +181,8 @@ test('S5: pengawas.html memakai initLiveSearch (debounce) tanpa onkeyup Enter-on
     );
     assert.match(
         html,
-        /initLiveSearch\(\s*document\.getElementById\('pengawasSearch'\)\s*,\s*loadPengawasExams/,
-        'input pengawasSearch harus dihubungkan ke initLiveSearch dengan callback loadPengawasExams'
+        /initLiveSearch\(\s*document\.getElementById\('pengawasSearch'\)\s*,\s*function\(\) \{\s*loadPengawasExams\(1\)/,
+        'input pengawasSearch harus dihubungkan ke initLiveSearch dengan callback loadPengawasExams(1) (S60: reset halaman)'
     );
     assert.match(
         html,

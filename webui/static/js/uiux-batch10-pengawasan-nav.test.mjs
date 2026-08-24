@@ -97,7 +97,7 @@ test('S48 (perilaku): initLiveSearch ter-wire ke #pengawasSearch dengan callback
     const at = DETAIL.indexOf(marker);
     assert.ok(at !== -1, 'blok komentar penunjuk S48 ada di pengawas_detail.html');
     const start = DETAIL.lastIndexOf('//', at);
-    const endAnchor = "statusFilterEl.addEventListener('change', function() { loadDetail(); });";
+    const endAnchor = "statusFilterEl.addEventListener('change', function() { loadDetail(1); });";
     const end = DETAIL.indexOf(endAnchor, start);
     assert.ok(end !== -1, 'wiring select filter ada di blok yang sama');
     const block = DETAIL.slice(start, end + endAnchor.length).replace(/^\s*\/\/.*$/gm, '');
