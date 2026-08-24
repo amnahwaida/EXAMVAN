@@ -30,7 +30,13 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const PUBLIC = path.join(__dirname, '..', '..', 'templates', 'public');
 const THEME = path.join(__dirname, '..', '..', 'static', 'css', 'theme.css');
 
-const FILES = ['download.html', 'shared.html', 'register.html'].map((f) => path.join(PUBLIC, f));
+// S82/S83 (ronde 8): register_confirm, reset_password & hasil.html ikut
+// terjaga — sebelumnya blind-spot (tumbuh literal tanpa alarm karena tidak
+// masuk FILES). Baseline = angka aktual pasca migrasi token ronde 8
+// (hasil: 6 hitungan seluruhnya false-positive entity HTML &#8226;).
+const FILES = ['download.html', 'shared.html', 'register.html',
+    'register_confirm.html', 'reset_password.html', 'hasil.html']
+    .map((f) => path.join(PUBLIC, f));
 const read = (f) => fs.readFileSync(f, 'utf8');
 
 // ===== 1. Kontrak lintas-agen: triplet hitam/putih di theme.css =============
@@ -142,7 +148,17 @@ for (const f of FILES) {
 // ===== 5. Baseline terkunci pasca-migrasi (tidak boleh naik lagi) ===========
 
 const HEX_RE = /#[0-9a-fA-F]{3,8}\b/g;
-const BASELINE_HEX = { 'download.html': 20, 'shared.html': 25, 'register.html': 12 };
+// S82/S83 (ronde 8): baseline tiga halaman baru = aktual terukur pasca migrasi.
+// Catatan hasil.html = 6: seluruhnya false-positive regex terhadap entity HTML
+// &#8226; (bullet) — nol hex literal CSS sungguhan tersisa di file itu.
+const BASELINE_HEX = {
+    'download.html': 20,
+    'shared.html': 25,
+    'register.html': 12,
+    'register_confirm.html': 0,
+    'reset_password.html': 0,
+    'hasil.html': 6,
+};
 
 for (const f of FILES) {
     const name = path.basename(f);

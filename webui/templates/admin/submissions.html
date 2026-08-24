@@ -53,16 +53,16 @@
    }
    
    /* Student Name Header inside Card */
-   .exam-table td[data-label="Siswa"] {
+   .exam-table td[data-label="Nama"] {
      display: block !important;
      padding: 0 0 6px 0 !important;
      border-bottom: 1px dashed var(--color-glass-border) !important;
      margin-bottom: 4px !important;
    }
-   .exam-table td[data-label="Siswa"]::before {
+   .exam-table td[data-label="Nama"]::before {
      content: none !important;
    }
-   .exam-table td[data-label="Siswa"] strong {
+   .exam-table td[data-label="Nama"] strong {
      font-size: 1rem !important;
      font-weight: 700 !important;
    }
@@ -131,7 +131,7 @@
      untuk semua halaman admin) — duplikat per-halaman dihapus. -->
 
 <main class="dashboard" id="mainContent">
- <h1 class="sr-only" style="position:absolute;left:-9999px;">Rekapitulasi Hasil Ujian</h1>
+ <h1 class="sr-only">Rekapitulasi Hasil Ujian</h1>
 
   <!-- Page Header: Title & Filter Controls (Borderless) -->
   <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:20px;flex-wrap:wrap;gap:12px;">
@@ -276,10 +276,10 @@
  {{range .submissions}}
  {{$scorePct := .ScorePct}}
  <tr id="submission-row-{{.ID}}" data-exam-id="{{.ExamID}}" style="transition: background 0.2s;">
- <td data-label="Siswa" class="max-md:flex max-md:gap-1 max-md:items-baseline">
+ <td data-label="Nama" class="max-md:flex max-md:gap-1 max-md:items-baseline">
   <strong class="submission-identity-btn" style="cursor:pointer;" role="button" tabindex="0" data-identity='{{json .IdentityData}}'>{{.StudentName}}</strong>
  </td>
- <td data-label="Perangkat"><code style="font-size:11px;color:var(--color-text-muted);font-family:monospace;max-width:160px;display:inline-block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;vertical-align:middle;" title="{{.MACAddress}}">{{or .MACAddress "—"}}</code></td>
+ <td data-label="ID Perangkat"><code style="font-size:11px;color:var(--color-text-muted);font-family:monospace;max-width:160px;display:inline-block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;vertical-align:middle;" title="{{.MACAddress}}">{{or .MACAddress "—"}}</code></td>
  <td data-label="Nilai">
  {{if .Score}}
  {{/* Ambang skor (kontrak S38, lintas-agen): ≥70 sukses / 40–69 warning /

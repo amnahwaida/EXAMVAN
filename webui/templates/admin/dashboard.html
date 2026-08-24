@@ -16,7 +16,7 @@
 .pengawas-cell{position:relative}
 .pengawas-badge{display:inline-flex;align-items:center;gap:4px;padding:2px 8px;border-radius:8px;font-size:0.75rem;font-weight:600;background:rgba(var(--rgb-accent),0.1);color:#c084fc;border:1px solid rgba(var(--rgb-accent),0.2);cursor:pointer;white-space:nowrap;user-select:none}
 .pengawas-more{display:inline-flex;align-items:center;justify-content:center;width:18px;height:18px;border-radius:50%;background:rgba(var(--rgb-accent),0.2);font-size:0.65rem;font-weight:700;color:var(--color-accent-light);margin-left:2px}
-.pengawas-popup{display:none;position:absolute;z-index:100;top:100%;left:0;min-width:160px;background:var(--color-card-bg,#1e1e2e);border:1px solid var(--color-glass-border);border-radius:10px;padding:6px 0;box-shadow:0 8px 32px rgba(0,0,0,0.4);margin-top:4px}
+.pengawas-popup{display:none;position:absolute;z-index:var(--z-dropdown);top:100%;left:0;min-width:160px;background:var(--color-card-bg,#1e1e2e);border:1px solid var(--color-glass-border);border-radius:10px;padding:6px 0;box-shadow:0 8px 32px rgba(0,0,0,0.4);margin-top:4px}
 .pengawas-popup.show{display:block}
 .pengawas-popup-item{padding:6px 14px;font-size:0.78rem;color:var(--color-text);white-space:nowrap}
 .pengawas-popup-item:hover{background:rgba(var(--rgb-accent),0.08)}
@@ -59,7 +59,7 @@
 .pd-action-active:hover { background: rgba(var(--rgb-success),0.18); }
 .pd-action-danger {
   background: rgba(var(--rgb-danger),0.1);
-  color: #f87171;
+  color: var(--color-danger-bright);
   border-color: rgba(var(--rgb-danger),0.3);
 }
 .pd-action-danger:hover { background: rgba(var(--rgb-danger),0.18); }
@@ -241,7 +241,7 @@
 {{template "admin/partials/nav.html" dict "active_page" .active_page "admin_role" .admin_role "admin_user" .admin_user "csrf_token" .csrf_token "needs_instansi" .needs_instansi}}
 
 <main class="dashboard" id="mainContent">
-<h1 class="sr-only" style="position:absolute;left:-9999px;">Daftar Ujian</h1>
+<h1 class="sr-only">Daftar Ujian</h1>
 
 <!-- Stats Cards -->
 <section class="stats-grid" id="statsGrid">
@@ -323,7 +323,7 @@
 {{else if .is_super}}
 <span class="net-value badge-https">Selamanya</span>
 {{else}}
-<span class="net-value" style="color:#f87171;font-weight:600;font-size:13px;">Belum Berlangganan</span>
+<span class="net-value" style="color:var(--color-danger-bright);font-weight:600;font-size:13px;">Belum Berlangganan</span>
 {{end}}
 </div>
 <div class="net-item" title="Maksimal ukuran file PDF dalam sekali upload">
@@ -451,7 +451,7 @@
 {{range $i, $exam := .exams}}
 <tr id="exam-row-{{$exam.ID}}">
 <td data-label=""><input type="checkbox" class="exam-checkbox exam-checkbox-input" value="{{$exam.ID}}" data-name="{{$exam.Name}}" data-status="{{$exam.Status}}" data-owner="{{$exam.CreatorName}}" data-owner-id="{{$exam.CreatedBy}}"></td>
-<td class="td-name" data-label="Ujian"><a href="/admin/submissions?exam_id={{$exam.ID}}" class="exam-link" title="Lihat Hasil Ujian">{{$exam.Name}}</a></td>
+<td class="td-name" data-label="Nama Ujian"><a href="/admin/submissions?exam_id={{$exam.ID}}" class="exam-link" title="Lihat Hasil Ujian">{{$exam.Name}}</a></td>
 {{if or (eq $.admin_role "superadmin") (hasRole $.admin_role "operator")}}
 <td data-label="Pembuat"><span style="font-weight:600;color:var(--accent-light);">{{$exam.CreatorName}}</span></td>
 <td data-label="Guru"><span style="color:var(--color-text-secondary);">{{or $exam.DelegatedName "—"}}</span></td>
@@ -535,7 +535,7 @@
 <button data-exam-id="{{$exam.ID}}" data-action="delegate-exam-open"><svg class="icon-svg"><use href="#hi-users"/></svg> Delegasi Ujian</button>
 {{end}}
 {{if or (eq $.admin_role "superadmin") (hasRole $.admin_role "operator") (eq $.admin_id $exam.CreatedBy) (and $exam.DelegatedTo (eq $.admin_id $exam.DelegatedTo))}}
-<button data-exam-id="{{$exam.ID}}" data-exam-name="{{$exam.Name}}" data-action="exam-delete" class="dropdown-toggle-btn" style="color:#f87171;"><svg class="icon-svg"><use href="#hi-trash"/></svg> Hapus Ujian</button>
+<button data-exam-id="{{$exam.ID}}" data-exam-name="{{$exam.Name}}" data-action="exam-delete" class="dropdown-toggle-btn" style="color:var(--color-danger-bright);"><svg class="icon-svg"><use href="#hi-trash"/></svg> Hapus Ujian</button>
 {{end}}
 </div>
 </div>

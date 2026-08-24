@@ -39,13 +39,13 @@
    border-radius: 999px;
    white-space: nowrap;
   }
-  .score-status-pass { color: var(--color-success); background: rgba(16, 185, 129, 0.12); border: 1px solid rgba(16, 185, 129, 0.35); }
+  .score-status-pass { color: var(--color-success); background: rgba(var(--rgb-success), 0.12); border: 1px solid rgba(var(--rgb-success), 0.35); }
   /* R40: tingkat ketiga 40–69 — kuning netral "Hampir", bukan merah
      "Belum Lulus" yang kontradiktif dengan badge kuning di sampingnya.
      Warna memakai token theme.css (tanpa hex/rgba literal baru). */
   .score-status-mid { color: var(--color-warning-light); background: rgba(var(--rgb-warning), 0.12); border: 1px solid rgba(var(--rgb-warning), 0.35); }
-  .score-status-fail { color: var(--color-danger); background: rgba(239, 68, 68, 0.12); border: 1px solid rgba(239, 68, 68, 0.35); }
-  .score-status-none { color: var(--color-text-secondary); background: rgba(148, 163, 184, 0.12); border: 1px solid rgba(148, 163, 184, 0.30); }
+  .score-status-fail { color: var(--color-danger); background: rgba(var(--rgb-danger), 0.12); border: 1px solid rgba(var(--rgb-danger), 0.35); }
+  .score-status-none { color: var(--color-text-secondary); background: rgba(var(--rgb-white), 0.12); border: 1px solid rgba(var(--rgb-white), 0.30); }
   /* Badge status di bar rekap skor lembar jawaban (dirender oleh JS).
      Batch 9/S46: class, bukan id — id diduplikasi tiap baris detail terbuka
      (HTML invalid). */
@@ -114,9 +114,9 @@
  <section class="exam-hero">
  <h1>Hasil Ujian</h1>
  </section>
- <section class="glass-card" style="padding: 60px 40px; text-align: center; margin-top: 24px; border: 1px solid rgba(239, 68, 68, 0.15); background: rgba(239, 68, 68, 0.02);">
- <svg class="icon-svg" style="width:60px;height:60px;margin-bottom:20px;color:#ef4444;filter:drop-shadow(0 0 10px rgba(239,68,68,0.3));" aria-hidden="true"><use href="#hi-lock"/></svg>
- <h2 style="font-size: 1.6rem; font-weight: 800; color: #f8fafc; margin-bottom: 12px; font-family: 'Inter', sans-serif;">Halaman Hasil Dinonaktifkan</h2>
+ <section class="glass-card" style="padding: 60px 40px; text-align: center; margin-top: 24px; border: 1px solid rgba(var(--rgb-danger), 0.15); background: rgba(var(--rgb-danger), 0.02);">
+ <svg class="icon-svg" style="width:60px;height:60px;margin-bottom:20px;color:var(--color-danger-bright);filter:drop-shadow(0 0 10px rgba(var(--rgb-danger),0.3));" aria-hidden="true"><use href="#hi-lock"/></svg>
+ <h2 style="font-size: 1.6rem; font-weight: 800; color: var(--color-text); margin-bottom: 12px; font-family: 'Inter', sans-serif;">Halaman Hasil Dinonaktifkan</h2>
  <p style="color: var(--color-text-secondary); max-width: 520px; margin: 0 auto 28px auto; line-height: 1.7; font-size: 0.95rem;">
  Halaman hasil ujian untuk siswa pada ujian ini telah dinonaktifkan oleh Guru / Admin yang bersangkutan.
  Silakan hubungi pihak sekolah untuk mendapatkan informasi nilai Anda.
@@ -134,7 +134,7 @@
  </section>
  <section class="glass-card" style="padding: 60px 40px; text-align: center; margin-top: 24px;">
   <svg class="icon-svg" style="width:60px;height:60px;margin-bottom:20px;color:var(--color-danger-bright);" aria-hidden="true"><use href="#hi-x"/></svg>
- <h2 style="font-size: 1.4rem; font-weight: 700; color: #f8fafc; margin-bottom: 12px;">Ujian Tidak Ditemukan</h2>
+ <h2 style="font-size: 1.4rem; font-weight: 700; color: var(--color-text); margin-bottom: 12px;">Ujian Tidak Ditemukan</h2>
  <p style="color: var(--color-text-secondary);">Token "{{.token}}" tidak valid atau ujian tidak ditemukan.</p>
  <!-- R63: state error bukan dead-end — CTA utama + jalur coba token lain,
       pola konsisten dengan state disabled di atas. -->
@@ -161,13 +161,13 @@
   {{if .creator_name}}
   <div class="exam-meta-item">
   <svg class="icon-svg" style="vertical-align:middle;width:16px;height:16px;" aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M15.75 6a3.75 3.75 0 1 1-7.5 0 3.75 3.75 0 0 1 7.5 0ZM4.501 20.118a7.5 7.5 0 0 1 14.998 0A17.933 17.933 0 0 1 12 21.75c-2.676 0-5.216-.584-7.499-1.632Z"/></svg>
-  <span>Pembuat: <strong style="color:var(--color-primary-light,#a5b4fc);">{{.creator_name}}</strong></span>
+  <span>Pembuat: <strong style="color:var(--color-primary-light);">{{.creator_name}}</strong></span>
   </div>
   {{end}}
   {{if .delegated_name}}
   <div class="exam-meta-item">
   <svg class="icon-svg" style="vertical-align:middle;width:16px;height:16px;" aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M13.19 8.688a4.5 4.5 0 0 1 1.242 7.244l-4.5 4.5a4.5 4.5 0 0 1-6.364-6.364l1.757-1.757m13.35-.622 1.757-1.757a4.5 4.5 0 0 0-6.364-6.364l-4.5 4.5a4.5 4.5 0 0 0 1.242 7.244"/></svg>
-  <span>Guru: <strong style="color:var(--color-warning,#fbbf24);">{{.delegated_name}}</strong></span>
+  <span>Guru: <strong style="color:var(--color-warning);">{{.delegated_name}}</strong></span>
   </div>
   {{end}}
   <div class="exam-meta-item" id="avgScoreItem" style="display: none;">
@@ -256,7 +256,7 @@
  <!-- Keys Tab -->
  <div id="keysContent" role="tabpanel" aria-labelledby="tabKeys" style="display: none;">
  <div style="padding: 16px;">
- <h2 style="font-size: 1.1rem; font-weight: 700; margin-bottom: 8px; color: #a5b4fc; display: flex; align-items: center; gap: 8px;">
+ <h2 style="font-size: 1.1rem; font-weight: 700; margin-bottom: 8px; color: var(--color-primary-light); display: flex; align-items: center; gap: 8px;">
  <svg class="icon-svg" style="vertical-align:middle;" aria-hidden="true"><use href="#hi-key"/></svg> Kunci Jawaban Resmi
  </h2>
  <p style="font-size: 0.8rem; color: var(--color-text-muted); margin-bottom: 20px;">
@@ -607,7 +607,6 @@
  pageItems.forEach((sub, idx) => {
  const globalRank = (currentPage - 1) * PER_PAGE + idx + 1;
  const tr = document.createElement('tr');
- tr.setAttribute('data-name', sub.student_name.toLowerCase());
  tr.id = 'scores-row-' + sub.id;
  tr.onclick = () => toggleDetailScores(sub.id);
  tr.style.cursor = 'pointer';
@@ -746,7 +745,7 @@
  <span class="q-num">No. ${escapeHtml(String(q.number))}</span>
  <span class="q-student-ans">${studentDisplay}</span>
  <span class="q-correct-ans correct-ans-cell">${correctDisplay}</span>
- <span class="q-status ${statusClass}">${statusText} (${earned.toFixed(1)})</span>
+ <span class="q-status ${statusClass}">${escapeHtml(String(statusText))} (${earned.toFixed(1)})</span>
  </div>
  `;
  });
@@ -800,11 +799,11 @@
  <div class="detail-info-items">
  <div class="detail-identity-item">
  <span class="detail-identity-label">Waktu Mulai</span>
- <span class="detail-identity-value">${startTimeStr}</span>
+ <span class="detail-identity-value">${escapeHtml(String(startTimeStr))}</span>
  </div>
  <div class="detail-identity-item">
  <span class="detail-identity-label">Waktu Kumpul</span>
- <span class="detail-identity-value">${endTimeStr}</span>
+ <span class="detail-identity-value">${escapeHtml(String(endTimeStr))}</span>
  </div>
  <div class="detail-identity-item">
  <span class="detail-identity-label">Durasi Kerja</span>

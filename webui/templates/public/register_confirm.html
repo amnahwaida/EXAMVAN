@@ -34,22 +34,22 @@
    justify-content: center;
    font-size: 12px;
    font-weight: 700;
-   border: 2px solid rgba(255,255,255,0.1);
+   border: 2px solid rgba(var(--rgb-white),0.1);
    color: var(--color-text-muted);
    background: transparent;
    transition: all 0.3s;
    flex-shrink: 0;
   }
   .reg-step.done .reg-step-num {
-   border-color: rgba(34,197,94,0.4);
-   background: rgba(34,197,94,0.12);
-   color: #4ade80;
+   border-color: rgba(var(--rgb-success),0.4);
+   background: rgba(var(--rgb-success),0.12);
+   color: var(--color-success-light);
   }
   .reg-step.active .reg-step-num {
-   border-color: rgba(99,102,241,0.5);
-   background: rgba(99,102,241,0.15);
-   color: #a5b4fc;
-   box-shadow: 0 0 12px rgba(99,102,241,0.2);
+   border-color: rgba(var(--rgb-info),0.5);
+   background: rgba(var(--rgb-info),0.15);
+   color: var(--color-primary-light);
+   box-shadow: 0 0 12px rgba(var(--rgb-info),0.2);
   }
   .reg-step-label {
    font-size: 12px;
@@ -64,13 +64,13 @@
   .reg-step-line {
    width: 40px;
    height: 2px;
-   background: rgba(255,255,255,0.06);
+   background: rgba(var(--rgb-white),0.06);
    margin: 0 8px;
    border-radius: 2px;
    flex-shrink: 0;
   }
   .reg-step-line.done {
-   background: rgba(34,197,94,0.3);
+   background: rgba(var(--rgb-success),0.3);
   }
 
   /* OTP input styling */
@@ -90,21 +90,21 @@
    font-weight: 700;
    letter-spacing: 0;
    border-radius: 12px;
-   background: rgba(255,255,255,0.04);
-   border: 1.5px solid rgba(255,255,255,0.08);
-   color: #fff;
+   background: rgba(var(--rgb-white),0.04);
+   border: 1.5px solid rgba(var(--rgb-white),0.08);
+   color: var(--color-text);
    outline: none;
    transition: border-color 0.25s, box-shadow 0.25s, background 0.25s;
-   caret-color: #a5b4fc;
+   caret-color: var(--color-primary-light);
   }
   .otp-digit:focus {
-   border-color: rgba(99,102,241,0.5);
-   box-shadow: 0 0 0 3px rgba(99,102,241,0.12);
-   background: rgba(99,102,241,0.06);
+   border-color: rgba(var(--rgb-info),0.5);
+   box-shadow: 0 0 0 3px rgba(var(--rgb-info),0.12);
+   background: rgba(var(--rgb-info),0.06);
   }
    .otp-input-wrapper .otp-digit.filled {
-    border-color: rgba(99,102,241,0.35);
-    background: rgba(99,102,241,0.08);
+    border-color: rgba(var(--rgb-info),0.35);
+    background: rgba(var(--rgb-info),0.08);
    }
 
   /* Email badge */
@@ -114,11 +114,11 @@
    gap: 6px;
    padding: 8px 16px;
    border-radius: 10px;
-   background: rgba(99,102,241,0.08);
-   border: 1px solid rgba(99,102,241,0.15);
+   background: rgba(var(--rgb-info),0.08);
+   border: 1px solid rgba(var(--rgb-info),0.15);
    font-size: 14px;
    font-weight: 600;
-   color: #a5b4fc;
+   color: var(--color-primary-light);
    letter-spacing: 0.3px;
   }
   .email-badge svg {
@@ -129,8 +129,8 @@
 
   /* Info card */
   .otp-info-card {
-   background: rgba(255,255,255,0.02);
-   border: 1px solid rgba(255,255,255,0.05);
+   background: rgba(var(--rgb-white),0.02);
+   border: 1px solid rgba(var(--rgb-white),0.05);
    border-radius: 14px;
    padding: 20px;
    text-align: center;
@@ -156,7 +156,7 @@
    cursor: pointer;
   }
   .resend-hint a:hover {
-   color: #a5b4fc;
+   color: var(--color-primary-light);
   }
 
   /* Responsive */
@@ -398,7 +398,7 @@
     if (resendLink) resendLink.style.pointerEvents = '';
     if (resendMsg) {
      resendMsg.textContent = res.j.message || (res.ok ? 'Kode baru terkirim.' : 'Gagal mengirim ulang.');
-     resendMsg.style.color = res.ok && res.j.success ? '#34d399' : 'var(--color-danger-bright)';
+     resendMsg.style.color = res.ok && res.j.success ? 'var(--color-success-light)' : 'var(--color-danger-bright)';
     }
     if (res.ok && res.j.success) startCooldown(60);
    })

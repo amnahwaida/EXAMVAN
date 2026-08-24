@@ -513,8 +513,8 @@ function showConfirm(message, detailText = '', confirmLabel = 'Ya, Hapus', cance
                 ${detailText ? `<div class="confirm-dialog-detail">${escapeHtml(detailText)}</div>` : ''}
             </div>
             <div class="confirm-dialog-footer">
-                <button class="btn-sm" id="confirmCancelBtn" style="min-width:100px; justify-content:center; padding:10px 20px; font-size:13px;">${cancelLabel}</button>
-                <button class="btn-sm btn-delete" id="confirmOkBtn" style="min-width:100px; justify-content:center; padding:10px 20px; font-size:13px;">${confirmLabel}</button>
+                <button class="btn-sm" id="confirmCancelBtn" style="min-width:100px; justify-content:center; padding:10px 20px; font-size:13px;">${escapeHtml(cancelLabel)}</button>
+                <button class="btn-sm btn-delete" id="confirmOkBtn" style="min-width:100px; justify-content:center; padding:10px 20px; font-size:13px;">${escapeHtml(confirmLabel)}</button>
             </div>
         `;
         overlay.appendChild(card);
@@ -548,8 +548,12 @@ function showConfirm(message, detailText = '', confirmLabel = 'Ya, Hapus', cance
             overlay.remove();
         };
 
-        document.getElementById('confirmOkBtn').addEventListener('click', () => { cleanup(); resolve(true); });
-        document.getElementById('confirmCancelBtn').addEventListener('click', () => { cleanup(); resolve(false); });
+        // S76 (ronde 8): listener dipasang dari referensi overlay LOKAL, bukan
+        // document.getElementById — ID statis melintasi dialog bertumpuk dan
+        // membuat satu klik OK me-resolve SEMUA promise terbuka (aksi
+        // destruktif terkirim ganda).
+        overlay.querySelector('#confirmOkBtn').addEventListener('click', () => { cleanup(); resolve(true); });
+        overlay.querySelector('#confirmCancelBtn').addEventListener('click', () => { cleanup(); resolve(false); });
         overlay.addEventListener('click', (e) => {
             if (e.target === overlay) { cleanup(); resolve(false); }
         });
@@ -865,14 +869,16 @@ if (document.readyState === 'loading') {
 }
 
 // Keyboard accessibility: let elements promoted to role="button" (div/span/strong
-// with an onclick) be activated with Enter/Space like a native button. Native
-// <button>/<a> already handle this, so they are excluded.
+// with an onclick) be activated with Enter/Space like a native button.
+// T24 (ronde 8): eksklusi <a> kini HANYA untuk yang punya href — anchor
+// role="button" tanpa href tidak punya perilaku native apa pun sehingga wajib
+// diaktifkan handler ini juga (sebelumnya mati total untuk keyboard, WCAG 2.1.1).
 document.addEventListener('keydown', function (e) {
     if (e.key !== 'Enter' && e.key !== ' ' && e.key !== 'Spacebar') return;
     var el = e.target;
     if (!el || el.getAttribute('role') !== 'button') return;
     var tag = el.tagName;
-    if (tag === 'BUTTON' || tag === 'A' || tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return;
+    if (tag === 'BUTTON' || (tag === 'A' && el.hasAttribute('href')) || tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return;
     // Skip elements that already define their own keyboard handling, otherwise
     // both their inline onkeydown and this handler would fire (double action).
     if (el.hasAttribute('onkeydown')) return;

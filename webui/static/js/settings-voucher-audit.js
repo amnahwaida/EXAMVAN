@@ -5,11 +5,15 @@ function renderAuditError(msg, page) {
     const tbody = document.getElementById('auditLogsBody');
     if (!tbody) return;
     tbody.setAttribute('aria-busy', 'false');
-    tbody.innerHTML = '<tr><td colspan="4" style="text-align:center;padding:40px;color:var(--color-danger-light);">' + msg
+    tbody.innerHTML = '<tr><td colspan="4" style="text-align:center;padding:40px;color:var(--color-danger-light);">' + escapeHtml(msg)
         + '<div style="margin-top:12px;"><button type="button" class="btn-sm btn-secondary" data-action="audit-retry" data-page="' + page + '">Coba Lagi</button></div></td></tr>';
 }
 
+let auditLoadSeq = 0;
+// S78 (ronde 8): token permintaan monoton — respons permintaan lama yang
+// lambat mendarat terakhir TIDAK boleh menimpa render yang lebih baru.
 function loadAuditLogs(page = 1) {
+    const seq = ++auditLoadSeq;
     const tbody = document.getElementById('auditLogsBody');
     const search = document.getElementById('auditSearchInput').value.trim();
     if (tbody) {
@@ -21,6 +25,7 @@ function loadAuditLogs(page = 1) {
     apiFetch(url)
     .then(r => r.json())
     .then(res => {
+        if (seq !== auditLoadSeq) return;
         if (!res.success) {
             renderAuditError(res.message || 'Gagal memuat riwayat audit', page);
             return;
@@ -30,6 +35,7 @@ function loadAuditLogs(page = 1) {
         renderAuditPagination(res.pagination);
     })
     .catch(err => {
+        if (seq !== auditLoadSeq) return;
         console.error(err);
         renderAuditError('Gagal terhubung ke server', page);
     });
@@ -83,7 +89,7 @@ function renderAuditPagination(pg) {
             continue;
         }
         const activeStyle = item === pg.page ? 'background:var(--color-primary);color:#fff;' : 'background:rgba(255,255,255,0.06);color:var(--color-text-secondary);';
-        btns += `<button type="button" data-action="audit-page" data-page="${item}" aria-label="Halaman ${item}"${item === pg.page ? ' aria-current="page"' : ''} style="padding:4px 10px;border-radius:6px;border:none;font-size:12px;cursor:pointer;${activeStyle}">${item}</button>`;
+        btns += `<button type="button" data-action="audit-page" data-page="${item}" aria-label="Halaman ${item}"${item === pg.page ? ' aria-current="page"' : ''} style="min-height:40px;padding:8px 14px;border-radius:6px;border:none;font-size:12px;cursor:pointer;${activeStyle}">${item}</button>`;
     }
 
     container.innerHTML = `

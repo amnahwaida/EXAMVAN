@@ -434,7 +434,7 @@
   .audit-action-badge.deactivated {
     background: rgba(248, 113, 113, 0.12);
     border: 1px solid rgba(248, 113, 113, 0.35);
-    color: #f87171;
+    color: var(--color-danger-bright);
   }
  
 </style>
@@ -641,7 +641,7 @@
     
     .btn-delete {
         background: rgba(var(--rgb-danger), 0.1);
-        color: #f87171;
+        color: var(--color-danger-bright);
         border-color: rgba(var(--rgb-danger), 0.2);
     }
     .btn-delete:hover {
@@ -738,7 +738,7 @@
    memberi tahu bahwa unggahan tetap berjalan. Warna via token (guard batch7). */
 .upload-progress-pill {
     position: fixed; left: 50%; bottom: 24px; transform: translateX(-50%);
-    z-index: 10002; display: none; align-items: center; gap: 10px;
+    z-index: var(--z-toast); display: none; align-items: center; gap: 10px;
     padding: 10px 18px; border-radius: 999px;
     background: rgba(var(--rgb-black), 0.85);
     border: 1px solid rgba(var(--rgb-accent), 0.45);
@@ -774,12 +774,12 @@
 {{ $locked := .feature_locked }}
 
 <!-- Batch 12 (S67): judul halaman kanonik — satu-satunya h1, di awal outline -->
-<h1 class="sr-only" style="position:absolute;left:-9999px;">Pengaturan</h1>
+<h1 class="sr-only">Pengaturan</h1>
 
 {{ if and (not $locked) (or $isSuper $isOp) }}
-{{ if and (not $locked) (or $isSuper $isOp) }}
+{{ if and (not $locked) $isSuper $isOp }}
 <section class="settings-section" id="section-users" data-section="users" aria-label="Kelola User">
-<h2 class="sr-only" style="position:absolute;left:-9999px;">Kelola User</h2>
+<h2 class="sr-only">Kelola User</h2>
 <!-- Toolbar: Buka Semua / Lipat Semua (Kelola User) -->
  <div style="display:flex;justify-content:flex-end;align-items:center;margin-bottom:4px;">
   <button type="button" id="toggleAllUsersBtn" data-action="users-toggle-all" class="btn-toggle-all" title="Lipat/buka semua bagian Kelola User sekaligus">
@@ -1581,7 +1581,7 @@
 
 
 <section class="settings-section" id="section-general" data-section="general" aria-label="Pengaturan Umum">
-<h2 class="sr-only" style="position:absolute;left:-9999px;">Pengaturan Umum</h2>
+<h2 class="sr-only">Pengaturan Umum</h2>
   <!-- SaaS & SMTP Email Verification Settings — 8 kartu terpisah, masing-masing
        dengan tombol simpan sendiri (partial update per bagian). Tombol besar
        "Simpan Setelan SaaS" dihapus. -->
@@ -1601,9 +1601,9 @@
   </div>
   <div class="saas-collapse-body">
   <div class="switch-container">
-  <span class="switch-label" title="Aktifkan untuk mewajibkan verifikasi kode OTP lewat email saat pendaftaran akun baru">Verifikasi OTP Email</span>
+  <span class="switch-label" id="emailEnabledLabel" title="Aktifkan untuk mewajibkan verifikasi kode OTP lewat email saat pendaftaran akun baru">Verifikasi OTP Email</span>
   <label class="switch">
-  <input type="checkbox" id="emailEnabledInput">
+  <input type="checkbox" id="emailEnabledInput" aria-labelledby="emailEnabledLabel">
   <span class="slider"></span>
   </label>
   </div>
@@ -1666,9 +1666,9 @@
   <div class="saas-collapse-body">
   <p style="font-size:12px;color:var(--color-text-secondary);margin:0 0 12px 0;">Wajibkan verifikasi Turnstile pada form pendaftaran untuk memblokir registrasi massal otomatis. Buat widget gratis di <code style="font-size:11px;color:var(--color-primary-light);">dash.cloudflare.com &rarr; Turnstile</code> lalu tempel Site Key &amp; Secret Key di sini.</p>
   <div class="switch-container">
-  <span class="switch-label" title="Aktifkan verifikasi Turnstile di halaman /register">Aktifkan Turnstile</span>
+  <span class="switch-label" id="turnstileEnabledLabel" title="Aktifkan verifikasi Turnstile di halaman /register">Aktifkan Turnstile</span>
   <label class="switch">
-  <input type="checkbox" id="turnstileEnabledInput">
+  <input type="checkbox" id="turnstileEnabledInput" aria-labelledby="turnstileEnabledLabel">
   <span class="slider"></span>
   </label>
   </div>
@@ -1860,9 +1860,9 @@
   </div>
   <div class="form-group space-y-1" style="display:flex;flex-direction:column;justify-content:center;">
   <div class="switch-container" style="margin-top:16px;">
-  <span class="switch-label" title="Aktifkan agar Google dan mesin pencari lainnya dapat mengindeks halaman login/registrasi situs ini">Izinkan Google Index</span>
+  <span class="switch-label" id="seoIndexLabel" title="Aktifkan agar Google dan mesin pencari lainnya dapat mengindeks halaman login/registrasi situs ini">Izinkan Google Index</span>
   <label class="switch">
-  <input type="checkbox" id="seoIndexInput">
+  <input type="checkbox" id="seoIndexInput" aria-labelledby="seoIndexLabel">
   <span class="slider"></span>
   </label>
   </div>
@@ -1969,7 +1969,7 @@
 <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:48px; flex-wrap: wrap; gap: 24px;">
         <div style="display:flex; align-items:center; gap:20px; flex-wrap:wrap;">
             <div class="header-icon-wrap">
-                <svg class="icon-svg" style="width:28px;height:28px;color:#818cf8;"><use href="#hi-download"/></svg>
+                <svg class="icon-svg" style="width:28px;height:28px;color:var(--color-primary-bright);"><use href="#hi-download"/></svg>
             </div>
             <div>
                 <h2 class="premium-header-title">Aplikasi Sistem</h2>
@@ -2097,11 +2097,18 @@
         }
       };
       document.addEventListener('DOMContentLoaded', function() {
-        var btn = document.getElementById('btnOpenUploadApp');
-        if (btn) btn.addEventListener('click', window.openUploadModalSafe);
+        // R98 (ronde 8): jalur wiring TUNGGAL untuk tombol unggah adalah
+        // delegasi global di bawah — dulu dobel (listener langsung + delegasi)
+        // sehingga openUploadModalSafe() dieksekusi dua kali per klik.
+        // S84-s (ronde 8): ukuran aplikasi sistem diisi via textContent dari
+        // atribut data-app-size-bytes (server kirim byte mentah) — pengganti
+        // pola skrip tulis-langsung ke dokumen yang deprecated/blocking.
+        var sizeEls = document.querySelectorAll('[data-app-size-bytes]');
+        for (var i = 0; i < sizeEls.length; i++) {
+          var bytes = parseInt(sizeEls[i].getAttribute('data-app-size-bytes'), 10);
+          if (!isNaN(bytes)) sizeEls[i].textContent = (bytes / (1024 * 1024)).toFixed(2);
+        }
       });
-      // Tab mungkin sudah dirender ulang oleh HTMX/turbo-like swap:
-      // delegasi global sebagai jaring pengaman tambahan.
       document.addEventListener('click', function(e) {
         var el = e.target.closest && e.target.closest('#btnOpenUploadApp');
         if (el) { e.preventDefault(); window.openUploadModalSafe(); }
@@ -2137,7 +2144,7 @@
                 <div class="app-meta">
                     <div>
                         <div style="font-size:0.75rem; text-transform:uppercase; letter-spacing:0.08em; margin-bottom:4px; font-weight:600;">Ukuran</div>
-                        <div style="font-weight:700; color:white; font-size:1.05rem;"><script>document.write( ({{ .SizeBytes }} / (1024*1024)).toFixed(2) );</script> MB</div>
+                        <div style="font-weight:700; color:white; font-size:1.05rem;" data-app-size-bytes="{{ .SizeBytes }}">…</div> MB
                     </div>
                     <div style="text-align:right;">
                         <div style="font-size:0.75rem; text-transform:uppercase; letter-spacing:0.08em; margin-bottom:4px; font-weight:600;">Diunggah Pada</div>

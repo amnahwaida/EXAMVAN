@@ -163,6 +163,10 @@ test('S64/R61+R61-lanjutan (guard): count !important per CSS inti tidak naik dar
         'css/hasil.css': 65,
         'css/public-desktop.css': 21,
         'css/public-mobile.css': 48,
+        // R90 (ronde 8): theme.css ikut di-cap — satu-satunya CSS inti tanpa
+        // plafon sebelumnya (aktual 1: skip-link). Lubang yang sama yang
+        // dikritik S71 tidak boleh terbuka lagi.
+        'css/theme.css': 1,
     };
     const countImportantLines = (src) => src.split('\n').filter((l) => l.includes('!important')).length;
     for (const [file, cap] of Object.entries(CAPS)) {

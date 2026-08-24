@@ -95,13 +95,18 @@ function fmtRemaining(sec) {
     return 'Sisa waktu habis';
 }
 
+var myPackagesSeq = 0;
+// S78 (ronde 8): token permintaan monoton — respons permintaan lama yang
+// lambat mendarat terakhir TIDAK boleh menimpa render yang lebih baru.
 function loadMyPackages() {
     var wrap = document.getElementById('myPackagesList');
     if (!wrap) return;
+    var seq = ++myPackagesSeq; // S78: lihat catatan di atas
 
     apiFetch('/admin/api/vouchers/mine')
         .then(function(r) { return r.json(); })
         .then(function(res) {
+            if (seq !== myPackagesSeq) return;
             if (!res.success) throw new Error(res.message);
             var list = res.redemptions || [];
             if (list.length === 0) {
@@ -153,6 +158,7 @@ function loadMyPackages() {
             wrap.innerHTML = html;
         })
         .catch(function(err) {
+            if (seq !== myPackagesSeq) return;
             console.error(err);
             wrap.innerHTML = '<div style="text-align:center;padding:24px;color:var(--color-danger-light);">Gagal memuat daftar paket.'
                 + '<div style="margin-top:12px;"><button type="button" class="btn-sm btn-secondary" data-action="billing-packages-retry">Coba Lagi</button></div></div>';

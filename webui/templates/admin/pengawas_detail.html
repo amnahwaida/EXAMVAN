@@ -263,7 +263,11 @@
      <svg class="icon-svg pd-search-icon"><use href="#hi-search"/></svg>
       <input type="text" id="pengawasSearch" class="pd-search-input" placeholder="Cari nama, ID perangkat..." aria-label="Cari peserta">
     </div>
-    <span id="lastUpdatedLabel" style="font-size:11px;color:var(--color-text-muted);white-space:nowrap;align-self:center;" aria-live="polite"></span>
+    <span id="lastUpdatedLabel" style="font-size:11px;color:var(--color-text-muted);white-space:nowrap;align-self:center;"></span>
+    <!-- S85 (ronde 8): region live TERPISAH untuk perubahan jumlah antrean.
+         Stempel jam di atas sengaja VISUAL-ONLY (tanpa aria-live) — jam polling
+         yang berubah tiap 5–12 detik menenggelamkan pengumuman penting. -->
+    <span id="queueLiveRegion" role="status" aria-live="polite" class="sr-only"></span>
     <button class="pd-toolbar-btn" data-action="load-detail" title="Muat Ulang" aria-label="Muat ulang data peserta">
      <svg class="icon-svg"><use href="#hi-refresh"/></svg>
     </button>
@@ -884,6 +888,10 @@
   border-radius: 6px;
   border: 1px solid rgba(var(--rgb-info),0.2);
   transition: all 0.15s;
+  /* T24 (ronde 8): elemen kini <button type="button"> (bukan <a> tanpa href
+     yang mati untuk keyboard) — reset gaya UA tombol agar tampilan sama. */
+  background: transparent;
+  font-family: inherit;
 }
 .action-link:hover {
   background: rgba(var(--rgb-info),0.1);
@@ -1287,6 +1295,7 @@ function loadApprovals() {
                 return;
             }
             if (!res.data || res.data.length === 0) {
+                announceQueueCount(0);
                 if (document.getElementById('autoAcceptToggle') && document.getElementById('autoAcceptToggle').checked) {
                     renderApprovalNotice('<tr><td colspan="5" class="pd-table-empty" style="color:var(--color-text-muted);"><div class="pd-pulse" style="display:inline-block;margin-right:8px;background:var(--color-success-light);"></div> Auto-approve aktif — peserta disetujui otomatis di server...</td></tr>');
                 } else {
@@ -1298,6 +1307,7 @@ function loadApprovals() {
             // baris yang tidak berubah TIDAK dibuat ulang — fokus/hover/tap
             // pengguna pada tombol lain tetap utuh. Replace penuh hanya sebagai
             // fallback bila diff tak terpetakan (atau render pertama).
+            announceQueueCount(res.data.length);
             var appliedInPlace = false;
             if (approvalRowsLive && approvalRowsCache.length > 0) {
                 var diff = PengawasDetailQueue.computeApprovalRowOps(approvalRowsCache, res.data);
@@ -1346,7 +1356,7 @@ function buildApprovalRowHTML(a, i) {
     return '<tr data-mac="' + escapeHtml(jsEscape(a.mac_address)) + '" style="transition: all 0.2s; border-bottom: 1px solid rgba(var(--rgb-warning),0.1);">' +
         '<td data-label="No">' + (i + 1) + '</td>' +
         '<td data-label="ID Perangkat">' +
-            '<div style="display:inline-flex; align-items:center; gap:6px; background:rgba(var(--rgb-info),0.1); color:#818cf8; padding:4px 8px; border-radius:6px; font-family:var(--font-mono); font-size:0.75rem; font-weight:600; border:1px solid rgba(var(--rgb-info),0.2);">' +
+            '<div style="display:inline-flex; align-items:center; gap:6px; background:rgba(var(--rgb-info),0.1); color:var(--color-primary-bright); padding:4px 8px; border-radius:6px; font-family:var(--font-mono); font-size:0.75rem; font-weight:600; border:1px solid rgba(var(--rgb-info),0.2);">' +
                 '<svg class="icon-svg" style="width:12px;height:12px;"><use href="#hi-device"/></svg> ' + escapeHtml(a.mac_address) +
             '</div>' +
         '</td>' +
@@ -1506,6 +1516,20 @@ function markUpdated() {
     el.textContent = 'Diperbarui ' + pad(d.getHours()) + ':' + pad(d.getMinutes()) + ':' + pad(d.getSeconds());
 }
 
+// S85 (ronde 8): umumkan perubahan jumlah antrean izin lewat #queueLiveRegion
+// (role="status"). Hanya menulis saat angka BERUBAH — tick polling dengan
+// payload sama tidak boleh menghasilkan pengumuman berulang.
+function announceQueueCount(count) {
+    var el = document.getElementById('queueLiveRegion');
+    if (!el) return;
+    var prev = parseInt(el.dataset.count, 10);
+    if (!isNaN(prev) && prev === count) return;
+    el.dataset.count = String(count);
+    el.textContent = count === 0
+        ? 'Tidak ada permintaan izin yang menunggu.'
+        : count + ' permintaan izin menunggu.';
+}
+
 // Anti-overlap guard for loadDetail: same rationale as loadApprovals — the
 // 12s silent refresh must not pile up requests (and out-of-order responses)
 // when the network is slow. SUB_PAGE is updated before the guard so a
@@ -1574,7 +1598,7 @@ function loadDetail(page, silent) {
                     '<td data-label="Mulai" style="font-size:0.75rem;color:var(--color-text-muted);font-family:var(--font-mono);">' + startTime + '</td>' +
                     '<td data-label="Upaya" style="text-align:center;">' + attCount + '</td>' +
                     '<td data-label="Aksi"><div style="display:flex;justify-content:flex-end;gap:8px;align-items:center;">' +
-                        '<a class="action-link" role="button" tabindex="0" data-action="show-access-log" data-submission-id="' + s.id + '"><svg class="icon-svg" style="width:12px;height:12px;"><use href="#hi-eye"/></svg> Detail</a>' +
+                        '<button type="button" class="action-link" data-action="show-access-log" data-submission-id="' + s.id + '"><svg class="icon-svg" style="width:12px;height:12px;"><use href="#hi-eye"/></svg> Detail</button>' +
                         (s.submitted ? '' : '<button class="pd-action-btn pd-action-danger" title="Cabut izin perangkat — sesi berikutnya harus minta izin lagi" data-action="set-approval" data-mac="' + escapeHtml(s.mac_address) + '" data-status="rejected" style="border-radius:6px;font-weight:600;font-size:0.7rem;"><svg class="icon-svg" style="width:12px;height:12px;"><use href="#hi-x"/></svg> Tolak</button>') +
                     '</div></td>' +
                     '</tr>';

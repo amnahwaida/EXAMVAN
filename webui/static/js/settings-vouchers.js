@@ -14,11 +14,15 @@ function renderVouchersError(msg, page) {
     tbody.setAttribute('aria-busy', 'false');
     // R29: retry via data-action (handler diregister di bawah) — halaman
     // dibawa data-page hasil parseInt agar interpolasi tetap numerik.
-    tbody.innerHTML = `<tr><td colspan="7" style="text-align:center;padding:40px;color:#fca5a5;">${msg}
+    tbody.innerHTML = `<tr><td colspan="7" style="text-align:center;padding:40px;color:var(--color-danger-light);">${escapeHtml(msg)}
         <div style="margin-top:12px;"><button type="button" class="btn-sm btn-secondary" data-action="voucher-retry-load" data-page="${parseInt(page, 10) || 1}">Coba Lagi</button></div></td></tr>`;
 }
 
+let voucherLoadSeq = 0;
+// S78 (ronde 8): token permintaan monoton — respons permintaan lama yang
+// lambat mendarat terakhir TIDAK boleh menimpa render yang lebih baru.
 function loadVouchers(page = 1) {
+    const seq = ++voucherLoadSeq;
     currentVoucherPage = Math.max(1, parseInt(page, 10) || 1);
     const tbody = document.getElementById('vouchersTableBody');
     const search = document.getElementById('searchVoucher').value.trim();
@@ -31,6 +35,7 @@ function loadVouchers(page = 1) {
     apiFetch(url)
     .then(r => r.json())
     .then(res => {
+        if (seq !== voucherLoadSeq) return;
         if (!res.success) {
             renderVouchersError(res.message || 'Gagal memuat voucher', page);
             return;
@@ -40,6 +45,7 @@ function loadVouchers(page = 1) {
         renderPagination(res.pagination);
     })
     .catch(err => {
+        if (seq !== voucherLoadSeq) return;
         console.error(err);
         renderVouchersError('Gagal terhubung ke server', page);
     });
@@ -100,7 +106,7 @@ function renderVouchersTable(vouchers) {
             </td>
             <td data-label="Penggunaan" style="padding:14px 20px;">
                 <span style="font-weight:700;color:${v.used_count > 0 ? '#c084fc' : '#94a3b8'};">${v.used_count}</span> / ${v.max_usage}
-                ${v.used_count > 0 ? `<button type="button" data-action="redemptions" data-id="${v.id}" data-voucher-code="${safeCode}" style="background:none;border:none;color:var(--color-accent-light);font-size:12px;cursor:pointer;margin-left:4px;text-decoration:underline;padding:8px 6px;">(Lihat User)</button>` : ''}
+                ${v.used_count > 0 ? `<button type="button" data-action="redemptions" data-id="${v.id}" data-voucher-code="${safeCode}" style="background:none;border:none;color:var(--color-accent-light);font-size:12px;cursor:pointer;margin-left:4px;text-decoration:underline;min-height:44px;padding:10px 12px;">(Lihat User)</button>` : ''}
             </td>
             <td data-label="Kadaluarsa" style="padding:14px 20px;font-size:12px;color:var(--color-text-secondary);">${expiryStr}</td>
             <td data-label="Status" style="padding:14px 20px;">${statusBadge}</td>
@@ -164,7 +170,7 @@ function renderPagination(pg) {
         }
         // R29: paginasi via data-action + data-page (tanpa onclick inline).
         const activeStyle = item === pg.page ? 'background:var(--color-primary);color:#fff;' : 'background:rgba(255,255,255,0.06);color:var(--color-text-secondary);';
-        btns += `<button type="button" data-action="voucher-page" data-page="${parseInt(item, 10) || 1}" style="padding:4px 10px;border-radius:6px;border:none;font-size:12px;cursor:pointer;${activeStyle}">${item}</button>`;
+        btns += `<button type="button" data-action="voucher-page" data-page="${parseInt(item, 10) || 1}" style="min-height:40px;padding:8px 14px;border-radius:6px;border:none;font-size:12px;cursor:pointer;${activeStyle}">${item}</button>`;
     }
 
     container.innerHTML = `
@@ -274,7 +280,7 @@ function submitBatchVoucher(e) {
     e.preventDefault();
     const btn = document.getElementById('btnSubmitBatch');
     btn.disabled = true;
-    btn.textContent = 'Generating...';
+    btn.textContent = 'Membuat voucher...'; // R97 (ronde 8): paritas bahasa UI
 
     const durationVal = document.getElementById('batchDuration').value;
     const pkgVal = document.getElementById('batchPackage').value;
@@ -394,7 +400,7 @@ function viewRedemptions(id, code) {
     .then(r => r.json())
     .then(res => {
         if (!res.success) {
-            document.getElementById('redemptionsBody').innerHTML = `<p style="text-align:center;color:#fca5a5;">${escapeHtml(res.message || 'Gagal memuat data pengguna')} <button type="button" class="btn-sm btn-secondary" data-retry-redemptions data-id="${parseInt(id, 10) || 0}" data-code="${escapeHtml(code)}" style="margin-left:8px;">Coba Lagi</button></p>`;
+            document.getElementById('redemptionsBody').innerHTML = `<p style="text-align:center;color:var(--color-danger-light);">${escapeHtml(res.message || 'Gagal memuat data pengguna')} <button type="button" class="btn-sm btn-secondary" data-retry-redemptions data-id="${parseInt(id, 10) || 0}" data-code="${escapeHtml(code)}" style="margin-left:8px;">Coba Lagi</button></p>`;
             return;
         }
         if (!res.redemptions || res.redemptions.length === 0) {
@@ -415,7 +421,7 @@ function viewRedemptions(id, code) {
         document.getElementById('redemptionsBody').innerHTML = html;
     })
     .catch(() => {
-        document.getElementById('redemptionsBody').innerHTML = `<p style="text-align:center;color:#fca5a5;">Gagal terhubung ke server. <button type="button" class="btn-sm btn-secondary" data-retry-redemptions data-id="${parseInt(id, 10) || 0}" data-code="${escapeHtml(code)}" style="margin-left:8px;">Coba Lagi</button></p>`;
+        document.getElementById('redemptionsBody').innerHTML = `<p style="text-align:center;color:var(--color-danger-light);">Gagal terhubung ke server. <button type="button" class="btn-sm btn-secondary" data-retry-redemptions data-id="${parseInt(id, 10) || 0}" data-code="${escapeHtml(code)}" style="margin-left:8px;">Coba Lagi</button></p>`;
     });
 }
 

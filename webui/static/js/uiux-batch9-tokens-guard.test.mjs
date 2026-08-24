@@ -51,11 +51,20 @@ test('S43 (self-test): regex rgba literal tidak menghitung rgba(var( sebagai lit
 const BASELINES = {
     // admin.js: hex ≤8 sudah diguard batch7-tokens; rgba ditambahkan di sini.
     'admin.js': { rgba: 36 },
-    'settings-vouchers.js': { rgba: 9, hex: 22 },
+    // R95 (ronde 8): cap hex dikunci ke angka aktual terukur — 3× #fca5a5
+    // bermigrasi var(--color-danger-light) sehingga plafon turun 22→9.
+    'settings-vouchers.js': { rgba: 9, hex: 9 },
     'settings-voucher-audit.js': { rgba: 2, hex: 2 },
     // Catatan S43: estimasi awal "billing 1" ternyata angka HEX-nya;
     // rgba aktual billing = 8 — dikunci pada baseline hari ini.
     'settings-billing.js': { rgba: 8, hex: 1 },
+    // S88 (ronde 8): seluruh modul JS statis kini punya entri eksplisit —
+    // penambahan warna hardcoded PERTAMA pada modul mana pun memerah test.
+    'settings-system-apps.js': { rgba: 2, hex: 0 }, // empty-state render-JS
+    'settings-users.js': { rgba: 0, hex: 0 },
+    'settings-general.js': { rgba: 0, hex: 0 },
+    'settings-packages.js': { rgba: 0, hex: 0 },
+    'admin-core.js': { rgba: 0, hex: 0 },
 };
 
 for (const [file, caps] of Object.entries(BASELINES)) {

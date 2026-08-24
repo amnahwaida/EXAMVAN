@@ -65,15 +65,15 @@ test('S15 fase 2 (guard): total hex literal di seluruh templates/ tidak naik dar
     const total = countFolder(HEX_RE);
     // Batch 12 (R70): plafon diperketat ke baseline aktual; Batch 13 (S68-
     // lanjutan/R82) menurunkannya lagi (migrasi #818cf8/#f43f5e) -> 130.
-    assert.ok(total <= 132,
-        `total hex templates/ = ${total}, baseline terkunci ≤ 132 — pakai var(--token) untuk warna baru`);
+    assert.ok(total <= 107,
+        `total hex templates/ = ${total}, baseline terkunci ≤ 107 — pakai var(--token) untuk warna baru`);
 });
 
 test('S15 fase 2/S43 (guard): total rgba LITERAL (digit pembuka) di seluruh templates/ tidak naik', () => {
     const total = countFolder(RGBA_RE);
     // Batch 12 (R70): baseline aktual 140 (pasca migrasi S58/Batch 11-12).
-    assert.ok(total <= 145,
-        `total rgba literal templates/ = ${total}, baseline terkunci ≤ 145 — pakai rgba(var(--rgb-*), α) / --glass-bg-strong`);
+    assert.ok(total <= 104,
+        `total rgba literal templates/ = ${total}, baseline terkunci ≤ 104 — pakai rgba(var(--rgb-*), α) / --glass-bg-strong`);
 });
 
 // Plafon per-file rgba literal (hasil ukur S43, regex digit-pembuka).

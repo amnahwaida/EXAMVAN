@@ -309,6 +309,14 @@ transition: all 0.2s;
 cursor: pointer;
 }
 .results-table tbody tr:hover { background: rgba(var(--rgb-info), 0.06); }
+/* T25 (ronde 8): baris dirender sebagai kontrol custom (tabindex=0 +
+   role="button") dan browser tidak menggambar outline default untuk <tr> —
+   tanpa rule ini pengguna keyboard tak bisa melihat baris terfokus
+   (WCAG 2.4.7). */
+.results-table tbody tr[role="button"]:focus-visible {
+outline: 2px solid var(--color-primary-light);
+outline-offset: -2px;
+}
 .results-table tbody tr.expanded {
 background: rgba(var(--rgb-info), 0.08);
 border-bottom-color: transparent;

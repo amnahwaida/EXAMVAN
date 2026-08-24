@@ -535,7 +535,7 @@
                 </span>
               </h3>
               <p class="flavor-meta">
-                Rilis Resmi • Versi: <span class="meta-val">v{{ .android_app.Version }}</span> • Ukuran: <span class="meta-val"><script>document.write( ({{ .android_app.SizeBytes }} / 1048576.0).toFixed(2) );</script> MB</span>
+                Rilis Resmi • Versi: <span class="meta-val">v{{ .android_app.Version }}</span> • Ukuran: <span class="meta-val" data-size-bytes="{{ .android_app.SizeBytes }}"></span> MB
               </p>
             </div>
             <a href="/download/app/{{ .android_app.ID }}" class="btn-download-big" style="background: linear-gradient(135deg, var(--grad-btn-violet-start), var(--grad-btn-violet-end));" data-action="download-app" data-app-id="{{ .android_app.ID }}">
@@ -553,7 +553,7 @@
                   <div>
                     <h3 class="flavor-title">{{ .Name }}</h3>
                     <p class="flavor-meta">
-                      Rilis Resmi • Versi: <span class="meta-val">v{{ .Version }}</span> • Ukuran: <span class="meta-val"><script>document.write( ({{ .SizeBytes }} / 1048576.0).toFixed(2) );</script> MB</span>
+                      Rilis Resmi • Versi: <span class="meta-val">v{{ .Version }}</span> • Ukuran: <span class="meta-val" data-size-bytes="{{ .SizeBytes }}"></span> MB
                     </p>
                   </div>
                   <a href="/download/app/{{ .ID }}" class="btn-download-big" data-action="download-app" data-app-id="{{ .ID }}">
@@ -695,7 +695,7 @@
                   <div>
                     <h3 class="flavor-title">{{.Name}}</h3>
                     <p class="flavor-meta">
-                      Rilis Resmi • Versi: <span class="meta-val">v{{.Version}}</span> • Ukuran: <span class="meta-val"><script>document.write( ({{ .SizeBytes }} / 1048576.0).toFixed(2) );</script> MB</span>
+                      Rilis Resmi • Versi: <span class="meta-val">v{{.Version}}</span> • Ukuran: <span class="meta-val" data-size-bytes="{{ .SizeBytes }}"></span> MB
                     </p>
                   </div>
                   <a href="/download/app/{{.ID}}" class="btn-download-big" style="background: linear-gradient(135deg, var(--grad-btn-blue-start), var(--grad-btn-blue-end));" data-action="download-app" data-app-id="{{.ID}}">
@@ -774,7 +774,7 @@
                   <div>
                     <h3 class="flavor-title">{{.Name}}</h3>
                     <p class="flavor-meta">
-                      Rilis Resmi • Versi: <span class="meta-val">v{{.Version}}</span> • Ukuran: <span class="meta-val"><script>document.write( ({{ .SizeBytes }} / 1048576.0).toFixed(2) );</script> MB</span>
+                      Rilis Resmi • Versi: <span class="meta-val">v{{.Version}}</span> • Ukuran: <span class="meta-val" data-size-bytes="{{ .SizeBytes }}"></span> MB
                     </p>
                   </div>
                   <a href="/download/app/{{.ID}}" class="btn-download-big" style="background: linear-gradient(135deg, var(--grad-btn-violet-start), var(--grad-btn-violet-end));" data-action="download-app" data-app-id="{{.ID}}">
@@ -898,6 +898,18 @@
       // (aria-selected/tabIndex) tersinkron dari awal.
       switchTab(resolvePlatformFromHash(), { skipHash: true });
 
+      // S84 (ronde 8): ukuran APK diisi via textContent dari atribut
+      // data-size-bytes (server kirim byte mentah) — pengganti pola
+      // write-ke-dokumen yang deprecated/blocking; dengan JS mati kolom
+      // ukuran kosong, bukan markup rusak.
+      (function () {
+        var els = document.querySelectorAll('[data-size-bytes]');
+        for (var i = 0; i < els.length; i++) {
+          var bytes = parseInt(els[i].getAttribute('data-size-bytes'), 10);
+          if (!isNaN(bytes)) els[i].textContent = (bytes / 1048576.0).toFixed(2);
+        }
+      })();
+
       // Navigasi keyboard antar tab (pola ARIA tabs): panah kiri/kanan,
       // Home/End memindahkan fokus & mengaktifkan tab.
       const tablist = document.querySelector('[role="tablist"]');
@@ -994,5 +1006,4 @@
             })
             .finally(restore);
     }
-  </script>
-{{ template "public_foot" . }}
+  </script>{{ template "public_foot" . }}

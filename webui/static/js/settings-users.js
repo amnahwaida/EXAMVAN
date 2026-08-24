@@ -141,4 +141,3 @@ window.__settingsReady['users'] = function() {
  }
 
 };
-window.toggleUsersCollapse = toggleUsersCollapse;

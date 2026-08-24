@@ -1050,7 +1050,7 @@ function renderPengawasSelection(assigned, available) {
     // Dropdown body (hidden by default)
     var dropdown = document.createElement('div');
     dropdown.id = 'pengawasDropdown';
-    dropdown.style.cssText = 'display:none;position:absolute;top:100%;left:0;right:0;z-index:100;margin-top:4px;background:rgba(30,30,50,0.98);border:1px solid rgba(255,255,255,0.1);border-radius:10px;max-height:220px;overflow-y:auto;box-shadow:0 8px 32px rgba(0,0,0,0.4);backdrop-filter:blur(12px);';
+    dropdown.style.cssText = 'display:none;position:absolute;top:100%;left:0;right:0;z-index:var(--z-dropdown);margin-top:4px;background:rgba(30,30,50,0.98);border:1px solid rgba(255,255,255,0.1);border-radius:10px;max-height:220px;overflow-y:auto;box-shadow:0 8px 32px rgba(0,0,0,0.4);backdrop-filter:blur(12px);';
 
     // Search input inside dropdown
     var searchBox = document.createElement('input');
@@ -1078,7 +1078,7 @@ function renderPengawasSelection(assigned, available) {
         opt.style.cssText = 'display:flex;align-items:center;gap:8px;padding:8px 12px;cursor:pointer;font-size:0.85rem;color:var(--color-text);transition:background 0.1s;';
         opt.onmouseenter = function() { this.style.background = 'rgba(99,102,241,0.1)'; };
         opt.onmouseleave = function() { this.style.background = 'transparent'; };
-        opt.innerHTML = '<input type="checkbox" class="pengawas-checkbox" value="' + p.id + '"' + (isChecked ? ' checked' : '') + ' style="accent-color:#818cf8;cursor:pointer;"> '
+        opt.innerHTML = '<input type="checkbox" class="pengawas-checkbox" value="' + p.id + '"' + (isChecked ? ' checked' : '') + ' style="accent-color:var(--color-primary-bright);cursor:pointer;"> '
             + '<span style="font-weight:500;">' + escapeHtml(p.username) + '</span>'
             + ' <span style="font-size:0.7rem;color:var(--color-text-muted);margin-left:auto;">' + (p.role || 'Pengawas') + '</span>';
         opt.querySelector('input').addEventListener('change', function() {
@@ -1592,10 +1592,14 @@ function clearUsersSearch() {
     loadUsersList(1);
 }
 
+var usersListSeq = 0;
+// S78 (ronde 8): token permintaan monoton — respons permintaan lama yang
+// lambat mendarat terakhir TIDAK boleh menimpa render yang lebih baru.
 function loadUsersList(page) {
     const tbody = document.getElementById('usersTableBody');
     if (!tbody) return;
     if (!page) page = 1;
+    var seq = ++usersListSeq;
 
     tbody.setAttribute('aria-busy', 'true');
     var searchVal = document.getElementById('userSearchInput')?.value?.trim() || '';
@@ -1616,6 +1620,7 @@ function loadUsersList(page) {
     apiFetch(url)
         .then(r => r.json())
         .then(res => {
+            if (seq !== usersListSeq) return;
             if (res.success) {
                 const pagination = res.pagination || { page: 1, total_pages: 1, total: 0 };
                 tbody.innerHTML = '';
@@ -1760,6 +1765,7 @@ function loadUsersList(page) {
             }
         })
         .catch(() => {
+            if (seq !== usersListSeq) return;
             var t = document.getElementById('usersTableBody');
             if (t) {
                 t.innerHTML = '<tr><td colspan="9" style="text-align:center; padding: 20px; color: var(--color-danger-light);">Gagal memuat daftar user'
