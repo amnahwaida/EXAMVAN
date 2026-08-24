@@ -556,6 +556,14 @@ function closeQuestionsModal(force) {
     if (!qModal) return;
     qModal.addEventListener('input', markQuestionsConfigDirty);
     qModal.addEventListener('change', markQuestionsConfigDirty);
+    // R29: pengganti onchange inline pada string HTML createNewQuestionCard —
+    // perubahan tipe soal disesuaikan field kartunya via delegasi change.
+    qModal.addEventListener('change', function (e) {
+        var t = e.target;
+        if (t && t.classList && t.classList.contains('q-type-select')) {
+            onQuestionTypeChange(t);
+        }
+    });
 
     function isQuestionsModalOpen() {
         return qModal.style.display !== 'none' && qModal.style.display !== '';
@@ -596,10 +604,10 @@ function renderStudentAccessControls(examId, res) {
         <a href="/hasil/${token}" target="_blank" class="pd-action-btn pd-action-link" title="Buka halaman hasil ujian untuk siswa">
             <svg class="icon-svg" style="width:14px;height:14px;"><use href="#hi-link"/></svg> Halaman Siswa
         </a>
-        <button id="btn-public-results-${examId}" data-exam-id="${examId}" onclick="togglePublicResults(this.dataset.examId)" class="pd-action-btn ${prActive ? 'pd-action-active' : 'pd-action-danger'}" title="Aktifkan/nonaktifkan halaman hasil ujian siswa">
+        <button id="btn-public-results-${examId}" data-exam-id="${examId}" data-action="toggle-public-results" class="pd-action-btn ${prActive ? 'pd-action-active' : 'pd-action-danger'}" title="Aktifkan/nonaktifkan halaman hasil ujian siswa">
             <svg class="icon-svg" style="width:14px;height:14px;"><use href="${prActive ? '#hi-eye' : '#hi-eye-off'}"/></svg> ${prActive ? 'Hal. Siswa Aktif' : 'Hal. Siswa Nonaktif'}
         </button>
-        <button id="btn-show-answers-${examId}" data-exam-id="${examId}" onclick="toggleShowAnswers(this.dataset.examId)" class="pd-action-btn ${saActive ? 'pd-action-warning' : 'pd-action-muted'}" title="Tampilkan/sembunyikan kunci jawaban untuk siswa">
+        <button id="btn-show-answers-${examId}" data-exam-id="${examId}" data-action="toggle-show-answers" class="pd-action-btn ${saActive ? 'pd-action-warning' : 'pd-action-muted'}" title="Tampilkan/sembunyikan kunci jawaban untuk siswa">
             <svg class="icon-svg" style="width:14px;height:14px;"><use href="${saActive ? '#hi-lock-open' : '#hi-lock'}"/></svg> ${saActive ? 'Kunci Terlihat' : 'Kunci Tersembunyi'}
         </button>`;
 }
@@ -651,7 +659,7 @@ function createNewQuestionCard(q, num) {
         <div class="q-card-body">
             <div class="q-field-group">
                 <label>Tipe</label>
-                <select class="q-type-select" onchange="onQuestionTypeChange(this)">
+                <select class="q-type-select">
                     <option value="single_choice" ${type === 'single_choice' ? 'selected' : ''}>Pilihan Ganda</option>
                     <option value="multiple_choice" ${type === 'multiple_choice' ? 'selected' : ''}>PG Kompleks</option>
                     <option value="true_false" ${type === 'true_false' ? 'selected' : ''}>Benar / Salah</option>
@@ -677,7 +685,7 @@ function createNewQuestionCard(q, num) {
                 <input type="text" class="q-options-input" value="${escapeHtml(optionsVal)}" placeholder="A, B, C, D, E">
             </div>
         </div>
-        <button class="btn-sm btn-delete btn-remove-q" onclick="removeQuestionCard(this)" title="Hapus Soal"><svg class="icon-svg" style="width:14px;height:14px;"><use href="#hi-trash"/></svg></button>
+        <button class="btn-sm btn-delete btn-remove-q" data-action="question-remove" title="Hapus Soal"><svg class="icon-svg" style="width:14px;height:14px;"><use href="#hi-trash"/></svg></button>
     `;
     return card;
 }
@@ -688,7 +696,7 @@ function createDivider(index) {
     div.dataset.index = index;
     div.innerHTML = `
         <div class="q-divider-line"></div>
-        <button class="btn-add-inline" onclick="insertQuestionAt(${index})" title="Sisipkan Soal Baru Di Sini"><svg class="icon-svg" style="width:14px;height:14px;"><use href="#hi-plus"/></svg> Sisipkan Soal</button>
+        <button class="btn-add-inline" data-action="question-insert-at" data-index="${index}" title="Sisipkan Soal Baru Di Sini"><svg class="icon-svg" style="width:14px;height:14px;"><use href="#hi-plus"/></svg> Sisipkan Soal</button>
         <div class="q-divider-line"></div>
     `;
     return div;
@@ -957,7 +965,7 @@ function addIdentityFieldRow(container, field, index) {
         <label class="ifield-required-wrap" ${isLocked ? 'style="opacity:0.5;"' : ''}>
             <input type="checkbox" class="ifield-required" ${field.required ? 'checked' : ''} ${isLocked ? 'disabled' : ''}> Wajib
         </label>
-        ${isLocked ? '<span class="ifield-locked-badge" title="Field bawaan, tidak bisa dihapus"><svg class="icon-svg" style="width:14px;height:14px;"><use href="#hi-lock"/></svg></span>' : '<button class="ifield-remove-btn" onclick="this.closest(\'.identity-field-row\').remove()" title="Hapus field" aria-label="Hapus field"><svg class="icon-svg" style="width:14px;height:14px;"><use href="#hi-x"/></svg></button>'}
+        ${isLocked ? '<span class="ifield-locked-badge" title="Field bawaan, tidak bisa dihapus"><svg class="icon-svg" style="width:14px;height:14px;"><use href="#hi-lock"/></svg></span>' : '<button class="ifield-remove-btn" data-action="identity-field-remove" title="Hapus field" aria-label="Hapus field"><svg class="icon-svg" style="width:14px;height:14px;"><use href="#hi-x"/></svg></button>'}
     `;
 
     container.appendChild(row);
@@ -1158,11 +1166,37 @@ function onQuestionTypeChange(selectEl) {
     }
 }
 
+// ===== T15: guard penggantian isi editor soal ==============================
+// Generate & Import XML sama-sama menimpa SELURUH isi editor via
+// renderQuestions() (container.innerHTML = ''). Tanpa guard, guru dengan
+// 30 soal yang sedang diedit kehilangan semuanya seketika dan flag dirty
+// tetap false sehingga Batal menutup tanpa peringatan (bocoran guard S2
+// tepat pada aksi paling destruktif di modal).
+function replaceEditorQuestions(questions, onReplaced) {
+    var container = document.getElementById('questionsList');
+    var hasCards = Boolean(container && container.querySelectorAll &&
+        container.querySelectorAll('.question-editor-card').length > 0);
+    var proceed = function () {
+        renderQuestions(questions);
+        markQuestionsConfigDirty(); // S2: hasil generate/import = belum tersimpan
+        if (typeof onReplaced === 'function') onReplaced();
+    };
+    if ((hasCards || questionsConfigDirty) && typeof showConfirm === 'function') {
+        showConfirm(
+            'Ganti semua soal di editor?',
+            'Soal yang sedang diedit akan hilang.',
+            'Ya, Ganti', 'Batal'
+        ).then(function (ok) { if (ok) proceed(); });
+        return;
+    }
+    proceed();
+}
+
 function quickGenerateQuestions() {
     const rawQty = parseInt(document.getElementById('generateQty').value);
     const qty = isNaN(rawQty) ? 40 : rawQty;
     const type = document.getElementById('generateType').value;
-    
+
     const questions = [];
     for (let i = 1; i <= qty; i++) {
         let q = { number: i, type: type, weight: 1.0 };
@@ -1183,7 +1217,7 @@ function quickGenerateQuestions() {
         }
         questions.push(q);
     }
-    renderQuestions(questions);
+    replaceEditorQuestions(questions);
 }
 
 function getQuestionsFromEditor() {
@@ -1358,8 +1392,14 @@ function saveQuestionsConfig() {
             if (res.success) {
                 showToast(res.message, 'success');
                 resetQuestionsConfigDirty(); // S2: sudah tersimpan — tutup tanpa konfirmasi buang
+                // R31: tanpa reload penuh (pola R6 hapus-tanpa-reload) — posisi
+                // scroll & pagination daftar ujian dipertahankan. Modal ditutup
+                // dan kartu statistik disegarkan in-place; status baris ujian
+                // tidak berubah oleh simpan konfigurasi soal.
                 closeQuestionsModal();
-                setTimeout(function() { location.reload(); }, 500);
+                if (typeof refreshDashboardStats === 'function') {
+                    refreshDashboardStats();
+                }
             } else {
                 showToast(res.message || 'Gagal menyimpan konfigurasi', 'error');
             }
@@ -1678,7 +1718,7 @@ function loadUsersList(page) {
                                 <div class="user-info-item"><span title="Maksimal ujian yang berjalan bersamaan (sudah dimulai &amp; bisa dikerjakan siswa)">Ujian Serentak</span><strong>${user.max_concurrent_exams ?? '—'}</strong></div>
                                 <div class="user-info-item"><span>Maks Upload (MB)</span><strong>${limitPdfMb}</strong></div>
                                 <div class="user-info-item"><span>Maks Storage (MB)</span><strong>${limitStorageMb}</strong></div>
-                                <div class="user-info-item"><span>Masa Aktif</span><strong${isExpired ? ' style="color:#f87171;"' : ''}>${expiresAt}</strong></div>
+                                <div class="user-info-item"><span>Masa Aktif</span><strong${isExpired ? ' style="color:var(--color-danger-light);"' : ''}>${expiresAt}</strong></div>
                                 <div class="user-info-item"><span>Terdaftar</span><strong>${createdAt}</strong></div>
                             </div>
                         </td>
@@ -2607,10 +2647,12 @@ function importXMLQuestions(event) {
             
             // Sort by number to ensure sequential ordering
             questions.sort((a, b) => a.number - b.number);
-            
-            // Re-render questions in UI
-            renderQuestions(questions);
-            showToast(`Berhasil mengimpor ${questions.length} soal dari XML!`, "success");
+
+            // T15: re-render lewat guard konfirmasi; toast sukses baru setelah
+            // soal benar-benar dirender (batal = tidak ada toast menyesatkan).
+            replaceEditorQuestions(questions, function () {
+                showToast(`Berhasil mengimpor ${questions.length} soal dari XML!`, "success");
+            });
         } catch (err) {
             console.error(err);
             showToast("Terjadi kesalahan saat membaca berkas XML", "error");
@@ -2729,7 +2771,7 @@ function togglePublicResults(examId) {
                     } else {
                         btn.style.background = 'rgba(239, 68, 68, 0.15)';
                         btn.style.borderColor = 'rgba(239, 68, 68, 0.3)';
-                        btn.style.color = '#f87171';
+                        btn.style.color = 'var(--color-danger-light)';
                         btn.innerHTML = '<svg class="icon-svg" style="width:16px;height:16px;vertical-align:middle;margin-top:-2px;" aria-hidden="true"><use href="#hi-eye-off"/></svg> Hal. Siswa Nonaktif';
                     }
                 }
@@ -3281,13 +3323,66 @@ function filterSubmissions() {
 }
 
 function exportSubmissions() {
-    const examId = document.getElementById('filterExam').value;
+    // S40: fetch via apiFetch + unduhan blob — bukan window.location.href
+    // langsung (dataset besar + jaringan lambat membuat tombol terasa mati,
+    // dan error server merender JSON mentah menggantikan halaman).
+    const examIdEl = document.getElementById('filterExam');
+    const examId = examIdEl ? examIdEl.value : '';
     const tzOffset = new Date().getTimezoneOffset();
     let url = '/admin/api/submissions/export?tz_offset=' + tzOffset;
     if (examId) {
         url += '&exam_id=' + examId;
     }
-    window.location.href = url;
+
+    // Tombol milik submissions.html (agen lain) — dicari defensif by id,
+    // fallback ke data-action, agar halaman tetap berfungsi tanpa tombol.
+    var btn = document.getElementById('exportBtn')
+        || document.querySelector('[data-action="export-submissions"]');
+    if (btn && btn.getAttribute('data-exporting') === '1') return; // S40: guard dobel-klik
+    var originalHtml = btn ? btn.innerHTML : '';
+    if (btn) {
+        btn.setAttribute('data-exporting', '1');
+        btn.disabled = true;
+        btn.innerHTML = 'Mengekspor...';
+    }
+
+    apiFetch(url)
+        .then(function (resp) {
+            if (!resp.ok) {
+                return resp.json().then(function (err) {
+                    throw new Error((err && err.message) || 'Gagal mengekspor data');
+                });
+            }
+            return resp.blob().then(function (blob) {
+                // Nama file dari Content-Disposition server, fallback generik.
+                var filename = 'hasil-ujian.xlsx';
+                var cd = (resp.headers && typeof resp.headers.get === 'function')
+                    ? resp.headers.get('Content-Disposition') : null;
+                var m = cd && cd.match(/filename\*?=(?:UTF-8'')?"?([^";]+)"?/i);
+                if (m) {
+                    try { filename = decodeURIComponent(m[1]); } catch (e) { /* pakai fallback */ }
+                }
+                var objUrl = URL.createObjectURL(blob);
+                var a = document.createElement('a');
+                a.href = objUrl;
+                a.download = filename;
+                document.body.appendChild(a);
+                a.click();
+                document.body.removeChild(a);
+                URL.revokeObjectURL(objUrl);
+            });
+        })
+        .catch(function (err) {
+            showToast((err && err.message) || 'Gagal mengekspor data', 'error');
+        })
+        .then(function () {
+            // Pulihkan tombol di jalur sukses maupun gagal.
+            if (btn) {
+                btn.removeAttribute('data-exporting');
+                btn.disabled = false;
+                btn.innerHTML = originalHtml;
+            }
+        });
 }
 
 function deleteSubmission(id) {
@@ -3829,7 +3924,7 @@ function showSubmissionDetail(id) {
 
                 const item = document.createElement('div');
                 item.className = `detail-answer-item ${escapeHtml(statusClass)}`;
-                const statusColor = statusClass === 'correct' ? 'var(--color-success-light)' : statusClass === 'partial' ? 'var(--color-warning)' : '#f87171';
+                const statusColor = statusClass === 'correct' ? 'var(--color-success-light)' : statusClass === 'partial' ? 'var(--color-warning)' : 'var(--color-danger-light)';
                 item.innerHTML = `
                     <span class="detail-q-num">No. ${escapeHtml(qNum)}</span>
                     <span class="detail-q-ans">${escapeHtml(fmtAns(studentAns))}</span>
@@ -4084,6 +4179,25 @@ if (typeof Actions !== 'undefined' && typeof Actions.register === 'function') {
     Actions.register('panel-color-set', function (el) { setPanelColor(el.getAttribute('data-color')); });
     Actions.register('schedule-clear', function () { clearSchedule(); });
     Actions.register('identity-field-add', function () { addIdentityField(); });
+    // T15/R29: hapus baris field identitas via data-action (pengganti onclick
+    // inline pada string HTML addIdentityFieldRow) + tandai konfigurasi kotor.
+    Actions.register('identity-field-remove', function (el) {
+        var row = el.closest ? el.closest('.identity-field-row') : null;
+        if (row && typeof row.remove === 'function') row.remove();
+        markQuestionsConfigDirty(); // S2: hapus baris identitas = belum tersimpan
+    });
+    // R29: pengganti onclick inline pada string HTML render-JS admin.js
+    // (kontrol halaman siswa, tombol hapus soal, divider sisip soal).
+    Actions.register('toggle-public-results', function (el) {
+        togglePublicResults(parseInt(el.getAttribute('data-exam-id'), 10));
+    });
+    Actions.register('toggle-show-answers', function (el) {
+        toggleShowAnswers(parseInt(el.getAttribute('data-exam-id'), 10));
+    });
+    Actions.register('question-remove', function (el) { removeQuestionCard(el); });
+    Actions.register('question-insert-at', function (el) {
+        insertQuestionAt(parseInt(el.getAttribute('data-index'), 10));
+    });
     Actions.register('questions-generate', function () { quickGenerateQuestions(); });
     Actions.register('weights-set-all', function () { setAllWeights(); });
     Actions.register('ai-prompt-copy', function () { copyAIPrompt(); });
@@ -4108,7 +4222,6 @@ if (typeof Actions !== 'undefined' && typeof Actions.register === 'function') {
     Actions.register('footer-save', function () { saveFooterSettings(); });
     Actions.register('seo-save', function () { saveSeoSettings(); });
     Actions.register('monetization-save', function () { saveMonetizationSettings(); });
-    Actions.register('password-modal-close', function () { closeChangePasswordModal(); });
 
     // Kelola User — toolbar pencarian/urut & refresh daftar
     Actions.register('users-refresh-list', function (el, ev) {

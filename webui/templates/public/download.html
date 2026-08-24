@@ -55,7 +55,7 @@
   }
   .hero-desc {
     font-size: 18px;
-    color: var(--text-muted);
+    color: var(--color-text-muted);
     max-width: 700px;
     margin: 0 auto;
     line-height: 1.6;
@@ -68,7 +68,7 @@
     margin-bottom: 60px;
     flex-wrap: wrap;
     background: rgba(17, 24, 39, 0.6);
-    border: 1px solid var(--glass-border);
+    border: 1px solid var(--color-glass-border);
     padding: 8px;
     border-radius: 20px;
     backdrop-filter: blur(12px);
@@ -80,7 +80,7 @@
   .tab-btn {
     background: transparent;
     border: 1px solid transparent;
-    color: var(--text-muted);
+    color: var(--color-text-muted);
     padding: 14px 28px;
     border-radius: 14px;
     font-weight: 700;
@@ -97,7 +97,7 @@
     background: rgba(var(--rgb-white), 0.05);
   }
   .tab-btn.active {
-    background: linear-gradient(135deg, var(--accent-primary), var(--accent-secondary));
+    background: linear-gradient(135deg, var(--color-primary), rgb(var(--rgb-accent)));
     color: white;
     border-color: transparent;
     box-shadow: 0 4px 15px rgba(var(--rgb-info), 0.3);
@@ -168,7 +168,7 @@
   }
   .card-subtitle {
     font-size: 15px;
-    color: var(--text-muted);
+    color: var(--color-text-muted);
     margin: 0;
   }
 
@@ -212,13 +212,13 @@
     box-shadow: 0 2px 10px rgba(var(--rgb-success), 0.35);
   }
   .flavor-meta {
-    color: var(--text-muted); 
+    color: var(--color-text-muted); 
     font-size: 14px; 
     line-height: 1.6; 
     margin: 0;
   }
   .meta-val {
-    color: var(--text-secondary);
+    color: var(--color-text-secondary);
     font-weight: 700;
   }
   
@@ -233,7 +233,7 @@
     font-size: 15.5px;
     text-decoration: none;
     color: white;
-    background: linear-gradient(135deg, var(--accent-primary), var(--accent-secondary));
+    background: linear-gradient(135deg, var(--grad-btn-violet-start), var(--grad-btn-violet-end));
     box-shadow: 0 4px 15px rgba(var(--rgb-info), 0.3);
     transition: all 0.3s;
   }
@@ -261,7 +261,7 @@
     padding-bottom: 20px;
   }
   .inst-title svg {
-    color: var(--accent-primary);
+    color: var(--color-primary);
   }
   .inst-steps {
     display: flex;
@@ -299,7 +299,7 @@
   }
   .step-desc {
     font-size: 14px;
-    color: var(--text-muted);
+    color: var(--color-text-muted);
     line-height: 1.6;
   }
 
@@ -329,7 +329,7 @@
   }
   .tips-list li {
     font-size: 14px;
-    color: var(--text-secondary);
+    color: var(--color-text-secondary);
     line-height: 1.5;
     padding-left: 20px;
     position: relative;
@@ -350,7 +350,7 @@
     padding: 20px 28px;
     border-radius: 20px;
     font-size: 14.5px;
-    color: var(--text-muted);
+    color: var(--color-text-muted);
     display: flex;
     justify-content: space-between;
     align-items: center;
@@ -408,7 +408,7 @@
     font-weight: 500;
     font-family: 'Plus Jakarta Sans', sans-serif;
     color: #fff;
-    background: var(--glass-bg);
+    background: var(--color-glass);
     backdrop-filter: blur(16px);
     -webkit-backdrop-filter: blur(16px);
     box-shadow: 0 8px 32px rgba(var(--rgb-black), 0.3);
@@ -532,7 +532,7 @@
                 Rilis Resmi • Versi: <span class="meta-val">v{{ .android_app.Version }}</span> • Ukuran: <span class="meta-val"><script>document.write( ({{ .android_app.SizeBytes }} / 1048576.0).toFixed(2) );</script> MB</span>
               </p>
             </div>
-            <a href="/download/app/{{ .android_app.ID }}" class="btn-download-big" style="background: linear-gradient(135deg, var(--color-accent), #7c3aed);" onclick="event.preventDefault(); downloadApp({{ .android_app.ID }}, this);">
+            <a href="/download/app/{{ .android_app.ID }}" class="btn-download-big" style="background: linear-gradient(135deg, var(--grad-btn-violet-start), var(--grad-btn-violet-end));" onclick="event.preventDefault(); downloadApp({{ .android_app.ID }}, this);">
               <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg>
               Unduh APK
             </a>
@@ -560,7 +560,7 @@
           {{ end }}
 
           {{ if not .android_app }}
-            <div style="text-align: center; padding: 60px 20px; color: var(--text-muted); background: rgba(var(--rgb-black),0.15); border-radius: 16px; border: 1px dashed rgba(var(--rgb-white),0.05);">
+            <div style="text-align: center; padding: 60px 20px; color: var(--color-text-muted); background: rgba(var(--rgb-black),0.15); border-radius: 16px; border: 1px dashed rgba(var(--rgb-white),0.05);">
               <svg width="50" height="50" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" style="margin-bottom:16px; opacity:0.4;"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="8" x2="12" y2="12"></line><line x1="12" y1="16" x2="12.01" y2="16"></line></svg>
               <p style="font-size:15px; font-weight:600;">Belum ada installer Android (APK) yang tersedia di sistem.</p>
             </div>
@@ -583,7 +583,7 @@
                 <span class="step-number">1</span>
                 <div class="step-content">
                   <span class="step-title">Unduh Aplikasi</span>
-                  <span class="step-desc">Ketuk tombol <strong>Unduh APK</strong> di sebelah kiri, lalu tunggu hingga unduhan selesai.</span>
+                  <span class="step-desc">Ketuk tombol <strong>Unduh APK</strong> di kartu unduhan di atas, lalu tunggu hingga unduhan selesai.</span>
                 </div>
               </div>
               <div class="step-item">
@@ -635,7 +635,7 @@
             <summary style="cursor: pointer;">Untuk Admin IT Sekolah — Metode Kiosk (Device Owner)</summary>
             <div style="margin-top: 20px; background: rgba(var(--rgb-danger), 0.08); border: 1px solid rgba(var(--rgb-danger), 0.25); border-radius: 16px; padding: 16px 20px;">
               <strong style="color: #f87171;">PERINGATAN:</strong>
-              <span style="color: var(--text-muted); font-size: 14px; line-height: 1.6; display: block; margin-top: 6px;">
+              <span style="color: var(--color-text-muted); font-size: 14px; line-height: 1.6; display: block; margin-top: 6px;">
                 Metode ini akan <strong>menghapus seluruh data</strong> di perangkat dan menguncinya sebagai kiosk ujian. Hanya gunakan pada perangkat sekolah yang dikelola tim IT — <strong>jangan gunakan pada HP pribadi siswa/guru</strong>.
               </span>
             </div>
@@ -692,7 +692,7 @@
                       Rilis Resmi • Versi: <span class="meta-val">v{{.Version}}</span> • Ukuran: <span class="meta-val"><script>document.write( ({{ .SizeBytes }} / 1048576.0).toFixed(2) );</script> MB</span>
                     </p>
                   </div>
-                  <a href="/download/app/{{.ID}}" class="btn-download-big" style="background: linear-gradient(135deg, #3b82f6, #2563eb);" onclick="event.preventDefault(); downloadApp({{.ID}}, this);">
+                  <a href="/download/app/{{.ID}}" class="btn-download-big" style="background: linear-gradient(135deg, var(--grad-btn-blue-start), var(--grad-btn-blue-end));" onclick="event.preventDefault(); downloadApp({{.ID}}, this);">
                     <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg>
                     Unduh Windows Client (.exe)
                   </a>
@@ -702,7 +702,7 @@
           {{ end }}
 
           {{ if not $hasWindowsApp }}
-            <div style="text-align: center; padding: 60px 20px; color: var(--text-muted); background: rgba(var(--rgb-black),0.15); border-radius: 16px; border: 1px dashed rgba(var(--rgb-white),0.05);">
+            <div style="text-align: center; padding: 60px 20px; color: var(--color-text-muted); background: rgba(var(--rgb-black),0.15); border-radius: 16px; border: 1px dashed rgba(var(--rgb-white),0.05);">
               <svg width="50" height="50" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" style="margin-bottom:16px; opacity:0.4;"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="8" x2="12" y2="12"></line><line x1="12" y1="16" x2="12.01" y2="16"></line></svg>
               <p style="font-size:15px; font-weight:600;">Belum ada installer Windows (.exe) yang tersedia di sistem.</p>
             </div>
@@ -727,7 +727,7 @@
               <span class="step-number">2</span>
               <div class="step-content">
                 <span class="step-title">SmartScreen Bypass</span>
-                <span class="step-desc">Bila sistem mendeteksi proteksi Windows Defender SmartScreen, klik <strong>"More Info"</strong> lalu pilih <strong>"Run Anyway"</strong>.</span>
+                <span class="step-desc">Bila sistem mendeteksi proteksi Windows Defender SmartScreen, klik <strong>"More Info"/"Info lainnya"</strong> lalu pilih <strong>"Run anyway"/"Tetap jalankan"</strong>.</span>
               </div>
             </div>
             <div class="step-item">
@@ -771,7 +771,7 @@
                       Rilis Resmi • Versi: <span class="meta-val">v{{.Version}}</span> • Ukuran: <span class="meta-val"><script>document.write( ({{ .SizeBytes }} / 1048576.0).toFixed(2) );</script> MB</span>
                     </p>
                   </div>
-                  <a href="/download/app/{{.ID}}" class="btn-download-big" style="background: linear-gradient(135deg, var(--color-accent), #7c3aed);" onclick="event.preventDefault(); downloadApp({{.ID}}, this);">
+                  <a href="/download/app/{{.ID}}" class="btn-download-big" style="background: linear-gradient(135deg, var(--grad-btn-violet-start), var(--grad-btn-violet-end));" onclick="event.preventDefault(); downloadApp({{.ID}}, this);">
                     <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg>
                     Unduh Linux AppImage (.AppImage)
                   </a>
@@ -781,7 +781,7 @@
           {{ end }}
 
           {{ if not $hasLinuxApp }}
-            <div style="text-align: center; padding: 60px 20px; color: var(--text-muted); background: rgba(var(--rgb-black),0.15); border-radius: 16px; border: 1px dashed rgba(var(--rgb-white),0.05);">
+            <div style="text-align: center; padding: 60px 20px; color: var(--color-text-muted); background: rgba(var(--rgb-black),0.15); border-radius: 16px; border: 1px dashed rgba(var(--rgb-white),0.05);">
               <svg width="50" height="50" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" style="margin-bottom:16px; opacity:0.4;"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="8" x2="12" y2="12"></line><line x1="12" y1="16" x2="12.01" y2="16"></line></svg>
               <p style="font-size:15px; font-weight:600;">Belum ada installer Linux (.AppImage) yang tersedia di sistem.</p>
             </div>

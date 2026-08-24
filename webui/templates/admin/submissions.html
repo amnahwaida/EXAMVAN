@@ -127,9 +127,8 @@
 
 {{template "admin/partials/nav.html" dict "active_page" .active_page "admin_role" .admin_role "admin_user" .admin_user "csrf_token" .csrf_token "needs_instansi" .needs_instansi}}
 
-<!-- T13: container toast wajib ada di sini — showToast (sukses hapus hasil,
-     gagal muat detail) tidak tampil sama sekali tanpa elemen ini. -->
-<div class="toast-container" id="toastContainer" aria-live="polite" aria-atomic="true"></div>
+<!-- T13/T14: #toastContainer kini disediakan partials/nav.html (satu sumber
+     untuk semua halaman admin) — duplikat per-halaman dihapus. -->
 
 <main class="dashboard" id="mainContent">
  <h1 class="sr-only" style="position:absolute;left:-9999px;">Rekapitulasi Hasil Ujian</h1>
@@ -283,18 +282,22 @@
  <td data-label="Perangkat"><code style="font-size:11px;color:var(--color-text-muted);font-family:monospace;max-width:160px;display:inline-block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;vertical-align:middle;" title="{{.MACAddress}}">{{or .MACAddress "—"}}</code></td>
  <td data-label="Nilai">
  {{if .Score}}
+ {{/* Ambang skor (kontrak S38, lintas-agen): ≥70 sukses / 40–69 warning /
+ <40 danger — menyamakan semantik halaman publik hasil.html (chip "Lulus"
+ mulai 70). JANGAN ubah angka di sini tanpa mengubah publik, dan
+ sebaliknya. */}}
  <div style="display:flex;flex-direction:column;align-items:center;gap:4px;">
  <span style="font-size:16px;font-weight:800;
- {{if ge $scorePct 80.0}}color: var(--color-success);
- {{else if ge $scorePct 60.0}}color: var(--color-warning);
+ {{if ge $scorePct 70.0}}color: var(--color-success);
+ {{else if ge $scorePct 40.0}}color: var(--color-warning);
  {{else}}color: var(--color-danger);{{end}}">
  {{.ScoreDisplay}}
  </span>
  {{if .HasScore}}
  <div style="width:50px;height:3px;background:var(--glass-bg-strong);border-radius:2px;overflow:hidden;">
  <div style="height:100%;width:{{printf "%.0f" $scorePct}}%;border-radius:2px;
- {{if ge $scorePct 80.0}}background:var(--color-success);
- {{else if ge $scorePct 60.0}}background:var(--color-warning);
+ {{if ge $scorePct 70.0}}background:var(--color-success);
+ {{else if ge $scorePct 40.0}}background:var(--color-warning);
  {{else}}background:var(--color-danger);{{end}}">
  </div>
  </div>

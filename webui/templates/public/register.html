@@ -257,7 +257,7 @@
  <div class="form-group">
   <label class="required" for="username">Username</label>
   <div class="input-icon-wrap">
-    <input type="text" id="username" name="username" placeholder="Pilih username unik (min. 3 karakter)" required minlength="3" autocomplete="username"{{if .form_username}} value="{{.form_username}}"{{end}}>
+    <input type="text" id="username" name="username" placeholder="Pilih username unik (min. 3 karakter)" required minlength="3" autocomplete="username" autocapitalize="none" autocorrect="off" spellcheck="false"{{if .form_username}} value="{{.form_username}}"{{end}}>
     <svg class="input-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M15.75 6a3.75 3.75 0 1 1-7.5 0 3.75 3.75 0 0 1 7.5 0ZM4.501 20.118a7.5 7.5 0 0 1 14.998 0A17.933 17.933 0 0 1 12 21.75c-2.676 0-5.216-.584-7.499-1.632Z"/></svg>
    </div>
    <span class="form-hint-subtle" id="usernameHint">Hanya huruf, angka, titik, dan garis bawah. Min. 3 karakter.</span>
@@ -480,7 +480,7 @@
  });
  </script>
 
- <script src="/static/js/fingerprintjs.min.js?v={{.version}}"></script>
- <script src="/static/js/device-fingerprint.js?v={{.version}}"></script>
+ <script src="/static/js/fingerprintjs.min.js?v={{.version}}" defer></script>
+ <script src="/static/js/device-fingerprint.js?v={{.version}}" defer></script>
 </body>
 </html>

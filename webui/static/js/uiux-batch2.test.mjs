@@ -227,9 +227,12 @@ test('T4: halaman cek_hasil.html berisi form input token', () => {
 test('T3: halaman hasil menampilkan status kelulusan eksplisit + legenda ambang', () => {
     const html = read('templates/public/hasil.html');
 
-    assert.match(html, /id="scoreStatusBadge"/, 'elemen badge status kelulusan harus ada');
-    const refs = html.split('scoreStatusBadge').length - 1;
-    assert.ok(refs >= 2, `scoreStatusBadge harus diisi dari JS juga (ditemukan ${refs} referensi)`);
+    // Batch 9 (S46): badge kini dirender dengan CLASS .score-status-badge —
+    // id="scoreStatusBadge" diduplikasi tiap baris detail terbuka (HTML
+    // invalid). Intent proteksi sama: badge status tetap ada & diisi dari JS.
+    assert.match(html, /\.score-status-badge/, 'styling badge status kelulusan harus ada');
+    const refs = html.split('score-status-badge').length - 1;
+    assert.ok(refs >= 2, `badge status harus dirender dari JS juga (ditemukan ${refs} referensi)`);
 
     assert.match(html, /Belum Dikoreksi/, 'state skor belum ada → "Belum Dikoreksi"');
     assert.match(html, /Belum Lulus/, 'state di bawah ambang → "Belum Lulus"');

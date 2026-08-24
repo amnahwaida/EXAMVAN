@@ -35,9 +35,14 @@
  </div>
  <div class="topbar-right">
   <div class="topbar-menu-dropdown">
-   <button class="topbar-menu-toggle" id="menuToggleBtn" aria-label="Menu akun & pengaturan" aria-haspopup="true" aria-expanded="false" onclick="event.stopPropagation();document.getElementById('menuDropdownContent').classList.toggle('show');">
-    <span class="menu-hamburger-icon">&#9776;</span>
-   </button>
+    {{/* R29: onclick inline hamburger dihapus — wiring toggle+stopPropagation+
+         sinkron aria-expanded dilayani initMenuToggle() admin-core.js yang
+         berjalan di semua halaman admin (satu sumber kebenaran; atribut
+         data-action di sini justru menimbulkan dobel-toggle dengan handler
+         elemen milik core). */}}
+    <button class="topbar-menu-toggle" id="menuToggleBtn" aria-label="Menu akun & pengaturan" aria-haspopup="true" aria-expanded="false">
+     <span class="menu-hamburger-icon">&#9776;</span>
+    </button>
    <div class="topbar-dropdown-content" id="menuDropdownContent">
     <div class="dropdown-header mobile-only-header">
      <div class="dropdown-brand-row">
@@ -70,7 +75,7 @@
     
     {{/* Tautan Billing/Aplikasi Sistem sudah ada di blok "Pengaturan" di atas —
          jangan diduplikasi lagi di blok akun (membuat menu mobile dobel). */}}
-    <button class="dropdown-item" onclick="openChangePasswordModal()">
+    <button class="dropdown-item" data-action="open-change-password-modal">
      <svg class="icon-svg"><use href="#hi-key"/></svg> Ubah Password
     </button>
     <div class="dropdown-divider"></div>
@@ -86,9 +91,40 @@
  </nav>
 </header>
 
+{{/* T14: satu-satunya sumber #toastContainer untuk semua halaman admin —
+     duplikat per-halaman (dashboard/settings/pengawas_detail/submissions)
+     dihapus. showToast (admin-core.js) menulis ke elemen ini; halaman tanpa
+     container membuat toast "Sesi berakhir"/api:error lenyap senyap. */}}
+<div class="toast-container" id="toastContainer" aria-live="polite" aria-atomic="true"></div>
+
+<script>
+/* Batch 9 (R29): registrasi aksi milik partial nav. admin-core.js dimuat di
+   akhir body tiap halaman, jadi saat partial ini dieksekusi Actions belum
+   tentu ada — registrasi ditunda sampai core siap (DOMContentLoaded), atau
+   langsung bila core sudah termuat. Handler resolve fungsi global saat klik
+   (openChangePasswordModal hidup di admin.js yang dimuat setelahnya). */
+(function () {
+    function registerNavActions() {
+        if (typeof Actions === 'undefined') return;
+        if (!Actions.has('open-change-password-modal')) {
+            Actions.register('open-change-password-modal', function () {
+                if (typeof openChangePasswordModal === 'function') openChangePasswordModal();
+            });
+        }
+    }
+    // Bila core sudah ada (urutan muat berbeda), daftar langsung.
+    registerNavActions();
+    // Core selalu dimuat sinkron sebelum event ini menyala.
+    document.addEventListener('DOMContentLoaded', registerNavActions);
+})();
+</script>
+
 {{if .needs_instansi}}
-<div id="instansiOnboardingModal" class="modal-overlay" style="display:flex; z-index:99999; background: rgba(15, 23, 42, 0.88); backdrop-filter: blur(12px);" onclick="event.stopPropagation()">
-    <div class="modal-card" style="max-width: 480px; border: 1px solid rgba(168, 85, 247, 0.4); box-shadow: 0 0 30px rgba(168, 85, 247, 0.35);" onclick="event.stopPropagation()">
+{{/* R29: stopPropagation overlay/kartu dihapus — tidak ada listener global
+     yang menutup modal ini (wajib diisi), dan klik-luar dropdown milik core
+     aman terhadap bubble. Tanpa dismiss backdrop sesemestinya. */}}
+<div id="instansiOnboardingModal" class="modal-overlay" style="display:flex; z-index:99999; background: rgba(15, 23, 42, 0.88); backdrop-filter: blur(12px);">
+    <div class="modal-card" style="max-width: 480px; border: 1px solid rgba(168, 85, 247, 0.4); box-shadow: 0 0 30px rgba(168, 85, 247, 0.35);" >
         <div class="modal-header" style="border-bottom: 1px solid rgba(255,255,255,0.1); padding-bottom: 14px; margin-bottom: 16px;">
             <h3 style="margin:0; font-size:1.15rem; color:#fff; display:flex; align-items:center; gap:10px;">
                 <svg class="icon-svg" style="width:24px;height:24px;color:#c084fc;"><use href="#hi-building-library"/></svg>

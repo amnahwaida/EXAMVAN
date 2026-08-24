@@ -290,7 +290,11 @@ function loadPengawasExams(page) {
                 } else {
                     statusHtml = '<span class="status-badge status-inactive">Nonaktif</span>';
                 }
-                var sched = (ex.start_time && ex.end_time) ? (ex.start_time + ' - ' + ex.end_time) : '—';
+                // R31/R28: satu pintu format waktu — start/end UTC mentah
+                // diformat formatDateTimeID (admin-core.js); null → '—'.
+                var sched = (ex.start_time && ex.end_time)
+                    ? (formatDateTimeID(ex.start_time) + ' - ' + formatDateTimeID(ex.end_time))
+                    : '—';
 
                 var startedBadge = ex.exam_started_at
                     ? '<span style="font-size:0.65rem;color:rgba(var(--rgb-success),0.8);padding:2px 6px;border-radius:4px;background:rgba(var(--rgb-success),0.1);border:1px solid rgba(var(--rgb-success),0.2);"><svg class="icon-svg" style="width:10px;height:10px;"><use href="#hi-check"/></svg> Sedang Diawasi</span>'

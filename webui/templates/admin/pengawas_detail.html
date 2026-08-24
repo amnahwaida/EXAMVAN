@@ -11,7 +11,9 @@
 </head>
 <body class="dashboard-page">
 {{template "admin/partials/nav.html" dict "active_page" .active_page "admin_role" .admin_role "admin_user" .admin_user "csrf_token" .csrf_token "needs_instansi" .needs_instansi}}
-<div class="toast-container" id="toastContainer" aria-live="polite" aria-atomic="true"></div>
+
+<!-- T14: #toastContainer pindah ke partials/nav.html (satu sumber untuk semua
+     halaman admin) — duplikat per-halaman dihapus. -->
 
 <main class="dashboard" id="mainContent">
 
@@ -1407,6 +1409,17 @@ function applyApprovalRowOps(ops) {
     return applied > 0;
 }
 
+// R31: nama siswa dari baris antrean (cache polling) untuk feedback toast —
+// pengawas menyetujui perangkat orangnya, bukan MAC-nya.
+function findApprovalStudentName(macAddress) {
+    if (!macAddress) return '';
+    var rows = approvalRowsCache || [];
+    for (var i = 0; i < rows.length; i++) {
+        if (rows[i] && rows[i].mac_address === macAddress) return rows[i].student_name || '';
+    }
+    return '';
+}
+
 function setApproval(macAddress, status, skipConfirm) {
     if (!skipConfirm) {
         showConfirmApprovalModal(macAddress, status);
@@ -1428,7 +1441,14 @@ function setApproval(macAddress, status, skipConfirm) {
         if (res.success) {
             // R24: penolakan yang BERHASIL adalah konfirmasi, bukan kegagalan —
             // toast netral 'info', bukan merah 'error'.
-            showToast(status === 'approved' ? 'Perangkat diizinkan' : 'Perangkat ditolak', status === 'approved' ? 'success' : 'info');
+            // R31: sertakan nama siswa (dari baris antrean) agar jelas
+            // perangkat siapa yang diizinkan/ditolak; tanpa nama → generik.
+            var studentName = findApprovalStudentName(macAddress);
+            var verb = status === 'approved' ? 'diizinkan' : 'ditolak';
+            showToast(
+                studentName ? ('Perangkat ' + studentName + ' ' + verb) : ('Perangkat ' + verb),
+                status === 'approved' ? 'success' : 'info'
+            );
             loadApprovals();
             // Also refresh the device monitoring table so a revoke ("Tolak")
             // from that table gives immediate feedback.
@@ -1862,9 +1882,15 @@ function closeConfirmApprovalModal(event) {
   });
 
   Actions.register('regenerate-active-token', function() { if (typeof regenerateActiveToken === 'function') regenerateActiveToken(); });
+  // S41: copyToken lokal (tanpa catch/fallback) dihapus — salin via
+  // copyCode() guarded milik admin-core.js (fallback execCommand + toast
+  // gagal untuk skenario S29 LAN HTTP/izin clipboard ditolak).
   Actions.register('copy-active-token', function() {
     var t = document.getElementById('pdActiveToken');
-    if (t && typeof copyToken === 'function') copyToken(t.textContent);
+    if (!t) return;
+    var tok = (t.textContent || '').trim();
+    if (!tok || tok === '—') return;
+    if (typeof copyCode === 'function') copyCode(tok);
   });
   Actions.register('start-pengawas-detail', function(el) { if (typeof startExamPengawasDetail === 'function') startExamPengawasDetail(el.getAttribute('data-exam-id')); });
   Actions.register('stop-pengawas-detail', function(el) { if (typeof stopExamPengawasDetail === 'function') stopExamPengawasDetail(el.getAttribute('data-exam-id')); });
@@ -1899,22 +1925,9 @@ var TOKEN_INTERVAL_MINUTES = {{if .exam.TokenResetInterval}}{{.exam.TokenResetIn
 var TOKEN_LAST_RESET = '{{if .exam.TokenLastResetAt}}{{.exam.TokenLastResetAt.Format "2006-01-02T15:04:05Z07:00"}}{{end}}';
 var TOKEN_REFRESH_TIMER = null;
 
-function copyToken(token) {
-    if (!token || token === '—') return;
-    if (navigator.clipboard) {
-        navigator.clipboard.writeText(token).then(function() {
-            showToast('Token "' + token + '" berhasil disalin', 'success');
-        });
-    } else {
-        var ta = document.createElement('textarea');
-        ta.value = token;
-        document.body.appendChild(ta);
-        ta.select();
-        document.execCommand('copy');
-        document.body.removeChild(ta);
-        showToast('Token "' + token + '" berhasil disalin', 'success');
-    }
-}
+// S41: definisi lokal copyToken dihapus — versi lama menimpa wrapper
+// hardening S29 (admin.js copyToken/copyCode) dan menyalin tanpa
+// catch/fallback. Semua pemanggil menuju copyCode() guarded (admin-core.js).
 
 function regenerateActiveToken() {
     showConfirm(

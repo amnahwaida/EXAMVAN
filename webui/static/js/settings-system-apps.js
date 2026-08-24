@@ -119,13 +119,18 @@ function renderAppsGrid(apps) {
     });
 }
 
+// Batch 9 (S37): uploadModal kini memakai overlay standar .modal-overlay —
+// buka/tutup via inline display (pola semua modal lain) sehingga perilaku
+// Global Modal Manager (admin-core.js) konsisten; kelas arwah .modal-backdrop
+// dan toggle .show tidak dipakai lagi.
 function openUploadModal() {
     const modal = document.getElementById('uploadModal');
+    if (!modal) return;
     // Reset defensif: jangan pernah menyambut user dengan error upaya sebelumnya.
-    document.getElementById('uploadError').style.display = 'none';
+    const errBox = document.getElementById('uploadError');
+    if (errBox) errBox.style.display = 'none';
+    wireUploadCloseGuard();
     modal.style.display = 'flex';
-    void modal.offsetWidth;
-    modal.classList.add('show');
 }
 
 function closeUploadModal() {
@@ -136,7 +141,6 @@ function closeUploadModal() {
         return;
     }
     const modal = document.getElementById('uploadModal');
-    modal.classList.remove('show');
     setTimeout(() => {
         modal.style.display = 'none';
         document.getElementById('uploadAppForm').reset();
@@ -144,7 +148,106 @@ function closeUploadModal() {
         document.getElementById('file-name-display').style.color = 'white';
         document.getElementById('uploadError').style.display = 'none';
         document.getElementById('uploadProgressContainer').style.display = 'none';
+        hideUploadProgressPill();
     }, 300);
+}
+
+// ===== Batch 9 (S37): guard "unggahan masih berlangsung" ====================
+// Dulu: tombol ✕/Batal menolak menutup (benar), TAPI Escape/klik-overlay dari
+// Global Modal Manager (admin-core.js — MILIK AGEN LAIN, tidak boleh diedit)
+// tetap menyembunyikan modal via forceClose. Fix dalam batas kepemilikan:
+//   1) Listener CAPTURE pada modal yang berjalan SEBELUM handler manager di
+//      dokumen — menahan Escape/klik-overlay + toast penjelasan.
+//   2) lockUploadOverlay(): selama __uploadInProgress, setter style.display
+//      dan classList.remove('show') milik ELEMEN INI dibungkus agar paksaan
+//      tutup dari forceClose menjadi no-op (dilepas saat unggahan selesai).
+//   3) Pill progres mengambang + aria-busy supaya jelas unggahan tetap jalan.
+var __UPLOAD_BLOCKED_MSG = 'Unggahan masih berlangsung — tunggu hingga selesai.';
+
+function notifyUploadBlocked() {
+    if (typeof showToast === 'function') showToast(__UPLOAD_BLOCKED_MSG, 'error');
+}
+
+function wireUploadCloseGuard() {
+    var modal = document.getElementById('uploadModal');
+    if (!modal || modal.dataset.closeGuardWired) return;
+    modal.dataset.closeGuardWired = '1';
+    // Capture = fase paling awal pada modal, sebelum delegasi dokumen.
+    modal.addEventListener('keydown', function (e) {
+        if (!window.__uploadInProgress || e.key !== 'Escape') return;
+        e.preventDefault();
+        e.stopPropagation();
+        notifyUploadBlocked();
+    }, true);
+    modal.addEventListener('click', function (e) {
+        // Hanya klik LANGSUNG pada backdrop; klik konten modal lewat bebas.
+        if (!window.__uploadInProgress || e.target !== modal) return;
+        e.preventDefault();
+        e.stopPropagation();
+        notifyUploadBlocked();
+    }, true);
+}
+
+function lockUploadOverlay(modal) {
+    if (!modal || modal.dataset.uploadLocked) return;
+    modal.dataset.uploadLocked = '1';
+    modal.setAttribute('aria-busy', 'true');
+    // Bungkus setter display: forceClose menulis style.display='none' langsung.
+    var current = modal.style.display;
+    try {
+        Object.defineProperty(modal.style, 'display', {
+            configurable: true,
+            get: function () { return current; },
+            set: function (v) {
+                if (window.__uploadInProgress && String(v) === 'none') return;
+                current = v;
+            }
+        });
+    } catch (e) { /* lingkungan non-DOM: guard listener saja */ }
+    // Bungkus classList.remove: forceClose menghapus class 'show'.
+    var cls = modal.classList;
+    if (cls && typeof cls.remove === 'function' && !cls.__uploadOrigRemove) {
+        var origRemove = cls.remove;
+        cls.__uploadOrigRemove = origRemove;
+        cls.remove = function () {
+            var args = Array.prototype.slice.call(arguments);
+            if (window.__uploadInProgress && args.indexOf('show') !== -1) return;
+            return origRemove.apply(cls, args);
+        };
+    }
+}
+
+function unlockUploadOverlay(modal) {
+    if (!modal || !modal.dataset.uploadLocked) return;
+    delete modal.dataset.uploadLocked;
+    modal.removeAttribute('aria-busy');
+    try { delete modal.style.display; } catch (e) {}
+    var cls = modal.classList;
+    if (cls && cls.__uploadOrigRemove) {
+        cls.remove = cls.__uploadOrigRemove;
+        delete cls.__uploadOrigRemove;
+    }
+}
+
+// Pill progres mengambang: tetap terlihat walau modal tertutup paksa oleh
+// perilaku core di luar kepemilikan file ini (S37 rekomendasi fallback).
+function showUploadProgressPill() {
+    var pill = document.getElementById('uploadProgressPill');
+    if (!pill) {
+        pill = document.createElement('div');
+        pill.id = 'uploadProgressPill';
+        pill.className = 'upload-progress-pill';
+        pill.setAttribute('role', 'status');
+        pill.innerHTML = '<svg class="icon-svg spin" aria-hidden="true"><use href="#hi-refresh"/></svg> Mengunggah...';
+        (document.body || document.documentElement).appendChild(pill);
+    }
+    pill.style.display = 'flex';
+    return pill;
+}
+
+function hideUploadProgressPill() {
+    var pill = document.getElementById('uploadProgressPill');
+    if (pill) pill.style.display = 'none';
 }
 
 function updateFileName(input) {
@@ -181,6 +284,16 @@ function updateFileName(input) {
             updateFileName(input);
         }
     });
+})();
+
+// S37: pasang guard Escape/backdrop sejak modul termuat — modal statis di
+// settings.html sudah tersedia saat script lazy ini dieksekusi.
+(function wireUploadGuardNow() {
+    if (document.readyState === 'loading') {
+        document.addEventListener('DOMContentLoaded', wireUploadCloseGuard);
+    } else {
+        wireUploadCloseGuard();
+    }
 })();
 
 // ===== Validasi field-level modal unggah aplikasi (T10b) =====
@@ -264,6 +377,11 @@ function submitUpload(event) {
     errorDiv.style.display = 'none';
     progressContainer.style.display = 'block';
     window.__uploadInProgress = true;
+    // S37: kunci overlay + tampilkan indikator mengambang selama unggahan.
+    const modalEl = document.getElementById('uploadModal');
+    wireUploadCloseGuard();
+    lockUploadOverlay(modalEl);
+    showUploadProgressPill();
     btn.innerHTML = '<svg class="animate-spin" width="20" height="20" style="animation: spin 1s linear infinite;" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M21 12a9 9 0 1 1-6.219-8.56"></path></svg> Memproses...';
     btn.disabled = true;
 
@@ -289,6 +407,8 @@ function submitUpload(event) {
 
     xhr.onload = function() {
         window.__uploadInProgress = false;
+        unlockUploadOverlay(modalEl);
+        hideUploadProgressPill();
         if (xhr.status === 200) {
             const data = JSON.parse(xhr.responseText);
             if (data.success) {
@@ -311,6 +431,9 @@ function submitUpload(event) {
     };
 
     xhr.onerror = function() {
+        window.__uploadInProgress = false;
+        unlockUploadOverlay(modalEl);
+        hideUploadProgressPill();
         showError('Terjadi kesalahan jaringan. Periksa koneksi internet Anda.');
     };
 

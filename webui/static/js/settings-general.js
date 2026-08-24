@@ -139,9 +139,169 @@ if (window.Actions && typeof window.Actions.register === 'function') {
     });
 }
 
+// ===== Batch 9 (S39): dirty tracking per kartu Pengaturan Umum ==============
+// 8 kartu tersimpan terpisah (handler simpan: saveSaasSection di admin.js —
+// MILIK AGEN LAIN, tidak diedit). Mekanisme:
+//   - input/change (capture) di dalam kartu → kartu ditandai kotor:
+//     titik indikator di header + tombol simpan bertanda "•".
+//   - Klik tombol simpan → kartu dicatat "menunggu"; toast SUKES berikutnya
+//     (MutationObserver pada #toastContainer dari nav.html) membersihkan
+//     status kotor. loadSaasSettings() pasca-simpan menulis nilai via .value
+//     programatik sehingga tidak memicu event input (tidak ada false-dirty).
+//   - beforeunload mencegah navigasi bila ADA kartu kotor.
+var SAAS_SAVE_CARDS = [
+    { action: 'smtp-save',         cardId: 'saas-card-smtp',         btnId: 'saveSmtpSettingsBtn' },
+    { action: 'turnstile-save',    cardId: 'saas-card-turnstile',    btnId: 'saveTurnstileSettingsBtn' },
+    { action: 'cleanup-save',      cardId: 'saas-card-cleanup',      btnId: 'saveCleanupSettingsBtn' },
+    { action: 'default-pkg-save',  cardId: 'saas-card-default-pkg',  btnId: 'saveDefaultPkgSettingsBtn' },
+    { action: 'versions-save',     cardId: 'saas-card-versions',     btnId: 'saveVersionsSettingsBtn' },
+    { action: 'footer-save',       cardId: 'saas-card-footer',       btnId: 'saveFooterSettingsBtn' },
+    { action: 'seo-save',          cardId: 'saas-card-seo',          btnId: 'saveSeoSettingsBtn' },
+    { action: 'monetization-save', cardId: 'saas-card-monetization', btnId: 'saveMonetizationSettingsBtn' }
+];
+var SAAS_DIRTY = {};
+var SAAS_PENDING_SAVE = null;
+
+function saasCardMeta(cardId) {
+    for (var i = 0; i < SAAS_SAVE_CARDS.length; i++) {
+        if (SAAS_SAVE_CARDS[i].cardId === cardId) return SAAS_SAVE_CARDS[i];
+    }
+    return null;
+}
+
+function anySaasDirty() { return saasDirtyCount() > 0; }
+
+function saasDirtyCount() {
+    var n = 0;
+    for (var k in SAAS_DIRTY) if (Object.prototype.hasOwnProperty.call(SAAS_DIRTY, k) && SAAS_DIRTY[k]) n++;
+    return n;
+}
+
+function setSaasHeaderDot(cardEl, on) {
+    if (!cardEl || !cardEl.querySelector) return;
+    var title = cardEl.querySelector('.saas-collapse-title');
+    if (!title) return;
+    var existing = null;
+    for (var i = 0; i < title.children.length; i++) {
+        var c = title.children[i];
+        if (c.classList && c.classList.contains('saas-dirty-dot')) existing = c;
+    }
+    if (on && !existing) {
+        var dot = document.createElement('span');
+        dot.className = 'saas-dirty-dot';
+        dot.setAttribute('title', 'Perubahan belum disimpan');
+        title.appendChild(dot);
+    } else if (!on && existing) {
+        if (existing.remove) existing.remove();
+        else title.removeChild(existing);
+    }
+}
+
+function renderSaasDirtyState(meta) {
+    var cardEl = document.getElementById(meta.cardId);
+    var btn = document.getElementById(meta.btnId);
+    var dirty = !!SAAS_DIRTY[meta.cardId];
+    setSaasHeaderDot(cardEl, dirty);
+    if (!btn || !btn.querySelector) return;
+    // Label tombol dibungkus <span class="saas-save-text"> di markup sehingga
+    // tanda "•" bisa ditambah/dilepas tanpa menyentuh ikon svg di dalamnya.
+    // Fallback ke textContent tombol bila span tak tersedia (markup produksi
+    // selalu ber-span — jalur fallback hanya untuk lingkungan uji).
+    var label = btn.querySelector('.saas-save-text');
+    if (dirty) {
+        if (meta.origLabel === undefined) meta.origLabel = label ? label.textContent : btn.textContent;
+        btn.setAttribute('data-dirty', '1');
+        if (label) label.textContent = meta.origLabel + ' \u2022';
+        else btn.textContent = meta.origLabel + ' \u2022';
+    } else {
+        btn.removeAttribute('data-dirty');
+        if (meta.origLabel !== undefined) {
+            if (label) label.textContent = meta.origLabel;
+            else btn.textContent = meta.origLabel;
+        }
+    }
+}
+
+function markSaasCardDirty(metaOrCardId) {
+    var meta = typeof metaOrCardId === 'string' ? saasCardMeta(metaOrCardId) : metaOrCardId;
+    if (!meta) return;
+    SAAS_DIRTY[meta.cardId] = true;
+    renderSaasDirtyState(meta);
+}
+
+function clearSaasCardDirtyByCardId(cardId) {
+    if (!SAAS_DIRTY[cardId]) return;
+    delete SAAS_DIRTY[cardId];
+    var meta = saasCardMeta(cardId);
+    if (meta) renderSaasDirtyState(meta);
+}
+
+/** Murni & dapat diuji: dipanggil observer toast; return true bila kartu
+ *  yang menunggu konfirmasi dibersihkan oleh toast sukses ini. */
+function handleSaasToastForDirty(node) {
+    if (!node || typeof node.className !== 'string') return false;
+    if (node.className.indexOf('toast') === -1) return false;
+    var pending = SAAS_PENDING_SAVE;
+    SAAS_PENDING_SAVE = null;
+    if (!pending) return false;
+    if (node.className.indexOf('toast-success') !== -1) {
+        clearSaasCardDirtyByCardId(pending);
+        return true;
+    }
+    return false;
+}
+
+function wireSaasSaveToastObserver() {
+    var container = document.getElementById('toastContainer');
+    if (!container || container.dataset.dirtyToastWired || typeof MutationObserver === 'undefined') return;
+    container.dataset.dirtyToastWired = '1';
+    new MutationObserver(function (muts) {
+        muts.forEach(function (m) {
+            Array.prototype.forEach.call(m.addedNodes, function (n) { handleSaasToastForDirty(n); });
+        });
+    }).observe(container, { childList: true });
+}
+
+function wireSaasDirtyTracking() {
+    SAAS_SAVE_CARDS.forEach(function (meta) {
+        var card = document.getElementById(meta.cardId);
+        if (!card || card.dataset.dirtyWired) return;
+        card.dataset.dirtyWired = '1';
+        var onEdit = function () { markSaasCardDirty(meta); };
+        // Capture agar tak bergantung propagasi elemen internal kartu.
+        card.addEventListener('input', onEdit, true);
+        card.addEventListener('change', onEdit, true);
+    });
+
+    // Tombol simpan diklik → tandai kartu "menunggu konfirmasi sukses".
+    document.addEventListener('click', function (e) {
+        var el = e.target && e.target.closest ? e.target.closest('[data-action]') : null;
+        if (!el) return;
+        var action = el.getAttribute('data-action');
+        for (var i = 0; i < SAAS_SAVE_CARDS.length; i++) {
+            if (SAAS_SAVE_CARDS[i].action === action) {
+                SAAS_PENDING_SAVE = SAAS_SAVE_CARDS[i].cardId;
+                return;
+            }
+        }
+    }, true);
+
+    wireSaasSaveToastObserver();
+
+    if (!window.__saasBeforeUnloadWired) {
+        window.__saasBeforeUnloadWired = true;
+        window.addEventListener('beforeunload', function (e) {
+            if (!anySaasDirty()) return;
+            e.preventDefault();
+            e.returnValue = '';
+        });
+    }
+}
+
 window.__settingsReady['general'] = function() {
     setupGeneralCollapse();
     updateToggleAllLabel();
+    wireSaasDirtyTracking();
     if (document.getElementById('emailEnabledInput')) loadSaasSettings();
     if (typeof window.initPackages === 'function') window.initPackages();
 };

@@ -12,8 +12,10 @@ function renderVouchersError(msg, page) {
     const tbody = document.getElementById('vouchersTableBody');
     if (!tbody) return;
     tbody.setAttribute('aria-busy', 'false');
+    // R29: retry via data-action (handler diregister di bawah) — halaman
+    // dibawa data-page hasil parseInt agar interpolasi tetap numerik.
     tbody.innerHTML = `<tr><td colspan="7" style="text-align:center;padding:40px;color:#fca5a5;">${msg}
-        <div style="margin-top:12px;"><button type="button" class="btn-sm btn-secondary" onclick="loadVouchers(${page})">Coba Lagi</button></div></td></tr>`;
+        <div style="margin-top:12px;"><button type="button" class="btn-sm btn-secondary" data-action="voucher-retry-load" data-page="${parseInt(page, 10) || 1}">Coba Lagi</button></div></td></tr>`;
 }
 
 function loadVouchers(page = 1) {
@@ -154,8 +156,9 @@ function renderPagination(pg) {
             btns += `<span style="color:var(--color-text-secondary);padding:4px 6px;font-size:12px;">…</span>`;
             continue;
         }
+        // R29: paginasi via data-action + data-page (tanpa onclick inline).
         const activeStyle = item === pg.page ? 'background:var(--color-primary);color:#fff;' : 'background:rgba(255,255,255,0.06);color:var(--color-text-secondary);';
-        btns += `<button onclick="loadVouchers(${item})" style="padding:4px 10px;border-radius:6px;border:none;font-size:12px;cursor:pointer;${activeStyle}">${item}</button>`;
+        btns += `<button type="button" data-action="voucher-page" data-page="${parseInt(item, 10) || 1}" style="padding:4px 10px;border-radius:6px;border:none;font-size:12px;cursor:pointer;${activeStyle}">${item}</button>`;
     }
 
     container.innerHTML = `
@@ -467,6 +470,14 @@ if (window.Actions && typeof window.Actions.register === 'function') {
     // Toolbar pencarian daftar voucher.
     window.Actions.register('voucher-search', function () { loadVouchers(1); });
     window.Actions.register('voucher-search-clear', function () { clearVoucherSearch(); });
+    // Batch 9 (R29): pengganti onclick inline render-JS (retry daftar &
+    // paginasi) — halaman tujuan dibawa data-page, dinormalisasi parseInt(x,10).
+    window.Actions.register('voucher-retry-load', function (el) {
+        loadVouchers(parseInt(el.getAttribute('data-page'), 10) || 1);
+    });
+    window.Actions.register('voucher-page', function (el) {
+        loadVouchers(parseInt(el.getAttribute('data-page'), 10) || 1);
+    });
     // Modal konfirmasi generik dipakai modul ini untuk hapus voucher dsb.;
     // closeConfirmActionModal didefinisikan di file ini juga.
     window.Actions.register('confirm-action-close', function () { closeConfirmActionModal(); });

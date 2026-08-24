@@ -110,35 +110,28 @@
  <link rel="icon" type="image/png" href="/static/favicon.png">
 
  <style>
+ /* Batch 9 (T16): token gradien tombol unduh primer. SEMUA endpoint
+    terverifikasi ≥ 4.5:1 terhadap label putih 15.5px bold (WCAG AA teks
+    normal — bukan large-text), dihitung ulang otomatis oleh
+    uiux-batch9-publik.test.mjs:
+      #9333ea = 5.38:1 · #7c3aed = 5.70:1 · #2563eb = 5.17:1 · #1d4ed8 = 6.70:1 */
  :root {
- --bg-primary: #0b0f19;
- --bg-secondary: #111827;
- --accent-primary: #6366f1;
- --accent-secondary: #a855f7;
- --accent-glow: rgba(var(--rgb-info), 0.15);
- --text-main: #f3f4f6;
- --text-muted: #9ca3af;
- --text-secondary: #d1d5db;
- --glass-bg: rgba(17, 24, 39, 0.7);
- --glass-border: rgba(var(--rgb-white), 0.08);
- --card-hover: rgba(var(--rgb-white), 0.03);
+ --grad-btn-violet-start: #9333ea;
+ --grad-btn-violet-end: #7c3aed;
+ --grad-btn-blue-start: #2563eb;
+ --grad-btn-blue-end: #1d4ed8;
  }
 
- /* Dark-only UI: light palette kept for a future explicit toggle only, not
-    auto-applied on OS light mode (gradient headings/dark surfaces broke in it). */
- :root[data-theme="light"] {
- --bg-primary: #f1f5f9;
- --bg-secondary: #ffffff;
- --accent-primary: #6366f1;
- --accent-secondary: #8b5cf6;
- --accent-glow: rgba(var(--rgb-info), 0.1);
- --text-main: #0f172a;
- --text-muted: #64748b;
- --text-secondary: #334155;
- --glass-bg: rgba(var(--rgb-white), 0.8);
- --glass-border: rgba(var(--rgb-black), 0.08);
- --card-hover: rgba(var(--rgb-black), 0.02);
- }
+ /* Batch 9 (S44): sistem token paralel (:root lokal --bg-primary/--text-muted/
+    --accent-primary/… beserta palet light arwah ber-selektor data-theme)
+    DIHAPUS.
+    Keputusan S17/Batch 4: aplikasi DARK-BY-DESIGN; satu sumber kebenaran warna
+    adalah theme.css. Seluruh pemakaian bermigrasi ke token resmi:
+      --bg-primary→var(--color-bg) · --bg-secondary→var(--color-bg-secondary)
+      --accent-primary→var(--color-primary) · --accent-secondary→rgb(var(--rgb-accent))
+      --text-main→var(--color-text) · --text-muted→var(--color-text-muted)
+      --text-secondary→var(--color-text-secondary)
+      --glass-bg→var(--color-glass) · --glass-border→var(--color-glass-border) */
 
  * {
  margin: 0;
@@ -149,8 +142,8 @@
  }
 
  body {
- background-color: var(--bg-primary);
- color: var(--text-main);
+ background-color: var(--color-bg);
+ color: var(--color-text);
  display: flex;
  flex-direction: column;
  min-height: 100vh;
@@ -168,7 +161,7 @@
  width: 500px;
  height: 500px;
  border-radius: 50%;
- background: radial-gradient(circle, var(--accent-glow) 0%, rgba(var(--rgb-info), 0) 70%);
+ background: radial-gradient(circle, rgba(var(--rgb-info), 0.15) 0%, rgba(var(--rgb-info), 0) 70%);
  filter: blur(80px);
  z-index: -1;
  pointer-events: none;
@@ -201,7 +194,7 @@
  background: rgba(11, 15, 25, 0.75);
  -webkit-backdrop-filter: blur(12px);
  backdrop-filter: blur(12px);
- border-bottom: 1px solid var(--glass-border);
+ border-bottom: 1px solid var(--color-glass-border);
  transition: all 0.3s ease;
  }
 
@@ -222,7 +215,7 @@
  }
 
  .logo-badge {
- background: linear-gradient(135deg, var(--accent-primary), var(--accent-secondary));
+ background: linear-gradient(135deg, var(--color-primary), rgb(var(--rgb-accent)));
  width: 38px;
  height: 38px;
  border-radius: 10px;
@@ -253,7 +246,7 @@
  }
 
  .nav-link {
- color: var(--text-secondary);
+ color: var(--color-text-secondary);
  text-decoration: none;
  font-size: 15px;
  font-weight: 500;
@@ -261,13 +254,13 @@
  }
 
  .nav-link:hover {
- color: var(--text-main);
+ color: var(--color-text);
  }
 
  .btn-nav-login {
  background: rgba(var(--rgb-white), 0.05);
- border: 1px solid var(--glass-border);
- color: var(--text-main);
+ border: 1px solid var(--color-glass-border);
+ color: var(--color-text);
  padding: 10px 22px;
  border-radius: 8px;
  text-decoration: none;
@@ -337,7 +330,7 @@
 
  .hero-desc {
  font-size: 18px;
- color: var(--text-muted);
+ color: var(--color-text-muted);
  margin-bottom: 36px;
  max-width: 520px;
  }
@@ -350,7 +343,7 @@
  }
 
  .btn-primary {
- background: linear-gradient(135deg, var(--accent-primary), var(--accent-secondary));
+ background: linear-gradient(135deg, var(--color-primary), rgb(var(--rgb-accent)));
  color: white;
  padding: 16px 32px;
  border-radius: 12px;
@@ -373,8 +366,8 @@
 
  .btn-secondary {
  background: rgba(var(--rgb-white), 0.03);
- border: 1px solid var(--glass-border);
- color: var(--text-main);
+ border: 1px solid var(--color-glass-border);
+ color: var(--color-text);
  padding: 16px 32px;
  border-radius: 12px;
  text-decoration: none;
@@ -402,7 +395,7 @@
 
  .mockup-wrapper {
  background: linear-gradient(220deg, rgba(var(--rgb-white), 0.05) 0%, rgba(var(--rgb-white), 0.01) 100%);
- border: 1px solid var(--glass-border);
+ border: 1px solid var(--color-glass-border);
  border-radius: 24px;
  padding: 16px;
  width: 100%;
@@ -442,7 +435,7 @@
  }
 
  .mockup-logo {
- background: linear-gradient(135deg, var(--accent-primary), var(--accent-secondary));
+ background: linear-gradient(135deg, var(--color-primary), rgb(var(--rgb-accent)));
  width: 52px;
  height: 52px;
  border-radius: 12px;
@@ -465,7 +458,7 @@
 
  .mockup-desc {
  font-size: 13px;
- color: var(--text-muted);
+ color: var(--color-text-muted);
  margin-bottom: 24px;
  }
 
@@ -479,14 +472,14 @@
  display: flex;
  align-items: center;
  padding: 0 14px;
- color: var(--text-muted);
+ color: var(--color-text-muted);
  font-size: 13px;
  }
 
  .mockup-btn {
  width: 100%;
  height: 44px;
- background: var(--accent-primary);
+ background: var(--color-primary);
  color: white;
  border-radius: 8px;
  display: flex;
@@ -500,7 +493,7 @@
  .mockup-footer {
  margin-top: 18px;
  font-size: 11px;
- color: var(--text-muted);
+ color: var(--color-text-muted);
  }
 
  /* Features Section */
@@ -517,7 +510,7 @@
  }
 
  .section-subtitle {
- color: var(--accent-primary);
+ color: var(--color-primary);
  font-size: 14px;
  font-weight: 700;
  text-transform: uppercase;
@@ -543,7 +536,7 @@
 
  .feature-card {
  background: rgba(17, 24, 39, 0.55);
- border: 1px solid var(--glass-border);
+ border: 1px solid var(--color-glass-border);
  border-radius: 20px;
  padding: 36px;
  transition: all 0.3s ease;
@@ -595,15 +588,15 @@
 
  .feature-desc {
  font-size: 14.5px;
- color: var(--text-muted);
+ color: var(--color-text-muted);
  line-height: 1.6;
  }
 
  /* Stats Section */
  .stats {
- background: linear-gradient(180deg, var(--bg-primary) 0%, var(--bg-secondary) 100%);
- border-top: 1px solid var(--glass-border);
- border-bottom: 1px solid var(--glass-border);
+ background: linear-gradient(180deg, var(--color-bg) 0%, var(--color-bg-secondary) 100%);
+ border-top: 1px solid var(--color-glass-border);
+ border-bottom: 1px solid var(--color-glass-border);
  padding: 80px 24px;
  }
 
@@ -633,7 +626,7 @@
 
  .stat-lbl {
  font-size: 14px;
- color: var(--text-muted);
+ color: var(--color-text-muted);
  text-transform: uppercase;
  font-weight: 600;
  letter-spacing: 1px;
@@ -648,8 +641,8 @@
  }
 
  .cta-card {
- background: radial-gradient(circle at top left, rgba(var(--rgb-info), 0.15), transparent), var(--bg-secondary);
- border: 1px solid var(--glass-border);
+ background: radial-gradient(circle at top left, rgba(var(--rgb-info), 0.15), transparent), var(--color-bg-secondary);
+ border: 1px solid var(--color-glass-border);
  border-radius: 32px;
  padding: 80px 40px;
  position: relative;
@@ -666,7 +659,7 @@
  }
 
  .cta-desc {
- color: var(--text-muted);
+ color: var(--color-text-muted);
  font-size: 17px;
  max-width: 600px;
  margin: 0 auto 40px;
@@ -681,9 +674,9 @@
 
  /* Footer */
  footer {
- border-top: 1px solid var(--glass-border);
+ border-top: 1px solid var(--color-glass-border);
  padding: 40px 24px;
- background-color: var(--bg-primary);
+ background-color: var(--color-bg);
  }
 
  .footer-container {
@@ -692,7 +685,7 @@
  display: flex;
  justify-content: space-between;
  align-items: center;
- color: var(--text-muted);
+ color: var(--color-text-muted);
  font-size: 14px;
  flex-wrap: wrap;
  gap: 20px;
@@ -719,7 +712,7 @@
  display: none;
  background: none;
  border: none;
- color: var(--text-main);
+ color: var(--color-text);
  font-size: 28px;
  cursor: pointer;
  padding: 10px;
@@ -771,12 +764,12 @@
  width: min(280px, calc(100vw - 32px));
  max-width: 100%;
  height: 100dvh;
- background: var(--bg-secondary);
+ background: var(--color-bg-secondary);
  flex-direction: column;
  align-items: stretch;
  padding: 80px 24px 40px;
  gap: 8px;
- border-left: 1px solid var(--glass-border);
+ border-left: 1px solid var(--color-glass-border);
  transition: right 0.3s ease;
  z-index: 160;
  overflow-y: auto;
@@ -925,12 +918,12 @@
  html.touch-device .logo-badge { flex:0 0 auto; }
  html.touch-device .logo-text { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
  html.touch-device .nav-hamburger { display:inline-flex; align-items:center; justify-content:center; position:fixed; top:14px; right:16px; z-index:220; }
- html.touch-device .nav-links { position:fixed; top:0; right:-280px; width:min(280px, calc(100vw - 32px)); max-width:100%; height:100dvh; background:var(--bg-secondary); flex-direction:column; align-items:stretch; padding:80px 24px 40px; gap:8px; border-left:1px solid var(--glass-border); transition:right 0.3s ease; z-index:160; overflow-y:auto; }
+ html.touch-device .nav-links { position:fixed; top:0; right:-280px; width:min(280px, calc(100vw - 32px)); max-width:100%; height:100dvh; background:var(--color-bg-secondary); flex-direction:column; align-items:stretch; padding:80px 24px 40px; gap:8px; border-left:1px solid var(--color-glass-border); transition:right 0.3s ease; z-index:160; overflow-y:auto; }
  html.touch-device .nav-links.open { right:0; }
  html.touch-device .nav-link { padding:14px 16px; border-radius:10px; font-size:16px; }
  html.touch-device .btn-nav-login { text-align:center; padding:14px 16px; margin-top:8px; }
  </style>
- <link rel="stylesheet" href="/static/css/theme.css">
+ <link rel="stylesheet" href="/static/css/theme.css?v={{.version}}">
  <link rel="stylesheet" href="/static/css/public-mobile.css?v={{.version}}-5">
  <link rel="stylesheet" href="/static/css/public-desktop.css?v={{.version}}-3">
 

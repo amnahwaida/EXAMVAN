@@ -40,13 +40,19 @@ const DETAIL = 'templates/admin/pengawas_detail.html';
 // ujian, gagal muat detail) lenyap senyap.
 // ---------------------------------------------------------------------------
 
-test('T13: submissions.html memiliki #toastContainer dengan aria-live="polite"', () => {
+test('T13/T14: #toastContainer tersedia untuk submissions.html via partials/nav.html (satu sumber)', () => {
     const markup = '<div class="toast-container" id="toastContainer" aria-live="polite" aria-atomic="true"></div>';
     const submissions = read(SUBMISSIONS);
-    const reference = read(DETAIL);
+    const nav = read('templates/admin/partials/nav.html');
 
-    assert.ok(reference.includes(markup), 'sanity: markup referensi di pengawas_detail.html tetap ada');
-    assert.ok(submissions.includes(markup), 'submissions.html harus memuat markup toastContainer yang identik dengan pengawas_detail.html');
+    // Batch 9 (T14): container pindah ke partials/nav.html yang dirender di
+    // SEMUA halaman admin — intent proteksi T13 (toast selalu tampil)
+    // dipertahankan; duplikat per-halaman dilarang.
+    assert.ok(nav.includes(markup), 'sanity: partials/nav.html menyediakan markup toastContainer');
+    assert.ok(submissions.includes('admin/partials/nav.html'),
+        'submissions.html memuat partials/nav.html (pembawa toastContainer)');
+    assert.ok(!submissions.includes(markup),
+        'submissions.html tidak lagi menduplikasi container toast (satu sumber: nav.html)');
 });
 
 // ---------------------------------------------------------------------------

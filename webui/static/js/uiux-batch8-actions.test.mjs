@@ -71,7 +71,10 @@ test('B8-1 (statik): wrapper ke admin.js didaftarkan di admin.js, bukan lagi di 
         // Pengaturan (settings.html)
         'smtp-test', 'smtp-save', 'turnstile-save', 'cleanup-save',
         'default-pkg-save', 'versions-save', 'footer-save', 'seo-save',
-        'monetization-save', 'password-modal-close',
+        'monetization-save',
+        // Batch 9 (R33): password-modal-close dihapus — tombol ✕ modal Ubah
+        // Password settings memakai aksi generik modal-close + data-modal-close
+        // (paritas dengan dashboard.html; satu mekanisme, tanpa drift).
         // Kelola User (fungsinya di admin.js: loadUsersList dll.)
         'users-refresh-list', 'users-clear-search', 'users-search', 'users-toggle-sort',
         // Submissions (submissions.html)

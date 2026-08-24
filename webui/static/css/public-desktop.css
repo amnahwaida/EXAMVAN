@@ -31,8 +31,8 @@
   .mockup-screen { min-height: 350px; border-radius: 6px; }
 
   .stats { padding: 28px 32px; }
-  .stats-container { max-width: var(--desktop-content); gap: 0; border: 1px solid var(--glass-border); border-radius: 8px; overflow: hidden; }
-  .stat-item { padding: 26px 32px; border-right: 1px solid var(--glass-border); }
+  .stats-container { max-width: var(--desktop-content); gap: 0; border: 1px solid var(--color-glass-border); border-radius: 8px; overflow: hidden; }
+  .stat-item { padding: 26px 32px; border-right: 1px solid var(--color-glass-border); }
   .stat-item:last-child { border-right: 0; }
   .features { max-width: var(--desktop-content); margin: 0 auto; padding: 88px 32px; }
   .section-header { max-width: 720px; margin: 0 auto 48px; }

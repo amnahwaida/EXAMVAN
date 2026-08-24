@@ -5,6 +5,10 @@
  *   rgba inline dan JS ±49 hex. Batch 7 menurunkan angka itu lewat token
  *   (--rgb-*), kelas tone (.tone-*), dan .notice-warning. Test ini MENGUNCI
  *   baseline hasil migrasi per folder/file: angka tidak boleh NAIK lagi.
+ *   Sejak S43 (re-review ronde 3), rgba literal diukur dengan regex
+ *   digit-pembuka /rgba\(\s*[0-9]/ — pemakaian token rgba(var(--rgb-*), α)
+ *   TIDAK dihitung sebagai literal (regex lama /rgba\(/ menghitungnya keliru,
+ *   membuat dev bisa menambah ±295 literal baru tanpa test merah).
  *   Setiap fitur baru wajib memakai var(--token)/kelas utilitas; bila baseline
  *   memang perlu dinaikkan (mis. halaman baru dengan kebutuhan warna khusus),
  *   naikkan angkanya secara sadar di sini dengan komentar alasannya.
@@ -27,7 +31,9 @@ function listFiles(dir) {
 }
 
 const HEX_RE = /#[0-9a-fA-F]{3,8}\b/g;
-const RGBA_RE = /rgba\(/g;
+// S43: hanya rgba dengan DIGIT pembuka yang dihitung sebagai literal sungguhan.
+// `rgba(var(--rgb-white), 0.1)` adalah PEMAKAIAN token — tidak boleh dihitung.
+const RGBA_RE = /rgba\(\s*[0-9]/g;
 
 /** Hitung kemunculan pola di satu file, baris komentar HTML tidak dikecualikan
  *  (baseline dikunci apa adanya — konsistensi lebih penting daripada presisi). */
@@ -40,20 +46,54 @@ function countFolder(re) {
     return listFiles(TEMPLATES).reduce((sum, f) => sum + countIn(f, re), 0);
 }
 
+// Self-test regex S43: pemakaian token rgba(var(--rgb-*), α) BUKAN literal.
+test('S43 (self-test): regex rgba literal tidak menghitung rgba(var( sebagai literal', () => {
+    assert.equal(('rgba(var(--rgb-white), 0.1)'.match(RGBA_RE) || []).length, 0,
+        'rgba(var(...) harus dianggap pemakaian token, bukan literal');
+    assert.equal(('rgba(var(--rgb-black),var(--alpha-bg))'.match(RGBA_RE) || []).length, 0);
+    assert.equal(('rgba(255,255,255,0.1)'.match(RGBA_RE) || []).length, 1,
+        'rgba digit pembuka adalah literal sungguhan dan harus terhitung');
+    assert.equal((' rgba( 16, 185, 129, 0.2)'.match(RGBA_RE) || []).length, 1,
+        'spasi setelah rgba( tetap terdeteksi sebagai literal');
+});
+
 // Baseline terkunci pasca-Batch 7 (4 agen paralel: core/dashboard/pengawasan/
-// settings). Angka = hasil ukur langsung setelah migrasi; jangan dinaikkan
-// tanpa alasan terdokumentasi.
+// settings); rgba dikunci ulang pasca-S43 dengan regex literal-digit — angka
+// lama (520) menghitung ±295 pemakaian token rgba(var(...)) secara keliru.
+// Angka = hasil ukur langsung; jangan dinaikkan tanpa alasan terdokumentasi.
 test('S15 fase 2 (guard): total hex literal di seluruh templates/ tidak naik dari baseline Batch 7', () => {
     const total = countFolder(HEX_RE);
     assert.ok(total <= 300,
         `total hex templates/ = ${total}, baseline terkunci ≤ 300 — pakai var(--token) untuk warna baru`);
 });
 
-test('S15 fase 2 (guard): total rgba( literal di seluruh templates/ tidak naik dari baseline Batch 7', () => {
+test('S15 fase 2/S43 (guard): total rgba LITERAL (digit pembuka) di seluruh templates/ tidak naik', () => {
     const total = countFolder(RGBA_RE);
-    assert.ok(total <= 520,
-        `total rgba( templates/ = ${total}, baseline terkunci ≤ 520 — pakai rgba(var(--rgb-*), α) / --glass-bg-strong`);
+    assert.ok(total <= 225,
+        `total rgba literal templates/ = ${total}, baseline terkunci ≤ 225 — pakai rgba(var(--rgb-*), α) / --glass-bg-strong`);
 });
+
+// Plafon per-file rgba literal (hasil ukur S43, regex digit-pembuka).
+const RGBA_BASELINE_PER_FILE = {
+    'admin/settings.html': 110,
+    'admin/dashboard.html': 32,
+    'public/register_confirm.html': 19,
+    'admin/pengawas.html': 11,
+    'admin/pengawas_detail.html': 11,
+    'public/download.html': 11,
+    'public/hasil.html': 10,
+    'admin/partials/nav.html': 9,
+    'public/reset_password.html': 8,
+    'public/shared.html': 4,
+};
+
+for (const [rel, cap] of Object.entries(RGBA_BASELINE_PER_FILE)) {
+    test(`S43 (guard): rgba literal di templates/${rel} tidak naik dari baseline`, () => {
+        const n = countIn(path.join(TEMPLATES, rel), RGBA_RE);
+        assert.ok(n <= cap,
+            `rgba literal ${rel} = ${n}, baseline ≤ ${cap} — pakai rgba(var(--rgb-*), α)`);
+    });
+}
 
 test('S15 fase 2 (guard): hex di admin.js tidak naik dari baseline Batch 7', () => {
     const src = fs.readFileSync(path.join(__dirname, 'admin.js'), 'utf8');

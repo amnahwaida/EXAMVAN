@@ -3,6 +3,7 @@
 > **Tanggal review:** 23 Agustus 2026 · **Basis kode awal:** branch `main` @ `111019e` · **Re-review ronde 2:** 23 Agustus 2026 @ `cbc837f` (setelah Batch 1–4 selesai)
 > **Metode:** pembacaan menyeluruh ±26.000 baris template + CSS + JS oleh 3 reviewer paralel (area admin, area publik, lintas-halaman/a11y/design-system) + verifikasi manual temuan kunci. Ronde 2 mengulang metode yang sama (3 reviewer paralel) untuk memverifikasi perbaikan dan mencari temuan baru.
 > **Ronde 2:** seluruh temuan lama Tinggi/Sedang/Rendah (kecuali yang dicatat masih terbuka) terverifikasi BERES; ditemukan **2 masalah Tinggi, 14 Sedang, dan 12 Rendah baru** — lihat [bagian 5.5](#55-re-review-ronde-2--temuan-baru-pasca-batch-14).
+> **Ronde 3 (24 Agustus 2026 @ `1387853`, pasca Batch 8):** migrasi Batch 7–8 terverifikasi bersih di level registry; ditemukan **3 masalah Tinggi, 10 Sedang, dan 13 Rendah baru** — lihat [bagian 5.6](#56-re-review-ronde-3--temuan-baru-pasca-batch-58). Seluruhnya dieksekusi di **Batch 9** (25/26 item — sisa terbuka: R30 ditunda butuh keputusan UX).
 > **Tujuan:** acuan perbaikan UI/UX tahap selanjutnya. Setiap temuan punya ID unik (`T`=Tinggi, `S`=Sedang, `R`=Rendah, `P`=Keputusan Produk, `G`=Positif) agar mudah dirujuk di commit/issues (mis. `fix(uiux): T2 …`).
 
 ---
@@ -609,9 +610,267 @@
 
 ---
 
+## 5.6 RE-REVIEW RONDE 3 — Temuan baru pasca Batch 5–8
+
+> **Tanggal:** 24 Agustus 2026 · **Basis kode:** `1387853` (pasca Batch 8, suite 411/411 hijau) · **Metode:** 3 reviewer paralel (area admin, area publik, lintas-halaman/design-system) + verifikasi manual silang temuan kunci ke kode.
+> Penomoran ID melanjutkan ronde sebelumnya (`fix(uiux): T14 …`). Fokus khusus ronde ini: regresi dari migrasi besar Batch 7–8 (delegasi `data-action`, fase 2 token), dan audit terukur sisa design-token/`!important`.
+
+### Status verifikasi cepat (item lama)
+
+| Item | Status ronde 3 | Bukti |
+|---|---|---|
+| Migrasi Batch 7–8 (`data-action`) | ✅ **Bersih di level registry** | Seluruh `data-action` markup statis maupun render-JS punya handler terdaftar; tanpa dobel-registrasi fungsional; normalisasi `parseInt(...,10)` konsisten; diff-render T8 + visibility-guard S36 utuh. *(Tapi lihat S43/R29 — guard testnya bocor.)* |
+| R4 `document.write` | 🔴 **MASIH TERBUKA, utuh 5 lokasi** | `download.html:532,550,692,771` · `settings.html:2130`; tanpa fallback noscript. Test bahkan no-op `write()` karena keberadaannya (`uiux-batch7-settings.test.mjs:226`) — patuh pada bug, bukan fix |
+| R26 "Ekspor Excel" | ✅ **BERES** | `submissions.html:151`; test penjaga ada. Sisa EN minor baru: `settings.html:930` ("Refresh daftar user"/"Refresh") |
+| R27 `!important` | 🔴 **TERBUKA — angka NAIK sejak ronde 1** | Aktual (terverifikasi): admin-base.css **55** (47) · hasil.css **64** (63) · public-mobile.css **81** (47 — hampir dobel saat Batch 5–6) · public-desktop.css **34** (19). Blok inline belum pindah: settings.html **8 blok `<style>` = 717 baris**; shared.html ±893 baris |
+| S28 shortcut `?` | ✅ **BERES** | `admin-core.js:567` komentar penghapusan eksplisit; grep `case '?'` = 0 |
+| S21/S22/P3 | Belum disentuh batch mana pun (tetap terbuka) | |
+
+---
+
+### T14 — `pengawas.html` tidak punya `#toastContainer`: pesan "Sesi berakhir" (S23) & error global lenyap senyap di halaman pemantauan
+- **Prioritas:** 🔴 Tinggi · **Usaha:** XS · **Area:** Admin (Pengawasan) · **Status:** `[x]` ✅ **Batch 9**
+- **Lokasi:** `webui/templates/admin/pengawas.html` (seluruh file); `admin-core.js:135-136`, `:64-66`. Container hanya ada di dashboard.html:923, settings.html:740, submissions.html:132 (fix T13), pengawas_detail.html:14.
+- **Bukti:** `const container = document.getElementById('toastContainer'); if (!container) return;` — listener `auth:expired` memanggil `showToast('Sesi berakhir…')` yang jadi no-op di halaman ini.
+- **Dampak:** Halaman yang paling lama dibiarkan terbuka pengawas adalah satu-satunya halaman admin tanpa toast: sesi habis → redirect 1,2 dtk **tanpa penjelasan apa pun** (gejala S23 bangkit), semua toast `api:error` ikut lenyap.
+- **Rekomendasi:** Pindahkan `<div id="toastContainer">` ke `partials/nav.html` sekali untuk semua halaman (rekomendasi awal T13); tambah assertion test bahwa setiap halaman yang memuat admin-core.js punya container.
+
+### T15 — Generate/Import XML + hapus field identitas bocor dari guard unsaved-changes (S2)
+- **Prioritas:** 🔴 Tinggi · **Usaha:** S · **Area:** Admin (Dashboard) · **Status:** `[x]` ✅ **Batch 9**
+- **Lokasi:** `admin.js:1161-1187` (quickGenerate), `:2608-2613` (importXML), `:960` (hapus field identitas)
+- **Bukti:** Keduanya berujung `renderQuestions(questions)` (:1186, :2612 → `container.innerHTML = ''`) **tanpa** `showConfirm` maupun `markQuestionsConfigDirty()` — bandingkan jalur sejenis yang benar (`admin.js:702,723`). Hapus baris identitas pakai inline handler `onclick="this.closest('.identity-field-row').remove()"`.
+- **Dampak:** Guru dengan 30 soal+kunci di editor klik Generate/Import → semuanya tertimpa seketika tanpa dialog; flag dirty tetap `false` sehingga Batal menutup tanpa peringatan — guard unggulan S2 bocor tepat pada aksi paling destruktif di modal.
+- **Rekomendasi:** `showConfirm("Ganti semua soal di editor?")` sebelum replace di kedua fungsi; panggil `markQuestionsConfigDirty()` pasca render (termasuk hapus-baris identitas).
+
+### T16 — Kontras gradien tombol unduh primer gagal WCAG AA
+- **Prioritas:** 🔴 Tinggi · **Usaha:** S · **Area:** Publik (Download) · **Status:** `[x]` ✅ **Batch 9** *(rasio diverifikasi perhitungan)*
+- **Lokasi:** `download.html:535` (`linear-gradient(135deg, var(--color-accent), #7c3aed)`), `:695` (`#3b82f6→#2563eb`), `:774`; base `.btn-download-big` `color:white; font-size:15.5px` (:225-238)
+- **Masalah:** Putih di atas endpoint gradien: `#a855f7` = **3.96:1**, `#3b82f6` = **3.68:1**, `--color-accent #8b5cf6` = **4.23:1**. Font 15.5px bold < ambang large-text (≥18.66px bold), jadi ambang 4.5:1 — CTA konversi tertinggi halaman siswa gagal AA.
+- **Rekomendasi:** Gelapkan ujung gradien (`#a855f7`→`#9333ea`, dst.) atau naikkan label ≥16px bold; tambahkan asersi kontras endpoint gradien ke test publik.
+
+### S37 — Escape/backdrop menembus guard "unggahan masih berlangsung"; `.modal-backdrop` arwah tersisa
+- **Usaha:** S · **Area:** Admin (Settings) · **Status:** `[x]` ✅ **Batch 9**
+- **Lokasi:** `settings-system-apps.js:131-137`; `admin-core.js:991-1011` (forceClose menghapus class `show`); `settings.html:1989` + CSS `:655-662`
+- **Masalah:** Tombol ✕/Batal menolak menutup selama upload (benar), tapi Escape/klik-overlay tetap menutup modal via fallback core — unggahan lanjut tanpa indikator progres, bisa gagal diam-diam bila tab ditutup. `uploadModal` satu-satunya pemakai kelas arwah `.modal-backdrop` (sisa R25).
+- **Rekomendasi:** `closeUploadModal` memberi sinyal penolakan (return boolean / `data-force-locked`) yang dihormati forceClose; atau sembunyikan-ke-background dengan floating progress pill. Migrasi ke `.modal-overlay`.
+
+### S38 — Dua ambang warna nilai berbeda: rekap guru (80/60) vs halaman siswa (70/40 + chip Lulus)
+- **Usaha:** XS · **Area:** Admin + Publik · **Status:** `[x]` ✅ **Batch 9**
+- **Lokasi:** `submissions.html:287-298` vs `public/hasil.html:899-907`
+- **Dampak:** Siswa 75% melihat hijau "Lulus", guru melihat kuning di Rekapitulasi (dan sebaliknya di 65%) — dua layar resmi saling kontradiktif. Perluasan P3 tapi bisa disatukan tanpa backend.
+- **Rekomendasi:** Satukan threshold ke satu konstanta bersama (ekspor core / data atribut dari server) sekarang; setting backend menyusul saat P3 dieksekusi.
+
+### S39 — Pengaturan Umum: 8 kartu tersimpan terpisah tanpa indikator dirty maupun guard unload
+- **Usaha:** M · **Area:** Admin (Settings) · **Status:** `[x]` ✅ **Batch 9**
+- **Lokasi:** `settings.html:1643-1887` (8 tombol "Simpan …"); `beforeunload` hanya untuk editor soal (`admin.js:422-427`)
+- **Dampak:** Di halaman form terpanjang produk, tak ada cara tahu kartu mana yang belum disimpan; navigasi/tab-close membuang suntingan tanpa peringatan; toast sukses generik tak menyebut section mana.
+- **Rekomendasi:** Track dirty per section (badge titik "belum disimpan" di header kartu + tombol "Simpan •"), guard `beforeunload` bila ada kartu kotor, toast spesifik ("Setelan SMTP disimpan").
+
+### S40 — "Ekspor Excel" tanpa loading state & error handling — JSON error mentah bisa merender
+- **Usaha:** S · **Area:** Admin (Submissions) · **Status:** `[x]` ✅ **Batch 9**
+- **Lokasi:** `admin.js:3283-3291` (`window.location.href = url` langsung); tombol `submissions.html:151`
+- **Dampak:** Pola identik S13 yang sudah difix di publik: dataset besar + jaringan lambat = tombol terasa mati → klik berulang (navigasi ganda); server error merender JSON teknis menggantikan halaman.
+- **Rekomendasi:** Fetch via `apiFetch` + blob download dengan spinner/disable (pola S13); tetap di halaman saat gagal + toast.
+
+### S41 — `copyToken` lokal di pengawas_detail MENIMPA versi hardening S29; `copyServerURL` juga di luar pola
+- **Usaha:** XS · **Area:** Admin (Pengawasan/Dashboard) · **Status:** `[x]` ✅ **Batch 9**
+- **Lokasi:** `pengawas_detail.html:1902-1917` (`navigator.clipboard.writeText(token).then(...)` tanpa catch/fallback, deklarasi dimuat setelah admin.js sehingga menimpa versi S29); `dashboard.html:1046-1063` (duplikasi guard sendiri)
+- **Dampak:** Skenario S29 (LAN HTTP / izin clipboard ditolak): klik "Salin Token" di momen paling kritis pembagian token — tidak menyalin apa pun tanpa toast gagal.
+- **Rekomendasi:** Hapus kedua definisi lokal; panggil `copyCode()` langsung. Test: string `navigator.clipboard` tak boleh ada di inline template.
+
+### S42 — fingerprintjs 37KB dimuat sinkron di 4 halaman auth publik (regresi parsial R11)
+- **Usaha:** XS · **Area:** Publik · **Status:** `[x]` ✅ **Batch 9**
+- **Lokasi:** `forgot_password.html:99`, `register.html:483`, `register_confirm.html:424`, `reset_password.html:320`; pembanding benar `admin/login.html:152` (sudah `defer`)
+- **Dampak:** Script blocking render di halaman pendaftaran — momen adopsi produk — padahal hanya dipakai untuk field fingerprint tersembunyi.
+- **Rekomendasi:** Tambah `defer` di keempat lokasi.
+
+### S43 — Guard test token salah ukur rgba: regex `/rgba\(/g` menghitung pemakaian TOKEN sebagai literal; JS tak ter-guard
+- **Usaha:** XS–S · **Area:** Tooling/S15 · **Status:** `[x]` ✅ **Batch 9**
+- **Lokasi:** `uiux-batch7-tokens.test.mjs:30` & `:52-56`; `admin.js` **36 rgba literal** (mis. `:1045` style string panjang); `settings-vouchers.js` **22 hex + 9 rgba** (mis. `:66-70`)
+- **Fakta terverifikasi:** total `rgba(` templates/ = **520 persis di plafon**, padahal literal digit hanya **225** — 295 hitungan adalah `rgba(var(--rgb-*))` yang justru ingin didorong. Dev bisa menambah ~295 literal baru sebelum test merah; migrasi literal→token tak menurunkan metrik.
+- **Rekomendasi:** Regex `/rgba\(\s*[0-9]/g`, kunci ulang baseline aktual per file (settings 110, dashboard 32, dst.), turunkan plafon bertahap; perluas guard ke `static/js/*.js` (kecuali fingerprintjs.min.js).
+
+### S44 — Palet light arwah masih hidup di shared.html + sistem token paralel menyaingi theme.css
+- **Usaha:** XS–S · **Area:** Publik · **Status:** `[x]` ✅ **Batch 9**
+- **Lokasi:** `shared.html:129-141` (`:root[data-theme="light"] { --text-main:#0f172a; --text-muted:#64748b; ... }`); kontras `theme.css:102` (keputusan S17: palet light DIHAPUS)
+- **Dampak:** Duplikat keputusan dead-code S17 tak ikut dihapus — lengkap dengan `#64748b` yang dilarang T9 (3.84:1), dipakai ±10 lokasi via `var(--text-muted)`; blok ini juga mendefinisikan token paralel (`--bg-primary`, `--accent-primary`, …) = dua sumber kebenaran tema.
+- **Rekomendasi:** Hapus blok light; migrasikan pemakaian token lokalnya ke token resmi theme.css.
+
+### S45 — Instruksi instalasi merujuk posisi visual yang salah di mobile ("di sebelah kiri")
+- **Usaha:** XS · **Area:** Publik (Download) · **Status:** `[x]` ✅ **Batch 9**
+- **Lokasi:** `download.html:586` vs `public-mobile.css:99-101` (layout 1 kolom s/d 1100px)
+- **Dampak:** Langkah-1 panduan siswa menyebut tombol "di sebelah kiri" padahal di layout satu kolom (mayoritas audiens HP) kartu unduh ada **di atas** — instruksi pertama sudah tidak cocok dengan layar.
+- **Rekomendasi:** Hapus referensi spasial ("ketuk tombol **Unduh APK** di kartu di atas") atau anchor link ke tombol unduh.
+
+### S46 — Detail nilai memajangkan total hitungan klien di samping chip status resmi — bisa kontradiktif
+- **Usaha:** S · **Area:** Publik (Hasil) · **Status:** `[x]` ✅ **Batch 9**
+- **Lokasi:** `hasil.html:653-655` (chip dari `sub.score` resmi) vs `:728-733` (badge `${totalEarned}` hasil penjumlahan evaluasi klien); bonus: `id="scoreStatusBadge"` diduplikasi tiap baris terbuka (HTML invalid)
+- **Dampak:** Bila skor server ≠ penjumlahan klien (revisi kunci pasca-ujian — fitur yang diiklankan landing), siswa melihat "62.5/100 [Belum Lulus]" di panel dan badge tabel 70 — dua angka + satu status bertentangan dalam satu layar.
+- **Rekomendasi:** Tampilkan `sub.score / sub.max_score` resmi di summary bar (total evaluasi klien cukup sebagai baris rincian); `scoreStatusBadge` jadi class tanpa id.
+
+### R29 — onclick inline tersisa di render-JS & nav.html — guard test hanya memindai template
+- **Usaha:** S · **Area:** Admin · **Status:** `[x]` ✅ **Batch 9**
+- **Lokasi:** `admin.js:654,680,691,599,602`; `settings-vouchers.js:16,158`; `partials/nav.html:38,73,90` (hamburger, openChangePasswordModal, overlay stopPropagation)
+- **Dampak:** Klaim "0 onclick" Batch 7 tidak penuh — partial nav dirender di SEMUA halaman admin; string HTML dalam JS tidak terkunci guard; tetap CSP-unsafe + interpolasi `${index}` ke atribut.
+- **Rekomendasi:** Migrasi ke `data-action`; masukkan nav.html & literal `onclick=` di `static/js/*.js` render-path ke guard test.
+
+### R30 — Antrean izin tanpa aksi massal: konfirmasi beruntun per siswa di momen paling sibuk
+- **Usaha:** M · **Area:** Admin (Pengawasan) · **Status:** `[ ]` ⏸ **DITUNDA** — butuh keputusan UX alur konfirmasi ("Izinkan semua tampil" vs "jangan tanya lagi 5 menit")
+- **Lokasi:** `pengawas_detail.html:1344-1352` (per-baris saja), `:1801-1827` (modal konfirmasi per aksi); grep bulk/approve-all = kosong
+- **Dampak:** 30 siswa login serentak = 30× (modal + tap) bagi pengawas — confirm fatigue persis saat waktu paling sempit; alternatif auto-approve all-or-nothing berisiko lupa dimatikan.
+- **Rekomendasi:** "Izinkan Semua Terpilih"/"Izinkan semua tampil" dengan `showConfirm` sekali + loop POST; atau opsi "jangan tanya lagi 5 menit".
+
+### R31 — Feedback minor harian: toast tanpa nama siswa, jadwal UTC mentah, reload penuh pasca simpan soal
+- **Usaha:** XS–S · **Area:** Admin · **Status:** `[x]` ✅ **Batch 9**
+- **Lokasi:** `pengawas_detail.html:1431` (toast persetujuan tanpa `student_name` yang tersedia :1338); `pengawas.html:293` (`start_time + ' - ' + end_time` mentah, melanggar satu-pintu R28); `admin.js:1362` (`setTimeout(location.reload, 500)` pasca simpan konfigurasi soal — pola yang sudah dihapus R6)
+- **Rekomendasi:** Sertakan nama di toast; format via `formatDateTimeID`; ganti reload dengan update badge baris (pola R6).
+
+### R32 — ±40 label form settings tanpa asosiasi programatik
+- **Usaha:** S · **Area:** Admin · **Status:** `[x]` ✅ **Batch 9**
+- **Lokasi:** `settings.html` (81 `<label>`, hanya 41 ber-`for=`; contoh `:1324-1325`); pola serupa OTP group `register_confirm.html:240`, `reset_password.html:129`
+- **Dampak:** Klik label tak memfokuskan input; screen reader membaca field tanpa nama (placeholder hilang saat mengetik).
+- **Rekomendasi:** Sweep `for=`/`id` (sebagian besar id sudah ada).
+
+### R33 — Duplikasi modal "Ubah Password" dashboard↔settings — sudah drift mekanisme close
+- **Usaha:** S · **Area:** Admin · **Status:** `[x]` ✅ **Batch 9**
+- **Lokasi:** `dashboard.html:~575-620` vs `settings.html:~2160-2205` (`data-action="modal-close"` vs `"password-modal-close"`)
+- **Dampak:** Dua salinan form sensitif yang harus dirawat 2× dan memang telah menyimpang — pola drift base.html lama (S16).
+- **Rekomendasi:** Partial Go tunggal yang di-include kedua halaman; satu registrasi close kanonik.
+
+### R34 — Cache-busting CSS publik tidak konsisten; urutan cascade rapuh
+- **Usaha:** XS · **Area:** Publik · **Status:** `[x]` ✅ **Batch 9**
+- **Lokasi:** `shared.html:933` (theme.css **tanpa** `?v=`) vs `partials/head.html:8` (dengan `?v=`); ±900 baris `<style>` inline shared.html dimuat SEBELUM link eksternal
+- **Dampak:** Proxy LAN suka cache agresif — rilis tema berisiko user dapat CSS basi; override equal-specificity bergantung urutan file.
+- **Rekomendasi:** Tambah `?v={{.version}}` ke link di shared.html:933-935; pertimbangkan pindah blok inline terbesar ke file (R27).
+
+### R35 — Kolom durasi dua nama: "Waktu Pengerjaan" (desktop) vs "Durasi" (mobile card)
+- **Usaha:** XS · **Area:** Publik (Hasil) · **Status:** `[x]` ✅ **Batch 9**
+- **Lokasi:** `hasil.html:212` vs `:532` — isinya durasi (`getDurationString` :465-485), bukan waktu.
+- **Rekomendasi:** Satukan ke "Durasi".
+
+### R36 — Input username publik tanpa `autocapitalize="none"`
+- **Usaha:** XS · **Area:** Publik · **Status:** `[x]` ✅ **Batch 9**
+- **Lokasi:** `register.html:260`, `forgot_password.html:55`; pembanding disiplin `cek_hasil.html:48`
+- **Dampak:** Keyboard mobile mengkapitalisasi otomatis → forgot-password tidak menemukan akun tanpa pesan yang menjelaskan.
+- **Rekomendasi:** `autocapitalize="none" autocorrect="off" spellcheck="false"` (+ `enterkeyhint="go"` di form single-field cek hasil).
+
+### R37 — Paginasi hasil publik tanpa `aria-current`; tab Nilai/Kunci tidak deep-linkable
+- **Usaha:** XS–S · **Area:** Publik (Hasil) · **Status:** `[x]` ✅ **Batch 9**
+- **Lokasi:** `hasil.html:788-794` (createPageBtn hanya aria-label), `:817-829` (switchTab tak menyentuh hash) — pola yang sama sudah difix di admin (S26) dan tab download (Batch 3).
+- **Rekomendasi:** `aria-current="page"`; simpan tab aktif di hash (`#nilai`/`#kunci`).
+
+### R38 — Instruksi SmartScreen hanya mengutip label Windows Inggris
+- **Usaha:** XS · **Area:** Publik (Download) · **Status:** `[x]` ✅ **Batch 9**
+- **Lokasi:** `download.html:730` — `"More Info"` → `"Run Anyway"` tanpa padanan Windows Indonesia ("Info lainnya" → "Tetap jalankan").
+- **Rekomendasi:** Tulis kedua varian bahasa.
+
+### R39 — Mockup hero landing menampilkan domain hard-coded yang kontradiksi panduan instalasi LAN
+- **Usaha:** XS · **Area:** Publik (Landing) · **Status:** `[x]` ✅ **Batch 9**
+- **Lokasi:** `index.html:35` (`https://examvan.my.id`) vs `download.html:617` (contoh `http://192.168.1.10:8080`)
+- **Dampak:** Landing menampilkan citra SaaS cloud sementara alur nyata & value-prop offline memakai alamat LAN; calon pembeli awam bingung alamat mana yang harus diisi aplikasi.
+- **Rekomendasi:** Placeholder netral (`http://alamat-server-sekolah` + `TOKEN UJIAN`) atau editable dari data server.
+
+### R40 — Band kuning 40–69 dipasangkan chip merah "Belum Lulus" — dua sinyal warna berlawanan
+- **Usaha:** XS · **Area:** Publik (Hasil) · **Status:** `[x]` ✅ **Batch 9**
+- **Lokasi:** `hasil.html:890-904` (`score-mid` kuning + `score-status-fail` merah untuk pct<70); legenda `:169` tak menjelaskan hubungannya.
+- **Rekomendasi:** Tingkat ketiga chip ("Hampir", netral/kuning untuk 40–69) atau minimal klausa legenda "status Lulus mulai dari 70" (menyatu dengan S38/P3).
+
+### R41 — Sisa ekor kontras T9 pada kombinasi surface tertentu
+- **Usaha:** S · **Area:** Semua · **Status:** `[x]` ✅ **Batch 9** *(rasio diverifikasi perhitungan)*
+- **Lokasi:** `tailwind/output.css:415` (`#64748b` masih hidup di bundle); `pengawas_detail.html:1626` (ikon 18px `#64748b`); teks merah kecil `#ef4444` di kartu `#1e1e32` = **4.34:1** (di bawah 4.5; aman di bg utama)
+- **Rekomendasi:** Teks/chip merah kecil → `--color-danger-light` seperti pola `.tone-danger`; test kontras pasangan fg×{#09090e,#14141f,#0d0d1e,#1e1e32}.
+
+---
+
 ## 6. REKAP TRACKING
 
 > Centang `[x]` + cantumkan hash commit saat selesai. Urut sesuai prioritas eksekusi.
+
+### Batch 9 — Ronde 3: eksekusi temuan 5.6 ✅ SELESAI (2026-08-24, test-first via 5 agen paralel dengan kepemilikan file terpisah; suite gabungan repo **507/507 hijau**, `go build`+`go vet` OK)
+
+> **Metode:** sama dengan Batch 6–8 — kontrak ditulis lebih dulu sebagai file `uiux-batch9-*.test.mjs`
+> (diverifikasi merah → implementasi → hijau). Lima pemilik cakupan paralel tanpa tumpang tindih file:
+>
+> | Agen | Kepemilikan file | Suite |
+> |---|---|---|
+> | batch-9-jscore | `admin-core.js`, `admin.js`, `dashboard.html` | `uiux-batch9-jscore.test.mjs` — 21 |
+> | batch-9-pengawasan-nav | `partials/nav.html`, `pengawas*.html`, `submissions.html` | `uiux-batch9-pengawasan-nav.test.mjs` — 15 |
+> | batch-9-settings | `settings.html` + seluruh `settings-*.js` | `uiux-batch9-settings.test.mjs` — 13 |
+> | batch-9-publik | `templates/public/**` (+CSS publik bila perlu) | `uiux-batch9-publik.test.mjs` — 29 |
+> | batch-9-tokens-guard | `uiux-batch7-tokens.test.mjs` + guard JS baru | `uiux-batch9-tokens-guard.test.mjs` |
+>
+> Kontrak lintas-agen yang dipatuhi: (1) `#toastContainer` pindah ke `partials/nav.html` sebagai
+> satu-satunya sumber — container per-halaman dihapus dari semua halaman admin; (2) ambang warna
+> nilai submissions disamakan ke semantik publik 70/40 tanpa kode bersama baru; (3) `copyCode`
+> core menjadi satu-satunya implementasi salin (`navigator.clipboard` = 0 di inline template).
+
+- [x] **T14** container toast kini dari partials/nav.html:98 (aria-live/aria-atomic); duplikat dihapus
+  dari dashboard/pengawas_detail/submissions/settings (jadi komentar penunjuk); login.html tak memuat
+  partial sehingga tak terdampak. Test menjamin halaman admin tak lagi punya container sendiri.
+- [x] **T15** guard penggantian soal: helper `replaceEditorQuestions()` (admin.js) — bila editor berisi
+  soal/kotor → `showConfirm("Ganti semua soal di editor? …")` sebelum render; pasca render selalu
+  `markQuestionsConfigDirty()`. Berlaku untuk quickGenerate & importXML. Hapus field identitas
+  migrasi ke `data-action="identity-field-remove"` + penandaan kotor.
+- [x] **T16** token gradien tombol unduh baru di :root shared.html (`--grad-btn-violet-*`,
+  `--grad-btn-blue-*`) dengan endpoint lolos AA terverifikasi hitung di test (#9333ea=5.38 ·
+  #7c3aed=5.70 · #2563eb=5.17 · #1d4ed8=6.70); endpoint lama dilarang whitelist.
+- [x] **S37** uploadModal migrasi `.modal-backdrop` → `.modal-overlay`; guard capture
+  `wireUploadCloseGuard` menahan Escape/klik-overlay selama `__uploadInProgress` + pill progres
+  "Mengunggah..." (aria-busy) — unggahan tak bisa tertutup diam-diam lagi.
+- [x] **S38** ambang warna submissions.html diganti 70/40 (dari 80/60) — konsisten dengan chip
+  Lulus/Belum Lulus halaman siswa; komentar kontrak anti-drift.
+- [x] **S39** dirty tracking per kartu Pengaturan Umum: listener input/change capture per kartu → titik
+  `.saas-dirty-dot` di header + label tombol bertanda "•"; klik simpan mencatat pending card dan
+  MutationObserver toast sukses membersihkan dirty; guard `beforeunload` saat ada kartu kotor.
+  *(Follow-up: pindahkan pembersihan ke saveSaasSection bila kepemilikan berubah.)*
+- [x] **S40** Ekspor Excel via `apiFetch` → blob download (nama dari Content-Disposition), tombol
+  disabled + "Mengekspor..." + guard dobel-klik, restore di akhir; gagal → toast, tetap di halaman.
+- [x] **S41** definisi lokal `copyToken` (pengawas_detail) & `copyServerURL` (dashboard) dihapus —
+  semua salin via `copyCode` guarded core; `navigator.clipboard` nol di inline template.
+- [x] **S42** fingerprintjs.min.js + device-fingerprint.js ber-`defer` ×4 halaman auth publik
+  (urutan dokumen dipertahankan, diuji).
+- [x] **S43** guard token diperbaiki: regex rgba literal `/rgba\(\s*[0-9]/g` (tak menghitung
+  `rgba(var(--rgb-*))`), plafon folder-wide turun 520→225 + 10 plafon per-file template baru;
+  guard JS baru mengunci rgba/hex admin.js ≤36, vouchers ≤9/≤22, voucher-audit ≤2/≤2, billing ≤8/≤1
+  (baseline aktual hari ini; self-test regex).
+- [x] **S44** blok `:root[data-theme="light"]` arwah + sistem token paralel shared.html DIHAPUS
+  (konsisten keputusan S17); ±40 pemakaian dimigrasi ke token resmi theme.css termasuk
+  `--text-muted #64748b` → `var(--color-text-muted)`; audit test memastikan nol referensi menggantung.
+- [x] **S45** instruksi instalasi: "ketuk tombol Unduh APK di kartu unduhan di atas" (referensi
+  spasial salah dihapus).
+- [x] **S46** summary bar detail hasil menampilkan Skor Resmi `sub.score/max_score`; total evaluasi
+  sisi klien jadi baris rincian berlabel; `id="scoreStatusBadge"` duplikat → class `.score-status-badge`.
+- [x] **R29** onclick/onchange inline habis dari string HTML render-JS admin.js
+  (`toggle-public-results`, `question-remove`, `question-insert-at`, select tipe soal, hapus baris
+  identitas) DAN settings-vouchers.js (retry + paginasi) — registrasi di modul pemiliknya (pola
+  Batch 8); nav.html bebas onclick (hamburger kembali ke `initMenuToggle`, Ubah Password via
+  `data-action="open-change-password-modal"` dengan registrasi di blok script nav, overlay
+  onboarding tanpa dismiss backdrop).
+- [ ] **R30 DITUNDA** — aksi massal antrean izin butuh keputusan UX alur konfirmasi
+      ("Izinkan semua tampil" vs "jangan tanya lagi 5 menit"). Belum dieksekusi.
+- [x] **R31** toast persetujuan menyertakan nama siswa (`findApprovalStudentName`, fallback generik
+  bila anonim); jadwal kartu pengawas diformat via `formatDateTimeID`; reload penuh pasca simpan
+  konfigurasi soal diganti tutup-modal + `refreshDashboardStats()` (pola R6).
+- [x] **R32** sweep asosiasi label settings: `<label for>` naik 41→73 pasangan programatik.
+- [x] **R33** drift mekanisme close modal Ubah Password disatukan: settings memakai aksi generik
+  `modal-close` + `data-modal-close="closeChangePasswordModal"` (paritas dashboard); registrasi
+  ad-hoc `password-modal-close` dihapus. *(Ekstraksi partial bersama DITUNDA — mematahkan kontrak
+  fs-read statik banyak suite; putuskan bersama reformasi harness bila dieksekusi.)*
+- [x] **R34** seluruh link stylesheet shared.html ber-cache-busting `?v={{.version}}`.
+- [x] **R35** th desktop "Waktu Pengerjaan" → "Durasi" (menyamai data-label mobile).
+- [x] **R36** `autocapitalize="none" autocorrect="off" spellcheck="false"` pada input username/token
+  register & forgot_password; `enterkeyhint="go"` di cek_hasil.
+- [x] **R37** paginasi hasil publik `aria-current="page"`; tab Nilai/Kunci deep-linkable
+  (`#nilai`/`#kunci`, dibaca saat load + respons hashchange, guard tab Kunci).
+- [x] **R38** SmartScreen bilingual: "More Info"/"Info lainnya" → "Run anyway"/"Tetap jalankan".
+- [x] **R39** mockup hero landing → placeholder netral `http://alamat-server-sekolah`.
+- [x] **R40** chip status tiga tingkat: ≥70 Lulus / 40–69 **Hampir** (`.score-status-mid`, token
+  warning) / <40 Belum Lulus + legenda "Status Lulus mulai dari 70".
+- [x] **R41** teks merah kecil di permukaan kartu → `var(--color-danger-light)` (kontras 8.60:1,
+  dihitung dalam test) di badge admin.js & ikon pengawas_detail; tanpa hex/rgba literal baru.
+- Kontrak test lama direvisi minimal dengan intent proteksi dipertahankan: `uiux-batch8-actions`
+  (password-modal-close keluar daftar), `uiux-batch2` T3 (badge jadi class), `uiux-batch5-admin-list`
+  T13 (container tersedia via nav, duplikat dilarang).
 
 ### Batch 1 — Quick wins (±1 jam total) ✅ SELESAI (2026-08-23, test-first: `webui/static/js/uiux-batch1.test.mjs` — 17/17 hijau)
 - [x] **T2** uploadError `display:none` default + hapus teks placeholder EN + reset saat modal dibuka

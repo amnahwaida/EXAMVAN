@@ -920,7 +920,9 @@
 </div>
 </div>
 
-<div class="toast-container" id="toastContainer" aria-live="polite" aria-atomic="true"></div>
+<!-- Batch 9 (kontrak lintas-agen): #toastContainer DIHAPUS dari halaman ini —
+     partials/nav.html satu-satunya sumber container toast (admin-core.js
+     membacanya via getElementById). -->
 
 <!-- Heroicons Sprite -->
 <svg xmlns="http://www.w3.org/2000/svg" style="display:none;" aria-hidden="true">
@@ -1042,25 +1044,6 @@ document.addEventListener('DOMContentLoaded', function() {
 // stays on-screen on phones). Redefining it here would shadow that and clip
 // the action menu off the right edge on mobile.
 document.addEventListener('click', function() { document.querySelectorAll('.exam-action-dropdown-content.show').forEach(function(e) { e.classList.remove('show'); }); });
-
-function copyServerURL(url) {
-    if (!url) return;
-    if (navigator.clipboard) {
-        navigator.clipboard.writeText(url).then(function() {
-            showToast('Alamat API / Server berhasil disalin', 'success');
-        }).catch(function() {
-            showToast('Gagal menyalin alamat', 'error');
-        });
-    } else {
-        const textarea = document.createElement('textarea');
-        textarea.value = url;
-        document.body.appendChild(textarea);
-        textarea.select();
-        document.execCommand('copy');
-        textarea.remove();
-        showToast('Alamat API / Server berhasil disalin', 'success');
-    }
-}
 </script>
 
 <!-- Modal Ubah Instansi -->
@@ -1163,7 +1146,7 @@ function saveEditInstansi(e) {
 if (typeof Actions !== 'undefined' && typeof Actions.register === 'function') {
   Actions.register('instansi-open', function () { openEditInstansiModal(); });
   Actions.register('instansi-code-copy', function (el) { copyCode(el.getAttribute('data-code')); });
-  Actions.register('server-url-copy', function (el) { copyServerURL(el.getAttribute('data-url')); });
+  Actions.register('server-url-copy', function (el) { copyCode(el.getAttribute('data-url')); });
   Actions.register('search-clear', function () { clearSearch(); });
   Actions.register('exams-search', function () { searchExamsWithStatus(); });
   Actions.register('bulk-delete-confirm', function () { confirmBulkDelete(); });

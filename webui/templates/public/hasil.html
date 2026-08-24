@@ -37,10 +37,16 @@
    white-space: nowrap;
   }
   .score-status-pass { color: var(--color-success); background: rgba(16, 185, 129, 0.12); border: 1px solid rgba(16, 185, 129, 0.35); }
+  /* R40: tingkat ketiga 40–69 — kuning netral "Hampir", bukan merah
+     "Belum Lulus" yang kontradiktif dengan badge kuning di sampingnya.
+     Warna memakai token theme.css (tanpa hex/rgba literal baru). */
+  .score-status-mid { color: var(--color-warning-light); background: rgba(var(--rgb-warning), 0.12); border: 1px solid rgba(var(--rgb-warning), 0.35); }
   .score-status-fail { color: var(--color-danger); background: rgba(239, 68, 68, 0.12); border: 1px solid rgba(239, 68, 68, 0.35); }
   .score-status-none { color: var(--color-text-secondary); background: rgba(148, 163, 184, 0.12); border: 1px solid rgba(148, 163, 184, 0.30); }
-  /* Badge status di bar rekap skor lembar jawaban (dirender oleh JS). */
-  #scoreStatusBadge { margin-left: 10px; vertical-align: middle; }
+  /* Badge status di bar rekap skor lembar jawaban (dirender oleh JS).
+     Batch 9/S46: class, bukan id — id diduplikasi tiap baris detail terbuka
+     (HTML invalid). */
+  .score-status-badge { margin-left: 10px; vertical-align: middle; }
   .score-legend {
    margin: 10px 4px 0;
    font-size: 0.75rem;
@@ -166,7 +172,7 @@
  </div>
  <div class="stats-row" id="statsRow" style="display: none;"></div>
  <!-- T3: legenda ambang tampilan warna skor — ditampilkan saat statistik termuat -->
- <p class="score-legend" id="scoreLegend" style="display: none;">Ambang tampilan: Hijau ≥ 70 · Kuning 40–69 · Merah &lt; 40 (ambang sementara — KKM sekolah dapat berbeda)</p>
+ <p class="score-legend" id="scoreLegend" style="display: none;">Ambang tampilan: Hijau ≥ 70 · Kuning 40–69 ("Hampir") · Merah &lt; 40 — Status Lulus mulai dari 70 (ambang sementara — KKM sekolah dapat berbeda)</p>
  </section>
  <!-- Tab Navigation -->
  <div class="tab-nav" id="tabNav" style="display: none;">
@@ -209,7 +215,7 @@
  <tr>
  <th scope="col" style="width: 50px;">#</th>
  <th scope="col">Nama</th>
- <th scope="col" class="td-center">Waktu Pengerjaan</th>
+ <th scope="col" class="td-center">Durasi</th>
  <th scope="col" class="td-center">Nilai</th>
  <th scope="col" style="width: 40px;"></th>
  </tr>
@@ -317,6 +323,15 @@
  // ===== Init =====
  const pageHasError = {{if .error}}true{{else}}false{{end}};
  document.addEventListener('DOMContentLoaded', () => {
+ // R37: tab awal dibaca dari location.hash (deep-link); guard #kunci ada di
+ // dalam resolveTabFromHash. skipHash: jangan tulis ulang hash saat init.
+ switchTab(resolveTabFromHash(), { skipHash: true });
+
+ // Hash berubah dari luar (user edit URL / back-forward cache): ikuti.
+ window.addEventListener('hashchange', () => {
+ switchTab(resolveTabFromHash(), { skipHash: true });
+ });
+
  // T12: state error tidak punya elemen hero/tabel — jangan mulai polling.
  if (!isDisabled && !pageHasError) {
  loadResults();
@@ -653,6 +668,11 @@
  // T3: status kelulusan eksplisit mengikuti skor RESMI (sub.score) — bukan
  // total evaluasi sisi-klien. Skor belum ada → "Belum Dikoreksi".
  const passStatus = getPassStatus(sub.score, totalMax);
+ // Batch 9/S46: angka UTAMA di bar rekap adalah skor RESMI server
+ // (sub.score/sub.max_score) — bisa berbeda dari penjumlahan evaluasi klien
+ // bila guru merevisi kunci/bobot pasca-ujian (fitur rekalkulasi instan).
+ const hasOfficialScore = sub.score !== null && sub.score !== undefined;
+ const officialScoreText = hasOfficialScore ? `${Number(sub.score).toFixed(1)} / ${totalMax.toFixed(1)}` : '&mdash;';
 
  // Build dynamic identity fields (excluding student_name which is already in main table)
  let identityHtml = '';
@@ -726,12 +746,14 @@
  <span style="color:var(--color-danger);"><svg class="icon-svg-sm" style="vertical-align:middle;" aria-hidden="true"><use href="#hi-x"/></svg> Salah: ${incorrectCount}</span>
  </div>
  <div class="score-summary-total">
- <span style="color:var(--color-text-muted);">Total:</span>
- <span class="score-badge ${getScoreClass(totalEarned, totalMax)}" style="font-size:0.9rem;">
- ${totalEarned.toFixed(1)} / ${totalMax.toFixed(1)}
+ <span style="color:var(--color-text-muted);">Skor Resmi:</span>
+ <span class="score-badge ${getScoreClass(sub.score, totalMax)}" style="font-size:0.9rem;">
+ ${officialScoreText}
  </span>
- <span class="score-status-chip ${passStatus.cls}" id="scoreStatusBadge">${passStatus.text}</span>
+ <span class="score-status-chip ${passStatus.cls} score-status-badge">${passStatus.text}</span>
  </div>
+ <div style="margin:8px 4px 0; font-size:0.72rem; color:var(--color-text-muted); text-align:right;">
+ Perhitungan tampilan (evaluasi sisi klien): ${totalEarned.toFixed(1)} / ${totalMax.toFixed(1)} — dapat berbeda dari Skor Resmi bila kunci/bobot direvisi pasca-ujian
  </div>
  `;
  }
@@ -790,6 +812,10 @@
  btn.className = 'pagination-page-btn' + (page === currentPage ? ' active' : '');
  btn.textContent = page;
  btn.setAttribute('aria-label', 'Halaman ' + page);
+ // R37: halaman aktif ditandai aria-current="page" (screen reader tidak bisa
+ // merasakan class .active); halaman lain wajib dibersihkan dari atribut.
+ if (page === currentPage) btn.setAttribute('aria-current', 'page');
+ else btn.removeAttribute('aria-current');
  btn.onclick = () => goToPage(page);
  return btn;
  }
@@ -814,7 +840,21 @@
  }
 
  // ===== Switch Tab =====
- function switchTab(tab) {
+ // R37: tab aktif deep-linkable via location.hash (#nilai/#kunci) — pola tab
+ // download Batch 3 (S14). Hash di luar whitelist jatuh ke tab Nilai.
+ const TAB_HASH_NAMES = { scores: 'nilai', keys: 'kunci' };
+
+ function resolveTabFromHash() {
+ const h = (location.hash || '').replace('#', '');
+ if (h === TAB_HASH_NAMES.keys) {
+ // Hash #kunci hanya dihormati bila server mengizinkan kunci tampil —
+ // hash arbitrer tidak dipercaya dan selalu jatuh ke tab Nilai.
+ return showAnswersFromServer ? 'keys' : 'scores';
+ }
+ return 'scores';
+ }
+
+ function switchTab(tab, opts) {
  currentTab = tab;
  document.getElementById('tabScores').classList.toggle('active', tab === 'scores');
  document.getElementById('tabKeys').classList.toggle('active', tab === 'keys');
@@ -826,6 +866,13 @@
  // layout of .search-input-wrapper stays intact on mobile.
  const searchSection = document.querySelector('.search-section');
  if (searchSection) searchSection.style.display = tab === 'keys' ? 'none' : 'block';
+
+ // Simpan tab aktif di URL agar deep-linkable. replaceState (bukan
+ // assignment) supaya tidak memicu scroll-to-top / entri history baru;
+ // opts.skipHash dipakai saat balasan dari event hashchange.
+ if (!opts || !opts.skipHash) {
+ history.replaceState(null, '', '#' + (TAB_HASH_NAMES[tab] || TAB_HASH_NAMES.scores));
+ }
  }
 
  // ===== Render Official Keys Grid =====
@@ -892,15 +939,17 @@
  return 'score-low';
  }
 
- // ===== T3: Status kelulusan eksplisit =====
+ // ===== T3 + R40: Status kelulusan eksplisit, tiga tingkat =====
  // Label status untuk sebuah nilai, memakai ambang tampilan yang sama dengan
- // getScoreClass() (hijau ≥ 70, kuning 40–69, merah < 40). Ambang masih
- // hard-coded mengikuti warna badge; KKM per sekolah (setting backend)
- // menyusul di batch berikutnya.
+ // getScoreClass() (hijau ≥ 70, kuning 40–69 "Hampir", merah < 40). Band kuning
+ // tidak lagi memakai chip merah "Belum Lulus" — dua sinyal warna berlawanan.
+ // Ambang masih hard-coded mengikuti warna badge; KKM per sekolah (setting
+ // backend) menyusul di batch berikutnya.
  function getPassStatus(score, maxScore) {
  if (score === null || score === undefined) return { text: 'Belum Dikoreksi', cls: 'score-status-none' };
  const pct = maxScore ? (score / maxScore) * 100 : score;
  if (pct >= 70) return { text: 'Lulus', cls: 'score-status-pass' };
+ if (pct >= 40) return { text: 'Hampir', cls: 'score-status-mid' };
  return { text: 'Belum Lulus', cls: 'score-status-fail' };
  }
 
