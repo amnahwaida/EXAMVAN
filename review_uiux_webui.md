@@ -7,6 +7,7 @@
 > **Ronde 4 (24 Agustus 2026 @ `a1afd9c`, pasca Batch 9):** regresi Batch 9 hampir seluruhnya bersih (1 eksekusi perlu dirapikan → S47); ditemukan **2 masalah Tinggi, 13 Sedang, dan 12 Rendah baru** — lihat [bagian 5.7](#57-re-review-ronde-4--temuan-baru-pasca-batch-9). Seluruhnya dieksekusi di **Batch 10** kecuali S57 ditunda (ekstraksi blok inline besar).
 > **Ronde 5 (24 Agustus 2026 @ `2debff6`, pasca Batch 10):** eksekusi Batch 10 terverifikasi asli & terukur, namun ditemukan **3 masalah Tinggi, 5 Sedang, dan 13 Rendah baru** — termasuk regresi fungsional T19 (race defer vs registrasi Actions) dan dua temuan integritas proses (klaim `[x]` yang tidak tuntas) — lihat [bagian 5.8](#58-re-review-ronde-5--temuan-baru-pasca-batch-10). Seluruhnya dieksekusi di **Batch 11**.
 > **Ronde 6 (24 Agustus 2026 @ `4c87bc8`, pasca Batch 11):** verifikasi Batch 11 praktis bersih (1 sub-item tertinggal → S66); ditemukan **1 masalah Tinggi, 5 Sedang, dan 10 Rendah baru** — lihat [bagian 5.9](#59-re-review-ronde-6--temuan-baru-pasca-batch-11). Seluruhnya dieksekusi di **Batch 12** (S69 parsial: aria-live tuntas, stempel jam-perangkat ditunda butuh timestamp server).
+> **Ronde 7 (24 Agustus 2026 @ `4fc2ab8`, pasca Batch 12):** ditemukan **1 masalah Tinggi (regresi tampilan dialog voucher), 6 Sedang, dan 11 Rendah baru** — lihat [bagian 5.10](#510-re-review-ronde-7--temuan-baru-pasca-batch-12). Eksekusi di **Batch 13** (S73 parsial: format disatukan client-side; perbandingan kedaluwarsa server-side ditunda butuh API).
 > **Tujuan:** acuan perbaikan UI/UX tahap selanjutnya. Setiap temuan punya ID unik (`T`=Tinggi, `S`=Sedang, `R`=Rendah, `P`=Keputusan Produk, `G`=Positif) agar mudah dirujuk di commit/issues (mis. `fix(uiux): T2 …`).
 
 ---
@@ -1211,9 +1212,171 @@ Item lama tetap terbuka: R4 document.write, R30, P3, S57, duplikasi modal passwo
 
 ---
 
+## 5.10 RE-REVIEW RONDE 7 — Temuan baru pasca Batch 12
+
+> **Tanggal:** 24 Agustus 2026 · **Basis kode:** `4fc2ab8` (pasca Batch 12, suite 666/666 hijau) · **Metode:** 3 reviewer paralel + verifikasi manual silang temuan kunci.
+> Fokus khusus ronde ini: verifikasi eksekusi Batch 12 dan sisa ekor polish. Penomoran ID melanjutkan ronde sebelumnya.
+
+### Status verifikasi cepat
+
+| Item | Vonis | Bukti kunci |
+|---|---|---|
+| T22 konfirmasi voucher core | ⚠️ Mekanisme benar, **regresi tampilan → T23** | POST hanya setelah ok=true; label eksplisit; modal arwah hilang — TAPI showConfirm meng-escape pesan sedangkan pemanggil mengirim markup |
+| T19 lanjutan Actions publik | ✅ BERES | Registry vs pemakaian ter-audit: tak ada aksi tak terdaftar; bebas race |
+| S65 error state visible | ✅ BERES | Ketiga jalur (:428/:439/:500) memulihkan display |
+| S67 heading settings | ✅ BERES | h1 sr-only "Pengaturan" :777; "Aplikasi Sistem" h2 :1975; assertion ada |
+| R73–R76 | ✅ BERES (R76 → catatan R78) | Rentang paginasi, dead branch reachable, toast once-pattern; padding fix R76 mati karena inline style menang |
+| S68 token danger-bright | ✅ BERES | #f87171 = 0 di templates/ |
+| Guard handler inline | ✅ templates/** tetap 0 `\son[a-z]+=`; onclick render-JS JS = 0 |
+| Cache-busting | ✅ 62× `?v={{.version}}`, 0 suffix manual |
+| Kontras aktif | ⚠️ tersisa: S70 (vouchers tint), R81 (chevron non-teks), R72-saudara |
+
+**Audit terukur:** hex templates **146**/150 · rgba literal **140**/145 · `!important`: hasil.css 65/cap 66 · public-mobile 48/**cap 81** · admin-base 47/**55** · public-desktop 21/**34** (slack total 55 → S71).
+
+Item lama tetap terbuka: R4, R30, P3, S57, duplikasi modal password & OTP (→R83 asersi drift), S69-parsial.
+
+---
+
+### T23 — Regresi T22: dialog konfirmasi voucher menampilkan TAG HTML mentah
+- **Prioritas:** 🔴 Tinggi · **Usaha:** XS · **Area:** Admin (Settings/Vouchers) · **Status:** `[x]` ✅ **Batch 13** *(terverifikasi manual)*
+- **Lokasi:** `admin-core.js:512` (`${escapeHtml(message)}`) vs `settings-vouchers.js:329` & `:366` (pesan berisi `<strong style="...">`)
+- **Masalah:** showConfirm core SELALU meng-escape pesan; kedua pemanggil voucher Batch 12 mengirim HTML → dialog menampilkan `&lt;strong style=&quot;...&quot;&gt;KODE123&lt;/strong&gt;` apa adanya. Ironisnya aria-label (:500) membuang tag sehingga screen reader mendengar teks bersih sementara pengguna lihat melihat markup kotor. 19 pemanggil lain pakai plain text.
+- **Rekomendasi:** Kirim plain-text (`'Apakah Anda yakin ingin menghapus kode voucher ' + code + '?'`) — escape ditangani core.
+
+### S70 — Teks "Hapus" voucher & badge "Nonaktif" di atas tint merah = 3.71:1
+- **Usaha:** XS · **Area:** Admin · **Status:** `[x]` ✅ **Batch 13**
+- **Lokasi:** `settings-vouchers.js:107` (label fungsional 12px), `:68` (badge 11px) — `color:#ef4444` atas background rgba(239,68,68,0.15).
+- **Rekomendasi:** Kedua lokasi → var(--color-danger-light); asersi vouchers bebas `color:#ef4444`.
+
+### S71 — Cap `!important` basi (slack 55) + baseline rgba settings terduplikasi antar-suite
+- **Usaha:** XS · **Area:** Tooling · **Status:** `[x]` ✅ **Batch 13**
+- **Lokasi:** batch11-settings-guard CAPS: admin-base 55 (aktual 47), hasil 66 (65), public-desktop 34 (21), public-mobile 81 (**48 — slack 33**); batch7-tokens masih punya `'admin/settings.html': 110` padahal guard lain ≤28.
+- **Rekomendasi:** Kunci ulang CAPS ke aktual; hapus entri ganda (satu-baseline-satu-metrik).
+
+### S72 — `v.notes` dan `v.package` dirender tanpa escapeHtml di tabel voucher
+- **Usaha:** XS · **Area:** Admin · **Status:** `[x]` ✅ **Batch 13**
+- **Lokasi:** `settings-vouchers.js:92` (`${v.package}`) & `:101` (`${v.notes || '—'}`) — padahal `code` di file sama di-escape dengan disiplin (komentar S3).
+- **Rekomendasi:** escapeHtml keduanya; masukkan ke sweep render vouchers.
+
+### S73 — Seluruh timestamp voucher memakai jam perangkat + format ad-hoc
+- **Usaha:** XS–S · **Area:** Admin · **Status:** `[x]` ✅ **Batch 13 (PARSIAL)** — tampilan disatukan via formatDateTimeID ✅; perbandingan expired dari waktu server DITUNDA (butuh API waktu server — komentar penunjuk dipasang di kode).
+- **Lokasi:** `settings-vouchers.js:63` (perbandingan expired vs jam klien), `:75` (`toLocaleDateString('id-ID')` zona penonton), `:407` (`toLocaleString('id-ID')` format `"24/8/2026 10.11"` ≠ kanonik).
+- **Dampak:** Badge "Kadaluarsa" salah muncul/hilang ±1 hari di PC jam meleset — pelanggaran putusan WIB satu-pintu (pola R57/S69).
+- **Rekomendasi:** Minimal seragamkan tampilan via formatDateTimeID; perbandingan expired dari waktu server menyusul (butuh API).
+
+### S74 — Pencarian 0 hasil meninggalkan paginasi & statistik basi tampil
+- **Usaha:** XS · **Area:** Publik (Hasil) · **Status:** `[x]` ✅ **Batch 13**
+- **Lokasi:** `hasil.html:459-466` — cabang total==0 hanya menampilkan empty-state lalu return; paginasi "1–20 dari 57" & statsRow tetap tampil bertentangan dengan kartu "Tidak ditemukan".
+- **Rekomendasi:** Sembunyikan paginationWrapper di cabang tersebut (+ redup statsRow).
+
+### S75 — Ekor R68: BAR strength meter masih hex — warna bar ≠ warna label
+- **Usaha:** XS · **Area:** Publik · **Status:** `[x]` ✅ **Batch 13**
+- **Lokasi:** `register.html:64-65`, `reset_password.html:75-76` (`.pw-bar-fill.good{#22c55e}`, `.strong{gradient #22c55e,#06b6d4}`) vs label yang sudah token (#10b981/#22d3ee).
+- **Rekomendasi:** Migrasi rule CSS ke token sama dengan label; perluas asersi bebas-hex ke blok style.
+
+### R77 — Dead code ekor T22: listener modal arwah + identifier tak terdeklarasi
+- **Usaha:** XS · **Area:** Admin · **Status:** `[x]` ✅ **Batch 13**
+- **Lokasi:** `settings-vouchers.js:313-321` — blok `btnConfirmActionSubmit`/`pendingConfirmCallback` (elemen sudah dihapus; identifier akan ReferenceError bila dibangunkan). Guard Batch 12 hanya melarang string di settings.html.
+- **Rekomendasi:** Hapus blok; perluas asersi ke regex `confirmActionModal|pendingConfirmCallback|btnConfirmActionSubmit` pada settings-vouchers.js.
+
+### R78 — Padding fix R76 MATI: inline style render-JS menimpa stylesheet
+- **Usaha:** XS · **Area:** Admin (Pengawasan) · **Status:** `[x]` ✅ **Batch 13**
+- **Lokasi:** `pengawas_detail.html:1055` (fix 4px 6px) vs inline `padding:6px 12px` (:1361,:1364) dan `5px 10px` (:1578) pada ketiga `.pd-action-btn` render-JS — klaim "hemat via padding" tak pernah berlaku (font-size tetap efektif).
+- **Rekomendasi:** Hapus padding inline dari string render atau class modifier; asersi render antrean bebas padding inline.
+
+### R79 — Fix R71 hanya mencakup 4 halaman; 4 halaman publik lain masih link-setelah-style
+- **Usaha:** XS–S · **Area:** Publik · **Status:** `[x]` ✅ **Batch 13**
+- **Lokasi:** forgot_password.html (:14 vs :18-19), register_confirm.html (:11 vs :170-171), reset_password.html (:14 vs :85-86), shared.html (:117/:918 vs :930-932).
+- **Rekomendasi:** Pindahkan link; ubah asersi R71 menjadi folder-wide.
+
+### R80 — Ekor heading order: lompatan h1→h3 panel Kunci Jawaban hasil
+- **Usaha:** XS · **Area:** Publik (Hasil) · **Status:** `[x]` ✅ **Batch 13**
+- **Lokasi:** `hasil.html:151` (h1 examTitle) → `:259` (h3 "Kunci Jawaban Resmi") — satu-satunya lompatan tersisa repo-wide; assertion T20 belum mencakup hasil.
+- **Rekomendasi:** h2 visual via class; asersi urutan heading untuk hasil.html.
+
+### R81 — Ikon chevron afordansi baris `#4f46e5` = 2.60–2.91:1 (< ambang non-teks 3:1)
+- **Usaha:** XS · **Area:** Admin (Pengawasan) · **Status:** `[x]` ✅ **Batch 13**
+- **Lokasi:** `pengawas.html:327` — satu-satunya penanda visual baris clickable. Lokasi #4f46e5 lain aman (endpoint gradien background).
+- **Rekomendasi:** var(--color-primary-light); guard `#4f46e5`-sebagai-warna-ikon/teks.
+
+### R82 — Kelompok ad-hoc terbesar tersisa: `#818cf8` ×11 tanpa padanan token
+- **Usaha:** XS · **Area:** Lintas · **Status:** `[x]` ✅ **Batch 13**
+- **Lokasi:** download ×3, shared ×2, register_confirm ×2, register ×1, pengawas_detail ×1 (chip MAC), settings ×1 (gradien). Kluster berikutnya: #6ee7b7 ×10, #60a5fa ×9.
+- **Rekomendasi:** Definisikan `--color-primary-bright: #818cf8` (pola danger-bright) + migrasi ×11; cap hex folder turun 150→±139.
+
+### R83 — Duplikasi blok OTP register_confirm ↔ reset_password (saudara kasus modal password)
+- **Usaha:** S · **Area:** Publik · **Status:** `[x]` ✅ **Batch 13**
+- **Fakta:** markup/CSS/JS OTP identik karakter-per-karakter di dua file; paritas dirawat manual sejak R62/R64.
+- **Rekomendasi:** Ekstraksi partial saat reformasi harness (gabung S57); sementara: asersi hash-normalized "kedua blok OTP identik" agar drift terdeteksi.
+
+### R84 — Skip-link login admin masih inline-style arwah + z-index literal
+- **Usaha:** XS · **Area:** Admin (Login) · **Status:** `[x]` ✅ **Batch 13**
+- **Lokasi:** `admin/login.html:45` — pola persis yang dihapus R52 dari nav.html, lengkap fallback hex `#6366f1`.
+- **Rekomendasi:** Class `.skip-link` theme.css saja.
+
+### R85 — Username login admin kapital-otomatis di keyboard mobile (ekor R36)
+- **Usaha:** XS · **Area:** Admin (Login) · **Status:** `[x]` ✅ **Batch 13**
+- **Lokasi:** `login.html:75` — tanpa triplet autocapitalize/autocorrect/spellcheck (pola wajib R36 sudah dipasang di form publik).
+- **Rekomendasi:** Tambahkan triplet + asersi test.
+
+### R86 — Feedback kirim-ulang OTP tanpa live region
+- **Usaha:** XS · **Area:** Publik · **Status:** `[x]` ✅ **Batch 13**
+- **Lokasi:** `register_confirm.html:258-260` (`#resendMsg` statis) vs penulisan dinamis :399-406.
+- **Rekomendasi:** role="status" pada resendMsg.
+
+### R87 — Tiga label berbeda untuk satu tujuan /login di area publik
+- **Usaha:** XS · **Area:** Publik · **Status:** `[x]` ✅ **Batch 13**
+- **Lokasi:** shared.html:35 ("Masuk"), index.html:19 ("Panel Admin"), index.html:130 ("Masuk ke Panel Admin").
+- **Rekomendasi:** Kanonik: "Masuk" di nav, "Masuk ke Panel Admin" hanya CTA landing; dokumentasikan di kamus istilah S4.
+
+---
+
 ## 6. REKAP TRACKING
 
 > Centang `[x]` + cantumkan hash commit saat selesai. Urut sesuai prioritas eksekusi.
+
+### Batch 13 — Ronde 7: eksekusi temuan 5.10 ✅ SELESAI (2026-08-24, test-first via 3 agen paralel (1 terputus → dituntaskan koordinator); suite gabungan repo **705/705 hijau**, `go build`+`go vet` OK)
+
+> Kontrak lintas-agen: (1) token baru `--color-primary-bright: #818cf8` didefinisikan theme.css
+> (agen publik) — seluruh pemakaian #818cf8 di template bermigrasi ke var(); (2) plafon folder-wide
+> hex dikunci ulang 150→132 oleh agen settings-guard (=aktual pasca migrasi); (3) pesan konfirmasi
+> voucher PLAIN TEXT — escape ditangani showConfirm core (kontrak T23).
+
+- [x] **T23** regresi tampilan dialog voucher dibereskan: kedua pemanggil kirim plain text
+  (`'... kode voucher ' + code + '? ...'`) — core meng-escape seluruh pesan; tag literal tidak
+  lagi tampil; kontrak S3b batch3 direvisi ke intent baru (markup manual justru dilarang).
+- [x] **S70** label "Hapus" & badge "Nonaktif" vouchers → var(--color-danger-light) (7.37:1 di
+  tint yang sama); asersi vouchers bebas `color:#ef4444`.
+- [x] **S71** CAPS `!important` dikunci ke aktual (admin-base 47, hasil 65, public-desktop 21,
+  public-mobile 48 — slack 33 ditutup); entri duplikat `'admin/settings.html': 110` dihapus dari
+  batch7-tokens (satu-baseline-satu-metrik).
+- [x] **S72** `v.package` & `v.notes` di-escapeHtml di render tabel voucher.
+- [x] **S73 (PARSIAL)** tampilan timestamp voucher disatukan via formatDateTimeID (:75,:407);
+  perbandingan expired dari waktu server DITUNDA (butuh API — komentar penunjuk dipasang).
+- [x] **S74** pencarian 0 hasil menyembunyikan paginationWrapper + statsRow (tak ada lagi kontrol
+  basi "1–20 dari 57" bersama kartu "Tidak ditemukan"); test vm termasuk pemulihan.
+- [x] **S75** BAR strength meter migrasi token (bar = warna label): .good var(--color-success),
+  .strong gradient success→accent-cyan; asersi blok style bebas hex ×2 halaman.
+- [x] **R77** dead code ekor T22 dihapus (__btnConfirmAction/pendingConfirmCallback); asersi
+  diperluas ke regex confirmActionModal|pendingConfirmCallback|btnConfirmActionSubmit pada JS.
+- [x] **R78** padding inline pada ketiga string render .pd-action-btn dihapus — fix R76 kini
+  benar-benar efektif; asersi render antrean bebas padding inline.
+- [x] **R79** urutan CSS diselesaikan folder-wide: forgot_password/register_confirm/reset_password/
+  shared.html ikut memindah link sebelum style pertama; asersi R71 ditingkatkan menjadi
+  folder-wide (9 template publik).
+- [x] **R80** lompatan h1→h3 panel Kunci Jawaban → h2 (visual via style existing) + assertion
+  urutan heading untuk hasil.html.
+- [x] **R81** chevron afordansi baris pengawasan → var(--color-primary-light) (8.19:1 ≥ ambang
+  non-teks 3:1); guard color:#4f46e5 pada pengawas.html.
+- [x] **R82** token --color-primary-bright (#818cf8) + migrasi ×11 (download/shared/
+  register_confirm/register/settings/pengawas_detail); cap hex folder turun 150→132.
+- [x] **R83** duplikasi OTP register↔reset: asersi hash-normalized "kedua blok identik" ditambahkan
+  agar drift terdeteksi (ekstraksi partial tetap gabung S57/reformasi harness).
+- [x] **R84** skip-link login admin memakai class .skip-link theme.css (inline arwah + z literal
+  dihapus).
+- [x] **R85** triplet autocapitalize/autocorrect/spellcheck pada username login admin (pola R36).
+- [x] **R86** #resendMsg OTP ber-role="status" aria-live="polite".
+- [x] **R87** label /login dikanonikkan: nav "Masuk", CTA landing "Masuk ke Panel Admin".
 
 ### Batch 12 — Ronde 6: eksekusi temuan 5.9 ✅ SELESAI (2026-08-24, test-first via 3 agen paralel (1 terputus → dituntaskan koordinator); suite gabungan repo **666/666 hijau**, `go build`+`go vet` OK)
 

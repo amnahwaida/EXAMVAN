@@ -61,8 +61,8 @@
   }
   .pw-strength-bar .pw-bar-fill.weak { width: 25%; background: var(--color-danger); }
   .pw-strength-bar .pw-bar-fill.fair { width: 50%; background: var(--color-warning); }
-  .pw-strength-bar .pw-bar-fill.good { width: 75%; background: #22c55e; }
-  .pw-strength-bar .pw-bar-fill.strong { width: 100%; background: linear-gradient(90deg,#22c55e,#06b6d4); }
+  .pw-strength-bar .pw-bar-fill.good { width: 75%; background: var(--color-success); }
+  .pw-strength-bar .pw-bar-fill.strong { width: 100%; background: linear-gradient(90deg, var(--color-success), var(--color-accent-cyan)); /* S75: token sama dengan label */ }
   .pw-strength-text {
    font-size: 11px;
    margin-top: 4px;
@@ -141,7 +141,7 @@
   .reg-info-banner svg {
    width: 18px;
    height: 18px;
-   color: #818cf8;
+   color: var(--color-primary-bright);
    flex-shrink: 0;
    margin-top: 1px;
   }

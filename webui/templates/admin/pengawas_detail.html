@@ -1358,10 +1358,10 @@ function buildApprovalRowHTML(a, i) {
         '</td>' +
         '<td data-label="Aksi" style="text-align:right;">' +
             '<div style="display:flex; justify-content:flex-end; gap:8px;">' +
-                '<button class="pd-action-btn pd-action-active" data-action="set-approval" data-mac="' + escapeHtml(a.mac_address) + '" data-status="approved" style="padding:6px 12px; border-radius:8px; font-weight:600;">' +
+                '<button class="pd-action-btn pd-action-active" data-action="set-approval" data-mac="' + escapeHtml(a.mac_address) + '" data-status="approved" style="border-radius:8px; font-weight:600;">' +
                     '<svg class="icon-svg" style="width:14px;height:14px;"><use href="#hi-check"/></svg> Izinkan' +
                 '</button>' +
-                '<button class="pd-action-btn pd-action-danger" data-action="set-approval" data-mac="' + escapeHtml(a.mac_address) + '" data-status="rejected" style="padding:6px 12px; border-radius:8px; font-weight:600;">' +
+                '<button class="pd-action-btn pd-action-danger" data-action="set-approval" data-mac="' + escapeHtml(a.mac_address) + '" data-status="rejected" style="border-radius:8px; font-weight:600;">' +
                     '<svg class="icon-svg" style="width:14px;height:14px;"><use href="#hi-x"/></svg> Tolak' +
                 '</button>' +
             '</div>' +
@@ -1575,7 +1575,7 @@ function loadDetail(page, silent) {
                     '<td data-label="Upaya" style="text-align:center;">' + attCount + '</td>' +
                     '<td data-label="Aksi"><div style="display:flex;justify-content:flex-end;gap:8px;align-items:center;">' +
                         '<a class="action-link" role="button" tabindex="0" data-action="show-access-log" data-submission-id="' + s.id + '"><svg class="icon-svg" style="width:12px;height:12px;"><use href="#hi-eye"/></svg> Detail</a>' +
-                        (s.submitted ? '' : '<button class="pd-action-btn pd-action-danger" title="Cabut izin perangkat — sesi berikutnya harus minta izin lagi" data-action="set-approval" data-mac="' + escapeHtml(s.mac_address) + '" data-status="rejected" style="padding:5px 10px;border-radius:6px;font-weight:600;font-size:0.7rem;"><svg class="icon-svg" style="width:12px;height:12px;"><use href="#hi-x"/></svg> Tolak</button>') +
+                        (s.submitted ? '' : '<button class="pd-action-btn pd-action-danger" title="Cabut izin perangkat — sesi berikutnya harus minta izin lagi" data-action="set-approval" data-mac="' + escapeHtml(s.mac_address) + '" data-status="rejected" style="border-radius:6px;font-weight:600;font-size:0.7rem;"><svg class="icon-svg" style="width:12px;height:12px;"><use href="#hi-x"/></svg> Tolak</button>') +
                     '</div></td>' +
                     '</tr>';
             }

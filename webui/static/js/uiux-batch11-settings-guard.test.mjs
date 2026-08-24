@@ -154,16 +154,21 @@ test('S64 (guard): rgba literal di settings.html tidak naik dari baseline pasca-
 });
 
 test('S64/R61+R61-lanjutan (guard): count !important per CSS inti tidak naik dari baseline hari ini', () => {
+    // Batch 13 (S71): cap dikunci ulang ke ANGKA AKTUAL terukur 24 Agustus 2026
+    // (admin-base 47, hasil 65, public-desktop 21, public-mobile 48 — hitungan
+    // BARIS ber-!important, pola audit review) — cap lama menyisakan slack
+    // total 55 sehingga guard melindungi tempat yang salah.
     const CAPS = {
-        'css/admin-base.css': 55,
-        'css/hasil.css': 66,
-        'css/public-desktop.css': 34,
-        'css/public-mobile.css': 81,
+        'css/admin-base.css': 47,
+        'css/hasil.css': 65,
+        'css/public-desktop.css': 21,
+        'css/public-mobile.css': 48,
     };
+    const countImportantLines = (src) => src.split('\n').filter((l) => l.includes('!important')).length;
     for (const [file, cap] of Object.entries(CAPS)) {
-        const n = (read(file).match(/!important/g) || []).length;
+        const n = countImportantLines(read(file));
         assert.ok(n <= cap,
-            `!important ${file} = ${n}, plafon ≤ ${cap} (baseline terukur 24 Agustus 2026 — ` +
+            `!important ${file} = ${n} baris, plafon ≤ ${cap} (baseline terukur 24 Agustus 2026 — ` +
             'jangan tambah important baru; selesaikan specificity secara wajar)');
     }
 });

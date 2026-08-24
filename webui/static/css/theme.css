@@ -15,6 +15,9 @@
     --color-primary: #6366f1;
     --color-primary-dark: #4f46e5;
     --color-primary-light: #a5b4fc;
+    /* Batch 13 (kontrak lintas-agen): teks/chip indigo terang di dark surface,
+       kontras ≥6.1:1. Pemakaian #818cf8 literal wajib lewat token ini. */
+    --color-primary-bright: #818cf8;
     --color-primary-glow: rgba(99, 102, 241, 0.25);
     --color-accent: #8b5cf6;
     --color-accent-light: #a78bfa;

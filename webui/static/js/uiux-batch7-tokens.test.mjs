@@ -63,10 +63,10 @@ test('S43 (self-test): regex rgba literal tidak menghitung rgba(var( sebagai lit
 // Angka = hasil ukur langsung; jangan dinaikkan tanpa alasan terdokumentasi.
 test('S15 fase 2 (guard): total hex literal di seluruh templates/ tidak naik dari baseline Batch 7', () => {
     const total = countFolder(HEX_RE);
-    // Batch 12 (R70): plafon diperketat ke baseline aktual (146) — margin
-    // ratusan literal membuat guard melindungi tempat yang salah.
-    assert.ok(total <= 150,
-        `total hex templates/ = ${total}, baseline terkunci ≤ 150 — pakai var(--token) untuk warna baru`);
+    // Batch 12 (R70): plafon diperketat ke baseline aktual; Batch 13 (S68-
+    // lanjutan/R82) menurunkannya lagi (migrasi #818cf8/#f43f5e) -> 130.
+    assert.ok(total <= 132,
+        `total hex templates/ = ${total}, baseline terkunci ≤ 132 — pakai var(--token) untuk warna baru`);
 });
 
 test('S15 fase 2/S43 (guard): total rgba LITERAL (digit pembuka) di seluruh templates/ tidak naik', () => {
@@ -78,7 +78,9 @@ test('S15 fase 2/S43 (guard): total rgba LITERAL (digit pembuka) di seluruh temp
 
 // Plafon per-file rgba literal (hasil ukur S43, regex digit-pembuka).
 const RGBA_BASELINE_PER_FILE = {
-    'admin/settings.html': 110,
+    // Batch 13 (S71): entri 'admin/settings.html' DIHAPUS — baseline terduplikasi
+    // antar-suite. Plafon rgba settings.html (≤28, aktual) kini DIJAGA SATU
+    // TEMPAT: uiux-batch11-settings-guard.test.mjs (S64).
     'admin/dashboard.html': 32,
     'public/register_confirm.html': 19,
     'admin/pengawas.html': 11,

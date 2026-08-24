@@ -60,19 +60,25 @@ function renderVouchersTable(vouchers) {
         // nilai data-* sehingga kode berisi kutip/backslash/tag tidak pernah
         // dimasukkan mentah ke markup (S3).
         const safeCode = escapeHtml(v.code);
+        // S73 (parsial, DITUNDA): perbandingan expired masih memakai jam
+        // PERANGKAT (new Date()) — bisa meleset ±1 hari pada PC dengan jam
+        // salah. Perbaikan butuh API waktu server dulu (pola WIB satu-pintu
+        // R57/S69); jangan "benarkan" sebelum API tersedia.
         const isExpired = v.expires_at && new Date(v.expires_at) < new Date();
         const isFull = v.used_count >= v.max_usage;
         let statusBadge = `<span style="padding:3px 8px;border-radius:12px;font-size:11px;font-weight:700;background:rgba(16,185,129,0.15);color:#10b981;">Aktif</span>`;
         
         if (!v.is_active) {
-            statusBadge = `<span style="padding:3px 8px;border-radius:12px;font-size:11px;font-weight:700;background:rgba(239,68,68,0.15);color:#ef4444;">Nonaktif</span>`;
+            statusBadge = `<span style="padding:3px 8px;border-radius:12px;font-size:11px;font-weight:700;background:rgba(239,68,68,0.15);color:var(--color-danger-light);">Nonaktif</span>`;
         } else if (isExpired) {
             statusBadge = `<span style="padding:3px 8px;border-radius:12px;font-size:11px;font-weight:700;background:rgba(245,158,11,0.15);color:#f59e0b;">Kadaluarsa</span>`;
         } else if (isFull) {
             statusBadge = `<span style="padding:3px 8px;border-radius:12px;font-size:11px;font-weight:700;background:rgba(148,163,184,0.15);color:#94a3b8;">Habis</span>`;
         }
 
-        const expiryStr = v.expires_at ? new Date(v.expires_at).toLocaleDateString('id-ID', { year: 'numeric', month: 'short', day: 'numeric' }) : 'Selamanya';
+        // S73: satu-pintu formatter core (kanonik "YYYY-MM-DD HH:MM") — bukan
+        // formatter tanggal lokal zona penonton.
+        const expiryStr = v.expires_at ? formatDateTimeID(v.expires_at) : 'Selamanya';
 
         let durationText = v.duration_type;
         if (v.duration_type === 'bulanan') durationText = 'Bulanan (30 Hari)';
@@ -89,7 +95,7 @@ function renderVouchersTable(vouchers) {
                 </div>
             </td>
             <td data-label="Paket & Durasi" style="padding:14px 20px;">
-                <strong style="color:#fff;text-transform:uppercase;font-size:12px;">${v.package}</strong>
+                <strong style="color:#fff;text-transform:uppercase;font-size:12px;">${escapeHtml(v.package)}</strong>
                 <div style="font-size:11px;color:var(--color-text-secondary);">${durationText}</div>
             </td>
             <td data-label="Penggunaan" style="padding:14px 20px;">
@@ -98,13 +104,13 @@ function renderVouchersTable(vouchers) {
             </td>
             <td data-label="Kadaluarsa" style="padding:14px 20px;font-size:12px;color:var(--color-text-secondary);">${expiryStr}</td>
             <td data-label="Status" style="padding:14px 20px;">${statusBadge}</td>
-            <td data-label="Catatan" style="padding:14px 20px;font-size:12px;color:var(--color-text-secondary);">${v.notes || '—'}</td>
+            <td data-label="Catatan" style="padding:14px 20px;font-size:12px;color:var(--color-text-secondary);">${escapeHtml(v.notes || '—')}</td>
             <td data-label="Aksi" style="padding:14px 20px;text-align:right;">
                 <button type="button" data-action="toggle" data-id="${v.id}" data-voucher-code="${safeCode}" data-active="${v.is_active ? '1' : '0'}" style="display:inline-flex;align-items:center;gap:5px;background:rgba(255,255,255,0.06);border:1px solid var(--color-glass-border);color:#fff;padding:8px 12px;border-radius:8px;font-size:12px;cursor:pointer;margin-right:8px;min-height:36px;">
                     <svg class="icon-svg" style="width:13px;height:13px;" aria-hidden="true"><use href="#${v.is_active ? 'hi-stop' : 'hi-play'}"/></svg>
                     ${v.is_active ? 'Matikan' : 'Aktifkan'}
                 </button>
-                <button type="button" data-action="delete" data-id="${v.id}" data-voucher-code="${safeCode}" style="display:inline-flex;align-items:center;gap:5px;background:rgba(239,68,68,0.15);border:1px solid rgba(239,68,68,0.3);color:#ef4444;padding:8px 12px;border-radius:8px;font-size:12px;cursor:pointer;min-height:36px;">
+                <button type="button" data-action="delete" data-id="${v.id}" data-voucher-code="${safeCode}" style="display:inline-flex;align-items:center;gap:5px;background:rgba(239,68,68,0.15);border:1px solid rgba(239,68,68,0.3);color:var(--color-danger-light);padding:8px 12px;border-radius:8px;font-size:12px;cursor:pointer;min-height:36px;">
                     <svg class="icon-svg" style="width:13px;height:13px;" aria-hidden="true"><use href="#hi-trash"/></svg>
                     Hapus
                 </button>
@@ -310,23 +316,15 @@ function submitBatchVoucher(e) {
     });
 }
 
-var __btnConfirmAction = document.getElementById('btnConfirmActionSubmit');
-if (__btnConfirmAction) __btnConfirmAction.addEventListener('click', () => {
-    if (pendingConfirmCallback) {
-        const cb = pendingConfirmCallback;
-        pendingConfirmCallback = null;
-        document.getElementById('confirmActionModal').style.display = 'none';
-        cb();
-    }
-});
-
 function toggleVoucher(id, code, isActive) {
     const actionText = isActive ? 'menonaktifkan' : 'mengaktifkan kembali';
     const btnText = isActive ? 'Ya, Matikan Voucher' : 'Ya, Aktifkan Voucher';
     // Batch 12 (T22): konfirmasi via showConfirm core — satu sistem,
     // focus-trap & pesan konsekuensi konsisten (G5).
+    // Batch 13 (T23): PLAIN TEXT saja — showConfirm core SELALU meng-escape
+    // argumen message, markup yang dikirim di sini tampil sebagai tag mentah.
     showConfirm(
-        `Apakah Anda yakin ingin ${actionText} kode voucher <strong style="color:var(--color-accent-light);">${escapeHtml(code)}</strong>?`,
+        'Apakah Anda yakin ingin ' + actionText + ' kode voucher ' + code + '?',
         '',
         btnText,
         'Batal'
@@ -362,8 +360,9 @@ function clearVoucherSearch() {
 }
 
 function deleteVoucher(id, code) {
+    // Batch 13 (T23): plain text — escape ditangani showConfirm core.
     showConfirm(
-        `Apakah Anda yakin ingin menghapus kode voucher <strong style="color:var(--color-danger-light);">${escapeHtml(code)}</strong>? Tindakan ini tidak dapat dibatalkan.`,
+        'Apakah Anda yakin ingin menghapus kode voucher ' + code + '? Tindakan ini tidak dapat dibatalkan.',
         '',
         'Hapus Voucher',
         'Batal'
@@ -404,7 +403,9 @@ function viewRedemptions(id, code) {
         }
         let html = '<ul style="list-style:none;padding:0;margin:0;">';
         res.redemptions.forEach(r => {
-            const dateStr = new Date(r.redeemed_at).toLocaleString('id-ID');
+            // S73: satu-pintu formatter core (kanonik "YYYY-MM-DD HH:MM") —
+            // bukan format ad-hoc "24/8/2026 10.11".
+            const dateStr = formatDateTimeID(r.redeemed_at);
             html += `<li style="padding:10px 14px;border-bottom:1px solid var(--color-glass-border);display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap;">
                 <strong style="color:#fff;">${escapeHtml(r.username)}</strong>
                 <span style="font-size:12px;color:var(--color-text-secondary);">${dateStr}</span>

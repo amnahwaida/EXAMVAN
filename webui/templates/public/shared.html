@@ -113,6 +113,10 @@
 
  {{ template "public_fonts" . }}
  <link rel="icon" type="image/png" href="/static/favicon.png">
+ <!-- R79: semua link stylesheet eksternal ditaruh sebelum blok style inline pertama (urutan cascade jelas). -->
+ <link rel="stylesheet" href="/static/css/theme.css?v={{.version}}">
+ <link rel="stylesheet" href="/static/css/public-mobile.css?v={{.version}}">
+ <link rel="stylesheet" href="/static/css/public-desktop.css?v={{.version}}">
 
  <style>
  /* Batch 9 (T16): token gradien tombol unduh primer. SEMUA endpoint
@@ -300,7 +304,7 @@
  align-self: flex-start;
  background: rgba(var(--rgb-info), 0.1);
  border: 1px solid rgba(var(--rgb-info), 0.2);
- color: #818cf8;
+ color: var(--color-primary-bright);
  padding: 6px 14px;
  border-radius: 100px;
  font-size: 13px;
@@ -579,7 +583,7 @@
  align-items: center;
  justify-content: center;
  margin-bottom: 24px;
- color: #818cf8;
+ color: var(--color-primary-bright);
  border: 1px solid rgba(var(--rgb-info), 0.15);
  }
 
@@ -927,9 +931,6 @@
  html.touch-device .nav-link { padding:14px 16px; border-radius:10px; font-size:16px; }
  html.touch-device .btn-nav-login { text-align:center; padding:14px 16px; margin-top:8px; }
  </style>
- <link rel="stylesheet" href="/static/css/theme.css?v={{.version}}">
- <link rel="stylesheet" href="/static/css/public-mobile.css?v={{.version}}">
- <link rel="stylesheet" href="/static/css/public-desktop.css?v={{.version}}">
 
 </head>
 <body>

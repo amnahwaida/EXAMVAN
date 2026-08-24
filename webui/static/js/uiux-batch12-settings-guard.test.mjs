@@ -29,6 +29,11 @@ test('T22 (statik): showConfirmModal & modal arwah confirmActionModal DIHAPUS to
         'sistem konfirmasi ketiga dihapus — pakai showConfirm core (focus-trap G5)');
     assert.doesNotMatch(SETTINGS, /confirmActionModal/,
         'markup modal arwah confirmActionModal dihapus dari settings.html');
+    // Batch 13 (R77): dead code ekor T22 habis JUGA dari settings-vouchers.js
+    // (blok listener btnConfirmActionSubmit + pendingConfirmCallback yang
+    // menunjuk elemen/markup yang sudah tidak ada).
+    assert.doesNotMatch(VOUCHERS, /confirmActionModal|pendingConfirmCallback|btnConfirmActionSubmit/,
+        'identifier modal arwah lama tidak boleh kembali ke settings-vouchers.js');
 });
 
 test('T22 (statik): kedua pemanggil bermigrasi ke showConfirm dengan label aksi eksplisit', () => {

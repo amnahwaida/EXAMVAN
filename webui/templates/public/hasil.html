@@ -256,9 +256,9 @@
  <!-- Keys Tab -->
  <div id="keysContent" role="tabpanel" aria-labelledby="tabKeys" style="display: none;">
  <div style="padding: 16px;">
- <h3 style="font-size: 1.1rem; font-weight: 700; margin-bottom: 8px; color: #a5b4fc; display: flex; align-items: center; gap: 8px;">
+ <h2 style="font-size: 1.1rem; font-weight: 700; margin-bottom: 8px; color: #a5b4fc; display: flex; align-items: center; gap: 8px;">
  <svg class="icon-svg" style="vertical-align:middle;" aria-hidden="true"><use href="#hi-key"/></svg> Kunci Jawaban Resmi
- </h3>
+ </h2>
  <p style="font-size: 0.8rem; color: var(--color-text-muted); margin-bottom: 20px;">
  Berikut adalah kunci jawaban resmi untuk setiap butir soal pada ujian ini.
  </p>
@@ -456,9 +456,14 @@
 
   document.getElementById('loadingIndicator').style.display = 'none';
 
-   if (pagination.total === 0) {
+    if (pagination.total === 0) {
     document.getElementById('emptyState').style.display = searchQuery ? 'none' : 'block';
     document.getElementById('noSearchResults').style.display = searchQuery ? 'block' : 'none';
+    // S74: sembunyikan paginasi & statistik basi dari muat sebelumnya —
+    // konsisten pola renderScoresTable/renderStats yang menyembunyikan
+    // keduanya saat kosong; jangan bertentangan dengan kartu "Tidak ditemukan".
+    document.getElementById('paginationWrapper').style.display = 'none';
+    document.getElementById('statsRow').style.display = 'none';
     // S35: umumkan hasil kosong/pencarian tanpa hasil ke screen reader.
     updateResultsLiveRegion();
     pendingScrollToTable = false;

@@ -48,11 +48,17 @@ test('S3b: settings-vouchers.js memakai data-* + event delegation & teks tampil 
     assert.match(js, /addEventListener\(\s*'click'/, 'event delegation (listener klik pada kontainer tabel/modal)');
     assert.match(js, /closest\(\s*['"]\[data-action\]['"]/ , 'delegasi harus resolve target via closest([data-action])');
     assert.match(js, /escapeHtml\(v\.code\)/, 'teks kode yang tampil di sel tabel wajib di-escape');
-    // Pesan konfirmasi toggle/hapus menyuntik kode ke innerHTML — juga wajib escape.
-    assert.match(js, /menonaktifkan|mengaktifkan kembali[\s\S]*?\$\{escapeHtml\(code\)\}/,
-        'pesan konfirmasi toggle memakai escapeHtml(code)');
-    assert.match(js, /menghapus kode voucher <strong[^>]*>\$\{escapeHtml\(code\)\}/,
-        'pesan konfirmasi hapus memakai escapeHtml(code)');
+    // Batch 13 (T23): pesan konfirmasi PLAIN TEXT — showConfirm core meng-escape
+    // seluruh argumen message (admin-core.js:512), sehingga kode cukup
+    // diinterpolasi langsung; markup manual justru tampil sebagai tag literal.
+    const delAt = js.indexOf('menghapus kode voucher');
+    const toggleAt = js.indexOf("' kode voucher ' + code");
+    assert.ok(toggleAt !== -1 && delAt !== -1, 'kedua pesan konfirmasi ada');
+    for (const at of [toggleAt, delAt]) {
+        const msg = js.slice(at, at + 400);
+        assert.match(msg, /' \+ code \+ '/, 'kode voucher diinterpolasi (di-escape oleh core)');
+        assert.doesNotMatch(msg, /<strong|escapeHtml\(code\)/, 'tanpa markup manual di pesan konfirmasi');
+    }
 });
 
 test('S3c (perilaku): kode voucher `"\' ><img src=x>\\` tidak merusak markup tabel', () => {
