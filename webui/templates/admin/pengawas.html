@@ -246,7 +246,8 @@ function loadPengawasExams(page) {
         .then(function(r) { return r.json(); })
         .then(function(res) {
             if (!res || !res.success) {
-                el.innerHTML = '<div style="text-align:center;padding:40px;color:#fca5a5;">Gagal memuat data</div>';
+                el.innerHTML = '<div style="text-align:center;padding:40px;color:#fca5a5;">Gagal memuat data' +
+                    ' <div style="margin-top:12px;"><button type="button" class="btn-sm btn-primary" data-action="load-pengawas-exams">Coba Lagi</button></div></div>';
                 return;
             }
             var exams = res.exams || [];
@@ -285,8 +286,10 @@ function loadPengawasExams(page) {
                 if (ex.status === 'active') {
                     statusHtml = '<span class="status-badge status-active">Aktif</span>';
                 } else if (ex.tombstoned) {
-                    var tombTitle = 'Nonaktif otomatis oleh sistem saat paket berakhir/berganti atau masa aktif akun habis' + (ex.tombstoned_at ? ' (' + ex.tombstoned_at + ')' : '');
-                    statusHtml = '<span class="status-badge status-tombstoned" title="' + tombTitle + '">Nonaktif Otomatis</span>';
+                    // Batch 10 (R46): timestamp diformat satu-pintu & string
+                    // atribut lolos dua layer escaping (HTML + JS).
+                    var tombTitle = 'Nonaktif otomatis oleh sistem saat paket berakhir/berganti atau masa aktif akun habis' + (ex.tombstoned_at ? ' (' + formatDateTimeID(ex.tombstoned_at) + ')' : '');
+                    statusHtml = '<span class="status-badge status-tombstoned" title="' + escapeHtml(jsEscape(tombTitle)) + '">Nonaktif Otomatis</span>';
                 } else {
                     statusHtml = '<span class="status-badge status-inactive">Nonaktif</span>';
                 }
@@ -337,7 +340,8 @@ function loadPengawasExams(page) {
             renderPagination(res);
         })
         .catch(function() {
-            el.innerHTML = '<div style="text-align:center;padding:40px;color:#fca5a5;">Gagal menghubungi server</div>';
+            el.innerHTML = '<div style="text-align:center;padding:40px;color:#fca5a5;">Gagal menghubungi server' +
+                ' <div style="margin-top:12px;"><button type="button" class="btn-sm btn-primary" data-action="load-pengawas-exams">Coba Lagi</button></div></div>';
         });
 }
 

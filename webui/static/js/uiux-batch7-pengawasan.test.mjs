@@ -263,10 +263,15 @@ function loadDetailPageActions(sandbox) {
     sandbox.jsEscape = (s) => String(s)
         .replace(/\\/g, '\\\\').replace(/'/g, "\\'")
         .replace(/\n/g, '\\n').replace(/\r/g, '\\r');
+    // Batch 10 (S50): global halaman yang dibaca findApprovalStudentName.
+    sandbox.approvalRowsCache = [];
     sandbox.console = console;
 
     const parts = [];
-    for (const fname of ['esc', 'localizeUTC', 'buildApprovalRowHTML', 'showConfirmApprovalModal', 'closeConfirmApprovalModal']) {
+    for (const fname of ['esc', 'localizeUTC', 'buildApprovalRowHTML', 'showConfirmApprovalModal', 'closeConfirmApprovalModal',
+        // Batch 10 (S50): helper label identitas dipanggil dari dalam
+        // showConfirmApprovalModal — ikut dimuat agar sandbox lengkap.
+        'findApprovalStudentName', 'formatApprovalStudentLabel']) {
         const fn = extractFunction(DETAIL, fname);
         assert.ok(fn, `fungsi ${fname} harus tetap ada di pengawas_detail.html`);
         parts.push(fn);

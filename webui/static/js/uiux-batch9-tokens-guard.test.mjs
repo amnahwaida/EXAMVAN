@@ -12,6 +12,11 @@
  *
  * Pengecualian: fingerprintjs.min.js (vendor) dan *.test.mjs (suite ini).
  *
+ * Batch 10 (S58 lanjutan): migrasi substitusi-persis diperluas ke sisi CSS —
+ * admin-base.css kini di-guard plafon rgba literalnya (60 → 17) oleh
+ * uiux-batch7-tokens.test.mjs + asersi token di uiux-batch10-tokens-guard.test.mjs.
+ * Suite ini tetap mencakup file JS saja.
+ *
  * Run with:  node --test static/js/uiux-batch9-tokens-guard.test.mjs   (from webui/)
  */
 import { test } from 'node:test';

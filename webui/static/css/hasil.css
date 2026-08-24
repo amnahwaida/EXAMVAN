@@ -979,6 +979,12 @@ box-shadow: none !important;
 color: #111827 !important;
 text-shadow: none !important;
 }
+/* R43: baris detail jawaban terbuka dibatasi 380px + scroll di layar —
+   saat cetak batas ini memotong dokumen tanpa indikasi lanjutan. */
+.answer-grid {
+max-height: none !important;
+overflow: visible !important;
+}
 .detail-row { page-break-inside: avoid; }
 }
 

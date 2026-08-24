@@ -27,7 +27,7 @@ body {
 
 /* ===== Selection ===== */
 ::selection {
-    background: rgba(99, 102, 241, 0.3);
+    background: rgba(var(--rgb-info), 0.3);
     color: #fff;
 }
 
@@ -361,20 +361,20 @@ code, pre, .token-code, .mono {
     font-size: 0.9rem;
     font-weight: 600;
     font-family: inherit;
-    border: 1px solid rgba(99,102,241,0.3);
+    border: 1px solid rgba(var(--rgb-info),0.3);
     border-radius: var(--radius-sm);
     cursor: pointer;
     transition: all 0.2s ease;
-    background: linear-gradient(135deg, rgba(99,102,241,0.2), rgba(139,92,246,0.2));
+    background: linear-gradient(135deg, rgba(var(--rgb-info),0.2), rgba(139,92,246,0.2));
     color: var(--color-primary-soft);
     text-decoration: none;
     line-height: 1.4;
     user-select: none;
 }
 .btn-upload:hover {
-    background: linear-gradient(135deg, rgba(99,102,241,0.35), rgba(139,92,246,0.35));
-    border-color: rgba(99,102,241,0.5);
-    box-shadow: 0 0 20px rgba(99,102,241,0.15);
+    background: linear-gradient(135deg, rgba(var(--rgb-info),0.35), rgba(139,92,246,0.35));
+    border-color: rgba(var(--rgb-info),0.5);
+    box-shadow: 0 0 20px rgba(var(--rgb-info),0.15);
 }
 .btn-upload:active {
     transform: scale(0.97);
@@ -393,11 +393,11 @@ code, pre, .token-code, .mono {
     font-size: 0.82rem;
     font-weight: 500;
     font-family: inherit;
-    border: 1px solid rgba(239,68,68,0.2);
+    border: 1px solid rgba(var(--rgb-danger),0.2);
     border-radius: 8px;
     cursor: pointer;
     transition: all 0.15s ease;
-    background: rgba(239,68,68,0.08);
+    background: rgba(var(--rgb-danger),0.08);
     color: var(--color-danger-light);
     text-decoration: none;
     white-space: nowrap;
@@ -405,8 +405,8 @@ code, pre, .token-code, .mono {
     user-select: none;
 }
 .btn-delete:hover {
-    background: rgba(239,68,68,0.2);
-    border-color: rgba(239,68,68,0.4);
+    background: rgba(var(--rgb-danger),0.2);
+    border-color: rgba(var(--rgb-danger),0.4);
 }
 .btn-delete:active {
     transform: scale(0.97);
@@ -477,7 +477,7 @@ code, pre, .token-code, .mono {
     transition: background 0.1s;
 }
 .clickable-row:hover {
-    background: rgba(99, 102, 241, 0.05);
+    background: rgba(var(--rgb-info), 0.05);
 }
 
 
@@ -530,12 +530,12 @@ code, pre, .token-code, .mono {
 /* ===== Wayfinding & a11y (general-UX audit) ===== */
 /* Clearer active-nav state (previously only color:white — imperceptible). */
 .nav-link.active { color: var(--color-accent-light) !important; }
-.topbar-nav .nav-link.active { background: rgba(99,102,241,0.14); border-radius: 8px; }
+.topbar-nav .nav-link.active { background: rgba(var(--rgb-info),0.14); border-radius: 8px; }
 .topbar-dropdown-content a.active,
 .topbar-dropdown-content .dropdown-item.active,
 .dropdown-item.active {
     color: var(--color-accent-light) !important;
-    background: rgba(99,102,241,0.12);
+    background: rgba(var(--rgb-info),0.12);
 }
 /* Keyboard-focus affordance for div/span elements promoted to role="button". */
 [role="button"]:focus-visible {
@@ -586,7 +586,7 @@ code, pre, .token-code, .mono {
 .settings-tab.active {
     color: #fff;
     background: linear-gradient(135deg, #6366f1, #a855f7);
-    box-shadow: 0 2px 10px rgba(99, 102, 241, 0.35);
+    box-shadow: 0 2px 10px rgba(var(--rgb-info), 0.35);
 }
 .settings-tab .icon-svg {
     width: 15px;
@@ -645,7 +645,7 @@ code, pre, .token-code, .mono {
     transition: all 0.2s ease;
 }
 .voucher-subtab.active {
-    box-shadow: 0 2px 10px rgba(99, 102, 241, 0.35);
+    box-shadow: 0 2px 10px rgba(var(--rgb-info), 0.35);
 }
 
 /* Collapsible cards in the Pengaturan Umum tab. The 8 SaaS cards are plain
@@ -803,9 +803,9 @@ body.modal-open {
     font-size: 0.68rem;
     font-weight: 600;
     letter-spacing: 0.03em;
-    background: rgba(99, 102, 241, 0.14);
+    background: rgba(var(--rgb-info), 0.14);
     color: var(--color-accent-light);
-    border: 1px solid rgba(99, 102, 241, 0.25);
+    border: 1px solid rgba(var(--rgb-info), 0.25);
     white-space: nowrap;
     vertical-align: middle;
 }
@@ -835,13 +835,13 @@ body.modal-open {
     transform: none;
 }
 .status-active:not([role="button"]):hover {
-    background: rgba(16, 185, 129, 0.12);
-    border-color: rgba(16, 185, 129, 0.2);
+    background: rgba(var(--rgb-success), 0.12);
+    border-color: rgba(var(--rgb-success), 0.2);
     color: var(--color-success);
 }
 .status-inactive:not([role="button"]):hover {
-    background: rgba(245, 158, 11, 0.12);
-    border-color: rgba(245, 158, 11, 0.2);
+    background: rgba(var(--rgb-warning), 0.12);
+    border-color: rgba(var(--rgb-warning), 0.2);
     color: var(--color-warning);
 }
 /* Tombstoned badge (policy B): the exam was auto-inactivated when the
@@ -854,8 +854,8 @@ body.modal-open {
     border: 1px dashed rgba(148, 163, 184, 0.45);
 }
 .status-tombstoned:hover {
-    background: rgba(16, 185, 129, 0.12);
-    border-color: rgba(16, 185, 129, 0.3);
+    background: rgba(var(--rgb-success), 0.12);
+    border-color: rgba(var(--rgb-success), 0.3);
     color: var(--color-success);
 }
 /* Expired-account badge (users page): the account's expires_at is in the
@@ -863,13 +863,13 @@ body.modal-open {
    until an admin extends its expiry. Red solid border = needs action, unlike
    the dashed system-dormant tombstone badge above. */
 .status-expired {
-    background: rgba(239, 68, 68, 0.12);
+    background: rgba(var(--rgb-danger), 0.12);
     color: var(--color-danger-light);
-    border: 1px solid rgba(239, 68, 68, 0.4);
+    border: 1px solid rgba(var(--rgb-danger), 0.4);
 }
 .status-expired:hover {
-    background: rgba(239, 68, 68, 0.2);
-    border-color: rgba(239, 68, 68, 0.6);
+    background: rgba(var(--rgb-danger), 0.2);
+    border-color: rgba(var(--rgb-danger), 0.6);
 }
 
 /* Student status pill — promoted from pengawas.html's inline styles because
@@ -884,7 +884,7 @@ body.modal-open {
     font-size: 0.7rem;
     font-weight: 600;
 }
-.student-status.submitted { background: rgba(16,185,129,0.15); color: #6ee7b7; border: 1px solid rgba(16,185,129,0.3); }
+.student-status.submitted { background: rgba(var(--rgb-success),0.15); color: #6ee7b7; border: 1px solid rgba(var(--rgb-success),0.3); }
 .student-status.in-progress { background: rgba(251,191,36,0.15); color: var(--color-warning-light); border: 1px solid rgba(251,191,36,0.3); }
 .student-status.not-started { background: rgba(107,114,128,0.15); color: #9ca3af; border: 1px solid rgba(107,114,128,0.3); }
 
@@ -1063,14 +1063,14 @@ html.touch-device .topbar-dropdown-content {
   border-radius: 8px;
   font-size: 13px;
   font-family: inherit;
-  background: rgba(99, 102, 241, 0.15);
-  border: 1px solid rgba(99, 102, 241, 0.4);
+  background: rgba(var(--rgb-info), 0.15);
+  border: 1px solid rgba(var(--rgb-info), 0.4);
   color: var(--color-primary-light);
   transition: all 0.2s;
 }
 .btn-toggle-all:hover {
-  background: rgba(99, 102, 241, 0.25);
-  border-color: rgba(99, 102, 241, 0.55);
+  background: rgba(var(--rgb-info), 0.25);
+  border-color: rgba(var(--rgb-info), 0.55);
   color: #fff;
 }
 .btn-toggle-all:focus-visible {
@@ -1088,8 +1088,8 @@ html.touch-device .topbar-dropdown-content {
   font-size: 12px;
   line-height: 1.55;
   color: var(--color-text-secondary);
-  background: rgba(99, 102, 241, 0.05);
-  border: 1px dashed rgba(99, 102, 241, 0.28);
+  background: rgba(var(--rgb-info), 0.05);
+  border: 1px dashed rgba(var(--rgb-info), 0.28);
   border-radius: var(--radius-sm);
   padding: 8px 12px;
 }
@@ -1183,14 +1183,14 @@ html.touch-device .topbar-dropdown-content {
 .btn-row-action:focus-visible { outline: 2px solid var(--color-primary); outline-offset: 1px; }
 .btn-row-action-verify,
 .btn-row-action-edit {
-  background: rgba(99, 102, 241, 0.12);
-  border: 1px solid rgba(99, 102, 241, 0.3);
+  background: rgba(var(--rgb-info), 0.12);
+  border: 1px solid rgba(var(--rgb-info), 0.3);
   color: var(--color-primary-light);
 }
 .btn-row-action-verify:hover,
 .btn-row-action-edit:hover {
-  background: rgba(99, 102, 241, 0.22);
-  border-color: rgba(99, 102, 241, 0.5);
+  background: rgba(var(--rgb-info), 0.22);
+  border-color: rgba(var(--rgb-info), 0.5);
   color: #fff;
 }
 .btn-row-action-deactivate {
@@ -1204,13 +1204,13 @@ html.touch-device .topbar-dropdown-content {
   color: #fff;
 }
 .btn-row-action-danger {
-  background: rgba(239, 68, 68, 0.08);
-  border: 1px solid rgba(239, 68, 68, 0.22);
+  background: rgba(var(--rgb-danger), 0.08);
+  border: 1px solid rgba(var(--rgb-danger), 0.22);
   color: var(--color-danger-light);
 }
 .btn-row-action-danger:hover {
-  background: rgba(239, 68, 68, 0.18);
-  border-color: rgba(239, 68, 68, 0.4);
+  background: rgba(var(--rgb-danger), 0.18);
+  border-color: rgba(var(--rgb-danger), 0.4);
   color: #fecaca;
 }
 @media (max-width: 768px) {

@@ -171,7 +171,7 @@
     left: 0;
     right: 0;
     bottom: 0;
-    background-color: rgba(255, 255, 255, 0.08);
+    background-color: rgba(var(--rgb-white),  0.08);
     border: 1px solid var(--color-glass-border);
     transition: .3s;
     border-radius: 24px;
@@ -220,7 +220,7 @@
     font-size: 12px;
     line-height: 1.5;
     color: var(--color-text-secondary);
-    background: rgba(255, 255, 255, 0.04);
+    background: rgba(var(--rgb-white),  0.04);
     border: 1px solid var(--color-glass-border);
   }
   /* Badge sisa disk server — tampil SEKALI di header Default Paket Pendaftaran */
@@ -272,7 +272,7 @@
    display: inline-flex;
    align-items: center;
    gap: 4px;
-   border-bottom: 1px dotted rgba(255,255,255,0.4);
+   border-bottom: 1px dotted rgba(var(--rgb-white), 0.4);
  }
  .tooltip::after {
    content: attr(data-tooltip);
@@ -292,8 +292,8 @@
    visibility: hidden;
    transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
    z-index: 100;
-   border: 1px solid rgba(255, 255, 255, 0.1);
-   box-shadow: 0 10px 25px rgba(0,0,0,0.3);
+   border: 1px solid rgba(var(--rgb-white),  0.1);
+   box-shadow: 0 10px 25px rgba(var(--rgb-black), 0.3);
    pointer-events: none;
    text-transform: none !important;
    letter-spacing: normal !important;
@@ -444,7 +444,7 @@
   .pkg-table input[type="text"], .pkg-table input[type="number"], .pkg-table select {
    width: 100%;
    padding: 7px 10px;
-   background: rgba(0,0,0,0.3);
+   background: rgba(var(--rgb-black), 0.3);
    border: 1px solid var(--color-glass-border);
    border-radius: 8px;
    color: #fff;
@@ -519,7 +519,7 @@
         content: '';
         position: absolute;
         top: 0; left: -100%; width: 50%; height: 100%;
-        background: linear-gradient(to right, transparent, rgba(255,255,255,0.2), transparent);
+        background: linear-gradient(to right, transparent, rgba(var(--rgb-white), 0.2), transparent);
         transform: skewX(-20deg);
         transition: all 0.5s;
     }
@@ -538,22 +538,22 @@
     }
     
     .premium-card {
-        background: rgba(255, 255, 255, 0.03);
-        border: 1px solid rgba(255, 255, 255, 0.08);
+        background: rgba(var(--rgb-white),  0.03);
+        border: 1px solid rgba(var(--rgb-white),  0.08);
         backdrop-filter: blur(16px);
         -webkit-backdrop-filter: blur(16px);
         border-radius: 20px;
         padding: 24px;
-        box-shadow: 0 10px 30px rgba(0, 0, 0, 0.2);
+        box-shadow: 0 10px 30px rgba(var(--rgb-black),  0.2);
         transition: all 0.4s cubic-bezier(0.4, 0, 0.2, 1);
         display: flex;
         flex-direction: column;
     }
     .premium-card:hover {
         transform: translateY(-6px);
-        box-shadow: 0 20px 40px rgba(0, 0, 0, 0.4);
+        box-shadow: 0 20px 40px rgba(var(--rgb-black),  0.4);
         border-color: rgba(139, 92, 246, 0.4);
-        background: rgba(255, 255, 255, 0.05);
+        background: rgba(var(--rgb-white),  0.05);
     }
     
     .platform-icon {
@@ -583,10 +583,10 @@
         border-radius: 20px;
         font-size: 0.8rem;
         font-weight: 600;
-        background: rgba(255,255,255,0.1);
+        background: rgba(var(--rgb-white), 0.1);
         color: #e2e8f0;
         margin-bottom: 20px;
-        border: 1px solid rgba(255,255,255,0.05);
+        border: 1px solid rgba(var(--rgb-white), 0.05);
     }
 
     .apps-grid {
@@ -603,7 +603,7 @@
         color: var(--color-text-placeholder);
         margin-top: auto;
         padding-top: 16px;
-        border-top: 1px solid rgba(255,255,255,0.08);
+        border-top: 1px solid rgba(var(--rgb-white), 0.08);
     }
 
     .action-buttons {
@@ -664,20 +664,20 @@
     .modal-glass {
         width: 100%; max-width: 520px; max-height: 90vh; display: flex; flex-direction: column;
         background: linear-gradient(180deg, rgba(30,41,59,0.95) 0%, rgba(15,23,42,0.98) 100%);
-        border: 1px solid rgba(255,255,255,0.15);
+        border: 1px solid rgba(var(--rgb-white), 0.15);
         border-radius: 24px; overflow: hidden;
-        box-shadow: 0 25px 50px -12px rgba(0,0,0,0.6), 0 0 0 1px rgba(255,255,255,0.05);
+        box-shadow: 0 25px 50px -12px rgba(var(--rgb-black), 0.6), 0 0 0 1px rgba(var(--rgb-white), 0.05);
         animation: modalSlideUp 0.5s cubic-bezier(0.16, 1, 0.3, 1) forwards;
     }
     .modal-header {
-        padding: 24px 32px; border-bottom: 1px solid rgba(255,255,255,0.08);
-        background: rgba(255,255,255,0.03);
+        padding: 24px 32px; border-bottom: 1px solid rgba(var(--rgb-white), 0.08);
+        background: rgba(var(--rgb-white), 0.03);
     }
     /* Scrollable body so the footer/submit stays reachable on short screens. */
     .modal-body { padding: 32px; overflow-y: auto; -webkit-overflow-scrolling: touch; }
     .modal-footer {
-        padding: 20px 32px; border-top: 1px solid rgba(255,255,255,0.08);
-        background: rgba(0,0,0,0.25); display: flex; justify-content: flex-end; gap: 16px;
+        padding: 20px 32px; border-top: 1px solid rgba(var(--rgb-white), 0.08);
+        background: rgba(var(--rgb-black), 0.25); display: flex; justify-content: flex-end; gap: 16px;
     }
     
     .form-label {
@@ -685,15 +685,15 @@
     }
     .custom-input, .custom-select {
         width: 100%; padding: 14px 18px; border-radius: 12px;
-        border: 1px solid rgba(255,255,255,0.15); background: rgba(0,0,0,0.3); color: white;
+        border: 1px solid rgba(var(--rgb-white), 0.15); background: rgba(var(--rgb-black), 0.3); color: white;
         transition: all 0.3s ease; font-size: 0.95rem; box-sizing: border-box;
     }
     .custom-input:focus, .custom-select:focus {
-        outline: none; border-color: #8b5cf6; box-shadow: 0 0 0 4px rgba(139,92,246,0.2); background: rgba(0,0,0,0.5);
+        outline: none; border-color: #8b5cf6; box-shadow: 0 0 0 4px rgba(139,92,246,0.2); background: rgba(var(--rgb-black), 0.5);
     }
     .custom-file-input {
-        position: relative; width: 100%; border: 2px dashed rgba(255,255,255,0.2); border-radius: 16px;
-        padding: 40px 20px; text-align: center; background: rgba(0,0,0,0.15); transition: all 0.3s ease; cursor: pointer; box-sizing: border-box;
+        position: relative; width: 100%; border: 2px dashed rgba(var(--rgb-white), 0.2); border-radius: 16px;
+        padding: 40px 20px; text-align: center; background: rgba(var(--rgb-black), 0.15); transition: all 0.3s ease; cursor: pointer; box-sizing: border-box;
     }
     .custom-file-input:hover { border-color: #8b5cf6; background: rgba(139,92,246,0.08); }
     .custom-file-input input[type="file"] {
@@ -705,9 +705,9 @@
     .custom-file-input:hover .file-icon { transform: translateY(-4px); color: var(--color-accent-light); }
     
     .btn-cancel {
-        padding: 12px 24px; border-radius: 12px; border: 1px solid rgba(255,255,255,0.1); background: transparent; color: var(--color-text-secondary); font-weight: 600; cursor: pointer; transition: all 0.2s;
+        padding: 12px 24px; border-radius: 12px; border: 1px solid rgba(var(--rgb-white), 0.1); background: transparent; color: var(--color-text-secondary); font-weight: 600; cursor: pointer; transition: all 0.2s;
     }
-    .btn-cancel:hover { background: rgba(255,255,255,0.1); color: white; }
+    .btn-cancel:hover { background: rgba(var(--rgb-white), 0.1); color: white; }
     
     .alert-premium {
         margin-bottom:36px; 
@@ -869,7 +869,7 @@
    {{if not (hasRole .admin_role "operator")}}
    <div class="form-group space-y-1" style="margin-bottom: 8px;">
      <label for="packageSelect">Paket Langganan (Preset)</label>
-     <select id="packageSelect" onchange="applyPackagePreset('new')" style="width:100%;padding:8px 12px;background:rgba(255,255,255,0.05);border:1px solid var(--color-glass-border);border-radius:10px;color:var(--color-text);outline:none;font-size:13px;cursor:pointer;">
+     <select id="packageSelect" onchange="applyPackagePreset('new')" style="width:100%;padding:8px 12px;background:rgba(var(--rgb-white), 0.05);border:1px solid var(--color-glass-border);border-radius:10px;color:var(--color-text);outline:none;font-size:13px;cursor:pointer;">
        <option value="free">Free / Trial</option>
        <option value="guru">Paket Guru (Rp 50rb)</option>
        <option value="individu">Paket Individu (Rp 100rb)</option>
@@ -953,7 +953,7 @@
  <div class="saas-collapse-head" role="button" tabindex="0" aria-expanded="true">
  <span class="saas-collapse-title"><svg class="icon-svg" style="width:18px;height:18px;color:var(--color-primary-light);"><use href="#hi-users"/></svg> Daftar User &amp; Guru Terdaftar</span>
  <span style="display:inline-flex;align-items:center;gap:10px;">
-     <button class="btn-refresh" data-action="users-refresh-list" aria-label="Refresh daftar user"><svg class="icon-svg"><use href="#hi-refresh"/></svg> Refresh</button>
+     <button class="btn-refresh" data-action="users-refresh-list" aria-label="Muat Ulang daftar user"><svg class="icon-svg"><use href="#hi-refresh"/></svg> Muat Ulang</button>
   <svg class="saas-collapse-chev" aria-hidden="true" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 8l4 4 4-4"/></svg>
  </span>
  </div>
@@ -1109,7 +1109,7 @@
    {{if .voucher_enabled}}
    <p style="font-size:12px;color:var(--color-text-secondary);margin:0 0 10px 0;">Masukkan kode promo untuk upgrade paket instan.</p>
    <div class="voucher-redeem-row">
-    <input type="text" id="voucherCodeInput" placeholder="EV-PROMO-2026" aria-label="Kode voucher / promo" maxlength="64" style="flex:1;padding:8px 12px;background:rgba(0,0,0,0.3);border:1px solid rgba(255,255,255,0.15);border-radius:8px;color:#fff;font-family:var(--font-mono);font-size:13px;text-transform:uppercase;outline:none;" onkeyup="if(event.key==='Enter') redeemVoucher()" />
+    <input type="text" id="voucherCodeInput" placeholder="EV-PROMO-2026" aria-label="Kode voucher / promo" maxlength="64" style="flex:1;padding:8px 12px;background:rgba(var(--rgb-black), 0.3);border:1px solid rgba(var(--rgb-white), 0.15);border-radius:8px;color:#fff;font-family:var(--font-mono);font-size:13px;text-transform:uppercase;outline:none;" onkeyup="if(event.key==='Enter') redeemVoucher()" />
     <button data-action="billing-redeem-open" id="btnRedeemVoucher" style="padding:8px 16px;border-radius:8px;font-weight:600;font-size:13px;cursor:pointer;background:linear-gradient(135deg, rgb(var(--rgb-accent)), rgb(var(--rgb-info)));border:none;color:var(--color-text-on-primary);white-space:nowrap;transition:all 0.2s;">Klaim</button>
    </div>
    {{else}}
@@ -1140,7 +1140,7 @@
     <span class="tooltip" data-tooltip="Batas jumlah akun yang dapat dibuat di instansi sekolah Anda. Akun yang dinonaktifkan saat paket sekolah tidak aktif juga ikut terhitung." style="color:var(--color-text-secondary);">Akun Terpakai <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M11.25 11.25l.041-.02a.75.75 0 011.063.852l-.708 2.836a.75.75 0 001.063.853l.041-.021M21 12a9 9 0 11-18 0 9 9 0 0118 0zm-9-3.75h.008v.008H12V8.25z" /></svg></span>
     <strong style="color:#fff;">{{.user_accounts_used}} / {{.user_max_accounts}}</strong>
    </div>
-   <div style="height:6px;border-radius:99px;background:rgba(255,255,255,0.08);overflow:hidden;margin-bottom:8px;">
+   <div style="height:6px;border-radius:99px;background:rgba(var(--rgb-white), 0.08);overflow:hidden;margin-bottom:8px;">
     <div style="height:100%;width:{{.user_accounts_pct}}%;border-radius:99px;background:{{if ge .user_accounts_pct 100}}var(--color-danger){{else if ge .user_accounts_pct 80}}var(--color-warning){{else}}linear-gradient(90deg, rgb(var(--rgb-accent)), rgb(var(--rgb-info))){{end}};transition:width 0.4s ease;"></div>
    </div>
    <p style="font-size:12px;color:var(--color-text-secondary);margin:0;">Sisa kuota: <strong style="color:{{if ge .user_accounts_pct 100}}var(--color-danger){{else}}#fff{{end}};">{{.user_accounts_remaining}} akun</strong>{{if ge .user_accounts_pct 100}} — batas tercapai, pembuatan akun baru diblokir.{{end}}</p>
@@ -1226,7 +1226,7 @@
    <p style="color:var(--color-text-secondary);font-size:0.875rem;margin:2px 0 0 0;">Buat dan kelola kode voucher untuk klaim paket otomatis.</p>
   </div>
   <div style="display:flex;gap:10px;">
-    <button data-action="voucher-open-batch" class="btn-secondary" style="display:inline-flex;align-items:center;gap:8px;padding:10px 18px;border-radius:10px;font-weight:600;font-size:0.875rem;cursor:pointer;background:rgba(255,255,255,0.06);border:1px solid var(--color-glass-border);color:#fff;">
+    <button data-action="voucher-open-batch" class="btn-secondary" style="display:inline-flex;align-items:center;gap:8px;padding:10px 18px;border-radius:10px;font-weight:600;font-size:0.875rem;cursor:pointer;background:rgba(var(--rgb-white), 0.06);border:1px solid var(--color-glass-border);color:#fff;">
     <svg class="icon-svg" style="width:16px;height:16px;"><use href="#hi-plus"/></svg> Batch Generate
    </button>
     <button data-action="voucher-open-single" class="btn-primary" style="display:inline-flex;align-items:center;gap:8px;padding:10px 18px;border-radius:10px;font-weight:600;font-size:0.875rem;cursor:pointer;background:linear-gradient(135deg, rgb(var(--rgb-accent)), rgb(var(--rgb-info)));border:none;color:var(--color-text-on-primary);">
@@ -1238,14 +1238,14 @@
  <!-- Subtab: Daftar | Riwayat -->
  <div class="voucher-subtabs" role="tablist" aria-label="Bagian voucher" style="display:flex;gap:8px;margin-bottom:20px;flex-wrap:wrap;">
 <button type="button" class="voucher-subtab active" data-subtab="list" role="tab" id="voucherSubtabList" aria-selected="true" aria-controls="voucherListPanel" data-action="voucher-subtab" style="padding:8px 16px;border-radius:8px;font-size:13px;font-weight:600;cursor:pointer;border:1px solid var(--color-glass-border);background:linear-gradient(135deg,rgb(var(--rgb-accent)),rgb(var(--rgb-info)));color:var(--color-text-on-primary);">Daftar Voucher</button>
-  <button type="button" class="voucher-subtab" data-subtab="history" role="tab" id="voucherSubtabHistory" aria-selected="false" aria-controls="voucherHistoryPanel" data-action="voucher-subtab" style="padding:8px 16px;border-radius:8px;font-size:13px;font-weight:600;cursor:pointer;border:1px solid var(--color-glass-border);background:rgba(255,255,255,0.06);color:#fff;">Riwayat Klaim</button>
+  <button type="button" class="voucher-subtab" data-subtab="history" role="tab" id="voucherSubtabHistory" aria-selected="false" aria-controls="voucherHistoryPanel" data-action="voucher-subtab" style="padding:8px 16px;border-radius:8px;font-size:13px;font-weight:600;cursor:pointer;border:1px solid var(--color-glass-border);background:rgba(var(--rgb-white), 0.06);color:#fff;">Riwayat Klaim</button>
   </div>
   <div id="voucherListPanel" role="tabpanel" aria-labelledby="voucherSubtabList">
  <!-- Filter & Search -->
  <div class="glass-card" style="padding:16px 20px;border-radius:12px;margin-bottom:24px;display:flex;align-items:center;justify-content:space-between;gap:16px;flex-wrap:wrap;">
   <div style="display:flex;align-items:center;gap:12px;flex:1;max-width:400px;">
    <div style="position:relative;flex:1;">
-    <input type="text" id="searchVoucher" placeholder="Cari kode atau catatan..." aria-label="Cari voucher" style="width:100%;padding:8px 14px;background:rgba(0,0,0,0.3);border:1px solid var(--color-glass-border);border-radius:8px;color:#fff;font-size:13px;outline:none;" oninput="toggleVoucherSearchClear()" onkeyup="if(event.key==='Enter') loadVouchers(1)" />
+    <input type="text" id="searchVoucher" placeholder="Cari kode atau catatan..." aria-label="Cari voucher" style="width:100%;padding:8px 14px;background:rgba(var(--rgb-black), 0.3);border:1px solid var(--color-glass-border);border-radius:8px;color:#fff;font-size:13px;outline:none;" oninput="toggleVoucherSearchClear()" onkeyup="if(event.key==='Enter') loadVouchers(1)" />
     <button type="button" id="voucherSearchClearBtn" data-action="voucher-search-clear" title="Hapus pencarian" aria-label="Hapus pencarian" style="display:none;position:absolute;right:8px;top:50%;transform:translateY(-50%);background:none;border:none;color:var(--color-text-secondary);cursor:pointer;padding:6px;"><svg class="icon-svg" style="width:14px;height:14px;display:block;" aria-hidden="true"><use href="#hi-x"/></svg></button>
    </div>
    <button data-action="voucher-search" class="btn-secondary" style="padding:8px 16px;border-radius:8px;font-size:13px;cursor:pointer;">Cari</button>
@@ -1257,7 +1257,7 @@
   <div style="overflow-x:auto;">
    <table class="exam-table" style="width:100%;border-collapse:collapse;text-align:left;font-size:13.5px;">
     <thead>
-     <tr style="border-bottom:1px solid var(--color-glass-border);background:rgba(255,255,255,0.02);color:var(--color-text-secondary);font-size:12px;text-transform:uppercase;letter-spacing:0.5px;">
+     <tr style="border-bottom:1px solid var(--color-glass-border);background:rgba(var(--rgb-white), 0.02);color:var(--color-text-secondary);font-size:12px;text-transform:uppercase;letter-spacing:0.5px;">
       <th style="padding:16px 20px;">Kode Voucher</th>
       <th style="padding:16px 20px;">Paket & Durasi</th>
       <th style="padding:16px 20px;">Penggunaan</th>
@@ -1295,8 +1295,8 @@
    <p style="color:var(--color-text-secondary);font-size:0.875rem;margin:2px 0 0 0;">Jejak append-only siapa yang mengklaim, mengaktifkan, atau menonaktifkan paket voucher, kapan, dan detailnya.</p>
   </div>
   <div style="display:flex;gap:10px;">
-    <button data-action="audit-refresh" class="btn-secondary" style="display:inline-flex;align-items:center;gap:8px;padding:10px 18px;border-radius:10px;font-weight:600;font-size:0.875rem;cursor:pointer;background:rgba(255,255,255,0.06);border:1px solid var(--color-glass-border);color:#fff;">
-    <svg class="icon-svg" style="width:16px;height:16px;"><use href="#hi-refresh"/></svg> Refresh
+    <button data-action="audit-refresh" class="btn-secondary" style="display:inline-flex;align-items:center;gap:8px;padding:10px 18px;border-radius:10px;font-weight:600;font-size:0.875rem;cursor:pointer;background:rgba(var(--rgb-white), 0.06);border:1px solid var(--color-glass-border);color:#fff;">
+    <svg class="icon-svg" style="width:16px;height:16px;"><use href="#hi-refresh"/></svg> Muat Ulang
    </button>
   </div>
  </div>
@@ -1306,7 +1306,7 @@
   <div style="position:relative;flex:1;min-width:220px;max-width:360px;">
    <input type="text" id="auditSearchInput" placeholder="Cari username / kode voucher..." value="" aria-label="Cari riwayat voucher"
           onkeyup="if(event.key==='Enter') { loadAuditLogs(1); }"
-          style="width:100%;padding:10px 38px 10px 14px;background:rgba(255,255,255,0.04);border:1px solid var(--color-glass-border);border-radius:10px;color:#fff;font-size:13px;outline:none;" />
+          style="width:100%;padding:10px 38px 10px 14px;background:rgba(var(--rgb-white), 0.04);border:1px solid var(--color-glass-border);border-radius:10px;color:#fff;font-size:13px;outline:none;" />
    <svg class="icon-svg" style="position:absolute;right:12px;top:50%;transform:translateY(-50%);width:16px;height:16px;color:var(--color-text-secondary);"><use href="#hi-search"/></svg>
   </div>
   <button class="btn-sm btn-toggle" data-action="audit-search" style="height:38px;padding:0 16px;" title="Cari"><svg class="icon-svg" style="width:15px;height:15px;"><use href="#hi-search"/></svg> Cari</button>
@@ -1318,7 +1318,7 @@
   <div style="overflow-x:auto;">
    <table style="width:100%;border-collapse:collapse;min-width:760px;">
     <thead>
-     <tr style="background:rgba(255,255,255,0.03);">
+     <tr style="background:rgba(var(--rgb-white), 0.03);">
       <th style="padding:14px 20px;text-align:left;font-size:11px;text-transform:uppercase;letter-spacing:0.5px;color:var(--color-text-secondary);">Waktu</th>
       <th style="padding:14px 20px;text-align:left;font-size:11px;text-transform:uppercase;letter-spacing:0.5px;color:var(--color-text-secondary);">Aksi</th>
       <th style="padding:14px 20px;text-align:left;font-size:11px;text-transform:uppercase;letter-spacing:0.5px;color:var(--color-text-secondary);">Oleh</th>
@@ -1348,7 +1348,7 @@
    <form id="formSingleVoucher" onsubmit="submitSingleVoucher(event)">
     <div style="margin-bottom:14px;">
      <label for="singleCode" style="display:block;font-size:12px;color:var(--color-text-secondary);margin-bottom:4px;">Kode Voucher (Kosongkan untuk otomatis)</label>
-     <input type="text" id="singleCode" placeholder="Misal: HARIGURU2026" style="width:100%;padding:10px;background:rgba(0,0,0,0.3);border:1px solid var(--color-glass-border);border-radius:8px;color:#fff;font-family:var(--font-mono);text-transform:uppercase;outline:none;" />
+     <input type="text" id="singleCode" placeholder="Misal: HARIGURU2026" style="width:100%;padding:10px;background:rgba(var(--rgb-black), 0.3);border:1px solid var(--color-glass-border);border-radius:8px;color:#fff;font-family:var(--font-mono);text-transform:uppercase;outline:none;" />
     </div>
 
     <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:14px;">
@@ -1377,36 +1377,36 @@
 
     <div id="singleCustomDaysGroup" style="display:none;margin-bottom:14px;">
      <label for="singleCustomDays" style="display:block;font-size:12px;color:var(--color-accent-light);margin-bottom:4px;font-weight:600;">Jumlah Hari Masa Aktif (Kustom)</label>
-     <input type="number" id="singleCustomDays" placeholder="Misal: 7, 14, 45, 90..." min="1" value="7" style="width:100%;padding:10px;background:rgba(0,0,0,0.3);border:1px solid rgba(var(--rgb-accent),0.4);border-radius:8px;color:#fff;outline:none;" />
+     <input type="number" id="singleCustomDays" placeholder="Misal: 7, 14, 45, 90..." min="1" value="7" style="width:100%;padding:10px;background:rgba(var(--rgb-black), 0.3);border:1px solid rgba(var(--rgb-accent),0.4);border-radius:8px;color:#fff;outline:none;" />
     </div>
 
     <div id="singleCustomGroup" style="display:none;margin-bottom:14px;padding:12px;border:1px dashed rgba(var(--rgb-accent),0.4);border-radius:8px;background:rgba(var(--rgb-accent),0.05);">
      <div style="font-size:12px;color:var(--color-accent-light);font-weight:700;margin-bottom:8px;">⚙️ Entitlement Kustom (menimpa limit akun saat redeem)</div>
      <div style="margin-bottom:10px;">
       <label for="singleCustomLabel" style="display:block;font-size:12px;color:var(--color-text-secondary);margin-bottom:4px;">Label Paket</label>
-      <input type="text" id="singleCustomLabel" placeholder="Misal: PROMO-KHUSUS" style="width:100%;padding:8px;background:rgba(0,0,0,0.3);border:1px solid var(--color-glass-border);border-radius:8px;color:#fff;outline:none;" />
+      <input type="text" id="singleCustomLabel" placeholder="Misal: PROMO-KHUSUS" style="width:100%;padding:8px;background:rgba(var(--rgb-black), 0.3);border:1px solid var(--color-glass-border);border-radius:8px;color:#fff;outline:none;" />
      </div>
      <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:10px;">
       <div>
        <label for="singleCustomMaxExams" title="Maksimal total ujian yang dapat disimpan di sistem" style="display:block;font-size:12px;color:var(--color-text-secondary);margin-bottom:4px;">Maks Total Ujian</label>
-       <input type="number" id="singleCustomMaxExams" value="1" min="0" style="width:100%;padding:8px;background:rgba(0,0,0,0.3);border:1px solid var(--color-glass-border);border-radius:8px;color:#fff;outline:none;" />
+       <input type="number" id="singleCustomMaxExams" value="1" min="0" style="width:100%;padding:8px;background:rgba(var(--rgb-black), 0.3);border:1px solid var(--color-glass-border);border-radius:8px;color:#fff;outline:none;" />
       </div>
       <div>
        <label for="singleCustomConcurrent" title="Maksimal ujian yang berjalan bersamaan (sudah dimulai &amp; bisa dikerjakan siswa)" style="display:block;font-size:12px;color:var(--color-text-secondary);margin-bottom:4px;">Ujian Serentak</label>
-       <input type="number" id="singleCustomConcurrent" value="1" min="0" style="width:100%;padding:8px;background:rgba(0,0,0,0.3);border:1px solid var(--color-glass-border);border-radius:8px;color:#fff;outline:none;" />
+       <input type="number" id="singleCustomConcurrent" value="1" min="0" style="width:100%;padding:8px;background:rgba(var(--rgb-black), 0.3);border:1px solid var(--color-glass-border);border-radius:8px;color:#fff;outline:none;" />
       </div>
       <div>
        <label for="singleCustomPdfMb" title="Maksimal ukuran file PDF dalam sekali upload" style="display:block;font-size:12px;color:var(--color-text-secondary);margin-bottom:4px;">Maks Upload (MB)</label>
        <!-- max = min(sisa disk, 100 MB): batas upload global maxFileSize (exams.go) -->
-       <input type="number" id="singleCustomPdfMb" value="10" min="0" step="0.1" {{if .storage_free_mb}}max="{{if le .storage_free_mb 100.0}}{{.storage_free_mb}}{{else}}100{{end}}"{{end}} title="Maks Upload PDF (MB). 0 = tidak terbatas. Tidak boleh melebihi sisa disk server (upload global dibatasi 100 MB)." style="width:100%;padding:8px;background:rgba(0,0,0,0.3);border:1px solid var(--color-glass-border);border-radius:8px;color:#fff;outline:none;" />
+       <input type="number" id="singleCustomPdfMb" value="10" min="0" step="0.1" {{if .storage_free_mb}}max="{{if le .storage_free_mb 100.0}}{{.storage_free_mb}}{{else}}100{{end}}"{{end}} title="Maks Upload PDF (MB). 0 = tidak terbatas. Tidak boleh melebihi sisa disk server (upload global dibatasi 100 MB)." style="width:100%;padding:8px;background:rgba(var(--rgb-black), 0.3);border:1px solid var(--color-glass-border);border-radius:8px;color:#fff;outline:none;" />
       </div>
       <div>
        <label for="singleCustomStorageMb" style="display:block;font-size:12px;color:var(--color-text-secondary);margin-bottom:4px;">Maks Storage (MB)</label>
-       <input type="number" id="singleCustomStorageMb" value="100" min="0" step="0.1" {{if .storage_free_mb}}max="{{.storage_free_mb}}"{{end}} title="Maks Storage (MB). 0 = tidak terbatas. Tidak boleh melebihi sisa disk server." style="width:100%;padding:8px;background:rgba(0,0,0,0.3);border:1px solid var(--color-glass-border);border-radius:8px;color:#fff;outline:none;" />
+       <input type="number" id="singleCustomStorageMb" value="100" min="0" step="0.1" {{if .storage_free_mb}}max="{{.storage_free_mb}}"{{end}} title="Maks Storage (MB). 0 = tidak terbatas. Tidak boleh melebihi sisa disk server." style="width:100%;padding:8px;background:rgba(var(--rgb-black), 0.3);border:1px solid var(--color-glass-border);border-radius:8px;color:#fff;outline:none;" />
       </div>
       <div>
        <label for="singleCustomMaxUsers" title="Batas jumlah akun yang boleh dibuat operator di instansi (0 = tanpa batas)" style="display:block;font-size:12px;color:var(--color-text-secondary);margin-bottom:4px;">Maks Akun Guru (0 = tanpa batas)</label>
-       <input type="number" id="singleCustomMaxUsers" value="0" min="0" style="width:100%;padding:8px;background:rgba(0,0,0,0.3);border:1px solid var(--color-glass-border);border-radius:8px;color:#fff;outline:none;" />
+       <input type="number" id="singleCustomMaxUsers" value="0" min="0" style="width:100%;padding:8px;background:rgba(var(--rgb-black), 0.3);border:1px solid var(--color-glass-border);border-radius:8px;color:#fff;outline:none;" />
       </div>
       <div>
        <label for="singleCustomRole" style="display:block;font-size:12px;color:var(--color-text-secondary);margin-bottom:4px;">Role Akun</label>
@@ -1424,21 +1424,21 @@
     <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:14px;">
      <div>
       <label for="singleMaxUsage" style="display:block;font-size:12px;color:var(--color-text-secondary);margin-bottom:4px;">Maksimal Penggunaan</label>
-      <input type="number" id="singleMaxUsage" value="1" min="1" required style="width:100%;padding:10px;background:rgba(0,0,0,0.3);border:1px solid var(--color-glass-border);border-radius:8px;color:#fff;outline:none;" />
+      <input type="number" id="singleMaxUsage" value="1" min="1" required style="width:100%;padding:10px;background:rgba(var(--rgb-black), 0.3);border:1px solid var(--color-glass-border);border-radius:8px;color:#fff;outline:none;" />
      </div>
      <div>
       <label for="singleExpiresAt" style="display:block;font-size:12px;color:var(--color-text-secondary);margin-bottom:4px;">Tanggal Kadaluarsa (Opsional)</label>
-      <input type="date" id="singleExpiresAt" style="width:100%;padding:10px;background:rgba(0,0,0,0.3);border:1px solid var(--color-glass-border);border-radius:8px;color:#fff;outline:none;" />
+      <input type="date" id="singleExpiresAt" style="width:100%;padding:10px;background:rgba(var(--rgb-black), 0.3);border:1px solid var(--color-glass-border);border-radius:8px;color:#fff;outline:none;" />
      </div>
     </div>
 
     <div style="margin-bottom:20px;">
      <label for="singleNotes" style="display:block;font-size:12px;color:var(--color-text-secondary);margin-bottom:4px;">Catatan / Nama Campaign</label>
-     <input type="text" id="singleNotes" placeholder="Misal: Promo WhatsApp Grup Guru" style="width:100%;padding:10px;background:rgba(0,0,0,0.3);border:1px solid var(--color-glass-border);border-radius:8px;color:#fff;outline:none;" />
+     <input type="text" id="singleNotes" placeholder="Misal: Promo WhatsApp Grup Guru" style="width:100%;padding:10px;background:rgba(var(--rgb-black), 0.3);border:1px solid var(--color-glass-border);border-radius:8px;color:#fff;outline:none;" />
     </div>
 
     <div style="display:flex;justify-content:flex-end;gap:10px;">
-     <button type="button" data-action="voucher-close-single" style="padding:10px 18px;border-radius:8px;background:rgba(255,255,255,0.06);border:1px solid var(--color-glass-border);color:#fff;cursor:pointer;">Batal</button>
+     <button type="button" data-action="voucher-close-single" style="padding:10px 18px;border-radius:8px;background:rgba(var(--rgb-white), 0.06);border:1px solid var(--color-glass-border);color:#fff;cursor:pointer;">Batal</button>
      <button type="submit" id="btnSubmitSingle" style="padding:10px 20px;border-radius:8px;background:linear-gradient(135deg, rgb(var(--rgb-accent)), rgb(var(--rgb-info)));border:none;color:var(--color-text-on-primary);font-weight:600;cursor:pointer;">Simpan Voucher</button>
     </div>
    </form>
@@ -1458,11 +1458,11 @@
     <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:14px;">
      <div>
       <label for="batchPrefix" style="display:block;font-size:12px;color:var(--color-text-secondary);margin-bottom:4px;">Prefix Kode</label>
-      <input type="text" id="batchPrefix" placeholder="EV-SEKOLAH" value="PROMO" style="width:100%;padding:10px;background:rgba(0,0,0,0.3);border:1px solid var(--color-glass-border);border-radius:8px;color:#fff;font-family:var(--font-mono);text-transform:uppercase;outline:none;" />
+      <input type="text" id="batchPrefix" placeholder="EV-SEKOLAH" value="PROMO" style="width:100%;padding:10px;background:rgba(var(--rgb-black), 0.3);border:1px solid var(--color-glass-border);border-radius:8px;color:#fff;font-family:var(--font-mono);text-transform:uppercase;outline:none;" />
      </div>
      <div>
       <label for="batchCount" style="display:block;font-size:12px;color:var(--color-text-secondary);margin-bottom:4px;">Jumlah Voucher</label>
-      <input type="number" id="batchCount" value="10" min="1" max="100" required style="width:100%;padding:10px;background:rgba(0,0,0,0.3);border:1px solid var(--color-glass-border);border-radius:8px;color:#fff;outline:none;" />
+      <input type="number" id="batchCount" value="10" min="1" max="100" required style="width:100%;padding:10px;background:rgba(var(--rgb-black), 0.3);border:1px solid var(--color-glass-border);border-radius:8px;color:#fff;outline:none;" />
      </div>
     </div>
 
@@ -1492,36 +1492,36 @@
 
     <div id="batchCustomDaysGroup" style="display:none;margin-bottom:14px;">
      <label for="batchCustomDays" style="display:block;font-size:12px;color:var(--color-accent-light);margin-bottom:4px;font-weight:600;">Jumlah Hari Masa Aktif (Kustom)</label>
-     <input type="number" id="batchCustomDays" placeholder="Misal: 7, 14, 45, 90..." min="1" value="7" style="width:100%;padding:10px;background:rgba(0,0,0,0.3);border:1px solid rgba(var(--rgb-accent),0.4);border-radius:8px;color:#fff;outline:none;" />
+     <input type="number" id="batchCustomDays" placeholder="Misal: 7, 14, 45, 90..." min="1" value="7" style="width:100%;padding:10px;background:rgba(var(--rgb-black), 0.3);border:1px solid rgba(var(--rgb-accent),0.4);border-radius:8px;color:#fff;outline:none;" />
     </div>
 
     <div id="batchCustomGroup" style="display:none;margin-bottom:14px;padding:12px;border:1px dashed rgba(var(--rgb-accent),0.4);border-radius:8px;background:rgba(var(--rgb-accent),0.05);">
      <div style="font-size:12px;color:var(--color-accent-light);font-weight:700;margin-bottom:8px;">⚙️ Entitlement Kustom (berlaku untuk semua kode di batch)</div>
      <div style="margin-bottom:10px;">
       <label for="batchCustomLabel" style="display:block;font-size:12px;color:var(--color-text-secondary);margin-bottom:4px;">Label Paket</label>
-      <input type="text" id="batchCustomLabel" placeholder="Misal: PROMO-KHUSUS" style="width:100%;padding:8px;background:rgba(0,0,0,0.3);border:1px solid var(--color-glass-border);border-radius:8px;color:#fff;outline:none;" />
+      <input type="text" id="batchCustomLabel" placeholder="Misal: PROMO-KHUSUS" style="width:100%;padding:8px;background:rgba(var(--rgb-black), 0.3);border:1px solid var(--color-glass-border);border-radius:8px;color:#fff;outline:none;" />
      </div>
      <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;">
       <div>
        <label for="batchCustomMaxExams" title="Maksimal total ujian yang dapat disimpan di sistem" style="display:block;font-size:12px;color:var(--color-text-secondary);margin-bottom:4px;">Maks Total Ujian</label>
-       <input type="number" id="batchCustomMaxExams" value="1" min="0" style="width:100%;padding:8px;background:rgba(0,0,0,0.3);border:1px solid var(--color-glass-border);border-radius:8px;color:#fff;outline:none;" />
+       <input type="number" id="batchCustomMaxExams" value="1" min="0" style="width:100%;padding:8px;background:rgba(var(--rgb-black), 0.3);border:1px solid var(--color-glass-border);border-radius:8px;color:#fff;outline:none;" />
       </div>
       <div>
        <label for="batchCustomConcurrent" title="Maksimal ujian yang berjalan bersamaan (sudah dimulai &amp; bisa dikerjakan siswa)" style="display:block;font-size:12px;color:var(--color-text-secondary);margin-bottom:4px;">Ujian Serentak</label>
-       <input type="number" id="batchCustomConcurrent" value="1" min="0" style="width:100%;padding:8px;background:rgba(0,0,0,0.3);border:1px solid var(--color-glass-border);border-radius:8px;color:#fff;outline:none;" />
+       <input type="number" id="batchCustomConcurrent" value="1" min="0" style="width:100%;padding:8px;background:rgba(var(--rgb-black), 0.3);border:1px solid var(--color-glass-border);border-radius:8px;color:#fff;outline:none;" />
       </div>
       <div>
        <label for="batchCustomPdfMb" title="Maksimal ukuran file PDF dalam sekali upload" style="display:block;font-size:12px;color:var(--color-text-secondary);margin-bottom:4px;">Maks Upload (MB)</label>
        <!-- max = min(sisa disk, 100 MB): batas upload global maxFileSize (exams.go) -->
-       <input type="number" id="batchCustomPdfMb" value="10" min="0" step="0.1" {{if .storage_free_mb}}max="{{if le .storage_free_mb 100.0}}{{.storage_free_mb}}{{else}}100{{end}}"{{end}} title="Maks Upload PDF (MB). 0 = tidak terbatas. Tidak boleh melebihi sisa disk server (upload global dibatasi 100 MB)." style="width:100%;padding:8px;background:rgba(0,0,0,0.3);border:1px solid var(--color-glass-border);border-radius:8px;color:#fff;outline:none;" />
+       <input type="number" id="batchCustomPdfMb" value="10" min="0" step="0.1" {{if .storage_free_mb}}max="{{if le .storage_free_mb 100.0}}{{.storage_free_mb}}{{else}}100{{end}}"{{end}} title="Maks Upload PDF (MB). 0 = tidak terbatas. Tidak boleh melebihi sisa disk server (upload global dibatasi 100 MB)." style="width:100%;padding:8px;background:rgba(var(--rgb-black), 0.3);border:1px solid var(--color-glass-border);border-radius:8px;color:#fff;outline:none;" />
       </div>
       <div>
        <label for="batchCustomStorageMb" style="display:block;font-size:12px;color:var(--color-text-secondary);margin-bottom:4px;">Maks Storage (MB)</label>
-       <input type="number" id="batchCustomStorageMb" value="100" min="0" step="0.1" {{if .storage_free_mb}}max="{{.storage_free_mb}}"{{end}} title="Maks Storage (MB). 0 = tidak terbatas. Tidak boleh melebihi sisa disk server." style="width:100%;padding:8px;background:rgba(0,0,0,0.3);border:1px solid var(--color-glass-border);border-radius:8px;color:#fff;outline:none;" />
+       <input type="number" id="batchCustomStorageMb" value="100" min="0" step="0.1" {{if .storage_free_mb}}max="{{.storage_free_mb}}"{{end}} title="Maks Storage (MB). 0 = tidak terbatas. Tidak boleh melebihi sisa disk server." style="width:100%;padding:8px;background:rgba(var(--rgb-black), 0.3);border:1px solid var(--color-glass-border);border-radius:8px;color:#fff;outline:none;" />
       </div>
       <div>
        <label for="batchCustomMaxUsers" title="Batas jumlah akun yang boleh dibuat operator di instansi (0 = tanpa batas)" style="display:block;font-size:12px;color:var(--color-text-secondary);margin-bottom:4px;">Maks Akun Guru (0 = tanpa batas)</label>
-       <input type="number" id="batchCustomMaxUsers" value="0" min="0" style="width:100%;padding:8px;background:rgba(0,0,0,0.3);border:1px solid var(--color-glass-border);border-radius:8px;color:#fff;outline:none;" />
+       <input type="number" id="batchCustomMaxUsers" value="0" min="0" style="width:100%;padding:8px;background:rgba(var(--rgb-black), 0.3);border:1px solid var(--color-glass-border);border-radius:8px;color:#fff;outline:none;" />
       </div>
       <div>
        <label for="batchCustomRole" style="display:block;font-size:12px;color:var(--color-text-secondary);margin-bottom:4px;">Role Akun</label>
@@ -1538,21 +1538,21 @@
     <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:14px;">
      <div>
       <label for="batchMaxUsage" style="display:block;font-size:12px;color:var(--color-text-secondary);margin-bottom:4px;">Maksimal Penggunaan</label>
-      <input type="number" id="batchMaxUsage" value="1" min="1" required style="width:100%;padding:10px;background:rgba(0,0,0,0.3);border:1px solid var(--color-glass-border);border-radius:8px;color:#fff;outline:none;" />
+      <input type="number" id="batchMaxUsage" value="1" min="1" required style="width:100%;padding:10px;background:rgba(var(--rgb-black), 0.3);border:1px solid var(--color-glass-border);border-radius:8px;color:#fff;outline:none;" />
      </div>
      <div>
       <label for="batchExpiresAt" style="display:block;font-size:12px;color:var(--color-text-secondary);margin-bottom:4px;">Kadaluarsa (Opsional)</label>
-      <input type="date" id="batchExpiresAt" style="width:100%;padding:10px;background:rgba(0,0,0,0.3);border:1px solid var(--color-glass-border);border-radius:8px;color:#fff;outline:none;" />
+      <input type="date" id="batchExpiresAt" style="width:100%;padding:10px;background:rgba(var(--rgb-black), 0.3);border:1px solid var(--color-glass-border);border-radius:8px;color:#fff;outline:none;" />
      </div>
     </div>
 
     <div style="margin-bottom:20px;">
      <label for="batchNotes" style="display:block;font-size:12px;color:var(--color-text-secondary);margin-bottom:4px;">Catatan / Campaign Name</label>
-     <input type="text" id="batchNotes" placeholder="Misal: Workshop Digitalisasi Sekolah 2026" style="width:100%;padding:10px;background:rgba(0,0,0,0.3);border:1px solid var(--color-glass-border);border-radius:8px;color:#fff;outline:none;" />
+     <input type="text" id="batchNotes" placeholder="Misal: Workshop Digitalisasi Sekolah 2026" style="width:100%;padding:10px;background:rgba(var(--rgb-black), 0.3);border:1px solid var(--color-glass-border);border-radius:8px;color:#fff;outline:none;" />
     </div>
 
     <div style="display:flex;justify-content:flex-end;gap:10px;">
-     <button type="button" data-action="voucher-close-batch" style="padding:10px 18px;border-radius:8px;background:rgba(255,255,255,0.06);border:1px solid var(--color-glass-border);color:#fff;cursor:pointer;">Batal</button>
+     <button type="button" data-action="voucher-close-batch" style="padding:10px 18px;border-radius:8px;background:rgba(var(--rgb-white), 0.06);border:1px solid var(--color-glass-border);color:#fff;cursor:pointer;">Batal</button>
      <button type="submit" id="btnSubmitBatch" style="padding:10px 20px;border-radius:8px;background:linear-gradient(135deg, rgb(var(--rgb-accent)), rgb(var(--rgb-info)));border:none;color:var(--color-text-on-primary);font-weight:600;cursor:pointer;">Generate Batch</button>
     </div>
    </form>
@@ -1626,7 +1626,7 @@
 
   <div class="form-group space-y-1">
   <label for="emailDomainWhitelistInput">Whitelist Domain Email Pendaftaran</label>
-  <textarea id="emailDomainWhitelistInput" rows="3" placeholder="gmail.com, yahoo.com, sch.id, ac.id" style="width:100%;background:rgba(255,255,255,0.05);border:1px solid var(--color-glass-border);border-radius:6px;padding:8px;color:var(--color-text);font-family:var(--font-mono);font-size:0.8rem;resize:vertical;"></textarea>
+  <textarea id="emailDomainWhitelistInput" rows="3" placeholder="gmail.com, yahoo.com, sch.id, ac.id" style="width:100%;background:rgba(var(--rgb-white), 0.05);border:1px solid var(--color-glass-border);border-radius:6px;padding:8px;color:var(--color-text);font-family:var(--font-mono);font-size:0.8rem;resize:vertical;"></textarea>
   <span class="form-hint saas-domain-hint">Hanya email dari domain ini yang boleh mendaftar. Pisahkan dengan koma atau baris baru. Subdomain otomatis diizinkan (mis. <code>sch.id</code> mengizinkan <code>smanegeri1.sch.id</code>). Kosongkan untuk mengizinkan semua domain.</span>
   </div>
 
@@ -1866,7 +1866,7 @@
 
   <div class="form-group space-y-1">
   <label for="seoDescriptionInput" title="Deskripsi singkat yang akan muncul di bawah judul situs pada pencarian Google">Meta Description</label>
-  <textarea id="seoDescriptionInput" placeholder="Masukkan deskripsi singkat untuk pencarian Google..." style="width:100%;min-height:60px;background:rgba(255,255,255,0.05);border:1px solid var(--color-glass-border);border-radius:6px;padding:8px;color:var(--color-text);font-family:inherit;font-size:0.875rem;resize:vertical;"></textarea>
+  <textarea id="seoDescriptionInput" placeholder="Masukkan deskripsi singkat untuk pencarian Google..." style="width:100%;min-height:60px;background:rgba(var(--rgb-white), 0.05);border:1px solid var(--color-glass-border);border-radius:6px;padding:8px;color:var(--color-text);font-family:inherit;font-size:0.875rem;resize:vertical;"></textarea>
   </div>
 
   <div class="form-row-2col grid grid-cols-1 sm:grid-cols-2 gap-4">
@@ -1902,7 +1902,7 @@
   <div class="saas-collapse-body">
   <p style="font-size:12px;color:var(--color-text-secondary);margin:0 0 12px 0;">Kelola penukaran kode promo/voucher oleh pengguna. Mematikan hanya menghentikan <em>klaim kode baru</em> — paket yang sudah diklaim tetap dapat diaktifkan/dilanjutkan oleh pengguna.</p>
   <div style="display:flex;flex-direction:column;gap:8px;">
-   <label style="display:flex;align-items:center;gap:8px;font-size:13px;cursor:pointer;padding:8px 10px;border-radius:8px;background:rgba(255,255,255,0.03);">
+   <label style="display:flex;align-items:center;gap:8px;font-size:13px;cursor:pointer;padding:8px 10px;border-radius:8px;background:rgba(var(--rgb-white), 0.03);">
     <input type="checkbox" id="voucherRedeemEnabledInput" style="accent-color:var(--color-primary);">
     <span><strong>Redeem Kode Promo / Voucher</strong><br><span style="font-size:11px;color:var(--color-text-secondary);">Penukaran kode promo/voucher oleh pengguna. Hanya memblokir klaim kode baru — pengguna tetap bisa mengaktifkan paket yang sudah diklaim sebelumnya.</span></span>
    </label>
@@ -1940,7 +1940,7 @@
   <div style="overflow-x:auto;">
    <table class="exam-table pkg-table" style="width:100%;border-collapse:collapse;text-align:left;font-size:13.5px;">
     <thead>
-     <tr style="border-bottom:1px solid var(--color-glass-border);background:rgba(255,255,255,0.02);color:var(--color-text-secondary);font-size:12px;text-transform:uppercase;letter-spacing:0.5px;">
+     <tr style="border-bottom:1px solid var(--color-glass-border);background:rgba(var(--rgb-white), 0.02);color:var(--color-text-secondary);font-size:12px;text-transform:uppercase;letter-spacing:0.5px;">
       <th style="padding:16px 20px;min-width:170px;">Nama Paket</th>
       <th style="padding:16px 20px;min-width:110px;">Total Ujian</th>
       <th style="padding:16px 20px;min-width:120px;">Ujian Serentak</th>
@@ -2007,7 +2007,7 @@
         </div>
         <div>
             <h3 style="color:var(--color-warning-light); font-weight:800; font-size:1.2rem; margin:0 0 6px 0; letter-spacing:-0.01em;">Cloudflare R2 Belum Dikonfigurasi!</h3>
-            <p style="color:#fcd34d; margin:0; font-size:1rem; opacity: 0.95;">Fitur distribusi aplikasi memerlukan kredensial R2. Silakan tambahkan konfigurasi pada file <code style="background:rgba(0,0,0,0.3); padding:2px 8px; border-radius:6px; font-weight:600;">.env</code> Anda.</p>
+            <p style="color:#fcd34d; margin:0; font-size:1rem; opacity: 0.95;">Fitur distribusi aplikasi memerlukan kredensial R2. Silakan tambahkan konfigurasi pada file <code style="background:rgba(var(--rgb-black), 0.3); padding:2px 8px; border-radius:6px; font-weight:600;">.env</code> Anda.</p>
         </div>
     </div>
     {{ end }}
@@ -2015,7 +2015,7 @@
 <div id="uploadModal" class="modal-overlay" style="display:none;" role="dialog" aria-modal="true" aria-labelledby="uploadModalTitle" data-action="modal-dismiss" data-modal-close="closeUploadModal">
     <div class="modal-glass">
         <div class="modal-header" style="position:relative;">
-            <button type="button" data-action="app-upload-close" aria-label="Tutup" style="position:absolute;top:0;right:0;width:40px;height:40px;display:flex;align-items:center;justify-content:center;background:rgba(255,255,255,0.06);border:1px solid rgba(255,255,255,0.1);border-radius:10px;color:#e2e8f0;font-size:18px;cursor:pointer;line-height:1;">&times;</button>
+            <button type="button" data-action="app-upload-close" aria-label="Tutup" style="position:absolute;top:0;right:0;width:40px;height:40px;display:flex;align-items:center;justify-content:center;background:rgba(var(--rgb-white), 0.06);border:1px solid rgba(var(--rgb-white), 0.1);border-radius:10px;color:#e2e8f0;font-size:18px;cursor:pointer;line-height:1;">&times;</button>
             <h3 id="uploadModalTitle" style="margin:0; font-size:1.5rem; font-weight:800; color:white; display:flex; align-items:center; gap:12px; padding-right:52px;">
                 <div style="width: 40px; height: 40px; background: rgba(var(--rgb-accent),0.15); border-radius: 12px; display: flex; align-items: center; justify-content: center; color: var(--color-accent-light);">
                     <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="17 8 12 3 7 8"></polyline><line x1="12" y1="3" x2="12" y2="15"></line></svg>
@@ -2061,7 +2061,7 @@
                     <span id="uploadErrorText" style="line-height:1.5;"></span>
                 </div>
                 
-                <div id="uploadProgressContainer" style="display:none; margin-bottom:20px; background:rgba(0,0,0,0.3); padding:24px; border-radius:16px; border:1px solid rgba(255,255,255,0.08); box-shadow:inset 0 4px 10px rgba(0,0,0,0.2);">
+                <div id="uploadProgressContainer" style="display:none; margin-bottom:20px; background:rgba(var(--rgb-black), 0.3); padding:24px; border-radius:16px; border:1px solid rgba(var(--rgb-white), 0.08); box-shadow:inset 0 4px 10px rgba(var(--rgb-black), 0.2);">
                     <div style="display:flex; justify-content:space-between; font-weight:700; font-size:15px; margin-bottom:14px; color:white;">
                         <span id="uploadStatusText" style="display:flex; align-items:center; gap:10px;">
                             <svg class="animate-spin" width="18" height="18" style="animation: spin 1s linear infinite;" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M21 12a9 9 0 1 1-6.219-8.56"></path></svg>
@@ -2069,7 +2069,7 @@
                         </span>
                         <span id="uploadPercentage" style="color:var(--color-accent-light); font-size:16px;">0%</span>
                     </div>
-                    <div style="width:100%; height:12px; background:rgba(255,255,255,0.1); border-radius:12px; overflow:hidden; box-shadow:inset 0 2px 4px rgba(0,0,0,0.3);">
+                    <div style="width:100%; height:12px; background:rgba(var(--rgb-white), 0.1); border-radius:12px; overflow:hidden; box-shadow:inset 0 2px 4px rgba(var(--rgb-black), 0.3);">
                         <div id="uploadProgressBar" style="height:100%; width:0%; background:linear-gradient(90deg, #4f46e5, var(--color-accent-light), #f472b6); border-radius:12px; transition:width 0.3s cubic-bezier(0.4, 0, 0.2, 1); box-shadow: 0 0 15px rgba(var(--rgb-accent),0.6);"></div>
                     </div>
                     <style>@keyframes spin { 100% { transform: rotate(360deg); } }</style>
@@ -2127,8 +2127,8 @@
 
     <div class="apps-grid">
         {{ if not .apps }}
-        <div style="grid-column: 1 / -1; text-align: center; padding: 80px 20px; background: rgba(255,255,255,0.02); border-radius: 24px; border: 2px dashed rgba(255,255,255,0.1);">
-            <svg style="width: 80px; height: 80px; color: rgba(255,255,255,0.1); margin-bottom: 24px;" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"></path><polyline points="3.27 6.96 12 12.01 20.73 6.96"></polyline><line x1="12" y1="22.08" x2="12" y2="12"></line></svg>
+        <div style="grid-column: 1 / -1; text-align: center; padding: 80px 20px; background: rgba(var(--rgb-white), 0.02); border-radius: 24px; border: 2px dashed rgba(var(--rgb-white), 0.1);">
+            <svg style="width: 80px; height: 80px; color: rgba(var(--rgb-white), 0.1); margin-bottom: 24px;" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"></path><polyline points="3.27 6.96 12 12.01 20.73 6.96"></polyline><line x1="12" y1="22.08" x2="12" y2="12"></line></svg>
             <h3 style="color:white; font-size:1.5rem; font-weight:700; margin-bottom:12px;">Belum Ada Aplikasi</h3>
             <p style="color:var(--color-text-placeholder); font-size:1.05rem; max-width:480px; margin:0 auto; line-height:1.6;">Anda belum mengunggah aplikasi apapun. Klik tombol unggah di kanan atas untuk mulai mendistribusikan aplikasi ujian ke siswa.</p>
         </div>
@@ -2356,7 +2356,7 @@ window.__settingsLoaded = {};
       var on = b.getAttribute('data-subtab') === name;
       b.classList.toggle('active', on);
       b.setAttribute('aria-selected', on ? 'true' : 'false');
-      b.style.background = on ? 'linear-gradient(135deg,rgb(var(--rgb-accent)),rgb(var(--rgb-info)))' : 'rgba(255,255,255,0.06)';
+      b.style.background = on ? 'linear-gradient(135deg,rgb(var(--rgb-accent)),rgb(var(--rgb-info)))' : 'rgba(var(--rgb-white), 0.06)';
       b.style.color = on ? '#fff' : '#fff';
     });
   };

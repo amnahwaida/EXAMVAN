@@ -202,7 +202,10 @@ test('S33a: theme.css :root mendefinisikan 4 token z kontrak dengan nama & nilai
         '--z-skip-link': '9998',
         '--z-dropdown': '9999',
         '--z-toast': '10002',
-        '--z-onboarding': '99999'
+        // Batch 10 (R52): diturunkan dari 99999 — modal onboarding harus
+        // berada DI BAWAH toast (10002) agar feedback simpan instansi tetap
+        // terlihat; urutan final: dropdown < onboarding < toast.
+        '--z-onboarding': '10001'
     };
     for (const [name, value] of Object.entries(expected)) {
         const re = new RegExp(`${name.replace('-', '\\-')}:\\s*${value}\\s*;`);

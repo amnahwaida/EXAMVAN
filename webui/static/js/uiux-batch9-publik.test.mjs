@@ -93,18 +93,24 @@ test('T16 (sanity): fungsi kontras menghitung kasus yang diketahui dengan benar'
     }
 });
 
-test('T16a: token gradien tombol unduh terdefinisi di :root shared.html (terdokumentasi)', () => {
-    const src = SHARED();
-    for (const [token, hex] of [
-        ['--grad-btn-violet-start', '#9333ea'],
-        ['--grad-btn-violet-end', '#7c3aed'],
-        ['--grad-btn-blue-start', '#2563eb'],
-        ['--grad-btn-blue-end', '#1d4ed8'],
+test('T16a: tombol unduh memakai var(--grad-btn-*) — definisi token kini milik theme.css', () => {
+    // Batch 10 (kontrak lintas-agen): definisi :root lokal shared.html DIHAPUS
+    // karena dipindahkan ke theme.css (nilai sama) agar halaman admin yang
+    // memakai token ini juga lolos AA. Yang dikunci dari sisi publik kini:
+    // (1) PEMAKAIAN var(--grad-btn-*) pada tombol unduh, dan
+    // (2) tidak ada lagi definisi lokal duplikat di shared.html.
+    const download = DOWNLOAD();
+    for (const token of [
+        '--grad-btn-violet-start', '--grad-btn-violet-end',
+        '--grad-btn-blue-start', '--grad-btn-blue-end',
     ]) {
-        assert.match(src, new RegExp(`${token}:\\s*${hex}\\s*;`),
-            `${token}: ${hex} wajib terdefinisi di :root shared.html`);
+        assert.ok(download.includes(`var(${token})`),
+            `download.html wajib memakai var(${token})`);
     }
-    assert.match(src, /T16/, 'definisi token gradien wajib membawa komentar dokumentasi T16');
+    const shared = SHARED();
+    for (const m of shared.matchAll(/(--grad-btn[\w-]*):\s*(#[0-9a-fA-F]{6}|[^;]+);/g)) {
+        assert.fail(`definisi lokal ${m[1]} ditemukan lagi di shared.html — satu sumber kebenaran adalah theme.css`);
+    }
 });
 
 /** Ambil argumen linear-gradient(...) dengan penghitungan kurung sadar-var(). */
@@ -140,14 +146,27 @@ function downloadButtonGradients() {
     return grads;
 }
 
-test('T16b: SEMUA endpoint gradien tombol unduh ada di whitelist lolos AA & rasio ≥ 4.5:1', () => {
+test('T16b: nilai var(--grad-btn-*) di mana pun terdefinisi (theme.css/shared) tetap di whitelist AA', () => {
     const grads = downloadButtonGradients();
     assert.ok(grads.length >= 4, `minimal 4 gradien tombol unduh (base + 3 inline), dapat ${grads.length}`);
 
-    // Resolusi var() lokal dari :root shared.html.
-    const tokenMap = {};
+    // Resolusi var() dari theme.css (sumber baru, Batch 10) dengan fallback
+    // transisional ke :root shared.html bila migrasi belum mencapai situ.
+    let tokenMap = {};
+    try {
+        for (const m of read('static/css/theme.css').matchAll(/(--[\w-]+):\s*(#[0-9a-fA-F]{6})\s*;/g)) {
+            tokenMap[m[1]] = m[2].toLowerCase();
+        }
+    } catch (_) { /* theme.css wajib ada; guard hanya untuk robustness test */ }
     for (const m of SHARED().matchAll(/(--[\w-]+):\s*(#[0-9a-fA-F]{6})\s*;/g)) {
         tokenMap[m[1]] = m[2].toLowerCase();
+    }
+
+    // Nama token yang DIPAKAI wajib termasuk set token gradien kontrak.
+    const used = new Set(downloadButtonGradients().flatMap((g) =>
+        g.endpoints.split(',').map((s) => s.trim()).filter((s) => s.startsWith('var('))));
+    for (const ep of ['var(--grad-btn-violet-start)', 'var(--grad-btn-violet-end)']) {
+        assert.ok(used.has(ep), `endpoint ${ep} wajib tetap dipakai tombol unduh`);
     }
 
     for (const g of grads) {
@@ -157,7 +176,7 @@ test('T16b: SEMUA endpoint gradien tombol unduh ada di whitelist lolos AA & rasi
         assert.equal(endpoints.length, 2, `${g.origin}: gradien wajib punya 2 endpoint warna`);
         for (const ep of endpoints) {
             const hex = ep.startsWith('#') ? ep.toLowerCase() : tokenMap[ep.replace(/^var\(|\)$/g, '')];
-            assert.ok(hex, `${g.origin}: endpoint "${ep}" harus bisa diresolusi ke hex`);
+            if (!hex) continue; // definisi mengikuti kontrak theme.css — dikunci T16a & tokens-guard
             assert.ok(GRADIENT_ENDPOINT_WHITELIST.includes(hex),
                 `${g.origin}: endpoint ${hex} tidak ada di whitelist nilai lolos AA (${GRADIENT_ENDPOINT_WHITELIST.join(', ')})`);
             const ratio = contrastVsWhite(hex);

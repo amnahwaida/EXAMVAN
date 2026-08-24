@@ -174,12 +174,15 @@
  <!-- T3: legenda ambang tampilan warna skor — ditampilkan saat statistik termuat -->
  <p class="score-legend" id="scoreLegend" style="display: none;">Ambang tampilan: Hijau ≥ 70 · Kuning 40–69 ("Hampir") · Merah &lt; 40 — Status Lulus mulai dari 70 (ambang sementara — KKM sekolah dapat berbeda)</p>
  </section>
- <!-- Tab Navigation -->
- <div class="tab-nav" id="tabNav" style="display: none;">
- <button class="tab-btn active" id="tabScores" onclick="switchTab('scores')" aria-label="Daftar Nilai">
- <svg class="icon-svg" style="vertical-align:middle;"><use href="#hi-dashboard"/></svg> Daftar Nilai
+ <!-- Tab Navigation — S54: semantik ARIA tabs port dari download.html
+      (role tablist/tab/tabpanel + aria-selected dikelola switchTab +
+      roving tabindex + navigasi panah/Home/End di init). S59: klik
+      dilayani registry Actions admin-core.js (tanpa onclick inline). -->
+ <div class="tab-nav" id="tabNav" role="tablist" aria-label="Pilih tampilan hasil" style="display: none;">
+ <button class="tab-btn active" id="tabScores" role="tab" aria-selected="true" aria-controls="scoresContent" data-action="switch-tab" data-tab="scores">
+ <svg class="icon-svg" style="vertical-align:middle;" aria-hidden="true"><use href="#hi-dashboard"/></svg> Daftar Nilai
  </button>
- <button class="tab-btn" id="tabKeys" onclick="switchTab('keys')" style="display: none;" aria-label="Kunci Jawaban Ujian">
+ <button class="tab-btn" id="tabKeys" role="tab" aria-selected="false" aria-controls="keysContent" data-action="switch-tab" data-tab="keys" style="display: none;">
  <svg class="icon-svg" style="vertical-align:middle;" aria-hidden="true"><use href="#hi-key"/></svg> Kunci Jawaban Ujian
  </button>
  </div>
@@ -192,7 +195,7 @@
    placeholder="Cari berdasarkan nama siswa..."
    aria-label="Cari nama siswa"
    oninput="filterResults(); var c=document.getElementById('searchClearBtn'); if(c)c.style.display=this.value?'flex':'none'">
- <button class="search-clear-btn" id="searchClearBtn" onclick="document.getElementById('searchInput').value='';filterResults();this.style.display='none'" style="display:none;" title="Hapus pencarian" aria-label="Hapus pencarian"><svg class="icon-svg" style="width:14px;height:14px;"><use href="#hi-x"/></svg></button>
+ <button class="search-clear-btn" id="searchClearBtn" data-action="clear-search" style="display:none;" title="Hapus pencarian" aria-label="Hapus pencarian"><svg class="icon-svg" style="width:14px;height:14px;"><use href="#hi-x"/></svg></button>
  </div>
  </div>
  </section>
@@ -208,7 +211,7 @@
  </div>
 
  <!-- Scores Tab -->
- <div id="scoresContent" style="display: none;">
+ <div id="scoresContent" role="tabpanel" aria-labelledby="tabScores" style="display: none;">
  <div class="table-wrapper">
  <table class="results-table" id="scoresTable">
  <thead>
@@ -229,11 +232,11 @@
  <div class="pagination-wrapper" id="paginationWrapper" style="display: none;">
  <div class="pagination-info" id="paginationInfo"></div>
  <div class="pagination-controls">
- <button class="pagination-btn" id="pagePrev" onclick="goToPage(currentPage - 1)" disabled aria-label="Halaman sebelumnya">
+ <button class="pagination-btn" id="pagePrev" data-action="page-prev" disabled aria-label="Halaman sebelumnya">
  <svg width="14" height="14" aria-hidden="true"><use href="#hi-chevron-left"/></svg>
  </button>
  <div class="pagination-pages" id="paginationPages"></div>
- <button class="pagination-btn" id="pageNext" onclick="goToPage(currentPage + 1)" disabled aria-label="Halaman selanjutnya">
+ <button class="pagination-btn" id="pageNext" data-action="page-next" disabled aria-label="Halaman selanjutnya">
  <svg width="14" height="14" aria-hidden="true"><use href="#hi-chevron-right"/></svg>
  </button>
  </div>
@@ -241,7 +244,7 @@
  </div>
 
  <!-- Keys Tab -->
- <div id="keysContent" style="display: none;">
+ <div id="keysContent" role="tabpanel" aria-labelledby="tabKeys" style="display: none;">
  <div style="padding: 16px;">
  <h3 style="font-size: 1.1rem; font-weight: 700; margin-bottom: 8px; color: #a5b4fc; display: flex; align-items: center; gap: 8px;">
  <svg class="icon-svg" style="vertical-align:middle;" aria-hidden="true"><use href="#hi-key"/></svg> Kunci Jawaban Resmi
@@ -323,20 +326,60 @@
  // ===== Init =====
  const pageHasError = {{if .error}}true{{else}}false{{end}};
  document.addEventListener('DOMContentLoaded', () => {
- // R37: tab awal dibaca dari location.hash (deep-link); guard #kunci ada di
- // dalam resolveTabFromHash. skipHash: jangan tulis ulang hash saat init.
- switchTab(resolveTabFromHash(), { skipHash: true });
-
- // Hash berubah dari luar (user edit URL / back-forward cache): ikuti.
- window.addEventListener('hashchange', () => {
- switchTab(resolveTabFromHash(), { skipHash: true });
- });
-
- // T12: state error tidak punya elemen hero/tabel — jangan mulai polling.
+ // T12/S53: state error/disabled tidak merender tabNav/tombol tab —
+ // jangan sentuh elemen yang tidak ada (dulu: TypeError null) dan jangan
+ // mulai polling hasil.
  if (!isDisabled && !pageHasError) {
- loadResults();
+  // R37: tab awal dibaca dari location.hash (deep-link); guard #kunci ada di
+  // dalam resolveTabFromHash. skipHash: jangan tulis ulang hash saat init.
+  switchTab(resolveTabFromHash(), { skipHash: true });
+
+  // Hash berubah dari luar (user edit URL / back-forward cache): ikuti.
+  window.addEventListener('hashchange', () => {
+  switchTab(resolveTabFromHash(), { skipHash: true });
+  });
+
+  // S54: navigasi keyboard antar tab Nilai/Kunci (pola ARIA tabs download):
+  // panah kiri/kanan, Home/End memindahkan fokus & mengaktifkan tab.
+  var tablist = document.getElementById('tabNav');
+  if (tablist) {
+   tablist.addEventListener('keydown', function(e) {
+    if (!['ArrowRight', 'ArrowLeft', 'Home', 'End'].includes(e.key)) return;
+    e.preventDefault();
+    var tabs = [document.getElementById('tabScores'), document.getElementById('tabKeys')];
+    var current = tabs.indexOf(document.activeElement);
+    if (current < 0) return;
+    var next;
+    if (e.key === 'ArrowRight') next = (current + 1) % tabs.length;
+    else if (e.key === 'ArrowLeft') next = (current - 1 + tabs.length) % tabs.length;
+    else if (e.key === 'Home') next = 0;
+    else next = tabs.length - 1;
+    tabs[next].focus();
+    switchTab(next === 0 ? 'scores' : 'keys');
+   });
+  }
+
+  loadResults();
  }
  });
+
+ // ===== S59: aksi halaman lewat registry Actions (admin-core.js) =====
+ // Pengganti onclick inline; satu listener delegasi core meneruskan klik ke
+ // handler terdaftar. Argumen dibawa via data-* pada elemen pemicu.
+ if (typeof Actions !== 'undefined') {
+  Actions.register('switch-tab', function (el) {
+   switchTab(el.getAttribute('data-tab'));
+  });
+  Actions.register('page-prev', function () { goToPage(currentPage - 1); });
+  Actions.register('page-next', function () { goToPage(currentPage + 1); });
+  Actions.register('clear-search', function (el) {
+   var input = document.getElementById('searchInput');
+   if (input) input.value = '';
+   filterResults();
+   el.style.display = 'none';
+  });
+  Actions.register('reload-page', function () { location.reload(); });
+ }
 
  // ===== API: Load Results (server-side pagination + search) =====
  async function loadResults() {
@@ -355,8 +398,8 @@
    showApiErrorToast(errData, 'Gagal memuat data hasil');
    document.getElementById('loadingIndicator').innerHTML =
    '<div class="empty-state"><div class="empty-icon" aria-hidden="true"><svg class="icon-svg" style="width:40px;height:40px;margin-bottom:16px;opacity:0.4;"><use href="#hi-exclamation"/></svg></div><p>' + escapeHtml(errData.message || ('Gagal memuat data (HTTP ' + resp.status + '). Coba lagi nanti.')) + '</p>' +
-   '<button class="back-nav" onclick="location.reload()" style="margin-top:16px;display:inline-flex;"><svg width="14" height="14" aria-hidden="true"><use href="#hi-arrow-path"/></svg> Coba Lagi</button></div>';
-   return;
+   '<button class="back-nav" data-action="reload-page" style="margin-top:16px;display:inline-flex;"><svg width="14" height="14" aria-hidden="true"><use href="#hi-arrow-path"/></svg> Coba Lagi</button></div>';
+    return;
   }
   const data = await resp.json();
 
@@ -411,13 +454,20 @@
   if (questionsData.length > 0 && showAnswersFromServer) {
    document.getElementById('tabNav').style.display = 'flex';
    document.getElementById('tabKeys').style.display = 'flex';
-  }  } catch (err) {
+  }
+
+  // T17: loadResults memaksa scoresContent tampil di atas — kembalikan
+  // tampilan ke tab aktif (init bisa mengikuti deep-link #kunci) supaya
+  // panel Nilai dan Kunci tidak bertumpuk. skipHash: jangan menulis ulang
+  // hash URL hanya karena data selesai dimuat.
+  switchTab(currentTab, { skipHash: true });
+  } catch (err) {
   console.error('Error loading results:', err);
   showApiErrorToast(null, 'Gagal memuat data hasil ujian');
   document.getElementById('loadingIndicator').innerHTML =
   '<div class="empty-state"><div class="empty-icon" aria-hidden="true"><svg class="icon-svg" style="width:40px;height:40px;margin-bottom:16px;opacity:0.4;"><use href="#hi-exclamation"/></svg></div><p>Gagal memuat data hasil ujian. Periksa koneksi atau coba lagi nanti.</p>' +
-  '<button class="back-nav" onclick="location.reload()" style="margin-top:16px;display:inline-flex;"><svg width="14" height="14" aria-hidden="true"><use href="#hi-arrow-path"/></svg> Coba Lagi</button></div>';
-   } finally {
+   '<button class="back-nav" data-action="reload-page" style="margin-top:16px;display:inline-flex;"><svg width="14" height="14" aria-hidden="true"><use href="#hi-arrow-path"/></svg> Coba Lagi</button></div>';
+    } finally {
    setResultsBusy(false);
    firstLoadDone = true;
    resultsLoading = false;
@@ -855,12 +905,25 @@
  }
 
  function switchTab(tab, opts) {
- currentTab = tab;
- document.getElementById('tabScores').classList.toggle('active', tab === 'scores');
- document.getElementById('tabKeys').classList.toggle('active', tab === 'keys');
+  currentTab = tab;
+  // S53: tombol tab hanya dirender di cabang sukses — bila tidak ada
+  // (halaman error/disabled), jangan sentuh properti elemen null.
+  var tabScores = document.getElementById('tabScores');
+  var tabKeys = document.getElementById('tabKeys');
+  if (!tabScores || !tabKeys) return;
 
- document.getElementById('scoresContent').style.display = tab === 'scores' ? 'block' : 'none';
- document.getElementById('keysContent').style.display = tab === 'keys' ? 'block' : 'none';
+  tabScores.classList.toggle('active', tab === 'scores');
+  tabKeys.classList.toggle('active', tab === 'keys');
+
+  // S54: state ARIA tabs + roving tabindex (pola download.html) — class .active
+  // hanya visual; screen reader membaca aria-selected, keyboard menab ke tab aktif saja.
+  tabScores.setAttribute('aria-selected', tab === 'scores' ? 'true' : 'false');
+  tabKeys.setAttribute('aria-selected', tab === 'keys' ? 'true' : 'false');
+  tabScores.tabIndex = tab === 'scores' ? 0 : -1;
+  tabKeys.tabIndex = tab === 'keys' ? 0 : -1;
+
+  document.getElementById('scoresContent').style.display = tab === 'scores' ? 'block' : 'none';
+  document.getElementById('keysContent').style.display = tab === 'keys' ? 'block' : 'none';
 
  // Toggle the whole search section (not the input's display) so the flex
  // layout of .search-input-wrapper stays intact on mobile.

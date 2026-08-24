@@ -198,7 +198,7 @@
         <div style="display:flex;flex-direction:column;gap:8px;">
           <div style="display:flex;align-items:center;gap:8px;font-size:0.85rem;color:var(--color-text-secondary);">
             <svg class="icon-svg" style="color:var(--color-text-muted);"><use href="#hi-clock"/></svg>
-            <span>Upload: <span class="utc-date">{{index $ei "created_at"}}</span></span>
+            <span>Upload: <span>{{index $ei "created_at"}}</span></span>
           </div>
           {{if index $ei "start_time"}}
           <div style="display:flex;align-items:center;gap:8px;font-size:0.85rem;color:var(--color-text-secondary);">

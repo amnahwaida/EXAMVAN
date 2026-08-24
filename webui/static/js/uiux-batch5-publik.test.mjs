@@ -83,9 +83,11 @@ test('T12: polling hasil tidak dijalankan pada halaman error (elemen hero tak ad
     const html = read('templates/public/hasil.html');
     assert.match(html, /pageHasError/,
         'init JS wajib mengecek flag halaman error agar loadResults tidak menyentuh elemen yang sudah tidak ada');
-    const init = html.match(/if\s*\(\s*!isDisabled[^)]*\)\s*\{\s*loadResults\(\);/);
-    assert.ok(init, 'panggilan loadResults() pada DOMContentLoaded tetap ada untuk state sukses');
-    assert.match(init[0], /!pageHasError|!pageHas/, 'guard error wajib bagian dari kondisi init');
+    // Batch 10 (S53/S54): blok guard init kini juga memasang listener
+    // hashchange + navigasi keyboard sebelum loadResults — cukup pastikan
+    // loadResults() berada DI DALAM blok guard yang sama.
+    const init = html.match(/if\s*\(\s*!isDisabled[\s\S]{0,80}?pageHasError[\s\S]{0,200}?\{[\s\S]{0,800}?switchTab\(resolveTabFromHash\(\)[\s\S]{0,2200}?loadResults\(\);/);
+    assert.ok(init, 'panggilan loadResults() tetap dijalankan dari dalam guard state sukses (!isDisabled && !pageHasError)');
 });
 
 // ---------------------------------------------------------------------------

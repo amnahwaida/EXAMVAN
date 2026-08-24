@@ -17,14 +17,14 @@
   public-desktop.css (loaded by all public pages), so the header
   renders identically everywhere. Includes the hamburger script.
 */}}
- <div class="nav-overlay" id="navOverlay" onclick="toggleMenu()"></div>
+ <div class="nav-overlay" id="navOverlay" data-nav-toggle></div>
  <nav>
  <div class="nav-container">
  <a href="/" class="logo-container">
  <div class="logo-badge">E</div>
  <div class="logo-text">EXAMVAN</div>
  </a>
- <button class="nav-hamburger" id="navHamburger" onclick="toggleMenu()" aria-label="Menu navigasi" aria-expanded="false" aria-controls="navLinks">&#9776;</button>
+ <button class="nav-hamburger" id="navHamburger" data-nav-toggle aria-label="Menu navigasi" aria-expanded="false" aria-controls="navLinks">&#9776;</button>
  <div class="nav-links" id="navLinks">
  <a href="/download" class="nav-link">Unduh Aplikasi</a>
  <a href="/hasil" class="nav-link">Cek Hasil Ujian</a>
@@ -38,6 +38,8 @@
  </div>
  </nav>
  <script>
+ // S59: pemicu menu dipasang via addEventListener (tanpa onclick inline).
+ // data-nav-toggle menandai overlay + hamburger sebagai pemicu toggleMenu.
  function toggleMenu() {
  var open = document.getElementById('navLinks').classList.toggle('open');
  document.getElementById('navOverlay').classList.toggle('active');
@@ -46,6 +48,9 @@
  burger.setAttribute('aria-expanded', open ? 'true' : 'false');
  document.body.style.overflow = open ? 'hidden' : '';
  }
+ Array.prototype.forEach.call(document.querySelectorAll('[data-nav-toggle]'), function (el) {
+ el.addEventListener('click', toggleMenu);
+ });
  function closeMenu() {
  var links = document.getElementById('navLinks');
  if (links) links.classList.remove('open');
@@ -114,13 +119,12 @@
     terverifikasi ≥ 4.5:1 terhadap label putih 15.5px bold (WCAG AA teks
     normal — bukan large-text), dihitung ulang otomatis oleh
     uiux-batch9-publik.test.mjs:
-      #9333ea = 5.38:1 · #7c3aed = 5.70:1 · #2563eb = 5.17:1 · #1d4ed8 = 6.70:1 */
- :root {
- --grad-btn-violet-start: #9333ea;
- --grad-btn-violet-end: #7c3aed;
- --grad-btn-blue-start: #2563eb;
- --grad-btn-blue-end: #1d4ed8;
- }
+      #9333ea = 5.38:1 · #7c3aed = 5.70:1 · #2563eb = 5.17:1 · #1d4ed8 = 6.70:1
+
+    Batch 10 (kontrak lintas-agen): definisi DIPINDAHKAN ke theme.css
+    (nilai sama) agar halaman admin (dashboard/nav) yang memakai
+    var(--grad-btn-*) juga mendapat nilai lolos AA. Definisi lokal di sini
+    dihapus karena menjadi duplikat; pemakaian tetap via var(--grad-btn-*). */
 
  /* Batch 9 (S44): sistem token paralel (:root lokal --bg-primary/--text-muted/
     --accent-primary/… beserta palet light arwah ber-selektor data-theme)

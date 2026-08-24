@@ -5,7 +5,7 @@
      perilaku focus/blur di admin-core.js initSkipLink(). Target #mainContent:
      dashboard/settings sudah punya id ini pada <main>; halaman lain akan
      menyusul (anchor tak eksis = no-op aman, link tetap terfokus). -->
-<a href="#mainContent" class="skip-link" style="position:absolute;left:-9999px;z-index:9999;padding:12px 20px;background:var(--color-primary,#6366f1);color:white;border-radius:8px;font-weight:600;text-decoration:none;">Langsung ke konten utama</a>
+<a href="#mainContent" class="skip-link">Langsung ke konten utama</a>
 {{ $isSuper := contains $adminRole "superadmin" }}
 {{ $isOp := contains $adminRole "operator" }}
 {{ $isGuru := or (contains $adminRole "guru") (or $isSuper $isOp) }}
@@ -123,7 +123,7 @@
 {{/* R29: stopPropagation overlay/kartu dihapus — tidak ada listener global
      yang menutup modal ini (wajib diisi), dan klik-luar dropdown milik core
      aman terhadap bubble. Tanpa dismiss backdrop sesemestinya. */}}
-<div id="instansiOnboardingModal" class="modal-overlay" style="display:flex; z-index:99999; background: rgba(15, 23, 42, 0.88); backdrop-filter: blur(12px);">
+<div id="instansiOnboardingModal" class="modal-overlay" style="display:flex; z-index:var(--z-onboarding); background: rgba(15, 23, 42, 0.88); backdrop-filter: blur(12px);">
     <div class="modal-card" style="max-width: 480px; border: 1px solid rgba(168, 85, 247, 0.4); box-shadow: 0 0 30px rgba(168, 85, 247, 0.35);" >
         <div class="modal-header" style="border-bottom: 1px solid rgba(255,255,255,0.1); padding-bottom: 14px; margin-bottom: 16px;">
             <h3 style="margin:0; font-size:1.15rem; color:#fff; display:flex; align-items:center; gap:10px;">
@@ -149,7 +149,7 @@
                     </div>
                 </div>
                 <div>
-                    <button type="submit" id="btnSaveInstansi" style="width: 100%; padding:12px; border-radius:8px; font-weight:700; font-size:0.95rem; background:linear-gradient(135deg, #a855f7, #6366f1); border:none; color:#fff; cursor:pointer; box-shadow:0 4px 14px rgba(168,85,247,0.35);">
+                    <button type="submit" id="btnSaveInstansi" style="width: 100%; padding:12px; border-radius:8px; font-weight:700; font-size:0.95rem; background:linear-gradient(135deg, var(--grad-btn-violet-start), var(--grad-btn-violet-end)); border:none; color:#fff; cursor:pointer; box-shadow:0 4px 14px rgba(var(--rgb-accent),0.35);">
                         Simpan &amp; Aktifkan Fitur Sekolah
                     </button>
                 </div>

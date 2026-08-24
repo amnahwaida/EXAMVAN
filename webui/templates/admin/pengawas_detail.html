@@ -223,7 +223,7 @@
      <svg class="icon-svg" style="width:15px;height:15px;"><use href="#hi-clipboard"/></svg>
      <span>Riwayat Audit</span>
     </button>
-    <button class="pd-toolbar-btn" data-action="load-approvals" title="Refresh Antrean" aria-label="Muat ulang antrean persetujuan" style="color:var(--color-warning-light); background:rgba(var(--rgb-warning),0.1);">
+    <button class="pd-toolbar-btn" data-action="load-approvals" title="Muat Ulang Antrean" aria-label="Muat ulang antrean persetujuan" style="color:var(--color-warning-light); background:rgba(var(--rgb-warning),0.1);">
      <svg class="icon-svg"><use href="#hi-refresh"/></svg>
     </button>
    </div>
@@ -253,7 +253,7 @@
     <svg class="icon-svg"><use href="#hi-device"/></svg> Monitoring Perangkat
    </h2>
    <div class="pd-table-toolbar">
-    <select id="statusFilter" class="pd-status-select" onchange="loadDetail()" aria-label="Filter status siswa">
+    <select id="statusFilter" class="pd-status-select" aria-label="Filter status siswa">
      <option value="">Semua Status</option>
      <option value="in_progress">Sedang Mengerjakan</option>
      <option value="submitted">Terkumpul</option>
@@ -261,11 +261,10 @@
     </select>
     <div class="pd-search-wrap">
      <svg class="icon-svg pd-search-icon"><use href="#hi-search"/></svg>
-      <input type="text" id="pengawasSearch" class="pd-search-input" placeholder="Cari nama, ID perangkat..." aria-label="Cari peserta"
-      onkeyup="if(event.key==='Enter') loadDetail()">
+      <input type="text" id="pengawasSearch" class="pd-search-input" placeholder="Cari nama, ID perangkat..." aria-label="Cari peserta">
     </div>
     <span id="lastUpdatedLabel" style="font-size:11px;color:var(--color-text-muted);white-space:nowrap;align-self:center;" aria-live="off"></span>
-    <button class="pd-toolbar-btn" data-action="load-detail" title="Refresh" aria-label="Muat ulang data peserta">
+    <button class="pd-toolbar-btn" data-action="load-detail" title="Muat Ulang" aria-label="Muat ulang data peserta">
      <svg class="icon-svg"><use href="#hi-refresh"/></svg>
     </button>
    </div>
@@ -1151,7 +1150,7 @@ function startExamPengawasDetail(examId) {
             })
             .catch(function(err) {
                 console.error('Fetch error:', err);
-                showToast('Gagal menghubungi server: ' + err, 'error');
+                showToast('Gagal menghubungi server. Periksa koneksi.', 'error');
                 if (btn) { btn.disabled = false; btn.innerHTML = '<svg class="icon-svg" style="width:16px;height:16px;"><use href="#hi-play"/></svg> Mulai Pengawasan'; }
             });
     });
@@ -1180,7 +1179,7 @@ function stopExamPengawasDetail(examId) {
             })
             .catch(function(err) {
                 console.error('Fetch error:', err);
-                showToast('Gagal menghubungi server: ' + err, 'error');
+                showToast('Gagal menghubungi server. Periksa koneksi.', 'error');
                 if (btn) { btn.disabled = false; btn.innerHTML = '<svg class="icon-svg" style="width:16px;height:16px;" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="6" y="6" width="12" height="12" rx="2"/></svg> Hentikan Pengawasan'; }
             });
     });
@@ -1420,6 +1419,14 @@ function findApprovalStudentName(macAddress) {
     return '';
 }
 
+// Batch 10 (S50): label identitas untuk teks modal konfirmasi —
+// "<nama> (<mac>)" atau "(Anonim) (<mac>)" bila nama tak tersedia di cache.
+function formatApprovalStudentLabel(macAddress) {
+    var name = findApprovalStudentName(macAddress);
+    var macHtml = escapeHtml(macAddress || '');
+    return '<strong>' + (name ? escapeHtml(name) : '(Anonim)') + '</strong> (' + macHtml + ')';
+}
+
 function setApproval(macAddress, status, skipConfirm) {
     if (!skipConfirm) {
         showConfirmApprovalModal(macAddress, status);
@@ -1643,7 +1650,7 @@ function showAccessLog(subId) {
     var logs = subData.access_logs || [];
     var h = '<div class="log-modal-header-info">' +
         '<div class="log-device-row">' +
-            '<svg class="icon-svg" style="width:18px;height:18px;color:#64748b;"><use href="#hi-device"/></svg> ' +
+            '<svg class="icon-svg" style="width:18px;height:18px;color:var(--color-text-muted);"><use href="#hi-device"/></svg> ' +
             '<span style="font-family:var(--font-mono);font-size:1rem;font-weight:700;color:var(--color-text);letter-spacing:0.5px;">' + esc(subData.mac_address) + '</span>' +
             '<span class="student-status ' + (subData.submitted ? 'submitted' : (subData.start_time ? 'in-progress' : 'not-started')) + '" style="margin-left:auto;">' + (subData.submitted ? 'Terkumpul' : (subData.start_time ? 'Mengerjakan' : 'Belum Mulai')) + '</span>' +
         '</div>' +
@@ -1827,13 +1834,17 @@ function showConfirmApprovalModal(macAddress, status) {
     if (status === 'approved') {
         title.innerHTML = '<svg class="icon-svg"><use href="#hi-check"/></svg> Izinkan Siswa';
         title.style.color = 'var(--color-primary-light)';
-        text.innerHTML = 'Apakah Anda yakin ingin <strong>mengizinkan</strong> perangkat ini untuk memulai ujian?';
+        // Batch 10 (S50): sebut identitas siswa agar pengawas yakin siapa yang
+        // disetujui saat antrean berisi beberapa perangkat.
+        var studentLabel = formatApprovalStudentLabel(macAddress);
+        text.innerHTML = 'Apakah Anda yakin ingin <strong>mengizinkan</strong> ' + studentLabel + ' untuk memulai ujian?';
         btn.className = 'btn-modal-approve';
         btn.textContent = 'Ya, Izinkan';
     } else {
         title.innerHTML = '<svg class="icon-svg"><use href="#hi-x"/></svg> Tolak Siswa';
         title.style.color = 'var(--color-danger)';
-        text.innerHTML = 'Apakah Anda yakin ingin <strong>menolak</strong> perangkat ini? Siswa tidak akan bisa memulai ujian.';
+        var studentLabelRej = formatApprovalStudentLabel(macAddress);
+        text.innerHTML = 'Apakah Anda yakin ingin <strong>menolak</strong> ' + studentLabelRej + '? Siswa tidak akan bisa memulai ujian.';
         btn.className = 'btn-modal-reject';
         btn.textContent = 'Ya, Tolak';
     }
@@ -2086,6 +2097,23 @@ loadAAStatus();
 
     aaToggle.addEventListener('change', function() {
             var enabled = this.checked;
+            // Batch 10 (S52): meng-AKTIFKAN auto-approve mengubah perilaku
+            // SERVER untuk semua siswa berikutnya (bertahan walau halaman
+            // ditutup) — wajib konfirmasi. Mematikan boleh langsung.
+            if (enabled && typeof showConfirm === 'function') {
+                showConfirm(
+                    'Aktifkan terima otomatis? Semua perangkat berikutnya akan ' +
+                    'disetujui tanpa pemeriksaan hingga dimatikan.'
+                ).then(function(ok) {
+                    if (ok) { setAutoApprove(enabled); }
+                    else { aaToggle.checked = false; }
+                });
+                return;
+            }
+            setAutoApprove(enabled);
+        });
+
+        function setAutoApprove(enabled) {
             apiFetch('/admin/api/pengawas/exams/' + EXAM_ID + '/auto-approve', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
@@ -2110,7 +2138,15 @@ loadAAStatus();
                 localStorage.setItem(aaKey, aaToggle.checked ? 'true' : 'false');
                 showToast('Gagal menghubungi server', 'error');
             });
-        });
+        }
+
+    // Batch 10 (S48): pencarian peserta live-search (debounce dari core) —
+    // bukan lagi Enter-only; select filter ikut memicu muat ulang via change.
+    if (typeof initLiveSearch === 'function') {
+        initLiveSearch(document.getElementById('pengawasSearch'), function() { loadDetail(); });
+    }
+    var statusFilterEl = document.getElementById('statusFilter');
+    if (statusFilterEl) statusFilterEl.addEventListener('change', function() { loadDetail(); });
 
     loadDetail();
     // Queue load is triggered by loadAAStatus() above (and by its fetch's

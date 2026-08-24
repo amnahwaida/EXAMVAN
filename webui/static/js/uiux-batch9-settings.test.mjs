@@ -299,7 +299,11 @@ test('S39 (statik): settings-general.js mendefinisikan pemetaan 8 kartu simpan +
         assert.match(SETTINGS, new RegExp(`data-action="${action}"`), `tombol ${action} ada di settings.html`);
     }
     assert.match(GENERAL_SRC, /beforeunload/, 'harus memasang guard beforeunload');
-    assert.match(GENERAL_SRC, /MutationObserver/, 'observasi toast sukses memakai MutationObserver');
+    // Batch 10 (S47): pembersihan dirty pindah ke jalur sukses saveSaasSection
+    // (admin.js memanggil clearSaasCardDirtyByCardId(cardId)) — observer toast
+    // satu-slot DIHAPUS karena bisa membersihkan kartu yang salah.
+    assert.doesNotMatch(GENERAL_SRC, /MutationObserver|handleSaasToastForDirty|SAAS_PENDING_SAVE/,
+        'observasi toast satu-slot dihapus (kontrak S47 Batch 10)');
 });
 
 function loadGeneralSandbox() {
@@ -375,18 +379,21 @@ test('S39 (perilaku): input/change menandai kartu kotor — titik header + label
     assert.ok(/•/.test(A.label.textContent), 'label tombol simpan bertanda •');
     assert.equal(B.label.textContent.includes('•'), false, 'kartu lain tidak ikut kotor');
 
-    // Simpan sukses: klik tombol → toast sukses masuk container → kartu bersih.
-    const clickEv = { target: A.btn, preventDefault() {}, stopPropagation() {} };
-    (env.docListeners.click || []).forEach((fn) => fn(clickEv));
-    const cleared = env.sandbox.handleSaasToastForDirty({ className: 'toast toast-success', textContent: 'Setelan SMTP disimpan' });
-    assert.equal(cleared, true, 'toast sukses setelah klik simpan membersihkan dirty kartu');
-    assert.equal(env.sandbox.anySaasDirty(), false);
+    // Batch 10 (S47): simpan sukses → saveSaasSection (admin.js) memanggil
+    // pembersih langsung dengan cardId kartu yang disimpan (tanpa observasi
+    // toast — mekanisme lama bisa membersihkan kartu yang salah).
+    env.sandbox.clearSaasCardDirtyByCardId(A.card.id);
+    assert.equal(env.sandbox.anySaasDirty(), false, 'simpan sukses membersihkan kartu yang disimpan');
     assert.equal(A.title.children.some((c) => String(c.className).includes('saas-dirty-dot')), false,
         'titik indikator hilang setelah tersimpan');
     assert.equal(/•/.test(A.label.textContent), false, 'tanda • hilang setelah tersimpan');
 
-    // Toast sukses TANPA klik simpan sebelumnya tidak mengubah apa pun.
-    assert.equal(env.sandbox.handleSaasToastForDirty({ className: 'toast toast-success' }), false);
+    // Pembersihan HANYA menyentuh kartu yang disimpan: kartu B tetap kotor.
+    (B.card._listeners.input || []).forEach((fn) => fn(ev));
+    assert.equal(env.sandbox.anySaasDirty(), true, 'pra-kondisi: kartu B kotor');
+    env.sandbox.clearSaasCardDirtyByCardId('saas-card-smtp');
+    assert.equal(env.sandbox.anySaasDirty(), true, 'membersihkan kartu lain TIDAK menyentuh kartu B');
+    assert.equal(/•/.test(B.label.textContent), true, 'indikator kartu B utuh');
 });
 
 test('S39 (perilaku): beforeunload guard terpasang dan mencegah navigasi hanya bila ada kartu kotor', () => {

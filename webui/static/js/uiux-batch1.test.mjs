@@ -84,11 +84,16 @@ test('R5: input interval token tanpa placeholder "menit" (label span sudah menye
 // S13 — tombol unduh download.html punya loading state & anti dobel-klik
 // ---------------------------------------------------------------------------
 
-test('S13: semua tombol unduh meneruskan this + downloadApp punya guard & pemulihan state', () => {
+test('S13: semua tombol unduh meneruskan elemen tombol + downloadApp punya guard & pemulihan state', () => {
     const html = read('templates/public/download.html');
 
-    const calls = [...html.matchAll(/downloadApp\(\{\{[^}]+\}\},\s*this\)/g)].length;
-    assert.equal(calls, 4, `4 anchor unduh (APK resmi, flavor tambahan, Windows, Linux) harus meneruskan this — ditemukan ${calls}`);
+    // Batch 10 (S59): onclick inline bermigrasi ke data-action — intent
+    // kontrak dipertahankan: 4 anchor unduh (APK resmi, flavor tambahan,
+    // Windows, Linux) dan handler delegasi tetap meneruskan elemen tombol.
+    const anchors = [...html.matchAll(/data-action="download-app"/g)].length;
+    assert.equal(anchors, 4, `4 anchor unduh wajib memakai data-action download-app — ditemukan ${anchors}`);
+    const delegated = html.match(/downloadApp\([^)]*getAttribute\('data-app-id'\)[^)]*,\s*(?:btn|el)\)/);
+    assert.ok(delegated, 'handler delegasi meneruskan elemen tombol (el) ke downloadApp');
 
     assert.match(html, /function downloadApp\(appId,\s*btn\)/, 'downloadApp menerima elemen tombol');
     assert.match(html, /dataset\.loading/, 'guard re-entry via dataset.loading agar tidak dobel probe');

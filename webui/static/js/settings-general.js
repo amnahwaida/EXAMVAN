@@ -139,15 +139,19 @@ if (window.Actions && typeof window.Actions.register === 'function') {
     });
 }
 
-// ===== Batch 9 (S39): dirty tracking per kartu Pengaturan Umum ==============
-// 8 kartu tersimpan terpisah (handler simpan: saveSaasSection di admin.js —
-// MILIK AGEN LAIN, tidak diedit). Mekanisme:
+// ===== Batch 9 (S39) + Batch 10 (S47): dirty tracking per kartu =============
+// 8 kartu tersimpan terpisah (handler simpan: saveSaasSection di admin.js).
+// Mekanisme:
 //   - input/change (capture) di dalam kartu → kartu ditandai kotor:
 //     titik indikator di header + tombol simpan bertanda "•".
-//   - Klik tombol simpan → kartu dicatat "menunggu"; toast SUKES berikutnya
-//     (MutationObserver pada #toastContainer dari nav.html) membersihkan
-//     status kotor. loadSaasSettings() pasca-simpan menulis nilai via .value
-//     programatik sehingga tidak memicu event input (tidak ada false-dirty).
+//   - Pembersihan dilakukan oleh saveSaasSection (admin.js) di cabang SUKSES
+//     saja: pemanggil meneruskan cardId dan memanggil
+//     clearSaasCardDirtyByCardId(cardId). Kontrak lama via slot global
+//     tunggal + observer toast DIHAPUS (S47) — observer toast satu-slot
+//     bisa membersihkan kartu yang salah ketika dua simpan berurutan atau
+//     toast sukses milik aksi lain muncul lebih dulu.
+//   - loadSaasSettings() pasca-simpan menulis nilai via .value programatik
+//     sehingga tidak memicu event input (tidak ada false-dirty).
 //   - beforeunload mencegah navigasi bila ADA kartu kotor.
 var SAAS_SAVE_CARDS = [
     { action: 'smtp-save',         cardId: 'saas-card-smtp',         btnId: 'saveSmtpSettingsBtn' },
@@ -160,7 +164,6 @@ var SAAS_SAVE_CARDS = [
     { action: 'monetization-save', cardId: 'saas-card-monetization', btnId: 'saveMonetizationSettingsBtn' }
 ];
 var SAAS_DIRTY = {};
-var SAAS_PENDING_SAVE = null;
 
 function saasCardMeta(cardId) {
     for (var i = 0; i < SAAS_SAVE_CARDS.length; i++) {
@@ -229,37 +232,14 @@ function markSaasCardDirty(metaOrCardId) {
     renderSaasDirtyState(meta);
 }
 
+/** Murni & dapat diuji: membersihkan status kotor satu kartu berdasarkan
+ *  cardId. Dipanggil saveSaasSection (admin.js) di cabang sukses saja —
+ *  kontrak S47 menggantikan observer toast yang dihapus. */
 function clearSaasCardDirtyByCardId(cardId) {
     if (!SAAS_DIRTY[cardId]) return;
     delete SAAS_DIRTY[cardId];
     var meta = saasCardMeta(cardId);
     if (meta) renderSaasDirtyState(meta);
-}
-
-/** Murni & dapat diuji: dipanggil observer toast; return true bila kartu
- *  yang menunggu konfirmasi dibersihkan oleh toast sukses ini. */
-function handleSaasToastForDirty(node) {
-    if (!node || typeof node.className !== 'string') return false;
-    if (node.className.indexOf('toast') === -1) return false;
-    var pending = SAAS_PENDING_SAVE;
-    SAAS_PENDING_SAVE = null;
-    if (!pending) return false;
-    if (node.className.indexOf('toast-success') !== -1) {
-        clearSaasCardDirtyByCardId(pending);
-        return true;
-    }
-    return false;
-}
-
-function wireSaasSaveToastObserver() {
-    var container = document.getElementById('toastContainer');
-    if (!container || container.dataset.dirtyToastWired || typeof MutationObserver === 'undefined') return;
-    container.dataset.dirtyToastWired = '1';
-    new MutationObserver(function (muts) {
-        muts.forEach(function (m) {
-            Array.prototype.forEach.call(m.addedNodes, function (n) { handleSaasToastForDirty(n); });
-        });
-    }).observe(container, { childList: true });
 }
 
 function wireSaasDirtyTracking() {
@@ -272,21 +252,6 @@ function wireSaasDirtyTracking() {
         card.addEventListener('input', onEdit, true);
         card.addEventListener('change', onEdit, true);
     });
-
-    // Tombol simpan diklik → tandai kartu "menunggu konfirmasi sukses".
-    document.addEventListener('click', function (e) {
-        var el = e.target && e.target.closest ? e.target.closest('[data-action]') : null;
-        if (!el) return;
-        var action = el.getAttribute('data-action');
-        for (var i = 0; i < SAAS_SAVE_CARDS.length; i++) {
-            if (SAAS_SAVE_CARDS[i].action === action) {
-                SAAS_PENDING_SAVE = SAAS_SAVE_CARDS[i].cardId;
-                return;
-            }
-        }
-    }, true);
-
-    wireSaasSaveToastObserver();
 
     if (!window.__saasBeforeUnloadWired) {
         window.__saasBeforeUnloadWired = true;

@@ -100,3 +100,18 @@ test('S15 fase 2 (guard): hex di admin.js tidak naik dari baseline Batch 7', () 
     const n = (src.match(HEX_RE) || []).length;
     assert.ok(n <= 8, `hex admin.js = ${n}, baseline ≤ 8`);
 });
+
+// Plafon CSS inti (Batch 10 / S58): admin-base.css dimigrasi substitusi-persis
+// rgba literal → rgba(var(--rgb-info|danger|success|warning), α) sehingga
+// hitungan literal turun 60 → 17 (43 literal hilang). Plafon DIKENALI di angka
+// BARU ini — fitur berikutnya wajib memakai token; sisa 17 literal memang
+// belum punya pasangan triplet (slate/amber-400/red-400/slate-400/gray-500/
+// rgb latar 10,10,x). Detail guard nilai-token ada di
+// uiux-batch10-tokens-guard.test.mjs.
+const ADMIN_BASE_CSS = path.join(__dirname, '..', 'css', 'admin-base.css');
+test('B10/S58 (guard): rgba literal di css/admin-base.css tidak naik dari baseline pasca-migrasi', () => {
+    const src = fs.readFileSync(ADMIN_BASE_CSS, 'utf8').replace(/\/\*[\s\S]*?\*\//g, '');
+    const n = (src.match(RGBA_RE) || []).length;
+    assert.ok(n <= 17,
+        `rgba literal admin-base.css = ${n}, baseline pasca-S58 ≤ 17 — pakai rgba(var(--rgb-*), α)`);
+});

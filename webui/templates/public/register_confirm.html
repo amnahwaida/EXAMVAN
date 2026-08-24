@@ -257,7 +257,7 @@
    <div class="resend-hint" id="resendHint">
     <span id="resendMsg" style="display:block;margin-bottom:4px;"></span>
     <span id="resendTimer">Tidak menerima kode?</span>
-    <a href="#" id="resendLink" role="button" onclick="resendOtp(event)">Kirim ulang kode</a>
+    <a href="#" id="resendLink" role="button">Kirim ulang kode</a>
    </div>
 
    <hr class="divider-subtle" style="margin:20px 0 14px;">
@@ -350,6 +350,9 @@
   var resendMsg = document.getElementById('resendMsg');
   var cooldownIv = null;
 
+  // S59: wiring tanpa onclick inline — listener dipasang setelah handler
+  // didefinisikan di bawah (window.resendOtp).
+
   // Cooldown persists across re-renders (a failed verify POST reloads this
   // page); otherwise every wrong code restarted the full 60s wait even
   // though no new code was sent.
@@ -403,6 +406,10 @@
     if (resendMsg) { resendMsg.textContent = 'Gagal terhubung ke server.'; resendMsg.style.color = '#f87171'; }
    });
   };
+
+  // S59: pengganti atribut handler inline pada #resendLink — listener
+  // dipasang langsung ke window.resendOtp yang sudah didefinisikan di atas.
+  if (resendLink) resendLink.addEventListener('click', window.resendOtp);
 
   // On load: resume a stored cooldown if one is still running (e.g. the page
   // re-rendered after a wrong code). Only start a fresh 60s window when no

@@ -4,6 +4,7 @@
 > **Metode:** pembacaan menyeluruh ±26.000 baris template + CSS + JS oleh 3 reviewer paralel (area admin, area publik, lintas-halaman/a11y/design-system) + verifikasi manual temuan kunci. Ronde 2 mengulang metode yang sama (3 reviewer paralel) untuk memverifikasi perbaikan dan mencari temuan baru.
 > **Ronde 2:** seluruh temuan lama Tinggi/Sedang/Rendah (kecuali yang dicatat masih terbuka) terverifikasi BERES; ditemukan **2 masalah Tinggi, 14 Sedang, dan 12 Rendah baru** — lihat [bagian 5.5](#55-re-review-ronde-2--temuan-baru-pasca-batch-14).
 > **Ronde 3 (24 Agustus 2026 @ `1387853`, pasca Batch 8):** migrasi Batch 7–8 terverifikasi bersih di level registry; ditemukan **3 masalah Tinggi, 10 Sedang, dan 13 Rendah baru** — lihat [bagian 5.6](#56-re-review-ronde-3--temuan-baru-pasca-batch-58). Seluruhnya dieksekusi di **Batch 9** (25/26 item — sisa terbuka: R30 ditunda butuh keputusan UX).
+> **Ronde 4 (24 Agustus 2026 @ `a1afd9c`, pasca Batch 9):** regresi Batch 9 hampir seluruhnya bersih (1 eksekusi perlu dirapikan → S47); ditemukan **2 masalah Tinggi, 13 Sedang, dan 12 Rendah baru** — lihat [bagian 5.7](#57-re-review-ronde-4--temuan-baru-pasca-batch-9). Seluruhnya dieksekusi di **Batch 10** kecuali S57 ditunda (ekstraksi blok inline besar).
 > **Tujuan:** acuan perbaikan UI/UX tahap selanjutnya. Setiap temuan punya ID unik (`T`=Tinggi, `S`=Sedang, `R`=Rendah, `P`=Keputusan Produk, `G`=Positif) agar mudah dirujuk di commit/issues (mis. `fix(uiux): T2 …`).
 
 ---
@@ -782,9 +783,255 @@
 
 ---
 
+## 5.7 RE-REVIEW RONDE 4 — Temuan baru pasca Batch 9
+
+> **Tanggal:** 24 Agustus 2026 · **Basis kode:** `a1afd9c` (pasca Batch 9, suite 507/507 hijau) · **Metode:** 3 reviewer paralel (area admin, area publik, lintas-halaman/design-system) + verifikasi manual silang temuan kunci.
+> Fokus khusus ronde ini: regresi Batch 9 (toast terpusat, guard editor, kontras gradien, dirty tracking) dan audit terukur lanjutan. Penomoran ID melanjutkan ronde sebelumnya.
+
+### Status verifikasi cepat
+
+**Regresi Batch 9 (spot-check langsung ke kode):**
+
+| Item | Vonis | Bukti kunci |
+|---|---|---|
+| T14 toastContainer | ✅ BERES | Container tunggal `partials/nav.html:98`; kelima halaman admin memuat partial; `login.html` tak memuat nav → tak terdampak |
+| T15 guard editor soal | ✅ BERES | `replaceEditorQuestions()` dipakai quickGenerate & importXML; jalur lain hanya pemuatan awal dari server (sah) |
+| S37 guard upload | ✅ BERES, robust | Capture listener + lock display/classList no-op saat in-flight; pill ter-wiring penuh *(sisa race 300 ms → R48)* |
+| S39 dirty tracking | ⚠️ SEBAGIAN → **S47** | Indikator/beforeunload bekerja; pembersihan via observer toast satu-slot bisa salah-bersih |
+| S40 export blob | ✅ BERES | Content-Disposition + guard dobel-klik *(celah pesan SyntaxError → R47)* |
+| S41/R31/R32/R33 | ✅ BERES | `navigator.clipboard`=0 di template; toast bernama; label-for 102/113; paritas close modal password ✓ |
+| R29 onclick render-JS | ⚠️ PARSIAL → **S51** | Target asli bersih, tapi ±11 onclick tersisa di render-path users/modal dinamis |
+
+**Item lama:**
+
+| Item | Status ronde 4 | Bukti |
+|---|---|---|
+| R4 `document.write` | 🔴 MASIH TERBUKA, 5 lokasi (3 ronde berturut-turut) | `download.html:532,550,692,771` · `settings.html:2156` (shift dari 2130); test patuh-bug masih ada |
+| R27 `!important` | ⚠️ Turun signifikan: admin-base 55→**47**, hasil 64→**63**, public-mobile 81→**48** (−40%), public-desktop 34→**21** — tapi **+63 baru** ditemukan di blok `<style>` inline settings.html (di luar cakupan audit per-file CSS) | audit terukur ronde 4 |
+| Angka token | settings.html diam (100 hex/109 rgba); shared 27→21 hex; download 16→12 hex; **margin plafon rgba folder tinggal 2** (223 vs ≤225) → S58 | audit terukur |
+| Matriks kontras WCAG | Pelanggaran AA aktif yang tersisa hanya endpoint gradien nav/dashboard (**T18**) + ikon `#64748b` ×1 (**R53**); `#ef4444` di `#1e1e32` kini hanya ikon/asterisk (lolos ambang non-teks 3:1) | perhitungan luminance |
+| R26 EN sisa | "Refresh" ×4 (`settings.html:956,1299`, `pengawas_detail.html:226,268`) + "Export XML" ×1 (`dashboard.html:905`) → **R50** | grep |
+| R30 / S21/S22 / P3 / duplikasi modal password | Tetap terbuka sesuai catatan sebelumnya | — |
+
+---
+
+### T17 — Regresi R37: deep-link `#kunci` membuat KEDUA panel (Nilai + Kunci) tampil bertumpuk
+- **Prioritas:** 🔴 Tinggi · **Usaha:** XS · **Area:** Publik (Hasil) · **Status:** `[x]` ✅ **Batch 10**
+- **Lokasi:** `hasil.html:400` (interaksi dengan `:328` dan `switchTab` `:862-863`)
+- **Bukti:** init mengikuti hash (`switchTab(resolveTabFromHash())`), tetapi `loadResults()` selalu `document.getElementById('scoresContent').style.display = 'block'` tanpa membaca `currentTab`.
+- **Dampak:** Membuka `/hasil/<token>#kunci` (pola share yang didorong fitur deep-link Batch 9) → tabel Nilai dan grid Kunci bertumpuk dalam satu kartu, tab aktif menunjukkan "Kunci Jawaban".
+- **Rekomendasi:** Di akhir `loadResults()` panggil `switchTab(currentTab, { skipHash: true })` (atau guard `if (currentTab === 'scores')`); test vm: hash `#kunci` → setelah loadResults panel nilai tetap `display:none`.
+
+### T18 — Kontrak T16 tidak tuntas: tombol submit instansi di nav & dashboard masih gradien gagal AA
+- **Prioritas:** 🔴 Tinggi · **Usaha:** XS · **Area:** Admin · **Status:** `[x]` ✅ **Batch 10** *(rasio diverifikasi perhitungan)*
+- **Lokasi:** `nav.html:152` (modal onboarding instansi — layar pertama admin baru), `dashboard.html:1071` (edit instansi): `linear-gradient(135deg, #a855f7, #6366f1)` + teks putih ~15px bold
+- **Masalah:** Putih di `#a855f7` = **3.96:1**, di `#6366f1` = **4.47:1** — keduanya < 4.5:1. Token `--grad-btn-*` yang lolos AA (Batch 9) sudah ada tapi tak dipakai di sini; whitelist larangan endpoint lama hanya mencakup template publik.
+- **Rekomendasi:** Ganti kedua gradien ke `var(--grad-btn-violet-start/end)`; perluas whitelist larangan `#a855f7|#6366f1` ke template admin.
+
+### S47 — Pembersihan dirty S39 berbasis observasi toast bisa membersihkan KARTU YANG SALAH
+- **Usaha:** S · **Area:** Admin (Settings) · **Status:** `[x]` ✅ **Batch 10**
+- **Lokasi:** `settings-general.js:241-252`, `:277-287` — slot global tunggal `SAAS_PENDING_SAVE` ditimpa setiap klik simpan; toast sukses APA PUN membersihkan kartu yang menunggu.
+- **Dampak:** Klik "Simpan SMTP" lalu cepat klik "Simpan Footer" → toast pertama membersihkan titik dirty **Footer** yang belum tersimpan; toast sukses ganti-password juga bisa membersihkan kartu yang requestnya gagal — editan tampak "tersimpan" padahal tidak.
+- **Rekomendasi:** Pindahkan pembersihan ke jalur sukses `saveSaasSection` (teruskan cardId, panggil `clearSaasCardDirtyByCardId` di cabang success); hapus observer toast.
+
+### S48 — Pencarian peserta di monitoring masih Enter-only (S5 tidak pernah sampai ke sini)
+- **Usaha:** XS · **Area:** Admin (Pengawasan) · **Status:** `[x]` ✅ **Batch 10**
+- **Lokasi:** `pengawas_detail.html:264-265` (`onkeyup="if(event.key==='Enter') loadDetail()"`); helper `initLiveSearch` core sudah ada dan dipakai `pengawas.html:436`. Select filter `:256` masih `onchange` inline.
+- **Dampak:** Pengawas mengetik nama siswa lalu menunggu hasil yang tak pernah datang — gejala persis S5 — di halaman momen paling terburu-buru.
+- **Rekomendasi:** Wire `initLiveSearch(input, …loadDetail…)` di init pengawas_detail; migrasi onchange select ke data-action.
+
+### S49 — Kartu info ujian Hasil Ujian menampilkan waktu UTC mentah; `.utc-date` kelas mati
+- **Usaha:** XS–S · **Area:** Admin (Submissions) · **Status:** `[x]` ✅ **Batch 10**
+- **Lokasi:** `submissions.go:245-251` (Format tanpa `.In(jakarta)`) + `submissions.html:201,206,212`; kanonik server `formatExamTime` (WIB, `main.go:271-275`) justru dipakai badge di halaman yang sama (`:166`). Variannya bocor ke popup kuota user: `admin.js:1674` (`expires_at` mentah).
+- **Dampak:** Guru WIB melihat "Upload: 03:11" padahal ujiannya 10:11 — jam salah pada data resmi hasil ujian, di samping badge yang benar.
+- **Rekomendasi:** `formatExamTime` untuk ketiga field Go; `formatDateTimeID` untuk expires_at; hapus kelas mati.
+
+### S50 — Modal konfirmasi Izinkan/Tolak tidak menyebut identitas siswa
+- **Usaha:** XS · **Area:** Admin (Pengawasan) · **Status:** `[x]` ✅ **Batch 10**
+- **Lokasi:** `pengawas_detail.html:1827-1838` — "mengizinkan **perangkat ini**…" padahal nama tersedia via `findApprovalStudentName` (`:1414-1421`, sudah dipakai toast R31).
+- **Dampak:** Antrean berisi beberapa perangkat → pengawas harus mengingat posisi baris di balik modal; salah-approve antar-perangkat sulit dibedakan setelahnya.
+- **Rekomendasi:** "Izinkan **Budi (AA:BB:CC…)** memulai ujian?" — fallback "(Anonim)" seperti baris antrean.
+
+### S51 — Klaim R29 belum penuh: ±11 onclick tersisa di render-path users/modal dinamis admin.js; guard test per-snippet
+- **Usaha:** M · **Area:** Admin · **Status:** `[x]` ✅ **Batch 10**
+- **Lokasi:** `admin.js:860,873-874,1686,1696,1702-1703,1758,1766,2341,2352` — termasuk interpolasi username berlapis escaping manual ke atribut onclick (`:1686,:1696,:1703`). Guard Batch 9 hanya mengunci snippet tertentu (`uiux-batch9-jscore.test.mjs:375-393`).
+- **Rekomendasi:** Migrasi baris aksi user + modal dinamis ke data-action; tambahkan asersi sweep "string render users-list bebas onclick=".
+
+### S52 — Toggle auto-approve aktif tanpa konfirmasi: satu ketukan mengubah perilaku SERVER
+- **Usaha:** XS · **Area:** Admin (Pengawasan) · **Status:** `[x]` ✅ **Batch 10**
+- **Lokasi:** `pengawas_detail.html:217-220` (markup), `:2087-2113` (handler POST langsung tanpa showConfirm); penjelasan hanya di `title` (tak muncul di sentuhan).
+- **Dampak:** Ketukan tak sengaja saat scroll antrean di HP → semua siswa berikutnya disetujui tanpa pemeriksaan, bertahan walau halaman ditutup. Sisi lain confirm-fatigue R30: nol friksi pada aksi berdampak luas.
+- **Rekomendasi:** Saat meng-AKTIFKAN saja: `showConfirm("Aktifkan terima otomatis? …")`; mematikan boleh langsung.
+
+### S53 — Init tab hasil dieksekusi tanpa guard state error: TypeError + listener hashchange mati
+- **Usaha:** XS · **Area:** Publik (Hasil) · **Status:** `[x]` ✅ **Batch 10**
+- **Lokasi:** `hasil.html:325-339` — `switchTab(resolveTabFromHash())` dijalankan tanpa syarat; elemen `#tabScores` hanya dirender di cabang sukses (`:178-185`) → `TypeError: null` di semua halaman error/disabled; `hashchange` tak pernah terpasang.
+- **Rekomendasi:** Bungkus init tab dengan guard `!isDisabled && !pageHasError` atau early-return bila `#tabNav` tak ada.
+
+### S54 — Tab Nilai/Kunci hasil tanpa semantik ARIA tabs — inkonsisten dengan pola terbaik sendiri di download
+- **Usaha:** S · **Area:** Publik (Hasil) · **Status:** `[x]` ✅ **Batch 10**
+- **Lokasi:** `hasil.html:178-185` (button polos, aria-label menduplikasi teks) vs pembanding benar `download.html:490-503` (role tablist/tab/tabpanel, aria-selected, roving tabindex, panah — pola S14).
+- **Rekomendasi:** Port persis pola download (role + aria-selected di switchTab + keydown panah).
+
+### S55 — Replika CSS toast di download adalah salinan pra-T10a: `.toast-close` invisible bagi keyboard
+- **Usaha:** XS · **Area:** Publik (Download) · **Status:** `[x]` ✅ **Batch 10** *(diverifikasi: tanpa rule :focus-visible)*
+- **Lokasi:** `download.html:426-443` — blok lokal "direplikasi dari output.css" tanpa rule `:focus-visible` (fix T10a Batch 2 tak pernah berlaku karena halaman ini sengaja tak memuat output.css).
+- **Dampak:** Keyboard user Tab ke tombol ✕ toast yang opacity:0 — bug T10a hidup lagi di halaman unduhan.
+- **Rekomendasi:** Salin rule `:focus-visible` dari `output.css:1183`; lebih tahan-regresi: ekstrak CSS toast ke file bersama.
+
+### S56 — reset_password memuat admin-core.js sinkron — satu-satunya halaman publik yang begitu
+- **Usaha:** XS · **Area:** Publik · **Status:** `[x]` ✅ **Batch 10**
+- **Lokasi:** `reset_password.html:179` (tanpa defer; pembanding `hasil.html:58` defer). Script besar itu hanya dipakai untuk `togglePasswordVisibility`.
+- **Dampak:** Render tertunda di halaman auth yang dibuka user locked-out dari HP — inkonsisten dengan disiplin defer S42.
+- **Rekomendasi:** Tambah `defer`; jangka menengah lepaskan dependensi admin-core dari halaman auth publik.
+
+### S57 — Blok inline TERBESAR produk tak pernah masuk radar: pengawas_detail (style 825 + script 1022 baris)
+- **Usaha:** L · **Area:** Lintas · **Status:** `[ ]` ⏸ **DITUNDA** — ekstraksi blok inline 1847 baris mematahkan kontrak fs-read statik banyak suite (pola penundaan R33); kerjakan bersama reformasi harness per-file.
+- **Fakta:** angka aktual ronde 4 — pengawas_detail **1847 baris gabungan** (1 blok style + 1 blok script inline), shared.html 812, settings.html 731 (9 blok, naik tipis dari 717). Semua bypass mekanisme cache/guard file CSS/JS.
+- **Rekomendasi:** Ekstraksi berbasis ROI per-file (pola Batch 8): style → `pengawas-detail.css`, script → modul `pengawas-detail.js` yang memang sudah ada; shared blok utama → `public-base.css`.
+
+### S58 — Migrasi rgba berhenti di hitam/putih: ±86 literal tersisa adalah pasangan PERSIS token triplet yang sudah ada
+- **Usaha:** M · **Area:** Lintas · **Status:** `[x]` ✅ **Batch 10**
+- **Fakta:** `admin-base.css`: `rgba(99,102,241,…)` ×23 (=--rgb-info), `rgba(239,68,68,…)` ×12 (=--rgb-danger), `rgba(16,185,129,…)` ×6 (=--rgb-success); `settings.html`: white ×43 + black ×38 (token ada sejak Batch 8). Margin plafon rgba folder tinggal **2** — fitur berikutnya hampir pasti membuat test merah tanpa pekerjaan migrasi yang jelas.
+- **Rekomendasi:** Dua batch migrasi substitusi-persis mekanis (pola Batch 8); plafon settings bisa turun 109→±28.
+
+### S59 — CSP-safety asimetris: admin 0 onclick (ter-guard), publik masih 17 onclick inline tanpa guard
+- **Usaha:** S–M · **Area:** Publik · **Status:** `[x]` ✅ **Batch 10**
+- **Lokasi:** `download.html` ×7 (mis. `:535`), `hasil.html` ×7 (`:179,:182,:195,:232,:236` + render-JS `:358,:419`), `shared.html:20,:27`, `register_confirm.html:260`. Registry `Actions` sudah tersedia di halaman yang memuat core (hasil & download).
+- **Rekomendasi:** Jadikan "0 inline handler di templates/public/**" kontrak test (pola R29); migrasi bertahap mulai hasil.html.
+
+### R42 — Strength meter password register ↔ reset_password sudah drift (hex vs token)
+- **Usaha:** XS–S · **Area:** Publik · **Status:** `[x]` ✅ **Batch 10**
+- **Lokasi:** `register.html:59-62,407-413` (`var(--color-danger)`) vs `reset_password.html:73-76,261-267` (`#ef4444` literal) — port R22 belum ikut migrasi token Batch 8; drift pertama telah terjadi.
+- **Rekomendasi:** Samakan reset ke token; asersi test bahwa kedua blok identik.
+
+### R43 — Print rekap: baris detail jawaban terbuka terpotong batas 380px
+- **Usaha:** XS · **Area:** Publik (Hasil) · **Status:** `[x]` ✅ **Batch 10**
+- **Lokasi:** `hasil.css:420-423` (`max-height:380px; overflow-y:auto`) vs blok print `:967-983` (tidak me-reset) — dokumen cetak hanya memuat ±380px pertama jawaban tanpa indikasi lanjutan.
+- **Rekomendasi:** Blok print tambah `.answer-grid { max-height:none; overflow:visible; }`.
+
+### R44 — Race device_fingerprint: submit cepat → field kosong tanpa sinyal
+- **Usaha:** S · **Area:** Publik (auth) · **Status:** `[x]` ✅ **Batch 10**
+- **Lokasi:** `device-fingerprint.js:38-54` + field hidden `register.html:254` — `FingerprintJS.load().then(...)` tetap async ratusan ms meski urutan defer benar; autofill password-manager + Enter bisa mengirim `device_fingerprint=""` → rate limiter diam-diam jatuh ke dimensi IP saja.
+- **Rekomendasi:** Saat submit bila field kosong & generate() in-flight: tahan kirim via `Promise.race` timeout ±1,5 dtk.
+
+### R45 — Toast error menyambung exception mentah: "Gagal menghubungi server: [object TypeError]"
+- **Usaha:** XS · **Area:** Admin (Pengawasan) · **Status:** `[x]` ✅ **Batch 10**
+- **Lokasi:** `pengawas_detail.html:1154`, `:1183` — `'…' + err` pada jalur fetch mulai/hentikan pengawasan.
+- **Rekomendasi:** Pesan statis "Periksa koneksi."; detail ke console.error.
+
+### R46 — `tombstoned_at` mentah & tanpa escaping di atribut title badge daftar pengawasan
+- **Usaha:** XS · **Area:** Admin (Pengawasan) · **Status:** `[x]` ✅ **Batch 10**
+- **Lokasi:** `pengawas.html:288-289` — timestamp UTC mentah (melanggar satu-pintu R31 yang dipakai tiga baris di bawahnya) + interpolasi tanpa escapeHtml ke atribut.
+- **Rekomendasi:** `escapeHtml(jsEscape(…))` + `formatDateTimeID`; samakan versi template `submissions.html:166`.
+
+### R47 — Ekspor Excel: body error non-JSON (proxy 502 HTML) → toast berisi SyntaxError
+- **Usaha:** XS · **Area:** Admin (Submissions) · **Status:** `[x]` ✅ **Batch 10**
+- **Lokasi:** `admin.js:3351-3354` — `resp.json()` reject `SyntaxError: Unexpected token '<'` yang tampil mentah di toast `:3376`.
+- **Rekomendasi:** `.catch(() => ({}))` sebelum baca message, atau cek content-type.
+
+### R48 — Race tutup→buka uploadModal: setTimeout 300ms menutup modal yang baru dibuka ulang
+- **Usaha:** XS · **Area:** Admin (Settings) · **Status:** `[x]` ✅ **Batch 10**
+- **Lokasi:** `settings-system-apps.js:144-152` vs `:126-134` — timeout lama tak dibatalkan saat modal dibuka lagi <300 ms.
+- **Rekomendasi:** Simpan handle timeout; openUploadModal melakukan clearTimeout / cek generasi.
+
+### R49 — Error state daftar pengawasan dead-end tanpa aksi pemulihan
+- **Usaha:** XS · **Area:** Admin (Pengawasan) · **Status:** `[x]` ✅ **Batch 10**
+- **Lokasi:** `pengawas.html:249`, `:340` — "Gagal memuat data" statis tanpa tombol Coba Lagi/auto-retry; pembanding terbaik sendiri: daftar user (`admin.js:1758`) & hasil.html (G6).
+- **Rekomendasi:** Tambah button `data-action` "Coba Lagi" pada kedua state error.
+
+### R50 — Ekor R26: "Refresh" ×4 & "Export XML" ×1
+- **Usaha:** XS · **Area:** Admin · **Status:** `[x]` ✅ **Batch 10**
+- **Lokasi:** `settings.html:956,1299`; `pengawas_detail.html:226,268` (title); `dashboard.html:905` ("Export XML", padahal submissions sudah "Ekspor Excel").
+- **Rekomendasi:** "Muat Ulang"/"Segarkan" + "Ekspor XML"; masuk test bahasa.
+
+### R51 — Heading order melompat turun: h2 → h4 di download & submissions
+- **Usaha:** XS · **Area:** Publik + Admin · **Status:** `[x]` ✅ **Batch 10**
+- **Lokasi:** `download.html:516→525` (skip h3; sama `:769`); `submissions.html:159→182` (juga `:197,:220,:236`). R19 memperbaiki arah naik, bukan turun.
+- **Rekomendasi:** Turunkan h4 flavor/section-title jadi h3 (visual via class — pola R19); assertion urutan heading di test.
+
+### R52 — Ekor arwah di nav.html: z-index `99999` onboarding & skip-link inline `left:-9999px`
+- **Usaha:** XS · **Area:** Admin · **Status:** `[x]` ✅ **Batch 10**
+- **Lokasi:** `nav.html:126` (`z-index:99999` mengalahkan toast/skip-link; dirender global) dan `nav.html:8` (skip-link gaya inline, dua gaya dalam satu partial — sisa S33/R12 yang scopenya hanya CSS inti).
+- **Rekomendasi:** Token z (mis. `--z-onboarding`) di bawah toast; skip-link nav pakai class `.skip-link` theme.css.
+
+### R53 — Ikon `#64748b` tersisa satu lokasi (klaim R41 "bersih" tidak penuh)
+- **Usaha:** XS · **Area:** Admin (Pengawasan) · **Status:** `[x]` ✅ **Batch 10** *(rasio diverifikasi perhitungan)*
+- **Lokasi:** `pengawas_detail.html:1646` — render-JS riwayat perangkat; `#64748b` di kartu = 3.43:1 (ikon 18px, lolos non-teks 3:1, tetapi satu-satunya sisa di seluruh templates/ yang dilarang T9; ikon sejenis di file sama sudah var(--color-text-muted)).
+- **Rekomendasi:** Ganti ke token; masukkan `#64748b` ke hex terlarang guard template.
+
+---
+
 ## 6. REKAP TRACKING
 
 > Centang `[x]` + cantumkan hash commit saat selesai. Urut sesuai prioritas eksekusi.
+
+### Batch 10 — Ronde 4: eksekusi temuan 5.7 ✅ SELESAI (2026-08-24, test-first via 5 agen paralel (2 agen terputus → dikerjakan koordinator); suite gabungan repo **577/577 hijau**, `go build`+`go vet` OK)
+
+> Kontrak lintas-agen: (1) token `--grad-btn-violet/blue-start/end` & `--z-onboarding` dipindah/
+> didefinisikan di theme.css sebagai satu sumber (nilai AA terkunci test); (2) pembersihan dirty
+> kartu settings kini dari jalur sukses `saveSaasSection(cardId)` — observer toast satu-slot dihapus;
+> (3) guard onclick diperluas: templates/public/** wajib 0 inline handler.
+
+- [x] **T17** regresi deep-link `#kunci`: `loadResults()` kini menutup dengan
+  `switchTab(currentTab, { skipHash: true })` — panel Nilai tidak lagi bertumpuk dengan Kunci saat
+  halaman dibuka via hash; diuji vm.
+- [x] **T18** gradien submit instansi gagal-AA dibereskan di nav.html (onboarding) & dashboard
+  (edit instansi): `var(--grad-btn-violet-start/end)` dari theme.css (endpoint 5.38/5.70:1);
+  whitelist larangan `#a855f7|#6366f1` dikunci test untuk admin + publik.
+- [x] **S47** pembersihan dirty kartu settings pindah ke cabang sukses `saveSaasSection`
+  (argumen cardId, guard typeof untuk halaman tanpa modul general); `SAAS_PENDING_SAVE` +
+  observer toast MutationObserver DIHAPUS dari settings-general.js — tak ada lagi salah-bersih
+  lintas kartu/fitur. Kontrak batch9-settings direvisi ke mekanisme baru (intent anti-drift utuh).
+- [x] **S48** pencarian peserta monitoring kini live-search (`initLiveSearch`, debounce core);
+  select filter lewat listener change — Enter-only & onchange inline dihapus.
+- [x] **S49** kartu info ujian Hasil Ujian tampil WIB: helper `formatExamTimeWIB`/
+  `formatCreatedTimeWIB` di submissions.go (LoadLocation + fallback FixedZone), selaras
+  formatExamTime main.go; `expires_at` popup kuota diformat; kelas mati `.utc-date` dihapus.
+- [x] **S50** modal Izinkan/Tolak menyebut identitas: helper `formatApprovalStudentLabel(mac)`
+  → "**Budi** (AA:BB…)", fallback "(Anonim)"; nama dari cache antrean yang sama dengan toast R31.
+- [x] **S51** sisa ±11 onclick render-path users/modal dinamis admin.js dimigrasi ke data-action;
+  asersi sweep "string render users bebas onclick=" ditambahkan (bukan lagi per-snippet).
+- [x] **S52** toggle auto-approve wajib `showConfirm` saat meng-AKTIFKAN ("semua perangkat
+  berikutnya disetujui tanpa pemeriksaan hingga dimatikan"), batal mengembalikan posisi switch;
+  mematikan tetap langsung.
+- [x] **S53** init tab hasil dibungkus guard `!isDisabled && !pageHasError` — tanpa TypeError di
+  state error/disabled; listener hashchange ikut dalam guard.
+- [x] **S54** tab Nilai/Kunci hasil mendapat semantik ARIA tabs lengkap (tablist/tab/tabpanel,
+  aria-selected, roving tabindex + panah/Home/End) — port pola download S14.
+- [x] **S55** blok CSS toast lokal download mendapat rule `.toast-close:focus-visible` (fix T10a
+  kini berlaku juga di halaman unduhan).
+- [x] **S56** admin-core.js di reset_password dimuat `defer` — disiplin S42 kini seragam.
+- [x] **S58** migrasi rgba literal pasangan-token: settings.html white ×43 + black ×38 →
+  rgba(var(--rgb-white/black)) (109→28 literal); admin-base.css triplet brand info/danger/success
+  (+primary/accent/warning) → rgba(var(--rgb-*)); plafon guard diturunkan sesuai angka baru.
+- [x] **S59** templates/public/** kini **0 onclick inline** (hasil/download via Actions registry;
+  shared/register_confirm via addEventListener lokal); guard "0 onclick" diperluas ke folder publik.
+- [ ] **S57 DITUNDA** — ekstraksi blok inline pengawas_detail (style 825 + script 1022 baris)
+  mematahkan kontrak fs-read statik banyak suite; kerjakan bersama reformasi harness per-file.
+- [x] **R42** strength meter reset_password bermigrasi ke token (--color-danger/warning) — paritas
+  register↔reset pulih; asersi kedua blok bebas hex.
+- [x] **R43** print style hasil me-reset `.answer-grid { max-height:none }` — rekap cetak lengkap.
+- [x] **R44** race device_fingerprint: submit dengan field kosong & generate() in-flight ditahan
+  via Promise.race timeout ±1,5 dtk lalu lanjut apa adanya — coverage fingerprint naik tanpa
+  mengubah UX.
+- [x] **R45** toast fetch mulai/hentikan pengawasan → pesan statis "Periksa koneksi." (err ke console).
+- [x] **R46** title badge tombstoned lolos escapeHtml(jsEscape()) + timestamp via formatDateTimeID.
+- [x] **R47** Ekspor Excel toleran body non-JSON (catch parse → fallback pesan ramah).
+- [x] **R48** race tutup→buka uploadModal: handle setTimeout disimpan & dibatalkan openUploadModal.
+- [x] **R49** kedua error state daftar pengawasan dapat tombol "Coba Lagi" (data-action reload).
+- [x] **R50** sisa EN habis: "Refresh"→"Muat Ulang" (settings ×2, pengawas_detail ×2),
+  "Export XML"→"Ekspor XML".
+- [x] **R51** heading order h2→h4 diperbaiki (download flavor-title, submissions section-title → h3,
+  visual via class — pola R19); assertion urutan heading ditambahkan.
+- [x] **R52** nav.html: z-index onboarding 99999 → var(--z-onboarding)=10001 (di bawah toast);
+  skip-link memakai class `.skip-link` theme.css (inline style dihapus).
+- [x] **R53** `#64748b` terakhir (ikon riwayat perangkat pengawas_detail) → var(--color-text-muted);
+  grep templates/ = 0.
+- Kontrak test lama direvisi minimal dengan intent proteksi dipertahankan: batch9-settings (mekanisme
+  S47 baru), batch6-publik-css (nilai --z-onboarding 10001 + alasan), batch1 S13 (anchor unduh kini
+  data-action + delegasi meneruskan elemen), batch5-publik T12 (regex guard init toleran komentar S54),
+  batch7-pengawasan (helper S50 ikut dimuat sandbox + global approvalRowsCache).
 
 ### Batch 9 — Ronde 3: eksekusi temuan 5.6 ✅ SELESAI (2026-08-24, test-first via 5 agen paralel dengan kepemilikan file terpisah; suite gabungan repo **507/507 hijau**, `go build`+`go vet` OK)
 

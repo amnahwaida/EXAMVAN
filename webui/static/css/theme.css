@@ -82,13 +82,32 @@
     --color-card-bg: #1e1e2e;
     --bg-gradient: radial-gradient(ellipse at 50% 0%, #17152f 0%, #0c0a1a 50%, #06050b 100%);
 
+    /* === Gradien tombol lolos AA (Batch 10, kontrak lintas-agen T16/T18) ===
+       Nama & nilai WAJIB persis — sama dengan definisi lokal shared.html
+       yang lama (Batch 9). Semua endpoint gradien terverifikasi ≥ 4.5:1
+       terhadap label putih 15.5px bold (WCAG AA teks normal), dihitung oleh
+       uiux-batch9-publik.test.mjs:
+         #9333ea = 5.38:1 · #7c3aed = 5.70:1 · #2563eb = 5.17:1 · #1d4ed8 = 6.70:1
+       Agen lain (publik maupun admin: nav/dashboard) memakai var(--grad-btn-*);
+       JANGAN mengganti nilai tanpa menghitung ulang kontras AA. */
+    --grad-btn-violet-start: #9333ea;
+    --grad-btn-violet-end: #7c3aed;
+    --grad-btn-blue-start: #2563eb;
+    --grad-btn-blue-end: #1d4ed8;
+
     /* === Z-index Scale (S33, Batch 6) ===
        Kontrak lintas-agen — nama & nilai WAJIB persis (admin templates
        mensubstitusi memakai nama yang sama):
          --z-skip-link : 9998   (skip-link off-screen/fokus)
          --z-dropdown  : 9999   (dropdown/popover di atas konten)
          --z-toast     : 10002  (lapisan toast tertinggi reguler)
-         --z-onboarding: 99999  (modal onboarding, mengalahkan semua)
+         --z-onboarding: 10001  (modal onboarding instansi — DI BAWAH toast)
+       Batch 10 (R52): --z-onboarding diturunkan dari 99999 menjadi 10001.
+       Alasan: modal onboarding adalah layar pertama admin baru, tetapi justru
+       karena itu toast sukses/gagal simpan instansi HARUS tetap terlihat di
+       atasnya — nilai lama 99999 menimbun feedback (toast 10002) dan
+       skip-link yang fokus di 10002. Urutan final:
+         dropdown (9999) < onboarding (10001) < toast/skip-link fokus (10002).
        Nilai z lain yang tersebar (nav 100/210/220, overlay 90/160 dst.)
        adalah layering lokal konteks-spesifik dan TIDAK dijadikan token:
        tidak berulang lintas-file dengan makna sama, jadi literalnya
@@ -96,7 +115,7 @@
     --z-skip-link: 9998;
     --z-dropdown: 9999;
     --z-toast: 10002;
-    --z-onboarding: 99999;
+    --z-onboarding: 10001;
 }
 
 /* KEPUTUSAN Batch 4 (temuan S17): palet light (:root[data-theme="light"])

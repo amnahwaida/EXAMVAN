@@ -123,9 +123,19 @@ function renderAppsGrid(apps) {
 // buka/tutup via inline display (pola semua modal lain) sehingga perilaku
 // Global Modal Manager (admin-core.js) konsisten; kelas arwah .modal-backdrop
 // dan toggle .show tidak dipakai lagi.
+// Batch 10 (R48): handle timeout penutupan tertunda — dibatalkan bila modal
+// dibuka ulang sebelum 300 ms berlalu, supaya modal yang baru dibuka tidak
+// ikut tertutup oleh timer lama.
+var __uploadCloseTimer = null;
+
 function openUploadModal() {
     const modal = document.getElementById('uploadModal');
     if (!modal) return;
+    // R48: batalkan penutupan tertunda dari closeUploadModal sebelumnya.
+    if (__uploadCloseTimer !== null) {
+        clearTimeout(__uploadCloseTimer);
+        __uploadCloseTimer = null;
+    }
     // Reset defensif: jangan pernah menyambut user dengan error upaya sebelumnya.
     const errBox = document.getElementById('uploadError');
     if (errBox) errBox.style.display = 'none';
@@ -141,7 +151,8 @@ function closeUploadModal() {
         return;
     }
     const modal = document.getElementById('uploadModal');
-    setTimeout(() => {
+    __uploadCloseTimer = setTimeout(() => {
+        __uploadCloseTimer = null;
         modal.style.display = 'none';
         document.getElementById('uploadAppForm').reset();
         document.getElementById('file-name-display').innerText = 'Pilih atau Seret File Kesini';

@@ -26,6 +26,28 @@ import (
 // 1. GET /admin/submissions — Render submissions overview page
 // ---------------------------------------------------------------------------
 
+// Batch 10 (S49): zona sekolah WIB untuk kartu info ujian — selaras
+// formatExamTime di main.go. LoadLocation gagal (tanpa tzdata) → fallback
+// FixedZone dengan offset yang sama (WIB tidak mengenal DST).
+var jakartaLoc = func() *time.Location {
+	loc, err := time.LoadLocation("Asia/Jakarta")
+	if err != nil {
+		return time.FixedZone("WIB", 7*60*60)
+	}
+	return loc
+}()
+
+func formatExamTimeWIB(t *time.Time) string {
+	if t == nil {
+		return ""
+	}
+	return t.In(jakartaLoc).Format("2006-01-02 15:04")
+}
+
+func formatCreatedTimeWIB(t time.Time) string {
+	return t.In(jakartaLoc).Format("2006-01-02 15:04")
+}
+
 func SubmissionsPage() gin.HandlerFunc {
 	return func(c *gin.Context) {
 		isSuper := isSuperAdmin(c)
@@ -239,16 +261,18 @@ func SubmissionsPage() gin.HandlerFunc {
 					}
 				}
 
-				// Format timestamps
+				// Format timestamps — Batch 10 (S49): tampilkan dalam zona
+				// sekolah (WIB), bukan UTC mentah; selaras formatExamTime
+				// (main.go) yang dipakai badge halaman yang sama.
 				startTime := ""
 				if exam.StartTime != nil {
-					startTime = exam.StartTime.Format("2006-01-02 15:04")
+					startTime = formatExamTimeWIB(exam.StartTime)
 				}
 				endTime := ""
 				if exam.EndTime != nil {
-					endTime = exam.EndTime.Format("2006-01-02 15:04")
+					endTime = formatExamTimeWIB(exam.EndTime)
 				}
-				createdAt := exam.CreatedAt.Format("2006-01-02 15:04")
+				createdAt := formatCreatedTimeWIB(exam.CreatedAt)
 
 				examInfo = gin.H{
 					"name":           exam.Name,

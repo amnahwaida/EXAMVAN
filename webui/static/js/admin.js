@@ -857,7 +857,7 @@ function setAllWeights() {
     card.innerHTML = `
         <div class="modal-header">
             <h3>⚖️ Set Bobot Semua Soal</h3>
-            <button class="modal-close" onclick="this.closest('.modal-overlay').remove()" aria-label="Tutup"><svg class="icon-svg" style="width:18px;height:18px;"><use href="#hi-x"/></svg></button>
+            <button class="modal-close" data-action="modal-remove" aria-label="Tutup"><svg class="icon-svg" style="width:18px;height:18px;"><use href="#hi-x"/></svg></button>
         </div>
         <div class="modal-body bulk-weight-body">
             <p class="bulk-weight-desc">
@@ -870,8 +870,8 @@ function setAllWeights() {
             </label>
         </div>
         <div class="modal-footer bulk-weight-footer">
-            <button class="btn-sm" onclick="this.closest('.modal-overlay').remove()">Batal</button>
-            <button class="btn-upload" onclick="applyBulkWeight(this)">Terapkan</button>
+            <button class="btn-sm" data-action="modal-remove">Batal</button>
+            <button class="btn-upload" data-action="bulk-weight-apply">Terapkan</button>
         </div>
     `;
     overlay.appendChild(card);
@@ -1683,7 +1683,7 @@ function loadUsersList(page) {
                         // left desktop users guessing and touch users with no
                         // tooltip at all (title does not appear on tap).
                         var verifyBtn = user.status === 'pending_otp'
-                            ? '<button class="btn-sm btn-row-action btn-row-action-verify" onclick="verifyUser(' + user.id + ', \'' + escapeHtml(jsEscape(user.username)) + '\')" title="Verifikasi manual"><svg class="icon-svg" aria-hidden="true"><use href="#hi-check"/></svg> Verifikasi</button> '
+                            ? '<button class="btn-sm btn-row-action btn-row-action-verify" data-action="user-verify" data-user-id="' + user.id + '" data-name="' + escapeHtml(user.username) + '" title="Verifikasi manual"><svg class="icon-svg" aria-hidden="true"><use href="#hi-check"/></svg> Verifikasi</button> '
                             : '';
 
                         // "Nonaktifkan Paket" — SuperAdmin only, and only when the
@@ -1693,14 +1693,14 @@ function loadUsersList(page) {
                         // active package: the account falls back to the best
                         // remaining claimed voucher or reverts to the free trial.
                         var deactivateBtn = (window.__adminRole === 'superadmin' && user.has_active_package)
-                            ? '<button class="btn-sm btn-row-action btn-row-action-deactivate" onclick="deactivatePackage(' + user.id + ', \'' + escapeHtml(jsEscape(user.username)) + '\')" title="Nonaktifkan paket aktif akun ini — akun kembali ke paket free atau voucher lain yang masih tersisa"><svg class="icon-svg" aria-hidden="true"><use href="#hi-exclamation"/></svg> Nonaktifkan Paket</button> '
+                            ? '<button class="btn-sm btn-row-action btn-row-action-deactivate" data-action="user-deactivate-package" data-user-id="' + user.id + '" data-name="' + escapeHtml(user.username) + '" title="Nonaktifkan paket aktif akun ini — akun kembali ke paket free atau voucher lain yang masih tersisa"><svg class="icon-svg" aria-hidden="true"><use href="#hi-exclamation"/></svg> Nonaktifkan Paket</button> '
                             : '';
 
                         actionsHtml = '<div class="user-row-actions">'
                             + verifyBtn
                             + deactivateBtn
-                            + '<button class="btn-sm btn-row-action btn-row-action-edit" onclick="openEditUserModal(' + user.id + ')" title="Atur limit & reset password"><svg class="icon-svg" aria-hidden="true"><use href="#hi-edit"/></svg> Edit</button> '
-                            + '<button class="btn-sm btn-row-action btn-row-action-danger" onclick="deleteUser(' + user.id + ', \'' + escapeHtml(jsEscape(user.username)) + '\')" title="Hapus user beserta semua ujiannya"><svg class="icon-svg" aria-hidden="true"><use href="#hi-trash"/></svg> Hapus</button>'
+                            + '<button class="btn-sm btn-row-action btn-row-action-edit" data-action="user-edit-open" data-user-id="' + user.id + '" title="Atur limit & reset password"><svg class="icon-svg" aria-hidden="true"><use href="#hi-edit"/></svg> Edit</button> '
+                            + '<button class="btn-sm btn-row-action btn-row-action-danger" data-action="user-delete" data-user-id="' + user.id + '" data-name="' + escapeHtml(user.username) + '" title="Hapus user beserta semua ujiannya"><svg class="icon-svg" aria-hidden="true"><use href="#hi-trash"/></svg> Hapus</button>'
                             + '</div>';
                     }
 
@@ -1755,7 +1755,7 @@ function loadUsersList(page) {
                 tbody.setAttribute('aria-busy', 'false');
             } else {
                 tbody.innerHTML = '<tr><td colspan="9" style="text-align:center; padding: 20px; color: var(--color-danger-light);">Gagal memuat daftar user'
-                    + '<div style="margin-top:12px;"><button type="button" class="btn-sm btn-secondary" onclick="loadUsersList(' + page + ')">Coba Lagi</button></div></td></tr>';
+                    + '<div style="margin-top:12px;"><button type="button" class="btn-sm btn-secondary" data-action="users-retry-load" data-page="' + page + '">Coba Lagi</button></div></td></tr>';
                 tbody.setAttribute('aria-busy', 'false');
             }
         })
@@ -1763,7 +1763,7 @@ function loadUsersList(page) {
             var t = document.getElementById('usersTableBody');
             if (t) {
                 t.innerHTML = '<tr><td colspan="9" style="text-align:center; padding: 20px; color: var(--color-danger-light);">Gagal memuat daftar user'
-                    + '<div style="margin-top:12px;"><button type="button" class="btn-sm btn-secondary" onclick="loadUsersList(' + page + ')">Coba Lagi</button></div></td></tr>';
+                    + '<div style="margin-top:12px;"><button type="button" class="btn-sm btn-secondary" data-action="users-retry-load" data-page="' + page + '">Coba Lagi</button></div></td></tr>';
                 t.setAttribute('aria-busy', 'false');
             }
         });
@@ -2338,7 +2338,7 @@ function createEditUserModal() {
         <div class="modal-card glass-card" style="max-width:540px;">
             <div class="modal-header">
                 <h3><svg class="icon-svg" style="vertical-align:middle;margin-top:-2px;"><use href="#hi-users"/></svg> Atur User: <span id="editUserUsername" style="color:var(--color-primary-light);"></span></h3>
-                <button class="modal-close" onclick="closeEditUserModal()" aria-label="Tutup"><svg class="icon-svg" style="width:18px;height:18px;"><use href="#hi-x"/></svg></button>
+                <button class="modal-close" data-action="modal-dismiss" data-modal-close="closeEditUserModal" aria-label="Tutup"><svg class="icon-svg" style="width:18px;height:18px;"><use href="#hi-x"/></svg></button>
             </div>
             <div class="modal-body">
                 <form id="editUserForm" onsubmit="submitEditUser(event)">
@@ -2349,7 +2349,7 @@ function createEditUserModal() {
                     </div>
                     <div class="form-group" style="margin-bottom:8px;" id="editUserPackageGroup">
                         <label for="editUserPackage">Paket Langganan (Preset)</label>
-                        <select id="editUserPackage" onchange="applyPackagePreset('edit')" style="width:100%;padding:8px 12px;background:rgba(255,255,255,0.05);border:1px solid var(--color-glass-border);border-radius:10px;color:var(--color-text);outline:none;font-size:13px;cursor:pointer;">
+                        <select id="editUserPackage" style="width:100%;padding:8px 12px;background:rgba(255,255,255,0.05);border:1px solid var(--color-glass-border);border-radius:10px;color:var(--color-text);outline:none;font-size:13px;cursor:pointer;">
                             <option value="free">Free / Trial</option>
                             <option value="guru">Paket Guru</option>
                             <option value="individu">Paket Individu</option>
@@ -2420,6 +2420,10 @@ function createEditUserModal() {
         </div>
     `;
     document.body.appendChild(modal);
+
+    // S51: preset paket di-wire programatik (pengganti atribut onchange inline).
+    var pkgSelect = document.getElementById('editUserPackage');
+    if (pkgSelect) pkgSelect.addEventListener('change', function () { applyPackagePreset('edit'); });
 
     // Hide operator checkbox in edit modal if current user is operator
     if (__adminHasRole('operator')) {
@@ -3349,7 +3353,10 @@ function exportSubmissions() {
     apiFetch(url)
         .then(function (resp) {
             if (!resp.ok) {
-                return resp.json().then(function (err) {
+                // R47: body error bisa non-JSON (halaman HTML proxy 502 dst.)
+                // — resp.json() reject SyntaxError yang tadinya tampil mentah
+                // di toast. Fallback {} → pesan generik di bawah.
+                return resp.json().catch(function () { return {}; }).then(function (err) {
                     throw new Error((err && err.message) || 'Gagal mengekspor data');
                 });
             }
@@ -3415,7 +3422,11 @@ function deleteSubmission(id) {
 
 // saveSaasSection posts a partial payload and refreshes the form values from
 // the server. btnId is the card's save button (loading state + toast).
-function saveSaasSection(payload, btnId, successMsg) {
+// Batch 10 (S47): cardId adalah identitas kartu Pengaturan Umum milik section
+// ini — di cabang SUKSES saja clearSaasCardDirtyByCardId(cardId) membersihkan
+// indikator dirty. Kontrak lama (observer toast SAAS_PENDING_SAVE di
+// settings-general.js) dihapus karena bisa membersihkan kartu yang salah.
+function saveSaasSection(payload, btnId, successMsg, cardId) {
     const btn = document.getElementById(btnId);
     const originalHTML = btn ? btn.innerHTML : '';
     if (btn) {
@@ -3430,6 +3441,11 @@ function saveSaasSection(payload, btnId, successMsg) {
     .then(r => r.json())
     .then(res => {
         if (res.success) {
+            if (cardId && typeof clearSaasCardDirtyByCardId === 'function') {
+                // Fungsi milik settings-general.js (lazy-loaded) — guard typeof
+                // agar halaman tanpa modul itu tetap aman.
+                clearSaasCardDirtyByCardId(cardId);
+            }
             showToast(res.message || successMsg, 'success');
             loadSaasSettings();
         } else {
@@ -3463,7 +3479,7 @@ function saveSmtpSettings() {
         smtp_user: document.getElementById('smtpUserInput').value.trim(),
         smtp_password: document.getElementById('smtpPasswordInput').value.trim(),
         smtp_sender_name: document.getElementById('smtpSenderNameInput').value.trim()
-    }, 'saveSmtpSettingsBtn', 'Setelan SMTP disimpan');
+    }, 'saveSmtpSettingsBtn', 'Setelan SMTP disimpan', 'saas-card-smtp');
 }
 
 function saveTurnstileSettings() {
@@ -3473,7 +3489,7 @@ function saveTurnstileSettings() {
         turnstile_secret_key: (document.getElementById('turnstileSecretKeyInput') || {}).value || '',
         max_accounts_per_ip: parseInt((document.getElementById('maxAccountsPerIpInput') || {}).value) || 0,
         max_approvals_per_exam: parseInt((document.getElementById('maxApprovalsPerExamInput') || {}).value) || 0
-    }, 'saveTurnstileSettingsBtn', 'Setelan Turnstile disimpan');
+    }, 'saveTurnstileSettingsBtn', 'Setelan Turnstile disimpan', 'saas-card-turnstile');
 }
 
 function saveCleanupSettings() {
@@ -3490,7 +3506,7 @@ function saveCleanupSettings() {
         approval_cleanup_interval_minutes: cleanupNum('approvalCleanupIntervalMinutesInput', 15),
         approval_cleanup_ended_grace_hours: cleanupNum('approvalCleanupEndedGraceHoursInput', 1),
         approval_cleanup_inactive_ttl_hours: cleanupNum('approvalCleanupInactiveTTLHoursInput', 24)
-    }, 'saveCleanupSettingsBtn', 'Setelan pembersihan disimpan');
+    }, 'saveCleanupSettingsBtn', 'Setelan pembersihan disimpan', 'saas-card-cleanup');
 }
 
 function saveDefaultPkgSettings() {
@@ -3509,7 +3525,7 @@ function saveDefaultPkgSettings() {
         default_max_pdf_size_mb: parseFloat(document.getElementById('defaultPdfInput').value),
         default_max_storage_size_mb: parseFloat(document.getElementById('defaultStorageInput').value),
         default_active_days: parseInt(document.getElementById('defaultActiveDaysInput').value)
-    }, 'saveDefaultPkgSettingsBtn', 'Default paket disimpan');
+    }, 'saveDefaultPkgSettingsBtn', 'Default paket disimpan', 'saas-card-default-pkg');
 }
 
 function saveVersionsSettings() {
@@ -3525,14 +3541,14 @@ function saveVersionsSettings() {
     saveSaasSection({
         android_version: document.getElementById('androidVersionInput').value.trim(),
         webapp_version: document.getElementById('webappVersionInput').value.trim()
-    }, 'saveVersionsSettingsBtn', 'Versi aplikasi disimpan');
+    }, 'saveVersionsSettingsBtn', 'Versi aplikasi disimpan', 'saas-card-versions');
 }
 
 function saveFooterSettings() {
     saveSaasSection({
         footer_text: document.getElementById('footerTextInput').value.trim(),
         footer_tagline: document.getElementById('footerTaglineInput').value.trim()
-    }, 'saveFooterSettingsBtn', 'Footer disimpan');
+    }, 'saveFooterSettingsBtn', 'Footer disimpan', 'saas-card-footer');
 }
 
 function saveSeoSettings() {
@@ -3541,13 +3557,13 @@ function saveSeoSettings() {
         seo_description: document.getElementById('seoDescriptionInput').value.trim(),
         seo_keywords: document.getElementById('seoKeywordsInput').value.trim(),
         seo_index: document.getElementById('seoIndexInput').checked
-    }, 'saveSeoSettingsBtn', 'Setelan SEO disimpan');
+    }, 'saveSeoSettingsBtn', 'Setelan SEO disimpan', 'saas-card-seo');
 }
 
 function saveMonetizationSettings() {
     saveSaasSection({
         voucher_redeem_enabled: !!(document.getElementById('voucherRedeemEnabledInput') || {}).checked
-    }, 'saveMonetizationSettingsBtn', 'Kontrol monetisasi disimpan');
+    }, 'saveMonetizationSettingsBtn', 'Kontrol monetisasi disimpan', 'saas-card-monetization');
 }
 
 // Format ukuran storage untuk hint sisa disk (MB → MB/GB).
@@ -4235,6 +4251,34 @@ if (typeof Actions !== 'undefined' && typeof Actions.register === 'function') {
     Actions.register('users-toggle-sort', function (el) {
         toggleUsersSort(el.getAttribute('data-sort'));
     });
+
+    // Batch 10 (S51): migrasi sisa onclick render-path users/modal dinamis ke
+    // data-action (pola Batch 8). Id/halaman dinormalisasi parseInt(..., 10);
+    // nama user dibawa via data-name TANPA jsEscape — konteksnya atribut HTML
+    // biasa, escapeHtml pada saat render sudah cukup.
+    Actions.register('user-verify', function (el) {
+        verifyUser(parseInt(el.getAttribute('data-user-id'), 10), el.getAttribute('data-name'));
+    });
+    Actions.register('user-deactivate-package', function (el) {
+        deactivatePackage(parseInt(el.getAttribute('data-user-id'), 10), el.getAttribute('data-name'));
+    });
+    Actions.register('user-edit-open', function (el) {
+        openEditUserModal(parseInt(el.getAttribute('data-user-id'), 10));
+    });
+    Actions.register('user-delete', function (el) {
+        deleteUser(parseInt(el.getAttribute('data-user-id'), 10), el.getAttribute('data-name'));
+    });
+    Actions.register('users-retry-load', function (el) {
+        var page = parseInt(el.getAttribute('data-page'), 10);
+        loadUsersList(page || 1);
+    });
+    // Modal bobot massal dibangun dinamis & dibuang dengan .remove() —
+    // penutup generik untuk overlay tanpa fungsi close bernama.
+    Actions.register('modal-remove', function (el) {
+        var overlay = el.closest ? el.closest('.modal-overlay') : null;
+        if (overlay && typeof overlay.remove === 'function') overlay.remove();
+    });
+    Actions.register('bulk-weight-apply', function (el) { applyBulkWeight(el); });
 
     // Halaman Pengajuan (submissions.html)
     // Id numerik dinormalisasi parseInt(..., 10) — konsisten dengan handler
