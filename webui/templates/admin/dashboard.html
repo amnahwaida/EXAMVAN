@@ -531,7 +531,7 @@
 <div class="exam-action-dropdown">
 <button class="btn-sm btn-more btn-sm-compact" data-action="row-dropdown-toggle" data-exam-id="{{$exam.ID}}" title="Menu Tindakan Lainnya" aria-label="Tindakan lainnya" aria-haspopup="true" aria-expanded="false"><svg class="icon-svg" aria-hidden="true"><use href="#hi-chevron-down"/></svg></button>
 <div class="exam-action-dropdown-content" id="dropdown-content-{{$exam.ID}}">
-<a href="/admin/api/exams/{{$exam.ID}}/pdf" target="_blank"><svg class="icon-svg"><use href="#hi-eye"/></svg> Lihat PDF</a>
+<a href="/admin/api/exams/{{$exam.ID}}/pdf" target="_blank" rel="noopener"><svg class="icon-svg"><use href="#hi-eye"/></svg> Lihat PDF</a>
 <a href="/admin/api/exams/{{$exam.ID}}/pdf?download=1"><svg class="icon-svg"><use href="#hi-download"/></svg> Download PDF</a>
 <button data-exam-id="{{$exam.ID}}" data-exam-name="{{$exam.Name}}" data-action="edit-exam-open"><svg class="icon-svg"><use href="#hi-edit"/></svg> Edit Nama &amp; PDF</button>
 {{if or (hasRole $.admin_role "operator") (eq $.admin_role "superadmin")}}

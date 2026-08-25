@@ -155,22 +155,14 @@ test('R126 (statik): satu-satunya #f87171 di theme.css adalah DEFINISI token itu
     assert.match(noComments, /--color-danger-bright:\s*#f87171\s*;/);
 });
 
-test('R126 (guard): admin-tailwind.css #f87171 dikunci baseline eksplisit — target turun ke 0', () => {
-    // Baseline eksplisit (BUKAN pengecualian senyap): dua literal kustom
-    // `.toast-error .toast-icon` (:715) dan satu lokasi lagi (:1424) adalah
-    // komponen kustom di file tailwind yang dirawat manusia. Agen Batch 16
-    // TIDAK memiliki file ini — migrasi ke var(--color-danger-bright)
-    // menjadi temuan untuk koordinator; setelah bermigrasi, TURUNKAN
-    // baseline ini ke 0 (jangan pernah dinaikkan).
-    // Batch 16: kedua literal dimigrasi var(--color-danger-bright) —
-       // baseline dikunci 0 (target tercapai).
-    const BASELINE_ADMIN_TAILWIND_F87171 = 0;
+test('R126 (guard): admin-tailwind.css TIDAK ADA lagi (dihapus Batch 19 - file mati tanpa pemuat)', () => {
+    // Riwayat: file ini tak pernah dimuat halaman mana pun (nol referensi),
+    // namun selama ini membebani guard (baseline f87171, pengecualian walk).
+    // Batch 16 memigrasi kedua literalnya; Batch 19 menghapus filenya
+    // sepenuhnya (S117) - kontrak kini memastikan ia TIDAK kembali.
     const at = ALL_CSS.find((e) => e.file.endsWith(path.join('tailwind', 'admin-tailwind.css')));
-    assert.ok(at, 'admin-tailwind.css harus ada di walk css');
-    const n = (at.src.match(/#f87171/gi) || []).length;
-    assert.equal(n, BASELINE_ADMIN_TAILWIND_F87171,
-        `#f87171 admin-tailwind.css = ${n}, baseline ${BASELINE_ADMIN_TAILWIND_F87171} — ` +
-        'migrasikan ke var(--color-danger-bright) lalu turunkan baseline ke 0');
+    assert.equal(at, undefined,
+        'admin-tailwind.css wajib tetap terhapus - artefak manual di web root publik dilarang');
 });
 
 // ════════════════════════════════════════════════════════════════════════

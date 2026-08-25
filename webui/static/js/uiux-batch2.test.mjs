@@ -126,7 +126,6 @@ test('T7: partials/head.html memuat font Plus Jakarta Sans / Outfit', () => {
 const CONTRAST_TARGETS = [
     { file: 'static/css/tailwind/output.css', rule: '\\.form-hint', label: '.form-hint (output.css)' },
     { file: 'static/css/tailwind/output.css', rule: '\\.role-chip', label: '.role-chip (output.css)' },
-    { file: 'static/css/tailwind/admin-tailwind.css', rule: '\\.form-hint', label: '.form-hint (admin-tailwind.css)' }
 ];
 
 for (const t of CONTRAST_TARGETS) {
@@ -158,7 +157,7 @@ test('T9: #64748b tidak lagi dipakai di dashboard.html (dropdown instansi)', () 
 // T10a — Tombol ✕ toast: terlihat saat keyboard-focus + hit-area layak
 // ---------------------------------------------------------------------------
 
-for (const f of ['static/css/tailwind/output.css', 'static/css/tailwind/admin-tailwind.css']) {
+for (const f of ['static/css/tailwind/output.css']) {
     test(`T10a: ${path.basename(f)} — .toast-close punya :focus-visible & padding ≥ 10px`, () => {
         const css = read(f);
 

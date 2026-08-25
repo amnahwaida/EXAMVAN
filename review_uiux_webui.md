@@ -13,6 +13,7 @@
 > **Ronde 10 (25 Agustus 2026 @ `616132a`, pasca Batch 15):** eksekusi Batch 15 terverifikasi solid di lima area (966 test node + `go test` penuh hijau), NAMUN audit integritas menemukan **5 item tercatat [x] padahal tidak pernah dieksekusi** (S92, R102–R104, R110 — luput dari pembagian tugas agen); ditemukan **2 masalah Tinggi (regresi autofill OTP, navigasi mati di tablet sentuh ≥1101px), 6 Sedang, dan 14 Rendah baru** — lihat [bagian 5.13](#513-re-review-ronde-10--temuan-baru-pasca-batch-15-bahan-batch-16). Tema dominan ronde ini: ekor polishment dari fix besar (regresi & celah cakupan), kontrak escape/token yang belum seragam, dan dokumentasi teknis berklaim keliru. Seluruhnya dieksekusi di **Batch 16** (25 Agustus 2026, test-first via 4 agen paralel + gerbang koordinator; cakupan admincore diambil alih koordinator setelah agen gagal dua kali).
 > **Ronde 11 (25 Agustus 2026 @ `80e95bb`, pasca Batch 16):** kualitas terkonvergensi — ditemukan **0 masalah Tinggi, 3 Sedang, dan 11 Rendah baru**; NAMUN audit integritas lagi-lagi menemukan item tercatat [x] yang tidak/belum tereksekusi (S110, S111, R124 + R125 parsial — agen batch16-pengawasan tak pernah diluncurkan). Lihat [bagian 5.14](#514-re-review-ronde-11--temuan-baru-pasca-batch-16-bahan-batch-17). Tema dominan ronde ini: interaksi antar-fix (Escape × Modal Manager), sisa polish a11y kontrol render-JS, dan konsistensi kontrak escape/token. Seluruhnya dieksekusi di **Batch 17** (25 Agustus 2026, test-first; gerbang pengawasan + admincore oleh koordinator, settings via agen — sekaligus menuntaskan 4 item tertinggal Batch 16).
 > **Ronde 12 (25 Agustus 2026 @ `5095c75`, pasca Batch 17):** review berurutan oleh koordinator (tanpa agen). Kode makin stabil - ditemukan **0 masalah Tinggi, 1 Sedang, dan 2 Rendah baru** (volume terkecil sejak ronde pertama); NAMUN satu klaim guard lama terkoreksi: larangan z-index ≥1000 ternyata hanya mengunci tiga lokasi spesifik, bukan folder-wide (admin-base.css memuat 7 literal legacy ≥9998 - S116). Lihat [bagian 5.15](#515-re-review-ronde-12--temuan-baru-pasca-batch-17-bahan-batch-18). Plafon folder-wide kini PERSIS aktual (hex 99/99, rgba 89/89). Seluruhnya dieksekusi di **Batch 18** (25 Agustus 2026, test-first oleh koordinator: 7 test MERAH dulu, termasuk guard folder-wide z-index baru; token tangga stacking --z-bottom-bar/--z-hint/--z-modal-overlay/--z-topbar-floating ditambahkan theme.css; .toast-container naik ke --z-toast memperbaiki latent tie dengan onboarding).
+> **Ronde 13 (25 Agustus 2026 @ `6507041`, pasca Batch 18):** review berurutan oleh koordinator. Stabil - ditemukan **0 masalah Tinggi, 1 Sedang, dan 2 Rendah baru**: file mati admin-tailwind.css 67KB + definisi ganda .toast-container lintas-file yang hanya aman karena urutan muat (S117), target-blank tanpa noopener (R146), register_confirm tanpa noindex padahal URL membawa username (R147). Lihat [bagian 5.16](#516-re-review-ronde-13--temuan-baru-pasca-batch-18-bahan-batch-19). Seluruhnya dieksekusi di **Batch 19** (25 Agustus 2026, test-first oleh koordinator: file mati dihapus, z-index toast dikunci satu tempat, noopener ×2, noindex register_confirm).
 > **Tujuan:** acuan perbaikan UI/UX tahap selanjutnya. Setiap temuan punya ID unik (`T`=Tinggi, `S`=Sedang, `R`=Rendah, `P`=Keputusan Produk, `G`=Positif) agar mudah dirujuk di commit/issues (mis. `fix(uiux): T2 …`).
 
 ---
@@ -2278,9 +2279,65 @@ Duplicate-id `concurrentInput`/`limitInput`/`newUserExpiry` settings.html (:903�
 
 ---
 
+## 5.16 RE-REVIEW RONDE 13 — Temuan baru pasca Batch 18 (bahan Batch 19)
+
+> **Tanggal:** 25 Agustus 2026 · **Basis kode:** `6507041` (pasca Batch 18) · **Metode:** review berurutan oleh koordinator (tanpa agen) — verifikasi eksekusi Batch 18 per area, sweep kelas baru (target-blank noopener, meta head parity, z-index runtime chain, ikon-only buttons), dan audit file statis tak-terreferensi.
+> Ditemukan **0 masalah Tinggi, 1 Sedang, dan 2 Rendah baru** — untuk kedua kalinya berturut-turut volume di bawah 4: proyek berada pada fase stabilisasi. Verifikasi Batch 18: ✅ PENUH (token tangga stacking terpasang, guard folder-wide jalan, R144/R145 benar); gate **1054/1054** node hijau, go test/build/vet bersih.
+
+### Status verifikasi cepat Batch 18
+
+| Item | Vonis | Bukti |
+|---|---|---|
+| S116 token+migrasi+guard folder-wide | ✅ | admin-base 0 literal ≥1000 & pemakaian var() positif ×5; download/register → var(--z-dropdown); walk CSS inti non-generated lolos |
+| S116 bonus | ✅ | `.toast-container` 10001→var(--z-toast): tie dengan onboarding terpecahkan sesuai intent theme.css |
+| R144 dua jalur tutup row-dropdown | ✅ | klik-luar & close-others menelusuri `__btnWrap` → reset aria-expanded |
+| R145 toggleMenu focus-return | ✅ | wasOpen + burger.focus() saat transisi open→closed |
+
+---
+
+### S117 — File mati `admin-tailwind.css` (67KB, nol referensi) + definisi ganda `.toast-container` lintas-file yang hanya aman karena urutan muat kebetulan benar
+
+- **Prioritas:** 🟠 Sedang · **Usaha:** S · **Area:** Arsitektur CSS/integritas · **Status:** [ ]
+- **Lokasi:** `static/css/tailwind/admin-tailwind.css` (67KB, grep repo-wide: nol referensi dari template/Go/CSS/JS); `.toast-container` terdefinisi DUA kali — `tailwind/output.css:1106` (`z-index: 9999`, dimuat produksi) dan `admin-base.css:755` (`z-index: var(--z-toast)`=10002, dimuat belakangan sehingga menang)
+- **Bukti/Masalah:** (a) admin-tailwind.css tidak pernah dimuat siapa pun namun tetap berada di dalam folder statis publik (`/static/css/tailwind/admin-tailwind.css` dapat diunduh siapa saja) dan selama ini membebani kebijakan guard (baseline f87171, pengecualian z-index) untuk file yang tak berdampak runtime; (b) komponen layer-tertinggi aplikasi (toast) memiliki z-index yang efektifnya bergantung penuh pada URUTAN MUAT stylesheet — persis pola rapuh R117; jika urutan link berubah atau rule admin-base dihapus, toast turun ke level dropdown (9999) senyap, dan guard z-index tidak melihatnya karena folder tailwind di-exempt.
+- **Rekomendasi:** (a) hapus `admin-tailwind.css` (atau pindah keluar folder statis + dokumentasikan status arsip); (b) hapus `z-index` dari rule `.toast-container` output.css (posisi/layout tetap di sana, lapisan dikunci satu tempat di admin-base via token); (c) pertimbangkan whitelist per-selector alih-alih per-folder bila kelak ada blok kustom di dalam generated CSS.
+
+### R146 — `target="_blank"` tanpa `rel="noopener"` (×2)
+
+- **Prioritas:** 🟡 Rendah · **Usaha:** XS · **Area:** Dashboard/settings/higiene · **Status:** [ ]
+- **Lokasi:** `templates/admin/settings.html:2178` (unduh aplikasi), `templates/admin/dashboard.html:534` (lihat PDF)
+- **Masalah/Dampak:** keduanya same-origin sehingga risiko tab-nabbing minim, tetapi `noopener` tetap konvensi defensif (mengisolasi `window.opener` + mencegah pembukaan tab memblokir halaman asal di beberapa browser).
+- **Rekomendasi:** tambah `rel="noopener"` pada kedua anchor.
+
+### R147 — Halaman konfirmasi registrasi tanpa `noindex` (inkonsisten reset_password; URL membawa username)
+
+- **Prioritas:** 🟡 Rendah · **Usaha:** XS · **Area:** Publik/privasi · **Status:** [ ]
+- **Lokasi:** `templates/public/register_confirm.html:3` (<head> tanpa meta robots) vs `reset_password.html:11` (`noindex, nofollow`)
+- **Bukti/Masalah:** halaman OTP registrasi memiliki URL `?username={{.username}}` — jika tautannya pernah bocor ke halaman terindeks, pola URL + nama akun dapat muncul di hasil pencarian; saudaranya (reset password) sudah benar noindex. Juga tanpa meta description (parity R147-minor).
+- **Rekomendasi:** tambah `<meta name="robots" content="noindex, nofollow">` (+ description singkat) menyamai reset_password.
+
+### Catatan minor tanpa ID
+
+`localizeUTC(l.created_at)` tetap mentah di builder audit (server-controlled informatif); `wireCollapseBlock` general belum ber-guard `[data-action]` ala S108 (saat ini aman); posisi toast (fixed bottom-right) tidak overlap topbar-toggle (top-right) sehingga nilai 10002 kembar Batch 18 aman secara visual; hitungan "button tanpa aria-label" mentah menyesatkan — mayoritas ber-teks visible (nama aksesibel sah); plafon hex templates kini 99=99 & rgba 89=89 — slack NOL, setiap warna baru wajib lewat token (guard akan merah, itu memang tujuannya).
+
+---
+
+---
+
 ## 6. REKAP TRACKING
 
 > Centang `[x]` + cantumkan hash commit saat selesai. Urut sesuai prioritas eksekusi.
+### Batch 19 — Ronde 13: eksekusi temuan 5.16 ✅ SELESAI (2026-08-25, test-first oleh koordinator; suite gabungan repo **1056/1056 hijau**, `go test ./internal/handlers/...` OK, `go build`+`go vet` OK)
+
+> **Suite:** `uiux-batch19-hygiene.test.mjs` (4 test) — S117a file mati terhapus, S117b z-index toast tunggal (output.css bebas z-index; admin-base var(--z-toast) satu-satunya sumber), R146 noopener ×2, R147 noindex+paritas.
+>
+> **Kalibrasi ikutan penghapusan file (3 test lama):** (1) batch14 R126 — dari "baseline #f87171=0 pada file" menjadi "file TIDAK ADA lagi" (larangan artefak manual kembali ke web root); (2) batch2 T9 — entri kontras .form-hint admin-tailwind dihapus (output.css tetap terguard); (3) batch2 T10a — loop target tinggal output.css.
+>
+> **Verifikasi regressi:** seluruh suite node hijau; grep repo-wide nol referensi admin-tailwind tersisa; go test/build/vet bersih.
+
+- [x] **S117** ✅ **Batch 19** — Hapus admin-tailwind.css (file mati); hapus z-index dari .toast-container output.css (lapisan dikunci admin-base); dokumentasi kebijakan whitelist generated
+- [x] **R146** ✅ **Batch 19** — rel="noopener" pada 2 anchor target=_blank
+- [x] **R147** ✅ **Batch 19** — register_confirm: meta robots noindex,nofollow (+description parity)
 ### Batch 18 — Ronde 12: eksekusi temuan 5.15 ✅ SELESAI (2026-08-25, test-first oleh koordinator; suite gabungan repo **1054/1054 hijau**, `go test ./internal/handlers/...` OK, `go build`+`go vet` OK)
 
 > **Suite:** `uiux-batch18-guard.test.mjs` (7 test) — S116a token source-of-truth, S116b admin-base bersih literal + pemakaian positif, S116c banner publik → var(--z-dropdown), S116d guard folder-wide z-index ≥1000 (templates/** + CSS inti non-generated + JS aplikasi; tailwind generated exempt terdokumentasi), R144a/b reset aria-expanded dua jalur tutup row-dropdown, R145 toggleMenu focus-return.
