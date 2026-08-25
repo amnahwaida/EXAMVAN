@@ -165,13 +165,16 @@ function loadMyPackages() {
         });
 }
 
-function activatePackage(redemptionId) {
+function activatePackage(redemptionId, el) {
     if (window.__adminRole === 'superadmin') return;
     var formData = new FormData();
     formData.append('redemption_id', redemptionId);
 
+    // R141 (ronde 11): penahan klik-ganda — tombol pemanggil di-disable
+    // handler delegasi; cabang gagal memulihkan, jalur sukses biarkan
+    // disabled hingga reload (jeda 1,2 dtk pra-reload rentan dobel-POST).
     showToast('Mengaktifkan paket...', 'info');
-    apiFetch('/admin/api/vouchers/activate', {
+    return apiFetch('/admin/api/vouchers/activate', {
         method: 'POST',
         body: formData
     })
@@ -181,12 +184,14 @@ function activatePackage(redemptionId) {
             showToast(res.message, 'success');
             setTimeout(function() { location.reload(); }, 1200);
         } else {
+            if (el) el.disabled = false;
             showToast(res.message || 'Gagal mengaktifkan paket', 'error');
             loadMyPackages();
         }
     })
     .catch(function(err) {
         console.error(err);
+        if (el) el.disabled = false;
         showToast('Gagal terhubung ke server', 'error');
     });
 }
@@ -216,8 +221,12 @@ if (window.Actions && typeof window.Actions.register === 'function') {
     window.Actions.register('billing-redeem-confirm', function () { doRedeemVoucher(); });
     // Batch 11 (S62): render-JS tabel paket klaiman kini bebas onclick —
     // id redemption lewat data-* + normalisasi parseInt (pola Batch 8).
+    // R141 (ronde 11): disable tombol di awal + guard dobel-klik (tombol
+    // disabled tidak boleh memicu POST kedua selama fetch + jeda reload).
     window.Actions.register('billing-package-activate', function (el) {
-        activatePackage(parseInt(el.getAttribute('data-redemption-id'), 10));
+        if (el.disabled) return;
+        el.disabled = true;
+        return activatePackage(parseInt(el.getAttribute('data-redemption-id'), 10), el);
     });
     window.Actions.register('billing-packages-retry', function () { loadMyPackages(); });
 }

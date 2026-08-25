@@ -358,6 +358,9 @@
 /* ===== merged styles: templates/admin/vouchers.html ===== */
 
   .voucher-code-badge {
+    /* S115 (ronde 11): badge kini <button type="button"> (keyboard-dead
+       diperbaiki) — reset default browser button, tanpa literal baru. */
+    appearance: none;
     font-family: var(--font-mono);
     font-size: 0.88rem;
     font-weight: 700;
@@ -1233,7 +1236,7 @@
     <svg class="icon-svg" style="width:16px;height:16px;"><use href="#hi-plus"/></svg> Buat Massal
    </button>
     <button data-action="voucher-open-single" class="btn-primary" style="display:inline-flex;align-items:center;gap:8px;padding:10px 18px;border-radius:10px;font-weight:600;font-size:0.875rem;cursor:pointer;background:linear-gradient(135deg, rgb(var(--rgb-accent)), rgb(var(--rgb-info)));border:none;color:var(--color-text-on-primary);">
-    <svg class="icon-svg" style="width:16px;height:16px;"><use href="#hi-plus"/></svg> Buat Voucher Single
+    <svg class="icon-svg" style="width:16px;height:16px;"><use href="#hi-plus"/></svg> Buat Voucher
    </button>
   </div>
  </div>
@@ -1347,7 +1350,7 @@
 <div class="modal-overlay" id="singleModal" role="dialog" aria-modal="true" aria-labelledby="singleModalTitle" data-action="modal-dismiss" data-modal-close="closeSingleModal" style="display:none;">
  <div class="modal-card" style="max-width:500px;">
   <div class="modal-header">
-   <h3 id="singleModalTitle" style="font-size:1.1rem;color:var(--color-text);margin:0;">Buat Voucher Single</h3>
+   <h3 id="singleModalTitle" style="font-size:1.1rem;color:var(--color-text);margin:0;">Buat Voucher</h3>
    <button class="modal-close" data-action="voucher-close-single" aria-label="Tutup">&times;</button>
   </div>
   <div style="padding:20px;max-height:calc(90vh - 60px);overflow-y:auto;-webkit-overflow-scrolling:touch;">
@@ -1553,7 +1556,7 @@
     </div>
 
     <div style="margin-bottom:20px;">
-     <label for="batchNotes" style="display:block;font-size:12px;color:var(--color-text-secondary);margin-bottom:4px;">Catatan / Campaign Name</label>
+     <label for="batchNotes" style="display:block;font-size:12px;color:var(--color-text-secondary);margin-bottom:4px;">Catatan / Nama Campaign</label>
      <input type="text" id="batchNotes" placeholder="Misal: Workshop Digitalisasi Sekolah 2026" style="width:100%;padding:10px;background:rgba(var(--rgb-black), 0.3);border:1px solid var(--color-glass-border);border-radius:8px;color:var(--color-text);outline:none;" />
     </div>
 
@@ -2097,11 +2100,22 @@
         // membawa cache-buster ?v= (anti modul basi pasca-deploy) dan
         // menandai __settingsLoaded agar aktivasi tab berikutnya tidak
         // memuat ulang modul (listener ganda).
+        // S114 (ronde 11): penandaan loaded dipindah ke DALAM s.onload —
+        // menandai true sebelum sukses membuat tab mati senyap saat script
+        // gagal dimuat; s.onerror me-reset flag + toast agar bisa dicoba lagi.
         var s = document.createElement('script');
         s.src = '/static/js/settings-system-apps.js?v={{.version}}';
-        s.onload = tryOpen;
-        window.__settingsLoaded = window.__settingsLoaded || {};
-        window.__settingsLoaded['system-apps'] = true;
+        s.onload = function() {
+          window.__settingsLoaded = window.__settingsLoaded || {};
+          window.__settingsLoaded['system-apps'] = true;
+          tryOpen();
+        };
+        s.onerror = function() {
+          pending = false;
+          window.__settingsLoaded = window.__settingsLoaded || {};
+          window.__settingsLoaded['system-apps'] = false;
+          if (typeof window.showToast === 'function') window.showToast('Gagal memuat modul Pengaturan', 'error');
+        };
         document.head.appendChild(s);
       };
       document.addEventListener('DOMContentLoaded', function() {

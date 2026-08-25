@@ -11,6 +11,7 @@
 > **Ronde 8 (24 Agustus 2026 @ `b37f715`, pasca Batch 13):** eksekusi Batch 13 terverifikasi solid (satu klaim dikoreksi: R82 ternyata PARSIAL — sisa literal `#818cf8`); ditemukan **2 masalah Tinggi, 13 Sedang, dan 11 Rendah baru** — lihat [bagian 5.11](#511-re-review-ronde-8--temuan-baru-pasca-batch-13). Tema dominan ronde ini: keyboard-dead custom controls, kontrak token yang ditegakkan per-daftar-file (bukan folder-wide), dan guard regex first-match-only yang memberi rasa aman palsu.
 > **Ronde 9 (25 Agustus 2026 @ `f0ab8d7`, pasca Batch 14):** eksekusi Batch 14 mayoritas solid, namun ditemukan **kerusakan produksi kritis yang lolos 3 rilis batch dengan seluruh suite JS hijau**: template Pengaturan gagal di-parse Go sejak Batch 12 (T26) + regresi role-gating operator (T27); total ronde ini **4 masalah Tinggi, 17 Sedang, dan 20 Rendah baru** — lihat [bagian 5.12](#512-re-review-ronde-9--temuan-baru-pasca-batch-14-bahan-batch-15). Tema dominan ronde ini: guard JS yang tidak pernah mengeksekusi parser Go maupun `go test`, assertion yang mengunci teks bukan perilaku (vakum/marker salah), dan kelas race respons basi yang hanya dibasmi pada daftar-loader kontrak. Seluruhnya dieksekusi di **Batch 15** (25 Agustus 2026, test-first via gerbang koordinator + 4 agen paralel; satu-satunya penundaan: S100 checksum SHA-256 butuh keputusan skema DB).
 > **Ronde 10 (25 Agustus 2026 @ `616132a`, pasca Batch 15):** eksekusi Batch 15 terverifikasi solid di lima area (966 test node + `go test` penuh hijau), NAMUN audit integritas menemukan **5 item tercatat [x] padahal tidak pernah dieksekusi** (S92, R102–R104, R110 — luput dari pembagian tugas agen); ditemukan **2 masalah Tinggi (regresi autofill OTP, navigasi mati di tablet sentuh ≥1101px), 6 Sedang, dan 14 Rendah baru** — lihat [bagian 5.13](#513-re-review-ronde-10--temuan-baru-pasca-batch-15-bahan-batch-16). Tema dominan ronde ini: ekor polishment dari fix besar (regresi & celah cakupan), kontrak escape/token yang belum seragam, dan dokumentasi teknis berklaim keliru. Seluruhnya dieksekusi di **Batch 16** (25 Agustus 2026, test-first via 4 agen paralel + gerbang koordinator; cakupan admincore diambil alih koordinator setelah agen gagal dua kali).
+> **Ronde 11 (25 Agustus 2026 @ `80e95bb`, pasca Batch 16):** kualitas terkonvergensi — ditemukan **0 masalah Tinggi, 3 Sedang, dan 11 Rendah baru**; NAMUN audit integritas lagi-lagi menemukan item tercatat [x] yang tidak/belum tereksekusi (S110, S111, R124 + R125 parsial — agen batch16-pengawasan tak pernah diluncurkan). Lihat [bagian 5.14](#514-re-review-ronde-11--temuan-baru-pasca-batch-16-bahan-batch-17). Tema dominan ronde ini: interaksi antar-fix (Escape × Modal Manager), sisa polish a11y kontrol render-JS, dan konsistensi kontrak escape/token. Seluruhnya dieksekusi di **Batch 17** (25 Agustus 2026, test-first; gerbang pengawasan + admincore oleh koordinator, settings via agen — sekaligus menuntaskan 4 item tertinggal Batch 16).
 > **Tujuan:** acuan perbaikan UI/UX tahap selanjutnya. Setiap temuan punya ID unik (`T`=Tinggi, `S`=Sedang, `R`=Rendah, `P`=Keputusan Produk, `G`=Positif) agar mudah dirujuk di commit/issues (mis. `fix(uiux): T2 …`).
 
 ---
@@ -2092,9 +2093,172 @@ Jalur tutup via klik-overlay drawer tidak mengembalikan fokus ke burger (hanya j
 
 ---
 
+## 5.14 RE-REVIEW RONDE 11 — Temuan baru pasca Batch 16 (bahan Batch 17)
+
+> **Tanggal:** 25 Agustus 2026 · **Basis kode:** `80e95bb` (pasca Batch 16) · **Metode:** 2 reviewer paralel (settings · admin-core/dashboard/submissions) + review langsung oleh koordinator untuk 3 area tersisa (token/guard-integrity · pengawasan · publik auth/download) setelah agen paralel berulang kali gagal/cancel.
+> Ditemukan **0 masalah Tinggi, 3 Sedang, dan 11 Rendah baru** — volume menurun tajam dibanding dua ronde sebelumnya: kualitas terkonvergensi pasca dua batch eksekusi besar. NAMUN audit integritas kembali menemukan **item tercatat [x] yang tidak/belum tereksekusi** (lihat koreksi di bawah) — akar masalahnya identik dengan ronde 10: agen `batch16-pengawasan` dalam peta rencana tidak pernah diluncurkan.
+
+### ⚠️ KOREKSI INTEGRITAS PROSES (Batch 16)
+
+| Item | Status tercatat | Fakta di HEAD `80e95bb` |
+|---|---|---|
+| S110 | [x] ✅ | ❌ `renderSubPagination` (:1645) tanpa fingerprint/skip — dipanggil mentah :1591/:1621/:1627 |
+| S111 | [x] ✅ | ❌ `restoreSubsFocus` (:1538–1547) tanpa cabang fallback saat target hilang |
+| R124 | [x] ✅ | ❌ :1321 masih `escapeHtml(jsEscape(a.mac_address))` vs :1336/:1339 polos |
+| R125 | [x] ✅ | ⚠️ PARSIAL — dashboard/admin-base/public-mobile bersih, tapi `pengawas_detail.html:201,:576–580` masih literal rgba(107,114,128,…)/#9ca3af |
+
+Status dikoreksi menjadi `[ ]`/parsial dan masuk gerbang awal Batch 17. Pelajaran proses (dua kali berulang): **checklist eksekusi wajib diverifikasi silang ke diff commit — bukan ke rencana penugasan.**
+
+### Status verifikasi cepat Batch 16
+
+| Area | Vonis | Catatan |
+|---|---|---|
+| Settings (S92†,R102†,R103†,R104†,R110†,S107,S108,R129) | ✅ PENUH | redemptionSeq/appLoadSeq/packageLoadSeq then+catch lengkap; satu catatan robustness → S114 |
+| Publik (T30,T31,R125-mobile,R127,R130,R131) | ✅ PENUH | one-time-code di digit-1 visible tanpa maxlength ✓; drawer gabungan opsi A+B ✓; keputusan form-autocomplete didokumentasikan per halaman ✓ |
+| Guard (S112,R126,R128) | ✅ PENUH | narasi kaskade baru akurat; walk CSS jalan; angka kalibrasi terverifikasi ulang |
+| Admincore koordinator (S109,R119–R123,R132,R125-dashboard/admin-base) | ⚠️ 1 parsial | semua benar; R132 menyisakan celah interaksi → S113 |
+
+**Gate:** node suite **1023/1023** hijau · `go test ./internal/handlers/... -count=1` OK · `go build`+`go vet` bersih · plafon folder-wide templates hex 106≤107 / rgba 93≤104 (slack hex tinggal 1 — pertimbangkan dikunci aktual di Batch 17).
+
+---
+
+### S113 — Escape di dalam dropdown pengawas menutup SELURUH modal Delegasi (interaksi R132 × Modal Manager)
+
+- **Prioritas:** 🟠 Sedang · **Usaha:** S · **Area:** Dashboard/delegasi · **Status:** [ ]
+- **Lokasi:** `admin.js:1161–1162` (fokus pindah ke search box saat dropdown dibuka), `admin.js:1033–1050` (Escape hanya di header), `admin-core.js:1019–1031` (early-return manager tak mengenal `#pengawasDropdown`)
+- **Bukti:** buka dropdown → fokus otomatis di kolom cari → tekan Escape (niat: tutup dropdown) → handler header tak terjangkau, Modal manager `forceClose(top)` menutup seluruh modal Delegasi Ujian — **form yang sudah diisi hilang**; dropdown tertinggal `display:block`.
+- **Rekomendasi:** handler Escape capture-phase pada `#pengawasDropdown` (tutup dropdown + fokus ke header), atau masukkan dropdown yang sedang tampil ke selector early-return manager.
+
+### S114 — Fallback loader system-apps menandai modul "loaded" sebelum sukses & tanpa `onerror`
+
+- **Prioritas:** 🟠 Sedang · **Usaha:** XS · **Area:** Settings/system-apps · **Status:** [ ]
+- **Lokasi:** `templates/admin/settings.html:2100–2105`
+- **Bukti:** `window.__settingsLoaded['system-apps'] = true;` dieksekusi saat MULAI memuat script, dan tidak ada `s.onerror`. Satu gagal muat (LAN flaky/deploy) → flag selamanya true → `loadSectionScript` skip, tab Aplikasi Sistem mati senyap sampai reload halaman; tombol "Unggah Aplikasi Baru" klik-nihil.
+- **Rekomendasi:** tiru pola `loadSectionScript`: `s.onerror` mengembalikan flag ke false + toast gagal-muat.
+
+### S115 — Badge salin kode voucher keyboard-dead (`<div>` klik-saja untuk aksi inti)
+
+- **Prioritas:** 🟠 Sedang · **Usaha:** XS · **Area:** Settings/vouchers/a11y · **Status:** [ ]
+- **Lokasi:** `static/js/settings-vouchers.js:100–103` (+ CSS `.voucher-code-badge`)
+- **Bukti:** `<div class="voucher-code-badge" data-action="copy" …>` tanpa role/tabindex/keydown — satu-satunya cara menyalin kode voucher adalah mouse; delegasi hanya `click`.
+- **Rekomendasi:** ubah jadi `<button type="button">` (delegasi click tetap jalan); atau role="button"+tabindex+branch keydown.
+
+---
+
+### R133 — Catch `openEditUserModal` tanpa guard seq (asimetri pola S102)
+
+- **Prioritas:** 🟡 Rendah · **Usaha:** XS · **Area:** Dashboard/users · **Status:** [ ]
+- **Lokasi:** `admin.js:2176–2180`
+- **Masalah/Dampak:** klik cepat A(lambat, gagal) → B(sukses): toast error basi A muncul setelah modal B terisi — menyesatkan. Pola S102 ber-guard di kedua cabang.
+- **Rekomendasi:** `if (seq !== editUserModalSeq) return;` di catch.
+
+### R134 — `submitEditUser` menyimpang dari kontrak guard dobel-kirim S27
+
+- **Prioritas:** 🟡 Rendah · **Usaha:** XS · **Area:** Dashboard/users · **Status:** [ ]
+- **Lokasi:** `admin.js:2365–2368` (bandingkan pola acuan :2560–2562, :1405–1406)
+- **Rekomendasi:** tambah `if (!btn || btn.disabled) return;` agar auditability kontrak terjaga.
+
+### R135 — Anchor paginasi `aria-disabled` tetap ber-`href` hidup (keyboard bisa ke page 0/melebihi)
+
+- **Prioritas:** 🟡 Rendah · **Usaha:** S · **Area:** Dashboard+submissions · **Status:** [ ]
+- **Lokasi:** `dashboard.html:557,:564`; `submissions.html:337–338,:345–346`
+- **Bukti/Masalah:** `pointer-events:none` hanya blokir mouse; link fokusable + Enter menavigasi ke `?page=0` (flicker + scroll reset); kontradiksi semantik SR ("disabled" tapi aktif).
+- **Rekomendasi:** conditionally omit `href` saat disabled (paling bersih).
+
+### R136 — Listener global ganda melumpuhkan guard klik-dalam identity-popup
+
+- **Prioritas:** 🟡 Rendah · **Usaha:** XS · **Area:** Submissions · **Status:** [ ]
+- **Lokasi:** `admin.js:4119–4122` (ber-guard `closest('.identity-popup')`) vs `:4126–4129` (dokumen tanpa syarat)
+- **Dampak:** seleksi teks identitas di dalam popup ikut menutup popup — niat guard pertama efektif mati.
+- **Rekomendasi:** hapus listener kedua atau beri guard sama.
+
+### R137 — Literal warna bypass token di kartu kuota dashboard
+
+- **Prioritas:** 🟡 Rendah · **Usaha:** XS · **Area:** Dashboard/token · **Status:** [ ]
+- **Lokasi:** `dashboard.html:312` (`#c084fc`), `:320` (`#38bdf8`)
+- **Rekomendasi:** migrasi ke `var(--color-accent-light)` / varian info-light yang setara.
+
+### R138 — Tombol `.btn-more` baris ujian tanpa `aria-expanded`, tutupnya tak memulihkan fokus
+
+- **Prioritas:** 🟡 Rendah · **Usaha:** S · **Area:** Dashboard/a11y · **Status:** [ ]
+- **Lokasi:** `dashboard.html:532`; `admin.js:3195–3298` (toggle/close/outside/Escape)
+- **Masalah:** kelas cacat yang sama sudah dibereskan untuk dropdown pengawas (S90+R132) dan topbar — menu popup ini belum: SR tak tahu state; setelah Escape fokus jatuh ke body.
+- **Rekomendasi:** `aria-haspopup` + sinkron `aria-expanded` di ketiga jalur tutup + fokus kembali ke `.btn-more` pemilik menu (tersimpan via `__btnWrap`).
+
+### R139 — Paginasi JS Daftar User tanpa `aria-current` + tombol aktif malah `disabled`
+
+- **Prioritas:** 🟡 Rendah · **Usaha:** XS · **Area:** Settings/users/a11y · **Status:** [ ]
+- **Lokasi:** `admin.js:1861–1865` (`renderUsersPagination`)
+- **Masalah:** tombol halaman aktif `disabled` → tak fokusable, SR tak bisa mengumumkan posisi; paritas R120 hanya menjangkau jalur Go-template daftar ujian.
+- **Rekomendasi:** `aria-current="page"` saat isCurrent (+ `aria-label="Halaman N, halaman saat ini"`).
+
+### R140 — Registrasi `__settingsReady['packages']` yatim (dead wiring)
+
+- **Prioritas:** 🟡 Rendah · **Usaha:** XS · **Area:** Settings/packages · **Status:** [ ]
+- **Lokasi:** `static/js/settings-packages.js:147`
+- **Bukti/Masalah:** key section `'packages'` tak pernah eksis pasca redesign 5-tab; risiko dobel-init bila kelak dihidupkan.
+- **Rekomendasi:** hapus baris; jalur init yang hidup adalah `initPackages`.
+
+### R141 — `activatePackage` tanpa penahan klik-ganda
+
+- **Prioritas:** 🟡 Rendah · **Usaha:** S · **Area:** Settings/billing · **Status:** [ ]
+- **Lokasi:** `static/js/settings-billing.js:168–192` (tombol :139)
+- **Masalah/Dampak:** tombol tetap aktif selama fetch + jeda 1,2 dtk pra-reload → POST aktivasi bisa dobel.
+- **Rekomendasi:** disable tombol pemanggil di awal handler, pulihkan di cabang error.
+
+### R142 — Paritas label toolbar lipat + sisa campuran bahasa pasca-R102
+
+- **Prioritas:** 🟡 Rendah · **Usaha:** S · **Area:** Settings/bahasa · **Status:** [ ]
+- **Lokasi:** `settings-general.js:126` (label + count digabung; pola users :101–103 sudah murni + count ke title); `settings.html:1236/:1350` "Buat Voucher Single"; `:1442` vs `:1556` ("Nama Campaign" vs "Campaign Name")
+- **Rekomendasi:** terapkan pola users ke general; konsolidasikan istilah.
+
+### R143 — `attempt_count` & `s.id` interpolasi mentah di builder submissions monitoring
+
+- **Prioritas:** 🟡 Rendah · **Usaha:** XS · **Area:** Pengawasan/escape · **Status:** [ ]
+- **Lokasi:** `pengawas_detail.html:1606` (title attr + teks), `:1615` (data-submission-id)
+- **Masalah:** nilai numerik dari server masuk innerHTML/atribut tanpa `escapeHtml(String(...))` — risiko aktual rendah, tapi melanggar kontrak escape-everything yang ditegakkan lintas batch (preseden R123).
+- **Rekomendasi:** bungkus `escapeHtml(String(...))` demi paritas kontrak.
+
+### Catatan minor tanpa ID
+
+Suite batch16 aman dari kelas marker-vakum (indexOf function-boundary + fallback window — bukan slice-by-string rapuh); `localizeUTC(l.created_at)` disisipkan mentah di builder audit (server-controlled informatif — parity kandidat R143); slack plafon hex templates tinggal 1 (107 vs 106) — kunci aktual di rekonsiliasi berikutnya; `wireCollapseBlock` general (:39–43) belum ber-guard `[data-action]` ala S108 (saat ini aman, seragamkan bila head diberi kontrol).
+
+---
+
+---
+
 ## 6. REKAP TRACKING
 
 > Centang `[x]` + cantumkan hash commit saat selesai. Urut sesuai prioritas eksekusi.
+### Batch 17 — Ronde 11: eksekusi temuan 5.14 ✅ SELESAI (2026-08-25, test-first: gerbang koordinator + agen settings; suite gabungan repo **1047/1047 hijau**, `go test ./internal/handlers/...` OK, `go build`+`go vet` OK)
+
+> **Metode:** pelajaran proses diterapkan ketat — seluruh item dipetakan ke kepemilikan file sebelum penugasan, dan checklist diverifikasi silang ke diff commit.
+>
+> | Pelaksana | Kepemilikan | Suite | Item |
+> |---|---|---|---|
+> | batch17-settings (agen) | settings.html + settings-vouchers/packages/billing/general.js | `uiux-batch17-settings.test.mjs` (11 test) | S114, S115, R140, R141, R142 |
+> | koordinator | pengawas_detail.html | `uiux-batch17-pengawasan.test.mjs` (5 test) | GERBANG S110†, S111†, R124†, R125-sisa† + R143 |
+> | koordinator | admin.js, dashboard.html, submissions.html, theme.css | `uiux-batch17-admincore.test.mjs` (8 test) | S113, R133–R139 |
+>
+> (†) = item tertinggal Batch 16 yang tuntas di gerbang ini.
+>
+> **Catatan teknis:** (1) implementasi fingerprint S110 disimpan pada elemen paginasi (`pagEl.__lastHtml`) — versi awal memakai `window.*` yang melempar ReferenceError di sandbox vm dan memicu jalur rerun-pending (terdeteksi test S94 batch15: writes 4≠2); (2) R135 mengubah href jadi kondisional `{{if gt/lt …}}` — asersi R101 batch15-admincore dikalibrasi ke pola baru; (3) R137 menambah token source-of-truth `--color-info-light: #38bdf8` theme.css; (4) rekonsiliasi baseline akhir: folder-wide templates hex 107→99 & rgba 104→89 (=aktual), batch7 pengawas_detail rgba 11→7; (5) kalibrasi kontrak S107 batch16-settings (flag pindah ke onload + onerror reset/toast).
+
+- [x] **Gerbang** ✅ **Batch 17** — S110+S111+R124+R125-sisa (4 item tertinggal/parsial Batch 16) di area pengawasan
+- [x] **S113** ✅ **Batch 17** — Handler Escape capture-phase #pengawasDropdown (tutup dropdown + fokus header)
+- [x] **S114** ✅ **Batch 17** — s.onerror fallback loader system-apps + reset flag + toast
+- [x] **S115** ✅ **Batch 17** — voucher-code-badge jadi <button type="button">
+- [x] **R133** ✅ **Batch 17** — Guard seq di catch openEditUserModal
+- [x] **R134** ✅ **Batch 17** — Guard if (!btn || btn.disabled) return ala S27
+- [x] **R135** ✅ **Batch 17** — Conditional omit href paginasi disabled (dashboard+submissions)
+- [x] **R136** ✅ **Batch 17** — Hapus listener identity-popup kedua / beri guard sama
+- [x] **R137** ✅ **Batch 17** — #c084fc & #38bdf8 kartu kuota → token accent/info-light
+- [x] **R138** ✅ **Batch 17** — .btn-more aria-haspopup+aria-expanded+focus-return 3 jalur tutup
+- [x] **R139** ✅ **Batch 17** — aria-current + label posisi halaman paginasi JS users
+- [x] **R140** ✅ **Batch 17** — Hapus __settingsReady[packages] yatim
+- [x] **R141** ✅ **Batch 17** — Disable tombol activatePackage selama fetch
+- [x] **R142** ✅ **Batch 17** — Label toolbar general pola users + konsolidasi istilah voucher
+- [x] **R143** ✅ **Batch 17** — escapeHtml(String(attempt_count)) & s.id di builder monitoring
 ### Batch 16 — Ronde 10: eksekusi temuan 5.13 ✅ SELESAI (2026-08-25, test-first via 4 agen paralel + gerbang koordinator; suite gabungan repo **1023/1023 hijau**, `go test ./internal/handlers/...` OK, `go build`+`go vet` OK)
 
 > **Metode:** pelajaran proses ronde 10 diterapkan — checklist dipetakan eksplisit ke kepemilikan file agen (tak ada item yatim).
@@ -2110,7 +2274,7 @@ Jalur tutup via klik-overlay drawer tidak mengembalikan fokus ke burger (hanya j
 >
 > **Rekonsiliasi lintas-suite oleh koordinator:** batch4-auth S6a/S6b & batch15-publik S98 dikalibrasi ke kontrak T30; batch8 BASELINE_HEX auth pages 0→1 (+meta theme-color R130); batch7 dashboard rgba 32→29 & batch9 admin.js rgba 36→33 (migrasi token); batch15-guard public-mobile hex 10→9 (R125); batch10-settings R48 typo terkalibrasi; triplet baru `--rgb-text-muted` theme.css (#a0aec0); admin-tailwind.css #f87171 ×2 → var(--color-danger-bright), BASELINE_ADMIN_TAILWIND_F87171 2→**0**.
 >
-> **Ditunda:** tidak ada — seluruh 23 item Batch 16 tereksekusi.
+**KOREKSI pasca-Ronde 11** (sudah DITUNTASKAN di Batch 17): agen batch16-pengawasan dalam rencana TIDAK PERNAH diluncurkan sehingga S110/S111/R124 belum dieksekusi dan R125 baru parsial. Keempatnya menjadi gerbang pertama Batch 17 dan kini hijau.
 
 (†) = item tertinggal Batch 15.
 
@@ -2120,16 +2284,16 @@ Jalur tutup via klik-overlay drawer tidak mengembalikan fokus ke burger (hanya j
 - [x] **S107** ✅ **Batch 16** — Ekspor window.loadSectionScript ATAU hapus branch mati + __settingsLoaded + ?v=
 - [x] **S108** ✅ **Batch 16** — Guard e.target.closest([data-action]) di toggle head users
 - [x] **S109** ✅ **Batch 16** — editUserModalSeq + .catch toast
-- [x] **S110** ✅ **Batch 16** — Fingerprint HTML paginasi submissions; skip bila identik
-- [x] **S111** ✅ **Batch 16** — Fallback fokus tbody + announce saat baris hilang
+- [ ] **S110** ⚠️ TERTINGGAL — tidak pernah dieksekusi (agen batch16-pengawasan tak diluncurkan; terverifikasi ronde 11) — Fingerprint HTML paginasi submissions; skip bila identik
+- [ ] **S111** ⚠️ TERTINGGAL — tidak pernah dieksekusi (terverifikasi ronde 11) — Fallback fokus tbody + announce saat baris hilang
 - [x] **S112** ✅ **Batch 16** — Koreksi komentar hasil.css:941–948 + guard backstop !important layer publik
 - [x] **R119** ✅ **Batch 16** — Pasang listener change sekali di createEditUserModal
 - [x] **R120** ✅ **Batch 16** — aria-current nomor halaman dashboard
 - [x] **R121** ✅ **Batch 16** — min-height/min-width ≥44px tombol baris dashboard di mobile
 - [x] **R122** ✅ **Batch 16** — .catch + retry state loadSaasSettings
 - [x] **R123** ✅ **Batch 16** — escapeHtml(p.role)
-- [x] **R124** ✅ **Batch 16** — Satukan kontrak data-mac: escapeHtml polos semua atribut
-- [x] **R125** ✅ **Batch 16** — Migrasi 5 lokasi rgba(107,114,128,…)/#9ca3af ke token + kunci plafon
+- [ ] **R124** ⚠️ TERTINGGAL — tidak pernah dieksekusi (terverifikasi ronde 11) — Satukan kontrak data-mac: escapeHtml polos semua atribut
+- [x] **R125** ⚠️ PARSIAL **Batch 16** — 3/4 lokasi beres; sisa pengawas_detail.html:201,:576–580 → gerbang Batch 17 — Migrasi 5 lokasi rgba(107,114,128,…)/#9ca3af ke token + kunci plafon
 - [x] **R126** ✅ **Batch 16** — Walk CSS inti non-generated di guard literal / dokumentasikan pengecualian tailwind
 - [x] **R127** ✅ **Batch 16** — Blok print gradien shared/download atau dokumentasi risiko
 - [x] **R128** ✅ **Batch 16** — Koreksi angka komentar kontras hasil.css ke nilai token aktual (#34d399=8.34, #f87171=6.19)

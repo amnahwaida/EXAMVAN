@@ -198,7 +198,7 @@
    </div>
   </div>
   <div class="pd-stat-card">
-   <div class="pd-stat-icon" style="background:rgba(107,114,128,0.12);color:#9ca3af;">
+   <div class="pd-stat-icon" style="background:rgba(var(--rgb-text-muted),0.12);color:var(--color-text-muted);">
     <svg class="icon-svg" style="width:22px;height:22px;" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 12h14"/></svg>
    </div>
    <div class="pd-stat-body">
@@ -573,11 +573,11 @@
 }
 .pd-action-warning:hover { background: rgba(var(--rgb-warning),0.18); }
 .pd-action-muted {
-  background: rgba(107,114,128,0.1);
-  color: #9ca3af;
-  border-color: rgba(107,114,128,0.3);
+  background: rgba(var(--rgb-text-muted),0.1);
+  color: var(--color-text-muted);
+  border-color: rgba(var(--rgb-text-muted),0.3);
 }
-.pd-action-muted:hover { background: rgba(107,114,128,0.18); }
+.pd-action-muted:hover { background: rgba(var(--rgb-text-muted),0.18); }
 
 /* --- Control Buttons (Start/Stop) --- */
 .pd-main-action { display: flex; gap: 8px; }
@@ -1318,7 +1318,7 @@ function buildApprovalRowHTML(a, i) {
     if (!studentInfo || studentInfo === '—') studentInfo = '<em style="color:var(--color-text-muted);">Tidak diketahui (Anonim)</em>';
 
     // Revamped table row design matching the premium theme
-    return '<tr data-mac="' + escapeHtml(jsEscape(a.mac_address)) + '" style="transition: all 0.2s; border-bottom: 1px solid rgba(var(--rgb-warning),0.1);">' +
+    return '<tr data-mac="' + escapeHtml(a.mac_address) + '" style="transition: all 0.2s; border-bottom: 1px solid rgba(var(--rgb-warning),0.1);">' +
         '<td data-label="No">' + (i + 1) + '</td>' +
         '<td data-label="ID Perangkat">' +
             '<div style="display:inline-flex; align-items:center; gap:6px; background:rgba(var(--rgb-info),0.1); color:var(--color-primary-bright); padding:4px 8px; border-radius:6px; font-family:var(--font-mono); font-size:0.75rem; font-weight:600; border:1px solid rgba(var(--rgb-info),0.2);">' +
@@ -1543,7 +1543,18 @@ function restoreSubsFocus(key) {
     if (key.mac) sel += '[data-mac="' + key.mac + '"]';
     if (key.sid) sel += '[data-submission-id="' + key.sid + '"]';
     var target = tbody.querySelector(sel);
-    if (target && target.focus) target.focus();
+    if (target && target.focus) {
+        target.focus();
+    } else {
+        // S111 (Batch 17): baris hilang dari daftar (dicabut/disetujui/filter
+        // berubah) — jangan biarkan fokus jatuh ke <body> tanpa kabar.
+        tbody.tabIndex = -1;
+        tbody.focus();
+        var live = document.getElementById('queueLiveRegion');
+        if (live) {
+            live.textContent = 'Baris yang difokuskan tidak lagi tersedia di daftar pengumpulan.';
+        }
+    }
 }
 
 function loadDetail(page, silent) {
@@ -1603,16 +1614,16 @@ function loadDetail(page, silent) {
                 var sl = s.submitted ? 'Terkumpul' : (s.start_time ? 'Mengerjakan' : 'Belum Mulai');
                 var startTime = s.start_time ? localizeUTC(s.start_time) : '—';
                 var toneCls = sc === 'submitted' ? 'tone-success' : (sc === 'in-progress' ? 'tone-warning' : 'tone-neutral');
-                var attCount = s.attempt_count > 1 ? '<span style="background:rgba(var(--rgb-danger),0.1);color:var(--color-danger);padding:2px 6px;border-radius:10px;font-size:0.7rem;font-weight:700;" title="' + s.attempt_count + 'x Mengerjakan">' + s.attempt_count + 'x</span>' : '<span style="color:var(--color-text-muted);">' + (s.attempt_count || 1) + 'x</span>';
+                var attCount = s.attempt_count > 1 ? '<span style="background:rgba(var(--rgb-danger),0.1);color:var(--color-danger);padding:2px 6px;border-radius:10px;font-size:0.7rem;font-weight:700;" title="' + escapeHtml(String(s.attempt_count)) + 'x Mengerjakan">' + escapeHtml(String(s.attempt_count)) + 'x</span>' : '<span style="color:var(--color-text-muted);">' + (s.attempt_count || 1) + 'x</span>';
 
                 html += '<tr>' +
                     '<td data-label="No" style="font-weight:600;color:var(--color-text-muted);width:40px;">' + ((SUB_PAGE - 1) * ((typeof SUBS_PER_PAGE === 'number') ? SUBS_PER_PAGE : 20) + i + 1) + '</td>' +
-                    '<td data-label="ID Perangkat"><button type="button" class="mac-cell" style="background:transparent;" data-action="show-access-log" data-submission-id="' + s.id + '" title="' + escapeHtml(s.mac_address) + ' (Klik untuk riwayat akses)">' + escapeHtml(s.mac_address) + '</button></td>' +
+                    '<td data-label="ID Perangkat"><button type="button" class="mac-cell" style="background:transparent;" data-action="show-access-log" data-submission-id="' + escapeHtml(String(s.id)) + '" title="' + escapeHtml(s.mac_address) + ' (Klik untuk riwayat akses)">' + escapeHtml(s.mac_address) + '</button></td>' +
                     '<td data-label="Status"><span class="status-badge-sm ' + toneCls + '">' + sl + '</span></td>' +
                     '<td data-label="Mulai" style="font-size:0.75rem;color:var(--color-text-muted);font-family:var(--font-mono);">' + startTime + '</td>' +
                     '<td data-label="Upaya" style="text-align:center;">' + attCount + '</td>' +
                     '<td data-label="Aksi"><div style="display:flex;justify-content:flex-end;gap:8px;align-items:center;">' +
-                        '<button type="button" class="action-link" data-action="show-access-log" data-submission-id="' + s.id + '"><svg class="icon-svg" style="width:12px;height:12px;"><use href="#hi-eye"/></svg> Detail</button>' +
+                        '<button type="button" class="action-link" data-action="show-access-log" data-submission-id="' + escapeHtml(String(s.id)) + '"><svg class="icon-svg" style="width:12px;height:12px;"><use href="#hi-eye"/></svg> Detail</button>' +
                         (s.submitted ? '' : '<button class="pd-action-btn pd-action-danger" title="Cabut izin perangkat — sesi berikutnya harus minta izin lagi" data-action="set-approval" data-mac="' + escapeHtml(s.mac_address) + '" data-status="rejected" style="border-radius:6px;font-weight:600;font-size:0.7rem;"><svg class="icon-svg" style="width:12px;height:12px;"><use href="#hi-x"/></svg> Tolak</button>') +
                     '</div></td>' +
                     '</tr>';
@@ -1645,7 +1656,11 @@ function loadDetail(page, silent) {
 function renderSubPagination(res) {
     var pagEl = document.getElementById('subPagination');
     if (!pagEl) return;
-    if (!res.total_pages || res.total_pages <= 1) { pagEl.style.display = 'none'; return; }
+    if (!res.total_pages || res.total_pages <= 1) {
+        pagEl.style.display = 'none';
+        pagEl.__lastHtml = null;
+        return;
+    }
 
     // Batch 11 (R56): info paginasi memakai rentang offset, bukan jumlah
     // baris halaman aktif — "Menampilkan 41–57 dari 57 perangkat".
@@ -1673,6 +1688,16 @@ function renderSubPagination(res) {
         html += '<button type="button" class="pagination-page-num" data-action="load-detail-page" data-page="' + res.total_pages + '" style="cursor:pointer;" aria-label="Halaman terakhir">&raquo;</button>';
     }
     html += '</div></div>';
+
+    // S110 (Batch 17): fingerprint HTML paginasi — bila identik dengan tick
+    // sebelumnya, lewati penulisan DOM agar fokus keyboard di tombol halaman
+    // tidak lenyap tiap tick senyap 12 dtk (selaras tujuan S94).
+    if (pagEl.__lastHtml === html) {
+        // S110: payload identik - DOM paginasi dibiarkan stabil.
+        return;
+    }
+    pagEl.__lastHtml = html;
+
     pagEl.innerHTML = html;
     pagEl.style.display = 'block';
 }

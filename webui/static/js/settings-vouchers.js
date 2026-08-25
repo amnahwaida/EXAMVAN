@@ -97,10 +97,10 @@ function renderVouchersTable(vouchers) {
         html += `
         <tr style="border-bottom:1px solid rgba(255,255,255,0.04);">
             <td data-label="Kode" style="padding:14px 20px;">
-                <div class="voucher-code-badge" data-action="copy" data-voucher-code="${safeCode}" title="Klik untuk menyalin kode">
+                <button type="button" class="voucher-code-badge" data-action="copy" data-voucher-code="${safeCode}" title="Klik untuk menyalin kode">
                     <span>${safeCode}</span>
                     <svg class="icon-svg voucher-copy-btn" style="width:14px;height:14px;"><use href="#hi-clipboard"/></svg>
-                </div>
+                </button>
             </td>
             <td data-label="Paket & Durasi" style="padding:14px 20px;">
                 <strong style="color:#fff;text-transform:uppercase;font-size:12px;">${escapeHtml(v.package)}</strong>

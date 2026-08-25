@@ -49,7 +49,8 @@
     --color-success-light: #34d399;     /* teks sukses terang di atas surface gelap */
     --rgb-warning: 245, 158, 11;        /* triplet kuning — .tone-warning & .notice-warning */
     --rgb-danger: 239, 68, 68;          /* triplet merah — .tone-danger (pasangan --color-danger) */
-    --rgb-info: 99, 102, 241;           /* triplet indigo info — pasangan var(--color-primary-light) */
+    --rgb-info: 99, 102, 241;
+    --color-info-light: #38bdf8;         /* R137: pasangan literal sky-400 kartu kuota dashboard */           /* triplet indigo info — pasangan var(--color-primary-light) */
     --rgb-accent: 168, 85, 247;         /* triplet aksen ungu — .tone-accent (beda dari --color-accent #8b5cf6) */
     /* === Triplet hitam/putih (Batch 8) ===
        Kontrak lintas-agen — nama & nilai WAJIB persis. Tujuan: mengganti sisa

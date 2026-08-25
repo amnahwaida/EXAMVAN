@@ -384,8 +384,22 @@ test('S107 (perilaku vm): fallback memuat modul dengan cache-buster ?v= dan mena
     assert.match(createdScript.src,
         /\/static\/js\/settings-system-apps\.js\?v=\{\{\.version\}\}$/,
         'src wajib membawa cache-buster ?v={{.version}}');
+    // Dikalibrasi Batch 17/S114: flag TIDAK lagi ditandai sebelum muat —
+    // hanya setelah onload sukses; onerror mengembalikan flag + toast.
+    assert.notEqual(sandbox.window.__settingsLoaded && sandbox.window.__settingsLoaded['system-apps'],
+        true, 'flag TIDAK boleh true sebelum script sukses dimuat (S114: gagal muat = tab mati senyap)');
+    if (typeof createdScript.onload === 'function') createdScript.onload();
     assert.equal(sandbox.window.__settingsLoaded && sandbox.window.__settingsLoaded['system-apps'],
-        true, 'fallback wajib menandai __settingsLoaded[\'system-apps\'] = true agar modul tak dimuat dobel');
+        true, 'onload sukses wajib menandai __settingsLoaded[\'system-apps\'] = true');
+    // S114: onerror mengembalikan flag ke false + toast gagal-muat.
+    sandbox.window.__settingsLoaded['system-apps'] = false;
+    let errorToast = null;
+    sandbox.window.showToast = (m, t) => { errorToast = { m, t }; };
+    if (typeof createdScript.onerror === 'function') createdScript.onerror();
+    assert.equal(sandbox.window.__settingsLoaded['system-apps'], false,
+        'onerror wajib mengembalikan flag ke false agar modul bisa dimuat ulang');
+    assert.ok(errorToast && /Gagal memuat/i.test(errorToast.m || ''),
+        'onerror wajib memberi toast gagal-muat (bukan mati senyap)');
 });
 
 // ════════════════════════════════════════════════════════════════════════

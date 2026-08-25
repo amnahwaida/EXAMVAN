@@ -144,9 +144,9 @@
   });
  }
 
- window.__settingsReady['packages'] = loadPackages;
- // Pengaturan Paket moved into the Pengaturan Umum tab (5-tab redesign);
- // settings-general.js calls initPackages instead of a standalone tab.
+ // R140 (ronde 11): registrasi yatim ke __settingsReady untuk key section
+ // "packages" dihapus — key itu tak pernah eksis pasca redesign 5-tab;
+ // jalur init hidup adalah initPackages (dipanggil settings-general.js).
  window.initPackages = loadPackages;
  window.savePackages = savePackages;
 

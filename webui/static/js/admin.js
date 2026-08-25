@@ -1160,6 +1160,24 @@ function togglePengawasDropdown() {
         // Focus search
         var sb = dd.querySelector('input[type="text"]');
         if (sb) setTimeout(function() { sb.focus(); }, 50);
+
+        // S113: fokus default saat terbuka ada di search box - Escape dari sana
+        // tidak pernah menyentuh handler header dan jatuh ke Modal Manager
+        // (menutup SELURUH modal delegasi; form terisi hilang).
+        if (!dd.__escWired) {
+            dd.__escWired = true;
+            dd.addEventListener('keydown', function(ev) {
+                if (ev.key !== 'Escape') return;
+                ev.stopPropagation();
+                var hd2 = document.getElementById('pengawasDropdownHeader');
+                dd.style.display = 'none';
+                if (hd2) {
+                    hd2.setAttribute('aria-expanded', 'false');
+                    hd2.style.borderColor = 'var(--color-glass-border)';
+                    hd2.focus();
+                }
+            });
+        }
     } else {
         dd.style.display = 'none';
         hd.style.borderColor = 'var(--color-glass-border)';
@@ -1860,7 +1878,10 @@ function renderUsersPagination(pagination, currentPage) {
             }
             if (isCurrent) {
                 b.className = 'pagination-current';
-                b.disabled = true;
+                // R139: halaman aktif TIDAK di-disabled - SR harus bisa membaca
+                // posisi halaman via aria-current (disabled = tak fokusable).
+                b.setAttribute('aria-current', 'page');
+                b.setAttribute('aria-label', 'Halaman ' + pg + ', halaman saat ini');
                 b.style.cssText += 'background:rgba(99,102,241,0.2);color:var(--color-primary-light);border:1px solid rgba(99,102,241,0.4);font-weight:800;';
             }
             b.textContent = label;
@@ -2174,8 +2195,10 @@ function openEditUserModal(userId) {
             Modal.open(editModal);
         })
         .catch(function () {
-            // S109: gagal jaringan tak boleh unhandled rejection — modal tak
-            // terbuka tanpa pesan apa pun membuat user mengira tombol mati.
+            // S109+R133: gagal jaringan tak boleh unhandled rejection — dan
+            // toast basi dari permintaan lama tak boleh muncul setelah modal
+            // baru sudah terisi (guard seq simetris dengan cabang then).
+            if (seq !== editUserModalSeq) return;
             showToast('Gagal memuat data user', 'error');
         });
 }
@@ -2363,7 +2386,8 @@ function submitEditUser(e) {
     }
 
     var btn = e.target.querySelector('button[type="submit"]');
-    if (!btn) return;
+    // R134: guard persis kontrak S27 (pola submitEditToken/saveQuestionsConfig).
+    if (!btn || btn.disabled) return;
     var originalHtml = btn.innerHTML;
     btn.disabled = true;
     btn.textContent = 'Menyimpan...';
@@ -3206,7 +3230,10 @@ function toggleRowDropdown(event, examId) {
     });
     
     dropdown.classList.remove('drop-up', 'drop-down', 'align-right');
+    // R138: sinkron state popup ke tombol pemicu (SR tahu menu terbuka/tutup).
+    const triggerBtn = document.querySelector('.btn-more[data-exam-id="' + examId + '"]');
     dropdown.classList.toggle('show');
+    if (triggerBtn) triggerBtn.setAttribute('aria-expanded', dropdown.classList.contains('show') ? 'true' : 'false');
     
     if (dropdown.classList.contains('show')) {
         void dropdown.offsetHeight;
@@ -3293,6 +3320,13 @@ document.addEventListener('keydown', function(event) {
     if (event.key === 'Escape') {
         document.querySelectorAll('.exam-action-dropdown-content.show').forEach(el => {
             el.classList.remove('show');
+            // R138: pulihkan fokus ke tombol pemicu agar navigasi keyboard
+            // tidak tercerai setelah menu (yang re-parent ke body) ditutup.
+            const ownerBtn = el.__btnWrap ? el.__btnWrap.querySelector('.btn-more') : null;
+            if (ownerBtn) {
+                ownerBtn.setAttribute('aria-expanded', 'false');
+                ownerBtn.focus();
+            }
         });
     }
 });
@@ -4123,10 +4157,9 @@ function closeDetailModal() {
     });
 })();
 
-// Global click: close identity popup
-document.addEventListener('click', function() {
-    document.querySelectorAll('.identity-popup.show').forEach(function(p) { p.classList.remove('show'); });
-});
+// R136: listener dokumen tanpa syarat DIHAPUS - ia menutup popup walau klik
+// terjadi DI DALAM popup (seleksi teks identitas), melumpuhkan guard
+// closest('.identity-popup') milik listener ber-scope tabel di atas.
 
 // ===== S28: pencarian client-side DIHAPUS ==================================
 // Fungsi pencarian/filter baris versi client-side beserta timer debounce-nya

@@ -524,14 +524,15 @@ test('R100 (statik): pengganti terprogram terpasang — form editUserForm via ad
 // ════════════════════════════════════════════════════════════════════════
 
 test('R101 (statik): anchor Sebelumnya/Berikutnya dashboard punya aria-disabled="true" pada boundary yang sama dengan class disabled', () => {
-    const prev = DASHBOARD_HTML.match(/<a href="\?page=\{\{sub \.page 1\}\}[^\n]*>/);
+    // Dikalibrasi Batch 17/R135: href kini KONDISIONAL (omit saat disabled).
+    const prev = DASHBOARD_HTML.match(/<a \{\{if gt \.page 1\}\}href="\?page=\{\{sub \.page 1\}\}[^\n]*>/);
     assert.ok(prev, 'anchor Sebelumnya dashboard eksis');
     assert.match(prev[0], /\{\{if le \.page 1\}\}disabled\{\{end\}\}/,
         'prasyarat: penanda class disabled boundary bawah tetap ada');
     assert.match(prev[0], /\{\{if le \.page 1\}\}aria-disabled="true"\{\{end\}\}/,
         'boundary bawah (halaman 1) wajib aria-disabled="true" — class CSS tak terasa screen reader (paritas submissions.html)');
 
-    const next = DASHBOARD_HTML.match(/<a href="\?page=\{\{add \.page 1\}\}[^\n]*>/);
+    const next = DASHBOARD_HTML.match(/<a \{\{if lt \.page \.total_pages\}\}href="\?page=\{\{add \.page 1\}\}[^\n]*>/);
     assert.ok(next, 'anchor Berikutnya dashboard eksis');
     assert.match(next[0], /\{\{if ge \.page \.total_pages\}\}disabled\{\{end\}\}/,
         'prasyarat: penanda class disabled boundary atas tetap ada');

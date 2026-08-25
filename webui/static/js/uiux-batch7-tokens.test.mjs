@@ -67,15 +67,17 @@ test('S15 fase 2 (guard): total hex literal di seluruh templates/ tidak naik dar
     const total = countFolder(HEX_RE);
     // Batch 12 (R70): plafon diperketat ke baseline aktual; Batch 13 (S68-
     // lanjutan/R82) menurunkannya lagi (migrasi #818cf8/#f43f5e) -> 130.
-    assert.ok(total <= 107,
-        `total hex templates/ = ${total}, baseline terkunci ≤ 107 — pakai var(--token) untuk warna baru`);
+    // Batch 17: dikunci aktual (99) pasca migrasi token R125-sisa/R137.
+    assert.ok(total <= 99,
+        `total hex templates/ = ${total}, baseline terkunci ≤ 99 — pakai var(--token) untuk warna baru`);
 });
 
 test('S15 fase 2/S43 (guard): total rgba LITERAL (digit pembuka) di seluruh templates/ tidak naik', () => {
     const total = countFolder(RGBA_RE);
     // Batch 12 (R70): baseline aktual 140 (pasca migrasi S58/Batch 11-12).
-    assert.ok(total <= 104,
-        `total rgba literal templates/ = ${total}, baseline terkunci ≤ 104 — pakai rgba(var(--rgb-*), α) / --glass-bg-strong`);
+    // Batch 17: dikunci aktual (89) pasca migrasi muted R125-sisa.
+    assert.ok(total <= 89,
+        `total rgba literal templates/ = ${total}, baseline terkunci ≤ 89 — pakai rgba(var(--rgb-*), α) / --glass-bg-strong`);
 });
 
 // Plafon per-file rgba literal (hasil ukur S43, regex digit-pembuka).
@@ -92,7 +94,7 @@ const RGBA_BASELINE_PER_FILE = {
     'admin/dashboard.html': 29, /* Batch 16/R125: muted → token rgb-triplet */
     'public/register_confirm.html': 0,
     'admin/pengawas.html': 3,
-    'admin/pengawas_detail.html': 11,
+    'admin/pengawas_detail.html': 7 /* Batch 17/R125-sisa */,
     'public/download.html': 11,
     'public/hasil.html': 0,
     'admin/partials/nav.html': 8,

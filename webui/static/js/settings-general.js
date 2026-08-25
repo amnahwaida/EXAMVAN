@@ -123,7 +123,9 @@ function updateToggleAllLabel() {
     var total = document.querySelectorAll('#section-general .saas-collapse').length;
     var collapsed = countGeneralCollapsed();
     var expand = collapsed > 0;
-    label.textContent = (expand ? 'Buka Semua' : 'Lipat Semua') + ' (' + collapsed + '/' + total + ' terlipat)';
+    // R142 (ronde 11): paritas pola users — label murni kata kerja, jumlah
+    // terlipat hanya di title agar teks tombol tak membingungkan saat 0.
+    label.textContent = expand ? 'Buka Semua' : 'Lipat Semua';
     icon.style.transform = expand ? 'rotate(0deg)' : 'rotate(180deg)';
     btn.title = (expand ? 'Buka semua bagian' : 'Lipat semua bagian') + ' (' + collapsed + '/' + total + ' terlipat)';
 }
