@@ -1230,7 +1230,7 @@
   </div>
   <div style="display:flex;gap:10px;">
     <button data-action="voucher-open-batch" class="btn-secondary" style="display:inline-flex;align-items:center;gap:8px;padding:10px 18px;border-radius:10px;font-weight:600;font-size:0.875rem;cursor:pointer;background:rgba(var(--rgb-white), 0.06);border:1px solid var(--color-glass-border);color:var(--color-text);">
-    <svg class="icon-svg" style="width:16px;height:16px;"><use href="#hi-plus"/></svg> Batch Generate
+    <svg class="icon-svg" style="width:16px;height:16px;"><use href="#hi-plus"/></svg> Buat Massal
    </button>
     <button data-action="voucher-open-single" class="btn-primary" style="display:inline-flex;align-items:center;gap:8px;padding:10px 18px;border-radius:10px;font-weight:600;font-size:0.875rem;cursor:pointer;background:linear-gradient(135deg, rgb(var(--rgb-accent)), rgb(var(--rgb-info)));border:none;color:var(--color-text-on-primary);">
     <svg class="icon-svg" style="width:16px;height:16px;"><use href="#hi-plus"/></svg> Buat Voucher Single
@@ -1259,15 +1259,17 @@
  <div class="glass-card" style="border-radius:16px;overflow:hidden;">
   <div style="overflow-x:auto;">
    <table class="exam-table" style="width:100%;border-collapse:collapse;text-align:left;font-size:13.5px;">
+    <!-- R103: caption sr-only sebagai nama aksesibel tabel bagi screen reader -->
+    <caption class="sr-only">Daftar Voucher</caption>
     <thead>
      <tr style="border-bottom:1px solid var(--color-glass-border);background:rgba(var(--rgb-white), 0.02);color:var(--color-text-secondary);font-size:12px;text-transform:uppercase;letter-spacing:0.5px;">
-      <th style="padding:16px 20px;">Kode Voucher</th>
-      <th style="padding:16px 20px;">Paket & Durasi</th>
-      <th style="padding:16px 20px;">Penggunaan</th>
-      <th style="padding:16px 20px;">Kadaluarsa</th>
-      <th style="padding:16px 20px;">Status</th>
-      <th style="padding:16px 20px;">Catatan</th>
-      <th style="padding:16px 20px;text-align:right;">Aksi</th>
+      <th scope="col" style="padding:16px 20px;">Kode Voucher</th>
+      <th scope="col" style="padding:16px 20px;">Paket & Durasi</th>
+      <th scope="col" style="padding:16px 20px;">Penggunaan</th>
+      <th scope="col" style="padding:16px 20px;">Kadaluarsa</th>
+      <th scope="col" style="padding:16px 20px;">Status</th>
+      <th scope="col" style="padding:16px 20px;">Catatan</th>
+      <th scope="col" style="padding:16px 20px;text-align:right;">Aksi</th>
      </tr>
     </thead>
     <tbody id="vouchersTableBody" aria-live="polite" aria-busy="false">
@@ -1319,12 +1321,14 @@
  <div class="glass-card" style="border-radius:16px;overflow:hidden;">
   <div style="overflow-x:auto;">
    <table style="width:100%;border-collapse:collapse;min-width:760px;">
+    <!-- R103: caption sr-only sebagai nama aksesibel tabel bagi screen reader -->
+    <caption class="sr-only">Riwayat Klaim Voucher</caption>
     <thead>
      <tr style="background:rgba(var(--rgb-white), 0.03);">
-      <th style="padding:14px 20px;text-align:left;font-size:11px;text-transform:uppercase;letter-spacing:0.5px;color:var(--color-text-secondary);">Waktu</th>
-      <th style="padding:14px 20px;text-align:left;font-size:11px;text-transform:uppercase;letter-spacing:0.5px;color:var(--color-text-secondary);">Aksi</th>
-      <th style="padding:14px 20px;text-align:left;font-size:11px;text-transform:uppercase;letter-spacing:0.5px;color:var(--color-text-secondary);">Oleh</th>
-      <th style="padding:14px 20px;text-align:left;font-size:11px;text-transform:uppercase;letter-spacing:0.5px;color:var(--color-text-secondary);">Detail</th>
+      <th scope="col" style="padding:14px 20px;text-align:left;font-size:11px;text-transform:uppercase;letter-spacing:0.5px;color:var(--color-text-secondary);">Waktu</th>
+      <th scope="col" style="padding:14px 20px;text-align:left;font-size:11px;text-transform:uppercase;letter-spacing:0.5px;color:var(--color-text-secondary);">Aksi</th>
+      <th scope="col" style="padding:14px 20px;text-align:left;font-size:11px;text-transform:uppercase;letter-spacing:0.5px;color:var(--color-text-secondary);">Oleh</th>
+      <th scope="col" style="padding:14px 20px;text-align:left;font-size:11px;text-transform:uppercase;letter-spacing:0.5px;color:var(--color-text-secondary);">Detail</th>
      </tr>
     </thead>
     <tbody id="auditLogsBody" aria-live="polite" aria-busy="false">
@@ -1363,7 +1367,7 @@
        <option value="sekolah_menengah">Sekolah Menengah</option>
        <option value="sekolah_besar">Sekolah Besar</option>
        <option value="sekolah_unggulan">Sekolah Unggulan</option>
-       <option value="custom">⚙️ Kustom (Atur Limit Sendiri)</option>
+       <option value="custom">Kustom (Atur Limit Sendiri)</option>
       </select>
      </div>
      <div>
@@ -1372,7 +1376,7 @@
        <option value="bulanan">Bulanan (30 Hari)</option>
        <option value="semester">Semester (180 Hari)</option>
        <option value="tahunan">Tahunan (365 Hari)</option>
-       <option value="custom">⚙️ Kustom (Jumlah Hari...)</option>
+       <option value="custom">Kustom (Jumlah Hari...)</option>
       </select>
      </div>
     </div>
@@ -1383,7 +1387,7 @@
     </div>
 
     <div id="singleCustomGroup" style="display:none;margin-bottom:14px;padding:12px;border:1px dashed rgba(var(--rgb-accent),0.4);border-radius:8px;background:rgba(var(--rgb-accent),0.05);">
-     <div style="font-size:12px;color:var(--color-accent-light);font-weight:700;margin-bottom:8px;">⚙️ Entitlement Kustom (menimpa limit akun saat redeem)</div>
+     <div style="font-size:12px;color:var(--color-accent-light);font-weight:700;margin-bottom:8px;">Entitlement Kustom (menimpa limit akun saat redeem)</div>
      <div style="margin-bottom:10px;">
       <label for="singleCustomLabel" style="display:block;font-size:12px;color:var(--color-text-secondary);margin-bottom:4px;">Label Paket</label>
       <input type="text" id="singleCustomLabel" placeholder="Misal: PROMO-KHUSUS" style="width:100%;padding:8px;background:rgba(var(--rgb-black), 0.3);border:1px solid var(--color-glass-border);border-radius:8px;color:var(--color-text);outline:none;" />
@@ -1452,7 +1456,7 @@
 <div class="modal-overlay" id="batchModal" role="dialog" aria-modal="true" aria-labelledby="batchModalTitle" data-action="modal-dismiss" data-modal-close="closeBatchModal" style="display:none;">
  <div class="modal-card" style="max-width:500px;">
   <div class="modal-header">
-   <h3 id="batchModalTitle" style="font-size:1.1rem;color:var(--color-text);margin:0;">Generate Batch Voucher (Banyak)</h3>
+   <h3 id="batchModalTitle" style="font-size:1.1rem;color:var(--color-text);margin:0;">Buat Massal Voucher</h3>
    <button class="modal-close" data-action="voucher-close-batch" aria-label="Tutup">&times;</button>
   </div>
   <div style="padding:20px;max-height:calc(90vh - 60px);overflow-y:auto;-webkit-overflow-scrolling:touch;">
@@ -1478,7 +1482,7 @@
        <option value="sekolah_menengah">Sekolah Menengah</option>
        <option value="sekolah_besar">Sekolah Besar</option>
        <option value="sekolah_unggulan">Sekolah Unggulan</option>
-       <option value="custom">⚙️ Kustom (Atur Limit Sendiri)</option>
+       <option value="custom">Kustom (Atur Limit Sendiri)</option>
       </select>
      </div>
      <div>
@@ -1487,7 +1491,7 @@
        <option value="bulanan">Bulanan (30 Hari)</option>
        <option value="semester">Semester (180 Hari)</option>
        <option value="tahunan">Tahunan (365 Hari)</option>
-       <option value="custom">⚙️ Kustom (Jumlah Hari...)</option>
+       <option value="custom">Kustom (Jumlah Hari...)</option>
       </select>
      </div>
     </div>
@@ -1498,7 +1502,7 @@
     </div>
 
     <div id="batchCustomGroup" style="display:none;margin-bottom:14px;padding:12px;border:1px dashed rgba(var(--rgb-accent),0.4);border-radius:8px;background:rgba(var(--rgb-accent),0.05);">
-     <div style="font-size:12px;color:var(--color-accent-light);font-weight:700;margin-bottom:8px;">⚙️ Entitlement Kustom (berlaku untuk semua kode di batch)</div>
+     <div style="font-size:12px;color:var(--color-accent-light);font-weight:700;margin-bottom:8px;">Entitlement Kustom (berlaku untuk semua kode di batch)</div>
      <div style="margin-bottom:10px;">
       <label for="batchCustomLabel" style="display:block;font-size:12px;color:var(--color-text-secondary);margin-bottom:4px;">Label Paket</label>
       <input type="text" id="batchCustomLabel" placeholder="Misal: PROMO-KHUSUS" style="width:100%;padding:8px;background:rgba(var(--rgb-black), 0.3);border:1px solid var(--color-glass-border);border-radius:8px;color:var(--color-text);outline:none;" />
@@ -1555,7 +1559,7 @@
 
     <div style="display:flex;justify-content:flex-end;gap:10px;">
      <button type="button" data-action="voucher-close-batch" style="padding:10px 18px;border-radius:8px;background:rgba(var(--rgb-white), 0.06);border:1px solid var(--color-glass-border);color:var(--color-text);cursor:pointer;">Batal</button>
-     <button type="submit" id="btnSubmitBatch" style="padding:10px 20px;border-radius:8px;background:linear-gradient(135deg, rgb(var(--rgb-accent)), rgb(var(--rgb-info)));border:none;color:var(--color-text-on-primary);font-weight:600;cursor:pointer;">Generate Batch</button>
+     <button type="submit" id="btnSubmitBatch" style="padding:10px 20px;border-radius:8px;background:linear-gradient(135deg, rgb(var(--rgb-accent)), rgb(var(--rgb-info)));border:none;color:var(--color-text-on-primary);font-weight:600;cursor:pointer;">Buat Massal</button>
     </div>
    </form>
   </div>
@@ -1922,15 +1926,17 @@
  <div class="glass-card" style="border-radius:16px;overflow:hidden;">
   <div style="overflow-x:auto;">
    <table class="exam-table pkg-table" style="width:100%;border-collapse:collapse;text-align:left;font-size:13.5px;">
+    <!-- R103: caption sr-only sebagai nama aksesibel tabel bagi screen reader -->
+    <caption class="sr-only">Pengaturan Paket Pendaftaran</caption>
     <thead>
      <tr style="border-bottom:1px solid var(--color-glass-border);background:rgba(var(--rgb-white), 0.02);color:var(--color-text-secondary);font-size:12px;text-transform:uppercase;letter-spacing:0.5px;">
-      <th style="padding:16px 20px;min-width:170px;">Nama Paket</th>
-      <th style="padding:16px 20px;min-width:110px;">Total Ujian</th>
-      <th style="padding:16px 20px;min-width:120px;">Ujian Serentak</th>
-      <th style="padding:16px 20px;min-width:120px;">Maks. PDF (MB)</th>
-      <th style="padding:16px 20px;min-width:130px;">Storage (MB)</th>
-      <th style="padding:16px 20px;min-width:130px;">Maks. Akun Guru</th>
-      <th style="padding:16px 20px;min-width:140px;">Role</th>
+      <th scope="col" style="padding:16px 20px;min-width:170px;">Nama Paket</th>
+      <th scope="col" style="padding:16px 20px;min-width:110px;">Total Ujian</th>
+      <th scope="col" style="padding:16px 20px;min-width:120px;">Ujian Serentak</th>
+      <th scope="col" style="padding:16px 20px;min-width:120px;">Maks. PDF (MB)</th>
+      <th scope="col" style="padding:16px 20px;min-width:130px;">Storage (MB)</th>
+      <th scope="col" style="padding:16px 20px;min-width:130px;">Maks. Akun Guru</th>
+      <th scope="col" style="padding:16px 20px;min-width:140px;">Role</th>
      </tr>
     </thead>
     <tbody id="packagesTableBody">
@@ -2000,9 +2006,10 @@
         <div class="modal-header" style="position:relative;">
             <button type="button" data-action="app-upload-close" aria-label="Tutup" style="position:absolute;top:0;right:0;width:40px;height:40px;display:flex;align-items:center;justify-content:center;background:rgba(var(--rgb-white), 0.06);border:1px solid rgba(var(--rgb-white), 0.1);border-radius:10px;color:#e2e8f0;font-size:18px;cursor:pointer;line-height:1;">&times;</button>
             <h3 id="uploadModalTitle" style="margin:0; font-size:1.5rem; font-weight:800; color:white; display:flex; align-items:center; gap:12px; padding-right:52px;">
-                <div style="width: 40px; height: 40px; background: rgba(var(--rgb-accent),0.15); border-radius: 12px; display: flex; align-items: center; justify-content: center; color: var(--color-accent-light);">
+                <!-- R129: ikon diganti span — elemen div tidak sah sebagai anak h3 -->
+                <span style="width: 40px; height: 40px; background: rgba(var(--rgb-accent),0.15); border-radius: 12px; display: flex; align-items: center; justify-content: center; color: var(--color-accent-light);">
                     <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="17 8 12 3 7 8"></polyline><line x1="12" y1="3" x2="12" y2="15"></line></svg>
-                </div>
+                </span>
                 Unggah Aplikasi Baru
             </h3>
             <p style="margin:12px 0 0 0; font-size:0.95rem; color:var(--color-text-placeholder); line-height:1.5;">Lengkapi data dan pilih file instalasi aplikasi klien yang akan didistribusikan.</p>
@@ -2034,7 +2041,7 @@
                     <div class="custom-file-input" id="fileDropArea">
                         <input type="file" id="appFile" name="file" required>
                         <svg class="file-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline><line x1="12" y1="18" x2="12" y2="12"></line><line x1="9" y1="15" x2="15" y2="15"></line></svg>
-                        <div id="file-name-display" style="font-weight:700; color:white; font-size:1.15rem; margin-bottom:6px;">Pilih atau Seret File Kesini</div>
+                        <div id="file-name-display" style="font-weight:700; color:white; font-size:1.15rem; margin-bottom:6px;">Pilih atau Seret File Ke Sini</div>
                         <div style="font-size:0.9rem; color:var(--color-text-placeholder);">Mendukung file .apk, .exe, atau executable linux.</div>
                     </div>
                 </div>
@@ -2085,15 +2092,17 @@
           pending = false;
           if (typeof window.openUploadModal === 'function') window.openUploadModal();
         };
-        if (typeof window.loadSectionScript === 'function') {
-          window.__settingsLoaded['system-apps'] = false;
-          window.loadSectionScript('system-apps', tryOpen);
-        } else {
-          var s = document.createElement('script');
-          s.src = '/static/js/settings-system-apps.js';
-          s.onload = tryOpen;
-          document.head.appendChild(s);
-        }
+        // S107 (ronde 10): branch pemuat modul privat (tak pernah diekspor ke
+        // window, typeof-cek selalu false) dihapus. Fallback tunggal kini
+        // membawa cache-buster ?v= (anti modul basi pasca-deploy) dan
+        // menandai __settingsLoaded agar aktivasi tab berikutnya tidak
+        // memuat ulang modul (listener ganda).
+        var s = document.createElement('script');
+        s.src = '/static/js/settings-system-apps.js?v={{.version}}';
+        s.onload = tryOpen;
+        window.__settingsLoaded = window.__settingsLoaded || {};
+        window.__settingsLoaded['system-apps'] = true;
+        document.head.appendChild(s);
       };
       document.addEventListener('DOMContentLoaded', function() {
         // R98 (ronde 8): jalur wiring TUNGGAL untuk tombol unggah adalah

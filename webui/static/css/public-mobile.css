@@ -46,7 +46,7 @@ body > nav {
   -webkit-background-clip: text; -webkit-text-fill-color: transparent;
 }
 .nav-links { display: flex; align-items: center; }
-.nav-link { color: #9ca3af; text-decoration: none; font-size: 15px; font-weight: 500; transition: color .3s; }
+.nav-link { color: var(--color-text-muted); text-decoration: none; font-size: 15px; font-weight: 500; transition: color .3s; } /* R125: literal gray-Tailwind -> token theme.css */
 .nav-link:hover { color: #fff; }
 .btn-nav-login {
   background: rgba(var(--rgb-white), .05); border: 1px solid rgba(var(--rgb-white), .08);
@@ -177,7 +177,6 @@ button, a.btn-primary, a.btn-secondary { touch-action: manipulation; }
 
 @media (min-width: 1101px) {
   .nav-container { max-width: 1200px; padding: 18px 24px; }
-  .nav-hamburger { display: none !important; }
   .nav-links {
     display: flex; position: static; width: auto; height: auto; padding: 0;
     flex-direction: row; align-items: center; overflow: visible; background: transparent;
@@ -198,6 +197,23 @@ button, a.btn-primary, a.btn-secondary { touch-action: manipulation; }
   .reg-step-label { display: inline; }
 }
 
+/* T31 (ronde 10, opsi A): sembunyi burger dipindah ke media query gabungan
+   pointer-halus. Di touch-device lebar (>=1101px, iPad landscape dsb.)
+   burger TETAP tersedia karena drawer-lah jalur navigasinya — tanpa gate
+   ini hamburger hilang dan seluruh navigasi mati di kelas perangkat itu.
+   (Rule dipindah utuh dari blok (min-width:1101px) di atas; jumlah flag
+   important tidak bertambah.) */
+@media (min-width: 1101px) and (hover: hover) and (pointer: fine) {
+  .nav-hamburger { display: none !important; }
+}
+
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { scroll-behavior: auto !important; animation: none !important; transition-duration: .01ms !important; }
+}
+
+/* R127 (ronde 10): paritas S96 hasil.css — gradien logo memakai
+   -webkit-text-fill-color: transparent yang lolos ke media cetak (logo
+   tercetak kosong). Reset minimal, tanpa flag important. */
+@media print {
+  .logo-text { -webkit-text-fill-color: initial; background: none; }
 }

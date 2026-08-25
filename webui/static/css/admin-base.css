@@ -886,7 +886,7 @@ body.modal-open {
 }
 .student-status.submitted { background: rgba(var(--rgb-success),0.15); color: #6ee7b7; border: 1px solid rgba(var(--rgb-success),0.3); }
 .student-status.in-progress { background: rgba(251,191,36,0.15); color: var(--color-warning-light); border: 1px solid rgba(251,191,36,0.3); }
-.student-status.not-started { background: rgba(107,114,128,0.15); color: #9ca3af; border: 1px solid rgba(107,114,128,0.3); }
+.student-status.not-started { background: rgba(var(--rgb-text-muted),0.15); color: var(--color-text-muted); border: 1px solid rgba(var(--rgb-text-muted),0.3); }
 
 /* ===== Kelas utilitas tone (Batch 7) =====
    Kontrak lintas-agen: HANYA surface/border/color dari token rgb-triplet

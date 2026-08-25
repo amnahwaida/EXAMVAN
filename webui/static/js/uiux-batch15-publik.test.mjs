@@ -289,17 +289,27 @@ test('S97 (vm): Escape/closeMenu saat drawer TIDAK terbuka tidak mencuri fokus',
 // ════════════════════════════════════════════════════════════════════════
 
 for (const [name, html] of [['register_confirm.html', REG_CONFIRM], ['reset_password.html', RESET_PW]]) {
-    test(`S98 (statik): ${name} — kotak digit bebas one-time-code; atribut tepat satu di #otp_code`, () => {
+    test(`S98 (statik, dikalibrasi T30/Batch 16): ${name} — one-time-code tepat satu di kotak digit PERTAMA visible; hidden bersih`, () => {
         const digitInputs = html.match(/<input[^>]*class="otp-digit"[^>]*>/g) || [];
         assert.ok(digitInputs.length === 6, `harus ada 6 kotak digit di ${name}`);
-        for (const inp of digitInputs) {
-            assert.doesNotMatch(inp, /one-time-code/,
-                'autocomplete="one-time-code" pada kotak maxlength=1 membusukkan autofill OS — hapus');
+        for (const [i, inp] of digitInputs.entries()) {
+            if (i === 0) {
+                // T30: mesin autofill OS melewatkan field non-visible — lokasi
+                // yang benar adalah kotak pertama yang VISIBLE & fokusable,
+                // tanpa maxlength pemotong isian utuh.
+                assert.match(inp, /one-time-code/,
+                    'kotak digit pertama wajib membawa autocomplete="one-time-code" (T30)');
+                assert.doesNotMatch(inp, /maxlength="1"/,
+                    'kotak digit pertama tanpa maxlength pemotong (T30)');
+            } else {
+                assert.doesNotMatch(inp, /one-time-code/,
+                    'hanya kotak digit pertama yang membawa one-time-code');
+            }
         }
         const occ = html.match(/<input[^>]*autocomplete="one-time-code"[^>]*>/g) || [];
-        assert.equal(occ.length, 1, 'tepat SATU input gabungan yang membawa autocomplete="one-time-code"');
-        assert.match(occ[0], /type="hidden"/, 'input gabungan adalah hidden composite (#otp_code)');
-        assert.match(occ[0], /id="otp_code"/);
+        assert.equal(occ.length, 1, 'tepat SATU input yang membawa autocomplete="one-time-code"');
+        assert.doesNotMatch(occ[0], /type="hidden"/,
+            'input hidden TIDAK boleh membawa one-time-code — autofill OS melewatinya (T30)');
     });
 
     test(`S98 (vm): ${name} — tempel/input 6 digit sekaligus terdistribusi antar kotak`, () => {

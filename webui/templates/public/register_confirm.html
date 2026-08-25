@@ -3,6 +3,8 @@
 <head>
  <meta charset="UTF-8">
  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+ <!-- R130: warna brand address-bar mobile; nilai = --color-bg theme.css (paritas shared.html:121/S34). -->
+ <meta name="theme-color" content="#09090e">
  {{ template "public_fonts" . }}
  <title>EXAMVAN - Verifikasi Email</title>
  <link rel="stylesheet" href="/static/css/theme.css?v={{.version}}">
@@ -231,18 +233,26 @@
    </div>
 
    <!-- OTP Form -->
-   <form method="POST" action="/register/confirm?username={{.username}}" class="login-form" id="otpForm" autocomplete="off">
-    <!-- Hidden real input. S98: atribut autofill OTP OS hanya sah pada
-         SATU input gabungan; di kotak maxlength="1" isian OS terpotong
-         jadi 1 digit sehingga autofill iOS/Android membusuk. -->
-    <input type="hidden" id="otp_code" name="otp_code" value="" autocomplete="one-time-code">
+   <form method="POST" action="/register/confirm?username={{.username}}" class="login-form" id="otpForm">
+    <!-- Hidden real input. T30 (ronde 10): autocomplete="one-time-code"
+         DIPINDAH ke kotak digit pertama yang visible — mesin autofill OTP
+         OS melewatkan input hidden/tak fokusable sehingga atribut di sini
+         mematikan autofill total (regresi S98). Input ini tetap penerima
+         gabungan dari syncHidden(). Keputusan T30: autocomplete="off"
+         level form MELEPAS/dihapus — form hanya berisi OTP + field
+         tersembunyi, tak ada kredensial lain yang berisiko ter-autofill
+         salah, sementara "off" level form berpotensi menekan saran OTP OS. -->
+    <input type="hidden" id="otp_code" name="otp_code" value="">
     <input type="hidden" name="csrf_token" value="{{.csrf_token}}">
     <input type="hidden" name="device_fingerprint" value="">
 
     <div style="text-align:center;">
       <label for="otp-digit-1" style="display:block;margin-bottom:6px;font-weight:500;font-size:13px;color:var(--color-text);">Masukkan Kode OTP</label>
      <div class="otp-input-wrapper" id="otpInputWrapper">
-      <input type="text" class="otp-digit" id="otp-digit-1" maxlength="1" inputmode="numeric" pattern="[0-9]" data-idx="0" aria-label="Digit 1 kode OTP" autofocus>
+      <!-- T30: satu-satunya pembawa one-time-code (visible + fokus awal);
+           maxlength="1" DIHAPUS agar isian utuh OS tidak terpotong sebelum
+           distribusi multi-karakter (handler input) bekerja. -->
+      <input type="text" class="otp-digit" id="otp-digit-1" autocomplete="one-time-code" inputmode="numeric" pattern="[0-9]" data-idx="0" aria-label="Digit 1 kode OTP" autofocus>
       <input type="text" class="otp-digit" maxlength="1" inputmode="numeric" pattern="[0-9]" data-idx="1" aria-label="Digit 2 kode OTP">
       <input type="text" class="otp-digit" maxlength="1" inputmode="numeric" pattern="[0-9]" data-idx="2" aria-label="Digit 3 kode OTP">
       <input type="text" class="otp-digit" maxlength="1" inputmode="numeric" pattern="[0-9]" data-idx="3" aria-label="Digit 4 kode OTP">

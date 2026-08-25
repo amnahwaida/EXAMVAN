@@ -22,13 +22,20 @@ function platformIcon(platform) {
         '<svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4a2 2 0 0 0 2 0z"/></svg>';
 }
 
+// S92 (ronde 10): token permintaan monoton — respons loadApps lama yang
+// lambat mendarat tidak boleh menimpa render grid yang lebih baru.
+var appLoadSeq = 0;
+
 async function loadApps() {
+    const seq = ++appLoadSeq;
     try {
         const res = await apiFetch('/admin/api/system-apps');
         const data = await res.json();
+        if (seq !== appLoadSeq) return;
         if (!data.success) throw new Error(data.message || 'Gagal memuat');
         renderAppsGrid(data.apps || []);
     } catch (e) {
+        if (seq !== appLoadSeq) return;
         showToast('Gagal memuat daftar aplikasi: ' + e.message, 'error');
     }
 }
@@ -155,7 +162,7 @@ function closeUploadModal() {
         __uploadCloseTimer = null;
         modal.style.display = 'none';
         document.getElementById('uploadAppForm').reset();
-        document.getElementById('file-name-display').innerText = 'Pilih atau Seret File Kesini';
+        document.getElementById('file-name-display').innerText = 'Pilih atau Seret File Ke Sini';
         document.getElementById('file-name-display').style.color = 'white';
         document.getElementById('uploadError').style.display = 'none';
         document.getElementById('uploadProgressContainer').style.display = 'none';
@@ -267,13 +274,13 @@ function updateFileName(input) {
         display.innerText = input.files[0].name;
         display.style.color = 'var(--color-accent-light)';
     } else {
-        display.innerText = 'Pilih atau Seret File Kesini';
+        display.innerText = 'Pilih atau Seret File Ke Sini';
         display.style.color = 'white';
     }
 }
 
 // Fix review Aplikasi Sistem #1: wire drag & drop pada area file —
-// teks "Pilih atau Seret File Kesini" dulu hanya janji tanpa handler.
+// teks "Pilih atau Seret File Ke Sini" dulu hanya janji tanpa handler.
 (function wireDragDrop() {
     const area = document.getElementById('fileDropArea');
     if (!area) return;

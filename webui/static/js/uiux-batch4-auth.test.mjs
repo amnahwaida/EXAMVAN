@@ -38,23 +38,34 @@ test('S6a: reset_password punya tepat 6 input .otp-digit dengan inputmode numeri
     assert.equal(digits.length, 6, `harus ada 6 kotak digit OTP (dapat ${digits.length})`);
     for (const [i, m] of digits.entries()) {
         assert.match(m[0], /inputmode="numeric"/, `kotak digit ${i + 1} wajib inputmode="numeric"`);
-        assert.match(m[0], /maxlength="1"/, `kotak digit ${i + 1} wajib maxlength="1"`);
+        if (i === 0) {
+            // T30 (Batch 16): kotak PERTAMA bebas maxlength — isian utuh OS
+            // tidak boleh terpotong; distribusi multi-karakter menyalurkannya.
+            assert.doesNotMatch(m[0], /maxlength="1"/, `kotak digit 1 tidak boleh maxlength="1" (T30)`);
+        } else {
+            assert.match(m[0], /maxlength="1"/, `kotak digit ${i + 1} wajib maxlength="1"`);
+        }
         assert.match(m[0], new RegExp(`aria-label="Digit ${i + 1}[^"]*"`),
             `kotak digit ${i + 1} wajib punya aria-label per digit`);
     }
 });
 
-test('S6b: autocomplete one-time-code tepat satu di input gabungan reset_password (diubah Batch 15/S98)', () => {
-    // Diperbarui Batch 15: one-time-code pada kotak maxlength="1" memotong
-    // autofill OTP OS (6 digit dipangkas ke 1) — atribut wajib pindah ke
-    // SATU input gabungan (#otp_code) + distribusi multi-karakter antar kotak.
+test('S6b: autocomplete one-time-code tepat satu di KOTAK DIGIT PERTAMA visible reset_password (diubah Batch 16/T30)', () => {
+    // Diperbarui Batch 16: Batch 15 memindah atribut ke input HIDDEN #otp_code,
+    // tetapi mesin autofill OS melewatkan field non-visible (regresi T30).
+    // Lokasi yang benar: kotak digit pertama yang VISIBLE dan fokusable,
+    // tanpa maxlength pemotong; hidden #otp_code wajib bersih.
     const html = read('templates/public/reset_password.html');
     const first = html.match(/<input[^>]*class="otp-digit"[^>]*>/);
     assert.ok(first, 'kotak digit pertama harus ada');
-    assert.doesNotMatch(first[0], /autocomplete="one-time-code"/,
-        'kotak maxlength="1" tidak boleh membawa one-time-code (autofill terpotong)');
-    const occ = html.match(/autocomplete="one-time-code"/g) || [];
-    assert.equal(occ.length, 1, 'tepat satu input gabungan membawa one-time-code');
+    assert.match(first[0], /autocomplete="one-time-code"/,
+        'kotak digit pertama VISIBLE wajib membawa one-time-code (autofill OS)');
+    assert.doesNotMatch(first[0], /maxlength="1"/,
+        'kotak digit pertama tanpa maxlength pemotong isian utuh OS (T30)');
+    // Hitung hanya pada markup nyata — komentar HTML tidak dihitung.
+    const markup = html.replace(/<!--[\s\S]*?-->/g, '');
+    const occ = markup.match(/autocomplete="one-time-code"/g) || [];
+    assert.equal(occ.length, 1, 'tepat satu lokasi membawa one-time-code');
 });
 
 test('S6c: nilai gabungan tetap dikirim sebagai hidden input name="otp_code" (logika server tak berubah)', () => {

@@ -1035,6 +1035,17 @@ function renderPengawasSelection(assigned, available) {
             e.preventDefault();
             e.stopPropagation();
             togglePengawasDropdown();
+        } else if (e.key === 'Escape') {
+            // R132: konvensi menu topbar — Escape menutup dropdown dan fokus
+            // kembali ke pemicunya agar navigasi keyboard tidak tercerai.
+            var ddEsc = document.getElementById('pengawasDropdown');
+            if (ddEsc && ddEsc.style.display !== 'none' && ddEsc.style.display) {
+                ddEsc.style.display = 'none';
+                header.setAttribute('aria-expanded', 'false');
+                header.style.borderColor = 'var(--color-glass-border)';
+                header.focus();
+                e.stopPropagation();
+            }
         }
     });
     header.onmouseenter = function() { this.style.borderColor = 'rgba(99,102,241,0.4)'; };
@@ -1110,7 +1121,7 @@ function renderPengawasSelection(assigned, available) {
         opt.onmouseleave = function() { this.style.background = 'transparent'; };
         opt.innerHTML = '<input type="checkbox" class="pengawas-checkbox" value="' + p.id + '"' + (isChecked ? ' checked' : '') + ' style="accent-color:var(--color-primary-bright);cursor:pointer;"> '
             + '<span style="font-weight:500;">' + escapeHtml(p.username) + '</span>'
-            + ' <span style="font-size:0.7rem;color:var(--color-text-muted);margin-left:auto;">' + (p.role || 'Pengawas') + '</span>';
+            + ' <span style="font-size:0.7rem;color:var(--color-text-muted);margin-left:auto;">' + escapeHtml(p.role || 'Pengawas') + '</span>';
         opt.querySelector('input').addEventListener('change', function() {
             renderHeaderChips();
         });
@@ -1130,6 +1141,9 @@ function renderPengawasSelection(assigned, available) {
             if (dd && hd) {
                 dd.style.display = 'none';
                 hd.style.borderColor = 'var(--color-glass-border)';
+                // R132: tutup via klik-luar wajib me-reset state SR — tanpa
+                // ini screen reader tetap membaca "expanded=true".
+                hd.setAttribute('aria-expanded', 'false');
             }
         });
     }
@@ -2073,13 +2087,19 @@ function getCurrentUsersPage() {
 }
 
 // ===== Edit User Modal =====
+// S109: token generasi respons detail user — mencegah modal "Atur User"
+// menampilkan data akun lain saat klik cepat bergantian (kelas race S78).
+var editUserModalSeq = 0;
+
 function openEditUserModal(userId) {
     // Fetch user data from the single-account detail endpoint — the old
     // per_page=1000 list fetch slowed down in lockstep with the account
     // count, so the modal now loads exactly one row.
+    var seq = ++editUserModalSeq;
     apiFetch('/admin/api/users/' + userId)
         .then(r => r.json())
         .then(res => {
+            if (seq !== editUserModalSeq) return; // S109: respons basi diabaikan
             if (!res.success || !res.user) {
                 showToast('Gagal memuat data user', 'error');
                 return;
@@ -2146,16 +2166,17 @@ function openEditUserModal(userId) {
 
             // Sync limit fields based on role
             syncEditLimitFields();
-            // Attach change listeners for edit modal
-            var eguru = document.getElementById('editRoleGuru');
-            var epengawas = document.getElementById('editRolePengawas');
-            if (eguru && epengawas) {
-                eguru.addEventListener('change', syncEditLimitFields);
-                epengawas.addEventListener('change', syncEditLimitFields);
-            }
+            // R119: pemasangan listener change TIDAK lagi di sini — dipindah
+            // ke createEditUserModal() agar terpasang sekali saat modal
+            // dibuat (modal di-cache; .then berjalan tiap buka = menumpuk).
 
             // R25: buka via API Modal terpusat.
             Modal.open(editModal);
+        })
+        .catch(function () {
+            // S109: gagal jaringan tak boleh unhandled rejection — modal tak
+            // terbuka tanpa pesan apa pun membuat user mengira tombol mati.
+            showToast('Gagal memuat data user', 'error');
         });
 }
 
@@ -2471,6 +2492,16 @@ function createEditUserModal() {
     // onsubmit inline) — satu jalur wiring, selaras kontrak delegasi.
     var editUserForm = document.getElementById('editUserForm');
     if (editUserForm) editUserForm.addEventListener('submit', submitEditUser);
+
+    // R119: listener change role dipasang SEKALI di sini (saat modal dibuat),
+    // bukan di .then openEditUserModal — modal di-cache sehingga pemasangan
+    // berulang menumpuk N listener pada elemen yang sama.
+    var eguru = document.getElementById('editRoleGuru');
+    var epengawas = document.getElementById('editRolePengawas');
+    if (eguru && epengawas) {
+        eguru.addEventListener('change', syncEditLimitFields);
+        epengawas.addEventListener('change', syncEditLimitFields);
+    }
 
     // Hide operator checkbox in edit modal if current user is operator
     if (__adminHasRole('operator')) {
@@ -3866,7 +3897,14 @@ function loadSaasSettings() {
 
                 toggleEmailFields();
                 toggleTurnstileFields();
+            } else {
+                // R122: non-success tanpa pesan membuat form kosong diam-diam.
+                showToast(res.message || 'Gagal memuat pengaturan', 'error');
             }
+        })
+        .catch(function () {
+            // R122: gagal jaringan = unhandled rejection bila tak ditangkap.
+            showToast('Gagal memuat pengaturan', 'error');
         });
 }
 

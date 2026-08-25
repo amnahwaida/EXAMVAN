@@ -86,11 +86,13 @@ function renderVouchersTable(vouchers) {
         // formatter tanggal lokal zona penonton.
         const expiryStr = v.expires_at ? formatDateTimeID(v.expires_at) : 'Selamanya';
 
-        let durationText = v.duration_type;
+        let durationText = escapeHtml(String(v.duration_type));
         if (v.duration_type === 'bulanan') durationText = 'Bulanan (30 Hari)';
         else if (v.duration_type === 'semester') durationText = 'Semester (180 Hari)';
         else if (v.duration_type === 'tahunan') durationText = 'Tahunan (365 Hari)';
-        else if (!isNaN(parseInt(v.duration_type))) durationText = `${v.duration_type} Hari (Kustom)`;
+        // R104: durasi kustom berasal dari input admin bebas — wajib lewat
+        // kontrak escape yang sama sebelum masuk markup.
+        else if (!isNaN(parseInt(v.duration_type))) durationText = `${escapeHtml(String(v.duration_type))} Hari (Kustom)`;
 
         html += `
         <tr style="border-bottom:1px solid rgba(255,255,255,0.04);">
@@ -169,8 +171,10 @@ function renderPagination(pg) {
             continue;
         }
         // R29: paginasi via data-action + data-page (tanpa onclick inline).
+        // R110: paritas dengan Riwayat Klaim — tiap tombol bernama aksesibel
+        // dan halaman aktif ditandai aria-current="page".
         const activeStyle = item === pg.page ? 'background:var(--color-primary);color:#fff;' : 'background:rgba(255,255,255,0.06);color:var(--color-text-secondary);';
-        btns += `<button type="button" data-action="voucher-page" data-page="${parseInt(item, 10) || 1}" style="min-height:40px;padding:8px 14px;border-radius:6px;border:none;font-size:12px;cursor:pointer;${activeStyle}">${item}</button>`;
+        btns += `<button type="button" data-action="voucher-page" data-page="${parseInt(item, 10) || 1}" aria-label="Halaman ${item}"${item === pg.page ? ' aria-current="page"' : ''} style="min-height:40px;padding:8px 14px;border-radius:6px;border:none;font-size:12px;cursor:pointer;${activeStyle}">${item}</button>`;
     }
 
     container.innerHTML = `
@@ -306,18 +310,18 @@ function submitBatchVoucher(e) {
     .then(r => r.json())
     .then(res => {
         btn.disabled = false;
-        btn.textContent = 'Generate Batch';
+        btn.textContent = 'Buat Massal'; // R102 (ronde 10): paritas bahasa UI
         if (res.success) {
             showToast(res.message, 'success');
             closeBatchModal();
             loadVouchers(1);
         } else {
-            showToast(res.message || 'Gagal generate batch', 'error');
+            showToast(res.message || 'Gagal membuat voucher massal', 'error');
         }
     })
     .catch(err => {
         btn.disabled = false;
-        btn.textContent = 'Generate Batch';
+        btn.textContent = 'Buat Massal';
         showToast('Gagal terhubung ke server', 'error');
     });
 }
@@ -390,7 +394,12 @@ function deleteVoucher(id, code) {
     });
 }
 
+// S92 (ronde 10): token permintaan monoton — klik "(Lihat User)" voucher A
+// lalu cepat ke voucher B tidak boleh berakhir dengan isi modal milik
+// respons A yang lambat mendarat terakhir (kelas race S78).
+let redemptionSeq = 0;
 function viewRedemptions(id, code) {
+    const seq = ++redemptionSeq;
     wireRedemptionsRetry();
     document.getElementById('redemptionsTitle').textContent = `Pengguna Voucher (${code})`;
     document.getElementById('redemptionsBody').innerHTML = `<p style="text-align:center;color:var(--color-text-secondary);">Memuat...</p>`;
@@ -399,6 +408,7 @@ function viewRedemptions(id, code) {
     apiFetch(`/admin/api/vouchers/${id}/redemptions`)
     .then(r => r.json())
     .then(res => {
+        if (seq !== redemptionSeq) return;
         if (!res.success) {
             document.getElementById('redemptionsBody').innerHTML = `<p style="text-align:center;color:var(--color-danger-light);">${escapeHtml(res.message || 'Gagal memuat data pengguna')} <button type="button" class="btn-sm btn-secondary" data-retry-redemptions data-id="${parseInt(id, 10) || 0}" data-code="${escapeHtml(code)}" style="margin-left:8px;">Coba Lagi</button></p>`;
             return;
@@ -421,6 +431,7 @@ function viewRedemptions(id, code) {
         document.getElementById('redemptionsBody').innerHTML = html;
     })
     .catch(() => {
+        if (seq !== redemptionSeq) return;
         document.getElementById('redemptionsBody').innerHTML = `<p style="text-align:center;color:var(--color-danger-light);">Gagal terhubung ke server. <button type="button" class="btn-sm btn-secondary" data-retry-redemptions data-id="${parseInt(id, 10) || 0}" data-code="${escapeHtml(code)}" style="margin-left:8px;">Coba Lagi</button></p>`;
     });
 }

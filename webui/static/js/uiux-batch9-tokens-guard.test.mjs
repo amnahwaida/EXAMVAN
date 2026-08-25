@@ -50,7 +50,7 @@ test('S43 (self-test): regex rgba literal tidak menghitung rgba(var( sebagai lit
 // tanpa alasan terdokumentasi; turunkan begitu agen migrasi mengurangi angka.
 const BASELINES = {
     // admin.js: hex ≤8 sudah diguard batch7-tokens; rgba ditambahkan di sini.
-    'admin.js': { rgba: 36 },
+    'admin.js': { rgba: 33 }, /* Batch 16: dropdown/chip migrasi token */
     // R95 (ronde 8): cap hex dikunci ke angka aktual terukur — 3× #fca5a5
     // bermigrasi var(--color-danger-light) sehingga plafon turun 22→9.
     'settings-vouchers.js': { rgba: 9, hex: 9 },

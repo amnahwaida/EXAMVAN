@@ -160,13 +160,13 @@ const HEX_RE = /#[0-9a-fA-F]{3,8}\b/g;
 const BASELINE_HEX = {
     'download.html': 7,
     'shared.html': 14,
-    'register.html': 0,
-    'register_confirm.html': 0,
-    'reset_password.html': 0,
+    'register.html': 1, /* +theme-color (R130) */
+    'register_confirm.html': 1, /* +theme-color (R130) */
+    'reset_password.html': 1, /* +theme-color (R130) */
     'hasil.html': 6,
-    'cek_hasil.html': 0,
+    'cek_hasil.html': 1, /* +theme-color (R130) */
     'index.html': 0,
-    'forgot_password.html': 0,
+    'forgot_password.html': 1, /* +theme-color (R130) */
 };
 
 for (const f of FILES) {

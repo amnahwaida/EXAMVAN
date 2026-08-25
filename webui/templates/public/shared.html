@@ -927,6 +927,17 @@
  footer { padding: 28px 16px; }
  .footer-container { font-size: 12.5px; }
  }
+
+ /* R127 (ronde 10): paritas S96 hasil.css — gradien teks memakai
+    -webkit-text-fill-color: transparent yang lolos ke media cetak sehingga
+    judul/logo tercetak kosong. Reset minimal TANPA !important (blok datang
+    belakangan dalam file, spesifisitas sama -> menang kaskade). */
+ @media print {
+ .logo-text, .hero-title, .section-title, .stat-val {
+ -webkit-text-fill-color: initial;
+ background: none;
+ }
+ }
  </style>
  <style>
  html.touch-device, html.touch-device body { width:100%; max-width:100%; overflow-x:clip; }
@@ -936,7 +947,14 @@
  html.touch-device .logo-text { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
  html.touch-device .nav-hamburger { display:inline-flex; align-items:center; justify-content:center; position:fixed; top:14px; right:16px; z-index:220; }
  html.touch-device .nav-links { position:fixed; top:0; right:-280px; width:min(280px, calc(100vw - 32px)); max-width:100%; height:100dvh; background:var(--color-bg-secondary); flex-direction:column; align-items:stretch; padding:80px 24px 40px; gap:8px; border-left:1px solid var(--color-glass-border); transition:right 0.3s ease; z-index:160; overflow-y:auto; }
- html.touch-device .nav-links.open { right:0; }
+ html.touch-device .nav-links.open { right:0; visibility:visible; transition:right 0.3s ease, visibility 0s; }
+ /* T31 (ronde 10, opsi B): di touch-device LEBAR (>=1101px) reset
+    visibility:visible layer desktop/public-mobile berlaku tanpa syarat,
+    sehingga drawer off-canvas tetap masuk tab-order. Rule ini
+    (spesifisitas 0,3,1) mengalahkan reset layer mana pun (0,1,0)
+    apa pun urutan load; pola delay-transisi identik S97 agar
+    slide-out tetap halus sebelum visibility ditunda. */
+ html.touch-device .nav-links:not(.open) { visibility:hidden; transition:right 0.3s ease, visibility 0s linear 0.3s; }
  html.touch-device .nav-link { padding:14px 16px; border-radius:10px; font-size:16px; }
  html.touch-device .btn-nav-login { text-align:center; padding:14px 16px; margin-top:8px; }
  </style>

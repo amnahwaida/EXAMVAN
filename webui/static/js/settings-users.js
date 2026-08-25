@@ -41,6 +41,10 @@ function wireUsersCollapseBlock(block) {
     var toggle = function (e) {
         if (e && e.type === 'keydown' && e.key !== 'Enter' && e.key !== ' ') return;
         if (e && e.type === 'keydown') e.preventDefault();
+        // S108 (ronde 10): klik tombol aksi di dalam head (mis. "Muat Ulang")
+        // tidak boleh ikut melipat kartu — stopPropagation delegasi Actions
+        // berjalan terlambat (fase bubble), jadi dicegah dari sini.
+        if (e && e.target && e.target.closest && e.target.closest('[data-action]')) return;
         toggleUsersCollapse(head);
     };
     head.addEventListener('click', toggle);

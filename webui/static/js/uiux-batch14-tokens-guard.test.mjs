@@ -112,6 +112,68 @@ test('S80 (statik): token --color-danger-bright tetap terdefinisi theme.css', ()
 });
 
 // ════════════════════════════════════════════════════════════════════════
+// R126 — cakupan folder-wide diperluas ke static/css/**: guard S80 lama
+//        hanya berjalan di templates+JS sehingga literal #f87171 di folder
+//        CSS lolos diam-diam (temuan ronde 10: 4 hit). Pemetaan cakupan:
+//
+//          - static/css/*.css (inti, ditulis tangan)      → WAJIB 0
+//            (definisi token di theme.css di-whitelist — sumber kebenaran).
+//          - static/css/tailwind/admin-tailwind.css       → komponen kustom,
+//            MASUK cakupan dengan BASELINE EKSPLISIT (lihat test di bawah);
+//            target jangka panjang 0.
+//          - static/css/tailwind/output.css               → DIKECUALIKAN.
+//            Alasan: artefak build Tailwind (generated), bukan sumber
+//            tangan-pertama — mengedit/menghitungnya sia-sia dan akan
+//            berganti isi tiap regenerasi. Pengecualian ini EKSPLISIT agar
+//            tidak terbaca sebagai lubang yang terlupakan.
+// ════════════════════════════════════════════════════════════════════════
+
+const CSS_FILES = walk(path.join(WEBUI_ROOT, 'static', 'css'), '.css')
+    .filter((f) => !f.endsWith(path.join('tailwind', 'output.css'))); // generated — lihat catatan R126
+const ALL_CSS = readAll(CSS_FILES);
+// Zona css inti = tanpa theme.css (definisi token diuji terpisah di bawah)
+// dan tanpa admin-tailwind.css (punya baseline eksplisit sendiri).
+// Isi komentar blok di-strip sebelum dihitung (preseden batch7 pada guard
+// admin-base) — dokumentasi kalibrasi boleh MENYEBUT hex tanpa dihitung
+// sebagai pemakaian.
+const CORE_CSS = ALL_CSS.filter((e) =>
+    !e.file.endsWith(path.join('css', 'theme.css')) &&
+    !e.file.endsWith(path.join('tailwind', 'admin-tailwind.css')))
+    .map((e) => ({ file: e.file, src: e.src.replace(/\/\*[\s\S]*?\*\//g, '') }));
+
+test('R126 (guard folder-wide): css inti non-generated bebas literal #f87171', () => {
+    const hits = findMatches(CORE_CSS, /#f87171/i);
+    assert.equal(hits.length, 0,
+        `literal #f87171 di css inti wajib var(--color-danger-bright): ${hits.slice(0, 6).join(' · ')}`);
+});
+
+test('R126 (statik): satu-satunya #f87171 di theme.css adalah DEFINISI token itu sendiri', () => {
+    const theme = ALL_CSS.find((e) => e.file.endsWith(path.join('css', 'theme.css')));
+    const noComments = theme.src.replace(/\/\*[\s\S]*?\*\//g, '');
+    const n = (noComments.match(/#f87171/gi) || []).length;
+    assert.equal(n, 1, 'theme.css wajib tepat satu #f87171 non-komentar (definisi --color-danger-bright)');
+    assert.match(noComments, /--color-danger-bright:\s*#f87171\s*;/);
+});
+
+test('R126 (guard): admin-tailwind.css #f87171 dikunci baseline eksplisit — target turun ke 0', () => {
+    // Baseline eksplisit (BUKAN pengecualian senyap): dua literal kustom
+    // `.toast-error .toast-icon` (:715) dan satu lokasi lagi (:1424) adalah
+    // komponen kustom di file tailwind yang dirawat manusia. Agen Batch 16
+    // TIDAK memiliki file ini — migrasi ke var(--color-danger-bright)
+    // menjadi temuan untuk koordinator; setelah bermigrasi, TURUNKAN
+    // baseline ini ke 0 (jangan pernah dinaikkan).
+    // Batch 16: kedua literal dimigrasi var(--color-danger-bright) —
+       // baseline dikunci 0 (target tercapai).
+    const BASELINE_ADMIN_TAILWIND_F87171 = 0;
+    const at = ALL_CSS.find((e) => e.file.endsWith(path.join('tailwind', 'admin-tailwind.css')));
+    assert.ok(at, 'admin-tailwind.css harus ada di walk css');
+    const n = (at.src.match(/#f87171/gi) || []).length;
+    assert.equal(n, BASELINE_ADMIN_TAILWIND_F87171,
+        `#f87171 admin-tailwind.css = ${n}, baseline ${BASELINE_ADMIN_TAILWIND_F87171} — ` +
+        'migrasikan ke var(--color-danger-bright) lalu turunkan baseline ke 0');
+});
+
+// ════════════════════════════════════════════════════════════════════════
 // S81 — #818cf8 habis FOLDER-WIDE (koreksi klaim R82 yang parsial)
 // ════════════════════════════════════════════════════════════════════════
 

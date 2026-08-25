@@ -43,11 +43,16 @@
   tbody.innerHTML = html;
  }
 
- function loadPackages() {
-  apiFetch('/admin/api/packages')
-   .then(function(r) { return r.json(); })
-   .then(function(res) {
-    if (!res.success) throw new Error(res.message);
+  // S92 (ronde 10): token permintaan monoton — reload pasca-save tidak
+  // boleh ditimpa respons loadPackages lama yang mendarat terakhir.
+  var packageLoadSeq = 0;
+  function loadPackages() {
+   var seq = ++packageLoadSeq;
+   apiFetch('/admin/api/packages')
+    .then(function(r) { return r.json(); })
+    .then(function(res) {
+     if (seq !== packageLoadSeq) return;
+     if (!res.success) throw new Error(res.message);
     PACKAGES = (res.packages || []).map(function(p) {
      return {
       key: p.key,
@@ -63,6 +68,7 @@
     renderTable();
    })
    .catch(function(err) {
+    if (seq !== packageLoadSeq) return;
     console.error(err);
     document.getElementById('packagesTableBody').innerHTML =
      '<tr><td colspan="7" style="padding:32px;text-align:center;color:var(--color-danger-light);">Gagal memuat pengaturan paket.</td></tr>';

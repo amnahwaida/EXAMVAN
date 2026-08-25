@@ -383,6 +383,16 @@
     /* More breathing room for card content + code blocks on phones. */
     .download-card, .instruction-card { padding: 24px 18px; }
   }
+
+  /* R127 (ronde 10): paritas S96 hasil.css — gradien judul hero memakai
+     -webkit-text-fill-color: transparent yang lolos ke media cetak (teks
+     tercetak kosong). Reset minimal, tanpa flag important. */
+  @media print {
+    .hero-title {
+      -webkit-text-fill-color: initial;
+      background: none;
+    }
+  }
 </style>
 <style>
   /* ===== Toast — dipakai showApiErrorToast (admin-core.js) untuk error R2
@@ -545,9 +555,15 @@
           {{ end }}
 
           <!-- Rilis Android tambahan dari sistem (mis. flavor kiosk) — satu kartu per entri R2 -->
-          {{ if .android_app }}
+          <!-- R131 (ronde 10): guard loop ini diubah dari kondisi "app resmi ada"
+               menjadi "ada system_apps" — bila app resmi (BestAndroidApp) kosong
+               tapi stok system_apps Android lain tersedia, entri tetap dirender
+               (dulu: kartu "Belum ada installer" padahal stok ada / dead-branch).
+               Pembanding ID dinilai aman-nil lewat cabang (not $.android_app)
+               karena and/or Go template short-circuit (go 1.18+). -->
+          {{ if .system_apps }}
             {{ range .system_apps }}
-              {{ if and (eq .Platform "android") (ne .ID $.android_app.ID) }}
+              {{ if and (eq .Platform "android") (or (not $.android_app) (ne .ID $.android_app.ID)) }}
                 <div class="flavor-box">
                   <div>
                     <h3 class="flavor-title">{{ .Name }}</h3>

@@ -712,7 +712,7 @@ button:disabled, .btn-sm:disabled, .btn-upload:disabled, .btn-login:disabled {
     border-color: rgba(99, 102, 241, 0.3);
 }
 .toast-success .toast-icon { color: #34d399; }
-.toast-error .toast-icon { color: #f87171; }
+.toast-error .toast-icon { color: var(--color-danger-bright); }
 .toast-warning .toast-icon { color: #fbbf24; }
 .toast-info .toast-icon { color: #a5b4fc; }
 
@@ -1421,7 +1421,7 @@ button:disabled, .btn-sm:disabled, .btn-upload:disabled, .btn-login:disabled {
     @apply inline-flex items-center justify-center w-6 h-6 rounded-md cursor-pointer text-sm;
     background: none;
     border: none;
-    color: #f87171;
+    color: var(--color-danger-bright);
     transition: all 0.2s ease;
 }
 .ifield-remove-btn:hover {

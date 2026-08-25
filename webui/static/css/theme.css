@@ -66,6 +66,7 @@
     --color-text: #f8fafc;
     --color-text-secondary: #cbd5e1;
     --color-text-muted: #a0aec0;
+    --rgb-text-muted: 160, 174, 192; /* R125: triplet #a0aec0 — source-of-truth untuk tint muted */
     --color-text-on-primary: #ffffff;
     --color-text-on-accent: #ffffff;
 

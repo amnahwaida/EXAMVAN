@@ -89,7 +89,7 @@ const RGBA_BASELINE_PER_FILE = {
     // Batch 13 (S71): entri 'admin/settings.html' DIHAPUS — baseline terduplikasi
     // antar-suite. Plafon rgba settings.html (≤28, aktual) kini DIJAGA SATU
     // TEMPAT: uiux-batch11-settings-guard.test.mjs (S64).
-    'admin/dashboard.html': 32,
+    'admin/dashboard.html': 29, /* Batch 16/R125: muted → token rgb-triplet */
     'public/register_confirm.html': 0,
     'admin/pengawas.html': 3,
     'admin/pengawas_detail.html': 11,

@@ -195,7 +195,7 @@ test('R48 (perilaku): tanpa buka ulang, penutupan tertunda tetap berjalan normal
 
     timers.pending.forEach((fn) => fn());
     assert.equal(byId.uploadModal.style.display, 'none', 'modal tertutup oleh timer');
-    assert.equal(byId['file-name-display'].innerText, 'Pilih atau Seret File Kesini',
+    assert.equal(byId['file-name-display'].innerText, 'Pilih atau Seret File Ke Sini',
         'label drop area direset');
     assert.equal(byId.uploadProgressContainer.style.display, 'none');
 });

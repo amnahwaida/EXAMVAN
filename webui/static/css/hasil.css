@@ -338,10 +338,14 @@ font-weight: 700;
 font-size: 0.82rem;
 }
 /* S101: warna TEKS badge migrasi ke varian terang (tint latar tetap).
-   Kalibrasi koordinator: teks base di tint warna sendiri atas glass gelap
-   duduk tepat di garis AA — .score-low ≈ 4.45:1 (< 4.5), sensitif terhadap
-   backdrop blur; varian aman: --color-danger-bright ≈ 6.25:1,
-   --color-success-light ≈ 10.8:1. */
+   Kalibrasi ronde 10 (R128, ukuran presisi reviewer independen, rumus WCAG:
+   L = 0.2126R + 0.7152G + 0.0722B dengan kanal ternormalisasi-sRGB yang
+   dilinearisasi s <= 0.03928 ? s/12.92 : ((s+0.055)/1.055)^2.4; rasio =
+   (Lterang + 0.05) / (Lgelap + 0.05); latar efektif = glass rgb(11,11,22)
+   di-blend tint warna sendiri alpha 0.15):
+   --color-success-light aktual #34d399 = 8.34:1 (BUKAN #6ee7b7 ≈ 10.8 —
+   token fiktif pada komentar lama), --color-danger-bright #f87171 = 6.19:1
+   (bukan 6.25). Semua PASS AA — vonis tidak berubah. */
 .score-high {
 background: rgba(16, 185, 129, 0.15);
 color: var(--color-success-light);
@@ -354,7 +358,7 @@ border: 1px solid rgba(245, 158, 11, 0.3);
 }
 .score-low {
 background: rgba(239, 68, 68, 0.15);
-color: var(--color-danger-bright); /* S101: base #ef4444 ≈ 4.45:1 < ambang AA; bright ≈ 6.25:1 */
+color: var(--color-danger-bright); /* S101+R128: base #ef4444 ≈ 4.45:1 < ambang AA; bright #f87171 = 6.19:1 */
 border: 1px solid rgba(239, 68, 68, 0.3);
 }
 .score-none {
@@ -939,10 +943,21 @@ padding-right: 0;
 }
 
 @media (prefers-reduced-motion: reduce) {
-/* R117: cap iterasi TANPA tanda penting — animasi infinite (pulse dsb.) tetap
-   berjalan terus walau durasinya dipangkas. Blok media ini datang belakangan
-   dalam file dan tidak ada deklarasi iteration-count kompetitor, jadi
-   kaskade spesifisitas sama sudah menang (plafon S71 tak bertambah). */
+/* R117 + S112 (koreksi ronde 10): klaim lama "kaskade spesifisitas sama
+   sudah menang" KELIRU. Cap di bawah TIDAK menang sendirian — universal
+   selector ber-spesifisitas 0 kalah dari shorthand kelas .loading-spinner
+   (spesifisitas 0,1,0; "animation: spin … infinite" di :600 dan ::after
+   paginasi di :626). Cap iterasi efektif justru BERKAT backstop bertanda
+   penting lintas-file yang ikut dimuat halaman hasil:
+     - public-desktop.css, blok prefers-reduced-motion:
+       animation-iteration-count: 1 dengan tanda penting;
+     - public-mobile.css, blok prefers-reduced-motion:
+       animation: none dengan tanda penting (shorthand menolkan seluruh
+       longhand animation-*, termasuk iteration-count).
+   DEPENDENSI LINTAS-FILE: halaman hasil wajib terus memuat kedua layer CSS
+   publik itu; guard S112 (uiux-batch16-guard.test.mjs) mengunci keduanya.
+   Bila dependensi load berubah suatu hari, tambahkan tanda penting pada
+   deklarasi di bawah agar self-contained. */
 *, *::before, *::after { animation-duration: 0.01ms !important; transition-duration: 0.01ms !important; animation-iteration-count: 1; }
 .bg-orb { animation: none !important; opacity: 0.15; }
 }

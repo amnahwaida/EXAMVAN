@@ -70,13 +70,16 @@
 }
 .pd-action-warning:hover { background: rgba(251,191,36,0.18); }
 .pd-action-muted {
-  background: rgba(107,114,128,0.1);
-  color: #9ca3af;
-  border-color: rgba(107,114,128,0.3);
+  background: rgba(var(--rgb-text-muted),0.1);
+  color: var(--color-text-muted);
+  border-color: rgba(var(--rgb-text-muted),0.3);
 }
-.pd-action-muted:hover { background: rgba(107,114,128,0.18); }
+.pd-action-muted:hover { background: rgba(var(--rgb-text-muted),0.18); }
 @media (max-width: 768px) {
   .pd-action-btn { min-height: 40px; }
+  /* R121: tombol aksi baris ujian (.btn-sm-compact ±25px) di bawah konvensi
+     sentuh proyek — disamakan 44px ala submissions.html:319/:322. */
+  .td-actions .btn-sm-compact { min-height: 44px; min-width: 44px; }
 }
 /* Mobile layout overrides (preserving project theme/colors) */
 @media (max-width: 768px) {
@@ -556,7 +559,7 @@
 {{range $pagenum := $tp | seq}}
 {{if ge $pagenum (sub $p 2)}}
 {{if le $pagenum (add $p 2)}}
-<a href="?page={{$pagenum}}{{$qb}}" class="pagination-page-num {{if eq $pagenum $p}}page-current{{end}}">{{$pagenum}}</a>
+<a href="?page={{$pagenum}}{{$qb}}" class="pagination-page-num {{if eq $pagenum $p}}page-current{{end}}" {{if eq $pagenum $p}}aria-current="page"{{end}}>{{$pagenum}}</a>
 {{end}}{{end}}{{end}}
 <a href="?page={{add .page 1}}{{.query_base}}" class="btn-sm btn-toggle page-link-main {{if ge .page .total_pages}}disabled{{end}}" {{if ge .page .total_pages}}aria-disabled="true"{{end}}>Berikutnya <svg class="icon-svg" style="width:14px;height:14px;"><use href="#hi-chevron-right"/></svg></a>
 </div>
