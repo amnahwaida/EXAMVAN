@@ -14,6 +14,7 @@
 > **Ronde 11 (25 Agustus 2026 @ `80e95bb`, pasca Batch 16):** kualitas terkonvergensi — ditemukan **0 masalah Tinggi, 3 Sedang, dan 11 Rendah baru**; NAMUN audit integritas lagi-lagi menemukan item tercatat [x] yang tidak/belum tereksekusi (S110, S111, R124 + R125 parsial — agen batch16-pengawasan tak pernah diluncurkan). Lihat [bagian 5.14](#514-re-review-ronde-11--temuan-baru-pasca-batch-16-bahan-batch-17). Tema dominan ronde ini: interaksi antar-fix (Escape × Modal Manager), sisa polish a11y kontrol render-JS, dan konsistensi kontrak escape/token. Seluruhnya dieksekusi di **Batch 17** (25 Agustus 2026, test-first; gerbang pengawasan + admincore oleh koordinator, settings via agen — sekaligus menuntaskan 4 item tertinggal Batch 16).
 > **Ronde 12 (25 Agustus 2026 @ `5095c75`, pasca Batch 17):** review berurutan oleh koordinator (tanpa agen). Kode makin stabil - ditemukan **0 masalah Tinggi, 1 Sedang, dan 2 Rendah baru** (volume terkecil sejak ronde pertama); NAMUN satu klaim guard lama terkoreksi: larangan z-index ≥1000 ternyata hanya mengunci tiga lokasi spesifik, bukan folder-wide (admin-base.css memuat 7 literal legacy ≥9998 - S116). Lihat [bagian 5.15](#515-re-review-ronde-12--temuan-baru-pasca-batch-17-bahan-batch-18). Plafon folder-wide kini PERSIS aktual (hex 99/99, rgba 89/89). Seluruhnya dieksekusi di **Batch 18** (25 Agustus 2026, test-first oleh koordinator: 7 test MERAH dulu, termasuk guard folder-wide z-index baru; token tangga stacking --z-bottom-bar/--z-hint/--z-modal-overlay/--z-topbar-floating ditambahkan theme.css; .toast-container naik ke --z-toast memperbaiki latent tie dengan onboarding).
 > **Ronde 13 (25 Agustus 2026 @ `6507041`, pasca Batch 18):** review berurutan oleh koordinator. Stabil - ditemukan **0 masalah Tinggi, 1 Sedang, dan 2 Rendah baru**: file mati admin-tailwind.css 67KB + definisi ganda .toast-container lintas-file yang hanya aman karena urutan muat (S117), target-blank tanpa noopener (R146), register_confirm tanpa noindex padahal URL membawa username (R147). Lihat [bagian 5.16](#516-re-review-ronde-13--temuan-baru-pasca-batch-18-bahan-batch-19). Seluruhnya dieksekusi di **Batch 19** (25 Agustus 2026, test-first oleh koordinator: file mati dihapus, z-index toast dikunci satu tempat, noopener ×2, noindex register_confirm).
+> **Ronde 14 (25 Agustus 2026 @ `58de2a7`, pasca Batch 19):** review berurutan dengan pendalaman khusus seluruh halaman Pengaturan. Halaman ini area paling matang (dirty-tracking, persistensi hash, 401 handler, pola simpan terpusat - semua sehat), namun ditemukan **0 masalah Tinggi, 1 Sedang, dan 2 Rendah baru**: modal modul vouchers/billing/system-apps berjalan di luar Modal Manager global (S118), penutupan modal form tanpa dirty-guard (R148), dan smtpPortInput tanpa constraint numerik (R149). Lihat [bagian 5.17](#517-re-review-ronde-14--temuan-baru-pasca-batch-19-fokus-halaman-pengaturan-bahan-batch-20). Seluruhnya dieksekusi di **Batch 20** (25 Agustus 2026, test-first oleh koordinator: 5 modal settings dimigrasi ke Modal Manager + dirty-guard showConfirm + input parity; 3 harness lama dikalibrasi stub Modal).
 > **Tujuan:** acuan perbaikan UI/UX tahap selanjutnya. Setiap temuan punya ID unik (`T`=Tinggi, `S`=Sedang, `R`=Rendah, `P`=Keputusan Produk, `G`=Positif) agar mudah dirujuk di commit/issues (mis. `fix(uiux): T2 …`).
 
 ---
@@ -2320,6 +2321,61 @@ Duplicate-id `concurrentInput`/`limitInput`/`newUserExpiry` settings.html (:903�
 
 `localizeUTC(l.created_at)` tetap mentah di builder audit (server-controlled informatif); `wireCollapseBlock` general belum ber-guard `[data-action]` ala S108 (saat ini aman); posisi toast (fixed bottom-right) tidak overlap topbar-toggle (top-right) sehingga nilai 10002 kembar Batch 18 aman secara visual; hitungan "button tanpa aria-label" mentah menyesatkan — mayoritas ber-teks visible (nama aksesibel sah); plafon hex templates kini 99=99 & rgba 89=89 — slack NOL, setiap warna baru wajib lewat token (guard akan merah, itu memang tujuannya).
 
+**Pendalaman tambahan pasca-pertanyaan kedalaman (masih Ronde 14):** alur voucher/billing/users dibedah ke server - semuanya terbukti sehat: `CreateBatchVouchers` clamp count 1..100 + retry kolisi kode; redeem meng-uppercase kode di server (tidak ada jebakan huruf kecil); empty-state vouchers ber-escape & sadar-pencarian; users punya loading spinner + retry; smtp-test punya disabled+catch+finally. Dua observasi minor baru: (a) fallback senyap server `count := 5` bila parameter tak valid (klien selalu mengirim valid - parity catatan saja); (b) prefix kode voucher tanpa validasi charset di kedua sisi (input admin-only, dirender ter-escape - risiko rendah).
+
+---
+
+---
+
+## 5.17 RE-REVIEW RONDE 14 — Temuan baru pasca Batch 19, fokus seluruh halaman Pengaturan (bahan Batch 20)
+
+> **Tanggal:** 25 Agustus 2026 · **Basis kode:** `58de2a7` (pasca Batch 19) · **Metode:** review berurutan oleh koordinator dengan pendalaman khusus halaman Pengaturan — alur fungsional lintas-section (tab/lazy-load/persistensi hash), arsitektur modal, dirty-tracking, penanganan sesi & CSRF, paritas batasan input, dan field sensitif.
+> Ditemukan **0 masalah Tinggi, 1 Sedang, dan 2 Rendah baru**. Halaman Pengaturan adalah area paling matang: dirty-tracking per kartu + beforeunload (S39/S47), persistensi section via hash + aria-current tab, 401 handler terpusat (S23), field sensitif bertipe password, dan pola simpan terpusat `saveSaasSection` (disabled+catch+toast) — semuanya terverifikasi sehat. Temuan tersisa berada di **arsitektur modal modul vouchers/billing/system-apps** yang berjalan di luar Modal Manager global.
+
+### Status verifikasi cepat Batch 19
+
+| Item | Vonis | Bukti |
+|---|---|---|
+| S117 file mati admin-tailwind.css | ✅ | terhapus; guard R126 batch14 dikalibrasi "file wajib tetap terhapus"; nol referensi repo-wide |
+| S117 z-index toast tunggal | ✅ | output.css bebas z-index (komentar penjelas dipasang); admin-base var(--z-toast) satu-satunya sumber |
+| R146 noopener ×2 | ✅ | settings.html & dashboard.html |
+| R147 noindex register_confirm | ✅ | meta robots + komentar paritas terpasang |
+
+**Gate:** node suite 1056/1056 hijau · go test `-count=1` OK · build+vet bersih.
+
+### Yang terverifikasi SEHAT di halaman Pengaturan (pertahankan)
+
+Dirty-tracking per kartu + beforeunload meliputi 8 kartu SaaS lengkap (`SAAS_SAVE_CARDS`, settings-general.js:159–166); pembersihan flag hanya di cabang sukses via `clearSaasCardDirtyByCardId` (S47); persistensi section memakai `history.replaceState('#key')` + pembacaan hash saat init (:2457/:2464) + `aria-current="page"` pada tab aktif; `apiFetch` menormalkan non-2xx sekali lalu `notifyAuthExpired()` untuk 401 (S23); field SMTP password & Turnstile secret key bertipe `password` dengan title penjelas; pola simpan terpusat `saveSaasSection` (btn.disabled + .catch + toast + restore + clear-dirty) dipakai konsisten 8 kartu.
+
+---
+
+### S118 — Modal modul vouchers/billing/system-apps berjalan di LUAR Modal Manager global: tanpa focus trap, Escape, restore fokus, scroll-lock
+
+- **Prioritas:** 🟠 Sedang · **Usaha:** M · **Area:** Settings/modal arsitektur · **Status:** [ ]
+- **Lokasi:** `static/js/settings-vouchers.js:204–207` (openSingleModal/closeSingleModal/openBatchModal/closeBatchModal/redemptions — semua `style.display='flex'/'none'` manual), `settings-system-apps.js:138` (openUploadModal idem), markup `settings.html:1193,:1350,:1459,:1573,:2007`
+- **Bukti:** kelima modal settings membawa `role="dialog" aria-modal="true"` (baik) tetapi dibuka langsung via display-flex — TIDAK lewat `Modal.open()` milik manager global (admin-core.js:889–1049 yang menyediakan focus trap Tab, Escape, restore fokus, scroll-lock). Bandingkan modal Kelola User yang benar (`Modal.open(editModal)`, admin.js:2172). Konsekuensi terverifikasi: (a) Tab bisa keluar dari dialog ke latar belakang; (b) Escape tidak menutup modal (early-return manager tak mengenalnya, tak ada keydown sendiri); (c) fokus tidak dikembalikan ke tombol pemicu setelah tutup; (d) scroll background tidak terkunci.
+- **Dampak:** pengguna keyboard/screen reader tersesat di antara dialog dan halaman; inkonsistensi perilaku antar-modal dalam halaman yang sama.
+- **Rekomendasi:** migrasi kelima modal ke `Modal.open(el)/Modal.close(el)` (API sudah ada), sisakan fungsi open/close masing-masing sebagai wrapper; kontrak test vm: fokus masuk dialog, Tab tertahan, Escape menutup, fokus pulih.
+
+### R148 — Modal form voucher ditutup tanpa dirty-guard: isian lenyap senyap (kelas S2 yang belum menjangkau sini)
+
+- **Prioritas:** 🟡 Rendah · **Usaha:** S · **Area:** Settings/vouchers · **Status:** [ ]
+- **Lokasi:** `settings-vouchers.js:206–207` (closeBatchModal/closeSingleModal), :461–463 (registrasi aksi tutup)
+- **Bukti:** `closeBatchModal()` hanya `display='none'` — tidak ada cek apakah form sudah berisi (count, prefix, package, duration custom, notes). Klik ✕ / backdrop menghapus seluruh ketikan tanpa konfirmasi; bandingkan editor soal yang sudah punya dirty-guard ala S2.
+- **Dampak:** operator yang tak sengaja menekan ✕ kehilangan konfigurasi pembuatan voucher massal dan harus mengetik ulang.
+- **Rekomendasi:** bila ada input terisi ≠ nilai awal, konfirmasi dulu ("Buang isian?") sebelum menutup — pola S2.
+
+### R149 — `smtpPortInput` type="text" tanpa constraint numerik (paritas field numerik lain)
+
+- **Prioritas:** 🟡 Rendah · **Usaha:** XS · **Area:** Settings/general/input · **Status:** [ ]
+- **Lokasi:** `templates/admin/settings.html:1631` (`<input type="text" id="smtpPortInput" placeholder="587">`)
+- **Bukti/Masalah:** port SMTP adalah angka 1–65535 namun inputnya teks bebas tanpa `inputmode`/`pattern`/`min`/`max`; keyboard mobile menampilkan alfabet, dan kesalahan baru terasa setelah submit (toast). Field numerik lain (maxAccountsPerIpInput :1695) sudah `type="number" min="0"`.
+- **Rekomendasi:** `type="number" min="1" max="65535" inputmode="numeric"` (+ label title sudah ada).
+
+### Catatan minor tanpa ID
+
+`passwordInput` (form Tambah User, :836) punya minlength=8+required tapi belum `autocomplete="new-password"` (kandidat XS); dirty-guard beforeunload hanya mencakup 8 kartu SaaS — modal-modal R148 berada di luarnya (tercakup rekomendasinya); loop "close all other dropdowns" toggleRowDropdown kini sudah reset aria-expanded (R144, Batch 18) ✓.
+
 ---
 
 ---
@@ -2327,6 +2383,17 @@ Duplicate-id `concurrentInput`/`limitInput`/`newUserExpiry` settings.html (:903�
 ## 6. REKAP TRACKING
 
 > Centang `[x]` + cantumkan hash commit saat selesai. Urut sesuai prioritas eksekusi.
+### Batch 20 — Ronde 14: eksekusi temuan 5.17 ✅ SELESAI (2026-08-25, test-first oleh koordinator; suite gabungan repo **1063/1063 hijau**, `go test ./internal/handlers/...` OK, `go build`+`go vet` OK)
+
+> **Suite:** `uiux-batch20-settings.test.mjs` (7 test) - S118a/b arsitektur modal (open/close via Modal Manager; larangan display manual), R148a statik helper + R148b/c/d vm behavioral (dirty -> confirm -> close; kosong -> langsung; force=true jalur sukses), R149 markup parity.
+>
+> **Implementasi:** (1) `modalHasUserInput(modalId)` helper - input/textarea non-hidden non-disabled yang tak kosong = kotor; (2) `closeSingleModal(force)`/`closeBatchModal(force)` - tanpa force + form berisi -> `showConfirm('Buang isian voucher?')` ala S2, OK baru tutup; force=true untuk JALUR SUKSES submit (:269/:316) agar tidak bertanya setelah simpan berhasil; (3) redemptionsModal ikut dimigrasi (read-only, tanpa guard); (4) upload modal system-apps: `Modal.open(modal)` + timeout-close lewat `Modal.close(modal)` - guard `canCloseUpload` tetap; (5) smtpPortInput → `type="number" min="1" max="65535" inputmode="numeric"`.
+>
+> **Kalibrasi harness ikutan migrasi (3 suite):** batch10 R48 - stub `win.Modal`/`sandbox.Modal` memetakan open->flex/close->none agar penghitung display tetap sah; batch16 S92 - stub `Modal:{open,close}` no-op (test fokus pada guard seq render).
+
+- [x] **S118** ✅ **Batch 20** — Migrasi 5 modal vouchers/billing/system-apps ke Modal.open/Modal.close (focus trap+Escape+restore+scroll-lock)
+- [x] **R148** ✅ **Batch 20** — Dirty-guard konfirmasi buang isian pada closeSingleModal/closeBatchModal
+- [x] **R149** ✅ **Batch 20** — smtpPortInput type=number min=1 max=65535 inputmode=numeric
 ### Batch 19 — Ronde 13: eksekusi temuan 5.16 ✅ SELESAI (2026-08-25, test-first oleh koordinator; suite gabungan repo **1056/1056 hijau**, `go test ./internal/handlers/...` OK, `go build`+`go vet` OK)
 
 > **Suite:** `uiux-batch19-hygiene.test.mjs` (4 test) — S117a file mati terhapus, S117b z-index toast tunggal (output.css bebas z-index; admin-base var(--z-toast) satu-satunya sumber), R146 noopener ×2, R147 noindex+paritas.

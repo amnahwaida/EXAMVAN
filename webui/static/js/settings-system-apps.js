@@ -147,7 +147,8 @@ function openUploadModal() {
     const errBox = document.getElementById('uploadError');
     if (errBox) errBox.style.display = 'none';
     wireUploadCloseGuard();
-    modal.style.display = 'flex';
+    // S118: lewat Modal Manager (focus trap + Escape + restore fokus).
+    Modal.open(modal);
 }
 
 function closeUploadModal() {
@@ -160,7 +161,8 @@ function closeUploadModal() {
     const modal = document.getElementById('uploadModal');
     __uploadCloseTimer = setTimeout(() => {
         __uploadCloseTimer = null;
-        modal.style.display = 'none';
+        // S118: tutup lewat Modal Manager (setara display='none' + state SR).
+        Modal.close(modal);
         document.getElementById('uploadAppForm').reset();
         document.getElementById('file-name-display').innerText = 'Pilih atau Seret File Ke Sini';
         document.getElementById('file-name-display').style.color = 'white';

@@ -201,11 +201,50 @@ function paginationRange(page, total) {
     return out;
 }
 
-function openSingleModal() { document.getElementById('singleModal').style.display = 'flex'; }
-function closeSingleModal() { document.getElementById('singleModal').style.display = 'none'; }
-function openBatchModal() { document.getElementById('batchModal').style.display = 'flex'; }
-function closeBatchModal() { document.getElementById('batchModal').style.display = 'none'; }
-function closeRedemptionsModal() { document.getElementById('redemptionsModal').style.display = 'none'; }
+// S118 (Batch 20): seluruh modal settings lewat Modal Manager global agar
+// mendapat focus trap Tab, Escape-to-close, restore fokus pemicu, dan
+// scroll-lock - paritas dengan modal Kelola User (admin.js:2195).
+
+// R148: deteksi isian user pada form modal (paritas dirty-guard S2 editor
+// soal). Input hidden/disabled/button diabaikan; cukup "tidak kosong" karena
+// seluruh field modal ini kosong saat dibuka.
+function modalHasUserInput(modalId) {
+    const m = document.getElementById(modalId);
+    if (!m) return false;
+    const fields = m.querySelectorAll('input:not([type="hidden"]), textarea');
+    for (let i = 0; i < fields.length; i++) {
+        const el = fields[i];
+        if (el.disabled || el.readOnly) continue;
+        if (el.type === 'button' || el.type === 'submit') continue;
+        if ((el.value || '') !== '') return true;
+    }
+    return false;
+}
+
+function openSingleModal() { Modal.open('singleModal'); }
+
+// R148: force=true dipakai jalur SUKSES submit (form akan dikosongkan server);
+// tanpa force, isian yang sudah ada wajib dikonfirmasi dulu sebelum dibuang.
+function closeSingleModal(force) {
+    if (!force && modalHasUserInput('singleModal')) {
+        showConfirm('Buang isian voucher?', 'Isian form belum disimpan dan akan hilang bila ditutup.', 'Ya, Buang', 'Lanjut Edit')
+            .then(function (ok) { if (ok) closeSingleModal(true); });
+        return;
+    }
+    Modal.close('singleModal');
+}
+
+function openBatchModal() { Modal.open('batchModal'); }
+
+function closeBatchModal(force) {
+    if (!force && modalHasUserInput('batchModal')) {
+        showConfirm('Buang isian voucher massal?', 'Isian form belum disimpan dan akan hilang bila ditutup.', 'Ya, Buang', 'Lanjut Edit')
+            .then(function (ok) { if (ok) closeBatchModal(true); });
+        return;
+    }
+    Modal.close('batchModal');
+}
+function closeRedemptionsModal() { Modal.close('redemptionsModal'); }
 
 function toggleCustomDuration(type) {
     const sel = document.getElementById(type + 'Duration');
@@ -266,7 +305,7 @@ function submitSingleVoucher(e) {
         btn.textContent = 'Simpan Voucher';
         if (res.success) {
             showToast(res.message, 'success');
-            closeSingleModal();
+            closeSingleModal(true); // R148: jalur sukses - tutup paksa tanpa konfirmasi
             document.getElementById('formSingleVoucher').reset();
             loadVouchers(1);
         } else {
@@ -313,7 +352,7 @@ function submitBatchVoucher(e) {
         btn.textContent = 'Buat Massal'; // R102 (ronde 10): paritas bahasa UI
         if (res.success) {
             showToast(res.message, 'success');
-            closeBatchModal();
+            closeBatchModal(true); // R148: jalur sukses
             loadVouchers(1);
         } else {
             showToast(res.message || 'Gagal membuat voucher massal', 'error');
@@ -403,7 +442,7 @@ function viewRedemptions(id, code) {
     wireRedemptionsRetry();
     document.getElementById('redemptionsTitle').textContent = `Pengguna Voucher (${code})`;
     document.getElementById('redemptionsBody').innerHTML = `<p style="text-align:center;color:var(--color-text-secondary);">Memuat...</p>`;
-    document.getElementById('redemptionsModal').style.display = 'flex';
+    Modal.open('redemptionsModal');
 
     apiFetch(`/admin/api/vouchers/${id}/redemptions`)
     .then(r => r.json())

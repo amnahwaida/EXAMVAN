@@ -112,6 +112,12 @@ function loadSystemAppsSandbox(byId, timers) {
     win.apiFetch = () => Promise.resolve({ json: () => Promise.resolve({ success: true }) });
     win.showConfirm = () => Promise.resolve(true);
     win.showToast = () => {};
+    // S118 (Batch 20): open/close uploadModal kini lewat Modal Manager -
+    // stub memetakan ke perilaku display asli agar penghitung R48 tetap sah.
+    win.Modal = {
+        open(el) { el.style.display = 'flex'; },
+        close(el) { el.style.display = 'none'; }
+    };
 
     const docMock = {
         readyState: 'complete',
@@ -128,6 +134,9 @@ function loadSystemAppsSandbox(byId, timers) {
     const sandbox = {
         window: win,
         document: docMock,
+        // S118 (Batch 20): fungsi sistem-apps kini menunjuk Modal global
+        // langsung - ekspos alias di level konteks.
+        Modal: win.Modal,
         URLSearchParams,
         console,
         setTimeout: (fn) => {

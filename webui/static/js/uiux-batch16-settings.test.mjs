@@ -148,6 +148,7 @@ function buildVouchersSandbox() {
         )),
         formatDateTimeID: () => '2026-01-01 10:00',
         showToast() {}, showConfirm: () => Promise.resolve(false), copyCode() {},
+        Modal: { open() {}, close() {} },
         console, setTimeout, clearTimeout, parseInt, Number, isNaN, Math, Date, Set, Array, Promise,
         URLSearchParams: class { get() { return null; } },
     };
