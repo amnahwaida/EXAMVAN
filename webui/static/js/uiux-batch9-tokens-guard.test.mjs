@@ -65,6 +65,11 @@ const BASELINES = {
     'settings-general.js': { rgba: 0, hex: 0 },
     'settings-packages.js': { rgba: 0, hex: 0 },
     'admin-core.js': { rgba: 0, hex: 0 },
+    // S99 (ronde 9): blind-spot terakhir ditutup — kedua modul pengawasan
+    // ini sebelumnya TANPA entri padahal klaim S88 "semua modul". Aktual
+    // hasil ukur Batch 15 = 0/0; penambahan warna hardcoded pertama memerah.
+    'pengawas-detail.js': { rgba: 0, hex: 0 },
+    'device-fingerprint.js': { rgba: 0, hex: 0 },
 };
 
 for (const [file, caps] of Object.entries(BASELINES)) {

@@ -33,7 +33,9 @@ function listFiles(dir) {
 const HEX_RE = /#[0-9a-fA-F]{3,8}\b/g;
 // S43: hanya rgba dengan DIGIT pembuka yang dihitung sebagai literal sungguhan.
 // `rgba(var(--rgb-white), 0.1)` adalah PEMAKAIAN token — tidak boleh dihitung.
-const RGBA_RE = /rgba\(\s*[0-9]/g;
+// Batch 15 (R105): flag /i — bentuk KAPITAL "RGBA(255,…)" tidak boleh lolos
+// counter cukup dengan mengubah case.
+const RGBA_RE = /rgba\(\s*[0-9]/gi;
 
 /** Hitung kemunculan pola di satu file, baris komentar HTML tidak dikecualikan
  *  (baseline dikunci apa adanya — konsistensi lebih penting daripada presisi). */
@@ -77,26 +79,33 @@ test('S15 fase 2/S43 (guard): total rgba LITERAL (digit pembuka) di seluruh temp
 });
 
 // Plafon per-file rgba literal (hasil ukur S43, regex digit-pembuka).
+// Batch 15 (S95, kontrak ronde 5 "plafon = aktual"): seluruh entri DIKUNCI
+// ULANG ke hasil ukur kondisi sumber sekarang (pasca migrasi S80–S83 agen
+// lain) dan asersi diubah assert.ok(≤) → assert.equal. Lama → baru:
+//   dashboard 32→32 · register_confirm 19→0 · pengawas 11→3 ·
+//   pengawas_detail 11→11 · download 11→11 · hasil 10→0 · nav 9→8 ·
+//   reset_password 8→0 · shared 4→3.
 const RGBA_BASELINE_PER_FILE = {
     // Batch 13 (S71): entri 'admin/settings.html' DIHAPUS — baseline terduplikasi
     // antar-suite. Plafon rgba settings.html (≤28, aktual) kini DIJAGA SATU
     // TEMPAT: uiux-batch11-settings-guard.test.mjs (S64).
     'admin/dashboard.html': 32,
-    'public/register_confirm.html': 19,
-    'admin/pengawas.html': 11,
+    'public/register_confirm.html': 0,
+    'admin/pengawas.html': 3,
     'admin/pengawas_detail.html': 11,
     'public/download.html': 11,
-    'public/hasil.html': 10,
-    'admin/partials/nav.html': 9,
-    'public/reset_password.html': 8,
-    'public/shared.html': 4,
+    'public/hasil.html': 0,
+    'admin/partials/nav.html': 8,
+    'public/reset_password.html': 0,
+    'public/shared.html': 3,
 };
 
 for (const [rel, cap] of Object.entries(RGBA_BASELINE_PER_FILE)) {
-    test(`S43 (guard): rgba literal di templates/${rel} tidak naik dari baseline`, () => {
+    test(`S43/S95 (guard): rgba literal di templates/${rel} == baseline aktual`, () => {
         const n = countIn(path.join(TEMPLATES, rel), RGBA_RE);
-        assert.ok(n <= cap,
-            `rgba literal ${rel} = ${n}, baseline ≤ ${cap} — pakai rgba(var(--rgb-*), α)`);
+        assert.equal(n, cap,
+            `rgba literal ${rel} = ${n}, baseline terkunci tepat ${cap} — pakai rgba(var(--rgb-*), α); ` +
+            'turunkan baseline ini setiap migrasi mengurangi literal (jangan naikkan)');
     });
 }
 

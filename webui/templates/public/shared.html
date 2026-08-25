@@ -52,13 +52,22 @@
  el.addEventListener('click', toggleMenu);
  });
  function closeMenu() {
- var links = document.getElementById('navLinks');
- if (links) links.classList.remove('open');
- var overlay = document.getElementById('navOverlay');
- if (overlay) overlay.classList.remove('active');
- var burger = document.getElementById('navHamburger');
- if (burger) { burger.innerHTML = '&#9776;'; burger.setAttribute('aria-expanded', 'false'); }
- document.body.style.overflow = '';
+  var links = document.getElementById('navLinks');
+  // S97: catat state sebelum menutup — Escape saat drawer tertutup tidak
+  // boleh mencuri fokus dari elemen lain.
+  var wasOpen = !!(links && links.classList.contains('open'));
+  if (links) links.classList.remove('open');
+  var overlay = document.getElementById('navOverlay');
+  if (overlay) overlay.classList.remove('active');
+  var burger = document.getElementById('navHamburger');
+  if (burger) {
+   burger.innerHTML = '&#9776;';
+   burger.setAttribute('aria-expanded', 'false');
+   // S97: setelah drawer ditutup, fokus dikembalikan ke tombol pemicu
+   // (WCAG 2.4.3) agar pengguna keyboard tidak "terjatuh" di <body>.
+   if (wasOpen) burger.focus();
+  }
+  document.body.style.overflow = '';
  }
  document.addEventListener('keydown', function(e) { if (e.key === 'Escape') { closeMenu(); } });
  </script>
@@ -408,7 +417,7 @@
  padding: 16px;
  width: 100%;
  max-width: 440px;
- box-shadow: 0 20px 50px rgba(var(--rgb-black), 0.4);
+ box-shadow: var(--shadow-lg); /* S103: duplikat literal identik 0 20px 50px rgba(black,.4) bermigrasi ke token */
  position: relative;
  -webkit-backdrop-filter: blur(10px);
  backdrop-filter: blur(10px);

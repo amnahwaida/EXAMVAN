@@ -284,12 +284,24 @@ for (const [label, tpl] of [['register', REGISTER], ['reset_password', RESET_PAS
 for (const [name, tpl] of PUBLIC_TEMPLATES) {
     test(`R79 (folder-wide): ${name} — indeks link stylesheet pertama < indeks <style> pertama`, () => {
         const html = tpl();
-        const firstLink = html.search(/<link[^>]*rel="stylesheet"/);
         const firstStyle = html.search(/<style[\s>]/);
         if (firstStyle === -1) {
             assert.ok(true, `${name} tak punya blok <style> — tidak berlaku`);
             return;
         }
+        // Diperbarui Batch 15 (R108): download.html tidak lagi me-link
+        // public-mobile/desktop.css sendiri — head-nya sepenuhnya berasal dari
+        // partial public_head (shared.html), jadi kontrak urutan link-vs-style
+        // diverifikasi di partial tersebut, bukan di halaman.
+        if (/{{\s*template\s+"public_head"/.test(html)) {
+            const sh = SHARED();
+            const shLink = sh.search(/<link[^>]*rel="stylesheet"/);
+            const shStyle = sh.search(/<style[\s>]/);
+            assert.ok(shLink !== -1 && shLink < shStyle,
+                'partial public_head (shared.html) harus me-link stylesheet sebelum <style> pertama');
+            return;
+        }
+        const firstLink = html.search(/<link[^>]*rel="stylesheet"/);
         assert.ok(firstLink !== -1, `${name} punya blok <style> tapi tak punya link stylesheet`);
         assert.ok(firstLink < firstStyle,
             `${name}: link stylesheet pertama (${firstLink}) HARUS berada sebelum `

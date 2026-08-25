@@ -34,8 +34,12 @@ const THEME = path.join(__dirname, '..', '..', 'static', 'css', 'theme.css');
 // terjaga — sebelumnya blind-spot (tumbuh literal tanpa alarm karena tidak
 // masuk FILES). Baseline = angka aktual pasca migrasi token ronde 8
 // (hasil: 6 hitungan seluruhnya false-positive entity HTML &#8226;).
+// Batch 15 (R118): cek_hasil/index/forgot_password ikut masuk daftar
+// (informative; aktual hex/rgba = 0 hari ini) supaya literal PERTAMA di
+// halaman mana pun langsung memerah.
 const FILES = ['download.html', 'shared.html', 'register.html',
-    'register_confirm.html', 'reset_password.html', 'hasil.html']
+    'register_confirm.html', 'reset_password.html', 'hasil.html',
+    'cek_hasil.html', 'index.html', 'forgot_password.html']
     .map((f) => path.join(PUBLIC, f));
 const read = (f) => fs.readFileSync(f, 'utf8');
 
@@ -148,23 +152,29 @@ for (const f of FILES) {
 // ===== 5. Baseline terkunci pasca-migrasi (tidak boleh naik lagi) ===========
 
 const HEX_RE = /#[0-9a-fA-F]{3,8}\b/g;
-// S82/S83 (ronde 8): baseline tiga halaman baru = aktual terukur pasca migrasi.
-// Catatan hasil.html = 6: seluruhnya false-positive regex terhadap entity HTML
-// &#8226; (bullet) — nol hex literal CSS sungguhan tersisa di file itu.
+// Batch 15 (S95, kontrak ronde 5 "plafon = aktual"): seluruh plafon DIKUNCI
+// ULANG ke hasil ukur kondisi sumber sekarang (migrasi S80–S83 agen lain
+// menurunkan banyak literal) dan asersi assert.ok(≤) → assert.equal. Lama → baru:
+//   download 20→7 · shared 25→14 · register 12→0 · register_confirm 0→0 ·
+//   reset_password 0→0 · hasil 6→6 · cek_hasil/index/forgot_password baru = 0.
 const BASELINE_HEX = {
-    'download.html': 20,
-    'shared.html': 25,
-    'register.html': 12,
+    'download.html': 7,
+    'shared.html': 14,
+    'register.html': 0,
     'register_confirm.html': 0,
     'reset_password.html': 0,
     'hasil.html': 6,
+    'cek_hasil.html': 0,
+    'index.html': 0,
+    'forgot_password.html': 0,
 };
 
 for (const f of FILES) {
     const name = path.basename(f);
-    test(`B8 (guard): jumlah hex literal ${name} tidak naik dari baseline Batch 8`, () => {
+    test(`B8/S95 (guard): jumlah hex literal ${name} == baseline aktual`, () => {
         const n = (stripWhitelisted(name, read(f)).match(HEX_RE) || []).length;
-        assert.ok(n <= BASELINE_HEX[name],
-            `${name}: hex = ${n}, baseline terkunci ≤ ${BASELINE_HEX[name]} — pakai var(--token)`);
+        assert.equal(n, BASELINE_HEX[name],
+            `${name}: hex = ${n}, baseline terkunci tepat ${BASELINE_HEX[name]} — pakai var(--token); ` +
+            'turunkan baseline setiap migrasi mengurangi literal (jangan naikkan)');
     });
 }

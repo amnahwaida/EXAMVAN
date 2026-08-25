@@ -37,15 +37,23 @@ func TestVoucherAuditUIMarkupPresent(t *testing.T) {
 		return string(data)
 	}
 
-	// The merged settings page: the audit section's title and table markup, the
-	// API fetch with search, and the pagination renderer. (The standalone
-	// voucher_audit.html was removed; its URL now 302-redirects to
-	// /admin/settings#voucher-audit, and the audit JS lives in
-	// static/js/settings-voucher-audit.js, loaded lazily when the tab opens.)
+	// The merged settings page: the audit section's title and table markup, and
+	// the pagination/search wiring. (The standalone voucher_audit.html was
+	// removed; its URL now 302-redirects to /admin/settings#voucher-audit.)
+	//
+	// Diagnosis (Batch 15 / ronde 9): test ini GAGAL di HEAD karena fragmen
+	// "loadAuditLogs(" tidak lagi ada di settings.html. Sejak modul audit
+	// diekstrak ke static/js/settings-voucher-audit.js (lazy-loaded saat tab
+	// dibuka), template TIDAK lagi memanggil loadAuditLogs( langsung; ia hanya
+	// me-wire-nya secara lazy: wire('auditSearchInput','keyup', …
+	// lazy('loadAuditLogs')(1)). String literal lama menjadi
+	// 'loadAuditLogs')(1) sehingga Contains gagal padahal arsitekturnya benar.
+	// Perbaikan mengunci STRUKTUR kini: wiring lazy di template + definisi
+	// fungsi di modul JS — bukan menambal template demi string lama.
 	page := read("admin/settings.html")
 	for _, frag := range []string{
 		"Riwayat Klaim &amp; Aktivasi Voucher",
-		"loadAuditLogs(",
+		"lazy('loadAuditLogs')",
 		`id="auditLogsBody"`,
 		`id="auditSearchInput"`,
 	} {
@@ -56,6 +64,7 @@ func TestVoucherAuditUIMarkupPresent(t *testing.T) {
 
 	auditJS := readRoot("static/js/settings-voucher-audit.js")
 	for _, frag := range []string{
+		"function loadAuditLogs(",
 		`/admin/api/vouchers/audit-logs?page=`,
 		"renderAuditLogsTable",
 		"renderAuditPagination",

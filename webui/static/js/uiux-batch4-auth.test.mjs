@@ -44,12 +44,17 @@ test('S6a: reset_password punya tepat 6 input .otp-digit dengan inputmode numeri
     }
 });
 
-test('S6b: kotak pertama reset_password punya autocomplete one-time-code', () => {
+test('S6b: autocomplete one-time-code tepat satu di input gabungan reset_password (diubah Batch 15/S98)', () => {
+    // Diperbarui Batch 15: one-time-code pada kotak maxlength="1" memotong
+    // autofill OTP OS (6 digit dipangkas ke 1) — atribut wajib pindah ke
+    // SATU input gabungan (#otp_code) + distribusi multi-karakter antar kotak.
     const html = read('templates/public/reset_password.html');
     const first = html.match(/<input[^>]*class="otp-digit"[^>]*>/);
     assert.ok(first, 'kotak digit pertama harus ada');
-    assert.match(first[0], /autocomplete="one-time-code"/,
-        'kotak pertama wajib autocomplete="one-time-code" (isi otomatis SMS/mail)');
+    assert.doesNotMatch(first[0], /autocomplete="one-time-code"/,
+        'kotak maxlength="1" tidak boleh membawa one-time-code (autofill terpotong)');
+    const occ = html.match(/autocomplete="one-time-code"/g) || [];
+    assert.equal(occ.length, 1, 'tepat satu input gabungan membawa one-time-code');
 });
 
 test('S6c: nilai gabungan tetap dikirim sebagai hidden input name="otp_code" (logika server tak berubah)', () => {

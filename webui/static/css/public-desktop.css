@@ -14,7 +14,7 @@
   .nav-container { max-width: var(--desktop-content); min-height: 72px; padding: 12px 32px; }
   .logo-badge { width: 40px; height: 40px; border-radius: 8px; }
   .logo-text { font-size: 22px; }
-  .nav-links { gap: 6px; }
+  .nav-links { gap: 6px; /* S97: reset visibility — rule dasar mobile menyembunyikan drawer tertutup */ visibility: visible; }
   .nav-links .nav-link { padding: 10px 14px; border-radius: 6px; font-size: 14px; }
   .nav-links .nav-link:hover { background: rgba(var(--rgb-white),.045); }
   .nav-links .btn-nav-login { margin-left: 8px; padding: 10px 18px; border-color: rgba(129,140,248,.28); background: rgba(99,102,241,.1); }

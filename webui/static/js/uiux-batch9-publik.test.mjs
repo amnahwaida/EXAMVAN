@@ -538,7 +538,10 @@ test('R40b: chip tingkat ketiga "Hampir" distyling lewat token (tanpa hex/rgba l
     const rule = css.match(/\.score-status-mid\s*\{([^}]*)\}/);
     assert.ok(rule, '.score-status-mid wajib ada di blok style hasil.html');
     assert.match(rule[1], /var\(--color-warning/, 'warna teks chip memakai token warning');
-    assert.match(rule[1], /rgba\(var\(--rgb-warning\),\s*0\.12\)/, 'latar chip memakai triplet token');
+    // Diperbarui Batch 15 (S103 adopsi-a): rgba(var(--rgb-warning),0.12)
+    // bermigrasi ke var(--color-warning-bg) — nilai identik persis
+    // (rgba(245,158,11,0.12)), satu sumber kebenaran di theme.css.
+    assert.match(rule[1], /background:\s*var\(--color-warning-bg\)/, 'latar chip memakai token bg warning');
     assert.match(rule[1], /rgba\(var\(--rgb-warning\),\s*0\.35\)/, 'border chip memakai triplet token');
 });
 

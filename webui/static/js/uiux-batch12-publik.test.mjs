@@ -344,8 +344,14 @@ for (const [label, tpl] of [['hasil', HASIL], ['download', DOWNLOAD], ['register
         assert.deepEqual(offenders.map((mm) => mm[0]), [],
             `${label}.html: link stylesheet menyusup SETELAH <style> inline pertama — `
             + 'pindahkan SEMUA link eksternal sebelum blok <style> (urutan antar-link tetap)');
-        const links = [...html.matchAll(/<link rel="stylesheet"/g)].length;
-        assert.ok(links >= 2, `${label}.html masih punya ≥2 link stylesheet (semua dipindah, bukan dihapus)`);
+        // Diperbarui Batch 15 (R108): download.html berhenti me-link ulang
+        // public-mobile/desktop.css — keduanya kini hanya dari public_head
+        // (shared.html), jadi hitungan link lokal boleh 0 untuk halaman yang
+        // mendelegasikan head-nya ke partial.
+        if (!/{{\s*template\s+"public_head"/.test(html)) {
+            const links = [...html.matchAll(/<link rel="stylesheet"/g)].length;
+            assert.ok(links >= 2, `${label}.html masih punya ≥2 link stylesheet (semua dipindah, bukan dihapus)`);
+        }
     });
 }
 

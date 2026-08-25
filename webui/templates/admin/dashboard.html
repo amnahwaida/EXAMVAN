@@ -551,14 +551,14 @@
 <div style="display:flex;justify-content:space-between;align-items:center;padding:16px 0 0 0;flex-wrap:wrap;gap:12px;">
 <span style="font-size:13px;color:var(--color-text-muted);">{{len .exams}} dari {{.total_exams}} ujian</span>
 <div style="display:flex;gap:6px;align-items:center;">
-<a href="?page={{sub .page 1}}{{.query_base}}" class="btn-sm btn-toggle page-link-main {{if le .page 1}}disabled{{end}}"><svg class="icon-svg" style="width:14px;height:14px;"><use href="#hi-chevron-left"/></svg> Sebelumnya</a>
+<a href="?page={{sub .page 1}}{{.query_base}}" class="btn-sm btn-toggle page-link-main {{if le .page 1}}disabled{{end}}" {{if le .page 1}}aria-disabled="true"{{end}}><svg class="icon-svg" style="width:14px;height:14px;"><use href="#hi-chevron-left"/></svg> Sebelumnya</a>
 {{$p := .page}}{{$tp := .total_pages}}{{$qb := .query_base}}
 {{range $pagenum := $tp | seq}}
 {{if ge $pagenum (sub $p 2)}}
 {{if le $pagenum (add $p 2)}}
 <a href="?page={{$pagenum}}{{$qb}}" class="pagination-page-num {{if eq $pagenum $p}}page-current{{end}}">{{$pagenum}}</a>
 {{end}}{{end}}{{end}}
-<a href="?page={{add .page 1}}{{.query_base}}" class="btn-sm btn-toggle page-link-main {{if ge .page .total_pages}}disabled{{end}}">Berikutnya <svg class="icon-svg" style="width:14px;height:14px;"><use href="#hi-chevron-right"/></svg></a>
+<a href="?page={{add .page 1}}{{.query_base}}" class="btn-sm btn-toggle page-link-main {{if ge .page .total_pages}}disabled{{end}}" {{if ge .page .total_pages}}aria-disabled="true"{{end}}>Berikutnya <svg class="icon-svg" style="width:14px;height:14px;"><use href="#hi-chevron-right"/></svg></a>
 </div>
 </div>
 {{end}}

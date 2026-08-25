@@ -489,49 +489,6 @@
   border-radius: 2px;
   transition: width 1s linear;
 }
-.pd-interval-row {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  margin-top: 4px;
-}
-.pd-interval-input {
-  width: 60px;
-  padding: 5px 8px;
-  font-size: 0.8rem;
-  border: 1px solid var(--color-glass-border);
-  border-radius: 6px;
-  background: var(--color-bg);
-  color: var(--color-text);
-  outline: none;
-  text-align: center;
-  font-family: var(--font-mono);
-}
-.pd-interval-input:focus {
-  border-color: var(--color-primary);
-  box-shadow: 0 0 0 2px var(--color-primary-glow);
-}
-.pd-interval-label {
-  font-size: 0.72rem;
-  color: var(--color-text-muted);
-}
-.pd-interval-save {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  font-size: 0.68rem;
-  font-weight: 600;
-  padding: 4px 10px;
-  border-radius: 6px;
-  border: 1px solid rgba(var(--rgb-success),0.3);
-  background: rgba(var(--rgb-success),0.1);
-  color: var(--color-accent-emerald);
-  cursor: pointer;
-  transition: all 0.2s;
-}
-.pd-interval-save:hover {
-  background: rgba(var(--rgb-success),0.2);
-  border-color: rgba(var(--rgb-success),0.5);
 }
 
 /* --- Personnel --- */
@@ -575,12 +532,6 @@
   align-items: center;
   justify-content: space-between;
   gap: 12px;
-  flex-wrap: wrap;
-}
-.pd-quick-actions {
-  display: flex;
-  align-items: center;
-  gap: 8px;
   flex-wrap: wrap;
 }
 .pd-action-btn {
@@ -982,7 +933,6 @@
   .pd-personnel { flex-direction: column; align-items: flex-start; gap: 10px; }
   .pd-personnel-divider { width: 100%; height: 1px; }
   .pd-actions-bar { flex-direction: column; align-items: stretch; }
-  .pd-quick-actions { flex-wrap: wrap; }
   .pd-main-action { justify-content: stretch; }
   .pd-control-btn { width: 100%; justify-content: center; }
   .pd-stats-grid { grid-template-columns: repeat(2, 1fr); gap: 10px; }
@@ -1100,6 +1050,13 @@
 }
 .pd-toggle-switch input:checked + .pd-toggle-slider:before {
   transform: translateX(20px);
+}
+/* Batch 15 (S106): input toggle berukuran 0×0 tak bisa menampung indikator
+   fokus — outline digambar pada slider di sebelahnya agar posisi fokus
+   keyboard pada kontrol keselamatan ini selalu terlihat. */
+#autoAcceptToggle:focus-visible + .pd-toggle-slider {
+  outline: 2px solid var(--color-primary-light);
+  outline-offset: 2px;
 }
 /* --- Auto-approve audit hint (who last toggled the flag, when) --- */
 .aa-audit-hint {
@@ -1223,13 +1180,20 @@ var approvalsErrorToasted = false;
 // Notice (empty/error/closed) SELALU menimpa baris data — snapshot wajib
 // divalidasi di sini agar poll berikutnya dengan payload sama tidak salah
 // "skip" dan layar mentok di notice.
-function renderApprovalNotice(html) {
+// Batch 15 (R112): SEMUA cabang notice wajib mengumumkan lewat live region —
+// announceText dipaksa hadir di setiap pemanggil renderApprovalNotice agar
+// screen reader tidak ditinggal basi saat gerbang tertutup/gagal/catch.
+function renderApprovalNotice(html, announceText) {
     var tbody = document.getElementById('approvalBody');
     if (!tbody) return;
     tbody.innerHTML = html;
     approvalLastSerialized = null;
     approvalRowsLive = false;
     approvalRowsCache = [];
+    if (announceText) {
+        var live = document.getElementById('queueLiveRegion');
+        if (live && live.textContent !== announceText) live.textContent = announceText;
+    }
 }
 
 function loadApprovals() {
@@ -1281,7 +1245,7 @@ function loadApprovals() {
                 // an error toast from the 5s poll.
                 var gateMsg = (res && res.message) || '';
                 if (gateMsg.indexOf('Ujian tidak aktif') === 0 || gateMsg.indexOf('Waktu ujian telah berakhir') === 0) {
-                    renderApprovalNotice('<tr><td colspan="5" class="pd-table-empty" style="color:var(--color-text-muted);">Antrean izin ditutup — ujian tidak aktif atau telah berakhir.</td></tr>');
+                    renderApprovalNotice('<tr><td colspan="5" class="pd-table-empty" style="color:var(--color-text-muted);">Antrean izin ditutup — ujian tidak aktif atau telah berakhir.</td></tr>', 'Antrean izin ditutup — ujian tidak aktif atau telah berakhir.');
                     return;
                 }
                 // Gagal memuat antrean — jangan samarkan sebagai antrean kosong.
@@ -1291,7 +1255,7 @@ function loadApprovals() {
                     approvalsErrorToasted = true;
                     showToast((res && res.message) || 'Gagal memuat antrean izin perangkat', 'error');
                 }
-                renderApprovalNotice('<tr><td colspan="5" class="pd-table-empty" style="color:var(--color-danger-light);">Gagal memuat antrean. Coba lagi.</td></tr>');
+                renderApprovalNotice('<tr><td colspan="5" class="pd-table-empty" style="color:var(--color-danger-light);">Gagal memuat antrean. Coba lagi.</td></tr>', 'Gagal memuat antrean izin perangkat.');
                 return;
             }
             if (!res.data || res.data.length === 0) {
@@ -1331,8 +1295,9 @@ function loadApprovals() {
             console.error('Fetch approvals error:', err);
             // Without this, a failed first load was indistinguishable from an
             // empty queue. Only replace placeholder text, never real rows.
+            // R112: cabang catch juga mengumumkan lewat live region.
             if (tbody && /Belum ada antrean|Memuat/.test(tbody.textContent)) {
-                tbody.innerHTML = '<tr><td colspan="5" class="pd-table-empty" style="color:var(--color-danger-light);">Gagal memuat antrean — mencoba lagi otomatis...</td></tr>';
+                renderApprovalNotice('<tr><td colspan="5" class="pd-table-empty" style="color:var(--color-danger-light);">Gagal memuat antrean — mencoba lagi otomatis...</td></tr>', 'Gagal memuat antrean izin — mencoba lagi otomatis.');
             }
         })
         .finally(function() {
@@ -1539,6 +1504,48 @@ function announceQueueCount(count) {
 var detailLoading = false;
 var detailRerunPending = false;
 
+// Batch 15 (R116): interval halaman submissions dipusatkan di satu konstanta.
+// Pemakaian memakai guard typeof agar fungsi tetap hidup bila diekstrak
+// terpisah oleh suite perilaku (uiux-batch11) tanpa deklarasi modul ini.
+var SUBS_PER_PAGE = 20;
+// Batch 15 (S94): sidik jari HTML render sukses terakhir — tick polling dengan
+// payload identik tidak menulis ulang tbody (fokus/tap/screen reader selamat).
+// Direset ke null oleh jalur notice/error agar payload berikutnya selalu
+// dirender ulang.
+var subsLastHtml = null;
+// Batch 15 (R113): snapshot submissions pindah dari atribut DOM data-subs
+// (di-JSON.stringify tiap tick) ke variabel modul — showAccessLog membaca
+// dari sini.
+var subsSnapshot = [];
+
+// S94: kunci fokus stabil untuk pemulihan setelah rebuild tbody —
+// identitas elemen aktif diturunkan dari atribut data-action + identitas
+// barisnya (data-mac / data-submission-id), bukan posisi indeks.
+function getSubsFocusKey() {
+    var ae = document.activeElement;
+    var tbody = document.getElementById('submissionBody');
+    if (!ae || !tbody || !tbody.contains(ae)) return null;
+    var el = ae;
+    while (el && el !== tbody && !el.getAttribute('data-action')) el = el.parentNode;
+    if (!el || el === tbody) return null;
+    return {
+        action: el.getAttribute('data-action'),
+        mac: el.getAttribute('data-mac') || '',
+        sid: el.getAttribute('data-submission-id') || ''
+    };
+}
+
+function restoreSubsFocus(key) {
+    if (!key) return;
+    var tbody = document.getElementById('submissionBody');
+    if (!tbody || !tbody.querySelector) return;
+    var sel = '[data-action="' + key.action + '"]';
+    if (key.mac) sel += '[data-mac="' + key.mac + '"]';
+    if (key.sid) sel += '[data-submission-id="' + key.sid + '"]';
+    var target = tbody.querySelector(sel);
+    if (target && target.focus) target.focus();
+}
+
 function loadDetail(page, silent) {
     var tbody = document.getElementById('submissionBody');
     if (!tbody) return;
@@ -1552,7 +1559,7 @@ function loadDetail(page, silent) {
 
     var search = document.getElementById('pengawasSearch') ? document.getElementById('pengawasSearch').value.trim() : '';
     var status = document.getElementById('statusFilter') ? document.getElementById('statusFilter').value : '';
-    var url = '/admin/api/pengawas/exams/' + EXAM_ID + '/submissions?page=' + SUB_PAGE + '&per_page=20';
+    var url = '/admin/api/pengawas/exams/' + EXAM_ID + '/submissions?page=' + SUB_PAGE + '&per_page=' + ((typeof SUBS_PER_PAGE === 'number') ? SUBS_PER_PAGE : 20);
     if (search) url += '&search=' + encodeURIComponent(search);
     if (status) url += '&status=' + encodeURIComponent(status);
 
@@ -1563,11 +1570,13 @@ function loadDetail(page, silent) {
                 // Auto-refresh senyap (12 dtk) cukup menampilkan baris error di
                 // tabel tanpa toast agar tidak spam; aksi user langsung di-toast.
                 if (!silent) showToast((res && res.message) || 'Gagal memuat data pengawasan', 'error');
+                subsLastHtml = null;
                 tbody.innerHTML = '<tr><td colspan="6" class="pd-table-empty" style="color:var(--color-danger-light);">Gagal memuat data</td></tr>';
                 return;
             }
             markUpdated();
             var subs = res.submissions || [];
+            subsSnapshot = subs;
             if (res.stats) {
                 document.getElementById('statTotal').textContent = res.stats.total;
                 document.getElementById('statActive').textContent = res.stats.active;
@@ -1577,11 +1586,16 @@ function loadDetail(page, silent) {
 
             if (subs.length === 0) {
                 var msg = search ? 'Pencarian tidak ditemukan.' : 'Belum ada perangkat terdaftar.';
+                subsLastHtml = null;
                 tbody.innerHTML = '<tr><td colspan="6" class="pd-table-empty">' + msg + '</td></tr>';
                 renderSubPagination(res);
                 return;
             }
 
+            // S94: catat fokus SEBELUM memutuskan render — bila payload
+            // identik dengan render sebelumnya, tbody sama sekali tidak
+            // disentuh; bila berubah, fokus dipulihkan setelah rebuild.
+            var focusKey = getSubsFocusKey();
             var html = '';
             for (var i = 0; i < subs.length; i++) {
                 var s = subs[i];
@@ -1592,7 +1606,7 @@ function loadDetail(page, silent) {
                 var attCount = s.attempt_count > 1 ? '<span style="background:rgba(var(--rgb-danger),0.1);color:var(--color-danger);padding:2px 6px;border-radius:10px;font-size:0.7rem;font-weight:700;" title="' + s.attempt_count + 'x Mengerjakan">' + s.attempt_count + 'x</span>' : '<span style="color:var(--color-text-muted);">' + (s.attempt_count || 1) + 'x</span>';
 
                 html += '<tr>' +
-                    '<td data-label="No" style="font-weight:600;color:var(--color-text-muted);width:40px;">' + ((SUB_PAGE - 1) * 20 + i + 1) + '</td>' +
+                    '<td data-label="No" style="font-weight:600;color:var(--color-text-muted);width:40px;">' + ((SUB_PAGE - 1) * ((typeof SUBS_PER_PAGE === 'number') ? SUBS_PER_PAGE : 20) + i + 1) + '</td>' +
                     '<td data-label="ID Perangkat"><button type="button" class="mac-cell" style="background:transparent;" data-action="show-access-log" data-submission-id="' + s.id + '" title="' + escapeHtml(s.mac_address) + ' (Klik untuk riwayat akses)">' + escapeHtml(s.mac_address) + '</button></td>' +
                     '<td data-label="Status"><span class="status-badge-sm ' + toneCls + '">' + sl + '</span></td>' +
                     '<td data-label="Mulai" style="font-size:0.75rem;color:var(--color-text-muted);font-family:var(--font-mono);">' + startTime + '</td>' +
@@ -1603,13 +1617,17 @@ function loadDetail(page, silent) {
                     '</div></td>' +
                     '</tr>';
             }
+            if (subsLastHtml !== null && subsLastHtml === html) {
+                renderSubPagination(res);
+                return;
+            }
             tbody.innerHTML = html;
+            subsLastHtml = html;
+            restoreSubsFocus(focusKey);
             renderSubPagination(res);
-
-            var card = document.getElementById('submissionTable');
-            if (card) card.setAttribute('data-subs', JSON.stringify(subs));
         })
         .catch(function() {
+            subsLastHtml = null;
             tbody.innerHTML = '<tr><td colspan="6" class="pd-table-empty" style="color:var(--color-danger-light);">Gagal menghubungi server</td></tr>';
         })
         .finally(function() {
@@ -1631,7 +1649,9 @@ function renderSubPagination(res) {
 
     // Batch 11 (R56): info paginasi memakai rentang offset, bukan jumlah
     // baris halaman aktif — "Menampilkan 41–57 dari 57 perangkat".
-    var perPage = 20;
+    // Batch 15 (R116): per_page dari konstanta bersama SUBS_PER_PAGE
+    // (guard typeof untuk ekstraksi terpisah oleh suite perilaku).
+    var perPage = (typeof SUBS_PER_PAGE === 'number') ? SUBS_PER_PAGE : 20;
     var rangeStart = (res.page - 1) * perPage + 1;
     var rangeEnd = Math.min(res.page * perPage, res.total);
 
@@ -1673,11 +1693,8 @@ function showAccessLog(subId) {
     var body = document.getElementById('accessLogBody');
     if (!modal || !body) return;
 
-    var subs = [];
-    try {
-        var table = document.getElementById('submissionTable');
-        subs = JSON.parse(table.getAttribute('data-subs') || '[]');
-    } catch(e) {}
+    // R113: baca snapshot dari variabel modul (dulunya atribut data-subs).
+    var subs = subsSnapshot || [];
     var subData = null;
     for (var i = 0; i < subs.length; i++) {
         if (subs[i].id === subId) { subData = subs[i]; break; }
@@ -1726,7 +1743,7 @@ function showAccessLog(subId) {
                 '<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(110px,1fr));gap:12px;font-size:0.75rem;">' +
                     '<div><span style="color:var(--color-text-muted);display:block;margin-bottom:4px;font-size:0.7rem;text-transform:uppercase;letter-spacing:0.02em;">Mulai Mengerjakan</span><strong style="color:var(--color-text);font-family:var(--font-mono);">' + shStart + '</strong></div>' +
                     '<div><span style="color:var(--color-text-muted);display:block;margin-bottom:4px;font-size:0.7rem;text-transform:uppercase;letter-spacing:0.02em;">Waktu Terkumpul</span><strong style="color:var(--color-text);font-family:var(--font-mono);">' + shEnd + '</strong></div>' +
-                    '<div><span style="color:var(--color-text-muted);display:block;margin-bottom:4px;font-size:0.7rem;text-transform:uppercase;letter-spacing:0.02em;">Nilai / Score</span><strong style="color:' + (shSubmitted ? 'var(--color-success-light)' : 'var(--color-text)') + ';font-size:0.9rem;">' + shScore + '</strong></div>' +
+                    '<div><span style="color:var(--color-text-muted);display:block;margin-bottom:4px;font-size:0.7rem;text-transform:uppercase;letter-spacing:0.02em;">Nilai</span><strong style="color:' + (shSubmitted ? 'var(--color-success-light)' : 'var(--color-text)') + ';font-size:0.9rem;">' + shScore + '</strong></div>' +
                 '</div>' +
             '</div>';
         }
@@ -2232,27 +2249,16 @@ loadAAStatus();
 </script>
 
 <svg xmlns="http://www.w3.org/2000/svg" style="display:none;" aria-hidden="true">
-<symbol id="hi-dashboard" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M3.75 6A2.25 2.25 0 0 1 6 3.75h2.25A2.25 2.25 0 0 1 10.5 6v2.25a2.25 2.25 0 0 1-2.25 2.25H6a2.25 2.25 0 0 1-2.25-2.25V6ZM3.75 15.75A2.25 2.25 0 0 1 6 13.5h2.25a2.25 2.25 0 0 1 2.25 2.25V18a2.25 2.25 0 0 1-2.25 2.25H6A2.25 2.25 0 0 1 3.75 18v-2.25ZM13.5 6a2.25 2.25 0 0 1 2.25-2.25H18A2.25 2.25 0 0 1 20.25 6v2.25A2.25 2.25 0 0 1 18 10.5h-2.25a2.25 2.25 0 0 1-2.25-2.25V6ZM13.5 15.75a2.25 2.25 0 0 1 2.25-2.25H18a2.25 2.25 0 0 1 2.25 2.25V18A2.25 2.25 0 0 1 18 20.25h-2.25A2.25 2.25 0 0 1 13.5 18v-2.25Z"/></symbol>
-<symbol id="hi-results" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M3 13.125C3 12.504 3.504 12 4.125 12h2.25c.621 0 1.125.504 1.125 1.125v6.75C7.5 20.496 6.996 21 6.375 21h-2.25A1.125 1.125 0 0 1 3 19.875v-6.75ZM9.75 8.625c0-.621.504-1.125 1.125-1.125h2.25c.621 0 1.125.504 1.125 1.125v11.25c0 .621-.504 1.125-1.125 1.125h-2.25a1.125 1.125 0 0 1-1.125-1.125V8.625ZM16.5 4.125c0-.621.504-1.125 1.125-1.125h2.25C20.496 3 21 3.504 21 4.125v15.75c0 .621-.504 1.125-1.125 1.125h-2.25a1.125 1.125 0 0 1-1.125-1.125V4.125Z"/></symbol>
 <symbol id="hi-users" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M15 19.128a9.38 9.38 0 0 0 2.625.372 9.337 9.337 0 0 0 4.121-.952 4.125 4.125 0 0 0-7.533-2.493M15 19.128v-.003c0-1.113-.285-2.16-.786-3.07M15 19.128v.106A12.318 12.318 0 0 1 8.624 21c-2.331 0-4.512-.645-6.374-1.766l-.001-.109a6.375 6.375 0 0 1 11.964-3.07M12 6.375a3.375 3.375 0 1 1-6.75 0 3.375 3.375 0 0 1 6.75 0Zm8.25 2.25a2.625 2.625 0 1 1-5.25 0 2.625 2.625 0 0 1 5.25 0Z"/></symbol>
 <symbol id="hi-eye" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M2.036 12.322a1.012 1.012 0 0 1 0-.639C3.423 7.51 7.36 4.5 12 4.5c4.638 0 8.573 3.007 9.963 7.178.07.207.07.431 0 .639C20.577 16.49 16.64 19.5 12 19.5c-4.638 0-8.573-3.007-9.963-7.178Z"/><path d="M15 12a3 3 0 1 1-6 0 3 3 0 0 1 6 0Z"/></symbol>
-<symbol id="hi-eye-off" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M3.98 8.223A10.477 10.477 0 0 0 1.934 12c1.292 4.338 5.31 7.5 10.066 7.5.993 0 1.953-.138 2.863-.395M6.228 6.228A10.451 10.451 0 0 1 12 4.5c4.756 0 8.773 3.162 10.065 7.498a10.522 10.522 0 0 1-4.293 5.774M6.228 6.228 3 3m3.228 3.228 3.65 3.65m7.894 7.894L21 21m-3.228-3.228-3.65-3.65m0 0a3 3 0 1 0-4.243-4.243m4.242 4.242L9.88 9.88"/></symbol>
-<symbol id="hi-lock-open" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M13.5 10.5V6.75a4.5 4.5 0 1 1 9 0v3.75M3.75 21.75h10.5a2.25 2.25 0 0 0 2.25-2.25v-6.75a2.25 2.25 0 0 0-2.25-2.25H3.75a2.25 2.25 0 0 0-2.25 2.25v6.75a2.25 2.25 0 0 0 2.25 2.25Z"/></symbol>
-<symbol id="hi-lock" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M16.5 10.5V6.75a4.5 4.5 0 1 0-9 0v3.75m-.75 11.25h10.5a2.25 2.25 0 0 0 2.25-2.25v-6.75a2.25 2.25 0 0 0-2.25-2.25H6.75a2.25 2.25 0 0 0-2.25 2.25v6.75a2.25 2.25 0 0 0 2.25 2.25Z"/></symbol>
-<symbol id="hi-link" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M13.19 8.688a4.5 4.5 0 0 1 1.242 7.244l-4.5 4.5a4.5 4.5 0 0 1-6.364-6.364l1.757-1.757m13.35-.622 1.757-1.757a4.5 4.5 0 0 0-6.364-6.364l-4.5 4.5a4.5 4.5 0 0 0 1.242 7.244"/></symbol>
-<symbol id="hi-logout" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M15.75 9V5.25A2.25 2.25 0 0 0 13.5 3h-6a2.25 2.25 0 0 0-2.25 2.25v13.5A2.25 2.25 0 0 0 7.5 21h6a2.25 2.25 0 0 0 2.25-2.25V15m3 0 3-3m0 0-3-3m3 3H9"/></symbol>
 <symbol id="hi-x" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M6 18 18 6M6 6l12 12"/></symbol>
 <symbol id="hi-device" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M10.5 1.5H8.25A2.25 2.25 0 0 0 6 3.75v16.5a2.25 2.25 0 0 0 2.25 2.25h7.5A2.25 2.25 0 0 0 18 20.25V3.75a2.25 2.25 0 0 0-2.25-2.25H13.5m-3 0V3h3V1.5m-3 0h3m-3 18.75h3"/></symbol>
 <symbol id="hi-search" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="m21 21-5.197-5.197m0 0A7.5 7.5 0 1 0 5.196 5.196a7.5 7.5 0 0 0 10.607 10.607Z"/></symbol>
 <symbol id="hi-refresh" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0 3.181 3.183a8.25 8.25 0 0 0 13.803-3.7M4.031 9.865a8.25 8.25 0 0 1 13.803-3.7l3.181 3.182"/></symbol>
 <symbol id="hi-check" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="m4.5 12.75 6 6 9-13.5"/></symbol>
 <symbol id="hi-chevron-left" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M15.75 19.5 8.25 12l7.5-7.5"/></symbol>
-<symbol id="hi-plus" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M12 4.5v15m7.5-7.5h-15"/></symbol>
 <symbol id="hi-key" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M15.75 5.25a3 3 0 0 1 3 3m3 0a6 6 0 0 1-7.029 5.912c-.563-.097-1.159.026-1.563.43L10.5 17.25H8.25v2.25H6v2.25H2.25v-2.818c0-.597.237-1.17.659-1.591l6.499-6.499c.404-.404.527-1 .43-1.563A6 6 0 1 1 21.75 8.25Z"/></symbol>
 <symbol id="hi-play" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M5.25 5.653c0-.856.917-1.398 1.667-.986l11.54 6.347a1.125 1.125 0 0 1 0 1.972l-11.54 6.347a1.125 1.125 0 0 1-1.667-.986V5.653Z"/></symbol>
-<symbol id="hi-settings" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M9.594 3.94c.09-.542.56-.94 1.11-.94h2.593c.55 0 1.02.398 1.11.94l.213 1.281c.063.374.313.686.645.87.074.04.147.083.22.127.325.196.72.257 1.075.124l1.217-.456a1.125 1.125 0 0 1 1.37.49l1.296 2.247a1.125 1.125 0 0 1-.26 1.431l-1.003.827c-.293.241-.438.613-.43.992a7.723 7.723 0 0 1 0 .255c-.008.378.137.75.43.991l1.004.827c.424.35.534.955.26 1.43l-1.298 2.247a1.125 1.125 0 0 1-1.369.491l-1.217-.456c-.355-.133-.75-.072-1.076.124a6.47 6.47 0 0 1-.22.128c-.331.183-.581.495-.644.869l-.213 1.281c-.09.543-.56.94-1.11.94h-2.594c-.55 0-1.019-.398-1.11-.94l-.213-1.281c-.062-.374-.312-.686-.644-.87a6.52 6.52 0 0 1-.22-.127c-.325-.196-.72-.257-1.076-.124l-1.217.456a1.125 1.125 0 0 1-1.369-.49l-1.297-2.247a1.125 1.125 0 0 1 .26-1.431l1.004-.827c.292-.24.437-.613.43-.991a6.932 6.932 0 0 1 0-.255c.007-.38-.138-.751-.43-.992l-1.004-.827a1.125 1.125 0 0 1-.26-1.43l1.297-2.247a1.125 1.125 0 0 1 1.37-.491l1.216.456c.356.133.751.072 1.076-.124.072-.044.146-.086.22-.128.332-.183.582-.495.644-.869l.214-1.28Z"/><path d="M15 12a3 3 0 1 1-6 0 3 3 0 0 1 6 0Z"/></symbol>
-<symbol id="hi-download" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M3 16.5v2.25A2.25 2.25 0 0 0 5.25 21h13.5A2.25 2.25 0 0 0 21 18.75V16.5M16.5 12 12 16.5m0 0L7.5 12m4.5 4.5V3"/></symbol>
-<symbol id="hi-chevron-down" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="m19.5 8.25-7.5 7.5-7.5-7.5"/></symbol>
 <symbol id="hi-clipboard" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M9 5H7a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V7a2 2 0 0 0-2-2h-2M9 5a2 2 0 0 0 2 2h2a2 2 0 0 0 2-2M9 5a2 2 0 0 1 2-2h2a2 2 0 0 1 2 2"/></symbol>
 </svg>
 

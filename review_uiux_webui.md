@@ -9,6 +9,7 @@
 > **Ronde 6 (24 Agustus 2026 @ `4c87bc8`, pasca Batch 11):** verifikasi Batch 11 praktis bersih (1 sub-item tertinggal → S66); ditemukan **1 masalah Tinggi, 5 Sedang, dan 10 Rendah baru** — lihat [bagian 5.9](#59-re-review-ronde-6--temuan-baru-pasca-batch-11). Seluruhnya dieksekusi di **Batch 12** (S69 parsial: aria-live tuntas, stempel jam-perangkat ditunda butuh timestamp server).
 > **Ronde 7 (24 Agustus 2026 @ `4fc2ab8`, pasca Batch 12):** ditemukan **1 masalah Tinggi (regresi tampilan dialog voucher), 6 Sedang, dan 11 Rendah baru** — lihat [bagian 5.10](#510-re-review-ronde-7--temuan-baru-pasca-batch-12). Eksekusi di **Batch 13** (S73 parsial: format disatukan client-side; perbandingan kedaluwarsa server-side ditunda butuh API).
 > **Ronde 8 (24 Agustus 2026 @ `b37f715`, pasca Batch 13):** eksekusi Batch 13 terverifikasi solid (satu klaim dikoreksi: R82 ternyata PARSIAL — sisa literal `#818cf8`); ditemukan **2 masalah Tinggi, 13 Sedang, dan 11 Rendah baru** — lihat [bagian 5.11](#511-re-review-ronde-8--temuan-baru-pasca-batch-13). Tema dominan ronde ini: keyboard-dead custom controls, kontrak token yang ditegakkan per-daftar-file (bukan folder-wide), dan guard regex first-match-only yang memberi rasa aman palsu.
+> **Ronde 9 (25 Agustus 2026 @ `f0ab8d7`, pasca Batch 14):** eksekusi Batch 14 mayoritas solid, namun ditemukan **kerusakan produksi kritis yang lolos 3 rilis batch dengan seluruh suite JS hijau**: template Pengaturan gagal di-parse Go sejak Batch 12 (T26) + regresi role-gating operator (T27); total ronde ini **4 masalah Tinggi, 17 Sedang, dan 20 Rendah baru** — lihat [bagian 5.12](#512-re-review-ronde-9--temuan-baru-pasca-batch-14-bahan-batch-15). Tema dominan ronde ini: guard JS yang tidak pernah mengeksekusi parser Go maupun `go test`, assertion yang mengunci teks bukan perilaku (vakum/marker salah), dan kelas race respons basi yang hanya dibasmi pada daftar-loader kontrak. Seluruhnya dieksekusi di **Batch 15** (25 Agustus 2026, test-first via gerbang koordinator + 4 agen paralel; satu-satunya penundaan: S100 checksum SHA-256 butuh keputusan skema DB).
 > **Tujuan:** acuan perbaikan UI/UX tahap selanjutnya. Setiap temuan punya ID unik (`T`=Tinggi, `S`=Sedang, `R`=Rendah, `P`=Keputusan Produk, `G`=Positif) agar mudah dirujuk di commit/issues (mis. `fix(uiux): T2 …`).
 
 ---
@@ -1523,9 +1524,449 @@ Item lama tetap terbuka: R4, R30, P3, S57, S69/S73-parsial (butuh API waktu serv
 
 ---
 
+## 5.12 RE-REVIEW RONDE 9 — Temuan baru pasca Batch 14 (bahan Batch 15)
+
+> **Tanggal:** 25 Agustus 2026 · **Basis kode:** `f0ab8d7` (pasca Batch 14) · **Metode:** 5 reviewer paralel (admin core/dashboard/submissions · settings · publik auth+download · hasil+token+integritas-guard · pengawasan) + verifikasi silang koordinator atas seluruh temuan Tinggi dan sampel Sedang/Rendah langsung ke kode — termasuk arkeologi git keseimbangan template lintas-commit, eksekusi `go test ./internal/handlers/admin/`, dan kalibrasi ulang independen hitungan kontras WCAG.
+> Ditemukan **4 masalah Tinggi (termasuk 1 kerusakan produksi), 17 Sedang, dan 20 Rendah baru**. Tema dominan ronde ini: **(1)** guard JS yang tidak pernah mengeksekusi parser Go maupun `go test` — kerusakan template lolos 3 rilis batch dengan seluruh suite hijau; **(2)** assertion yang mengunci *teks* bukan *perilaku* (marker slice salah, string-literal lock) meneruskan pola first-match-only ronde 8; **(3)** kelas race respons basi (S78) yang hanya dibasmi pada empat loader kontrak — modal & fetch lain luput; **(4)** sisa kontrol render-JS yang mati untuk keyboard di area admin.
+
+### ⚠️ TEMUAN PALING KRITIS RONDE INI
+
+**Template `settings.html` GAGAL DI-PARSE GO sejak Batch 12 (`4fc2ab8`)** — halaman Pengaturan mati total untuk semua role pada build apa pun yang memuat Batch 12+. Lolos Batch 13 & Batch 14 karena seluruh suite guard adalah JS statik yang tidak pernah memanggil parser Go, dan test Go settings tidak dijalankan di gerbang mana pun (detail: [T26](#t26--template-settingshtml-gagal-di-parse-go-sejak-batch-12-halaman-pengaturan-mati-total)). Gerbang pertama Batch 15: perbaiki ini, baru item lain.
+
+### Status verifikasi cepat Batch 14 (per area, spot-check langsung ke kode)
+
+| Item | Vonis | Bukti kunci |
+|---|---|---|
+| T24/T25 | ✅ | core href-aware + button Detail parity utuh; rule fokus `tr[role="button"]` tepat |
+| S76/S77 | ✅ | `overlay.querySelector` + label ter-escape; kedua `renderError` lewat `escapeHtml(msg)` |
+| S78 | ✅⚠️ | empat loader ber-token; **namun kelasnya belum habis** → S91/S92/S102 (showSubmissionDetail, delegate modal, viewRedemptions) |
+| S79–S83 | ✅ | aria-labelledby ×3 id eksis; folder-wide nol literal `#f87171`/`#818cf8`; FILES B8 diperluas |
+| S84 | ✅ | 0 `document.write`; catatan minor: tanpa JS kolom ukuran tampil kosong (jejak keluhan awal belum 100% hilang) |
+| S85 | ⚠️ | region live benar untuk tick sukses, tapi tak dipanggil di jalur notice/gagal → R112 |
+| S86 | ✅ | NUL→'\|'; byte `\x01` tersisa disengaja (pemisah serialisasi kedua) |
+| S87 | ✅ | paritas th↔data-label dua tabel + selector CSS ikut |
+| S88 | ⚠️ | entri BASELINES bertambah, tapi masih bolong: `pengawas-detail.js` & `device-fingerprint.js` → S103 |
+| R88–R90/R92/R93–R95 | ✅ | token z-index, sr-only, CAPS theme.css, syncOtpHidden, frasa Turnstile, danger-light |
+| R91 | ⚠️ | kode benar (`:748/:802/:806`) tapi guard penjaganya VAKUM (marker slice salah) → T29 |
+| R96 | ⚠️ | paginasi vouchers/audit tuntas 40px; touch target hasil.css masih 38–42px → R111 |
+| R97 | ⚠️ | satu string diganti; tetangganya ('Generate Batch', 'Batch Generate', typo 'Kesini') tinggal → R102 |
+| R98 | 🔴 GAGAL | wiring unggah satu jalur & hapus `window.toggleUsersCollapse` bersih ✅ — tapi klaim "if Go redundan dihapus" ternyata: kondisi dalam DIUBAH jadi `and $isSuper $isOp` (T27) dan `{{ end }}` yang hilang justru milik if-luar tambahan Batch 12 (T26); 5 test Go merah di HEAD |
+
+**Suite node gabungan tetap hijau (828+ test), tapi 5 test Go `internal/handlers/admin` MERAH di HEAD** — inilah celah proses inti ronde ini (→ S93).
+
+### Audit terukur plafon guard vs aktual (HEAD `f0ab8d7`, hasil ukur reviewer + verifikasi koordinator)
+
+| Plafon | Dideklarasikan | Aktual | Slack hantu |
+|---|---|---|---|
+| batch7 `RGBA_BASELINE_PER_FILE` register_confirm | 19 | 0 | 19 |
+| batch7 idem reset_password / hasil.html | 8 / 10 | 0 / 0 | 18 |
+| batch8-publik `BASELINE_HEX` download/shared/register | 20 / 25 / 12 | 7 / ~11–15 / 0 | ±30 |
+| batch9 `BASELINES` JS: `pengawas-detail.js`, `device-fingerprint.js` | (tanpa entri) | 0/0 | tak dijaga sama sekali |
+
+Kontrak ronde 5 "plafon = aktual" tidak lagi dipenuhi ±39 titik — migrasi S80–S83 menurunkan aktual tanpa menurunkan plafon. Detail di S95/S99.
+
+### Item lama tetap terbuka (diingatkan, bukan temuan baru)
+
+R4 · R30 (butuh keputusan UX) · P1/P2/P3 (keputusan produk) · S57 (ekstraksi blok inline besar — makin relevan: `pengawas_detail.html` kini 2.260 baris) · S69-parsial & S73-parsial (butuh API waktu server) · duplikasi modal password & OTP di dashboard (dashboard.html:572–621).
+
+---
+
+### T26 — Template settings.html gagal di-parse Go sejak Batch 12: halaman Pengaturan mati total
+
+- **Prioritas:** 🔴 Tinggi (KRITIS) · **Usaha:** XS · **Area:** Settings · **Status:** [ ]
+- **Lokasi:** `webui/templates/admin/settings.html:779` (if tanpa penutup)
+- **Bukti:** selisih opener vs `{{ end }}`: `4c87bc8`(B11)=0 → `4fc2ab8`(B12)=+1 → `f0ab8d7`(HEAD)=+1. `$ go test ./internal/handlers/admin/ -run TestSettingsPage` → 5 FAIL: `template: admin/settings.html:2479: unexpected EOF`. Baris 779 `{{ if and (not $locked) (or $isSuper $isOp) }}` ditambah Batch 12 sebagai wrapper luar TANPA `{{ end }}` pasangan (inner :780 ditutup :1053).
+- **Masalah:** parser Go menolak seluruh file; runtime menerima error parse saat startup/render (dicatat sebagai warning, bukan fail-fast), sehingga `/admin/settings` tidak ter-render.
+- **Dampak:** halaman Pengaturan mati untuk semua role di setiap build pasca-Batch 12; lolos 3 rilis karena suite guard semuanya JS statik.
+- **Rekomendasi:** hapus wrapper :779 (kembalikan ke satu if seperti pra-Batch 12) — lihat T27 untuk kondisi yang benar; tambahkan guard keseimbangan `{{if}}/{{end}}` per template (bagian dari S105) dan jadikan `go test ./internal/handlers/admin/` gerbang wajib skrip test repo.
+
+### T27 — Regresi role-gating: kondisi dalam diganti `and $isSuper $isOp` — section Kelola User mustahil tampil
+
+- **Prioritas:** 🔴 Tinggi · **Usaha:** XS · **Area:** Settings · **Status:** [ ]
+- **Lokasi:** `webui/templates/admin/settings.html:780`
+- **Bukti:** diff `b37f715..f0ab8d7`: `-{{ if and (not $locked) (or $isSuper $isOp) }}` → `+{{ if and (not $locked) $isSuper $isOp }}`. `NormalizeSessionRole` hanya menghasilkan tepat satu role ("superadmin" ATAU "operator"), sehingga `and` dua-duanya tidak pernah true.
+- **Masalah:** Batch 14 bermaksud menghapus duplikasi nested, tapi yang terjadi: baris dalam diedit mengganti `(or …)` menjadi argumen datar `and` — blok Kelola User (:781–:1053) tak akan dirender untuk siapa pun.
+- **Dampak:** operator (dan superadmin) kehilangan seluruh manajemen user setelah parse diperbaiki; regresi fungsional terselubung di balik error parse T26.
+- **Rekomendasi:** pulihkan `{{ if and (not $locked) (or $isSuper $isOp) }}` pada :780 sambil menghapus wrapper :779 (T26); verifikasi dengan `TestSettingsPageSectionsRoleGated`.
+
+### T28 — Divider "Sisipkan Soal" menyisipkan DUA soal per klik pasca-reindex (onclick dobel)
+
+- **Prioritas:** 🔴 Tinggi · **Usaha:** XS · **Area:** Dashboard/editor ujian · **Status:** [ ]
+- **Lokasi:** `webui/static/js/admin.js:757–760` vs `:699` + registry `:4199`
+- **Bukti:** `reindexQuestions` menempel `btn.setAttribute('onclick', \`insertQuestionAt(${dividerCount})\`)` — padahal tombol yang sama sudah punya `data-action="question-insert-at"` (:699) yang tertangani delegasi Actions (:4199). Kedua jalur aktif → satu klik = dua panggilan `insertQuestionAt`.
+- **Masalah:** jejak migrasi ke delegasi (ronde awal) meninggalkan atribut onclick arwah yang dihidupkan ulang oleh reindex; setelah add/remove soal (reindex dipanggil :726/:737/:834), klik divider dobel-insert.
+- **Dampak:** soal duplikat masuk draft tanpa sadar — korupsi data konten ujian langsung di UI inti.
+- **Rekomendasi:** hapus blok :757–760; delegasi saja. Tambah test vm yang men-trigger klik pada tombol hasil reindex dan menghitung panggilan `insertQuestionAt` == 1.
+
+### T29 — Guard vakum: proteksi escape kartu identitas hasil berjalan di string kosong (marker slice salah)
+
+- **Prioritas:** 🔴 Tinggi (guard palsu) · **Usaha:** XS · **Area:** Integritas guard · **Status:** [ ]
+- **Lokasi:** `webui/static/js/uiux-batch14-publik.test.mjs:175–179`
+- **Bukti:** `HASIL_HTML.slice(HASIL_HTML.indexOf('detail-identity-items'))` — marker `detail-identity-items` = **0 hit** di `hasil.html` (verifikasi grep koordinator), sehingga `indexOf` = −1, `slice(-1)` = 1 karakter terakhir, `assert.ok(detailBlock.length > 0)` lolos trivially, dan asersi anti-`${startTimeStr}` mengamati string kosong.
+- **Masalah:** guard yang diklaim melindungi escape waktu kartu identitas ternyata no-op total — pola lanjutan first-match-only ronde 8, kini bentuk ekstremnya: asersi vakum.
+- **Dampak:** regesi escape `startTimeStr/endTimeStr` di blok detail lolos tanpa pernah ketahuan; rasa aman palsu bagi eksekutor batch berikutnya.
+- **Rekomendasi:** ganti marker ke anchor eksis (mis. id elemen detail identitas aktual), pertahankan `assert.ok(length > threshold)` minimal, dan tambah asersi positif (pola `${escapeHtml(String(startTimeStr))}` harus ada).
+
+---
+
+### S89 — Kolom Durasi submissions mentok "—": data-end tak dinormalisasi, `CreatedAt` default Go ditolak `Date`
+
+- **Prioritas:** 🟠 Sedang · **Usaha:** XS · **Area:** Submissions · **Status:** [ ]
+- **Lokasi:** `webui/templates/admin/submissions.html:431–436` (+ sumber data `:312`)
+- **Bukti:** start dinormalisasi lengkap (:431–433: spasi→T, tambah Z), tapi end mentah: `var endDt = new Date(endStr);` dengan `data-end="{{.CreatedAt}}"` — format default `time.Time` Go memuat nama zona (mis. `WIB`/`UTC` suffix non-RFC3339) yang ditolak parser V8 → NaN → fungsi balik `return` tanpa isi durasi.
+- **Masalah:** normalisasi hanya dilakukan untuk start; kolom Durasi permanen "—" padahal datanya ada.
+- **Dampak:** guru tak bisa melihat lamanya pengerjaan (sinyal kecurangan/perilaku hilang) tanpa pesan apa pun.
+- **Rekomendasi:** samakan normalisasi untuk end, atau lebih baik: server kirim epoch-ms/data-duration siap pakai; test vm dengan string zona `WIB`.
+
+### S90 — Dropdown multi-select pengawas mati total untuk keyboard (header, chip-remove, searchBox onclick-only)
+
+- **Prioritas:** 🟠 Sedang · **Usaha:** M · **Area:** Dashboard/delegasi · **Status:** [ ]
+- **Lokasi:** `webui/static/js/admin.js:1019` (header.onclick), `:1041` (chip × .onclick), `:1067` (searchBox)
+- **Bukti:** seluruh kontrol dropdown dibangun sebagai `<div>` dengan handler `.onclick` inline — tanpa `tabindex`, `role`, atau keydown; chip styling juga memuat literal `rgba(168,85,247,0.15)`/`#c084fc` (:1036) yang bypass token.
+- **Masalah:** alur delegasi pengawasan — fitur inti admin — tidak dapat dioperasikan tanpa mouse (WCAG 2.1.1).
+- **Dampak:** pengguna keyboard/screen reader tak bisa menugaskan pengawas via UI ini sama sekali.
+- **Rekomendasi:** header jadi `<button type="button" aria-expanded aria-haspopup="listbox">`, chip remove jadi `<button aria-label="Hapus {nama}">`, searchBox `<input role="combobox">`; migrasi warna chip ke token.
+
+### S91 — showSubmissionDetail tanpa sequence-token (kelas race S78 luput)
+
+- **Prioritas:** 🟠 Sedang · **Usaha:** S · **Area:** Submissions/modal · **Status:** [ ]
+- **Lokasi:** `webui/static/js/admin.js:3893–3965` (fetch :3903)
+- **Bukti:** fetch detail submission tanpa variabel generasi/guard `then` — respons lambat yang datang belakangan menimpa isi modal dari permintaan terakhir.
+- **Masalah:** pola race respons basi yang sama dengan S78, tapi di jalur modal detail yang tak termasuk kontrak Batch 14.
+- **Dampak:** modal menampilkan detail submission orang lain (salah konteks) saat klik cepat bergantian.
+- **Rekomendasi:** token `submissionDetailSeq` + guard `if (seq !== …) return;` di then/catch — salin pola S78.
+
+### S92 — viewRedemptions tanpa sequence-token (loader vouchers sendiri sudah aman, redemptions luput)
+
+- **Prioritas:** 🟠 Sedang · **Usaha:** S · **Area:** Settings/vouchers · **Status:** [ ]
+- **Lokasi:** `webui/static/js/settings-vouchers.js:393–426`
+- **Bukti:** `voucherLoadSeq` ada untuk daftar voucher (:25/:38/:48), tapi `viewRedemptions` melakukan fetch tabel redemp tanpa token generasi apa pun.
+- **Masalah:** kelas race S78 hanya dibasmi pada empat loader kontrak; loader keenam di modul yang sama luput.
+- **Dampak:** tab Riwayat Redemp bisa menampilkan data sesi filter sebelumnya (salah akun/salah filter) pada jaringan LAN lambat.
+- **Rekomendasi:** `redemptionSeq` + guard then/catch; sekalian harden `loadApps`/`loadPackages` yang polanya sama.
+
+### S93 — Assertion R98 hanya mengunci teks; tidak ada guard keseimbangan {{if}}/{{end}} maupun go test di gerbang
+
+- **Prioritas:** 🟠 Sedang · **Usaha:** S · **Area:** Integritas guard/proses · **Status:** [ ]
+- **Lokasi:** `webui/static/js/uiux-batch14-settings.test.mjs:228–233`
+- **Bukti:** test R98 menghitung kemunculan persis string `'{{ if and (not $locked) (or $isSuper $isOp) }}'` — perubahan kondisi menjadi `and $isSuper $isOp` (T27) dan EOF parse (T26) keduanya lolos hijau. Tidak ada test apa pun yang menghitung keseimbangan opener/end per template, dan `go test ./internal/handlers/admin/` tidak dieksekusi skrip test repo.
+- **Masalah:** guard mengunci literal bukan perilaku; parser Go — satu-satunya otoritas — tak pernah dijalankan.
+- **Dampak:** kerusakan produksi kelas T26 dapat terulang di template lain kapan saja.
+- **Rekomendasi:** guard keseimbangan `\{\{-?\s*(if|range|with|block|define)\b` vs `\{\{-?\s*end\b` untuk semua `templates/**/*.html` + wire `go test ./...` (minimal package handlers) ke skrip test; ubah assertion R98 menjadi cek struktur (jumlah if dengan kondisi itu ≤ 1 DAN balance ok).
+
+### S94 — Silent refresh monitoring rebuild tbody submissions tiap 12 detik — fokus & tap hilang
+
+- **Prioritas:** 🟠 Sedang · **Usaha:** M · **Area:** Pengawasan · **Status:** [ ]
+- **Lokasi:** `webui/templates/admin/pengawas_detail.html:1585–1606` (innerHTML :1606), trigger polling :2215
+- **Bukti:** refresh senyap submissions menulis ulang `tbody.innerHTML = html` tanpa syarat — berbeda dengan tabel antrean izin yang sudah punya mesin diff (`serializeApprovals`/`computeApprovalRowOps`, :1133).
+- **Masalah:** baris yang sedang disorot/diklik (Detail, Tolak) digantikan DOM baru tiap tick — fokus keyboard lenyap, tap sedang berlangsung menghilang.
+- **Dampak:** pengawas yang hendak menolak perangkat kehilangan kliknya berkala; screen reader membacakan ulang tabel penuh tiap 12 dtk.
+- **Rekomendasi:** tiru mesin diff antrean izin (ops per-baris) untuk tabel submissions, atau minimal skip-render bila snapshot serial identik.
+
+### S95 — Baseline per-file token stale pasca-migrasi S80–S83: ±39 slack hantu, kontrak "plafon = aktual" putus
+
+- **Prioritas:** 🟠 Sedang · **Usaha:** S · **Area:** Integritas guard · **Status:** [ ]
+- **Lokasi:** `webui/static/js/uiux-batch7-tokens.test.mjs:80–93` + `uiux-batch8-publik.test.mjs` (BASELINE_HEX)
+- **Bukti:** `RGBA_BASELINE_PER_FILE`: register_confirm 19→aktual 0, reset_password 8→0, hasil 10→0 (verifikasi koordinator); B8 HEX: download 20→7, shared 25→~11–15, register 12→0. Migrasi Batch 13–14 menurunkan aktual tanpa menurunkan plafon.
+- **Masalah:** plafon yang jauh di atas aktual membolehkan ~39 literal baru masuk tanpa alarm — kebalikan tujuan guard.
+- **Dampak:** erosi token diam-diam; audit "terukur" jadi tidak berarti.
+- **Rekomendasi:** kunci semua baseline ke nilai aktual (assert.equal, bukan ≤), konsisten dengan kontrak R70/koreksi Batch 13.
+
+### S96 — Print stylesheet halaman hasil: judul gradien transparan (-webkit-text-fill-color tak di-reset)
+
+- **Prioritas:** 🟠 Sedang · **Usaha:** XS · **Area:** Hasil/print · **Status:** [ ]
+- **Lokasi:** `webui/static/css/hasil.css:102,:156` (fill-color transparent) vs blok print `:975–997`
+- **Bukti:** judul & badge memakai gradien `-webkit-text-fill-color: transparent`, blok `@media print` hanya meng-override `color` — properti vendor itu tetap transparent di media cetak (grep: tak ada reset lain).
+- **Masalah:** di kertas, teks ber-gradien dirender kosong/transparan.
+- **Dampak:** guru yang mencetak rekap hasil mendapat lembar tanpa judul — keluhan klasik "print kosong".
+- **Rekomendasi:** di blok print: `-webkit-text-fill-color: initial; background: none;` untuk selector ber-gradien + smoke-test cetak.
+
+### S97 — Drawer nav mobile tetap menerima fokus saat tertutup (WCAG 2.4.3) + fokus tak dikembalikan setelah tutup
+
+- **Prioritas:** 🟠 Sedang · **Usaha:** S · **Area:** Publik/nav · **Status:** [ ]
+- **Lokasi:** `webui/static/css/public-mobile.css:74–81` + `templates/public/shared.html:43–63`
+- **Bukti:** `.nav-links` ditutup hanya dengan `right:-100%` + transisi — tanpa `visibility:hidden`/`display:none`/inert; `closeMenu()` tidak mengembalikan fokus ke hamburger.
+- **Masalah:** Tab dari halaman yang tampak "bersih" melompat ke link drawer di luar layar; urutan fokus tak sesuai visual.
+- **Dampak:** disorientasi keyboard/screen reader di SEMUA halaman publik ≤1100px; link terpicu "tak terlihat".
+- **Rekomendasi:** tambah `visibility:hidden` saat tertutup (transisi delay) atau `inert`/`aria-hidden` + kembalikan fokus ke tombol hamburger saat menutup.
+
+### S98 — autocomplete="one-time-code" menempel di kotak maxlength="1" — autofill OTP iOS/Android terpotong
+
+- **Prioritas:** 🟠 Sedang · **Usaha:** S · **Area:** Publik/auth · **Status:** [ ]
+- **Lokasi:** `templates/public/register_confirm.html:243` + `reset_password.html:132`
+- **Bukti:** `<input class="otp-digit" maxlength="1" ... autocomplete="one-time-code">` — OS menyalin kode 6 digit ke input pertama, handler digit memotong ke 1 karakter; distribusi multi-karakter hanya ada di jalur paste.
+- **Masalah:** atribut one-time-code hanya sah di SATU input yang menampung kode utuh; pada pola 6 kotak ia aktif membusukkan autofill.
+- **Dampak:** pengguna iOS/Android yang mengandalkan autofill SMS/WA mendapat digit tunggal salah — OTP gagal berulang.
+- **Rekomendasi:** hapus autocomplete dari kotak digit, letakkan pada hidden input gabungan (pola sinkron R93 sudah ada), atau tangani event input multi-char dengan distribusi antar kotak.
+
+### S99 — Blind-spot guard token: CSS layer publik di luar radar + BASELINES batch9 bolong lagi
+
+- **Prioritas:** 🟠 Sedang · **Usaha:** S · **Area:** Integritas guard · **Status:** [ ]
+- **Lokasi:** `static/css/public-desktop.css` (:13,:76–79 literal duplikat --color-bg-secondary), `public-mobile.css:36,:78` (#111827), `uiux-batch9-jscore` BASELINES
+- **Bukti:** guard batch7 hanya mengawasi `admin-base.css`; kedua file publik berisi hex/rgba literal bebas; BASELINES batch9 tak punya entri `pengawas-detail.js` & `device-fingerprint.js` (aktual 0/0 — verifikasi koordinator) padahal klaim S88 "semua modul".
+- **Masalah:** pola "guard per-daftar-file" (tema ronde 8) berlanjut: area di luar daftar berkembang tanpa pengawasan.
+- **Dampak:** drift token di CSS publik & JS pengawasan tak akan pernah terdeteksi.
+- **Rekomendasi:** tambahkan public-desktop/mobile.css + kedua JS ke guard dengan baseline aktual (=0), atau naikkan guard ke folder-wide seperti preseden S80/S81.
+
+### S100 — Distribusi aplikasi mengajarkan bypass SmartScreen/Play Protect tanpa checksum SHA-256 tersedia
+
+- **Prioritas:** 🟠 Sedang · **Usaha:** M · **Area:** Download/trust · **Status:** [ ]
+- **Lokasi:** `templates/public/download.html:634–636,:735–737` + model `internal/models/system_apps.go:12–21`
+- **Bukti:** panduan menginstruksikan "Tetap unduh"/klik-through peringatan OS, tapi skema data aplikasi tidak memiliki field checksum — UI tak bisa menampilkan SHA-256 untuk diverifikasi siswa/IT sekolah.
+- **Masalah:** mengajarkan membiasakan mengabaikan peringatan keamanan OS tanpa mekanisme verifikasi alternatif — kontradiksi trust-and-safety.
+- **Dampak:** risiko supply-chain (APK ditukar/dicemari di mirror/LAN) tak terdeteksi; praktik keamanan buruk diajarkan ke ribuan siswa.
+- **Rekomendasi:** tambah kolom `sha256` (dihitung otomatis saat unggah), tampilkan di kartu unduh + panduan "verifikasi checksum" singkat sebagai pengganti nada bypass.
+
+### S101 — Kontras badge/chip skor borderline di garis AA — migrasi teks ke varian light/bright + guard statik
+
+- **Prioritas:** 🟠 Sedang · **Usaha:** XS · **Area:** Hasil/kontras · **Status:** [ ]
+- **Lokasi:** `static/css/hasil.css:337–356` (.score-high/mid/low) + `templates/public/hasil.html:42–47` (chips)
+- **Bukti (kalibrasi koordinator):** pasangan terburuk `.score-low` #ef4444 di tint rgba(239,68,68,.15) atas glass gelap ≈ **4.45:1** (di bawah ambang tipis), `.score-status-fail` ≈ 4.59:1 (menyentuh garis); varian terang jelas aman: `--color-danger-bright` ≈ 6.25:1, `success-light` ≈ 10.8:1. Catatan: hitungan awal reviewer (~3.2:1) ternyata terlalu pesimistik terhadap latar efektif — angka koordinator yang dipakai.
+- **Masalah:** teks base-token di atas tint warna sendiri duduk tepat di garis AA 4.5:1 — sensitif terhadap backdrop blur; chip 0.66rem ≈ 10.6px bold wajib ambang penuh.
+- **Dampak:** keterbacaan skor "Belum Lulus" meragukan di proyektor/LCD redup — justru status paling penting secara pedagogis.
+- **Rekomendasi:** migrasikan warna TEKS badge/chip ke varian light/bright (token eksis semua), biarkan tint untuk latar; tambah guard kontras statik untuk pasangan token-teks×tint yang disepakati.
+
+### S102 — openDelegateExamModal fetch tanpa token generasi (modal bersama, kelas race ketiga)
+
+- **Prioritas:** 🟠 Sedang · **Usaha:** XS · **Area:** Dashboard/delegasi · **Status:** [ ]
+- **Lokasi:** `webui/static/js/admin.js:2877–2945` (fetch :2891)
+- **Bukti:** modal delegasi mengambil data ujian/pengawas tanpa guard generasi; klik cepat dua kartu → isi modal campuran respons basi.
+- **Masalah/Dampak:** sama dengan S91 — konteks salah di modal aksi tulis (penugasan), berisiko salah assign.
+- **Rekomendasi:** `delegateSeq` + guard then/catch; jadikan pola wajib semua pembuka modal ber-fetch.
+
+### S103 — Token mati di theme.css sementara nilainya diduplikasi manual di template
+
+- **Prioritas:** 🟠 Sedang · **Usaha:** S · **Area:** Design token · **Status:** [ ]
+- **Lokasi:** `static/css/theme.css:27,:35,:38` (--color-{success,danger,warning}-bg), `:79–80` (--shadow-card/--shadow-lg); duplikasi: `templates/public/hasil.html:42–48`, `hasil.css` (.tone-info ×5)
+- **Bukti:** grep folder-wide: definisi tanpa pemakai (satu-satunya "shadow-lg" adalah utility Tailwind, bukan var) — sementara triplet rgba identik ditulis tangan berulang.
+- **Masalah:** arah desain (token latar chip & elevasi) sudah dirumuskan tapi tak diadopsi; nilai manual drift bebas.
+- **Dampak:** inkonsistensi visual antarhalaman + beban migrasi menumpuk (keluhan S15/S80 berulang).
+- **Rekomendasi:** keputusan tegas adopt-or-delete: migrasikan chips hasil & tone-info ke token bg/shadow, atau hapus token mati dan catat alasannya.
+
+### S104 — Guard R91-vakum bukan kasus tunggal: tak ada test bahwa marker guard benar-benar eksis
+
+- **Prioritas:** 🟠 Sedang · **Usaha:** XS · **Area:** Integritas guard · **Status:** [ ]
+- **Lokasi:** pola umum suite `uiux-batch*.test.mjs` (contoh T29; juga slice-by-string lain)
+- **Bukti:** beberapa guard membangun "blok" via `HTML.slice(indexOf(marker))` tanpa assert marker ditemukan (>0); jika marker drift karena rename template, guard diam-diam menjadi vakum.
+- **Masalah:** helper slice-string rapuh tanpa kontrak; satu rename template cukup mematikan banyak asersi sekaligus.
+- **Dampak:** perlindungan regresi menipis tanpa sinyal — persis mekanisme yang menutupi T26–T29.
+- **Rekomendasi:** util `sliceBlock(html, marker)` yang throw bila indexOf<0; audit semua pemakaian slice/indexOf di suite dan migrasikan.
+
+### S105 — reset_password memuat admin-core.js penuh hanya untuk toggle password
+
+- **Prioritas:** 🟠 Sedang · **Usaha:** XS · **Area:** Publik/perf · **Status:** [ ]
+- **Lokasi:** `templates/public/reset_password.html:181,:185–187`
+- **Bukti:** `<script src="/static/js/admin-core.js">` dimuat halaman publik hanya demi `togglePasswordVisibility`; register.html sudah punya pola lokal `wirePwToggle` (:344–356).
+- **Masalah/Dampak:** payload + coupling halaman anonim ke bundle admin (permukaan serangan & cache-miss di LAN sekolah).
+- **Rekomendasi:** salin helper lokal ala register.html, hapus tag script admin-core.
+
+### S106 — Toggle auto-approve tanpa indikator fokus terlihat (input 0×0, WCAG 2.4.7 pada kontrol keselamatan)
+
+- **Prioritas:** 🟠 Sedang (argumen Tinggi ala T25 — eksekusi awal Batch 15 disarankan) · **Usaha:** XS · **Area:** Pengawasan/a11y · **Status:** [ ]
+- **Lokasi:** `webui/templates/admin/pengawas_detail.html:1074–1078` (input opacity:0;width:0;height:0); satu-satunya gaya fokus global `*:focus-visible` di admin-base.css:95 menggambar outline pada kotak berukuran nol
+- **Bukti:** verifikasi koordinator — tidak ada rule `#autoAcceptToggle:focus-visible`/`.pd-toggle-slider` di admin-base.css maupun template.
+- **Masalah:** satu-satunya kontrol keselamatan halaman monitoring (auto-approve izin perangkat) tidak menunjukkan posisi fokus keyboard sama sekali.
+- **Dampak:** operator keyboard tak tahu toggle sedang difokuskan — risiko menyalakan auto-approve tanpa sadar saat menekan Space.
+- **Rekomendasi:** `#autoAcceptToggle:focus-visible + .pd-toggle-slider { outline: 2px solid var(--color-primary-light); outline-offset: 2px; }` + test penjaga ala T25.
+
+---
+
+---
+
+### R99 — Tombol "Detail" submissions ~28px, tak sejajar standar sentuh 44px barisnya sendiri
+
+- **Prioritas:** 🟡 Rendah · **Usaha:** XS · **Area:** Submissions · **Status:** [ ]
+- **Lokasi:** `templates/admin/submissions.html:319` (vs Hapus :322 = 44px)
+- **Masalah/Dampak:** target sentuh terkecil di tabel justru untuk aksi paling sering dibuka.
+- **Rekomendasi:** samakan min-height/padding dengan Hapus.
+
+### R100 — Atribut event inline (onfocus/onblur/onsubmit) hidup kembali di generator HTML admin.js
+
+- **Prioritas:** 🟡 Rendah · **Usaha:** XS · **Area:** Dashboard/CSP hygiene · **Status:** [ ]
+- **Lokasi:** `admin.js:2177` (onfocus/onblur) + `:2350` (onsubmit)
+- **Masalah:** melanggar kontrak delegasi Actions + inline-handler guard (regex kapital pun lolos, lihat R105).
+- **Rekomendasi:** ganti data-action + delegasi; hapus atribut on*.
+
+### R101 — Pagination dashboard: boundary hanya class disabled, tanpa aria-disabled (beda pola dengan submissions)
+
+- **Prioritas:** 🟡 Rendah · **Usaha:** XS · **Area:** Dashboard/a11y · **Status:** [ ]
+- **Lokasi:** `admin.js:554–561` (bandingkan submissions.html:338,:346 yang benar)
+- **Rekomendasi:** tambah `aria-disabled="true"` + skip render, satukan pola.
+
+### R102 — Paritas bahasa R97 parsial: 'Generate Batch'/'Gagal generate batch'/'Batch Generate' + typo "Kesini"
+
+- **Prioritas:** 🟡 Rendah · **Usaha:** XS · **Area:** Settings/bahasa · **Status:** [ ]
+- **Lokasi:** `settings-packages.js:309,:315,:320`; `settings.html:1234`; `settings-system-apps.js:158,:270` ("Pilih atau Seret File Kesini")
+- **Rekomendasi:** "Buat Massal", "Gagal membuat massal", "Buat Batch"; typo → "Ke Sini".
+
+### R103 — th tanpa scope="col" + tabel tanpa caption (vouchers/riwayat/packages)
+
+- **Prioritas:** 🟡 Rendah · **Usaha:** XS · **Area:** Settings/a11y · **Status:** [ ]
+- **Lokasi:** `settings.html:1265–1271,:1325–1328,:1928–1934` (users :1028 sudah benar — jadikan acuan)
+- **Rekomendasi:** tambah scope="col" + `<caption class="sr-only">` per tabel.
+
+### R104 — durationText diinterpolasi mentah ke innerHTML (paritas defense-in-depth escape)
+
+- **Prioritas:** 🟡 Rendah · **Usaha:** XS · **Area:** Settings/vouchers · **Status:** [ ]
+- **Lokasi:** `settings-vouchers.js:89–93,:105`
+- **Rekomendasi:** bungkus `escapeHtml(String(...))` sesuai kontrak file ini sendiri.
+
+### R105 — Regex counter guard case-sensitive: `RGBA(`, `Z-INDEX:`, `ONCLICK=` kapital lolos
+
+- **Prioritas:** 🟡 Rendah · **Usaha:** XS · **Area:** Integritas guard · **Status:** [ ]
+- **Lokasi:** `RGBA_RE` batch7:36 / batch11:148 (tanpa flag `i`); `INLINE_HANDLER_RE` batch11:38; z-index regex batch14-tokens-guard:173–174
+- **Rekomendasi:** tambah flag `/i` + test negatif ber-kapital.
+
+### R106 — Touch target halaman hasil 38–42px, di bawah standar repo 44px, tanpa test penjaga
+
+- **Prioritas:** 🟡 Rendah · **Usaha:** S · **Area:** Hasil/mobile · **Status:** [ ]
+- **Lokasi:** `static/css/hasil.css:1001–1006` (standar repo: admin-base.css:514–522)
+- **Rekomendasi:** naikkan min-height 44px + guard min-height di suite hasil.
+
+### R107 — Resend OTP sukses tidak membersihkan digit lama — kode baru bercampur kode basi
+
+- **Prioritas:** 🟡 Rendah · **Usaha:** XS · **Area:** Publik/auth · **Status:** [ ]
+- **Lokasi:** `register_confirm.html:398–406` (cabang sukses hanya `startCooldown(60)`); server merotasikan kode (`cmd/server/auth_recovery.go:131`)
+- **Rekomendasi:** pada sukses: kosongkan 6 digit, fokus ke digit-1, announce "kode baru terkirim".
+
+### R108 — download.html memuat ulang public-mobile/desktop.css yang sudah dipancarkan public_head
+
+- **Prioritas:** 🟡 Rendah · **Usaha:** XS · **Area:** Download/perf · **Status:** [ ]
+- **Lokasi:** `download.html:5–6` vs `shared.html:117–119`
+- **Masalah/Dampak:** request CSS dobel per kunjungan halaman unduh (halaman paling ramai siswa); juga melawan catatan urutan cascade R71.
+- **Rekomendasi:** hapus dua link; guard statik: larangan link CSS mobile/desktop di luar shared.html.
+
+### R109 — Masa berlaku OTP 15 menit tak pernah dikomunikasikan UI
+
+- **Prioritas:** 🟡 Rendah · **Usaha:** XS · **Area:** Publik/auth · **Status:** [ ]
+- **Lokasi:** TTL `cmd/server/auth_recovery.go:23`; copy halaman `register_confirm.html:220–231`, `reset_password.html:121–123`
+- **Rekomendasi:** tambah "berlaku 15 menit" pada helper text + pesan resend.
+
+### R110 — Paginasi Daftar Voucher tanpa aria-current/aria-label (audit sudah benar — paritas)
+
+- **Prioritas:** 🟡 Rendah · **Usaha:** XS · **Area:** Settings/a11y · **Status:** [ ]
+- **Lokasi:** `settings-vouchers.js:173` (acuan benar: `settings-voucher-audit.js:92`)
+- **Rekomendasi:** salin pola aria-label + aria-current="page".
+
+### R111 — Angka progres 0% memakai #6b7280 — warna paling redup justru untuk state paling lama terlihat
+
+- **Prioritas:** 🟡 Rendah · **Usaha:** XS · **Area:** Pengawasan/kontras · **Status:** [ ]
+- **Lokasi:** `pengawas.html:279` (def) & :334 (pakai)
+- **Bukti:** `pct > 0 ? '#60a5fa' : '#6b7280'` — abu-abu medium di latar gelap < 4.5:1 (kelas T9).
+- **Rekomendasi:** ganti `var(--color-text-muted)` (atau secondary) + hapus literal.
+
+### R112 — announceQueueCount tak dipanggil di jalur notice/gagal — live region basi justru saat penting
+
+- **Prioritas:** 🟡 Rendah · **Usaha:** XS · **Area:** Pengawasan/a11y · **Status:** [ ]
+- **Lokasi:** `pengawas_detail.html` — hanya :1298/:1310 yang memanggil; jalur gerbang tertutup (:1283–1295) & catch (:1330) tidak
+- **Rekomendasi:** `renderApprovalNotice(html, announceText)` — paksa penyertaan pesan live region di semua cabang.
+
+### R113 — Snapshot access_logs+history di-JSON.stringify ke atribut DOM tiap tick polling
+
+- **Prioritas:** 🟡 Rendah · **Usaha:** S · **Area:** Pengawasan/perf · **Status:** [ ]
+- **Lokasi:** `pengawas_detail.html:1609–1610` (penulis), :1676–1684 (pembaca); payload backend `internal/handlers/admin/pengawas.go:421–424`
+- **Masalah/Dampak:** serialisasi payload terbesar halaman diulang tiap 12 dtk ke atribut — boros CPU/GC di perangkat sekolah low-end.
+- **Rekomendasi:** simpan ke variabel modul (WeakMap per kartu), buang atribut.
+
+### R114 — Dead CSS ±115 baris + 9 simbol sprite tak terpakai di dua halaman pengawasan
+
+- **Prioritas:** 🟡 Rendah · **Usaha:** XS · **Area:** Pengawasan/hygiene · **Status:** [ ]
+- **Lokasi:** `pengawas.html:95–108,:176–207,:208–223`; `pengawas_detail.html:492–535,:580–585` + `.pd-quick-actions`(:985) tanpa pemakai; simbol :2235–2253
+- **Rekomendasi:** hapus bertahap + guard simbol sprite (semua `<use href="#hi-*">` harus eksis dan terpakai).
+
+### R115 — Kartu ujian role="button" membungkus link "Pantau" (interactive nested)
+
+- **Prioritas:** 🟡 Rendah · **Usaha:** S · **Area:** Pengawasan/a11y · **Status:** [ ]
+- **Lokasi:** `pengawas.html:314,:335`
+- **Rekomendasi:** minimal aria-label eksplisit pada kartu + stopPropagation pada link; idealnya kartu tanpa role button, aksi via tombol internal.
+
+### R116 — Label dwibahasa "Nilai / Score" + magic number per_page=20 terduplikasi
+
+- **Prioritas:** 🟡 Rendah · **Usaha:** XS · **Area:** Pengawasan/konsistensi · **Status:** [ ]
+- **Lokasi:** `pengawas_detail.html:1729` (label); `:1555` & `:1634` (per_page=20)
+- **Rekomendasi:** "Nilai" saja (bahasa UI ID); konstanta SUBS_PER_PAGE bersama.
+
+### R117 — Blok reduced-motion hasil.css tak meng-cap animation-iteration-count (selamat karena urutan load kebetulan)
+
+- **Prioritas:** 🟡 Rendah · **Usaha:** XS · **Area:** Hasil/a11y · **Status:** [ ]
+- **Lokasi:** `static/css/hasil.css:933–935` vs pola lengkap admin-base/public-desktop
+- **Rekomendasi:** tambah `animation-iteration-count: 1 !important;` di blok tersebut.
+
+### R118 — Guard FILES batch8 belum mencakup cek_hasil/index/forgot_password (informative, aktual 0/0 hari ini)
+
+- **Prioritas:** 🟡 Rendah · **Usaha:** XS · **Area:** Integritas guard · **Status:** [ ]
+- **Lokasi:** FILES guard batch8-publik
+- **Rekomendasi:** tambahkan ketiga file dengan baseline aktual 0/0 supaya pertumbuhan literaltak lolos diam-diam.
+
+### Catatan minor tanpa ID
+
+Komentar prinsip "server-side" pada S84 sebenarnya pengisi client-side (perjelas komentar); blok @media hasil.css terfragmentasi 6 titik (rawankan konsolidasi saat file disentuh); komentar vestigial hasil.css:687 menyebut lokasi lama.
+
+---
+
+---
+
 ## 6. REKAP TRACKING
 
 > Centang `[x]` + cantumkan hash commit saat selesai. Urut sesuai prioritas eksekusi.
+
+### Batch 15 — Ronde 9: eksekusi temuan 5.12 ✅ SELESAI (2026-08-25, test-first: gerbang koordinator + 4 agen paralel; suite gabungan repo **966/966 hijau**, `go test ./internal/handlers/...` OK, `go build`+`go vet` OK)
+
+> **Gerbang kritis (koordinator):** guard keseimbangan template Go (S93, `uiux-batch15-guard.test.mjs`) ditulis lebih dulu dan diverifikasi MERAH dengan **mereproduksi insiden** (wrapper ganda :779–780 → 0/2 pass) — baru T26/T27 diperbaiki (hapus wrapper, pulihkan `(or $isSuper $isOp)`), guard 2/2 + `TestSettingsPage` 5/5 hijau. Empat pemilik cakupan paralel tanpa tumpang tindih file:
+>
+> | Agen | Kepemilikan | Suite | Item |
+> |---|---|---|---|
+> | batch15-guard | file test/guard + 1 test Go | `uiux-batch15-guard.test.mjs` (+util `sliceBlock`) | T29, S93, S95, S99, S104, R105, R118 |
+> | batch15-admincore | `admin.js`, `dashboard.html` | `uiux-batch15-admincore.test.mjs` | T28, S90, S91, S102, R100, R101 |
+> | batch15-pengawasan | `pengawas*.html`, `submissions.html` | `uiux-batch15-pengawasan.test.mjs` | S89, S94, S106, R99, R111–R116 |
+> | batch15-publik | `templates/public/**`, CSS publik+hasil+theme | `uiux-batch15-publik.test.mjs` | S96–S98, S101, S103, S105, R106–R109, R117 |
+>
+> **Koreksi kalibrasi saat eksekusi:** (1) R101 paginasi dashboard ternyata di **dashboard.html:554/:561**, bukan admin.js (atribusi awal meleset); (2) simbol sprite mati pengawas_detail = **11** (bukan 9 — `hi-download` & `hi-chevron-down` ikut); (3) `.log-entry.logout::before` pengawas.html TIDAK boleh dihapus — dijaga batch12 (dipertahankan + komentar); (4) BASELINES batch9 ternyata di `uiux-batch9-tokens-guard.test.mjs`; (5) meta-test regex z-index menguji kontrak ≥4 digit (`Z-INDEX: 9999`, bukan 999).
+> **Bonus proses (pelajaran S93):** `TestVoucherAuditUIMarkupPresent` terbukti sudah GAGAL diam-diam di HEAD pra-Batch 15 (markup utuh; asersi masih meng-grep string pra-lazy-load) — asersi test diperbarui ke arsitektur lazy-load (`lazy('loadAuditLogs')` + fungsi di modul). Seluruh package `internal/handlers/admin` kini hijau penuh.
+> **Ditunda:** **S100** (checksum SHA-256 distribusi APK) — butuh kolom skema DB + pipeline unggah: keputusan skema dahulu.
+
+- [x] **T26** ✅ **Batch 15** — Template settings.html gagal parse Go sejak Batch 12 (hapus wrapper :779; 5 test Go merah → hijau)
+- [x] **T27** ✅ **Batch 15** — Pulihkan (or $isSuper $isOp) pada kondisi dalam :780
+- [x] **T28** ✅ **Batch 15** — Hapus setAttribute onclick divider soal admin.js:757–760 (delegasi saja)
+- [x] **T29** ✅ **Batch 15** — Guard vakum R91: marker detail-identity-items diganti anchor eksis + asersi positif
+- [x] **S89** ✅ **Batch 15** — Normalisasi data-end Durasi submissions (atau server kirim duration)
+- [x] **S90** ✅ **Batch 15** — Dropdown pengawas keyboard-operable (button/aria-expanded/chip button)
+- [x] **S91** ✅ **Batch 15** — submissionDetailSeq + guard then/catch
+- [x] **S92** ✅ **Batch 15** — redemptionSeq (+ harden loadApps/loadPackages)
+- [x] **S93** ✅ **Batch 15** — Guard keseimbangan {{if}}/{{end}} per template + go test di gerbang skrip test
+- [x] **S94** ✅ **Batch 15** — Diff-based render tabel submissions monitoring (skip bila snapshot identik)
+- [x] **S95** ✅ **Batch 15** — Kunci ulang baseline batch7/B8 ke aktual (assert.equal)
+- [x] **S96** ✅ **Batch 15** — Reset -webkit-text-fill-color di @media print hasil.css
+- [x] **S97** ✅ **Batch 15** — visibility/inert drawer nav tertutup + fokus kembali ke hamburger
+- [x] **S98** ✅ **Batch 15** — autocomplete one-time-code pindah dari kotak digit maxlength=1
+- [x] **S99** ✅ **Batch 15** — public-desktop/mobile.css + pengawas-detail.js/device-fingerprint.js masuk guard, baseline aktual
+- [ ] **S100** ⏳ DITUNDA (butuh keputusan skema DB + pipeline unggah) — Field sha256 system app + tampil di halaman unduh
+- [x] **S101** ✅ **Batch 15** — Migrasi teks badge/chip skor ke varian light/bright + guard kontras statik
+- [x] **S102** ✅ **Batch 15** — delegateSeq + guard then/catch openDelegateExamModal
+- [x] **S103** ✅ **Batch 15** — Adopt-or-delete token mati theme.css (--color-*-bg, --shadow-*)
+- [x] **S104** ✅ **Batch 15** — Util sliceBlock throw-bila-marker-tak-ada; audit semua slice guard
+- [x] **S105** ✅ **Batch 15** — Ganti admin-core.js reset_password dengan helper lokal wirePwToggle
+- [x] **S106** ✅ **Batch 15** — Rule fokus #autoAcceptToggle:focus-visible + .pd-toggle-slider
+- [x] **R99** ✅ **Batch 15** — Detail submissions min-height 44px sejajar Hapus
+- [x] **R100** ✅ **Batch 15** — Hapus onfocus/onblur/onsubmit inline di generator admin.js
+- [x] **R101** ✅ **Batch 15** — aria-disabled pagination dashboard boundary
+- [x] **R102** ✅ **Batch 15** — Generate Batch→Buat Massal dkk + typo Kesini
+- [x] **R103** ✅ **Batch 15** — scope="col" + caption sr-only ×3 tabel settings
+- [x] **R104** ✅ **Batch 15** — escapeHtml(durationText)
+- [x] **R105** ✅ **Batch 15** — Flag /i pada regex guard + test negatif kapital
+- [x] **R106** ✅ **Batch 15** — Touch target hasil.css → 44px + guard
+- [x] **R107** ✅ **Batch 15** — Resend OTP sukses: kosongkan digit + fokus digit-1
+- [x] **R108** ✅ **Batch 15** — Hapus link CSS dobel download.html:5–6
+- [x] **R109** ✅ **Batch 15** — Copy "berlaku 15 menit" pada OTP
+- [x] **R110** ✅ **Batch 15** — aria-current/aria-label paginasi vouchers
+- [x] **R111** ✅ **Batch 15** — #6b7280 → var(--color-text-muted) progres 0%
+- [x] **R112** ✅ **Batch 15** — announceQueueCount di jalur notice/gagal
+- [x] **R113** ✅ **Batch 15** — data-subs atribut → variabel modul
+- [x] **R114** ✅ **Batch 15** — Bersihkan dead CSS/sprite pengawasan
+- [x] **R115** ✅ **Batch 15** — Kartu ujian nested interactive: aria-label + stopPropagation
+- [x] **R116** ✅ **Batch 15** — Label "Nilai / Score"→"Nilai"; SUBS_PER_PAGE konstanta
+- [x] **R117** ✅ **Batch 15** — animation-iteration-count cap reduced-motion hasil.css
+- [x] **R118** ✅ **Batch 15** — FILES B8 + cek_hasil/index/forgot_password baseline 0
 
 ### Batch 14 — Ronde 8: eksekusi temuan 5.11 ✅ SELESAI (2026-08-24, test-first: kontrak ditulis lebih dulu sebagai 5 suite `uiux-batch14-*.test.mjs` — diverifikasi MERAH 54/61 gagal pada kontrak yang tepat, baru implementasi sampai hijau; suite gabungan repo **836/836 hijau**, `go build`+`go vet` OK)
 

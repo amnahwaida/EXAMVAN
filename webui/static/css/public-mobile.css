@@ -76,9 +76,15 @@ body > nav {
   width: min(300px, calc(100vw - 32px)); max-width: 100%; height: 100dvh;
   padding: 76px 16px 24px; flex-direction: column; align-items: stretch; gap: 6px;
   overflow-y: auto; background: #111827; border-left: 1px solid rgba(var(--rgb-white), .08);
-  transition: right .22s ease;
+  /* S97 (ronde 9): drawer tertutup wajib keluar dari tab-order (WCAG 2.4.3) —
+     dulu hanya right:-100%, sehingga link tak terlihat tetap menerima fokus.
+     visibility ditunda sampai slide-out selesai agar animasi tetap halus. */
+  visibility: hidden;
+  transition: right .22s ease, visibility 0s linear .22s;
 }
-.nav-links.open { right: 0; }
+/* S97: saat membuka, visibility langsung visible (tanpa delay) supaya
+   slide-in terlihat sejak frame pertama. */
+.nav-links.open { right: 0; visibility: visible; transition: right .22s ease, visibility 0s; }
 .nav-links .nav-link, .nav-links .btn-nav-login {
   display: flex; min-height: 48px; align-items: center; padding: 12px 14px;
   border-radius: 8px; font-size: 15px; white-space: normal;
@@ -176,6 +182,9 @@ button, a.btn-primary, a.btn-secondary { touch-action: manipulation; }
     display: flex; position: static; width: auto; height: auto; padding: 0;
     flex-direction: row; align-items: center; overflow: visible; background: transparent;
     border: 0; transition: none;
+    /* S97: visibility:visible di-reset di layer desktop (public-desktop.css)
+       yang selalu dimuat setelah file ini. */
+    visibility: visible;
   }
   .nav-links .nav-link, .nav-links .btn-nav-login { min-height: 42px; padding: 9px 14px; white-space: nowrap; }
   .hero { display: grid !important; grid-template-columns: 1.1fr .9fr; max-width: 1200px; padding: 138px 24px 74px !important; gap: 52px; }

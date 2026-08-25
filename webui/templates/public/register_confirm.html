@@ -226,21 +226,23 @@
      {{.masked_email}}
     </div>
     <p style="font-size:11.5px;color:var(--color-text-muted);margin-top:12px;line-height:1.5;font-style:italic;">
-     Periksa juga folder Spam / Promosi jika tidak ditemukan di Inbox.
+     Kode berlaku 15 menit. Periksa juga folder Spam / Promosi jika tidak ditemukan di Inbox.
     </p>
    </div>
 
    <!-- OTP Form -->
    <form method="POST" action="/register/confirm?username={{.username}}" class="login-form" id="otpForm" autocomplete="off">
-    <!-- Hidden real input -->
-    <input type="hidden" id="otp_code" name="otp_code" value="">
+    <!-- Hidden real input. S98: atribut autofill OTP OS hanya sah pada
+         SATU input gabungan; di kotak maxlength="1" isian OS terpotong
+         jadi 1 digit sehingga autofill iOS/Android membusuk. -->
+    <input type="hidden" id="otp_code" name="otp_code" value="" autocomplete="one-time-code">
     <input type="hidden" name="csrf_token" value="{{.csrf_token}}">
     <input type="hidden" name="device_fingerprint" value="">
 
     <div style="text-align:center;">
       <label for="otp-digit-1" style="display:block;margin-bottom:6px;font-weight:500;font-size:13px;color:var(--color-text);">Masukkan Kode OTP</label>
      <div class="otp-input-wrapper" id="otpInputWrapper">
-      <input type="text" class="otp-digit" id="otp-digit-1" maxlength="1" inputmode="numeric" pattern="[0-9]" data-idx="0" aria-label="Digit 1 kode OTP" autofocus autocomplete="one-time-code">
+      <input type="text" class="otp-digit" id="otp-digit-1" maxlength="1" inputmode="numeric" pattern="[0-9]" data-idx="0" aria-label="Digit 1 kode OTP" autofocus>
       <input type="text" class="otp-digit" maxlength="1" inputmode="numeric" pattern="[0-9]" data-idx="1" aria-label="Digit 2 kode OTP">
       <input type="text" class="otp-digit" maxlength="1" inputmode="numeric" pattern="[0-9]" data-idx="2" aria-label="Digit 3 kode OTP">
       <input type="text" class="otp-digit" maxlength="1" inputmode="numeric" pattern="[0-9]" data-idx="3" aria-label="Digit 4 kode OTP">
@@ -289,15 +291,23 @@
    });
   }
 
-  digits.forEach(function(input, idx) {
-   input.addEventListener('input', function(e) {
-    // Only allow digits
-    this.value = this.value.replace(/[^0-9]/g, '');
-    if (this.value && idx < digits.length - 1) {
-     digits[idx + 1].focus();
-    }
-    syncHidden();
-   });
+   digits.forEach(function(input, idx) {
+    input.addEventListener('input', function(e) {
+     // Only allow digits
+     this.value = String(this.value || '').replace(/[^0-9]/g, '');
+     // S98: autofill OTP OS (dan paste tanpa event paste, mis. drag) datang
+     // sebagai satu string multi-karakter di satu kotak — distribusikan
+     // antar kotak agar kode utuh tidak terpotong jadi 1 digit.
+     if (this.value.length > 1) {
+      var chars = this.value.slice(0, digits.length - idx).split('');
+      for (var k = 0; k < chars.length; k++) digits[idx + k].value = chars[k];
+      var nextIdx = Math.min(idx + chars.length, digits.length - 1);
+      digits[nextIdx].focus();
+     } else if (this.value && idx < digits.length - 1) {
+      digits[idx + 1].focus();
+     }
+     syncHidden();
+    });
 
    input.addEventListener('keydown', function(e) {
     if (e.key === 'Backspace' && !this.value && idx > 0) {
@@ -399,8 +409,18 @@
     if (resendMsg) {
      resendMsg.textContent = res.j.message || (res.ok ? 'Kode baru terkirim.' : 'Gagal mengirim ulang.');
      resendMsg.style.color = res.ok && res.j.success ? 'var(--color-success-light)' : 'var(--color-danger-bright)';
+     // R109: masa berlaku diulang di pesan resend agar tidak perlu scroll ke atas.
+     if (res.ok && res.j.success) resendMsg.textContent += ' Kode berlaku 15 menit.';
     }
-    if (res.ok && res.j.success) startCooldown(60);
+    if (res.ok && res.j.success) {
+     // R107: server merotasikan kode saat resend — digit kode basi wajib
+     // dibersihkan agar tidak bercampur dengan kode baru.
+     digits.forEach(function(d) { d.value = ''; });
+     syncHidden();
+     var firstDigit = document.getElementById('otp-digit-1');
+     if (firstDigit) firstDigit.focus();
+     startCooldown(60);
+    }
    })
    .catch(function() {
     if (resendLink) resendLink.style.pointerEvents = '';

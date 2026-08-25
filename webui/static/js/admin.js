@@ -754,9 +754,13 @@ function reindexQuestions() {
     children.forEach(child => {
         if (child.classList.contains('q-editor-divider')) {
             child.dataset.index = dividerCount;
+            // T28: tombol divider TIDAK boleh membawa atribut onclick — satu
+            // klik menjadi dua panggilan insertQuestionAt karena jalur
+            // delegasi question-insert-at sudah aktif. Yang wajib diperbarui
+            // saat reindex hanyalah data-index yang dibaca delegasi.
             const btn = child.querySelector('.btn-add-inline');
             if (btn) {
-                btn.setAttribute('onclick', `insertQuestionAt(${dividerCount})`);
+                btn.setAttribute('data-index', String(dividerCount));
             }
             dividerCount++;
         }
@@ -1016,7 +1020,23 @@ function renderPengawasSelection(assigned, available) {
     var header = document.createElement('div');
     header.id = 'pengawasDropdownHeader';
     header.style.cssText = 'display:flex;align-items:center;flex-wrap:wrap;gap:6px;min-height:38px;padding:6px 10px;background:rgba(255,255,255,0.04);border:1px solid var(--color-glass-border);border-radius:8px;cursor:pointer;transition:border-color 0.2s;';
-    header.onclick = function(e) { e.stopPropagation(); togglePengawasDropdown(); };
+    // S90: pemicu dropdown wajib hidup untuk keyboard — fokusable, ber-role
+    // button, statusnya diumumkan via aria-expanded (di-update di
+    // togglePengawasDropdown), dan Enter/Space memicu toggle yang sama
+    // dengan klik.
+    header.setAttribute('tabindex', '0');
+    header.setAttribute('role', 'button');
+    header.setAttribute('aria-haspopup', 'listbox');
+    header.setAttribute('aria-expanded', 'false');
+    header.setAttribute('aria-label', 'Pilih pengawas');
+    header.addEventListener('click', function(e) { e.stopPropagation(); togglePengawasDropdown(); });
+    header.addEventListener('keydown', function(e) {
+        if (e.key === 'Enter' || e.key === ' ') {
+            e.preventDefault();
+            e.stopPropagation();
+            togglePengawasDropdown();
+        }
+    });
     header.onmouseenter = function() { this.style.borderColor = 'rgba(99,102,241,0.4)'; };
     header.onmouseleave = function() { var dd = document.getElementById('pengawasDropdown'); if (!dd || dd.style.display==='none') this.style.borderColor = 'var(--color-glass-border)'; };
 
@@ -1033,17 +1053,27 @@ function renderPengawasSelection(assigned, available) {
         } else {
             chips.forEach(function(p) {
                 var chip = document.createElement('span');
-                chip.style.cssText = 'display:inline-flex;align-items:center;gap:4px;padding:2px 8px;border-radius:12px;font-size:0.75rem;font-weight:500;background:rgba(168,85,247,0.15);color:#c084fc;border:1px solid rgba(168,85,247,0.25);';
+                // S90: warna chip via token (paritas S80–S83), bukan literal ungu.
+                chip.style.cssText = 'display:inline-flex;align-items:center;gap:4px;padding:2px 8px;border-radius:12px;font-size:0.75rem;font-weight:500;background:rgba(var(--rgb-accent),0.15);color:var(--color-accent-light);border:1px solid rgba(var(--rgb-accent),0.25);';
                 chip.textContent = p.username;
-                var x = document.createElement('span');
-                x.style.cssText = 'cursor:pointer;margin-left:2px;font-size:13px;line-height:1;opacity:0.7;';
-                x.textContent = '×';
-                x.onclick = function(ev) { ev.stopPropagation(); var cb = document.querySelector('#pengawasDropdown .pengawas-checkbox[value="' + p.id + '"]'); if (cb) { cb.checked = false; renderHeaderChips(); } };
+                // S90: tombol hapus chip berupa <button> native-fokusable
+                // dengan nama aksesibel yang memuat nama pengawasnya.
+                var x = document.createElement('button');
+                x.type = 'button';
+                x.style.cssText = 'cursor:pointer;margin-left:2px;font-size:13px;line-height:1;opacity:0.7;background:transparent;border:none;color:var(--color-text-secondary);padding:0;font-family:inherit;';
+                x.setAttribute('aria-label', 'Hapus pengawas ' + p.username);
+                x.addEventListener('click', function(ev) { ev.stopPropagation(); var cb = document.querySelector('#pengawasDropdown .pengawas-checkbox[value="' + p.id + '"]'); if (cb) { cb.checked = false; renderHeaderChips(); } });
                 chip.appendChild(x);
                 header.appendChild(chip);
             });
         }
-        header.innerHTML += '<span style="margin-left:auto;font-size:11px;color:var(--color-text-muted);">▼</span>';
+        // S90: panah di-append sebagai elemen — konkatenasi innerHTML += akan
+        // menserialisasi chip dan MEMBUNUH listener tombol hapusnya.
+        var arrow = document.createElement('span');
+        arrow.style.cssText = 'margin-left:auto;font-size:11px;color:var(--color-text-muted);';
+        arrow.setAttribute('aria-hidden', 'true');
+        arrow.textContent = '▼';
+        header.appendChild(arrow);
     }
     renderHeaderChips();
 
@@ -1112,12 +1142,14 @@ function togglePengawasDropdown() {
     if (dd.style.display === 'none' || !dd.style.display) {
         dd.style.display = 'block';
         hd.style.borderColor = 'rgba(99,102,241,0.5)';
+        hd.setAttribute('aria-expanded', 'true'); // S90: status diumumkan ke SR
         // Focus search
         var sb = dd.querySelector('input[type="text"]');
         if (sb) setTimeout(function() { sb.focus(); }, 50);
     } else {
         dd.style.display = 'none';
         hd.style.borderColor = 'var(--color-glass-border)';
+        hd.setAttribute('aria-expanded', 'false'); // S90
     }
 }
 
@@ -2173,8 +2205,7 @@ function editUserInstansi(userId, currentValue, targetEl) {
             <div style="margin-bottom:16px;">
                 <label style="display:block;font-size:0.85rem;color:var(--color-text-secondary);margin-bottom:6px;">Nama Instansi</label>
                 <input type="text" id="instansiEditInput" value="${escapeHtml(currentValue)}" placeholder="Contoh: SMA Negeri 1 Jakarta"
-                    style="width:100%;padding:10px 12px;background:rgba(255,255,255,0.04);border:1px solid var(--color-glass-border);border-radius:8px;color:var(--color-text);font-size:14px;outline:none;transition:border-color 0.2s;box-sizing:border-box;"
-                    onfocus="this.style.borderColor='rgba(99,102,241,0.5)'" onblur="this.style.borderColor=''">
+                    style="width:100%;padding:10px 12px;background:rgba(255,255,255,0.04);border:1px solid var(--color-glass-border);border-radius:8px;color:var(--color-text);font-size:14px;outline:none;transition:border-color 0.2s;box-sizing:border-box;">
             </div>
             <div style="display:flex;gap:8px;justify-content:flex-end;">
                 <button class="btn-sm btn-delete" id="instansiModalCancel">Batal</button>
@@ -2200,6 +2231,11 @@ function editUserInstansi(userId, currentValue, targetEl) {
         if (e.key === 'Escape') closeModal();
         if (e.key === 'Enter') document.getElementById('instansiModalSave').click();
     });
+
+    // R100: highlight fokus via listener terprogram (pengganti atribut
+    // onfocus/onblur inline) — warna memakai token, bukan literal rgba.
+    input.addEventListener('focus', function() { input.style.borderColor = 'var(--color-primary-light)'; });
+    input.addEventListener('blur', function() { input.style.borderColor = ''; });
 
     document.getElementById('instansiModalSave').onclick = function() {
         var newInstansi = input.value.trim();
@@ -2347,7 +2383,7 @@ function createEditUserModal() {
                 <button class="modal-close" data-action="modal-dismiss" data-modal-close="closeEditUserModal" aria-label="Tutup"><svg class="icon-svg" style="width:18px;height:18px;"><use href="#hi-x"/></svg></button>
             </div>
             <div class="modal-body">
-                <form id="editUserForm" onsubmit="submitEditUser(event)">
+                <form id="editUserForm">
                     <input type="hidden" id="editUserId">
                     <div class="form-group" style="margin-bottom:8px;">
                         <label for="editUserName">Nama Lengkap</label>
@@ -2430,6 +2466,11 @@ function createEditUserModal() {
     // S51: preset paket di-wire programatik (pengganti atribut onchange inline).
     var pkgSelect = document.getElementById('editUserPackage');
     if (pkgSelect) pkgSelect.addEventListener('change', function () { applyPackagePreset('edit'); });
+
+    // R100: submit form Atur User via listener terprogram (pengganti atribut
+    // onsubmit inline) — satu jalur wiring, selaras kontrak delegasi.
+    var editUserForm = document.getElementById('editUserForm');
+    if (editUserForm) editUserForm.addEventListener('submit', submitEditUser);
 
     // Hide operator checkbox in edit modal if current user is operator
     if (__adminHasRole('operator')) {
@@ -2874,7 +2915,12 @@ function closeEditExamModal() {
 }
 
 // ===== Delegate Exam (Operator) =====
+// S102 (kelas race S78): modal aksi tulis — konteks data wajib milik ujian
+// TERAKHIR yang dibuka, bukan respons basi permintaan sebelumnya.
+var delegateModalSeq = 0;
+
 function openDelegateExamModal(examId) {
+    const seq = ++delegateModalSeq;
     const modal = document.getElementById('delegateExamModal');
     if (!modal) return;
     document.getElementById('delegateExamId').value = examId;
@@ -2891,6 +2937,7 @@ function openDelegateExamModal(examId) {
     apiFetch('/admin/api/exams/' + examId + '/delegate-data')
         .then(function(r) { return r.json(); })
         .then(function(res) {
+            if (seq !== delegateModalSeq) return; // S102: respons basi diabaikan
             guruSelect.innerHTML = '<option value="">-- Tidak ada Guru --</option>';
 
             if (res.success && res.data) {
@@ -2939,6 +2986,7 @@ function openDelegateExamModal(examId) {
             }
         })
         .catch(function() {
+            if (seq !== delegateModalSeq) return; // S102: kegagalan basi tak menimpa modal aktif
             guruSelect.innerHTML = '<option value="">-- Gagal memuat data --</option>';
             document.getElementById('delegatePengawasList').innerHTML = '<div style="color:var(--color-text-muted);font-size:0.82rem;padding:8px 0;">Gagal memuat data pengawas.</div>';
         });
@@ -3889,9 +3937,13 @@ async function bulkToggleExams() {
 
 // ===== Submission Detail Modal =====
 var activeSubmissionId = null;
+// S91 (kelas race S78): klik cepat dua submission tidak boleh membiarkan
+// respons lambat permintaan pertama menimpa modal permintaan terakhir.
+var submissionDetailSeq = 0;
 
 function showSubmissionDetail(id) {
     activeSubmissionId = id;
+    var seq = ++submissionDetailSeq;
     const container = document.getElementById('detailAnswersContainer');
     container.innerHTML = '<div style="color:var(--color-text-secondary); text-align:center; padding: 20px;">Memuat detail jawaban...</div>';
     document.getElementById('detailStudentName').textContent = '...';
@@ -3903,6 +3955,7 @@ function showSubmissionDetail(id) {
     apiFetch(`/admin/api/submissions/${id}/detail`)
         .then(r => r.json())
         .then(res => {
+            if (seq !== submissionDetailSeq) return; // S91: respons basi diabaikan
             if (!res.success) {
                 showToast(res.message || 'Gagal memuat detail', 'error');
                 closeDetailModal();
@@ -3960,6 +4013,7 @@ function showSubmissionDetail(id) {
             });
         })
         .catch(() => {
+            if (seq !== submissionDetailSeq) return; // S91: kegagalan basi tak boleh menutup modal milik lain
             showToast('Gagal memuat detail jawaban', 'error');
             closeDetailModal();
         });

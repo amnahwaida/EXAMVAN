@@ -59,6 +59,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { sliceBlock } from './uiux-batch15-guard-util.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const WEBUI_ROOT = path.join(HERE, '..', '..');
@@ -171,11 +172,20 @@ test('R91 (statik): statusText & display-time panel evaluasi lewat escapeHtml', 
         '${statusText} mentah bypass pola escape file ini — bungkus ${escapeHtml(String(statusText))}');
     assert.match(HASIL_HTML, /\$\{escapeHtml\(String\(statusText\)\)\}/,
         'kontrak: statusText ter-escape eksplisit (defense-in-depth, komentar prinsip file :1006)');
-    // Waktu mulai/kumpul di kartu identitas detail juga string dari server/fallback.
-    const detailBlock = HASIL_HTML.slice(HASIL_HTML.indexOf('detail-identity-items'));
-    assert.ok(detailBlock.length > 0, 'blok detail-identity ada');
+    // Kartu identitas detail (Batch 15/T29+S104): guard lama memotong dengan
+    // marker 'detail-identity-items' (plural) yang 0 HIT di hasil.html —
+    // indexOf=-1 → slice(-1) → asersi no-op total. Kini: anchor NYATA kelas
+    // singular .detail-identity-item lewat util sliceBlock yang THROW bila
+    // marker absen, PLUS asersi positif versi ter-escape wajib ada.
+    const detailBlock = sliceBlock(HASIL_HTML, 'detail-identity-item', 'kartu identitas detail hasil');
+    assert.ok(detailBlock.length > 200,
+        `blok kartu identitas = ${detailBlock.length} char — harus blok render nyata`);
     assert.doesNotMatch(detailBlock, /\$\{startTimeStr\}|\$\{endTimeStr\}/,
         '${startTimeStr}/${endTimeStr} mentah di kartu identitas — bungkus escapeHtml(String(...))');
+    assert.match(detailBlock, /\$\{escapeHtml\(String\(startTimeStr\)\)\}/,
+        'kontrak positif: Waktu Mulai ter-escape eksplisit — tanpa ini guard bisa vakum tanpa suara');
+    assert.match(detailBlock, /\$\{escapeHtml\(String\(endTimeStr\)\)\}/,
+        'kontrak positif: Waktu Kumpul ter-escape eksplisit');
 });
 
 // ════════════════════════════════════════════════════════════════════════

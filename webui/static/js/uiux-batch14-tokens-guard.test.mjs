@@ -169,9 +169,11 @@ test('R88 (statik): upload-progress-pill settings.html tidak lagi menduplikasi n
 });
 
 test('R88 (guard): templates/admin/** + admin.js bebas literal z-index ≥1000 (kelas berbahaya)', () => {
+    // Batch 15 (R105): flag /i — "Z-INDEX: 999" kapital tidak boleh lolos
+    // guard kelas berbahaya hanya dengan mengubah case.
     const hits = [
-        ...findMatches(ADMIN_HTML, /z-index:\s*[1-9]\d{3,}/),
-        ...findMatches(ADMIN_JS, /z-index:\s*[1-9]\d{3,}/),
+        ...findMatches(ADMIN_HTML, /z-index:\s*[1-9]\d{3,}/i),
+        ...findMatches(ADMIN_JS, /z-index:\s*[1-9]\d{3,}/i),
     ];
     assert.equal(hits.length, 0,
         `literal z-index tinggi dapat melompati toast/onboarding tanpa sadar — pakai token --z-*: ${hits.join(' · ')}`);

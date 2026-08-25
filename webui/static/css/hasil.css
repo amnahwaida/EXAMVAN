@@ -281,6 +281,9 @@ border: 1px solid var(--color-glass-border);
 border-radius: 16px;
 padding: 24px;
 animation: fadeUp 0.7s ease;
+/* S103 (adopsi-b): token elevasi theme.css --shadow-card sebelumnya mati
+   (0 pemakai). Glass card adalah pemakaian alaminya. */
+box-shadow: var(--shadow-card);
 }
 
 /* Results table */
@@ -334,9 +337,14 @@ border-radius: 20px;
 font-weight: 700;
 font-size: 0.82rem;
 }
+/* S101: warna TEKS badge migrasi ke varian terang (tint latar tetap).
+   Kalibrasi koordinator: teks base di tint warna sendiri atas glass gelap
+   duduk tepat di garis AA — .score-low ≈ 4.45:1 (< 4.5), sensitif terhadap
+   backdrop blur; varian aman: --color-danger-bright ≈ 6.25:1,
+   --color-success-light ≈ 10.8:1. */
 .score-high {
 background: rgba(16, 185, 129, 0.15);
-color: var(--color-success);
+color: var(--color-success-light);
 border: 1px solid rgba(16, 185, 129, 0.3);
 }
 .score-mid {
@@ -346,7 +354,7 @@ border: 1px solid rgba(245, 158, 11, 0.3);
 }
 .score-low {
 background: rgba(239, 68, 68, 0.15);
-color: var(--color-danger);
+color: var(--color-danger-bright); /* S101: base #ef4444 ≈ 4.45:1 < ambang AA; bright ≈ 6.25:1 */
 border: 1px solid rgba(239, 68, 68, 0.3);
 }
 .score-none {
@@ -931,7 +939,11 @@ padding-right: 0;
 }
 
 @media (prefers-reduced-motion: reduce) {
-*, *::before, *::after { animation-duration: 0.01ms !important; transition-duration: 0.01ms !important; }
+/* R117: cap iterasi TANPA tanda penting — animasi infinite (pulse dsb.) tetap
+   berjalan terus walau durasinya dipangkas. Blok media ini datang belakangan
+   dalam file dan tidak ada deklarasi iteration-count kompetitor, jadi
+   kaskade spesifisitas sama sudah menang (plafon S71 tak bertambah). */
+*, *::before, *::after { animation-duration: 0.01ms !important; transition-duration: 0.01ms !important; animation-iteration-count: 1; }
 .bg-orb { animation: none !important; opacity: 0.15; }
 }
 
@@ -994,13 +1006,22 @@ max-height: none !important;
 overflow: visible !important;
 }
 .detail-row { page-break-inside: avoid; }
+/* S96: judul & elemen ber-gradien memakai -webkit-text-fill-color: transparent
+   (:102 .header-title, :156 .exam-hero h1) — tanpa reset ini properti vendor
+   itu lolos ke media cetak dan teks tercetak KOSONG di kertas. Deklarasi
+   polos cukup: blok print datang belakangan (kaskade menang, plafon
+   important S71 tetap). color diwarisi dari body print (#111827). */
+.header-title, .exam-hero h1 {
+background: none;
+-webkit-text-fill-color: initial;
+}
 }
 
-/* Touch targets: search-clear (26px), back-nav (~30px), and tab buttons
-   (~37px) were below the ~44px minimum on phones. */
+/* R106 (ronde 9): touch target disamakan dengan standar repo 44px
+   (admin-base.css:514-522) — dulu 38-42px. */
 @media (max-width: 768px) {
-.search-clear-btn { width: 38px; height: 38px; }
-.back-nav { min-height: 42px; }
-.tab-btn { min-height: 42px; }
-.pagination-btn { min-width: 42px; min-height: 42px; }
+.search-clear-btn { width: 44px; height: 44px; }
+.back-nav { min-height: 44px; }
+.tab-btn { min-height: 44px; }
+.pagination-btn { min-width: 44px; min-height: 44px; }
 }

@@ -1,9 +1,8 @@
 {{ template "public_head" . }}
 <script src="/static/js/admin-core.js?v={{.version}}" defer></script>
 <div class="toast-container" id="toastContainer" aria-live="polite" aria-atomic="true"></div>
-<!-- R71: seluruh link stylesheet eksternal wajib SEBELUM blok style inline pertama; urutan antar-link dipertahankan. -->
-<link rel="stylesheet" href="/static/css/public-mobile.css?v={{.version}}">
-<link rel="stylesheet" href="/static/css/public-desktop.css?v={{.version}}">
+<!-- R108: link public-mobile/desktop.css di sini DIHAPUS — public_head
+     (shared.html) sudah memancarkan keduanya; duplikat = request CSS dobel. -->
 <style>
   main {
     flex: 1;

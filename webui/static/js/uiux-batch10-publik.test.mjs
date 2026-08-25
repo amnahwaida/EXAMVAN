@@ -384,12 +384,14 @@ test('S55: blok CSS toast lokal download.html memuat rule .toast-close:focus-vis
 // S56 — reset_password memuat admin-core.js sinkron
 // ===========================================================================
 
-test('S56: tag script admin-core.js di reset_password.html membawa defer', () => {
+test('S56: reset_password.html TIDAK lagi memuat admin-core.js (diubah Batch 15/S105)', () => {
+    // Diperbarui Batch 15: S105 mengganti satu-satunya alasan halaman publik
+    // ini memuat bundle admin (togglePasswordVisibility) dengan helper lokal
+    // wirePwToggle ala register.html — tag script dihapus total.
     const html = RESET_PASSWORD();
     const tag = html.match(/<script[^>]*admin-core\.js[^>]*>/);
-    assert.ok(tag, 'tag script admin-core.js harus ada');
-    assert.match(tag[0], /\bdefer\b/,
-        'admin-core.js hanya dipakai dalam DOMContentLoaded — wajib defer (pola hasil.html)');
+    assert.equal(tag, null,
+        'halaman anonim tidak boleh memuat admin-core.js hanya demi toggle password');
 });
 
 // ===========================================================================

@@ -34,8 +34,9 @@ const BILLING = read('js/settings-billing.js');
 const AUDIT = read('js/settings-voucher-audit.js');
 
 // Handler inline apa pun (bukan cuma onclick): onsubmit/onchange/onkeyup/
-// oninput/onkeydown/onload/... — pola T21.
-const INLINE_HANDLER_RE = /\son[a-z]+=/g;
+// oninput/onkeydown/onload/... — pola T21. Batch 15 (R105): flag /i —
+// " ONCLICK=" kapital tidak boleh lolos guard CSP hanya dengan mengubah case.
+const INLINE_HANDLER_RE = /\son[a-z]+=/gi;
 
 // ---------------------------------------------------------------------------
 // T21 — settings.html bebas SEMUA handler inline
@@ -145,7 +146,8 @@ test('S63: settings.html benar-benar memakai token pengganti (sanity > 0)', () =
 // ---------------------------------------------------------------------------
 
 // Regex digit-pembuka (pola S43): rgba(var(--rgb-*), α) bukan literal.
-const RGBA_RE = /rgba\(\s*[0-9]/g;
+// Batch 15 (R105): flag /i — "RGBA(255,…" kapital wajib tetap terhitung.
+const RGBA_RE = /rgba\(\s*[0-9]/gi;
 
 test('S64 (guard): rgba literal di settings.html tidak naik dari baseline pasca-Batch 11', () => {
     const n = (SETTINGS.match(RGBA_RE) || []).length;

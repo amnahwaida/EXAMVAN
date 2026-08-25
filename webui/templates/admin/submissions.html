@@ -316,7 +316,7 @@
  </td>
   <td class="td-actions" data-label="Aksi" style="text-align:center;">
   <div style="display:flex;gap:6px;justify-content:center;">
-  <button class="btn-sm btn-toggle" data-action="show-submission-detail" data-submission-id="{{.ID}}" style="display:inline-flex;align-items:center;gap:4px;font-size:12px;padding:4px 10px;">
+  <button class="btn-sm btn-toggle" data-action="show-submission-detail" data-submission-id="{{.ID}}" style="display:inline-flex;align-items:center;gap:4px;font-size:12px;min-height:44px;min-width:44px;padding:8px 12px;">
   <svg class="icon-svg" style="width:14px;height:14px;"><use href="#hi-eye"/></svg> Detail
   </button>
   <button class="btn-sm btn-delete" data-action="delete-submission" data-submission-id="{{.ID}}" aria-label="Hapus hasil ujian" style="display:inline-flex;align-items:center;gap:4px;font-size:12px;min-height:44px;min-width:44px;padding:8px 12px;">
@@ -422,34 +422,52 @@ Mulai: <span id="detailStartTime">—</span> | Kumpul: <span id="detailSubmitTim
 var filterExamEl = document.getElementById('filterExam');
 if (filterExamEl) filterExamEl.addEventListener('change', function() { filterSubmissions(); });
 
+// ===== Batch 15 (S89): normalisasi satu pintu untuk start DAN end =====
+// Format default time.Time Go ("2026-08-25 10:00:00.123456789 +0700 WIB
+// m=+0.123") memuat nama zona yang ditolak parser Date V8 → NaN → durasi
+// mentok "—". Helper membuang nama zona dan mengembalikan ISO sah
+// (offset ±HH:MM atau Z). Sebelumnya hanya data-start dinormalisasi.
+function normalizeGoTimeStr(raw) {
+    var s = String(raw || '').trim();
+    if (!s) return '';
+    if (s.indexOf(' ') !== -1 && s.indexOf('T') === -1) s = s.replace(' ', 'T');
+    var m = /^(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2})(?:\.(\d+))?(?:\s*([+-]\d{2}):?(\d{2}))?/.exec(s);
+    if (!m) return s;
+    var out = m[1];
+    if (m[2]) out += '.' + m[2];
+    out += m[3] ? (m[3] + ':' + m[4]) : 'Z';
+    return out;
+}
+
+function computeDurationText(startStr, endStr) {
+    var startDt = new Date(normalizeGoTimeStr(startStr));
+    var endDt = new Date(normalizeGoTimeStr(endStr));
+    if (isNaN(startDt.getTime()) || isNaN(endDt.getTime())) return '';
+
+    var diffMs = endDt - startDt;
+    if (diffMs < 0) diffMs = 0;
+
+    var diffSecs = Math.floor(diffMs / 1000);
+    var hours = Math.floor(diffSecs / 3600);
+    var minutes = Math.floor((diffSecs % 3600) / 60);
+    var seconds = diffSecs % 60;
+
+    var parts = [];
+    if (hours > 0) parts.push(hours + ' jam');
+    if (minutes > 0) parts.push(minutes + ' menit');
+    if (seconds > 0 || parts.length === 0) parts.push(seconds + ' detik');
+
+    return parts.join(' ');
+}
+
 document.addEventListener('DOMContentLoaded', function() {
     document.querySelectorAll('.duration-cell').forEach(function(el) {
         var startStr = el.getAttribute('data-start');
         var endStr = el.getAttribute('data-end');
         if (!startStr || !endStr) return;
-        
-        var isoStart = startStr.trim();
-        if (isoStart.includes(' ') && !isoStart.includes('T')) isoStart = isoStart.replace(' ', 'T');
-        if (!isoStart.endsWith('Z') && !isoStart.includes('+') && !(/-\d{2}:\d{2}$/.test(isoStart))) isoStart += 'Z';
-        
-        var startDt = new Date(isoStart);
-        var endDt = new Date(endStr);
-        if (isNaN(startDt.getTime()) || isNaN(endDt.getTime())) return;
-        
-        var diffMs = endDt - startDt;
-        if (diffMs < 0) diffMs = 0;
-        
-        var diffSecs = Math.floor(diffMs / 1000);
-        var hours = Math.floor(diffSecs / 3600);
-        var minutes = Math.floor((diffSecs % 3600) / 60);
-        var seconds = diffSecs % 60;
-        
-        var parts = [];
-        if (hours > 0) parts.push(hours + ' jam');
-        if (minutes > 0) parts.push(minutes + ' menit');
-        if (seconds > 0 || parts.length === 0) parts.push(seconds + ' detik');
-        
-        el.textContent = parts.join(' ');
+
+        var text = computeDurationText(startStr, endStr);
+        if (text) el.textContent = text;
     });
 });
 </script>

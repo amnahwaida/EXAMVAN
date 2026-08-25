@@ -30,6 +30,14 @@
   /* T3: chip status kelulusan eksplisit + legenda ambang tampilan.
      Ambang warna tetap mengikuti getScoreClass() (70/40); KKM per sekolah
      (setting backend) menyusul di batch berikutnya. */
+  /* S101 (ronde 9): warna TEKS chip migrasi ke varian terang — kalibrasi
+     koordinator: base token di tint sendiri atas glass gelap menyentuh garis
+     AA (fail ≈ 4.59:1; pasangan .score-low ≈ 4.45:1), varian aman:
+     --color-success-light ≈ 10.8:1, --color-danger-bright ≈ 6.25:1.
+     S103 (adopsi-a): background bermigrasi ke var(--color-*-bg) — nilai
+     rgba(var(--rgb-*),0.12) identik persis dengan token theme.css.
+     Border tetap rgba(var(--rgb-*),0.35): alpha 0.35 tidak punya padanan
+     token, jadi TIDAK ada literal baru (keputusan didokumentasikan). */
   .score-status-chip {
    display: inline-block;
    font-size: 0.66rem;
@@ -39,12 +47,11 @@
    border-radius: 999px;
    white-space: nowrap;
   }
-  .score-status-pass { color: var(--color-success); background: rgba(var(--rgb-success), 0.12); border: 1px solid rgba(var(--rgb-success), 0.35); }
+  .score-status-pass { color: var(--color-success-light); background: var(--color-success-bg); border: 1px solid rgba(var(--rgb-success), 0.35); }
   /* R40: tingkat ketiga 40–69 — kuning netral "Hampir", bukan merah
-     "Belum Lulus" yang kontradiktif dengan badge kuning di sampingnya.
-     Warna memakai token theme.css (tanpa hex/rgba literal baru). */
-  .score-status-mid { color: var(--color-warning-light); background: rgba(var(--rgb-warning), 0.12); border: 1px solid rgba(var(--rgb-warning), 0.35); }
-  .score-status-fail { color: var(--color-danger); background: rgba(var(--rgb-danger), 0.12); border: 1px solid rgba(var(--rgb-danger), 0.35); }
+     "Belum Lulus" yang kontradiktif dengan badge kuning di sampingnya. */
+  .score-status-mid { color: var(--color-warning-light); background: var(--color-warning-bg); border: 1px solid rgba(var(--rgb-warning), 0.35); }
+  .score-status-fail { color: var(--color-danger-bright); background: var(--color-danger-bg); border: 1px solid rgba(var(--rgb-danger), 0.35); }
   .score-status-none { color: var(--color-text-secondary); background: rgba(var(--rgb-white), 0.12); border: 1px solid rgba(var(--rgb-white), 0.30); }
   /* Badge status di bar rekap skor lembar jawaban (dirender oleh JS).
      Batch 9/S46: class, bukan id — id diduplikasi tiap baris detail terbuka
