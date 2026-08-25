@@ -184,7 +184,7 @@ code, pre, .token-code, .mono {
     position: fixed;
     bottom: 80px;
     right: 24px;
-    z-index: 9998;
+    z-index: var(--z-hint);
     background: rgba(10,10,22,0.9);
     border: 1px solid var(--color-glass-border);
     border-radius: var(--radius-md);
@@ -289,7 +289,7 @@ code, pre, .token-code, .mono {
     bottom: 0;
     left: 0;
     right: 0;
-    z-index: 9997;
+    z-index: var(--z-bottom-bar);
     background: rgba(10,10,22,0.95);
     -webkit-backdrop-filter: blur(16px);
     backdrop-filter: blur(16px);
@@ -745,14 +745,14 @@ body.modal-open {
    underneath all of them. Toasts stay one step above the dialogs. */
 .modal-overlay,
 .modal-backdrop {
-    z-index: 10000;
+    z-index: var(--z-modal-overlay);
     overscroll-behavior: contain;
 }
 .modal-body {
     overscroll-behavior: contain;
 }
 .toast-container {
-    z-index: 10001;
+    z-index: var(--z-toast);
 }
 
 /* ===== Medium-severity UI fixes (July 2026 audit) ===== */
@@ -977,7 +977,7 @@ img, video, canvas, svg { max-width: 100%; }
   .topbar-left { flex: 1 1 auto; overflow: hidden; }
   .topbar-title { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .topbar-right, .topbar-menu-dropdown, .topbar-menu-toggle { flex: 0 0 auto; }
-  .topbar-menu-toggle { position: relative; z-index: 10002; }
+  .topbar-menu-toggle { position: relative; z-index: var(--z-topbar-floating); }
 }
 
 /* Touch devices may expose a desktop-like ~980px layout viewport. */
@@ -1001,7 +1001,7 @@ img, video, canvas, svg { max-width: 100%; }
     position: fixed;
     top: max(8px, env(safe-area-inset-top, 0px));
     right: max(10px, env(safe-area-inset-right, 0px));
-    z-index: 10002;
+    z-index: var(--z-topbar-floating);
     display: inline-flex;
     align-items: center;
     justify-content: center;
@@ -1038,7 +1038,7 @@ html.touch-device .topbar-right,
 html.touch-device .topbar-menu-dropdown,
 html.touch-device .topbar-menu-toggle { flex: 0 0 auto; }
 html.touch-device .topbar-menu-toggle {
-  position: fixed; top: 8px; right: 10px; z-index: 10002;
+  position: fixed; top: 8px; right: 10px; z-index: var(--z-topbar-floating);
   display: inline-flex; align-items: center; justify-content: center;
   min-width: 44px; min-height: 44px;
 }

@@ -126,6 +126,13 @@
     --z-dropdown: 9999;
     --z-toast: 10002;
     --z-onboarding: 10001;
+    /* S116 (Batch 18): melengkapi tangga stacking legacy menjadi token -
+       bottom-bar 9997 / hint 9998 / dialog overlay 10000 / topbar floating
+       10002. Seluruh literal z-index >=1000 kini lewat var(--z-*). */
+    --z-bottom-bar: 9997;
+    --z-hint: 9998;
+    --z-modal-overlay: 10000;
+    --z-topbar-floating: 10002;
 }
 
 /* KEPUTUSAN Batch 4 (temuan S17): palet light (:root[data-theme="light"])

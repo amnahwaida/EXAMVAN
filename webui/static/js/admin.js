@@ -3226,7 +3226,13 @@ function toggleRowDropdown(event, examId) {
     
     // Close all other dropdowns
     document.querySelectorAll('.exam-action-dropdown-content.show').forEach(d => {
-        if (d !== dropdown) d.classList.remove('show');
+        if (d !== dropdown) {
+            d.classList.remove('show');
+            // R144: reset state SR tombol pemilik menu yang ditutup paksa.
+            const w = d.__btnWrap;
+            const b = w ? w.querySelector('.btn-more') : null;
+            if (b) b.setAttribute('aria-expanded', 'false');
+        }
     });
     
     dropdown.classList.remove('drop-up', 'drop-down', 'align-right');
@@ -3311,6 +3317,9 @@ document.addEventListener('click', function(event) {
     if (!clickedBtn && !clickedDropdown) {
         document.querySelectorAll('.exam-action-dropdown-content.show').forEach(el => {
             el.classList.remove('show');
+            // R144: klik-luar juga wajib me-reset aria-expanded pemilik menu.
+            const ownerBtn = el.__btnWrap ? el.__btnWrap.querySelector('.btn-more') : null;
+            if (ownerBtn) ownerBtn.setAttribute('aria-expanded', 'false');
         });
     }
 });

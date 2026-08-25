@@ -12,6 +12,7 @@
 > **Ronde 9 (25 Agustus 2026 @ `f0ab8d7`, pasca Batch 14):** eksekusi Batch 14 mayoritas solid, namun ditemukan **kerusakan produksi kritis yang lolos 3 rilis batch dengan seluruh suite JS hijau**: template Pengaturan gagal di-parse Go sejak Batch 12 (T26) + regresi role-gating operator (T27); total ronde ini **4 masalah Tinggi, 17 Sedang, dan 20 Rendah baru** — lihat [bagian 5.12](#512-re-review-ronde-9--temuan-baru-pasca-batch-14-bahan-batch-15). Tema dominan ronde ini: guard JS yang tidak pernah mengeksekusi parser Go maupun `go test`, assertion yang mengunci teks bukan perilaku (vakum/marker salah), dan kelas race respons basi yang hanya dibasmi pada daftar-loader kontrak. Seluruhnya dieksekusi di **Batch 15** (25 Agustus 2026, test-first via gerbang koordinator + 4 agen paralel; satu-satunya penundaan: S100 checksum SHA-256 butuh keputusan skema DB).
 > **Ronde 10 (25 Agustus 2026 @ `616132a`, pasca Batch 15):** eksekusi Batch 15 terverifikasi solid di lima area (966 test node + `go test` penuh hijau), NAMUN audit integritas menemukan **5 item tercatat [x] padahal tidak pernah dieksekusi** (S92, R102–R104, R110 — luput dari pembagian tugas agen); ditemukan **2 masalah Tinggi (regresi autofill OTP, navigasi mati di tablet sentuh ≥1101px), 6 Sedang, dan 14 Rendah baru** — lihat [bagian 5.13](#513-re-review-ronde-10--temuan-baru-pasca-batch-15-bahan-batch-16). Tema dominan ronde ini: ekor polishment dari fix besar (regresi & celah cakupan), kontrak escape/token yang belum seragam, dan dokumentasi teknis berklaim keliru. Seluruhnya dieksekusi di **Batch 16** (25 Agustus 2026, test-first via 4 agen paralel + gerbang koordinator; cakupan admincore diambil alih koordinator setelah agen gagal dua kali).
 > **Ronde 11 (25 Agustus 2026 @ `80e95bb`, pasca Batch 16):** kualitas terkonvergensi — ditemukan **0 masalah Tinggi, 3 Sedang, dan 11 Rendah baru**; NAMUN audit integritas lagi-lagi menemukan item tercatat [x] yang tidak/belum tereksekusi (S110, S111, R124 + R125 parsial — agen batch16-pengawasan tak pernah diluncurkan). Lihat [bagian 5.14](#514-re-review-ronde-11--temuan-baru-pasca-batch-16-bahan-batch-17). Tema dominan ronde ini: interaksi antar-fix (Escape × Modal Manager), sisa polish a11y kontrol render-JS, dan konsistensi kontrak escape/token. Seluruhnya dieksekusi di **Batch 17** (25 Agustus 2026, test-first; gerbang pengawasan + admincore oleh koordinator, settings via agen — sekaligus menuntaskan 4 item tertinggal Batch 16).
+> **Ronde 12 (25 Agustus 2026 @ `5095c75`, pasca Batch 17):** review berurutan oleh koordinator (tanpa agen). Kode makin stabil - ditemukan **0 masalah Tinggi, 1 Sedang, dan 2 Rendah baru** (volume terkecil sejak ronde pertama); NAMUN satu klaim guard lama terkoreksi: larangan z-index ≥1000 ternyata hanya mengunci tiga lokasi spesifik, bukan folder-wide (admin-base.css memuat 7 literal legacy ≥9998 - S116). Lihat [bagian 5.15](#515-re-review-ronde-12--temuan-baru-pasca-batch-17-bahan-batch-18). Plafon folder-wide kini PERSIS aktual (hex 99/99, rgba 89/89). Seluruhnya dieksekusi di **Batch 18** (25 Agustus 2026, test-first oleh koordinator: 7 test MERAH dulu, termasuk guard folder-wide z-index baru; token tangga stacking --z-bottom-bar/--z-hint/--z-modal-overlay/--z-topbar-floating ditambahkan theme.css; .toast-container naik ke --z-toast memperbaiki latent tie dengan onboarding).
 > **Tujuan:** acuan perbaikan UI/UX tahap selanjutnya. Setiap temuan punya ID unik (`T`=Tinggi, `S`=Sedang, `R`=Rendah, `P`=Keputusan Produk, `G`=Positif) agar mudah dirujuk di commit/issues (mis. `fix(uiux): T2 …`).
 
 ---
@@ -2227,9 +2228,68 @@ Suite batch16 aman dari kelas marker-vakum (indexOf function-boundary + fallback
 
 ---
 
+## 5.15 RE-REVIEW RONDE 12 — Temuan baru pasca Batch 17 (bahan Batch 18)
+
+> **Tanggal:** 25 Agustus 2026 · **Basis kode:** `5095c75` (pasca Batch 17) · **Metode:** review berurutan oleh koordinator (tanpa agen) — sweep global mekanis + verifikasi kualitas eksekusi Batch 16/17 per area (settings · admin core · pengawasan · publik) + audit meta guard generasi kelima.
+> Ditemukan **0 masalah Tinggi, 1 Sedang, dan 2 Rendah baru** — volume terkecil sejak ronde pertama; kode berada pada titik stabil. NAMUN satu klaim guard lama terkoreksi: **"larangan z-index ≥1000" ronde 8 ternyata hanya mengunci tiga lokasi spesifik, bukan larangan folder-wide** — admin-base.css masih memuat 7 literal ≥9998 (→ S116). Verifikasi integritas: plafon folder-wide kini PERSIS aktual (hex 99/99, rgba 89/89), gray twins 0, inline handler 0, gray-area lain bersih.
+
+### Status verifikasi cepat Batch 17
+
+| Area | Vonis | Catatan |
+|---|---|---|
+| Settings (S114,S115,R140,R141,R142 — agen) | ✅ PENUH | onerror+reset flag+toast ✓; badge jadi `<button>` ✓; dead wiring packages dihapus ✓; activatePackage anti-dobel-klik ✓; label toolbar/istilah konsolidasi ✓ |
+| Pengawasan gerbang (S110†,S111†,R124†,R125-sisa†,R143) | ✅ PENUH | fingerprint `pagEl.__lastHtml` + fallback fokus tbody+announce + kontrak data-mac tunggal + token muted + escape attempt_count/s.id |
+| Admincore (S113,R133–R139) | ✅ dengan 1 ekor | Escape dropdown delegasi tertahan di dalam dropdown ✓; guard seq catch simetris ✓; **ekor**: jalur tutup klik-luar row-dropdown belum reset aria-expanded → R144 |
+| Publik (warisan T30/T31/R127/R130/R131) | ✅ | distribusi multi-karakter OTP solid; drawer gabungan A+B konsisten |
+| Token/guard | ✅ | plafon = aktual PERSIS; gray twins 0; inline handler 0; z-index ≥4-digit = temuan baru S116 |
+
+**Gate:** node suite **1047/1047 hijau** · `go test ./internal/handlers/... -count=1` OK semua · `go build`+`go vet` bersih.
+**Bukti guard bekerja:** implementasi awal fingerprint S110 (versi `window.*`) memicu ReferenceError di sandbox vm → render ganda — **tertangkap test S94 batch15** (writes 4≠2) sebelum commit; diperbaiki ke `pagEl.__lastHtml`.
+
+---
+
+### S116 — Guard "larangan z-index ≥1000" ternyata tidak pernah folder-wide; admin-base.css memuat 7 literal legacy ≥9998
+
+- **Prioritas:** 🟠 Sedang · **Usaha:** M · **Area:** Integritas guard/token · **Status:** [ ]
+- **Lokasi:** `static/css/admin-base.css:187 (:9998), :292 (:9997), :748 (:10000 modal-overlay), :755 (:10001 toast-container), :980,:1004,:1041 (:10002 topbar)`; plus `templates/public/download.html` (:9999) & `templates/public/register.html` (:9999); tailwind generated (exempt terdokumentasi)
+- **Bukti:** grep folder-wide = **19 kemunculan** z-index ≥1000; guard batch14-tokens-guard R88 hanya berisi TIGA asersi lokasi spesifik (popup dashboard, dropdown admin.js, pill settings) — klaim header suite "larangan z-index ≥1000 (kelas berbahaya)" tidak pernah ditulis sebagai asersi umum, dan file CSS bahkan tidak di-walk (R126 baru menambah walk untuk #f87171).
+- **Masalah/Dampak:** stacking context legacy (modal-overlay 10000 vs toast 10001 vs topbar 10002) hidup di luar sistem `--z-*`; komponen baru bisa menyisip layer yang melompati toast tanpa terdeteksi — persis kelas erosi yang dibereskan untuk warna.
+- **Rekomendasi:** (a) petakan ketujuh literal admin-base ke token `--z-*` (nilai semantik sudah ada: modal/toast/topbar/dropdown); (b) migrasikan 9999 download/register ke token banner; (c) tambah guard folder-wide (templates+CSS inti+JS): larangan literal z-index ≥1000 dengan whitelist generated tailwind; (d) kunci ulang plafon.
+
+### R144 — Jalur tutup klik-luar & "tutup semua lainnya" row-dropdown tidak me-reset `aria-expanded` (ekor R138)
+
+- **Prioritas:** 🟡 Rendah · **Usaha:** XS · **Area:** Dashboard/a11y · **Status:** [ ]
+- **Lokasi:** `admin.js:3310–3317` (klik-luar hanya `classList.remove('show')`); `admin.js:3205–3208` ("Close all other dropdowns" idem)
+- **Bukti/Masalah:** R138 menyinkronkan aria-expanded pada toggle & Escape, tapi dua jalur tutup lainnya membiarkan tombol pemilik menu tetap `aria-expanded="true"` — screen reader membaca menu terbuka padahal tertutup (pola identik R132 yang sudah dibereskan untuk dropdown pengawas).
+- **Rekomendasi:** di kedua jalur, telusuri `__btnWrap.querySelector('.btn-more')` → `setAttribute('aria-expanded','false')`.
+
+### R145 — Jalur tutup via klik overlay tidak mengembalikan fokus ke burger (inkonsisten dengan Escape)
+
+- **Prioritas:** 🟡 Rendah · **Usaha:** XS · **Area:** Publik/nav/a11y · **Status:** [ ]
+- **Lokasi:** `shared.html:20` (overlay `data-nav-toggle`) + `:43–50` (`toggleMenu` tanpa focus-return) vs `closeMenu` :54–70 (punya wasOpen + `burger.focus()`)
+- **Bukti/Masalah:** overlay dan hamburger sama-sama ter-wire ke `toggleMenu` (:51) — menutup drawer lewat klik overlay menyinkronkan aria-expanded tapi tidak mem-fokuskan burger, sedangkan jalur Escape melakukannya. Dua jalur tutup, dua perilaku fokus.
+- **Rekomendasi:** ekstraksi logik closeMenu (dengan wasOpen+focus) dan panggil dari kedua jalur, atau tambah focus-return di cabang tutup toggleMenu.
+
+### Catatan minor tanpa ID
+
+Duplicate-id `concurrentInput`/`limitInput`/`newUserExpiry` settings.html (:903–942) adalah pola Go `{{if operator}}{{else}}` — hanya satu cabang render per role, aman runtime (kandidat refactor id-per-role bila suatu saat diaudit validator); `localizeUTC(l.created_at)` tetap disisipkan mentah di builder audit (server-controlled informatif — parity kandidat); `wireCollapseBlock` general (:39–43) belum ber-guard `[data-action]` ala S108 (saat ini aman); slack hex folder-wide tinggal 0 — setiap warna baru WAJIB lewat token.
+
+---
+
+---
+
 ## 6. REKAP TRACKING
 
 > Centang `[x]` + cantumkan hash commit saat selesai. Urut sesuai prioritas eksekusi.
+### Batch 18 — Ronde 12: eksekusi temuan 5.15 ✅ SELESAI (2026-08-25, test-first oleh koordinator; suite gabungan repo **1054/1054 hijau**, `go test ./internal/handlers/...` OK, `go build`+`go vet` OK)
+
+> **Suite:** `uiux-batch18-guard.test.mjs` (7 test) — S116a token source-of-truth, S116b admin-base bersih literal + pemakaian positif, S116c banner publik → var(--z-dropdown), S116d guard folder-wide z-index ≥1000 (templates/** + CSS inti non-generated + JS aplikasi; tailwind generated exempt terdokumentasi), R144a/b reset aria-expanded dua jalur tutup row-dropdown, R145 toggleMenu focus-return.
+>
+> **Catatan teknis:** (1) pemetaan semantik S116 menyingkap latent bug stacking: `.toast-container` semula 10001 = TIE dengan `--z-onboarding`; naik ke `var(--z-toast)`=10002 sesuai intent terdokumentasi theme.css ("toasts one step above dialogs", onboarding DI BAWAH toast); (2) empat token baru theme.css: `--z-bottom-bar` 9997, `--z-hint` 9998, `--z-modal-overlay` 10000, `--z-topbar-floating` 10002; (3) folder `static/css/tailwind/` tetap exempt dari guard z-index (artefak build, preseden R126); admin-tailwind.css IKUT diwalk. 
+
+- [x] **S116** ✅ **Batch 18** — Petakan 7 literal z-index admin-base ke --z-*; migrasi 9999 download/register; guard folder-wide larangan >=1000 (whitelist tailwind generated); kunci plafon
+- [x] **R144** ✅ **Batch 18** — Reset aria-expanded owner .btn-more di jalur klik-luar & close-others row-dropdown
+- [x] **R145** ✅ **Batch 18** — toggleMenu cabang tutup mengembalikan fokus ke burger (konsisten closeMenu)
 ### Batch 17 — Ronde 11: eksekusi temuan 5.14 ✅ SELESAI (2026-08-25, test-first: gerbang koordinator + agen settings; suite gabungan repo **1047/1047 hijau**, `go test ./internal/handlers/...` OK, `go build`+`go vet` OK)
 
 > **Metode:** pelajaran proses diterapkan ketat — seluruh item dipetakan ke kepemilikan file sebelum penugasan, dan checklist diverifikasi silang ke diff commit.

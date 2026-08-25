@@ -41,12 +41,17 @@
  // S59: pemicu menu dipasang via addEventListener (tanpa onclick inline).
  // data-nav-toggle menandai overlay + hamburger sebagai pemicu toggleMenu.
  function toggleMenu() {
- var open = document.getElementById('navLinks').classList.toggle('open');
+ var links = document.getElementById('navLinks');
+ // R145: catat state sebelum toggle - menutup via overlay/hamburger wajib
+ // mengembalikan fokus ke burger, konsisten dengan closeMenu (Escape).
+ var wasOpen = !!(links && links.classList.contains('open'));
+ var open = links.classList.toggle('open');
  document.getElementById('navOverlay').classList.toggle('active');
  var burger = document.getElementById('navHamburger');
  burger.innerHTML = open ? '✕' : '☰';
  burger.setAttribute('aria-expanded', open ? 'true' : 'false');
  document.body.style.overflow = open ? 'hidden' : '';
+ if (wasOpen && !open) burger.focus();
  }
  Array.prototype.forEach.call(document.querySelectorAll('[data-nav-toggle]'), function (el) {
  el.addEventListener('click', toggleMenu);
