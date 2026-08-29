@@ -247,13 +247,10 @@ test('R82 (statik): token --color-primary-bright terdefinisi di theme.css (kontr
 });
 
 test('R82 (statik): gradien endpoint settings.html memakai token, bukan #818cf8 literal', () => {
-    // S81 (ronde 8): asersi lama FIRST-MATCH-ONLY (hanya gradien pertama)
-    // memberi rasa aman palsu — sisa #818cf8 di lokasi lain lolos tanpa alarm.
-    // Diganti hitungan GLOBAL; penegakan folder-wide kini di uiux-batch14-tokens-guard.
     const n = (SETTINGS.match(/#818cf8/gi) || []).length;
     assert.equal(n, 0,
         `${n} literal #818cf8 tersisa di settings.html — wajib var(--color-primary-bright)`);
-    const grad = SETTINGS.match(/linear-gradient\(135deg,[^;]+\);/);
-    assert.ok(grad, 'gradien endpoint ada');
-    assert.match(grad[0], /var\(--color-primary-bright\)/);
+    // Batch 23: header premium dihapus, gradien endpoint tidak lagi di system-apps header
+    // — cukup pastikan tidak ada literal, tidak wajib ada gradien dengan token di file ini.
+    assert.ok(!SETTINGS.includes('#818cf8'), 'literal #818cf8 harus 0');
 });

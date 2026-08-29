@@ -243,7 +243,7 @@ test('S58 (statik): jumlah rgba literal digit settings.html turun signifikan (10
 test('S58 (statik): bentuk token rgba(var(--rgb-*)) selalu benar — tidak ada salah tulis', () => {
     // Bentuk sah: rgba(var(--rgb-white), α) / rgba(var(--rgb-black), α).
     const valid = SETTINGS.match(/rgba\(var\(--rgb-(?:white|black)\),\s*[0-9.]+\)/g) || [];
-    assert.ok(valid.length >= 75, `bentuk valid = ${valid.length}, hasil migrasi mekanis ±81`);
+    assert.ok(valid.length >= 45, `bentuk valid = ${valid.length}, hasil migrasi Batch 23 (-31 premium)`);
     // Salah tulis yang dilarang: koma hilang sebelum α, kurung/typo varian lain.
     assert.doesNotMatch(SETTINGS, /rgba\(var\(--rgb-(?:white|black)\s*,/, 'koma penutup var() hilang');
     assert.doesNotMatch(SETTINGS, /rgba\(var\(--rgb-white\)[^,]/, 'α tanpa koma pemisah');

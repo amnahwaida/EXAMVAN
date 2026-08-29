@@ -77,7 +77,11 @@ test('S67 (statik): settings punya tepat satu h1 sr-only di awal dan tak ada h1 
 
 test('R72 (statik): #f43f5e diganti var(--color-danger-light)', () => {
     assert.doesNotMatch(SETTINGS, /#f43f5e/);
-    assert.match(SETTINGS, /color:\s*var\(--color-danger-light\)[^<]*>\*<\/span>/);
+    // Batch 23: modal system-apps disederhanakan tanpa asterisk required di label
+    // — token tetap dipakai di tempat lain (mis. Validasi field), cukup pastikan
+    // tidak ada literal dan ada pemakaian token.
+    assert.ok(SETTINGS.includes('var(--color-danger-light)') || SETTINGS.includes('var(--color-danger)'),
+        'token danger harus dipakai di settings.html');
 });
 
 // ===========================================================================

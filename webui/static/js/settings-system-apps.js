@@ -52,17 +52,15 @@ function renderAppsGrid(apps) {
     const grid = document.querySelector('#section-system-apps .apps-grid');
     if (!grid) return;
     grid.innerHTML = '';
-
     if (!apps.length) {
-        const empty = el('div',
-            'grid-column:1/-1;text-align:center;padding:80px 20px;background:rgba(255,255,255,0.02);border-radius:24px;border:2px dashed rgba(255,255,255,0.1);');
-        empty.appendChild(el('h3', 'color:white;font-size:1.5rem;font-weight:700;margin:0 0 12px 0;', 'Belum Ada Aplikasi'));
-        empty.appendChild(el('p', 'color:var(--color-text-placeholder);font-size:1.05rem;max-width:480px;margin:0 auto;',
-            'Anda belum mengunggah aplikasi. Klik tombol unggah di kanan atas untuk mulai mendistribusikan aplikasi ujian ke siswa.'));
+        const empty = el('div', '');
+        empty.className = 'glass-card';
+        empty.style.cssText = 'grid-column:1/-1;text-align:center;padding:32px;';
+        empty.appendChild(el('h3', '', 'Belum Ada Aplikasi'));
+        empty.appendChild(el('p', '', 'Anda belum mengunggah aplikasi. Klik Unggah di atas.'));
         grid.appendChild(empty);
         return;
     }
-
     apps.forEach(function(app) {
         const p = app.platform || app.Platform;
         const nm = app.name || app.Name;
@@ -71,61 +69,47 @@ function renderAppsGrid(apps) {
         const cid = app.id != null ? app.id : app.ID;
         const cAt = app.created_at || app.CreatedAt;
         const card = el('div', '');
-        card.className = 'premium-card';
-
+        card.className = 'glass-card';
+        const head = el('div', '');
+        head.className = 'app-card-head';
         const iconWrap = el('div', '');
-        iconWrap.className = 'platform-icon platform-' + p;
+        iconWrap.className = 'app-card-icon';
         iconWrap.innerHTML = platformIcon(p);
-        card.appendChild(iconWrap);
-
-        const title = el('h3', '', '');
-        title.className = 'app-title';
+        head.appendChild(iconWrap);
+        const titleWrap = el('div', '');
+        const title = el('div', '');
+        title.className = 'app-card-title';
         title.textContent = nm;
-        card.appendChild(title);
-
-        const badge = el('div', '', '');
-        const ver = el('span', '', '');
-        ver.className = 'app-version';
-        ver.textContent = 'v' + verStr;
-        badge.appendChild(ver);
-        card.appendChild(badge);
-
-        const meta = el('div', '', '');
-        meta.className = 'app-meta';
-
-        const sizeWrap = el('div', '', '');
-        sizeWrap.appendChild(el('div',
-            'font-size:0.75rem;text-transform:uppercase;letter-spacing:0.08em;margin-bottom:4px;font-weight:600;', 'Ukuran'));
-        sizeWrap.appendChild(el('div',
-            'font-weight:700;color:white;font-size:1.05rem;',
-            (sz / (1024 * 1024)).toFixed(2) + ' MB'));
-        meta.appendChild(sizeWrap);
-
-        const dateWrap = el('div', 'text-align:right;', '');
-        dateWrap.appendChild(el('div',
-            'font-size:0.75rem;text-transform:uppercase;letter-spacing:0.08em;margin-bottom:4px;font-weight:600;', 'Diunggah Pada'));
-        let dateText = '-';
-        try { dateText = new Date(cAt).toLocaleDateString('id-ID', { day: '2-digit', month: 'short', year: 'numeric' }); } catch (_) {}
-        dateWrap.appendChild(el('div',
-            'font-weight:700;color:white;font-size:1.05rem;', dateText));
-        meta.appendChild(dateWrap);
-
+        titleWrap.appendChild(title);
+        const sub = el('div', '');
+        sub.className = 'app-card-sub';
+        sub.textContent = 'v' + verStr + ' • ' + p;
+        titleWrap.appendChild(sub);
+        head.appendChild(titleWrap);
+        card.appendChild(head);
+        const meta = el('div', '');
+        meta.className = 'app-card-meta';
+        const sizeEl = el('span', '');
+        sizeEl.textContent = 'Ukuran: ' + (sz / (1024 * 1024)).toFixed(2) + ' MB';
+        const dateEl = el('span', '');
+        try { dateEl.textContent = new Date(cAt).toLocaleDateString('id-ID', { day: '2-digit', month: 'short', year: 'numeric' }); } catch (_) { dateEl.textContent = '-'; }
+        meta.appendChild(sizeEl);
+        meta.appendChild(dateEl);
         card.appendChild(meta);
-
-        const actions = el('div', 'display:flex;gap:16px;', '');
-        actions.className = 'action-buttons';
-
-        const dl = el('a',
-            'display:flex;align-items:center;gap:6px;color:var(--color-text-placeholder);text-decoration:none;font-size:13px;', 'Unduh');
+        const actions = el('div', '');
+        actions.className = 'app-card-actions';
+        const dl = el('a', '');
+        dl.className = 'btn-secondary';
         dl.href = '/download/app/' + cid;
         dl.target = '_blank';
+        dl.rel = 'noopener';
+        dl.textContent = 'Unduh';
         actions.appendChild(dl);
-
-        const delBtn = el('button',
-            'background:none;border:none;color:var(--color-danger-light);cursor:pointer;font-size:13px;', 'Hapus');
+        const delBtn = el('button', '');
+        delBtn.className = 'btn-secondary btn-danger';
+        delBtn.textContent = 'Hapus';
         delBtn.addEventListener('click', function() { deleteApp(cid, nm); });
         actions.appendChild(delBtn);
-
         card.appendChild(actions);
         grid.appendChild(card);
     });

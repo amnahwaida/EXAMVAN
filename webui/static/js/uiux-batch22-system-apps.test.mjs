@@ -108,7 +108,8 @@ test('S22-4 (statik): loadApps tetap pakai guard appLoadSeq (S92) dan render tex
   assert.match(APPS_JS, /const\s+seq\s*=\s*\+\+appLoadSeq/, 'seq increment harus ada');
   assert.match(APPS_JS, /if\s*\(seq\s*!==\s*appLoadSeq\)\s*return/, 'early return stale response harus ada');
   assert.match(APPS_JS, /title\.textContent\s*=\s*(app\.Name|nm|app\.name)/, 'render harus pakai textContent (anti-XSS) bukan innerHTML untuk nama');
-  assert.match(APPS_JS, /platform-icon platform-.*\+.*p/, 'render harus pakai platform key yang ternormalisasi (p) anti case-mismatch');
+  assert.match(APPS_JS, /platformIcon\(p\)|platformIcon\(.*platform/, 'render harus pakai platformIcon dengan key ternormalisasi (p)');
+  assert.match(APPS_JS, /app-card-icon|glass-card/, 'render batch 23 harus pakai glass-card/app-card-icon (bukan premium)');
 });
 
 // ── S22 vm: __settingsReady benar-benar memanggil loadApps ────────────────

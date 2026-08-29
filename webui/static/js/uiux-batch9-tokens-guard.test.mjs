@@ -60,7 +60,7 @@ const BASELINES = {
     'settings-billing.js': { rgba: 8, hex: 1 },
     // S88 (ronde 8): seluruh modul JS statis kini punya entri eksplisit —
     // penambahan warna hardcoded PERTAMA pada modul mana pun memerah test.
-    'settings-system-apps.js': { rgba: 2, hex: 0 }, // empty-state render-JS
+    'settings-system-apps.js': { rgba: 0, hex: 0 }, // Batch 23: clean glass-card (hapus 2 premium rgba)
     'settings-users.js': { rgba: 0, hex: 0 },
     'settings-general.js': { rgba: 0, hex: 0 },
     'settings-packages.js': { rgba: 0, hex: 0 },
