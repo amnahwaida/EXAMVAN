@@ -64,24 +64,29 @@ function renderAppsGrid(apps) {
     }
 
     apps.forEach(function(app) {
+        const p = app.platform || app.Platform;
+        const nm = app.name || app.Name;
+        const verStr = app.version || app.Version;
+        const sz = app.size_bytes != null ? app.size_bytes : app.SizeBytes;
+        const cid = app.id != null ? app.id : app.ID;
+        const cAt = app.created_at || app.CreatedAt;
         const card = el('div', '');
         card.className = 'premium-card';
 
         const iconWrap = el('div', '');
-        iconWrap.className = 'platform-icon platform-' + app.Platform;
-        iconWrap.innerHTML = platformIcon(app.Platform);
+        iconWrap.className = 'platform-icon platform-' + p;
+        iconWrap.innerHTML = platformIcon(p);
         card.appendChild(iconWrap);
 
-        // Judul & versi — textContent agar aman XSS dari nama custom.
         const title = el('h3', '', '');
         title.className = 'app-title';
-        title.textContent = app.Name;
+        title.textContent = nm;
         card.appendChild(title);
 
         const badge = el('div', '', '');
         const ver = el('span', '', '');
         ver.className = 'app-version';
-        ver.textContent = 'v' + app.Version;
+        ver.textContent = 'v' + verStr;
         badge.appendChild(ver);
         card.appendChild(badge);
 
@@ -93,14 +98,14 @@ function renderAppsGrid(apps) {
             'font-size:0.75rem;text-transform:uppercase;letter-spacing:0.08em;margin-bottom:4px;font-weight:600;', 'Ukuran'));
         sizeWrap.appendChild(el('div',
             'font-weight:700;color:white;font-size:1.05rem;',
-            (app.SizeBytes / (1024 * 1024)).toFixed(2) + ' MB'));
+            (sz / (1024 * 1024)).toFixed(2) + ' MB'));
         meta.appendChild(sizeWrap);
 
         const dateWrap = el('div', 'text-align:right;', '');
         dateWrap.appendChild(el('div',
             'font-size:0.75rem;text-transform:uppercase;letter-spacing:0.08em;margin-bottom:4px;font-weight:600;', 'Diunggah Pada'));
         let dateText = '-';
-        try { dateText = new Date(app.CreatedAt).toLocaleDateString('id-ID', { day: '2-digit', month: 'short', year: 'numeric' }); } catch (_) {}
+        try { dateText = new Date(cAt).toLocaleDateString('id-ID', { day: '2-digit', month: 'short', year: 'numeric' }); } catch (_) {}
         dateWrap.appendChild(el('div',
             'font-weight:700;color:white;font-size:1.05rem;', dateText));
         meta.appendChild(dateWrap);
@@ -112,13 +117,13 @@ function renderAppsGrid(apps) {
 
         const dl = el('a',
             'display:flex;align-items:center;gap:6px;color:var(--color-text-placeholder);text-decoration:none;font-size:13px;', 'Unduh');
-        dl.href = '/download/app/' + app.ID;
+        dl.href = '/download/app/' + cid;
         dl.target = '_blank';
         actions.appendChild(dl);
 
         const delBtn = el('button',
             'background:none;border:none;color:var(--color-danger-light);cursor:pointer;font-size:13px;', 'Hapus');
-        delBtn.addEventListener('click', function() { deleteApp(app.ID, app.Name); });
+        delBtn.addEventListener('click', function() { deleteApp(cid, nm); });
         actions.appendChild(delBtn);
 
         card.appendChild(actions);
