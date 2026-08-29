@@ -775,6 +775,50 @@ body.modal-open {
 .btn-secondary:hover {
     background: rgba(var(--rgb-white), 0.12);
 }
+.btn-primary {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    padding: 10px 18px;
+    font-size: 0.875rem;
+    font-weight: 600;
+    font-family: inherit;
+    border: 1px solid transparent;
+    border-radius: 8px;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    background: linear-gradient(135deg, var(--grad-btn-violet-start), var(--grad-btn-violet-end));
+    color: var(--color-text-on-primary);
+    text-decoration: none;
+    white-space: nowrap;
+    line-height: 1.4;
+    user-select: none;
+    box-shadow: 0 2px 10px rgba(var(--rgb-info), 0.3);
+}
+.btn-primary:hover {
+    filter: brightness(1.08);
+    box-shadow: 0 4px 16px rgba(var(--rgb-info), 0.4);
+}
+.btn-primary:active {
+    transform: scale(0.97);
+}
+.btn-primary:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+    pointer-events: none;
+}
+.btn-danger,
+.btn-secondary.btn-danger {
+    background: rgba(var(--rgb-danger), 0.1);
+    border-color: rgba(var(--rgb-danger), 0.28);
+    color: var(--color-danger-light);
+}
+.btn-danger:hover,
+.btn-secondary.btn-danger:hover {
+    background: rgba(var(--rgb-danger), 0.2);
+    border-color: rgba(var(--rgb-danger), 0.45);
+}
 
 /* Loading spinner: billing uses <svg class="icon-svg spin"> but no admin
    stylesheet defined the animation (it existed only in hasil.css). */

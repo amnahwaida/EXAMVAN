@@ -74,6 +74,7 @@ function renderAppsGrid(apps) {
         head.className = 'app-card-head';
         const iconWrap = el('div', '');
         iconWrap.className = 'app-card-icon';
+        iconWrap.setAttribute('data-platform', p || '');
         iconWrap.innerHTML = platformIcon(p);
         head.appendChild(iconWrap);
         const titleWrap = el('div', '');
