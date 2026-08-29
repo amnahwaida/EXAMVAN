@@ -2409,8 +2409,12 @@ window.__settingsLoaded = {};
         }
         if (opts.afterInit) opts.afterInit();
       });
-    } else if (opts.afterInit) {
-      opts.afterInit();
+    } else {
+      if (key === 'system-apps') {
+        if (typeof window.loadSystemApps === 'function') window.loadSystemApps();
+        else if (window.__settingsReady && typeof window.__settingsReady[key] === 'function') window.__settingsReady[key]();
+      }
+      if (opts.afterInit) opts.afterInit();
     }
   }
 

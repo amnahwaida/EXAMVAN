@@ -498,13 +498,15 @@ async function deleteApp(id, name) {
 // ===== Init pasca-load modul =====
 window.__settingsReady = window.__settingsReady || {};
 window.__settingsReady['system-apps'] = function() {
-    // Toast sukses setelah redirect pasca-upload (?uploaded=1).
     var params = new URLSearchParams(window.location.search);
     if (params.get('uploaded') === '1' && typeof showToast === 'function') {
         showToast('Aplikasi berhasil diunggah', 'success');
         try { window.history.replaceState({}, '', '/admin/settings#system-apps'); } catch (e) {}
     }
+    if (typeof loadApps === 'function') loadApps();
 };
+window.loadSystemApps = loadApps;
+window.loadApps = loadApps;
 
 // Batch 7 (R28): aksi modal unggah & hapus aplikasi via delegasi data-action.
 // Argumen dibawa data-* di markup (data-app-id / data-app-name), sehingga
