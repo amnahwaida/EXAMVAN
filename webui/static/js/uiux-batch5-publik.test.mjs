@@ -118,7 +118,12 @@ test('R20: blok @media print hasil.css menyembunyikan elemen yang benar-benar ad
     assert.ok(block.includes('.pagination-wrapper'), 'selector print harus .pagination-wrapper');
     assert.doesNotMatch(block, /\.search-card/, '.search-card tidak eksis di markup');
     assert.doesNotMatch(block, /\.pagination(?![\w-])/, '.pagination telanjang tidak eksis (yang ada .pagination-wrapper)');
-    assert.ok(block.includes('.header-badge'), 'badge header ikut disembunyikan saat cetak');
+    if (block.includes('.header-badge')) {
+        assert.ok(true, 'badge header ikut disembunyikan saat cetak (legacy header)');
+    } else {
+        const hasilUnified = /\{\{\s*template\s+"public_(?:auth_)?nav"/.test(read('templates/public/hasil.html'));
+        assert.ok(hasilUnified, 'Batch 18: header publik tunggal — .header-badge legacy DIHAPUS, print badge tidak lagi relevan');
+    }
 
     // Validasi programatik: setiap selector pada daftar print-hide harus
     // cocok dengan class/id yang benar-benar ada di hasil.html.

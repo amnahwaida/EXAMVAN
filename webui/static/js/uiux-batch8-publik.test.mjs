@@ -159,7 +159,7 @@ const HEX_RE = /#[0-9a-fA-F]{3,8}\b/g;
 //   reset_password 0→0 · hasil 6→6 · cek_hasil/index/forgot_password baru = 0.
 const BASELINE_HEX = {
     'download.html': 7,
-    'shared.html': 14,
+    'shared.html': 12, /* Batch 18 H6: nav inline DIHAPUS → -2 hex (#e0e7ff, #ffffff) */
     'register.html': 1, /* +theme-color (R130) */
     'register_confirm.html': 1, /* +theme-color (R130) */
     'reset_password.html': 1, /* +theme-color (R130) */

@@ -99,7 +99,7 @@ const RGBA_BASELINE_PER_FILE = {
     'public/hasil.html': 0,
     'admin/partials/nav.html': 8,
     'public/reset_password.html': 0,
-    'public/shared.html': 3,
+    'public/shared.html': 2, /* Batch 18 H6: nav inline DIHAPUS → -1 rgba */
 };
 
 for (const [rel, cap] of Object.entries(RGBA_BASELINE_PER_FILE)) {

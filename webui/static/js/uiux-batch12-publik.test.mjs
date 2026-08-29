@@ -380,7 +380,7 @@ test('S68: hasil.css bebas rgba(99,102,241,α) literal — substitusi persis rgb
     assert.equal(literals, 0,
         `${literals} rgba(99,102,241,…) literal tersisa di hasil.css — pakai rgba(var(--rgb-info), α)`);
     const tokenUses = (css.match(/rgba\(\s*var\(\s*--rgb-info\s*\)\s*,/g) || []).length;
-    assert.ok(tokenUses >= 18,
-        `substitusi persis harus meninggalkan ≥18 pemakaian rgba(var(--rgb-info), α), dapat ${tokenUses} `
-        + '(visual nol perubahan — triplet identik 99,102,241)');
+    assert.ok(tokenUses >= 16,
+        `substitusi persis harus meninggalkan ≥16 pemakaian rgba(var(--rgb-info), α), dapat ${tokenUses} `
+        + '(visual nol perubahan — triplet identik 99,102,241; Batch 18: -2 header-badge legacy)');
 });

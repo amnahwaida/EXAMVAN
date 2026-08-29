@@ -144,9 +144,15 @@ test('S8: tidak ada deklarasi font-size < 12px (0.75rem) di hasil.css, kecuali w
 
 test('S8: .header-badge (anchor :760 ≈8.8px) — desktop & mobile ≥ 0.75rem, kompensasi via padding', () => {
     const css = read(CSS_FILE);
-
     const base = cssRule(css, '\\.header-badge');
-    assert.ok(base !== null, 'rule .header-badge harus ada');
+    if (base === null) {
+        const hasilHtml = read('templates/public/hasil.html');
+        const usesUnifiedNav = /\{\{\s*template\s+"public_(?:auth_)?nav"/.test(hasilHtml);
+        const noCustomHeader = !/<header[^>]*class="[^"]*\bheader\b/.test(hasilHtml);
+        assert.ok(usesUnifiedNav && noCustomHeader,
+            'Batch 18: header publik tunggal — .header-badge legacy DIHAPUS (kini di public_nav); test S8 ini dilewati karena badge custom tidak lagi dipakai');
+        return;
+    }
     const baseFs = fontSizePx(base.match(/font-size\s*:\s*([^;}]+)/)[1]);
     assert.ok(baseFs >= 12, `.header-badge desktop: ${baseFs}px < 12px`);
     const basePad = paddingH(base);

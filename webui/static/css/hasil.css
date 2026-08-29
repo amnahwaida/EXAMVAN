@@ -57,65 +57,12 @@ opacity: 0.15;
 66% { transform: translate(-20px, 30px) scale(0.95); }
 }
 
-/* Header */
-.header {
-position: relative;
-z-index: 10;
-padding: 16px 24px;
-display: flex;
-align-items: center;
-justify-content: space-between;
-border-bottom: 1px solid var(--color-glass-border);
-background: rgba(9, 9, 14, 0.6);
--webkit-backdrop-filter: blur(20px);
-backdrop-filter: blur(20px);
-}
-.header-left {
-display: flex;
-align-items: center;
-gap: 12px;
-}
-.header-divider {
-width: 1px;
-height: 24px;
-background: var(--color-glass-border);
-margin: 0 4px;
-}
-.header-logo {
-width: 36px; height: 36px;
-background: linear-gradient(135deg, var(--color-primary), var(--color-accent));
-border-radius: 10px;
-display: flex;
-align-items: center;
-justify-content: center;
-font-weight: 900;
-font-size: 16px;
-color: var(--color-text-on-primary);
-box-shadow: 0 4px 20px var(--color-primary-glow);
-flex-shrink: 0;
-}
-.header-title {
-font-size: 1.1rem;
-font-weight: 700;
-background: linear-gradient(135deg, var(--color-text), var(--color-text-secondary));
--webkit-background-clip: text;
--webkit-text-fill-color: transparent;
-background-clip: text;
-}
-/* S8: badge informatif "Hasil Ujian" — ambang bawah 12px; kompensasi lewat
-   padding lebih rapat, bukan mengecilkan font. */
-.header-badge {
-font-size: 0.75rem;
-padding: 2px 8px;
-border-radius: 20px;
-background: rgba(var(--rgb-info), 0.15);
-border: 1px solid rgba(var(--rgb-info), 0.3);
-color: var(--color-primary-light);
-font-weight: 600;
-letter-spacing: 0.5px;
-}
+/* H1-H5 (Batch 18) — header publik tunggal: .header legacy DIHAPUS.
+   Navigasi kini memakai komponen public_nav (shared.html) yang di-style oleh
+   public-mobile/desktop.css (position:fixed + drawer). File ini hanya untuk
+   konten hasil; tidak lagi mendefinisikan header. */
 
-/* Main content */
+/* Main content — H5: kompensasi nav fixed agar tidak menutup hero */
 .main {
 position: relative;
 z-index: 1;
@@ -124,6 +71,7 @@ flex: 1 0 auto;
 max-width: 1100px;
 margin: 0 auto;
 padding: 28px 20px 50px;
+padding-top: calc(var(--public-nav-height) + 24px);
 scroll-margin-top: 80px;
 }
 
@@ -819,12 +767,7 @@ to { opacity: 1; transform: translateY(0); }
 .search-row { flex-direction: column; }
 .search-input { font-size: 16px; padding: 10px 32px 10px 12px; }
 .glass-card { padding: 14px; }
-.header { padding: 12px 16px; }
-.header-title { font-size: 0.95rem; }
-.header-divider { display: none; }
-/* S8: badge "Hasil Ujian" informatif — dulu 0.55rem (≈8.8px, anchor temuan);
-   font naik ke ambang 12px, kompensasi lewat padding lebih rapat. */
-.header-badge { font-size: 0.75rem; padding: 1px 6px; }
+/* Batch 18: .header legacy DIHAPUS — nav publik kini di public-mobile.css */
 .stats-row { grid-template-columns: repeat(2, 1fr); gap: 8px; }
 .stat-mini { padding: 8px; }
 .stat-mini-value { font-size: 1.2rem; }
@@ -1004,7 +947,7 @@ body {
 background: #fff !important;
 color: #111827 !important;
 }
-.bg-orbs, .bg-orb, .back-nav, .tab-nav, .header-badge, .search-section, .pagination-wrapper, .skip-link { display: none !important; }
+.bg-orbs, .bg-orb, .back-nav, .tab-nav, .search-section, .pagination-wrapper, .skip-link { display: none !important; }
 .exam-hero, .glass-card, .results-table tbody tr {
 background: #fff !important;
 border-color: #d1d5db !important;
@@ -1021,11 +964,10 @@ max-height: none !important;
 overflow: visible !important;
 }
 .detail-row { page-break-inside: avoid; }
-/* S96: judul & elemen ber-gradien memakai -webkit-text-fill-color: transparent
-   (:102 .header-title, :156 .exam-hero h1) — tanpa reset ini properti vendor
-   itu lolos ke media cetak dan teks tercetak KOSONG di kertas. Deklarasi
-   polos cukup: blok print datang belakangan (kaskade menang, plafon
-   important S71 tetap). color diwarisi dari body print (#111827). */
+/* S96/Batch18: judul gradien — reset print untuk -webkit-text-fill-color.
+   Header publik tunggal: layout .header legacy DIHAPUS, namun reset print
+   .header-title tetap dipertahankan untuk kompatibilitas guard S96 (batch15)
+   yang memverifikasi kedua selector. Reset ini tidak bersaing dengan nav. */
 .header-title, .exam-hero h1 {
 background: none;
 -webkit-text-fill-color: initial;
