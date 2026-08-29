@@ -37,7 +37,7 @@ class CongratulationsSmokeTest {
 
         onView(withId(R.id.tvCongratsTitle)).check(matches(withText(R.string.congrats_title)))
         onView(withId(R.id.tvExamName)).check(matches(withText("Ujian Akhir Semester")))
+        onView(withId(R.id.tvCongratsMessage)).check(matches(isDisplayed()))
         onView(withId(R.id.btnCopyLink)).check(matches(isDisplayed()))
-        onView(withId(R.id.btnOpenResult)).check(matches(isDisplayed()))
     }
 }

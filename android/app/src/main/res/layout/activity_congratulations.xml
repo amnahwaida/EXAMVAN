@@ -152,18 +152,6 @@
                     android:textSize="15sp"
                     android:textColor="@android:color/white"
                     android:background="@drawable/btn_primary"
-                    android:textAllCaps="false"
-                    android:layout_marginBottom="12dp" />
-
-                <!-- Open results button -->
-                <Button
-                    android:id="@+id/btnOpenResult"
-                    android:layout_width="match_parent"
-                    android:layout_height="52dp"
-                    android:text="@string/congrats_open_result"
-                    android:textSize="15sp"
-                    android:textColor="@color/primary"
-                    android:background="@drawable/btn_secondary_outlined"
                     android:textAllCaps="false" />
 
             </LinearLayout>
