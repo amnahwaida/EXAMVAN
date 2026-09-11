@@ -82,14 +82,19 @@ func SubmissionsPage() gin.HandlerFunc {
 		// Count total submissions within scope
 		var total int
 		countQuery := `SELECT COUNT(*) FROM submissions s JOIN exams e ON s.exam_id = e.id`
-		countArgs, _ := buildScopeConditions(c, pool, &countQuery)
+		countArgs, _, err := buildScopeConditions(c, pool, &countQuery)
+		if err != nil {
+			log.Printf("submissions scope error: %v", err)
+			errorResponse(c, http.StatusInternalServerError, "Gagal memuat data")
+			return
+		}
 
 		if examFilter > 0 {
 			countQuery += ` AND s.exam_id = $` + strconv.Itoa(len(countArgs)+1)
 			countArgs = append(countArgs, examFilter)
 		}
 
-		err := pool.QueryRow(ctx, countQuery, countArgs...).Scan(&total)
+		err = pool.QueryRow(ctx, countQuery, countArgs...).Scan(&total)
 		if err != nil {
 			log.Printf("submissions count error: %v", err)
 		}
@@ -105,7 +110,12 @@ func SubmissionsPage() gin.HandlerFunc {
 	s.answers_json, s.score, s.start_time, s.mac_address, s.created_at, s.identity_data,
 	e.name as exam_name, e.questions_json
 	FROM submissions s JOIN exams e ON s.exam_id = e.id`
-		dataArgs, hasWhere := buildScopeConditions(c, pool, &dataQuery)
+		dataArgs, hasWhere, err := buildScopeConditions(c, pool, &dataQuery)
+		if err != nil {
+			log.Printf("submissions scope error: %v", err)
+			errorResponse(c, http.StatusInternalServerError, "Gagal memuat data")
+			return
+		}
 
 		if examFilter > 0 {
 			if hasWhere {
@@ -312,7 +322,7 @@ func SubmissionsPage() gin.HandlerFunc {
 // buildScopeConditions adds WHERE conditions scoped to the current user and
 // modifies the query string in-place (adding WHERE or AND). Returns the args
 // and whether a WHERE clause was added (so callers can append correctly).
-func buildScopeConditions(c *gin.Context, pool *pgxpool.Pool, query *string) ([]interface{}, bool) {
+func buildScopeConditions(c *gin.Context, pool *pgxpool.Pool, query *string) ([]interface{}, bool, error) {
 	userID := getCurrentUserID(c)
 	isSuper := isSuperAdmin(c)
 	isOp := isOperator(c)
@@ -325,13 +335,24 @@ func buildScopeConditions(c *gin.Context, pool *pgxpool.Pool, query *string) ([]
 	if isSuper {
 		// No filter
 	} else if isOp {
-		var instansi string
-		pool.QueryRow(ctx, `SELECT instansi FROM admin_users WHERE id = $1`, userID).Scan(&instansi)
-		conditions = append(conditions,
-			fmt.Sprintf(`e.created_by IN (SELECT id FROM admin_users WHERE instansi = $%d)`,
-				argIdx))
-		args = append(args, instansi)
-		argIdx++
+		// Fail-closed: an operator whose instansi cannot be resolved aborts the
+		// query; an empty/"personal" instansi is NOT a tenant, so it must never
+		// widen the scope to other tenants — fall back to own-created exams only.
+		opInstansi, err := getInstansiForOperator(ctx, pool, userID)
+		if err != nil {
+			return nil, false, err
+		}
+		if opInstansi != "" && opInstansi != "personal" {
+			conditions = append(conditions,
+				fmt.Sprintf(`e.created_by IN (SELECT id FROM admin_users WHERE instansi = $%d)`,
+					argIdx))
+			args = append(args, opInstansi)
+			argIdx++
+		} else {
+			conditions = append(conditions, fmt.Sprintf(`e.created_by = $%d`, argIdx))
+			args = append(args, userID)
+			argIdx++
+		}
 	} else {
 		conditions = append(conditions,
 			fmt.Sprintf(`(e.created_by = $%d OR e.delegated_to = $%d OR s.exam_id IN (SELECT exam_id FROM exam_pengawas WHERE user_id = $%d))`,
@@ -342,9 +363,9 @@ func buildScopeConditions(c *gin.Context, pool *pgxpool.Pool, query *string) ([]
 
 	if len(conditions) > 0 {
 		*query += " WHERE " + strings.Join(conditions, " AND ")
-		return args, true
+		return args, true, nil
 	}
-	return args, false
+	return args, false, nil
 }
 
 func fetchFilterExams(c *gin.Context, pool *pgxpool.Pool) []gin.H {
@@ -361,13 +382,26 @@ func fetchFilterExams(c *gin.Context, pool *pgxpool.Pool) []gin.H {
 	if isSuper {
 		// all
 	} else if isOp {
-		var instansi string
-		pool.QueryRow(ctx, `SELECT instansi FROM admin_users WHERE id = $1`, userID).Scan(&instansi)
-		conditions = append(conditions,
-			fmt.Sprintf(`created_by IN (SELECT id FROM admin_users WHERE instansi = $%d)`,
-				argIdx))
-		args = append(args, instansi)
-		argIdx++
+		// Fail-closed: same canonical resolver as buildScopeConditions /
+		// exportAllXLSX. Error → empty dropdown (better than an unscoped list);
+		// ""/"personal" → own-created exams only, so an empty instansi never
+		// widens the filter to every account that shares the empty bucket.
+		opInstansi, err := getInstansiForOperator(ctx, pool, userID)
+		if err != nil {
+			log.Printf("fetch filter exams scope error: %v", err)
+			return nil
+		}
+		if opInstansi != "" && opInstansi != "personal" {
+			conditions = append(conditions,
+				fmt.Sprintf(`created_by IN (SELECT id FROM admin_users WHERE instansi = $%d)`,
+					argIdx))
+			args = append(args, opInstansi)
+			argIdx++
+		} else {
+			conditions = append(conditions, fmt.Sprintf(`created_by = $%d`, argIdx))
+			args = append(args, userID)
+			argIdx++
+		}
 	} else {
 		conditions = append(conditions,
 			fmt.Sprintf(`(e.created_by = $%d OR e.delegated_to = $%d OR e.id IN (SELECT exam_id FROM exam_pengawas WHERE user_id = $%d))`,
@@ -804,7 +838,6 @@ func fetchSubmissionsByExam(ctx context.Context, pool *pgxpool.Pool, examID int)
 func exportAllXLSX(c *gin.Context, pool *pgxpool.Pool, ctx context.Context,
 	userID int, isSuper, isOp bool, tzOffset *int) {
 
-	var instansi string
 	query := `SELECT s.id, s.exam_id, s.student_name, s.exam_number, s.student_class,
 	s.identity_data, s.score, s.start_time, s.mac_address, s.created_at,
 	e.name as exam_name
@@ -815,11 +848,24 @@ func exportAllXLSX(c *gin.Context, pool *pgxpool.Pool, ctx context.Context,
 	argIdx := 1
 
 	if isOp {
-		pool.QueryRow(ctx, `SELECT instansi FROM admin_users WHERE id = $1`, userID).Scan(&instansi)
-		if instansi != "" {
+		// Fail-closed: resolve instansi via the canonical resolver instead of
+		// a raw QueryRow whose error is swallowed. An operator with ""/"personal"
+		// instansi falls back to own-created exams only — never an unscoped,
+		// whole-system export of every tenant's student data.
+		opInstansi, err := getInstansiForOperator(ctx, pool, userID)
+		if err != nil {
+			log.Printf("export all xlsx scope error: %v", err)
+			errorResponse(c, http.StatusInternalServerError, "Gagal mengekspor data")
+			return
+		}
+		if opInstansi != "" && opInstansi != "personal" {
 			conditions = append(conditions,
 				fmt.Sprintf(`e.created_by IN (SELECT id FROM admin_users WHERE instansi = $%d)`, argIdx))
-			args = append(args, instansi)
+			args = append(args, opInstansi)
+			argIdx++
+		} else {
+			conditions = append(conditions, fmt.Sprintf(`e.created_by = $%d`, argIdx))
+			args = append(args, userID)
 			argIdx++
 		}
 	} else if !isSuper {
