@@ -623,7 +623,10 @@ func TestDashboardOperatorFeaturesForRawRoleJSON(t *testing.T) {
 	}
 	// The delegation BUTTON (inside the exam-action dropdown) is guarded; the
 	// modal itself is always rendered (hidden) so it cannot serve as the marker.
-	if !strings.Contains(body, "openDelegateExamModal(") {
+	// The button no longer inlines openDelegateExamModal — Batch 7 moved it to
+	// the admin.js event delegation (Actions.register 'delegate-exam-open') —
+	// so the stable marker is the button's data-action attribute.
+	if !strings.Contains(body, `data-action="delegate-exam-open"`) {
 		t.Error("raw-JSON operator dashboard must render the Delegasi Ujian action button")
 	}
 	if !strings.Contains(body, "Pengawas Ujian") {
@@ -649,7 +652,7 @@ func TestDashboardOperatorFeaturesForRawRoleJSON(t *testing.T) {
 	if strings.Contains(body, `class="stat-card stat-instansi"`) {
 		t.Error("guru dashboard must NOT render the instansi card (management-only)")
 	}
-	if strings.Contains(body, "openDelegateExamModal(") {
+	if strings.Contains(body, `data-action="delegate-exam-open"`) {
 		t.Error("guru dashboard must NOT render the Delegasi Ujian action button")
 	}
 	if strings.Contains(body, "<th scope=\"col\">Pembuat</th>") {
