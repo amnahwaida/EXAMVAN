@@ -826,6 +826,9 @@ var allowedUserColumns = map[string]bool{
 	"otp_code":             true,
 	"otp_expiry":           true,
 	"package":              true,
+	// M2: the password-change revocation anchor — only written by the reset
+	// and change-password handlers with a server-generated timestamp.
+	"password_changed_at": true,
 }
 
 // UpdateUserField updates a single column on the admin_users table.

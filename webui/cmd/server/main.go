@@ -1008,6 +1008,12 @@ func loginHandler(cfg *config.Config) gin.HandlerFunc {
 		session.Set(middleware.SessionKeyRole, adminRole)
 		session.Set(middleware.SessionKeyIsSuper, isSuper)
 		session.Set(middleware.SessionKeyInstansi, user.Instansi)
+		// M2: record when this session was established (Unix milliseconds)
+		// so AuthRequired can revoke it (and every older one) after a
+		// password change/reset. Milliseconds, not seconds: a re-login in
+		// the same second as a recorded change must not bounce back to the
+		// login page.
+		session.Set(middleware.SessionKeyIssuedAt, time.Now().UnixMilli())
 		if err := session.Save(); err != nil {
 			log.Printf("session save error: %v", err)
 		}

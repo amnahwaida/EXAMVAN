@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -585,7 +586,22 @@ func ChangePassword() gin.HandlerFunc {
 			return
 		}
 
-		if err := models.UpdateUserField(ctx, pool, userID, "password_hash", body.NewPassword); err != nil {
+		// M2: the new hash and the revocation anchor are written ATOMICALLY —
+		// a password change without the stamp would silently keep the old
+		// revocation contract (stolen cookie valid up to its 24h MaxAge), so
+		// the two must never land separately. password_changed_at ends every
+		// session issued BEFORE it at AuthRequired — including the very
+		// session making this request (its owner re-logs in with the new
+		// password and receives a fresh stamped session).
+		hash, err := models.HashPassword(body.NewPassword)
+		if err != nil {
+			log.Printf("change password hash error: %v", err)
+			errorResponse(c, http.StatusInternalServerError, "Gagal mengubah password")
+			return
+		}
+		if _, err := pool.Exec(ctx,
+			`UPDATE admin_users SET password_hash = $1, password_changed_at = $2 WHERE id = $3`,
+			hash, time.Now().UTC(), userID); err != nil {
 			log.Printf("change password error: %v", err)
 			errorResponse(c, http.StatusInternalServerError, "Gagal mengubah password")
 			return

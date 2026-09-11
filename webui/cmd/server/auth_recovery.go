@@ -359,8 +359,8 @@ func resetPasswordPostHandler(cfg *config.Config) gin.HandlerFunc {
 			return
 		}
 		if _, err := pool.Exec(ctx,
-			`UPDATE admin_users SET password_hash = $1, otp_code = NULL, otp_expiry = NULL, otp_attempts = 0 WHERE id = $2`,
-			hash, id); err != nil {
+			`UPDATE admin_users SET password_hash = $1, otp_code = NULL, otp_expiry = NULL, otp_attempts = 0, password_changed_at = $3 WHERE id = $2`,
+			hash, id, time.Now().UTC()); err != nil {
 			log.Printf("reset password: update error: %v", err)
 			render("Gagal menyimpan password baru. Coba lagi.")
 			return

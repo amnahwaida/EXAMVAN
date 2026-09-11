@@ -234,6 +234,11 @@ ALTER TABLE exams ADD COLUMN IF NOT EXISTS auto_approve BOOLEAN NOT NULL DEFAULT
 ALTER TABLE admin_users ADD COLUMN IF NOT EXISTS email TEXT DEFAULT '';
 ALTER TABLE admin_users ADD COLUMN IF NOT EXISTS max_storage_size BIGINT DEFAULT 52428800;
 ALTER TABLE admin_users ADD COLUMN IF NOT EXISTS otp_attempts INT NOT NULL DEFAULT 0;
+-- Server-side revocation anchor for the signed-cookie sessions (M2): a
+-- successful password change/reset stamps this column and AuthRequired ends
+-- every session issued BEFORE it — a stolen cookie dies at the next request
+-- instead of staying valid up to its full 24-hour MaxAge.
+ALTER TABLE admin_users ADD COLUMN IF NOT EXISTS password_changed_at TIMESTAMPTZ;
 
 -- Widen max_pdf_size to BIGINT so large limits (e.g. the sekolah_unggulan
 -- package or a custom voucher setting multi-GB sizes) fit; INTEGER overflows

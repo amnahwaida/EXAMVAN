@@ -28,6 +28,14 @@ const (
 	SessionKeyRole     = "role"
 	SessionKeyIsSuper  = "is_super_admin"
 	SessionKeyInstansi = "instansi"
+	// SessionKeyIssuedAt records when the session was established (Unix
+	// milliseconds, for millisecond-granular comparison against
+	// password_changed_at). It is the client-side half of the password-change
+	// revocation (M2): AuthRequired compares it against the admin_users row's
+	// password_changed_at and ends every session issued BEFORE the change —
+	// sessions predating the column have no value and are treated as issued
+	// at time zero (i.e. revoked by any recorded change).
+	SessionKeyIssuedAt = "issued_at"
 )
 
 // ---------------------------------------------------------------------------
@@ -149,9 +157,10 @@ func AuthRequired() gin.HandlerFunc {
 			var dbStatus string
 			var dbExpiresAt *time.Time
 			var dbRole, dbInstansi, dbUsername, dbName string
+			var dbPasswordChangedAt *time.Time
 			if err := dbPool.QueryRow(c.Request.Context(),
-				`SELECT status, expires_at, COALESCE(role, ''), COALESCE(instansi, ''), COALESCE(username, ''), COALESCE(name, '')
-				 FROM admin_users WHERE id = $1`, id).Scan(&dbStatus, &dbExpiresAt, &dbRole, &dbInstansi, &dbUsername, &dbName); err != nil {
+				`SELECT status, expires_at, COALESCE(role, ''), COALESCE(instansi, ''), COALESCE(username, ''), COALESCE(name, ''), password_changed_at
+				 FROM admin_users WHERE id = $1`, id).Scan(&dbStatus, &dbExpiresAt, &dbRole, &dbInstansi, &dbUsername, &dbName, &dbPasswordChangedAt); err != nil {
 				// Account no longer exists — drop the stale session.
 				session.Clear()
 				_ = session.Save()
@@ -166,6 +175,36 @@ func AuthRequired() gin.HandlerFunc {
 				c.Abort()
 				return
 			}
+
+			// Password-change revocation (M2): a successful password change or
+			// reset stamps password_changed_at on the row, and every session
+			// issued BEFORE that moment dies here — with cookie-only sessions
+			// this is the ONLY way to evict a stolen cookie before its 24h
+			// MaxAge runs out. Legacy sessions without issued_at are treated as
+			// issued at time zero, so a recorded change revokes them too; the
+			// legitimate owner simply logs in again and gets a fresh stamped
+			// session. An absent password_changed_at revokes nothing.
+			if dbPasswordChangedAt != nil {
+				issuedAt := int64(0)
+				if v, ok := session.Get(SessionKeyIssuedAt).(int64); ok {
+					issuedAt = v
+				}
+				if issuedAt < dbPasswordChangedAt.UnixMilli() {
+					session.Clear()
+					_ = session.Save()
+					if isAPIRequest(c) {
+						c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{
+							"success": false,
+							"message": "Sesi telah berakhir. Silakan login kembali.",
+						})
+					} else {
+						c.Redirect(http.StatusFound, LoginURLWithNext(c.Request.URL.RequestURI()))
+					}
+					c.Abort()
+					return
+				}
+			}
+
 			if dbStatus == models.UserStatusSuspended || dbStatus == models.UserStatusPendingOTP {
 				session.Clear()
 				_ = session.Save()
