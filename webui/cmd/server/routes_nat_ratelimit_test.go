@@ -64,6 +64,11 @@ func TestStudentRoutesRateLimitPerIP(t *testing.T) {
 		{"complete", http.MethodPost, "/api/exams/1/complete", rateLimitBurstPerMinute},
 		{"websocket", http.MethodGet, "/ws/1", rateLimitWSPerMinute},
 		{"hasil api", http.MethodGet, "/api/hasil/TOK12345", rateLimitHasilPerMinute},
+		// M1: the HTML result pages share the API route's anti-brute-force
+		// budget — the comment on rateLimitHasilPerMinute always claimed it,
+		// but the middleware was only wired on /api/hasil/:token.
+		{"hasil page", http.MethodGet, "/hasil/TOK12345", rateLimitHasilPerMinute},
+		{"cek hasil page", http.MethodGet, "/hasil", rateLimitHasilPerMinute},
 	}
 
 	for i, tc := range cases {

@@ -486,8 +486,13 @@ func registerRoutes(r *gin.Engine, cfg *config.Config, pool *pgxpool.Pool) {
 	r.GET("/download", public.DownloadPage())
 	r.GET("/download/apk", public.DownloadAPK())
 	r.GET("/download/app/:id", middleware.RateLimit(60, time.Minute), public.DownloadSystemApp())
-	r.GET("/hasil", public.CekHasilPage())
-	r.GET("/hasil/:token", public.HasilPage())
+	// M1: the HTML result pages carry the SAME anti-brute-force budget as the
+	// API route below (30/menit per IP, comment at rateLimitHasilPerMinute):
+	// each page view runs 3–4 DB queries and the token is the brute-force
+	// surface — an unthrottled HTML route would let a caller enumerate/guess
+	// tokens through the page renderer (and hammer the DB) at line rate.
+	r.GET("/hasil", middleware.RateLimitIP(rateLimitHasilPerMinute, time.Minute), public.CekHasilPage())
+	r.GET("/hasil/:token", middleware.RateLimitIP(rateLimitHasilPerMinute, time.Minute), public.HasilPage())
 
 	// ---- Short URL redirect: /<8-char-token> → /hasil/<token> ----
 	// Must be registered after all other fixed routes so it acts as a catch-all
