@@ -30,8 +30,6 @@ import (
 // ---------------------------------------------------------------------------
 
 const (
-	requiredAndroidVersion = "2.5.0"
-
 	// cacheTTL is how long the active exam list lives in Redis (seconds).
 	cacheTTL = 30 * time.Second
 
@@ -666,12 +664,14 @@ func ExamByToken() gin.HandlerFunc {
 		}
 
 		// Optional version check — if the header is absent the check is
-		// skipped, matching the Python behaviour.
+		// skipped, matching the Python behaviour. Versi yang diminta adalah
+		// versi EFEKTIF (dibatasi ke APK yang terbit, "" bila tak ada APK
+		// yang bisa diunduh) — sama dengan middleware.AndroidVersionCheck,
+		// sehingga tidak ada gate in-handler yang lebih ketat dari middleware.
 		clientVersion := c.GetHeader("X-App-Version")
 		if clientVersion != "" {
-			required := models.GetSaasSettingWithDefault(ctx, pool,
-				models.SettingAndroidVersion, requiredAndroidVersion)
-			if !isVersionAtLeast(clientVersion, required) {
+			required := models.EffectiveAndroidRequiredVersion(ctx, pool)
+			if required != "" && !isVersionAtLeast(clientVersion, required) {
 				c.JSON(http.StatusUpgradeRequired, gin.H{
 					"success": false,
 					"error":   "upgrade_required",
@@ -889,11 +889,13 @@ func SubmitExam() gin.HandlerFunc {
 		ctx := c.Request.Context()
 
 		// --- Required Android version check ---
-		required := models.GetSaasSettingWithDefault(ctx, pool,
-			models.SettingAndroidVersion, requiredAndroidVersion)
+		// Versi EFEKTIF (dibatasi ke APK yang terbit). "" berarti tidak ada
+		// APK yang bisa diunduh → penegakan dilewati, jika tidak client usang
+		// terkunci di 426 tanpa cara memperbarui (deadlock).
+		required := models.EffectiveAndroidRequiredVersion(ctx, pool)
 
 		clientVersion := c.GetHeader("X-App-Version")
-		if !isVersionAtLeast(clientVersion, required) {
+		if required != "" && !isVersionAtLeast(clientVersion, required) {
 			displayVersion := clientVersion
 			if displayVersion == "" {
 				displayVersion = "v1.x"
@@ -1405,11 +1407,13 @@ func AccessLog() gin.HandlerFunc {
 		ctx := c.Request.Context()
 
 		// --- Required Android version check ---
-		required := models.GetSaasSettingWithDefault(ctx, pool,
-			models.SettingAndroidVersion, requiredAndroidVersion)
+		// Versi EFEKTIF (dibatasi ke APK yang terbit). "" berarti tidak ada
+		// APK yang bisa diunduh → penegakan dilewati, jika tidak client usang
+		// terkunci di 426 tanpa cara memperbarui (deadlock).
+		required := models.EffectiveAndroidRequiredVersion(ctx, pool)
 
 		clientVersion := c.GetHeader("X-App-Version")
-		if !isVersionAtLeast(clientVersion, required) {
+		if required != "" && !isVersionAtLeast(clientVersion, required) {
 			displayVersion := clientVersion
 			if displayVersion == "" {
 				displayVersion = "v1.x"
