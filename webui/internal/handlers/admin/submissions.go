@@ -418,7 +418,6 @@ func ListSubmissions() gin.HandlerFunc {
 		pool := getPool(c)
 		userID := getCurrentUserID(c)
 		isSuper := isSuperAdmin(c)
-		isOp := isOperator(c)
 		ctx := c.Request.Context()
 
 		page, _ := strconv.Atoi(c.DefaultQuery("page", "1"))
@@ -442,16 +441,11 @@ func ListSubmissions() gin.HandlerFunc {
 			return
 		}
 
-		// Verify access
-		if !isSuper && !isOp {
-			owned, _ := pool.Query(ctx,
-				`SELECT 1 FROM exams WHERE id = $1 AND (created_by = $2 OR delegated_to = $2 OR id IN (SELECT exam_id FROM exam_pengawas WHERE user_id = $2))`,
-				examFilter, userID)
-			if !owned.Next() {
-				errorResponse(c, http.StatusForbidden, "Akses ditolak")
-				return
-			}
-			owned.Close()
+		// Verify access (operators are scoped by the exam owner's instansi,
+		// same as everywhere else — H2).
+		if !isSuper && !models.UserCanAccessExam(ctx, pool, userID, false, examFilter) {
+			errorResponse(c, http.StatusForbidden, "Akses ditolak")
+			return
 		}
 
 		opts := models.ListSubmissionsByExamOpts{
