@@ -1616,12 +1616,50 @@ func drainHeartbeatsQueue(ctx context.Context, rdb *redis.Client, pool *pgxpool.
 	}
 }
 
+// heartbeatFlushLockKey is the instance-level advisory lock for the
+// heartbeat flusher. With more than one webui instance serving the same
+// school (the deployment the reverse-proxy upstreams model), every instance
+// runs its own flusher tick against the SAME Redis list; the (exam, mac)
+// write races between the two flushers are serialised per-student by the
+// "approval:<exam_id>:<mac>" advisory lock, while this instance-level
+// try-lock keeps the two drain loops themselves from popping the queue
+// concurrently — one instance wins, the other skips this tick and the
+// payloads stay queued for whoever holds the lock (or the next tick).
+const heartbeatFlushLockKey = "heartbeat-flusher"
+
 // flushHeartbeatBatch moves up to heartbeatFlushBatchSize heartbeats from the
 // Redis queue into student_access_logs (audit) + submissions ("Monitoring
 // Perangkat"), inside ONE transaction. Returns how many payloads were popped;
 // a transaction failure re-pushes the whole batch so the next tick retries it
 // instead of silently dropping already-popped audit data.
 func flushHeartbeatBatch(ctx context.Context, rdb *redis.Client, pool *pgxpool.Pool) int {
+	// Instance-level try-lock: a second webui instance must not pop from the
+	// queue while another instance is mid-flush — its pops could interleave
+	// with the holder's check-then-insert writes (double placeholder rows for
+	// one student in Monitoring Perangkat). TryAdvisoryLock returns false
+	// when held elsewhere: skip this tick, leave everything queued.
+	conn, err := pool.Acquire(ctx)
+	if err != nil {
+		log.Printf("heartbeat-flusher: acquire connection for lock failed: %v", err)
+		return 0
+	}
+	defer conn.Release()
+	var locked bool
+	if err := conn.QueryRow(ctx,
+		`SELECT pg_try_advisory_lock(hashtext($1)::bigint)`, heartbeatFlushLockKey).Scan(&locked); err != nil {
+		log.Printf("heartbeat-flusher: try-lock failed: %v", err)
+		return 0
+	}
+	if !locked {
+		log.Printf("heartbeat-flusher: another instance holds the flush lock — skipping this tick")
+		return 0
+	}
+	defer func() {
+		if _, err := conn.Exec(ctx, `SELECT pg_advisory_unlock(hashtext($1)::bigint)`, heartbeatFlushLockKey); err != nil {
+			log.Printf("heartbeat-flusher: unlock failed: %v", err)
+		}
+	}()
+
 	var payloads []string
 	for i := 0; i < heartbeatFlushBatchSize; i++ {
 		val, err := rdb.RPop(ctx, heartbeatFlushQueueKey).Result()
@@ -1687,12 +1725,32 @@ func flushHeartbeatBatch(ctx context.Context, rdb *redis.Client, pool *pgxpool.P
 			log.Printf("heartbeat-flusher: insert error: %v", err)
 		}
 
-		// UPSERT into submissions to make the student appear in "Monitoring Perangkat" immediately
+		// UPSERT into submissions to make the student appear in "Monitoring
+		// Perangkat" immediately. Serialised per (exam, mac) with the SAME
+		// advisory lock the sync path (models.CreateSubmission), the approval
+		// bookkeeping (EnsureFreshSubmissionOnApproval) and the queue worker
+		// (upsertSubmissionRow) take — without it this check-then-insert can
+		// race a concurrent sync-path submit/approval into a double row.
+		if _, err := tx.Exec(ctx,
+			`SELECT pg_advisory_xact_lock(hashtext($1)::bigint)`,
+			fmt.Sprintf("approval:%d:%s", hb.ExamID, hb.MacAddress)); err != nil {
+			log.Printf("heartbeat-flusher: advisory lock error: %v", err)
+		}
+
+		// Look up the student's LATEST row for this device. Three cases:
+		//   - no row            → insert the empty placeholder (device joined,
+		//     its approval placeholder may not exist yet);
+		//   - latest row OPEN   → leave it alone, the student is in progress;
+		//   - latest row SUBMITTED (answers present) → do NOT insert a new
+		//     empty row: a late/replayed heartbeat after submit would
+		//     resurrect the student as "in-progress" (ghost row). Every other
+		//     write path targets the latest row regardless of answers; only
+		//     re-approval (EnsureFreshSubmissionOnApproval) may open a new
+		//     placeholder after a submit.
 		var latestAnswers *string
 		errLookup := tx.QueryRow(ctx, "SELECT answers_json FROM submissions WHERE exam_id=$1 AND mac_address=$2 ORDER BY created_at DESC LIMIT 1", hb.ExamID, hb.MacAddress).Scan(&latestAnswers)
 
-		// If no row exists, or the latest one is already submitted, insert a new empty row
-		if errLookup == pgx.ErrNoRows || (errLookup == nil && latestAnswers != nil && *latestAnswers != "") {
+		if errLookup == pgx.ErrNoRows || (errLookup == nil && (latestAnswers == nil || *latestAnswers == "")) {
 			_, err = tx.Exec(ctx, `
 				INSERT INTO submissions (exam_id, student_name, exam_number, student_class, mac_address, start_time, created_at, identity_data)
 				VALUES ($1, $2, $3, $4, $5, $6, $7, $8)

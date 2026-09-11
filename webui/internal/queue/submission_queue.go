@@ -21,12 +21,15 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"os"
+	"path/filepath"
+	"strings"
 	"sync"
 	"time"
 
-	goredis "github.com/redis/go-redis/v9"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
+	goredis "github.com/redis/go-redis/v9"
 
 	"github.com/examvan/webui/internal/models"
 )
@@ -53,6 +56,13 @@ const (
 
 	// maxRetriesPerJob is the number of times a failed job is retried.
 	maxRetriesPerJob = 3
+
+	// defaultSpoolDir is where retryOrFail durably spools a job whose
+	// re-enqueue failed (Redis down at exactly the wrong moment). Under
+	// os.TempDir() because the worker has no config handle, but ALWAYS on a
+	// local filesystem the next boot can read — the student's answers must
+	// never vanish with a 5-minute result key as their only trace.
+	defaultSpoolDir = "examvan-submission-spool"
 )
 
 // ---------------------------------------------------------------------------
@@ -164,6 +174,10 @@ type Worker struct {
 	quit      chan struct{}
 	batchChan chan SubmissionResult
 	wg        sync.WaitGroup
+	// submissionSpoolDir is the directory retryOrFail spools jobs into when
+	// their re-enqueue fails. Empty disables the spool (the failure is still
+	// logged loudly).
+	submissionSpoolDir string
 }
 
 // SubmissionResult wraps a job result for the batch inserter.
@@ -180,10 +194,21 @@ func StartWorker(rdb *goredis.Client, pool *pgxpool.Pool) *Worker {
 	const batchSize = 50
 
 	w := &Worker{
-		rdb:       rdb,
-		pool:      pool,
-		quit:      make(chan struct{}),
-		batchChan: make(chan SubmissionResult, batchSize*2),
+		rdb:                rdb,
+		pool:               pool,
+		quit:               make(chan struct{}),
+		batchChan:          make(chan SubmissionResult, batchSize*2),
+		submissionSpoolDir: filepath.Join(os.TempDir(), defaultSpoolDir),
+	}
+
+	// Recover anything a previous boot spooled while Redis was down: the
+	// spooled jobs are re-enqueued before the workers start polling, so
+	// answers that survived an incident are scored again. Best-effort — a
+	// drain failure must not prevent the worker from starting.
+	if drained, err := DrainSubmissionSpool(rdb, w.submissionSpoolDir); err != nil {
+		log.Printf("queue: spool drain failed (%v) — spooled jobs remain on disk", err)
+	} else if drained > 0 {
+		log.Printf("queue: re-enqueued %d spooled job(s) from a previous Redis outage", drained)
 	}
 
 	log.Printf("queue: starting submission worker pool (%d workers, batch size %d)", workerCount, batchSize)
@@ -548,10 +573,88 @@ func (w *Worker) retryOrFail(r *SubmissionResult, msg string) {
 	if r.Job.Retries < maxRetriesPerJob {
 		r.Job.Retries++
 		log.Printf("queue batch: retrying job %s (attempt %d/%d): %s", r.Job.JobID, r.Job.Retries, maxRetriesPerJob, msg)
-		_ = EnqueueSubmissionWithJob(w.rdb, &r.Job)
+		if err := EnqueueSubmissionWithJob(w.rdb, &r.Job); err != nil {
+			// M5: a swallowed error here used to LOSE the student's answers
+			// permanently — the job was already popped, the "failed" result
+			// key only lives 5 minutes, and nothing else remembered the
+			// payload. Spool it durably instead; DrainSubmissionSpool (worker
+			// start) re-enqueues it once Redis accepts commands again.
+			log.Printf("queue batch: RE-ENQUEUE FAILED for job %s (%v) — spooling to disk", r.Job.JobID, err)
+			if spoolErr := w.spoolJob(&r.Job); spoolErr != nil {
+				log.Printf("queue batch: job %s LOST — spool write also failed (%v); student must resubmit", r.Job.JobID, spoolErr)
+			}
+		}
 		return
 	}
 	w.storeResult(context.Background(), r.Job.JobID, false, nil, msg)
+}
+
+// spoolJob writes the job as JSON to <submissionSpoolDir>/<jobID>.json.
+// Best-effort durability: the only worse alternative is dropping the
+// payload silently.
+func (w *Worker) spoolJob(job *SubmissionJob) error {
+	if w.submissionSpoolDir == "" {
+		return errors.New("queue: no spool dir configured")
+	}
+	if err := os.MkdirAll(w.submissionSpoolDir, 0o700); err != nil {
+		return fmt.Errorf("queue: create spool dir: %w", err)
+	}
+	payload, err := json.Marshal(job)
+	if err != nil {
+		return fmt.Errorf("queue: marshal spool job: %w", err)
+	}
+	path := filepath.Join(w.submissionSpoolDir, job.JobID+".json")
+	if err := os.WriteFile(path, payload, 0o600); err != nil {
+		return fmt.Errorf("queue: write spool file: %w", err)
+	}
+	log.Printf("queue: job %s spooled to %s", job.JobID, path)
+	return nil
+}
+
+// DrainSubmissionSpool re-enqueues every spooled job (files named
+// <jobID>.json in dir) and removes each file only after its push succeeded,
+// so an interrupted drain can never lose or duplicate answers. With Redis
+// unavailable it is a no-op — the files stay for the next attempt.
+func DrainSubmissionSpool(rdb *goredis.Client, dir string) (int, error) {
+	if isRedisUnavailable(rdb) {
+		return 0, nil
+	}
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return 0, nil // never spooled — nothing to do
+		}
+		return 0, fmt.Errorf("queue: read spool dir: %w", err)
+	}
+
+	drained := 0
+	for _, entry := range entries {
+		name := entry.Name()
+		if entry.IsDir() || !strings.HasSuffix(name, ".json") {
+			continue
+		}
+		path := filepath.Join(dir, name)
+		payload, err := os.ReadFile(path)
+		if err != nil {
+			log.Printf("queue: spool: read %s: %v — skipping", path, err)
+			continue
+		}
+		var job SubmissionJob
+		if err := json.Unmarshal(payload, &job); err != nil {
+			log.Printf("queue: spool: unmarshal %s: %v — dropping corrupt file", path, err)
+			_ = os.Remove(path)
+			continue
+		}
+		if err := EnqueueSubmissionWithJob(rdb, &job); err != nil {
+			log.Printf("queue: spool: re-enqueue job %s failed (%v) — file kept for the next drain", job.JobID, err)
+			return drained, fmt.Errorf("queue: re-enqueue spooled job %s: %w", job.JobID, err)
+		}
+		if err := os.Remove(path); err != nil {
+			log.Printf("queue: spool: remove %s: %v", path, err)
+		}
+		drained++
+	}
+	return drained, nil
 }
 
 // storeResult writes job result to Redis and publishes updates.
