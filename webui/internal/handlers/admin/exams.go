@@ -445,8 +445,9 @@ func UploadExam() gin.HandlerFunc {
 			}
 
 			var lockedMaxExams int
+			var lockedOperatorCreated bool
 			if err := tx.QueryRow(ctx,
-				`SELECT max_exams FROM admin_users WHERE id = $1 FOR UPDATE`, userID).Scan(&lockedMaxExams); err != nil {
+				`SELECT max_exams, operator_created FROM admin_users WHERE id = $1 FOR UPDATE`, userID).Scan(&lockedMaxExams, &lockedOperatorCreated); err != nil {
 				log.Printf("upload lock user error: %v", err)
 				// The PDF is already in R2 but no DB row exists: remove the
 				// orphan object so a failed create does not leak storage.
@@ -463,7 +464,18 @@ func UploadExam() gin.HandlerFunc {
 				errorResponse(c, http.StatusInternalServerError, "Gagal menyimpan ujian")
 				return
 			}
-			if lockedMaxExams > 0 && cnt >= lockedMaxExams {
+			// M7: pool-covered accounts draw their quota from the school pool,
+			// whose atomic gate already ran above — the per-account column (the
+			// forced free defaults, subAccountFreeMaxExams in users.go) must
+			// not gate below it. Pool-covered means exactly what the pre-check
+			// above and ToggleExam/StartExam (:626/:1799) mean: the caller is
+			// an operator whose instansi's school pool is active, or an
+			// OperatorCreated sub-account while the pool is active. With no
+			// pool (shared "personal" bucket, legacy school without a
+			// redemption) the per-account column keeps binding.
+			perAccountApplies := (!isOp || !poolActive) && !(lockedOperatorCreated && poolActive)
+			if perAccountApplies && lockedMaxExams > 0 && cnt >= lockedMaxExams {
+				_ = tx.Rollback(ctx)
 				_ = tx.Rollback(ctx)
 				// Remove the just-uploaded R2 object so we do not leak an orphan.
 				cleanupR2Orphan(c, ctx, filename)

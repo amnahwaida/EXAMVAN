@@ -1293,3 +1293,99 @@ func TestSaveQuestionsPengawasCrossTenantRejected(t *testing.T) {
 		t.Fatalf("own-school pengawas must be the sole assigned pengawas, got ids=%v err=%v", ids, err)
 	}
 }
+
+// ---------------------------------------------------------------------------
+// Per-account atomic gate vs school pool (M7)
+// ---------------------------------------------------------------------------
+
+// TestSchoolPoolSubAccountNotStuckAtPerAccountExamCap pins the M7 fix: the
+// atomic per-account exam gate (SELECT max_exams ... FOR UPDATE + COUNT(*))
+// must NOT bind for an OperatorCreated sub-account while the school pool is
+// active — the pool is the account's ONLY quota then (schoolPoolCovers), and
+// the per-account columns are the forced free defaults (subAccountFree* in
+// users.go). Before the fix the atomic gate consulted the forced 3-exam
+// column unconditionally, so a pool-covered sub-account was stuck at 3 exams
+// for its whole life — contradicting the pre-check above (which skips
+// maxExams when pool-covered), ToggleExam/StartExam (which skip the
+// concurrent cap for pool-covered accounts), and the billing view (which
+// shows the pool quota).
+func TestSchoolPoolSubAccountNotStuckAtPerAccountExamCap(t *testing.T) {
+	pool := setupVoucherITDB(t)
+	ctx := context.Background()
+
+	// Operator + operator-CREATED sub-account, both in a real school
+	// instansi. The sub-account row carries the forced free defaults
+	// (max_exams=3, storage 50MB — subAccountFree* in users.go) that the
+	// per-account gate must ignore while the pool is active.
+	op := createSchoolQuotaUser(t, pool, "op-m7-pool", "SMK M7 Pool", []string{models.RoleGuru, models.RoleOperator}, 10)
+	sub, err := models.CreateUser(ctx, pool, &models.AdminUser{
+		Username: "sub-m7-pool", Name: "sub-m7-pool", PasswordHash: "x",
+		Status: models.UserStatusActive, Instansi: "SMK M7 Pool",
+		Role: models.SerializeRoles([]string{models.RoleGuru}),
+		// The forced free defaults an operator-created sub-account carries.
+		MaxExams: 3, MaxPDFSize: 1024 * 1024, MaxConcurrentExams: 1,
+		MaxStorageSize: 50 * 1024 * 1024, Package: "free",
+		OperatorCreated: true, CreatedBy: &op,
+	})
+	if err != nil {
+		t.Fatalf("create operator-created sub-account: %v", err)
+	}
+	// School package: 5 exams for the WHOLE school — more than the
+	// sub-account's per-account 3, so only the per-account gate can wrongly
+	// reject the 4th and 5th uploads.
+	plantSchoolRedemption(t, pool, op, 5, 50*1024*1024, 5, 500*1024*1024)
+
+	tc, stub := newQuotaTestClient(t, pool)
+	pdf := schoolTestPDF(64)
+
+	tc.login(t, sub.ID)
+	for i := 1; i <= 5; i++ {
+		status, body := tc.upload(t, fmt.Sprintf("sub-m7-exam-%d", i), pdf)
+		if status != http.StatusOK {
+			t.Fatalf("pool-covered sub upload %d/5: status=%d body=%s (M7: per-account cap must not bind while the school pool is active)", i, status, body)
+		}
+	}
+
+	// The pool stays the hard cap: 5 exams are planted, so a 6th upload hits
+	// the SCHOOL pool gate (403 sekolah), never the per-account 3.
+	uploadsBefore := len(stub.uploads)
+	status, body := tc.upload(t, "sub-m7-exam-6", pdf)
+	if status != http.StatusForbidden || !strings.Contains(body, "Batas pembuatan ujian sekolah") {
+		t.Fatalf("sub 6th upload: status=%d body=%s, want the school-pool cap", status, body)
+	}
+	assertOrphanCleaned(t, stub, uploadsBefore)
+
+	// Sanity: exactly 5 exams exist for the school.
+	if n, err := models.CountExamsByInstansi(ctx, pool, "SMK M7 Pool"); err != nil || n != 5 {
+		t.Fatalf("school pool usage: got %d err=%v, want 5", n, err)
+	}
+}
+
+// TestOperatorWithPoolNotStuckAtPerAccountExamCap pins the operator branch of
+// the same M7 gate: an operator whose school pool is active draws its quota
+// from the pool (UploadExam's pre-check skips the operator's own columns when
+// poolActive), so the atomic gate must skip the operator's per-account column
+// too — a school package of 5 exams must not be cut to the operator's
+// legacy/forced 3-exam column.
+func TestOperatorWithPoolNotStuckAtPerAccountExamCap(t *testing.T) {
+	pool := setupVoucherITDB(t)
+	ctx := context.Background()
+
+	// The operator's own max_exams=3 is BELOW the school package of 5.
+	op := createSchoolQuotaUser(t, pool, "op-m7-own", "SMK M7 Own", []string{models.RoleGuru, models.RoleOperator}, 3)
+	plantSchoolRedemption(t, pool, op, 5, 50*1024*1024, 5, 500*1024*1024)
+
+	tc, _ := newQuotaTestClient(t, pool)
+	pdf := schoolTestPDF(64)
+
+	tc.login(t, op)
+	for i := 1; i <= 5; i++ {
+		status, body := tc.upload(t, fmt.Sprintf("op-m7-exam-%d", i), pdf)
+		if status != http.StatusOK {
+			t.Fatalf("pool-covered operator upload %d/5: status=%d body=%s (M7: the school pool is the operator's quota while it is active)", i, status, body)
+		}
+	}
+	if n, err := models.CountExamsByInstansi(ctx, pool, "SMK M7 Own"); err != nil || n != 5 {
+		t.Fatalf("school pool usage: got %d err=%v, want 5", n, err)
+	}
+}
