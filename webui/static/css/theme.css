@@ -13,7 +13,6 @@
     --color-glass: rgba(13, 13, 30, 0.5);
     --color-glass-border: rgba(255, 255, 255, 0.08);
     --color-primary: #6366f1;
-    --color-primary-dark: #4f46e5;
     --color-primary-light: #a5b4fc;
     /* Batch 13 (kontrak lintas-agen): teks/chip indigo terang di dark surface,
        kontras ≥6.1:1. Pemakaian #818cf8 literal wajib lewat token ini. */
@@ -150,9 +149,12 @@
        Nilai skip-link dorman & hint (9998) tidak lagi berbagi arti lapisan:
        keduanya posisi dorman, tak pernah tampil serentak di konteks sama.
        Skala final (tiap lapisan aktif bernilai unik):
-         bottom-bar 9997 < hint/skip-link dorman 9998 < dropdown 9999 <
-         modal-overlay 10000 < onboarding 10001 < topbar-floating 10002 <
-         toast 10003 < skip-link fokus 10004.
+         skip-link dorman 9998 < dropdown 9999 < modal-overlay 10000 <
+         onboarding 10001 < topbar-floating 10002 < toast 10003 <
+         skip-link fokus 10004.
+       L73 (Batch 34): --z-bottom-bar & --z-hint DIHAPUS — satu-satunya
+       konsumennya (kelas mati .mobile-bottom-bar & .shortcuts-hint)
+       dihapus bersama kelasnya (census: 0 pemakaian template/JS).
        Nilai z lain yang tersebar (nav 100/210/220, overlay 90/160 dst.)
        adalah layering lokal konteks-spesifik dan TIDAK dijadikan token:
        tidak berulang lintas-file dengan makna sama, jadi literalnya
@@ -162,10 +164,8 @@
     --z-toast: 10003;      /* L69: di atas topbar-floating — tidak lagi berbagi nilai */
     --z-onboarding: 10001;
     /* S116 (Batch 18): melengkapi tangga stacking legacy menjadi token -
-       bottom-bar 9997 / hint 9998 / dialog overlay 10000 / topbar floating
-       10002. Seluruh literal z-index >=1000 kini lewat var(--z-*). */
-    --z-bottom-bar: 9997;
-    --z-hint: 9998;
+       dialog overlay 10000 / topbar floating 10002. Seluruh literal
+       z-index >=1000 kini lewat var(--z-*). */
     --z-modal-overlay: 10000;
     --z-topbar-floating: 10002; /* L69: di bawah toast — tidak lagi berbagi nilai */
 }

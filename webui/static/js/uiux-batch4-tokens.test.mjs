@@ -136,10 +136,14 @@ test('S15/no-visual-change: jumlah total deklarasi radius & box-shadow tidak ber
     const shadowDecls = (ADMIN_CSS.match(/box-shadow\s*:/g) || []).length;
     // Baseline: 27 radius, 6 shadow pra-migrasi; dinaikkan ke 28/8 oleh
     // Batch 23.1 (de1bb9c) yang memulihkan deklarasi warna kartu system-apps.
-    // Substitusi var() tidak boleh mengubah jumlah (toleransi ketat ±0; guard
-    // anti kehilangan rule saat edit massal).
-    assert.equal(radiusDecls, 28, `jumlah deklarasi border-radius berubah (baseline 28, dapat ${radiusDecls})`);
-    assert.equal(shadowDecls, 8, `jumlah deklarasi box-shadow berubah (baseline 8, dapat ${shadowDecls})`);
+    // Batch 34 (L73): kelas mati membawa 2 shadow (shortcuts-hint,
+    // mobile-bottom-bar) → 6 shadow / 25 radius.
+    // Batch 34 (L73): kelas mati dihapus — deklarasi radius turun 27→25
+    // (.shortcuts-hint & .skeleton-card membawa var(--radius-md),
+    // .mobile-bottom-baractions btn-sm, dsb.). Substitusi var() tidak boleh
+    // mengubah jumlah (toleransi ketat ±0; guard anti kehilangan rule).
+    assert.equal(radiusDecls, 25, `jumlah deklarasi border-radius berubah (baseline 27, dapat ${radiusDecls})`);
+    assert.equal(shadowDecls, 6, `jumlah deklarasi box-shadow berubah (baseline 6, dapat ${shadowDecls})`);
 });
 
 // ---------------------------------------------------------------------------

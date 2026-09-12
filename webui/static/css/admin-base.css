@@ -154,11 +154,6 @@ code, pre, .token-code, .mono {
     user-select: none;
     pointer-events: none;
 }
-.skeleton-inline {
-    display: inline-block;
-    height: 1em;
-    min-width: 60px;
-}
 .skeleton-block {
     display: block;
     height: 16px;
@@ -178,95 +173,8 @@ code, pre, .token-code, .mono {
     border-radius: 50%;
 }
 
-/* ===== Keyboard Shortcuts Hint ===== */
-.shortcuts-hint {
-    position: fixed;
-    bottom: 80px;
-    right: 24px;
-    z-index: var(--z-hint);
-    background: rgba(10,10,22,0.9);
-    border: 1px solid var(--color-glass-border);
-    border-radius: var(--radius-md);
-    padding: 16px 20px;
-    -webkit-backdrop-filter: blur(16px);
-    backdrop-filter: blur(16px);
-    box-shadow: 0 10px 30px rgba(var(--rgb-black),0.5);
-    min-width: 240px;
-    display: none;
-}
-.shortcuts-hint.show {
-    display: block;
-    animation: fadeUp 0.2s ease;
-}
-.shortcuts-hint h4 {
-    font-size: 12px;
-    font-weight: 700;
-    text-transform: uppercase;
-    letter-spacing: 1px;
-    color: var(--color-text-muted);
-    margin-bottom: 12px;
-}
-.shortcut-row {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    padding: 6px 0;
-    font-size: 13px;
-    color: var(--color-text-secondary);
-}
-.shortcut-key {
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    background: rgba(var(--rgb-white),0.06);
-    border: 1px solid var(--color-glass-border);
-    border-radius: var(--radius-xs);
-    padding: 2px 8px;
-    font-size: 11px;
-    font-weight: 700;
-    font-family: monospace;
-    color: var(--color-accent-light);
-    min-width: 28px;
-}
 
-/* ===== Sticky Toolbar ===== */
-.sticky-toolbar {
-    position: sticky;
-    top: 0;
-    z-index: 10;
-    background: rgba(10,10,26,0.95);
-    -webkit-backdrop-filter: blur(12px);
-    backdrop-filter: blur(12px);
-    border-bottom: 1px solid var(--color-glass-border);
-    margin: -16px -16px 16px;
-    padding: 12px 16px;
-    border-radius: 0;
-}
 
-/* ===== Circular Progress ===== */
-.circular-progress {
-    display: inline-flex;
-    align-items: center;
-    gap: 8px;
-}
-.circular-progress svg {
-    transform: rotate(-90deg);
-}
-.circular-progress .progress-track {
-    fill: none;
-    stroke: rgba(var(--rgb-white),0.08);
-}
-.circular-progress .progress-fill-circ {
-    fill: none;
-    stroke: url(#progressGrad);
-    stroke-linecap: round;
-    transition: stroke-dashoffset 0.3s ease;
-}
-.circular-progress .progress-pct {
-    font-size: 11px;
-    font-weight: 700;
-    color: var(--color-text-secondary);
-}
 
 /* ===== Reduced Motion ===== */
 @media (prefers-reduced-motion: reduce) {
@@ -281,42 +189,6 @@ code, pre, .token-code, .mono {
     }
 }
 
-/* ===== Mobile Bottom Sticky Bar ===== */
-.mobile-bottom-bar {
-    display: none;
-    position: fixed;
-    bottom: 0;
-    left: 0;
-    right: 0;
-    z-index: var(--z-bottom-bar);
-    background: rgba(10,10,22,0.95);
-    -webkit-backdrop-filter: blur(16px);
-    backdrop-filter: blur(16px);
-    border-top: 1px solid var(--color-glass-border);
-    padding: 12px 16px;
-    gap: 10px;
-    align-items: center;
-    box-shadow: 0 -4px 20px rgba(var(--rgb-black),0.4);
-}
-.mobile-bottom-bar.show { display: flex; }
-.mobile-bottom-bar .bottom-bar-count {
-    font-size: 13px;
-    font-weight: 600;
-    color: var(--color-text-secondary);
-    white-space: nowrap;
-}
-.mobile-bottom-bar .bottom-bar-actions {
-    display: flex;
-    gap: 8px;
-    flex: 1;
-    justify-content: flex-end;
-}
-.mobile-bottom-bar .bottom-bar-actions .btn-sm {
-    flex: 1;
-    max-width: 160px;
-    justify-content: center;
-    padding: 10px 14px;
-}
 
 /* ===== Base Button Styles ===== */
 .btn-sm {
@@ -454,7 +326,7 @@ code, pre, .token-code, .mono {
     .btn-upload, .btn-sm, .btn-refresh, .btn-delete, .btn-toggle,
     .modal-overlay, .exam-action-dropdown, .actions-group,
     .search-section, .tab-nav, .upload-section, .network-info,
-    .footer, .mobile-bottom-bar, .shortcuts-hint {
+    .footer {
         display: none !important;
     }
     body { background: white !important; color: black !important; }
@@ -470,14 +342,6 @@ code, pre, .token-code, .mono {
     a { color: #4f46e5 !important; }
 }
 
-/* Clickable table rows (pengawas page) */
-.clickable-row {
-    cursor: pointer;
-    transition: background 0.1s;
-}
-.clickable-row:hover {
-    background: rgba(var(--rgb-info), 0.05);
-}
 
 
 /* ===================================================================== */
@@ -520,10 +384,6 @@ code, pre, .token-code, .mono {
         min-height: 44px;
     }
 
-    /* Respect the notch / home-indicator safe area for the fixed bottom bar. */
-    .mobile-bottom-bar {
-        padding-bottom: calc(12px + env(safe-area-inset-bottom, 0px));
-    }
 }
 
 /* ===== Wayfinding & a11y (general-UX audit) ===== */
@@ -938,9 +798,7 @@ body.modal-open {
    atas: background transparan + border tipis + teks versi light. */
 .tone-success { background: rgba(var(--rgb-success), 0.15); border: 1px solid rgba(var(--rgb-success), 0.3); color: var(--color-success-light); }
 .tone-warning { background: rgba(var(--rgb-warning), 0.12); border: 1px solid rgba(var(--rgb-warning), 0.35); color: var(--color-warning-light); }
-.tone-danger { background: rgba(var(--rgb-danger), 0.15); border: 1px solid rgba(var(--rgb-danger), 0.3); color: var(--color-danger-light); }
 .tone-info { background: rgba(var(--rgb-info), 0.15); border: 1px solid rgba(var(--rgb-info), 0.3); color: var(--color-primary-light); }
-.tone-accent { background: rgba(var(--rgb-accent), 0.15); border: 1px solid rgba(var(--rgb-accent), 0.4); color: var(--color-accent-light); }
 /* Netral: tanpa warna tone — surface kaca pekat saja (badge dorman/placeholder). */
 .tone-neutral { background: var(--glass-bg-strong); border: 1px solid var(--color-glass-border); }
 /* Kotak peringatan inline (mis. banner konfigurasi): flex agar ikon + teks
