@@ -277,7 +277,7 @@
  {{$scorePct := .ScorePct}}
  <tr id="submission-row-{{.ID}}" data-exam-id="{{.ExamID}}" style="transition: background 0.2s;">
  <td data-label="Nama" class="max-md:flex max-md:gap-1 max-md:items-baseline">
-  <strong class="submission-identity-btn" style="cursor:pointer;" role="button" tabindex="0" data-identity='{{json .IdentityData}}'>{{.StudentName}}</strong>
+  <strong class="submission-identity-btn" style="cursor:pointer;" role="button" tabindex="0" data-action="identity-open" data-identity='{{json .IdentityData}}'>{{.StudentName}}</strong>
  </td>
  <td data-label="ID Perangkat"><code style="font-size:11px;color:var(--color-text-muted);font-family:monospace;max-width:160px;display:inline-block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;vertical-align:middle;" title="{{.MACAddress}}">{{or .MACAddress "—"}}</code></td>
  <td data-label="Nilai">

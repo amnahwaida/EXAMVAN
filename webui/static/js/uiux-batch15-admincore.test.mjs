@@ -243,7 +243,14 @@ test('S90 (perilaku vm): keydown Enter/Space men-toggle dropdown + aria-expanded
     const doc = {
         createElement: (t) => makeEl(t),
         getElementById: (id) => (id in byId ? byId[id] : null),
-        querySelectorAll(sel) { return sel.includes('pengawas-checkbox:checked') ? [cbWawan] : []; },
+        // M22 (Batch 26) mengganti lookup chip [value="…"] dengan pembandingan
+        // nilai atas querySelectorAll('.pengawas-checkbox') — aman dari
+        // interpolasi atribut. Sandbox mengenali kedua bentuk selector.
+        querySelectorAll(sel) {
+            if (sel.includes('pengawas-checkbox:checked')) return [cbWawan];
+            if (sel.includes('.pengawas-checkbox')) return [cbWawan];
+            return [];
+        },
         querySelector(sel) { return sel.includes('[value="3"]') ? cbWawan : null; },
         addEventListener() {},
     };

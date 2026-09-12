@@ -134,11 +134,12 @@ test('S15: radius literal 4/10/12/16px yang setara token tidak tersisa di admin-
 test('S15/no-visual-change: jumlah total deklarasi radius & box-shadow tidak berubah drastis', () => {
     const radiusDecls = (ADMIN_CSS.match(/border-radius\s*:/g) || []).length;
     const shadowDecls = (ADMIN_CSS.match(/box-shadow\s*:/g) || []).length;
-    // Baseline pra-migrasi: 27 radius, 6 shadow. Substitusi var() tidak boleh
-    // menambah/mengurangi jumlah deklarasi (toleransi ketat ±0; guard anti
-    // kehilangan rule saat edit massal).
-    assert.equal(radiusDecls, 27, `jumlah deklarasi border-radius berubah (baseline 27, dapat ${radiusDecls})`);
-    assert.equal(shadowDecls, 6, `jumlah deklarasi box-shadow berubah (baseline 6, dapat ${shadowDecls})`);
+    // Baseline: 27 radius, 6 shadow pra-migrasi; dinaikkan ke 28/8 oleh
+    // Batch 23.1 (de1bb9c) yang memulihkan deklarasi warna kartu system-apps.
+    // Substitusi var() tidak boleh mengubah jumlah (toleransi ketat ±0; guard
+    // anti kehilangan rule saat edit massal).
+    assert.equal(radiusDecls, 28, `jumlah deklarasi border-radius berubah (baseline 28, dapat ${radiusDecls})`);
+    assert.equal(shadowDecls, 8, `jumlah deklarasi box-shadow berubah (baseline 8, dapat ${shadowDecls})`);
 });
 
 // ---------------------------------------------------------------------------

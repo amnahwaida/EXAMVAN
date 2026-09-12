@@ -4118,61 +4118,27 @@ function closeDetailModal() {
 }
 
 // ===== Identity Popup (klik nama siswa di tabel hasil) =====
+// M24: popup kini dibuka via registry Actions (data-action="identity-open")
+// sehingga filter keyboard global [data-action][role="button"] memberi Enter/
+// Space paritas dengan klik — tabindex=0 tanpa jalur keyboard = interaksi
+// ghost. Handler klik-lama (closest tombol) dihapus dari listener tabel;
+// guard penutupan di luar popup kini melewatkan klik pada tombol/popup.
+var LABEL_MAP = { student_name: 'Nama', exam_number: 'Nomor Ujian', student_class: 'Kelas', nama: 'Nama', nomor_ujian: 'Nomor Ujian', kelas: 'Kelas' };
 (function() {
     var table = document.getElementById('submissionsTable');
     if (!table) return;
-    var LABEL_MAP = { student_name: 'Nama', exam_number: 'Nomor Ujian', student_class: 'Kelas', nama: 'Nama', nomor_ujian: 'Nomor Ujian', kelas: 'Kelas' };
     table.addEventListener('click', function(e) {
-        var btn = e.target.closest('.submission-identity-btn');
-        if (btn) {
-            var popup = document.getElementById('identityPopup');
-            if (!popup) return;
-            // Baca identity_data dari data-identity
-            var raw = btn.getAttribute('data-identity');
-            var data = {};
-            try { data = JSON.parse(raw); } catch (x) {}
-            // Jika identity_data kosong, fallback dari kolom tabel
-            var html = '<div class="identity-popup-header">Identitas Siswa</div><div class="identity-popup-body">';
-            var hasData = false;
-            var seenVals = {};
-            for (var k in data) {
-                if (data.hasOwnProperty(k) && data[k]) {
-                    var v = String(data[k]);
-                    // Deduplicate: skip if same value already shown (standard key mirrors custom key)
-                    if (seenVals[v]) continue;
-                    seenVals[v] = true;
-                    var label = LABEL_MAP[k] || k.replace(/_/g, ' ').replace(/\b\w/g, function(c) { return c.toUpperCase(); });
-                    html += '<div class="identity-popup-item"><span class="idp-label">' + escapeHtml(label) + '</span><strong class="idp-value">' + escapeHtml(v) + '</strong></div>';
-                    hasData = true;
-                }
-            }
-            // Fallback: tampilkan nama dari kolom tabel
-            if (!hasData) {
-                var name = btn.textContent.trim();
-                if (name) {
-                    html += '<div class="identity-popup-item"><span class="idp-label">Nama</span><strong class="idp-value">' + escapeHtml(name) + '</strong></div>';
-                }
-            }
-            html += '</div>';
-            popup.innerHTML = html;
-            // Tutup popup lain
-            document.querySelectorAll('.identity-popup.show').forEach(function(p) { if (p !== popup) p.classList.remove('show'); });
-            // Toggle
-            var isOpen = popup.classList.contains('show');
-            if (isOpen) {
-                popup.classList.remove('show');
-            } else {
-                popup.classList.add('show');
-                var rect = btn.getBoundingClientRect();
-                popup.style.position = 'fixed';
-                popup.style.top = Math.min(rect.bottom + 4, window.innerHeight - 200) + 'px';
-                popup.style.left = Math.max(10, Math.min(rect.left, window.innerWidth - 240)) + 'px';
-            }
-            e.stopPropagation();
+        // M24: klik pada tombol identitas ditangani registry Actions
+        // (data-action="identity-open"); early-return agar tombol tidak
+        // dianggap "klik di luar popup" oleh guard di bawah. Body render
+        // lama yang men-dereference btn DIHAPUS: btn kini selalu null di
+        // path ini (render tinggal di handler registry 'identity-open'),
+        // sisanya hanya melempar TypeError pada setiap klik biasa di tabel.
+        if (e.target.closest('.submission-identity-btn')) {
             return;
         }
-        // Click di luar popup
-        if (!e.target.closest('.identity-popup')) {
+        // Click di luar popup → tutup semua popup yang terbuka
+        if (!e.target.closest('.identity-popup') && !e.target.closest('.submission-identity-btn')) {
             document.querySelectorAll('.identity-popup.show').forEach(function(p) { p.classList.remove('show'); });
         }
     });
@@ -4425,6 +4391,50 @@ if (typeof Actions !== 'undefined' && typeof Actions.register === 'function') {
     });
     Actions.register('close-detail-modal', function () { closeDetailModal(); });
     Actions.register('export-submissions', function () { exportSubmissions(); });
+    // M24: buka popup identitas — terdaftar di registry agar jalur delegasi
+    // klik global DAN filter keyboard global (Enter/Space pada
+    // [data-action][role=button]) sama-sama berlaku untuk tombol identitas.
+    Actions.register('identity-open', function (el) {
+        var btn = el.closest('.submission-identity-btn');
+        if (!btn) return;
+        var popup = document.getElementById('identityPopup');
+        if (!popup) return;
+        var raw = btn.getAttribute('data-identity');
+        var data = {};
+        try { data = JSON.parse(raw); } catch (x) {}
+        var html = '<div class="identity-popup-header">Identitas Siswa</div><div class="identity-popup-body">';
+        var hasData = false;
+        var seenVals = {};
+        for (var k in data) {
+            if (data.hasOwnProperty(k) && data[k]) {
+                var v = String(data[k]);
+                if (seenVals[v]) continue;
+                seenVals[v] = true;
+                var label = LABEL_MAP[k] || k.replace(/_/g, ' ').replace(/\b\w/g, function(c) { return c.toUpperCase(); });
+                html += '<div class="identity-popup-item"><span class="idp-label">' + escapeHtml(label) + '</span><strong class="idp-value">' + escapeHtml(v) + '</strong></div>';
+                hasData = true;
+            }
+        }
+        if (!hasData) {
+            var name = btn.textContent.trim();
+            if (name) {
+                html += '<div class="identity-popup-item"><span class="idp-label">Nama</span><strong class="idp-value">' + escapeHtml(name) + '</strong></div>';
+            }
+        }
+        html += '</div>';
+        popup.innerHTML = html;
+        document.querySelectorAll('.identity-popup.show').forEach(function(p) { if (p !== popup) p.classList.remove('show'); });
+        var isOpen = popup.classList.contains('show');
+        if (isOpen) {
+            popup.classList.remove('show');
+        } else {
+            popup.classList.add('show');
+            var rect = btn.getBoundingClientRect();
+            popup.style.position = 'fixed';
+            popup.style.top = Math.min(rect.bottom + 4, window.innerHeight - 200) + 'px';
+            popup.style.left = Math.max(10, Math.min(rect.left, window.innerWidth - 240)) + 'px';
+        }
+    });
 }
 
 // Keyboard parity untuk elemen NON-button ber-data-action (badge status,
