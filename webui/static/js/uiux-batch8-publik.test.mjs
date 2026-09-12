@@ -159,8 +159,8 @@ const HEX_RE = /#[0-9a-fA-F]{3,8}\b/g;
 //   reset_password 0→0 · hasil 6→6 · cek_hasil/index/forgot_password baru = 0 ·
 //   M21 (Batch 32): skin toast lokal download dihapus → 7→5.
 const BASELINE_HEX = {
-    'download.html': 5, /* M21: blok skin toast (2 hex: #fff, rgba(0,0,0…)) dihapus */
-    'shared.html': 12, /* Batch 18 H6: nav inline DIHAPUS → -2 hex (#e0e7ff, #ffffff) */
+    'download.html': 0, /* M21 → 5; Batch 34 L70/L62 sweep → 4 → 0 */
+    'shared.html': 9, /* Batch 18 H6 → 12; L70 (Batch 34) white sweep → 9 */
     'register.html': 1, /* +theme-color (R130) */
     'register_confirm.html': 1, /* +theme-color (R130) */
     'reset_password.html': 1, /* +theme-color (R130) */

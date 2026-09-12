@@ -304,7 +304,7 @@ const PUBLIC_CSS_BASELINES = {
     // hex 3 (duplikat --color-bg-secondary :13,:76–79), rgba 5 — hasil ukur Batch 15.
     'public-desktop.css': { hex: 3, rgba: 5 },
     // hex 10 (#111827 dsb. :36,:78), rgba 2 — hasil ukur Batch 15.
-    'public-mobile.css': { hex: 9, rgba: 2 }, /* Batch 16/R125: #9ca3af → var(--color-text-muted) */
+    'public-mobile.css': { hex: 5, rgba: 2 }, /* Batch 16/R125 → 9; L70 (Batch 34) white sweep → 5 */
 };
 
 for (const [file, caps] of Object.entries(PUBLIC_CSS_BASELINES)) {

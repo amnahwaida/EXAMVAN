@@ -48,7 +48,7 @@
     font-family: 'Outfit', sans-serif;
     font-size: clamp(34px, 5vw, 60px);
     font-weight: 800;
-    background: linear-gradient(135deg, #ffffff 30%, var(--color-primary-light) 100%);
+    background: linear-gradient(135deg, rgb(var(--rgb-white)) 30%, var(--color-primary-light) 100%);
     -webkit-background-clip: text;
     -webkit-text-fill-color: transparent;
     margin-bottom: 20px;
@@ -158,7 +158,7 @@
     font-size: 28px;
   }
   .icon-android { background: rgba(var(--rgb-success), 0.15); color: var(--color-success); border: 1px solid rgba(var(--rgb-success), 0.3); }
-  .icon-windows { background: rgba(59, 130, 246, 0.15); color: #3b82f6; border: 1px solid rgba(59, 130, 246, 0.3); }
+  .icon-windows { background: rgba(var(--rgb-blue-500), 0.15); color: var(--color-blue-500); border: 1px solid rgba(var(--rgb-blue-500), 0.3); }
   .icon-linux { background: rgba(var(--rgb-warning), 0.15); color: var(--color-warning); border: 1px solid rgba(var(--rgb-warning), 0.3); }
 
   .card-title {
@@ -203,8 +203,8 @@
     display: inline-flex;
     align-items: center;
     gap: 6px;
-    background: linear-gradient(135deg, var(--color-success), #059669);
-    color: #04120c;
+    background: linear-gradient(135deg, var(--color-success), var(--color-success-deep));
+    color: var(--color-text-on-success);
     font-size: 11px;
     font-weight: 800;
     letter-spacing: 0.06em;
@@ -453,9 +453,9 @@
 
           <!-- Official EXAMVAN APK — rilis resmi dari system_apps (Cloudflare R2) -->
           {{ if .android_app }}
-          <div class="flavor-box" style="border-color: rgba(139,92,246,0.35); background: rgba(139,92,246,0.06);">
+          <div class="flavor-box" style="border-color: rgba(var(--rgb-violet-500),0.35); background: rgba(var(--rgb-violet-500),0.06);">
             <div>
-              <h3 class="flavor-title" style="color:#c4b5fd;">{{ .android_app.Name }} — Rilis Resmi
+              <h3 class="flavor-title" style="color:var(--color-indigo-300);">{{ .android_app.Name }} — Rilis Resmi
                 <span class="new-badge">
                   <svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg>
                   Terbaru
@@ -553,7 +553,7 @@
                 <div class="step-content">
                   <span class="step-title">Masukkan Alamat Server &amp; Token Ujian</span>
                   <span class="step-desc">Buka aplikasi EXAMVAN, lalu isi kolom alamat server dan Token Ujian 8-karakter. <strong>Alamat server &amp; token diberikan oleh pengawas atau panitia ujian</strong> saat ujian dimulai — jangan menebak-nebak.<br>
-                    Contoh format alamat server: <code style="background: rgba(var(--rgb-black),0.4); color: var(--color-primary-bright); padding: 6px 10px; border-radius: 8px; font-family: monospace; font-size: 13px; border: 1px solid rgba(129,140,248,0.2);">http://192.168.1.10:8080</code></span>
+                    Contoh format alamat server: <code style="background: rgba(var(--rgb-black),0.4); color: var(--color-primary-bright); padding: 6px 10px; border-radius: 8px; font-family: monospace; font-size: 13px; border: 1px solid rgba(var(--rgb-primary-bright),0.2);">http://192.168.1.10:8080</code></span>
                 </div>
               </div>
             </div>
@@ -591,7 +591,7 @@
                 <div class="step-content">
                   <span class="step-title">Daftarkan Hak Akses via ADB</span>
                   <span class="step-desc">Hubungkan perangkat ke komputer dengan USB Debugging aktif. Ketikkan perintah ini di terminal komputer Anda:<br>
-                    <code style="background: rgba(var(--rgb-black),0.4); color: var(--color-primary-bright); padding: 8px 12px; border-radius: 8px; font-family: monospace; font-size: 13px; display: block; margin-top: 10px; word-break: break-all; border: 1px solid rgba(129,140,248,0.2);">adb shell dpm set-device-owner com.examvan.app.kiosk/com.examvan.app.receiver.MyDeviceAdminReceiver</code>
+                    <code style="background: rgba(var(--rgb-black),0.4); color: var(--color-primary-bright); padding: 8px 12px; border-radius: 8px; font-family: monospace; font-size: 13px; display: block; margin-top: 10px; word-break: break-all; border: 1px solid rgba(var(--rgb-primary-bright),0.2);">adb shell dpm set-device-owner com.examvan.app.kiosk/com.examvan.app.receiver.MyDeviceAdminReceiver</code>
                   </span>
                 </div>
               </div>
@@ -739,7 +739,7 @@
               <div class="step-content">
                 <span class="step-title">Berikan Hak Akses Eksekusi</span>
                 <span class="step-desc">Buka terminal Anda di lokasi berkas <code>.AppImage</code> diunduh, lalu jalankan perintah:<br>
-                  <code style="background: rgba(var(--rgb-black),0.4); color: var(--color-primary-bright); padding: 6px 12px; border-radius: 8px; font-family: monospace; font-size: 13px; display: inline-block; margin-top: 10px; border: 1px solid rgba(129,140,248,0.2);">chmod +x EXAMVAN.AppImage</code>
+                  <code style="background: rgba(var(--rgb-black),0.4); color: var(--color-primary-bright); padding: 6px 12px; border-radius: 8px; font-family: monospace; font-size: 13px; display: inline-block; margin-top: 10px; border: 1px solid rgba(var(--rgb-primary-bright),0.2);">chmod +x EXAMVAN.AppImage</code>
                 </span>
               </div>
             </div>

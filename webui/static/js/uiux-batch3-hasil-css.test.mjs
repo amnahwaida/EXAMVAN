@@ -77,7 +77,10 @@ function fontSizePx(value) {
 /** Alpha komponen terakhir rgba(...) atau null. */
 function rgbaAlpha(value) {
     const m = value.match(/rgba\(\s*\d+\s*,\s*\d+\s*,\s*\d+\s*,\s*([0-9.]+)\s*\)/);
-    return m ? parseFloat(m[1]) : null;
+    if (m) return parseFloat(m[1]);
+    // L70 (Batch 34): rgba(var(--rgb-white), α) — alpha setelah token triplet.
+    const t = value.match(/rgba\(\s*var\(--[\w-]+\)\s*,\s*([0-9.]+)\s*\)/);
+    return t ? parseFloat(t[1]) : null;
 }
 
 /** Padding horizontal dari deklarasi padding 1-4 nilai ("2px 8px" → 8). */

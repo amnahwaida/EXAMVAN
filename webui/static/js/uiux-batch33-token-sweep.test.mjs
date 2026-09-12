@@ -118,6 +118,74 @@ test('L49: pengawas_detail.html bebas #60a5fa & #6ee7b7 literal', () => {
 });
 
 // ---------------------------------------------------------------------------
+// L61 — medali peringkat hasil.css
+// ---------------------------------------------------------------------------
+
+test('L61: warna medali hasil.css lewat token --color-medal-*', () => {
+    const HASIL_CSS = read(WEBUI_ROOT, 'static', 'css', 'hasil.css');
+    assert.match(HASIL_CSS, /\.rank-num\.rank-2\s*\{\s*color:\s*var\(--color-medal-silver\)/);
+    assert.match(HASIL_CSS, /\.rank-num\.rank-3\s*\{\s*color:\s*var\(--color-medal-bronze\)/);
+    assert.match(THEME, /--color-medal-silver:\s*#e2e8f0;/);
+    assert.match(THEME, /--color-medal-bronze:\s*#d97706;/);
+    assert.doesNotMatch(HASIL_CSS, /#e2e8f0|#d97706/, 'hex medali tidak boleh kembali');
+});
+
+// ---------------------------------------------------------------------------
+// L62 — literal warna download.html
+// ---------------------------------------------------------------------------
+
+test('L62: trio ikon platform konsisten + literal ungu/biru download masuk token', () => {
+    const DOWNLOAD = read(WEBUI_ROOT, 'templates', 'public', 'download.html');
+    // Trio platform: android=success, windows=blue-500, linux=warning — semua token.
+    assert.match(DOWNLOAD, /\.icon-windows\s*\{[^}]*rgba\(var\(--rgb-blue-500\),\s*0\.15\)/);
+    assert.match(DOWNLOAD, /\.icon-windows\s*\{[^}]*color:\s*var\(--color-blue-500\)/);
+    assert.match(DOWNLOAD, /\.icon-android\s*\{[^}]*rgba\(var\(--rgb-success\)/);
+    assert.match(DOWNLOAD, /\.icon-linux\s*\{[^}]*rgba\(var\(--rgb-warning\)/);
+    // Badge versi baru: gradien penuh token, bukan setengah hex.
+    assert.match(DOWNLOAD, /linear-gradient\(135deg,\s*var\(--color-success\),\s*var\(--color-success-deep\)\)/);
+    assert.match(DOWNLOAD, /color:\s*var\(--color-text-on-success\)/);
+    // Flavor-box ungu & teks indigo muda.
+    assert.match(DOWNLOAD, /rgba\(var\(--rgb-violet-500\),0\.35\)/);
+    assert.match(DOWNLOAD, /color:var\(--color-indigo-300\)/);
+    // Duplikat tertulis rgba(129,140,248,…) --color-primary-bright tak boleh kembali.
+    assert.doesNotMatch(DOWNLOAD, /rgba\(\s*129\s*,\s*140\s*,\s*248/);
+    assert.match(DOWNLOAD, /rgba\(var\(--rgb-primary-bright\),0\.2\)/);
+    // Token pendamping terdefinisi di theme.css.
+    for (const tok of ['--rgb-blue-500: 59, 130, 246', '--color-blue-500: #3b82f6',
+                       '--color-success-deep: #059669', '--color-text-on-success: #04120c',
+                       '--rgb-primary-bright: 129, 140, 248', '--rgb-violet-500: 139, 92, 246',
+                       '--color-indigo-300: #c4b5fd']) {
+        assert.ok(THEME.includes(tok), `theme.css wajib mendefinisikan ${tok.split(':')[0]}`);
+    }
+});
+
+// ---------------------------------------------------------------------------
+// L70 — census putih nol di templates + CSS inti publik/admin
+// ---------------------------------------------------------------------------
+
+test('L70: nol literal putih di templates/ & CSS inti (output.css dikecualikan — artefak build)', () => {
+    const walk = (dir, acc = []) => {
+        for (const e of fs.readdirSync(dir, { withFileTypes: true })) {
+            const p = path.join(dir, e.name);
+            if (e.isDirectory()) walk(p, acc);
+            else if (e.name.endsWith('.html')) acc.push(p);
+        }
+        return acc;
+    };
+    const WHITE_RE = /rgba\(\s*255\s*,\s*255\s*,\s*255|#fff(?:fff)?\b/;
+    const offenders = walk(path.join(WEBUI_ROOT, 'templates'))
+        .filter((f) => WHITE_RE.test(read(f).replace(/&#\d+;|&#x[0-9a-fA-F]+;/g, '')))
+        .map((f) => path.relative(WEBUI_ROOT, f));
+    assert.deepEqual(offenders, [], 'template masih memakai literal putih: ' + offenders.join(', '));
+    for (const css of ['hasil.css', 'admin-base.css', 'public-mobile.css', 'public-desktop.css', 'public-toast.css']) {
+        const src = read(WEBUI_ROOT, 'static', 'css', css);
+        assert.doesNotMatch(src, WHITE_RE, `${css} masih memakai literal putih`);
+    }
+    // Token triplet putih tetap source of truth.
+    assert.match(THEME, /--rgb-white:\s*255,\s*255,\s*255;/);
+});
+
+// ---------------------------------------------------------------------------
 // L50 — admin.js rgba literal
 // ---------------------------------------------------------------------------
 

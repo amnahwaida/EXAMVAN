@@ -43,7 +43,7 @@
     font-size: 0.85rem;
     font-weight: 500;
     font-family: var(--font-sans);
-    color: #fff;
+    color: rgb(var(--rgb-white));
     background: var(--color-bg-secondary);
     backdrop-filter: blur(16px);
     -webkit-backdrop-filter: blur(16px);
@@ -112,7 +112,7 @@
 
 .toast-close:hover {
     background: rgba(var(--rgb-white), 0.15);
-    color: #fff;
+    color: rgb(var(--rgb-white));
 }
 
 .toast-close::before {

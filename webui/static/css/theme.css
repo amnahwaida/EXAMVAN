@@ -78,6 +78,20 @@
     --rgb-cyan-500: 6, 182, 212;    /* triplet cyan (#06b6d4) — preset warna panel dashboard */
     --rgb-slate-500: 100, 116, 139; /* triplet slate (#64748b) — preset warna panel dashboard */
     --rgb-warning-dim: 251, 191, 36; /* triplet amber muda (#fbbf24) — teks pd-action-warning & tint amber admin.js */
+    /* L61 (review 12 Sep 2026): medali peringkat hasil — tanpa padanan token
+       eksisting; dibuat token agar palet medali bisa diatur dari satu titik. */
+    --color-medal-silver: #e2e8f0;  /* perak — rank-2 hasil.css */
+    --color-medal-bronze: #d97706;  /* perunggu — rank-3 hasil.css */
+    /* L62: ikon platform Windows & badge versi baru download.html. */
+    --rgb-blue-500: 59, 130, 246;   /* triplet biru (#3b82f6) — ikon Windows (trio android=success, linux=warning) */
+    --color-blue-500: #3b82f6;      /* pasangan --rgb-blue-500 */
+    --color-success-deep: #059669;  /* ujung gradien badge versi baru */
+    --color-text-on-success: #04120c; /* teks di atas badge gradien sukses */
+    /* L62: rgb pendamping token eksisting — rgba literal ditulis tangan di
+       download.html tak terdeteksi grep token. */
+    --rgb-primary-bright: 129, 140, 248; /* triplet --color-primary-bright #818cf8 */
+    --rgb-violet-500: 139, 92, 246; /* triplet violet (#8b5cf6) — flavor-box ungu download */
+    --color-indigo-300: #c4b5fd;    /* teks indigo muda flavor-box */
     --color-text-on-primary: #ffffff;
     --color-text-on-accent: #ffffff;
 

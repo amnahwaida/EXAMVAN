@@ -70,8 +70,9 @@ test('S15 fase 2 (guard): total hex literal di seluruh templates/ tidak naik dar
     // Batch 17: dikunci aktual (99) pasca migrasi token R125-sisa/R137.
     // Batch 23: redesign system-apps hapus premium bloat → 81.
     // Batch 32/33: M21 skin toast download (−6) + L47/L48/L49 (−5) → 64.
-    assert.ok(total <= 73,
-        `total hex templates/ = ${total}, baseline terkunci ≤ 73 — pakai var(--token) untuk warna baru`);
+    // Batch 34 (L70): sweep putih 28+ titik → 52 aktual; plafon 55.
+    assert.ok(total <= 55,
+        `total hex templates/ = ${total}, baseline terkunci ≤ 55 — pakai var(--token) untuk warna baru`);
 });
 
 test('S15 fase 2/S43 (guard): total rgba LITERAL (digit pembuka) di seluruh templates/ tidak naik', () => {
@@ -79,8 +80,9 @@ test('S15 fase 2/S43 (guard): total rgba LITERAL (digit pembuka) di seluruh temp
     // Batch 12 (R70): baseline aktual 140 (pasca migrasi S58/Batch 11-12).
     // Batch 17: dikunci aktual (89) pasca migrasi muted R125-sisa.
     // Batch 23: redesign system-apps (−17 premium rgba) → 72.
-    assert.ok(total <= 75,
-        `total rgba literal templates/ = ${total}, baseline terkunci ≤ 75 — pakai rgba(var(--rgb-*), α) / --glass-bg-strong`);
+    // Batch 34 (L70): sweep putih 28+ titik + L62 windows/violet → 27 aktual; plafon 31.
+    assert.ok(total <= 31,
+        `total rgba literal templates/ = ${total}, baseline terkunci ≤ 39 — pakai rgba(var(--rgb-*), α) / --glass-bg-strong`);
 });
 
 // Plafon per-file rgba literal (hasil ukur S43, regex digit-pembuka).
@@ -96,13 +98,13 @@ const RGBA_BASELINE_PER_FILE = {
     // Batch 13 (S71): entri 'admin/settings.html' DIHAPUS — baseline terduplikasi
     // antar-suite. Plafon rgba settings.html (≤28, aktual) kini DIJAGA SATU
     // TEMPAT: uiux-batch11-settings-guard.test.mjs (S64).
-    'admin/dashboard.html': 27, /* L47 (Batch 33): pd-action-warning & preset token → -2 rgba */
+    'admin/dashboard.html': 2, /* Batch 33 L47 → 27; L70 (Batch 34) white sweep → 2 */
     'public/register_confirm.html': 0,
-    'admin/pengawas.html': 1, /* L48 (Batch 33): badge Statis rgba(59,130,246) → --rgb-blue-400 */
-    'admin/pengawas_detail.html': 7 /* Batch 17/R125-sisa */,
-    'public/download.html': 10, /* M21: skin toast lokal dihapus → -1 rgba */
+    'admin/pengawas.html': 0, /* Batch 33 L48 → 1; L70 (Batch 34) white sweep → 0 */
+    'admin/pengawas_detail.html': 3, /* L70 (Batch 34) white sweep 7→3 */
+    'public/download.html': 3, /* Batch 34: M21 → 10; L70/L62 sweep putih+windows/violet → 3 */
     'public/hasil.html': 0,
-    'admin/partials/nav.html': 8,
+    'admin/partials/nav.html': 5, /* L70 (Batch 34) white sweep 8→5 */
     'public/reset_password.html': 0,
     'public/shared.html': 2, /* Batch 18 H6: nav inline DIHAPUS → -1 rgba */
 };

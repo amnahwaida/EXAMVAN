@@ -100,7 +100,7 @@ background: linear-gradient(90deg, var(--color-primary), var(--color-accent), va
 font-size: 1.5rem;
 font-weight: 800;
 margin-bottom: 8px;
-background: linear-gradient(135deg, #fff, #cbd5e1);
+background: linear-gradient(135deg, rgb(var(--rgb-white)), #cbd5e1);
 -webkit-background-clip: text;
 -webkit-text-fill-color: transparent;
 background-clip: text;
@@ -398,13 +398,13 @@ scrollbar-width: thin;
    rgba putih literal (bukan var(--rgb-white)) karena uiux-batch3-hasil-css
    menguras nilai alpha thumb dengan regex digit literal; var() membuat alpha
    tak terbaca dan test Batch 3 merah. Nilai visual identik. */
-scrollbar-color: rgba(255,255,255,0.35) rgba(255,255,255,0.08);
+scrollbar-color: rgba(var(--rgb-white),0.35) rgba(var(--rgb-white),0.08);
 }
 .answer-grid::-webkit-scrollbar { width: 10px; background: rgba(var(--rgb-white),0.06); }
 .answer-grid::-webkit-scrollbar-thumb {
-background: rgba(255,255,255,0.3); border-radius: 5px;
+background: rgba(var(--rgb-white),0.3); border-radius: 5px;
 }
-.answer-grid::-webkit-scrollbar-thumb:hover { background: rgba(255,255,255,0.45); }
+.answer-grid::-webkit-scrollbar-thumb:hover { background: rgba(var(--rgb-white),0.45); }
 .answer-item {
 display: flex;
 align-items: center;
@@ -609,8 +609,8 @@ color: var(--color-primary-light);
 .student-name { font-weight: 600; color: var(--color-text); }
 .rank-num { font-weight: 800; font-size: 0.82rem; color: var(--color-text-muted); }
 .rank-num.rank-1 { color: var(--color-warning); }
-.rank-num.rank-2 { color: #e2e8f0; }
-.rank-num.rank-3 { color: #d97706; }
+.rank-num.rank-2 { color: var(--color-medal-silver); }
+.rank-num.rank-3 { color: var(--color-medal-bronze); }
 /* S8: ikon chevron — ukuran render dikunci inline 14px (aria-hidden) oleh
    template; font-size tetap dinaikkan ke ambang agar aturan tunggal berlaku
    bila ikon suatu saat diganti glyph teks. */
@@ -945,12 +945,12 @@ font-weight: 600;
    disembunyikan agar cetak bersih. */
 @media print {
 body {
-background: #fff !important;
+background: rgb(var(--rgb-white)) !important;
 color: #111827 !important;
 }
 .bg-orbs, .bg-orb, .back-nav, .tab-nav, .search-section, .pagination-wrapper, .skip-link { display: none !important; }
 .exam-hero, .glass-card, .results-table tbody tr {
-background: #fff !important;
+background: rgb(var(--rgb-white)) !important;
 border-color: #d1d5db !important;
 box-shadow: none !important;
 }

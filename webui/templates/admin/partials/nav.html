@@ -125,8 +125,8 @@
      aman terhadap bubble. Tanpa dismiss backdrop sesemestinya. */}}
 <div id="instansiOnboardingModal" class="modal-overlay" style="display:flex; z-index:var(--z-onboarding); background: rgba(15, 23, 42, 0.88); backdrop-filter: blur(12px);">
     <div class="modal-card" style="max-width: 480px; border: 1px solid rgba(168, 85, 247, 0.4); box-shadow: 0 0 30px rgba(168, 85, 247, 0.35);" >
-        <div class="modal-header" style="border-bottom: 1px solid rgba(255,255,255,0.1); padding-bottom: 14px; margin-bottom: 16px;">
-            <h3 style="margin:0; font-size:1.15rem; color:#fff; display:flex; align-items:center; gap:10px;">
+        <div class="modal-header" style="border-bottom: 1px solid rgba(var(--rgb-white),0.1); padding-bottom: 14px; margin-bottom: 16px;">
+            <h3 style="margin:0; font-size:1.15rem; color:rgb(var(--rgb-white)); display:flex; align-items:center; gap:10px;">
                 <svg class="icon-svg" style="width:24px;height:24px;color:#c084fc;"><use href="#hi-building-library"/></svg>
                 Wajib Atur Nama Instansi / Sekolah
             </h3>
@@ -143,13 +143,13 @@
                     <label for="newInstansiName" style="display:block; margin-bottom:8px; font-weight:600; font-size:0.85rem; color:var(--color-text-secondary);">
                         Nama Sekolah / Instansi <span style="color:#ef4444;">*</span>
                     </label>
-                    <input type="text" id="newInstansiName" required placeholder="Contoh: SMA Negeri 1 Jakarta" style="width:100%; padding:12px 14px; border-radius:8px; background:rgba(255,255,255,0.06); border:1px solid rgba(255,255,255,0.15); color:#fff; font-size:0.95rem;" autofocus autocomplete="off">
+                    <input type="text" id="newInstansiName" required placeholder="Contoh: SMA Negeri 1 Jakarta" style="width:100%; padding:12px 14px; border-radius:8px; background:rgba(var(--rgb-white),0.06); border:1px solid rgba(var(--rgb-white),0.15); color:rgb(var(--rgb-white)); font-size:0.95rem;" autofocus autocomplete="off">
                     <div style="margin-top: 6px; font-size:0.75rem; color:var(--color-text-muted);">
                         Nama instansi ini digunakan untuk menghubungkan akun pengawas &amp; guru di sekolah Anda.
                     </div>
                 </div>
                 <div>
-                    <button type="submit" id="btnSaveInstansi" style="width: 100%; padding:12px; border-radius:8px; font-weight:700; font-size:0.95rem; background:linear-gradient(135deg, var(--grad-btn-violet-start), var(--grad-btn-violet-end)); border:none; color:#fff; cursor:pointer; box-shadow:0 4px 14px rgba(var(--rgb-accent),0.35);">
+                    <button type="submit" id="btnSaveInstansi" style="width: 100%; padding:12px; border-radius:8px; font-weight:700; font-size:0.95rem; background:linear-gradient(135deg, var(--grad-btn-violet-start), var(--grad-btn-violet-end)); border:none; color:rgb(var(--rgb-white)); cursor:pointer; box-shadow:0 4px 14px rgba(var(--rgb-accent),0.35);">
                         Simpan &amp; Aktifkan Fitur Sekolah
                     </button>
                 </div>

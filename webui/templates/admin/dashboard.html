@@ -21,7 +21,7 @@
 .pengawas-popup-item{padding:6px 14px;font-size:0.78rem;color:var(--color-text);white-space:nowrap}
 .pengawas-popup-item:hover{background:rgba(var(--rgb-accent),0.08)}
 .token-mode-group{display:flex;flex-direction:column;gap:6px}
-.token-mode-select{padding:2px 6px;background:rgba(255,255,255,0.05);border:1px solid var(--color-glass-border);border-radius:6px;color:var(--color-text-secondary);font-size:0.75rem;outline:none;cursor:pointer;margin-bottom:4px;width:100%;max-width:120px;transition:border-color 0.2s}
+.token-mode-select{padding:2px 6px;background:rgba(var(--rgb-white),0.05);border:1px solid var(--color-glass-border);border-radius:6px;color:var(--color-text-secondary);font-size:0.75rem;outline:none;cursor:pointer;margin-bottom:4px;width:100%;max-width:120px;transition:border-color 0.2s}
 .token-mode-select:focus{border-color:rgba(var(--rgb-info),0.5)}
 .token-dynamic-settings{display:flex;align-items:center;gap:6px;flex-wrap:wrap}
 .token-interval-group{display:flex;align-items:center;gap:4px}
@@ -351,7 +351,7 @@
 {{end}}
 </div>
 <!-- Server Address Box -->
-<div class="server-url-box" title="Informasi pengaturan API aplikasi ujian" style="margin-top:16px;padding:12px;background:rgba(255,255,255,0.05);border-radius:8px;border:1px solid rgba(255,255,255,0.1);display:flex;align-items:center;justify-content:space-between;gap:12px;">
+<div class="server-url-box" title="Informasi pengaturan API aplikasi ujian" style="margin-top:16px;padding:12px;background:rgba(var(--rgb-white),0.05);border-radius:8px;border:1px solid rgba(var(--rgb-white),0.1);display:flex;align-items:center;justify-content:space-between;gap:12px;">
   <div style="display:flex;align-items:center;gap:8px;">
     <svg class="icon-svg" style="color:var(--color-primary-light);width:18px;height:18px;"><use href="#hi-link"/></svg>
     <div style="display:flex;flex-direction:column;">
@@ -690,7 +690,7 @@
 <input type="hidden" id="delegateExamId">
 
 <!-- Section: Transfer Ownership -->
-<div style="margin-bottom: 20px; padding: 12px 16px; background: rgba(255, 255, 255, 0.03); border: 1px solid var(--color-glass-border); border-radius: 12px;">
+<div style="margin-bottom: 20px; padding: 12px 16px; background: rgba(var(--rgb-white), 0.03); border: 1px solid var(--color-glass-border); border-radius: 12px;">
 <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 10px;">
 <svg class="icon-svg" style="width:18px;height:18px;"><use href="#hi-link"/></svg>
 <div>
@@ -699,14 +699,14 @@
 </div>
 </div>
 <div class="form-group" style="margin-bottom: 4px;">
-<select id="delegateOwnerSelect" style="width:100%;padding:10px 12px;background:rgba(255,255,255,0.04);border:1px solid var(--color-glass-border);border-radius:8px;color:var(--color-text);font-size:14px;">
+<select id="delegateOwnerSelect" style="width:100%;padding:10px 12px;background:rgba(var(--rgb-white),0.04);border:1px solid var(--color-glass-border);border-radius:8px;color:var(--color-text);font-size:14px;">
 <option value="">-- Tidak ada Guru --</option>
 </select>
 </div>
 </div>
 
 <!-- Section: Manage Pengawas -->
-<div style="margin-bottom: 16px; padding: 12px 16px; background: rgba(255, 255, 255, 0.03); border: 1px solid var(--color-glass-border); border-radius: 12px;">
+<div style="margin-bottom: 16px; padding: 12px 16px; background: rgba(var(--rgb-white), 0.03); border: 1px solid var(--color-glass-border); border-radius: 12px;">
 <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px;">
 <div style="display: flex; align-items: center; gap: 8px;">
 <svg class="icon-svg" style="width:18px;height:18px;"><use href="#hi-eye"/></svg>
@@ -739,7 +739,7 @@
 <div class="modal-body" style="max-height:80vh;overflow-y:auto;">
 
 <!-- 1. Security Level Config -->
-<div class="security-level-config" style="margin-bottom:20px;padding:12px 16px;background:rgba(255,255,255,0.03);border:1px solid var(--color-glass-border);border-radius:12px;">
+<div class="security-level-config" style="margin-bottom:20px;padding:12px 16px;background:rgba(var(--rgb-white),0.03);border:1px solid var(--color-glass-border);border-radius:12px;">
 <div style="display:flex;align-items:flex-start;justify-content:space-between;flex-wrap:wrap;gap:12px;">
 <div style="display:flex;align-items:center;gap:8px;">
 <svg class="icon-svg" style="width:20px;height:20px;flex-shrink:0;"><use href="#hi-lock"/></svg>
@@ -749,7 +749,7 @@
 </div>
 </div>
 <div>
-<select id="examSecurityLevel" style="min-width:220px;margin:0;padding:8px 10px;background:rgba(255,255,255,0.04);border:1px solid var(--color-glass-border);border-radius:8px;color:var(--color-text);font-size:13px;">
+<select id="examSecurityLevel" style="min-width:220px;margin:0;padding:8px 10px;background:rgba(var(--rgb-white),0.04);border:1px solid var(--color-glass-border);border-radius:8px;color:var(--color-text);font-size:13px;">
 <option value="low">Rendah — Bisa Keluar (Tanpa Submit)</option>
 <option value="medium">Sedang — Bisa Keluar (Auto-Submit)</option>
 <option value="high">Tinggi — TIDAK BISA Keluar (Wajib Submit)</option>
@@ -759,7 +759,7 @@
 </div>
 
 <!-- 2. Student Access & Answer Keys Config -->
-<div class="student-access-config" style="margin-bottom:16px;padding:12px 16px;background:rgba(255,255,255,0.03);border:1px solid var(--color-glass-border);border-radius:12px;">
+<div class="student-access-config" style="margin-bottom:16px;padding:12px 16px;background:rgba(var(--rgb-white),0.03);border:1px solid var(--color-glass-border);border-radius:12px;">
 <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:12px;">
 <div style="display:flex;align-items:center;gap:8px;">
 <svg class="icon-svg" style="width:18px;height:18px;flex-shrink:0;"><use href="#hi-link"/></svg>
@@ -775,7 +775,7 @@
 </div>
 
 <!-- 2b. Congratulations Message Config -->
-<div class="congrats-message-config" style="margin-bottom:16px;padding:12px 16px;background:rgba(255,255,255,0.03);border:1px solid var(--color-glass-border);border-radius:12px;">
+<div class="congrats-message-config" style="margin-bottom:16px;padding:12px 16px;background:rgba(var(--rgb-white),0.03);border:1px solid var(--color-glass-border);border-radius:12px;">
 <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px;">
 <svg class="icon-svg" style="width:18px;height:18px;flex-shrink:0;"><use href="#hi-check"/></svg>
 <div>
@@ -783,12 +783,12 @@
 <div style="font-size:0.75rem;color:var(--color-text-muted);">Ditampilkan di halaman tersendiri setelah siswa mengumpulkan jawaban di aplikasi Android. Kosongkan untuk memakai pesan bawaan.</div>
 </div>
 </div>
-<textarea id="examCongratsMessage" maxlength="500" rows="2" placeholder="Selamat! Jawaban Anda telah dikumpulkan. Semoga sukses!" style="width:100%;padding:10px 12px;border:1px solid var(--color-glass-border);border-radius:8px;background:rgba(255,255,255,0.04);color:var(--color-text);font-size:0.85rem;resize:vertical;box-sizing:border-box;"></textarea>
+<textarea id="examCongratsMessage" maxlength="500" rows="2" placeholder="Selamat! Jawaban Anda telah dikumpulkan. Semoga sukses!" style="width:100%;padding:10px 12px;border:1px solid var(--color-glass-border);border-radius:8px;background:rgba(var(--rgb-white),0.04);color:var(--color-text);font-size:0.85rem;resize:vertical;box-sizing:border-box;"></textarea>
 <div style="font-size:0.72rem;color:var(--color-text-muted);margin-top:4px;">Maksimal 500 karakter. Hanya teks biasa (tidak mendukung HTML).</div>
 </div>
 
 <!-- 3. Panel Color Config -->
-<div class="panel-color-config" style="margin-bottom:16px;padding:12px 16px;background:rgba(255,255,255,0.03);border:1px solid var(--color-glass-border);border-radius:12px;">
+<div class="panel-color-config" style="margin-bottom:16px;padding:12px 16px;background:rgba(var(--rgb-white),0.03);border:1px solid var(--color-glass-border);border-radius:12px;">
 <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:12px;">
 <div style="display:flex;align-items:center;gap:8px;">
 <svg class="icon-svg" style="width:18px;height:18px;flex-shrink:0;"><use href="#hi-dashboard"/></svg>
@@ -799,7 +799,7 @@
 </div>
 <div style="display:flex;align-items:center;gap:8px;">
 <input type="color" id="examPanelColor" value="#6366F1" style="width:36px;height:36px;border:none;border-radius:8px;cursor:pointer;background:transparent;">
-<input type="text" id="panelColorHex" value="#6366F1" maxlength="7" placeholder="#6366F1" style="width:80px;padding:6px 8px;border:1px solid var(--color-glass-border);border-radius:8px;background:rgba(255,255,255,0.04);color:var(--color-text);font-family:monospace;font-size:0.8rem;text-align:center;">
+<input type="text" id="panelColorHex" value="#6366F1" maxlength="7" placeholder="#6366F1" style="width:80px;padding:6px 8px;border:1px solid var(--color-glass-border);border-radius:8px;background:rgba(var(--rgb-white),0.04);color:var(--color-text);font-family:monospace;font-size:0.8rem;text-align:center;">
 </div>
 </div>
 <div style="display:flex;gap:6px;margin-top:10px;flex-wrap:wrap;">
@@ -814,7 +814,7 @@
 </div>
 
 <!-- 3. Exam Schedule Config -->
-<div class="exam-schedule-config" style="margin-bottom:16px;padding:12px 16px;background:rgba(255,255,255,0.03);border:1px solid var(--color-glass-border);border-radius:12px;">
+<div class="exam-schedule-config" style="margin-bottom:16px;padding:12px 16px;background:rgba(var(--rgb-white),0.03);border:1px solid var(--color-glass-border);border-radius:12px;">
 <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:12px;margin-bottom:12px;">
 <div style="display:flex;align-items:center;gap:8px;">
 <svg class="icon-svg" style="width:18px;height:18px;flex-shrink:0;"><use href="#hi-clock"/></svg>
@@ -830,27 +830,27 @@
 <div style="display:flex;align-items:flex-end;gap:8px;flex-wrap:wrap;">
 <div style="display:flex;flex-direction:column;gap:2px;">
 <label for="examStartDate" style="font-size:0.7rem;color:var(--color-text-muted);font-weight:600;">Tgl Mulai</label>
-<input type="date" id="examStartDate" style="padding:6px 8px;border:1px solid var(--color-glass-border);border-radius:8px;background:rgba(255,255,255,0.04);color:var(--color-text);font-size:0.85rem;width:140px;">
+<input type="date" id="examStartDate" style="padding:6px 8px;border:1px solid var(--color-glass-border);border-radius:8px;background:rgba(var(--rgb-white),0.04);color:var(--color-text);font-size:0.85rem;width:140px;">
 </div>
 <div style="display:flex;flex-direction:column;gap:2px;">
 <label for="examStartTime" style="font-size:0.7rem;color:var(--color-text-muted);font-weight:600;">Jam</label>
-<input type="time" id="examStartTime" style="padding:6px 8px;border:1px solid var(--color-glass-border);border-radius:8px;background:rgba(255,255,255,0.04);color:var(--color-text);font-size:0.85rem;width:110px;">
+<input type="time" id="examStartTime" style="padding:6px 8px;border:1px solid var(--color-glass-border);border-radius:8px;background:rgba(var(--rgb-white),0.04);color:var(--color-text);font-size:0.85rem;width:110px;">
 </div>
 <svg class="icon-svg" style="width:18px;height:18px;color:var(--color-text-muted);flex-shrink:0;" aria-hidden="true"><use href="#hi-chevron-right"/></svg>
 <div style="display:flex;flex-direction:column;gap:2px;">
 <label for="examEndDate" style="font-size:0.7rem;color:var(--color-text-muted);font-weight:600;">Tgl Selesai</label>
-<input type="date" id="examEndDate" style="padding:6px 8px;border:1px solid var(--color-glass-border);border-radius:8px;background:rgba(255,255,255,0.04);color:var(--color-text);font-size:0.85rem;width:140px;">
+<input type="date" id="examEndDate" style="padding:6px 8px;border:1px solid var(--color-glass-border);border-radius:8px;background:rgba(var(--rgb-white),0.04);color:var(--color-text);font-size:0.85rem;width:140px;">
 </div>
 <div style="display:flex;flex-direction:column;gap:2px;">
 <label for="examEndTime" style="font-size:0.7rem;color:var(--color-text-muted);font-weight:600;">Jam</label>
-<input type="time" id="examEndTime" style="padding:6px 8px;border:1px solid var(--color-glass-border);border-radius:8px;background:rgba(255,255,255,0.04);color:var(--color-text);font-size:0.85rem;width:110px;">
+<input type="time" id="examEndTime" style="padding:6px 8px;border:1px solid var(--color-glass-border);border-radius:8px;background:rgba(var(--rgb-white),0.04);color:var(--color-text);font-size:0.85rem;width:110px;">
 </div>
 </div>
 </div>
 
 <!-- 4. Pengawas Config — hanya untuk operator/superadmin -->
 {{if or (hasRole .admin_role "operator") (eq .admin_role "superadmin")}}
-<div class="pengawas-config" style="margin-bottom:16px;padding:12px 16px;background:rgba(255,255,255,0.03);border:1px solid var(--color-glass-border);border-radius:12px;">
+<div class="pengawas-config" style="margin-bottom:16px;padding:12px 16px;background:rgba(var(--rgb-white),0.03);border:1px solid var(--color-glass-border);border-radius:12px;">
 <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:12px;">
 <div style="display:flex;align-items:center;gap:8px;">
 <svg class="icon-svg" style="width:18px;height:18px;flex-shrink:0;"><use href="#hi-eye"/></svg>
@@ -867,7 +867,7 @@
 {{end}}
 
 <!-- 5. Identity Fields Config -->
-<div class="identity-fields-config" style="margin-bottom:16px;padding:12px 16px;background:rgba(255,255,255,0.03);border:1px solid var(--color-glass-border);border-radius:12px;">
+<div class="identity-fields-config" style="margin-bottom:16px;padding:12px 16px;background:rgba(var(--rgb-white),0.03);border:1px solid var(--color-glass-border);border-radius:12px;">
 <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;">
 <div style="display:flex;align-items:center;gap:8px;">
 <svg class="icon-svg" style="width:18px;height:18px;flex-shrink:0;"><use href="#hi-users"/></svg>
@@ -889,8 +889,8 @@
 <div style="display:flex;flex-wrap:wrap;gap:8px;align-items:center;">
 <div class="inline-group" style="display:flex;align-items:center;gap:6px;">
 <label for="generateQty" style="font-size:0.8rem;color:var(--color-text-secondary);">Jumlah:</label>
-<input type="number" id="generateQty" value="40" min="1" max="200" style="width:70px;padding:6px 8px;text-align:center;background:rgba(255,255,255,0.04);border:1px solid var(--color-glass-border);border-radius:6px;color:var(--color-text);font-size:13px;">
-<select id="generateType" style="padding:6px 8px;background:rgba(255,255,255,0.04);border:1px solid var(--color-glass-border);border-radius:6px;color:var(--color-text);font-size:13px;">
+<input type="number" id="generateQty" value="40" min="1" max="200" style="width:70px;padding:6px 8px;text-align:center;background:rgba(var(--rgb-white),0.04);border:1px solid var(--color-glass-border);border-radius:6px;color:var(--color-text);font-size:13px;">
+<select id="generateType" style="padding:6px 8px;background:rgba(var(--rgb-white),0.04);border:1px solid var(--color-glass-border);border-radius:6px;color:var(--color-text);font-size:13px;">
 <option value="single_choice">Pilihan Ganda</option>
 <option value="true_false">Benar / Salah</option>
 <option value="multiple_choice">PG Kompleks</option>
@@ -1115,8 +1115,8 @@ document.addEventListener('click', function() { document.querySelectorAll('.exam
 <!-- Modal Ubah Instansi -->
 <div class="modal-overlay" id="editInstansiModal" role="dialog" aria-modal="true" aria-labelledby="editInstansiTitle" style="display:none;" data-action="modal-dismiss" data-modal-close="closeEditInstansiModal">
   <div class="modal-card glass-card" style="max-width: 440px;">
-    <div class="modal-header" style="border-bottom:1px solid rgba(255,255,255,0.1);padding-bottom:12px;">
-      <h3 id="editInstansiTitle" style="margin:0;font-size:1.1rem;color:#fff;display:flex;align-items:center;gap:8px;">
+    <div class="modal-header" style="border-bottom:1px solid rgba(var(--rgb-white),0.1);padding-bottom:12px;">
+      <h3 id="editInstansiTitle" style="margin:0;font-size:1.1rem;color:rgb(var(--rgb-white));display:flex;align-items:center;gap:8px;">
         <svg class="icon-svg" style="width:20px;height:20px;color:var(--color-accent-light);"><use href="#hi-building-library"/></svg>
         Ubah Nama Instansi / Sekolah
       </h3>
@@ -1127,13 +1127,13 @@ document.addEventListener('click', function() { document.querySelectorAll('.exam
         <label for="editInstansiInput" style="display:block;font-size:0.85rem;font-weight:600;color:var(--color-text-secondary);margin-bottom:8px;">
           Nama Instansi / Sekolah <span style="color:var(--color-danger);">*</span>
         </label>
-        <input type="text" id="editInstansiInput" required value="{{.admin_instansi}}" placeholder="Contoh: SMA Negeri 1 Jakarta" style="width:100%;padding:10px 12px;border-radius:8px;background:var(--glass-bg-strong);border:1px solid rgba(255,255,255,0.15);color:var(--color-text-on-primary);font-size:0.9rem;">
+        <input type="text" id="editInstansiInput" required value="{{.admin_instansi}}" placeholder="Contoh: SMA Negeri 1 Jakarta" style="width:100%;padding:10px 12px;border-radius:8px;background:var(--glass-bg-strong);border:1px solid rgba(var(--rgb-white),0.15);color:var(--color-text-on-primary);font-size:0.9rem;">
         <span style="font-size:0.75rem;color:var(--color-text-muted);display:block;margin-top:6px;">
           Perubahan nama instansi akan otomatis berlaku untuk seluruh akun guru/pengawas di sekolah Anda.
         </span>
       </div>
       <div style="display:flex;justify-content:flex-end;gap:10px;">
-        <button type="button" class="btn btn-secondary" data-action="modal-close" data-modal-close="closeEditInstansiModal" style="padding:8px 16px;border-radius:8px;background:rgba(255,255,255,0.1);border:none;color:var(--color-text-on-primary);cursor:pointer;">Batal</button>
+        <button type="button" class="btn btn-secondary" data-action="modal-close" data-modal-close="closeEditInstansiModal" style="padding:8px 16px;border-radius:8px;background:rgba(var(--rgb-white),0.1);border:none;color:var(--color-text-on-primary);cursor:pointer;">Batal</button>
         <button type="submit" id="btnSaveEditInstansi" class="btn btn-primary" style="padding:8px 16px;border-radius:8px;background:linear-gradient(135deg, var(--grad-btn-violet-start), var(--grad-btn-violet-end));border:none;color:var(--color-text-on-accent);font-weight:600;cursor:pointer;">
           Simpan Perubahan
         </button>
