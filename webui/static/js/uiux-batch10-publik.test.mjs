@@ -465,16 +465,22 @@ test('S59 (register_confirm): kirim-ulang OTP di-wiring addEventListener, bukan 
 const PW_HEX_DRIFT = ['#ef4444', '#f59e0b'];
 
 test('R42: rule CSS .pw-bar-fill.weak/.fair di reset_password memakai token sama dengan register', () => {
-    for (const [label, src] of [['register', REGISTER()], ['reset_password', RESET_PASSWORD()]]) {
-        const weak = src.match(/\.pw-bar-fill\.weak\s*\{([^}]*)\}/);
-        const fair = src.match(/\.pw-bar-fill\.fair\s*\{([^}]*)\}/);
-        assert.ok(weak && fair, `${label}: rule pw-bar-fill weak/fair harus ada`);
-        assert.match(weak[1], /var\(--color-danger\)/, `${label}: weak wajib var(--color-danger)`);
-        assert.match(fair[1], /var\(--color-warning\)/, `${label}: fair wajib var(--color-warning)`);
-        for (const hex of PW_HEX_DRIFT) {
-            assert.ok(!weak[1].includes(hex) && !fair[1].includes(hex),
-                `${label}: hex ${hex} masih ada di rule .pw-bar-fill.*`);
-        }
+    // L65/L66 (review_ui_halaman_web_2026-09-12.md): blok pw-strength kini
+    // satu-sumber di public-auth.css — anti-drift dijaga di file bersama itu,
+    // bukan lagi per-halaman.
+    const src = read('static/css/public-auth.css');
+    const weak = src.match(/\.pw-bar-fill\.weak\s*\{([^}]*)\}/);
+    const fair = src.match(/\.pw-bar-fill\.fair\s*\{([^}]*)\}/);
+    assert.ok(weak && fair, 'rule pw-bar-fill weak/fair harus ada di public-auth.css');
+    assert.match(weak[1], /var\(--color-danger\)/, 'weak wajib var(--color-danger)');
+    assert.match(fair[1], /var\(--color-warning\)/, 'fair wajib var(--color-warning)');
+    for (const hex of PW_HEX_DRIFT) {
+        assert.ok(!weak[1].includes(hex) && !fair[1].includes(hex),
+            `hex ${hex} masih ada di rule .pw-bar-fill.*`);
+    }
+    for (const [label, tpl] of [['register', REGISTER], ['reset_password', RESET_PASSWORD]]) {
+        assert.doesNotMatch(tpl(), /\.pw-bar-fill\.weak/,
+            `${label}: salinan lokal pw-strength dihapus (satu sumber public-auth.css)`);
     }
 });
 

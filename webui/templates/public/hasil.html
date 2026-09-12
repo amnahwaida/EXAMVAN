@@ -539,19 +539,19 @@
   if (scoreLegend) scoreLegend.style.display = 'block';
   statsRow.innerHTML = `
   <div class="stat-mini">
-  <span class="stat-mini-value" style="color: var(--color-success);">${avg.toFixed(1)}</span>
+  <span class="stat-mini-value stat-success">${avg.toFixed(1)}</span>
   <span class="stat-mini-label">Rata-rata</span>
   </div>
   <div class="stat-mini">
-  <span class="stat-mini-value" style="color: var(--color-warning);">${max.toFixed(1)}</span>
+  <span class="stat-mini-value stat-warning">${max.toFixed(1)}</span>
   <span class="stat-mini-label">Tertinggi</span>
   </div>
   <div class="stat-mini">
-  <span class="stat-mini-value" style="color: var(--color-danger);">${min.toFixed(1)}</span>
+  <span class="stat-mini-value stat-danger">${min.toFixed(1)}</span>
   <span class="stat-mini-label">Terendah</span>
   </div>
   <div class="stat-mini">
-  <span class="stat-mini-value" style="color: var(--color-accent-light);">${statsData.count}</span>
+  <span class="stat-mini-value stat-accent">${statsData.count}</span>
   <span class="stat-mini-label">Total Peserta</span>
   </div>
   `;

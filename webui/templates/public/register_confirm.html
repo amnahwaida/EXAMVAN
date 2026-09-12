@@ -17,6 +17,8 @@
  <!-- R79: semua link stylesheet eksternal ditaruh sebelum blok style inline pertama (urutan cascade jelas). -->
  <link rel="stylesheet" href="/static/css/public-mobile.css?v={{.version}}">
  <link rel="stylesheet" href="/static/css/public-desktop.css?v={{.version}}">
+  <!-- L65/L66: komponen OTP & pw-strength satu-sumber di public-auth.css -->
+  <link rel="stylesheet" href="/static/css/public-auth.css?v={{.version}}">
  <!-- M21: skin toast bersama (public-toast.css) — host public_toast_host dipakai halaman ini -->
  {{ template "public_toast_skin" . }}
  <style>
@@ -81,40 +83,6 @@
    background: rgba(var(--rgb-success),0.3);
   }
 
-  /* OTP input styling */
-  .otp-input-wrapper {
-   display: flex;
-   flex-wrap: wrap; /* jangan sampai kotak digit terpotong di layar sempit */
-   justify-content: center;
-   gap: 8px;
-   margin: 20px 0;
-  }
-   .otp-input-wrapper .otp-digit {
-    width: 46px;
-    flex: 0 0 46px;
-    height: 54px;
-   text-align: center;
-   font-size: 22px;
-   font-weight: 700;
-   letter-spacing: 0;
-   border-radius: 12px;
-   background: rgba(var(--rgb-white),0.04);
-   border: 1.5px solid rgba(var(--rgb-white),0.08);
-   color: var(--color-text);
-   outline: none;
-   transition: border-color 0.25s, box-shadow 0.25s, background 0.25s;
-   caret-color: var(--color-primary-light);
-  }
-  .otp-digit:focus {
-   border-color: rgba(var(--rgb-info),0.5);
-   box-shadow: 0 0 0 3px rgba(var(--rgb-info),0.12);
-   background: rgba(var(--rgb-info),0.06);
-  }
-   .otp-input-wrapper .otp-digit.filled {
-    border-color: rgba(var(--rgb-info),0.35);
-    background: rgba(var(--rgb-info),0.08);
-   }
-
   /* Email badge */
   .email-badge {
    display: inline-flex;
@@ -171,11 +139,9 @@
   @media (max-width: 480px) {
    .reg-step-label { display: none; }
    .reg-step-line { width: 24px; }
-   .otp-input-wrapper .otp-digit { width: 40px; height: 48px; font-size: 20px; flex-basis: 40px; }
    /* Kartu ber-padding 32px membuat 6 kotak OTP (280px) tidak muat di layar
       ≤360px dan terpotong oleh overflow:hidden — rapatkan di layar kecil. */
    .login-card { padding: 24px 16px; }
-   .otp-input-wrapper { gap: 6px; }
   }
  </style>
  <script src="/static/js/admin-core.js?v={{.version}}" defer></script>

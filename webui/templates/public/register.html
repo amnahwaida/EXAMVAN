@@ -18,6 +18,8 @@
   <!-- R71: seluruh link stylesheet eksternal wajib SEBELUM blok style inline pertama; urutan antar-link dipertahankan. -->
   <link rel="stylesheet" href="/static/css/public-mobile.css?v={{.version}}">
   <link rel="stylesheet" href="/static/css/public-desktop.css?v={{.version}}">
+  <!-- L65/L66: komponen OTP & pw-strength satu-sumber di public-auth.css -->
+  <link rel="stylesheet" href="/static/css/public-auth.css?v={{.version}}">
    <!-- M21: skin toast bersama (public-toast.css) — host public_toast_host dipakai halaman ini -->
    {{ template "public_toast_skin" . }}
   <link rel="icon" type="image/png" href="/static/favicon.png">
@@ -46,33 +48,6 @@
   .input-icon-wrap input:focus ~ .input-icon,
   .input-icon-wrap:focus-within .input-icon {
    color: var(--color-primary-light);
-  }
-
-  /* Password strength bar */
-  .pw-strength-bar {
-   height: 4px;
-   border-radius: 4px;
-   background: rgba(var(--rgb-white),0.06);
-   margin-top: 8px;
-   overflow: hidden;
-   transition: opacity 0.3s;
-  }
-  .pw-strength-bar .pw-bar-fill {
-   height: 100%;
-   border-radius: 4px;
-   width: 0%;
-   transition: width 0.4s cubic-bezier(.4,0,.2,1), background 0.4s;
-  }
-  .pw-strength-bar .pw-bar-fill.weak { width: 25%; background: var(--color-danger); }
-  .pw-strength-bar .pw-bar-fill.fair { width: 50%; background: var(--color-warning); }
-  .pw-strength-bar .pw-bar-fill.good { width: 75%; background: var(--color-success); }
-  .pw-strength-bar .pw-bar-fill.strong { width: 100%; background: linear-gradient(90deg, var(--color-success), var(--color-accent-cyan)); /* S75: token sama dengan label */ }
-  .pw-strength-text {
-   font-size: 11px;
-   margin-top: 4px;
-   color: var(--color-text-muted);
-   transition: color 0.3s;
-   min-height: 16px;
   }
 
   /* Step progress indicator */

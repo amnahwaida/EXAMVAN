@@ -4,6 +4,17 @@
 <!-- R108: link public-mobile/desktop.css di sini DIHAPUS — public_head
      (shared.html) sudah memancarkan keduanya; duplikat = request CSS dobel. -->
 <style>
+/* L63 (review_ui_halaman_web_2026-09-12.md): kelas empty-state menggantikan
+   3 blok styling inline duplikatif (Android/Windows/Linux) — gaya terpusat,
+   teks tetap per-templating. */
+.empty-state {
+  text-align: center;
+  padding: 60px 20px;
+  color: var(--color-text-muted);
+  background: rgba(var(--rgb-black),0.15);
+  border-radius: 16px;
+  border: 1px dashed rgba(var(--rgb-white),0.05);
+}
   main {
     flex: 1;
     max-width: 1240px;
@@ -499,7 +510,7 @@
           {{ end }}
 
           {{ if not .android_app }}
-            <div style="text-align: center; padding: 60px 20px; color: var(--color-text-muted); background: rgba(var(--rgb-black),0.15); border-radius: 16px; border: 1px dashed rgba(var(--rgb-white),0.05);">
+            <div class="empty-state">
               <svg width="50" height="50" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" style="margin-bottom:16px; opacity:0.4;"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="8" x2="12" y2="12"></line><line x1="12" y1="16" x2="12.01" y2="16"></line></svg>
               <p style="font-size:15px; font-weight:600;">Belum ada installer Android (APK) yang tersedia di sistem.</p>
             </div>
@@ -641,7 +652,7 @@
           {{ end }}
 
           {{ if not $hasWindowsApp }}
-            <div style="text-align: center; padding: 60px 20px; color: var(--color-text-muted); background: rgba(var(--rgb-black),0.15); border-radius: 16px; border: 1px dashed rgba(var(--rgb-white),0.05);">
+            <div class="empty-state">
               <svg width="50" height="50" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" style="margin-bottom:16px; opacity:0.4;"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="8" x2="12" y2="12"></line><line x1="12" y1="16" x2="12.01" y2="16"></line></svg>
               <p style="font-size:15px; font-weight:600;">Belum ada installer Windows (.exe) yang tersedia di sistem.</p>
             </div>
@@ -720,7 +731,7 @@
           {{ end }}
 
           {{ if not $hasLinuxApp }}
-            <div style="text-align: center; padding: 60px 20px; color: var(--color-text-muted); background: rgba(var(--rgb-black),0.15); border-radius: 16px; border: 1px dashed rgba(var(--rgb-white),0.05);">
+            <div class="empty-state">
               <svg width="50" height="50" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" style="margin-bottom:16px; opacity:0.4;"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="8" x2="12" y2="12"></line><line x1="12" y1="16" x2="12.01" y2="16"></line></svg>
               <p style="font-size:15px; font-weight:600;">Belum ada installer Linux (.AppImage) yang tersedia di sistem.</p>
             </div>

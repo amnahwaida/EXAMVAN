@@ -1,0 +1,79 @@
+/*
+ * public-auth.css — komponen bersama halaman auth publik.
+ *
+ * L65/L66 (review_ui_halaman_web_2026-09-12.md): blok CSS OTP 6-kotak
+ * (duplikat penuh register_confirm.html <-> reset_password.html, termasuk
+ * komentar yang ikut tersalin dengan drift) dan blok pw-strength meter
+ * (duplikat register.html <-> reset_password.html) diangkat ke sini — satu
+ * sumber kebenaran; koreksi tema/kontras kini menular ke semua halaman.
+ *
+ * Dimuat oleh: register.html, register_confirm.html, reset_password.html
+ * (link diletakkan setelah public-desktop.css, sebelum style inline —
+ * kontrak R71/R79).
+ */
+
+/* ===== OTP 6-kotak (L65) ===== */
+.otp-input-wrapper {
+  display: flex;
+  flex-wrap: wrap; /* jangan sampai kotak digit terpotong di layar sempit */
+  justify-content: center;
+  gap: 8px;
+  margin: 20px 0;
+}
+.otp-input-wrapper .otp-digit {
+  width: 46px;
+  flex: 0 0 46px;
+  height: 54px;
+  text-align: center;
+  font-size: 22px;
+  font-weight: 700;
+  letter-spacing: 0;
+  border-radius: 12px;
+  background: rgba(var(--rgb-white),0.04);
+  border: 1.5px solid rgba(var(--rgb-white),0.08);
+  color: var(--color-text);
+  outline: none;
+  transition: border-color 0.25s, box-shadow 0.25s, background 0.25s;
+  caret-color: var(--color-primary-light);
+}
+.otp-digit:focus {
+  border-color: rgba(var(--rgb-info),0.5);
+  box-shadow: 0 0 0 3px rgba(var(--rgb-info),0.12);
+  background: rgba(var(--rgb-info),0.06);
+}
+.otp-input-wrapper .otp-digit.filled {
+  border-color: rgba(var(--rgb-info),0.35);
+  background: rgba(var(--rgb-info),0.08);
+}
+@media (max-width: 480px) {
+  .otp-input-wrapper { gap: 6px; }
+  .otp-input-wrapper .otp-digit { width: 40px; height: 48px; font-size: 20px; flex-basis: 40px; }
+}
+
+/* ===== Strength meter password (L66) =====
+   R22: umpan balik kekuatan konsisten saat daftar vs reset. */
+.pw-strength-bar {
+  height: 4px;
+  border-radius: 4px;
+  background: rgba(var(--rgb-white),0.06);
+  margin-top: 8px;
+  overflow: hidden;
+  transition: opacity 0.3s;
+}
+.pw-strength-bar .pw-bar-fill {
+  height: 100%;
+  border-radius: 4px;
+  width: 0%;
+  transition: width 0.4s cubic-bezier(.4,0,.2,1), background 0.4s;
+}
+.pw-strength-bar .pw-bar-fill.weak { width: 25%; background: var(--color-danger); }
+.pw-strength-bar .pw-bar-fill.fair { width: 50%; background: var(--color-warning); }
+.pw-strength-bar .pw-bar-fill.good { width: 75%; background: var(--color-success); }
+.pw-strength-bar .pw-bar-fill.strong { width: 100%; background: linear-gradient(90deg, var(--color-success), var(--color-accent-cyan)); /* S75: token sama dengan label */ }
+.pw-strength-text {
+  font-size: 11px;
+  margin-top: 4px;
+  color: var(--color-text-muted);
+  transition: color 0.3s;
+  min-height: 16px;
+}

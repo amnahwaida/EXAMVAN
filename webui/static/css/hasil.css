@@ -501,6 +501,13 @@ background: rgba(var(--rgb-white),0.03);
 border: 1px solid rgba(var(--rgb-white),0.06);
 }
 .stat-mini-value { font-size: 1.4rem; font-weight: 800; display: block; }
+/* L60 (review_ui_halaman_web_2026-09-12.md): kelas semantik per-statistik —
+   konsumsi token warna dipindah dari style inline di renderStats (JS) ke CSS
+   sehingga rename token terdeteksi grep template dan kartu ikut restyle. */
+.stat-success { color: var(--color-success); }
+.stat-warning { color: var(--color-warning); }
+.stat-danger  { color: var(--color-danger); }
+.stat-accent  { color: var(--color-accent-light); }
 .stat-mini-label {
 font-size: 0.75rem; /* S8: dulu 0.65rem — label statistik informatif */
 color: var(--color-text-muted);

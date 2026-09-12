@@ -259,21 +259,26 @@ test('S74 (statik): cabang total===0 loadResults menyentuh paginationWrapper & s
 
 for (const [label, tpl] of [['register', REGISTER], ['reset_password', RESET_PASSWORD]]) {
     test(`S75: blok style strength meter ${label} bebas hex — bar good/strong pakai token sama dengan label`, () => {
-        const html = tpl();
-        const m = html.match(/\.pw-strength-bar\s*\{[\s\S]*?\.pw-strength-text\s*\{/);
-        assert.ok(m, `blok CSS .pw-strength-bar harus ada di ${label}`);
+        // L66: blok pw-strength kini satu-sumber di public-auth.css — uji hex
+        // dijalankan pada sumber bersama, halaman hanya wajib me-link-nya.
+        const src = read('static/css/public-auth.css');
+        const m = src.match(/\.pw-strength-bar\s*\{[\s\S]*?\.pw-strength-text\s*\{/);
+        assert.ok(m, 'blok CSS .pw-strength-bar harus ada di public-auth.css');
         const block = m[0];
         assert.doesNotMatch(block, /#[0-9a-fA-F]{3,8}\b/,
-            `${label}: blok style strength meter masih memuat hex literal — `
+            'blok style strength meter masih memuat hex literal — '
             + 'bar wajib token theme.css yang sama dengan label');
         const good = block.match(/\.pw-bar-fill\.good\s*\{([^}]*)\}/);
         const strong = block.match(/\.pw-bar-fill\.strong\s*\{([^}]*)\}/);
-        assert.ok(good && strong, `${label}: rule pw-bar-fill good/strong harus ada`);
+        assert.ok(good && strong, 'rule pw-bar-fill good/strong harus ada');
         assert.match(good[1], /background:\s*var\(--color-success\)/,
-            `${label}: .good (#22c55e) wajib var(--color-success)`);
+            '.good wajib var(--color-success)');
         assert.match(strong[1], /linear-gradient\(90deg,\s*var\(--color-success\),\s*var\(--color-accent-cyan\)\)/,
-            `${label}: .strong wajib gradient token sama dengan label `
+            '.strong wajib gradient token sama dengan label '
             + '(var(--color-success), var(--color-accent-cyan))');
+        // Halaman konsumen tidak menyimpan salinan lokal lagi:
+        assert.doesNotMatch(tpl(), /\.pw-bar-fill\.strong/,
+            `${label}: salinan pw-strength lokal dihapus (satu sumber)`);
     });
 }
 

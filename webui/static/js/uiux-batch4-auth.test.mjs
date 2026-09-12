@@ -107,9 +107,13 @@ test('S6f: reset_password menyinkronkan nilai gabungan 6 kotak ke hidden otp_cod
         'JS harus mengambil semua kotak .otp-digit');
     assert.match(rp, /\w+\.value\s*=\s*code\b/,
         'nilai gabungan harus ditulis ke hidden #otp_code');
-    // CSS lokal untuk visual kotak OTP agar konsisten dengan register_confirm.
-    assert.match(rp, /\.otp-digit\s*\{/, 'harus ada styling .otp-digit lokal');
-    assert.match(rp, /\.otp-input-wrapper\s*\{/, 'harus ada wrapper flex .otp-input-wrapper');
+    // L65 (review_ui_halaman_web_2026-09-12.md): visual kotak OTP kini satu
+    // sumber di public-auth.css (paritas register_confirm) — halaman cukup
+    // me-link-nya, salinan lokal dihapus.
+    const auth = read('static/css/public-auth.css');
+    assert.match(auth, /\.otp-digit\s*\{/, 'styling .otp-digit ada di public-auth.css');
+    assert.match(auth, /\.otp-input-wrapper\s*\{/, 'wrapper flex .otp-input-wrapper ada di public-auth.css');
+    assert.match(rp, /public-auth\.css/, 'reset_password me-link public-auth.css');
 });
 
 // ---------------------------------------------------------------------------
