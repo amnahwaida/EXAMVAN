@@ -178,11 +178,12 @@
  </style>
 </head>
 <body class="login-page">
- {{ template "public_auth_nav" . }}
+ {{ template "public_skip_link" . }}
  {{/* Batch 6 (tugas 6): satu-satunya sisa skip-link inline kini menyatu —
       partial public_skip_link dipakai seperti halaman publik lain; base
-      styling cukup dari theme.css (.skip-link). */}}
- {{ template "public_skip_link" . }}
+      styling cukup dari theme.css (.skip-link). M19: skip link dirender
+      SEBELUM auth nav agar Tab pertama melompat ke konten, bukan ke nav. */}}
+ {{ template "public_auth_nav" . }}
  <div class="login-bg">
   <div class="login-orb login-orb-1"></div>
   <div class="login-orb login-orb-2"></div>

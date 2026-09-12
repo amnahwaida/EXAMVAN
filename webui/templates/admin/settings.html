@@ -313,7 +313,9 @@
    pointer-events: none;
  }
  .tooltip:hover::after,
- .tooltip:hover::before {
+ .tooltip:hover::before,
+ .tooltip:focus-within::after,
+ .tooltip:focus-within::before {
    opacity: 1;
    visibility: visible;
    transform: translateX(-50%) translateY(0);
@@ -348,7 +350,9 @@
       transform: translateY(5px);
     }
     .tooltip:hover::after,
-    .tooltip:hover::before {
+    .tooltip:hover::before,
+    .tooltip:focus-within::after,
+    .tooltip:focus-within::before {
       transform: translateY(0);
     }
   }
@@ -1737,7 +1741,7 @@
       <th scope="col" style="padding:16px 20px;min-width:140px;">Role</th>
      </tr>
     </thead>
-    <tbody id="packagesTableBody">
+    <tbody id="packagesTableBody" aria-live="polite">
      <tr>
       <td colspan="7" style="padding:32px;text-align:center;color:var(--color-text-secondary);">
        <span style="display:inline-flex;align-items:center;gap:6px;"><svg class="icon-svg spin" style="width:16px;height:16px;"><use href="#hi-refresh"/></svg> Memuat pengaturan paket...</span>

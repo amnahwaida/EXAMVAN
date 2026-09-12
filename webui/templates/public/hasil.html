@@ -399,6 +399,21 @@
 
   loadResults();
   }
+
+  // M20/S59: baris skor & pagination angka dilayani delegasi registry —
+  // id/halaman dibawa via atribut data, bukan closure .onclick. Registrasi
+  // sengaja SETELAH blok init kondisional (handler hanya dipanggil saat
+  // klik/keyboard, elemen boleh belum ada saat halaman error/disabled).
+  if (typeof Actions !== 'undefined') {
+   Actions.register('toggle-score-detail', function (el) {
+    var id = parseInt(el.getAttribute('data-sub-id'), 10);
+    if (id) toggleDetailScores(id);
+   });
+   Actions.register('page-goto', function (el) {
+    var p = parseInt(el.getAttribute('data-page'), 10);
+    if (p) goToPage(p);
+   });
+  }
  });
 
  // ===== API: Load Results (server-side pagination + search) =====
@@ -602,7 +617,10 @@
  const globalRank = (currentPage - 1) * PER_PAGE + idx + 1;
  const tr = document.createElement('tr');
  tr.id = 'scores-row-' + sub.id;
- tr.onclick = () => toggleDetailScores(sub.id);
+ // M20/S59: klik dilayani delegasi registry Actions (data-action) — bukan
+ // properti .onclick per baris (puluhan listener per render, di luar registry).
+ tr.setAttribute('data-action', 'toggle-score-detail');
+ tr.setAttribute('data-sub-id', String(sub.id));
  tr.style.cursor = 'pointer';
  tr.setAttribute('tabindex', '0');
  tr.setAttribute('role', 'button');
@@ -902,7 +920,10 @@
  // merasakan class .active); halaman lain wajib dibersihkan dari atribut.
  if (page === currentPage) btn.setAttribute('aria-current', 'page');
  else btn.removeAttribute('aria-current');
- btn.onclick = () => goToPage(page);
+ // M20/S59: delegasi registry — tombol pagination angka membawa data-action
+ // + data-page (pengganti properti .onclick per tombol).
+ btn.setAttribute('data-action', 'page-goto');
+ btn.setAttribute('data-page', String(page));
  return btn;
  }
 
