@@ -601,13 +601,13 @@ function renderStudentAccessControls(examId, res) {
     const prActive = res.public_results === 1;
     const saActive = res.show_answers === 1;
     wrap.innerHTML = `
-        <a href="/hasil/${token}" target="_blank" class="pd-action-btn pd-action-link" title="Buka halaman hasil ujian untuk siswa">
+        <a href="/hasil/${escapeHtml(token)}" target="_blank" rel="noopener noreferrer" class="pd-action-btn pd-action-link" title="Buka halaman hasil ujian untuk siswa">
             <svg class="icon-svg" style="width:14px;height:14px;"><use href="#hi-link"/></svg> Halaman Siswa
         </a>
-        <button id="btn-public-results-${examId}" data-exam-id="${examId}" data-action="toggle-public-results" class="pd-action-btn ${prActive ? 'pd-action-active' : 'pd-action-danger'}" title="Aktifkan/nonaktifkan halaman hasil ujian siswa">
+        <button id="btn-public-results-${escapeHtml(examId)}" data-exam-id="${escapeHtml(examId)}" data-action="toggle-public-results" class="pd-action-btn ${prActive ? 'pd-action-active' : 'pd-action-danger'}" title="Aktifkan/nonaktifkan halaman hasil ujian siswa">
             <svg class="icon-svg" style="width:14px;height:14px;"><use href="${prActive ? '#hi-eye' : '#hi-eye-off'}"/></svg> ${prActive ? 'Hal. Siswa Aktif' : 'Hal. Siswa Nonaktif'}
         </button>
-        <button id="btn-show-answers-${examId}" data-exam-id="${examId}" data-action="toggle-show-answers" class="pd-action-btn ${saActive ? 'pd-action-warning' : 'pd-action-muted'}" title="Tampilkan/sembunyikan kunci jawaban untuk siswa">
+        <button id="btn-show-answers-${escapeHtml(examId)}" data-exam-id="${escapeHtml(examId)}" data-action="toggle-show-answers" class="pd-action-btn ${saActive ? 'pd-action-warning' : 'pd-action-muted'}" title="Tampilkan/sembunyikan kunci jawaban untuk siswa">
             <svg class="icon-svg" style="width:14px;height:14px;"><use href="${saActive ? '#hi-lock-open' : '#hi-lock'}"/></svg> ${saActive ? 'Kunci Terlihat' : 'Kunci Tersembunyi'}
         </button>`;
 }
@@ -1073,7 +1073,7 @@ function renderPengawasSelection(assigned, available) {
                 x.type = 'button';
                 x.style.cssText = 'cursor:pointer;margin-left:2px;font-size:13px;line-height:1;opacity:0.7;background:transparent;border:none;color:var(--color-text-secondary);padding:0;font-family:inherit;';
                 x.setAttribute('aria-label', 'Hapus pengawas ' + p.username);
-                x.addEventListener('click', function(ev) { ev.stopPropagation(); var cb = document.querySelector('#pengawasDropdown .pengawas-checkbox[value="' + p.id + '"]'); if (cb) { cb.checked = false; renderHeaderChips(); } });
+                x.addEventListener('click', function(ev) { ev.stopPropagation(); var cb = Array.prototype.find.call(document.querySelectorAll('#pengawasDropdown .pengawas-checkbox'), function(c) { return c.value === String(p.id); }); if (cb) { cb.checked = false; renderHeaderChips(); } });
                 chip.appendChild(x);
                 header.appendChild(chip);
             });
@@ -1119,7 +1119,7 @@ function renderPengawasSelection(assigned, available) {
         opt.style.cssText = 'display:flex;align-items:center;gap:8px;padding:8px 12px;cursor:pointer;font-size:0.85rem;color:var(--color-text);transition:background 0.1s;';
         opt.onmouseenter = function() { this.style.background = 'rgba(99,102,241,0.1)'; };
         opt.onmouseleave = function() { this.style.background = 'transparent'; };
-        opt.innerHTML = '<input type="checkbox" class="pengawas-checkbox" value="' + p.id + '"' + (isChecked ? ' checked' : '') + ' style="accent-color:var(--color-primary-bright);cursor:pointer;"> '
+        opt.innerHTML = '<input type="checkbox" class="pengawas-checkbox" value="' + escapeHtml(p.id) + '"' + (isChecked ? ' checked' : '') + ' style="accent-color:var(--color-primary-bright);cursor:pointer;"> '
             + '<span style="font-weight:500;">' + escapeHtml(p.username) + '</span>'
             + ' <span style="font-size:0.7rem;color:var(--color-text-muted);margin-left:auto;">' + escapeHtml(p.role || 'Pengawas') + '</span>';
         opt.querySelector('input').addEventListener('change', function() {
@@ -1347,6 +1347,18 @@ function getQuestionsFromEditor() {
     return questions;
 }
 
+// M25: escape karakter khusus XML agar data soal yang diekspor selamat
+// round-trip lewat parser import — nilai seperti "Benar & Salah" dulu
+// menghasilkan XML invalid (parsererror di import, data tak bisa kembali).
+function xmlEscape(s) {
+    return String(s)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&apos;');
+}
+
 function exportXMLQuestions() {
     const questions = getQuestionsFromEditor();
     if (questions.length === 0) {
@@ -1358,19 +1370,19 @@ function exportXMLQuestions() {
     xml += '<questions>\n';
     
     questions.forEach(q => {
-        const partialAttr = (q.type === 'multiple_choice' || q.type === 'matching') ? ` partial_scoring="${q.partial_scoring}"` : '';
+        const partialAttr = (q.type === 'multiple_choice' || q.type === 'matching') ? ` partial_scoring="${xmlEscape(q.partial_scoring)}"` : '';
         xml += `    <question number="${q.number}" type="${q.type}" weight="${q.weight.toFixed(1)}"${partialAttr}>\n`;
         
         if (q.type === 'single_choice' || q.type === 'multiple_choice') {
             if (q.choices && q.choices.length > 0) {
-                xml += `        <choices>${q.choices.join(', ')}</choices>\n`;
+                xml += `        <choices>${xmlEscape(q.choices.join(', '))}</choices>\n`;
             }
         } else if (q.type === 'matching') {
             if (q.left_items && q.left_items.length > 0) {
-                xml += `        <left_items>${q.left_items.join(', ')}</left_items>\n`;
+                xml += `        <left_items>${xmlEscape(q.left_items.join(', '))}</left_items>\n`;
             }
             if (q.right_items && q.right_items.length > 0) {
-                xml += `        <right_items>${q.right_items.join(', ')}</right_items>\n`;
+                xml += `        <right_items>${xmlEscape(q.right_items.join(', '))}</right_items>\n`;
             }
         }
         
@@ -1387,7 +1399,7 @@ function exportXMLQuestions() {
             keyStr = q.key || '';
         }
         
-        xml += `        <key>${keyStr}</key>\n`;
+        xml += `        <key>${xmlEscape(keyStr)}</key>\n`;
         xml += `    </question>\n`;
     });
     
@@ -3061,7 +3073,7 @@ function renderDelegatePengawas(available, assignedIds) {
         var isChecked = assignedIds.indexOf(p.id) !== -1;
         var label = document.createElement('label');
         label.style.cssText = 'display:flex;align-items:center;gap:8px;padding:6px 0;cursor:pointer;font-size:0.85rem;color:var(--color-text);';
-        label.innerHTML = '<input type="checkbox" class="delegate-pengawas-checkbox" value="' + p.id + '"' + (isChecked ? ' checked' : '') + '> '
+        label.innerHTML = '<input type="checkbox" class="delegate-pengawas-checkbox" value="' + escapeHtml(p.id) + '"' + (isChecked ? ' checked' : '') + '> '
             + escapeHtml(p.username)
             + ' <span style="font-size:0.75rem;color:var(--color-text-muted);">(' + escapeHtml(p.instansi || '') + ')</span>';
         container.appendChild(label);
