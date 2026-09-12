@@ -2,9 +2,9 @@
 {{ $adminRole := .admin_role }}
 <!-- Skip-link WCAG 2.4.1 (S30): elemen interaktif pertama di semua halaman
      yang memuat partial ini. CSS reveal ada di theme.css (.skip-link:focus),
-     perilaku focus/blur di admin-core.js initSkipLink(). Target #mainContent:
-     dashboard/settings sudah punya id ini pada <main>; halaman lain akan
-     menyusul (anchor tak eksis = no-op aman, link tetap terfokus). -->
+     perilaku focus/blur di admin-core.js initSkipLink(). Target #mainContent
+     wajib ada pada <main> setiap halaman admin (seluruh halaman sudah konsisten
+     menggunakan id ini; review_ui_halaman_web_2026-09-12.md L42). -->
 <a href="#mainContent" class="skip-link">Langsung ke konten utama</a>
 {{ $isSuper := contains $adminRole "superadmin" }}
 {{ $isOp := contains $adminRole "operator" }}

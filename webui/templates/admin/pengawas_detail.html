@@ -17,51 +17,6 @@
 
 <main class="dashboard" id="mainContent">
 
- <!-- Confirm Approval Modal -->
-  <div id="confirmApprovalModal" class="modal-overlay" style="display:none;" data-action="close-confirm-approval-modal" role="dialog" aria-modal="true" aria-labelledby="confirmApprovalTitle">
-   <div class="modal-card" style="max-width: 420px;">
-   <div class="modal-header">
-    <h3 style="font-size:1.1rem;color:var(--color-primary-light);display:flex;align-items:center;gap:8px;" id="confirmApprovalTitle">
-     <svg class="icon-svg"><use href="#hi-shield-check"/></svg> Konfirmasi
-    </h3>
-    <button class="modal-close" data-action="close-confirm-approval-modal" aria-label="Tutup"><svg class="icon-svg" style="width:18px;height:18px;"><use href="#hi-x"/></svg></button>
-   </div>
-   <div class="modal-body" style="padding: 16px 24px 24px;">
-    <p id="confirmApprovalText" style="color:var(--color-text-secondary);line-height:1.5;margin-bottom:24px;font-size:14px;"></p>
-    <div style="display:flex;gap:12px;justify-content:flex-end;">
-     <button class="btn-modal-cancel" data-action="close-confirm-approval-modal">Batal</button>
-     <button id="confirmApprovalBtn">Konfirmasi</button>
-    </div>
-   </div>
-  </div>
- </div>
-
- <!-- Access Log Modal -->
-  <div id="accessLogModal" class="modal-overlay" style="display:none;" data-action="close-access-log-modal" role="dialog" aria-modal="true" aria-labelledby="accessLogTitle">
-   <div class="modal-card" style="max-width: 620px;">
-   <div class="modal-header">
-    <h3 id="accessLogTitle" style="font-size:1.1rem;color:var(--color-primary-light);display:flex;align-items:center;gap:8px;"><svg class="icon-svg"><use href="#hi-device"/></svg> Riwayat Akses Perangkat</h3>
-    <button class="modal-close" data-action="close-access-log-modal" aria-label="Tutup"><svg class="icon-svg" style="width:18px;height:18px;"><use href="#hi-x"/></svg></button>
-   </div>
-   <div class="modal-body" id="accessLogBody" style="padding: 0 24px 24px; max-height: 75vh; overflow-y: auto;">
-    <div style="text-align:center;padding:40px;color:var(--color-text-secondary);">Memuat...</div>
-   </div>
-  </div>
- </div>
-
- <!-- Audit Log Modal -->
-  <div id="auditLogModal" class="modal-overlay" style="display:none;" data-action="close-audit-log-modal" role="dialog" aria-modal="true" aria-labelledby="auditLogTitle">
-   <div class="modal-card" style="max-width: 640px;">
-   <div class="modal-header">
-    <h3 id="auditLogTitle" style="font-size:1.1rem;color:var(--color-primary-light);display:flex;align-items:center;gap:8px;"><svg class="icon-svg"><use href="#hi-clipboard"/></svg> Riwayat Audit Pengaturan</h3>
-    <button class="modal-close" data-action="close-audit-log-modal" aria-label="Tutup"><svg class="icon-svg" style="width:18px;height:18px;"><use href="#hi-x"/></svg></button>
-   </div>
-   <div class="modal-body" id="auditLogBody" style="padding: 0 24px 24px; max-height: 75vh; overflow-y: auto;">
-    <div style="text-align:center;padding:40px;color:var(--color-text-secondary);">Memuat...</div>
-   </div>
-  </div>
- </div>
-
  <!-- ========== EXAM HEADER CARD ========== -->
  <section class="pd-header-card">
   <div class="pd-header-top">
@@ -154,16 +109,17 @@
   <div class="pd-actions-bar">
    <div class="pd-main-action">
     {{if .exam.ExamStartedAt}}
-    <button class="pd-control-btn pd-control-stop" id="btnStopPengawasDetail" data-action="stop-pengawas-detail" data-exam-id="{{.exam.ID}}" {{if not .can_control_settings}}disabled title="Hanya pembuat/guru yang dapat menghentikan pengawasan" style="opacity: 0.65; cursor: not-allowed;"{{end}}>
+    <button class="pd-control-btn pd-control-stop" id="btnStopPengawasDetail" data-action="stop-pengawas-detail" data-exam-id="{{.exam.ID}}" {{if not .can_control_settings}}disabled aria-describedby="pd-control-reason" style="opacity: 0.65; cursor: not-allowed;"{{end}}>
      <svg class="icon-svg" style="width:16px;height:16px;" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="6" y="6" width="12" height="12" rx="2"/></svg>
      Hentikan Pengawasan
     </button>
     {{else}}
-    <button class="pd-control-btn pd-control-start" id="btnStartPengawasDetail" data-action="start-pengawas-detail" data-exam-id="{{.exam.ID}}" {{if not .can_control_settings}}disabled title="Hanya pembuat/guru yang dapat memulai pengawasan" style="opacity: 0.65; cursor: not-allowed;"{{end}}>
+    <button class="pd-control-btn pd-control-start" id="btnStartPengawasDetail" data-action="start-pengawas-detail" data-exam-id="{{.exam.ID}}" {{if not .can_control_settings}}disabled aria-describedby="pd-control-reason" style="opacity: 0.65; cursor: not-allowed;"{{end}}>
      <svg class="icon-svg" style="width:16px;height:16px;"><use href="#hi-play"/></svg>
      Mulai Pengawasan
     </button>
     {{end}}
+    <span id="pd-control-reason" style="display:block;font-size:12px;color:var(--color-text-muted);margin-top:6px;">Hanya pembuat/guru yang dapat menghentikan atau memulai pengawasan.</span>
    </div>
   </div>
  </section>
@@ -214,9 +170,10 @@
      <svg class="icon-svg"><use href="#hi-users"/></svg> Antrean Peserta (Menunggu Persetujuan)
     </h2>
    <div class="pd-table-toolbar">
-    <label class="pd-toggle-switch" title="Terima Otomatis — menyetujui siswa di server secara otomatis; tetap aktif walau halaman ini ditutup" style="margin-right:12px;">
-     <input type="checkbox" id="autoAcceptToggle" aria-label="Terima otomatis semua peserta yang meminta izin masuk">
+    <label for="autoAcceptToggle" class="pd-toggle-switch" title="Menyetujui siswa di server secara otomatis; tetap aktif walau halaman ini ditutup" style="margin-right:12px; display:inline-flex; align-items:center; gap:8px; cursor:pointer; width:auto;">
+     <input type="checkbox" id="autoAcceptToggle">
      <span class="pd-toggle-slider"></span>
+     <span class="pd-toggle-label">Terima Otomatis</span>
     </label>
     <span id="aaLastChanged" class="aa-audit-hint" style="display:none;"></span>
     <button class="pd-toolbar-btn" data-action="show-audit-log" title="Riwayat Audit — semua perubahan pengaturan auto-approve (siapa, kapan)" aria-label="Lihat riwayat audit pengaturan" style="width:auto;padding:0 12px;gap:6px;color:var(--color-warning-light);background:rgba(var(--rgb-warning),0.1);margin-right:10px;font-size:0.72rem;font-weight:700;">
@@ -488,7 +445,6 @@
   background: var(--color-primary);
   border-radius: 2px;
   transition: width 1s linear;
-}
 }
 
 /* --- Personnel --- */
@@ -1057,6 +1013,16 @@
 #autoAcceptToggle:focus-visible + .pd-toggle-slider {
   outline: 2px solid var(--color-primary-light);
   outline-offset: 2px;
+}
+/* L45 (review_ui_halaman_web_2026-09-12.md): label toggle "Terima Otomatis"
+   kini dirender sebagai teks terlihat di samping slider — bukan hanya
+   title/aria-label. */
+.pd-toggle-label {
+  font-size: 0.72rem;
+  font-weight: 700;
+  color: var(--color-warning-light);
+  white-space: nowrap;
+  user-select: none;
 }
 /* --- Auto-approve audit hint (who last toggled the flag, when) --- */
 .aa-audit-hint {
@@ -2286,6 +2252,51 @@ loadAAStatus();
 <symbol id="hi-play" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M5.25 5.653c0-.856.917-1.398 1.667-.986l11.54 6.347a1.125 1.125 0 0 1 0 1.972l-11.54 6.347a1.125 1.125 0 0 1-1.667-.986V5.653Z"/></symbol>
 <symbol id="hi-clipboard" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M9 5H7a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V7a2 2 0 0 0-2-2h-2M9 5a2 2 0 0 0 2 2h2a2 2 0 0 0 2-2M9 5a2 2 0 0 1 2-2h2a2 2 0 0 1 2 2"/></symbol>
 </svg>
+
+ <!-- Confirm Approval Modal -->
+  <div id="confirmApprovalModal" class="modal-overlay" style="display:none;" data-action="close-confirm-approval-modal" role="dialog" aria-modal="true" aria-labelledby="confirmApprovalTitle">
+   <div class="modal-card" style="max-width: 420px;">
+   <div class="modal-header">
+    <h3 style="font-size:1.1rem;color:var(--color-primary-light);display:flex;align-items:center;gap:8px;" id="confirmApprovalTitle">
+     <svg class="icon-svg"><use href="#hi-shield-check"/></svg> Konfirmasi
+    </h3>
+    <button class="modal-close" data-action="close-confirm-approval-modal" aria-label="Tutup"><svg class="icon-svg" style="width:18px;height:18px;"><use href="#hi-x"/></svg></button>
+   </div>
+   <div class="modal-body" style="padding: 16px 24px 24px;">
+    <p id="confirmApprovalText" style="color:var(--color-text-secondary);line-height:1.5;margin-bottom:24px;font-size:14px;"></p>
+    <div style="display:flex;gap:12px;justify-content:flex-end;">
+     <button class="btn-modal-cancel" data-action="close-confirm-approval-modal">Batal</button>
+     <button id="confirmApprovalBtn">Konfirmasi</button>
+    </div>
+   </div>
+  </div>
+ </div>
+
+ <!-- Access Log Modal -->
+  <div id="accessLogModal" class="modal-overlay" style="display:none;" data-action="close-access-log-modal" role="dialog" aria-modal="true" aria-labelledby="accessLogTitle">
+   <div class="modal-card" style="max-width: 620px;">
+   <div class="modal-header">
+    <h3 id="accessLogTitle" style="font-size:1.1rem;color:var(--color-primary-light);display:flex;align-items:center;gap:8px;"><svg class="icon-svg"><use href="#hi-device"/></svg> Riwayat Akses Perangkat</h3>
+    <button class="modal-close" data-action="close-access-log-modal" aria-label="Tutup"><svg class="icon-svg" style="width:18px;height:18px;"><use href="#hi-x"/></svg></button>
+   </div>
+   <div class="modal-body" id="accessLogBody" style="padding: 0 24px 24px; max-height: 75vh; overflow-y: auto;">
+    <div style="text-align:center;padding:40px;color:var(--color-text-secondary);">Memuat...</div>
+   </div>
+  </div>
+ </div>
+
+ <!-- Audit Log Modal -->
+  <div id="auditLogModal" class="modal-overlay" style="display:none;" data-action="close-audit-log-modal" role="dialog" aria-modal="true" aria-labelledby="auditLogTitle">
+   <div class="modal-card" style="max-width: 640px;">
+   <div class="modal-header">
+    <h3 id="auditLogTitle" style="font-size:1.1rem;color:var(--color-primary-light);display:flex;align-items:center;gap:8px;"><svg class="icon-svg"><use href="#hi-clipboard"/></svg> Riwayat Audit Pengaturan</h3>
+    <button class="modal-close" data-action="close-audit-log-modal" aria-label="Tutup"><svg class="icon-svg" style="width:18px;height:18px;"><use href="#hi-x"/></svg></button>
+   </div>
+   <div class="modal-body" id="auditLogBody" style="padding: 0 24px 24px; max-height: 75vh; overflow-y: auto;">
+    <div style="text-align:center;padding:40px;color:var(--color-text-secondary);">Memuat...</div>
+   </div>
+  </div>
+ </div>
 
 </body>
 </html>

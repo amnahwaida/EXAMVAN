@@ -850,7 +850,10 @@ body.modal-open {
        34px → 44px; ini satu-satunya kontrol aktif/nonaktif ujian di dashboard). */
     .status-badge[role="button"] {
         min-height: 44px;
-        padding-block: calc(var(--spacing) * 2);
+        /* L71 (review_ui_halaman_web_2026-09-12.md): --spacing hanya terdefinisi
+           di tailwind/output.css — fallback memutus ketergantungan silang tak
+           terdokumentasi agar halaman admin tanpa output.css tidak gagal senyap. */
+        padding-block: calc(var(--spacing, 0.25rem) * 2);
     }
     /* pengawas_detail row action links were ~26px tall. */
     .action-link {
