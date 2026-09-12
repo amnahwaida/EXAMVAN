@@ -62,17 +62,36 @@
  <script>
  // Normalisasi token ke huruf besar sebelum dikirim (server juga melakukan
  // hal yang sama; ini menjaga nilai input tetap sama dengan tampilannya).
+ // M13: guard double-submit seperti register_confirm (:366-368) dan
+ // reset_password (:339) — tombol di-disable + state loading saat request
+ // berjalan, agar klik ganda / Enter berulang tidak membuka halaman hasil
+ // yang sama dua kali. Dipulihkan saat kembali via bfcache (pageshow
+ // persisted): GET dengan token salah harus bisa dicoba lagi tanpa reload
+ // penuh.
  document.addEventListener('DOMContentLoaded', function() {
   var form = document.getElementById('cekHasilForm');
   var input = document.getElementById('token');
+  var btn = document.getElementById('cekHasilSubmitBtn');
   if (form && input) {
    input.addEventListener('input', function() {
     if (this.value !== this.value.toUpperCase()) this.value = this.value.toUpperCase();
    });
    form.addEventListener('submit', function() {
     input.value = input.value.trim().toUpperCase();
+    if (btn && !btn.disabled) {
+     btn.classList.add('loading');
+     btn.disabled = true;
+     btn.textContent = 'Memeriksa...';
+    }
    });
   }
+  window.addEventListener('pageshow', function(e) {
+   if (e.persisted && btn) {
+    btn.classList.remove('loading');
+    btn.disabled = false;
+    btn.textContent = 'Lihat Hasil';
+   }
+  });
  });
  </script>
 </body>
