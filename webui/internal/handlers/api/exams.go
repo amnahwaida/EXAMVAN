@@ -664,14 +664,17 @@ func ExamByToken() gin.HandlerFunc {
 		}
 
 		// Optional version check — if the header is absent the check is
-		// skipped, matching the Python behaviour. Versi yang diminta adalah
-		// versi EFEKTIF (dibatasi ke APK yang terbit, "" bila tak ada APK
-		// yang bisa diunduh) — sama dengan middleware.AndroidVersionCheck,
-		// sehingga tidak ada gate in-handler yang lebih ketat dari middleware.
+		// skipped (web clients), the SAME policy as AndroidVersionCheck and
+		// the other two gate sites (M3). Versi yang diminta adalah versi
+		// EFEKTIF (dibatasi ke APK yang terbit, "" bila tak ada APK yang
+		// bisa diunduh). The comparator is models.CompareVersions (M4): same
+		// padding/semantics as the middleware and the Android client's
+		// UpdateManager, so one client verdict can never differ between
+		// layers on the same route.
 		clientVersion := c.GetHeader("X-App-Version")
 		if clientVersion != "" {
 			required := models.EffectiveAndroidRequiredVersion(ctx, pool)
-			if required != "" && !isVersionAtLeast(clientVersion, required) {
+			if required != "" && models.CompareVersions(clientVersion, required) < 0 {
 				c.JSON(http.StatusUpgradeRequired, gin.H{
 					"success": false,
 					"error":   "upgrade_required",
@@ -889,13 +892,20 @@ func SubmitExam() gin.HandlerFunc {
 		ctx := c.Request.Context()
 
 		// --- Required Android version check ---
+		// ONE policy across all three gate sites (M3): an ABSENT
+		// X-App-Version header skips the check (web clients), exactly like
+		// middleware.AndroidVersionCheck and ExamByToken — a client without
+		// the header could list and join exams but was 426'd here before.
 		// Versi EFEKTIF (dibatasi ke APK yang terbit). "" berarti tidak ada
-		// APK yang bisa diunduh → penegakan dilewati, jika tidak client usang
-		// terkunci di 426 tanpa cara memperbarui (deadlock).
+		// APK yang bisa diunduh → penegakan dilewati, jika tidak client
+		// usang terkunci di 426 tanpa cara memperbarui (deadlock).
+		// Perbandingan via models.CompareVersions (M4): padding segmen
+		// hilang ke 0 dan segmen non-numerik = 0, sama dengan middleware dan
+		// UpdateManager di klien Android.
 		required := models.EffectiveAndroidRequiredVersion(ctx, pool)
 
 		clientVersion := c.GetHeader("X-App-Version")
-		if required != "" && !isVersionAtLeast(clientVersion, required) {
+		if clientVersion != "" && required != "" && models.CompareVersions(clientVersion, required) < 0 {
 			displayVersion := clientVersion
 			if displayVersion == "" {
 				displayVersion = "v1.x"
@@ -1407,13 +1417,18 @@ func AccessLog() gin.HandlerFunc {
 		ctx := c.Request.Context()
 
 		// --- Required Android version check ---
-		// Versi EFEKTIF (dibatasi ke APK yang terbit). "" berarti tidak ada
-		// APK yang bisa diunduh → penegakan dilewati, jika tidak client usang
-		// terkunci di 426 tanpa cara memperbarui (deadlock).
+		// ONE policy across all three gate sites (M3): an ABSENT
+		// X-App-Version header skips the check (web clients), exactly like
+		// middleware.AndroidVersionCheck and ExamByToken. Versi EFEKTIF
+		// (dibatasi ke APK yang terbit). "" berarti tidak ada APK yang bisa
+		// diunduh → penegakan dilewati (deadlock bila di-enforce).
+		// Perbandingan via models.CompareVersions (M4): padding segmen
+		// hilang ke 0 dan segmen non-numerik = 0, sama dengan middleware dan
+		// UpdateManager di klien Android.
 		required := models.EffectiveAndroidRequiredVersion(ctx, pool)
 
 		clientVersion := c.GetHeader("X-App-Version")
-		if required != "" && !isVersionAtLeast(clientVersion, required) {
+		if clientVersion != "" && required != "" && models.CompareVersions(clientVersion, required) < 0 {
 			displayVersion := clientVersion
 			if displayVersion == "" {
 				displayVersion = "v1.x"
@@ -1719,33 +1734,10 @@ func truncate(s string, n int) string {
 }
 
 // strPtr returns a pointer to s, or nil when s is empty.
-// isVersionAtLeast compares two version strings (major.minor.patch).
-func isVersionAtLeast(client, required string) bool {
-	cp := parseVersionParts(client)
-	rp := parseVersionParts(required)
-	for i := 0; i < len(rp) && i < len(cp); i++ {
-		if cp[i] > rp[i] {
-			return true
-		}
-		if cp[i] < rp[i] {
-			return false
-		}
-	}
-	return len(cp) >= len(rp)
-}
-
-// parseVersionParts splits a version string into integer parts.
-func parseVersionParts(v string) []int {
-	parts := strings.Split(v, ".")
-	var result []int
-	for _, p := range parts {
-		var n int
-		if _, err := fmt.Sscanf(p, "%d", &n); err == nil {
-			result = append(result, n)
-		}
-	}
-	return result
-}
+// (M4: isVersionAtLeast/parseVersionParts were removed — every version gate
+// now compares via models.CompareVersions, whose padding and non-numeric
+// semantics match middleware.isVersionCompatible and the Android client's
+// UpdateManager.)
 
 func strPtr(s string) *string {
 	if s == "" {
