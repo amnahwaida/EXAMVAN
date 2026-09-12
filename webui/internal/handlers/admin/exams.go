@@ -1581,8 +1581,10 @@ func SaveQuestions() gin.HandlerFunc {
 		}
 
 		// Recalculate scores for existing submissions (background context,
-		// not the HTTP request context which may be cancelled).
-		go recalculateScores(context.Background(), pool, examID)
+		// not the HTTP request context which may be cancelled). L11: pakai job
+		// context aplikasi — goroutine tidak lagi lolos dari graceful shutdown
+		// (dibatalkan sebelum DB pool ditutup, main.go).
+		go recalculateScores(recalcGoContext(), pool, examID)
 
 		successMessage(c, "Konfigurasi soal berhasil disimpan")
 	}
@@ -1594,9 +1596,52 @@ func recalculateScores(ctx context.Context, pool *pgxpool.Pool, examID int) {
 	}
 }
 
+// jobContext is the application job context wired by cmd/server via
+// SetJobContext (main.go cancelJobs() membatalkannya saat graceful shutdown,
+// sebelum DB pool ditutup). Background goroutine dari handler
+// (recalculateScores) berjalan di bawah context ini, bukan
+// context.Background() yang tak terlacak saat shutdown.
+var jobContext context.Context
+
+// SetJobContext wires the application job context. Dipanggil dari main.go
+// setelah jobCtx dibuat; nil di test (fallback context.Background()).
+func SetJobContext(ctx context.Context) {
+	if ctx != nil {
+		jobContext = ctx
+	}
+}
+
+// recalcGoContext returns the job context when wired, else Background.
+func recalcGoContext() context.Context {
+	if jobContext != nil {
+		return jobContext
+	}
+	return context.Background()
+}
+
 // ---------------------------------------------------------------------------
 // 10. POST /admin/api/exams/regenerate-token — Regenerate token for an exam
 // ---------------------------------------------------------------------------
+
+// generateExamToken is the token source for auto-generated exam tokens.
+// Var (bukan langsung helpers.GenerateExamToken) sebagai test seam: collision
+// retry (L10) bisa dibuat deterministik di test tanpa mock DB.
+var generateExamToken = helpers.GenerateExamToken
+
+// regenerateTokenUniqueViolationMessage maps a duplicate-key (SQLSTATE 23505)
+// on the exams.token constraint to a friendly 400 message — concurrent
+// regeneration on two replicas can still race past the pre-check retry. ""
+// when the error is not a token unique violation (real DB errors stay 500).
+func regenerateTokenUniqueViolationMessage(err error) string {
+	var pgErr *pgconn.PgError
+	if !errors.As(err, &pgErr) {
+		return ""
+	}
+	if pgErr.Code == "23505" && strings.Contains(pgErr.ConstraintName, "token") {
+		return "Token bentrok dengan ujian lain — silakan coba lagi"
+	}
+	return ""
+}
 
 func RegenerateToken() gin.HandlerFunc {
 	return func(c *gin.Context) {
@@ -1614,8 +1659,28 @@ func RegenerateToken() gin.HandlerFunc {
 			return
 		}
 
-		newToken := helpers.GenerateExamToken()
+		// Pre-check + retry (pola UploadExam): cek dulu token acar terhadap
+		// token terdaftar, ulang sampai 5× bila bentrok, lalu serahkan
+		// tabrakan yang tersisa ke hard UNIQUE gate di UPDATE (23505 dipetakan
+		// ke 400 ramah di bawah — bukan 500 mentah tanpa penjelasan).
+		var newToken string
+		for i := 0; i < 5; i++ {
+			newToken = generateExamToken()
+			existing, err := models.GetExamByToken(ctx, pool, newToken)
+			if errors.Is(err, pgx.ErrNoRows) || (err == nil && existing.ID == 0) {
+				break
+			}
+			if err != nil {
+				log.Printf("regenerate token: cek token gagal (percobaan %d): %v", i+1, err)
+			}
+		}
+
 		if err := models.UpdateExamToken(ctx, pool, examID, newToken); err != nil {
+			if msg := regenerateTokenUniqueViolationMessage(err); msg != "" {
+				log.Printf("regenerate token: token collision (exam %d): %v", examID, err)
+				errorResponse(c, http.StatusBadRequest, msg)
+				return
+			}
 			log.Printf("regenerate token error: %v", err)
 			errorResponse(c, http.StatusInternalServerError, "Gagal memperbarui token")
 			return
@@ -1790,15 +1855,15 @@ func StartExam() gin.HandlerFunc {
 			if err == nil {
 				_, _, poolMaxConcurrent, _, poolInstansi, poolActive := schoolPoolQuota(ctx, pool, exam.CreatedBy)
 				// School-pool sub-accounts: when the pool is active it is the
-					// account's ONLY concurrent quota (schoolPoolCovers), so the
-					// per-account max_concurrent_exams must not gate below it.
-					// Operators skip their own column only while the pool is
-					// ACTIVE; with no pool (personal bucket, legacy school) the
-					// operator's own column binds too.
-					perUserLimit := (!isOperator(c) || !poolActive) && !(owner.OperatorCreated && poolActive) && owner.MaxConcurrentExams > 0
-					poolConcActive := poolActive && poolMaxConcurrent > 0
+				// account's ONLY concurrent quota (schoolPoolCovers), so the
+				// per-account max_concurrent_exams must not gate below it.
+				// Operators skip their own column only while the pool is
+				// ACTIVE; with no pool (personal bucket, legacy school) the
+				// operator's own column binds too.
+				perUserLimit := (!isOperator(c) || !poolActive) && !(owner.OperatorCreated && poolActive) && owner.MaxConcurrentExams > 0
+				poolConcActive := poolActive && poolMaxConcurrent > 0
 
-					if perUserLimit || poolConcActive {
+				if perUserLimit || poolConcActive {
 					tx, err := pool.Begin(ctx)
 					if err != nil {
 						log.Printf("start begin tx error: %v", err)

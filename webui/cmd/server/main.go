@@ -103,6 +103,12 @@ func main() {
 	jobCtx, cancelJobs := context.WithCancel(context.Background())
 	defer cancelJobs()
 
+	// L11: background goroutines spawned from admin handlers
+	// (recalculateScores) also run under this context, so a graceful shutdown
+	// cancels them before the DB pool closes instead of leaving partial
+	// scores behind with no owner.
+	admin.SetJobContext(jobCtx)
+
 	// Ensure admin user exists and migrate werkzeug password hashes to bcrypt
 	if pool != nil {
 		if err := models.EnsureAdminUser(ctx, pool, cfg.AdminUser, cfg.AdminPass); err != nil {
