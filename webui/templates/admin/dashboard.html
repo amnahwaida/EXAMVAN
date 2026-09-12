@@ -456,7 +456,7 @@
 <td data-label=""><input type="checkbox" class="exam-checkbox exam-checkbox-input" value="{{$exam.ID}}" data-name="{{$exam.Name}}" data-status="{{$exam.Status}}" data-owner="{{$exam.CreatorName}}" data-owner-id="{{$exam.CreatedBy}}"></td>
 <td class="td-name" data-label="Nama Ujian"><a href="/admin/submissions?exam_id={{$exam.ID}}" class="exam-link" title="Lihat Hasil Ujian">{{$exam.Name}}</a></td>
 {{if or (eq $.admin_role "superadmin") (hasRole $.admin_role "operator")}}
-<td data-label="Pembuat"><span style="font-weight:600;color:var(--accent-light);">{{$exam.CreatorName}}</span></td>
+<td data-label="Pembuat"><span style="font-weight:600;color:var(--color-accent-light);">{{$exam.CreatorName}}</span></td>
 <td data-label="Guru"><span style="color:var(--color-text-secondary);">{{or $exam.DelegatedName "—"}}</span></td>
 {{end}}
 <td class="td-token" data-label="Token">
@@ -690,11 +690,11 @@
 <input type="hidden" id="delegateExamId">
 
 <!-- Section: Transfer Ownership -->
-<div style="margin-bottom: 20px; padding: 12px 16px; background: rgba(255, 255, 255, 0.03); border: 1px solid var(--glass-border); border-radius: 12px;">
+<div style="margin-bottom: 20px; padding: 12px 16px; background: rgba(255, 255, 255, 0.03); border: 1px solid var(--color-glass-border); border-radius: 12px;">
 <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 10px;">
 <svg class="icon-svg" style="width:18px;height:18px;"><use href="#hi-link"/></svg>
 <div>
-<div style="font-weight: 600; color: var(--text-primary); font-size: 0.9rem;">Tunjuk Guru</div>
+<div style="font-weight: 600; color: var(--color-text); font-size: 0.9rem;">Tunjuk Guru</div>
 <div style="font-size: 0.75rem; color: var(--color-text-muted);">Pilih guru pengampu ujian. <span id="delegateCurrentOwner"></span></div>
 </div>
 </div>
@@ -706,12 +706,12 @@
 </div>
 
 <!-- Section: Manage Pengawas -->
-<div style="margin-bottom: 16px; padding: 12px 16px; background: rgba(255, 255, 255, 0.03); border: 1px solid var(--glass-border); border-radius: 12px;">
+<div style="margin-bottom: 16px; padding: 12px 16px; background: rgba(255, 255, 255, 0.03); border: 1px solid var(--color-glass-border); border-radius: 12px;">
 <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px;">
 <div style="display: flex; align-items: center; gap: 8px;">
 <svg class="icon-svg" style="width:18px;height:18px;"><use href="#hi-eye"/></svg>
 <div>
-<div style="font-weight: 600; color: var(--text-primary); font-size: 0.9rem;">Atur Pengawas</div>
+<div style="font-weight: 600; color: var(--color-text); font-size: 0.9rem;">Atur Pengawas</div>
 <div style="font-size: 0.75rem; color: var(--color-text-muted);">Centang pengawas yang akan ditugaskan di ujian ini.</div>
 </div>
 </div>
