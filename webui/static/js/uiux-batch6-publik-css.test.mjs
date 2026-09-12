@@ -201,9 +201,12 @@ test('S33a: theme.css :root mendefinisikan 4 token z kontrak dengan nama & nilai
     const expected = {
         '--z-skip-link': '9998',
         '--z-dropdown': '9999',
-        '--z-toast': '10002',
+        // L69 (review 12 Sep 2026): dinaikkan dari 10002 — sebelumnya berbagi
+        // nilai dengan --z-topbar-floating; toast kini dijamin di atas topbar
+        // floating (10002). Lapisan tertinggi reguler.
+        '--z-toast': '10003',
         // Batch 10 (R52): diturunkan dari 99999 — modal onboarding harus
-        // berada DI BAWAH toast (10002) agar feedback simpan instansi tetap
+        // berada DI BAWAH toast agar feedback simpan instansi tetap
         // terlihat; urutan final: dropdown < onboarding < toast.
         '--z-onboarding': '10001'
     };
@@ -225,7 +228,9 @@ test('S33b: tidak ada lagi literal z-index 9999|10002|99999 di theme.css/hasil.c
             `${rel} masih memakai literal ${hits.map((h) => h[1]).join(',')} — ganti var(--z-*)`);
     }
     // Substitusi riil: penerimaan var(--z-toast) di tempat 10002 theme.css:81 lama.
-    assert.match(THEME(), /z-index:\s*var\(--z-toast\)/, 'nilai 10002 lama diganti var(--z-toast)');
+    // L69: skip-link fokus kini calc(var(--z-toast) + 1) — lapisan tertinggi mutlak.
+    assert.match(THEME(), /z-index:\s*calc\(var\(--z-toast\)\s*\+\s*1\)/,
+        'nilai 10002 lama diganti var(--z-toast) (kini +1 — di atas toast 10003)');
 });
 
 // ---------------------------------------------------------------------------

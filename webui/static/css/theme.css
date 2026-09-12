@@ -107,24 +107,35 @@
 
     /* === Z-index Scale (S33, Batch 6) ===
        Kontrak lintas-agen — nama & nilai WAJIB persis (admin templates
-       mensubstitusi memakai nama yang sama):
-         --z-skip-link : 9998   (skip-link off-screen/fokus)
-         --z-dropdown  : 9999   (dropdown/popover di atas konten)
-         --z-toast     : 10002  (lapisan toast tertinggi reguler)
-         --z-onboarding: 10001  (modal onboarding instansi — DI BAWAH toast)
+       mensubstitusi memakai nama yang sama).
        Batch 10 (R52): --z-onboarding diturunkan dari 99999 menjadi 10001.
        Alasan: modal onboarding adalah layar pertama admin baru, tetapi justru
        karena itu toast sukses/gagal simpan instansi HARUS tetap terlihat di
-       atasnya — nilai lama 99999 menimbun feedback (toast 10002) dan
-       skip-link yang fokus di 10002. Urutan final:
-         dropdown (9999) < onboarding (10001) < toast/skip-link fokus (10002).
+       atasnya. Urutan final:
+         dropdown (9999) < onboarding (10001) < toast/skip-link fokus.
+
+       L69 (review 12 Sep 2026): dua pasangan token sebelumnya berbagi nilai
+       sama — --z-hint == --z-skip-link (9998) dan --z-toast ==
+       --z-topbar-floating (10002). Dua layer beda fungsi dengan nilai
+       identik hanya "benar" karena kebetulan urutan DOM; kini dipisah:
+         topbar-floating 10002 < toast 10003
+           — toast yang muncul saat topbar floating aktif dijamin di atasnya;
+         skip-link dorman tetap 9998, saat FOKUS melompat ke
+           calc(var(--z-toast) + 1) = 10004 — lapisan tertinggi mutlak,
+           di atas toast (10003).
+       Nilai skip-link dorman & hint (9998) tidak lagi berbagi arti lapisan:
+       keduanya posisi dorman, tak pernah tampil serentak di konteks sama.
+       Skala final (tiap lapisan aktif bernilai unik):
+         bottom-bar 9997 < hint/skip-link dorman 9998 < dropdown 9999 <
+         modal-overlay 10000 < onboarding 10001 < topbar-floating 10002 <
+         toast 10003 < skip-link fokus 10004.
        Nilai z lain yang tersebar (nav 100/210/220, overlay 90/160 dst.)
        adalah layering lokal konteks-spesifik dan TIDAK dijadikan token:
        tidak berulang lintas-file dengan makna sama, jadi literalnya
        dipertahankan agar refactor ini tetap netral-visual. */
-    --z-skip-link: 9998;
+    --z-skip-link: 9998;   /* dorman off-screen; fokus → calc(--z-toast + 1) */
     --z-dropdown: 9999;
-    --z-toast: 10002;
+    --z-toast: 10003;      /* L69: di atas topbar-floating — tidak lagi berbagi nilai */
     --z-onboarding: 10001;
     /* S116 (Batch 18): melengkapi tangga stacking legacy menjadi token -
        bottom-bar 9997 / hint 9998 / dialog overlay 10000 / topbar floating
@@ -132,7 +143,7 @@
     --z-bottom-bar: 9997;
     --z-hint: 9998;
     --z-modal-overlay: 10000;
-    --z-topbar-floating: 10002;
+    --z-topbar-floating: 10002; /* L69: di bawah toast — tidak lagi berbagi nilai */
 }
 
 /* KEPUTUSAN Batch 4 (temuan S17): palet light (:root[data-theme="light"])
@@ -166,7 +177,7 @@
 .skip-link:focus-visible {
         left: 12px !important;
         top: 12px;
-        z-index: var(--z-toast); /* S33: dulu literal 10002 — lapisan tertinggi reguler */
+        z-index: calc(var(--z-toast) + 1); /* L69: lapisan tertinggi — kini toast 10003, skip-link fokus 10004 */
         outline: 2px solid #fff;
         outline-offset: 2px;
 }

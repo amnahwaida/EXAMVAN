@@ -1,6 +1,6 @@
 {{ template "public_head" . }}
 <script src="/static/js/admin-core.js?v={{.version}}" defer></script>
-<div class="toast-container" id="toastContainer" aria-live="polite" aria-atomic="true"></div>
+{{ template "public_toast_host" . }}
 <!-- R108: link public-mobile/desktop.css di sini DIHAPUS — public_head
      (shared.html) sudah memancarkan keduanya; duplikat = request CSS dobel. -->
 <style>
@@ -394,97 +394,15 @@
     }
   }
 </style>
-<style>
-  /* ===== Toast — dipakai showApiErrorToast (admin-core.js) untuk error R2
-     yang konsisten dengan halaman admin. Style direplikasi dari
-     tailwind/output.css karena halaman unduhan tidak memuat output.css. ===== */
-  .toast-container {
-    position: fixed;
-    bottom: calc(24px + env(safe-area-inset-bottom, 0px));
-    right: 24px;
-    z-index:var(--z-dropdown);
-    display: flex;
-    flex-direction: column;
-    gap: 8px;
-    max-width: calc(100vw - 48px);
-    pointer-events: none;
-  }
-  .toast {
-    display: flex;
-    align-items: center;
-    gap: 10px;
-    padding: 12px 16px;
-    border-radius: 12px;
-    border: 1px solid rgba(var(--rgb-white), 0.1);
-    font-size: 0.85rem;
-    font-weight: 500;
-    font-family: 'Plus Jakarta Sans', sans-serif;
-    color: #fff;
-    background: var(--color-glass);
-    backdrop-filter: blur(16px);
-    -webkit-backdrop-filter: blur(16px);
-    box-shadow: 0 8px 32px rgba(var(--rgb-black), 0.3);
-    animation: toastIn 0.3s ease;
-    cursor: pointer;
-    pointer-events: auto;
-    transition: box-shadow 0.2s;
-    min-width: 280px;
-    max-width: 420px;
-  }
-  .toast:hover { box-shadow: 0 12px 40px rgba(var(--rgb-black), 0.4); }
-  .toast-body { display: flex; align-items: center; gap: 10px; flex: 1; min-width: 0; }
-  .toast-icon { width: 20px; height: 20px; flex-shrink: 0; display: block; }
-  .toast-msg { flex: 1; line-height: 1.4; word-break: break-word; }
-  .toast-close {
-    flex-shrink: 0;
-    width: 24px;
-    height: 24px;
-    border-radius: 6px;
-    border: none;
-    background: rgba(var(--rgb-white), 0.08);
-    color: rgba(var(--rgb-white), 0.7);
-    font-size: 12px;
-    cursor: pointer;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    opacity: 0;
-    transition: all 0.2s;
-  }
-  .toast:hover .toast-close { opacity: 1; }
-  /* S55: port T10a dari output.css — tombol ✕ sebelumnya opacity:0 permanen;
-     pengguna keyboard yang Tab ke tombol ini tidak bisa melihatnya. */
-  .toast-close:focus-visible { opacity: 1; }
-  .toast-close:hover { background: rgba(var(--rgb-white), 0.15); color: #fff; }
-  .toast-success { background: rgba(var(--rgb-success), 0.2); border-color: rgba(var(--rgb-success), 0.3); }
-  .toast-error { background: rgba(var(--rgb-danger), 0.2); border-color: rgba(var(--rgb-danger), 0.3); }
-  .toast-warning { background: rgba(var(--rgb-warning), 0.2); border-color: rgba(var(--rgb-warning), 0.3); }
-  .toast-info { background: rgba(var(--rgb-info), 0.2); border-color: rgba(var(--rgb-info), 0.3); }
-  .toast-success .toast-icon { color: var(--color-success-light); }
-   .toast-error .toast-icon { color: var(--color-danger-bright); }
-  .toast-warning .toast-icon { color: var(--color-warning-light); }
-  .toast-info .toast-icon { color: var(--color-primary-light); }
-  .toast-r2-config {
-    background: linear-gradient(135deg, rgba(var(--rgb-warning), 0.3), rgba(234, 88, 12, 0.16));
-    border-color: rgba(var(--rgb-warning), 0.6);
-    box-shadow: 0 8px 32px rgba(var(--rgb-warning), 0.25);
-  }
-  .toast-r2-config .toast-icon { color: var(--color-warning-light); }
-  .toast-exit { animation: toastOut 0.3s ease forwards; }
-  @keyframes toastIn {
-    from { opacity: 0; transform: translateY(16px); }
-    to { opacity: 1; transform: translateY(0); }
-  }
-  @keyframes toastOut {
-    from { opacity: 1; transform: translateX(0); }
-    to { opacity: 0; transform: translateX(40px); }
-  }
-  @media (max-width: 768px) {
-    .toast { min-width: 0; max-width: 100%; padding: 12px 14px; font-size: 0.82rem; }
-    .toast-close { opacity: 1; }
-  }
-</style>
-<noscript><style>.reveal { opacity: 1 !important; transform: none !important; }</style></noscript>
+<!-- M21: salinan skin toast lokal (90 baris) DIHAPUS — satu sumber di
+     skin toast bersama (di-link oleh public_head); host toast via
+     partial public_toast_host di atas (setelah public_head). -->
+<!-- L64 (review 12 Sep 2026): tanpa JS, .platform-section tetap display:none
+     (default CSS :120-123) — konten inti halaman (Android/Windows/Linux)
+     tak terlihat pengguna tanpa JS & crawler ringan. noscript kini membuka
+     KEDUA kelas: .reveal dan .platform-section. -->
+<noscript><style>.reveal { opacity: 1 !important; transform: none !important; }
+.platform-section { display: block !important; }</style></noscript>
 
   <main id="main-content">
     

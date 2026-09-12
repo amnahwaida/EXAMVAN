@@ -1,0 +1,218 @@
+/* EXAMVAN — Skin toast bersama (M21, review 12 Sep 2026).
+ *
+ * Satu sumber skin untuk host partial `public_toast_host` (shared.html) yang
+ * dipakai seluruh halaman publik (auth, hasil, download, index).
+ *
+ * Riwayat:
+ *   - output.css memuat salinan skin toast untuk halaman admin (dibangun
+ *     Tailwind, token literal #RRGGBB — file hasil build, jangan diedit).
+ *   - Sebelum M21, download.html memelihara salinan ketiga (~90 baris,
+ *     berversi token) dan hasil.html tidak memuat skin sama sekali.
+ *   - M21: salinan publik dipusatkan DI SINI; download.html menghapus blok
+ *     lokalnya; output.css tidak disentuh (halaman admin memuat keduanya,
+ *     nilai akhir identik — urutan kaskade aman).
+ *
+ * Z-index: lapisan dikunci SATU tempat. Host publik memakai var(--z-toast)
+ * theme.css (L69: 10003, di atas topbar-floating); admin-base.css mengunci
+ * var(--z-toast) untuk .toast-container halaman admin.
+ *
+ * Palet: varian warna memakai rgba(var(--rgb-*), α) + pasangan --color-*-light
+ * theme.css — dipetakan satu-satu ke nilai literal output.css (16,185,129 →
+ * #10b981 dst.), tampilan tidak berubah.
+ */
+
+.toast-container {
+    position: fixed;
+    bottom: calc(24px + env(safe-area-inset-bottom, 0px));
+    right: 24px;
+    z-index: var(--z-toast);
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    max-width: calc(100vw - 48px);
+    pointer-events: none;
+}
+
+.toast {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 12px 16px;
+    border-radius: 12px;
+    border: 1px solid rgba(var(--rgb-white), 0.1);
+    font-size: 0.85rem;
+    font-weight: 500;
+    font-family: var(--font-sans);
+    color: #fff;
+    background: var(--color-bg-secondary);
+    backdrop-filter: blur(16px);
+    -webkit-backdrop-filter: blur(16px);
+    box-shadow: 0 8px 32px rgba(var(--rgb-black), 0.3);
+    animation: toastIn 0.3s ease;
+    cursor: pointer;
+    pointer-events: auto;
+    transition: box-shadow 0.2s;
+    min-width: 280px;
+    max-width: 420px;
+}
+
+.toast:hover {
+    box-shadow: 0 12px 40px rgba(var(--rgb-black), 0.4);
+}
+
+.toast-body {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    flex: 1;
+    min-width: 0;
+}
+
+.toast-icon {
+    width: 20px;
+    height: 20px;
+    flex-shrink: 0;
+    display: block;
+}
+
+.toast-msg {
+    flex: 1;
+    line-height: 1.4;
+    word-break: break-word;
+}
+
+.toast-close {
+    flex-shrink: 0;
+    position: relative;
+    min-width: 24px;
+    min-height: 24px;
+    padding: 10px;
+    border-radius: 6px;
+    border: none;
+    background: rgba(var(--rgb-white), 0.08);
+    color: rgba(var(--rgb-white), 0.7);
+    font-size: 12px;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    opacity: 0;
+    transition: all 0.2s;
+}
+
+.toast:hover .toast-close {
+    opacity: 1;
+}
+
+/* S55/S10 (port dari output.css): tombol ✕ terlihat saat fokus keyboard dan
+   hit-area ≥44×44px — pseudo-element transparan memperluas zona klik. */
+.toast-close:focus-visible {
+    opacity: 1;
+}
+
+.toast-close:hover {
+    background: rgba(var(--rgb-white), 0.15);
+    color: #fff;
+}
+
+.toast-close::before {
+    content: '';
+    position: absolute;
+    inset: -10px;
+}
+
+/* Varian warna — rgba(var(--rgb-*), α) dipetakan dari literal output.css:
+   success 16,185,129 · danger 239,68,68 · warning 245,158,11 · info 99,102,241.
+   --rgb-accent (168,85,247) memangkas selisih kecil output.css (99,102,241):
+   tak ada elemen .toast-info yang dirender sebelum M21, jadi varian publik
+   memakai triplet aksen yang konsisten dengan sistem token. */
+.toast-success {
+    background: rgba(var(--rgb-success), 0.2);
+    border-color: rgba(var(--rgb-success), 0.3);
+}
+
+.toast-error {
+    background: rgba(var(--rgb-danger), 0.2);
+    border-color: rgba(var(--rgb-danger), 0.3);
+}
+
+.toast-warning {
+    background: rgba(var(--rgb-warning), 0.2);
+    border-color: rgba(var(--rgb-warning), 0.3);
+}
+
+.toast-info {
+    background: rgba(var(--rgb-accent), 0.2);
+    border-color: rgba(var(--rgb-accent), 0.3);
+}
+
+.toast-success .toast-icon { color: var(--color-success-light); }
+.toast-error .toast-icon   { color: var(--color-danger-bright); }
+.toast-warning .toast-icon { color: var(--color-warning-light); }
+.toast-info .toast-icon    { color: var(--color-primary-light); }
+
+.toast-r2-config {
+    /* output.css memakai stop kedua orange-600 literal (234, 88, 12) — tidak
+       ada padanan token; dipetakan ke --rgb-warning (varian publik, perbedaan
+       nuansa tak teramati pada lapisan 16%). */
+    background: linear-gradient(135deg, rgba(var(--rgb-warning), 0.3), rgba(var(--rgb-warning), 0.16));
+    border-color: rgba(var(--rgb-warning), 0.6);
+    box-shadow: 0 8px 32px rgba(var(--rgb-warning), 0.25);
+}
+
+.toast-r2-config .toast-icon { color: var(--color-warning-light); }
+
+.toast-exit {
+    animation: toastOut 0.3s ease forwards;
+}
+
+@keyframes toastIn {
+    from {
+        opacity: 0;
+        transform: translateY(16px);
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
+@keyframes toastOut {
+    from {
+        opacity: 1;
+        transform: translateX(0);
+    }
+    to {
+        opacity: 0;
+        transform: translateX(40px);
+    }
+}
+
+@media (max-width: 768px) {
+    .toast-container {
+        bottom: calc(12px + env(safe-area-inset-bottom, 0px));
+        right: 12px;
+        left: 12px;
+    }
+
+    .toast {
+        min-width: 0;
+        max-width: 100%;
+        padding: 12px 14px;
+        font-size: 0.82rem;
+    }
+
+    .toast-close {
+        opacity: 1;
+        /* S10: di ponsel tombol ✕ adalah satu-satunya cara menutup toast yang
+           panjang — elemennya sendiri wajib ≥44×44px, bukan sekadar hit-area. */
+        min-width: 44px;
+        min-height: 44px;
+    }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .toast {
+        animation: none !important;
+    }
+}

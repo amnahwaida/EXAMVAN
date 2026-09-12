@@ -66,11 +66,10 @@
  </style>
  <link rel="icon" type="image/png" href="/static/favicon.png">
  <script src="/static/js/admin-core.js?v={{.version}}" defer></script>
-</head>
-<body>
- {{ template "public_nav" . }}
+</head> <body>
  {{ template "public_skip_link" . }}
- <div class="toast-container" id="toastContainer" aria-live="polite" aria-atomic="true"></div>
+ {{ template "public_nav" . }}
+ {{ template "public_toast_host" . }}
  <!-- M26: sprite Heroicons disatukan ke partial admin (svg-symbols.html,
       42 simbol termasuk 3 simbol unik hasil: arrow-left, trending-up,
       exclamation-triangle) — salinan lokal 19 simbol (13 duplikat ID, 1

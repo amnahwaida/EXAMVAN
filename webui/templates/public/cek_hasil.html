@@ -14,6 +14,8 @@
  <!-- R71: seluruh link stylesheet eksternal wajib SEBELUM blok style inline pertama; urutan antar-link dipertahankan. -->
 <link rel="stylesheet" href="/static/css/public-mobile.css?v={{.version}}">
  <link rel="stylesheet" href="/static/css/public-desktop.css?v={{.version}}">
+ <!-- M21: skin toast bersama (public-toast.css) — host public_toast_host dipakai halaman ini -->
+ {{ template "public_toast_skin" . }}
  <link rel="icon" type="image/png" href="/static/favicon.png">
  <style>
   /* Prevent iOS Safari auto-zoom on focus. */

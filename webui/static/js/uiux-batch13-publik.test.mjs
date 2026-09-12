@@ -284,7 +284,14 @@ for (const [label, tpl] of [['register', REGISTER], ['reset_password', RESET_PAS
 for (const [name, tpl] of PUBLIC_TEMPLATES) {
     test(`R79 (folder-wide): ${name} — indeks link stylesheet pertama < indeks <style> pertama`, () => {
         const html = tpl();
-        const firstStyle = html.search(/<style[\s>]/);
+        // M21 (Batch 32): definisi partial public_toast_skin di shared.html
+        // memang perlu berisi <link stylesheet>, tapi isinya HANYA ter-render di
+        // halaman KONSUMEN (di head masing-masing — dijaga cek R79 halaman
+        // tsb.), bukan di DOM shared.html sendiri. Blok define di-strip agar
+        // pemindaian file mentah tidak salah menuduh.
+        const scanned = html.replace(
+            /\{\{\s*define\s+"public_toast_skin"\s*\}\}[\s\S]*?\{\{\s*end\s*\}\}/, '');
+        const firstStyle = scanned.search(/<style[\s>]/);
         if (firstStyle === -1) {
             assert.ok(true, `${name} tak punya blok <style> — tidak berlaku`);
             return;
@@ -301,14 +308,14 @@ for (const [name, tpl] of PUBLIC_TEMPLATES) {
                 'partial public_head (shared.html) harus me-link stylesheet sebelum <style> pertama');
             return;
         }
-        const firstLink = html.search(/<link[^>]*rel="stylesheet"/);
+        const firstLink = scanned.search(/<link[^>]*rel="stylesheet"/);
         assert.ok(firstLink !== -1, `${name} punya blok <style> tapi tak punya link stylesheet`);
         assert.ok(firstLink < firstStyle,
             `${name}: link stylesheet pertama (${firstLink}) HARUS berada sebelum `
             + `blok <style> inline pertama (${firstStyle}) — pindahkan semua link `
             + 'eksternal ke atas (urutan antar-link tetap)');
         // Tidak boleh ada link stylesheet tersisa SETELAH <style> pertama.
-        const offenders = [...html.matchAll(/<link[^>]*rel="stylesheet"[^>]*>/g)]
+        const offenders = [...scanned.matchAll(/<link[^>]*rel="stylesheet"[^>]*>/g)]
             .filter((mm) => mm.index > firstStyle);
         assert.deepEqual(offenders.map((mm) => mm[0]), [],
             `${name}: masih ada link stylesheet SETELAH <style> inline pertama`);

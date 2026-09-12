@@ -129,6 +129,8 @@
  <link rel="icon" type="image/png" href="/static/favicon.png">
  <!-- R79: semua link stylesheet eksternal ditaruh sebelum blok style inline pertama (urutan cascade jelas). -->
  <link rel="stylesheet" href="/static/css/theme.css?v={{.version}}">
+ <!-- M21: skin toast bersama — public_toast_host dipakai setiap halaman publik. -->
+ <link rel="stylesheet" href="/static/css/public-toast.css?v={{.version}}">
  <link rel="stylesheet" href="/static/css/public-mobile.css?v={{.version}}">
  <link rel="stylesheet" href="/static/css/public-desktop.css?v={{.version}}">
 
@@ -894,15 +896,28 @@
 
 {{ end }}
 {{/*
-  public_toast_host — host toast tunggal untuk halaman yang tidak memuat
-  public_head (halaman auth). Skin & perilaku toast disediakan pasangan:
-  skin dari tailwind/output.css (sudah dimuat semua halaman publik), JS
-  showToast dari admin-core.js (script defer di masing-masing halaman).
-  M21: menggantikan toast ad-hoc cssText register.html — satu implementasi,
-  de-dup, limit 5, ikon, dan region live yang konsisten.
+  public_toast_host — host toast tunggal untuk semua halaman yang tidak
+  memuat nav.html admin (halaman auth + hasil + download). Skin & perilaku
+  toast disediakan oleh pasangan: public-toast.css (dimuat setiap halaman
+  publik via public_head; halaman auth me-link-nya eksplisit), dan JS
+  showToast dari admin-core.js (script defer di masing-masing halaman
+  pemakai toast).
+  M21: menggantikan toast ad-hoc cssText register.html dan skin lokal
+  download.html — satu implementasi, de-dup, limit 5, ikon, dan region
+  live yang konsisten.
 */}}
 {{ define "public_toast_host" }}
  <div class="toast-container" id="toastContainer" aria-live="polite" aria-atomic="true"></div>
+{{ end }}
+
+{{/*
+  public_toast_skin — link skin toast bersama (static/css/public-toast.css)
+  untuk halaman yang TIDAK memuat public_head (halaman auth). Halaman
+  public_head (index/download/hasil) menerima link yang sama dari head —
+  jangan dobel.
+*/}}
+{{ define "public_toast_skin" }}
+ <link rel="stylesheet" href="/static/css/public-toast.css?v={{.version}}">
 {{ end }}
 
 {{ define "public_foot" }}

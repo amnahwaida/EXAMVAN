@@ -373,11 +373,18 @@ test('S54 (statik): navigasi keyboard panah/Home/End terpasang pada tablist hasi
 // S55 — toast-close replika download pra-T10a
 // ===========================================================================
 
-test('S55: blok CSS toast lokal download.html memuat rule .toast-close:focus-visible { opacity:1 }', () => {
-    const doc = DOWNLOAD();
-    const rule = doc.match(/\.toast-close:focus-visible\s*\{([^}]*)\}/);
-    assert.ok(rule, '.toast-close:focus-visible harus ada di blok style lokal download.html');
+test('S55: rule .toast-close:focus-visible { opacity:1 } ada di skin toast publik', () => {
+    // M21 lanjutan (Batch 32): blok CSS toast lokal download.html DIHAPUS —
+    // skin publik kini satu sumber di static/css/public-toast.css (dipakai
+    // download, hasil, dan halaman auth via public_toast_host/skin). Rule
+    // port T10a (tombol ✕ terlihat saat fokus keyboard) wajib selamat di
+    // skin bersama; output.css (halaman admin) juga tetap memuatnya.
+    const skin = fs.readFileSync(path.join(WEBUI_ROOT, 'static', 'css', 'public-toast.css'), 'utf8');
+    const rule = skin.match(/\.toast-close:focus-visible\s*\{([^}]*)\}/);
+    assert.ok(rule, '.toast-close:focus-visible harus ada di public-toast.css (skin bersama)');
     assert.match(rule[1], /opacity:\s*1/, 'rule wajib mereveal tombol ✕ saat fokus keyboard (port T10a)');
+    assert.doesNotMatch(DOWNLOAD(), /\.toast-close:focus-visible/,
+        'salinan lokal download.html tidak boleh kembali — kontrak satu sumber');
 });
 
 // ===========================================================================

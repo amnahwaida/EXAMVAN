@@ -9,6 +9,11 @@
  *   Kontrak: auth pages menyediakan host #toastContainer via partial bersama
  *   + memuat admin-core.js; register.html mendelegasikan ke showToast.
  *
+ *   LANJUTAN Batch 32 (L64 + sisa M21): skin CSS lokal download DIHAPUS —
+ *   satu sumber skin publik di static/css/public-toast.css (B32-* di
+ *   uiux-batch32-priority-mediums.test.mjs). Uji B31-4 di bawah kini
+ *   MEMBALIKKAN kontrak lama "skin lokal download disengaja".
+ *
  * Run with: node --test static/js/uiux-batch31-toast-unify.test.mjs (from webui/)
  */
 
@@ -24,6 +29,7 @@ const read = (...p) => fs.readFileSync(path.join(...p), 'utf8');
 
 const SHARED = read(WEBUI_ROOT, 'templates', 'public', 'shared.html');
 const REGISTER = read(WEBUI_ROOT, 'templates', 'public', 'register.html');
+const DOWNLOAD = read(WEBUI_ROOT, 'templates', 'public', 'download.html');
 const AUTH_PAGES = ['cek_hasil', 'forgot_password', 'register', 'register_confirm', 'reset_password']
     .map((n) => ({ name: n, src: read(WEBUI_ROOT, 'templates', 'public', `${n}.html`) }));
 
@@ -67,4 +73,22 @@ test('B31-3 (M21): register.html tanpa toast ad-hoc — delegasi ke showToast', 
         'cssText posisi-fixed manual adalah skin kedua — dihapus');
     assert.doesNotMatch(REGISTER, /toast\.style\.cssText = 'position:fixed/,
         'sisa implementasi ad-hoc masih ada');
+});
+
+// Batch 32 (M21-lanjutan): skin lokal download.html DIHAPUS — kontrak lama
+// "keputusan sadar, biarkan salinan lokal" dibalik menjadi "satu sumber skin".
+test('B31-4 (M21 lanjutan): download.html bebas skin toast lokal — memakai host + skin partial', () => {
+    assert.doesNotMatch(DOWNLOAD, /\.toast-container\s*\{/,
+        'salinan skin toast lokal download.html dihapus — public-toast.css satu sumber');
+    assert.doesNotMatch(DOWNLOAD, /\.toast-success/,
+        'varian warna toast lokal (dulu :434-456) dihapus bersama bloknya');
+    assert.match(DOWNLOAD, /\{\{\s*template\s+"public_toast_host"\s+\.\s*\}\}/,
+        'host toast dari partial bersama');
+    // download memakai public_head — skin link (public-toast.css) datang dari
+    // head; memanggil public_toast_skin lagi = CSS dobel (kontrak R108).
+    assert.equal((DOWNLOAD.match(/public-toast\.css/g) || []).length, 0,
+        'download.html tidak me-link skin langsung — lewat public_head');
+    const skin = SHARED.match(/\{\{ define "public_toast_skin" \}\}([\s\S]*?)\{\{ end \}\}/);
+    assert.ok(skin, 'define "public_toast_skin" harus ada di shared.html');
+    assert.match(skin[1], /public-toast\.css\?v=/, 'skin partial me-link public-toast.css berversi');
 });

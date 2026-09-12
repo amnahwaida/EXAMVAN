@@ -88,7 +88,9 @@ test('S15 fase 2/S43 (guard): total rgba LITERAL (digit pembuka) di seluruh temp
 // lain) dan asersi diubah assert.ok(≤) → assert.equal. Lama → baru:
 //   dashboard 32→32 · register_confirm 19→0 · pengawas 11→3 ·
 //   pengawas_detail 11→11 · download 11→11 · hasil 10→0 · nav 9→8 ·
-//   reset_password 8→0 · shared 4→3.
+//   reset_password 8→0 · shared 4→3 ·
+//   M21 (review 12 Sep 2026): skin toast lokal download.html (90 baris)
+//   dihapus — dipindah ke static/css/public-toast.css · download 11→10.
 const RGBA_BASELINE_PER_FILE = {
     // Batch 13 (S71): entri 'admin/settings.html' DIHAPUS — baseline terduplikasi
     // antar-suite. Plafon rgba settings.html (≤28, aktual) kini DIJAGA SATU
@@ -97,7 +99,7 @@ const RGBA_BASELINE_PER_FILE = {
     'public/register_confirm.html': 0,
     'admin/pengawas.html': 3,
     'admin/pengawas_detail.html': 7 /* Batch 17/R125-sisa */,
-    'public/download.html': 11,
+    'public/download.html': 10, /* M21: skin toast lokal dihapus → -1 rgba */
     'public/hasil.html': 0,
     'admin/partials/nav.html': 8,
     'public/reset_password.html': 0,

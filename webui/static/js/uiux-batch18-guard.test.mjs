@@ -20,6 +20,9 @@
  *                 --z-hint           : 9998  (keyboard shortcuts hint)
  *                 --z-modal-overlay  : 10000 (dialog overlay/backdrop)
  *                 --z-topbar-floating: 10002 (topbar toggle/close touch-device)
+ *                 L69 (review 12 Sep 2026): --z-toast naik 10002→10003 —
+ *                 sebelumnya berbagi nilai dengan topbar-floating; dua layer
+ *                 beda fungsi tidak boleh berbagi nilai.
  *               (empat token lama tetap: --z-skip-link/--z-dropdown/
  *                --z-onboarding/--z-toast.)
  *
@@ -72,10 +75,38 @@ const Z_LITERAL_RE = /z-index:\s*['"]?([0-9]{4,})/g;
 
 test('S116a: theme.css mendefinisikan empat token tangga stacking baru', () => {
     for (const tok of ['--z-bottom-bar:\\s*9997', '--z-hint:\\s*9998',
-                       '--z-modal-overlay:\\s*10000', '--z-topbar-floating:\\s*10002']) {
+                       '--z-modal-overlay:\\s*10000', '--z-topbar-floating:\\s*10002',
+                       '--z-toast:\\s*10003']) {
         assert.match(THEME_CSS, new RegExp(tok),
             `token ${tok.split(':')[0].trim()} wajib eksis sebagai source-of-truth`);
     }
+});
+
+// L69 (review 12 Sep 2026): dua pasangan token z sebelumnya berbagi nilai —
+// --z-hint == --z-skip-link (9998) dan --z-toast == --z-topbar-floating
+// (10002). Layer beda fungsi dengan nilai identik hanya menang karena
+// kebetulan urutan DOM; kontrak: nilai lapisan AKTIF wajib unik (posisi
+// dorman — hint & skip-link off-screen — boleh berbagi 9998 karena tak
+// pernah tampil serentak).
+test('L69: token z-index lapisan aktif theme.css bernilai unik (toast > topbar-floating)', () => {
+    const grab = (name) => {
+        const m = THEME_CSS.match(new RegExp(`--z-${name}\\s*:\\s*(\\d+)\\s*;`));
+        assert.ok(m, `--z-${name} harus terdefinisi di theme.css`);
+        return parseInt(m[1], 10);
+    };
+    const toast = grab('toast');
+    const topbar = grab('topbar-floating');
+    const overlay = grab('modal-overlay');
+    const onboarding = grab('onboarding');
+    const dropdown = grab('dropdown');
+    assert.ok(toast > topbar,
+        `--z-toast (${toast}) wajib DI ATAS --z-topbar-floating (${topbar}) — ` +
+        'toast saat topbar floating aktif harus tetap terlihat; nilai identik = rapuh');
+    // Kelima lapisan aktif bernilai unik:
+    const active = { toast, topbar, overlay, onboarding, dropdown };
+    const vals = Object.values(active);
+    assert.equal(new Set(vals).size, vals.length,
+        'nilai lapisan aktif wajib unik: ' + JSON.stringify(active));
 });
 
 test('S116b: admin-base.css bebas literal z-index >=1000 (semua via var(--z-*))', () => {
@@ -87,7 +118,7 @@ test('S116b: admin-base.css bebas literal z-index >=1000 (semua via var(--z-*))'
     assert.match(ADMIN_BASE_CSS, /z-index:\s*var\(--z-hint\)/);
     assert.match(ADMIN_BASE_CSS, /z-index:\s*var\(--z-modal-overlay\)/);
     assert.match(ADMIN_BASE_CSS, /z-index:\s*var\(--z-toast\)/,
-        '.toast-container naik ke --z-toast (10002) sesuai intent "di atas dialog/onboarding"');
+        '.toast-container naik ke --z-toast sesuai intent "di atas dialog/onboarding"');
     assert.match(ADMIN_BASE_CSS, /z-index:\s*var\(--z-topbar-floating\)/);
 });
 
@@ -98,10 +129,13 @@ test('S116c: banner unduhan/error publik memakai var(--z-dropdown), bukan 9999 l
     }
     // M21: pemakai var(--z-dropdown) di register.html (toast ad-hoc cssText)
     // DIHAPUS bersama implementasinya — toast kini lewat showToast tersentral
-    // (admin-core.js) dan skin-nya memakai token di output.css. Pemakai token
-    // positif tetap wajib ada di download.html.
-    assert.match(DOWNLOAD_HTML, /z-index:\s*var\(--z-dropdown\)/,
-        `download.html: pemakai token positif`);
+    // (admin-core.js).
+    // M21 lanjutan (Batch 32): pemakai var(--z-dropdown) di download.html
+    // (skin toast lokal) ikut dihapus bersama bloknya — lapisan toast kini
+    // var(--z-toast) di skin bersama static/css/public-toast.css (L69),
+    // yang diuji positif di uiux-batch32-priority-mediums.test.mjs B32-8.
+    assert.doesNotMatch(DOWNLOAD_HTML, /\.toast|z-index/,
+        'download.html bebas skin/z-index toast — satu sumber di public-toast.css');
 });
 
 test('S116d (guard folder-wide): tidak ada literal z-index >=1000 di luar folder generated', () => {
