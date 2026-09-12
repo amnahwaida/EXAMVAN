@@ -11,6 +11,8 @@
  *         konsumen terakhirnya (kelas .mobile-bottom-bar & .shortcuts-hint)
  *         dan ikut dihapus dari theme.css.
  *   L75 — 5 simbol sprite tanpa referensi runtime → dihapus (sprite 45 → 40).
+ *         Batch 39 (5.4#1): +1 simbol hi-stop (ikon berhenti pengawasan yang
+ *         sebelumnya inline ×3) → sprite kini 41 simbol, tetap nol mati.
  *
  * Run with: node --test static/js/uiux-batch34-deadcode.test.mjs (from webui/)
  */
@@ -100,13 +102,13 @@ test('L73-kaskade: token z tanpa konsumen turut dihapus dari theme.css', () => {
 // L75 — simbol sprite mati
 // ---------------------------------------------------------------------------
 
-test('L75: 5 simbol sprite tanpa referensi runtime dihapus (45 → 40)', () => {
+test('L75: 5 simbol sprite tanpa referensi runtime dihapus (45 → 41)', () => {
     for (const id of ['hi-copy', 'hi-arrow-up', 'hi-banknotes', 'hi-x-circle', 'hi-check-circle']) {
         assert.doesNotMatch(SPRITE, new RegExp(`id="${id}"`),
             `#${id} census 0 referensi — dihapus; kembalikan dari git bila dipakai lagi`);
     }
     const defined = [...SPRITE.matchAll(/<symbol id="(hi-[a-z-]+)"/g)].map((m) => m[1]);
-    assert.equal(defined.length, 40, 'sprite kini 40 simbol');
+    assert.equal(defined.length, 41, 'sprite kini 41 simbol (40 + hi-stop ikon berhenti 5.4#1)');
     // Setiap simbol tersisa ter-referensi (nol mati baru) — census runtime:
     const walk = (dir, acc = []) => {
         for (const e of fs.readdirSync(dir, { withFileTypes: true })) {
