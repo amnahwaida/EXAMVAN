@@ -64,9 +64,9 @@
 }
 .pd-action-danger:hover { background: rgba(var(--rgb-danger),0.18); }
 .pd-action-warning {
-  background: rgba(251,191,36,0.1);
-  color: #fbbf24;
-  border-color: rgba(251,191,36,0.3);
+  background: rgba(var(--rgb-warning-dim), 0.1);
+  color: var(--color-warning-light);
+  border-color: rgba(var(--rgb-warning-dim), 0.3);
 }
 .pd-action-warning:hover { background: rgba(251,191,36,0.18); }
 .pd-action-muted {
@@ -805,10 +805,11 @@
 <div style="display:flex;gap:6px;margin-top:10px;flex-wrap:wrap;">
 <button type="button" class="btn-sm" style="background:var(--color-primary);color:var(--color-text-on-primary);border:none;padding:4px 10px;border-radius:6px;font-size:11px;cursor:pointer;" data-action="panel-color-set" data-color="#6366F1">Indigo</button>
 <button type="button" class="btn-sm" style="background:var(--color-success);color:var(--color-text-on-primary);border:none;padding:4px 10px;border-radius:6px;font-size:11px;cursor:pointer;" data-action="panel-color-set" data-color="#10B981">Emerald</button>
-<button type="button" class="btn-sm" style="background:#F43F5E;color:var(--color-text-on-primary);border:none;padding:4px 10px;border-radius:6px;font-size:11px;cursor:pointer;" data-action="panel-color-set" data-color="#F43F5E">Rose</button>
-<button type="button" class="btn-sm" style="background:var(--color-warning);color:var(--color-text-on-primary);border:none;padding:4px 10px;border-radius:6px;font-size:11px;cursor:pointer;" data-action="panel-color-set" data-color="#F59E0B">Amber</button>
-<button type="button" class="btn-sm" style="background:#06B6D4;color:var(--color-text-on-primary);border:none;padding:4px 10px;border-radius:6px;font-size:11px;cursor:pointer;" data-action="panel-color-set" data-color="#06B6D4">Cyan</button>
-<button type="button" class="btn-sm" style="background:#64748B;color:var(--color-text-on-primary);border:none;padding:4px 10px;border-radius:6px;font-size:11px;cursor:pointer;" data-action="panel-color-set" data-color="#64748B">Slate</button>
+<!-- L47: hex preset mentah diganti token --rgb-*; hex diturunkan hanya di setPanelColor (admin.js) via getComputedStyle. -->
+<button type="button" class="btn-sm" style="background:rgb(var(--rgb-rose-500));color:var(--color-text-on-primary);border:none;padding:4px 10px;border-radius:6px;font-size:11px;cursor:pointer;" data-action="panel-color-set" data-color="var(--rgb-rose-500)">Rose</button>
+<button type="button" class="btn-sm" style="background:var(--color-warning);color:var(--color-text-on-primary);border:none;padding:4px 10px;border-radius:6px;font-size:11px;cursor:pointer;" data-action="panel-color-set" data-color="var(--rgb-warning-dim)">Amber</button>
+<button type="button" class="btn-sm" style="background:rgb(var(--rgb-cyan-500));color:var(--color-text-on-primary);border:none;padding:4px 10px;border-radius:6px;font-size:11px;cursor:pointer;" data-action="panel-color-set" data-color="var(--rgb-cyan-500)">Cyan</button>
+<button type="button" class="btn-sm" style="background:rgb(var(--rgb-slate-500));color:var(--color-text-on-primary);border:none;padding:4px 10px;border-radius:6px;font-size:11px;cursor:pointer;" data-action="panel-color-set" data-color="var(--rgb-slate-500)">Slate</button>
 </div>
 </div>
 

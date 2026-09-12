@@ -612,7 +612,26 @@ function renderStudentAccessControls(examId, res) {
         </button>`;
 }
 
-function setPanelColor(hex) {
+// L47: preset warna panel kini mengirim token triplet ("var(--rgb-rose-500)"
+// dst.) atau hex langsung — hex diturunkan HANYA di satu titik (resolvePanelHex)
+// dari nilai computed var(--rgb-*), sehingga perubahan palet ikut ke preset.
+function resolvePanelHex(value) {
+    if (!value) return '';
+    var v = String(value).trim();
+    if (/^#[0-9a-fA-F]{3,8}$/.test(v)) return v.toUpperCase();
+    var m = v.match(/var\(\s*(--[\w-]+)\s*\)/);
+    if (!m) return '';
+    var triplet = getComputedStyle(document.documentElement).getPropertyValue(m[1]).trim();
+    var parts = triplet.split(',').map(function (s) { return parseInt(s, 10); });
+    if (parts.length !== 3 || parts.some(function (n) { return isNaN(n); })) return '';
+    return '#' + parts.map(function (n) {
+        return Math.max(0, Math.min(255, n)).toString(16).padStart(2, '0');
+    }).join('').toUpperCase();
+}
+
+function setPanelColor(value) {
+    var hex = resolvePanelHex(value);
+    if (!hex) return; // nilai tak dikenal: jangan menulis hex kosong ke input
     var colorInput = document.getElementById('examPanelColor');
     var hexInput = document.getElementById('panelColorHex');
     markQuestionsConfigDirty(); // S2: preset warna programatik tidak memicu event input/change
@@ -1554,7 +1573,7 @@ function renderRoleBadges(baseRoles, pkgRoles) {
     // Roles granted by the ACTIVE package get an emerald tone + a small "paket"
     // tag so admins can tell them apart from base (permanent) roles — these
     // disappear when the package is switched or expires.
-    var pkgStyle = 'background:rgba(16,185,129,0.15);color:var(--color-success-light);border:1px solid rgba(16,185,129,0.3);';
+    var pkgStyle = 'background:rgba(var(--rgb-success),0.15);color:var(--color-success-light);border:1px solid rgba(var(--rgb-success),0.3);';
     var labels = { guru: 'Guru', pengawas: 'Pengawas' };
     var badges = [];
     baseRoles.forEach(function(r) {
@@ -1806,7 +1825,7 @@ function loadUsersList(page) {
                         <td data-label="Nama">${escapeHtml(user.name || '—')}</td>
                         <td data-label="Instansi">${window.__adminRole === 'superadmin' ? '<span class="editable-instansi" data-user-id="' + user.id + '" role="button" tabindex="0" aria-label="Ubah instansi" style="color:var(--color-primary-light);cursor:pointer;border-bottom:1px dashed rgba(165,180,252,0.3);" title="Klik untuk ubah instansi">' + escapeHtml(user.instansi || '—') + '</span>' : escapeHtml(user.instansi || '—')}</td>
                         <td data-label="Paket"><span style="text-transform:uppercase;font-size:11px;font-weight:600;color:var(--color-accent-light);">${escapeHtml(user.package || 'free')}</span></td>
-                        <td data-label="Role">${isAdmin ? '<span style="display:inline-block;padding:2px 8px;border-radius:10px;font-size:11px;font-weight:600;background:rgba(251,191,36,0.15);color:var(--color-warning-light);border:1px solid rgba(251,191,36,0.3);">Super Admin</span>' : renderRoleBadges(user.base_roles, user.package_roles)}</td>
+                        <td data-label="Role">${isAdmin ? '<span style="display:inline-block;padding:2px 8px;border-radius:10px;font-size:11px;font-weight:600;background:rgba(var(--rgb-warning-dim),0.15);color:var(--color-warning-light);border:1px solid rgba(var(--rgb-warning-dim),0.3);">Super Admin</span>' : renderRoleBadges(user.base_roles, user.package_roles)}</td>
                         <td data-label="Email">${escapeHtml(user.email || '—')}</td>
                         <td data-label="Status" style="text-align:center;"><span class="user-status-cell">${statusBadge}${expiredBadge}</span></td>
                         <td data-label="Terdaftar">${createdAt}</td>
@@ -2882,13 +2901,13 @@ function togglePublicResults(examId) {
                 // Dynamically update button appearance and text
                 if (btn) {
                     if (res.public_results === 1) {
-                        btn.style.background = 'rgba(16, 185, 129, 0.15)';
-                        btn.style.borderColor = 'rgba(16, 185, 129, 0.3)';
+                        btn.style.background = 'rgba(var(--rgb-success), 0.15)';
+                        btn.style.borderColor = 'rgba(var(--rgb-success), 0.3)';
                         btn.style.color = 'var(--color-success-light)';
                         btn.innerHTML = '<svg class="icon-svg" style="width:16px;height:16px;vertical-align:middle;margin-top:-2px;" aria-hidden="true"><use href="#hi-eye"/></svg> Hal. Siswa Aktif';
                     } else {
-                        btn.style.background = 'rgba(239, 68, 68, 0.15)';
-                        btn.style.borderColor = 'rgba(239, 68, 68, 0.3)';
+                        btn.style.background = 'rgba(var(--rgb-danger), 0.15)';
+                        btn.style.borderColor = 'rgba(var(--rgb-danger), 0.3)';
                         btn.style.color = 'var(--color-danger-light)';
                         btn.innerHTML = '<svg class="icon-svg" style="width:16px;height:16px;vertical-align:middle;margin-top:-2px;" aria-hidden="true"><use href="#hi-eye-off"/></svg> Hal. Siswa Nonaktif';
                     }
@@ -2922,13 +2941,13 @@ function toggleShowAnswers(examId) {
                 showToast(res.message, 'success');
                 if (btn) {
                     if (res.show_answers === 1) {
-                        btn.style.background = 'rgba(251, 191, 36, 0.15)';
-                        btn.style.borderColor = 'rgba(251, 191, 36, 0.3)';
+                        btn.style.background = 'rgba(var(--rgb-warning-dim), 0.15)';
+                        btn.style.borderColor = 'rgba(var(--rgb-warning-dim), 0.3)';
                         btn.style.color = 'var(--color-warning-light)';
                         btn.innerHTML = '<svg class="icon-svg" style="width:14px;height:14px;"><use href="#hi-lock-open"/></svg> Kunci Terlihat';
                     } else {
-                        btn.style.background = 'rgba(107, 114, 128, 0.15)';
-                        btn.style.borderColor = 'rgba(107, 114, 128, 0.3)';
+                        btn.style.background = 'rgba(var(--rgb-gray), 0.15)';
+                        btn.style.borderColor = 'rgba(var(--rgb-gray), 0.3)';
                         btn.style.color = 'var(--color-text-muted)';
                         btn.innerHTML = '<svg class="icon-svg" style="width:14px;height:14px;"><use href="#hi-lock"/></svg> Kunci Tersembunyi';
                     }

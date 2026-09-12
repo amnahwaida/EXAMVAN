@@ -69,8 +69,9 @@ test('S15 fase 2 (guard): total hex literal di seluruh templates/ tidak naik dar
     // lanjutan/R82) menurunkannya lagi (migrasi #818cf8/#f43f5e) -> 130.
     // Batch 17: dikunci aktual (99) pasca migrasi token R125-sisa/R137.
     // Batch 23: redesign system-apps hapus premium bloat → 81.
-    assert.ok(total <= 85,
-        `total hex templates/ = ${total}, baseline terkunci ≤ 85 — pakai var(--token) untuk warna baru`);
+    // Batch 32/33: M21 skin toast download (−6) + L47/L48/L49 (−5) → 64.
+    assert.ok(total <= 73,
+        `total hex templates/ = ${total}, baseline terkunci ≤ 73 — pakai var(--token) untuk warna baru`);
 });
 
 test('S15 fase 2/S43 (guard): total rgba LITERAL (digit pembuka) di seluruh templates/ tidak naik', () => {
@@ -95,9 +96,9 @@ const RGBA_BASELINE_PER_FILE = {
     // Batch 13 (S71): entri 'admin/settings.html' DIHAPUS — baseline terduplikasi
     // antar-suite. Plafon rgba settings.html (≤28, aktual) kini DIJAGA SATU
     // TEMPAT: uiux-batch11-settings-guard.test.mjs (S64).
-    'admin/dashboard.html': 29, /* Batch 16/R125: muted → token rgb-triplet */
+    'admin/dashboard.html': 27, /* L47 (Batch 33): pd-action-warning & preset token → -2 rgba */
     'public/register_confirm.html': 0,
-    'admin/pengawas.html': 3,
+    'admin/pengawas.html': 1, /* L48 (Batch 33): badge Statis rgba(59,130,246) → --rgb-blue-400 */
     'admin/pengawas_detail.html': 7 /* Batch 17/R125-sisa */,
     'public/download.html': 10, /* M21: skin toast lokal dihapus → -1 rgba */
     'public/hasil.html': 0,
