@@ -1,4 +1,5 @@
-@import url('theme.css');
+/* Token theme dari theme.css — di-link ter-versi oleh hasil.html SEBELUM
+ * file ini (@import di sini dulu menduplikasi fetch theme.css — review 5.4#2). */
 
 * { margin: 0; padding: 0; box-sizing: border-box; }
 

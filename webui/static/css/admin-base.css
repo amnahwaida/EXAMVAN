@@ -1,8 +1,7 @@
 /* EXAMVAN Admin Panel - Dark Glassmorphism Theme */
-/* Theme variables loaded from centralized theme.css */
-/* Font loaded via <link> in admin_base.html */
-
-@import url('theme.css');
+/* Theme variables come from theme.css — linked ter-versi oleh partial
+ * head.html SEBELUM file ini (@import di sini dulu menduplikasi fetch
+ * theme.css dengan URL kedua yang tidak bisa di-dedup cache — review 5.4#2). */
 
 * { margin:0; padding:0; box-sizing:border-box; }
 
