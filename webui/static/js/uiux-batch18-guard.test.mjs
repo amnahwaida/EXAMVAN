@@ -73,9 +73,8 @@ const SHARED_HTML = read('templates/public/shared.html');
 // Literal z-index >=1000 (4 digit ke atas). Pemakaian var() tidak cocok pola.
 const Z_LITERAL_RE = /z-index:\s*['"]?([0-9]{4,})/g;
 
-test('S116a: theme.css mendefinisikan empat token tangga stacking baru', () => {
-    for (const tok of ['--z-bottom-bar:\\s*9997', '--z-hint:\\s*9998',
-                       '--z-modal-overlay:\\s*10000', '--z-topbar-floating:\\s*10002',
+test('S116a: theme.css mendefinisikan token tangga stacking', () => {
+    for (const tok of ['--z-modal-overlay:\\s*10000', '--z-topbar-floating:\\s*10002',
                        '--z-toast:\\s*10003']) {
         assert.match(THEME_CSS, new RegExp(tok),
             `token ${tok.split(':')[0].trim()} wajib eksis sebagai source-of-truth`);
@@ -99,11 +98,12 @@ test('L69: token z-index lapisan aktif theme.css bernilai unik (toast > topbar-f
     const overlay = grab('modal-overlay');
     const onboarding = grab('onboarding');
     const dropdown = grab('dropdown');
+    const skipLink = grab('skip-link');
     assert.ok(toast > topbar,
         `--z-toast (${toast}) wajib DI ATAS --z-topbar-floating (${topbar}) — ` +
         'toast saat topbar floating aktif harus tetap terlihat; nilai identik = rapuh');
-    // Kelima lapisan aktif bernilai unik:
-    const active = { toast, topbar, overlay, onboarding, dropdown };
+    // Lapisan aktif bernilai unik (skip-link dorman ikut dicek unik):
+    const active = { toast, topbar, overlay, onboarding, dropdown, skipLink };
     const vals = Object.values(active);
     assert.equal(new Set(vals).size, vals.length,
         'nilai lapisan aktif wajib unik: ' + JSON.stringify(active));
@@ -114,8 +114,8 @@ test('S116b: admin-base.css bebas literal z-index >=1000 (semua via var(--z-*))'
     assert.deepEqual(hits, [],
         '7 literal legacy (9997/9998/10000/10001/10002) wajib bermigrasi ke var(--z-*)');
     // Pemakaian token positif sebagai bukti migrasi:
-    assert.match(ADMIN_BASE_CSS, /z-index:\s*var\(--z-bottom-bar\)/);
-    assert.match(ADMIN_BASE_CSS, /z-index:\s*var\(--z-hint\)/);
+    // (L73 Batch 34: --z-bottom-bar & --z-hint dihapus bersama kelas mati
+    // .mobile-bottom-bar & .shortcuts-hint — konsumen positifnya hilang sah.)
     assert.match(ADMIN_BASE_CSS, /z-index:\s*var\(--z-modal-overlay\)/);
     assert.match(ADMIN_BASE_CSS, /z-index:\s*var\(--z-toast\)/,
         '.toast-container naik ke --z-toast sesuai intent "di atas dialog/onboarding"');

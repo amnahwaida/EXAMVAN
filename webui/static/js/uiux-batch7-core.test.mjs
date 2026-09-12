@@ -351,8 +351,10 @@ test('B7-B: tiap token baru didokumentasikan dengan komentar pemakaian', () => {
 // ---------------------------------------------------------------------------
 
 test('B7-C: kelas tone + notice-warning ada di admin-base.css', () => {
-    for (const cls of ['.tone-success', '.tone-warning', '.tone-danger', '.tone-info',
-        '.tone-accent', '.tone-neutral', '.notice-warning']) {
+    // L73 (Batch 34): .tone-danger & .tone-accent dihapus — census 0
+    // pemakaian di templates/JS (keluarga tone yang tersisa dipakai runtime).
+    for (const cls of ['.tone-success', '.tone-warning', '.tone-info',
+        '.tone-neutral', '.notice-warning']) {
         const re = new RegExp(cls.replace('.', '\\.') + '\\s*\\{');
         assert.match(ADMIN_CSS, re, `${cls} harus terdefinisi di admin-base.css`);
     }
@@ -360,13 +362,15 @@ test('B7-C: kelas tone + notice-warning ada di admin-base.css', () => {
 
 test('B7-C: kelas tone murni memakai var()/rgba(var()) — tanpa hex literal baru', () => {
     // Ekstrak blok .tone-* / .notice-warning dan pastikan tidak ada hex di dalamnya.
-    const blocks = [...ADMIN_CSS.matchAll(/\.(?:tone-(?:success|warning|danger|info|accent|neutral)|notice-warning)\s*\{[^}]*\}/g)];
-    assert.equal(blocks.length >= 7, true, 'ketujuh blok kelas harus bisa diekstrak');
+    const blocks = [...ADMIN_CSS.matchAll(/\.(?:tone-(?:success|warning|info|neutral)|notice-warning)\s*\{[^}]*\}/g)];
+    assert.equal(blocks.length >= 5, true, 'lima blok kelas tone tersisa harus bisa diekstrak');
     for (const m of blocks) {
         assert.ok(!/#[0-9a-fA-F]{3,8}\b/.test(m[0]),
             `blok "${m[0].slice(0, 30)}..." mengandung hex literal — wajib var()/rgba(var())`);
     }
-    for (const token of ['--rgb-success', '--rgb-warning', '--rgb-danger', '--rgb-info', '--rgb-accent']) {
+    // L73 (Batch 34): --rgb-accent keluar daftar — satu-satunya pemakai kelas
+    // tone (.tone-accent) dihapus; triplet tetap dipakai dashboard/gradien.
+    for (const token of ['--rgb-success', '--rgb-warning', '--rgb-danger', '--rgb-info']) {
         assert.match(ADMIN_CSS, new RegExp('rgba\\(\\s*var\\(' + token.replace(/[-]/g, '\\-') + '\\)'),
             `rgba(var(${token}), ...) harus dipakai kelas tone`);
     }

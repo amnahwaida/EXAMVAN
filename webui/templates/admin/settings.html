@@ -266,69 +266,12 @@
   position: relative;
   z-index: 1;
  }
- .tooltip {
-   position: relative;
-   cursor: help;
-   display: inline-flex;
-   align-items: center;
-   gap: 4px;
-   border-bottom: 1px dotted rgba(var(--rgb-white), 0.4);
- }
- .tooltip::after {
-   content: attr(data-tooltip);
-   position: absolute;
-   bottom: calc(100% + 8px);
-   left: 50%;
-   transform: translateX(-50%) translateY(5px);
-   background: rgba(15, 23, 42, 0.95);
-   backdrop-filter: blur(8px);
-   color: var(--color-text);
-   padding: 8px 12px;
-   border-radius: 8px;
-   font-size: 12px;
-   font-weight: 500;
-   white-space: nowrap;
-   opacity: 0;
-   visibility: hidden;
-   transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
-   z-index: 100;
-   border: 1px solid rgba(var(--rgb-white),  0.1);
-   box-shadow: 0 10px 25px rgba(var(--rgb-black), 0.3);
-   pointer-events: none;
-   text-transform: none !important;
-   letter-spacing: normal !important;
- }
- .tooltip::before {
-   content: '';
-   position: absolute;
-   bottom: 100%;
-   left: 50%;
-   transform: translateX(-50%) translateY(5px);
-   border: 5px solid transparent;
-   border-top-color: rgba(15, 23, 42, 0.95);
-   opacity: 0;
-   visibility: hidden;
-   transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
-   z-index: 100;
-   pointer-events: none;
- }
- .tooltip:hover::after,
- .tooltip:hover::before,
- .tooltip:focus-within::after,
- .tooltip:focus-within::before {
-   opacity: 1;
-   visibility: visible;
-   transform: translateX(-50%) translateY(0);
- }
- .tooltip svg {
-   opacity: 0.6;
-   width: 14px;
-   height: 14px;
- }
- .tooltip:hover svg {
-   opacity: 1;
-   color: var(--color-primary);
- }
+/* L28 (review_web_flow_dan_dead_code.md): komponen tooltip kustom
+   (.tooltip[data-tooltip]) DIHAPUS — lima pemakaiannya dimigrasi ke tooltip
+   native title, satu mekanisme dengan ±70 tooltip lain di halaman ini.
+   Catatan M18: hover-title native tidak punya jalur keyboard; trade-off
+   disetujui demi konsistensi satu mekanisme (informasi kuota juga terlihat
+   langsung di tabel Kuota di sampingnya). */
   @media (max-width: 768px) {
     .billing-container { padding: 16px !important; }
     .voucher-redeem-row { flex-wrap: wrap; }
@@ -336,24 +279,6 @@
     .voucher-redeem-row button {
       flex-basis: 100%;
       width: 100%;
-    }
-    .tooltip::after {
-      white-space: normal;
-      width: max-content;
-      max-width: calc(100vw - 48px);
-      left: 0;
-      transform: translateY(5px);
-      text-align: left;
-    }
-    .tooltip::before {
-      left: 16px;
-      transform: translateY(5px);
-    }
-    .tooltip:hover::after,
-    .tooltip:hover::before,
-    .tooltip:focus-within::after,
-    .tooltip:focus-within::before {
-      transform: translateY(0);
     }
   }
  
@@ -463,7 +388,7 @@
    box-shadow: 0 0 0 2px rgba(var(--rgb-accent),0.2);
   }
   .pkg-table input[type="number"] { min-width: 90px; }
-  .pkg-table select option { background: #1e1b4b; color: var(--color-text); }
+  .pkg-table select option { background: var(--color-bg-secondary); color: var(--color-text); }
   .pkg-key-badge {
    font-family: var(--font-mono);
    font-size: 0.78rem;
@@ -929,11 +854,11 @@
   <div class="glass-card" style="padding:24px;border-radius:16px;display:flex;flex-direction:column;justify-content:center;">
     <span style="font-size:11px;font-weight:700;text-transform:uppercase;color:var(--color-accent-light);letter-spacing:0.5px;display:block;margin-bottom:12px;">Kuota Ujian</span>
    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;font-size:13px;">
-    <span class="tooltip" data-tooltip="Maksimal total ujian yang dapat dibuat dan disimpan di sistem" style="color:var(--color-text-secondary);">Total Ujian <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M11.25 11.25l.041-.02a.75.75 0 011.063.852l-.708 2.836a.75.75 0 001.063.853l.041-.021M21 12a9 9 0 11-18 0 9 9 0 0118 0zm-9-3.75h.008v.008H12V8.25z" /></svg></span>
+    <span title="Maksimal total ujian yang dapat dibuat dan disimpan di sistem" style="color:var(--color-text-secondary);">Total Ujian <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M11.25 11.25l.041-.02a.75.75 0 011.063.852l-.708 2.836a.75.75 0 001.063.853l.041-.021M21 12a9 9 0 11-18 0 9 9 0 0118 0zm-9-3.75h.008v.008H12V8.25z" /></svg></span>
     <strong style="color:var(--color-text);">{{if or .user_is_super (ge .user_max_total_exams 99999)}}Tidak Terbatas{{else}}{{.user_max_total_exams}}{{end}}</strong>
    </div>
    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;font-size:13px;">
-    <span class="tooltip" data-tooltip="Maksimal ujian yang berjalan bersamaan (sudah dimulai &amp; bisa dikerjakan siswa)" style="color:var(--color-text-secondary);">Ujian Serentak <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M11.25 11.25l.041-.02a.75.75 0 011.063.852l-.708 2.836a.75.75 0 001.063.853l.041-.021M21 12a9 9 0 11-18 0 9 9 0 0118 0zm-9-3.75h.008v.008H12V8.25z" /></svg></span>
+    <span title="Maksimal ujian yang berjalan bersamaan (sudah dimulai &amp; bisa dikerjakan siswa)" style="color:var(--color-text-secondary);">Ujian Serentak <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M11.25 11.25l.041-.02a.75.75 0 011.063.852l-.708 2.836a.75.75 0 001.063.853l.041-.021M21 12a9 9 0 11-18 0 9 9 0 0118 0zm-9-3.75h.008v.008H12V8.25z" /></svg></span>
     <strong style="color:var(--color-text);">{{if .user_is_super}}Tidak Terbatas{{else}}{{.user_max_concurrent}}{{end}}</strong>
    </div>
   </div>
@@ -943,7 +868,7 @@
   <div class="glass-card" style="padding:24px;border-radius:16px;display:flex;flex-direction:column;justify-content:center;">
    <span style="font-size:11px;font-weight:700;text-transform:uppercase;color:var(--color-accent-light);letter-spacing:0.5px;display:block;margin-bottom:12px;">Kuota Akun Guru</span>
    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;font-size:13px;">
-    <span class="tooltip" data-tooltip="Batas jumlah akun yang dapat dibuat di instansi sekolah Anda. Akun yang dinonaktifkan saat paket sekolah tidak aktif juga ikut terhitung." style="color:var(--color-text-secondary);">Akun Terpakai <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M11.25 11.25l.041-.02a.75.75 0 011.063.852l-.708 2.836a.75.75 0 001.063.853l.041-.021M21 12a9 9 0 11-18 0 9 9 0 0118 0zm-9-3.75h.008v.008H12V8.25z" /></svg></span>
+    <span title="Batas jumlah akun yang dapat dibuat di instansi sekolah Anda. Akun yang dinonaktifkan saat paket sekolah tidak aktif juga ikut terhitung." style="color:var(--color-text-secondary);">Akun Terpakai <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M11.25 11.25l.041-.02a.75.75 0 011.063.852l-.708 2.836a.75.75 0 001.063.853l.041-.021M21 12a9 9 0 11-18 0 9 9 0 0118 0zm-9-3.75h.008v.008H12V8.25z" /></svg></span>
     <strong style="color:var(--color-text);">{{.user_accounts_used}} / {{.user_max_accounts}}</strong>
    </div>
    <div style="height:6px;border-radius:99px;background:rgba(var(--rgb-white), 0.08);overflow:hidden;margin-bottom:8px;">
@@ -957,11 +882,11 @@
   <div class="glass-card" style="padding:24px;border-radius:16px;display:flex;flex-direction:column;justify-content:center;">
    <span style="font-size:11px;font-weight:700;text-transform:uppercase;color:var(--color-accent-light);letter-spacing:0.5px;display:block;margin-bottom:12px;">Kuota Storage</span>
    <div style="display:flex;justify-content:space-between;align-items:center;font-size:13px;">
-    <span class="tooltip" data-tooltip="Batas ukuran unggah PDF per soal ujian" style="color:var(--color-text-secondary);">Maks. Ukuran PDF <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M11.25 11.25l.041-.02a.75.75 0 011.063.852l-.708 2.836a.75.75 0 001.063.853l.041-.021M21 12a9 9 0 11-18 0 9 9 0 0118 0zm-9-3.75h.008v.008H12V8.25z" /></svg></span>
+    <span title="Batas ukuran unggah PDF per soal ujian" style="color:var(--color-text-secondary);">Maks. Ukuran PDF <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M11.25 11.25l.041-.02a.75.75 0 011.063.852l-.708 2.836a.75.75 0 001.063.853l.041-.021M21 12a9 9 0 11-18 0 9 9 0 0118 0zm-9-3.75h.008v.008H12V8.25z" /></svg></span>
     <strong style="color:var(--color-text);">{{if .user_is_super}}Tanpa Batas{{else}}{{.user_max_pdf_size_mb}} MB{{end}}</strong>
    </div>
    <div style="display:flex;justify-content:space-between;align-items:center;font-size:13px;">
-    <span class="tooltip" data-tooltip="Total ruang penyimpanan server untuk soal dan media" style="color:var(--color-text-secondary);">Kapasitas Penyimpanan <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M11.25 11.25l.041-.02a.75.75 0 011.063.852l-.708 2.836a.75.75 0 001.063.853l.041-.021M21 12a9 9 0 11-18 0 9 9 0 0118 0zm-9-3.75h.008v.008H12V8.25z" /></svg></span>
+    <span title="Total ruang penyimpanan server untuk soal dan media" style="color:var(--color-text-secondary);">Kapasitas Penyimpanan <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M11.25 11.25l.041-.02a.75.75 0 011.063.852l-.708 2.836a.75.75 0 001.063.853l.041-.021M21 12a9 9 0 11-18 0 9 9 0 0118 0zm-9-3.75h.008v.008H12V8.25z" /></svg></span>
     <strong style="color:var(--color-text);">{{if .user_is_super}}Tanpa Batas{{else if eq .user_max_storage_mb 999999.0}}Tanpa Batas{{else}}{{.user_max_storage_mb}} MB{{end}}</strong>
    </div>
   </div>
@@ -1453,7 +1378,7 @@
   <input type="text" id="smtpSenderNameInput" placeholder="EXAMVAN Verification">
   </div>
   <div style="display:flex;justify-content:flex-end;margin-top:4px;">
-  <button type="button" id="testSmtpBtn" data-action="smtp-test" class="btn-sm" style="background:rgba(59,130,246,0.2);border:1px solid rgba(59,130,246,0.4);color:#93c5fd;display:flex;align-items:center;gap:6px;cursor:pointer;padding:6px 12px;border-radius:6px;font-size:13px;transition:all 0.2s;">
+  <button type="button" id="testSmtpBtn" data-action="smtp-test" class="btn-sm" style="background:rgba(var(--rgb-info),0.2);border:1px solid rgba(var(--rgb-info),0.4);color:var(--color-primary-light);display:flex;align-items:center;gap:6px;cursor:pointer;padding:6px 12px;border-radius:6px;font-size:13px;transition:all 0.2s;">
   <svg class="icon-svg" style="width:16px;height:16px;" id="testSmtpIcon"><use href="#hi-refresh"/></svg>
   <span id="testSmtpText">Test Koneksi SMTP</span>
   </button>
@@ -1461,7 +1386,7 @@
   </div>
 
   <div style="display:flex;justify-content:flex-end;margin-top:16px;padding-top:14px;border-top:1px solid var(--color-glass-border);">
-  <button type="button" id="saveSmtpSettingsBtn" data-action="smtp-save" class="btn-upload saas-save-btn" style="background:rgba(var(--rgb-success),0.2);border-color:rgba(var(--rgb-success),0.4);color:#6ee7b7;">
+  <button type="button" id="saveSmtpSettingsBtn" data-action="smtp-save" class="btn-upload saas-save-btn" style="background:rgba(var(--rgb-success),0.2);border-color:rgba(var(--rgb-success),0.4);color:var(--color-success-light);">
   <svg class="icon-svg"><use href="#hi-check"/></svg> <span class="saas-save-text">Simpan Setelan SMTP</span>
   </button>
   </div>
@@ -1507,7 +1432,7 @@
   </div>
 
   <div style="display:flex;justify-content:flex-end;margin-top:16px;padding-top:14px;border-top:1px solid var(--color-glass-border);">
-  <button type="button" id="saveTurnstileSettingsBtn" data-action="turnstile-save" class="btn-upload saas-save-btn" style="background:rgba(var(--rgb-success),0.2);border-color:rgba(var(--rgb-success),0.4);color:#6ee7b7;">
+  <button type="button" id="saveTurnstileSettingsBtn" data-action="turnstile-save" class="btn-upload saas-save-btn" style="background:rgba(var(--rgb-success),0.2);border-color:rgba(var(--rgb-success),0.4);color:var(--color-success-light);">
   <svg class="icon-svg"><use href="#hi-check"/></svg> <span class="saas-save-text">Simpan Setelan Turnstile</span>
   </button>
   </div>
@@ -1539,7 +1464,7 @@
   </div>
 
   <div style="display:flex;justify-content:flex-end;margin-top:16px;padding-top:14px;border-top:1px solid var(--color-glass-border);">
-  <button type="button" id="saveCleanupSettingsBtn" data-action="cleanup-save" class="btn-upload saas-save-btn" style="background:rgba(var(--rgb-success),0.2);border-color:rgba(var(--rgb-success),0.4);color:#6ee7b7;">
+  <button type="button" id="saveCleanupSettingsBtn" data-action="cleanup-save" class="btn-upload saas-save-btn" style="background:rgba(var(--rgb-success),0.2);border-color:rgba(var(--rgb-success),0.4);color:var(--color-success-light);">
   <svg class="icon-svg"><use href="#hi-check"/></svg> <span class="saas-save-text">Simpan Setelan Pembersihan</span>
   </button>
   </div>
@@ -1587,7 +1512,7 @@
   </div>
 
   <div style="display:flex;justify-content:flex-end;margin-top:16px;padding-top:14px;border-top:1px solid var(--color-glass-border);">
-  <button type="button" id="saveDefaultPkgSettingsBtn" data-action="default-pkg-save" class="btn-upload saas-save-btn" style="background:rgba(var(--rgb-success),0.2);border-color:rgba(var(--rgb-success),0.4);color:#6ee7b7;">
+  <button type="button" id="saveDefaultPkgSettingsBtn" data-action="default-pkg-save" class="btn-upload saas-save-btn" style="background:rgba(var(--rgb-success),0.2);border-color:rgba(var(--rgb-success),0.4);color:var(--color-success-light);">
   <svg class="icon-svg"><use href="#hi-check"/></svg> <span class="saas-save-text">Simpan Default Paket</span>
   </button>
   </div>
@@ -1613,7 +1538,7 @@
   </div>
 
   <div style="display:flex;justify-content:flex-end;margin-top:16px;padding-top:14px;border-top:1px solid var(--color-glass-border);">
-  <button type="button" id="saveVersionsSettingsBtn" data-action="versions-save" class="btn-upload saas-save-btn" style="background:rgba(var(--rgb-success),0.2);border-color:rgba(var(--rgb-success),0.4);color:#6ee7b7;">
+  <button type="button" id="saveVersionsSettingsBtn" data-action="versions-save" class="btn-upload saas-save-btn" style="background:rgba(var(--rgb-success),0.2);border-color:rgba(var(--rgb-success),0.4);color:var(--color-success-light);">
   <svg class="icon-svg"><use href="#hi-check"/></svg> <span class="saas-save-text">Simpan Versi Aplikasi</span>
   </button>
   </div>
@@ -1640,7 +1565,7 @@
   </div>
 
   <div style="display:flex;justify-content:flex-end;margin-top:16px;padding-top:14px;border-top:1px solid var(--color-glass-border);">
-  <button type="button" id="saveFooterSettingsBtn" data-action="footer-save" class="btn-upload saas-save-btn" style="background:rgba(var(--rgb-success),0.2);border-color:rgba(var(--rgb-success),0.4);color:#6ee7b7;">
+  <button type="button" id="saveFooterSettingsBtn" data-action="footer-save" class="btn-upload saas-save-btn" style="background:rgba(var(--rgb-success),0.2);border-color:rgba(var(--rgb-success),0.4);color:var(--color-success-light);">
   <svg class="icon-svg"><use href="#hi-check"/></svg> <span class="saas-save-text">Simpan Footer</span>
   </button>
   </div>
@@ -1681,7 +1606,7 @@
   </div>
 
   <div style="display:flex;justify-content:flex-end;margin-top:16px;padding-top:14px;border-top:1px solid var(--color-glass-border);">
-  <button type="button" id="saveSeoSettingsBtn" data-action="seo-save" class="btn-upload saas-save-btn" style="background:rgba(var(--rgb-success),0.2);border-color:rgba(var(--rgb-success),0.4);color:#6ee7b7;">
+  <button type="button" id="saveSeoSettingsBtn" data-action="seo-save" class="btn-upload saas-save-btn" style="background:rgba(var(--rgb-success),0.2);border-color:rgba(var(--rgb-success),0.4);color:var(--color-success-light);">
   <svg class="icon-svg"><use href="#hi-check"/></svg> <span class="saas-save-text">Simpan Setelan SEO</span>
   </button>
   </div>
@@ -1704,7 +1629,7 @@
   </div>
 
   <div style="display:flex;justify-content:flex-end;margin-top:16px;padding-top:14px;border-top:1px solid var(--color-glass-border);">
-  <button type="button" id="saveMonetizationSettingsBtn" data-action="monetization-save" class="btn-upload saas-save-btn" style="background:rgba(var(--rgb-success),0.2);border-color:rgba(var(--rgb-success),0.4);color:#6ee7b7;">
+  <button type="button" id="saveMonetizationSettingsBtn" data-action="monetization-save" class="btn-upload saas-save-btn" style="background:rgba(var(--rgb-success),0.2);border-color:rgba(var(--rgb-success),0.4);color:var(--color-success-light);">
   <svg class="icon-svg"><use href="#hi-check"/></svg> <span class="saas-save-text">Simpan Kontrol Monetisasi</span>
   </button>
   </div>
@@ -1849,44 +1774,26 @@
     </div>
 </div>
     <script>
+    // L25 (review_web_flow_dan_dead_code.md): jalur muat ganda modal unggah
+    // DIHAPUS — pembuka modal kini cukup SATU jalur: registry Actions
+    // ('app-upload-open', terdaftar settings-system-apps.js) + lazy loader
+    // loadSectionScript yang memuat modul saat section dibuka. Fallback
+    // inline lama (script inject manual + penduplikasi openUploadModal)
+    // tidak lagi diperlukan.
     (function() {
-      var pending = false;
-      window.openUploadModalSafe = function() {
-        if (typeof window.openUploadModal === 'function') {
-          window.openUploadModal();
-          return;
-        }
-        if (pending) return;
-        pending = true;
-        var tryOpen = function() {
-          pending = false;
-          if (typeof window.openUploadModal === 'function') window.openUploadModal();
-        };
-        var s = document.createElement('script');
-        s.src = '/static/js/settings-system-apps.js?v={{.version}}';
-        s.onload = function() {
-          window.__settingsLoaded = window.__settingsLoaded || {};
-          window.__settingsLoaded['system-apps'] = true;
-          tryOpen();
-        };
-        s.onerror = function() {
-          pending = false;
-          window.__settingsLoaded = window.__settingsLoaded || {};
-          window.__settingsLoaded['system-apps'] = false;
-          if (typeof window.showToast === 'function') window.showToast('Gagal memuat modul Pengaturan', 'error');
-        };
-        document.head.appendChild(s);
-      };
-      document.addEventListener('DOMContentLoaded', function() {
-        var sizeEls = document.querySelectorAll('[data-app-size-bytes]');
-        for (var i = 0; i < sizeEls.length; i++) {
-          var bytes = parseInt(sizeEls[i].getAttribute('data-app-size-bytes'), 10);
-          if (!isNaN(bytes)) sizeEls[i].textContent = (bytes / (1024 * 1024)).toFixed(2);
-        }
-      });
       document.addEventListener('click', function(e) {
         var el = e.target.closest && e.target.closest('#btnOpenUploadApp');
-        if (el) { e.preventDefault(); window.openUploadModalSafe(); }
+        if (!el) return;
+        e.preventDefault();
+        // Jalur tunggal: aktivator section (lazy-load modul system-apps bila
+        // belum termuat), lalu buka modalnya.
+        if (typeof window.__activateSettingsSection === 'function') {
+          window.__activateSettingsSection('system-apps', { afterInit: function() {
+            if (typeof window.openUploadModal === 'function') window.openUploadModal();
+          } });
+        } else if (typeof window.showToast === 'function') {
+          window.showToast('Modul belum termuat — muat ulang halaman.', 'error');
+        }
       });
     })();
     </script>
@@ -1935,7 +1842,7 @@
 </main>
 
 <!-- Modal Ubah Password -->
-<div class="modal-overlay" id="changePasswordModal" role="dialog" aria-modal="true" aria-labelledby="changePasswordModalTitle" style="display:none;">
+<div class="modal-overlay" id="changePasswordModal" role="dialog" aria-modal="true" aria-labelledby="changePasswordModalTitle" style="display:none;" data-action="modal-dismiss" data-modal-close="closeChangePasswordModal">
  <div class="modal-card glass-card" style="max-width: 420px;">
  <div class="modal-header">
  <h3 id="changePasswordModalTitle"><svg class="icon-svg" style="vertical-align:middle;margin-top:-2px;"><use href="#hi-key"/></svg> Ubah Password</h3>
@@ -1998,6 +1905,11 @@ const CSRF_TOKEN = '{{.csrf_token}}';
 // Section scripts register their init here; the tab code calls it once.
 window.__settingsReady = {};
 window.__settingsLoaded = {};
+// L26 (review_web_flow_dan_dead_code.md): flag eksplisit ketersediaan
+// pengaturan SaaS — modul users/general tidak lagi mem-probe elemen
+// kartu SMTP (#emailEnabledInput) milik section lain sebagai proxy;
+// probe DOM lintas-section mati diam-diam bila elemen di-rename.
+window.__hasSaasSettings = true;
 
 // ===== Delegasi data-action =====
 // Registry Actions + SATU listener klik dokumen disediakan admin-core.js
@@ -2158,6 +2070,10 @@ window.__settingsLoaded = {};
       if (opts.afterInit) opts.afterInit();
     }
   }
+  // L25 (review_web_flow_dan_dead_code.md): ekspos aktivator section —
+  // pembuka modal unggah memakai INI sebagai jalur tunggal (modul system-apps
+  // dimuat lazy bila belum ada), menggantikan fallback pembuka modal lama.
+  window.__activateSettingsSection = activate;
 
   // Voucher sub-tabs: Daftar | Riwayat (both live inside section-vouchers).
   window.switchVoucherSubtab = function(name) {
@@ -2173,7 +2089,6 @@ window.__settingsLoaded = {};
       b.classList.toggle('active', on);
       b.setAttribute('aria-selected', on ? 'true' : 'false');
       b.style.background = on ? 'linear-gradient(135deg,rgb(var(--rgb-accent)),rgb(var(--rgb-info)))' : 'rgba(var(--rgb-white), 0.06)';
-      b.style.color = on ? 'var(--color-text)' : 'var(--color-text)';
     });
   };
 

@@ -279,7 +279,8 @@ window.__settingsReady['general'] = function() {
     setupGeneralCollapse();
     updateToggleAllLabel();
     wireSaasDirtyTracking();
-    if (document.getElementById('emailEnabledInput')) loadSaasSettings();
+    // L26: flag eksplisit (bukan probe DOM lintas-section).
+    if (window.__hasSaasSettings) loadSaasSettings();
     if (typeof window.initPackages === 'function') window.initPackages();
 };
 window.toggleGeneralCollapse = toggleGeneralCollapse;

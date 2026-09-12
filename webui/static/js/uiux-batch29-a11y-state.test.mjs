@@ -47,16 +47,18 @@ test('B29-1 (M17): packagesTableBody membawa aria-live="polite" seperti 4 region
 // M18 — tooltip merespons keyboard (focus-within), bukan hover saja
 // ---------------------------------------------------------------------------
 
-test('B29-2 (M18): tooltip tampil juga via :focus-within/:focus-visible, bukan :hover saja', () => {
-    const hoverIdx = SETTINGS_HTML.indexOf('.tooltip:hover::after');
-    assert.notEqual(hoverIdx, -1, 'blok :hover tooltip ada (prasyarat kontrak)');
-    // Trigger keyboard wajib ada di blok style UTAMA (sebelum media query pun
-    // cukup — yang ditagih adalah keberadaan jalur fokus, bukan lokasinya).
-    assert.match(SETTINGS_HTML, /\.tooltip:focus-within::after/,
-        'tooltip tanpa :focus-within — pengguna keyboard kehilangan penjelasan yang ' +
-        'tidak tersedia di label mana pun');
-    assert.match(SETTINGS_HTML, /\.tooltip:focus-within::before/,
-        'panah tooltip (::before) juga wajib muncul saat fokus keyboard');
+test('B29-2 (M18): tooltip kustom dihapus — satu mekanisme native title (L28)', () => {
+    // L28 (review_web_flow_dan_dead_code.md): dua mekanisme tooltip pada satu
+    // halaman disatukan — 5 tooltip kustom .tooltip[data-tooltip] dimigrasi
+    // ke native title (±70 pemakai lain). Kontrak kini: TIDAK ada lagi
+    // tooltip kustom di settings.html.
+    assert.doesNotMatch(SETTINGS_HTML, /class="tooltip"/,
+        'tooltip kustom tersisa — migrasi ke native title belum tuntas');
+    assert.doesNotMatch(SETTINGS_HTML, /\.tooltip\s*\{/,
+        'CSS komponen tooltip kustom harus ikut dihapus (dead code)');
+    // Informasi yang tadinya hanya di tooltip kini juga di title:
+    assert.match(SETTINGS_HTML, /title="Maksimal total ujian/,
+        'tooltip kuota tetap tersedia via native title');
 });
 
 // ---------------------------------------------------------------------------

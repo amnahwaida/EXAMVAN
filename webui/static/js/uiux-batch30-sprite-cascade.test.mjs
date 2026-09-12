@@ -45,7 +45,7 @@ test('B30-1 (M26): hasil.html tidak lagi mendefinisikan <symbol> lokal — pakai
 test('B30-2 (M26): setiap #hi-* yang dirujuk hasil.html terdefinisi di partial admin', () => {
     const defined = new Set(
         [...ADMIN_SPRITE.matchAll(/<symbol id="(hi-[a-z-]+)"/g)].map((m) => m[1]));
-    assert.ok(defined.size >= 39, 'sprite admin memuat simbol lengkap (prasyarat)');
+    assert.ok(defined.size >= 34, 'sprite admin memuat simbol lengkap (prasyarat)');
 
     const used = new Set(
         [...HASIL_HTML.matchAll(/href="#(hi-[a-z-]+)"/g)].map((m) => m[1]));

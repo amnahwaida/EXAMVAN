@@ -131,14 +131,14 @@ function loadMyPackages() {
                 // Expired wins over active: an exhausted package whose clock
                 // has run out must read as "Berakhir", not "Paket Aktif".
                 if (p.is_expired) {
-                    badge = '<span class="status-badge" style="background:rgba(239,68,68,0.15);color:var(--color-danger);border:1px solid rgba(239,68,68,0.3);">Berakhir</span>';
+                    badge = '<span class="status-badge" style="background:rgba(var(--rgb-danger),0.15);color:var(--color-danger);border:1px solid rgba(var(--rgb-danger),0.3);">Berakhir</span>';
                     action = '<span style="color:var(--color-text-secondary);font-size:12px;">Tidak tersedia</span>';
                 } else if (p.is_active) {
-                    badge = '<span class="status-badge" style="background:rgba(16,185,129,0.15);color:rgb(var(--rgb-success));border:1px solid rgba(16,185,129,0.3);">Paket Aktif</span>';
+                    badge = '<span class="status-badge" style="background:rgba(var(--rgb-success),0.15);color:rgb(var(--rgb-success));border:1px solid rgba(var(--rgb-success),0.3);">Paket Aktif</span>';
                     action = '<span style="color:var(--color-text-secondary);font-size:12px;">Berjalan</span>';
                 } else {
-                    badge = '<span class="status-badge" style="background:rgba(245,158,11,0.15);color:var(--color-warning);border:1px solid rgba(245,158,11,0.3);">Dijeda</span>';
-                    action = '<button type="button" class="btn-sm" data-action="billing-package-activate" data-redemption-id="' + p.id + '" style="background:rgba(168,85,247,0.15);color:var(--color-accent-light);border:1px solid rgba(168,85,247,0.3);padding:4px 12px;cursor:pointer;">Aktifkan</button>';
+                    badge = '<span class="status-badge" style="background:rgba(var(--rgb-warning),0.15);color:var(--color-warning);border:1px solid rgba(var(--rgb-warning),0.3);">Dijeda</span>';
+                    action = '<button type="button" class="btn-sm" data-action="billing-package-activate" data-redemption-id="' + p.id + '" style="background:rgba(var(--rgb-accent),0.15);color:var(--color-accent-light);border:1px solid rgba(var(--rgb-accent),0.3);padding:4px 12px;cursor:pointer;">Aktifkan</button>';
                 }
 
                 var remaining;

@@ -358,56 +358,15 @@ test('R104 (perilaku vm): durasi kustom ber-tag HTML dirender aman (ter-escape)'
 
 // ════════════════════════════════════════════════════════════════════════
 // S107 — branch mati window.loadSectionScript di openUploadModalSafe
+// (SUPERSERVED oleh L25: seluruh fallback openUploadModalSafe dihapus —
+//  jalur tunggal = __activateSettingsSection + registry)
 // ════════════════════════════════════════════════════════════════════════
 
-function dispatcherBlock() {
-    const anchor = SETTINGS_HTML.indexOf('var pending');
-    assert.ok(anchor !== -1, 'blok dispatcher openUploadModalSafe ditemukan');
-    const start = SETTINGS_HTML.lastIndexOf('(function', anchor);
-    const end = SETTINGS_HTML.indexOf('})();', anchor);
-    return SETTINGS_HTML.slice(start, end + 5);
-}
-
-test('S107 (statik): dispatcher tidak lagi mereferensikan loadSectionScript (branch mati dihapus)', () => {
-    assert.doesNotMatch(dispatcherBlock(), /loadSectionScript/,
-        'typeof window.loadSectionScript selalu false — branch mati wajib dihapus');
-});
-
-test('S107 (perilaku vm): fallback memuat modul dengan cache-buster ?v= dan menandai __settingsLoaded', () => {
-    let createdScript = null;
-    const sandbox = {
-        window: {},
-        document: {
-            createElement() { return {}; },
-            head: { appendChild(el) { createdScript = el; } },
-            addEventListener() {},
-        },
-    };
-    vm.runInNewContext(dispatcherBlock(), sandbox, { filename: 'settings-dispatcher.js' });
-
-    assert.equal(typeof sandbox.window.openUploadModalSafe, 'function',
-        'dispatcher tetap terekspos di window');
-    sandbox.window.openUploadModalSafe();
-    assert.ok(createdScript, 'fallback membuat elemen script');
-    assert.match(createdScript.src,
-        /\/static\/js\/settings-system-apps\.js\?v=\{\{\.version\}\}$/,
-        'src wajib membawa cache-buster ?v={{.version}}');
-    // Dikalibrasi Batch 17/S114: flag TIDAK lagi ditandai sebelum muat —
-    // hanya setelah onload sukses; onerror mengembalikan flag + toast.
-    assert.notEqual(sandbox.window.__settingsLoaded && sandbox.window.__settingsLoaded['system-apps'],
-        true, 'flag TIDAK boleh true sebelum script sukses dimuat (S114: gagal muat = tab mati senyap)');
-    if (typeof createdScript.onload === 'function') createdScript.onload();
-    assert.equal(sandbox.window.__settingsLoaded && sandbox.window.__settingsLoaded['system-apps'],
-        true, 'onload sukses wajib menandai __settingsLoaded[\'system-apps\'] = true');
-    // S114: onerror mengembalikan flag ke false + toast gagal-muat.
-    sandbox.window.__settingsLoaded['system-apps'] = false;
-    let errorToast = null;
-    sandbox.window.showToast = (m, t) => { errorToast = { m, t }; };
-    if (typeof createdScript.onerror === 'function') createdScript.onerror();
-    assert.equal(sandbox.window.__settingsLoaded['system-apps'], false,
-        'onerror wajib mengembalikan flag ke false agar modul bisa dimuat ulang');
-    assert.ok(errorToast && /Gagal memuat/i.test(errorToast.m || ''),
-        'onerror wajib memberi toast gagal-muat (bukan mati senyap)');
+test('S107 (statik): fallback openUploadModalSafe dihapus total (L25) — branch mati tidak relevan', () => {
+    assert.doesNotMatch(SETTINGS_HTML, /openUploadModalSafe/,
+        'fallback openUploadModalSafe dihapus — pembuka modal lewat jalur tunggal');
+    assert.match(SETTINGS_HTML, /__activateSettingsSection/,
+        'pembuka modal memakai aktivator section yang terekspos');
 });
 
 // ════════════════════════════════════════════════════════════════════════

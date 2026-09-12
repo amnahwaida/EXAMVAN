@@ -96,82 +96,86 @@ function functionBody(src, name) {
     return src.slice(start, end === -1 ? undefined : end);
 }
 
-/** Blok dispatcher openUploadModalSafe di settings.html (pola batch16). */
+/** Blok loader loadSectionScript di settings.html (pola batch16). */
 function dispatcherBlock() {
-    const anchor = SETTINGS_HTML.indexOf('var pending');
-    assert.ok(anchor !== -1, 'blok dispatcher openUploadModalSafe ditemukan');
-    const start = SETTINGS_HTML.lastIndexOf('(function', anchor);
-    const end = SETTINGS_HTML.indexOf('})();', anchor);
-    return SETTINGS_HTML.slice(start, end + 5);
+    const anchor = SETTINGS_HTML.indexOf('function loadSectionScript');
+    assert.ok(anchor !== -1, 'blok loadSectionScript ditemukan');
+    let depth = 0;
+    let i = SETTINGS_HTML.indexOf('{', anchor);
+    for (; i < SETTINGS_HTML.length; i++) {
+        if (SETTINGS_HTML[i] === '{') depth += 1;
+        else if (SETTINGS_HTML[i] === '}') {
+            depth -= 1;
+            if (depth === 0) break;
+        }
+    }
+    return SETTINGS_HTML.slice(anchor, i + 1);
 }
 
 // ════════════════════════════════════════════════════════════════════════
 // S114 — fallback loader system-apps: flag loaded hanya SETELAH sukses
 // ════════════════════════════════════════════════════════════════════════
 
-test('S114 (statik): dispatcher punya s.onerror dan penandaan __settingsLoaded pindah ke dalam s.onload', () => {
+test('S114 (statik): loadSectionScript punya s.onerror + flag di-revert + toast error', () => {
     const block = dispatcherBlock();
     assert.match(block, /\.onerror\s*=/,
-        'fallback loader tanpa s.onerror — satu gagal muat membuat tab Aplikasi Sistem mati senyap');
-    assert.doesNotMatch(block, /appendChild\(s\);\s*window\.__settingsLoaded\['system-apps'\]\s*=\s*true/,
-        'penandaan loaded masih dieksekusi saat MULAI memuat script — pindahkan ke dalam s.onload');
-
-    // Urutan sumber: penandaan flag harus muncul SETELAH baris s.onload =
-    // (artinya berada di dalam callback onload), bukan sebelum appendChild.
-    const onLoadIdx = block.search(/s\.onload\s*=/);
-    const flagIdx = block.indexOf("window.__settingsLoaded['system-apps'] = true");
-    assert.ok(onLoadIdx !== -1, 's.onload ditemukan di dispatcher');
-    assert.ok(flagIdx > onLoadIdx,
-        'flag system-apps masih ditandai sebelum/di luar s.onload — wajib di dalam callback sukses');
+        'loader tanpa s.onerror — satu gagal muat membuat tab mati senyap');
+    assert.match(block, /window\.__settingsLoaded\[key\]\s*=\s*false/,
+        'flag wajib di-revert ke false saat onerror agar retry dimungkinkan');
     assert.match(block, /showToast\(\s*['"]Gagal memuat modul Pengaturan['"]\s*,\s*['"]error['"]\s*\)/,
         's.onerror wajib menampilkan toast gagal-muat gaya error');
 });
 
-test('S114 (perilaku vm): onload sukses → flag true + modal terbuka; onerror → flag false + toast', () => {
+test('S114 (perilaku vm): onload sukses → flag true + cb jalan; onerror → flag false + toast error', () => {
     // ── Jalur sukses ──
     let successScript = null;
+    let appended = 0;
     const okSandbox = {
-        window: {},
+        // Halaman menginisialisasi window.__settingsLoaded = {} sebelum
+        // loadSectionScript dipakai — sandbox meniru itu.
+        window: { __settingsLoaded: {} },
         document: {
             createElement() { return {}; },
-            head: { appendChild(el) { successScript = el; } },
+            head: { appendChild(el) { successScript = el; appended += 1; } },
             addEventListener() {},
         },
     };
-    vm.runInNewContext(dispatcherBlock(), okSandbox, { filename: 'settings-dispatcher-ok.js' });
-    okSandbox.window.openUploadModalSafe();
+    vm.runInNewContext(dispatcherBlock(), okSandbox, { filename: 'settings-loader-ok.js' });
+    let cbCalled = 0;
+    okSandbox.loadSectionScript('system-apps', () => { cbCalled += 1; });
     assert.ok(successScript, 'jalur sukses: elemen script dibuat');
-    assert.notEqual(okSandbox.window.__settingsLoaded && okSandbox.window.__settingsLoaded['system-apps'],
-        true, 'flag TIDAK boleh true sebelum script sukses dimuat (kontrak inti S114)');
-    // Modul "selesai dimuat": onload menyala → flag true + modal dibuka.
-    let opened = 0;
-    okSandbox.window.openUploadModal = () => { opened += 1; };
     assert.equal(typeof successScript.onload, 'function', 'onload adalah callback');
+    // Dedupe: panggilan ulang saat flag masih true TIDAK membuat script kedua.
+    okSandbox.loadSectionScript('system-apps', () => {});
+    assert.equal(appended, 1, 'panggilan ulang sebelum sukses wajib dedupe (tanpa appendChild kedua)');
+    // Modul "selesai dimuat": onload menyala → flag true + cb dieksekusi.
     successScript.onload();
     assert.equal(okSandbox.window.__settingsLoaded['system-apps'], true,
         'setelah onload sukses, flag system-apps wajib true');
-    assert.equal(opened, 1, 'tryOpen wajib membuka modal upload setelah onload sukses');
+    assert.equal(cbCalled, 1, 'cb wajib dipanggil setelah script sukses dimuat');
 
     // ── Jalur gagal muat ──
     let failedScript = null;
     const failSandbox = {
-        window: {},
+        window: { __settingsLoaded: {} },
         document: {
             createElement() { return {}; },
             head: { appendChild(el) { failedScript = el; } },
             addEventListener() {},
         },
     };
-    vm.runInNewContext(dispatcherBlock(), failSandbox, { filename: 'settings-dispatcher-fail.js' });
+    vm.runInNewContext(dispatcherBlock(), failSandbox, { filename: 'settings-loader-fail.js' });
     const toasts = [];
-    failSandbox.window.showToast = (msg, style) => toasts.push({ msg, style });
-    failSandbox.window.openUploadModalSafe();
+    failSandbox.showToast = (msg, style) => toasts.push({ msg, style });
+    let failCb = 0;
+    failSandbox.loadSectionScript('system-apps', () => { failCb += 1; });
     assert.equal(typeof failedScript.onerror, 'function', 'onerror adalah callback');
     failedScript.onerror();
-    assert.notEqual(failSandbox.window.__settingsLoaded && failSandbox.window.__settingsLoaded['system-apps'],
-        true, 'setelah gagal muat, flag system-apps wajib false/tidak tertandai');
+    assert.equal(failSandbox.window.__settingsLoaded['system-apps'], false,
+        'setelah gagal muat, flag system-apps wajib false agar retry dimungkinkan');
     assert.ok(toasts.some((t) => t.msg === 'Gagal memuat modul Pengaturan' && t.style === 'error'),
         'gagal muat wajib memunculkan toast "Gagal memuat modul Pengaturan" gaya error');
+    assert.equal(failCb, 1, 'cb tetap dipanggil pada gagal muat agar UI tidak menggantung');
 });
 
 // ════════════════════════════════════════════════════════════════════════

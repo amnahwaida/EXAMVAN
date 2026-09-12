@@ -71,8 +71,10 @@ test('S15 fase 2 (guard): total hex literal di seluruh templates/ tidak naik dar
     // Batch 23: redesign system-apps hapus premium bloat → 81.
     // Batch 32/33: M21 skin toast download (−6) + L47/L48/L49 (−5) → 64.
     // Batch 34 (L70): sweep putih 28+ titik → 52 aktual; plafon 55.
-    assert.ok(total <= 55,
-        `total hex templates/ = ${total}, baseline terkunci ≤ 55 — pakai var(--token) untuk warna baru`);
+    // Batch 38 (M12): settings.html tooltip/presets + JS-migrated templates
+    // → 38 aktual; plafon 42.
+    assert.ok(total <= 42,
+        `total hex templates/ = ${total}, baseline terkunci ≤ 42 — pakai var(--token) untuk warna baru`);
 });
 
 test('S15 fase 2/S43 (guard): total rgba LITERAL (digit pembuka) di seluruh templates/ tidak naik', () => {

@@ -120,7 +120,9 @@ window.__settingsReady['users'] = function() {
 
  setupUsersCollapse();
  loadUsersList();
- if (document.getElementById('emailEnabledInput')) loadSaasSettings();  // Cap Maks Storage di form Tambah User pada sisa kapasitas disk server.
+ // L26: flag eksplisit (bukan probe DOM lintas-section) — Cap Maks Storage
+ // di form Tambah User memakai sisa kapasitas disk server.
+ if (window.__hasSaasSettings) loadSaasSettings();
   if (window.__storageFreeMb > 0) {
    var si = document.getElementById('storageSizeInput');
    if (si) {

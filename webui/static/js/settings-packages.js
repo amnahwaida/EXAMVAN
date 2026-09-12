@@ -135,7 +135,9 @@
   var btn = document.getElementById('btnSavePackages');
   var orig = btn.textContent;
   btn.disabled = true;
-  btn.textContent = 'Menyimpan...';
+  // L21 (review_web_flow_dan_dead_code.md): indikator loading pakai
+  // spinner ikon refresh — paritas pola loading daftar/voucher.
+  btn.innerHTML = '<svg class="icon-svg spin" style="width:14px;height:14px;vertical-align:-2px;margin-right:6px;" aria-hidden="true"><use href="#hi-refresh"/></svg>Menyimpan...';
 
   apiFetch('/admin/api/packages', {
    method: 'POST',

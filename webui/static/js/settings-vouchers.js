@@ -134,14 +134,14 @@ function renderVouchersTable(vouchers) {
         // R57/S69); jangan "benarkan" sebelum API tersedia.
         const isExpired = v.expires_at && new Date(v.expires_at) < new Date();
         const isFull = v.used_count >= v.max_usage;
-        let statusBadge = `<span style="padding:3px 8px;border-radius:12px;font-size:11px;font-weight:700;background:rgba(16,185,129,0.15);color:#10b981;">Aktif</span>`;
+        let statusBadge = `<span style="padding:3px 8px;border-radius:12px;font-size:11px;font-weight:700;background:rgba(var(--rgb-success),0.15);color:var(--color-success-light);">Aktif</span>`;
         
         if (!v.is_active) {
-            statusBadge = `<span style="padding:3px 8px;border-radius:12px;font-size:11px;font-weight:700;background:rgba(239,68,68,0.15);color:var(--color-danger-light);">Nonaktif</span>`;
+            statusBadge = `<span style="padding:3px 8px;border-radius:12px;font-size:11px;font-weight:700;background:rgba(var(--rgb-danger),0.15);color:var(--color-danger-light);">Nonaktif</span>`;
         } else if (isExpired) {
-            statusBadge = `<span style="padding:3px 8px;border-radius:12px;font-size:11px;font-weight:700;background:rgba(245,158,11,0.15);color:#f59e0b;">Kadaluarsa</span>`;
+            statusBadge = `<span style="padding:3px 8px;border-radius:12px;font-size:11px;font-weight:700;background:rgba(var(--rgb-warning),0.15);color:var(--color-warning);">Kadaluarsa</span>`;
         } else if (isFull) {
-            statusBadge = `<span style="padding:3px 8px;border-radius:12px;font-size:11px;font-weight:700;background:rgba(148,163,184,0.15);color:#94a3b8;">Habis</span>`;
+            statusBadge = `<span style="padding:3px 8px;border-radius:12px;font-size:11px;font-weight:700;background:rgba(var(--rgb-white),0.15);color:var(--color-text-placeholder);">Habis</span>`;
         }
 
         // S73: satu-pintu formatter core (kanonik "YYYY-MM-DD HH:MM") — bukan
@@ -157,7 +157,7 @@ function renderVouchersTable(vouchers) {
         else if (!isNaN(parseInt(v.duration_type))) durationText = `${escapeHtml(String(v.duration_type))} Hari (Kustom)`;
 
         html += `
-        <tr style="border-bottom:1px solid rgba(255,255,255,0.04);">
+        <tr style="border-bottom:1px solid rgba(var(--rgb-white),0.04);">
             <td data-label="Kode" style="padding:14px 20px;">
                 <button type="button" class="voucher-code-badge" data-action="copy" data-voucher-code="${safeCode}" title="Klik untuk menyalin kode">
                     <span>${safeCode}</span>
@@ -165,22 +165,22 @@ function renderVouchersTable(vouchers) {
                 </button>
             </td>
             <td data-label="Paket & Durasi" style="padding:14px 20px;">
-                <strong style="color:#fff;text-transform:uppercase;font-size:12px;">${escapeHtml(v.package)}</strong>
+                <strong style="color:var(--color-text);text-transform:uppercase;font-size:12px;">${escapeHtml(v.package)}</strong>
                 <div style="font-size:11px;color:var(--color-text-secondary);">${durationText}</div>
             </td>
             <td data-label="Penggunaan" style="padding:14px 20px;">
-                <span style="font-weight:700;color:${v.used_count > 0 ? '#c084fc' : '#94a3b8'};">${v.used_count}</span> / ${v.max_usage}
+                <span style="font-weight:700;color:${v.used_count > 0 ? 'var(--color-accent-light)' : 'var(--color-text-placeholder)'};">${v.used_count}</span> / ${v.max_usage}
                 ${v.used_count > 0 ? `<button type="button" data-action="redemptions" data-id="${v.id}" data-voucher-code="${safeCode}" style="background:none;border:none;color:var(--color-accent-light);font-size:12px;cursor:pointer;margin-left:4px;text-decoration:underline;min-height:44px;padding:10px 12px;">(Lihat User)</button>` : ''}
             </td>
             <td data-label="Kadaluarsa" style="padding:14px 20px;font-size:12px;color:var(--color-text-secondary);">${expiryStr}</td>
             <td data-label="Status" style="padding:14px 20px;">${statusBadge}</td>
             <td data-label="Catatan" style="padding:14px 20px;font-size:12px;color:var(--color-text-secondary);">${escapeHtml(v.notes || '—')}</td>
             <td data-label="Aksi" style="padding:14px 20px;text-align:right;">
-                <button type="button" data-action="toggle" data-id="${v.id}" data-voucher-code="${safeCode}" data-active="${v.is_active ? '1' : '0'}" style="display:inline-flex;align-items:center;gap:5px;background:rgba(255,255,255,0.06);border:1px solid var(--color-glass-border);color:#fff;padding:8px 12px;border-radius:8px;font-size:12px;cursor:pointer;margin-right:8px;min-height:36px;">
+                <button type="button" data-action="toggle" data-id="${v.id}" data-voucher-code="${safeCode}" data-active="${v.is_active ? '1' : '0'}" style="display:inline-flex;align-items:center;gap:5px;background:rgba(var(--rgb-white),0.06);border:1px solid var(--color-glass-border);color:var(--color-text);padding:8px 12px;border-radius:8px;font-size:12px;cursor:pointer;margin-right:8px;min-height:36px;">
                     <svg class="icon-svg" style="width:13px;height:13px;" aria-hidden="true"><use href="#${v.is_active ? 'hi-stop' : 'hi-play'}"/></svg>
                     ${v.is_active ? 'Matikan' : 'Aktifkan'}
                 </button>
-                <button type="button" data-action="delete" data-id="${v.id}" data-voucher-code="${safeCode}" style="display:inline-flex;align-items:center;gap:5px;background:rgba(239,68,68,0.15);border:1px solid rgba(239,68,68,0.3);color:var(--color-danger-light);padding:8px 12px;border-radius:8px;font-size:12px;cursor:pointer;min-height:36px;">
+                <button type="button" data-action="delete" data-id="${v.id}" data-voucher-code="${safeCode}" style="display:inline-flex;align-items:center;gap:5px;background:rgba(var(--rgb-danger),0.15);border:1px solid rgba(var(--rgb-danger),0.3);color:var(--color-danger-light);padding:8px 12px;border-radius:8px;font-size:12px;cursor:pointer;min-height:36px;">
                     <svg class="icon-svg" style="width:13px;height:13px;" aria-hidden="true"><use href="#hi-trash"/></svg>
                     Hapus
                 </button>
@@ -220,7 +220,7 @@ function renderPagination(pg) {
         // R29: paginasi via data-action + data-page (tanpa onclick inline).
         // R110: paritas dengan Riwayat Klaim — tiap tombol bernama aksesibel
         // dan halaman aktif ditandai aria-current="page".
-        const activeStyle = item === pg.page ? 'background:var(--color-primary);color:#fff;' : 'background:rgba(255,255,255,0.06);color:var(--color-text-secondary);';
+        const activeStyle = item === pg.page ? 'background:var(--color-primary);color:var(--color-text);' : 'background:rgba(var(--rgb-white),0.06);color:var(--color-text-secondary);';
         btns += `<button type="button" data-action="voucher-page" data-page="${parseInt(item, 10) || 1}" aria-label="Halaman ${item}"${item === pg.page ? ' aria-current="page"' : ''} style="min-height:40px;padding:8px 14px;border-radius:6px;border:none;font-size:12px;cursor:pointer;${activeStyle}">${item}</button>`;
     }
 
@@ -324,7 +324,9 @@ function submitSingleVoucher(e) {
     e.preventDefault();
     const btn = document.getElementById('btnSubmitSingle');
     btn.disabled = true;
-    btn.textContent = 'Menyimpan...';
+    // L21 (review_web_flow_dan_dead_code.md): indikator loading pakai spinner
+    // ikon refresh — paritas pola loading daftar voucher, bukan teks polos.
+    btn.innerHTML = '<svg class="icon-svg spin" style="width:14px;height:14px;vertical-align:-2px;margin-right:6px;" aria-hidden="true"><use href="#hi-refresh"/></svg>Menyimpan...';
 
     const durationVal = document.getElementById('singleDuration').value;
     const pkgVal = document.getElementById('singlePackage').value;
@@ -509,7 +511,7 @@ function viewRedemptions(id, code) {
             // bukan format ad-hoc "24/8/2026 10.11".
             const dateStr = formatDateTimeID(r.redeemed_at);
             html += `<li style="padding:10px 14px;border-bottom:1px solid var(--color-glass-border);display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap;">
-                <strong style="color:#fff;">${escapeHtml(r.username)}</strong>
+                <strong style="color:var(--color-text);">${escapeHtml(r.username)}</strong>
                 <span style="font-size:12px;color:var(--color-text-secondary);">${dateStr}</span>
             </li>`;
         });

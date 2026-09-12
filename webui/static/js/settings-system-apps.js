@@ -26,17 +26,51 @@ function platformIcon(platform) {
 // lambat mendarat tidak boleh menimpa render grid yang lebih baru.
 var appLoadSeq = 0;
 
+// L23 (review_web_flow_dan_dead_code.md): grid punya state penuh — loading
+// saat fetch, error yang ter-render di grid (bukan toast-only) — paritas
+// retry-state loader settings lain (voucher-retry-load, billing-packages-retry).
+function renderAppsGridMessage(title, detail) {
+    const grid = document.querySelector('#section-system-apps .apps-grid');
+    if (!grid) return;
+    grid.innerHTML = '';
+    const box = el('div', '');
+    box.className = 'glass-card';
+    box.style.cssText = 'grid-column:1/-1;text-align:center;padding:32px;';
+    box.appendChild(el('h3', '', title));
+    box.appendChild(el('p', '', detail));
+    const retry = el('button', '');
+    retry.className = 'btn-sm btn-secondary';
+    retry.type = 'button';
+    retry.setAttribute('data-action', 'apps-retry-load');
+    retry.textContent = 'Coba Lagi';
+    box.appendChild(retry);
+    grid.appendChild(box);
+}
+
 async function loadApps() {
     const seq = ++appLoadSeq;
+    const grid = document.querySelector('#section-system-apps .apps-grid');
+    if (grid) {
+        grid.setAttribute('aria-busy', 'true');
+        grid.innerHTML = '';
+        const loading = el('div', '');
+        loading.className = 'glass-card';
+        loading.style.cssText = 'grid-column:1/-1;text-align:center;padding:32px;color:var(--color-text-secondary);';
+        loading.innerHTML = '<svg class="icon-svg spin" style="width:16px;height:16px;vertical-align:-3px;margin-right:8px;" aria-hidden="true"><use href="#hi-refresh"/></svg>Memuat daftar aplikasi...';
+        grid.appendChild(loading);
+    }
     try {
         const res = await apiFetch('/admin/api/system-apps');
         const data = await res.json();
         if (seq !== appLoadSeq) return;
         if (!data.success) throw new Error(data.message || 'Gagal memuat');
         renderAppsGrid(data.apps || []);
+        if (grid) grid.setAttribute('aria-busy', 'false');
     } catch (e) {
         if (seq !== appLoadSeq) return;
         showToast('Gagal memuat daftar aplikasi: ' + e.message, 'error');
+        renderAppsGridMessage('Gagal Memuat Aplikasi', e.message || 'Terjadi kesalahan tak terduga.');
+        if (grid) grid.setAttribute('aria-busy', 'false');
     }
 }
 
@@ -106,10 +140,14 @@ function renderAppsGrid(apps) {
         dl.rel = 'noopener';
         dl.textContent = 'Unduh';
         actions.appendChild(dl);
+        // L24 (review_web_flow_dan_dead_code.md): Hapus via data-action —
+        // handler sudah terdaftar di registry Actions (delegasi tunggal core).
         const delBtn = el('button', '');
         delBtn.className = 'btn-secondary btn-danger';
         delBtn.textContent = 'Hapus';
-        delBtn.addEventListener('click', function() { deleteApp(cid, nm); });
+        delBtn.setAttribute('data-action', 'app-delete');
+        delBtn.setAttribute('data-app-id', String(cid));
+        delBtn.setAttribute('data-app-name', nm);
         actions.appendChild(delBtn);
         card.appendChild(actions);
         grid.appendChild(card);
@@ -507,6 +545,8 @@ window.loadApps = loadApps;
 if (window.Actions && typeof window.Actions.register === 'function') {
     window.Actions.register('app-upload-close', function () { closeUploadModal(); });
     window.Actions.register('app-upload-submit', function (el, ev) { submitUpload(ev); });
+    // L23: retry muat daftar aplikasi via delegasi data-action.
+    window.Actions.register('apps-retry-load', function () { loadApps(); });
     window.Actions.register('app-delete', function (el) {
         var id = parseInt(el.getAttribute('data-app-id'), 10);
         if (Number.isNaN(id)) return;

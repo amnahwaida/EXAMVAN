@@ -53,7 +53,9 @@ const BASELINES = {
     'admin.js': { rgba: 33 }, /* Batch 16: dropdown/chip migrasi token */
     // R95 (ronde 8): cap hex dikunci ke angka aktual terukur — 3× #fca5a5
     // bermigrasi var(--color-danger-light) sehingga plafon turun 22→9.
-    'settings-vouchers.js': { rgba: 9, hex: 9 },
+    // Batch 38 (M12-sisa): sisa hex (#fff) + rgba literal inline-style
+    // bermigrasi var(--color-text)/rgba(var(--rgb-white|danger), α) → 0/0.
+    'settings-vouchers.js': { rgba: 0, hex: 0 },
     'settings-voucher-audit.js': { rgba: 2, hex: 2 },
     // Catatan S43: estimasi awal "billing 1" ternyata angka HEX-nya;
     // rgba aktual billing = 8 — dikunci pada baseline hari ini.
