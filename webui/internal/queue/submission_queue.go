@@ -63,6 +63,28 @@ const (
 	// local filesystem the next boot can read — the student's answers must
 	// never vanish with a 5-minute result key as their only trace.
 	defaultSpoolDir = "examvan-submission-spool"
+
+	// workerHeartbeatKey is the Redis key the admin queue-status endpoint
+	// (GetQueueStats → WorkerActive) probes with EXISTS. M8: the heartbeat
+	// is maintained by a dedicated ticker that fires on EVERY poll cycle —
+	// not only when a batch actually flushes — so a healthy but IDLE worker
+	// no longer flips WorkerActive=false after the TTL expires (false alarm
+	// "worker mati" on quiet hours led admins to restart the service).
+	workerHeartbeatKey = "examvan:submissions:worker_heartbeat"
+)
+
+// workerHeartbeatTTL is how long the heartbeat key survives without a
+// refresh. Its value doubles as the crash-detection window: a worker that
+// dies stops refreshing and the status flips to inactive after at most this
+// duration. Vars (not consts) so tests can compress time.
+var (
+	workerHeartbeatTTL = 30 * time.Second
+
+	// workerHeartbeatInterval is how often the heartbeat ticker fires: a
+	// third of the TTL, so the key survives up to two missed ticks (Redis
+	// hiccup / scheduler stall) while still expiring promptly after a real
+	// worker death.
+	workerHeartbeatInterval = workerHeartbeatTTL / 3
 )
 
 // ---------------------------------------------------------------------------
@@ -213,6 +235,17 @@ func StartWorker(rdb *goredis.Client, pool *pgxpool.Pool) *Worker {
 
 	log.Printf("queue: starting submission worker pool (%d workers, batch size %d)", workerCount, batchSize)
 
+	// M8: keep the worker heartbeat FRESH on a ticker, not only inside
+	// flushBatch. The old write ran only when a batch actually flushed, so
+	// an idle worker (empty queue — the normal state between exam days or
+	// outside school hours) let the key expire and the admin queue-status
+	// endpoint reported WorkerActive=false — a false "worker dead" alarm.
+	// The ticker interval is a third of the TTL so the key stays alive
+	// across up to two missed ticks (Redis hiccup / scheduler stall) while
+	// still expiring promptly after a real worker death.
+	w.wg.Add(1)
+	go w.runHeartbeat()
+
 	// Spawn workers to read and process jobs
 	for i := 1; i <= workerCount; i++ {
 		w.wg.Add(1)
@@ -224,6 +257,45 @@ func StartWorker(rdb *goredis.Client, pool *pgxpool.Pool) *Worker {
 	go w.runBatchInserter(batchSize)
 
 	return w
+}
+
+// runHeartbeat refreshes the worker heartbeat key on every tick so the
+// admin queue status shows the worker as active while the process is alive —
+// even when no submission has been processed for a long time (M8). Best
+// effort: a Redis hiccup only delays the refresh; the key's TTL bounds how
+// long the status can look stale in either direction.
+func (w *Worker) runHeartbeat() {
+	defer w.wg.Done()
+
+	if isRedisUnavailable(w.rdb) {
+		log.Printf("queue: heartbeat ticker not started (Redis unavailable)")
+		return
+	}
+
+	ctx := context.Background()
+	interval := workerHeartbeatInterval
+	ticker := time.NewTicker(interval)
+	defer ticker.Stop()
+
+	// First beat immediately, so WorkerActive is true as soon as the worker
+	// pool is up (not only after the first interval).
+	w.touchHeartbeat(ctx)
+
+	for {
+		select {
+		case <-w.quit:
+			return
+		case <-ticker.C:
+			w.touchHeartbeat(ctx)
+		}
+	}
+}
+
+// touchHeartbeat writes the heartbeat key with its TTL (best effort).
+func (w *Worker) touchHeartbeat(ctx context.Context) {
+	if err := w.rdb.Set(ctx, workerHeartbeatKey, time.Now().UTC().Format(time.RFC3339), workerHeartbeatTTL).Err(); err != nil {
+		log.Printf("queue: worker heartbeat refresh failed: %v", err)
+	}
 }
 
 // runWorker is the main loop for a single worker thread.
@@ -303,6 +375,12 @@ func (w *Worker) runWorker(id int) {
 func (w *Worker) Stop() {
 	close(w.quit)
 	w.wg.Wait()
+	// M8: the heartbeat ticker is now stopped — let the key EXPIRE instead
+	// of pinning a stale "active" stamp, so the admin status flips to
+	// inactive within workerHeartbeatTTL of a real shutdown.
+	if !isRedisUnavailable(w.rdb) {
+		_ = w.rdb.Del(context.Background(), workerHeartbeatKey).Err()
+	}
 	log.Println("queue: worker pool stopped")
 }
 
@@ -412,11 +490,6 @@ func (w *Worker) flushBatch(ctx context.Context, results []SubmissionResult) {
 			_ = tx.Rollback(ctx)
 		}
 	}()
-
-	// Set worker heartbeat in Redis (best effort)
-	if !isRedisUnavailable(w.rdb) {
-		w.rdb.Set(ctx, "examvan:submissions:worker_heartbeat", time.Now().UTC().Format(time.RFC3339), 30*time.Second)
-	}
 
 	var succeeded []succeededRow
 	var failed []*SubmissionResult
@@ -731,7 +804,7 @@ func GetQueueStats(rdb *goredis.Client) QueueStats {
 	}
 
 	// Check if worker is active (heartbeat key exists)
-	exists, err := rdb.Exists(ctx, "examvan:submissions:worker_heartbeat").Result()
+	exists, err := rdb.Exists(ctx, workerHeartbeatKey).Result()
 	if err == nil && exists > 0 {
 		stats.WorkerActive = true
 	}
