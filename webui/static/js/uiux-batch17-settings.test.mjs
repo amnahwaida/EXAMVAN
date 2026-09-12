@@ -191,10 +191,15 @@ test('S115 (statik): badge salin voucher dirender sebagai button type=button ber
 });
 
 test('S115 (statik): delegasi click voucher tetap menangkap data-action copy + CSS badge disetel ulang untuk tombol', () => {
+    // L52 (review_ui_halaman_web_2026-09-12.md): delegasi manual tbody
+    // diganti registry Actions — handler 'copy' terdaftar di modul ini dan
+    // melayani klik via delegasi tunggal admin-core.js.
     const body = functionBody(VOUCHERS_JS, 'wireVoucherRowActions');
-    assert.match(body, /e\.target\.closest\('\[data-action\]'\)/,
-        'delegasi click wajib tetap menangkap elemen [data-action] (badge kini button)');
-    assert.match(body, /action === 'copy'/, 'cabang salin kode wajib tetap ada');
+    assert.match(body, /wireRedemptionsRetry\(\)/,
+        'wiring tersisa hanya retry redemptions (idempoten via wireOnce)');
+    const regCopy = VOUCHERS_JS.match(/Actions\.register\(\s*'copy'[^;]*\);/);
+    assert.ok(regCopy, 'handler registry copy terdaftar');
+    assert.match(regCopy[0], /copyCode\(/, 'cabang salin kode wajib tetap ada');
     // Reset default <button> pada CSS badge — tanpa literal warna baru.
     const cssIdx = SETTINGS_HTML.indexOf('.voucher-code-badge {');
     assert.ok(cssIdx !== -1, 'rule .voucher-code-badge ada di settings.html');

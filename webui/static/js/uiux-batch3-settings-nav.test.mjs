@@ -45,8 +45,11 @@ test('S3b: settings-vouchers.js memakai data-* + event delegation & teks tampil 
 
     assert.match(js, /data-voucher-code/, 'kode voucher harus dibawa lewat data-* attribute');
     assert.match(js, /data-action=/, 'aksi baris (copy/toggle/delete/redemptions) ditandai data-action');
+    // L52 (review_ui_halaman_web_2026-09-12.md): delegasi kini via registry
+    // Actions (document listener di admin-core.js), plus satu listener keydown
+    // level dokumen untuk header sortable (L51).
     assert.match(js, /addEventListener\(\s*'click'/, 'event delegation (listener klik pada kontainer tabel/modal)');
-    assert.match(js, /closest\(\s*['"]\[data-action\]['"]/ , 'delegasi harus resolve target via closest([data-action])');
+    assert.match(js, /closest\(\s*['"]\[data-action\]['"]|Actions\.register\(\s*'copy'/ , 'delegasi resolve target [data-action] (registry atau closest)');
     assert.match(js, /escapeHtml\(v\.code\)/, 'teks kode yang tampil di sel tabel wajib di-escape');
     // Batch 13 (T23): pesan konfirmasi PLAIN TEXT — showConfirm core meng-escape
     // seluruh argumen message (admin-core.js:512), sehingga kode cukup

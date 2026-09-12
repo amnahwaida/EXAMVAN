@@ -39,6 +39,10 @@ function wireCollapseBlock(block) {
     var toggle = function (e) {
         if (e && e.type === 'keydown' && e.key !== 'Enter' && e.key !== ' ') return;
         if (e && e.type === 'keydown') e.preventDefault();
+        // L54 (review_ui_halaman_web_2026-09-12.md): guard S108 dari
+        // settings-users.js — klik tombol ber-data-action di dalam head (mis.
+        // aksi toolbar) tidak boleh sekaligus melipat kartu.
+        if (e && e.target && e.target.closest && e.target.closest('[data-action]')) return;
         toggleGeneralCollapse(head);
     };
     head.addEventListener('click', toggle);
@@ -126,7 +130,9 @@ function updateToggleAllLabel() {
     // R142 (ronde 11): paritas pola users — label murni kata kerja, jumlah
     // terlipat hanya di title agar teks tombol tak membingungkan saat 0.
     label.textContent = expand ? 'Buka Semua' : 'Lipat Semua';
-    icon.style.transform = expand ? 'rotate(0deg)' : 'rotate(180deg)';
+    // L58 (review_ui_halaman_web_2026-09-12.md): rotasi ikon lewat kelas CSS
+    // (transform terpusat di admin-base.css), bukan string style.transform.
+    icon.classList.toggle('collapsed', !expand);
     btn.title = (expand ? 'Buka semua bagian' : 'Lipat semua bagian') + ' (' + collapsed + '/' + total + ' terlipat)';
 }
 
@@ -247,12 +253,16 @@ function clearSaasCardDirtyByCardId(cardId) {
 function wireSaasDirtyTracking() {
     SAAS_SAVE_CARDS.forEach(function (meta) {
         var card = document.getElementById(meta.cardId);
-        if (!card || card.dataset.dirtyWired) return;
-        card.dataset.dirtyWired = '1';
-        var onEdit = function () { markSaasCardDirty(meta); };
-        // Capture agar tak bergantung propagasi elemen internal kartu.
-        card.addEventListener('input', onEdit, true);
-        card.addEventListener('change', onEdit, true);
+        // L74: flag dataset 'dirtyWired' diganti helper wireOnce core — state
+        // wiring tidak lagi menempel di DOM.
+        var wired = wireOnce(card, 'saas-dirty', function (cardEl) {
+            var onEdit = function () { markSaasCardDirty(meta); };
+            // Capture agar tak bergantung propagasi elemen internal kartu.
+            cardEl.addEventListener('input', onEdit, true);
+            cardEl.addEventListener('change', onEdit, true);
+        });
+        if (!wired) return;
+        
     });
 
     if (!window.__saasBeforeUnloadWired) {

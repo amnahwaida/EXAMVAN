@@ -566,6 +566,18 @@ code, pre, .token-code, .mono {
 .saas-collapse-head.collapsed .saas-collapse-chev {
     transform: rotate(-90deg);
 }
+/* L58 (review_ui_halaman_web_2026-09-12.md): rotasi ikon tombol "Buka/Lipat
+   Semua" kini lewat kelas, bukan style.transform inline di JS — nilai
+   transform terpusat di sini dan bisa di-override tema. Kelas .collapsed di
+   ikon berarti "tampilkan kondisi lipat" (panah menghadap atas). */
+.btn-toggle-all .icon-svg,
+#toggleAllGeneralIcon {
+    transition: transform 0.2s ease;
+}
+.btn-toggle-all .icon-svg.collapsed,
+#toggleAllGeneralIcon.collapsed {
+    transform: rotate(180deg);
+}
 .saas-collapse-body {
     margin-top: 8px;
 }

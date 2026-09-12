@@ -1665,6 +1665,11 @@ document.addEventListener('keydown', function(e) {
     if (e.key !== 'Enter' && e.key !== ' ') return;
     var th = e.target && e.target.closest ? e.target.closest('th.sortable') : null;
     if (!th || !th.getAttribute('data-sort')) return;
+    // L51 (review_ui_halaman_web_2026-09-12.md): th.sortable milik modul lain
+    // (mis. voucher-toggle-sort di settings-vouchers.js) punya handler keydown
+    // sendiri — generic ini hanya melayani header users agar satu Enter tidak
+    // memicu dua sort sekaligus.
+    if (th.getAttribute('data-action') !== 'users-toggle-sort') return;
     e.preventDefault();
     toggleUsersSort(th.getAttribute('data-sort'));
 });

@@ -161,6 +161,12 @@ type ListVouchersOpts struct {
 	Page    int
 	PerPage int
 	Search  string
+	// SortBy is a whitelisted column key (see voucherSortExprs); empty = the
+	// historical created_at DESC order. An unknown key silently falls back —
+	// mirroring ListUsersOpts.SortBy — so a hand-crafted value can never
+	// inject SQL (L51 review_ui_halaman_web_2026-09-12.md).
+	SortBy  string
+	SortDir string
 }
 
 type ListVouchersResult struct {
@@ -169,6 +175,34 @@ type ListVouchersResult struct {
 	Page       int
 	PerPage    int
 	TotalPages int
+}
+
+// voucherSortExprs is a whitelist of column keys accepted via the sort_by
+// query param (L51 review_ui_halaman_web_2026-09-12.md). Only whitelisted SQL
+// fragments ever reach ORDER BY — a raw sort_by value can never be interpolated.
+// NULLS LAST keeps rows without a value from hiding at an edge of the table.
+var voucherSortExprs = map[string]string{
+	"code":        "v.code",
+	"package":     "v.package",
+	"used_count":  "v.used_count",
+	"expires_at":  "v.expires_at",
+	"is_active":   "v.is_active",
+	"created_at":  "v.created_at",
+}
+
+// listVouchersOrderBy builds the ORDER BY clause for ListVouchers. Default
+// keeps the historical created_at DESC order; a whitelisted SortBy replaces
+// it. id is the tie-breaker in every path so paging stays deterministic.
+func listVouchersOrderBy(opts ListVouchersOpts) string {
+	expr, ok := voucherSortExprs[opts.SortBy]
+	if !ok {
+		return "v.created_at DESC, v.id DESC"
+	}
+	dir := "ASC"
+	if strings.EqualFold(strings.TrimSpace(opts.SortDir), "desc") {
+		dir = "DESC"
+	}
+	return expr + " " + dir + " NULLS LAST, v.id DESC"
 }
 
 // ListVouchers returns paginated vouchers for SuperAdmin.
@@ -215,8 +249,8 @@ func ListVouchers(ctx context.Context, pool *pgxpool.Pool, opts ListVouchersOpts
 		FROM vouchers v
 		LEFT JOIN admin_users u ON v.created_by = u.id
 		%s
-		ORDER BY v.created_at DESC, v.id DESC
-		LIMIT $%d OFFSET $%d`, whereClause, argIdx, argIdx+1)
+		ORDER BY %s
+		LIMIT $%d OFFSET $%d`, whereClause, listVouchersOrderBy(opts), argIdx, argIdx+1)
 
 	args = append(args, opts.PerPage, offset)
 

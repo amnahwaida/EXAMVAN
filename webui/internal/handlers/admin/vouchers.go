@@ -71,11 +71,18 @@ func ListVouchers() gin.HandlerFunc {
 		page, _ := strconv.Atoi(c.DefaultQuery("page", "1"))
 		perPage, _ := strconv.Atoi(c.DefaultQuery("per_page", "20"))
 		search := c.Query("search")
+		// L51 (review_ui_halaman_web_2026-09-12.md): header kolom tabel voucher
+		// kini sortable seperti tab Users — sort_by dibatasi whitelist di
+		// models.voucherSortExprs; nilai asing senyap kembali ke urutan default.
+		sortBy := strings.ToLower(strings.TrimSpace(c.Query("sort_by")))
+		sortDir := strings.ToUpper(strings.TrimSpace(c.Query("sort_dir")))
 
 		result, err := models.ListVouchers(ctx, pool, models.ListVouchersOpts{
 			Page:    page,
 			PerPage: perPage,
 			Search:  search,
+			SortBy:  sortBy,
+			SortDir: sortDir,
 		})
 		if err != nil {
 			log.Printf("list vouchers error: %v", err)

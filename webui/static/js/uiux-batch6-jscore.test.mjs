@@ -383,7 +383,9 @@ test('S23 (perilaku): error NON-401 tidak memicu auth:expired maupun redirect', 
 test('S29-followup (statik): settings-vouchers.js tidak lagi mendefinisikan copyCode sendiri', () => {
     assert.equal(/(^|\n)\s*function copyCode\s*\(/.test(VOUCHERS_SRC), false,
         'override copyCode tanpa guard navigator.clipboard dihapus — pakai versi guarded admin-core.js');
-    assert.ok(/copyCode\(\s*target\.closest/.test(VOUCHERS_SRC),
+    // L52 (review_ui_halaman_web_2026-09-12.md): delegasi manual tbody dihapus;
+    // pemanggilan copyCode kini hidup di handler registry 'copy'.
+    assert.ok(/copyCode\(/.test(VOUCHERS_SRC),
         'pemanggil lokal tetap memakai copyCode (kini versi guarded dari core)');
 });
 

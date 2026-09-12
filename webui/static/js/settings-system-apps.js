@@ -180,22 +180,25 @@ function notifyUploadBlocked() {
 
 function wireUploadCloseGuard() {
     var modal = document.getElementById('uploadModal');
-    if (!modal || modal.dataset.closeGuardWired) return;
-    modal.dataset.closeGuardWired = '1';
+    // L74 (review_ui_halaman_web_2026-09-12.md): flag dataset.closeGuardWired
+    // diganti helper wireOnce core — state wiring tidak lagi menempel di DOM.
+    if (!modal) return;
+    wireOnce(modal, 'upload-close-guard', function (modalEl) {
     // Capture = fase paling awal pada modal, sebelum delegasi dokumen.
-    modal.addEventListener('keydown', function (e) {
+    modalEl.addEventListener('keydown', function (e) {
         if (!window.__uploadInProgress || e.key !== 'Escape') return;
         e.preventDefault();
         e.stopPropagation();
         notifyUploadBlocked();
     }, true);
-    modal.addEventListener('click', function (e) {
+    modalEl.addEventListener('click', function (e) {
         // Hanya klik LANGSUNG pada backdrop; klik konten modal lewat bebas.
-        if (!window.__uploadInProgress || e.target !== modal) return;
+        if (!window.__uploadInProgress || e.target !== modalEl) return;
         e.preventDefault();
         e.stopPropagation();
         notifyUploadBlocked();
     }, true);
+    });
 }
 
 function lockUploadOverlay(modal) {

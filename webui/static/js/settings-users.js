@@ -99,7 +99,9 @@ function updateToggleAllUsersLabel() {
     // Label cukup kata kerja (Buka Semua / Lipat Semua) — jumlah terlipat
     // dipindah ke title agar teks tombol tidak membingungkan saat 0 terlipat.
     label.textContent = expand ? 'Buka Semua' : 'Lipat Semua';
-    icon.style.transform = expand ? 'rotate(0deg)' : 'rotate(180deg)';
+    // L58 (review_ui_halaman_web_2026-09-12.md): rotasi ikon lewat kelas CSS
+    // (transform terpusat di admin-base.css), bukan string style.transform.
+    icon.classList.toggle('collapsed', !expand);
     btn.title = (expand ? 'Buka semua bagian' : 'Lipat semua bagian') + ' (' + collapsed + '/' + total + ' terlipat)';
 }
 

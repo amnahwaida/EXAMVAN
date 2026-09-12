@@ -15,12 +15,14 @@ function redeemVoucher() {
     }
     pendingRedeemCode = code;
     document.getElementById('confirmRedeemCodeDisplay').textContent = code;
-    document.getElementById('confirmRedeemModal').style.display = 'flex';
+    // L53 (review_ui_halaman_web_2026-09-12.md): lewat API Modal terpusat —
+    // bukan lagi manipulasi style.display manual.
+    Modal.open('confirmRedeemModal');
 }
 
 function closeConfirmRedeemModal(e) {
     if (!e || e.target.id === 'confirmRedeemModal' || e.target.classList.contains('modal-close')) {
-        document.getElementById('confirmRedeemModal').style.display = 'none';
+        Modal.close('confirmRedeemModal');
     }
 }
 
@@ -146,7 +148,7 @@ function loadMyPackages() {
                     remaining = p.is_active ? fmtRemaining(p.remaining_seconds) + ' (berjalan)' : fmtRemaining(p.remaining_seconds);
                 }
                 html += '<tr>' +
-                    '<td data-label="Paket"><strong style="color:#fff;">' + escapeHtml(packageDisplayName(p.package)) + '</strong><div style="font-size:11px;color:var(--color-text-secondary);">' + p.max_exams + ' ujian &middot; ' + (p.max_concurrent_exams || p.max_exams || 1) + ' serentak &middot; PDF ' + fmtMB(p.max_pdf_size_mb) + ' &middot; Storage ' + fmtMB(p.max_storage_mb) + '</div></td>' +
+                    '<td data-label="Paket"><strong style="color:#fff;">' + escapeHtml(packageDisplayName(p.package)) + '</strong><div style="font-size:11px;color:var(--color-text-secondary);">' + p.max_exams + ' ujian &middot; ' + (Number.isFinite(p.max_concurrent_exams) && p.max_concurrent_exams !== null ? p.max_concurrent_exams : (Number.isFinite(p.max_exams) ? p.max_exams : '—')) + ' serentak &middot; PDF ' + fmtMB(p.max_pdf_size_mb) + ' &middot; Storage ' + fmtMB(p.max_storage_mb) + '</div></td>' +
                     '<td data-label="Kode"><span style="font-family:var(--font-mono);font-size:12.5px;">' + escapeHtml(p.code || '—') + '</span></td>' +
                     '<td data-label="Sisa Masa Aktif"><span style="font-size:12.5px;">' + remaining + '</span></td>' +
                     '<td data-label="Status" style="text-align:center;">' + badge + '</td>' +

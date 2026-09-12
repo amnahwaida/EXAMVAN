@@ -149,6 +149,13 @@ function buildVouchersSandbox() {
         formatDateTimeID: () => '2026-01-01 10:00',
         showToast() {}, showConfirm: () => Promise.resolve(false), copyCode() {},
         Modal: { open() {}, close() {} },
+        // L74: modul memakai helper wireOnce dari admin-core.js.
+        wireOnce(el, key, fn) {
+            if (!el || typeof el !== 'object') return false;
+            if (!el.__wireOnce) el.__wireOnce = {};
+            if (el.__wireOnce[key]) return false;
+            el.__wireOnce[key] = true; fn(el); return true;
+        },
         console, setTimeout, clearTimeout, parseInt, Number, isNaN, Math, Date, Set, Array, Promise,
         URLSearchParams: class { get() { return null; } },
     };

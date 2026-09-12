@@ -137,6 +137,8 @@ function loadSystemAppsSandbox(byId, timers) {
         // S118 (Batch 20): fungsi sistem-apps kini menunjuk Modal global
         // langsung - ekspos alias di level konteks.
         Modal: win.Modal,
+        // L74: modul memakai helper wireOnce dari admin-core.js.
+        wireOnce: (el, key, fn) => { if (el && !el.__wired) { el.__wired = {}; } if (el && !el.__wired[key]) { el.__wired[key] = true; fn(el); return true; } return false; },
         URLSearchParams,
         console,
         setTimeout: (fn) => {

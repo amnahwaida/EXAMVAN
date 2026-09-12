@@ -15,7 +15,10 @@ let auditLoadSeq = 0;
 function loadAuditLogs(page = 1) {
     const seq = ++auditLoadSeq;
     const tbody = document.getElementById('auditLogsBody');
-    const search = document.getElementById('auditSearchInput').value.trim();
+    // L55 (review_ui_halaman_web_2026-09-12.md): guard input sebelum deref
+    // .value — id diubah/hilang tidak lagi melempar TypeError (pola S78).
+    const searchEl = document.getElementById('auditSearchInput');
+    const search = searchEl ? searchEl.value.trim() : '';
     if (tbody) {
         tbody.setAttribute('aria-busy', 'true');
         tbody.innerHTML = '<tr><td colspan="4" style="text-align:center;padding:40px;color:var(--color-text-secondary);"><svg class="icon-svg spin" style="width:16px;height:16px;vertical-align:-3px;margin-right:8px;" aria-hidden="true"><use href="#hi-refresh"/></svg>Memuat riwayat...</td></tr>';

@@ -182,6 +182,8 @@ function loadSystemAppsSandbox(byId) {
         console,
         setTimeout: (fn) => 0,
         clearTimeout() {},
+        // L74: modul memakai helper wireOnce dari admin-core.js.
+        wireOnce: (el, key, fn) => { if (el && !el.__wired) { el.__wired = {}; } if (el && !el.__wired[key]) { el.__wired[key] = true; fn(el); return true; } return false; },
         get showToast() { return win.showToast; },
         get apiFetch() { return win.apiFetch; },
         get showConfirm() { return win.showConfirm; }
@@ -338,7 +340,9 @@ function loadGeneralSandbox() {
     const sandbox = {
         window: win, document: docMock, MutationObserver: MutationObserverMock,
         localStorage: win.localStorage, console,
-        setTimeout: (fn) => 0, clearTimeout() {}
+        setTimeout: (fn) => 0, clearTimeout() {},
+        // L74: modul memakai helper wireOnce dari admin-core.js.
+        wireOnce: (el, key, fn) => { if (el && !el.__wired) { el.__wired = {}; } if (el && !el.__wired[key]) { el.__wired[key] = true; fn(el); return true; } return false; }
     };
     sandbox.globalThis = sandbox;
     vm.createContext(sandbox);

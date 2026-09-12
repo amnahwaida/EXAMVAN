@@ -19,18 +19,80 @@ function renderVouchersError(msg, page) {
 }
 
 let voucherLoadSeq = 0;
+// L51 (review_ui_halaman_web_2026-09-12.md): state sortir tabel voucher —
+// paritas usersSortState (admin.js). Kunci dibatasi whitelist server
+// (models.voucherSortExprs); nilai asing jatuh ke urutan default di sana.
+var voucherSortState = { key: '', dir: 'asc' };
+
+// L51: siklus sortir 3-klik — asc → desc → urutan default. Paritas
+// toggleUsersSort (admin.js).
+function toggleVoucherSort(key) {
+    if (!key) return;
+    if (voucherSortState.key === key) {
+        if (voucherSortState.dir === 'asc') {
+            voucherSortState.dir = 'desc';
+        } else {
+            voucherSortState.key = '';
+            voucherSortState.dir = 'asc';
+        }
+    } else {
+        voucherSortState.key = key;
+        voucherSortState.dir = 'asc';
+    }
+    refreshVoucherSortHeaders();
+    loadVouchers(1);
+}
+
+// Sinkronkan indikator/aria-sort header voucher dengan state. Hanya menyentuh
+// th ber-data-action="voucher-toggle-sort" — th.sortable milik modul lain
+// (users) tidak ikut tersapu.
+function refreshVoucherSortHeaders() {
+    const tbody = document.getElementById('vouchersTableBody');
+    if (!tbody) return;
+    const table = tbody.closest('table');
+    if (!table) return;
+    table.querySelectorAll('th[data-action="voucher-toggle-sort"]').forEach(function (th) {
+        const k = th.getAttribute('data-sort');
+        if (!th.dataset.titleBase) th.dataset.titleBase = th.title;
+        th.classList.remove('sort-active', 'sort-asc', 'sort-desc');
+        th.removeAttribute('aria-sort');
+        if (k === voucherSortState.key) {
+            th.classList.add('sort-active', 'sort-' + voucherSortState.dir);
+            th.setAttribute('aria-sort', voucherSortState.dir === 'asc' ? 'ascending' : 'descending');
+            th.title = th.dataset.titleBase + ' (klik lagi: balik arah, klik ke-3: kembali ke urutan default)';
+        } else {
+            th.title = th.dataset.titleBase;
+        }
+    });
+}
+
+// Keyboard parity header sortable voucher: Enter/Space pada th memicu sortir
+// seperti klik. Guard data-action mencegah tumpang-tindih dengan handler
+// keydown generic admin.js yang menangani th.sortable users.
+document.addEventListener('keydown', function (e) {
+    if (e.key !== 'Enter' && e.key !== ' ') return;
+    const th = e.target && e.target.closest ? e.target.closest('th.sortable') : null;
+    if (!th || th.getAttribute('data-action') !== 'voucher-toggle-sort') return;
+    e.preventDefault();
+    toggleVoucherSort(th.getAttribute('data-sort'));
+});
 // S78 (ronde 8): token permintaan monoton — respons permintaan lama yang
 // lambat mendarat terakhir TIDAK boleh menimpa render yang lebih baru.
 function loadVouchers(page = 1) {
     const seq = ++voucherLoadSeq;
     currentVoucherPage = Math.max(1, parseInt(page, 10) || 1);
     const tbody = document.getElementById('vouchersTableBody');
-    const search = document.getElementById('searchVoucher').value.trim();
+    // L55: guard input pencarian sebelum deref .value — id diubah/m hilang
+    // tidak lagi melempar TypeError saat handler pertama menyala (pola S78).
+    const searchEl = document.getElementById('searchVoucher');
+    const search = searchEl ? searchEl.value.trim() : '';
     if (tbody) {
         tbody.setAttribute('aria-busy', 'true');
         tbody.innerHTML = `<tr><td colspan="7" style="text-align:center;padding:40px;color:var(--color-text-secondary);"><svg class="icon-svg spin" style="width:16px;height:16px;vertical-align:-3px;margin-right:8px;" aria-hidden="true"><use href="#hi-refresh"/></svg>Memuat data voucher...</td></tr>`;
     }
-    const url = `/admin/api/vouchers?page=${page}&search=${encodeURIComponent(search)}`;
+    let url = `/admin/api/vouchers?page=${page}`;
+    if (search) url += `&search=${encodeURIComponent(search)}`;
+    if (voucherSortState.key) url += `&sort_by=${encodeURIComponent(voucherSortState.key)}&sort_dir=${voucherSortState.dir}`;
     
     apiFetch(url)
     .then(r => r.json())
@@ -129,28 +191,13 @@ function renderVouchersTable(vouchers) {
     tbody.innerHTML = html;
 }
 
-// Delegasi klik untuk semua aksi baris voucher (salin/toggle/lihat user/
-// hapus): id & kode voucher dibawa lewat data-* attribute sehingga kode yang
-// mengandung kutip/backslash tidak bisa memutus atribut handler (S3).
+// L52 + L74 (review_ui_halaman_web_2026-09-12.md): wiring manual tbody
+// (idiom flag dataset sebagai penanda listener) DIHAPUS — aksi baris voucher
+// kini terdaftar di registry Actions (di bawah) dan dilayani delegasi tunggal
+// admin-core.js, satu sistem dengan 53 registrasi lain.
 function wireVoucherRowActions() {
-    const tbody = document.getElementById('vouchersTableBody');
-    if (!tbody || tbody.dataset.rowActionsWired) return;
-    tbody.dataset.rowActionsWired = '1';
-    tbody.addEventListener('click', (e) => {
-        const target = e.target.closest('[data-action]');
-        if (!target || !tbody.contains(target)) return;
-        const action = target.getAttribute('data-action');
-        if (action === 'copy') {
-            copyCode(target.closest('.voucher-code-badge') || target, target.getAttribute('data-voucher-code') || '');
-            return;
-        }
-        const id = parseInt(target.getAttribute('data-id'), 10);
-        if (Number.isNaN(id)) return;
-        const code = target.getAttribute('data-voucher-code') || '';
-        if (action === 'redemptions') viewRedemptions(id, code);
-        else if (action === 'toggle') toggleVoucher(id, code, target.getAttribute('data-active') === '1');
-        else if (action === 'delete') deleteVoucher(id, code);
-    });
+    // Idempoten via wireOnce di dalam wireRedemptionsRetry.
+    wireRedemptionsRetry();
 }
 
 function renderPagination(pg) {
@@ -475,16 +522,16 @@ function viewRedemptions(id, code) {
     });
 }
 
-// Delegasi klik tombol "Coba Lagi" di modal redemptions — pengganti inline
-// onclick yang sebelumnya menyisipkan kode voucher mentah ke atribut (S3).
+// L74: wiring tombol "Coba Lagi" modal redemptions lewat helper wireOnce
+// core (flag dataset 'retryWired' dihapus — state tidak lagi menempel di DOM).
 function wireRedemptionsRetry() {
     const body = document.getElementById('redemptionsBody');
-    if (!body || body.dataset.retryWired) return;
-    body.dataset.retryWired = '1';
-    body.addEventListener('click', (e) => {
-        const btn = e.target.closest('[data-retry-redemptions]');
-        if (!btn) return;
-        viewRedemptions(parseInt(btn.getAttribute('data-id'), 10) || 0, btn.getAttribute('data-code') || '');
+    wireOnce(body, 'redemptions-retry', function (bodyEl) {
+        bodyEl.addEventListener('click', (e) => {
+            const btn = e.target.closest('[data-retry-redemptions]');
+            if (!btn) return;
+            viewRedemptions(parseInt(btn.getAttribute('data-id'), 10) || 0, btn.getAttribute('data-code') || '');
+        });
     });
 }
 
@@ -510,6 +557,26 @@ if (window.Actions && typeof window.Actions.register === 'function') {
     });
     window.Actions.register('voucher-page', function (el) {
         loadVouchers(parseInt(el.getAttribute('data-page'), 10) || 1);
+    });
+    // L52: aksi baris voucher (dulu listener manual wireVoucherRowActions)
+    // kini terdaftar di registry — id/kode dibawa data-*, parseInt(x,10) untuk
+    // id, konsisten dengan konvensi registrasi modul lain.
+    window.Actions.register('copy', function (el) {
+        copyCode(el.closest('.voucher-code-badge') || el, el.getAttribute('data-voucher-code') || '');
+    });
+    window.Actions.register('redemptions', function (el) {
+        viewRedemptions(parseInt(el.getAttribute('data-id'), 10), el.getAttribute('data-voucher-code') || '');
+    });
+    window.Actions.register('toggle', function (el) {
+        toggleVoucher(parseInt(el.getAttribute('data-id'), 10), el.getAttribute('data-voucher-code') || '', el.getAttribute('data-active') === '1');
+    });
+    window.Actions.register('delete', function (el) {
+        deleteVoucher(parseInt(el.getAttribute('data-id'), 10), el.getAttribute('data-voucher-code') || '');
+    });
+    // L51: header kolom sortable — kunci dibawa data-sort, arah diatur
+    // toggleVoucherSort (3-klik: asc → desc → default, paritas users).
+    window.Actions.register('voucher-toggle-sort', function (el) {
+        toggleVoucherSort(el.getAttribute('data-sort'));
     });
 }
 

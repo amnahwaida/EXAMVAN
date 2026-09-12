@@ -1066,11 +1066,16 @@
     <caption class="sr-only">Daftar Voucher</caption>
     <thead>
      <tr style="border-bottom:1px solid var(--color-glass-border);background:rgba(var(--rgb-white), 0.02);color:var(--color-text-secondary);font-size:12px;text-transform:uppercase;letter-spacing:0.5px;">
-      <th scope="col" style="padding:16px 20px;">Kode Voucher</th>
-      <th scope="col" style="padding:16px 20px;">Paket & Durasi</th>
-      <th scope="col" style="padding:16px 20px;">Penggunaan</th>
-      <th scope="col" style="padding:16px 20px;">Kadaluarsa</th>
-      <th scope="col" style="padding:16px 20px;">Status</th>
+      <!-- L51 (review_ui_halaman_web_2026-09-12.md): header tabel voucher kini
+           sortable — pola paritas tab Users (th.sortable + data-sort +
+           data-action="voucher-toggle-sort" + sort-indicator + aria-sort
+           dinamis via refreshVoucherSortHeaders). Server membatasi kolom lewat
+           whitelist models.voucherSortExprs. -->
+      <th scope="col" class="sortable" data-sort="code" tabindex="0" data-action="voucher-toggle-sort" role="button" style="padding:16px 20px;" title="Urutkan berdasarkan kode">Kode Voucher<span class="sort-indicator" aria-hidden="true"></span></th>
+      <th scope="col" class="sortable" data-sort="package" tabindex="0" data-action="voucher-toggle-sort" role="button" style="padding:16px 20px;" title="Urutkan berdasarkan paket">Paket &amp; Durasi<span class="sort-indicator" aria-hidden="true"></span></th>
+      <th scope="col" class="sortable" data-sort="used_count" tabindex="0" data-action="voucher-toggle-sort" role="button" style="padding:16px 20px;" title="Urutkan berdasarkan penggunaan">Penggunaan<span class="sort-indicator" aria-hidden="true"></span></th>
+      <th scope="col" class="sortable" data-sort="expires_at" tabindex="0" data-action="voucher-toggle-sort" role="button" style="padding:16px 20px;" title="Urutkan berdasarkan kadaluarsa">Kadaluarsa<span class="sort-indicator" aria-hidden="true"></span></th>
+      <th scope="col" class="sortable" data-sort="is_active" tabindex="0" data-action="voucher-toggle-sort" role="button" style="padding:16px 20px;" title="Urutkan berdasarkan status">Status<span class="sort-indicator" aria-hidden="true"></span></th>
       <th scope="col" style="padding:16px 20px;">Catatan</th>
       <th scope="col" style="padding:16px 20px;text-align:right;">Aksi</th>
      </tr>

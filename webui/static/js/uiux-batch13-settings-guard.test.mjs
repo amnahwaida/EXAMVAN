@@ -61,7 +61,8 @@ test('T23 (vm): dialog hasil showConfirm (meniru escapeHtml core) bebas "&lt;str
     const captured = [];
     const sandbox = {
         window: win,
-        document: { getElementById: () => null },
+        // L51: modul memasang satu listener keydown level dokumen saat load.
+        document: { getElementById: () => null, addEventListener() {} },
         console,
         // Stub showConfirm yang MENIRU core: pesan selalu di-escape sebelum
         // dirender ke .confirm-dialog-msg.
@@ -138,6 +139,8 @@ test('S72 (vm): sweep render — package/notes ber-tag HTML dirender aman', asyn
         window: win,
         document: {
             getElementById: (id) => (id === 'vouchersTableBody' ? tbodyMock : null),
+            // L51: satu listener keydown level dokumen terpasang saat load.
+            addEventListener() {},
         },
         console,
         showConfirm: () => Promise.resolve(false),

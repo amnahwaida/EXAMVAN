@@ -366,6 +366,25 @@ document.addEventListener('click', function (e) {
     }
 });
 
+// L74 (review_ui_halaman_web_2026-09-12.md): helper bind-once — pengganti
+// idiom "flag dataset sebagai penanda listener terpasang" yang sebelumnya
+// disalin 4× di settings-*.js (closeGuardWired, dirtyWired, rowActionsWired,
+// retryWired). State wiring tidak lagi tersebar di DOM: penanda disimpan di
+// WeakMap<el, Set<key>> sehingga otomatis bersih saat elemen dibuang dan tak
+// terlihat di inspect element. fn dipanggil paling sekali per pasangan (el,
+// key); return true berarti fn baru saja dijalankan.
+var __wireOnceKeys = new WeakMap();
+function wireOnce(el, key, fn) {
+    if (!el || typeof el !== 'object' && typeof el !== 'function') return false;
+    if (typeof fn !== 'function') return false;
+    var keys = __wireOnceKeys.get(el);
+    if (keys && keys.has(key)) return false;
+    if (!keys) { keys = new Set(); __wireOnceKeys.set(el, keys); }
+    keys.add(key);
+    fn(el);
+    return true;
+}
+
 // Escape HTML to prevent XSS — also escapes single quotes for safe use in HTML attributes
 function escapeHtml(str) {
     return String(str)
