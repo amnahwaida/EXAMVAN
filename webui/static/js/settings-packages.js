@@ -66,16 +66,33 @@
      };
     });
     renderTable();
+    // M16 (recovery): load sukses men-enable kembali tombol Simpan yang
+    // mungkin pernah di-disable oleh gagal-muat sebelumnya.
+    var saveBtn = document.getElementById('btnSavePackages');
+    if (saveBtn) saveBtn.disabled = false;
    })
    .catch(function(err) {
     if (seq !== packageLoadSeq) return;
     console.error(err);
+    // M16: gagal muat = state internal kosong. Simpan yang dibiarkan aktif
+    // akan mengirim POST {"packages":[]} → server menolak 400 "Tidak ada
+    // paket yang dikirim" tanpa operator paham apa yang terjadi. Blok Simpan
+    // sampai load berhasil diulang.
+    var saveBtn = document.getElementById('btnSavePackages');
+    if (saveBtn) saveBtn.disabled = true;
     document.getElementById('packagesTableBody').innerHTML =
-     '<tr><td colspan="7" style="padding:32px;text-align:center;color:var(--color-danger-light);">Gagal memuat pengaturan paket.</td></tr>';
+     '<tr><td colspan="7" style="padding:32px;text-align:center;color:var(--color-danger-light);">Gagal memuat pengaturan paket. Muat ulang halaman untuk mencoba lagi.</td></tr>';
+    showToast('Gagal memuat pengaturan paket — tombol Simpan dinonaktifkan. Muat ulang halaman.', 'error');
    });
  }
 
  function savePackages() {
+  // M16: state kosong (belum termuat / gagal muat) tidak pernah dikirim —
+  // POST {"packages":[]} hanya menghasilkan 400 membingungkan dari server.
+  if (!PACKAGES.length) {
+   showToast('Data paket belum termuat. Muat ulang halaman untuk mencoba lagi.', 'error');
+   return;
+  }
   var rows = document.querySelectorAll('#packagesTableBody tr');
   var packages = [];
   var invalid = null;
