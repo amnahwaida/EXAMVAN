@@ -176,6 +176,7 @@
    .otp-input-wrapper { gap: 6px; }
   }
  </style>
+ <script src="/static/js/admin-core.js?v={{.version}}" defer></script>
 </head>
 <body class="login-page">
  {{ template "public_skip_link" . }}
@@ -184,6 +185,7 @@
       styling cukup dari theme.css (.skip-link). M19: skip link dirender
       SEBELUM auth nav agar Tab pertama melompat ke konten, bukan ke nav. */}}
  {{ template "public_auth_nav" . }}
+ {{ template "public_toast_host" . }}
  <div class="login-bg">
   <div class="login-orb login-orb-1"></div>
   <div class="login-orb login-orb-2"></div>

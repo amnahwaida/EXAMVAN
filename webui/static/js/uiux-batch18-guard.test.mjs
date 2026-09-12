@@ -91,13 +91,17 @@ test('S116b: admin-base.css bebas literal z-index >=1000 (semua via var(--z-*))'
     assert.match(ADMIN_BASE_CSS, /z-index:\s*var\(--z-topbar-floating\)/);
 });
 
-test('S116c: banner unduh/error publik memakai var(--z-dropdown), bukan 9999 literal', () => {
+test('S116c: banner unduhan/error publik memakai var(--z-dropdown), bukan 9999 literal', () => {
     for (const [nama, src] of [['download.html', DOWNLOAD_HTML], ['register.html', REGISTER_HTML]]) {
         assert.doesNotMatch(src, Z_LITERAL_RE,
             `${nama}: literal z-index >=1000 harus bermigrasi ke var(--z-dropdown)`);
-        assert.match(src, /z-index:\s*var\(--z-dropdown\)/,
-            `${nama}: pemakai token positif`);
     }
+    // M21: pemakai var(--z-dropdown) di register.html (toast ad-hoc cssText)
+    // DIHAPUS bersama implementasinya — toast kini lewat showToast tersentral
+    // (admin-core.js) dan skin-nya memakai token di output.css. Pemakai token
+    // positif tetap wajib ada di download.html.
+    assert.match(DOWNLOAD_HTML, /z-index:\s*var\(--z-dropdown\)/,
+        `download.html: pemakai token positif`);
 });
 
 test('S116d (guard folder-wide): tidak ada literal z-index >=1000 di luar folder generated', () => {

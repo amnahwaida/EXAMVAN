@@ -19,10 +19,12 @@
   /* Prevent iOS Safari auto-zoom on focus. */
   .login-form .form-group input { font-size: 16px; }
  </style>
+ <script src="/static/js/admin-core.js?v={{.version}}" defer></script>
 </head>
 <body class="login-page">
  {{ template "public_skip_link" . }}
  {{ template "public_auth_nav" . }}
+ {{ template "public_toast_host" . }}
  <div class="login-bg">
  <div class="login-orb login-orb-1"></div>
  <div class="login-orb login-orb-2"></div>

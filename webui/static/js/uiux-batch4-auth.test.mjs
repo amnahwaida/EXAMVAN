@@ -144,8 +144,16 @@ test('R9b: sanitasi username memunculkan toast SEKALI via flag (bukan tiap ketik
     // Implementasi toast ada.
     assert.match(html, /function showUsernameCharsetToast\(\)/,
         'harus ada fungsi showUsernameCharsetToast()');
-    assert.match(html, /role="status"|setAttribute\(\s*['"]role['"],\s*['"]status['"]\s*\)/,
-        'toast harus role="status" agar terumumkan screen reader');
+    // M21: toast dilempar lewat showToast tersentral (admin-core.js) — item
+    // toast dirender di dalam #toastContainer[aria-live=polite][aria-atomic]
+    // (host dari partial public_toast_host) sehingga terumumkan screen reader
+    // tanpa role per-item; role="status" per-item kontra-produktif di dalam
+    // region atomic. Kontrak diganti: wrapper showUsernameCharsetToast wajib
+    // mendelegasikan ke showToast, bukan membangun DOM sendiri.
+    assert.doesNotMatch(html, /showUsernameCharsetToast[\s\S]{0,300}document\.createElement/,
+        'toast ad-hoc (DOM manual) sudah dihapus — panggil showToast');
+    assert.match(html, /showToast\([\s\S]{0,200}error['"]\s*\)/,
+        'toast charset wajib lewat showToast tersentral tipe error');
 });
 
 // ---------------------------------------------------------------------------

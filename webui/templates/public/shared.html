@@ -893,6 +893,18 @@
  {{ template "public_nav" . }}
 
 {{ end }}
+{{/*
+  public_toast_host — host toast tunggal untuk halaman yang tidak memuat
+  public_head (halaman auth). Skin & perilaku toast disediakan pasangan:
+  skin dari tailwind/output.css (sudah dimuat semua halaman publik), JS
+  showToast dari admin-core.js (script defer di masing-masing halaman).
+  M21: menggantikan toast ad-hoc cssText register.html — satu implementasi,
+  de-dup, limit 5, ikon, dan region live yang konsisten.
+*/}}
+{{ define "public_toast_host" }}
+ <div class="toast-container" id="toastContainer" aria-live="polite" aria-atomic="true"></div>
+{{ end }}
+
 {{ define "public_foot" }}
  <!-- Footer -->
  <footer>
