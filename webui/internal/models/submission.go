@@ -4,8 +4,8 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"math"
 	"log"
+	"math"
 	"strconv"
 	"strings"
 	"time"
@@ -16,17 +16,17 @@ import (
 
 // Submission represents a row from the submissions table.
 type Submission struct {
-	ID           int        `json:"id"`
-	ExamID       int        `json:"exam_id"`
-	StudentName  string     `json:"student_name"`
-	ExamNumber   string     `json:"exam_number"`
-	StudentClass string     `json:"student_class"`
-	AnswersJSON  *string    `json:"answers_json,omitempty"`
-	Score        *float64   `json:"score,omitempty"`
-	StartTime    *string    `json:"start_time,omitempty"`
-	MACAddress   string     `json:"mac_address"`
-	CreatedAt    time.Time  `json:"created_at"`
-	IdentityData *string    `json:"identity_data,omitempty"`
+	ID           int       `json:"id"`
+	ExamID       int       `json:"exam_id"`
+	StudentName  string    `json:"student_name"`
+	ExamNumber   string    `json:"exam_number"`
+	StudentClass string    `json:"student_class"`
+	AnswersJSON  *string   `json:"answers_json,omitempty"`
+	Score        *float64  `json:"score,omitempty"`
+	StartTime    *string   `json:"start_time,omitempty"`
+	MACAddress   string    `json:"mac_address"`
+	CreatedAt    time.Time `json:"created_at"`
+	IdentityData *string   `json:"identity_data,omitempty"`
 }
 
 // SubmissionWithExam extends Submission with exam-related fields for display.
@@ -202,7 +202,7 @@ func evaluateMC(studentSet, correctSet []string, qWeight float64, partialScoring
 			}
 		}
 
-		portion := math.Max(0, float64(correctSelected-incorrectSelected))/float64(len(correctSet))
+		portion := math.Max(0, float64(correctSelected-incorrectSelected)) / float64(len(correctSet))
 		earned := portion * qWeight
 
 		switch {
@@ -356,18 +356,6 @@ func ParseAnswersJSON(raw *string) (map[string]interface{}, error) {
 		return nil, fmt.Errorf("parse answers json: %w", err)
 	}
 	return answers, nil
-}
-
-// ParseIdentityDataJSON parses the identity_data JSON string into a map.
-func ParseIdentityDataJSON(raw *string) (map[string]interface{}, error) {
-	if raw == nil || *raw == "" {
-		return nil, nil
-	}
-	var data map[string]interface{}
-	if err := json.Unmarshal([]byte(*raw), &data); err != nil {
-		return nil, fmt.Errorf("parse identity data json: %w", err)
-	}
-	return data, nil
 }
 
 // ===== DB Operations =====
@@ -531,12 +519,6 @@ func CreateSubmission(ctx context.Context, pool *pgxpool.Pool, s *Submission) (*
 	return &created, nil
 }
 
-// GetSubmissionByID retrieves a single submission by primary key.
-func GetSubmissionByID(ctx context.Context, pool *pgxpool.Pool, id int) (Submission, error) {
-	sql := `SELECT ` + defaultSubmissionColumns + ` FROM submissions WHERE id = $1`
-	return scanSubmission(pool.QueryRow(ctx, sql, id))
-}
-
 // GetLatestSubmissionByIdentity returns the most recent submission for a
 // student in an exam, matched by their device identifier and, when present,
 // their identity payload. It is the DB-side fallback for an async submission
@@ -592,11 +574,11 @@ WHERE s.id = $1`, id).Scan(
 
 // ListSubmissionsByExamOpts holds options for listing submissions for an exam.
 type ListSubmissionsByExamOpts struct {
-	ExamID   int
-	Page     int
-	PerPage  int
-	Search   string
-	Status   string
+	ExamID  int
+	Page    int
+	PerPage int
+	Search  string
+	Status  string
 }
 
 // ListSubmissionsResult holds paginated submissions and stats.
@@ -611,10 +593,10 @@ type ListSubmissionsResult struct {
 
 // SubmissionStats aggregates counts for a given exam.
 type SubmissionStats struct {
-	Total       int `json:"total"`
-	Submitted   int `json:"submitted"`
-	InProgress  int `json:"active"`
-	NotStarted  int `json:"not_started"`
+	Total      int `json:"total"`
+	Submitted  int `json:"submitted"`
+	InProgress int `json:"active"`
+	NotStarted int `json:"not_started"`
 }
 
 // ListSubmissionsByExam returns paginated submissions for a specific exam.
@@ -749,43 +731,6 @@ func GetSubmissionStats(ctx context.Context, pool *pgxpool.Pool, examID int) (Su
 	return stats, nil
 }
 
-// UpdateSubmissionScore recalculates and updates the score for a specific submission.
-func UpdateSubmissionScore(ctx context.Context, pool *pgxpool.Pool, submissionID int) error {
-	sub, err := GetSubmissionByID(ctx, pool, submissionID)
-	if err != nil {
-		return fmt.Errorf("update score: get submission: %w", err)
-	}
-
-	exam, err := GetExamByID(ctx, pool, sub.ExamID)
-	if err != nil {
-		return fmt.Errorf("update score: get exam: %w", err)
-	}
-
-	if exam.QuestionsJSON == nil || *exam.QuestionsJSON == "" {
-		return nil
-	}
-
-	questions, err := ParseQuestionsJSON(exam.QuestionsJSON)
-	if err != nil {
-		return fmt.Errorf("update score: parse questions: %w", err)
-	}
-
-	answers, err := ParseAnswersJSON(sub.AnswersJSON)
-	if err != nil {
-		return nil // no answers to score
-	}
-
-	// Only recalculate if there are questions and answers.
-	if len(questions) > 0 && answers != nil {
-		score := CalculateSubmissionScore(answers, questions)
-		_, err = pool.Exec(ctx, `UPDATE submissions SET score = $1 WHERE id = $2`, score, submissionID)
-		if err != nil {
-			return fmt.Errorf("update score: exec: %w", err)
-		}
-	}
-	return nil
-}
-
 // RecalculateAllScoresForExam recalculates scores for all submissions of an exam.
 func RecalculateAllScoresForExam(ctx context.Context, pool *pgxpool.Pool, examID int) error {
 	exam, err := GetExamByID(ctx, pool, examID)
@@ -859,15 +804,6 @@ func DeleteSubmission(ctx context.Context, pool *pgxpool.Pool, id int) error {
 	_, err := pool.Exec(ctx, `DELETE FROM submissions WHERE id = $1`, id)
 	if err != nil {
 		return fmt.Errorf("delete submission: %w", err)
-	}
-	return nil
-}
-
-// DeleteSubmissionsByExam removes all submissions for a given exam.
-func DeleteSubmissionsByExam(ctx context.Context, pool *pgxpool.Pool, examID int) error {
-	_, err := pool.Exec(ctx, `DELETE FROM submissions WHERE exam_id = $1`, examID)
-	if err != nil {
-		return fmt.Errorf("delete submissions by exam: %w", err)
 	}
 	return nil
 }

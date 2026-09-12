@@ -12,7 +12,7 @@ import (
 // ---------------------------------------------------------------------------
 
 // DatabaseMiddleware injects a *pgxpool.Pool into the Gin context under the
-// "db" key so downstream handlers can retrieve it via GetDB.
+// "db" key for downstream defensive checks (RequireDB).
 //
 // Usage:
 //
@@ -23,13 +23,6 @@ func DatabaseMiddleware(pool *pgxpool.Pool) gin.HandlerFunc {
 		c.Set("db", pool)
 		c.Next()
 	}
-}
-
-// GetDB retrieves the *pgxpool.Pool from the Gin context. It panics if the
-// pool was not injected (this is a programmer error — every route that calls
-// GetDB must be behind DatabaseMiddleware or have DB set by other means).
-func GetDB(c *gin.Context) *pgxpool.Pool {
-	return c.MustGet("db").(*pgxpool.Pool)
 }
 
 // RequireDB is a defensive middleware that aborts with a 500 JSON response

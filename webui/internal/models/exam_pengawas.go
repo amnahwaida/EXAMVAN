@@ -95,26 +95,6 @@ func CreateExamPengawas(ctx context.Context, pool *pgxpool.Pool, examID, userID 
 	return nil
 }
 
-// DeleteExamPengawas removes a single exam_pengawas relationship.
-func DeleteExamPengawas(ctx context.Context, pool *pgxpool.Pool, examID, userID int) error {
-	_, err := pool.Exec(ctx,
-		`DELETE FROM exam_pengawas WHERE exam_id = $1 AND user_id = $2`,
-		examID, userID)
-	if err != nil {
-		return fmt.Errorf("delete exam pengawas: %w", err)
-	}
-	return nil
-}
-
-// DeletePengawasByExam removes all pengawas assignments for a given exam.
-func DeletePengawasByExam(ctx context.Context, pool *pgxpool.Pool, examID int) error {
-	_, err := pool.Exec(ctx, `DELETE FROM exam_pengawas WHERE exam_id = $1`, examID)
-	if err != nil {
-		return fmt.Errorf("delete pengawas by exam: %w", err)
-	}
-	return nil
-}
-
 // SetPengawasForExam replaces all pengawas assignments for an exam with the given user IDs.
 // It deletes existing assignments and inserts the new ones in a single transaction.
 func SetPengawasForExam(ctx context.Context, pool *pgxpool.Pool, examID int, userIDs []int) error {
@@ -142,61 +122,4 @@ func SetPengawasForExam(ctx context.Context, pool *pgxpool.Pool, examID int, use
 		return fmt.Errorf("set pengawas: commit: %w", err)
 	}
 	return nil
-}
-
-// GetExamsForUser returns all exam IDs that a user is assigned to as pengawas.
-func GetExamsForUser(ctx context.Context, pool *pgxpool.Pool, userID int) ([]int, error) {
-	rows, err := pool.Query(ctx,
-		`SELECT exam_id FROM exam_pengawas WHERE user_id = $1 ORDER BY exam_id`, userID)
-	if err != nil {
-		return nil, fmt.Errorf("get exams for user: %w", err)
-	}
-	defer rows.Close()
-
-	var ids []int
-	for rows.Next() {
-		var id int
-		if err := rows.Scan(&id); err != nil {
-			return nil, fmt.Errorf("scan exam id: %w", err)
-		}
-		ids = append(ids, id)
-	}
-	rows.Close()
-	if err := rows.Err(); err != nil {
-		log.Printf("rows iteration error: %v", err)
-	}
-
-	if ids == nil {
-		ids = []int{}
-	}
-	return ids, nil
-}
-
-// IsUserAssignedAsPengawas checks whether a user is assigned as pengawas for a specific exam.
-func IsUserAssignedAsPengawas(ctx context.Context, pool *pgxpool.Pool, examID, userID int) (bool, error) {
-	var exists bool
-	err := pool.QueryRow(ctx,
-		`SELECT EXISTS(SELECT 1 FROM exam_pengawas WHERE exam_id = $1 AND user_id = $2)`,
-		examID, userID).Scan(&exists)
-	if err != nil {
-		return false, fmt.Errorf("check pengawas assignment: %w", err)
-	}
-	return exists, nil
-}
-
-// IsExamAssignedToUser checks if a given user has any pengawas assignment for a specific exam.
-// Same as IsUserAssignedAsPengawas but returns the ID if found.
-func IsExamAssignedToUser(ctx context.Context, pool *pgxpool.Pool, examID, userID int) (bool, error) {
-	return IsUserAssignedAsPengawas(ctx, pool, examID, userID)
-}
-
-// GetPengawasCount returns the number of pengawas assigned to an exam.
-func GetPengawasCount(ctx context.Context, pool *pgxpool.Pool, examID int) (int, error) {
-	var count int
-	err := pool.QueryRow(ctx,
-		`SELECT COUNT(*) FROM exam_pengawas WHERE exam_id = $1`, examID).Scan(&count)
-	if err != nil {
-		return 0, fmt.Errorf("get pengawas count: %w", err)
-	}
-	return count, nil
 }

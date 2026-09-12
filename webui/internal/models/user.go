@@ -10,7 +10,6 @@ import (
 	"errors"
 	"fmt"
 	"log"
-	"math"
 	"regexp"
 	"strings"
 	"time"
@@ -1347,67 +1346,6 @@ func DeleteUser(ctx context.Context, pool *pgxpool.Pool, userID int) ([]string, 
 	return paths, nil
 }
 
-// ListUsersForInstansi returns active users belonging to a specific instansi,
-// optionally filtered by role pattern.
-type ListForInstansiOpts struct {
-	Instansi  string
-	RoleLike  string // optional role pattern e.g. '%"pengawas"%'
-	ExcludeID int    // optional user ID to exclude
-}
-
-func ListUsersForInstansi(ctx context.Context, pool *pgxpool.Pool, opts ListForInstansiOpts) ([]AdminUser, error) {
-	var conditions []string
-	var args []interface{}
-	argIdx := 1
-
-	conditions = append(conditions, fmt.Sprintf(`instansi = $%d`, argIdx))
-	args = append(args, opts.Instansi)
-	argIdx++
-
-	conditions = append(conditions, fmt.Sprintf(`status = $%d`, argIdx))
-	args = append(args, UserStatusActive)
-	argIdx++
-
-	if opts.RoleLike != "" {
-		conditions = append(conditions, fmt.Sprintf(`role ILIKE $%d`, argIdx))
-		args = append(args, opts.RoleLike)
-		argIdx++
-	}
-
-	if opts.ExcludeID > 0 {
-		conditions = append(conditions, fmt.Sprintf(`id != $%d`, argIdx))
-		args = append(args, opts.ExcludeID)
-		argIdx++
-	}
-
-	whereClause := " WHERE " + joinConditions(conditions, " AND ")
-
-	sql := `SELECT ` + DefaultAdminUserColumns + ` FROM admin_users` + whereClause + ` ORDER BY username ASC`
-	rows, err := pool.Query(ctx, sql, args...)
-	if err != nil {
-		return nil, fmt.Errorf("list users for instansi: %w", err)
-	}
-	defer rows.Close()
-
-	var users []AdminUser
-	for rows.Next() {
-		u, err := scanAdminUserFromRows(rows)
-		if err != nil {
-			return nil, fmt.Errorf("scan user row: %w", err)
-		}
-		users = append(users, u)
-	}
-	rows.Close()
-	if err := rows.Err(); err != nil {
-		log.Printf("rows iteration error: %v", err)
-	}
-
-	if users == nil {
-		users = []AdminUser{}
-	}
-	return users, nil
-}
-
 // dummyComparePassword / dummyCompareHash defeat the timing side-channel of
 // username enumeration: a bcrypt compare costs ~100ms, so an attacker probing
 // login could tell "this username exists" (slow: compare runs) from "unknown
@@ -1487,19 +1425,3 @@ func VerifyUserManual(ctx context.Context, pool *pgxpool.Pool, userID int) error
 // SuperAdminUsername holds the expected super admin username from config.
 // Set this at application startup.
 var SuperAdminUsername = "superadmin"
-
-// DaysUntilExpiry calculates the number of days remaining before account expiry.
-func DaysUntilExpiry(expiresAtStr *string) *int {
-	if expiresAtStr == nil || *expiresAtStr == "" {
-		return nil
-	}
-	exp, err := time.Parse("2006-01-02 15:04:05", *expiresAtStr)
-	if err != nil {
-		return nil
-	}
-	remaining := int(math.Ceil(exp.Sub(time.Now().UTC()).Hours() / 24))
-	if remaining < 0 {
-		remaining = 0
-	}
-	return &remaining
-}

@@ -4,13 +4,11 @@ import (
 	"context"
 	"crypto/rand"
 	"fmt"
+	"github.com/jackc/pgx/v5/pgconn"
+	"github.com/jackc/pgx/v5/pgxpool"
 	"math/big"
 	"strings"
 	"time"
-
-	"github.com/jackc/pgx/v5"
-	"github.com/jackc/pgx/v5/pgconn"
-	"github.com/jackc/pgx/v5/pgxpool"
 )
 
 type Voucher struct {
@@ -157,41 +155,6 @@ func CreateBatchVouchers(ctx context.Context, pool *pgxpool.Pool, prefix string,
 			len(created), count, failed)
 	}
 	return created, nil
-}
-
-// GetVoucherByCode fetches a voucher by its code.
-func GetVoucherByCode(ctx context.Context, pool *pgxpool.Pool, code string) (*Voucher, error) {
-	code = strings.ToUpper(strings.TrimSpace(code))
-	sql := `SELECT v.id, v.code, v.package, v.duration_type, v.max_usage, v.used_count,
-	               v.expires_at, v.is_active, v.notes, v.created_by, COALESCE(u.username, ''),
-	               v.created_at, v.updated_at,
-	               v.is_custom, COALESCE(v.custom_label, ''), COALESCE(v.custom_max_exams, 0),
-	               COALESCE(v.custom_max_pdf_size, 0),
-	               COALESCE(v.custom_max_concurrent_exams, 0),
-	               COALESCE(v.custom_max_storage_size, 0),
-	               COALESCE(v.custom_max_users, 0),
-	               COALESCE(v.custom_role, '')
-	        FROM vouchers v
-	        LEFT JOIN admin_users u ON v.created_by = u.id
-	        WHERE v.code = $1`
-
-	var v Voucher
-	err := pool.QueryRow(ctx, sql, code).Scan(
-		&v.ID, &v.Code, &v.Package, &v.DurationType, &v.MaxUsage, &v.UsedCount,
-		&v.ExpiresAt, &v.IsActive, &v.Notes, &v.CreatedByID, &v.CreatedBy,
-		&v.CreatedAt, &v.UpdatedAt,
-		&v.IsCustom, &v.CustomLabel, &v.CustomMaxExams, &v.CustomMaxPDFSize,
-		&v.CustomMaxConcurrentExams,
-		&v.CustomMaxStorageSize, &v.CustomMaxUsers, &v.CustomRole,
-	)
-	if err != nil {
-		if err == pgx.ErrNoRows {
-			return nil, nil
-		}
-		return nil, err
-	}
-
-	return &v, nil
 }
 
 type ListVouchersOpts struct {

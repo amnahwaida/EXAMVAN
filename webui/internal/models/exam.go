@@ -16,27 +16,27 @@ import (
 
 // Exam represents a row from the exams table.
 type Exam struct {
-	ID                 int        `json:"id"`
-	Name               string     `json:"name"`
-	FilePath           string     `json:"file_path"`
-	SizeBytes          int64      `json:"size_bytes"`
-	Token              string     `json:"token"`
-	ActiveToken        string     `json:"active_token"`
-	QuestionsJSON      *string    `json:"questions_json,omitempty"`
-	Status             string     `json:"status"`
-	SecurityLevel      string     `json:"security_level"`
-	StrictMode         int        `json:"strict_mode"`    // 0/1 integer stored in DB
-	PublicResults      int        `json:"public_results"` // 0/1 integer stored in DB
-	ShowAnswers        int        `json:"show_answers"`   // 0/1 integer stored in DB
-	CreatedBy          int        `json:"created_by"`
-	CreatedAt          time.Time  `json:"created_at"`
-	IdentityFields     *string    `json:"identity_fields,omitempty"`
-	PanelColor         *string    `json:"panel_color,omitempty"`
+	ID             int       `json:"id"`
+	Name           string    `json:"name"`
+	FilePath       string    `json:"file_path"`
+	SizeBytes      int64     `json:"size_bytes"`
+	Token          string    `json:"token"`
+	ActiveToken    string    `json:"active_token"`
+	QuestionsJSON  *string   `json:"questions_json,omitempty"`
+	Status         string    `json:"status"`
+	SecurityLevel  string    `json:"security_level"`
+	StrictMode     int       `json:"strict_mode"`    // 0/1 integer stored in DB
+	PublicResults  int       `json:"public_results"` // 0/1 integer stored in DB
+	ShowAnswers    int       `json:"show_answers"`   // 0/1 integer stored in DB
+	CreatedBy      int       `json:"created_by"`
+	CreatedAt      time.Time `json:"created_at"`
+	IdentityFields *string   `json:"identity_fields,omitempty"`
+	PanelColor     *string   `json:"panel_color,omitempty"`
 	// CongratsMessage is the customizable message shown on the Android
 	// congratulations page after a student submits. Free text (not HTML),
 	// rendered plain on the client; nil/empty means the app falls back to its
 	// default wording.
-	CongratsMessage *string `json:"congrats_message,omitempty"`
+	CongratsMessage    *string    `json:"congrats_message,omitempty"`
 	StartTime          *time.Time `json:"start_time,omitempty"`
 	EndTime            *time.Time `json:"end_time,omitempty"`
 	DelegatedTo        *int       `json:"delegated_to,omitempty"`
@@ -624,36 +624,6 @@ func StopExam(ctx context.Context, pool *pgxpool.Pool, id int) error {
 		return fmt.Errorf("stop exam: %w", err)
 	}
 	return nil
-}
-
-// GetStartedExamsByPengawas returns exams that have been started and are assigned to the given user as pengawas.
-func GetStartedExamsByPengawas(ctx context.Context, pool *pgxpool.Pool, userID int) ([]Exam, error) {
-	rows, err := pool.Query(ctx,
-		`SELECT `+DefaultExamColumns+` FROM exams e
-WHERE e.exam_started_at IS NOT NULL
-AND e.id IN (SELECT exam_id FROM exam_pengawas WHERE user_id = $1)
-ORDER BY e.created_at DESC`, userID)
-	if err != nil {
-		return nil, fmt.Errorf("get started exams: %w", err)
-	}
-	defer rows.Close()
-
-	var exams []Exam
-	for rows.Next() {
-		e, err := scanExamFromRows(rows)
-		if err != nil {
-			return nil, fmt.Errorf("scan started exam: %w", err)
-		}
-		exams = append(exams, e)
-	}
-	rows.Close()
-	if err := rows.Err(); err != nil {
-		log.Printf("rows iteration error: %v", err)
-	}
-	if exams == nil {
-		exams = []Exam{}
-	}
-	return exams, nil
 }
 
 // UpdateExamTokenMode updates the token mode (static/dynamic) and reset interval.

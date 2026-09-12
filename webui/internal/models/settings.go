@@ -338,24 +338,6 @@ func GetAllSaasSettings(ctx context.Context, pool *pgxpool.Pool) (map[string]str
 	return settings, nil
 }
 
-// SeedDefaultSettings ensures all default settings exist in the database.
-// Non-existent keys are inserted; existing keys are left unchanged unless
-// they match known upgrade paths (e.g., version bumps).
-func SeedDefaultSettings(ctx context.Context, pool *pgxpool.Pool) error {
-	for k, v := range DefaultSettings {
-		existing, err := GetSaasSetting(ctx, pool, k)
-		if err != nil {
-			return fmt.Errorf("seed setting %s: %w", k, err)
-		}
-		if existing == "" {
-			if err := SetSaasSetting(ctx, pool, k, v); err != nil {
-				return fmt.Errorf("seed setting %s: %w", k, err)
-			}
-		}
-	}
-	return nil
-}
-
 // GetSaasSettingInt retrieves a setting and parses it as an integer.
 // Returns 0 if not found or not parseable.
 func GetSaasSettingInt(ctx context.Context, pool *pgxpool.Pool, key string, defaultVal int) int {
