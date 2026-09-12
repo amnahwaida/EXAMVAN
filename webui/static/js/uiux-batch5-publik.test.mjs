@@ -185,7 +185,9 @@ for (const page of ['register', 'forgot_password', 'reset_password']) {
 
 test('R23: searchInput halaman hasil punya aria-label "Cari nama siswa"', () => {
     const html = read('templates/public/hasil.html');
-    const m = html.match(/<input type="text" class="search-input" id="searchInput"([^>]*)>/s);
+    // L59: type="search" (mobile keyboard Search + clear native) — pattern
+    // tidak lagi mengikat type="text" lama.
+    const m = html.match(/<input type="search" class="search-input" id="searchInput"([^>]*)>/s);
     assert.ok(m, '#searchInput harus ada');
     assert.match(m[1], /aria-label="Cari nama siswa"/,
         'placeholder saja tidak cukup — placeholder hilang saat user mengetik');
