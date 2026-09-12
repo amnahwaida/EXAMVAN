@@ -257,20 +257,20 @@ func PengawasExams() gin.HandlerFunc {
 				tombstonedAt = formatISOUTC(*e.TombstonedAt)
 			}
 			item := examItem{
-				ID:             e.ID,
-				Name:           e.Name,
-				Token:          e.Token,
-				ActiveToken:    e.ActiveToken,
-				TokenMode:      tokenMode,
-				Status:         e.Status,
-				StartTime:      startStr,
-				EndTime:        endStr,
-				CreatedAt:      formatISOUTC(e.CreatedAt),
-				ExamStartedAt:  e.ExamStartedAt,
-				CreatorName:    usernameMap[e.CreatedBy],
-				Tombstoned:     e.TombstonedAt != nil,
-				TombstonedAt:   tombstonedAt,
-				AutoApprove:    e.AutoApprove,
+				ID:            e.ID,
+				Name:          e.Name,
+				Token:         e.Token,
+				ActiveToken:   e.ActiveToken,
+				TokenMode:     tokenMode,
+				Status:        e.Status,
+				StartTime:     startStr,
+				EndTime:       endStr,
+				CreatedAt:     formatISOUTC(e.CreatedAt),
+				ExamStartedAt: e.ExamStartedAt,
+				CreatorName:   usernameMap[e.CreatedBy],
+				Tombstoned:    e.TombstonedAt != nil,
+				TombstonedAt:  tombstonedAt,
+				AutoApprove:   e.AutoApprove,
 			}
 			examList = append(examList, item)
 		}
@@ -406,19 +406,19 @@ func PengawasExamSubmissions() gin.HandlerFunc {
 		}
 
 		type subItem struct {
-			ID            int                    `json:"id"`
-			StudentName   string                 `json:"student_name"`
-			ExamNumber    string                 `json:"exam_number"`
-			StudentClass  string                 `json:"student_class"`
-			IdentityData  map[string]interface{} `json:"identity_data"`
-			Submitted     bool                   `json:"submitted"`
-			Score         *float64               `json:"score"`
-			StartTime     string                 `json:"start_time"`
-			CreatedAt     string                 `json:"created_at"`
-			FirstAccessAt string                 `json:"first_access_at"`
-			LastAccessAt  string                 `json:"last_access_at"`
-			MACAddress    string                 `json:"mac_address"`
-			AccessLogs    []accessLogEntry       `json:"access_logs"`
+			ID                int                    `json:"id"`
+			StudentName       string                 `json:"student_name"`
+			ExamNumber        string                 `json:"exam_number"`
+			StudentClass      string                 `json:"student_class"`
+			IdentityData      map[string]interface{} `json:"identity_data"`
+			Submitted         bool                   `json:"submitted"`
+			Score             *float64               `json:"score"`
+			StartTime         string                 `json:"start_time"`
+			CreatedAt         string                 `json:"created_at"`
+			FirstAccessAt     string                 `json:"first_access_at"`
+			LastAccessAt      string                 `json:"last_access_at"`
+			MACAddress        string                 `json:"mac_address"`
+			AccessLogs        []accessLogEntry       `json:"access_logs"`
 			IsOnline          bool                   `json:"is_online"`
 			AttemptCount      int                    `json:"attempt_count"`
 			SubmissionHistory []models.Submission    `json:"submission_history"`
@@ -692,7 +692,11 @@ func autoResetActiveTokenIfNeeded(ctx context.Context, pool *pgxpool.Pool, exam 
 
 func GetPendingApprovals() gin.HandlerFunc {
 	return func(c *gin.Context) {
-		examID, _ := strconv.Atoi(c.Param("exam_id"))
+		examID, err := strconv.Atoi(c.Param("exam_id"))
+		if err != nil {
+			errorResponse(c, http.StatusBadRequest, "ID ujian tidak valid")
+			return
+		}
 		pool := getPool(c)
 		ctx := c.Request.Context()
 
@@ -748,7 +752,7 @@ func GetPendingApprovals() gin.HandlerFunc {
 			 WHERE exam_id = $1 AND status = 'pending'
 			 ORDER BY created_at ASC
 			 LIMIT $2 OFFSET $3`, examID, limit, offset)
-		
+
 		if err != nil {
 			errorResponse(c, http.StatusInternalServerError, "Gagal memuat persetujuan")
 			return
@@ -792,9 +796,13 @@ func GetPendingApprovals() gin.HandlerFunc {
 
 func SetApprovalStatus() gin.HandlerFunc {
 	return func(c *gin.Context) {
-		examID, _ := strconv.Atoi(c.Param("exam_id"))
+		examID, err := strconv.Atoi(c.Param("exam_id"))
+		if err != nil {
+			errorResponse(c, http.StatusBadRequest, "ID ujian tidak valid")
+			return
+		}
 		macAddress := c.Param("mac_address")
-		
+
 		var req struct {
 			Status string `json:"status"`
 		}
@@ -845,7 +853,7 @@ func SetApprovalStatus() gin.HandlerFunc {
 		// comes from the same round trip, so a row deleted in between cannot
 		// produce a stale detail or a forged trail.
 		var studentName string
-		err := pool.QueryRow(ctx,
+		err = pool.QueryRow(ctx,
 			`UPDATE exam_approvals SET status = $1, updated_at = CURRENT_TIMESTAMP
 			 WHERE exam_id = $2 AND mac_address = $3
 			 RETURNING student_name`,

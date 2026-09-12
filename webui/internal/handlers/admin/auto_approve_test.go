@@ -1073,3 +1073,49 @@ func TestGetAutoApproveReadableOnInactiveExam(t *testing.T) {
 		t.Fatalf("GET status=%d out=%v, want 200 — flag read stays available on inactive exam", code, out)
 	}
 }
+
+// ---------------------------------------------------------------------------
+// L8 (review_web_flow_dan_dead_code.md 4.1): exam_id yang tidak valid harus
+// 400 "ID ujian tidak valid", bukan 404 "Ujian tidak ditemukan" yang
+// menyesatkan. Sebelumnya error strconv.Atoi ditelan (examID, _ :=) → 0 →
+// GetExamByID(0) gagal → 404 menipu pengawas seolah ujiannya hilang.
+// ---------------------------------------------------------------------------
+
+func TestApprovalEndpointsInvalidExamIDReturns400(t *testing.T) {
+	pool := database.NewPackageTestPool(t, "admin")
+	fx := createAutoApproveFixture(t, pool)
+	srv := httptest.NewServer(newAutoApproveTestRouter(pool))
+	defer srv.Close()
+
+	client := newAutoApproveClient(t, srv)
+	client.login(fx.PwID)
+
+	for _, tc := range []struct {
+		name string
+		call func() (int, map[string]interface{})
+	}{
+		{
+			name: "GET pending approvals",
+			call: func() (int, map[string]interface{}) {
+				return client.do(http.MethodGet, "/admin/api/pengawas/exams/not-a-number/approvals", nil)
+			},
+		},
+		{
+			name: "POST approval status",
+			call: func() (int, map[string]interface{}) {
+				return client.do(http.MethodPost, "/admin/api/pengawas/exams/not-a-number/approvals/EE:00:00:00:00:01",
+					map[string]string{"status": "approved"})
+			},
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			code, out := tc.call()
+			if code != http.StatusBadRequest {
+				t.Fatalf("status=%d out=%v, want 400 for non-numeric exam_id", code, out)
+			}
+			if out["message"] != "ID ujian tidak valid" {
+				t.Fatalf("message=%v, want \"ID ujian tidak valid\"", out["message"])
+			}
+		})
+	}
+}
