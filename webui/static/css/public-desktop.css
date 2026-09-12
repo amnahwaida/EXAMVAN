@@ -83,6 +83,10 @@
   .btn-login { border-radius: 7px; }
 
   .header { padding: 14px 32px; }
-  .main { max-width: 1180px; padding: 36px 32px 64px; }
+  /* M27: rule .main DIHAPUS — selektor ini dipakai HANYA oleh hasil.html,
+     yang mendefinisikan layout-nya sendiri di hasil.css (max-width 1100px,
+     padding-top calc(var(--public-nav-height) + 24px) untuk clearing nav
+     fixed). Override di sini menang lewat load-order (public-desktop.css
+     dimuat setelah hasil.css) dan merusak padding clearing nav. */
   .footer { padding: 24px 32px; }
 }

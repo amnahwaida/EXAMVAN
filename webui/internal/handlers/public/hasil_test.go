@@ -314,8 +314,8 @@ func TestHasilAPIServerSidePagination(t *testing.T) {
 // ---------------------------------------------------------------------------
 
 // loadPublicHasilTemplatesForTest registers the real public hasil templates on
-// the gin engine. hasil.html pulls in only the public_fonts define from
-// shared.html and uses no custom template funcs.
+// the gin engine. hasil.html pulls in the public_fonts define from shared.html
+// and (sejak M26) the admin sprite partial svg-symbols.html; no custom funcs.
 func loadPublicHasilTemplatesForTest(t *testing.T, r *gin.Engine) {
 	t.Helper()
 	templatesDir := "templates"
@@ -327,7 +327,7 @@ func loadPublicHasilTemplatesForTest(t *testing.T, r *gin.Engine) {
 	}
 
 	tmpl := template.New("").Funcs(template.FuncMap{})
-	for _, name := range []string{"public/shared.html", "public/hasil.html"} {
+	for _, name := range []string{"admin/partials/svg-symbols.html", "public/shared.html", "public/hasil.html"} {
 		data, err := os.ReadFile(filepath.Join(templatesDir, name))
 		if err != nil {
 			t.Fatalf("read template %s: %v", name, err)
