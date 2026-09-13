@@ -122,7 +122,11 @@ window.__settingsReady['users'] = function() {
  loadUsersList();
  // L26: flag eksplisit (bukan probe DOM lintas-section) — Cap Maks Storage
  // di form Tambah User memakai sisa kapasitas disk server.
- if (window.__hasSaasSettings) loadSaasSettings();
+ // GET /admin/api/saas-settings hanya untuk superadmin: operator yang
+ // memanggilnya mendapat 403 + toast merah "khusus Super Admin".
+ var _canLoadSaas = window.__hasSaasSettings;
+ if (_canLoadSaas && typeof __adminHasRole === 'function') _canLoadSaas = __adminHasRole('superadmin');
+ if (_canLoadSaas) loadSaasSettings();
   if (window.__storageFreeMb > 0) {
    var si = document.getElementById('storageSizeInput');
    if (si) {

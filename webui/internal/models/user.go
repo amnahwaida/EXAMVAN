@@ -504,7 +504,8 @@ type ListUsersOpts struct {
 	Page              int
 	PerPage           int
 	Search            string
-	Instansi          string // operator instansi filter
+	Instansi          string // operator instansi filter (name fallback)
+	InstansiID        *int   // operator instansi_id (canonical tenant identity)
 	RoleFilter        string // optional: "guru", "pengawas", "operator"
 	ExcludeSuperAdmin bool
 	ExcludeOperator   bool
@@ -604,16 +605,24 @@ func ListUsers(ctx context.Context, pool *pgxpool.Pool, opts ListUsersOpts) (Lis
 	// token and the legacy bare value (substring ILIKE alone would also
 	// match e.g. a comment-like role string containing "operator").
 	if opts.ExcludeOperator {
-		conditions = append(conditions, fmt.Sprintf(`(u.role = $%d OR u.role ILIKE $%d)`, argIdx, argIdx+1))
+		conditions = append(conditions, fmt.Sprintf(`NOT (u.role = $%d OR u.role ILIKE $%d)`, argIdx, argIdx+1))
 		args = append(args, RoleOperator, `%"operator"%`)
 		argIdx += 2
 	}
 
-	// Instansi filter (for operator viewing their own instansi).
-	if opts.Instansi != "" {
-		conditions = append(conditions, fmt.Sprintf(`LOWER(u.instansi) = LOWER($%d)`, argIdx))
-		args = append(args, opts.Instansi)
-		argIdx++
+	// Instansi filter (for operator viewing their own instansi). Scoped
+	// ID-first via InstansiMatchSQL: a sub-account whose NAME label drifted
+	// (still "personal", a pre-rename label, or padded legacy value) still
+	// matches by its canonical instansi_id, while legacy id-less rows fall
+	// back to a case-insensitive name match. Mirrors operatorScopeMatches in
+	// the admin handlers, so the list shows exactly the accounts the
+	// operator may manage.
+	if opts.Instansi != "" || opts.InstansiID != nil {
+		scope := InstansiScope{ID: opts.InstansiID, Name: opts.Instansi}
+		frag, fargs := InstansiMatchSQL("u", argIdx, scope)
+		args = append(args, fargs...)
+		argIdx += len(fargs)
+		conditions = append(conditions, frag)
 	}
 
 	// Role filter — exact match on the bare value or the JSON-quoted token

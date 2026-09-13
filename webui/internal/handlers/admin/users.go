@@ -65,6 +65,29 @@ func isReservedInstansiName(name string) bool {
 	return reservedInstansiNames[strings.ToLower(strings.TrimSpace(name))]
 }
 
+// sameInstansi reports whether two instansi labels refer to the same tenant.
+// Comparison is case-insensitive and whitespace-trimmed on both sides so a
+// legacy padded value ("SMAN 1 ") still matches the canonical trimmed form
+// ("SMAN 1") stored for operator-created sub-accounts. All operator scope
+// checks must use this instead of a raw != comparison.
+func sameInstansi(a, b string) bool {
+	return strings.EqualFold(strings.TrimSpace(a), strings.TrimSpace(b))
+}
+
+// operatorScopeMatches reports whether a target account falls inside the
+// acting operator's tenant scope: the canonical instansi_id decides when both
+// sides carry one, otherwise a trimmed case-insensitive name match
+// (sameInstansi) covers legacy id-less rows. Mirrors InstansiMatchSQL, which
+// backs the list query, so rows visible in Kelola User are exactly the rows
+// the operator may manage — created_by alone never grants cross-instansi
+// rights (pinned by TestUserDeleteAudited).
+func operatorScopeMatches(targetInstansi string, targetInstansiID *int, scope models.InstansiScope) bool {
+	if scope.ID != nil && targetInstansiID != nil {
+		return *scope.ID == *targetInstansiID
+	}
+	return sameInstansi(targetInstansi, scope.Name)
+}
+
 // getInstansiForOperator retrieves the instansi of the current operator user.
 // The error is propagated so data-exposing callers can fail CLOSED: an
 // operator whose instansi cannot be resolved must never silently fall back to
@@ -76,7 +99,7 @@ func getInstansiForOperator(ctx context.Context, pool *pgxpool.Pool, userID int)
 	if err != nil {
 		return "", err
 	}
-	return instansi, nil
+	return strings.TrimSpace(instansi), nil
 }
 
 // getInstansiScopeForOperator is the tenant-identity variant of
@@ -462,14 +485,18 @@ func ListUsers() gin.HandlerFunc {
 			// error) or an anomalous empty-instansi row must not silently drop
 			// the scope filter — that would hand the user every tenant's
 			// accounts. A healthy operator always has an instansi, so an
-			// unresolvable one is a defect, not a data state.
-			instansi, err := getInstansiForOperator(ctx, pool, userID)
-			if err != nil || instansi == "" {
-				log.Printf("list users: operator instansi unresolved (user %d, instansi=%q, err=%v)", userID, instansi, err)
+			// unresolvable one is a defect, not a data state. Scoped
+			// ID-first (canonical tenant identity) with a name fallback for
+			// legacy id-less rows (mirrors operatorScopeMatches, so the list
+			// shows exactly the accounts the operator may manage).
+			scope, err := getInstansiScopeForOperator(ctx, pool, userID)
+			if err != nil || strings.TrimSpace(scope.Name) == "" {
+				log.Printf("list users: operator instansi unresolved (user %d, scope=%+v, err=%v)", userID, scope, err)
 				errorResponse(c, http.StatusInternalServerError, "Gagal memuat daftar user")
 				return
 			}
-			opts.Instansi = instansi
+			opts.Instansi = scope.Name
+			opts.InstansiID = scope.ID
 		}
 
 		result, err := models.ListUsers(ctx, pool, opts)
@@ -528,13 +555,13 @@ func GetUser() gin.HandlerFunc {
 		}
 
 		if isOperator(c) {
-			opInstansi, err := getInstansiForOperator(ctx, pool, userID)
-			if err != nil || opInstansi == "" {
+			opScope, err := getInstansiScopeForOperator(ctx, pool, userID)
+			if err != nil || strings.TrimSpace(opScope.Name) == "" {
 				log.Printf("get user: operator instansi unresolved (user %d, err=%v)", userID, err)
 				errorResponse(c, http.StatusInternalServerError, "Gagal memuat data user")
 				return
 			}
-			if targetUser.Instansi != opInstansi {
+			if !operatorScopeMatches(targetUser.Instansi, targetUser.InstansiID, opScope) {
 				errorResponse(c, http.StatusBadRequest, "Anda hanya dapat mengelola user dalam satu instansi yang sama")
 				return
 			}
@@ -1158,13 +1185,13 @@ func EditUser() gin.HandlerFunc {
 
 		// Operator restrictions
 		if isOp {
-			opInstansi, err := getInstansiForOperator(ctx, pool, userID)
-			if err != nil || opInstansi == "" {
+			opScope, err := getInstansiScopeForOperator(ctx, pool, userID)
+			if err != nil || strings.TrimSpace(opScope.Name) == "" {
 				log.Printf("edit user: operator instansi unresolved (user %d, err=%v)", userID, err)
 				errorResponse(c, http.StatusInternalServerError, "Gagal memperbarui user")
 				return
 			}
-			if targetUser.Instansi != opInstansi {
+			if !operatorScopeMatches(targetUser.Instansi, targetUser.InstansiID, opScope) {
 				errorResponse(c, http.StatusBadRequest, "Anda hanya dapat mengelola user dalam satu instansi yang sama")
 				return
 			}
@@ -1305,18 +1332,19 @@ func EditUser() gin.HandlerFunc {
 
 			// Operator tidak boleh mengubah instansi user
 			if isOp {
-				opInstansi, err := getInstansiForOperator(ctx, pool, userID)
-				if err != nil || opInstansi == "" {
+				opScope, err := getInstansiScopeForOperator(ctx, pool, userID)
+				if err != nil || strings.TrimSpace(opScope.Name) == "" {
 					log.Printf("edit user: operator instansi unresolved (user %d, err=%v)", userID, err)
 					errorResponse(c, http.StatusInternalServerError, "Gagal memperbarui user")
 					return
 				}
-				if instansi != "" && instansi != opInstansi {
+				opInstansi := strings.TrimSpace(opScope.Name)
+				if instansi != "" && !sameInstansi(instansi, opInstansi) {
 					errorResponse(c, http.StatusBadRequest, "Operator tidak dapat mengubah instansi user")
 					return
 				}
 				// Force instansi untuk operator — operator tidak boleh mengganti instansi
-				if instansi == "" || instansi != opInstansi {
+				if instansi == "" || !sameInstansi(instansi, opInstansi) {
 					updates["instansi"] = opInstansi
 				} else {
 					updates["instansi"] = instansi
@@ -1329,7 +1357,7 @@ func EditUser() gin.HandlerFunc {
 
 				// Cascade instansi: if the target is an operator and their
 				// instansi changed, update all users in the same instansi too.
-				if targetUser.IsOperator() && targetUser.Instansi != instansi {
+				if targetUser.IsOperator() && !sameInstansi(targetUser.Instansi, instansi) {
 					// One-operator-per-school policy: moving an operator into a
 					// school that ALREADY has an operator would create a second
 					// operator — the same violation the redeem/activate/create/
@@ -1728,13 +1756,13 @@ func ToggleUserStatus() gin.HandlerFunc {
 		}
 
 		if isOp {
-			opInstansi, err := getInstansiForOperator(ctx, pool, userID)
-			if err != nil || opInstansi == "" {
+			opScope, err := getInstansiScopeForOperator(ctx, pool, userID)
+			if err != nil || strings.TrimSpace(opScope.Name) == "" {
 				log.Printf("toggle user status: operator instansi unresolved (user %d, err=%v)", userID, err)
 				errorResponse(c, http.StatusInternalServerError, "Gagal mengubah status user")
 				return
 			}
-			if targetUser.Instansi != opInstansi {
+			if !operatorScopeMatches(targetUser.Instansi, targetUser.InstansiID, opScope) {
 				errorResponse(c, http.StatusBadRequest, "Anda hanya dapat mengelola user dalam satu instansi yang sama")
 				return
 			}
@@ -1885,13 +1913,13 @@ func VerifyUser() gin.HandlerFunc {
 		}
 
 		if isOp {
-			opInstansi, err := getInstansiForOperator(ctx, pool, userID)
-			if err != nil || opInstansi == "" {
+			opScope, err := getInstansiScopeForOperator(ctx, pool, userID)
+			if err != nil || strings.TrimSpace(opScope.Name) == "" {
 				log.Printf("verify user: operator instansi unresolved (user %d, err=%v)", userID, err)
 				errorResponse(c, http.StatusInternalServerError, "Gagal memverifikasi user")
 				return
 			}
-			if targetUser.Instansi != opInstansi {
+			if !operatorScopeMatches(targetUser.Instansi, targetUser.InstansiID, opScope) {
 				errorResponse(c, http.StatusBadRequest, "Anda hanya dapat mengelola user dalam satu instansi yang sama")
 				return
 			}
@@ -2152,13 +2180,13 @@ func DeleteUser() gin.HandlerFunc {
 		if isSuper {
 			// super admin can delete anyone
 		} else if isOp {
-			opInstansi, err := getInstansiForOperator(ctx, pool, userID)
-			if err != nil || opInstansi == "" {
+			opScope, err := getInstansiScopeForOperator(ctx, pool, userID)
+			if err != nil || strings.TrimSpace(opScope.Name) == "" {
 				log.Printf("delete user: operator instansi unresolved (user %d, err=%v)", userID, err)
 				errorResponse(c, http.StatusInternalServerError, "Gagal menghapus user")
 				return
 			}
-			if targetUser.Instansi != opInstansi {
+			if !operatorScopeMatches(targetUser.Instansi, targetUser.InstansiID, opScope) {
 				errorResponse(c, http.StatusBadRequest, "Anda hanya dapat mengelola user dalam satu instansi yang sama")
 				return
 			}

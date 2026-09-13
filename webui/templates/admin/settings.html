@@ -1909,7 +1909,10 @@ window.__settingsLoaded = {};
 // pengaturan SaaS — modul users/general tidak lagi mem-probe elemen
 // kartu SMTP (#emailEnabledInput) milik section lain sebagai proxy;
 // probe DOM lintas-section mati diam-diam bila elemen di-rename.
-window.__hasSaasSettings = true;
+// Hanya superadmin yang boleh memanggil GET /admin/api/saas-settings
+// (SuperAdminRequired): flag true untuk superadmin saja agar tab Kelola User
+// milik operator tidak memicu 403 + toast merah "khusus Super Admin".
+window.__hasSaasSettings = {{if .user_is_super}}true{{else}}false{{end}};
 
 // ===== Delegasi data-action =====
 // Registry Actions + SATU listener klik dokumen disediakan admin-core.js
