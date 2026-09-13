@@ -420,13 +420,14 @@ func TestRequestApprovalAutoApproveConcurrentNoDuplicate(t *testing.T) {
 	}
 
 	const workers = 8
-	// Generous client timeout: correctness here is the no-duplicate row
-	// count, not latency. Under a full `go test ./...` run this package
-	// executes alongside every other package against the same Postgres
-	// container, and the per-device advisory lock serializes the 8 workers —
-	// a 10s timeout produced load-dependent "context deadline exceeded"
-	// flakes even though every request eventually completed.
-	client := &http.Client{Timeout: 30 * time.Second}
+	// No client timeout: correctness here is the no-duplicate row count,
+	// not latency. Under a full `go test ./...` run this package executes
+	// alongside every other package against the same Postgres container,
+	// and the per-device advisory lock serializes the 8 workers — any fixed
+	// deadline (10s, then 30s) produced load-dependent "context deadline
+	// exceeded" flakes even though every request eventually completed. A
+	// genuine hang is caught by `go test -timeout` instead.
+	client := &http.Client{}
 	var wg sync.WaitGroup
 	errs := make(chan error, workers)
 	for i := 0; i < workers; i++ {

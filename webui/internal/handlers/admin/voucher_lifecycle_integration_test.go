@@ -637,7 +637,7 @@ func TestVoucherLifecycleOperatorAccountsSuspendRestore(t *testing.T) {
 	if maxUsers != 2 {
 		t.Errorf("school redemption max_users=%d, want 2", maxUsers)
 	}
-	if gotMax, gotUsed, _ := loadOperatorAccountQuota(ctx, pool, opAfter.ID, true, opAfter.Instansi); gotMax != 2 || gotUsed != 0 {
+	if gotMax, gotUsed, _ := loadOperatorAccountQuota(ctx, pool, opAfter.ID, true, models.InstansiScope{ID: opAfter.InstansiID, Name: opAfter.Instansi}); gotMax != 2 || gotUsed != 0 {
 		t.Errorf("loadOperatorAccountQuota after redeem = (%d,%d), want (2,0)", gotMax, gotUsed)
 	}
 
@@ -661,7 +661,7 @@ func TestVoucherLifecycleOperatorAccountsSuspendRestore(t *testing.T) {
 		}
 	}
 	// Quota display (billing page) now reports 2/2.
-	if gotMax, gotUsed, _ := loadOperatorAccountQuota(ctx, pool, opAfter.ID, true, opAfter.Instansi); gotMax != 2 || gotUsed != 2 {
+	if gotMax, gotUsed, _ := loadOperatorAccountQuota(ctx, pool, opAfter.ID, true, models.InstansiScope{ID: opAfter.InstansiID, Name: opAfter.Instansi}); gotMax != 2 || gotUsed != 2 {
 		t.Errorf("loadOperatorAccountQuota after 2 accounts = (%d,%d), want (2,2)", gotMax, gotUsed)
 	}
 	// A third account is blocked by the max_users quota.

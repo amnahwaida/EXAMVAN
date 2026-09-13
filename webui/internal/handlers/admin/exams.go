@@ -230,10 +230,10 @@ func UploadExam() gin.HandlerFunc {
 		// their own limits, matching previous behaviour).
 		maxExams := -1
 		var poolMaxExams, poolMaxPDF, poolMaxStorage int64
-		var poolInstansi string
+		var poolScope models.InstansiScope
 		poolActive := false
 		if !isSuper {
-			poolMaxExams, poolMaxPDF, _, poolMaxStorage, poolInstansi, poolActive =
+			poolMaxExams, poolMaxPDF, _, poolMaxStorage, poolScope, poolActive =
 				schoolPoolQuota(ctx, pool, userID)
 			// Pool PDF-size limit: applies to the operator too (their uploads
 			// spend the school package).
@@ -246,7 +246,7 @@ func UploadExam() gin.HandlerFunc {
 			// Pool storage pre-check (friendly early rejection; the atomic
 			// check inside the transaction below is the hard gate).
 			if poolActive && poolMaxStorage > 0 {
-				current, err := models.SumStorageByInstansi(ctx, pool, poolInstansi)
+				current, err := models.SumStorageByInstansi(ctx, pool, poolScope)
 				if err == nil && current+int64(len(fileData)) > poolMaxStorage {
 					limitMB := roundTo(float64(poolMaxStorage)/(1024*1024), 1)
 					errorResponse(c, http.StatusForbidden,
@@ -399,7 +399,8 @@ func UploadExam() gin.HandlerFunc {
 				// Lock the whole instansi's account rows: concurrent uploads by
 				// ANY account in the school serialize on the shared pool (the
 				// row-lock pattern of the per-user check, widened to the pool).
-				if _, err := tx.Exec(ctx, `SELECT id FROM admin_users WHERE LOWER(instansi) = LOWER($1) FOR UPDATE`, poolInstansi); err != nil {
+				lockFrag, lockArgs := models.InstansiMatchSQL("", 1, poolScope)
+				if _, err := tx.Exec(ctx, `SELECT id FROM admin_users WHERE `+lockFrag+` FOR UPDATE`, lockArgs...); err != nil {
 					log.Printf("upload lock school pool error: %v", err)
 					// The PDF is already in R2 but no DB row exists: remove the
 					// orphan object so a failed create does not leak storage.
@@ -408,7 +409,7 @@ func UploadExam() gin.HandlerFunc {
 					return
 				}
 				var poolCnt int64
-				if err := tx.QueryRow(ctx, `SELECT COUNT(*) FROM exams e JOIN admin_users u ON e.created_by = u.id WHERE LOWER(u.instansi) = LOWER($1)`, poolInstansi).Scan(&poolCnt); err != nil {
+				if err := tx.QueryRow(ctx, `SELECT COUNT(*) FROM exams e JOIN admin_users u ON e.created_by = u.id WHERE `+lockFrag, lockArgs...).Scan(&poolCnt); err != nil {
 					log.Printf("upload count school exams error: %v", err)
 					cleanupR2Orphan(c, ctx, filename)
 					errorResponse(c, http.StatusInternalServerError, "Gagal menyimpan ujian")
@@ -427,7 +428,7 @@ func UploadExam() gin.HandlerFunc {
 				// hard cap that cannot be raced past.
 				if poolMaxStorage > 0 {
 					var poolUsed int64
-					if err := tx.QueryRow(ctx, `SELECT COALESCE(SUM(e.size_bytes), 0) FROM exams e JOIN admin_users u ON e.created_by = u.id WHERE LOWER(u.instansi) = LOWER($1)`, poolInstansi).Scan(&poolUsed); err != nil {
+					if err := tx.QueryRow(ctx, `SELECT COALESCE(SUM(e.size_bytes), 0) FROM exams e JOIN admin_users u ON e.created_by = u.id WHERE `+lockFrag, lockArgs...).Scan(&poolUsed); err != nil {
 						log.Printf("upload sum school storage error: %v", err)
 						cleanupR2Orphan(c, ctx, filename)
 						errorResponse(c, http.StatusInternalServerError, "Gagal menyimpan ujian")
@@ -615,7 +616,7 @@ func ToggleExam() gin.HandlerFunc {
 			if err == nil && exam.Status == "inactive" && exam.ExamStartedAt != nil {
 				owner, err := models.GetUserByID(ctx, pool, exam.CreatedBy)
 				if err == nil {
-					_, _, poolMaxConcurrent, _, poolInstansi, poolActive := schoolPoolQuota(ctx, pool, exam.CreatedBy)
+					_, _, poolMaxConcurrent, _, poolScope, poolActive := schoolPoolQuota(ctx, pool, exam.CreatedBy)
 					// School-pool sub-accounts: when the pool is active it is the
 					// account's ONLY concurrent quota (schoolPoolCovers), so the
 					// per-account max_concurrent_exams must not gate below it.
@@ -635,12 +636,13 @@ func ToggleExam() gin.HandlerFunc {
 						defer func() { _ = tx.Rollback(ctx) }()
 
 						if poolConcActive {
-							if _, err := tx.Exec(ctx, `SELECT id FROM admin_users WHERE LOWER(instansi) = LOWER($1) FOR UPDATE`, poolInstansi); err != nil {
+							lockFrag, lockArgs := models.InstansiMatchSQL("", 1, poolScope)
+							if _, err := tx.Exec(ctx, `SELECT id FROM admin_users WHERE `+lockFrag+` FOR UPDATE`, lockArgs...); err != nil {
 								log.Printf("toggle lock school pool error: %v", err)
 								errorResponse(c, http.StatusInternalServerError, "Gagal mengubah status ujian")
 								return
 							}
-							running, err := models.CountRunningExamsByInstansi(ctx, tx, poolInstansi, examID)
+							running, err := models.CountRunningExamsByInstansi(ctx, tx, poolScope, examID)
 							if err == nil && running >= int(poolMaxConcurrent) {
 								_ = tx.Rollback(ctx)
 								errorResponse(c, http.StatusForbidden,
@@ -844,7 +846,7 @@ func EditExam() gin.HandlerFunc {
 		// the atomic storage-delta gate after the R2 upload (handler scope so
 		// both blocks share it).
 		var poolMaxPDF, poolMaxStorage int64
-		var poolInstansi string
+		var poolScope models.InstansiScope
 		poolActive := false
 		perAccountStorageApplies := false
 		accountMaxStorage := int64(0)
@@ -895,7 +897,7 @@ func EditExam() gin.HandlerFunc {
 			// transaction) after the R2 upload below — the hard gate that
 			// cannot be raced past by concurrent replacements.
 			if !isSuperAdmin(c) {
-				_, poolMaxPDF, _, poolMaxStorage, poolInstansi, poolActive = schoolPoolQuota(ctx, pool, exam.CreatedBy)
+				_, poolMaxPDF, _, poolMaxStorage, poolScope, poolActive = schoolPoolQuota(ctx, pool, exam.CreatedBy)
 				if poolActive && poolMaxPDF > 0 && int64(len(fileData)) > poolMaxPDF {
 					limitMB := roundTo(float64(poolMaxPDF)/(1024*1024), 2)
 					errorResponse(c, http.StatusForbidden,
@@ -903,7 +905,7 @@ func EditExam() gin.HandlerFunc {
 					return
 				}
 				if poolActive && poolMaxStorage > 0 {
-					poolUsed, err := models.SumStorageByInstansi(ctx, pool, poolInstansi)
+					poolUsed, err := models.SumStorageByInstansi(ctx, pool, poolScope)
 					if err == nil && poolUsed-int64(exam.SizeBytes)+int64(len(fileData)) > poolMaxStorage {
 						limitMB := roundTo(float64(poolMaxStorage)/(1024*1024), 1)
 						errorResponse(c, http.StatusForbidden,
@@ -1000,12 +1002,13 @@ func EditExam() gin.HandlerFunc {
 			}
 			defer func() { _ = tx.Rollback(ctx) }() // no-op after a successful Commit
 
+			lockFrag, lockArgs := models.InstansiMatchSQL("", 1, poolScope)
 			if poolActive && poolMaxStorage > 0 {
 				// Lock the whole instansi's account rows: concurrent
 				// replacements by ANY account in the school serialize on the
 				// shared pool (same lock granularity as UploadExam/StartExam/
 				// BulkToggle, taken first so the ordering never deadlocks).
-				if _, err := tx.Exec(ctx, `SELECT id FROM admin_users WHERE LOWER(instansi) = LOWER($1) FOR UPDATE`, poolInstansi); err != nil {
+				if _, err := tx.Exec(ctx, `SELECT id FROM admin_users WHERE `+lockFrag+` FOR UPDATE`, lockArgs...); err != nil {
 					log.Printf("edit exam lock school pool error: %v", err)
 					cleanupR2Orphan(c, ctx, filename)
 					errorResponse(c, http.StatusInternalServerError, "Gagal memperbarui ujian")
@@ -1051,8 +1054,8 @@ func EditExam() gin.HandlerFunc {
 			if poolActive && poolMaxStorage > 0 {
 				var poolUsed int64
 				if err := tx.QueryRow(ctx,
-					`SELECT COALESCE(SUM(e.size_bytes), 0) FROM exams e JOIN admin_users u ON e.created_by = u.id WHERE LOWER(u.instansi) = LOWER($1)`,
-					poolInstansi).Scan(&poolUsed); err == nil && poolUsed-currentSize+exam.SizeBytes > poolMaxStorage {
+					`SELECT COALESCE(SUM(e.size_bytes), 0) FROM exams e JOIN admin_users u ON e.created_by = u.id WHERE `+lockFrag,
+					lockArgs...).Scan(&poolUsed); err == nil && poolUsed-currentSize+exam.SizeBytes > poolMaxStorage {
 					_ = tx.Rollback(ctx)
 					cleanupR2Orphan(c, ctx, filename)
 					limitMB := roundTo(float64(poolMaxStorage)/(1024*1024), 1)
@@ -1938,7 +1941,7 @@ func StartExam() gin.HandlerFunc {
 		if !isSuperAdmin(c) {
 			owner, err := models.GetUserByID(ctx, pool, exam.CreatedBy)
 			if err == nil {
-				_, _, poolMaxConcurrent, _, poolInstansi, poolActive := schoolPoolQuota(ctx, pool, exam.CreatedBy)
+				_, _, poolMaxConcurrent, _, poolScope, poolActive := schoolPoolQuota(ctx, pool, exam.CreatedBy)
 				// School-pool sub-accounts: when the pool is active it is the
 				// account's ONLY concurrent quota (schoolPoolCovers), so the
 				// per-account max_concurrent_exams must not gate below it.
@@ -1961,12 +1964,13 @@ func StartExam() gin.HandlerFunc {
 						// Lock the whole instansi's account rows: concurrent
 						// starts by ANY account in the school serialize on the
 						// shared pool.
-						if _, err := tx.Exec(ctx, `SELECT id FROM admin_users WHERE LOWER(instansi) = LOWER($1) FOR UPDATE`, poolInstansi); err != nil {
+						lockFrag, lockArgs := models.InstansiMatchSQL("", 1, poolScope)
+						if _, err := tx.Exec(ctx, `SELECT id FROM admin_users WHERE `+lockFrag+` FOR UPDATE`, lockArgs...); err != nil {
 							log.Printf("start lock school pool error: %v", err)
 							errorResponse(c, http.StatusInternalServerError, "Gagal memulai ujian")
 							return
 						}
-						running, err := models.CountRunningExamsByInstansi(ctx, tx, poolInstansi, examID)
+						running, err := models.CountRunningExamsByInstansi(ctx, tx, poolScope, examID)
 						if err == nil && running >= int(poolMaxConcurrent) {
 							_ = tx.Rollback(ctx)
 							errorResponse(c, http.StatusForbidden,
@@ -2561,7 +2565,7 @@ func BulkToggle() gin.HandlerFunc {
 			countsByInst, cErr2 := models.RunningExamCountsAfterActivationByInstansi(ctx, tx, examIDs)
 			if cErr2 == nil {
 				for instansi, after := range countsByInst {
-					_, _, poolMaxConcurrent, _, poolActive := schoolPoolQuotaForInstansi(ctx, tx, instansi)
+					_, _, poolMaxConcurrent, _, poolActive := schoolPoolQuotaForInstansi(ctx, tx, models.InstansiScopeFromTenantKey(instansi))
 					if !poolActive || poolMaxConcurrent <= 0 {
 						continue
 					}

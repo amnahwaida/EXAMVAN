@@ -265,7 +265,7 @@ func TestSchoolPoolCapsTotalExamsAcrossAccounts(t *testing.T) {
 		t.Fatalf("sub2 upload: status=%d", status)
 	}
 
-	if n, err := models.CountExamsByInstansi(ctx, pool, "SMK Pool Exam"); err != nil || n != 3 {
+	if n, err := models.CountExamsByInstansi(ctx, pool, models.InstansiScope{Name: "SMK Pool Exam"}); err != nil || n != 3 {
 		t.Fatalf("school pool usage: got %d err=%v, want 3", n, err)
 	}
 
@@ -288,7 +288,7 @@ func TestSchoolPoolCapsTotalExamsAcrossAccounts(t *testing.T) {
 	}
 	assertOrphanCleaned(t, stub, uploadsBefore)
 
-	if n, err := models.CountExamsByInstansi(ctx, pool, "SMK Pool Exam"); err != nil || n != 3 {
+	if n, err := models.CountExamsByInstansi(ctx, pool, models.InstansiScope{Name: "SMK Pool Exam"}); err != nil || n != 3 {
 		t.Fatalf("school pool usage after rejections: got %d err=%v, want 3", n, err)
 	}
 }
@@ -849,7 +849,7 @@ func TestSchoolPoolConcurrentStartRace(t *testing.T) {
 	}
 
 	// The DB agrees: exactly one exam in the school is running.
-	if n, err := models.CountRunningExamsByInstansi(ctx, pool, "SMK Pool Race", 0); err != nil || n != 1 {
+	if n, err := models.CountRunningExamsByInstansi(ctx, pool, models.InstansiScope{Name: "SMK Pool Race"}, 0); err != nil || n != 1 {
 		t.Fatalf("running exams after race: got %d err=%v, want 1", n, err)
 	}
 }
@@ -1013,7 +1013,7 @@ func TestSchoolPoolConcurrentBulkToggleRace(t *testing.T) {
 	}
 
 	// The DB agrees: exactly one exam in the school is running.
-	if n, err := models.CountRunningExamsByInstansi(ctx, pool, "SMK Pool Bulk", 0); err != nil || n != 1 {
+	if n, err := models.CountRunningExamsByInstansi(ctx, pool, models.InstansiScope{Name: "SMK Pool Bulk"}, 0); err != nil || n != 1 {
 		t.Fatalf("running exams after bulk race: got %d err=%v, want 1", n, err)
 	}
 }
@@ -1232,7 +1232,7 @@ func TestSchoolPoolConcurrentUploadRace(t *testing.T) {
 	}
 
 	// The DB agrees: the school ends at exactly the 2-exam pool cap.
-	if n, err := models.CountExamsByInstansi(ctx, pool, "SMK Pool UploadRace"); err != nil || n != 2 {
+	if n, err := models.CountExamsByInstansi(ctx, pool, models.InstansiScope{Name: "SMK Pool UploadRace"}); err != nil || n != 2 {
 		t.Fatalf("school exams after upload race: got %d err=%v, want 2", n, err)
 	}
 }
@@ -1356,7 +1356,7 @@ func TestSchoolPoolSubAccountNotStuckAtPerAccountExamCap(t *testing.T) {
 	assertOrphanCleaned(t, stub, uploadsBefore)
 
 	// Sanity: exactly 5 exams exist for the school.
-	if n, err := models.CountExamsByInstansi(ctx, pool, "SMK M7 Pool"); err != nil || n != 5 {
+	if n, err := models.CountExamsByInstansi(ctx, pool, models.InstansiScope{Name: "SMK M7 Pool"}); err != nil || n != 5 {
 		t.Fatalf("school pool usage: got %d err=%v, want 5", n, err)
 	}
 }
@@ -1385,7 +1385,7 @@ func TestOperatorWithPoolNotStuckAtPerAccountExamCap(t *testing.T) {
 			t.Fatalf("pool-covered operator upload %d/5: status=%d body=%s (M7: the school pool is the operator's quota while it is active)", i, status, body)
 		}
 	}
-	if n, err := models.CountExamsByInstansi(ctx, pool, "SMK M7 Own"); err != nil || n != 5 {
+	if n, err := models.CountExamsByInstansi(ctx, pool, models.InstansiScope{Name: "SMK M7 Own"}); err != nil || n != 5 {
 		t.Fatalf("school pool usage: got %d err=%v, want 5", n, err)
 	}
 }

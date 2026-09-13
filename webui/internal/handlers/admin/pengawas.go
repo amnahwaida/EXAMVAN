@@ -161,14 +161,14 @@ func PengawasExams() gin.HandlerFunc {
 			// "personal" sentinel are NOT real tenants (the shared default
 			// bucket), so an operator without a real instansi sees only own exams.
 			opts := models.ListExamsOpts{Page: page, PerPage: perPage, Search: search}
-			opInstansi, err := getInstansiForOperator(ctx, pool, userID)
+			scope, err := getInstansiScopeForOperator(ctx, pool, userID)
 			if err != nil {
 				log.Printf("list pengawas exams: operator instansi lookup error: %v", err)
 				errorResponse(c, http.StatusInternalServerError, "Gagal memuat daftar pengawas")
 				return
 			}
-			if opInstansi != "" && opInstansi != "personal" {
-				opts.Instansi = opInstansi
+			if !scope.IsBucket() {
+				opts.Instansi = scope
 			} else {
 				uid := userID
 				opts.CreatedBy = &uid

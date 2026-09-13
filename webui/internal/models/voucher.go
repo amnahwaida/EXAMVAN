@@ -377,7 +377,12 @@ func SyncActiveRedemptionToExpiry(ctx context.Context, exec Executor, userID int
 // realigned to their (frozen) expiry so the billing display and future pause
 // computations never disagree with the account state. No-op when no account
 // in the instansi is cascade-suspended.
-func RestoreCascadeSuspendedInstansi(ctx context.Context, exec Executor, instansi string, excludeID int) error {
+func RestoreCascadeSuspendedInstansi(ctx context.Context, exec Executor, scope InstansiScope, excludeID int) error {
+	if scope.IsBucket() {
+		return nil
+	}
+	frag, args := InstansiMatchSQL("u.", 1, scope)
+	args = append(args, excludeID)
 	if _, err := exec.Exec(ctx, `
 		UPDATE admin_users u
 		SET status = 'active',
@@ -388,10 +393,10 @@ func RestoreCascadeSuspendedInstansi(ctx context.Context, exec Executor, instans
 		            THEN u.expires_at + (now() - u.suspended_at)
 		        ELSE u.expires_at
 		    END
-		WHERE LOWER(u.instansi) = LOWER($1) AND u.suspended_by_cascade = TRUE AND u.id <> $2`, instansi, excludeID); err != nil {
+		WHERE `+frag+` AND u.suspended_by_cascade = TRUE AND u.id <> `+fmt.Sprintf("$%d", len(args)), args...); err != nil {
 		return fmt.Errorf("restore cascade-suspended accounts: %w", err)
 	}
-	return SyncInstansiActiveRedemptionsToExpiry(ctx, exec, instansi, excludeID)
+	return SyncInstansiActiveRedemptionsToExpiry(ctx, exec, scope, excludeID)
 }
 
 // SyncInstansiActiveRedemptionsToExpiry realigns the active package clocks of
@@ -401,14 +406,19 @@ func RestoreCascadeSuspendedInstansi(ctx context.Context, exec Executor, instans
 // rows were just rewritten, so the per-account expiry is authoritative).
 // No-op when no account in the instansi has an active redemption, or when the
 // expiry is NULL (unlimited — nothing to align to).
-func SyncInstansiActiveRedemptionsToExpiry(ctx context.Context, exec Executor, instansi string, excludeID int) error {
+func SyncInstansiActiveRedemptionsToExpiry(ctx context.Context, exec Executor, scope InstansiScope, excludeID int) error {
+	if scope.IsBucket() {
+		return nil
+	}
+	frag, args := InstansiMatchSQL("u.", 1, scope)
+	args = append(args, excludeID)
 	_, err := exec.Exec(ctx, `
 		UPDATE voucher_redemptions r
 		SET remaining_seconds = GREATEST(EXTRACT(EPOCH FROM (u.expires_at - now()))::bigint, 0),
 		    activated_at = now()
 		FROM admin_users u
 		WHERE r.user_id = u.id AND r.is_active AND u.expires_at IS NOT NULL
-		  AND LOWER(u.instansi) = LOWER($1) AND u.id <> $2`, instansi, excludeID)
+		  AND `+frag+` AND u.id <> `+fmt.Sprintf("$%d", len(args)), args...)
 	if err != nil {
 		return fmt.Errorf("sync instansi active redemptions expiry: %w", err)
 	}

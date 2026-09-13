@@ -188,7 +188,7 @@ func TestCreateUserQuotaAtomicUnderConcurrency(t *testing.T) {
 	tc := newVoucherTestClient(t, pool)
 	tc.login(t, op.ID)
 	tc.redeem(t, "IT-SEKOLAH")
-	if gotMax, gotUsed, _ := loadOperatorAccountQuota(ctx, pool, op.ID, true, op.Instansi); gotMax != 2 || gotUsed != 0 {
+	if gotMax, gotUsed, _ := loadOperatorAccountQuota(ctx, pool, op.ID, true, models.InstansiScope{ID: op.InstansiID, Name: op.Instansi}); gotMax != 2 || gotUsed != 0 {
 		t.Fatalf("fixture: quota after redeem = (%d,%d), want (2,0)", gotMax, gotUsed)
 	}
 
@@ -732,14 +732,14 @@ func TestOperatorAccountQuotaFailClosed(t *testing.T) {
 	ctx := context.Background()
 
 	// (a) A real DB error on the redemption query → error returned, never 0.
-	if _, _, err := loadOperatorAccountQuota(ctx, &stagedQuerier{err: fmt.Errorf("simulated connection drop")}, 1, true, "SMK X"); err == nil {
+	if _, _, err := loadOperatorAccountQuota(ctx, &stagedQuerier{err: fmt.Errorf("simulated connection drop")}, 1, true, models.InstansiScope{Name: "SMK X"}); err == nil {
 		t.Error("loadOperatorAccountQuota(real DB error) = nil, want a fail-closed error")
 	}
 
 	// (b) A real DB error on the package_settings fallback (after the
 	// redemption read returns ErrNoRows) → error returned, never 0.
 	errQuerier := &stagedQuerier{firstErr: pgx.ErrNoRows, err: fmt.Errorf("simulated connection drop")}
-	if _, _, err := loadOperatorAccountQuota(ctx, errQuerier, 1, true, "SMK X"); err == nil {
+	if _, _, err := loadOperatorAccountQuota(ctx, errQuerier, 1, true, models.InstansiScope{Name: "SMK X"}); err == nil {
 		t.Error("loadOperatorAccountQuota(fallback DB error) = nil, want a fail-closed error")
 	}
 
@@ -749,7 +749,7 @@ func TestOperatorAccountQuotaFailClosed(t *testing.T) {
 	// querier returns ErrNoRows on both queries, so the fallback itself
 	// yields the ErrNoRows → 0 (unlimited) anomaly handling, not an error.
 	noRowsQuerier := &stagedQuerier{err: pgx.ErrNoRows}
-	maxUsers, used, err := loadOperatorAccountQuota(ctx, noRowsQuerier, 1, true, "SMK X")
+	maxUsers, used, err := loadOperatorAccountQuota(ctx, noRowsQuerier, 1, true, models.InstansiScope{Name: "SMK X"})
 	if err != nil {
 		t.Errorf("loadOperatorAccountQuota(ErrNoRows) = err %v, want nil (legacy fallback still works)", err)
 	}

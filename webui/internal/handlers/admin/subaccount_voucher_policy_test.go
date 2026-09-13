@@ -594,7 +594,7 @@ func TestOperatorQuotaEnforcedForPersonalInstansi(t *testing.T) {
 
 	// The quota comes from the active redemption, not the instansi label: a
 	// personal-bucket operator still reports the school package's 2 accounts.
-	if gotMax, gotUsed, _ := loadOperatorAccountQuota(ctx, pool, opAfter.ID, true, opAfter.Instansi); gotMax != 2 || gotUsed != 0 {
+	if gotMax, gotUsed, _ := loadOperatorAccountQuota(ctx, pool, opAfter.ID, true, models.InstansiScope{ID: opAfter.InstansiID, Name: opAfter.Instansi}); gotMax != 2 || gotUsed != 0 {
 		t.Fatalf("loadOperatorAccountQuota after redeem = (%d,%d), want (2,0) — school quota applies to the personal bucket", gotMax, gotUsed)
 	}
 
@@ -604,7 +604,7 @@ func TestOperatorQuotaEnforcedForPersonalInstansi(t *testing.T) {
 			t.Fatalf("create %s: status=%d resp=%+v", name, status, resp)
 		}
 	}
-	if gotMax, gotUsed, _ := loadOperatorAccountQuota(ctx, pool, opAfter.ID, true, opAfter.Instansi); gotMax != 2 || gotUsed != 2 {
+	if gotMax, gotUsed, _ := loadOperatorAccountQuota(ctx, pool, opAfter.ID, true, models.InstansiScope{ID: opAfter.InstansiID, Name: opAfter.Instansi}); gotMax != 2 || gotUsed != 2 {
 		t.Errorf("loadOperatorAccountQuota after 2 subs = (%d,%d), want (2,2)", gotMax, gotUsed)
 	}
 
@@ -836,7 +836,7 @@ func TestUpdateInstansiMigratesPersonalBucketSubAccounts(t *testing.T) {
 
 	// Quota stays accurate: the migrated subs now count in the school bucket,
 	// so a third account is still blocked.
-	if gotMax, gotUsed, _ := loadOperatorAccountQuota(ctx, pool, opAfter.ID, true, opAfter.Instansi); gotMax != 2 || gotUsed != 2 {
+	if gotMax, gotUsed, _ := loadOperatorAccountQuota(ctx, pool, opAfter.ID, true, models.InstansiScope{ID: opAfter.InstansiID, Name: opAfter.Instansi}); gotMax != 2 || gotUsed != 2 {
 		t.Errorf("loadOperatorAccountQuota after migration = (%d,%d), want (2,2) — subs followed the operator", gotMax, gotUsed)
 	}
 	if status, resp := tc.createUser(t, "sub3"); status != http.StatusBadRequest || !strings.Contains(resp.Message, "Kuota akun") {
@@ -921,10 +921,10 @@ func TestPersonalBucketQuotaAndMigrationScopedPerOperator(t *testing.T) {
 
 	// Quota per operator counts only its OWN subs — the shared bucket no
 	// longer mixes operators' sub-accounts.
-	if gotMax, gotUsed, _ := loadOperatorAccountQuota(ctx, pool, opA.ID, true, "personal"); gotMax != 2 || gotUsed != 2 {
+	if gotMax, gotUsed, _ := loadOperatorAccountQuota(ctx, pool, opA.ID, true, models.InstansiScope{Name: "personal"}); gotMax != 2 || gotUsed != 2 {
 		t.Errorf("quota(op-scope-a) = (%d,%d), want (2,2) — only its own subs count", gotMax, gotUsed)
 	}
-	if gotMax, gotUsed, _ := loadOperatorAccountQuota(ctx, pool, opB.ID, true, "personal"); gotMax != 2 || gotUsed != 1 {
+	if gotMax, gotUsed, _ := loadOperatorAccountQuota(ctx, pool, opB.ID, true, models.InstansiScope{Name: "personal"}); gotMax != 2 || gotUsed != 1 {
 		t.Errorf("quota(op-scope-b) = (%d,%d), want (2,1) — subA* must NOT count against B", gotMax, gotUsed)
 	}
 
@@ -961,7 +961,7 @@ func TestPersonalBucketQuotaAndMigrationScopedPerOperator(t *testing.T) {
 
 	// B's quota still counts its own subs in the personal bucket (subB1,
 	// subB2 = 2/2) — A's migration must not have stolen them.
-	if gotMax, gotUsed, _ := loadOperatorAccountQuota(ctx, pool, opB.ID, true, "personal"); gotMax != 2 || gotUsed != 2 {
+	if gotMax, gotUsed, _ := loadOperatorAccountQuota(ctx, pool, opB.ID, true, models.InstansiScope{Name: "personal"}); gotMax != 2 || gotUsed != 2 {
 		t.Errorf("quota(op-scope-b) after A's migration = (%d,%d), want (2,2) — B's subs stayed in personal", gotMax, gotUsed)
 	}
 }
@@ -1025,7 +1025,7 @@ func TestCreatedByDeleteSetsNull(t *testing.T) {
 	}
 	// The orphan still counts toward the shared legacy bucket of any personal
 	// operator via the (created_by IS NULL AND operator_created) fallback.
-	if gotMax, gotUsed, _ := loadOperatorAccountQuota(ctx, pool, root.ID, false, "personal"); gotMax != 0 || gotUsed != 0 {
+	if gotMax, gotUsed, _ := loadOperatorAccountQuota(ctx, pool, root.ID, false, models.InstansiScope{Name: "personal"}); gotMax != 0 || gotUsed != 0 {
 		t.Errorf("quota for non-operator after sub orphan = (%d,%d), want (0,0) — not applicable", gotMax, gotUsed)
 	}
 }

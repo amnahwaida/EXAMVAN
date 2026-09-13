@@ -71,12 +71,12 @@ func Dashboard() gin.HandlerFunc {
 		// degenerates into a GLOBAL list of every tenant's exams (and their
 		// tokens). Fall back to own-created scope instead.
 		if isOp {
-			instansi, err := getInstansiForOperator(ctx, pool, userID)
-			if err != nil || instansi == "" || instansi == "personal" {
+			scope, err := getInstansiScopeForOperator(ctx, pool, userID)
+			if err != nil || scope.IsBucket() {
 				uid := userID
 				opts.UserID = &uid
 			} else {
-				opts.Instansi = instansi
+				opts.Instansi = scope
 			}
 		}
 
@@ -126,15 +126,16 @@ func Dashboard() gin.HandlerFunc {
 		} else if isOp {
 			// Fail-closed operator scope (mirrors the list path above): empty
 			// or "personal" instansi falls back to own-created — never global.
-			instansi, err := getInstansiForOperator(ctx, pool, userID)
-			if err != nil || instansi == "" || instansi == "personal" {
+			scope, err := getInstansiScopeForOperator(ctx, pool, userID)
+			if err != nil || scope.IsBucket() {
 				statsWheres = append(statsWheres, fmt.Sprintf(`e.created_by = $%d`, statsArgIdx))
 				statsArgs = append(statsArgs, userID)
 				statsArgIdx++
 			} else {
-				statsWheres = append(statsWheres, fmt.Sprintf(`e.created_by IN (SELECT id FROM admin_users WHERE LOWER(instansi) = LOWER($%d))`, statsArgIdx))
-				statsArgs = append(statsArgs, instansi)
-				statsArgIdx++
+				frag, fargs := models.InstansiMatchSQL("", statsArgIdx, scope)
+				statsWheres = append(statsWheres, fmt.Sprintf(`e.created_by IN (SELECT id FROM admin_users WHERE %s)`, frag))
+				statsArgs = append(statsArgs, fargs...)
+				statsArgIdx += len(fargs)
 			}
 		} else {
 			uid := userID
@@ -476,15 +477,16 @@ func Stats() gin.HandlerFunc {
 		} else if isOp {
 			// Fail-closed operator scope (mirrors the list path above): empty
 			// or "personal" instansi falls back to own-created — never global.
-			instansi, err := getInstansiForOperator(ctx, pool, userID)
-			if err != nil || instansi == "" || instansi == "personal" {
+			scope, err := getInstansiScopeForOperator(ctx, pool, userID)
+			if err != nil || scope.IsBucket() {
 				statsWheres = append(statsWheres, fmt.Sprintf(`e.created_by = $%d`, statsArgIdx))
 				statsArgs = append(statsArgs, userID)
 				statsArgIdx++
 			} else {
-				statsWheres = append(statsWheres, fmt.Sprintf(`e.created_by IN (SELECT id FROM admin_users WHERE LOWER(instansi) = LOWER($%d))`, statsArgIdx))
-				statsArgs = append(statsArgs, instansi)
-				statsArgIdx++
+				frag, fargs := models.InstansiMatchSQL("", statsArgIdx, scope)
+				statsWheres = append(statsWheres, fmt.Sprintf(`e.created_by IN (SELECT id FROM admin_users WHERE %s)`, frag))
+				statsArgs = append(statsArgs, fargs...)
+				statsArgIdx += len(fargs)
 			}
 		} else {
 			uid := userID

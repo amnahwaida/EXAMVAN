@@ -77,7 +77,7 @@ func loadBillingPageData(c *gin.Context) gin.H {
 			// billing page — the enforcement path (CreateUser) fails
 			// CLOSED on the same error, so the operator cannot create more
 			// accounts on a glitch even though the card hides.
-			userMaxAccounts, userAccountsUsed, _ = loadOperatorAccountQuota(ctx, pool, userID, user.IsOperator(), user.Instansi)
+			userMaxAccounts, userAccountsUsed, _ = loadOperatorAccountQuota(ctx, pool, userID, user.IsOperator(), models.InstansiScope{ID: user.InstansiID, Name: user.Instansi})
 			if userMaxAccounts > 0 {
 				userAccountsPct = int(userAccountsUsed * 100 / userMaxAccounts)
 				if userAccountsPct > 100 {

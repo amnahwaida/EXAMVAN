@@ -127,17 +127,19 @@ func schoolAlreadyHasOperator(ctx context.Context, q quotaQuerier, instansi stri
 // given user belongs to (see schoolPoolQuotaForInstansi). ok=false when the
 // user has no instansi, sits in the shared "personal" bucket, or no operator
 // in the instansi holds an active redemption.
-func schoolPoolQuota(ctx context.Context, q quotaQuerier, userID int) (maxExams, maxPDF, maxConcurrent, maxStorage int64, instansi string, ok bool) {
+func schoolPoolQuota(ctx context.Context, q quotaQuerier, userID int) (maxExams, maxPDF, maxConcurrent, maxStorage int64, scope models.InstansiScope, ok bool) {
 	var inst string
-	if err := q.QueryRow(ctx, `SELECT COALESCE(instansi, '') FROM admin_users WHERE id = $1`, userID).Scan(&inst); err != nil {
-		return 0, 0, 0, 0, "", false
+	var id *int
+	if err := q.QueryRow(ctx, `SELECT COALESCE(instansi, ''), instansi_id FROM admin_users WHERE id = $1`, userID).Scan(&inst, &id); err != nil {
+		return 0, 0, 0, 0, models.InstansiScope{}, false
 	}
 	inst = strings.TrimSpace(inst)
 	if inst == "" {
-		return 0, 0, 0, 0, "", false
+		return 0, 0, 0, 0, models.InstansiScope{}, false
 	}
-	maxExams, maxPDF, maxConcurrent, maxStorage, ok = schoolPoolQuotaForInstansi(ctx, q, inst)
-	return maxExams, maxPDF, maxConcurrent, maxStorage, inst, ok
+	scope = models.InstansiScope{ID: id, Name: inst}
+	maxExams, maxPDF, maxConcurrent, maxStorage, ok = schoolPoolQuotaForInstansi(ctx, q, scope)
+	return maxExams, maxPDF, maxConcurrent, maxStorage, scope, ok
 }
 
 // schoolPoolQuotaForInstansi returns the shared "school pool" quota for an
@@ -158,12 +160,12 @@ func schoolPoolQuota(ctx context.Context, q quotaQuerier, userID int) (maxExams,
 // states and stays never-surprising (the larger package wins). max_concurrent
 // follows the same 0 → max_exams → 1 defaulting as
 // applyRedemptionEntitlement so the two can never disagree.
-func schoolPoolQuotaForInstansi(ctx context.Context, q quotaQuerier, instansi string) (maxExams, maxPDF, maxConcurrent, maxStorage int64, ok bool) {
-	instansi = strings.TrimSpace(instansi)
-	if instansi == "" || strings.EqualFold(instansi, "personal") {
+func schoolPoolQuotaForInstansi(ctx context.Context, q quotaQuerier, scope models.InstansiScope) (maxExams, maxPDF, maxConcurrent, maxStorage int64, ok bool) {
+	if scope.IsBucket() {
 		return 0, 0, 0, 0, false
 	}
 	var n int
+	pfrag, pargs := models.InstansiMatchSQL("u.", 1, scope)
 	err := q.QueryRow(ctx, `
 		SELECT COUNT(*),
 		       COALESCE(MAX(vr.max_exams), 0),
@@ -172,8 +174,8 @@ func schoolPoolQuotaForInstansi(ctx context.Context, q quotaQuerier, instansi st
 		       COALESCE(MAX(vr.max_storage_size), 0)
 		FROM voucher_redemptions vr
 		JOIN admin_users u ON u.id = vr.user_id
-		WHERE vr.is_active AND LOWER(u.instansi) = LOWER($1)
-		  AND (u.role = 'operator' OR u.role ILIKE '%"operator"%')`, instansi).
+		WHERE vr.is_active AND `+pfrag+
+		  ` AND (u.role = 'operator' OR u.role ILIKE '%"operator"%')`, pargs...).
 		Scan(&n, &maxExams, &maxPDF, &maxConcurrent, &maxStorage)
 	if err != nil {
 		log.Printf("load school pool quota failed: %v; treating as no school pool", err)
@@ -317,14 +319,16 @@ func syncInstansiWithOperatorRole(ctx context.Context, tx pgx.Tx, userID int, pr
 		return nil // SuperAdmin role is never touched anywhere.
 	}
 
-	var instansi string
-	if err := tx.QueryRow(ctx, `SELECT COALESCE(instansi, '') FROM admin_users WHERE id = $1`, userID).Scan(&instansi); err != nil {
+	var inst string
+	var id *int
+	if err := tx.QueryRow(ctx, `SELECT COALESCE(instansi, ''), instansi_id FROM admin_users WHERE id = $1`, userID).Scan(&inst, &id); err != nil {
 		return err
 	}
-	instansi = strings.TrimSpace(instansi)
+	instansi := strings.TrimSpace(inst)
 	if instansi == "" || strings.EqualFold(instansi, "personal") {
 		return nil // No school, no sub-accounts.
 	}
+	scope := models.InstansiScope{ID: id, Name: instansi}
 
 	switch operatorRoleTransition(prevRoleJSON, roleJSON) {
 	case "none":
@@ -346,17 +350,16 @@ func syncInstansiWithOperatorRole(ctx context.Context, tx pgx.Tx, userID int, pr
 		// the documented sub-account semantics keep the plain subs suspended
 		// when the actual operator leaves).
 		var covered bool
+		cfrag, cargs := models.InstansiMatchSQL("u.", 1, scope)
+		cargs = append(cargs, userID)
 		if err := tx.QueryRow(ctx, `
 			SELECT EXISTS (
 			    SELECT 1 FROM admin_users u
 			    JOIN voucher_redemptions vr ON vr.user_id = u.id
-			    WHERE u.instansi = $1 AND u.id <> $2
-			      -- covered-by check: case-insensitive for parity with the
-			      -- school-claim guard (LOWER(instansi) = LOWER($1)).
-			      AND LOWER(instansi) = LOWER($1)
+			    WHERE `+cfrag+` AND u.id <> `+fmt.Sprintf("$%d", len(cargs))+`
 			      AND (u.role = 'operator' OR u.role ILIKE '%"operator"%') AND vr.is_active
 			      AND NOT u.operator_created
-			)`, instansi, userID).Scan(&covered); err != nil {
+			)`, cargs...).Scan(&covered); err != nil {
 			return err
 		}
 		if covered {
@@ -367,11 +370,13 @@ func syncInstansiWithOperatorRole(ctx context.Context, tx pgx.Tx, userID int, pr
 		// accounts created under the school package stop working.
 		// suspended_by_cascade lets them come back (with a clock freeze) when
 		// an operator returns to a school package.
+		sfrag, sargs := models.InstansiMatchSQL("", 1, scope)
+		sargs = append(sargs, userID)
 		if _, err := tx.Exec(ctx, `
 			UPDATE admin_users
 			SET status = 'suspended', suspended_by_cascade = TRUE, suspended_at = now()
-			WHERE LOWER(instansi) = LOWER($1) AND status = 'active' AND id <> $2
-			  AND NOT (role = 'operator' OR role ILIKE '%"operator"%')`, instansi, userID); err != nil {
+			WHERE `+sfrag+` AND status = 'active' AND id <> `+fmt.Sprintf("$%d", len(sargs))+`
+			  AND NOT (role = 'operator' OR role ILIKE '%"operator"%')`, sargs...); err != nil {
 			return err
 		}
 		// Tombstone the school's unpublished exams (policy B): the accounts
@@ -379,12 +384,12 @@ func syncInstansiWithOperatorRole(ctx context.Context, tx pgx.Tx, userID int, pr
 		// role and every cascade-suspended sub) have their active-but-unstarted
 		// exams set inactive. Accounts that still hold the operator role (their
 		// own school voucher) stay valid operators, so their exams are spared.
-		return tombstoneUnstartedInstansiExams(ctx, tx, instansi, true)
+		return tombstoneUnstartedInstansiExams(ctx, tx, scope, true)
 	default: // restore
 		// Operator role is present: restore accounts that were cascade-suspended
 		// when the operator last left the school package (clock freeze applies)
 		// and realign their active package clocks with the frozen expiry.
-		if err := models.RestoreCascadeSuspendedInstansi(ctx, tx, instansi, userID); err != nil {
+		if err := models.RestoreCascadeSuspendedInstansi(ctx, tx, scope, userID); err != nil {
 			return err
 		}
 		// Sub-accounts that do not run their own active package follow the
@@ -392,15 +397,19 @@ func syncInstansiWithOperatorRole(ctx context.Context, tx pgx.Tx, userID int, pr
 		// (never shortens a sub-account when the operator switches to a
 		// shorter school package); when the operator truly leaves the school
 		// package the suspend branch above takes over.
-		_, err := tx.Exec(ctx, `
+		rfrag, rargs := models.InstansiMatchSQL("u.", 1, scope)
+		expIdx := len(rargs) + 1
+		uidIdx := len(rargs) + 2
+		rargs = append(rargs, expiry, userID)
+		_, err := tx.Exec(ctx, fmt.Sprintf(`
 			UPDATE admin_users u
-			SET expires_at = GREATEST(COALESCE(u.expires_at, $2::timestamptz), $2::timestamptz)
-			WHERE LOWER(u.instansi) = LOWER($1) AND u.id <> $3
-			  AND NOT (u.role = 'operator' OR u.role ILIKE '%"operator"%')
+			SET expires_at = GREATEST(COALESCE(u.expires_at, $%d::timestamptz), $%[1]d::timestamptz)
+			WHERE `+rfrag+` AND u.id <> `+fmt.Sprintf("$%d", uidIdx)+`
+			  AND NOT (u.role = 'operator' OR u.role ILIKE '%%"operator"%%')
 			  AND NOT EXISTS (
 			      SELECT 1 FROM voucher_redemptions vr
 			      WHERE vr.user_id = u.id AND vr.is_active
-			  )`, instansi, expiry, userID)
+			  )`, expIdx), rargs...)
 		return err
 	}
 }
@@ -418,7 +427,10 @@ func syncInstansiWithOperatorRole(ctx context.Context, tx pgx.Tx, userID int, pr
 // school voucher) remain valid operators, so their exams are spared; when
 // false (a manual operator suspension freezes the whole school), every
 // account in the instansi is covered.
-func tombstoneUnstartedInstansiExams(ctx context.Context, exec models.Executor, instansi string, spareOperatorRoleCreators bool) error {
+func tombstoneUnstartedInstansiExams(ctx context.Context, exec models.Executor, scope models.InstansiScope, spareOperatorRoleCreators bool) error {
+	if scope.IsBucket() {
+		return nil
+	}
 	creatorFilter := `TRUE`
 	if spareOperatorRoleCreators {
 		creatorFilter = `NOT (role = 'operator' OR role ILIKE '%"operator"%')`
@@ -426,14 +438,15 @@ func tombstoneUnstartedInstansiExams(ctx context.Context, exec models.Executor, 
 	// tombstoned_at marks the exam as auto-inactivated (policy B) so the admin
 	// UI can tell it apart from a manual inactivation; the marker is cleared
 	// whenever the exam is (re)activated.
+	tfrag, targs := models.InstansiMatchSQL("", 1, scope)
 	_, err := exec.Exec(ctx, fmt.Sprintf(`
 		UPDATE exams e
 		SET status = 'inactive', tombstoned_at = now()
 		WHERE e.status = 'active' AND e.exam_started_at IS NULL
 		  AND e.created_by IN (
 		      SELECT id FROM admin_users
-		      WHERE LOWER(instansi) = LOWER($1) AND %s
-		  )`, creatorFilter), instansi)
+			      WHERE %s AND %s
+		  )`, tfrag, creatorFilter), targs...)
 	return err
 }
 

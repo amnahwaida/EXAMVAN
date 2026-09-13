@@ -158,7 +158,7 @@ type ListExamsOpts struct {
 	Search     string
 	Status     string // optional: "active" or "inactive"
 	CreatedBy  *int   // optional: filter by creator
-	Instansi   string // optional: filter by creator's instansi (for operator view)
+	Instansi   InstansiScope // optional: filter by creator's tenant (for operator view); bucket/empty = no filter
 	UserID     *int   // optional: include exams delegated to or assigned as pengawas
 	IsPengawas bool   // when true, only show exams where user is assigned as pengawas
 	IsGuru     bool   // when true, also include own exams
@@ -237,12 +237,16 @@ func ListExams(ctx context.Context, pool *pgxpool.Pool, opts ListExamsOpts) (Lis
 		argIdx++
 	}
 
-	// Instansi filter (for operator view): all users in the operator's instansi.
-	if opts.Instansi != "" {
-		conditions = append(conditions, fmt.Sprintf(
-			`e.created_by IN (SELECT id FROM admin_users WHERE LOWER(instansi) = LOWER($%d))`, argIdx))
-		args = append(args, opts.Instansi)
-		argIdx++
+	// Instansi filter (for operator view): all accounts in the operator's
+	// tenant — matched by canonical instansi_id with a legacy name fallback
+	// for id-less rows (see InstansiMatchSQL). A shared system bucket
+	// ("personal"/"owner") or an empty scope adds no condition.
+	if !opts.Instansi.IsBucket() {
+		frag, fargs := InstansiMatchSQL("", argIdx, opts.Instansi)
+		conditions = append(conditions,
+			fmt.Sprintf(`e.created_by IN (SELECT id FROM admin_users WHERE %s)`, frag))
+		args = append(args, fargs...)
+		argIdx += len(fargs)
 	}
 
 	// User-specific visibility: include created_by, delegated_to, and/or exam_pengawas.
@@ -397,13 +401,19 @@ func CountRunningExams(ctx context.Context, q queryRower, createdBy, excludeID i
 }
 
 // CountExamsByInstansi returns the number of exams created by ANY account in
-// the instansi — the shared "school pool" usage that counts against the school
-// package quota (the operator's own uploads included).
-func CountExamsByInstansi(ctx context.Context, q queryRower, instansi string) (int64, error) {
+// the tenant — the shared "school pool" usage that counts against the school
+// package quota (the operator's own uploads included). Matched by canonical
+// instansi_id with a legacy name fallback (see InstansiMatchSQL); a bucket
+// scope counts nothing.
+func CountExamsByInstansi(ctx context.Context, q queryRower, scope InstansiScope) (int64, error) {
+	if scope.IsBucket() {
+		return 0, nil
+	}
 	var n int64
+	frag, args := InstansiMatchSQL("u.", 1, scope)
 	err := q.QueryRow(ctx, `SELECT COUNT(*) FROM exams e
 		JOIN admin_users u ON e.created_by = u.id
-		WHERE LOWER(u.instansi) = LOWER($1)`, instansi).Scan(&n)
+		WHERE `+frag, args...).Scan(&n)
 	if err != nil {
 		return 0, fmt.Errorf("count exams by instansi: %w", err)
 	}
@@ -411,12 +421,17 @@ func CountExamsByInstansi(ctx context.Context, q queryRower, instansi string) (i
 }
 
 // SumStorageByInstansi returns the total PDF bytes of exams created by ANY
-// account in the instansi — the shared "school pool" storage usage.
-func SumStorageByInstansi(ctx context.Context, q queryRower, instansi string) (int64, error) {
+// account in the tenant — the shared "school pool" storage usage. Same
+// dual-form tenant match as CountExamsByInstansi.
+func SumStorageByInstansi(ctx context.Context, q queryRower, scope InstansiScope) (int64, error) {
+	if scope.IsBucket() {
+		return 0, nil
+	}
 	var n int64
+	frag, args := InstansiMatchSQL("u.", 1, scope)
 	err := q.QueryRow(ctx, `SELECT COALESCE(SUM(e.size_bytes), 0) FROM exams e
 		JOIN admin_users u ON e.created_by = u.id
-		WHERE LOWER(u.instansi) = LOWER($1)`, instansi).Scan(&n)
+		WHERE `+frag, args...).Scan(&n)
 	if err != nil {
 		return 0, fmt.Errorf("sum storage by instansi: %w", err)
 	}
@@ -428,12 +443,17 @@ func SumStorageByInstansi(ctx context.Context, q queryRower, instansi string) (i
 // the instansi — the shared "school pool" concurrent usage. excludeID is not
 // counted (used when the caller is about to start/activate that exam itself).
 // Accepts a pool or a transaction so the count can run inside the quota lock.
-func CountRunningExamsByInstansi(ctx context.Context, q queryRower, instansi string, excludeID int) (int, error) {
+func CountRunningExamsByInstansi(ctx context.Context, q queryRower, scope InstansiScope, excludeID int) (int, error) {
+	if scope.IsBucket() {
+		return 0, nil
+	}
 	var n int
-	err := q.QueryRow(ctx, `SELECT COUNT(*) FROM exams e
-		JOIN admin_users u ON e.created_by = u.id
-		WHERE LOWER(u.instansi) = LOWER($1) AND e.status = 'active' AND e.exam_started_at IS NOT NULL AND e.id <> $2`,
-		instansi, excludeID).Scan(&n)
+	frag, args := InstansiMatchSQL("u.", 1, scope)
+	args = append(args, excludeID)
+	err := q.QueryRow(ctx, "SELECT COUNT(*) FROM exams e\n"+
+		"\t\tJOIN admin_users u ON e.created_by = u.id\n"+
+		"\t\tWHERE "+frag+" AND e.status = 'active' AND e.exam_started_at IS NOT NULL AND e.id <> "+fmt.Sprintf("$%d", len(args)),
+		args...).Scan(&n)
 	if err != nil {
 		return 0, fmt.Errorf("count running exams by instansi: %w", err)
 	}
@@ -451,27 +471,35 @@ func RunningExamCountsAfterActivationByInstansi(ctx context.Context, q rowsQueri
 	if len(ids) == 0 {
 		return out, nil
 	}
+	// One row per distinct TENANT of the selected exams' creators. The tenant
+	// key is the canonical instansi_id when the creator row carries one,
+	// else the (lowercased) free-text name for legacy id-less rows — the same
+	// dual-form identity InstansiMatchSQL matches by.
 	rows, err := q.Query(ctx, `
-		SELECT u.instansi,
-		       (SELECT COUNT(*) FROM exams x			         JOIN admin_users xu ON x.created_by = xu.id
-			         WHERE LOWER(xu.instansi) = LOWER(u.instansi)
+		SELECT COALESCE(u.instansi_id::text, 'n:' || LOWER(u.instansi)) AS tenant_key,
+		       u.instansi,
+		       (SELECT COUNT(*) FROM exams x
+		         JOIN admin_users xu ON x.created_by = xu.id
+		         WHERE (xu.instansi_id IS NOT NULL AND xu.instansi_id = u.instansi_id)
+		            OR (xu.instansi_id IS NULL AND u.instansi_id IS NULL
+		                AND LOWER(xu.instansi) = LOWER(u.instansi))
 		           AND x.status = 'active' AND x.exam_started_at IS NOT NULL)
 		       + COUNT(*) FILTER (WHERE e.status <> 'active' AND e.exam_started_at IS NOT NULL) AS running_after
 		FROM exams e
 		JOIN admin_users u ON e.created_by = u.id
 		WHERE e.id = ANY($1) AND e.exam_started_at IS NOT NULL
-		GROUP BY u.instansi`, ids)
+		GROUP BY 1, u.instansi, u.instansi_id`, ids)
 	if err != nil {
 		return nil, fmt.Errorf("running exam counts after activation by instansi: %w", err)
 	}
 	defer rows.Close()
 	for rows.Next() {
-		var instansi string
+		var tenantKey, instansi string
 		var after int
-		if err := rows.Scan(&instansi, &after); err != nil {
+		if err := rows.Scan(&tenantKey, &instansi, &after); err != nil {
 			return nil, fmt.Errorf("scan running exam count by instansi: %w", err)
 		}
-		out[instansi] = after
+		out[tenantKey] = after
 	}
 	if err := rows.Err(); err != nil {
 		log.Printf("rows iteration error: %v", err)
@@ -929,7 +957,9 @@ func UserCanAccessExam(ctx context.Context, pool *pgxpool.Pool, userID int, isSu
 				  -- position) or the legacy bare value. A bare substring ILIKE
 				  -- would miss legacy non-JSON rows entirely.
 				  AND (me.role = 'operator' OR me.role ILIKE '%"operator"%')
-				  AND me.instansi NOT IN ('', 'personal') AND me.instansi = owner.instansi
+				  -- Tenant match by canonical instansi_id (legacy name fallback
+				  -- for id-less rows) — see InstansiMatchSelfSQL.
+				  AND ` + InstansiMatchSelfSQL("me", "owner") + `
 			)
 		)`, examID, userID).Scan(&cnt)
 	if err != nil {
@@ -960,7 +990,9 @@ func UserCanControlExam(ctx context.Context, pool *pgxpool.Pool, userID int, isS
 				WHERE me.id = $2
 				  -- Exact operator-role match (see UserCanAccessExam).
 				  AND (me.role = 'operator' OR me.role ILIKE '%"operator"%')
-				  AND me.instansi NOT IN ('', 'personal') AND me.instansi = owner.instansi
+				  -- Tenant match by canonical instansi_id (legacy name fallback
+				  -- for id-less rows) — see InstansiMatchSelfSQL.
+				  AND ` + InstansiMatchSelfSQL("me", "owner") + `
 			)
 		)`, examID, userID).Scan(&cnt)
 	if err != nil {
@@ -990,7 +1022,9 @@ func FilterAccessibleExamIDs(ctx context.Context, pool *pgxpool.Pool, userID int
 				WHERE me.id = $2
 				  -- Exact operator-role match (see UserCanAccessExam).
 				  AND (me.role = 'operator' OR me.role ILIKE '%"operator"%')
-				  AND me.instansi NOT IN ('', 'personal') AND me.instansi = owner.instansi
+				  -- Tenant match by canonical instansi_id (legacy name fallback
+				  -- for id-less rows) — see InstansiMatchSelfSQL.
+				  AND ` + InstansiMatchSelfSQL("me", "owner") + `
 			)
 		)`, ids, userID)
 	if err != nil {

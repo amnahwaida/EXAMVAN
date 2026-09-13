@@ -79,6 +79,21 @@ func getInstansiForOperator(ctx context.Context, pool *pgxpool.Pool, userID int)
 	return instansi, nil
 }
 
+// getInstansiScopeForOperator is the tenant-identity variant of
+// getInstansiForOperator: it returns the operator's InstansiScope (canonical
+// instansi_id + display name) so tenant queries can match by id first instead
+// of the non-unique free-text name. Same fail-closed contract.
+func getInstansiScopeForOperator(ctx context.Context, pool *pgxpool.Pool, userID int) (models.InstansiScope, error) {
+	var inst string
+	var id *int
+	err := pool.QueryRow(ctx,
+		`SELECT instansi, instansi_id FROM admin_users WHERE id = $1`, userID).Scan(&inst, &id)
+	if err != nil {
+		return models.InstansiScope{}, err
+	}
+	return models.InstansiScope{ID: id, Name: strings.TrimSpace(inst)}, nil
+}
+
 // Sub-account free defaults: an operator-created account's OWN per-account
 // quota columns are forced to the 'free' package defaults — the same values
 // admin_users carries for a fresh self-registered account (schema.sql column
@@ -174,8 +189,8 @@ type quotaQuerier interface {
 // sub-account quota that quietly becomes 0 on a glitch would let the operator
 // create unlimited accounts; the enforcement caller (CreateUser) rejects the
 // request with 500 and the billing display simply omits the quota card.
-func loadOperatorAccountQuota(ctx context.Context, q quotaQuerier, userID int, isOperator bool, instansi string) (maxUsers, used int64, err error) {
-	instansi = strings.TrimSpace(instansi)
+func loadOperatorAccountQuota(ctx context.Context, q quotaQuerier, userID int, isOperator bool, scope models.InstansiScope) (maxUsers, used int64, err error) {
+	instansi := strings.TrimSpace(scope.Name)
 	if !isOperator || instansi == "" {
 		return 0, 0, nil
 	}
@@ -845,7 +860,7 @@ func CreateUser() gin.HandlerFunc {
 		// operator's locked transaction (see above), so the count and the
 		// INSERT below share one snapshot and one lock — no over-quota race.
 		if isOp {
-			maxUsers, used, qErr := loadOperatorAccountQuota(ctx, tx, userID, true, instansi)
+			maxUsers, used, qErr := loadOperatorAccountQuota(ctx, tx, userID, true, models.InstansiScope{ID: opInstansiID, Name: instansi})
 			if qErr != nil {
 				// Fail CLOSED: a transient DB error must not become an
 				// unlimited quota (loadOperatorAccountQuota returns an error
@@ -1359,10 +1374,17 @@ func EditUser() gin.HandlerFunc {
 							return
 						}
 					}
-					oldInstansi := targetUser.Instansi
+					// Rename the instansi label for every tenant member: matched
+					// by canonical instansi_id first (all linked members move
+					// together regardless of name), with the legacy name fallback
+					// for id-less rows. The instansi_id/instansi_code stay as-is —
+					// the school's identity is not changed by a label edit.
+					mfrag, margs := models.InstansiMatchSQL("", 1, models.InstansiScope{ID: targetUser.InstansiID, Name: targetUser.Instansi})
+					margs = append(margs, instansi, targetID)
 					_, err := pool.Exec(ctx,
-						`UPDATE admin_users SET instansi = $1 WHERE LOWER(instansi) = LOWER($2) AND id != $3`,
-						instansi, oldInstansi, targetID)
+						`UPDATE admin_users SET instansi = $`+fmt.Sprintf("%d", len(margs)-1)+
+							` WHERE `+mfrag+` AND id != $`+fmt.Sprintf("%d", len(margs)),
+						margs...)
 					if err != nil {
 						log.Printf("cascade instansi update error: %v", err)
 						// Non-fatal — operator's own instansi is still updated
@@ -1536,11 +1558,10 @@ func EditUser() gin.HandlerFunc {
 					      WHERE vr.user_id = admin_users.id AND vr.is_active
 					  )`, expVal, targetUser.Instansi, targetID); err != nil {
 					log.Printf("cascade expiry for instansi %s error: %v", targetUser.Instansi, err)
-				}
-				// Align the instansi users' active packages with the new expiry too
-				// (their expires_at was just rewritten above, so the shared helper
-				// reads the authoritative per-account expiry).
-				if err := models.SyncInstansiActiveRedemptionsToExpiry(ctx, pool, targetUser.Instansi, targetID); err != nil {
+				}					// Align the instansi users' active packages with the new expiry too
+					// (their expires_at was just rewritten above, so the shared helper
+					// reads the authoritative per-account expiry).
+					if err := models.SyncInstansiActiveRedemptionsToExpiry(ctx, pool, models.InstansiScope{ID: targetUser.InstansiID, Name: targetUser.Instansi}, targetID); err != nil {
 					log.Printf("cascade sync redemption expiry for instansi %s error: %v", targetUser.Instansi, err)
 				}
 			} else {
@@ -1742,7 +1763,8 @@ func ToggleUserStatus() gin.HandlerFunc {
 
 		// Cascade: track suspension/activation of operator's instansi.
 		if targetUser.IsOperator() {
-			opInstansi := targetUser.Instansi
+				opInstansi := targetUser.Instansi
+				opScope := models.InstansiScope{ID: targetUser.InstansiID, Name: targetUser.Instansi}
 			if opInstansi != "" {
 				if newStatus == models.UserStatusActive {
 					// Restore all cascade-suspended users
@@ -1757,7 +1779,7 @@ func ToggleUserStatus() gin.HandlerFunc {
 						// helper fails as a unit, so a partial failure (restore done
 						// but the redemption sync failed) suppresses the confirmation
 						// message below — the log records the failure.
-						if err := models.RestoreCascadeSuspendedInstansi(ctx, pool, opInstansi, targetID); err != nil {
+						if err := models.RestoreCascadeSuspendedInstansi(ctx, pool, opScope, targetID); err != nil {
 							log.Printf("cascade restore for instansi %s error: %v", opInstansi, err)
 						} else {
 							msg += fmt.Sprintf(". %d user di instansi %s juga diaktifkan kembali.", count, opInstansi)
@@ -1795,7 +1817,7 @@ func ToggleUserStatus() gin.HandlerFunc {
 							// Realign the sub-accounts' active package clocks with
 							// their new expiry (their rows were just rewritten above,
 							// so the per-account expiry is authoritative).
-							if err := models.SyncInstansiActiveRedemptionsToExpiry(ctx, pool, opInstansi, targetID); err != nil {
+							if err := models.SyncInstansiActiveRedemptionsToExpiry(ctx, pool, opScope, targetID); err != nil {
 								log.Printf("cascade sync redemption expiry for instansi %s error: %v", opInstansi, err)
 							}
 							msg += fmt.Sprintf(". %d akun di instansi %s ikut diperpanjang mengikuti masa aktif operator.", n, opInstansi)
@@ -1824,7 +1846,7 @@ func ToggleUserStatus() gin.HandlerFunc {
 					// Exams already running stay untouched so students can
 					// finish, and the tombstone is not auto-reversed when the
 					// operator is reactivated.
-					if err := tombstoneUnstartedInstansiExams(ctx, pool, opInstansi, false); err != nil {
+					if err := tombstoneUnstartedInstansiExams(ctx, pool, opScope, false); err != nil {
 						log.Printf("cascade tombstone exams for instansi %s error: %v", opInstansi, err)
 					}
 				}
