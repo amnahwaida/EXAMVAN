@@ -42,6 +42,14 @@ test('B30-1 (M26): hasil.html tidak lagi mendefinisikan <symbol> lokal — pakai
         'hasil.html wajib memuat partial sprite admin');
 });
 
+test('B30-2b (review 13 Sep): setiap id simbol sprite unik — tanpa definisi mati', () => {
+    const ids = [...ADMIN_SPRITE.matchAll(/<symbol id="([^"]+)"/g)].map((m) => m[1]);
+    const dupes = ids.filter((id, i) => ids.indexOf(id) !== i);
+    assert.deepEqual(dupes, [],
+        'id <symbol> duplikat di sprite: <use href="#id"> selalu resolve ke definisi PERTAMA, ' +
+        'definisi kedua jadi markup mati yang bisa menukar semua ikon secara senyap saat refactor: ' + dupes.join(', '));
+});
+
 test('B30-2 (M26): setiap #hi-* yang dirujuk hasil.html terdefinisi di partial admin', () => {
     const defined = new Set(
         [...ADMIN_SPRITE.matchAll(/<symbol id="(hi-[a-z-]+)"/g)].map((m) => m[1]));

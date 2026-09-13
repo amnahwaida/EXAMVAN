@@ -158,6 +158,14 @@ type Worker struct {
 	quit      chan struct{}
 	batchChan chan SubmissionResult
 	wg        sync.WaitGroup
+	// workerWG tracks the poller goroutines only (not the batch inserter).
+	// runBatchInserter drains batchChan until this group drains BEFORE it
+	// flushes-and-exits on quit: without the barrier, a worker finishing its
+	// last job could send into batchChan AFTER the inserter's non-blocking
+	// drain pass saw an empty channel and returned — stranding the result in
+	// the buffer with no reader, never flushed, never spooled (B, review
+	// 13 Sep 2026).
+	workerWG sync.WaitGroup
 	// submissionSpoolDir is the directory retryOrFail spools jobs into when
 	// their re-enqueue fails. Empty disables the spool (the failure is still
 	// logged loudly).
@@ -211,6 +219,7 @@ func StartWorker(rdb *goredis.Client, pool *pgxpool.Pool) *Worker {
 	// Spawn workers to read and process jobs
 	for i := 1; i <= workerCount; i++ {
 		w.wg.Add(1)
+		w.workerWG.Add(1)
 		go w.runWorker(i)
 	}
 
@@ -263,6 +272,7 @@ func (w *Worker) touchHeartbeat(ctx context.Context) {
 // runWorker is the main loop for a single worker thread.
 func (w *Worker) runWorker(id int) {
 	defer w.wg.Done()
+	defer w.workerWG.Done()
 
 	if isRedisUnavailable(w.rdb) {
 		log.Printf("queue: Redis unavailable — worker %d not started", id)
@@ -303,7 +313,11 @@ func (w *Worker) runWorker(id int) {
 
 			var job SubmissionJob
 			if err := json.Unmarshal(payload, &job); err != nil {
-				log.Printf("queue: worker %d unmarshal job error: %v", id, err)
+				// Poison job (fix G.1): persist the raw payload for inspection
+				// instead of dropping it with only a log line — an unparseable
+				// payload may indicate a producer bug worth forensics.
+				log.Printf("queue: worker %d unmarshal job error: %v (payload %d bytes spooled to poison)", id, err, len(payload))
+				w.spoolPoisonPayload(payload, err)
 				continue
 			}
 
@@ -333,6 +347,11 @@ func (w *Worker) runWorker(id int) {
 	}
 }
 
+// errExamWindowClosed marks a deterministic rejection: the exam is no longer
+// active or its end_time has passed (beyond the 60s submit grace). Unlike
+// transient errors it must NOT be retried — the outcome can never change.
+var errExamWindowClosed = errors.New("exam no longer active or past end_time")
+
 // Stop signals the worker to shut down after the current job finishes.
 func (w *Worker) Stop() {
 	close(w.quit)
@@ -352,11 +371,23 @@ func (w *Worker) processSubmission(ctx context.Context, job *SubmissionJob) (*fl
 		return nil, errors.New("database pool is nil")
 	}
 
+	// Re-validate the exam at CONSUMPTION time (fix C): the active/schedule
+	// gates run only at enqueue — a job loitering in Redis through a backlog,
+	// a worker outage, or retries could otherwise grade and persist answers
+	// for an exam that was deactivated, deleted, or whose window has since
+	// closed. The status filter makes deleted exams (no row) and deactivated
+	// exams (status <> 'active') both fail the fetch; the end_time check
+	// closes the lingering-job window. A deterministic failure (not retried)
+	// without touching submissions is the correct outcome.
 	var questionsJSON *string
+	var endTime *time.Time
 	err := w.pool.QueryRow(ctx,
-		`SELECT questions_json FROM exams WHERE id = $1`, job.ExamID).Scan(&questionsJSON)
+		`SELECT questions_json, end_time FROM exams WHERE id = $1 AND status = 'active'`, job.ExamID).Scan(&questionsJSON, &endTime)
 	if err != nil {
 		return nil, fmt.Errorf("fetch exam: %w", err)
+	}
+	if endTime != nil && time.Now().UTC().After(endTime.Add(60*time.Second)) {
+		return nil, errExamWindowClosed
 	}
 
 	questions, parseErr := models.ParseQuestionsJSON(questionsJSON)
@@ -392,8 +423,18 @@ func (w *Worker) runBatchInserter(batchSize int) {
 	for {
 		select {
 		case <-w.quit:
+			// Shutdown barrier (fix B): wait for every poller goroutine to
+			// exit BEFORE draining — a worker that finished processing its
+			// last job may still be placing the result into batchChan while
+			// this select runs. The old non-blocking drain could observe an
+			// empty channel at that instant, return, and strand the result in
+			// the buffer forever (never flushed, never spooled, student told
+			// 202-accepted). workerWG.Done() runs via runWorker's defers, so
+			// waiting here guarantees every in-flight result is already in
+			// the channel (or re-enqueued by the send-vs-quit branch).
+			w.workerWG.Wait()
 			flush()
-			// Drain channel before exiting
+			// Drain any results that reached the channel, then exit.
 			for {
 				select {
 				case res := <-w.batchChan:
@@ -525,6 +566,14 @@ func (w *Worker) flushBatch(ctx context.Context, results []SubmissionResult) {
 		}
 	}
 	for _, r := range failed {
+		if errors.Is(r.Error, errExamWindowClosed) {
+			// Deterministic rejection (fix C): retrying can never change the
+			// outcome. Record the terminal failure AND spool the payload so
+			// the answers stay recoverable instead of evaporating with the
+			// 5-minute Redis result key.
+			w.recordTerminalFailure(r, fmt.Sprintf("submission rejected: %v", r.Error))
+			continue
+		}
 		w.retryOrFail(r, fmt.Sprintf("submission error: %v", r.Error))
 	}
 
@@ -621,29 +670,79 @@ func (w *Worker) retryOrFail(r *SubmissionResult, msg string) {
 		}
 		return
 	}
-	w.storeResult(context.Background(), r.Job.JobID, false, nil, msg)
+	w.recordTerminalFailure(r, msg)
 }
 
-// spoolJob writes the job as JSON to <submissionSpoolDir>/<jobID>.json.
+// recordTerminalFailure publishes the failure result AND spools the job
+// payload to the failed/ spool directory (fix D): the retry budget is gone
+// or the rejection is deterministic, and the Redis result key dies after 5
+// minutes — without the spool, a student's answers (and any forensics)
+// vanish with no admin-recoverable trace. DrainSubmissionSpool deliberately
+// does NOT re-enqueue files from failed/ — replay is a manual decision.
+func (w *Worker) recordTerminalFailure(r *SubmissionResult, msg string) {
+	log.Printf("queue batch: job %s FAILED PERMANENTLY: %s", r.Job.JobID, msg)
+	w.storeResult(context.Background(), r.Job.JobID, false, nil, msg)
+	if err := w.spoolJobTo(w.failedSpoolDir(), &r.Job); err != nil {
+		log.Printf("queue batch: job %s spool-to-failed failed (%v) — payload only recoverable while the result key lives", r.Job.JobID, err)
+	}
+}
+
+// failedSpoolDir is the sibling directory holding permanently-failed jobs.
+func (w *Worker) failedSpoolDir() string {
+	if w.submissionSpoolDir == "" {
+		return ""
+	}
+	return filepath.Join(filepath.Dir(w.submissionSpoolDir), filepath.Base(w.submissionSpoolDir)+"-failed")
+}
+
+// spoolJob writes the job to the default retry spool directory.
+func (w *Worker) spoolJob(job *SubmissionJob) error {
+	return w.spoolJobTo(w.submissionSpoolDir, job)
+}
+
+// spoolJobTo writes the job as JSON to <dir>/<jobID>.json.
 // Best-effort durability: the only worse alternative is dropping the
 // payload silently.
-func (w *Worker) spoolJob(job *SubmissionJob) error {
-	if w.submissionSpoolDir == "" {
+func (w *Worker) spoolJobTo(dir string, job *SubmissionJob) error {
+	if dir == "" {
 		return errors.New("queue: no spool dir configured")
 	}
-	if err := os.MkdirAll(w.submissionSpoolDir, 0o700); err != nil {
+	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return fmt.Errorf("queue: create spool dir: %w", err)
 	}
 	payload, err := json.Marshal(job)
 	if err != nil {
 		return fmt.Errorf("queue: marshal spool job: %w", err)
 	}
-	path := filepath.Join(w.submissionSpoolDir, job.JobID+".json")
+	path := filepath.Join(dir, job.JobID+".json")
 	if err := os.WriteFile(path, payload, 0o600); err != nil {
 		return fmt.Errorf("queue: write spool file: %w", err)
 	}
 	log.Printf("queue: job %s spooled to %s", job.JobID, path)
 	return nil
+}
+
+// spoolPoisonPayload persists a job payload that failed to unmarshal (fix
+// G.1): previously it was only logged and dropped — no trace for forensics.
+// The file lives in the -failed spool directory with a .poison suffix so
+// DrainSubmissionSpool never re-enqueues it.
+func (w *Worker) spoolPoisonPayload(payload []byte, cause error) {
+	dir := w.failedSpoolDir()
+	if dir == "" {
+		return
+	}
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		log.Printf("queue: poison spool dir create failed: %v", err)
+		return
+	}
+	name := fmt.Sprintf("poison-%d.json.poison", time.Now().UTC().UnixNano())
+	path := filepath.Join(dir, name)
+	body := append(append([]byte("// unmarshal error: "+cause.Error()+"\n"), payload...), '\n')
+	if err := os.WriteFile(path, body, 0o600); err != nil {
+		log.Printf("queue: poison spool write failed: %v", err)
+		return
+	}
+	log.Printf("queue: poison payload spooled to %s", path)
 }
 
 // DrainSubmissionSpool re-enqueues every spooled job (files named

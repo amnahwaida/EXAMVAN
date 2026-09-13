@@ -10,6 +10,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"math/big"
+	"os"
 	"path/filepath"
 	"strings"
 	"time"
@@ -182,10 +183,12 @@ func GenerateExamToken() string {
 
 // SafeStoragePath resolves a relative file path against the storage
 // directory and verifies the result does not escape via directory traversal.
+// The prefix check requires the separator (fix G.2): a bare strings.HasPrefix
+// accepted sibling directories like /data/uploads-evil for base /data/uploads.
 func SafeStoragePath(baseDir, relPath string) (string, error) {
 	cleanBase := filepath.Clean(baseDir)
 	full := filepath.Join(cleanBase, filepath.Clean(relPath))
-	if !strings.HasPrefix(full, cleanBase) {
+	if full != cleanBase && !strings.HasPrefix(full, cleanBase+string(os.PathSeparator)) {
 		return "", fmt.Errorf("path traversal detected: %s", relPath)
 	}
 	return full, nil

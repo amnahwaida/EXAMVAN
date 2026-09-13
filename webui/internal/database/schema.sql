@@ -223,6 +223,15 @@ ALTER TABLE exams ADD COLUMN IF NOT EXISTS token_mode TEXT DEFAULT 'dynamic';
 ALTER TABLE exams ADD COLUMN IF NOT EXISTS token_reset_interval INTEGER;
 ALTER TABLE exams ADD COLUMN IF NOT EXISTS token_last_reset_at TIMESTAMPTZ;
 ALTER TABLE exams ADD COLUMN IF NOT EXISTS active_token TEXT NOT NULL DEFAULT '';
+
+-- Index — exams.active_token (partial: empty default excluded). GetExamBy
+-- ActiveToken is the HOT Android-device auth path (heartbeat/start/submit —
+-- previously a full-table scan on exams per call), and the OR-form
+-- GetExamByToken forces a seq scan unless this column is indexed too. UNIQUE
+-- also pins one-active-token-per-exam idempotency, same as `token`.
+-- Placed AFTER the ADD COLUMN above so upgrades never index a missing column.
+CREATE UNIQUE INDEX IF NOT EXISTS idx_exams_active_token ON exams(active_token)
+WHERE active_token <> '';
 ALTER TABLE exams ADD COLUMN IF NOT EXISTS exam_started_at TIMESTAMPTZ;
 -- Custom congratulations message shown on the Android page after a student
 -- submits (configurable from the "Atur Soal & Kunci Jawaban" modal). Free

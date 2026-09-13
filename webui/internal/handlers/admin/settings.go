@@ -416,17 +416,30 @@ func handleSaasSettingsPost(c *gin.Context, pool *pgxpool.Pool, ctx context.Cont
 		models.SetSaasSetting(reqCtx, pool, models.SettingDefaultActiveDays, strconv.Itoa(defaultActiveDays))
 	}
 
-	// App versions
+	// App versions — same normalization/validation as the system-apps upload
+	// path (NormalizeAppVersion: trim, drop v/V prefix, require 1–4 numeric
+	// dot-separated segments). Previously any free text (spaces, newlines,
+	// 10KB junk) was stored verbatim and later fed to client version gates.
 	if body.AndroidVersion != nil {
 		androidVersion := strings.TrimSpace(*body.AndroidVersion)
 		if androidVersion != "" {
-			models.SetSaasSetting(reqCtx, pool, models.SettingAndroidVersion, androidVersion)
+			norm := models.NormalizeAppVersion(androidVersion)
+			if norm == "" {
+				errorResponse(c, http.StatusBadRequest, "Versi aplikasi Android tidak valid (format: 1.2.3)")
+				return
+			}
+			models.SetSaasSetting(reqCtx, pool, models.SettingAndroidVersion, norm)
 		}
 	}
 	if body.WebappVersion != nil {
 		webappVersion := strings.TrimSpace(*body.WebappVersion)
 		if webappVersion != "" {
-			models.SetSaasSetting(reqCtx, pool, models.SettingWebappVersion, webappVersion)
+			norm := models.NormalizeAppVersion(webappVersion)
+			if norm == "" {
+				errorResponse(c, http.StatusBadRequest, "Versi aplikasi Web tidak valid (format: 1.2.3)")
+				return
+			}
+			models.SetSaasSetting(reqCtx, pool, models.SettingWebappVersion, norm)
 		}
 	}
 

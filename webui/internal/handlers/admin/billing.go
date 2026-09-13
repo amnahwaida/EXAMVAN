@@ -127,7 +127,8 @@ func loadBillingPageData(c *gin.Context) gin.H {
 							SELECT COALESCE(vr.package, '')
 							FROM voucher_redemptions vr
 							JOIN admin_users u ON u.id = vr.user_id
-							WHERE vr.is_active AND u.instansi = $1 AND u.role ILIKE '%"operator"%'
+							WHERE vr.is_active AND LOWER(u.instansi) = LOWER($1)
+							  AND (u.role = 'operator' OR u.role ILIKE '%"operator"%')
 							ORDER BY vr.redeemed_at DESC, vr.id DESC
 							LIMIT 1`, user.Instansi).Scan(&schoolPkg); err != nil || schoolPkg == "" {
 						userPackageName = "Paket Sekolah"

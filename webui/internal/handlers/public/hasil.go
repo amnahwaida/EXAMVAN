@@ -179,12 +179,15 @@ func HasilPage() gin.HandlerFunc {
 			total = 0
 		}
 
+		// Display names only: the `name` column (never the login username —
+		// that is a credential half, not a display name). Empty name keeps the
+		// span hidden in the template, same as a failed lookup did before.
 		var creatorName string
-		pool.QueryRow(ctx, `SELECT username FROM admin_users WHERE id = $1`, exam.CreatedBy).Scan(&creatorName)
+		pool.QueryRow(ctx, `SELECT COALESCE(name, '') FROM admin_users WHERE id = $1`, exam.CreatedBy).Scan(&creatorName)
 
 		var delegatedName string
 		if exam.DelegatedTo != nil {
-			pool.QueryRow(ctx, `SELECT username FROM admin_users WHERE id = $1`, *exam.DelegatedTo).Scan(&delegatedName)
+			pool.QueryRow(ctx, `SELECT COALESCE(name, '') FROM admin_users WHERE id = $1`, *exam.DelegatedTo).Scan(&delegatedName)
 		}
 
 		c.HTML(http.StatusOK, "public/hasil.html", middleware.MergeTemplateData(c, gin.H{

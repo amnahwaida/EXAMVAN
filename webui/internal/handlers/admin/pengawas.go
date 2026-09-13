@@ -91,7 +91,12 @@ func PengawasDetailPage() gin.HandlerFunc {
 			}
 		}
 
-		pengawasAssignments, _ := models.GetPengawasAssignments(ctx, pool, examID)
+		pengawasAssignments, err := models.GetPengawasAssignments(ctx, pool, examID)
+		if err != nil {
+			log.Printf("load pengawas assignments error: %v", err)
+			errorResponse(c, http.StatusInternalServerError, "Gagal memuat penugasan pengawas")
+			return
+		}
 
 		// Control (settings/start-stop) is management-level: excludes a
 		// pengawas-only viewer and scopes operators to their instansi.

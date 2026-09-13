@@ -240,7 +240,7 @@ func ListExams(ctx context.Context, pool *pgxpool.Pool, opts ListExamsOpts) (Lis
 	// Instansi filter (for operator view): all users in the operator's instansi.
 	if opts.Instansi != "" {
 		conditions = append(conditions, fmt.Sprintf(
-			`e.created_by IN (SELECT id FROM admin_users WHERE instansi = $%d)`, argIdx))
+			`e.created_by IN (SELECT id FROM admin_users WHERE LOWER(instansi) = LOWER($%d))`, argIdx))
 		args = append(args, opts.Instansi)
 		argIdx++
 	}
@@ -403,7 +403,7 @@ func CountExamsByInstansi(ctx context.Context, q queryRower, instansi string) (i
 	var n int64
 	err := q.QueryRow(ctx, `SELECT COUNT(*) FROM exams e
 		JOIN admin_users u ON e.created_by = u.id
-		WHERE u.instansi = $1`, instansi).Scan(&n)
+		WHERE LOWER(u.instansi) = LOWER($1)`, instansi).Scan(&n)
 	if err != nil {
 		return 0, fmt.Errorf("count exams by instansi: %w", err)
 	}
@@ -416,7 +416,7 @@ func SumStorageByInstansi(ctx context.Context, q queryRower, instansi string) (i
 	var n int64
 	err := q.QueryRow(ctx, `SELECT COALESCE(SUM(e.size_bytes), 0) FROM exams e
 		JOIN admin_users u ON e.created_by = u.id
-		WHERE u.instansi = $1`, instansi).Scan(&n)
+		WHERE LOWER(u.instansi) = LOWER($1)`, instansi).Scan(&n)
 	if err != nil {
 		return 0, fmt.Errorf("sum storage by instansi: %w", err)
 	}
@@ -432,7 +432,7 @@ func CountRunningExamsByInstansi(ctx context.Context, q queryRower, instansi str
 	var n int
 	err := q.QueryRow(ctx, `SELECT COUNT(*) FROM exams e
 		JOIN admin_users u ON e.created_by = u.id
-		WHERE u.instansi = $1 AND e.status = 'active' AND e.exam_started_at IS NOT NULL AND e.id <> $2`,
+		WHERE LOWER(u.instansi) = LOWER($1) AND e.status = 'active' AND e.exam_started_at IS NOT NULL AND e.id <> $2`,
 		instansi, excludeID).Scan(&n)
 	if err != nil {
 		return 0, fmt.Errorf("count running exams by instansi: %w", err)
@@ -453,9 +453,8 @@ func RunningExamCountsAfterActivationByInstansi(ctx context.Context, q rowsQueri
 	}
 	rows, err := q.Query(ctx, `
 		SELECT u.instansi,
-		       (SELECT COUNT(*) FROM exams x
-		         JOIN admin_users xu ON x.created_by = xu.id
-		         WHERE xu.instansi = u.instansi
+		       (SELECT COUNT(*) FROM exams x			         JOIN admin_users xu ON x.created_by = xu.id
+			         WHERE LOWER(xu.instansi) = LOWER(u.instansi)
 		           AND x.status = 'active' AND x.exam_started_at IS NOT NULL)
 		       + COUNT(*) FILTER (WHERE e.status <> 'active' AND e.exam_started_at IS NOT NULL) AS running_after
 		FROM exams e
@@ -925,7 +924,11 @@ func UserCanAccessExam(ctx context.Context, pool *pgxpool.Pool, userID int, isSu
 			OR e.id IN (SELECT exam_id FROM exam_pengawas WHERE user_id = $2)
 			OR EXISTS (
 				SELECT 1 FROM admin_users me
-				WHERE me.id = $2 AND me.role ILIKE '%"operator"%'
+				WHERE me.id = $2
+				  -- Exact operator-role match: the JSON-quoted token (any array
+				  -- position) or the legacy bare value. A bare substring ILIKE
+				  -- would miss legacy non-JSON rows entirely.
+				  AND (me.role = 'operator' OR me.role ILIKE '%"operator"%')
 				  AND me.instansi NOT IN ('', 'personal') AND me.instansi = owner.instansi
 			)
 		)`, examID, userID).Scan(&cnt)
@@ -954,7 +957,9 @@ func UserCanControlExam(ctx context.Context, pool *pgxpool.Pool, userID int, isS
 			OR e.delegated_to = $2
 			OR EXISTS (
 				SELECT 1 FROM admin_users me
-				WHERE me.id = $2 AND me.role ILIKE '%"operator"%'
+				WHERE me.id = $2
+				  -- Exact operator-role match (see UserCanAccessExam).
+				  AND (me.role = 'operator' OR me.role ILIKE '%"operator"%')
 				  AND me.instansi NOT IN ('', 'personal') AND me.instansi = owner.instansi
 			)
 		)`, examID, userID).Scan(&cnt)
@@ -982,7 +987,9 @@ func FilterAccessibleExamIDs(ctx context.Context, pool *pgxpool.Pool, userID int
 			OR e.delegated_to = $2
 			OR EXISTS (
 				SELECT 1 FROM admin_users me
-				WHERE me.id = $2 AND me.role ILIKE '%"operator"%'
+				WHERE me.id = $2
+				  -- Exact operator-role match (see UserCanAccessExam).
+				  AND (me.role = 'operator' OR me.role ILIKE '%"operator"%')
 				  AND me.instansi NOT IN ('', 'personal') AND me.instansi = owner.instansi
 			)
 		)`, ids, userID)

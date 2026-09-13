@@ -249,6 +249,34 @@ func HashPassword(password string) (string, error) {
 	return string(bytes), nil
 }
 
+// HashOTP hashes a 6-digit OTP for at-rest storage: anyone with read access
+// to the DB (SQLi in another module, leaked backup, read replica, admin DB
+// tooling) must not be able to lift a live code and take over the account
+// within its 15-minute TTL. bcrypt like password_hash — the cost is fine for
+// a once-per-session compare, and the 5-attempt lockout keeps the slow
+// compare off the brute-force path.
+func HashOTP(code string) (string, error) {
+	bytes, err := bcrypt.GenerateFromPassword([]byte(code), bcrypt.DefaultCost)
+	if err != nil {
+		return "", fmt.Errorf("hash otp: %w", err)
+	}
+	return string(bytes), nil
+}
+
+// CheckOTPCode verifies a submitted OTP against its stored value. Rows
+// written before the hash-at-rest change hold legacy plaintext (no "$2"
+// prefix) — those still match via exact equality so pending accounts are not
+// stranded mid-migration; every new write is a bcrypt hash.
+func CheckOTPCode(code, stored string) bool {
+	if code == "" || stored == "" {
+		return false
+	}
+	if strings.HasPrefix(stored, "$2") {
+		return bcrypt.CompareHashAndPassword([]byte(stored), []byte(code)) == nil
+	}
+	return stored == code
+}
+
 // CheckPassword compares a password against a hash.
 // Supports bcrypt hashes (starts with "$2") and werkzeug-style hashes
 // (starts with "scrypt:" or "pbkdf2:") from the Python EXAMVAN server.
@@ -496,10 +524,10 @@ var userSortExprs = map[string]string{
 	"instansi": "u.instansi",
 	"package":  "COALESCE(u.package, 'free')",
 	"role": `CASE
-		WHEN u.role ILIKE '%"superadmin"%' THEN 0
-		WHEN u.role ILIKE '%"operator"%' THEN 1
-		WHEN u.role ILIKE '%"guru"%' THEN 2
-		WHEN u.role ILIKE '%"pengawas"%' THEN 3
+		WHEN u.role = 'superadmin' OR u.role ILIKE '%"superadmin"%' THEN 0
+		WHEN u.role = 'operator' OR u.role ILIKE '%"operator"%' THEN 1
+		WHEN u.role = 'guru' OR u.role ILIKE '%"guru"%' THEN 2
+		WHEN u.role = 'pengawas' OR u.role ILIKE '%"pengawas"%' THEN 3
 		ELSE 4
 	END`,
 	"email":      "NULLIF(u.email, '')",
@@ -516,10 +544,10 @@ var userSortExprs = map[string]string{
 // tie-breaker in every path, so paging stays deterministic.
 func listUsersOrderBy(opts ListUsersOpts) string {
 	defaultOrder := `CASE
-		WHEN u.role ILIKE '%"superadmin"%' THEN 0
-		WHEN u.role ILIKE '%"operator"%' THEN 1
-		WHEN u.role ILIKE '%"guru"%' THEN 2
-		WHEN u.role ILIKE '%"pengawas"%' THEN 3
+		WHEN u.role = 'superadmin' OR u.role ILIKE '%"superadmin"%' THEN 0
+		WHEN u.role = 'operator' OR u.role ILIKE '%"operator"%' THEN 1
+		WHEN u.role = 'guru' OR u.role ILIKE '%"guru"%' THEN 2
+		WHEN u.role = 'pengawas' OR u.role ILIKE '%"pengawas"%' THEN 3
 		ELSE 4
 	END, u.username ASC`
 	expr, ok := userSortExprs[opts.SortBy]
@@ -572,25 +600,28 @@ func ListUsers(ctx context.Context, pool *pgxpool.Pool, opts ListUsersOpts) (Lis
 		argIdx++
 	}
 
-	// Exclusion for operator users.
+	// Exclusion for operator users — exact match on both the JSON-quoted
+	// token and the legacy bare value (substring ILIKE alone would also
+	// match e.g. a comment-like role string containing "operator").
 	if opts.ExcludeOperator {
-		conditions = append(conditions, fmt.Sprintf(`u.role NOT ILIKE $%d`, argIdx))
-		args = append(args, `%"operator"%`)
-		argIdx++
+		conditions = append(conditions, fmt.Sprintf(`(u.role = $%d OR u.role ILIKE $%d)`, argIdx, argIdx+1))
+		args = append(args, RoleOperator, `%"operator"%`)
+		argIdx += 2
 	}
 
 	// Instansi filter (for operator viewing their own instansi).
 	if opts.Instansi != "" {
-		conditions = append(conditions, fmt.Sprintf(`u.instansi = $%d`, argIdx))
+		conditions = append(conditions, fmt.Sprintf(`LOWER(u.instansi) = LOWER($%d)`, argIdx))
 		args = append(args, opts.Instansi)
 		argIdx++
 	}
 
-	// Role filter (ILIKE on JSON array string like `["guru"]`).
+	// Role filter — exact match on the bare value or the JSON-quoted token
+	// inside the array string (like `["guru"]`), never a loose substring.
 	if opts.RoleFilter != "" {
-		conditions = append(conditions, fmt.Sprintf(`u.role ILIKE $%d`, argIdx))
-		args = append(args, `%`+opts.RoleFilter+`%`)
-		argIdx++
+		conditions = append(conditions, fmt.Sprintf(`(u.role = $%d OR u.role ILIKE $%d)`, argIdx, argIdx+1))
+		args = append(args, opts.RoleFilter, `%`+opts.RoleFilter+`%`)
+		argIdx += 2
 	}
 
 	// Search filter.
@@ -1209,6 +1240,14 @@ func ResumeSuspendedAccountClock(ctx context.Context, pool *pgxpool.Pool, userID
 // so the caller can clean up stored files. The caller should also remove related
 // exam_pengawas entries (DB cascade handles this).
 func DeleteUser(ctx context.Context, pool *pgxpool.Pool, userID int) ([]string, error) {
+	// Model-layer backstop: the bootstrap superadmin account is only re-seeded
+	// at startup — deleting it locks every superadmin out of the deployment.
+	// The handler layers already reject this; this guard closes any future
+	// caller path that forgets.
+	var delUsername string
+	if err := pool.QueryRow(ctx, `SELECT username FROM admin_users WHERE id = $1`, userID).Scan(&delUsername); err == nil && delUsername == SuperAdminUsername {
+		return nil, fmt.Errorf("delete user: the bootstrap superadmin account cannot be deleted")
+	}
 	// Start DB transaction
 	tx, err := pool.Begin(ctx)
 	if err != nil {
@@ -1231,7 +1270,7 @@ func DeleteUser(ctx context.Context, pool *pgxpool.Pool, userID int) ([]string, 
 	var cascadedIDs []int
 	if target.HasRole(RoleOperator) && target.Instansi != "" {
 		rows, err := tx.Query(ctx,
-			`SELECT id FROM admin_users WHERE instansi = $1 AND id != $2 FOR UPDATE`,
+			`SELECT id FROM admin_users WHERE LOWER(instansi) = LOWER($1) AND id != $2 FOR UPDATE`,
 			target.Instansi, userID)
 		if err != nil {
 			return nil, fmt.Errorf("delete user: query instansi users: %w", err)
@@ -1411,6 +1450,12 @@ func AuthenticateUser(ctx context.Context, pool *pgxpool.Pool, username, passwor
 // Clearing them keeps VerifyUserManual consistent with every other
 // activation path (ResumeSuspendedAccountClock, ToggleUserStatus, EditUser).
 func VerifyUserManual(ctx context.Context, pool *pgxpool.Pool, userID int) error {
+	// Model-layer backstop (mirrors DeleteUser): the bootstrap superadmin
+	// account's lifecycle is never managed below the superadmin level.
+	var vUsername string
+	if err := pool.QueryRow(ctx, `SELECT username FROM admin_users WHERE id = $1`, userID).Scan(&vUsername); err == nil && vUsername == SuperAdminUsername {
+		return fmt.Errorf("verify user: the bootstrap superadmin account cannot be managed by this path")
+	}
 	_, err := pool.Exec(ctx,
 		`UPDATE admin_users SET status = 'active', otp_code = NULL, otp_expiry = NULL,
 		        suspended_at = NULL, suspended_by_cascade = FALSE

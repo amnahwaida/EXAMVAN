@@ -65,11 +65,17 @@ func Dashboard() gin.HandlerFunc {
 			opts.IsGuru = hasCurrentRole(c, models.RoleGuru)
 		}
 
-		// Get the user's instansi if operator
+		// Get the user's instansi if operator. Fail-CLOSED (same as
+		// buildScopeConditions in submissions.go): an unresolved/empty/
+		// "personal" instansi must never mean "no WHERE clause" — that
+		// degenerates into a GLOBAL list of every tenant's exams (and their
+		// tokens). Fall back to own-created scope instead.
 		if isOp {
-			var instansi string
-			err := pool.QueryRow(ctx, `SELECT instansi FROM admin_users WHERE id = $1`, userID).Scan(&instansi)
-			if err == nil {
+			instansi, err := getInstansiForOperator(ctx, pool, userID)
+			if err != nil || instansi == "" || instansi == "personal" {
+				uid := userID
+				opts.UserID = &uid
+			} else {
 				opts.Instansi = instansi
 			}
 		}
@@ -118,10 +124,15 @@ func Dashboard() gin.HandlerFunc {
 		if isSuper {
 			// all — no filter
 		} else if isOp {
-			var instansi string
-			pool.QueryRow(ctx, `SELECT instansi FROM admin_users WHERE id = $1`, userID).Scan(&instansi)
-			if instansi != "" {
-				statsWheres = append(statsWheres, fmt.Sprintf(`e.created_by IN (SELECT id FROM admin_users WHERE instansi = $%d)`, statsArgIdx))
+			// Fail-closed operator scope (mirrors the list path above): empty
+			// or "personal" instansi falls back to own-created — never global.
+			instansi, err := getInstansiForOperator(ctx, pool, userID)
+			if err != nil || instansi == "" || instansi == "personal" {
+				statsWheres = append(statsWheres, fmt.Sprintf(`e.created_by = $%d`, statsArgIdx))
+				statsArgs = append(statsArgs, userID)
+				statsArgIdx++
+			} else {
+				statsWheres = append(statsWheres, fmt.Sprintf(`e.created_by IN (SELECT id FROM admin_users WHERE LOWER(instansi) = LOWER($%d))`, statsArgIdx))
 				statsArgs = append(statsArgs, instansi)
 				statsArgIdx++
 			}
@@ -463,10 +474,15 @@ func Stats() gin.HandlerFunc {
 		if isSuper {
 			// all — no filter
 		} else if isOp {
-			var instansi string
-			pool.QueryRow(ctx, `SELECT instansi FROM admin_users WHERE id = $1`, userID).Scan(&instansi)
-			if instansi != "" {
-				statsWheres = append(statsWheres, fmt.Sprintf(`e.created_by IN (SELECT id FROM admin_users WHERE instansi = $%d)`, statsArgIdx))
+			// Fail-closed operator scope (mirrors the list path above): empty
+			// or "personal" instansi falls back to own-created — never global.
+			instansi, err := getInstansiForOperator(ctx, pool, userID)
+			if err != nil || instansi == "" || instansi == "personal" {
+				statsWheres = append(statsWheres, fmt.Sprintf(`e.created_by = $%d`, statsArgIdx))
+				statsArgs = append(statsArgs, userID)
+				statsArgIdx++
+			} else {
+				statsWheres = append(statsWheres, fmt.Sprintf(`e.created_by IN (SELECT id FROM admin_users WHERE LOWER(instansi) = LOWER($%d))`, statsArgIdx))
 				statsArgs = append(statsArgs, instansi)
 				statsArgIdx++
 			}

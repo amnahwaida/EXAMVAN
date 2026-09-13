@@ -479,7 +479,7 @@ func registerRoutes(r *gin.Engine, cfg *config.Config, pool *pgxpool.Pool) {
 
 	r.GET("/register", registerPageHandler(cfg))
 	r.POST("/register", middleware.RateLimit(5, time.Minute), middleware.CSRFRequired(), registerPostHandler(cfg))
-	r.GET("/register/confirm", registerConfirmPageHandler(cfg))
+	r.GET("/register/confirm", middleware.RateLimit(30, time.Minute), registerConfirmPageHandler(cfg))
 	r.POST("/register/confirm", middleware.RateLimit(5, time.Minute), middleware.CSRFRequired(), registerConfirmPostHandler(cfg))
 	r.POST("/register/resend", middleware.RateLimit(5, time.Minute), middleware.CSRFRequired(), resendOTPHandler(cfg))
 
@@ -489,8 +489,8 @@ func registerRoutes(r *gin.Engine, cfg *config.Config, pool *pgxpool.Pool) {
 	r.GET("/reset-password", resetPasswordPageHandler(cfg))
 	r.POST("/reset-password", middleware.RateLimit(5, time.Minute), middleware.CSRFRequired(), resetPasswordPostHandler(cfg))
 
-	r.GET("/download", public.DownloadPage())
-	r.GET("/download/apk", public.DownloadAPK())
+	r.GET("/download", middleware.RateLimitIP(60, time.Minute), public.DownloadPage())
+	r.GET("/download/apk", middleware.RateLimitIP(60, time.Minute), public.DownloadAPK())
 	r.GET("/download/app/:id", middleware.RateLimit(60, time.Minute), public.DownloadSystemApp())
 	// M1: the HTML result pages carry the SAME anti-brute-force budget as the
 	// API route below (30/menit per IP, comment at rateLimitHasilPerMinute):
@@ -771,11 +771,14 @@ func registerRoutes(r *gin.Engine, cfg *config.Config, pool *pgxpool.Pool) {
 			lockedAPI.GET("/exams/:exam_id/questions", admin.GetQuestions())
 			lockedAPI.GET("/exams/:exam_id/delegate-data", admin.DelegateData())
 			lockedAPI.GET("/exams/:exam_id/pdf", admin.ExamPDF())
-			lockedAPI.GET("/submissions", admin.ListSubmissions())
+			// NOTE: the three dead endpoints found in the route review (13 Sep
+			// 2026) were removed: GET /submissions (plain list, superseded by
+			// the server-rendered page + /submissions/export),
+			// /submissions/:id/export_detail (superseded by /submissions/:id/
+			// detail), and /queue/status (never surfaced by any UI). Their
+			// handlers live in git history.
 			lockedAPI.GET("/submissions/:id/detail", admin.SubmissionDetail())
 			lockedAPI.GET("/submissions/export", middleware.RateLimit(30, time.Minute), admin.ExportSubmissions())
-			lockedAPI.GET("/submissions/:id/export_detail", middleware.RateLimit(30, time.Minute), admin.ExportSubmissionDetail())
-			lockedAPI.GET("/queue/status", admin.QueueStatus())
 			adminUsersRead := lockedAPI.Group("", middleware.AdminManagementRequired())
 			{
 				adminUsersRead.GET("/users", admin.ListUsers())
@@ -1272,6 +1275,7 @@ func registerPostHandler(cfg *config.Config) gin.HandlerFunc {
 		status := models.UserStatusActive
 		var otpCode *string
 		var otpExpiry *time.Time
+		var otpPlain string
 
 		if emailEnabled {
 			status = models.UserStatusPendingOTP
@@ -1285,9 +1289,19 @@ func registerPostHandler(cfg *config.Config) gin.HandlerFunc {
 					result[i] = digits[n.Int64()]
 				}
 			}
-			codeStr := string(result)
-			otpCode = &codeStr
-			expiryTime := time.Now().UTC().Add(15 * time.Minute)
+		codeStr := string(result)
+		// OTP is stored HASHED at-rest (finding C, 13 Sep 2026): only the
+		// hash reaches the DB; the plaintext lives just long enough to be
+		// emailed.
+		otpPlain = codeStr
+		otpHash, hErr := models.HashOTP(codeStr)
+		if hErr != nil {
+			log.Printf("register: hash otp error: %v", hErr)
+			registerError("Gagal mendaftarkan akun. Silakan coba lagi.")
+			return
+		}
+		otpCode = &otpHash
+		expiryTime := time.Now().UTC().Add(15 * time.Minute)
 			otpExpiry = &expiryTime
 		}
 
@@ -1331,7 +1345,7 @@ func registerPostHandler(cfg *config.Config) gin.HandlerFunc {
 			smtpPassword := models.GetSaasSettingWithDefault(ctx, dbPool, models.SettingSMTPPassword, "")
 			senderName := models.GetSaasSettingWithDefault(ctx, dbPool, models.SettingSMTPSenderName, "EXAMVAN")
 
-			err = helpers.SendVerificationEmail(smtpHost, smtpPort, smtpUser, smtpPassword, senderName, email, username, *otpCode)
+			err = helpers.SendVerificationEmail(smtpHost, smtpPort, smtpUser, smtpPassword, senderName, email, username, otpPlain)
 			if err != nil {
 				log.Printf("Failed to send verification email to %s: %v", email, err)
 				// Delete user record
@@ -1412,6 +1426,12 @@ func maskEmail(email string) string {
 	return string(username[0]) + strings.Repeat("*", len(username)-2) + string(username[len(username)-1]) + "@" + domain
 }
 
+// registerConfirmUniformError is the ONE error message the register-confirm
+// POST handler ever renders: unknown user, not-pending account, wrong code,
+// over-limit, expired code — all identical, so the endpoint cannot act as an
+// oracle for account existence or pending-verification state.
+const registerConfirmUniformError = "Kode OTP salah atau sudah tidak berlaku. Silakan minta kode baru atau lakukan registrasi ulang."
+
 func registerConfirmPostHandler(cfg *config.Config) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		username := strings.TrimSpace(c.Query("username"))
@@ -1437,41 +1457,50 @@ func registerConfirmPostHandler(cfg *config.Config) gin.HandlerFunc {
 			 WHERE LOWER(username) = LOWER($1)`, username).Scan(&u.ID, &u.Username, &u.Email, &u.Status, &u.OTPCode, &u.OTPExpiry, &otpAttempts)
 
 		if err != nil {
-			data["error"] = "User tidak ditemukan."
+			// Anti-enumeration: one uniform message for every miss — unknown
+			// username, not-pending, wrong/expired code. The confirm page must
+			// not act as an oracle for which accounts exist or are pending
+			// verification (the GET handler keeps its normal render; this is
+			// the POST submission path).
+			data["error"] = registerConfirmUniformError
 			c.HTML(http.StatusOK, "public/register_confirm.html", data)
 			return
 		}
-
-		data["email"] = u.Email
-		data["masked_email"] = maskEmail(u.Email)
 
 		if u.Status != models.UserStatusPendingOTP || u.OTPCode == nil || *u.OTPCode == "" {
-			data["error"] = "Akun Anda sudah aktif atau tidak membutuhkan verifikasi."
+			data["error"] = registerConfirmUniformError
 			c.HTML(http.StatusOK, "public/register_confirm.html", data)
 			return
 		}
 
-		if *u.OTPCode != otpCode {
-			// Count the wrong guess. After the limit, delete the (still
-			// unverified) registration so brute force cannot continue — the
-			// user simply registers again. Mirrors the expiry-delete behaviour.
+		if !models.CheckOTPCode(otpCode, *u.OTPCode) {
+			// Count the wrong guess. After the limit, NULL the code (parity
+			// with the reset-password flow): the REGISTRATION STAYS so the
+			// attacker cannot delete a victim's pending registration by burning
+			// 5 guesses and free the username for re-registration — the user
+			// simply requests a new code via resend. Brute force stays closed:
+			// no live code remains to guess against.
 			if otpAttempts+1 >= maxOTPAttempts {
-				_, _ = dbPool.Exec(ctx, `DELETE FROM admin_users WHERE id = $1`, u.ID)
-				data["error"] = "Terlalu banyak percobaan salah. Silakan lakukan registrasi ulang."
+				_, _ = dbPool.Exec(ctx, `UPDATE admin_users SET otp_code = NULL, otp_expiry = NULL, otp_attempts = 0 WHERE id = $1`, u.ID)
+				data["error"] = registerConfirmUniformError
 			} else {
 				_, _ = dbPool.Exec(ctx, `UPDATE admin_users SET otp_attempts = otp_attempts + 1 WHERE id = $1`, u.ID)
-				data["error"] = "Kode OTP yang Anda masukkan salah. Sisa percobaan: " + strconv.Itoa(maxOTPAttempts-otpAttempts-1) + "."
+				// No "Sisa percobaan: N" counter — it leaks the remaining
+				// brute-force budget back to the guesser.
+				data["error"] = registerConfirmUniformError
 			}
 			c.HTML(http.StatusOK, "public/register_confirm.html", data)
 			return
 		}
 
-		// Check expiry
+		// Check expiry — the pending account is KEPT (only the code is
+		// cleared), mirroring the reset-password flow and the wrong-attempt
+		// limit above: deleting the registration on expiry would let an
+		// attacker wipe a victim's account by idling out the TTL.
 		if u.OTPExpiry != nil {
 			if time.Now().UTC().After(*u.OTPExpiry) {
-				// Delete user record so they can try again
-				_, _ = dbPool.Exec(ctx, `DELETE FROM admin_users WHERE id = $1`, u.ID)
-				data["error"] = "Kode OTP telah kedaluwarsa. Silakan lakukan registrasi ulang."
+				_, _ = dbPool.Exec(ctx, `UPDATE admin_users SET otp_code = NULL, otp_expiry = NULL, otp_attempts = 0 WHERE id = $1`, u.ID)
+				data["error"] = registerConfirmUniformError
 				c.HTML(http.StatusOK, "public/register_confirm.html", data)
 				return
 			}

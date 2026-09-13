@@ -2,13 +2,19 @@ package admin
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"net/http/cookiejar"
 	"net/http/httptest"
 	"net/url"
+	"os"
+	"path/filepath"
 	"strconv"
+	"strings"
 	"testing"
+	"html/template"
 	"time"
 
 	"github.com/gin-contrib/sessions"
@@ -16,42 +22,42 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/examvan/webui/internal/config"
 	"github.com/examvan/webui/internal/database"
 	"github.com/examvan/webui/internal/middleware"
 	"github.com/examvan/webui/internal/models"
 )
 
 // ---------------------------------------------------------------------------
-// Access-scoping tests for GET /admin/api/submissions (ListSubmissions)
+// Access-scoping tests for the submissions views (SubmissionsPage)
 // ---------------------------------------------------------------------------
 //
-// H2: any authenticated operator used to pass the "verify access" block in
-// ListSubmissions unconditionally — `!isSuper && !isOp` skipped the ownership
-// query entirely, so an operator from instansi B could enumerate the
-// submissions of an exam owned by a guru from instansi A by simply guessing
-// exam_id. These tests pin the intended contract:
-//
-//	guru (exam owner)      → 200
-//	pengawas (assigned)    → 200
-//	operator, same instansi as the exam owner → 200
-//	operator, other instansi / personal        → 403
+// H2 + review B (13 Sep 2026): the JSON list endpoint that used to carry this
+// contract (GET /admin/api/submissions — ListSubmissions) was removed as a
+// dead endpoint; the contract now lives on the server-rendered submissions
+// page (GET /admin/submissions?exam_id=...). Besides the LIST scoping (an
+// operator from instansi B must not see instansi A submissions), the page's
+// exam-info card (name, exam token, creator/delegate/pengawas usernames,
+// submission count, schedule) must also be tenant-gated — enumerating
+// ?exam_id=N must answer 404 for exams the caller cannot access.
 //
 // The router mirrors production wiring: sessions → AuthRequired →
-// FeatureLockRequired → GET /submissions (no CSRF, no role gate — the
-// in-handler ownership check is the only guard, which is exactly what these
-// tests exercise).
+// FeatureLockRequired → GET /submissions (the in-handler ownership check is
+// the only guard, which is exactly what these tests exercise).
 
 // newSubmissionsScopeRouter mirrors the production route stack for
-// GET /admin/api/submissions, including the FeatureLockRequired layer the real
-// server nests under the admin group.
-func newSubmissionsScopeRouter(pool *pgxpool.Pool) *gin.Engine {
+// GET /admin/submissions, including the FeatureLockRequired layer the real
+// server nests under the admin group. The real submissions.html template is
+// registered so the page actually renders on the happy paths.
+func newSubmissionsScopeRouter(t *testing.T, pool *pgxpool.Pool) *gin.Engine {
 	gin.SetMode(gin.TestMode)
 	r := gin.New()
-	store := cookie.NewStore([]byte("examvan-it-secret-0123456789abcdef0123456789abcdef"))
+	store := cookie.NewStore([]byte("examvan-it-subm-0123456789abcdef0123456789abcdef"))
 	store.Options(sessions.Options{Path: "/", HttpOnly: true, MaxAge: 86400 * 30, SameSite: http.SameSiteLaxMode})
 	r.Use(sessions.Sessions("examvan_session", store))
 	r.Use(func(c *gin.Context) {
 		c.Set("db", pool)
+		c.Set("cfg", &config.Config{Version: "test", StoragePath: t.TempDir()})
 	})
 
 	// Test-only login seam: builds a session exactly like a real login would,
@@ -75,10 +81,114 @@ func newSubmissionsScopeRouter(pool *pgxpool.Pool) *gin.Engine {
 		c.JSON(http.StatusOK, gin.H{"success": true})
 	})
 
-	adminAPI := r.Group("/admin/api", middleware.AuthRequired())
+	adminAPI := r.Group("/admin", middleware.AuthRequired())
 	lockedAPI := adminAPI.Group("", middleware.FeatureLockRequired())
-	lockedAPI.GET("/submissions", ListSubmissions())
+	lockedAPI.GET("/submissions", func(c *gin.Context) {
+		defer func() {
+			if rec := recover(); rec != nil {
+				t.Logf("PANIC in SubmissionsPage: %v", rec)
+				c.AbortWithStatus(http.StatusInternalServerError)
+			}
+		}()
+		SubmissionsPage()(c)
+		if len(c.Errors) > 0 {
+			t.Logf("GIN ERRORS: %s", c.Errors.String())
+		}
+		t.Logf("POST-HANDLER: status=%d written=%v", c.Writer.Status(), c.Writer.Written())
+	})
+	loadSubmissionsPageTemplatesForTest(t, r)
 	return r
+}
+
+// submissionsPageTemplates are exactly the templates submissions.html pulls
+// in (its own body plus the head/nav partials) — the same focused set the
+// dashboard page test uses.
+var submissionsPageTemplates = []string{
+	"admin/submissions.html",
+	"admin/partials/head.html",
+	"admin/partials/nav.html",
+	"admin/partials/svg-symbols.html",
+}
+
+// loadSubmissionsPageTemplatesForTest registers the real submissions page
+// templates on the gin engine with the minimal funcMap subset the page uses,
+// mirroring the server's own loading (cmd/server/main.go:
+// template.New("").Funcs(funcMap) + per-file Parse). The templates dir is
+// resolved relative to the test package dir, where `go test` runs from.
+func loadSubmissionsPageTemplatesForTest(t *testing.T, r *gin.Engine) {
+	t.Helper()
+	templatesDir := "templates"
+	if _, err := os.Stat(templatesDir); err != nil {
+		templatesDir = filepath.Join("..", "..", "..", "templates")
+	}
+	if _, err := os.Stat(templatesDir); err != nil {
+		t.Fatalf("resolve templates dir: %v", err)
+	}
+
+	tmpl := template.New("").Funcs(template.FuncMap{
+		"dict": func(values ...interface{}) map[string]interface{} {
+			m := make(map[string]interface{}, len(values)/2)
+			for i := 0; i+1 < len(values); i += 2 {
+				m[fmt.Sprintf("%v", values[i])] = values[i+1]
+			}
+			return m
+		},
+		"default": func(d, v interface{}) interface{} {
+			if v == nil || v == "" {
+				return d
+			}
+			return v
+		},
+		"contains":    strings.Contains,
+		"displayRole": models.DisplayRoles,
+		"hasRole":     models.HasRole,
+		"ge":          func(a, b int) bool { return a >= b },
+		"gt":          func(a, b int) bool { return a > b },
+		"lt":          func(a, b int) bool { return a < b },
+		"le":          func(a, b int) bool { return a <= b },
+		"substr": func(s string, start, end int) string {
+			runes := []rune(s)
+			if start < 0 {
+				start = 0
+			}
+			if start >= len(runes) {
+				return ""
+			}
+			if end > len(runes) {
+				end = len(runes)
+			}
+			if end <= start {
+				return ""
+			}
+			return string(runes[start:end])
+		},
+		"sub": func(a, b int) int { return a - b },
+		"add": func(a, b int) int { return a + b },
+		"seq": func(n int) []int {
+			s := make([]int, n)
+			for i := range s {
+				s[i] = i + 1
+			}
+			return s
+		},
+		"json": func(v interface{}) string { b, _ := json.Marshal(v); return string(b) },
+		"formatExamTime": func(t *time.Time) string {
+			if t == nil {
+				return ""
+			}
+			return t.UTC().Format("2006-01-02 15:04")
+		},
+	})
+	for _, name := range submissionsPageTemplates {
+		data, err := os.ReadFile(filepath.Join(templatesDir, name))
+		if err != nil {
+			t.Fatalf("read template %s: %v", name, err)
+		}
+		if _, err := tmpl.New(name).Parse(string(data)); err != nil {
+			t.Fatalf("parse template %s: %v", name, err)
+		}
+	}
+	r.SetHTMLTemplate(tmpl)
 }
 
 // scopeFixture carries the actors and the exam under test.
@@ -152,6 +262,12 @@ func createScopeFixture(t *testing.T, pool *pgxpool.Pool) scopeFixture {
 	}
 }
 
+// scopeStatus captures the HTTP status of a page fetch without the body —
+// used by the contract assertions that only care about the code.
+func (sc *scopeClient) fetchStatus(examID int) (int, string) {
+	return sc.list(examID)
+}
+
 // scopeClient is one logged-in browser hitting the submissions list.
 type scopeClient struct {
 	t     *testing.T
@@ -180,32 +296,51 @@ func (sc *scopeClient) login(userID int) {
 	}
 }
 
-// list returns the HTTP status of GET /admin/api/submissions?exam_id=<id>.
-func (sc *scopeClient) list(examID int) int {
+// list fetches GET /admin/submissions?exam_id=<id> and returns the HTTP
+// status plus the rendered body (for page-content assertions).
+func (sc *scopeClient) list(examID int) (int, string) {
 	sc.t.Helper()
-	req, err := http.NewRequest(http.MethodGet,
-		sc.base+"/admin/api/submissions?"+url.Values{"exam_id": {strconv.Itoa(examID)}}.Encode(), nil)
+	return sc.rawList("/admin/submissions?" + url.Values{"exam_id": {strconv.Itoa(examID)}}.Encode())
+}
+
+// listAny fetches GET /admin/submissions with the given raw query and returns
+// the HTTP status plus the rendered body.
+func (sc *scopeClient) listAny(rawQuery string) (int, string) {
+	sc.t.Helper()
+	return sc.rawList("/admin/submissions" + rawQuery)
+}
+
+// rawList performs the actual GET against the given path and returns status
+// and body. A panic in the page handler surfaces here as an http.Client
+// error — which fatals loudly instead of silently reporting a status.
+func (sc *scopeClient) rawList(path string) (int, string) {
+	sc.t.Helper()
+	req, err := http.NewRequest(http.MethodGet, sc.base+path, nil)
 	if err != nil {
 		sc.t.Fatalf("build request: %v", err)
 	}
-	req.Header.Set("Accept", "application/json")
+	req.Header.Set("Accept", "text/html")
 	resp, err := sc.client.Do(req)
 	if err != nil {
-		sc.t.Fatalf("GET submissions: %v", err)
+		sc.t.Fatalf("GET %s: %v", path, err)
 	}
 	defer resp.Body.Close()
-	return resp.StatusCode
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		sc.t.Fatalf("read %s: %v", path, err)
+	}
+	return resp.StatusCode, string(body)
 }
 
-// TestListSubmissionsOperatorBypass pins the H2 contract on the submissions
-// list endpoint: operators are scoped by instansi (same-instansi operator may
-// read; cross-instansi/personal operator must get 403), while the legacy
+// TestSubmissionsPageOperatorBypass pins the H2 contract on the submissions
+// page: operators are scoped by instansi (same-instansi operator may read;
+// cross-instansi/personal operator must get 403), while the legacy
 // owner/pengawas paths keep working.
-func TestListSubmissionsOperatorBypass(t *testing.T) {
+func TestSubmissionsPageOperatorBypass(t *testing.T) {
 	pool := database.NewPackageTestPool(t, "admin")
 	fix := createScopeFixture(t, pool)
 
-	r := newSubmissionsScopeRouter(pool)
+	r := newSubmissionsScopeRouter(t, pool)
 	srv := httptest.NewServer(r)
 	defer srv.Close()
 	base := srv.URL
@@ -213,30 +348,79 @@ func TestListSubmissionsOperatorBypass(t *testing.T) {
 	// Guru (owner): allowed.
 	gc := newScopeClient(t, base)
 	gc.login(fix.GuruID)
-	if status := gc.list(fix.ExamID); status != http.StatusOK {
+	if status, _ := gc.list(fix.ExamID); status != http.StatusOK {
 		t.Errorf("guru (owner) list: status=%d, want 200", status)
 	}
 
-	// Pengawas assigned to the exam: allowed (existing behavior —
-	// UserCanAccessExam is a strict superset of the old inline check).
+	// Pengawas assigned to the exam: allowed (UserCanAccessExam covers
+	// assignments).
 	pc := newScopeClient(t, base)
 	pc.login(fix.PengawasID)
-	if status := pc.list(fix.ExamID); status != http.StatusOK {
+	if status, _ := pc.list(fix.ExamID); status != http.StatusOK {
 		t.Errorf("pengawas (assigned) list: status=%d, want 200", status)
 	}
 
 	// Operator from the SAME instansi as the exam owner: allowed.
 	oc := newScopeClient(t, base)
 	oc.login(fix.OperatorSameID)
-	if status := oc.list(fix.ExamID); status != http.StatusOK {
+	if status, _ := oc.list(fix.ExamID); status != http.StatusOK {
 		t.Errorf("operator same-instansi list: status=%d, want 200", status)
 	}
 
-	// Operator from a DIFFERENT instansi: 403 (currently 200 + data = the H2
-	// bypass).
+	// Operator from a DIFFERENT instansi: 403.
 	xo := newScopeClient(t, base)
 	xo.login(fix.OperatorOtherID)
-	if status := xo.list(fix.ExamID); status != http.StatusForbidden {
-		t.Errorf("operator cross-instansi list: status=%d, want 403 (H2 bypass)", status)
+	if status, _ := xo.list(fix.ExamID); status != http.StatusForbidden {
+		t.Errorf("operator cross-instansi list: status=%d, want 403", status)
 	}
 }
+
+// TestSubmissionsPageExamInfoCardGated pins review finding B (13 Sep 2026):
+// the exam-info card (exam name/token, creator & pengawas usernames, submission
+// count, schedule) renders ONLY for callers who can access the exam. A
+// same-instansi operator sees the real exam name in the card; a
+// cross-instansi operator is rejected outright (403) instead of receiving a
+// fully-populated info card for a tenant they cannot access.
+func TestSubmissionsPageExamInfoCardGated(t *testing.T) {
+	pool := database.NewPackageTestPool(t, "admin")
+	fix := createScopeFixture(t, pool)
+
+	r := newSubmissionsScopeRouter(t, pool)
+	srv := httptest.NewServer(r)
+	defer srv.Close()
+	base := srv.URL
+
+	// Same-instansi operator: the info card renders with the exam name.
+	oc := newScopeClient(t, base)
+	oc.login(fix.OperatorSameID)
+	status, body := oc.list(fix.ExamID)
+	if status != http.StatusOK {
+		t.Fatalf("same-instansi operator page: status=%d, want 200", status)
+	}
+	if !strings.Contains(body, "Ujian SS") {
+		t.Errorf("same-instansi operator must see the exam-info card with the exam name (status=%d, body len=%d)", status, len(body))
+		t.Logf("BODY: %.500s", body)
+	}
+
+	// Cross-instansi operator: 403 (never a populated card). The exam name
+	// must not appear in the response at all.
+	xo := newScopeClient(t, base)
+	xo.login(fix.OperatorOtherID)
+	status, body = xo.list(fix.ExamID)
+	if status != http.StatusForbidden {
+		t.Errorf("cross-instansi operator page: status=%d, want 403", status)
+	}
+	if strings.Contains(body, "Ujian SS") {
+		t.Error("cross-instansi operator must not see any exam info in the response")
+	}
+
+	// A garbage exam_id (non-numeric) must not panic the page handler —
+	// the handler parses exam_id with strconv.Atoi and must 200/404 sanely.
+	gc := newScopeClient(t, base)
+	gc.login(fix.GuruID)
+	status, _ = gc.listAny("?exam_id=abc")
+	if status != http.StatusOK {
+		t.Errorf("garbage exam_id page: status=%d, want 200 (filter ignored)", status)
+	}
+}
+

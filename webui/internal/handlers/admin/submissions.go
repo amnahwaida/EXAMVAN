@@ -14,12 +14,10 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/jackc/pgx/v5/pgxpool"
-	goredis "github.com/redis/go-redis/v9"
 	"github.com/xuri/excelize/v2"
 
 	"github.com/examvan/webui/internal/helpers"
 	"github.com/examvan/webui/internal/models"
-	"github.com/examvan/webui/internal/queue"
 )
 
 // ---------------------------------------------------------------------------
@@ -53,14 +51,17 @@ func SubmissionsPage() gin.HandlerFunc {
 		isSuper := isSuperAdmin(c)
 		isOp := isOperator(c)
 
-		// Guru-only access gate
-		if !isSuper && !isOp && !hasCurrentRole(c, models.RoleGuru) {
+		// Guru-only access gate — pengawas-only accounts are redirected to
+		// their pengawas hub, everyone else passes (the per-exam visibility is
+		// enforced by the scoped list + examInfo gate below).
+		if !isSuper && !isOp && !hasCurrentRole(c, models.RoleGuru) && !hasCurrentRole(c, models.RolePengawas) {
 			c.Redirect(http.StatusFound, "/admin/pengawas")
 			return
 		}
 
 		pool := getPool(c)
 		ctx := c.Request.Context()
+		userID := getCurrentUserID(c)
 
 		page, _ := strconv.Atoi(c.DefaultQuery("page", "1"))
 		if page < 1 {
@@ -238,6 +239,15 @@ func SubmissionsPage() gin.HandlerFunc {
 		// Exam info for filter
 		var examInfo gin.H
 		if examFilter > 0 {
+			// Tenant gate FIRST — mirrors ExportSubmissions: without it, any
+			// operator/guru could enumerate ?exam_id=N to read another
+			// tenant's exam name, exam token, creator/delegate/pengawas
+			// usernames, submission count and schedule from the info card
+			// even though the submission list itself is scoped below.
+			if !models.UserCanAccessExam(ctx, pool, userID, isSuper, examFilter) {
+				errorResponse(c, http.StatusForbidden, "Akses ditolak")
+				return
+			}
 			exam, err := models.GetExamByID(ctx, pool, examFilter)
 			if err == nil {
 				_, _ = models.ParseQuestionsJSON(exam.QuestionsJSON)
@@ -344,7 +354,7 @@ func buildScopeConditions(c *gin.Context, pool *pgxpool.Pool, query *string) ([]
 		}
 		if opInstansi != "" && opInstansi != "personal" {
 			conditions = append(conditions,
-				fmt.Sprintf(`e.created_by IN (SELECT id FROM admin_users WHERE instansi = $%d)`,
+				fmt.Sprintf(`e.created_by IN (SELECT id FROM admin_users WHERE LOWER(instansi) = LOWER($%d))`,
 					argIdx))
 			args = append(args, opInstansi)
 			argIdx++
@@ -393,7 +403,7 @@ func fetchFilterExams(c *gin.Context, pool *pgxpool.Pool) []gin.H {
 		}
 		if opInstansi != "" && opInstansi != "personal" {
 			conditions = append(conditions,
-				fmt.Sprintf(`created_by IN (SELECT id FROM admin_users WHERE instansi = $%d)`,
+				fmt.Sprintf(`created_by IN (SELECT id FROM admin_users WHERE LOWER(instansi) = LOWER($%d))`,
 					argIdx))
 			args = append(args, opInstansi)
 			argIdx++
@@ -441,73 +451,6 @@ func fetchFilterExams(c *gin.Context, pool *pgxpool.Pool) []gin.H {
 		log.Printf("rows iteration error: %v", err)
 	}
 	return exams
-}
-
-// ---------------------------------------------------------------------------
-// 2. GET /admin/api/submissions — JSON list with pagination / exam filter
-// ---------------------------------------------------------------------------
-
-func ListSubmissions() gin.HandlerFunc {
-	return func(c *gin.Context) {
-		pool := getPool(c)
-		userID := getCurrentUserID(c)
-		isSuper := isSuperAdmin(c)
-		ctx := c.Request.Context()
-
-		page, _ := strconv.Atoi(c.DefaultQuery("page", "1"))
-		if page < 1 {
-			page = 1
-		}
-		perPage, _ := strconv.Atoi(c.DefaultQuery("per_page", "25"))
-		if perPage < 5 {
-			perPage = 5
-		} else if perPage > 100 {
-			perPage = 100
-		}
-
-		var examFilter int
-		if v := c.Query("exam_id"); v != "" {
-			examFilter, _ = strconv.Atoi(v)
-		}
-
-		if examFilter == 0 {
-			errorResponse(c, http.StatusBadRequest, "Parameter exam_id wajib diisi")
-			return
-		}
-
-		// Verify access (operators are scoped by the exam owner's instansi,
-		// same as everywhere else — H2).
-		if !isSuper && !models.UserCanAccessExam(ctx, pool, userID, false, examFilter) {
-			errorResponse(c, http.StatusForbidden, "Akses ditolak")
-			return
-		}
-
-		opts := models.ListSubmissionsByExamOpts{
-			ExamID:  examFilter,
-			Page:    page,
-			PerPage: perPage,
-			Search:  c.Query("search"),
-		}
-
-		result, err := models.ListSubmissionsByExam(ctx, pool, opts)
-		if err != nil {
-			log.Printf("list submissions error: %v", err)
-			errorResponse(c, http.StatusInternalServerError, "Gagal memuat data")
-			return
-		}
-
-		c.JSON(http.StatusOK, gin.H{
-			"success":     true,
-			"submissions": result.Submissions,
-			"pagination": gin.H{
-				"page":        result.Page,
-				"per_page":    result.PerPage,
-				"total":       result.Total,
-				"total_pages": result.TotalPages,
-			},
-			"stats": result.Stats,
-		})
-	}
 }
 
 // ---------------------------------------------------------------------------
@@ -860,7 +803,7 @@ func exportAllXLSX(c *gin.Context, pool *pgxpool.Pool, ctx context.Context,
 		}
 		if opInstansi != "" && opInstansi != "personal" {
 			conditions = append(conditions,
-				fmt.Sprintf(`e.created_by IN (SELECT id FROM admin_users WHERE instansi = $%d)`, argIdx))
+				fmt.Sprintf(`e.created_by IN (SELECT id FROM admin_users WHERE LOWER(instansi) = LOWER($%d))`, argIdx))
 			args = append(args, opInstansi)
 			argIdx++
 		} else {
@@ -1010,97 +953,6 @@ func exportAllXLSX(c *gin.Context, pool *pgxpool.Pool, ctx context.Context,
 	filename := fmt.Sprintf("hasil_ujian_%s.xlsx",
 		time.Now().UTC().Format("20060102_150405"))
 	writeXLSXResponse(c, f, filename)
-}
-
-// ---------------------------------------------------------------------------
-// 6. GET /admin/api/queue/status — Queue monitoring
-// ---------------------------------------------------------------------------
-
-func QueueStatus() gin.HandlerFunc {
-	return func(c *gin.Context) {
-		rdb, exists := c.Get("redis")
-		if !exists || rdb == nil {
-			c.JSON(http.StatusOK, gin.H{
-				"success": true,
-				"data": gin.H{
-					"available":     false,
-					"pending":       0,
-					"worker_active": false,
-				},
-			})
-			return
-		}
-
-		redisClient := rdb.(*goredis.Client)
-		stats := queue.GetQueueStats(redisClient)
-
-		successData(c, gin.H{
-			"available":     stats.Available,
-			"pending":       stats.Pending,
-			"processed":     stats.Processed,
-			"errored":       stats.Errored,
-			"worker_active": stats.WorkerActive,
-		})
-	}
-}
-
-// ---------------------------------------------------------------------------
-// 7. GET /admin/api/submissions/:id/export_detail — Export per-student Excel
-// ---------------------------------------------------------------------------
-
-func ExportSubmissionDetail() gin.HandlerFunc {
-	return func(c *gin.Context) {
-		submissionID, err := strconv.Atoi(c.Param("id"))
-		if err != nil {
-			errorResponse(c, http.StatusBadRequest, "ID tidak valid")
-			return
-		}
-
-		pool := getPool(c)
-		ctx := c.Request.Context()
-
-		if !checkSubmissionOwnership(c, pool, submissionID) {
-			errorResponse(c, http.StatusForbidden, "Akses ditolak")
-			return
-		}
-
-		detail, err := models.GetSubmissionDetail(ctx, pool, submissionID)
-		if err != nil {
-			log.Printf("export detail error: %v", err)
-			errorResponse(c, http.StatusNotFound, "Hasil ujian tidak ditemukan")
-			return
-		}
-
-		// Parse answers and evaluate
-		answers, _ := models.ParseAnswersJSON(detail.AnswersJSON)
-		if answers == nil {
-			answers = make(map[string]interface{})
-		}
-
-		questions, _ := models.ParseQuestionsJSON(detail.QuestionsJSON)
-		if questions == nil {
-			questions = []models.Question{}
-		}
-
-		evaluated := models.EvaluateAnswersDetailed(answers, questions)
-
-		tzOffset := parseTZOffset(c)
-
-		f := excelize.NewFile()
-		defer f.Close()
-		st := newXLSXStyles(f)
-		sheet := "Detail"
-		if err := f.SetSheetName("Sheet1", sheet); err != nil {
-			errorResponse(c, http.StatusInternalServerError, "Gagal mengekspor data")
-			return
-		}
-		writeStudentDetailSheet(f, sheet, detail.ExamName, detail.Submission, answers, evaluated, questions, st, tzOffset)
-
-		filename := fmt.Sprintf("Detail_%s_%s.xlsx",
-			sanitizeFilename(detail.StudentName),
-			time.Now().UTC().Format("20060102_150405"))
-		writeXLSXResponse(c, f, filename)
-	}
 }
 
 // ---------------------------------------------------------------------------

@@ -52,6 +52,19 @@ func effectiveBaseRoles(u models.AdminUser) []string {
 	return out
 }
 
+// reservedInstansiNames lists system instansi bucket names no school may
+// claim. "owner" hosts the bootstrap superadmin (EnsureAdminUser); "personal"
+// is the shared default bucket and is rejected separately elsewhere.
+var reservedInstansiNames = map[string]bool{
+	"owner": true,
+}
+
+// isReservedInstansiName reports whether the given instansi name is a system
+// bucket name (case-insensitive, whitespace-trimmed).
+func isReservedInstansiName(name string) bool {
+	return reservedInstansiNames[strings.ToLower(strings.TrimSpace(name))]
+}
+
 // getInstansiForOperator retrieves the instansi of the current operator user.
 // The error is propagated so data-exposing callers can fail CLOSED: an
 // operator whose instansi cannot be resolved must never silently fall back to
@@ -202,7 +215,7 @@ func loadOperatorAccountQuota(ctx context.Context, q quotaQuerier, userID int, i
 		}
 		_ = q.QueryRow(ctx,
 			`SELECT COUNT(*) FROM admin_users
-			 WHERE instansi = $1 AND id <> $2
+			 WHERE LOWER(instansi) = LOWER($1) AND id <> $2
 			   AND (created_by = $2 OR (created_by IS NULL AND operator_created))`,
 			instansi, userID).Scan(&used)
 		return maxUsers, used, nil
@@ -227,7 +240,8 @@ func loadOperatorAccountQuota(ctx context.Context, q quotaQuerier, userID int, i
 		       COUNT(*) FILTER (WHERE vr.is_active)
 		FROM voucher_redemptions vr
 		JOIN admin_users u ON u.id = vr.user_id
-		WHERE u.instansi = $1 AND u.role ILIKE '%"operator"%'`, instansi).
+		WHERE LOWER(u.instansi) = LOWER($1)
+		  AND (u.role = 'operator' OR u.role ILIKE '%"operator"%')`, instansi).
 		Scan(&maxUsers, &activeOps)
 	if err != nil {
 		if !errors.Is(err, pgx.ErrNoRows) {
@@ -245,7 +259,7 @@ func loadOperatorAccountQuota(ctx context.Context, q quotaQuerier, userID int, i
 		return 0, 0, nil
 	}
 	_ = q.QueryRow(ctx,
-		`SELECT COUNT(*) FROM admin_users WHERE instansi = $1 AND id <> $2`,
+		`SELECT COUNT(*) FROM admin_users WHERE LOWER(instansi) = LOWER($1) AND id <> $2`,
 		instansi, userID).Scan(&used)
 	return maxUsers, used, nil
 }
@@ -1107,6 +1121,7 @@ func EditUser() gin.HandlerFunc {
 		pool := getPool(c)
 		userID := getCurrentUserID(c)
 		isOp := isOperator(c)
+		isSuper := isSuperAdmin(c)
 		ctx := c.Request.Context()
 
 		// opRoleTx serializes the one-operator-per-school role-grant against
@@ -1246,12 +1261,32 @@ func EditUser() gin.HandlerFunc {
 			updates["whatsapp_number"] = strings.TrimSpace(*body.WhatsappNumber)
 		}
 
+		// Identity fields on the bootstrap superadmin account: only the
+		// superadmin themself (or another superadmin) may edit them. An
+		// operator passing the name-equality tenant gate against the "owner"
+		// bucket must never be able to swap the superadmin's email (→ public
+		// forgot-password takeover), name, whatsapp, or expiry. Mirrors the
+		// status/role/password guards below.
+		if isSuperAdminTarget && !isSuper &&
+			(body.Name != nil || body.Email != nil || body.WhatsappNumber != nil || body.ExpiresAt != nil) {
+			errorResponse(c, http.StatusForbidden, "Tidak memiliki izin untuk mengubah akun superadmin")
+			return
+		}
+
 		if body.Email != nil {
 			updates["email"] = strings.TrimSpace(*body.Email)
 		}
 
 		if body.Instansi != nil {
 			instansi := strings.TrimSpace(*body.Instansi)
+
+			// Reserved system bucket names are never a valid instansi value —
+			// no caller (superadmin included) may rename anyone into the
+			// superadmin's "owner" bucket or the shared "personal" bucket.
+			if instansi != "" && isReservedInstansiName(instansi) {
+				errorResponse(c, http.StatusBadRequest, "Nama instansi tidak dapat digunakan (nama sistem terlarang)")
+				return
+			}
 
 			// Operator tidak boleh mengubah instansi user
 			if isOp {
@@ -1326,7 +1361,7 @@ func EditUser() gin.HandlerFunc {
 					}
 					oldInstansi := targetUser.Instansi
 					_, err := pool.Exec(ctx,
-						`UPDATE admin_users SET instansi = $1 WHERE instansi = $2 AND id != $3`,
+						`UPDATE admin_users SET instansi = $1 WHERE LOWER(instansi) = LOWER($2) AND id != $3`,
 						instansi, oldInstansi, targetID)
 					if err != nil {
 						log.Printf("cascade instansi update error: %v", err)
@@ -1493,9 +1528,9 @@ func EditUser() gin.HandlerFunc {
 				if _, err := pool.Exec(ctx, `
 					UPDATE admin_users
 					SET expires_at = $1::timestamp
-					WHERE instansi = $2 AND id <> $3
+					WHERE LOWER(instansi) = LOWER($2) AND id <> $3
 					  AND expires_at IS NOT NULL
-					  AND NOT (role ILIKE '%"operator"%')
+					  AND NOT (role = 'operator' OR role ILIKE '%"operator"%')
 					  AND NOT EXISTS (
 					      SELECT 1 FROM voucher_redemptions vr
 					      WHERE vr.user_id = admin_users.id AND vr.is_active
@@ -1519,9 +1554,9 @@ func EditUser() gin.HandlerFunc {
 				tag, err := pool.Exec(ctx, `
 					UPDATE admin_users
 					SET expires_at = NULL
-					WHERE instansi = $1 AND id <> $2
+					WHERE LOWER(instansi) = LOWER($1) AND id <> $2
 					  AND expires_at IS NOT NULL
-					  AND NOT (role ILIKE '%"operator"%')
+					  AND NOT (role = 'operator' OR role ILIKE '%"operator"%')
 					  AND NOT EXISTS (
 					      SELECT 1 FROM voucher_redemptions vr
 					      WHERE vr.user_id = admin_users.id AND vr.is_active
@@ -1713,7 +1748,7 @@ func ToggleUserStatus() gin.HandlerFunc {
 					// Restore all cascade-suspended users
 					var count int
 					pool.QueryRow(ctx,
-						`SELECT COUNT(*) FROM admin_users WHERE instansi = $1 AND suspended_by_cascade = TRUE AND id != $2`,
+						`SELECT COUNT(*) FROM admin_users WHERE LOWER(instansi) = LOWER($1) AND suspended_by_cascade = TRUE AND id != $2`,
 						opInstansi, targetID).Scan(&count)
 					if count > 0 {
 						// Freeze the restored accounts' clocks for the suspension
@@ -1747,9 +1782,9 @@ func ToggleUserStatus() gin.HandlerFunc {
 						tag, err := pool.Exec(ctx, `
 							UPDATE admin_users u
 							SET expires_at = GREATEST(COALESCE(u.expires_at, $2::timestamptz), $2::timestamptz)
-							WHERE u.instansi = $1 AND u.id <> $3
+							WHERE LOWER(u.instansi) = LOWER($1) AND u.id <> $3
 							  AND u.expires_at IS NOT NULL -- unlimited (NULL) subs keep their admin-set unlimited state
-							  AND NOT (u.role ILIKE '%"operator"%')
+							  AND NOT (u.role = 'operator' OR u.role ILIKE '%"operator"%')
 							  AND NOT EXISTS (
 							      SELECT 1 FROM voucher_redemptions vr
 							      WHERE vr.user_id = u.id AND vr.is_active
@@ -1770,11 +1805,11 @@ func ToggleUserStatus() gin.HandlerFunc {
 					// Suspend active users with cascade flag
 					var count int
 					pool.QueryRow(ctx,
-						`SELECT COUNT(*) FROM admin_users WHERE instansi = $1 AND status = 'active' AND id != $2`,
+						`SELECT COUNT(*) FROM admin_users WHERE LOWER(instansi) = LOWER($1) AND status = 'active' AND id != $2`,
 						opInstansi, targetID).Scan(&count)
 					if count > 0 {
 						if _, err := pool.Exec(ctx,
-							`UPDATE admin_users SET status = 'suspended', suspended_by_cascade = TRUE, suspended_at = now() WHERE instansi = $1 AND status = 'active' AND id != $2`,
+							`UPDATE admin_users SET status = 'suspended', suspended_by_cascade = TRUE, suspended_at = now() WHERE LOWER(instansi) = LOWER($1) AND status = 'active' AND id != $2`,
 							opInstansi, targetID); err != nil {
 							log.Printf("cascade suspend for instansi %s error: %v", opInstansi, err)
 						} else {
@@ -1846,6 +1881,13 @@ func VerifyUser() gin.HandlerFunc {
 				errorResponse(c, http.StatusBadRequest, "Operator tidak dapat mengelola akun dengan role Operator")
 				return
 			}
+		}
+
+		// Defense-in-depth: the bootstrap superadmin account is never
+		// activatable by an operator (mirrors DeleteUser).
+		if targetUser.Username == models.SuperAdminUsername {
+			errorResponse(c, http.StatusForbidden, "Akun superadmin tidak dapat dikelola oleh operator")
+			return
 		}
 
 		if err := models.VerifyUserManual(ctx, pool, targetID); err != nil {
@@ -2114,6 +2156,14 @@ func DeleteUser() gin.HandlerFunc {
 			return
 		}
 
+		// Defense-in-depth: the bootstrap superadmin account must never be
+		// deletable by an operator (the account is only re-seeded at startup;
+		// deleting it would lock all superadmin access out of the deployment).
+		if targetUser.Username == models.SuperAdminUsername {
+			errorResponse(c, http.StatusForbidden, "Akun superadmin tidak dapat dihapus")
+			return
+		}
+
 		// Append-only audit trail: every exam removed by this cascade gets an
 		// exam_deleted row — the target's own exams plus, when the target is an
 		// operator with a real instansi, the exams of its instansi
@@ -2126,7 +2176,7 @@ func DeleteUser() gin.HandlerFunc {
 		auditArgs := []interface{}{targetID}
 		if targetUser.HasRole(models.RoleOperator) && targetUser.Instansi != "" {
 			auditQuery = `SELECT id, name FROM exams
-			              WHERE created_by = $1 OR created_by IN (SELECT id FROM admin_users WHERE instansi = $2 AND id != $1)`
+			              WHERE created_by = $1 OR created_by IN (SELECT id FROM admin_users WHERE LOWER(instansi) = LOWER($2) AND id != $1)`
 			auditArgs = append(auditArgs, targetUser.Instansi)
 		}
 		if auditRows, err := pool.Query(ctx, auditQuery, auditArgs...); err == nil {
@@ -2163,7 +2213,7 @@ func DeleteUser() gin.HandlerFunc {
 		if targetUser.HasRole(models.RoleOperator) && targetUser.Instansi != "" {
 			userAuditQuery = `SELECT id, username, COALESCE(role, ''), COALESCE(name, '')
 			                  FROM admin_users
-			                  WHERE id = $1 OR (instansi = $2 AND id != $1)`
+			                  WHERE id = $1 OR (LOWER(instansi) = LOWER($2) AND id != $1)`
 			userAuditArgs = append(userAuditArgs, targetUser.Instansi)
 			cascadeAudit = true
 		}
@@ -2262,6 +2312,16 @@ func UpdateInstansi() gin.HandlerFunc {
 		newInstansi := strings.TrimSpace(body.Instansi)
 		if newInstansi == "" || strings.ToLower(newInstansi) == "personal" || len(newInstansi) < 3 {
 			errorResponse(c, http.StatusBadRequest, "Nama instansi/sekolah tidak valid (min. 3 karakter)")
+			return
+		}
+		// Reserved system bucket names: "owner" is where the bootstrap
+		// superadmin lives (EnsureAdminUser seeds instansi='owner'). A school
+		// named "owner" would let an operator land in the superadmin's
+		// free-text instansi bucket and pass every name-equality tenant gate
+		// against it (EditUser/DeleteUser/VerifyUser). Kept in one place so
+		// future system buckets are added here once.
+		if isReservedInstansiName(newInstansi) {
+			errorResponse(c, http.StatusBadRequest, "Nama instansi tidak dapat digunakan (nama sistem terlarang)")
 			return
 		}
 

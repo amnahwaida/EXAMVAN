@@ -132,8 +132,15 @@ func resendOTPHandler(cfg *config.Config) gin.HandlerFunc {
 
 		code := generateOTP()
 		expiry := time.Now().UTC().Add(otpTTL)
+		// Hash at-rest (finding C, 13 Sep 2026) — plaintext only goes to email.
+		otpHash, hErr := models.HashOTP(code)
+		if hErr != nil {
+			log.Printf("resend otp: hash error: %v", hErr)
+			uniform()
+			return
+		}
 		if _, err := pool.Exec(ctx,
-			`UPDATE admin_users SET otp_code = $1, otp_expiry = $2, otp_attempts = 0 WHERE id = $3`, code, expiry, id); err != nil {
+			`UPDATE admin_users SET otp_code = $1, otp_expiry = $2, otp_attempts = 0 WHERE id = $3`, otpHash, expiry, id); err != nil {
 			log.Printf("resend otp: update error: %v", err)
 			uniform()
 			return
@@ -220,8 +227,14 @@ func forgotPasswordPostHandler(cfg *config.Config) gin.HandlerFunc {
 			if smtp.configured() {
 				code := generateOTP()
 				expiry := time.Now().UTC().Add(otpTTL)
-				if _, e := pool.Exec(ctx,
-					`UPDATE admin_users SET otp_code = $1, otp_expiry = $2, otp_attempts = 0 WHERE id = $3`, code, expiry, id); e == nil {
+				// Hash at-rest (finding C, 13 Sep 2026) — plaintext only goes to email.
+				otpHash, hErr := models.HashOTP(code)
+				if hErr != nil {
+					log.Printf("forgot password: hash otp error: %v", hErr)
+					// Fall through: the handler ends in the same neutral redirect
+					// for every outcome, so no oracle is created.
+				} else if _, e := pool.Exec(ctx,
+					`UPDATE admin_users SET otp_code = $1, otp_expiry = $2, otp_attempts = 0 WHERE id = $3`, otpHash, expiry, id); e == nil {
 					// Async send: no timing side-channel + not blocked on SMTP.
 					go func(s smtpSettings, to, uname, otp string) {
 						if err := helpers.SendPasswordResetEmail(s.host, s.port, s.user, s.password, s.sender, to, uname, otp); err != nil {
@@ -335,14 +348,19 @@ func resetPasswordPostHandler(cfg *config.Config) gin.HandlerFunc {
 			return
 		}
 		if otpExpiry == nil || time.Now().UTC().After(*otpExpiry) {
-			render("Kode OTP telah kedaluwarsa. Silakan minta kode baru.")
+			// Same message as the "no live code" branch below/above: an
+			// expired code must be indistinguishable from a wrong one, or a
+			// guesser who knows the username learns "this account recently had
+			// a live reset code" (an enumeration oracle that defeats the
+			// uniform-message design this handler otherwise follows).
+			render("Kode OTP salah atau sudah tidak berlaku. Silakan minta kode baru.")
 			return
 		}
 		// Wrong code: count the guess and invalidate the OTP once the limit is
 		// hit — but keep the message identical to the "no live code" case above
 		// so an attacker cannot distinguish (via forgot->reset) which accounts
 		// actually have a pending reset code.
-		if *dbOTP != otpCode {
+		if !models.CheckOTPCode(otpCode, *dbOTP) {
 			if attempts+1 >= maxOTPAttempts {
 				_, _ = pool.Exec(ctx, `UPDATE admin_users SET otp_code = NULL, otp_expiry = NULL, otp_attempts = 0 WHERE id = $1`, id)
 			} else {

@@ -102,13 +102,20 @@ func schoolAlreadyHasOperator(ctx context.Context, q quotaQuerier, instansi stri
 	if instansi == "" || strings.EqualFold(instansi, "personal") {
 		return false, nil
 	}
+	// System buckets ("owner" hosts the bootstrap superadmin) are never a
+	// school: no operator-guard is evaluated against them.
+	if isReservedInstansiName(instansi) {
+		return false, nil
+	}
 	var has bool
 	err := q.QueryRow(ctx, `
 		SELECT EXISTS (
 		    SELECT 1 FROM admin_users
 		    WHERE LOWER(instansi) = LOWER($1) AND id <> $2
 		      AND NOT operator_created
-		      AND role ILIKE '%"operator"%'
+		      -- Exact operator-role match: JSON-quoted token or legacy bare
+		      -- value — a plain substring ILIKE misses legacy non-JSON rows.
+		      AND (role = 'operator' OR role ILIKE '%"operator"%')
 		)`, instansi, excludeID).Scan(&has)
 	if err != nil {
 		return false, err
@@ -165,7 +172,8 @@ func schoolPoolQuotaForInstansi(ctx context.Context, q quotaQuerier, instansi st
 		       COALESCE(MAX(vr.max_storage_size), 0)
 		FROM voucher_redemptions vr
 		JOIN admin_users u ON u.id = vr.user_id
-		WHERE vr.is_active AND u.instansi = $1 AND u.role ILIKE '%"operator"%'`, instansi).
+		WHERE vr.is_active AND LOWER(u.instansi) = LOWER($1)
+		  AND (u.role = 'operator' OR u.role ILIKE '%"operator"%')`, instansi).
 		Scan(&n, &maxExams, &maxPDF, &maxConcurrent, &maxStorage)
 	if err != nil {
 		log.Printf("load school pool quota failed: %v; treating as no school pool", err)
@@ -343,7 +351,10 @@ func syncInstansiWithOperatorRole(ctx context.Context, tx pgx.Tx, userID int, pr
 			    SELECT 1 FROM admin_users u
 			    JOIN voucher_redemptions vr ON vr.user_id = u.id
 			    WHERE u.instansi = $1 AND u.id <> $2
-			      AND u.role ILIKE '%"operator"%' AND vr.is_active
+			      -- covered-by check: case-insensitive for parity with the
+			      -- school-claim guard (LOWER(instansi) = LOWER($1)).
+			      AND LOWER(instansi) = LOWER($1)
+			      AND (u.role = 'operator' OR u.role ILIKE '%"operator"%') AND vr.is_active
 			      AND NOT u.operator_created
 			)`, instansi, userID).Scan(&covered); err != nil {
 			return err
@@ -359,8 +370,8 @@ func syncInstansiWithOperatorRole(ctx context.Context, tx pgx.Tx, userID int, pr
 		if _, err := tx.Exec(ctx, `
 			UPDATE admin_users
 			SET status = 'suspended', suspended_by_cascade = TRUE, suspended_at = now()
-			WHERE instansi = $1 AND status = 'active' AND id <> $2
-			  AND NOT (role ILIKE '%"operator"%')`, instansi, userID); err != nil {
+			WHERE LOWER(instansi) = LOWER($1) AND status = 'active' AND id <> $2
+			  AND NOT (role = 'operator' OR role ILIKE '%"operator"%')`, instansi, userID); err != nil {
 			return err
 		}
 		// Tombstone the school's unpublished exams (policy B): the accounts
@@ -384,8 +395,8 @@ func syncInstansiWithOperatorRole(ctx context.Context, tx pgx.Tx, userID int, pr
 		_, err := tx.Exec(ctx, `
 			UPDATE admin_users u
 			SET expires_at = GREATEST(COALESCE(u.expires_at, $2::timestamptz), $2::timestamptz)
-			WHERE u.instansi = $1 AND u.id <> $3
-			  AND NOT (u.role ILIKE '%"operator"%')
+			WHERE LOWER(u.instansi) = LOWER($1) AND u.id <> $3
+			  AND NOT (u.role = 'operator' OR u.role ILIKE '%"operator"%')
 			  AND NOT EXISTS (
 			      SELECT 1 FROM voucher_redemptions vr
 			      WHERE vr.user_id = u.id AND vr.is_active
@@ -410,7 +421,7 @@ func syncInstansiWithOperatorRole(ctx context.Context, tx pgx.Tx, userID int, pr
 func tombstoneUnstartedInstansiExams(ctx context.Context, exec models.Executor, instansi string, spareOperatorRoleCreators bool) error {
 	creatorFilter := `TRUE`
 	if spareOperatorRoleCreators {
-		creatorFilter = `NOT (role ILIKE '%"operator"%')`
+		creatorFilter = `NOT (role = 'operator' OR role ILIKE '%"operator"%')`
 	}
 	// tombstoned_at marks the exam as auto-inactivated (policy B) so the admin
 	// UI can tell it apart from a manual inactivation; the marker is cleared
@@ -421,7 +432,7 @@ func tombstoneUnstartedInstansiExams(ctx context.Context, exec models.Executor, 
 		WHERE e.status = 'active' AND e.exam_started_at IS NULL
 		  AND e.created_by IN (
 		      SELECT id FROM admin_users
-		      WHERE instansi = $1 AND %s
+		      WHERE LOWER(instansi) = LOWER($1) AND %s
 		  )`, creatorFilter), instansi)
 	return err
 }

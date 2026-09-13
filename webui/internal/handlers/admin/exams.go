@@ -399,7 +399,7 @@ func UploadExam() gin.HandlerFunc {
 				// Lock the whole instansi's account rows: concurrent uploads by
 				// ANY account in the school serialize on the shared pool (the
 				// row-lock pattern of the per-user check, widened to the pool).
-				if _, err := tx.Exec(ctx, `SELECT id FROM admin_users WHERE instansi = $1 FOR UPDATE`, poolInstansi); err != nil {
+				if _, err := tx.Exec(ctx, `SELECT id FROM admin_users WHERE LOWER(instansi) = LOWER($1) FOR UPDATE`, poolInstansi); err != nil {
 					log.Printf("upload lock school pool error: %v", err)
 					// The PDF is already in R2 but no DB row exists: remove the
 					// orphan object so a failed create does not leak storage.
@@ -408,7 +408,7 @@ func UploadExam() gin.HandlerFunc {
 					return
 				}
 				var poolCnt int64
-				if err := tx.QueryRow(ctx, `SELECT COUNT(*) FROM exams e JOIN admin_users u ON e.created_by = u.id WHERE u.instansi = $1`, poolInstansi).Scan(&poolCnt); err != nil {
+				if err := tx.QueryRow(ctx, `SELECT COUNT(*) FROM exams e JOIN admin_users u ON e.created_by = u.id WHERE LOWER(u.instansi) = LOWER($1)`, poolInstansi).Scan(&poolCnt); err != nil {
 					log.Printf("upload count school exams error: %v", err)
 					cleanupR2Orphan(c, ctx, filename)
 					errorResponse(c, http.StatusInternalServerError, "Gagal menyimpan ujian")
@@ -427,7 +427,7 @@ func UploadExam() gin.HandlerFunc {
 				// hard cap that cannot be raced past.
 				if poolMaxStorage > 0 {
 					var poolUsed int64
-					if err := tx.QueryRow(ctx, `SELECT COALESCE(SUM(e.size_bytes), 0) FROM exams e JOIN admin_users u ON e.created_by = u.id WHERE u.instansi = $1`, poolInstansi).Scan(&poolUsed); err != nil {
+					if err := tx.QueryRow(ctx, `SELECT COALESCE(SUM(e.size_bytes), 0) FROM exams e JOIN admin_users u ON e.created_by = u.id WHERE LOWER(u.instansi) = LOWER($1)`, poolInstansi).Scan(&poolUsed); err != nil {
 						log.Printf("upload sum school storage error: %v", err)
 						cleanupR2Orphan(c, ctx, filename)
 						errorResponse(c, http.StatusInternalServerError, "Gagal menyimpan ujian")
@@ -635,7 +635,7 @@ func ToggleExam() gin.HandlerFunc {
 						defer func() { _ = tx.Rollback(ctx) }()
 
 						if poolConcActive {
-							if _, err := tx.Exec(ctx, `SELECT id FROM admin_users WHERE instansi = $1 FOR UPDATE`, poolInstansi); err != nil {
+							if _, err := tx.Exec(ctx, `SELECT id FROM admin_users WHERE LOWER(instansi) = LOWER($1) FOR UPDATE`, poolInstansi); err != nil {
 								log.Printf("toggle lock school pool error: %v", err)
 								errorResponse(c, http.StatusInternalServerError, "Gagal mengubah status ujian")
 								return
@@ -1005,7 +1005,7 @@ func EditExam() gin.HandlerFunc {
 				// replacements by ANY account in the school serialize on the
 				// shared pool (same lock granularity as UploadExam/StartExam/
 				// BulkToggle, taken first so the ordering never deadlocks).
-				if _, err := tx.Exec(ctx, `SELECT id FROM admin_users WHERE instansi = $1 FOR UPDATE`, poolInstansi); err != nil {
+				if _, err := tx.Exec(ctx, `SELECT id FROM admin_users WHERE LOWER(instansi) = LOWER($1) FOR UPDATE`, poolInstansi); err != nil {
 					log.Printf("edit exam lock school pool error: %v", err)
 					cleanupR2Orphan(c, ctx, filename)
 					errorResponse(c, http.StatusInternalServerError, "Gagal memperbarui ujian")
@@ -1051,7 +1051,7 @@ func EditExam() gin.HandlerFunc {
 			if poolActive && poolMaxStorage > 0 {
 				var poolUsed int64
 				if err := tx.QueryRow(ctx,
-					`SELECT COALESCE(SUM(e.size_bytes), 0) FROM exams e JOIN admin_users u ON e.created_by = u.id WHERE u.instansi = $1`,
+					`SELECT COALESCE(SUM(e.size_bytes), 0) FROM exams e JOIN admin_users u ON e.created_by = u.id WHERE LOWER(u.instansi) = LOWER($1)`,
 					poolInstansi).Scan(&poolUsed); err == nil && poolUsed-currentSize+exam.SizeBytes > poolMaxStorage {
 					_ = tx.Rollback(ctx)
 					cleanupR2Orphan(c, ctx, filename)
@@ -1335,8 +1335,16 @@ func GetQuestions() gin.HandlerFunc {
 		isOp := isOperator(c)
 		isSuper := isSuperAdmin(c)
 		if isOp || isSuper {
-			// Pengawas assignments — only for operator/superadmin
-			assignments, _ := models.GetPengawasAssignments(ctx, pool, examID)
+			// Pengawas assignments — only for operator/superadmin. A load
+			// error must not render an empty roster as "no assignment": the
+			// modal feeds the roster replacement on save (dropping real
+			// pengawas), so fail the render loudly instead.
+			assignments, err := models.GetPengawasAssignments(ctx, pool, examID)
+			if err != nil {
+				log.Printf("load pengawas assignments error: %v", err)
+				errorResponse(c, http.StatusInternalServerError, "Gagal memuat penugasan pengawas")
+				return
+			}
 			assignedPengawas := make([]gin.H, 0, len(assignments))
 			for _, a := range assignments {
 				assignedPengawas = append(assignedPengawas, gin.H{
@@ -1356,7 +1364,8 @@ func GetQuestions() gin.HandlerFunc {
 			if creatorInstansi != "" {
 				rows, err := pool.Query(ctx,
 					`SELECT id, username, COALESCE(instansi, '') as instansi FROM admin_users
-					 WHERE instansi = $1 AND status = 'active' AND role ILIKE '%"pengawas"%'
+					 WHERE LOWER(instansi) = LOWER($1) AND status = 'active'
+					   AND (role = 'pengawas' OR role ILIKE '%"pengawas"%')
 					 ORDER BY username`, creatorInstansi)
 				if err == nil {
 					for rows.Next() {
@@ -1457,6 +1466,17 @@ func SaveQuestions() gin.HandlerFunc {
 
 		questionsJSON := "[]"
 		if body.Questions != nil {
+			// Server-side integrity gate (parity with the schedule validation
+			// below — the client is always bypassable): a question without an
+			// answer key used to persist silently and grade degenerately later
+			// — empty-string key gave full credit for an empty answer while
+			// its weight still counted in the max score; empty [] / {} keys
+			// matched empty answers for full credit too. Reject at save time
+			// naming the offending question number.
+			if msg := validateQuestionKeys(body.Questions); msg != "" {
+				errorResponse(c, http.StatusBadRequest, msg)
+				return
+			}
 			raw, _ := json.Marshal(body.Questions)
 			questionsJSON = string(raw)
 		}
@@ -1554,10 +1574,10 @@ func SaveQuestions() gin.HandlerFunc {
 						errorResponse(c, http.StatusBadRequest, fmt.Sprintf("Pengawas dengan ID %d tidak ditemukan", pid))
 						return
 					}
-					if ti != creatorInstansi {
-						errorResponse(c, http.StatusBadRequest, fmt.Sprintf("Pengawas %d tidak berada dalam instansi yang sama", pid))
-						return
-					}
+				if !strings.EqualFold(ti, creatorInstansi) {
+					errorResponse(c, http.StatusBadRequest, fmt.Sprintf("Pengawas %d tidak berada dalam instansi yang sama", pid))
+					return
+				}
 					if ts != models.UserStatusActive {
 						errorResponse(c, http.StatusBadRequest, fmt.Sprintf("Pengawas %d tidak aktif", pid))
 						return
@@ -1568,7 +1588,16 @@ func SaveQuestions() gin.HandlerFunc {
 					}
 				}
 				if err := models.SetPengawasForExam(ctx, pool, examID, body.PengawasIDs); err != nil {
+					// A failed roster save must NEVER surface as success: the
+					// questions did persist (transactional), but the pengawas
+					// roster silently stayed at its OLD version while the
+					// operator believes the new one is live. Fail loudly (500)
+					// so the operator retries instead of discovering the
+					// divergence after an exam session.
 					log.Printf("save pengawas error: %v", err)
+					errorResponse(c, http.StatusInternalServerError,
+						"Konfigurasi soal tersimpan, tetapi penugasan pengawas gagal — coba lagi.")
+					return
 				}
 			}
 		} else {
@@ -1577,6 +1606,9 @@ func SaveQuestions() gin.HandlerFunc {
 			// questions editor does not manage pengawas.
 			if err := models.CreateExamPengawas(ctx, pool, examID, userID); err != nil {
 				log.Printf("ensure creator pengawas error: %v", err)
+				errorResponse(c, http.StatusInternalServerError,
+					"Konfigurasi soal tersimpan, tetapi penugasan pengawas gagal — coba lagi.")
+				return
 			}
 		}
 
@@ -1587,6 +1619,59 @@ func SaveQuestions() gin.HandlerFunc {
 		go recalculateScores(recalcGoContext(), pool, examID)
 
 		successMessage(c, "Konfigurasi soal berhasil disimpan")
+	}
+}
+
+// validateQuestionKeys checks every graded question carries a usable answer
+// key. Returns an empty string when all keys are present, or an error message
+// naming the first offending question (1-based) otherwise.
+func validateQuestionKeys(questions []map[string]interface{}) string {
+	for i, q := range questions {
+		num := i + 1
+		qtype, _ := q["type"].(string)
+		key, hasKey := q["key"]
+		if !hasKey || key == nil {
+			return fmt.Sprintf("Soal #%d (%s) belum memiliki kunci jawaban", num, questionTypeLabel(qtype))
+		}
+		switch qtype {
+		case "single_choice", "true_false", "short_answer":
+			s, ok := key.(string)
+			if !ok || strings.TrimSpace(s) == "" {
+				return fmt.Sprintf("Soal #%d (%s) belum memiliki kunci jawaban", num, questionTypeLabel(qtype))
+			}
+		case "multiple_choice":
+			arr, ok := key.([]interface{})
+			if !ok || len(arr) == 0 {
+				return fmt.Sprintf("Soal #%d (%s) belum memiliki kunci jawaban", num, questionTypeLabel(qtype))
+			}
+		case "matching":
+			m, ok := key.(map[string]interface{})
+			if !ok || len(m) == 0 {
+				return fmt.Sprintf("Soal #%d (%s) belum memiliki kunci jawaban", num, questionTypeLabel(qtype))
+			}
+		}
+	}
+	return ""
+}
+
+// questionTypeLabel maps a question type to an Indonesian display label for
+// validation messages; unknown types render as-is.
+func questionTypeLabel(qtype string) string {
+	switch qtype {
+	case "single_choice":
+		return "pilihan ganda"
+	case "multiple_choice":
+		return "pilihan ganda kompleks"
+	case "true_false":
+		return "benar/salah"
+	case "short_answer":
+		return "isian singkat"
+	case "matching":
+		return "menjodohkan"
+	case "":
+		return "tanpa tipe"
+	default:
+		return qtype
 	}
 }
 
@@ -1876,7 +1961,7 @@ func StartExam() gin.HandlerFunc {
 						// Lock the whole instansi's account rows: concurrent
 						// starts by ANY account in the school serialize on the
 						// shared pool.
-						if _, err := tx.Exec(ctx, `SELECT id FROM admin_users WHERE instansi = $1 FOR UPDATE`, poolInstansi); err != nil {
+						if _, err := tx.Exec(ctx, `SELECT id FROM admin_users WHERE LOWER(instansi) = LOWER($1) FOR UPDATE`, poolInstansi); err != nil {
 							log.Printf("start lock school pool error: %v", err)
 							errorResponse(c, http.StatusInternalServerError, "Gagal memulai ujian")
 							return
@@ -2158,9 +2243,9 @@ func DelegateData() gin.HandlerFunc {
 			rows, err := pool.Query(ctx, `
 				SELECT id, username, COALESCE(instansi, '') as instansi
 				FROM admin_users
-				WHERE instansi = $1
+				WHERE LOWER(instansi) = LOWER($1)
 				  AND status = 'active'
-				  AND role ILIKE '%"guru"%'
+				  AND (role = 'guru' OR role ILIKE '%"guru"%')
 				  AND id != $2
 				ORDER BY username`, opInstansi, exam.CreatedBy)
 			if err == nil {
@@ -2188,9 +2273,9 @@ func DelegateData() gin.HandlerFunc {
 			rows, err := pool.Query(ctx, `
 				SELECT id, username, COALESCE(instansi, '') as instansi
 				FROM admin_users
-				WHERE instansi = $1
+				WHERE LOWER(instansi) = LOWER($1)
 				  AND status = 'active'
-				  AND role ILIKE '%"pengawas"%'
+				  AND (role = 'pengawas' OR role ILIKE '%"pengawas"%')
 				ORDER BY username`, opInstansi)
 			if err == nil {
 				for rows.Next() {
@@ -2206,8 +2291,15 @@ func DelegateData() gin.HandlerFunc {
 			}
 		}
 
-		// Get assigned pengawas IDs
-		assignedIDs, _ := models.GetPengawasIDs(ctx, pool, examID)
+		// Get assigned pengawas IDs — same anti-silent-partial rule: the
+			// picker payload drives roster replacement, so a failed load must
+			// not masquerade as an empty roster.
+		assignedIDs, err := models.GetPengawasIDs(ctx, pool, examID)
+		if err != nil {
+			log.Printf("load assigned pengawas ids error: %v", err)
+			errorResponse(c, http.StatusInternalServerError, "Gagal memuat penugasan pengawas")
+			return
+		}
 
 		c.JSON(http.StatusOK, gin.H{
 			"success": true,

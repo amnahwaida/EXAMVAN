@@ -388,7 +388,7 @@ func RestoreCascadeSuspendedInstansi(ctx context.Context, exec Executor, instans
 		            THEN u.expires_at + (now() - u.suspended_at)
 		        ELSE u.expires_at
 		    END
-		WHERE u.instansi = $1 AND u.suspended_by_cascade = TRUE AND u.id <> $2`, instansi, excludeID); err != nil {
+		WHERE LOWER(u.instansi) = LOWER($1) AND u.suspended_by_cascade = TRUE AND u.id <> $2`, instansi, excludeID); err != nil {
 		return fmt.Errorf("restore cascade-suspended accounts: %w", err)
 	}
 	return SyncInstansiActiveRedemptionsToExpiry(ctx, exec, instansi, excludeID)
@@ -408,7 +408,7 @@ func SyncInstansiActiveRedemptionsToExpiry(ctx context.Context, exec Executor, i
 		    activated_at = now()
 		FROM admin_users u
 		WHERE r.user_id = u.id AND r.is_active AND u.expires_at IS NOT NULL
-		  AND u.instansi = $1 AND u.id <> $2`, instansi, excludeID)
+		  AND LOWER(u.instansi) = LOWER($1) AND u.id <> $2`, instansi, excludeID)
 	if err != nil {
 		return fmt.Errorf("sync instansi active redemptions expiry: %w", err)
 	}

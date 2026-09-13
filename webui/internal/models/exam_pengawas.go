@@ -3,7 +3,6 @@ package models
 import (
 	"context"
 	"fmt"
-	"log"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 )
@@ -40,8 +39,13 @@ func GetPengawasIDs(ctx context.Context, pool *pgxpool.Pool, examID int) ([]int,
 		ids = append(ids, id)
 	}
 	rows.Close()
+	// Propagate, don't swallow: an interrupted iteration must not come back
+	// as a PARTIAL list indistinguishable from "no pengawas" — callers use
+	// this to populate the roster picker that REPLACES the whole roster on
+	// save, so a silently partial list would drop existing pengawas on the
+	// next save.
 	if err := rows.Err(); err != nil {
-		log.Printf("rows iteration error: %v", err)
+		return nil, fmt.Errorf("iterate pengawas ids: %w", err)
 	}
 
 	if ids == nil {
@@ -72,8 +76,10 @@ func GetPengawasAssignments(ctx context.Context, pool *pgxpool.Pool, examID int)
 		assignments = append(assignments, a)
 	}
 	rows.Close()
+	// Propagate, don't swallow (same reason as GetPengawasIDs): a partial
+	// list renders as "no assignment" instead of an error.
 	if err := rows.Err(); err != nil {
-		log.Printf("rows iteration error: %v", err)
+		return nil, fmt.Errorf("iterate pengawas assignments: %w", err)
 	}
 
 	if assignments == nil {
