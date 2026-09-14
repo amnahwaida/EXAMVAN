@@ -3,6 +3,10 @@ package admin
 import (
 	"context"
 	"net/http"
+	"net/http/cookiejar"
+	"net/http/httptest"
+	"os"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -151,5 +155,75 @@ func TestFamilyBudgetCapsConcurrentStarts(t *testing.T) {
 	}
 	if status, resp := tc.start(t, e2); status != http.StatusForbidden {
 		t.Fatalf("start exam 2: status=%d resp=%+v, want 403 family concurrent cap", status, resp)
+	}
+}
+
+// TestFamilyBudgetDashboardShowsOperatorQuota pins the reported display bug:
+// a pool-less sub-account's dashboard showed its forced free defaults
+// ("Gratis / Trial", "3 Ujian", "2 Ujian") instead of the creator-operator
+// budget that actually gates its uploads. Rendered through the REAL
+// Dashboard handler with the REAL templates.
+func TestFamilyBudgetDashboardShowsOperatorQuota(t *testing.T) {
+	pool := setupVoucherITDB(t)
+	ctx := context.Background()
+
+	op, err := models.CreateUser(ctx, pool, &models.AdminUser{
+		Username: "op-fam-dash", Name: "Op Fam Dash",
+		PasswordHash: "x", Status: models.UserStatusActive, Instansi: "personal",
+		Role: models.SerializeRoles([]string{models.RoleOperator}),
+		// Distinctive numbers (never the free defaults 3/2) so the test
+		// breaks the moment the forced-free columns leak back in.
+		MaxExams: 7, MaxPDFSize: 1048576, MaxConcurrentExams: 5,
+		MaxStorageSize: 50 * 1024 * 1024, Package: "free",
+	})
+	if err != nil {
+		t.Fatalf("create operator: %v", err)
+	}
+	sub, err := models.CreateUser(ctx, pool, &models.AdminUser{
+		Username: "sub-fam-dash", Name: "Sub Fam Dash",
+		PasswordHash: "x", Status: models.UserStatusActive, Instansi: "personal",
+		Role:               models.SerializeRoles([]string{models.RoleGuru}),
+		MaxExams:           3,
+		MaxPDFSize:         1048576,
+		MaxConcurrentExams: 2,
+		MaxStorageSize:     50 * 1024 * 1024,
+		Package:            "free",
+		OperatorCreated:    true,
+		CreatedBy:          &op.ID,
+	})
+	if err != nil {
+		t.Fatalf("create sub: %v", err)
+	}
+
+	storageDir, err := os.MkdirTemp("", "examvan-fam-dash-it")
+	if err != nil {
+		t.Fatalf("make temp storage dir: %v", err)
+	}
+	defer os.RemoveAll(storageDir)
+
+	srv := httptest.NewServer(newDashboardPageTestRouter(t, pool, storageDir))
+	defer srv.Close()
+
+	jar, _ := cookiejar.New(nil)
+	client := &http.Client{Jar: jar}
+	loginResp, err := client.Post(srv.URL+"/test/login/"+strconv.Itoa(sub.ID), "application/json", nil)
+	if err != nil || loginResp.StatusCode != http.StatusOK {
+		t.Fatalf("test login as sub: status=%v err=%v", loginResp, err)
+	}
+	loginResp.Body.Close()
+
+	status, body := getDashboardPage(t, client, srv)
+	if status != http.StatusOK {
+		t.Fatalf("dashboard page: status=%d, want 200", status)
+	}
+	for _, want := range []string{"Paket Operator", "7 Ujian", "5 Ujian"} {
+		if !strings.Contains(body, want) {
+			t.Errorf("sub dashboard must show %q (operator family budget)", want)
+		}
+	}
+	for _, stale := range []string{"3 Ujian", "2 Ujian"} {
+		if strings.Contains(body, stale) {
+			t.Errorf("sub dashboard must NOT show forced-free default %q", stale)
+		}
 	}
 }

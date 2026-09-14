@@ -189,8 +189,27 @@ func Dashboard() gin.HandlerFunc {
 		var accountExpires *string
 
 		var userInstansiCode string
+		subQuotaLabel := ""
 		user, err := models.GetUserByID(ctx, pool, userID)
 		if err == nil {
+			// Sub-account quota display: an operator-created account's REAL
+			// limits are the school pool when covered, else the
+			// creator-operator family budget (effectiveSubQuota — the same
+			// source that gates exam/PDF/storage/concurrent quota) — never
+			// the forced free defaults on its own row.
+			subQuotaUsage := int64(-1)
+			if user.OperatorCreated {
+				if label, me, mp, mc, ms, ok := effectiveSubQuota(ctx, pool, user); ok {
+					user.MaxExams, user.MaxPDFSize, user.MaxConcurrentExams, user.MaxStorageSize =
+						int(me), int(mp), int(mc), ms
+					subQuotaLabel = label
+					if g := examQuotaGate(ctx, pool, userID); g.active {
+						if used, uerr := g.sumStorage(ctx, pool); uerr == nil {
+							subQuotaUsage = used
+						}
+					}
+				}
+			}
 			userPackage = user.Package
 			if userPackage == "" {
 				userPackage = "free"
@@ -227,8 +246,10 @@ func Dashboard() gin.HandlerFunc {
 			if isSuper && user.MaxStorageSize <= 0 {
 				remainingStorage = "Tidak Terbatas"
 			} else if user.MaxStorageSize > 0 && user.MaxStorageSize < 900000*1024*1024 {
-				var currentStorageBytes int64
-				pool.QueryRow(ctx, `SELECT COALESCE(SUM(size_bytes), 0) FROM exams WHERE created_by = $1`, userID).Scan(&currentStorageBytes)
+				currentStorageBytes := subQuotaUsage
+				if currentStorageBytes < 0 {
+					pool.QueryRow(ctx, `SELECT COALESCE(SUM(size_bytes), 0) FROM exams WHERE created_by = $1`, userID).Scan(&currentStorageBytes)
+				}
 				rem := user.MaxStorageSize - currentStorageBytes
 				if rem < 0 {
 					rem = 0
@@ -267,6 +288,9 @@ func Dashboard() gin.HandlerFunc {
 		packageName := packageDisplayName(userPackage)
 		if isSuper && userPackage == "free" {
 			packageName = "SuperAdmin (Full)"
+		}
+		if subQuotaLabel != "" {
+			packageName = subQuotaLabel
 		}
 
 		totalPages := int(math.Max(1, float64((result.Total+perPage-1)/perPage)))

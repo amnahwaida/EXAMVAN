@@ -432,6 +432,43 @@ func enforceBulkFamilyConcurrent(ctx context.Context, tx pgx.Tx, examIDs []int) 
 	return nil
 }
 
+// schoolPackageLabel resolves the display label of the active school
+// package running an instansi: the mapped package name ("Paket …") with a
+// generic "Paket Sekolah" fallback when no snapshot row names it.
+func schoolPackageLabel(ctx context.Context, pool *pgxpool.Pool, instansi string) string {
+	var schoolPkg string
+	if err := pool.QueryRow(ctx, `
+			SELECT COALESCE(vr.package, '')
+			FROM voucher_redemptions vr
+			JOIN admin_users u ON u.id = vr.user_id
+			WHERE vr.is_active AND LOWER(u.instansi) = LOWER($1)
+			  AND (u.role = 'operator' OR u.role ILIKE '%"operator"%')
+			ORDER BY vr.redeemed_at DESC, vr.id DESC
+			LIMIT 1`, instansi).Scan(&schoolPkg); err != nil || schoolPkg == "" {
+		return "Paket Sekolah"
+	}
+	return packageDisplayName(schoolPkg)
+}
+
+// effectiveSubQuota returns the quota numbers + package label a sub-account's
+// cards must show instead of its forced free-default columns: the school
+// pool when covered, else the creator-family budget (see familyExamBudget).
+// ok=false → the caller keeps the per-account columns. Shared by the
+// billing overlay and the dashboard info card so display and enforcement
+// (examQuotaGate) can never disagree.
+func effectiveSubQuota(ctx context.Context, pool *pgxpool.Pool, user models.AdminUser) (label string, maxExams, maxPDF, maxConc, maxStorage int64, ok bool) {
+	if !user.OperatorCreated {
+		return "", 0, 0, 0, 0, false
+	}
+	if me, mp, mc, ms, _, pok := schoolPoolQuota(ctx, pool, user.ID); pok {
+		return schoolPackageLabel(ctx, pool, user.Instansi), me, mp, mc, ms, true
+	}
+	if g := examQuotaGate(ctx, pool, user.ID); g.active && g.familyRoot > 0 {
+		return "Paket Operator", g.maxExams, g.maxPDF, g.maxConcurrent, g.maxStorage, true
+	}
+	return "", 0, 0, 0, 0, false
+}
+
 // durationDays maps a voucher duration type ("bulanan", "semester", "tahunan",
 // or a positive integer as days) to the number of days the entitlement lasts.
 func durationDays(durationType string) int {
