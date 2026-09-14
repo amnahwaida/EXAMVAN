@@ -96,47 +96,59 @@ func loadBillingPageData(c *gin.Context) gin.H {
 			// above (no second query).
 			userOperatorCreated = user.OperatorCreated
 
-			// Sub-account quota display: an operator-created account's REAL
-			// limits come from the school pool — the instansi's operator(s)
-			// active redemption snapshot (schoolPoolQuotaForInstansi), the
-			// same source that gates exam/PDF/storage/concurrent quota at
-			// upload/start time. Its own admin_users columns only hold the
-			// 'free' defaults (CreateUser forces package='free' and the
-			// default quotas on sub-accounts), so showing them would
-			// misrepresent the limits that actually apply. When a school
-			// pool exists (a real school instansi whose operator holds an
-			// active package), the quota cards show the pool values and
-			// "Paket Saat Ini" shows the school package label. Without a
-			// pool (operator still in the shared "personal" bucket, or no
-			// active operator redemption) exam creation falls back to the
-			// per-account columns, so the default display stays accurate.
-			if userOperatorCreated {
-				if maxExams, maxPDF, maxConcurrent, maxStorage, _, ok := schoolPoolQuota(ctx, pool, userID); ok {
-					userMaxTotal = maxExams
-					userMaxPDF = maxPDF
-					userMaxConcurrent = maxConcurrent
-					userMaxStorage = maxStorage
-					// The school package label comes from the operator's
-					// active redemption snapshot — a sub-account's package
-					// is the school's, never its own forced 'free' row.
-					// packageDisplayName maps known keys to the "Paket …"
-					// labels (mirroring the dashboard), with a generic
-					// fallback when the label cannot be resolved.
-					var schoolPkg string
-					if err := pool.QueryRow(ctx, `
-							SELECT COALESCE(vr.package, '')
-							FROM voucher_redemptions vr
-							JOIN admin_users u ON u.id = vr.user_id
-							WHERE vr.is_active AND LOWER(u.instansi) = LOWER($1)
-							  AND (u.role = 'operator' OR u.role ILIKE '%"operator"%')
-							ORDER BY vr.redeemed_at DESC, vr.id DESC
-							LIMIT 1`, user.Instansi).Scan(&schoolPkg); err != nil || schoolPkg == "" {
-						userPackageName = "Paket Sekolah"
-					} else {
-						userPackageName = packageDisplayName(schoolPkg)
-					}
+		// Sub-account quota display: an operator-created account's REAL
+		// limits come from the school pool — the instansi's operator(s)
+		// active redemption snapshot (schoolPoolQuotaForInstansi), the
+		// same source that gates exam/PDF/storage/concurrent quota at
+		// upload/start time. Its own admin_users columns only hold the
+		// 'free' defaults (CreateUser forces package='free' and the
+		// default quotas on sub-accounts), so showing them would
+		// misrepresent the limits that actually apply. When a school
+		// pool exists (a real school instansi whose operator holds an
+		// active package), the quota cards show the pool values and
+		// "Paket Saat Ini" shows the school package label. Without a
+		// pool (operator still in the shared "personal" bucket, or no
+		// active operator redemption) the creator-operator family budget
+		// applies instead (see familyExamBudget) and the cards show the
+		// operator's quota with the "Paket Operator" label.
+		if userOperatorCreated {
+			if maxExams, maxPDF, maxConcurrent, maxStorage, _, ok := schoolPoolQuota(ctx, pool, userID); ok {
+				userMaxTotal = maxExams
+				userMaxPDF = maxPDF
+				userMaxConcurrent = maxConcurrent
+				userMaxStorage = maxStorage
+				// The school package label comes from the operator's
+				// active redemption snapshot — a sub-account's package
+				// is the school's, never its own forced 'free' row.
+				// packageDisplayName maps known keys to the "Paket …"
+				// labels (mirroring the dashboard), with a generic
+				// fallback when the label cannot be resolved.
+				var schoolPkg string
+				if err := pool.QueryRow(ctx, `
+						SELECT COALESCE(vr.package, '')
+						FROM voucher_redemptions vr
+						JOIN admin_users u ON u.id = vr.user_id
+						WHERE vr.is_active AND LOWER(u.instansi) = LOWER($1)
+						  AND (u.role = 'operator' OR u.role ILIKE '%"operator"%')
+						ORDER BY vr.redeemed_at DESC, vr.id DESC
+						LIMIT 1`, user.Instansi).Scan(&schoolPkg); err != nil || schoolPkg == "" {
+					userPackageName = "Paket Sekolah"
+				} else {
+					userPackageName = packageDisplayName(schoolPkg)
 				}
+			} else if gate := examQuotaGate(ctx, pool, userID); gate.active && gate.familyRoot > 0 {
+				// Pool-less sub-account: its REAL limits are the
+				// creator-operator family budget (see familyExamBudget) —
+				// the same source that gates exam/PDF/storage/concurrent
+				// quota at upload/start time — so the cards show the
+				// operator's quota, not the forced free defaults.
+				userMaxTotal = gate.maxExams
+				userMaxPDF = gate.maxPDF
+				userMaxConcurrent = gate.maxConcurrent
+				userMaxStorage = gate.maxStorage
+				userPackageName = "Paket Operator"
 			}
+		}
 		}
 	}
 

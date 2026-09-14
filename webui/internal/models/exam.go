@@ -460,7 +460,52 @@ func CountRunningExamsByInstansi(ctx context.Context, q queryRower, scope Instan
 	return n, nil
 }
 
-// RunningExamCountsAfterActivationByInstansi returns, per distinct instansi of
+// familyMemberSQL matches exams created by ANY account in an operator's
+// family: the operator themself plus every sub-account created directly by
+// them (created_by). Sub-accounts hold no management rights, so one level
+// covers the whole family; legacy operator-created rows with created_by IS
+// NULL cannot be attributed and stay outside the family.
+const familyMemberSQL = `(e.created_by = $1 OR e.created_by IN (SELECT id FROM admin_users WHERE created_by = $1))`
+
+// CountExamsByFamily returns the number of exams created by ANY account in
+// the creator-operator's family — the shared family-budget usage that counts
+// against the operator's quota when sub-accounts draw from it (see
+// familyExamBudget in the admin handlers).
+func CountExamsByFamily(ctx context.Context, q queryRower, familyRoot int) (int64, error) {
+	var n int64
+	err := q.QueryRow(ctx, `SELECT COUNT(*) FROM exams e WHERE `+familyMemberSQL, familyRoot).Scan(&n)
+	if err != nil {
+		return 0, fmt.Errorf("count exams by family: %w", err)
+	}
+	return n, nil
+}
+
+// SumStorageByFamily returns the total PDF bytes of exams created by ANY
+// account in the creator-operator's family — the shared family-budget
+// storage usage.
+func SumStorageByFamily(ctx context.Context, q queryRower, familyRoot int) (int64, error) {
+	var n int64
+	err := q.QueryRow(ctx, `SELECT COALESCE(SUM(e.size_bytes), 0) FROM exams e WHERE `+familyMemberSQL, familyRoot).Scan(&n)
+	if err != nil {
+		return 0, fmt.Errorf("sum storage by family: %w", err)
+	}
+	return n, nil
+}
+
+// CountRunningExamsByFamily returns the number of exams currently RUNNING
+// (status='active' AND exam_started_at IS NOT NULL) created by ANY account in
+// the creator-operator's family. excludeID is not counted (used when the
+// caller is about to start/activate that exam itself). Accepts a pool or a
+// transaction so the count can run inside the quota lock.
+func CountRunningExamsByFamily(ctx context.Context, q queryRower, familyRoot, excludeID int) (int, error) {
+	var n int
+	err := q.QueryRow(ctx, `SELECT COUNT(*) FROM exams e WHERE `+familyMemberSQL+` AND e.status = 'active' AND e.exam_started_at IS NOT NULL AND e.id <> $2`,
+		familyRoot, excludeID).Scan(&n)
+	if err != nil {
+		return 0, fmt.Errorf("count running exams by family: %w", err)
+	}
+	return n, nil
+}
 // the given exam ids' creators, the number of running exams the instansi would
 // have if every selected exam were activated (school-pool semantics: running
 // exams of EVERY account in the instansi — the operator's included — count).

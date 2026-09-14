@@ -193,6 +193,245 @@ func schoolPoolQuotaForInstansi(ctx context.Context, q quotaQuerier, scope model
 	return maxExams, maxPDF, maxConcurrent, maxStorage, true
 }
 
+// familyExamBudget resolves the shared family budget for an
+// operator-created sub-account that sits OUTSIDE any active school pool (the
+// shared "personal" bucket, a legacy school without a redemption, or a
+// label-drifted row): the creator-operator's quota is the reference, counted
+// family-wide (creator + direct sub-accounts).
+//
+// Budget source mirrors loadOperatorAccountQuota's personal-bucket precedent:
+// the creator's ACTIVE school pool when the creator's own scope runs one,
+// else the creator's own per-account columns (the redeemed snapshot, or the
+// free defaults) — so the family's total usage can never exceed what the
+// operator's own account could spend alone.
+//
+// ok=false for non-sub-accounts, unattributed rows (created_by NULL or the
+// creator row gone), and self-created cycles: those keep the existing
+// per-account gates. Single level only (sub → creator), never recursive.
+func familyExamBudget(ctx context.Context, q quotaQuerier, userID int) (maxExams, maxPDF, maxConcurrent, maxStorage int64, familyRoot int, ok bool) {
+	var created bool
+	var createdBy *int
+	if err := q.QueryRow(ctx,
+		`SELECT operator_created, created_by FROM admin_users WHERE id = $1`, userID).
+		Scan(&created, &createdBy); err != nil {
+		return 0, 0, 0, 0, 0, false
+	}
+	if !created || createdBy == nil || *createdBy <= 0 || *createdBy == userID {
+		return 0, 0, 0, 0, 0, false
+	}
+	root := *createdBy
+	// The creator's own active school pool (when the creator's scope runs
+	// one) is the family budget — a drifted sub rejoins its school's pool
+	// numbers while usage stays family-scoped.
+	if me, mp, mc, ms, _, pok := schoolPoolQuota(ctx, q, root); pok {
+		return me, mp, mc, ms, root, true
+	}
+	// Else the creator's own per-account columns are the reference.
+	var cExams *int
+	var cPDF *int
+	var cConc *int
+	var cStor *int64
+	if err := q.QueryRow(ctx,
+		`SELECT max_exams, max_pdf_size, max_concurrent_exams, max_storage_size FROM admin_users WHERE id = $1`, root).
+		Scan(&cExams, &cPDF, &cConc, &cStor); err != nil {
+		return 0, 0, 0, 0, 0, false
+	}
+	if cExams != nil {
+		maxExams = int64(*cExams)
+	}
+	if cPDF != nil {
+		maxPDF = int64(*cPDF)
+	}
+	if cConc != nil {
+		maxConcurrent = int64(*cConc)
+	}
+	if cStor != nil {
+		maxStorage = *cStor
+	}
+	// Same 0 → max_exams → 1 defaulting as schoolPoolQuotaForInstansi so the
+	// family concurrent cap can never disagree with the pool semantics.
+	if maxConcurrent <= 0 {
+		maxConcurrent = maxExams
+	}
+	if maxConcurrent <= 0 {
+		maxConcurrent = 1
+	}
+	return maxExams, maxPDF, maxConcurrent, maxStorage, root, true
+}
+
+// quotaGate is the effective exam-quota budget + usage scope for one account:
+// either the shared school pool (tenant scope) or — for operator-created
+// sub-accounts outside any pool — the creator-operator family budget (see
+// familyExamBudget). All exam quota gates (create, storage, PDF, concurrent)
+// resolve through examQuotaGate so sub-account usage always spends the same
+// budget the operator's own uploads spend.
+type quotaGate struct {
+	maxExams, maxPDF, maxConcurrent, maxStorage int64
+	active                                     bool
+	pooled                                     bool // budget from an active school pool (vs family fallback)
+	familyRoot                                 int  // >0: family mode, count across the creator family
+	scope                                      models.InstansiScope
+}
+
+// examQuotaGate resolves the quota gate for userID: the own-scope school
+// pool when active, else the creator-family budget for pool-less
+// sub-accounts. Operators and pool-less non-sub-accounts get an inactive
+// gate and keep their existing per-account gates.
+func examQuotaGate(ctx context.Context, q quotaQuerier, userID int) quotaGate {
+	if me, mp, mc, ms, scope, ok := schoolPoolQuota(ctx, q, userID); ok {
+		return quotaGate{maxExams: me, maxPDF: mp, maxConcurrent: mc, maxStorage: ms,
+			active: true, pooled: true, scope: scope}
+	}
+	if me, mp, mc, ms, root, ok := familyExamBudget(ctx, q, userID); ok {
+		return quotaGate{maxExams: me, maxPDF: mp, maxConcurrent: mc, maxStorage: ms,
+			active: true, familyRoot: root}
+	}
+	return quotaGate{}
+}
+
+// lockRows locks every account row the gate counts, so concurrent uploads /
+// starts / toggles sharing one budget serialize on the same rows.
+func (g quotaGate) lockRows(ctx context.Context, tx pgx.Tx) error {
+	if g.familyRoot > 0 {
+		_, err := tx.Exec(ctx,
+			`SELECT id FROM admin_users WHERE id = $1 OR created_by = $1 FOR UPDATE`, g.familyRoot)
+		return err
+	}
+	frag, args := models.InstansiMatchSQL("", 1, g.scope)
+	_, err := tx.Exec(ctx, `SELECT id FROM admin_users WHERE `+frag+` FOR UPDATE`, args...)
+	return err
+}
+
+// countExams returns the gate's usage: exams created by ANY account in the
+// tenant (pool mode) or in the creator family (family mode).
+func (g quotaGate) countExams(ctx context.Context, q quotaQuerier) (int64, error) {
+	if g.familyRoot > 0 {
+		return models.CountExamsByFamily(ctx, q, g.familyRoot)
+	}
+	return models.CountExamsByInstansi(ctx, q, g.scope)
+}
+
+// sumStorage returns the gate's storage usage (PDF bytes).
+func (g quotaGate) sumStorage(ctx context.Context, q quotaQuerier) (int64, error) {
+	if g.familyRoot > 0 {
+		return models.SumStorageByFamily(ctx, q, g.familyRoot)
+	}
+	return models.SumStorageByInstansi(ctx, q, g.scope)
+}
+
+// countRunning returns the gate's concurrent usage (running exams).
+func (g quotaGate) countRunning(ctx context.Context, q quotaQuerier, excludeID int) (int, error) {
+	if g.familyRoot > 0 {
+		return models.CountRunningExamsByFamily(ctx, q, g.familyRoot, excludeID)
+	}
+	return models.CountRunningExamsByInstansi(ctx, q, g.scope, excludeID)
+}
+
+// enforceBulkFamilyConcurrent gates bulk activation for accounts sharing
+// one budget outside any school pool: pool-less sub-accounts (each creator
+// family's running-after count must fit the family budget, see
+// familyExamBudget) and pool-less operators (the operator's own running-after
+// count is family-wide, symmetric with the single-exam paths). Pool-covered
+// exams are handled by the tenant pool check; other per-owner columns by the
+// caller's per-owner loop. The caller's instansi name-lock already covers the
+// family rows (same or shared-bucket labels), mirroring the existing lock
+// granularity. Fail-open on query errors, like the surrounding bulk guards
+// (which only enforce when cErr == nil).
+func enforceBulkFamilyConcurrent(ctx context.Context, tx pgx.Tx, examIDs []int) error {
+	if len(examIDs) == 0 {
+		return nil
+	}
+	rows, err := tx.Query(ctx, `
+		SELECT e.created_by, e.status, (e.exam_started_at IS NOT NULL),
+		       COALESCE(u.role, ''), COALESCE(u.max_concurrent_exams, 0)
+		FROM exams e JOIN admin_users u ON u.id = e.created_by
+		WHERE e.id = ANY($1)`, examIDs)
+	if err != nil {
+		return nil
+	}
+	type bulkRow struct {
+		createdBy int
+		status    string
+		started   bool
+		role      string
+		maxConc   int
+	}
+	var list []bulkRow
+	for rows.Next() {
+		var r bulkRow
+		if err := rows.Scan(&r.createdBy, &r.status, &r.started, &r.role, &r.maxConc); err != nil {
+			continue
+		}
+		list = append(list, r)
+	}
+	rows.Close()
+	if err := rows.Err(); err != nil {
+		return nil
+	}
+	gates := map[int]quotaGate{}
+	opMaxConc := map[int]int{}
+	activating := map[int]int{}
+	member := map[int]int{}
+	roots := map[int]bool{}
+	for _, r := range list {
+		createdBy := r.createdBy
+		status := r.status
+		role := r.role
+		started := r.started
+		g, ok := gates[createdBy]
+		if !ok {
+			g = examQuotaGate(ctx, tx, createdBy)
+			gates[createdBy] = g
+		}
+		root := 0
+		if g.familyRoot > 0 {
+			// Pool-less sub-account: the creator family's budget.
+			root = g.familyRoot
+			if _, seen := member[root]; !seen {
+				member[root] = createdBy
+			}
+		} else if !g.pooled && models.HasRole(role, models.RoleOperator) {
+			// Pool-less operator: its own budget, counted family-wide
+			// (symmetric with the single-exam paths). A pooled operator
+			// stays under the tenant pool check only.
+			root = createdBy
+			opMaxConc[root] = r.maxConc
+		}
+		if root == 0 {
+			continue
+		}
+		roots[root] = true
+		if started && status != "active" {
+			activating[root]++
+		}
+	}
+	for root := range roots {
+		running, err := models.CountRunningExamsByFamily(ctx, tx, root, 0)
+		if err != nil {
+			continue
+		}
+		maxConc := 0
+		if sub, ok := member[root]; ok {
+			_, _, mc, _, _, ok := familyExamBudget(ctx, tx, sub)
+			if !ok {
+				continue
+			}
+			maxConc = int(mc)
+		} else {
+			maxConc = opMaxConc[root]
+			if maxConc <= 0 {
+				continue
+			}
+		}
+		// `after > max` (not >=) matches the single-exam semantics:
+		// reaching the limit is allowed, only exceeding it is rejected.
+		if running+activating[root] > maxConc {
+			return fmt.Errorf("Batas ujian serentak tercapai. Maksimal %d ujian dapat berjalan bersamaan (kuota operator).", maxConc)
+		}
+	}
+	return nil
+}
+
 // durationDays maps a voucher duration type ("bulanan", "semester", "tahunan",
 // or a positive integer as days) to the number of days the entitlement lasts.
 func durationDays(durationType string) int {
