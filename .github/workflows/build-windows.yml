@@ -8,6 +8,9 @@ name: Build Windows
 on:
   workflow_dispatch:
 
+permissions:
+  contents: write  # gh release upload (exe di-release, tidak kena kuota artifact)
+
 jobs:
   build:
     runs-on: windows-latest
@@ -61,11 +64,31 @@ jobs:
         working-directory: ${{ github.workspace }}
 
       - name: Upload artifact
+        # continue-on-error: kuota Actions storage bisa penuh (pernah — 222
+        # artifact lama ~57MB menumpuk). Exe utama dikirim via Release di
+        # bawah; artifact hanya bonus.
+        continue-on-error: true
         uses: actions/upload-artifact@v4
         with:
           name: EXAMVAN-Windows-${{ matrix.python-version }}
           path: dist/EXAMVAN.exe
           if-no-files-found: error
+
+      - name: Upload exe to release (exe-latest)
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $tag = "exe-latest"
+          gh release view $tag --repo $env:GITHUB_REPOSITORY 2>$null
+          if ($LASTEXITCODE -ne 0) {
+            gh release create $tag --repo $env:GITHUB_REPOSITORY `
+              --title "EXAMVAN Windows (build terbaru)" `
+              --notes "EXAMVAN.exe build otomatis dari branch main. Ganti file setiap build (--clobber)." `
+              --prerelease
+          }
+          gh release upload $tag dist/EXAMVAN.exe --repo $env:GITHUB_REPOSITORY --clobber
+          Write-Host "::notice::EXAMVAN.exe terbit di release 'exe-latest'"
 
       - name: Summary
         shell: pwsh
