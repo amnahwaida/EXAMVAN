@@ -13,7 +13,16 @@
 name: CI
 
 on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
   workflow_dispatch:
+
+# Push beruntun ke branch yang sama → batalkan run yang masih jalan
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   go:
@@ -72,3 +81,28 @@ jobs:
         run: node --check static/js/admin-core.js && node --check static/js/admin.js
       - name: Run admin-core unit tests
         run: node --test static/js/admin-core.test.mjs
+
+  # Unit test klien desktop (Python/PyQt5, ~79 test) — offscreen Qt.
+  # Selama ini suite ini tidak pernah jalan di CI sama sekali.
+  desktop:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: desktop
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install Qt system libs (offscreen)
+        run: |
+          sudo apt-get update -q
+          sudo apt-get install -y -q libgl1 libegl1 libxkbcommon0 libxkbcommon-x11-0 \
+            libxcb-icccm4 libxcb-image0 libxcb-keysyms1 libxcb-randr0 \
+            libxcb-render-util0 libxcb-xinerama0 libxcb-shape0 libdbus-1-3
+      - name: Install Python dependencies
+        run: pip install PyQt5 PyMuPDF
+      - name: Run desktop unit tests
+        env:
+          QT_QPA_PLATFORM: offscreen
+        run: python -m unittest discover -s tests -v

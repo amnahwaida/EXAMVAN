@@ -1,12 +1,31 @@
 # Build EXAMVAN Windows .exe on GitHub Actions
 #
-# Trigger: push to main, PR to main, or manual workflow_dispatch
-# Produces: EXAMVAN.exe uploaded as build artifact
+# Trigger: push/PR ke main yang menyentuh desktop/, windows/, atau workflow
+# ini sendiri (path filter — perubahan docs/webui tidak buang menit runner
+# Windows), atau manual workflow_dispatch.
+# Produces: EXAMVAN.exe → release 'exe-latest' (+ artifact bila kuota cukup)
 
 name: Build Windows
 
 on:
+  push:
+    branches: [main]
+    paths:
+      - "desktop/**"
+      - "windows/**"
+      - ".github/workflows/build-windows.yml"
+  pull_request:
+    branches: [main]
+    paths:
+      - "desktop/**"
+      - "windows/**"
+      - ".github/workflows/build-windows.yml"
   workflow_dispatch:
+
+# Push beruntun → build lama dibatalkan, exe dari commit terbaru saja
+concurrency:
+  group: build-windows-${{ github.ref }}
+  cancel-in-progress: true
 
 permissions:
   contents: write  # gh release upload (exe di-release, tidak kena kuota artifact)
@@ -64,10 +83,11 @@ jobs:
         working-directory: ${{ github.workspace }}
 
       - name: Upload artifact
-        # continue-on-error: kuota Actions storage bisa penuh (pernah — 222
-        # artifact lama ~57MB menumpuk). Exe utama dikirim via Release di
-        # bawah; artifact hanya bonus.
+        # continue-on-error + hanya non-PR: kuota Actions storage bisa penuh
+        # (pernah — 222 artifact lama ~57MB menumpuk), dan PR tidak perlu
+        # mengisi kuota. Exe utama dikirim via Release di bawah.
         continue-on-error: true
+        if: github.event_name != 'pull_request'
         uses: actions/upload-artifact@v4
         with:
           name: EXAMVAN-Windows-${{ matrix.python-version }}
@@ -75,6 +95,9 @@ jobs:
           if-no-files-found: error
 
       - name: Upload exe to release (exe-latest)
+        # Hanya push main / dispatch — PR tidak boleh menimpa exe terbit
+        # dengan kode yang belum di-merge.
+        if: github.event_name != 'pull_request'
         shell: pwsh
         env:
           GH_TOKEN: ${{ github.token }}
