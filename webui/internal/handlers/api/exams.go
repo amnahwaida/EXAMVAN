@@ -566,6 +566,23 @@ func RequestApproval() gin.HandlerFunc {
 
 		var status string
 		if autoApproveLive {
+			// Baca cap SEBELUM pool.Begin. Nilai ini konfigurasi global
+			// (saas_settings, sudah di-cache TTL) — bukan bagian dari keputusan
+			// yang harus atomik dengan INSERT. Yang wajib di bawah lock adalah
+			// re-count approvedCount di bawah, dan itu sudah lewat tx.
+			//
+			// Kenapa urutan ini penting: GetSaasSettingInt memakai `pool`,
+			// sedangkan tx di bawah memegang SATU koneksi dari pool yang sama
+			// selama transaksi terbuka. Memanggilnya di dalam blok tx berarti
+			// satu handler memegang dua koneksi sekaligus. Dengan N request
+			// serentak dan MaxConns pgxpool = max(4, numCPU) = 4, keempat
+			// request yang memegang koneksi semuanya lalu menunggu koneksi
+			// tambahan yang tidak akan pernah dilepas — deadlock permanen,
+			// bukan query lambat. Di CI ini muncul sebagai test yang hang
+			// 10 menit (TestRequestApprovalAutoApproveConcurrentNoDuplicate).
+			approvalCap := models.GetSaasSettingInt(ctx, pool,
+				models.SettingMaxApprovalsPerExam, defaultMaxApprovalsPerExam)
+
 			tx, bErr := pool.Begin(ctx)
 			if bErr != nil {
 				log.Printf("request approval begin tx error: %v", bErr)
@@ -586,8 +603,7 @@ func RequestApproval() gin.HandlerFunc {
 			// the cap decision is based on, so it must observe every committed
 			// approval before this one (a concurrent approver's commit is
 			// visible once we hold the lock and it has released it).
-			approvalCap := models.GetSaasSettingInt(ctx, pool,
-				models.SettingMaxApprovalsPerExam, defaultMaxApprovalsPerExam)
+			// approvalCap was read above, before the tx began.
 			autoApprove := true
 			if approvalCap > 0 {
 				var approvedCount int

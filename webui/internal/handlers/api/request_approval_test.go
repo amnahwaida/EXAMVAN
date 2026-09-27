@@ -420,14 +420,29 @@ func TestRequestApprovalAutoApproveConcurrentNoDuplicate(t *testing.T) {
 	}
 
 	const workers = 8
-	// No client timeout: correctness here is the no-duplicate row count,
-	// not latency. Under a full `go test ./...` run this package executes
-	// alongside every other package against the same Postgres container,
-	// and the per-device advisory lock serializes the 8 workers — any fixed
-	// deadline (10s, then 30s) produced load-dependent "context deadline
-	// exceeded" flakes even though every request eventually completed. A
-	// genuine hang is caught by `go test -timeout` instead.
-	client := &http.Client{}
+	// Client timeout TETAP ADA, dan sengaja longgar.
+	//
+	// Versi sebelumnya menghapus timeout karena "deadline 10s lalu 30s
+	// menghasilkan flake context deadline exceeded". Diagnosis itu salah:
+	// yang terjadi bukan request lambat, tapi DEADLOCK. Handler
+	// RequestApproval membuka transaksi (memakai satu koneksi dari pool)
+	// lalu memanggil GetSaasSettingInt(ctx, pool, ...) di dalamnya —
+	// satu handler memegang DUA koneksi sekaligus. Dengan 8 request
+	// serentak dan MaxConns pgxpool default max(4, numCPU) = 4, keempat
+	// request yang memegang koneksi semuanya lalu menunggu koneksi
+	// tambahan yang tidak akan pernah dilepas. Tidak ada yang bisa maju,
+	// tidak ada yang pernah selesai.
+	//
+	// Gejalanya persis seperti yang ditafsirkan salah: client melihat
+	// "context deadline exceeded" sementara server-side tetap macet.
+	// Karena itu test ini HANGS 9m46s lalu dibunuh package timeout 10m.
+	//
+	// Akar masalahnya sudah diperbaiki di exams.go: cap dibaca SEBELUM
+	// pool.Begin, jadi satu handler hanya pernah memegang satu koneksi.
+	// Timeout di bawah ini bukan untuk menutupi deadlock, tapi supaya
+	// regresi serupa berikutnya gagal dalam 60 detik dengan pesan yang
+	// bisa dibaca, bukan menggantung 10 menit.
+	client := &http.Client{Timeout: 60 * time.Second}
 	var wg sync.WaitGroup
 	errs := make(chan error, workers)
 	for i := 0; i < workers; i++ {
