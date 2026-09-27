@@ -102,11 +102,18 @@ jobs:
           $pv = "${{ steps.ver.outputs.app_version }} (build ${{ steps.ver.outputs.app_build }}, commit ${{ steps.ver.outputs.app_commit }})"
           $tpl = $tpl -replace "(?<=StringStruct\('ProductVersion', ')[^']*", $pv
           $tpl = $tpl -replace "(?<=StringStruct\('FileVersion', ')[^']*", "{{ steps.ver.outputs.app_version }}"
-          New-Item -ItemType Directory -Force -Path dist | Out-Null
-          Set-Content -Path dist/version_info.txt -Value $tpl -Encoding UTF8
-          Get-Content dist/version_info.txt | Select-Object -First 3
+          New-Item -ItemType Directory -Force -Path windows\dist | Out-Null
+          Set-Content -Path windows/dist/version_info.txt -Value $tpl -Encoding UTF8
+          Get-Content windows/dist/version_info.txt | Select-Object -First 3
 
       - name: Build EXAMVAN.exe with PyInstaller
+        # KONVENSI OUTPUT: semua artifact di windows/dist/ — sama persis dengan
+        # build-exe.bat / build-setup.bat lokal. Examvan.iss mencari
+        # "..\dist\EXAMVAN.exe" relatif terhadap windows/installer/, yaitu
+        # windows/dist/. Dulu CI menaruh exe di <repo>/dist/ sehingga .iss
+        # gagal dengan "Source file ... does not exist" padahal exe-nya ada
+        # dan build PyInstaller-nya sukses.
+        #
         # Entry = desktop/main.py (stub), bukan examvan/__main__.py — file
         # entry PyInstaller dijalankan sebagai script lepas, sedangkan
         # __main__.py memakai relative import yang crash saat exe dijalankan
@@ -116,8 +123,8 @@ jobs:
             --onefile `
             --windowed `
             --name "EXAMVAN" `
-            --distpath dist `
-            --version-file dist/version_info.txt `
+            --distpath windows/dist `
+            --version-file windows/dist/version_info.txt `
             --hidden-import examvan `
             --hidden-import examvan.security `
             --hidden-import examvan.ui `
@@ -153,7 +160,7 @@ jobs:
           Write-Host "Defines: $defines"
           & $iscc @($defines.Split(" ")) "windows\installer\examvan.iss"
           if ($LASTEXITCODE -ne 0) { throw "ISCC gagal (exit $LASTEXITCODE)" }
-          Get-Item dist\EXAMVAN-Setup.exe
+          Get-Item windows\dist\EXAMVAN-Setup.exe
 
       # Smoke test: installer SEBENARNYA di-install di runner. Ini yang
       # menangkap .iss yang salah path, AppId bentrok, dan exe yang
@@ -161,7 +168,7 @@ jobs:
       - name: Smoke test — install & uninstall senyap
         shell: pwsh
         run: |
-          $setup = "$PWD\dist\EXAMVAN-Setup.exe"
+          $setup = "$PWD\windows\dist\EXAMVAN-Setup.exe"
           $target = "$env:LOCALAPPDATA\Programs\EXAMVAN\EXAMVAN.exe"
 
           $p = Start-Process -FilePath $setup `
@@ -203,8 +210,8 @@ jobs:
         id: sums
         shell: pwsh
         run: |
-          $setup = "dist\EXAMVAN-Setup.exe"
-          $portable = "dist\EXAMVAN.exe"
+          $setup = "windows\dist\EXAMVAN-Setup.exe"
+          $portable = "windows\dist\EXAMVAN.exe"
           $s1 = (Get-FileHash -Algorithm SHA256 $setup).Hash
           $s2 = (Get-FileHash -Algorithm SHA256 $portable).Hash
           "setup_sha=$s1" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
@@ -222,8 +229,8 @@ jobs:
         with:
           name: EXAMVAN-Windows-${{ matrix.python-version }}
           path: |
-            dist/EXAMVAN-Setup.exe
-            dist/EXAMVAN.exe
+            windows/dist/EXAMVAN-Setup.exe
+            windows/dist/EXAMVAN.exe
           if-no-files-found: error
 
       - name: Upload installer to release (exe-latest)
@@ -241,7 +248,7 @@ jobs:
               --title "EXAMVAN Windows (build terbaru)" `
               --prerelease
           }
-          gh release upload $tag dist/EXAMVAN-Setup.exe dist/EXAMVAN.exe `
+          gh release upload $tag windows/dist/EXAMVAN-Setup.exe windows/dist/EXAMVAN.exe `
             --repo $env:GITHUB_REPOSITORY --clobber
           Write-Host "::notice::EXAMVAN-Setup.exe terbit di release 'exe-latest'"
 
@@ -303,8 +310,8 @@ jobs:
       - name: Summary
         shell: pwsh
         run: |
-          $setup = Get-Item dist/EXAMVAN-Setup.exe -ErrorAction SilentlyContinue
-          $portable = Get-Item dist/EXAMVAN.exe -ErrorAction SilentlyContinue
+          $setup = Get-Item windows/dist/EXAMVAN-Setup.exe -ErrorAction SilentlyContinue
+          $portable = Get-Item windows/dist/EXAMVAN.exe -ErrorAction SilentlyContinue
           if ($setup) {
             Write-Host "::notice::EXAMVAN-Setup.exe — $([math]::Round($setup.Length / 1MB, 2)) MB (installer untuk siswa)"
           }
