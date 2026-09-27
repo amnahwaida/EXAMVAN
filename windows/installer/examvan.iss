@@ -81,7 +81,19 @@ ArchitecturesInstallIn64BitMode=x64compatible
 DisableWelcomePage=no
 
 [Languages]
-Name: "indonesian"; MessagesFile: "compiler:Languages\Indonesian.isl"
+; HANYA bahasa bawaan. Inno Setup tidak menyertakan
+; Indonesian.isl — daftar resminya ~20 bahasa (BrazilianPortuguese, French,
+; German, Spanish, dll.) dan Indonesia tidak ada di sana. Merujuk ke
+; compiler:Languages\Indonesian.isl membuat SELURUH compile gagal dengan
+; "Couldn't open include file", bukan cuma mengganti label.
+;
+; Konsekuensinya tombol standar wizard (Next / Back / Install / Cancel /
+; Yes / No) berbahasa Inggris, sedangkan semua teks milik EXAMVAN sendiri
+; (judul halaman, deskripsi, pesan) tetap bahasa Indonesia. Untuk
+; organisasi sekolah, label Inggris di 6 tombol lebih baik daripada
+; installer yang gagal di-build.
+;
+; Kalau suatu hari Indonesia punya file .isl resmi, tambahkan di sini.
 Name: "english"; MessagesFile: "compiler:Default.isl"
 
 [Tasks]
