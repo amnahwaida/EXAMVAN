@@ -97,8 +97,12 @@ DisableWelcomePage=no
 Name: "english"; MessagesFile: "compiler:Default.isl"
 
 [Tasks]
+; Hanya satu task. Task "konfigurasi password admin exit" yang sebelumnya
+; ada di sini DIHAPUS: halaman password sekarang selalu tampil, dan
+; mengosongkan kedua kolom sudah cukup untuk menyatakan admin exit
+; nonaktif. Checkbox yang tidak dibaca hanya menambah satu kondisi
+; yang bisa salah tanpa untung nyata.
 Name: "desktopicon"; Description: "Buat shortcut di Desktop"; GroupDescription: "Shortcut tambahan:"
-Name: "adminpw";     Description: "Konfigurasi password admin exit (supervisor)"; GroupDescription: "Konfigurasi:"; Flags: unchecked
 
 [Files]
 ; EXE PyInstaller sudah onefile: tidak perlu installer framework,
@@ -133,7 +137,6 @@ Type: filesandordirs; Name: "{app}\__pycache__"
 [Code]
 var
   AdminPasswordPage: TInputQueryWizardPage;
-  AdminPasswordValue: String;
 
 // ------------------------------------------------------------
 // Prasyarat: Visual C++ Redistributable.
@@ -165,12 +168,23 @@ end;
 
 procedure InitializeWizard();
 begin
-  AdminPasswordValue := '';
-  // Catatan urutan argumen CreateInputQueryPage:
-  //   ParentID, Caption, Description, Prompt, var Value, Password
-  // Password WAJIB True. Kalau tidak, password supervisor tampil
+  // Tanda tangan ASLI (docs + source Inno Setup ScriptDlg.pas):
+  //
+  //   function CreateInputQueryPage(const AfterID: Integer;
+  //     const ACaption, ADescription, ASubCaption: String): TInputQueryWizardPage;
+  //
+  // EMPAT argumen, bukan enam. Field input dibuat terpisah lewat
+  // Page.Add(Prompt, IsPassword), dan isinya dibaca lewat Page.Values[i].
+  // Versi sebelumnya menebak enam argumen (dengan var Value + Password)
+  // dan ISCC menolaknya dengan "Invalid number of parameters".
+  //
+  // Password WAJIB True di Add. Kalau tidak, password supervisor tampil
   // terang-terangan di layar kelas -- dan ini password yang
-  // meny Allowing_close-without-password-middle-of-exam.
+  // mengizinkan menutup ujian di tengah jalan.
+  //
+  // Halaman ini selalu tampil (tanpa checkbox task): menyisakan satu
+  // kondisi lebih sedikit untuk salah, dan mengosongkan kedua kolom
+  // sudah cukup untuk menyatakan "admin exit nonaktif".
   AdminPasswordPage := CreateInputQueryPage(wpSelectTasks,
     'Password Admin Exit',
     'Password admin exit',
@@ -178,10 +192,9 @@ begin
     'Boleh dikosongkan. Bila dikosongkan, fitur admin exit nonaktif' + #13#10 +
     '(fail-closed: tidak ada password lain yang bisa dipakai).' + #13#10#13#10 +
     'Tersimpan di: %LOCALAPPDATA%\EXAMVAN\admin_password.txt' + #13#10 +
-    'Bisa diubah kapan saja dengan install ulang atau tulis ulang file itu.',
-    'Password supervisor:',
-    AdminPasswordValue,
-    True);
+    'Bisa diubah kapan saja dengan install ulang atau tulis ulang file itu.');
+  AdminPasswordPage.Add('&Password supervisor:', True);
+  AdminPasswordPage.Add('&Ulangi password:', True);
 end;
 
 // ------------------------------------------------------------
@@ -191,32 +204,46 @@ end;
 // dan cara manual tidak berubah). File ini hanya FALLBACK supaya
 // "1 klik langsung jalan" benar-benar tanpa langkah tambahan --
 // kalau tidak, supervisor harus set env var tiap kali buka app.
+//
+// Nilai HARUS dibaca di sini, bukan di InitializeWizard: event itu
+// jalan sebelum halaman tampil, jadi Values[] masih kosong.
 // ------------------------------------------------------------
 procedure CurStepChanged(CurStep: TSetupStep);
 var
   PwFile: String;
   PwDir: String;
+  PwValue: String;
+  PwRepeat: String;
 begin
   if (CurStep = ssPostInstall) and (not WizardNoTargets) then
   begin
-    if WizardIsTaskSelected('adminpw') then
+    PwDir := ExpandConstant('{localappdata}\EXAMVAN');
+    if not DirExists(PwDir) then
+      CreateDir(PwDir);
+    PwFile := PwDir + '\admin_password.txt';
+
+    PwValue := AdminPasswordPage.Values[0];
+    PwRepeat := AdminPasswordPage.Values[1];
+
+    // Dua kolom isian harus sama. Kalau tidak, JANGAN diam-diam pakai
+    // yang pertama: biasanya itu salah ketik, dan password hasil salah
+    // ketik = supervisor terkunci di luar kelas saat ujian berjalan.
+    if (PwValue <> '') and (PwValue <> PwRepeat) then
     begin
-      PwDir := ExpandConstant('{localappdata}\EXAMVAN');
-      if not DirExists(PwDir) then
-        CreateDir(PwDir);
-      PwFile := PwDir + '\admin_password.txt';
-
-      // HAPUS DULU sebelum tulis. SaveStringToFile membuka file tanpa
-      // truncate: password lama 20 karakter lalu diganti yang 8 akan
-      // menyisakan 12 byte lama di akhir file. Akibatnya password
-      // BARU ikut salah baca (file jadi 20 karakter) dan sisa
-      // password lama masih bisa dibaca dari disk.
-      if FileExists(PwFile) then
-        DeleteFile(PwFile);
-
-      if AdminPasswordValue <> '' then
-        SaveStringToFile(AdminPasswordValue, PwFile, False);
+      MsgBox('Dua password tidak sama. Password TIDAK disimpan.', mbError, MB_OK);
+      PwValue := '';
     end;
+
+    // HAPUS DULU sebelum tulis. SaveStringToFile membuka file tanpa
+    // truncate: password lama 20 karakter lalu diganti yang 8 akan
+    // menyisakan 12 byte lama di akhir file. Akibatnya password BARU
+    // ikut salah baca (file jadi 20 karakter) dan sisa password lama
+    // masih bisa dibaca dari disk.
+    if FileExists(PwFile) then
+      DeleteFile(PwFile);
+
+    if PwValue <> '' then
+      SaveStringToFile(PwValue, PwFile, False);
   end;
 end;
 
