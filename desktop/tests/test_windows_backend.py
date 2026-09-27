@@ -232,10 +232,17 @@ class ScreenSaverStateTestCase(unittest.TestCase):
         p_file = mock.patch.object(wb, "_STATE_FILE", self._state_file)
         p_get = mock.patch.object(wb, "_get_screen_saver_active", return_value=True)
         p_set = mock.patch.object(wb, "_set_screen_saver_active", return_value=True)
-        for p in (p_dir, p_file, p_get, p_set):
-            p.start()
-            self.addCleanup(p.stop)
+
+        # Start each patch EXACTLY once and keep the returned mock. Calling
+        # p_set.start() a second time (once here, once in the loop) raises
+        # "Patch is already started" on Python 3.12.14+ — the runner's
+        # version — while local 3.12.12 has no such guard, so it passed here
+        # and failed only in CI.
         self._set_mock = p_set.start()
+        for p in (p_dir, p_file, p_get):
+            p.start()
+        for p in (p_dir, p_file, p_get, p_set):
+            self.addCleanup(p.stop)
 
         self.backend = wb.WindowsBackend()
 
