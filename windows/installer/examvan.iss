@@ -137,17 +137,30 @@ var
 
 // ------------------------------------------------------------
 // Prasyarat: Visual C++ Redistributable.
-// PyQt5 butuh msvcp140/vcruntime140. Kalau belum ada, app akan
-// crash dengan "DLL load failed" SETELAH installer selesai --
+// PyQt5 butuh msvcp140.dll + vcruntime140.dll. Kalau tidak ada,
+// app crash dengan "DLL load failed" SETELAH installer selesai --
 // user mengira instalasinya rusak. Lebih baik dicek di depan.
+//
+// Kenapa cek FILE, bukan registry: versi pertama memakai
+// RegQueryStringValue(... 'Installed' ...) and (Installed = '1')
+// dan ISCC menolaknya dengan "Type mismatch" di kolom `and`.
+// Menebak semantik tipe Pascal Script lewat trial-and-error di CI
+// mahal; memeriksa DLL-nya sendiri justru lebih langsung: file
+// yang hilang itu PERSIS penyebab "DLL load failed", tanpa harus
+// menebak versi runtime yang terpasang.
+//
+// Ditulis tanpa operator boolean sama sekali (early Exit), karena
+// kompilasi ISCC hanya bisa diverifikasi di runner Windows --
+// satu kegagalan berarti satu push + 2 menit, jadi tidak ada
+// gunanya menebak.
+// {sys} = C:\Windows\System32.
 // ------------------------------------------------------------
 function VCRedistPresent(): Boolean;
-var
-  Installed: AnsiString;
 begin
-  Result := RegQueryStringValue(HKLM,
-    'SOFTWARE\Microsoft\VisualStudio\14.0\VC\Runtimes\x64',
-    'Installed', Installed) and (Installed = '1');
+  Result := False;
+  if not FileExists(ExpandConstant('{sys}\vcruntime140.dll')) then
+    Exit;
+  Result := FileExists(ExpandConstant('{sys}\msvcp140.dll'));
 end;
 
 procedure InitializeWizard();
