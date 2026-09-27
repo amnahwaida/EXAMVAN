@@ -7,10 +7,9 @@ rem    install.bat
 rem
 rem  Yang dilakukan:
 rem    1. Cek python di PATH
-rem    2. Buat venv di desktop\.venv
-rem    3. Install PyQt5 + PyMuPDF
-rem    4. Test import (dengan %ERRORLEVEL% yang benar)
-rem    5. Buat shortcut EXAMVAN.bat di desktop (panggil run.bat,
+rem    2. Venv di desktop\.venv -- dibuat HANYA jika belum ada /
+rem       rusak (aman dijalankan ulang tanpa download ulang)
+rem    3. Buat shortcut EXAMVAN.bat di desktop (panggil run.bat,
 rem       TANPA PowerShell sama sekali)
 rem ============================================================
 setlocal
@@ -43,8 +42,19 @@ if errorlevel 1 (
 python --version
 echo.
 
-rem ---- 2. Buat venv (hapus venv lama supaya mulai bersih) ----
-echo [INFO] Membuat virtual environment di desktop\.venv ...
+rem ---- 2. Venv: pakai yang sehat, buat baru hanya jika perlu ----
+rem `if errorlevel` dicek dinamis (aman di dalam blok kurung, tidak butuh
+rem delayed expansion). Venv sehat = python.exe ada dan import PyQt5+fitz
+rem sukses -- sehingga re-run installer cepat, tidak wipe install lama.
+set "NEED_SETUP=1"
+if exist "%VPY%" (
+    "%VPY%" -c "import PyQt5, fitz" >nul 2>nul
+    if not errorlevel 1 set "NEED_SETUP=0"
+)
+
+if "%NEED_SETUP%"=="0" goto :shortcut
+
+echo [INFO] Membuat virtual environment baru di desktop\.venv ...
 if exist "%VENV_DIR%" rmdir /s /q "%VENV_DIR%"
 python -m venv "%VENV_DIR%"
 if errorlevel 1 (
@@ -52,10 +62,7 @@ if errorlevel 1 (
     pause
     exit /b 1
 )
-echo [OK]   Virtual environment siap.
-echo.
 
-rem ---- 3. Install dependencies ----
 echo [INFO] Menginstall PyQt5 + PyMuPDF (butuh koneksi internet)...
 "%VPY%" -m pip install --upgrade pip
 if errorlevel 1 (
@@ -72,10 +79,7 @@ if errorlevel 1 (
     pause
     exit /b 1
 )
-echo [OK]   Dependencies terinstall.
-echo.
 
-rem ---- 4. Test import (cek %ERRORLEVEL%, bukan try/catch) ----
 echo [INFO] Test import PyQt5 + PyMuPDF...
 "%VPY%" -c "import PyQt5, fitz; print('import OK')"
 if errorlevel 1 (
@@ -84,10 +88,11 @@ if errorlevel 1 (
     pause
     exit /b 1
 )
-echo [OK]   Import test berhasil.
+echo [OK]   Dependencies terinstall dan import OK.
 echo.
 
-rem ---- 5. Buat shortcut di desktop ----
+:shortcut
+rem ---- 3. Buat shortcut di desktop ----
 rem Path di-hardcode saat install (env var user yang baru dibuat tidak
 rem terlihat oleh Explorer yang sudah berjalan sampai logout/re-login).
 rem Shortcut memanggil run.bat LANGSUNG (CMD murni) -- BUKAN run.ps1 via
@@ -104,7 +109,7 @@ if not defined USER_DESKTOP set "USER_DESKTOP=%USERPROFILE%\Desktop"
 echo [OK]   Shortcut dibuat: %USER_DESKTOP%\EXAMVAN.bat
 echo.
 
-rem ---- 6. Selesai ----
+rem ---- 4. Selesai ----
 echo   =========================================
 echo     INSTALASI SELESAI!
 echo   =========================================
