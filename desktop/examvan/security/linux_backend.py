@@ -121,6 +121,45 @@ class LinuxBackend(SecurityBackend):
         self._gnome_ws_restore()
 
     # ------------------------------------------------------------------
+    # Screen-capture prevention
+    # ------------------------------------------------------------------
+
+    def set_capture_protection(self, window: Any) -> None:
+        """Apply the X11 anti-screenshot hint (medium mode and up).
+
+        Kept separate from set_strict_mode() so the enforcer can turn capture
+        resistance on for medium exams too.
+
+        Honest scope note: _NET_WM_BYPASS_COMPOSITOR is a compositing hint,
+        NOT a capture control — a compositor still paints the framebuffer that
+        a screen-grab or an HDMI capture card reads. The real Linux anti-capture
+        work is elsewhere and is strict-only: unbinding GNOME's screenshot
+        keybindings and the XGrabKeyboard above. Native Wayland has no
+        equivalent of WDA_MONITOR at all, so this is a no-op there.
+        """
+        self._x11_bypass_compositor(window)
+
+    def release_capture_protection(self, window: Any) -> None:
+        """No undo available for the bypass-compositor hint."""
+        return
+
+    def _x11_bypass_compositor(self, window: Any) -> None:
+        try:
+            from . import x11
+            if x11.is_x11():
+                if window and x11.set_bypass_compositor(window):
+                    log.info("Capture protection: X11 bypass compositor set")
+                else:
+                    log.warning("Capture protection: bypass compositor NOT set")
+            elif x11.is_wayland():
+                log.warning(
+                    "Capture protection: native Wayland has no WDA_MONITOR "
+                    "equivalent; only PrintScreen key blocking applies."
+                )
+        except ImportError:
+            pass
+
+    # ------------------------------------------------------------------
     # Clipboard
     # ------------------------------------------------------------------
 

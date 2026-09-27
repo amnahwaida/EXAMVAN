@@ -29,6 +29,27 @@ class SecurityBackend(ABC):
         ...
 
     # ------------------------------------------------------------------
+    # Screen-capture prevention
+    # ------------------------------------------------------------------
+
+    @abstractmethod
+    def set_capture_protection(self, window: Any) -> None:
+        """Make the exam window resistant to screen capture.
+
+        Separate from set_strict_mode() because capture resistance is wanted
+        from medium mode up, while input confinement (keyboard hook / grabs)
+        is strict-only. Bundling them meant Windows applied WDA_MONITOR at
+        strict level only, so a medium exam had no capture protection at all
+        — a protection level students are graded on.
+        """
+        ...
+
+    @abstractmethod
+    def release_capture_protection(self, window: Any) -> None:
+        """Undo set_capture_protection()."""
+        ...
+
+    # ------------------------------------------------------------------
     # Clipboard
     # ------------------------------------------------------------------
 

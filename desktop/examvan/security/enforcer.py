@@ -90,6 +90,7 @@ class SecurityEnforcer(QObject):
             self._poll_timer.stop()
 
         self._backend.release_strict_mode(self._window)
+        self._backend.release_capture_protection(self._window)
         self._backend.allow_sleep()
         self._backend.deactivate()
 
@@ -156,6 +157,11 @@ class SecurityEnforcer(QObject):
     # ------------------------------------------------------------------
 
     def _activate_medium(self) -> None:
+        # Screen-capture resistance starts at medium, not strict. It used to
+        # live inside set_strict_mode(), which meant a medium exam had none.
+        if self._window:
+            self._backend.set_capture_protection(self._window)
+
         app = QApplication.instance()
         if app:
             app.applicationStateChanged.connect(self._on_app_state_changed)

@@ -8,6 +8,7 @@ and dark mode detection — all via ctypes (no pywin32 needed).
 from __future__ import annotations
 
 import hashlib
+import json
 import logging
 import socket
 import subprocess
@@ -15,6 +16,7 @@ import sys
 import threading
 import time
 import uuid
+from pathlib import Path
 from ctypes import (
     CFUNCTYPE,
     POINTER,
@@ -92,8 +94,10 @@ WS_EX_TRANSPARENT = 0x20
 WS_EX_TOOLWINDOW = 0x80
 
 # SPI for screen saver
+SPI_GETSCREENSAVEACTIVE = 0x0057
 SPI_SETSCREENSAVEACTIVE = 0x0011
-SPIF_UPDATEINIFILE = 0x01
+SPIF_SENDCHANGE = 0x0002
+# SPIF_UPDATEINIFILE (0x01) SENGAJA TIDAK dipakai — lihat prevent_sleep().
 
 # CREATE_NO_WINDOW — proses ini GUI (--windowed / pythonw): subprocess
 # console (cmd.exe, powershell) tanpa flag ini MEMBUAT jendela console
@@ -454,6 +458,107 @@ def _has_multiple_monitors() -> bool:
         return False
 
 
+# ---------------------------------------------------------------------------
+# Screen-saver state — backup / restore / crash recovery
+# ---------------------------------------------------------------------------
+# Cermin pola Linux (gnome_backup.json): simpan nilai SEBELUM diubah, pulihkan
+# saat exit bersih, dan sapu sisa run yang crash saat start berikutnya.
+#
+# File ini ada karena SPI_SETSCREENSAVEACTIVE tanpa SPIF_UPDATEINIFILE hanya
+# berlaku untuk sesi login berjalan. Kalau EXAMVAN mati saat ujian (mati
+# listrik, Task Manager, crash), screensaver siswa tetap nonaktif sampai mereka
+# logoff — dan di ruang kelas yang rarely logout. Backup + restore otomatis
+# di start berikutnya menutup jendela itu tanpa menunggu logout.
+
+_STATE_DIR = Path.home() / ".config" / "examvan"
+_STATE_FILE = _STATE_DIR / "windows_state.json"
+
+
+def _get_screen_saver_active() -> Optional[bool]:
+    """Read the current screen-saver setting. None if the call fails."""
+    flag = BOOL()
+    try:
+        if not _SystemParametersInfoW(
+            SPI_GETSCREENSAVEACTIVE, 0, byref(flag), 0
+        ):
+            return None
+        return bool(flag.value)
+    except Exception as e:
+        log.warning("SPI_GETSCREENSAVEACTIVE failed: %s", e)
+        return None
+
+
+def _set_screen_saver_active(active: bool) -> bool:
+    """Set the screen-saver setting for THIS SESSION ONLY.
+
+    Never passes SPIF_UPDATEINIFILE. That flag writes the change to the user's
+    registry, which is what used to leave a student's screen saver permanently
+    disabled after a crash: nothing re-enabled it except a clean exit, and a
+    crashed process never reaches one.
+    """
+    try:
+        return bool(
+            _SystemParametersInfoW(
+                SPI_SETSCREENSAVEACTIVE,
+                1 if active else 0,
+                LPVOID(0),
+                SPIF_SENDCHANGE,
+            )
+        )
+    except Exception as e:
+        log.warning("SPI_SETSCREENSAVEACTIVE failed: %s", e)
+        return False
+
+
+def _write_screen_saver_backup(active: bool) -> None:
+    try:
+        _STATE_DIR.mkdir(parents=True, exist_ok=True)
+        tmp = _STATE_FILE.with_suffix(".tmp")
+        tmp.write_text(
+            json.dumps({"screen_saver_active": bool(active)}), encoding="utf-8"
+        )
+        tmp.replace(_STATE_FILE)
+    except OSError as e:
+        # Not fatal: the worst case is a stale session setting, which
+        # reverts at logoff anyway.
+        log.warning("could not persist screen-saver backup: %s", e)
+
+
+def _clear_screen_saver_backup() -> None:
+    try:
+        if _STATE_FILE.exists():
+            _STATE_FILE.unlink()
+    except OSError as e:
+        log.warning("could not clear screen-saver backup: %s", e)
+
+
+def restore_windows_settings() -> None:
+    """Undo any Windows setting this app changed. Safe to call repeatedly.
+
+    Called from allow_sleep() on a clean exit, from activate() at startup (to
+    recover a previous run that died mid-exam), and from atexit. No-op when
+    there is no backup file, i.e. nothing was ever changed.
+    """
+    if not _STATE_FILE.exists():
+        return
+    previous: Optional[bool] = None
+    try:
+        data = json.loads(_STATE_FILE.read_text(encoding="utf-8"))
+        value = data.get("screen_saver_active")
+        if isinstance(value, bool):
+            previous = value
+    except (OSError, ValueError, json.JSONDecodeError) as e:
+        log.warning("could not read screen-saver backup: %s", e)
+
+    if previous is not None:
+        # Restore what the machine had BEFORE us — not "enabled". A student who
+        # deliberately keeps their screen saver off should not have EXAMVAN
+        # silently turn it back on.
+        _set_screen_saver_active(previous)
+        log.info("Restored screen saver to %s (after EXAMVAN)", previous)
+    _clear_screen_saver_backup()
+
+
 class WindowsBackend(SecurityBackend):
     """Windows security implementation using Win32 API."""
 
@@ -467,15 +572,11 @@ class WindowsBackend(SecurityBackend):
     # ------------------------------------------------------------------
 
     def set_strict_mode(self, window: Any) -> None:
+        # Capture resistance is applied separately by
+        # set_capture_protection() so medium mode gets it too; only input
+        # confinement is strict-only.
         hwnd = _get_hwnd(window)
         if hwnd:
-            # Prevent screen capture via PrintScreen & most capture tools
-            try:
-                _SetWindowDisplayAffinity(HWND(hwnd), WDA_MONITOR)
-                log.info("Screen capture prevention enabled (WDA_MONITOR)")
-            except Exception as e:
-                log.warning("SetWindowDisplayAffinity failed: %s", e)
-
             # Remove window border via extended style
             try:
                 ex_style = _GetWindowLongW(HWND(hwnd), GWL_EXSTYLE)
@@ -492,16 +593,46 @@ class WindowsBackend(SecurityBackend):
                 log.warning("Keyboard hook failed — running without low-level key blocking")
 
     def release_strict_mode(self, window: Any) -> None:
-        hwnd = _get_hwnd(window)
-        if hwnd:
-            try:
-                _SetWindowDisplayAffinity(HWND(hwnd), WDA_NONE)
-            except Exception:
-                pass
-
         if self._hook_installed:
             self._stop_keyboard_hook()
             self._hook_installed = False
+
+    # ------------------------------------------------------------------
+    # Screen-capture prevention
+    # ------------------------------------------------------------------
+
+    def set_capture_protection(self, window: Any) -> None:
+        """Black the exam window out of captured output (medium mode and up).
+
+        WDA_MONITOR blanks the window in screen captures taken through
+        BitBlt / PrintWindow / Desktop Duplication, and the DWM honours it for
+        PrintScreen too. It is not a security boundary — Microsoft documents
+        it as best-effort, and a privileged driver or an HDMI capture card
+        defeats it — but it is far stronger than the Linux equivalent, and it
+        used to be applied at strict level ONLY, leaving medium exams with no
+        capture resistance at all.
+
+        Note WDA_EXCLUDEFROMCAPTURE (0x11, Windows 10 2004+) is the stronger
+        modern flag but behaves differently on older builds and in
+        multi-monitor setups, so WDA_MONITOR is kept as the portable choice.
+        """
+        hwnd = _get_hwnd(window)
+        if not hwnd:
+            return
+        try:
+            _SetWindowDisplayAffinity(HWND(hwnd), WDA_MONITOR)
+            log.info("Screen capture prevention enabled (WDA_MONITOR)")
+        except Exception as e:
+            log.warning("SetWindowDisplayAffinity failed: %s", e)
+
+    def release_capture_protection(self, window: Any) -> None:
+        hwnd = _get_hwnd(window)
+        if not hwnd:
+            return
+        try:
+            _SetWindowDisplayAffinity(HWND(hwnd), WDA_NONE)
+        except Exception:
+            pass
 
     # ------------------------------------------------------------------
     # Clipboard
@@ -548,11 +679,24 @@ class WindowsBackend(SecurityBackend):
         except Exception as e:
             log.warning("SetThreadExecutionState failed: %s", e)
 
-        # Disable screen saver
-        try:
-            _SystemParametersInfoW(SPI_SETSCREENSAVEACTIVE, 0, LPVOID(0), SPIF_UPDATEINIFILE)
-        except Exception:
-            pass
+        # Disable the screen saver for this session, remembering what it was.
+        #
+        # The previous version called SPI_SETSCREENSAVEACTIVE with
+        # SPIF_UPDATEINIFILE and no backup, and re-enabled with a hardcoded 1.
+        # Two bugs in eight lines: the registry write made a student's screen
+        # saver stay off PERMANENTLY if the process died (nothing restores it
+        # except a clean exit, which a crash never reaches), and forcing 1
+        # silently re-enabled a screen saver the user had chosen to keep off.
+        previous = _get_screen_saver_active()
+        if previous is None:
+            log.warning("could not read screen-saver state; leaving it alone")
+            return
+        if not previous:
+            # Already off — nothing to change, and nothing to restore later.
+            return
+        if _set_screen_saver_active(False):
+            _write_screen_saver_backup(previous)
+            log.info("Screen saver disabled for this session (was %s)", previous)
 
     def allow_sleep(self) -> None:
         if self._exec_state_handle is not None:
@@ -563,11 +707,9 @@ class WindowsBackend(SecurityBackend):
                 pass
             self._exec_state_handle = None
 
-        # Re-enable screen saver
-        try:
-            _SystemParametersInfoW(SPI_SETSCREENSAVEACTIVE, 1, LPVOID(0), SPIF_UPDATEINIFILE)
-        except Exception:
-            pass
+        # Put the screen saver back the way this machine had it, and drop the
+        # backup so a later run does not "restore" it a second time.
+        restore_windows_settings()
 
     # ------------------------------------------------------------------
     # Device identity
@@ -647,7 +789,15 @@ class WindowsBackend(SecurityBackend):
     # ------------------------------------------------------------------
 
     def activate(self) -> None:
-        pass
+        # Crash recovery: a leftover backup file means a previous run changed
+        # the screen saver and then died without restoring it (power loss,
+        # Task Manager, crash). Put the machine back before this exam starts,
+        # so the damage window is "until EXAMVAN is launched again" instead of
+        # "forever". No-op when no backup exists.
+        #
+        # Linux has the equivalent hook via cleanup_stale_inhibit() plus the
+        # GNOME backup file; without this, Windows had no recovery path at all.
+        restore_windows_settings()
 
     def deactivate(self) -> None:
         self.allow_sleep()

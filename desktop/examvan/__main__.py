@@ -53,7 +53,7 @@ def _maximize_window(widget) -> None:
 
 
 def _recover_gnome_settings() -> None:
-    """Restore GNOME settings from crash backup (Linux only).
+    """Restore GNOME desktop settings after a crash (Linux only).
 
     Safe to call on Windows (no-op).
     Called at startup, on atexit, and on SIGTERM/SIGINT.
@@ -67,18 +67,42 @@ def _recover_gnome_settings() -> None:
         pass
 
 
+def _recover_windows_settings() -> None:
+    """Restore Windows system settings after a crash (Windows only).
+
+    Mirror of _recover_gnome_settings(). The security backend disables the
+    screen saver for the duration of an exam; without this, a process that
+    did not exit cleanly left the student's machine altered. Also a no-op on
+    Linux, and a no-op when nothing was ever changed.
+    """
+    if sys.platform != "win32":
+        return
+    try:
+        from examvan.security.windows_backend import restore_windows_settings
+        restore_windows_settings()
+    except ImportError:
+        pass
+
+
+
 def main() -> None:
     _setup_logging()
 
-    # Register crash-recovery handlers (Linux GNOME settings)
+    # Register crash-recovery handlers
     if sys.platform != "win32":
         atexit.register(_recover_gnome_settings)
         signal.signal(signal.SIGTERM, lambda *_: (_recover_gnome_settings(), os._exit(1)))
         signal.signal(signal.SIGINT, lambda *_: (_recover_gnome_settings(), os._exit(1)))
         _recover_gnome_settings()
     else:
-        # Windows: register minimal exit handler
-        atexit.register(lambda: None)
+        # Windows had `atexit.register(lambda: None)` here — a literal no-op,
+        # so the screen-saver change made by the security backend was never
+        # undone unless the exam viewer happened to close cleanly. This is the
+        # atexit half of the recovery; the other half is WindowsBackend.activate()
+        # at startup, which handles the case where the process never got to
+        # run atexit at all.
+        atexit.register(_recover_windows_settings)
+        _recover_windows_settings()
 
     kiosk = "--kiosk" in sys.argv or "--kiosk-session" in sys.argv
 
