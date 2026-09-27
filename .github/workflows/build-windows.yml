@@ -194,7 +194,27 @@ jobs:
             throw "EXAMVAN.exe crash saat start"
           }
           Write-Host "OK: EXAMVAN.exe hidup setelah 12 detik"
-          $app | Stop-Process -Force
+
+          # Matikan SELURUH process tree, bukan cuma parent.
+          # PyInstaller --onefile berjalan sebagai dua proses: bootloader
+          # parent mengekstrak ke %TEMP% lalu menjalankan app sebagai child.
+          # Stop-Process pada parent saja meninggalkan child hidup, dan child
+          # itu memegang exe yang di-install — uninstaller lalu keluar 0 tapi
+          # tidak bisa menghapus file, persis yang terjadi di run sebelumnya
+          # ("Uninstall tidak menghapus ...\EXAMVAN.exe" + GitHub juga menulis
+          # "Terminate orphan process: (EXAMVAN)").
+          taskkill /F /T /IM EXAMVAN.exe 2>&1 | Out-Null
+          Start-Sleep -Seconds 3
+
+          # Tunggu benar-benar tidak ada proses EXAMVAN.exe. Kalau masih ada,
+          # uninstall pasti gagal — lebih baik berhenti dengan pesan jelas
+          # daripada diam-diam menuduh installer salah.
+          $still = Get-Process -Name EXAMVAN -ErrorAction SilentlyContinue
+          if ($still) {
+            Write-Host "::error::masih ada proses EXAMVAN: $($still.Id -join ',')"
+            throw "EXAMVAN.exe tidak mau mati; uninstall tidak akan bisa menghapus file"
+          }
+          Write-Host "OK: tidak ada proses EXAMVAN tersisa"
 
           $unins = Get-ChildItem "$env:LOCALAPPDATA\Programs\EXAMVAN" -Filter "unins*.exe" -ErrorAction SilentlyContinue
           if ($unins) {
@@ -203,7 +223,14 @@ jobs:
               -PassThru -Wait
             Write-Host "Uninstall exit: $($u.ExitCode)"
           }
-          if (Test-Path $target) { throw "Uninstall tidak menghapus $target" }
+          # Beri uninstaller cukup waktu untuk melepas file lock.
+          Start-Sleep -Seconds 3
+          if (Test-Path $target) {
+            Write-Host "Isi folder setelah uninstall:"
+            Get-ChildItem "$env:LOCALAPPDATA\Programs\EXAMVAN" -Recurse |
+              ForEach-Object { Write-Host "  $($_.FullName)" }
+            throw "Uninstall tidak menghapus $target"
+          }
           Write-Host "OK: uninstall bersih"
 
       - name: Checksums
