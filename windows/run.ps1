@@ -62,10 +62,12 @@ if (-not (Test-Path $VenvPython)) {
 }
 
 # ---- Cek PyQt5 ----
-try {
-    & $VenvPython -c "import PyQt5" 2>$null
-} catch {
-    Write-Info "PyQt5 belum terinstall, menginstall..."
+# Cek $LASTEXITCODE, bukan try/catch: try/catch PowerShell tidak menangkap
+# exit code non-zero dari program eksternal, jadi dulu import gagal tidak
+# terdeteksi dan app tetap dicoba dijalankan lalu crash.
+& $VenvPython -c "import PyQt5"
+if ($LASTEXITCODE -ne 0) {
+    Write-Info "PyQt5 belum terinstall / gagal load, menginstall..."
     & $VenvPython -m pip install PyQt5 PyMuPDF --quiet
 }
 

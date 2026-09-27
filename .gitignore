@@ -28,6 +28,10 @@ server/storage/*
 
 # OS files
 .DS_Store
+
+# Build artifacts Windows — exe didapat dari release GitHub 'exe-latest'
+# (di-build otomatis CI), tidak di-commit agar riwayat repo tetap ramping
+windows/dist/
 Thumbs.db
 node_modules/
 package-lock.json

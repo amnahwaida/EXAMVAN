@@ -28,6 +28,9 @@ $py = Get-Command python -ErrorAction SilentlyContinue
 if (-not $py) {
     Write-Err "Python tidak ditemukan!"
     Write-Host ""
+    # SEMUA string yang mengandung tanda kurung WAJIB dikutip — string telanjang
+    # seperti `Download Python (64-bit)` membuat PowerShell masuk mode ekspresi
+    # saat ketemu '(' lalu gagal parse: "Unexpected token '-bit'".
     Write-Host "Download Python 3.10+ (64-bit) dari:"
     Write-Host "  https://www.python.org/downloads/"
     Write-Host ""
@@ -68,15 +71,18 @@ if ($LASTEXITCODE -ne 0) {
 Write-Ok "Dependencies terinstall"
 
 # ---- Test import ----
-try {
-    & $VenvPython -c "import PyQt5; import fitz; print('OK')" 2>$null
-    Write-Ok "Import test berhasil"
-} catch {
+# Cek $LASTEXITCODE, BUKAN try/catch: try/catch PowerShell tidak menangkap
+# exit code non-zero dari program eksternal, jadi dulu import gagal tetap
+# dilaporkan "berhasil". Traceback sengaja TIDAK di-redirect supaya penyebab
+# aslinya (DLL load failed, dll.) terlihat di layar.
+& $VenvPython -c "import PyQt5; import fitz; print('OK')"
+if ($LASTEXITCODE -ne 0) {
     Write-Err "Import PyQt5 gagal. Mungkin butuh Visual C++ Redistributable:"
     Write-Host "  https://aka.ms/vs/17/release/vc_redist.x64.exe"
     pause
     exit 1
 }
+Write-Ok "Import test berhasil"
 
 # ---- Buat launcher .bat di desktop ----
 $desktop = [Environment]::GetFolderPath("Desktop")

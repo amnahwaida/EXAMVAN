@@ -11,10 +11,12 @@ Aplikasi ujian digital EXAMVAN untuk Windows. Satu codebase dengan versi Linux �
 | Kebutuhan | Cara Cek | Link Download |
 |-----------|----------|--------------|
 | **Windows 10/11** 64-bit | Settings → About | — |
-| **Python 3.10+** 64-bit | Buka CMD, ketik `python --version` | [python.org](https://www.python.org/downloads/) |
+| **Python 3.10+** 64-bit (dites di 3.12; hindari 3.14) | Buka CMD, ketik `python --version` | [python.org](https://www.python.org/downloads/) |
 | **Visual C++ Redistributable** | Biasanya sudah ada | [vc_redist.x64.exe](https://aka.ms/vs/17/release/vc_redist.x64.exe) |
 
 > **Saat install Python, PASTIKAN centang "Add Python to PATH"** di halaman pertama installer.
+>
+> **Catatan versi:** build & testing proyek ini memakai **Python 3.12** (lihat CI). Python 3.10–3.13 umumnya jalan, tetapi **Python 3.14 belum pernah dites** — kalau install gagal di 3.14, gunakan 3.12 sebelum melapor.
 
 ### Langkah 1: Dapatkan Source Code
 
@@ -35,7 +37,33 @@ cd EXAMVAN
 
 ### Langkah 2: Install & Jalankan
 
-**Cara 1: Install Otomatis (recommended)**
+**Cara 0: CMD murni (tanpa PowerShell — paling tahan banting)**
+
+Semua langkah bisa dari CMD biasa:
+
+```cmd
+cd EXAMVAN\windows
+install.bat
+```
+
+`install.bat` melakukan hal yang sama dengan `install.ps1` (cek Python → venv →
+install PyQt5 + PyMuPDF → test import → buat shortcut `EXAMVAN.bat` di desktop).
+Error Python/pip tampil apa adanya di layar, jadi gagal install gampang
+diagnosis. Atau jalankan manual tanpa script sama sekali:
+
+```cmd
+cd EXAMVAN
+python -m venv desktop\.venv
+desktop\.venv\Scripts\python.exe -m pip install --upgrade pip
+desktop\.venv\Scripts\python.exe -m pip install PyQt5 PyMuPDF
+cd desktop
+.venv\Scripts\python.exe -m examvan
+```
+
+Untuk menjalankan sehari-hari: `windows\run.bat` (setara `run.ps1`, auto-setup
+venv saat pertama jalan).
+
+**Cara 1: Install Otomatis via PowerShell**
 
 Buka **PowerShell** sebagai user biasa (tidak perlu admin):
 
@@ -204,6 +232,33 @@ dihapus pada 202 mentah.
 
 ## Troubleshooting
 
+### Error saat mengetik `powershell -ExecutionPolicy Bypass -File install.ps1`
+
+**Parse error `Unexpected token '-bit'`** — terjadi di versi lama `install.ps1`:
+ada string tanpa tanda kutip yang mengandung `(64-bit)`, sehingga PowerShell
+masuk mode ekspresi saat ketemu `(` dan gagal parse **seluruh file** sebelum
+eksekusi (makanya error muncul seketika saat perintah diketik). Sudah diperbaiki
+— update repo, atau langsung pakai `install.bat`.
+
+Kalau gagal karena sebab lain (diblokir policy, PowerShell lambat/rusak, atau
+error `File ... cannot be loaded`), pakai **CMD murni**:
+
+```cmd
+cd EXAMVAN\windows
+install.bat
+```
+
+atau jalankan manual tanpa script:
+
+```cmd
+cd EXAMVAN
+python -m venv desktop\.venv
+desktop\.venv\Scripts\python.exe -m pip install PyQt5 PyMuPDF
+desktop\.venv\Scripts\python.exe -m pip install --upgrade pip
+cd desktop
+.venv\Scripts\python.exe -m examvan
+```
+
 ### "Python tidak ditemukan"
 
 Install Python dari [python.org](https://www.python.org/downloads/).  
@@ -226,7 +281,10 @@ https://aka.ms/vs/17/release/vc_redist.x64.exe
 
 ### "python" tidak dikenali setelah install
 
-Tutup dan buka ulang PowerShell/CMD. Atau jalanin:
+Tutup dan buka ulang PowerShell/CMD. Cek `where python` — kalau hasilnya
+`...\WindowsApps\python.exe`, yang kedetect adalah stub Microsoft Store:
+PATH python.org belum masuk. Install ulang Python dengan centang
+"Add Python to PATH", atau panggil langsung:
 ```cmd
 "%LOCALAPPDATA%\Programs\Python\Python312\python.exe" --version
 ```
