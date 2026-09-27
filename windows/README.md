@@ -101,6 +101,16 @@ Script auto buat venv + install deps saat pertama jalan.
 
 **Cara 3: Build .exe Portable (bisa dibawa kemana-mana)**
 
+Via CMD murni:
+
+```cmd
+cd EXAMVAN
+cd windows
+build-exe.bat
+```
+
+atau via PowerShell:
+
 ```powershell
 cd EXAMVAN
 cd windows
