@@ -49,7 +49,8 @@ install.bat
 `install.bat` melakukan hal yang sama dengan `install.ps1` (cek Python → venv →
 install PyQt5 + PyMuPDF → test import → buat shortcut `EXAMVAN.bat` di desktop).
 Error Python/pip tampil apa adanya di layar, jadi gagal install gampang
-diagnosis. Atau jalankan manual tanpa script sama sekali:
+diagnosis. Shortcut yang dibuat memanggil `run.bat` langsung — **tanpa
+PowerShell sama sekali**. Atau jalankan manual tanpa script sama sekali:
 
 ```cmd
 cd EXAMVAN
@@ -268,6 +269,18 @@ desktop\.venv\Scripts\python.exe -m pip install --upgrade pip
 cd desktop
 .venv\Scripts\python.exe -m examvan
 ```
+
+### Error saat klik `EXAMVAN.bat` di desktop
+
+Shortcut buatan versi lama memanggil `run.ps1` **lewat PowerShell** — kalau
+PowerShell di komputer bermasalah (policy, PowerShell 7, env korporat korup),
+ikon desktop ikut gagal walau `install.bat` sukses. Perbaikan:
+
+1. `git pull` (ambil perbaikan),
+2. jalankan ulang `windows\install.bat` — shortcut dibuat ulang dan kini
+   memanggil `run.bat` (CMD murni, tanpa PowerShell).
+
+Alternatif cepat tanpa shortcut: double-click `windows\run.bat` langsung.
 
 ### "Python tidak ditemukan"
 

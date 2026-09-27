@@ -87,16 +87,18 @@ Write-Ok "Import test berhasil"
 # ---- Buat launcher .bat di desktop ----
 $desktop = [Environment]::GetFolderPath("Desktop")
 $launcherPath = Join-Path $desktop "EXAMVAN.bat"
-$runScript = Join-Path $ScriptDir "run.ps1"
+$runBat = Join-Path $ScriptDir "run.bat"
 
 # Path di-hardcode saat install (BUKAN via env var): env var User yang baru
 # dibuat TIDAK terlihat oleh proses yang sudah berjalan (termasuk Explorer,
-# yang melaunch double-click .bat) sampai logout/re-login — %EXAMVAN_DIR%
-# bisa kosong → `powershell -File ""` → error saat klik pertama.
+# yang melaunch double-click .bat) sampai logout/re-login.
+# Launcher memanggil run.bat LANGSUNG (CMD murni), BUKAN run.ps1 via
+# powershell — klik ikon desktop tidak boleh bergantung pada PowerShell,
+# yang bisa gagal karena policy, PowerShell 7, atau env korporat korup.
 # Backslash tidak perlu di-escape: cmd memperlakukannya literal di dalam kutip.
 @"
 @echo off
-powershell -NoProfile -ExecutionPolicy Bypass -File "$runScript"
+call "$runBat"
 pause
 "@ | Out-File -FilePath $launcherPath -Encoding ASCII
 

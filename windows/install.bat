@@ -10,7 +10,8 @@ rem    1. Cek python di PATH
 rem    2. Buat venv di desktop\.venv
 rem    3. Install PyQt5 + PyMuPDF
 rem    4. Test import (dengan %ERRORLEVEL% yang benar)
-rem    5. Buat shortcut EXAMVAN.bat di desktop
+rem    5. Buat shortcut EXAMVAN.bat di desktop (panggil run.bat,
+rem       TANPA PowerShell sama sekali)
 rem ============================================================
 setlocal
 cd /d "%~dp0"
@@ -87,14 +88,17 @@ echo [OK]   Import test berhasil.
 echo.
 
 rem ---- 5. Buat shortcut di desktop ----
-rem Path di-hardcode saat install -- env var user yang baru dibuat tidak
-rem terlihat oleh Explorer yang sudah berjalan sampai logout/re-login.
+rem Path di-hardcode saat install (env var user yang baru dibuat tidak
+rem terlihat oleh Explorer yang sudah berjalan sampai logout/re-login).
+rem Shortcut memanggil run.bat LANGSUNG (CMD murni) -- BUKAN run.ps1 via
+rem powershell: klik ikon desktop tidak boleh bergantung PowerShell,
+rem yang bisa gagal karena policy, PowerShell 7, atau lingkungan kantor.
 for /f "tokens=2,*" %%A in ('reg query "HKCU\Software\Microsoft\Windows\CurrentVersion\Explorer\Shell Folders" /v Desktop 2^>nul ^| findstr Desktop') do set "USER_DESKTOP=%%B"
 if not defined USER_DESKTOP set "USER_DESKTOP=%USERPROFILE%\Desktop"
 
 > "%USER_DESKTOP%\EXAMVAN.bat" (
     @echo @echo off
-    @echo powershell -NoProfile -ExecutionPolicy Bypass -File "%~f0\..\run.ps1"
+    @echo call "%~dp0run.bat"
     @echo pause
 )
 echo [OK]   Shortcut dibuat: %USER_DESKTOP%\EXAMVAN.bat
@@ -107,6 +111,7 @@ echo   =========================================
 echo.
 echo   Jalankan EXAMVAN:
 echo     - Double-click EXAMVAN.bat di desktop, ATAU
+echo     - Double-click windows\run.bat langsung, ATAU
 echo     - Dari CMD: desktop\.venv\Scripts\python.exe -m examvan  (dari folder desktop)
 echo.
 echo   Password admin exit (opsional, sebelum menjalankan):
