@@ -2,6 +2,13 @@
 #
 # Usage:
 #   powershell -ExecutionPolicy Bypass -File run.ps1
+#   (atau double-click shortcut EXAMVAN.bat buatan install.ps1)
+#
+# Catatan: script ini memakai Set-Location ke desktop/ sebelum launch —
+# package examvan TIDAK di-install ke venv (tidak ada pip install -e /
+# pyproject.toml), jadi `python -m examvan` hanya resolve bila CWD adalah
+# folder desktop/. Tanpa itu, double-click EXAMVAN.bat (CWD = lokasi
+# shortcut) gagal dengan "No module named examvan".
 
 $ErrorActionPreference = "Stop"
 $ScriptDir = Split-Path -Parent $PSCommandPath
@@ -65,4 +72,10 @@ try {
 # ---- Jalankan ----
 Write-Info "Menjalankan EXAMVAN..."
 $host.UI.RawUI.WindowTitle = "EXAMVAN"
+
+# CWD HARUS desktop/ agar `python -m examvan` menemukan package (examvan
+# tidak ter-install ke venv; Python resolve -m dari CWD). Pindah SETELAH
+# semua path absolut ($ScriptDir/$SourceDir/$VenvDir) sudah dihitung.
+Set-Location $SourceDir
+
 & $VenvPython -m examvan

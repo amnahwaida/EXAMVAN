@@ -7,8 +7,9 @@ di awal, dan hasil (sukses / gagal) dilaporkan lewat notifikasi sistem.
 
 Cross-platform, tanpa dependency baru:
 - Linux: `notify-send` (tersedia di GNOME/KDE/XFCE standar);
-- Windows: balloon tip via PowerShell + System.Windows.Forms.NotifyIcon
-  (bawaan .NET Framework / PowerShell 5.1+, tidak butuh package tambahan).
+-  Windows: balloon tip via PowerShell + System.Windows.Forms.NotifyIcon
+  (bawaan .NET Framework / PowerShell 5.1+, tidak butuh package tambahan,
+  CREATE_NO_WINDOW agar console tidak berkedip di proses GUI windowed).
 
 Best-effort di semua platform: kegagalan apa pun (helper tidak ada, policy
 memblokir PowerShell, dst.) TIDAK melempar — jawaban tetap aman di disk
@@ -105,5 +106,8 @@ def _send_windows_notification(
         args,
         timeout=(_WINDOWS_BALLOON_DURATION_MS // 1000) + 10,
         check=False,
+        # CREATE_NO_WINDOW — proses GUI windowed: tanpa ini jendela
+        # console PowerShell berkedip di layar saat notifikasi dikirim.
+        creationflags=0x08000000,  # CREATE_NO_WINDOW
     )
     return True

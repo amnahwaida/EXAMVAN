@@ -165,6 +165,7 @@ Cara pakai: tekan `Ctrl+Shift+Alt+Q` tiga kali di strict mode, masukkan password
 /opt/examvan/
 ├── .venv/                    ← virtual environment
 │   └── bin/python3           ← venv Python
+├── main.py                   ← stub entry point build .exe Windows (PyInstaller)
 ├── examvan/                  ← source code (cross-platform)
 │   ├── __main__.py           ← entry point
 │   ├── api.py                ← HTTP client (urllib)
@@ -387,3 +388,8 @@ pkill -f examvan
 # Windows
 taskkill /f /im EXAMVAN.exe
 ```
+
+### Melihat log aplikasi (diagnosis lapangan)
+App menulis log rotating (1 MB × 3) ke `~/.config/examvan/app.log` —
+berisi jejak aktivasi security, download PDF, submit, dan error. Ini satu-
+satunya jejak di Windows karena proses `--windowed` tidak punya console.

@@ -45,6 +45,15 @@ if (-not (Test-Path $OutputDir)) {
     New-Item -ItemType Directory -Path $OutputDir -Force | Out-Null
 }
 
+# Entry point = desktop/main.py (stub), BUKAN examvan/__main__.py.
+# PyInstaller menjalankan file entry sebagai script lepas — __main__.py
+# memakai relative import (`from .ui.styles import ...`) yang crash dengan
+# "ImportError: attempted relative import with no known parent package" saat
+# EXAMVAN.exe dijalankan. Stub main.py mengimpor package examvan secara
+# normal sehingga seluruh graf package dianalisis dan exe menyala.
+# --add-data relatif ke CWD → Set-Location ke desktop/ dulu.
+Set-Location $SourceDir
+
 & $VenvPython -m PyInstaller `
     --onefile `
     --windowed `
@@ -69,7 +78,7 @@ if (-not (Test-Path $OutputDir)) {
     --exclude-module examvan.security.linux_backend `
     --exclude-module examvan.security.kiosk `
     --add-data "examvan;examvan" `
-    (Join-Path $SourceDir "examvan\__main__.py")
+    (Join-Path $SourceDir "main.py")
 
 # ---- Done ----
 $ExePath = Join-Path $OutputDir "EXAMVAN.exe"

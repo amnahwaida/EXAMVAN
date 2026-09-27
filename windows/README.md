@@ -256,3 +256,10 @@ Pastikan server punya `tzdata` yang benar.
 ```cmd
 taskkill /f /im EXAMVAN.exe
 ```
+
+### Melihat log aplikasi
+
+App menulis log rotating ke `%USERPROFILE%\.config\examvan\app.log`
+(1 MB × 3 file). Buka file ini saat melapor masalah — proses `--windowed`
+tidak punya console, jadi ini satu-satunya jejak error (security hook,
+download PDF, submit, notifikasi).

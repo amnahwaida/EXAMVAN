@@ -95,6 +95,13 @@ WS_EX_TOOLWINDOW = 0x80
 SPI_SETSCREENSAVEACTIVE = 0x0011
 SPIF_UPDATEINIFILE = 0x01
 
+# CREATE_NO_WINDOW — proses ini GUI (--windowed / pythonw): subprocess
+# console (cmd.exe, powershell) tanpa flag ini MEMBUAT jendela console
+# berkedip di layar siswa tiap dipanggil (clipboard clear tiap 3 detik =
+# kedipan tiap 3 detik). 0 di platform lain (nilai valid di semua OS).
+CREATE_NO_WINDOW = 0x08000000
+_SUBPROCESS_FLAGS = CREATE_NO_WINDOW if sys.platform == "win32" else 0
+
 # Registry
 HKEY_CURRENT_USER = 0x80000001
 KEY_READ = 0x20019
@@ -508,11 +515,14 @@ class WindowsBackend(SecurityBackend):
                 _CloseClipboard()
         except Exception:
             pass
-        # Clear clipboard via cmd (overwrite with empty line)
+        # Clear clipboard via cmd (overwrite with empty line).
+        # CREATE_NO_WINDOW: tanpa ini jendela cmd berkedip tiap 3 detik
+        # di proses GUI windowed.
         try:
             subprocess.run(
                 ["cmd.exe", "/c", "echo.|clip"],
                 capture_output=True, timeout=2,
+                creationflags=_SUBPROCESS_FLAGS,
             )
         except Exception:
             pass

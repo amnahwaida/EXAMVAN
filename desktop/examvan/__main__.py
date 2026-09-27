@@ -3,9 +3,41 @@
 from __future__ import annotations
 
 import atexit
+import logging
 import os
 import signal
 import sys
+from logging.handlers import RotatingFileHandler
+
+
+def _setup_logging() -> None:
+    """Pasang file logging — satu-satunya jejak saat app error di lapangan.
+
+    Proses GUI (PyInstaller --windowed) tidak punya stderr yang terlihat:
+    tanpa handler, semua log.info/warning dari security backend, download
+    PDF, dan submit hilang begitu saja dan bug lapangan tidak bisa
+    didiagnosis. Log di ~/.config/examvan/app.log (rotating 1 MB × 3)
+    agar folder config tidak membengkak.
+    """
+    try:
+        from pathlib import Path
+        log_dir = Path.home() / ".config" / "examvan"
+        log_dir.mkdir(parents=True, exist_ok=True)
+        handler = RotatingFileHandler(
+            log_dir / "app.log",
+            maxBytes=1_000_000,
+            backupCount=3,
+            encoding="utf-8",
+        )
+        handler.setFormatter(logging.Formatter(
+            "%(asctime)s %(levelname)s %(name)s: %(message)s"
+        ))
+        root = logging.getLogger()
+        root.setLevel(logging.INFO)
+        root.addHandler(handler)
+    except OSError:
+        # Disk penuh / permission — jalan tanpa logging daripada gagal total.
+        pass
 
 
 def _maximize_window(widget) -> None:
@@ -36,6 +68,8 @@ def _recover_gnome_settings() -> None:
 
 
 def main() -> None:
+    _setup_logging()
+
     # Register crash-recovery handlers (Linux GNOME settings)
     if sys.platform != "win32":
         atexit.register(_recover_gnome_settings)
