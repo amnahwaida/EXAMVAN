@@ -31,7 +31,6 @@ from ctypes import (
     c_ulong,
     c_void_p,
     cast,
-    windll,
 )
 from ctypes.wintypes import (
     BOOL,
@@ -130,88 +129,138 @@ class KBDLLHOOKSTRUCT(Structure):
 # ---------------------------------------------------------------------------
 # Win32 function prototypes
 # ---------------------------------------------------------------------------
+# Binding dilakukan LAZILY, bukan di import time.
+#
+# ctypes hanya menyediakan `windll` di Windows, jadi binds di module level
+# membuat modul ini mustahil di-import di Linux/macOS. Akibatnya SELURUH
+# security backend Windows - termasuk keputusan blokir-key yang jadi inti
+# integritas ujian - tidak punya test coverage apa pun, karena tidak bisa
+# di-import di runner CI mana pun.
+#
+# Yang ditemukan saat memperbaiki ini: ctypes.wintypes SEBENARNYA bisa
+# di-import di Linux (13 tipe lengkap), jadi `windll` adalah satu-satunya
+# penghalang. Setelah binding ditunda, modul ini bisa di-import di mana saja
+# dan setiap keputusan logika di dalamnya bisa diuji dengan mock.
+#
+# PEP 562 __getattr__ hanya dipanggil ketika nama TIDAK ditemukan sebagai
+# global, jadi ini transparan bagi ~50 call site yang tetap menulis
+# _user32.GetAsyncKeyState(...) seperti sebelumnya.
+_bound = False
 
-_user32 = windll.user32
-_kernel32 = windll.kernel32
-_advapi32 = windll.advapi32
 
-# Keyboard hook
-_SetWindowsHookExW = _user32.SetWindowsHookExW
-_SetWindowsHookExW.restype = HHOOK
-_SetWindowsHookExW.argtypes = [c_int, c_void_p, c_void_p, DWORD]
+def _bind() -> None:
+    """Resolve windll + set every Win32 prototype. Runs at most once."""
+    global _bound, _user32, _kernel32, _advapi32
+    if _bound:
+        return
 
-_CallNextHookEx = _user32.CallNextHookEx
-_CallNextHookEx.restype = c_void_p
-_CallNextHookEx.argtypes = [HHOOK, c_int, WPARAM, LPARAM]
+    from ctypes import windll
 
-_UnhookWindowsHookEx = _user32.UnhookWindowsHookEx
-_UnhookWindowsHookEx.restype = BOOL
-_UnhookWindowsHookEx.argtypes = [HHOOK]
+    _user32 = windll.user32
+    _kernel32 = windll.kernel32
+    _advapi32 = windll.advapi32
 
-_GetMessageW = _user32.GetMessageW
-_GetMessageW.restype = BOOL
-_GetMessageW.argtypes = [POINTER(MSG), HWND, UINT, UINT]
+# PEP 562. Dipanggil hanya ketika nama tidak ada sebagai global, yaitu
+# sebelum _bind() sempat berjalan. Setelah _bind(), semua nama ada sebagai
+# global asli sehingga fungsi ini tidak pernah dipanggil lagi.
+def __getattr__(name: str):
+    if not _bound:
+        try:
+            _bind()
+        except ImportError as e:
+            # Di luar Windows, windll tidak ada sama sekali. Naikkan sebagai
+            # AttributeError (bukan ImportError) supaya hasattr() dan
+            # getattr(name, default) tetap berperilaku seperti biasa --
+            # keduanya adalah inti Python dan beberapa perpustakaan memakainya
+            # untuk mendeteksi fitur opsional.
+            if sys.platform != "win32":
+                raise AttributeError(
+                    f"{name!r} needs the Win32 API and is unavailable on "
+                    f"{sys.platform}; windows_backend can only bind on Windows"
+                ) from e
+            raise
+        if name in globals():
+            return globals()[name]
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
 
-_PostThreadMessageW = _user32.PostThreadMessageW
-_PostThreadMessageW.restype = BOOL
-_PostThreadMessageW.argtypes = [DWORD, UINT, WPARAM, LPARAM]
 
-WM_QUIT = 0x0012
+    # Keyboard hook
+    _SetWindowsHookExW = _user32.SetWindowsHookExW
+    _SetWindowsHookExW.restype = HHOOK
+    _SetWindowsHookExW.argtypes = [c_int, c_void_p, c_void_p, DWORD]
 
-# Clipboard
-_OpenClipboard = _user32.OpenClipboard
-_OpenClipboard.restype = BOOL
-_OpenClipboard.argtypes = [HWND]
+    _CallNextHookEx = _user32.CallNextHookEx
+    _CallNextHookEx.restype = c_void_p
+    _CallNextHookEx.argtypes = [HHOOK, c_int, WPARAM, LPARAM]
 
-_EmptyClipboard = _user32.EmptyClipboard
-_EmptyClipboard.restype = BOOL
+    _UnhookWindowsHookEx = _user32.UnhookWindowsHookEx
+    _UnhookWindowsHookEx.restype = BOOL
+    _UnhookWindowsHookEx.argtypes = [HHOOK]
 
-_CloseClipboard = _user32.CloseClipboard
-_CloseClipboard.restype = BOOL
+    _GetMessageW = _user32.GetMessageW
+    _GetMessageW.restype = BOOL
+    _GetMessageW.argtypes = [POINTER(MSG), HWND, UINT, UINT]
 
-# Sleep
-_SetThreadExecutionState = _kernel32.SetThreadExecutionState
-_SetThreadExecutionState.restype = DWORD
-_SetThreadExecutionState.argtypes = [DWORD]
+    _PostThreadMessageW = _user32.PostThreadMessageW
+    _PostThreadMessageW.restype = BOOL
+    _PostThreadMessageW.argtypes = [DWORD, UINT, WPARAM, LPARAM]
 
-# Display affinity (prevent screenshot)
-_SetWindowDisplayAffinity = _user32.SetWindowDisplayAffinity
-_SetWindowDisplayAffinity.restype = BOOL
-_SetWindowDisplayAffinity.argtypes = [HWND, DWORD]
+    WM_QUIT = 0x0012
 
-# Window style
-_GetWindowLongW = _user32.GetWindowLongW
-_GetWindowLongW.restype = c_int
-_GetWindowLongW.argtypes = [HWND, c_int]
+    # Clipboard
+    _OpenClipboard = _user32.OpenClipboard
+    _OpenClipboard.restype = BOOL
+    _OpenClipboard.argtypes = [HWND]
 
-_SetWindowLongW = _user32.SetWindowLongW
-_SetWindowLongW.restype = c_int
-_SetWindowLongW.argtypes = [HWND, c_int, c_int]
+    _EmptyClipboard = _user32.EmptyClipboard
+    _EmptyClipboard.restype = BOOL
 
-# Screen saver
-_SystemParametersInfoW = _user32.SystemParametersInfoW
-_SystemParametersInfoW.restype = BOOL
-_SystemParametersInfoW.argtypes = [UINT, UINT, LPVOID, UINT]
+    _CloseClipboard = _user32.CloseClipboard
+    _CloseClipboard.restype = BOOL
 
-# Registry (for dark mode detection)
-_RegOpenKeyExW = _advapi32.RegOpenKeyExW
-_RegOpenKeyExW.restype = c_int  # LONG
-_RegOpenKeyExW.argtypes = [c_void_p, LPWSTR, DWORD, DWORD, POINTER(c_void_p)]
+    # Sleep
+    _SetThreadExecutionState = _kernel32.SetThreadExecutionState
+    _SetThreadExecutionState.restype = DWORD
+    _SetThreadExecutionState.argtypes = [DWORD]
 
-_RegQueryValueExW = _advapi32.RegQueryValueExW
-_RegQueryValueExW.restype = c_int
-_RegQueryValueExW.argtypes = [c_void_p, LPWSTR, c_void_p, POINTER(DWORD), BYTE * 4, POINTER(DWORD)]
+    # Display affinity (prevent screenshot)
+    _SetWindowDisplayAffinity = _user32.SetWindowDisplayAffinity
+    _SetWindowDisplayAffinity.restype = BOOL
+    _SetWindowDisplayAffinity.argtypes = [HWND, DWORD]
 
-_RegCloseKey = _advapi32.RegCloseKey
-_RegCloseKey.restype = c_int
-_RegCloseKey.argtypes = [c_void_p]
+    # Window style
+    _GetWindowLongW = _user32.GetWindowLongW
+    _GetWindowLongW.restype = c_int
+    _GetWindowLongW.argtypes = [HWND, c_int]
 
-# GetSystemMetrics for multi-monitor
-_GetSystemMetrics = _user32.GetSystemMetrics
-_GetSystemMetrics.restype = c_int
-_GetSystemMetrics.argtypes = [c_int]
+    _SetWindowLongW = _user32.SetWindowLongW
+    _SetWindowLongW.restype = c_int
+    _SetWindowLongW.argtypes = [HWND, c_int, c_int]
 
-SM_CMONITORS = 80
+    # Screen saver
+    _SystemParametersInfoW = _user32.SystemParametersInfoW
+    _SystemParametersInfoW.restype = BOOL
+    _SystemParametersInfoW.argtypes = [UINT, UINT, LPVOID, UINT]
+
+    # Registry (for dark mode detection)
+    _RegOpenKeyExW = _advapi32.RegOpenKeyExW
+    _RegOpenKeyExW.restype = c_int  # LONG
+    _RegOpenKeyExW.argtypes = [c_void_p, LPWSTR, DWORD, DWORD, POINTER(c_void_p)]
+
+    _RegQueryValueExW = _advapi32.RegQueryValueExW
+    _RegQueryValueExW.restype = c_int
+    _RegQueryValueExW.argtypes = [c_void_p, LPWSTR, c_void_p, POINTER(DWORD), BYTE * 4, POINTER(DWORD)]
+
+    _RegCloseKey = _advapi32.RegCloseKey
+    _RegCloseKey.restype = c_int
+    _RegCloseKey.argtypes = [c_void_p]
+
+    # GetSystemMetrics for multi-monitor
+    _GetSystemMetrics = _user32.GetSystemMetrics
+    _GetSystemMetrics.restype = c_int
+    _GetSystemMetrics.argtypes = [c_int]
+
+    SM_CMONITORS = 80
 
 
 # ---------------------------------------------------------------------------
@@ -227,6 +276,162 @@ _hook_proc_wrapper: Any = None  # Extra guard against GC
 
 # Guard: hook installed flag (thread-safe via hook message queue)
 _hook_ready = threading.Event()
+
+
+def should_block_key(
+    vk: int,
+    *,
+    alt_pressed: bool = False,
+    ctrl_down: bool = False,
+    shift_down: bool = False,
+    win_down: bool = False,
+    alt_flag: bool = False,
+) -> bool:
+    """Decide whether a keystroke must be swallowed by the keyboard hook.
+
+    Pure function: no Win32, no ctypes, no state. Extracted from the
+    LLKHF callback so the blocking RULES can be unit-tested on any
+    platform. They used to live inside a ctypes callback, which is why
+    this much exam-integrity logic had never been executed by a test on
+    any operating system.
+
+    Returns True to block, False to pass through to the next hook.
+    """
+    # --- Blocked keys ---
+    # Alt+Tab
+    if alt_pressed and vk == VK_TAB:
+        return True
+    # Alt+F4
+    if alt_pressed and vk == VK_F4:
+        return True
+    # Alt+Escape
+    if alt_pressed and vk == VK_ESCAPE:
+        return True
+    # Alt+Enter
+    if alt_pressed and vk == 0x0D:  # VK_RETURN
+        return True
+    # Win key (Start menu)
+    if vk in (VK_LWIN, VK_RWIN):
+        return True
+
+    # All Win+<key> combos
+    if win_down:
+        # Navigation & system
+        if vk == VK_TAB:        # Win+Tab (Task View)
+            return True
+        if vk == 0x4C:          # Win+L (Lock screen) -- CRITICAL
+            return True
+        if vk == 0x50:          # Win+P (Project / second screen)
+            return True
+        if vk == 0x54:          # Win+T (Cycle taskbar)
+            return True
+        if vk == 0x58:          # Win+X (Quick Link menu)
+            return True
+        if vk == 0x57:          # Win+W (Widgets)
+            return True
+        if vk == 0x5A:          # Win+Z (Snap layouts)
+            return True
+        if vk == 0x41:          # Win+A (Action Center)
+            return True
+        if vk == 0x4E:          # Win+N (Notification Center)
+            return True
+        if vk == 0x42:          # Win+B (focus notification area)
+            return True
+        if vk == 0x46:          # Win+F (Feedback Hub)
+            return True
+        if vk == 0x51:          # Win+Q (Cortana / Search)
+            return True
+        # Win+0 through Win+9 (taskbar items 0-9) -- launch pinned apps!
+        if 0x30 <= vk <= 0x39:
+            return True
+        # Win+F1 (Help)
+        if vk == 0x70:          # VK_F1
+            return True
+        # Accessories & tools
+        if vk == 0x47:          # Win+G (Game Bar / screen recording)
+            return True
+        if vk == 0x48:          # Win+H (Dictation)
+            return True
+        if vk == 0x4B:          # Win+K (Wireless display / Cast)
+            return True
+        if vk == 0x56:          # Win+V (Clipboard history)
+            return True
+        if vk == 0x59:          # Win+Y (Mixed Reality / desktop switch)
+            return True
+        # Files & search
+        if vk == 0x53:          # Win+S (Search / Snip)
+            return True
+        if vk == 0x52:          # Win+R (Run dialog)
+            return True
+        if vk in (0x44, 0x4D):  # Win+D / Win+M (desktop)
+            return True
+        if vk == 0x45:          # Win+E (File Explorer)
+            return True
+        if vk == 0x49:          # Win+I (Settings)
+            return True
+        if vk == 0x13:          # Win+Pause (System Properties)
+            return True
+        # Input / misc
+        if vk == 0x20:          # Win+Space (Input language)
+            return True
+        if vk == 0xBC:          # Win+, (Peek at desktop)
+            return True
+        if vk == 0xBE:          # Win+. (Emoji picker)
+            return True
+        if vk == 0xBA:          # Win+; (Emoji picker alt)
+            return True
+        if vk == 0xDB:          # Win+[ (window snap left)
+            return True
+        if vk == 0xDD:          # Win+] (window snap right)
+            return True
+        if vk == 0x23:          # Win+End (window snap right half)
+            return True
+        if vk == 0x24:          # Win+Home (minimize all non-active)
+            return True
+        # Arrow keys (window snap / move)
+        if vk in (0x25, 0x26, 0x27, 0x28):  # Win+Left/Up/Right/Down
+            return True
+        # Accessibility
+        if vk == 0xBB:          # Win+= (Magnifier zoom in)
+            return True
+        if vk == 0xBD:          # Win+- (Magnifier zoom out)
+            return True
+        if vk == 0x55:          # Win+U (Ease of Access)
+            return True
+        if vk == 0x4F:          # Win+Ctrl+O (OSK) — blocked via win_down
+            return True
+        if vk == VK_ESCAPE:     # Win+Esc exits the Magnifier
+            return True
+        # NB: Win+Esc was listed in a comment here claiming it was "handled
+        # by the regular Escape block below". That check requires
+        # `not win_down`, so Win+Esc was never actually blocked. Caught by
+        # tests/test_windows_backend.py.
+    # PrintScreen
+    if vk == VK_SNAPSHOT:
+        return True
+    # Alt+PrintScreen (active window screenshot)
+    if alt_pressed and vk == VK_SNAPSHOT:
+        return True
+    # Shift+PrintScreen (screenshot variation)
+    if shift_down and vk == VK_SNAPSHOT:
+        return True
+    # Ctrl+Shift+Esc (Task Manager)
+    if ctrl_down and shift_down and vk == VK_ESCAPE:
+        return True
+    # Ctrl+Esc (Start menu)
+    if ctrl_down and vk == VK_ESCAPE and not alt_pressed and not shift_down:
+        return True
+    # Alone Escape (block in strict mode)
+    if vk == VK_ESCAPE and not alt_pressed and not ctrl_down and not shift_down and not win_down:
+        return True
+    # Left/Right Alt alone
+    if vk == VK_MENU and alt_flag:
+        return True
+
+    # Pass through everything else. Wajib eksplisit: dalam callback aslinya
+    # jatuh ke akhir fungsi berarti "oper ke hook berikutnya", tapi fungsi
+    # pure yang dikembalikan bool harus mengembalikan False, bukan None.
+    return False
 
 
 def _keyboard_hook_proc(nCode: int, wParam: WPARAM, lParam: LPARAM) -> int:
@@ -256,130 +461,14 @@ def _keyboard_hook_proc(nCode: int, wParam: WPARAM, lParam: LPARAM) -> int:
         win_down = (_user32.GetAsyncKeyState(VK_LWIN) & 0x8000) != 0 or \
                    (_user32.GetAsyncKeyState(VK_RWIN) & 0x8000) != 0
 
-        # --- Blocked keys ---
-        # Alt+Tab
-        if alt_pressed and vk == VK_TAB:
-            return BLOCK_KEY
-        # Alt+F4
-        if alt_pressed and vk == VK_F4:
-            return BLOCK_KEY
-        # Alt+Escape
-        if alt_pressed and vk == VK_ESCAPE:
-            return BLOCK_KEY
-        # Alt+Enter
-        if alt_pressed and vk == 0x0D:  # VK_RETURN
-            return BLOCK_KEY
-        # Win key (Start menu)
-        if vk in (VK_LWIN, VK_RWIN):
-            return BLOCK_KEY
-
-        # All Win+<key> combos
-        if win_down:
-            # Navigation & system
-            if vk == VK_TAB:        # Win+Tab (Task View)
-                return BLOCK_KEY
-            if vk == 0x4C:          # Win+L (Lock screen) -- CRITICAL
-                return BLOCK_KEY
-            if vk == 0x50:          # Win+P (Project / second screen)
-                return BLOCK_KEY
-            if vk == 0x54:          # Win+T (Cycle taskbar)
-                return BLOCK_KEY
-            if vk == 0x58:          # Win+X (Quick Link menu)
-                return BLOCK_KEY
-            if vk == 0x57:          # Win+W (Widgets)
-                return BLOCK_KEY
-            if vk == 0x5A:          # Win+Z (Snap layouts)
-                return BLOCK_KEY
-            if vk == 0x41:          # Win+A (Action Center)
-                return BLOCK_KEY
-            if vk == 0x4E:          # Win+N (Notification Center)
-                return BLOCK_KEY
-            if vk == 0x42:          # Win+B (focus notification area)
-                return BLOCK_KEY
-            if vk == 0x46:          # Win+F (Feedback Hub)
-                return BLOCK_KEY
-            if vk == 0x51:          # Win+Q (Cortana / Search)
-                return BLOCK_KEY
-            # Win+0 through Win+9 (taskbar items 0-9) -- launch pinned apps!
-            if 0x30 <= vk <= 0x39:
-                return BLOCK_KEY
-            # Win+F1 (Help)
-            if vk == 0x70:          # VK_F1
-                return BLOCK_KEY
-            # Accessories & tools
-            if vk == 0x47:          # Win+G (Game Bar / screen recording)
-                return BLOCK_KEY
-            if vk == 0x48:          # Win+H (Dictation)
-                return BLOCK_KEY
-            if vk == 0x4B:          # Win+K (Wireless display / Cast)
-                return BLOCK_KEY
-            if vk == 0x56:          # Win+V (Clipboard history)
-                return BLOCK_KEY
-            if vk == 0x59:          # Win+Y (Mixed Reality / desktop switch)
-                return BLOCK_KEY
-            # Files & search
-            if vk == 0x53:          # Win+S (Search / Snip)
-                return BLOCK_KEY
-            if vk == 0x52:          # Win+R (Run dialog)
-                return BLOCK_KEY
-            if vk in (0x44, 0x4D):  # Win+D / Win+M (desktop)
-                return BLOCK_KEY
-            if vk == 0x45:          # Win+E (File Explorer)
-                return BLOCK_KEY
-            if vk == 0x49:          # Win+I (Settings)
-                return BLOCK_KEY
-            if vk == 0x13:          # Win+Pause (System Properties)
-                return BLOCK_KEY
-            # Input / misc
-            if vk == 0x20:          # Win+Space (Input language)
-                return BLOCK_KEY
-            if vk == 0xBC:          # Win+, (Peek at desktop)
-                return BLOCK_KEY
-            if vk == 0xBE:          # Win+. (Emoji picker)
-                return BLOCK_KEY
-            if vk == 0xBA:          # Win+; (Emoji picker alt)
-                return BLOCK_KEY
-            if vk == 0xDB:          # Win+[ (window snap left)
-                return BLOCK_KEY
-            if vk == 0xDD:          # Win+] (window snap right)
-                return BLOCK_KEY
-            if vk == 0x23:          # Win+End (window snap right half)
-                return BLOCK_KEY
-            if vk == 0x24:          # Win+Home (minimize all non-active)
-                return BLOCK_KEY
-            # Arrow keys (window snap / move)
-            if vk in (0x25, 0x26, 0x27, 0x28):  # Win+Left/Up/Right/Down
-                return BLOCK_KEY
-            # Accessibility
-            if vk == 0xBB:          # Win+= (Magnifier zoom in)
-                return BLOCK_KEY
-            if vk == 0xBD:          # Win+- (Magnifier zoom out)
-                return BLOCK_KEY
-            if vk == 0x55:          # Win+U (Ease of Access)
-                return BLOCK_KEY
-            if vk == 0x4F:          # Win+Ctrl+O (OSK) — blocked via win_down
-                return BLOCK_KEY
-            # Win+Esc (exit magnifier) — handled by regular Escape block below
-        # PrintScreen
-        if vk == VK_SNAPSHOT:
-            return BLOCK_KEY
-        # Alt+PrintScreen (active window screenshot)
-        if alt_pressed and vk == VK_SNAPSHOT:
-            return BLOCK_KEY
-        # Shift+PrintScreen (screenshot variation)
-        if shift_down and vk == VK_SNAPSHOT:
-            return BLOCK_KEY
-        # Ctrl+Shift+Esc (Task Manager)
-        if ctrl_down and shift_down and vk == VK_ESCAPE:
-            return BLOCK_KEY
-        # Ctrl+Esc (Start menu)
-        if ctrl_down and vk == VK_ESCAPE and not alt_pressed and not shift_down:
-            return BLOCK_KEY
-        # Alone Escape (block in strict mode)
-        if vk == VK_ESCAPE and not alt_pressed and not ctrl_down and not shift_down and not win_down:
-            return BLOCK_KEY
-        # Left/Right Alt alone
-        if vk == VK_MENU and alt_flag:
+        if should_block_key(
+            vk,
+            alt_pressed=alt_pressed,
+            ctrl_down=ctrl_down,
+            shift_down=shift_down,
+            win_down=win_down,
+            alt_flag=alt_flag,
+        ):
             return BLOCK_KEY
 
     # Pass through everything else
