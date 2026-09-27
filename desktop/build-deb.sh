@@ -112,6 +112,18 @@ if [ -n "$DIFF_OUT" ]; then
 fi
 
 # Modul yang WAJIB ada — kalau hilang, .deb tidak akan bisa start.
+#
+# CATATAN: examvan/security/windows_backend.py MATI di Linux dan TETAP wajib
+# ada. security/__init__.py hanya meng-import-nya di sys.platform == "win32".
+# Jangan memangkas modul per-platform dari daftar ini: .deb harus berisi
+# cerminan PENUH source, karena guard `diff -rq` di atas hanya bermakna kalau
+# source dan stage sekelas. Kalau modul dikecualikan, guard harus jadi
+# allowlist — dan allowlist itulah yang membiarkan salinan basi lolos, persis
+# bug yang diperbaiki commit ini.
+#
+# Kalau nanti benar-benar mau mengecilkan paket Linux, jalan yang benar adalah
+# memisahkannya jadi dua paket yang sama-sama memuat examvan/security/,
+# bukan memangkas sebagian file per platform.
 for required in \
     examvan/__main__.py \
     examvan/api.py \
@@ -221,11 +233,23 @@ if printf '%s\n' "$DEB_LISTING" | grep -q '__pycache__\|\.pyc$'; then
     die "Bytecode build bocor ke dalam .deb (harus dibersihkan)."
 fi
 
-# Modul backend Windows boleh TIDAK berguna di Linux, tapi file-nya harus
-# ada di paket supaya tidak ada fork lagi: kita sudah menyalin seluruh
-# examvan/, jadi satu-satunya cara hilang adalah filter yang salah.
+# Modul backend Windows MATI di Linux — security/__init__.py cuma meng-import
+# windows_backend di cabang sys.platform == "win32", jadi tidak pernah dieksekusi
+# di sini. File ini tetap wajib ada di paket, dan itu KEPUTUSAN SADAR, bukan
+# kelalaian:
+#
+#   .deb harus berisi cerminan PENUH dari desktop/examvan/, bukan subset.
+#   Guard di atas membandingkan stage dengan source memakai diff -rq, dan
+#   perbandingan itu hanya bermakna kalau keduanya sekelas. Kalau modul
+#   Windows dikecualikan, source dan stage tidak akan pernah sama, guard
+#   harus diubah jadi allowlist — dan allowlist itulah yang membiarkan
+#   salinan basi lolos tanpa ketahuan, persis bug yang commit ini perbaiki.
+#
+# Kalau nanti benar-benar mau mengecilkan paket Linux, yang benar adalah
+# memindahkan daemon/backend ke paket terpisah yang sama-sama memuat
+# examvan/security/__init__.py — bukan memangkas sebagian file per platform.
 printf '%s\n' "$DEB_LISTING" | grep -qF "./opt/examvan/examvan/security/windows_backend.py" \
-    || die "windows_backend.py hilang — berarti stage bukan hasil copy penuh."
+    || die "windows_backend.py hilang dari paket. Baris ini sengaja: lihat catatan di atas."
 
 # Launcher sistem harus executable juga, kalau tidak "examvan" di PATH
 # gagal dengan "Permission denied".
