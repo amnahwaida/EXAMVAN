@@ -9,9 +9,42 @@ import tempfile
 import threading
 from typing import Any, Dict, List, Optional
 
-# Admin exit password — REQUIRED. Set env EXAMVAN_ADMIN_PASSWORD before launch.
-# Without this, admin exit is DISABLED (no any-password fallback).
-_ADMIN_PASSWORD = os.environ.get("EXAMVAN_ADMIN_PASSWORD")
+# Admin exit password — Wajib ada untuk fitur admin exit aktif.
+#
+# Urutan sumber (pertama yang ada menang):
+#   1. env EXAMVAN_ADMIN_PASSWORD — cara lama, tetap didukung
+#   2. %LOCALAPPDATA%\EXAMVAN\admin_password.txt — ditulis installer
+#      EXAMVAN-Setup.exe, supaya "1 klik langsung jalan" benar-benar
+#      tanpa langkah set env var manual.
+#   3. tidak ada → fitur admin exit NONAKTIF (fail-closed, TIDAK ada
+#      fallback password apa pun).
+#
+# File di #2 dibaca dengan stripping newline (SaveStringToFile/Edit
+# menulis persis apa yang diketik user, tanpa newline — tapi file yang
+# diedit manual di Notepad bisa punya CRLF, jadi tetap di-strip).
+def _load_admin_password() -> Optional[str]:
+    pw = os.environ.get("EXAMVAN_ADMIN_PASSWORD")
+    if pw:
+        return pw
+
+    # Hanya Windows yang punya installer EXAMVAN-Setup.exe; di Linux
+    # password tetap via env var saja (LokalAppData tidak ada).
+    local_appdata = os.environ.get("LOCALAPPDATA")
+    if not local_appdata:
+        return None
+    try:
+        with open(
+            os.path.join(local_appdata, "EXAMVAN", "admin_password.txt"),
+            "r",
+            encoding="utf-8",
+        ) as f:
+            pw = f.read().strip()
+            return pw or None
+    except OSError:
+        return None
+
+
+_ADMIN_PASSWORD = _load_admin_password()
 
 from PyQt5.QtCore import QEvent, Qt, QTimer, pyqtSignal, pyqtSlot
 from PyQt5.QtGui import QCloseEvent, QKeyEvent
@@ -797,12 +830,17 @@ class ExamViewerWindow(QMainWindow):
             QLineEdit.Password,
         )
         if ok and password:
-            # Validate against env var — fail-closed
+            # Fail-closed: tanpa password terkonfigurasi, TIDAK ada
+            # jalur keluar selain kill process dari Task Manager.
             if _ADMIN_PASSWORD is None:
                 QMessageBox.warning(
                     self, "Tidak Diizinkan",
-                    "Admin exit tidak dikonfigurasi.\n"
-                    "Set environment EXAMVAN_ADMIN_PASSWORD.",
+                    "Admin exit tidak dikonfigurasi.\n\n"
+                    "Cara mengaktifkan:\n"
+                    "• Saat instalasi, centang \"Konfigurasi password admin exit\",\n"
+                    "  atau\n"
+                    "• Set environment EXAMVAN_ADMIN_PASSWORD sebelum aplikasi jalan.\n\n"
+                    "Lokasi file: %LOCALAPPDATA%\\EXAMVAN\\admin_password.txt",
                 )
                 return
             if password != _ADMIN_PASSWORD:

@@ -72,6 +72,9 @@ rem Entry point = desktop\main.py stub, BUKAN examvan\__main__.py:
 rem PyInstaller menjalankan file entry sebagai script lepas, sedangkan
 rem __main__.py memakai relative import yang crash saat exe dijalankan.
 rem --add-data relatif ke CWD, jadi CWD wajib folder desktop\.
+rem --version-file memberi metadata versi/commit di Properties exe.
+rem File yang sama dipakai build-setup.bat/.ps1 + CI, jadi Properties
+rem di explorer konsisten antara build lokal dan build runner.
 pushd "%SOURCE_DIR%"
 "%VPY%" -m PyInstaller ^
     --onefile ^
@@ -80,6 +83,7 @@ pushd "%SOURCE_DIR%"
     --distpath "%OUTPUT_DIR%" ^
     --specpath "%OUTPUT_DIR%" ^
     --workpath "%OUTPUT_DIR%\build" ^
+    --version-file "..\windows\installer\version_info.txt" ^
     --hidden-import examvan ^
     --hidden-import examvan.security ^
     --hidden-import examvan.ui ^
@@ -123,9 +127,12 @@ echo.
 echo   Executable: %OUTPUT_DIR%\EXAMVAN.exe
 echo   Size      : ~%SIZE_MB% MB
 echo.
-echo   Copy ke USB / komputer lain, jalankan tanpa install Python.
-echo   Catatan: exe build lokal tidak di-commit -- exe resmi tersedia
-echo   di release GitHub "exe-latest" hasil build CI.
+echo   Langkah berikutnya (kalau mau installer 1-klik untuk siswa):
+echo     build-setup.bat   --^>  EXAMVAN-Setup.exe
+echo.
+echo   EXAMVAN.exe sudah bisa dipakai langsung (portable / USB).
+echo   Catatan: exe build lokal tidak di-commit -- installer & exe
+echo   resmi tersedia di release GitHub "exe-latest" hasil build CI.
 echo.
 pause
 exit /b 0

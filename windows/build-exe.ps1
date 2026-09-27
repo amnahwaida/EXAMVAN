@@ -61,6 +61,7 @@ Set-Location $SourceDir
     --distpath $OutputDir `
     --specpath $OutputDir `
     --workpath "$OutputDir\build" `
+    --version-file "..\windows\installer\version_info.txt" `
     --hidden-import examvan `
     --hidden-import examvan.security `
     --hidden-import examvan.ui `

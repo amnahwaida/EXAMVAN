@@ -1,9 +1,13 @@
-# Build EXAMVAN Windows .exe on GitHub Actions
+# Build EXAMVAN Windows installer on GitHub Actions
 #
 # Trigger: push/PR ke main yang menyentuh desktop/, windows/, atau workflow
 # ini sendiri (path filter — perubahan docs/webui tidak buang menit runner
 # Windows), atau manual workflow_dispatch.
-# Produces: EXAMVAN.exe → release 'exe-latest' (+ artifact bila kuota cukup)
+# Produces: EXAMVAN-Setup.exe + EXAMVAN.exe → release 'exe-latest'
+#
+# EXAMVAN-Setup.exe adalah yang dibagikan ke sekolah: SATU file,
+# double-click, jalan — tanpa install Python. EXAMVAN.exe (portable)
+# ikut terbit untuk kasus yang butuh app tanpa installer.
 
 name: Build Windows
 
@@ -22,13 +26,18 @@ on:
       - ".github/workflows/build-windows.yml"
   workflow_dispatch:
 
-# Push beruntun → build lama dibatalkan, exe dari commit terbaru saja
+# Push beruntun → build lama dibatalkan, installer dari commit terbaru saja
 concurrency:
   group: build-windows-${{ github.ref }}
   cancel-in-progress: true
 
 permissions:
-  contents: write  # gh release upload (exe di-release, tidak kena kuota artifact)
+  contents: write  # gh release upload (installer di-release, tidak kena kuota artifact)
+
+# Versi/build/commit TIDAK ditulis di sini. Satu-satunya sumbernya
+# windows/installer/build_info.py, yang membacanya dari APP_VERSION di
+# desktop/examvan/__init__.py — konstanta yang sama dengan yang dilaporkan app
+# ke server lewat X-App-Version. Duplikasi di sini pasti melenceng.
 
 jobs:
   build:
@@ -40,6 +49,38 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # git describe --tags butuh riwayat penuh
+
+      - name: Resolve version / build / commit
+        id: ver
+        shell: pwsh
+        run: |
+          # build_info.py adalah SATU sumber kebenaran versi. Dipakai
+          # juga oleh windows\build-setup.* supaya installer lokal dan
+          # installer CI tidak pernah berbeda label.
+          #
+          # Nama define Inno (AppVersion, ...) dipetakan ke nama output
+          # step (app_version, ...) supaya langkah lain tidak ikut
+          # DependsOn versi. app_sha sengaja DIAMBIL ULANG di sini:
+          # build_info.py hanya menyimpan short sha untuk label, tapi
+          # release notes butuh full sha yang bisa diklik.
+          $map = @{
+            "AppVersion"     = "app_version"
+            "AppVersionInfo" = "app_version_info"
+            "AppBuild"       = "app_build"
+            "AppCommit"      = "app_commit"
+          }
+          $defines = (python windows/installer/build_info.py).Trim()
+          Write-Host "Defines: $defines"
+          foreach ($d in $defines.Split(" ")) {
+            $kv = $d.TrimStart("/D").Split("=", 2)
+            if ($kv.Count -ne 2 -or -not $map.ContainsKey($kv[0])) {
+              throw "Define tidak dikenal: $d"
+            }
+            "$($map[$kv[0]])=$($kv[1])" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
+          }
+          "app_sha=$(git rev-parse HEAD)" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
 
       - name: Setup Python ${{ matrix.python-version }}
         uses: actions/setup-python@v5
@@ -51,7 +92,21 @@ jobs:
           python -m pip install --upgrade pip
           pip install PyQt5 PyMuPDF pyinstaller
 
-      - name: Build with PyInstaller
+      # Metadata exe dibuat runtime supaya Properties → Details di PC
+      # siswa menyebut commit yang benar. Tanpa ini semua exe lokal
+      # terlihat identik padahal isinya beda jauh.
+      - name: Stamp version info
+        shell: pwsh
+        run: |
+          $tpl = Get-Content windows/installer/version_info.txt -Raw
+          $pv = "${{ steps.ver.outputs.app_version }} (build ${{ steps.ver.outputs.app_build }}, commit ${{ steps.ver.outputs.app_commit }})"
+          $tpl = $tpl -replace "(?<=StringStruct\('ProductVersion', ')[^']*", $pv
+          $tpl = $tpl -replace "(?<=StringStruct\('FileVersion', ')[^']*", "{{ steps.ver.outputs.app_version }}"
+          New-Item -ItemType Directory -Force -Path dist | Out-Null
+          Set-Content -Path dist/version_info.txt -Value $tpl -Encoding UTF8
+          Get-Content dist/version_info.txt | Select-Object -First 3
+
+      - name: Build EXAMVAN.exe with PyInstaller
         # Entry = desktop/main.py (stub), bukan examvan/__main__.py — file
         # entry PyInstaller dijalankan sebagai script lepas, sedangkan
         # __main__.py memakai relative import yang crash saat exe dijalankan
@@ -62,6 +117,7 @@ jobs:
             --windowed `
             --name "EXAMVAN" `
             --distpath dist `
+            --version-file dist/version_info.txt `
             --hidden-import examvan `
             --hidden-import examvan.security `
             --hidden-import examvan.ui `
@@ -82,21 +138,97 @@ jobs:
             desktop/main.py
         working-directory: ${{ github.workspace }}
 
+      # Installer Inno Setup: SATU file untuk PC siswa, tanpa Python.
+      # PrivilegesRequired=lowest di .iss -> install per-user, tanpa UAC.
+      - name: Build EXAMVAN-Setup.exe (Inno Setup)
+        shell: pwsh
+        run: |
+          # Inno Setup 6 sudah pre-installed di windows-latest.
+          $iscc = "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe"
+          if (-not (Test-Path $iscc)) { throw "ISCC.exe tidak ditemukan di $iscc" }
+          # Define diambil ulang dari build_info.py, bukan dihitung ulang
+          # di sini — VersionInfoVersion wajib numerik dan build_info.py
+          # yang menjamin itu.
+          $defines = (python windows/installer/build_info.py).Trim()
+          Write-Host "Defines: $defines"
+          & $iscc @($defines.Split(" ")) "windows\installer\examvan.iss"
+          if ($LASTEXITCODE -ne 0) { throw "ISCC gagal (exit $LASTEXITCODE)" }
+          Get-Item dist\EXAMVAN-Setup.exe
+
+      # Smoke test: installer SEBENARNYA di-install di runner. Ini yang
+      # menangkap .iss yang salah path, AppId bentrok, dan exe yang
+      # tidak ikut ter-copy — semua yang tidak terlihat dari "build sukses".
+      - name: Smoke test — install & uninstall senyap
+        shell: pwsh
+        run: |
+          $setup = "$PWD\dist\EXAMVAN-Setup.exe"
+          $target = "$env:LOCALAPPDATA\Programs\EXAMVAN\EXAMVAN.exe"
+
+          $p = Start-Process -FilePath $setup `
+            -ArgumentList "/VERYSILENT","/SUPPRESSMSGBOXES","/NORESTART","/SP-" `
+            -PassThru -Wait
+          if ($p.ExitCode -ne 0) { throw "Install gagal, exit $($p.ExitCode)" }
+          if (-not (Test-Path $target)) { throw "Install 'sukses' tapi $target tidak ada" }
+          Write-Host "OK: EXAMVAN.exe ter-install di $target"
+
+          # Shortcut harus terbentuk (desktop + Start Menu)
+          $desktopLnk = "$env:USERPROFILE\Desktop\EXAMVAN.lnk"
+          if (Test-Path $desktopLnk) { Write-Host "OK: shortcut desktop ada" }
+          else { Write-Host "WARN: shortcut desktop tidak ada (headless runner?)" }
+
+          # EXAMVAN.exe harus benar-benar start. Kita tidak mau console
+          # yang menggantung, jadi start -> tunggu -> kill, lalu cek
+          # tidak langsung crash (exit code null = masih hidup).
+          $app = Start-Process -FilePath $target -PassThru
+          Start-Sleep -Seconds 12
+          if ($app.HasExited) {
+            Write-Host "::error::EXAMVAN.exe langsung crash, exit $($app.ExitCode)"
+            Get-Content "$env:USERPROFILE\.config\examvan\app.log" -Tail 40 -ErrorAction SilentlyContinue
+            throw "EXAMVAN.exe crash saat start"
+          }
+          Write-Host "OK: EXAMVAN.exe hidup setelah 12 detik"
+          $app | Stop-Process -Force
+
+          $unins = Get-ChildItem "$env:LOCALAPPDATA\Programs\EXAMVAN" -Filter "unins*.exe" -ErrorAction SilentlyContinue
+          if ($unins) {
+            $u = Start-Process -FilePath $unins[0].FullName `
+              -ArgumentList "/VERYSILENT","/SUPPRESSMSGBOXES","/NORESTART" `
+              -PassThru -Wait
+            Write-Host "Uninstall exit: $($u.ExitCode)"
+          }
+          if (Test-Path $target) { throw "Uninstall tidak menghapus $target" }
+          Write-Host "OK: uninstall bersih"
+
+      - name: Checksums
+        id: sums
+        shell: pwsh
+        run: |
+          $setup = "dist\EXAMVAN-Setup.exe"
+          $portable = "dist\EXAMVAN.exe"
+          $s1 = (Get-FileHash -Algorithm SHA256 $setup).Hash
+          $s2 = (Get-FileHash -Algorithm SHA256 $portable).Hash
+          "setup_sha=$s1" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
+          "portable_sha=$s2" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
+          Write-Host "EXAMVAN-Setup.exe  $s1"
+          Write-Host "EXAMVAN.exe        $s2"
+
       - name: Upload artifact
         # continue-on-error + hanya non-PR: kuota Actions storage bisa penuh
         # (pernah — 222 artifact lama ~57MB menumpuk), dan PR tidak perlu
-        # mengisi kuota. Exe utama dikirim via Release di bawah.
+        # mengisi kuota. File utama dikirim via Release di bawah.
         continue-on-error: true
         if: github.event_name != 'pull_request'
         uses: actions/upload-artifact@v4
         with:
           name: EXAMVAN-Windows-${{ matrix.python-version }}
-          path: dist/EXAMVAN.exe
+          path: |
+            dist/EXAMVAN-Setup.exe
+            dist/EXAMVAN.exe
           if-no-files-found: error
 
-      - name: Upload exe to release (exe-latest)
-        # Hanya push main / dispatch — PR tidak boleh menimpa exe terbit
-        # dengan kode yang belum di-merge.
+      - name: Upload installer to release (exe-latest)
+        # Hanya push main / dispatch — PR tidak boleh menimpa installer
+        # terbit dengan kode yang belum di-merge.
         if: github.event_name != 'pull_request'
         shell: pwsh
         env:
@@ -107,16 +239,75 @@ jobs:
           if ($LASTEXITCODE -ne 0) {
             gh release create $tag --repo $env:GITHUB_REPOSITORY `
               --title "EXAMVAN Windows (build terbaru)" `
-              --notes "EXAMVAN.exe build otomatis dari branch main. Ganti file setiap build (--clobber)." `
               --prerelease
           }
-          gh release upload $tag dist/EXAMVAN.exe --repo $env:GITHUB_REPOSITORY --clobber
-          Write-Host "::notice::EXAMVAN.exe terbit di release 'exe-latest'"
+          gh release upload $tag dist/EXAMVAN-Setup.exe dist/EXAMVAN.exe `
+            --repo $env:GITHUB_REPOSITORY --clobber
+          Write-Host "::notice::EXAMVAN-Setup.exe terbit di release 'exe-latest'"
+
+      # Checksum ditulis ulang tiap build --release-notes, jadi catatan
+      # release selalu cocok dengan file yang sedang terbit (exe di-clobber,
+      # notes-nya juga). Guru bisa verifikasi dengan certutil.
+      - name: Publish checksums to release notes
+        if: github.event_name != 'pull_request'
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $notes = @"
+          ## EXAMVAN Windows — installer build terbaru
+
+          **Cara pakai (guru/siswa):** download `EXAMVAN-Setup.exe`, double-click, selesai.
+          Tidak perlu install Python, tidak perlu install apa-apa.
+
+          | File | Ukuran | Untuk |
+          |------|--------|-------|
+          | `EXAMVAN-Setup.exe` | installer, install shortcut + Start Menu + uninstaller | gistakan |
+          | `EXAMVAN.exe` | portable, jalankan langsung dari USB | dibawa / PC tanpa hak install |
+
+          ### Verifikasi file (anti-tampering / unduhan rusak)
+
+          ```
+          certutil -hashfile EXAMVAN-Setup.exe SHA256
+          ```
+
+          | File | SHA256 |
+          |------|--------|
+          | `EXAMVAN-Setup.exe` | `${{ steps.sums.outputs.setup_sha }}` |
+          | `EXAMVAN.exe` | `${{ steps.sums.outputs.portable_sha }}` |
+
+          ### Build
+
+          | | |
+          |---|---|
+          | Versi | `${{ steps.ver.outputs.app_version }}` |
+          | Build | `${{ steps.ver.outputs.app_build }}` |
+          | Commit | `${{ steps.ver.outputs.app_commit }}` |
+          | SHA | `${{ steps.ver.outputs.app_sha }}` |
+
+          Full SHA: https://github.com/${{ github.repository }}/commit/${{ steps.ver.outputs.app_sha }}
+
+          ### "Windows protected your PC" / SmartScreen
+
+          Installer **belum code-signed** (belum ada sertifikat Authenticode), jadi
+          SmartScreen menampilkan peringatan kuning. Klik **More info** lalu
+          **Run anyway**. Verifikasi dulu SHA256 di atas kalau ragu.
+
+          Butuh Python? Tidak. Butuh Visual C++ Redistributable? Hanya kalau
+          `EXAMVAN.exe` keluar error "DLL load failed" — installer sudah
+          memperingatkan lebih awal kalau ini terjadi.
+          "@
+          gh release edit $tag --repo $env:GITHUB_REPOSITORY --notes "$notes"
+          Write-Host "::notice::SHA256 terbit di release notes 'exe-latest'"
 
       - name: Summary
         shell: pwsh
         run: |
-          $exe = Get-Item dist/EXAMVAN.exe -ErrorAction SilentlyContinue
-          if ($exe) {
-            Write-Host "::notice::EXAMVAN.exe built — $([math]::Round($exe.Length / 1MB, 2)) MB"
+          $setup = Get-Item dist/EXAMVAN-Setup.exe -ErrorAction SilentlyContinue
+          $portable = Get-Item dist/EXAMVAN.exe -ErrorAction SilentlyContinue
+          if ($setup) {
+            Write-Host "::notice::EXAMVAN-Setup.exe — $([math]::Round($setup.Length / 1MB, 2)) MB (installer untuk siswa)"
+          }
+          if ($portable) {
+            Write-Host "::notice::EXAMVAN.exe — $([math]::Round($portable.Length / 1MB, 2)) MB (portable)"
           }

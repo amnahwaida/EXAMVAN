@@ -4,21 +4,84 @@ Aplikasi ujian digital EXAMVAN untuk Windows. Satu codebase dengan versi Linux �
 
 ---
 
-## Step-by-Step Instalasi
+## CARA PENTING: Untuk Guru & Siswa
 
-### Langkah 0: Prasyarat
+**Tidak perlu install Python. Tidak perlu install apa pun.**
+
+1. Download **`EXAMVAN-Setup.exe`** dari [release `exe-latest`](https://github.com/amnahwaida/EXAMVAN/releases/tag/exe-latest)
+2. Double-click
+3. Selesai — EXAMVAN langsung ada di Start Menu + Desktop
+
+Setelah sekali terinstall, cukup klik ikon EXAMVAN.
+
+<details>
+<summary>Kalau muncul "Windows protected your PC" (SmartScreen)</summary>
+
+Installer ini **belum code-signed** — belum ada sertifikat Authenticode, jadi
+Windows menampilkan peringatan kuning. Ini normal, bukan file rusak.
+
+Klik **More info** → **Run anyway**.
+
+Kalau ragu, verifikasi checksum dulu (harus cocok dengan yang tertulis di
+catatan release):
+
+```cmd
+certutil -hashfile EXAMVAN-Setup.exe SHA256
+```
+
+</details>
+
+<details>
+<summary>Kalau installer gagal / klik tidak merespons</summary>
+
+Gunakan **`EXAMVAN.exe`** (juga ada di release yang sama) — ini versi portable.
+Tinggal double-click, tidak perlu install apa pun, bisa langsung dari USB.
+Bedanya: tidak ada shortcut Start Menu dan tidak ada uninstaller.
+
+</details>
+
+---
+
+## Untuk Pengembang: Build & Install dari Source
+
+### Prasyarat
 
 | Kebutuhan | Cara Cek | Link Download |
 |-----------|----------|--------------|
 | **Windows 10/11** 64-bit | Settings → About | — |
 | **Python 3.10+** 64-bit (dites di 3.12; hindari 3.14) | Buka CMD, ketik `python --version` | [python.org](https://www.python.org/downloads/) |
 | **Visual C++ Redistributable** | Biasanya sudah ada | [vc_redist.x64.exe](https://aka.ms/vs/17/release/vc_redist.x64.exe) |
+| **Inno Setup 6** (khusus build installer) | `where iscc` | [jrsoftware.org](https://jrsoftware.org/isdl.php) |
 
 > **Saat install Python, PASTIKAN centang "Add Python to PATH"** di halaman pertama installer.
 >
 > **Catatan versi:** build & testing proyek ini memakai **Python 3.12** (lihat CI). Python 3.10–3.13 umumnya jalan, tetapi **Python 3.14 belum pernah dites** — kalau install gagal di 3.14, gunakan 3.12 sebelum melapor.
 
-### Langkah 1: Dapatkan Source Code
+### Build EXAMVAN-Setup.exe (installer yang dibagikan ke siswa)
+
+```cmd
+cd EXAMVAN\windows
+build-exe.bat          :: 1. build EXAMVAN.exe (portable) — butuh PyInstaller
+build-setup.bat       :: 2. bungkus jadi EXAMVAN-Setup.exe — butuh Inno Setup 6
+```
+
+Hasil di `windows\dist\`:
+
+| File | Untuk |
+|------|-------|
+| `EXAMVAN-Setup.exe` | **yang dibagikan ke siswa** — install shortcut, Start Menu, uninstaller |
+| `EXAMVAN.exe` | portable — jalankan langsung dari USB, tanpa install |
+
+Setelan installer:
+
+- **Per-user, tanpa hak admin** — install ke `%LOCALAPPDATA%\Programs\EXAMVAN`, tidak ada dialog UAC. PC sekolah yang memblokir instalasi ke `Program Files` tetap bisa jalan.
+- **Password admin exit opsional** — bisa diisi saat instalasi, tersimpan di `%LOCALAPPDATA%\EXAMVAN\admin_password.txt` (bukan di Roaming, supaya tidak ikut ter-sync ke PC lain).
+- **Cek Visual C++ Redistributable** — kalau belum ada, installer memperingatkan sebelum aplikasi sempat crash dengan "DLL load failed".
+- **Uninstall menawarkan hapus data** — folder config/jawaban/log ditandai, tapi TIDAK dihapus tanpa konfirmasi (jawaban yang belum terkirim sering masih dibutuhkan).
+
+Build ini juga otomatis jalan di CI (`.github/workflows/build-windows.yml`), termasuk **smoke test**: installer benar-benar di-install, exe dijalankan, lalu di-uninstall di runner. Release `exe-latest` selalu berisi SHA256 di catatan release.
+
+### Dapatkan Source Code
 
 **Opsi A — Clone repo (recommended, untuk update mudah):**
 
@@ -34,8 +97,7 @@ cd EXAMVAN
 2. Klik tombol hijau **"Code"** → **"Download ZIP"**
 3. Extract ZIP
 4. Buka folder hasil extract, masuk ke `windows\`
-
-### Langkah 2: Install & Jalankan
+### Install & Jalankan dari Source
 
 **Cara 0: CMD murni (tanpa PowerShell — paling tahan banting)**
 
@@ -46,11 +108,14 @@ cd EXAMVAN\windows
 install.bat
 ```
 
-`install.bat` melakukan hal yang sama dengan `install.ps1` (cek Python → venv →
-install PyQt5 + PyMuPDF → test import → buat shortcut `EXAMVAN.bat` di desktop).
-Error Python/pip tampil apa adanya di layar, jadi gagal install gampang
-diagnosis. Shortcut yang dibuat memanggil `run.bat` langsung — **tanpa
-PowerShell sama sekali**. Atau jalankan manual tanpa script sama sekali:
+`install.bat` melakukan: cek Python → venv (dibuat hanya kalau belum ada /
+rusak) → install PyQt5 + PyMuPDF → test import → buat shortcut `EXAMVAN.bat`
+di desktop. Error Python/pip tampil apa adanya di layar, jadi gagal install
+gampang diagnosis. Shortcut yang dibuat memanggil `run.bat` langsung — **tanpa
+PowerShell sama sekali**. Untuk menjalankan sehari-hari: `windows\run.bat`
+(setara `run.ps1`, auto-setup venv saat pertama jalan).
+
+Atau jalankan manual tanpa script sama sekali:
 
 ```cmd
 cd EXAMVAN
@@ -60,9 +125,6 @@ desktop\.venv\Scripts\python.exe -m pip install PyQt5 PyMuPDF
 cd desktop
 .venv\Scripts\python.exe -m examvan
 ```
-
-Untuk menjalankan sehari-hari: `windows\run.bat` (setara `run.ps1`, auto-setup
-venv saat pertama jalan).
 
 **Cara 1: Install Otomatis via PowerShell**
 
@@ -74,66 +136,38 @@ cd windows
 powershell -ExecutionPolicy Bypass -File install.ps1
 ```
 
-Script akan:
-- Cek Python
-- Buat virtual environment di `desktop/.venv/`
-- Install PyQt5 + PyMuPDF
-- Test import
-- Buat shortcut `EXAMVAN.bat` di desktop
+> Catatan: `install.ps1` **selalu** membuat ulang venv dari nol, berbeda dengan
+> `install.bat` yang memakai venv yang sudah sehat. Untuk pemakaian berulang,
+> pakai `install.bat` saja — tidak perlu unduh ulang PyQt5 tiap kali.
 
-Setelah selesai, klik dua kali `EXAMVAN.bat` di desktop — app langsung jalan.
-
-Atau jalankan manual:
-```powershell
-cd EXAMVAN
-cd windows
-powershell -ExecutionPolicy Bypass -File run.ps1
-```
-
-**Cara 2: Jalankan Langsung (tanpa shortcut)**
+**Cara 2: Jalankan Langsung (tanpa install)**
 
 ```powershell
-cd EXAMVAN
-cd windows
+cd EXAMVAN\windows
 powershell -ExecutionPolicy Bypass -File run.ps1
 ```
 
 Script auto buat venv + install deps saat pertama jalan.
 
-**Cara 3: Build .exe Portable (bisa dibawa kemana-mana)**
+### Setup Admin Exit Password (WAJIB)
 
-Via CMD murni:
+Tanpa ini, admin exit tidak bisa digunakan (fail-closed — tidak ada password
+fallback apa pun).
 
-```cmd
-cd EXAMVAN
-cd windows
-build-exe.bat
-```
+**Cara tercepat (mode installer):** centang *"Konfigurasi password admin exit"*
+saat instalasi. Password disimpan di
+`%LOCALAPPDATA%\EXAMVAN\admin_password.txt`.
 
-atau via PowerShell:
+**Manual, di CMD** (env var menang atas file — cara lama tetap didukung):
 
-```powershell
-cd EXAMVAN
-cd windows
-powershell -ExecutionPolicy Bypass -File build-exe.ps1
-```
-
-Hasil: `windows\dist\EXAMVAN.exe` — file .exe standalone ~50 MB.  
-Bisa di-copy ke USB, jalankan di komputer lain **tanpa install Python**.
-
-### Langkah 3: Setup Admin Exit Password (WAJIB)
-
-Tanpa ini, admin exit tidak bisa digunakan.
-
-Di **CMD**:
 ```cmd
 set EXAMVAN_ADMIN_PASSWORD=rahasia123
-cd EXAMVAN
-cd windows
-powershell -ExecutionPolicy Bypass -File run.ps1
+cd EXAMVAN\windows
+run.bat
 ```
 
-Di **PowerShell**:
+**Manual, di PowerShell**:
+
 ```powershell
 $env:EXAMVAN_ADMIN_PASSWORD = "rahasia123"
 cd windows
@@ -235,13 +269,29 @@ dihapus pada 202 mentah.
 
 ## Uninstall
 
+**Mode installer (paling umum):** Settings → Apps → EXAMVAN → Uninstall.
+Installer menanyakan apakah folder data (`%LOCALAPPDATA%\EXAMVAN` — config,
+jawaban yang belum terkirim, `app.log`) ikut dihapus.
+
+**Mode source:**
+
 1. Hapus shortcut `EXAMVAN.bat` dari desktop
 2. Hapus folder `desktop\.venv\`
 3. (Opsional) Hapus folder `EXAMVAN\`
+4. (Opsional) Hapus `%USERPROFILE%\.config\examvan\`
+
+**Mode portable:** hapus file `EXAMVAN.exe`. Tidak ada yang ter-install.
+Folder `.config\examvan` tetap ada (jawaban + log) — hapus manual bila
+memang tidak diperlukan.
 
 ---
 
 ## Troubleshooting
+
+### Installer berhenti di tengah / "Windows protected your PC"
+
+Lihat [bagian SmartScreen](#kalau-muncul-windows-protected-your-pc-smartscreen)
+di atas. Peringatan itu muncul karena exe belum code-signed.
 
 ### Error saat mengetik `powershell -ExecutionPolicy Bypass -File install.ps1`
 
@@ -282,12 +332,23 @@ ikon desktop ikut gagal walau `install.bat` sukses. Perbaikan:
 
 Alternatif cepat tanpa shortcut: double-click `windows\run.bat` langsung.
 
+### `build-setup.bat` bilang "Inno Setup 6 tidak ditemukan"
+
+Sudah terpasang tapi tidak ketemu karena `iscc.exe` tidak pernah masuk PATH.
+Script sudah cek lokasi umum + registry, jadi biasanya memang belum
+terpasang. Install dari https://jrsoftware.org/isdl.php, lalu jalankan ulang.
+
 ### "Python tidak ditemukan"
 
 Install Python dari [python.org](https://www.python.org/downloads/).  
 **Centang "Add Python to PATH"** saat install.
 
+> Tidak relevan untuk guru/siswa — installer `EXAMVAN-Setup.exe` tidak
+> butuh Python sama sekali.
+
 ### "ImportError: No module named PyQt5"
+
+Hanya untuk mode source:
 
 ```powershell
 cd EXAMVAN
@@ -301,6 +362,9 @@ Install Visual C++ Redistributable:
 ```
 https://aka.ms/vs/17/release/vc_redist.x64.exe
 ```
+
+Installer `EXAMVAN-Setup.exe` sudah memperingatkan hal ini di akhir proses
+kalau Redistributable terdeteksi belum ada.
 
 ### "python" tidak dikenali setelah install
 
@@ -344,3 +408,7 @@ App menulis log rotating ke `%USERPROFILE%\.config\examvan\app.log`
 (1 MB × 3 file). Buka file ini saat melapor masalah — proses `--windowed`
 tidak punya console, jadi ini satu-satunya jejak error (security hook,
 download PDF, submit, notifikasi).
+
+Saat melapor, sertakan juga **Properties → Details** dari `EXAMVAN.exe` di
+folder `%LOCALAPPDATA%\Programs\EXAMVAN` — di situ ada versi, build, dan commit
+yang dipakai di PC tersebut.
