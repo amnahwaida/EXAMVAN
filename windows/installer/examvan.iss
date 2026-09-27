@@ -145,17 +145,21 @@ var
 // user mengira instalasinya rusak. Lebih baik dicek di depan.
 //
 // Kenapa cek FILE, bukan registry: versi pertama memakai
-// RegQueryStringValue(... 'Installed' ...) and (Installed = '1')
-// dan ISCC menolaknya dengan "Type mismatch" di kolom `and`.
-// Menebak semantik tipe Pascal Script lewat trial-and-error di CI
-// mahal; memeriksa DLL-nya sendiri justru lebih langsung: file
-// yang hilang itu PERSIS penyebab "DLL load failed", tanpa harus
-// menebak versi runtime yang terpasang.
+//   RegQueryStringValue(HKLM, '...', 'Installed', Installed) and (Installed = '1')
+// dengan `Installed: AnsiString`. Deklarasi aslinya adalah
+//   RegQueryStringValue(const RootKey: HKEY; const SubKeyName, ValueName: String;
+//     var ResultStr: String): Boolean
+// yaitu var String, BUKAN AnsiString — jadi parameter var-nya tidak
+// cocok dan ISCC melaporkan "Type mismatch" di kolom `and` (operator
+// yang dilaporkan, bukan penyebabnya).
 //
-// Ditulis tanpa operator boolean sama sekali (early Exit), karena
-// kompilasi ISCC hanya bisa diverifikasi di runner Windows --
-// satu kegagalan berarti satu push + 2 menit, jadi tidak ada
-// gunanya menebak.
+// Fungsi ini sekarang tidak memakai registry sama sekali. Memeriksa
+// DLL-nya sendiri jauh lebih langsung: file yang hilang itu PERSIS
+// penyebab "DLL load failed" yang ingin dicegah, tanpa harus menebak
+// versi runtime yang terpasang.
+//
+// Ditulis tanpa operator boolean (early Exit) supaya tidak bergantung
+// pada parsing `and` yang baru saja terbukti rewel.
 // {sys} = C:\Windows\System32.
 // ------------------------------------------------------------
 function VCRedistPresent(): Boolean;
@@ -215,7 +219,14 @@ var
   PwValue: String;
   PwRepeat: String;
 begin
-  if (CurStep = ssPostInstall) and (not WizardNoTargets) then
+  // Tidak ada guard "WizardNoTargets" di sini (sebelumnya dipakai, tapi
+  // identifier itu TIDAK ADA di Support Functions Reference Inno Setup
+  // sehingga ISCC menolak dengan "Unknown identifier"). Guardnya memang
+  // tidak perlu: ssPostInstall hanya akan jalan kalau instalasi benar-benar
+  // berjalan, jadi membatalkan di halaman folder tidak akan sampai ke
+  // sini. WizardSilent dan UninstallSilent di bawah keduanya identifier
+  // yang nyata.
+  if CurStep = ssPostInstall then
   begin
     PwDir := ExpandConstant('{localappdata}\EXAMVAN');
     if not DirExists(PwDir) then
