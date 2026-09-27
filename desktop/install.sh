@@ -338,12 +338,15 @@ copy_files() {
     fi
 
     # Kiosk session
-    if [ -f "$SOURCE_DIR/examvan_kiosk.desktop" ]; then
-        cp "$SOURCE_DIR/examvan_kiosk.desktop" /usr/share/xsessions/examvan-kiosk.desktop
-    elif [ -f "$SOURCE_DIR/pkg-build/usr/share/xsessions/examvan-kiosk.desktop" ]; then
-        cp "$SOURCE_DIR/pkg-build/usr/share/xsessions/examvan-kiosk.desktop" /usr/share/xsessions/examvan-kiosk.desktop
+    # Hanya dari pkg-build. Sebelumnya ada dua file .desktop yang berbeda
+    # (examvan_kiosk.desktop di root, dan pkg-build/.../xsessions/) sehingga
+    # jalur install.sh dan jalur .deb bisa memasang Exec yang berbeda. Root
+    # file-nya sudah dihapus; pkg-build adalah satu-satunya sumber.
+    XSESSIONS_SRC="$SOURCE_DIR/pkg-build/usr/share/xsessions/examvan-kiosk.desktop"
+    if [ -f "$XSESSIONS_SRC" ]; then
+        cp "$XSESSIONS_SRC" /usr/share/xsessions/examvan-kiosk.desktop
+        chmod 644 /usr/share/xsessions/examvan-kiosk.desktop
     fi
-    chmod 644 /usr/share/xsessions/examvan-kiosk.desktop 2>/dev/null || true
 
     # Icon
     if [ -f "$SOURCE_DIR/pkg-build/usr/share/icons/hicolor/256x256/apps/examvan.png" ]; then
@@ -351,24 +354,19 @@ copy_files() {
            /usr/share/icons/hicolor/256x256/apps/examvan.png
     fi
 
-    # Launcher symlink
-    cat > "$BIN_LINK" <<'LAUNCHER'
-#!/usr/bin/env bash
-set -e
-SCRIPT_DIR="/opt/examvan"
-VENV_PYTHON="$SCRIPT_DIR/.venv/bin/python3"
-if [ -z "${QT_QPA_PLATFORMTHEME:-}" ]; then
-    if command -v gsettings &>/dev/null; then
-        GTK_THEME=$(gsettings get org.gnome.desktop.interface gtk-theme 2>/dev/null || echo "")
-        if [ -n "$GTK_THEME" ]; then
-            export QT_QPA_PLATFORMTHEME=gnome
-        fi
+    # Launcher
+    # Salin pkg-build/usr/bin/examvan apa adanya, JANGAN tulis ulang inline.
+    # Versi lama meng-hardcode `exec python -m examvan "$@"`, yang membuat
+    # /usr/bin/examvan --kiosk tidak melakukan apa-apa: flag itu hanya
+    # menyalakan boolean yang dibaca di dalam _activate_strict(). Seluruh
+    # logika (venv, theme, Xephyr) sudah ada di /opt/examvan/run.sh.
+    LAUNCHER_SRC="$SOURCE_DIR/pkg-build/usr/bin/examvan"
+    if [ -f "$LAUNCHER_SRC" ]; then
+        cp "$LAUNCHER_SRC" "$BIN_LINK"
+        chmod +x "$BIN_LINK"
+    else
+        error "Launcher tidak ditemukan: $LAUNCHER_SRC"
     fi
-fi
-cd "$SCRIPT_DIR"
-exec "$VENV_PYTHON" -m examvan "$@"
-LAUNCHER
-    chmod +x "$BIN_LINK"
 
     ok "File tersalin"
 }

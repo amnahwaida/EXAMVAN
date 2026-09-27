@@ -1,6 +1,19 @@
 [Desktop Entry]
 Name=EXAMVAN Kiosk
 Comment=Sesi kiosk ujian digital EXAMVAN
-Exec=/usr/bin/examvan --kiosk-session
+# WAJIB --kiosk, BUKAN --kiosk-session.
+#
+# --kiosk        -> run.sh memanggil launch_kiosk_session(): Xephyr nested
+#                   + Openbox dengan semua keybinding dimatikan, 1 desktop,
+#                   semua window fullscreen tanpa dekorasi. Isolasi sungguhan.
+# --kiosk-session-> hanya menyalakan satu boolean di __main__.py:83, dan
+#                   boolean itu HANYA dibaca di enforcer._activate_strict().
+#                   Dipakai oleh launch_kiosk_session() sendiri untuk mendaftarkan
+#                   app DI DALAM Xephyr (mencegah rekursi) — bukan untuk
+#                   mendaftarkan sesi di layar login.
+#
+# Versi lama salah pakai --kiosk-session di sini, jadi memilih "EXAMVAN Kiosk"
+# di layar login justru menjalankan app tanpa sandbox sama sekali.
+Exec=/usr/bin/examvan --kiosk
 Type=Application
 DesktopNames=examvan-kiosk

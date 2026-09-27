@@ -1,26 +1,25 @@
 #!/usr/bin/env bash
-# EXAMVAN Linux Client — Launcher
+# EXAMVAN Linux Client — system launcher
+#
+# Wrapper tipis. Seluruh logika ada di /opt/examvan/run.sh, termasuk
+# handling --kiosk / --kiosk-session yang butuh Xephyr + Openbox.
+#
+# Kenapa tidak lagi `exec python -m examvan "$@"` di sini seperti versi
+# sebelumnya: --kiosk-session hanya sampai ke argparse-nya, yang
+#álisnya cuma nyalakan satu boolean di examvan/__main__.py:83, dan
+# boolean itu HANYA dibaca enforcer.py:241 di dalam _activate_strict().
+# Artinya entri xsessions/ (dipakai untuk memilih sesi kiosk di layar
+# login) menjalankan aplikasi TANPA sandbox — persis kebalikan dari yang
+# oe_name  promise-kan. Diteruskan ke run.sh, yang memanggil
+# examvan.security.kiosk.launch_kiosk_session() untuk melaksanakannya.
 set -e
 
-SCRIPT_DIR="/opt/examvan"
-VENV_PYTHON="$SCRIPT_DIR/.venv/bin/python3"
+APP_DIR=/opt/examvan
 
-# Detect Wayland — need kiosk session for proper security
-IS_WAYLAND=0
-if [ -n "${WAYLAND_DISPLAY:-}" ] || [ "${XDG_SESSION_TYPE:-}" = "wayland" ]; then
-    IS_WAYLAND=1
+if [ ! -x "$APP_DIR/run.sh" ]; then
+    echo "ERR: $APP_DIR/run.sh tidak ditemukan. Coba pasang ulang paket:" >&2
+    echo "  sudo dpkg -i --reinstall examvan-linux_*.deb" >&2
+    exit 1
 fi
 
-# Theme
-if [ -z "${QT_QPA_PLATFORMTHEME:-}" ]; then
-    if command -v gsettings &>/dev/null; then
-        GTK_THEME=$(gsettings get org.gnome.desktop.interface gtk-theme 2>/dev/null || echo "")
-        if [ -n "$GTK_THEME" ]; then
-            export QT_QPA_PLATFORMTHEME=gnome
-        fi
-    fi
-fi
-
-# Wayland: run directly (Qt5 uses XWayland, keyboard grabs work)
-cd "$SCRIPT_DIR"
-exec "$VENV_PYTHON" -m examvan "$@"
+exec "$APP_DIR/run.sh" "$@"

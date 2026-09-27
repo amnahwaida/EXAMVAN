@@ -106,3 +106,58 @@ jobs:
         env:
           QT_QPA_PLATFORM: offscreen
         run: python -m unittest discover -s tests -v
+
+  # Build paket .deb Linux. Tanpa job ini, .deb pernah ikut ter-commit dalam
+  # keadaan build LAMA: pkg-build/opt/examvan/examvan/ adalah salinan kode
+  # yang tidak pernah di-sync, jadi paketnya pre-WebSocket, kehilangan
+  # notify.py / ws.py / security/base.py / linux_backend.py /
+  # waiting_approval.py, dan melaporkan APP_VERSION 2.2.0 saat source 2.5.0.
+  # build-deb.sh sekarang menyalin dari desktop/examvan/ setiap kali build
+  # dan menolak build bila hasilnya tidak identik — job ini yang membuat
+  # guard itu tidak pernah diam-diam dilewati.
+  desktop-deb:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Build .deb
+        run: ./desktop/build-deb.sh --clean
+
+      # Guard di build-deb.sh sudah menolak build yang tidak lengkap, tapi
+      # ini pemeriksaan independen dari file yang benar-benar terbit.
+      - name: Verify package contents
+        run: |
+          set -euo pipefail
+          DEB=$(ls desktop/dist/examvan-linux_*.deb)
+          echo "Package: $DEB"
+          listing="$(dpkg-deb -c "$DEB")"
+          for m in notify.py ws.py security/base.py security/linux_backend.py ui/waiting_approval.py; do
+            echo "$listing" | grep -qF "./opt/examvan/examvan/$m" \
+              || { echo "::error::modul hilang dari paket: $m"; exit 1; }
+            echo "OK  $m"
+          done
+          # Versi pada paket harus sama dengan APP_VERSION di source.
+          src_ver=$(python3 -c "
+          import re,pathlib
+          t=pathlib.Path('desktop/examvan/__init__.py').read_text()
+          print(re.search(r'APP_VERSION\s*=\s*\"([^\"]+)\"',t).group(1))")
+          deb_ver=$(dpkg-deb -f "$DEB" Version)
+          echo "source=$src_ver paket=$deb_ver"
+          [ "$src_ver" = "$deb_ver" ] || { echo "::error::versi paket melenceng dari source"; exit 1; }
+          # Bytecode mesin build tidak boleh bocor ke paket.
+          if echo "$listing" | grep -q '__pycache__\|\.pyc$'; then
+            echo "::error::bytecode bocor ke paket"; exit 1
+          fi
+          echo "OK  package verified"
+
+      - name: Lint package metadata
+        run: |
+          set -euo pipefail
+          DEB=$(ls desktop/dist/examvan-linux_*.deb)
+          # Maintainer scripts harus executable, kalau tidak postinst diam-diam gagal.
+          dpkg-deb --ctrl-tarfile "$DEB" | tar -tv | tee /dev/stderr | \
+            grep -qE '^-rwxr-xr-x.*\./postinst$'
+          dpkg-deb --ctrl-tarfile "$DEB" | tar -tv | grep -qE '^-rwxr-xr-x.*\./prerm$'
+          dpkg-deb --ctrl-tarfile "$DEB" | tar -tv | grep -qE '^-rwxr-xr-x.*\./postrm$'
+          echo "OK  maintainer scripts executable"

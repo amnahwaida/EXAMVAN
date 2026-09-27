@@ -1,0 +1,36 @@
+#!/bin/sh
+# postrm — dijalankan SETELAH paket dihapus.
+#
+# Yang DIHAPUS di sini:
+#   /opt/examvan/.venv  — dibuat postinst, jadi TIDAK dimiliki dpkg.
+#                          Tanpa baris di bawah, `dpkg -r examvan-linux`
+#                          meninggalkan venv ~200 MB (+~2000 file) yang tidak
+#                          pernah dibersihkan, dan `dpkg -r` lalu `dpkg -i`
+#                          akan diam-diam memakai venv lama berisi kode versi
+#                          sebelumnya.
+#
+# Yang SENGAJA TIDAK dihapus:
+#   ~/.config/examvan   — jawaban ujian yang belum terkirim + app.log.
+#                          Dibiarkan agar guru masih bisa recover/melapor.
+set -e
+
+APP_DIR=/opt/examvan
+
+case "$1" in
+    remove|purge)
+        if [ -d "$APP_DIR/.venv" ]; then
+            rm -rf "$APP_DIR/.venv" || true
+        fi
+        # Bersihkan bytecode yang mungkin dibuat postinst/ saat runtime.
+        find "$APP_DIR" -name '__pycache__' -type d -prune -exec rm -rf {} + 2>/dev/null || true
+        find "$APP_DIR" -name '*.pyc' -delete 2>/dev/null || true
+        # rmdir -p hanya berhasil kalau sudah kosong, jadi aman di purge
+        # (folder ikut hilang) maupun remove (dpkg sudah_owner file-nya).
+        rmdir -p "$APP_DIR" 2>/dev/null || true
+        ;;
+    upgrade|failed-upgrade|abort-install|abort-upgrade)
+        # Jangan sentuh apa pun: paket versi baru masih akan datang.
+        ;;
+esac
+
+exit 0

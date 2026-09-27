@@ -32,6 +32,13 @@ server/storage/*
 # Build artifacts Windows — exe didapat dari release GitHub 'exe-latest'
 # (di-build otomatis CI), tidak di-commit agar riwayat repo tetap ramping
 windows/dist/
+
+# Build artifacts Linux — .deb dibangun ulang dengan desktop/build-deb.sh
+# dari desktop/examvan/ (satu sumber kebenaran). Binary yang pernah
+# di-commit justru build LAMA, bukan hasil source terkini — .deb 1.0.0
+# sempat ships APP_VERSION 2.2.0 sementara source sudah 2.5.0.
+desktop/dist/
+
 Thumbs.db
 node_modules/
 package-lock.json

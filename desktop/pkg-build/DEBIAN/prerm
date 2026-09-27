@@ -1,0 +1,44 @@
+#!/bin/sh
+# prerm — dijalankan sebelum paket dihapus (remove) atau diganti (upgrade).
+#
+# Yang dikerjakan:
+#   1. Hentikan app kalau masih jalan. Tanpa ini postinst versi berikutnya
+#      menulis ke /opt/examvan/.venv sedang proses PyQt5 masih memakainya,
+#      dan uninstall tidak pernah benar-benar selesai karena .pyc masih di-cache.
+#   2. Kembalikan setting GNOME yang mungkin diubah app lalu crash.
+#      restore_gnome_settings() adalah perbaikan yang sama yang dipanggil
+#      __main__.py via atexit — tapi atexit tidak jalan kalau proses dibunuh.
+#      Kalau app sudah exit dengan bersih, backup sudah kosong dan ini no-op.
+#
+# sengaja tidak menghapus ~/.config/examvan: isinya jawaban ujian yang
+# belum terkirim + app.log, masih dibutuhkan setelah uninstall.
+set -e
+
+APP_DIR=/opt/examvan
+
+case "$1" in
+    remove|upgrade|deconfigure)
+        # 1. stop app
+        pkill -f "$APP_DIR/.venv/bin/python" 2>/dev/null || true
+        pkill -f "examvan" 2>/dev/null || true
+
+        # 2. pulihkan setting GNOME
+        VENV_PY="$APP_DIR/.venv/bin/python3"
+        if [ -x "$VENV_PY" ]; then
+            "$VENV_PY" - <<'PY' 2>/dev/null || true
+import os, sys
+os.chdir("/opt/examvan")
+try:
+    from examvan.security.enforcer import SecurityEnforcer
+    SecurityEnforcer.restore_gnome_settings()
+except Exception:
+    # Prerm tidak boleh gagal: kalau restore error, paket HARUS tetap bisa
+    # dihapus. App yang tidak bisa dihapus karena setting GNOME jauh lebih
+    # buruk daripada GNOME yang perlu di-set manual.
+    pass
+PY
+        fi
+        ;;
+esac
+
+exit 0
