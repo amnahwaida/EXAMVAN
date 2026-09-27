@@ -288,50 +288,65 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          $notes = @"
-          ## EXAMVAN Windows — installer build terbaru
+          # CATATAN: jangan pakai here-string @"..."@ di sini.
+          # Penutupnya harus di kolom 0, sedangkan seluruh blok `run: |`
+          # di-indent -- string-nya tidak pernah tertutup dan langkah ini
+          # gagal dengan "accepts 1 arg(s), received 0".
+          #
+          # Dipakai array + --notes-file. Semua baris markdown ditulis
+          # sebagai string single-quoted supaya backtick (yang banyak di
+          # markdown) tidak perlu di-escape, dan hanya nilai dari step
+          # sebelumnya yang di-interpolasi.
+          $lines = @(
+            '## EXAMVAN Windows - installer build terbaru'
+            ''
+            '**Cara pakai (guru/siswa):** download `EXAMVAN-Setup.exe`, double-click, selesai.'
+            'Tidak perlu install Python, tidak perlu install apa-apa.'
+            ''
+            '| File | Untuk |'
+            '|------|-------|'
+            '| `EXAMVAN-Setup.exe` | installer: shortcut + Start Menu + uninstaller |'
+            '| `EXAMVAN.exe` | portable: jalankan langsung dari USB, tanpa install |'
+            ''
+            '### Verifikasi file (anti-tampering / unduhan rusak)'
+            ''
+            '```'
+            'certutil -hashfile EXAMVAN-Setup.exe SHA256'
+            '```'
+            ''
+            '| File | SHA256 |'
+            '|------|--------|'
+            ('| `EXAMVAN-Setup.exe` | `' + '${{ steps.sums.outputs.setup_sha }}' + '` |')
+            ('| `EXAMVAN.exe` | `' + '${{ steps.sums.outputs.portable_sha }}' + '` |')
+            ''
+            '### Build'
+            ''
+            '| | |'
+            '|---|---|'
+            ('| Versi | `' + '${{ steps.ver.outputs.app_version }}' + '` |')
+            ('| Build | `' + '${{ steps.ver.outputs.app_build }}' + '` |')
+            ('| Commit | `' + '${{ steps.ver.outputs.app_commit }}' + '` |')
+            ('| SHA | `' + '${{ steps.ver.outputs.app_sha }}' + '` |')
+            ''
+            ('Full SHA: https://github.com/${{ github.repository }}/commit/${{ steps.ver.outputs.app_sha }}')
+            ''
+            '### "Windows protected your PC" / SmartScreen'
+            ''
+            'Installer **belum code-signed** (belum ada sertifikat Authenticode), jadi'
+            'SmartScreen menampilkan peringatan kuning. Klik **More info** lalu'
+            '**Run anyway**. Verifikasi dulu SHA256 di atas kalau ragu.'
+            ''
+            'Butuh Python? Tidak. Butuh Visual C++ Redistributable? Hanya kalau'
+            '`EXAMVAN.exe` keluar error "DLL load failed" - installer sudah'
+            'memperingatkan lebih awal kalau ini terjadi.'
+          )
+          $notesFile = Join-Path $env:RUNNER_TEMP 'release-notes.md'
+          ($lines -join "`n") | Out-File -FilePath $notesFile -Encoding utf8
 
-          **Cara pakai (guru/siswa):** download `EXAMVAN-Setup.exe`, double-click, selesai.
-          Tidak perlu install Python, tidak perlu install apa-apa.
-
-          | File | Ukuran | Untuk |
-          |------|--------|-------|
-          | `EXAMVAN-Setup.exe` | installer, install shortcut + Start Menu + uninstaller | gistakan |
-          | `EXAMVAN.exe` | portable, jalankan langsung dari USB | dibawa / PC tanpa hak install |
-
-          ### Verifikasi file (anti-tampering / unduhan rusak)
-
-          ```
-          certutil -hashfile EXAMVAN-Setup.exe SHA256
-          ```
-
-          | File | SHA256 |
-          |------|--------|
-          | `EXAMVAN-Setup.exe` | `${{ steps.sums.outputs.setup_sha }}` |
-          | `EXAMVAN.exe` | `${{ steps.sums.outputs.portable_sha }}` |
-
-          ### Build
-
-          | | |
-          |---|---|
-          | Versi | `${{ steps.ver.outputs.app_version }}` |
-          | Build | `${{ steps.ver.outputs.app_build }}` |
-          | Commit | `${{ steps.ver.outputs.app_commit }}` |
-          | SHA | `${{ steps.ver.outputs.app_sha }}` |
-
-          Full SHA: https://github.com/${{ github.repository }}/commit/${{ steps.ver.outputs.app_sha }}
-
-          ### "Windows protected your PC" / SmartScreen
-
-          Installer **belum code-signed** (belum ada sertifikat Authenticode), jadi
-          SmartScreen menampilkan peringatan kuning. Klik **More info** lalu
-          **Run anyway**. Verifikasi dulu SHA256 di atas kalau ragu.
-
-          Butuh Python? Tidak. Butuh Visual C++ Redistributable? Hanya kalau
-          `EXAMVAN.exe` keluar error "DLL load failed" — installer sudah
-          memperingatkan lebih awal kalau ini terjadi.
-          "@
-          gh release edit $tag --repo $env:GITHUB_REPOSITORY --notes "$notes"
+          gh release edit exe-latest --repo $env:GITHUB_REPOSITORY --notes-file $notesFile
+          if ($LASTEXITCODE -ne 0) {
+            throw "gh release edit gagal (exit $LASTEXITCODE)"
+          }
           Write-Host "::notice::SHA256 terbit di release notes 'exe-latest'"
 
       - name: Summary
