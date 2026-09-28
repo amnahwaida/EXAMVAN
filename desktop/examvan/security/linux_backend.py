@@ -164,14 +164,17 @@ class LinuxBackend(SecurityBackend):
     # ------------------------------------------------------------------
 
     def clear_clipboard(self) -> None:
-        from PyQt5.QtWidgets import QApplication
-        try:
-            app = QApplication.instance()
-            if app:
-                app.clipboard().clear()
-        except Exception:
-            pass
-        # X11 fallback
+        """Empty the X11/Wayland clipboard.
+
+        Called from a worker thread, so no Qt calls here — the enforcer
+        clears QApplication.clipboard() inline on the GUI thread because Qt
+        only allows that from the main thread.
+
+        Unlike the Windows backend this still shells out (xsel/xclip/wl-copy),
+        because there is no in-process X11 clipboard API. That is affordable
+        only because it no longer runs on the GUI thread, and because the
+        enforcer's interval was widened.
+        """
         for tool, args in [
             ("xsel", ["--clipboard", "--delete"]),
             ("xclip", ["-selection", "clipboard", "-i", "/dev/null"]),

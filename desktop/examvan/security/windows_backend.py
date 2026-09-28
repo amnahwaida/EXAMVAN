@@ -11,7 +11,6 @@ import hashlib
 import json
 import logging
 import socket
-import subprocess
 import sys
 import threading
 import time
@@ -98,12 +97,10 @@ SPI_SETSCREENSAVEACTIVE = 0x0011
 SPIF_SENDCHANGE = 0x0002
 # SPIF_UPDATEINIFILE (0x01) SENGAJA TIDAK dipakai — lihat prevent_sleep().
 
-# CREATE_NO_WINDOW — proses ini GUI (--windowed / pythonw): subprocess
-# console (cmd.exe, powershell) tanpa flag ini MEMBUAT jendela console
-# berkedip di layar siswa tiap dipanggil (clipboard clear tiap 3 detik =
-# kedipan tiap 3 detik). 0 di platform lain (nilai valid di semua OS).
-CREATE_NO_WINDOW = 0x08000000
-_SUBPROCESS_FLAGS = CREATE_NO_WINDOW if sys.platform == "win32" else 0
+# CREATE_NO_WINDOW / _SUBPROCESS_FLAGS dihapus bersama subprocess.clear:
+# satu-satunya pemakai flag ini adalah `cmd.exe /c echo.|clip` yang di-fork
+# tiap 3 detik untuk mengosongkan clipboard (menyebabkan kursor membeku di
+# PC low-end). Modul ini tidak lagi menjalankan proses apa pun.
 
 # Registry
 HKEY_CURRENT_USER = 0x80000001
@@ -728,32 +725,25 @@ class WindowsBackend(SecurityBackend):
     # ------------------------------------------------------------------
 
     def clear_clipboard(self) -> None:
-        # Clear Win32 clipboard
+        """Empty the Win32 clipboard.
+
+        Runs on a worker thread (SecurityEnforcer._clear_clipboard), so it
+        must stay free of Qt calls — QApplication.clipboard() is main-thread
+        only — and must not spawn processes.
+
+        This used to also run `subprocess.run(["cmd.exe", "/c", "echo.|clip"])`
+        on a 3-second timer. That forked a cmd.exe, which spawned clip.exe,
+        while blocking the GUI thread: on low-end lab machines the cursor
+        visibly froze every few seconds. It was also redundant — the Win32
+        call above empties the same clipboard, and the enforcer clears the
+        Qt side inline on the GUI thread.
+        """
         try:
             if _OpenClipboard(HWND(0)):
                 _EmptyClipboard()
                 _CloseClipboard()
         except Exception:
-            pass
-        # Clear clipboard via cmd (overwrite with empty line).
-        # CREATE_NO_WINDOW: tanpa ini jendela cmd berkedip tiap 3 detik
-        # di proses GUI windowed.
-        try:
-            subprocess.run(
-                ["cmd.exe", "/c", "echo.|clip"],
-                capture_output=True, timeout=2,
-                creationflags=_SUBPROCESS_FLAGS,
-            )
-        except Exception:
-            pass
-        # Also clear via Qt (cross-platform fallback)
-        try:
-            from PyQt5.QtWidgets import QApplication
-            app = QApplication.instance()
-            if app:
-                app.clipboard().clear()
-        except Exception:
-            pass
+            log.debug("EmptyClipboard failed", exc_info=True)
 
     # ------------------------------------------------------------------
     # Sleep inhibition

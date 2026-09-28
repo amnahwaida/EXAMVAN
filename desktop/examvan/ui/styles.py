@@ -837,8 +837,16 @@ QFrame {
 # Security banner colors (shared between themes)
 # ---------------------------------------------------------------------------
 
+# Keyed by CANONICAL client tier (examvan.security_levels). Callers should
+# pass `Exam.display_level`, which only ever yields one of these three.
+#
+# "high" is kept as an alias for the strict colours: it is the server's
+# word for that tier, and a lookup that missed it used to fall back to the
+# low-tier slate — making a fully locked-down exam look like the permissive
+# one. A total dict makes that fallback unreachable.
 SECURITY_COLORS = {
     "low": ("#455A64", "#FFFFFF"),
     "medium": ("#D32F2F", "#FFFFFF"),
     "strict": ("#B71C1C", "#FFD700"),
+    "high": ("#B71C1C", "#FFD700"),
 }

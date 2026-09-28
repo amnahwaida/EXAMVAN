@@ -8,14 +8,36 @@ from __future__ import annotations
 
 import logging
 import sys
+import threading
 from typing import Optional
 
 from PyQt5.QtCore import QObject, Qt, QTimer, pyqtSignal
 from PyQt5.QtWidgets import QApplication, QWidget
 
+from ..security_levels import (
+    LEVEL_LOW,
+    is_effective_strict,
+    normalize_level,
+)
 from . import get_backend
 
 log = logging.getLogger(__name__)
+
+# How often the clipboard is wiped while an exam is open.
+#
+# 3000 ms was chosen back when clearing it also spawned `cmd.exe /c
+# echo.|clip` (windows_backend.clear_clipboard). That fork is gone — the
+# Win32 EmptyClipboard call is microseconds — but the interval stayed, so
+# low-end machines paid a needless timer wake-up every 3 seconds. 10 s is
+# still far tighter than the time a student needs to copy an answer out
+# and paste it somewhere else.
+CLIPBOARD_INTERVAL_MS = 10000
+
+# Focus poll cadence. Only runs from medium up (medium needs it to detect
+# focus loss; strict re-raises the window on top of that). At 500 ms the
+# strict path also calls raise_() + activateWindow(), which forces a DWM
+# recomposite every tick — cheap on a desktop, visible on a low-end laptop.
+FOCUS_POLL_INTERVAL_MS = 500
 
 
 class SecurityEnforcer(QObject):
@@ -32,8 +54,12 @@ class SecurityEnforcer(QObject):
         parent=None,
     ):
         super().__init__(parent)
-        self._level = security_level
-        self._strict = strict_mode or security_level == "strict"
+        # Canonicalise the level ONCE, here, so nothing downstream has to
+        # remember that the server says "high" and the client says
+        # "strict". Before this, three call sites compared the raw string
+        # and a "high" exam matched none of them.
+        self._level = normalize_level(security_level)
+        self._strict = is_effective_strict(security_level, strict_mode)
         self._window = window
         self._kiosk = kiosk_mode
         self._active = False
@@ -49,9 +75,24 @@ class SecurityEnforcer(QObject):
         self._focus_timer.setInterval(3000)
         self._focus_timer.timeout.connect(self._on_focus_timeout)
 
+        # Clipboard clearing runs on a worker thread (see _clear_clipboard).
+        self._clipboard_lock = threading.Lock()
+        self._clipboard_busy = False
+        self._clipboard_thread: Optional[threading.Thread] = None
+
     # ------------------------------------------------------------------
     # Public API
     # ------------------------------------------------------------------
+
+    @property
+    def level(self) -> str:
+        """Canonical tier: "low" | "medium" | "strict"."""
+        return self._level
+
+    @property
+    def strict(self) -> bool:
+        """True when the strictest lockdown is engaged."""
+        return self._strict
 
     def activate(self) -> None:
         """Activate security enforcement based on mode."""
@@ -71,7 +112,9 @@ class SecurityEnforcer(QObject):
         # Low mode features (always active)
         self._activate_low()
 
-        if self._level in ("medium",) or self._strict:
+        # Medium-or-above. Uses the canonical level, so the server's "high"
+        # lands here instead of falling through to a lockdown-free exam.
+        if self._level != LEVEL_LOW or self._strict:
             self._activate_medium()
 
         if self._strict:
@@ -88,6 +131,7 @@ class SecurityEnforcer(QObject):
         self._focus_timer.stop()
         if hasattr(self, '_poll_timer'):
             self._poll_timer.stop()
+        self.wait_for_clipboard_clear()
 
         self._backend.release_strict_mode(self._window)
         self._backend.release_capture_protection(self._window)
@@ -130,8 +174,8 @@ class SecurityEnforcer(QObject):
         if sys.platform != "win32":
             self._x11_anti_screenshot()
 
-        # Clipboard clear every 3 seconds
-        self._clipboard_timer.start(3000)
+        # Clipboard clear, on a slow cadence and off the GUI thread.
+        self._clipboard_timer.start(CLIPBOARD_INTERVAL_MS)
         self._clear_clipboard()
 
         # Screen wake lock
@@ -150,7 +194,74 @@ class SecurityEnforcer(QObject):
             pass
 
     def _clear_clipboard(self) -> None:
-        self._backend.clear_clipboard()
+        """Wipe the clipboard without stalling the UI.
+
+        Two halves, deliberately on different threads:
+
+          * QApplication.clipboard() must be touched from the GUI thread —
+            Qt enforces this — but it is a cheap in-process call, so it
+            stays inline.
+          * The platform clear (Win32 EmptyClipboard / X11 xsel) goes to a
+            worker. It is normally microseconds, but on a clipboard holding
+            OLE data (an image copied out of Word, a file drop) EmptyClipboard
+            makes Windows serialise that data to the new owner first, which
+            can block for a long time. Doing that on the GUI thread froze
+            the cursor on the low-end machines in the lab.
+
+        Overlapping runs are skipped rather than queued: a clipboard wipe
+        that has not finished yet means the next one would find the same
+        content, and queueing would only build up stale threads.
+        """
+        if not self._active:
+            return
+
+        try:
+            app = QApplication.instance()
+            if app:
+                app.clipboard().clear()
+        except Exception:
+            log.debug("Qt clipboard clear failed", exc_info=True)
+
+        with self._clipboard_lock:
+            if self._clipboard_busy:
+                log.debug("Clipboard clear still running — skipping this tick")
+                return
+            self._clipboard_busy = True
+
+        thread = threading.Thread(
+            target=self._clear_clipboard_worker, name="clipboard-clear", daemon=True
+        )
+        self._clipboard_thread = thread
+        thread.start()
+
+    def _clear_clipboard_worker(self) -> None:
+        try:
+            self._backend.clear_clipboard()
+        except Exception:
+            log.warning("Platform clipboard clear failed", exc_info=True)
+        finally:
+            with self._clipboard_lock:
+                self._clipboard_busy = False
+
+    def clear_clipboard_now(self) -> None:
+        """Wipe the clipboard immediately, on the calling thread's terms.
+
+        Public entry point for event-driven clears (the PrintScreen handler)
+        that must not wait for the next timer tick. Same threading split as
+        the timer: Qt inline, platform side on the worker.
+        """
+        self._clear_clipboard()
+
+    def wait_for_clipboard_clear(self, timeout: float = 2.0) -> None:
+        """Block until any in-flight clipboard clear has finished.
+
+        Used by deactivate() so a wipe cannot still be running when the
+        process tears the backend down, and by tests so they never assert
+        against a half-applied clear.
+        """
+        thread = self._clipboard_thread
+        if thread is not None and thread.is_alive():
+            thread.join(timeout)
 
     # ------------------------------------------------------------------
     # Medium mode
@@ -176,10 +287,10 @@ class SecurityEnforcer(QObject):
                 pass
 
         self._poll_timer = QTimer(self)
-        self._poll_timer.setInterval(500)
+        self._poll_timer.setInterval(FOCUS_POLL_INTERVAL_MS)
         self._poll_timer.timeout.connect(self._poll_focus)
         self._poll_timer.start()
-        log.info("Focus poll timer started (500ms interval)")
+        log.info("Focus poll timer started (%dms interval)", FOCUS_POLL_INTERVAL_MS)
 
     def _on_app_state_changed(self, state: Qt.ApplicationState) -> None:
         if not self._active:

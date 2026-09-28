@@ -55,7 +55,19 @@ class SecurityBackend(ABC):
 
     @abstractmethod
     def clear_clipboard(self) -> None:
-        """Clear system clipboard contents."""
+        """Clear system clipboard contents.
+
+        Called on a WORKER THREAD, not the GUI thread. Two consequences an
+        implementation must respect:
+
+          * No Qt. QApplication.clipboard() may only be touched from the main
+            thread, so the enforcer clears the Qt side itself, inline, and
+            this method is responsible for the platform clipboard only.
+          * Keep it cheap. The previous Windows implementation forked
+            `cmd.exe /c echo.|clip` here on a 3-second timer, which blocked
+            the GUI thread and froze the cursor on low-end machines. Spawning
+            a process is acceptable only if it is off the GUI thread.
+        """
         ...
 
     # ------------------------------------------------------------------

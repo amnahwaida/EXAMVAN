@@ -217,13 +217,83 @@ cd windows
 | Block Ctrl+Esc (Start menu) | ✅ |
 | Block Escape (alone) | ✅ |
 | **Total: 50 blocked key combos** | ✅ |
-| Clipboard clear tiap 3 detik | ✅ Win32 API |
-| Clipboard history di-overwrite | ✅ `echo.\|clip` |
+| Clipboard clear tiap 10 detik | ✅ Win32 API |
+| Clipboard history di-overwrite | ✅ `EmptyClipboard()` |
 | Prevent sleep / monitor mati | ✅ SetThreadExecutionState |
 | Dark mode detection | ✅ Registry |
 | Multi-monitor detection | ✅ warning log |
 | Admin exit password | ✅ fail-closed |
 | **Ctrl+Alt+Del** | ❌ SAS — OS level |
+
+---
+
+## Perbaikan mode & performa (29 September 2026)
+
+Dua masalah lapangan di PC Windows low-end, keduanya sudah diperbaiki.
+
+### 1. Mode ujian low/medium/strict "tidak berjalan" — selalu bisa keluar
+
+Server dan client memakai **kosakata level yang berbeda**:
+
+| Tier | Server (`webui`) | Client (`desktop`, SEBELUMYA) |
+|------|------------------|-------------------------------|
+| rendah | `low` | `low` |
+| sedang | `medium` | `medium` |
+| tinggi | **`high`** | **`strict`** |
+
+Server tidak pernah mengirim kata `"strict"`
+(`internal/database/schema.sql` CHECK `'low','medium','high'`; validasi di
+`internal/handlers/admin/exams.go:1524`), sedangkan tiga titik client
+membandingkannya secara literal. Untuk mode "Tinggi" dengan `strict_mode=0`,
+ketiganya sekaligus gagal: fitur medium **dan** strict tidak aktif, dan
+`closeEvent` jatuh ke cabang low → dialog konfirmasi → `event.accept()`.
+Ujian yang dijanjikan "TIDAK BISA Keluar" justru bisa keluar tanpa submit.
+
+Perbaikannya: satu kosakata client di `desktop/examvan/security_levels.py`
+(`normalize_level` memetakan `high` → `strict`), dipakai oleh
+`Exam.level` / `Exam.is_strict` / `Exam.blocks_free_exit` /
+`Exam.display_level`. Tidak ada lagi perbandingan literal terhadap string
+level di client. Default juga diubah ke `medium` (bukan `low`) supaya
+respons API yang rusak tidak diam-diam melepas seluruh proteksi.
+
+Klien Android tidak terpengaruh — `ExamModePolicy` sudah memakai
+`securityLevel != LEVEL_LOW`, sehingga tier `high` otomatis tertangani.
+
+### 2. Kursor membeku setiap beberapa detik
+
+Bukan karena mengirim data: heartbeat berjalan **60 detik**
+(`exam_viewer.py`), dan aplikasi tidak pernah mengambil screenshot.
+
+Penyebabnya `windows_backend.clear_clipboard()` menjalankan
+`subprocess.run(["cmd.exe", "/c", "echo.|clip"])` pada timer **3 detik**
+di GUI thread. Tiap 3 detik aplikasi me-fork `cmd.exe` yang lalu
+me-spawn `clip.exe`, dan `subprocess.run` yang *blocking* membekukan
+seluruh event loop Qt selama itu.
+
+Perbaikannya:
+- Blok `cmd.exe` dihapus. Win32 `OpenClipboard`/`EmptyClipboard` di
+  atasnya sudah mengosongkan clipboard yang sama, jadi blok itu redundan
+  murni. Modul `windows_backend` tidak lagi menjalankan proses apa pun.
+- Platform clear dipindah ke **worker thread**. `EmptyClipboard` pada
+  clipboard berisi data OLE (gambar dari Word, file drop) membuat Windows
+  menserialisasi data itu lebih dulu dan bisa blocking lama — di GUI thread
+  itu berarti kursor beku.
+- Sisi Qt (`QApplication.clipboard()`, main-thread only) tetap inline di
+  GUI thread; itu murah.
+- Interval timer 3 detik → **10 detik**, dan clear yang masih berjalan
+  di-*skip*, bukan di-queue, supaya tidak menumpuk thread basi.
+
+### 3. Strict sekarang benar-benar fullscreen
+
+`_maximize_window()` dipanggil `showMaximized()` **setelah** enforcer
+memanggil `showFullScreen()`, sehingga state fullscreen langsung ditimpa.
+Sekarang pemanggil menyatakan niatnya lewat `fullscreen=`, dan
+`ExamViewerWindow._enforce_fullscreen()` menegakkan ulang fullscreen pada
+setiap perubahan state window selama ujian strict — jadi tidak bergantung
+pada urutan pemanggilan di satu tempat.
+
+Yang **tetap tidak bisa** diblokir: `Ctrl+Alt+Del` (SAS, level OS) dan
+Task Manager yang sudah terbuka sebelum ujian dimulai.
 
 ---
 

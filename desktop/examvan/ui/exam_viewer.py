@@ -63,7 +63,7 @@ from PyQt5.QtWidgets import (
 from .. import APP_VERSION, api, config, notify
 from ..models import Exam
 from ..security.enforcer import SecurityEnforcer
-from ..utils import clear_clipboard, get_device_label, map_identity_to_standard
+from ..utils import get_device_label, map_identity_to_standard
 from ..ws import ExamWebSocket
 from .answer_sheet import AnswerSheetWidget
 from .pdf_viewer import PdfWidget
@@ -108,6 +108,9 @@ class ExamViewerWindow(QMainWindow):
 
         self._security: Optional[SecurityEnforcer] = None
         self._pdf_path: Optional[str] = None
+        # Re-entrancy guard for _enforce_fullscreen, which is driven by a
+        # window-state change that showFullScreen() itself produces.
+        self._fullscreen_reasserting = False
         self._admin_exit_count = 0
         self._admin_exit_timer = QTimer(self)
         self._admin_exit_timer.setSingleShot(True)
@@ -175,8 +178,11 @@ class ExamViewerWindow(QMainWindow):
         self._lbl_title.setStyleSheet("font-size: 16px; font-weight: bold;")
         top_layout.addWidget(self._lbl_title, 1)
 
-        # Security banner
-        mode = "strict" if self._exam.is_strict else self._exam.security_level
+        # Security banner. display_level is the canonical tier, so this can
+        # never raise (the raw server string used to be `.upper()`d here,
+        # which crashed the whole window on `"security_level": null`) and
+        # never renders a locked-down exam in the low-tier colour.
+        mode = self._exam.display_level
         bg, fg = SECURITY_COLORS.get(mode, SECURITY_COLORS["low"])
         self._lbl_security = QLabel(f"\U0001f512 {mode.upper()}")
         self._lbl_security.setStyleSheet(
@@ -702,6 +708,37 @@ class ExamViewerWindow(QMainWindow):
     # Window events
     # -------------------------------------------------------------------
 
+    @property
+    def is_strict(self) -> bool:
+        """True when this exam runs with the strictest lockdown.
+
+        Read by __main__.main() to decide between showFullScreen() and
+        showMaximized() when presenting the window, and by _enforce_fullscreen.
+        """
+        return self._exam.is_strict
+
+    def _enforce_fullscreen(self) -> None:
+        """Re-assert fullscreen if the window state leaked away from it.
+
+        The enforcer sets fullscreen once, at activation. That is not
+        enough on its own: any later showMaximized(), restore or resize
+        silently drops a strict exam out of fullscreen, and the caller that
+        does it does not know the exam is strict. Rather than trusting every
+        presentational call site, the window defends itself whenever its own
+        state changes while the exam is strict.
+        """
+        if not self._exam.is_strict or self._fullscreen_reasserting:
+            return
+        if self.isFullScreen():
+            return
+        self._fullscreen_reasserting = True
+        try:
+            self.showFullScreen()
+        except Exception:
+            log.warning("could not re-assert fullscreen", exc_info=True)
+        finally:
+            self._fullscreen_reasserting = False
+
     def changeEvent(self, event) -> None:
         """Hitung ulang deadline saat window aktif kembali (mirror onResume).
 
@@ -715,6 +752,7 @@ class ExamViewerWindow(QMainWindow):
             if event.type() == QEvent.WindowStateChange:
                 if not self.isMinimized():
                     self._timer_widget.refresh_deadline()
+                    self._enforce_fullscreen()
             elif event.type() == QEvent.ActivationChange:
                 if self.isActiveWindow():
                     self._timer_widget.refresh_deadline()
@@ -743,8 +781,12 @@ class ExamViewerWindow(QMainWindow):
             return
         self._close_in_progress = True
 
-        mode = self._exam.security_level
-        if mode in ("medium",) or self._exam.is_strict:
+        # Medium and strict: a close attempt is an auto-submit, never an
+        # exit. blocks_free_exit reads the canonical level, so the server's
+        # "high" is covered here — previously this compared the raw string
+        # against ("medium",) and a "Tinggi" exam fell through to the low
+        # branch below, where a "Yes" answer closed the exam unsubmitted.
+        if self._exam.blocks_free_exit:
             # Auto-submit on close attempt
             # _do_submit() handles its own _submitting guard under lock,
             # so we don't set it here.
@@ -814,7 +856,12 @@ class ExamViewerWindow(QMainWindow):
                 return
 
             if event.key() == Qt.Key_Print:
-                clear_clipboard()
+                # Go through the enforcer, not utils.clear_clipboard(): the
+                # enforcer clears the Qt side here on the GUI thread and
+                # hands the platform side to its worker. utils did the
+                # platform part inline, which on Linux forks xsel/xclip
+                # while the keystroke handler is still running.
+                self._security.clear_clipboard_now()
                 event.ignore()
                 return
 

@@ -92,7 +92,7 @@ Output: `windows\dist\EXAMVAN.exe`
 | Fitur | Linux X11 | Linux Wayland | Windows |
 |-------|-----------|---------------|---------|
 | Anti-screenshot | Bypass compositor | Inherently protected | `WDA_MONITOR` |
-| Clipboard clear tiap 3 detik | `xsel` + Qt | `wl-copy --clear` + Qt | `EmptyClipboard()` + Qt |
+| Clipboard clear tiap 10 detik | `xsel` (worker thread) | `wl-copy --clear` (worker thread) | `EmptyClipboard()` (worker thread) |
 | Screen wake lock | `systemd-inhibit` / `xset` | `systemd-inhibit` | `SetThreadExecutionState` |
 | Sleep prevention | ✅ | ✅ | ✅ |
 | Dark mode detection | `gsettings` + env | `gsettings` + env | Registry + Qt palette |
@@ -157,7 +157,10 @@ Cara pakai: tekan `Ctrl+Shift+Alt+Q` tiga kali di strict mode, masukkan password
 - **Jawaban tersimpan** di disk dalam format **XOR-obfuscated + base64**, bukan plaintext.
 - **PDF file** di `%TEMP%` langsung dihapus setelah submit.
 - **Window title** generic ("EXAMVAN") — tidak bocor nama ujian.
-- **Clipboard** dibersihkan tiap 3 detik + clipboard history di-overwrite.
+- **Clipboard** dibersihkan tiap 10 detik. Sisi Qt di-clear inline di GUI
+  thread, sisi platform (Win32/X11) di worker thread — `EmptyClipboard` pada
+  clipboard berisi data OLE bisa blocking, dan menjalankannya di GUI thread
+  membekukan kursor di PC low-end.
 
 ## Struktur Direktori (Linux after install)
 
@@ -329,7 +332,7 @@ cd desktop
 QT_QPA_PLATFORM=offscreen .venv/bin/python -m unittest discover -s tests
 ```
 
-76 test: parsing submit queued/sync (termasuk `congrats_message`), polling
+198 test: parsing submit queued/sync (termasuk `congrats_message`), polling
 `/result` (done/pending/failure/timeout), persistensi & migrasi jawaban,
 fallback F1, marker sticky F2, identitas perangkat, pemetaan identitas,
 lembar jawaban tanpa soal dummy, server time skew, presence
@@ -337,7 +340,10 @@ lembar jawaban tanpa soal dummy, server time skew, presence
 alur auto-submit-and-exit (flush F1, clear saat sukses, simpan saat gagal,
 gate submit tunggal, queued 202 → polling), notifikasi lintas platform,
 gate recovery re-entry di ServerConfigDialog, dan refresh deadline setelah
-suspend.
+suspend. Termasuk gate mode ujian (`security_level` "high" dari server
+dipetakan ke tier "strict" client — pertama_ titik yang dulu membuat mode
+Tinggi bisa keluar bebas) dan jaminan clipboard clear tidak menjalankan
+proses baru maupun memblokir GUI thread.
 
 ## Troubleshooting
 

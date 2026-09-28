@@ -82,7 +82,7 @@ jobs:
       - name: Run admin-core unit tests
         run: node --test static/js/admin-core.test.mjs
 
-  # Unit test klien desktop (Python/PyQt5, ~79 test) — offscreen Qt.
+  # Unit test klien desktop (Python/PyQt5, ~198 test) — offscreen Qt.
   # Selama ini suite ini tidak pernah jalan di CI sama sekali.
   desktop:
     runs-on: ubuntu-latest

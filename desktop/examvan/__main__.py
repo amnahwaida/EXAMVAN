@@ -40,15 +40,28 @@ def _setup_logging() -> None:
         pass
 
 
-def _maximize_window(widget) -> None:
-    """Maximize a window reliably on XWayland and Wayland."""
+def _maximize_window(widget, fullscreen: bool = False) -> None:
+    """Show a dialog/window, maximized — or fullscreen when asked.
+
+    `fullscreen=True` is for a strict exam window. It must NOT also call
+    showMaximized(): that call overrides the fullscreen state the security
+    enforcer had just set, and a strict exam ended up merely maximized
+    (frameless and always-on-top, but not fullscreen) — which is not what
+    "kiosk" is supposed to mean.
+
+    show() has to come before the state request because Qt ignores a state
+    change on a window that is still hidden.
+    """
     from PyQt5.QtWidgets import QApplication
     screen = QApplication.primaryScreen()
     if screen:
         geo = screen.availableGeometry()
         widget.setGeometry(geo)
     widget.show()
-    widget.showMaximized()
+    if fullscreen:
+        widget.showFullScreen()
+    else:
+        widget.showMaximized()
     QApplication.processEvents()
 
 
@@ -163,7 +176,10 @@ def main() -> None:
 
         viewer.closed.connect(_on_viewer_closed)
         windows.append(viewer)
-        _maximize_window(viewer)
+        # A strict exam owns the screen. Passing fullscreen here (instead of
+        # letting _maximize_window maximize) keeps the enforcer's
+        # showFullScreen() from being undone moments after it was set.
+        _maximize_window(viewer, fullscreen=viewer.is_strict)
 
     dialog = ServerConfigDialog(kiosk_mode=kiosk)
     dialog.exam_selected.connect(on_exam_selected)

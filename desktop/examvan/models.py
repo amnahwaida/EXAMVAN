@@ -6,6 +6,14 @@ import json
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional
 
+from .security_levels import (
+    DEFAULT_LEVEL,
+    display_level,
+    enforces_no_free_exit,
+    is_effective_strict,
+    normalize_level,
+)
+
 
 @dataclass
 class IdentityField:
@@ -38,7 +46,10 @@ class Exam:
     id: int
     name: str
     status: str
-    security_level: str = "low"
+    # Raw value exactly as the server sent it ("low" | "medium" | "high").
+    # Do NOT branch on this — it is the server's vocabulary, not the
+    # client's. Use the canonical `level` / `is_strict` properties below.
+    security_level: str = DEFAULT_LEVEL
     strict_mode: bool = False
     identity_fields: List[IdentityField] = field(default_factory=list)
     panel_color: str = "#6366f1"
@@ -62,7 +73,7 @@ class Exam:
             id=int(data.get("id", 0)),
             name=data.get("name", ""),
             status=data.get("status", ""),
-            security_level=data.get("security_level", "low"),
+            security_level=data.get("security_level", DEFAULT_LEVEL),
             strict_mode=bool(data.get("strict_mode", False)),
             identity_fields=fields,
             panel_color=data.get("panel_color", "#6366f1"),
@@ -72,9 +83,47 @@ class Exam:
             questions=data.get("questions") or [],
         )
 
+    # ------------------------------------------------------------------
+    # Security level — always read these, never `security_level`
+    # ------------------------------------------------------------------
+
+    @property
+    def raw_security_level(self) -> str:
+        """The level string the server actually sent, untranslated.
+
+        Kept so a support log can show what the server said when a client's
+        behaviour looks wrong. It is deliberately NOT what the security
+        decisions branch on.
+        """
+        return self.security_level
+
+    @property
+    def level(self) -> str:
+        """Canonical client tier: "low" | "medium" | "strict".
+
+        The server's "high" maps to "strict" here. This is the only level
+        string the desktop client should compare against.
+        """
+        return normalize_level(self.security_level)
+
     @property
     def is_strict(self) -> bool:
-        return self.strict_mode or self.security_level == "strict"
+        """True when the exam runs with the strictest lockdown."""
+        return is_effective_strict(self.security_level, self.strict_mode)
+
+    @property
+    def blocks_free_exit(self) -> bool:
+        """True when closing the window must auto-submit, not let go.
+
+        Medium and strict close the gate; only low lets a student leave
+        without submitting, and even then only after a confirmation.
+        """
+        return enforces_no_free_exit(self.security_level, self.strict_mode)
+
+    @property
+    def display_level(self) -> str:
+        """Canonical tier name for the security banner."""
+        return display_level(self.security_level, self.strict_mode)
 
 
 @dataclass
