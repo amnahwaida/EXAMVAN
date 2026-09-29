@@ -98,6 +98,7 @@ pushd "%SOURCE_DIR%"
     --specpath "%OUTPUT_DIR%" ^
     --workpath "%OUTPUT_DIR%\build" ^
     --version-file "..\dist\version_info.txt" ^
+    --icon "..\windows\installer\examvan.ico" ^
     --hidden-import examvan ^
     --hidden-import examvan.security ^
     --hidden-import examvan.ui ^

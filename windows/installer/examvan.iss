@@ -22,6 +22,12 @@
 #define AppShortName "EXAMVAN"
 #define AppPublisher "EXAMVAN"
 #define AppExeName "EXAMVAN.exe"
+; Sumber kebenaran ikon: windows\installer\examvan.ico, di-commit.
+; Regenerasi (hanya saat ikon brand berubah):
+;   python windows\installer\make_icon.py
+; Build TIDAK PERNAH memanggilnya — .ico yang sudah jadi ikut repo,
+; jadi tidak ada syarat ImageMagick/Pillow di PC guru, siswa, atau CI.
+#define AppIconName "examvan.ico"
 #define SetupMutexName "EXAMVAN_Setup_Install"
 
 ; Versi/build/commit diisi oleh windows\installer\build_info.py, yang
@@ -61,6 +67,10 @@ DisableProgramGroupPage=yes
 DisableDirPage=no
 OutputDir=..\dist
 OutputBaseFilename=EXAMVAN-Setup
+; Ikon untuk installer itu sendiri. Tanpa ini, EXAMVAN-Setup.exe — file
+; yang benar-benar dibagikan ke siswa dan yang mereka klik dua kali —
+; menampilkan ikon default Inno Setup, bukan ikon EXAMVAN.
+SetupIconFile={#AppIconName}
 Compression=lzma2/max
 SolidCompression=yes
 WizardStyle=modern
@@ -114,11 +124,13 @@ Name: "desktopicon"; Description: "Buat shortcut di Desktop"; GroupDescription: 
 ; EXE PyInstaller sudah onefile: tidak perlu installer framework,
 ; tidak perlu service, tidak perlu short path (sudah di .exe).
 ;
-; Icon TIDAK dikopi terpisah. Shortcut mengambil icon dari
-; EXAMVAN.exe itu sendiri (IconFilename tidak di-set = default),
-; jadi file .png tidak perlu, dan tidak perlu menariknya dari
-; desktop\pkg-build\ (pohon yang sudah basi).
 Source: "..\dist\{#AppExeName}"; DestDir: "{app}"; Flags: ignoreversion
+
+; Ikon di-bundle supaya IconFilename di [Icons] bisa menunjuk ke
+; {app}\examvan.ico. `dontcopy` karena ikon dipakai SAAT INSTALL (oleh
+; shell untuk menulis .lnk), bukan saat runtime — jadi tidak boleh ikut
+; jadi file aplikasi yang harus dibersihkan uninstaller.
+Source: "{#AppIconName}"; DestDir: "{app}"; Flags: ignoreversion dontcopy
 
 [Dirs]
 ; Dibuat supaya %LOCALAPPDATA%\EXAMVAN ada sejak instalasi — dipakai
@@ -127,9 +139,14 @@ Source: "..\dist\{#AppExeName}"; DestDir: "{app}"; Flags: ignoreversion
 Name: "{localappdata}\EXAMVAN"
 
 [Icons]
-Name: "{group}\{#AppName}";        Filename: "{app}\{#AppExeName}"
-Name: "{group}\Uninstall {#AppName}"; Filename: "{uninstallexe}"
-Name: "{autodesktop}\{#AppName}";  Filename: "{app}\{#AppExeName}"; Tasks: desktopicon
+; IconFilename diset eksplisit, bukan diwarisi dari {app}\EXAMVAN.exe.
+; Secara mekanika warisan itu bekerja, tapi kalau build exe gagal
+; diam-diam (ikon default ikut ter-bundle) semua shortcut ikut salah —
+; dan tidak ada yang mengatakannya. Shortcut uninstall memakai ikon yang
+; sama supaya Start Menu dan desktop terlihat satu keluarga.
+Name: "{group}\{#AppName}";        Filename: "{app}\{#AppExeName}"; IconFilename: "{app}\{#AppIconName}"
+Name: "{group}\Uninstall {#AppName}"; Filename: "{uninstallexe}"; IconFilename: "{app}\{#AppIconName}"
+Name: "{autodesktop}\{#AppName}";  Filename: "{app}\{#AppExeName}"; IconFilename: "{app}\{#AppIconName}"; Tasks: desktopicon
 
 [Run]
 Filename: "{app}\{#AppExeName}"; Description: "Jalankan {#AppName} sekarang"; \

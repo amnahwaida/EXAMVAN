@@ -72,6 +72,29 @@ Hasil di `windows\dist\`:
 | `EXAMVAN-Setup.exe` | **yang dibagikan ke siswa** — install shortcut, Start Menu, uninstaller |
 | `EXAMVAN.exe` | portable — jalankan langsung dari USB, tanpa install |
 
+### Ikon
+
+Ikon EXAMVAN berasal dari ikon launcher Android
+(`android/app/src/main/res/mipmap-xxxhdpi/ic_launcher.png`), dikonversi
+jadi `windows\installer\examvan.ico` — satu file multi-ukuran
+(16/24/32/48/64/128/256) karena Windows memilih ukuran sendiri untuk
+shell, taskbar, Start Menu, dan Explorer.
+
+Ikon itu dipakai di tiga tempat: `EXAMVAN.exe` (lewat `--icon` PyInstaller),
+`EXAMVAN-Setup.exe` (lewat `SetupIconFile`), dan semua shortcut yang
+dibuat installer (lewat `IconFilename`).
+
+Regenerasi **hanya** saat ikon brand berubah:
+
+```cmd
+python windows\installer\make_icon.py
+python windows\installer\make_icon.py --check   :: verifikasi saja
+```
+
+Skripnya butuh Pillow atau ImageMagick. **Build tidak pernah memanggil
+skrip ini** — `.ico` yang sudah jadi ikut di-commit, jadi tidak ada syarat
+tambahan di PC guru, PC siswa, atau runner CI.
+
 Setelan installer:
 
 - **Per-user, tanpa hak admin** — install ke `%LOCALAPPDATA%\Programs\EXAMVAN`, tidak ada dialog UAC. PC sekolah yang memblokir instalasi ke `Program Files` tetap bisa jalan.

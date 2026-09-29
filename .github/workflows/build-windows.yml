@@ -132,6 +132,7 @@ jobs:
             --name "EXAMVAN" `
             --distpath windows/dist `
             --version-file windows/dist/version_info.txt `
+            --icon windows/installer/examvan.ico `
             --hidden-import examvan `
             --hidden-import examvan.security `
             --hidden-import examvan.ui `
@@ -221,6 +222,22 @@ jobs:
             throw "shortcut desktop tidak terbentuk"
           }
           Write-Host "OK: shortcut desktop ada"
+          # Shortcut harus memakai ikon EXAMVAN, bukan ikon default PyInstaller
+          # atau Inno. `IconFilename` di .iss menunjuk {app}\examvan.ico, jadi
+          # yang dicek di sini adalah file-nya benar-benar ikut ter-install —
+          # tanpa itu, .lnk ditulis tapi ikonnya hilang.
+          $installedIcon = "$env:LOCALAPPDATA\Programs\EXAMVAN\examvan.ico"
+          if (-not (Test-Path $installedIcon)) {
+            Write-Host "::error::examvan.ico tidak ikut ter-install: $installedIcon"
+            throw "ikon aplikasi tidak ikut ter-install"
+          }
+          $icoBytes = [System.IO.File]::ReadAllBytes($installedIcon)
+          if ($icoBytes[0] -ne 0 -or $icoBytes[1] -ne 0 -or $icoBytes[2] -ne 1 -or $icoBytes[3] -ne 0) {
+            Write-Host "::error::examvan.ico bukan file ICO yang sah"
+            throw "examvan.ico rusak"
+          }
+          Write-Host "OK: ikon aplikasi ter-install ($($icoBytes.Length) bytes)"
+
           # Shortcut Start Menu juga — .iss:124-125 tidak pernah dicek.
           $startLnk = Get-ChildItem "$env:APPDATA\Microsoft\Windows\Start Menu\Programs" `
             -Filter "EXAMVAN.lnk" -Recurse -ErrorAction SilentlyContinue
