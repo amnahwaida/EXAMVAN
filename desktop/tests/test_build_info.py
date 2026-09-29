@@ -184,6 +184,116 @@ class StampVersionInfoTest(unittest.TestCase):
         self.assertEqual(file_struct, shown)
 
 
+class CliStampTest(unittest.TestCase):
+    """Jalur CLI — yang justru dipanggil CI dan build-exe.bat.
+
+    Bug yang menutup kelas ini: `_cmd_stamp()` tidak menerima argumen tapi
+    dipanggil `_cmd_stamp(argv[1:])`, jadi build Windows gagal dengan
+
+        TypeError: _cmd_stamp() takes 0 positional arguments but 1 was given
+
+    Test lain di file ini memanggil `stamp_version_info()` LANGSUNG, jadi
+    jalur yang benar-benar dipakai build tidak pernah dieksekusi — persis
+    kelas bug yang sama seperti alias versi dulu. Setiap build script yang
+    memanggil `build_info.py stamp ...` dieksekusi di sini dengan argv yang
+    sama persis dengan yang mereka pakai.
+    """
+
+    def setUp(self):
+        self.tmp = tempfile.mkdtemp(prefix="examvan-cli-stamp-")
+        self.src = Path(self.tmp) / "version_info.txt"
+        self.dst = Path(self.tmp) / "out.txt"
+        self.src.write_text(VERSION_INFO.read_text(encoding="utf-8"), encoding="utf-8")
+
+    def tearDown(self):
+        import shutil
+
+        shutil.rmtree(self.tmp, ignore_errors=True)
+
+    def _cli(self, *extra):
+        return build_info.main(["stamp", str(self.src), str(self.dst), *extra])
+
+    def test_cli_stamp_writes_the_file(self):
+        self.assertEqual(self._cli("--version", "2.5.0", "--build", "695",
+                                   "--commit", "abcdef0"), 0)
+        self.assertTrue(self.dst.exists())
+
+    def test_cli_version_flag_overrides_the_source(self):
+        # Nilai yang SENGAJA berbeda dari APP_VERSION. Kalau test-nya
+        # memakai versi yang sama dengan APP_VERSION, "abaikan --version"
+        # dan "penuhi --version" akan menghasilkan output yang identik
+        # dan test-nya lulus tanpa menguji apa pun.
+        self._cli("--version", "9.8.7", "--build", "695", "--commit", "abcdef0")
+        out = self.dst.read_text(encoding="utf-8")
+        self.assertIn("StringStruct('FileVersion', '9.8.7')", out)
+        self.assertIn("filevers=(9, 8, 7, 0)", out)
+        self.assertIn("prodvers=(9, 8, 7, 0)", out)
+        self.assertIn("build 695", out)
+        self.assertIn("abcdef0", out)
+
+    def test_cli_stamp_stamps_all_five_fields(self):
+        self._cli("--version", "2.5.0", "--build", "695", "--commit", "abcdef0")
+        out = self.dst.read_text(encoding="utf-8")
+        self.assertIn("StringStruct('FileVersion', '2.5.0')", out)
+        self.assertIn("build 695", out)
+        self.assertIn("abcdef0", out)
+        self.assertIn("filevers=(2, 5, 0, 0)", out)
+        self.assertIn("prodvers=(2, 5, 0, 0)", out)
+
+    def test_cli_without_optional_flags_uses_the_source_version(self):
+        # build-exe.bat lokal memanggilnya tanpa flag apa pun; itu harus
+        # tetap memakai APP_VERSION + build/commit dari git.
+        self.assertEqual(self._cli(), 0)
+        out = self.dst.read_text(encoding="utf-8")
+        m = re.search(r"StringStruct\('FileVersion', '([^']*)'\)", out)
+        self.assertEqual(m.group(1), "2.5.0")
+
+    def test_cli_creates_the_destination_directory(self):
+        nested = Path(self.tmp) / "dist" / "version_info.txt"
+        rc = build_info.main(["stamp", str(self.src), str(nested),
+                              "--version", "2.5.0"])
+        self.assertEqual(rc, 0)
+        self.assertTrue(nested.exists())
+
+    def test_bare_invocation_prints_defines(self):
+        # build-setup.* memanggil `build_info.py` tanpa subcommand.
+        import contextlib
+        import io
+
+        buf = io.StringIO()
+        with contextlib.redirect_stdout(buf):
+            rc = build_info.main([])
+        self.assertEqual(rc, 0)
+        self.assertIn("/DAppVersion=", buf.getvalue())
+
+    def test_relative_argv_the_workflow_passes(self):
+        # Bentuk literal yang dipakai .github/workflows/build-windows.yml:
+        # path relatif terhadap repo root. Dijalankan di CWD sementara supaya
+        # tidak menulis windows/dist/version_info.txt yang sungguhan.
+        import os
+
+        old_cwd = os.getcwd()
+        os.chdir(REPO)
+        try:
+            (REPO / "windows/dist").mkdir(parents=True, exist_ok=True)
+            rc = build_info.main([
+                "stamp", "windows/installer/version_info.txt",
+                "windows/dist/version_info.txt",
+                "--version", "9.8.7", "--build", "695",
+                "--commit", "abcdef0",
+            ])
+            out = (REPO / "windows/dist/version_info.txt")
+            self.assertEqual(rc, 0)
+            self.assertTrue(out.exists())
+            # 9.8.7 bukan APP_VERSION — kalau yang diuji cuma "file ditulis",
+            # nilai yang terpakai tidak akan terdeteksi bedanya.
+            self.assertIn("StringStruct('FileVersion', '9.8.7')",
+                          out.read_text(encoding="utf-8"))
+            out.unlink()
+        finally:
+            os.chdir(old_cwd)
+
+
 class BuildScriptsUseTheStamperTest(unittest.TestCase):
     """Semua jalur build harus lewat fungsi yang sama.
 

@@ -216,8 +216,17 @@ def stamp_version_info(
     return dest
 
 
-def _cmd_stamp() -> int:
-    """`build_info.py stamp <src> <dest>` — dipakai semua jalur build."""
+def _cmd_stamp(argv: Optional[list] = None) -> int:
+    """`build_info.py stamp <src> <dest> [--version ...]` — dipakai semua jalur build.
+
+    `argv` diterima sebagai parameter (bukan dibaca dari `sys.argv` di dalam
+    fungsi) supaya jalur CLI — yang justru yang dipanggil CI dan
+    build-exe.bat — bisa diuji seperti fungsi biasa. Versi sebelumnya
+    tidak menerima argumen tapi dipanggil `_cmd_stamp(argv[1:])`, jadi build
+    CI langsung gagal dengan TypeError. Test sebelumnya hanya memanggil
+    `stamp_version_info()` langsung, sehingga jalur yang benar-benar dipakai
+    tidak pernah dieksekusi.
+    """
     import argparse
 
     ap = argparse.ArgumentParser(prog="build_info.py stamp")
@@ -226,7 +235,7 @@ def _cmd_stamp() -> int:
     ap.add_argument("--version", default=None)
     ap.add_argument("--build", default=None)
     ap.add_argument("--commit", default=None)
-    args = ap.parse_args()
+    args = ap.parse_args(list(sys.argv[1:] if argv is None else argv))
 
     values = resolve()
     stamp_version_info(
