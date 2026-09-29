@@ -51,8 +51,20 @@ if (-not (Test-Path $OutputDir)) {
 # "ImportError: attempted relative import with no known parent package" saat
 # EXAMVAN.exe dijalankan. Stub main.py mengimpor package examvan secara
 # normal sehingga seluruh graf package dianalisis dan exe menyala.
-# --add-data relatif ke CWD → Set-Location ke desktop/ dulu.
 Set-Location $SourceDir
+
+# Stamp version info. Build lokal dulunya mengirim version_info.txt apa
+# adanya, jadi Properties exe selalu 1.0.0.0 dan tidak membawa
+# build/commit. CI men-*patch* dengan regex PowerShell — implementasi
+# kedua dari aturan yang sama, yang lokal diam-diam salah. Sekarang
+# keduanya lewat build_info.py.
+& $VenvPython (Join-Path $PSScriptRoot "installer\build_info.py") stamp `
+    (Join-Path $PSScriptRoot "installer\version_info.txt") `
+    (Join-Path $OutputDir "version_info.txt")
+if ($LASTEXITCODE -ne 0) {
+    Write-Host "[ERR] Gagal men-stamp version info." -ForegroundColor Red
+    exit 1
+}
 
 & $VenvPython -m PyInstaller `
     --onefile `
@@ -61,7 +73,7 @@ Set-Location $SourceDir
     --distpath $OutputDir `
     --specpath $OutputDir `
     --workpath "$OutputDir\build" `
-    --version-file "..\windows\installer\version_info.txt" `
+    --version-file "..\dist\version_info.txt" `
     --hidden-import examvan `
     --hidden-import examvan.security `
     --hidden-import examvan.ui `
@@ -69,6 +81,7 @@ Set-Location $SourceDir
     --hidden-import examvan.ui.timer `
     --hidden-import examvan.ui.pdf_viewer `
     --hidden-import examvan.ui.answer_sheet `
+    --hidden-import examvan.ui.fullscreen `
     --hidden-import examvan.ui.exam_viewer `
     --hidden-import examvan.ui.identity_dialog `
     --hidden-import examvan.ui.server_config `
@@ -78,7 +91,6 @@ Set-Location $SourceDir
     --exclude-module examvan.security.x11 `
     --exclude-module examvan.security.linux_backend `
     --exclude-module examvan.security.kiosk `
-    --add-data "examvan;examvan" `
     (Join-Path $SourceDir "main.py")
 
 # ---- Done ----
@@ -89,6 +101,6 @@ if (Test-Path $ExePath) {
     Write-Host "Executable: $ExePath" -ForegroundColor Cyan
     Write-Host "Size: $((Get-Item $ExePath).Length / 1MB) MB" -ForegroundColor Cyan
 } else {
-    Write-Error "Build failed — EXAVAN.exe not found in $OutputDir"
+    Write-Error "Build failed — EXAMVAN.exe not found in $OutputDir"
     exit 1
 }

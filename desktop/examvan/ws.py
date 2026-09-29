@@ -57,11 +57,23 @@ class ExamWebSocket(QObject):
         self._do_connect()
 
     def disconnect(self) -> None:
-        """Stop the session and close the socket."""
+        """Stop the session and close the socket.
+
+        `self._ws.disconnected.disconnect(self._on_disconnected)` first, so
+        the abort below cannot schedule a reconnect. This used to read
+        `self._ws.disconnect(self._ws.connected)` — `connected` is a signal,
+        not a method, so that call did nothing at all and the handler stayed
+        wired. Harmless while `_should_reconnect` is cleared beforehand, but
+        it meant `disconnect()` never actually disconnected.
+        """
         self._should_reconnect = False
         self._reconnect_timer.stop()
         if self._ws is not None:
-            self._ws.disconnect(self._ws.connected)
+            try:
+                self._ws.disconnected.disconnect(self._on_disconnected)
+            except (TypeError, RuntimeError):
+                pass  # sudah tidak terhubung, atau handler tidak terpasang
+            self._ws.disconnect()
             self._ws.abort()
             self._ws.deleteLater()
             self._ws = None

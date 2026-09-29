@@ -39,6 +39,26 @@ if (-not (Test-Path $AppExe)) {
 $appSize = [math]::Round((Get-Item $AppExe).Length / 1MB, 2)
 Write-Ok "Input: EXAMVAN.exe ($appSize MB)"
 
+# ---- Tolak exe yang lebih tua dari source -------------------------------
+# Tanpa guard ini build hanya menguji Test-Path. Bukti di working tree:
+# windows/dist/EXAMVAN.exe mtime 27 Sep, source terbaru 30 Sep — build hari
+# itu mencetak BUILD SUCCESS dan mengemas kode 3 hari lalu untuk dibagikan
+# ke siswa.
+# build-setup.ps1 hanya mendefinisikan $ScriptDir (folder windows/), jadi
+# $ProjectRoot harus dihitung di sini juga — kalau tidak, SourceDir jadi
+# string "desktop" relatif terhadap CWD dan guardnya salah tempat.
+$ProjectRoot = Split-Path -Parent $ScriptDir
+$SourceDir = Join-Path $ProjectRoot "desktop"
+$pyExe = Join-Path $SourceDir ".venv\Scripts\python.exe"
+if (-not (Test-Path $pyExe)) { $pyExe = "python" }
+& $pyExe (Join-Path $PSScriptRoot "installer\check_exe_freshness.py") `
+    --exe $AppExe --source $SourceDir
+if ($LASTEXITCODE -ne 0) {
+    Write-Err "EXAMVAN.exe lebih tua dari source (atau tidak bisa dipastikan) — build DIBATAS."
+    Write-Host "  Jalankan windows\build-exe.bat lebih dulu."
+    exit 1
+}
+
 # ---- Cari ISCC.exe ----
 # ISCC tidak pernah masuk PATH -> uninstall registry + lokasi umum.
 $iscc = $null

@@ -40,6 +40,7 @@ from __future__ import annotations
 import re
 import subprocess
 import sys
+from typing import Optional
 from pathlib import Path
 
 # desktop/examvan/__init__.py
@@ -73,10 +74,20 @@ def version_from_source() -> str:
         text = APP_INIT.read_text(encoding="utf-8")
     except OSError:
         return FALLBACK_VERSION
-    # Baris komentar di APP_VERSION ("# Sent as X-App-Version ...")
-    # harus ikut terbuang, makanya ambil yang di dalam kutip pertama.
+    # Dua bentuk yang mungkin muncul di examvan/__init__.py:
+    #   APP_VERSION = "2.5.0"        -> literal
+    #   APP_VERSION = __version__    -> alias ke __version__ (yang literal)
+    # build_info.py TIDAK mengeksekusi source itu, jadi keduanya harus
+    # didukung. Dulu hanya bentuk pertama yang dibaca; begitu __init__.py
+    # berubah jadi alias, fungsi ini diam-diam jatuh ke FALLBACK_VERSION
+    # 1.0.0 dan installer ikut berlabel 1.0.0.
     m = re.search(r'^\s*APP_VERSION\s*=\s*["\']([^"\']+)["\']', text, re.M)
-    return m.group(1) if m else FALLBACK_VERSION
+    if m:
+        return m.group(1)
+    m = re.search(r'^\s*__version__\s*=\s*["\']([^"\']+)["\']', text, re.M)
+    if m:
+        return m.group(1)
+    return FALLBACK_VERSION
 
 
 def numeric_version(raw: str, parts: int = 4) -> str:
@@ -115,10 +126,23 @@ def numeric_version(raw: str, parts: int = 4) -> str:
             break
     if not nums:
         nums = [int(x) for x in FALLBACK_VERSION.split(".")[:parts]]
+    # Inno menerima tiap bagian 0..255 untuk VersionInfoVersion, jadi
+    # komponen yang lebih besar dari itu harus DIBUANG — bukan disaturasi
+    # jadi 255.
+    #
+    # `min(n, 255)` dulu membuat 'release-2026.09' menjadi 255.9.0: bukan
+    # versi, bukan tahun, dan tampak "sudah di-clamp dengan benar" padahal
+    # 255 tidak pernah muncul pada nomor versi mana pun. Komponen yang
+    # melebihi batas biasanya yang PERTAMA (tahun), jadi buang dari depan
+    # sampai muat: 'release-2026.09' -> 9.0.0, bukan 255.9.0.
+    while len(nums) > 1 and nums[0] > 255:
+        nums.pop(0)
+    while len(nums) > parts:
+        nums.pop()
+
     while len(nums) < parts:
         nums.append(0)
-    # Inno menerima tiap bagian 0..255 untuk VersionInfoVersion.
-    return ".".join(str(min(n, 255)) for n in nums[:parts])
+    return ".".join(str(n) for n in nums[:parts])
 
 
 def resolve() -> dict[str, str]:
@@ -143,7 +167,82 @@ def resolve() -> dict[str, str]:
 
 
 
-def main() -> int:
+def stamp_version_info(
+    source: Path,
+    dest: Path,
+    version: str,
+    build: str = "",
+    commit: str = "",
+) -> Path:
+    """Tulis salinan `version_info.txt` dengan SEMUA field versi di-stempel.
+
+    Kenapa fungsi ini perlu ada, dan tidak cukup di-patch di CI saja:
+
+    * `FixedFileInfo.filevers/prodvers` tidak pernah disentuh. CI hanya
+      men-*patch* dua nilai `StringStruct`, jadi biner setiap EXAMVAN.exe
+      adalah 1.0.0.0 selamanya sementara `VersionInfoVersion` di `.iss`
+      adalah 2.5.0.0. Add/Remove Programs menampilkan 2.5.0, Properties
+      exe berbunyi 1.0.0.0.
+    * Build lokal (`build-exe.bat` / `build-exe.ps1`) mengirim file itu
+      tanpa perubahan sama sekali, jadi exe lokal melaporkan 1.0.0 dan
+      tidak membawa build maupun commit.
+
+    Dua implementasi dari aturan yang sama, dan yang lokal diam-diam
+    salah. Sekarang ketiganya — CI, .bat, .ps1 — lewat fungsi ini.
+    """
+    text = source.read_text(encoding="utf-8")
+    display = numeric_version(version, parts=3)
+    # FixedFileInfo butuh TUPLE, bukan string bertitik: (2, 5, 0, 0).
+    four = ", ".join(numeric_version(version, parts=4).split("."))
+
+    product = display + (f" (build {build}, commit {commit})" if build and commit else "")
+
+    text = re.sub(
+        r"(StringStruct\('FileVersion',\s*')[^']*(')",
+        rf"\g<1>{display}\g<2>",
+        text,
+    )
+    text = re.sub(
+        r"(StringStruct\('ProductVersion',\s*')[^']*(')",
+        rf"\g<1>{product}\g<2>",
+        text,
+    )
+    # FixedFileInfo — bagian yang dulu terlewat.
+    text = re.sub(r"filevers=\([^)]*\)", f"filevers=({four})", text)
+    text = re.sub(r"prodvers=\([^)]*\)", f"prodvers=({four})", text)
+
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    dest.write_text(text, encoding="utf-8")
+    return dest
+
+
+def _cmd_stamp() -> int:
+    """`build_info.py stamp <src> <dest>` — dipakai semua jalur build."""
+    import argparse
+
+    ap = argparse.ArgumentParser(prog="build_info.py stamp")
+    ap.add_argument("source", type=Path)
+    ap.add_argument("dest", type=Path)
+    ap.add_argument("--version", default=None)
+    ap.add_argument("--build", default=None)
+    ap.add_argument("--commit", default=None)
+    args = ap.parse_args()
+
+    values = resolve()
+    stamp_version_info(
+        source=args.source,
+        dest=args.dest,
+        version=args.version or values["AppVersion"],
+        build=args.build if args.build is not None else values["AppBuild"],
+        commit=args.commit if args.commit is not None else values["AppCommit"],
+    )
+    return 0
+
+
+def main(argv: Optional[list] = None) -> int:
+    argv = list(sys.argv[1:] if argv is None else argv)
+    if argv and argv[0] == "stamp":
+        return _cmd_stamp(argv[1:])
     values = resolve()
     print(" ".join(f"/D{k}={v}" for k, v in values.items()))
     return 0

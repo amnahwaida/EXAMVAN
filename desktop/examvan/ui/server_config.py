@@ -22,6 +22,14 @@ from .. import APP_VERSION, __version__
 from .. import api, config
 from ..models import Exam
 
+# Alamat server default untuk deployment sekolah.
+#
+# Satu konstanta, bukan string yang disalin ke beberapa tempat: dipakai juga
+# oleh `windows/README.md` dan dialog, supaya tidak bisa melenceng.
+# Bentuk KANONIK (https://, tanpa trailing slash) karena `_on_connect`
+# menormalkan input dengan asumsi itu.
+DEFAULT_SERVER_URL = "https://examvan.my.id"
+
 
 class ServerConfigDialog(QDialog):
     """Initial dialog: enter server URL and exam token."""
@@ -91,7 +99,7 @@ class ServerConfigDialog(QDialog):
         # Server URL
         lbl_url = QLabel("Server URL")
         self.input_url = QLineEdit()
-        self.input_url.setPlaceholderText("https://examvan.my.id")
+        self.input_url.setPlaceholderText(DEFAULT_SERVER_URL)
         card_layout.addWidget(lbl_url)
         card_layout.addWidget(self.input_url)
 
@@ -132,20 +140,41 @@ class ServerConfigDialog(QDialog):
         outer.addStretch(2)
 
         # Version label
-        ver_label = QLabel(f"v{__version__} (API {APP_VERSION})")
+        # Satu nomor, bukan dua. Label pernah menulis "v1.0.0 (API 2.5.0)" —
+        # dua angka yang saling menyangkal di depan mata pengguna.
+        ver_label = QLabel(f"v{APP_VERSION}")
         ver_label.setStyleSheet("font-size: 11px;")
         ver_label.setAlignment(Qt.AlignRight)
         outer.addWidget(ver_label)
 
     def _load_saved(self) -> None:
-        url = config.get("server_url", "")
+        """Isi form dari config, atau default server bila belum pernah diisi.
+
+        `remember_url` akhirnya DICHIBAHKAN, yang sebelumnya tidak berlaku
+        sama sekali: nilainya dibaca tapi tidak pernah dipakai sebagai
+        syarat, sehingga URL dan token selalu di-pre-fill apa pun yang
+        siswa pilih. Sekarang kontraknya jelas:
+
+          dicentang   -> isi lagi di komputer ini (atau pakai default server)
+          tidak       -> jangan sentuh; form dikosongkan
+
+        Yang TIDAK berubah: token tetap ditulis ke disk walau tidak
+        dicentang, karena `_xor_obfuscate` memakainya sebagai kunci decode
+        jawaban yang tersimpan (`config.py:32-39`). Menghapusnya akan
+        membuat recovery "Kirim Lagi" gagal decode. Yang dikontrol remember
+        adalah pre-fill, bukan penyimpanan.
+        """
+        remember = bool(config.get("remember_url", True))
+        self.chk_remember.setChecked(remember)
+        if not remember:
+            return
+
+        url = config.get("server_url", "") or DEFAULT_SERVER_URL
         token = config.get("exam_token", "")
-        remember = config.get("remember_url", True)
         if url:
             self.input_url.setText(url)
         if token:
             self.input_token.setText(token.upper())
-        self.chk_remember.setChecked(remember)
 
     def _on_connect(self) -> None:
         url = self.input_url.text().strip()
@@ -245,6 +274,18 @@ class ServerConfigDialog(QDialog):
 
     # --- Slots (run on UI thread, connected via signals) ---
 
+    def enable_connect(self) -> None:
+        """Hidupkan lagi tombol "Hubungkan" dan bersihkan status.
+
+        Dipanggil `__main__.on_exam_selected` ketika siswa membatalkan dialog
+        persetujuan. Tanpa ini, `_on_connect` men-disable tombol (`:208`),
+        jalur sukses hanya meng-emit `_sig_show_identity` (`:273`) dan tidak
+        pernah `_sig_enable_btn` — jadi dialog konfigurasi kembali dengan
+        tombol mati dan siswa tidak bisa mengulang tanpa menutup aplikasi.
+        """
+        self.btn_connect.setEnabled(True)
+        self.lbl_status.setText("")
+
     @pyqtSlot(str, bool)
     def _set_status_slot(self, msg: str, is_error: bool) -> None:
         color = "#e53935" if is_error else "#2e7d32"
@@ -306,6 +347,9 @@ class ServerConfigDialog(QDialog):
                 std.get("exam_number", ""),
                 std.get("student_class", ""),
                 answers, start_time, mac, identity,
+                # Tanpa header ini server menolak dengan 401 "Token tidak
+                # disertakan" — kirim ulang dari layar ini pun selalu gagal.
+                token=token,
             )
             if resp.status == "queued" and resp.job_id:
                 resp = api.poll_queued_result(

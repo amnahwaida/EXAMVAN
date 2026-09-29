@@ -37,10 +37,10 @@ if errorlevel 1 (
     exit /b 1
 )
 "%VPY%" -m pip install --upgrade pip --quiet
-"%VPY%" -m pip install PyQt5 PyMuPDF --quiet
+"%VPY%" -m pip install -r "%~dp0..\desktop\requirements.txt" --quiet
 if errorlevel 1 (
     echo [ERR] Gagal install dependencies. Coba manual:
-    echo       "%VPY%" -m pip install PyQt5 PyMuPDF
+    echo       "%VPY%" -m pip install -r "%~dp0..\desktop\requirements.txt"
     pause
     exit /b 1
 )
@@ -49,10 +49,20 @@ goto :run
 
 :venv_ok
 rem ---- Cek PyQt5; install kalau belum ada ----
+rem Jalur ini (venv sudah ada tapi PyQt5 hilang) TIDAK punya cek exit code,
+rem sementara jalur first-time di atas punya. venv parsial lalu menghasilkan
+rem raw Python traceback, bukan pesan actionable. Di PC sekolah di belakang
+rem proxy yang diblokir, tracecode itulah yang dilihat guru.
 "%VPY%" -c "import PyQt5" >nul 2>nul
 if errorlevel 1 (
     echo [INFO] PyQt5 belum terinstall, menginstall...
-    "%VPY%" -m pip install PyQt5 PyMuPDF --quiet
+    "%VPY%" -m pip install -r "%~dp0..\desktop\requirements.txt" --quiet
+    if errorlevel 1 (
+        echo [ERR] Gagal install dependencies. Coba manual:
+        echo       "%VPY%" -m pip install -r "%~dp0..\desktop\requirements.txt"
+        pause
+        exit /b 1
+    )
 )
 
 :run

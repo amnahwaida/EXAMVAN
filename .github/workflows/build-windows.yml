@@ -90,7 +90,7 @@ jobs:
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install PyQt5 PyMuPDF pyinstaller
+          pip install -r desktop/requirements.txt pyinstaller
 
       # Metadata exe dibuat runtime supaya Properties → Details di PC
       # siswa menyebut commit yang benar. Tanpa ini semua exe lokal
@@ -98,13 +98,20 @@ jobs:
       - name: Stamp version info
         shell: pwsh
         run: |
-          $tpl = Get-Content windows/installer/version_info.txt -Raw
-          $pv = "${{ steps.ver.outputs.app_version }} (build ${{ steps.ver.outputs.app_build }}, commit ${{ steps.ver.outputs.app_commit }})"
-          $tpl = $tpl -replace "(?<=StringStruct\('ProductVersion', ')[^']*", $pv
-          $tpl = $tpl -replace "(?<=StringStruct\('FileVersion', ')[^']*", "{{ steps.ver.outputs.app_version }}"
+          # Regex PowerShell hanya men-*patch* dua nilai StringStruct, jadi
+          # FixedFileInfo (filevers/prodvers) TIDAK PERNAH disentuh: biner
+          # setiap exe adalah 1.0.0.0 sementara ProductVersion 2.5.0. Build
+          # lokal punya masalah lebih parah lagi — tidak men-*patch* apa pun.
+          # build_info.py sekarang jadi satu-satunya implementasi aturan ini.
           New-Item -ItemType Directory -Force -Path windows\dist | Out-Null
-          Set-Content -Path windows/dist/version_info.txt -Value $tpl -Encoding UTF8
-          Get-Content windows/dist/version_info.txt | Select-Object -First 3
+          python windows/installer/build_info.py stamp `
+            windows/installer/version_info.txt `
+            windows/dist/version_info.txt `
+            --version "${{ steps.ver.outputs.app_version }}" `
+            --build "${{ steps.ver.outputs.app_build }}" `
+            --commit "${{ steps.ver.outputs.app_commit }}"
+          Get-Content windows/dist/version_info.txt | Select-String -Pattern 'vers='
+          Get-Content windows/dist/version_info.txt | Select-String -Pattern "StringStruct\('(File|Product)Version'"
 
       - name: Build EXAMVAN.exe with PyInstaller
         # KONVENSI OUTPUT: semua artifact di windows/dist/ — sama persis dengan
@@ -132,6 +139,7 @@ jobs:
             --hidden-import examvan.ui.timer `
             --hidden-import examvan.ui.pdf_viewer `
             --hidden-import examvan.ui.answer_sheet `
+            --hidden-import examvan.ui.fullscreen `
             --hidden-import examvan.ui.exam_viewer `
             --hidden-import examvan.ui.identity_dialog `
             --hidden-import examvan.ui.server_config `
@@ -175,13 +183,52 @@ jobs:
             -ArgumentList "/VERYSILENT","/SUPPRESSMSGBOXES","/NORESTART","/SP-" `
             -PassThru -Wait
           if ($p.ExitCode -ne 0) { throw "Install gagal, exit $($p.ExitCode)" }
+
+          # R1: instalasi SENYAP dulu menghapus admin_password.txt tanpa
+          # bersyarat, karena halaman password tidak pernah tampil saat
+          # /VERYSILENT. Supervisor lalu terkunci saat ujian berjalan, tanpa
+          # pesan dan tanpa exit code non-nol. Installer harus menulis file
+          # ini lebih dulu, lalu instalasi kedua harus MEMBIRARKANNYA utuh.
+          $pwFile = "$env:LOCALAPPDATA\EXAMVAN\admin_password.txt"
+          "rahasia-smoke-123" | Set-Content -Path $pwFile -NoNewline -Encoding UTF8
+          Write-Host "OK: password smoke test ditulis ke $pwFile"
           if (-not (Test-Path $target)) { throw "Install 'sukses' tapi $target tidak ada" }
           Write-Host "OK: EXAMVAN.exe ter-install di $target"
 
-          # Shortcut harus terbentuk (desktop + Start Menu)
+          # Upgrade senyap di atas password yang sudah ada.
+          $p2 = Start-Process -FilePath $setup `
+            -ArgumentList "/VERYSILENT","/SUPPRESSMSGBOXES","/NORESTART","/SP-" `
+            -PassThru -Wait
+          if ($p2.ExitCode -ne 0) { throw "Upgrade gagal, exit $($p2.ExitCode)" }
+          if (-not (Test-Path $pwFile)) {
+            Write-Host "::error::password hilang setelah upgrade senyap"
+            throw "instalasi senyap menghapus admin_password.txt"
+          }
+          $pwAfter = (Get-Content $pwFile -Raw).Trim()
+          if ($pwAfter -ne "rahasia-smoke-123") {
+            Write-Host "::error::password berubah setelah upgrade: '$pwAfter'"
+            throw "instalasi senyap menimpa admin_password.txt"
+          }
+          Write-Host "OK: password utuh setelah upgrade senyap"
+
+          # Shortcut harus terbentuk (desktop + Start Menu). Dulu ini hanya
+          # Write-Host "WARN: ..." — shortcut hilang tidak pernah menggagalkan
+          # build, padahal tanpa shortcut siswa di PC lab tidak bisa membuka
+          # aplikasi sama sekali.
           $desktopLnk = "$env:USERPROFILE\Desktop\EXAMVAN.lnk"
-          if (Test-Path $desktopLnk) { Write-Host "OK: shortcut desktop ada" }
-          else { Write-Host "WARN: shortcut desktop tidak ada (headless runner?)" }
+          if (-not (Test-Path $desktopLnk)) {
+            Write-Host "::error::shortcut desktop tidak terbentuk: $desktopLnk"
+            throw "shortcut desktop tidak terbentuk"
+          }
+          Write-Host "OK: shortcut desktop ada"
+          # Shortcut Start Menu juga — .iss:124-125 tidak pernah dicek.
+          $startLnk = Get-ChildItem "$env:APPDATA\Microsoft\Windows\Start Menu\Programs" `
+            -Filter "EXAMVAN.lnk" -Recurse -ErrorAction SilentlyContinue
+          if (-not $startLnk) {
+            Write-Host "::error::shortcut Start Menu tidak terbentuk"
+            throw "shortcut Start Menu tidak terbentuk"
+          }
+          Write-Host "OK: shortcut Start Menu ada"
 
           # EXAMVAN.exe harus benar-benar start. Kita tidak mau console
           # yang menggantung, jadi start -> tunggu -> kill, lalu cek
@@ -194,6 +241,38 @@ jobs:
             throw "EXAMVAN.exe crash saat start"
           }
           Write-Host "OK: EXAMVAN.exe hidup setelah 12 detik"
+
+          # "Hidup 12 detik" BUKAN bukti app bisa jalan. Dalam 12 detik itu
+          # yang terjadi hanya: dialog konfigurasi + Qt event loop. Tidak ada
+          # network request, tidak ada api.py, tidak ada ws.py/QtWebSockets,
+          # tidak ada pdf_viewer/fitz, tidak ada SecurityEnforcer. Semua
+          # komponen yang paling rawan rusak oleh kesalahan packaging tidak
+          # pernah dieksekusi.
+          #
+          # Yang bisa diassert tanpa jaringan adalah: app selesai menulis
+          # log error, yaitu _setup_logging() benar-benar jalan. Kegagalan
+          # lazy-import tidak terlihat dari exit code.
+          $logPath = "$env:USERPROFILE\.config\examvan\app.log"
+          if (-not (Test-Path $logPath)) {
+            Write-Host "::error::app.log tidak dibuat — logging belum terpasang?"
+            throw "app.log tidak ada setelah 12 detik"
+          }
+          $log = Get-Content $logPath -Raw
+          Write-Host "---- app.log ----"
+          Write-Host $log
+          Write-Host "-----------------"
+          if ($log -match "Traceback|ImportError|ModuleNotFoundError") {
+            Write-Host "::error::app.log berisi traceback"
+            throw "traceback di app.log — lazy import gagal"
+          }
+          # Bukti bahwa modul yang paling rawan benar-benar termuat.
+          foreach ($needle in @("PyQt5", "examvan")) {
+            if ($log -notmatch [regex]::Escape($needle)) {
+              Write-Host "::error::app.log tidak menyebut $needle — awal logging mungkin tidak jalan"
+              throw "app.log tidak menunjukkan inisialisasi yang diharapkan"
+            }
+          }
+          Write-Host "OK: app.log menunjukkan inisialisasi bersih"
 
           # Matikan SELURUH process tree, bukan cuma parent.
           # PyInstaller --onefile berjalan sebagai dua proses: bootloader
@@ -222,6 +301,15 @@ jobs:
               -ArgumentList "/VERYSILENT","/SUPPRESSMSGBOXES","/NORESTART" `
               -PassThru -Wait
             Write-Host "Uninstall exit: $($u.ExitCode)"
+            # Dulu exit code ini hanya di-log. Installer yang "sukses" tapi
+            # gagal uninstall akan lolos ke rilis.
+            if ($u.ExitCode -ne 0) {
+              Write-Host "::error::uninstaller exit $($u.ExitCode)"
+              throw "uninstaller gagal, exit $($u.ExitCode)"
+            }
+          } else {
+            Write-Host "::error::unins*.exe tidak ditemukan di folder install"
+            throw "uninstaller tidak ada"
           }
           # Beri uninstaller cukup waktu untuk melepas file lock.
           Start-Sleep -Seconds 3
@@ -232,6 +320,75 @@ jobs:
             throw "Uninstall tidak menghapus $target"
           }
           Write-Host "OK: uninstall bersih"
+
+      # Padanan job Linux (`ci.yml` "Verify package contents"). Selama ini
+      # tidak ada padanannya di Windows sama sekali, padahal paket .deb sudah
+      # beberapa kali terkirim tanpa notify.py / ws.py / security/base.py /
+      # ui/waiting_approval.py — kelas bug yang sudah TERBUKTI menggigit
+      # proyek ini. Job ini menutup kelas yang sama di Windows.
+      - name: Verify EXAMVAN.exe contents
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          $exe = "windows\dist\EXAMVAN.exe"
+          if (-not (Test-Path $exe)) { throw "exe tidak ada: $exe" }
+
+          # PyInstaller onefile = arsip; namodule ada di TOC. Baca langsung
+          # dari arsipnya, bukan dari source tree — yang diuji adalah apa
+          # yang benar-benar terpaket.
+          $names = python windows/installer/list_exe_modules.py $exe
+          if (-not $names) { throw "gagal membaca TOC dari $exe" }
+          Write-Host "Modul di dalam exe: $($names.Count)"
+
+          # Modul yang BISA gagal hanya di Windows: dipanggil dari UI, tidak
+          # diuji smoke test, dan punya binding ctypes.
+          $required = @(
+            "examvan",
+            "examvan.api",
+            "examvan.config",
+            "examvan.models",
+            "examvan.notify",
+            "examvan.utils",
+            "examvan.ws",
+            "examvan.ui.answer_sheet",
+            "examvan.ui.exam_viewer",
+            "examvan.ui.fullscreen",
+            "examvan.ui.identity_dialog",
+            "examvan.ui.pdf_viewer",
+            "examvan.ui.server_config",
+            "examvan.ui.timer",
+            "examvan.ui.waiting_approval",
+            "examvan.security.base",
+            "examvan.security.enforcer",
+            "examvan.security.windows_backend"
+          )
+          $missing = @()
+          foreach ($m in $required) {
+            if ($names -notcontains $m) { $missing += $m }
+          }
+          if ($missing.Count -gt 0) {
+            foreach ($m in $missing) { Write-Host "::error::modul hilang dari exe: $m" }
+            throw "exe tidak lengkap: $($missing -join ', ')"
+          }
+          Write-Host "OK: semua $($required.Count) modul wajib ada di dalam exe"
+
+          # Dependency native Qt yang dipakai runtime. Tanpa Qt5WebSockets.dll
+          # ws.py gagal saat dipakai — dan tidak ada yang menyentuh ws.py
+          # selama smoke test.
+          $toc = (python windows/installer/list_exe_modules.py --raw $exe) -join ""
+          foreach ($dll in @("Qt5WebSockets.dll", "Qt5Core.dll", "Qt5Gui.dll", "Qt5Widgets.dll")) {
+            if ($toc -notmatch [regex]::Escape($dll)) {
+              Write-Host "::error::DLL Qt tidak ter-bundle: $dll"
+              throw "DLL Qt hilang: $dll"
+            }
+          }
+          Write-Host "OK: DLL Qt ter-bundle"
+
+          #_bytecode mesin build tidak boleh bocor ke exe.
+          if ($names | Where-Object { $_ -match "__pycache__|\.pyc$" }) {
+            throw "bytecode mesin build bocor ke exe"
+          }
+          Write-Host "OK: exe bersih"
 
       - name: Checksums
         id: sums

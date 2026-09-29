@@ -50,6 +50,30 @@ if not exist "%APP_EXE%" (
 )
 for %%F in ("%APP_EXE%") do echo [OK]   Input : %%~nxF  (%%~zF bytes)
 
+rem ---- 1b. Tolak exe yang lebih tua dari source ------------------------
+rem Tanpa guard ini build hanya menguji -exist. Bukti di working tree:
+rem windows/dist/EXAMVAN.exe mtime 27 Sep, source terbaru 30 Sep —
+rem build hari itu mencetak BUILD SUCCESS dan mengemas kode 3 hari lalu
+rem untuk dibagikan ke siswa.
+set "PY=%~dp0..\desktop\.venv\Scripts\python.exe"
+if not exist "%PY%" set "PY=python"
+"%PY%" "%~dp0installer\check_exe_freshness.py" --exe "%APP_EXE%" --source "%~dp0..\desktop"
+if errorlevel 2 (
+    echo.
+    echo [ERR]  Tidak bisa memastikan EXAMVAN.exe segar.
+    echo.
+    pause
+    exit /b 1
+)
+if errorlevel 1 (
+    echo.
+    echo [ERR]  EXAMVAN.exe lebih tua dari source — build DIBATAS.
+    echo        Jalankan windows\build-exe.bat lebih dulu.
+    echo.
+    pause
+    exit /b 1
+)
+
 rem ---- 2. Cari ISCC.exe (Inno Setup) ----
 rem Urutan: PATH -> lokasi install umum -> registry. INI yang sering
 rem bikin script ini gagal "tidak ditemukan" padahal Inno Setup

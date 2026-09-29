@@ -154,9 +154,12 @@ Script auto buat venv + install deps saat pertama jalan.
 Tanpa ini, admin exit tidak bisa digunakan (fail-closed — tidak ada password
 fallback apa pun).
 
-**Cara tercepat (mode installer):** centang *"Konfigurasi password admin exit"*
-saat instalasi. Password disimpan di
-`%LOCALAPPDATA%\EXAMVAN\admin_password.txt`.
+**Cara tercepat (mode installer):** isi kolom *Password supervisor* di halaman
+**Password Admin Exit** — halamannya selalu tampil, tidak ada checkbox.
+Password disimpan di `%LOCALAPPDATA%\EXAMVAN\admin_password.txt`.
+
+> Instalasi senyap (`/VERYSILENT`) tidak menampilkan halaman itu. Password yang
+> sudah ada **tidak** akan terhapus; ia dibiarkan apa adanya.
 
 **Manual, di CMD** (env var menang atas file — cara lama tetap didukung):
 
@@ -340,8 +343,15 @@ dihapus pada 202 mentah.
 ## Uninstall
 
 **Mode installer (paling umum):** Settings → Apps → EXAMVAN → Uninstall.
-Installer menanyakan apakah folder data (`%LOCALAPPDATA%\EXAMVAN` — config,
-jawaban yang belum terkirim, `app.log`) ikut dihapus.
+Installer menanyakan apakah **kedua** folder data ini ikut dihapus:
+
+| Folder | Isi |
+|---|---|
+| `%LOCALAPPDATA%\EXAMVAN` | `admin_password.txt` saja |
+| `%USERPROFILE%\.config\examvan` | jawaban ujian yang belum terkirim, `config.json` (URL server, token, identitas), `app.log`, `windows_state.json` |
+
+Pilih **No** kalau masih ada jawaban yang belum terkirim — folder kedua
+adalah satu-satunya tempat jawaban itu disimpan.
 
 **Mode source:**
 

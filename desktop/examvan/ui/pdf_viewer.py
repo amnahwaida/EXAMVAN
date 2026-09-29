@@ -15,16 +15,40 @@ import fitz  # PyMuPDF
 
 @contextlib.contextmanager
 def _suppress_mupdf_warnings():
-    """Suppress harmless MuPDF diagnostic messages on stderr."""
-    devnull = open(os.devnull, "w")
-    old_stderr = os.dup(2)
+    """Silence MuPDF's own diagnostic output for the duration of the block.
+
+    Previously this redirected the PROCESS stderr file descriptor with
+    a `os.dup2()`-style redirect of file descriptor 2. That is global,
+    not thread-safe, and not
+    reentrant: two overlapping calls make the inner `finally` restore a file
+    descriptor that already points at devnull, and stderr is then lost for
+    the rest of the process. Nothing on the GUI thread should be writing to
+    fd 2, but a log line from any other thread during a page render would
+    simply disappear.
+
+    `fitz.TOOLS.mupdf_display_errors` is the supported switch and only
+    affects MuPDF's own output.
+    """
     try:
-        os.dup2(devnull.fileno(), 2)
+        import fitz as _fitz
+
+        tools = getattr(_fitz, "TOOLS", None)
+        previous = getattr(tools, "mupdf_display_errors", None) if tools else None
+        if tools is not None:
+            tools.mupdf_display_errors(False)
+    except Exception:
+        previous = None
+    try:
         yield
     finally:
-        os.dup2(old_stderr, 2)
-        os.close(old_stderr)
-        devnull.close()
+        try:
+            import fitz as _fitz
+
+            tools = getattr(_fitz, "TOOLS", None)
+            if tools is not None and previous is not None:
+                tools.mupdf_display_errors(previous)
+        except Exception:
+            pass
 
 
 from PyQt5.QtCore import Qt, QSize, QPoint

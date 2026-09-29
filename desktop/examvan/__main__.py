@@ -10,6 +10,9 @@ import sys
 from logging.handlers import RotatingFileHandler
 
 
+log = logging.getLogger(__name__)
+
+
 def _setup_logging() -> None:
     """Pasang file logging — satu-satunya jejak saat app error di lapangan.
 
@@ -41,26 +44,41 @@ def _setup_logging() -> None:
 
 
 def _maximize_window(widget, fullscreen: bool = False) -> None:
-    """Show a dialog/window, maximized — or fullscreen when asked.
+    """Show a dialog/window, maximized — or on the whole screen when asked.
 
-    `fullscreen=True` is for a strict exam window. It must NOT also call
+    `fullscreen=True` is for the exam window. It must NOT also call
     showMaximized(): that call overrides the fullscreen state the security
     enforcer had just set, and a strict exam ended up merely maximized
     (frameless and always-on-top, but not fullscreen) — which is not what
     "kiosk" is supposed to mean.
 
-    show() has to come before the state request because Qt ignores a state
-    change on a window that is still hidden.
+    Two details that are easy to get wrong and were both wrong in the field:
+
+    * The rect is `screen.geometry()` (the WHOLE screen, taskbar included),
+      not `availableGeometry()` (the work area). Using the work area for a
+      fullscreen window is what left the taskbar visible at the bottom.
+    * `showFullScreen()` runs BEFORE the geometry is forced. The exam window
+      arrives here already in the fullscreen state (the enforcer sets it from
+      the viewer constructor), so re-requesting the state is a no-op and only
+      the `setGeometry()` after it actually covers the screen. The other order
+      lets the state call pull the window back into the work area.
+
+    The non-fullscreen path is unchanged: dialogs keep `showMaximized()`.
     """
     from PyQt5.QtWidgets import QApplication
+
+    from .ui.fullscreen import fullscreen_geometry
+
     screen = QApplication.primaryScreen()
-    if screen:
-        geo = screen.availableGeometry()
-        widget.setGeometry(geo)
-    widget.show()
     if fullscreen:
+        widget.show()
         widget.showFullScreen()
+        if screen is not None:
+            widget.setGeometry(fullscreen_geometry(screen))
     else:
+        if screen is not None:
+            widget.setGeometry(screen.availableGeometry())
+        widget.show()
         widget.showMaximized()
     QApplication.processEvents()
 
@@ -128,10 +146,15 @@ def main() -> None:
 
     app = QApplication(sys.argv)
     app.setApplicationName("EXAMVAN")
-    app.setApplicationVersion("1.0.0")
+    # Dari APP_VERSION, bukan literal: literal ketiga yang tidak terhubung
+    # ke mana pun adalah alasan Properties exe dan installer pernah
+    # melaporkan nomor berbeda.
+    from . import APP_VERSION
+    app.setApplicationVersion(APP_VERSION)
     app.setOrganizationName("EXAMVAN")
 
     # Apply theme (auto-detect system dark/light mode)
+    from . import config
     from .ui.styles import is_system_dark, apply_theme
     apply_theme(dark=is_system_dark())
 
@@ -155,6 +178,19 @@ def main() -> None:
         _maximize_window(waiting_dlg)
         
         if waiting_dlg.exec_() != QDialog.Accepted:
+            # Siswa membatalkan / ditolak. Dialog konfigurasi kembali — dan
+            # tombol "Hubungkan" HARUS dihidupkan lagi.
+            #
+            # `_on_connect` men-disable tombol itu, dan jalur sukses hanya
+            # meng-emit `_sig_show_identity` — tidak pernah `_sig_enable_btn`.
+            # Jadi tanpa baris di bawah, dialog muncul kembali dengan tombol
+            # masih mati: tidak ada cancel, tidak ada reset, tidak ada jalan
+            # lain kecuali menutup aplikasi. Meminta izin lagi dari dialog
+            # persetujuan mustahil karena dialog itu sudah tertutup.
+            try:
+                dialog.enable_connect()
+            except Exception:
+                log.warning("could not re-enable connect button", exc_info=True)
             dialog.show()
             _maximize_window(dialog)
             return
@@ -170,16 +206,30 @@ def main() -> None:
         def _on_viewer_closed():
             viewer.close()
             windows.clear()
-            # Clear saved token so user must re-enter for next exam
+            # Token DAN identitas harus dibersihkan.
+            #
+            # Hanya token yang pernah dibersihkan, dan itu justru menyisakan
+            # kebocoran yang lebih buruk: `identity_data` dibaca lagi di
+            # ServerConfigDialog._show_identity_dialog lalu dipakai untuk
+            # MENGISI form IdentityDialog. Siswa berikutnya akan mendapat
+            # form terisi nama siswa sebelumnya dan bisa menekan Enter untuk
+            # menjawab atas nama orang itu. Tanpa dialog, tanpa warning,
+            # tanpa log. Lihat review_windows_2026-09-30.md Bagian 1.
             dialog.input_token.clear()
+            try:
+                config.clear_identity()
+            except Exception:
+                log.warning("could not clear stored identity", exc_info=True)
             _maximize_window(dialog)
 
         viewer.closed.connect(_on_viewer_closed)
         windows.append(viewer)
-        # A strict exam owns the screen. Passing fullscreen here (instead of
-        # letting _maximize_window maximize) keeps the enforcer's
-        # showFullScreen() from being undone moments after it was set.
-        _maximize_window(viewer, fullscreen=viewer.is_strict)
+        # The exam window owns the WHOLE screen, in every security level.
+        # Previously this was `fullscreen=viewer.is_strict`, so a medium or
+        # low exam was merely maximized and the taskbar stayed visible — and
+        # for strict it was still wrong, because _maximize_window used the
+        # work area as the fullscreen rect. See examvan.ui.fullscreen.
+        _maximize_window(viewer, fullscreen=True)
 
     dialog = ServerConfigDialog(kiosk_mode=kiosk)
     dialog.exam_selected.connect(on_exam_selected)

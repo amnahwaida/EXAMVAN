@@ -7,14 +7,11 @@ and dark mode detection — all via ctypes (no pywin32 needed).
 
 from __future__ import annotations
 
-import hashlib
 import json
 import logging
-import socket
 import sys
 import threading
 import time
-import uuid
 from pathlib import Path
 from ctypes import (
     CFUNCTYPE,
@@ -795,15 +792,22 @@ class WindowsBackend(SecurityBackend):
     # ------------------------------------------------------------------
 
     def get_mac_address(self) -> str:
-        mac = uuid.getnode()
-        return ":".join(f"{(mac >> i) & 0xFF:02X}" for i in range(40, -1, -8))
+        # Delegate, don't reimplement. This used to be a second, independent
+        # copy of the same SHA256(MAC:hostname) logic, which meant two
+        # implementations of the exam device identity in one repo and two
+        # answers that could differ. See utils.get_device_label().
+        from ..utils import get_mac_address
+
+        return get_mac_address()
 
     def get_device_label(self) -> str:
-        mac = self.get_mac_address()
-        hostname = socket.gethostname()
-        raw = f"{mac}:{hostname}"
-        dev_id = hashlib.sha256(raw.encode()).hexdigest()[:32]
-        return f"DESKTOP:{dev_id}"
+        # Single source of truth: examvan.utils.get_device_label(), which
+        # caches for the process lifetime. This label keys the PDF approval
+        # gate, request-approval, submit, and presence — they must not be
+        # able to disagree.
+        from ..utils import get_device_label
+
+        return get_device_label()
 
     # ------------------------------------------------------------------
     # Theme detection

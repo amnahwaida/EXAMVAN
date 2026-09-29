@@ -48,6 +48,19 @@ class WaitingApprovalDialog(QDialog):
         # di Android).
         self.mac_address = get_device_label()
         self.is_waiting = True
+        # Stop token untuk thread poll.
+        #
+        # `is_waiting` dulu dipakai ganda: sebagai kondisi loop DAN sebagai
+        # perintah berhenti. Itu causes race saat "Minta Izin Lagi": status
+        # "rejected" menyetelnya False, tapi thread lama masih di
+        # time.sleep(5). Kalau siswa menekan retry sebelum thread itu bangun,
+        # is_waiting=True lagi dan thread lama melanjutkan loop-nya — dua
+        # poller request-approval berjalan bersamaan untuk satu siklus
+        # persetujuan, yang satu reset=True dan yang lain reset=False.
+        # Event terpisah membuat "berhenti" irreversible, jadi tidak ada
+        # jalan bagi loop lama untuk hidup kembali.
+        self._poll_stop = threading.Event()
+        self._poll_thread_obj: Optional[threading.Thread] = None
 
         self._sig_status.connect(self._on_status_update)
 
@@ -114,11 +127,27 @@ class WaitingApprovalDialog(QDialog):
         layout.addStretch(1)
 
     def _start_polling(self):
-        threading.Thread(target=self._poll_thread, daemon=True).start()
+        # Hanya boleh ada SATU poller. Kalau ada yang masih hidup, hentikan
+        # dulu dan tunggu — kalau tidak, retry akan menghasilkan dua thread
+        # yang keduanya memanggil request-approval.
+        self._stop_polling()
+        self._poll_stop.clear()
+        self._poll_thread_obj = threading.Thread(
+            target=self._poll_thread, daemon=True
+        )
+        self._poll_thread_obj.start()
+
+    def _stop_polling(self, timeout: float = 2.0) -> None:
+        """Set stop token lalu tunggu thread poll benar-benar berhenti."""
+        self._poll_stop.set()
+        thread = self._poll_thread_obj
+        if thread is not None and thread.is_alive():
+            thread.join(timeout=timeout)
+        self._poll_thread_obj = None
 
     def _poll_thread(self):
         first_check = True
-        while self.is_waiting:
+        while not self._poll_stop.is_set():
             resp = api.request_approval(
                 self.server_url,
                 self.exam.id,
@@ -132,7 +161,7 @@ class WaitingApprovalDialog(QDialog):
             )
             first_check = False
 
-            if not self.is_waiting:
+            if self._poll_stop.is_set():
                 break
 
             if not resp.success and resp.status == "pending" and resp.message:
@@ -148,7 +177,9 @@ class WaitingApprovalDialog(QDialog):
                 else:
                     self._sig_status.emit("pending", "Menunggu Persetujuan", "Silakan tunggu pengawas menyetujui akses Anda.")
 
-            time.sleep(5)
+            # `wait()` supaya tombol Batal / "Minta Izin Lagi" bisa
+            # menghentikan thread tanpa menunggu 5 detik penuh.
+            self._poll_stop.wait(5)
 
     @pyqtSlot(str, str, str)
     def _on_status_update(self, status_type: str, title: str, message: str):
@@ -174,6 +205,8 @@ class WaitingApprovalDialog(QDialog):
             self.btn_cancel.setText("Batal")
 
     def _retry_approval(self):
+        # Stop dulu yang lama, baru buka yang baru — lihat _start_polling.
+        self._stop_polling()
         self.is_waiting = True
         self.btn_retry.hide()
         self.btn_cancel.setText("Batal")
@@ -184,4 +217,12 @@ class WaitingApprovalDialog(QDialog):
 
     def reject(self):
         self.is_waiting = False
+        self._stop_polling()
         super().reject()
+
+    def closeEvent(self, event) -> None:
+        # Menutup dialog dengan cara lain (Alt+F4, task manager, WM close)
+        # harus meninggalkan thread poll yang sedang berjalan, kalau tidak
+        # ia tetap calls request-approval untuk exam yang sudah ditinggalkan.
+        self._stop_polling()
+        super().closeEvent(event)

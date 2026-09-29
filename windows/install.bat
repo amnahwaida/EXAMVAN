@@ -70,7 +70,7 @@ if errorlevel 1 (
     pause
     exit /b 1
 )
-"%VPY%" -m pip install PyQt5 PyMuPDF
+"%VPY%" -m pip install -r "%~dp0..\desktop\requirements.txt"
 if errorlevel 1 (
     echo [ERR]  Gagal install dependencies. Pesan error di atas.
     echo        - Kalau ada "No matching distribution": jaringan memblokir pypi.org

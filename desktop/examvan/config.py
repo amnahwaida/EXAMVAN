@@ -194,3 +194,25 @@ def mark_submitted(exam_id: int) -> None:
 def is_submitted(exam_id: int) -> bool:
     """True bila perangkat ini sudah mengumpulkan ujian [exam_id]."""
     return bool(get(f"submitted_{exam_id}", False))
+
+
+def clear_identity() -> None:
+    """Hapus identitas siswa yang tersimpan.
+
+    WAJIB dipanggil saat jendela ujian ditutup, di samping
+    `ServerConfigDialog.input_token.clear()`.
+
+    Kenapa: `identity_data` dibaca lagi di
+    `ServerConfigDialog._show_identity_dialog` (`:356`) lalu dipakai untuk
+    MENGISI form `IdentityDialog`. Kalau tidak dihapus, siswa berikutnya
+    mendapat form yang sudah terisi nama siswa sebelumnya, dan karena
+    `last_input.returnPressed` terikat ke submit, dia bisa menekan Enter
+    tanpa membaca apa pun — jawabannya lalu tercatat atas nama orang lain.
+    Tidak ada dialog, tidak ada warning, tidak ada log.
+
+    Dulu fungsi ini tidak ada sama sekali: yang dibersihkan hanya token,
+    padahal yang paling sensitif justru identitas. Lihat
+    review_windows_2026-09-30.md Bagian 1.
+    """
+    set("identity_data", {})
+

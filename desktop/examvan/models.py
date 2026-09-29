@@ -158,6 +158,32 @@ class SubmitResponse:
     job_id: Optional[str] = None
     score: Optional[float] = None
     congrats_message: Optional[str] = None
+    # HTTP status when the request actually completed. None means the request
+    # never got a response (network down, DNS, timeout), which is retryable.
+    http_status: Optional[int] = None
+
+    @property
+    def retryable(self) -> bool:
+        """True when sending the exact same payload again could still work.
+
+        Retryable: no HTTP response at all (network down, DNS, timeout),
+        408 Request Timeout, 429 Too Many Requests, and any 5xx.
+
+        Not retryable: everything the server actually answered. A 4xx is it
+        saying "this request is wrong" — a missing or stale token, an unknown
+        exam, a duplicate — and repeating it changes nothing. A completed 2xx
+        or 3xx that still reports failure is a server-side verdict, not a
+        hiccup.
+
+        submit_with_retry used to retry unconditionally, which turned a 401
+        into seven seconds of "percobaan 2/4... 3/4... 4/4..." followed by the
+        same failure.
+        """
+        if self.http_status is None:
+            return True
+        if self.http_status in (408, 429):
+            return True
+        return self.http_status >= 500
 
     @classmethod
     def from_json(cls, data: Dict[str, Any]) -> "SubmitResponse":

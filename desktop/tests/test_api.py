@@ -39,6 +39,7 @@ class SubmitExamQueuedTest(unittest.TestCase):
                 answers={"1": "A"},
                 start_time="2026-08-16T07:00:00Z",
                 mac_address="DESKTOP:abcd1234",
+                token="ABCD1234",
             )
         mk.assert_called_once()
         self.assertTrue(resp.success)
@@ -57,6 +58,7 @@ class SubmitExamQueuedTest(unittest.TestCase):
                 answers={"1": "A"},
                 start_time="2026-08-16T07:00:00Z",
                 mac_address="DESKTOP:abcd1234",
+                token="ABCD1234",
             )
         self.assertTrue(resp.success)
         self.assertEqual(resp.status, None)
@@ -80,6 +82,7 @@ class SubmitExamQueuedTest(unittest.TestCase):
                 answers={"1": "A"},
                 start_time="2026-08-16T07:00:00Z",
                 mac_address="DESKTOP:abcd1234",
+                token="ABCD1234",
             )
         self.assertEqual(resp.congrats_message, "Selamat! Kamu hebat!")
 
@@ -95,6 +98,7 @@ class SubmitExamQueuedTest(unittest.TestCase):
                 answers={"1": "A"},
                 start_time="2026-08-16T07:00:00Z",
                 mac_address="DESKTOP:abcd1234",
+                token="ABCD1234",
             )
         self.assertIsNone(resp.congrats_message)
 

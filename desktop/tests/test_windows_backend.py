@@ -24,6 +24,7 @@ import unittest
 from pathlib import Path
 from unittest import mock
 
+import examvan.utils as utils
 import examvan.security.windows_backend as wb
 
 
@@ -324,14 +325,23 @@ class ScreenSaverStateTestCase(unittest.TestCase):
 
 
 class DeviceLabelTestCase(unittest.TestCase):
-    """Device identity must not need the Win32 layer either."""
+    """Device identity must not need the Win32 layer either.
+
+    The mocks target `examvan.utils`, not this module: `get_device_label`
+    delegates there instead of keeping a second copy of the
+    SHA256(MAC:hostname) logic. Two implementations of the exam device
+    identity is exactly what review_windows_2026-09-30.md Bagian 5 flagged.
+    """
+
+    def setUp(self):
+        utils.reset_device_label_cache()
+        self.addCleanup(utils.reset_device_label_cache)
 
     def test_device_label_shape(self):
         with mock.patch.object(
-            wb.socket, "gethostname", return_value="LAB-PC-01"
+            utils.socket, "gethostname", return_value="LAB-PC-01"
         ), mock.patch.object(
-            wb.WindowsBackend, "get_mac_address",
-            return_value="AA:BB:CC:DD:EE:FF",
+            utils, "get_mac_address", return_value="AA:BB:CC:DD:EE:FF"
         ):
             label = wb.WindowsBackend().get_device_label()
         self.assertTrue(label.startswith("DESKTOP:"))

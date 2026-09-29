@@ -8,12 +8,15 @@ from __future__ import annotations
 import hashlib
 import platform
 import socket
-import subprocess
 import uuid
 from pathlib import Path
 from typing import Dict, Optional
 
 from PyQt5.QtWidgets import QApplication
+
+# Cached device label — see get_device_label() for why it must be stable for
+# the whole process, not just per call.
+_device_label_cache: Optional[str] = None
 
 
 def map_identity_to_standard(identity_data: Dict[str, str]) -> Dict[str, str]:
@@ -55,11 +58,21 @@ def map_identity_to_standard(identity_data: Dict[str, str]) -> Dict[str, str]:
             result["student_class"] = val
             assigned.add(val)
 
-    # 2. Fill remaining standard keys from unmatched fields in order
-    remaining = [val for _, val in items if val not in assigned]
-    for std_key in ("student_name", "exam_number", "student_class"):
-        if std_key not in result and remaining:
-            result[std_key] = remaining.pop(0)
+    # 2. Sisa field yang TIDAK terpetakan TIDAK boleh dipaksakan ke slot
+    #    standar.
+    #
+    #    Dulu: `for std_key in (...): if std_key not in result and
+    #    remaining: result[std_key] = remaining.pop(0)` — nilai yang tidak
+    #    cocok keyword apa pun diisi ke slot identitas menurut urutan dict.
+    #    Terbukti: {'nama','kelas','tanggal_lahir'} -> exam_number =
+    #    '2010-05-05'. Tanggal lahir tercatat sebagai nomor ujian, tanpa
+    #    error dan tanpa log.
+    #
+    #    Sekarang slot yang tidak terpetakan dibiarkan kosong supaya sisi
+    #    server menolak dengan pesan yang bisa dibaca guru
+    #    (`exams.go` "Identitas '%s' wajib diisi", HTTP 400). Satu data
+    #    salah diam-diam lebih buruk daripada satu error yang jelas, dan
+    #    menebak di client justru menghapus satu-satunya sinyal itu.
 
     # Remove empty values — Go backend rejects empty student_name/number/class
     return {k: v for k, v in result.items() if v}
@@ -96,65 +109,29 @@ def get_device_id() -> str:
 
 
 def get_device_label() -> str:
-    """Return 'DESKTOP:<device_id>' (universal label for desktop clients)."""
-    return f"DESKTOP:{get_device_id()}"
+    """Return 'DESKTOP:<device_id>' (universal label for desktop clients).
+
+    Cached for the lifetime of the process. This label is not cosmetic — it
+    is the key in four places: `X-Device-Id` for the PDF download, and
+    `mac_address` for request-approval, submit, and presence. If it changed
+    mid-session the PDF gate would stop matching the approval row (no
+    download), and the stale approval would never be revoked — which is
+    exactly the failure the comment in `api.download_pdf` (:155-160)
+    describes happening when the two call sites used different identities.
+
+    Caching removes the whole class of problem: there is now nothing that
+    can make the four call sites disagree. It also insulates the session
+    from `uuid.getnode()` changing under us, which on Windows 10/11 it can
+    (randomized MAC addresses, and it returns whichever adapter enumerates
+    first on a machine with Wi-Fi + Ethernet + Bluetooth + VPN).
+    """
+    global _device_label_cache
+    if _device_label_cache is None:
+        _device_label_cache = f"DESKTOP:{get_device_id()}"
+    return _device_label_cache
 
 
-def clear_clipboard() -> None:
-    """Clear system clipboard via Qt and platform fallback tools."""
-    try:
-        app = QApplication.instance()
-        if app:
-            app.clipboard().clear()
-    except Exception:
-        pass
-
-    # Platform-specific tools
-    if platform.system() == "Windows":
-        _clear_clipboard_windows()
-    else:
-        _clear_clipboard_x11()
-
-
-def _clear_clipboard_x11() -> None:
-    """Clear clipboard via X11 tools (xsel/xclip)."""
-    for tool, args in [
-        ("xsel", ["--clipboard", "--delete"]),
-        ("xclip", ["-selection", "clipboard", "-i", "/dev/null"]),
-    ]:
-        try:
-            subprocess.run(
-                [tool] + args,
-                stdout=subprocess.DEVNULL,
-                stderr=subprocess.DEVNULL,
-                timeout=2,
-            )
-            return
-        except (FileNotFoundError, subprocess.TimeoutExpired):
-            continue
-
-
-def _clear_clipboard_windows() -> None:
-    """Clear clipboard via Win32 API."""
-    try:
-        import ctypes
-        from ctypes.wintypes import HWND
-        user32 = ctypes.windll.user32
-        if user32.OpenClipboard(HWND(0)):
-            user32.EmptyClipboard()
-            user32.CloseClipboard()
-    except Exception:
-        pass
-
-
-def clear_clipboard_wl() -> None:
-    """Clear clipboard on Wayland via wl-copy."""
-    try:
-        subprocess.run(
-            ["wl-copy", "--clear"],
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
-            timeout=2,
-        )
-    except (FileNotFoundError, subprocess.TimeoutExpired):
-        pass
+def reset_device_label_cache() -> None:
+    """Drop the cached device label. For tests only."""
+    global _device_label_cache
+    _device_label_cache = None

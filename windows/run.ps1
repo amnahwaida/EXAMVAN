@@ -48,11 +48,11 @@ if (-not (Test-Path $VenvPython)) {
     }
     Write-Info "Menginstall PyQt5 + PyMuPDF..."
     & $VenvPython -m pip install --upgrade pip --quiet
-    & $VenvPython -m pip install PyQt5 PyMuPDF --quiet
+    & $VenvPython -m pip install -r (Join-Path $ProjectRoot "desktop\requirements.txt") --quiet
     if ($LASTEXITCODE -ne 0) {
         Write-Err "Gagal install dependencies"
         Write-Host "Coba install manual:"
-        Write-Host "  $VenvPython -m pip install PyQt5 PyMuPDF"
+        Write-Host "  $VenvPython -m pip install -r (Join-Path $ProjectRoot "desktop\requirements.txt")"
         pause
         exit 1
     }
@@ -68,7 +68,17 @@ if (-not (Test-Path $VenvPython)) {
 & $VenvPython -c "import PyQt5"
 if ($LASTEXITCODE -ne 0) {
     Write-Info "PyQt5 belum terinstall / gagal load, menginstall..."
-    & $VenvPython -m pip install PyQt5 PyMuPDF --quiet
+    & $VenvPython -m pip install -r (Join-Path $ProjectRoot "desktop\requirements.txt") --quiet
+    # Jalur ini sebelumnya TIDAK mengecek exit code, sementara jalur
+    # first-time di atas flicked. venv parsial lalu menghasilkan raw
+    # traceback, bukan pesan yang bisa ditindaklanjuti.
+    if ($LASTEXITCODE -ne 0) {
+        Write-Err "Gagal install dependencies"
+        Write-Host "Coba install manual:"
+        Write-Host "  $VenvPython -m pip install -r (Join-Path $ProjectRoot " + '"desktop\requirements.txt"' + ")"
+        pause
+        exit 1
+    }
 }
 
 # ---- Jalankan ----

@@ -138,6 +138,7 @@ for required in \
     examvan/security/kiosk.py \
     examvan/security/x11.py \
     examvan/ui/exam_viewer.py \
+    examvan/ui/fullscreen.py \
     examvan/ui/server_config.py \
     examvan/ui/waiting_approval.py
 do

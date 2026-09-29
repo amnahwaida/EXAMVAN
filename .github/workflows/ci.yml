@@ -132,7 +132,7 @@ jobs:
           DEB=$(ls desktop/dist/examvan-linux_*.deb)
           echo "Package: $DEB"
           listing="$(dpkg-deb -c "$DEB")"
-          for m in notify.py ws.py security/base.py security/linux_backend.py ui/waiting_approval.py; do
+          for m in notify.py ws.py security/base.py security/linux_backend.py ui/waiting_approval.py ui/fullscreen.py; do
             echo "$listing" | grep -qF "./opt/examvan/examvan/$m" \
               || { echo "::error::modul hilang dari paket: $m"; exit 1; }
             echo "OK  $m"

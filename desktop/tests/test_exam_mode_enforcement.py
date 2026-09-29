@@ -374,25 +374,52 @@ class ViewerCloseGateTestCase(unittest.TestCase):
             self._send_window_state_change(win)
         fs.assert_called_once()
 
-    def test_strict_exam_already_fullscreen_is_left_alone(self):
+    def test_exam_already_covering_the_screen_is_left_alone(self):
         # Guards against a showFullScreen() -> WindowStateChange ->
         # showFullScreen() feedback loop.
+        #
+        # BOTH conditions must hold: the fullscreen state AND the real
+        # geometry. Testing only isFullScreen() is what let the broken
+        # layout look healthy — the state stayed True while the window sat
+        # in the work area with the taskbar showing. See
+        # examvan.ui.fullscreen.
         win = self._make_window(LEVEL_HIGH)
+        app = QApplication.instance()
         with mock.patch.object(
             type(win), "isFullScreen", return_value=True
+        ), mock.patch.object(
+            type(win), "frameGeometry", return_value=app.primaryScreen().geometry()
         ), mock.patch.object(win, "showFullScreen") as fs:
             self._send_window_state_change(win)
         fs.assert_not_called()
 
-    def test_non_strict_exam_is_not_forced_fullscreen(self):
-        for level in (LEVEL_MEDIUM, LEVEL_LOW):
+    def test_state_flag_alone_does_not_count_as_covered(self):
+        # The exact field failure: isFullScreen() says True, the window does
+        # not fill the screen, and nothing repairs it.
+        app = QApplication.instance()
+        work_area = app.primaryScreen().availableGeometry()
+        work_area.setHeight(work_area.height() - 40)
+        win = self._make_window(LEVEL_HIGH)
+        with mock.patch.object(
+            type(win), "isFullScreen", return_value=True
+        ), mock.patch.object(
+            type(win), "frameGeometry", return_value=work_area
+        ), mock.patch.object(win, "showFullScreen") as fs:
+            self._send_window_state_change(win)
+        fs.assert_called_once()
+
+    def test_every_level_keeps_the_window_on_the_whole_screen(self):
+        # Changed on purpose: the exam window used to be fullscreen only for
+        # strict, so a medium or low exam was merely maximized with the
+        # taskbar visible. Reported as "semua mode bermasalah".
+        for level in (LEVEL_LOW, LEVEL_MEDIUM, LEVEL_HIGH):
             with self.subTest(level=level):
                 win = self._make_window(level)
                 with mock.patch.object(
                     type(win), "isFullScreen", return_value=False
                 ), mock.patch.object(win, "showFullScreen") as fs:
                     self._send_window_state_change(win)
-                fs.assert_not_called()
+                fs.assert_called_once()
 
     @staticmethod
     def _send_window_state_change(win):

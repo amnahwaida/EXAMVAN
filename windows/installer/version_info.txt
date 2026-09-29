@@ -4,18 +4,25 @@
 #   Windows Explorer -> properties EXAMVAN.exe -> tab "Details"
 #   Add/Remove Programs (kalau lewat EXAMVAN-Setup.exe)
 #
-# Dipakai build-exe.bat, build-exe.ps1, dan CI. Nilai VersionInfoVersion
-# sengaja dibiarkan 1.0.0 — angka build/commit yang berubah tiap commit
-# dipolekan CI lewat langkah "stamp version info" (lihat
-# .github/workflows/build-windows.yml), jadi file ini tetap statis.
+# Dipakai build-exe.bat, build-exe.ps1, dan CI. SEMUA field versi di bawah
+# (FixedFileInfo filevers/prodvers DAN StringStruct FileVersion/
+# ProductVersion) di-stamp oleh `build_info.py stamp` sebelum PyInstaller
+# dipanggil.
+#
+# Default di sini sengaja SAMA dengan APP_VERSION, bukan 1.0.0: file ini
+# pernah tidak pernah di-stamp untuk FixedFileInfo, jadi setiap exe punya
+# biner 1.0.0.0 sementara ProductVersion 2.5.0. Default yang salah membuat
+# build yang melewatkan stamping tetap berlabel versi yang tidak pernah
+# ada. Satu-satunya tempat yang boleh diubah: baris APP_VERSION di
+# desktop/examvan/__init__.py.
 #
 # Format: sintaks Python VERSIONINFO resource, bukan JSON.
 # 0421 = Indonesian (LCID 1057), 04B0 = Unicode codepage.
 
 VSVersionInfo(
   ffi=FixedFileInfo(
-    filevers=(1, 0, 0, 0),
-    prodvers=(1, 0, 0, 0),
+    filevers=(2, 5, 0, 0),
+    prodvers=(2, 5, 0, 0),
     mask=0x3f,
     flags=0x0,
     OS=0x40004,
@@ -31,11 +38,11 @@ VSVersionInfo(
           [
             StringStruct('CompanyName', 'EXAMVAN'),
             StringStruct('FileDescription', 'EXAMVAN - Aplikasi Ujian Digital'),
-            StringStruct('FileVersion', '1.0.0'),
+            StringStruct('FileVersion', '2.5.0'),
             StringStruct('InternalName', 'EXAMVAN'),
             StringStruct('OriginalFilename', 'EXAMVAN.exe'),
             StringStruct('ProductName', 'EXAMVAN'),
-            StringStruct('ProductVersion', '1.0.0')
+            StringStruct('ProductVersion', '2.5.0')
           ]
         )
       ]

@@ -52,7 +52,7 @@ rem ---- Dependencies ----
 echo [INFO] Menginstall PyQt5 + PyMuPDF + PyInstaller...
 "%VPY%" -m pip install --upgrade pip --quiet
 if errorlevel 1 goto :pipfail
-"%VPY%" -m pip install PyQt5 PyMuPDF pyinstaller --quiet
+"%VPY%" -m pip install -r "%~dp0..\desktop\requirements.txt" pyinstaller --quiet
 if errorlevel 1 goto :pipfail
 echo [OK]   Dependencies siap.
 goto :build
@@ -60,7 +60,7 @@ goto :build
 :pipfail
 echo [ERR]  Gagal install dependencies. Cek koneksi internet / proxy kantor.
 echo        Coba manual tanpa --quiet untuk melihat error:
-echo        "%VPY%" -m pip install PyQt5 PyMuPDF pyinstaller
+echo        "%VPY%" -m pip install -r "%~dp0..\desktop\requirements.txt" pyinstaller
 pause
 exit /b 1
 
@@ -71,10 +71,24 @@ if not exist "%OUTPUT_DIR%" mkdir "%OUTPUT_DIR%"
 rem Entry point = desktop\main.py stub, BUKAN examvan\__main__.py:
 rem PyInstaller menjalankan file entry sebagai script lepas, sedangkan
 rem __main__.py memakai relative import yang crash saat exe dijalankan.
-rem --add-data relatif ke CWD, jadi CWD wajib folder desktop\.
 rem --version-file memberi metadata versi/commit di Properties exe.
 rem File yang sama dipakai build-setup.bat/.ps1 + CI, jadi Properties
 rem di explorer konsisten antara build lokal dan build runner.
+rem ---- Stamp version info ------------------------------------------------
+rem SEBELUMNYA build lokal mengirim version_info.txt apa adanya, jadi
+rem Properties exe selalu 1.0.0.0 dan tidak membawa build/commit. CI
+rem men-*patch* dua nilai StringStruct dengan regex PowerShell, tapi
+rem (a) FixedFileInfo tidak pernah disentuh dan (b) tidak ada yang
+rem menjalankan kode yang sama. Sekarang keduanya lewat build_info.py.
+if not exist "%OUTPUT_DIR%" mkdir "%OUTPUT_DIR%"
+"%VPY%" "%~dp0installer\build_info.py" stamp ^
+    "%~dp0installer\version_info.txt" ^
+    "%OUTPUT_DIR%\version_info.txt"
+if errorlevel 1 (
+    echo [ERR] Gagal men-stamp version info.
+    exit /b 1
+)
+
 pushd "%SOURCE_DIR%"
 "%VPY%" -m PyInstaller ^
     --onefile ^
@@ -83,7 +97,7 @@ pushd "%SOURCE_DIR%"
     --distpath "%OUTPUT_DIR%" ^
     --specpath "%OUTPUT_DIR%" ^
     --workpath "%OUTPUT_DIR%\build" ^
-    --version-file "..\windows\installer\version_info.txt" ^
+    --version-file "..\dist\version_info.txt" ^
     --hidden-import examvan ^
     --hidden-import examvan.security ^
     --hidden-import examvan.ui ^
@@ -91,6 +105,7 @@ pushd "%SOURCE_DIR%"
     --hidden-import examvan.ui.timer ^
     --hidden-import examvan.ui.pdf_viewer ^
     --hidden-import examvan.ui.answer_sheet ^
+    --hidden-import examvan.ui.fullscreen ^
     --hidden-import examvan.ui.exam_viewer ^
     --hidden-import examvan.ui.identity_dialog ^
     --hidden-import examvan.ui.server_config ^
@@ -100,7 +115,6 @@ pushd "%SOURCE_DIR%"
     --exclude-module examvan.security.x11 ^
     --exclude-module examvan.security.linux_backend ^
     --exclude-module examvan.security.kiosk ^
-    --add-data "examvan;examvan" ^
     main.py
 set "RC=%ERRORLEVEL%"
 popd

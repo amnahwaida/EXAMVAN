@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Any, Dict, List, Optional
 
-from PyQt5.QtCore import Qt, pyqtSignal
+from PyQt5.QtCore import QEvent, QObject, Qt, pyqtSignal
 from PyQt5.QtWidgets import (
     QButtonGroup,
     QCheckBox,
@@ -20,6 +20,72 @@ from PyQt5.QtWidgets import (
 )
 
 
+class _PopupWheelGuard(QObject):
+    """Keep the scroll area still while a combo popup is open.
+
+    A QComboBox popup is a separate top-level window, so it is NOT part of the
+    QScrollArea hierarchy that holds the answer sheet. A wheel event that lands
+    on the combo is not consumed by the combo either, so it keeps travelling up
+    the hierarchy and scrolls the SHEET instead of the option list.
+
+    The consequence, reported from Windows on 30 September 2026: the combo
+    slid away, the popup stayed where it was (it is not a child of the scroll
+    area, so it does not move with it), and the option list appeared to vanish
+    at the exact moment the student was choosing. With a long right-hand column
+    the options below the fold were unreachable that way too.
+
+    While the popup is open this filter:
+
+      * consumes the wheel event (returns True), so Qt stops at the combo and
+        the scroll area never moves; and
+      * applies the wheel delta to the popup's own scrollbar, so a long list is
+        still navigable.
+
+    The filter is installed on the combo AND on the popup view, because the two
+    are not the same delivery path: depending on whether the popup has taken
+    the mouse grab, a wheel lands on one or the other, and both must be covered.
+
+    With the popup closed it returns False and everything behaves exactly as
+    before — the wheel scrolls the answer sheet again. Non-wheel events are
+    always passed through; a filter that swallowed them would make the combo
+    unusable.
+    """
+
+    def __init__(self, combo: QComboBox, parent=None):
+        super().__init__(parent)
+        self._combo = combo
+
+    def _popup_is_open(self) -> bool:
+        view = self._combo.view()
+        # The popup container is the view's top-level window; the view itself
+        # stays "visible" as a child of it, so isVisible() on the view is not
+        # a reliable signal.
+        return bool(view) and view.window().isVisible()
+
+    def eventFilter(self, obj, event) -> bool:
+        if event.type() != QEvent.Wheel:
+            return False
+        if not self._popup_is_open():
+            return False
+        self._scroll_popup(event)
+        return True
+
+    def _scroll_popup(self, event) -> None:
+        view = self._combo.view()
+        bar = view.verticalScrollBar()
+        # Sign matters and is the opposite of the intuitive one:
+        # angleDelta().y() > 0 means the wheel was rotated AWAY from the user,
+        # which scrolls the list UP, i.e. towards a SMALLER scrollbar value.
+        # (Verified against a QAbstractItemView's own wheel handling.)
+        delta = event.angleDelta().y()
+        if not delta:
+            pixel = event.pixelDelta().y()
+            delta = pixel if pixel else 0
+        if not delta:
+            return
+        bar.setValue(bar.value() - delta)
+
+
 class AnswerSheetWidget(QWidget):
     """Dynamic answer sheet built from question config."""
 
@@ -31,6 +97,10 @@ class AnswerSheetWidget(QWidget):
         self._questions: List[Dict[str, Any]] = []
         self._answer_widgets: Dict[str, Any] = {}
         self._answers: Dict[str, Any] = {}
+        # Nomor soal yang bentrok pada build terakhir — konfigurasi ujian
+        # yang rusak; lihat build_from_questions.
+        self._duplicates: List[str] = []
+        self._pending_entry: Any = None
         self._setup_ui()
 
     def _setup_ui(self) -> None:
@@ -68,8 +138,13 @@ class AnswerSheetWidget(QWidget):
         self._scroll.setWidget(self._container)
         self._layout.addWidget(self._scroll, 1)
 
-    def build_from_questions(self, questions: List[Dict[str, Any]]) -> None:
-        """Build answer sheet from question config list."""
+    def build_from_questions(self, questions: List[Dict[str, Any]]) -> List[str]:
+        """Build answer sheet from question config list.
+
+        Returns the question numbers that appear MORE THAN ONCE. Those make
+        the exam config broken — see the note below; the caller is expected
+        to surface them, not swallow them.
+        """
         self._questions = questions
         self._answer_widgets.clear()
 
@@ -84,18 +159,76 @@ class AnswerSheetWidget(QWidget):
         # soal TIDAK punya lembar jawaban — siswa tidak boleh bisa menjawab
         # soal yang tidak ada (mirror Android: questions kosong → totalQuestions
         # = 0 + overlay disembunyikan). Lembar tetap kosong, count 0/0.
+        #
+        # Nomor soal DUPLIKAT
+        # -----------------------
+        # `_answer_widgets` di-key dengan nomor soal, jadi dua soal bernomor
+        # sama menimpa satu sama lain: DUA blok tergambar di layar, hanya
+        # SATU yang tercatat. Jawaban blok pertama menimpa (dan ditimpa)
+        # blok kedua, dan `restore_answers` juga tidak bisa memulihkannya
+        # karena entri pertamanya sudah hilang.
+        #
+        # Server hanya memvalidasi kunci jawaban (`validateQuestionKeys`,
+        # admin/exams.go) — nomor duplikat tidak pernah dicek, jadi guru bisa
+        # menyimpannya tanpa tahu. Di sisi siswa hasilnya satu blok soal
+        # yang dijawab hilang tanpa pesan.
+        #
+        # Yang dilakukan di sini: widget disimpan di bawah kunci INTIK
+        # ("1", "1#1", ...) supaya tidak ada blok yang terlantar, nomor
+        # bentrok dikembalikan agar bisa dilaporkan, dan hitungan memakai
+        # nomor DISTINKT agar cocok dengan payload (kontrak server:
+        # `answers = {nomor: nilai}` — dua soal bernomor sama memang tidak
+        # bisa diangkut dua-duanya).
+        seen: Dict[str, int] = {}
+        duplicates: List[str] = []
+
         for q in questions:
             num = str(int(q.get("number", 0)))
             qtype = q.get("type", "single_choice")
-            widget = self._build_question_widget(num, qtype, q)
-            self._container_layout.insertWidget(self._container_layout.count() - 1, widget)
+            group, entry = self._build_question_widget(num, qtype, q)
 
+            key = num
+            if key in self._answer_widgets:
+                if num not in duplicates:
+                    duplicates.append(num)
+                key = f"{num}#{seen.get(num, 0)}"
+            seen[num] = seen.get(num, 0) + 1
+
+            self._answer_widgets[key] = entry
+            self._container_layout.insertWidget(self._container_layout.count() - 1, group)
+
+        self._duplicates = duplicates
         self._update_count()
+        return duplicates
+
+    def duplicate_question_numbers(self) -> List[str]:
+        """Nomor soal yang bentrok pada build terakhir (lihat di atas)."""
+        return list(self._duplicates)
+
+    def question_numbers(self) -> List[str]:
+        """Nomor soal DISTINKT, sesuai urutan konfigurasi.
+
+        Inilah yang dihitung di label "N / M terjawab": payload submit memakai
+        nomor soal sebagai kunci, jadi dua soal bernomor sama hanya
+        menyumbang satu slot. Menghitung per blok akan melaporkan
+        "2 / 2 terjawab" untuk satu jawaban.
+        """
+        out: List[str] = []
+        for q in self._questions:
+            num = str(int(q.get("number", 0)))
+            if num not in out:
+                out.append(num)
+        return out
 
     def _build_question_widget(
         self, num: str, qtype: str, q: Dict[str, Any]
-    ) -> QGroupBox:
-        """Build a single question widget based on type."""
+    ) -> tuple:
+        """Build a single question widget.
+
+        Returns `(group_box, entry)` instead of registering itself in
+        `_answer_widgets`: `build_from_questions` yang memutuskan kuncinya,
+        karena hanya dia yang tahu soal nomor mana yang bentrok.
+        """
         titles = {
             "single_choice": f"Soal {num} — Pilihan Ganda",
             "multiple_choice": f"Soal {num} — Pilihan Ganda Kompleks",
@@ -124,7 +257,7 @@ class AnswerSheetWidget(QWidget):
                 num, {"choices": ["A", "B", "C", "D", "E"]}, layout
             )
 
-        return group
+        return group, self._pending_entry
 
     def _build_single_choice(self, num: str, q: Dict, layout: QVBoxLayout) -> None:
         choices = q.get("choices", ["A", "B", "C", "D", "E"])
@@ -140,7 +273,7 @@ class AnswerSheetWidget(QWidget):
         btn_group.buttonClicked.connect(
             lambda btn, n=num: self._on_answer_changed(n, btn.text())
         )
-        self._answer_widgets[num] = ("single", btn_group)
+        self._pending_entry = ("single", btn_group)
 
     def _build_multiple_choice(self, num: str, q: Dict, layout: QVBoxLayout) -> None:
         choices = q.get("choices", ["A", "B", "C", "D", "E"])
@@ -157,10 +290,15 @@ class AnswerSheetWidget(QWidget):
             cb.setStyleSheet("font-size: 13px; padding: 4px;")
             if str(choice) in saved:
                 cb.setChecked(True)
-            cb.stateChanged.connect(lambda state, n=num: self._on_multi_changed(n))
+            # Closure, bukan lookup `self._answer_widgets[num]`: dengan
+            # nomor bentrok, kunci internal bukan `num` dan lookup akan
+            # mengambil daftar checkbox dari blok yang salah.
+            cb.stateChanged.connect(
+                lambda state, boxes=checkboxes, n=num: self._on_multi_changed(n, boxes)
+            )
             checkboxes.append(cb)
             layout.addWidget(cb)
-        self._answer_widgets[num] = ("multi", checkboxes)
+        self._pending_entry = ("multi", checkboxes)
 
     def _build_true_false(self, num: str, q: Dict, layout: QVBoxLayout) -> None:
         btn_group = QButtonGroup(self)
@@ -175,7 +313,7 @@ class AnswerSheetWidget(QWidget):
         btn_group.buttonClicked.connect(
             lambda btn, n=num: self._on_answer_changed(n, btn.text())
         )
-        self._answer_widgets[num] = ("single", btn_group)
+        self._pending_entry = ("single", btn_group)
 
     def _build_matching(self, num: str, q: Dict, layout: QVBoxLayout) -> None:
         left_items = q.get("left_items", [])
@@ -201,6 +339,14 @@ class AnswerSheetWidget(QWidget):
             combo.addItem("-- Pilih --")
             for ri, right in enumerate(right_items):
                 combo.addItem(str(right))
+            # Keep the sheet still while the popup is open — see
+            # _PopupWheelGuard for why this is needed at all.
+            guard = _PopupWheelGuard(combo)
+            combo.installEventFilter(guard)
+            combo.view().installEventFilter(guard)
+            # Keep a reference: a parentless QObject would be garbage
+            # collected and the filter would vanish without a word.
+            combo.wheel_guard = guard
             # Restore saved
             saved_val = saved.get(str(i + 1), "")
             if saved_val:
@@ -215,7 +361,7 @@ class AnswerSheetWidget(QWidget):
             row_layout.addWidget(combo)
             layout.addLayout(row_layout)
 
-        self._answer_widgets[num] = ("matching", combos)
+        self._pending_entry = ("matching", combos)
 
     def _build_short_answer(self, num: str, q: Dict, layout: QVBoxLayout) -> None:
         line = QLineEdit()
@@ -231,8 +377,9 @@ class AnswerSheetWidget(QWidget):
         self._update_count()
         self.answer_changed.emit(num, value)
 
-    def _on_multi_changed(self, num: str) -> None:
-        _, checkboxes = self._answer_widgets.get(num, ("multi", []))
+    def _on_multi_changed(self, num: str, checkboxes: Optional[list] = None) -> None:
+        if checkboxes is None:
+            _, checkboxes = self._answer_widgets.get(num, ("multi", []))
         selected = [cb.text() for cb in checkboxes if cb.isChecked()]
         self._answers[num] = selected
         self._update_count()
@@ -251,10 +398,10 @@ class AnswerSheetWidget(QWidget):
         self.answer_changed.emit(num, self._answers[num])
 
     def _update_count(self) -> None:
-        total = len(self._questions)
+        nums = self.question_numbers()
+        total = len(nums)
         answered = 0
-        for q in self._questions:
-            num = str(int(q.get("number", 0)))
+        for num in nums:
             val = self._answers.get(num)
             if val is not None and val != "" and val != [] and val != {}:
                 answered += 1
@@ -278,8 +425,10 @@ class AnswerSheetWidget(QWidget):
         for num, val in saved.items():
             self._answers[str(num)] = val
 
-        # Update UI widgets
-        for num, (wtype, widget) in self._answer_widgets.items():
+        # Update UI widgets. Kunci internal bisa "1#1" kalau nomor soal
+        # bentrok; payloadnya tetap nomor asli.
+        for slot, (wtype, widget) in self._answer_widgets.items():
+            num = slot.split("#", 1)[0]
             val = self._answers.get(num)
             if val is None:
                 continue
@@ -304,12 +453,16 @@ class AnswerSheetWidget(QWidget):
         self._update_count()
 
     def get_answered_count(self) -> tuple:
-        """Return (answered, total)."""
-        total = len(self._questions)
+        """Return (answered, total), dihitung per nomor DISTINKT.
+
+        Payload submit memakai nomor soal sebagai kunci, jadi dua soal
+        bernomor sama hanya menyumbang satu slot. Menghitung per blok akan
+        melaporkan "2 / 2 terjawab" untuk satu jawaban.
+        """
+        nums = self.question_numbers()
         answered = 0
-        for q in self._questions:
-            num = str(int(q.get("number", 0)))
+        for num in nums:
             val = self._answers.get(num)
             if val is not None and val != "" and val != [] and val != {}:
                 answered += 1
-        return answered, total
+        return answered, len(nums)

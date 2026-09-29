@@ -221,8 +221,31 @@ def submit_exam(
     start_time: str,
     mac_address: str,
     identity_data: Optional[Dict[str, Any]] = None,
+    token: str = "",
 ) -> SubmitResponse:
-    """POST /api/exams/{exam_id}/submit → SubmitResponse."""
+    """POST /api/exams/{exam_id}/submit → SubmitResponse.
+
+    `token` is the exam token this device joined with, sent as X-Exam-Token.
+    It is NOT optional in practice: the server rejects the request with 401
+    "Token tidak disertakan" before looking at anything else
+    (webui/internal/handlers/api/exams.go:1016-1023). It used to be missing
+    here, so every submit from this client failed — on Android the same header
+    has always been sent (ApiClient.kt:550).
+
+    An empty token fails locally instead of spending four round trips to be
+    told the same thing: the 401 is permanent, and submit_with_retry now
+    recognises that.
+    """
+    if not token or not token.strip():
+        return SubmitResponse(
+            success=False,
+            message=(
+                "Token ujian tidak tersedia. Keluar dari aplikasi, masukkan "
+                "kode token lagi, lalu ulangi."
+            ),
+            http_status=401,
+        )
+
     # Send identity_data as-is (custom keys like 'nama', 'nomor_ujian').
     # Go backend reads student_name/exam_number/student_class from
     # top-level body fields as fallback, so no need to inject standard keys.
@@ -252,7 +275,7 @@ def submit_exam(
         data = _make_request(
             _url_join(base_url, f"/api/exams/{exam_id}/submit"),
             method="POST",
-            headers={"X-App-Version": APP_VERSION},
+            headers={"X-Exam-Token": token, "X-App-Version": APP_VERSION},
             body=body,
             timeout=30,
         )
@@ -260,9 +283,13 @@ def submit_exam(
     except urllib.error.HTTPError as e:
         try:
             body_data = json.loads(e.read().decode("utf-8"))
-            return SubmitResponse.from_json(body_data)
+            resp = SubmitResponse.from_json(body_data)
         except Exception:
-            return SubmitResponse(success=False, message=f"HTTP {e.code}: {e.reason}")
+            resp = SubmitResponse(success=False, message=f"HTTP {e.code}: {e.reason}")
+        # Keep the code so submit_with_retry can tell a permanent rejection
+        # (401/403/404) from a transient one (408/429/5xx, network).
+        resp.http_status = e.code
+        return resp
     except (urllib.error.URLError, OSError, json.JSONDecodeError) as e:
         return SubmitResponse(success=False, message=str(e))
 
@@ -279,16 +306,23 @@ def submit_with_retry(
     identity_data: Optional[Dict[str, Any]] = None,
     delays: Optional[list] = None,
     on_retry: Optional[Callable[[int, int], None]] = None,
+    token: str = "",
 ) -> SubmitResponse:
-    """Submit with exponential backoff retry (1s, 2s, 4s)."""
+    """Submit with exponential backoff retry (1s, 2s, 4s).
+
+    Stops immediately on a permanent rejection. Retrying a 401 is not "more
+    robust", it is the student staring at "Submit gagal, percobaan 4/4..."
+    for seven seconds before failing anyway — which is exactly how a missing
+    token looked in the field.
+    """
     if delays is None:
         delays = [1, 2, 4]
 
     resp = submit_exam(
         base_url, exam_id, student_name, exam_number, student_class,
-        answers, start_time, mac_address, identity_data,
+        answers, start_time, mac_address, identity_data, token,
     )
-    if resp.success:
+    if resp.success or not resp.retryable:
         return resp
 
     max_attempts = len(delays) + 1
@@ -298,9 +332,9 @@ def submit_with_retry(
         time.sleep(delay)
         resp = submit_exam(
             base_url, exam_id, student_name, exam_number, student_class,
-            answers, start_time, mac_address, identity_data,
+            answers, start_time, mac_address, identity_data, token,
         )
-        if resp.success:
+        if resp.success or not resp.retryable:
             return resp
 
     return resp

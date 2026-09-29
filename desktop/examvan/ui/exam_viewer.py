@@ -66,6 +66,7 @@ from ..security.enforcer import SecurityEnforcer
 from ..utils import get_device_label, map_identity_to_standard
 from ..ws import ExamWebSocket
 from .answer_sheet import AnswerSheetWidget
+from .fullscreen import apply_fullscreen, covers_fullscreen
 from .pdf_viewer import PdfWidget
 from .timer import ElapsedTimerWidget
 from .styles import SECURITY_COLORS
@@ -111,6 +112,10 @@ class ExamViewerWindow(QMainWindow):
         # Re-entrancy guard for _enforce_fullscreen, which is driven by a
         # window-state change that showFullScreen() itself produces.
         self._fullscreen_reasserting = False
+        # Peringatan konfigurasi ujian yang muncul di layar (mis. nomor soal
+        # bentrok) — supaya siswa bisa melaporkannya, bukan diam-diam
+        # kehilangan jawaban.
+        self._exam_warnings: List[str] = []
         self._admin_exit_count = 0
         self._admin_exit_timer = QTimer(self)
         self._admin_exit_timer.setSingleShot(True)
@@ -323,17 +328,65 @@ class ExamViewerWindow(QMainWindow):
     def _on_status(self, text: str) -> None:
         self._lbl_status.setText(text)
 
+    def _build_answer_sheet(self) -> None:
+        """Bangun lembar jawaban dari config soal.
+
+        Sengaja TIDAK bergantung pada PDF. Lembar jawaban dibangun dari
+        `exam.questions`; PDF cuma tampilan. Dulu `build_from_questions()` hanya
+        dipanggil di cabang sukses `_on_pdf_ready`, jadi satu hiccup jaringan
+        saat download — atau satu file PDF korup — membuat lembar jawaban
+        tetap KOSONG: 0 widget, `get_answered_count()` = (0, 0), dialog
+        konfirmasi mengarang "0 dari 0 soal", dan tombol submit tetap aktif
+        sehingga siswa bisa mengirim jawaban kosong. Untuk siswa itu akhir
+        ujiannya: tidak ada yang bisa diklik dan tidak ada tombol retry.
+        """
+        self._answer_sheet.build_from_questions(self._exam.questions)
+        duplicates = self._answer_sheet.duplicate_question_numbers()
+        if duplicates:
+            # Konfigurasi ujian rusak: nomor soal bentrok. Server hanya
+            # memvalidasi kunci jawaban (`validateQuestionKeys`), jadi ini
+            # bisa saja tersimpan tanpa guru tahu. Efeknya ke siswa: dua
+            # blok soal bernomor sama berbagi satu slot jawaban, jadi satu
+            # blok yang dijawab tidak bisa ikut terkirim.
+            #
+            # Nomor yang bentrok sengaja TIDAK diubah di sisi siswa —
+            # memakaikan ulang payload akan memakai kunci yang tidak ada
+            # di server. Yang bisa dilakukan di sini adalah MELAPORKAN
+            # supaya guru memperbaiki konfigurasi ujiannya.
+            log.error(
+                "Nomor soal bentrok pada exam %s: %s — satu blok jawaban "
+                "per nomor tidak bisa dikirim",
+                self._exam.id, ", ".join(duplicates),
+            )
+            self._exam_warnings.append(
+                f"Perhatian: soal nomor {', '.join(duplicates)} bernomor "
+                f"ganda. Satu nomor hanya bisa menyimpan satu jawaban — "
+                f"hubungi pengawas."
+            )
+
     @pyqtSlot()
     def _on_pdf_ready(self) -> None:
+        # Lembar jawaban dibangun lebih dulu dan selalu: ajar tidak
+        # bergantung pada PDF sama sekali.
+        self._build_answer_sheet()
         if self._pdf_path and self._pdf_viewer.load_pdf(self._pdf_path):
             self._lbl_status.setText("PDF siap")
-            self._answer_sheet.build_from_questions(self._exam.questions)
         else:
-            self._lbl_status.setText("Gagal memuat PDF")
+            # PDF gagal TIDAK berarti ujian tidak bisa dikerjakan. Status
+            # mengatakannya, dan siswa tetap bisa menjawab semua soal.
+            self._lbl_status.setText(
+                "Gagal memuat PDF — soal tetap bisa dijawab, "
+                "hubungi pengawas bila PDF tidak muncul."
+            )
+            log.warning("PDF gagal dimuat, ujian tetap dilanjutkan")
 
     @pyqtSlot(str)
     def _on_pdf_error(self, error: str) -> None:
-        self._lbl_status.setText(f"Error: {error}")
+        # Download gagal: soal tetap bisa dijawab. Hanya PDF yang hilang.
+        self._build_answer_sheet()
+        self._lbl_status.setText(
+            f"Gagal mengunduh PDF: {error} — soal tetap bisa dijawab."
+        )
 
     @pyqtSlot(bool, str)
     def _on_submit_result(self, success: bool, message: str) -> None:
@@ -488,11 +541,14 @@ class ExamViewerWindow(QMainWindow):
             return
 
         answered, total = self._answer_sheet.get_answered_count()
+        warning = ""
+        if self._exam_warnings:
+            warning = "\n\n" + "\n".join(self._exam_warnings)
         reply = QMessageBox.question(
             self,
             "Konfirmasi Pengumpulan",
             f"Anda telah menjawab {answered} dari {total} soal.\n\n"
-            f"Apakah yakin ingin mengumpulkan jawaban?",
+            f"Apakah yakin ingin mengumpulkan jawaban?" + warning,
             QMessageBox.Yes | QMessageBox.No,
             QMessageBox.No,
         )
@@ -602,6 +658,7 @@ class ExamViewerWindow(QMainWindow):
             resp = api.submit_with_retry(
                 base_url, exam_id, name, number, sclass,
                 answers, start_time, mac, identity,
+                token=token,
             )
             if resp.status == "queued" and resp.job_id:
                 resp = api.poll_queued_result(
@@ -674,6 +731,10 @@ class ExamViewerWindow(QMainWindow):
     ) -> None:
         resp = api.submit_with_retry(
             base_url, exam_id, name, number, sclass, answers, start_time, mac, identity,
+            # The server rejects a submit without X-Exam-Token outright
+            # (exams.go:1016-1023). Without this every submit failed with
+            # "Token tidak disertakan".
+            token=self._token,
             on_retry=lambda attempt, total: self._sig_status.emit(
                 f"Submit gagal, percobaan {attempt}/{total}..."
             ),
@@ -712,28 +773,42 @@ class ExamViewerWindow(QMainWindow):
     def is_strict(self) -> bool:
         """True when this exam runs with the strictest lockdown.
 
-        Read by __main__.main() to decide between showFullScreen() and
-        showMaximized() when presenting the window, and by _enforce_fullscreen.
+        Read by tests and by anything that needs to know the tier. It is NOT
+        what decides fullscreen: the exam window covers the whole screen in
+        every level, so a medium or low exam is not something a student can
+        shrink to desktop.
         """
         return self._exam.is_strict
 
     def _enforce_fullscreen(self) -> None:
-        """Re-assert fullscreen if the window state leaked away from it.
+        """Re-assert that this window still covers the whole screen.
 
-        The enforcer sets fullscreen once, at activation. That is not
-        enough on its own: any later showMaximized(), restore or resize
-        silently drops a strict exam out of fullscreen, and the caller that
-        does it does not know the exam is strict. Rather than trusting every
-        presentational call site, the window defends itself whenever its own
-        state changes while the exam is strict.
+        Two ways the exam can stop covering it, both seen in the field:
+
+        * a later `showMaximized()` / `restore()` / `resize()` — the caller
+          that does it does not know the exam is running;
+        * a `setGeometry()` while the fullscreen state is still set. The state
+          flag survives that, so `isFullScreen()` keeps saying True while the
+          window actually sits in the work area with the taskbar showing.
+
+        That second case is why this asks `covers_fullscreen()` (geometry)
+        rather than `isFullScreen()` (state): with the state-only check the
+        broken layout looked healthy and nothing ever repaired it.
+
+        Applies at every security level — the report was "semua mode
+        bermasalah", and a maximized exam window with a visible taskbar is not
+        what any level is supposed to look like.
         """
-        if not self._exam.is_strict or self._fullscreen_reasserting:
+        if self._fullscreen_reasserting:
             return
-        if self.isFullScreen():
+        screen = self.screen() or QApplication.primaryScreen()
+        if screen is None:
+            return
+        if self.isFullScreen() and covers_fullscreen(self, screen):
             return
         self._fullscreen_reasserting = True
         try:
-            self.showFullScreen()
+            apply_fullscreen(self)
         except Exception:
             log.warning("could not re-assert fullscreen", exc_info=True)
         finally:
@@ -884,10 +959,16 @@ class ExamViewerWindow(QMainWindow):
                     self, "Tidak Diizinkan",
                     "Admin exit tidak dikonfigurasi.\n\n"
                     "Cara mengaktifkan:\n"
-                    "• Saat instalasi, centang \"Konfigurasi password admin exit\",\n"
+                    "• Isi kolom \"Password supervisor\" di halaman Password\n"
+                    "  Admin Exit saat instalasi (halamannya selalu tampil),\n"
                     "  atau\n"
-                    "• Set environment EXAMVAN_ADMIN_PASSWORD sebelum aplikasi jalan.\n\n"
-                    "Lokasi file: %LOCALAPPDATA%\\EXAMVAN\\admin_password.txt",
+                    "• Tulis ulang file di\n"
+                    "  %LOCALAPPDATA%\\EXAMVAN\\admin_password.txt,\n"
+                    "  atau\n"
+                    "• Set environment EXAMVAN_ADMIN_PASSWORD sebelum\n"
+                    "  aplikasi jalan.\n\n"
+                    "Tidak ada checkbox untuk ini — halaman passwordnya\n"
+                    "selalu tampil, jadi cukup isi kolomnya.",
                 )
                 return
             if password != _ADMIN_PASSWORD:

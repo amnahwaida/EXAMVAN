@@ -22,7 +22,7 @@
 #define AppShortName "EXAMVAN"
 #define AppPublisher "EXAMVAN"
 #define AppExeName "EXAMVAN.exe"
-#define AppMutex "EXAMVAN_Setup_Install"
+#define SetupMutexName "EXAMVAN_Setup_Install"
 
 ; Versi/build/commit diisi oleh windows\installer\build_info.py, yang
 ; juga menormalkan APP_VERSION jadi format numerik. Default di sini
@@ -70,8 +70,14 @@ UninstallLogging=yes
 CloseApplications=yes
 CloseApplicationsFilter=*.exe,*.bat
 RestartApplications=no
-; Cegah dua installer jalan bersamaan (RC Beta / multi-click)
-AppMutex={#AppMutex}
+; Cegah dua installer jalan bersamaan (RC Beta / multi-click).
+;
+; `SetupMutex`, bukan `AppMutex`. AppMutex membuat installer MENOLAK jalan
+; selama aplikasi memegang mutex itu, dan mewajibkan aplikasi memanggil
+; CreateMutex dengan nama yang cocok — tidak ada CreateMutex di mana pun di
+; desktop/, jadi pemeriksaan itu tidak pernah bisa menyala. Mencegah dua
+; installer jalan bersamaan adalah `SetupMutex`.
+SetupMutex={#SetupMutexName}
 MinVersion=10.0
 ArchitecturesAllowed=x64compatible
 ArchitecturesInstallIn64BitMode=x64compatible
@@ -164,10 +170,14 @@ var
 // ------------------------------------------------------------
 function VCRedistPresent(): Boolean;
 begin
-  Result := False;
-  if not FileExists(ExpandConstant('{sys}\vcruntime140.dll')) then
-    Exit;
-  Result := FileExists(ExpandConstant('{sys}\msvcp140.dll'));
+  // KETIGA dll, bukan dua. Runtime MSVC x64 yang di-link Qt5Core.dll adalah
+  // msvcp140.dll + vcruntime140.dll + vcruntime140_1.dll. Mesin dengan
+  // redist lama/parsial punya dua yang pertama tapi tidak yang ketiga:
+  // installer tetap diam dan siswa tetap dapat "DLL load failed" — persis
+  // hasil yang dicegah oleh cek ini.
+  Result := FileExists(ExpandConstant('{sys}\msvcp140.dll'))
+        and FileExists(ExpandConstant('{sys}\vcruntime140.dll'))
+        and FileExists(ExpandConstant('{sys}\vcruntime140_1.dll'));
 end;
 
 procedure InitializeWizard();
@@ -212,6 +222,42 @@ end;
 // Nilai HARUS dibaca di sini, bukan di InitializeWizard: event itu
 // jalan sebelum halaman tampil, jadi Values[] masih kosong.
 // ------------------------------------------------------------
+// ------------------------------------------------------------
+// Baca password admin exit yang sudah tersimpan.
+//
+// Dipakai CurStepChanged supaya instalasi senyap (yang tidak menampilkan
+// halaman password) bisa menulis ulang password yang sudah ada alih-alih
+// menghapusnya, dan supaya upgrade interaktif menampilkan password aktif.
+//
+// Aman untuk file 0 byte, file yang tidak bisa dibuka, dan file tanpa
+// baris kosong di akhir: semua menghasilkan string kosong, yang
+// pemanggil perlakukan sebagai "tidak/password tidak dikonfigurasi".
+// ------------------------------------------------------------
+function ReadPasswordFromFile(const PwFile: String): String;
+var
+  Handle: THandle;
+  Buffer: AnsiString;
+begin
+  Result := '';
+  if not FileExists(PwFile) then
+    Exit;
+  Handle := FileOpen(PwFile, FileOpenExisting, FileShareReadWrite or FileShareDelete);
+  if Handle = THandle(-1) then
+    Exit;
+  try
+    Buffer := '';
+    SetLength(Buffer, FileSeek(Handle, 0, FileEnd));
+    if Length(Buffer) = 0 then
+      Exit;
+    FileRead(Handle, Buffer, Length(Buffer));
+  finally
+    FileClose(Handle);
+  end;
+  // File ditulis tanpa newline, tapi yang diedit manual di Notepad bisa
+  // punya CRLF — jadi selalu strip.
+  Result := Trim(Buffer);
+end;
+
 procedure CurStepChanged(CurStep: TSetupStep);
 var
   PwFile: String;
@@ -233,8 +279,27 @@ begin
       CreateDir(PwDir);
     PwFile := PwDir + '\admin_password.txt';
 
+    // Instalasi SENYAP (/VERYSILENT) tidak pernah menampilkan halaman
+    // password, jadi Values[] kosong. Kosong TIDAK boleh berarti "hapus":
+    // itulah yang membuat setiap upgrade senyap menghapus password seluruh
+    // lab, tanpa pesan dan tanpa exit code non-nol. Yang terjadi kalau
+    // kosong: password yang sudah ada dibiarkan utuh, persis seperti
+    // "Boleh dikosongkan" di teks halaman promises.
+    //
+    // Password lama juga dimuat ke halaman supaya instalasi senyap bisa
+    // menulis ulang apa yang sudah ada (dipakai CI smoke test untuk
+    // memverifikasi file tidak berubah), dan supaya upgrade interaktif
+    // bisa melihat password aktif tanpa harus mengingatnya.
+    if AdminPasswordPage.Values[0] = '' then
+    begin
+      if FileExists(PwFile) then
+        AdminPasswordPage.Values[0] := ReadPasswordFromFile(PwFile);
+    end;
+
     PwValue := AdminPasswordPage.Values[0];
     PwRepeat := AdminPasswordPage.Values[1];
+    if PwRepeat = '' then
+      PwRepeat := PwValue;      // tidak ada kolom konfirmasi = tidak ada cek
 
     // Dua kolom isian harus sama. Kalau tidak, JANGAN diam-diam pakai
     // yang pertama: biasanya itu salah ketik, dan password hasil salah
@@ -243,18 +308,25 @@ begin
     begin
       MsgBox('Dua password tidak sama. Password TIDAK disimpan.', mbError, MB_OK);
       PwValue := '';
+      // Password LAMA tetap dibiarkan: salah ketik tidak boleh menghapus
+      // password yang masih working.
     end;
 
-    // HAPUS DULU sebelum tulis. SaveStringToFile membuka file tanpa
-    // truncate: password lama 20 karakter lalu diganti yang 8 akan
-    // menyisakan 12 byte lama di akhir file. Akibatnya password BARU
-    // ikut salah baca (file jadi 20 karakter) dan sisa password lama
-    // masih bisa dibaca dari disk.
-    if FileExists(PwFile) then
-      DeleteFile(PwFile);
-
+    // Hapus DAN tulis di cabang yang sama.
+    //
+    // DeleteFile sebelum SaveStringToFile itu wajib: SaveStringToFile
+    // membuka file tanpa truncate, jadi password lama 20 karakter lalu
+    // diganti yang 8 menyisakan 12 byte lama di akhir file. Akibatnya
+    // password BARU ikut salah baca dan sisa password lama masih bisa
+    // dibaca dari disk.
+    //
+    // Yang sebelumnya salah: hapus tanpa syarat, tulis bersyarat.
     if PwValue <> '' then
+    begin
+      if FileExists(PwFile) then
+        DeleteFile(PwFile);
       SaveStringToFile(PwValue, PwFile, False);
+    end;
   end;
 end;
 
@@ -269,21 +341,49 @@ end;
 // ------------------------------------------------------------
 procedure CurUninstallStepChanged(CurUninstallStep: TUninstallStep);
 var
+  PwDir: String;
   DataDir: String;
+  LogDir: String;
+  Found: Boolean;
 begin
   if (CurUninstallStep = usPostUninstall) and (not UninstallSilent) then
   begin
-    DataDir := ExpandConstant('{localappdata}\EXAMVAN');
+    // DUA folder, dan isinya harus disebut apa adanya.
+    //
+    // %LOCALAPPDATA%\EXAMVAN hanya berisi admin_password.txt.
+    %USERPROFILE%\.config\examvan yang holding jawaban ujian yang belum
+    // terkirim, config (URL server + token + identitas), app.log, dan
+    // windows_state.json. Prompt lama hanya menyebut yang pertama tapi
+    // mendeskripsikannya sebagai holding empat hal — jadi "Ya" tidak
+    // menghapus apa pun, dan "No" (untuk melindungi jawaban) tidak
+    // melindungi apa pun juga.
+    PwDir := ExpandConstant('{localappdata}\EXAMVAN');
+    DataDir := ExpandConstant('{userprofile}\.config\examvan');
+    LogDir := DataDir;
+
+    Found := False;
+    if DirExists(PwDir) then
+      Found := True;
     if DirExists(DataDir) then
+      Found := True;
+
+    if Found then
     begin
       if MsgBox('Folder data EXAMVAN berikut masih ada:' + #13#10#13#10 +
-                DataDir + #13#10#13#10 +
-                'Isinya: konfigurasi server, password admin exit,' + #13#10 +
-                'jawaban ujian yang belum terkirim, dan app.log' + #13#10 +
-                '(untuk melapor masalah).' + #13#10#13#10 +
-                'Hapus folder ini juga?',
+                PwDir + #13#10 +
+                '  -> password admin exit' + #13#10#13#10 +
+                LogDir + #13#10 +
+                '  -> jawaban ujian yang belum terkirim, config (URL server,' + #13#10 +
+                '     token, identitas), app.log, windows_state.json' + #13#10#13#10 +
+                'Hapus KEDUA folder ini juga?' + #13#10#13#10 +
+                'Pilih No bila masih ada jawaban yang belum terkirim.',
                 mbConfirmation, MB_YESNO) = IDYES then
-        DelTree(DataDir, True, True, True);
+      begin
+        if DirExists(PwDir) then
+          DelTree(PwDir, True, True, True);
+        if DirExists(DataDir) then
+          DelTree(DataDir, True, True, True);
+      end;
     end;
   end;
 end;

@@ -7,10 +7,12 @@ from typing import Any, Dict, List, Optional
 from PyQt5.QtCore import Qt, QTimer
 from PyQt5.QtWidgets import (
     QDialog,
+    QFrame,
     QLabel,
     QLineEdit,
     QMessageBox,
     QPushButton,
+    QScrollArea,
     QVBoxLayout,
     QWidget,
 )
@@ -50,7 +52,14 @@ class IdentityDialog(QDialog):
         outer.setContentsMargins(0, 0, 0, 0)
         outer.addStretch(2)
 
-        # Centered card container
+        # The card scrolls. Ujian with many identity fields used to push the
+        # "Masuk Ujian" button below the bottom of the screen with no way to
+        # reach it — the student was locked out before the exam even started.
+        self._scroll = QScrollArea()
+        self._scroll.setWidgetResizable(True)
+        self._scroll.setFrameShape(QFrame.NoFrame)
+        self._scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+
         card = QWidget()
         card.setFixedWidth(440)
         card.setObjectName("identityCard")
@@ -76,6 +85,7 @@ class IdentityDialog(QDialog):
         for field in self._fields:
             lbl = QLabel(field.label + (" *" if field.required else ""))
             lbl.setStyleSheet("font-weight: bold;" if field.required else "")
+            lbl.setWordWrap(True)
             card_layout.addWidget(lbl)
 
             inp = QLineEdit()
@@ -90,17 +100,21 @@ class IdentityDialog(QDialog):
         card_layout.addSpacing(12)
 
         # Submit button
-        btn = QPushButton("  Masuk Ujian  ")
-        btn.clicked.connect(self._on_submit)
-        card_layout.addWidget(btn, alignment=Qt.AlignCenter)
+        self._submit_btn = QPushButton("  Masuk Ujian  ")
+        self._submit_btn.clicked.connect(self._on_submit)
+        card_layout.addWidget(self._submit_btn, alignment=Qt.AlignCenter)
 
         # Enter key on last field triggers submit
         if self._inputs:
             last_input = list(self._inputs.values())[-1]
             last_input.returnPressed.connect(self._on_submit)
 
-        outer.addWidget(card, alignment=Qt.AlignHCenter)
-        outer.addStretch(3)
+        self._scroll.setWidget(card)
+        self._scroll.setAlignment(Qt.AlignCenter)
+        outer.addWidget(self._scroll, 1)
+
+        # Spacer bottom
+        outer.addStretch(2)
 
     def _on_submit(self) -> None:
         errors = []

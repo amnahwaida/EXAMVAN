@@ -69,18 +69,50 @@ class ElapsedTimerWidget(QWidget):
             self._end_mono = _time.monotonic() - 1
 
     def refresh_deadline(self) -> None:
-        """Hitung ulang deadline dari end_time ABSOLUT + skew saat ini.
+        """Hitung ulang deadline dari wall clock, TANPA pernah memperpanjangnya.
 
         Mirror Android onResume (ExamDeadline.remainingMs dihitung ulang):
-        `time.monotonic()` TIDAK termasuk waktu suspend (CLOCK_MONOTONIC),
-        jadi setelah laptop tertidur countdown akan membeku. Dengan refresh
-        ini deadline dihitung ulang dari wall clock + skew, sehingga sisa
-        waktu benar setelah resume. Tidak menembak time_up ulang (guard
-        _fired_time_up di _update).
+        `time.monotonic()` tidak termasuk waktu suspend, jadi setelah laptop
+        tertidur countdown akan membeku. Wall clock yang benar dipakai untuk
+       issorsafe: laptop tidur 30 menit -> jam sudah maju -> sisa mengecil ->
+        deadline diperpendek. Itu memang tujuannya, dan tetap berlaku.
+
+        Yang TIDAK boleh berlaku: siswa mundurkan jam perangkat untuk
+        memperpanjang ujian. `end_time` datang dari server dan tidak bisa
+        diubah siswa, jadi hasil hitung ulang di-CLAMP agar tidak pernah
+        melewati deadline absolut itu. Arahnya fail-secure:
+
+          * jam dimajukan  -> sisa mengecil, deadline BERKEPING (aman)
+          * jam dimundurkan -> sisa membesar, deadline TETAP (dibaikan)
+
+        Batasnya `min()`, karena monotonic sudah berdiri sebagai jam yang
+        tidak bisa dimanipulasi: memperpanjang dari sana berarti menghitung
+        mundur dari titik yang sama, yang persis hal yang tidak diizinkan.
+        Bug yang diperbaiki: review_windows_2026-09-30.md Bagian 2 —
+        countdown pernah melompat dari 01:00:00 ke 02:00:00 begitu siswa
+        mengklik window, sementara server sudah menolak dengan 403.
         """
         if self._fired_time_up:
             return
-        self._compute_deadline()
+        if self._end_mono is None:
+            # Mode elapsed (tanpa end_time) tidak punya deadline untuk
+            # diperbarui; jangan mengarang satu.
+            return
+
+        remaining = compute_remaining_seconds(
+            self._end_time, datetime.now(timezone.utc), api.get_server_skew_ms()
+        )
+        if remaining is None:
+            # end_time rusak: deadline yang ada lebih baik daripada
+            # membiarkan deadline yang sekarang.
+            return
+
+        if remaining > 0:
+            self._end_mono = min(self._end_mono, _time.monotonic() + remaining)
+        else:
+            # Sudah lewat deadline memotong, whatever pun jam perangkat —
+            # ini juga menutup jalan mundur lewat jam.
+            self._end_mono = min(self._end_mono, _time.monotonic() - 1)
 
     def _setup_ui(self) -> None:
         layout = QHBoxLayout(self)

@@ -60,11 +60,11 @@ Write-Ok "Virtual environment siap"
 # ---- Install dependencies ----
 Write-Info "Menginstall dependencies (PyQt5 + PyMuPDF)..."
 & $VenvPython -m pip install --upgrade pip --quiet
-& $VenvPython -m pip install PyQt5 PyMuPDF --quiet
+& $VenvPython -m pip install -r (Join-Path $ProjectRoot "desktop\requirements.txt") --quiet
 if ($LASTEXITCODE -ne 0) {
     Write-Err "Gagal install dependencies."
     Write-Host "Coba manual:"
-    Write-Host "  $VenvPython -m pip install PyQt5 PyMuPDF"
+    Write-Host "  $VenvPython -m pip install -r (Join-Path $ProjectRoot "desktop\requirements.txt")"
     pause
     exit 1
 }
