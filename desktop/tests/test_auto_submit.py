@@ -147,7 +147,7 @@ class AutoSubmitSuccessTest(AutoSubmitTestCase):
             self.assertFalse(win.isVisible())
             self.assertTrue(win._submitted)
             # Sticky marker + jawaban ter-flush ke disk (thread masih diblokir).
-            self.assertTrue(config.is_submitted(7))
+            self.assertTrue(config.is_submitted(7, "ABCD1234"))
             self.assertEqual(config.load_answers(7), {"1": "A", "2": "B"})
             # Lock task dilepas (security.deactivate dipanggil).
             self._sec.return_value.deactivate.assert_called()
@@ -216,7 +216,7 @@ class AutoSubmitFailureTest(AutoSubmitTestCase):
             self.assertTrue(self._wait_notify("jaringan mati"))
             # Jawaban TIDAK dihapus — recovery re-entry mengirim ulang.
             self.assertEqual(config.load_answers(7), {"1": "A"})
-            self.assertTrue(config.is_submitted(7))
+            self.assertTrue(config.is_submitted(7, "ABCD1234"))
             call = next(
                 c for c in self._notify.call_args_list
                 if "jaringan mati" in str(c.args[1])

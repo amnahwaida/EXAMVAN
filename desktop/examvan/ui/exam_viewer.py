@@ -425,7 +425,7 @@ class ExamViewerWindow(QMainWindow):
         # perangkat ini. Re-entry berikutnya diblokir oleh gate join
         # (ServerConfigDialog.is_submitted) — mencegah re-entry dalam window
         # grace server mengirim submit kosong yang MENIMPA jawaban asli.
-        config.mark_submitted(self._exam.id)
+        config.mark_submitted(self._exam.id, self._token)
         # Presence: hapus heartbeat Redis (siswa tampil OFFLINE segera).
         self._stop_presence(completed=True)
         if self._security:
@@ -609,7 +609,7 @@ class ExamViewerWindow(QMainWindow):
         #    → JAWABAN DISK TIDAK BOLEH ditimpa {}. Kalau memori tidak kosong
         #    → dipakai apa adanya (siswa mungkin baru mengubah jawaban
         #    setelah auto-save terakhir).
-        config.mark_submitted(self._exam.id)
+        config.mark_submitted(self._exam.id, self._token)
         memory = (
             self._answer_sheet.get_answers()
             if hasattr(self, '_answer_sheet') else {}

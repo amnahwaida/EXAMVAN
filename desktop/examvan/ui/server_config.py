@@ -244,11 +244,17 @@ class ServerConfigDialog(QDialog):
         config.set("remember_url", self.chk_remember.isChecked())
 
         # Step 2b: Sticky "already submitted" gate (F2, mirror Android).
-        # Setelah submit SUKSES durable, re-entry ujian yang sama diblokir di
-        # sini — sebelum approval/PDF — sehingga watchdog deadline tidak bisa
-        # mengirim submit kosong yang MENIMPA jawaban asli dalam window grace
-        # server (end_time + 60 dtk).
-        if config.is_submitted(resp.exam.id):
+        # Setelah submit SUKSES durable, re-entry dengan token yang SAMA
+        # diblokir di sini — sebelum approval/PDF — sehingga watchdog deadline
+        # tidak bisa mengirim submit kosong yang MENIMPA jawaban asli dalam
+        # window grace server (end_time + 60 dtk).
+        #
+        # Di-scope dengan token, bukan exam saja. Dulu marker-nya hanya
+        # `submitted_<exam_id>`: per mesin, jadi satu PC lab memblokir ujian
+        # yang sama untuk semua siswa berikutnya. Token sudah tersedia di
+        # titik ini (dibaca sebelum dialog identitas), dan token berbeda
+        # berarti percobaan berbeda.
+        if config.is_submitted(resp.exam.id, token):
             # Recovery (mirror Android hasPendingAnswers): submit otomatis
             # background sebelumnya GAGAL — jawaban masih tersimpan di disk
             # (clear hanya saat submit durable) → tawarkan kirim ulang.

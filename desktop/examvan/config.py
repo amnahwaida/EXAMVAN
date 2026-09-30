@@ -177,23 +177,56 @@ def load_start_time(exam_id: int) -> str:
     return str(get(f"start_time_{exam_id}", "") or "")
 
 
-def mark_submitted(exam_id: int) -> None:
-    """Persist a sticky "exam already finished" marker for this device.
+def _submitted_key(exam_id: int, token: str) -> str:
+    """Kunci marker "sudah dikumpulkan", di-scope per token.
 
-    Mirrors Android's submittedOrExited flag (F2 fix): setelah submit SUKSES
-    (durable), re-entry ujian yang sama harus menampilkan "sudah selesai",
-    BUKAN menjalankan ulang alur ujian. Tanpa marker ini, re-entry dalam
-    window grace server (end_time + 60 dtk) → watchdog deadline → submit
-    kosong (jawaban disk sudah dihapus oleh clear_answers) → MENIMPA jawaban
-    asli yang sudah terkirim. Marker dibiarkan sticky (tidak dihapus oleh
-    clear_answers) — selesai = selesai.
+    Dulu kuncinya hanya `submitted_<exam_id>`: per MESIN, per ujian, selamanya.
+    Di lab sekolah satu PC dipakai beberapa siswa, jadi begitu siswa pertama
+    selesai, PC itu memblokir ujian yang sama untuk semua siswa berikutnya --
+    persis keluhan "tidak bisa mengerjakan ujian yang sama untuk kedua
+    kalinya". Dan blokirannya terjadi SEBELUM dialog identitas, sehingga
+    aplikasi tidak pernah tahu itu siswa yang berbeda.
+
+    Token adalah satu-satunya identitas percobaan yang sudah tersedia di
+    titik gate ini (lihat ServerConfigDialog._on_connect: token dibaca
+    sebelum dialog identitas tampil). Menyimpanya ke sini memperbaiki lab
+    tanpa mengorbankan overwrite protection yang jadi alasan marker ini ada.
+
+    Token di-hash supaya kunci tetap pendek dan tidak pernah masuk ke
+    config.json apa adanya -- file itu tersimpan di disk dan ikut terkirim
+    bersama jawaban.
     """
-    set(f"submitted_{exam_id}", True)
+    import hashlib
+
+    digest = hashlib.sha256((token or "").strip().encode()).hexdigest()[:16]
+    return f"submitted_{exam_id}_{digest}"
 
 
-def is_submitted(exam_id: int) -> bool:
-    """True bila perangkat ini sudah mengumpulkan ujian [exam_id]."""
-    return bool(get(f"submitted_{exam_id}", False))
+def mark_submitted(exam_id: int, token: str = "") -> None:
+    """Persist a sticky "exam already finished" marker for this attempt.
+
+    Mirrors Android's submittedOrExited flag (F2 fix): setelah submit SUKES
+    (durable), re-entry dengan token yang SAMA harus menampilkan "sudah
+    selesai", BUKAN menjalankan ulang alur ujian. Tanpa marker ini, re-entry
+    dalam window grace server (end_time + 60 dtk) → watchdog deadline →
+    submit kosong (jawaban disk sudah dihapus oleh clear_answers) →
+    MENIMPA jawaban asli yang sudah terkirim. Marker dibiarkan sticky
+    (tidak dihapus oleh clear_answers) — selesai = selesai.
+
+    Di-scope per token: token yang sama berarti percobaan yang sama, jadi
+    overwrite protection tetap bekerja persis seperti sebelumnya. Token
+    berbeda berarti percobaan baru, dan PC yang sama boleh dipakai lagi.
+
+    Marker versi lama (`submitted_<exam_id>`, tanpa token) sengaja
+    DIABAIKAN: itu perilaku yang memblokir lab, dan membacanya kembali akan
+    membuat PC yang sudah pernah terkirim tetap terkunci selamanya.
+    """
+    set(_submitted_key(exam_id, token), True)
+
+
+def is_submitted(exam_id: int, token: str = "") -> bool:
+    """True bila percobaan ini (exam + token) sudah mengumpulkan jawaban."""
+    return bool(get(_submitted_key(exam_id, token), False))
 
 
 def clear_identity() -> None:
