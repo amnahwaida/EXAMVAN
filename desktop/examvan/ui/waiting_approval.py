@@ -163,19 +163,33 @@ class WaitingApprovalDialog(QDialog):
         )
         self._poll_thread_obj.start()
 
-    def _stop_polling(self, timeout: float = _POLL_JOIN_TIMEOUT) -> None:
-        """Set stop token lalu tunggu thread poll benar-benar berhenti.
+    def _stop_polling(self) -> None:
+        """Set stop token lalu naikkan generasi. TIDAK join.
 
-        Default-nya lebih panjang dari timeout HTTP `request_approval`
-        (10 dtk) supaya join benar-benar menunggu thread yang sedang
-        menunggu server selesai -- bukan menyerah dan meninggalkan dua
-        poller hidup. Poller generation juga bertahan hidup sebagai jaring
-        pengaman kalau request-nya benar-benar mentok.
+        Join pernah dipakai karenaFear poller lama bertahan hidup: satu
+        `api.request_approval` bisa memblokir 10 detik (HTTP timeout),
+        jadi join 2 detik selalu gagal. Naikkan ke 12 detik dan poller
+        lama tidak lagi bocor -- tapi karena `_stop_polling()` dipanggil
+        dari `reject()`, `closeEvent()`, dan "Minta Izin Lagi", join itu
+        berjalan di THREAD GUI.
+
+        Jaringan mati -> thread poll sedang memblokir di socket ->
+        GUI membeku 10-12 detik: tanpa repaint, tanpa input, dan tanpa
+        enforcement keamanan (timer `SecurityEnforcer` juga butuh event
+        loop). `reject()` baru mencapai `super()` sesudah join, jadi
+        dialog benar-benar terlihat beku.
+
+        Join tidak diperlukan. `_poll_stop.set()` memberi tahu poller
+        untuk keluar, dan generation counter membuat poller yang keluar
+        terlambat langsung `return` tanpa menyentuh widget dialog yang
+        sudah ditutup -- persis jaring pengaman yang dulu jadi alasan
+        join dipakai.
         """
         self._poll_stop.set()
-        thread = self._poll_thread_obj
-        if thread is not None and thread.is_alive():
-            thread.join(timeout=timeout)
+        # Naikkan generasi: poller yang sedang memblokir di socket akan
+        # melihat nomor basi dan berhenti begitu ia kembali, tanpa
+        # sempat menembak sinyal ke dialog yang sudah ditutup.
+        self._poll_generation += 1
         self._poll_thread_obj = None
 
     def _poll_thread(self, generation: int = 0):

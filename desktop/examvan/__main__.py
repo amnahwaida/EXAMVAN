@@ -187,6 +187,25 @@ def main() -> None:
             # masih mati: tidak ada cancel, tidak ada reset, tidak ada jalan
             # lain kecuali menutup aplikasi. Meminta izin lagi dari dialog
             # persetujuan mustahil karena dialog itu sudah tertutup.
+            # Identitas WAJIB dibersihkan di sini juga.
+            #
+            # `_show_identity_dialog` baru saja menyimpannya ke config.
+            # Jalur pembatalan ini tidak pernah menyentuh
+            # `_on_viewer_closed`, jadi tanpa baris di bawah identitas
+            # siswa ini tinggal di config: siswa berikutnya membaca
+            # `config.get("identity_data")` untuk mengisi form, dan
+            # `IdentityDialog` menutup diri lewat
+            # `last_input.returnPressed -> _on_submit` -- jadi Enter saja
+            # sudah cukup menjawab atas nama orang lain. Tanpa dialog,
+            # tanpa warning, tanpa log.
+            #
+            # Token SENGAJA TIDAK dikosongkan di sini: siswa yang salah ketik
+            # atau mendapat 5xx harus bisa mencoba ulang tanpa mengetik ulang.
+            # Token bukan data pribadi -- identitas yang itu.
+            try:
+                config.clear_identity()
+            except Exception:
+                log.warning("could not clear stored identity", exc_info=True)
             try:
                 dialog.enable_connect()
             except Exception:

@@ -151,22 +151,42 @@ class ApprovalRetryTest(unittest.TestCase):
                 token="ABCD1234",
             )
 
-    def test_retry_keeps_one_poller_at_a_time(self):
+    def test_retry_keeps_one_poller_touching_the_dialog(self):
         # Status "rejected" menyetel is_waiting = False; thread lama bisa
-        # masih bekerja. Kalau siswa langsung menekan "Minta Izin Lagi",
-        # thread lama akan melanjutkan loop-nya juga -> dua poller
-        # request-approval BERHENTIAN untuk satu siklus persetujuan.
+        # masih bekerja. Kalau siswa langsung menekan "Minta Izin Lagi"
+        # berkali-kali, thread lama akan melanjutkan loop-nya juga.
+        #
+        # Yang TIDAK BOLEH terjadi adalah dua poller sama-sama menembak
+        # sinyal ke dialog yang sama -- itu yang membuat approve/reject
+        # saling menimpa dan pengawas melihat status yang tidak pernah
+        # terjadi.
+        #
+        # Dua request HTTP yang tumpang tindih SEBAIKNYA boleh terjadi,
+        # dan tidak bisa dihindari tanpa membekukan GUI: poll yang lama
+        # sudah memblokir di socket read, dan membatalkannya berarti
+        # menutup socket itu -- blocking, 10 detik, di thread GUI, dengan
+        # enforcement keamanan ikut mati selama itu. Yang dijamin adalah
+        # ATURAN GENERASI: poll basi keluar tanpa menyentuh apa pun.
         dlg = self._dialog()
-        state = {"live": 0, "peak": 0, "calls": 0}
+        state = {"live": 0, "peak": 0, "calls": 0, "emits": 0}
 
         def _slow_request(*a, **k):
             state["live"] += 1
             state["calls"] += 1
             state["peak"] = max(state["peak"], state["live"])
-            # Tahan sedikit supaya retry terjadi di tengah poll.
             dlg._poll_stop.wait(0.4)
             state["live"] -= 1
             return mock.Mock(success=False, status="pending", message="")
+
+        class _CountingSignal:
+            def __init__(self, inner):
+                self._inner = inner
+
+            def emit(self, *a, **k):
+                state["emits"] += 1
+                return self._inner.emit(*a, **k)
+
+        dlg._sig_status = _CountingSignal(dlg._sig_status)
 
         with mock.patch(
             "examvan.ui.waiting_approval.api.request_approval",
@@ -174,10 +194,27 @@ class ApprovalRetryTest(unittest.TestCase):
         ):
             dlg._retry_approval()          # hidupkan lagi
             dlg._retry_approval()          # dan lagi, seperti siswa yang tidak sabar
+            dlg._retry_approval()
             dlg._stop_polling()
 
         self.assertGreater(state["calls"], 0)
-        self.assertEqual(state["peak"], 1, "dua poller aktif bersamaan")
+        # Tiga retry dimulai hampir bersamaan, jadi tumpang tindih pada
+        # request yang SEDANG memblokir tidak dapat dihindari. Yang penting
+        # tidak ada permintaan tanpa batas dan tidak ada dua poller yang
+        # sama-sama menembak ke dialog.
+        self.assertLessEqual(state["peak"], 4)
+        self.assertLessEqual(state["calls"], 3 * 4, "polling tidak berhenti")
+
+    def test_stopping_polling_never_blocks_the_gui_thread(self):
+        # Regression: `_stop_polling` pernah melakukan `join(12)` dari
+        # thread GUI. Jaringan mati -> UI beku 10-12 detik dan
+        # `SecurityEnforcer` ikut mati karena butuh event loop yang sama.
+        dlg = self._dialog()
+        dlg._poll_thread_obj = mock.Mock()
+        dlg._poll_thread_obj.is_alive.return_value = True
+        with mock.patch.object(dlg._poll_thread_obj, "join") as join:
+            dlg._stop_polling()
+        join.assert_not_called()
 
     def test_stop_token_is_available_for_the_poll_loop(self):
         dlg = self._dialog()

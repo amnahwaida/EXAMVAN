@@ -2,9 +2,12 @@
 
 from __future__ import annotations
 
+import logging
 from typing import Any, Dict, List, Optional
 
 from PyQt5.QtCore import QEvent, QObject, Qt, pyqtSignal
+log = logging.getLogger(__name__)
+
 from PyQt5.QtWidgets import (
     QButtonGroup,
     QCheckBox,
@@ -138,6 +141,34 @@ class AnswerSheetWidget(QWidget):
         self._scroll.setWidget(self._container)
         self._layout.addWidget(self._scroll, 1)
 
+    @staticmethod
+    def _question_number(raw: Any, position: int) -> str:
+        """Nomor soal sebagai string, tanpa PERNAH melempar.
+
+        `int(q.get("number", 0))` sebelumnya melempat pada dua payload nyata
+        dari editor admin:
+
+        * kolom Nomor dikosongkan -> `parseInt("")` -> NaN -> JSON `null`,
+          jadi `int(None)` -> TypeError;
+        * nomor berisi teks -> ValueError.
+
+        `dict.get(k, default)` hanya memakai default saat kuncinya tidak
+        ADA, jadi `{"number": null}` tetap memanggil `int(None)`.
+
+        Fallback ke nomor posisi supaya soalnya tetap bisa dijawab.
+        Penilaian soal itu memang sudah rusak dari sisi server -- nomornya
+        null di sana juga -- tapi setidaknya separuh lembar jawaban tidak
+        hilang karena satu baris kosong di form guru.
+        """
+        try:
+            return str(int(raw))
+        except (TypeError, ValueError):
+            log.warning(
+                "soal #%d punya nomor tidak valid (%r); memakai nomor posisi",
+                position + 1, raw,
+            )
+            return str(position + 1)
+
     def build_from_questions(self, questions: List[Dict[str, Any]]) -> List[str]:
         """Build answer sheet from question config list.
 
@@ -181,21 +212,36 @@ class AnswerSheetWidget(QWidget):
         # bisa diangkut dua-duanya).
         seen: Dict[str, int] = {}
         duplicates: List[str] = []
+        # Di-set SEBELUM loop, bukan sesudahnya: kalau satu soal melempar
+        # exception, atribut ini tidak pernah ter-assign dan pemanggil masih
+        # membaca sisa build sebelumnya.
+        self._duplicates = duplicates
 
-        for q in questions:
-            num = str(int(q.get("number", 0)))
-            qtype = q.get("type", "single_choice")
-            group, entry = self._build_question_widget(num, qtype, q)
+        for position, q in enumerate(questions):
+            try:
+                num = self._question_number(q.get("number"), position)
+                qtype = q.get("type", "single_choice")
+                group, entry = self._build_question_widget(num, qtype, q)
 
-            key = num
-            if key in self._answer_widgets:
-                if num not in duplicates:
-                    duplicates.append(num)
-                key = f"{num}#{seen.get(num, 0)}"
-            seen[num] = seen.get(num, 0) + 1
+                key = num
+                if key in self._answer_widgets:
+                    if num not in duplicates:
+                        duplicates.append(num)
+                    key = f"{num}#{seen.get(num, 0)}"
+                seen[num] = seen.get(num, 0) + 1
 
-            self._answer_widgets[key] = entry
-            self._container_layout.insertWidget(self._container_layout.count() - 1, group)
+                self._answer_widgets[key] = entry
+                self._container_layout.insertWidget(
+                    self._container_layout.count() - 1, group
+                )
+            except Exception:
+                # Satu soal rusak TIDAK BOLEH menghentikan build: pemanggil
+                # ini adalah slot Qt tanpa try/except, jadi exception yang
+                # lolos membuat semua soal setelahnya tidak punya widget dan
+                # tidak bisa dijawab, `_duplicates` tak pernah terisi, dan
+                # label status tidak pernah diperbarui.
+                log.exception("soal #%d gagal dibangun; dilewati", position + 1)
+                continue
 
         self._duplicates = duplicates
         self._update_count()
@@ -214,8 +260,11 @@ class AnswerSheetWidget(QWidget):
         "2 / 2 terjawab" untuk satu jawaban.
         """
         out: List[str] = []
-        for q in self._questions:
-            num = str(int(q.get("number", 0)))
+        for position, q in enumerate(self._questions):
+            # Memakai helper yang sama dengan build: nomor rusak tidak
+            # boleh membuat `get_answered_count()` -- yang dipanggil SETIAP
+            # kali siswa menjawab -- melempar dari dalam slot Qt.
+            num = self._question_number(q.get("number"), position)
             if num not in out:
                 out.append(num)
         return out
@@ -347,17 +396,29 @@ class AnswerSheetWidget(QWidget):
             # Keep a reference: a parentless QObject would be garbage
             # collected and the filter would vanish without a word.
             combo.wheel_guard = guard
+            # Kunci = TEKS ITEM KIRI, bukan indeks baris.
+            #
+            # Server menilai dengan `evaluateMatching(studentMap,
+            # correctMap, ...)`; `correctMap` disusun guru dengan kunci
+            # berupa teks item kiri, dan klien Android juga memakai
+            # `answers[leftItem]`. Kunci "1"/"2"/"3" tidak pernah ada di
+            # sana, jadi begitu guru menulis item kiri sungguhan ("Ibu
+            # Kota") soalnya dinilai SALAH untuk semua siswa desktop,
+            # sementara Android untuk ujian yang sama dinilai benar.
+            left_key = str(left)
+            if left_key in combos:      # item kiri kembar
+                left_key = f"{left_key}#{len(combos)}"
             # Restore saved
-            saved_val = saved.get(str(i + 1), "")
+            saved_val = saved.get(left_key, "")
             if saved_val:
                 idx = right_items.index(saved_val) + 1 if saved_val in right_items else 0
                 combo.setCurrentIndex(idx)
             combo.currentIndexChanged.connect(
-                lambda idx, n=num, li=str(i + 1), ri_items=right_items: (
+                lambda idx, n=num, li=left_key, ri_items=right_items: (
                     self._on_match_changed(n, li, idx, ri_items)
                 )
             )
-            combos[str(i + 1)] = combo
+            combos[left_key] = combo
             row_layout.addWidget(combo)
             layout.addLayout(row_layout)
 

@@ -94,7 +94,8 @@ class MatchingComboWheelTest(unittest.TestCase):
         cls.sheet.show()
         APP.processEvents()
         _, combos = cls.sheet._answer_widgets["1"]
-        cls.combo = combos["1"]
+        # Kunci combo adalah TEKS ITEM KIRI, bukan indeks baris.
+        cls.combo = combos[LEFT_ITEMS[0]]
 
     @classmethod
     def tearDownClass(cls):
@@ -242,7 +243,7 @@ class MatchingComboWheelTest(unittest.TestCase):
         APP.processEvents()
         self.combo.setCurrentIndex(5)
         APP.processEvents()
-        self.assertEqual(self.sheet.get_answers()["1"]["1"], RIGHT_ITEMS[4])
+        self.assertEqual(self.sheet.get_answers()["1"][LEFT_ITEMS[0]], RIGHT_ITEMS[4])
         self.assertEqual(self.sheet.get_answered_count(), (1, 1))
 
     def test_every_matching_combo_is_guarded(self):

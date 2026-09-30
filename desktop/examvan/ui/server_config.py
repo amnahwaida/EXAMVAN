@@ -436,13 +436,29 @@ class ServerConfigDialog(QDialog):
         QApplication.processEvents()
         if dlg.exec_() == QDialog.Accepted:
             identity = dlg.get_identity_data()
+            # Identitas disimpan DULU, sebelum recovery dicek.
+            #
+            # `_sig_recovery_available.connect(self._show_recovery)` tanpa
+            # `Qt.QueuedConnection`, jadi `_offer_pending_recovery()`
+            # memanggil `_show_recovery()` secara SYNCHRONOUS -- dan di
+            # situulah thread `_recovery_submit_thread` dijalankan. Thread
+            # itu membaca identitas dari `config.get("identity_data")`.
+            #
+            # Urutan lama (set -> return -> set) berarti worker membaca
+            # store yang masih kosong: server membalas 400 "Identitas
+            # 'Nama' wajib diisi" dan fitur "Kirim Lagi" tidak pernah bisa
+            # bekerja. Kerusakan kedua: `build_attempt_key(token, {})`
+            # menghasilkan label mesin yang BERBEDA dari ujian, jadi
+            # pengiriman ulang akan membuat baris kedua dan placeholder
+            # aslinya menggantung "in progress" selamanya.
+            #
             # Pemulihan jawaban yang belum terkirim. Bukan pembatasan:
             # siswa boleh mengulang, tapi jawaban yang masih tertinggal di
             # disk milik dia dan jangan sampai hilang diam-diam.
-            if not self._offer_pending_recovery():
-                config.set("identity_data", identity)
-                return
             config.set("identity_data", identity)
+
+            if not self._offer_pending_recovery():
+                return
             self.exam_selected.emit(self._exam, self._server_url, identity)
             self.accept()
         else:

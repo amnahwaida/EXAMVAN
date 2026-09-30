@@ -7,7 +7,8 @@ import os
 import sys
 import tempfile
 import threading
-from typing import Any, Dict, List, Optional
+from contextlib import contextmanager
+from typing import Any, Dict, Iterator, List, Optional
 
 # Admin exit password — Wajib ada untuk fitur admin exit aktif.
 #
@@ -558,6 +559,68 @@ class ExamViewerWindow(QMainWindow):
     # Submit
     # -------------------------------------------------------------------
 
+    def _discard_pdf(self) -> None:
+        """Hapus berkas PDF yang diunduh untuk ujian ini.
+
+        Dipanggil di SETIAP jalur keluar, bukan hanya submit. PDF berisi
+        naskah ujian utuh; meninggalkannya di `%TEMP%` berarti isinya
+        masih terbuka untuk pengguna berikutnya mesin lab -- dan setelah
+        lockdown dilepas tidak ada lagi proses yang membersihkannya.
+        """
+        path = getattr(self, "_pdf_path", None)
+        if not path:
+            return
+        try:
+            if os.path.exists(path):
+                os.remove(path)
+        except OSError as exc:
+            log.warning("could not remove exam PDF %s: %s", path, exc)
+
+    @contextmanager
+    def _modal_dialog_guard(self) -> Iterator[None]:
+        """Tangguhkan semua timer yang bisahootingkan pelajar dari dialog.
+
+        Dua hal harus ikut, bukan hanya satu:
+
+        * COUNTDOWN (`_timer_widget._timer`). Kalau deadline tercapai
+          selama dialog terbuka, `time_up` menembak -> `_auto_submit` ->
+          `_auto_submit_and_exit` menutup jendela dan mengirim jawaban.
+
+        * FOCUS GUARD (`_security.pause_focus_guard()`). `QMessageBox`
+          membuat window ini `isActiveWindow() == False` selama
+          nested event loop-nya berjalan, dan `_poll_focus()` menanyakan
+          persis itu setiap 500 ms dari level `medium` ke atas -- yang
+          adalah DEFAULT. Tanpa penangguhan ini, dialog konfirmasi yang
+          terbuka >3 detik cukup waktu untuk auto-submit dengan sendirinya,
+          sementara pelajar masih membaca pertanyaannya. Lihat
+          `SecurityEnforcer.pause_focus_guard()`.
+
+        Countdown yang sedang berjalan diresume setelah dialog ditutup,
+        jadi auto-submit karena waktu habis tetap terjadi -- dengan atau
+        tanpa konfirmasi. Yang berubah hanya menundanya sampaiuntar
+       eming dialog.
+        """
+        timer = getattr(self._timer_widget, "_timer", None)
+        security = self._security
+        focus_guard = None
+        if security is not None:
+            focus_guard = security.pause_focus_guard()
+            focus_guard.__enter__()
+        if timer is not None:
+            timer.stop()
+        try:
+            yield
+        finally:
+            if focus_guard is not None:
+                focus_guard.__exit__(None, None, None)
+            # Jangan menghidupkan countdown pada jendela yang sudah
+            # tertutup atau sudah mengumpulkan jawaban: timer 1 Hz di
+            # objek yang squeeze it'll keep firing after the fact.
+            if timer is not None and self.isVisible() and not self._submitted:
+                timer.start()
+                self._timer_widget._fired_time_up = False
+                self._timer_widget.refresh_deadline()
+
     def _on_submit(self) -> None:
         # Quick pre-check (volatile read — race window handled by _do_submit lock)
         if self._submitted or self._submitting:
@@ -567,19 +630,11 @@ class ExamViewerWindow(QMainWindow):
         warning = ""
         if self._exam_warnings:
             warning = "\n\n" + "\n".join(self._exam_warnings)
-        # Countdown DIHENTIKAN selama dialog konfirmasi terbuka.
-        #
-        # `QMessageBox.question` menjalankan nested event loop, jadi QTimer
-        # TETAP delivers di dalamnya. Kalau deadline tercapai saat dialog
-        # masih terbuka, `time_up` menembak -> `_auto_submit` ->
-        # `_auto_submit_and_exit` menutup window dan mengirim jawaban --
-        # sementara siswa masih membaca dialog dan belum menekan apa pun.
-        #
-        # Di Windows kejadian ini lebih sering: native blocking, latensi
-        # mouse yang lebih tinggi, plus `_enforce_fullscreen` yang menambah
-        # WindowStateChange tepat di sekitar dialog ini.
-        self._timer_widget._timer.stop()
-        try:
+# Countdown DAN focus guard sama-sama ditangguhkan selama dialog.
+        # Lihat _modal_dialog_guard() -- focus guard adalah bagian yang
+        # sebelumnya hilang: tanpa itu, dialog konfirmasi yang terbuka
+        # lebih dari 3 detik cukup waktu untuk auto-submit dengan sendirinya.
+        with self._modal_dialog_guard():
             reply = QMessageBox.question(
                 self,
                 "Konfirmasi Pengumpulan",
@@ -588,14 +643,6 @@ class ExamViewerWindow(QMainWindow):
                 QMessageBox.Yes | QMessageBox.No,
                 QMessageBox.No,
             )
-        finally:
-            # Countdown harus hidup lagi apa pun jawabannya. Kalau deadline
-            # sudah lewat selama dialog terbuka, `refresh_deadline`
-            # menembak `time_up` di tick berikutnya dan auto-submit berjalan
-            # seperti seharusnya -- dengan atau tanpa konfirmasi.
-            self._timer_widget._timer.start()
-            self._timer_widget._fired_time_up = False
-            self._timer_widget.refresh_deadline()
 
         if reply != QMessageBox.Yes:
             return
@@ -946,13 +993,19 @@ class ExamViewerWindow(QMainWindow):
             return
 
         # Low mode: confirm close
-        reply = QMessageBox.question(
-            self,
-            "Keluar Ujian",
-            "Apakah yakin ingin keluar? Jawaban belum dikumpulkan.",
-            QMessageBox.Yes | QMessageBox.No,
-            QMessageBox.No,
-        )
+        #
+        # Guard sama seperti dialog submit. Tanpa ini dialog ini punya dua
+        # countdown yang berjalan di belakangnya: timer ujian, dan focus
+        # guard -- yang di low level belum aktif, tapi timer ujian saja
+        # sudah cukup untuk menutup jendela ini dari dalam `closeEvent`.
+        with self._modal_dialog_guard():
+            reply = QMessageBox.question(
+                self,
+                "Keluar Ujian",
+                "Apakah yakin ingin keluar? Jawaban belum dikumpulkan.",
+                QMessageBox.Yes | QMessageBox.No,
+                QMessageBox.No,
+            )
         if reply == QMessageBox.Yes:
             # Presence: siswa keluar tanpa submit — kirim logout (presence
             # habis via TTL Redis; tidak ada submit yang menghapusnya).
@@ -960,6 +1013,7 @@ class ExamViewerWindow(QMainWindow):
             if self._security:
                 self._security.deactivate()
             self._pdf_viewer.cleanup()
+            self._discard_pdf()
             self.closed.emit()
             with self._submit_lock:
                 self._submitted = True
@@ -1016,12 +1070,16 @@ class ExamViewerWindow(QMainWindow):
     def _admin_exit_prompt(self) -> None:
         from PyQt5.QtWidgets import QInputDialog, QLineEdit
 
-        password, ok = QInputDialog.getText(
-            self,
-            "Admin Exit",
-            "Masukkan password supervisor:",
-            QLineEdit.Password,
-        )
+        # Tanpa guard, prompt password ini auto-submit dalam 3 detik --
+        # artinya supervisor tidak pernah sempat mengetik, dan pintu
+        # emergency justru mengirim jawaban pelajar.
+        with self._modal_dialog_guard():
+            password, ok = QInputDialog.getText(
+                self,
+                "Admin Exit",
+                "Masukkan password supervisor:",
+                QLineEdit.Password,
+            )
         if ok and password:
             # Fail-closed: tanpa password terkonfigurasi, TIDAK ada
             # jalur keluar selain kill process dari Task Manager.
@@ -1046,9 +1104,19 @@ class ExamViewerWindow(QMainWindow):
                 QMessageBox.warning(self, "Akses Ditolak", "Password salah.")
                 return
 
+            # Presence DIHENTIKAN di sini juga.
+            #
+            # Semua jalur keluar lain memanggil `_stop_presence`; yang ini
+            # tidak, jadi `_heartbeat_timer` (60 s) tetap POST
+            # `access-log heartbeat` dan dashboard pengawas menampilkan
+            # siswa masih ONLINE setelah pengawas resmi mengeluarkannya.
+            # WebSocket juga tidak pernah `disconnect()`, jadi ia
+            # auto-reconnect lagi.
+            self._stop_presence(completed=False)
             if self._security:
                 self._security.deactivate()
             self._pdf_viewer.cleanup()
+            self._discard_pdf()
             with self._submit_lock:
                 self._submitted = True
             # closeEvent handles self.closed.emit() when _submitted

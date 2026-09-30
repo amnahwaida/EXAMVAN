@@ -113,6 +113,17 @@ def _viewer() -> ExamViewerWindow:
     win._answer_sheet.get_answered_count.return_value = (1, 2)
     win._btn_submit = mock.Mock()
     win._do_submit = mock.Mock()
+    # `_modal_dialog_guard()` mengUJI bool ini sebelum memakai
+    # `_security.pause_focus_guard()`. None berarti "tanpa enforcer",
+    # yang memang keadaan sah; yang tidak sah adalah atribut yang tidak
+    # ada sama sekali, karena stub melewati __init__.
+    win._security = None
+    # `_modal_dialog_guard()` hanya menghidupkan countdown kembali kalau
+    # jendela masih terlihat -- supaya timer 1 Hz tidak terus berjalan
+    # pada jendela yang sudah ditutup. Stub melewati __init__ QWidget, jadi
+    # `isVisible()` aslinya melempar RuntimeError; di sini, berperilaku
+    # sebagai jendela yang sedang tampil, sesuai skenario yang diuji.
+    win.isVisible = lambda: True
     win._cleanup_after_submit = mock.Mock()
     return win
 
@@ -232,24 +243,22 @@ class _PollerHost:
 class StalePollerQuitsTest(unittest.TestCase):
     """#3 — poller basi harus keluar, bukan membangun kembali."""
 
-    def test_join_timeout_exceeds_the_http_timeout(self):
-        # Yang diperiksa DEFAULT PARAMETER yang benar-benar dipakai
-        # `_stop_polling`, bukan konstantanya. Kalau hanya konstantanya
-        # yang diuji, mengganti default-nya jadi 2 detik -- persis mutasi
-        # yang harus tertangkap -- tidak akan terlihat di sini.
+    def test_stopping_the_poller_never_blocks_the_gui_thread(self):
+        # #3 ditutup dengan join 12 s -- tapi join itu berjalan di THREAD
+        # GUI (dipanggil dari reject / closeEvent / "Minta Izin Lagi").
+        # Jaringan mati -> poller memblokir 10 s di socket -> UI beku dan
+        # `SecurityEnforcer` ikut mati karena butuh event loop yang sama.
+        #
+        # Yang benar: `set()` + naikkan generasi. Poll basi keluar sendiri
+        # begitu socket-nya selesai, tanpa menyentuh dialog.
         import inspect
 
         from examvan.ui.waiting_approval import WaitingApprovalDialog
 
-        default = inspect.signature(
-            WaitingApprovalDialog._stop_polling
-        ).parameters["timeout"].default
-        self.assertGreater(
-            default, 10.0,
-            "default join harus lebih lama dari HTTP timeout "
-            "request_approval (10s), kalau tidak _stop_polling selalu "
-            "meninggalkan poller hidup",
-        )
+        src = inspect.getsource(WaitingApprovalDialog._stop_polling)
+        self.assertNotIn(".join(", src)
+        self.assertIn("self._poll_generation += 1", src)
+        self.assertIn("self._poll_stop.set()", src)
 
     def test_a_stale_generation_returns_immediately(self):
         from examvan.ui.waiting_approval import WaitingApprovalDialog

@@ -27,13 +27,53 @@ _defaults: Dict[str, Any] = {
 
 _cache: Optional[Dict[str, Any]] = None
 
+
+def _restrict_to_owner(path: Path) -> None:
+    """Tetapkan mode 0600: hanya pemilik yang boleh membaca.
+
+    Best-effort: di Windows `chmod` hanya read-only
+    bit, jadi mode POSIX tidak sepenuhnya berlaku di sana. Yang penting
+    Unix -- dan Windows Lab -- tidak menyimpan file kredensial yang bisa
+    dibaca user lain. Kegagalan tidak boleh mematikan app.
+    """
+    try:
+        path.chmod(0o600)
+    except OSError as exc:
+        _log.warning("could not restrict permissions on %s: %s", path, exc)
+
 # Simple XOR obfuscation key for answer files — prevents casual reading.
 # Not cryptographic security (answers stay on disk only during exam).
 _OBFUSCATE_KEY = b"EXAMVAN_OBF_2024!!"
 
 
 def _xor_obfuscate(data: bytes) -> bytes:
-    """XOR obfuscation. Same function for encrypt and decrypt."""
+    """XOR obfuscation. Same function for encrypt and decrypt.
+
+    Kunci TETAP dan tidak lagi dicampur dari `exam_token`.
+
+    Sebelumnya kunci enkripsi jawaban adalah nilai yang bisa diedit
+    pengguna. Pada ujian dynamic-token, `MaybeResetActiveToken` memutar
+    token; siswa yang kembali dengan token barumembuat `_connect_thread`
+    menimpanya sebelum pemeriksaan recovery, dan `load_answers()` lalu
+    mengembalikan None: tidak ada prompt "Kirim Lagi", tidak ada yang
+    dipulihkan, dan autosave berikutnya menimpa berkas itu. Pekerjaan
+    siswa sebelumnya hilang tanpa pesan apa pun.
+
+    Kredensial juga tidak boleh menjadi kunci berkas kredensial yang
+    bersebelahan: siapa pun yang bisa membaca `config.json` akan otomatis
+    bisa mendekripsi `answers_<id>.dat`.
+    """
+    key = _OBFUSCATE_KEY
+    return bytes(b ^ key[i % len(key)] for i, b in enumerate(data))
+
+
+def _legacy_xor_obfuscate(data: bytes) -> bytes:
+    """XOR dengan kunci yang dicampur dari token -- hanya untuk MIGRASI.
+
+    Semua `answers_*.dat` yang ditulis versi lama memakai skema ini, jadi
+    `load_answers` harus tetap bisa membacanya. Jangan dipakai untuk
+    menulis: lihat `_xor_obfuscate`.
+    """
     token = get("exam_token") or ""
     if token:
         mixed_key = bytes(b ^ ord(token[i % len(token)]) for i, b in enumerate(_OBFUSCATE_KEY))
@@ -50,13 +90,26 @@ def _encode_answers(answers: Dict[str, Any]) -> str:
 
 
 def _decode_answers(data: str) -> Optional[Dict[str, Any]]:
-    """Base64 decode + deobfuscate + parse."""
+    """Base64 decode + deobfuscate + parse.
+
+    Mencoba skema saat ini dulu, lalu skema lama (kunci dicampur token)
+    sebagai fallback. Tanpa fallback ini, setiap jawaban yang tersimpan
+    sebelum update hilang begitu saja saat pertama kali app dibuka
+    sesudahnya.
+    """
     try:
         obfuscated = base64.urlsafe_b64decode(data.encode("ascii"))
-        raw = _xor_obfuscate(obfuscated)
-        return json.loads(raw.decode("utf-8"))
     except Exception:
         return None
+
+    for deobfuscate in (_xor_obfuscate, _legacy_xor_obfuscate):
+        try:
+            parsed = json.loads(deobfuscate(obfuscated).decode("utf-8"))
+        except Exception:
+            continue
+        if isinstance(parsed, dict):
+            return parsed
+    return None
 
 
 def _load() -> Dict[str, Any]:
@@ -82,7 +135,20 @@ def _save() -> None:
     try:
         with open(tmp, "w", encoding="utf-8") as f:
             json.dump(_cache, f, indent=2, ensure_ascii=False)
+        # 0600 SEBELUM replace: file sementara harus ketat selama ia ada,
+        # dan `replace` mempertahankan mode dari file sumber, jadi chmod
+        # sesudahnya akan terlambat -- file kredensial sudah terbuka di
+        # disk selama jendela di antaranya.
+        #
+        # Isinya adalah exam_token (kredensial seluruh kelas pada mode
+        # static) dan identitas siswa. Mode bawaan umask membuatnya
+        # world/group-readable, jadi akun lain di PC lab bisa membacanya,
+        # mengambil PDF, dan mengirim jawaban sebagai siapa saja.
+        _restrict_to_owner(tmp)
         tmp.replace(_CONFIG_FILE)
+        #alfabet file bisa sudah ada dari versi lama dengan mode longgar;
+        # `set()` menulis ulang berkali-kali jadi harus dijaga tiap kali.
+        _restrict_to_owner(_CONFIG_FILE)
     except OSError as exc:
         # Sama seperti clear_answers: `set()` dipanggil dari thread GUI
         # (mis. `_connect_thread` yang menyimpan URL+token sebelum gate),
@@ -114,6 +180,7 @@ def save_answers(exam_id: int, answers: Dict[str, Any]) -> None:
         encoded = _encode_answers(answers)
         with open(tmp, "w", encoding="ascii") as f:
             f.write(encoded)
+        _restrict_to_owner(tmp)
         tmp.replace(path)
     except Exception:
         # If obfuscation fails, don't write anything readable

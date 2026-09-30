@@ -67,6 +67,7 @@ from __future__ import annotations
 
 import os
 import sys
+import contextlib
 import unittest
 from unittest import mock
 
@@ -91,14 +92,33 @@ QUESTIONS = [
 
 
 class _NoopSecurity:
+    """Pengganti SecurityEnforcer yang antarmukanya harus IKUT yang asli.
+
+    `pause_focus_guard()` sengaja ada di sini: `_modal_dialog_guard()` di
+    ExamViewerWindow memanggilnya di setiap dialog modal, dan kalau test
+    double tidak memilikinya, test gagal dengan AttributeError yang
+    menyesatkan -- seolah ada bug di produksi. Double yang tidak
+   kurang sesuai antarmuka yang sama dengan yang dipakai Viewer adalah
+    double yang tidak dipercaya.
+    """
+
     def __init__(self, *args, **kwargs):
         self.auto_submit = mock.Mock()
+        self._focus_guard_paused = False
 
     def activate(self):
         pass
 
     def deactivate(self):
         pass
+
+    @contextlib.contextmanager
+    def pause_focus_guard(self):
+        self._focus_guard_paused = True
+        try:
+            yield
+        finally:
+            self._focus_guard_paused = False
 
 
 def _make_viewer(questions=None, download_error=None, load_ok=True):

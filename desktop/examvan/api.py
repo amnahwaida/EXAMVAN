@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import io
 import json
+import logging
+import random
 import sys
 import time
 import urllib.error
@@ -14,6 +16,8 @@ from typing import Any, Callable, Dict, Optional, Tuple
 from . import APP_VERSION
 from .models import Exam, HealthResponse, SubmitResponse, TokenExamResponse
 from .utils import map_identity_to_standard
+
+log = logging.getLogger(__name__)
 
 # Platform label for User-Agent
 _PLATFORM = "Windows" if sys.platform == "win32" else "Linux"
@@ -168,6 +172,51 @@ def get_exam_by_token(base_url: str, token: str) -> TokenExamResponse:
 # ---------------------------------------------------------------------------
 
 
+# Header yang hanya boleh dikirim ke SERVER UJIAN.
+#
+# Endpoint PDF menjawab 302 ke signed URL di origin storage (R2).
+# `urllib.request.HTTPRedirectHandler.redirect_request` menyalin SEMUA
+# custom header ke request berikutnya, jadi tanpa handler di bawah
+# `X-Exam-Token` (kredensial seluruh kelas pada mode static) dan
+# `X-Device-Id` ikut terkirim ke origin yang berbeda, mendarat di access
+# log sana, dan digabung dengan signed URL dalam satu request.
+#
+# Yang memeriksa header itu hanya exams.go di origin pertama, jadi "sudah
+# lolos gate" terasa aman padahal tidak.
+_REDIRECT_SENSITIVE_HEADERS = frozenset(
+    {"x-exam-token", "x-device-id", "authorization", "cookie"}
+)
+
+
+class _ExamOnlyRedirectHandler(urllib.request.HTTPRedirectHandler):
+    """Buang kredensial kami saat redirect, pertahankan yang netral."""
+
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        new = super().redirect_request(req, fp, code, msg, headers, newurl)
+        if new is None:
+            return None
+        kept = {
+            k: v for k, v in new.headers.items()
+            if k.lower() not in _REDIRECT_SENSITIVE_HEADERS
+        }
+        # Header map Request bisa dimodifikasi lewat .headers, jadi cukup
+        # dibersihkan di tempat.
+        new.headers.clear()
+        new.headers.update(kept)
+        return new
+
+
+_PDF_OPENER = None
+
+
+def _pdf_opener():
+    """Opener yang memakai `_ExamOnlyRedirectHandler`."""
+    global _PDF_OPENER
+    if _PDF_OPENER is None:
+        _PDF_OPENER = urllib.request.build_opener(_ExamOnlyRedirectHandler())
+    return _PDF_OPENER
+
+
 def download_pdf(
     base_url: str,
     exam_id: int,
@@ -201,7 +250,7 @@ def download_pdf(
 
     tmp_path = dest_path + ".tmp"
     try:
-        with urllib.request.urlopen(req, timeout=120) as resp:
+        with _pdf_opener().open(req, timeout=120) as resp:
             total = int(resp.headers.get("Content-Length", -1))
             read_bytes = 0
             chunk_size = 65536
@@ -492,13 +541,40 @@ def exam_result(
         )
         return SubmitResponse.from_json(data)
     except urllib.error.HTTPError as e:
+        # KODE STATUS HARUS DIBAWA NAIK.
+        #
+        # Tanpa ini, `poll_queued_result()` melihat `success=False` tanpa
+        # HTTP sama sekali -- identik dengan "jaringan putus" -- lalu
+        # melanjutkan polling 31 kali. 401 "Token tidak valid",
+        # 403 "Waktu ujian telah berakhir" dan 429 semuanya jadi "masih
+        # diproses", padahal tiga-tiganya verdict yang tidak berubah dengan
+        # mencoba lagi.
+        #
+        # Untuk satu siswa itu berarti membaca "Gagal mengumpulkan" untuk
+        # jawaban yang sudah durable, lalu menekan "Kirim Lagi". Untuk satu
+        # ruangan, 24 request/menit per perangkat adalah `resultExamRateLimitMax`
+        # = 12000/menit: 500 perangkat yang mulai polling sefase menghabiskan
+        # bucket bersama dan siswa lain ikut kena 429.
+        code = e.code
         try:
             body_data = json.loads(e.read().decode("utf-8"))
-            return SubmitResponse.from_json(body_data)
+            resp = SubmitResponse.from_json(body_data)
+            if resp.http_status is None:
+                resp.http_status = code
+            return resp
         except Exception:
-            return SubmitResponse(success=False, message=f"HTTP {e.code}: {e.reason}")
+            return SubmitResponse(
+                success=False, message=f"HTTP {code}: {e.reason}",
+                http_status=code,
+            )
     except (urllib.error.URLError, OSError, json.JSONDecodeError) as e:
+        # http_status sengaja None: tidak ada HTTP sama sekali, jadi ini
+        # kategori "masih dicoba", bukan "ditolak".
         return SubmitResponse(success=False, message=str(e))
+
+
+# HTTP status yang verdict-nya tidak berubah dengan mencoba lagi.
+_PERMANENT_HTTP_STATUS = frozenset({401, 403, 404, 410})
 
 
 def poll_queued_result(
@@ -522,14 +598,56 @@ def poll_queued_result(
     Defaults: 31 attempts × 2.5s ≈ 77s of polling (Android uses a 75s
     deadline).
     """
+    # Backoff + jitter. Tanpa ini semua perangkat yang dapat 202 pada
+    # detik yang sama akan poll pada interval yang sama selamanya, dan
+    # rate-limit bersama menjadi masalah yang dibuat oleh klien sendiri.
+    wait = interval
+    last: Optional[SubmitResponse] = None
     for _ in range(max_attempts):
         resp = exam_result(
             base_url, exam_id, token, mac_address, job_id, identity_data
         )
-        if not resp.success or resp.status == "done":
+        if resp.status == "done":
             return resp
-        # status == "pending" (or unknown non-terminal) → keep polling
-        time.sleep(interval)
+
+        if not resp.success:
+            # Kegagalan TANPA kode HTTP = tidak ada jawaban dari server
+            # sama sekali. Ini kontrak lama: hentikan, jangan ulangi.
+            if resp.http_status is None:
+                return resp
+            # Verdikt permanen: mencoba lagi tidak akan mengubah apa pun.
+            # Melanjutkan polling hanya menguras token dan quota.
+            if resp.http_status in _PERMANENT_HTTP_STATUS:
+                log.warning(
+                    "/result refused permanently with HTTP %s: %s",
+                    resp.http_status, resp.message,
+                )
+                return resp
+            # 429 / 5xx = sementara. Jawabannya mungkin SUDAH durable di
+            # server dan kita hanya belum boleh meminta lagi, jadi
+            # dilaporkan gagal akan membuat siswa mengirim ulang jawaban
+            # yang sudah tersimpan. Lanjut dengan backoff + jitter.
+            last = resp
+            time.sleep(wait + random.uniform(0, wait * 0.3))
+            wait = min(wait * 1.5, interval * 8)
+            continue
+
+        # success=True tapi belum "done": masih diproses worker server.
+        last = resp
+        time.sleep(wait + random.uniform(0, wait * 0.3))
+        wait = min(wait * 1.5, interval * 8)
+
+    if last is not None and last.http_status is not None:
+        # Transient tapi tidak pernah berhasil: jangan diam-diam
+        # menyalahkan siswa.
+        return SubmitResponse(
+            success=False, status="error",
+            http_status=last.http_status,
+            message=(
+                f"Server belum mengonfirmasi (HTTP {last.http_status}). "
+                "Jawaban tetap tersimpan di perangkat ini."
+            ),
+        )
     return SubmitResponse(
         success=False,
         status="timeout",

@@ -82,6 +82,24 @@ ES_SYSTEM_REQUIRED = 0x00000001
 WDA_NONE = 0x00000000
 WDA_MONITOR = 0x00000001
 
+# Messages
+#
+# HARUS di level modul, bukan lokal di `_win32_prototypes()`.
+#
+# Fungsi itu me-return hanya nama berawalan `_`, jadi konstanta yang
+# dinamai tanpa garis bawah tidak pernah masuk `globals()`. `WM_QUIT`
+# yang hilang berarti `_stop_keyboard_hook()` gagal diam-diam: NameError
+# tertelan `except`, WM_QUIT tidak terkirim, thread hook tidak keluar,
+# dan keyboard hook memblokir Alt+Tab/Win sampai process.Exit.
+# Lihat tests/test_windows_constants.py.
+WM_QUIT = 0x0012
+
+# GetSystemMetrics indices
+#
+# Sama seperti WM_QUIT: hilang dari globals() -> `_has_multiple_monitors()`
+# selalu mengembalikan False di setiap PC Windows.
+SM_CMONITORS = 80
+
 # GWL style
 GWL_EXSTYLE = -20
 WS_EX_LAYERED = 0x80000
@@ -293,7 +311,9 @@ def _win32_prototypes(_user32, _kernel32, _advapi32) -> dict:
     _GetSystemMetrics.restype = c_int
     _GetSystemMetrics.argtypes = [c_int]
 
-    SM_CMONITORS = 80
+    # NB: WM_QUIT dan SM_CMONITORS TIDAK didefinisikan di sini. Keduanya
+    # konstanta, bukan prototype, dan filter `startswith("_")` pada return
+    # dict akan membuangnya. Lihat blok konstanta di level modul.
 
     return {k: v for k, v in locals().items()
             if k.startswith("_") and not k.startswith("__")}

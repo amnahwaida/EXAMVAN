@@ -9,7 +9,8 @@ from __future__ import annotations
 import logging
 import sys
 import threading
-from typing import Optional
+from contextlib import contextmanager
+from typing import Iterator, Optional
 
 from PyQt5.QtCore import QObject, Qt, QTimer, pyqtSignal
 from PyQt5.QtWidgets import QApplication, QWidget
@@ -79,6 +80,78 @@ class SecurityEnforcer(QObject):
         self._clipboard_lock = threading.Lock()
         self._clipboard_busy = False
         self._clipboard_thread: Optional[threading.Thread] = None
+
+        # Focus-guard suspension state. See pause_focus_guard().
+        self._focus_guard_paused = False
+        self._focus_guard_depth = 0
+        self._focus_guard_resume = False
+
+    # ------------------------------------------------------------------
+    # Modal-dialog suspension
+    # ------------------------------------------------------------------
+
+    @contextmanager
+    def pause_focus_guard(self) -> Iterator[None]:
+        """Tangguhkan deteksi focus-loss selama dialog modal terbuka.
+
+        Kenapa ini wajib ada
+        --------------------
+        `QMessageBox.question()` dan `QInputDialog.getText()` menjalankan
+        NESTED EVENT LOOP. Selama itu berjalan, dialog adalah window aktif
+        dan window ujian menjadi `isActiveWindow() == False` -- bukan
+        karena siswaixa Meganleave the exam, tapi karena Qt sedang
+        menaruh dialog di atasnya.
+
+        `_poll_focus()` sendiri persis menanyakan `isActiveWindow()`
+        setiap 500 ms, jadi tanpa penangguhan:
+
+            dialog terbuka
+              -> _poll_focus melihat window tidak aktif
+              -> _focus_timer.start()  (3 detik, single shot)
+              -> _on_focus_timeout()
+              -> auto_submit.emit()
+              -> ExamViewerWindow._auto_submit_and_exit()
+
+        Answers terkirim dan jendela tertutup sementara siswa masih
+        membaca "Yakin ingin mengumpulkan?". Jalur kedua, yang lebih
+        cepat, adalah `_on_window_active_changed` yang terpasang di
+        `windowHandle().activeChanged`.
+
+        Efeknyarunner-up: di strict, `_poll_focus` juga memanggil
+        `raise_()` + `activateWindow()` pada window induk tiap 500 ms, jadi
+        jendela ujian bertarung dengan dialog soal z-order -- dialog
+        berkedip atau tertimpa.
+
+        Yang dipulihkan
+        ---------------
+        Countdown focus-loss yang SEDANG BERJALAN saat dialog dibuka ikut
+        dibekukan dan dilanjutkan lagi setelahnya. Kalau tidak, siswa
+        yang sedang menjawab dialog konfirmasi tepat saat timer-nya
+        Kedaluwarsa akan kehilangan auto-submit yang seharusnya terjadi --
+        dan `_submitted` sudah preventif, jadi auto-submit kedua
+        ditolak begitu saja.
+
+        `low` tidak punya focus guard sama sekali, jadi tidak ada yang
+        perlu ditangguhkan.
+        """
+        if self._level == LEVEL_LOW and not self._strict:
+            yield
+            return
+
+        self._focus_guard_depth += 1
+        if self._focus_guard_depth == 1:
+            self._focus_guard_resume = self._focus_timer.isActive()
+            self._focus_timer.stop()
+            self._focus_guard_paused = True
+        try:
+            yield
+        finally:
+            self._focus_guard_depth -= 1
+            if self._focus_guard_depth == 0:
+                self._focus_guard_paused = False
+                if self._focus_guard_resume:
+                    self._focus_timer.start()
+                self._focus_guard_resume = False
 
     # ------------------------------------------------------------------
     # Public API
@@ -293,7 +366,11 @@ class SecurityEnforcer(QObject):
         log.info("Focus poll timer started (%dms interval)", FOCUS_POLL_INTERVAL_MS)
 
     def _on_app_state_changed(self, state: Qt.ApplicationState) -> None:
-        if not self._active:
+        # `isActiveWindow() == False` selama dialog modal terbuka itu
+        # NORMAL, bukan tanda murid keluar dari ujian. Tanpa cek ini
+        # countdown 3 detik berjalan di belakang dialog dan auto-submit
+        # terjadi tanpaPressed. Lihat pause_focus_guard().
+        if not self._active or self._focus_guard_paused:
             return
         if state == Qt.ApplicationInactive:
             log.warning("Focus lost — starting 3s auto-submit countdown")
@@ -304,7 +381,7 @@ class SecurityEnforcer(QObject):
                 self._focus_timer.stop()
 
     def _on_window_active_changed(self) -> None:
-        if not self._active or not self._window:
+        if not self._active or not self._window or self._focus_guard_paused:
             return
         if not self._window.isActiveWindow():
             self._on_app_state_changed(Qt.ApplicationInactive)
@@ -312,7 +389,7 @@ class SecurityEnforcer(QObject):
             self._on_app_state_changed(Qt.ApplicationActive)
 
     def _poll_focus(self) -> None:
-        if not self._active or not self._window:
+        if not self._active or not self._window or self._focus_guard_paused:
             return
 
         if self._strict:
@@ -329,7 +406,7 @@ class SecurityEnforcer(QObject):
                 self._focus_timer.stop()
 
     def _on_focus_timeout(self) -> None:
-        if not self._active:
+        if not self._active or self._focus_guard_paused:
             return
         log.warning("Focus lost timeout — triggering auto-submit")
         self.auto_submit.emit()
