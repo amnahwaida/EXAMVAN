@@ -200,9 +200,38 @@ class PasswordWriteBranchTest(unittest.TestCase):
             self.body.index("DeleteFile(PwFile)"), self.body.index("SaveStringToFile")
         )
 
-    def test_delete_appears_exactly_once(self):
-        # Dua jalur hapus = satu dari keduanya pasti tidak dijaga.
-        self.assertEqual(self.body.count("DeleteFile(PwFile)"), 1)
+    def test_every_delete_path_is_guarded(self):
+        # Sekarang ada DUA jalur hapus yang sah:
+        #   1. cabang tulis  -- huluanya, karena SaveStringToFile tidak
+        #      men-truncate, jadi file lama dihapus dulu sebelum ditulis
+        #   2. cabang interaktif + kolom dikosongkan -- supervisor yang
+        #      sengaja menonaktifkan password exit
+        #
+        # Assertion lama ("hapus harus muncul sekali") dibuat ketika hanya
+        # ada jalur pertama; begitu jalur kedua ditambahkan untuk
+        # memperbaiki "password tidak bisa dinonaktifkan", assertion itu
+        # sendiri jadi rusak. Yang diuji sekarang bukan jumlahnya tapi
+        # setiap jalur hapus memang di dalam kondisi.
+        # Dua kemunculan, dua jalur yang memang sah. Yang mana
+        # harus dijaga; `_guard_chain` mengembalikan seluruh rantai kondisi
+        # di procedure, bukan satu per kemunculan, jadi tidak bisa dipakai
+        # untuk mencocokkan jumlah. Yang dicek di sini: kedua jalur punya
+        # penjaga, dan penjaga interaktifnya WizardSilent.
+        self.assertEqual(
+            self.body.count("DeleteFile(PwFile)"), 2,
+            "harus ada tepat dua jalur hapus: pra-tulis (truncate) dan "
+            "interaktif + dikosongkan",
+        )
+        guards = _guard_chain(self.body, "DeleteFile(PwFile)")
+        self.assertTrue(
+            any("PwValue" in g for g in guards),
+            f"tidak ada jalur hapus yang terikat pada PwValue: {guards}",
+        )
+        self.assertTrue(
+            any("WizardSilent" in g for g in guards),
+            "cabang hapus interaktif harus dijaga WizardSilent, kalau tidak "
+            f"setiap upgrade senyap menghapus password: {guards}",
+        )
 
     def test_save_is_guarded_too(self):
         chain = _guard_chain(self.body, "SaveStringToFile")

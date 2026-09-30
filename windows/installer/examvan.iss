@@ -297,20 +297,24 @@ begin
       CreateDir(PwDir);
     PwFile := PwDir + '\admin_password.txt';
 
-    // Instalasi SENYAP (/VERYSILENT) tidak pernah menampilkan halaman
-    // password, jadi Values[] kosong. Kosong TIDAK boleh berarti "hapus":
-    // itulah yang membuat setiap upgrade senyap menghapus password seluruh
-    // lab, tanpa pesan dan tanpa exit code non-nol. Yang terjadi kalau
-    // kosong: password yang sudah ada dibiarkan utuh, persis seperti
-    // "Boleh dikosongkan" di teks halaman promises.
+    // Password lama dimuat ke Values[0] HANYA untuk instalasi SENYAP.
     //
-    // Password lama juga dimuat ke halaman supaya instalasi senyap bisa
-    // menulis ulang apa yang sudah ada (dipakai CI smoke test untuk
-    // memverifikasi file tidak berubah), dan supaya upgrade interaktif
-    // bisa melihat password aktif tanpa harus mengingatnya.
-    if AdminPasswordPage.Values[0] = '' then
+    // Versi sebelumnya melakukan ini tanpa syarat, dengan alasan "supaya
+    // instalasi senyap bisa menulis ulang apa yang sudah ada". Tapi kalau
+    // halamannya TAMPIL, Values[0] adalah apa yang baru saja diketik
+    // pengguna -- dan kalau pengguna sengaja mengosongkan kolom, baris ini
+    // menimpanya kembali dengan password lama. Akibatnya "nonaktifkan
+    // password exit" tidak bisa dilakukan sama sekali: satu-satunya cara
+    // adalah reinstall lalu mengetik password yang terlupa, dan password
+    // lama tetap masih berlaku.
+    //
+    // Untuk instalasi senyap Values[] kosong bukan pilihan pengguna --
+    // halamannya memang tidak pernah tampil -- jadi yang dilakukan adalah
+    // mempertahankan password yang sudah ada, persis seperti "Boleh
+    // dikosongkan" di teks halaman promises.
+    if WizardSilent then
     begin
-      if FileExists(PwFile) then
+      if (AdminPasswordPage.Values[0] = '') and FileExists(PwFile) then
         AdminPasswordPage.Values[0] := ReadPasswordFromFile(PwFile);
     end;
 
@@ -325,9 +329,15 @@ begin
     if (PwValue <> '') and (PwValue <> PwRepeat) then
     begin
       MsgBox('Dua password tidak sama. Password TIDAK disimpan.', mbError, MB_OK);
-      PwValue := '';
-      // Password LAMA tetap dibiarkan: salah ketik tidak boleh menghapus
-      // password yang masih working.
+      // Password LAMA dikembalikan, BUKAN diganti string kosong.
+      //
+      // Versi sebelumnya menulis `PwValue := ''` dengan komentar "password
+      // lama tetap dibiarkan". Itu tidak benar: string kosong langsung
+      // jatuh ke cabang hapus di bawah, jadi salah ketik justru
+      // MENGHAPUS password yang masih working -- persis kebalikan dari
+      // niatnya. Mengembalikan isi lama juga membuat tulis-ulang di bawah
+      // menyimpan kembali nilai yang sama, jadi file berubah nihil.
+      PwValue := ReadPasswordFromFile(PwFile);
     end;
 
     // Hapus DAN tulis di cabang yang sama.
@@ -339,11 +349,46 @@ begin
     // dibaca dari disk.
     //
     // Yang sebelumnya salah: hapus tanpa syarat, tulis bersyarat.
+    //
+    // Urutan argumen SaveStringToFile adalah (FileName, S, Append) --
+    // nama file lebih dulu. Versi sebelumnya menulis
+    // SaveStringToFile(PwValue, PwFile, False), jadi isinya
+    // "rahasia-smoke-123" dan tujuannya
+    // "C:\...\admin_password.txt": bersama DeleteFile di atas, file
+    // password benar-benar dihapus lalu tidak pernah dibuat ulang, dan
+    // keluar exit 0. Pola ini tidak ketahuan karena kedua parameter
+    // bertipe String dan terisi variabel yang sama-sama valid.
+    //
+    // Hasil return juga WAJIB diperiksa. Menulis password tanpa
+    // memverifikasi berubah jadi kehilangan data senyap: supervisor
+    // terkunci di luar kelas saat ujian berjalan, tanpa pesan.
     if PwValue <> '' then
     begin
       if FileExists(PwFile) then
         DeleteFile(PwFile);
-      SaveStringToFile(PwValue, PwFile, False);
+      if not SaveStringToFile(PwFile, PwValue, False) then
+        RaiseException('Gagal menulis password admin exit ke:' + #13#10 +
+          PwFile + #13#10#13#10 +
+          'Password lama sudah dihapus dan TIDAK tersimpan. ' +
+          'Set ulang password secara manual sebelum ujian berikutnya.');
+    end
+    else if not WizardSilent then
+    begin
+      // Password sengaja dikosongkan OLEH PENGGUNA di halaman yang tampil,
+      // jadi password lama harus dihapus. Tanpa cabang ini, mengosongkan
+      // kolom tidak melakukan apa-apa: Values[0] sudah diisi password
+      // lama, jadi satu-satunya cara "menonaktifkan" password exit
+      // adalah reinstall lalu mengetik password yang lupa -- dan
+      // password lama tetap masih berlaku.
+      //
+      // Syaratnya penting: hanya untuk instalasi yang TAMPIL. Senyap
+      // (/VERYSILENT) tidak pernah menampilkan halaman, Values[] kosong,
+      // dan `PwValue = ''` di sana berarti "tidak tahu" -- bukan
+      // "mau dihapus". Tanpa guard WizardSilent, setiap upgrade senyap
+      // akan menghapus password seluruh lab -- persis R1 yang sedang
+      // diuji smoke test ini.
+      if FileExists(PwFile) then
+        DeleteFile(PwFile);
     end;
   end;
 end;
