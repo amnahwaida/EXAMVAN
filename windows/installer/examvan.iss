@@ -249,27 +249,28 @@ end;
 // Aman untuk file 0 byte, file yang tidak bisa dibuka, dan file tanpa
 // baris kosong di akhir: semua menghasilkan string kosong, yang
 // pemanggil perlakukan sebagai "tidak/password tidak dikonfigurasi".
+//
+// Versi sebelumnya memakai FileOpen/FileSeek/FileRead/FileClose dengan
+// THandle. itu API Win32 Delphi, BUKAN Pascal Script Inno Setup — dan
+// tidak ada unit `FileFunc` yang mengimpornya, jadi ISCC menolak dengan
+//     Unknown identifier 'FileOpen'
+// sebelum sempat dieksekusi. Serangkaian handle, try/finally, dan
+// SetLength(Buffer, FileSeek(...)) yang tidak pernah bisa berjalan.
+//
+// `LoadStringFromFile` adalah support function yang benar-benar ada:
+// membaca SELURUH isi file ke dalam S, mengembalikan False kalau file
+// tidak bisa dibuka. Tepat menutup ketiga kasus yang dikomentari di
+// atas tanpa satu pun alur error manual.
 // ------------------------------------------------------------
 function ReadPasswordFromFile(const PwFile: String): String;
 var
-  Handle: THandle;
   Buffer: AnsiString;
 begin
   Result := '';
   if not FileExists(PwFile) then
     Exit;
-  Handle := FileOpen(PwFile, FileOpenExisting, FileShareReadWrite or FileShareDelete);
-  if Handle = THandle(-1) then
+  if not LoadStringFromFile(PwFile, Buffer) then
     Exit;
-  try
-    Buffer := '';
-    SetLength(Buffer, FileSeek(Handle, 0, FileEnd));
-    if Length(Buffer) = 0 then
-      Exit;
-    FileRead(Handle, Buffer, Length(Buffer));
-  finally
-    FileClose(Handle);
-  end;
   // File ditulis tanpa newline, tapi yang diedit manual di Notepad bisa
   // punya CRLF — jadi selalu strip.
   Result := Trim(Buffer);
@@ -368,7 +369,7 @@ begin
     // DUA folder, dan isinya harus disebut apa adanya.
     //
     // %LOCALAPPDATA%\EXAMVAN hanya berisi admin_password.txt.
-    %USERPROFILE%\.config\examvan yang holding jawaban ujian yang belum
+    // %USERPROFILE%\.config\examvan yang holding jawaban ujian yang belum
     // terkirim, config (URL server + token + identitas), app.log, dan
     // windows_state.json. Prompt lama hanya menyebut yang pertama tapi
     // mendeskripsikannya sebagai holding empat hal — jadi "Ya" tidak

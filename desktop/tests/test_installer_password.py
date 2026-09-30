@@ -285,9 +285,19 @@ class UninstallPromptTest(unittest.TestCase):
     def test_mentions_the_real_data_folder(self):
         # Yang sebenarnya holding jawaban, log, dan config:
         # %USERPROFILE%\.config\examvan (config.py:15-16, __main__.py:24).
-        self.assertIn("USERPROFILE", self.body)
-        self.assertIn(".config", self.body)
-        self.assertIn("examvan", self.body)
+        #
+        # Yang diuji adalah KONSTAN Inno yang dipakai kode, yaitu
+        # ExpandConstant('{userprofile}\...'), bukan `%USERPROFILE%`.
+        #
+        # Assertion sebelumnya mencari "USERPROFILE" huruf besar dan hanya
+        # lulus karena satu baris penjelasan di [Code] kehilangan awalan
+        # `//` — jadi baris itu diperlakukan sebagai kode dan teksnya
+        # ikut terbaca. Begitu `//` dikembalikan, assertion ini benar
+        # (dan test-nya jadi salah).
+        low = self.body.lower()
+        self.assertIn("{userprofile}", low)
+        self.assertIn(".config", low)
+        self.assertIn("examvan", low)
 
     def test_does_not_claim_the_wrong_folder_holds_the_answers(self):
         # `{localappdata}\EXAMVAN` hanya berisi admin_password.txt.
@@ -300,8 +310,9 @@ class UninstallPromptTest(unittest.TestCase):
             self.assertNotIn(claim, self.body)
 
     def test_offers_both_folders(self):
-        self.assertIn("localappdata", self.body.lower())
-        self.assertIn("USERPROFILE", self.body)
+        low = self.body.lower()
+        self.assertIn("localappdata", low)
+        self.assertIn("{userprofile}", low)
 
     def test_readme_matches(self):
         text = README.read_text(encoding="utf-8")
