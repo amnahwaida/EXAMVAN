@@ -94,6 +94,22 @@ class ServerConfigDialog(QDialog):
         subtitle.setAlignment(Qt.AlignCenter)
         card_layout.addWidget(subtitle)
 
+        # Nomor versi -- DI DALAM kartu, bukan di layout luar.
+        #
+        # Dulu label ini ditambahkan ke `outer` setelah addStretch(2), jadi
+        # tertorong ke tepi bawah jendela. Di jendela maximized tepi bawah itu
+        # berimpit dengan taskbar dan tepi layar: label tertutup atau
+        # terpotong -- padahal ini satu-satunya cara memastikan build mana
+        # yang sedang terpasang. Di dalam kartu, posisinya ikut isi kartu:
+        # selalu terlihat, tidak pernah tertutup.
+        #
+        # Satu nomor, bukan dua. Label pernah menampilkan dua angka yang
+        # saling menyangkal di depan mata pengguna.
+        self._ver_label = QLabel(f"v{APP_VERSION}")
+        self._ver_label.setStyleSheet("font-size: 12px;")
+        self._ver_label.setAlignment(Qt.AlignCenter)
+        card_layout.addWidget(self._ver_label)
+
         card_layout.addSpacing(16)
 
         # Server URL
@@ -139,13 +155,6 @@ class ServerConfigDialog(QDialog):
         # Spacer bottom
         outer.addStretch(2)
 
-        # Version label
-        # Satu nomor, bukan dua. Label pernah menulis "v1.0.0 (API 2.5.0)" —
-        # dua angka yang saling menyangkal di depan mata pengguna.
-        ver_label = QLabel(f"v{APP_VERSION}")
-        ver_label.setStyleSheet("font-size: 11px;")
-        ver_label.setAlignment(Qt.AlignRight)
-        outer.addWidget(ver_label)
 
     def _load_saved(self) -> None:
         """Isi form dari config, atau default server bila belum pernah diisi.
