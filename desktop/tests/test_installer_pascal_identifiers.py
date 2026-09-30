@@ -435,6 +435,45 @@ def _procedure_body(code: str, name: str) -> str:
     return "\n".join(out)
 
 
+def _strip_comments_keep_strings(iss: str) -> str:
+    """Buang komentar, TAPI pertahankan isi string literal.
+
+    Dipakai untuk memeriksa nilai argument -- `ExpandConstant('{sys}\\foo')`
+    tidak bisa dinilai kalau string-nya ikut dihapus. Tetap satu lintasan
+    supaya `https://` di dalam string tidak merusak hitungan kurung.
+    """
+    out = []
+    in_str = False
+    in_brace = False
+    for ch in iss:
+        if in_brace:
+            if ch == "}":
+                in_brace = False
+            continue
+        if in_str:
+            out.append(ch)
+            if ch == "'":
+                in_str = False
+            continue
+        if ch == "'":
+            in_str = True
+            out.append(ch)
+            continue
+        if ch == "{":
+            in_brace = True
+            continue
+        out.append(ch)
+    return "\n".join(
+        re.sub(r";.*$", "", re.sub(r"//.*$", "", line))
+        for line in "".join(out).splitlines()
+    )
+
+
+def _brace(text: str) -> str:
+    """Bungkus teks jadi {..} supaya bisa dibandingkan dengan _ENV_CONSTANT."""
+    return "{" + text.strip("{}") + "}"
+
+
 class InstallerPascalIdentifierTest(unittest.TestCase):
     ISS_TEXT = ISS.read_text(encoding="utf-8")
     CODE = _strip_comments(_code_section(ISS_TEXT))
@@ -800,3 +839,148 @@ class GuardTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+# --- (4) Constant Inno Setup, dari halaman Constants resmi.
+# https://jrsoftware.org/ishelp/topic_consts.htm
+#
+# Constant ini dievaluasi INSTALL/UNINSTALL, bukan compiler -- jadi constant
+# yang salah di dalam string Pascal TIDAK menggagalkan build. Baru meledak
+# saat runtime, di jalur yang tidak selalu dijalankan.
+INNO_CONSTANTS = set("""
+app win sys sysnative syswow64 src sd commonpf commonpf32 commonpf64
+commoncf commoncf32 commoncf64 tmp commonfonts dao dotnet11 dotnet20
+dotnet2032 dotnet2064 dotnet40 dotnet4032 dotnet4064
+group localappdata userappdata commonappdata usercf userdesktop
+commondesktop userdocs commondocs userfavorites userfonts userpf
+userprograms commonprograms usersavedgames usersendto userstartmenu
+commonstartmenu userstartup commonstartup usertemplates commontemplates
+autoappdata autocf autocf32 autocf64 autodesktop autodocs autofonts
+autopf autopf32 autopf64 autoprograms autostartmenu autostartup
+autotemplates
+cf cf32 cf64 fonts pf pf32 pf64 sendto
+cmd computername groupname hwnd wizardhwnd srcexe uninstallexe
+sysuserinfoname sysuserinfoorg userinfoname userinfoorg userinfoserial
+username log language
+""".split())
+
+# Constant berparameter: isinya bukan nama constant, tapi prefiks + argumen.
+INNO_PARAMETRIC_PREFIXES = ("ini:", "cm:", "reg:", "param:", "drive:", "code:")
+
+# `{%NAME|Default}` = environment variable. Bentuk inilah yang benar untuk
+# USERPROFILE -- bukan `{userprofile}`.
+_ENV_CONSTANT = re.compile(r"\{%[A-Za-z_][A-Za-z0-9_]*(?:\|[^}]*)?\}")
+
+# Constant yang penyebutnya mirip constant tapi TIDAK ada di Inno Setup.
+# Dipisah supaya pesan kegagalan menyebut替代 yang benar.
+NOT_INNO_CONSTANTS = {
+    "userprofile": "{%USERPROFILE} (environment variable)",
+    "userhome": "{%USERPROFILE} (environment variable)",
+    "home": "{%USERPROFILE} (environment variable)",
+    "appdata": "{userappdata} atau {localappdata}",
+    "pf": "{commonpf} (nama lama 'pf' deprecated)",
+    "cf": "{commoncf} (nama lama 'cf' deprecated)",
+    "fonts": "{commonfonts} (nama lama 'fonts' deprecated)",
+}
+
+
+def _constants_in(text: str) -> list[str]:
+    return re.findall(r"\{([^{}]*)\}", text)
+
+
+class InnoConstantTest(unittest.TestCase):
+    r"""Setiap constant di ExpandConstant harus benar-benar ADA.
+
+    Bug yang menutup kelas ini: `ExpandConstant('{userprofile}\.config
+    \examvan')`. `{userprofile}` bukan constant Inno Setup -- yang ada
+    `{userappdata}`, `{userdocs}`, `{userdesktop}`, dan seterusnya, tapi
+    tidak ada constant untuk user profile. Environment variable ditulis
+    dengan bentuk `{%NAME}`. Hasilnya runtime error:
+
+        Cannot find 'userprofile'
+
+    Yang membuat bug ini lolos: user asli yang menemukannya, saat uninstall interaktif.
+    """
+
+    ISS_TEXT = ISS.read_text(encoding="utf-8")
+    # String literal harus UTUH: nama constant justru ADA di dalam string.
+    CODE = _strip_comments_keep_strings(_code_section(ISS_TEXT))
+
+    def _expand_constant_args(self) -> list[str]:
+        args = []
+        for a in _call_args(self.CODE, "ExpandConstant"):
+            self.assertEqual(len(a), 1, f"ExpandConstant perlu 1 argumen: {a}")
+            args.append(a[0].strip("'"))
+        return args
+
+    def test_every_expand_constant_name_exists(self):
+        bad = []
+        for arg in self._expand_constant_args():
+            if _ENV_CONSTANT.fullmatch(_brace(arg)) or _ENV_CONSTANT.search(arg):
+                continue
+            for raw in _constants_in(arg):
+                if raw in INNO_CONSTANTS:
+                    continue
+                if raw.startswith(INNO_PARAMETRIC_PREFIXES):
+                    continue
+                if raw == "\\":          # {\} = backslash
+                    continue
+                bad.append(raw)
+        self.assertEqual(
+            bad, [],
+            f"Constant yang tidak ada di Inno Setup: {bad}. "
+            f"Lihat https://jrsoftware.org/ishelp/topic_consts.htm",
+        )
+
+    def test_user_profile_uses_the_environment_variable_form(self):
+        # {userprofile} tidak pernah ada. Yang benar {%USERPROFILE}.
+        for arg in self._expand_constant_args():
+            for raw in _constants_in(arg):
+                self.assertNotIn(
+                    raw.lower(), NOT_INNO_CONSTANTS,
+                    f"{{{raw}}} bukan constant Inno Setup. Untuk yang itu "
+                    f"pakai {NOT_INNO_CONSTANTS.get(raw.lower(), '?')}",
+                )
+
+    def test_the_data_folder_matches_what_the_app_actually_uses(self):
+        # config.py: `Path.home() / ".config" / "examvan"`. Di Windows
+        # Path.home() == %USERPROFILE%. Kalau installer dan app tidak
+        # sengaja, uninstall tidak akan pernah menemukan folder jawaban.
+        args = [a.lower() for a in self._expand_constant_args()]
+        data = [a for a in args if ".config" in a]
+        self.assertEqual(
+            len(data), 1,
+            f"harus ada tepat satu path data, dapat {data}",
+        )
+        self.assertIn("{%userprofile}", data[0])
+        self.assertIn(r".config\examvan", data[0])
+
+    def test_expand_constant_is_not_hidden_behind_the_silent_guard(self):
+        # Smoke test CI meng-uninstall dengan /VERYSILENT. Kalau semua
+        # ExpandConstant berada di dalam `and (not UninstallSilent)`,
+        # jalur itu tidak pernah dievaluasi di CI dan constant salah
+        # lolos ke rilis tanpa pernah meledak.
+        text = _procedure_body(self.CODE, "CurUninstallStepChanged")
+        guard = text.index("not UninstallSilent")
+        for arg in self._expand_constant_args():
+            needle = "ExpandConstant("
+            idx = 0
+            while True:
+                idx = text.find(needle, idx)
+                if idx == -1:
+                    break
+                self.assertLess(
+                    idx, guard,
+                    f"ExpandConstant('{arg}') berada SETELAH "
+                    f"`not UninstallSilent`, jadi tidak pernah dievaluasi "
+                    f"oleh uninstall senyap di CI",
+                )
+                idx += 1
+
+    def test_inno_constants_table_is_not_empty(self):
+        self.assertIn("localappdata", INNO_CONSTANTS)
+        self.assertIn("userappdata", INNO_CONSTANTS)
+        self.assertIn("app", INNO_CONSTANTS)
+        # {userprofile} sengaja tidak boleh masuk tabel ini.
+        self.assertNotIn("userprofile", INNO_CONSTANTS)
+        self.assertIn("userprofile", NOT_INNO_CONSTANTS)

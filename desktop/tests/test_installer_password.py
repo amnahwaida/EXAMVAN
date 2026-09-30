@@ -324,9 +324,14 @@ class UninstallPromptTest(unittest.TestCase):
         # ikut terbaca. Begitu `//` dikembalikan, assertion ini benar
         # (dan test-nya jadi salah).
         low = self.body.lower()
-        self.assertIn("{userprofile}", low)
+        # `{%USERPROFILE}` -- BUKAN `{userprofile}`. Tidak ada constant
+        # Inno Setup untuk user profile; bentuk environment variable adalah
+        # {%NAME}. Versi lama memakai {userprofile} dan gagal saat
+        # uninstall interaktif: "Cannot find 'userprofile'".
+        self.assertIn("{%userprofile}", low)
         self.assertIn(".config", low)
         self.assertIn("examvan", low)
+        self.assertNotIn("expandconstant('{userprofile}", low)
 
     def test_does_not_claim_the_wrong_folder_holds_the_answers(self):
         # `{localappdata}\EXAMVAN` hanya berisi admin_password.txt.
@@ -341,7 +346,7 @@ class UninstallPromptTest(unittest.TestCase):
     def test_offers_both_folders(self):
         low = self.body.lower()
         self.assertIn("localappdata", low)
-        self.assertIn("{userprofile}", low)
+        self.assertIn("{%userprofile}", low)
 
     def test_readme_matches(self):
         text = README.read_text(encoding="utf-8")

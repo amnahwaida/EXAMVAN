@@ -419,6 +419,26 @@ var
   LogDir: String;
   Found: Boolean;
 begin
+  // Path DIHITUNG lebih dulu, tanpa syarat apa pun.
+  //
+  // Versi sebelumnya menaruh semua ExpandConstant di dalam
+  // `if ... and (not UninstallSilent)`, jadi hanya berjalan saat uninstall
+  // INTERAKTIF. Smoke test CI meng-uninstall dengan /VERYSILENT, jadi
+  // cabang itu tidak pernah dieksekusi -- dan constant yang salah di
+  // dalamnya lolos ke rilis.
+  //
+  // `{userprofile}` adalah constant yang TIDAK ADA di Inno Setup. Instalasi
+  // tidak mengeluh karena string ini baru dievaluasi saat uninstall
+  // interaktif, dan user asli justru menemukannya: "Cannot find
+  // 'userprofile'". Bentuk yang benar untuk environment variable adalah
+  // {%NAME} (dengan dua kurung kurawal), jadi sekarang `{%USERPROFILE}`.
+  //
+  // Memindahkan perhitungan ke sini berarti uninstall senyap di CI juga
+  // mengevaluasinya: constant yang salah sekarang menggagalkan build.
+  PwDir := ExpandConstant('{localappdata}\EXAMVAN');
+  DataDir := ExpandConstant('{%USERPROFILE}\.config\examvan');
+  LogDir := DataDir;
+
   if (CurUninstallStep = usPostUninstall) and (not UninstallSilent) then
   begin
     // DUA folder, dan isinya harus disebut apa adanya.
@@ -430,10 +450,6 @@ begin
     // mendeskripsikannya sebagai holding empat hal — jadi "Ya" tidak
     // menghapus apa pun, dan "No" (untuk melindungi jawaban) tidak
     // melindungi apa pun juga.
-    PwDir := ExpandConstant('{localappdata}\EXAMVAN');
-    DataDir := ExpandConstant('{userprofile}\.config\examvan');
-    LogDir := DataDir;
-
     Found := False;
     if DirExists(PwDir) then
       Found := True;
