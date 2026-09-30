@@ -426,10 +426,12 @@ class ServerConfigDialog(QDialog):
         saved_identity = config.get("identity_data", {})
 
         dlg = IdentityDialog(self._exam, saved_data=saved_identity, parent=self)
-        dlg.show()
-        screen = self.screen()
-        if screen:
-            dlg.setGeometry(screen.availableGeometry())
+        # Sekadar `showMaximized()`. Sebelumnya ada setGeometry(
+        # availableGeometry()) di antara show() dan showMaximized() -- itu
+        # sia-sia, karena showMaximized() menimpanya, dan hanya membuat
+        # pembaca mengira ukuran dialog diatur di sini padahal tidak.
+        # Dialog lain di app ini juga cukup dengan showMaximized(); yang
+        # fullscreen pakai _maximize_window(fullscreen=True).
         dlg.showMaximized()
         QApplication.processEvents()
         if dlg.exec_() == QDialog.Accepted:

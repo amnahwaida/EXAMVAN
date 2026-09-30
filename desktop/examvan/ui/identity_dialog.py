@@ -47,10 +47,28 @@ class IdentityDialog(QDialog):
         self.setWindowTitle("Identitas Siswa")
         self.setWindowFlags(self.windowFlags() & ~Qt.WindowContextHelpButtonHint)
 
-        # Outer layout centers the form card
+        # Outer layout centers the form card.
+        #
+        # Faktor stretch di sini penting dan pernah salah. Semula:
+        #
+        #     outer.addStretch(2)              # atas
+        #     outer.addWidget(self._scroll, 1)  # kartu
+        #     outer.addStretch(2)              # bawah
+        #
+        # Extra space dibagi PROPORSIONAL terhadap faktor stretch, jadi
+        # scroll area hanya mendapat 1 dari 5 bagian -- sisanya ruang
+        # kosong. Di layar 1080p viewport-nya sekitar 200 px,
+        # sementara kartunya 400-an px: form harus di-scroll padahal layar
+        # masih sebagian besar kosong. Persis yang dilaporkan siswa.
+        #
+        # Dua stretch kecil (faktor 1) dipakai supaya kartu tetap ter-center
+        # VERTIKAL saat isinya pendek, tapi scroll area sekarang jelas
+        # mendominasi (faktor 20). Kalau kartunya memang lebih tinggi dari
+        # layar, stretch mengempis dan scrolling tetap terjadi seperti
+        # seharusnya -- itu gunanya QScrollArea di sini.
         outer = QVBoxLayout(self)
         outer.setContentsMargins(0, 0, 0, 0)
-        outer.addStretch(2)
+        outer.addStretch(1)
 
         # The card scrolls. Ujian with many identity fields used to push the
         # "Masuk Ujian" button below the bottom of the screen with no way to
@@ -111,10 +129,12 @@ class IdentityDialog(QDialog):
 
         self._scroll.setWidget(card)
         self._scroll.setAlignment(Qt.AlignCenter)
-        outer.addWidget(self._scroll, 1)
+        # Faktor 20, bukan 1: kartu harus mendapat tinggi layar, bukan
+        # fifth thereof. Lihat catatan di atas.
+        outer.addWidget(self._scroll, 20)
 
         # Spacer bottom
-        outer.addStretch(2)
+        outer.addStretch(1)
 
     def _on_submit(self) -> None:
         errors = []
