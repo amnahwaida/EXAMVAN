@@ -49,34 +49,57 @@ class ExamWebSocket(QObject):
 
     def connect(self, base_url: str, exam_id: int, token: str) -> None:
         """Start the WebSocket session (connect + auto-reconnect)."""
-        self._base_url = base_url.rstrip("/")
-        self._exam_id = exam_id
-        self._token = token
-        self._should_reconnect = True
+        # config.json ada di jangkauan tulis siswa (audit 30 Sep 2026):
+        # "server_url": null dulu melempar AttributeError di rstrip, dan
+        # "exam_token": null terkirim ke server sebagai kredensial literal
+        # "None". Koersi di sini menutup keduanya; URL/id yang tidak sah
+        # tidak boleh memulai loop reconnect.
+        self._base_url = str(base_url or "").rstrip("/")
+        try:
+            self._exam_id = int(exam_id)
+        except (TypeError, ValueError):
+            self._exam_id = 0
+        self._token = str(token or "").strip()
         self._reconnect_attempts = 0
+        if not self._base_url or self._exam_id <= 0:
+            log.warning(
+                "WS connect dilewati: base URL / exam id tidak sah "
+                "(%r, %r)", base_url, exam_id,
+            )
+            self._should_reconnect = False
+            return
+        self._should_reconnect = True
         self._do_connect()
 
     def disconnect(self) -> None:
         """Stop the session and close the socket.
 
-        `self._ws.disconnected.disconnect(self._on_disconnected)` first, so
-        the abort below cannot schedule a reconnect. This used to read
-        `self._ws.disconnect(self._ws.connected)` — `connected` is a signal,
-        not a method, so that call did nothing at all and the handler stayed
-        wired. Harmless while `_should_reconnect` is cleared beforehand, but
-        it meant `disconnect()` never actually disconnected.
+        Catatan audit (30 Sep 2026): `self._ws.disconnect()` TANPA argumen
+        bukan penutup jaringan — itu `QObject.disconnect()`, pelepas
+        sambungan sinyal, dan melempar TypeError bila salah satu lepasan
+        gagal (repro nyata: "disconnect() of all signals failed"). Saat itu
+        terjadi, abort()/deleteLater() di bawahnya melompat dan socket
+        tetap terbuka sampai proses mati. Yang benar:
+
+        * sinyal `disconnected` TIDAK dilepas manual — socket dibuang utuh
+          lewat deleteLater(), jadi melepasnya hanya menambah jalur gagal;
+        * penutupan jaringan = abort(): `_should_reconnect` sudah False
+          lebih dulu, jadi sinyal disconnected yang terpicu tidak akan
+          menjadwalkan reconnect hantu.
         """
         self._should_reconnect = False
         self._reconnect_timer.stop()
-        if self._ws is not None:
+        ws = self._ws
+        self._ws = None
+        if ws is not None:
             try:
-                self._ws.disconnected.disconnect(self._on_disconnected)
-            except (TypeError, RuntimeError):
-                pass  # sudah tidak terhubung, atau handler tidak terpasang
-            self._ws.disconnect()
-            self._ws.abort()
-            self._ws.deleteLater()
-            self._ws = None
+                ws.abort()
+            except RuntimeError:
+                pass  # objek C++ sudah dihapus (deleteLater ganda, dll.)
+            try:
+                ws.deleteLater()
+            except RuntimeError:
+                pass
 
     def is_connected(self) -> bool:
         return self._ws is not None and self._ws.state() == QWebSocket.ConnectedState

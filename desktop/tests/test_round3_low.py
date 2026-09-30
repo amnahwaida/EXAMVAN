@@ -95,18 +95,23 @@ class WsDisconnectTest(unittest.TestCase):
         self.assertFalse(ws._should_reconnect)
 
     def test_disconnect_does_not_call_the_connected_signal_as_a_method(self):
-        # `self._ws.disconnect(self._ws.connected)` memanggil
-        # QObject.disconnect(sinyal) — bukan yang dimaksud, dan tidak
-        # memutus apa pun. Kontrak yang benar: putuskan handler
-        # `disconnected` sebelum menutup socket.
+        # Sejarah dua babak bug yang sama:
+        #   1. `self._ws.disconnect(self._ws.connected)` — memanggil sinyal
+        #      sebagai metode; tidak memutus apa pun.
+        #   2. Perbaikannya dulu, `self._ws.disconnect()` — ternyata JEBAKAN
+        #      BERIKUTNYA: QObject.disconnect() tanpa argumen melepas
+        #      sambungan sinyal (bukan menutup jaringan) dan melempar
+        #      TypeError di socket hidup (repro nyata, audit 30 Sep 2026),
+        #      membuat abort()/deleteLater() di bawahnya melompat.
+        # Kontrak sekarang: jangan sentuh mesin sinyal sama sekali —
+        # penutup jaringan adalah abort(), socket dibuang lewat deleteLater().
         ws = ExamWebSocket()
         socket = mock.Mock()
         ws._ws = socket
         ws.disconnect()
-        # Kalau signal terpakai sebagai argumen, `disconnect` akan dipanggil
-        # DUA kali; yang benar tepat sekali.
-        self.assertEqual(socket.disconnect.call_count, 1)
-        self.assertEqual(socket.disconnect.call_args, mock.call())
+        socket.disconnect.assert_not_called()
+        socket.abort.assert_called_once()
+        self.assertIsNone(ws._ws)
 
 
 # ---------------------------------------------------------------------------
