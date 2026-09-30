@@ -180,10 +180,21 @@ class RecoverySubmitTest(RecoveryGateTestCase):
             success=True, status="done", message="ok",
             congrats_message="Selamat, Budi!",
         )
+        # `exec_()` di-mock: tanpa ini slot ini menjalankan nested event
+        # loop sungguhan, yang membuat QTimer dari enforcer ujian lain
+        # ikut berbunyi dan menggagalkan test lain.
         with mock.patch.object(api, "submit_with_retry", return_value=resp) as sub, \
                 mock.patch.object(api, "complete_exam", return_value=True) as cm, \
-                mock.patch.object(QMessageBox, "information"):
+                mock.patch.object(QMessageBox, "information"), \
+                mock.patch(
+                    "examvan.ui.congratulations.CongratulationsDialog.exec_",
+                    return_value=0,
+                ) as shown:
             dlg._recovery_submit_thread(_exam())
+        self.assertTrue(
+            shown.called,
+            "layar selamat tidak ditampilkan setelah pengiriman ulang",
+        )
         # Jawaban lokal dihapus HANYA setelah durable + congrats dikirim.
         self.assertEqual(done, ["Selamat, Budi!"])
         self.assertIsNone(config.load_answers(7))

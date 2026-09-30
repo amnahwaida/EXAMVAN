@@ -210,6 +210,32 @@ def student_label(
     return "token (identitas kosong)"
 
 
+def build_result_link(server_url: str, exam_token: str) -> str:
+    """Short-link halaman hasil: `{base}/{token}` -> server redirect ke
+    `/hasil/<token>`.
+
+    PADANAN PERSIS dengan `ResultsLinkPolicy.build()` di Android. Format
+    URL hasil harus didefinisikan di SATU tempat per klien: begitu ada dua
+    salinan, satu akan tertinggal saat yang lain berubah, dan siswa
+    menyalin link yang salah.
+
+    Token dipakai sebagai PATH SEGMENT, bukan query param, supaya tidak
+    ikut terkirim lewat header `Referer` ke pihak ketiga. Path prefix
+    base dipertahankan -- instalasi di balik reverse proxy pada
+    `/examvan/` harus tetap menghasilkan link yang benar.
+
+    Mengembalikan string KOSONG, bukan `None` atau `"None"`, saat
+    base/token kosong: pemanggil bisa membedakannya dari URL yang benar
+    dan mematikan tombolnya, alih-alih menyalin teks tak berguna ke
+    clipboard siswa.
+    """
+    base = str(server_url or "").strip().rstrip("/")
+    token = str(exam_token or "").strip()
+    if not base or not token:
+        return ""
+    return f"{base}/{token}"
+
+
 def get_device_label(attempt_key: Optional[str] = None) -> str:
     """Return 'DESKTOP:<device_id>' (universal label for desktop clients).
 

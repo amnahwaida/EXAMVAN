@@ -386,11 +386,27 @@ class ServerConfigDialog(QDialog):
     @pyqtSlot(str)
     def _recovery_done_slot(self, msg: str) -> None:
         self.btn_connect.setEnabled(True)
-        QMessageBox.information(
-            self,
-            "Berhasil",
-            f"Jawaban berhasil dikirim ulang!\n\n{msg}",
-        )
+        # Sama seperti jalur submit biasa: layar penuh berisi pesan guru,
+        # identitas, dan link hasil -- bukan message box. Di recovery ini
+        # siswa mungkin sudah keluar dari ruang ujian jadi menampilkan
+        # link hasil jauh lebih berguna daripada "Pesan Berhasil".
+        from .congratulations import CongratulationsDialog
+
+        identity = config.get("identity_data", {}) or {}
+        CongratulationsDialog(
+            server_url=self._server_url,
+            exam_token=str(config.get("exam_token", "") or ""),
+            exam_name=getattr(self._exam, "name", ""),
+            student_name=str(identity.get("nama", "")),
+            student_number=str(
+                identity.get("nomor_ujian") or identity.get("nomor") or ""
+            ),
+            student_class=str(
+                identity.get("kelas") or identity.get("kelas_id") or ""
+            ),
+            congrats_message=msg,
+            parent=self,
+        ).exec_()
 
     def _offer_pending_recovery(self) -> bool:
         """True bila siswa boleh lanjut. Tidak pernah menolak.

@@ -73,6 +73,7 @@ from ..utils import (
 )
 from ..ws import ExamWebSocket
 from .answer_sheet import AnswerSheetWidget
+from .congratulations import CongratulationsDialog
 from .fullscreen import apply_fullscreen, covers_fullscreen
 from .pdf_viewer import PdfWidget
 from .timer import ElapsedTimerWidget
@@ -456,11 +457,32 @@ class ExamViewerWindow(QMainWindow):
             except OSError:
                 pass
 
-        QMessageBox.information(
-            self,
-            "Berhasil",
-            f"Jawaban berhasil dikumpulkan!\n\n{message}",
-        )
+        # Halaman selamat, bukan QMessageBox.
+        #
+        # Android sudah punya `CongratulationsActivity` (pesan guru, badge
+        # nama ujian, identitas siswa, tombol copy link hasil) dan server
+        # sudah menyediakan `GET /hasil/<token>` + short-link `/<token>`.
+        # Desktop cuma menampilkan message box lalu menutup jendela, jadi
+        # siswa tidak pernah melihat identitasnya maupun cara membuka
+        # hasil. `SecurityEnforcer` sudah `deactivate()` di atas, jadi
+        # clipboard TIDAK lagi disapu — itulah sebabnya link hasil di
+        # layar ini dibersihkan otomatis oleh dialog-nya sendiri.
+        CongratulationsDialog(
+            server_url=self._server_url,
+            exam_token=self._token,
+            exam_name=getattr(self._exam, "name", ""),
+            student_name=str(self._identity_data.get("nama", "")),
+            student_number=str(
+                self._identity_data.get("nomor_ujian")
+                or self._identity_data.get("nomor")
+                or ""
+            ),
+            student_class=str(
+                self._identity_data.get("kelas") or self._identity_data.get("kelas_id") or ""
+            ),
+            congrats_message=message,
+            parent=self,
+        ).exec_()
         # closeEvent already handles self.closed.emit() when _submitted
         self.close()
 
